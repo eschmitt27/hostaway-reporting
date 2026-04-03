@@ -1,6 +1,3 @@
 __pycache__/
 *.pyc
-reservations_hostaway.tsv
-finance_fields_hostaway.tsv
-hostaway_reporting_final.tsv
 .env
