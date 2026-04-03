@@ -11,6 +11,7 @@ jobs:
 
     env:
       HOSTAWAY_TOKEN: ${{ secrets.HOSTAWAY_TOKEN }}
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - name: Checkout repository
@@ -37,6 +38,6 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git add reservations_hostaway.tsv finance_fields_hostaway.tsv hostaway_reporting_final.tsv
+          git add *.tsv
           git diff --cached --quiet || git commit -m "Automated data refresh"
           git push
