@@ -35,9 +35,9 @@ jobs:
         run: python build_final_report.py
 
       - name: Commit generated files
-        run: |
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-          git add *.tsv
-          git diff --cached --quiet || git commit -m "Automated data refresh"
-          git push
+  run: |
+    git config user.name "github-actions"
+    git config user.email "actions@github.com"
+    git add -f *.tsv
+    git diff --cached --quiet || git commit -m "Automated data refresh"
+    git push
