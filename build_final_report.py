@@ -6,8 +6,10 @@ LISTING_CONSTANTS_FILE = "listing_constants.csv"
 
 OUTPUT_FILE = "hostaway_reporting_final.tsv"
 
+
 def clean_numeric(series):
     return pd.to_numeric(series, errors="coerce")
+
 
 def compute_total_payout(row):
     airbnb_payout = row.get("airbnbPayoutSum")
@@ -21,24 +23,44 @@ def compute_total_payout(row):
 
     return None
 
+
 def main():
     print("Lecture des fichiers...")
 
     reservations = pd.read_csv(RESERVATIONS_FILE, sep="\t")
     finance_fields = pd.read_csv(FINANCE_FIELDS_FILE, sep="\t")
-    listing_constants = pd.read_csv(LISTING_CONSTANTS_FILE)
+    listing_constants = pd.read_csv(
+        LISTING_CONSTANTS_FILE,
+        sep=";",
+        encoding="utf-8-sig"
+    )
+
+    print("Colonnes détectées dans listing_constants.csv :")
+    print(listing_constants.columns.tolist())
 
     print("Nettoyage des types...")
 
-    reservations["reservationId"] = pd.to_numeric(reservations["reservationId"], errors="coerce")
-    reservations["listingMapId"] = pd.to_numeric(reservations["listingMapId"], errors="coerce")
+    reservations["reservationId"] = pd.to_numeric(
+        reservations["reservationId"], errors="coerce"
+    )
+    reservations["listingMapId"] = pd.to_numeric(
+        reservations["listingMapId"], errors="coerce"
+    )
 
-    finance_fields["reservationId"] = pd.to_numeric(finance_fields["reservationId"], errors="coerce")
+    finance_fields["reservationId"] = pd.to_numeric(
+        finance_fields["reservationId"], errors="coerce"
+    )
     finance_fields["value"] = clean_numeric(finance_fields["value"])
 
-    listing_constants["listingMapId"] = pd.to_numeric(listing_constants["listingMapId"], errors="coerce")
-    listing_constants["CoutMenage"] = clean_numeric(listing_constants["CoutMenage"])
-    listing_constants["TauxCommission"] = clean_numeric(listing_constants["TauxCommission"])
+    listing_constants["listingMapId"] = pd.to_numeric(
+        listing_constants["listingMapId"], errors="coerce"
+    )
+    listing_constants["CoutMenage"] = clean_numeric(
+        listing_constants["CoutMenage"]
+    )
+    listing_constants["TauxCommission"] = clean_numeric(
+        listing_constants["TauxCommission"]
+    )
 
     print("Préparation des finance fields utiles...")
 
@@ -103,6 +125,7 @@ def main():
 
     print("Terminé.")
     print(f"Fichier généré : {OUTPUT_FILE}")
+
 
 if __name__ == "__main__":
     main()
