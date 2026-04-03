@@ -1,5 +1,8 @@
 name: Hostaway Pipeline
 
+permissions:
+  contents: write
+
 on:
   workflow_dispatch:
   schedule:
