@@ -11,13 +11,37 @@ def clean_numeric(series):
     return pd.to_numeric(series, errors="coerce")
 
 
+def safe_value(row, column_name):
+    value = row.get(column_name)
+    return value if pd.notna(value) else 0
+
+
 def compute_total_payout(row):
+    channel = str(row.get("channelName", "")).lower()
+
     airbnb_payout = row.get("airbnbPayoutSum")
     total_price_channel = row.get("totalPriceFromChannel")
 
+    city_tax = safe_value(row, "cityTax")
+    ota_payment_processing_fee = safe_value(row, "otaPaymentProcessingFee")
+    host_channel_fee = safe_value(row, "hostChannelFee")
+
+    # Règle spécifique Booking
+    if "booking" in channel:
+        if pd.notna(total_price_channel):
+            return (
+                total_price_channel
+                - city_tax
+                - ota_payment_processing_fee
+                - host_channel_fee
+            )
+        return None
+
+    # Règle Airbnb
     if pd.notna(airbnb_payout):
         return airbnb_payout
 
+    # Règle de secours autres canaux
     if pd.notna(total_price_channel):
         return total_price_channel
 
@@ -64,11 +88,20 @@ def main():
 
     print("Préparation des finance fields utiles...")
 
+    finance_fields_utiles = [
+        "airbnbPayoutSum",
+        "totalPriceFromChannel",
+        "cityTax",
+        "otaPaymentProcessingFee",
+        "hostChannelFee"
+    ]
+
     payout_fields = finance_fields[
-        finance_fields["name"].isin(["airbnbPayoutSum", "totalPriceFromChannel"])
+        finance_fields["name"].isin(finance_fields_utiles)
     ].copy()
 
     print("Pivot des finance fields...")
+
     payout_pivot = payout_fields.pivot_table(
         index="reservationId",
         columns="name",
@@ -76,19 +109,25 @@ def main():
         aggfunc="first"
     ).reset_index()
 
-    print("Calcul de TotalPayout...")
-    payout_pivot["TotalPayout"] = payout_pivot.apply(compute_total_payout, axis=1)
-
-    payout_by_reservation = payout_pivot[["reservationId", "TotalPayout"]]
+    # Sécurité : si une colonne n'existe pas dans les données, on la crée vide
+    for col in finance_fields_utiles:
+        if col not in payout_pivot.columns:
+            payout_pivot[col] = pd.NA
 
     print("Fusion avec les réservations...")
+
     final_df = reservations.merge(
-        payout_by_reservation,
+        payout_pivot,
         on="reservationId",
         how="left"
     )
 
+    print("Calcul de TotalPayout...")
+
+    final_df["TotalPayout"] = final_df.apply(compute_total_payout, axis=1)
+
     print("Fusion avec les constantes par annonce...")
+
     final_df = final_df.merge(
         listing_constants[["listingMapId", "CoutMenage", "TauxCommission"]],
         on="listingMapId",
@@ -96,7 +135,10 @@ def main():
     )
 
     print("Création des colonnes finales...")
-    final_df["NombreDeNuits"] = pd.to_numeric(final_df["nights"], errors="coerce")
+
+    final_df["NombreDeNuits"] = pd.to_numeric(
+        final_df["nights"], errors="coerce"
+    )
 
     desired_columns = [
         "reservationId",
@@ -106,9 +148,17 @@ def main():
         "arrivalDate",
         "departureDate",
         "NombreDeNuits",
+
         "TotalPayout",
+        "airbnbPayoutSum",
+        "totalPriceFromChannel",
+        "cityTax",
+        "otaPaymentProcessingFee",
+        "hostChannelFee",
+
         "CoutMenage",
         "TauxCommission",
+
         "status",
         "paymentStatus",
         "totalPrice",
@@ -117,11 +167,25 @@ def main():
         "updatedOn",
     ]
 
-    other_columns = [col for col in final_df.columns if col not in desired_columns]
-    final_df = final_df[desired_columns + other_columns]
+    # Sécurité : on garde uniquement les colonnes qui existent vraiment
+    desired_columns_existing = [
+        col for col in desired_columns if col in final_df.columns
+    ]
+
+    other_columns = [
+        col for col in final_df.columns if col not in desired_columns_existing
+    ]
+
+    final_df = final_df[desired_columns_existing + other_columns]
 
     print(f"Export du fichier final : {OUTPUT_FILE}")
-    final_df.to_csv(OUTPUT_FILE, sep="\t", index=False, encoding="utf-8-sig")
+
+    final_df.to_csv(
+        OUTPUT_FILE,
+        sep="\t",
+        index=False,
+        encoding="utf-8-sig"
+    )
 
     print("Terminé.")
     print(f"Fichier généré : {OUTPUT_FILE}")
