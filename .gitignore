@@ -1,0 +1,28 @@
+# Claude Code local
+.claude/
+
+# Secrets / API keys
+.env
+*.env
+secrets/
+credentials/
+tokens/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Logs
+*.log
+04_LOGS/temp/
+04_LOGS/debug/
+
+# Excel temp files
+~$*.xlsx
+~$*.xlsm
+
+# OS
+.DS_Store
+Thumbs.db
