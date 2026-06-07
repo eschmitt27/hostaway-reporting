@@ -36,24 +36,26 @@ Résolution : En attente — Lot 2
 ---
 
 ### ANO-2026-06-002
-Date : 2026-06-04 | Lot : 0 — REF_Setup | Sévérité : A_CONTROLER | Statut : OUVERT
+Date : 2026-06-04 | Lot : 0 — REF_Setup | Sévérité : A_CONTROLER | Statut : CORRIGÉ 2026-06-07
 Code : ENCODAGE_CASSE
-Source : REF_Setup.xlsm — onglets REF_Associes, REF_Codes_Impact, REF_Types_Flux
-PK : multiple
-Description : Caractères mal encodés (« associÃ© » au lieu de « associé »). Cause probable : export UTF-8 re-ouvert en Latin-1.
-Traitement attendu : corriger à la source dans REF_Setup.xlsm avant toute jointure sur ces colonnes.
-Résolution : En attente — Lot 0
+Source : REF_Setup.xlsm — onglets REF_Associes, REF_Codes_Impact, REF_Types_Flux, REF_Types_Affectation
+PK : multiple (26 cellules touchées)
+Description : Caractères mal encodés (mojibake UTF-8→latin-1, ex. « associÃ© » au lieu de « associé »).
+Onglet REF_Types_Affectation ajouté à la liste — absent du signalement initial.
+Traitement appliqué le 2026-06-07 : correction par script Python (lot0_corrections.py), traitement paire par paire (U+00C3+U+00xx → codepoint UTF-8 correct).
+Résolution : CORRIGÉ — 0 cellule résiduelle confirmée par audit post-correction CTR-2026-06-003.
 
 ---
 
 ### ANO-2026-06-003
-Date : 2026-06-04 | Lot : 0 — REF_Setup | Sévérité : A_CONTROLER | Statut : OUVERT
+Date : 2026-06-04 | Lot : 0 — REF_Setup | Sévérité : A_CONTROLER | Statut : CORRIGÉ / SANS OBJET
 Code : DATES_SERIE_EXCEL
 Source : REF_Setup.xlsm — onglets avec colonnes date
 PK : multiple
-Description : Certaines dates stockées en numéro de série Excel (ex. 46023 = 2026-01-01).
-Traitement attendu : normaliser au format AAAA-MM-JJ à l'import dans tous les scripts.
-Résolution : En attente — Lot 0
+Description : Signalement préventif de dates potentiellement stockées en numéro de série Excel.
+Audit réel du 2026-06-07 : AUCUNE date série brute détectée. Toutes les dates sont correctement
+stockées comme objets datetime par Excel. Anomalie sans objet sur données réelles.
+Résolution : SANS OBJET — confirmé par audit CTR-2026-06-001.
 
 ---
 
@@ -103,12 +105,93 @@ Résolution : En attente — confirmation Lot 2
 
 ---
 
+---
+
+### ANO-2026-06-007
+Date : 2026-06-07 | Lot : 0 — REF_Setup | Sévérité : BLOQUANT | Statut : CORRIGÉ 2026-06-07
+Code : REF_STATUTS_VALEURS_CONTROLE_MANQUANTES
+Source : REF_Setup.xlsm — REF_Statuts
+PK : famille statut_controle
+Description : Valeurs fermées de statut_controle manquantes dans REF_Statuts : VALIDE, BLOQUANT, IGNORE_JUSTIFIE.
+A_CONTROLER présent (famille import) mais les 3 autres requises par PLAN Lot 0 absentes.
+Sans ces valeurs, les listes déroulantes de saisie ne peuvent pas pointer vers le référentiel.
+Résolution : CORRIGÉ — VALIDE (STAT_021), BLOQUANT (STAT_022), IGNORE_JUSTIFIE (STAT_023) ajoutés en famille statut_controle.
+
+---
+
+### ANO-2026-06-008
+Date : 2026-06-07 | Lot : 0 — REF_Setup | Sévérité : BLOQUANT | Statut : CORRIGÉ 2026-06-07
+Code : REF_STATUTS_PAYOUT_ABSENT
+Source : REF_Setup.xlsm
+PK : onglet REF_Statuts_Payout
+Description : Onglet REF_Statuts_Payout requis par PLAN Lot 0 (Archi §23.2bis, D021) absent du fichier.
+Sans cet onglet, le Lot 1 (Hostaway) ne peut pas affecter les statuts de calcul payout.
+Résolution : CORRIGÉ — onglet créé avec 6 valeurs (NORMAL, ANNULE_SANS_PAYOUT, ANNULE_AVEC_PAYOUT, PAYOUT_ABSENT, PAYOUT_INCOMPLET, A_CONTROLER).
+
+---
+
+### ANO-2026-06-009
+Date : 2026-06-07 | Lot : 0 — REF_Setup | Sévérité : BLOQUANT | Statut : CORRIGÉ 2026-06-07
+Code : REF_CLOTURE_MENSUELLE_ABSENTE
+Source : REF_Setup.xlsm
+PK : onglet REF_Cloture_Mensuelle
+Description : Onglet REF_Cloture_Mensuelle requis par PLAN Lot 0 (D024) absent. Structure vide requise
+pour que le Lot 8 puisse l'alimenter (statuts mois OUVERT/EN_CONTROLE/CLOTURE).
+Résolution : CORRIGÉ — onglet créé (structure vide, 7 colonnes : mois, statut_mois, date_passage_controle, date_cloture, nb_lignes_bancaires_non_classees, nb_controles_bloquants_ouverts, commentaire).
+
+---
+
+### ANO-2026-06-010
+Date : 2026-06-07 | Lot : 0 — REF_Setup | Sévérité : BLOQUANT | Statut : CORRIGÉ 2026-06-07
+Code : REF_PARAMETRES_GENERAUX_INCOMPLETS
+Source : REF_Setup.xlsm — REF_Parametres_Generaux
+PK : TAUX_HORAIRE_MENAGE_INTERNE, ARRONDI_DECIMALES, TOLERANCE_ARRONDI_LIGNE_EUR, TOLERANCE_ARRONDI_CUMUL_EUR
+Description : 4 paramètres requis par PLAN Lot 0 absents. TAUX_HORAIRE_MENAGE_INTERNE requis pour Lot 6b
+(M04 code le taux en dur à 10 EUR/h et doit migrer vers ce référentiel). Les 3 paramètres d'arrondi (D035)
+requis pour les contrôles d'arrondi des Lots 10/11.
+Résolution : CORRIGÉ — 4 params ajoutés (PARAM_004 à PARAM_007) avec valeurs 10 / 2 / 0.10 / 1.00.
+
+---
+
+### ANO-2026-06-011
+Date : 2026-06-07 | Lot : 0 — REF_Setup | Sévérité : BLOQUANT | Statut : CORRIGÉ 2026-06-07
+Code : REF_INTERVENANTS_SCHEMA_INCOMPLET
+Source : REF_Setup.xlsm — REF_Intervenants
+PK : INT_0001 à INT_0005
+Description : 3 colonnes requises absentes (nom_normalise, date_debut_validite, date_fin_validite).
+type_intervenant en minuscules ('Interne'/'Externe') au lieu de MAJUSCULES ('INTERNE'/'EXTERNE').
+Sans nom_normalise, le mapping Google Sheet → M04 (Lot 6b) est impossible.
+Résolution : CORRIGÉ — 3 colonnes ajoutées, type_intervenant normalisé en MAJUSCULES,
+nom_normalise calculé sans accents (IMENE, KHEIRA, MOUNIR, AISSATA, IMRANE).
+
+---
+
+### ANO-2026-06-012
+Date : 2026-06-07 | Lot : 0 — REF_Setup | Sévérité : A_CONTROLER | Statut : CORRIGÉ 2026-06-07
+Code : REF_LOGEMENTS_CODES_HORS_PARC_ABSENTS
+Source : REF_Setup.xlsm — REF_Logements
+PK : APPARTEMENT_DIVERS, LOGEMENT_DIVERS
+Description : Codes techniques hors parc requis par PLAN Lot 0 absents. Nécessaires pour Lots 2 et 6b
+(cas mapping orphelin, appartements hors parc réel). Sans eux, le système ne peut pas affecter un logement_id
+aux flux hors parc sans violer la règle interdisant APPARTEMENT_DIVERS pour masquer un mauvais mapping.
+Résolution : CORRIGÉ — 2 logements techniques ajoutés (actif=OUI, sur_hostaway=NON, forfait=0,
+commentaire explicite "jamais utilisé pour masquer un mauvais mapping").
+
+---
+
 ## Anomalies corrigées
 
-*(vide)*
+*(voir statut CORRIGÉ sur ANO-002, ANO-003, ANO-007 à ANO-012 ci-dessus)*
 
 ---
 
 ## Anomalies ignorées justifiées
 
-*(vide)*
+### ANO-2026-06-013
+Date : 2026-06-07 | Lot : 0 — REF_Setup | Sévérité : A_CONTROLER | Statut : IGNORE_JUSTIFIE
+Code : REF_CARTES_PAIEMENT_SUFFIXE_MANQUANT
+Source : REF_Setup.xlsm — REF_Cartes_Paiement
+PK : CARTE_002 (Ewan)
+Description : suffixe_carte = 'XXXX' (placeholder). Le vrai suffixe de la carte d'Ewan n'est pas renseigné.
+Justification : Non bloquant avant Lot 8. Le suffixe sert uniquement au rapprochement bancaire (Lot 8).
+Action à faire au Lot 8 : remplacer 'XXXX' par le vrai suffixe avant traitement des exports bancaires.

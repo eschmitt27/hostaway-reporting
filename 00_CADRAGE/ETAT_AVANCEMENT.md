@@ -4,23 +4,22 @@
 ---
 
 ## Dernière mise à jour
-Date : 2026-06-04
-Session : Session 3 — Intégration retours validation principes (D041-D043, P02/P03/P11/P17/P21/P32)
-Agent : Claude (claude.ai Projet)
+Date : 2026-06-07
+Session : Session 4 — Audit et correction Lot 0 sur données réelles (REF_Setup.xlsm)
+Agent : Claude Code (claude-sonnet-4-6)
 
 ---
 
 ## Lot en cours
 Lot : 0 — Fiabiliser REF_Setup.xlsm
-Statut : **À PRÉPARER / audit requis / non démarré** (D029)
-Objectif immédiat : Auditer REF_Setup.xlsm réel (encodage cassé, dates série Excel, unicité des clés, créer les onglets manquants)
+Statut : **FAIT — validé techniquement le 2026-06-07** (D029 respecté — CTR-2026-06-003)
 
-> **Séquence obligatoire avant Lot 2** :
-> 1. Uploader REF_Setup.xlsm réel → audit encodage + dates + clés
-> 2. Corriger à la source (encodage REF_Associes, REF_Codes_Impact, REF_Types_Flux)
-> 3. Créer onglets manquants : `REF_Statuts`, `REF_Statuts_Payout`, `REF_Parametres_Generaux`, `REF_Cloture_Mensuelle` (structure vide)
-> 4. Marquer obsolète le paramètre `LOCAL_50_INJECTABLE_DANS_M04` (D016-REV)
-> 5. Valider → SEULEMENT ENSUITE démarrer Lot 2
+> Contrôle inscrit dans JOURNAL_CONTROLES.md : CTR-2026-06-001 (audit initial), CTR-2026-06-002 (corrections), CTR-2026-06-003 (audit post-correction — tout vert).
+> Prochaine étape : attente feu vert humain pour démarrer Lot 1.
+
+**Points résiduels non bloquants à traiter dans les lots suivants :**
+- `CARTE_002` suffixe `XXXX` (carte Ewan) → à renseigner au **Lot 8** avant traitement des exports bancaires.
+- `mode_facturation = A_DEFINIR` pour tous les propriétaires → à définir au **Lot 12** avant facturation.
 
 ---
 
@@ -29,24 +28,32 @@ Objectif immédiat : Auditer REF_Setup.xlsm réel (encodage cassé, dates série
 - **Fichiers de cadrage mis à jour et cohérents (Session 2, pack V2)** :
   - CLAUDE.md, README_PROJET.md, REGLES_METIER.md, ARCHITECTURE_DONNEES.md, PLAN_CONSTRUCTION.md
   - ETAT_AVANCEMENT.md, DECISIONS_METIER.md, JOURNAL_CONTROLES.md, JOURNAL_ANOMALIES.md
-- **REF_Setup.xlsm** : 19 onglets opérationnels — contenu non audité encodage/dates (Lot 0 à préparer)
-- **Lot 1 — Module Hostaway** : extraction produite (run 20260523_005752 — 1505 réservations, 16 listings, 28 anomalies, 451 tâches ménage) — **NON VALIDÉE sur données réelles** (JOURNAL_CONTROLES vide)
+- **Lot 0 — REF_Setup FAIT (2026-06-07)** :
+  - Audit réel exécuté sur `REF_Setup.xlsm` (19 onglets, 0 doublon clé, 0 date série brute).
+  - 6 corrections bloquantes appliquées (B1 mojibake, B2 statuts, B3 REF_Statuts_Payout, B4 REF_Cloture_Mensuelle, B5 paramètres, B6 intervenants).
+  - Codes hors-parc APPARTEMENT_DIVERS + LOGEMENT_DIVERS ajoutés dans REF_Logements.
+  - Fichier déplacé vers chemin canonique : `01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm`.
+  - Sauvegarde : `99_ARCHIVES/LOT0_REF_Setup/REF_Setup_BACKUP_20260607_113223.xlsx.xlsm`.
+  - Contrôle inscrit : CTR-2026-06-003 (audit post-correction tout vert).
+  - Décisions métier tranchées : QM1 (coûts standards = exécution seule, D037 confirmé), QM2 (A_DEFINIR OK), QM3 (CHG_012 reste A_CONTROLER).
+- **Lot 1 — Module Hostaway** : extraction produite (run 20260523_005752 — 1505 réservations, 16 listings, 28 anomalies, 451 tâches ménage) — **NON VALIDÉE sur données réelles** (à contrôler en Lot 1).
 
 > **Règle D029 — IRRÉVOCABLE** : aucun lot ne peut être marqué FAIT sans entrée dans JOURNAL_CONTROLES.
 
 ---
 
 ## Ce qui a été modifié (cette session)
-- Fichiers : mise à jour de 8 fichiers de cadrage (intégration D026-D040 + patch de lancement)
-- Scripts : aucun
-- Tables : aucune (construction non commencée)
-- Requêtes : aucune
+- Fichiers de données : `01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm` (corrections B1–B6 + I1)
+- Journaux : `JOURNAL_CONTROLES.md` (CTR-001 à CTR-003), `JOURNAL_ANOMALIES.md` (ANO-002/003 CORRIGÉS, ANO-007 à ANO-013 ajoutés)
+- Archives : `99_ARCHIVES/LOT0_REF_Setup/REF_Setup_BACKUP_20260607_113223.xlsx.xlsm`
+- Scripts (travail) : `02_TRAVAIL/lot0_corrections.py`, `02_TRAVAIL/lot0_audit_post.py`
+- Cadrage : `ETAT_AVANCEMENT.md` (ce fichier)
 
 ---
 
 ## Ce qui a été testé sur données réelles
-- Test : aucun
-- Statut : —
+- Test : Audit Lot 0 complet (pre + post correction) sur `REF_Setup.xlsm` réel
+- Statut : VALIDÉ — CTR-2026-06-003
 
 ---
 
@@ -54,12 +61,19 @@ Objectif immédiat : Auditer REF_Setup.xlsm réel (encodage cassé, dates série
 
 | ID | Code | Sévérité | Statut |
 |---|---|---|---|
-| ANO-001 | LISTING_ORPHELIN | A_CONTROLER | OUVERT |
-| ANO-002 | ENCODAGE_CASSE | A_CONTROLER | OUVERT |
-| ANO-003 | DATES_SERIE_EXCEL | A_CONTROLER | OUVERT |
-| ANO-004 | VRBO_MONTANT_NON_RENSEIGNE (×29) | A_CONTROLER | OUVERT |
-| ANO-005 | REFERENTIEL_ORPHELIN (497801) | A_CONTROLER | OUVERT |
-| ANO-006 | LISTING_CONFIRME_HORS_HOSTAWAY (480780) | INFO | À CONFIRMER |
+| ANO-001 | LISTING_ORPHELIN (515523) | A_CONTROLER | OUVERT — Lot 2 |
+| ANO-002 | ENCODAGE_CASSE | A_CONTROLER | **CORRIGÉ 2026-06-07** |
+| ANO-003 | DATES_SERIE_EXCEL | A_CONTROLER | **SANS OBJET — aucune série brute** |
+| ANO-004 | VRBO_MONTANT_NON_RENSEIGNE (×29) | A_CONTROLER | OUVERT — Lot 4 |
+| ANO-005 | REFERENTIEL_ORPHELIN (497801) | A_CONTROLER | OUVERT — Lot 2 |
+| ANO-006 | LISTING_CONFIRME_HORS_HOSTAWAY (480780) | INFO | OUVERT — À confirmer Lot 2 |
+| ANO-007 | REF_STATUTS_VALEURS_CONTROLE_MANQUANTES | BLOQUANT | **CORRIGÉ 2026-06-07** |
+| ANO-008 | REF_STATUTS_PAYOUT_ABSENT | BLOQUANT | **CORRIGÉ 2026-06-07** |
+| ANO-009 | REF_CLOTURE_MENSUELLE_ABSENTE | BLOQUANT | **CORRIGÉ 2026-06-07** |
+| ANO-010 | REF_PARAMETRES_GENERAUX_INCOMPLETS | BLOQUANT | **CORRIGÉ 2026-06-07** |
+| ANO-011 | REF_INTERVENANTS_SCHEMA_INCOMPLET | BLOQUANT | **CORRIGÉ 2026-06-07** |
+| ANO-012 | REF_LOGEMENTS_CODES_HORS_PARC_ABSENTS | A_CONTROLER | **CORRIGÉ 2026-06-07** |
+| ANO-013 | REF_CARTES_PAIEMENT_SUFFIXE_MANQUANT | A_CONTROLER | IGNORE_JUSTIFIE — Lot 8 |
 
 > **Les 3 orphelins listingMapId sont 3 cas distincts** — voir JOURNAL_ANOMALIES.md.
 
@@ -96,32 +110,34 @@ Objectif immédiat : Auditer REF_Setup.xlsm réel (encodage cassé, dates série
 
 ## Prochaine action obligatoire
 ```
-1. Uploader REF_Setup.xlsm réel
-2. Exécuter audit Lot 0 (encodage, dates, clés, onglets manquants)
-3. Valider Lot 0 → entrée dans JOURNAL_CONTROLES obligatoire
-4. Démarrer Lot 2 — Réconciliation logements
+Lot 0 FAIT. En attente feu vert humain pour démarrer Lot 1.
+
+Lot 1 — Module Hostaway (extraction existante non validée) :
+- Pré-requis : Lot 0 FAIT ✓
+- Objectif : valider l'extraction existante sur données réelles, contrôler le calcul payout,
+  traiter les anomalies bloquantes (BOOKING_PAYOUT_INCOMPLET), inscrire contrôle dans JOURNAL_CONTROLES.
+- Lecture ciblée : ARCHI §6, §7 ; REGLES §2 (H1-H7) ; PLAN Lot 1.
 ```
 
 ---
 
 ## Lecture prochaine session (discipline contextuelle)
 
-Pour la prochaine session, l'assistant doit ouvrir uniquement :
+Pour la prochaine session (Lot 1), l'assistant doit ouvrir uniquement :
 
 ```text
 À OUVRIR :
 - CLAUDE.md (intégral, court)
 - ETAT_AVANCEMENT.md (ce fichier)
-- PLAN_CONSTRUCTION.md → uniquement Lot 0
-- REGLES_METIER.md → §1 et §13
-- ARCHITECTURE_DONNEES.md → §2, §4, §16, §23 (via la table des matières)
-- DECISIONS_METIER.md → uniquement les décisions liées au Lot 0
+- PLAN_CONSTRUCTION.md → uniquement Lot 1
+- REGLES_METIER.md → §2 (H1-H7)
+- ARCHITECTURE_DONNEES.md → §6, §7 (via table des matières)
 
 À NE PAS OUVRIR (économie de contexte) :
 - README_PROJET.md (sauf onboarding)
 - OBJECTIF_PROJET_PILOTAGE_CONCIERGERIE_V3.md (vision générale, déjà lue)
-- JOURNAL_ANOMALIES.md (sauf anomalie touchée par le Lot 0)
-- Les sections d'ARCHITECTURE_DONNEES.md hors §2/§4/§16/§23
+- JOURNAL_ANOMALIES.md (sauf anomalies ANO-004 et ANO-005 pertinentes Lot 1/2)
+- Les sections d'ARCHITECTURE_DONNEES.md hors §6/§7
 - Tous les autres lots du PLAN
 ```
 

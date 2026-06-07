@@ -20,11 +20,83 @@ Commentaire: note
 
 ## Contrôles exécutés
 
-> ⚠️ **AUCUN CONTRÔLE DE LOT N'A ÉTÉ EXÉCUTÉ À CE JOUR SUR DONNÉES RÉELLES.**
-> En conséquence, et par application de **D029 irrévocable**, **aucun lot ne peut être marqué `FAIT`**.
-> Le Lot 0 doit être exécuté en premier, et son contrôle inscrit ici, avant tout passage au Lot 2.
+---
 
-*(tableau d'exécution vide — à remplir dès le premier lot validé sur données réelles)*
+### CTR-2026-06-001
+
+```
+Date       : 2026-06-07
+Lot        : Lot 0 — Stabiliser REF_Setup
+Code       : AUDIT_REF_SETUP_LOT0_INITIAL
+Sévérité   : BLOQUANT
+Fichier    : 01_SOURCES_BRUTES/REF_Setup.xlsx.xlsm (chemin pré-correction)
+Résultat   : Audit sur données réelles. 19 onglets présents, 0 doublon de clé, 0 date série brute.
+             6 anomalies bloquantes détectées :
+             B1 - Mojibake (REF_Associes, REF_Codes_Impact, REF_Types_Flux, REF_Types_Affectation — 26 cellules)
+             B2 - REF_Statuts : VALIDE / BLOQUANT / IGNORE_JUSTIFIE absents
+             B3 - REF_Statuts_Payout : onglet absent
+             B4 - REF_Cloture_Mensuelle : onglet absent
+             B5 - REF_Parametres_Generaux : 4 params manquants (TAUX_HORAIRE_MENAGE_INTERNE,
+                  ARRONDI_DECIMALES, TOLERANCE_ARRONDI_LIGNE_EUR, TOLERANCE_ARRONDI_CUMUL_EUR)
+             B6 - REF_Intervenants : colonnes nom_normalise / date_debut_validite / date_fin_validite
+                  absentes, type_intervenant en minuscules au lieu de MAJUSCULES
+             Anomalie importante I1 : APPARTEMENT_DIVERS et LOGEMENT_DIVERS absents de REF_Logements
+             ANO-2026-06-003 (dates série) : sans objet, aucune série brute détectée
+Statut     : CORRIGÉ (voir CTR-2026-06-002)
+Commentaire: Lot 0 non validable avant correction. 6 bloquants + 2 onglets à créer.
+```
+
+---
+
+### CTR-2026-06-002
+
+```
+Date       : 2026-06-07
+Lot        : Lot 0 — Stabiliser REF_Setup
+Code       : CORRECTIONS_REF_SETUP_LOT0
+Sévérité   : INFO
+Fichier    : 01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm (chemin canonique post-correction)
+Résultat   : Corrections B1–B6 + I1 appliquées par script Python (lot0_corrections.py).
+             Sauvegarde horodatée créée : 99_ARCHIVES/LOT0_REF_Setup/REF_Setup_BACKUP_20260607_113223.xlsx.xlsm
+             Fichier déplacé vers chemin canonique : 01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm
+             B1 - Mojibake corrigé : 26 cellules (4 onglets)
+             B2 - REF_Statuts : VALIDE / BLOQUANT / IGNORE_JUSTIFIE ajoutés (famille statut_controle)
+             B3 - REF_Statuts_Payout : créé (6 valeurs fermées)
+             B4 - REF_Cloture_Mensuelle : créé (structure vide, 7 colonnes)
+             B5 - REF_Parametres_Generaux : 4 params ajoutés (TAUX_HORAIRE_MENAGE_INTERNE=10,
+                  ARRONDI_DECIMALES=2, TOLERANCE_ARRONDI_LIGNE_EUR=0.10, TOLERANCE_ARRONDI_CUMUL_EUR=1.00)
+             B6 - REF_Intervenants : 3 colonnes ajoutées, type_intervenant normalisé en MAJUSCULES,
+                  nom_normalise calculé (IMENE, KHEIRA, MOUNIR, AISSATA, IMRANE)
+             I1 - REF_Logements : APPARTEMENT_DIVERS et LOGEMENT_DIVERS ajoutés
+Statut     : CORRIGÉ (audit post-correction : CTR-2026-06-003)
+Commentaire: Script reproductible conservé dans 02_TRAVAIL/lot0_corrections.py
+```
+
+---
+
+### CTR-2026-06-003
+
+```
+Date       : 2026-06-07
+Lot        : Lot 0 — Stabiliser REF_Setup
+Code       : AUDIT_REF_SETUP_LOT0_POST_CORRECTION
+Sévérité   : INFO
+Fichier    : 01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm
+Résultat   : Audit post-correction complet. 21 onglets (19 originaux + REF_Statuts_Payout + REF_Cloture_Mensuelle).
+             B1 - Mojibake : 0 cellule résiduelle — OK
+             B2 - REF_Statuts : VALIDE / BLOQUANT / IGNORE_JUSTIFIE / A_CONTROLER présents — OK
+             B3 - REF_Statuts_Payout : 6 valeurs fermées — OK
+             B4 - REF_Cloture_Mensuelle : 7 colonnes, structure vide — OK
+             B5 - REF_Parametres_Generaux : 7 params dont les 4 requis — OK
+             B6 - REF_Intervenants : 11 colonnes, tous types MAJUSCULES, nom_normalise renseigné — OK
+             I1 - REF_Logements : 19 logements dont APPARTEMENT_DIVERS et LOGEMENT_DIVERS — OK
+             0 doublon de clé sur 8 onglets vérifiés — OK
+             0 date série brute — OK
+             Points restants non bloquants : CARTE_002 suffixe XXXX (Lot 8), mode_facturation A_DEFINIR (Lot 12).
+             Questions métier tranchées : QM1 (coûts standards = exécution seule), QM2 (A_DEFINIR OK), QM3 (A_CONTROLER OK).
+Statut     : EN_ATTENTE_VALIDATION_HUMAINE
+Commentaire: Lot 0 techniquement validable. Attente accord humain avant marquage FAIT dans ETAT_AVANCEMENT.md.
+```
 
 ---
 
