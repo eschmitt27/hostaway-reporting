@@ -131,6 +131,37 @@ Commentaire: Lot 1 validé humainement le 2026-06-08. Script : 02_TRAVAIL/lot1_h
 
 ---
 
+### CTR-2026-06-005
+
+```
+Date       : 2026-06-08
+Lot        : Lot 2 — Réconciliation logements
+Code       : AUDIT_LOT2_MAPPING_LOGEMENTS
+Sévérité   : INFO
+Fichier    : 01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm (REF_Logements + REF_Mapping_Logements)
+             02_TRAVAIL/Lot1_Hostaway/MASTER_REF_HA_Listings.xlsx
+Résultat   : Réconciliation REF_Logements ↔ MASTER_REF_HA_Listings.
+             17 listings Hostaway — 17/17 mappés, 0 orphelin résiduel.
+             4 anomalies ANO-001/005/006/014 résolues par correction de mapping (pas de création de logement).
+             Cause commune : deux logements (LOG_0009, LOG_0016) avaient été retirés puis recréés
+             dans Hostaway → nouveaux listingMapId (556954, 515523) non encore reflétés dans le REF.
+             Corrections appliquées :
+             - LOG_0009 : hostaway_listing_id 497801 → 556954 ; nom "T3 Montaudran" ; commentaire ancien nom.
+             - LOG_0016 : hostaway_listing_id 480780 → 515523 ; sur_hostaway NON → OUI.
+             - REF_Mapping_Logements : 5 lignes ajoutées (MAP_LOG_0082 à 0086), total 86 lignes.
+             - Anciens IDs 480780 et 497801 conservés comme alias historiques actifs (MAP_LOG_0039/0073).
+             Contrôles vérifiés :
+             - 0 listingMapId actif Hostaway non mappé.
+             - Anciens IDs 480780 / 497801 résolvables → logement_id correct.
+             - LOG_0009 et LOG_0016 : hostaway_listing_id, sur_hostaway, nom conformes post-correction.
+             Google Sheet Suivi ménage : reporté au Lot 6b (M04) — non traité ici.
+Statut     : EN_ATTENTE_VALIDATION_HUMAINE
+Commentaire: Lot 2 techniquement validé. Attente accord humain avant marquage FAIT dans ETAT_AVANCEMENT.md.
+             Backup : 99_ARCHIVES/LOT2_Mapping/REF_Setup_BACKUP_20260608_153507.xlsm
+```
+
+---
+
 ## Référence des codes de contrôle (source : ARCHITECTURE_DONNEES.md §18)
 
 > Convention : codes tirés de l'architecture. Ne pas inventer de nouveaux codes sans les ajouter ici ET dans l'architecture.

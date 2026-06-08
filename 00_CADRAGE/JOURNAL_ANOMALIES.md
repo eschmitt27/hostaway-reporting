@@ -23,7 +23,7 @@ Résolution : action prise ou raison d'ignorer
 ## Anomalies ouvertes
 
 ### ANO-2026-06-001
-Date : 2026-06-04 | Lot : 1 — Hostaway | Sévérité : A_CONTROLER | Statut : OUVERT
+Date : 2026-06-04 | Lot : 1 — Hostaway | Sévérité : A_CONTROLER | Statut : CORRIGÉ 2026-06-08
 Code : LISTING_ORPHELIN_A_CONTROLER
 Source : MASTER_REF_HA_Listings
 PK : listingMapId = 515523
@@ -31,7 +31,11 @@ Description : Logement présent dans l'export Hostaway, ABSENT de REF_Logements.
 Cas : vrai logement ancien ou désactivé (pas une erreur de saisie).
 Traitement attendu : ajouter au REF_Setup.xlsm au Lot 2 avec statut explicite.
 ⚠ Ne pas ignorer définitivement. Ne pas intégrer comme logement actif avant arbitrage.
-Résolution : En attente — Lot 2
+Résolution : CORRIGÉ — 515523 est l'identifiant Hostaway actuel (archivé) de LOG_0016 (T2 Cyprien / Clarisse).
+Le logement n'était pas absent du REF : il y était via l'ancien ID 480780. Recréation Hostaway → nouvel ID.
+Action : 515523 ajouté comme alias Hostaway dans REF_Mapping_Logements (MAP_LOG_0082) → LOG_0016.
+LOG_0016.hostaway_listing_id mis à jour : 480780 → 515523. LOG_0016.sur_hostaway : NON → OUI.
+Audit Lot 2 : 17/17 listings mappés, 0 orphelin résiduel.
 
 ---
 
@@ -71,7 +75,7 @@ Résolution : En attente — Lot 4
 ---
 
 ### ANO-2026-06-005
-Date : 2026-06-04 | Lot : 2 — Réconciliation | Sévérité : A_CONTROLER | Statut : OUVERT
+Date : 2026-06-04 | Lot : 2 — Réconciliation | Sévérité : A_CONTROLER | Statut : CORRIGÉ 2026-06-08
 Code : REFERENTIEL_ORPHELIN
 Source : REF_Setup.xlsm — REF_Logements
 PK : listingMapId = 497801
@@ -79,30 +83,37 @@ Description : listingMapId 497801 présent dans REF_Logements (sur_hostaway = OU
 Cas : logement désactivé, archivé, ou erreur de saisie dans le référentiel.
 ⚠ Cas DIFFÉRENT de ANO-001 : ici c'est le référentiel qui pointe vers Hostaway, pas l'inverse.
 Traitement attendu : trancher au Lot 2 — désactiver dans REF_Logements ou vérifier si listingMapId est correct.
-Résolution : En attente — Lot 2
+Résolution : CORRIGÉ — 497801 est l'ancien identifiant Hostaway de LOG_0009 (T3 Montaudran).
+Le logement a été retiré puis recréé dans Hostaway → nouvel ID = 556954.
+Action : LOG_0009.hostaway_listing_id mis à jour : 497801 → 556954. Nom mis à jour : "T3 Montaudran".
+497801 conservé comme alias historique actif dans REF_Mapping_Logements (MAP_LOG_0039, actif=OUI).
+556954 ajouté comme nouvel alias Hostaway (MAP_LOG_0084/0085/0086).
 
 ---
 
 ### ANO-2026-06-006
-Date : 2026-06-04 | Lot : 2 — Réconciliation | Sévérité : INFO | Statut : À CONFIRMER
+Date : 2026-06-04 | Lot : 2 — Réconciliation | Sévérité : INFO | Statut : CORRIGÉ 2026-06-08
 Code : LISTING_CONFIRME_HORS_HOSTAWAY
 Source : REF_Setup.xlsm — REF_Logements
-PK : logement_id correspondant à listingMapId = 480780
+PK : logement_id = LOG_0016, ancien listingMapId = 480780
 Description : Logement avec sur_hostaway = NON dans REF_Logements. Cohérent architecturalement (logement géré sans Hostaway).
 ⚠ Cas DIFFÉRENT de ANO-001 et ANO-005 : ce n'est pas un orphelin, c'est un logement volontairement hors Hostaway.
 Traitement attendu : confirmer au Lot 2 que sur_hostaway = NON est bien intentionnel et documenter.
-Résolution : En attente — confirmation Lot 2
+Résolution : CORRIGÉ — le sur_hostaway=NON était incorrect. 480780 est l'ancien ID Hostaway de LOG_0016.
+Le logement a été recréé dans Hostaway sous le nouvel ID 515523 (archivé).
+LOG_0016.sur_hostaway corrigé NON → OUI. LOG_0016.hostaway_listing_id : 480780 → 515523.
+480780 conservé comme alias historique actif dans REF_Mapping_Logements (MAP_LOG_0073, actif=OUI).
 
 ---
 
-## Note — les 4 cas listingMapId sont distincts
+## Note — les 4 cas listingMapId — RÉSOLUS au Lot 2 (2026-06-08)
 
-| PK | Sens de l'anomalie | Nature | Action |
-|---|---|---|---|
-| 515523 | Hostaway → absent REF | Ancien logement archivé | Ajouter au REF avec statut ORPHELIN_A_CONTROLER (Lot 2) |
-| 556954 | Hostaway → absent REF | Ancien logement archivé (nouveau — ANO-014) | Ajouter au REF avec statut ORPHELIN_A_CONTROLER (Lot 2) |
-| 497801 | REF → absent Hostaway | REF pointe vers un listing inexistant | Vérifier/désactiver dans REF (Lot 2) |
-| 480780 | REF sur_hostaway=NON | Logement volontairement hors Hostaway | Confirmer l'intention (Lot 2) |
+| PK | Nature | Résolution |
+|---|---|---|
+| 515523 | Nouvel ID Hostaway de LOG_0016 (remplace 480780) | Alias actif MAP_LOG_0082 → LOG_0016. LOG_0016.hid=515523, sur_hostaway=OUI |
+| 556954 | Nouvel ID Hostaway de LOG_0009 (remplace 497801) | Alias actif MAP_LOG_0084/0085/0086 → LOG_0009. LOG_0009.hid=556954 |
+| 497801 | Ancien ID Hostaway de LOG_0009 | Alias historique actif MAP_LOG_0039. Conservé pour résolution des anciennes réservations |
+| 480780 | Ancien ID Hostaway de LOG_0016 | Alias historique actif MAP_LOG_0073. Conservé pour résolution des anciennes réservations |
 
 ---
 
@@ -187,7 +198,7 @@ commentaire explicite "jamais utilisé pour masquer un mauvais mapping").
 ---
 
 ### ANO-2026-06-014
-Date : 2026-06-08 | Lot : 1 — Hostaway | Sévérité : A_CONTROLER | Statut : OUVERT
+Date : 2026-06-08 | Lot : 1 — Hostaway | Sévérité : A_CONTROLER | Statut : CORRIGÉ 2026-06-08
 Code : LISTING_ORPHELIN_A_CONTROLER
 Source : MASTER_REF_HA_Listings / MASTER_CTRL_HA_Anomalies
 PK : listingMapId = 556954
@@ -197,7 +208,11 @@ ABSENT de REF_Logements. Détecté au run 20260608_134253 (CTR-2026-06-004).
 Cas analogue à ANO-001 (515523) : ancien logement archivé, jamais saisi dans le référentiel.
 ⚠ Ne pas intégrer comme logement actif avant arbitrage.
 Traitement attendu : ajouter dans REF_Setup.xlsm / REF_Logements au Lot 2 avec statut ORPHELIN_A_CONTROLER.
-Résolution : En attente — Lot 2
+Résolution : CORRIGÉ — 556954 est le nouvel identifiant Hostaway de LOG_0009 (T3 Montaudran).
+Le logement avait pour ancien ID 497801 (absent de l'export). Recréation Hostaway → nouvel ID.
+Action : 556954 ajouté comme alias Hostaway de LOG_0009 (MAP_LOG_0084/0085/0086).
+LOG_0009.hostaway_listing_id : 497801 → 556954. Nom mis à jour : "T3 Montaudran".
+Audit Lot 2 : 17/17 listings mappés, 0 orphelin résiduel.
 
 ---
 
