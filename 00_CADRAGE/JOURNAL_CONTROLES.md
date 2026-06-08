@@ -162,6 +162,45 @@ Commentaire: Lot 2 techniquement validé. Attente accord humain avant marquage F
 
 ---
 
+### CTR-2026-06-006
+
+```
+Date       : 2026-06-08
+Lot        : Lot 3 — SAISIE_Charges_Flux.xlsx
+Code       : AUDIT_LOT3_SAISIE_MASTER_CHARGES
+Sévérité   : INFO
+Fichier    : 01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm
+             01_SOURCES_BRUTES/Charges/SAISIE_Charges_Flux.xlsx
+             02_TRAVAIL/Lot3_Charges/MASTER_FACT_MAN_Charges.xlsx
+Résultat   : Contrôle final Lot 3 — 21 points vérifiés, 0 FAIL.
+             REF_Setup.xlsm :
+             - REF_Categories_Charges : 23 lignes, col 9 filtre_vue_menage présente.
+             - CHG_016 filtre_vue_menage=NON ; CHG_021/022/023 présents ; CHG_023 filtre_vue_menage=OUI.
+             - REF_Types_Flux : TYPE_FLUX_009 (ACHAT_MENAGE), 010 (FRAIS_LOCAL),
+               011 (CHARGE_EXCEPTIONNELLE_REFACTURABLE), 012 (CHARGE_RECURRENTE_REFACTURABLE) présents.
+             - REF_Charges_Recurrentes : REC_001 → TYPE_FLUX_012, REC_002 → TYPE_FLUX_010.
+             SAISIE_Charges_Flux.xlsx :
+             - 4 onglets (SAISIE, REF_LOCALE, CONTROLES_SAISIE, README).
+             - 31 colonnes SAISIE conformes au cadrage validé (groupes 1 à 11).
+             - 18 listes REF_LOCALE avec Named Ranges.
+             - 13 contrôles CONTROLES_SAISIE.
+             - Formules calculées sur 500 lignes : mois, impact_resultat_reel,
+               impact_resultat_comptable, ROW_HASH.
+             MASTER_FACT_MAN_Charges.xlsx :
+             - 3 onglets (MASTER 37 cols, VUE_MENAGE 37 cols identiques, POWER_QUERY_CODE).
+             - 6 colonnes PQ présentes : sens, filtre_vue_menage, source_module,
+               source_table, source_pk, date_integration.
+             - 4 requêtes M-code présentes dans POWER_QUERY_CODE.
+             - Filtre VUE : [filtre_vue_menage]="OUI" AND [statut_controle]="VALIDE".
+             Git status : 5 fichiers modifiés (tous Lot 3), 0 supprimé, 0 Lot 4.
+Statut     : VALIDÉ
+Commentaire: Lot 3 validé humainement le 2026-06-08. Marquage FAIT autorisé.
+             Décisions D044 (statuts) et D045 (REF_Charges_Recurrentes) verrouillées.
+             REFACTURATION → sens=CHARGE validé (charge avancée, récupérée sur propriétaire).
+```
+
+---
+
 ## Référence des codes de contrôle (source : ARCHITECTURE_DONNEES.md §18)
 
 > Convention : codes tirés de l'architecture. Ne pas inventer de nouveaux codes sans les ajouter ici ET dans l'architecture.

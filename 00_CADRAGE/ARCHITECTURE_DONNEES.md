@@ -1378,6 +1378,11 @@ Le champ `statut_controle` est présent dans toutes les tables de saisie et de c
 
 Toute table manuelle (`MASTER_FACT_MAN_*`), calculée et de contrôle utilise **uniquement** ces valeurs. Les listes déroulantes des fichiers de saisie (§4.2) pointent vers `REF_Statuts`.
 
+> **D044 (2026-06-08) — Lot 3+ :** `statut_controle` = `VALIDE` / `A_CONTROLER` / `EXCLU_RESULTAT` / `A_VENTILER`.
+> Nouvelle colonne `niveau_anomalie` (famille `niveau_anomalie` dans `REF_Statuts`) = `INFO` / `A_CONTROLER` / `BLOQUANT`.
+> `BLOQUANT` n'est plus un statut de ligne — c'est un niveau d'anomalie. `IGNORE_JUSTIFIE` reste valide pour Lots 0-2.
+> `REF_Statuts` étendu : STAT_022 désactivé ; STAT_024-026 (statut_controle) + STAT_027-029 (niveau_anomalie) ajoutés.
+
 > **À ne pas confondre** avec les statuts de réservation Hostaway (`new`/`cancelled`/`ownerStay`… §6.4) ni avec les statuts de mois (§23.2), qui sont des familles distinctes.
 
 ### 23.2 Clôture mensuelle — `REF_Cloture_Mensuelle`

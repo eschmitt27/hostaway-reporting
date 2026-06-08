@@ -250,9 +250,32 @@ Le détail de la clôture mensuelle est traité en §11 (Clôture mensuelle et p
 - **Convention d'arrondi → VERROUILLÉE D035** : calcul pleine précision, 2 décimales, tolérance 0,10 €/ligne, 1,00 € cumulé/facture.
 - **REF_Couts_Standards_Menage → VERROUILLÉ D037** : standard = exécution seule. Valeurs à revalider au Lot 0.
 
-## Statuts de contrôle (rappel)
+## Statuts de contrôle (D044 — 2026-06-08)
 
-Valeurs de `statut_controle` **fermées** : `VALIDE`, `A_CONTROLER`, `BLOQUANT`, `IGNORE_JUSTIFIE` (référentiel `REF_Statuts`, Archi §23.1). Pas de valeurs libres (`OK`, `Validé`, etc.) dans les fichiers de saisie.
+### statut_controle — état de la ligne
+
+Valeurs fermées selon le lot (référentiel `REF_Statuts`, Archi §23.1) :
+
+| Lot | Valeurs autorisées |
+|---|---|
+| **Lot 3+** | `VALIDE` / `A_CONTROLER` / `EXCLU_RESULTAT` / `A_VENTILER` |
+| **Lots 0-2** (compatibilité) | `VALIDE` / `A_CONTROLER` / `BLOQUANT` / `IGNORE_JUSTIFIE` |
+
+- `EXCLU_RESULTAT` = ligne exclue du résultat avec justification (remplace `IGNORE_JUSTIFIE` pour Lot 3+).
+- `A_VENTILER` = ligne à ventiler entre logements ou périodes avant intégration.
+
+### niveau_anomalie — sévérité
+
+Valeurs fermées (famille `niveau_anomalie` dans `REF_Statuts`) : `INFO` / `A_CONTROLER` / `BLOQUANT`
+
+`BLOQUANT` n'est **plus** un statut de ligne métier (`statut_controle`). C'est un **niveau d'anomalie**.
+
+### code_anomalie — code technique
+
+Code technique du contrôle détecté (ex. `CHARGE_LOGEMENT_SANS_LOGEMENT_ID`, `INCIDENT_VOYAGEUR_SANS_RESERVATION`).
+Calculé automatiquement par l'onglet `CONTROLES_SAISIE`. Non saisi manuellement.
+
+Pas de valeurs libres (`OK`, `Validé`, etc.) dans les fichiers de saisie.
 
 ---
 

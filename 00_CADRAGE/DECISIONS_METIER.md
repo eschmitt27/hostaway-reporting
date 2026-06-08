@@ -400,5 +400,32 @@ Conséquence pour le cadrage :
   - **Aucun lot ne livre un fichier `.pbix`** ni un dashboard Power BI. Le Lot 12 produit Excel, tables et données prêtes pour Power BI — pas le dashboard lui-même.
 Tables : aucune nouvelle table — règle de priorité applicable à tous les lots.
 
+### D044 — Séparation statut_controle / niveau_anomalie (DM-L3-01)
+Date : 2026-06-08 | Statut : VALIDÉ — VERROUILLÉ
+Décision :
+  `statut_controle` (état de la ligne) : `VALIDE` / `A_CONTROLER` / `EXCLU_RESULTAT` / `A_VENTILER`
+  `niveau_anomalie` (sévérité de l'anomalie) : `INFO` / `A_CONTROLER` / `BLOQUANT`
+  `code_anomalie` : code technique du contrôle détecté (ex. `CHARGE_LOGEMENT_SANS_LOGEMENT_ID`)
+  `BLOQUANT` n'est plus un statut de ligne métier — c'est un niveau d'anomalie.
+  `EXCLU_RESULTAT` remplace `IGNORE_JUSTIFIE` pour les tables Lot 3+.
+  `IGNORE_JUSTIFIE` reste valide pour Lots 0-2 (compatibilité ascendante).
+REF_Statuts :
+  - STAT_022 (BLOQUANT / statut_controle) → désactivé
+  - STAT_024 (A_CONTROLER / statut_controle) + STAT_025 (EXCLU_RESULTAT) + STAT_026 (A_VENTILER) → ajoutés
+  - STAT_027 (INFO / niveau_anomalie) + STAT_028 (A_CONTROLER) + STAT_029 (BLOQUANT) → ajoutés
+Périmètre : SAISIE_Charges_Flux.xlsx et toutes tables MASTER_FACT_MAN_* du Lot 3+.
+Tables : REF_Statuts, SAISIE_Charges_Flux.xlsx, MASTER_FACT_MAN_Charges
+
+### D045 — REF_Charges_Recurrentes : table des montants récurrents paramétrables
+Date : 2026-06-08 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Les charges récurrentes (forfaits, loyers, abonnements) sont portées par `REF_Charges_Recurrentes`
+  (nouvel onglet REF_Setup). Aucun montant fixe ne peut être codé en dur dans les formules Excel,
+  Power Query, descriptions de catégories ou scripts.
+  Colonnes clés : `charge_recurrente_id`, `montant_ttc`, `periodicite`, `cle_repartition`,
+  `date_debut_validite`, `date_fin_validite`.
+  Premières entrées : REC_001 (Forfait client, CHG_016, TYPE_FLUX_012, IC, refacturable=OUI) ;
+  REC_002 (Forfait local cave, CHG_023, TYPE_FLUX_010, HC, clé=NOMBRE_MENAGES, 50 €).
+Tables : REF_Charges_Recurrentes (REF_Setup.xlsm)
+
 ### DO-03 — Barème IK kilométrique
 > **FERMÉE, voir D036.** Montant direct retenu au démarrage, barème optionnel plus tard.

@@ -5,20 +5,20 @@
 
 ## Dernière mise à jour
 Date : 2026-06-08
-Session : Session 6 — Lot 2 Mapping logements (réconciliation REF_Logements ↔ Hostaway)
+Session : Session 7 — Lot 3 SAISIE_Charges_Flux.xlsx (construction en cours)
 Agent : Claude Code (claude-sonnet-4-6)
 
 ---
 
 ## Lot en cours
 Lot : 3 — SAISIE_Charges_Flux.xlsx
-Statut : **À DÉMARRER** (Lots 0, 1 et 2 FAITS)
+Statut : **FAIT** (Lots 0, 1, 2 et 3 FAITS)
 
 > Contrôles inscrits :
 > - Lot 0 : CTR-2026-06-001 (audit initial), CTR-2026-06-002 (corrections), CTR-2026-06-003 (post-correction — tout vert)
 > - Lot 1 : CTR-2026-06-004 (extraction + payout validés — 2026-06-08)
 > - Lot 2 : CTR-2026-06-005 (mapping logements — 17/17 OK — validé humainement 2026-06-08)
-> Prochaine étape : attente feu vert humain pour démarrer Lot 3.
+> Lot 3 FAIT (2026-06-08) : REF_Setup.xlsm mis à jour (5 onglets). SAISIE_Charges_Flux.xlsx créé (4 onglets, 31 cols, 18 DV, 13 contrôles). MASTER_FACT_MAN_Charges.xlsx créé (37 cols, 4 requêtes PQ). CTR-2026-06-006 inscrit.
 
 **Points résiduels non bloquants à traiter dans les lots suivants :**
 - `CARTE_002` suffixe `XXXX` (carte Ewan) → à renseigner au **Lot 8** avant traitement des exports bancaires.
@@ -43,18 +43,31 @@ Statut : **À DÉMARRER** (Lots 0, 1 et 2 FAITS)
   - Décisions métier tranchées : QM1 (coûts standards = exécution seule, D037 confirmé), QM2 (A_DEFINIR OK), QM3 (CHG_012 reste A_CONTROLER).
 - **Lot 1 — Module Hostaway FAIT (2026-06-08)** : extraction validée (run 20260608_134253 — 1391 réservations traitées, 17 listings, 55 anomalies A_CONTROLER, 0 BLOQUANT). Fix financeField appliqué (`_ff_from_res`). Payout : 1321 NORMAL, 59 A_CONTROLER (32 VRBO + 27 DIRECT). Contrôle inscrit : CTR-2026-06-004. CleaningTasks SKIPPED → Lot 6a.
 - **Lot 2 — Mapping logements FAIT (2026-06-08)** : réconciliation REF_Logements ↔ MASTER_REF_HA_Listings. 17/17 listings mappés, 0 orphelin. ANO-001/005/006/014 CORRIGÉES par correction de mapping (pas de création de logement). LOG_0009 : hid 497801→556954, nom "T3 Montaudran". LOG_0016 : hid 480780→515523, sur_hostaway NON→OUI. 5 nouvelles lignes REF_Mapping (MAP_LOG_0082–0086, total 86 lignes). Anciens IDs 480780 et 497801 conservés comme alias historiques actifs (actif=OUI). Contrôle inscrit : CTR-2026-06-005. Validé humainement 2026-06-08.
+- **Lot 3 — SAISIE_Charges_Flux FAIT (2026-06-08)** :
+  - REF_Setup.xlsm mis à jour : REF_Categories_Charges (+filtre_vue_menage +CHG_021/022/023), REF_Types_Flux (+TYPE_FLUX_009-012), REF_Types_Affectation (+AFF_GLOBAL/NON_AFFECTABLE), REF_Statuts (D044 : STAT_022 désactivé, STAT_024-029), REF_Charges_Recurrentes (nouvel onglet, REC_001/002). Backup : 99_ARCHIVES/LOT3_Charges/REF_Setup_BACKUP_20260608_191019.xlsm.
+  - SAISIE_Charges_Flux.xlsx créé (01_SOURCES_BRUTES/Charges/) : 31 colonnes, 18 listes déroulantes, formules calculées, 13 contrôles, MFC niveau_anomalie.
+  - MASTER_FACT_MAN_Charges.xlsx créé (02_TRAVAIL/Lot3_Charges/) : 37 colonnes (31 SAISIE + sens/filtre_vue_menage/source_module/source_table/source_pk/date_integration). VUE_MENAGE = filtre filtre_vue_menage=OUI AND statut_controle=VALIDE. 4 requêtes M-code Power Query.
+  - Décisions verrouillées : D044 (séparation statut_controle/niveau_anomalie), D045 (REF_Charges_Recurrentes paramétrable). REFACTURATION→sens=CHARGE validé.
+  - Contrôle inscrit : CTR-2026-06-006 (21 points, 0 FAIL). Validé humainement 2026-06-08.
 
 > **Règle D029 — IRRÉVOCABLE** : aucun lot ne peut être marqué FAIT sans entrée dans JOURNAL_CONTROLES.
 
 ---
 
-## Ce qui a été modifié (cette session)
-- Référentiel : `01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm`
-  - REF_Logements : LOG_0009 (hid, nom, nom_court, commentaire) + LOG_0016 (hid, sur_hostaway, commentaire)
-  - REF_Mapping_Logements : MAP_LOG_0039/0073 (commentaires) + 5 nouvelles lignes MAP_LOG_0082–0086
-- Journaux : `JOURNAL_CONTROLES.md` (CTR-2026-06-005) + `JOURNAL_ANOMALIES.md` (ANO-001/005/006/014 CORRIGÉES)
-- Sauvegarde : `99_ARCHIVES/LOT2_Mapping/REF_Setup_BACKUP_20260608_153507.xlsm`
-- Cadrage : `ETAT_AVANCEMENT.md` (ce fichier)
+## Ce qui a été modifié (cette session — Lot 3)
+- Référentiel : `01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm` (Lot 3)
+  - REF_Categories_Charges : colonne `filtre_vue_menage` ajoutée + CHG_021/022/023
+  - REF_Types_Flux : TYPE_FLUX_009 à 012 ajoutés
+  - REF_Types_Affectation : AFF_GLOBAL + AFF_NON_AFFECTABLE ajoutés
+  - REF_Statuts : STAT_022 désactivé + STAT_024-029 ajoutés (D044)
+  - REF_Charges_Recurrentes : nouvel onglet + REC_001/002
+- Sauvegarde : `99_ARCHIVES/LOT3_Charges/REF_Setup_BACKUP_20260608_191019.xlsm`
+- Cadrage : `DECISIONS_METIER.md` (D044 + D045) + `REGLES_METIER.md` (§Statuts) + `ARCHITECTURE_DONNEES.md` (§23.1 note) + `ETAT_AVANCEMENT.md` (ce fichier)
+- Scripts : `02_TRAVAIL/lot3_ref_setup_update.py` (exécuté)
+- Scripts : `02_TRAVAIL/lot3_saisie_template.py` (exécuté) + `02_TRAVAIL/lot3_master_template.py` (exécuté)
+- Créé : `01_SOURCES_BRUTES/Charges/SAISIE_Charges_Flux.xlsx` (4 onglets : SAISIE 31 cols, REF_LOCALE 18 listes, CONTROLES_SAISIE 13 contrôles, README)
+- Créé : `02_TRAVAIL/Lot3_Charges/MASTER_FACT_MAN_Charges.xlsx` (3 onglets : MASTER 32 cols, VUE_MENAGE, POWER_QUERY_CODE avec 4 requêtes M)
+- Dossiers créés : `01_SOURCES_BRUTES/Charges/` + `02_TRAVAIL/Lot3_Charges/`
 
 ---
 
@@ -112,43 +125,40 @@ Statut : **À DÉMARRER** (Lots 0, 1 et 2 FAITS)
 - D038 : Rangement dans M04 = main-d'œuvre uniquement — VERROUILLÉ
 - D039 : charge_fixe_mensuelle paramétrable dans REF_Logements, 0 si absent — VERROUILLÉ
 - D040 : Structure sortie facture (FACT_FACTURE_ENTETE/LIGNES, Excel contrôle, **aucun PDF au démarrage**) — VERROUILLÉ
-- D041 : Incidents voyageurs — catégorie `INCIDENT_VOYAGEUR` dans `SAISIE_Charges_Flux.xlsx`, `reservation_id` obligatoire — VERROUILLÉ (P02)
-- D042 : AirCover — 3 flux distincts (remboursement propriétaire hors comptes / prestation facturée bloc règlement / impact résultat ligne par ligne) — VERROUILLÉ (P03)
+- D041 : Incidents voyageurs — catégorie `CHG_021` dans `SAISIE_Charges_Flux.xlsx`, `reservation_id` obligatoire — VERROUILLÉ (P02)
+- D042 : AirCover — 3 flux distincts (remboursement propriétaire hors comptes / prestation `CHG_022` facturée bloc règlement / impact résultat ligne par ligne) — VERROUILLÉ (P03)
 - D043 : Priorité Excel avant Power BI — aucun dashboard `.pbix` livré par les lots — VERROUILLÉ (P32)
+- D044 : Séparation statut_controle / niveau_anomalie — `statut_controle` : VALIDE/A_CONTROLER/EXCLU_RESULTAT/A_VENTILER (Lot 3+) ; `niveau_anomalie` : INFO/A_CONTROLER/BLOQUANT — VERROUILLÉ (DM-L3-01)
+- D045 : REF_Charges_Recurrentes — table des montants paramétrables (forfaits, loyers) ; aucun montant fixe codé en dur dans formules/PQ/scripts — VERROUILLÉ
 
 ---
 
 ## Prochaine action obligatoire
 ```
-Lot 2 — Mapping logements : corrections appliquées, CTR-2026-06-005 inscrit.
-En attente validation humaine pour marquage FAIT.
-
-Lot 3 — SAISIE_Charges_Flux.xlsx :
-- Pré-requis : Lots 0, 1 et 2 FAITS ✓ (après validation humaine Lot 2)
-- Objectif : construire SAISIE_Charges_Flux.xlsx (source unique achats/charges)
-- Lecture ciblée : PLAN Lot 3 ; REGLES §3.bis, §1, §8 ; ARCHI §10
+Lot 3 FAIT (2026-06-08) — CTR-2026-06-006 inscrit
+Prochain lot : Lot 4 — Réservations hors Hostaway
 ```
 
 ---
 
 ## Lecture prochaine session (discipline contextuelle)
 
-Pour la prochaine session (Lot 3), l'assistant doit ouvrir uniquement :
+Pour la prochaine session (Lot 4), l'assistant doit ouvrir uniquement :
 
 ```text
 À OUVRIR :
 - CLAUDE.md (intégral, court)
 - ETAT_AVANCEMENT.md (ce fichier)
-- PLAN_CONSTRUCTION.md → uniquement Lot 3
-- REGLES_METIER.md → §3.bis, §1, §8
-- ARCHITECTURE_DONNEES.md → §10 (via table des matières)
+- PLAN_CONSTRUCTION.md → uniquement Lot 4
+- REGLES_METIER.md → §10, §1
+- ARCHITECTURE_DONNEES.md → §9 (réservations hors Hostaway)
 
 À NE PAS OUVRIR (économie de contexte) :
 - README_PROJET.md (sauf onboarding)
 - OBJECTIF_PROJET_PILOTAGE_CONCIERGERIE_V3.md
-- Les sections d'ARCHITECTURE_DONNEES.md hors §10
+- Les sections d'ARCHITECTURE_DONNEES.md hors §9
 - Tous les autres lots du PLAN
-- Données brutes Hostaway / fichiers Lot 1
+- Données brutes Banque / fichiers Lot 1 détaillés
 ```
 
 Cette discipline est appliquée à chaque nouveau lot, en s'appuyant sur la matrice `CLAUDE.md §5.bis`.
