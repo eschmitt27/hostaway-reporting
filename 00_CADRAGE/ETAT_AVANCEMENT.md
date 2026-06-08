@@ -4,22 +4,26 @@
 ---
 
 ## Dernière mise à jour
-Date : 2026-06-07
-Session : Session 4 — Audit et correction Lot 0 sur données réelles (REF_Setup.xlsm)
+Date : 2026-06-08
+Session : Session 5 — Validation Lot 1 Hostaway (fix financeField + audit extraction)
 Agent : Claude Code (claude-sonnet-4-6)
 
 ---
 
 ## Lot en cours
-Lot : 0 — Fiabiliser REF_Setup.xlsm
-Statut : **FAIT — validé techniquement le 2026-06-07** (D029 respecté — CTR-2026-06-003)
+Lot : 2 — Mapping logements
+Statut : **À DÉMARRER** (Lots 0 et 1 FAIT)
 
-> Contrôle inscrit dans JOURNAL_CONTROLES.md : CTR-2026-06-001 (audit initial), CTR-2026-06-002 (corrections), CTR-2026-06-003 (audit post-correction — tout vert).
-> Prochaine étape : attente feu vert humain pour démarrer Lot 1.
+> Contrôles inscrits :
+> - Lot 0 : CTR-2026-06-001 (audit initial), CTR-2026-06-002 (corrections), CTR-2026-06-003 (post-correction — tout vert)
+> - Lot 1 : CTR-2026-06-004 (extraction + payout validés — 2026-06-08)
+> Prochaine étape : attente feu vert humain pour démarrer Lot 2.
 
 **Points résiduels non bloquants à traiter dans les lots suivants :**
 - `CARTE_002` suffixe `XXXX` (carte Ewan) → à renseigner au **Lot 8** avant traitement des exports bancaires.
 - `mode_facturation = A_DEFINIR` pour tous les propriétaires → à définir au **Lot 12** avant facturation.
+- CleaningTasks SKIPPED → à extraire via `--only-cleaning-tasks` au **Lot 6a**.
+- 59 réservations A_CONTROLER (32 VRBO + 27 DIRECT) → saisie manuelle aux **Lots 4 / 4bis**.
 
 ---
 
@@ -36,17 +40,16 @@ Statut : **FAIT — validé techniquement le 2026-06-07** (D029 respecté — CT
   - Sauvegarde : `99_ARCHIVES/LOT0_REF_Setup/REF_Setup_BACKUP_20260607_113223.xlsx.xlsm`.
   - Contrôle inscrit : CTR-2026-06-003 (audit post-correction tout vert).
   - Décisions métier tranchées : QM1 (coûts standards = exécution seule, D037 confirmé), QM2 (A_DEFINIR OK), QM3 (CHG_012 reste A_CONTROLER).
-- **Lot 1 — Module Hostaway** : extraction produite (run 20260523_005752 — 1505 réservations, 16 listings, 28 anomalies, 451 tâches ménage) — **NON VALIDÉE sur données réelles** (à contrôler en Lot 1).
+- **Lot 1 — Module Hostaway FAIT (2026-06-08)** : extraction validée (run 20260608_134253 — 1391 réservations traitées, 17 listings, 55 anomalies A_CONTROLER, 0 BLOQUANT). Fix financeField appliqué (`_ff_from_res`). Payout : 1321 NORMAL, 59 A_CONTROLER (32 VRBO + 27 DIRECT). Contrôle inscrit : CTR-2026-06-004. CleaningTasks SKIPPED → Lot 6a.
 
 > **Règle D029 — IRRÉVOCABLE** : aucun lot ne peut être marqué FAIT sans entrée dans JOURNAL_CONTROLES.
 
 ---
 
 ## Ce qui a été modifié (cette session)
-- Fichiers de données : `01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm` (corrections B1–B6 + I1)
-- Journaux : `JOURNAL_CONTROLES.md` (CTR-001 à CTR-003), `JOURNAL_ANOMALIES.md` (ANO-002/003 CORRIGÉS, ANO-007 à ANO-013 ajoutés)
-- Archives : `99_ARCHIVES/LOT0_REF_Setup/REF_Setup_BACKUP_20260607_113223.xlsx.xlsm`
-- Scripts (travail) : `02_TRAVAIL/lot0_corrections.py`, `02_TRAVAIL/lot0_audit_post.py`
+- Scripts : `02_TRAVAIL/lot1_hostaway_extract.py` (fix financeField 1 ligne : `_ff_from_res(detail)`)
+- Données Lot 1 : `02_TRAVAIL/Lot1_Hostaway/` (8 fichiers, run 20260608_134253)
+- Journaux : `JOURNAL_CONTROLES.md` (CTR-2026-06-004 ajouté), `JOURNAL_ANOMALIES.md` (ANO-004 mis à jour 29→32, ANO-014 créée, Note 3→4 orphelins)
 - Cadrage : `ETAT_AVANCEMENT.md` (ce fichier)
 
 ---
@@ -54,6 +57,8 @@ Statut : **FAIT — validé techniquement le 2026-06-07** (D029 respecté — CT
 ## Ce qui a été testé sur données réelles
 - Test : Audit Lot 0 complet (pre + post correction) sur `REF_Setup.xlsm` réel
 - Statut : VALIDÉ — CTR-2026-06-003
+- Test : Extraction Lot 1 Hostaway complète post-fix financeField (run 20260608_134253, 121.8 s)
+- Statut : VALIDÉ — CTR-2026-06-004
 
 ---
 
@@ -64,7 +69,7 @@ Statut : **FAIT — validé techniquement le 2026-06-07** (D029 respecté — CT
 | ANO-001 | LISTING_ORPHELIN (515523) | A_CONTROLER | OUVERT — Lot 2 |
 | ANO-002 | ENCODAGE_CASSE | A_CONTROLER | **CORRIGÉ 2026-06-07** |
 | ANO-003 | DATES_SERIE_EXCEL | A_CONTROLER | **SANS OBJET — aucune série brute** |
-| ANO-004 | VRBO_MONTANT_NON_RENSEIGNE (×29) | A_CONTROLER | OUVERT — Lot 4 |
+| ANO-004 | VRBO_MONTANT_NON_RENSEIGNE (×32) | A_CONTROLER | OUVERT — Lot 4 |
 | ANO-005 | REFERENTIEL_ORPHELIN (497801) | A_CONTROLER | OUVERT — Lot 2 |
 | ANO-006 | LISTING_CONFIRME_HORS_HOSTAWAY (480780) | INFO | OUVERT — À confirmer Lot 2 |
 | ANO-007 | REF_STATUTS_VALEURS_CONTROLE_MANQUANTES | BLOQUANT | **CORRIGÉ 2026-06-07** |
@@ -74,8 +79,9 @@ Statut : **FAIT — validé techniquement le 2026-06-07** (D029 respecté — CT
 | ANO-011 | REF_INTERVENANTS_SCHEMA_INCOMPLET | BLOQUANT | **CORRIGÉ 2026-06-07** |
 | ANO-012 | REF_LOGEMENTS_CODES_HORS_PARC_ABSENTS | A_CONTROLER | **CORRIGÉ 2026-06-07** |
 | ANO-013 | REF_CARTES_PAIEMENT_SUFFIXE_MANQUANT | A_CONTROLER | IGNORE_JUSTIFIE — Lot 8 |
+| ANO-014 | LISTING_ORPHELIN_A_CONTROLER (556954) | A_CONTROLER | OUVERT — Lot 2 |
 
-> **Les 3 orphelins listingMapId sont 3 cas distincts** — voir JOURNAL_ANOMALIES.md.
+> **Les 4 cas listingMapId sont distincts** — 515523, 556954, 497801, 480780 — voir JOURNAL_ANOMALIES.md.
 
 ---
 
@@ -110,35 +116,37 @@ Statut : **FAIT — validé techniquement le 2026-06-07** (D029 respecté — CT
 
 ## Prochaine action obligatoire
 ```
-Lot 0 FAIT. En attente feu vert humain pour démarrer Lot 1.
+Lots 0 et 1 FAITS. En attente feu vert humain pour démarrer Lot 2.
 
-Lot 1 — Module Hostaway (extraction existante non validée) :
-- Pré-requis : Lot 0 FAIT ✓
-- Objectif : valider l'extraction existante sur données réelles, contrôler le calcul payout,
-  traiter les anomalies bloquantes (BOOKING_PAYOUT_INCOMPLET), inscrire contrôle dans JOURNAL_CONTROLES.
-- Lecture ciblée : ARCHI §6, §7 ; REGLES §2 (H1-H7) ; PLAN Lot 1.
+Lot 2 — Mapping logements :
+- Pré-requis : Lots 0 et 1 FAITS ✓
+- Objectif : réconcilier REF_Logements ↔ listings Hostaway, traiter les 4 cas orphelins
+  (515523 + 556954 → ORPHELIN_A_CONTROLER à ajouter REF ; 497801 → REF vers absent Hostaway ;
+  480780 → sur_hostaway=NON à confirmer), inscrire contrôle dans JOURNAL_CONTROLES.
+- Lecture ciblée : PLAN Lot 2 ; REGLES §9 ; ARCHI §4, §16.3, §18.3, §20.
 ```
 
 ---
 
 ## Lecture prochaine session (discipline contextuelle)
 
-Pour la prochaine session (Lot 1), l'assistant doit ouvrir uniquement :
+Pour la prochaine session (Lot 2), l'assistant doit ouvrir uniquement :
 
 ```text
 À OUVRIR :
 - CLAUDE.md (intégral, court)
 - ETAT_AVANCEMENT.md (ce fichier)
-- PLAN_CONSTRUCTION.md → uniquement Lot 1
-- REGLES_METIER.md → §2 (H1-H7)
-- ARCHITECTURE_DONNEES.md → §6, §7 (via table des matières)
+- PLAN_CONSTRUCTION.md → uniquement Lot 2
+- REGLES_METIER.md → §9
+- ARCHITECTURE_DONNEES.md → §4, §16.3, §18.3, §20 (via table des matières)
+- JOURNAL_ANOMALIES.md → ANO-001, ANO-005, ANO-006, ANO-014 (4 cas listing/REF orphelins)
 
 À NE PAS OUVRIR (économie de contexte) :
 - README_PROJET.md (sauf onboarding)
 - OBJECTIF_PROJET_PILOTAGE_CONCIERGERIE_V3.md (vision générale, déjà lue)
-- JOURNAL_ANOMALIES.md (sauf anomalies ANO-004 et ANO-005 pertinentes Lot 1/2)
-- Les sections d'ARCHITECTURE_DONNEES.md hors §6/§7
+- Les sections d'ARCHITECTURE_DONNEES.md hors §4/§16.3/§18.3/§20
 - Tous les autres lots du PLAN
+- Données brutes Hostaway (Lot 1 déjà extrait)
 ```
 
 Cette discipline est appliquée à chaque nouveau lot, en s'appuyant sur la matrice `CLAUDE.md §5.bis`.

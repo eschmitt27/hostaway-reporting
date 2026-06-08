@@ -100,6 +100,37 @@ Commentaire: Lot 0 techniquement validable. Attente accord humain avant marquage
 
 ---
 
+### CTR-2026-06-004
+
+```
+Date       : 2026-06-08
+Lot        : Lot 1 — Module Hostaway (extraction + payout)
+Code       : AUDIT_LOT1_HOSTAWAY_POST_FIX_FINANCEFIELD
+Sévérité   : INFO
+Fichier    : 02_TRAVAIL/Lot1_Hostaway/ (run 20260608_134253)
+Résultat   : Extraction complète Lot 1 sur données réelles. Fix financeField appliqué (1 ligne :
+             _ff_from_res(detail) au lieu de parse_finance_fields(detail.get("money", {}))).
+             17 listings (14 actifs, 3 archivés : 485104, 515523, 556954).
+             1586 réservations API. 1391 traitées, 195 sautées (annulations sans montant — correct).
+             86 appels détail Booking uniquement (6% — mode minimal validé).
+             676 finance fields extraits (100% Booking — Airbnb via airbnbExpectedPayoutAmount).
+             Payout : 1321 NORMAL, 59 A_CONTROLER (32 VRBO Unknown + 27 DIRECT), 0 INCOMPLET, 0 ABSENT.
+             86 Booking 100% NORMAL via formule H2 (totalPriceFromChannel_formula) — fix confirmé.
+             1235 Airbnb 100% NORMAL via airbnbExpectedPayoutAmount.
+             55 anomalies A_CONTROLER (0 BLOQUANT) :
+             - 32 VRBO_MONTANT_NON_RENSEIGNE (→ Lot 4)
+             - 23 LISTING_ORPHELIN_A_CONTROLER (listings 515523 + 556954 absents REF — → Lot 2)
+             CleaningTasks SKIPPED — à traiter Lot 6a via --only-cleaning-tasks.
+             Points résiduels non bloquants :
+             - ANO-004 mis à jour 29→32 VRBO
+             - ANO-014 créée (listing 556954 T3 Montaudran, archivé, absent REF_Logements)
+             - 59 A_CONTROLER à saisir manuellement (Lots 4 / 4bis)
+Statut     : VALIDE
+Commentaire: Lot 1 validé humainement le 2026-06-08. Script : 02_TRAVAIL/lot1_hostaway_extract.py.
+```
+
+---
+
 ## Référence des codes de contrôle (source : ARCHITECTURE_DONNEES.md §18)
 
 > Convention : codes tirés de l'architecture. Ne pas inventer de nouveaux codes sans les ajouter ici ET dans l'architecture.

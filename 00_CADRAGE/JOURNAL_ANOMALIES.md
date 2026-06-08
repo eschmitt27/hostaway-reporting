@@ -63,8 +63,8 @@ Résolution : SANS OBJET — confirmé par audit CTR-2026-06-001.
 Date : 2026-06-04 | Lot : 1 — Hostaway | Sévérité : A_CONTROLER | Statut : OUVERT
 Code : VRBO_MONTANT_NON_RENSEIGNE
 Source : MASTER_FACT_HA_Reservations
-PK : 29 réservations vrboical — paymentStatus = Unknown
-Description : Montant financier indisponible dans Hostaway pour ces 29 réservations.
+PK : 32 réservations vrboical — paymentStatus = Unknown (29 au run 20260523, 32 au run 20260608 — +3 nouvelles réservations VRBO)
+Description : Montant financier indisponible dans Hostaway pour ces 32 réservations.
 Traitement attendu : saisie manuelle dans MASTER_FACT_MAN_ReservationsHorsHostaway au Lot 4.
 Résolution : En attente — Lot 4
 
@@ -95,11 +95,12 @@ Résolution : En attente — confirmation Lot 2
 
 ---
 
-## Note — les 3 orphelins ne sont pas équivalents
+## Note — les 4 cas listingMapId sont distincts
 
 | PK | Sens de l'anomalie | Nature | Action |
 |---|---|---|---|
-| 515523 | Hostaway → absent REF | Ancien logement désactivé | Ajouter au REF avec statut ORPHELIN_A_CONTROLER (Lot 2) |
+| 515523 | Hostaway → absent REF | Ancien logement archivé | Ajouter au REF avec statut ORPHELIN_A_CONTROLER (Lot 2) |
+| 556954 | Hostaway → absent REF | Ancien logement archivé (nouveau — ANO-014) | Ajouter au REF avec statut ORPHELIN_A_CONTROLER (Lot 2) |
 | 497801 | REF → absent Hostaway | REF pointe vers un listing inexistant | Vérifier/désactiver dans REF (Lot 2) |
 | 480780 | REF sur_hostaway=NON | Logement volontairement hors Hostaway | Confirmer l'intention (Lot 2) |
 
@@ -182,6 +183,21 @@ commentaire explicite "jamais utilisé pour masquer un mauvais mapping").
 ## Anomalies corrigées
 
 *(voir statut CORRIGÉ sur ANO-002, ANO-003, ANO-007 à ANO-012 ci-dessus)*
+
+---
+
+### ANO-2026-06-014
+Date : 2026-06-08 | Lot : 1 — Hostaway | Sévérité : A_CONTROLER | Statut : OUVERT
+Code : LISTING_ORPHELIN_A_CONTROLER
+Source : MASTER_REF_HA_Listings / MASTER_CTRL_HA_Anomalies
+PK : listingMapId = 556954
+Description : Listing 556954 (T3 Montaudran, Toulouse) présent dans l'export Hostaway (specialStatus=archived, actif=NON),
+ABSENT de REF_Logements. Détecté au run 20260608_134253 (CTR-2026-06-004).
+22 réservations historiques attachées — incluses dans les 23 LISTING_ORPHELIN_A_CONTROLER du run.
+Cas analogue à ANO-001 (515523) : ancien logement archivé, jamais saisi dans le référentiel.
+⚠ Ne pas intégrer comme logement actif avant arbitrage.
+Traitement attendu : ajouter dans REF_Setup.xlsm / REF_Logements au Lot 2 avec statut ORPHELIN_A_CONTROLER.
+Résolution : En attente — Lot 2
 
 ---
 
