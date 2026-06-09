@@ -427,5 +427,59 @@ Décision : Les charges récurrentes (forfaits, loyers, abonnements) sont porté
   REC_002 (Forfait local cave, CHG_023, TYPE_FLUX_010, HC, clé=NOMBRE_MENAGES, 50 €).
 Tables : REF_Charges_Recurrentes (REF_Setup.xlsm)
 
+### D046 — canal_id obligatoire dans SAISIE_ReservationsHorsHostaway (QM-L4-01)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : `canal_id` est obligatoire dans la table `MASTER_FACT_MAN_ReservationsHorsHostaway`.
+Source : `REF_Canaux_Reservation`. Objectif : distinguer DIRECT, VRBO, Autre hors Hostaway
+sans déduire le canal depuis un commentaire libre.
+Contrôle associé : `RESH_CANAL_MANQUANT` (BLOQUANT).
+Tables : SAISIE_ReservationsHorsHostaway.xlsx, MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx
+
+### D047 — taux_commission depuis référentiel prioritaire, fallback contrôlé (QM-L4-02)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : `taux_commission` est pré-rempli par VLOOKUP depuis `REF_Proprietaires.taux_commission`.
+  - Si trouvé → `taux_commission_source = REF_PROPRIETAIRE`.
+  - Si absent du référentiel → formule vide, `taux_commission_source = A_CONTROLER`.
+  - Saisie manuelle autorisée en fallback : `taux_commission_source = SAISIE_MANUELLE`.
+Aucun taux ne peut être deviné ou codé en dur. Colonne `commentaire_taux_commission` obligatoire
+si `taux_commission_source = SAISIE_MANUELLE`.
+Tables : SAISIE_ReservationsHorsHostaway.xlsx, REF_Proprietaires (REF_Setup.xlsm)
+
+### D048 — VRBO Unknown dans SAISIE_ReservationsHorsHostaway (QM-L4-03)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Les 29 réservations VRBO `paymentStatus = Unknown` (ANO-004) sont saisies dans
+`SAISIE_ReservationsHorsHostaway.xlsx`, pas dans un fichier séparé.
+  - `canal_id = CANAL_003` (VRBO)
+  - `source_financiere = VRBO_UNKNOWN`
+  - `reservation_id_hostaway` renseigné si l'ID Hostaway existe (obligatoire — D049)
+  - La vérité financière vient de la saisie Lot 4, jamais du montant Hostaway.
+  - Si `total_percu` vide → `A_CONTROLER` (pas BLOQUANT). Si renseigné → ligne valide.
+Tables : SAISIE_ReservationsHorsHostaway.xlsx, MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx
+
+### D049 — Séparation réservation / charge, lien via champ Lot 3 existant (QM-L4-04)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Dans `SAISIE_ReservationsHorsHostaway.xlsx`, on saisit uniquement la réservation,
+l'encaissement, le montant récupéré, l'associé récupérateur, le montant reversé propriétaire
+et l'acompte facture.
+Si une charge est payée avec le montant récupéré, elle est saisie dans `SAISIE_Charges_Flux.xlsx`
+(Lot 3 — champ `paye_avec_montant_recupere` = `reservation_hh_id`).
+Ce champ existe déjà dans Lot 3. Aucune modification de `SAISIE_Charges_Flux.xlsx` au Lot 4.
+Tables : SAISIE_ReservationsHorsHostaway.xlsx, SAISIE_Charges_Flux.xlsx (lien, non modifié)
+
+### D050 — Nomenclature PK réservations hors Hostaway (QM-L4-05)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : PK = `RESHH-AAAA-MM-NNN`. Compteur NNN repart à `001` chaque mois.
+  Exemple : RESHH-2026-05-001 / RESHH-2026-05-002 / RESHH-2026-06-001.
+  La clé est saisie comme valeur figée (pas de formule volatile). Elle ne doit jamais être
+  régénérée automatiquement après la saisie initiale.
+Tables : SAISIE_ReservationsHorsHostaway.xlsx, MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx
+
+### D051 — Chemins officiels Lot 4 (QM-L4-06)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision :
+  Source saisie  : `01_SOURCES_BRUTES/ReservationsHH/SAISIE_ReservationsHorsHostaway.xlsx`
+  Master transformé : `02_TRAVAIL/Lot4_ReservationsHH/MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx`
+Tables : SAISIE_ReservationsHorsHostaway.xlsx, MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx
+
 ### DO-03 — Barème IK kilométrique
 > **FERMÉE, voir D036.** Montant direct retenu au démarrage, barème optionnel plus tard.

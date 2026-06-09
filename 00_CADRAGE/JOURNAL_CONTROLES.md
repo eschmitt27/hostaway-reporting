@@ -199,6 +199,42 @@ Commentaire: Lot 3 validé humainement le 2026-06-08. Marquage FAIT autorisé.
              REFACTURATION → sens=CHARGE validé (charge avancée, récupérée sur propriétaire).
 ```
 
+### CTR-2026-06-007
+
+```
+Date       : 2026-06-09
+Lot        : Lot 4 — Réservations hors Hostaway
+Code       : AUDIT_LOT4_SAISIE_MASTER_RESHH_STRUCTURE
+Sévérité   : INFO
+Fichier    : 01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm (lecture V1/V2)
+             01_SOURCES_BRUTES/ReservationsHH/SAISIE_ReservationsHorsHostaway.xlsx
+             02_TRAVAIL/Lot4_ReservationsHH/MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx
+Résultat   : Audit structurel Lot 4 — 0 FAIL.
+             V1 REF_Canaux_Reservation : CANAL_003 VRBO / CANAL_004 Direct / CANAL_005 Autre présents, actifs.
+               Aucune modification REF_Setup.xlsm nécessaire.
+             V2 REF_Proprietaires : colonne taux_commission présente (12 proprios actifs, valeurs réelles 0.15–0.19).
+               REF_Logements sans taux → source = REF_PROPRIETAIRE via VLOOKUP.
+             SAISIE_ReservationsHorsHostaway.xlsx :
+               - 4 onglets (SAISIE, REF_LOCALE, CONTROLES_SAISIE, README).
+               - 30 colonnes SAISIE conformes au cadrage validé (groupes 1 à 9).
+               - 11 listes REF_LOCALE + lookup taux 2-col (lst_PropTauxLookup) pour VLOOKUP taux_commission.
+               - 11 DV (10 plan + niveau_anomalie pour cohérence Lot 3).
+               - 13 contrôles CONTROLES_SAISIE (CTR-L4-01 à CTR-L4-13).
+               - Formules calculées 500 lignes : mois, nuits, taux_commission, taux_commission_source,
+                 commission, acompte_facture, impact_resultat_reel, impact_resultat_comptable, ROW_HASH.
+               - MFC : rouge = BLOQUANT / orange = A_CONTROLER (sur colonne AB niveau_anomalie).
+             MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx :
+               - 3 onglets (MASTER 34 cols, VUE_ACTIVE 34 cols, POWER_QUERY_CODE).
+               - 4 colonnes PQ : source_module, source_table, source_pk, date_integration.
+               - 3 requêtes M-code : SAISIE_HH_Source, MASTER_FACT_MAN_ReservationsHorsHostaway, VUE_ACTIVE_ReservationsHH.
+               - Filtre VUE_ACTIVE : [statut_controle]="VALIDE".
+             Décisions verrouillées : D046–D051 (QM-L4-01 à QM-L4-06).
+Statut     : VALIDÉ
+Commentaire: Contrôle structurel uniquement — table vide, saisie non encore effectuée.
+             La saisie des 29 VRBO (ANO-004) et des réservations directes se fait manuellement.
+             Lot 4 peut être marqué FAIT après validation humaine du fichier produit.
+```
+
 ---
 
 ## Référence des codes de contrôle (source : ARCHITECTURE_DONNEES.md §18)

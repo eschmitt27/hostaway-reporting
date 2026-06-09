@@ -4,21 +4,22 @@
 ---
 
 ## Dernière mise à jour
-Date : 2026-06-08
-Session : Session 7 — Lot 3 SAISIE_Charges_Flux.xlsx (construction en cours)
+Date : 2026-06-09
+Session : Session 8 — Lot 4 SAISIE_ReservationsHorsHostaway.xlsx (construction terminée)
 Agent : Claude Code (claude-sonnet-4-6)
 
 ---
 
 ## Lot en cours
-Lot : 3 — SAISIE_Charges_Flux.xlsx
-Statut : **FAIT** (Lots 0, 1, 2 et 3 FAITS)
+Lot : 4 — SAISIE_ReservationsHorsHostaway.xlsx
+Statut : **FAIT** (Lots 0, 1, 2, 3 et 4 FAITS — en attente validation humaine Lot 4)
 
 > Contrôles inscrits :
 > - Lot 0 : CTR-2026-06-001 (audit initial), CTR-2026-06-002 (corrections), CTR-2026-06-003 (post-correction — tout vert)
 > - Lot 1 : CTR-2026-06-004 (extraction + payout validés — 2026-06-08)
 > - Lot 2 : CTR-2026-06-005 (mapping logements — 17/17 OK — validé humainement 2026-06-08)
-> Lot 3 FAIT (2026-06-08) : REF_Setup.xlsm mis à jour (5 onglets). SAISIE_Charges_Flux.xlsx créé (4 onglets, 31 cols, 18 DV, 13 contrôles). MASTER_FACT_MAN_Charges.xlsx créé (37 cols, 4 requêtes PQ). CTR-2026-06-006 inscrit.
+> - Lot 3 FAIT (2026-06-08) : REF_Setup.xlsm mis à jour (5 onglets). SAISIE_Charges_Flux.xlsx créé (4 onglets, 31 cols, 18 DV, 13 contrôles). MASTER_FACT_MAN_Charges.xlsx créé (37 cols, 4 requêtes PQ). CTR-2026-06-006 inscrit.
+> - Lot 4 (2026-06-09) : SAISIE_ReservationsHorsHostaway.xlsx créé (4 onglets, 30 cols, 11 DV, 13 contrôles, VLOOKUP taux). MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx créé (34 cols, 3 requêtes PQ). CTR-2026-06-007 inscrit. Décisions D046–D051 verrouillées.
 
 **Points résiduels non bloquants à traiter dans les lots suivants :**
 - `CARTE_002` suffixe `XXXX` (carte Ewan) → à renseigner au **Lot 8** avant traitement des exports bancaires.
@@ -54,20 +55,18 @@ Statut : **FAIT** (Lots 0, 1, 2 et 3 FAITS)
 
 ---
 
-## Ce qui a été modifié (cette session — Lot 3)
-- Référentiel : `01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm` (Lot 3)
-  - REF_Categories_Charges : colonne `filtre_vue_menage` ajoutée + CHG_021/022/023
-  - REF_Types_Flux : TYPE_FLUX_009 à 012 ajoutés
-  - REF_Types_Affectation : AFF_GLOBAL + AFF_NON_AFFECTABLE ajoutés
-  - REF_Statuts : STAT_022 désactivé + STAT_024-029 ajoutés (D044)
-  - REF_Charges_Recurrentes : nouvel onglet + REC_001/002
-- Sauvegarde : `99_ARCHIVES/LOT3_Charges/REF_Setup_BACKUP_20260608_191019.xlsm`
-- Cadrage : `DECISIONS_METIER.md` (D044 + D045) + `REGLES_METIER.md` (§Statuts) + `ARCHITECTURE_DONNEES.md` (§23.1 note) + `ETAT_AVANCEMENT.md` (ce fichier)
-- Scripts : `02_TRAVAIL/lot3_ref_setup_update.py` (exécuté)
-- Scripts : `02_TRAVAIL/lot3_saisie_template.py` (exécuté) + `02_TRAVAIL/lot3_master_template.py` (exécuté)
-- Créé : `01_SOURCES_BRUTES/Charges/SAISIE_Charges_Flux.xlsx` (4 onglets : SAISIE 31 cols, REF_LOCALE 18 listes, CONTROLES_SAISIE 13 contrôles, README)
-- Créé : `02_TRAVAIL/Lot3_Charges/MASTER_FACT_MAN_Charges.xlsx` (3 onglets : MASTER 32 cols, VUE_MENAGE, POWER_QUERY_CODE avec 4 requêtes M)
-- Dossiers créés : `01_SOURCES_BRUTES/Charges/` + `02_TRAVAIL/Lot3_Charges/`
+## Ce qui a été modifié (cette session — Lot 4)
+- Cadrage : `DECISIONS_METIER.md` (D046–D051 ajoutés — QM-L4-01 à QM-L4-06)
+- Cadrage : `JOURNAL_CONTROLES.md` (CTR-2026-06-007 inscrit)
+- Cadrage : `ETAT_AVANCEMENT.md` (ce fichier — session 8, Lot 4)
+- Scripts : `02_TRAVAIL/lot4_saisie_template.py` (créé + exécuté)
+- Scripts : `02_TRAVAIL/lot4_master_template.py` (créé + exécuté)
+- Créé : `01_SOURCES_BRUTES/ReservationsHH/SAISIE_ReservationsHorsHostaway.xlsx`
+  (4 onglets : SAISIE 30 cols, REF_LOCALE 11 listes + lookup taux, CONTROLES_SAISIE 13 contrôles, README)
+- Créé : `02_TRAVAIL/Lot4_ReservationsHH/MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx`
+  (3 onglets : MASTER 34 cols, VUE_ACTIVE, POWER_QUERY_CODE 3 requêtes M)
+- Dossiers créés : `01_SOURCES_BRUTES/ReservationsHH/` + `02_TRAVAIL/Lot4_ReservationsHH/`
+- REF_Setup.xlsm : NON modifié (V1+V2 OK — canaux + taux existants)
 
 ---
 
@@ -135,28 +134,28 @@ Statut : **FAIT** (Lots 0, 1, 2 et 3 FAITS)
 
 ## Prochaine action obligatoire
 ```
-Lot 3 FAIT (2026-06-08) — CTR-2026-06-006 inscrit
-Prochain lot : Lot 4 — Réservations hors Hostaway
+Lot 4 FAIT (2026-06-09) — CTR-2026-06-007 inscrit — en attente validation humaine
+Prochain lot : Lot 4bis — Table commune des réservations (MASTER_CALC_Reservations)
 ```
 
 ---
 
 ## Lecture prochaine session (discipline contextuelle)
 
-Pour la prochaine session (Lot 4), l'assistant doit ouvrir uniquement :
+Pour la prochaine session (Lot 4bis), l'assistant doit ouvrir uniquement :
 
 ```text
 À OUVRIR :
 - CLAUDE.md (intégral, court)
 - ETAT_AVANCEMENT.md (ce fichier)
-- PLAN_CONSTRUCTION.md → uniquement Lot 4
-- REGLES_METIER.md → §10, §1
-- ARCHITECTURE_DONNEES.md → §9 (réservations hors Hostaway)
+- PLAN_CONSTRUCTION.md → uniquement Lot 4bis
+- REGLES_METIER.md → §10
+- ARCHITECTURE_DONNEES.md → §9.5 (MASTER_CALC_Reservations)
 
 À NE PAS OUVRIR (économie de contexte) :
 - README_PROJET.md (sauf onboarding)
 - OBJECTIF_PROJET_PILOTAGE_CONCIERGERIE_V3.md
-- Les sections d'ARCHITECTURE_DONNEES.md hors §9
+- Les sections d'ARCHITECTURE_DONNEES.md hors §9.5
 - Tous les autres lots du PLAN
 - Données brutes Banque / fichiers Lot 1 détaillés
 ```
