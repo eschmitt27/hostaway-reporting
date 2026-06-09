@@ -557,18 +557,38 @@ Identifiant parlant généré à la saisie, suivant la nomenclature unique du §
 
 ### 10.4 Acomptes propriétaires — `MASTER_FACT_MAN_AcomptesProprietaires`
 
-Type de flux `ACOMPTE_FACTURE_PROPRIETAIRE` (`HC`). Règles : rattachement à une facture **obligatoire** ; report au mois suivant si excédentaire.
+Type de flux `TYPE_FLUX_006 = ACOMPTE_FACTURE_PROPRIETAIRE` (`HC`). Rattachement à une facture obligatoire (`facture_ref`). `report_mois_suivant` supprimé du Lot 5 (différé Lot 10/12 — D061). Granularité : `proprietaire_id + logement_id + mois + facture_ref + source_acompte`.
 
-| Colonne | Rôle |
-|---|---|
-| `acompte_id` (PK) / `ROW_HASH` | |
-| `mois`, `proprietaire_id`, `logement_id` | Rattachement |
-| `facture_id` | Facture rattachée (obligatoire) |
-| `montant_acompte`, `report_mois_suivant` | Montant et report éventuel |
-| `source_pk` | Réservation HH ou autre origine |
-| `mode_paiement_id`, `statut_controle` | |
+**Structure : 18 colonnes SAISIE + 4 colonnes PQ = 22 colonnes MASTER**
 
-Granularité recommandée : `proprietaire_id + logement_id + mois + facture_ref` (un acompte peut devoir être ventilé par appartement quand les factures sont émises par logement).
+| # | Colonne | Bloc | Règle |
+|---|---|---|---|
+| 1 | `acompte_id` (PK) | Identification | `ACC-AAAA-MM-NNN` — stable — reset 001/mois — saisi manuellement (D063) |
+| 2 | `ROW_HASH` | Identification | Hash ligne |
+| 3 | `mois` | Rattachement | `YYYY-MM` extrait de `acompte_id` |
+| 4 | `proprietaire_id` | Rattachement | DV REF_Proprietaires — BLOQUANT si absent |
+| 5 | `logement_id` | Rattachement | DV REF_Logements — A_CONTROLER si absent |
+| 6 | `facture_ref` | Rattachement | `FAC-AAAA-MM-PROP-NNN` — BLOQUANT si absent pour ligne VALIDE (D059) |
+| 7 | `source_acompte` | Rattachement | `HH_RESERVATION` / `VIREMENT_DIRECT` / `AUTRE` (D058) |
+| 8 | `source_hh_id` | Rattachement | `reservation_hh_id` si `HH_RESERVATION` / null sinon (D064) |
+| 9 | `montant_acompte` | Financier | `= acompte_facture` (HH) / saisi sinon — BLOQUANT si ≤ 0 |
+| 10 | `report_mois_precedent` | Financier | Informatif — non calculé au Lot 5 — A_CONTROLER si sans commentaire (D061) |
+| 11 | `mode_paiement_id` | Mode | DV REF_Modes_Paiement |
+| 12 | `code_impact` | Impact | `HC` fixe |
+| 13 | `impact_resultat_reel` | Impact | `OUI` fixe (HC → OUI) |
+| 14 | `impact_resultat_comptable` | Impact | `NON` fixe (HC → NON) |
+| 15 | `statut_controle` | Statut | `VALIDE` / `A_CONTROLER` / `EXCLU_RESULTAT` |
+| 16 | `niveau_anomalie` | Statut | `BLOQUANT` / `A_CONTROLER` / `INFO` |
+| 17 | `code_anomalie` | Statut | Premier code détecté par priorité |
+| 18 | `commentaire` | Statut | Libre — obligatoire si `report_mois_precedent` renseigné |
+| 19 | `source_module` | Système PQ | `LOT5_ACOMPTES_PROPRIETAIRES` |
+| 20 | `source_table` | Système PQ | `SAISIE_AcomptesProprietaires` (toujours — D064) |
+| 21 | `source_pk` | Système PQ | `acompte_id` (toujours — D064) |
+| 22 | `date_integration` | Système PQ | `DateTime.LocalNow()` |
+
+Contrôles BLOQUANT (5) : `ACOMPTE_NON_RATTACHE_FACTURE` / `ACOMPTE_HH_INCOHERENT` / `ACOMPTE_CALC_ID_DUPLIQUE` / `ACOMPTE_PROPRIETAIRE_ABSENT` / `ACOMPTE_MONTANT_INVALIDE`.
+Contrôles A_CONTROLER (5) : `ACOMPTE_LOGEMENT_ABSENT` / `ACOMPTE_SOURCE_HH_INTROUVABLE` / `ACOMPTE_REPORT_INCOHERENT` / `ACOMPTE_SOURCE_A_CONTROLER` / `ACOMPTE_FACTURE_REF_FORMAT_INVALIDE`.
+Sources : `SAISIE_AcomptesProprietaires.xlsx` (toutes lignes) + `MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx` (ref croisée HH, filtre VALIDE + acompte_facture > 0 — D058/D064).
 
 ### 10.5 Traçabilité du liquide et caisse théorique
 

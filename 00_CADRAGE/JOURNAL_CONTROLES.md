@@ -268,6 +268,47 @@ Commentaire: Contrôle structurel uniquement — table vide, données non encore
              Lot 4bis peut être marqué FAIT après validation humaine.
 ```
 
+### CTR-2026-06-009
+
+```
+Date       : 2026-06-09
+Lot        : Lot 5 — Acomptes propriétaires
+Code       : AUDIT_LOT5_SAISIE_MASTER_ACOMPTES_STRUCTURE
+Sévérité   : INFO
+Fichier    : 01_SOURCES_BRUTES/AcomptesProprietaires/SAISIE_AcomptesProprietaires.xlsx
+             02_TRAVAIL/Lot5_AcomptesProprietaires/MASTER_FACT_MAN_AcomptesProprietaires.xlsx
+             02_TRAVAIL/lot5_master_acomptes_proprietaires.py
+Résultat   : Contrôle structurel Lot 5 — 0 FAIL.
+             Script Python exécuté avec succès.
+             REF_Setup.xlsm : non modifié — TYPE_FLUX_006 (ACOMPTE_FACTURE_PROPRIETAIRE)
+               déjà présent, aucun ajout nécessaire.
+             SAISIE_AcomptesProprietaires.xlsx :
+               - 4 onglets : SAISIE (18 cols) / REF_LOCALE / CONTROLES_SAISIE / README.
+               - 18 colonnes SAISIE conformes : 2 identification + 6 rattachement + 2 financier
+                 + 1 mode + 3 impact + 4 statut.
+               - 5 DV : source_acompte (liste fermée) / statut_controle (liste fermée) /
+                 proprietaire_id (REF_LOCALE) / logement_id (REF_LOCALE) / mode_paiement_id (REF_LOCALE).
+               - REF_LOCALE : 12 propriétaires actifs / 16 logements actifs avec proprietaire_id /
+                 5 modes de paiement actifs.
+               - 10 contrôles CONTROLES_SAISIE : 5 BLOQUANT + 5 A_CONTROLER.
+             MASTER_FACT_MAN_AcomptesProprietaires.xlsx :
+               - 3 onglets : MASTER (22 cols) / VUE_ACTIVE (22 cols) / POWER_QUERY_CODE.
+               - 22 colonnes MASTER : 18 SAISIE + 4 PQ (source_module / source_table / source_pk / date_integration).
+               - 5 requêtes M-code : Q1_SAISIE_ACC_Source / Q2_HH_Acomptes_Ref /
+                 Q3_REF_Proprietaires_Source / Q4_MASTER_FACT_MAN_AcomptesProprietaires /
+                 Q5_VUE_ACTIVE_AcomptesProprietaires.
+               - source_table = SAISIE_AcomptesProprietaires (toujours) — D064.
+               - source_pk = acompte_id (toujours) — D064.
+               - source_hh_id = reservation_hh_id si HH_RESERVATION / null sinon — D064.
+               - Filtre VUE_ACTIVE : statut_controle = VALIDE.
+             Décisions verrouillées : D058–D064 (QM-L5-01 à QM-L5-07).
+Statut     : VALIDÉ
+Commentaire: Contrôle structurel uniquement — table vide, saisie non encore effectuée.
+             Aucun backup REF_Setup.xlsm nécessaire (aucune modification).
+             report_mois_suivant supprimé (D061) — report_mois_precedent conservé informatif.
+             Lot 5 peut être marqué FAIT après validation humaine du fichier produit.
+```
+
 ---
 
 ## Référence des codes de contrôle (source : ARCHITECTURE_DONNEES.md §18)

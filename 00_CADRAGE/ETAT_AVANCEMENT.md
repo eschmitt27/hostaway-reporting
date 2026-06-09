@@ -5,14 +5,14 @@
 
 ## Dernière mise à jour
 Date : 2026-06-09
-Session : Session 9 — Lot 4bis MASTER_CALC_Reservations (construction terminée)
+Session : Session 10 — Lot 5 Acomptes propriétaires (construction terminée)
 Agent : Claude Code (claude-sonnet-4-6)
 
 ---
 
 ## Lot en cours
-Lot : 4bis — MASTER_CALC_Reservations (table commune des réservations)
-Statut : **FAIT** (Lots 0, 1, 2, 3, 4 et 4bis FAITS — en attente validation humaine Lot 4bis)
+Lot : 5 — Acomptes propriétaires
+Statut : **FAIT** (Lots 0, 1, 2, 3, 4, 4bis et 5 FAITS — en attente validation humaine Lot 5)
 
 > Contrôles inscrits :
 > - Lot 0 : CTR-2026-06-001 (audit initial), CTR-2026-06-002 (corrections), CTR-2026-06-003 (post-correction — tout vert)
@@ -21,6 +21,7 @@ Statut : **FAIT** (Lots 0, 1, 2, 3, 4 et 4bis FAITS — en attente validation hu
 > - Lot 3 FAIT (2026-06-08) : REF_Setup.xlsm mis à jour (5 onglets). SAISIE_Charges_Flux.xlsx créé (4 onglets, 31 cols, 18 DV, 13 contrôles). MASTER_FACT_MAN_Charges.xlsx créé (37 cols, 4 requêtes PQ). CTR-2026-06-006 inscrit.
 > - Lot 4 (2026-06-09) : SAISIE_ReservationsHorsHostaway.xlsx créé (4 onglets, 30 cols, 11 DV, 13 contrôles, VLOOKUP taux). MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx créé (34 cols, 3 requêtes PQ). CTR-2026-06-007 inscrit. Décisions D046–D051 verrouillées.
 > - Lot 4bis (2026-06-09) : MASTER_CALC_Reservations.xlsx créé (3 onglets, 24 cols, 7 requêtes PQ, anti-double-comptage 7 scénarios, 2 BLOQUANTS + 6 A_CONTROLER). CTR-2026-06-008 inscrit. Décisions D052–D057 verrouillées.
+> - Lot 5 (2026-06-09) : SAISIE_AcomptesProprietaires.xlsx créé (4 onglets, 18 cols, 5 DV, 10 contrôles). MASTER_FACT_MAN_AcomptesProprietaires.xlsx créé (22 cols, 5 requêtes PQ). REF_Setup.xlsm non modifié (TYPE_FLUX_006 déjà présent). CTR-2026-06-009 inscrit. Décisions D058–D064 verrouillées.
 
 **Points résiduels non bloquants à traiter dans les lots suivants :**
 - `CARTE_002` suffixe `XXXX` (carte Ewan) → à renseigner au **Lot 8** avant traitement des exports bancaires.
@@ -59,21 +60,30 @@ Statut : **FAIT** (Lots 0, 1, 2, 3, 4 et 4bis FAITS — en attente validation hu
   - MASTER_CALC_Reservations.xlsx créé (3 onglets, 24 cols, 7 requêtes PQ). Chemin : `02_TRAVAIL/Lot4bis_TableCommune/`.
   - Anti-double-comptage 7 scénarios. 2 BLOQUANTS + 6 A_CONTROLER détectés en PQ. VUE_FLUX filtre VALIDE+OUI+montant≠0.
   - Contrôle inscrit : CTR-2026-06-008. Décisions D052–D057.
+- **Lot 5 — Acomptes propriétaires FAIT (2026-06-09)** :
+  - SAISIE_AcomptesProprietaires.xlsx créé (4 onglets, 18 cols, 5 DV, 10 contrôles). Chemin : `01_SOURCES_BRUTES/AcomptesProprietaires/`.
+  - MASTER_FACT_MAN_AcomptesProprietaires.xlsx créé (3 onglets, 22 cols, 5 requêtes PQ). Chemin : `02_TRAVAIL/Lot5_AcomptesProprietaires/`.
+  - REF_Setup.xlsm non modifié : TYPE_FLUX_006 (ACOMPTE_FACTURE_PROPRIETAIRE) déjà présent.
+  - report_mois_suivant supprimé (D061). source_pk = acompte_id toujours (D064). TYPE_FLUX_013 non créé.
+  - Contrôle inscrit : CTR-2026-06-009. Décisions D058–D064.
 
 > **Règle D029 — IRRÉVOCABLE** : aucun lot ne peut être marqué FAIT sans entrée dans JOURNAL_CONTROLES.
 
 ---
 
-## Ce qui a été modifié (cette session — Lot 4bis)
-- Cadrage : `DECISIONS_METIER.md` (D052–D057 ajoutés — QM-L4b-01 à QM-L4b-06)
-- Cadrage : `JOURNAL_CONTROLES.md` (CTR-2026-06-008 inscrit)
-- Cadrage : `ETAT_AVANCEMENT.md` (ce fichier — session 9, Lot 4bis)
-- Script : `02_TRAVAIL/lot4bis_master_calc_reservations.py` (créé + exécuté)
-- Créé : `02_TRAVAIL/Lot4bis_TableCommune/MASTER_CALC_Reservations.xlsx`
-  (3 onglets : MASTER 24 cols, VUE_FLUX filtre VALIDE+OUI+montant≠0, POWER_QUERY_CODE 7 requêtes M)
-- Dossier créé : `02_TRAVAIL/Lot4bis_TableCommune/`
-- REF_Setup.xlsm : NON modifié
-- Fichiers Lots 1, 3, 4 : NON modifiés
+## Ce qui a été modifié (cette session — Lot 5)
+- Cadrage : `DECISIONS_METIER.md` (D058–D064 ajoutés — QM-L5-01 à QM-L5-07)
+- Cadrage : `JOURNAL_CONTROLES.md` (CTR-2026-06-009 inscrit)
+- Cadrage : `ARCHITECTURE_DONNEES.md` (§10.4 mis à jour — 22 cols, PK ACC-AAAA-MM-NNN, facture_ref, suppression report_mois_suivant, D064 source_pk/source_hh_id)
+- Cadrage : `ETAT_AVANCEMENT.md` (ce fichier — session 10, Lot 5)
+- Script : `02_TRAVAIL/lot5_master_acomptes_proprietaires.py` (créé + exécuté)
+- Créé : `01_SOURCES_BRUTES/AcomptesProprietaires/SAISIE_AcomptesProprietaires.xlsx`
+  (4 onglets : SAISIE 18 cols, REF_LOCALE 12 props/16 logs/5 modes, CONTROLES_SAISIE 10 contrôles, README)
+- Créé : `02_TRAVAIL/Lot5_AcomptesProprietaires/MASTER_FACT_MAN_AcomptesProprietaires.xlsx`
+  (3 onglets : MASTER 22 cols, VUE_ACTIVE filtre VALIDE, POWER_QUERY_CODE 5 requêtes M)
+- Dossiers créés : `01_SOURCES_BRUTES/AcomptesProprietaires/` + `02_TRAVAIL/Lot5_AcomptesProprietaires/`
+- REF_Setup.xlsm : NON modifié (TYPE_FLUX_006 déjà présent — aucune modification nécessaire)
+- Fichiers Lots 1, 3, 4, 4bis : NON modifiés
 
 ---
 
@@ -142,36 +152,44 @@ Statut : **FAIT** (Lots 0, 1, 2, 3, 4 et 4bis FAITS — en attente validation hu
 - D055 : mois = TEXT YYYY-MM depuis checkInDate (HA) / direct (HH) — VERROUILLÉ (QM-L4b-04)
 - D056 : PK RES-AAAA-MM-HA-NNN / RES-AAAA-MM-HH-NNN ; compteur reset 001/mois/branche — VERROUILLÉ (QM-L4b-05)
 - D057 : chemins 02_TRAVAIL/Lot4bis_TableCommune/ ; 3 onglets ; 7 requêtes PQ — VERROUILLÉ (QM-L4b-06)
+- D058 : périmètre sources Lot 5 — HH_RESERVATION / VIREMENT_DIRECT / AUTRE — VERROUILLÉ (QM-L5-01)
+- D059 : facture_ref = FAC-AAAA-MM-PROP-NNN, provisoire, BLOQUANT si absente — VERROUILLÉ (QM-L5-02)
+- D060 : granularité proprietaire_id+logement_id+mois+facture_ref+source ; 22 cols MASTER — VERROUILLÉ (QM-L5-03)
+- D061 : report_mois_suivant supprimé Lot 5 ; report_mois_precedent informatif, déféré Lot 10/12 — VERROUILLÉ (QM-L5-04)
+- D062 : chemins Lot 5 ; TYPE_FLUX_006 existant, aucune modif REF_Setup — VERROUILLÉ (QM-L5-05)
+- D063 : PK ACC-AAAA-MM-NNN, reset 001/mois, stable, saisi manuellement — VERROUILLÉ (QM-L5-06)
+- D064 : source_pk = acompte_id toujours ; source_hh_id = reservation_hh_id si HH — VERROUILLÉ (QM-L5-07)
 
 ---
 
 ## Prochaine action obligatoire
 ```
-Lot 4bis FAIT (2026-06-09) — CTR-2026-06-008 inscrit — en attente validation humaine
-Prochain lot : Lot 5 — Acomptes propriétaires
+Lot 5 FAIT (2026-06-09) — CTR-2026-06-009 inscrit — en attente validation humaine
+Prochain lot : Lot 6a — Hostaway ménages (comptage CleaningTasks)
 ```
 
 ---
 
 ## Lecture prochaine session (discipline contextuelle)
 
-Pour la prochaine session (Lot 5 — Acomptes propriétaires), l'assistant doit ouvrir uniquement :
+Pour la prochaine session (Lot 6a — Hostaway ménages comptage CleaningTasks), l'assistant doit ouvrir uniquement :
 
 ```text
 À OUVRIR :
 - CLAUDE.md (intégral, court)
 - ETAT_AVANCEMENT.md (ce fichier)
-- PLAN_CONSTRUCTION.md → uniquement Lot 5
-- ARCHITECTURE_DONNEES.md → §10.4 (acomptes propriétaires)
-- Sortie Lot 4 (VUE_ACTIVE MASTER_FACT_MAN_ReservationsHorsHostaway) + REF_Proprietaires + REF_Logements
+- PLAN_CONSTRUCTION.md → uniquement Lot 6a
+- ARCHITECTURE_DONNEES.md → §11.1, §11.2 (ménages, CleaningTasks)
+- REGLES_METIER.md → §2 (H6), §3 (M04 limites — D027)
+- Sortie Lot 1 CleaningTasks (si disponible) + REF_Types_Lignes_Menage
 
 À NE PAS OUVRIR (économie de contexte) :
 - README_PROJET.md (sauf onboarding)
 - OBJECTIF_PROJET_PILOTAGE_CONCIERGERIE_V3.md
-- Les sections d'ARCHITECTURE_DONNEES.md hors §10.4
-- Tous les autres lots du PLAN
-- Données brutes Banque / fichiers Lot 1 détaillés
-- MASTER_CALC_Reservations (Lot 4bis) — non utilisé au Lot 5
+- Les sections d'ARCHITECTURE_DONNEES.md hors §11.1, §11.2
+- Fichiers Lots 3, 4, 4bis, 5
+- Données brutes Banque
+- MASTER_CALC_Reservations (Lot 4bis) — non utilisé au Lot 6a
 ```
 
 Cette discipline est appliquée à chaque nouveau lot, en s'appuyant sur la matrice `CLAUDE.md §5.bis`.

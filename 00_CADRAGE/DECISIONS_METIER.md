@@ -534,5 +534,53 @@ Décision :
   Ne pas toucher : REF_Setup.xlsm / Lots 1, 3, 4
 Tables : MASTER_CALC_Reservations
 
+### D058 — Périmètre sources acomptes Lot 5 (QM-L5-01)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Le Lot 5 couvre trois sources d'acomptes propriétaires : (1) acomptes issus des réservations hors Hostaway (`acompte_facture` du Lot 4) ; (2) virements directs propriétaires ; (3) acomptes manuels ou exceptionnels sans réservation HH.
+  `source_acompte` fermé — 3 valeurs : `HH_RESERVATION` / `VIREMENT_DIRECT` / `AUTRE`.
+  Toutes les lignes passent par `SAISIE_AcomptesProprietaires.xlsx`. La validation croisée HH est effectuée en PQ (non en saisie brute).
+Tables : SAISIE_AcomptesProprietaires, MASTER_FACT_MAN_AcomptesProprietaires
+
+### D059 — Format facture_ref et règle de rattachement (QM-L5-02)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : `facture_ref` est une référence provisoire de rattachement, format `FAC-AAAA-MM-PROP-NNN`. Obligatoire pour les lignes `VALIDE`. Absente → contrôle `ACOMPTE_NON_RATTACHE_FACTURE` (BLOQUANT). La vraie facture est créée au Lot 12 ; `facture_ref` peut être remplacée ou rapprochée à ce moment.
+Tables : SAISIE_AcomptesProprietaires, MASTER_FACT_MAN_AcomptesProprietaires
+
+### D060 — Granularité et structure 22 colonnes (QM-L5-03)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Granularité `proprietaire_id + logement_id + mois + facture_ref + source_acompte`. Une ligne par acompte ; pas de regroupement au niveau propriétaire seul. Structure finale : 18 colonnes SAISIE + 4 colonnes PQ = 22 colonnes MASTER.
+  Blocs : identification (2) / rattachement (6) / financier (2) / mode (1) / impact (3) / statut (4) / système PQ (4).
+Tables : SAISIE_AcomptesProprietaires, MASTER_FACT_MAN_AcomptesProprietaires
+
+### D061 — Suppression report_mois_suivant — Lot 5 = table de faits pure (QM-L5-04)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : `report_mois_suivant` supprimé du Lot 5. Le montant réel de la facture n'est pas connu au Lot 5 ; le calcul du report définitif est différé au Lot 10/12. `report_mois_precedent` est conservé comme information non liquidée : saisi manuellement, non calculé, contrôlé si renseigné sans commentaire (`ACOMPTE_REPORT_INCOHERENT` A_CONTROLER).
+Tables : SAISIE_AcomptesProprietaires, MASTER_FACT_MAN_AcomptesProprietaires
+
+### D062 — Structure fichiers Lot 5 (QM-L5-05)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision :
+  Script   : `02_TRAVAIL/lot5_master_acomptes_proprietaires.py`
+  SAISIE   : `01_SOURCES_BRUTES/AcomptesProprietaires/SAISIE_AcomptesProprietaires.xlsx` (18 cols, 4 onglets : SAISIE / REF_LOCALE / CONTROLES_SAISIE / README)
+  MASTER   : `02_TRAVAIL/Lot5_AcomptesProprietaires/MASTER_FACT_MAN_AcomptesProprietaires.xlsx` (22 cols, 3 onglets : MASTER / VUE_ACTIVE / POWER_QUERY_CODE)
+  Type de flux : `TYPE_FLUX_006 = ACOMPTE_FACTURE_PROPRIETAIRE` (déjà présent dans REF_Setup.xlsm — aucune modification REF_Setup nécessaire)
+  Sources PQ : SAISIE_AcomptesProprietaires + MASTER_FACT_MAN_ReservationsHorsHostaway (ref croisée HH)
+Tables : SAISIE_AcomptesProprietaires, MASTER_FACT_MAN_AcomptesProprietaires
+
+### D063 — Nomenclature PK acompte_id (QM-L5-06)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : PK = `ACC-AAAA-MM-NNN`. Compteur reset à `001` chaque mois. Clé stable — jamais régénérée automatiquement. Saisie manuelle par l'utilisateur dans `SAISIE_AcomptesProprietaires.xlsx`. Contrôle `ACOMPTE_CALC_ID_DUPLIQUE` (BLOQUANT) détecte tout doublon.
+Tables : SAISIE_AcomptesProprietaires, MASTER_FACT_MAN_AcomptesProprietaires
+
+### D064 — Séparation source_pk / source_hh_id (QM-L5-07)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Deux colonnes distinctes, deux rôles non interchangeables.
+  `source_table` = `SAISIE_AcomptesProprietaires` (toujours — unique source du MASTER Lot 5).
+  `source_pk`    = `acompte_id` (toujours — trace la ligne d'acompte).
+  `source_hh_id` = `reservation_hh_id` si `source_acompte = HH_RESERVATION` / `null` sinon (lien métier vers Lot 4).
+  Contrôle `ACOMPTE_SOURCE_HH_INTROUVABLE` (A_CONTROLER) : `source_hh_id` renseigné mais absent de `MASTER_FACT_MAN_ReservationsHorsHostaway` VALIDE + acompte_facture > 0.
+  Contrôle `ACOMPTE_HH_INCOHERENT` (BLOQUANT) : `source_acompte = HH_RESERVATION` ET `montant_acompte ≠ acompte_facture` dans MASTER HH.
+Tables : SAISIE_AcomptesProprietaires, MASTER_FACT_MAN_AcomptesProprietaires
+
 ### DO-03 — Barème IK kilométrique
 > **FERMÉE, voir D036.** Montant direct retenu au démarrage, barème optionnel plus tard.
