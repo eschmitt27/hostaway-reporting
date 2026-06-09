@@ -264,7 +264,7 @@ Résultat réel/comptable/hors compta par mois ; résultat par logement, par pro
 
 ### 6.2 Données réelles observées
 
-Répartition par canal : `airbnbOfficial` 1335, `bookingcom` 110, `direct` 31, `vrboical` 29.
+Répartition par canal : `airbnbOfficial` 1335, `bookingcom` 110, `direct` 31, `vrboical` 32.
 Champ déjà calculé `source_financiere_prevue` : HOSTAWAY_AIRBNB / HOSTAWAY_BOOKING / MANUEL_HORS_HOSTAWAY / A_CONTROLER.
 Finance fields les plus fréquents : `baseRate`, `totalPriceFromChannel`, `hostChannelFee`, `cleaningFee`, `totalPaid`, `airbnbPayoutSum`, `cityTax`, `otaPaymentProcessingFee`, `vat`.
 Reservation fees : tous les `fee_id` renseignés au dernier run (fallback non sollicité mais à conserver).
@@ -427,7 +427,7 @@ revenu_net_exploitation_proprietaire = TotalPayout − MenageFacture − Commiss
 
 ## 9. Réservations hors Hostaway (Module 2)
 
-**Besoin confirmé** : sur 31 `direct`, seules **13 sont des réservations payantes** (`new`), 9 `ownerStay` (montant 0, exclus), 7 `cancelled`, 2 `modified`. Les 29 VRBO sont en `paymentStatus = Unknown` (flag `A_CONTROLER`). **Granularité retenue : une ligne par réservation.**
+**Besoin confirmé** : sur 31 `direct`, seules **13 sont des réservations payantes** (`new`), 9 `ownerStay` (montant 0, exclus), 7 `cancelled`, 2 `modified`. Les 32 VRBO sont en `paymentStatus = Unknown` (flag `A_CONTROLER`). **Granularité retenue : une ligne par réservation.**
 
 ### 9.1 Cas de figure réels
 

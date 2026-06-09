@@ -121,7 +121,7 @@ Tables : NORM_Banque, MASTER_CALC_Flux
 
 ### D019 — VRBO paymentStatus Unknown
 Date : antérieur 2026-06-04 | Statut : VALIDÉ
-Décision : 29 réservations VRBO en statut Unknown → flag A_CONTROLER.
+Décision : 32 réservations VRBO en statut Unknown → flag A_CONTROLER.
 Montant renseigné manuellement dans MASTER_FACT_MAN_ReservationsHorsHostaway.
 Jamais assimilé automatiquement à une réservation directe.
 Tables : MASTER_CALC_Reservations
@@ -447,7 +447,7 @@ Tables : SAISIE_ReservationsHorsHostaway.xlsx, REF_Proprietaires (REF_Setup.xlsm
 
 ### D048 — VRBO Unknown dans SAISIE_ReservationsHorsHostaway (QM-L4-03)
 Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
-Décision : Les 29 réservations VRBO `paymentStatus = Unknown` (ANO-004) sont saisies dans
+Décision : Les 32 réservations VRBO `paymentStatus = Unknown` (ANO-004) sont saisies dans
 `SAISIE_ReservationsHorsHostaway.xlsx`, pas dans un fichier séparé.
   - `canal_id = CANAL_003` (VRBO)
   - `source_financiere = VRBO_UNKNOWN`
@@ -480,6 +480,59 @@ Décision :
   Source saisie  : `01_SOURCES_BRUTES/ReservationsHH/SAISIE_ReservationsHorsHostaway.xlsx`
   Master transformé : `02_TRAVAIL/Lot4_ReservationsHH/MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx`
 Tables : SAISIE_ReservationsHorsHostaway.xlsx, MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx
+
+### D052 — Mapping logement_id depuis listingMapId pour branche HA (QM-L4b-01)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Pour la branche HA, `logement_id` est obtenu via JOIN sur `REF_Mapping_Logements` (colonne `listingMapId`), actifs uniquement. `proprietaire_id` est obtenu via JOIN sur `REF_Logements` depuis `logement_id`. Pour la branche HH, les deux champs viennent directement de la saisie (Lot 4).
+  Contrôle `RESERVATION_LOGEMENT_NON_MAPPE` (A_CONTROLER) : `listingMapId` absent de `REF_Mapping_Logements` actifs.
+  Contrôle `RESERVATION_MAPPING_MULTIPLE` (A_CONTROLER) : plusieurs lignes actives pour un même `listingMapId` dans `REF_Mapping_Logements`.
+Tables : MASTER_CALC_Reservations, REF_Mapping_Logements, REF_Logements
+
+### D053 — Structure 24 colonnes et valeurs fermées source / source_montant (QM-L4b-02)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : `MASTER_CALC_Reservations` contient 24 colonnes (22 base + `niveau_anomalie` + `code_anomalie` en bloc statut, après `statut_controle` et avant `commentaire`).
+  `source` fermé — 7 valeurs : HOSTAWAY_AIRBNB / HOSTAWAY_BOOKING / HOSTAWAY_DIRECT_HH / HOSTAWAY_VRBO_HH / HOSTAWAY_VRBO_A_CONTROLER / MANUEL_HORS_HOSTAWAY / OWNERSTAY_EXCLU.
+  `source_montant` fermé — 5 valeurs : HOSTAWAY_PAYOUT / MANUEL_HH / MANUEL_VRBO / NON_CONCERNE / A_CONTROLER.
+  `impact_resultat_reel` calculé : IC/HC→OUI, HR→NON, vide→A_CONTROLER.
+  `impact_resultat_comptable` calculé : IC→OUI, HC/HR→NON, vide→A_CONTROLER.
+  Contrôle `RESERVATION_HH_NON_VALIDE` (A_CONTROLER) : ligne HH utilisée dans table commune avec `statut_controle ≠ VALIDE`.
+Tables : MASTER_CALC_Reservations
+
+### D054 — Logique anti-double-comptage et scénarios (QM-L4b-03)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : 7 scénarios anti-double-comptage. Règle centrale : si `reservation_id` HA existe dans `reservation_id_hostaway` HH → ligne HA exclue avant empilement, représentée uniquement par la ligne HH.
+  S1 Airbnb HA pur → HOSTAWAY_AIRBNB, HOSTAWAY_PAYOUT, IC, VALIDE.
+  S2 Booking HA pur → HOSTAWAY_BOOKING, HOSTAWAY_PAYOUT, IC, VALIDE.
+  S3 Direct HA + HH liée → HOSTAWAY_DIRECT_HH, MANUEL_HH, code_impact HH, statut HH — ligne HA exclue.
+  S4 VRBO HA + HH renseignée → HOSTAWAY_VRBO_HH, MANUEL_VRBO, HC, statut HH — ligne HA exclue.
+  S5 VRBO HA sans HH → HOSTAWAY_VRBO_A_CONTROLER, A_CONTROLER, montant null, HC, A_CONTROLER.
+  S6 HH pure → MANUEL_HORS_HOSTAWAY, MANUEL_HH, code_impact HH.
+  S7 OwnerStay → OWNERSTAY_EXCLU, NON_CONCERNE, montant 0, HR, EXCLU_RESULTAT.
+  Contrôle BLOQUANT `RESERVATION_DOUBLON_HOSTAWAY_HH` : `reservation_id_hostaway` **non vide** ET rattaché à 2+ lignes actives (`statut_controle ≠ EXCLU_RESULTAT`) dans la table commune.
+  Contrôle BLOQUANT `RESERVATION_CALC_ID_DUPLIQUE` : `reservation_calc_id` dupliqué.
+Tables : MASTER_CALC_Reservations
+
+### D055 — Champ mois : TEXT YYYY-MM depuis checkInDate (QM-L4b-04)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : `mois` dans `MASTER_CALC_Reservations` est calculé en Power Query depuis `checkInDate` (branche HA) : `Date.ToText([checkInDate], "yyyy-MM")`. Pour la branche HH, `mois` vient directement de la colonne `mois` de `SAISIE_ReservationsHorsHostaway.xlsx`.
+Tables : MASTER_CALC_Reservations
+
+### D056 — Nomenclature PK MASTER_CALC_Reservations (QM-L4b-05)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : PK = `RES-AAAA-MM-HA-NNN` (branche HA) ou `RES-AAAA-MM-HH-NNN` (branche HH). Compteur NNN repart à `001` chaque mois, par branche. Généré en Power Query via `Table.Group + Table.AddIndexColumn`. Contrôle `RESERVATION_CALC_ID_DUPLIQUE` (BLOQUANT) détecte tout doublon post-empilement.
+Tables : MASTER_CALC_Reservations
+
+### D057 — Chemins officiels Lot 4bis (QM-L4b-06)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision :
+  Script    : `02_TRAVAIL/lot4bis_master_calc_reservations.py`
+  Master    : `02_TRAVAIL/Lot4bis_TableCommune/MASTER_CALC_Reservations.xlsx`
+  Onglets   : MASTER (24 cols) / VUE_FLUX (filtre VALIDE+OUI+montant≠0) / POWER_QUERY_CODE (7 requêtes)
+  Sources   : HA → MASTER_FACT_HA_Reservations.xlsx + MASTER_CALC_HA_Payout.xlsx (Lot 1)
+              HH → SAISIE_ReservationsHorsHostaway.xlsx (Lot 4, lu directement)
+              REF → REF_Setup.xlsm (REF_Mapping_Logements + REF_Logements)
+  Ne pas toucher : REF_Setup.xlsm / Lots 1, 3, 4
+Tables : MASTER_CALC_Reservations
 
 ### DO-03 — Barème IK kilométrique
 > **FERMÉE, voir D036.** Montant direct retenu au démarrage, barème optionnel plus tard.

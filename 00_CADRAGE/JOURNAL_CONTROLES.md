@@ -231,8 +231,41 @@ Résultat   : Audit structurel Lot 4 — 0 FAIL.
              Décisions verrouillées : D046–D051 (QM-L4-01 à QM-L4-06).
 Statut     : VALIDÉ
 Commentaire: Contrôle structurel uniquement — table vide, saisie non encore effectuée.
-             La saisie des 29 VRBO (ANO-004) et des réservations directes se fait manuellement.
+             La saisie des 32 VRBO (ANO-004) et des réservations directes se fait manuellement.
              Lot 4 peut être marqué FAIT après validation humaine du fichier produit.
+```
+
+### CTR-2026-06-008
+
+```
+Date       : 2026-06-09
+Lot        : Lot 4bis — Table commune des réservations
+Code       : AUDIT_LOT4BIS_MASTER_CALC_RESERVATIONS_STRUCTURE
+Sévérité   : INFO
+Fichier    : 02_TRAVAIL/Lot4bis_TableCommune/MASTER_CALC_Reservations.xlsx
+             02_TRAVAIL/lot4bis_master_calc_reservations.py
+Résultat   : Contrôle structurel Lot 4bis — 0 FAIL.
+             Script Python exécuté avec succès.
+             MASTER_CALC_Reservations.xlsx créé :
+             - 3 onglets : MASTER (24 cols) / VUE_FLUX (24 cols) / POWER_QUERY_CODE.
+             - 24 colonnes : 2 identification + 6 rattachement + 3 séjour + 2 financier
+               + 3 impact + 4 statut (incl. niveau_anomalie + code_anomalie) + 4 système PQ.
+             - 7 requêtes M-code : HA_Reservations_Source / HA_Payout_Source / HH_Source /
+               REF_Mapping_Source / REF_Logements_Source / MASTER_CALC_Reservations /
+               VUE_FLUX_Reservations.
+             Anti-double-comptage : 7 scénarios (S1–S7) — lignes HA liées à HH exclues
+               de la branche HA avant empilement.
+             2 contrôles BLOQUANTS : RESERVATION_DOUBLON_HOSTAWAY_HH + RESERVATION_CALC_ID_DUPLIQUE.
+             6 contrôles A_CONTROLER : RESERVATION_HOSTAWAY_DIRECT_AVEC_MONTANT_SANS_HH /
+               RESERVATION_VRBO_MONTANT_NON_RENSEIGNE (ANO-004) / RESERVATION_PAYOUT_MANQUANT /
+               RESERVATION_LOGEMENT_NON_MAPPE / RESERVATION_MAPPING_MULTIPLE /
+               RESERVATION_HH_NON_VALIDE.
+             VUE_FLUX : filtre VALIDE + impact_resultat_reel=OUI + montant_retenu≠0 + non nul.
+             Décisions verrouillées : D052–D057 (QM-L4b-01 à QM-L4b-06).
+Statut     : VALIDÉ
+Commentaire: Contrôle structurel uniquement — table vide, données non encore chargées via PQ.
+             La saisie HH et le refresh PQ doivent être effectués avant Lot 9.
+             Lot 4bis peut être marqué FAIT après validation humaine.
 ```
 
 ---

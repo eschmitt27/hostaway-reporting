@@ -5,14 +5,14 @@
 
 ## Dernière mise à jour
 Date : 2026-06-09
-Session : Session 8 — Lot 4 SAISIE_ReservationsHorsHostaway.xlsx (construction terminée)
+Session : Session 9 — Lot 4bis MASTER_CALC_Reservations (construction terminée)
 Agent : Claude Code (claude-sonnet-4-6)
 
 ---
 
 ## Lot en cours
-Lot : 4 — SAISIE_ReservationsHorsHostaway.xlsx
-Statut : **FAIT** (Lots 0, 1, 2, 3 et 4 FAITS — en attente validation humaine Lot 4)
+Lot : 4bis — MASTER_CALC_Reservations (table commune des réservations)
+Statut : **FAIT** (Lots 0, 1, 2, 3, 4 et 4bis FAITS — en attente validation humaine Lot 4bis)
 
 > Contrôles inscrits :
 > - Lot 0 : CTR-2026-06-001 (audit initial), CTR-2026-06-002 (corrections), CTR-2026-06-003 (post-correction — tout vert)
@@ -20,6 +20,7 @@ Statut : **FAIT** (Lots 0, 1, 2, 3 et 4 FAITS — en attente validation humaine 
 > - Lot 2 : CTR-2026-06-005 (mapping logements — 17/17 OK — validé humainement 2026-06-08)
 > - Lot 3 FAIT (2026-06-08) : REF_Setup.xlsm mis à jour (5 onglets). SAISIE_Charges_Flux.xlsx créé (4 onglets, 31 cols, 18 DV, 13 contrôles). MASTER_FACT_MAN_Charges.xlsx créé (37 cols, 4 requêtes PQ). CTR-2026-06-006 inscrit.
 > - Lot 4 (2026-06-09) : SAISIE_ReservationsHorsHostaway.xlsx créé (4 onglets, 30 cols, 11 DV, 13 contrôles, VLOOKUP taux). MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx créé (34 cols, 3 requêtes PQ). CTR-2026-06-007 inscrit. Décisions D046–D051 verrouillées.
+> - Lot 4bis (2026-06-09) : MASTER_CALC_Reservations.xlsx créé (3 onglets, 24 cols, 7 requêtes PQ, anti-double-comptage 7 scénarios, 2 BLOQUANTS + 6 A_CONTROLER). CTR-2026-06-008 inscrit. Décisions D052–D057 verrouillées.
 
 **Points résiduels non bloquants à traiter dans les lots suivants :**
 - `CARTE_002` suffixe `XXXX` (carte Ewan) → à renseigner au **Lot 8** avant traitement des exports bancaires.
@@ -50,23 +51,29 @@ Statut : **FAIT** (Lots 0, 1, 2, 3 et 4 FAITS — en attente validation humaine 
   - MASTER_FACT_MAN_Charges.xlsx créé (02_TRAVAIL/Lot3_Charges/) : 37 colonnes (31 SAISIE + sens/filtre_vue_menage/source_module/source_table/source_pk/date_integration). VUE_MENAGE = filtre filtre_vue_menage=OUI AND statut_controle=VALIDE. 4 requêtes M-code Power Query.
   - Décisions verrouillées : D044 (séparation statut_controle/niveau_anomalie), D045 (REF_Charges_Recurrentes paramétrable). REFACTURATION→sens=CHARGE validé.
   - Contrôle inscrit : CTR-2026-06-006 (21 points, 0 FAIL). Validé humainement 2026-06-08.
+- **Lot 4 — Réservations hors Hostaway FAIT (2026-06-09)** :
+  - SAISIE_ReservationsHorsHostaway.xlsx créé (4 onglets, 30 cols, 11 DV, 13 contrôles, VLOOKUP taux_commission). Chemin : `01_SOURCES_BRUTES/ReservationsHH/`.
+  - MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx créé (3 onglets, 34 cols, 3 requêtes PQ). Chemin : `02_TRAVAIL/Lot4_ReservationsHH/`.
+  - REF_Setup.xlsm non modifié (V1+V2 OK). Contrôle inscrit : CTR-2026-06-007. Décisions D046–D051.
+- **Lot 4bis — Table commune réservations FAIT (2026-06-09)** :
+  - MASTER_CALC_Reservations.xlsx créé (3 onglets, 24 cols, 7 requêtes PQ). Chemin : `02_TRAVAIL/Lot4bis_TableCommune/`.
+  - Anti-double-comptage 7 scénarios. 2 BLOQUANTS + 6 A_CONTROLER détectés en PQ. VUE_FLUX filtre VALIDE+OUI+montant≠0.
+  - Contrôle inscrit : CTR-2026-06-008. Décisions D052–D057.
 
 > **Règle D029 — IRRÉVOCABLE** : aucun lot ne peut être marqué FAIT sans entrée dans JOURNAL_CONTROLES.
 
 ---
 
-## Ce qui a été modifié (cette session — Lot 4)
-- Cadrage : `DECISIONS_METIER.md` (D046–D051 ajoutés — QM-L4-01 à QM-L4-06)
-- Cadrage : `JOURNAL_CONTROLES.md` (CTR-2026-06-007 inscrit)
-- Cadrage : `ETAT_AVANCEMENT.md` (ce fichier — session 8, Lot 4)
-- Scripts : `02_TRAVAIL/lot4_saisie_template.py` (créé + exécuté)
-- Scripts : `02_TRAVAIL/lot4_master_template.py` (créé + exécuté)
-- Créé : `01_SOURCES_BRUTES/ReservationsHH/SAISIE_ReservationsHorsHostaway.xlsx`
-  (4 onglets : SAISIE 30 cols, REF_LOCALE 11 listes + lookup taux, CONTROLES_SAISIE 13 contrôles, README)
-- Créé : `02_TRAVAIL/Lot4_ReservationsHH/MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx`
-  (3 onglets : MASTER 34 cols, VUE_ACTIVE, POWER_QUERY_CODE 3 requêtes M)
-- Dossiers créés : `01_SOURCES_BRUTES/ReservationsHH/` + `02_TRAVAIL/Lot4_ReservationsHH/`
-- REF_Setup.xlsm : NON modifié (V1+V2 OK — canaux + taux existants)
+## Ce qui a été modifié (cette session — Lot 4bis)
+- Cadrage : `DECISIONS_METIER.md` (D052–D057 ajoutés — QM-L4b-01 à QM-L4b-06)
+- Cadrage : `JOURNAL_CONTROLES.md` (CTR-2026-06-008 inscrit)
+- Cadrage : `ETAT_AVANCEMENT.md` (ce fichier — session 9, Lot 4bis)
+- Script : `02_TRAVAIL/lot4bis_master_calc_reservations.py` (créé + exécuté)
+- Créé : `02_TRAVAIL/Lot4bis_TableCommune/MASTER_CALC_Reservations.xlsx`
+  (3 onglets : MASTER 24 cols, VUE_FLUX filtre VALIDE+OUI+montant≠0, POWER_QUERY_CODE 7 requêtes M)
+- Dossier créé : `02_TRAVAIL/Lot4bis_TableCommune/`
+- REF_Setup.xlsm : NON modifié
+- Fichiers Lots 1, 3, 4 : NON modifiés
 
 ---
 
@@ -129,35 +136,42 @@ Statut : **FAIT** (Lots 0, 1, 2, 3 et 4 FAITS — en attente validation humaine 
 - D043 : Priorité Excel avant Power BI — aucun dashboard `.pbix` livré par les lots — VERROUILLÉ (P32)
 - D044 : Séparation statut_controle / niveau_anomalie — `statut_controle` : VALIDE/A_CONTROLER/EXCLU_RESULTAT/A_VENTILER (Lot 3+) ; `niveau_anomalie` : INFO/A_CONTROLER/BLOQUANT — VERROUILLÉ (DM-L3-01)
 - D045 : REF_Charges_Recurrentes — table des montants paramétrables (forfaits, loyers) ; aucun montant fixe codé en dur dans formules/PQ/scripts — VERROUILLÉ
+- D052 : logement_id via JOIN REF_Mapping_Logements (listingMapId, HA) ; proprietaire_id via JOIN REF_Logements ; anomalies LOGEMENT_NON_MAPPE + MAPPING_MULTIPLE — VERROUILLÉ (QM-L4b-01)
+- D053 : MASTER_CALC_Reservations 24 cols ; source 7 valeurs ; source_montant 5 valeurs ; +niveau_anomalie +code_anomalie ; contrôle RESERVATION_HH_NON_VALIDE — VERROUILLÉ (QM-L4b-02)
+- D054 : Anti-double-comptage 7 scénarios ; DOUBLON HA-HH BLOQUANT ; CALC_ID_DUPLIQUE BLOQUANT — VERROUILLÉ (QM-L4b-03)
+- D055 : mois = TEXT YYYY-MM depuis checkInDate (HA) / direct (HH) — VERROUILLÉ (QM-L4b-04)
+- D056 : PK RES-AAAA-MM-HA-NNN / RES-AAAA-MM-HH-NNN ; compteur reset 001/mois/branche — VERROUILLÉ (QM-L4b-05)
+- D057 : chemins 02_TRAVAIL/Lot4bis_TableCommune/ ; 3 onglets ; 7 requêtes PQ — VERROUILLÉ (QM-L4b-06)
 
 ---
 
 ## Prochaine action obligatoire
 ```
-Lot 4 FAIT (2026-06-09) — CTR-2026-06-007 inscrit — en attente validation humaine
-Prochain lot : Lot 4bis — Table commune des réservations (MASTER_CALC_Reservations)
+Lot 4bis FAIT (2026-06-09) — CTR-2026-06-008 inscrit — en attente validation humaine
+Prochain lot : Lot 5 — Acomptes propriétaires
 ```
 
 ---
 
 ## Lecture prochaine session (discipline contextuelle)
 
-Pour la prochaine session (Lot 4bis), l'assistant doit ouvrir uniquement :
+Pour la prochaine session (Lot 5 — Acomptes propriétaires), l'assistant doit ouvrir uniquement :
 
 ```text
 À OUVRIR :
 - CLAUDE.md (intégral, court)
 - ETAT_AVANCEMENT.md (ce fichier)
-- PLAN_CONSTRUCTION.md → uniquement Lot 4bis
-- REGLES_METIER.md → §10
-- ARCHITECTURE_DONNEES.md → §9.5 (MASTER_CALC_Reservations)
+- PLAN_CONSTRUCTION.md → uniquement Lot 5
+- ARCHITECTURE_DONNEES.md → §10.4 (acomptes propriétaires)
+- Sortie Lot 4 (VUE_ACTIVE MASTER_FACT_MAN_ReservationsHorsHostaway) + REF_Proprietaires + REF_Logements
 
 À NE PAS OUVRIR (économie de contexte) :
 - README_PROJET.md (sauf onboarding)
 - OBJECTIF_PROJET_PILOTAGE_CONCIERGERIE_V3.md
-- Les sections d'ARCHITECTURE_DONNEES.md hors §9.5
+- Les sections d'ARCHITECTURE_DONNEES.md hors §10.4
 - Tous les autres lots du PLAN
 - Données brutes Banque / fichiers Lot 1 détaillés
+- MASTER_CALC_Reservations (Lot 4bis) — non utilisé au Lot 5
 ```
 
 Cette discipline est appliquée à chaque nouveau lot, en s'appuyant sur la matrice `CLAUDE.md §5.bis`.
