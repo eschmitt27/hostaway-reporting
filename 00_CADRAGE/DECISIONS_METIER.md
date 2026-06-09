@@ -730,5 +730,12 @@ Tables : MASTER_FACT_MEN_MenagesExternes.xlsx
 
 ---
 
+### D096 — Correction type logement LOG_0016 : T3 au lieu de T2 (Cyprien / Clarisse)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : LOG_0016 (T3 20 rue de l'Amiral Galache, Clarisse / PROP_0012) était classé TYPE_002 (T2) par erreur. Correction en TYPE_003 (T3). Coût standard applicable : 55€ (COUT_MEN_003) au lieu de 39€ (COUT_MEN_002). Logement archivé dans Hostaway (actif=NON). L'internalName Hostaway "T2 - Cyprien (Clarisse)" n'est pas modifié (donnée source externe). MAP_LOG_0075 et MAP_LOG_0076 mis à jour vers "T3". Lots 6a, 6b, 6c : aucun recalcul — LOG_0016 absent de M04 et CleaningTasks ; montants Lot 6c déjà à 55€ (tarif T3) ; type_logement_id non stocké dans MASTER Lot 6c.
+Tables : REF_Setup.xlsm (REF_Logements, REF_Mapping_Logements)
+
+---
+
 ### DO-03 — Barème IK kilométrique
 > **FERMÉE, voir D036.** Montant direct retenu au démarrage, barème optionnel plus tard.

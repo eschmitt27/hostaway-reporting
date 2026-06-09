@@ -467,6 +467,47 @@ Commentaire: Contrôle structurel et données mai 2026 peuplées. 9 lignes A_CON
 
 ---
 
+### CTR-2026-06-014
+
+```
+Date       : 2026-06-09
+Lot        : Correction référentiel — pré-Lot 7
+Code       : CORRECTION_REF_LOG0016_TYPE_LOGEMENT
+Sévérité   : INFO
+Fichier    : 01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm
+Résultat   : Correction type logement LOG_0016 (Cyprien / Clarisse).
+
+             REF_Setup.xlsm :
+               - Backup : 99_ARCHIVES/LOT6C_MenagesExternes/REF_Setup_BACKUP_REFCORR_LOG0016_20260609_190848.xlsm
+               - REF_Logements LOG_0016 :
+                   type_logement_id  : TYPE_002 → TYPE_003
+                   nom_logement_officiel : T2 - Cyprien (Clarisse) → T3 - Cyprien (Clarisse)
+                   nom_court         : T2 - Cyprien → T3 - Cyprien
+               - REF_Mapping_Logements :
+                   MAP_LOG_0075 (Facture ménage externe) : T2 - Cyprien (Clarisse) → T3 - Cyprien (Clarisse)
+                   MAP_LOG_0076 (Nom court interne)      : T2 - Cyprien → T3 - Cyprien
+                   MAP_LOG_0074 (Hostaway internalName)  : non modifié (donnée source externe)
+                   MAP_LOG_0083 (Hostaway listing public): non modifié (pas de mention T2/T3)
+
+             Impact lots commités :
+               - Lot 6a (CleaningTasks) : LOG_0016 absent du MASTER_ENRICHI — aucun recalcul.
+               - Lot 6b (M04)           : LOG_0016 absent de M04 — aucun recalcul.
+               - Lot 6c (ménages ext.)  : LOG_0016 présent (MENEXT-2026-05-AISSATA-008/009).
+                   type_logement_id absent du MASTER Lot 6c — structure non impactée.
+                   montant_ligne_ttc = 55€ (tarif T3) déjà correct — aucun recalcul financier.
+               - Lot 7                  : construction non démarrée — référentiel propre.
+
+             Coût standard applicable post-correction :
+               COUT_MEN_003 = 55€ (TYPE_003 T3) — au lieu de COUT_MEN_002 = 39€ (TYPE_002 T2).
+
+             Décision verrouillée : D096.
+Statut     : VALIDÉ
+Commentaire: Correction purement référentielle. Aucun fichier MASTER à recalculer.
+             L'internalName Hostaway "T2 - Cyprien (Clarisse)" reste à corriger côté Hostaway si nécessaire.
+```
+
+---
+
 ## Référence des codes de contrôle (source : ARCHITECTURE_DONNEES.md §18)
 
 > Convention : codes tirés de l'architecture. Ne pas inventer de nouveaux codes sans les ajouter ici ET dans l'architecture.
