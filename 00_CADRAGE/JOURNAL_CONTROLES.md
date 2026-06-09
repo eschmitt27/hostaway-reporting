@@ -362,6 +362,53 @@ Commentaire: Extraction segmentée remplace le single call défaillant (offset i
 
 ---
 
+### CTR-2026-06-011
+
+```
+Date       : 2026-06-09
+Lot        : Lot 6b — M04 Ménages internes main-d'œuvre
+Code       : AUDIT_LOT6B_M04_MENAGES_STRUCTURE
+Sévérité   : INFO
+Fichier    : 02_DONNEES_NORMALISEES/menages/M04_MENAGES_PowerQuery.xlsx
+             02_TRAVAIL/lot6b_m04_menages_internes.py
+             01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm (modification TYPE_FLUX_013)
+Résultat   : Contrôle structurel Lot 6b — 0 FAIL.
+             Script Python exécuté le 2026-06-09 (tag 20260609_152826).
+
+             REF_Setup.xlsm :
+               - Backup créé : 99_ARCHIVES/LOT6B_Menages/REF_Setup_BACKUP_20260609_152826.xlsm
+               - TYPE_FLUX_013 (COUT_MO_INTERNE_MENAGE) ajouté dans REF_Types_Flux.
+               - Colonnes : HC / NON / NON / NON / OUI confirmés.
+
+             M04_MENAGES_PowerQuery.xlsx :
+               - 8 onglets : SOURCE_RAW / PARAM_TAUX_INTERVENANTS / PARAMETRES_M04 /
+                 MASTER / VUE_ACTIVE / VUE_ECART_HOSTAWAY / POWER_QUERY_CODE / README
+               - MASTER : 34 colonnes (2 IDENT + 8 RATT + 2 INTERV + 10 CALCUL + 5 FLUX + 3 STATUT + 4 SYSTEME)
+               - PARAM_TAUX_INTERVENANTS : 5 intervenants (INT_0001-005), taux 10€/h INTERNE.
+               - PARAMETRES_M04 : SEUIL_ECART_STANDARD_MENAGE = 10, actif=OUI.
+               - POWER_QUERY_CODE : 10 requêtes M (Q1..Q9 + Q6B).
+               - SOURCE_RAW : squelette vide, colonnes attendues documentées (D070).
+               - Chemins PQ placeholder C:\CHEMIN_A_ADAPTER\ — à adapter localement.
+
+             Contrôles documentés :
+               BLOQUANTS : MENAGE_SANS_LOGEMENT_ID / M04_SCHEMA_SOURCE_INVALIDE /
+                           MENAGE_INTERNE_CODE_IMPACT_NON_HC
+               A_CONTROLER : MENAGE_EXTERNE_DANS_M04 / TYPE_INTERVENANT_ABSENT /
+                             TAUX_ABSENT_INTERVENANT_INTERNE / TAUX_MULTIPLE_INTERVENANT /
+                             MENAGE_RANGEMENT_A_CONTROLER / MENAGE_DOUBLON_POTENTIEL /
+                             MENAGE_ECART_NEGATIF_IMPORTANT / MENAGE_ECART_HOSTAWAY_M04
+
+             Décisions verrouillées : D070–D078 (QM-L6b-01 à QM-L6b-05 + corrections).
+Statut     : VALIDÉ
+Commentaire: Contrôle structurel uniquement — SOURCE_RAW vide, saisie GSheet non encore effectuée.
+             Adaptation chemins PQ requise avant premier run Power Query.
+             REC_002 cle_repartition mise à jour : COUT_STANDARD_MENAGES_MOIS (ancienne valeur : NOMBRE_MENAGES).
+             Validation humaine Lot 6b — aucune action différée sur REC_002.
+             Lot 6b peut être marqué FAIT après validation humaine du fichier produit.
+```
+
+---
+
 ## Référence des codes de contrôle (source : ARCHITECTURE_DONNEES.md §18)
 
 > Convention : codes tirés de l'architecture. Ne pas inventer de nouveaux codes sans les ajouter ici ET dans l'architecture.

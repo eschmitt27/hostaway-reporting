@@ -612,5 +612,63 @@ Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
 Décision : Toutes les tâches Hostaway ont titre "Ménage XXX" → classées TLM_001 MENAGE_STANDARD par défaut. `compte_comme_menage = OUI`. Correction manuelle possible pour cas REMISE_EN_ETAT ou autres. Coût = NULL partout (H6 irrévocable).
 Tables : MASTER_FACT_HA_CleaningTasks_Discovery (MASTER_ENRICHI)
 
+### D070 — Source données M04 : squelette Power Query + collage GSheet (QM-L6b-01)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : M04 est construit à partir d'un squelette Excel + Power Query. L'utilisateur colle les données du Google Sheet `Suivi ménage` dans l'onglet `SOURCE_RAW`. Le script Python crée le squelette ; aucune extraction automatique depuis le GSheet. Colonnes SOURCE_RAW attendues : `mois_saisie | appartement | intervenant | type_menage | nb_menages | nb_heures | commentaire`. Les noms doivent correspondre exactement aux en-têtes du GSheet réel.
+Tables : M04_MENAGES_PowerQuery.xlsx (SOURCE_RAW)
+
+### D071 — Intervenants EXTERNE dans M04 : importés, flaggés, hors VUE_ACTIVE (QM-L6b-02)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Les intervenants EXTERNE présents dans le GSheet `Suivi ménage` sont importés dans le MASTER M04 avec contrôle `MENAGE_EXTERNE_DANS_M04` (A_CONTROLER). Ils sont exclus de `VUE_ACTIVE` (filtre type_intervenant = INTERNE). Objectif : traçabilité complète, pas d'exclusion silencieuse. Les ménages EXTERNE sont traités dans le Lot 6c (factures PDF) — jamais valorisés dans M04.
+Tables : M04_MENAGES_PowerQuery.xlsx (MASTER, VUE_ACTIVE)
+
+### D072 — Rangement dans M04 : importé si MO pure, contrôle A_CONTROLER (QM-L6b-03)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Les lignes de type `RANGEMENT` sont importées dans M04 si elles correspondent à de la main-d'œuvre pure (heures × taux). Elles déclenchent le contrôle `MENAGE_RANGEMENT_A_CONTROLER` (A_CONTROLER) pour vérification humaine. Si une ligne Rangement inclut du matériel ou des achats, elle doit être ventilée vers `SAISIE_Charges_Flux.xlsx`.
+Tables : M04_MENAGES_PowerQuery.xlsx (MASTER)
+
+### D073 — VUE_ECART_HOSTAWAY dans M04 (QM-L6b-04)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : L'onglet `VUE_ECART_HOSTAWAY` est intégré dans M04. Il compare `nb_menages_m04` (M04 VALIDE INTERNE, par mois × logement) vs `nb_menages_realises` (Lot 6a `VUE_COMPTAGE`). Contrôle `MENAGE_ECART_HOSTAWAY_M04` (A_CONTROLER) si écart ≠ 0. Implémenté via Power Query Q9 — jointure full outer mois × logement_id.
+Tables : M04_MENAGES_PowerQuery.xlsx (VUE_ECART_HOSTAWAY), MASTER_FACT_HA_CleaningTasks_Discovery (VUE_COMPTAGE)
+
+### D074 — Seuil écart main-d'œuvre vs standard : 10 €, paramétrable (QM-L6b-05)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Seuil initial = 10 €/ménage. Stocké dans `PARAMETRES_M04` (colonne `SEUIL_ECART_STANDARD_MENAGE`). Power Query lit ce seuil dynamiquement — aucune valeur codée en dur. Déclencheur : `ecart_main_oeuvre_vs_standard < −SEUIL` → `MENAGE_ECART_NEGATIF_IMPORTANT` (A_CONTROLER). Rappel sens : `ecart = cout_standard − cout_execution_unitaire` (positif = MO favorable).
+Tables : M04_MENAGES_PowerQuery.xlsx (PARAMETRES_M04, MASTER)
+
+### D075 — Taux horaire par intervenant : PARAM_TAUX_INTERVENANTS (non global)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Le taux horaire n'est pas un paramètre global unique. Il est défini par intervenant dans la table `PARAM_TAUX_INTERVENANTS` (8 colonnes : `intervenant_id | nom_intervenant | type_intervenant | taux_horaire | date_debut_validite | date_fin_validite | actif | commentaire`). Power Query récupère le taux actif pour la période via jointure sur `intervenant_id` et plage de dates. Valeurs initiales : INT_0001 Imène 10 €/h, INT_0002 Kheira 10 €/h. Intervenants EXTERNE présents dans la table (taux null — non requis dans M04). Aucune valeur codée en dur.
+  Contrôle `TAUX_ABSENT_INTERVENANT_INTERNE` (A_CONTROLER) : 0 taux actif pour l'intervenant à la période.
+  Contrôle `TAUX_MULTIPLE_INTERVENANT` (A_CONTROLER) : ≥2 taux actifs pour le même intervenant à la même période.
+Tables : M04_MENAGES_PowerQuery.xlsx (PARAM_TAUX_INTERVENANTS)
+
+### D076 — Clé de répartition des charges affectables = COUT_STANDARD_MENAGES_MOIS
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : La clé de répartition des charges affectables aux ménages (consommables, produits, location cave, etc.) est `COUT_STANDARD_MENAGES_MOIS` et non `NOMBRE_MENAGES`. Formule : `quote_part_charge = charge_affectable × (cout_standard_total_ligne / Σ cout_standard_total_ligne du périmètre)`. Cette répartition s'effectue dans une couche de coût complet ultérieure — pas dans M04.
+  `cout_standard_total_ligne = nb_menages × cout_standard` : colonne M04, base de pondération uniquement. Non comptable. Non injectée dans `MASTER_CALC_Flux`.
+  Périmètres possibles : mois | logement | intervenant | prestataire | tous ménages du mois selon nature de la charge.
+  ✓ Révise D045 pour REC_002 : la `cle_repartition` de REC_002 (Forfait local cave, TYPE_FLUX_010) a été mise à jour de `NOMBRE_MENAGES` vers `COUT_STANDARD_MENAGES_MOIS` dans `REF_Charges_Recurrentes` (REF_Setup.xlsm) le 2026-06-09 — validation humaine Lot 6b.
+Tables : M04_MENAGES_PowerQuery.xlsx (MASTER — colonne cout_standard_total_ligne), SAISIE_Charges_Flux.xlsx, REF_Charges_Recurrentes
+
+### D077 — TYPE_FLUX_013 = COUT_MO_INTERNE_MENAGE (révision D028 sur le type_flux_id)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Le type flux M04 est `TYPE_FLUX_013 = COUT_MO_INTERNE_MENAGE`. Révise D028 qui mentionnait `COUT_EXECUTION_MENAGE_INTERNE` comme libellé (ce libellé était provisoire). Clé technique : `TYPE_FLUX_013`. Colonnes fixes dans MASTER M04 : `type_flux_id = TYPE_FLUX_013 | sens = CHARGE | code_impact = HC | impact_resultat_reel = OUI | impact_resultat_comptable = NON`. TYPE_FLUX_013 intégrera `MASTER_CALC_Flux` au Lot 9 — MO interne ménage contribue au résultat réel HC.
+  Ajouté dans `REF_Types_Flux` (REF_Setup.xlsm) le 2026-06-09 — backup : `99_ARCHIVES/LOT6B_Menages/REF_Setup_BACKUP_20260609_152826.xlsm`.
+Tables : REF_Types_Flux (REF_Setup.xlsm), M04_MENAGES_PowerQuery.xlsx (MASTER), MASTER_CALC_Flux
+
+### D078 — Structure et chemins officiels Lot 6b
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision :
+  Script : `02_TRAVAIL/lot6b_m04_menages_internes.py`
+  M04    : `02_DONNEES_NORMALISEES/menages/M04_MENAGES_PowerQuery.xlsx`
+  Onglets (8) : SOURCE_RAW / PARAM_TAUX_INTERVENANTS / PARAMETRES_M04 / MASTER (34 cols) / VUE_ACTIVE / VUE_ECART_HOSTAWAY / POWER_QUERY_CODE (10 requêtes) / README
+  MASTER (34 cols) : 2 IDENT + 8 RATT + 2 INTERV + 10 CALCUL + 5 FLUX + 3 STATUT + 4 SYSTEME
+  Tables PQ (10) : Q1_SOURCE_RAW / Q2_PARAM_TAUX / Q3_PARAMETRES_M04 / Q4_REF_MAPPING / Q5_REF_LOGEMENTS / Q6_REF_COUTS_STANDARDS / Q6B_REF_INTERVENANTS / Q7_MASTER / Q8_VUE_ACTIVE / Q9_VUE_ECART_HOSTAWAY
+  Adaptation requise : remplacer `C:\CHEMIN_A_ADAPTER\` dans PQ (Q4/Q5/Q6/Q6B/Q9) par chemins absolus locaux.
+  source_table = SOURCE_RAW (toujours) — source_pk = menage_calc_id (toujours, pas de clé GSheet fiable).
+Tables : M04_MENAGES_PowerQuery.xlsx, lot6b_m04_menages_internes.py
+
 ### DO-03 — Barème IK kilométrique
 > **FERMÉE, voir D036.** Montant direct retenu au démarrage, barème optionnel plus tard.

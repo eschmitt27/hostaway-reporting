@@ -5,14 +5,14 @@
 
 ## Dernière mise à jour
 Date : 2026-06-09
-Session : Session 11 — Lot 6a CleaningTasks comptage ménages (construction terminée)
+Session : Session 12 — Lot 6b M04 Ménages internes (squelette créé)
 Agent : Claude Code (claude-sonnet-4-6)
 
 ---
 
 ## Lot en cours
-Lot : 6a — Hostaway ménages (comptage CleaningTasks)
-Statut : **FAIT** (Lots 0, 1, 2, 3, 4, 4bis, 5 et 6a FAITS — en attente validation humaine Lot 6a)
+Lot : 6b — M04 Ménages internes main-d'œuvre
+Statut : **FAIT** (Lots 0, 1, 2, 3, 4, 4bis, 5, 6a et 6b FAITS — en attente validation humaine Lot 6b)
 
 > Contrôles inscrits :
 > - Lot 0 : CTR-2026-06-001 (audit initial), CTR-2026-06-002 (corrections), CTR-2026-06-003 (post-correction — tout vert)
@@ -74,6 +74,16 @@ Statut : **FAIT** (Lots 0, 1, 2, 3, 4, 4bis, 5 et 6a FAITS — en attente valida
   - D065 : API /v1/tasks = 500 max, single call. D066 : Jan 2026 absent = normal.
   - D067 : confirmed=prévu. D068 : logement inactif=A_CONTROLER. D069 : TLM_001 par défaut.
   - Contrôle inscrit : CTR-2026-06-010. Décisions D065–D069.
+- **Lot 6b — M04 Ménages internes FAIT (2026-06-09)** :
+  - M04_MENAGES_PowerQuery.xlsx créé (squelette). Chemin : `02_DONNEES_NORMALISEES/menages/`.
+  - 8 onglets : SOURCE_RAW / PARAM_TAUX_INTERVENANTS / PARAMETRES_M04 / MASTER (34 cols) / VUE_ACTIVE / VUE_ECART_HOSTAWAY / POWER_QUERY_CODE (10 requêtes) / README.
+  - PARAM_TAUX : INT_0001 Imène 10€, INT_0002 Kheira 10€, INT_0003/0004/0005 EXTERNE.
+  - PARAMETRES_M04 : SEUIL_ECART_STANDARD_MENAGE=10 paramétrable.
+  - REF_Setup.xlsm : TYPE_FLUX_013 (COUT_MO_INTERNE_MENAGE) ajouté. Backup : 99_ARCHIVES/LOT6B_Menages/REF_Setup_BACKUP_20260609_152826.xlsm.
+  - Clé répartition future : COUT_STANDARD_MENAGES_MOIS (non NOMBRE_MENAGES). cout_standard_total_ligne = base pondération, non comptable (D076).
+  - Contrôle inscrit : CTR-2026-06-011. Décisions D070–D078.
+  - SOURCE_RAW vide — coller données GSheet + adapter chemins PQ avant premier run.
+  - REC_002 cle_repartition mise à jour : COUT_STANDARD_MENAGES_MOIS (ancienne valeur : NOMBRE_MENAGES, D076, validation humaine Lot 6b).
 
 > **Règle D029 — IRRÉVOCABLE** : aucun lot ne peut être marqué FAIT sans entrée dans JOURNAL_CONTROLES.
 
