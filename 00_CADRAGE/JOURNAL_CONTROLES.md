@@ -409,6 +409,64 @@ Commentaire: Contrôle structurel uniquement — SOURCE_RAW vide, saisie GSheet 
 
 ---
 
+### CTR-2026-06-012
+
+```
+Date       : 2026-06-09
+Lot        : Lot 6c — Ménages externes (factures PDF prestataires)
+Code       : AUDIT_LOT6C_MENAGES_EXTERNES_STRUCTURE
+Sévérité   : INFO
+Fichier    : 02_TRAVAIL/Lot6c_MenagesExternes/MASTER_FACT_MEN_MenagesExternes.xlsx
+             02_TRAVAIL/lot6c_menages_externes.py
+             01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm (modifications D086)
+             01_SOURCES_BRUTES/MenagesExternes/Factures_PDF/Facture mai Aissata.pdf
+             01_SOURCES_BRUTES/MenagesExternes/Factures_PDF/Facture mai Mounir.pdf
+Résultat   : Contrôle structurel Lot 6c — 0 BLOQUANT, 9 A_CONTROLER, 4 VALIDE.
+             Script Python exécuté le 2026-06-09 (tag 20260609_170606).
+
+             REF_Setup.xlsm :
+               - Backup : 99_ARCHIVES/LOT6C_MenagesExternes/REF_Setup_BACKUP_20260609_170606.xlsm
+               - REF_Intervenants : +3 colonnes (nom_legal, siret_rcs, email_facturation).
+                 INT_0003 Mounir → MH Entreprise / RCS 792015919.
+                 INT_0004 Aissata → Kandia DIABATE / SIRET 10147251200017.
+               - REF_Types_Flux : TYPE_FLUX_014 (COUT_REEL_MENAGE_EXTERNE) ajouté.
+
+             MASTER_FACT_MEN_MenagesExternes.xlsx :
+               - 7 onglets : SOURCE_RAW / PARAMETRES / MASTER / VUE_ACTIVE /
+                 VUE_ECART_HOSTAWAY / POWER_QUERY_CODE / README
+               - SOURCE_RAW : 13 lignes (9 Aissata + 4 Mounir — ligne 8 splittée en 8a/8b)
+               - MASTER : 13 lignes — 49 colonnes (11 blocs)
+               - VUE_ACTIVE : 4 lignes VALIDE (lignes 1, 7, 8a, 8b Aissata — dates précises)
+               - VUE_ECART_HOSTAWAY : 16 logements mois=2026-05
+
+             Réconciliation factures :
+               - FAC-2026-05-AISSATA-001 : somme=1 439,00€ = total — écart=0,00€ VALIDE
+               - FAC-2026-05-MOUNIR-001  : somme=942,00€   = total — écart=0,00€ VALIDE
+
+             Anomalies A_CONTROLER (9 lignes) :
+               - 5 lignes Aissata : MENAGE_EXTERNE_DATE_ABSENTE (D087 Option B)
+               - 3 lignes Mounir  : MENAGE_EXTERNE_DATE_ABSENTE
+               - 1 ligne Mounir T2-65 Gabriel : MENAGE_EXTERNE_MONTANT_NUL +
+                 MENAGE_EXTERNE_LOGEMENT_INACTIF (0 ménage, logement inactif 2026-04-26)
+
+             Observations factures :
+               - Studio Puits vert : présent chez Aissata (10 pass.) ET Mounir (1 pass.) — non doublon.
+               - T3 20 rue Amiral Galache (LOG_0016) : facturé T3 par Aissata, REF = T2. Noté commentaire.
+               - Prix Mounir (32/36/52/65€) différents des coûts standards REF — normal.
+               - Prix Aissata (29/39/55€) = coûts standards REF — coïncidence, non bloquant.
+
+             Décisions verrouillées : D079–D088 (D-6c-01 à D-6c-10).
+             POWER_QUERY_CODE : 7 requêtes M (Q1–Q7).
+Statut     : VALIDÉ
+Commentaire: Contrôle structurel et données mai 2026 peuplées. 9 lignes A_CONTROLER en attente
+             de dates précises de ménage auprès des prestataires (D087 Option B).
+             REF_Mapping_Logements à compléter avec les noms factures prestataires pour futurs runs PQ.
+             TYPE_FLUX_014 intégrera MASTER_CALC_Flux au Lot 9.
+             Lot 6c peut être marqué FAIT après validation humaine du fichier produit.
+```
+
+---
+
 ## Référence des codes de contrôle (source : ARCHITECTURE_DONNEES.md §18)
 
 > Convention : codes tirés de l'architecture. Ne pas inventer de nouveaux codes sans les ajouter ici ET dans l'architecture.

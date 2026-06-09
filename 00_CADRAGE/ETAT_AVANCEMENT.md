@@ -5,14 +5,14 @@
 
 ## Dernière mise à jour
 Date : 2026-06-09
-Session : Session 12 — Lot 6b M04 Ménages internes (squelette créé)
+Session : Session 13 — Lot 6c Ménages externes (factures PDF prestataires)
 Agent : Claude Code (claude-sonnet-4-6)
 
 ---
 
 ## Lot en cours
-Lot : 6b — M04 Ménages internes main-d'œuvre
-Statut : **FAIT** (Lots 0, 1, 2, 3, 4, 4bis, 5, 6a et 6b FAITS — en attente validation humaine Lot 6b)
+Lot : 6c — Ménages externes (factures PDF prestataires)
+Statut : **FAIT** (Lots 0, 1, 2, 3, 4, 4bis, 5, 6a, 6b et 6c FAITS — en attente validation humaine Lot 6c)
 
 > Contrôles inscrits :
 > - Lot 0 : CTR-2026-06-001 (audit initial), CTR-2026-06-002 (corrections), CTR-2026-06-003 (post-correction — tout vert)
@@ -74,6 +74,18 @@ Statut : **FAIT** (Lots 0, 1, 2, 3, 4, 4bis, 5, 6a et 6b FAITS — en attente va
   - D065 : API /v1/tasks = 500 max, single call. D066 : Jan 2026 absent = normal.
   - D067 : confirmed=prévu. D068 : logement inactif=A_CONTROLER. D069 : TLM_001 par défaut.
   - Contrôle inscrit : CTR-2026-06-010. Décisions D065–D069.
+- **Lot 6c — Ménages externes FAIT (2026-06-09)** :
+  - MASTER_FACT_MEN_MenagesExternes.xlsx créé (7 onglets, 49 cols). Chemin : `02_TRAVAIL/Lot6c_MenagesExternes/`.
+  - SOURCE_RAW : 13 lignes (9 Aissata fac.2026-37 / 4 Mounir fac.0003 — mai 2026). Ligne 8 splittée en 8a/8b.
+  - MASTER : 13 lignes — 4 VALIDE / 9 A_CONTROLER / 0 BLOQUANT.
+  - VUE_ACTIVE : 4 lignes (lignes avec date_menage précise). 9 lignes A_CONTROLER = MENAGE_EXTERNE_DATE_ABSENTE.
+  - VUE_ECART_HOSTAWAY : 16 logements mois=2026-05.
+  - Réconciliation : FAC-2026-05-AISSATA-001 écart=0,00€ / FAC-2026-05-MOUNIR-001 écart=0,00€ — VALIDE.
+  - REF_Setup.xlsm : TYPE_FLUX_014 (COUT_REEL_MENAGE_EXTERNE) ajouté. REF_Intervenants +3 colonnes (nom_legal, siret_rcs, email_facturation).
+  - Backup : 99_ARCHIVES/LOT6C_MenagesExternes/REF_Setup_BACKUP_20260609_170606.xlsm.
+  - FRANCHISE_TVA confirmé : Aissata et Mounir. taux_tva=0, HT=TTC.
+  - Kandia DIABATE = INT_0004 (Aissata) / MH Entreprise = INT_0003 (Mounir).
+  - CTR-2026-06-012 inscrit. Décisions D079–D088.
 - **Lot 6b — M04 Ménages internes FAIT (2026-06-09)** :
   - M04_MENAGES_PowerQuery.xlsx créé (squelette). Chemin : `02_DONNEES_NORMALISEES/menages/`.
   - 8 onglets : SOURCE_RAW / PARAM_TAUX_INTERVENANTS / PARAMETRES_M04 / MASTER (34 cols) / VUE_ACTIVE / VUE_ECART_HOSTAWAY / POWER_QUERY_CODE (10 requêtes) / README.
@@ -88,6 +100,18 @@ Statut : **FAIT** (Lots 0, 1, 2, 3, 4, 4bis, 5, 6a et 6b FAITS — en attente va
 > **Règle D029 — IRRÉVOCABLE** : aucun lot ne peut être marqué FAIT sans entrée dans JOURNAL_CONTROLES.
 
 ---
+
+## Ce qui a été modifié (cette session — Lot 6c)
+- Cadrage : `DECISIONS_METIER.md` (D079–D088 ajoutés — D-6c-01 à D-6c-10)
+- Cadrage : `JOURNAL_CONTROLES.md` (CTR-2026-06-012 inscrit)
+- Cadrage : `ETAT_AVANCEMENT.md` (ce fichier — session 13, Lot 6c)
+- Script : `02_TRAVAIL/lot6c_menages_externes.py` (créé + exécuté)
+- Créé : `02_TRAVAIL/Lot6c_MenagesExternes/MASTER_FACT_MEN_MenagesExternes.xlsx`
+  (7 onglets : SOURCE_RAW 13L / PARAMETRES / MASTER 49cols / VUE_ACTIVE 4L / VUE_ECART_HOSTAWAY / POWER_QUERY_CODE 7Q / README)
+- Modifié : `01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm`
+  (REF_Intervenants +3 cols INT_0003/0004 ; REF_Types_Flux +TYPE_FLUX_014)
+- Backup : `99_ARCHIVES/LOT6C_MenagesExternes/REF_Setup_BACKUP_20260609_170606.xlsm`
+- Fichiers Lots 3, 4, 4bis, 5, 6a, 6b : NON modifiés
 
 ## Ce qui a été modifié (cette session — Lot 6a)
 - Cadrage : `DECISIONS_METIER.md` (D065–D069 ajoutés — QM-L6a-API/Jan/02/inactif/04)
@@ -180,32 +204,30 @@ Statut : **FAIT** (Lots 0, 1, 2, 3, 4, 4bis, 5, 6a et 6b FAITS — en attente va
 
 ## Prochaine action obligatoire
 ```
-Lot 6a FAIT (2026-06-09) — CTR-2026-06-010 inscrit — en attente validation humaine
-Prochain lot : Lot 6b — M04 ménages internes (main-d'œuvre uniquement, D027)
+Lot 6c FAIT (2026-06-09) — CTR-2026-06-012 inscrit — en attente validation humaine
+Prochain lot : Lot 7 — IK & avantages associés
 ```
 
 ---
 
 ## Lecture prochaine session (discipline contextuelle)
 
-Pour la prochaine session (Lot 6b — M04 ménages internes), l'assistant doit ouvrir uniquement :
+Pour la prochaine session (Lot 7 — IK & avantages), l'assistant doit ouvrir uniquement :
 
 ```text
 À OUVRIR :
 - CLAUDE.md (intégral, court)
 - ETAT_AVANCEMENT.md (ce fichier)
-- PLAN_CONSTRUCTION.md → uniquement Lot 6b
-- ARCHITECTURE_DONNEES.md → §11.4 (M04, main-d'œuvre uniquement — D027)
-- REGLES_METIER.md → §3, §5 (M04 limites — D027 irrévocable)
-- M04_MENAGES_PowerQuery.xlsx (si existant)
+- PLAN_CONSTRUCTION.md → uniquement Lot 7
+- ARCHITECTURE_DONNEES.md → §12 (IK & avantages)
+- REGLES_METIER.md → §10 (avantages associés)
+- REF_Associes, REF_Types_Flux
 
 À NE PAS OUVRIR (économie de contexte) :
 - README_PROJET.md (sauf onboarding)
 - OBJECTIF_PROJET_PILOTAGE_CONCIERGERIE_V3.md
-- Les sections d'ARCHITECTURE_DONNEES.md hors §11.1, §11.2
-- Fichiers Lots 3, 4, 4bis, 5
-- Données brutes Banque
-- MASTER_CALC_Reservations (Lot 4bis) — non utilisé au Lot 6a
+- Fichiers Lots 3, 4, 4bis, 5, 6a, 6b, 6c
+- Données brutes Banque, PDFs, Hostaway détaillé
 ```
 
 Cette discipline est appliquée à chaque nouveau lot, en s'appuyant sur la matrice `CLAUDE.md §5.bis`.

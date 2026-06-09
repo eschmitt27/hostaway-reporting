@@ -670,5 +670,65 @@ Décision :
   source_table = SOURCE_RAW (toujours) — source_pk = menage_calc_id (toujours, pas de clé GSheet fiable).
 Tables : M04_MENAGES_PowerQuery.xlsx, lot6b_m04_menages_internes.py
 
+---
+
+## Lot 6c — Ménages externes (D079–D088)
+
+### D079 — Format réel des factures PDF prestataires confirmé (D-6c-01)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : 2 factures PDF de mai 2026 fournies et analysées : Aissata (Kandia DIABATE / Rends-moi un service, n°2026-37, 1 439 € TTC) et Mounir (MH Entreprise, n°0003, 942 € TTC). Les deux prestataires sont en franchise TVA (art.293B CGI). Format extraction structurée validé. Pipeline d'extraction IA non nécessaire pour les données mai 2026 — peuplement direct SOURCE_RAW depuis analyse visuelle PDF.
+Tables : MASTER_FACT_MEN_MenagesExternes.xlsx (SOURCE_RAW)
+
+### D080 — Architecture fichier unique master Lot 6c (D-6c-02)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Option B retenue — fichier unique MASTER_FACT_MEN_MenagesExternes.xlsx (7 onglets : SOURCE_RAW / PARAMETRES / MASTER / VUE_ACTIVE / VUE_ECART_HOSTAWAY / POWER_QUERY_CODE / README). Pas de fichier SAISIE séparé. Source = extraction IA depuis PDF ou collage structuré. Chemin : `02_TRAVAIL/Lot6c_MenagesExternes/`. Script : `02_TRAVAIL/lot6c_menages_externes.py`.
+Tables : MASTER_FACT_MEN_MenagesExternes.xlsx
+
+### D081 — Code impact selon mode de paiement facture externe (D-6c-03)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision :
+  Cas 1 (normal) : code_impact=IC, prise_en_compta=OUI, impact_reel=OUI, impact_compta=OUI.
+  Cas 2 (liquide/perso) : code_impact=HC, prise_en_compta=NON, mode_paiement=LIQUIDE/PERSO, associe_payeur obligatoire — contrôle MENAGE_EXTERNE_PAIEMENT_PERSO_SANS_ASSOCIE si absent.
+  Cas 3 (hors résultat) : code_impact=HR, justification obligatoire.
+  Anti-double-comptage : facture saisie en Lot 6c ≠ charge en SAISIE_Charges_Flux.xlsx.
+Tables : MASTER_FACT_MEN_MenagesExternes.xlsx (MASTER — col code_impact, mode_paiement, associe_payeur)
+
+### D082 — Facture globale sans détail logement = BLOQUANT (D-6c-04)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Option C retenue — une facture sans détail par logement est BLOQUANTE. Pas de répartition proportionnelle automatique depuis Hostaway. Pas de APPARTEMENT_DIVERS par défaut. Contrôle : MENAGE_EXTERNE_FACTURE_GLOBALE_NON_DETAILLEE (BLOQUANT).
+Tables : MASTER_FACT_MEN_MenagesExternes.xlsx
+
+### D083 — TVA prestataires — 3 valeurs (D-6c-05)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Colonne regime_tva_prestataire : FRANCHISE_TVA / ASSUJETTI_TVA / A_CONTROLER. Si FRANCHISE_TVA : taux_tva=0, montant_tva=0, montant_ht=montant_ttc. Si ASSUJETTI_TVA : récupérer taux, montant_ht, montant_tva. Contrôle MENAGE_EXTERNE_TVA_A_CONTROLER si A_CONTROLER. Confirmé mai 2026 : Aissata = FRANCHISE_TVA, Mounir = FRANCHISE_TVA.
+Tables : MASTER_FACT_MEN_MenagesExternes.xlsx (colonnes taux_tva, montant_tva, regime_tva_prestataire)
+
+### D084 — Fournitures incluses dans la prestation : lignes séparées (D-6c-06)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Si la facture prestataire détaille des fournitures, linge, produits, frais annexes — les lignes doivent être séparées dans Lot 6c avec type_ligne_menage_id : TLM_001 (ménage standard) / TLM_002 (remise en état) / TLM_003 (déplacement) / TLM_004 (linge) / TLM_005 (achat/produit) / TLM_006 (autre). Ce qui est sur la facture prestataire ≠ SAISIE_Charges_Flux (sources exclusives). Contrôle MENAGE_EXTERNE_FOURNITURE_A_RECLASSER pour TLM_004/005.
+Tables : MASTER_FACT_MEN_MenagesExternes.xlsx (col type_ligne_menage_id, fournitures_incluses)
+
+### D085 — Chemin officiel Lot 6c (D-6c-07)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Chemin master = `02_TRAVAIL/Lot6c_MenagesExternes/MASTER_FACT_MEN_MenagesExternes.xlsx`. Script = `02_TRAVAIL/lot6c_menages_externes.py`. PDFs sources = `01_SOURCES_BRUTES/MenagesExternes/Factures_PDF/`.
+Tables : MASTER_FACT_MEN_MenagesExternes.xlsx
+
+### D086 — Identité légale des prestataires externes (D-6c-08)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Kandia DIABATE / Rends-moi un service (SIRET 10147251200017) = INT_0004 (Aissata). MH Entreprise (RCS 792015919) = INT_0003 (Mounir). REF_Intervenants mis à jour avec 3 nouvelles colonnes : nom_legal, siret_rcs, email_facturation. nom_intervenant non modifié. Backup : `99_ARCHIVES/LOT6C_MenagesExternes/REF_Setup_BACKUP_20260609_170606.xlsm`.
+Tables : REF_Intervenants (REF_Setup.xlsm — +3 colonnes INT_0003/INT_0004)
+
+### D087 — Absence de date_menage individuelle : Option B (D-6c-09)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Option B — date_menage=null si absente sur facture. mois déduit depuis date_facture. precision_date_menage=MOIS_FACTURE. statut_controle=A_CONTROLER. code_anomalie=MENAGE_EXTERNE_DATE_ABSENTE. Interdiction absolue : ne jamais inventer une date, ne jamais compléter depuis Hostaway ou CleaningTasks. Cas mai 2026 : 5 lignes Aissata + 4 lignes Mounir sans date précise → A_CONTROLER. 4 lignes Aissata avec date précise → VALIDE. Ligne 8 originale splittée en 8a/8b (2 dates distinctes sur 1 ligne facture).
+Tables : MASTER_FACT_MEN_MenagesExternes.xlsx (col date_menage, precision_date_menage)
+
+### D088 — Ligne 0€ / 0 ménage : conservation MASTER, exclusion VUE_ACTIVE (D-6c-10)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Ligne Mounir T2-65 (Gabriel) à 0 ménage / 0€ (logement inactif depuis 2026-04-26) conservée dans MASTER pour traçabilité. statut_controle=A_CONTROLER, code_anomalie=MENAGE_EXTERNE_MONTANT_NUL + MENAGE_EXTERNE_LOGEMENT_INACTIF. Exclue de VUE_ACTIVE via filtre montant_ligne_ttc>0. Règle générale : 0€ = A_CONTROLER traçable ; montant<0 = BLOQUANT (MENAGE_EXTERNE_MONTANT_INVALIDE).
+Tables : MASTER_FACT_MEN_MenagesExternes.xlsx
+
+---
+
 ### DO-03 — Barème IK kilométrique
 > **FERMÉE, voir D036.** Montant direct retenu au démarrage, barème optionnel plus tard.

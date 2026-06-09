@@ -23,6 +23,12 @@ venv/
 ~$*.xlsx
 ~$*.xlsm
 
+# Factures PDF prestataires — données sensibles (IBAN, identité légale, SIRET/RCS)
+01_SOURCES_BRUTES/MenagesExternes/Factures_PDF/*.pdf
+
+# Backups archives lots — non versionnés
+99_ARCHIVES/LOT6C_MenagesExternes/*.xlsm
+
 # OS
 .DS_Store
 Thumbs.db
