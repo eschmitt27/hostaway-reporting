@@ -311,6 +311,57 @@ Commentaire: Contrôle structurel uniquement — table vide, saisie non encore e
 
 ---
 
+### CTR-2026-06-010
+
+```
+Date       : 2026-06-09
+Lot        : Lot 6a — Hostaway CleaningTasks comptage ménages
+Code       : AUDIT_LOT6A_CLEANING_TASKS_STRUCTURE
+Sévérité   : INFO
+Fichier    : 02_TRAVAIL/Lot1_Hostaway/MASTER_FACT_HA_CleaningTasks_Discovery.xlsx
+             02_TRAVAIL/lot6a_cleaning_tasks_comptage.py
+Résultat   : Contrôle structurel Lot 6a — 0 FAIL.
+             Extraction segmentée par listingMapId (D065 — méthode fiable).
+             Anti-plafond : 17 requêtes, 0 segment >= 500, exhaustivité prouvée.
+             REF_Setup.xlsm : non modifié.
+
+             Extraction :
+               - Requêtes API      : 17 (1 par listing REF_Logements actifs + inactifs)
+               - Tâches brutes     : 500
+               - Tâches uniques    : 500 (après déduplication par task_id)
+               - Doublons supprimés: 0
+               - Segments plafonnés: aucun (max=51 pour listings 480139/480140)
+
+             data (11 cols, 500 tâches brutes) :
+               - H6 : cost=NULL sur 500/500 tâches dans onglets.
+                 Note : 22/500 tâches avaient un coût dans l'API (50–70 EUR) — forcé NULL.
+               - Dates : 2026-02 → 2027-02. Jan 2026 absent (D066 : normal).
+               - 14 listings actifs, 3 listings avec 0 tâche (482324, 556954, 515523).
+               - 1 tâche sans reservation_id, 0 sans listingMapId, 0 sans scheduled_date.
+               - autoTaskId distincts : 15.
+
+             MASTER_ENRICHI (21 cols, 500 lignes) :
+               - BLOQUANT=0, A_CONTROLER=39, OK=461.
+               - A_CONTROLER : 22 TASK_LOGEMENT_INACTIF (LOG_0003/485104, D068)
+                 + 16 TASK_STATUT_PENDING (D067) + 1 TASK_SANS_RESERVATION.
+               - Statuts : réalisé=325, prévu=74, A_CONTROLER=16, annulé=85.
+               - type_ligne_menage_id=TLM_001 par défaut (D069).
+
+             VUE_COMPTAGE (11 cols, 95 lignes mois×logement) :
+               - BLOQUANT=0, 325 ménages réalisés (tous mois).
+               - Mois couverts : 2026-02 → 2026-06 (complets), 2026-07+ (planifiés).
+
+             POWER_QUERY_CODE : code M de référence (Q1 à Q4).
+             Décisions verrouillées : D065–D069.
+Statut     : VALIDÉ
+Commentaire: Extraction segmentée remplace le single call défaillant (offset ignoré).
+             Lot 6a remplace l'extraction --only-cleaning-tasks du Lot 1 (était vide).
+             LOG_0003 (485104, actif=NON) : 22 tâches historiques mappées, A_CONTROLER.
+             Lot 6a peut être marqué FAIT après validation humaine.
+```
+
+---
+
 ## Référence des codes de contrôle (source : ARCHITECTURE_DONNEES.md §18)
 
 > Convention : codes tirés de l'architecture. Ne pas inventer de nouveaux codes sans les ajouter ici ET dans l'architecture.

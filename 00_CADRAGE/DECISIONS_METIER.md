@@ -582,5 +582,35 @@ Décision : Deux colonnes distinctes, deux rôles non interchangeables.
   Contrôle `ACOMPTE_HH_INCOHERENT` (BLOQUANT) : `source_acompte = HH_RESERVATION` ET `montant_acompte ≠ acompte_facture` dans MASTER HH.
 Tables : SAISIE_AcomptesProprietaires, MASTER_FACT_MAN_AcomptesProprietaires
 
+### D065 — API Hostaway /v1/tasks : extraction segmentée par listingMapId (QM-L6a-API)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : L'API Hostaway `/v1/tasks` retourne 500 tâches maximum par appel. Le paramètre `offset` est ignoré (réponse identique pour offset=0 et offset=100). Le paramètre `dateFrom+dateTo` est aussi ignoré (toujours 500 résultats indifférents de la plage). Seul le filtre `listingMapId=XXX` est efficace : il retourne uniquement les tâches du listing demandé.
+  Méthode fiable : un appel par listing connu dans REF_Logements (actifs + inactifs). Déduplication par `task_id` après agrégation. Contrôle anti-plafond obligatoire : si un segment retourne >= 500 → BLOQUANT.
+  Un seul appel global sans filtre est insuffisant si le résultat = 500 (troncature probable). Ne jamais utiliser le single call comme seule méthode.
+  Résultat 2026-06-09 : 17 requêtes (1/listing), 0 segment plafonné, 500 tâches uniques, 0 doublon.
+Tables : MASTER_FACT_HA_CleaningTasks_Discovery (data)
+
+### D066 — Janvier 2026 absent des CleaningTasks (QM-L6a-Jan)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Aucune tâche retournée pour 2026-01. Normal : la SAS est nouvelle, les opérations ont démarré en février 2026. Aucun contrôle BLOQUANT sur l'absence de janvier.
+Tables : MASTER_FACT_HA_CleaningTasks_Discovery (VUE_COMPTAGE)
+
+### D067 — statut_menage : confirmed ≠ réalisé (QM-L6a-02)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Mapping des statuts Hostaway → statut_menage interne.
+  `completed` → `réalisé` ; `confirmed` → `prévu` ; `pending` → `A_CONTROLER` ; `cancelled` → `annulé`.
+  Tâche confirmed = planifiée mais pas encore exécutée : non comptée comme ménage réalisé.
+Tables : MASTER_FACT_HA_CleaningTasks_Discovery (MASTER_ENRICHI)
+
+### D068 — Logement inactif : A_CONTROLER, pas BLOQUANT (QM-L6a-inactif)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : LOG_0003 (listingMapId=485104) a `actif='NON'` dans REF_Logements mais possède 22 tâches historiques. Ces tâches sont mappées (logement_id connu) et flaggées `TASK_LOGEMENT_INACTIF` (A_CONTROLER). Non BLOQUANT : l'identité du logement est connue, le ménage a eu lieu. Contrôle différent de TASK_LOGEMENT_ABSENT (listingMapId inconnu → BLOQUANT).
+Tables : MASTER_FACT_HA_CleaningTasks_Discovery (MASTER_ENRICHI)
+
+### D069 — type_ligne_menage default = TLM_001 (QM-L6a-04)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Toutes les tâches Hostaway ont titre "Ménage XXX" → classées TLM_001 MENAGE_STANDARD par défaut. `compte_comme_menage = OUI`. Correction manuelle possible pour cas REMISE_EN_ETAT ou autres. Coût = NULL partout (H6 irrévocable).
+Tables : MASTER_FACT_HA_CleaningTasks_Discovery (MASTER_ENRICHI)
+
 ### DO-03 — Barème IK kilométrique
 > **FERMÉE, voir D036.** Montant direct retenu au démarrage, barème optionnel plus tard.

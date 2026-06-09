@@ -5,14 +5,14 @@
 
 ## Dernière mise à jour
 Date : 2026-06-09
-Session : Session 10 — Lot 5 Acomptes propriétaires (construction terminée)
+Session : Session 11 — Lot 6a CleaningTasks comptage ménages (construction terminée)
 Agent : Claude Code (claude-sonnet-4-6)
 
 ---
 
 ## Lot en cours
-Lot : 5 — Acomptes propriétaires
-Statut : **FAIT** (Lots 0, 1, 2, 3, 4, 4bis et 5 FAITS — en attente validation humaine Lot 5)
+Lot : 6a — Hostaway ménages (comptage CleaningTasks)
+Statut : **FAIT** (Lots 0, 1, 2, 3, 4, 4bis, 5 et 6a FAITS — en attente validation humaine Lot 6a)
 
 > Contrôles inscrits :
 > - Lot 0 : CTR-2026-06-001 (audit initial), CTR-2026-06-002 (corrections), CTR-2026-06-003 (post-correction — tout vert)
@@ -22,11 +22,12 @@ Statut : **FAIT** (Lots 0, 1, 2, 3, 4, 4bis et 5 FAITS — en attente validation
 > - Lot 4 (2026-06-09) : SAISIE_ReservationsHorsHostaway.xlsx créé (4 onglets, 30 cols, 11 DV, 13 contrôles, VLOOKUP taux). MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx créé (34 cols, 3 requêtes PQ). CTR-2026-06-007 inscrit. Décisions D046–D051 verrouillées.
 > - Lot 4bis (2026-06-09) : MASTER_CALC_Reservations.xlsx créé (3 onglets, 24 cols, 7 requêtes PQ, anti-double-comptage 7 scénarios, 2 BLOQUANTS + 6 A_CONTROLER). CTR-2026-06-008 inscrit. Décisions D052–D057 verrouillées.
 > - Lot 5 (2026-06-09) : SAISIE_AcomptesProprietaires.xlsx créé (4 onglets, 18 cols, 5 DV, 10 contrôles). MASTER_FACT_MAN_AcomptesProprietaires.xlsx créé (22 cols, 5 requêtes PQ). REF_Setup.xlsm non modifié (TYPE_FLUX_006 déjà présent). CTR-2026-06-009 inscrit. Décisions D058–D064 verrouillées.
+> - Lot 6a (2026-06-09) : MASTER_FACT_HA_CleaningTasks_Discovery.xlsx peuplé (4 onglets : data 500 tâches / MASTER_ENRICHI 21 cols / VUE_COMPTAGE 11 cols / POWER_QUERY_CODE). 0 BLOQUANT, 325 ménages réalisés. CTR-2026-06-010 inscrit. Décisions D065–D069 verrouillées.
 
 **Points résiduels non bloquants à traiter dans les lots suivants :**
 - `CARTE_002` suffixe `XXXX` (carte Ewan) → à renseigner au **Lot 8** avant traitement des exports bancaires.
 - `mode_facturation = A_DEFINIR` pour tous les propriétaires → à définir au **Lot 12** avant facturation.
-- CleaningTasks SKIPPED → à extraire via `--only-cleaning-tasks` au **Lot 6a**.
+- CleaningTasks FAIT au Lot 6a (500 tâches, 325 réalisés, 0 BLOQUANT).
 - 59 réservations A_CONTROLER (32 VRBO + 27 DIRECT) → saisie manuelle aux **Lots 4 / 4bis**.
 
 ---
@@ -66,24 +67,29 @@ Statut : **FAIT** (Lots 0, 1, 2, 3, 4, 4bis et 5 FAITS — en attente validation
   - REF_Setup.xlsm non modifié : TYPE_FLUX_006 (ACOMPTE_FACTURE_PROPRIETAIRE) déjà présent.
   - report_mois_suivant supprimé (D061). source_pk = acompte_id toujours (D064). TYPE_FLUX_013 non créé.
   - Contrôle inscrit : CTR-2026-06-009. Décisions D058–D064.
+- **Lot 6a — Hostaway CleaningTasks comptage ménages FAIT (2026-06-09)** :
+  - MASTER_FACT_HA_CleaningTasks_Discovery.xlsx peuplé (4 onglets). Chemin : `02_TRAVAIL/Lot1_Hostaway/`.
+  - data (11 cols, 500 tâches brutes, H6 cost=NULL). MASTER_ENRICHI (21 cols, 0 BLOQUANT, 39 A_CONTROLER).
+  - VUE_COMPTAGE (11 cols, 95 lignes mois×logement, 325 ménages réalisés). POWER_QUERY_CODE (Q1–Q4).
+  - D065 : API /v1/tasks = 500 max, single call. D066 : Jan 2026 absent = normal.
+  - D067 : confirmed=prévu. D068 : logement inactif=A_CONTROLER. D069 : TLM_001 par défaut.
+  - Contrôle inscrit : CTR-2026-06-010. Décisions D065–D069.
 
 > **Règle D029 — IRRÉVOCABLE** : aucun lot ne peut être marqué FAIT sans entrée dans JOURNAL_CONTROLES.
 
 ---
 
-## Ce qui a été modifié (cette session — Lot 5)
-- Cadrage : `DECISIONS_METIER.md` (D058–D064 ajoutés — QM-L5-01 à QM-L5-07)
-- Cadrage : `JOURNAL_CONTROLES.md` (CTR-2026-06-009 inscrit)
-- Cadrage : `ARCHITECTURE_DONNEES.md` (§10.4 mis à jour — 22 cols, PK ACC-AAAA-MM-NNN, facture_ref, suppression report_mois_suivant, D064 source_pk/source_hh_id)
-- Cadrage : `ETAT_AVANCEMENT.md` (ce fichier — session 10, Lot 5)
-- Script : `02_TRAVAIL/lot5_master_acomptes_proprietaires.py` (créé + exécuté)
-- Créé : `01_SOURCES_BRUTES/AcomptesProprietaires/SAISIE_AcomptesProprietaires.xlsx`
-  (4 onglets : SAISIE 18 cols, REF_LOCALE 12 props/16 logs/5 modes, CONTROLES_SAISIE 10 contrôles, README)
-- Créé : `02_TRAVAIL/Lot5_AcomptesProprietaires/MASTER_FACT_MAN_AcomptesProprietaires.xlsx`
-  (3 onglets : MASTER 22 cols, VUE_ACTIVE filtre VALIDE, POWER_QUERY_CODE 5 requêtes M)
-- Dossiers créés : `01_SOURCES_BRUTES/AcomptesProprietaires/` + `02_TRAVAIL/Lot5_AcomptesProprietaires/`
-- REF_Setup.xlsm : NON modifié (TYPE_FLUX_006 déjà présent — aucune modification nécessaire)
-- Fichiers Lots 1, 3, 4, 4bis : NON modifiés
+## Ce qui a été modifié (cette session — Lot 6a)
+- Cadrage : `DECISIONS_METIER.md` (D065–D069 ajoutés — QM-L6a-API/Jan/02/inactif/04)
+- Cadrage : `JOURNAL_CONTROLES.md` (CTR-2026-06-010 inscrit)
+- Cadrage : `ETAT_AVANCEMENT.md` (ce fichier — session 11, Lot 6a)
+- Script : `02_TRAVAIL/lot6a_cleaning_tasks_comptage.py` (créé + exécuté)
+- Modifié : `02_TRAVAIL/Lot1_Hostaway/MASTER_FACT_HA_CleaningTasks_Discovery.xlsx`
+  (4 onglets : data 500 tâches 11 cols, MASTER_ENRICHI 21 cols, VUE_COMPTAGE 11 cols, POWER_QUERY_CODE)
+- REF_Setup.xlsm : NON modifié
+- Fichier CleaningTasks issu du Lot 1 enrichi au Lot 6a : MODIFIÉ (`02_TRAVAIL/Lot1_Hostaway/MASTER_FACT_HA_CleaningTasks_Discovery.xlsx`)
+- REF_Setup.xlsm : NON modifié
+- Fichiers Lots 3, 4, 4bis, 5 : NON modifiés
 
 ---
 
@@ -164,24 +170,24 @@ Statut : **FAIT** (Lots 0, 1, 2, 3, 4, 4bis et 5 FAITS — en attente validation
 
 ## Prochaine action obligatoire
 ```
-Lot 5 FAIT (2026-06-09) — CTR-2026-06-009 inscrit — en attente validation humaine
-Prochain lot : Lot 6a — Hostaway ménages (comptage CleaningTasks)
+Lot 6a FAIT (2026-06-09) — CTR-2026-06-010 inscrit — en attente validation humaine
+Prochain lot : Lot 6b — M04 ménages internes (main-d'œuvre uniquement, D027)
 ```
 
 ---
 
 ## Lecture prochaine session (discipline contextuelle)
 
-Pour la prochaine session (Lot 6a — Hostaway ménages comptage CleaningTasks), l'assistant doit ouvrir uniquement :
+Pour la prochaine session (Lot 6b — M04 ménages internes), l'assistant doit ouvrir uniquement :
 
 ```text
 À OUVRIR :
 - CLAUDE.md (intégral, court)
 - ETAT_AVANCEMENT.md (ce fichier)
-- PLAN_CONSTRUCTION.md → uniquement Lot 6a
-- ARCHITECTURE_DONNEES.md → §11.1, §11.2 (ménages, CleaningTasks)
-- REGLES_METIER.md → §2 (H6), §3 (M04 limites — D027)
-- Sortie Lot 1 CleaningTasks (si disponible) + REF_Types_Lignes_Menage
+- PLAN_CONSTRUCTION.md → uniquement Lot 6b
+- ARCHITECTURE_DONNEES.md → §11.4 (M04, main-d'œuvre uniquement — D027)
+- REGLES_METIER.md → §3, §5 (M04 limites — D027 irrévocable)
+- M04_MENAGES_PowerQuery.xlsx (si existant)
 
 À NE PAS OUVRIR (économie de contexte) :
 - README_PROJET.md (sauf onboarding)
