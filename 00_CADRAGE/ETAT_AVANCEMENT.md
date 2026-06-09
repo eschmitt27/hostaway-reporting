@@ -5,14 +5,14 @@
 
 ## Dernière mise à jour
 Date : 2026-06-09
-Session : Session 13 — Lot 6c Ménages externes (factures PDF prestataires)
+Session : Session 14 — Lot 7 IK & Avantages associés
 Agent : Claude Code (claude-sonnet-4-6)
 
 ---
 
 ## Lot en cours
-Lot : 6c — Ménages externes (factures PDF prestataires)
-Statut : **FAIT** (Lots 0, 1, 2, 3, 4, 4bis, 5, 6a, 6b et 6c FAITS — en attente validation humaine Lot 6c)
+Lot : 7 — IK & Avantages associés
+Statut : **FAIT** (Lots 0, 1, 2, 3, 4, 4bis, 5, 6a, 6b, 6c et 7 FAITS — en attente validation humaine Lot 7)
 
 > Contrôles inscrits :
 > - Lot 0 : CTR-2026-06-001 (audit initial), CTR-2026-06-002 (corrections), CTR-2026-06-003 (post-correction — tout vert)
@@ -204,30 +204,31 @@ Statut : **FAIT** (Lots 0, 1, 2, 3, 4, 4bis, 5, 6a, 6b et 6c FAITS — en attent
 
 ## Prochaine action obligatoire
 ```
-Lot 6c FAIT (2026-06-09) — CTR-2026-06-012 inscrit — en attente validation humaine
-Prochain lot : Lot 7 — IK & avantages associés
+Lot 7 FAIT (2026-06-09) — CTR-2026-06-015 inscrit — en attente validation humaine
+Prochain lot : Lot 8 — Banque & rapprochement bancaire
 ```
 
 ---
 
 ## Lecture prochaine session (discipline contextuelle)
 
-Pour la prochaine session (Lot 7 — IK & avantages), l'assistant doit ouvrir uniquement :
+Pour la prochaine session (Lot 8 — Banque & rapprochement), l'assistant doit ouvrir uniquement :
 
 ```text
 À OUVRIR :
 - CLAUDE.md (intégral, court)
 - ETAT_AVANCEMENT.md (ce fichier)
-- PLAN_CONSTRUCTION.md → uniquement Lot 7
-- ARCHITECTURE_DONNEES.md → §12 (IK & avantages)
-- REGLES_METIER.md → §10 (avantages associés)
-- REF_Associes, REF_Types_Flux
+- PLAN_CONSTRUCTION.md → uniquement Lot 8
+- ARCHITECTURE_DONNEES.md → §13 (Banque & rapprochement)
+- REGLES_METIER.md → §6, §7, §8
+- REF_Banque_Regles (à créer), REF_Cartes_Paiement, REF_Types_Flux
+- Export Crédit Mutuel : 01_SOURCES_BRUTES/Banque/
 
 À NE PAS OUVRIR (économie de contexte) :
 - README_PROJET.md (sauf onboarding)
 - OBJECTIF_PROJET_PILOTAGE_CONCIERGERIE_V3.md
-- Fichiers Lots 3, 4, 4bis, 5, 6a, 6b, 6c
-- Données brutes Banque, PDFs, Hostaway détaillé
+- Fichiers Lots 3, 4, 4bis, 5, 6a, 6b, 6c, 7 (sauf si rapprochement nécessaire)
+- PDFs prestataires
 ```
 
 Cette discipline est appliquée à chaque nouveau lot, en s'appuyant sur la matrice `CLAUDE.md §5.bis`.

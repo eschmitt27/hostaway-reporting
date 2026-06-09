@@ -28,6 +28,7 @@ venv/
 
 # Backups archives lots — non versionnés
 99_ARCHIVES/LOT6C_MenagesExternes/*.xlsm
+99_ARCHIVES/LOT7_IK_Avantages/*.xlsm
 
 # OS
 .DS_Store

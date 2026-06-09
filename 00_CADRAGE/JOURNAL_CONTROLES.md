@@ -467,6 +467,68 @@ Commentaire: Contrôle structurel et données mai 2026 peuplées. 9 lignes A_CON
 
 ---
 
+### CTR-2026-06-015
+
+```
+Date       : 2026-06-09
+Lot        : Lot 7 — IK & Avantages associés
+Code       : AUDIT_LOT7_IK_AVANTAGES_STRUCTURE
+Sévérité   : INFO
+Fichier    : 02_TRAVAIL/Lot7_IK_Avantages/MASTER_FACT_MAN_IK_Avantages.xlsx
+             02_TRAVAIL/lot7_ik_avantages.py
+             01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm
+Résultat   : Construction structurelle Lot 7 — structure vide, 0 donnée fictive.
+
+             REF_Setup.xlsm :
+               - Backup : 99_ARCHIVES/LOT7_IK_Avantages/REF_Setup_BACKUP_20260609_192200.xlsm
+               - REF_Types_Flux : TYPE_FLUX_015 (INDEMNITE_KILOMETRIQUE) ajouté.
+                 IC — avantage_brut=OUI — justificatif obligatoire.
+
+             MASTER_FACT_MAN_IK_Avantages.xlsx :
+               - 6 onglets : SOURCE_SAISIE / PARAMETRES / MASTER_SAISIE /
+                 MASTER_CALC_AVANTAGES / POWER_QUERY_CODE / README
+               - MASTER_SAISIE      : 22 colonnes — structure vide
+               - MASTER_CALC_AVANTAGES : 15 colonnes — structure vide — multi-mois
+               - SOURCE_SAISIE      : 9 colonnes saisie brute + ligne instructions
+               - PARAMETRES         : REF_Associes (2 associés) + REF_Types_Flux
+                 (7 types pertinents) + REF_Modes_Paiement (5 modes) +
+                 valeurs fermées statuts / niveau_anomalie / type_remboursement
+               - POWER_QUERY_CODE   : 5 requêtes M (Q1-Q5)
+
+             Décisions verrouillées : D089–D095 (D-7-01 à D-7-07).
+             Pré-correction : D096 (LOG_0016 T2→T3, CTR-2026-06-014).
+
+             Contrôles implémentés dans Q3 :
+               BLOQUANTS (6) : AVANTAGE_ASSOCIE_SANS_ASSOCIE_ID /
+                 AVANTAGE_ASSOCIE_MONTANT_INVALIDE / AVANTAGE_SANS_TYPE_FLUX /
+                 MONTANT_RECUPERE_HH_NON_REPRIS_AVANTAGES /
+                 DOUBLE_COMPTAGE_SAISIE_ET_DERIVE /
+                 SAISIE_LOT7_SOURCE_DEJA_EXISTANTE
+               A_CONTROLER (6) : REMBOURSEMENT_SANS_LIEN_ORIGINE /
+                 REMBOURSEMENT_SENS_ABSENT / VIREMENT_ASSOCIE_SANS_LIEN_BANQUE /
+                 IK_SANS_JUSTIFICATIF / AVANTAGE_NET_NEGATIF /
+                 TYPE_FLUX_IMPACT_INCOHERENT
+
+             Sources dérivées (à 0 jusqu au peuplement) :
+               - avantage_brut_depenses_perso      : Lot 3 TYPE_FLUX_002
+               - avantage_brut_montant_recupere_hh : Lot 4 via reservation_hh_id
+               - charges_payees_pour_societe        : Lot 3 TYPE_FLUX_004+008
+
+             Points résiduels non bloquants :
+               - Q4/Q5 : jointures Lot 3 et Lot 4 codées mais
+                 sources à 0 — à activer quand Lot 3 et Lot 4 peuplés.
+               - Virements associés mai 2026 : à saisir manuellement
+                 quand données disponibles (banque non traitée).
+
+             Lot 7 structure validée. Données à peuplier par saisie.
+Statut     : VALIDÉ
+Commentaire: Aucune donnée fictive. Toutes les colonnes et contrôles sont en place.
+             TYPE_FLUX_015 actif dans REF_Setup.xlsm.
+             Lot 8 (banque) alimentera les virements associés sans ressaisie.
+```
+
+---
+
 ### CTR-2026-06-014
 
 ```

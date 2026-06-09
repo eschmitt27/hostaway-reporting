@@ -730,6 +730,43 @@ Tables : MASTER_FACT_MEN_MenagesExternes.xlsx
 
 ---
 
+### D089 — TYPE_FLUX_015 = INDEMNITE_KILOMETRIQUE (D-7-01)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Créer TYPE_FLUX_015 = INDEMNITE_KILOMETRIQUE dans REF_Types_Flux. IK ≠ virement associé sur le plan juridique et comptable. Doit être identifiable séparément dans les avantages, avec justificatif ou commentaire obligatoire. code_impact_defaut=IC, avantage_brut_defaut=OUI, deduit_avantage_defaut=NON, comptabilisable_defaut=OUI.
+Tables : REF_Setup.xlsm (REF_Types_Flux), MASTER_FACT_MAN_IK_Avantages.xlsx
+
+### D090 — Structure fichier IK & Avantages : 1 fichier 6 onglets (D-7-02)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Un seul fichier MASTER_FACT_MAN_IK_Avantages.xlsx avec 6 onglets : SOURCE_SAISIE / PARAMETRES / MASTER_SAISIE / MASTER_CALC_AVANTAGES / POWER_QUERY_CODE / README. Cohérent avec Lots 5 et 6c. PQ peut joindre les sources internes.
+Tables : MASTER_FACT_MAN_IK_Avantages.xlsx
+
+### D091 — MASTER_CALC_AVANTAGES multi-mois, granularité mois × associe_id (D-7-03)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : La table calculée est multi-mois dès la construction. Une ligne par combinaison mois × associe_id. Structure stable, évite toute reconstruction mensuelle.
+Tables : MASTER_FACT_MAN_IK_Avantages.xlsx (onglet MASTER_CALC_AVANTAGES)
+
+### D092 — Structure vide, aucune donnée fictive (D-7-04)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Le fichier Lot 7 est construit avec structure vide. Aucune donnée saisie de mai 2026 (banque non traitée, montants virements non vérifiés). Les données seront saisies via SOURCE_SAISIE au fur et à mesure. Les virements associés seront rapprochés sans ressaisie au Lot 8.
+Tables : MASTER_FACT_MAN_IK_Avantages.xlsx
+
+### D093 — montant_recupere HH dérivé via reservation_hh_id, jamais ressaisi (D-7-05)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Le montant_recupere de MASTER_FACT_MAN_ReservationsHorsHostaway est dérivé dans MASTER_CALC_AVANTAGES par référence FK reservation_hh_id. Jamais copie de montant, jamais ressaisi dans MASTER_SAISIE. Contrôle bloquant MONTANT_RECUPERE_HH_NON_REPRIS_AVANTAGES si montant_recupere > 0 non reflété.
+Tables : MASTER_FACT_MAN_IK_Avantages.xlsx, MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx
+
+### D094 — Format avantage_id : préfixe VIR / IK / REM / AJU (D-7-06)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Format {PREFIXE}-AAAA-MM-{ASSOCIE_ID}-{NNN}. Préfixes : VIR (TYPE_FLUX_001), IK (TYPE_FLUX_015), REM (TYPE_FLUX_005), AJU (ajustements/avances/corrections). Uniformité PK, sémantique portée par type_flux_id.
+Tables : MASTER_FACT_MAN_IK_Avantages.xlsx (onglet MASTER_SAISIE, colonne avantage_id)
+
+### D095 — Avances via TYPE_FLUX_001 + nature="AVANCE" (D-7-07)
+Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
+Décision : Les avances associés sont captées via TYPE_FLUX_001 = VIREMENT_ASSOCIE avec nature="AVANCE". Pas de nouveau type_flux dédié. Pas de besoin différencié spécifique à ce stade.
+Tables : MASTER_FACT_MAN_IK_Avantages.xlsx
+
+---
+
 ### D096 — Correction type logement LOG_0016 : T3 au lieu de T2 (Cyprien / Clarisse)
 Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
 Décision : LOG_0016 (T3 20 rue de l'Amiral Galache, Clarisse / PROP_0012) était classé TYPE_002 (T2) par erreur. Correction en TYPE_003 (T3). Coût standard applicable : 55€ (COUT_MEN_003) au lieu de 39€ (COUT_MEN_002). Logement archivé dans Hostaway (actif=NON). L'internalName Hostaway "T2 - Cyprien (Clarisse)" n'est pas modifié (donnée source externe). MAP_LOG_0075 et MAP_LOG_0076 mis à jour vers "T3". Lots 6a, 6b, 6c : aucun recalcul — LOG_0016 absent de M04 et CleaningTasks ; montants Lot 6c déjà à 55€ (tarif T3) ; type_logement_id non stocké dans MASTER Lot 6c.
