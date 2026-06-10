@@ -26,9 +26,17 @@ venv/
 # Factures PDF prestataires — données sensibles (IBAN, identité légale, SIRET/RCS)
 01_SOURCES_BRUTES/MenagesExternes/Factures_PDF/*.pdf
 
+# Exports bancaires bruts — données sensibles, jamais committés
+01_SOURCES_BRUTES/Banque/
+
+# Fichiers normalisés bancaires — contiennent mouvements détaillés, non versionnés
+02_TRAVAIL/Lot8_Banque/*.xlsx
+02_TRAVAIL/Lot8_Banque/*.csv
+
 # Backups archives lots — non versionnés
 99_ARCHIVES/LOT6C_MenagesExternes/*.xlsm
 99_ARCHIVES/LOT7_IK_Avantages/*.xlsm
+99_ARCHIVES/LOT8_Banque/
 
 # OS
 .DS_Store
