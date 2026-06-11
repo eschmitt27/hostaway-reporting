@@ -467,6 +467,69 @@ Commentaire: Contrôle structurel et données mai 2026 peuplées. 9 lignes A_CON
 
 ---
 
+### CTR-2026-06-016
+
+```
+Date       : 2026-06-11
+Lot        : Lot 4bis — Table commune réservations (correctif peuplement)
+Code       : CORRECTIF_LOT4BIS_PEUPLEMENT_MASTER_CALC_RESERVATIONS
+Sévérité   : INFO
+Fichier    : 02_TRAVAIL/lot4bis_charger_reservations.py (créé)
+             02_TRAVAIL/Lot4bis_TableCommune/MASTER_CALC_Reservations.xlsx (modifié)
+             .gitignore (modifié — ajout 99_ARCHIVES/LOT4BIS_TableCommune/)
+Résultat   : MASTER_CALC_Reservations.xlsx peuplé par script Python reproductible.
+             Squelette Power Query (non exécutable) remplacé par approche script Python.
+             Backup créé : 99_ARCHIVES/LOT4BIS_TableCommune/MASTER_CALC_Reservations_BACKUP_20260611_200317.xlsx
+
+             Volumes produits :
+               MASTER   : 1 391 lignes (24 colonnes)
+               VUE_FLUX : 1 321 lignes (VALIDE + impact_resultat_reel=OUI + montant≠0)
+
+             Répartition par source :
+               HOSTAWAY_AIRBNB            : 1 235 (S1)
+               HOSTAWAY_BOOKING           :    86 (S2)
+               HOSTAWAY_DIRECT_HH         :    27 (cas non couvert D054 — validé 2026-06-11)
+               HOSTAWAY_VRBO_A_CONTROLER  :    32 (S5)
+               OWNERSTAY_EXCLU            :    11 (S7)
+               HH (S3/S4/S6)             :     0 (SAISIE_ReservationsHorsHostaway vide)
+
+             Répartition par statut_controle :
+               VALIDE         : 1 321
+               A_CONTROLER    :    59
+               EXCLU_RESULTAT :    11
+
+             Répartition par code_impact :
+               IC : 1 321
+               HC :    59
+               HR :    11
+
+             Anomalies A_CONTROLER :
+               DIRECT_SANS_SAISIE_HH      : 27 — DIRECT Hostaway sans saisie HH, à saisir
+               VRBO_MONTANT_NON_RENSEIGNE : 32 — VRBO sans montant, en attente saisie HH
+               LOGEMENT_INACTIF           :  0 — règle date_sortie_gestion appliquée
+
+             Règle date_sortie_gestion validée (2026-06-11) :
+               - date_arrivee < date_sortie ET date_depart <= date_sortie → VALIDE
+               - date_arrivee < date_sortie ET date_depart > date_sortie  → A_CONTROLER (SEJOUR_CHEVAUCHE_SORTIE_GESTION)
+               - date_arrivee >= date_sortie                              → A_CONTROLER (LOGEMENT_INACTIF)
+               - date_sortie absente ET actif=NON                         → A_CONTROLER (LOGEMENT_INACTIF)
+
+             LOG_0003 (T2 - 65 Gabriel, sorti gestion 2026-04-26) :
+               76 réservations historiques — toutes VALIDE (arrivées avant date_sortie)
+               0 SEJOUR_CHEVAUCHE_SORTIE_GESTION (tous départs avant 2026-04-26)
+
+             Contrôles BLOQUANTS : 0 détecté
+             Données personnelles voyageur dans MASTER/VUE_FLUX : AUCUNE (vérifié)
+             Fichiers sources : NON modifiés
+             HH : 0 ligne (SAISIE_ReservationsHorsHostaway vide — saisie manuelle à venir)
+Statut     : EN_ATTENTE_VALIDATION_HUMAINE
+Commentaire: Script reproductible. Relancer lot4bis_charger_reservations.py après toute
+             modification de SAISIE_ReservationsHorsHostaway pour inclure les HH.
+             Lot 9 reste BLOQUÉ jusqu'à validation et commit du correctif.
+```
+
+---
+
 ### CTR-2026-06-015
 
 ```

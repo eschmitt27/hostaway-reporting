@@ -4,15 +4,17 @@
 ---
 
 ## Dernière mise à jour
-Date : 2026-06-09
-Session : Session 14 — Lot 7 IK & Avantages associés
+Date : 2026-06-11
+Session : Session 15 — Lot 4bis correctif peuplement MASTER_CALC_Reservations
 Agent : Claude Code (claude-sonnet-4-6)
 
 ---
 
 ## Lot en cours
-Lot : 7 — IK & Avantages associés
-Statut : **FAIT** (Lots 0, 1, 2, 3, 4, 4bis, 5, 6a, 6b, 6c et 7 FAITS — en attente validation humaine Lot 7)
+Lot : 4bis correctif — Peuplement MASTER_CALC_Reservations (script Python)
+Statut : **EN_ATTENTE_VALIDATION_HUMAINE** — script exécuté, contrôles OK, commit non fait
+
+> ⚠️ **Lot 9 BLOQUÉ** jusqu'à validation et commit du correctif Lot 4bis.
 
 > Contrôles inscrits :
 > - Lot 0 : CTR-2026-06-001 (audit initial), CTR-2026-06-002 (corrections), CTR-2026-06-003 (post-correction — tout vert)
@@ -20,7 +22,8 @@ Statut : **FAIT** (Lots 0, 1, 2, 3, 4, 4bis, 5, 6a, 6b, 6c et 7 FAITS — en att
 > - Lot 2 : CTR-2026-06-005 (mapping logements — 17/17 OK — validé humainement 2026-06-08)
 > - Lot 3 FAIT (2026-06-08) : REF_Setup.xlsm mis à jour (5 onglets). SAISIE_Charges_Flux.xlsx créé (4 onglets, 31 cols, 18 DV, 13 contrôles). MASTER_FACT_MAN_Charges.xlsx créé (37 cols, 4 requêtes PQ). CTR-2026-06-006 inscrit.
 > - Lot 4 (2026-06-09) : SAISIE_ReservationsHorsHostaway.xlsx créé (4 onglets, 30 cols, 11 DV, 13 contrôles, VLOOKUP taux). MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx créé (34 cols, 3 requêtes PQ). CTR-2026-06-007 inscrit. Décisions D046–D051 verrouillées.
-> - Lot 4bis (2026-06-09) : MASTER_CALC_Reservations.xlsx créé (3 onglets, 24 cols, 7 requêtes PQ, anti-double-comptage 7 scénarios, 2 BLOQUANTS + 6 A_CONTROLER). CTR-2026-06-008 inscrit. Décisions D052–D057 verrouillées.
+> - Lot 4bis squelette (2026-06-09) : MASTER_CALC_Reservations.xlsx créé (3 onglets, 24 cols, 7 requêtes PQ, anti-double-comptage 7 scénarios, 2 BLOQUANTS + 6 A_CONTROLER). CTR-2026-06-008 inscrit. Décisions D052–D057 verrouillées.
+> - Lot 4bis correctif (2026-06-11) : MASTER_CALC_Reservations.xlsx peuplé par script Python (1 391 lignes MASTER / 1 321 VUE_FLUX). CTR-2026-06-016 inscrit. EN_ATTENTE_VALIDATION_HUMAINE.
 > - Lot 5 (2026-06-09) : SAISIE_AcomptesProprietaires.xlsx créé (4 onglets, 18 cols, 5 DV, 10 contrôles). MASTER_FACT_MAN_AcomptesProprietaires.xlsx créé (22 cols, 5 requêtes PQ). REF_Setup.xlsm non modifié (TYPE_FLUX_006 déjà présent). CTR-2026-06-009 inscrit. Décisions D058–D064 verrouillées.
 > - Lot 6a (2026-06-09) : MASTER_FACT_HA_CleaningTasks_Discovery.xlsx peuplé (4 onglets : data 500 tâches / MASTER_ENRICHI 21 cols / VUE_COMPTAGE 11 cols / POWER_QUERY_CODE). 0 BLOQUANT, 325 ménages réalisés. CTR-2026-06-010 inscrit. Décisions D065–D069 verrouillées.
 
@@ -98,6 +101,32 @@ Statut : **FAIT** (Lots 0, 1, 2, 3, 4, 4bis, 5, 6a, 6b, 6c et 7 FAITS — en att
   - REC_002 cle_repartition mise à jour : COUT_STANDARD_MENAGES_MOIS (ancienne valeur : NOMBRE_MENAGES, D076, validation humaine Lot 6b).
 
 > **Règle D029 — IRRÉVOCABLE** : aucun lot ne peut être marqué FAIT sans entrée dans JOURNAL_CONTROLES.
+
+---
+
+## Ce qui a été modifié (session 15 — Lot 4bis correctif, 2026-06-11)
+- Cadrage : `JOURNAL_CONTROLES.md` (CTR-2026-06-016 inscrit)
+- Cadrage : `ETAT_AVANCEMENT.md` (ce fichier — session 15, Lot 4bis correctif)
+- Cadrage : `.gitignore` (ajout `99_ARCHIVES/LOT4BIS_TableCommune/`)
+- Script créé : `02_TRAVAIL/lot4bis_charger_reservations.py`
+  (script Python reproductible — remplace Power Query squelette non exécutable)
+- Modifié : `02_TRAVAIL/Lot4bis_TableCommune/MASTER_CALC_Reservations.xlsx`
+  (MASTER 1 391 lignes / VUE_FLUX 1 321 lignes / POWER_QUERY_CODE conservé)
+- Backup : `99_ARCHIVES/LOT4BIS_TableCommune/MASTER_CALC_Reservations_BACKUP_20260611_200317.xlsx`
+
+Règle validée (2026-06-11) — logements sortis de gestion :
+  - `date_arrivee < date_sortie_gestion` → VALIDE si autres contrôles OK
+  - `date_arrivee >= date_sortie_gestion` → A_CONTROLER (LOGEMENT_INACTIF)
+  - `date_depart > date_sortie_gestion` (arrivée avant) → A_CONTROLER (SEJOUR_CHEVAUCHE_SORTIE_GESTION)
+  - `date_sortie_gestion` absente et `actif=NON` → A_CONTROLER (LOGEMENT_INACTIF)
+
+Anomalies restantes (non bloquantes) :
+  - VRBO_MONTANT_NON_RENSEIGNE : 32 (VRBO sans saisie HH — en attente export Airbnb/VRBO détaillé)
+  - DIRECT_SANS_SAISIE_HH : 27 (DIRECT Hostaway sans saisie HH — à saisir dans SAISIE_ReservationsHorsHostaway)
+  - BLOQUANTS : 0
+
+Statut : EN_ATTENTE_VALIDATION_HUMAINE — commit non fait
+Fichiers sources NON modifiés (HA_Reservations, Payout, HH, REF_Setup, Banque)
 
 ---
 
@@ -204,31 +233,39 @@ Statut : **FAIT** (Lots 0, 1, 2, 3, 4, 4bis, 5, 6a, 6b, 6c et 7 FAITS — en att
 
 ## Prochaine action obligatoire
 ```
-Lot 7 FAIT (2026-06-09) — CTR-2026-06-015 inscrit — en attente validation humaine
-Prochain lot : Lot 8 — Banque & rapprochement bancaire
+Lot 4bis correctif (2026-06-11) — CTR-2026-06-016 inscrit — EN_ATTENTE_VALIDATION_HUMAINE
+Action : valider les résultats du correctif, puis git add + commit (5 fichiers : .gitignore, ETAT_AVANCEMENT.md, JOURNAL_CONTROLES.md, lot4bis_charger_reservations.py, MASTER_CALC_Reservations.xlsx)
+Après commit : Lot 9 débloqué (MASTER_CALC_Reservations exploitable)
 ```
 
 ---
 
 ## Lecture prochaine session (discipline contextuelle)
 
-Pour la prochaine session (Lot 8 — Banque & rapprochement), l'assistant doit ouvrir uniquement :
-
+Si la prochaine session est **validation + commit Lot 4bis** :
 ```text
 À OUVRIR :
 - CLAUDE.md (intégral, court)
 - ETAT_AVANCEMENT.md (ce fichier)
-- PLAN_CONSTRUCTION.md → uniquement Lot 8
-- ARCHITECTURE_DONNEES.md → §13 (Banque & rapprochement)
-- REGLES_METIER.md → §6, §7, §8
-- REF_Banque_Regles (à créer), REF_Cartes_Paiement, REF_Types_Flux
-- Export Crédit Mutuel : 01_SOURCES_BRUTES/Banque/
+- 02_TRAVAIL/lot4bis_charger_reservations.py (pour revue)
+- 02_TRAVAIL/Lot4bis_TableCommune/MASTER_CALC_Reservations.xlsx (vérification résultats)
 
-À NE PAS OUVRIR (économie de contexte) :
+À NE PAS OUVRIR : tout le reste (économie de contexte)
+```
+
+Si la prochaine session est **Lot 9** (après commit Lot 4bis validé) :
+```text
+À OUVRIR :
+- CLAUDE.md (intégral, court)
+- ETAT_AVANCEMENT.md (ce fichier)
+- PLAN_CONSTRUCTION.md → uniquement Lot 9
+- ARCHITECTURE_DONNEES.md → §2.3, §14
+- REGLES_METIER.md → §1, §2 (H4), §8
+- Tables calculées déjà produites (MASTER_CALC_Reservations, MASTER_FACT_MAN_Charges, etc.)
+
+À NE PAS OUVRIR :
 - README_PROJET.md (sauf onboarding)
-- OBJECTIF_PROJET_PILOTAGE_CONCIERGERIE_V3.md
-- Fichiers Lots 3, 4, 4bis, 5, 6a, 6b, 6c, 7 (sauf si rapprochement nécessaire)
-- PDFs prestataires
+- Sources brutes PDF/API
 ```
 
 Cette discipline est appliquée à chaque nouveau lot, en s'appuyant sur la matrice `CLAUDE.md §5.bis`.

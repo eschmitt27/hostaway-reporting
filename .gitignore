@@ -34,6 +34,7 @@ venv/
 02_TRAVAIL/Lot8_Banque/*.csv
 
 # Backups archives lots — non versionnés
+99_ARCHIVES/LOT4BIS_TableCommune/
 99_ARCHIVES/LOT6C_MenagesExternes/*.xlsm
 99_ARCHIVES/LOT7_IK_Avantages/*.xlsm
 99_ARCHIVES/LOT8_Banque/
