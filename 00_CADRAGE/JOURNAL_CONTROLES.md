@@ -22,6 +22,57 @@ Commentaire: note
 
 ---
 
+### CTR-2026-06-017
+
+```
+Date       : 2026-06-11
+Lot        : Lot 9 — Table de flux unifiée MASTER_CALC_Flux
+Code       : CONSTRUCTION_MASTER_CALC_FLUX_LOT9
+Sévérité   : INFO
+Fichier    : 02_TRAVAIL/Lot9_FluxUnifie/MASTER_CALC_Flux.xlsx
+Résultat   : Construction sur données réelles. Script lot9_construire_flux.py exécuté.
+             10 contrôles BLOQUANTS tous OK.
+
+             Volumes produits :
+               - RES : 1 321 flux (TYPE_FLUX_017, PRODUIT, IC — VUE_FLUX MASTER_CALC_Reservations)
+               - MEN : 4 flux (TYPE_FLUX_014, CHARGE, IC — MenagesExternes VALIDE 2026-05)
+               - BNQ : 8 flux (TYPE_FLUX_016, CHARGE, IC — frais bancaires Lot 8 VALIDE)
+               - TOTAL : 1 333 flux / 22 colonnes / 0 doublon / 0 montant négatif
+
+             Sources :
+               - MASTER_CALC_Reservations VUE_FLUX : 1 321 lignes VALIDE
+                 (AIRBNB 1235 / BOOKING 86 — tous IC, PRODUIT, TYPE_FLUX_017)
+               - MASTER_FACT_MEN_MenagesExternes MASTER VALIDE : 4 lignes
+                 (MENEXT-2026-05-AISSATA-001/007/008/009 — IC, CHARGE, 29+55+55+55=194€)
+               - BANQUE_LOT8_IMPORT NORM_Banque TYPE_FLUX_016 VALIDE : 8 lignes
+                 (frais bancaires — IC, CHARGE, commentaire générique sans libellé brut)
+
+             Contrôles BLOQUANTS :
+               CTR-9-001 : 3 fichiers sources présents [OK]
+               CTR-9-002 : VUE_FLUX non vide [OK]
+               CTR-9-003 : VUE_FLUX volume >= 1000 (1321) [OK]
+               CTR-9-004 : 0 montant négatif [OK]
+               CTR-9-005 : tous sens valides (PRODUIT/CHARGE) [OK]
+               CTR-9-006 : tous code_impact valides (IC uniquement) [OK]
+               CTR-9-007 : 1333 flux_id uniques [OK]
+               CTR-9-008 : 0 doublon source technique [OK]
+               CTR-9-009 : volume = 1321+4+8 = 1333 [OK]
+               CTR-9-010 : aucune colonne bancaire sensible dans schema [OK]
+
+             Sécurité bancaire : libelle, libelle_brut, compte_id absents de MASTER_CALC_Flux.xlsx [OK]
+             Commentaire frais bancaires : "Frais bancaires validés Lot 8" (générique) [OK]
+
+             TYPE_FLUX_017 = REVENU_RESERVATION_HOSTAWAY créé dans REF_Setup.xlsm.
+             Backup REF_Setup : 99_ARCHIVES/LOT9_FluxUnifie/REF_Setup_backup_lot9_20260611_213323.xlsm
+
+             Répartition par mois : 2025-01 (7) à 2027-02 (2) — 23 mois couverts
+Statut     : EN_ATTENTE_VALIDATION_HUMAINE
+Commentaire: Sources vides à ce stade : IK (0), Acomptes (0), Charges (0), M04 (0).
+             Ces sources alimenteront MASTER_CALC_Flux lors de leur remplissage — re-run idempotent.
+```
+
+---
+
 ### CTR-2026-06-001
 
 ```
