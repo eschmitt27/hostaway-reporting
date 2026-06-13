@@ -5,15 +5,14 @@
 
 ## Dernière mise à jour
 Date : 2026-06-13
-Session : Session 17 — Correctif Lot 1 Payout Airbnb (menage_retenu)
+Session : Session 18 — Lot 10 Résultats, commissions, net propriétaire
 Agent : Claude Code (claude-sonnet-4-6)
 
 ---
 
 ## Lot en cours
-Lot : 1 — Correctif Payout final (date-aware + REF historique 2025)
-Statut : **EN_ATTENTE_VALIDATION_HUMAINE** — 19 contrôles OK (CTR-2026-06-018), commit non fait
-Lot 10 : **BLOQUÉ** — attente validation humaine du correctif Lot 1 final
+Lot : 10 — Résultats, commissions & net propriétaire
+Statut : **EN_ATTENTE_VALIDATION_HUMAINE** — 19 contrôles OK (CTR-2026-06-019), commit non fait
 
 > Contrôles inscrits :
 > - Lot 0 : CTR-2026-06-001 (audit initial), CTR-2026-06-002 (corrections), CTR-2026-06-003 (post-correction — tout vert)
@@ -101,6 +100,42 @@ Lot 10 : **BLOQUÉ** — attente validation humaine du correctif Lot 1 final
   - REC_002 cle_repartition mise à jour : COUT_STANDARD_MENAGES_MOIS (ancienne valeur : NOMBRE_MENAGES, D076, validation humaine Lot 6b).
 
 > **Règle D029 — IRRÉVOCABLE** : aucun lot ne peut être marqué FAIT sans entrée dans JOURNAL_CONTROLES.
+
+---
+
+## Ce qui a été modifié (session 18 — Lot 10 Résultats / commissions / net propriétaire, 2026-06-13)
+
+- Script créé : `02_TRAVAIL/lot10_calculer_resultats.py`
+  - Jointure confirmée : Flux.source_pk → Reservations.reservation_calc_id → reservation_id_hostaway → Payout.reservation_id
+  - 6 contrôles BLOQUANTS / 4 contrôles A_CONTROLER / 19 points CTR rapport
+- Créé : `02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Commissions.xlsx`
+  - Onglet COMMISSIONS : 1 321 réservations NORMAL (Airbnb + Booking)
+  - Onglet A_CONTROLER : 59 réservations exclues (VRBO + Direct)
+- Créé : `02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Resultats.xlsx`
+  - PAR_MOIS_LOGEMENT : 497 lignes total (248 REEL + 248 COMPTABLE + 1 HORS_COMPTA placeholder)
+  - PAR_MOIS_PROPRIETAIRE : 404 lignes total (202 REEL + 202 COMPTABLE)
+  - GLOBAL : 3 lignes (1 REEL + 1 COMPTABLE + 1 HORS_COMPTA) — REEL = COMPTABLE = 283 515.60 € / HC = 0 (sources vides)
+- Créé : `02_TRAVAIL/Lot10_Resultats/MASTER_CALC_NetProprietaire.xlsx`
+  - EXPLOITATION : 1 321 réservations, charge_fixe=0 par réservation
+  - REGLEMENT : 269 lignes mois × logement, charge fixe Option A
+  - VUE_MOIS : 220 lignes mois × propriétaire
+- Charge fixe mensuelle (Option A, D-LOT10-04 validé) :
+  - 233 lignes générées / 13 logements avec forfait > 0
+  - 12 logements flaggés CHARGE_FIXE_DATE_ENTREE_GESTION_INCOHERENTE (premier mois Flux < 2026-01)
+  - 1 logement flaggé LOG_SANS_FLUX_017 : LOG_0009 (forfait=40€ mais 0 réservation TYPE_FLUX_017)
+  - Total charge fixe générée : 7 645.00 €
+- Chiffres clés :
+  - Total payout NORMAL : 283 709.60 €
+  - Total ménage retenu : 55 619.00 €
+  - Total assiette commission : 228 090.60 €
+  - Total commission conciergerie : 39 167.42 €
+  - Total net proprio avant charge fixe : 188 923.18 €
+  - Total net proprio après charge fixe : 181 278.18 €
+  - Résultat REEL global (Flux) : 283 515.60 €
+  - Résultat HORS_COMPTA : 0 € (sources vides — M04, Charges, IK non alimentés)
+- 0 BLOQUANT détecté — CTR-2026-06-019 inscrit
+- Sources amont non modifiées (Flux, Reservations, Payout, REF_Setup — lecture seule)
+- Commit non fait — EN_ATTENTE_VALIDATION_HUMAINE
 
 ---
 
@@ -278,29 +313,42 @@ Fichiers sources NON modifiés (HA_Reservations, Payout, HH, Banque brute)
 
 ## Prochaine action obligatoire
 ```
-Correctif Lot 1 — correctif #2 final (2026-06-13) — CTR-2026-06-018 — EN_ATTENTE_VALIDATION_HUMAINE
-Action : valider les 14 contrôles, puis git add + commit (5 fichiers :
-         .gitignore, ETAT_AVANCEMENT.md, JOURNAL_CONTROLES.md,
-         02_TRAVAIL/lot1_hostaway_extract.py,
-         02_TRAVAIL/Lot1_Hostaway/MASTER_CALC_HA_Payout.xlsx)
-Après commit + validation humaine : Lot 10 débloqué (résultats & commissions)
+Lot 10 — 2026-06-13 — CTR-2026-06-019 — EN_ATTENTE_VALIDATION_HUMAINE
+Action : valider les 19 contrôles CTR-LOT10-01 à CTR-LOT10-19, puis git add + commit.
 
-14 contrôles à valider :
-  CTR-1   Lignes Airbnb NORMAL corrigées        : 1 235 [OK]
-  CTR-2   Lignes Booking NORMAL corrigées       : 86 [OK]
-  CTR-3   menage_retenu Airbnb AVANT (bug=0)    : 0.00 €
-  CTR-4   menage_retenu Airbnb APRES REF_Setup  : 51 727.00 €
-  CTR-5   menage_retenu Booking AVANT           : 3 810.00 €
-  CTR-6   menage_retenu Booking APRES REF_Setup : 3 892.00 €
-  CTR-7   assiette Airbnb AVANT                 : 263 043.22 €
-  CTR-8   assiette Airbnb APRES                 : 211 316.22 €
-  CTR-9   assiette Booking AVANT                : 16 856.38 €
-  CTR-10  assiette Booking APRES                : 16 774.38 €
-  CTR-11  Ecart cleaningFee_res vs cout_std AB  : -501.00 € (std > cln — confirme cleaningFee_res invalide)
-  CTR-12  Lignes sans cout_standard             : 0 [OK]
-  CTR-13  Annulations avec payout intactes      : OK (D030)
-  CTR-14  Impact estimé commissions (~15%)      : -7 771.35 € / API non relancée [OK]
-  git status                                    : 5 fichiers M attendus [OK]
+Fichiers à committer (6) :
+  00_CADRAGE/ETAT_AVANCEMENT.md
+  00_CADRAGE/JOURNAL_CONTROLES.md
+  02_TRAVAIL/lot10_calculer_resultats.py
+  02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Commissions.xlsx
+  02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Resultats.xlsx
+  02_TRAVAIL/Lot10_Resultats/MASTER_CALC_NetProprietaire.xlsx
+
+19 contrôles à valider :
+  CTR-LOT10-01  Flux lus                                : 1 333
+  CTR-LOT10-02  Reservations NORMAL commissions         : 1 321
+  CTR-LOT10-03  A_CONTROLER exclus                      : 59
+  CTR-LOT10-04  Total payout NORMAL                     : 283 709.60 €
+  CTR-LOT10-05  Total ménage retenu                     : 55 619.00 €
+  CTR-LOT10-06  Total assiette commission                : 228 090.60 €
+  CTR-LOT10-07  Total commission conciergerie            : 39 167.42 €
+  CTR-LOT10-08  Total net proprio avant charge fixe      : 188 923.18 €
+  CTR-LOT10-09  Total charge fixe générée                : 7 645.00 €
+  CTR-LOT10-10  Total net proprio après charge fixe      : 181 278.18 €
+  CTR-LOT10-11  Résultat REEL global (Flux)             : 283 515.60 €
+  CTR-LOT10-12  Résultat COMPTABLE global               : 283 515.60 €
+  CTR-LOT10-13  Résultat HORS_COMPTA                    : 0.00 € [HC_ZERO_SOURCES_VIDES]
+  CTR-LOT10-14  PAR_MOIS_LOGEMENT total / dont REEL      : 497 lignes / 248 REEL
+  CTR-LOT10-15  PAR_MOIS_PROPRIETAIRE total / dont REEL : 404 lignes / 202 REEL
+  CTR-LOT10-16  CHARGE_FIXE_DATE_ENTREE_GESTION_INCO.   : 12 logements (attendu — REF 2026-01)
+  CTR-LOT10-17  LOG_SANS_FLUX_017                       : 1 (LOG_0009 — forfait=40€, 0 réservation Flux)
+  CTR-LOT10-18  Contrôles BLOQUANTS                     : 0
+  CTR-LOT10-19  Sources amont lecture seule              : OK
+
+Points à décider après Lot 10 (ne bloquent pas le commit) :
+  - LOG_0009 : forfait=40€ mais 0 réservation Flux → confirmer si logement actif / en gestion
+  - date_entree_gestion REF_Logements : toutes à 2026-01-01 → correction REF_Setup ultérieure
+  - mode_facturation = A_DEFINIR (12 propriétaires) → Lot 12
 ```
 
 ---

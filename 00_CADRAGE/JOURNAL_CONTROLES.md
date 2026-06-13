@@ -22,6 +22,93 @@ Commentaire: note
 
 ---
 
+### CTR-2026-06-019
+
+```
+Date       : 2026-06-13
+Lot        : Lot 10 — Résultats, commissions & net propriétaire
+Code       : CONSTRUCTION_LOT10_COMMISSIONS_RESULTATS_NET
+Sévérité   : INFO
+Fichier    : 02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Commissions.xlsx
+             02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Resultats.xlsx
+             02_TRAVAIL/Lot10_Resultats/MASTER_CALC_NetProprietaire.xlsx
+
+Script     : 02_TRAVAIL/lot10_calculer_resultats.py
+
+Jointure confirmée par test valeurs réelles :
+  MASTER_CALC_Flux.source_pk         = "RES-2025-01-HA-001" (reservation_calc_id)
+    -> MASTER_CALC_Reservations.reservation_calc_id
+    -> MASTER_CALC_Reservations.reservation_id_hostaway (entier, ex. 60504160)
+    -> MASTER_CALC_HA_Payout.reservation_id             (même format entier)
+
+Contrôles exécutés (19 points) :
+  CTR-LOT10-01  Flux lus depuis MASTER_CALC_Flux              : 1 333 [OK]
+  CTR-LOT10-02  Reservations NORMAL intégrées aux commissions  : 1 321 [OK]
+  CTR-LOT10-03  Reservations A_CONTROLER exclues               : 59 [OK]
+  CTR-LOT10-04  Total payout calculé (NORMAL)                  : 283 709.60 €
+  CTR-LOT10-05  Total ménage retenu                            : 55 619.00 €
+  CTR-LOT10-06  Total assiette commission                       : 228 090.60 €
+                Vérification : 283 709.60 - 55 619.00 = 228 090.60 [OK]
+  CTR-LOT10-07  Total commission conciergerie                   : 39 167.42 €
+  CTR-LOT10-08  Total net propriétaire avant charge fixe        : 188 923.18 €
+                Vérification : 228 090.60 - 39 167.42 = 188 923.18 [OK]
+  CTR-LOT10-09  Total charge fixe mensuelle générée             : 7 645.00 €
+                (233 lignes mois x logement / 13 logements avec forfait > 0)
+  CTR-LOT10-10  Total net propriétaire après charge fixe        : 181 278.18 €
+                Vérification : 188 923.18 - 7 645.00 = 181 278.18 [OK]
+  CTR-LOT10-11  Résultat REEL global (Flux)                    : 283 515.60 €
+                Note : différence avec payout (194.00 €) = charges Flux (4 ménages + 8 frais bancaires)
+  CTR-LOT10-12  Résultat COMPTABLE global (Flux)               : 283 515.60 €
+                REEL = COMPTABLE [attendu — tout IC à ce stade]
+  CTR-LOT10-13  Résultat HORS_COMPTA global (Flux)             : 0.00 € [HC_ZERO_SOURCES_VIDES]
+                Sources vides : M04 / Charges / IK / Acomptes non alimentés
+  CTR-LOT10-14  PAR_MOIS_LOGEMENT total / dont REEL            : 497 lignes / 248 REEL [OK]
+                (248 REEL + 248 COMPTABLE + 1 HORS_COMPTA placeholder)
+  CTR-LOT10-15  PAR_MOIS_PROPRIETAIRE total / dont REEL        : 404 lignes / 202 REEL [OK]
+                (202 REEL + 202 COMPTABLE)
+  CTR-LOT10-16  CHARGE_FIXE_DATE_ENTREE_GESTION_INCOHERENTE    : 12 logements [A_CONTROLER — attendu]
+                Cause : date_entree_gestion REF = 2026-01-01 pour tous logements,
+                        mais réservations Flux remontent à 2025.
+                        date_entree_gestion = date création SAS/référentiel, pas début réel de gestion.
+                        Décision : ne pas corriger REF_Setup maintenant — lot séparé si nécessaire.
+  CTR-LOT10-17  LOG_SANS_FLUX_017                              : 1 logement [A_CONTROLER]
+                LOG_0009 (T3 Montaudran) : forfait=40€ mais aucune réservation TYPE_FLUX_017 dans Flux.
+                A vérifier : logement effectivement en gestion ? Données manquantes ?
+  CTR-LOT10-18  Contrôles BLOQUANTS détectés                   : 0 [OK]
+  CTR-LOT10-19  Sources amont (lecture seule)                  : [OK]
+                MASTER_CALC_Flux / MASTER_CALC_Reservations / MASTER_CALC_HA_Payout / REF_Setup.xlsm
+                non modifiés — vérifiés par git status (0 fichier M)
+
+Charge fixe mensuelle — règle appliquée (Option A, D-LOT10-04) :
+  - Source : REF_Logements.forfait_logiciel_consommables_mensuel
+  - Exposé : charge_fixe_mensuelle
+  - Début  : premier mois TYPE_FLUX_017 dans MASTER_CALC_Flux par logement
+  - Fin    : date_sortie_gestion si actif=NON, sinon dernier mois TYPE_FLUX_017
+  - Cas LOG_0003 (actif=NON, sortie=2026-04-26) : charge fixe arrêtée à 2026-04 [OK]
+  - Logements à forfait=0 : aucune ligne générée (LOG_0004, LOG_0016, LOG_0017, divers)
+
+Séparation exploitation / règlement :
+  - EXPLOITATION : charge_fixe=0 par réservation (non proratisée — D-LOT10-01)
+  - REGLEMENT    : charge_fixe 1x par mois x logement actif
+  - Acomptes     : 0 (sources vides — A_CONTROLER sur tous les reste_a_payer)
+
+Fichiers créés :
+  - 02_TRAVAIL/lot10_calculer_resultats.py
+  - 02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Commissions.xlsx
+    (onglets : COMMISSIONS 1321L + A_CONTROLER 59L)
+  - 02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Resultats.xlsx
+    (onglets : PAR_MOIS_LOGEMENT + PAR_MOIS_PROPRIETAIRE + GLOBAL)
+  - 02_TRAVAIL/Lot10_Resultats/MASTER_CALC_NetProprietaire.xlsx
+    (onglets : EXPLOITATION + REGLEMENT 269L + VUE_MOIS 220L)
+
+Fichiers non modifiés : tout le reste (Flux, Reservations, Payout, REF_Setup, banque, Lot 9)
+Statut     : EN_ATTENTE_VALIDATION_HUMAINE
+Commentaire: Lot 11 ne peut pas démarrer avant validation + commit Lot 10 (D029).
+             LOG_0009 et date_entree_gestion à traiter en lot séparé REF_Setup ultérieur.
+```
+
+---
+
 ### CTR-2026-06-017
 
 ```
