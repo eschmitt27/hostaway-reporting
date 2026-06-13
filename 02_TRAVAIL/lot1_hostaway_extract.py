@@ -761,27 +761,56 @@ def _needs_detail(res: dict, channel: str, ff_list: list) -> bool:
 # ═══════════════════════════════════════════════════════════════
 # CALCUL PAYOUT (H1 / H2 / H3)
 # ═══════════════════════════════════════════════════════════════
+_META_NON_APPLICABLE = {
+    "menage_retenu_source": "NON_APPLICABLE",
+    "cout_standard_id": None, "cout_standard_menage_snapshot": None,
+    "cout_standard_date_debut_validite": None, "cout_standard_date_fin_validite": None,
+    "logement_id_snapshot": None, "type_logement_id_snapshot": None,
+    "date_reference_cout_menage": None,
+}
+
+
 class PayoutCalculator:
     """
     Calcule payout et ménage retenu canal par canal.
-    Returns: (payout, source_payout, statut_calcul_payout, menage_retenu)
+    Returns 5-tuple: (payout, source_payout, statut_calcul_payout, menage_retenu, meta_dict)
+    meta_dict contient les 8 colonnes de traçabilité du coût standard.
     H3: Direct/VRBO-Unknown → None, jamais valorisé depuis Hostaway.
+    menage_retenu = cout_standard REF_Couts_Standards_Menage sélectionné par date d'arrivée.
     """
+
+    def __init__(self, cost_ref_df: "pd.DataFrame" = None):
+        self._cost_ref_df = cost_ref_df if cost_ref_df is not None else pd.DataFrame()
+
+    def _menage_standard(self, res: dict) -> dict:
+        """Lookup date-aware depuis REF_Couts_Standards_Menage. Retourne dict traçabilité."""
+        map_id    = res.get("listingMapId")
+        check_in  = res.get("arrivalDate") or res.get("checkInDate")
+        return _lookup_menage_by_date(self._cost_ref_df, map_id, check_in)
+
+    def has_cost_standard(self, map_id) -> bool:
+        """Vrai si listingMapId a au moins un cout_standard dans le référentiel."""
+        if self._cost_ref_df is None or self._cost_ref_df.empty:
+            return False
+        try:
+            key = int(float(map_id))
+        except (TypeError, ValueError):
+            return False
+        return key in self._cost_ref_df["listingMapId_num"].values
 
     def calc(self, res: dict, ff_list: list, fees: list, channel: str = None) -> tuple:
         if channel is None:
             channel, _ = resolve_channel(res)
-        status  = res.get("status", "")
-        ffd     = ff_map(ff_list)
+        status = res.get("status", "")
+        ffd    = ff_map(ff_list)
 
-        # Annulé sans indemnité
         cancel = safe_float(
             _first(res.get("cancellationAmount"), res.get("cancellationPayout"))
         )
         if status in STATUS_CANCEL:
             if cancel > 0:
-                return cancel, "cancellationAmount", "ANNULE_AVEC_PAYOUT", 0.0
-            return 0.0, "ANNULE", "ANNULE_SANS_PAYOUT", 0.0
+                return cancel, "cancellationAmount", "ANNULE_AVEC_PAYOUT", 0.0, dict(_META_NON_APPLICABLE)
+            return 0.0, "ANNULE", "ANNULE_SANS_PAYOUT", 0.0, dict(_META_NON_APPLICABLE)
 
         if channel == "AIRBNB":
             return self._airbnb(res, ffd)
@@ -789,8 +818,7 @@ class PayoutCalculator:
             return self._booking(res, ffd, fees)
         if channel == "VRBO":
             return self._vrbo(res, ffd)
-        # Direct (H3) — pas de valorisation Hostaway
-        return None, "DIRECT_HORS_HOSTAWAY", "A_CONTROLER", 0.0
+        return None, "DIRECT_HORS_HOSTAWAY", "A_CONTROLER", 0.0, dict(_META_NON_APPLICABLE)
 
     def _airbnb(self, res: dict, ffd: dict) -> tuple:
         # H1 : airbnbExpectedPayoutAmount > fallback airbnbPayoutSum
@@ -800,23 +828,20 @@ class PayoutCalculator:
             payout = ffd.get("airbnbPayoutSum") or None
             src    = "airbnbPayoutSum_fallback"
         if not payout:
-            return None, "ABSENT", "PAYOUT_ABSENT", 0.0
-        # §8.3 : ménage Airbnb via finance field UNIQUEMENT (colonne cleaningFee = 0)
-        menage = ffd.get("cleaningFee", 0.0)
-        return payout, src, "NORMAL", menage
+            return None, "ABSENT", "PAYOUT_ABSENT", 0.0, dict(_META_NON_APPLICABLE)
+        meta = self._menage_standard(res)
+        return payout, src, "NORMAL", meta["menage_retenu"], meta
 
     def _booking(self, res: dict, ffd: dict, fees: list) -> tuple:
         # H2 : formule finance fields
         total = ffd.get("totalPriceFromChannel")
         if total:
-            city    = ffd.get("cityTax", 0.0)
-            ota     = ffd.get("otaPaymentProcessingFee", 0.0)
-            ch_fee  = ffd.get("hostChannelFee", 0.0)
-            payout  = total - city - ota - ch_fee
-            # §8.3 : ménage Booking = colonne cleaningFee du payout (pas finance fields)
-            menage  = safe_float(res.get("cleaningFee", 0))
-            return payout, "totalPriceFromChannel_formula", "NORMAL", menage
-        # Fallback Booking (moins fiable)
+            city   = ffd.get("cityTax", 0.0)
+            ota    = ffd.get("otaPaymentProcessingFee", 0.0)
+            ch_fee = ffd.get("hostChannelFee", 0.0)
+            payout = total - city - ota - ch_fee
+            meta   = self._menage_standard(res)
+            return payout, "totalPriceFromChannel_formula", "NORMAL", meta["menage_retenu"], meta
         total_p = safe_float(res.get("totalPrice"))
         if total_p > 0:
             ch_comm = safe_float(res.get("channelCommissionAmount", 0))
@@ -826,19 +851,19 @@ class PayoutCalculator:
                 if f.get("type", "").lower() in ("city_tax", "citytax", "tax", "tourist_tax")
             )
             payout = total_p - ch_comm - tax_fee
-            menage = safe_float(res.get("cleaningFee", 0))
-            return payout, "totalPrice_fallback", "PAYOUT_INCOMPLET", menage
-        return None, "ABSENT", "PAYOUT_ABSENT", 0.0
+            meta   = self._menage_standard(res)
+            return payout, "totalPrice_fallback", "PAYOUT_INCOMPLET", meta["menage_retenu"], meta
+        return None, "ABSENT", "PAYOUT_ABSENT", 0.0, dict(_META_NON_APPLICABLE)
 
     def _vrbo(self, res: dict, ffd: dict) -> tuple:
         pay_status = (res.get("paymentStatus") or "").lower()
         if pay_status == "unknown" or not pay_status:
-            return None, "VRBO_UNKNOWN", "A_CONTROLER", 0.0
+            return None, "VRBO_UNKNOWN", "A_CONTROLER", 0.0, dict(_META_NON_APPLICABLE)
         payout = ffd.get("totalPriceFromChannel") or safe_float(res.get("totalPrice")) or None
         if payout:
             menage = ffd.get("cleaningFee", 0.0)
-            return payout, "vrbo_totalPrice", "PAYOUT_INCOMPLET", menage
-        return None, "ABSENT", "A_CONTROLER", 0.0
+            return payout, "vrbo_totalPrice", "PAYOUT_INCOMPLET", menage, dict(_META_NON_APPLICABLE)
+        return None, "ABSENT", "A_CONTROLER", 0.0, dict(_META_NON_APPLICABLE)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -912,7 +937,7 @@ def write_excel(df: "pd.DataFrame", path: Path) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════
-# CHARGEMENT REF_LOGEMENTS
+# CHARGEMENT RÉFÉRENTIELS REF_SETUP
 # ═══════════════════════════════════════════════════════════════
 def load_known_listing_ids(ref_path: Path, log) -> set:
     """Charge les hostaway_listing_id de REF_Logements pour flag orphelin."""
@@ -930,6 +955,159 @@ def load_known_listing_ids(ref_path: Path, log) -> set:
     except Exception as e:
         log.warning(f"REF_Logements illisible ({e}) — flag orphelin désactivé")
         return set()
+
+
+def _build_cost_ref_df(ref_path: Path) -> "pd.DataFrame":
+    """
+    Construit DataFrame {listingMapId_num, logement_id, nom_court, type_logement_id,
+    cout_standard_id, cout_std, date_debut_validite, date_fin_validite}
+    depuis REF_Setup.xlsm via jointure :
+      REF_Mapping_Logements (Hostaway, listingMapId, actif=OUI)
+      → REF_Logements (type_logement_id)
+      → REF_Couts_Standards_Menage (actif=OUI, avec dates de validité).
+    Résultat : 1 ligne par (listingMapId, période de validité).
+    """
+    import openpyxl as xl
+    wb = xl.load_workbook(ref_path, read_only=True, data_only=True)
+
+    def _ws_df(name):
+        ws  = wb[name]
+        rows = list(ws.iter_rows(values_only=True))
+        return pd.DataFrame(rows[1:], columns=rows[0])
+
+    df_map  = _ws_df("REF_Mapping_Logements")
+    df_log  = _ws_df("REF_Logements")
+    df_cout = _ws_df("REF_Couts_Standards_Menage")
+    wb.close()
+
+    df_ha = df_map[
+        (df_map["source"] == "Hostaway") &
+        (df_map["champ_source"] == "listingMapId") &
+        (df_map["actif"] == "OUI")
+    ][["valeur_source", "logement_id"]].copy()
+    df_ha.columns = ["listingMapId_num", "logement_id"]
+    df_ha["listingMapId_num"] = pd.to_numeric(df_ha["listingMapId_num"], errors="coerce")
+
+    df_log = df_log[["logement_id", "type_logement_id", "nom_court"]].copy()
+
+    df_cout_act = df_cout[df_cout["actif"] == "OUI"][
+        ["cout_standard_id", "type_logement_id", "cout_standard_menage",
+         "date_debut_validite", "date_fin_validite"]
+    ].copy()
+    df_cout_act = df_cout_act.rename(columns={"cout_standard_menage": "cout_std"})
+    df_cout_act["cout_std"] = pd.to_numeric(df_cout_act["cout_std"], errors="coerce")
+    df_cout_act["date_debut_validite"] = pd.to_datetime(df_cout_act["date_debut_validite"], errors="coerce")
+    df_cout_act["date_fin_validite"]   = pd.to_datetime(df_cout_act["date_fin_validite"],   errors="coerce")
+
+    result = (
+        df_ha
+        .merge(df_log, on="logement_id", how="left")
+        .merge(df_cout_act, on="type_logement_id", how="left")
+    )[["listingMapId_num", "logement_id", "nom_court", "type_logement_id",
+       "cout_standard_id", "cout_std", "date_debut_validite", "date_fin_validite"]]
+
+    return result.dropna(subset=["listingMapId_num"])
+
+
+def load_menage_cost_ref(ref_path: Path, log) -> "pd.DataFrame":
+    """
+    Retourne DataFrame [listingMapId_num, logement_id, nom_court, type_logement_id,
+    cout_standard_id, cout_std, date_debut_validite, date_fin_validite].
+    Une ligne par (listingMapId, période de validité cout_standard).
+    Source : REF_Couts_Standards_Menage via REF_Mapping_Logements → REF_Logements.
+    """
+    _empty_cols = ["listingMapId_num", "logement_id", "nom_court", "type_logement_id",
+                   "cout_standard_id", "cout_std", "date_debut_validite", "date_fin_validite"]
+    try:
+        df = _build_cost_ref_df(ref_path)
+        n_map = int(df["listingMapId_num"].nunique())
+        n_row = len(df)
+        log.info(f"REF_Couts_Standards_Menage : {n_map} listingMapId, {n_row} ligne(s) de validité chargées")
+        return df
+    except Exception as e:
+        log.warning(f"REF_Couts_Standards_Menage illisible ({e}) — menage_retenu=0 par défaut")
+        return pd.DataFrame(columns=_empty_cols)
+
+
+def _lookup_menage_by_date(cost_ref_df: "pd.DataFrame", map_id, check_in) -> dict:
+    """
+    Sélectionne le coût standard ménage valide à la date d'arrivée de la réservation.
+    Règle : date_debut_validite <= check_in
+            AND (date_fin_validite IS NULL OR check_in <= date_fin_validite)
+    Date de référence = checkInDate de la réservation (jamais date du jour / date recalcul).
+    Retourne un dict avec tous les champs de traçabilité.
+    Anomalie BLOQUANTE si doublon de validité pour la même date.
+    """
+    _empty = {
+        "menage_retenu": 0.0, "found": False, "doublon": False,
+        "menage_retenu_source": "MENAGE_SANS_COUT_STANDARD",
+        "cout_standard_id": None, "cout_standard_menage_snapshot": None,
+        "cout_standard_date_debut_validite": None, "cout_standard_date_fin_validite": None,
+        "logement_id_snapshot": None, "type_logement_id_snapshot": None,
+        "date_reference_cout_menage": None,
+    }
+
+    if cost_ref_df is None or cost_ref_df.empty:
+        return _empty.copy()
+
+    try:
+        key = int(float(map_id))
+    except (TypeError, ValueError):
+        return _empty.copy()
+
+    try:
+        ts_in = pd.Timestamp(check_in)
+        if pd.isna(ts_in):
+            return _empty.copy()
+    except Exception:
+        return _empty.copy()
+
+    df_lid = cost_ref_df[cost_ref_df["listingMapId_num"] == key]
+    if df_lid.empty:
+        r = _empty.copy()
+        r["date_reference_cout_menage"] = str(ts_in.date())
+        return r
+
+    mask_debut = df_lid["date_debut_validite"].notna() & (df_lid["date_debut_validite"] <= ts_in)
+    mask_fin   = df_lid["date_fin_validite"].isna() | (df_lid["date_fin_validite"] >= ts_in)
+    df_valid   = df_lid[mask_debut & mask_fin]
+
+    date_ref_str = str(ts_in.date())
+
+    if df_valid.empty:
+        r = _empty.copy()
+        r["date_reference_cout_menage"] = date_ref_str
+        return r
+
+    if len(df_valid) > 1:
+        ids = list(df_valid["cout_standard_id"].values)
+        return {
+            "menage_retenu": 0.0, "found": False, "doublon": True,
+            "menage_retenu_source": "COUT_STANDARD_MENAGE_DOUBLON_VALIDITE",
+            "cout_standard_id": ",".join(str(i) for i in ids),
+            "cout_standard_menage_snapshot": None,
+            "cout_standard_date_debut_validite": None,
+            "cout_standard_date_fin_validite": None,
+            "logement_id_snapshot": str(df_valid.iloc[0]["logement_id"]) if pd.notna(df_valid.iloc[0]["logement_id"]) else None,
+            "type_logement_id_snapshot": str(df_valid.iloc[0]["type_logement_id"]) if pd.notna(df_valid.iloc[0]["type_logement_id"]) else None,
+            "date_reference_cout_menage": date_ref_str,
+        }
+
+    row   = df_valid.iloc[0]
+    fin_v = row["date_fin_validite"]
+    return {
+        "menage_retenu": float(row["cout_std"]) if pd.notna(row["cout_std"]) else 0.0,
+        "found": pd.notna(row["cout_std"]),
+        "doublon": False,
+        "menage_retenu_source": "REF_COUT_STANDARD_MENAGE",
+        "cout_standard_id": str(row["cout_standard_id"]) if pd.notna(row["cout_standard_id"]) else None,
+        "cout_standard_menage_snapshot": float(row["cout_std"]) if pd.notna(row["cout_std"]) else None,
+        "cout_standard_date_debut_validite": str(row["date_debut_validite"].date()) if pd.notna(row["date_debut_validite"]) else None,
+        "cout_standard_date_fin_validite": str(fin_v.date()) if pd.notna(fin_v) else None,
+        "logement_id_snapshot": str(row["logement_id"]) if pd.notna(row["logement_id"]) else None,
+        "type_logement_id_snapshot": str(row["type_logement_id"]) if pd.notna(row["type_logement_id"]) else None,
+        "date_reference_cout_menage": date_ref_str,
+    }
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -973,6 +1151,212 @@ def _extract_cleaning_tasks(client, date_from: str, detector, log) -> tuple:
 
 
 # ═══════════════════════════════════════════════════════════════
+# RECALC PAYOUT ONLY — sans API, depuis fichiers Excel existants
+# ═══════════════════════════════════════════════════════════════
+def recalc_payout_only(out_dir: Path, log, payout_source: Path = None) -> None:
+    """
+    --recalc-payout-only : recalcule menage_retenu depuis REF_Couts_Standards_Menage.
+    Source : payout_source (backup recommandé) ou MASTER_CALC_HA_Payout.xlsx si None.
+    Lookup date-aware : cout_standard sélectionné selon checkInDate de chaque réservation.
+    Ajoute 8 colonnes de traçabilité. Applique pour AIRBNB NORMAL et BOOKING NORMAL.
+    Annulations avec payout : menage_retenu = 0 conservé (D030).
+    N'appelle pas l'API. Imprime les 14+ contrôles obligatoires.
+    """
+    log.info("=" * 60)
+    log.info("RECALC PAYOUT ONLY — correctif #3 : REF_Couts_Standards_Menage + date-aware")
+    log.info("Source menage_retenu : cout_standard REF_Setup selectionne par checkInDate")
+    log.info("API Hostaway : NON appelee")
+    log.info("=" * 60)
+
+    prod_path   = out_dir / "MASTER_CALC_HA_Payout.xlsx"
+    source_path = payout_source if payout_source else prod_path
+
+    if not source_path.exists():
+        log.error(f"Source payout introuvable : {source_path}")
+        sys.exit(1)
+
+    log.info(f"Source payout    : {source_path.name}")
+    log.info(f"Destination      : {prod_path.name}")
+
+    # ── 1. Charger source payout ─────────────────────────────────
+    log.info("Chargement source payout...")
+    df_pay = pd.read_excel(source_path, sheet_name="data")
+    n_total = len(df_pay)
+    log.info(f"  {n_total} lignes chargees")
+
+    # ── 2. Charger checkInDate depuis MASTER_FACT_HA_Reservations ─
+    res_path = out_dir / "MASTER_FACT_HA_Reservations.xlsx"
+    if not res_path.exists():
+        log.error(f"MASTER_FACT_HA_Reservations introuvable : {res_path}")
+        log.error("Impossible de recuperer checkInDate — recalcul annule.")
+        sys.exit(1)
+    log.info("Chargement checkInDate depuis MASTER_FACT_HA_Reservations...")
+    df_res     = pd.read_excel(res_path, sheet_name="data")
+    df_res_ci  = df_res[["reservation_id", "checkInDate", "cleaningFee_res"]].copy()
+    df_res_ci["checkInDate"] = pd.to_datetime(df_res_ci["checkInDate"], errors="coerce")
+    log.info(f"  {len(df_res_ci)} reservations, checkInDate pret")
+
+    # ── 3. Coûts standards depuis REF_Setup (avec dates) ─────────
+    log.info("Chargement REF_Couts_Standards_Menage depuis REF_Setup (avec dates validite)...")
+    cost_ref_df = _build_cost_ref_df(REF_FILE)
+    n_map = int(cost_ref_df["listingMapId_num"].nunique())
+    log.info(f"  {n_map} listingMapId, {len(cost_ref_df)} ligne(s) de validite")
+
+    # ── 4. Merge checkInDate dans df_pay ─────────────────────────
+    df_pay = df_pay.merge(df_res_ci[["reservation_id", "checkInDate"]], on="reservation_id", how="left")
+
+    # ── 5. Masques ────────────────────────────────────────────────
+    mask_ab_norm = (df_pay["channel_type"] == "AIRBNB")  & (df_pay["statut_calcul_payout"] == "NORMAL")
+    mask_bk_norm = (df_pay["channel_type"] == "BOOKING") & (df_pay["statut_calcul_payout"] == "NORMAL")
+    mask_cancel  = df_pay["statut_calcul_payout"] == "ANNULE_AVEC_PAYOUT"
+    mask_normal  = mask_ab_norm | mask_bk_norm
+
+    # ── 6. Stats AVANT ────────────────────────────────────────────
+    men_ab_avant = float(df_pay.loc[mask_ab_norm, "menage_retenu"].fillna(0).sum())
+    men_bk_avant = float(df_pay.loc[mask_bk_norm, "menage_retenu"].fillna(0).sum())
+    ass_ab_avant = float(df_pay.loc[mask_ab_norm, "assiette_commission"].fillna(0).sum())
+    ass_bk_avant = float(df_pay.loc[mask_bk_norm, "assiette_commission"].fillna(0).sum())
+    cancel_avant = float(df_pay.loc[mask_cancel,  "menage_retenu"].fillna(0).sum())
+
+    # ── 7. Lookup date-aware + remplissage 8 colonnes ─────────────
+    log.info("Lookup date-aware cout_standard par reservation...")
+    _8cols = [
+        "menage_retenu_source", "cout_standard_id", "cout_standard_menage_snapshot",
+        "cout_standard_date_debut_validite", "cout_standard_date_fin_validite",
+        "logement_id_snapshot", "type_logement_id_snapshot", "date_reference_cout_menage",
+    ]
+    for col in _8cols:
+        if col not in df_pay.columns:
+            df_pay[col] = None
+
+    # Traçabilité pour colonnes non-NORMAL : NON_APPLICABLE
+    for col in _8cols:
+        df_pay.loc[~mask_normal, col] = "NON_APPLICABLE" if col == "menage_retenu_source" else None
+
+    n_doublon   = 0
+    n_missing   = 0
+    n_ab_corr   = 0
+    n_bk_corr   = 0
+    rows_idx_normal = df_pay.index[mask_normal]
+
+    for idx in rows_idx_normal:
+        row       = df_pay.loc[idx]
+        map_id    = row["listingMapId"]
+        check_in  = row.get("checkInDate")
+        meta      = _lookup_menage_by_date(cost_ref_df, map_id, check_in)
+
+        if meta["doublon"]:
+            n_doublon += 1
+            log.warning(
+                f"  DOUBLON VALIDITE BLOQUANT — reservation_id={row['reservation_id']} "
+                f"listingMapId={map_id} checkIn={check_in} "
+                f"cout_standard_id={meta['cout_standard_id']}"
+            )
+        elif not meta["found"]:
+            n_missing += 1
+            log.warning(
+                f"  SANS COUT STANDARD — reservation_id={row['reservation_id']} "
+                f"listingMapId={map_id} checkIn={check_in}"
+            )
+
+        # Mise à jour menage_retenu + assiette
+        menage_new = meta["menage_retenu"]
+        df_pay.at[idx, "menage_retenu"]       = menage_new
+        df_pay.at[idx, "assiette_commission"] = (
+            float(row["payout_calcule"]) - menage_new
+            if pd.notna(row["payout_calcule"]) else None
+        )
+
+        # 8 colonnes de traçabilité
+        for col in _8cols:
+            df_pay.at[idx, col] = meta.get(col.replace("menage_retenu_source", "menage_retenu_source"))
+
+        if row["channel_type"] == "AIRBNB":
+            n_ab_corr += 1
+        else:
+            n_bk_corr += 1
+
+    # ── 8. Stats APRÈS ────────────────────────────────────────────
+    men_ab_apres = float(df_pay.loc[mask_ab_norm, "menage_retenu"].fillna(0).sum())
+    men_bk_apres = float(df_pay.loc[mask_bk_norm, "menage_retenu"].fillna(0).sum())
+    ass_ab_apres = float(df_pay.loc[mask_ab_norm, "assiette_commission"].fillna(0).sum())
+    ass_bk_apres = float(df_pay.loc[mask_bk_norm, "assiette_commission"].fillna(0).sum())
+    cancel_apres = float(df_pay.loc[mask_cancel,  "menage_retenu"].fillna(0).sum())
+    cancel_ok    = abs(cancel_avant - cancel_apres) < 0.01
+
+    # ── 9. Contrôle traçabilité colonnes NORMAL ───────────────────
+    n_ab_with_id = int(df_pay.loc[mask_ab_norm, "cout_standard_id"].notna().sum())
+    n_bk_with_id = int(df_pay.loc[mask_bk_norm, "cout_standard_id"].notna().sum())
+    n_snap_ok    = int(
+        (df_pay.loc[mask_normal, "cout_standard_menage_snapshot"] ==
+         df_pay.loc[mask_normal, "menage_retenu"]).sum()
+    )
+    n_date_ok    = int(df_pay.loc[mask_normal, "date_reference_cout_menage"].notna().sum())
+
+    # ── 10. Écart cleaningFee_res vs cout_std (informel) ──────────
+    ecart_cln_vs_std = None
+    if res_path.exists():
+        df_check      = df_pay[mask_ab_norm].merge(
+            df_res_ci[["reservation_id", "cleaningFee_res"]], on="reservation_id", how="left"
+        )
+        cln_total         = float(df_check["cleaningFee_res"].fillna(0).sum())
+        std_total         = float(df_check["cout_standard_menage_snapshot"].fillna(0).sum())
+        ecart_cln_vs_std  = cln_total - std_total
+
+    delta_ab          = ass_ab_avant - ass_ab_apres
+    delta_bk          = ass_bk_avant - ass_bk_apres
+    commission_impact = (delta_ab + delta_bk) * 0.15
+
+    # ── 11. Supprimer colonne helper ──────────────────────────────
+    df_pay.drop(columns=["checkInDate"], inplace=True, errors="ignore")
+
+    # ── 12. 14+ CONTRÔLES OBLIGATOIRES ───────────────────────────
+    log.info("\n--- 14+ CONTROLES OBLIGATOIRES CTR-2026-06-018 (correctif #3 date-aware) ---")
+    log.info(f"  CTR-1   Lignes Airbnb NORMAL traitees         : {n_ab_corr}")
+    log.info(f"  CTR-2   Lignes Booking NORMAL traitees        : {n_bk_corr}")
+    log.info(f"  CTR-3   menage_retenu Airbnb AVANT (source)   : {men_ab_avant:.2f} E")
+    log.info(f"  CTR-4   menage_retenu Airbnb APRES REF_Setup  : {men_ab_apres:.2f} E")
+    log.info(f"  CTR-5   menage_retenu Booking AVANT           : {men_bk_avant:.2f} E")
+    log.info(f"  CTR-6   menage_retenu Booking APRES REF_Setup : {men_bk_apres:.2f} E")
+    log.info(f"  CTR-7   assiette Airbnb AVANT                 : {ass_ab_avant:.2f} E")
+    log.info(f"  CTR-8   assiette Airbnb APRES                 : {ass_ab_apres:.2f} E")
+    log.info(f"  CTR-9   assiette Booking AVANT                : {ass_bk_avant:.2f} E")
+    log.info(f"  CTR-10  assiette Booking APRES                : {ass_bk_apres:.2f} E")
+    if ecart_cln_vs_std is not None:
+        log.info(f"  CTR-11  Ecart cleaningFee_res vs cout_std AB  : {ecart_cln_vs_std:+.2f} E")
+    else:
+        log.info(f"  CTR-11  Ecart cleaningFee_res vs cout_std     : (MASTER_FACT absent)")
+    log.info(f"  CTR-12  Lignes NORMAL sans cout_standard      : {n_missing}")
+    log.info(f"  CTR-13  Annulations avec payout intactes      : {'OK' if cancel_ok else 'ECHEC'}")
+    log.info(f"           menage_retenu annule AVANT           : {cancel_avant:.2f} E")
+    log.info(f"           menage_retenu annule APRES           : {cancel_apres:.2f} E")
+    log.info(f"  CTR-14  Impact estime commissions (~15%)      : {commission_impact:+.2f} E")
+    log.info(f"           API non relancee                     : OUI")
+    log.info(f"           Source utilisee                      : {source_path.name}")
+    log.info(f"  CTR-15  DOUBLONS VALIDITE (BLOQUANT)         : {n_doublon}")
+    log.info(f"  CTR-16  Airbnb NORMAL avec cout_standard_id  : {n_ab_with_id} / {n_ab_corr}")
+    log.info(f"  CTR-17  Booking NORMAL avec cout_standard_id : {n_bk_with_id} / {n_bk_corr}")
+    log.info(f"  CTR-18  Snapshot == menage_retenu (NORMAL)   : {n_snap_ok} / {int(mask_normal.sum())}")
+    log.info(f"  CTR-19  date_reference non vide (NORMAL)     : {n_date_ok} / {int(mask_normal.sum())}")
+
+    if not cancel_ok:
+        log.error("ECHEC CTR-13 : annulations avec payout alterees — ecriture annulee")
+        sys.exit(1)
+
+    if n_doublon > 0:
+        log.error(f"ECHEC CTR-15 : {n_doublon} doublon(s) de validite BLOQUANT — corriger REF_Setup avant validation")
+        sys.exit(1)
+
+    # ── 13. Écriture ─────────────────────────────────────────────
+    write_excel(df_pay, prod_path)
+    log.info(f"\nMaster payout ecrit : {prod_path}")
+    log.info(f"  {len(df_pay)} lignes, 8 colonnes tracabilite ajoutees")
+    log.info("RECALC #3 OK — EN_ATTENTE_VALIDATION_HUMAINE")
+    log.info("Lot 10 reste bloque jusqu'a validation humaine du correctif final.")
+    log.info("=" * 60)
+
+
+# ═══════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════
 def main():
@@ -1010,6 +1394,15 @@ def main():
         help="Extraire uniquement les tâches ménage (nécessite tables réservations existantes).",
     )
     parser.add_argument(
+        "--recalc-payout-only", action="store_true",
+        help="Recalcule MASTER_CALC_HA_Payout depuis fichiers Excel existants. N'appelle pas l'API.",
+    )
+    parser.add_argument(
+        "--payout-source", type=str, default=None,
+        help="Fichier payout source pour --recalc-payout-only (backup recommandé). "
+             "Défaut : fichier production MASTER_CALC_HA_Payout.xlsx.",
+    )
+    parser.add_argument(
         "--limit", type=int, default=0,
         help="Limiter à N réservations (0 = pas de limite). Pour tests.",
     )
@@ -1028,6 +1421,12 @@ def main():
     run_id    = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_start = datetime.now(timezone.utc)
     log       = setup_logging(run_id, silent_file=args.dry_run)
+
+    # ── Recalcul payout sans API ─────────────────────────────────
+    if getattr(args, "recalc_payout_only", False):
+        src = Path(args.payout_source) if getattr(args, "payout_source", None) else None
+        recalc_payout_only(OUT_DIR, log, payout_source=src)
+        return
 
     details_mode = getattr(args, "details_mode", DETAILS_MINIMAL)
     skip_tasks   = getattr(args, "skip_cleaning_tasks", False)
@@ -1093,9 +1492,10 @@ def main():
         return
 
     # ── REF_Logements (flag orphelin) ────────────────────────
-    known_ids = load_known_listing_ids(REF_FILE, log)
-    detector  = AnomalyDetector(known_ids)
-    payout_c  = PayoutCalculator()
+    known_ids    = load_known_listing_ids(REF_FILE, log)
+    cost_ref_df  = load_menage_cost_ref(REF_FILE, log)
+    detector     = AnomalyDetector(known_ids)
+    payout_c     = PayoutCalculator(cost_ref_df)
 
     # Variables de suivi run (initialisées tôt pour le try/finally)
     rows_listings = []
@@ -1282,24 +1682,40 @@ def main():
 
                         # Payout H1/H2/H3
                         if not is_owner:
-                            payout, payout_src, payout_status, menage = payout_c.calc(
+                            payout, payout_src, payout_status, menage, meta = payout_c.calc(
                                 res, ff_list, fees_list, channel=channel
                             )
                             detector.check_reservation(res_id, channel, payout_status, map_id)
+                            if channel in ("AIRBNB", "BOOKING") and not payout_c.has_cost_standard(map_id):
+                                detector._add(res_id, "COUT_STANDARD_MENAGE_ABSENT", "A_CONTROLER",
+                                              f"listingMapId {map_id} sans cout_standard REF_Couts_Standards_Menage")
+                            if meta.get("doublon"):
+                                detector._add(res_id, "COUT_STANDARD_MENAGE_DOUBLON_VALIDITE", "BLOQUANT",
+                                              f"Doublons validité cout_standard pour listingMapId {map_id} "
+                                              f"à checkInDate {meta.get('date_reference_cout_menage')} : "
+                                              f"cout_standard_id={meta.get('cout_standard_id')}")
                             assiette = (payout - menage) if payout is not None else None
                             rows_payout.append({
-                                "reservation_id":        res_id,
-                                "listingMapId":          map_id,
-                                "source":                source_brute,
-                                "channel_type":          channel,
-                                "statut_calcul_payout":  payout_status,
-                                "payout_calcule":        payout,
-                                "source_payout":         payout_src,
-                                "menage_retenu":         menage,
-                                "assiette_commission":   assiette,
-                                "inclure_resultat_auto": "OUI" if payout_status == "NORMAL" else "NON",
-                                "extrait_le":            now_utc(),
-                                "ROW_HASH":              row_hash(res_id, payout_status),
+                                "reservation_id":                    res_id,
+                                "listingMapId":                      map_id,
+                                "source":                            source_brute,
+                                "channel_type":                      channel,
+                                "statut_calcul_payout":              payout_status,
+                                "payout_calcule":                    payout,
+                                "source_payout":                     payout_src,
+                                "menage_retenu":                     menage,
+                                "assiette_commission":               assiette,
+                                "menage_retenu_source":              meta.get("menage_retenu_source"),
+                                "cout_standard_id":                  meta.get("cout_standard_id"),
+                                "cout_standard_menage_snapshot":     meta.get("cout_standard_menage_snapshot"),
+                                "cout_standard_date_debut_validite": meta.get("cout_standard_date_debut_validite"),
+                                "cout_standard_date_fin_validite":   meta.get("cout_standard_date_fin_validite"),
+                                "logement_id_snapshot":              meta.get("logement_id_snapshot"),
+                                "type_logement_id_snapshot":         meta.get("type_logement_id_snapshot"),
+                                "date_reference_cout_menage":        meta.get("date_reference_cout_menage"),
+                                "inclure_resultat_auto":             "OUI" if payout_status == "NORMAL" else "NON",
+                                "extrait_le":                        now_utc(),
+                                "ROW_HASH":                          row_hash(res_id, payout_status),
                             })
 
                         processed += 1

@@ -4,15 +4,16 @@
 ---
 
 ## Dernière mise à jour
-Date : 2026-06-11
-Session : Session 16 — Lot 9 Table de flux unifiée MASTER_CALC_Flux
+Date : 2026-06-13
+Session : Session 17 — Correctif Lot 1 Payout Airbnb (menage_retenu)
 Agent : Claude Code (claude-sonnet-4-6)
 
 ---
 
 ## Lot en cours
-Lot : 9 — Table de flux unifiée MASTER_CALC_Flux
-Statut : **EN_ATTENTE_VALIDATION_HUMAINE** — script exécuté, 1333 flux, 10 contrôles OK, commit non fait
+Lot : 1 — Correctif Payout final (date-aware + REF historique 2025)
+Statut : **EN_ATTENTE_VALIDATION_HUMAINE** — 19 contrôles OK (CTR-2026-06-018), commit non fait
+Lot 10 : **BLOQUÉ** — attente validation humaine du correctif Lot 1 final
 
 > Contrôles inscrits :
 > - Lot 0 : CTR-2026-06-001 (audit initial), CTR-2026-06-002 (corrections), CTR-2026-06-003 (post-correction — tout vert)
@@ -100,6 +101,45 @@ Statut : **EN_ATTENTE_VALIDATION_HUMAINE** — script exécuté, 1333 flux, 10 c
   - REC_002 cle_repartition mise à jour : COUT_STANDARD_MENAGES_MOIS (ancienne valeur : NOMBRE_MENAGES, D076, validation humaine Lot 6b).
 
 > **Règle D029 — IRRÉVOCABLE** : aucun lot ne peut être marqué FAIT sans entrée dans JOURNAL_CONTROLES.
+
+---
+
+## Ce qui a été modifié (session 17 — Correctif Lot 1 Payout final, 2026-06-13)
+- Cadrage : `JOURNAL_CONTROLES.md` (CTR-2026-06-018 inscrit — correctif final date-aware + REF historique)
+- Cadrage : `ETAT_AVANCEMENT.md` (ce fichier — session 17, correctif Lot 1 final)
+- Cadrage : `.gitignore` (99_ARCHIVES/LOT1_Hostaway/ ajouté)
+- Référentiel : `01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm`
+  - REF_Couts_Standards_Menage : +5 lignes historiques 2025 (COUT_STD_2025_TYPE_001–005)
+  - Période : 2025-01-01 → 2025-12-31 / Montants identiques 2026 (29/39/55/69/110€)
+  - Lignes 2026 (COUT_MEN_001–005) inchangées. Aucun chevauchement.
+  - Backup : `99_ARCHIVES/REF_Setup_BACKUP_20260613_175507.xlsm`
+- Script refactoré : `02_TRAVAIL/lot1_hostaway_extract.py`
+  - `_build_cost_ref_df()` : colonnes date_debut_validite + date_fin_validite + cout_standard_id
+  - `load_menage_cost_ref()` : retourne DataFrame (plus dict simple)
+  - `_lookup_menage_by_date()` : sélection date-aware + détection doublons BLOQUANT
+  - `PayoutCalculator` : refactoring complet → 5-tuples + meta_dict traçabilité
+  - `_META_NON_APPLICABLE` : traçabilité annulations / VRBO / Direct
+  - `recalc_payout_only()` : date-aware par ligne via checkInDate + 8 colonnes tracabilité
+  - Anomalies : COUT_STANDARD_MENAGE_ABSENT, COUT_STANDARD_MENAGE_DOUBLON_VALIDITE (BLOQUANT)
+  - Mode `--recalc-payout-only --payout-source <path>` conservé
+- Recalculé (correctif final) : `02_TRAVAIL/Lot1_Hostaway/MASTER_CALC_HA_Payout.xlsx`
+  - Source : backup propre MASTER_CALC_HA_Payout_BACKUP_20260613_114610.xlsx
+  - 1 235 lignes Airbnb NORMAL + 86 lignes Booking NORMAL corrigées
+  - menage_retenu Airbnb : 0.00 € → 51 727.00 € (REF_Setup date-aware)
+  - menage_retenu Booking : 3 810.00 € → 3 892.00 € (REF_Setup date-aware, delta +82€)
+  - assiette Airbnb : 263 043.22 € → 211 316.22 €
+  - assiette Booking : 16 856.38 € → 16 774.38 €
+  - 8 colonnes traçabilité ajoutées (menage_retenu_source, cout_standard_id, snapshot, dates, logement_id, type_id, date_reference)
+  - CTR-15 doublons validité : 0 / CTR-16 Airbnb avec cout_std_id : 1235/1235 / CTR-17 Booking : 86/86
+  - CTR-18 snapshot==menage_retenu : 1321/1321 / CTR-19 date_reference : 1321/1321
+  - 0 ligne sans cout_standard [OK] / Annulations intactes [OK] (D030)
+  - Impact estimé commissions (~15%) : −7 771.35 € (taux réels à confirmer Lot 10)
+- Backup pré-correctif : `99_ARCHIVES/LOT1_Hostaway/MASTER_CALC_HA_Payout_BACKUP_20260613_114610.xlsx`
+
+Note progression correctifs :
+  #1 cleaningFee_res : invalidé (prix voyageur ≠ coût standard).
+  #2 REF_Setup sans dates : insuffisant (814 réservations 2025 sans cout_standard).
+  Final : date-aware + REF historique 2025 → 0 manquant, traçabilité complète.
 
 ---
 
@@ -238,11 +278,29 @@ Fichiers sources NON modifiés (HA_Reservations, Payout, HH, Banque brute)
 
 ## Prochaine action obligatoire
 ```
-Lot 9 (2026-06-11) — CTR-2026-06-017 inscrit — EN_ATTENTE_VALIDATION_HUMAINE
-Action : valider le bilan 16 points, puis git add + commit (5 fichiers : .gitignore,
-         ETAT_AVANCEMENT.md, JOURNAL_CONTROLES.md, REF_Setup.xlsm,
-         lot9_construire_flux.py, MASTER_CALC_Flux.xlsx)
-Après commit : Lot 9 FAIT → Lot 10 débloqué (résultats réel/comptable/hors compta)
+Correctif Lot 1 — correctif #2 final (2026-06-13) — CTR-2026-06-018 — EN_ATTENTE_VALIDATION_HUMAINE
+Action : valider les 14 contrôles, puis git add + commit (5 fichiers :
+         .gitignore, ETAT_AVANCEMENT.md, JOURNAL_CONTROLES.md,
+         02_TRAVAIL/lot1_hostaway_extract.py,
+         02_TRAVAIL/Lot1_Hostaway/MASTER_CALC_HA_Payout.xlsx)
+Après commit + validation humaine : Lot 10 débloqué (résultats & commissions)
+
+14 contrôles à valider :
+  CTR-1   Lignes Airbnb NORMAL corrigées        : 1 235 [OK]
+  CTR-2   Lignes Booking NORMAL corrigées       : 86 [OK]
+  CTR-3   menage_retenu Airbnb AVANT (bug=0)    : 0.00 €
+  CTR-4   menage_retenu Airbnb APRES REF_Setup  : 51 727.00 €
+  CTR-5   menage_retenu Booking AVANT           : 3 810.00 €
+  CTR-6   menage_retenu Booking APRES REF_Setup : 3 892.00 €
+  CTR-7   assiette Airbnb AVANT                 : 263 043.22 €
+  CTR-8   assiette Airbnb APRES                 : 211 316.22 €
+  CTR-9   assiette Booking AVANT                : 16 856.38 €
+  CTR-10  assiette Booking APRES                : 16 774.38 €
+  CTR-11  Ecart cleaningFee_res vs cout_std AB  : -501.00 € (std > cln — confirme cleaningFee_res invalide)
+  CTR-12  Lignes sans cout_standard             : 0 [OK]
+  CTR-13  Annulations avec payout intactes      : OK (D030)
+  CTR-14  Impact estimé commissions (~15%)      : -7 771.35 € / API non relancée [OK]
+  git status                                    : 5 fichiers M attendus [OK]
 ```
 
 ---

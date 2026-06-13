@@ -73,6 +73,108 @@ Commentaire: Sources vides à ce stade : IK (0), Acomptes (0), Charges (0), M04 
 
 ---
 
+### CTR-2026-06-018
+
+```
+Date       : 2026-06-13
+Lot        : Lot 1 — Correctif Payout final : menage_retenu date-aware + REF historique 2025
+Code       : CORRECTIF_LOT1_PAYOUT_MENAGE_REF_SETUP
+Sévérité   : BLOQUANT (bug bloquant Lot 10)
+Fichier    : 02_TRAVAIL/Lot1_Hostaway/MASTER_CALC_HA_Payout.xlsx
+
+--- Diagnostic initial ---
+Bug identifié : menage_retenu = 0 pour 1 235 réservations Airbnb NORMAL.
+Cause : _airbnb() lisait ffd.get("cleaningFee") — finance fields Airbnb vides → 0.0.
+
+--- Correctif #1 (invalidé) ---
+Tentative : menage_retenu = cleaningFee_res (champ API Hostaway, prix plateforme voyageur).
+Résultat diagnostic : cleaningFee_res = prix facturé au voyageur (Studio 40€ vs std 29€, etc.)
+                       ≠ coût standard conciergerie. 1 233 / 1 235 lignes avec écart individuel.
+Décision humaine : cleaningFee_res non valide comme source de menage_retenu.
+                   Règle métier : menage_retenu = REF_Couts_Standards_Menage uniquement.
+
+--- Correctif #2 (intermédiaire, insuffisant) ---
+Source : REF_Couts_Standards_Menage sans contrôle de validité temporelle.
+Problème : 814 réservations Airbnb NORMAL avec checkInDate < 2026-01-01 tombaient à
+           menage_retenu = 0 dès qu'un lookup date-aware était appliqué.
+           Coût standard REF_Setup en vigueur depuis 2026-01-01 uniquement → trou historique 2025.
+Supplanté par correctif final.
+
+--- Correctif final — RETENU (2026-06-13) ---
+Approche en deux volets :
+  1. Lookup date-aware : menage_retenu sélectionné selon
+       date_debut_validite <= checkInDate AND (date_fin_validite IS NULL OR checkInDate <= date_fin_validite)
+       Date de référence = checkInDate de la réservation (jamais date du jour / date recalcul).
+  2. Extension REF_Couts_Standards_Menage avec 5 lignes historiques 2025 :
+       COUT_STD_2025_TYPE_001 | TYPE_001 | 29€  | 2025-01-01 → 2025-12-31
+       COUT_STD_2025_TYPE_002 | TYPE_002 | 39€  | 2025-01-01 → 2025-12-31
+       COUT_STD_2025_TYPE_003 | TYPE_003 | 55€  | 2025-01-01 → 2025-12-31
+       COUT_STD_2025_TYPE_004 | TYPE_004 | 69€  | 2025-01-01 → 2025-12-31
+       COUT_STD_2025_TYPE_005 | TYPE_005 | 110€ | 2025-01-01 → 2025-12-31
+     Mêmes montants que 2026 — aucun tarif différent connu pour 2025.
+     Lignes 2026 (COUT_MEN_001 à COUT_MEN_005 — date_fin_validite NULL) inchangées.
+     Aucun chevauchement : 2025-12-31 < 2026-01-01.
+
+Périmètre : AIRBNB NORMAL + BOOKING NORMAL (règle homogène toutes plateformes).
+Annulations avec payout : menage_retenu = 0 conservé (D030 irrévocable).
+Script : lot1_hostaway_extract.py — PayoutCalculator utilise _lookup_menage_by_date()
+         (DataFrame date-aware remplace dict simple). Retourne 5-tuple + meta_dict.
+Mode : --recalc-payout-only --payout-source <backup> (sans relance API).
+Backup source : 99_ARCHIVES/LOT1_Hostaway/MASTER_CALC_HA_Payout_BACKUP_20260613_114610.xlsx
+REF_Setup backup : 99_ARCHIVES/REF_Setup_BACKUP_20260613_175507.xlsm
+
+8 colonnes de traçabilité ajoutées dans MASTER_CALC_HA_Payout.xlsx :
+  menage_retenu_source, cout_standard_id, cout_standard_menage_snapshot,
+  cout_standard_date_debut_validite, cout_standard_date_fin_validite,
+  logement_id_snapshot, type_logement_id_snapshot, date_reference_cout_menage
+
+19 contrôles obligatoires (correctif final) :
+  CTR-1   Lignes Airbnb NORMAL traitées         : 1 235 [OK]
+  CTR-2   Lignes Booking NORMAL traitées        : 86 [OK]
+  CTR-3   menage_retenu Airbnb AVANT (bug=0)    : 0.00 €
+  CTR-4   menage_retenu Airbnb APRÈS REF_Setup  : 51 727.00 €
+  CTR-5   menage_retenu Booking AVANT           : 3 810.00 € (était cleaningFee_res)
+  CTR-6   menage_retenu Booking APRÈS REF_Setup : 3 892.00 € (delta +82€)
+  CTR-7   assiette Airbnb AVANT                 : 263 043.22 €
+  CTR-8   assiette Airbnb APRÈS                 : 211 316.22 € (delta -51 727€)
+  CTR-9   assiette Booking AVANT                : 16 856.38 €
+  CTR-10  assiette Booking APRÈS                : 16 774.38 € (delta -82€)
+  CTR-11  Écart cleaningFee_res vs cout_std AB  : -501.00 € (cout_std légèrement > cln_res 2026)
+  CTR-12  Lignes NORMAL sans cout_standard      : 0 [OK]
+  CTR-13  Annulations avec payout intactes      : OK (D030)
+  CTR-14  Impact estimé commissions (~15%)      : -7 771.35 € (assiette réduite 51 809€)
+           API non relancée                     : OUI
+           Source utilisée                      : MASTER_CALC_HA_Payout_BACKUP_20260613_114610.xlsx
+  CTR-15  Doublons validité BLOQUANT            : 0 [OK]
+  CTR-16  Airbnb NORMAL avec cout_standard_id   : 1 235 / 1 235 [OK]
+  CTR-17  Booking NORMAL avec cout_standard_id  : 86 / 86 [OK]
+  CTR-18  Snapshot == menage_retenu (NORMAL)    : 1 321 / 1 321 [OK]
+  CTR-19  date_reference non vide (NORMAL)      : 1 321 / 1 321 [OK]
+           git status                           : 6 fichiers M — aucun commit
+
+Anomalie connexe (non bloquante ce lot) :
+  LOG_0009 "T3 Montaudran" type = TYPE_002 (T2 — 39€) alors que nom dit T3.
+  Impact nul sur correctif (listingMapId concerné bien couvert par cout_standard TYPE_002).
+  À décider séparément (correction REF_Logements ou maintien).
+
+Fichiers modifiés :
+  - 01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm (+5 lignes historiques 2025 REF_Couts_Standards_Menage)
+  - 02_TRAVAIL/lot1_hostaway_extract.py (refactor complet : _build_cost_ref_df dates,
+    load_menage_cost_ref→DataFrame, _lookup_menage_by_date nouveau, PayoutCalculator 5-tuples,
+    _META_NON_APPLICABLE, recalc_payout_only date-aware + 8 col, main 5-tuple + nouveaux champs)
+  - 02_TRAVAIL/Lot1_Hostaway/MASTER_CALC_HA_Payout.xlsx (correctif final appliqué, 8 col tracabilité)
+  - .gitignore (99_ARCHIVES/LOT1_Hostaway/ ajouté)
+  - 00_CADRAGE/ETAT_AVANCEMENT.md (session 17)
+  - 00_CADRAGE/JOURNAL_CONTROLES.md (ce fichier)
+
+Statut     : EN_ATTENTE_VALIDATION_HUMAINE
+Commentaire: Lot 10 reste bloqué jusqu'à validation humaine du correctif final.
+             Impact réel commissions = taux propriétaire × (51 727 + 82) € — à confirmer Lot 10.
+             Taux de commission dans REF_Proprietaires ; charges fixes mensuelles dans REF_Logements — non dans ce fichier.
+```
+
+---
+
 ### CTR-2026-06-001
 
 ```
