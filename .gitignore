@@ -35,6 +35,8 @@ venv/
 
 # Backups archives lots — non versionnés
 99_ARCHIVES/LOT1_Hostaway/
+# Backups données fictives de test Lot 12 — contiennent du fictif, JAMAIS versionnés (règle #10)
+99_ARCHIVES/LOT12_TEST_DATA/
 99_ARCHIVES/REF_Setup_BACKUP_*.xlsm
 99_ARCHIVES/LOT4BIS_TableCommune/
 99_ARCHIVES/LOT9_FluxUnifie/

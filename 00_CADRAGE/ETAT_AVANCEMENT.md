@@ -5,8 +5,8 @@
 
 ## Dernière mise à jour
 Date : 2026-06-14
-Session : Session 19 — Lot 11 Contrôles de cohérence globaux
-Agent : Claude Code (claude-sonnet-4-6)
+Session : Session 20 — Correctif Lot 9 ingestion Charges/M04 + infrastructure test Lot 12
+Agent : Claude Code (claude-opus-4-8 / claude-sonnet-4-6)
 
 ---
 
@@ -101,6 +101,46 @@ Statut : **EN_ATTENTE_VALIDATION_HUMAINE** — 51 contrôles générés (CTR-202
   - REC_002 cle_repartition mise à jour : COUT_STANDARD_MENAGES_MOIS (ancienne valeur : NOMBRE_MENAGES, D076, validation humaine Lot 6b).
 
 > **Règle D029 — IRRÉVOCABLE** : aucun lot ne peut être marqué FAIT sans entrée dans JOURNAL_CONTROLES.
+
+---
+
+## Ce qui a été modifié (session 20 — Correctif Lot 9 ingestion Charges/M04 + infra test Lot 12, 2026-06-14)
+
+**Objectif :** câbler dans le Flux les sources jusqu'ici absentes (Charges, M04) + créer une
+infrastructure de données fictives pour tester le pipeline jusqu'au Lot 12.
+
+- Modifié : `02_TRAVAIL/lot9_construire_flux.py`
+  - Ingestion Charges (Lot 3, VALIDE) — sens/code_impact/type portés par la ligne
+  - Ingestion M04 ménages internes (Lot 6b, VALIDE, HC, TYPE_FLUX_013)
+  - IK exclu du Flux (décision « IK hors Flux / vue dédiée », §15.3)
+  - Acomptes différés (passe Lot 10)
+  - Garde-fou CTR-9-011 : portion RES (TYPE_FLUX_017) inchangée
+- Créé : `02_TRAVAIL/lot12_seed_donnees_fictives.py` (seed idempotent + backup + tag obligatoire)
+- Créé : `02_TRAVAIL/lot12_remove_donnees_fictives.py` (suppression par ID ZZ_TEST_ / tag + vérif 0 résiduel)
+- Modifié : `.gitignore` (ignore `99_ARCHIVES/LOT12_TEST_DATA/` — backups fictif, règle #10)
+- Modifié : `00_CADRAGE/JOURNAL_CONTROLES.md` (CTR-2026-06-021)
+- Modifié : `00_CADRAGE/ETAT_AVANCEMENT.md` (ce fichier — session 20)
+
+**Fichiers à ne SURTOUT PAS committer :**
+- `99_ARCHIVES/LOT12_TEST_DATA/` (backups contenant du fictif — déjà ignoré git)
+- Tous les fichiers Excel de données (Flux, Resultats, Commissions, NetProprietaire, CTRL_Coherence,
+  Charges, M04, MenExt, ReservationsHH, Reservations4bis, REF_Setup.xlsm, banque)
+
+**Résultat audit (avant commit) :**
+- 0 donnée fictive résiduelle (scan ZZ_TEST_ / tag sur 30 Excel suivis)
+- 0 Excel suivi modifié (git diff = uniquement .gitignore + lot9_construire_flux.py + docs)
+- Sources amont non modifiées (lecture seule)
+- Correctif Lot 9 **neutre** tant que Charges/M04 sont vides (baseline 1 333 inchangée)
+
+**Test fictif réalisé :** baseline 1 333 → avec fictif 1 340 → après suppression 1 333 → 0 résiduel.
+
+**Findings Lot 10 à traiter ensuite (passe Lot 10) :**
+1. HH sans payout Hostaway → gérer par montant saisi (pas payout)
+2. Lot 10 GLOBAL HORS_COMPTA reste 0 même avec flux HC → casse REEL = COMPTABLE + HC
+3. Charges globales / non affectables (sans logement_id) perdues dans l'agrégation
+4. Acomptes uniquement dans le bloc REGLEMENT, jamais dans l'exploitation (D031/D032/D033)
+
+**PRÉREQUIS BLOQUANT :** ne pas peupler Charges/M04 avec des données réelles HC avant correctif Lot 10.
 
 ---
 

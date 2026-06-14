@@ -28,6 +28,9 @@ ROOT    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_RES = os.path.join(ROOT, '02_TRAVAIL', 'Lot4bis_TableCommune',  'MASTER_CALC_Reservations.xlsx')
 SRC_MEN = os.path.join(ROOT, '02_TRAVAIL', 'Lot6c_MenagesExternes', 'MASTER_FACT_MEN_MenagesExternes.xlsx')
 SRC_BNQ = os.path.join(ROOT, '02_TRAVAIL', 'Lot8_Banque',           'BANQUE_LOT8_IMPORT.xlsx')
+# Lot 9 correctif (2026-06-14) : ingestion charges (Lot 3) + ménages internes M04 (Lot 6b)
+SRC_CHG = os.path.join(ROOT, '02_TRAVAIL', 'Lot3_Charges',          'MASTER_FACT_MAN_Charges.xlsx')
+SRC_M04 = os.path.join(ROOT, '02_DONNEES_NORMALISEES', 'menages',   'M04_MENAGES_PowerQuery.xlsx')
 OUT_DIR = os.path.join(ROOT, '02_TRAVAIL', 'Lot9_FluxUnifie')
 OUT_FILE = os.path.join(OUT_DIR, 'MASTER_CALC_Flux.xlsx')
 
@@ -122,6 +125,31 @@ print('Chargement NORM_Banque...')
 bnq_all    = load_sheet(SRC_BNQ, 'NORM_Banque')
 bnq_valide = [r for r in bnq_all if r.get('type_flux_id') == 'TYPE_FLUX_016' and r.get('statut_controle') == 'VALIDE']
 print(f'  {len(bnq_valide)} TYPE_FLUX_016 VALIDE / {len(bnq_all)} total')
+
+
+def _is_placeholder_id(v):
+    """Ligne d'instruction Power Query / formule, pas une vraie clé métier."""
+    if v is None:
+        return True
+    s = str(v).strip()
+    return s == '' or s[0] in '#[<←-*'
+
+
+# Charges (Lot 3) — VALIDE seulement, hors lignes placeholder Power Query
+print('Chargement MASTER_FACT_MAN_Charges...')
+chg_all = load_sheet(SRC_CHG, 'MASTER') if os.path.exists(SRC_CHG) else []
+chg_valide = [r for r in chg_all
+              if r.get('statut_controle') == 'VALIDE'
+              and not _is_placeholder_id(r.get('charge_id'))]
+print(f'  {len(chg_valide)} VALIDE / {len(chg_all)} total')
+
+# Ménages internes M04 (Lot 6b) — VALIDE seulement, HC obligatoire, hors placeholder
+print('Chargement M04_MENAGES_PowerQuery MASTER...')
+m04_all = load_sheet(SRC_M04, 'MASTER') if os.path.exists(SRC_M04) else []
+m04_valide = [r for r in m04_all
+              if r.get('statut_controle') == 'VALIDE'
+              and not _is_placeholder_id(r.get('menage_calc_id'))]
+print(f'  {len(m04_valide)} VALIDE / {len(m04_all)} total')
 
 # ── CTR-9-002 : VUE_FLUX non vide ────────────────────────────────────────────
 if not vue_flux:
@@ -277,6 +305,63 @@ bnq_count = counters.get('BNQ', 0)
 print(f'  {bnq_count} flux BNQ')
 
 
+# 4. Charges (Lot 3) — VALIDE seulement. sens/code_impact/type portés par la ligne.
+print('\nModule CHG — Charges...')
+chg_sorted = sorted(chg_valide, key=lambda r: str(r.get('charge_id') or ''))
+for r in chg_sorted:
+    date_flux = to_date_str(r.get('date_charge'))
+    mois      = r.get('mois') or to_mois(r.get('date_charge'))
+    if date_flux is None:
+        date_flux = mois_to_first_day(mois)
+
+    add_flux(
+        module_code    = 'CHG',
+        source_table   = 'MASTER_FACT_MAN_Charges',
+        source_pk      = r.get('charge_id'),
+        date_flux      = date_flux,
+        mois           = mois,
+        logement_id    = r.get('logement_id'),
+        proprietaire_id= r.get('proprietaire_id'),
+        associe_id     = r.get('associe_id'),
+        type_flux_id   = r.get('type_flux_id'),
+        sens           = r.get('sens') or r.get('sens_flux') or 'CHARGE',
+        montant        = r.get('montant'),
+        code_impact    = r.get('code_impact', 'IC'),
+        statut_controle= 'VALIDE',
+        commentaire    = r.get('commentaire'),
+    )
+chg_count = counters.get('CHG', 0)
+print(f'  {chg_count} flux CHG')
+
+
+# 5. Ménages internes M04 (Lot 6b) — VALIDE seulement. CHARGE HC, TYPE_FLUX_013 (M2 verrouillé).
+print('\nModule MEN_INT — Ménages internes M04...')
+m04_sorted = sorted(m04_valide, key=lambda r: str(r.get('menage_calc_id') or ''))
+for r in m04_sorted:
+    mois      = r.get('mois')
+    date_flux = mois_to_first_day(mois)
+    montant   = r.get('total_execution') or r.get('cout_execution_total')
+
+    add_flux(
+        module_code    = 'MENINT',
+        source_table   = 'M04_MENAGES_PowerQuery',
+        source_pk      = r.get('menage_calc_id'),
+        date_flux      = date_flux,
+        mois           = mois,
+        logement_id    = r.get('logement_id'),
+        proprietaire_id= r.get('proprietaire_id'),
+        associe_id     = None,
+        type_flux_id   = r.get('type_flux_id') or 'TYPE_FLUX_013',
+        sens           = 'CHARGE',
+        montant        = montant,
+        code_impact    = 'HC',  # M2 verrouillé — M04 toujours HC
+        statut_controle= 'VALIDE',
+        commentaire    = 'Ménage interne M04 (coût exécution main-d\'oeuvre)',
+    )
+men_int_count = counters.get('MENINT', 0)
+print(f'  {men_int_count} flux MEN_INT')
+
+
 # ── CONTRÔLES POST-CONSTRUCTION ───────────────────────────────────────────────
 print('\nContrôles post-construction...')
 
@@ -324,12 +409,21 @@ if doublons:
 print(f'  CTR-9-008 OK — aucun doublon source technique')
 
 # CTR-9-009 : volume total = somme des sources
-expected = len(vue_flux) + len(men_valide) + len(bnq_valide)
+expected = len(vue_flux) + len(men_valide) + len(bnq_valide) + len(chg_valide) + len(m04_valide)
 if len(flux_rows) != expected:
     print(f'BLOQUANT [CTR-9-009] Volume inattendu : {len(flux_rows)} flux vs {expected} attendu '
-          f'({len(vue_flux)} RES + {len(men_valide)} MEN + {len(bnq_valide)} BNQ)')
+          f'({len(vue_flux)} RES + {len(men_valide)} MEN + {len(bnq_valide)} BNQ '
+          f'+ {len(chg_valide)} CHG + {len(m04_valide)} MEN_INT)')
     sys.exit(1)
-print(f'  CTR-9-009 OK — {len(flux_rows)} flux = {len(vue_flux)} RES + {len(men_valide)} MEN + {len(bnq_valide)} BNQ')
+print(f'  CTR-9-009 OK — {len(flux_rows)} flux = {len(vue_flux)} RES + {len(men_valide)} MEN '
+      f'+ {len(bnq_valide)} BNQ + {len(chg_valide)} CHG + {len(m04_valide)} MEN_INT')
+
+# CTR-9-011 (garde-fou régression) : portion RES (TYPE_FLUX_017) inchangée
+res_flux_count = sum(1 for r in flux_rows if r.get('type_flux_id') == 'TYPE_FLUX_017')
+if res_flux_count != len(vue_flux):
+    print(f'BLOQUANT [CTR-9-011] Portion RES modifiée : {res_flux_count} TYPE_FLUX_017 vs {len(vue_flux)} attendu')
+    sys.exit(1)
+print(f'  CTR-9-011 OK — portion RES inchangée ({res_flux_count} TYPE_FLUX_017)')
 
 print(f'\nTous contrôles BLOQUANTS OK.')
 
@@ -380,6 +474,8 @@ print(f'Total flux : {len(flux_rows)}')
 print(f'  RES      : {res_count}  (TYPE_FLUX_017 PRODUIT IC)')
 print(f'  MEN      : {men_count}  (TYPE_FLUX_014 CHARGE  IC)')
 print(f'  BNQ      : {bnq_count}  (TYPE_FLUX_016 CHARGE  IC)')
+print(f'  CHG      : {chg_count}  (Charges Lot 3 — sens/impact par ligne)')
+print(f'  MEN_INT  : {men_int_count}  (TYPE_FLUX_013 CHARGE HC — M04)')
 
 from collections import Counter
 by_sens     = Counter(r['sens']            for r in flux_rows)

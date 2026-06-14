@@ -22,6 +22,51 @@ Commentaire: note
 
 ---
 
+### CTR-2026-06-021
+
+```
+Date       : 2026-06-14
+Lot        : Lot 9 — Correctif ingestion Charges + M04 + outils test Lot 12
+Code       : CORRECTIF_LOT9_INGESTION_CHARGES_M04
+Sévérité   : INFO
+Fichier    : 02_TRAVAIL/lot9_construire_flux.py
+             02_TRAVAIL/lot12_seed_donnees_fictives.py
+             02_TRAVAIL/lot12_remove_donnees_fictives.py
+Résultat   : Lot 9 étend l'ingestion du Flux avec deux sources jusqu'ici non câblées :
+               - Charges (Lot 3, MASTER_FACT_MAN_Charges) — statut_controle = VALIDE
+                 sens / code_impact / type_flux portés par la ligne
+               - M04 ménages internes (Lot 6b, M04_MENAGES_PowerQuery) — statut_controle = VALIDE
+                 CHARGE, code_impact = HC (M2 verrouillé), TYPE_FLUX_013
+             IK exclu du Flux (conforme décision « IK hors Flux / vue dédiée », §15.3).
+             Acomptes différés à la passe Lot 10.
+             Garde-fou ajouté : CTR-9-011 — portion RES (TYPE_FLUX_017) inchangée (BLOQUANT si écart).
+             Test fictif réalisé (seed / pipeline / remove) :
+               - baseline               : 1 333 flux
+               - avec données fictives   : 1 340 flux (5 CHG + 1 M04 + 1 MenExt + 2 HH différées exclues)
+               - après suppression       : retour 1 333 flux
+               - 0 donnée fictive résiduelle (scan ZZ_TEST_ / tag sur 30 Excel suivis)
+             Sources amont en lecture seule.
+             Données Excel restaurées à l'état commité (git checkout après test).
+Statut     : OUVERT — EN_ATTENTE_VALIDATION_HUMAINE
+```
+
+**Outils de test fictif Lot 12 :**
+- `lot12_seed_donnees_fictives.py` : insertion idempotente, backup avant écriture (99_ARCHIVES/LOT12_TEST_DATA/), tag obligatoire, append-only (aucune ligne réelle modifiée).
+- `lot12_remove_donnees_fictives.py` : suppression par ID `ZZ_TEST_` OU tag `__TEST_FICTIF_LOT12_A_SUPPRIMER__`, backup avant suppression, vérification 0 résiduel.
+- IDs fictifs : préfixe `ZZ_TEST_`. Tag : `__TEST_FICTIF_LOT12_A_SUPPRIMER__`. Montants reconnaissables : 111.11 / 222.22 / 333.33.
+- Backups fictif (`99_ARCHIVES/LOT12_TEST_DATA/`) ignorés git (règle #10 — jamais versionnés).
+
+**PRÉREQUIS BLOQUANT — ne PAS peupler Charges/M04 avec des données réelles HC avant le correctif Lot 10.**
+Les tests fictifs ont révélé 4 points à traiter dans la passe Lot 10 :
+1. Lot 10 `GLOBAL HORS_COMPTA` reste à 0 même si des flux HC existent → casse l'égalité REEL = COMPTABLE + HC (capté en BLOQUANT par CTR-LOT11 — preuve que les contrôles fonctionnent).
+2. Certaines charges globales / non affectables (sans `logement_id`) sont perdues dans l'agrégation des résultats Lot 10.
+3. HH (réservations hors Hostaway) doit être géré par le montant saisi (total_perçu − ménage − commission), pas par le payout Hostaway (absent → JOINTURE_PAYOUT_MANQUANTE).
+4. Acomptes doivent aller uniquement dans le bloc REGLEMENT, jamais dans l'exploitation (D031/D032/D033).
+
+Tant que Charges/M04 restent vides, le correctif Lot 9 est **neutre** (baseline 1 333 inchangée, vérifié).
+
+---
+
 ### CTR-2026-06-020
 
 ```
