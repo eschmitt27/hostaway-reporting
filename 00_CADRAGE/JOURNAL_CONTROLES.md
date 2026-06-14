@@ -22,6 +22,128 @@ Commentaire: note
 
 ---
 
+### CTR-2026-06-020
+
+```
+Date       : 2026-06-14
+Lot        : Lot 11 — Contrôles de cohérence globaux
+Code       : CONSTRUCTION_LOT11_CONTROLES_COHERENCE
+Sévérité   : INFO
+Fichier    : 02_TRAVAIL/Lot11_Controles/MASTER_CTRL_Coherence.xlsx
+             02_TRAVAIL/lot11_controles_coherence.py
+Résultat   : Script exécuté. 51 contrôles générés. 0 BLOQUANT. 44 A_CONTROLER. 7 INFO.
+Statut     : OUVERT — EN_ATTENTE_VALIDATION_HUMAINE
+Commentaire: Résultats partiels — M04/Charges/IK/HH/Acomptes non encore alimentés.
+             0 BLOQUANT : aucun blocage structurel.
+             44 A_CONTROLER à traiter/valider humainement avant facturation Lot 12.
+             AUCUN mois facturable (facturation_lot12_ok = NON_SOUS_RESERVE_A_CONTROLER partout).
+             Banque disponible localement (BANQUE_DISPONIBLE).
+```
+
+**Corrections appliquées après audit (2026-06-14) :**
+- F1 (obligatoire) : `facturation_lot12_ok` = OUI uniquement si 0 BLOQUANT ET 0 A_CONTROLER ET mois banque CLOTURE.
+  Sinon valeur prudente (NON_BLOQUANT_OUVERT / NON_SOUS_RESERVE_A_CONTROLER / NON_CLOTURE_INCOMPLETE / NON_DONNEES_INCOMPLETES).
+- F2 (obligatoire) : `_is_empty()` détecte désormais les lignes placeholder Power Query
+  ("Alimenté par Power Query", "Charge par Power Query", "# formule", préfixes techniques).
+  CHARGES/M04/IK/HH désormais correctement détectées VIDES → INFO 3 → 7.
+- F3 (cosmétique) : code mort `vrbo_ac` supprimé ; print "sur N mois banque" dynamique ;
+  DASHBOARD limité aux mois porteurs de contrôles + mois banque + TRANSVERSE (plus de mois vides arbitraires).
+
+**Décisions appliquées :**
+- D-LOT11-01 Banque : Option C adaptative — fichier Lot 8 lu en local, contrôles banque exécutés
+- D-LOT11-02 REF_Cloture_Mensuelle : non modifiée (dashboard dans DASHBOARD_MOIS)
+- D-LOT11-03 Rapprochement payout/banque : indicatif, non bloquant (statut INFORMATIF)
+- D-LOT11-04 Re-vérification indépendante depuis tables sources (pas de reprise Lot 10)
+- D-LOT11-05 CAISSE_THEORIQUE : produite avec 0 + flag CAISSE_NON_REPRESENTATIVE_SOURCES_VIDES
+
+**Contrôles BLOQUANTS : 0**
+```
+CTR-LOT11-BL-01  PK_MANQUANTE_OU_DOUBLONNEE                    : 0 — OK (Flux/Res/Payout/Commissions)
+CTR-LOT11-BL-02  DOUBLON_RESERVATION_FLUX                      : 0 — OK
+CTR-LOT11-BL-03  JOINTURE_RESERVATIONS_MANQUANTE               : 0 — OK
+CTR-LOT11-BL-04  JOINTURE_PAYOUT_MANQUANTE                     : 0 — OK
+CTR-LOT11-BL-05  REVENU_NET_EXPLOITATION_INCOHERENT            : 0 — OK (formule payout-menage-com-cf)
+CTR-LOT11-BL-06  CONFUSION_PAYOUT_SOLDE_FACTURE                : 0 — OK
+CTR-LOT11-BL-07  PAIEMENT_DEJA_RECU_DEDUIT_DU_PAYOUT          : 0 — OK
+CTR-LOT11-BL-08  COMMISSION_INCOHERENTE                        : 0 — OK
+CTR-LOT11-BL-09  ASSIETTE_COMMISSION_INCOHERENTE               : 0 — OK
+CTR-LOT11-BL-10  REEL_INCOHERENT_VS_COMPTABLE_PLUS_HC         : 0 — OK (283515.60 = 283515.60 + 0)
+CTR-LOT11-BL-11  CHARGE_EXCEPTIONNELLE_DANS_CHARGE_FIXE       : 0 — OK (forfait REF = charge_fixe REGLEMENT)
+CTR-LOT11-BL-12  BANQUE_PAYOUT_POTENTIEL_DEJA_HOSTAWAY        : 0 — OK (0 flux PRODUIT banque)
+CTR-LOT11-BL-13  COMMISSION_SANS_TAUX                         : 0 — OK (tous taux renseignés)
+```
+
+**Contrôles A_CONTROLER : 44 (répartition)**
+```
+CTR-LOT11-AC-01  LISTING_ORPHELIN_A_CONTROLER        : 23 lignes (reservations listingMapId 515523 / 556954)
+                 → Source : MASTER_CTRL_HA_Anomalies — depuis Lot 1, statut OUVERT
+                 → Action : confirmer logement inactif + supprimer ou mapper dans REF_Logements
+CTR-LOT11-AC-02  CHARGE_FIXE_DATE_ENTREE_GESTION_INCOHERENTE : 14 logements
+                 → 14 vs 12 en Lot 10 : Lot 11 vérifie TOUS les logements avec TYPE_FLUX_017
+                   (Lot 10 vérifiait seulement logements avec forfait>0)
+                 → Action : corriger date_entree_gestion dans REF_Logements (lot REF séparé)
+CTR-LOT11-AC-03  CLOTURE_IMPOSSIBLE_LIGNE_BANCAIRE_NON_CLASSEE : 3 (mois 2026-02/03/04)
+                 → 52 lignes RAPPROCHEMENT_REQUIS dans NORM_Banque
+                 → Action : exporter données Airbnb, rapprocher RAPPROCH_AIRBNB_ATTENTE (Lot 8c)
+CTR-LOT11-AC-04  LOG_SANS_FLUX_017                   : 1 (LOG_0009 — forfait=40€, 0 réservation Flux)
+                 → Re-détecté indépendamment — confirmé
+                 → Action : vérifier si LOG_0009 actif / a eu des réservations
+CTR-LOT11-AC-05  VRBO_MONTANT_NON_RENSEIGNE          : 1 entrée agrégée (32 réservations VRBO)
+                 → Action : saisie manuelle dans SAISIE_ReservationsHorsHostaway.xlsx (Lots 4/4bis)
+CTR-LOT11-AC-06  RESERVATION_A_CONTROLER_SANS_COMMISSION : 1 entrée agrégée (59 réservations)
+                 → Net propriétaire incomplet pour 4% des réservations
+                 → Action : Lots 4/4bis + décision par réservation
+CTR-LOT11-AC-07  MENAGE_EXTERNE_DATE_ABSENTE         : 1 (9 lignes Aissata fac.2026-37)
+                 → Action : préciser date_menage auprès du prestataire
+```
+
+**Contrôles INFO : 7**
+```
+CTR-LOT11-IN-01  HC_ZERO_SOURCES_VIDES (CHARGES)     : SAISIE_Charges_Flux non peuplée — placeholder PQ
+CTR-LOT11-IN-02  HC_ZERO_SOURCES_VIDES (M04)         : M04 SOURCE_RAW vide — placeholder PQ
+CTR-LOT11-IN-03  HC_ZERO_SOURCES_VIDES (ACOMPTES)    : acomptes non saisis — 0 attendu
+CTR-LOT11-IN-04  HC_ZERO_SOURCES_VIDES (IK)          : IK/avantages non saisis — placeholder formule
+CTR-LOT11-IN-05  HC_ZERO_SOURCES_VIDES (HH)          : ReservationsHorsHostaway vide — placeholder PQ
+CTR-LOT11-IN-06  HC_ZERO_SOURCES_VIDES (TRANSVERSE)  : HORS_COMPTA = 0 global — M04/Charges/IK vides
+CTR-LOT11-IN-07  MODE_FACTURATION_A_DEFINIR          : 12 propriétaires — bloquant pour Lot 12
+```
+> Note F2 : INFO 3 → 7 après correction de la détection placeholder Power Query.
+> CHARGES/M04/IK/HH ne contenaient qu'une ligne d'instruction technique (pas de donnée métier).
+
+**DASHBOARD_MOIS (4 lignes — F1/F3 appliqués)**
+```
+mois        BL  AC INFO  statut_banque  facturation_lot12_ok
+2026-02      0   1   0    OUVERT         NON_SOUS_RESERVE_A_CONTROLER
+2026-03      0   1   0    OUVERT         NON_SOUS_RESERVE_A_CONTROLER
+2026-04      0   1   0    OUVERT         NON_SOUS_RESERVE_A_CONTROLER
+TRANSVERSE   0  41   7    OUVERT         NON_SOUS_RESERVE_A_CONTROLER
+```
+> AUCUN mois marqué OUI. Facturation Lot 12 interdite tant que A_CONTROLER non traités
+> et clôture banque non validée (REGLES §11 C5/C6/C7).
+
+**Rapprochement payout / banque (indicatif)**
+```
+Banque statut : BANQUE_DISPONIBLE (fichier Lot 8 présent localement)
+Mois 2026-02  : banque=197.03€ / HA=14020.13€ / écart=-13823.10€
+Mois 2026-03  : banque=1983.79€ / HA=16752.21€ / écart=-14768.42€
+Mois 2026-04  : banque=1341.36€ / HA=18888.65€ / écart=-17547.29€
+NOTE : écarts normaux — mois Hostaway = check-in date, banque = date virement réel
+       (décalage 1-2 mois). 39 virements Airbnb EN_ATTENTE_EXPORT_AIRBNB dans RAPPROCH_AIRBNB_ATTENTE.
+```
+
+**Caisse théorique**
+```
+Solde : 0.00 EUR — CAISSE_NON_REPRESENTATIVE_SOURCES_VIDES
+HH/Charges/Acomptes vides → structure stable pour recalculs futurs.
+```
+
+**Sources amont :** AUCUNE modification (toutes read_only=True)
+- MASTER_CALC_Flux.xlsx ✓   MASTER_CALC_Reservations.xlsx ✓   MASTER_CALC_HA_Payout.xlsx ✓
+- MASTER_CALC_Commissions.xlsx ✓   MASTER_CALC_Resultats.xlsx ✓   MASTER_CALC_NetProprietaire.xlsx ✓
+- REF_Setup.xlsm ✓   Lot8_Banque/ ✓   Fichiers bancaires bruts ✓
+
+---
+
 ### CTR-2026-06-019
 
 ```

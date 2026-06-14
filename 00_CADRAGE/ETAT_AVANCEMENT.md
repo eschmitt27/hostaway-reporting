@@ -4,20 +4,21 @@
 ---
 
 ## Dernière mise à jour
-Date : 2026-06-13
-Session : Session 18 — Lot 10 Résultats, commissions, net propriétaire
+Date : 2026-06-14
+Session : Session 19 — Lot 11 Contrôles de cohérence globaux
 Agent : Claude Code (claude-sonnet-4-6)
 
 ---
 
 ## Lot en cours
-Lot : 10 — Résultats, commissions & net propriétaire
-Statut : **EN_ATTENTE_VALIDATION_HUMAINE** — 19 contrôles OK (CTR-2026-06-019), commit non fait
+Lot : 11 — Contrôles de cohérence globaux
+Statut : **EN_ATTENTE_VALIDATION_HUMAINE** — 51 contrôles générés (CTR-2026-06-020), commit non fait
 
 > Contrôles inscrits :
 > - Lot 0 : CTR-2026-06-001 (audit initial), CTR-2026-06-002 (corrections), CTR-2026-06-003 (post-correction — tout vert)
 > - Lot 1 : CTR-2026-06-004 (extraction + payout validés — 2026-06-08)
 > - Lot 2 : CTR-2026-06-005 (mapping logements — 17/17 OK — validé humainement 2026-06-08)
+> - Lot 11 : CTR-2026-06-020 (contrôles globaux — 0 BLOQUANT / 44 A_CONTROLER / 7 INFO — après audit F1/F2)
 > - Lot 3 FAIT (2026-06-08) : REF_Setup.xlsm mis à jour (5 onglets). SAISIE_Charges_Flux.xlsx créé (4 onglets, 31 cols, 18 DV, 13 contrôles). MASTER_FACT_MAN_Charges.xlsx créé (37 cols, 4 requêtes PQ). CTR-2026-06-006 inscrit.
 > - Lot 4 (2026-06-09) : SAISIE_ReservationsHorsHostaway.xlsx créé (4 onglets, 30 cols, 11 DV, 13 contrôles, VLOOKUP taux). MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx créé (34 cols, 3 requêtes PQ). CTR-2026-06-007 inscrit. Décisions D046–D051 verrouillées.
 > - Lot 4bis squelette (2026-06-09) : MASTER_CALC_Reservations.xlsx créé (3 onglets, 24 cols, 7 requêtes PQ, anti-double-comptage 7 scénarios, 2 BLOQUANTS + 6 A_CONTROLER). CTR-2026-06-008 inscrit. Décisions D052–D057 verrouillées.
@@ -100,6 +101,37 @@ Statut : **EN_ATTENTE_VALIDATION_HUMAINE** — 19 contrôles OK (CTR-2026-06-019
   - REC_002 cle_repartition mise à jour : COUT_STANDARD_MENAGES_MOIS (ancienne valeur : NOMBRE_MENAGES, D076, validation humaine Lot 6b).
 
 > **Règle D029 — IRRÉVOCABLE** : aucun lot ne peut être marqué FAIT sans entrée dans JOURNAL_CONTROLES.
+
+---
+
+## Ce qui a été modifié (session 19 — Lot 11 Contrôles de cohérence globaux, 2026-06-14)
+
+- Script créé : `02_TRAVAIL/lot11_controles_coherence.py`
+  - Banque adaptative (D-LOT11-01 Option C) — 132 lignes NORM_Banque lues localement
+  - Re-vérification indépendante (D-LOT11-04) — pas de reprise Lot 10
+  - 6 onglets produits : MASTER / BLOQUANTS_OUVERTS / A_CONTROLER_OUVERTS / DASHBOARD_MOIS / RAPPROCHEMENT_PAYOUT_BANQUE / CAISSE_THEORIQUE
+- Créé : `02_TRAVAIL/Lot11_Controles/MASTER_CTRL_Coherence.xlsx`
+  - MASTER : 51 contrôles générés
+  - BLOQUANTS_OUVERTS : **0 ligne** — 0 bloquant
+  - A_CONTROLER_OUVERTS : 44 lignes
+  - DASHBOARD_MOIS : 4 lignes (2026-02/03/04 + TRANSVERSE) — mois vides arbitraires supprimés (F3)
+  - RAPPROCHEMENT_PAYOUT_BANQUE : 3 mois (indicatif — écarts normaux)
+  - CAISSE_THEORIQUE : 6 lignes avec flag CAISSE_NON_REPRESENTATIVE_SOURCES_VIDES
+- Corrections post-audit (2026-06-14) :
+  - F1 : `facturation_lot12_ok` = OUI uniquement si 0 BLOQUANT + 0 A_CONTROLER + mois banque CLOTURE.
+    Résultat : AUCUN mois facturable (tout NON_SOUS_RESERVE_A_CONTROLER).
+  - F2 : détection placeholder Power Query → CHARGES/M04/IK/HH correctement vides → INFO 3 → 7.
+  - F3 : code mort supprimé, print dynamique, DASHBOARD sans mois vides.
+- Chiffres clés :
+  - 0 BLOQUANT — aucun blocage structurel
+  - 44 A_CONTROLER (23 LISTING_ORPHELIN + 14 CHARGE_FIXE_DATE + 3 CLOTURE_BANQUE + 4 autres)
+  - 7 INFO (HC_ZERO_SOURCES_VIDES ×6 [CHARGES/M04/ACOMPTES/IK/HH/TRANSVERSE] + MODE_FACTURATION_A_DEFINIR)
+  - REEL = COMPTABLE + HORS_COMPTA = 283 515.60 + 0 = 283 515.60 € ✓
+  - Banque : BANQUE_DISPONIBLE — 52 lignes RAPPROCHEMENT_REQUIS sur 3 mois
+  - Caisse théorique : 0 € (sources HH/Charges/Acomptes vides)
+  - facturation_lot12_ok : NON sur tous les mois (0 OUI)
+- Sources amont : aucune modification (toutes read_only=True)
+- Commit non fait — EN_ATTENTE_VALIDATION_HUMAINE
 
 ---
 
@@ -353,17 +385,51 @@ Points à décider après Lot 10 (ne bloquent pas le commit) :
 
 ---
 
+## Prochaine action obligatoire
+```
+Lot 11 — 2026-06-14 — CTR-2026-06-020 — EN_ATTENTE_VALIDATION_HUMAINE
+Action : valider les 12 contrôles CTR-LOT11 ci-dessous, puis git add + commit.
+
+Fichiers à committer (4) :
+  00_CADRAGE/ETAT_AVANCEMENT.md
+  00_CADRAGE/JOURNAL_CONTROLES.md
+  02_TRAVAIL/lot11_controles_coherence.py
+  02_TRAVAIL/Lot11_Controles/MASTER_CTRL_Coherence.xlsx
+
+12 contrôles à valider (après corrections audit F1/F2/F3) :
+  CTR-LOT11-01  Total contrôles générés               : 51
+  CTR-LOT11-02  BLOQUANTS ouverts                     : 0
+  CTR-LOT11-03  A_CONTROLER ouverts                   : 44
+  CTR-LOT11-04  INFO                                  : 7
+  CTR-LOT11-05  LISTING_ORPHELIN_A_CONTROLER           : 23 (réservations listingMapId 515523/556954)
+  CTR-LOT11-06  CHARGE_FIXE_DATE_ENTREE_GESTION_INCO. : 14 logements (vs 12 Lot 10 — Lot 11 plus exhaustif)
+  CTR-LOT11-07  CLOTURE_IMPOSSIBLE_LIGNE_BANC.         : 3 mois (2026-02/03/04 RAPPROCHEMENT_REQUIS)
+  CTR-LOT11-08  REEL = COMPTABLE + HORS_COMPTA         : 283515.60 = 283515.60 + 0 ✓
+  CTR-LOT11-09  Banque statut                         : BANQUE_DISPONIBLE
+  CTR-LOT11-10  Caisse théorique                      : 0.00 EUR (CAISSE_NON_REPRESENTATIVE)
+  CTR-LOT11-11  Sources amont lecture seule            : OK (aucune modification)
+  CTR-LOT11-12  facturation_lot12_ok                  : NON sur tous les mois (0 OUI) — F1 appliqué
+
+Points résiduels (non bloquants pour commit) :
+  - 44 A_CONTROLER à traiter/valider avant Lot 12 (priorité : VRBO, HH, acomptes, clôture banque)
+  - LOG_0009 : investigation séparée
+  - date_entree_gestion : correctif REF séparé
+  - mode_facturation : Lot 12
+  - Banque : export Airbnb requis pour finaliser RAPPROCH_AIRBNB_ATTENTE
+```
+
+---
+
 ## Lecture prochaine session (discipline contextuelle)
 
-Si la prochaine session est **validation + commit Lot 9** :
+Si la prochaine session est **validation + commit Lot 11** :
 ```text
 À OUVRIR :
 - CLAUDE.md (intégral, court)
 - ETAT_AVANCEMENT.md (ce fichier)
-- PLAN_CONSTRUCTION.md → uniquement Lot 9
-- ARCHITECTURE_DONNEES.md → §2.3, §14
-- REGLES_METIER.md → §1, §2 (H4), §8
-- Tables calculées déjà produites (MASTER_CALC_Reservations, MASTER_FACT_MAN_Charges, etc.)
+- PLAN_CONSTRUCTION.md → uniquement Lot 11
+- ARCHITECTURE_DONNEES.md → §18
+- REGLES_METIER.md → §1, §6, §8, §11
 
 À NE PAS OUVRIR :
 - README_PROJET.md (sauf onboarding)
