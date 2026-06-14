@@ -5,7 +5,7 @@
 
 ## Dernière mise à jour
 Date : 2026-06-14
-Session : Session 20 — Correctif Lot 9 ingestion Charges/M04 + infrastructure test Lot 12
+Session : Session 21 — Correctif Lot 10 HH / HC / charges globales / acomptes
 Agent : Claude Code (claude-opus-4-8 / claude-sonnet-4-6)
 
 ---
@@ -101,6 +101,52 @@ Statut : **EN_ATTENTE_VALIDATION_HUMAINE** — 51 contrôles générés (CTR-202
   - REC_002 cle_repartition mise à jour : COUT_STANDARD_MENAGES_MOIS (ancienne valeur : NOMBRE_MENAGES, D076, validation humaine Lot 6b).
 
 > **Règle D029 — IRRÉVOCABLE** : aucun lot ne peut être marqué FAIT sans entrée dans JOURNAL_CONTROLES.
+
+---
+
+## Ce qui a été modifié (session 21 — Correctif Lot 10 HH / HC / charges globales / acomptes, 2026-06-14)
+
+**Objectif :** corriger les 4 défauts Lot 10 révélés par les tests fictifs (CTR-2026-06-021),
+pour que le pipeline supporte les nouveaux flux (HH, HC, charges globales, acomptes).
+
+- Modifié : `02_TRAVAIL/lot10_calculer_resultats.py`
+  - Défaut #1 HH : routage HA/HH ; HH via montant saisi (total_percu/menage/taux), commission `(total_percu−menage)×taux` ; `JOINTURE_PAYOUT_MANQUANTE` limité à Hostaway
+  - Défaut #2 HC : GLOBAL HORS_COMPTA calculé depuis df_hc (plus codé à 0) ; contrôle REEL=COMPTABLE+HC
+  - Défaut #3 charges globales : sentinelle GLOBAL_NON_AFFECTE (plus de drop silencieux)
+  - Défaut #4 acomptes : lus depuis Lot 5, injectés REGLEMENT uniquement (jamais exploitation)
+  - 2 nouvelles sources lues : MASTER_FACT_MAN_ReservationsHorsHostaway, MASTER_FACT_MAN_AcomptesProprietaires
+  - Contrôles ajoutés : CTR-LOT10-20 à 24
+- Modifié : `02_TRAVAIL/lot12_seed_donnees_fictives.py` (HH réactivé + acomptes ajoutés)
+- Modifié : `02_TRAVAIL/lot12_remove_donnees_fictives.py` (cible Acomptes ajoutée)
+- Modifié : `00_CADRAGE/JOURNAL_CONTROLES.md` (CTR-2026-06-022)
+- Modifié : `00_CADRAGE/ETAT_AVANCEMENT.md` (ce fichier — session 21)
+
+**Décisions appliquées :** D-LOT10C-01 à D-LOT10C-05 (validées 2026-06-14).
+
+**CHANGEMENT DE BASELINE (justifié — correction du défaut #3) :**
+- Ancien REEL : 283 515,60 € / Nouveau REEL : 283 442,51 € / Écart : 73,09 €
+- 8 frais bancaires (TYPE_FLUX_016, sans logement/proprietaire) auparavant perdus silencieusement,
+  désormais visibles dans GLOBAL_NON_AFFECTE. PAS une régression.
+- Correction doc : l'ancien « 194 € = 4 ménages + 8 frais bancaires » de CTR-2026-06-019 était faux ;
+  194 € = 4 ménages seuls ; 73,09 € de frais bancaires étaient perdus.
+
+**Résultats audit :**
+- Changement de baseline justifié (73,09 € = 8 frais bancaires droppés)
+- Non-régression Hostaway confirmée (1321 NORMAL, payout 283 709,60, ménage 55 619,00,
+  assiette 228 090,60, commission 39 167,42, net 188 923,18 — inchangés)
+- HH fictives testées sans blocage payout (NORMAL 1323 = HA 1321 + HH 2)
+- HC global corrigé (HORS_COMPTA −444,44 avec fictif, REEL=COMPTABLE+HC OK)
+- Charges globales visibles (GLOBAL_NON_AFFECTE)
+- Acomptes uniquement dans REGLEMENT (222,22 € ; ACOMPTE_002 A_CONTROLER exclu)
+- 0 fictif résiduel (scan 30 xlsx suivis)
+- 0 Excel suivi modifié (11 xlsx données restaurés à l'état commité)
+
+**Fichiers à ne SURTOUT PAS committer :**
+- `99_ARCHIVES/LOT12_TEST_DATA/` (backups fictif — ignoré git)
+- Tous les fichiers Excel de données (sorties Lot 10 régénérées seulement après validation/commit)
+
+**À retenir :** les sorties Excel Lot 10 commitées portent encore l'ancien REEL 283 515,60 (buggé) ;
+elles seront régénérées avec 283 442,51 quand le lot10 corrigé sera exécuté après commit.
 
 ---
 

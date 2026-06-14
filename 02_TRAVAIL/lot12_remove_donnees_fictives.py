@@ -32,6 +32,7 @@ TARGETS = [
     ("M04",      "02_DONNEES_NORMALISEES/menages/M04_MENAGES_PowerQuery.xlsx",                    "MASTER", "menage_calc_id"),
     ("HH",       "02_TRAVAIL/Lot4_ReservationsHH/MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx",  "MASTER", "reservation_hh_id"),
     ("MenExt",   "02_TRAVAIL/Lot6c_MenagesExternes/MASTER_FACT_MEN_MenagesExternes.xlsx",         "MASTER", "menage_externe_id"),
+    ("Acomptes", "02_TRAVAIL/Lot5_AcomptesProprietaires/MASTER_FACT_MAN_AcomptesProprietaires.xlsx", "MASTER", "acompte_id"),
 ]
 
 

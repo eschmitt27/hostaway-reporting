@@ -22,6 +22,78 @@ Commentaire: note
 
 ---
 
+### CTR-2026-06-022
+
+```
+Date       : 2026-06-14
+Lot        : Lot 10 — Correctif HH / HC / charges globales / acomptes
+Code       : CORRECTIF_LOT10_HH_HC_GLOBAL_ACOMPTES
+Sévérité   : INFO
+Fichier    : 02_TRAVAIL/lot10_calculer_resultats.py
+             02_TRAVAIL/lot12_seed_donnees_fictives.py
+             02_TRAVAIL/lot12_remove_donnees_fictives.py
+Résultat   : 4 défauts révélés par les tests fictifs (CTR-2026-06-021) corrigés :
+               1. HH / VRBO ne cherchent plus de payout Hostaway.
+                  - branche HH : montant depuis la saisie (total_percu, menage, taux_commission)
+                  - commission HH recalculée : (total_percu - menage) × taux_commission
+                  - JOINTURE_PAYOUT_MANQUANTE limité à la branche Hostaway
+                  - source_type = HH ; integration seulement si total_percu renseigné + VALIDE (D-LOT10C-05)
+               2. GLOBAL HORS_COMPTA n'est plus forcé à 0.
+                  - vision HC calculée depuis df_hc (flux inclure_resultat_hors_compta=OUI)
+                  - contrôle ajouté CTR-LOT10-20 : REEL = COMPTABLE + HORS_COMPTA
+                    (BLOQUANT REEL_DIFF_COMPTABLE_PLUS_HC si écart > 1,00 EUR)
+               3. Charges sans logement/proprietaire visibles en GLOBAL_NON_AFFECTE.
+                  - sentinelle (plus de groupby dropna) ; pas de ventilation arbitraire
+               4. Acomptes lus depuis MASTER_FACT_MAN_AcomptesProprietaires (VALIDE).
+                  - intégrés UNIQUEMENT dans REGLEMENT (autres_acomptes_recus)
+                  - n'impactent jamais revenu_net_exploitation / commission / net / REEL / COMPTABLE
+                  - granularité mois × logement × proprietaire, fallback proprietaire (D-LOT10C-02)
+             Scripts fictifs Lot 12 mis à jour (HH réactivé + acomptes ajoutés).
+Statut     : OUVERT — EN_ATTENTE_VALIDATION_HUMAINE
+```
+
+**Décisions appliquées (validées 2026-06-14) :**
+- D-LOT10C-01 : commission HH recalculée `(total_percu − menage) × taux` ; flag A_CONTROLER si écart saisie/recalcul > 0,10 €
+- D-LOT10C-02 : acomptes granularité mois × logement × proprietaire (fallback proprietaire), REGLEMENT seulement
+- D-LOT10C-03 : charges globales/non-affectables → ligne dédiée GLOBAL_NON_AFFECTE (pas de ventilation)
+- D-LOT10C-04 : charges Lot 3 n'impactent PAS revenu_net_exploitation (formule fermée D031), seulement REEL/COMPTABLE
+- D-LOT10C-05 : HH/VRBO intégrées seulement si total_percu renseigné + VALIDE, sinon A_CONTROLER
+
+**Contrôles ajoutés :** CTR-LOT10-20 (REEL=COMPTABLE+HC), CTR-LOT10-21 (commissions HH), CTR-LOT10-22 (contrôles HH), CTR-LOT10-23 (lignes GLOBAL_NON_AFFECTE), CTR-LOT10-24 (acomptes REGLEMENT).
+
+**CHANGEMENT DE BASELINE — justifié (correction, pas régression) :**
+```
+Ancien REEL : 283 515,60 €
+Nouveau REEL : 283 442,51 €
+Écart        : 73,09 €
+```
+Justification : 8 frais bancaires (`TYPE_FLUX_016`, `sens=CHARGE`, sans `logement_id` ni `proprietaire_id`,
+source `BANQUE_LOT8_IMPORT_NORM_Banque`) étaient **perdus silencieusement** par l'agrégation
+(`groupby dropna=True`). Désormais visibles dans `GLOBAL_NON_AFFECTE` et inclus au total.
+Les 8 lignes : 9,00 + 18,00 + 0,54 + 9,00 + 9,00 + 9,00 + 18,00 + 0,55 = **73,09 €**.
+Égalité prouvée : `283 515,60 − 283 442,51 = 73,09 €`.
+**Ce n'est PAS une régression** : c'est la correction du drop silencieux (défaut #3).
+Produits RES Hostaway inchangés (283 709,60 €) — garde-fou respecté.
+
+**Non-régression Hostaway confirmée (audit) :**
+1321 NORMAL / payout 283 709,60 / ménage 55 619,00 / assiette 228 090,60 /
+commission 39 167,42 / net avant charge 188 923,18 € — tous inchangés.
+
+**NOTE DE CORRECTION DOCUMENTAIRE (CTR-2026-06-019) :**
+L'ancien commentaire CTR-2026-06-019 indiquait à tort que les `194 €` de charges incluaient
+« 4 ménages externes + 8 frais bancaires ». **Correction** : les `194 €` correspondaient aux
+**4 ménages externes seulement** ; les `73,09 €` de frais bancaires étaient **perdus** avant ce
+correctif. Total charges REEL réel = 194,00 + 73,09 = 267,09 €.
+
+**Résultats test fictif (cycle complet, avant restauration) :**
+- baseline 1333 flux / REEL 283 442,51 / REEL=COMPTABLE+HC OK / 0 BLOQUANT
+- avec fictif 1342 flux / NORMAL 1323 (HA 1321 + HH 2) / REEL 282 775,85 / COMPTABLE 283 220,29 /
+  HORS_COMPTA −444,44 / REEL=COMPTABLE+HC OK (écart 0) / GLOBAL_NON_AFFECTE 3 / acomptes 222,22 REGLEMENT / lot11 0 BLOQUANT
+- après suppression : retour 1333 / REEL 283 442,51 / 0 fictif résiduel
+- 11 xlsx données restaurés à l'état commité (0 Excel suivi modifié)
+
+---
+
 ### CTR-2026-06-021
 
 ```

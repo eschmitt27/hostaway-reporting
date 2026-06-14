@@ -41,8 +41,15 @@ BASE        = Path(__file__).resolve().parent.parent
 FLUX_FILE   = BASE / "02_TRAVAIL/Lot9_FluxUnifie/MASTER_CALC_Flux.xlsx"
 RES_FILE    = BASE / "02_TRAVAIL/Lot4bis_TableCommune/MASTER_CALC_Reservations.xlsx"
 PAYOUT_FILE = BASE / "02_TRAVAIL/Lot1_Hostaway/MASTER_CALC_HA_Payout.xlsx"
+HH_FILE     = BASE / "02_TRAVAIL/Lot4_ReservationsHH/MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx"
+ACC_FILE    = BASE / "02_TRAVAIL/Lot5_AcomptesProprietaires/MASTER_FACT_MAN_AcomptesProprietaires.xlsx"
 REF_FILE    = BASE / "01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm"
 OUT_DIR     = BASE / "02_TRAVAIL/Lot10_Resultats"
+
+# Constante : tolérance d'arrondi par ligne (D035)
+TOL_LIGNE   = 0.10
+# Sentinelle charges sans logement/proprietaire (D-LOT10C-03)
+SENTINEL_GLOBAL = "GLOBAL_NON_AFFECTE"
 COMM_FILE   = OUT_DIR / "MASTER_CALC_Commissions.xlsx"
 RESULT_FILE = OUT_DIR / "MASTER_CALC_Resultats.xlsx"
 NET_FILE    = OUT_DIR / "MASTER_CALC_NetProprietaire.xlsx"
@@ -115,6 +122,14 @@ def _n(val) -> float:
         return 0.0
 
 
+def _is_placeholder_id(v) -> bool:
+    """Ligne d'instruction Power Query / formule, pas une vraie cle metier."""
+    if v is None:
+        return True
+    s = str(v).strip()
+    return s == "" or s[0] in "#[<←-*"
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. Load sources
 # ─────────────────────────────────────────────────────────────────────────────
@@ -126,6 +141,14 @@ def load_sources():
     df_payout = _read_sheet(PAYOUT_FILE, sheet="data")
     df_log    = _read_sheet(REF_FILE, sheet="REF_Logements",     keep_vba=True)
     df_prop   = _read_sheet(REF_FILE, sheet="REF_Proprietaires", keep_vba=True)
+
+    # Sources HH + Acomptes (lecture seule, hors placeholder Power Query)
+    df_hh  = _read_sheet(HH_FILE,  sheet="MASTER") if HH_FILE.exists()  else pd.DataFrame()
+    df_acc = _read_sheet(ACC_FILE, sheet="MASTER") if ACC_FILE.exists() else pd.DataFrame()
+    if len(df_hh) > 0 and "reservation_hh_id" in df_hh.columns:
+        df_hh = df_hh[~df_hh["reservation_hh_id"].map(_is_placeholder_id)].reset_index(drop=True)
+    if len(df_acc) > 0 and "acompte_id" in df_acc.columns:
+        df_acc = df_acc[~df_acc["acompte_id"].map(_is_placeholder_id)].reset_index(drop=True)
 
     # Filter duplicate-header rows in xlsm sheets
     df_log  = df_log[df_log["logement_id"].astype(str) != "logement_id"].reset_index(drop=True)
@@ -140,61 +163,70 @@ def load_sources():
     log.info(f"  Flux          : {len(df_flux)} lignes")
     log.info(f"  Reservations  : {len(df_res)} lignes")
     log.info(f"  Payout        : {len(df_payout)} lignes")
+    log.info(f"  HH saisie     : {len(df_hh)} lignes (hors placeholder)")
+    log.info(f"  Acomptes      : {len(df_acc)} lignes (hors placeholder)")
     log.info(f"  REF_Logements : {len(df_log)} logements")
     log.info(f"  REF_Prop      : {len(df_prop)} proprietaires")
-    return df_flux, df_res, df_payout, df_log, df_prop
+    return df_flux, df_res, df_payout, df_hh, df_acc, df_log, df_prop
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Build commissions
 # ─────────────────────────────────────────────────────────────────────────────
-def build_commissions(df_flux, df_res, df_payout, df_log, df_prop):
-    log.info("=== Construction commissions ===")
+def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop):
+    log.info("=== Construction commissions (routage HA / HH) ===")
+    hh_controls = []
 
     # ── 2a. Filter TYPE_FLUX_017 ──
     df_017 = df_flux[df_flux["type_flux_id"] == "TYPE_FLUX_017"].copy()
     log.info(f"  TYPE_FLUX_017 : {len(df_017)} lignes dans Flux")
 
-    # BLOQUANT: doublon source_pk
     dup = df_017[df_017.duplicated("source_pk", keep=False)]
     if len(dup) > 0:
         log.error(f"BLOQUANT DOUBLON_RESERVATION_FLUX — {len(dup)} lignes dupliquees source_pk")
         sys.exit(1)
 
-    # Keep only needed Flux columns; rename mois to avoid conflict
     df_017_sel = df_017[[
-        "source_pk", "flux_id", "mois",
-        "logement_id", "proprietaire_id",
+        "source_pk", "flux_id", "mois", "logement_id", "proprietaire_id",
     ]].rename(columns={
         "mois":           "mois_flux",
         "logement_id":    "logement_id_flux",
         "proprietaire_id":"proprietaire_id_flux",
     })
 
-    # ── 2b. Join Flux -> Reservations ──
+    # ── 2b. Join Flux -> Reservations (+ champs de routage) ──
     df_res_num = df_res.copy()
     df_res_num["reservation_id_hostaway"] = pd.to_numeric(
         df_res_num["reservation_id_hostaway"], errors="coerce"
     )
     df_res_sel = df_res_num[[
-        "reservation_calc_id", "reservation_id_hostaway",
-        "logement_id", "proprietaire_id",
-        "date_arrivee", "date_depart", "nuits",
+        "reservation_calc_id", "reservation_id_hostaway", "reservation_hh_id",
+        "source", "source_montant", "montant_retenu",
+        "logement_id", "proprietaire_id", "date_arrivee", "date_depart", "nuits",
     ]]
-
     df_j = df_017_sel.merge(
-        df_res_sel,
-        left_on="source_pk",
-        right_on="reservation_calc_id",
-        how="left",
+        df_res_sel, left_on="source_pk", right_on="reservation_calc_id", how="left",
     )
     missing_res = df_j["reservation_calc_id"].isna()
     if missing_res.any():
         log.error(f"BLOQUANT JOINTURE_RESERVATIONS_MANQUANTE — {missing_res.sum()} lignes")
         sys.exit(1)
-    log.info(f"  Jointure Flux <-> Reservations OK")
+    log.info("  Jointure Flux <-> Reservations OK")
 
-    # ── 2c. Join -> Payout ──
+    # logement/proprietaire effectifs (Reservations prioritaire, fallback Flux)
+    df_j["logement_id_eff"]     = df_j["logement_id"].combine_first(df_j["logement_id_flux"])
+    df_j["proprietaire_id_eff"] = df_j["proprietaire_id"].combine_first(df_j["proprietaire_id_flux"])
+
+    # ── 2c. Routage HA vs HH (D-LOT10C-05) ──
+    HA_SOURCES = {"HOSTAWAY_AIRBNB", "HOSTAWAY_BOOKING"}
+    is_ha = df_j["reservation_id_hostaway"].notna() & df_j["source"].isin(HA_SOURCES)
+    df_ha = df_j[is_ha].copy()
+    df_hhb = df_j[~is_ha].copy()
+    log.info(f"  Routage : {len(df_ha)} Hostaway / {len(df_hhb)} HH")
+
+    df_prop_sel = df_prop[["proprietaire_id", "taux_commission"]].copy()
+
+    # ===================== BRANCHE HOSTAWAY =====================
     df_pay_sel = df_payout[[
         "reservation_id", "channel_type", "statut_calcul_payout",
         "payout_calcule", "source_payout", "menage_retenu", "assiette_commission",
@@ -205,118 +237,149 @@ def build_commissions(df_flux, df_res, df_payout, df_log, df_prop):
     ]].copy()
     df_pay_sel["reservation_id"] = pd.to_numeric(df_pay_sel["reservation_id"], errors="coerce")
 
-    df_j = df_j.merge(
-        df_pay_sel,
-        left_on="reservation_id_hostaway",
-        right_on="reservation_id",
-        how="left",
+    df_ha = df_ha.merge(
+        df_pay_sel, left_on="reservation_id_hostaway", right_on="reservation_id", how="left",
     )
-    missing_pay = df_j["reservation_id"].isna()
+    # BLOQUANT JOINTURE_PAYOUT_MANQUANTE : branche Hostaway uniquement
+    missing_pay = df_ha["reservation_id"].isna()
     if missing_pay.any():
-        log.error(f"BLOQUANT JOINTURE_PAYOUT_MANQUANTE — {missing_pay.sum()} lignes")
+        log.error(f"BLOQUANT JOINTURE_PAYOUT_MANQUANTE — {missing_pay.sum()} lignes Hostaway")
         sys.exit(1)
-    log.info(f"  Jointure <-> Payout OK")
+    log.info("  Jointure HA <-> Payout OK")
 
-    # ── 2d. Resolve logement_id and proprietaire_id ──
-    # Use MASTER_CALC_Reservations as authoritative source (Lot 4bis mapping)
-    # logement_id_snapshot from Payout is traceability only
-    df_j["logement_id_eff"]    = df_j["logement_id"]       # from Reservations
-    df_j["proprietaire_id_eff"] = df_j["proprietaire_id"]   # from Reservations
-
-    # Fallback: use Flux if Reservations is null
-    df_j["logement_id_eff"]    = df_j["logement_id_eff"].combine_first(df_j["logement_id_flux"])
-    df_j["proprietaire_id_eff"] = df_j["proprietaire_id_eff"].combine_first(df_j["proprietaire_id_flux"])
-
-    # ── 2e. Join -> REF_Proprietaires for taux_commission ──
-    df_prop_sel = df_prop[["proprietaire_id", "taux_commission"]].copy()
-    df_j = df_j.merge(
-        df_prop_sel,
-        left_on="proprietaire_id_eff",
-        right_on="proprietaire_id",
-        how="left",
-        suffixes=("", "_ref"),
+    df_ha = df_ha.merge(
+        df_prop_sel, left_on="proprietaire_id_eff", right_on="proprietaire_id",
+        how="left", suffixes=("", "_ref"),
     )
-
-    # BLOQUANT: NORMAL without proprietaire
-    normal_mask = df_j["statut_calcul_payout"] == "NORMAL"
-    no_prop = normal_mask & df_j["proprietaire_id_eff"].isna()
-    if no_prop.any():
-        log.error(f"BLOQUANT COMMISSION_LOGEMENT_SANS_PROPRIETAIRE — {no_prop.sum()} lignes")
+    normal_ha = df_ha["statut_calcul_payout"] == "NORMAL"
+    if (normal_ha & df_ha["proprietaire_id_eff"].isna()).any():
+        log.error("BLOQUANT COMMISSION_LOGEMENT_SANS_PROPRIETAIRE — HA")
         sys.exit(1)
-
-    # BLOQUANT: NORMAL without taux_commission
-    no_taux = normal_mask & df_j["taux_commission"].isna()
-    if no_taux.any():
-        log.error(f"BLOQUANT COMMISSION_SANS_TAUX — {no_taux.sum()} lignes NORMAL sans taux")
+    if (normal_ha & df_ha["taux_commission"].isna()).any():
+        log.error("BLOQUANT COMMISSION_SANS_TAUX — HA")
         sys.exit(1)
-
-    # ── 2f. Numeric conversions ──
     for col in ["payout_calcule", "menage_retenu", "assiette_commission", "taux_commission"]:
-        df_j[col] = pd.to_numeric(df_j[col], errors="coerce")
-
-    # BLOQUANT: assiette negative
-    assiette_neg = normal_mask & (df_j["assiette_commission"].fillna(0) < 0)
-    if assiette_neg.any():
-        log.error(f"BLOQUANT ASSIETTE_NEGATIVE — {assiette_neg.sum()} lignes")
+        df_ha[col] = pd.to_numeric(df_ha[col], errors="coerce")
+    if (normal_ha & (df_ha["assiette_commission"].fillna(0) < 0)).any():
+        log.error("BLOQUANT ASSIETTE_NEGATIVE — HA")
         sys.exit(1)
-
-    # ── 2g. Calculate commissions ──
-    df_j["commission_conciergerie"] = None
-    df_j["net_proprietaire"]        = None
-    df_j.loc[normal_mask, "commission_conciergerie"] = (
-        df_j.loc[normal_mask, "assiette_commission"] *
-        df_j.loc[normal_mask, "taux_commission"]
+    df_ha["commission_conciergerie"] = None
+    df_ha["net_proprietaire"]        = None
+    df_ha.loc[normal_ha, "commission_conciergerie"] = (
+        df_ha.loc[normal_ha, "assiette_commission"] * df_ha.loc[normal_ha, "taux_commission"]
     ).round(2)
-    df_j.loc[normal_mask, "net_proprietaire"] = (
-        df_j.loc[normal_mask, "payout_calcule"] -
-        df_j.loc[normal_mask, "menage_retenu"] -
-        df_j.loc[normal_mask, "commission_conciergerie"]
+    df_ha.loc[normal_ha, "net_proprietaire"] = (
+        df_ha.loc[normal_ha, "payout_calcule"] - df_ha.loc[normal_ha, "menage_retenu"]
+        - df_ha.loc[normal_ha, "commission_conciergerie"]
     ).round(2)
+    df_ha["source_type"] = "HOSTAWAY"
+    df_ha_norm = df_ha[normal_ha].copy()
 
-    # ── 2h. Build COMMISSIONS output (NORMAL only) ──
-    df_norm = df_j[normal_mask].copy()
+    # ===================== BRANCHE HH =====================
+    # D-LOT10C-01 : commission HH = (total_percu - menage) x taux REF_Prop
+    df_hh_norm = pd.DataFrame()
+    n_hh_exclus = 0
+    if len(df_hhb) > 0:
+        if len(df_hh) > 0:
+            df_hh_sel = df_hh[[
+                "reservation_hh_id", "total_percu", "menage", "commission", "taux_commission",
+            ]].rename(columns={
+                "commission": "commission_saisie", "taux_commission": "taux_hh_saisie",
+            })
+            df_hhb = df_hhb.merge(df_hh_sel, on="reservation_hh_id", how="left")
+        else:
+            for c in ["total_percu", "menage", "commission_saisie", "taux_hh_saisie"]:
+                df_hhb[c] = None
+        df_hhb = df_hhb.merge(
+            df_prop_sel, left_on="proprietaire_id_eff", right_on="proprietaire_id",
+            how="left", suffixes=("", "_ref"),
+        )
+        df_hhb["total_percu"]     = pd.to_numeric(df_hhb["total_percu"], errors="coerce")
+        df_hhb["menage"]          = pd.to_numeric(df_hhb["menage"], errors="coerce").fillna(0.0)
+        df_hhb["taux_commission"] = pd.to_numeric(df_hhb["taux_commission"], errors="coerce")
+
+        # D-LOT10C-05 : integrer seulement si total_percu renseigne (>0) et taux dispo
+        ok = df_hhb["total_percu"].notna() & (df_hhb["total_percu"] > 0) & df_hhb["taux_commission"].notna()
+        df_hh_ok  = df_hhb[ok].copy()
+        n_hh_exclus = int((~ok).sum())
+
+        if len(df_hh_ok) > 0:
+            df_hh_ok["payout_calcule"]      = df_hh_ok["total_percu"].round(2)
+            df_hh_ok["menage_retenu"]       = df_hh_ok["menage"].round(2)
+            df_hh_ok["assiette_commission"] = (df_hh_ok["total_percu"] - df_hh_ok["menage"]).round(2)
+            if (df_hh_ok["assiette_commission"] < 0).any():
+                log.error("BLOQUANT ASSIETTE_NEGATIVE — HH")
+                sys.exit(1)
+            df_hh_ok["commission_conciergerie"] = (
+                df_hh_ok["assiette_commission"] * df_hh_ok["taux_commission"]
+            ).round(2)
+            df_hh_ok["net_proprietaire"] = (
+                df_hh_ok["total_percu"] - df_hh_ok["menage"] - df_hh_ok["commission_conciergerie"]
+            ).round(2)
+            df_hh_ok["statut_calcul_payout"] = "NORMAL"
+            df_hh_ok["channel_type"]         = df_hh_ok["source"]
+            df_hh_ok["source_type"]          = "HH"
+            df_hh_ok["menage_retenu_source"] = "SAISIE_HH"
+            # Ecart commission saisie vs recalcul (D-LOT10C-01)
+            cs = pd.to_numeric(df_hh_ok["commission_saisie"], errors="coerce")
+            ecart = (cs - df_hh_ok["commission_conciergerie"]).abs()
+            for _, r in df_hh_ok[ecart > TOL_LIGNE].iterrows():
+                hh_controls.append({
+                    "reservation": r["reservation_calc_id"],
+                    "code_anomalie": "COMMISSION_HH_SAISIE_DIFFERE_RECALCUL",
+                    "niveau": "A_CONTROLER",
+                    "message": (
+                        f"{r['reservation_calc_id']}: commission saisie={cs.loc[r.name]} "
+                        f"!= recalcul={r['commission_conciergerie']} (>0.10 EUR)"
+                    ),
+                })
+            df_hh_norm = df_hh_ok
+
+        if n_hh_exclus > 0:
+            hh_controls.append({
+                "reservation": None,
+                "code_anomalie": "HH_SANS_MONTANT_SAISI",
+                "niveau": "A_CONTROLER",
+                "message": f"{n_hh_exclus} reservations HH dans Flux sans total_percu/taux exploitable",
+            })
+
+    # ── 2h. Sortie COMMISSIONS (NORMAL HA + HH) ──
     COMM_OUT_COLS = [
-        "source_pk",
-        "reservation_calc_id",
-        "reservation_id_hostaway",
-        "logement_id_eff",
-        "proprietaire_id_eff",
-        "mois_flux",
-        "date_arrivee",
-        "date_depart",
-        "nuits",
-        "channel_type",
-        "statut_calcul_payout",
-        "payout_calcule",
-        "menage_retenu",
-        "menage_retenu_source",
-        "cout_standard_id",
-        "cout_standard_menage_snapshot",
-        "date_reference_cout_menage",
-        "assiette_commission",
-        "taux_commission",
-        "commission_conciergerie",
-        "net_proprietaire",
-        "inclure_resultat_auto",
-        "logement_id_snapshot",
-        "type_logement_id_snapshot",
+        "source_pk", "reservation_calc_id", "reservation_id_hostaway",
+        "logement_id_eff", "proprietaire_id_eff", "mois_flux",
+        "date_arrivee", "date_depart", "nuits", "channel_type", "source_type",
+        "statut_calcul_payout", "payout_calcule", "menage_retenu", "menage_retenu_source",
+        "cout_standard_id", "cout_standard_menage_snapshot", "date_reference_cout_menage",
+        "assiette_commission", "taux_commission", "commission_conciergerie",
+        "net_proprietaire", "inclure_resultat_auto",
+        "logement_id_snapshot", "type_logement_id_snapshot",
     ]
-    available = [c for c in COMM_OUT_COLS if c in df_norm.columns]
-    df_comm = df_norm[available].rename(columns={
-        "logement_id_eff":    "logement_id",
-        "proprietaire_id_eff":"proprietaire_id",
-        "mois_flux":          "mois",
-        "source_pk":          "flux_source_pk",
+
+    def _shape(df):
+        if len(df) == 0:
+            return pd.DataFrame(columns=COMM_OUT_COLS)
+        for c in COMM_OUT_COLS:
+            if c not in df.columns:
+                df[c] = None
+        return df[COMM_OUT_COLS].copy()
+
+    df_comm = pd.concat([_shape(df_ha_norm), _shape(df_hh_norm)], ignore_index=True)
+    df_comm = df_comm.rename(columns={
+        "logement_id_eff":     "logement_id",
+        "proprietaire_id_eff": "proprietaire_id",
+        "mois_flux":           "mois",
+        "source_pk":           "flux_source_pk",
     }).reset_index(drop=True)
 
-    # ── 2i. A_CONTROLER from Payout (not in Flux) ──
+    # ── 2i. A_CONTROLER from Payout (Hostaway hors Flux) ──
     df_ac = df_payout[df_payout["statut_calcul_payout"] == "A_CONTROLER"].copy()
     df_ac["code_anomalie_lot10"] = "RESERVATION_EXCLUE_A_CONTROLER"
     df_ac = df_ac.reset_index(drop=True)
 
-    log.info(f"  NORMAL integres         : {len(df_comm)}")
-    log.info(f"  A_CONTROLER exclus      : {len(df_ac)}")
-    return df_comm, df_ac
+    log.info(f"  NORMAL integres  : {len(df_comm)} (HA {len(df_ha_norm)} + HH {len(df_hh_norm)})")
+    log.info(f"  HH exclus        : {n_hh_exclus} (sans montant saisi)")
+    log.info(f"  A_CONTROLER (pay): {len(df_ac)}")
+    return df_comm, df_ac, hh_controls
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -431,6 +494,12 @@ def build_resultats(df_flux):
                 "total_produits", "total_charges", "resultat",
                 "nb_flux", "vision", "commentaire",
             ])
+        # D-LOT10C-03 : charges sans logement/proprietaire -> ligne dediee GLOBAL_NON_AFFECTE
+        # (sinon perdues par groupby dropna=True)
+        df_v["logement_id"]     = df_v["logement_id"].fillna(SENTINEL_GLOBAL)
+        df_v["proprietaire_id"] = df_v["proprietaire_id"].fillna(SENTINEL_GLOBAL)
+        df_v.loc[df_v["logement_id"].astype(str).str.strip() == "", "logement_id"] = SENTINEL_GLOBAL
+        df_v.loc[df_v["proprietaire_id"].astype(str).str.strip() == "", "proprietaire_id"] = SENTINEL_GLOBAL
         grp = df_v.groupby(["mois", "logement_id", "proprietaire_id", "sens"]).agg(
             montant=("montant", "sum"),
             nb=("flux_id", "count"),
@@ -455,18 +524,20 @@ def build_resultats(df_flux):
     df_hc    = _agg_vision(df["inclure_resultat_hors_compta"] == "OUI", "HORS_COMPTA")
 
     if len(df_hc) == 0:
+        # Pas de flux HC -> placeholder explicite (sources HC vides)
         df_hc = pd.DataFrame([{
             "mois": "N/A", "logement_id": "N/A", "proprietaire_id": "N/A",
             "total_produits": 0.0, "total_charges": 0.0, "resultat": 0.0,
             "nb_flux": 0, "vision": "HORS_COMPTA",
-            "commentaire": "HC_ZERO_SOURCES_VIDES — M04/Charges/IK non alimentes",
+            "commentaire": "HC_ZERO_SOURCES_VIDES — aucun flux HC",
         }])
     else:
-        df_hc["commentaire"] = "HC_ZERO_SOURCES_VIDES — M04/Charges/IK non alimentes"
+        df_hc["commentaire"] = "Flux HC presents"
 
+    hc_tot = df_hc["resultat"].sum() if len(df_hc) > 0 else 0.0
     log.info(f"  REEL        : {len(df_reel)} lignes  total={df_reel['resultat'].sum():,.2f} EUR")
     log.info(f"  COMPTABLE   : {len(df_compt)} lignes  total={df_compt['resultat'].sum():,.2f} EUR")
-    log.info(f"  HORS_COMPTA : 0 (sources vides)")
+    log.info(f"  HORS_COMPTA : {len(df_hc)} lignes  total={hc_tot:,.2f} EUR")
 
     return df_reel, df_compt, df_hc
 
@@ -474,16 +545,38 @@ def build_resultats(df_flux):
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. Build net proprietaire
 # ─────────────────────────────────────────────────────────────────────────────
-def build_net_proprietaire(df_comm, df_cfix):
+def build_net_proprietaire(df_comm, df_cfix, df_acc):
     log.info("=== Construction net proprietaire ===")
 
-    # ── 5a. EXPLOITATION (per reservation) ──
+    # ── 5a. EXPLOITATION (per reservation) — acomptes JAMAIS ici (D031/D033) ──
     df_exploit = df_comm.copy()
     df_exploit["charge_fixe_mensuelle"] = 0.0
     df_exploit["commentaire_charge_fixe"] = "Charge fixe 1x/mois dans REGLEMENT"
     df_exploit["revenu_net_exploitation"] = pd.to_numeric(
         df_exploit["net_proprietaire"], errors="coerce"
     ).round(2)
+
+    # ── 5a-bis. Index acomptes (D-LOT10C-02) — bloc REGLEMENT uniquement ──
+    # acc_by_log : (mois, logement_id) -> (montant, proprietaire_id)   [acomptes avec logement]
+    # acc_by_prop: (mois, proprietaire_id) -> montant                  [acomptes sans logement]
+    acc_by_log, acc_by_prop = {}, {}
+    if len(df_acc) > 0:
+        dfa = df_acc.copy()
+        dfa = dfa[dfa.get("statut_controle", "VALIDE").astype(str) == "VALIDE"]
+        dfa["montant_acompte"] = pd.to_numeric(dfa["montant_acompte"], errors="coerce").fillna(0.0)
+        for _, a in dfa.iterrows():
+            mois = a.get("mois")
+            prop = a.get("proprietaire_id")
+            logid = a.get("logement_id")
+            mt = _n(a.get("montant_acompte"))
+            if logid and str(logid).strip() and str(logid) != "None":
+                k = (mois, logid)
+                cur = acc_by_log.get(k, (0.0, prop))
+                acc_by_log[k] = (round(cur[0] + mt, 2), prop)
+            else:
+                k = (mois, prop)
+                acc_by_prop[k] = round(acc_by_prop.get(k, 0.0) + mt, 2)
+        log.info(f"  Acomptes indexes : {len(acc_by_log)} (mois x logement) / {len(acc_by_prop)} (mois x prop seul)")
 
     # ── 5b. Aggregate reservations per mois x logement ──
     df_num = df_comm.copy()
@@ -507,7 +600,8 @@ def build_net_proprietaire(df_comm, df_cfix):
     res_keys  = (
         set(zip(df_agg_res["mois"], df_agg_res["logement_id"])) if len(df_agg_res) > 0 else set()
     )
-    all_keys = cfix_keys | res_keys
+    # Inclure les acomptes (mois x logement) pour qu'un acompte sans resa/cfix reste visible
+    all_keys = cfix_keys | res_keys | set(acc_by_log.keys())
 
     # Index for fast lookup
     cfix_idx = (
@@ -553,7 +647,14 @@ def build_net_proprietaire(df_comm, df_cfix):
             row["net_proprietaire_avant_charge_mois"]= 0.0
             row["nb_reservations"]                   = 0
 
-        # Bloc reglement
+        # Acompte propriétaire (mois x logement) — bloc REGLEMENT uniquement (D-LOT10C-02)
+        acc_amt = 0.0
+        if (mois, log_id) in acc_by_log:
+            acc_amt = acc_by_log[(mois, log_id)][0]
+            if not row.get("proprietaire_id"):
+                row["proprietaire_id"] = acc_by_log[(mois, log_id)][1]
+
+        # Bloc reglement (n'impacte JAMAIS revenu_net_exploitation — D031/D033)
         row["montant_du_conciergerie"] = round(
             row["total_commission_mois"]
             + row["total_menage_mois"]
@@ -561,7 +662,7 @@ def build_net_proprietaire(df_comm, df_cfix):
             2,
         )
         row["acompte_conciergerie_recu_via_airbnb"] = 0.0
-        row["autres_acomptes_recus"]                = 0.0
+        row["autres_acomptes_recus"]                = round(acc_amt, 2)
         row["paiement_deja_recu"]                   = 0.0
         row["reste_a_payer_conciergerie"] = round(
             row["montant_du_conciergerie"]
@@ -577,8 +678,24 @@ def build_net_proprietaire(df_comm, df_cfix):
         if row["nb_reservations"] == 0 and row["charge_fixe_mensuelle"] > 0:
             row["statut_reglement"] = "MOIS_ACTIF_SANS_RESERVATION"
         else:
-            row["statut_reglement"] = "A_CONTROLER"  # acomptes=0, all are pending
+            row["statut_reglement"] = "A_CONTROLER"
         reg_rows.append(row)
+
+    # Acomptes sans logement (fallback proprietaire) -> ligne dediee GLOBAL_NON_AFFECTE
+    for (mois, prop), amt in acc_by_prop.items():
+        reg_rows.append({
+            "mois": mois, "logement_id": SENTINEL_GLOBAL, "proprietaire_id": prop,
+            "charge_fixe_mensuelle": 0.0, "charge_fixe_source": "NON_APPLICABLE",
+            "total_payout_mois": 0.0, "total_menage_mois": 0.0, "total_commission_mois": 0.0,
+            "net_proprietaire_avant_charge_mois": 0.0, "nb_reservations": 0,
+            "montant_du_conciergerie": 0.0,
+            "acompte_conciergerie_recu_via_airbnb": 0.0,
+            "autres_acomptes_recus": round(amt, 2),
+            "paiement_deja_recu": 0.0,
+            "reste_a_payer_conciergerie": round(-amt, 2),
+            "net_proprietaire_apres_charge_mois": 0.0,
+            "statut_reglement": "ACOMPTE_SANS_LOGEMENT",
+        })
 
     df_reg = pd.DataFrame(reg_rows)
 
@@ -646,29 +763,28 @@ def write_all(df_comm, df_ac, df_reel, df_compt, df_hc, df_exploit, df_reg, df_v
         [_agg_prop(df_reel), _agg_prop(df_compt)], ignore_index=True
     )
 
-    # GLOBAL
-    reel_tot  = df_reel["resultat"].sum()  if len(df_reel) > 0 else 0.0
-    compt_tot = df_compt["resultat"].sum() if len(df_compt) > 0 else 0.0
-    reel_prod  = df_reel["total_produits"].sum()  if len(df_reel) > 0 else 0.0
-    compt_prod = df_compt["total_produits"].sum() if len(df_compt) > 0 else 0.0
-    reel_chg   = df_reel["total_charges"].sum()   if len(df_reel) > 0 else 0.0
-    compt_chg  = df_compt["total_charges"].sum()  if len(df_compt) > 0 else 0.0
+    # GLOBAL — visions calculees (HC inclus, plus de codage en dur — defaut #2 corrige)
+    def _sum(df, col):
+        return round(df[col].sum(), 2) if len(df) > 0 and col in df.columns else 0.0
+
+    # df_hc peut contenir un placeholder N/A (resultat 0) -> sommes = 0, coherent
+    reel_prod, reel_chg, reel_tot    = _sum(df_reel, "total_produits"),  _sum(df_reel, "total_charges"),  _sum(df_reel, "resultat")
+    compt_prod, compt_chg, compt_tot = _sum(df_compt, "total_produits"), _sum(df_compt, "total_charges"), _sum(df_compt, "resultat")
+    hc_prod, hc_chg, hc_tot          = _sum(df_hc, "total_produits"),    _sum(df_hc, "total_charges"),    _sum(df_hc, "resultat")
+
+    # Coherence REEL = COMPTABLE + HORS_COMPTA (D035 cumul 1.00 EUR)
+    ecart_ident = abs(reel_tot - (compt_tot + hc_tot))
+    comment_reel = (
+        f"REEL=COMPTABLE+HC verifie (ecart={ecart_ident:.2f} EUR)"
+        if ecart_ident <= 1.00 else
+        f"!! RUPTURE REEL != COMPTABLE+HC (ecart={ecart_ident:.2f} EUR)"
+    )
+    comment_hc = "Aucun flux HC" if hc_tot == 0.0 and hc_prod == 0.0 and hc_chg == 0.0 else "Flux HC presents"
+
     df_global = pd.DataFrame([
-        {
-            "vision": "REEL", "total_produits": round(reel_prod, 2),
-            "total_charges": round(reel_chg, 2), "resultat": round(reel_tot, 2),
-            "commentaire_hc": "HC_ZERO_SOURCES_VIDES — M04/Charges/IK non alimentes",
-        },
-        {
-            "vision": "COMPTABLE", "total_produits": round(compt_prod, 2),
-            "total_charges": round(compt_chg, 2), "resultat": round(compt_tot, 2),
-            "commentaire_hc": "HC_ZERO_SOURCES_VIDES — M04/Charges/IK non alimentes",
-        },
-        {
-            "vision": "HORS_COMPTA", "total_produits": 0.0,
-            "total_charges": 0.0, "resultat": 0.0,
-            "commentaire_hc": "HC_ZERO_SOURCES_VIDES — M04/Charges/IK non alimentes",
-        },
+        {"vision": "REEL",        "total_produits": reel_prod,  "total_charges": reel_chg,  "resultat": reel_tot,  "commentaire_hc": comment_reel},
+        {"vision": "COMPTABLE",   "total_produits": compt_prod, "total_charges": compt_chg, "resultat": compt_tot, "commentaire_hc": "Vision comptable (IC)"},
+        {"vision": "HORS_COMPTA", "total_produits": hc_prod,    "total_charges": hc_chg,    "resultat": hc_tot,    "commentaire_hc": comment_hc},
     ])
 
     wb2 = Workbook()
@@ -694,7 +810,7 @@ def write_all(df_comm, df_ac, df_reel, df_compt, df_hc, df_exploit, df_reg, df_v
 # ─────────────────────────────────────────────────────────────────────────────
 def print_controls(
     df_flux, df_comm, df_ac, df_reel, df_compt, df_hc,
-    df_exploit, df_reg, df_vue, cfix_controls,
+    df_exploit, df_reg, df_vue, cfix_controls, hh_controls, df_payout,
 ):
     sep = "=" * 65
     log.info(sep)
@@ -727,6 +843,21 @@ def print_controls(
 
     reel_tot  = df_reel["resultat"].sum()  if len(df_reel) > 0 else 0.0
     compt_tot = df_compt["resultat"].sum() if len(df_compt) > 0 else 0.0
+    hc_tot    = df_hc["resultat"].sum()    if len(df_hc) > 0 else 0.0
+    ecart_ident = abs(reel_tot - (compt_tot + hc_tot))
+
+    # Charges globales / non affectables visibles (D-LOT10C-03)
+    n_global_lines = 0
+    if len(df_reel) > 0 and "logement_id" in df_reel.columns:
+        n_global_lines = int((df_reel["logement_id"] == SENTINEL_GLOBAL).sum())
+
+    # Acomptes injectes (REGLEMENT)
+    tot_acomptes = 0.0
+    if len(df_reg) > 0 and "autres_acomptes_recus" in df_reg.columns:
+        tot_acomptes = pd.to_numeric(df_reg["autres_acomptes_recus"], errors="coerce").fillna(0.0).sum()
+
+    n_hh = int((df_comm["source_type"] == "HH").sum()) if "source_type" in df_comm.columns else 0
+    n_hh_ctrl = len(hh_controls)
 
     n_inco = sum(1 for c in cfix_controls
                  if c["code_anomalie"] == "CHARGE_FIXE_DATE_ENTREE_GESTION_INCOHERENTE")
@@ -764,7 +895,7 @@ def print_controls(
         ("CTR-LOT10-12", "Resultat COMPTABLE global (Flux)",
          f"{compt_tot:,.2f} EUR"),
         ("CTR-LOT10-13", "Resultat HORS_COMPTA global (Flux)",
-         "0.00 EUR [HC_ZERO_SOURCES_VIDES]"),
+         f"{hc_tot:,.2f} EUR"),
         ("CTR-LOT10-14", "Lignes resultats PAR_MOIS_LOGEMENT (REEL)",
          f"{n_reel_log}"),
         ("CTR-LOT10-15", "Lignes resultats PAR_MOIS_PROPRIETAIRE (REEL)",
@@ -776,11 +907,31 @@ def print_controls(
         ("CTR-LOT10-18", "Controles BLOQUANTS detectes",
          "0 (execution terminee sans sys.exit)"),
         ("CTR-LOT10-19", "Sources amont (lecture seule)",
-         "FLUX / RESERVATIONS / PAYOUT / REF_SETUP non modifies"),
+         "FLUX / RES / PAYOUT / HH / ACOMPTES / REF_SETUP non modifies"),
+        ("CTR-LOT10-20", "Identite REEL = COMPTABLE + HORS_COMPTA",
+         f"{'OK' if ecart_ident <= 1.00 else 'RUPTURE'} (ecart={ecart_ident:.2f} EUR)"),
+        ("CTR-LOT10-21", "Commissions HH integrees (montant saisi)",
+         f"{n_hh}"),
+        ("CTR-LOT10-22", "Controles HH (ecart commission / sans montant)",
+         f"{n_hh_ctrl}"),
+        ("CTR-LOT10-23", "Lignes charges GLOBAL_NON_AFFECTE (REEL)",
+         f"{n_global_lines}"),
+        ("CTR-LOT10-24", "Total acomptes injectes (REGLEMENT seulement)",
+         f"{tot_acomptes:,.2f} EUR"),
     ]
 
     for code, desc, val in ctrs:
         log.info(f"  {code}  {desc:<50s}  {val}")
+
+    # BLOQUANT defensif : rupture identite REEL = COMPTABLE + HC
+    if ecart_ident > 1.00:
+        log.error(f"BLOQUANT REEL_DIFF_COMPTABLE_PLUS_HC — ecart={ecart_ident:.2f} EUR")
+        sys.exit(1)
+
+    if hh_controls:
+        log.info("  --- Controles HH ---")
+        for c in hh_controls:
+            log.info(f"    [{c['niveau']}] {c['code_anomalie']}: {c['message']}")
 
     log.info(sep)
     log.info("ATTENTE VALIDATION HUMAINE avant commit.")
@@ -796,17 +947,17 @@ def main():
     log.info(f"Date : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     log.info("=" * 65)
 
-    df_flux, df_res, df_payout, df_log, df_prop = load_sources()
+    df_flux, df_res, df_payout, df_hh, df_acc, df_log, df_prop = load_sources()
 
-    df_comm, df_ac                  = build_commissions(df_flux, df_res, df_payout, df_log, df_prop)
+    df_comm, df_ac, hh_controls     = build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop)
     df_cfix, cfix_controls          = build_charge_fixe(df_flux, df_log)
     df_reel, df_compt, df_hc        = build_resultats(df_flux)
-    df_exploit, df_reg, df_vue      = build_net_proprietaire(df_comm, df_cfix)
+    df_exploit, df_reg, df_vue      = build_net_proprietaire(df_comm, df_cfix, df_acc)
 
     write_all(df_comm, df_ac, df_reel, df_compt, df_hc, df_exploit, df_reg, df_vue)
     print_controls(
         df_flux, df_comm, df_ac, df_reel, df_compt, df_hc,
-        df_exploit, df_reg, df_vue, cfix_controls,
+        df_exploit, df_reg, df_vue, cfix_controls, hh_controls, df_payout,
     )
 
 

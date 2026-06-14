@@ -145,22 +145,40 @@ MENEXT = [
     },
 ]
 
+ACOMPTES = [
+    {  # acompte rattaché à une facture (VALIDE -> injecté en REGLEMENT par lot10)
+        "acompte_id": "ZZ_TEST_ACOMPTE_001", "mois": "2026-03",
+        "proprietaire_id": "PROP_0001", "logement_id": "LOG_0001",
+        "facture_ref": "ZZ_TEST_FACTURE_001", "source_acompte": "VIREMENT_DIRECT",
+        "montant_acompte": 222.22, "mode_paiement_id": "PAY_001", "code_impact": "HC",
+        "impact_resultat_reel": "OUI", "impact_resultat_comptable": "NON",
+        "commentaire": COMMENT, "source_pk": "ZZ_TEST_ACOMPTE_001",
+    },
+    {  # acompte NON rattaché (A_CONTROLER -> exclu de l'injection lot10, teste contrôle)
+        "acompte_id": "ZZ_TEST_ACOMPTE_002", "mois": "2026-03",
+        "proprietaire_id": "PROP_0002", "logement_id": "LOG_0002",
+        "facture_ref": None, "source_acompte": "AUTRE",
+        "montant_acompte": 111.11, "mode_paiement_id": "PAY_001", "code_impact": "HC",
+        "impact_resultat_reel": "OUI", "impact_resultat_comptable": "NON",
+        "statut_controle": "A_CONTROLER",
+        "commentaire": COMMENT, "source_pk": "ZZ_TEST_ACOMPTE_002",
+    },
+]
+
 # (fichier, onglet, colonne_id, lignes)
-# PASSE LOT 9 : Charges + M04 + MenExt (flux CHARGE, traversent lot9 étendu).
-# HH différé à la PASSE LOT 10 : les réservations HH (non-Hostaway) atteignent le Flux
-#   en TYPE_FLUX_017 mais n'ont PAS de payout Hostaway -> lot10 leve JOINTURE_PAYOUT_MANQUANTE.
-#   La gestion commission HH (montant depuis la saisie, pas depuis payout) relève de Lot 10.
+# PASSE LOT 10 : Charges + M04 + MenExt + HH + Acomptes.
+# HH géré par lot10 via montant saisi (pas payout Hostaway).
+# Acomptes injectés uniquement dans REGLEMENT (jamais exploitation).
 TARGETS = [
     ("Charges",  "02_TRAVAIL/Lot3_Charges/MASTER_FACT_MAN_Charges.xlsx",                         "MASTER", "charge_id",         CHARGES),
     ("M04",      "02_DONNEES_NORMALISEES/menages/M04_MENAGES_PowerQuery.xlsx",                    "MASTER", "menage_calc_id",    M04),
     ("MenExt",   "02_TRAVAIL/Lot6c_MenagesExternes/MASTER_FACT_MEN_MenagesExternes.xlsx",         "MASTER", "menage_externe_id", MENEXT),
-    # ("HH",     "02_TRAVAIL/Lot4_ReservationsHH/MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx",  "MASTER", "reservation_hh_id", HH),  # PASSE LOT 10
+    ("HH",       "02_TRAVAIL/Lot4_ReservationsHH/MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx",  "MASTER", "reservation_hh_id", HH),
+    ("Acomptes", "02_TRAVAIL/Lot5_AcomptesProprietaires/MASTER_FACT_MAN_AcomptesProprietaires.xlsx", "MASTER", "acompte_id",    ACOMPTES),
 ]
 
-# Cibles complètes (incluant HH) — utilisées par le script de suppression pour tout nettoyer
-TARGETS_ALL = TARGETS + [
-    ("HH",       "02_TRAVAIL/Lot4_ReservationsHH/MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx",  "MASTER", "reservation_hh_id", HH),
-]
+# Alias historique (suppression couvre les mêmes cibles)
+TARGETS_ALL = TARGETS
 
 
 def backup(path):
