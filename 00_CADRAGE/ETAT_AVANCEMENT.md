@@ -35,6 +35,20 @@ Statut : **EN_ATTENTE_VALIDATION_HUMAINE** — 51 contrôles générés (CTR-202
 
 ---
 
+## Note d'état — Bascule nouvelle société (D-LOT-PROD-01, 2026-06-15)
+
+- Pipeline Lot 0 → Lot 12 construit et commité, dernier commit validé : `94dc959 — Lot 12 FAIT - Prefactures proprietaires`.
+- **Nouvelle société en cours d'immatriculation.**
+- **Point de bascule société non encore défini.**
+- **Priorité actuelle** : vérifier que tout le système fonctionne **avant** toute purge.
+- **Plus tard** : conservation de l'historique de performance financière (réservations, payouts, commissions, net propriétaire, résultats par logement / propriétaire / mois, référentiels).
+- **Plus tard** : remise à zéro / purge contrôlée des données bancaires et comptables de l'ancienne structure (imports bancaires, rapprochements, clôtures banque, soldes, charges comptables, acomptes / règlements bancaires, justificatifs sensibles).
+- **À fournir plus tard par l'utilisateur** : date de bascule (`DATE_BASCULE_SOCIETE`), solde initial banque (`SOLDE_INITIAL_BANQUE`), coordonnées définitives société (nom légal, SIRET, RCS, adresse, TVA intracom, IBAN, logo).
+- **Aucune purge autorisée maintenant.** Toute purge future : uniquement après backup / snapshot vérifié + validation humaine explicite.
+- Détail : voir D-LOT-PROD-01 (DECISIONS_METIER.md) et ARCHITECTURE_DONNEES.md §1.2.
+
+---
+
 ## Ce qui est terminé
 
 - **Fichiers de cadrage mis à jour et cohérents (Session 2, pack V2)** :

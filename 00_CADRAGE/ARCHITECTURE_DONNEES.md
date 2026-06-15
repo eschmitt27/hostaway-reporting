@@ -65,6 +65,34 @@ Automatisation maximale ; les fichiers manuels ne couvrent que ce qu'aucune sour
 
 L'activité est **opérationnelle** mais la **SAS porteuse est nouvelle** et son enregistrement n'est pas encore complètement stabilisé. Le système prépare les flux, les contrôles et la distinction IC / HC / HR pour la future exploitation comptable, mais **ne suppose pas d'historique comptable existant**. Aucune écriture comptable passée n'est à rechercher. Le résultat comptable (somme des flux `IC`) démarre à partir des flux validés une fois la comptabilité opérationnelle ; les flux antérieurs restent visibles dans le résultat réel (`IC + HC`) sans rétroactivité comptable forcée.
 
+### 1.2 Bascule société et séparation historique / production
+
+> Référence décision : **D-LOT-PROD-01** (DECISIONS_METIER.md). Section de cadrage — n'implémente rien, aucune purge n'a lieu à ce stade.
+
+La nouvelle société est **en cours d'immatriculation**. Le **point de bascule** vers l'exploitation comptable de la nouvelle structure sera **paramétré plus tard**. Priorité actuelle : vérifier que le pipeline complet (Lot 0 → Lot 12) fonctionne avant toute mise en production.
+
+Le système distingue deux natures de données :
+
+| Nature | Données concernées | Traitement à la bascule |
+|---|---|---|
+| **Historique de performance** (conservé) | Réservations, payouts, commissions, net propriétaire, résultats par logement / propriétaire / mois, référentiels (`REF_*`) | **Conservé intégralement.** Jamais purgé. |
+| **Comptabilité de production** (réinitialisable) | Imports bancaires (`BRUT_Banque`, `NORM_Banque`, `IA_Classification`), rapprochements, clôtures banque (`REF_Cloture_Mensuelle`), soldes, charges comptables, acomptes / règlements bancaires, justificatifs sensibles | **Purgeable / réinitialisable** au moment de la mise en production de la nouvelle société. |
+
+**Règles.**
+- Aucune purge ni réinitialisation **sans validation humaine explicite** ; jamais automatique.
+- Purge autorisée **uniquement après backup / snapshot** vérifié.
+- **Interdiction de mélanger** les données bancaires / comptables de l'ancienne structure avec la nouvelle société.
+
+**Futurs paramètres** (à créer dans `REF_Parametres_Generaux` au moment de la bascule — non créés à ce stade) :
+
+| Paramètre | Rôle |
+|---|---|
+| `DATE_BASCULE_SOCIETE` | Date de passage à l'exploitation comptable de la nouvelle structure |
+| `SOLDE_INITIAL_BANQUE` | Solde bancaire d'ouverture de la nouvelle société (fourni plus tard par l'utilisateur) |
+| `STATUT_PERIODE` | `AVANT_BASCULE` / `APRES_BASCULE` — qualifie chaque période de flux |
+
+Le solde initial de banque et les coordonnées définitives de la société (nom légal, SIRET, RCS, adresse, TVA intracom, IBAN, logo) seront **fournis plus tard** par l'utilisateur.
+
 ---
 
 ## 2. Principes structurants

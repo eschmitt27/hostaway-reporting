@@ -774,5 +774,28 @@ Tables : REF_Setup.xlsm (REF_Logements, REF_Mapping_Logements)
 
 ---
 
+### D-LOT-PROD-01 — Bascule nouvelle société et conservation de l'historique de performance
+Date : 2026-06-15 | Statut : VALIDÉ
+Contexte : La SAS porteuse est **en cours d'immatriculation**. L'activité tourne déjà, mais la structure juridique définitive n'est pas encore opérationnelle. Avant la mise en production comptable, on veut d'abord **vérifier que tout le pipeline fonctionne intégralement** (Lot 0 → Lot 12) sur les données actuelles.
+
+Décision :
+- Société **en cours d'immatriculation** ; le **point de bascule** (passage à l'exploitation comptable de la nouvelle structure) sera **paramétré plus tard**.
+- **L'historique de performance financière est conservé** : réservations, payouts, commissions, net propriétaire, résultats par logement / propriétaire / mois, référentiels. Cet historique n'est jamais purgé.
+- Les **données bancaires et comptables rattachées à l'ancienne structure** (imports bancaires, rapprochements, clôtures banque, soldes, charges comptables, acomptes / règlements bancaires, justificatifs sensibles) sont **purgeables / réinitialisables au moment de la mise en production** de la nouvelle société.
+- **Aucune purge ni réinitialisation sans validation humaine explicite.** La purge est une action manuelle déclenchée par l'utilisateur, jamais automatique.
+- Purge autorisée **uniquement après backup / snapshot** complet vérifié.
+- Le **solde initial de banque** de la nouvelle structure sera **fourni plus tard** par l'utilisateur.
+- Les **coordonnées définitives de la société** (nom légal, SIRET, RCS, adresse, TVA intracom, IBAN, logo) seront **fournies plus tard**.
+
+Conséquences :
+- Aucune action de purge, suppression, modification de REF_Setup ou modification banque/compta n'est entreprise tant que la bascule n'est pas décidée et validée.
+- La séparation **historique de performance / comptabilité de production** est documentée dans ARCHITECTURE_DONNEES.md (section « Bascule société et séparation historique / production »).
+- Futurs paramètres à prévoir dans `REF_Parametres_Generaux` au moment de la bascule : `DATE_BASCULE_SOCIETE`, `SOLDE_INITIAL_BANQUE`, `STATUT_PERIODE` (= `AVANT_BASCULE` / `APRES_BASCULE`).
+- Interdiction de mélanger les données bancaires / comptables de l'ancienne structure avec la nouvelle société.
+
+Tables : REF_Parametres_Generaux (paramètres futurs), pipeline banque (NORM_Banque, REF_Cloture_Mensuelle), MASTER_CALC_* (historique conservé)
+
+---
+
 ### DO-03 — Barème IK kilométrique
 > **FERMÉE, voir D036.** Montant direct retenu au démarrage, barème optionnel plus tard.
