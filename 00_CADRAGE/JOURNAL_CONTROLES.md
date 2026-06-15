@@ -22,6 +22,54 @@ Commentaire: note
 
 ---
 
+### CTR-2026-06-023
+
+```
+Date       : 2026-06-14
+Lot        : Lot 12 — Préfactures propriétaires
+Code       : LOT12_PREFACTURES_PROPRIETAIRES
+Sévérité   : INFO
+Fichier    : 02_TRAVAIL/lot12_generer_factures.py
+             02_TRAVAIL/Lot12_Factures/MASTER_FACT_Proprietaires.xlsx
+Résultat   : Module Lot 12 créé — préfactures propriétaires (lecture seule sorties Lot 10/11).
+             5 onglets : FACT_FACTURE_ENTETE / FACT_FACTURE_LIGNES / CONTROLE_MENSUEL /
+                         DASHBOARD_FACTURATION / A_CONTROLER
+             269 préfactures générées / 3 228 lignes facture (12 lignes par préfacture, §17.3)
+             0 facture finale générée
+             statut_generation : PREFACTURE_CONTROLE (269/269)
+             statut_facture    : NON_FACTURABLE_A_CONTROLER (269/269)
+             Balises visibles si données manquantes (logo/SIRET/adresse/mode/banque/...)
+             GLOBAL_NON_AFFECTE exclu des factures propriétaires (frais bancaires société, hors REGLEMENT)
+             Granularité prop × logement × mois ; numérotation PREF-AAAA-MM-PROP-LOG-NNN
+             Contrôles : 0 BLOQUANT / 60 A_CONTROLER (59 réservations exclues + 1 MODE_FACTURATION_A_DEFINIR)
+             0 donnée fictive résiduelle ; sources amont non modifiées
+Statut     : OUVERT — EN_ATTENTE_VALIDATION_HUMAINE
+```
+
+**Décisions appliquées (validées 2026-06-15) :** D-LOT12-01 à D-LOT12-08.
+
+**Test fictif complet (cycle seed → pipeline → lot12 → remove) :**
+- seed exécuté (Charges + M04 + MenExt + HH + Acomptes)
+- pipeline relancé jusqu'à Lot 12 (lot4bis → lot9 → lot10 → lot11 → lot12)
+- HH fictives visibles dans les préfactures (PROP_0001/LOG_0001/2026-03 : L1 payout 1 388,02 incluant HH_001, nb_resa 10)
+- acompte fictif `ZZ_TEST_ACOMPTE_001` (VALIDE) visible en règlement : L11 = 222,22 € ; reste_à_payer 367,75 = 589,97 − 222,22
+- acompte fictif `ZZ_TEST_ACOMPTE_002` (A_CONTROLER) exclu du règlement : L11 = 0
+- flux HC fictifs : statut non final maintenu ; REEL = COMPTABLE + HC OK (282 775,85 = 283 220,29 + (−444,44)) ; lot11 0 BLOQUANT
+- 0 facture finale même avec fictif ; 12 lignes par préfacture ; GLOBAL_NON_AFFECTE hors facture
+- L5 (revenu net exploitation) ≠ L9 (reste à payer) — pas de confusion exploitation/règlement (D033)
+- remove exécuté ; retour baseline réel (1333 flux / REEL 283 442,51 / lot11 51 contrôles 0 BLOQUANT / lot12 269 préfactures)
+- 0 `ZZ_TEST_` / 0 `__TEST_FICTIF_LOT12_A_SUPPRIMER__` ; 11 xlsx données restaurés à l'état commité
+
+**Limites actuelles (Lot 12 = préfactures uniquement) :**
+Aucune facture finale tant que `facturation_lot12_ok != OUI` (DASHBOARD_MOIS, Lot 11). Blocages :
+- 44 A_CONTROLER ouverts Lot 11
+- modes de facturation propriétaires à définir (12 props `mode_facturation = A_DEFINIR`)
+- banque non clôturée (52 lignes RAPPROCHEMENT_REQUIS)
+- sources réelles M04 / Charges / IK / Acomptes encore partielles ou vides (HORS_COMPTA réel = 0 → balise DONNEES_PARTIELLES)
+- coordonnées société / logo / SIRET sous balises (absents de REF_Parametres_Generaux)
+
+---
+
 ### CTR-2026-06-022
 
 ```

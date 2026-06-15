@@ -5,7 +5,7 @@
 
 ## Dernière mise à jour
 Date : 2026-06-14
-Session : Session 21 — Correctif Lot 10 HH / HC / charges globales / acomptes
+Session : Session 22 — Lot 12 Préfactures propriétaires
 Agent : Claude Code (claude-opus-4-8 / claude-sonnet-4-6)
 
 ---
@@ -101,6 +101,39 @@ Statut : **EN_ATTENTE_VALIDATION_HUMAINE** — 51 contrôles générés (CTR-202
   - REC_002 cle_repartition mise à jour : COUT_STANDARD_MENAGES_MOIS (ancienne valeur : NOMBRE_MENAGES, D076, validation humaine Lot 6b).
 
 > **Règle D029 — IRRÉVOCABLE** : aucun lot ne peut être marqué FAIT sans entrée dans JOURNAL_CONTROLES.
+
+---
+
+## Ce qui a été modifié (session 22 — Lot 12 Préfactures propriétaires, 2026-06-14)
+
+**Objectif :** produire les préfactures propriétaires (12 lignes §17.3) depuis les sorties Lot 10/11.
+Lot 12 = lot **terminal** : lit seulement les sorties Lot 10/11, ne recalcule rien, n'écrit que dans Lot12_Factures/.
+
+- Créé : `02_TRAVAIL/lot12_generer_factures.py`
+- Créé : `02_TRAVAIL/Lot12_Factures/MASTER_FACT_Proprietaires.xlsx` (5 onglets)
+  - FACT_FACTURE_ENTETE / FACT_FACTURE_LIGNES / CONTROLE_MENSUEL / DASHBOARD_FACTURATION / A_CONTROLER
+- Modifié : `00_CADRAGE/JOURNAL_CONTROLES.md` (CTR-2026-06-023)
+- Modifié : `00_CADRAGE/ETAT_AVANCEMENT.md` (ce fichier — session 22)
+
+**Résultat :**
+- 269 préfactures / 3 228 lignes (12 lignes par préfacture)
+- 0 facture finale ; statut_generation PREFACTURE_CONTROLE ; statut_facture NON_FACTURABLE_A_CONTROLER (269/269)
+- Balises visibles si données manquantes (logo/SIRET/adresse société/mode_facturation/banque/...)
+- GLOBAL_NON_AFFECTE exclu des factures propriétaires (frais bancaires société, hors REGLEMENT)
+- Granularité prop × logement × mois ; PREF-AAAA-MM-PROP-LOG-NNN
+- 0 BLOQUANT / 60 A_CONTROLER
+- Test fictif complet validé (HH visibles, ACOMPTE_001 en règlement, ACOMPTE_002 A_CONTROLER exclu, 0 finale)
+- 0 fictif résiduel ; 11 xlsx données restaurés à l'état commité ; sources intactes
+
+**Décisions appliquées :** D-LOT12-01 à D-LOT12-08.
+
+**Limites (préfactures uniquement — aucune finale tant que facturation_lot12_ok ≠ OUI) :**
+44 A_CONTROLER Lot 11 · 12 modes facturation à définir · banque non clôturée ·
+sources réelles M04/Charges/IK/Acomptes partielles ou vides · coords société/logo/SIRET sous balises.
+
+**Fichiers à ne SURTOUT PAS committer :**
+- `99_ARCHIVES/LOT12_TEST_DATA/` (backups fictif — ignoré git)
+- Sources brutes · fichiers banque · `REF_Setup.xlsm` · tout xlsx de données amont
 
 ---
 
