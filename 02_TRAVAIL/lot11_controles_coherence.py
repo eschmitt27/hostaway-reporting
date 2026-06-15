@@ -24,6 +24,7 @@ Dependances:
 from pathlib import Path
 from datetime import date
 from collections import Counter
+import re
 import openpyxl
 import pandas as pd
 
@@ -123,6 +124,7 @@ df_ik      = _read_sheet(IK_FILE,   sheet="MASTER_CALC_AVANTAGES")
 
 df_log  = _read_ref_sheet(REF_FILE, "REF_Logements",     "logement_id")
 df_prop = _read_ref_sheet(REF_FILE, "REF_Proprietaires", "proprietaire_id")
+df_map  = _read_ref_sheet(REF_FILE, "REF_Mapping_Logements", "mapping_logement_id")
 
 # Sources vides — vide MÉTIER (F2 corrigé)
 # Une source ne contenant que des lignes placeholder Power Query / formule / sans
@@ -610,13 +612,51 @@ for _, row_log in df_log.iterrows():
               commentaire="Correction: mettre a jour date_entree_gestion dans REF_Logements (lot separate).")
 
 # 6c - LISTING_ORPHELIN_A_CONTROLER (depuis MASTER_CTRL_HA_Anomalies)
+# Correctif faux positif : l'anomalie Lot 1 est figee avant le mapping/alias Lot 2.
+# On ne re-emet l'orphelin que si le listing n'est PAS resolvable apres mapping
+# (REF_Logements.hostaway_listing_id U REF_Mapping_Logements) ET qu'aucune
+# reservation correspondante n'a de logement_id resolu dans MASTER_CALC_Reservations.
+def _norm_id(v):
+    if v is None:
+        return ""
+    s = str(v).strip()
+    return s[:-2] if s.endswith(".0") else s
+
+# Listings resolvables directement (REF_Logements.hostaway_listing_id)
+_resolved_listings = set()
+if "hostaway_listing_id" in df_log.columns:
+    _resolved_listings |= {_norm_id(v) for v in df_log["hostaway_listing_id"].dropna()}
+# + resolvables via REF_Mapping_Logements (champ listingMapId, actif)
+if {"champ_source", "valeur_source"}.issubset(df_map.columns):
+    _map_act = df_map
+    if "actif" in df_map.columns:
+        _map_act = df_map[df_map["actif"].astype(str).str.upper() == "OUI"]
+    _map_list = _map_act[_map_act["champ_source"].astype(str).str.contains("listingMapId", case=False, na=False)]
+    _resolved_listings |= {_norm_id(v) for v in _map_list["valeur_source"].dropna()}
+_resolved_listings.discard("")
+
+# reservation_id_hostaway ayant un logement_id resolu dans la table commune
+_resolved_res = set()
+if {"reservation_id_hostaway", "logement_id"}.issubset(df_res.columns):
+    _res_ok = df_res[df_res["logement_id"].notna()]
+    _resolved_res = {_norm_id(v) for v in _res_ok["reservation_id_hostaway"].dropna()}
+_resolved_res.discard("")
+
 if "code_anomalie" in df_ha_ano.columns:
     orphelins = df_ha_ano[df_ha_ano["code_anomalie"] == "LISTING_ORPHELIN_A_CONTROLER"]
     for _, row in orphelins.iterrows():
+        desc = str(row.get("description", "") or "")
+        # listingMapId = premier entier >= 4 chiffres dans la description
+        m = re.search(r"\d{4,}", desc)
+        listing_id = m.group(0) if m else ""
+        res_id = _norm_id(row.get("reservation_id"))
+        # Resolu si listing connu OU reservation rattachee a un logement
+        if (listing_id and listing_id in _resolved_listings) or (res_id and res_id in _resolved_res):
+            continue  # faux positif : listing resolvable via mapping/alias
         _ctrl(ctrl_rows, "HOSTAWAY", "MASTER_CTRL_HA_Anomalies",
               str(row.get("reservation_id") or "listing"),
               "LISTING_ORPHELIN_A_CONTROLER", "A_CONTROLER",
-              row.get("description", ""),
+              desc,
               commentaire="Resolution: ajouter listing au REF_Logements ou confirmer inactif.")
 
 # 6d - VRBO_MONTANT_NON_RENSEIGNE (re-detecte depuis Reservations)
