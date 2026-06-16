@@ -253,9 +253,13 @@ for r in RAW:
     if abs(e_ttc) > 1.0:
         anomalies_b.append("MENAGE_EXTERNE_FACTURE_NON_RECONCILIEE")
 
+    # Date jour absente sur facture mensuelle : ne bloque PLUS seule (decision 2026-06-16).
+    # La ligne reste exploitable ; le controle reel est porte par le rapprochement
+    # mensuel Hostaway (VUE_ECART_HOSTAWAY). On ne cree jamais de fausse date.
+    date_info = ""
     if not anomalies_b:
         if prec_date == "MOIS_FACTURE":
-            anomalies_a.append("MENAGE_EXTERNE_DATE_ABSENTE")
+            date_info = "MENAGE_EXTERNE_DATE_MOIS"   # informatif, non bloquant
         if mttc == 0 or nb_men == 0:
             anomalies_a.append("MENAGE_EXTERNE_MONTANT_NUL")
         if log_inactif:
@@ -268,7 +272,8 @@ for r in RAW:
         statut, niveau, code_ano = "A_CONTROLER","A_CONTROLER", anomalies_a[0]
         extra = " | ".join(anomalies_a[1:])
     else:
-        statut, niveau, code_ano, extra = "VALIDE","INFO","",""
+        # Ligne exploitable : VALIDE. date_info reste informatif (niveau INFO).
+        statut, niveau, code_ano, extra = "VALIDE","INFO", date_info, ""
 
     commentaire = cmt_src
     if extra:
@@ -312,9 +317,13 @@ VUE_ACTIVE = [
     and abs(r[MASTER_COLS.index("ecart_reconciliation_ttc")]) <= 1.0
 ]
 
-# ─── VUE_ECART_HOSTAWAY ───────────────────────────────────────────────────────
-# Load Lot 6a VUE_COMPTAGE
-vue_cpt = {}
+# ─── VUE_ECART_HOSTAWAY (rapprochement mensuel recalculable, neutre) ──────────
+# Cle : mois x logement_id. Compte TOUTES les lignes facture exploitables (pas
+# seulement VUE_ACTIVE) -> les lignes mensuelles MOIS_FACTURE sont incluses.
+# Recalcule a chaque relance depuis MASTER + VUE_COMPTAGE Lot 6a (Hostaway).
+# Codes NEUTRES : rapproche / ecart / HA sans facture / logement hors HA.
+# Multi-mois : ne fige aucun mois.
+vue_cpt = {}   # (mois, logement_id) -> {nb_ha, prop}
 try:
     wb6a = openpyxl.load_workbook(LOT6A, read_only=True)
     ws6a = wb6a["VUE_COMPTAGE"]
@@ -322,46 +331,64 @@ try:
     h6a = rows6a[0]
     for rx in rows6a[1:]:
         rd = dict(zip(h6a, rx))
-        if rd.get("mois") == "2026-05" and rd.get("logement_id"):
-            key = rd["logement_id"]
-            vue_cpt[key] = {
-                "nb_ha":  rd.get("nb_menages_realises") or rd.get("nb_menages") or 0,
-                "prop":   rd.get("proprietaire_id"),
+        m0 = rd.get("mois"); lid0 = rd.get("logement_id")
+        if m0 and lid0:
+            vue_cpt[(m0, lid0)] = {
+                "nb_ha": rd.get("nb_menages_realises") or rd.get("nb_menages") or 0,
+                "prop":  rd.get("proprietaire_id"),
             }
     wb6a.close()
-    print(f"[OK] VUE_COMPTAGE Lot 6a chargée — {len(vue_cpt)} logements pour 2026-05")
+    print(f"[OK] VUE_COMPTAGE Lot 6a chargee — {len(vue_cpt)} (mois,logement)")
 except Exception as e:
-    print(f"[WARN] VUE_COMPTAGE non chargée: {e}")
+    print(f"[WARN] VUE_COMPTAGE non chargee: {e}")
 
-# Nb ménages externes (VUE_ACTIVE) par logement mois=2026-05
-ext_cpt = defaultdict(int)
-ext_prop = {}
-for r in VUE_ACTIVE:
-    if r[MASTER_COLS.index("mois")] == "2026-05":
-        lid2 = r[MASTER_COLS.index("logement_id")]
-        nb2  = r[MASTER_COLS.index("nombre_menages")] or 0
-        tlm2 = r[MASTER_COLS.index("type_ligne_menage_id")]
-        if tlm2 in ("TLM_001","TLM_002"):
-            ext_cpt[lid2] += nb2
-            ext_prop[lid2] = r[MASTER_COLS.index("proprietaire_id")]
+# Comptage facture exploitable depuis MASTER (toutes lignes non BLOQUANTes,
+# logement + mois connus, comptees TLM_001/TLM_002). Inclut les mensuelles.
+iM = MASTER_COLS.index
+ext_cpt   = defaultdict(float)
+ext_prop  = {}
+ext_prest = defaultdict(set)
+for r in MASTER:
+    if r[iM("statut_controle")] == "BLOQUANT":
+        continue
+    lid2 = r[iM("logement_id")]; m2 = r[iM("mois")]
+    if not lid2 or lid2 == "A_CONTROLER" or not m2:
+        continue
+    if r[iM("type_ligne_menage_id")] not in ("TLM_001", "TLM_002"):
+        continue
+    ext_cpt[(m2, lid2)]  += (r[iM("nombre_menages")] or 0)
+    ext_prop[(m2, lid2)]  = r[iM("proprietaire_id")]
+    pnom = r[iM("nom_prestataire")]
+    if pnom:
+        ext_prest[(m2, lid2)].add(str(pnom))
 
-all_lids = sorted(set(list(vue_cpt.keys()) + list(ext_cpt.keys())))
-
+all_keys = sorted(set(vue_cpt.keys()) | set(ext_cpt.keys()))
 ECART_ROWS = []
-for lid2 in all_lids:
-    nb_ha  = vue_cpt.get(lid2, {}).get("nb_ha", 0) or 0
-    nb_ext = ext_cpt.get(lid2, 0)
-    prop2  = ext_prop.get(lid2) or (vue_cpt.get(lid2, {}).get("prop"))
-    ecart  = nb_ha - nb_ext
-    if ecart == 0:
-        stc, niv, cod = "VALIDE","INFO",""
+for (m2, lid2) in all_keys:
+    nb_ha  = vue_cpt.get((m2, lid2), {}).get("nb_ha", 0) or 0
+    nb_ext = ext_cpt.get((m2, lid2), 0)
+    prop2  = ext_prop.get((m2, lid2)) or vue_cpt.get((m2, lid2), {}).get("prop")
+    prest  = ",".join(sorted(ext_prest.get((m2, lid2), set())))
+    ecart  = nb_ext - nb_ha    # >0 : facture > Hostaway
+    if nb_ext == 0 and nb_ha == 0:
+        niv, cod, cmt = "INFO", "", "Aucune activite menage ce mois."
+    elif nb_ext > 0 and nb_ha == 0:
+        niv, cod, cmt = "A_CONTROLER", "MENAGE_EXTERNE_LOGEMENT_HORS_HA", \
+            "Logement facture absent du comptage Hostaway (archive/hors HA/mapping). A valider, pas une erreur prestataire."
+    elif nb_ext == 0 and nb_ha > 0:
+        niv, cod, cmt = "INFO", "MENAGE_HA_SANS_FACTURE_EXTERNE", \
+            "Menages Hostaway sans facture externe : probable menage interne / a croiser avec M04."
+    elif ecart == 0:
+        niv, cod, cmt = "INFO", "MENAGE_EXTERNE_RAPPROCHE_HOSTAWAY", \
+            "Volume facture = volume Hostaway. Rapproche ; date jour non requise."
     else:
-        stc, niv, cod = "A_CONTROLER","A_CONTROLER","MENAGE_EXTERNE_FACTURATION_SANS_COMPTAGE_HA"
-    ECART_ROWS.append(["2026-05", lid2, prop2, nb_ha, nb_ext, ecart, stc, niv, cod])
+        niv, cod, cmt = "A_CONTROLER", "MENAGE_EXTERNE_ECART_HOSTAWAY", \
+            "Ecart volume facture vs Hostaway. A valider (interne, hors HA, decalage mois ou saisie)."
+    ECART_ROWS.append([m2, lid2, prop2, prest, nb_ext, nb_ha, ecart, cod, niv, cmt, TS])
 
-ECART_COLS = ["mois","logement_id","proprietaire_id",
-              "nb_menages_hostaway_realises","nb_menages_externes_factures",
-              "ecart_hostaway_externe","statut_controle","niveau_anomalie","code_anomalie"]
+ECART_COLS = ["mois","logement_id","proprietaire_id","prestataires_factures",
+              "nombre_menages_facture","nombre_menages_hostaway","ecart",
+              "code_controle","niveau_controle","commentaire_controle","date_actualisation"]
 
 # ─── BUILD EXCEL ──────────────────────────────────────────────────────────────
 wb = Workbook()
@@ -453,20 +480,23 @@ ws4.row_dimensions[1].height = 30
 # ── Sheet 5 : VUE_ECART_HOSTAWAY ────────────────────────────────────────────
 ws5 = wb.create_sheet("VUE_ECART_HOSTAWAY")
 ws5.freeze_panes = "A2"
-ecol_widths = [10,14,14,22,22,18,14,14,38]
+ecol_widths = [10,12,14,20,16,16,8,34,14,48,20]
 for ci, (col, w) in enumerate(zip(ECART_COLS, ecol_widths), 1):
     hdr(ws5, 1, ci, col, w)
+niv_idx = ECART_COLS.index("niveau_controle")  # 0-based
 for ri, row in enumerate(ECART_ROWS, 2):
-    s = row[6]
-    f = VAL_FILL if s == "VALIDE" else CTRL_FILL
+    niv = row[niv_idx]
+    f = VAL_FILL if niv == "INFO" else CTRL_FILL
     for ci, val in enumerate(row, 1):
         c = cell(ws5, ri, ci, val)
-        if ci == 7:
+        if (ci - 1) == niv_idx:
             c.fill = f
 
 note_row = len(ECART_ROWS) + 3
-ws5.cell(note_row, 1, "NOTE : VUE_ACTIVE ne contient que les lignes VALIDE. "
-    "Les lignes A_CONTROLER (dates absentes) ne sont pas comptées dans nb_menages_externes_factures.").font = Font(italic=True, color="808080")
+ws5.cell(note_row, 1, "NOTE : rapprochement mensuel mois x logement, recalcule a chaque relance. "
+    "nombre_menages_facture compte TOUTES les lignes facture exploitables (y compris mensuelles MOIS_FACTURE), "
+    "pas seulement VALIDE. Codes neutres (rapproche / ecart / HA sans facture / logement hors HA) : "
+    "un ecart signale une verification, jamais une accusation prestataire.").font = Font(italic=True, color="808080")
 
 # ── Sheet 6 : POWER_QUERY_CODE ───────────────────────────────────────────────
 ws6 = wb.create_sheet("POWER_QUERY_CODE")

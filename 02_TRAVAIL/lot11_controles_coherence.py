@@ -677,17 +677,48 @@ if n_ac > 0:
           f"(VRBO + Direct). Net proprietaire incomplet pour ces {n_ac} reservations.",
           commentaire="Requiert saisie manuelle ou decision par reservation. Lots 4/4bis.")
 
-# 6f - MENAGE_EXTERNE_DATE_ABSENTE (depuis Lot 6c)
-if "code_anomalie" in df_mex.columns:
-    mex_date_abs = df_mex[
-        df_mex["code_anomalie"].astype(str).str.contains("MENAGE_EXTERNE_DATE_ABSENTE", na=False)
-    ]
-    if len(mex_date_abs) > 0:
-        _ctrl(ctrl_rows, "MENAGES_EXT", "MASTER_FACT_MEN_MenagesExternes", None,
-              "MENAGE_EXTERNE_DATE_ABSENTE", "A_CONTROLER",
-              f"{len(mex_date_abs)} lignes menages externes sans date_menage precise. "
-              "Exclues de VUE_ACTIVE.",
-              commentaire="Precision date requise aupres du prestataire (Aissata fac.2026-37).")
+# 6f - Rapprochement menages externes <-> Hostaway (depuis Lot 6c VUE_ECART_HOSTAWAY)
+#      Remplace l'ancien controle bloquant "DATE_ABSENTE" : la date jour absente sur
+#      facture mensuelle ne bloque plus seule. Le controle reel = ecart de volume
+#      mensuel (mois x logement). Codes NEUTRES (jamais accusatoires).
+try:
+    df_ecart = _read_sheet(MEX_FILE, sheet="VUE_ECART_HOSTAWAY")
+except Exception:
+    df_ecart = pd.DataFrame()
+
+if "code_controle" in df_ecart.columns:
+    def _ecart_logs(code):
+        g = df_ecart[df_ecart["code_controle"].astype(str) == code]
+        logs = ", ".join(str(x) for x in g["logement_id"].dropna())
+        return g, logs
+
+    g, logs = _ecart_logs("MENAGE_EXTERNE_ECART_HOSTAWAY")
+    if len(g) > 0:
+        _ctrl(ctrl_rows, "MENAGES_EXT", "VUE_ECART_HOSTAWAY", None,
+              "MENAGE_EXTERNE_ECART_HOSTAWAY", "A_CONTROLER",
+              f"{len(g)} logement(s) avec ecart volume facture vs Hostaway: {logs}.",
+              commentaire="Ecart a valider (interne, hors HA, decalage mois ou saisie). Pas une accusation prestataire.")
+
+    g, logs = _ecart_logs("MENAGE_EXTERNE_LOGEMENT_HORS_HA")
+    if len(g) > 0:
+        _ctrl(ctrl_rows, "MENAGES_EXT", "VUE_ECART_HOSTAWAY", None,
+              "MENAGE_EXTERNE_LOGEMENT_HORS_HA", "A_CONTROLER",
+              f"{len(g)} logement(s) facture(s) absent(s) du comptage Hostaway: {logs}.",
+              commentaire="Logement archive/hors HA/mapping. A valider, pas une erreur prestataire.")
+
+    g, logs = _ecart_logs("MENAGE_HA_SANS_FACTURE_EXTERNE")
+    if len(g) > 0:
+        _ctrl(ctrl_rows, "MENAGES_EXT", "VUE_ECART_HOSTAWAY", None,
+              "MENAGE_HA_SANS_FACTURE_EXTERNE", "INFO",
+              f"{len(g)} logement(s) avec menages Hostaway sans facture externe: {logs}.",
+              commentaire="Probable menage interne / a croiser avec M04.")
+
+    g, logs = _ecart_logs("MENAGE_EXTERNE_RAPPROCHE_HOSTAWAY")
+    if len(g) > 0:
+        _ctrl(ctrl_rows, "MENAGES_EXT", "VUE_ECART_HOSTAWAY", None,
+              "MENAGE_EXTERNE_RAPPROCHE_HOSTAWAY", "INFO",
+              f"{len(g)} logement(s) rapproche(s) facture = Hostaway.",
+              commentaire="Volume mensuel coherent ; date jour non requise.")
 
 
 # ==========================================================================
