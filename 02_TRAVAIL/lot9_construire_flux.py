@@ -25,7 +25,7 @@ from openpyxl.styles import PatternFill, Font
 
 # ── CHEMINS ───────────────────────────────────────────────────────────────────
 ROOT    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC_RES = os.path.join(ROOT, '02_TRAVAIL', 'Lot4bis_TableCommune',  'MASTER_CALC_Reservations.xlsx')
+SRC_RES = os.path.join(ROOT, '02_TRAVAIL', 'Lot4quater_SourceResolue', 'MASTER_CALC_Reservations_Resolues.xlsx')  # source résolue open/closed (lot4quater)
 SRC_MEN = os.path.join(ROOT, '02_TRAVAIL', 'Lot6c_MenagesExternes', 'MASTER_FACT_MEN_MenagesExternes.xlsx')
 SRC_BNQ = os.path.join(ROOT, '02_TRAVAIL', 'Lot8_Banque',           'BANQUE_LOT8_IMPORT.xlsx')
 # Lot 9 correctif (2026-06-14) : ingestion charges (Lot 3) + ménages internes M04 (Lot 6b)

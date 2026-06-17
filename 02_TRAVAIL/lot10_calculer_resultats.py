@@ -39,7 +39,7 @@ from openpyxl.utils import get_column_letter
 # ─────────────────────────────────────────────────────────────────────────────
 BASE        = Path(__file__).resolve().parent.parent
 FLUX_FILE   = BASE / "02_TRAVAIL/Lot9_FluxUnifie/MASTER_CALC_Flux.xlsx"
-RES_FILE    = BASE / "02_TRAVAIL/Lot4bis_TableCommune/MASTER_CALC_Reservations.xlsx"
+RES_FILE    = BASE / "02_TRAVAIL/Lot4quater_SourceResolue/MASTER_CALC_Reservations_Resolues.xlsx"  # source résolue (lot4quater)
 PAYOUT_FILE = BASE / "02_TRAVAIL/Lot1_Hostaway/MASTER_CALC_HA_Payout.xlsx"
 HH_FILE     = BASE / "02_TRAVAIL/Lot4_ReservationsHH/MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx"
 ACC_FILE    = BASE / "02_TRAVAIL/Lot5_AcomptesProprietaires/MASTER_FACT_MAN_AcomptesProprietaires.xlsx"
@@ -199,11 +199,20 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop):
     df_res_num["reservation_id_hostaway"] = pd.to_numeric(
         df_res_num["reservation_id_hostaway"], errors="coerce"
     )
+    # financiers résolus (présents dans MASTER_CALC_Reservations_Resolues — lot4quater)
+    for _c in ("payout_calcule", "menage_retenu", "assiette_commission", "canal"):
+        if _c not in df_res_num.columns:
+            df_res_num[_c] = None
     df_res_sel = df_res_num[[
         "reservation_calc_id", "reservation_id_hostaway", "reservation_hh_id",
         "source", "source_montant", "montant_retenu",
         "logement_id", "proprietaire_id", "date_arrivee", "date_depart", "nuits",
-    ]]
+        "canal", "payout_calcule", "menage_retenu", "assiette_commission",
+    ]].rename(columns={
+        "payout_calcule": "payout_resolu",
+        "menage_retenu": "menage_resolu",
+        "assiette_commission": "assiette_resolu",
+    })
     df_j = df_017_sel.merge(
         df_res_sel, left_on="source_pk", right_on="reservation_calc_id", how="left",
     )
@@ -217,12 +226,15 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop):
     df_j["logement_id_eff"]     = df_j["logement_id"].combine_first(df_j["logement_id_flux"])
     df_j["proprietaire_id_eff"] = df_j["proprietaire_id"].combine_first(df_j["proprietaire_id_flux"])
 
-    # ── 2c. Routage HA vs HH (D-LOT10C-05) ──
+    # ── 2c. Routage HA vs VRBO vs HH (D-LOT10C-05) ──
     HA_SOURCES = {"HOSTAWAY_AIRBNB", "HOSTAWAY_BOOKING"}
-    is_ha = df_j["reservation_id_hostaway"].notna() & df_j["source"].isin(HA_SOURCES)
-    df_ha = df_j[is_ha].copy()
-    df_hhb = df_j[~is_ha].copy()
-    log.info(f"  Routage : {len(df_ha)} Hostaway / {len(df_hhb)} HH")
+    is_ha   = df_j["reservation_id_hostaway"].notna() & df_j["source"].isin(HA_SOURCES)
+    # VRBO résolu (historique clôturé) : commission via assiette résolue, PAS routé en HH
+    is_vrbo = (~is_ha) & ((df_j["source"] == "HOSTAWAY_VRBO") | (df_j["canal"] == "VRBO"))
+    df_ha   = df_j[is_ha].copy()
+    df_vrbo = df_j[is_vrbo].copy()
+    df_hhb  = df_j[~is_ha & ~is_vrbo].copy()
+    log.info(f"  Routage : {len(df_ha)} Hostaway / {len(df_vrbo)} VRBO / {len(df_hhb)} HH")
 
     df_prop_sel = df_prop[["proprietaire_id", "taux_commission"]].copy()
 
@@ -343,7 +355,42 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop):
                 "message": f"{n_hh_exclus} reservations HH dans Flux sans total_percu/taux exploitable",
             })
 
-    # ── 2h. Sortie COMMISSIONS (NORMAL HA + HH) ──
+    # ===================== BRANCHE VRBO (historique clôturé) =====================
+    # canal VRBO : payout = montant historisé, ménage standard déduit,
+    # assiette = payout - ménage, commission = assiette x taux. Jamais routé en HH.
+    df_vrbo_norm = pd.DataFrame()
+    if len(df_vrbo) > 0:
+        df_vrbo = df_vrbo.merge(
+            df_prop_sel, left_on="proprietaire_id_eff", right_on="proprietaire_id",
+            how="left", suffixes=("", "_ref"),
+        )
+        for c in ("payout_resolu", "menage_resolu", "assiette_resolu", "taux_commission"):
+            df_vrbo[c] = pd.to_numeric(df_vrbo[c], errors="coerce")
+        df_vrbo["payout_calcule"] = df_vrbo["payout_resolu"].round(2)
+        df_vrbo["menage_retenu"]  = df_vrbo["menage_resolu"].fillna(0.0).round(2)
+        df_vrbo["assiette_commission"] = df_vrbo["assiette_resolu"].combine_first(
+            df_vrbo["payout_resolu"] - df_vrbo["menage_resolu"].fillna(0.0)
+        ).round(2)
+        if (df_vrbo["assiette_commission"].fillna(0) < 0).any():
+            log.error("BLOQUANT ASSIETTE_NEGATIVE — VRBO")
+            sys.exit(1)
+        if df_vrbo["taux_commission"].isna().any():
+            log.error("BLOQUANT COMMISSION_SANS_TAUX — VRBO")
+            sys.exit(1)
+        df_vrbo["commission_conciergerie"] = (
+            df_vrbo["assiette_commission"] * df_vrbo["taux_commission"]
+        ).round(2)
+        df_vrbo["net_proprietaire"] = (
+            df_vrbo["payout_calcule"] - df_vrbo["menage_retenu"]
+            - df_vrbo["commission_conciergerie"]
+        ).round(2)
+        df_vrbo["statut_calcul_payout"] = "NORMAL"
+        df_vrbo["channel_type"]         = "VRBO"
+        df_vrbo["source_type"]          = "VRBO"
+        df_vrbo["menage_retenu_source"] = "COUT_STANDARD"
+        df_vrbo_norm = df_vrbo
+
+    # ── 2h. Sortie COMMISSIONS (NORMAL HA + VRBO + HH) ──
     COMM_OUT_COLS = [
         "source_pk", "reservation_calc_id", "reservation_id_hostaway",
         "logement_id_eff", "proprietaire_id_eff", "mois_flux",
@@ -363,7 +410,7 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop):
                 df[c] = None
         return df[COMM_OUT_COLS].copy()
 
-    df_comm = pd.concat([_shape(df_ha_norm), _shape(df_hh_norm)], ignore_index=True)
+    df_comm = pd.concat([_shape(df_ha_norm), _shape(df_vrbo_norm), _shape(df_hh_norm)], ignore_index=True)
     df_comm = df_comm.rename(columns={
         "logement_id_eff":     "logement_id",
         "proprietaire_id_eff": "proprietaire_id",
@@ -376,7 +423,7 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop):
     df_ac["code_anomalie_lot10"] = "RESERVATION_EXCLUE_A_CONTROLER"
     df_ac = df_ac.reset_index(drop=True)
 
-    log.info(f"  NORMAL integres  : {len(df_comm)} (HA {len(df_ha_norm)} + HH {len(df_hh_norm)})")
+    log.info(f"  NORMAL integres  : {len(df_comm)} (HA {len(df_ha_norm)} + VRBO {len(df_vrbo_norm)} + HH {len(df_hh_norm)})")
     log.info(f"  HH exclus        : {n_hh_exclus} (sans montant saisi)")
     log.info(f"  A_CONTROLER (pay): {len(df_ac)}")
     return df_comm, df_ac, hh_controls

@@ -1,0 +1,31 @@
+N° de propriété;N° du logement;Adresse;N° de réservation;Traveler First Name;Traveler Last Name;Statut de réservation;Arrivée;Départ;Nuitées;Date de paiement;Montant brut de la réservation;Déductions;Montant du paiement;Lodging Tax Owner Remits;Impôts retenus;Devise de paiement
+20117542;LOG_0008;18 Rue de Cugnaux ;HA-GM2SNB;valentina;zurcan;Réservée;16-avr-25;20-avr-25;4;17-avr-25;274.00;26.58;247.42;0.00;0.00;EUR
+20117542;LOG_0008;18 Rue de Cugnaux ;HA-5NJL73;charlene;steele;Réservée;26-avr-25;31-mai-25;35;09-juin-25;45.50;0.00;45.50;0.00;0.00;EUR
+20117542;LOG_0008;18 Rue de Cugnaux ;HA-5NJL73;charlene;steele;Réservée;26-avr-25;31-mai-25;35;27-avr-25;2030.00;200.23;1829.77;0.00;0.00;EUR
+20117542;LOG_0008;18 Rue de Cugnaux ;HA-67HXDK;Antoine;Apiou;Réservée;19-juil-25;8 août 2025;20;20-juil-25;1471.20;143.01;1328.19;0.00;0.00;EUR
+20117542;LOG_0008;18 Rue de Cugnaux ;HA-MWRF92;Franck;Lego;Réservée;19 août 2025;22 août 2025;3;20 août 2025;242.00;23.85;218.15;0.00;0.00;EUR
+20117542;LOG_0008;18 Rue de Cugnaux ;HA-XXJXR3;Inesse;Badis;Réservée;23-sept-25;28-sept-25;5;24-sept-25;455.00;44.14;410.86;0.00;0.00;EUR
+20117542;LOG_0008;18 Rue de Cugnaux ;HA-7K12ZH;florence;bellet;Réservée;26-oct-25;30-oct-25;4;27-oct-25;374.00;36.86;337.14;0.00;0.00;EUR
+20117542;LOG_0008;18 Rue de Cugnaux ;HA-68J8NT;Yolanda;Cobo;Réservée;7 décembre 2025;10 décembre 2025;3;8 décembre 2025;305.00;29.90;275.10;0.00;0.00;EUR
+20117542;LOG_0008;18 Rue de Cugnaux ;HA-NQSNG9;josé;VALE;Réservée;26 décembre 2025;30 décembre 2025;4;27 décembre 2025;384.00;37.84;346.16;0.00;0.00;EUR
+20117542;LOG_0008;18 Rue de Cugnaux ;HA-L9NW5K;Michel;COLLARD;Réservée;30 décembre 2025;03-janv-26;4;31 décembre 2025;374.00;36.86;337.14;0.00;0.00;EUR
+20117542;LOG_0008;18 Rue de Cugnaux ;HA-1LH1V9;Vince;R;Réservée;24-avr-26;27-avr-26;3;25-avr-26;305.00;30.06;274.94;0.00;0.00;EUR
+20117542;LOG_0008;18 Rue de Cugnaux ;HA-L48JXH;Michael;Bruneau;Réservée;07-mai-26;14-mai-26;7;08-mai-26;558.69;55.11;503.58;0.00;0.00;EUR
+20117542;LOG_0008;18 Rue de Cugnaux ;HA-L4DM3B;Valérie;Jacquel;Réservée;28-mai-26;01-juin-26;4;29-mai-26;390.00;38.44;351.56;0.00;0.00;EUR
+9987410;LOG_0011;310 Av. de Muret;HA-WGZ5GM;Ludovic;Noir;Réservée;21 février 2025;24 février 2025;3;22 février 2025;280.00;27.45;252.55;0.00;0.00;EUR
+9987410;LOG_0011;310 Av. de Muret;HA-NRZ7CR;jacques;martin;Réservée;26 février 2025;03-mars-25;5;27 février 2025;450.00;44.36;405.64;0.00;0.00;EUR
+9987410;LOG_0011;310 Av. de Muret;HA-7RW1HD;Sabrina;Djaroud;Réservée;11-avr-25;13-avr-25;2;12-avr-25;200.00;19.71;180.29;0.00;0.00;EUR
+9987410;LOG_0011;310 Av. de Muret;HA-DXR4Y0;"Ang&eacute;lique";Chauvin;Réservée;13-avr-25;17-avr-25;4;14-avr-25;395.00;38.94;356.06;0.00;0.00;EUR
+9987410;LOG_0011;310 Av. de Muret;HA-6KC2F2;PAULINE;LECOLLEY PRZYBYLA;Réservée;20-avr-25;26-avr-25;6;25-avr-25;75.00;7.20;67.80;0.00;0.00;EUR
+9987410;LOG_0011;310 Av. de Muret;HA-6KC2F2;PAULINE;LECOLLEY PRZYBYLA;Réservée;20-avr-25;26-avr-25;6;21-avr-25;530.00;51.79;478.21;0.00;0.00;EUR
+9987410;LOG_0011;310 Av. de Muret;HA-XDL9MY;Séverine;Payot;Réservée;30-avr-25;03-mai-25;3;01-mai-25;295.00;28.69;266.31;0.00;0.00;EUR
+9987410;LOG_0011;310 Av. de Muret;HA-GWY25S;Marc;Plante;Réservée;03-mai-25;05-mai-25;2;04-mai-25;215.00;21.04;193.96;0.00;0.00;EUR
+9987410;LOG_0011;310 Av. de Muret;HA-759VSM;Anne;Larson;Réservée;19-mai-25;26-mai-25;7;20-mai-25;638.50;62.93;575.57;0.00;0.00;EUR
+9987410;LOG_0011;310 Av. de Muret;HA-SWRH35;Claudine;Subra;Réservée;16-juin-25;19-juin-25;3;17-juin-25;370.00;36.46;333.54;0.00;0.00;EUR
+9987410;LOG_0011;310 Av. de Muret;HA-T2LPSQ;Emilie;Baudin;Réservée;22-juil-25;29-juil-25;7;23-juil-25;639.50;61.92;577.58;0.00;0.00;EUR
+9987410;LOG_0011;310 Av. de Muret;HA-QG68Q0;Kevin;Marchetti;Réservée;3 août 2025;9 août 2025;6;4 août 2025;530.00;52.24;477.76;0.00;0.00;EUR
+9987410;LOG_0011;310 Av. de Muret;HA-C9CKFQ;Laurianne;ROLLAND;Réservée;9 août 2025;11 août 2025;2;20 août 2025;-20.00;-0.73;-19.27;0.00;0.00;EUR
+9987410;LOG_0011;310 Av. de Muret;HA-C9CKFQ;Laurianne;ROLLAND;Réservée;9 août 2025;11 août 2025;2;10 août 2025;250.00;24.22;225.78;0.00;0.00;EUR
+9987410;LOG_0011;310 Av. de Muret;HA-MFTKQR;bernard;matus;Réservée;22 août 2025;27 août 2025;5;23 août 2025;540.00;53.23;486.77;0.00;0.00;EUR
+9987410;LOG_0011;310 Av. de Muret;HA-NP14J8;Rosellen;Hatch;Réservée;25-sept-25;28-sept-25;3;26-sept-25;338.00;33.09;304.91;0.00;0.00;EUR
+9987410;LOG_0011;310 Av. de Muret;HA-DTWG2V;charles;devaux;Réservée;24 décembre 2025;26 décembre 2025;2;25 décembre 2025;238.00;23.30;214.70;0.00;0.00;EUR

@@ -534,7 +534,30 @@ Cette table ne crée pas de données par elle-même : elle réconcilie les sourc
 - `RESERVATION_HOSTAWAY_DIRECT_AVEC_MONTANT_SANS_HH` (à contrôler) : `direct` Hostaway avec `totalPrice > 0` mais aucune ligne hors Hostaway → vérifier si saisie manquante.
 - `RESERVATION_VRBO_MONTANT_NON_RENSEIGNE` (à contrôler) : VRBO `Unknown` sans saisie manuelle.
 
-**Position dans le pipeline.** `MASTER_FACT_HA_Reservations` + `MASTER_FACT_MAN_ReservationsHorsHostaway` → `MASTER_CALC_Reservations` → `MASTER_CALC_Flux`. La table commune est le seul point d'entrée des réservations dans le flux.
+**Position dans le pipeline.** `MASTER_FACT_HA_Reservations` + `MASTER_FACT_MAN_ReservationsHorsHostaway` → `MASTER_CALC_Reservations` → (`MASTER_CALC_Reservations_Resolues`) → `MASTER_CALC_Flux`. La table commune est le seul point d'entrée des réservations dans le flux.
+
+### 9.6 Historique des réservations clôturées et résolution de source (D097 / D098)
+
+**But.** Ne pas dépendre de l'API Hostaway pour l'historique des mois clôturés. Source de vérité figée + protection contre la perte de réservations côté API.
+
+**Trois étages (bloc réservations, après `lot4bis` qui reste live-only) :**
+
+| Étage | Script | Sortie | Rôle |
+|---|---|---|---|
+| Historisation | `lot4ter_historiser_reservations_cloturees.py` | `HIST_Reservations_Cloturees.xlsx` | Archive **toutes** les réservations validées des mois `CLOTURE` (tous canaux). Upsert sans suppression sur clé stable (`reservation_id_hostaway`, sinon `reservation_hh_id`). |
+| Résolution | `lot4quater_resoudre_source_reservations.py` | `MASTER_CALC_Reservations_Resolues.xlsx` (MASTER + VUE_FLUX) | Mois ouvert = live (`MASTER_CALC_Reservations`) ; mois `CLOTURE` = HIST. Sortie unique consommée par lot9/10/11/12. |
+| Consommation | `lot9`, `lot10`, `lot11`, `lot12` | — | Lisent `MASTER_CALC_Reservations_Resolues`. **Ne portent plus la bascule open/closed.** |
+
+**Règles clés.**
+- Clôture pilotée **uniquement** par `REF_Cloture_Mensuelle.statut_mois = CLOTURE` (pas de règle automatique « mois < courant »). REF vide ⇒ tout reste live.
+- Date de référence = **check-in** ; `mois` dérivé du check-in.
+- HIST **prime** l'extract pour un mois clôturé ; réservation disparue de l'API après clôture = conservée/réinjectée ; écart live vs HIST = **alerte** (jamais d'écrasement silencieux).
+- Mois `CLOTURE` sans ligne HIST ⇒ repli live flaggé `MOIS_CLOTURE_SANS_HISTORIQUE` (non bloquant).
+- Valeurs : `source_ligne`/`source_montant = HIST_RESERVATIONS_CLOTUREES`, `methode = HIST_PRIME_MOIS_CLOTURE`, `origine_initiale ∈ {API_HOSTAWAY, SAISIE_HH, BACKFILL_VRBO, CORRECTION_VALIDEE}`, `canal ∈ {AIRBNB, BOOKING, VRBO, DIRECT, HH}`.
+
+**Backfill VRBO (D098).** Origine de correction ponctuelle dans l'historique (pas une table ni une branche VRBO). Commission VRBO : `assiette = payout − coût ménage standard`, `commission = assiette × taux`, branche dédiée dans lot10 (jamais routé en HH).
+
+**Pipeline complet réservations :** `MASTER_FACT_HA_Reservations` + `MASTER_FACT_MAN_ReservationsHorsHostaway` → `MASTER_CALC_Reservations` (live, lot4bis) → `lot4ter` (HIST mois clôturés) → `lot4quater` (résolution) → `MASTER_CALC_Reservations_Resolues` → `MASTER_CALC_Flux`.
 
 ---
 

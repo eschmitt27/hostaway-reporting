@@ -203,6 +203,8 @@ Le détail de la clôture mensuelle est traité en §11 (Clôture mensuelle et p
 | TC3 | Si une réservation `direct` Hostaway est reprise dans la table hors Hostaway, elle doit être **liée explicitement** via `reservation_id_hostaway`. La source financière reste la table hors Hostaway. |
 | TC4 | VRBO sans montant fiable dans Hostaway → montant **renseigné manuellement**, jamais assimilé automatiquement à une réservation directe. |
 | TC5 | La table commune ne crée pas de flux par elle-même : elle réconcilie les sources existantes. |
+| TC6 | **Mois clôturé = source `HIST_Reservations_Cloturees` ; mois ouvert = source live** (API Hostaway + hors Hostaway). La bascule est faite une seule fois par la couche de résolution (`lot4quater` → `MASTER_CALC_Reservations_Resolues`), jamais par lot9-12 (D097). Date de référence = check-in. |
+| TC7 | **Backfill VRBO** = correction ponctuelle dans l'historique (`origine_initiale=BACKFILL_VRBO`), traité ensuite comme réservation clôturée normale, `canal=VRBO`. Commission VRBO : `assiette = payout − coût ménage standard` ; jamais routé en HH (D098). Pas de pipeline VRBO récurrent. |
 
 ---
 
@@ -217,6 +219,7 @@ Le détail de la clôture mensuelle est traité en §11 (Clôture mensuelle et p
 | C5 | Une seule ligne `LIGNE_BANCAIRE_NON_CLASSEE` ouverte → mois `CLOTURE` impossible. Calcul provisoire possible. |
 | C6 | Contrôle dédié : `CLOTURE_IMPOSSIBLE_LIGNE_BANCAIRE_NON_CLASSEE`. |
 | C7 | Facturation propriétaire : seulement après clôture validée. |
+| C8 | `REF_Cloture_Mensuelle.statut_mois = CLOTURE` est le **seul** déclencheur de la bascule historique des réservations (D097). REF vide ⇒ aucun mois clôturé. Une **clôture technique des réservations** (historisation) peut précéder la clôture comptable banque finale, à condition d'être indiquée dans le commentaire. |
 
 ---
 

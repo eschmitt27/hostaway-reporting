@@ -34,7 +34,7 @@ import pandas as pd
 BASE = Path(__file__).resolve().parent.parent
 
 FLUX_FILE   = BASE / "02_TRAVAIL/Lot9_FluxUnifie/MASTER_CALC_Flux.xlsx"
-RES_FILE    = BASE / "02_TRAVAIL/Lot4bis_TableCommune/MASTER_CALC_Reservations.xlsx"
+RES_FILE    = BASE / "02_TRAVAIL/Lot4quater_SourceResolue/MASTER_CALC_Reservations_Resolues.xlsx"  # source résolue (lot4quater)
 PAY_FILE    = BASE / "02_TRAVAIL/Lot1_Hostaway/MASTER_CALC_HA_Payout.xlsx"
 COM_FILE    = BASE / "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Commissions.xlsx"
 NET_FILE    = BASE / "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_NetProprietaire.xlsx"

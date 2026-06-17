@@ -799,3 +799,36 @@ Tables : REF_Parametres_Generaux (paramètres futurs), pipeline banque (NORM_Ban
 
 ### DO-03 — Barème IK kilométrique
 > **FERMÉE, voir D036.** Montant direct retenu au démarrage, barème optionnel plus tard.
+
+---
+
+### D097 — Historique des réservations clôturées prime l'extract pour les mois clôturés
+Date : 2026-06-17 | Statut : VALIDÉ
+Contexte : Ne pas supposer que l'API Hostaway fournira toujours l'historique complet (réservations passées non archivées au fil de l'eau, payouts renseignés tardivement). Besoin d'une source de vérité figée pour les mois clôturés.
+
+Décision — logique **générique** (tous canaux, pas spécifique Hostaway ni VRBO) :
+- Une **table historique unique des réservations clôturées** (`HIST_Reservations_Cloturees`) archive toutes les réservations validées des mois clôturés (Airbnb, Booking, VRBO, Direct, hors Hostaway).
+- **Clôture pilotée uniquement par `REF_Cloture_Mensuelle.statut_mois = CLOTURE`.** Aucune règle automatique « mois < mois courant ». REF vide ⇒ 0 mois clôturé ⇒ tout reste live.
+- Pour un mois clôturé, **HIST prime l'extract live**. Pour un mois ouvert / absent / `EN_CONTROLE`, la source reste live (API Hostaway + `SAISIE_ReservationsHorsHostaway`).
+- **Upsert sans suppression** sur clé stable (`reservation_id_hostaway`, sinon `reservation_hh_id`) : une réservation disparue de l'API après clôture est conservée et réinjectée.
+- Toute différence live vs HIST sur mois clôturé ⇒ **alerte / ligne d'ajustement**, jamais écrasement silencieux.
+- Date de référence métier = **check-in** (mois dérivé du check-in).
+- **Clôture initiale technique** (réservations) ≠ clôture comptable finale banque (commentaire obligatoire dans `REF_Cloture_Mensuelle`).
+- Architecture : `lot4bis` reste live-only ; `lot4ter_historiser_reservations_cloturees.py` archive ; `lot4quater_resoudre_source_reservations.py` résout open/closed → `MASTER_CALC_Reservations_Resolues.xlsx` (consommé par lot9/10/11/12, qui ne portent plus la bascule).
+- Valeurs référentielles : `source_ligne`/`source_montant = HIST_RESERVATIONS_CLOTUREES`, `methode = HIST_PRIME_MOIS_CLOTURE`, `origine_initiale ∈ {API_HOSTAWAY, SAISIE_HH, BACKFILL_VRBO, CORRECTION_VALIDEE}`, `canal ∈ {AIRBNB, BOOKING, VRBO, DIRECT, HH}`.
+Tables : HIST_Reservations_Cloturees.xlsx, MASTER_CALC_Reservations_Resolues.xlsx, REF_Cloture_Mensuelle, REF_Sources_Systeme (SRC_010)
+
+---
+
+### D098 — Backfill VRBO historique + commission VRBO
+Date : 2026-06-17 | Statut : VALIDÉ
+Contexte : Les payouts VRBO des réservations passées sont absents de l'API (paymentStatus=Unknown). Un extract VRBO historique ponctuel (`01_SOURCES_BRUTES/VRBO/IMPORT_UNIQUE_Revenus_*.csv`) fournit les montants nets manquants.
+
+Décision :
+- Le **backfill VRBO** est une **origine de correction ponctuelle** (`origine_initiale = BACKFILL_VRBO`) intégrée dans `HIST_Reservations_Cloturees`. **Ce n'est PAS une table VRBO ni une branche structurante.** Pas de pipeline VRBO récurrent : les futurs payouts VRBO arriveront naturellement via Hostaway.
+- Réconciliation csv → réservation par `logement_id` + check-in. 27 réservations, net total 11 883,67 € (montant = « Montant du paiement » net après déductions).
+- Une fois corrigée, une VRBO est traitée comme une **réservation clôturée normale**, `canal = VRBO`, statut VALIDE.
+- **Commission VRBO** : `assiette_commission = payout − coût ménage standard du logement` ; `commission = assiette × taux propriétaire` ; `net_proprietaire = payout − ménage − commission`. VRBO **n'est jamais routé en HH** dans lot10 (branche VRBO dédiée).
+- Les VRBO futures sans payout réel restent `A_CONTROLER` (mois ouvert), hors VUE_FLUX.
+Résultats vérifiés (clôture 2025-01→2026-05) : ménage VRBO 1 485,00 € ; assiette 10 398,67 € ; commission 1 975,75 € ; net propriétaire 8 422,92 €.
+Tables : HIST_Reservations_Cloturees.xlsx, MASTER_CALC_Reservations_Resolues.xlsx, MASTER_CALC_Commissions.xlsx
