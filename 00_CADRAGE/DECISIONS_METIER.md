@@ -870,7 +870,7 @@ Le gain/perte ménage **impacte le résultat HORS_COMPTA** par une logique analy
   - **`TYPE_FLUX_018` GAIN_PERTE_MENAGE_ANALYTIQUE** = écart : gain→**PRODUIT HC**, perte→**CHARGE HC**.
   - Net HC ménage = 019 (charge standard) + 018 (écart) = −coût complet réel. Jamais le coût complet brut injecté directement.
 - **`TYPE_FLUX_013` (M04 MO interne réel) = analytique SEUL : JAMAIS injecté dans MASTER_CALC_Flux** comme charge résultat/compta. Il ne sert qu'au calcul du coût complet (lot6f). Évite le double comptage (le coût MO est déjà une composante du coût complet référencé par l'écart).
-- **Aucun impact** sur COMPTABLE, commissions, net propriétaire, factures propriétaires (Lot 12). REEL = COMPTABLE + HORS_COMPTA reste cohérent ; HORS_COMPTA bouge uniquement du montant de l'écart.
+- REEL = COMPTABLE + HORS_COMPTA reste cohérent. **HORS_COMPTA bouge du standard analytique (TYPE_FLUX_019) plus l'écart (TYPE_FLUX_018), soit le coût complet analytique ménage.** TYPE_FLUX_013 reste analytique seul et non injecté. **Aucun impact** comptable, commissions, net propriétaire ou factures propriétaires.
 - Restitution analytique (nb ménages, coût standard total, coût complet réel, écart, statut GAIN/PERTE/EQUILIBRE) par mois × appartement : `MASTER_CALC_CoutComplet_Menages` (lot6f).
 
 ### D106 — Coût complet ménage avancé
