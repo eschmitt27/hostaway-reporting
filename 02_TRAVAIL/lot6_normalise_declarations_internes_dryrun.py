@@ -20,8 +20,8 @@ from openpyxl.styles import Font, PatternFill
 URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTYNAYa4WcY-ask9viQHJT-wQMwyxkKpoDZGpjrnqqtCzXC1xR_6DnZ0oSVTv5LkQTdqPcfaD1PtdAt/pub?output=csv"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REF  = os.path.join(ROOT, "01_SOURCES_BRUTES", "REF_Setup", "REF_Setup.xlsm")
-OUTD = os.path.join(ROOT, "02_TRAVAIL", "Lot6_DryRun")
-OUT  = os.path.join(OUTD, "DRYRUN_M04_Declarations_Internes_Normalisees.xlsx")
+OUTD = os.path.join(ROOT, "02_TRAVAIL", "Lot6b_DeclarationsInternes")
+OUT  = os.path.join(OUTD, "MASTER_NORM_Declarations_Internes.xlsx")
 NOW  = datetime.datetime.now().isoformat(timespec="seconds")
 
 MOIS = {"janvier":"01","fevrier":"02","mars":"03","avril":"04","mai":"05","juin":"06",

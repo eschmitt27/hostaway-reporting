@@ -33,8 +33,8 @@ DREF = datetime.date.fromisoformat(MONTH + "-01")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REF  = os.path.join(ROOT, "01_SOURCES_BRUTES", "REF_Setup", "REF_Setup.xlsm")
 SAISIE = os.path.join(ROOT, "01_SOURCES_BRUTES", "Charges", "SAISIE_Charges_Flux.xlsx")
-OUTD = os.path.join(ROOT, "02_TRAVAIL", "Lot6_DryRun")
-OUT  = os.path.join(OUTD, "DRYRUN_CoutComplet_Menages.xlsx")
+OUTD = os.path.join(ROOT, "02_TRAVAIL", "Lot6f_CoutComplet_Menages")
+OUT  = os.path.join(OUTD, "MASTER_CALC_CoutComplet_Menages.xlsx")
 SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTYNAYa4WcY-ask9viQHJT-wQMwyxkKpoDZGpjrnqqtCzXC1xR_6DnZ0oSVTv5LkQTdqPcfaD1PtdAt/pub?output=csv"
 
 def sh(p, s):

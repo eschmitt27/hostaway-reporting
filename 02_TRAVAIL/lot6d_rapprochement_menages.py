@@ -23,8 +23,9 @@ from openpyxl.styles import Font, PatternFill
 MONTH = "2026-05"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REF  = os.path.join(ROOT, "01_SOURCES_BRUTES", "REF_Setup", "REF_Setup.xlsm")
-OUTD = os.path.join(ROOT, "02_TRAVAIL", "Lot6_DryRun")
-OUT  = os.path.join(OUTD, "DRYRUN_Rapprochement_Menages_Complet.xlsx")
+OUTD = os.path.join(ROOT, "02_TRAVAIL", "Lot6d_Rapprochement_Menages")
+OUT  = os.path.join(OUTD, "MASTER_CTRL_Rapprochement_Menages.xlsx")
+NORM_DIR = os.path.join(ROOT, "02_TRAVAIL", "Lot6b_DeclarationsInternes")
 
 def sh(p, s):
     wb = openpyxl.load_workbook(p, read_only=True, data_only=True); ws = wb[s]
@@ -126,9 +127,9 @@ for d in ext:
 int_cnt = collections.Counter()     # (logement_id, intervenant_id) -> nb ménages
 m04_alimente = False
 src_interne = "AUCUNE"
-DRY_M04 = os.path.join(OUTD, "DRYRUN_M04_Declarations_Internes_Normalisees.xlsx")
+DRY_M04 = os.path.join(NORM_DIR, "MASTER_NORM_Declarations_Internes.xlsx")
 if os.path.exists(DRY_M04):
-    src_interne = "DRYRUN_SHEET"
+    src_interne = "NORM_DECLARATIONS_INTERNES"
     _, decl = sh(DRY_M04, "MASTER_NORMALISE")
     for d in decl:
         if str(d.get("mois"))[:7] != MONTH:

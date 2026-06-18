@@ -832,3 +832,44 @@ Décision :
 - Les VRBO futures sans payout réel restent `A_CONTROLER` (mois ouvert), hors VUE_FLUX.
 Résultats vérifiés (clôture 2025-01→2026-05) : ménage VRBO 1 485,00 € ; assiette 10 398,67 € ; commission 1 975,75 € ; net propriétaire 8 422,92 €.
 Tables : HIST_Reservations_Cloturees.xlsx, MASTER_CALC_Reservations_Resolues.xlsx, MASTER_CALC_Commissions.xlsx
+
+---
+
+## Module ménages — refonte (D099-D106, 2026-06-18)
+
+### D099 — Rapprochement volumes ménages
+Date : 2026-06-18 | Statut : VALIDÉ
+Comparer, **sans aucun coût**, le NOMBRE de ménages : Hostaway Tasks réalisés + réservations HH (logements hors Hostaway) vs factures externes + déclarations internes M04. Sortie `MASTER_CTRL_Rapprochement_Menages`. Un écart = à expliquer, jamais une accusation. Lot 6d.
+
+### D100 — Source Hostaway des ménages
+Date : 2026-06-18 | Statut : VALIDÉ
+Utiliser **Hostaway Tasks API**, pas les réservations. Compter uniquement les tasks `completed` / réalisées (date réf = date task / canStartFrom). HH : 1 réservation validée = 1 ménage attendu (checkout), **uniquement** logements sans listingMapId Hostaway actif (anti double comptage tasks).
+
+### D101 — Méthode interne selon période
+Date : 2026-06-18 | Statut : VALIDÉ
+Pivot **2026-06**. ≤ 2026-05 : `INTERNE_HEURES_M04` = nb_heures × taux horaire (PARAM_004). ≥ 2026-06 : `INTERNE_STANDARD_PARAMETRE` = nb_menages × forfait `REF_Couts_Menage_Interne` (Studio 30 / T2 35 / T3 45, date-aware). Type absent → A_CONTROLER `COUT_INTERNE_TYPE_LOGEMENT_ABSENT`. Montants jamais codés en dur.
+
+### D102 — Écart vs coût standard
+Date : 2026-06-18 | Statut : VALIDÉ
+Référence permanente = **coût standard facturé** (`REF_Couts_Standards_Menage`, date-aware). `ecart = cout_standard_total − cout_reel/complet_total` ; >0 GAIN, <0 PERTE, =0 EQUILIBRE. Méthodes : EXTERNE_FACTURE / INTERNE_HEURES_M04 / INTERNE_STANDARD_PARAMETRE / NON_CALCULABLE (donnée absente, jamais d'invention).
+
+### D103 — Répartition des charges communes ménage
+Date : 2026-06-18 | Statut : VALIDÉ
+Clé unique de ventilation = `poids = nb_menages × cout_standard_menage_appartement`. Pas de répartition au nombre simple. `quote_part = montant_pool × poids_ligne / Σ poids_pool`.
+
+### D104 — Mapping intervenants Hostaway
+Date : 2026-06-18 | Statut : VALIDÉ
+`assigneeUserId` **fait foi**, mappé dans **`REF_Intervenants`** (colonne `hostaway_assigneeUserId`, pas de table séparée). 1059650→INT_0001 Imène, 1059682→INT_0002 Kheira, 1061546→INT_0003 Mounir, 1059064→INT_0004 Aissata, 1061542→INT_0005 Imrane. `None`/`0` non mappés. `title` = contrôle secondaire (`CONFLIT_TITLE_ASSIGNEE`, A_CONTROLER non bloquant). Non assigné : historique = INFO `TASK_NON_ASSIGNEE_HISTORIQUE_IGNOREE` ; futur/mois ouvert = A_CONTROLER `TASK_FUTURE_SANS_INTERVENANT_ASSIGNE`. Kira (Google Sheet) = Kheira INT_0002.
+
+### D105 — Vue analytique uniquement
+Date : 2026-06-18 | Statut : VALIDÉ
+Les vues gain/perte (Lot 6e) et coût complet (Lot 6f) sont **analytiques** : ne réinjectent RIEN dans MASTER_CALC_Flux / Resultats / Commissions / NetProprietaire / Factures. Lecture seule des charges déjà comptées une fois.
+
+### D106 — Coût complet ménage avancé
+Date : 2026-06-18 | Statut : VALIDÉ
+- **Cave/local** (REC_002) = ventilée **uniquement sur les ménages INTERNES** (jamais les externes), clé D103, date-aware. Contrôle `REC_002_LOCAL_CAVE_INTERNE_ONLY`.
+- **Lavage interne** = source **Google Sheet / M04** (payé par les intervenantes internes). **Jamais exporté** vers SAISIE_Charges_Flux. Si saisi un jour dans SAISIE → `affectable_menage = NON` (sauf décision contraire). Contrôle `DOUBLE_SOURCE_LAVAGE_A_CONTROLER`.
+- **Courses / consommables / achats** = `SAISIE_Charges_Flux` **uniquement si `affectable_menage = OUI`**. Affectation via `intervenant_concerne` (MENAGE_INTERNE / COMMUN_MENAGE / INT_xxxx / multi `INT_x;INT_y`). SAISIE vide → pools = 0 `POOL_VIDE_NON_SAISI` (non saisi ≠ inexistant).
+- **Abandon** de la logique `fournitures_incluses`.
+- Colonnes ajoutées à SAISIE_Charges_Flux : `affectable_menage`, `intervenant_concerne`.
+Tables : REF_Couts_Menage_Interne, REF_Intervenants (mapping Hostaway), SAISIE_Charges_Flux, MASTER_CTRL_Rapprochement_Menages, MASTER_CALC_GainPerte_Menages, MASTER_CALC_CoutComplet_Menages. Lots 6d/6e/6f.

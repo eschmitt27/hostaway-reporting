@@ -32,9 +32,9 @@ MONTH = "2026-05"
 PIVOT = "2026-06"          # >= pivot : méthode interne paramétrée
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REF  = os.path.join(ROOT, "01_SOURCES_BRUTES", "REF_Setup", "REF_Setup.xlsm")
-OUTD = os.path.join(ROOT, "02_TRAVAIL", "Lot6_DryRun")
-OUT  = os.path.join(OUTD, "DRYRUN_GainPerte_Menages.xlsx")
-DRY_M04 = os.path.join(OUTD, "DRYRUN_M04_Declarations_Internes_Normalisees.xlsx")
+OUTD = os.path.join(ROOT, "02_TRAVAIL", "Lot6e_GainPerte_Menages")
+OUT  = os.path.join(OUTD, "MASTER_CALC_GainPerte_Menages.xlsx")
+DRY_M04 = os.path.join(ROOT, "02_TRAVAIL", "Lot6b_DeclarationsInternes", "MASTER_NORM_Declarations_Internes.xlsx")
 
 def sh(p, s):
     wb = openpyxl.load_workbook(p, read_only=True, data_only=True); ws = wb[s]
