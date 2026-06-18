@@ -347,29 +347,49 @@ print('\nModule GPM — Écart analytique gain/perte ménage (TYPE_FLUX_018 HC).
 SRC_GPM = os.path.join(ROOT, '02_TRAVAIL', 'Lot6f_CoutComplet_Menages', 'MASTER_CALC_CoutComplet_Menages.xlsx')
 gpm_rows = load_sheet(SRC_GPM, 'DETAIL_COUT_COMPLET') if os.path.exists(SRC_GPM) else []
 for r in sorted(gpm_rows, key=lambda x: (str(x.get('mois')), str(x.get('logement_id')), str(x.get('intervenant_id')))):
-    ec = r.get('ecart_vs_standard_total')
-    if ec is None or float(ec) == 0:
-        continue
-    ec = float(ec)
     mois = r.get('mois')
-    add_flux(
-        module_code    = 'GPM',
-        source_table   = 'MASTER_CALC_CoutComplet_Menages',
-        source_pk      = f"{mois}|{r.get('logement_id')}|{r.get('intervenant_id')}",
-        date_flux      = mois_to_first_day(mois),
-        mois           = mois,
-        logement_id    = r.get('logement_id'),
-        proprietaire_id= r.get('proprietaire_id'),
-        associe_id     = None,
-        type_flux_id   = 'TYPE_FLUX_018',
-        sens           = 'PRODUIT' if ec > 0 else 'CHARGE',
-        montant        = abs(ec),
-        code_impact    = 'HC',
-        statut_controle= 'VALIDE',
-        commentaire    = f"Écart analytique ménage {r.get('statut_ecart')} (standard − coût complet)",
-    )
+    pk   = f"{mois}|{r.get('logement_id')}|{r.get('intervenant_id')}"
+    std  = r.get('cout_standard_total')
+    # a) Standard analytique — CHARGE HC (TYPE_FLUX_019) par mois × logement × intervenant
+    if std is not None and float(std) != 0:
+        add_flux(
+            module_code    = 'GPM',
+            source_table   = 'MASTER_CALC_CoutComplet_Menages',
+            source_pk      = pk,
+            date_flux      = mois_to_first_day(mois),
+            mois           = mois,
+            logement_id    = r.get('logement_id'),
+            proprietaire_id= r.get('proprietaire_id'),
+            associe_id     = None,
+            type_flux_id   = 'TYPE_FLUX_019',
+            sens           = 'CHARGE',
+            montant        = abs(float(std)),
+            code_impact    = 'HC',
+            statut_controle= 'VALIDE',
+            commentaire    = 'Ménage standard analytique (coût standard par appartement)',
+        )
+    # b) Écart analytique — PRODUIT (gain) / CHARGE (perte) HC (TYPE_FLUX_018)
+    ec = r.get('ecart_vs_standard_total')
+    if ec is not None and float(ec) != 0:
+        ec = float(ec)
+        add_flux(
+            module_code    = 'GPM',
+            source_table   = 'MASTER_CALC_CoutComplet_Menages',
+            source_pk      = pk,
+            date_flux      = mois_to_first_day(mois),
+            mois           = mois,
+            logement_id    = r.get('logement_id'),
+            proprietaire_id= r.get('proprietaire_id'),
+            associe_id     = None,
+            type_flux_id   = 'TYPE_FLUX_018',
+            sens           = 'PRODUIT' if ec > 0 else 'CHARGE',
+            montant        = abs(ec),
+            code_impact    = 'HC',
+            statut_controle= 'VALIDE',
+            commentaire    = f"Écart analytique ménage {r.get('statut_ecart')} (standard − coût complet)",
+        )
 gpm_count = counters.get('GPM', 0)
-print(f'  {gpm_count} flux GPM (écart analytique)')
+print(f'  {gpm_count} flux GPM (standard 019 + écart 018)')
 
 
 # ── CONTRÔLES POST-CONSTRUCTION ───────────────────────────────────────────────
