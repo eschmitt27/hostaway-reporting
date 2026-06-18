@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """
+[LEGACY — outil de test conservé, hors pipeline normal (audit 2026-06-18, AUD-006)]
 lot12_remove_donnees_fictives.py
 Suppression de TOUTES les données fictives de test Lot 12.
 

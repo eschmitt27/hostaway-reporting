@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """
+[LEGACY — outil de test conservé, hors pipeline normal (audit 2026-06-18, AUD-006)]
 lot12_seed_donnees_fictives.py
 Insertion de DONNÉES FICTIVES de test pour valider le pipeline jusqu'au Lot 12.
 
