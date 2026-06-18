@@ -230,7 +230,9 @@ for l in lines:
     l.update({"quote_part_local": qp_local, "quote_part_courses": qp_courses, "quote_part_lavage": qp_lavage,
         "quote_part_consommables": qp_conso, "quote_part_autres_charges_menage": qp_autres,
         "cout_complet_total": cc, "cout_complet_unitaire": round(cc/l["nb_menages"], 2) if l["nb_menages"] else None,
-        "ecart_vs_standard_total": ecart, "statut_ecart": statut_e, "statut_controle": statut_c,
+        "ecart_vs_standard_total": ecart,
+        "ecart_unitaire": (round(ecart/l["nb_menages"], 2) if (ecart is not None and l["nb_menages"]) else None),
+        "statut_ecart": statut_e, "statut_controle": statut_c,
         "code_controle": code, "commentaire": "", "ROW_HASH": rh(MONTH, l["logement_id"], l["intervenant_id"], cc)})
     for nm, val in [("LOCAL_CAVE", qp_local), ("LAVAGE", qp_lavage), ("COURSES", qp_courses), ("CONSOMMABLES", qp_conso), ("AUTRES", qp_autres)]:
         if val: ventil.append({"mois": MONTH, "pool": nm, "logement_id": l["logement_id"], "intervenant_id": l["intervenant_id"], "poids": round(w,2), "quote_part": val})
@@ -247,7 +249,7 @@ def wsheet(title, cols, rows, first=False):
 DET = ["mois","logement_id","nom_appartement","proprietaire_id","type_logement_id","intervenant_id","nom_intervenant","type_intervenant",
     "nb_menages","cout_standard_total","cout_direct_total","quote_part_local","quote_part_courses","quote_part_lavage",
     "quote_part_consommables","quote_part_autres_charges_menage","cout_complet_total","cout_complet_unitaire",
-    "ecart_vs_standard_total","statut_ecart","statut_controle","code_controle","commentaire"]
+    "ecart_vs_standard_total","ecart_unitaire","statut_ecart","statut_controle","code_controle","commentaire"]
 wsheet("DETAIL_COUT_COMPLET", DET, lines, first=True)
 wsheet("POOLS_CHARGES_MENAGE", ["mois","pool","montant_total","source","cle_repartition"],
     [{"mois":MONTH,"pool":k,"montant_total":round(v,2),"source":("REC_002 (date-aware)" if k=="LOCAL_CAVE" else "Google Sheet" if k=="LAVAGE" else "SAISIE_Charges_Flux"),"cle_repartition":"poids=nb×cout_standard"} for k,v in {**POOLS,"LAVAGE":sum(l['lavage_attribuable'] for l in lines)+sum(lav_na_by_int.values())}.items()])
@@ -257,8 +259,8 @@ def resume(keyf):
     for l in lines:
         k = keyf(l); a = agg[k]; a[0]+=l["nb_menages"]; a[1]+=l["cout_standard_total"] or 0; a[2]+=l["cout_complet_total"]; a[3]+=l["ecart_vs_standard_total"] or 0
     return agg
-wsheet("RESUME_LOGEMENT", ["mois","logement_id","nom_appartement","nb_menages","cout_standard_total","cout_complet_total","ecart_total"],
-    [{"mois":MONTH,"logement_id":k[0],"nom_appartement":k[1],"nb_menages":v[0],"cout_standard_total":round(v[1],2),"cout_complet_total":round(v[2],2),"ecart_total":round(v[3],2)} for k,v in sorted(resume(lambda l:(l["logement_id"],l["nom_appartement"])).items())])
+wsheet("RESUME_LOGEMENT", ["mois","logement_id","nom_appartement","nb_menages","cout_standard_total","cout_complet_total","ecart_total","ecart_unitaire_moyen"],
+    [{"mois":MONTH,"logement_id":k[0],"nom_appartement":k[1],"nb_menages":v[0],"cout_standard_total":round(v[1],2),"cout_complet_total":round(v[2],2),"ecart_total":round(v[3],2),"ecart_unitaire_moyen":(round(v[3]/v[0],2) if v[0] else None)} for k,v in sorted(resume(lambda l:(l["logement_id"],l["nom_appartement"])).items())])
 wsheet("RESUME_INTERVENANT", ["mois","intervenant_id","nom_intervenant","type_intervenant","nb_menages","cout_standard_total","cout_complet_total","ecart_total"],
     [{"mois":MONTH,"intervenant_id":k[0],"nom_intervenant":k[1],"type_intervenant":k[2],"nb_menages":v[0],"cout_standard_total":round(v[1],2),"cout_complet_total":round(v[2],2),"ecart_total":round(v[3],2)} for k,v in sorted(resume(lambda l:(l["intervenant_id"],l["nom_intervenant"],l["type_intervenant"])).items())])
 wsheet("RESUME_PRESTATAIRE", ["mois","intervenant_id","nom_intervenant","nb_menages","cout_complet_total","ecart_total"],
