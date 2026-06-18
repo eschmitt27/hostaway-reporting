@@ -604,12 +604,14 @@ for _, row_log in df_log.iterrows():
     else:
         date_entree_mois = str(date_entree)[:7]
     if first_mois < date_entree_mois:
+        # AUD-009 (decision C) : cas securise (premier mois Flux identifie + forfait genere
+        # via D-LOT10-04) -> severity INFO justifiee, pas A_CONTROLER. Aucun montant ne change.
         _ctrl(ctrl_rows, "RESERVATIONS", "MASTER_CALC_Reservations", lid,
-              "CHARGE_FIXE_DATE_ENTREE_GESTION_INCOHERENTE", "A_CONTROLER",
+              "CHARGE_FIXE_DATE_ENTREE_GESTION_INCOHERENTE", "INFO",
               f"Logement {lid}: premier mois Flux={first_mois} < date_entree_gestion={date_entree_mois}. "
               "Utilisation Option A (premier mois Flux) conforme a D-LOT10-04.",
               logement_id=lid,
-              commentaire="Correction: mettre a jour date_entree_gestion dans REF_Logements (lot separate).")
+              commentaire="INFO justifiee — date_entree_gestion referentielle incoherente, mais calcul forfait securise par D-LOT10-04 via premier mois de flux reel ; REF non modifie, date contractuelle a confirmer si besoin.")
 
 # 6c - LISTING_ORPHELIN_A_CONTROLER (depuis MASTER_CTRL_HA_Anomalies)
 # Correctif faux positif : l'anomalie Lot 1 est figee avant le mapping/alias Lot 2.

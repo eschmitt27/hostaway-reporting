@@ -491,10 +491,10 @@ def build_charge_fixe(df_flux, df_log):
                 controls.append({
                     "logement_id":   log_id,
                     "code_anomalie": "CHARGE_FIXE_DATE_ENTREE_GESTION_INCOHERENTE",
-                    "niveau":        "A_CONTROLER",
+                    "niveau":        "INFO",  # AUD-009 (C): cas securise D-LOT10-04, montants inchanges
                     "message":       (
                         f"{log_id}: premier mois Flux={first_mois} "
-                        f"< date_entree_gestion REF={d_entree_str}"
+                        f"< date_entree_gestion REF={d_entree_str} (INFO justifiee D-LOT10-04)"
                     ),
                 })
 
