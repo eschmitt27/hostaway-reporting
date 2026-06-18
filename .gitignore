@@ -47,3 +47,6 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+
+# Exports Power BI — régénérables, non versionnés (AUD-008)
+03_EXPORTS/PowerBI/
