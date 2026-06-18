@@ -28,6 +28,10 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import openpyxl
 from openpyxl.styles import Font, PatternFill
 
+# AUD-005 — mono-mois volontaire : l'extension multi-mois de l'écart analytique ménage est
+# différée jusqu'à la mise en place d'un vrai processus de clôture mensuelle métier/comptable.
+# Ne pas utiliser les clôtures techniques réservations/VRBO (REF_Cloture_Mensuelle) comme
+# déclencheur de ce calcul. Statut registre : DIFFERE / BYPASS_PROVISOIRE.
 MONTH = "2026-05"; PIVOT = "2026-06"
 DREF = datetime.date.fromisoformat(MONTH + "-01")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
