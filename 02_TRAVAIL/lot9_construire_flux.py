@@ -334,32 +334,42 @@ chg_count = counters.get('CHG', 0)
 print(f'  {chg_count} flux CHG')
 
 
-# 5. Ménages internes M04 (Lot 6b) — VALIDE seulement. CHARGE HC, TYPE_FLUX_013 (M2 verrouillé).
-print('\nModule MEN_INT — Ménages internes M04...')
-m04_sorted = sorted(m04_valide, key=lambda r: str(r.get('menage_calc_id') or ''))
-for r in m04_sorted:
-    mois      = r.get('mois')
-    date_flux = mois_to_first_day(mois)
-    montant   = r.get('total_execution') or r.get('cout_execution_total')
+# 5. Ménages internes M04 (TYPE_FLUX_013) — ANALYTIQUE UNIQUEMENT (D105 révisée).
+# NE PAS injecter le coût MO interne réel comme charge résultat : il ne sert qu'au
+# calcul analytique du coût complet (lot6f). Aucun impact résultat/compta direct.
+print('\nModule MEN_INT — M04 NON injecté (TYPE_FLUX_013 = analytique seul, D105 révisée)')
+men_int_count = 0
 
+# 6. Écart analytique gain/perte ménage (Lot 6f) — TYPE_FLUX_018, HC, impacte HORS_COMPTA.
+#    Seul l'ÉCART (standard − coût complet) est injecté, jamais le coût complet entier.
+#    gain (écart>0) -> PRODUIT HC (augmente HC) ; perte (écart<0) -> CHARGE HC (diminue HC).
+print('\nModule GPM — Écart analytique gain/perte ménage (TYPE_FLUX_018 HC)...')
+SRC_GPM = os.path.join(ROOT, '02_TRAVAIL', 'Lot6f_CoutComplet_Menages', 'MASTER_CALC_CoutComplet_Menages.xlsx')
+gpm_rows = load_sheet(SRC_GPM, 'DETAIL_COUT_COMPLET') if os.path.exists(SRC_GPM) else []
+for r in sorted(gpm_rows, key=lambda x: (str(x.get('mois')), str(x.get('logement_id')), str(x.get('intervenant_id')))):
+    ec = r.get('ecart_vs_standard_total')
+    if ec is None or float(ec) == 0:
+        continue
+    ec = float(ec)
+    mois = r.get('mois')
     add_flux(
-        module_code    = 'MENINT',
-        source_table   = 'M04_MENAGES_PowerQuery',
-        source_pk      = r.get('menage_calc_id'),
-        date_flux      = date_flux,
+        module_code    = 'GPM',
+        source_table   = 'MASTER_CALC_CoutComplet_Menages',
+        source_pk      = f"{mois}|{r.get('logement_id')}|{r.get('intervenant_id')}",
+        date_flux      = mois_to_first_day(mois),
         mois           = mois,
         logement_id    = r.get('logement_id'),
         proprietaire_id= r.get('proprietaire_id'),
         associe_id     = None,
-        type_flux_id   = r.get('type_flux_id') or 'TYPE_FLUX_013',
-        sens           = 'CHARGE',
-        montant        = montant,
-        code_impact    = 'HC',  # M2 verrouillé — M04 toujours HC
+        type_flux_id   = 'TYPE_FLUX_018',
+        sens           = 'PRODUIT' if ec > 0 else 'CHARGE',
+        montant        = abs(ec),
+        code_impact    = 'HC',
         statut_controle= 'VALIDE',
-        commentaire    = 'Ménage interne M04 (coût exécution main-d\'oeuvre)',
+        commentaire    = f"Écart analytique ménage {r.get('statut_ecart')} (standard − coût complet)",
     )
-men_int_count = counters.get('MENINT', 0)
-print(f'  {men_int_count} flux MEN_INT')
+gpm_count = counters.get('GPM', 0)
+print(f'  {gpm_count} flux GPM (écart analytique)')
 
 
 # ── CONTRÔLES POST-CONSTRUCTION ───────────────────────────────────────────────
@@ -408,15 +418,15 @@ if doublons:
     sys.exit(1)
 print(f'  CTR-9-008 OK — aucun doublon source technique')
 
-# CTR-9-009 : volume total = somme des sources
-expected = len(vue_flux) + len(men_valide) + len(bnq_valide) + len(chg_valide) + len(m04_valide)
+# CTR-9-009 : volume total = somme des sources (M04 013 NON injecté ; GPM 018 ajouté)
+expected = len(vue_flux) + len(men_valide) + len(bnq_valide) + len(chg_valide) + gpm_count
 if len(flux_rows) != expected:
     print(f'BLOQUANT [CTR-9-009] Volume inattendu : {len(flux_rows)} flux vs {expected} attendu '
           f'({len(vue_flux)} RES + {len(men_valide)} MEN + {len(bnq_valide)} BNQ '
-          f'+ {len(chg_valide)} CHG + {len(m04_valide)} MEN_INT)')
+          f'+ {len(chg_valide)} CHG + {gpm_count} GPM)')
     sys.exit(1)
 print(f'  CTR-9-009 OK — {len(flux_rows)} flux = {len(vue_flux)} RES + {len(men_valide)} MEN '
-      f'+ {len(bnq_valide)} BNQ + {len(chg_valide)} CHG + {len(m04_valide)} MEN_INT')
+      f'+ {len(bnq_valide)} BNQ + {len(chg_valide)} CHG + {gpm_count} GPM (M04 013 analytique, non injecté)')
 
 # CTR-9-011 (garde-fou régression) : portion RES (TYPE_FLUX_017) inchangée
 res_flux_count = sum(1 for r in flux_rows if r.get('type_flux_id') == 'TYPE_FLUX_017')
@@ -475,7 +485,8 @@ print(f'  RES      : {res_count}  (TYPE_FLUX_017 PRODUIT IC)')
 print(f'  MEN      : {men_count}  (TYPE_FLUX_014 CHARGE  IC)')
 print(f'  BNQ      : {bnq_count}  (TYPE_FLUX_016 CHARGE  IC)')
 print(f'  CHG      : {chg_count}  (Charges Lot 3 — sens/impact par ligne)')
-print(f'  MEN_INT  : {men_int_count}  (TYPE_FLUX_013 CHARGE HC — M04)')
+print(f'  MEN_INT  : {men_int_count}  (TYPE_FLUX_013 — analytique seul, NON injecté)')
+print(f'  GPM      : {gpm_count}  (TYPE_FLUX_018 écart analytique HC — gain/perte ménage)')
 
 from collections import Counter
 by_sens     = Counter(r['sens']            for r in flux_rows)

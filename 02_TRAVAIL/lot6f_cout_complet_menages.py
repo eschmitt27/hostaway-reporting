@@ -155,6 +155,7 @@ def base_line(lg, iid, typ_interv, nb, heures, methode, direct, lav_attr=0.0):
     su = std_unit(type_id)
     poids = (nb * su) if (su is not None) else 0
     lines.append({"mois": MONTH, "logement_id": lg, "nom_appartement": ti.get("nom_logement_officiel"),
+        "proprietaire_id": ti.get("proprietaire_id"),
         "type_logement_id": type_id, "type_logement_libelle": typ_lib.get(type_id),
         "intervenant_id": iid, "nom_intervenant": (int_info.get(iid) or {}).get("nom_intervenant"),
         "type_intervenant": typ_interv, "nb_menages": nb, "nb_heures": heures,
@@ -243,7 +244,7 @@ def wsheet(title, cols, rows, first=False):
     ws.append(cols)
     for c in ws[1]: c.font = Font(bold=True); c.fill = PatternFill("solid", fgColor="DDDDDD")
     for r in rows: ws.append([r.get(c) for c in cols])
-DET = ["mois","logement_id","nom_appartement","type_logement_id","intervenant_id","nom_intervenant","type_intervenant",
+DET = ["mois","logement_id","nom_appartement","proprietaire_id","type_logement_id","intervenant_id","nom_intervenant","type_intervenant",
     "nb_menages","cout_standard_total","cout_direct_total","quote_part_local","quote_part_courses","quote_part_lavage",
     "quote_part_consommables","quote_part_autres_charges_menage","cout_complet_total","cout_complet_unitaire",
     "ecart_vs_standard_total","statut_ecart","statut_controle","code_controle","commentaire"]

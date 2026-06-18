@@ -861,9 +861,14 @@ Clé unique de ventilation = `poids = nb_menages × cout_standard_menage_apparte
 Date : 2026-06-18 | Statut : VALIDÉ
 `assigneeUserId` **fait foi**, mappé dans **`REF_Intervenants`** (colonne `hostaway_assigneeUserId`, pas de table séparée). 1059650→INT_0001 Imène, 1059682→INT_0002 Kheira, 1061546→INT_0003 Mounir, 1059064→INT_0004 Aissata, 1061542→INT_0005 Imrane. `None`/`0` non mappés. `title` = contrôle secondaire (`CONFLIT_TITLE_ASSIGNEE`, A_CONTROLER non bloquant). Non assigné : historique = INFO `TASK_NON_ASSIGNEE_HISTORIQUE_IGNOREE` ; futur/mois ouvert = A_CONTROLER `TASK_FUTURE_SANS_INTERVENANT_ASSIGNE`. Kira (Google Sheet) = Kheira INT_0002.
 
-### D105 — Vue analytique uniquement
-Date : 2026-06-18 | Statut : VALIDÉ
-Les vues gain/perte (Lot 6e) et coût complet (Lot 6f) sont **analytiques** : ne réinjectent RIEN dans MASTER_CALC_Flux / Resultats / Commissions / NetProprietaire / Factures. Lecture seule des charges déjà comptées une fois.
+### D105 — Écart analytique ménage en HORS_COMPTA (révisée 2026-06-18)
+Date : 2026-06-18 | Statut : VALIDÉ (révise la version initiale « vue analytique uniquement »)
+Le gain/perte ménage **impacte le résultat HORS_COMPTA** par une logique analytique. Seul l'**écart** est injecté, jamais le coût complet entier.
+- `ecart_analytique = cout_standard_total − cout_complet_reel_total` (lot6f). >0 GAIN → augmente HC ; <0 PERTE → diminue HC ; =0 aucun impact.
+- Injection via **`TYPE_FLUX_018` GAIN_PERTE_MENAGE_ANALYTIQUE**, `code_impact=HC` (impact_resultat_reel=OUI, impact_resultat_comptable=NON). gain→PRODUIT HC, perte→CHARGE HC. Traçabilité par mois × logement × propriétaire × intervenant.
+- **`TYPE_FLUX_013` (M04 MO interne réel) = analytique SEUL : JAMAIS injecté dans MASTER_CALC_Flux** comme charge résultat/compta. Il ne sert qu'au calcul du coût complet (lot6f). Évite le double comptage (le coût MO est déjà une composante du coût complet référencé par l'écart).
+- **Aucun impact** sur COMPTABLE, commissions, net propriétaire, factures propriétaires (Lot 12). REEL = COMPTABLE + HORS_COMPTA reste cohérent ; HORS_COMPTA bouge uniquement du montant de l'écart.
+- Restitution analytique (nb ménages, coût standard total, coût complet réel, écart, statut GAIN/PERTE/EQUILIBRE) par mois × appartement : `MASTER_CALC_CoutComplet_Menages` (lot6f).
 
 ### D106 — Coût complet ménage avancé
 Date : 2026-06-18 | Statut : VALIDÉ
