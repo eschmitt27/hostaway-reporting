@@ -35,7 +35,18 @@ REF  = os.path.join(ROOT, "01_SOURCES_BRUTES", "REF_Setup", "REF_Setup.xlsm")
 SAISIE = os.path.join(ROOT, "01_SOURCES_BRUTES", "Charges", "SAISIE_Charges_Flux.xlsx")
 OUTD = os.path.join(ROOT, "02_TRAVAIL", "Lot6f_CoutComplet_Menages")
 OUT  = os.path.join(OUTD, "MASTER_CALC_CoutComplet_Menages.xlsx")
-SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTYNAYa4WcY-ask9viQHJT-wQMwyxkKpoDZGpjrnqqtCzXC1xR_6DnZ0oSVTv5LkQTdqPcfaD1PtdAt/pub?output=csv"
+def _m04_url():
+    """URL Google Sheet M04 lue depuis REF_Setup > REF_Sources_Systeme (pas d'URL en dur)."""
+    wb = openpyxl.load_workbook(REF, read_only=True, data_only=True); ws = wb["REF_Sources_Systeme"]
+    rows = [r for r in ws.iter_rows(values_only=True) if any(c is not None for c in r)]; wb.close()
+    H = [str(c) for c in rows[0]]
+    for r in rows[1:]:
+        d = dict(zip(H, r))
+        if str(d.get("nom_source")) == "GOOGLE_SHEET_M04_DECLARATIONS" and str(d.get("actif")) == "OUI":
+            u = str(d.get("dossier_source") or "").strip()
+            if u.startswith("http"): return u
+    raise SystemExit("[BLOQUANT lot6f] URL GOOGLE_SHEET_M04_DECLARATIONS absente de REF_Sources_Systeme (SRC_011).")
+SHEET_URL = _m04_url()
 
 def sh(p, s):
     wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
