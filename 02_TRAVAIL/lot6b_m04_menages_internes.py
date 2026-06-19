@@ -65,11 +65,15 @@ for d in sh(REF, "REF_Sources_Systeme"):
 if not url or not url.startswith("http"):
     abort("URL GOOGLE_SHEET_M04_DECLARATIONS absente/invalide dans REF_Sources_Systeme (SRC_011).")
 
-# ── Fetch CSV (bloquant) ─────────────────────────────────────────────────────
-res = subprocess.run(["curl", "-sL", "-A", "Mozilla/5.0", url], capture_output=True, text=True, encoding="utf-8")
-txt = res.stdout or ""
-if res.returncode != 0 or len(txt) < 50:
-    abort(f"Google Sheet inaccessible (rc={res.returncode}, taille={len(txt)}).")
+# ── Fetch CSV via lib fiabilisée (retry + cache 72h traçable, DEF-1) ──────────
+from lib_sheet_source import fetch_sheet_csv, begin_step, commit_step
+CACHE_DIR = os.path.join(ROOT, "02_DONNEES_NORMALISEES", "menages", "_cache_google_sheet")
+# fetch_sheet_csv lève SystemExit("SOURCE_SHEET_INDISPONIBLE") (rc!=0) si réseau KO + pas de cache <=72h
+txt, prov = fetch_sheet_csv(url, CACHE_DIR, step="lot6b")
+if prov["resolution_source"] == "CACHE":
+    print(f"[lot6b] AVERTISSEMENT SOURCE_SHEET_CACHE_UTILISE : cache du {prov['cache_date_extraction_utc']} "
+          f"(age {prov['cache_age_h']}h, sha {prov['sha256_csv'][:12]}) — source réseau indisponible. "
+          f"Ne pas clôturer le mois tant que ce contrôle est ouvert.")
 rows = list(csv.reader(io.StringIO(txt)))
 if not rows: abort("CSV vide.")
 hdr = rows[0]
@@ -126,6 +130,10 @@ for r in rows[1:]:
             "statut_controle": statut, "code_controle": code, "source_url": url, "date_extraction": NOW,
             "ROW_HASH": rh(miso, lid, iid, nb)})
 
+# ── Transaction provenance DEF-1 : marqueur PENDING AVANT remplacement sorties ─
+# Tant que ce marqueur existe (et qu'une sortie existe), lot11 refuse de croire RESEAU.
+begin_step(CACHE_DIR, "lot6b")
+
 # ── 1) MASTER_NORM ───────────────────────────────────────────────────────────
 os.makedirs(NORM_DIR, exist_ok=True)
 NCOLS = ["mois","annee","mois_saisie","appartement_source","nom_appartement","logement_id",
@@ -180,6 +188,9 @@ for sheetname, only_valide in [("MASTER", False), ("VUE_ACTIVE", True)]:
         if only_valide and r["statut_controle"] != "VALIDE": continue
         wsm.append([r.get(h) for h in MASTER_HEADERS])
 wb.save(M04); wb.close()
+
+# ── Sorties metier ecrites OK -> provenance officielle PUIS suppression PENDING ─
+commit_step(CACHE_DIR, "lot6b", prov)
 
 # ── Rapport ──────────────────────────────────────────────────────────────────
 mai = [d for d in norm_rows if d["mois"] == "2026-05"]

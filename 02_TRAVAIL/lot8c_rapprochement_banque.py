@@ -26,13 +26,14 @@ from openpyxl.utils import get_column_letter
 import shutil
 import os
 import re
+from pathlib import Path
 from datetime import datetime
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CHEMINS
 # ─────────────────────────────────────────────────────────────────────────────
-
-BASE = r"C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Conciergerie"
+# Racine dérivée du fichier (jamais de chemin Windows fixe) : confine le script à sa propre instance.
+BASE = str(Path(__file__).resolve().parent.parent)
 BANQUE_PATH = os.path.join(BASE, "02_TRAVAIL", "Lot8_Banque", "BANQUE_LOT8_IMPORT.xlsx")
 ARCHIVE_DIR = os.path.join(BASE, "99_ARCHIVES", "LOT8_Banque")
 

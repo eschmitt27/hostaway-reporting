@@ -8,13 +8,16 @@ Crée :
 """
 
 import os
+from pathlib import Path
 import openpyxl
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.utils import get_column_letter
 
-BASE = r"C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Conciergerie"
+# Racine dérivée du fichier (jamais de chemin Windows fixe) : <racine>/02_TRAVAIL/lot5_*.py
+# -> un worktree / projet cloné écrit STRICTEMENT dans sa propre instance.
+BASE = str(Path(__file__).resolve().parent.parent)
 REF_SETUP = os.path.join(BASE, "01_SOURCES_BRUTES", "REF_Setup", "REF_Setup.xlsm")
 HH_MASTER = os.path.join(BASE, "02_TRAVAIL", "Lot4_ReservationsHH",
                           "MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx")
@@ -609,6 +612,35 @@ def check_structure(saisie_path, master_path):
     return results
 
 
+# ── Validation d'une saisie humaine existante ─────────────────────────────────
+def validate_existing_saisie(path):
+    """Retourne (ok: bool, raison: str). Vérifie structure d'une saisie déjà remplie
+    par l'humain AVANT de la conserver. Jamais de régénération silencieuse à la place
+    d'une saisie invalide : on bloque explicitement."""
+    expected_cols = [name for name, _, _ in SAISIE_COLS]
+    expected_tabs = {"SAISIE", "REF_LOCALE", "CONTROLES_SAISIE", "README"}
+    try:
+        wb = openpyxl.load_workbook(path, read_only=True)
+    except Exception as e:
+        return False, f"illisible ({e})"
+    try:
+        if "SAISIE" not in wb.sheetnames:
+            return False, "onglet 'SAISIE' absent"
+        cols = [c.value for c in next(wb["SAISIE"].iter_rows(min_row=1, max_row=1)) if c.value]
+        if cols != expected_cols:
+            diff = next((f"col {i+1}: attendu '{e}', lu '{g}'"
+                         for i, (e, g) in enumerate(zip(expected_cols, cols)) if e != g), None)
+            if diff is None:
+                diff = f"nombre de colonnes : attendu {len(expected_cols)}, lu {len(cols)}"
+            return False, f"en-têtes SAISIE non conformes ({diff})"
+        missing = expected_tabs - set(wb.sheetnames)
+        if missing:
+            return False, f"onglets manquants : {sorted(missing)}"
+    finally:
+        wb.close()
+    return True, "structure conforme"
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     print("=" * 60)
@@ -626,11 +658,21 @@ def main():
     print(f"  {len(logs)} logements actifs avec proprietaire_id")
     print(f"  {len(modes)} modes de paiement actifs")
 
-    # SAISIE
-    print("\n[2/4] Construction SAISIE_AcomptesProprietaires.xlsx...")
-    saisie_wb = build_saisie(props, logs, modes)
-    saisie_wb.save(SAISIE_OUT)
-    print(f"  CRÉÉ: {SAISIE_OUT}")
+    # SAISIE — fichier de saisie HUMAINE : jamais d'écrasement silencieux.
+    print("\n[2/4] SAISIE_AcomptesProprietaires.xlsx...")
+    if os.path.exists(SAISIE_OUT):
+        ok, raison = validate_existing_saisie(SAISIE_OUT)
+        if not ok:
+            raise SystemExit(
+                f"[BLOQUANT] Saisie existante invalide/incomplète : {SAISIE_OUT}\n"
+                f"  Raison : {raison}\n"
+                f"  Lot5 NE régénère PAS un template vierge à la place d'une saisie humaine.\n"
+                f"  Corriger la saisie (ou la retirer pour recréer un template initial), puis relancer.")
+        print(f"  CONSERVÉ (saisie humaine existante préservée, {raison}): {SAISIE_OUT}")
+    else:
+        saisie_wb = build_saisie(props, logs, modes)
+        saisie_wb.save(SAISIE_OUT)
+        print(f"  CRÉÉ (template initial): {SAISIE_OUT}")
 
     # MASTER
     print("\n[3/4] Construction MASTER_FACT_MAN_AcomptesProprietaires.xlsx...")

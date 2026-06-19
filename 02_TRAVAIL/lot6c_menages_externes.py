@@ -8,6 +8,7 @@ Décisions : D079-D088 (D-6c-01 à D-6c-10)
 """
 
 import os, hashlib
+from pathlib import Path
 from datetime import datetime, date
 import openpyxl
 from openpyxl import Workbook
@@ -15,7 +16,8 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 # ─── PATHS ────────────────────────────────────────────────────────────────────
-BASE    = r"C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Conciergerie"
+# Racine dérivée du fichier (jamais de chemin Windows fixe) : confine le script à sa propre instance.
+BASE    = str(Path(__file__).resolve().parent.parent)
 L6C_DIR = os.path.join(BASE, "02_TRAVAIL", "Lot6c_MenagesExternes")
 OUT     = os.path.join(L6C_DIR, "MASTER_FACT_MEN_MenagesExternes.xlsx")
 REF_SRC = os.path.join(BASE, "01_SOURCES_BRUTES", "REF_Setup", "REF_Setup.xlsm")

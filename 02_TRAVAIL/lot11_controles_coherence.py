@@ -25,6 +25,7 @@ from pathlib import Path
 from datetime import date
 from collections import Counter
 import re
+import json
 import openpyxl
 import pandas as pd
 
@@ -1035,6 +1036,72 @@ caisse_rows = [
 ]
 df_caisse = pd.DataFrame(caisse_rows)
 
+
+# 6d - Provenance source ménages PAR ÉTAPE (DEF-1), pilotée par les SORTIES RÉELLES.
+# Une étape n'est évaluée que si elle a effectivement produit une sortie dépendante du sheet :
+#   lot6b -> MASTER_NORM_Declarations_Internes.xlsx ; lot6f -> MASTER_CALC_CoutComplet_Menages.xlsx
+# Règles :
+#  - sortie présente + provenance CACHE              -> SOURCE_SHEET_CACHE_UTILISE
+#  - sortie présente + provenance absente/illisible/invalide (manifeste absent inclus)
+#                                                    -> SOURCE_SHEET_PROVENANCE_INCOMPLETE
+#  - aucune sortie produite (install neuve / étape jamais lancée) -> aucun contrôle
+# Jamais d'assimilation silencieuse à RESEAU. Déterministe (1 ligne par type max).
+_EXPECTED = {
+    "lot6b": BASE / "02_TRAVAIL" / "Lot6b_DeclarationsInternes" / "MASTER_NORM_Declarations_Internes.xlsx",
+    "lot6f": BASE / "02_TRAVAIL" / "Lot6f_CoutComplet_Menages" / "MASTER_CALC_CoutComplet_Menages.xlsx",
+}
+_produced = {s: p.exists() for s, p in _EXPECTED.items()}
+_res = BASE / "02_DONNEES_NORMALISEES" / "menages" / "_cache_google_sheet" / "last_resolution.json"
+_steps = {}
+if _res.exists():
+    try:
+        _prov = json.load(open(_res, encoding="utf-8"))
+        if isinstance(_prov.get("steps"), dict):
+            _steps = _prov["steps"]
+        elif _prov.get("resolution_source") in ("CACHE", "RESEAU"):   # ancien format objet-unique
+            # Ne prouve QUE l'étape nommée par script_or_step ; jamais les deux.
+            # Étape non identifiable -> aucune preuve (les sorties resteront INCOMPLETE).
+            _st = _prov.get("script_or_step")
+            _steps = {_st: _prov} if _st in _EXPECTED else {}
+    except Exception:
+        _steps = {}   # manifeste corrompu -> aucune provenance prouvée
+_cache, _unproven, _pending = [], [], []
+_CACHE_DIR_11 = BASE / "02_DONNEES_NORMALISEES" / "menages" / "_cache_google_sheet"
+for s in _EXPECTED:
+    if not _produced[s]:
+        continue   # pas de sortie -> rien à prouver
+    # Marqueur PENDING : transaction provenance non finalisée (record a pu échouer après
+    # écriture de la sortie). Jamais d'assimilation à RESEAU, même si le manifeste dit RESEAU.
+    if (_CACHE_DIR_11 / f"pending_resolution_{s}.json").exists():
+        _pending.append(s)
+        continue
+    src = str((_steps.get(s) or {}).get("resolution_source"))
+    if src == "CACHE":
+        _cache.append(s)
+    elif src != "RESEAU":
+        _unproven.append(s)   # provenance absente / manifeste absent / invalide
+if _cache:
+    _det = "; ".join(f"{k}=CACHE({(_steps.get(k) or {}).get('cache_date_extraction_utc')},"
+                     f"{(_steps.get(k) or {}).get('cache_age_h')}h)" for k in _cache)
+    _ctrl(ctrl_rows, "MENAGES", "GOOGLE_SHEET_M04", None,
+          "SOURCE_SHEET_CACHE_UTILISE", "A_CONTROLER",
+          f"Sortie(s) ménage encore issue(s) du CACHE Google Sheet : {_det}. "
+          f"Disparaît seulement quand TOUTES les étapes produites sont régénérées en RESEAU. "
+          f"NE PAS clôturer le mois tant que ce contrôle est ouvert.",
+          commentaire="Rafraîchir la Google Sheet (réseau) puis relancer lot6b ET lot6f, puis lot11.")
+if _unproven or _pending:
+    _msg = ""
+    if _unproven:
+        _msg += f"provenance absente/illisible/invalide : {_unproven}. "
+    if _pending:
+        _msg += (f"transaction provenance NON finalisée (marqueur PENDING présent) : {_pending} "
+                 f"— le manifeste ne prouve PAS que la sortie courante est RESEAU. ")
+    _ctrl(ctrl_rows, "MENAGES", "GOOGLE_SHEET_M04", None,
+          "SOURCE_SHEET_PROVENANCE_INCOMPLETE", "A_CONTROLER",
+          f"Sortie(s) ménage présente(s) sans provenance prouvable : {_msg}"
+          f"Aucune assimilation silencieuse à RESEAU. NE PAS clôturer tant que ce contrôle est ouvert.",
+          commentaire="Relancer l'étape concernée avec le réseau (lot6b/lot6f) pour régénérer la provenance ; "
+                      "un marqueur PENDING résiduel se résout par une exécution complète réussie.")
 
 # ==========================================================================
 # ECRITURE MASTER_CTRL_Coherence.xlsx

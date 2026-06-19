@@ -126,7 +126,11 @@ for d in sh(fc, "MASTER"):
 # ── Interne + LAVAGE (Google Sheet) ──────────────────────────────────────────
 INTMAP = {"imene": "INT_0001", "kira": "INT_0002", "kheira": "INT_0002"}
 MOIS = {"janvier":"01","fevrier":"02","mars":"03","avril":"04","mai":"05","juin":"06","juillet":"07","aout":"08","septembre":"09","octobre":"10","novembre":"11","decembre":"12"}
-txt = subprocess.run(["curl","-sL","-A","Mozilla/5.0",SHEET_URL], capture_output=True, text=True, encoding="utf-8").stdout
+from lib_sheet_source import fetch_sheet_csv, begin_step, commit_step
+_CACHE_DIR = os.path.join(ROOT, "02_DONNEES_NORMALISEES", "menages", "_cache_google_sheet")
+txt, _prov = fetch_sheet_csv(SHEET_URL, _CACHE_DIR, step="lot6f")   # SystemExit si indisponible
+if _prov["resolution_source"] == "CACHE":
+    print(f"[lot6f] AVERTISSEMENT SOURCE_SHEET_CACHE_UTILISE : cache du {_prov['cache_date_extraction_utc']} (age {_prov['cache_age_h']}h).")
 srows = list(csv.reader(io.StringIO(txt))); shdr = srows[0]
 i_pre = shdr.index("Prénom"); i_mois = shdr.index("Mois des ménages"); i_an = shdr.index("Année des ménages")
 appcols = [i for i, h in enumerate(shdr) if h.strip() == "Appartement"]
@@ -274,8 +278,17 @@ cc_ctrl = collections.Counter((c[0],c[1]) for c in controls)
 cc_ctrl[("CHARGE_EXTERNE_DEJA_EN_FLUX_NON_REINJECTEE","INFO")] += 1
 wsheet("CONTROLES_DOUBLE_COMPTAGE", ["code_controle","niveau","nb","exemple"],
     [{"code_controle":k[0],"niveau":k[1],"nb":n,"exemple":next((c[2] for c in controls if (c[0],c[1])==k),"ménage externe (TYPE_FLUX_014) déjà compté dans Flux ; coût complet = analytique, non réinjecté")} for k,n in cc_ctrl.most_common()])
-try: wb.save(OUT)
-except PermissionError: OUT = OUT.replace(".xlsx","_MAJ.xlsx"); wb.save(OUT); print(f"[lot6f] original verrouillé -> {os.path.basename(OUT)}")
+# Transaction provenance DEF-1 : marqueur PENDING AVANT remplacement sortie metier.
+begin_step(_CACHE_DIR, "lot6f")
+_saved_official = False
+try:
+    wb.save(OUT); _saved_official = True
+except PermissionError:
+    OUT = OUT.replace(".xlsx","_MAJ.xlsx"); wb.save(OUT); print(f"[lot6f] original verrouillé -> {os.path.basename(OUT)}")
+# Provenance officielle SEULEMENT si la sortie officielle (OUT reel) a ete ecrite.
+# Si fallback _MAJ : sortie officielle stale -> PENDING reste -> lot11 SOURCE_SHEET_PROVENANCE_INCOMPLETE.
+if _saved_official:
+    commit_step(_CACHE_DIR, "lot6f", _prov)
 
 # ── Rapport ──────────────────────────────────────────────────────────────────
 ts = sum(l["cout_standard_total"] or 0 for l in lines); tc = sum(l["cout_complet_total"] for l in lines)

@@ -50,3 +50,6 @@ Thumbs.db
 
 # Exports Power BI — régénérables, non versionnés (AUD-008)
 03_EXPORTS/PowerBI/
+
+# Cache Google Sheet ménages — données opérationnelles, non versionnées (DEF-1)
+02_DONNEES_NORMALISEES/menages/_cache_google_sheet/
