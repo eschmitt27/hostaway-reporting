@@ -1609,7 +1609,11 @@ def main():
                             "checkInDate":          res.get("arrivalDate") or res.get("checkInDate"),
                             "checkOutDate":         res.get("departureDate") or res.get("checkOutDate"),
                             "nights":               res.get("nights"),
-                            "guestCount":           res.get("guestCount"),
+                            # API Hostaway expose numberOfGuests (et non guestCount). On conserve
+                            # la colonne de sortie guestCount pour ne pas casser les consommateurs,
+                            # alimentee par numberOfGuests. Absence -> None (jamais 0 par defaut).
+                            "guestCount":           res.get("numberOfGuests"),
+                            "numberOfGuests":       res.get("numberOfGuests"),  # valeur brute pour audit
                             "guestName":            res.get("guestName"),
                             "totalPrice":           safe_float(res.get("totalPrice")),
                             "cleaningFee_res":      safe_float(res.get("cleaningFee")),
