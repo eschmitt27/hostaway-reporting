@@ -24,6 +24,7 @@ warnings.filterwarnings("ignore")
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import openpyxl
 from openpyxl.styles import Font, PatternFill
+from lib_menage_costs import resolve_internal_cleaning_cost
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REF  = os.path.join(ROOT, "01_SOURCES_BRUTES", "REF_Setup", "REF_Setup.xlsm")
@@ -55,6 +56,19 @@ def to_d(v):
 def sh(p, s):
     wb = openpyxl.load_workbook(p, read_only=True, data_only=True); ws = wb[s]
     rows = [r for r in ws.iter_rows(values_only=True) if any(c is not None for c in r)]; wb.close()
+    return [dict(zip([str(c) for c in rows[0]], r)) for r in rows[1:]]
+
+def sh_opt(p, s):
+    wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
+    try:
+        if s not in wb.sheetnames:
+            return []
+        ws = wb[s]
+        rows = [r for r in ws.iter_rows(values_only=True) if any(c is not None for c in r)]
+    finally:
+        wb.close()
+    if not rows:
+        return []
     return [dict(zip([str(c) for c in rows[0]], r)) for r in rows[1:]]
 
 # ── URL depuis REF (bloquant) ────────────────────────────────────────────────
@@ -90,7 +104,8 @@ for d in sh(REF, "REF_Logements"):
         lognom[lid] = d.get("nom_logement_officiel"); logtype[lid] = d.get("type_logement_id")
         logprop[lid] = d.get("proprietaire_id"); loghaid[lid] = d.get("hostaway_listing_id")
 std_ref = sh(REF, "REF_Couts_Standards_Menage")
-taux = next((fnum(d.get("valeur")) for d in sh(REF, "REF_Parametres_Generaux") if d.get("nom_parametre") == "TAUX_HORAIRE_MENAGE_INTERNE"), None)
+hourly_ref = sh_opt(REF, "REF_Taux_Heures_Menage")
+fixed_ref = sh_opt(REF, "REF_Couts_Menage_Interne")
 def std_unit(type_id, dref):
     best = None
     for d in std_ref:
@@ -157,29 +172,52 @@ if "tbl_SOURCE_RAW" in ws.tables:
     ws.tables["tbl_SOURCE_RAW"].ref = f"A1:G{1+len(norm_rows)}"
 
 MASTER_HEADERS = [c.value for c in wb["MASTER"][1]]
+for extra_col in [
+    "methode_cout_interne", "cout_interne_ref_id", "cout_interne_priorite",
+    "controle_cout_interne",
+]:
+    if extra_col not in MASTER_HEADERS:
+        MASTER_HEADERS.append(extra_col)
 master_rows = []; cnt = collections.Counter()
 for d in norm_rows:
     miso = d["mois"]; lid = d["logement_id"]; type_id = logtype.get(lid)
     dref = to_d((miso + "-01")) if miso else datetime.date.today()
     nb = d["nb_menages"]; nh = d["nb_heures"]
     su = std_unit(type_id, dref or datetime.date.today())
-    cet = round((nh or 0) * taux, 2) if (nh is not None and taux is not None) else None
+    cost = resolve_internal_cleaning_cost(
+        ref_date=dref,
+        intervenant_id=d["intervenant_id"],
+        logement_id=lid,
+        type_logement_id=type_id,
+        nb_menages=nb,
+        nb_heures=nh,
+        hourly_rows=hourly_ref,
+        fixed_rows=fixed_ref,
+    )
+    cet = cost.total if cost.status == "OK" else None
     ceu = round(cet / nb, 2) if (cet is not None and nb) else None
     cst = round((su or 0) * nb, 2) if su is not None else None
     ec = round(cst - cet, 2) if (cst is not None and cet is not None) else None
+    statut_controle = d["statut_controle"]
+    code_controle = d["code_controle"] or None
+    if cost.status != "OK":
+        statut_controle = "A_CONTROLER"
+        code_controle = f"COUT_INTERNE_{cost.status}"
     cnt[miso] += 1
     mid = f"MEN-{miso or '0000-00'}-{cnt[miso]:03d}"
     master_rows.append({"menage_calc_id": mid, "ROW_HASH": d["ROW_HASH"], "mois": miso, "annee": d["annee"],
         "mois_num": (miso[5:7] if miso else None), "logement_id": lid, "proprietaire_id": logprop.get(lid),
         "hostaway_listing_id": loghaid.get(lid), "appartement_source": d["appartement_source"],
         "intervenant_id": d["intervenant_id"], "nom_intervenant": d["nom_intervenant"], "type_intervenant": "INTERNE",
-        "type_menage": "MENAGE_STANDARD", "nb_menages": nb, "nb_heures": nh, "taux_horaire_intervenant": taux,
+        "type_menage": "MENAGE_STANDARD", "nb_menages": nb, "nb_heures": nh, "taux_horaire_intervenant": cost.rate,
         "cout_execution_total": cet, "cout_execution_unitaire": ceu, "cout_standard": su,
         "cout_standard_total_ligne": cst, "ecart_main_oeuvre_vs_standard": ec, "total_execution": cet,
+        "methode_cout_interne": cost.method, "cout_interne_ref_id": cost.ref_id,
+        "cout_interne_priorite": cost.priority, "controle_cout_interne": "OK" if cost.status == "OK" else cost.message,
         "type_flux_id": "TYPE_FLUX_013", "sens": "CHARGE", "code_impact": "HC",
         "impact_resultat_reel": "OUI", "impact_resultat_comptable": "NON",
-        "statut_controle": d["statut_controle"], "niveau_anomalie": ("INFO" if d["statut_controle"] == "VALIDE" else "A_CONTROLER"),
-        "code_anomalie": d["code_controle"] or None, "source_module": "lot6b", "source_table": "SOURCE_RAW",
+        "statut_controle": statut_controle, "niveau_anomalie": ("INFO" if statut_controle == "VALIDE" else "A_CONTROLER"),
+        "code_anomalie": code_controle, "source_module": "lot6b", "source_table": "SOURCE_RAW",
         "source_pk": mid, "date_integration": NOW})
 for sheetname, only_valide in [("MASTER", False), ("VUE_ACTIVE", True)]:
     wsm = wb[sheetname]

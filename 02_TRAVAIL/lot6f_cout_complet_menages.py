@@ -27,6 +27,7 @@ warnings.filterwarnings("ignore")
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import openpyxl
 from openpyxl.styles import Font, PatternFill
+from lib_menage_costs import resolve_internal_cleaning_cost
 
 # AUD-005 — mono-mois volontaire : l'extension multi-mois de l'écart analytique ménage est
 # différée jusqu'à la mise en place d'un vrai processus de clôture mensuelle métier/comptable.
@@ -78,8 +79,8 @@ typ_lib  = {d["type_logement_id"]: d.get("type_logement") for d in sh(REF, "REF_
 int_info = {d["intervenant_id"]: d for d in sh(REF, "REF_Intervenants")}
 std_ref  = sh(REF, "REF_Couts_Standards_Menage")
 int_ref  = sh(REF, "REF_Couts_Menage_Interne")
+hourly_ref = sh(REF, "REF_Taux_Heures_Menage")
 rec_ref  = sh(REF, "REF_Charges_Recurrentes")
-taux = next((f(d.get("valeur")) for d in sh(REF, "REF_Parametres_Generaux") if d.get("nom_parametre") == "TAUX_HORAIRE_MENAGE_INTERNE"), None)
 
 def date_aware(rows, type_id, montant_field, type_field="type_logement_id"):
     best = None
@@ -158,7 +159,8 @@ for r in srows[1:]:
 
 # ── Construction lignes de base (direct + standard) ──────────────────────────
 lines = []   # dict par (mois,lg,iid)
-def base_line(lg, iid, typ_interv, nb, heures, methode, direct, lav_attr=0.0):
+def base_line(lg, iid, typ_interv, nb, heures, methode, direct, lav_attr=0.0,
+              cout_ref=None, cout_priority=None, cout_status="OK", cout_message=""):
     ti = log_info.get(lg) or {}; type_id = ti.get("type_logement_id")
     su = std_unit(type_id)
     poids = (nb * su) if (su is not None) else 0
@@ -168,19 +170,34 @@ def base_line(lg, iid, typ_interv, nb, heures, methode, direct, lav_attr=0.0):
         "intervenant_id": iid, "nom_intervenant": (int_info.get(iid) or {}).get("nom_intervenant"),
         "type_intervenant": typ_interv, "nb_menages": nb, "nb_heures": heures,
         "cout_standard_unitaire": su, "cout_standard_total": (su*nb if su is not None else None),
-        "methode": methode, "cout_direct_total": direct, "poids": poids,
+        "methode": methode, "cout_direct_total": direct, "cout_interne_ref_id": cout_ref,
+        "cout_interne_priorite": cout_priority,
+        "controle_cout_interne": "OK" if cout_status == "OK" else cout_message,
+        "poids": poids,
         "lavage_attribuable": lav_attr})
 
 for (lg, iid), (nb, mont) in ext.items():
     base_line(lg, iid, "EXTERNE", nb, None, "EXTERNE_FACTURE", round(mont, 2))
-internal_method = "INTERNE_HEURES_M04" if MONTH < PIVOT else "INTERNE_STANDARD_PARAMETRE"
 for (lg, iid), (nb, heures, lav) in interne.items():
-    if internal_method == "INTERNE_HEURES_M04":
-        direct = round(heures * taux, 2) if (heures and taux is not None) else 0.0
-    else:
-        ti = (log_info.get(lg) or {}).get("type_logement_id"); iu = int_unit(ti)
-        direct = round(nb * iu, 2) if iu is not None else 0.0
-    base_line(lg, iid, "INTERNE", nb, heures, internal_method, direct, lav_attr=round(lav, 2))
+    ti = (log_info.get(lg) or {}).get("type_logement_id")
+    cost = resolve_internal_cleaning_cost(
+        ref_date=DREF,
+        intervenant_id=iid,
+        logement_id=lg,
+        type_logement_id=ti,
+        nb_menages=nb,
+        nb_heures=heures,
+        hourly_rows=hourly_ref,
+        fixed_rows=int_ref,
+    )
+    if cost.status != "OK":
+        controls.append((f"COUT_INTERNE_{cost.status}", "BLOQUANT", f"{lg}/{iid}/{MONTH}: {cost.message}"))
+    base_line(
+        lg, iid, "INTERNE", nb, heures, cost.method, cost.total,
+        lav_attr=round(lav, 2), cout_ref=cost.ref_id,
+        cout_priority=cost.priority, cout_status=cost.status,
+        cout_message=cost.message,
+    )
 
 # ── POOLS de charges communes ────────────────────────────────────────────────
 sum_poids_all = sum(l["poids"] for l in lines) or 1
@@ -230,14 +247,17 @@ for l in lines:
     qp_courses = round(pool_courses * w / sum_poids_all, 2) if pool_courses else 0.0
     qp_conso = round(pool_conso * w / sum_poids_all, 2) if pool_conso else 0.0
     qp_autres = round(pool_autres * w / sum_poids_all, 2) if pool_autres else 0.0
-    cc = round((l["cout_direct_total"] or 0) + qp_local + qp_lavage + qp_courses + qp_conso + qp_autres, 2)
+    cc = None if l["cout_direct_total"] is None else round(l["cout_direct_total"] + qp_local + qp_lavage + qp_courses + qp_conso + qp_autres, 2)
     st = l["cout_standard_total"]
-    ecart = round(st - cc, 2) if st is not None else None
+    ecart = round(st - cc, 2) if (st is not None and cc is not None) else None
     statut_e = "NON_CALCULABLE" if ecart is None else ("GAIN" if ecart > 0 else "PERTE" if ecart < 0 else "EQUILIBRE")
-    statut_c, code = ("A_CONTROLER", "COUT_STANDARD_ABSENT") if st is None else ("VALIDE", "")
+    if l.get("controle_cout_interne") not in (None, "OK"):
+        statut_c, code = "A_CONTROLER", "COUT_INTERNE_A_CONTROLER"
+    else:
+        statut_c, code = ("A_CONTROLER", "COUT_STANDARD_ABSENT") if st is None else ("VALIDE", "")
     l.update({"quote_part_local": qp_local, "quote_part_courses": qp_courses, "quote_part_lavage": qp_lavage,
         "quote_part_consommables": qp_conso, "quote_part_autres_charges_menage": qp_autres,
-        "cout_complet_total": cc, "cout_complet_unitaire": round(cc/l["nb_menages"], 2) if l["nb_menages"] else None,
+        "cout_complet_total": cc, "cout_complet_unitaire": round(cc/l["nb_menages"], 2) if (cc is not None and l["nb_menages"]) else None,
         "ecart_vs_standard_total": ecart,
         "ecart_unitaire": (round(ecart/l["nb_menages"], 2) if (ecart is not None and l["nb_menages"]) else None),
         "statut_ecart": statut_e, "statut_controle": statut_c,
@@ -257,7 +277,8 @@ def wsheet(title, cols, rows, first=False):
 DET = ["mois","logement_id","nom_appartement","proprietaire_id","type_logement_id","intervenant_id","nom_intervenant","type_intervenant",
     "nb_menages","cout_standard_total","cout_direct_total","quote_part_local","quote_part_courses","quote_part_lavage",
     "quote_part_consommables","quote_part_autres_charges_menage","cout_complet_total","cout_complet_unitaire",
-    "ecart_vs_standard_total","ecart_unitaire","statut_ecart","statut_controle","code_controle","commentaire"]
+    "ecart_vs_standard_total","ecart_unitaire","methode","cout_interne_ref_id","cout_interne_priorite",
+    "controle_cout_interne","statut_ecart","statut_controle","code_controle","commentaire"]
 wsheet("DETAIL_COUT_COMPLET", DET, lines, first=True)
 wsheet("POOLS_CHARGES_MENAGE", ["mois","pool","montant_total","source","cle_repartition"],
     [{"mois":MONTH,"pool":k,"montant_total":round(v,2),"source":("REC_002 (date-aware)" if k=="LOCAL_CAVE" else "Google Sheet" if k=="LAVAGE" else "SAISIE_Charges_Flux"),"cle_repartition":"poids=nb×cout_standard"} for k,v in {**POOLS,"LAVAGE":sum(l['lavage_attribuable'] for l in lines)+sum(lav_na_by_int.values())}.items()])
@@ -265,7 +286,7 @@ wsheet("VENTILATION_CHARGES", ["mois","pool","logement_id","intervenant_id","poi
 def resume(keyf):
     agg = collections.defaultdict(lambda: [0,0.0,0.0,0.0])
     for l in lines:
-        k = keyf(l); a = agg[k]; a[0]+=l["nb_menages"]; a[1]+=l["cout_standard_total"] or 0; a[2]+=l["cout_complet_total"]; a[3]+=l["ecart_vs_standard_total"] or 0
+        k = keyf(l); a = agg[k]; a[0]+=l["nb_menages"]; a[1]+=l["cout_standard_total"] or 0; a[2]+=l["cout_complet_total"] or 0; a[3]+=l["ecart_vs_standard_total"] or 0
     return agg
 wsheet("RESUME_LOGEMENT", ["mois","logement_id","nom_appartement","nb_menages","cout_standard_total","cout_complet_total","ecart_total","ecart_unitaire_moyen"],
     [{"mois":MONTH,"logement_id":k[0],"nom_appartement":k[1],"nb_menages":v[0],"cout_standard_total":round(v[1],2),"cout_complet_total":round(v[2],2),"ecart_total":round(v[3],2),"ecart_unitaire_moyen":(round(v[3]/v[0],2) if v[0] else None)} for k,v in sorted(resume(lambda l:(l["logement_id"],l["nom_appartement"])).items())])
@@ -291,8 +312,8 @@ if _saved_official:
     commit_step(_CACHE_DIR, "lot6f", _prov)
 
 # ── Rapport ──────────────────────────────────────────────────────────────────
-ts = sum(l["cout_standard_total"] or 0 for l in lines); tc = sum(l["cout_complet_total"] for l in lines)
-print(f"[lot6f] DRY-RUN mois={MONTH} | local_cave={local_cave_montant} | taux={taux} -> {OUT}")
+ts = sum(l["cout_standard_total"] or 0 for l in lines); tc = sum(l["cout_complet_total"] or 0 for l in lines)
+print(f"[lot6f] DRY-RUN mois={MONTH} | local_cave={local_cave_montant} -> {OUT}")
 print(f"  lignes DETAIL : {len(lines)}")
 print(f"  POOLS : LOCAL_CAVE={round(local_cave_montant,2)} LAVAGE={round(sum(l['lavage_attribuable'] for l in lines)+sum(lav_na_by_int.values()),2)} COURSES={pool_courses} CONSO={pool_conso}")
 print(f"  COUT GLOBAL : standard={round(ts,2)} complet={round(tc,2)} ecart={round(ts-tc,2)} ({'GAIN' if ts-tc>0 else 'PERTE' if ts-tc<0 else 'EQ'})")
