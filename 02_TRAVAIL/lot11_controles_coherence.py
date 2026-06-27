@@ -31,6 +31,12 @@ import pandas as pd
 
 from lib_ref_history import resolve_management_period
 from lib_controls import default_impact_facture, facture_control_counts
+from lib_cloture import (
+    REQUIRED_AJUSTEMENT_COLUMNS,
+    normalise_cloture_status,
+    validate_adjustment,
+    validate_cloture_status,
+)
 from lib_settlements import (
     AIRCOVER_REQUIRED_COLUMNS,
     AIRBNB_IMPUTATION_REQUIRED_COLUMNS,
@@ -60,6 +66,7 @@ REF_FILE    = BASE / "01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm"
 BNQ_FILE    = BASE / "02_TRAVAIL/Lot8_Banque/BANQUE_LOT8_IMPORT.xlsx"
 AIRCOVER_FILE = BASE / "02_TRAVAIL/Lot8_Banque/MASTER_FACT_AirCover.xlsx"
 AIRBNB_IMPUT_FILE = BASE / "02_TRAVAIL/Lot5_AcomptesProprietaires/MASTER_FACT_MAN_ImputationsAirbnb.xlsx"
+AJUST_FILE = BASE / "02_TRAVAIL/LotCloture_Ajustements/SAISIE_Ajustements_PostCloture.xlsx"
 
 OUT_DIR     = BASE / "02_TRAVAIL/Lot11_Controles"
 OUT_FILE    = OUT_DIR / "MASTER_CTRL_Coherence.xlsx"
@@ -249,6 +256,7 @@ ctrl_rows = []
 
 df_aircover = _read_optional_file_sheet(AIRCOVER_FILE, "MASTER")
 df_airbnb_imp = _read_optional_file_sheet(AIRBNB_IMPUT_FILE, "MASTER")
+df_ajust = _read_optional_file_sheet(AJUST_FILE, "MASTER")
 
 # ==========================================================================
 # GROUPE 0 - REFERENTIELS HISTORISES SENSIBLES
@@ -373,6 +381,32 @@ else:
                       f"Reservation proprietaire={row.get('proprietaire_id')} mais historique={res.value}.",
                       mois=row.get("mois"), logement_id=row.get("logement_id"),
                       proprietaire_id=row.get("proprietaire_id"))
+
+# ==========================================================================
+# GROUPE 0C - CORRECTIONS POST-CLOTURE TRACEES
+# ==========================================================================
+print("CTR: Corrections post-cloture...")
+
+if len(df_ajust) == 0:
+    _ctrl(ctrl_rows, "CLOTURE", "SAISIE_Ajustements_PostCloture", None,
+          "AJUSTEMENTS_POST_CLOTURE_SOURCE_ABSENTE", "INFO",
+          "Aucune saisie d'ajustement post-cloture disponible. Une correction future devra etre append-only.")
+else:
+    missing = sorted(REQUIRED_AJUSTEMENT_COLUMNS - set(df_ajust.columns))
+    if missing:
+        _ctrl(ctrl_rows, "CLOTURE", "SAISIE_Ajustements_PostCloture", None,
+              "AJUSTEMENTS_POST_CLOTURE_SCHEMA_INCOMPLET", "BLOQUANT",
+              f"Colonnes manquantes: {missing}.")
+    else:
+        for _, row in df_ajust.iterrows():
+            ok, code, msg = validate_adjustment(row.to_dict())
+            if not ok:
+                _ctrl(ctrl_rows, "CLOTURE", "SAISIE_Ajustements_PostCloture",
+                      row.get("ajustement_id"), code, "A_CONTROLER",
+                      msg,
+                      mois=row.get("mois_effet"), logement_id=row.get("logement_id"),
+                      proprietaire_id=row.get("proprietaire_id"),
+                      impact_facture="A_DECIDER")
 
 # ==========================================================================
 # GROUPE 1 - PK DOUBLONS (transverse)
@@ -965,6 +999,16 @@ else:
         if mois_clo is None:
             continue
         mois_str = str(mois_clo)[:7]
+        ok_status, status_or_code = validate_cloture_status(statut_clo)
+        if not ok_status:
+            _ctrl(ctrl_rows, "BANQUE", "BANQUE_LOT8_IMPORT_REF_Cloture", mois_str,
+                  status_or_code, "BLOQUANT",
+                  f"Mois {mois_str}: statut_mois interdit '{statut_clo}'. "
+                  "Statuts autorises: OUVERT, EN_CONTROLE, CLOTURE.",
+                  mois=mois_str)
+            statut_clo = "OUVERT"
+        else:
+            statut_clo = status_or_code
 
         # Compter lignes non finalisees pour ce mois
         if "date_operation" in df_bnq.columns:
@@ -1032,7 +1076,7 @@ for m in mois_all:
         row_clo = df_cloture[df_cloture["mois"].astype(str).str[:7] == m]
         if len(row_clo) > 0:
             a_enregistrement_cloture = True
-            statut_clo = row_clo.iloc[0].get("statut_mois", "OUVERT") or "OUVERT"
+            statut_clo = normalise_cloture_status(row_clo.iloc[0].get("statut_mois", "OUVERT")) or "OUVERT"
 
     # Banque compatible facturation uniquement si mois explicitement CLOTURE
     banque_cloturee = (statut_clo == "CLOTURE")
