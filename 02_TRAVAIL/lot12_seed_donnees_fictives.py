@@ -30,12 +30,13 @@ import datetime
 import openpyxl
 
 TAG = "__TEST_FICTIF_LOT12_A_SUPPRIMER__"
-COMMENT = f"Donnée fictive de test Lot 12 — {TAG}"
+SIMULATION_NOTICE = "SIMULATION DE TEST  NON EMISE  SANS VALEUR COMPTABLE OU LEGALE"
+COMMENT = f"{SIMULATION_NOTICE} - Donnee fictive de test Lot 12 - {TAG}"
 NOW = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 TODAY = datetime.date.today().isoformat()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BACKUP_DIR = os.path.join(ROOT, "99_ARCHIVES", "LOT12_TEST_DATA")
+BACKUP_DIR = os.path.join(ROOT, "04_LOGS", "LOT12_TEST_DATA")
 
 # Commun à toutes les lignes fictives
 SRC_COMMON = {
@@ -267,6 +268,7 @@ def main():
     print("SEED DONNÉES FICTIVES LOT 12")
     print("=" * 60)
     print(f"Tag      : {TAG}")
+    print(f"Mention  : {SIMULATION_NOTICE}")
     print(f"Backups  : {BACKUP_DIR}")
     print()
 
@@ -287,7 +289,9 @@ def main():
     print()
     print(f"Total lignes fictives ajoutées : {total}")
     print(f"Vérification tag : {'OK' if all_ok else 'ÉCHEC'}")
+    print(f"Mention simulation : {SIMULATION_NOTICE}")
     print("Rappel : ne JAMAIS committer avec des données fictives présentes (règle #10).")
+    print("Rappel : ne JAMAIS committer le contenu de 04_LOGS/LOT12_TEST_DATA.")
     print("Nettoyage : py 02_TRAVAIL/lot12_remove_donnees_fictives.py")
 
 

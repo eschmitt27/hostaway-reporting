@@ -25,7 +25,7 @@ TAG = "__TEST_FICTIF_LOT12_A_SUPPRIMER__"
 ID_PREFIX = "ZZ_TEST_"
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BACKUP_DIR = os.path.join(ROOT, "99_ARCHIVES", "LOT12_TEST_DATA")
+BACKUP_DIR = os.path.join(ROOT, "04_LOGS", "LOT12_TEST_DATA")
 
 # (fichier, onglet, colonne_id)
 TARGETS = [

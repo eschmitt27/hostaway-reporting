@@ -30,6 +30,7 @@ import openpyxl
 import pandas as pd
 
 from lib_ref_history import resolve_management_period
+from lib_controls import default_impact_facture, facture_control_counts
 from lib_settlements import (
     AIRCOVER_REQUIRED_COLUMNS,
     AIRBNB_IMPUTATION_REQUIRED_COLUMNS,
@@ -116,19 +117,24 @@ def _read_optional_file_sheet(path, sheet):
 
 def _ctrl(ctrl_rows, source_module, source_table, source_pk,
           code_controle, severity, message,
-          mois=None, logement_id=None, proprietaire_id=None, commentaire=None):
+          mois=None, logement_id=None, proprietaire_id=None,
+          reservation_id=None, document_id=None,
+          impact_facture=None, commentaire=None):
     pk = f"{source_pk or source_module}||{code_controle}"
     ctrl_rows.append({
         "ctrl_pk":         pk,
         "source_module":   source_module,
         "source_table":    source_table,
         "source_pk":       str(source_pk) if source_pk else None,
+        "reservation_id":   reservation_id,
         "code_controle":   code_controle,
         "severity":        severity,
+        "impact_facture":   default_impact_facture(severity, impact_facture),
         "message":         message,
         "mois":            mois,
         "logement_id":     logement_id,
         "proprietaire_id": proprietaire_id,
+        "document_id":      document_id,
         "statut_resolution": "OUVERT",
         "commentaire":     commentaire,
         "date_detection":  TODAY,
@@ -1002,13 +1008,22 @@ mois_all = sorted(mois_avec_ctrl | set(mois_banque) | {"TRANSVERSE"})
 dashboard = []
 for m in mois_all:
     if m == "TRANSVERSE" or m == "nan":
-        subset = df_ctrl[df_ctrl["mois"].isna()]
+        subset = df_ctrl[df_ctrl["mois"].isna()].copy()
+        nb_bl = (
+            (subset["severity"] == "BLOQUANT")
+            & (subset["impact_facture"] == "BLOQUANT_FACTURE")
+        ).sum()
+        nb_ac = (
+            (subset["severity"] == "A_CONTROLER")
+            & (subset["impact_facture"] != "NON_BLOQUANT_FACTURE")
+        ).sum()
+        nb_inf = (subset["severity"] == "INFO").sum()
     else:
-        subset = df_ctrl[df_ctrl["mois"].astype(str) == m]
-
-    nb_bl  = (subset["severity"] == "BLOQUANT").sum()
-    nb_ac  = (subset["severity"] == "A_CONTROLER").sum()
-    nb_inf = (subset["severity"] == "INFO").sum()
+        counts = facture_control_counts(df_ctrl.to_dict("records"), m)
+        subset = pd.DataFrame(counts["controls"])
+        nb_bl = counts["nb_bloquants"]
+        nb_ac = counts["nb_a_controler"]
+        nb_inf = counts["nb_info"]
 
     # Statut cloture banque (REF_Cloture_Mensuelle du fichier Lot 8)
     statut_clo = "OUVERT"
