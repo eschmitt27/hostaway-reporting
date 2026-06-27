@@ -36,6 +36,7 @@ from openpyxl.utils import get_column_letter
 
 from lib_ref_history import resolve_commission_rate
 from lib_settlements import settle_invoice, validated_airbnb_imputation
+from lib_canape import calculate_canape_amount
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Paths
@@ -234,7 +235,7 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
     df_res_sel = df_res_num[[
         "reservation_calc_id", "reservation_id_hostaway", "reservation_hh_id",
         "source", "source_montant", "montant_retenu",
-        "logement_id", "proprietaire_id", "date_arrivee", "date_depart", "nuits",
+        "logement_id", "proprietaire_id", "date_arrivee", "date_depart", "nuits", "guestCount",
         "canal", "payout_calcule", "menage_retenu", "assiette_commission",
     ]].rename(columns={
         "payout_calcule": "payout_resolu",
@@ -478,13 +479,14 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
     COMM_OUT_COLS = [
         "source_pk", "reservation_calc_id", "reservation_id_hostaway",
         "logement_id_eff", "proprietaire_id_eff", "mois_flux",
-        "date_arrivee", "date_depart", "nuits", "channel_type", "source_type",
+        "date_arrivee", "date_depart", "nuits", "guestCount", "channel_type", "source_type",
         "statut_calcul_payout", "payout_calcule", "menage_retenu", "menage_retenu_source",
         "cout_standard_id", "cout_standard_menage_snapshot", "date_reference_cout_menage",
         "assiette_commission", "taux_commission", "commission_conciergerie",
         "taux_commission_id", "taux_commission_source", "controle_taux_commission",
         "net_proprietaire", "inclure_resultat_auto",
         "logement_id_snapshot", "type_logement_id_snapshot",
+        "preparation_canape_voyageurs", "controle_preparation_canape", "source_preparation_canape",
     ]
 
     def _shape(df):
@@ -503,10 +505,36 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
         "source_pk":           "flux_source_pk",
     }).reset_index(drop=True)
 
+    log_ref = {r.get("logement_id"): r for _, r in df_log.iterrows()}
+    if len(df_comm) > 0:
+        canape_rows = [
+            calculate_canape_amount(r.get("logement_id"), r.get("guestCount"), log_ref.get(r.get("logement_id")))
+            for _, r in df_comm.iterrows()
+        ]
+        df_comm["preparation_canape_voyageurs"] = [c.amount for c in canape_rows]
+        df_comm["controle_preparation_canape"] = [c.status for c in canape_rows]
+        df_comm["source_preparation_canape"] = [c.message for c in canape_rows]
+        df_comm["net_proprietaire"] = (
+            pd.to_numeric(df_comm["net_proprietaire"], errors="coerce").fillna(0.0)
+            - pd.to_numeric(df_comm["preparation_canape_voyageurs"], errors="coerce").fillna(0.0)
+        ).round(2)
+
     # ── 2i. A_CONTROLER from Payout (Hostaway hors Flux) ──
     df_ac = df_payout[df_payout["statut_calcul_payout"] == "A_CONTROLER"].copy()
     df_ac["code_anomalie_lot10"] = "RESERVATION_EXCLUE_A_CONTROLER"
     df_ac = df_ac.reset_index(drop=True)
+    if len(df_comm) > 0 and "controle_preparation_canape" in df_comm.columns:
+        canape_ctrl = df_comm[df_comm["controle_preparation_canape"] == "A_CONTROLER"].copy()
+        if len(canape_ctrl) > 0:
+            df_ac = pd.concat([df_ac, pd.DataFrame([{
+                "reservation": r.get("reservation_calc_id"),
+                "logement_id": r.get("logement_id"),
+                "proprietaire_id": r.get("proprietaire_id"),
+                "mois": r.get("mois"),
+                "code_anomalie_lot10": "PREPARATION_CANAPE_GUESTCOUNT_ABSENT",
+                "niveau": "A_CONTROLER",
+                "message": r.get("source_preparation_canape"),
+            } for _, r in canape_ctrl.iterrows()])], ignore_index=True, sort=False)
     if taux_controls:
         df_ac = pd.concat([df_ac, pd.DataFrame(taux_controls)], ignore_index=True, sort=False)
 
@@ -736,7 +764,7 @@ def build_net_proprietaire(df_comm, df_cfix, df_acc, df_airbnb_imp):
 
     # ── 5b. Aggregate reservations per mois x logement ──
     df_num = df_comm.copy()
-    for col in ["payout_calcule", "menage_retenu", "commission_conciergerie", "net_proprietaire"]:
+    for col in ["payout_calcule", "menage_retenu", "commission_conciergerie", "net_proprietaire", "preparation_canape_voyageurs"]:
         df_num[col] = pd.to_numeric(df_num[col], errors="coerce").fillna(0.0)
 
     df_agg_res = pd.DataFrame()
@@ -745,6 +773,7 @@ def build_net_proprietaire(df_comm, df_cfix, df_acc, df_airbnb_imp):
             total_payout_mois                =("payout_calcule",        "sum"),
             total_menage_mois                =("menage_retenu",         "sum"),
             total_commission_mois            =("commission_conciergerie","sum"),
+            total_preparation_canape_mois    =("preparation_canape_voyageurs", "sum"),
             net_proprietaire_avant_charge_mois=("net_proprietaire",     "sum"),
             nb_reservations                  =("reservation_calc_id",   "count"),
         ).reset_index().round(2)
@@ -793,6 +822,7 @@ def build_net_proprietaire(df_comm, df_cfix, df_acc, df_airbnb_imp):
             row["total_payout_mois"]                 = _n(rr["total_payout_mois"])
             row["total_menage_mois"]                 = _n(rr["total_menage_mois"])
             row["total_commission_mois"]             = _n(rr["total_commission_mois"])
+            row["total_preparation_canape_mois"]     = _n(rr.get("total_preparation_canape_mois"))
             row["net_proprietaire_avant_charge_mois"]= _n(rr["net_proprietaire_avant_charge_mois"])
             row["nb_reservations"]                   = int(_n(rr["nb_reservations"]))
         else:
@@ -800,6 +830,7 @@ def build_net_proprietaire(df_comm, df_cfix, df_acc, df_airbnb_imp):
             row["total_payout_mois"]                 = 0.0
             row["total_menage_mois"]                 = 0.0
             row["total_commission_mois"]             = 0.0
+            row["total_preparation_canape_mois"]     = 0.0
             row["net_proprietaire_avant_charge_mois"]= 0.0
             row["nb_reservations"]                   = 0
 
@@ -815,6 +846,7 @@ def build_net_proprietaire(df_comm, df_cfix, df_acc, df_airbnb_imp):
         row["montant_du_conciergerie"] = round(
             row["total_commission_mois"]
             + row["total_menage_mois"]
+            + row["total_preparation_canape_mois"]
             + row["charge_fixe_mensuelle"],
             2,
         )
@@ -843,6 +875,7 @@ def build_net_proprietaire(df_comm, df_cfix, df_acc, df_airbnb_imp):
             "mois": mois, "logement_id": SENTINEL_GLOBAL, "proprietaire_id": prop,
             "charge_fixe_mensuelle": 0.0, "charge_fixe_source": "NON_APPLICABLE",
             "total_payout_mois": 0.0, "total_menage_mois": 0.0, "total_commission_mois": 0.0,
+            "total_preparation_canape_mois": 0.0,
             "net_proprietaire_avant_charge_mois": 0.0, "nb_reservations": 0,
             "montant_du_conciergerie": 0.0,
             "acompte_conciergerie_recu_via_airbnb": 0.0,
@@ -863,6 +896,7 @@ def build_net_proprietaire(df_comm, df_cfix, df_acc, df_airbnb_imp):
             "total_payout_mois":                 "sum",
             "total_menage_mois":                 "sum",
             "total_commission_mois":             "sum",
+            "total_preparation_canape_mois":     "sum",
             "charge_fixe_mensuelle":             "sum",
             "montant_du_conciergerie":           "sum",
             "acompte_conciergerie_recu_via_airbnb": "sum",

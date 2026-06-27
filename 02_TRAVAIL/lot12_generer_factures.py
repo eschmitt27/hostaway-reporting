@@ -163,6 +163,7 @@ for _, r in df_reg.iterrows():
         "total_payout": _n(r.get("total_payout_mois")),
         "total_menage": _n(r.get("total_menage_mois")),
         "total_commission": _n(r.get("total_commission_mois")),
+        "total_preparation_canape": _n(r.get("total_preparation_canape_mois")),
         "charge_fixe": _n(r.get("charge_fixe_mensuelle")),
         "revenu_net_exploitation": _n(r.get("net_proprietaire_apres_charge_mois")),
         "montant_du": _n(r.get("montant_du_conciergerie")),
@@ -252,14 +253,18 @@ for _, r in df_reg.iterrows():
         (1,  "TOTAL_PAYOUT",            "Total payout",                                     rec["total_payout"],            "EXPLOITATION"),
         (2,  "MENAGE_FACTURE",          "Ménage facturé",                                   rec["total_menage"],            "EXPLOITATION"),
         (3,  "COMMISSION_CONCIERGERIE", "Commission conciergerie",                          rec["total_commission"],        "EXPLOITATION"),
-        (4,  "CHARGE_FIXE",             "Charge fixe mensuelle",                            rec["charge_fixe"],             "EXPLOITATION"),
-        (5,  "REVENU_NET_EXPLOITATION", "Revenu net d'exploitation propriétaire",           rec["revenu_net_exploitation"], "EXPLOITATION"),
-        (6,  "MONTANT_DU",              "Montant total dû à la conciergerie",               rec["montant_du"],              "REGLEMENT"),
-        (7,  "ACOMPTE_AIRBNB",          "Acompte reçu via Airbnb",                          rec["airbnb_impute"],           "REGLEMENT"),
-        (8,  "PAIEMENT_DEJA_RECU",      "Autres paiements déjà reçus",                      0.0,                            "REGLEMENT"),
-        (9,  "RESTE_A_PAYER",           "Reste à payer à la conciergerie",                  rec["reste_a_payer"],           "REGLEMENT"),
-        (10, "CHARGES_EXCEPT_REFAC",    "Charges / achats exceptionnels refacturés",        0.0,                            "REGLEMENT"),
-        (11, "ACOMPTES_PROPRIETAIRES",  "Acomptes propriétaires (réservations hors HA)",    rec["acomptes"],                "REGLEMENT"),
+    ]
+    if rec["total_preparation_canape"] > 0:
+        L.append((4, "PREPARATION_CANAPE", "Préparation du canapé payée par les voyageurs", rec["total_preparation_canape"], "EXPLOITATION"))
+    L += [
+        (5,  "CHARGE_FIXE",             "Charge fixe mensuelle",                            rec["charge_fixe"],             "EXPLOITATION"),
+        (6,  "REVENU_NET_EXPLOITATION", "Revenu net d'exploitation propriétaire",           rec["revenu_net_exploitation"], "EXPLOITATION"),
+        (7,  "MONTANT_DU",              "Montant total dû à la conciergerie",               rec["montant_du"],              "REGLEMENT"),
+        (8,  "ACOMPTE_AIRBNB",          "Acompte reçu via Airbnb",                          rec["airbnb_impute"],           "REGLEMENT"),
+        (9,  "PAIEMENT_DEJA_RECU",      "Autres paiements déjà reçus",                      0.0,                            "REGLEMENT"),
+        (10, "RESTE_A_PAYER",           "Reste à payer à la conciergerie",                  rec["reste_a_payer"],           "REGLEMENT"),
+        (11, "CHARGES_EXCEPT_REFAC",    "Charges / achats exceptionnels refacturés",        0.0,                            "REGLEMENT"),
+        (12, "ACOMPTES_PROPRIETAIRES",  "Acomptes propriétaires (réservations hors HA)",    rec["acomptes"],                "REGLEMENT"),
     ]
     for num, t, lib, mt, bloc in L:
         lignes.append({
@@ -268,7 +273,7 @@ for _, r in df_reg.iterrows():
         })
     # Ligne 12 : statut règlement (texte)
     lignes.append({
-        "facture_id": facture_id, "ligne_num": 12, "type_ligne": "STATUT_REGLEMENT",
+        "facture_id": facture_id, "ligne_num": max(num for num, *_ in L) + 1, "type_ligne": "STATUT_REGLEMENT",
         "libelle": "Statut règlement", "montant": None, "bloc": "REGLEMENT",
         "commentaire": statut_facture,
     })
@@ -355,16 +360,18 @@ if len(df_entete) > 0:
     non_pref = df_entete[df_entete["statut_generation"] != "PREFACTURE_CONTROLE"]
     if len(non_pref) > 0:
         bloquants_l12.append(f"FACTURE_FINALE_GENEREE: {len(non_pref)}")
-    # 12 lignes par facture
+    # 12 lignes par facture, ou 13 si preparation canape positive
     cnt = df_lignes.groupby("facture_id").size()
-    bad = cnt[cnt != 12]
+    canape_fids = set(df_lignes[df_lignes["type_ligne"] == "PREPARATION_CANAPE"]["facture_id"]) if len(df_lignes) > 0 else set()
+    bad = cnt[[((fid in canape_fids and n != 13) or (fid not in canape_fids and n != 12)) for fid, n in cnt.items()]]
     if len(bad) > 0:
-        bloquants_l12.append(f"LIGNE_FACTURE_INCOMPLETE: {len(bad)} factures != 12 lignes")
+        bloquants_l12.append(f"LIGNE_FACTURE_INCOMPLETE: {len(bad)} factures avec nombre de lignes inattendu")
     # Confusion net vs reste_a_payer (L5 == L9 alors que montants non nuls)
     for fid, grp in df_lignes.groupby("facture_id"):
-        l5 = grp[grp["ligne_num"] == 5]["montant"].iloc[0]
-        l9 = grp[grp["ligne_num"] == 9]["montant"].iloc[0]
-        if _n(l5) != 0 and _n(l5) == _n(l9) and _n(grp[grp["ligne_num"]==6]["montant"].iloc[0]) != 0:
+        l_net = grp[grp["type_ligne"] == "REVENU_NET_EXPLOITATION"]["montant"].iloc[0]
+        l_reste = grp[grp["type_ligne"] == "RESTE_A_PAYER"]["montant"].iloc[0]
+        l_du = grp[grp["type_ligne"] == "MONTANT_DU"]["montant"].iloc[0]
+        if _n(l_net) != 0 and _n(l_net) == _n(l_reste) and _n(l_du) != 0:
             bloquants_l12.append(f"CONFUSION_NET_VS_RESTE_A_PAYER: {fid}")
             break
 
@@ -399,7 +406,7 @@ log.info("RAPPORT LOT 12 — PRÉFACTURES")
 log.info(sep)
 log.info(f"  Fichier            : {OUT_FILE}")
 log.info(f"  Préfactures (ENTETE): {len(df_entete)}")
-log.info(f"  Lignes facture      : {len(df_lignes)}  (attendu {len(df_entete)*12})")
+log.info(f"  Lignes facture      : {len(df_lignes)}  (12 par facture, 13 avec canape)")
 log.info(f"  CONTROLE_MENSUEL    : {len(df_controle)} lignes")
 log.info(f"    dont GLOBAL_NON_AFFECTE : {int((df_controle['logement_id']==SENTINEL_GLOBAL).sum()) if len(df_controle)>0 else 0}")
 log.info(f"  A_CONTROLER         : {len(df_acout)}")

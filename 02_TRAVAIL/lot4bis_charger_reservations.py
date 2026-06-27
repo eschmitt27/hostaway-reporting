@@ -303,6 +303,7 @@ def make_row_ha(res, payout, source_val, source_montant, montant_retenu,
         "date_arrivee":            date_to_str(res.get("checkInDate")),
         "date_depart":             date_to_str(res.get("checkOutDate")),
         "nuits":                   res.get("nights"),
+        "guestCount":              res.get("guestCount") or res.get("numberOfGuests"),
         "montant_retenu":          montant_retenu,
         "source_montant":          source_montant,
         "code_impact":             code_impact,
@@ -351,6 +352,7 @@ def make_row_hh(hh, src_override=None):
         "date_arrivee":            date_to_str(hh.get("date_arrivee")),
         "date_depart":             date_to_str(hh.get("date_depart")),
         "nuits":                   hh.get("nuits"),
+        "guestCount":              hh.get("guestCount"),
         "montant_retenu":          montant,
         "source_montant":          source_montant,
         "code_impact":             code_impact,
@@ -544,12 +546,12 @@ print(f"VUE_FLUX : {len(vue_rows)} lignes (VALIDE + impact_reel=OUI + montant≠
 HEADERS = [
     "reservation_calc_id", "ROW_HASH", "source", "reservation_id_hostaway",
     "reservation_hh_id", "mois", "logement_id", "proprietaire_id",
-    "date_arrivee", "date_depart", "nuits", "montant_retenu", "source_montant",
+    "date_arrivee", "date_depart", "nuits", "guestCount", "montant_retenu", "source_montant",
     "code_impact", "impact_resultat_reel", "impact_resultat_comptable",
     "statut_controle", "niveau_anomalie", "code_anomalie", "commentaire",
     "source_module", "source_table", "source_pk", "date_integration",
 ]
-assert len(HEADERS) == 24, f"Attendu 24 colonnes, trouvé {len(HEADERS)}"
+assert len(HEADERS) == 25, f"Attendu 25 colonnes, trouvé {len(HEADERS)}"
 
 print(f"\n[6/6] Écriture dans {PATH_TARGET}...")
 
