@@ -34,6 +34,8 @@ from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Alignment
 from openpyxl.utils import get_column_letter
 
+from lib_ref_history import resolve_commission_rate
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Paths
 # ─────────────────────────────────────────────────────────────────────────────
@@ -83,6 +85,20 @@ def _read_sheet(path: Path, sheet=None, keep_vba: bool = False) -> pd.DataFrame:
     rows = [dict(zip(headers, r)) for r in rows_iter]
     wb.close()
     return pd.DataFrame(rows)
+
+
+def _read_optional_sheet(path: Path, sheet: str, keep_vba: bool = False) -> pd.DataFrame:
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True, keep_vba=keep_vba)
+    try:
+        if sheet not in wb.sheetnames:
+            return pd.DataFrame()
+        ws = wb[sheet]
+        rows_iter = ws.iter_rows(values_only=True)
+        headers = list(next(rows_iter))
+        rows = [dict(zip(headers, r)) for r in rows_iter]
+        return pd.DataFrame(rows)
+    finally:
+        wb.close()
 
 
 def _write_sheet(wb: Workbook, name: str, df: pd.DataFrame) -> None:
@@ -141,6 +157,7 @@ def load_sources():
     df_payout = _read_sheet(PAYOUT_FILE, sheet="data")
     df_log    = _read_sheet(REF_FILE, sheet="REF_Logements",     keep_vba=True)
     df_prop   = _read_sheet(REF_FILE, sheet="REF_Proprietaires", keep_vba=True)
+    df_taux   = _read_optional_sheet(REF_FILE, "REF_Taux_Commission", keep_vba=True)
 
     # Sources HH + Acomptes (lecture seule, hors placeholder Power Query)
     df_hh  = _read_sheet(HH_FILE,  sheet="MASTER") if HH_FILE.exists()  else pd.DataFrame()
@@ -153,6 +170,9 @@ def load_sources():
     # Filter duplicate-header rows in xlsm sheets
     df_log  = df_log[df_log["logement_id"].astype(str) != "logement_id"].reset_index(drop=True)
     df_prop = df_prop[df_prop["proprietaire_id"].astype(str) != "proprietaire_id"].reset_index(drop=True)
+    if len(df_taux) > 0 and "taux_commission_id" in df_taux.columns:
+        df_taux = df_taux[df_taux["taux_commission_id"].astype(str) != "taux_commission_id"].reset_index(drop=True)
+        df_taux = df_taux[df_taux["taux_commission_id"].notna()].reset_index(drop=True)
 
     # Numeric conversions
     df_prop["taux_commission"] = pd.to_numeric(df_prop["taux_commission"], errors="coerce")
@@ -167,15 +187,17 @@ def load_sources():
     log.info(f"  Acomptes      : {len(df_acc)} lignes (hors placeholder)")
     log.info(f"  REF_Logements : {len(df_log)} logements")
     log.info(f"  REF_Prop      : {len(df_prop)} proprietaires")
-    return df_flux, df_res, df_payout, df_hh, df_acc, df_log, df_prop
+    log.info(f"  REF_Taux_Comm : {len(df_taux)} lignes historisees")
+    return df_flux, df_res, df_payout, df_hh, df_acc, df_log, df_prop, df_taux
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Build commissions
 # ─────────────────────────────────────────────────────────────────────────────
-def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop):
+def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_taux):
     log.info("=== Construction commissions (routage HA / HH) ===")
     hh_controls = []
+    taux_controls = []
 
     # ── 2a. Filter TYPE_FLUX_017 ──
     df_017 = df_flux[df_flux["type_flux_id"] == "TYPE_FLUX_017"].copy()
@@ -237,6 +259,71 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop):
     log.info(f"  Routage : {len(df_ha)} Hostaway / {len(df_vrbo)} VRBO / {len(df_hhb)} HH")
 
     df_prop_sel = df_prop[["proprietaire_id", "taux_commission"]].copy()
+    taux_history = df_taux.to_dict("records") if len(df_taux) > 0 else []
+
+    def _attach_commission_rate(df: pd.DataFrame, branch: str) -> pd.DataFrame:
+        if len(df) == 0:
+            for col in ("taux_commission", "taux_commission_id", "taux_commission_source",
+                        "controle_taux_commission"):
+                df[col] = None
+            return df
+        if not taux_history:
+            out = df.merge(
+                df_prop_sel, left_on="proprietaire_id_eff", right_on="proprietaire_id",
+                how="left", suffixes=("", "_ref"),
+            )
+            out["taux_commission_id"] = None
+            out["taux_commission_source"] = "REF_Proprietaires.taux_commission_TRANSITOIRE"
+            out["controle_taux_commission"] = "TAUX_COMMISSION_HISTORIQUE_ABSENT_TRANSITOIRE"
+            taux_controls.append({
+                "reservation": None,
+                "code_anomalie": "TAUX_COMMISSION_HISTORIQUE_ABSENT_TRANSITOIRE",
+                "niveau": "A_CONTROLER",
+                "message": (
+                    f"{branch}: REF_Taux_Commission absent ou vide; utilisation transitoire "
+                    "du taux non date REF_Proprietaires. Facture finale interdite sans taux historise."
+                ),
+            })
+            return out
+
+        rates, ids, sources, controles = [], [], [], []
+        blockers = []
+        for _, row in df.iterrows():
+            res = resolve_commission_rate(
+                taux_history,
+                proprietaire_id=row.get("proprietaire_id_eff"),
+                logement_id=row.get("logement_id_eff"),
+                ref_date=row.get("date_arrivee"),
+            )
+            if res.status != "OK":
+                blockers.append({
+                    "reservation": row.get("reservation_calc_id"),
+                    "code_anomalie": f"TAUX_COMMISSION_{res.status}",
+                    "niveau": "BLOQUANT",
+                    "message": (
+                        f"{branch} {row.get('reservation_calc_id')}: logement={row.get('logement_id_eff')} "
+                        f"proprietaire={row.get('proprietaire_id_eff')} date={row.get('date_arrivee')} - {res.message}"
+                    ),
+                })
+                rates.append(None)
+                ids.append(None)
+                sources.append("REF_Taux_Commission")
+                controles.append(f"TAUX_COMMISSION_{res.status}")
+                continue
+            rates.append(res.value)
+            ids.append(res.row.get("taux_commission_id") if res.row else None)
+            sources.append("REF_Taux_Commission")
+            controles.append("OK")
+        if blockers:
+            for c in blockers:
+                log.error(f"{c['niveau']} {c['code_anomalie']} - {c['message']}")
+            sys.exit(1)
+        out = df.copy()
+        out["taux_commission"] = rates
+        out["taux_commission_id"] = ids
+        out["taux_commission_source"] = sources
+        out["controle_taux_commission"] = controles
+        return out
 
     # ===================== BRANCHE HOSTAWAY =====================
     df_pay_sel = df_payout[[
@@ -259,10 +346,7 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop):
         sys.exit(1)
     log.info("  Jointure HA <-> Payout OK")
 
-    df_ha = df_ha.merge(
-        df_prop_sel, left_on="proprietaire_id_eff", right_on="proprietaire_id",
-        how="left", suffixes=("", "_ref"),
-    )
+    df_ha = _attach_commission_rate(df_ha, "HOSTAWAY")
     normal_ha = df_ha["statut_calcul_payout"] == "NORMAL"
     if (normal_ha & df_ha["proprietaire_id_eff"].isna()).any():
         log.error("BLOQUANT COMMISSION_LOGEMENT_SANS_PROPRIETAIRE — HA")
@@ -302,10 +386,7 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop):
         else:
             for c in ["total_percu", "menage", "commission_saisie", "taux_hh_saisie"]:
                 df_hhb[c] = None
-        df_hhb = df_hhb.merge(
-            df_prop_sel, left_on="proprietaire_id_eff", right_on="proprietaire_id",
-            how="left", suffixes=("", "_ref"),
-        )
+        df_hhb = _attach_commission_rate(df_hhb, "HH")
         df_hhb["total_percu"]     = pd.to_numeric(df_hhb["total_percu"], errors="coerce")
         df_hhb["menage"]          = pd.to_numeric(df_hhb["menage"], errors="coerce").fillna(0.0)
         df_hhb["taux_commission"] = pd.to_numeric(df_hhb["taux_commission"], errors="coerce")
@@ -360,10 +441,7 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop):
     # assiette = payout - ménage, commission = assiette x taux. Jamais routé en HH.
     df_vrbo_norm = pd.DataFrame()
     if len(df_vrbo) > 0:
-        df_vrbo = df_vrbo.merge(
-            df_prop_sel, left_on="proprietaire_id_eff", right_on="proprietaire_id",
-            how="left", suffixes=("", "_ref"),
-        )
+        df_vrbo = _attach_commission_rate(df_vrbo, "VRBO")
         for c in ("payout_resolu", "menage_resolu", "assiette_resolu", "taux_commission"):
             df_vrbo[c] = pd.to_numeric(df_vrbo[c], errors="coerce")
         df_vrbo["payout_calcule"] = df_vrbo["payout_resolu"].round(2)
@@ -398,6 +476,7 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop):
         "statut_calcul_payout", "payout_calcule", "menage_retenu", "menage_retenu_source",
         "cout_standard_id", "cout_standard_menage_snapshot", "date_reference_cout_menage",
         "assiette_commission", "taux_commission", "commission_conciergerie",
+        "taux_commission_id", "taux_commission_source", "controle_taux_commission",
         "net_proprietaire", "inclure_resultat_auto",
         "logement_id_snapshot", "type_logement_id_snapshot",
     ]
@@ -422,11 +501,13 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop):
     df_ac = df_payout[df_payout["statut_calcul_payout"] == "A_CONTROLER"].copy()
     df_ac["code_anomalie_lot10"] = "RESERVATION_EXCLUE_A_CONTROLER"
     df_ac = df_ac.reset_index(drop=True)
+    if taux_controls:
+        df_ac = pd.concat([df_ac, pd.DataFrame(taux_controls)], ignore_index=True, sort=False)
 
     log.info(f"  NORMAL integres  : {len(df_comm)} (HA {len(df_ha_norm)} + VRBO {len(df_vrbo_norm)} + HH {len(df_hh_norm)})")
     log.info(f"  HH exclus        : {n_hh_exclus} (sans montant saisi)")
     log.info(f"  A_CONTROLER (pay): {len(df_ac)}")
-    return df_comm, df_ac, hh_controls
+    return df_comm, df_ac, hh_controls + taux_controls
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -994,9 +1075,9 @@ def main():
     log.info(f"Date : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     log.info("=" * 65)
 
-    df_flux, df_res, df_payout, df_hh, df_acc, df_log, df_prop = load_sources()
+    df_flux, df_res, df_payout, df_hh, df_acc, df_log, df_prop, df_taux = load_sources()
 
-    df_comm, df_ac, hh_controls     = build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop)
+    df_comm, df_ac, hh_controls     = build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_taux)
     df_cfix, cfix_controls          = build_charge_fixe(df_flux, df_log)
     df_reel, df_compt, df_hc        = build_resultats(df_flux)
     df_exploit, df_reg, df_vue      = build_net_proprietaire(df_comm, df_cfix, df_acc)

@@ -42,6 +42,8 @@ import openpyxl
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Font
 
+from lib_ref_history import resolve_management_period
+
 # ---------------------------------------------------------------------------
 # Chemins
 # ---------------------------------------------------------------------------
@@ -78,6 +80,23 @@ def load_sheet(path, sheet_name):
     ws = wb[sheet_name]
     rows = list(ws.iter_rows(values_only=True))
     wb.close()
+    non_empty = [r for r in rows if any(c is not None for c in r)]
+    if not non_empty:
+        return [], []
+    headers = list(non_empty[0])
+    data = non_empty[1:]
+    return headers, data
+
+
+def load_optional_sheet(path, sheet_name):
+    wb = load_workbook(path, read_only=True, data_only=True)
+    try:
+        if sheet_name not in wb.sheetnames:
+            return [], []
+        ws = wb[sheet_name]
+        rows = list(ws.iter_rows(values_only=True))
+    finally:
+        wb.close()
     non_empty = [r for r in rows if any(c is not None for c in r)]
     if not non_empty:
         return [], []
@@ -127,9 +146,15 @@ print(f"      {len(hh_dicts_raw)} lignes brutes, {len(hh_valides)} VALIDE retenu
 print("[4/5] Lecture REF_Setup (Mapping + Logements)...")
 h_map, d_map = load_sheet(PATH_REF, "REF_Mapping_Logements")
 h_log, d_log = load_sheet(PATH_REF, "REF_Logements")
+h_gest, d_gest = load_optional_sheet(PATH_REF, "REF_Gestion_Logements_Historique")
 map_dicts = rows_to_dicts(h_map, d_map)
 log_dicts  = rows_to_dicts(h_log, d_log)
-print(f"      {len(map_dicts)} mappings, {len(log_dicts)} logements")
+gest_dicts = rows_to_dicts(h_gest, d_gest) if h_gest else []
+gest_dicts = [
+    r for r in gest_dicts
+    if r.get("gestion_id") is not None and str(r.get("gestion_id")) != "gestion_id"
+]
+print(f"      {len(map_dicts)} mappings, {len(log_dicts)} logements, {len(gest_dicts)} gestions historisees")
 
 # Index mapping : listingMapId → logement_id (Hostaway, actif=OUI)
 ha_map_index = defaultdict(list)
@@ -230,6 +255,19 @@ def resolve_logement(listing_map_id, date_arrivee_str=None, date_depart_str=None
     if not proprietaire_id:
         ano_code = "PROPRIETAIRE_ABSENT"
         ano_msg  = f"Logement {logement_id} sans proprietaire_id"
+
+    if gest_dicts:
+        gest = resolve_management_period(
+            gest_dicts,
+            logement_id=logement_id,
+            date_arrivee=date_arrivee_str,
+            date_depart=date_depart_str,
+        )
+        if gest.status == "OK":
+            proprietaire_id = gest.value
+        else:
+            ano_code = f"GESTION_LOGEMENT_{gest.status}"
+            ano_msg = f"Logement {logement_id}: {gest.message}"
 
     return logement_id, proprietaire_id, ano_code, ano_msg
 

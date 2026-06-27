@@ -29,6 +29,8 @@ import json
 import openpyxl
 import pandas as pd
 
+from lib_ref_history import resolve_management_period
+
 # ---------------------------------------------------------------------------
 # Chemins
 # ---------------------------------------------------------------------------
@@ -74,6 +76,25 @@ def _read_sheet(path, sheet=None, keep_vba=False):
 def _read_ref_sheet(path, sheet, id_col):
     """Lecture REF_Setup.xlsm avec filtre anti-doublon-header."""
     df = _read_sheet(path, sheet=sheet, keep_vba=True)
+    df = df[df[id_col].astype(str) != id_col].reset_index(drop=True)
+    df = df[df[id_col].notna()].reset_index(drop=True)
+    return df
+
+
+def _read_optional_ref_sheet(path, sheet, id_col):
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True, keep_vba=True)
+    try:
+        if sheet not in wb.sheetnames:
+            return pd.DataFrame()
+        ws = wb[sheet]
+        it = ws.iter_rows(values_only=True)
+        headers = list(next(it))
+        rows = [dict(zip(headers, r)) for r in it]
+    finally:
+        wb.close()
+    df = pd.DataFrame(rows)
+    if len(df) == 0 or id_col not in df.columns:
+        return df
     df = df[df[id_col].astype(str) != id_col].reset_index(drop=True)
     df = df[df[id_col].notna()].reset_index(drop=True)
     return df
@@ -126,6 +147,8 @@ df_ik      = _read_sheet(IK_FILE,   sheet="MASTER_CALC_AVANTAGES")
 df_log  = _read_ref_sheet(REF_FILE, "REF_Logements",     "logement_id")
 df_prop = _read_ref_sheet(REF_FILE, "REF_Proprietaires", "proprietaire_id")
 df_map  = _read_ref_sheet(REF_FILE, "REF_Mapping_Logements", "mapping_logement_id")
+df_taux_hist = _read_optional_ref_sheet(REF_FILE, "REF_Taux_Commission", "taux_commission_id")
+df_gest_hist = _read_optional_ref_sheet(REF_FILE, "REF_Gestion_Logements_Historique", "gestion_id")
 
 # Sources vides — vide MÉTIER (F2 corrigé)
 # Une source ne contenant que des lignes placeholder Power Query / formule / sans
@@ -203,6 +226,79 @@ print(f"  Sources vides: {SOURCES_VIDES}")
 # ---------------------------------------------------------------------------
 
 ctrl_rows = []
+
+# ==========================================================================
+# GROUPE 0 - REFERENTIELS HISTORISES SENSIBLES
+# ==========================================================================
+print("CTR: Referentiels historises sensibles...")
+
+required_taux_cols = {
+    "taux_commission_id", "proprietaire_id", "logement_id", "taux_commission",
+    "date_debut", "date_fin", "actif", "justification", "commentaire",
+}
+required_gestion_cols = {
+    "gestion_id", "logement_id", "proprietaire_id", "date_debut", "date_fin",
+    "statut_gestion", "source", "commentaire",
+}
+
+if len(df_taux_hist) == 0:
+    _ctrl(ctrl_rows, "REF", "REF_Taux_Commission", None,
+          "TAUX_COMMISSION_HISTORIQUE_ABSENT_TRANSITOIRE", "A_CONTROLER",
+          "REF_Taux_Commission absent ou vide. Lot10 peut utiliser le taux non date "
+          "REF_Proprietaires uniquement en compatibilite transitoire; facture finale interdite.",
+          commentaire="Creer les taux dates avant cloture/facture finale.")
+else:
+    missing = sorted(required_taux_cols - set(df_taux_hist.columns))
+    if missing:
+        _ctrl(ctrl_rows, "REF", "REF_Taux_Commission", None,
+              "REF_TAUX_COMMISSION_SCHEMA_INCOMPLET", "BLOQUANT",
+              f"Colonnes manquantes dans REF_Taux_Commission: {missing}.")
+    if "controle_taux_commission" in df_com.columns:
+        bad = df_com[df_com["controle_taux_commission"].astype(str) != "OK"]
+        for _, row in bad.head(20).iterrows():
+            _ctrl(ctrl_rows, "COMMISSIONS", "MASTER_CALC_Commissions",
+                  row.get("flux_source_pk"),
+                  row.get("controle_taux_commission") or "TAUX_COMMISSION_A_CONTROLER",
+                  "BLOQUANT",
+                  f"Taux commission non historise correctement pour {row.get('flux_source_pk')}.",
+                  mois=row.get("mois"), logement_id=row.get("logement_id"),
+                  proprietaire_id=row.get("proprietaire_id"))
+
+if len(df_gest_hist) == 0:
+    _ctrl(ctrl_rows, "REF", "REF_Gestion_Logements_Historique", None,
+          "GESTION_LOGEMENT_HISTORIQUE_ABSENT_TRANSITOIRE", "A_CONTROLER",
+          "REF_Gestion_Logements_Historique absent ou vide. Les proprietaires/dates de gestion "
+          "proviennent encore de REF_Logements non historise; facture finale interdite.",
+          commentaire="Creer les periodes de gestion datees avant cloture/facture finale.")
+else:
+    missing = sorted(required_gestion_cols - set(df_gest_hist.columns))
+    if missing:
+        _ctrl(ctrl_rows, "REF", "REF_Gestion_Logements_Historique", None,
+              "REF_GESTION_LOGEMENTS_SCHEMA_INCOMPLET", "BLOQUANT",
+              f"Colonnes manquantes dans REF_Gestion_Logements_Historique: {missing}.")
+    else:
+        hist_rows = df_gest_hist.to_dict("records")
+        for _, row in df_res[df_res["statut_controle"].astype(str) == "VALIDE"].iterrows():
+            res = resolve_management_period(
+                hist_rows,
+                logement_id=row.get("logement_id"),
+                date_arrivee=row.get("date_arrivee"),
+                date_depart=row.get("date_depart"),
+            )
+            if res.status != "OK":
+                _ctrl(ctrl_rows, "RESERVATIONS", "MASTER_CALC_Reservations",
+                      row.get("reservation_calc_id"),
+                      f"GESTION_LOGEMENT_{res.status}", "BLOQUANT",
+                      f"Reservation hors periode/proprietaire de gestion: {res.message}",
+                      mois=row.get("mois"), logement_id=row.get("logement_id"),
+                      proprietaire_id=row.get("proprietaire_id"))
+            elif str(res.value) != str(row.get("proprietaire_id")):
+                _ctrl(ctrl_rows, "RESERVATIONS", "MASTER_CALC_Reservations",
+                      row.get("reservation_calc_id"),
+                      "PROPRIETAIRE_HISTORIQUE_DIVERGENT", "BLOQUANT",
+                      f"Reservation proprietaire={row.get('proprietaire_id')} mais historique={res.value}.",
+                      mois=row.get("mois"), logement_id=row.get("logement_id"),
+                      proprietaire_id=row.get("proprietaire_id"))
 
 # ==========================================================================
 # GROUPE 1 - PK DOUBLONS (transverse)
