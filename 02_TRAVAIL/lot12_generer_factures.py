@@ -167,7 +167,9 @@ for _, r in df_reg.iterrows():
         "revenu_net_exploitation": _n(r.get("net_proprietaire_apres_charge_mois")),
         "montant_du": _n(r.get("montant_du_conciergerie")),
         "acomptes": _n(r.get("autres_acomptes_recus")),
+        "airbnb_impute": _n(r.get("acompte_conciergerie_recu_via_airbnb")),
         "reste_a_payer": _n(r.get("reste_a_payer_conciergerie")),
+        "credit_a_traiter": _n(r.get("credit_a_traiter")),
         "nb_reservations": int(_n(r.get("nb_reservations"))),
         "statut": "CONTROLE_GLOBAL_NON_AFFECTE" if log_id == SENTINEL_GLOBAL else "RATTACHE_PROPRIETAIRE",
     }
@@ -215,6 +217,8 @@ for _, r in df_reg.iterrows():
         balises.append("{{BANQUE_NON_CLOTUREE}}")
     if a_controler > 0:
         balises.append("{{RESERVATIONS_A_CONTROLER}}")
+    if rec["credit_a_traiter"] > 0:
+        balises.append("{{TROP_PERCU_CREDIT_A_TRAITER}}")
     if rec["acomptes"] == 0.0:
         balises.append("{{ACOMPTES_NON_ALIMENTES}}")
     if donnees_partielles:
@@ -235,6 +239,7 @@ for _, r in df_reg.iterrows():
         "total_exploitation_net": rec["revenu_net_exploitation"],
         "total_reglement_du": rec["montant_du"],
         "reste_a_payer": rec["reste_a_payer"],
+        "credit_a_traiter": rec["credit_a_traiter"],
         "mode_facturation": mode_fact,
         "statut_facture": statut_facture,
         "statut_generation": statut_generation,
@@ -250,7 +255,7 @@ for _, r in df_reg.iterrows():
         (4,  "CHARGE_FIXE",             "Charge fixe mensuelle",                            rec["charge_fixe"],             "EXPLOITATION"),
         (5,  "REVENU_NET_EXPLOITATION", "Revenu net d'exploitation propriétaire",           rec["revenu_net_exploitation"], "EXPLOITATION"),
         (6,  "MONTANT_DU",              "Montant total dû à la conciergerie",               rec["montant_du"],              "REGLEMENT"),
-        (7,  "ACOMPTE_AIRBNB",          "Acompte reçu via Airbnb",                          0.0,                            "REGLEMENT"),
+        (7,  "ACOMPTE_AIRBNB",          "Acompte reçu via Airbnb",                          rec["airbnb_impute"],           "REGLEMENT"),
         (8,  "PAIEMENT_DEJA_RECU",      "Autres paiements déjà reçus",                      0.0,                            "REGLEMENT"),
         (9,  "RESTE_A_PAYER",           "Reste à payer à la conciergerie",                  rec["reste_a_payer"],           "REGLEMENT"),
         (10, "CHARGES_EXCEPT_REFAC",    "Charges / achats exceptionnels refacturés",        0.0,                            "REGLEMENT"),
@@ -323,6 +328,19 @@ if n_adef > 0:
         "impact_facturation": "BLOQUE_FACTURE_FINALE",
         "message": f"{n_adef} proprietaires sans mode_facturation",
     })
+if len(df_entete) > 0 and "credit_a_traiter" in df_entete.columns:
+    credits = df_entete[pd.to_numeric(df_entete["credit_a_traiter"], errors="coerce").fillna(0) > 0]
+    for _, row in credits.iterrows():
+        ac_rows.append({
+            "mois": row.get("mois"),
+            "proprietaire_id": row.get("proprietaire_id"),
+            "logement_id": row.get("logement_id"),
+            "reservation": None,
+            "code_anomalie": "TROP_PERÇU / CRÉDIT À TRAITER",
+            "severite": "A_CONTROLER",
+            "impact_facturation": "BLOQUE_FACTURE_FINALE",
+            "message": f"Credit a traiter {row.get('credit_a_traiter')} EUR sur {row.get('facture_id')}.",
+        })
 df_acout = pd.DataFrame(ac_rows)
 
 

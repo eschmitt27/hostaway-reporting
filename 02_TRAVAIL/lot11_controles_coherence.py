@@ -30,6 +30,12 @@ import openpyxl
 import pandas as pd
 
 from lib_ref_history import resolve_management_period
+from lib_settlements import (
+    AIRCOVER_REQUIRED_COLUMNS,
+    AIRBNB_IMPUTATION_REQUIRED_COLUMNS,
+    aircover_auto_impact,
+    validated_airbnb_imputation,
+)
 
 # ---------------------------------------------------------------------------
 # Chemins
@@ -51,6 +57,8 @@ M04_FILE    = BASE / "02_DONNEES_NORMALISEES/menages/M04_MENAGES_PowerQuery.xlsx
 IK_FILE     = BASE / "02_TRAVAIL/Lot7_IK_Avantages/MASTER_FACT_MAN_IK_Avantages.xlsx"
 REF_FILE    = BASE / "01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm"
 BNQ_FILE    = BASE / "02_TRAVAIL/Lot8_Banque/BANQUE_LOT8_IMPORT.xlsx"
+AIRCOVER_FILE = BASE / "02_TRAVAIL/Lot8_Banque/MASTER_FACT_AirCover.xlsx"
+AIRBNB_IMPUT_FILE = BASE / "02_TRAVAIL/Lot5_AcomptesProprietaires/MASTER_FACT_MAN_ImputationsAirbnb.xlsx"
 
 OUT_DIR     = BASE / "02_TRAVAIL/Lot11_Controles"
 OUT_FILE    = OUT_DIR / "MASTER_CTRL_Coherence.xlsx"
@@ -98,6 +106,12 @@ def _read_optional_ref_sheet(path, sheet, id_col):
     df = df[df[id_col].astype(str) != id_col].reset_index(drop=True)
     df = df[df[id_col].notna()].reset_index(drop=True)
     return df
+
+
+def _read_optional_file_sheet(path, sheet):
+    if not path.exists():
+        return pd.DataFrame()
+    return _read_sheet(path, sheet=sheet)
 
 
 def _ctrl(ctrl_rows, source_module, source_table, source_pk,
@@ -227,6 +241,9 @@ print(f"  Sources vides: {SOURCES_VIDES}")
 
 ctrl_rows = []
 
+df_aircover = _read_optional_file_sheet(AIRCOVER_FILE, "MASTER")
+df_airbnb_imp = _read_optional_file_sheet(AIRBNB_IMPUT_FILE, "MASTER")
+
 # ==========================================================================
 # GROUPE 0 - REFERENTIELS HISTORISES SENSIBLES
 # ==========================================================================
@@ -290,6 +307,57 @@ else:
                       row.get("reservation_calc_id"),
                       f"GESTION_LOGEMENT_{res.status}", "BLOQUANT",
                       f"Reservation hors periode/proprietaire de gestion: {res.message}",
+                      mois=row.get("mois"), logement_id=row.get("logement_id"),
+                      proprietaire_id=row.get("proprietaire_id"))
+
+# ==========================================================================
+# GROUPE 0B - AIRBNB IMPUTE / AIRCOVER
+# ==========================================================================
+print("CTR: Airbnb impute et AirCover...")
+
+if len(df_airbnb_imp) == 0:
+    _ctrl(ctrl_rows, "REGLEMENT", "MASTER_FACT_MAN_ImputationsAirbnb", None,
+          "AIRBNB_IMPUTATIONS_ABSENTES", "INFO",
+          "Aucune imputation Airbnb validee disponible. Les virements Airbnb bancaires ne reduisent pas le reste a payer.")
+else:
+    missing = sorted(set(AIRBNB_IMPUTATION_REQUIRED_COLUMNS) - set(df_airbnb_imp.columns))
+    if missing:
+        _ctrl(ctrl_rows, "REGLEMENT", "MASTER_FACT_MAN_ImputationsAirbnb", None,
+              "AIRBNB_IMPUTATIONS_SCHEMA_INCOMPLET", "BLOQUANT",
+              f"Colonnes manquantes: {missing}.")
+    else:
+        for _, row in df_airbnb_imp.iterrows():
+            ok, code = validated_airbnb_imputation(row.to_dict())
+            if not ok:
+                _ctrl(ctrl_rows, "REGLEMENT", "MASTER_FACT_MAN_ImputationsAirbnb",
+                      row.get("imputation_airbnb_id"), code, "A_CONTROLER",
+                      "Versement Airbnb non impute avec certitude; aucun impact sur payout/commission/net.",
+                      mois=row.get("mois"), logement_id=row.get("logement_id"),
+                      proprietaire_id=row.get("proprietaire_id"))
+
+if len(df_aircover) == 0:
+    _ctrl(ctrl_rows, "AIRCOVER", "MASTER_FACT_AirCover", None,
+          "AIRCOVER_SOURCE_ABSENTE", "INFO",
+          "Aucune table AirCover dediee disponible. Aucun AirCover ne peut modifier automatiquement payout, commission ou net.")
+else:
+    missing = sorted(set(AIRCOVER_REQUIRED_COLUMNS) - set(df_aircover.columns))
+    if missing:
+        _ctrl(ctrl_rows, "AIRCOVER", "MASTER_FACT_AirCover", None,
+              "AIRCOVER_SCHEMA_INCOMPLET", "BLOQUANT",
+              f"Colonnes manquantes: {missing}.")
+    else:
+        for _, row in df_aircover.iterrows():
+            payout_delta, commission_delta, net_delta, code = aircover_auto_impact(row.to_dict())
+            if any(v != 0 for v in (payout_delta, commission_delta, net_delta)):
+                _ctrl(ctrl_rows, "AIRCOVER", "MASTER_FACT_AirCover",
+                      row.get("aircover_id"), "AIRCOVER_IMPACT_AUTOMATIQUE_INTERDIT", "BLOQUANT",
+                      "AirCover ne doit jamais modifier automatiquement payout, commission ou net.",
+                      mois=row.get("mois"), logement_id=row.get("logement_id"),
+                      proprietaire_id=row.get("proprietaire_id"))
+            if code == "AIRCOVER_A_CONTROLER":
+                _ctrl(ctrl_rows, "AIRCOVER", "MASTER_FACT_AirCover",
+                      row.get("aircover_id"), code, "A_CONTROLER",
+                      "AirCover sans traitement explicite et justificatif; aucun impact automatique.",
                       mois=row.get("mois"), logement_id=row.get("logement_id"),
                       proprietaire_id=row.get("proprietaire_id"))
             elif str(res.value) != str(row.get("proprietaire_id")):
