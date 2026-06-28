@@ -146,7 +146,8 @@ def resolve_management_period(
     if start is None:
         return Resolution("MISSING", message="Date d'arrivee absente")
 
-    candidates = []
+    dated_candidates = []
+    undated_candidates = []
     for row in rows:
         if norm_text(row.get("logement_id")) != log:
             continue
@@ -157,7 +158,15 @@ def resolve_management_period(
         period_end = parse_date(row.get("date_fin"))
         if period_end is not None and end is not None and end > period_end:
             return Resolution("OUT_OF_PERIOD", row=row, message="Sejour chevauche la fin de gestion")
-        candidates.append(row)
+        if parse_date(row.get("date_debut")) is None:
+            undated_candidates.append(row)
+        else:
+            dated_candidates.append(row)
+
+    # A dated explicit management period is more specific than an undated
+    # historical line whose start is unknown. Undated rows are only used when
+    # they are the sole applicable source for the stay.
+    candidates = dated_candidates or undated_candidates
 
     if not candidates:
         return Resolution("MISSING", message="Aucune periode de gestion applicable")
@@ -167,4 +176,11 @@ def resolve_management_period(
     row = candidates[0]
     if is_blank(row.get("proprietaire_id")):
         return Resolution("MISSING_OWNER", row=row, message="Periode sans proprietaire")
+    if parse_date(row.get("date_debut")) is None:
+        return Resolution(
+            "OK",
+            value=row.get("proprietaire_id"),
+            row=row,
+            message="Date de debut de gestion absente: historique anterieur ou inconnu non bloquant",
+        )
     return Resolution("OK", value=row.get("proprietaire_id"), row=row)

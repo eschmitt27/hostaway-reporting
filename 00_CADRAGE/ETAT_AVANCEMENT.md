@@ -460,7 +460,7 @@ Fichiers sources NON modifiés (HA_Reservations, Payout, HH, Banque brute)
 - D043 : Priorité Excel avant Power BI — aucun dashboard `.pbix` livré par les lots — VERROUILLÉ (P32)
 - D044 : Séparation statut_controle / niveau_anomalie — `statut_controle` : VALIDE/A_CONTROLER/EXCLU_RESULTAT/A_VENTILER (Lot 3+) ; `niveau_anomalie` : INFO/A_CONTROLER/BLOQUANT — VERROUILLÉ (DM-L3-01)
 - D045 : REF_Charges_Recurrentes — table des montants paramétrables (forfaits, loyers) ; aucun montant fixe codé en dur dans formules/PQ/scripts — VERROUILLÉ
-- D052 : logement_id via JOIN REF_Mapping_Logements (listingMapId, HA) ; proprietaire_id via JOIN REF_Logements ; anomalies LOGEMENT_NON_MAPPE + MAPPING_MULTIPLE — VERROUILLÉ (QM-L4b-01)
+- D052 : logement_id via JOIN REF_Mapping_Logements (listingMapId, HA) ; proprietaire_id r?solu via REF_Gestion_Logements_Hist ; anomalies LOGEMENT_NON_MAPPE + MAPPING_MULTIPLE + GESTION_LOGEMENT_MISSING/AMBIGUE ? VERROUILL? (QM-L4b-01)
 - D053 : MASTER_CALC_Reservations 24 cols ; source 7 valeurs ; source_montant 5 valeurs ; +niveau_anomalie +code_anomalie ; contrôle RESERVATION_HH_NON_VALIDE — VERROUILLÉ (QM-L4b-02)
 - D054 : Anti-double-comptage 7 scénarios ; DOUBLON HA-HH BLOQUANT ; CALC_ID_DUPLIQUE BLOQUANT — VERROUILLÉ (QM-L4b-03)
 - D055 : mois = TEXT YYYY-MM depuis checkInDate (HA) / direct (HH) — VERROUILLÉ (QM-L4b-04)

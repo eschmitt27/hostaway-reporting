@@ -435,15 +435,14 @@ sans déduire le canal depuis un commentaire libre.
 Contrôle associé : `RESH_CANAL_MANQUANT` (BLOQUANT).
 Tables : SAISIE_ReservationsHorsHostaway.xlsx, MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx
 
-### D047 — taux_commission depuis référentiel prioritaire, fallback contrôlé (QM-L4-02)
-Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
-Décision : `taux_commission` est pré-rempli par VLOOKUP depuis `REF_Proprietaires.taux_commission`.
-  - Si trouvé → `taux_commission_source = REF_PROPRIETAIRE`.
-  - Si absent du référentiel → formule vide, `taux_commission_source = A_CONTROLER`.
-  - Saisie manuelle autorisée en fallback : `taux_commission_source = SAISIE_MANUELLE`.
-Aucun taux ne peut être deviné ou codé en dur. Colonne `commentaire_taux_commission` obligatoire
-si `taux_commission_source = SAISIE_MANUELLE`.
-Tables : SAISIE_ReservationsHorsHostaway.xlsx, REF_Proprietaires (REF_Setup.xlsm)
+### D047 ? taux_commission depuis r?f?rentiel dat? unique (QM-L4-02)
+Date : 2026-06-09 | Statut : REMPLAC? PAR SOURCE UNIQUE 2026-06-28
+D?cision : `taux_commission` est r?solu uniquement depuis `REF_Taux_Commission`, selon propri?taire/logement et date de r?servation.
+  - Si un taux unique est applicable ? `taux_commission_source = REF_Taux_Commission`.
+  - Si aucun taux dat? n'est applicable ? contr?le BLOQUANT, aucune facture finale.
+  - Si plusieurs taux sont applicables ? contr?le BLOQUANT, aucune facture finale.
+Aucun taux non dat?, manuel, devin? ou cod? en dur ne peut alimenter un calcul r?el.
+Tables : REF_Taux_Commission (REF_Setup.xlsm), MASTER_CALC_Reservations.xlsx
 
 ### D048 — VRBO Unknown dans SAISIE_ReservationsHorsHostaway (QM-L4-03)
 Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
@@ -483,10 +482,10 @@ Tables : SAISIE_ReservationsHorsHostaway.xlsx, MASTER_FACT_MAN_ReservationsHorsH
 
 ### D052 — Mapping logement_id depuis listingMapId pour branche HA (QM-L4b-01)
 Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ
-Décision : Pour la branche HA, `logement_id` est obtenu via JOIN sur `REF_Mapping_Logements` (colonne `listingMapId`), actifs uniquement. `proprietaire_id` est obtenu via JOIN sur `REF_Logements` depuis `logement_id`. Pour la branche HH, les deux champs viennent directement de la saisie (Lot 4).
+D?cision : Pour la branche HA, `logement_id` est obtenu via JOIN sur `REF_Mapping_Logements` (colonne `listingMapId`), actifs uniquement. `proprietaire_id` est r?solu uniquement depuis `REF_Gestion_Logements_Hist` selon `logement_id` et dates de s?jour. Pour la branche HH, `logement_id` vient de la saisie et `proprietaire_id` est ?galement r?solu depuis `REF_Gestion_Logements_Hist`.
   Contrôle `RESERVATION_LOGEMENT_NON_MAPPE` (A_CONTROLER) : `listingMapId` absent de `REF_Mapping_Logements` actifs.
   Contrôle `RESERVATION_MAPPING_MULTIPLE` (A_CONTROLER) : plusieurs lignes actives pour un même `listingMapId` dans `REF_Mapping_Logements`.
-Tables : MASTER_CALC_Reservations, REF_Mapping_Logements, REF_Logements
+Tables : MASTER_CALC_Reservations, REF_Mapping_Logements, REF_Gestion_Logements_Hist
 
 ### D053 — Structure 24 colonnes et valeurs fermées source / source_montant (QM-L4b-02)
 Date : 2026-06-09 | Statut : VALIDÉ — VERROUILLÉ

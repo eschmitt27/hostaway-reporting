@@ -430,7 +430,7 @@ revenu_net_exploitation_proprietaire = TotalPayout − MenageFacture − Commiss
 | `total_payout` | PayoutPlateforme |
 | `menage_facture` | Ménage retenu (§8.3) |
 | `base_commission` | `total_payout − menage_facture` |
-| `taux_commission` | Taux `REF_Proprietaires` |
+| `taux_commission` | Taux dat? r?solu depuis `REF_Taux_Commission` |
 | `commission_conciergerie` | `base_commission × taux_commission` |
 | `charge_fixe_mensuelle` | Forfait fixe contractuel |
 | `revenu_net_exploitation_proprietaire` | `total_payout − menage_facture − commission_conciergerie − charge_fixe_mensuelle` |
@@ -470,7 +470,7 @@ Type de flux `RESERVATION_HORS_HOSTAWAY` (code impact défaut `HC`, sauf `compta
 | `reservation_hh_id` (PK) | Clé séquentielle (`RESHH_0001`) |
 | `ROW_HASH` | Hash de ligne |
 | `mois` | Mois de rattachement |
-| `proprietaire_id`, `logement_id` | Affectation (`REF_Proprietaires` / `REF_Logements`) |
+| `proprietaire_id`, `logement_id` | Affectation : `logement_id` saisi ou mapp?, `proprietaire_id` d?riv? depuis `REF_Gestion_Logements_Hist` |
 | `reservation_id_hostaway` | Lien optionnel si la résa existe dans Hostaway |
 | `date_arrivee`, `date_depart`, `nuits` | Séjour |
 | `total_percu` | Total réellement encaissé |
@@ -1188,7 +1188,7 @@ Obligatoire pour les tables manuelles ; les tables Hostaway conservent les IDs A
 ```text
 REF_Logements.hostaway_listing_id ──► MASTER_REF_HA_Listings.listingMapId
 REF_Logements.logement_id ──────────► toutes les tables MAN_* (affectation)
-REF_Logements.proprietaire_id ──────► REF_Proprietaires.proprietaire_id
+REF_Gestion_Logements_Hist.proprietaire_id ??????? REF_Proprietaires.proprietaire_id
 REF_Logements.type_logement_id ─────► REF_Types_Logements / REF_Couts_Standards_Menage
 REF_Mapping_Logements ──────────────► résolution libellés sources → logement_id
 toute charge/flux ──► REF_Categories_Charges / REF_Types_Flux / REF_Codes_Impact

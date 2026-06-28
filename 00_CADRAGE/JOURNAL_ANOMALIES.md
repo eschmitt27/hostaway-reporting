@@ -22,6 +22,9 @@ Résolution : action prise ou raison d'ignorer
 
 ## Anomalies ouvertes
 
+Note source de v?rit? 2026-06-28 : `REF_Gestion_Logements_Hist` est l'unique source officielle propri?taire/logement dat?e et `REF_Taux_Commission` l'unique source officielle des taux de commission. Toute valeur affich?e doit ?tre d?riv?e, jamais ressaisie comme seconde source.
+
+
 ### ANO-2026-06-001
 Date : 2026-06-04 | Lot : 1 — Hostaway | Sévérité : A_CONTROLER | Statut : CORRIGÉ 2026-06-08
 Code : LISTING_ORPHELIN_A_CONTROLER

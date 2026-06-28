@@ -18,7 +18,6 @@ bruts, noms voyageurs, .env/secrets/tokens.
 
 import sys, os, csv, re, warnings, datetime
 warnings.filterwarnings("ignore")
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import openpyxl
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -73,10 +72,14 @@ EXPORTS = [
  ("PBI_Controles_Ouverts", f"{T}/Lot11_Controles/MASTER_CTRL_Coherence.xlsx", "A_CONTROLER_OUVERTS",
   ["ctrl_pk","code_controle","severity","mois","logement_id","proprietaire_id","message","statut_resolution"]),
  ("PBI_Referentiel_Logements", REF, "REF_Logements",
-  ["logement_id","nom_logement_officiel","nom_court","ville","type_logement_id","proprietaire_id",
+  ["logement_id","nom_logement_officiel","nom_court","ville","type_logement_id",
    "date_entree_gestion","date_sortie_gestion","sur_hostaway","actif","forfait_logiciel_consommables_mensuel"]),
+ ("PBI_Referentiel_Gestion_Logements", REF, "REF_Gestion_Logements_Hist",
+  ["gestion_id","logement_id","proprietaire_id","date_debut","date_fin","statut_gestion","source"]),
  ("PBI_Referentiel_Proprietaires", REF, "REF_Proprietaires",
-  ["proprietaire_id","nom_proprietaire","mode_facturation","taux_commission","actif"]),
+  ["proprietaire_id","nom_proprietaire","mode_facturation","actif"]),
+ ("PBI_Referentiel_Taux_Commission", REF, "REF_Taux_Commission",
+  ["taux_commission_id","proprietaire_id","logement_id","taux_commission","date_debut","date_fin","actif"]),
 ]
 # Prefact entête : on ajoute aussi quelques champs entête NON sensibles via un export secondaire optionnel — non requis ici.
 
@@ -86,6 +89,8 @@ def val(v):
     return str(v)
 
 def main():
+    warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     os.makedirs(OUTD, exist_ok=True)
     dico = []   # (table, colonne)
     rapport = []

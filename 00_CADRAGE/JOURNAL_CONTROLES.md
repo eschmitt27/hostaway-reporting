@@ -739,12 +739,12 @@ Fichier    : 01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm (lecture V1/V2)
 Résultat   : Audit structurel Lot 4 — 0 FAIL.
              V1 REF_Canaux_Reservation : CANAL_003 VRBO / CANAL_004 Direct / CANAL_005 Autre présents, actifs.
                Aucune modification REF_Setup.xlsm nécessaire.
-             V2 REF_Proprietaires : colonne taux_commission présente (12 proprios actifs, valeurs réelles 0.15–0.19).
-               REF_Logements sans taux → source = REF_PROPRIETAIRE via VLOOKUP.
+             V2 remplac? : `REF_Taux_Commission` est la seule source officielle des taux dat?s.
+               l'ancienne colonne non dat?e de `REF_Proprietaires` et tout VLOOKUP associ? sont d?commissionn?s.
              SAISIE_ReservationsHorsHostaway.xlsx :
                - 4 onglets (SAISIE, REF_LOCALE, CONTROLES_SAISIE, README).
                - 30 colonnes SAISIE conformes au cadrage validé (groupes 1 à 9).
-               - 11 listes REF_LOCALE + lookup taux 2-col (lst_PropTauxLookup) pour VLOOKUP taux_commission.
+               - les taux sont r?solus en aval depuis `REF_Taux_Commission`; aucun VLOOKUP taux non dat? ne doit alimenter les calculs r?els.
                - 11 DV (10 plan + niveau_anomalie pour cohérence Lot 3).
                - 13 contrôles CONTROLES_SAISIE (CTR-L4-01 à CTR-L4-13).
                - Formules calculées 500 lignes : mois, nuits, taux_commission, taux_commission_source,

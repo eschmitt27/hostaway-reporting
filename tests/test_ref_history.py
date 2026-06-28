@@ -106,6 +106,69 @@ class ManagementHistoryTests(unittest.TestCase):
         self.assertEqual(may.value, "PROP_OLD")
         self.assertEqual(june.value, "PROP_NEW")
 
+
+    def test_single_undated_management_line_resolves_non_blocking(self):
+        rows = [
+            {
+                "gestion_id": "GST_UNKNOWN_START",
+                "logement_id": "LOG_1",
+                "proprietaire_id": "PROP_1",
+                "date_debut": "",
+                "date_fin": "",
+                "statut_gestion": "ACTIF",
+            },
+        ]
+        res = resolve_management_period(rows, logement_id="LOG_1", date_arrivee="2026-05-10")
+        self.assertEqual(res.status, "OK")
+        self.assertEqual(res.value, "PROP_1")
+        self.assertIn("Date de debut", res.message)
+
+    def test_dated_management_period_overrides_undated_line(self):
+        rows = [
+            {
+                "gestion_id": "GST_UNKNOWN_START",
+                "logement_id": "LOG_1",
+                "proprietaire_id": "PROP_OLD",
+                "date_debut": "",
+                "date_fin": "",
+                "statut_gestion": "ACTIF",
+            },
+            {
+                "gestion_id": "GST_DATED",
+                "logement_id": "LOG_1",
+                "proprietaire_id": "PROP_NEW",
+                "date_debut": "2026-05-01",
+                "date_fin": "",
+                "statut_gestion": "ACTIF",
+            },
+        ]
+        res = resolve_management_period(rows, logement_id="LOG_1", date_arrivee="2026-05-10")
+        self.assertEqual(res.status, "OK")
+        self.assertEqual(res.value, "PROP_NEW")
+        self.assertEqual(res.row["gestion_id"], "GST_DATED")
+
+    def test_two_undated_management_candidates_are_blocking(self):
+        rows = [
+            {
+                "gestion_id": "GST_A",
+                "logement_id": "LOG_1",
+                "proprietaire_id": "PROP_A",
+                "date_debut": "",
+                "date_fin": "",
+                "statut_gestion": "ACTIF",
+            },
+            {
+                "gestion_id": "GST_B",
+                "logement_id": "LOG_1",
+                "proprietaire_id": "PROP_B",
+                "date_debut": "",
+                "date_fin": "",
+                "statut_gestion": "ACTIF",
+            },
+        ]
+        res = resolve_management_period(rows, logement_id="LOG_1", date_arrivee="2026-05-10")
+        self.assertEqual(res.status, "AMBIGUOUS")
+
     def test_stay_after_exit_is_missing(self):
         rows = [
             {

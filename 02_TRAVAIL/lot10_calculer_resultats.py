@@ -7,7 +7,7 @@ Sources (lecture seule):
   MASTER_CALC_Flux.xlsx           (Lot 9)
   MASTER_CALC_Reservations.xlsx   (Lot 4bis)
   MASTER_CALC_HA_Payout.xlsx      (Lot 1)
-  REF_Setup.xlsm                  (REF_Logements, REF_Proprietaires)
+  REF_Setup.xlsm                  (REF_Logements, REF_Taux_Commission)
 
 Sorties:
   02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Commissions.xlsx
@@ -62,11 +62,6 @@ NET_FILE    = OUT_DIR / "MASTER_CALC_NetProprietaire.xlsx"
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging
 # ─────────────────────────────────────────────────────────────────────────────
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)-8s %(message)s",
-    datefmt="%H:%M:%S",
-)
 log = logging.getLogger("lot10")
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -181,7 +176,6 @@ def load_sources():
         df_taux = df_taux[df_taux["taux_commission_id"].notna()].reset_index(drop=True)
 
     # Numeric conversions
-    df_prop["taux_commission"] = pd.to_numeric(df_prop["taux_commission"], errors="coerce")
     df_log["forfait_logiciel_consommables_mensuel"] = pd.to_numeric(
         df_log["forfait_logiciel_consommables_mensuel"], errors="coerce"
     ).fillna(0.0)
@@ -265,7 +259,6 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
     df_hhb  = df_j[~is_ha & ~is_vrbo].copy()
     log.info(f"  Routage : {len(df_ha)} Hostaway / {len(df_vrbo)} VRBO / {len(df_hhb)} HH")
 
-    df_prop_sel = df_prop[["proprietaire_id", "taux_commission"]].copy()
     taux_history = df_taux.to_dict("records") if len(df_taux) > 0 else []
 
     def _attach_commission_rate(df: pd.DataFrame, branch: str) -> pd.DataFrame:
@@ -275,21 +268,16 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
                 df[col] = None
             return df
         if not taux_history:
-            out = df.merge(
-                df_prop_sel, left_on="proprietaire_id_eff", right_on="proprietaire_id",
-                how="left", suffixes=("", "_ref"),
-            )
+            out = df.copy()
+            out["taux_commission"] = None
             out["taux_commission_id"] = None
-            out["taux_commission_source"] = "REF_Proprietaires.taux_commission_TRANSITOIRE"
-            out["controle_taux_commission"] = "TAUX_COMMISSION_HISTORIQUE_ABSENT_TRANSITOIRE"
+            out["taux_commission_source"] = "REF_Taux_Commission"
+            out["controle_taux_commission"] = "TAUX_COMMISSION_HISTORIQUE_ABSENT"
             taux_controls.append({
                 "reservation": None,
-                "code_anomalie": "TAUX_COMMISSION_HISTORIQUE_ABSENT_TRANSITOIRE",
-                "niveau": "A_CONTROLER",
-                "message": (
-                    f"{branch}: REF_Taux_Commission absent ou vide; utilisation transitoire "
-                    "du taux non date REF_Proprietaires. Facture finale interdite sans taux historise."
-                ),
+                "code_anomalie": "TAUX_COMMISSION_HISTORIQUE_ABSENT",
+                "niveau": "BLOQUANT",
+                "message": f"{branch}: REF_Taux_Commission absent ou vide; aucun taux non date autorise.",
             })
             return out
 
@@ -1148,6 +1136,11 @@ def print_controls(
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
 def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)-8s %(message)s",
+        datefmt="%H:%M:%S",
+    )
     log.info("=" * 65)
     log.info("LOT 10 — Calcul resultats, commissions, net proprietaire")
     log.info(f"Date : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
