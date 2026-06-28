@@ -29,7 +29,7 @@ import json
 import openpyxl
 import pandas as pd
 
-from lib_ref_history import resolve_management_period
+from lib_ref_history import REF_GESTION_LOGEMENTS_HIST_SHEET, resolve_management_period
 from lib_controls import default_impact_facture, facture_control_counts
 from lib_cloture import (
     REQUIRED_AJUSTEMENT_COLUMNS,
@@ -64,9 +64,9 @@ M04_FILE    = BASE / "02_DONNEES_NORMALISEES/menages/M04_MENAGES_PowerQuery.xlsx
 IK_FILE     = BASE / "02_TRAVAIL/Lot7_IK_Avantages/MASTER_FACT_MAN_IK_Avantages.xlsx"
 REF_FILE    = BASE / "01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm"
 BNQ_FILE    = BASE / "02_TRAVAIL/Lot8_Banque/BANQUE_LOT8_IMPORT.xlsx"
-AIRCOVER_FILE = BASE / "02_TRAVAIL/Lot8_Banque/MASTER_FACT_AirCover.xlsx"
-AIRBNB_IMPUT_FILE = BASE / "02_TRAVAIL/Lot5_AcomptesProprietaires/MASTER_FACT_MAN_ImputationsAirbnb.xlsx"
-AJUST_FILE = BASE / "02_TRAVAIL/LotCloture_Ajustements/SAISIE_Ajustements_PostCloture.xlsx"
+AIRCOVER_FILE = BASE / "01_SOURCES_BRUTES/AirCover/SAISIE_AirCover.xlsx"
+AIRBNB_IMPUT_FILE = BASE / "01_SOURCES_BRUTES/ImputationsAirbnb/SAISIE_ImputationsAirbnb.xlsx"
+AJUST_FILE = BASE / "01_SOURCES_BRUTES/AjustementsPostCloture/SAISIE_Ajustements_PostCloture.xlsx"
 
 OUT_DIR     = BASE / "02_TRAVAIL/Lot11_Controles"
 OUT_FILE    = OUT_DIR / "MASTER_CTRL_Coherence.xlsx"
@@ -175,7 +175,7 @@ df_log  = _read_ref_sheet(REF_FILE, "REF_Logements",     "logement_id")
 df_prop = _read_ref_sheet(REF_FILE, "REF_Proprietaires", "proprietaire_id")
 df_map  = _read_ref_sheet(REF_FILE, "REF_Mapping_Logements", "mapping_logement_id")
 df_taux_hist = _read_optional_ref_sheet(REF_FILE, "REF_Taux_Commission", "taux_commission_id")
-df_gest_hist = _read_optional_ref_sheet(REF_FILE, "REF_Gestion_Logements_Historique", "gestion_id")
+df_gest_hist = _read_optional_ref_sheet(REF_FILE, REF_GESTION_LOGEMENTS_HIST_SHEET, "gestion_id")
 
 # Sources vides — vide MÉTIER (F2 corrigé)
 # Une source ne contenant que des lignes placeholder Power Query / formule / sans
@@ -296,7 +296,7 @@ else:
                   proprietaire_id=row.get("proprietaire_id"))
 
 if len(df_gest_hist) == 0:
-    _ctrl(ctrl_rows, "REF", "REF_Gestion_Logements_Historique", None,
+    _ctrl(ctrl_rows, "REF", REF_GESTION_LOGEMENTS_HIST_SHEET, None,
           "GESTION_LOGEMENT_HISTORIQUE_ABSENT_TRANSITOIRE", "A_CONTROLER",
           "REF_Gestion_Logements_Historique absent ou vide. Les proprietaires/dates de gestion "
           "proviennent encore de REF_Logements non historise; facture finale interdite.",
@@ -304,7 +304,7 @@ if len(df_gest_hist) == 0:
 else:
     missing = sorted(required_gestion_cols - set(df_gest_hist.columns))
     if missing:
-        _ctrl(ctrl_rows, "REF", "REF_Gestion_Logements_Historique", None,
+        _ctrl(ctrl_rows, "REF", REF_GESTION_LOGEMENTS_HIST_SHEET, None,
               "REF_GESTION_LOGEMENTS_SCHEMA_INCOMPLET", "BLOQUANT",
               f"Colonnes manquantes dans REF_Gestion_Logements_Historique: {missing}.")
     else:

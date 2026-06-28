@@ -11,6 +11,9 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 
 
+REF_GESTION_LOGEMENTS_HIST_SHEET = "REF_Gestion_Logements_Hist"
+
+
 class RefHistoryError(ValueError):
     """Raised when a dated reference cannot be resolved safely."""
 

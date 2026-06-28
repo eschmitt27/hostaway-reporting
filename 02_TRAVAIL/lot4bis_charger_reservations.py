@@ -42,7 +42,7 @@ import openpyxl
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Font
 
-from lib_ref_history import resolve_management_period
+from lib_ref_history import REF_GESTION_LOGEMENTS_HIST_SHEET, resolve_management_period
 
 # ---------------------------------------------------------------------------
 # Chemins
@@ -146,7 +146,7 @@ print(f"      {len(hh_dicts_raw)} lignes brutes, {len(hh_valides)} VALIDE retenu
 print("[4/5] Lecture REF_Setup (Mapping + Logements)...")
 h_map, d_map = load_sheet(PATH_REF, "REF_Mapping_Logements")
 h_log, d_log = load_sheet(PATH_REF, "REF_Logements")
-h_gest, d_gest = load_optional_sheet(PATH_REF, "REF_Gestion_Logements_Historique")
+h_gest, d_gest = load_optional_sheet(PATH_REF, REF_GESTION_LOGEMENTS_HIST_SHEET)
 map_dicts = rows_to_dicts(h_map, d_map)
 log_dicts  = rows_to_dicts(h_log, d_log)
 gest_dicts = rows_to_dicts(h_gest, d_gest) if h_gest else []

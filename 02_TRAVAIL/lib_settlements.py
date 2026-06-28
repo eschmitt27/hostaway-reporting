@@ -90,8 +90,14 @@ def settle_invoice(total_due: Any, owner_advances: Any = 0, airbnb_imputed: Any 
 def aircover_auto_impact(row: dict[str, Any]) -> tuple[float, float, float, str]:
     """AirCover never changes payout, commission or owner net automatically."""
 
+    beneficiaire = str(row.get("beneficiaire_reel") or "").strip().upper()
     traitement = str(row.get("traitement") or "").strip()
     justificatif = str(row.get("justificatif") or "").strip()
+    statut = str(row.get("statut_controle") or "").strip().upper()
+    if beneficiaire not in {"PROPRIETAIRE", "CONCIERGERIE"}:
+        return 0.0, 0.0, 0.0, "AIRCOVER_A_CONTROLER"
     if not traitement or not justificatif:
+        return 0.0, 0.0, 0.0, "AIRCOVER_A_CONTROLER"
+    if statut not in {"VALIDE", "VALIDEE", "VALIDÉE"}:
         return 0.0, 0.0, 0.0, "AIRCOVER_A_CONTROLER"
     return 0.0, 0.0, 0.0, "AIRCOVER_TRAITEMENT_EXPLICITE_A_REVOIR"

@@ -47,7 +47,7 @@ RES_FILE    = BASE / "02_TRAVAIL/Lot4quater_SourceResolue/MASTER_CALC_Reservatio
 PAYOUT_FILE = BASE / "02_TRAVAIL/Lot1_Hostaway/MASTER_CALC_HA_Payout.xlsx"
 HH_FILE     = BASE / "02_TRAVAIL/Lot4_ReservationsHH/MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx"
 ACC_FILE    = BASE / "02_TRAVAIL/Lot5_AcomptesProprietaires/MASTER_FACT_MAN_AcomptesProprietaires.xlsx"
-AIRBNB_IMPUT_FILE = BASE / "02_TRAVAIL/Lot5_AcomptesProprietaires/MASTER_FACT_MAN_ImputationsAirbnb.xlsx"
+AIRBNB_IMPUT_FILE = BASE / "01_SOURCES_BRUTES/ImputationsAirbnb/SAISIE_ImputationsAirbnb.xlsx"
 REF_FILE    = BASE / "01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm"
 OUT_DIR     = BASE / "02_TRAVAIL/Lot10_Resultats"
 
@@ -229,7 +229,7 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
         df_res_num["reservation_id_hostaway"], errors="coerce"
     )
     # financiers résolus (présents dans MASTER_CALC_Reservations_Resolues — lot4quater)
-    for _c in ("payout_calcule", "menage_retenu", "assiette_commission", "canal"):
+    for _c in ("payout_calcule", "menage_retenu", "assiette_commission", "canal", "guestCount"):
         if _c not in df_res_num.columns:
             df_res_num[_c] = None
     df_res_sel = df_res_num[[

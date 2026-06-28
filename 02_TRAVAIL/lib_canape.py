@@ -21,21 +21,12 @@ def _f(value: Any) -> float | None:
 
 
 def _configured_rule(logement_id: str, ref_row: dict[str, Any] | None) -> tuple[int | None, float | None, str]:
-    if ref_row:
+    if ref_row is not None:
         seuil = _f(ref_row.get("seuil_voyageurs_preparation_canape"))
         montant = _f(ref_row.get("montant_preparation_canape"))
         if seuil is not None and montant is not None and montant > 0:
             return int(seuil), float(montant), "REF_Logements"
 
-    legacy = {
-        "LOG_0006": (3, 10.0),
-        "LOG_0008": (5, 10.0),
-        "LOG_0011": (5, 10.0),
-        "LOG_0013": (5, 10.0),
-    }
-    if logement_id in legacy:
-        seuil, montant = legacy[logement_id]
-        return seuil, montant, "REGLE_TRANSITOIRE_CANAPE_A_PARAMETRER_REF_LOGEMENTS"
     return None, None, "NON_APPLICABLE"
 
 

@@ -54,6 +54,7 @@ class CommissionHistoryTests(unittest.TestCase):
     def test_missing_rate_is_explicit(self):
         res = resolve_commission_rate([], proprietaire_id="PROP_1", logement_id="LOG_1", ref_date="2026-05-15")
         self.assertEqual(res.status, "MISSING")
+        self.assertIsNone(res.value)
 
     def test_simultaneous_same_priority_rates_are_ambiguous(self):
         rows = [
@@ -118,6 +119,28 @@ class ManagementHistoryTests(unittest.TestCase):
         ]
         res = resolve_management_period(rows, logement_id="LOG_1", date_arrivee="2026-06-01")
         self.assertEqual(res.status, "MISSING")
+
+    def test_period_without_owner_is_controlled(self):
+        rows = [
+            {
+                "gestion_id": "GST_NO_OWNER",
+                "logement_id": "LOG_1",
+                "proprietaire_id": "",
+                "date_debut": "2026-01-01",
+                "date_fin": "",
+                "statut_gestion": "ACTIF",
+            },
+        ]
+
+        res = resolve_management_period(rows, logement_id="LOG_1", date_arrivee="2026-06-01")
+
+        self.assertEqual(res.status, "MISSING_OWNER")
+
+    def test_empty_management_history_is_explicit(self):
+        res = resolve_management_period([], logement_id="LOG_1", date_arrivee="2026-06-01")
+
+        self.assertEqual(res.status, "MISSING")
+        self.assertIsNone(res.value)
 
     def test_stay_crossing_exit_is_controlled(self):
         rows = [

@@ -67,6 +67,18 @@ class ClotureTests(unittest.TestCase):
         self.assertEqual(code, "OK")
         self.assertEqual(adjustment_hash(VALID_ROW), adjustment_hash(dict(VALID_ROW)))
 
+    def test_post_closure_correction_is_append_only_by_identifier(self):
+        original_history = {"RES-1": {"montant": 100}}
+        adjustment = dict(VALID_ROW, ajustement_id="AJU-POST-001", source_pk="RES-1", montant="12.00")
+        ok, code, _ = validate_adjustment(adjustment)
+        adjustment_log = {}
+        adjustment_log[adjustment["ajustement_id"]] = adjustment
+
+        self.assertTrue(ok)
+        self.assertEqual(code, "OK")
+        self.assertEqual(original_history["RES-1"]["montant"], 100)
+        self.assertIn("AJU-POST-001", adjustment_log)
+
 
 if __name__ == "__main__":
     unittest.main()
