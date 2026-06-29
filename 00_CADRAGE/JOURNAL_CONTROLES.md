@@ -243,10 +243,10 @@ CTR-LOT11-BL-13  COMMISSION_SANS_TAUX                         : 0 — OK (tous t
 CTR-LOT11-AC-01  LISTING_ORPHELIN_A_CONTROLER        : 23 lignes (reservations listingMapId 515523 / 556954)
                  → Source : MASTER_CTRL_HA_Anomalies — depuis Lot 1, statut OUVERT
                  → Action : confirmer logement inactif + supprimer ou mapper dans REF_Logements
-CTR-LOT11-AC-02  CHARGE_FIXE_DATE_ENTREE_GESTION_INCOHERENTE : 14 logements
+CTR-LOT11-AC-02  CHARGE_FIXE_DATE_ENTREE_GESTION_INCOHERENTE : 14 logements (trace historique ; contr?le d?commissionn? le 2026-06-29)
                  → 14 vs 12 en Lot 10 : Lot 11 vérifie TOUS les logements avec TYPE_FLUX_017
                    (Lot 10 vérifiait seulement logements avec forfait>0)
-                 → Action : corriger date_entree_gestion dans REF_Logements (lot REF séparé)
+                 ? Action historique : corriger date_entree_gestion dans REF_Logements. D?commissionn? le 2026-06-29 : colonnes supprim?es, REF_Gestion_Logements_Hist source unique.
 CTR-LOT11-AC-03  CLOTURE_IMPOSSIBLE_LIGNE_BANCAIRE_NON_CLASSEE : 3 (mois 2026-02/03/04)
                  → 52 lignes RAPPROCHEMENT_REQUIS dans NORM_Banque
                  → Action : exporter données Airbnb, rapprocher RAPPROCH_AIRBNB_ATTENTE (Lot 8c)
@@ -353,10 +353,10 @@ Contrôles exécutés (19 points) :
                 (248 REEL + 248 COMPTABLE + 1 HORS_COMPTA placeholder)
   CTR-LOT10-15  PAR_MOIS_PROPRIETAIRE total / dont REEL        : 404 lignes / 202 REEL [OK]
                 (202 REEL + 202 COMPTABLE)
-  CTR-LOT10-16  CHARGE_FIXE_DATE_ENTREE_GESTION_INCOHERENTE    : 12 logements [A_CONTROLER — attendu]
-                Cause : date_entree_gestion REF = 2026-01-01 pour tous logements,
+  CTR-LOT10-16  CHARGE_FIXE_DATE_ENTREE_GESTION_INCOHERENTE    : 12 logements [trace historique ; contr?le d?commissionn? le 2026-06-29]
+                Cause historique : date_entree_gestion REF = 2026-01-01 pour tous logements,
                         mais réservations Flux remontent à 2025.
-                        date_entree_gestion = date création SAS/référentiel, pas début réel de gestion.
+                        date_entree_gestion = date cr?ation SAS/r?f?rentiel, pas d?but r?el de gestion. D?commissionn? le 2026-06-29 : colonne supprim?e.
                         Décision : ne pas corriger REF_Setup maintenant — lot séparé si nécessaire.
   CTR-LOT10-17  LOG_SANS_FLUX_017                              : 1 logement [A_CONTROLER]
                 LOG_0009 (T3 Montaudran) : forfait=40€ mais aucune réservation TYPE_FLUX_017 dans Flux.
@@ -370,7 +370,7 @@ Charge fixe mensuelle — règle appliquée (Option A, D-LOT10-04) :
   - Source : REF_Logements.forfait_logiciel_consommables_mensuel
   - Exposé : charge_fixe_mensuelle
   - Début  : premier mois TYPE_FLUX_017 dans MASTER_CALC_Flux par logement
-  - Fin    : date_sortie_gestion si actif=NON, sinon dernier mois TYPE_FLUX_017
+  - Fin    : trace historique date_sortie_gestion ; r?gle d?commissionn?e le 2026-06-29, fin de gestion r?solue par REF_Gestion_Logements_Hist
   - Cas LOG_0003 (actif=NON, sortie=2026-04-26) : charge fixe arrêtée à 2026-04 [OK]
   - Logements à forfait=0 : aucune ligne générée (LOG_0004, LOG_0016, LOG_0017, divers)
 
@@ -391,7 +391,7 @@ Fichiers créés :
 Fichiers non modifiés : tout le reste (Flux, Reservations, Payout, REF_Setup, banque, Lot 9)
 Statut     : EN_ATTENTE_VALIDATION_HUMAINE
 Commentaire: Lot 11 ne peut pas démarrer avant validation + commit Lot 10 (D029).
-             LOG_0009 et date_entree_gestion à traiter en lot séparé REF_Setup ultérieur.
+             LOG_0009 et date_entree_gestion : trace historique ; lot r?alis? le 2026-06-29 par suppression des colonnes doublons.
 ```
 
 ---
@@ -1033,9 +1033,9 @@ Résultat   : MASTER_CALC_Reservations.xlsx peuplé par script Python reproducti
              Anomalies A_CONTROLER :
                DIRECT_SANS_SAISIE_HH      : 27 — DIRECT Hostaway sans saisie HH, à saisir
                VRBO_MONTANT_NON_RENSEIGNE : 32 — VRBO sans montant, en attente saisie HH
-               LOGEMENT_INACTIF           :  0 — règle date_sortie_gestion appliquée
+               LOGEMENT_INACTIF           :  0 ? r?gle date_sortie_gestion appliqu?e (trace historique ; d?commissionn?e le 2026-06-29)
 
-             Règle date_sortie_gestion validée (2026-06-11) :
+             R?gle date_sortie_gestion valid?e (2026-06-11) ? trace historique, d?commissionn?e le 2026-06-29 au profit de REF_Gestion_Logements_Hist :
                - date_arrivee < date_sortie ET date_depart <= date_sortie → VALIDE
                - date_arrivee < date_sortie ET date_depart > date_sortie  → A_CONTROLER (SEJOUR_CHEVAUCHE_SORTIE_GESTION)
                - date_arrivee >= date_sortie                              → A_CONTROLER (LOGEMENT_INACTIF)

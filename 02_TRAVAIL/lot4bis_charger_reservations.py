@@ -214,11 +214,8 @@ def main():
     def resolve_logement(listing_map_id, date_arrivee_str=None, date_depart_str=None):
         """Retourne (logement_id, proprietaire_id, anomalie_code, anomalie_msg) ou abort si BLOQUANT.
 
-        Règle date_sortie_gestion (validée 2026-06-11) :
-          date_arrivee < date_sortie AND date_depart <= date_sortie → VALIDE (réservation historique)
-          date_arrivee < date_sortie AND date_depart >  date_sortie → A_CONTROLER SEJOUR_CHEVAUCHE_SORTIE_GESTION
-          date_arrivee >= date_sortie                               → A_CONTROLER LOGEMENT_INACTIF
-          date_sortie absente ET actif=NON                          → A_CONTROLER LOGEMENT_INACTIF
+        REF_Gestion_Logements_Hist est la seule source officielle des periodes de gestion.
+        Un sejour hors periode ou chevauchant une fin de gestion est controle par lib_ref_history.
         """
         matches = ha_map_index.get(listing_map_id, [])
         if not matches:
@@ -228,8 +225,6 @@ def main():
         logement_id = matches[0]
         log_row = log_index.get(logement_id, {})
         proprietaire_id = None
-        actif = log_row.get("actif")
-        date_sortie_raw = log_row.get("date_sortie_gestion")
         ano_code = None
         ano_msg = None
 
@@ -247,35 +242,6 @@ def main():
                 STATUT_PARC_INVALIDE,
                 f"{logement_id} statut_parc vide ou invalide - traitement A_CONTROLER",
             )
-
-        if actif == "NON":
-            if date_sortie_raw is not None:
-                try:
-                    d_sortie = (date_sortie_raw.date()
-                                if isinstance(date_sortie_raw, datetime.datetime)
-                                else date_sortie_raw)
-                    d_arr = (datetime.date.fromisoformat(str(date_arrivee_str)[:10])
-                             if date_arrivee_str else None)
-                    d_dep = (datetime.date.fromisoformat(str(date_depart_str)[:10])
-                             if date_depart_str else None)
-
-                    if d_arr is None:
-                        ano_code = "LOGEMENT_INACTIF"
-                        ano_msg  = f"{logement_id} actif=NON, date arrivée absente"
-                    elif d_arr >= d_sortie:
-                        ano_code = "LOGEMENT_INACTIF"
-                        ano_msg  = f"{logement_id} arrivée {d_arr} >= sortie {d_sortie}"
-                    elif d_dep is not None and d_dep > d_sortie:
-                        ano_code = "SEJOUR_CHEVAUCHE_SORTIE_GESTION"
-                        ano_msg  = f"{logement_id} départ {d_dep} > sortie {d_sortie}"
-                    # sinon : arrivée ET départ avant sortie → pas d'anomalie logement
-                except (ValueError, TypeError):
-                    ano_code = "LOGEMENT_INACTIF"
-                    ano_msg  = f"{logement_id} actif=NON (dates non parsables)"
-            else:
-                # date_sortie_gestion absente → logement inactif sans date → flaguer
-                ano_code = "LOGEMENT_INACTIF"
-                ano_msg  = f"{logement_id} actif=NON, date_sortie_gestion absente"
 
         if gest_dicts:
             gest = resolve_management_period(

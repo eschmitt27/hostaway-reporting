@@ -802,35 +802,7 @@ def main():
                   logement_id=lid,
                   commentaire="Confirmer si logement actif. Correction: REF_Setup ou saisie reservations.")
 
-    # 6b - CHARGE_FIXE_DATE_ENTREE_GESTION_INCOHERENTE (re-detecte)
-    flux017_first = (
-        df_flux[df_flux["type_flux_id"] == "TYPE_FLUX_017"]
-        .groupby("logement_id")["mois"].min()
-        .to_dict()
-    )
-    for _, row_log in df_log.iterrows():
-        if not is_gere(row_log):
-            continue
-        lid = row_log.get("logement_id")
-        if lid not in flux017_first:
-            continue
-        first_mois = flux017_first[lid]
-        date_entree = row_log.get("date_entree_gestion")
-        if date_entree is None:
-            continue
-        if hasattr(date_entree, "strftime"):
-            date_entree_mois = date_entree.strftime("%Y-%m")
-        else:
-            date_entree_mois = str(date_entree)[:7]
-        if first_mois < date_entree_mois:
-            # AUD-009 (decision C) : cas securise (premier mois Flux identifie + forfait genere
-            # via D-LOT10-04) -> severity INFO justifiee, pas A_CONTROLER. Aucun montant ne change.
-            _ctrl(ctrl_rows, "RESERVATIONS", "MASTER_CALC_Reservations", lid,
-                  "CHARGE_FIXE_DATE_ENTREE_GESTION_INCOHERENTE", "INFO",
-                  f"Logement {lid}: premier mois Flux={first_mois} < date_entree_gestion={date_entree_mois}. "
-                  "Utilisation Option A (premier mois Flux) conforme a D-LOT10-04.",
-                  logement_id=lid,
-                  commentaire="INFO justifiee — date_entree_gestion referentielle incoherente, mais calcul forfait securise par D-LOT10-04 via premier mois de flux reel ; REF non modifie, date contractuelle a confirmer si besoin.")
+    # 6b - Gestion logement datee: source officielle deja controlee via REF_Gestion_Logements_Hist.
 
     # 6c - LISTING_ORPHELIN_A_CONTROLER (depuis MASTER_CTRL_HA_Anomalies)
     # Correctif faux positif : l'anomalie Lot 1 est figee avant le mapping/alias Lot 2.

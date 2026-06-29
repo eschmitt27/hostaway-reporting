@@ -73,7 +73,7 @@ EXPORTS = [
   ["ctrl_pk","code_controle","severity","mois","logement_id","proprietaire_id","message","statut_resolution"]),
  ("PBI_Referentiel_Logements", REF, "REF_Logements",
   ["logement_id","nom_logement_officiel","nom_court","ville","type_logement_id",
-   "date_entree_gestion","date_sortie_gestion","sur_hostaway","actif","statut_parc","forfait_logiciel_consommables_mensuel"]),
+   "sur_hostaway","actif","statut_parc","forfait_logiciel_consommables_mensuel"]),
  ("PBI_Referentiel_Gestion_Logements", REF, "REF_Gestion_Logements_Hist",
   ["gestion_id","logement_id","proprietaire_id","date_debut","date_fin","statut_gestion","source"]),
  ("PBI_Referentiel_Proprietaires", REF, "REF_Proprietaires",

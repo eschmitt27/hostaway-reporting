@@ -34,7 +34,7 @@ from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Alignment
 from openpyxl.utils import get_column_letter
 
-from lib_ref_history import resolve_commission_rate
+from lib_ref_history import REF_GESTION_LOGEMENTS_HIST_SHEET, resolve_commission_rate, resolve_management_period
 from lib_settlements import settle_invoice, validated_airbnb_imputation
 from lib_canape import calculate_canape_amount
 from lib_parc import (
@@ -163,6 +163,7 @@ def load_sources():
     df_log    = _read_sheet(REF_FILE, sheet="REF_Logements",     keep_vba=True)
     df_prop   = _read_sheet(REF_FILE, sheet="REF_Proprietaires", keep_vba=True)
     df_taux   = _read_optional_sheet(REF_FILE, "REF_Taux_Commission", keep_vba=True)
+    df_gest   = _read_optional_sheet(REF_FILE, REF_GESTION_LOGEMENTS_HIST_SHEET, keep_vba=True)
 
     # Sources HH + Acomptes (lecture seule, hors placeholder Power Query)
     df_hh  = _read_sheet(HH_FILE,  sheet="MASTER") if HH_FILE.exists()  else pd.DataFrame()
@@ -196,7 +197,7 @@ def load_sources():
     log.info(f"  REF_Logements : {len(df_log)} logements")
     log.info(f"  REF_Prop      : {len(df_prop)} proprietaires")
     log.info(f"  REF_Taux_Comm : {len(df_taux)} lignes historisees")
-    return df_flux, df_res, df_payout, df_hh, df_acc, df_airbnb_imp, df_log, df_prop, df_taux
+    return df_flux, df_res, df_payout, df_hh, df_acc, df_airbnb_imp, df_log, df_prop, df_taux, df_gest
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -557,7 +558,7 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. Build charge fixe grid (Option A)
 # ─────────────────────────────────────────────────────────────────────────────
-def build_charge_fixe(df_flux, df_log):
+def build_charge_fixe(df_flux, df_log, df_gest=None):
     log.info("=== Construction grille charge fixe (Option A) ===")
     controls = []
 
@@ -565,13 +566,11 @@ def build_charge_fixe(df_flux, df_log):
     log_first = df_017.groupby("logement_id")["mois"].min().to_dict()
     log_last  = df_017.groupby("logement_id")["mois"].max().to_dict()
 
+    gest_rows = df_gest.to_dict("records") if df_gest is not None and len(df_gest) > 0 else []
     rows = []
     for _, lr in df_log.iterrows():
         log_id  = lr["logement_id"]
         forfait = _n(lr["forfait_logiciel_consommables_mensuel"])
-        actif   = lr.get("actif", "OUI")
-        d_sortie = lr.get("date_sortie_gestion")
-        d_entree = lr.get("date_entree_gestion")
         if is_hors_parc_technique(lr):
             controls.append({
                 "logement_id": log_id,
@@ -589,14 +588,12 @@ def build_charge_fixe(df_flux, df_log):
             })
             continue
 
-        prop_candidates = df_017[df_017["logement_id"] == log_id]["proprietaire_id"].dropna().astype(str).unique().tolist()
-        prop_id = prop_candidates[0] if len(prop_candidates) == 1 else None
-        if not prop_id:
+        if not gest_rows:
             controls.append({
                 "logement_id": log_id,
-                "code_anomalie": "LOGEMENT_GERE_SANS_PROPRIETAIRE_FLUX",
+                "code_anomalie": "GESTION_LOGEMENT_MISSING",
                 "niveau": "BLOQUANT",
-                "message": f"{log_id}: logement GERE sans proprietaire_id unique dans TYPE_FLUX_017",
+                "message": f"{log_id}: historique de gestion absent; charge fixe non calculee",
             })
             continue
 
@@ -620,32 +617,18 @@ def build_charge_fixe(df_flux, df_log):
         first_mois = log_first[log_id]
         last_mois  = log_last[log_id]
 
-        # Override last_mois with date_sortie_gestion if logement is inactive
-        if d_sortie and actif == "NON":
-            if hasattr(d_sortie, "strftime"):
-                last_mois = d_sortie.strftime("%Y-%m")
-            else:
-                last_mois = str(d_sortie)[:7]
-
-        # Control: first_mois < date_entree_gestion
-        if d_entree:
-            d_entree_str = (
-                d_entree.strftime("%Y-%m")
-                if hasattr(d_entree, "strftime")
-                else str(d_entree)[:7]
-            )
-            if first_mois < d_entree_str:
-                controls.append({
-                    "logement_id":   log_id,
-                    "code_anomalie": "CHARGE_FIXE_DATE_ENTREE_GESTION_INCOHERENTE",
-                    "niveau":        "INFO",  # AUD-009 (C): cas securise D-LOT10-04, montants inchanges
-                    "message":       (
-                        f"{log_id}: premier mois Flux={first_mois} "
-                        f"< date_entree_gestion REF={d_entree_str} (INFO justifiee D-LOT10-04)"
-                    ),
-                })
-
         for mois in _mois_range(first_mois, last_mois):
+            gest = resolve_management_period(gest_rows, logement_id=log_id, date_arrivee=f"{mois}-01")
+            if gest.status != "OK":
+                controls.append({
+                    "logement_id": log_id,
+                    "mois": mois,
+                    "code_anomalie": f"GESTION_LOGEMENT_{gest.status}",
+                    "niveau": "BLOQUANT" if gest.status in {"AMBIGUOUS", "MISSING_OWNER"} else "A_CONTROLER",
+                    "message": f"{log_id} {mois}: {gest.message}; charge fixe non calculee",
+                })
+                continue
+            prop_id = gest.value
             rows.append({
                 "mois":                 mois,
                 "logement_id":          log_id,
@@ -660,10 +643,9 @@ def build_charge_fixe(df_flux, df_log):
     ])
 
     n_log = df_cfix["logement_id"].nunique() if len(df_cfix) > 0 else 0
-    n_inco = sum(1 for c in controls if c["code_anomalie"] == "CHARGE_FIXE_DATE_ENTREE_GESTION_INCOHERENTE")
     n_sans = sum(1 for c in controls if c["code_anomalie"] == "LOG_SANS_FLUX_017")
     log.info(f"  Charge fixe  : {len(df_cfix)} lignes / {n_log} logements")
-    log.info(f"  INCOHERENT   : {n_inco} logements (premier mois Flux < date_entree_gestion REF)")
+    log.info("  HIST_GESTION : resolution via REF_Gestion_Logements_Hist")
     log.info(f"  SANS_FLUX_017: {n_sans} logements avec forfait>0 mais aucune reservation")
     for c in controls:
         log.info(f"    [{c['niveau']}] {c['code_anomalie']}: {c['message']}")
@@ -1093,8 +1075,6 @@ def print_controls(
     n_hh = int((df_comm["source_type"] == "HH").sum()) if "source_type" in df_comm.columns else 0
     n_hh_ctrl = len(hh_controls)
 
-    n_inco = sum(1 for c in cfix_controls
-                 if c["code_anomalie"] == "CHARGE_FIXE_DATE_ENTREE_GESTION_INCOHERENTE")
     n_sans = sum(1 for c in cfix_controls
                  if c["code_anomalie"] == "LOG_SANS_FLUX_017")
 
@@ -1134,8 +1114,8 @@ def print_controls(
          f"{n_reel_log}"),
         ("CTR-LOT10-15", "Lignes resultats PAR_MOIS_PROPRIETAIRE (REEL)",
          f"{n_reel_prop}"),
-        ("CTR-LOT10-16", "CHARGE_FIXE_DATE_ENTREE_GESTION_INCOHERENTE",
-         f"{n_inco} logements"),
+        ("CTR-LOT10-16", "Charges fixes resolues via REF_Gestion_Logements_Hist",
+         "source officielle unique"),
         ("CTR-LOT10-17", "LOG_SANS_FLUX_017 (forfait>0 sans reservation Flux)",
          f"{n_sans} logements"),
         ("CTR-LOT10-18", "Controles BLOQUANTS detectes",
@@ -1190,10 +1170,10 @@ def main():
     log.info(f"Date : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     log.info("=" * 65)
 
-    df_flux, df_res, df_payout, df_hh, df_acc, df_airbnb_imp, df_log, df_prop, df_taux = load_sources()
+    df_flux, df_res, df_payout, df_hh, df_acc, df_airbnb_imp, df_log, df_prop, df_taux, df_gest = load_sources()
 
     df_comm, df_ac, hh_controls     = build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_taux)
-    df_cfix, cfix_controls          = build_charge_fixe(df_flux, df_log)
+    df_cfix, cfix_controls          = build_charge_fixe(df_flux, df_log, df_gest)
     df_reel, df_compt, df_hc        = build_resultats(df_flux)
     df_exploit, df_reg, df_vue      = build_net_proprietaire(df_comm, df_cfix, df_acc, df_airbnb_imp)
 

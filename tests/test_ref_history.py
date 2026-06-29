@@ -107,6 +107,24 @@ class ManagementHistoryTests(unittest.TestCase):
         self.assertEqual(june.value, "PROP_NEW")
 
 
+
+    def test_explicit_management_period_for_gere_logement(self):
+        rows = [{
+            "gestion_id": "GST_EXPLICIT",
+            "logement_id": "LOG_GERE",
+            "proprietaire_id": "PROP_1",
+            "date_debut": "2026-01-01",
+            "date_fin": "2026-12-31",
+            "statut_gestion": "ACTIF",
+        }]
+        res = resolve_management_period(rows, logement_id="LOG_GERE", date_arrivee="2026-05-10")
+        self.assertEqual(res.status, "OK")
+        self.assertEqual(res.value, "PROP_1")
+
+    def test_hors_parc_without_history_remains_missing_for_history_resolver(self):
+        res = resolve_management_period([], logement_id="APPARTEMENT_DIVERS", date_arrivee="2026-05-10")
+        self.assertEqual(res.status, "MISSING")
+
     def test_single_undated_management_line_resolves_non_blocking(self):
         rows = [
             {

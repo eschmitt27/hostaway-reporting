@@ -16,6 +16,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 from lib_parc import HORS_PARC_TECHNIQUE, is_hors_parc_technique
+from lib_ref_history import REF_GESTION_LOGEMENTS_HIST_SHEET, resolve_management_period
 
 # ─── PATHS ────────────────────────────────────────────────────────────────────
 # Racine dérivée du fichier (jamais de chemin Windows fixe) : confine le script à sa propre instance.
@@ -71,13 +72,21 @@ def main():
                  if r.get("logement_id")}
     REF_INT   = {r["intervenant_id"]: r for r in sheet_to_dicts(wb_ref, "REF_Intervenants")
                  if r.get("intervenant_id")}
+    REF_GEST  = [r for r in sheet_to_dicts(wb_ref, REF_GESTION_LOGEMENTS_HIST_SHEET)
+                 if r.get("gestion_id")]
     wb_ref.close()
 
     # Logement enrichissement
-    def log_info(lid):
+    def log_info(lid, ref_date):
         r = REF_LOG.get(lid, {})
-        return (r.get("proprietaire_id"), r.get("hostaway_listing_id"),
-                r.get("actif"), r.get("date_sortie_gestion"), is_hors_parc_technique(r))
+        prop_id = None
+        gestion_status = None
+        if lid and not is_hors_parc_technique(r):
+            gest = resolve_management_period(REF_GEST, logement_id=lid, date_arrivee=ref_date)
+            gestion_status = gest.status
+            if gest.status == "OK":
+                prop_id = gest.value
+        return (prop_id, r.get("hostaway_listing_id"), r.get("actif"), is_hors_parc_technique(r), gestion_status)
 
     # ─── MAPPING FACTURE → REFERENTIEL ───────────────────────────────────────────
     PREST_MAP = {
@@ -221,7 +230,6 @@ def main():
         taux_tva, mtva, mht = 0, 0.0, mttc
 
         # Mois
-        ref_d = date_men or date_fac
         mois  = ref_d.strftime("%Y-%m") if ref_d else "A_CONTROLER"
         annee = ref_d.year if ref_d else None
 
@@ -251,6 +259,8 @@ def main():
             anomalies_b.append(HORS_PARC_TECHNIQUE)
         if not pid:
             anomalies_b.append("MENAGE_EXTERNE_PRESTATAIRE_INCONNU")
+        if lid and not hors_parc and gestion_status != "OK":
+            anomalies_b.append(f"GESTION_LOGEMENT_{gestion_status or 'MISSING'}")
         if mttc is None:
             anomalies_b.append("MENAGE_EXTERNE_MONTANT_INVALIDE")
         elif mttc < 0 or nb_men < 0:
@@ -269,8 +279,6 @@ def main():
                 date_info = "MENAGE_EXTERNE_DATE_MOIS"   # informatif, non bloquant
             if mttc == 0 or nb_men == 0:
                 anomalies_a.append("MENAGE_EXTERNE_MONTANT_NUL")
-            if log_inactif:
-                anomalies_a.append("MENAGE_EXTERNE_LOGEMENT_INACTIF")
 
         if anomalies_b:
             statut, niveau, code_ano = "BLOQUANT","BLOQUANT", anomalies_b[0]

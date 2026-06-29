@@ -22,7 +22,7 @@ Statut : **EN_ATTENTE_VALIDATION_HUMAINE** — 51 contrôles générés (CTR-202
 > - Lot 3 FAIT (2026-06-08) : REF_Setup.xlsm mis à jour (5 onglets). SAISIE_Charges_Flux.xlsx créé (4 onglets, 31 cols, 18 DV, 13 contrôles). MASTER_FACT_MAN_Charges.xlsx créé (37 cols, 4 requêtes PQ). CTR-2026-06-006 inscrit.
 > - Lot 4 (2026-06-09) : SAISIE_ReservationsHorsHostaway.xlsx créé (4 onglets, 30 cols, 11 DV, 13 contrôles, VLOOKUP taux). MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx créé (34 cols, 3 requêtes PQ). CTR-2026-06-007 inscrit. Décisions D046–D051 verrouillées.
 > - Lot 4bis squelette (2026-06-09) : MASTER_CALC_Reservations.xlsx créé (3 onglets, 24 cols, 7 requêtes PQ, anti-double-comptage 7 scénarios, 2 BLOQUANTS + 6 A_CONTROLER). CTR-2026-06-008 inscrit. Décisions D052–D057 verrouillées.
-> - Lot 4bis correctif FAIT (2026-06-11) : MASTER_CALC_Reservations.xlsx peuplé par script Python (1 391 lignes MASTER / 1 321 VUE_FLUX). CTR-2026-06-016 inscrit. Commit 3835f21. Règle date_sortie_gestion validée.
+> - Lot 4bis correctif FAIT (2026-06-11) : MASTER_CALC_Reservations.xlsx peupl? par script Python (1 391 lignes MASTER / 1 321 VUE_FLUX). CTR-2026-06-016 inscrit. Commit 3835f21. R?gle date_sortie_gestion valid?e ? cette date, puis d?commissionn?e le 2026-06-29 au profit exclusif de REF_Gestion_Logements_Hist.
 > - Lot 5 (2026-06-09) : SAISIE_AcomptesProprietaires.xlsx créé (4 onglets, 18 cols, 5 DV, 10 contrôles). MASTER_FACT_MAN_AcomptesProprietaires.xlsx créé (22 cols, 5 requêtes PQ). REF_Setup.xlsm non modifié (TYPE_FLUX_006 déjà présent). CTR-2026-06-009 inscrit. Décisions D058–D064 verrouillées.
 > - Lot 6a (2026-06-09) : MASTER_FACT_HA_CleaningTasks_Discovery.xlsx peuplé (4 onglets : data 500 tâches / MASTER_ENRICHI 21 cols / VUE_COMPTAGE 11 cols / POWER_QUERY_CODE). 0 BLOQUANT, 325 ménages réalisés. CTR-2026-06-010 inscrit. Décisions D065–D069 verrouillées.
 > - Lot 9 (2026-06-11) : MASTER_CALC_Flux.xlsx créé (1 333 flux, 22 cols). TYPE_FLUX_017 créé. CTR-2026-06-017 inscrit. EN_ATTENTE_VALIDATION_HUMAINE.
@@ -286,7 +286,7 @@ infrastructure de données fictives pour tester le pipeline jusqu'au Lot 12.
   - VUE_MOIS : 220 lignes mois × propriétaire
 - Charge fixe mensuelle (Option A, D-LOT10-04 validé) :
   - 233 lignes générées / 13 logements avec forfait > 0
-  - 12 logements flaggés CHARGE_FIXE_DATE_ENTREE_GESTION_INCOHERENTE (premier mois Flux < 2026-01)
+  - 12 logements flagg?s CHARGE_FIXE_DATE_ENTREE_GESTION_INCOHERENTE (trace historique : ancien contr?le bas? sur date_entree_gestion, supprim? le 2026-06-29 avec les colonnes doublons)
   - 1 logement flaggé LOG_SANS_FLUX_017 : LOG_0009 (forfait=40€ mais 0 réservation TYPE_FLUX_017)
   - Total charge fixe générée : 7 645.00 €
 - Chiffres clés :
@@ -505,14 +505,14 @@ Fichiers à committer (6) :
   CTR-LOT10-13  Résultat HORS_COMPTA                    : 0.00 € [HC_ZERO_SOURCES_VIDES]
   CTR-LOT10-14  PAR_MOIS_LOGEMENT total / dont REEL      : 497 lignes / 248 REEL
   CTR-LOT10-15  PAR_MOIS_PROPRIETAIRE total / dont REEL : 404 lignes / 202 REEL
-  CTR-LOT10-16  CHARGE_FIXE_DATE_ENTREE_GESTION_INCO.   : 12 logements (attendu — REF 2026-01)
+  CTR-LOT10-16  CHARGE_FIXE_DATE_ENTREE_GESTION_INCO.   : 12 logements (trace historique ; contr?le d?commissionn? le 2026-06-29, REF_Gestion_Logements_Hist source unique)
   CTR-LOT10-17  LOG_SANS_FLUX_017                       : 1 (LOG_0009 — forfait=40€, 0 réservation Flux)
   CTR-LOT10-18  Contrôles BLOQUANTS                     : 0
   CTR-LOT10-19  Sources amont lecture seule              : OK
 
 Points à décider après Lot 10 (ne bloquent pas le commit) :
   - LOG_0009 : forfait=40€ mais 0 réservation Flux → confirmer si logement actif / en gestion
-  - date_entree_gestion REF_Logements : toutes à 2026-01-01 → correction REF_Setup ultérieure
+  - date_entree_gestion REF_Logements : trace historique ; colonne supprim?e le 2026-06-29, remplac?e par REF_Gestion_Logements_Hist comme source officielle unique
   - mode_facturation = A_DEFINIR (12 propriétaires) → Lot 12
 ```
 
@@ -535,7 +535,7 @@ Fichiers à committer (4) :
   CTR-LOT11-03  A_CONTROLER ouverts                   : 44
   CTR-LOT11-04  INFO                                  : 7
   CTR-LOT11-05  LISTING_ORPHELIN_A_CONTROLER           : 23 (réservations listingMapId 515523/556954)
-  CTR-LOT11-06  CHARGE_FIXE_DATE_ENTREE_GESTION_INCO. : 14 logements (vs 12 Lot 10 — Lot 11 plus exhaustif)
+  CTR-LOT11-06  CHARGE_FIXE_DATE_ENTREE_GESTION_INCO. : 14 logements (trace historique ; contr?le supprim? le 2026-06-29 avec les colonnes doublons)
   CTR-LOT11-07  CLOTURE_IMPOSSIBLE_LIGNE_BANC.         : 3 mois (2026-02/03/04 RAPPROCHEMENT_REQUIS)
   CTR-LOT11-08  REEL = COMPTABLE + HORS_COMPTA         : 283515.60 = 283515.60 + 0 ✓
   CTR-LOT11-09  Banque statut                         : BANQUE_DISPONIBLE
@@ -546,7 +546,7 @@ Fichiers à committer (4) :
 Points résiduels (non bloquants pour commit) :
   - 44 A_CONTROLER à traiter/valider avant Lot 12 (priorité : VRBO, HH, acomptes, clôture banque)
   - LOG_0009 : investigation séparée
-  - date_entree_gestion : correctif REF séparé
+  - date_entree_gestion : trace historique ; correctif r?alis? le 2026-06-29 par suppression des colonnes doublons et usage exclusif de REF_Gestion_Logements_Hist
   - mode_facturation : Lot 12
   - Banque : export Airbnb requis pour finaliser RAPPROCH_AIRBNB_ATTENTE
 ```

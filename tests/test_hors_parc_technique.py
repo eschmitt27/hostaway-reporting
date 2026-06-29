@@ -181,8 +181,6 @@ class HorsParcTechniqueTests(unittest.TestCase):
             "statut_parc": "BAD",
             "forfait_logiciel_consommables_mensuel": 35,
             "actif": "OUI",
-            "date_sortie_gestion": None,
-            "date_entree_gestion": None,
         }]))
         self.assertEqual(len(df_cfix), 0)
         self.assertIn(STATUT_PARC_INVALIDE, {c["code_anomalie"] for c in controls})
@@ -200,12 +198,18 @@ class HorsParcTechniqueTests(unittest.TestCase):
             "statut_parc": GERE,
             "forfait_logiciel_consommables_mensuel": 35,
             "actif": "OUI",
-            "date_sortie_gestion": None,
-            "date_entree_gestion": None,
         }])
-        df_cfix, controls = build_charge_fixe(df_flux, df_log)
+        df_gest = pd.DataFrame([{
+            "gestion_id": "GST_NO_OWNER",
+            "logement_id": "LOG_GERE",
+            "proprietaire_id": None,
+            "date_debut": "2026-01-01",
+            "date_fin": None,
+            "statut_gestion": "ACTIF",
+        }])
+        df_cfix, controls = build_charge_fixe(df_flux, df_log, df_gest)
         self.assertEqual(len(df_cfix), 0)
-        self.assertIn("LOGEMENT_GERE_SANS_PROPRIETAIRE_FLUX", {c["code_anomalie"] for c in controls})
+        self.assertIn("GESTION_LOGEMENT_MISSING_OWNER", {c["code_anomalie"] for c in controls})
         self.assertIn("BLOQUANT", {c["niveau"] for c in controls})
 
     def test_lot12_excludes_hors_parc_and_invalid_before_invoice_creation(self):
@@ -218,3 +222,26 @@ class HorsParcTechniqueTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SuppressionDatesGestionTests(unittest.TestCase):
+    def test_ref_logements_no_longer_contains_duplicate_management_dates(self):
+        wb = load_workbook(ROOT / "01_SOURCES_BRUTES" / "REF_Setup" / "REF_Setup.xlsm", read_only=True, data_only=True, keep_vba=True)
+        ws = wb["REF_Logements"]
+        headers = list(next(ws.iter_rows(values_only=True)))
+        wb.close()
+        self.assertNotIn("date_entree_gestion", headers)
+        self.assertNotIn("date_sortie_gestion", headers)
+        self.assertIn("statut_parc", headers)
+
+    def test_active_scripts_do_not_fallback_to_old_management_date_columns(self):
+        for rel in [
+            "lot4bis_charger_reservations.py",
+            "lot6c_menages_externes.py",
+            "lot10_calculer_resultats.py",
+            "lot11_controles_coherence.py",
+            "lot13_export_powerbi.py",
+        ]:
+            text = (ROOT / "02_TRAVAIL" / rel).read_text(encoding="utf-8")
+            self.assertNotIn("date_entree_gestion", text, rel)
+            self.assertNotIn("date_sortie_gestion", text, rel)
