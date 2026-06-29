@@ -37,6 +37,7 @@ from lib_cloture import (
     validate_adjustment,
     validate_cloture_status,
 )
+from lib_parc import A_CONTROLER, STATUT_PARC_INVALIDE, is_gere, is_hors_parc_technique, is_statut_parc_a_controler
 from lib_settlements import (
     AIRCOVER_REQUIRED_COLUMNS,
     AIRBNB_IMPUTATION_REQUIRED_COLUMNS,
@@ -775,7 +776,18 @@ def main():
     print("CTR: Anomalies connues...")
 
     # 6a - LOG_SANS_FLUX_017 (re-detecte independamment)
-    logements_avec_forfait = {lid: v for lid, v in forfait_ref.items() if v > 0}
+    log_ref = {row.get("logement_id"): row for _, row in df_log.iterrows()}
+    for lid, row_log in log_ref.items():
+        if is_statut_parc_a_controler(row_log):
+            _ctrl(ctrl_rows, "REFERENTIEL", "REF_Logements", lid,
+                  STATUT_PARC_INVALIDE, A_CONTROLER,
+                  f"Logement {lid}: statut_parc vide ou invalide; aucun calcul economique autorise.",
+                  logement_id=lid,
+                  commentaire="Corriger REF_Logements.statut_parc avec GERE ou HORS_PARC_TECHNIQUE.")
+    logements_avec_forfait = {
+        lid: v for lid, v in forfait_ref.items()
+        if v > 0 and is_gere(log_ref.get(lid))
+    }
     logements_en_flux017 = set(
         df_flux[df_flux["type_flux_id"] == "TYPE_FLUX_017"]["logement_id"].dropna()
     )
@@ -797,6 +809,8 @@ def main():
         .to_dict()
     )
     for _, row_log in df_log.iterrows():
+        if not is_gere(row_log):
+            continue
         lid = row_log.get("logement_id")
         if lid not in flux017_first:
             continue

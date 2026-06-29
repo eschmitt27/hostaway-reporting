@@ -41,6 +41,13 @@ from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Font
 
 from lib_ref_history import REF_GESTION_LOGEMENTS_HIST_SHEET, resolve_management_period
+from lib_parc import (
+    A_CONTROLER,
+    HORS_PARC_TECHNIQUE,
+    STATUT_PARC_INVALIDE,
+    is_hors_parc_technique,
+    is_statut_parc_a_controler,
+)
 
 # ---------------------------------------------------------------------------
 # Chemins
@@ -226,6 +233,21 @@ def main():
         ano_code = None
         ano_msg = None
 
+        if is_hors_parc_technique(log_row):
+            return (
+                logement_id,
+                None,
+                HORS_PARC_TECHNIQUE,
+                f"{logement_id} statut_parc=HORS_PARC_TECHNIQUE - exclu des traitements metier",
+            )
+        if is_statut_parc_a_controler(log_row):
+            return (
+                logement_id,
+                None,
+                STATUT_PARC_INVALIDE,
+                f"{logement_id} statut_parc vide ou invalide - traitement A_CONTROLER",
+            )
+
         if actif == "NON":
             if date_sortie_raw is not None:
                 try:
@@ -334,7 +356,24 @@ def main():
         niveau = hh.get("niveau_anomalie") or "INFO"
         montant = hh.get("total_percu") or 0
         proprietaire_id = None
-        if gest_dicts:
+        log_row = log_index.get(hh.get("logement_id"), {})
+        if is_hors_parc_technique(log_row):
+            source_val = HORS_PARC_TECHNIQUE
+            code_impact = "HR"
+            statut = "EXCLU_RESULTAT"
+            niveau = "INFO"
+            montant = 0
+            hh["code_anomalie"] = HORS_PARC_TECHNIQUE
+            hh["commentaire"] = (hh.get("commentaire") or "") + " | statut_parc=HORS_PARC_TECHNIQUE - exclu des traitements metier"
+        elif is_statut_parc_a_controler(log_row):
+            source_val = A_CONTROLER
+            code_impact = "HR"
+            statut = A_CONTROLER
+            niveau = A_CONTROLER
+            montant = 0
+            hh["code_anomalie"] = STATUT_PARC_INVALIDE
+            hh["commentaire"] = (hh.get("commentaire") or "") + " | statut_parc vide ou invalide - traitement A_CONTROLER"
+        elif gest_dicts:
             gest = resolve_management_period(
                 gest_dicts,
                 logement_id=hh.get("logement_id"),
@@ -428,6 +467,19 @@ def main():
             date_arrivee_str=date_to_str(res.get("checkInDate")),
             date_depart_str=date_to_str(res.get("checkOutDate")),
         )
+
+        if ano_code in (HORS_PARC_TECHNIQUE, STATUT_PARC_INVALIDE):
+            source_val = HORS_PARC_TECHNIQUE if ano_code == HORS_PARC_TECHNIQUE else A_CONTROLER
+            statut = "EXCLU_RESULTAT" if ano_code == HORS_PARC_TECHNIQUE else A_CONTROLER
+            niveau = "INFO" if ano_code == HORS_PARC_TECHNIQUE else A_CONTROLER
+            row = make_row_ha(
+                res, payout, source_val, "NON_CONCERNE",
+                0, "HR", statut, niveau, ano_code,
+                ano_msg, logement_id, None,
+            )
+            master_rows.append(row)
+            stats[ano_code] += 1
+            continue
 
         statut_logement  = None
         niveau_logement  = None

@@ -589,3 +589,18 @@ Cette discipline est appliquée à chaque nouveau lot, en s'appuyant sur la matr
 - Ne jamais inclure une charge exceptionnelle refacturée dans `revenu_net_exploitation_proprietaire` (D034/EP7/P21)
 - Ne jamais traiter un remboursement AirCover perçu par le propriétaire comme un payout (D042/AC5)
 - Ne jamais livrer un dashboard Power BI dans un lot (D043/PBI2)
+
+---
+
+## Note d'etat - Lot HORS_PARC_TECHNIQUE (2026-06-29)
+
+Le lot `HORS_PARC_TECHNIQUE` est en revue avant commit.
+
+Regle consolidee :
+- `actif` = disponibilite technique du code dans le referentiel.
+- `statut_parc` = eligibilite du code au parc de logements geres.
+- `GERE` = logement reellement gere et eligible aux calculs metier.
+- `HORS_PARC_TECHNIQUE` = code conserve pour controle ou anti-mauvais-mapping, exclu explicitement de tout calcul economique et operationnel.
+- `statut_parc` vide, invalide ou inconnu = `A_CONTROLER`, code anomalie `STATUT_PARC_INVALIDE`, sans calcul economique.
+
+Tests de regression ajoutes : `tests/test_hors_parc_technique.py` et extension de `tests/test_import_side_effects.py` aux imports des lots 4bis, 6c, 10, 11, 12 et 13 en copie temporaire isolee.

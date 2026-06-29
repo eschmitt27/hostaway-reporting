@@ -37,6 +37,13 @@ from openpyxl.utils import get_column_letter
 from lib_ref_history import resolve_commission_rate
 from lib_settlements import settle_invoice, validated_airbnb_imputation
 from lib_canape import calculate_canape_amount
+from lib_parc import (
+    A_CONTROLER,
+    HORS_PARC_TECHNIQUE,
+    STATUT_PARC_INVALIDE,
+    is_hors_parc_technique,
+    is_statut_parc_a_controler,
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Paths
@@ -250,6 +257,33 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
     df_j["proprietaire_id_eff"] = df_j["proprietaire_id"].combine_first(df_j["proprietaire_id_flux"])
 
     # ── 2c. Routage HA vs VRBO vs HH (D-LOT10C-05) ──
+    log_ref = {r.get("logement_id"): r for _, r in df_log.iterrows()}
+    hors_mask = df_j["logement_id_eff"].map(lambda lid: is_hors_parc_technique(log_ref.get(lid)))
+    invalid_mask = df_j["logement_id_eff"].map(lambda lid: is_statut_parc_a_controler(log_ref.get(lid)))
+    parc_exclusion_mask = hors_mask | invalid_mask
+    hors_parc_controls = []
+    if parc_exclusion_mask.any():
+        for _, r in df_j[parc_exclusion_mask].iterrows():
+            log_row = log_ref.get(r.get("logement_id_eff"))
+            is_hors = is_hors_parc_technique(log_row)
+            code = HORS_PARC_TECHNIQUE if is_hors else STATUT_PARC_INVALIDE
+            niveau = "INFO" if is_hors else A_CONTROLER
+            message = (
+                "statut_parc=HORS_PARC_TECHNIQUE - exclu commission/net/facture/flux proprietaire"
+                if is_hors
+                else "statut_parc vide ou invalide - A_CONTROLER sans calcul economique"
+            )
+            hors_parc_controls.append({
+                "reservation": r.get("reservation_calc_id"),
+                "logement_id": r.get("logement_id_eff"),
+                "proprietaire_id": None,
+                "mois": r.get("mois_flux"),
+                "code_anomalie_lot10": code,
+                "niveau": niveau,
+                "message": message,
+            })
+        df_j = df_j[~parc_exclusion_mask].copy()
+
     HA_SOURCES = {"HOSTAWAY_AIRBNB", "HOSTAWAY_BOOKING"}
     is_ha   = df_j["reservation_id_hostaway"].notna() & df_j["source"].isin(HA_SOURCES)
     # VRBO résolu (historique clôturé) : commission via assiette résolue, PAS routé en HH
@@ -493,24 +527,12 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
         "source_pk":           "flux_source_pk",
     }).reset_index(drop=True)
 
-    log_ref = {r.get("logement_id"): r for _, r in df_log.iterrows()}
-    if len(df_comm) > 0:
-        canape_rows = [
-            calculate_canape_amount(r.get("logement_id"), r.get("guestCount"), log_ref.get(r.get("logement_id")))
-            for _, r in df_comm.iterrows()
-        ]
-        df_comm["preparation_canape_voyageurs"] = [c.amount for c in canape_rows]
-        df_comm["controle_preparation_canape"] = [c.status for c in canape_rows]
-        df_comm["source_preparation_canape"] = [c.message for c in canape_rows]
-        df_comm["net_proprietaire"] = (
-            pd.to_numeric(df_comm["net_proprietaire"], errors="coerce").fillna(0.0)
-            - pd.to_numeric(df_comm["preparation_canape_voyageurs"], errors="coerce").fillna(0.0)
-        ).round(2)
-
-    # ── 2i. A_CONTROLER from Payout (Hostaway hors Flux) ──
     df_ac = df_payout[df_payout["statut_calcul_payout"] == "A_CONTROLER"].copy()
     df_ac["code_anomalie_lot10"] = "RESERVATION_EXCLUE_A_CONTROLER"
     df_ac = df_ac.reset_index(drop=True)
+    if hors_parc_controls:
+        df_ac = pd.concat([df_ac, pd.DataFrame(hors_parc_controls)], ignore_index=True, sort=False)
+
     if len(df_comm) > 0 and "controle_preparation_canape" in df_comm.columns:
         canape_ctrl = df_comm[df_comm["controle_preparation_canape"] == "A_CONTROLER"].copy()
         if len(canape_ctrl) > 0:
@@ -550,10 +572,32 @@ def build_charge_fixe(df_flux, df_log):
         actif   = lr.get("actif", "OUI")
         d_sortie = lr.get("date_sortie_gestion")
         d_entree = lr.get("date_entree_gestion")
-        prop_id  = lr.get("proprietaire_id")
+        if is_hors_parc_technique(lr):
+            controls.append({
+                "logement_id": log_id,
+                "code_anomalie": HORS_PARC_TECHNIQUE,
+                "niveau": "INFO",
+                "message": f"{log_id}: statut_parc=HORS_PARC_TECHNIQUE - forfait exclu des calculs proprietaire",
+            })
+            continue
+        if is_statut_parc_a_controler(lr):
+            controls.append({
+                "logement_id": log_id,
+                "code_anomalie": STATUT_PARC_INVALIDE,
+                "niveau": A_CONTROLER,
+                "message": f"{log_id}: statut_parc vide ou invalide - forfait exclu des calculs proprietaire",
+            })
+            continue
 
-        # Skip APPARTEMENT_DIVERS / LOGEMENT_DIVERS (no proprietaire)
+        prop_candidates = df_017[df_017["logement_id"] == log_id]["proprietaire_id"].dropna().astype(str).unique().tolist()
+        prop_id = prop_candidates[0] if len(prop_candidates) == 1 else None
         if not prop_id:
+            controls.append({
+                "logement_id": log_id,
+                "code_anomalie": "LOGEMENT_GERE_SANS_PROPRIETAIRE_FLUX",
+                "niveau": "BLOQUANT",
+                "message": f"{log_id}: logement GERE sans proprietaire_id unique dans TYPE_FLUX_017",
+            })
             continue
 
         # Skip forfait = 0

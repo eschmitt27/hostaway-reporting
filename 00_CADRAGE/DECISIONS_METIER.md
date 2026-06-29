@@ -880,3 +880,14 @@ Date : 2026-06-18 | Statut : VALIDÉ
 - **Abandon** de la logique `fournitures_incluses`.
 - Colonnes ajoutées à SAISIE_Charges_Flux : `affectable_menage`, `intervenant_concerne`.
 Tables : REF_Couts_Menage_Interne, REF_Intervenants (mapping Hostaway), SAISIE_Charges_Flux, MASTER_CTRL_Rapprochement_Menages, MASTER_CALC_GainPerte_Menages, MASTER_CALC_CoutComplet_Menages. Lots 6d/6e/6f.
+
+### D-HORS-PARC-TECHNIQUE-01 - Separation actif / statut_parc
+Date : 2026-06-29 | Statut : VALIDE
+Decision : `REF_Logements.actif` decrit la disponibilite technique d'un code referentiel. `REF_Logements.statut_parc` decrit l'eligibilite du code au parc de logements geres.
+
+Valeurs autorisees de `statut_parc` :
+- `GERE` : logement reellement gere et eligible aux calculs metier.
+- `HORS_PARC_TECHNIQUE` : code conserve pour controle ou anti-mauvais-mapping, exclu explicitement de tout calcul economique et operationnel.
+
+Toute valeur vide, invalide ou inconnue de `statut_parc` produit `A_CONTROLER` avec code anomalie `STATUT_PARC_INVALIDE` et ne doit produire aucune commission, facture/prefacture, net proprietaire, menage, flux proprietaire ou resultat par logement.
+Tables : REF_Logements, MASTER_CALC_Reservations, MASTER_CALC_Commissions, MASTER_CALC_NetProprietaire, MASTER_FACT_Proprietaires

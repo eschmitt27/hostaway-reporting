@@ -36,6 +36,8 @@ from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Alignment
 from openpyxl.utils import get_column_letter
 
+from lib_parc import A_CONTROLER, STATUT_PARC_INVALIDE, is_hors_parc_technique, is_statut_parc_a_controler
+
 BASE       = Path(__file__).resolve().parent.parent
 NET_FILE   = BASE / "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_NetProprietaire.xlsx"
 COMM_FILE  = BASE / "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Commissions.xlsx"
@@ -181,6 +183,14 @@ def main():
 
         # D-LOT12-07 : charges globales non affectées -> jamais en facture
         if log_id == SENTINEL_GLOBAL or not prop_id or prop_id == SENTINEL_GLOBAL:
+            continue
+        log_row = log_idx.get(log_id)
+        if is_hors_parc_technique(log_row):
+            rec["statut"] = "EXCLU_HORS_PARC_TECHNIQUE"
+            continue
+        if is_statut_parc_a_controler(log_row):
+            rec["statut"] = A_CONTROLER
+            rec["code_anomalie"] = STATUT_PARC_INVALIDE
             continue
 
         # Numérotation PREF-AAAA-MM-PROP-LOG-NNN

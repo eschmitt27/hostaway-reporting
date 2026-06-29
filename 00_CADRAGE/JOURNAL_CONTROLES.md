@@ -1222,3 +1222,21 @@ Commentaire: Correction purement référentielle. Aucun fichier MASTER à recalc
 ## Note sur BANQUE_LIGNE_SANS_DATE vs BANQUE_DATE_INEXPLOITABLE
 - `BANQUE_LIGNE_SANS_DATE` : colonne Date vide mais colonne Valeur présente et parsable → **A_CONTROLER** (non bloquant)
 - `BANQUE_DATE_INEXPLOITABLE` : Date ET Valeur absentes ou toutes deux non parsables → **BLOQUANT** (ligne inutilisable)
+
+---
+
+### CTR-2026-06-029
+
+```
+Date       : 2026-06-29
+Lot        : Lot transverse - HORS_PARC_TECHNIQUE
+Code       : STATUT_PARC_REFERENTIEL_ET_EXCLUSIONS
+Severite   : INFO
+Fichier    : REF_Setup.xlsm / lib_parc.py / lots consommateurs
+Resultat   : REF_Logements.statut_parc present, renseigne sur toutes les lignes, limite aux valeurs GERE et HORS_PARC_TECHNIQUE.
+             Validation de donnees presente sur la colonne statut_parc.
+             HORS_PARC_TECHNIQUE exclu explicitement des calculs economiques et operationnels.
+             statut_parc vide, invalide ou inconnu route en A_CONTROLER avec code STATUT_PARC_INVALIDE, sans calcul economique.
+Statut     : OUVERT - EN_ATTENTE_VALIDATION_HUMAINE
+Commentaire: actif = disponibilite technique du code referentiel ; statut_parc = eligibilite au parc gere.
+```

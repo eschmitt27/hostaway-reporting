@@ -1521,3 +1521,17 @@ Je m'appuierais sur **une table de flux unifiée comme colonne vertébrale**, to
 **Point d'attention n°1 à l'implémentation** : l'assiette de commission par canal (§8.3), la règle validée la plus piégeuse techniquement, parce que le ménage à soustraire se cache à un endroit différent selon Airbnb, Booking, VRBO ou Direct.
 
 **En une phrase.** Un référentiel solide + une table de flux unifiée alimentée par tous les modules + trois lectures par simple filtre sur le code impact = un système modulaire, maintenable et directement branchable sur Power BI.
+
+---
+
+## Note 2026-06-29 - statut_parc et codes techniques hors parc
+
+`REF_Logements.actif` indique la disponibilite technique d'un code referentiel. Un code peut rester disponible pour le controle, le mapping ou l'anti-mauvais-mapping sans etre eligible aux calculs metier.
+
+`REF_Logements.statut_parc` indique l'eligibilite du code au parc de logements geres. Les seules valeurs valides sont `GERE` et `HORS_PARC_TECHNIQUE`.
+
+- `GERE` : logement reellement gere, eligible aux calculs metier si les autres referentiels obligatoires sont valides (proprietaire historise, taux de commission, etc.).
+- `HORS_PARC_TECHNIQUE` : code conserve dans le referentiel pour controle ou anti-mauvais-mapping, explicitement exclu de tout calcul economique et operationnel.
+- `statut_parc` vide, invalide ou inconnu : traitement `A_CONTROLER`, code anomalie `STATUT_PARC_INVALIDE`, sans calcul economique.
+
+Cette distinction est volontairement separee de `actif` : `actif` ne vaut pas eligibilite au parc gere.

@@ -229,3 +229,14 @@ PK : CARTE_002 (Ewan)
 Description : suffixe_carte = 'XXXX' (placeholder). Le vrai suffixe de la carte d'Ewan n'est pas renseigné.
 Justification : Non bloquant avant Lot 8. Le suffixe sert uniquement au rapprochement bancaire (Lot 8).
 Action à faire au Lot 8 : remplacer 'XXXX' par le vrai suffixe avant traitement des exports bancaires.
+
+---
+
+### ANO-2026-06-029
+Date : 2026-06-29 | Lot : Transverse - HORS_PARC_TECHNIQUE | Severite : A_CONTROLER | Statut : REGLE_DE_CONTROLE_A_APPLIQUER
+Code : STATUT_PARC_INVALIDE
+Source : REF_Logements.statut_parc
+PK : logement_id
+Description : `statut_parc` vide, invalide ou inconnu. Cette situation ne doit jamais etre assimilee a `GERE`.
+Traitement attendu : produire `A_CONTROLER` avec code anomalie `STATUT_PARC_INVALIDE` et interrompre tout calcul economique pour le logement concerne.
+Resolution : Regle centrale implementee dans `lib_parc.py`; referentiel actuel renseigne uniquement `GERE` et `HORS_PARC_TECHNIQUE`.

@@ -1,14 +1,31 @@
 import ast
+import importlib.util
+import shutil
+import sys
+import tempfile
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-LOT_SCRIPTS = [
-    ROOT / "02_TRAVAIL" / "lot4bis_charger_reservations.py",
-    ROOT / "02_TRAVAIL" / "lot10_calculer_resultats.py",
-    ROOT / "02_TRAVAIL" / "lot11_controles_coherence.py",
-    ROOT / "02_TRAVAIL" / "lot12_generer_factures.py",
-    ROOT / "02_TRAVAIL" / "lot13_export_powerbi.py",
+LOT_NAMES = [
+    "lot4bis_charger_reservations",
+    "lot6c_menages_externes",
+    "lot10_calculer_resultats",
+    "lot11_controles_coherence",
+    "lot12_generer_factures",
+    "lot13_export_powerbi",
+]
+LOT_SCRIPTS = [ROOT / "02_TRAVAIL" / f"{name}.py" for name in LOT_NAMES]
+SUPPORT_MODULES = [
+    "lib_canape.py",
+    "lib_cloture.py",
+    "lib_controls.py",
+    "lib_menage_costs.py",
+    "lib_parc.py",
+    "lib_ref_history.py",
+    "lib_settlements.py",
+    "lib_sheet_source.py",
 ]
 
 
@@ -43,6 +60,10 @@ def _call_name(call):
             parts.append(value.id)
         return ".".join(reversed(parts))
     return ast.unparse(func)
+
+
+def _snapshot(path):
+    return sorted(str(p.relative_to(path)) for p in path.rglob("*"))
 
 
 class TestLotImportsAreSideEffectFree(unittest.TestCase):
@@ -86,6 +107,41 @@ class TestLotImportsAreSideEffectFree(unittest.TestCase):
                                 dangerous,
                                 f"{path} has top-level Excel write call {name} at line {child.lineno}",
                             )
+
+    def test_imports_in_temp_copy_do_not_read_write_or_create_business_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp) / "project"
+            work = tmp_root / "02_TRAVAIL"
+            work.mkdir(parents=True)
+            for script in LOT_SCRIPTS:
+                shutil.copy2(script, work / script.name)
+            for module in SUPPORT_MODULES:
+                shutil.copy2(ROOT / "02_TRAVAIL" / module, work / module)
+
+            before = _snapshot(tmp_root)
+            opened = []
+
+            def blocked_open(*args, **kwargs):
+                opened.append(args[0] if args else None)
+                raise AssertionError("business file access during import")
+
+            old_path = list(sys.path)
+            old_dont_write_bytecode = sys.dont_write_bytecode
+            sys.path.insert(0, str(work))
+            sys.dont_write_bytecode = True
+            try:
+                with patch("builtins.open", side_effect=blocked_open),                      patch("pathlib.Path.open", side_effect=blocked_open),                      patch("openpyxl.load_workbook", side_effect=AssertionError("workbook read during import")):
+                    for name in LOT_NAMES:
+                        with self.subTest(module=name):
+                            spec = importlib.util.spec_from_file_location(f"tmp_{name}", work / f"{name}.py")
+                            module = importlib.util.module_from_spec(spec)
+                            spec.loader.exec_module(module)
+            finally:
+                sys.path[:] = old_path
+                sys.dont_write_bytecode = old_dont_write_bytecode
+
+            self.assertEqual(before, _snapshot(tmp_root))
+            self.assertEqual(opened, [])
 
 
 if __name__ == "__main__":
