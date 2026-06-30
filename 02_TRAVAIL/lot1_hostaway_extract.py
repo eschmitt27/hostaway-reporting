@@ -57,6 +57,8 @@ if _missing:
     sys.exit(1)
 
 # ── Constantes ────────────────────────────────────────────────
+from lib_guestcount import resolve_api_guest_count
+
 DATE_FROM       = "2026-01-01"
 PAGE_SIZE       = 100
 MAX_RETRIES     = 3
@@ -654,6 +656,21 @@ def _first(*values):
             return v
     return None
 
+
+def guest_count_columns_from_api(res: dict, detail: dict | None = None) -> dict:
+    """Build Lot1 guestCount columns from simulated/API reservation payloads."""
+    detail = detail or {}
+    guest_resolution = resolve_api_guest_count(
+        res.get("numberOfGuests"),
+        detail.get("numberOfGuests"),
+    )
+    return {
+        "numberOfGuests": res.get("numberOfGuests"),
+        "guestCount": guest_resolution.value,
+        "source_guestCount": guest_resolution.source,
+        "controle_guestCount": guest_resolution.status,
+        "code_controle_guestCount": guest_resolution.code,
+    }
 def parse_finance_fields(money: dict) -> list:
     """Extraire la liste [{name, value}] depuis money.financeFields ou money.currencies."""
     if not money:
@@ -1610,10 +1627,8 @@ def main():
                             "checkOutDate":         res.get("departureDate") or res.get("checkOutDate"),
                             "nights":               res.get("nights"),
                             # API Hostaway expose numberOfGuests (et non guestCount). On conserve
-                            # la colonne de sortie guestCount pour ne pas casser les consommateurs,
-                            # alimentee par numberOfGuests. Absence -> None (jamais 0 par defaut).
-                            "guestCount":           res.get("numberOfGuests"),
-                            "numberOfGuests":       res.get("numberOfGuests"),  # valeur brute pour audit
+                            # la colonne canonique guestCount pour les consommateurs aval.
+                            **guest_count_columns_from_api(res),
                             "guestName":            res.get("guestName"),
                             "totalPrice":           safe_float(res.get("totalPrice")),
                             "cleaningFee_res":      safe_float(res.get("cleaningFee")),
@@ -1655,6 +1670,7 @@ def main():
                                 "extrait_le":     now_utc(),
                                 "ROW_HASH":       row_hash(res_id, "detail"),
                             })
+                            rows_res[-1].update(guest_count_columns_from_api(res, detail))
                         else:
                             ff_list = ff_list_base
 

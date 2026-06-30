@@ -21,6 +21,7 @@ SUPPORT_MODULES = [
     "lib_canape.py",
     "lib_cloture.py",
     "lib_controls.py",
+    "lib_guestcount.py",
     "lib_menage_costs.py",
     "lib_parc.py",
     "lib_ref_history.py",

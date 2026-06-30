@@ -44,7 +44,7 @@ DATE_INTEGRATION = datetime.datetime.now().isoformat(timespec="seconds")
 BASE_COLS = [
     "reservation_calc_id", "ROW_HASH", "source", "reservation_id_hostaway",
     "reservation_hh_id", "mois", "logement_id", "proprietaire_id",
-    "date_arrivee", "date_depart", "nuits", "montant_retenu", "source_montant",
+    "date_arrivee", "date_depart", "nuits", "guestCount", "source_guestCount", "montant_retenu", "source_montant",
     "code_impact", "impact_resultat_reel", "impact_resultat_comptable",
     "statut_controle", "niveau_anomalie", "code_anomalie", "commentaire",
     "source_module", "source_table", "source_pk", "date_integration",
@@ -192,6 +192,8 @@ def main():
                 "date_arrivee": h.get("date_arrivee"),
                 "date_depart": h.get("date_depart"),
                 "nuits": h.get("nuits"),
+                "guestCount": h.get("guestCount"),
+                "source_guestCount": h.get("source_guestCount") or "HIST",
                 "montant_retenu": h.get("montant_retenu"),
                 "source_montant": SRC_HIST,
                 "code_impact": h.get("code_impact"),

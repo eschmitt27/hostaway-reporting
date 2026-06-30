@@ -518,7 +518,7 @@ def main():
     # 3a - Verifier formule revenu_net_exploitation (payout - menage - commission)
     # charge_fixe_mensuelle = 0 par reservation (D-LOT10-01)
     df_e = df_exploit.copy()
-    for col in ["payout_calcule", "menage_retenu", "commission_conciergerie",
+    for col in ["payout_calcule", "menage_retenu", "commission_conciergerie", "preparation_canape_voyageurs",
                 "charge_fixe_mensuelle", "revenu_net_exploitation"]:
         if col not in df_e.columns:
             df_e[col] = 0.0
@@ -527,6 +527,7 @@ def main():
     df_e["_net_calcule"] = (df_e["payout_calcule"]
                             - df_e["menage_retenu"]
                             - df_e["commission_conciergerie"]
+                            - df_e["preparation_canape_voyageurs"]
                             - df_e["charge_fixe_mensuelle"]).round(2)
     df_e["_ecart_net"] = (df_e["revenu_net_exploitation"] - df_e["_net_calcule"]).abs()
 
@@ -860,6 +861,20 @@ def main():
               f"{n_vrbo} reservations HOSTAWAY_VRBO_A_CONTROLER sans montant valide. "
               "Saisie manuelle requise au Lot 4.",
               commentaire="Lots 4/4bis: saisir montants VRBO dans SAISIE_ReservationsHorsHostaway.xlsx")
+
+    if "code_anomalie_lot10" in df_com_ac.columns:
+        miss_canape = df_com_ac[
+            df_com_ac["code_anomalie_lot10"].astype(str) == "GUEST_COUNT_MANQUANT_PREPARATION_CANAPE"
+        ]
+        for _, row in miss_canape.iterrows():
+            _ctrl(ctrl_rows, "COMMISSIONS", "MASTER_CALC_Commissions",
+                  row.get("reservation"),
+                  "GUEST_COUNT_MANQUANT_PREPARATION_CANAPE", "A_CONTROLER",
+                  "guestCount manquant pour un logement soumis a preparation canape; montant non facture tant que non resolu.",
+                  mois=row.get("mois"), logement_id=row.get("logement_id"),
+                  proprietaire_id=row.get("proprietaire_id"),
+                  reservation_id=row.get("reservation"),
+                  commentaire="Corriger guestCount dans la source reservation; ne jamais deduire depuis prix/linge/nom voyageur.")
 
     # 6e - RESERVATION_A_CONTROLER_SANS_COMMISSION
     n_ac = len(df_com_ac)

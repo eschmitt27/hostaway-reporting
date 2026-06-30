@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -15,9 +16,12 @@ class CanapeResult:
 
 def _f(value: Any) -> float | None:
     try:
-        return float(value)
+        out = float(value)
     except (TypeError, ValueError):
         return None
+    if math.isnan(out):
+        return None
+    return out
 
 
 def _configured_rule(logement_id: str, ref_row: dict[str, Any] | None) -> tuple[int | None, float | None, str]:

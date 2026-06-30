@@ -499,6 +499,33 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
         df_vrbo_norm = df_vrbo
 
     # ── 2h. Sortie COMMISSIONS (NORMAL HA + VRBO + HH) ──
+    def _apply_preparation_canape(df: pd.DataFrame) -> pd.DataFrame:
+        if len(df) == 0:
+            return df
+        out = df.copy()
+        amounts = []
+        statuses = []
+        sources = []
+        for _, row in out.iterrows():
+            log_id = row.get("logement_id_eff") or row.get("logement_id")
+            ref_row = log_ref.get(log_id)
+            res = calculate_canape_amount(log_id, row.get("guestCount"), ref_row)
+            amounts.append(res.amount)
+            statuses.append(res.status)
+            sources.append(res.message)
+        out["preparation_canape_voyageurs"] = amounts
+        out["controle_preparation_canape"] = statuses
+        out["source_preparation_canape"] = sources
+        if "net_proprietaire" in out.columns:
+            net = pd.to_numeric(out["net_proprietaire"], errors="coerce")
+            canape = pd.to_numeric(out["preparation_canape_voyageurs"], errors="coerce").fillna(0.0)
+            out["net_proprietaire"] = (net - canape).round(2)
+        return out
+
+    df_ha_norm = _apply_preparation_canape(df_ha_norm)
+    df_vrbo_norm = _apply_preparation_canape(df_vrbo_norm)
+    df_hh_norm = _apply_preparation_canape(df_hh_norm)
+
     COMM_OUT_COLS = [
         "source_pk", "reservation_calc_id", "reservation_id_hostaway",
         "logement_id_eff", "proprietaire_id_eff", "mois_flux",
@@ -542,7 +569,7 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
                 "logement_id": r.get("logement_id"),
                 "proprietaire_id": r.get("proprietaire_id"),
                 "mois": r.get("mois"),
-                "code_anomalie_lot10": "PREPARATION_CANAPE_GUESTCOUNT_ABSENT",
+                "code_anomalie_lot10": "GUEST_COUNT_MANQUANT_PREPARATION_CANAPE",
                 "niveau": "A_CONTROLER",
                 "message": r.get("source_preparation_canape"),
             } for _, r in canape_ctrl.iterrows()])], ignore_index=True, sort=False)

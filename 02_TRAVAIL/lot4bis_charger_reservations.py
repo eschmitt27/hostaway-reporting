@@ -41,6 +41,14 @@ from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Font
 
 from lib_ref_history import REF_GESTION_LOGEMENTS_HIST_SHEET, resolve_management_period
+from lib_guestcount import (
+    SOURCE_API_DETAIL,
+    SOURCE_API_LIST,
+    SOURCE_CONFLICT_API,
+    extract_number_of_guests_from_snapshot,
+    normalize_guest_count,
+    resolve_guest_count_from_sources,
+)
 from lib_parc import (
     A_CONTROLER,
     HORS_PARC_TECHNIQUE,
@@ -55,6 +63,7 @@ from lib_parc import (
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 PATH_HA_RES  = os.path.join(ROOT, "02_TRAVAIL", "Lot1_Hostaway", "MASTER_FACT_HA_Reservations.xlsx")
+PATH_HA_DET  = os.path.join(ROOT, "02_TRAVAIL", "Lot1_Hostaway", "MASTER_FACT_HA_ReservationDetails.xlsx")
 PATH_HA_PAY  = os.path.join(ROOT, "02_TRAVAIL", "Lot1_Hostaway", "MASTER_CALC_HA_Payout.xlsx")
 PATH_HH_FACT = os.path.join(ROOT, "02_TRAVAIL", "Lot4_ReservationsHH", "MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx")
 PATH_REF     = os.path.join(ROOT, "01_SOURCES_BRUTES", "REF_Setup", "REF_Setup.xlsm")
@@ -136,6 +145,17 @@ def main():
     h_res, d_res = load_sheet(PATH_HA_RES, "data")
     res_dicts = rows_to_dicts(h_res, d_res)
     print(f"      {len(res_dicts)} lignes")
+
+    print("[1b/5] Lecture MASTER_FACT_HA_ReservationDetails pour fallback historique guestCount...")
+    h_det, d_det = load_optional_sheet(PATH_HA_DET, "data") if os.path.exists(PATH_HA_DET) else ([], [])
+    det_dicts = rows_to_dicts(h_det, d_det) if h_det else []
+    guest_by_reservation_id = {
+        str(d.get("reservation_id")): extract_number_of_guests_from_snapshot(d.get("json_snapshot"))
+        for d in det_dicts
+        if d.get("reservation_id") is not None
+    }
+    guest_by_reservation_id = {k: v for k, v in guest_by_reservation_id.items() if v is not None and v != ""}
+    print(f"      {len(guest_by_reservation_id)} guestCount disponibles depuis snapshots historiques")
 
     print("[2/5] Lecture MASTER_CALC_HA_Payout...")
     h_pay, d_pay = load_sheet(PATH_HA_PAY, "data")
@@ -278,8 +298,40 @@ def main():
             impact_reel   = "NON"
             impact_compta = "NON"
 
+        source_guest = res.get("source_guestCount")
+        raw_guest = res.get("guestCount")
+        if source_guest in (SOURCE_API_LIST, SOURCE_API_DETAIL):
+            guest_value, guest_error = normalize_guest_count(raw_guest)
+            if guest_error:
+                guest_resolution = resolve_guest_count_from_sources(raw_guest)
+            else:
+                guest_resolution = resolve_guest_count_from_sources(guest_value)
+                guest_resolution = type(guest_resolution)(guest_value, source_guest, "OK")
+        elif source_guest == SOURCE_CONFLICT_API:
+            guest_resolution = resolve_guest_count_from_sources(1, 2)
+        else:
+            guest_resolution = resolve_guest_count_from_sources(
+                res.get("numberOfGuests"),
+                None,
+                guest_by_reservation_id.get(str(res.get("reservation_id"))),
+            )
+        lot1_guest_code = res.get("code_controle_guestCount")
+        if lot1_guest_code in ("GUEST_COUNT_CONFLICT_API_LIST_DETAIL", "GUEST_COUNT_INVALIDE_API"):
+            guest_resolution = type(guest_resolution)(
+                None,
+                source_guest or guest_resolution.source,
+                "A_CONTROLER",
+                lot1_guest_code,
+                "guestCount invalide ou conflictuel depuis Lot1",
+            )
+        if guest_resolution.code in ("GUEST_COUNT_CONFLICT_API_LIST_DETAIL", "GUEST_COUNT_INVALIDE_API"):
+            statut_controle = "A_CONTROLER"
+            niveau_anomalie = "A_CONTROLER"
+            code_anomalie = guest_resolution.code
+            commentaire = (commentaire or "") + " | " + (guest_resolution.message or guest_resolution.code)
+
         hash_keys = [reservation_calc_id, source_val, res.get("reservation_id"), mois,
-                     logement_id, montant_retenu, code_impact]
+                     logement_id, montant_retenu, code_impact, guest_resolution.value, guest_resolution.source]
 
         return {
             "reservation_calc_id":     reservation_calc_id,
@@ -293,7 +345,8 @@ def main():
             "date_arrivee":            date_to_str(res.get("checkInDate")),
             "date_depart":             date_to_str(res.get("checkOutDate")),
             "nuits":                   res.get("nights"),
-            "guestCount":              res.get("guestCount") or res.get("numberOfGuests"),
+            "guestCount":              guest_resolution.value,
+            "source_guestCount":       guest_resolution.source,
             "montant_retenu":          montant_retenu,
             "source_montant":          source_montant,
             "code_impact":             code_impact,
@@ -380,6 +433,7 @@ def main():
             "date_depart":             date_to_str(hh.get("date_depart")),
             "nuits":                   hh.get("nuits"),
             "guestCount":              hh.get("guestCount"),
+            "source_guestCount":       "SAISIE_HH" if hh.get("guestCount") not in (None, "") else "ABSENT",
             "montant_retenu":          montant,
             "source_montant":          source_montant,
             "code_impact":             code_impact,
@@ -586,12 +640,12 @@ def main():
     HEADERS = [
         "reservation_calc_id", "ROW_HASH", "source", "reservation_id_hostaway",
         "reservation_hh_id", "mois", "logement_id", "proprietaire_id",
-        "date_arrivee", "date_depart", "nuits", "guestCount", "montant_retenu", "source_montant",
+        "date_arrivee", "date_depart", "nuits", "guestCount", "source_guestCount", "montant_retenu", "source_montant",
         "code_impact", "impact_resultat_reel", "impact_resultat_comptable",
         "statut_controle", "niveau_anomalie", "code_anomalie", "commentaire",
         "source_module", "source_table", "source_pk", "date_integration",
     ]
-    assert len(HEADERS) == 25, f"Attendu 25 colonnes, trouvé {len(HEADERS)}"
+    assert len(HEADERS) == 26, f"Attendu 26 colonnes, trouvé {len(HEADERS)}"
 
     print(f"\n[6/6] Écriture dans {PATH_TARGET}...")
 
