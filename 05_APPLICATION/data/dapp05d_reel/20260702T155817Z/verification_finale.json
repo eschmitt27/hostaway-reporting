@@ -1,0 +1,27 @@
+{
+  "sha256_final": "c3c00e73017212e08bb3f9e9aef73a26bd3c828804e4fa21f7f2b37713d54c5c",
+  "taille_finale_octets": 49717,
+  "mtime_final": "2026-07-02T16:08:34Z",
+  "resultat": "CONFORME",
+  "controles_verts": 17,
+  "explication": "La réécriture par Excel après validation humaine a changé la sérialisation ZIP et donc le hash/taille, sans modifier le contenu fonctionnel. Les formules B (ROW_HASH) et C (mois) restent canoniques, YEAR/MONTH/DAY+RIGHT, indépendantes de la locale. La structure, les validations, les plages nommées, les MFC et fullCalcOnLoad sont préservés.",
+  "perimetre_fonctionnel_autorise": "B2:B501 et C2:C501 uniquement",
+  "sha256_intermediaire_post_os_replace": "b4165ca94566e7de80a5aee3faf7cf3442b5f693856c379e2190c21c5287b101",
+  "taille_intermediaire_octets": 85696,
+  "backup_avant_correction": "05_APPLICATION/data/dapp05d_reel/20260702T155817Z/backup_avant/SAISIE_AVANT.xlsx",
+  "confirmations": {
+    "aucune_ligne_test_RESHH_2099": true,
+    "nb_plages_nommees": 12,
+    "nb_validations": 11,
+    "nb_mfc_rules": 2,
+    "nb_feuilles": 4,
+    "fullCalcOnLoad": true,
+    "delta_hors_perimetre": 0,
+    "delta_dans_perimetre_BC": 1000,
+    "formules_B_correctes": 500,
+    "formules_C_correctes": 500,
+    "tokens_interdits_BC": 0,
+    "colonnes_KNOQUYZ_valeurs_figees": 0,
+    "champs_manuels_ligne2_changes": 0
+  }
+}

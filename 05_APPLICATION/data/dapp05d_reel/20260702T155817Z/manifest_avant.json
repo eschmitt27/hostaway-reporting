@@ -1,0 +1,23 @@
+{
+  "horodatage_utc": "20260702T155817Z",
+  "real_fp": {
+    "sha256": "e4591912a6b0f1cad69775c2c0554bc603e6ea43097133e46c21878807414190",
+    "taille": 75924,
+    "mtime_ns": 1782676150164898800
+  },
+  "backup_fp": {
+    "sha256": "e4591912a6b0f1cad69775c2c0554bc603e6ea43097133e46c21878807414190",
+    "taille": 75924,
+    "mtime_ns": 1782676150164898800
+  },
+  "calcpr_real": "<calcPr calcId=\"124519\" fullCalcOnLoad=\"1\"/>",
+  "named": 12,
+  "dv": 11,
+  "cf": 2,
+  "sheets": [
+    "SAISIE",
+    "REF_LOCALE",
+    "CONTROLES_SAISIE",
+    "README"
+  ]
+}

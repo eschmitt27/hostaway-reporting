@@ -1,0 +1,168 @@
+{
+  "preflight_real_fp": {
+    "sha256": "e4591912a6b0f1cad69775c2c0554bc603e6ea43097133e46c21878807414190",
+    "taille": 75924,
+    "mtime_ns": 1782676150164898800
+  },
+  "real_not_locked": true,
+  "env": "C:\\Users\\Ewan\\OneDrive\\Documents\\Conciergerie\\Pilotage_Conciergerie\\05_APPLICATION\\data\\dapp05b_proof\\20260702T095519Z",
+  "copy_fp_after_copy": {
+    "sha256": "e4591912a6b0f1cad69775c2c0554bc603e6ea43097133e46c21878807414190",
+    "taille": 75924,
+    "mtime_ns": 1782676150164898800
+  },
+  "copy_bytes_equal_real": true,
+  "copy_structure_matches_real_before_write": true,
+  "model_row": 3,
+  "valeurs_manuelles_ecrites": {
+    "A": "RESHH-2099-12-999",
+    "D": "CANAL_001",
+    "E": "SAISIE_MANUELLE",
+    "F": "PROP_0001",
+    "G": "LOG_0001",
+    "H": 99999999,
+    "I": "2099-12-01 00:00:00",
+    "J": "2099-12-06 00:00:00",
+    "L": 1000.0,
+    "M": 50.0,
+    "W": "HC",
+    "X": "OUI",
+    "AA": "A_CONTROLER",
+    "AB": "INFO",
+    "AD": "Ligne de preuve D-APP-05B - aucune donnee voyageur - a supprimer apres validation"
+  },
+  "c1_formules_ligne_test_intactes": {
+    "ok": true,
+    "detail": {
+      "B": {
+        "formule": true,
+        "identique": true
+      },
+      "C": {
+        "formule": true,
+        "identique": true
+      },
+      "K": {
+        "formule": true,
+        "identique": true
+      },
+      "N": {
+        "formule": true,
+        "identique": true
+      },
+      "O": {
+        "formule": true,
+        "identique": true
+      },
+      "Q": {
+        "formule": true,
+        "identique": true
+      },
+      "V": {
+        "formule": true,
+        "identique": true
+      },
+      "Y": {
+        "formule": true,
+        "identique": true
+      },
+      "Z": {
+        "formule": true,
+        "identique": true
+      }
+    }
+  },
+  "c2_controles_saisie_formules": {
+    "attendu": 13,
+    "obtenu": 13,
+    "ok": true
+  },
+  "c3_plages_nommees": {
+    "attendu": 12,
+    "obtenu": 12,
+    "ok": true
+  },
+  "c4_validations": {
+    "attendu": 11,
+    "obtenu": 11,
+    "ok": true
+  },
+  "c5_mfc": {
+    "attendu": [
+      [
+        "A2:AD501",
+        "expression",
+        [
+          "$AB2=\"A_CONTROLER\""
+        ],
+        1
+      ],
+      [
+        "A2:AD501",
+        "expression",
+        [
+          "$AB2=\"BLOQUANT\""
+        ],
+        0
+      ]
+    ],
+    "obtenu": [
+      [
+        "A2:AD501",
+        "expression",
+        [
+          "$AB2=\"A_CONTROLER\""
+        ],
+        1
+      ],
+      [
+        "A2:AD501",
+        "expression",
+        [
+          "$AB2=\"BLOQUANT\""
+        ],
+        0
+      ]
+    ],
+    "ok": true
+  },
+  "c6_ligne_historique": {
+    "ok": true
+  },
+  "c7_aucune_feuille_ajoutee": {
+    "attendu": [
+      "SAISIE",
+      "REF_LOCALE",
+      "CONTROLES_SAISIE",
+      "README"
+    ],
+    "obtenu": [
+      "SAISIE",
+      "REF_LOCALE",
+      "CONTROLES_SAISIE",
+      "README"
+    ],
+    "ok": true
+  },
+  "c8_aucun_temp": {
+    "fichiers": [
+      "SAISIE_copie.xlsx",
+      "manifest_avant.json"
+    ],
+    "temp": [],
+    "ok": true
+  },
+  "c9_reel_invariant": {
+    "avant": {
+      "sha256": "e4591912a6b0f1cad69775c2c0554bc603e6ea43097133e46c21878807414190",
+      "taille": 75924,
+      "mtime_ns": 1782676150164898800
+    },
+    "apres": {
+      "sha256": "e4591912a6b0f1cad69775c2c0554bc603e6ea43097133e46c21878807414190",
+      "taille": 75924,
+      "mtime_ns": 1782676150164898800
+    },
+    "ok": true
+  }
+}

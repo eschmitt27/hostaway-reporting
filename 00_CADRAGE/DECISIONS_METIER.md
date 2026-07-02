@@ -891,3 +891,46 @@ Valeurs autorisees de `statut_parc` :
 
 Toute valeur vide, invalide ou inconnue de `statut_parc` produit `A_CONTROLER` avec code anomalie `STATUT_PARC_INVALIDE` et ne doit produire aucune commission, facture/prefacture, net proprietaire, menage, flux proprietaire ou resultat par logement.
 Tables : REF_Logements, MASTER_CALC_Reservations, MASTER_CALC_Commissions, MASTER_CALC_NetProprietaire, MASTER_FACT_Proprietaires
+
+---
+
+### D-APP-05C — Formules Excel B (ROW_HASH) et C (mois) : indépendance de la langue et du séparateur
+Date : 2026-07-02 | Statut : VALIDÉ
+Contexte : Les formules originales de SAISIE_ReservationsHorsHostaway.xlsx utilisaient TEXT() avec des masques
+  de date (YYYY, DD) et décimal ("0.00") — tokens de la locale EN, illisibles sous Excel FR.
+  Symptômes : colonne C affichait "YYYY-05" au lieu de "2026-05" ; colonne B affichait "YYYY05DD|23.43".
+  Anomalie préexistante (classeur créé par openpyxl), non introduite par l'application.
+  Correction appliquée atomiquement le 2026-07-02 via D-APP-05D. Backup conservé.
+
+Décision permanente :
+  Les formules Excel B (ROW_HASH) et C (mois) de SAISIE_ReservationsHorsHostaway.xlsx doivent
+  rester indépendantes de la langue Excel et des séparateurs locaux.
+
+Interdits dans ces formules :
+  YYYY, DD, AAAA, JJ — masques de date localisés
+  TEXT() avec un masque de date ou décimal ("0.00", "#,##0.00", etc.)
+
+Formules canoniques validées (locale-agnostiques), N = numéro de ligne (2 à 501) :
+  C (mois) :
+    =IF(IN="","",YEAR(IN)&"-"&RIGHT("0"&MONTH(IN),2))
+
+  B (ROW_HASH) :
+    =IF(AN="","",AN&"|"&DN&"|"&FN&"|"&GN
+       &"|"&IF(IN="","",YEAR(IN)&RIGHT("0"&MONTH(IN),2)&RIGHT("0"&DAY(IN),2))
+       &"|"&IF(LN="","",IF(ROUND(LN*100,0)<0,"-","")
+               &INT(ABS(ROUND(LN*100,0))/100)&"."
+               &RIGHT("0"&MOD(ABS(ROUND(LN*100,0)),100),2)))
+
+  Fonctions autorisées : YEAR, MONTH, DAY, RIGHT, ROUND, INT, ABS, MOD.
+  Le point décimal est un littéral chaîne, jamais un masque TEXT.
+
+Cohérence Python ↔ Excel (contrat recompute()) :
+  mois      = d_arr.strftime("%Y-%m")
+  arr_txt   = d_arr.strftime("%Y%m%d") if d_arr else ""
+  total_txt = f"{_num(total):.2f}" if total != "" else ""
+  ROW_HASH  = f"{pk}|{canal}|{prop}|{log}|{arr_txt}|{total_txt}"
+  Point à traiter avant l'écriture applicative APP-2b :
+  un contrôle futur devra décider du traitement des montants ayant plus de deux décimales.
+  Aucun blocage MONTANT_PRECISION_INVALIDE n'est implémenté ni actif à ce stade.
+
+Tables : SAISIE_ReservationsHorsHostaway.xlsx (colonnes B, C — lignes 2 à 501)

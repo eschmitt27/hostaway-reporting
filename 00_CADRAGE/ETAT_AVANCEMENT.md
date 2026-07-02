@@ -1,12 +1,58 @@
 # ETAT_AVANCEMENT.md
 > Fichier de mémoire inter-sessions. À lire en PREMIER à chaque reprise. À mettre à jour en FIN de session.
+> Deux pistes distinctes : **MOTEUR** (pipeline de calcul Lot 0→13, sections ci-dessous) et **APPLICATION LOCALE** (section dédiée juste après). Ne pas mélanger.
+
+---
+
+## APPLICATION LOCALE — Suivi dédié
+
+> Piste de l'application locale de pilotage. Plan complet : `00_CADRAGE/APPLICATION_LOCALE/PLAN_CONSTRUCTION_APPLICATION_LOCALE.md` (ne pas le dupliquer ici).
+>
+> **Règle de tenue permanente** : après chaque lot app réellement démarré / modifié / testé / validé / bloqué / terminé, ajouter une entrée datée avec : statut, lot concerné, fichiers touchés, tests réalisés, résultat, anomalies/risques, décisions attendues, prochaine action. Ne jamais marquer un lot **FAIT** sans les contrôles, tests et preuves prévus par le cadrage. Édition ciblée, historique conservé.
+
+### Statut global app
+**APP-2a VALIDÉ — D-APP-05A VALIDÉE — D-APP-05B VALIDÉE — D-APP-05C/D VALIDÉES — APP-2b DÉBLOQUÉE TECHNIQUEMENT, NON DÉMARRÉE.**
+Application : 103/103 tests verts. Lot4A : 42/42 tests verts.
+Suite moteur exhaustive : non exécutable intégralement dans l'environnement local (88 tests verts ; 1 module non chargeable faute de `requests`/`python-dotenv` — anomalie antérieure à Lot4A, hors périmètre Lot4A).
+
+### Journal app
+
+#### 2026-07-02 — D-APP-05B / D-APP-05C / D-APP-05D — Preuve écriture + correction formules SAISIE HH — VALIDÉ HUMAINEMENT
+- **Statut** : VALIDÉ HUMAINEMENT — Formules B/C corrigées sur fichier réel. APP-2b débloquée techniquement.
+- **D-APP-05A** : VALIDÉE — Comparateur et dry-run LOT4A terminés techniquement (voir CTR-LOT4A-2026-07-02).
+- **D-APP-05B** : VALIDÉE — Preuve d'écriture openpyxl sur copie isolée `05_APPLICATION/data/dapp05b_proof/20260702T095519Z/`. 12/12 contrôles automatisés verts. Validation humaine Excel réussie : formules, validations, plages nommées, MFC, feuilles, ligne historique préservées ; fichier réel inchangé pendant la preuve.
+- **D-APP-05C** : VALIDÉE — Correction des formules B (ROW_HASH) et C (mois) sur copie isolée `05_APPLICATION/data/dapp05c_formules/20260702T143503Z/`. Anomalie préexistante : tokens `TEXT`/`YYYY`/`DD` localisés, incompatibles Excel FR. Nouvelles formules : `YEAR`/`MONTH`/`DAY` + `RIGHT("0"&…,2)` + `INT`/`ABS`/`ROUND`/`MOD` pour les montants — voir D-APP-05C (DECISIONS_METIER). 14/14 contrôles verts. Validation humaine Excel réussie.
+- **D-APP-05D** : VALIDÉE — Correction atomique réelle sur `01_SOURCES_BRUTES/ReservationsHH/SAISIE_ReservationsHorsHostaway.xlsx`. Périmètre : B2:B501 et C2:C501 uniquement. 11/11 contrôles structurels verts. Remplacement atomique (`os.replace`). Backup conservé : `05_APPLICATION/data/dapp05d_reel/20260702T155817Z/backup_avant/SAISIE_AVANT.xlsx` (sha256 origine vérifié). État intermédiaire post-`os.replace` : sha256=`b4165ca9…87b101`, taille 85696 o — Excel réécrit le fichier lors de la validation humaine (sérialisation ZIP différente). État final après ouverture/sauvegarde Excel : sha256=`c3c00e73017212e08bb3f9e9aef73a26bd3c828804e4fa21f7f2b37713d54c5c`, taille 49717 o. Vérification finale lecture seule : 17/17 contrôles CONFORME (voir `verification_finale.json`). Validation humaine Excel réussie : C2=`2026-05`, B2=`RESHH-2026-05-001|CANAL_004|PROP_0003|LOG_0009|20260525|2343.48`, aucune alerte de réparation Excel.
+- **APP-2b** : DÉBLOQUÉE TECHNIQUEMENT. `saisie_writer.py` reste stub (`NotImplementedError`). Aucune route d'écriture créée. Démarrage APP-2b uniquement sur feu vert humain explicite.
+- **Entrée JOURNAL_CONTROLES** : CTR-DAPP05BCD-2026-07-02.
+
+
+#### 2026-07-02 — D-APP-05 — Protocole de preuve technique — BLOCAGE AU PRÉFLIGHT
+- **Statut** : BLOQUÉ au préflight (étape 1). **Aucune ligne de test écrite. Aucune copie créée. Aucun fichier réel modifié.**
+- **Contexte** : exécution du protocole de preuve D-APP-05 (écriture contrôlée future dans `SAISIE_ReservationsHorsHostaway.xlsx`). APP-2b reste bloquée.
+- **Préflight réalisé (lecture seule uniquement)** :
+  - Excel COM **disponible** (win32com OK, Excel 16.0).
+  - Inspection interne des classeurs par décompression (copies extraites en scratchpad, originaux jamais ouverts en écriture).
+- **Découverte bloquante** : **aucun Power Query vivant** dans les fichiers réels.
+  - `MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx` : généré par **openpyxl 3.1.5** (creator=openpyxl, créé 2026-06-09). **Aucun `connections.xml`, aucune DataMashup, aucune requête PQ.** Fichier statique (3 feuilles + texte).
+  - `SAISIE_ReservationsHorsHostaway.xlsx` : généré par **openpyxl 3.1.5**. **Aucune connexion PQ.** Contient bien 12 plages nommées `lst_*`, validations de données, mise en forme conditionnelle, formules (ROW_HASH, mois, nuits, taux, commission, acompte, impacts).
+  - **Aucun script actuel ne régénère le MASTER depuis la SAISIE** : lot4bis/lot10/lot11 **lisent** le MASTER ; lot12_seed/remove injectent/retirent des données fictives ; le vrai build SAISIE→MASTER n'existe pas dans l'arbre courant (généré une fois par openpyxl).
+  - La feuille `POWER_QUERY_CODE` et les lignes `[Chargé par Power Query…]` sont **documentaires**, pas des requêtes réelles.
+- **Conséquence** : le mécanisme central du protocole (« refresh Power Query manuel → MASTER de test reçoit la ligne ») **n'est pas exécutable** : il n'y a pas de Power Query à rafraîchir. Par la règle §1 du protocole, arrêt avant toute écriture.
+- **Hash SHA-256 originaux (référence, inchangés)** :
+  - SAISIE : `e4591912a6b0f1cad69775c2c0554bc603e6ea43097133e46c21878807414190`
+  - MASTER : `c0e4434c347987d21bac52d7df6def4633fb949ffe3267fb203252a362300390`
+- **Données réelles** : `git status 01_SOURCES_BRUTES/ 02_TRAVAIL/ 03_EXPORTS/` → vide.
+- **Solution minimale proposée** (à valider) : reformuler D-APP-05 sans Power Query — (a) preuve Excel COM d'écriture d'une ligne dans une copie isolée de la SAISIE en préservant formules/DV/plages/MFC ; (b) identifier ou reconstruire le générateur réel SAISIE→MASTER (script openpyxl) et le rejouer sur les copies isolées pour prouver la propagation de la ligne. Décision humaine requise avant toute écriture.
+- **Entrée JOURNAL_CONTROLES** : CTR-DAPP05-PREFLIGHT-2026-07-02.
+- **D-APP-05** : reste OUVERTE. **Non validée.** APP-2b bloquée.
 
 ---
 
 ## Dernière mise à jour
-Date : 2026-06-14
-Session : Session 22 — Lot 12 Préfactures propriétaires
-Agent : Claude Code (claude-opus-4-8 / claude-sonnet-4-6)
+Date : 2026-07-02
+Session : Session 26 — D-APP-05B/C/D validées humainement — formules B/C SAISIE HH corrigées — APP-2b débloquée techniquement
+Agent : Claude Code (claude-sonnet-4-6)
 
 ---
 

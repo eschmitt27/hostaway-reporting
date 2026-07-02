@@ -22,6 +22,85 @@ Commentaire: note
 
 ---
 
+### CTR-DAPP05BCD-2026-07-02
+
+```
+Date       : 2026-07-02
+Lot        : D-APP-05B / D-APP-05C / D-APP-05D — Preuve écriture + correction formules + correction réelle SAISIE HH
+Code       : DAPP05BCD_FORMULES_SAISIE_HH
+Sévérité   : INFO
+Fichier    : (D-APP-05B) 05_APPLICATION/data/dapp05b_proof/20260702T095519Z/SAISIE_copie.xlsx
+             (D-APP-05C) 05_APPLICATION/data/dapp05c_formules/20260702T143503Z/SAISIE_copie.xlsx
+             (D-APP-05D) 01_SOURCES_BRUTES/ReservationsHH/SAISIE_ReservationsHorsHostaway.xlsx
+             (backup)    05_APPLICATION/data/dapp05d_reel/20260702T155817Z/backup_avant/SAISIE_AVANT.xlsx
+Résultat   : D-APP-05B — Preuve openpyxl sur copie isolée. 12/12 contrôles automatisés verts.
+               - Formules B/C/K/N/O/Q/V/Y/Z intactes sur la ligne modèle après écriture manuelles.
+               - 12 plages nommées, 11 validations, 2 MFC, 4 feuilles : identiques au réel.
+               - fullCalcOnLoad="1" préservé. Aucun temp résiduel. Fichier réel invariant.
+               - Validation humaine Excel réussie : DV actives, MFC fonctionnelle, ligne historique intacte.
+               - Anomalie détectée : formules B/C utilisaient TEXT(YYYY/DD/"0.00") — tokens localisés,
+                 incompatibles Excel FR. Affichage "YYYY-05" / "YYYY05DD|23.43".
+
+             D-APP-05C — Correction formules B/C sur copie isolée. 14/14 contrôles automatisés verts.
+               - Nouvelles formules : YEAR/MONTH/DAY + RIGHT("0"&…,2) pour date ;
+                 INT/ABS/ROUND/MOD + point décimal littéral pour montants. Aucun token localisé.
+               - Delta borné à {B2:B501, C2:C501}, 0 hors périmètre. K/N/O/Q/V/Y/Z inchangées.
+               - 12 plages nommées, 11 validations, 2 MFC, 4 feuilles identiques.
+               - Validation humaine Excel réussie : C2=2026-05, C3=2099-12 ;
+                 B3=RESHH-2099-12-999|CANAL_001|PROP_0001|LOG_0001|20991201|1000.00.
+
+             D-APP-05D — Correction atomique réelle. 11/11 contrôles structurels verts.
+               - Préflight : sha256=e4591912… taille=75924 mtime_ns=1782676150164898800 (== référence).
+               - Même volume Windows vérifié. Temporaire : SAISIE_APRES.tmp.xlsx.
+               - Delta réel : 1000 cellules, toutes dans {B2:B501, C2:C501}, 0 hors périmètre.
+               - État intermédiaire post-os.replace : sha256=b4165ca9…87b101, taille=85696 o.
+                 calcPr fullCalcOnLoad="1" + calcId="124519" préservés.
+               - Excel a réécrit le fichier lors de la validation humaine (sérialisation ZIP différente).
+               - État final (après ouverture/sauvegarde Excel) :
+                 sha256=c3c00e73017212e08bb3f9e9aef73a26bd3c828804e4fa21f7f2b37713d54c5c, taille=49717 o.
+               - Vérification finale lecture seule : 17/17 contrôles CONFORME.
+                 Référence : 05_APPLICATION/data/dapp05d_reel/20260702T155817Z/verification_finale.json
+               - Backup immuable conservé (sha256 origine vérifié).
+               - Validation humaine finale : C2=2026-05,
+                 B2=RESHH-2026-05-001|CANAL_004|PROP_0003|LOG_0009|20260525|2343.48,
+                 aucune alerte de réparation Excel, aucune ligne test parasite.
+Statut     : CORRIGÉ — D-APP-05A/B/C/D toutes validées. APP-2b débloquée techniquement.
+Commentaire: saisie_writer.py reste stub (NotImplementedError). Aucune route d'écriture créée.
+             APP-2b ne démarre que sur feu vert humain explicite.
+```
+
+---
+### CTR-DAPP05-PREFLIGHT-2026-07-02
+
+```
+Date       : 2026-07-02
+Lot        : D-APP-05 — Protocole de preuve technique (préflight)
+Code       : DAPP05_PREFLIGHT_POWER_QUERY_ABSENT
+Sévérité   : BLOQUANT (pour le protocole tel qu'écrit)
+Fichier    : 01_SOURCES_BRUTES/ReservationsHH/SAISIE_ReservationsHorsHostaway.xlsx (lecture seule)
+             02_TRAVAIL/Lot4_ReservationsHH/MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx (lecture seule)
+Résultat   : Préflight bloquant — aucune écriture, aucune copie, aucune ligne de test.
+             - Excel COM disponible (win32com OK, Excel 16.0).
+             - MASTER généré par openpyxl 3.1.5 (creator=openpyxl, 2026-06-09) : aucun connections.xml,
+               aucune DataMashup, aucune requête Power Query. Fichier statique.
+             - SAISIE générée par openpyxl 3.1.5 : aucune connexion PQ. Contient 12 plages nommées lst_*,
+               validations de données, mise en forme conditionnelle, formules (ROW_HASH/mois/nuits/taux/
+               commission/acompte/impacts).
+             - Aucun script courant ne régénère MASTER depuis SAISIE (lecture seule côté lot4bis/10/11 ;
+               lot12_seed/remove = données fictives). Feuille POWER_QUERY_CODE = documentaire.
+             - Conséquence : le refresh Power Query du protocole (§5) n'est pas exécutable (pas de PQ à
+               rafraîchir). Arrêt avant écriture conformément à §1 du protocole.
+             - SHA-256 originaux (inchangés) :
+               SAISIE  e4591912a6b0f1cad69775c2c0554bc603e6ea43097133e46c21878807414190
+               MASTER  c0e4434c347987d21bac52d7df6def4633fb949ffe3267fb203252a362300390
+             git status 01_SOURCES_BRUTES/ 02_TRAVAIL/ 03_EXPORTS/ → vide.
+Statut     : OUVERT (bloqué — décision humaine requise)
+Commentaire: D-APP-05 NON validée. Solution minimale proposée : reformuler la preuve sans Power Query
+             (écriture COM sur copie isolée + rejeu du générateur openpyxl SAISIE→MASTER à identifier/
+             reconstruire). Aucune écriture réelle, aucune route POST, saisie_writer reste stub. APP-2b bloquée.
+```
+
+---
 ### CTR-2026-06-023
 
 ```

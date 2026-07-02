@@ -1,0 +1,5 @@
+D-APP-05B preuve technique
+horodatage_utc=20260702T095519Z
+ligne_modele=3
+copie=C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Conciergerie\05_APPLICATION\data\dapp05b_proof\20260702T095519Z\SAISIE_copie.xlsx
+reel_invariant=True

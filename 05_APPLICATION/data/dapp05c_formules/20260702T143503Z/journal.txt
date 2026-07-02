@@ -1,0 +1,7 @@
+D-APP-05C correction formules B+C
+horodatage_utc=20260702T143503Z
+ligne_test=3
+copie=C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Conciergerie\05_APPLICATION\data\dapp05c_formules\20260702T143503Z\SAISIE_copie.xlsx
+checks=14/14
+verdict=D-APP-05C_VALIDATION_HUMAINE_REQUISE
+reel_invariant=True

@@ -1,0 +1,126 @@
+{
+  "lock_present": [],
+  "preflight_real": {
+    "sha256": "e4591912a6b0f1cad69775c2c0554bc603e6ea43097133e46c21878807414190",
+    "taille": 75924,
+    "mtime_ns": 1782676150164898800
+  },
+  "sha_match": true,
+  "size_match": true,
+  "mtime_match": true,
+  "calcpr_real": "<calcPr calcId=\"124519\" fullCalcOnLoad=\"1\"/>",
+  "env": "C:\\Users\\Ewan\\OneDrive\\Documents\\Conciergerie\\Pilotage_Conciergerie\\05_APPLICATION\\data\\dapp05d_reel\\20260702T155817Z",
+  "backup": "C:\\Users\\Ewan\\OneDrive\\Documents\\Conciergerie\\Pilotage_Conciergerie\\05_APPLICATION\\data\\dapp05d_reel\\20260702T155817Z\\backup_avant\\SAISIE_AVANT.xlsx",
+  "backup_fp": {
+    "sha256": "e4591912a6b0f1cad69775c2c0554bc603e6ea43097133e46c21878807414190",
+    "taille": 75924,
+    "mtime_ns": 1782676150164898800
+  },
+  "backup_bytes_equal_real": true,
+  "backup_hash_equal_real": true,
+  "volume": {
+    "real": 14752672980798918464,
+    "backup": 14752672980798918464,
+    "temp": 14752672980798918464,
+    "ok": true
+  },
+  "temp": "C:\\Users\\Ewan\\OneDrive\\Documents\\Conciergerie\\Pilotage_Conciergerie\\05_APPLICATION\\data\\dapp05d_reel\\20260702T155817Z\\SAISIE_APRES.tmp.xlsx",
+  "temp_fp": {
+    "sha256": "b4165ca94566e7de80a5aee3faf7cf3442b5f693856c379e2190c21c5287b101",
+    "taille": 85696,
+    "mtime_ns": 1783007897923433500
+  },
+  "c1_bc_formules": {
+    "ok": true,
+    "nb_err": 0,
+    "err": {}
+  },
+  "c2_echantillon": {
+    "B2": true,
+    "C2": true,
+    "B3": true,
+    "C3": true,
+    "B501": true,
+    "C501": true,
+    "B2_val": "=IF(A2=\"\",\"\",A2&\"|\"&D2&\"|\"&F2&\"|\"&G2&\"|\"&IF(I2=\"\",\"\",YEAR(I2)&RIGHT(\"0\"&MONTH(I2),2)&RIGHT(\"0\"&DAY(I2),2))&\"|\"&IF(L2=\"\",\"\",IF(ROUND(L2*100,0)<0,\"-\",\"\")&INT(ABS(ROUND(L2*100,0))/100)&\".\"&RIGHT(\"0\"&MOD(ABS(ROUND(L2*100,0)),100),2)))",
+    "C2_val": "=IF(I2=\"\",\"\",YEAR(I2)&\"-\"&RIGHT(\"0\"&MONTH(I2),2))",
+    "B501_val": "=IF(A501=\"\",\"\",A501&\"|\"&D501&\"|\"&F501&\"|\"&G501&\"|\"&IF(I501=\"\",\"\",YEAR(I501)&RIGHT(\"0\"&MONTH(I501),2)&RIGHT(\"0\"&DAY(I501),2))&\"|\"&IF(L501=\"\",\"\",IF(ROUND(L501*100,0)<0,\"-\",\"\")&INT(ABS(ROUND(L501*100,0))/100)&\".\"&RIGHT(\"0\"&MOD(ABS(ROUND(L501*100,0)),100),2)))",
+    "C501_val": "=IF(I501=\"\",\"\",YEAR(I501)&\"-\"&RIGHT(\"0\"&MONTH(I501),2))"
+  },
+  "c2_ok": true,
+  "c3_knoqvyz": {
+    "ok": true,
+    "nb_err": 0,
+    "err": {}
+  },
+  "c4_manuelles_l2": {
+    "ok": true,
+    "err": {}
+  },
+  "c5_named": {
+    "ok": true,
+    "n": 12,
+    "ref": 12
+  },
+  "c5_dv": {
+    "ok": true,
+    "n": 11,
+    "ref": 11
+  },
+  "c5_cf": {
+    "ok": true
+  },
+  "c5_sheets": {
+    "ok": true,
+    "sheets": [
+      "SAISIE",
+      "REF_LOCALE",
+      "CONTROLES_SAISIE",
+      "README"
+    ]
+  },
+  "c6_calcpr": {
+    "temp": "<calcPr calcId=\"124519\" fullCalcOnLoad=\"1\" />",
+    "ok": true
+  },
+  "c7_delta": {
+    "nb_diff": 1000,
+    "hors_perimetre": [],
+    "ok": true,
+    "toutes_dans_BC_2_501": true
+  },
+  "c8_lock": {
+    "ok": true
+  },
+  "controles_temp_ok": 11,
+  "controles_temp_total": 11,
+  "remplacement_atomique": true,
+  "reel_apres": {
+    "delta_ok": true,
+    "delta_hors": [],
+    "named_ok": true,
+    "dv_ok": true,
+    "cf_ok": true,
+    "sheets_ok": true,
+    "B2": true,
+    "C2": true,
+    "calcpr": "<calcPr calcId=\"124519\" fullCalcOnLoad=\"1\" />",
+    "calcpr_ok": true
+  },
+  "c_empreintes": {
+    "avant": {
+      "sha256": "e4591912a6b0f1cad69775c2c0554bc603e6ea43097133e46c21878807414190",
+      "taille": 75924,
+      "mtime_ns": 1782676150164898800
+    },
+    "apres": {
+      "sha256": "b4165ca94566e7de80a5aee3faf7cf3442b5f693856c379e2190c21c5287b101",
+      "taille": 85696,
+      "mtime_ns": 1783007897923433500
+    },
+    "hash_change_attendu": true,
+    "backup_conserve_hash_origine": true
+  },
+  "temp_supprime_par_replace": true,
+  "verdict": "D-APP-05D_VALIDATION_HUMAINE_REQUISE"
+}

@@ -1,0 +1,9 @@
+D-APP-05D correction reelle formules B+C
+horodatage_utc=20260702T155817Z
+backup=C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Conciergerie\05_APPLICATION\data\dapp05d_reel\20260702T155817Z\backup_avant\SAISIE_AVANT.xlsx
+reel=C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Conciergerie\01_SOURCES_BRUTES\ReservationsHH\SAISIE_ReservationsHorsHostaway.xlsx
+controles_temp=11/11
+remplacement_atomique=True
+sha_avant=e4591912a6b0f1cad69775c2c0554bc603e6ea43097133e46c21878807414190
+sha_apres=b4165ca94566e7de80a5aee3faf7cf3442b5f693856c379e2190c21c5287b101
+verdict=D-APP-05D_VALIDATION_HUMAINE_REQUISE

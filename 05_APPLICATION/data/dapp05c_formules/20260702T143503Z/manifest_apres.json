@@ -1,0 +1,130 @@
+{
+  "preflight_real": {
+    "sha256": "e4591912a6b0f1cad69775c2c0554bc603e6ea43097133e46c21878807414190",
+    "taille": 75924,
+    "mtime_ns": 1782676150164898800
+  },
+  "real_not_locked": true,
+  "calcpr_real": "<calcPr calcId=\"124519\" fullCalcOnLoad=\"1\"/>",
+  "env": "C:\\Users\\Ewan\\OneDrive\\Documents\\Conciergerie\\Pilotage_Conciergerie\\05_APPLICATION\\data\\dapp05c_formules\\20260702T143503Z",
+  "copy_fp_initial": {
+    "sha256": "e4591912a6b0f1cad69775c2c0554bc603e6ea43097133e46c21878807414190",
+    "taille": 75924,
+    "mtime_ns": 1782676150164898800
+  },
+  "copy_bytes_equal_real": true,
+  "copy_structure_matches_real": true,
+  "test_row": 3,
+  "test_vals": {
+    "A": "RESHH-2099-12-999",
+    "D": "CANAL_001",
+    "E": "SAISIE_MANUELLE",
+    "F": "PROP_0001",
+    "G": "LOG_0001",
+    "H": 99999999,
+    "I": "2099-12-01 00:00:00",
+    "J": "2099-12-06 00:00:00",
+    "L": 1000.0,
+    "M": 50.0,
+    "W": "HC",
+    "X": "OUI",
+    "AA": "A_CONTROLER",
+    "AB": "INFO",
+    "AD": "Ligne de preuve D-APP-05C - aucune donnee voyageur - a supprimer apres validation"
+  },
+  "c1_bc_formules_vivantes": {
+    "ok": true,
+    "nb_erreurs": 0,
+    "erreurs": {}
+  },
+  "c2_formules_ligne2": {
+    "B2_ok": true,
+    "C2_ok": true,
+    "B2_exp": "=IF(A2=\"\",\"\",A2&\"|\"&D2&\"|\"&F2&\"|\"&G2&\"|\"&IF(I2=\"\",\"\",YEAR(I2)&RIGHT(\"0\"&MONTH(I2),2)&RIGHT(\"0\"&DAY(I2),2))&\"|\"&IF(L2=\"\",\"\",IF(ROUND(L2*100,0)<0,\"-\",\"\")&INT(ABS(ROUND(L2*100,0))/100)&\".\"&RIGHT(\"0\"&MOD(ABS(ROUND(L2*100,0)),100),2)))",
+    "B2_got": "=IF(A2=\"\",\"\",A2&\"|\"&D2&\"|\"&F2&\"|\"&G2&\"|\"&IF(I2=\"\",\"\",YEAR(I2)&RIGHT(\"0\"&MONTH(I2),2)&RIGHT(\"0\"&DAY(I2),2))&\"|\"&IF(L2=\"\",\"\",IF(ROUND(L2*100,0)<0,\"-\",\"\")&INT(ABS(ROUND(L2*100,0))/100)&\".\"&RIGHT(\"0\"&MOD(ABS(ROUND(L2*100,0)),100),2)))",
+    "C2_exp": "=IF(I2=\"\",\"\",YEAR(I2)&\"-\"&RIGHT(\"0\"&MONTH(I2),2))",
+    "C2_got": "=IF(I2=\"\",\"\",YEAR(I2)&\"-\"&RIGHT(\"0\"&MONTH(I2),2))"
+  },
+  "c3_formules_ligne3": {
+    "B3_ok": true,
+    "C3_ok": true,
+    "B3_exp": "=IF(A3=\"\",\"\",A3&\"|\"&D3&\"|\"&F3&\"|\"&G3&\"|\"&IF(I3=\"\",\"\",YEAR(I3)&RIGHT(\"0\"&MONTH(I3),2)&RIGHT(\"0\"&DAY(I3),2))&\"|\"&IF(L3=\"\",\"\",IF(ROUND(L3*100,0)<0,\"-\",\"\")&INT(ABS(ROUND(L3*100,0))/100)&\".\"&RIGHT(\"0\"&MOD(ABS(ROUND(L3*100,0)),100),2)))",
+    "B3_got": "=IF(A3=\"\",\"\",A3&\"|\"&D3&\"|\"&F3&\"|\"&G3&\"|\"&IF(I3=\"\",\"\",YEAR(I3)&RIGHT(\"0\"&MONTH(I3),2)&RIGHT(\"0\"&DAY(I3),2))&\"|\"&IF(L3=\"\",\"\",IF(ROUND(L3*100,0)<0,\"-\",\"\")&INT(ABS(ROUND(L3*100,0))/100)&\".\"&RIGHT(\"0\"&MOD(ABS(ROUND(L3*100,0)),100),2)))",
+    "C3_exp": "=IF(I3=\"\",\"\",YEAR(I3)&\"-\"&RIGHT(\"0\"&MONTH(I3),2))",
+    "C3_got": "=IF(I3=\"\",\"\",YEAR(I3)&\"-\"&RIGHT(\"0\"&MONTH(I3),2))"
+  },
+  "c4_formules_ligne501": {
+    "B501_ok": true,
+    "C501_ok": true,
+    "B501_exp": "=IF(A501=\"\",\"\",A501&\"|\"&D501&\"|\"&F501&\"|\"&G501&\"|\"&IF(I501=\"\",\"\",YEAR(I501)&RIGHT(\"0\"&MONTH(I501),2)&RIGHT(\"0\"&DAY(I501),2))&\"|\"&IF(L501=\"\",\"\",IF(ROUND(L501*100,0)<0,\"-\",\"\")&INT(ABS(ROUND(L501*100,0))/100)&\".\"&RIGHT(\"0\"&MOD(ABS(ROUND(L501*100,0)),100),2)))",
+    "B501_got": "=IF(A501=\"\",\"\",A501&\"|\"&D501&\"|\"&F501&\"|\"&G501&\"|\"&IF(I501=\"\",\"\",YEAR(I501)&RIGHT(\"0\"&MONTH(I501),2)&RIGHT(\"0\"&DAY(I501),2))&\"|\"&IF(L501=\"\",\"\",IF(ROUND(L501*100,0)<0,\"-\",\"\")&INT(ABS(ROUND(L501*100,0))/100)&\".\"&RIGHT(\"0\"&MOD(ABS(ROUND(L501*100,0)),100),2)))",
+    "C501_exp": "=IF(I501=\"\",\"\",YEAR(I501)&\"-\"&RIGHT(\"0\"&MONTH(I501),2))",
+    "C501_got": "=IF(I501=\"\",\"\",YEAR(I501)&\"-\"&RIGHT(\"0\"&MONTH(I501),2))"
+  },
+  "c5_knoqvyz_inchangees": {
+    "ok": true,
+    "nb_erreurs": 0,
+    "erreurs": {}
+  },
+  "c6_manuelles_ligne2_inchangees": {
+    "ok": true,
+    "erreurs": {}
+  },
+  "c7_plages_nommees": {
+    "ok": true,
+    "attendu": 12,
+    "obtenu": 12
+  },
+  "c7_validations": {
+    "ok": true,
+    "attendu": 11,
+    "obtenu": 11
+  },
+  "c7_mfc": {
+    "ok": true
+  },
+  "c8_sheets": {
+    "ok": true,
+    "avant": [
+      "SAISIE",
+      "REF_LOCALE",
+      "CONTROLES_SAISIE",
+      "README"
+    ],
+    "apres": [
+      "SAISIE",
+      "REF_LOCALE",
+      "CONTROLES_SAISIE",
+      "README"
+    ]
+  },
+  "c9_calcpr": {
+    "real": "<calcPr calcId=\"124519\" fullCalcOnLoad=\"1\"/>",
+    "copy_after": "<calcPr calcId=\"124519\" fullCalcOnLoad=\"1\" />",
+    "ok": true
+  },
+  "c10_aucun_temp": {
+    "fichiers": [
+      "SAISIE_copie.xlsx",
+      "manifest_avant.json"
+    ],
+    "temp": [],
+    "ok": true
+  },
+  "c11_reel_invariant": {
+    "avant": {
+      "sha256": "e4591912a6b0f1cad69775c2c0554bc603e6ea43097133e46c21878807414190",
+      "taille": 75924,
+      "mtime_ns": 1782676150164898800
+    },
+    "apres": {
+      "sha256": "e4591912a6b0f1cad69775c2c0554bc603e6ea43097133e46c21878807414190",
+      "taille": 75924,
+      "mtime_ns": 1782676150164898800
+    },
+    "ok": true
+  },
+  "checks_ok": 14,
+  "checks_total": 14,
+  "verdict": "D-APP-05C_VALIDATION_HUMAINE_REQUISE"
+}
