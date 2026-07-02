@@ -934,3 +934,84 @@ Cohérence Python ↔ Excel (contrat recompute()) :
   Aucun blocage MONTANT_PRECISION_INVALIDE n'est implémenté ni actif à ce stade.
 
 Tables : SAISIE_ReservationsHorsHostaway.xlsx (colonnes B, C — lignes 2 à 501)
+
+---
+
+### D-APP-2B — Cadrage fonctionnel verrouillé de la saisie HH contrôlée (D1 à D11)
+Date : 2026-07-03 | Statut : VALIDÉ — cadrage verrouillé, implémentation NON démarrée
+Portée : décisions fonctionnelles APP-2b (création contrôlée de réservations hors Hostaway).
+  Aucune route d'écriture, aucun writer, aucune modification Excel active à ce stade.
+  saisie_writer.py reste stub (NotImplementedError). Les codes de blocage listés ne sont pas encore implémentés.
+
+D1 — reservation_id_hostaway (champ H)
+  - Obligatoire pour VRBO_UNKNOWN, DIRECT_HA_PAYANT, HOSTAWAY_REFERENCE.
+  - Facultatif pour les autres sources financières.
+  - Format : entier positif, chiffres uniquement.
+  - Si renseigné : unicité obligatoire parmi les réservations HH actives.
+  - Doublon : blocage RESERVATION_DOUBLON_HOSTAWAY_HH.
+  - La règle README devient la règle APP-2b, même si l'ancien moteur ne l'applique pas encore.
+
+D2/D3 — total_percu
+  - Obligatoire pour toute création APP-2b, y compris VRBO_UNKNOWN.
+  - La tolérance historique du contrôle Excel CTR-L4-13 n'est PAS reprise par l'application
+    (le moteur Lot4A bloque ensuite une ligne sans montant).
+
+D4 — canal et source financière
+  - Aucun mapping canal <-> source financière imposé par APP-2b à ce stade.
+  - L'application peut suggérer une valeur cohérente à l'interface, mais :
+    * l'utilisateur choisit un canal_id valide ;
+    * l'application valide seulement l'appartenance aux listes référentielles ;
+    * aucune combinaison valide n'est rejetée uniquement sur ce mapping ;
+    * aucune valeur n'est corrigée automatiquement.
+
+D5 — codes de blocage APP-2b (validés, non implémentés)
+  MOIS_HORS_REFERENTIEL_CLOTURE
+  MOIS_CLOTURE
+  LOGEMENT_SANS_GESTION_ACTIVE
+  PROPRIETAIRE_LOGEMENT_INCOHERENT_A_DATE
+  LOGEMENT_HORS_PARC_TECHNIQUE
+  DIVERGENCE_REF_LOCALE_REF_SETUP
+  RESERVATION_HH_ID_DUPLIQUE
+  RESERVATION_DOUBLON_HOSTAWAY_HH
+  SEQUENCE_PK_INCOHERENTE
+
+D6 — génération de reservation_hh_id
+  - Format : RESHH-AAAA-MM-NNN.
+  - AAAA-MM = mois de date_arrivee.
+  - NNN = maximum numérique existant du mois + 1.
+  - Les trous de séquence sont admis.
+  - Toute clé du même mois avec suffixe non numérique ou format incompatible : blocage SEQUENCE_PK_INCOHERENTE.
+  - Toute collision bloque.
+  - Aucun identifiant généré si le mois est clôturé ou absent du référentiel.
+
+D7 — historique de gestion logement (REF_Gestion_Logements_Hist)
+  - date_fin inclusive.
+  - date_fin vide = période de gestion ouverte.
+  - Cohérence propriétaire/logement contrôlée à la date_arrivee.
+
+D8 — éligibilité du logement
+  Une création APP-2b exige simultanément :
+    * relation de gestion active propriétaire <-> logement à la date d'arrivée ;
+    * statut_parc = GERE ;
+    * actif = OUI.
+  Un logement technique, hors parc ou non géré est bloqué.
+  L'application ne corrige jamais le propriétaire ou le logement.
+
+D9 — divergence référentiels
+  - REF_LOCALE garantit la compatibilité avec les validations Excel.
+  - REF_Setup.xlsm est autoritaire pour activité, parc et historique de gestion.
+  - Toute divergence pertinente bloque avec DIVERGENCE_REF_LOCALE_REF_SETUP.
+
+D10 — mois de juillet 2026
+  - L'application ne crée jamais un mois dans REF_Cloture_Mensuelle.
+  - Ouverture de 2026-07 / OUVERT = opération manuelle hors application dans REF_Setup.xlsm,
+    documentée et contrôlée.
+  - Tant que la ligne manque : blocage MOIS_HORS_REFERENTIEL_CLOTURE.
+
+D11 — associé récupérateur
+  - associe_id_recuperateur obligatoire seulement si montant_recupere > 0.
+  - Montant vide ou nul : associé récupérateur facultatif, laissé vide par défaut.
+
+Statut APP-2b : cadrage fonctionnel verrouillé. Implémentation non démarrée.
+Tables : SAISIE_ReservationsHorsHostaway.xlsx, REF_Setup.xlsm (REF_Cloture_Mensuelle,
+  REF_Gestion_Logements_Hist, REF_Logements, REF_Associes), REF_LOCALE.

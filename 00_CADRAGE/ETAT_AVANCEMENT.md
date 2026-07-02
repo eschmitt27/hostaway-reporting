@@ -11,11 +11,27 @@
 > **Règle de tenue permanente** : après chaque lot app réellement démarré / modifié / testé / validé / bloqué / terminé, ajouter une entrée datée avec : statut, lot concerné, fichiers touchés, tests réalisés, résultat, anomalies/risques, décisions attendues, prochaine action. Ne jamais marquer un lot **FAIT** sans les contrôles, tests et preuves prévus par le cadrage. Édition ciblée, historique conservé.
 
 ### Statut global app
-**APP-2a VALIDÉ — D-APP-05A VALIDÉE — D-APP-05B VALIDÉE — D-APP-05C/D VALIDÉES — APP-2b DÉBLOQUÉE TECHNIQUEMENT, NON DÉMARRÉE.**
+**APP-2a VALIDÉ — D-APP-05A/B/C/D VALIDÉES — APP-2b CADRAGE FONCTIONNEL VERROUILLÉ (D1–D11), IMPLÉMENTATION NON DÉMARRÉE.**
 Application : 103/103 tests verts. Lot4A : 42/42 tests verts.
 Suite moteur exhaustive : non exécutable intégralement dans l'environnement local (88 tests verts ; 1 module non chargeable faute de `requests`/`python-dotenv` — anomalie antérieure à Lot4A, hors périmètre Lot4A).
 
 ### Journal app
+
+#### 2026-07-03 — D-APP-2B-CADRAGE — Décisions fonctionnelles verrouillées (D1 à D11) — VALIDÉ
+- **Statut** : CADRAGE FONCTIONNEL VERROUILLÉ. Implémentation APP-2b NON démarrée.
+- **Portée** : décisions D1 à D11 pour la création contrôlée de réservations hors Hostaway. Détail dans DECISIONS_METIER (D-APP-2B).
+- **D1** : reservation_id_hostaway obligatoire pour VRBO_UNKNOWN / DIRECT_HA_PAYANT / HOSTAWAY_REFERENCE, facultatif sinon ; entier positif ; unicité si renseigné ; doublon → RESERVATION_DOUBLON_HOSTAWAY_HH.
+- **D2/D3** : total_percu obligatoire pour toute création, y compris VRBO_UNKNOWN. Tolérance Excel CTR-L4-13 non reprise.
+- **D4** : aucun mapping canal ↔ source financière imposé ; validation d'appartenance aux listes seulement ; aucune correction auto.
+- **D5** : codes de blocage APP-2b validés (non implémentés) — voir DECISIONS_METIER.
+- **D6** : reservation_hh_id = RESHH-AAAA-MM-NNN sur mois de date_arrivee ; max+1 ; trous admis ; suffixe non numérique → SEQUENCE_PK_INCOHERENTE ; pas de génération si mois clôturé/absent.
+- **D7** : REF_Gestion_Logements_Hist — date_fin inclusive, vide = ouverte ; cohérence prop/logement à la date_arrivee.
+- **D8** : éligibilité logement = gestion active à date_arrivee + statut_parc GERE + actif OUI ; sinon bloqué ; aucune correction auto.
+- **D9** : REF_LOCALE compatible Excel, REF_Setup autoritaire ; divergence → DIVERGENCE_REF_LOCALE_REF_SETUP.
+- **D10** : l'application ne crée jamais de mois ; ouverture 2026-07/OUVERT manuelle dans REF_Setup.xlsm ; sinon MOIS_HORS_REFERENTIEL_CLOTURE.
+- **D11** : associe_id_recuperateur obligatoire seulement si montant_recupere > 0.
+- **APP-2b** : cadrage verrouillé. `saisie_writer.py` reste stub (`NotImplementedError`). Aucune route d'écriture, aucun writer, aucun fichier Excel modifié. Implémentation sur feu vert humain explicite.
+- **Entrée JOURNAL_CONTROLES** : CTR-DAPP2B-CADRAGE-2026-07-03.
 
 #### 2026-07-02 — D-APP-05B / D-APP-05C / D-APP-05D — Preuve écriture + correction formules SAISIE HH — VALIDÉ HUMAINEMENT
 - **Statut** : VALIDÉ HUMAINEMENT — Formules B/C corrigées sur fichier réel. APP-2b débloquée techniquement.
@@ -50,9 +66,9 @@ Suite moteur exhaustive : non exécutable intégralement dans l'environnement lo
 ---
 
 ## Dernière mise à jour
-Date : 2026-07-02
-Session : Session 26 — D-APP-05B/C/D validées humainement — formules B/C SAISIE HH corrigées — APP-2b débloquée techniquement
-Agent : Claude Code (claude-sonnet-4-6)
+Date : 2026-07-03
+Session : Session 27 — D-APP-2B-CADRAGE — décisions fonctionnelles D1 à D11 verrouillées — implémentation APP-2b non démarrée
+Agent : Claude Code (claude-opus-4-8 / claude-sonnet-4-6)
 
 ---
 

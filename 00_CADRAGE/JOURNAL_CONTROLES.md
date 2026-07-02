@@ -22,6 +22,43 @@ Commentaire: note
 
 ---
 
+### CTR-DAPP2B-CADRAGE-2026-07-03
+
+```
+Date       : 2026-07-03
+Lot        : D-APP-2B-CADRAGE — Décisions fonctionnelles verrouillées (D1 à D11)
+Code       : DAPP2B_CADRAGE_FONCTIONNEL_VERROUILLE
+Sévérité   : INFO
+Fichier    : 00_CADRAGE/DECISIONS_METIER.md (D-APP-2B) — aucun fichier Excel, code ou test touché
+Résultat   : Cadrage fonctionnel APP-2b verrouillé avant implémentation. 11 décisions actées :
+               D1  reservation_id_hostaway : obligatoire VRBO_UNKNOWN/DIRECT_HA_PAYANT/HOSTAWAY_REFERENCE,
+                   facultatif sinon ; entier positif ; unicité si renseigné ; doublon → RESERVATION_DOUBLON_HOSTAWAY_HH.
+               D2/D3 total_percu obligatoire pour toute création (y compris VRBO_UNKNOWN) ;
+                   tolérance CTR-L4-13 non reprise par l'application.
+               D4  aucun mapping canal ↔ source financière imposé ; validation d'appartenance seulement ; aucune correction auto.
+               D5  codes de blocage APP-2b validés (non implémentés) : MOIS_HORS_REFERENTIEL_CLOTURE, MOIS_CLOTURE,
+                   LOGEMENT_SANS_GESTION_ACTIVE, PROPRIETAIRE_LOGEMENT_INCOHERENT_A_DATE, LOGEMENT_HORS_PARC_TECHNIQUE,
+                   DIVERGENCE_REF_LOCALE_REF_SETUP, RESERVATION_HH_ID_DUPLIQUE, RESERVATION_DOUBLON_HOSTAWAY_HH,
+                   SEQUENCE_PK_INCOHERENTE.
+               D6  reservation_hh_id = RESHH-AAAA-MM-NNN (mois de date_arrivee) ; max numérique + 1 ; trous admis ;
+                   suffixe non numérique/format incompatible → SEQUENCE_PK_INCOHERENTE ; collision bloque ;
+                   pas de génération si mois clôturé ou absent.
+               D7  REF_Gestion_Logements_Hist : date_fin inclusive ; vide = période ouverte ;
+                   cohérence propriétaire/logement contrôlée à la date_arrivee.
+               D8  éligibilité logement : gestion active à date_arrivee + statut_parc=GERE + actif=OUI ;
+                   sinon bloqué ; aucune correction auto du propriétaire/logement.
+               D9  REF_LOCALE compatible Excel ; REF_Setup autoritaire (activité/parc/historique) ;
+                   divergence → DIVERGENCE_REF_LOCALE_REF_SETUP.
+               D10 l'application ne crée jamais de mois ; ouverture 2026-07/OUVERT = opération manuelle
+                   dans REF_Setup.xlsm ; sinon MOIS_HORS_REFERENTIEL_CLOTURE.
+               D11 associe_id_recuperateur obligatoire seulement si montant_recupere > 0.
+Statut     : CADRAGE VERROUILLÉ — implémentation APP-2b NON démarrée.
+Commentaire: Aucun code APP-2b, aucune route d'écriture, aucun writer, aucun fichier Excel modifié.
+             saisie_writer.py reste stub (NotImplementedError). Codes de blocage non encore implémentés.
+             Démarrage de l'implémentation uniquement sur feu vert humain explicite.
+```
+
+---
 ### CTR-DAPP05BCD-2026-07-02
 
 ```
