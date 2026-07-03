@@ -23,6 +23,7 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
 import openpyxl
 
 # Regles UNIQUES centralisees dans la bibliotheque partagee (aucune duplication).
@@ -53,7 +54,7 @@ def _norm_compare(field: str, value):
         return d.strftime("%Y-%m-%d") if d else _norm(value)
     if field in ("total_percu", "menage", "montant_recupere", "montant_reverse_proprietaire"):
         try:
-            return f"{float(value):.2f}"
+            return f"{float(np.float64(value)):.2f}"
         except (TypeError, ValueError):
             return _norm(value)
     if field == "reservation_id_hostaway":
@@ -219,7 +220,7 @@ def _render_md(lignes, counters, statut, manifest) -> str:
     L.append(f"**Horodatage UTC** : {manifest['horodatage_utc']}  ")
     L.append(f"**as-of** : {manifest['as_of']}  ")
     L.append(f"**Interpreteur** : `{manifest['python_executable']}` (Python {manifest['python_version']})  ")
-    L.append(f"**openpyxl** {manifest['openpyxl']}\n")
+    L.append(f"**pandas** {manifest['pandas']} · **numpy** {manifest['numpy']} · **openpyxl** {manifest['openpyxl']}\n")
     L.append("## Compteurs par categorie\n")
     for k, v in counters.items():
         L.append(f"- `{k}` : {v}")
@@ -284,6 +285,8 @@ def run_compare_existing(as_of: str | None) -> int:
         "mode": "--compare-existing",
         "python_executable": sys.executable,
         "python_version": sys.version.split()[0],
+        "pandas": __import__("pandas").__version__,
+        "numpy": np.__version__,
         "openpyxl": openpyxl.__version__,
         "statut": statut,
         "compteurs": counters,

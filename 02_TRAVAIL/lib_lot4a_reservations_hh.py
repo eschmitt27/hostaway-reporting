@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import datetime as _dt
 import hashlib
-from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
 from pathlib import Path
 
+import numpy as np
 import openpyxl
 
 from lib_ref_history import resolve_commission_rate
@@ -83,17 +83,13 @@ MODE_DIRECT_PROPRIETAIRE = {"PAY_006", "DIRECT_PROPRIETAIRE"}
 def round2(value):
     if value is None or value == "":
         return None
-    try:
-        rounded = Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
-    except (InvalidOperation, ValueError):
-        return None
-    return float(rounded)
+    return float(np.round(np.float64(value), 2))
 
 
 def _num(value) -> float:
     if value is None or value == "":
         return 0.0
-    return float(value)
+    return float(np.float64(value))
 
 
 def _norm(v) -> str:
@@ -267,7 +263,7 @@ def validate_manual(saisie: dict, seen_pks: set) -> list[str]:
         v = saisie.get(f)
         if _norm(v) != "":
             try:
-                float(v)
+                float(np.float64(v))
             except (TypeError, ValueError):
                 errs.append(f"MONTANT_NON_NUMERIQUE:{f}")
     ci = _norm(saisie.get("code_impact"))

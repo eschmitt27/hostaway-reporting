@@ -12,6 +12,7 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
 import openpyxl
 
 from lib_lot4a_reservations_hh import (
@@ -155,6 +156,8 @@ def run_dry_run(as_of_raw: str | None) -> int:
         "as_of_normalise": as_of,
         "python_executable": sys.executable,
         "python_version": sys.version.split()[0],
+        "pandas": __import__("pandas").__version__,
+        "numpy": np.__version__,
         "openpyxl": openpyxl.__version__,
         "statut": statut,
         "master_test_genere": master_test_genere,
@@ -209,7 +212,7 @@ def _render_md(manifest: dict, result: dict) -> str:
     L.append(f"**as-of (date_integration)** : `{manifest['as_of_normalise']}`  ")
     L.append(f"**MASTER de test genere** : {manifest['master_test_genere']}  ")
     L.append(f"**Interpreteur** : `{manifest['python_executable']}` (Python {manifest['python_version']})  ")
-    L.append(f"**openpyxl** {manifest['openpyxl']}\n")
+    L.append(f"**pandas** {manifest['pandas']} · **numpy** {manifest['numpy']} · **openpyxl** {manifest['openpyxl']}\n")
     L.append(f"- lignes SAISIE utiles : {manifest['nb_saisie']}")
     L.append(f"- lignes MASTER generees : {manifest['nb_master_rows']}")
     L.append(f"- lignes VUE_ACTIVE (statut_controle=VALIDE) : {manifest['nb_vue_active']}\n")

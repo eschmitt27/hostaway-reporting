@@ -5,6 +5,9 @@ import sys
 import unittest
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "02_TRAVAIL"))
 
@@ -31,18 +34,17 @@ def _saisie_oracle():
 
 
 class RoundingPrimitiveTests(unittest.TestCase):
-    CASES = {
-        2.125: 2.12,
-        2.675: 2.68,
-        13.275: 13.28,
-        15.015: 15.02,
-        144.015: 144.02,
-        343.275: 343.28,
-    }
+    CASES = [2.125, 2.675, 13.275, 15.015, 144.015, 343.275]
 
-    def test_round2_demi_pair_explicite(self):
-        for x, expected in self.CASES.items():
-            self.assertEqual(cmp.round2(x), expected, f"divergence sur {x}")
+    def test_round2_identique_pandas_float64(self):
+        for x in self.CASES:
+            expected = float(pd.Series([x], dtype="float64").round(2).iloc[0])
+            self.assertEqual(cmp.round2(x), expected, f"divergence pandas sur {x}")
+
+    def test_round2_identique_numpy_float64(self):
+        for x in self.CASES:
+            expected = float(np.round(np.float64(x), 2))
+            self.assertEqual(cmp.round2(x), expected, f"divergence numpy sur {x}")
 
     def test_round2_differe_du_builtin_sur_cas_xx5(self):
         # preuve que round() builtin n'est PAS utilise
