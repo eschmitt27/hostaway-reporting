@@ -300,6 +300,12 @@ Pas de valeurs libres (`OK`, `Validé`, etc.) dans les fichiers de saisie.
 - Le mode `Direct propriétaire` est préparé comme `PAY_006` / `DIRECT_PROPRIETAIRE` via migration sur copie.
 - Le montant récupéré par l'associé et l'associé récupérateur ne s'appliquent qu'aux modes `COMPTE_PERSO_ASSOCIEE` et `CARTE_ASSOCIEE`. Les valeurs cachées sont ignorées pour les autres modes.
 - Le montant reversé propriétaire ne s'applique qu'au mode espèces. Les valeurs cachées sont ignorées pour les autres modes.
-- L'acompte propriétaire est au mois de check-in (`date_arrivee`) et vaut : banque pro = `total_percu`, compte perso associée/carte associée = `montant_recupere`, espèces = `montant_reverse_proprietaire`, direct propriétaire = `0`.
+- L'acompte propriétaire est au mois de check-in (`date_arrivee`) et vaut : banque pro = `total_percu`, compte perso associée/carte associée = `total_percu`, espèces = `total_percu - montant_reverse_proprietaire`, direct propriétaire = `0`. Le `montant_recupere` est une information de contrôle/traçabilité, jamais une réduction de l'acompte.
 - La comptabilisation est dérivée du code impact depuis `REF_Codes_Impact.impact_resultat_comptable`.
 - L'écriture réelle reste désactivée jusqu'à migration contrôlée du classeur source et validation aval.
+
+### REV2 APP-2b - ergonomie et paiements (2026-07-03)
+
+- Les dérogations de taux et de ménage sont confirmées uniquement dans une modale locale après clic sur `Vérifier avant validation`, avec motif obligatoire, bouton `Annuler` focalisé par défaut et confirmation explicite. Aucun bloc jaune ni case à cocher n'est affiché avant cette étape.
+- Une valeur dérogatoire identique à la valeur automatique est neutralisée et traitée comme absence de dérogation.
+- Les champs associés sont visibles seulement pour `CARTE_ASSOCIEE` et `COMPTE_PERSO_ASSOCIEE`; le reverse propriétaire est visible seulement pour espèces. Les valeurs masquées sont vidées côté navigateur et ignorées côté backend.

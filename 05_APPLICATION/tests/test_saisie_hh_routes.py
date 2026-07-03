@@ -26,7 +26,7 @@ def _refs_data():
             "lst_Proprietaires":   ["PROP_0001"],
             "lst_Logements":       ["LOG_0001"],
             "lst_Associes":        ["PERS_EWAN"],
-            "lst_ModesPaiement":   ["PAY_001"],
+            "lst_ModesPaiement":   ["PAY_001", "PAY_002", "PAY_003", "PAY_004", "PAY_006"],
             "lst_Codes_Impact":    ["HC", "IC", "HR"],
             "lst_Comptabilisation": ["OUI", "NON"],
             "options_logements": [
@@ -48,7 +48,13 @@ def _refs_data():
             ],
             "options_proprietaires": [{"value": "PROP_0001", "label": "David Dupont"}],
             "options_associes": [{"value": "PERS_EWAN", "label": "Ewan"}],
-            "options_modes_paiement": [{"value": "PAY_001", "label": "BANQUE_PRO"}],
+            "options_modes_paiement": [
+                {"value": "PAY_001", "label": "Banque pro"},
+                {"value": "PAY_002", "label": "Especes"},
+                {"value": "PAY_003", "label": "Carte associee"},
+                {"value": "PAY_004", "label": "Compte perso associe"},
+                {"value": "PAY_006", "label": "Direct proprietaire"},
+            ],
             "options_codes_impact": [
                 {"value": "HC", "label": "Hors comptabilite"},
                 {"value": "IC", "label": "Impact comptable"},
@@ -70,7 +76,13 @@ def _refs_data():
                 ]
             },
             "logement_type_map": {"LOG_0001": "TYPE_T3"},
-            "mode_code_map": {"PAY_001": "BANQUE_PRO", "PAY_003": "CARTE_ASSOCIEE", "PAY_004": "COMPTE_PERSO_ASSOCIEE"},
+            "mode_code_map": {
+                "PAY_001": "BANQUE_PRO",
+                "PAY_002": "ESPECES_CAISSE",
+                "PAY_003": "CARTE_ASSOCIEE",
+                "PAY_004": "COMPTE_PERSO_ASSOCIEE",
+                "PAY_006": "DIRECT_PROPRIETAIRE",
+            },
             "impact_comptabilisation_map": {"HC": "NON", "IC": "OUI", "HR": "NON"},
             "taux_commission_history": [
                 {
@@ -189,7 +201,7 @@ def test_get_nouvelle_affiche_libelles_lisibles_et_garde_ids(client):
     assert '"owner_id": "PROP_0001"' in resp.text
     assert '"owner_label": "David Dupont"' in resp.text
     assert '<option value="CANAL_001"' in resp.text and ">Airbnb</option>" in resp.text
-    assert '<option value="PAY_001"' in resp.text and ">BANQUE_PRO</option>" in resp.text
+    assert '<option value="PAY_001"' in resp.text and ">Banque pro</option>" in resp.text
     assert '<option value="HC"' in resp.text and ">Hors comptabilite</option>" in resp.text
     assert 'id="comptabilisation_display"' in resp.text
     assert 'id="comptabilisation" name="comptabilisation"' in resp.text
@@ -268,20 +280,73 @@ def test_get_nouvelle_derogation_menage_et_paiement_conditionnel(client):
     assert "conditional-cash" in resp.text
     assert "modeCodeMap" in resp.text
     assert "menageHistory" in resp.text
+    assert 'id="menage_derogation_toggle"' in resp.text
+    assert "Modifier le prix menage" in resp.text
+    assert 'id="menage_derogation_reset"' in resp.text
+    assert 'id="override_modal_menage"' in resp.text
 
 
 def test_get_nouvelle_affiche_taux_commission_et_derogation_non_persistante(client):
     with _patch_refs():
         resp = client.get("/reservations/nouvelle")
     assert 'id="taux_commission_message"' in resp.text
-    assert "Taux de commission applicable" in resp.text
+    assert "Taux applicable" in resp.text
     assert "tauxHistory" in resp.text
     assert "taux logement" in resp.text
     assert "taux proprietaire" in resp.text
-    assert "Demander une derogation de taux" in resp.text
+    assert "Modifier le taux" in resp.text
+    assert 'id="taux_derogation_reset"' in resp.text
     assert 'name="taux_commission_override"' in resp.text
     assert 'name="motif_override_taux_commission"' in resp.text
     assert 'name="taux_commission"' not in resp.text
+
+
+def test_get_nouvelle_derogations_modale_sans_bloc_jaune_ni_checkbox(client):
+    with _patch_refs():
+        resp = client.get("/reservations/nouvelle")
+    assert "alert-warning" not in resp.text
+    assert 'type="checkbox"' not in resp.text
+    assert "Je confirme remplacer" not in resp.text
+    assert 'id="override_modal"' in resp.text
+    assert "Annuler" in resp.text
+    assert "Confirmer la derogation" in resp.text
+    assert "modalCancel.focus()" in resp.text
+    assert "form.requestSubmit()" in resp.text
+    assert "Motif obligatoire pour la derogation de taux" in resp.text
+    assert "Motif obligatoire pour la derogation de menage" in resp.text
+
+
+def test_get_nouvelle_modale_annulation_ne_soumet_pas(client):
+    with _patch_refs():
+        resp = client.get("/reservations/nouvelle")
+    assert 'modalCancel.addEventListener("click"' in resp.text
+    assert "allowConfirmedSubmit = false" in resp.text
+    assert "modal.hidden = true" in resp.text
+    assert "openOverrideModal(state)" in resp.text
+
+
+def test_get_nouvelle_visibilite_paiement_navigateur(client):
+    with _patch_refs():
+        resp = client.get("/reservations/nouvelle")
+    for mode, label in [
+        ("PAY_001", "Banque pro"),
+        ("PAY_002", "Especes"),
+        ("PAY_003", "Carte associee"),
+        ("PAY_004", "Compte perso associe"),
+        ("PAY_006", "Direct proprietaire"),
+    ]:
+        assert f'<option value="{mode}"' in resp.text
+        assert f">{label}</option>" in resp.text
+    assert 'class="form-group conditional-associated"' in resp.text
+    assert 'class="form-group conditional-cash"' in resp.text
+    assert 'container.hidden = !associeMode' in resp.text
+    assert 'container.hidden = !especesMode' in resp.text
+    assert 'montantRecupere.required = associeMode' in resp.text
+    assert 'associe.required = associeMode' in resp.text
+    assert 'montantRecupere.value = ""' in resp.text
+    assert 'associe.value = ""' in resp.text
+    assert 'montantReverse.value = ""' in resp.text
+    assert '[hidden] { display: none !important; }' in resp.text
 
 
 def test_nouvelle_avant_detail_pas_de_conflit(client):

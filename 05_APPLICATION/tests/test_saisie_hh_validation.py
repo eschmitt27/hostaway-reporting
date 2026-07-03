@@ -44,7 +44,9 @@ def _valider_no_refs(form_data: dict) -> dict:
         patch("app.services.saisie_hh_service.get_all_proprietaires", return_value=[
             {"proprietaire_id": "PROP_0001"}
         ]),
-        patch("app.services.saisie_hh_service.get_all_associes", return_value=[]),
+        patch("app.services.saisie_hh_service.get_all_associes", return_value=[
+            {"associe_id": "PERS_EWAN"}
+        ]),
         patch("app.services.saisie_hh_service.get_modes_paiement", return_value=(
             "REF_Modes_Paiement", [
                 {"mode_paiement_id": "PAY_001", "mode_paiement": "BANQUE_PRO"},
@@ -729,6 +731,15 @@ def test_taux_derogation_convertie_en_decimal_moteur():
     assert result["preview"]["taux_commission_override"] == Decimal("0.18")
 
 
+def test_taux_derogation_identique_standard_ignoree_sans_motif_confirmation():
+    result = _valider_no_refs(_base_form(taux_commission_override="15"))
+    assert result["ok"] is True, result["erreurs"]
+    assert result["preview"]["taux_commission_standard"] == Decimal("0.15")
+    assert result["preview"]["taux_commission_override"] is None
+    assert result["preview"]["motif_override_taux_commission"] is None
+    assert result["preview"]["confirmation_override_taux_commission"] is False
+
+
 def test_menage_standard_pre_rempli_depuis_ref_setup():
     result = _valider_no_refs(_base_form())
     assert result["ok"] is True, result["erreurs"]
@@ -743,6 +754,15 @@ def test_menage_derogation_bloquee_sans_motif_confirmation():
     assert "CONFIRMATION_OVERRIDE_MENAGE_MANQUANTE" in codes
 
 
+def test_menage_derogation_identique_standard_ignoree_sans_motif_confirmation():
+    result = _valider_no_refs(_base_form(menage_override="50.00"))
+    assert result["ok"] is True, result["erreurs"]
+    assert result["preview"]["menage_standard"] == Decimal("50.00")
+    assert result["preview"]["menage_override"] is None
+    assert result["preview"]["motif_override_menage"] is None
+    assert result["preview"]["confirmation_override_menage"] is False
+
+
 def test_mode_non_associe_ignore_montant_associe_cache():
     result = _valider_no_refs(_base_form(
         mode_paiement_id="PAY_001",
@@ -752,6 +772,26 @@ def test_mode_non_associe_ignore_montant_associe_cache():
     assert result["ok"] is True, result["erreurs"]
     assert result["preview"]["montant_recupere"] is None
     assert result["preview"]["associe_id_recuperateur"] is None
+
+
+def test_modes_associes_exigent_montant_et_associe():
+    for mode in ("PAY_003", "PAY_004"):
+        result = _valider_no_refs(_base_form(mode_paiement_id=mode))
+        codes = {e["code"] for e in result["erreurs"]}
+        assert "MONTANT_RECUPERE_MANQUANT" in codes
+        assert "ASSOCIE_MANQUANT" in codes
+
+
+def test_modes_associes_acceptent_montant_et_associe_valides():
+    for mode in ("PAY_003", "PAY_004"):
+        result = _valider_no_refs(_base_form(
+            mode_paiement_id=mode,
+            montant_recupere="100.00",
+            associe_id_recuperateur="PERS_EWAN",
+        ))
+        assert result["ok"] is True, result["erreurs"]
+        assert result["preview"]["montant_recupere"] == Decimal("100.00")
+        assert result["preview"]["associe_id_recuperateur"] == "PERS_EWAN"
 
 
 def test_mode_direct_proprietaire_ignore_recuperation_et_reverse():

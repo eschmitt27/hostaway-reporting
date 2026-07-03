@@ -77,6 +77,24 @@ class RecomputeTests(unittest.TestCase):
         d = cmp.recompute(_saisie_oracle(), TAUX_PROP_0003)["derived"]
         self.assertEqual(d["source_acompte_facture"], "TOTAL_PERCU")
 
+    def test_acompte_associe_reste_total_percu_si_recupere_inferieur(self):
+        for mode in ("PAY_003", "PAY_004"):
+            with self.subTest(mode=mode):
+                s = _saisie_oracle()
+                s["mode_paiement_id"] = mode
+                s["montant_recupere"] = 50.0
+                d = cmp.recompute(s, TAUX_PROP_0003)["derived"]
+                self.assertEqual(d["acompte_facture"], 2343.48)
+                self.assertEqual(d["source_acompte_facture"], "TOTAL_PERCU_ASSOCIE")
+
+    def test_acompte_especes_total_moins_reverse(self):
+        s = _saisie_oracle()
+        s["mode_paiement_id"] = "PAY_002"
+        s["montant_reverse_proprietaire"] = 343.48
+        d = cmp.recompute(s, TAUX_PROP_0003)["derived"]
+        self.assertEqual(d["acompte_facture"], 2000.0)
+        self.assertEqual(d["source_acompte_facture"], "TOTAL_PERCU_MOINS_REVERSE_ESPECES")
+
     def test_taux_logement_specifique_donne_ref_logement(self):
         taux = TAUX_PROP_0003 + [{
             "taux_commission_id": "TX_LOG", "proprietaire_id": "PROP_0003",

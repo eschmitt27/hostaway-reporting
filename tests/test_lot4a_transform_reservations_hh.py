@@ -101,9 +101,9 @@ class BuildMasterTests(unittest.TestCase):
     def test_acompte_par_mode_paiement(self):
         cases = [
             ("PAY_001", {}, 2343.48, "TOTAL_PERCU"),
-            ("PAY_004", {"montant_recupere": 120.0}, 120.0, "MONTANT_RECUPERE_ASSOCIE"),
-            ("PAY_003", {"montant_recupere": 130.0}, 130.0, "MONTANT_RECUPERE_ASSOCIE"),
-            ("PAY_002", {"montant_reverse_proprietaire": 140.0}, 140.0, "MONTANT_REVERSE_PROPRIETAIRE"),
+            ("PAY_004", {"montant_recupere": 120.0}, 2343.48, "TOTAL_PERCU_ASSOCIE"),
+            ("PAY_003", {"montant_recupere": 130.0}, 2343.48, "TOTAL_PERCU_ASSOCIE"),
+            ("PAY_002", {"montant_reverse_proprietaire": 140.0}, 2203.48, "TOTAL_PERCU_MOINS_REVERSE_ESPECES"),
             ("PAY_006", {"montant_recupere": 120.0, "montant_reverse_proprietaire": 140.0}, 0.0, "DIRECT_PROPRIETAIRE"),
         ]
         for mode, extra, expected, source in cases:
@@ -112,6 +112,22 @@ class BuildMasterTests(unittest.TestCase):
                 self.assertEqual(rec["acompte_facture"], expected)
                 self.assertEqual(rec["source_acompte_facture"], source)
                 self.assertEqual(rec["mois"], "2026-05")
+
+    def test_acompte_associe_reste_total_percu_si_recupere_inferieur(self):
+        for mode in ("PAY_003", "PAY_004"):
+            with self.subTest(mode=mode):
+                rec = lib.build_master([
+                    _saisie(mode_paiement_id=mode, montant_recupere=50.0)
+                ], TAUX_PROP_0003, self.AS_OF)["master_rows"][0]
+                self.assertEqual(rec["acompte_facture"], 2343.48)
+                self.assertEqual(rec["source_acompte_facture"], "TOTAL_PERCU_ASSOCIE")
+
+    def test_acompte_especes_total_moins_reverse(self):
+        rec = lib.build_master([
+            _saisie(mode_paiement_id="PAY_002", montant_reverse_proprietaire=343.48)
+        ], TAUX_PROP_0003, self.AS_OF)["master_rows"][0]
+        self.assertEqual(rec["acompte_facture"], 2000.0)
+        self.assertEqual(rec["source_acompte_facture"], "TOTAL_PERCU_MOINS_REVERSE_ESPECES")
 
     def test_override_taux_et_menage_confirmes(self):
         rec = lib.build_master([

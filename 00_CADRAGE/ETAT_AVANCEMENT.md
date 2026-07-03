@@ -926,3 +926,20 @@ Statut : implémentation contrôlée sur code et copies temporaires, écriture r
 Activation restante :
 - migration contrôlée du classeur source réel et des dépendances aval avant toute écriture réelle ;
 - maintien de `HH_REAL_WRITE_ENABLED=False` jusqu'à validation humaine et contrôle complet.
+
+## Note d'état - D-APP-2B-REV2 (2026-07-03)
+
+Statut : correctif métier/ergonomie en cours de contrôle avant commit sélectif.
+
+Éléments REV2 :
+- dérogations taux/ménage confirmées en modale locale au moment de la vérification, avec `Annuler` focalisé par défaut, motif obligatoire et confirmation cachée uniquement après validation de la modale ;
+- suppression du rendu permanent en bloc jaune/case à cocher pour les dérogations ;
+- champs associés visibles uniquement pour `CARTE_ASSOCIEE` / `COMPTE_PERSO_ASSOCIEE`, reverse propriétaire visible uniquement pour espèces, valeurs masquées vidées/ignorées ;
+- acompte propriétaire Lot4A : banque pro = `total_percu`, carte associée = `total_percu`, compte perso associé = `total_percu`, espèces = `total_percu - montant_reverse_proprietaire`, direct propriétaire = `0`, mois = `date_arrivee` ;
+- aucune modification des fichiers Excel réels, écriture réelle APP-2b toujours désactivée.
+
+Contrôles requis avant commit :
+- tests application APP-2b Miniconda ;
+- tests Lot4A ciblés avec dépendances NumPy/pandas ;
+- `git diff --check` ;
+- staging sélectif REV2 uniquement.

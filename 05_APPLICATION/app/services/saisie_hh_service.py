@@ -810,13 +810,19 @@ def valider(
             err("taux_commission_override", "TAUX_OVERRIDE_TROP_DE_DECIMALES",
                 "Taux derogatoire : maximum 2 decimales")
         else:
-            taux_override = parsed / Decimal("100")
-        if not taux_override_motif:
-            err("motif_override_taux_commission", "MOTIF_OVERRIDE_TAUX_MANQUANT",
-                "Motif obligatoire pour derogation de taux")
-        if taux_override_conf.lower() not in ("1", "true", "on", "oui"):
-            err("confirmation_override_taux_commission", "CONFIRMATION_OVERRIDE_TAUX_MANQUANTE",
-                "Confirmation obligatoire pour derogation de taux")
+            candidate = parsed / Decimal("100")
+            if taux_auto is not None and candidate == taux_auto:
+                taux_override = None
+                taux_override_motif = ""
+                taux_override_conf = ""
+            else:
+                taux_override = candidate
+                if not taux_override_motif:
+                    err("motif_override_taux_commission", "MOTIF_OVERRIDE_TAUX_MANQUANT",
+                        "Motif obligatoire pour derogation de taux")
+                if taux_override_conf.lower() not in ("1", "true", "on", "oui"):
+                    err("confirmation_override_taux_commission", "CONFIRMATION_OVERRIDE_TAUX_MANQUANTE",
+                        "Confirmation obligatoire pour derogation de taux")
 
     menage_standard: Decimal | None = None
     menage_standard_source = ""
@@ -848,13 +854,18 @@ def valider(
             err("menage_override", "MONTANT_TROP_DE_DECIMALES",
                 "menage_override : maximum 2 decimales")
         else:
-            menage_override = parsed
-        if not menage_override_motif:
-            err("motif_override_menage", "MOTIF_OVERRIDE_MENAGE_MANQUANT",
-                "Motif obligatoire pour derogation de menage")
-        if menage_override_conf.lower() not in ("1", "true", "on", "oui"):
-            err("confirmation_override_menage", "CONFIRMATION_OVERRIDE_MENAGE_MANQUANTE",
-                "Confirmation obligatoire pour derogation de menage")
+            if menage_standard is not None and parsed == menage_standard:
+                menage_override = None
+                menage_override_motif = ""
+                menage_override_conf = ""
+            else:
+                menage_override = parsed
+                if not menage_override_motif:
+                    err("motif_override_menage", "MOTIF_OVERRIDE_MENAGE_MANQUANT",
+                        "Motif obligatoire pour derogation de menage")
+                if menage_override_conf.lower() not in ("1", "true", "on", "oui"):
+                    err("confirmation_override_menage", "CONFIRMATION_OVERRIDE_MENAGE_MANQUANTE",
+                        "Confirmation obligatoire pour derogation de menage")
     menage = menage_override if menage_override is not None else menage_standard
 
     try:

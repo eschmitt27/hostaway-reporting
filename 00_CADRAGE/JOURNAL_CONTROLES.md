@@ -1685,3 +1685,21 @@ Resultat   : Tests application Miniconda verts (224 passed) ; tests Lot4A cibles
 Statut     : OUVERT - EN_ATTENTE_CONTROLES_FINAUX_PRECOMMIT
 Commentaire: Ne pas activer l'ecriture reelle avant migration controlee du classeur source et validation aval Lot4A/lot5/lot10/lot12.
 ```
+
+### CTR-2026-07-03-APP2B-REV2
+
+```
+Date       : 2026-07-03
+Lot        : APP-2b / Lot4A
+Code       : APP2B_REV2_DEROGATIONS_ACOMPTES
+Severite   : INFO
+Fichiers   : 05_APPLICATION/app, 05_APPLICATION/tests, 02_TRAVAIL/Lot4A, tests Lot4A, cadrage APP-2b
+Resultat   : Tests application Miniconda verts (231 passed, 1 warning Starlette/httpx).
+             Tests Lot4A cibles py -3 + PYTHONPATH Miniconda verts (48 passed, 9 subtests).
+             REV2 remplace le rendu permanent des derogations par une modale locale de confirmation.
+             REV2 applique l'acompte proprietaire officiel : banque pro/carte associee/compte perso associe = total_percu,
+             especes = total_percu - montant_reverse_proprietaire, direct proprietaire = 0.
+             Ecriture reelle HH maintenue desactivee ; aucun fichier Excel reel ne doit etre modifie.
+Statut     : OUVERT - EN_ATTENTE_COMMIT_SELECTIF
+Commentaire: Commit autorise seulement si git diff --check et controle staged restent verts.
+```

@@ -131,9 +131,12 @@ def compute_acompte_facture(saisie: dict) -> tuple[float, str]:
     if mode in MODE_BANQUE_PRO or mode == "":
         return _num(saisie.get("total_percu")), "TOTAL_PERCU"
     if mode in MODE_COMPTE_ASSOCIE or mode in MODE_CARTE_ASSOCIEE:
-        return _num(saisie.get("montant_recupere")), "MONTANT_RECUPERE_ASSOCIE"
+        return _num(saisie.get("total_percu")), "TOTAL_PERCU_ASSOCIE"
     if mode in MODE_ESPECES:
-        return _num(saisie.get("montant_reverse_proprietaire")), "MONTANT_REVERSE_PROPRIETAIRE"
+        return (
+            _num(saisie.get("total_percu")) - _num(saisie.get("montant_reverse_proprietaire")),
+            "TOTAL_PERCU_MOINS_REVERSE_ESPECES",
+        )
     if mode in MODE_DIRECT_PROPRIETAIRE:
         return 0.0, "DIRECT_PROPRIETAIRE"
     return _num(saisie.get("total_percu")), "MODE_INCONNU_TOTAL_PERCU"

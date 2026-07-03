@@ -65,21 +65,18 @@
           <div id="taux_commission_message" class="readonly-info">Selectionner un logement et une date d'arrivee</div>
           <p id="taux_commission_source" class="form-help text-secondary"></p>
           <button type="button" id="taux_derogation_toggle" class="btn btn-secondary">
-            Demander une derogation de taux
+            Modifier le taux
           </button>
-          <div id="taux_derogation_info" class="alert alert-warning" hidden>
-            <label for="taux_commission_override">Taux derogatoire (%) <span class="required">*</span></label>
+          <div id="taux_derogation_info" class="override-edit" hidden>
+            <label for="taux_commission_override">Nouveau taux (%)</label>
             <input type="text" id="taux_commission_override" name="taux_commission_override"
                    value="{{ form.get('taux_commission_override', '') }}" placeholder="ex. 18">
-            <label for="motif_override_taux_commission">Motif derogation taux <span class="required">*</span></label>
-            <input type="text" id="motif_override_taux_commission" name="motif_override_taux_commission"
+            <button type="button" id="taux_derogation_reset" class="btn btn-secondary">Reinitialiser</button>
+            <input type="hidden" id="motif_override_taux_commission" name="motif_override_taux_commission"
                    value="{{ form.get('motif_override_taux_commission', '') }}">
-            <label class="inline-check">
-              <input type="checkbox" id="confirmation_override_taux_commission"
-                     name="confirmation_override_taux_commission" value="on"
-                     {% if form.get('confirmation_override_taux_commission') %}checked{% endif %}>
-              Je confirme remplacer le taux automatique pour cette reservation.
-            </label>
+            <input type="hidden" id="confirmation_override_taux_commission"
+                   name="confirmation_override_taux_commission"
+                   value="{{ form.get('confirmation_override_taux_commission', '') }}">
             <p id="taux_override_resume" class="form-help text-secondary"></p>
           </div>
         </div>
@@ -164,21 +161,18 @@
           <p id="menage_standard_source" class="form-help text-secondary"></p>
           <input type="hidden" id="menage" name="menage" value="{{ form.get('menage', '') }}">
           <button type="button" id="menage_derogation_toggle" class="btn btn-secondary">
-            Demander une derogation de menage
+            Modifier le prix menage
           </button>
-          <div id="menage_derogation_info" class="alert alert-warning" hidden>
-            <label for="menage_override">Montant menage derogatoire (EUR) <span class="required">*</span></label>
+          <div id="menage_derogation_info" class="override-edit" hidden>
+            <label for="menage_override">Nouveau prix menage (EUR)</label>
             <input type="text" id="menage_override" name="menage_override"
                    value="{{ form.get('menage_override', '') }}" placeholder="ex. 65.00">
-            <label for="motif_override_menage">Motif derogation menage <span class="required">*</span></label>
-            <input type="text" id="motif_override_menage" name="motif_override_menage"
+            <button type="button" id="menage_derogation_reset" class="btn btn-secondary">Reinitialiser</button>
+            <input type="hidden" id="motif_override_menage" name="motif_override_menage"
                    value="{{ form.get('motif_override_menage', '') }}">
-            <label class="inline-check">
-              <input type="checkbox" id="confirmation_override_menage"
-                     name="confirmation_override_menage" value="on"
-                     {% if form.get('confirmation_override_menage') %}checked{% endif %}>
-              Je confirme remplacer le prix menage standard pour cette reservation.
-            </label>
+            <input type="hidden" id="confirmation_override_menage"
+                   name="confirmation_override_menage"
+                   value="{{ form.get('confirmation_override_menage', '') }}">
             <p id="menage_override_resume" class="form-help text-secondary"></p>
           </div>
         </div>
@@ -310,6 +304,31 @@
   </form>
 </div>
 
+<div id="override_modal" class="modal-backdrop" hidden>
+  <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="override_modal_title">
+    <h2 id="override_modal_title">Confirmer la derogation</h2>
+    <div id="override_modal_taux" class="modal-section" hidden>
+      <h3>Taux de commission</h3>
+      <p>Valeur automatique : <strong id="modal_taux_auto"></strong></p>
+      <p>Valeur demandee : <strong id="modal_taux_override"></strong></p>
+      <label for="modal_taux_motif">Motif taux <span class="required">*</span></label>
+      <textarea id="modal_taux_motif" rows="2"></textarea>
+    </div>
+    <div id="override_modal_menage" class="modal-section" hidden>
+      <h3>Prix menage</h3>
+      <p>Valeur automatique : <strong id="modal_menage_auto"></strong></p>
+      <p>Valeur demandee : <strong id="modal_menage_override"></strong></p>
+      <label for="modal_menage_motif">Motif menage <span class="required">*</span></label>
+      <textarea id="modal_menage_motif" rows="2"></textarea>
+    </div>
+    <p id="override_modal_error" class="form-help required"></p>
+    <div class="modal-actions">
+      <button type="button" id="override_modal_cancel" class="btn btn-secondary">Annuler</button>
+      <button type="button" id="override_modal_confirm" class="btn btn-primary">Confirmer la derogation</button>
+    </div>
+  </div>
+</div>
+
 <script>
 (() => {
   const form = document.getElementById("reservation_hh_form");
@@ -325,6 +344,7 @@
   const tauxOverride = document.getElementById("taux_commission_override");
   const tauxOverrideMotif = document.getElementById("motif_override_taux_commission");
   const tauxOverrideConf = document.getElementById("confirmation_override_taux_commission");
+  const tauxDerogationReset = document.getElementById("taux_derogation_reset");
   const menageHidden = document.getElementById("menage");
   const menageMessage = document.getElementById("menage_standard_message");
   const menageSource = document.getElementById("menage_standard_source");
@@ -333,6 +353,7 @@
   const menageOverride = document.getElementById("menage_override");
   const menageOverrideMotif = document.getElementById("motif_override_menage");
   const menageOverrideConf = document.getElementById("confirmation_override_menage");
+  const menageDerogationReset = document.getElementById("menage_derogation_reset");
   const modePaiement = document.getElementById("mode_paiement_id");
   const montantRecupere = document.getElementById("montant_recupere");
   const associe = document.getElementById("associe_id_recuperateur");
@@ -347,6 +368,19 @@
   const logementTypeMap = {{ refs.get('logement_type_map', {})|tojson }};
   const modeCodeMap = {{ refs.get('mode_code_map', {})|tojson }};
   const impactComptabilisationMap = {{ refs.get('impact_comptabilisation_map', {})|tojson }};
+  const modal = document.getElementById("override_modal");
+  const modalTaux = document.getElementById("override_modal_taux");
+  const modalMenage = document.getElementById("override_modal_menage");
+  const modalTauxAuto = document.getElementById("modal_taux_auto");
+  const modalTauxOverride = document.getElementById("modal_taux_override");
+  const modalMenageAuto = document.getElementById("modal_menage_auto");
+  const modalMenageOverride = document.getElementById("modal_menage_override");
+  const modalTauxMotif = document.getElementById("modal_taux_motif");
+  const modalMenageMotif = document.getElementById("modal_menage_motif");
+  const modalError = document.getElementById("override_modal_error");
+  const modalCancel = document.getElementById("override_modal_cancel");
+  const modalConfirm = document.getElementById("override_modal_confirm");
+  let allowConfirmedSubmit = false;
 
   function selectedOption(select) {
     return select && select.options.length ? select.options[select.selectedIndex] : null;
@@ -415,6 +449,23 @@
     return `${pct.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} %`;
   }
 
+  function formatMoney(value) {
+    const raw = Number(String(value || "").replace(",", "."));
+    if (!Number.isFinite(raw)) {
+      return String(value || "");
+    }
+    return `${raw.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} EUR`;
+  }
+
+  function parseNumber(value) {
+    const raw = Number(String(value || "").replace(",", ".").replace(/\s/g, ""));
+    return Number.isFinite(raw) ? raw : null;
+  }
+
+  function sameNumber(a, b) {
+    return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < 0.000001;
+  }
+
   function tauxActive(row) {
     if (!dateArrivee.value) {
       return false;
@@ -432,6 +483,7 @@
     if (!logement.value || !ownerHidden.value || !dateArrivee.value) {
       tauxMessage.textContent = "Selectionner un logement et une date d'arrivee";
       tauxSource.textContent = "";
+      tauxMessage.dataset.autoPercent = "";
       return;
     }
     const rows = tauxHistory.filter((row) => row.proprietaire_id === ownerHidden.value && tauxActive(row));
@@ -441,15 +493,20 @@
     if (!selected) {
       tauxMessage.textContent = "Aucun taux applicable trouve";
       tauxSource.textContent = "Source : REF_Taux_Commission";
+      tauxMessage.dataset.autoPercent = "";
       return;
     }
-    tauxMessage.textContent = `Taux de commission applicable : ${formatPercent(selected.taux_commission)}`;
+    const raw = Number(String(selected.taux_commission || "").replace(",", "."));
+    const pct = raw <= 1 ? raw * 100 : raw;
+    tauxMessage.dataset.autoPercent = Number.isFinite(pct) ? String(pct) : "";
+    tauxMessage.textContent = `Taux applicable : ${formatPercent(selected.taux_commission)}`;
     tauxSource.textContent = `Source : ${tauxLogement ? "taux logement" : "taux proprietaire"}`;
   }
 
   function updateMenageStandard() {
     if (!logement.value || !dateArrivee.value) {
       menageHidden.value = "";
+      menageHidden.dataset.standard = "";
       menageMessage.textContent = "Selectionner un logement et une date d'arrivee";
       menageSource.textContent = "";
       return;
@@ -469,12 +526,14 @@
     });
     if (!selected) {
       menageHidden.value = "";
+      menageHidden.dataset.standard = "";
       menageMessage.textContent = "Aucun prix menage standard trouve";
       menageSource.textContent = "Source : REF_Couts_Standards_Menage";
       return;
     }
     menageHidden.value = selected.cout_standard_menage;
-    menageMessage.textContent = `Prix menage standard : ${selected.cout_standard_menage} EUR`;
+    menageHidden.dataset.standard = selected.cout_standard_menage;
+    menageMessage.textContent = `Prix menage standard : ${formatMoney(selected.cout_standard_menage)}`;
     menageSource.textContent = "Source : REF_Couts_Standards_Menage";
   }
 
@@ -489,25 +548,28 @@
   }
 
   function updateDerogations() {
-    const tauxVisible = !tauxDerogationInfo.hidden;
-    tauxOverride.required = tauxVisible;
-    tauxOverrideMotif.required = tauxVisible;
-    tauxOverrideConf.required = tauxVisible;
-    if (!tauxVisible) {
-      tauxOverride.value = "";
+    const tauxAuto = parseNumber(tauxMessage.dataset.autoPercent);
+    const tauxAsked = parseNumber(tauxOverride.value);
+    if (tauxAsked !== null && tauxAuto !== null && sameNumber(tauxAsked, tauxAuto)) {
       tauxOverrideMotif.value = "";
-      tauxOverrideConf.checked = false;
+      tauxOverrideConf.value = "";
+      tauxOverride.dataset.confirmedValue = "";
+      tauxOverride.dataset.confirmedAuto = "";
+      tauxOverride.dataset.confirmedMotif = "";
+      tauxOverride.value = "";
     }
-
-    const menageVisible = !menageDerogationInfo.hidden;
-    menageOverride.required = menageVisible;
-    menageOverrideMotif.required = menageVisible;
-    menageOverrideConf.required = menageVisible;
-    if (!menageVisible) {
-      menageOverride.value = "";
+    const menageAuto = parseNumber(menageHidden.dataset.standard);
+    const menageAsked = parseNumber(menageOverride.value);
+    if (menageAsked !== null && menageAuto !== null && sameNumber(menageAsked, menageAuto)) {
       menageOverrideMotif.value = "";
-      menageOverrideConf.checked = false;
+      menageOverrideConf.value = "";
+      menageOverride.dataset.confirmedValue = "";
+      menageOverride.dataset.confirmedAuto = "";
+      menageOverride.dataset.confirmedMotif = "";
+      menageOverride.value = "";
     }
+    tauxOverride.required = false;
+    menageOverride.required = false;
   }
 
   function updatePaymentFields() {
@@ -541,21 +603,123 @@
     comptabilisationDisplay.value = value;
   }
 
-  function parseAmount(value) {
-    const normalized = String(value || "").replace(",", ".").replace(/\s/g, "");
-    const amount = Number(normalized);
-    return Number.isFinite(amount) ? amount : 0;
+  function derogationState() {
+    const tauxAuto = parseNumber(tauxMessage.dataset.autoPercent);
+    const tauxAsked = parseNumber(tauxOverride.value);
+    const menageAuto = parseNumber(menageHidden.dataset.standard);
+    const menageAsked = parseNumber(menageOverride.value);
+    return {
+      taux: tauxAsked !== null && tauxAuto !== null && !sameNumber(tauxAsked, tauxAuto),
+      tauxAuto,
+      tauxAsked,
+      menage: menageAsked !== null && menageAuto !== null && !sameNumber(menageAsked, menageAuto),
+      menageAuto,
+      menageAsked,
+    };
+  }
+
+  function confirmationStillValid(state) {
+    const tauxOk = !state.taux || (
+      tauxOverrideConf.value === "on"
+      && tauxOverride.dataset.confirmedValue === String(state.tauxAsked)
+      && tauxOverride.dataset.confirmedAuto === String(state.tauxAuto)
+    );
+    const menageOk = !state.menage || (
+      menageOverrideConf.value === "on"
+      && menageOverride.dataset.confirmedValue === String(state.menageAsked)
+      && menageOverride.dataset.confirmedAuto === String(state.menageAuto)
+    );
+    return tauxOk && menageOk;
+  }
+
+  function openOverrideModal(state) {
+    modalTaux.hidden = !state.taux;
+    modalMenage.hidden = !state.menage;
+    modalError.textContent = "";
+    if (state.taux) {
+      modalTauxAuto.textContent = `${state.tauxAuto.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} %`;
+      modalTauxOverride.textContent = `${state.tauxAsked.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} %`;
+      modalTauxMotif.value = tauxOverride.dataset.confirmedMotif || tauxOverrideMotif.value || "";
+    }
+    if (state.menage) {
+      modalMenageAuto.textContent = formatMoney(state.menageAuto);
+      modalMenageOverride.textContent = formatMoney(state.menageAsked);
+      modalMenageMotif.value = menageOverride.dataset.confirmedMotif || menageOverrideMotif.value || "";
+    }
+    modal.hidden = false;
+    modalCancel.focus();
+  }
+
+  function resetOverride(field, motif, confirmation) {
+    field.value = "";
+    field.dataset.confirmedValue = "";
+    field.dataset.confirmedAuto = "";
+    field.dataset.confirmedMotif = "";
+    motif.value = "";
+    confirmation.value = "";
+  }
+
+  function markOverrideEdited(field, motif, confirmation) {
+    field.dataset.confirmedValue = "";
+    field.dataset.confirmedAuto = "";
+    field.dataset.confirmedMotif = "";
+    motif.value = "";
+    confirmation.value = "";
   }
 
   logement.addEventListener("change", updateOwner);
   dateArrivee.addEventListener("change", updateOwner);
   tauxDerogationToggle.addEventListener("click", () => {
-    tauxDerogationInfo.hidden = !tauxDerogationInfo.hidden;
+    tauxDerogationInfo.hidden = false;
+    tauxOverride.focus();
     updateDerogations();
   });
+  tauxDerogationReset.addEventListener("click", () => {
+    resetOverride(tauxOverride, tauxOverrideMotif, tauxOverrideConf);
+  });
   menageDerogationToggle.addEventListener("click", () => {
-    menageDerogationInfo.hidden = !menageDerogationInfo.hidden;
+    menageDerogationInfo.hidden = false;
+    menageOverride.focus();
     updateDerogations();
+  });
+  menageDerogationReset.addEventListener("click", () => {
+    resetOverride(menageOverride, menageOverrideMotif, menageOverrideConf);
+  });
+  tauxOverride.addEventListener("input", () => markOverrideEdited(tauxOverride, tauxOverrideMotif, tauxOverrideConf));
+  menageOverride.addEventListener("input", () => markOverrideEdited(menageOverride, menageOverrideMotif, menageOverrideConf));
+  modalCancel.addEventListener("click", () => {
+    modal.hidden = true;
+    allowConfirmedSubmit = false;
+  });
+  modalConfirm.addEventListener("click", () => {
+    const state = derogationState();
+    if (state.taux && !modalTauxMotif.value.trim()) {
+      modalError.textContent = "Motif obligatoire pour la derogation de taux.";
+      modalTauxMotif.focus();
+      return;
+    }
+    if (state.menage && !modalMenageMotif.value.trim()) {
+      modalError.textContent = "Motif obligatoire pour la derogation de menage.";
+      modalMenageMotif.focus();
+      return;
+    }
+    if (state.taux) {
+      tauxOverrideMotif.value = modalTauxMotif.value.trim();
+      tauxOverrideConf.value = "on";
+      tauxOverride.dataset.confirmedValue = String(state.tauxAsked);
+      tauxOverride.dataset.confirmedAuto = String(state.tauxAuto);
+      tauxOverride.dataset.confirmedMotif = tauxOverrideMotif.value;
+    }
+    if (state.menage) {
+      menageOverrideMotif.value = modalMenageMotif.value.trim();
+      menageOverrideConf.value = "on";
+      menageOverride.dataset.confirmedValue = String(state.menageAsked);
+      menageOverride.dataset.confirmedAuto = String(state.menageAuto);
+      menageOverride.dataset.confirmedMotif = menageOverrideMotif.value;
+    }
+    modal.hidden = true;
+    allowConfirmedSubmit = true;
+    form.requestSubmit();
   });
   modePaiement.addEventListener("change", updatePaymentFields);
   document.getElementById("code_impact").addEventListener("change", updateComptabilisation);
@@ -573,7 +737,15 @@
     if (!form.checkValidity()) {
       event.preventDefault();
       form.reportValidity();
+      return;
     }
+    const state = derogationState();
+    if ((state.taux || state.menage) && !allowConfirmedSubmit && !confirmationStillValid(state)) {
+      event.preventDefault();
+      openOverrideModal(state);
+      return;
+    }
+    allowConfirmedSubmit = false;
   });
 
   updateOwner();
@@ -592,10 +764,24 @@
   padding: 6px 10px; border: 1px solid var(--color-border); border-radius: 4px;
   font-size: 0.9rem; background: var(--color-bg);
 }
+[hidden] { display: none !important; }
 .form-help { min-height: 1rem; margin: 0; }
 #proprietaire_display[readonly], #comptabilisation_display[readonly] { background: var(--color-bg-subtle); }
-.inline-check { display: flex; gap: 8px; align-items: center; }
-.alert label { margin-top: 6px; }
+.override-edit { display: grid; grid-template-columns: minmax(120px, 1fr) auto; gap: 6px; align-items: end; }
+.override-edit label, .override-edit .form-help { grid-column: 1 / -1; }
+.modal-backdrop {
+  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.35); z-index: 1000; padding: var(--stack-md);
+}
+.modal-panel {
+  width: min(560px, 100%); background: var(--color-bg); border: 1px solid var(--color-border);
+  border-radius: 6px; padding: var(--stack-lg); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+}
+.modal-panel h2 { margin-top: 0; font-size: 1.15rem; }
+.modal-section { display: flex; flex-direction: column; gap: 6px; margin-bottom: var(--stack-md); }
+.modal-section h3 { font-size: 0.95rem; margin: 0; }
+.modal-section p { margin: 0; }
+.modal-actions { display: flex; gap: var(--stack-md); justify-content: flex-end; }
 .readonly-info {
   padding: 6px 10px; border: 1px solid var(--color-border); border-radius: 4px;
   font-size: 0.9rem; background: var(--color-bg-subtle); min-height: 32px;

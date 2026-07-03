@@ -1555,4 +1555,11 @@ Règles associées :
 - `comptabilisation` est dérivée de `REF_Codes_Impact.impact_resultat_comptable`.
 - `Direct propriétaire` est préparé sous `PAY_006` / `DIRECT_PROPRIETAIRE` dans la migration de copie de `REF_Modes_Paiement`.
 - Lot4A publie les nouveaux champs de traçabilité à droite des 34 colonnes MASTER historiques.
-- L'acompte propriétaire est calculé par mode de paiement : banque pro = `total_percu`, compte perso associée/carte associée = `montant_recupere`, espèces = `montant_reverse_proprietaire`, direct propriétaire = `0`.
+- L'acompte propriétaire est calculé par mode de paiement : banque pro = `total_percu`, compte perso associée/carte associée = `total_percu`, espèces = `total_percu - montant_reverse_proprietaire`, direct propriétaire = `0`. Le `montant_recupere` reste une donnée de contrôle/traçabilité.
+
+### Note APP-2b REV2 - interface et source acompte (2026-07-03)
+
+- Les colonnes de traçabilité de dérogation restent séparées du taux et du ménage calculés. L'interface ne présente le motif et la confirmation qu'en modale au moment de la vérification, jamais comme champs visibles permanents.
+- `source_acompte_facture` prend les valeurs Lot4A `TOTAL_PERCU`, `TOTAL_PERCU_ASSOCIE`, `TOTAL_PERCU_MOINS_REVERSE_ESPECES` ou `DIRECT_PROPRIETAIRE` selon le mode de paiement.
+- Les champs conditionnels masqués par l'interface (`montant_recupere`, `associe_id_recuperateur`, `montant_reverse_proprietaire`) sont aussi nettoyés/ignorés par le service backend quand le mode de paiement ne les autorise pas.
+- REV2 ne modifie aucun fichier Excel réel ; `HH_REAL_WRITE_ENABLED` reste `False`.

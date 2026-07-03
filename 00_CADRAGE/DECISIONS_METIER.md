@@ -1082,3 +1082,19 @@ Décisions validées :
 - L'acompte facture propriétaire est rattaché au mois de `date_arrivee` et dépend du mode de paiement : banque pro = `total_percu`, compte perso associée = `montant_recupere_associe`, carte associée = `montant_recupere_associe`, espèces = `montant_reverse_proprietaire`, direct propriétaire = `0`.
 - La comptabilisation n'est plus une liste libre : elle est dérivée automatiquement du code impact depuis `REF_Setup.xlsm -> REF_Codes_Impact.impact_resultat_comptable`.
 - L'écriture réelle APP-2b reste désactivée tant que le classeur source réel et les dépendances MASTER/Lot4A/lot5/lot10/lot12 n'ont pas été migrés et contrôlés sur copies.
+
+### D-APP-2B-REV2 — Confirmation ergonomique des dérogations et acompte propriétaire
+
+**Date** : 2026-07-03
+**Statut** : VALIDÉ
+**Périmètre** : APP-2b, Lot4A, documentation métier.
+
+Décisions validées :
+- Les dérogations de taux et de ménage ne sont plus présentées par défaut dans un bloc d'alerte ou par une case à cocher. Le formulaire affiche la valeur automatique, sa source et un bouton compact `Modifier`. La saisie d'une valeur différente ouvre, au clic sur `Vérifier avant validation`, une modale locale de confirmation avec valeur automatique, valeur demandée, motif obligatoire distinct et bouton `Annuler` focalisé par défaut.
+- Une dérogation identique à la valeur automatique est traitée comme une absence de dérogation. Une dérogation différente reste bloquée côté backend sans motif et confirmation.
+- Les champs `Montant récupéré par l'associé (€)` et `Associé récupérateur` sont visibles et obligatoires uniquement pour `CARTE_ASSOCIEE` et `COMPTE_PERSO_ASSOCIEE`. Les valeurs cachées sont vidées dans le navigateur et ignorées côté backend pour les autres modes.
+- `Montant reversé propriétaire (€)` est visible uniquement pour le mode espèces. Les valeurs cachées sont vidées dans le navigateur et ignorées côté backend pour les autres modes.
+- L'acompte facture propriétaire reste rattaché au mois de `date_arrivee`. La règle officielle devient : banque pro = `total_percu`, carte associée = `total_percu`, compte perso associé = `total_percu`, espèces = `total_percu - montant_reverse_proprietaire`, direct propriétaire = `0`. Le `montant_recupere` reste une information de contrôle/traçabilité et ne réduit jamais l'acompte.
+- Les sources Lot4A associées sont `TOTAL_PERCU`, `TOTAL_PERCU_ASSOCIE`, `TOTAL_PERCU_MOINS_REVERSE_ESPECES`, `DIRECT_PROPRIETAIRE`.
+- Le mode cible `PAY_006` / `DIRECT_PROPRIETAIRE` et son libellé `Direct propriétaire` sont conservés dans le schéma cible et les migrations sur copie.
+- L'écriture réelle APP-2b reste désactivée (`HH_REAL_WRITE_ENABLED=False`) et aucun fichier Excel réel n'est modifié par REV2.
