@@ -10,6 +10,7 @@ EXPECTED_TABLES = {
     "screen_states",
     "drafts",
     "periods",
+    "saisie_hh_writes",
 }
 
 

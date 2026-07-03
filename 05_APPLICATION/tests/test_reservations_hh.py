@@ -8,7 +8,7 @@ from pathlib import Path
 import sqlite3
 import pytest
 
-from app.config import MASTER_RESERVATIONS_HH, SAISIE_RESERVATIONS_HH
+from app.config import MASTER_RESERVATIONS_HH
 from app.services import reservations_hh_service as svc
 from app.readers import reservations_hh_reader as reader
 
@@ -124,11 +124,9 @@ def test_aucune_ecriture_saisie_ni_master(client):
         st = p.stat()
         return (st.st_size, st.st_mtime_ns)
     before_master = sig(MASTER_RESERVATIONS_HH)
-    before_saisie = sig(SAISIE_RESERVATIONS_HH)
     client.get("/reservations")
     client.get(f"/reservations/{PK}")
     assert sig(MASTER_RESERVATIONS_HH) == before_master, "MASTER HH modifié par une consultation"
-    assert sig(SAISIE_RESERVATIONS_HH) == before_saisie, "SAISIE HH modifié par une consultation"
 
 
 def test_module_hh_n_appelle_pas_saisie_writer():

@@ -894,6 +894,58 @@ Tables : REF_Logements, MASTER_CALC_Reservations, MASTER_CALC_Commissions, MASTE
 
 ---
 
+### D-LOT4A-01 — Statuts de run LOT4A : cinq valeurs officielles dont ANALYSE_BLOQUEE_DONNEES
+Date : 2026-07-02 | Statut : VALIDÉ
+Contexte : LOT4A est un moteur Python déterministe (SAISIE_ReservationsHorsHostaway → MASTER de test).
+  La découverte du préflight (aucun Power Query réel dans SAISIE ni MASTER) a conduit à reformuler
+  D-APP-05A comme un dry-run Python pur sans Excel COM. Les statuts de sortie doivent être exhaustifs
+  et mutuellement exclusifs. Le 5e statut ANALYSE_BLOQUEE_DONNEES a été introduit en cours de
+  développement et validé explicitement par l'utilisateur le 2026-07-02.
+
+Cinq statuts officiels du run LOT4A :
+  `ANALYSE_TERMINEE`
+      Run terminé sans anomalie bloquante. MASTER de test généré sous 04_LOGS/LOT4A_DRY_RUN/.
+
+  `ANALYSE_TERMINEE_AVEC_ECARTS_HISTORIQUES`
+      S'applique au comparateur (--compare-existing) : run terminé ; des champs NULL dans
+      le MASTER réel existant ont déclenché la catégorie ECART_HISTORIQUE_ATTENDU
+      (MASTER legacy incomplet — jamais une erreur).
+      Le dry-run transformateur ne compare pas le MASTER legacy existant : il produit
+      uniquement ANALYSE_TERMINEE, ANALYSE_BLOQUEE_TAUX, ANALYSE_BLOQUEE_DONNEES
+      ou ERREUR_TECHNIQUE — jamais ANALYSE_TERMINEE_AVEC_ECARTS_HISTORIQUES.
+
+  `ANALYSE_BLOQUEE_TAUX`
+      Taux de commission MISSING (aucun taux applicable pour la date de check-in et le propriétaire)
+      ou AMBIGUOUS (plusieurs taux actifs, résolution impossible) pour au moins une ligne SAISIE.
+      Aucun MASTER de test généré. Aucun fichier .xlsx partiel. manifest.json + rapport_anomalies.md.
+
+  `ANALYSE_BLOQUEE_DONNEES`
+      Au moins une ligne de saisie manuelle invalide ou incohérente (voir codes ci-dessous).
+      Aucun MASTER de test généré. Aucun fichier .xlsx partiel. manifest.json + rapport_anomalies.md.
+
+  `ERREUR_TECHNIQUE`
+      Exception Python, fichier illisible, schéma inaccessible ou défaut logiciel non prévu.
+      Aucun MASTER de test généré. Message sur stderr, code retour 2.
+
+Codes de blocage données (ANALYSE_BLOQUEE_DONNEES) :
+  PK_HH_INVALIDE              : reservation_hh_id absent, vide ou format invalide
+  PK_HH_DOUBLON               : reservation_hh_id dupliqué dans la SAISIE
+  DATE_ARRIVEE_INVALIDE       : date_arrivee absente ou non parseable
+  DATE_DEPART_INVALIDE        : date_depart absente ou non parseable
+  DATES_SEJOUR_INCOHERENTES   : date_depart <= date_arrivee
+  MONTANT_INVALIDE            : total_percu ou menage non numérique
+  CHAMP_OBLIGATOIRE_MANQUANT  : champ obligatoire vide (logement_id, proprietaire_id, etc.)
+  CODE_IMPACT_INVALIDE        : code_impact hors valeurs fermées (IC/HC/HR)
+  STATUT_CONTROLE_INVALIDE    : statut_controle hors valeurs fermées
+
+Règle manifest — pour tout statut bloquant :
+  `master_test_genere = false` (toujours) et `motif_blocage = <code précis>` (toujours renseigné).
+
+Périmètre : exclusivement LOT4A. Ces statuts ne s'appliquent pas aux autres lots ni à l'application.
+Tables : manifest.json (04_LOGS/LOT4A_DRY_RUN/), rapport.md, rapport_anomalies.md
+
+---
+
 ### D-APP-05C — Formules Excel B (ROW_HASH) et C (mois) : indépendance de la langue et du séparateur
 Date : 2026-07-02 | Statut : VALIDÉ
 Contexte : Les formules originales de SAISIE_ReservationsHorsHostaway.xlsx utilisaient TEXT() avec des masques
@@ -1015,3 +1067,18 @@ D11 — associé récupérateur
 Statut APP-2b : cadrage fonctionnel verrouillé. Implémentation non démarrée.
 Tables : SAISIE_ReservationsHorsHostaway.xlsx, REF_Setup.xlsm (REF_Cloture_Mensuelle,
   REF_Gestion_Logements_Hist, REF_Logements, REF_Associes), REF_LOCALE.
+### D-APP-2B-REV1 — Règles paiement, acomptes et dérogations saisie HH
+
+**Date** : 2026-07-03
+**Statut** : VALIDÉ
+**Périmètre** : APP-2b, SAISIE_ReservationsHorsHostaway sur migration contrôlée, Lot4A.
+
+Décisions validées :
+- APP-2b saisit exclusivement des réservations hors Hostaway : `reservation_id_hostaway` n'est plus demandé, plus affiché et plus requis. Toute valeur postée manuellement est refusée ou ignorée de façon traçable. La colonne physique existante peut rester vide jusqu'à migration contrôlée.
+- `source_financiere = SAISIE_MANUELLE` est pré-sélectionnée sur nouveau formulaire. Une valeur déjà choisie reste conservée lors d'un retour de validation.
+- Le taux de commission standard est résolu par `logement_id + proprietaire_id + date_arrivee` depuis `REF_Setup.xlsm -> REF_Taux_Commission`, périodes inclusives, priorité au taux logement puis taux propriétaire. Une dérogation exige taux, motif et confirmation explicite ; elle est tracée séparément et ne remplace pas silencieusement l'historique.
+- Le prix ménage standard est résolu après logement + date depuis `REF_Setup.xlsm -> REF_Couts_Standards_Menage`. Une dérogation exige montant, motif et confirmation explicite ; elle est tracée séparément.
+- Le mode de paiement `Direct propriétaire` est ajouté au schéma cible sous l'identifiant technique cohérent `PAY_006` / `DIRECT_PROPRIETAIRE`, via migration sur copie uniquement avant activation réelle.
+- L'acompte facture propriétaire est rattaché au mois de `date_arrivee` et dépend du mode de paiement : banque pro = `total_percu`, compte perso associée = `montant_recupere_associe`, carte associée = `montant_recupere_associe`, espèces = `montant_reverse_proprietaire`, direct propriétaire = `0`.
+- La comptabilisation n'est plus une liste libre : elle est dérivée automatiquement du code impact depuis `REF_Setup.xlsm -> REF_Codes_Impact.impact_resultat_comptable`.
+- L'écriture réelle APP-2b reste désactivée tant que le classeur source réel et les dépendances MASTER/Lot4A/lot5/lot10/lot12 n'ont pas été migrés et contrôlés sur copies.

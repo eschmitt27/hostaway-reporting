@@ -1,8 +1,11 @@
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+import app.config as cfg
 from app.config import TEMPLATES_DIR
 from app.services import reservations_hh_service as svc
+from app.services import saisie_hh_service as saisie_svc
+from app.services import saisie_hh_orchestrator as hh_orchestrator
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -62,6 +65,90 @@ def reservations_list(
     return templates.TemplateResponse(request, "reservations_list.html", {
         "active_menu": "reservations",
         "data": data,
+    })
+
+
+@router.get("/reservations/nouvelle", response_class=HTMLResponse)
+def reservation_nouvelle_form(request: Request):
+    refs = saisie_svc.load_form_refs()
+    return templates.TemplateResponse(request, "reservation_nouvelle_form.html", {
+        "active_menu": "reservations",
+        "refs": refs,
+        "form": {"source_financiere": "SAISIE_MANUELLE"},
+        "erreurs": [],
+    })
+
+
+@router.post("/reservations/nouvelle/verifier", response_class=HTMLResponse)
+async def reservation_nouvelle_verifier(request: Request):
+    form_data = await request.form()
+    data = dict(form_data)
+    result = saisie_svc.valider(data)
+    if not result["ok"]:
+        refs = saisie_svc.load_form_refs()
+        return templates.TemplateResponse(
+            request,
+            "reservation_nouvelle_form.html",
+            {
+                "active_menu": "reservations",
+                "refs": refs,
+                "form": data,
+                "erreurs": result["erreurs"],
+            },
+            status_code=422,
+        )
+    return templates.TemplateResponse(request, "reservation_nouvelle_verif.html", {
+        "active_menu": "reservations",
+        "preview": result["preview"],
+        "pk": result["pk"],
+        "form_data": data,
+        "resultat_ecriture": None,
+    })
+
+
+@router.post("/reservations/nouvelle/confirmer", response_class=HTMLResponse)
+async def reservation_nouvelle_confirmer(request: Request):
+    form_data = await request.form()
+    data = dict(form_data)
+    if not cfg.HH_REAL_WRITE_ENABLED:
+        write_result = hh_orchestrator.confirm_write(
+            row_data={},
+            pk=str(data.get("reservation_hh_id", "")),
+            mois=str(data.get("mois", "")),
+        )
+        return templates.TemplateResponse(request, "reservation_nouvelle_verif.html", {
+            "active_menu": "reservations",
+            "preview": {},
+            "pk": str(data.get("reservation_hh_id", "")),
+            "form_data": data,
+            "resultat_ecriture": write_result,
+        })
+    result = saisie_svc.valider(data)
+    if not result["ok"]:
+        refs = saisie_svc.load_form_refs()
+        return templates.TemplateResponse(
+            request,
+            "reservation_nouvelle_form.html",
+            {
+                "active_menu": "reservations",
+                "refs": refs,
+                "form": data,
+                "erreurs": result["erreurs"],
+            },
+            status_code=422,
+        )
+    row_data = saisie_svc.build_row_data(result["preview"])
+    write_result = hh_orchestrator.confirm_write(
+        row_data=row_data,
+        pk=result["pk"],
+        mois=result["preview"].get("mois", ""),
+    )
+    return templates.TemplateResponse(request, "reservation_nouvelle_verif.html", {
+        "active_menu": "reservations",
+        "preview": result["preview"],
+        "pk": result["pk"],
+        "form_data": data,
+        "resultat_ecriture": write_result,
     })
 
 

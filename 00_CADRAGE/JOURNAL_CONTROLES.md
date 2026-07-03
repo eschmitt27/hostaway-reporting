@@ -22,6 +22,109 @@ Commentaire: note
 
 ---
 
+### CTR-DAPP2B-IMPL-2026-07-03
+
+```
+Date       : 2026-07-03
+Lot        : APP-2b — Saisie HH contrôlée — Implémentation technique
+Code       : DAPP2B_IMPL_TECHNIQUE_GUARD_ACTIF
+Sévérité   : INFO
+Fichier    : 05_APPLICATION/ (10 fichiers créés, 6 fichiers modifiés)
+             01_SOURCES_BRUTES/ReservationsHH/SAISIE_ReservationsHorsHostaway.xlsx
+Résultat   : APP-2b implémentée techniquement. 149/149 tests verts.
+             HH_REAL_WRITE_ENABLED = False — aucune écriture réelle effectuée.
+             SAISIE sha256 = c3c00e73017212e08bb3f9e9aef73a26bd3c828804e4fa21f7f2b37713d54c5c INCHANGÉ.
+             Routes créées :
+               GET  /reservations/nouvelle     → formulaire (listes REF_LOCALE)
+               POST /reservations/nouvelle/verifier  → validation D1–D11 + PK + preview
+               POST /reservations/nouvelle/confirmer → écriture atomique (bloquée garde)
+             Modules créés :
+               saisie_hh_reader.py  — lecture SAISIE, PKs, génération RESHH-AAAA-MM-NNN
+               ref_setup_hh_reader.py — cloture, gestion hist, associes (module séparé — préserve invariant APP-1)
+               saisie_hh_service.py — validation D1–D11
+               saisie_hh_writer.py  — écriture atomique 11 étapes + garde HH_REAL_WRITE_ENABLED
+               0002_saisie_hh.sql   — table saisie_hh_writes (journal applicatif)
+             Tests :
+               test_saisie_hh_validation.py (27 tests — D1–D11 complets)
+               test_saisie_hh_writer.py      (6 tests — garde, SQLite, formules protégées)
+               test_saisie_hh_routes.py      (8 tests — 3 routes + ordering conflit statique/param)
+               test_sqlite_migrations.py mis à jour (saisie_hh_writes dans EXPECTED_TABLES)
+               test_no_metier_calc.py mis à jour (writers/ exclus du check sync bidirectionnel)
+             Invariants APP-1 préservés :
+               test_code_ne_lit_jamais_proprietaires_ni_gestion : VERT
+               (fonctions APP-2b dans ref_setup_hh_reader.py, hors ref_setup_reader.py)
+Statut     : INFO — IMPLÉMENTÉE. Validation humaine réelle requise avant activation HH_REAL_WRITE_ENABLED.
+Commentaire: Le writer est fonctionnel mais bloqué par garde. La première écriture réelle nécessite :
+             (1) validation visuelle interface (formulaire + prévisualisation)
+             (2) modification manuelle de HH_REAL_WRITE_ENABLED = True dans config.py
+             (3) saisie de test humaine contrôlée
+             (4) vérification Excel post-écriture
+             L'activation de HH_REAL_WRITE_ENABLED ne doit jamais être faite par l'agent sans feu vert explicite.
+```
+
+---
+
+### CTR-DAPP2B-AUDIT-2026-07-03
+
+```
+Date       : 2026-07-03
+Lot        : APP-2b — Audit technique + 9 correctifs post-audit
+Code       : DAPP2B_AUDIT_CORRECTIFS_SECURITE
+Sévérité   : INFO
+Fichier    : 05_APPLICATION/ (2 fichiers réécrits, 1 nouveau, 4 modifiés)
+             01_SOURCES_BRUTES/ReservationsHH/SAISIE_ReservationsHorsHostaway.xlsx
+Résultat   : Audit technique APP-2b (lecture seule) — 5 domaines, 9 NON_CONFORME identifiés.
+             9 correctifs appliqués. 181/181 tests verts.
+             SAISIE sha256 = c3c00e73017212e08bb3f9e9aef73a26bd3c828804e4fa21f7f2b37713d54c5c INCHANGÉ.
+
+             AUDIT — Résultats (avant correctifs) :
+               A1 Source clôture  : NON_CONFORME — REF_CLOTURE pointait fichier autonome inexistant
+               A2 Test anti-sync  : NON_CONFORME — exclusion writers/ masquait faux positif potentiel
+               A3 Writer contract : NON_CONFORME — writer contenait accès SQLite et garde guard
+               A4 D7/D8/D9/D10   : NON_CONFORME — except: pass silencieux sur REF_Setup inaccessible
+               A5 Decimal/précis. : NON_CONFORME — float acceptait >2 décimales sans rejet
+               A6 Rollback        : ABSENT — aucun mécanisme de restauration post-écriture
+               A7 ~$/verrou       : ABSENT — écriture sans détection Excel ouvert ni verrou exclusif
+               A8 Préservation    : ABSENT — aucune vérification structure avant os.replace
+               A9 Routes sécurité : NON_CONFORME — route appelait writer direct (pas orchestrateur)
+
+             CORRECTIFS APPLIQUÉS :
+               C1 config.py : _REF_CLOTURE_OBSOLETE = None — chemin autonome neutralisé
+               C2 saisie_hh_writer.py (réécrit) : writer pur fichier, ZERO accès SQLite
+                  saisie_hh_orchestrator.py (nouveau) : guard + snapshot + SQLite + rollback,
+                  ZERO openpyxl/save()
+               C3 write_row étape 1 : détection ~$<fichier>
+                  write_row étape 2 : verrou O_CREAT|O_EXCL|O_WRONLY (atomique Windows/Unix)
+               C4 write_row étape 5 : préflight formules (figée ≠ None ≠ = → ERREUR)
+                  write_row étape 7 : vérification même volume (atomicité garantie)
+               C5 write_row étape 6+11 : mesure structure avant / vérification après
+                  (sheets/DV/MFC/named_ranges/fullCalcOnLoad — comparaison relative)
+                  fullCalcOnLoad forcé à True avant save
+               C6 orchestrateur : copie .rollback.xlsx avant write_row
+                  rollback atomique (os.replace) si journalisation SQLite échoue post-write
+               C7 saisie_hh_service.py : Decimal (pas float) pour tous les montants
+                  rejet explicite >2 décimales (MONTANT_TROP_DE_DECIMALES)
+                  fail-closed : except Exception as exc → REF_SETUP_INDISPONIBLE (D7/D8/D9/D10)
+               C8 orchestrateur : guard HH_REAL_WRITE_ENABLED en premier (avant assert_writable)
+               C9 test_no_bidirectional_sync : détection par import DB réel (get_db / from app.db)
+                  test_saisie_hh_writer.py : 20 tests (~$, verrou, préflight, structure, delta)
+                  test_saisie_hh_orchestrator.py : 8 tests (guard, SQLite, rollback)
+                  test_saisie_hh_validation.py : +15 tests (Decimal, fail-closed, D9 divergence)
+                  routes mock mis à jour : hh_orchestrator.confirm_write
+
+             Séparation vérifiée par test :
+               saisie_hh_writer.py  : has save() → True ; has DB access → False ✓
+               saisie_hh_orchestrator.py : has save() → False ; has DB access → True ✓
+               test_no_bidirectional_sync → aucune violation ✓
+
+Statut     : INFO — CORRECTIFS APPLIQUÉS. Validation humaine réelle requise avant activation.
+Commentaire: HH_REAL_WRITE_ENABLED = False. Aucune écriture réelle possible.
+             Activation : modification manuelle de config.py + validation humaine explicite.
+             Ne jamais activer HH_REAL_WRITE_ENABLED sans feu vert humain.
+```
+
+---
+
 ### CTR-DAPP2B-CADRAGE-2026-07-03
 
 ```
@@ -107,6 +210,74 @@ Commentaire: saisie_writer.py reste stub (NotImplementedError). Aucune route d'�
 ```
 
 ---
+
+### CTR-LOT4A-2026-07-02
+
+```
+Date       : 2026-07-02
+Lot        : LOT4A — Comparateur + Transformateur dry-run (SAISIE ReservationsHH → MASTER de test)
+Code       : LOT4A_COMPARATEUR_DRYRUN
+Sévérité   : INFO
+Fichier    : Créés :
+               02_TRAVAIL/lib_lot4a_reservations_hh.py (bibliothèque partagée)
+               02_TRAVAIL/lot4a_transform_reservations_hh.py (transformateur --dry-run)
+               tests/test_lot4a_transform_reservations_hh.py (20 tests)
+             Modifié :
+               02_TRAVAIL/lot4a_compare_reservations_hh.py (refactorisé — lib commune, comportement inchangé)
+             Déjà existant, inchangé :
+               tests/test_lot4a_compare_reservations_hh.py (22 tests)
+             Run réel :
+               04_LOGS/LOT4A_DRY_RUN/20260702T085200Z/
+Résultat   : D-APP-05A terminé techniquement en dry-run. Sources réelles inchangées.
+
+             Comparateur lecture seule — 22/22 tests OK :
+             - 7 catégories : MANUEL_IDENTIQUE, MANUEL_DIFFERENT, DERIVE_COHERENT,
+               ECART_HISTORIQUE_ATTENDU, METADONNEE_NON_COMPARABLE, TAUX_BLOQUANT
+             - MASTER legacy (commission=NULL) → ECART_HISTORIQUE_ATTENDU (jamais erreur)
+             - Oracle RESHH-2026-05-001 : taux=0.15, commission=343.27, acompte=1945.21
+             - Garde de chemin : RuntimeError si cible hors 04_LOGS/LOT4A_COMPARE
+             - AST : aucun wb.save/to_excel, aucun subprocess/win32com/saisie_writer
+
+             Transformateur dry-run — 20/20 tests OK :
+             - Mode unique --dry-run --as-of ISO-8601 UTC obligatoire (naïf/non-UTC refusé)
+             - MASTER de test : 2 feuilles MASTER+VUE_ACTIVE, 34 colonnes, aucun POWER_QUERY_CODE
+             - Écrit uniquement sous 04_LOGS/LOT4A_DRY_RUN/<horodatage-UTC>/
+             - Écriture atomique temp → validate (_validate_workbook) → os.replace → delete temp
+             - Blocage ANALYSE_BLOQUEE_TAUX ou ANALYSE_BLOQUEE_DONNEES → aucun .xlsx ;
+               seulement rapport_anomalies.md + manifest.json
+             - Garde de chemin : RuntimeError pour 01_SOURCES_BRUTES, 02_TRAVAIL,
+               03_EXPORTS, 05_APPLICATION (vérification avant chaque écriture)
+             - AST : aucun argument --write-master déclaré, aucun args.write_master,
+               aucun subprocess/win32com/saisie_writer
+
+             Run réel (2026-07-02T08:52:00Z) :
+             - Statut : ANALYSE_TERMINEE, master_test_genere = true
+             - Oracle RESHH-2026-05-001 : taux=0.15, commission=343.27, acompte=1945.21
+             - Équilibre : round2(55 + 343.27 + 0 + 1945.21) = 2343.48 OK
+             - date_integration = '2026-07-02T00:00:00Z' (chaîne ISO UTC = --as-of)
+
+             Invariance sources réelles (SHA-256 + taille + mtime_ns, avant = après) :
+               SAISIE    e4591912a6b0f1cad69775c2… taille 75924 mtime_ns 1782676150164898800 INCHANGÉ
+               MASTER    c0e4434c347987d21bac52d7… taille 10829 mtime_ns 1781524006555932300 INCHANGÉ
+               REF_Setup f45f4feadcbebd04f78c4e4a… taille 86345 mtime_ns 1782721518446925000 INCHANGÉ
+
+             Compatibilité aval confirmée (lecture seule) :
+               lot4bis lit onglet "MASTER" par nom → compatible
+               lot5 lit colonne acompte_facture → compatible
+               date_integration ISO UTC texte non consommée par lot4bis/lot5/lot9 → compatible
+               Aucun consommateur aval n'exige POWER_QUERY_CODE → absence sûre
+
+             Aucune modification sous 01_SOURCES_BRUTES/ ni 03_EXPORTS/.
+             Les seules modifications sous 02_TRAVAIL/ sont les ajouts et le refactor Lot4A explicitement documentés.
+Statut     : INFO — D-APP-05A TERMINÉ TECHNIQUEMENT EN DRY-RUN
+Commentaire: Aucun --write-master créé ni autorisé. MASTER réel jamais touché.
+             D-APP-05B non démarré (preuve écriture SAISIE sur copie isolée).
+             APP-2b toujours BLOQUÉE jusqu'à D-APP-05B validé + validation humaine finale LOT4A.
+             Statut ANALYSE_BLOQUEE_DONNEES (5e statut LOT4A) validé le 2026-07-02 — voir D-LOT4A-01.
+```
+
+---
+
 ### CTR-DAPP05-PREFLIGHT-2026-07-02
 
 ```
@@ -138,6 +309,150 @@ Commentaire: D-APP-05 NON validée. Solution minimale proposée : reformuler la 
 ```
 
 ---
+
+### CTR-APP2a-2026-07-01
+
+```
+Date       : 2026-07-01
+Lot        : Lot APP-2a — Réservations hors Hostaway (lecture seule)
+Code       : APP2A_RESERVATIONS_HH_LECTURE
+Sévérité   : INFO
+Fichier    : 05_APPLICATION/ (6 fichiers créés, 5 modifiés)
+             tests/ (96 tests pytest, dont 18 réservations HH)
+Résultat   : 96/96 tests pytest PASSED (9.89 s) — aucun skip
+             Contrôles ciblés vérifiés :
+             - Liste lue depuis MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx onglet MASTER (généré par PQ)
+             - Ligne-placeholder Power Query exclue (filtre reservation_hh_id commence par RESHH-)
+             - SAISIE_ReservationsHorsHostaway.xlsx jamais lue pour construire la liste (scan AST)
+             - Aucune route POST/PUT/PATCH/DELETE ; POST /reservations -> 405
+             - Recherche + filtres réels (mois, logement, propriétaire, canal, source_financiere, statut, impact, compta)
+             - États : OK, EMPTY (cache PQ vide), erreur source absente, réservation inconnue -> 404 propre
+             - Montants dérivés signalés « issus du moteur », jamais recalculés (CHAMPS_MOTEUR)
+             - Lecture read_only ; MASTER et SAISIE inchangés (empreinte taille+mtime) après consultation
+             - Aucun appel/import de saisie_writer ; aucune écriture SAISIE/MASTER
+             - Aucune réservation métier en SQLite ; service n'importe ni get_db ni sqlite
+             - Bloc fraîcheur : « Actualisation Power Query manuelle requise après toute future saisie »
+             git status 01_SOURCES_BRUTES/ 02_TRAVAIL/ 03_EXPORTS/ → vide (aucune donnée réelle modifiée)
+Statut     : CORRIGÉ
+Commentaire: Consultation lecture seule uniquement. APP-2b (écriture) reste BLOQUÉE.
+             D-APP-05 TOUJOURS OUVERTE — aucune écriture SAISIE tant que la preuve technique
+             sur copie isolée n'est pas réalisée et validée (protocole ci-dessous, non exécuté).
+```
+
+**D-APP-05 — Protocole de preuve APP-2b (préparé, NON exécuté au Lot APP-2a)**
+
+À exécuter uniquement sur une COPIE temporaire isolée du classeur réel, jamais sur `01_SOURCES_BRUTES/ReservationsHH/SAISIE_ReservationsHorsHostaway.xlsx`. Étapes obligatoires :
+
+```
+1.  Copie temporaire exacte du classeur réel vers un dossier de test isolé (hors 01/02/03).
+2.  Ajout d'UNE SEULE ligne de test (colonnes manuelles uniquement) dans l'onglet SAISIE.
+3.  Contrôle des formules pré-remplies (ROW_HASH, mois, nuits, taux_commission,
+    taux_commission_source, commission, acompte_facture, impact_resultat_reel/comptable)
+    → intactes et présentes sur la ligne ajoutée.
+4.  Contrôle des 11 validations de données (listes déroulantes lst_*) → préservées.
+5.  Contrôle des plages nommées (lst_Canaux … lst_PropTauxLookup) → préservées.
+6.  Contrôle de la mise en forme conditionnelle (rouge=BLOQUANT / orange=A_CONTROLER) → préservée.
+7.  Ouverture manuelle du fichier test dans Excel (recalcul des formules).
+8.  Refresh Power Query manuel DANS CETTE COPIE uniquement (onglet MASTER).
+9.  Contrôle que le MASTER de test reçoit la ligne attendue (30 col + 4 PQ, valeurs calculées correctes).
+10. Suppression complète de l'environnement de test après preuve.
+```
+
+Tant que ces 10 points ne sont pas prouvés et validés humainement, `app/writers/saisie_writer.py` reste un stub (`NotImplementedError`) et aucune route d'écriture n'est créée.
+
+---
+
+### CTR-APP1-2026-07-01
+
+```
+Date       : 2026-07-01
+Lot        : Lot APP-1 — Module Logements (lecture seule)
+Code       : APP1_MODULE_LOGEMENTS
+Sévérité   : INFO
+Fichier    : 05_APPLICATION/ (6 fichiers créés, 6 modifiés)
+             tests/ (76 tests pytest, dont 21 logements)
+Résultat   : 76/76 tests pytest PASSED (7.10 s) — aucun skip
+             Contrôles ciblés vérifiés :
+             - Liste depuis PBI_Referentiel_Logements.csv uniquement ; PBI manquant → erreur lisible, sans fallback Excel
+             - Aucune reconstruction de jointure REF_Logements × REF_Gestion_Logements_Hist × REF_Proprietaires (scan AST)
+             - Commission : bloc « Historique des taux de commission », aucune notion de taux actuel / en vigueur (rendu vérifié)
+             - Lignes techniques (APPARTEMENT_DIVERS, LOGEMENT_DIVERS) exclues par défaut, présentes si toggle, badge HORS_PARC_TECHNIQUE, hors compteur parc (17)
+             - Recherche + filtre ville testés ; état vide propre
+             - Fiche détail existante 200 ; logement inconnu → 404 propre
+             - REF_Setup lu en read_only ; aucune écriture source (empreinte taille+mtime PBI et REF_Setup inchangée après consultation)
+             - Contact propriétaire (email/téléphone/adresse_facturation) absent de liste et fiche ; aucun « @ » dans le rendu
+             - Aucune donnée métier logement en SQLite ; service n'importe ni get_db ni sqlite
+             - /health confirme le vrai chemin REF_Setup (01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm), status OK
+             git status 01_SOURCES_BRUTES/ 02_TRAVAIL/ 03_EXPORTS/ → vide (aucune donnée réelle modifiée)
+Statut     : VALIDÉ
+Commentaire: Premier module métier de l'application, strictement lecture seule.
+             Correction APP-0 intégrée : chemin REF_Setup (sous-dossier) — /health passe de DEGRADED à OK.
+             D-APP-04 clôturée (affichage commission datée brute, sans calcul).
+             VALIDATION HUMAINE ACCORDÉE le 2026-07-01 (contrôles visuels conformes).
+             Décompte exact : 6 fichiers créés + 6 modifiés (home.html non modifié — bascule via home.py seul).
+             Aucun module APP-2 ou suivant démarré. En attente de cadrage APP-2.
+```
+
+---
+
+### CTR-APP0-CORR-2026-07-01
+
+```
+Date       : 2026-07-01
+Lot        : Lot APP-0 — Corrections post-build avant validation humaine
+Code       : APP0_CORRECTIONS_PRE_VALIDATION
+Sévérité   : INFO
+Fichier    : 05_APPLICATION/ (7 fichiers modifiés, 2 fichiers créés, 1 fichier supprimé)
+             tests/ (53 tests pytest)
+Résultat   : 53/53 tests pytest PASSED (6.46 s)
+             Nouvelles batteries :
+             - test_pipeline_registry_paths (5) : 21 scripts confirmés → fichiers .py existants, aucun dossier Lot*, lot3 NON_REFERENCES documenté
+             - test_navigation_no_404 (6) : sidebar sans href cassé, / et /sources-calculs → 200, routes futures → 404, badges APP-N présents
+             Corrections appliquées :
+             1. pipeline_registry.py — 13 chemins dossiers → 21 chemins fichiers .py réels ; lot3 exclus (aucun script)
+             2. base.html — HTMX <script> retiré ; 7 menus non construits → <span class="nav-item--future"> non cliquable
+             3. home.html — cartes modules a_venir → <div> sans href
+             4. app.css — styles .nav-item--future et .nav-badge-future ajoutés
+             5. htmx.2.0.4.min.js — stub supprimé ; LANCEMENT_LOCAL.md nettoyé
+             6. requirements.txt — versions >= remplacées par versions figées exactes
+             7. Statut global ETAT_AVANCEMENT.md unifié (suppression contradictions)
+             Vérification lancement réel : / → 200, /health → 200 OK, /sources-calculs → 200, /logements → 404
+             git status 01_SOURCES_BRUTES/ 02_TRAVAIL/ 03_EXPORTS/ → nothing to commit
+Statut     : CORRIGÉ
+Commentaire: Corrections pré-validation demandées par utilisateur avant démarrage APP-1.
+             Aucun module métier créé. Aucune donnée réelle modifiée.
+             APP-0 en attente de validation humaine explicite avant tout démarrage APP-1.
+```
+
+---
+
+### CTR-APP0-2026-07-01
+
+```
+Date       : 2026-07-01
+Lot        : Lot APP-0 — Socle technique application locale
+Code       : APP0_SOCLE_TECHNIQUE
+Sévérité   : INFO
+Fichier    : 05_APPLICATION/ (44 fichiers créés)
+             tests/ (42 tests pytest)
+Résultat   : 42/42 tests pytest PASSED (4.30 s)
+             - test_boot (7) : boot FastAPI, routes /, /sources-calculs, /health, CSS, logo, .gitignore OK
+             - test_no_metier_calc (4) : aucun calcul métier dans app/, aucun import 02_TRAVAIL, pas de sync bidirectionnelle, syntaxe valide
+             - test_pipeline_runner_dryrun (5) : dry-run forcé, subprocess non appelé, exécution réelle bloquée, journalisation SQLite OK
+             - test_readonly_guarantee (13) : file_registry refuse 8 chemins non-SAISIE, accepte 4 SAISIE_*, PermissionError sur REF/MASTER, excel_reader read_only=True vérifié, saisie_writer stub OK
+             - test_snapshot (5) : copie + manifeste sha256 + SQLite + détection corruption + restauration copie isolée
+             - test_sqlite_migrations (5) : 7 tables créées, idempotence, version 0001, WAL mode, periods miroir OK
+             git status 01_SOURCES_BRUTES/ 02_TRAVAIL/ 03_EXPORTS/ → nothing to commit (aucune donnée réelle modifiée)
+Statut     : CORRIGÉ
+Commentaire: Anomalie détectée et corrigée pendant le build : API Starlette 1.3.1 utilise
+             TemplateResponse(request, name, context) et non TemplateResponse(name, context).
+             Corrigé dans home.py et sources_calculs.py avant passage des tests.
+             HTMX : repoussé hors APP-0 (stub supprimé en CTR-APP0-CORR-2026-07-01).
+             Lot APP-0 conforme au DoD § 6.9 du plan.
+```
+
+---
+
 ### CTR-2026-06-023
 
 ```
@@ -1355,4 +1670,18 @@ Resultat   : REF_Logements.statut_parc present, renseigne sur toutes les lignes,
              statut_parc vide, invalide ou inconnu route en A_CONTROLER avec code STATUT_PARC_INVALIDE, sans calcul economique.
 Statut     : OUVERT - EN_ATTENTE_VALIDATION_HUMAINE
 Commentaire: actif = disponibilite technique du code referentiel ; statut_parc = eligibilite au parc gere.
+```
+### CTR-2026-07-03-APP2B-REGLES
+
+```
+Date       : 2026-07-03
+Lot        : APP-2b / Lot4A
+Code       : APP2B_REGLES_PAIEMENT_ACOMPTES_DEROGATIONS
+Severite   : INFO
+Fichiers   : 05_APPLICATION/app, 05_APPLICATION/tests, 02_TRAVAIL/Lot4A, tests Lot4A
+Resultat   : Tests application Miniconda verts (224 passed) ; tests Lot4A cibles Miniconda verts (43 passed, 5 subtests).
+             Migration APP-2b testee uniquement sur copie D-APP-05C.
+             Ecriture reelle HH maintenue desactivee.
+Statut     : OUVERT - EN_ATTENTE_CONTROLES_FINAUX_PRECOMMIT
+Commentaire: Ne pas activer l'ecriture reelle avant migration controlee du classeur source et validation aval Lot4A/lot5/lot10/lot12.
 ```

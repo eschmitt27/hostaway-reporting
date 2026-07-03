@@ -1,0 +1,610 @@
+{% extends "base.html" %}
+{% block title %}Nouvelle réservation HH{% endblock %}
+
+{% block content %}
+<div class="page-header flex justify-between items-center">
+  <div>
+    <h1 class="page-title">Nouvelle réservation hors Hostaway</h1>
+    <p class="page-subtitle">APP-2b — Saisie contrôlée · Garde d'écriture active</p>
+  </div>
+  <span class="badge badge-warning">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+    HH_REAL_WRITE_ENABLED = False
+  </span>
+</div>
+
+{% if erreurs %}
+<div class="alert alert-error" style="margin-bottom: var(--stack-lg);">
+  <strong>{{ erreurs|length }} erreur(s) de validation :</strong>
+  <ul style="margin: var(--stack-sm) 0 0 var(--stack-lg);">
+    {% for e in erreurs %}
+    <li><code>{{ e.code }}</code> — {{ e.message }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<div class="card">
+  <form id="reservation_hh_form" method="post" action="/reservations/nouvelle/verifier">
+
+    <fieldset style="border:none; padding:0; margin:0 0 var(--stack-xl);">
+      <legend class="text-sm text-secondary" style="font-weight:600; margin-bottom:var(--stack-md);">
+        Logement &amp; propriétaire
+      </legend>
+
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="logement_id">Logement <span class="required">*</span></label>
+          <select id="logement_id" name="logement_id" required>
+            <option value="">— Sélectionner —</option>
+            {% for opt in refs.get('options_logements', []) %}
+            <option value="{{ opt.value }}"
+                    {% if form.get('logement_id') == opt.value %}selected{% endif %}>{{ opt.label }}</option>
+            {% endfor %}
+            {% if not refs.get('options_logements') %}
+              {% for v in refs.get('lst_Logements', []) %}
+              <option value="{{ v }}" {% if form.get('logement_id') == v %}selected{% endif %}>{{ v }}</option>
+              {% endfor %}
+            {% endif %}
+          </select>
+          <p id="logement_owner_message" class="form-help text-secondary"></p>
+        </div>
+
+        <div class="form-group">
+          <label for="proprietaire_display">Propriétaire <span class="required">*</span></label>
+          <input type="text" id="proprietaire_display"
+                 value="{{ refs.get('proprietaire_labels', {}).get(form.get('proprietaire_id', ''), form.get('proprietaire_id', '')) }}"
+                 readonly aria-readonly="true"
+                 placeholder="Sélectionner un logement">
+          <input type="hidden" id="proprietaire_id" name="proprietaire_id"
+                 value="{{ form.get('proprietaire_id', '') }}">
+        </div>
+
+        <div class="form-group">
+          <label>Taux de commission applicable</label>
+          <div id="taux_commission_message" class="readonly-info">Selectionner un logement et une date d'arrivee</div>
+          <p id="taux_commission_source" class="form-help text-secondary"></p>
+          <button type="button" id="taux_derogation_toggle" class="btn btn-secondary">
+            Demander une derogation de taux
+          </button>
+          <div id="taux_derogation_info" class="alert alert-warning" hidden>
+            <label for="taux_commission_override">Taux derogatoire (%) <span class="required">*</span></label>
+            <input type="text" id="taux_commission_override" name="taux_commission_override"
+                   value="{{ form.get('taux_commission_override', '') }}" placeholder="ex. 18">
+            <label for="motif_override_taux_commission">Motif derogation taux <span class="required">*</span></label>
+            <input type="text" id="motif_override_taux_commission" name="motif_override_taux_commission"
+                   value="{{ form.get('motif_override_taux_commission', '') }}">
+            <label class="inline-check">
+              <input type="checkbox" id="confirmation_override_taux_commission"
+                     name="confirmation_override_taux_commission" value="on"
+                     {% if form.get('confirmation_override_taux_commission') %}checked{% endif %}>
+              Je confirme remplacer le taux automatique pour cette reservation.
+            </label>
+            <p id="taux_override_resume" class="form-help text-secondary"></p>
+          </div>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset style="border:none; padding:0; margin:0 0 var(--stack-xl);">
+      <legend class="text-sm text-secondary" style="font-weight:600; margin-bottom:var(--stack-md);">
+        Canal &amp; source
+      </legend>
+
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="canal_id">Canal <span class="required">*</span></label>
+          <select id="canal_id" name="canal_id" required>
+            <option value="">— Sélectionner —</option>
+            {% for opt in refs.get('options_canaux', []) %}
+            <option value="{{ opt.value }}" {% if form.get('canal_id') == opt.value %}selected{% endif %}>{{ opt.label }}</option>
+            {% endfor %}
+            {% if not refs.get('options_canaux') %}
+              {% for v in refs.get('lst_Canaux', []) %}
+              <option value="{{ v }}" {% if form.get('canal_id') == v %}selected{% endif %}>{{ v }}</option>
+              {% endfor %}
+            {% endif %}
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="source_financiere">Source financière <span class="required">*</span></label>
+          <select id="source_financiere" name="source_financiere" required>
+            <option value="">— Sélectionner —</option>
+            {% for opt in refs.get('options_sources_financieres', []) %}
+            <option value="{{ opt.value }}" {% if form.get('source_financiere') == opt.value %}selected{% endif %}>{{ opt.label }}</option>
+            {% endfor %}
+            {% if not refs.get('options_sources_financieres') %}
+              {% for v in refs.get('lst_Source_Financiere', []) %}
+              <option value="{{ v }}" {% if form.get('source_financiere') == v %}selected{% endif %}>{{ v }}</option>
+              {% endfor %}
+            {% endif %}
+          </select>
+        </div>
+
+      </div>
+    </fieldset>
+
+    <fieldset style="border:none; padding:0; margin:0 0 var(--stack-xl);">
+      <legend class="text-sm text-secondary" style="font-weight:600; margin-bottom:var(--stack-md);">
+        Séjour
+      </legend>
+
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="date_arrivee">Date d'arrivée <span class="required">*</span></label>
+          <input type="date" id="date_arrivee" name="date_arrivee" required
+                 value="{{ form.get('date_arrivee', '') }}">
+        </div>
+
+        <div class="form-group">
+          <label for="date_depart">Date de départ <span class="required">*</span></label>
+          <input type="date" id="date_depart" name="date_depart" required
+                 value="{{ form.get('date_depart', '') }}">
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset style="border:none; padding:0; margin:0 0 var(--stack-xl);">
+      <legend class="text-sm text-secondary" style="font-weight:600; margin-bottom:var(--stack-md);">
+        Montants
+      </legend>
+
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="total_percu">Total perçu (€) <span class="required">*</span></label>
+          <input type="text" id="total_percu" name="total_percu" required
+                 value="{{ form.get('total_percu', '') }}"
+                 placeholder="ex. 450.00">
+        </div>
+
+        <div class="form-group">
+          <label>Prix menage standard</label>
+          <div id="menage_standard_message" class="readonly-info">Selectionner un logement et une date d'arrivee</div>
+          <p id="menage_standard_source" class="form-help text-secondary"></p>
+          <input type="hidden" id="menage" name="menage" value="{{ form.get('menage', '') }}">
+          <button type="button" id="menage_derogation_toggle" class="btn btn-secondary">
+            Demander une derogation de menage
+          </button>
+          <div id="menage_derogation_info" class="alert alert-warning" hidden>
+            <label for="menage_override">Montant menage derogatoire (EUR) <span class="required">*</span></label>
+            <input type="text" id="menage_override" name="menage_override"
+                   value="{{ form.get('menage_override', '') }}" placeholder="ex. 65.00">
+            <label for="motif_override_menage">Motif derogation menage <span class="required">*</span></label>
+            <input type="text" id="motif_override_menage" name="motif_override_menage"
+                   value="{{ form.get('motif_override_menage', '') }}">
+            <label class="inline-check">
+              <input type="checkbox" id="confirmation_override_menage"
+                     name="confirmation_override_menage" value="on"
+                     {% if form.get('confirmation_override_menage') %}checked{% endif %}>
+              Je confirme remplacer le prix menage standard pour cette reservation.
+            </label>
+            <p id="menage_override_resume" class="form-help text-secondary"></p>
+          </div>
+        </div>
+
+        <div class="form-group conditional-associated">
+          <label for="montant_recupere">Montant recupere par l'associe (EUR) <span id="montant_recupere_required_marker" class="required" hidden>*</span></label>
+          <input type="text" id="montant_recupere" name="montant_recupere"
+                 value="{{ form.get('montant_recupere', '') }}"
+                 placeholder="Laisser vide si nul">
+        </div>
+
+        <div class="form-group conditional-associated">
+          <label for="associe_id_recuperateur">
+            Associé récupérateur <span id="associe_required_marker" class="required" hidden>*</span>
+          </label>
+          <select id="associe_id_recuperateur" name="associe_id_recuperateur">
+            <option value="">— Aucun —</option>
+            {% for opt in refs.get('options_associes', []) %}
+            <option value="{{ opt.value }}" {% if form.get('associe_id_recuperateur') == opt.value %}selected{% endif %}>{{ opt.label }}</option>
+            {% endfor %}
+            {% if not refs.get('options_associes') %}
+              {% for v in refs.get('lst_Associes', []) %}
+              <option value="{{ v }}" {% if form.get('associe_id_recuperateur') == v %}selected{% endif %}>{{ v }}</option>
+              {% endfor %}
+            {% endif %}
+          </select>
+          <p id="associe_help" class="form-help text-secondary">
+            Obligatoire pour Compte perso associee et Carte associee.
+          </p>
+        </div>
+
+        <div class="form-group conditional-cash">
+          <label for="montant_reverse_proprietaire">Montant reversé propriétaire (€)</label>
+          <input type="text" id="montant_reverse_proprietaire" name="montant_reverse_proprietaire"
+                 value="{{ form.get('montant_reverse_proprietaire', '') }}"
+                 placeholder="Laisser vide si non calculé">
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset style="border:none; padding:0; margin:0 0 var(--stack-xl);">
+      <legend class="text-sm text-secondary" style="font-weight:600; margin-bottom:var(--stack-md);">
+        Classification &amp; paiement
+      </legend>
+
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="code_impact">Code impact <span class="required">*</span></label>
+          <select id="code_impact" name="code_impact" required>
+            <option value="">— Sélectionner —</option>
+            {% for opt in refs.get('options_codes_impact', []) %}
+            <option value="{{ opt.value }}" {% if form.get('code_impact') == opt.value %}selected{% endif %}>{{ opt.label }}</option>
+            {% endfor %}
+            {% if not refs.get('options_codes_impact') %}
+              {% for v in refs.get('lst_Codes_Impact', []) %}
+              <option value="{{ v }}" {% if form.get('code_impact') == v %}selected{% endif %}>{{ v }}</option>
+              {% endfor %}
+            {% endif %}
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="comptabilisation_display">Comptabilisation</label>
+          <input type="text" id="comptabilisation_display" readonly aria-readonly="true"
+                 value="{{ form.get('comptabilisation', '') }}" placeholder="Derivee du code impact">
+          <input type="hidden" id="comptabilisation" name="comptabilisation"
+                 value="{{ form.get('comptabilisation', '') }}">
+        </div>
+
+        <div class="form-group">
+          <label for="mode_paiement_id">Mode de paiement</label>
+          <select id="mode_paiement_id" name="mode_paiement_id">
+            <option value="">— Non renseigné —</option>
+            {% for opt in refs.get('options_modes_paiement', []) %}
+            <option value="{{ opt.value }}" {% if form.get('mode_paiement_id') == opt.value %}selected{% endif %}>{{ opt.label }}</option>
+            {% endfor %}
+            {% if not refs.get('options_modes_paiement') %}
+              {% for v in refs.get('lst_ModesPaiement', []) %}
+              <option value="{{ v }}" {% if form.get('mode_paiement_id') == v %}selected{% endif %}>{{ v }}</option>
+              {% endfor %}
+            {% endif %}
+          </select>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset style="border:none; padding:0; margin:0 0 var(--stack-xl);">
+      <legend class="text-sm text-secondary" style="font-weight:600; margin-bottom:var(--stack-md);">
+        Commentaires &amp; anomalies
+      </legend>
+
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="commentaire_taux_commission">Commentaire taux commission</label>
+          <input type="text" id="commentaire_taux_commission" name="commentaire_taux_commission"
+                 value="{{ form.get('commentaire_taux_commission', '') }}"
+                 placeholder="Commentaire libre sur le taux appliqué">
+        </div>
+
+        <div class="form-group">
+          <label for="code_anomalie">Code anomalie</label>
+          <input type="text" id="code_anomalie" name="code_anomalie"
+                 value="{{ form.get('code_anomalie', '') }}"
+                 placeholder="Laisser vide si aucune anomalie connue">
+        </div>
+
+        <div class="form-group" style="grid-column: 1 / -1;">
+          <label for="commentaire">Commentaire général</label>
+          <textarea id="commentaire" name="commentaire" rows="2"
+                    style="width:100%; resize:vertical;">{{ form.get('commentaire', '') }}</textarea>
+        </div>
+      </div>
+    </fieldset>
+
+    <div class="card" style="background: var(--color-bg-subtle); margin-bottom: var(--stack-lg); padding: var(--stack-md);">
+      <p class="text-sm text-secondary">
+        <strong>Champs forcés (non modifiables) :</strong>
+        <code>statut_controle = A_CONTROLER</code> ·
+        <code>niveau_anomalie = A_CONTROLER</code> ·
+        <code>reservation_hh_id</code> = généré automatiquement (RESHH-AAAA-MM-NNN)
+      </p>
+    </div>
+
+    <div class="flex gap-md">
+      <button type="submit" class="btn btn-primary">Vérifier avant validation</button>
+      <a href="/reservations" class="btn btn-secondary">Annuler</a>
+    </div>
+
+  </form>
+</div>
+
+<script>
+(() => {
+  const form = document.getElementById("reservation_hh_form");
+  const logement = document.getElementById("logement_id");
+  const dateArrivee = document.getElementById("date_arrivee");
+  const ownerHidden = document.getElementById("proprietaire_id");
+  const ownerDisplay = document.getElementById("proprietaire_display");
+  const ownerMessage = document.getElementById("logement_owner_message");
+  const tauxMessage = document.getElementById("taux_commission_message");
+  const tauxSource = document.getElementById("taux_commission_source");
+  const tauxDerogationToggle = document.getElementById("taux_derogation_toggle");
+  const tauxDerogationInfo = document.getElementById("taux_derogation_info");
+  const tauxOverride = document.getElementById("taux_commission_override");
+  const tauxOverrideMotif = document.getElementById("motif_override_taux_commission");
+  const tauxOverrideConf = document.getElementById("confirmation_override_taux_commission");
+  const menageHidden = document.getElementById("menage");
+  const menageMessage = document.getElementById("menage_standard_message");
+  const menageSource = document.getElementById("menage_standard_source");
+  const menageDerogationToggle = document.getElementById("menage_derogation_toggle");
+  const menageDerogationInfo = document.getElementById("menage_derogation_info");
+  const menageOverride = document.getElementById("menage_override");
+  const menageOverrideMotif = document.getElementById("motif_override_menage");
+  const menageOverrideConf = document.getElementById("confirmation_override_menage");
+  const modePaiement = document.getElementById("mode_paiement_id");
+  const montantRecupere = document.getElementById("montant_recupere");
+  const associe = document.getElementById("associe_id_recuperateur");
+  const associeMarker = document.getElementById("associe_required_marker");
+  const montantRecupereMarker = document.getElementById("montant_recupere_required_marker");
+  const montantReverse = document.getElementById("montant_reverse_proprietaire");
+  const comptabilisation = document.getElementById("comptabilisation");
+  const comptabilisationDisplay = document.getElementById("comptabilisation_display");
+  const ownerHistory = {{ refs.get('logement_owner_history', {})|tojson }};
+  const tauxHistory = {{ refs.get('taux_commission_history', [])|tojson }};
+  const menageHistory = {{ refs.get('menage_standard_history', [])|tojson }};
+  const logementTypeMap = {{ refs.get('logement_type_map', {})|tojson }};
+  const modeCodeMap = {{ refs.get('mode_code_map', {})|tojson }};
+  const impactComptabilisationMap = {{ refs.get('impact_comptabilisation_map', {})|tojson }};
+
+  function selectedOption(select) {
+    return select && select.options.length ? select.options[select.selectedIndex] : null;
+  }
+
+  function updateOwner() {
+    const opt = selectedOption(logement);
+    if (!opt || !opt.value) {
+      ownerHidden.value = "";
+      ownerDisplay.value = "";
+      ownerMessage.textContent = "";
+      logement.dataset.ownerBlocked = "";
+      updateTauxCommission();
+      updateMenageStandard();
+      return;
+    }
+    if (!dateArrivee.value) {
+      ownerHidden.value = "";
+      ownerDisplay.value = "";
+      ownerMessage.textContent = "Saisir la date d'arrivee pour determiner le proprietaire";
+      logement.dataset.ownerBlocked = "1";
+      updateTauxCommission();
+      updateMenageStandard();
+      return;
+    }
+    const owners = new Map();
+    for (const row of ownerHistory[opt.value] || []) {
+      const debut = row.date_debut || "";
+      const fin = row.date_fin || "";
+      if (debut && debut > dateArrivee.value) {
+        continue;
+      }
+      if (fin && fin !== "None" && fin !== "NULL" && fin < dateArrivee.value) {
+        continue;
+      }
+      if (row.owner_id) {
+        owners.set(row.owner_id, row.owner_label || row.owner_id);
+      }
+    }
+    if (owners.size === 1) {
+      const [ownerId, ownerLabel] = owners.entries().next().value;
+      ownerHidden.value = ownerId;
+      ownerDisplay.value = ownerLabel;
+      ownerMessage.textContent = "";
+      logement.dataset.ownerBlocked = "";
+      updateTauxCommission();
+      updateMenageStandard();
+      return;
+    }
+    ownerHidden.value = "";
+    ownerDisplay.value = "";
+    ownerMessage.textContent = owners.size === 0
+      ? "Aucun proprietaire trouve pour ce logement a cette date"
+      : "Plusieurs proprietaires trouves pour ce logement a cette date";
+    logement.dataset.ownerBlocked = "1";
+    updateTauxCommission();
+    updateMenageStandard();
+  }
+
+  function formatPercent(value) {
+    const raw = Number(String(value || "").replace(",", "."));
+    if (!Number.isFinite(raw)) {
+      return String(value || "");
+    }
+    const pct = raw <= 1 ? raw * 100 : raw;
+    return `${pct.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} %`;
+  }
+
+  function tauxActive(row) {
+    if (!dateArrivee.value) {
+      return false;
+    }
+    if (row.date_debut && row.date_debut > dateArrivee.value) {
+      return false;
+    }
+    if (row.date_fin && row.date_fin < dateArrivee.value) {
+      return false;
+    }
+    return true;
+  }
+
+  function updateTauxCommission() {
+    if (!logement.value || !ownerHidden.value || !dateArrivee.value) {
+      tauxMessage.textContent = "Selectionner un logement et une date d'arrivee";
+      tauxSource.textContent = "";
+      return;
+    }
+    const rows = tauxHistory.filter((row) => row.proprietaire_id === ownerHidden.value && tauxActive(row));
+    const tauxLogement = rows.find((row) => row.logement_id === logement.value);
+    const tauxProprietaire = rows.find((row) => !row.logement_id);
+    const selected = tauxLogement || tauxProprietaire;
+    if (!selected) {
+      tauxMessage.textContent = "Aucun taux applicable trouve";
+      tauxSource.textContent = "Source : REF_Taux_Commission";
+      return;
+    }
+    tauxMessage.textContent = `Taux de commission applicable : ${formatPercent(selected.taux_commission)}`;
+    tauxSource.textContent = `Source : ${tauxLogement ? "taux logement" : "taux proprietaire"}`;
+  }
+
+  function updateMenageStandard() {
+    if (!logement.value || !dateArrivee.value) {
+      menageHidden.value = "";
+      menageMessage.textContent = "Selectionner un logement et une date d'arrivee";
+      menageSource.textContent = "";
+      return;
+    }
+    const typeLogement = logementTypeMap[logement.value] || "";
+    const selected = menageHistory.find((row) => {
+      if (row.type_logement_id !== typeLogement) {
+        return false;
+      }
+      if (row.date_debut && row.date_debut > dateArrivee.value) {
+        return false;
+      }
+      if (row.date_fin && row.date_fin < dateArrivee.value) {
+        return false;
+      }
+      return true;
+    });
+    if (!selected) {
+      menageHidden.value = "";
+      menageMessage.textContent = "Aucun prix menage standard trouve";
+      menageSource.textContent = "Source : REF_Couts_Standards_Menage";
+      return;
+    }
+    menageHidden.value = selected.cout_standard_menage;
+    menageMessage.textContent = `Prix menage standard : ${selected.cout_standard_menage} EUR`;
+    menageSource.textContent = "Source : REF_Couts_Standards_Menage";
+  }
+
+  function setRequiredWhenVisible(container, fields, visible) {
+    container.hidden = !visible;
+    for (const field of fields) {
+      field.required = visible;
+      if (!visible) {
+        field.value = "";
+      }
+    }
+  }
+
+  function updateDerogations() {
+    const tauxVisible = !tauxDerogationInfo.hidden;
+    tauxOverride.required = tauxVisible;
+    tauxOverrideMotif.required = tauxVisible;
+    tauxOverrideConf.required = tauxVisible;
+    if (!tauxVisible) {
+      tauxOverride.value = "";
+      tauxOverrideMotif.value = "";
+      tauxOverrideConf.checked = false;
+    }
+
+    const menageVisible = !menageDerogationInfo.hidden;
+    menageOverride.required = menageVisible;
+    menageOverrideMotif.required = menageVisible;
+    menageOverrideConf.required = menageVisible;
+    if (!menageVisible) {
+      menageOverride.value = "";
+      menageOverrideMotif.value = "";
+      menageOverrideConf.checked = false;
+    }
+  }
+
+  function updatePaymentFields() {
+    const modeCode = modeCodeMap[modePaiement.value] || modePaiement.value;
+    const associeMode = modeCode === "COMPTE_PERSO_ASSOCIEE" || modeCode === "CARTE_ASSOCIEE";
+    const especesMode = modeCode === "ESPECES_CAISSE" || modeCode === "ESPECES";
+    for (const container of document.querySelectorAll(".conditional-associated")) {
+      container.hidden = !associeMode;
+    }
+    montantRecupere.required = associeMode;
+    associe.required = associeMode;
+    montantRecupereMarker.hidden = !associeMode;
+    associeMarker.hidden = !associeMode;
+    if (!associeMode) {
+      montantRecupere.value = "";
+      associe.value = "";
+    }
+    for (const container of document.querySelectorAll(".conditional-cash")) {
+      container.hidden = !especesMode;
+    }
+    montantReverse.required = false;
+    if (!especesMode) {
+      montantReverse.value = "";
+    }
+  }
+
+  function updateComptabilisation() {
+    const codeImpact = document.getElementById("code_impact").value;
+    const value = impactComptabilisationMap[codeImpact] || "";
+    comptabilisation.value = value;
+    comptabilisationDisplay.value = value;
+  }
+
+  function parseAmount(value) {
+    const normalized = String(value || "").replace(",", ".").replace(/\s/g, "");
+    const amount = Number(normalized);
+    return Number.isFinite(amount) ? amount : 0;
+  }
+
+  logement.addEventListener("change", updateOwner);
+  dateArrivee.addEventListener("change", updateOwner);
+  tauxDerogationToggle.addEventListener("click", () => {
+    tauxDerogationInfo.hidden = !tauxDerogationInfo.hidden;
+    updateDerogations();
+  });
+  menageDerogationToggle.addEventListener("click", () => {
+    menageDerogationInfo.hidden = !menageDerogationInfo.hidden;
+    updateDerogations();
+  });
+  modePaiement.addEventListener("change", updatePaymentFields);
+  document.getElementById("code_impact").addEventListener("change", updateComptabilisation);
+  form.addEventListener("submit", (event) => {
+    updateOwner();
+    updateMenageStandard();
+    updatePaymentFields();
+    updateComptabilisation();
+    updateDerogations();
+    if (logement.dataset.ownerBlocked === "1") {
+      event.preventDefault();
+      ownerMessage.focus();
+      return;
+    }
+    if (!form.checkValidity()) {
+      event.preventDefault();
+      form.reportValidity();
+    }
+  });
+
+  updateOwner();
+  updateMenageStandard();
+  updatePaymentFields();
+  updateComptabilisation();
+  updateDerogations();
+})();
+</script>
+
+<style>
+.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--stack-md); }
+.form-group { display: flex; flex-direction: column; gap: 4px; }
+.form-group label { font-size: 0.85rem; font-weight: 500; }
+.form-group input, .form-group select, .form-group textarea {
+  padding: 6px 10px; border: 1px solid var(--color-border); border-radius: 4px;
+  font-size: 0.9rem; background: var(--color-bg);
+}
+.form-help { min-height: 1rem; margin: 0; }
+#proprietaire_display[readonly], #comptabilisation_display[readonly] { background: var(--color-bg-subtle); }
+.inline-check { display: flex; gap: 8px; align-items: center; }
+.alert label { margin-top: 6px; }
+.readonly-info {
+  padding: 6px 10px; border: 1px solid var(--color-border); border-radius: 4px;
+  font-size: 0.9rem; background: var(--color-bg-subtle); min-height: 32px;
+}
+.required { color: var(--color-error); }
+.text-xs { font-size: 0.75rem; }
+.flex { display: flex; }
+.flex.gap-md { gap: var(--stack-md); }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+</style>
+{% endblock %}

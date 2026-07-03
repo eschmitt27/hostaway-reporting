@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title %}Prévisualisation — Nouvelle réservation HH{% endblock %}
+
+{% block content %}
+<div class="page-header flex justify-between items-center">
+  <div>
+    <h1 class="page-title">Prévisualisation — Nouvelle réservation HH</h1>
+    <p class="page-subtitle">Vérifiez chaque champ avant confirmation</p>
+  </div>
+  <span class="badge badge-warning">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+    HH_REAL_WRITE_ENABLED = False
+  </span>
+</div>
+
+{% if resultat_ecriture %}
+  {% set statut = resultat_ecriture.statut %}
+  {% if statut == 'GARDE_SECURITE' %}
+  <div class="alert alert-warning" style="margin-bottom: var(--stack-lg);" data-statut="GARDE_SECURITE">
+    <strong>Écriture désactivée (mode développement)</strong><br>
+    La réservation a été validée mais <strong>aucune écriture</strong> n'a été effectuée dans SAISIE.<br>
+    {{ resultat_ecriture.details }}
+  </div>
+  {% elif statut == 'OK' %}
+  <div class="alert alert-success" style="margin-bottom: var(--stack-lg);">
+    <strong>Enregistrée :</strong> <code>{{ resultat_ecriture.pk }}</code>
+    · ligne {{ resultat_ecriture.ligne_cible }} · sha256 avant {{ (resultat_ecriture.sha256_avant or '')[:12] }}…
+  </div>
+  {% elif statut == 'ERREUR' %}
+  <div class="alert alert-error" style="margin-bottom: var(--stack-lg);">
+    <strong>Erreur d'écriture :</strong> {{ resultat_ecriture.details }}
+  </div>
+  {% endif %}
+{% endif %}
+
+<div class="card" style="margin-bottom: var(--stack-lg);">
+  <h2 class="text-sm text-secondary" style="font-weight:600; margin-bottom: var(--stack-md);">
+    Fiche de la réservation à créer
+  </h2>
+
+  <table class="verif-table">
+    <tbody>
+      <tr class="verif-section"><td colspan="2">Identifiants</td></tr>
+      <tr>
+        <td>reservation_hh_id <span class="badge badge-neutral text-xs">généré</span></td>
+        <td><strong>{{ pk or "—" }}</strong></td>
+      </tr>
+      <tr>
+        <td>mois <span class="badge badge-neutral text-xs">calculé</span></td>
+        <td>{{ preview.mois or "—" }}</td>
+      </tr>
+      <tr>
+        <td>canal_id</td>
+        <td>{{ preview.canal_id or "—" }}</td>
+      </tr>
+      <tr>
+        <td>source_financiere</td>
+        <td>{{ preview.source_financiere or "—" }}</td>
+      </tr>
+      <tr>
+        <td>reservation_id_hostaway</td>
+        <td>{{ preview.reservation_id_hostaway if preview.reservation_id_hostaway is not none else "—" }}</td>
+      </tr>
+
+      <tr class="verif-section"><td colspan="2">Logement &amp; propriétaire</td></tr>
+      <tr>
+        <td>proprietaire_id</td>
+        <td>{{ preview.proprietaire_id or "—" }}</td>
+      </tr>
+      <tr>
+        <td>logement_id</td>
+        <td>{{ preview.logement_id or "—" }}</td>
+      </tr>
+
+      <tr class="verif-section"><td colspan="2">Séjour</td></tr>
+      <tr>
+        <td>date_arrivee</td>
+        <td>{{ preview.date_arrivee or "—" }}</td>
+      </tr>
+      <tr>
+        <td>date_depart</td>
+        <td>{{ preview.date_depart or "—" }}</td>
+      </tr>
+
+      <tr class="verif-section"><td colspan="2">Montants</td></tr>
+      <tr>
+        <td>total_percu</td>
+        <td><strong>{{ preview.total_percu | eur }}</strong></td>
+      </tr>
+      <tr>
+        <td>menage</td>
+        <td>{{ preview.menage | eur }}</td>
+      </tr>
+      <tr>
+        <td>montant_recupere</td>
+        <td>{{ preview.montant_recupere | eur }}</td>
+      </tr>
+      <tr>
+        <td>associe_id_recuperateur</td>
+        <td>{{ preview.associe_id_recuperateur or "—" }}</td>
+      </tr>
+      <tr>
+        <td>montant_reverse_proprietaire</td>
+        <td>{{ preview.montant_reverse_proprietaire | eur }}</td>
+      </tr>
+
+      <tr class="verif-section"><td colspan="2">Classification &amp; paiement</td></tr>
+      <tr>
+        <td>code_impact</td>
+        <td>{{ preview.code_impact or "—" }}</td>
+      </tr>
+      <tr>
+        <td>comptabilisation</td>
+        <td>{{ preview.comptabilisation or "—" }}</td>
+      </tr>
+      <tr>
+        <td>mode_paiement_id</td>
+        <td>{{ preview.mode_paiement_id or "—" }}</td>
+      </tr>
+
+      <tr class="verif-section"><td colspan="2">Contrôle (champs forcés)</td></tr>
+      <tr>
+        <td>statut_controle <span class="badge badge-neutral text-xs">forcé</span></td>
+        <td><span class="badge badge-warning">{{ preview.statut_controle }}</span></td>
+      </tr>
+      <tr>
+        <td>niveau_anomalie <span class="badge badge-neutral text-xs">forcé</span></td>
+        <td><span class="badge badge-warning">{{ preview.niveau_anomalie }}</span></td>
+      </tr>
+
+      <tr class="verif-section"><td colspan="2">Commentaires</td></tr>
+      <tr>
+        <td>commentaire_taux_commission</td>
+        <td>{{ preview.commentaire_taux_commission or "—" }}</td>
+      </tr>
+      <tr>
+        <td>code_anomalie</td>
+        <td>{{ preview.code_anomalie or "—" }}</td>
+      </tr>
+      <tr>
+        <td>commentaire</td>
+        <td>{{ preview.commentaire or "—" }}</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+{% if not resultat_ecriture %}
+<div class="card" style="background: var(--color-bg-subtle); margin-bottom: var(--stack-lg); padding: var(--stack-md);">
+  <p class="text-sm text-secondary">
+    <strong>Attention :</strong> La garde d'écriture <code>HH_REAL_WRITE_ENABLED = False</code> est active.
+    La confirmation enregistrera l'événement dans le journal SQLite mais n'écrira <strong>pas</strong>
+    dans <code>SAISIE_ReservationsHorsHostaway.xlsx</code>.
+  </p>
+</div>
+
+<form method="post" action="/reservations/nouvelle/confirmer">
+  {% for key, value in form_data.items() %}
+  <input type="hidden" name="{{ key }}" value="{{ value }}">
+  {% endfor %}
+  <div class="flex gap-md">
+    <button type="submit" class="btn btn-primary">Confirmer (mode dev — aucune écriture réelle)</button>
+    <a href="/reservations/nouvelle" class="btn btn-secondary">Modifier</a>
+    <a href="/reservations" class="btn btn-secondary">Annuler</a>
+  </div>
+</form>
+{% else %}
+<div class="flex gap-md">
+  <a href="/reservations/nouvelle" class="btn btn-primary">Nouvelle saisie</a>
+  <a href="/reservations" class="btn btn-secondary">Retour à la liste</a>
+</div>
+{% endif %}
+
+<style>
+.verif-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.verif-table td { padding: 6px 12px; border-bottom: 1px solid var(--color-border); vertical-align: top; }
+.verif-table td:first-child { width: 35%; color: var(--color-text-secondary); font-size: 0.82rem; }
+.verif-section td { background: var(--color-bg-subtle); font-weight: 600; font-size: 0.8rem;
+  text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-secondary); padding: 8px 12px; }
+.text-xs { font-size: 0.72rem; }
+.flex { display: flex; }
+.flex.gap-md { gap: var(--stack-md); }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+</style>
+{% endblock %}

@@ -17,9 +17,9 @@ def get_db(db_path: Path = DB_PATH) -> sqlite3.Connection:
 def apply_migrations(db_path: Path = DB_PATH) -> None:
     conn = get_db(db_path)
     try:
-        migration_file = MIGRATIONS_DIR / "0001_init.sql"
-        sql = migration_file.read_text(encoding="utf-8")
-        conn.executescript(sql)
+        for migration_file in sorted(MIGRATIONS_DIR.glob("*.sql")):
+            sql = migration_file.read_text(encoding="utf-8")
+            conn.executescript(sql)
         conn.commit()
     finally:
         conn.close()

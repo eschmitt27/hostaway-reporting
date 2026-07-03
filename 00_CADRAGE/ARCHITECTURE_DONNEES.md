@@ -1535,3 +1535,24 @@ Je m'appuierais sur **une table de flux unifiée comme colonne vertébrale**, to
 - `statut_parc` vide, invalide ou inconnu : traitement `A_CONTROLER`, code anomalie `STATUT_PARC_INVALIDE`, sans calcul economique.
 
 Cette distinction est volontairement separee de `actif` : `actif` ne vaut pas eligibilite au parc gere.
+### Note APP-2b - Extension contrôlée saisie HH (2026-07-03)
+
+La saisie APP-2b `SAISIE_ReservationsHorsHostaway.xlsx` conserve temporairement les 30 colonnes historiques pour compatibilité, mais le schéma cible testé sur copie ajoute en fin de ligne :
+
+| Champ cible | Rôle |
+|---|---|
+| `taux_commission_override` | Taux dérogatoire demandé, en pourcentage utilisateur |
+| `motif_override_taux_commission` | Motif obligatoire de dérogation taux |
+| `confirmation_override_taux_commission` | Confirmation explicite de dérogation taux |
+| `menage_override` | Montant ménage dérogatoire demandé |
+| `motif_override_menage` | Motif obligatoire de dérogation ménage |
+| `confirmation_override_menage` | Confirmation explicite de dérogation ménage |
+| `source_acompte_facture` | Source de calcul de l'acompte propriétaire |
+
+Règles associées :
+- `reservation_id_hostaway` n'est plus utilisé par APP-2b ; il reste physiquement possible dans le classeur uniquement pour compatibilité temporaire.
+- `source_financiere` par défaut = `SAISIE_MANUELLE`.
+- `comptabilisation` est dérivée de `REF_Codes_Impact.impact_resultat_comptable`.
+- `Direct propriétaire` est préparé sous `PAY_006` / `DIRECT_PROPRIETAIRE` dans la migration de copie de `REF_Modes_Paiement`.
+- Lot4A publie les nouveaux champs de traçabilité à droite des 34 colonnes MASTER historiques.
+- L'acompte propriétaire est calculé par mode de paiement : banque pro = `total_percu`, compte perso associée/carte associée = `montant_recupere`, espèces = `montant_reverse_proprietaire`, direct propriétaire = `0`.

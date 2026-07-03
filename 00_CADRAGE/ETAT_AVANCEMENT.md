@@ -11,11 +11,58 @@
 > **Règle de tenue permanente** : après chaque lot app réellement démarré / modifié / testé / validé / bloqué / terminé, ajouter une entrée datée avec : statut, lot concerné, fichiers touchés, tests réalisés, résultat, anomalies/risques, décisions attendues, prochaine action. Ne jamais marquer un lot **FAIT** sans les contrôles, tests et preuves prévus par le cadrage. Édition ciblée, historique conservé.
 
 ### Statut global app
-**APP-2a VALIDÉ — D-APP-05A/B/C/D VALIDÉES — APP-2b CADRAGE FONCTIONNEL VERROUILLÉ (D1–D11), IMPLÉMENTATION NON DÉMARRÉE.**
-Application : 103/103 tests verts. Lot4A : 42/42 tests verts.
+**APP-2a VALIDÉ — D-APP-05A/B/C/D VALIDÉES — APP-2b IMPLÉMENTÉE + AUDITÉE + CORRECTIFS APPLIQUÉS — VALIDATION HUMAINE RÉELLE REQUISE AVANT ACTIVATION HH_REAL_WRITE_ENABLED.**
+Application : 181/181 tests verts. Lot4A : 42/42 tests verts.
 Suite moteur exhaustive : non exécutable intégralement dans l'environnement local (88 tests verts ; 1 module non chargeable faute de `requests`/`python-dotenv` — anomalie antérieure à Lot4A, hors périmètre Lot4A).
 
 ### Journal app
+
+#### 2026-07-03 — APP-2b — Saisie HH contrôlée — IMPLÉMENTÉE + AUDITÉE + CORRECTIFS APPLIQUÉS — VALIDATION HUMAINE REQUISE
+- **Statut** : IMPLÉMENTÉE TECHNIQUEMENT avec 9 correctifs post-audit appliqués. `HH_REAL_WRITE_ENABLED = False` — aucune écriture réelle possible jusqu'à validation humaine et activation explicite.
+- **Portée** : formulaire de saisie guidée + validation D1–D11 + écriture atomique + garde + rollback. Aucun Excel réel modifié. `SAISIE_ReservationsHorsHostaway.xlsx` sha256 = `c3c00e73017212e08bb3f9e9aef73a26bd3c828804e4fa21f7f2b37713d54c5c` INCHANGÉ.
+- **Routes créées** :
+  - `GET /reservations/nouvelle` — formulaire (listes REF_LOCALE)
+  - `POST /reservations/nouvelle/verifier` — validation D1–D11 + prévisualisation PK
+  - `POST /reservations/nouvelle/confirmer` — écriture atomique (bloquée par garde)
+- **Architecture writer/orchestrateur (séparation stricte)** :
+  - `saisie_hh_writer.py` — opérations fichier pures, aucun SQLite. ~$ + verrou + préflight formules + structure + delta + remplacement atomique. 14 étapes.
+  - `saisie_hh_orchestrator.py` — guard + snapshot + SQLite + rollback. Aucun openpyxl/save().
+  - Séparation vérifiée par `test_no_bidirectional_sync` (détection import DB réel, pas mention textuelle).
+- **Fichiers créés (12)** :
+  1. `app/db/migrations/0002_saisie_hh.sql` — table `saisie_hh_writes` (journal applicatif)
+  2. `app/readers/saisie_hh_reader.py` — lecture REF_LOCALE, PKs existants, génération RESHH-AAAA-MM-NNN
+  3. `app/readers/ref_setup_hh_reader.py` — REF_Setup pour APP-2b (cloture, gestion hist, associes, logements, proprietaires)
+  4. `app/services/saisie_hh_service.py` — validation D1–D11 + Decimal + fail-closed REF_Setup
+  5. `app/services/saisie_hh_orchestrator.py` — guard + snapshot + SQLite + rollback atomique
+  6. `app/writers/saisie_hh_writer.py` — écriture atomique pure (14 étapes), aucun SQLite
+  7. `app/templates/reservation_nouvelle_form.html`
+  8. `app/templates/reservation_nouvelle_verif.html`
+  9. `tests/test_saisie_hh_validation.py` — D1–D11 + Decimal + fail-closed + D9 divergence
+  10. `tests/test_saisie_hh_writer.py` — ~$, verrou, préflight, structure, delta, fullCalcOnLoad
+  11. `tests/test_saisie_hh_orchestrator.py` — guard, SQLite, rollback
+  12. `tests/test_saisie_hh_routes.py` — routes GET/POST
+- **Fichiers modifiés (6)** :
+  1. `app/config.py` — `HH_REAL_WRITE_ENABLED = False` ; `_REF_CLOTURE_OBSOLETE = None` (neutralise chemin autonome)
+  2. `app/db/connection.py` — `apply_migrations` applique tous les *.sql en ordre
+  3. `app/readers/ref_setup_reader.py` — import Path + note module séparé APP-2b
+  4. `app/routes/reservations.py` — 3 nouvelles routes ; import `saisie_hh_orchestrator` (remplace writer direct)
+  5. `tests/test_no_metier_calc.py` — détection sync bidirectionnel par import DB réel (pas mention textuelle)
+  6. `tests/test_sqlite_migrations.py` — `saisie_hh_writes` dans EXPECTED_TABLES
+- **Invariants APP-1 préservés** : `test_code_ne_lit_jamais_proprietaires_ni_gestion` toujours vert.
+- **Correctifs post-audit (9)** :
+  - C1 : `REF_CLOTURE` path autonome neutralisé → `_REF_CLOTURE_OBSOLETE = None`
+  - C2 : writer = pur fichier (0 sqlite) ; orchestrateur = pur SQLite/guard/rollback (0 openpyxl save)
+  - C3 : ~$ détection + verrou O_CREAT|O_EXCL avant toute écriture
+  - C4 : préflight formules (figée → ERREUR), volume check
+  - C5 : préservation structurelle (sheets/DV/MFC/named_ranges/fullCalcOnLoad) avant os.replace
+  - C6 : rollback automatique sur échec journalisation post-write
+  - C7 : Decimal (pas float) pour montants ; rejet >2 décimales ; fail-closed REF_Setup D7/D8/D9/D10
+  - C8 : guard à l'entrée de l'orchestrateur (fail-closed HH_REAL_WRITE_ENABLED)
+  - C9 : test_no_bidirectional_sync affiné + tests writer/orchestrateur/validation ajoutés
+- **Tests** : `pytest tests/ -q` → **181/181 PASSED**. Toutes suites précédentes vertes.
+- **Garde d'écriture** : `HH_REAL_WRITE_ENABLED = False` dans orchestrateur. Toute activation nécessite modification manuelle explicite de `config.py` + validation humaine.
+- **Prochaine action** : validation humaine de l'interface, activation volontaire de `HH_REAL_WRITE_ENABLED = True`, puis première saisie de validation.
+- **Entrées JOURNAL_CONTROLES** : CTR-DAPP2B-IMPL-2026-07-03 ; CTR-DAPP2B-AUDIT-2026-07-03.
 
 #### 2026-07-03 — D-APP-2B-CADRAGE — Décisions fonctionnelles verrouillées (D1 à D11) — VALIDÉ
 - **Statut** : CADRAGE FONCTIONNEL VERROUILLÉ. Implémentation APP-2b NON démarrée.
@@ -42,6 +89,35 @@ Suite moteur exhaustive : non exécutable intégralement dans l'environnement lo
 - **APP-2b** : DÉBLOQUÉE TECHNIQUEMENT. `saisie_writer.py` reste stub (`NotImplementedError`). Aucune route d'écriture créée. Démarrage APP-2b uniquement sur feu vert humain explicite.
 - **Entrée JOURNAL_CONTROLES** : CTR-DAPP05BCD-2026-07-02.
 
+#### 2026-07-02 — LOT4A — Comparateur + Dry-run — D-APP-05A TERMINÉ TECHNIQUEMENT
+- **Statut** : TERMINÉ EN DRY-RUN — 42/42 tests LOT4A verts (22 comparateur + 20 transformateur). Sources réelles inchangées.
+- **Contexte** : réponse à la découverte preflight (aucun Power Query réel). LOT4A est un moteur Python déterministe SAISIE → MASTER de test, remplacement du mécanisme PQ inexistant.
+- **Fichiers créés (3)** :
+  1. `02_TRAVAIL/lib_lot4a_reservations_hh.py` — bibliothèque pure partagée (règles uniques : schéma 34 col, lecture SAISIE/MASTER/REF, `round2` numpy, `recompute`, résolution taux, validation métier, `build_master`, VUE_ACTIVE, gardes de chemin, empreintes).
+  2. `02_TRAVAIL/lot4a_transform_reservations_hh.py` — transformateur mode unique `--dry-run --as-of ISO-8601 UTC`.
+  3. `tests/test_lot4a_transform_reservations_hh.py` (20 tests).
+- **Fichier modifié (1)** :
+  - `02_TRAVAIL/lot4a_compare_reservations_hh.py` — refactorisé pour utiliser la bibliothèque commune ; comportement inchangé.
+- **Fichier déjà existant, inchangé** :
+  - `tests/test_lot4a_compare_reservations_hh.py` (22 tests — déjà vert avant Lot4A).
+- **Run dry-run réel** (commande : `py -3 lot4a_transform_reservations_hh.py --dry-run --as-of 2026-07-02T00:00:00Z`) :
+  - Statut : `ANALYSE_TERMINEE`, `master_test_genere = true`.
+  - MASTER de test : 2 feuilles MASTER + VUE_ACTIVE, 34 colonnes, aucun POWER_QUERY_CODE.
+  - Oracle RESHH-2026-05-001 : `taux=0.15`, `commission=343.27`, `acompte_facture=1945.21` (arrondi numpy, jamais builtin).
+  - Écrit uniquement sous `04_LOGS/LOT4A_DRY_RUN/20260702T085200Z/`.
+- **Invariance sources réelles** :
+  - SAISIE  sha256 `e4591912a6b0f1ca`… taille 75924 mtime_ns 1782676150164898800 INCHANGÉ
+  - MASTER  sha256 `c0e4434c347987d2`… taille 10829 mtime_ns 1781524006555932300 INCHANGÉ
+  - REF_Setup sha256 `f45f4feadcbebd04`… taille 86345 mtime_ns 1782721518446925000 INCHANGÉ
+- **Gardes permanents** : chemins `01_SOURCES_BRUTES`, `02_TRAVAIL`, `03_EXPORTS`, `05_APPLICATION` refusés (RuntimeError). Écriture atomique temp → validate → `os.replace`. AST : aucun `subprocess`, `win32com`, `saisie_writer`, ni argument `--write-master`. Aucun `--write-master` dans le CLI.
+- **Statuts LOT4A** : 5 statuts validés — `ANALYSE_TERMINEE`, `ANALYSE_TERMINEE_AVEC_ECARTS_HISTORIQUES`, `ANALYSE_BLOQUEE_TAUX`, `ANALYSE_BLOQUEE_DONNEES` (5e statut, validé explicitement le 2026-07-02), `ERREUR_TECHNIQUE`. Voir D-LOT4A-01.
+- **Compatibilité aval** : lot4bis lit onglet MASTER par nom ✓ ; lot5 lit `acompte_facture` ✓ ; `date_integration` ISO UTC texte non consommée par lot4bis/lot5/lot9 ✓ ; aucun consommateur n'exige POWER_QUERY_CODE ✓.
+- **Données réelles** : Aucune modification sous `01_SOURCES_BRUTES/` ni `03_EXPORTS/`. Les seules modifications sous `02_TRAVAIL/` sont les ajouts et le refactor Lot4A explicitement documentés ci-dessus.
+- **Entrée JOURNAL_CONTROLES** : CTR-LOT4A-2026-07-02.
+- **D-APP-05A** : TERMINÉ TECHNIQUEMENT EN DRY-RUN. Aucun `--write-master` créé ni autorisé. MASTER réel jamais touché.
+- **D-APP-05B** : NON DÉMARRÉ. Preuve d'écriture dans une copie isolée de SAISIE (preservation formules/DV/plages/MFC) — prérequis restant avant APP-2b.
+- **APP-2b** : TOUJOURS BLOQUÉE. Requiert D-APP-05B validé + validation humaine finale LOT4A avant toute écriture.
+- **Prochaine action** : D-APP-05B (preuve copie isolée SAISIE), sur feu vert humain.
 
 #### 2026-07-02 — D-APP-05 — Protocole de preuve technique — BLOCAGE AU PRÉFLIGHT
 - **Statut** : BLOQUÉ au préflight (étape 1). **Aucune ligne de test écrite. Aucune copie créée. Aucun fichier réel modifié.**
@@ -63,12 +139,178 @@ Suite moteur exhaustive : non exécutable intégralement dans l'environnement lo
 - **Entrée JOURNAL_CONTROLES** : CTR-DAPP05-PREFLIGHT-2026-07-02.
 - **D-APP-05** : reste OUVERTE. **Non validée.** APP-2b bloquée.
 
+#### 2026-07-01 — Lot APP-2a — Réservations hors Hostaway (lecture seule) — TERMINÉ
+- **Statut** : TERMINÉ — 96/96 tests pytest verts (18 nouveaux tests réservations + 3 nav).
+- **Lot concerné** : APP-2a — consultation lecture seule des réservations hors Hostaway. **APP-2b (écriture) reste bloquée.**
+- **Source de lecture (unique)** : `02_TRAVAIL/Lot4_ReservationsHH/MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx`, onglet **MASTER** (sortie générée par Power Query, consommée telle quelle par lot4bis). Ligne-placeholder Power Query filtrée (garde `reservation_hh_id` commençant par `RESHH-`). VUE_ACTIVE écartée (cache PQ vide).
+- **SAISIE non lue** : `SAISIE_ReservationsHorsHostaway.xlsx` seulement nommée pour l'origine, jamais lue pour construire la liste.
+- **Arbitrages appliqués** :
+  - Aucune route POST/PUT/PATCH/DELETE ; `GET /reservations` + `GET /reservations/{reservation_hh_id}` uniquement (POST → 405 vérifié).
+  - Aucun formulaire, brouillon, modification, annulation, génération de PK, appel `saisie_writer`, snapshot déclenché par l'UI, exécution PQ/pipeline.
+  - Montants dérivés (taux, commission, acompte, impacts) **affichés tels quels, signalés « issus du moteur »**, jamais recalculés (badge `moteur` + note explicite).
+  - Filtres réels : mois, logement, propriétaire, canal, source financière, statut contrôle, code impact, comptabilisation. Recherche texte. États vide / EMPTY (cache PQ vide) / erreur source absente / réservation inconnue (404 propre).
+  - Bloc fraîcheur : fichier source + dernière modification MASTER + « Actualisation Power Query manuelle requise après toute future saisie ».
+  - Aucune donnée personnelle : la structure ne contient aucun nom/email voyageur.
+- **Fichiers créés (5)** :
+  1. `app/readers/reservations_hh_reader.py` (lecture read-only MASTER, filtre placeholder PQ)
+  2. `app/services/reservations_hh_service.py` (liste/détail, états d'erreur, zéro calcul)
+  3. `app/routes/reservations.py` (2 routes GET)
+  4. `app/templates/reservations_list.html`
+  5. `app/templates/reservations_detail.html`
+  6. `tests/test_reservations_hh.py` (18 tests)
+  > Rectif décompte : **6 fichiers créés** (les 5 ci-dessus + le fichier de tests).
+- **Fichiers modifiés (4)** :
+  1. `app/config.py` (constantes `MASTER_RESERVATIONS_HH`, `SAISIE_RESERVATIONS_HH`)
+  2. `app/main.py` (router reservations)
+  3. `app/templates/base.html` (menu Réservations cliquable)
+  4. `app/routes/home.py` (module Réservations → disponible)
+  5. `tests/test_navigation_no_404.py` (/reservations live)
+  > Rectif décompte : **5 fichiers modifiés**. `home.html` non modifié (bascule via `home.py`).
+- **Tests** : `pytest tests/ -q` → **96/96 PASSED** (9.89 s). Aucun skip (données réelles présentes : 1 réservation RESHH-2026-05-001).
+- **Lancement réel** : `/reservations` 200 · détail `RESHH-2026-05-001` 200 · inconnu 404 propre · `POST /reservations` 405 · `/fournisseurs` 404 (à venir). Liste = 1 réservation, note fraîcheur affichée.
+- **Données réelles** : `git status 01_SOURCES_BRUTES/ 02_TRAVAIL/ 03_EXPORTS/` → vide. Empreinte MASTER et SAISIE inchangée après consultation (contrôlé en test).
+- **Entrée JOURNAL_CONTROLES** : CTR-APP2a-2026-07-01.
+- **D-APP-05** : **TOUJOURS OUVERTE**. Protocole de preuve APP-2b sur copie isolée préparé (voir journal contrôles), non exécuté.
+- **Prochaine action** : validation humaine APP-2a puis, séparément, exécution du protocole de preuve D-APP-05 avant tout déblocage APP-2b. Aucun module APP-2b/APP-3+ démarré.
+
+#### 2026-07-01 — Lot APP-1 — Module Logements (lecture seule) — TERMINÉ
+- **Statut** : TERMINÉ — 76/76 tests pytest verts (dont 21 tests logements + 3 nav mis à jour).
+- **Lot concerné** : APP-1 — premier module métier `Logements`, strictement lecture seule.
+- **Arbitrages appliqués (feu vert humain)** :
+  - **Source liste = unique** : `03_EXPORTS/PowerBI/PBI_Referentiel_Logements.csv` (propriétaire + dates déjà résolus par le moteur). Aucune reconstruction par jointure `REF_Logements × REF_Gestion_Logements_Hist × REF_Proprietaires`. Aucun fallback Excel si absent/vide/illisible → état d'erreur clair.
+  - **Enrichissement fiche** : `REF_Setup.xlsm` en lecture seule, par clé directe `logement_id` (+ `proprietaire_id` pour le seul historique commission, `type_logement_id` pour décodage type/coût standard). Jamais `REF_Gestion` ni `REF_Proprietaires`.
+  - **Commission (D-APP-04 validée)** : bloc `Historique des taux de commission` — lignes brutes (taux, date début, date fin, actif brut, origine). Aucun « taux actuel », aucune sélection, aucune comparaison de dates, `date_fin` vide → `Date de fin non renseignée`.
+  - **Lignes techniques** (`APPARTEMENT_DIVERS`, `LOGEMENT_DIVERS`) : exclues par défaut, jamais masquées ; toggle `Inclure les lignes techniques (2)` ; badge `HORS_PARC_TECHNIQUE` ; non comptées dans le parc (17 logements réels).
+  - **Affichage** : liste = ville (pas adresse), propriétaire résolu, type, statut, Hostaway, forfait ; pas de `hostaway_listing_id` ni contact propriétaire en liste. Fiche = adresse autorisée, `hostaway_listing_id` dans bloc `Informations techniques`, canaux limités à `Présent dans Hostaway : Oui/Non`, contact propriétaire interdit, absent = `Non renseigné`.
+  - **Traçabilité** : bloc `Origine des données` par fiche (source liste, référentiel, date/heure lecture, identifiant d'enrichissement, message si enrichissement absent).
+- **Correction APP-0 intégrée** : `config.py` — chemin réel `01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm` (sous-dossier). `/health` remonte désormais `ref_setup exists: true`, status OK.
+- **Fichiers créés (6)** :
+  1. `app/readers/ref_setup_reader.py` (lecteur read-only, clés directes, jamais gestion/propriétaires)
+  2. `app/services/logements_service.py` (assemblage, états d'erreur, zéro calcul)
+  3. `app/routes/logements.py` (GET /logements, GET /logements/{logement_id})
+  4. `app/templates/logements_list.html`
+  5. `app/templates/logements_detail.html`
+  6. `tests/test_logements.py` (21 tests)
+- **Fichiers modifiés (6)** :
+  1. `app/config.py` (chemin REF_Setup corrigé + constante PBI_LOGEMENTS)
+  2. `app/main.py` (router logements inclus)
+  3. `app/templates/base.html` (menu Logements cliquable)
+  4. `app/routes/home.py` (module Logements → disponible)
+  5. `app/static/css/app.css` (styles module logements)
+  6. `tests/test_navigation_no_404.py` (/logements live)
+  > `app/templates/home.html` n'a PAS été modifié au Lot APP-1 : la bascule du module se fait par `home.py` seul (le template portait déjà la branche « disponible » depuis les corrections APP-0).
+- **Tests** : `pytest tests/ -v` → **76/76 PASSED** (7.10 s). Aucun skip (données réelles présentes).
+- **Lancement réel** : `/` 200 · `/logements` 200 · `/logements/LOG_0001` 200 · `/logements/LOG_9999` 404 propre · `/sources-calculs` 200 · `/proprietaires` 404 (module à venir). `/health` status OK, `ref_setup exists: true`. Liste = 17 logements parc, techniques exclues par défaut, toggle OK, recherche Blagnac → LOG_0002.
+- **Données réelles** : `git status 01_SOURCES_BRUTES/ 02_TRAVAIL/ 03_EXPORTS/` → vide. Aucune source modifiée (contrôlé par empreinte taille+mtime en test).
+- **Entrée JOURNAL_CONTROLES** : CTR-APP1-2026-07-01 (voir ci-dessous).
+- **Décisions** : D-APP-04 CLÔTURÉE (affichage commission datée brute, sans calcul). D-APP-05 (contrat écriture SAISIE) toujours OUVERTE, pré-requis APP-2.
+- **Limites documentées** : canaux par logement inexistants en référentiel (seul `sur_hostaway`) → pas d'invention. Coût standard ménage rattaché par type du logement (référence brute), coût interne par `logement_id`.
+- **Validation humaine** : ACCORDÉE le 2026-07-01 — contrôles visuels conformes (liste, recherche/filtres, séparation lignes techniques, fiche détail, historique commission sans calcul, `/health`).
+- **Prochaine action** : cadrage APP-2 avant tout démarrage. Aucun module APP-2+ démarré.
+
+#### 2026-07-01 — Lot APP-0 — Corrections post-build avant validation humaine — TERMINÉ
+- **Statut** : TERMINÉ — 53/53 tests verts (11 nouveaux tests ajoutés).
+- **Lot concerné** : APP-0 — corrections ciblées (aucun nouveau module, aucune route métier).
+- **Corrections appliquées** :
+  1. **Registre pipeline** : chemins corrigés — pointaient vers dossiers `LotX_*/` (MASTER Excel), désormais vers fichiers `.py` réels à la racine de `02_TRAVAIL/`. Lot3 (aucun script confirmé) → `NON_REFERENCES` documenté. 21 scripts actifs confirmés.
+  2. **HTMX supprimé** : stub `htmx.2.0.4.min.js` supprimé ; balise `<script>` retirée de `base.html` ; instructions téléchargement retirées de `LANCEMENT_LOCAL.md`. APP-0 fonctionne en HTML classique full-page-reload. HTMX réintégré uniquement quand fichier local validé fourni.
+  3. **Navigation sidebar** : 7 menus non construits convertis de `<a href=...>` en `<span class="nav-item--future">` non cliquables avec badge lot cible. Aucune route fantôme.
+  4. **Modules accueil** : cartes `a_venir` converties en `<div>` sans `href` — aucun lien cassé.
+  5. **CSS** : styles `.nav-item--future` + `.nav-badge-future` ajoutés.
+  6. **requirements.txt** : versions figées exactes (fastapi==0.138.2, uvicorn==0.49.0, jinja2==3.1.6, openpyxl==3.1.5, python-multipart==0.0.32, pytest==9.1.1, httpx==0.28.1).
+  7. **Statut global** : unifié — suppression contradictions "en attente Stitch" / "code non démarré".
+- **Tests ajoutés** :
+  - `test_pipeline_registry_paths.py` (5 tests) : tous scripts registre → fichiers existants.
+  - `test_navigation_no_404.py` (6 tests) : sidebar sans href cassé, routes futures → 404, routes réelles → 200.
+- **Résultats tests** : `pytest tests/ -v` → **53/53 PASSED** (6.46 s).
+- **Lancement réel vérifié** : `http://localhost:8000` → 200 ; `/health` → 200 OK ; `/sources-calculs` → 200 ; `/logements` → 404 (attendu).
+- **Données réelles** : `git status 01_SOURCES_BRUTES/ 02_TRAVAIL/ 03_EXPORTS/` → `nothing to commit`.
+- **Entrée JOURNAL_CONTROLES** : CTR-APP0-CORR-2026-07-01 (voir ci-dessous).
+- **Prochaine action** : validation humaine explicite avant démarrage APP-1.
+
+#### 2026-07-01 — Lot APP-0 — Socle technique — TERMINÉ
+- **Statut** : TERMINÉ / VALIDÉ — 42/42 tests verts.
+- **Lot** : APP-0 — Socle technique.
+- **Fichiers créés** : `05_APPLICATION/` — 44 fichiers + arborescence complète.
+  - `app/main.py` · `app/config.py` · `app/db/connection.py` · `app/db/migrations/0001_init.sql`
+  - `app/adapters/pipeline_registry.py` · `app/adapters/pipeline_runner.py`
+  - `app/readers/excel_reader.py` · `app/readers/csv_reader.py` · `app/readers/run_log_reader.py`
+  - `app/writers/saisie_writer.py` (STUB)
+  - `app/services/file_registry.py` · `app/services/snapshot_service.py` · `app/services/audit_service.py`
+  - `app/routes/home.py` · `app/routes/sources_calculs.py` · `app/routes/health.py`
+  - `app/templates/base.html` · `app/templates/home.html` · `app/templates/sources_calculs.html` · `app/templates/partials/`
+  - `app/static/css/app.css` (tokens Stitch complets) · `app/static/img/logo-main.png` (aucun fichier JS tiers — APP-0 en HTML classique)
+  - `docs/LANCEMENT_LOCAL.md` · `docs/CARTE_FLUX_DONNEES.md` · `docs/CONTRAT_FICHIERS.md`
+  - `tests/conftest.py` + 6 fichiers de test
+  - `run_app.py` · `requirements.txt` · `.env.example` · `.gitignore` · `README.md`
+- **Tests réalisés** : `pytest tests/ -v` — **42/42 PASSED** (4.30 s).
+  - test_boot (7) · test_no_metier_calc (4) · test_pipeline_runner_dryrun (5) · test_readonly_guarantee (13) · test_snapshot (5) · test_sqlite_migrations (5) · test_wal_mode (1) · test_periods_mirror (1)
+- **Résultat** :
+  - App boot sur `python run_app.py` (localhost:8000).
+  - Layout `base.html` : sidebar 9 menus MVP, logo local, police `"Segoe UI"`, tokens CSS Stitch.
+  - Page Accueil : 5 KPIs read-only, cartes modules.
+  - Page Sources & calculs : dry-run simulé, historique SQLite, journaux MASTER_RUN_Log.
+  - Page `/health` : diagnostic complet.
+  - SQLite journal : 7 tables, migrations idempotentes, WAL mode.
+  - Snapshot : copie + manifeste sha256 + SQLite + restauration en copie isolée.
+  - Pipeline runner : dry-run forcé, exécution réelle bloquée par garde explicite.
+  - File registry : `assert_writable` refuse tout chemin non-SAISIE.
+  - Aucun calcul métier dans le code applicatif (scan vérifié).
+- **Anomalies / corrections** : API Starlette 1.3.1 — `TemplateResponse(request, name, ctx)` (corrigé pendant le build).
+- **Données réelles** : `git status 01_SOURCES_BRUTES/ 02_TRAVAIL/ 03_EXPORTS/` → `nothing to commit`. Aucune source modifiée.
+- **Entrée JOURNAL_CONTROLES** : CTR-APP0-2026-07-01 (voir ci-dessous).
+- **Décisions restantes** : D-APP-04 (pré-requis APP-1) · D-APP-05 (pré-requis APP-2).
+- **Prochaine action** : valider APP-0 → feu vert humain explicite avant démarrage APP-1.
+
+#### 2026-07-01 — Précisions police, Banques & caisse, HTMX — INTÉGRÉES AU PLAN
+- **Statut** : PLAN mis à jour (v2 précision) — aucun code démarré.
+- **Lot concerné** : préparation APP-0 (§4.1, §4.2 V2, §6.1, §6.9, §8.3, §8.4 du plan).
+- **Fichiers touchés** : `PLAN_CONSTRUCTION_APPLICATION_LOCALE.md` ; `ETAT_AVANCEMENT.md` (cette entrée).
+- **Tests réalisés** : aucun (pas de code).
+- **Résultat** :
+  - **Police** : Plus Jakarta Sans retirée des pré-requis APP-0 (fichiers woff2 non fournis). Police effective APP-0 = `"Segoe UI", Arial, sans-serif`. Amélioration future uniquement si fichiers fournis légalement. Aucun téléchargement, aucun woff2 créé, aucun dossier `static/fonts/`.
+  - **Banques & caisse** : périmètre MVP précisé — rapprochement bancaire inclus, lecture caisse existante possible si données présentes. Exclut : saisie caisse complète, comptage physique, écart théorique/constaté → V2. Aucun écran vide caisse dans le MVP.
+  - **HTMX** : repoussé hors APP-0 — sera intégré uniquement quand un fichier local exact, vérifié et validé sera fourni. APP-0 fonctionne en HTML classique full-page-reload. Aucun CDN, aucun stub, aucun téléchargement demandé.
+- **Décisions restantes** : D-APP-04 (pré-requis APP-1) · D-APP-05 (pré-requis APP-2).
+- **Prochaine action** : valider → démarrer le code du Lot APP-0. Aucun code avant validation humaine explicite.
+
+#### 2026-07-01 — Arbitrages Stitch, navigation et stack — INTÉGRÉS AU PLAN
+- **Statut** : PLAN mis à jour (v2) — aucun code démarré.
+- **Lot concerné** : préparation APP-0 (impacts sur §2/§4/§6/§8/§9 du plan).
+- **Fichiers touchés** : `PLAN_CONSTRUCTION_APPLICATION_LOCALE.md` (v2) ; `ETAT_AVANCEMENT.md` (cette entrée).
+- **Tests réalisés** : aucun (pas de code).
+- **Résultat** :
+  - Dossier `stitch/` analysé : 12 écrans HTML+PNG, 2 DESIGN.md, 1 logo PNG.
+  - Design system Chouette Patrimoine retenu comme référence visuelle locale (police Plus Jakarta Sans, palette teal #003441, tokens couleur complets).
+  - **Calendrier retiré du MVP** et hors V2 planifiée — idée future non cadrée, aucun point d'extension.
+  - **Navigation MVP figée à 9 menus** : Accueil · Logements · Propriétaires & règlements · Réservations · Fournisseurs · Banques & caisse · Ménages · Sources & calculs · Contrôles & clôture.
+  - Stack confirmé : FastAPI · Jinja2 · HTMX · SQLite. **Pas de Tailwind, pas de React, pas de Node, pas de Docker, pas de PostgreSQL, pas de CDN réseau** (ni Google Fonts, ni Material Symbols, ni Tailwind CDN).
+  - Police APP-0 = fallback système (`"Segoe UI", Arial`). Plus Jakarta Sans = cible future si fichiers fournis. Icônes SVG locales. CSS pur `app.css`.
+  - Logo : `logo-main.png` local + texte « CHOUETTE » / « PATRIMOINE ».
+  - 8 corrections Stitch documentées (§8.6 plan) — à appliquer dans le code, pas dans Stitch.
+  - Corrections majeures : couleur active sidebar (teal, pas violet) ; clôture avec guard obligatoire ; progression clôture 9 blocs ; logs pipeline depuis SQLite.
+- **Décisions actées** : D-APP-01 ✓ · D-APP-02 ✓ · D-APP-03 ✓ · D-APP-06 ✓ · D-STITCH-01 ✓ (Calendrier hors MVP) · D-STITCH-02 ✓ (fallback système APP-0 ; Plus Jakarta Sans si fichiers fournis) · D-STITCH-03 ✓ (pas de CDN) · D-STITCH-04 ✓ (tokens sémantiques) · D-STITCH-05 ✓ (logo local).
+- **Décisions restantes** : D-APP-04 (source unique 3 doublons, pré-requis APP-1) · D-APP-05 (contrat écriture SAISIE_*, pré-requis APP-2).
+- **Anomalies / risques** : MCP Stitch auth KO — non bloquant. Écrans Stitch absents pour fiches détail métier (à créer ex nihilo aux lots APP-1→3).
+- **Prochaine action** : valider ce résumé → démarrer le code du Lot APP-0. **Aucun code avant validation humaine explicite.**
+
+#### 2026-06-30 — Lot APP-0 (Socle technique) — EN ATTENTE STITCH
+- **Statut** : PLANIFIÉ / EN_ATTENTE_PRODUCTIONS_STITCH (non démarré côté code).
+- **Lot concerné** : APP-0 — Socle technique (FastAPI · Jinja2/HTMX · SQLite · `05_APPLICATION/` · sans Docker/PostgreSQL/worker).
+- **Fichiers touchés** : `00_CADRAGE/APPLICATION_LOCALE/PLAN_CONSTRUCTION_APPLICATION_LOCALE.md` (créé) ; `00_CADRAGE/ETAT_AVANCEMENT.md` (cette section). Aucun fichier technique/applicatif.
+- **Tests réalisés** : aucun (pas de code à ce stade).
+- **Résultat** : plan rédigé et validé ; A1-A7 actés ; MVP 9 modules + V2 figés (sans table ni écran V2 avant validation moteurs) ; APP-0→APP-6 définis.
+- **Décisions actées** : D-APP-01 `05_APPLICATION/` ✓ · D-APP-02 scope snapshot ✓ · D-APP-03 dry-run Lot 0 / exécution réelle à terme ✓ · D-APP-06 Stitch manuel, MCP optionnel ✓.
+- **Décisions restantes** : D-APP-04 (source unique 3 doublons, pré-requis APP-1) · D-APP-05 (contrat écriture SAISIE_*, pré-requis APP-2).
+- **Anomalies / risques** : MCP Stitch auth KO — non bloquant. Doc moteur périmée — hors périmètre app.
+- **Prochaine action** : analyser productions Stitch → relever contradictions → adapter plan → validation humaine → démarrer code Lot APP-0.
+
 ---
 
 ## Dernière mise à jour
 Date : 2026-07-03
-Session : Session 27 — D-APP-2B-CADRAGE — décisions fonctionnelles D1 à D11 verrouillées — implémentation APP-2b non démarrée
-Agent : Claude Code (claude-opus-4-8 / claude-sonnet-4-6)
+Session : Session 28 — APP-2b implémentée techniquement — 149 tests verts — HH_REAL_WRITE_ENABLED = False
+Agent : Claude Code (claude-sonnet-4-6)
 
 ---
 
@@ -666,3 +908,21 @@ Regle consolidee :
 - `statut_parc` vide, invalide ou inconnu = `A_CONTROLER`, code anomalie `STATUT_PARC_INVALIDE`, sans calcul economique.
 
 Tests de regression ajoutes : `tests/test_hors_parc_technique.py` et extension de `tests/test_import_side_effects.py` aux imports des lots 4bis, 6c, 10, 11, 12 et 13 en copie temporaire isolee.
+## Note d'état - APP-2b règles paiement, acomptes et dérogations (2026-07-03)
+
+Statut : implémentation contrôlée sur code et copies temporaires, écriture réelle toujours désactivée.
+
+Éléments réalisés :
+- suppression fonctionnelle de `reservation_id_hostaway` dans APP-2b ;
+- `SAISIE_MANUELLE` pré-sélectionné sur nouveau formulaire ;
+- propriétaire dérivé par logement + date d'arrivée ;
+- taux de commission standard affiché depuis `REF_Taux_Commission` avec dérogation réelle tracée ;
+- prix ménage standard affiché depuis `REF_Couts_Standards_Menage` avec dérogation réelle tracée ;
+- mode cible `PAY_006` / `DIRECT_PROPRIETAIRE` préparé par migration sur copie ;
+- acompte propriétaire Lot4A recalculé par mode de paiement, mois = mois de check-in ;
+- comptabilisation dérivée de `REF_Codes_Impact.impact_resultat_comptable` ;
+- migration de schéma APP-2b testée sur copie D-APP-05C uniquement.
+
+Activation restante :
+- migration contrôlée du classeur source réel et des dépendances aval avant toute écriture réelle ;
+- maintien de `HH_REAL_WRITE_ENABLED=False` jusqu'à validation humaine et contrôle complet.

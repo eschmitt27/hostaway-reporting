@@ -74,16 +74,47 @@ def test_no_import_of_travail_modules():
 
 
 def test_no_bidirectional_sync():
-    """Aucune écriture depuis SQLite vers Excel (synchronisation bidirectionnelle interdite)."""
+    """Aucun module ne doit accéder à la DB ET écrire Excel (sync bidirectionnelle interdite).
+
+    Flux autorisé : formulaire validé → writer Excel → journal SQLite.
+    Flux interdit : SELECT SQLite → row_data → wb.save().
+    Détection : import effectif de la couche DB (get_db / from app.db) + appel wb.save().
+    Les commentaires/docstrings mentionnant "SQLite" ne déclenchent pas de violation.
+    """
+    DB_ACCESS_PATTERNS = ("from app.db", "import sqlite3", "get_db(", "get_db ")
     violations = []
     for f in get_python_files():
-        if f.name == "saisie_writer.py":
-            continue
         src = f.read_text(encoding="utf-8")
-        # Chercher des patterns d'écriture xlsx depuis des résultats SQLite
-        if "sqlite" in src.lower() and "save(" in src.lower():
+        has_db_access = any(p in src for p in DB_ACCESS_PATTERNS)
+        has_excel_write = "save(" in src
+        if has_db_access and has_excel_write:
             violations.append(str(f))
-    assert not violations, "Sync bidirectionnelle SQLite→Excel interdite :\n" + "\n".join(violations)
+    assert not violations, "Sync bidirectionnelle DB→Excel interdite :\n" + "\n".join(violations)
+
+
+def test_saisie_hh_writer_no_db_access():
+    writer = APP_DIR / "writers" / "saisie_hh_writer.py"
+    src = writer.read_text(encoding="utf-8")
+    forbidden = ("from app.db", "import sqlite3", "get_db(", "SELECT ", "INSERT INTO")
+    violations = [p for p in forbidden if p in src]
+    assert not violations, f"Writer SAISIE HH ne doit pas acceder SQLite : {violations}"
+
+
+def test_saisie_hh_orchestrator_no_excel_write_api():
+    orchestrator = APP_DIR / "services" / "saisie_hh_orchestrator.py"
+    src = orchestrator.read_text(encoding="utf-8")
+    forbidden = ("import openpyxl", "load_workbook", ".save(")
+    violations = [p for p in forbidden if p in src]
+    assert not violations, f"Orchestrateur ne doit pas ecrire Excel directement : {violations}"
+
+
+def test_no_sqlite_to_row_data_flow():
+    violations = []
+    for f in get_python_files():
+        src = f.read_text(encoding="utf-8")
+        if "SELECT " in src and "row_data" in src:
+            violations.append(str(f.relative_to(APP_DIR)))
+    assert not violations, "Flux SQLite -> row_data interdit :\n" + "\n".join(violations)
 
 
 def test_app_code_parseable():

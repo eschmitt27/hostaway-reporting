@@ -290,3 +290,16 @@ Pas de valeurs libres (`OK`, `Validé`, etc.) dans les fichiers de saisie.
 | PBI2 | **Aucun lot ne livre un dashboard Power BI** ni un fichier `.pbix`. Power BI sera construit ensuite par l'utilisateur lui-même. |
 | PBI3 | Les tables et CSV produits par le système doivent être **structurellement compatibles Power BI** (schéma en étoile : `MASTER_CALC_Flux` en faits, `REF_*` en dimensions). C'est une conception, pas une livraison. |
 | PBI4 | Le Lot 12 produit Excel + tables + données prêtes à l'emploi — **pas le dashboard lui-même**. |
+## APP-2b - Saisie réservations hors Hostaway (révision 2026-07-03)
+
+- La saisie APP-2b concerne exclusivement les réservations hors Hostaway : aucun `reservation_id_hostaway` n'est demandé ni requis.
+- La source financière par défaut est `SAISIE_MANUELLE`.
+- Le propriétaire est recalculé côté backend depuis logement + date d'arrivée + historique de gestion ; le champ navigateur n'est pas une source de vérité.
+- Le taux de commission standard provient de `REF_Taux_Commission`, période inclusive, priorité taux logement puis taux propriétaire. Toute dérogation exige taux, motif et confirmation explicite.
+- Le prix ménage standard provient de `REF_Couts_Standards_Menage`. Toute dérogation exige montant, motif et confirmation explicite.
+- Le mode `Direct propriétaire` est préparé comme `PAY_006` / `DIRECT_PROPRIETAIRE` via migration sur copie.
+- Le montant récupéré par l'associé et l'associé récupérateur ne s'appliquent qu'aux modes `COMPTE_PERSO_ASSOCIEE` et `CARTE_ASSOCIEE`. Les valeurs cachées sont ignorées pour les autres modes.
+- Le montant reversé propriétaire ne s'applique qu'au mode espèces. Les valeurs cachées sont ignorées pour les autres modes.
+- L'acompte propriétaire est au mois de check-in (`date_arrivee`) et vaut : banque pro = `total_percu`, compte perso associée/carte associée = `montant_recupere`, espèces = `montant_reverse_proprietaire`, direct propriétaire = `0`.
+- La comptabilisation est dérivée du code impact depuis `REF_Codes_Impact.impact_resultat_comptable`.
+- L'écriture réelle reste désactivée jusqu'à migration contrôlée du classeur source et validation aval.
