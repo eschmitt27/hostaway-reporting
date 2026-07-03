@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}Logements{% endblock %}
+
+{% block content %}
+<div class="page-header flex justify-between items-center">
+  <div>
+    <h1 class="page-title">Logements</h1>
+    <p class="page-subtitle">Référentiel du parc — lecture seule</p>
+  </div>
+  <span class="read-only-badge">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+    Lecture seule
+  </span>
+</div>
+
+{% if data.status == 'ERROR' %}
+  <div class="alert alert-error">
+    <strong>Données indisponibles.</strong> {{ data.error_message }}
+  </div>
+{% else %}
+
+  <div class="card" style="margin-bottom: var(--stack-lg);">
+    <form method="get" action="/logements" class="filter-bar">
+      <input type="search" name="q" value="{{ data.applied.q }}" placeholder="Rechercher (nom, ville, identifiant…)" class="filter-input">
+
+      <select name="ville" class="filter-input">
+        <option value="">Toutes villes</option>
+        {% for v in data.filters.villes %}
+        <option value="{{ v }}" {% if data.applied.ville == v %}selected{% endif %}>{{ v }}</option>
+        {% endfor %}
+      </select>
+
+      <select name="type_logement_id" class="filter-input">
+        <option value="">Tous types</option>
+        {% for t in data.filters.types %}
+        <option value="{{ t }}" {% if data.applied.type_logement_id == t %}selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+
+      <select name="proprietaire_id" class="filter-input">
+        <option value="">Tous propriétaires</option>
+        {% for p in data.filters.proprietaires %}
+        <option value="{{ p }}" {% if data.applied.proprietaire_id == p %}selected{% endif %}>{{ p }}</option>
+        {% endfor %}
+      </select>
+
+      <select name="actif" class="filter-input">
+        <option value="">Actif : tous</option>
+        {% for a in data.filters.actifs %}
+        <option value="{{ a }}" {% if data.applied.actif == a %}selected{% endif %}>Actif : {{ a }}</option>
+        {% endfor %}
+      </select>
+
+      <label class="filter-check">
+        <input type="checkbox" name="include_technique" value="1" {% if data.include_technique %}checked{% endif %}>
+        Inclure les lignes techniques ({{ data.count_technique }})
+      </label>
+
+      <button type="submit" class="btn btn-primary">Filtrer</button>
+      <a href="/logements" class="btn btn-ghost">Réinitialiser</a>
+    </form>
+
+    <div class="text-sm text-secondary" style="margin-top: var(--stack-md);">
+      Parc : <strong>{{ data.count_parc }}</strong> logement(s)
+      · Affichés : <strong>{{ data.count_affiches }}</strong>
+      {% if data.include_technique %}· lignes techniques incluses ({{ data.count_technique }}){% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    {% if data.rows %}
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Logement</th>
+            <th>Propriétaire</th>
+            <th>Ville</th>
+            <th>Type</th>
+            <th>Statut</th>
+            <th>Hostaway</th>
+            <th>Forfait logiciel</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in data.rows %}
+          <tr onclick="window.location='/logements/{{ r.logement_id }}'" style="cursor:pointer">
+            <td>
+              <strong>{{ r.nom_court or r.nom_logement_officiel or r.logement_id }}</strong>
+              <div class="text-sm text-secondary">{{ r.logement_id }}</div>
+            </td>
+            <td>{{ r.proprietaire_id or "Non renseigné" }}</td>
+            <td>{{ r.ville or "Non renseigné" }}</td>
+            <td>{{ r.type_logement_id or "Non renseigné" }}</td>
+            <td>
+              {% if r._technique %}
+                <span class="badge badge-warning">HORS_PARC_TECHNIQUE</span>
+              {% elif (r.actif or '')|upper == 'OUI' %}
+                <span class="badge badge-success">Actif</span>
+              {% elif (r.actif or '')|upper == 'NON' %}
+                <span class="badge badge-neutral">Inactif</span>
+              {% else %}
+                <span class="badge badge-neutral">Non renseigné</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if (r.sur_hostaway or '')|upper == 'OUI' %}
+                <span class="badge badge-info">Oui</span>
+              {% else %}
+                <span class="badge badge-neutral">Non</span>
+              {% endif %}
+            </td>
+            <td>{{ r.forfait_logiciel_consommables_mensuel if r.forfait_logiciel_consommables_mensuel not in (None, '') else "Non renseigné" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <div class="empty-icon">∅</div>
+      <p>Aucun logement ne correspond aux critères.</p>
+    </div>
+    {% endif %}
+  </div>
+
+{% endif %}
+
+<div class="origine-block">
+  Origine : liste <code>{{ data.source }}</code> · lue le {{ data.read_at }}
+</div>
+{% endblock %}

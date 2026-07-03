@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% block title %}{% if detail %}Fiche logement{% else %}Logement introuvable{% endif %}{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+  <a href="/logements" class="btn btn-ghost">← Retour à la liste</a>
+</div>
+
+{% if detail is none %}
+  <div class="alert alert-error">
+    <strong>Logement introuvable.</strong>
+    Aucun logement d'identifiant <code>{{ logement_id }}</code> dans la source liste.
+  </div>
+
+{% elif detail.status == 'ERROR' %}
+  <div class="alert alert-error">
+    <strong>Données indisponibles.</strong> {{ detail.error_message }}
+  </div>
+
+{% else %}
+  {% set base = detail.base %}
+  {% set ref = detail.ref_row %}
+
+  <div class="flex justify-between items-center" style="margin-bottom: var(--stack-lg);">
+    <div>
+      <h1 class="page-title">{{ base.nom_logement_officiel or base.nom_court or detail.logement_id }}</h1>
+      <p class="page-subtitle">{{ detail.logement_id }}</p>
+    </div>
+    <div>
+      {% if detail.is_technique %}
+        <span class="badge badge-warning">HORS_PARC_TECHNIQUE</span>
+      {% elif (base.actif or '')|upper == 'OUI' %}
+        <span class="badge badge-success">Actif</span>
+      {% elif (base.actif or '')|upper == 'NON' %}
+        <span class="badge badge-neutral">Inactif</span>
+      {% else %}
+        <span class="badge badge-neutral">Non renseigné</span>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if detail.is_technique %}
+  <div class="alert alert-warning">
+    Ligne <strong>technique</strong> (hors parc). Utilisée par le moteur pour rattacher des flux
+    non affectables à un logement réel. Ne représente pas un bien géré.
+  </div>
+  {% endif %}
+
+  <!-- Informations principales -->
+  <div class="card" style="margin-bottom: var(--stack-lg);">
+    <div class="card-title">Informations principales</div>
+    <dl class="detail-grid">
+      <div><dt>Propriétaire (résolu)</dt><dd>{{ base.proprietaire_id if base.proprietaire_id not in (None,'') else "Non renseigné" }}</dd></div>
+      <div><dt>Type</dt><dd>{{ detail.type_label or detail.type_logement_id or "Non renseigné" }}</dd></div>
+      <div><dt>Ville</dt><dd>{{ base.ville if base.ville not in (None,'') else "Non renseigné" }}</dd></div>
+      <div><dt>Adresse</dt><dd>{{ ref.adresse if (ref and ref.adresse not in (None,'')) else "Non renseigné" }}</dd></div>
+      <div><dt>Entrée en gestion</dt><dd>{{ base.date_entree_gestion if base.date_entree_gestion not in (None,'') else "Non renseigné" }}</dd></div>
+      <div><dt>Sortie de gestion</dt><dd>{{ base.date_sortie_gestion if base.date_sortie_gestion not in (None,'') else "Non renseigné" }}</dd></div>
+      <div><dt>Forfait logiciel / consommables</dt><dd>{{ base.forfait_logiciel_consommables_mensuel if base.forfait_logiciel_consommables_mensuel not in (None,'') else "Non renseigné" }}</dd></div>
+      <div><dt>Statut parc (référentiel)</dt><dd>{{ ref.statut_parc if (ref and ref.statut_parc not in (None,'')) else "Non renseigné" }}</dd></div>
+    </dl>
+  </div>
+
+  <!-- Historique des taux de commission -->
+  <div class="card" style="margin-bottom: var(--stack-lg);">
+    <div class="card-title">Historique des taux de commission</div>
+    <p class="text-sm text-secondary" style="margin-bottom: var(--stack-md);">
+      Lignes brutes rattachées au propriétaire résolu (<code>{{ detail.proprietaire_id or "Non renseigné" }}</code>).
+      Aucune sélection, aucun tri par date, aucun calcul appliqué.
+    </p>
+    {% if detail.commission_rows %}
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr><th>Taux</th><th>Date de début</th><th>Date de fin</th><th>Actif (brut)</th></tr>
+        </thead>
+        <tbody>
+          {% for c in detail.commission_rows %}
+          <tr>
+            <td>{{ c.taux_commission if c.taux_commission not in (None,'') else "Non renseigné" }}</td>
+            <td>{{ c.date_debut if c.date_debut not in (None,'') else "Non renseigné" }}</td>
+            <td>{{ c.date_fin if c.date_fin not in (None,'') else "Date de fin non renseignée" }}</td>
+            <td>{{ c.actif if c.actif not in (None,'') else "Non renseigné" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state"><p>Aucune ligne de commission rattachée à ce propriétaire dans le référentiel.</p></div>
+    {% endif %}
+  </div>
+
+  <!-- Paramètres ménage (données brutes de référence) -->
+  <div class="card" style="margin-bottom: var(--stack-lg);">
+    <div class="card-title">Paramètres ménage (référence, brut)</div>
+
+    <div class="text-sm text-secondary" style="margin-bottom: 8px;">Coût standard par type (<code>{{ detail.type_logement_id or "—" }}</code>)</div>
+    {% if detail.menage_standard %}
+    <div class="table-container" style="margin-bottom: var(--stack-md);">
+      <table>
+        <thead><tr><th>Type</th><th>Coût standard ménage</th><th>Début validité</th><th>Fin validité</th><th>Actif</th></tr></thead>
+        <tbody>
+          {% for m in detail.menage_standard %}
+          <tr>
+            <td>{{ m.type_logement_id if m.type_logement_id not in (None,'') else "Non renseigné" }}</td>
+            <td>{{ m.cout_standard_menage if m.cout_standard_menage not in (None,'') else "Non renseigné" }}</td>
+            <td>{{ m.date_debut_validite if m.date_debut_validite not in (None,'') else "Non renseigné" }}</td>
+            <td>{{ m.date_fin_validite if m.date_fin_validite not in (None,'') else "Non renseigné" }}</td>
+            <td>{{ m.actif if m.actif not in (None,'') else "Non renseigné" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="text-sm">Non renseigné.</p>
+    {% endif %}
+
+    <div class="text-sm text-secondary" style="margin: var(--stack-md) 0 8px;">Coût interne rattaché au logement (<code>{{ detail.logement_id }}</code>)</div>
+    {% if detail.menage_interne %}
+    <div class="table-container">
+      <table>
+        <thead><tr><th>Intervenant</th><th>Montant interne standard</th><th>Coût fixe / ménage</th><th>Actif</th></tr></thead>
+        <tbody>
+          {% for m in detail.menage_interne %}
+          <tr>
+            <td>{{ m.intervenant_id if m.intervenant_id not in (None,'') else "Non renseigné" }}</td>
+            <td>{{ m.montant_interne_standard if m.montant_interne_standard not in (None,'') else "Non renseigné" }}</td>
+            <td>{{ m.cout_fixe_par_menage if m.cout_fixe_par_menage not in (None,'') else "Non renseigné" }}</td>
+            <td>{{ m.actif if m.actif not in (None,'') else "Non renseigné" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="text-sm">Non renseigné.</p>
+    {% endif %}
+  </div>
+
+  <!-- Informations techniques -->
+  <div class="card" style="margin-bottom: var(--stack-lg);">
+    <div class="card-title">Informations techniques</div>
+    <dl class="detail-grid">
+      <div>
+        <dt>Présent dans Hostaway</dt>
+        <dd>{% if (base.sur_hostaway or '')|upper == 'OUI' %}Oui{% elif (base.sur_hostaway or '')|upper == 'NON' %}Non{% else %}Non renseigné{% endif %}</dd>
+      </div>
+      <div>
+        <dt>Identifiant Hostaway</dt>
+        <dd>{{ ref.hostaway_listing_id if (ref and ref.hostaway_listing_id not in (None,'')) else "Non renseigné" }}</dd>
+      </div>
+    </dl>
+  </div>
+
+  <!-- Origine des données -->
+  <div class="origine-block-card">
+    <div class="card-title" style="font-size:14px;">Origine des données</div>
+    <ul>
+      <li>Liste : <code>{{ detail.origine.source_liste }}</code></li>
+      <li>Référentiel : <code>{{ detail.origine.source_referentiel }}</code>{% if not detail.origine.referentiel_disponible %} <span class="badge badge-error">indisponible</span>{% endif %}</li>
+      <li>Identifiant utilisé pour l'enrichissement : <code>{{ detail.origine.logement_id_enrichissement }}</code></li>
+      <li>Lu le : {{ detail.origine.read_at }}</li>
+      <li>{{ detail.origine.enrichissement_message }}</li>
+    </ul>
+  </div>
+
+{% endif %}
+{% endblock %}

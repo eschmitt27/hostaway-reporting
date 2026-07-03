@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}{% if detail %}Réservation hors Hostaway{% else %}Réservation introuvable{% endif %}{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+  <a href="/reservations" class="btn btn-ghost">← Retour à la liste</a>
+</div>
+
+{% if detail is none %}
+  <div class="alert alert-error">
+    <strong>Réservation introuvable.</strong>
+    Aucune réservation hors Hostaway d'identifiant <code>{{ reservation_hh_id }}</code> dans le fichier généré.
+  </div>
+
+{% elif detail.status == 'ERROR' %}
+  <div class="alert alert-error">
+    <strong>Données indisponibles.</strong> {{ detail.error_message }}
+  </div>
+
+{% else %}
+  {% set r = detail.row %}
+
+  <div class="flex justify-between items-center" style="margin-bottom: var(--stack-lg);">
+    <div>
+      <h1 class="page-title">{{ r.reservation_hh_id }}</h1>
+      <p class="page-subtitle">Réservation hors Hostaway · mois {{ r.mois or "—" }}</p>
+    </div>
+    <div>
+      {% set st = (r.statut_controle or '')|upper %}
+      {% if st == 'VALIDE' %}<span class="badge badge-success">VALIDE</span>
+      {% elif st == 'A_CONTROLER' %}<span class="badge badge-warning">A_CONTROLER</span>
+      {% elif st == 'BLOQUANT' %}<span class="badge badge-error">BLOQUANT</span>
+      {% elif st %}<span class="badge badge-neutral">{{ r.statut_controle }}</span>
+      {% else %}<span class="badge badge-neutral">Non renseigné</span>{% endif %}
+    </div>
+  </div>
+
+  <!-- Séjour & affectation -->
+  <div class="card" style="margin-bottom: var(--stack-lg);">
+    <div class="card-title">Séjour &amp; affectation</div>
+    <dl class="detail-grid">
+      <div><dt>Date d'arrivée</dt><dd>{{ r.date_arrivee if r.date_arrivee not in (None,'') else "Non renseigné" }}</dd></div>
+      <div><dt>Date de départ</dt><dd>{{ r.date_depart if r.date_depart not in (None,'') else "Non renseigné" }}</dd></div>
+      <div><dt>Nuits <span class="badge badge-info">moteur</span></dt><dd>{{ r.nuits if r.nuits not in (None,'') else "Non renseigné" }}</dd></div>
+      <div><dt>Logement</dt><dd>{{ r.logement_id if r.logement_id not in (None,'') else "Non renseigné" }}</dd></div>
+      <div><dt>Propriétaire (résolu moteur)</dt><dd>{{ r.proprietaire_id if r.proprietaire_id not in (None,'') else "Non renseigné" }}</dd></div>
+      <div><dt>Canal</dt><dd>{{ r.canal_id if r.canal_id not in (None,'') else "Non renseigné" }}</dd></div>
+      <div><dt>Source financière</dt><dd>{{ r.source_financiere if r.source_financiere not in (None,'') else "Non renseigné" }}</dd></div>
+    </dl>
+  </div>
+
+  <!-- Montants — issus du moteur -->
+  <div class="card" style="margin-bottom: var(--stack-lg);">
+    <div class="card-title">Montants</div>
+    <div class="alert alert-info" style="margin-bottom: var(--stack-md);">
+      Les montants dérivés ci-dessous (taux, commission, acompte) proviennent du fichier généré par le moteur. L'application ne les recalcule pas.
+    </div>
+    <dl class="detail-grid">
+      <div><dt>Total perçu</dt><dd>{{ r.total_percu | eur }}</dd></div>
+      <div><dt>Ménage</dt><dd>{{ r.menage | eur }}</dd></div>
+      <div><dt>Taux commission <span class="badge badge-info">moteur</span></dt><dd>{{ r.taux_commission if r.taux_commission not in (None,'') else "Non renseigné" }}</dd></div>
+      <div><dt>Source taux <span class="badge badge-info">moteur</span></dt><dd>{{ r.taux_commission_source if r.taux_commission_source not in (None,'') else "Non renseigné" }}</dd></div>
+      <div><dt>Commission <span class="badge badge-info">moteur</span></dt><dd>{{ r.commission | eur }}</dd></div>
+      <div><dt>Montant récupéré</dt><dd>{{ r.montant_recupere | eur }}</dd></div>
+      <div><dt>Associé récupérateur</dt><dd>{{ r.associe_id_recuperateur if r.associe_id_recuperateur not in (None,'') else "Non renseigné" }}</dd></div>
+      <div><dt>Reversé propriétaire</dt><dd>{{ r.montant_reverse_proprietaire | eur }}</dd></div>
+      <div><dt>Acompte facture <span class="badge badge-info">moteur</span></dt><dd>{{ r.acompte_facture | eur }}</dd></div>
+      <div><dt>Mode de paiement</dt><dd>{{ r.mode_paiement_id if r.mode_paiement_id not in (None,'') else "Non renseigné" }}</dd></div>
+    </dl>
+  </div>
+
+  <!-- Impact & traitement -->
+  <div class="card" style="margin-bottom: var(--stack-lg);">
+    <div class="card-title">Impact &amp; traitement</div>
+    <dl class="detail-grid">
+      <div><dt>Code impact</dt><dd>{{ r.code_impact if r.code_impact not in (None,'') else "Non renseigné" }}</dd></div>
+      <div><dt>Comptabilisation</dt><dd>{{ r.comptabilisation if r.comptabilisation not in (None,'') else "Non renseigné" }}</dd></div>
+      <div><dt>Impact résultat réel <span class="badge badge-info">moteur</span></dt><dd>{{ r.impact_resultat_reel if r.impact_resultat_reel not in (None,'') else "Non renseigné" }}</dd></div>
+      <div><dt>Impact résultat comptable <span class="badge badge-info">moteur</span></dt><dd>{{ r.impact_resultat_comptable if r.impact_resultat_comptable not in (None,'') else "Non renseigné" }}</dd></div>
+      <div><dt>Statut contrôle</dt><dd>{{ r.statut_controle if r.statut_controle not in (None,'') else "Non renseigné" }}</dd></div>
+      <div><dt>Niveau anomalie</dt><dd>{{ r.niveau_anomalie if r.niveau_anomalie not in (None,'') else "Non renseigné" }}</dd></div>
+      <div><dt>Code anomalie</dt><dd>{{ r.code_anomalie if r.code_anomalie not in (None,'') else "Non renseigné" }}</dd></div>
+    </dl>
+  </div>
+
+  <!-- Informations techniques -->
+  <div class="card" style="margin-bottom: var(--stack-lg);">
+    <div class="card-title">Informations techniques</div>
+    <dl class="detail-grid">
+      <div><dt>Identifiant Hostaway lié</dt><dd>{{ r.reservation_id_hostaway if r.reservation_id_hostaway not in (None,'') else "Non renseigné" }}</dd></div>
+      <div><dt>ROW_HASH <span class="badge badge-info">moteur</span></dt><dd class="text-sm">{{ r.ROW_HASH if r.ROW_HASH not in (None,'') else "Non renseigné" }}</dd></div>
+      <div><dt>Module source <span class="badge badge-info">moteur</span></dt><dd>{{ r.source_module if r.source_module not in (None,'') else "Non renseigné" }}</dd></div>
+      <div><dt>Table source <span class="badge badge-info">moteur</span></dt><dd>{{ r.source_table if r.source_table not in (None,'') else "Non renseigné" }}</dd></div>
+      <div><dt>Date d'intégration <span class="badge badge-info">moteur</span></dt><dd>{{ r.date_integration if r.date_integration not in (None,'') else "Non renseigné" }}</dd></div>
+    </dl>
+    {% if r.commentaire not in (None,'') or r.commentaire_taux_commission not in (None,'') %}
+    <div style="margin-top: var(--stack-md);">
+      {% if r.commentaire not in (None,'') %}<div class="text-sm"><strong>Commentaire :</strong> {{ r.commentaire }}</div>{% endif %}
+      {% if r.commentaire_taux_commission not in (None,'') %}<div class="text-sm"><strong>Commentaire taux :</strong> {{ r.commentaire_taux_commission }}</div>{% endif %}
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Origine des données -->
+  <div class="origine-block-card">
+    <div class="card-title" style="font-size:14px;">Origine des données</div>
+    <ul>
+      <li>Fichier généré : <code>{{ detail.origine.source }}</code> · onglet <code>{{ detail.origine.sheet }}</code></li>
+      <li>Source amont (saisie, non lue au Lot APP-2a) : <code>{{ detail.origine.saisie_amont }}</code></li>
+      <li>Dernière modification du fichier généré : {{ detail.origine.master_mtime }}</li>
+      <li>Lu le : {{ detail.origine.read_at }}</li>
+      <li>{{ detail.origine.note_moteur }}</li>
+      <li><strong>{{ detail.origine.note_refresh }}</strong></li>
+    </ul>
+  </div>
+
+{% endif %}
+{% endblock %}

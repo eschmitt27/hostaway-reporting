@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Accueil{% endblock %}
+
+{% block content %}
+<div class="page-header flex justify-between items-center">
+  <div>
+    <h1 class="page-title">Accueil</h1>
+    <p class="page-subtitle">Vue d'ensemble — lecture seule</p>
+  </div>
+  <span class="read-only-badge">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+    Lecture seule
+  </span>
+</div>
+
+<!-- KPIs -->
+<div class="kpi-grid">
+  <div class="kpi-card">
+    <div class="kpi-label">Lignes flux</div>
+    <div class="kpi-value">{{ kpis.reservations }}</div>
+    <div class="kpi-sub">PBI_Flux.csv</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Contrôles ouverts</div>
+    <div class="kpi-value">{{ kpis.controles_ouverts }}</div>
+    <div class="kpi-sub">PBI_Controles_Ouverts.csv</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Logements référencés</div>
+    <div class="kpi-value">{{ kpis.logements }}</div>
+    <div class="kpi-sub">PBI_Referentiel_Logements.csv</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Propriétaires</div>
+    <div class="kpi-value">{{ kpis.proprietaires }}</div>
+    <div class="kpi-sub">PBI_Referentiel_Proprietaires.csv</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Runs pipeline</div>
+    <div class="kpi-value">{{ kpis.run_log.count if kpis.run_log.available else '—' }}</div>
+    <div class="kpi-sub">
+      {% if kpis.run_log.available %}
+        <span class="badge badge-success">Disponible</span>
+      {% else %}
+        <span class="badge badge-neutral">Non disponible</span>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- Modules -->
+<div class="card">
+  <div class="card-title">Modules</div>
+  <div class="module-grid">
+    {% for mod in modules %}
+    {% if mod.status == 'disponible' %}
+    <a href="{{ mod.url }}" class="module-card" style="text-decoration:none">
+      <div class="module-card-name">{{ mod.name }}</div>
+      <span class="module-badge disponible">Disponible</span>
+    </a>
+    {% else %}
+    <div class="module-card module-card--future">
+      <div class="module-card-name">{{ mod.name }}</div>
+      <span class="module-badge a_venir">À venir</span>
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

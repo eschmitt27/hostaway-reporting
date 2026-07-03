@@ -1,0 +1,38 @@
+{% if result %}
+<div class="card mt-md">
+  <div class="card-title flex items-center gap-sm">
+    {% if result.status == 'DRY_RUN' %}
+    <span class="badge badge-dry-run">Dry-run</span>
+    {% elif result.status == 'OK' %}
+    <span class="badge badge-success">OK</span>
+    {% else %}
+    <span class="badge badge-error">{{ result.status }}</span>
+    {% endif %}
+    Résultat : {{ result.script }}
+  </div>
+  <div class="log-block">{{ result.output }}</div>
+  {% if result.error %}
+  <div class="log-block mt-sm" style="background: var(--color-error-container); color: var(--color-error)">{{ result.error }}</div>
+  {% endif %}
+  <div class="text-xs text-secondary mt-sm">Durée : {{ result.duration_ms }} ms</div>
+</div>
+{% endif %}
+
+{% if recent_runs %}
+<div class="card mt-md">
+  <div class="card-title">Historique récent</div>
+  <table><thead><tr><th>#</th><th>Date</th><th>Script</th><th>Statut</th></tr></thead>
+  <tbody>
+  {% for run in recent_runs %}
+  <tr>
+    <td class="text-xs">{{ run.id }}</td>
+    <td class="text-sm font-mono">{{ run.ts }}</td>
+    <td class="font-mono text-sm">{{ run.script_name }}</td>
+    <td>{% if run.status == 'DRY_RUN' %}<span class="badge badge-dry-run">Simulé</span>
+        {% elif run.status == 'OK' %}<span class="badge badge-success">OK</span>
+        {% else %}<span class="badge badge-error">{{ run.status }}</span>{% endif %}</td>
+  </tr>
+  {% endfor %}
+  </tbody></table>
+</div>
+{% endif %}

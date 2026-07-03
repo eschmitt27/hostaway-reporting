@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Réservations hors Hostaway{% endblock %}
+
+{% block content %}
+<div class="page-header flex justify-between items-center">
+  <div>
+    <h1 class="page-title">Réservations hors Hostaway</h1>
+    <p class="page-subtitle">Consultation — lecture seule (sortie générée par le moteur)</p>
+  </div>
+  <span class="read-only-badge">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+    Lecture seule
+  </span>
+</div>
+
+{% if data.status == 'ERROR' %}
+  <div class="alert alert-error">
+    <strong>Données indisponibles.</strong> {{ data.error_message }}
+  </div>
+
+{% else %}
+
+  <div class="card" style="margin-bottom: var(--stack-lg);">
+    <form method="get" action="/reservations" class="filter-bar">
+      <input type="search" name="q" value="{{ data.applied.q }}" placeholder="Rechercher (id, logement, propriétaire…)" class="filter-input">
+
+      {% for col, label in [
+        ('mois','Mois'), ('logement_id','Logement'), ('proprietaire_id','Propriétaire'),
+        ('canal_id','Canal'), ('source_financiere','Source fin.'),
+        ('statut_controle','Statut'), ('code_impact','Impact'), ('comptabilisation','Compta')
+      ] %}
+      <select name="{{ col }}" class="filter-input">
+        <option value="">{{ label }} : tous</option>
+        {% for v in data.filters[col] %}
+        <option value="{{ v }}" {% if data.applied[col] == v %}selected{% endif %}>{{ v }}</option>
+        {% endfor %}
+      </select>
+      {% endfor %}
+
+      <button type="submit" class="btn btn-primary">Filtrer</button>
+      <a href="/reservations" class="btn btn-secondary">Réinitialiser</a>
+    </form>
+
+    <div class="text-sm text-secondary" style="margin-top: var(--stack-md);">
+      Total : <strong>{{ data.count_total }}</strong> réservation(s) · Affichées : <strong>{{ data.count_affiches }}</strong>
+    </div>
+  </div>
+
+  <div class="card">
+    {% if data.status == 'EMPTY' %}
+    <div class="empty-state">
+      <div class="empty-icon">∅</div>
+      <p>Aucune réservation hors Hostaway dans le fichier généré.</p>
+      <p class="text-sm">Le cache Power Query peut être vide tant qu'aucune actualisation n'a été faite dans Excel.</p>
+    </div>
+    {% elif data.rows %}
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Réservation</th>
+            <th>Mois</th>
+            <th>Séjour</th>
+            <th>Logement</th>
+            <th>Propriétaire</th>
+            <th>Canal</th>
+            <th>Source fin.</th>
+            <th>Total perçu</th>
+            <th>Ménage</th>
+            <th>Statut</th>
+            <th>Impact</th>
+            <th>Compta</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in data.rows %}
+          <tr onclick="window.location='/reservations/{{ r.reservation_hh_id }}'" style="cursor:pointer">
+            <td><strong>{{ r.reservation_hh_id }}</strong></td>
+            <td>{{ r.mois or "—" }}</td>
+            <td class="text-sm">{{ r.date_arrivee or "?" }} → {{ r.date_depart or "?" }}</td>
+            <td>{{ r.logement_id or "Non renseigné" }}</td>
+            <td>{{ r.proprietaire_id or "Non renseigné" }}</td>
+            <td>{{ r.canal_id or "—" }}</td>
+            <td>{{ r.source_financiere or "—" }}</td>
+            <td style="text-align:right; white-space:nowrap">{{ r.total_percu | eur }}</td>
+            <td style="text-align:right; white-space:nowrap">{{ r.menage | eur }}</td>
+            <td>
+              {% set st = (r.statut_controle or '')|upper %}
+              {% if st == 'VALIDE' %}<span class="badge badge-success">VALIDE</span>
+              {% elif st == 'A_CONTROLER' %}<span class="badge badge-warning">A_CONTROLER</span>
+              {% elif st == 'BLOQUANT' %}<span class="badge badge-error">BLOQUANT</span>
+              {% elif st %}<span class="badge badge-neutral">{{ r.statut_controle }}</span>
+              {% else %}<span class="badge badge-neutral">Non renseigné</span>{% endif %}
+            </td>
+            <td>{{ r.code_impact or "—" }}</td>
+            <td>{{ r.comptabilisation or "—" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <div class="empty-icon">∅</div>
+      <p>Aucune réservation ne correspond aux critères.</p>
+    </div>
+    {% endif %}
+  </div>
+
+{% endif %}
+
+<div class="origine-block">
+  Source : <code>{{ data.source }}</code> · onglet <code>{{ data.sheet }}</code>
+  · dernière modification du fichier : {{ data.master_mtime }}
+  · lu le {{ data.read_at }}<br>
+  <strong>Actualisation Power Query manuelle requise après toute future saisie.</strong>
+</div>
+{% endblock %}
