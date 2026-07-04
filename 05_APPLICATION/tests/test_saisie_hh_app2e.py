@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+import os
 from pathlib import Path
 import shutil
 from unittest.mock import patch
@@ -326,3 +327,358 @@ def test_app2e_rollback_sur_divergence_post_ecriture(tmp_path, tmp_db):
     assert write_result["rollback_status"] == "ROLLBACK_REUSSI"
     assert real_svc._sha256(saisie) == sha_avant
     assert "DIVERGENCE_ECRITURE_REELLE_VS_SIMULATION" in write_result["details"]
+
+
+# ── APP-2e : tests structurels et validation migration ─────────────────────────
+
+_SAISIE_SHA256_EXPECTED = "c3c00e73017212e08bb3f9e9aef73a26bd3c828804e4fa21f7f2b37713d54c5c"
+_REF_SETUP_SHA256_EXPECTED = "6d9f21de919e80c1903ae5acdb2f64a3d776c858857dda52fb39b8335ab726da"
+
+
+# ── Tests 1-5 : mutations structurelles détectées par _check_structural_preservation ──
+
+def test_app2e_struct_dv_alteree_rejetee(tmp_path):
+    """Suppression d'une validation de données détectée comme violation structurelle."""
+    from openpyxl.worksheet.datavalidation import DataValidation
+    from app.writers.saisie_hh_writer import _check_structural_preservation, _measure_structure
+
+    before = tmp_path / "before.xlsx"
+    after = tmp_path / "after.xlsx"
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "SAISIE"
+    dv = DataValidation(type="list", formula1='"OUI,NON"', sqref="B2:B100")
+    ws.add_data_validation(dv)
+    wb.calculation.fullCalcOnLoad = True
+    wb.save(str(before))
+    wb.close()
+
+    shutil.copy2(before, after)
+    wb2 = openpyxl.load_workbook(str(after))
+    wb2.active.data_validations.dataValidation.clear()
+    wb2.calculation.fullCalcOnLoad = True
+    wb2.save(str(after))
+    wb2.close()
+
+    struct = _measure_structure(before)
+    violations = _check_structural_preservation(before, after, struct)
+    assert any("data_validations" in v for v in violations), violations
+
+
+def test_app2e_struct_mfc_alteree_rejetee(tmp_path):
+    """Suppression d'une MFC détectée comme violation structurelle."""
+    from openpyxl.formatting.rule import CellIsRule
+    from openpyxl.styles import PatternFill
+    from app.writers.saisie_hh_writer import _check_structural_preservation, _measure_structure
+
+    before = tmp_path / "before.xlsx"
+    after = tmp_path / "after.xlsx"
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "SAISIE"
+    fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
+    ws.conditional_formatting.add("A2:A100", CellIsRule(operator="equal", formula=['"OUI"'], fill=fill))
+    wb.calculation.fullCalcOnLoad = True
+    wb.save(str(before))
+    wb.close()
+
+    shutil.copy2(before, after)
+    wb2 = openpyxl.load_workbook(str(after))
+    wb2.active.conditional_formatting._cf_rules.clear()
+    wb2.calculation.fullCalcOnLoad = True
+    wb2.save(str(after))
+    wb2.close()
+
+    struct = _measure_structure(before)
+    violations = _check_structural_preservation(before, after, struct)
+    assert any("mfc_rules" in v for v in violations), violations
+
+
+def test_app2e_struct_table_ajoutee_rejetee(tmp_path):
+    """Ajout d'une table inattendue détecté comme violation structurelle."""
+    from openpyxl.worksheet.table import Table
+    from app.writers.saisie_hh_writer import _check_structural_preservation, _measure_structure
+
+    before = tmp_path / "before.xlsx"
+    after = tmp_path / "after.xlsx"
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "SAISIE"
+    ws["A1"] = "col1"
+    ws["B1"] = "col2"
+    for i in range(2, 6):
+        ws.cell(row=i, column=1, value=i)
+        ws.cell(row=i, column=2, value=i * 10)
+    wb.calculation.fullCalcOnLoad = True
+    wb.save(str(before))
+    wb.close()
+
+    shutil.copy2(before, after)
+    wb2 = openpyxl.load_workbook(str(after))
+    wb2.active.add_table(Table(displayName="TableInattendue", ref="A1:B5"))
+    wb2.calculation.fullCalcOnLoad = True
+    wb2.save(str(after))
+    wb2.close()
+
+    struct = _measure_structure(before)
+    violations = _check_structural_preservation(before, after, struct)
+    assert any("tables" in v for v in violations), violations
+
+
+def test_app2e_struct_plage_nommee_ajoutee_rejetee(tmp_path):
+    """Ajout d'une plage nommée inattendue détecté comme violation structurelle."""
+    from openpyxl.workbook.defined_name import DefinedName
+    from app.writers.saisie_hh_writer import _check_structural_preservation, _measure_structure
+
+    before = tmp_path / "before.xlsx"
+    after = tmp_path / "after.xlsx"
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "SAISIE"
+    ws["A1"] = "test"
+    wb.calculation.fullCalcOnLoad = True
+    wb.save(str(before))
+    wb.close()
+
+    shutil.copy2(before, after)
+    wb2 = openpyxl.load_workbook(str(after))
+    wb2.defined_names["PLAGE_INATTENDUE"] = DefinedName("PLAGE_INATTENDUE", attr_text="SAISIE!$A$1:$A$10")
+    wb2.calculation.fullCalcOnLoad = True
+    wb2.save(str(after))
+    wb2.close()
+
+    struct = _measure_structure(before)
+    violations = _check_structural_preservation(before, after, struct)
+    assert any("defined_names" in v for v in violations), violations
+
+
+def test_app2e_struct_feuille_supprimee_rejetee(tmp_path):
+    """Suppression d'une feuille détectée comme violation structurelle."""
+    from app.writers.saisie_hh_writer import _check_structural_preservation, _measure_structure
+
+    before = tmp_path / "before.xlsx"
+    after = tmp_path / "after.xlsx"
+
+    wb = openpyxl.Workbook()
+    wb.active.title = "SAISIE"
+    wb.create_sheet("REF_Modes_Paiement")
+    wb.calculation.fullCalcOnLoad = True
+    wb.save(str(before))
+    wb.close()
+
+    shutil.copy2(before, after)
+    wb2 = openpyxl.load_workbook(str(after))
+    del wb2["REF_Modes_Paiement"]
+    wb2.calculation.fullCalcOnLoad = True
+    wb2.save(str(after))
+    wb2.close()
+
+    struct = _measure_structure(before)
+    violations = _check_structural_preservation(before, after, struct)
+    assert any("sheetnames" in v for v in violations), violations
+
+
+# ── Test 6 : formule absente ────────────────────────────────────────────────────
+
+def test_app2e_formule_absente_detectee(tmp_path):
+    """Une cellule de formule absente (None) dans la ligne cible est rejetée."""
+    from app.writers.saisie_hh_writer import _check_formula_cells, FORMULE_LIGNE_MODELE_ABSENTE
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "SAISIE"
+    ws["A1"] = "reservation_hh_id"
+    path = tmp_path / "saisie_sans_formule.xlsx"
+    wb.save(str(path))
+    wb.close()
+
+    violations = _check_formula_cells(path, 2)
+    assert any(FORMULE_LIGNE_MODELE_ABSENTE in v for v in violations), violations
+
+
+# ── Test 7 : VBA préservé après migration REF ───────────────────────────────────
+
+def test_app2e_vba_preserve_apres_migration_ref(tmp_path):
+    """Après migration REF_Setup, le VBA est préservé si présent dans la source."""
+    if not cfg.REF_SETUP.exists():
+        pytest.skip("REF_Setup.xlsm absent")
+    features = schema_real_svc._workbook_features(cfg.REF_SETUP, keep_vba=True)
+    if not features.get("has_vba"):
+        pytest.skip("REF_Setup n'a pas de VBA — test non applicable")
+
+    source_saisie = _copy_saisie(tmp_path)
+    manifest = schema_real_svc.preparer_migration_hh_sur_copies(
+        saisie_source=source_saisie,
+        ref_setup_source=cfg.REF_SETUP,
+        output_dir=tmp_path / "prepared",
+    )
+    assert manifest["status"] == "OK", manifest["errors"]
+
+    ref_work = Path(manifest["paths"]["ref_setup_copy"])
+    features_after = schema_real_svc._workbook_features(ref_work, keep_vba=True)
+    assert features_after.get("has_vba"), "VBA perdu apres migration REF_Setup"
+
+
+# ── Test 8 : 7 colonnes ajoutées exactement ────────────────────────────────────
+
+def test_app2e_7_cols_saisie_ajoutees_verifiees(tmp_path):
+    """Les 7 champs NEW_SAISIE_FIELDS sont ajoutés exactement au header SAISIE."""
+    source_saisie = _copy_saisie(tmp_path)
+    source_ref = _make_ref(tmp_path / "ref.xlsm")
+
+    manifest = schema_real_svc.preparer_migration_hh_sur_copies(
+        saisie_source=source_saisie,
+        ref_setup_source=source_ref,
+        output_dir=tmp_path / "prepared",
+    )
+    assert manifest["status"] == "OK", manifest["errors"]
+
+    saisie_work = Path(manifest["paths"]["saisie_copy"])
+    wb = openpyxl.load_workbook(str(saisie_work), read_only=True, data_only=True)
+    try:
+        headers = [str(cell.value or "").strip() for cell in wb["SAISIE"][1]]
+    finally:
+        wb.close()
+
+    for field in NEW_SAISIE_FIELDS:
+        assert field in headers, f"Champ {field!r} absent du header SAISIE apres migration"
+    assert manifest["migration"]["saisie_fields_added"] == NEW_SAISIE_FIELDS
+
+
+# ── Test 9 : PAY_006 idempotent ─────────────────────────────────────────────────
+
+def test_app2e_pay006_idempotent(tmp_path):
+    """Si PAY_006 est déjà présent, la re-migration renvoie direct_proprietaire_added=False."""
+    source_saisie = _copy_saisie(tmp_path)
+    source_ref = _make_ref(tmp_path / "ref.xlsm")
+
+    manifest1 = schema_real_svc.preparer_migration_hh_sur_copies(
+        saisie_source=source_saisie,
+        ref_setup_source=source_ref,
+        output_dir=tmp_path / "p1",
+    )
+    assert manifest1["status"] == "OK"
+    assert manifest1["migration"]["direct_proprietaire_added"] is True
+
+    ref_migree = Path(manifest1["paths"]["ref_setup_copy"])
+    manifest2 = schema_real_svc.preparer_migration_hh_sur_copies(
+        saisie_source=source_saisie,
+        ref_setup_source=ref_migree,
+        output_dir=tmp_path / "p2",
+    )
+    assert manifest2["status"] == "OK"
+    assert manifest2["migration"]["direct_proprietaire_added"] is False
+
+
+# ── Test 10 : second preparer idempotent ───────────────────────────────────────
+
+def test_app2e_second_preparer_idempotent(tmp_path):
+    """Un second appel avec les copies déjà migrées comme source est OK et n'ajoute rien."""
+    source_saisie = _copy_saisie(tmp_path)
+    source_ref = _make_ref(tmp_path / "ref.xlsm")
+
+    manifest1 = schema_real_svc.preparer_migration_hh_sur_copies(
+        saisie_source=source_saisie,
+        ref_setup_source=source_ref,
+        output_dir=tmp_path / "p1",
+    )
+    assert manifest1["status"] == "OK"
+
+    saisie_migree = Path(manifest1["paths"]["saisie_copy"])
+    ref_migree = Path(manifest1["paths"]["ref_setup_copy"])
+
+    manifest2 = schema_real_svc.preparer_migration_hh_sur_copies(
+        saisie_source=saisie_migree,
+        ref_setup_source=ref_migree,
+        output_dir=tmp_path / "p2",
+    )
+    assert manifest2["status"] == "OK"
+    assert manifest2["migration"]["saisie_fields_added"] == []
+    assert manifest2["migration"]["direct_proprietaire_added"] is False
+
+
+# ── Test 11 : rollback double fichier ──────────────────────────────────────────
+
+def test_app2e_rollback_double_fichier_restaure(tmp_path):
+    """Si le deuxième os.replace échoue, SAISIE et REF sont restaurés à l'état original."""
+    source_saisie = _copy_saisie(tmp_path)
+    source_ref = _make_ref(tmp_path / "ref.xlsm")
+    sha_saisie_avant = real_svc._sha256(source_saisie)
+    sha_ref_avant = real_svc._sha256(source_ref)
+
+    replace_count = [0]
+    real_replace = os.replace
+
+    def mock_replace(src, dst):
+        replace_count[0] += 1
+        if replace_count[0] == 2:
+            raise OSError("Simulation panne disque")
+        return real_replace(src, dst)
+
+    with patch("app.services.saisie_hh_schema_real_prepare_service.os.replace", mock_replace):
+        result = schema_real_svc.executer_migration_hh_reelle(
+            confirmation=schema_real_svc.CONFIRMATION_EXECUTION,
+            saisie_path=source_saisie,
+            ref_setup_path=source_ref,
+            work_dir=tmp_path / "work",
+        )
+
+    assert result["real_status"] in ("ROLLBACK", "ROLLBACK_HASH_MISMATCH")
+    assert real_svc._sha256(source_saisie) == sha_saisie_avant, "SAISIE non restaure apres rollback"
+    assert real_svc._sha256(source_ref) == sha_ref_avant, "REF non restaure apres rollback"
+
+
+# ── Test 12 : ROLLBACK_HASH_MISMATCH ──────────────────────────────────────────
+
+def test_app2e_rollback_hash_mismatch_detecte(tmp_path):
+    """ROLLBACK_HASH_MISMATCH si les hashes post-rollback divergent des hashes avant."""
+    source_saisie = _copy_saisie(tmp_path)
+    source_ref = _make_ref(tmp_path / "ref.xlsm")
+
+    replace_count = [0]
+    failed = [False]
+    real_replace = os.replace
+    real_fingerprint = schema_real_svc._fingerprint
+
+    def mock_replace(src, dst):
+        replace_count[0] += 1
+        if replace_count[0] == 2:
+            failed[0] = True
+            raise OSError("Simulation panne")
+        return real_replace(src, dst)
+
+    def mock_fingerprint(path):
+        result = real_fingerprint(path)
+        if failed[0]:
+            return {**result, "sha256": "a" * 64}
+        return result
+
+    with (
+        patch("app.services.saisie_hh_schema_real_prepare_service.os.replace", mock_replace),
+        patch.object(schema_real_svc, "_fingerprint", mock_fingerprint),
+    ):
+        result = schema_real_svc.executer_migration_hh_reelle(
+            confirmation=schema_real_svc.CONFIRMATION_EXECUTION,
+            saisie_path=source_saisie,
+            ref_setup_path=source_ref,
+            work_dir=tmp_path / "work",
+        )
+
+    assert result["real_status"] == "ROLLBACK_HASH_MISMATCH"
+    assert result["rollback_hash_verified"] is False
+
+
+# ── Test 13 : fichiers réels inchangés ─────────────────────────────────────────
+
+def test_app2e_fichiers_reels_inchanges():
+    """REF_Setup.xlsm et SAISIE réels ont les hashes attendus — aucun test ne les a altérés."""
+    if not cfg.SAISIE_RESERVATIONS_HH.exists() or not cfg.REF_SETUP.exists():
+        pytest.skip("Fichiers sources reels absents")
+    fp_saisie = schema_real_svc._fingerprint(cfg.SAISIE_RESERVATIONS_HH)
+    fp_ref = schema_real_svc._fingerprint(cfg.REF_SETUP)
+    assert fp_saisie["sha256"].lower() == _SAISIE_SHA256_EXPECTED
+    assert fp_ref["sha256"].lower() == _REF_SETUP_SHA256_EXPECTED

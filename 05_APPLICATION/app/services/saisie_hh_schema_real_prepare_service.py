@@ -35,6 +35,8 @@ CONFIRMATION_EXECUTION = "MIGRER_SCHEMA_HH_REELLE"
 MANIFEST_NAME = "manifest_schema_hh.json"
 SAISIE_MIGREE_NAME = "SAISIE_ReservationsHorsHostaway_schema_prepare.xlsx"
 REF_MIGREE_NAME = "REF_Setup_schema_prepare.xlsm"
+SAISIE_REF_NAME = "SAISIE_ReservationsHorsHostaway_ref.xlsx"
+REF_REF_NAME = "REF_Setup_ref.xlsm"
 
 
 def _utc_stamp() -> str:
@@ -108,6 +110,18 @@ def _workbook_features(path: Path, *, keep_vba: bool = False) -> dict[str, Any]:
         }
     finally:
         wb.close()
+
+
+def _check_vba_preserved(ref_path: Path, work_path: Path) -> list[str]:
+    """Détecte la perte du VBA entre la copie référence et la copie de travail."""
+    try:
+        has_vba_ref = _workbook_features(ref_path, keep_vba=True).get("has_vba", False)
+        has_vba_work = _workbook_features(work_path, keep_vba=True).get("has_vba", False)
+        if has_vba_ref and not has_vba_work:
+            return ["VBA_PERDU_APRES_MIGRATION"]
+        return []
+    except Exception as exc:
+        return [f"Verification VBA impossible : {exc}"]
 
 
 def diagnostiquer_schema_hh(
@@ -190,43 +204,64 @@ def preparer_migration_hh_sur_copies(
     ref_setup_source: Path | None = None,
     output_dir: Path,
 ) -> dict[str, Any]:
-    """Copie les classeurs dans output_dir, migre uniquement les copies et valide."""
+    """Copie les classeurs dans output_dir, migre uniquement les copies de travail et valide.
+
+    Deux copies sont créées par source :
+    - copie référence (immuable, jamais migrée) — sert de base pour la comparaison avant
+    - copie de travail — reçoit la migration, sert de base pour la comparaison après
+    """
     source_saisie = Path(saisie_source or cfg.SAISIE_RESERVATIONS_HH)
     source_ref = Path(ref_setup_source or cfg.REF_SETUP)
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
-    saisie_copy = out / SAISIE_MIGREE_NAME
-    ref_copy = out / REF_MIGREE_NAME
-    shutil.copy2(source_saisie, saisie_copy)
-    shutil.copy2(source_ref, ref_copy)
 
-    struct_saisie_avant = _measure_structure(saisie_copy)
-    struct_ref_avant = _measure_structure(ref_copy)
-    diag_avant = diagnostiquer_schema_hh(saisie_path=saisie_copy, ref_setup_path=ref_copy)
+    # 1. Deux copies par source : référence immuable + copie de travail
+    saisie_work = out / SAISIE_MIGREE_NAME
+    saisie_ref_copy = out / SAISIE_REF_NAME
+    ref_work = out / REF_MIGREE_NAME
+    ref_ref_copy = out / REF_REF_NAME
+    shutil.copy2(source_saisie, saisie_work)
+    shutil.copy2(source_saisie, saisie_ref_copy)
+    shutil.copy2(source_ref, ref_work)
+    shutil.copy2(source_ref, ref_ref_copy)
 
-    added_fields = migrate_saisie_copy(saisie_copy)
-    direct_added = migrate_ref_setup_copy(ref_copy)
+    # 2. Empreinte structurelle avant (depuis les copies référence, jamais migrées)
+    struct_saisie_avant = _measure_structure(saisie_ref_copy)
+    struct_ref_avant = _measure_structure(ref_ref_copy)
+    diag_avant = diagnostiquer_schema_hh(saisie_path=saisie_work, ref_setup_path=ref_work)
 
-    struct_saisie_errors = _check_structural_preservation(saisie_copy, saisie_copy, struct_saisie_avant)
-    struct_ref_errors = _check_structural_preservation(ref_copy, ref_copy, struct_ref_avant)
-    diag_apres = diagnostiquer_schema_hh(saisie_path=saisie_copy, ref_setup_path=ref_copy)
-    status = "OK"
+    # 3. Migrer uniquement les copies de travail
+    added_fields = migrate_saisie_copy(saisie_work)
+    direct_added = migrate_ref_setup_copy(ref_work)
+
+    # 4. Comparer référence (avant) → travail (après)
+    struct_saisie_errors = _check_structural_preservation(saisie_ref_copy, saisie_work, struct_saisie_avant)
+    struct_ref_errors = _check_structural_preservation(ref_ref_copy, ref_work, struct_ref_avant)
+    vba_errors_saisie = _check_vba_preserved(saisie_ref_copy, saisie_work)
+    vba_errors_ref = _check_vba_preserved(ref_ref_copy, ref_work)
+    diag_apres = diagnostiquer_schema_hh(saisie_path=saisie_work, ref_setup_path=ref_work)
+
     errors: list[str] = []
     errors.extend(struct_saisie_errors)
     errors.extend(struct_ref_errors)
+    errors.extend(vba_errors_saisie)
+    errors.extend(vba_errors_ref)
     errors.extend(diag_apres.get("formula_violations", []))
     if diag_apres["missing_saisie_fields"] or diag_apres["missing_ref_modes"]:
         errors.append("SCHEMA_COPIE_INCOMPLET_APRES_MIGRATION")
-    if errors:
-        status = "ERREUR"
+    status = "OK" if not errors else "ERREUR"
 
     manifest = {
         "operation": "APP-2e schema HH sur copies",
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "status": status,
         "source_hashes": {"saisie": _fingerprint(source_saisie), "ref_setup": _fingerprint(source_ref)},
-        "copy_hashes": {"saisie": _fingerprint(saisie_copy), "ref_setup": _fingerprint(ref_copy)},
-        "paths": {"output_dir": str(out), "saisie_copy": str(saisie_copy), "ref_setup_copy": str(ref_copy)},
+        "copy_hashes": {"saisie": _fingerprint(saisie_work), "ref_setup": _fingerprint(ref_work)},
+        "paths": {
+            "output_dir": str(out),
+            "saisie_copy": str(saisie_work),
+            "ref_setup_copy": str(ref_work),
+        },
         "diagnostic_avant": diag_avant,
         "diagnostic_apres": diag_apres,
         "migration": {"saisie_fields_added": added_fields, "direct_proprietaire_added": direct_added},
@@ -292,11 +327,16 @@ def executer_migration_hh_reelle(
         if replaced_ref:
             os.replace(str(backup_ref), str(p_ref))
         rollback_hashes = {"saisie": _fingerprint(p_saisie), "ref_setup": _fingerprint(p_ref)}
+        hash_ok = (
+            rollback_hashes["saisie"].get("sha256") == before_hashes["saisie"].get("sha256")
+            and rollback_hashes["ref_setup"].get("sha256") == before_hashes["ref_setup"].get("sha256")
+        )
         manifest.update({
-            "real_status": "ROLLBACK",
+            "real_status": "ROLLBACK" if hash_ok else "ROLLBACK_HASH_MISMATCH",
             "error": str(exc),
             "real_hashes_before": before_hashes,
             "real_hashes_after_rollback": rollback_hashes,
+            "rollback_hash_verified": hash_ok,
         })
         (root / MANIFEST_NAME).write_text(json.dumps(manifest, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
         return manifest
