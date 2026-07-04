@@ -1571,3 +1571,21 @@ Règles associées :
 - Preview / orchestrateur / writer futur / colonnes cible SAISIE HH / Lot4A : seul `taux_commission_override` est transmis, au format décimal canonique `[0, 1]`.
 - Lot4A refuse une valeur confirmée hors `[0, 1]` au lieu de tenter une conversion implicite.
 - REV3 ne modifie aucun fichier Excel réel ; `HH_REAL_WRITE_ENABLED` reste `False`.
+
+### Note APP-2c - Dry-run applicatif sur copies (2026-07-04)
+
+APP-2c ajoute un espace applicatif non versionne `05_APPLICATION/data/dryruns/`. Chaque previsualisation cree un sous-dossier unique contenant :
+
+| Fichier | Role |
+|---|---|
+| `manifest.json` | Horodatage UTC, identifiant de simulation, hashes des sources lues, hashes des copies, resume payload, statut, erreurs |
+| `SAISIE_ReservationsHorsHostaway_copie.xlsx` | Copie isolee de SAISIE HH, migree vers le schema cible APP-2b/APP-2c |
+| `REF_Setup_copie.xlsm` | Copie isolee du referentiel, adaptee si une migration de copie est necessaire |
+| `MASTER_FACT_MAN_ReservationsHorsHostaway_simule.xlsx` | Sortie MASTER simulee issue du moteur Lot4A sur copies |
+| `resultat_lot4a.json` | Resultat structure du moteur Lot4A, anomalies et ligne simulee |
+
+Regles d'architecture :
+- les resultats affiches par l'ecran APP-2c proviennent du backend et du moteur Lot4A, pas du JavaScript ;
+- le writer reel reste protege par `HH_REAL_WRITE_ENABLED=False` et n'est pas appele par APP-2c ;
+- les formules critiques B/C/K/N/O/Q/V/Y/Z restent preservees dans la copie ;
+- l'activation d'une ecriture reelle est une etape separee, hors APP-2c, apres validation humaine et migration controlee du classeur source reel.

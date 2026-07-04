@@ -8,6 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import openpyxl
+import app.config as cfg
 
 SHEET_SAISIE = "SAISIE"
 SHEET_MODES_PAIEMENT = "REF_Modes_Paiement"
@@ -45,6 +46,12 @@ def _assert_copy_path(path: Path) -> Path:
     forbidden = {part.upper() for part in FORBIDDEN_PARTS}
     if parts & forbidden:
         raise RuntimeError(f"Migration refusee sur chemin source ou production: {resolved}")
+    app_root = cfg.APP_ROOT.resolve()
+    dryruns_root = (cfg.DATA_DIR / "dryruns").resolve()
+    if (resolved == app_root or app_root in resolved.parents) and not (
+        resolved == dryruns_root or dryruns_root in resolved.parents
+    ):
+        raise RuntimeError(f"Migration refusee hors dossier dry-run APP-2c: {resolved}")
     return resolved
 
 

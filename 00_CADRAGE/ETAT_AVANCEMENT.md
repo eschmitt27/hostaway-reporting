@@ -980,3 +980,22 @@ Contrôles requis avant commit :
 - tests Lot4A ciblés avec dépendances NumPy/pandas ;
 - `git diff --check` ;
 - staging sélectif du correctif uniquement.
+
+## Note d'etat - APP-2c previsualisation sur copies (2026-07-04)
+
+Statut : implementation de previsualisation complete sur copies en cours de controle avant commit selectif.
+
+Elements APP-2c :
+- nouvelle etape `Previsualiser l'enregistrement` apres validation APP-2b ;
+- creation d'un sous-dossier dry-run isole avec manifest, copie SAISIE HH, copie REF_Setup, MASTER simule et resultat Lot4A JSON ;
+- migration du schema cible executee uniquement sur la copie SAISIE ;
+- injection simulee de la reservation dans la copie, sans appel au writer reel ;
+- execution Lot4A sur les copies et affichage d'un resume reservation, calculs applicables, effets simules et comparatif avant/apres ;
+- `HH_REAL_WRITE_ENABLED=False` maintenu et aucun bouton de sauvegarde reelle expose par l'ecran APP-2c.
+
+Controles requis avant commit :
+- tests application APP-2c/APP-2b Miniconda ;
+- tests Lot4A cibles avec dependances NumPy/pandas ;
+- `git diff --check` ;
+- hash des fichiers Excel reels inchanges ;
+- staging selectif APP-2c uniquement, sans dryruns ni `.pytest_tmp*`.

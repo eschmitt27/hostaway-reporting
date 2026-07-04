@@ -5,6 +5,7 @@ import app.config as cfg
 from app.config import TEMPLATES_DIR
 from app.services import reservations_hh_service as svc
 from app.services import saisie_hh_service as saisie_svc
+from app.services import saisie_hh_dryrun_service as dryrun_svc
 from app.services import saisie_hh_orchestrator as hh_orchestrator
 
 router = APIRouter()
@@ -149,6 +150,48 @@ async def reservation_nouvelle_confirmer(request: Request):
         "pk": result["pk"],
         "form_data": data,
         "resultat_ecriture": write_result,
+    })
+
+
+@router.post("/reservations/nouvelle/previsualiser", response_class=HTMLResponse)
+async def reservation_nouvelle_previsualiser(request: Request):
+    form_data = await request.form()
+    data = dict(form_data)
+    result = dryrun_svc.run_previsualisation(data)
+    if not result["ok"] and result["manifest"].get("status") == "VALIDATION_REFUSEE":
+        refs = saisie_svc.load_form_refs()
+        return templates.TemplateResponse(
+            request,
+            "reservation_nouvelle_form.html",
+            {
+                "active_menu": "reservations",
+                "refs": refs,
+                "form": data,
+                "erreurs": result["manifest"].get("errors", []),
+            },
+            status_code=422,
+        )
+    return RedirectResponse(
+        url=f"/reservations/nouvelle/previsualisation/{result['token']}",
+        status_code=303,
+    )
+
+
+@router.get("/reservations/nouvelle/previsualisation/{token}", response_class=HTMLResponse)
+def reservation_nouvelle_previsualisation(request: Request, token: str):
+    try:
+        dryrun = dryrun_svc.load_previsualisation(token)
+    except dryrun_svc.DryRunError:
+        return templates.TemplateResponse(
+            request,
+            "reservation_nouvelle_previsualisation.html",
+            {"active_menu": "reservations", "dryrun": None, "token": token},
+            status_code=404,
+        )
+    return templates.TemplateResponse(request, "reservation_nouvelle_previsualisation.html", {
+        "active_menu": "reservations",
+        "dryrun": dryrun,
+        "token": token,
     })
 
 

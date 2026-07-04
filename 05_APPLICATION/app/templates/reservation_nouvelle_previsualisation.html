@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}Simulation enregistrement HH{% endblock %}
+
+{% block content %}
+<div class="page-header flex justify-between items-center">
+  <div>
+    <h1 class="page-title">Prévisualisation de l'enregistrement</h1>
+    <p class="page-subtitle">Dry-run APP-2c sur copies isolées</p>
+  </div>
+  <span class="badge badge-warning">HH_REAL_WRITE_ENABLED = False</span>
+</div>
+
+{% if not dryrun %}
+<div class="alert alert-error">
+  <strong>Prévisualisation introuvable.</strong>
+</div>
+<p><a href="/reservations/nouvelle" class="btn btn-primary">Nouvelle saisie</a></p>
+{% else %}
+{% set manifest = dryrun.manifest %}
+{% set lot4a = dryrun.resultat_lot4a %}
+{% set row = dryrun.simulated_master_row or {} %}
+{% set payload = manifest.payload_summary or {} %}
+
+<div class="alert alert-success" data-testid="app2c-security-banner">
+  <strong>Simulation sur copie — aucune donnée réelle n’a été modifiée.</strong>
+</div>
+
+{% if manifest.status != "OK" %}
+<div class="alert alert-error" data-status="{{ manifest.status }}">
+  <strong>Simulation non validée :</strong> {{ manifest.status }}
+  {% if manifest.errors %}
+  <ul>
+    {% for err in manifest.errors %}
+    <li>{{ err }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="grid two-cols">
+  <section class="card">
+    <h2>Réservation</h2>
+    <table class="dryrun-table">
+      <tbody>
+        <tr><td>Logement</td><td>{{ payload.logement_id or "—" }}</td></tr>
+        <tr><td>Propriétaire</td><td>{{ payload.proprietaire_id or "—" }}</td></tr>
+        <tr><td>Canal</td><td>{{ payload.canal_id or "—" }}</td></tr>
+        <tr><td>Dates</td><td>{{ payload.date_arrivee or "—" }} → {{ payload.date_depart or "—" }}</td></tr>
+        <tr><td>Nuits</td><td>{{ row.nuits if row.nuits is not none and row.nuits != "" else "—" }}</td></tr>
+        <tr><td>Total perçu</td><td>{{ payload.total_percu or "—" }}</td></tr>
+        <tr><td>Mode de paiement</td><td>{{ payload.mode_paiement_id or "—" }}</td></tr>
+        <tr><td>Code impact</td><td>{{ payload.code_impact or "—" }}</td></tr>
+        <tr><td>Comptabilisation dérivée</td><td>{{ payload.comptabilisation or "—" }}</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="card">
+    <h2>Calculs applicables</h2>
+    <table class="dryrun-table">
+      <tbody>
+        <tr><td>Taux historique</td><td>{{ row.taux_commission if row.taux_commission is not none else "—" }}</td></tr>
+        <tr><td>Dérogation taux</td><td>{{ payload.taux_commission_override or "Aucune" }}</td></tr>
+        <tr><td>Source taux</td><td>{{ row.taux_commission_source or "—" }}</td></tr>
+        <tr><td>Prix ménage standard / effectif</td><td>{{ row.menage if row.menage is not none else "—" }}</td></tr>
+        <tr><td>Dérogation ménage</td><td>{{ payload.menage_override or "Aucune" }}</td></tr>
+        <tr><td>Commission</td><td>{{ row.commission if row.commission is not none else "—" }}</td></tr>
+        <tr><td>Acompte facture propriétaire</td><td>{{ row.acompte_facture if row.acompte_facture is not none else "—" }}</td></tr>
+        <tr><td>Source acompte</td><td>{{ row.source_acompte_facture or "—" }}</td></tr>
+        <tr><td>Mois d'acompte</td><td>{{ row.mois or payload.mois or "—" }}</td></tr>
+        <tr><td>Impact réel / comptable</td><td>{{ row.impact_resultat_reel or "—" }} / {{ row.impact_resultat_comptable or "—" }}</td></tr>
+      </tbody>
+    </table>
+  </section>
+</div>
+
+<section class="card">
+  <h2>Effets simulés</h2>
+  <table class="dryrun-table">
+    <tbody>
+      <tr><td>Identifiant HH créé</td><td><code>{{ payload.reservation_hh_id or "—" }}</code></td></tr>
+      <tr><td>Ligne SAISIE ajoutée</td><td>{{ manifest.target_row or "—" }}</td></tr>
+      <tr><td>Colonnes ajoutées par migration cible</td><td>{{ (manifest.migration.saisie_fields_added or []) | join(", ") if manifest.migration else "—" }}</td></tr>
+      <tr><td>Résultat Lot4A</td><td>{{ manifest.lot4a_status or "—" }}</td></tr>
+      <tr><td>Anomalies</td><td>{{ manifest.errors | join("; ") if manifest.errors else "Aucune" }}</td></tr>
+      <tr><td>Statut final simulé</td><td>{{ manifest.status }}</td></tr>
+      <tr><td>Dossier dry-run</td><td><code>{{ manifest.paths.run_dir }}</code></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>Avant / après</h2>
+  <table class="dryrun-table">
+    <thead>
+      <tr><th>Élément</th><th>Avant simulation</th><th>Après simulation</th></tr>
+    </thead>
+    <tbody>
+      {% for item in dryrun.comparatif %}
+      <tr><td>{{ item.element }}</td><td>{{ item.avant }}</td><td>{{ item.apres }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<div class="flex gap-md">
+  <a href="/reservations/nouvelle" class="btn btn-primary">Nouvelle saisie</a>
+  <a href="/reservations" class="btn btn-secondary">Retour à la liste</a>
+</div>
+{% endif %}
+
+<style>
+.grid.two-cols {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--stack-lg);
+  margin-bottom: var(--stack-lg);
+}
+.dryrun-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.dryrun-table th,
+.dryrun-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+  vertical-align: top;
+}
+.dryrun-table td:first-child {
+  width: 38%;
+  color: var(--color-text-secondary);
+  font-size: 0.82rem;
+}
+.card {
+  margin-bottom: var(--stack-lg);
+}
+.flex { display: flex; }
+.flex.gap-md { gap: var(--stack-md); }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+@media (max-width: 820px) {
+  .grid.two-cols { grid-template-columns: 1fr; }
+}
+</style>
+{% endblock %}

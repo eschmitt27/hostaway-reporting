@@ -1739,3 +1739,18 @@ Resultat   : Tests application Miniconda verts (250 passed, 1 warning Starlette/
 Statut     : OUVERT - EN_ATTENTE_COMMIT_SELECTIF
 Commentaire: Aucun changement metier acompte/taux/modes/cloture ; commit autorise seulement si controles Git et staged restent propres.
 ```
+### CTR-2026-07-04-APP2C-DRYRUN
+
+```
+Date       : 2026-07-04
+Lot        : APP-2c / Lot4A
+Code       : APP2C_PREVISUALISATION_COPIES
+Severite   : INFO
+Fichiers   : 05_APPLICATION/app, 05_APPLICATION/tests, cadrage APP-2c
+Resultat   : Tests application Miniconda verts (261 passed, 1 warning Starlette/httpx).
+             Tests Lot4A cibles py -3 + PYTHONPATH Miniconda verts (53 passed, 21 subtests).
+             APP-2c simule l'enregistrement HH sur copies isolees, produit un manifest hashe,
+             execute Lot4A sur copie et affiche un comparatif avant/apres sans ecriture reelle.
+Statut     : OUVERT - EN_ATTENTE_COMMIT_SELECTIF
+Commentaire: Aucun fichier Excel reel ne doit etre modifie ; `HH_REAL_WRITE_ENABLED=False` reste obligatoire.
+```

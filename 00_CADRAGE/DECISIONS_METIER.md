@@ -1112,3 +1112,18 @@ Décisions validées :
 - Lot4A reçoit uniquement `taux_commission_override` en décimal canonique entre 0 et 1 inclus. Toute valeur confirmée hors bornes bloque explicitement ; aucune division implicite par 100 ni heuristique `override > 1` n'est autorisée.
 - Le writer futur et la colonne cible SAISIE HH ne doivent jamais persister le pourcentage brut navigateur.
 - `HH_REAL_WRITE_ENABLED` reste `False` et aucun fichier Excel réel n'est modifié par REV3.
+
+### D-APP-2C - Previsualisation complete sur copies avant activation d'ecriture reelle
+
+**Date** : 2026-07-04
+**Statut** : VALIDE
+**Perimetre** : APP-2c, saisie HH, migration de schema sur copie, Lot4A dry-run.
+
+Decisions validees :
+- Apres validation APP-2b, l'utilisateur passe par `Previsualiser l'enregistrement` avant toute activation future d'ecriture reelle.
+- APP-2c execute le scenario de bout en bout sur copies isolees : payload canonique, copie de SAISIE HH, copie REF_Setup si necessaire, migration cible sur copie, injection simulee, execution Lot4A sur copie, controles de coherence et resume avant/apres.
+- Les resultats affiches proviennent du backend et de Lot4A, jamais d'une estimation JavaScript.
+- Le dossier dry-run applicatif contient un sous-dossier unique avec `manifest.json`, `SAISIE_ReservationsHorsHostaway_copie.xlsx`, `REF_Setup_copie.xlsm`, `MASTER_FACT_MAN_ReservationsHorsHostaway_simule.xlsx` et `resultat_lot4a.json`.
+- Le manifest trace l'horodatage UTC, l'identifiant de simulation, les hashes des sources lues, les hashes des copies, le resume du payload, le statut et les erreurs.
+- La simulation ne contourne pas `HH_REAL_WRITE_ENABLED=False` : le writer reel reste garde et l'ecran APP-2c ne propose aucun bouton de sauvegarde reelle.
+- L'activation de l'ecriture reelle reste une etape separee, necessitant migration controlee du classeur source reel, validation humaine et controles aval.

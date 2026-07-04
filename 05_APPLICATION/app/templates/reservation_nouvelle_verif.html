@@ -149,17 +149,17 @@
 <div class="card" style="background: var(--color-bg-subtle); margin-bottom: var(--stack-lg); padding: var(--stack-md);">
   <p class="text-sm text-secondary">
     <strong>Attention :</strong> La garde d'écriture <code>HH_REAL_WRITE_ENABLED = False</code> est active.
-    La confirmation enregistrera l'événement dans le journal SQLite mais n'écrira <strong>pas</strong>
+    La prochaine étape exécute une simulation complète sur copies temporaires. Elle n'écrit <strong>pas</strong>
     dans <code>SAISIE_ReservationsHorsHostaway.xlsx</code>.
   </p>
 </div>
 
-<form method="post" action="/reservations/nouvelle/confirmer">
+<form method="post" action="/reservations/nouvelle/previsualiser">
   {% for key, value in form_data.items() %}
   <input type="hidden" name="{{ key }}" value="{{ value }}">
   {% endfor %}
   <div class="flex gap-md">
-    <button type="submit" class="btn btn-primary">Confirmer (mode dev — aucune écriture réelle)</button>
+    <button type="submit" class="btn btn-primary">Prévisualiser l'enregistrement</button>
     <a href="/reservations/nouvelle" class="btn btn-secondary">Modifier</a>
     <a href="/reservations" class="btn btn-secondary">Annuler</a>
   </div>
