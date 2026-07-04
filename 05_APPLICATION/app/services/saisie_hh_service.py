@@ -653,8 +653,8 @@ def valider(
             cloture_row = get_cloture_mois(mois, ref_setup_path=p_ref)
             if cloture_row is None:
                 err("date_arrivee", "MOIS_HORS_REFERENTIEL_CLOTURE",
-                    f"Mois {mois} absent de REF_Cloture_Mensuelle dans REF_Setup.xlsm "
-                    f"(D10 : ouverture du mois = opération manuelle hors application)")
+                    "Le mois sélectionné n'est pas ouvert dans le référentiel de clôture. "
+                    "Un commentaire ne permet pas de créer une réservation sur un mois non ouvert.")
             elif str(cloture_row.get("statut_mois", "")).strip().upper() == "CLOTURE":
                 err("date_arrivee", "MOIS_CLOTURE",
                     f"Mois {mois} clôturé (statut = CLOTURE)")
@@ -783,7 +783,7 @@ def valider(
     taux_auto: Decimal | None = None
     taux_auto_source = ""
     taux_override: Decimal | None = None
-    taux_override_requested = any((taux_override_pct_raw, taux_override_motif, taux_override_conf))
+    taux_override_requested = bool(taux_override_pct_raw)
     if logement_id and proprietaire_id and date_arrivee:
         try:
             taux_result = resolve_taux_commission(
@@ -826,11 +826,14 @@ def valider(
                 if taux_override_conf.lower() not in ("1", "true", "on", "oui"):
                     err("confirmation_override_taux_commission", "CONFIRMATION_OVERRIDE_TAUX_MANQUANTE",
                         "Confirmation obligatoire pour derogation de taux")
+    else:
+        taux_override_motif = ""
+        taux_override_conf = ""
 
     menage_standard: Decimal | None = None
     menage_standard_source = ""
     menage_override: Decimal | None = None
-    menage_override_requested = any((menage_override_raw, menage_override_motif, menage_override_conf))
+    menage_override_requested = bool(menage_override_raw)
     if logement_id and date_arrivee:
         try:
             menage_result = resolve_prix_menage_standard(
@@ -869,6 +872,9 @@ def valider(
                 if menage_override_conf.lower() not in ("1", "true", "on", "oui"):
                     err("confirmation_override_menage", "CONFIRMATION_OVERRIDE_MENAGE_MANQUANTE",
                         "Confirmation obligatoire pour derogation de menage")
+    else:
+        menage_override_motif = ""
+        menage_override_conf = ""
     menage = menage_override if menage_override is not None else menage_standard
 
     try:

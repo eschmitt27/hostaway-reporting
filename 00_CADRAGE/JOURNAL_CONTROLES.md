@@ -1721,3 +1721,21 @@ Resultat   : Tests application Miniconda verts (243 passed, 1 warning Starlette/
 Statut     : OUVERT - EN_ATTENTE_COMMIT_SELECTIF
 Commentaire: Commit autorise seulement si git diff --check, hashes Excel et controle staged restent verts.
 ```
+
+### CTR-2026-07-04-APP2B-MODALE-FIX
+
+```
+Date       : 2026-07-04
+Lot        : APP-2b
+Code       : APP2B_FIX_MODALE_DEROGATIONS_PAR_DEFAUT
+Severite   : INFO
+Fichiers   : 05_APPLICATION/app, 05_APPLICATION/tests, cadrage etat/journal
+Resultat   : Tests application Miniconda verts (250 passed, 1 warning Starlette/httpx).
+             Tests Lot4A cibles py -3 + PYTHONPATH Miniconda verts (53 passed, 21 subtests).
+             Correctif d'implementation REV2/REV3 : valeur vide non assimilee a 0,
+             derogation uniquement si panneau ouvert + valeur non vide + difference reelle.
+             Modale opaque au premier plan, scroll interne, sections taux/menage strictement conditionnelles.
+             MOIS_HORS_REFERENTIEL_CLOTURE reste bloquant avec message utilisateur explicite.
+Statut     : OUVERT - EN_ATTENTE_COMMIT_SELECTIF
+Commentaire: Aucun changement metier acompte/taux/modes/cloture ; commit autorise seulement si controles Git et staged restent propres.
+```

@@ -480,6 +480,9 @@ def test_d10_mois_absent_referentiel():
             result = valider(_base_form(), saisie_path=None, ref_setup_path=None)
     codes = {e["code"] for e in result["erreurs"]}
     assert "MOIS_HORS_REFERENTIEL_CLOTURE" in codes
+    message = next(e["message"] for e in result["erreurs"] if e["code"] == "MOIS_HORS_REFERENTIEL_CLOTURE")
+    assert "Le mois sélectionné n'est pas ouvert dans le référentiel de clôture" in message
+    assert "Un commentaire ne permet pas de créer une réservation sur un mois non ouvert" in message
 
 
 # ── D7/D8 — éligibilité logement ─────────────────────────────────────────────
@@ -805,6 +808,18 @@ def test_taux_pct_brut_non_transmis_payload_canonique_seul():
     assert "taux_commission_override_pct" not in result["preview"]
 
 
+def test_taux_override_vide_ne_cree_pas_derogation():
+    result = _valider_no_refs(_base_form(
+        taux_commission_override_pct="",
+        motif_override_taux_commission="Motif fantome",
+        confirmation_override_taux_commission="on",
+    ))
+    assert result["ok"] is True, result["erreurs"]
+    assert result["preview"]["taux_commission_override"] is None
+    assert result["preview"]["motif_override_taux_commission"] is None
+    assert result["preview"]["confirmation_override_taux_commission"] is False
+
+
 def test_menage_standard_pre_rempli_depuis_ref_setup():
     result = _valider_no_refs(_base_form())
     assert result["ok"] is True, result["erreurs"]
@@ -817,6 +832,29 @@ def test_menage_derogation_bloquee_sans_motif_confirmation():
     codes = {e["code"] for e in result["erreurs"]}
     assert "MOTIF_OVERRIDE_MENAGE_MANQUANT" in codes
     assert "CONFIRMATION_OVERRIDE_MENAGE_MANQUANTE" in codes
+
+
+def test_menage_override_vide_ne_cree_pas_derogation_ni_erreur():
+    result = _valider_no_refs(_base_form(
+        menage_override="",
+        motif_override_menage="Motif fantome",
+        confirmation_override_menage="on",
+    ))
+    codes = {e["code"] for e in result["erreurs"]}
+    assert result["ok"] is True, result["erreurs"]
+    assert "MENAGE_OVERRIDE_INVALIDE" not in codes
+    assert result["preview"]["menage_override"] is None
+    assert result["preview"]["motif_override_menage"] is None
+    assert result["preview"]["confirmation_override_menage"] is False
+
+
+def test_valeurs_automatiques_sans_justification_passent():
+    result = _valider_no_refs(_base_form())
+    assert result["ok"] is True, result["erreurs"]
+    assert result["preview"]["taux_commission_override"] is None
+    assert result["preview"]["menage_override"] is None
+    assert result["preview"]["motif_override_taux_commission"] is None
+    assert result["preview"]["motif_override_menage"] is None
 
 
 def test_menage_derogation_identique_standard_ignoree_sans_motif_confirmation():

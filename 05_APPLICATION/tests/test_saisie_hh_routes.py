@@ -318,6 +318,53 @@ def test_get_nouvelle_derogations_modale_sans_bloc_jaune_ni_checkbox(client):
     assert "Motif obligatoire pour la derogation de menage" in resp.text
 
 
+def test_get_nouvelle_parse_number_vide_ne_vaut_pas_zero(client):
+    with _patch_refs():
+        resp = client.get("/reservations/nouvelle")
+    assert "function parseNumber(value)" in resp.text
+    assert "const raw = String(value ?? \"\")" in resp.text
+    assert "if (!raw) {" in resp.text
+    assert "return null;" in resp.text
+    assert 'Number(String(value || "")' not in resp.text
+
+
+def test_get_nouvelle_derogation_requise_seulement_si_panneau_ouvert_et_valeur(client):
+    with _patch_refs():
+        resp = client.get("/reservations/nouvelle")
+    assert "function isOverrideRequested(editPanel, field, automaticValue)" in resp.text
+    assert "if (editPanel.hidden || !raw)" in resp.text
+    assert "taux: isOverrideRequested(tauxDerogationInfo, tauxOverride, tauxAuto)" in resp.text
+    assert "menage: isOverrideRequested(menageDerogationInfo, menageOverride, menageAuto)" in resp.text
+    assert "modalTaux.hidden = !state.taux" in resp.text
+    assert "modalMenage.hidden = !state.menage" in resp.text
+    assert "clearOverride(tauxOverride, tauxOverrideMotif, tauxOverrideConf)" in resp.text
+    assert "clearOverride(menageOverride, menageOverrideMotif, menageOverrideConf)" in resp.text
+
+
+def test_get_nouvelle_reset_taux_et_menage_independants(client):
+    with _patch_refs():
+        resp = client.get("/reservations/nouvelle")
+    assert "resetOverride(tauxDerogationInfo, tauxOverride, tauxOverrideMotif, tauxOverrideConf)" in resp.text
+    assert "resetOverride(menageDerogationInfo, menageOverride, menageOverrideMotif, menageOverrideConf)" in resp.text
+    assert "editPanel.hidden = true" in resp.text
+
+
+def test_get_nouvelle_modale_css_opaque_zindex_scroll(client):
+    with _patch_refs():
+        resp = client.get("/reservations/nouvelle")
+    assert "z-index: 2147483647" in resp.text
+    assert "background: rgba(0, 0, 0, 0.45)" in resp.text
+    assert "background: #ffffff" in resp.text
+    assert "opacity: 1" in resp.text
+    assert "max-height: calc(100vh - 48px)" in resp.text
+    assert "overflow-y: auto" in resp.text
+    assert "isolation: isolate" in resp.text
+    assert "width: min(560px, 100%)" in resp.text
+    assert ".modal-section textarea" in resp.text
+    assert "width: 100%" in resp.text
+    assert resp.text.index("</form>") < resp.text.index('<div id="override_modal"')
+
+
 def test_get_nouvelle_modale_annulation_ne_soumet_pas(client):
     with _patch_refs():
         resp = client.get("/reservations/nouvelle")

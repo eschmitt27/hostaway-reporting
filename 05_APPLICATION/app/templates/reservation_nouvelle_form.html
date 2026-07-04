@@ -441,29 +441,55 @@
   }
 
   function formatPercent(value) {
-    const raw = Number(String(value || "").replace(",", "."));
+    const text = String(value ?? "").trim();
+    if (!text) {
+      return "";
+    }
+    const raw = Number(text.replace(",", "."));
     if (!Number.isFinite(raw)) {
-      return String(value || "");
+      return text;
     }
     const pct = raw <= 1 ? raw * 100 : raw;
     return `${pct.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} %`;
   }
 
   function formatMoney(value) {
-    const raw = Number(String(value || "").replace(",", "."));
+    const text = String(value ?? "").trim();
+    if (!text) {
+      return "";
+    }
+    const raw = Number(text.replace(",", "."));
     if (!Number.isFinite(raw)) {
-      return String(value || "");
+      return text;
     }
     return `${raw.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} EUR`;
   }
 
   function parseNumber(value) {
-    const raw = Number(String(value || "").replace(",", ".").replace(/\s/g, ""));
-    return Number.isFinite(raw) ? raw : null;
+    const raw = String(value ?? "")
+      .trim()
+      .replace(",", ".")
+      .replace(/\s/g, "");
+    if (!raw) {
+      return null;
+    }
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : null;
   }
 
   function sameNumber(a, b) {
     return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < 0.000001;
+  }
+
+  function isOverrideRequested(editPanel, field, automaticValue) {
+    const raw = String(field.value ?? "").trim();
+    if (editPanel.hidden || !raw) {
+      return false;
+    }
+    const asked = parseNumber(raw);
+    return asked !== null
+      && automaticValue !== null
+      && !sameNumber(asked, automaticValue);
   }
 
   function tauxActive(row) {
@@ -550,23 +576,17 @@
   function updateDerogations() {
     const tauxAuto = parseNumber(tauxMessage.dataset.autoPercent);
     const tauxAsked = parseNumber(tauxOverride.value);
-    if (tauxAsked !== null && tauxAuto !== null && sameNumber(tauxAsked, tauxAuto)) {
-      tauxOverrideMotif.value = "";
-      tauxOverrideConf.value = "";
-      tauxOverride.dataset.confirmedValue = "";
-      tauxOverride.dataset.confirmedAuto = "";
-      tauxOverride.dataset.confirmedMotif = "";
-      tauxOverride.value = "";
+    if (tauxDerogationInfo.hidden) {
+      clearOverride(tauxOverride, tauxOverrideMotif, tauxOverrideConf);
+    } else if (tauxAsked !== null && tauxAuto !== null && sameNumber(tauxAsked, tauxAuto)) {
+      clearOverride(tauxOverride, tauxOverrideMotif, tauxOverrideConf);
     }
     const menageAuto = parseNumber(menageHidden.dataset.standard);
     const menageAsked = parseNumber(menageOverride.value);
-    if (menageAsked !== null && menageAuto !== null && sameNumber(menageAsked, menageAuto)) {
-      menageOverrideMotif.value = "";
-      menageOverrideConf.value = "";
-      menageOverride.dataset.confirmedValue = "";
-      menageOverride.dataset.confirmedAuto = "";
-      menageOverride.dataset.confirmedMotif = "";
-      menageOverride.value = "";
+    if (menageDerogationInfo.hidden) {
+      clearOverride(menageOverride, menageOverrideMotif, menageOverrideConf);
+    } else if (menageAsked !== null && menageAuto !== null && sameNumber(menageAsked, menageAuto)) {
+      clearOverride(menageOverride, menageOverrideMotif, menageOverrideConf);
     }
     tauxOverride.required = false;
     menageOverride.required = false;
@@ -609,10 +629,10 @@
     const menageAuto = parseNumber(menageHidden.dataset.standard);
     const menageAsked = parseNumber(menageOverride.value);
     return {
-      taux: tauxAsked !== null && tauxAuto !== null && !sameNumber(tauxAsked, tauxAuto),
+      taux: isOverrideRequested(tauxDerogationInfo, tauxOverride, tauxAuto),
       tauxAuto,
       tauxAsked,
-      menage: menageAsked !== null && menageAuto !== null && !sameNumber(menageAsked, menageAuto),
+      menage: isOverrideRequested(menageDerogationInfo, menageOverride, menageAuto),
       menageAuto,
       menageAsked,
     };
@@ -650,13 +670,18 @@
     modalCancel.focus();
   }
 
-  function resetOverride(field, motif, confirmation) {
+  function clearOverride(field, motif, confirmation) {
     field.value = "";
     field.dataset.confirmedValue = "";
     field.dataset.confirmedAuto = "";
     field.dataset.confirmedMotif = "";
     motif.value = "";
     confirmation.value = "";
+  }
+
+  function resetOverride(editPanel, field, motif, confirmation) {
+    clearOverride(field, motif, confirmation);
+    editPanel.hidden = true;
   }
 
   function markOverrideEdited(field, motif, confirmation) {
@@ -675,7 +700,7 @@
     updateDerogations();
   });
   tauxDerogationReset.addEventListener("click", () => {
-    resetOverride(tauxOverride, tauxOverrideMotif, tauxOverrideConf);
+    resetOverride(tauxDerogationInfo, tauxOverride, tauxOverrideMotif, tauxOverrideConf);
   });
   menageDerogationToggle.addEventListener("click", () => {
     menageDerogationInfo.hidden = false;
@@ -683,7 +708,7 @@
     updateDerogations();
   });
   menageDerogationReset.addEventListener("click", () => {
-    resetOverride(menageOverride, menageOverrideMotif, menageOverrideConf);
+    resetOverride(menageDerogationInfo, menageOverride, menageOverrideMotif, menageOverrideConf);
   });
   tauxOverride.addEventListener("input", () => markOverrideEdited(tauxOverride, tauxOverrideMotif, tauxOverrideConf));
   menageOverride.addEventListener("input", () => markOverrideEdited(menageOverride, menageOverrideMotif, menageOverrideConf));
@@ -770,17 +795,40 @@
 .override-edit { display: grid; grid-template-columns: minmax(120px, 1fr) auto; gap: 6px; align-items: end; }
 .override-edit label, .override-edit .form-help { grid-column: 1 / -1; }
 .modal-backdrop {
-  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-  background: rgba(0, 0, 0, 0.35); z-index: 1000; padding: var(--stack-md);
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.45);
 }
 .modal-panel {
-  width: min(560px, 100%); background: var(--color-bg); border: 1px solid var(--color-border);
-  border-radius: 6px; padding: var(--stack-lg); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  position: relative;
+  z-index: 1;
+  isolation: isolate;
+  width: min(560px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  background: #ffffff;
+  opacity: 1;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 24px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
 }
 .modal-panel h2 { margin-top: 0; font-size: 1.15rem; }
-.modal-section { display: flex; flex-direction: column; gap: 6px; margin-bottom: var(--stack-md); }
+.modal-section { display: block; margin: 0 0 20px; }
 .modal-section h3 { font-size: 0.95rem; margin: 0; }
-.modal-section p { margin: 0; }
+.modal-section p { margin: 6px 0; }
+.modal-section textarea {
+  display: block;
+  width: 100%;
+  min-height: 76px;
+  box-sizing: border-box;
+}
 .modal-actions { display: flex; gap: var(--stack-md); justify-content: flex-end; }
 .readonly-info {
   padding: 6px 10px; border: 1px solid var(--color-border); border-radius: 4px;

@@ -962,3 +962,21 @@ Contrôles requis avant commit :
 - `git diff --check` ;
 - hash des fichiers Excel réels inchangé ;
 - staging sélectif REV3 uniquement.
+
+## Note d'état - correctif modale APP-2b post-REV3 (2026-07-04)
+
+Statut : correctif d'implémentation REV2/REV3 en cours de contrôle avant commit sélectif.
+
+Éléments corrigés :
+- une valeur vide de dérogation n'est plus interprétée comme `0` côté navigateur ;
+- une dérogation existe seulement si le panneau `Modifier` concerné est ouvert, si une valeur non vide est saisie et si elle diffère de la valeur automatique ;
+- les boutons `Réinitialiser` vident uniquement la dérogation concernée et referment son panneau ;
+- la modale de confirmation est opaque, isolée au premier plan et lisible avec scroll interne ;
+- les champs override vides ou les motifs/confirmations isolés sont ignorés côté backend ;
+- le message `MOIS_HORS_REFERENTIEL_CLOTURE` reste bloquant et précise qu'un commentaire ne permet pas de créer une réservation sur un mois non ouvert.
+
+Contrôles requis avant commit :
+- tests application APP-2b Miniconda ;
+- tests Lot4A ciblés avec dépendances NumPy/pandas ;
+- `git diff --check` ;
+- staging sélectif du correctif uniquement.
