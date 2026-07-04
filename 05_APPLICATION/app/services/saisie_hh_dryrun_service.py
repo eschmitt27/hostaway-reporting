@@ -427,6 +427,8 @@ def run_previsualisation(
             "resultat_lot4a": str(result_lot4a_path),
         },
         "payload_summary": _payload_summary(preview),
+        "payload_canonique": preview,
+        "form_data": form_data,
         "migration": {
             "saisie_fields_added": added_fields,
             "ref_direct_proprietaire_added": ref_migrated,

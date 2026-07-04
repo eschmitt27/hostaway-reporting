@@ -1770,3 +1770,21 @@ Resultat   : Tests application Miniconda verts (268 passed, 1 warning Starlette/
 Statut     : OUVERT - EN_ATTENTE_COMMIT_SELECTIF
 Commentaire: Correctif technique post APP-2c ; aucune regle metier APP-2b/APP-2c modifiee.
 ```
+
+### CTR-2026-07-04-APP2D-ECRITURE-REELLE
+
+```
+Date       : 2026-07-04
+Lot        : APP-2d
+Code       : APP2D_ECRITURE_REELLE_CONTROLEE
+Severite   : INFO
+Fichiers   : 05_APPLICATION/app, 05_APPLICATION/tests, cadrage APP-2d
+Resultat   : APP-2d prepare l'activation reelle sans l'executer.
+             Double flag obligatoire : HH_REAL_WRITE_ENABLED et HH_REAL_WRITE_CONFIRMATION_ENABLED.
+             Ecriture autorisee seulement depuis une simulation APP-2c recente, OK, Lot4A terminee,
+             hashes sources inchanges, PK absente, mois ouvert et schema reel deja prepare.
+             Confirmation humaine exacte requise : ENREGISTRER RESHH-AAAA-MM-NNN.
+             Rollback APP-2d hashé en cas d'erreur apres debut d'ecriture.
+Statut     : OUVERT - EN_ATTENTE_COMMIT_SELECTIF
+Commentaire: Aucun fichier Excel reel ne doit etre modifie ; migration reelle du schema reste une etape separee.
+```

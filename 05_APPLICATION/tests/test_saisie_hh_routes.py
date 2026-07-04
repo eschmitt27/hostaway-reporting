@@ -480,7 +480,7 @@ def test_post_verifier_validation_ok_affiche_preview(client):
         })
     assert resp.status_code == 200
     assert "RESHH-2026-08-001" in resp.text
-    assert "Prévisualisation" in resp.text
+    assert "Vérification de la réservation" in resp.text
 
 
 def test_post_verifier_validation_ko_affiche_erreurs(client):

@@ -32,6 +32,7 @@ _REF_CLOTURE_OBSOLETE: None = None
 # Écriture SAISIE HH — garde de sécurité (APP-2b).
 # Ne jamais activer implicitement ni par défaut.
 HH_REAL_WRITE_ENABLED = False
+HH_REAL_WRITE_CONFIRMATION_ENABLED = False
 
 # Chemins saisie (écriture atomique uniquement — activée aux lots dédiés)
 SAISIE_ROOT = PROJECT_ROOT / "01_SOURCES_BRUTES"

@@ -107,6 +107,72 @@
   </table>
 </section>
 
+{% set rw = real_write_state or {} %}
+{% set failed_checks = [] %}
+{% if rw.checks %}
+  {% for check in rw.checks %}
+    {% if not check.ok %}
+      {% set _ = failed_checks.append(check) %}
+    {% endif %}
+  {% endfor %}
+{% endif %}
+<section class="card real-write-card" data-testid="real-write-panel">
+  <h2>Écriture réelle</h2>
+  {% if real_write_result %}
+    {% if real_write_result.statut == "OK" %}
+    <div class="alert alert-success" data-real-write-result="OK">
+      Réservation enregistrée réellement : <code>{{ real_write_result.pk }}</code>
+    </div>
+    {% elif real_write_result.statut == "ECRITURE_REELLE_ANNULEE_ET_RESTAUREE" %}
+    <div class="alert alert-warning" data-real-write-result="ROLLBACK">
+      Écriture réelle annulée et restaurée. Rollback : {{ real_write_result.rollback_status }}.
+    </div>
+    {% else %}
+    <div class="alert alert-error" data-real-write-result="{{ real_write_result.statut }}">
+      Écriture réelle refusée : {{ real_write_result.details }}
+    </div>
+    {% endif %}
+  {% endif %}
+
+  {% if not rw.eligible %}
+  <div class="alert alert-warning" data-testid="real-write-disabled">
+    <strong>Écriture réelle désactivée.</strong><br>
+    La simulation est valide, mais aucune réservation ne peut être enregistrée dans le fichier source.
+  </div>
+  {% if failed_checks %}
+  <p class="text-sm text-secondary">Prérequis invalides :</p>
+  <ul class="real-write-checks">
+    {% for check in failed_checks %}
+    <li data-check-code="{{ check.code }}">
+      <strong>{{ check.code }}</strong> — {{ check.label }}{% if check.details %} : {{ check.details }}{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% else %}
+  <div class="alert alert-warning">
+    Tous les prérequis techniques sont valides. Une confirmation humaine exacte reste obligatoire.
+  </div>
+  <button type="button" id="real_write_open" class="btn btn-danger">Enregistrer réellement</button>
+  <div id="real_write_modal" class="real-write-modal-backdrop" hidden>
+    <div class="real-write-modal-panel" role="dialog" aria-modal="true" aria-labelledby="real_write_modal_title">
+      <h3 id="real_write_modal_title">Confirmation d'écriture réelle</h3>
+      <p>Vous allez enregistrer réellement la réservation <strong>{{ rw.pk }}</strong>.</p>
+      <p>Cette action modifiera <code>SAISIE_ReservationsHorsHostaway.xlsx</code>. Une sauvegarde sera créée avant écriture.</p>
+      <p>Pour confirmer, saisissez exactement :</p>
+      <p><code id="real_write_expected">{{ rw.expected_confirmation }}</code></p>
+      <form method="post" action="/reservations/nouvelle/previsualisation/{{ token }}/enregistrer">
+        <label for="confirmation_texte">Texte de confirmation</label>
+        <input id="confirmation_texte" name="confirmation_texte" type="text" autocomplete="off">
+        <div class="flex gap-md real-write-actions">
+          <button type="button" id="real_write_cancel" class="btn btn-secondary">Annuler</button>
+          <button type="submit" id="real_write_submit" class="btn btn-danger" disabled>Confirmer l'écriture réelle</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+</section>
 <div class="flex gap-md">
   <a href="/reservations/nouvelle" class="btn btn-primary">Nouvelle saisie</a>
   <a href="/reservations" class="btn btn-secondary">Retour à la liste</a>
@@ -140,6 +206,28 @@
 .card {
   margin-bottom: var(--stack-lg);
 }
+.real-write-checks { margin: var(--stack-sm) 0 0 var(--stack-lg); }
+.real-write-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.45);
+}
+.real-write-modal-panel {
+  width: min(560px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  background: #ffffff;
+  padding: 24px;
+  border-radius: 8px;
+}
+.real-write-modal-panel input { display: block; width: 100%; box-sizing: border-box; margin: 8px 0 16px; }
+.real-write-actions { justify-content: flex-end; }
 .flex { display: flex; }
 .flex.gap-md { gap: var(--stack-md); }
 .items-center { align-items: center; }
@@ -148,4 +236,28 @@
   .grid.two-cols { grid-template-columns: 1fr; }
 }
 </style>
+<script>
+  (() => {
+    const openButton = document.getElementById("real_write_open");
+    const modal = document.getElementById("real_write_modal");
+    if (!openButton || !modal) return;
+    const cancelButton = document.getElementById("real_write_cancel");
+    const input = document.getElementById("confirmation_texte");
+    const submit = document.getElementById("real_write_submit");
+    const expected = document.getElementById("real_write_expected").textContent;
+    function refresh() {
+      submit.disabled = input.value !== expected;
+    }
+    openButton.addEventListener("click", () => {
+      modal.hidden = false;
+      input.value = "";
+      refresh();
+      cancelButton.focus();
+    });
+    cancelButton.addEventListener("click", () => {
+      modal.hidden = true;
+    });
+    input.addEventListener("input", refresh);
+  })();
+</script>
 {% endblock %}

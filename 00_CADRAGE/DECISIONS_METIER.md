@@ -1127,3 +1127,20 @@ Decisions validees :
 - Le manifest trace l'horodatage UTC, l'identifiant de simulation, les hashes des sources lues, les hashes des copies, le resume du payload, le statut et les erreurs.
 - La simulation ne contourne pas `HH_REAL_WRITE_ENABLED=False` : le writer reel reste garde et l'ecran APP-2c ne propose aucun bouton de sauvegarde reelle.
 - L'activation de l'ecriture reelle reste une etape separee, necessitant migration controlee du classeur source reel, validation humaine et controles aval.
+
+### D-APP-2D - Activation controlee de l'ecriture reelle HH
+
+**Date** : 2026-07-04
+**Statut** : VALIDE
+**Perimetre** : APP-2d, activation preparee de l'ecriture reelle des reservations hors Hostaway.
+
+Decisions validees :
+- L'ecriture reelle reste desactivee par defaut. Deux flags independants sont obligatoires : `HH_REAL_WRITE_ENABLED=True` et `HH_REAL_WRITE_CONFIRMATION_ENABLED=True`. Aucun ecran applicatif ne permet de modifier ces flags.
+- Une ecriture reelle ne peut etre tentee qu'a partir d'une simulation APP-2c recente, agee de moins de 30 minutes, au statut `OK`, avec `lot4a_status = ANALYSE_TERMINEE`, sans erreur bloquante.
+- Les hashes reels de `REF_Setup.xlsm` et `SAISIE_ReservationsHorsHostaway.xlsx` doivent etre strictement identiques aux hashes sources conserves dans le manifest APP-2c.
+- La reservation simulee ne doit pas deja exister dans SAISIE HH, le mois doit rester `OUVERT` dans `REF_Cloture_Mensuelle`, et le schema reel doit deja contenir les champs cibles requis.
+- APP-2d ne migre jamais le fichier reel. Si des colonnes cibles SAISIE ou le mode `PAY_006 / DIRECT_PROPRIETAIRE` manquent, le diagnostic `SCHEMA_REEL_NON_PREPARE` bloque l'ecriture.
+- Avant toute ecriture, une copie de rollback est creee. Toute erreur apres debut d'ecriture restaure automatiquement cette copie et journalise `ECRITURE_REELLE_ANNULEE_ET_RESTAUREE` avec hashes avant/apres.
+- Apres ecriture, Lot4A est execute sur une copie post-ecriture pour verifier que la reservation apparait avec les memes calculs que la simulation.
+- Meme avec tous les prerequis valides, l'utilisateur doit saisir exactement `ENREGISTRER RESHH-AAAA-MM-NNN` dans une confirmation finale.
+- Aucune ecriture reelle n'est realisee pendant APP-2d ; les tests d'ecriture utilisent uniquement des copies temporaires.

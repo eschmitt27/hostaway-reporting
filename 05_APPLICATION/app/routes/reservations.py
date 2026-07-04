@@ -6,6 +6,7 @@ from app.config import TEMPLATES_DIR
 from app.services import reservations_hh_service as svc
 from app.services import saisie_hh_service as saisie_svc
 from app.services import saisie_hh_dryrun_service as dryrun_svc
+from app.services import saisie_hh_real_write_service as real_write_svc
 from app.services import saisie_hh_orchestrator as hh_orchestrator
 
 router = APIRouter()
@@ -188,10 +189,32 @@ def reservation_nouvelle_previsualisation(request: Request, token: str):
             {"active_menu": "reservations", "dryrun": None, "token": token},
             status_code=404,
         )
+    real_write_state = real_write_svc.evaluate_real_write_prerequisites(token)
     return templates.TemplateResponse(request, "reservation_nouvelle_previsualisation.html", {
         "active_menu": "reservations",
         "dryrun": dryrun,
         "token": token,
+        "real_write_state": real_write_state,
+        "real_write_result": None,
+    })
+
+
+@router.post("/reservations/nouvelle/previsualisation/{token}/enregistrer", response_class=HTMLResponse)
+async def reservation_nouvelle_ecriture_reelle(request: Request, token: str):
+    form_data = await request.form()
+    confirmation = str(form_data.get("confirmation_texte", ""))
+    result = real_write_svc.enregistrer_reservation_hh_reelle(token, confirmation)
+    try:
+        dryrun = dryrun_svc.load_previsualisation(token)
+    except dryrun_svc.DryRunError:
+        dryrun = None
+    real_write_state = real_write_svc.evaluate_real_write_prerequisites(token) if dryrun else None
+    return templates.TemplateResponse(request, "reservation_nouvelle_previsualisation.html", {
+        "active_menu": "reservations",
+        "dryrun": dryrun,
+        "token": token,
+        "real_write_state": real_write_state,
+        "real_write_result": result,
     })
 
 

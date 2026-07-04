@@ -1018,3 +1018,24 @@ Controles requis avant commit :
 - hash des Excel reels inchanges ;
 - `git diff --check` vert ;
 - staging selectif du correctif uniquement.
+
+## Note d'etat - APP-2d ecriture reelle controlee (2026-07-04)
+
+Statut : implementation de la barriere d'activation reelle en cours de controle avant commit selectif.
+
+Elements APP-2d :
+- ajout du flag `HH_REAL_WRITE_CONFIRMATION_ENABLED=False` en plus de `HH_REAL_WRITE_ENABLED=False` ;
+- affichage sur l'ecran APP-2c des prerequis invalides pour une ecriture reelle ;
+- refus si simulation APP-2c absente, expiree, non OK, Lot4A non termine, hashes sources divergents, PK deja presente, mois non ouvert, schema reel non prepare ou flags inactifs ;
+- aucune route ne permet d'activer les flags ;
+- confirmation humaine finale par texte exact `ENREGISTRER RESHH-AAAA-MM-NNN` ;
+- snapshot APP-2d avant orchestration, rollback automatique et verification de hash restaure en cas d'erreur apres debut d'ecriture ;
+- execution Lot4A post-ecriture sur copie uniquement pour comparer la reservation reelle aux calculs simules ;
+- aucune migration automatique ni ecriture reelle realisee pendant APP-2d.
+
+Controles requis avant commit :
+- tests application APP complets Miniconda ;
+- tests Lot4A cibles py -3 ;
+- hashes des fichiers Excel reels inchanges avant/apres ;
+- `git diff --check` vert ;
+- staging selectif APP-2d uniquement, sans dryruns ni `.pytest_tmp*`.

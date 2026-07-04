@@ -1605,3 +1605,24 @@ Contraintes appliquees :
 - le manifest APP-2c porte les informations moteur et le statut de cache des formules Excel.
 
 Formules Excel : openpyxl ne recalcule pas les formules, il ne fait que poser `fullCalcOnLoad`. APP-2c controle la presence des formules critiques et trace l'absence eventuelle de cache Excel. Lot4A reste certifiable sans recalcul Excel car il recalcule en Python les champs derives qu'il publie dans le MASTER (`ROW_HASH`, `mois`, `nuits`, taux, commission, acompte, impacts).
+
+### Note APP-2d - ecriture reelle controlee et reversible (2026-07-04)
+
+APP-2d ajoute une couche d'activation au-dessus du dry-run APP-2c et de l'orchestrateur APP-2b. L'ecriture reelle reste impossible tant que `HH_REAL_WRITE_ENABLED` et `HH_REAL_WRITE_CONFIRMATION_ENABLED` ne sont pas tous deux explicitement actives par configuration.
+
+Prerequis techniques controles avant appel du writer :
+- simulation APP-2c presente, `OK`, agee de moins de 30 minutes ;
+- `lot4a_status = ANALYSE_TERMINEE` et aucune anomalie bloquante dans le manifest ;
+- hashes reels de REF_Setup et SAISIE strictement egaux aux hashes sources du manifest ;
+- PK HH toujours absente du fichier reel ;
+- mois de `date_arrivee` toujours `OUVERT` dans `REF_Cloture_Mensuelle` ;
+- schema reel deja prepare : champs cibles APP-2b/APP-2c presents dans SAISIE et mode `PAY_006 / DIRECT_PROPRIETAIRE` present dans REF ;
+- texte de confirmation humaine exact `ENREGISTRER <reservation_hh_id>`.
+
+Contrat de rollback :
+- APP-2d cree une copie de rollback avant d'appeler l'orchestrateur ;
+- l'orchestrateur conserve ses propres controles atomiques, snapshots, locks et validations structurelles ;
+- toute divergence post-ecriture ou erreur apres debut d'ecriture restaure la copie APP-2d, verifie le hash restaure et journalise le statut ;
+- Lot4A post-ecriture est execute uniquement sur une copie post-ecriture, jamais sur les fichiers source en modification directe.
+
+La migration du schema reel reste une operation separee, manuelle, sauvegardee et validee avant toute premiere activation effective.
