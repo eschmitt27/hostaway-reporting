@@ -1788,3 +1788,20 @@ Resultat   : APP-2d prepare l'activation reelle sans l'executer.
 Statut     : OUVERT - EN_ATTENTE_COMMIT_SELECTIF
 Commentaire: Aucun fichier Excel reel ne doit etre modifie ; migration reelle du schema reste une etape separee.
 ```
+
+### CTR-2026-07-04-APP2E-SCHEMA-RECETTE
+
+```
+Date       : 2026-07-04
+Lot        : APP-2e
+Code       : APP2E_PREPARATION_SCHEMA_RECETTE_COPIES
+Severite   : INFO
+Fichiers   : 05_APPLICATION/app, 05_APPLICATION/tests, 05_APPLICATION/tools, cadrage APP-2e
+Resultat   : APP-2e prepare le diagnostic et la migration future du schema reel sans l'executer.
+             La migration de developpement fonctionne uniquement sur copies et produit un manifest.
+             La recette sur copies controle APP-2c + APP-2d + writer + Lot4A post-ecriture,
+             persiste les champs de derogation et teste le rollback hashe.
+             Les flags HH_REAL_WRITE_ENABLED et HH_REAL_WRITE_CONFIRMATION_ENABLED restent False par defaut.
+Statut     : OUVERT - EN_ATTENTE_COMMIT_SELECTIF
+Commentaire: Aucun fichier Excel reel ne doit etre modifie ; la premiere migration reelle devra etre lancee par commande explicite avec confirmation humaine.
+```

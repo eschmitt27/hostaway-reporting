@@ -39,6 +39,7 @@ from app.readers.saisie_hh_reader import (
     _col_letter,
 )
 from app.services.file_registry import assert_writable
+from app.services.saisie_hh_schema_migration import NEW_SAISIE_FIELDS
 
 SHEET_SAISIE = "SAISIE"
 _LOCK_NAME = "SAISIE_HH_APP2B.lock"
@@ -285,6 +286,14 @@ def _write_row_to_ws(ws: Any, row_data: dict[str, Any], target_row: int) -> None
         if value is None:
             continue
         ws.cell(row=target_row, column=_col_index(col_letter)).value = value
+    headers = {str(cell.value or "").strip(): cell.column for cell in ws[1]}
+    for field_name in NEW_SAISIE_FIELDS:
+        if field_name not in row_data or field_name not in headers:
+            continue
+        value = row_data.get(field_name)
+        if value is None:
+            continue
+        ws.cell(row=target_row, column=headers[field_name]).value = value
 
 
 def _values_match(expected: Any, actual: Any) -> bool:
@@ -298,6 +307,10 @@ def _values_match(expected: Any, actual: Any) -> bool:
         return str(expected) == str(actual)
 
 
+def _blank_equivalent(expected: Any, actual: Any) -> bool:
+    return expected == "" and actual is None
+
+
 def _verify_written(ws: Any, row_data: dict[str, Any], target_row: int) -> list[str]:
     ecarts: list[str] = []
     for col_letter, field_name in MANUAL_COL_MAP.items():
@@ -305,12 +318,24 @@ def _verify_written(ws: Any, row_data: dict[str, Any], target_row: int) -> list[
             continue
         expected = row_data.get(field_name)
         actual = ws.cell(row=target_row, column=_col_index(col_letter)).value
-        if expected is None and actual is None:
+        if (expected is None and actual is None) or _blank_equivalent(expected, actual):
             continue
         if expected is not None and actual is None:
             ecarts.append(f"{col_letter}/{field_name}: attendu {expected!r} écrit None")
         elif not _values_match(expected, actual):
             ecarts.append(f"{col_letter}/{field_name}: attendu {expected!r} lu {actual!r}")
+    headers = {str(cell.value or "").strip(): cell.column for cell in ws[1]}
+    for field_name in NEW_SAISIE_FIELDS:
+        if field_name not in row_data or field_name not in headers:
+            continue
+        expected = row_data.get(field_name)
+        actual = ws.cell(row=target_row, column=headers[field_name]).value
+        if (expected is None and actual is None) or _blank_equivalent(expected, actual):
+            continue
+        if expected is not None and actual is None:
+            ecarts.append(f"{field_name}: attendu {expected!r} écrit None")
+        elif not _values_match(expected, actual):
+            ecarts.append(f"{field_name}: attendu {expected!r} lu {actual!r}")
     return ecarts
 
 
@@ -330,9 +355,13 @@ def _check_cell_delta(
         ws_o = wb_o[SHEET_SAISIE]
         ws_t = wb_t[SHEET_SAISIE]
         max_row = max(ws_o.max_row or 1, ws_t.max_row or 1)
+        headers = {str(cell.value or "").strip(): cell.column for cell in ws_o[1]}
+        allowed_col_indices.update(
+            headers[field] for field in NEW_SAISIE_FIELDS if field in headers
+        )
         max_col = max(ws_o.max_column or 30, ws_t.max_column or 30)
         for row in range(1, min(max_row, 510) + 1):
-            for col in range(1, min(max_col, 35) + 1):
+            for col in range(1, min(max_col, 80) + 1):
                 v_o = ws_o.cell(row=row, column=col).value
                 v_t = ws_t.cell(row=row, column=col).value
                 if v_o == v_t:

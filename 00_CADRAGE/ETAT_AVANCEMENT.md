@@ -1039,3 +1039,23 @@ Controles requis avant commit :
 - hashes des fichiers Excel reels inchanges avant/apres ;
 - `git diff --check` vert ;
 - staging selectif APP-2d uniquement, sans dryruns ni `.pytest_tmp*`.
+
+## Note d'etat - APP-2e preparation schema reel et recette copies (2026-07-04)
+
+Statut : implementation de preparation schema et recette integrale sur copies en cours de controle avant commit selectif.
+
+Elements APP-2e :
+- service de diagnostic idempotent du schema HH reel : colonnes cible SAISIE, mode `PAY_006 / DIRECT_PROPRIETAIRE`, formules critiques, validations, tables, plages nommees, MFC, VBA et hashes ;
+- migration executable sur copies uniquement pendant APP-2e, avec ajout limite aux colonnes manquantes et au mode de paiement cible absent ;
+- commande future `05_APPLICATION/tools/preparer_schema_hh_reel.py --execute` separee de l'interface, protegee par confirmation exacte `MIGRER_SCHEMA_HH_REELLE`, snapshots doubles et rollback des deux classeurs ;
+- propagation des champs de tracabilite derogation depuis `build_row_data()` jusqu'au writer quand les colonnes cible existent ;
+- recette primaire sur copies : APP-2c reelle, APP-2d avec flags patches uniquement en test, writer reel sur copie, Lot4A post-ecriture et comparaison stricte simulation/ecriture ;
+- rollback force sur copie avec hash restaure identique ;
+- aucune modification des fichiers Excel reels et flags par defaut maintenus a `False`.
+
+Controles requis avant commit :
+- tests application APP complets Miniconda ;
+- tests Lot4A cibles py -3 ;
+- hashes des fichiers Excel reels inchanges avant/apres ;
+- `git diff --check` vert ;
+- staging selectif APP-2e uniquement, sans Excel reel, logs, dryruns ni `.pytest_tmp*`.

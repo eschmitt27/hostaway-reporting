@@ -149,6 +149,16 @@
     {% endfor %}
   </ul>
   {% endif %}
+  {% if rw.schema and not rw.schema.ok %}
+  <div class="schema-diagnostic" data-testid="schema-real-diagnostic">
+    <strong>Schéma réel non préparé :</strong>
+    <ul>
+      <li>Colonnes SAISIE manquantes : {{ (rw.schema.missing_saisie_fields or []) | join(", ") if rw.schema.missing_saisie_fields else "aucune" }}</li>
+      <li>Mode de paiement REF manquant : {{ (rw.schema.missing_ref_modes or []) | join(", ") if rw.schema.missing_ref_modes else "aucun" }}</li>
+      <li>Aucune écriture réelle ne sera possible avant migration contrôlée.</li>
+    </ul>
+  </div>
+  {% endif %}
   {% else %}
   <div class="alert alert-warning">
     Tous les prérequis techniques sont valides. Une confirmation humaine exacte reste obligatoire.
@@ -207,6 +217,8 @@
   margin-bottom: var(--stack-lg);
 }
 .real-write-checks { margin: var(--stack-sm) 0 0 var(--stack-lg); }
+.schema-diagnostic { margin-top: var(--stack-md); padding: 12px; border: 1px solid var(--color-border); background: var(--color-bg-subtle); }
+.schema-diagnostic ul { margin: var(--stack-sm) 0 0 var(--stack-lg); }
 .real-write-modal-backdrop {
   position: fixed;
   inset: 0;

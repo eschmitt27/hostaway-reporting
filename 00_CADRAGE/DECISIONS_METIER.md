@@ -1144,3 +1144,19 @@ Decisions validees :
 - Apres ecriture, Lot4A est execute sur une copie post-ecriture pour verifier que la reservation apparait avec les memes calculs que la simulation.
 - Meme avec tous les prerequis valides, l'utilisateur doit saisir exactement `ENREGISTRER RESHH-AAAA-MM-NNN` dans une confirmation finale.
 - Aucune ecriture reelle n'est realisee pendant APP-2d ; les tests d'ecriture utilisent uniquement des copies temporaires.
+
+### D-APP-2E - Preparation schema reel HH et recette integrale sur copies
+
+**Date** : 2026-07-04
+**Statut** : VALIDE
+**Perimetre** : APP-2e, diagnostic schema HH, migration future controlee, recette ecriture reelle sur copies.
+
+Decisions validees :
+- APP-2e prepare la migration du schema reel sans l'executer. Les fichiers reels `REF_Setup.xlsm` et `SAISIE_ReservationsHorsHostaway.xlsx` ne sont pas modifies pendant le developpement ni pendant les tests.
+- Le diagnostic schema HH est idempotent et signale les colonnes cible manquantes dans SAISIE, la presence du mode `PAY_006 / DIRECT_PROPRIETAIRE`, les formules critiques, validations, tables, plages nommees, MFC, VBA et hashes avant operation.
+- La migration de schema sur copies ajoute uniquement les colonnes APP-2b/APP-2c manquantes et le mode `PAY_006 / DIRECT_PROPRIETAIRE` s'il est absent. Elle ne deplace pas les colonnes historiques et n'ecrase jamais les formules critiques B/C/K/N/O/Q/V/Y/Z.
+- La future migration reelle est reservee a une commande locale explicite, avec confirmation exacte `MIGRER_SCHEMA_HH_REELLE`, snapshots des deux classeurs, validation sur temporaires, remplacement atomique et rollback des deux fichiers si un remplacement echoue.
+- Aucune migration reelle n'est lancee depuis l'interface applicative. L'ecran APP-2c/APP-2d affiche seulement le diagnostic `SCHEMA_REEL_NON_PREPARE` et les elements manquants.
+- La recette APP-2e execute sur copies le chemin complet APP-2c puis APP-2d : validation, migration copie, simulation, ecriture controlee sur copie, Lot4A post-ecriture, comparaison stricte simulation/ecriture et rollback force.
+- Les champs de derogation `taux_commission_override`, `motif_override_taux_commission`, `confirmation_override_taux_commission`, `menage_override`, `motif_override_menage`, `confirmation_override_menage` sont propages jusqu'aux colonnes cible lorsqu'elles existent. Les taux `0.005` et `0.00` restent des valeurs tracees et ne sont jamais traites comme vides.
+- `HH_REAL_WRITE_ENABLED=False` et `HH_REAL_WRITE_CONFIRMATION_ENABLED=False` restent les valeurs par defaut. La premiere activation reelle reste une etape separee apres migration reelle controlee et validation humaine.

@@ -170,8 +170,12 @@ def _same_value(left: Any, right: Any) -> bool:
 
 def _compare_lot4a_rows(simulated: dict[str, Any], post: dict[str, Any]) -> list[str]:
     keys = (
-        "reservation_hh_id", "mois", "taux_commission", "commission",
-        "menage", "acompte_facture", "source_acompte_facture",
+        "reservation_hh_id", "mois", "date_arrivee", "date_depart", "nuits",
+        "total_percu", "menage", "taux_commission", "taux_commission_source",
+        "commission", "mode_paiement_id", "montant_recupere",
+        "associe_id_recuperateur", "montant_reverse_proprietaire",
+        "acompte_facture", "source_acompte_facture", "code_impact",
+        "comptabilisation", "taux_commission_override", "menage_override",
     )
     diffs: list[str] = []
     for key in keys:
@@ -325,7 +329,7 @@ def _post_write_lot4a_check(
     simulated = dryrun.get("simulated_master_row") or (dryrun.get("resultat_lot4a") or {}).get("reservation_simulee") or {}
     diffs = _compare_lot4a_rows(simulated, post_row)
     if diffs:
-        raise RuntimeError("DIVERGENCE_LOT4A_POST_ECRITURE: " + "; ".join(diffs))
+        raise RuntimeError("DIVERGENCE_ECRITURE_REELLE_VS_SIMULATION: " + "; ".join(diffs))
     return {"rows": rows, "result": result, "engine": engine, "post_row": post_row, "master_copy": str(master_copy)}
 
 

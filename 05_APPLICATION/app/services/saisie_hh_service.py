@@ -34,6 +34,7 @@ from app.readers.ref_setup_hh_reader import (
     get_couts_standards_menage,
     get_cloture_mois,
 )
+from app.services.saisie_hh_schema_migration import NEW_SAISIE_FIELDS
 
 _MODE_DIRECT_PROPRIETAIRE_ID = "PAY_006"
 _MODE_DIRECT_PROPRIETAIRE_CODE = "DIRECT_PROPRIETAIRE"
@@ -1047,13 +1048,15 @@ def valider(
 
 def build_row_data(preview: dict[str, Any]) -> dict[str, Any]:
     """Filtre la preview → champs manuels SAISIE + forcés. Decimal → float pour openpyxl."""
-    field_names = set(MANUAL_COL_MAP.values())
+    field_names = set(MANUAL_COL_MAP.values()) | set(NEW_SAISIE_FIELDS)
     row: dict[str, Any] = {}
     for k, v in preview.items():
         if k not in field_names:
             continue
         if isinstance(v, Decimal):
             v = float(v)
+        elif isinstance(v, bool):
+            v = "OUI" if v else ""
         row[k] = v
     row.update(FORCED_VALUES)
     return row

@@ -1626,3 +1626,29 @@ Contrat de rollback :
 - Lot4A post-ecriture est execute uniquement sur une copie post-ecriture, jamais sur les fichiers source en modification directe.
 
 La migration du schema reel reste une operation separee, manuelle, sauvegardee et validee avant toute premiere activation effective.
+
+### Note APP-2e - preparation schema reel et recette sur copies (2026-07-04)
+
+APP-2e ajoute un service de preparation distinct pour diagnostiquer et preparer le schema HH sans modifier les classeurs reels.
+
+Fonctions applicatives :
+- `diagnostiquer_schema_hh(...)` lit SAISIE HH et REF_Setup, calcule les hashes et liste les colonnes APP-2b/APP-2c manquantes, le mode `PAY_006 / DIRECT_PROPRIETAIRE`, les feuilles, formules critiques, validations, tables, plages nommees, MFC, protections, liens externes et presence VBA.
+- `preparer_migration_hh_sur_copies(...)` copie les deux classeurs dans un dossier de travail, ajoute uniquement les champs cibles manquants et le mode de paiement cible absent, puis valide la preservation structurelle.
+- `executer_migration_hh_reelle(...)` est reservee a une execution future explicite avec confirmation exacte, snapshots doubles, temporaires valides, remplacement atomique et rollback des deux fichiers.
+
+Commande locale future :
+
+```powershell
+& "C:\Users\Ewan\miniconda3\python.exe" 05_APPLICATION\tools\preparer_schema_hh_reel.py
+& "C:\Users\Ewan\miniconda3\python.exe" 05_APPLICATION\tools\preparer_schema_hh_reel.py --execute
+```
+
+La commande sans option est un diagnostic seul. L'option `--execute` demandera `MIGRER_SCHEMA_HH_REELLE` et ne doit etre utilisee qu'apres sauvegarde et validation humaine.
+
+Propagation cible :
+- `saisie_svc.build_row_data()` inclut les champs de derogation et de source d'acompte.
+- Le writer ecrit ces champs uniquement si les colonnes cible existent dans SAISIE.
+- Une valeur de taux derogatoire `0.005` ou `0.00` est une donnee valide ; elle n'est pas assimilee a une valeur vide.
+- La comparaison APP-2d simulation/ecriture couvre les champs economiques et de tracabilite necessaires, dont `taux_commission_override` et `menage_override`.
+
+Aucune migration reelle automatique n'est exposee dans l'interface. L'ecran de previsualisation affiche seulement le diagnostic schema et continue de bloquer l'ecriture reelle tant que le schema reel n'est pas prepare.

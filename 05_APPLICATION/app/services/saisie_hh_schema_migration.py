@@ -87,11 +87,14 @@ def migrate_ref_setup_copy(path: Path) -> bool:
             raise RuntimeError("REF_Modes_Paiement sans colonne mode_paiement_id")
         for row in range(2, ws.max_row + 1):
             if str(ws.cell(row=row, column=id_col).value or "").strip() == "PAY_006":
+                wb.calculation.fullCalcOnLoad = True
+                wb.save(str(target))
                 return False
         new_row = ws.max_row + 1
         for name, value in DIRECT_PROPRIETAIRE_ROW.items():
             if name in idx:
                 ws.cell(row=new_row, column=idx[name], value=value)
+        wb.calculation.fullCalcOnLoad = True
         wb.save(str(target))
         return True
     finally:
