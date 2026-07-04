@@ -309,3 +309,11 @@ Pas de valeurs libres (`OK`, `Validé`, etc.) dans les fichiers de saisie.
 - Les dérogations de taux et de ménage sont confirmées uniquement dans une modale locale après clic sur `Vérifier avant validation`, avec motif obligatoire, bouton `Annuler` focalisé par défaut et confirmation explicite. Aucun bloc jaune ni case à cocher n'est affiché avant cette étape.
 - Une valeur dérogatoire identique à la valeur automatique est neutralisée et traitée comme absence de dérogation.
 - Les champs associés sont visibles seulement pour `CARTE_ASSOCIEE` et `COMPTE_PERSO_ASSOCIEE`; le reverse propriétaire est visible seulement pour espèces. Les valeurs masquées sont vidées côté navigateur et ignorées côté backend.
+
+### REV3 APP-2b - taux dérogatoire canonique (2026-07-04)
+
+- Le champ visible `taux_commission_override_pct` est un pourcentage utilisateur : `18` signifie 18 %, `0,5` signifie 0,5 %, `0` signifie 0 %.
+- Le payload métier, le writer futur et Lot4A manipulent uniquement `taux_commission_override`, taux décimal canonique entre 0 et 1 inclus : 18 % = `0.18`, 0,5 % = `0.005`, 0 % = `0.00`.
+- `0 %` est une valeur valide. Elle est neutralisée seulement si le taux automatique est déjà 0 %, sinon elle exige motif et confirmation.
+- Lot4A bloque toute valeur confirmée de `taux_commission_override` inférieure à 0 ou supérieure à 1. Aucune heuristique de conversion ni division implicite par 100 n'est autorisée dans le moteur.
+- L'écriture réelle reste désactivée ; aucun fichier Excel réel n'est modifié par REV3.

@@ -132,7 +132,7 @@ class BuildMasterTests(unittest.TestCase):
     def test_override_taux_et_menage_confirmes(self):
         rec = lib.build_master([
             _saisie(
-                taux_commission_override=18,
+                taux_commission_override=0.18,
                 motif_override_taux_commission="Accord",
                 confirmation_override_taux_commission="on",
                 menage_override=70,
@@ -144,6 +144,43 @@ class BuildMasterTests(unittest.TestCase):
         self.assertEqual(rec["taux_commission_source"], "OVERRIDE_CONFIRME")
         self.assertEqual(rec["menage"], 70.0)
         self.assertEqual(rec["menage_override"], 70.0)
+
+    def test_override_taux_decimal_canonique_confirme(self):
+        for override, expected in [
+            (0.18, 0.18),
+            (0.005, 0.005),
+            (0.0, 0.0),
+            (1.0, 1.0),
+        ]:
+            with self.subTest(override=override):
+                rec = lib.build_master([
+                    _saisie(
+                        taux_commission_override=override,
+                        motif_override_taux_commission="Accord",
+                        confirmation_override_taux_commission="on",
+                    )
+                ], TAUX_PROP_0003, self.AS_OF)["master_rows"][0]
+                self.assertEqual(rec["taux_commission"], expected)
+                self.assertEqual(rec["taux_commission_source"], "OVERRIDE_CONFIRME")
+
+    def test_override_taux_decimal_hors_bornes_bloque(self):
+        for override in (1.0001, -0.01):
+            with self.subTest(override=override):
+                res = lib.build_master([
+                    _saisie(
+                        taux_commission_override=override,
+                        motif_override_taux_commission="Accord",
+                        confirmation_override_taux_commission="on",
+                    )
+                ], TAUX_PROP_0003, self.AS_OF)
+                self.assertEqual(res["statut"], "ANALYSE_BLOQUEE_TAUX")
+                self.assertEqual(res["motif_blocage"], "TAUX_OVERRIDE_INVALID")
+                self.assertEqual(res["anomalies_taux"][0]["statut"], "OVERRIDE_INVALID")
+
+    def test_override_taux_aucune_division_implicite_par_100(self):
+        source = (ROOT / "02_TRAVAIL" / "lib_lot4a_reservations_hh.py").read_text(encoding="utf-8")
+        self.assertNotIn("override / 100", source)
+        self.assertNotIn("if override > 1", source)
 
 
 class AtomicWriteTests(unittest.TestCase):

@@ -96,7 +96,7 @@ def build_rows(saisie_list, master_map, taux_rows, formula_check):
         taux_status = rc["taux_status"]
 
         # ligne de controle dediee si taux bloquant
-        if taux_status in ("MISSING", "AMBIGUOUS"):
+        if taux_status != "OK":
             any_taux_block = True
             counters["TAUX_BLOQUANT"] += 1
             lignes.append({

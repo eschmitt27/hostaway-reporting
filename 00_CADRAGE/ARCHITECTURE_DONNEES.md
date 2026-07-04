@@ -1541,7 +1541,7 @@ La saisie APP-2b `SAISIE_ReservationsHorsHostaway.xlsx` conserve temporairement 
 
 | Champ cible | Rôle |
 |---|---|
-| `taux_commission_override` | Taux dérogatoire demandé, en pourcentage utilisateur |
+| `taux_commission_override` | Taux dérogatoire décimal canonique entre 0 et 1 inclus ; exemple : 18 % utilisateur = `0.18` stocké |
 | `motif_override_taux_commission` | Motif obligatoire de dérogation taux |
 | `confirmation_override_taux_commission` | Confirmation explicite de dérogation taux |
 | `menage_override` | Montant ménage dérogatoire demandé |
@@ -1563,3 +1563,11 @@ Règles associées :
 - `source_acompte_facture` prend les valeurs Lot4A `TOTAL_PERCU`, `TOTAL_PERCU_ASSOCIE`, `TOTAL_PERCU_MOINS_REVERSE_ESPECES` ou `DIRECT_PROPRIETAIRE` selon le mode de paiement.
 - Les champs conditionnels masqués par l'interface (`montant_recupere`, `associe_id_recuperateur`, `montant_reverse_proprietaire`) sont aussi nettoyés/ignorés par le service backend quand le mode de paiement ne les autorise pas.
 - REV2 ne modifie aucun fichier Excel réel ; `HH_REAL_WRITE_ENABLED` reste `False`.
+
+### Note APP-2b REV3 - format taux dérogatoire (2026-07-04)
+
+- Formulaire : `taux_commission_override_pct` est le pourcentage utilisateur temporaire, jamais persistant.
+- Service APP-2b : `taux_commission_override_pct` est converti en `Decimal` puis divisé par 100.
+- Preview / orchestrateur / writer futur / colonnes cible SAISIE HH / Lot4A : seul `taux_commission_override` est transmis, au format décimal canonique `[0, 1]`.
+- Lot4A refuse une valeur confirmée hors `[0, 1]` au lieu de tenter une conversion implicite.
+- REV3 ne modifie aucun fichier Excel réel ; `HH_REAL_WRITE_ENABLED` reste `False`.

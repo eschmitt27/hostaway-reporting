@@ -296,7 +296,9 @@ def test_get_nouvelle_affiche_taux_commission_et_derogation_non_persistante(clie
     assert "taux proprietaire" in resp.text
     assert "Modifier le taux" in resp.text
     assert 'id="taux_derogation_reset"' in resp.text
-    assert 'name="taux_commission_override"' in resp.text
+    assert 'for="taux_commission_override_pct">Taux derogatoire (%)' in resp.text
+    assert 'name="taux_commission_override_pct"' in resp.text
+    assert 'name="taux_commission_override"' not in resp.text
     assert 'name="motif_override_taux_commission"' in resp.text
     assert 'name="taux_commission"' not in resp.text
 

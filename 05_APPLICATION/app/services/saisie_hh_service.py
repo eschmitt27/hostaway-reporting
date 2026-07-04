@@ -548,7 +548,7 @@ def valider(
     date_depart_str = str(form_data.get("date_depart", "")).strip()
     total_percu_raw = str(form_data.get("total_percu", "")).strip()
     menage_raw = str(form_data.get("menage", "")).strip()
-    taux_override_raw = str(form_data.get("taux_commission_override", "")).strip()
+    taux_override_pct_raw = str(form_data.get("taux_commission_override_pct", "")).strip()
     taux_override_motif = str(form_data.get("motif_override_taux_commission", "")).strip()
     taux_override_conf = str(form_data.get("confirmation_override_taux_commission", "")).strip()
     menage_override_raw = str(form_data.get("menage_override", "")).strip()
@@ -783,7 +783,7 @@ def valider(
     taux_auto: Decimal | None = None
     taux_auto_source = ""
     taux_override: Decimal | None = None
-    taux_override_requested = any((taux_override_raw, taux_override_motif, taux_override_conf))
+    taux_override_requested = any((taux_override_pct_raw, taux_override_motif, taux_override_conf))
     if logement_id and proprietaire_id and date_arrivee:
         try:
             taux_result = resolve_taux_commission(
@@ -802,12 +802,15 @@ def valider(
             err("taux_commission", "REF_SETUP_INDISPONIBLE",
                 f"REF_Setup inaccessible pour taux commission : {exc}")
     if taux_override_requested:
-        parsed = _parse_decimal(taux_override_raw)
+        parsed = _parse_decimal(taux_override_pct_raw)
         if parsed is None:
-            err("taux_commission_override", "TAUX_OVERRIDE_INVALIDE",
+            err("taux_commission_override_pct", "TAUX_OVERRIDE_INVALIDE",
                 "Taux derogatoire requis au format pourcentage")
+        elif parsed < Decimal("0") or parsed > Decimal("100"):
+            err("taux_commission_override_pct", "TAUX_OVERRIDE_HORS_BORNES",
+                "Taux derogatoire : valeur attendue entre 0 et 100 pour cent")
         elif _more_than_2_decimals(parsed):
-            err("taux_commission_override", "TAUX_OVERRIDE_TROP_DE_DECIMALES",
+            err("taux_commission_override_pct", "TAUX_OVERRIDE_TROP_DE_DECIMALES",
                 "Taux derogatoire : maximum 2 decimales")
         else:
             candidate = parsed / Decimal("100")

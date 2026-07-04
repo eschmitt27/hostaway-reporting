@@ -943,3 +943,22 @@ Contrôles requis avant commit :
 - tests Lot4A ciblés avec dépendances NumPy/pandas ;
 - `git diff --check` ;
 - staging sélectif REV2 uniquement.
+
+## Note d'état - D-APP-2B-REV3 (2026-07-04)
+
+Statut : correctif ciblé de format du taux dérogatoire en cours de contrôle avant commit sélectif.
+
+Éléments REV3 :
+- le formulaire poste `taux_commission_override_pct`, pourcentage utilisateur temporaire ;
+- `valider()` convertit avec `Decimal` vers `taux_commission_override`, taux décimal canonique ;
+- le payload métier ne contient pas le pourcentage brut ;
+- Lot4A applique strictement `0 <= taux_commission_override <= 1` pour une dérogation confirmée et bloque hors bornes ;
+- aucune division implicite par 100 dans Lot4A ;
+- aucune modification des fichiers Excel réels, écriture réelle APP-2b toujours désactivée.
+
+Contrôles requis avant commit :
+- tests application APP-2b Miniconda ;
+- tests Lot4A ciblés avec dépendances NumPy/pandas ;
+- `git diff --check` ;
+- hash des fichiers Excel réels inchangé ;
+- staging sélectif REV3 uniquement.

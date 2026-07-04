@@ -68,9 +68,9 @@
             Modifier le taux
           </button>
           <div id="taux_derogation_info" class="override-edit" hidden>
-            <label for="taux_commission_override">Nouveau taux (%)</label>
-            <input type="text" id="taux_commission_override" name="taux_commission_override"
-                   value="{{ form.get('taux_commission_override', '') }}" placeholder="ex. 18">
+            <label for="taux_commission_override_pct">Taux derogatoire (%)</label>
+            <input type="text" id="taux_commission_override_pct" name="taux_commission_override_pct"
+                   value="{{ form.get('taux_commission_override_pct', '') }}" placeholder="ex. 18">
             <button type="button" id="taux_derogation_reset" class="btn btn-secondary">Reinitialiser</button>
             <input type="hidden" id="motif_override_taux_commission" name="motif_override_taux_commission"
                    value="{{ form.get('motif_override_taux_commission', '') }}">
@@ -341,7 +341,7 @@
   const tauxSource = document.getElementById("taux_commission_source");
   const tauxDerogationToggle = document.getElementById("taux_derogation_toggle");
   const tauxDerogationInfo = document.getElementById("taux_derogation_info");
-  const tauxOverride = document.getElementById("taux_commission_override");
+  const tauxOverride = document.getElementById("taux_commission_override_pct");
   const tauxOverrideMotif = document.getElementById("motif_override_taux_commission");
   const tauxOverrideConf = document.getElementById("confirmation_override_taux_commission");
   const tauxDerogationReset = document.getElementById("taux_derogation_reset");

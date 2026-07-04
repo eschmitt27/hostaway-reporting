@@ -30,7 +30,7 @@ def _base_form(**overrides) -> dict:
     return data
 
 
-def _valider_no_refs(form_data: dict) -> dict:
+def _valider_no_refs(form_data: dict, taux_standard: str = "0.15") -> dict:
     """Valide en patchant les lectures REF_Setup et REF_LOCALE pour renvoyer vide."""
     with (
         patch("app.services.saisie_hh_service.get_cloture_mois", return_value={"statut_mois": "OUVERT"}),
@@ -58,7 +58,7 @@ def _valider_no_refs(form_data: dict) -> dict:
             "REF_Codes_Impact", [{"code_impact": "HC", "impact_resultat_comptable": "OUI"}]
         )),
         patch("app.services.saisie_hh_service.get_taux_commission", return_value=[
-            {"proprietaire_id": "PROP_0001", "logement_id": "", "taux_commission": "0.15",
+            {"proprietaire_id": "PROP_0001", "logement_id": "", "taux_commission": taux_standard,
              "date_debut": "2026-01-01", "date_fin": "", "actif": "OUI"}
         ]),
         patch("app.services.saisie_hh_service.get_couts_standards_menage", return_value=[
@@ -714,30 +714,95 @@ def test_d1_hostaway_poste_manuellement_refuse():
 
 
 def test_taux_derogation_bloquee_sans_motif_confirmation():
-    result = _valider_no_refs(_base_form(taux_commission_override="18"))
+    result = _valider_no_refs(_base_form(taux_commission_override_pct="18"))
     codes = {e["code"] for e in result["erreurs"]}
     assert "MOTIF_OVERRIDE_TAUX_MANQUANT" in codes
     assert "CONFIRMATION_OVERRIDE_TAUX_MANQUANTE" in codes
 
 
-def test_taux_derogation_convertie_en_decimal_moteur():
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("18", Decimal("0.18")),
+        ("0.5", Decimal("0.005")),
+        ("0,5", Decimal("0.005")),
+        ("15", Decimal("0.15")),
+        ("100", Decimal("1.00")),
+        ("0", Decimal("0.00")),
+    ],
+)
+def test_taux_derogation_pct_convertie_en_decimal_moteur(raw, expected):
     result = _valider_no_refs(_base_form(
-        taux_commission_override="18",
+        taux_commission_override_pct=raw,
+        motif_override_taux_commission="Accord proprietaire",
+        confirmation_override_taux_commission="on",
+    ), taux_standard="0.12")
+    assert result["ok"] is True, result["erreurs"]
+    assert result["preview"]["taux_commission_override"] == expected
+    assert "taux_commission_override_pct" not in result["preview"]
+
+
+@pytest.mark.parametrize("raw", ["100.01", "-1"])
+def test_taux_derogation_pct_hors_bornes_bloque(raw):
+    result = _valider_no_refs(_base_form(
+        taux_commission_override_pct=raw,
+        motif_override_taux_commission="Accord proprietaire",
+        confirmation_override_taux_commission="on",
+    ))
+    codes = {e["code"] for e in result["erreurs"]}
+    assert "TAUX_OVERRIDE_HORS_BORNES" in codes
+
+
+def test_taux_zero_bloque_sans_motif_confirmation_si_standard_non_nul():
+    result = _valider_no_refs(_base_form(taux_commission_override_pct="0"))
+    codes = {e["code"] for e in result["erreurs"]}
+    assert "MOTIF_OVERRIDE_TAUX_MANQUANT" in codes
+    assert "CONFIRMATION_OVERRIDE_TAUX_MANQUANTE" in codes
+
+
+def test_taux_zero_accepte_avec_motif_confirmation_si_standard_non_nul():
+    result = _valider_no_refs(_base_form(
+        taux_commission_override_pct="0",
         motif_override_taux_commission="Accord proprietaire",
         confirmation_override_taux_commission="on",
     ))
     assert result["ok"] is True, result["erreurs"]
-    assert result["preview"]["taux_commission_standard"] == Decimal("0.15")
-    assert result["preview"]["taux_commission_override"] == Decimal("0.18")
+    assert result["preview"]["taux_commission_override"] == Decimal("0.00")
 
 
 def test_taux_derogation_identique_standard_ignoree_sans_motif_confirmation():
-    result = _valider_no_refs(_base_form(taux_commission_override="15"))
+    result = _valider_no_refs(_base_form(taux_commission_override_pct="15"))
     assert result["ok"] is True, result["erreurs"]
     assert result["preview"]["taux_commission_standard"] == Decimal("0.15")
     assert result["preview"]["taux_commission_override"] is None
     assert result["preview"]["motif_override_taux_commission"] is None
     assert result["preview"]["confirmation_override_taux_commission"] is False
+
+
+def test_taux_zero_identique_standard_zero_ignore_sans_motif_confirmation():
+    result = _valider_no_refs(_base_form(taux_commission_override_pct="0"), taux_standard="0")
+    assert result["ok"] is True, result["erreurs"]
+    assert result["preview"]["taux_commission_standard"] == Decimal("0")
+    assert result["preview"]["taux_commission_override"] is None
+
+
+def test_taux_canonique_poste_manuellement_ignore_par_app2b():
+    result = _valider_no_refs(_base_form(taux_commission_override="0.18"))
+    assert result["ok"] is True, result["erreurs"]
+    assert result["preview"]["taux_commission_override"] is None
+    assert "taux_commission_override_pct" not in result["preview"]
+
+
+def test_taux_pct_brut_non_transmis_payload_canonique_seul():
+    result = _valider_no_refs(_base_form(
+        taux_commission_override_pct="18",
+        taux_commission_override="999",
+        motif_override_taux_commission="Accord proprietaire",
+        confirmation_override_taux_commission="on",
+    ))
+    assert result["ok"] is True, result["erreurs"]
+    assert result["preview"]["taux_commission_override"] == Decimal("0.18")
+    assert "taux_commission_override_pct" not in result["preview"]
 
 
 def test_menage_standard_pre_rempli_depuis_ref_setup():

@@ -105,6 +105,35 @@ class RecomputeTests(unittest.TestCase):
         self.assertEqual(d["taux_commission_source"], "REF_LOGEMENT")
         self.assertEqual(d["taux_commission"], 0.12)
 
+    def test_override_taux_decimal_canonique(self):
+        for override, expected in [
+            (0.18, 0.18),
+            (0.005, 0.005),
+            (0.0, 0.0),
+            (1.0, 1.0),
+        ]:
+            with self.subTest(override=override):
+                s = _saisie_oracle()
+                s["taux_commission_override"] = override
+                s["motif_override_taux_commission"] = "Accord"
+                s["confirmation_override_taux_commission"] = "on"
+                rc = cmp.recompute(s, TAUX_PROP_0003)
+                self.assertEqual(rc["taux_status"], "OK")
+                self.assertEqual(rc["derived"]["taux_commission"], expected)
+                self.assertEqual(rc["derived"]["taux_commission_source"], "OVERRIDE_CONFIRME")
+
+    def test_override_taux_decimal_hors_bornes_bloque(self):
+        for override in (1.0001, -0.01):
+            with self.subTest(override=override):
+                s = _saisie_oracle()
+                s["taux_commission_override"] = override
+                s["motif_override_taux_commission"] = "Accord"
+                s["confirmation_override_taux_commission"] = "on"
+                rc = cmp.recompute(s, TAUX_PROP_0003)
+                self.assertEqual(rc["taux_status"], "OVERRIDE_INVALID")
+                self.assertIsNone(rc["derived"]["taux_commission"])
+                self.assertIsNone(rc["derived"]["commission"])
+
     def test_taux_missing(self):
         s = _saisie_oracle(); s["proprietaire_id"] = "PROP_9999"
         rc = cmp.recompute(s, TAUX_PROP_0003)

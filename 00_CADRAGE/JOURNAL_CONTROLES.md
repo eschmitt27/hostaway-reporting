@@ -1703,3 +1703,21 @@ Resultat   : Tests application Miniconda verts (231 passed, 1 warning Starlette/
 Statut     : OUVERT - EN_ATTENTE_COMMIT_SELECTIF
 Commentaire: Commit autorise seulement si git diff --check et controle staged restent verts.
 ```
+
+### CTR-2026-07-04-APP2B-REV3
+
+```
+Date       : 2026-07-04
+Lot        : APP-2b / Lot4A
+Code       : APP2B_REV3_TAUX_OVERRIDE_CANONIQUE
+Severite   : INFO
+Fichiers   : 05_APPLICATION/app, 05_APPLICATION/tests, 02_TRAVAIL/Lot4A, tests Lot4A, cadrage APP-2b
+Resultat   : Tests application Miniconda verts (243 passed, 1 warning Starlette/httpx).
+             Tests Lot4A cibles py -3 + PYTHONPATH Miniconda verts (53 passed, 21 subtests).
+             REV3 separe le pourcentage utilisateur `taux_commission_override_pct` du taux metier canonique
+             `taux_commission_override` stocke en decimal [0,1].
+             Lot4A bloque les overrides confirmes hors [0,1] et ne divise plus implicitement par 100.
+             Ecriture reelle HH maintenue desactivee ; aucun fichier Excel reel ne doit etre modifie.
+Statut     : OUVERT - EN_ATTENTE_COMMIT_SELECTIF
+Commentaire: Commit autorise seulement si git diff --check, hashes Excel et controle staged restent verts.
+```

@@ -1098,3 +1098,17 @@ Décisions validées :
 - Les sources Lot4A associées sont `TOTAL_PERCU`, `TOTAL_PERCU_ASSOCIE`, `TOTAL_PERCU_MOINS_REVERSE_ESPECES`, `DIRECT_PROPRIETAIRE`.
 - Le mode cible `PAY_006` / `DIRECT_PROPRIETAIRE` et son libellé `Direct propriétaire` sont conservés dans le schéma cible et les migrations sur copie.
 - L'écriture réelle APP-2b reste désactivée (`HH_REAL_WRITE_ENABLED=False`) et aucun fichier Excel réel n'est modifié par REV2.
+
+### D-APP-2B-REV3 — Taux dérogatoire canonique
+
+**Date** : 2026-07-04
+**Statut** : VALIDÉ
+**Périmètre** : APP-2b, Lot4A, schéma cible de traçabilité.
+
+Décisions validées :
+- L'interface saisit un pourcentage utilisateur dans `taux_commission_override_pct` : `18` = 18 %, `0,5` = 0,5 %, `0` = 0 %.
+- Le backend APP-2b convertit ce pourcentage avec `Decimal`, accepte la virgule française, borne la valeur entre 0 et 100 inclus, limite à deux décimales utilisateur et stocke uniquement le taux décimal canonique dans `taux_commission_override`.
+- `0 %` est autorisé. Si le taux automatique est déjà 0 %, une saisie `0` est neutralisée comme absence de dérogation ; si le taux automatique est non nul, `0` est une vraie dérogation qui exige motif et confirmation.
+- Lot4A reçoit uniquement `taux_commission_override` en décimal canonique entre 0 et 1 inclus. Toute valeur confirmée hors bornes bloque explicitement ; aucune division implicite par 100 ni heuristique `override > 1` n'est autorisée.
+- Le writer futur et la colonne cible SAISIE HH ne doivent jamais persister le pourcentage brut navigateur.
+- `HH_REAL_WRITE_ENABLED` reste `False` et aucun fichier Excel réel n'est modifié par REV3.

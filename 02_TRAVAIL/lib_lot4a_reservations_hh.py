@@ -106,14 +106,19 @@ def _override_decimal(value, confirmation) -> float | None:
     return _num(value)
 
 
-def _effective_taux(saisie: dict, taux_ref: float) -> tuple[float, str]:
-    override = _override_decimal(
-        saisie.get("taux_commission_override"),
-        saisie.get("confirmation_override_taux_commission"),
-    )
-    if override is None:
-        return taux_ref, "REF_HISTORIQUE"
-    return (override / 100.0 if override > 1 else override), "OVERRIDE_CONFIRME"
+def _effective_taux(saisie: dict, taux_ref: float) -> tuple[float | None, str, str | None]:
+    if not _confirmed(saisie.get("confirmation_override_taux_commission")):
+        return taux_ref, "REF_HISTORIQUE", None
+    raw = _norm(saisie.get("taux_commission_override"))
+    if raw == "":
+        return taux_ref, "REF_HISTORIQUE", None
+    try:
+        override = _num(raw)
+    except (TypeError, ValueError):
+        return None, "", "TAUX_OVERRIDE_INVALIDE"
+    if not np.isfinite(override) or override < 0 or override > 1:
+        return None, "", "TAUX_OVERRIDE_INVALIDE"
+    return override, "OVERRIDE_CONFIRME", None
 
 
 def _effective_menage(saisie: dict) -> tuple[float, str]:
@@ -312,7 +317,16 @@ def recompute(saisie: dict, taux_rows: list[dict]) -> dict:
     res = resolve_commission_rate(taux_rows, proprietaire_id=prop, logement_id=log, ref_date=d_arr)
     taux_status = res.status
     if res.status == "OK":
-        taux, taux_source = _effective_taux(saisie, res.value)
+        taux, taux_source, taux_error = _effective_taux(saisie, res.value)
+        if taux_error:
+            taux_status = "OVERRIDE_INVALID"
+            for f in TAUX_DEPENDENT:
+                d[f] = None
+            return {
+                "derived": d,
+                "taux_status": taux_status,
+                "taux_message": "taux_commission_override confirme hors bornes [0,1]",
+            }
         row = res.row or {}
         d["taux_commission"] = taux
         if taux_source == "OVERRIDE_CONFIRME":
@@ -421,7 +435,7 @@ def build_master(saisie_list: list[dict], taux_rows: list[dict], as_of_iso: str)
         if errs:
             anomalies_donnees.append({"reservation_hh_id": pk, "codes": errs})
         rc = recompute(saisie, taux_rows)
-        if rc["taux_status"] in ("MISSING", "AMBIGUOUS"):
+        if rc["taux_status"] != "OK":
             anomalies_taux.append({"reservation_hh_id": pk, "statut": rc["taux_status"],
                                    "message": rc["taux_message"]})
 
