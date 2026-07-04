@@ -999,3 +999,22 @@ Controles requis avant commit :
 - `git diff --check` ;
 - hash des fichiers Excel reels inchanges ;
 - staging selectif APP-2c uniquement, sans dryruns ni `.pytest_tmp*`.
+
+## Note d'etat - correctif APP-2c moteur reel dry-run (2026-07-04)
+
+Statut : correctif technique en cours de controle avant commit selectif.
+
+Elements corriges :
+- APP-2c n'importe plus Lot4A dans le processus FastAPI Miniconda ;
+- Lot4A reel est execute par sous-processus avec `C:\Program Files\Python312\python.exe`, qui contient NumPy et pandas ;
+- les chemins fournis au runner sont limites au sous-dossier dry-run ;
+- le manifest trace l'interpreteur moteur, les versions NumPy/pandas, le module Lot4A et l'etat du cache de formules Excel ;
+- le controle structurel compare maintenant une vraie copie pre-injection avec le classeur post-injection, au lieu de comparer le meme fichier a lui-meme ;
+- openpyxl ne calcule pas les formules : APP-2c le trace, mais Lot4A recalcule en Python les champs derives necessaires au MASTER simule.
+
+Controles requis avant commit :
+- tests APP complets Miniconda ;
+- tests Lot4A cibles py -3 ;
+- hash des Excel reels inchanges ;
+- `git diff --check` vert ;
+- staging selectif du correctif uniquement.

@@ -42,6 +42,9 @@ DATA_DIR = APP_ROOT / "data"
 DB_PATH = DATA_DIR / "app.db"
 SNAPSHOTS_DIR = DATA_DIR / "snapshots"
 RESTORE_DIR = DATA_DIR / "restore_workspace"
+DRYRUNS_DIR = DATA_DIR / "dryruns"
+LOT4A_ENGINE_PYTHON = Path(os.environ.get("LOT4A_ENGINE_PYTHON", r"C:\Program Files\Python312\python.exe"))
+LOT4A_ENGINE_TIMEOUT_SECONDS = int(os.environ.get("LOT4A_ENGINE_TIMEOUT_SECONDS", "60"))
 
 # Templates et static
 TEMPLATES_DIR = APP_ROOT / "app" / "templates"

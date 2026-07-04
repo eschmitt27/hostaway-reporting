@@ -1754,3 +1754,19 @@ Resultat   : Tests application Miniconda verts (261 passed, 1 warning Starlette/
 Statut     : OUVERT - EN_ATTENTE_COMMIT_SELECTIF
 Commentaire: Aucun fichier Excel reel ne doit etre modifie ; `HH_REAL_WRITE_ENABLED=False` reste obligatoire.
 ```
+
+### CTR-2026-07-04-APP2C-MOTEUR-REEL
+
+```
+Date       : 2026-07-04
+Lot        : APP-2c / Lot4A
+Code       : APP2C_EXECUTION_LOT4A_REEL_SUBPROCESS
+Severite   : INFO
+Fichiers   : 05_APPLICATION/app, 05_APPLICATION/tests, cadrage APP-2c
+Resultat   : Tests application Miniconda verts (268 passed, 1 warning Starlette/httpx).
+             Tests Lot4A cibles py -3 + PYTHONPATH Miniconda verts (53 passed, 21 subtests).
+             APP-2c execute Lot4A reel via Python systeme avec NumPy/pandas,
+             sans import Lot4A dans FastAPI Miniconda et sans ecriture Excel reelle.
+Statut     : OUVERT - EN_ATTENTE_COMMIT_SELECTIF
+Commentaire: Correctif technique post APP-2c ; aucune regle metier APP-2b/APP-2c modifiee.
+```

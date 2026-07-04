@@ -7,7 +7,7 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
-import sys
+import subprocess
 import uuid
 from typing import Any
 
@@ -32,12 +32,16 @@ from app.writers.saisie_hh_writer import (
 )
 
 
-DRYRUNS_DIR = cfg.DATA_DIR / "dryruns"
+DRYRUNS_DIR = cfg.DRYRUNS_DIR
 SAISIE_COPY_NAME = "SAISIE_ReservationsHorsHostaway_copie.xlsx"
 REF_COPY_NAME = "REF_Setup_copie.xlsm"
 MASTER_SIM_NAME = "MASTER_FACT_MAN_ReservationsHorsHostaway_simule.xlsx"
 RESULT_LOT4A_NAME = "resultat_lot4a.json"
 MANIFEST_NAME = "manifest.json"
+LOT4A_REQUEST_NAME = "lot4a_request.json"
+LOT4A_RESPONSE_NAME = "lot4a_response.json"
+STRUCTURE_BEFORE_NAME = "SAISIE_structure_avant_injection.xlsx"
+LOT4A_RUNNER = Path(__file__).resolve().with_name("lot4a_dryrun_runner.py")
 
 
 class DryRunError(RuntimeError):
@@ -86,14 +90,6 @@ def _safe_token(token: str) -> str:
     return clean
 
 
-def _load_lot4a():
-    root = cfg.PROJECT_ROOT / "02_TRAVAIL"
-    if str(root) not in sys.path:
-        sys.path.insert(0, str(root))
-    import lib_lot4a_reservations_hh as lot4a  # type: ignore
-    return lot4a
-
-
 def _copy_source(source: Path, destination: Path) -> None:
     if not source.exists():
         raise DryRunError(f"Source introuvable pour simulation: {source}")
@@ -119,7 +115,31 @@ def _build_simulated_row(preview: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
-def _write_simulated_row(saisie_copy: Path, row_data: dict[str, Any]) -> tuple[int, list[str]]:
+def _formula_cache_state(saisie_copy: Path, target_row: int | None) -> dict[str, Any]:
+    if target_row is None:
+        return {"target_row": None, "cached_values": {}, "requires_excel_recalc": False}
+    wb = openpyxl.load_workbook(str(saisie_copy), read_only=True, data_only=True)
+    try:
+        ws = wb["SAISIE"]
+        cells = ("B", "C", "K", "N", "O", "Q", "V", "Y", "Z")
+        cached = {col: ws[f"{col}{target_row}"].value for col in cells}
+    finally:
+        wb.close()
+    return {
+        "target_row": target_row,
+        "cached_values": cached,
+        "excel_cache_missing": any(value in (None, "") for value in cached.values()),
+        "requires_excel_recalc_for_lot4a": False,
+        "lot4a_recomputes_derived_fields": True,
+        "status": (
+            "LOT4A_RECALCUL_PYTHON_SANS_CACHE_EXCEL"
+            if any(value in (None, "") for value in cached.values())
+            else "CACHE_FORMULES_DISPONIBLE"
+        ),
+    }
+
+
+def _write_simulated_row(saisie_copy: Path, row_data: dict[str, Any], run_dir: Path) -> tuple[int, list[str]]:
     target_row = find_first_empty_data_row(saisie_copy)
     if target_row is None:
         raise DryRunError("Aucune ligne libre dans la copie SAISIE")
@@ -128,7 +148,9 @@ def _write_simulated_row(saisie_copy: Path, row_data: dict[str, Any]) -> tuple[i
     if formula_violations:
         raise DryRunError("; ".join(formula_violations))
 
-    struct_avant = _measure_structure(saisie_copy)
+    structure_before = run_dir / STRUCTURE_BEFORE_NAME
+    shutil.copy2(saisie_copy, structure_before)
+    struct_avant = _measure_structure(structure_before)
     wb = openpyxl.load_workbook(str(saisie_copy), data_only=False)
     try:
         ws = wb["SAISIE"]
@@ -152,27 +174,12 @@ def _write_simulated_row(saisie_copy: Path, row_data: dict[str, Any]) -> tuple[i
     finally:
         wb.close()
 
-    structure_violations = _check_structural_preservation(saisie_copy, saisie_copy, struct_avant)
+    structure_violations = _check_structural_preservation(structure_before, saisie_copy, struct_avant)
     structure_violations.extend(_check_formula_cells(saisie_copy, target_row))
+    structure_before.unlink(missing_ok=True)
     if structure_violations:
         raise DryRunError("; ".join(structure_violations))
     return target_row, structure_violations
-
-
-def _write_master_simulation(path: Path, lot4a: Any, result: dict[str, Any]) -> None:
-    wb = openpyxl.Workbook()
-    ws_master = wb.active
-    ws_master.title = "MASTER"
-    ws_vue = wb.create_sheet("VUE_ACTIVE")
-    for ws, rows in (
-        (ws_master, result.get("master_rows", [])),
-        (ws_vue, result.get("vue_active_rows", [])),
-    ):
-        ws.append(list(lot4a.MASTER_COLUMNS))
-        for rec in rows:
-            ws.append([rec.get(col, "") for col in lot4a.MASTER_COLUMNS])
-    wb.save(str(path))
-    wb.close()
 
 
 def _count_acomptes(rows: list[dict[str, Any]]) -> int:
@@ -184,15 +191,66 @@ def _count_acomptes(rows: list[dict[str, Any]]) -> int:
     return count
 
 
-def _lot4a_result(
-    lot4a: Any,
+def _assert_under(path: Path, allowed_root: Path) -> Path:
+    resolved = Path(path).resolve()
+    root = Path(allowed_root).resolve()
+    if resolved != root and root not in resolved.parents:
+        raise DryRunError(f"Chemin refuse hors dry-run: {resolved}")
+    return resolved
+
+
+def _run_lot4a_engine(
     saisie_path: Path,
     ref_path: Path,
     as_of_iso: str,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    saisie_rows = lot4a.read_saisie_values(saisie_path)
-    taux_rows = lot4a.read_taux_rows(ref_path)
-    return saisie_rows, lot4a.build_master(saisie_rows, taux_rows, as_of_iso)
+    run_dir: Path,
+    *,
+    master_path: Path | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+    run_root = Path(run_dir).resolve()
+    request_path = run_root / LOT4A_REQUEST_NAME
+    response_path = run_root / LOT4A_RESPONSE_NAME
+    _assert_under(Path(saisie_path), run_root)
+    _assert_under(Path(ref_path), run_root)
+    if master_path is not None:
+        _assert_under(Path(master_path), run_root)
+
+    request = {
+        "allowed_root": str(run_root),
+        "project_root": str(cfg.PROJECT_ROOT.resolve()),
+        "saisie_path": str(Path(saisie_path).resolve()),
+        "ref_path": str(Path(ref_path).resolve()),
+        "master_path": str(Path(master_path).resolve()) if master_path is not None else None,
+        "as_of_iso": as_of_iso,
+    }
+    request_path.write_text(
+        json.dumps(request, ensure_ascii=False, indent=2, default=_json_default),
+        encoding="utf-8",
+    )
+
+    cmd = [str(cfg.LOT4A_ENGINE_PYTHON), str(LOT4A_RUNNER), str(request_path), str(response_path)]
+    try:
+        completed = subprocess.run(
+            cmd,
+            cwd=str(cfg.PROJECT_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=cfg.LOT4A_ENGINE_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise DryRunError(f"LOT4A_TIMEOUT: {exc}") from exc
+
+    if completed.returncode != 0:
+        stderr = (completed.stderr or "").strip()
+        stdout = (completed.stdout or "").strip()
+        raise DryRunError(f"LOT4A_SUBPROCESS_ERREUR: rc={completed.returncode}; stdout={stdout}; stderr={stderr}")
+    if not response_path.exists():
+        raise DryRunError("LOT4A_SUBPROCESS_SANS_REPONSE")
+    response = json.loads(response_path.read_text(encoding="utf-8"))
+    if not response.get("ok"):
+        raise DryRunError(f"LOT4A_SUBPROCESS_REPONSE_INVALIDE: {response}")
+    return response["saisie_rows"], response["result"], response.get("engine", {})
 
 
 def _find_row(rows: list[dict[str, Any]], pk: str) -> dict[str, Any] | None:
@@ -305,6 +363,8 @@ def run_previsualisation(
     saisie_before: list[dict[str, Any]] = []
     saisie_after: list[dict[str, Any]] = []
     simulated_master_row: dict[str, Any] | None = None
+    engine_info: dict[str, Any] = {}
+    formula_cache: dict[str, Any] = {}
 
     try:
         _copy_source(source_saisie, saisie_copy)
@@ -312,13 +372,18 @@ def run_previsualisation(
         added_fields = migrate_saisie_copy(saisie_copy)
         ref_migrated = migrate_ref_setup_copy(ref_copy)
 
-        lot4a = _load_lot4a()
-        saisie_before, lot4a_before = _lot4a_result(lot4a, saisie_copy, ref_copy, now_iso)
+        saisie_before, lot4a_before, engine_before = _run_lot4a_engine(
+            saisie_copy, ref_copy, now_iso, run_dir
+        )
+        engine_info = engine_before
         row_data = _build_simulated_row(preview)
-        target_row, _ = _write_simulated_row(saisie_copy, row_data)
-        saisie_after, lot4a_after = _lot4a_result(lot4a, saisie_copy, ref_copy, now_iso)
+        target_row, _ = _write_simulated_row(saisie_copy, row_data, run_dir)
+        formula_cache = _formula_cache_state(saisie_copy, target_row)
+        saisie_after, lot4a_after, engine_after = _run_lot4a_engine(
+            saisie_copy, ref_copy, now_iso, run_dir, master_path=master_sim
+        )
+        engine_info = engine_after or engine_info
         simulated_master_row = _find_row(lot4a_after.get("master_rows", []), pk)
-        _write_master_simulation(master_sim, lot4a, lot4a_after)
         if lot4a_after.get("statut") != "ANALYSE_TERMINEE":
             status = "ERREUR_LOT4A"
             errors.append(str(lot4a_after.get("motif_blocage") or lot4a_after.get("statut")))
@@ -330,6 +395,8 @@ def run_previsualisation(
         "before": lot4a_before,
         "after": lot4a_after,
         "reservation_simulee": simulated_master_row,
+        "engine": engine_info,
+        "formula_cache": formula_cache,
         "status": status,
         "errors": errors,
     }
@@ -364,6 +431,8 @@ def run_previsualisation(
             "saisie_fields_added": added_fields,
             "ref_direct_proprietaire_added": ref_migrated,
         },
+        "engine": engine_info,
+        "formula_cache": formula_cache,
         "target_row": target_row,
         "status": status,
         "errors": errors,

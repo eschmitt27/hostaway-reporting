@@ -40,9 +40,12 @@ def _minimal_ref(tmp_path: Path) -> Path:
     ws.append(["PAY_002", "ESPECES_CAISSE", "NON", "OUI", "NON", "OUI"])
     ws.append(["PAY_003", "CARTE_ASSOCIEE", "NON", "NON", "OUI", "OUI"])
     ws.append(["PAY_004", "COMPTE_PERSO_ASSOCIEE", "NON", "NON", "OUI", "OUI"])
-    wb.create_sheet("REF_Taux_Commission").append([
+    ws_taux = wb.create_sheet("REF_Taux_Commission")
+    ws_taux.append([
         "proprietaire_id", "logement_id", "taux_commission", "date_debut", "date_fin", "actif",
     ])
+    ws_taux.append(["PROP_0001", "", 0.15, "2026-01-01", "", "OUI"])
+    ws_taux.append(["PROP_0003", "", 0.15, "2026-01-01", "", "OUI"])
     wb.save(ref)
     wb.close()
     return ref
@@ -199,26 +202,63 @@ class FakeLot4A:
         }
 
 
-def _run(tmp_path, preview=None, lot4a=None):
+def _write_fake_master(path: Path, fake: FakeLot4A, result: dict) -> None:
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "MASTER"
+    ws.append(fake.MASTER_COLUMNS)
+    for row in result.get("master_rows", []):
+        ws.append([row.get(col, "") for col in fake.MASTER_COLUMNS])
+    ws_vue = wb.create_sheet("VUE_ACTIVE")
+    ws_vue.append(fake.MASTER_COLUMNS)
+    for row in result.get("vue_active_rows", []):
+        ws_vue.append([row.get(col, "") for col in fake.MASTER_COLUMNS])
+    wb.save(path)
+    wb.close()
+
+
+def _fake_engine(fake: FakeLot4A):
+    def run(saisie_path, ref_path, as_of_iso, run_dir, *, master_path=None):
+        rows = fake.read_saisie_values(saisie_path)
+        fake.read_taux_rows(ref_path)
+        result = fake.build_master(rows, [], as_of_iso)
+        if master_path is not None:
+            _write_fake_master(Path(master_path), fake, result)
+        return rows, result, {
+            "python": "FAKE",
+            "numpy": "FAKE",
+            "pandas": "FAKE",
+            "lot4a_module": "FAKE",
+        }
+    return run
+
+
+def _run(tmp_path, preview=None, lot4a=None, real_engine=False):
     saisie = _copy_saisie(tmp_path)
     ref = _minimal_ref(tmp_path)
     fake = lot4a or FakeLot4A()
     data = preview or _preview()
-    with (
-        patch("app.services.saisie_hh_dryrun_service.saisie_svc.valider", return_value=_validation(data)),
-        patch("app.services.saisie_hh_dryrun_service._load_lot4a", return_value=fake),
-    ):
-        result = dryrun_svc.run_previsualisation(
-            {
-                "logement_id": data["logement_id"],
-                "date_arrivee": data["date_arrivee"],
-                "total_percu": str(data["total_percu"]),
-            },
-            saisie_source=saisie,
-            ref_setup_source=ref,
-            dryruns_root=tmp_path / "dryruns",
-            as_of_iso="2026-07-04T00:00:00+00:00",
-        )
+    patches = [patch("app.services.saisie_hh_dryrun_service.saisie_svc.valider", return_value=_validation(data))]
+    if not real_engine:
+        patches.append(patch("app.services.saisie_hh_dryrun_service._run_lot4a_engine", side_effect=_fake_engine(fake)))
+    with patches[0]:
+        if len(patches) > 1:
+            patches[1].start()
+        try:
+            result = dryrun_svc.run_previsualisation(
+                {
+                    "logement_id": data["logement_id"],
+                    "date_arrivee": data["date_arrivee"],
+                    "total_percu": str(data["total_percu"]),
+                },
+                saisie_source=saisie,
+                ref_setup_source=ref,
+                dryruns_root=tmp_path / "dryruns",
+                as_of_iso="2026-07-04T00:00:00+00:00",
+            )
+        finally:
+            if len(patches) > 1:
+                patches[1].stop()
     return result, fake, saisie, ref
 
 
@@ -315,6 +355,91 @@ def test_app2c_echec_lot4a_visible_dans_manifest(tmp_path):
     assert result["manifest"]["status"] == "ERREUR_LOT4A"
     assert result["manifest"]["lot4a_status"] == "ANALYSE_BLOQUEE_TAUX"
     assert "TAUX_ABSENT" in ";".join(result["manifest"]["errors"])
+
+
+@pytest.mark.parametrize(
+    ("preview", "expected_acompte", "expected_source", "expected_taux", "expected_commission"),
+    [
+        (_preview(mode_paiement_id="PAY_001"), 450.0, "TOTAL_PERCU", 0.15, 58.5),
+        (
+            _preview(mode_paiement_id="PAY_002", montant_reverse_proprietaire=Decimal("120.00")),
+            330.0,
+            "TOTAL_PERCU_MOINS_REVERSE_ESPECES",
+            0.15,
+            58.5,
+        ),
+        (_preview(mode_paiement_id="PAY_006"), 0.0, "DIRECT_PROPRIETAIRE", 0.15, 58.5),
+        (
+            _preview(
+                taux_commission_override=Decimal("0.005"),
+                motif_override_taux_commission="Taux 0,5 pct",
+                confirmation_override_taux_commission=True,
+            ),
+            450.0,
+            "TOTAL_PERCU",
+            0.005,
+            1.95,
+        ),
+        (
+            _preview(
+                taux_commission_override=Decimal("0.00"),
+                motif_override_taux_commission="Taux zero",
+                confirmation_override_taux_commission=True,
+            ),
+            450.0,
+            "TOTAL_PERCU",
+            0.0,
+            0.0,
+        ),
+    ],
+)
+def test_app2c_integration_moteur_lot4a_reel(tmp_path, preview, expected_acompte, expected_source, expected_taux, expected_commission):
+    with patch("app.writers.saisie_hh_writer.write_row") as real_writer:
+        result, _fake, _saisie, _ref = _run(tmp_path, preview=preview, real_engine=True)
+
+    assert result["ok"] is True
+    real_writer.assert_not_called()
+    engine = result["manifest"]["engine"]
+    assert engine["python"].lower().endswith("python.exe")
+    assert engine["numpy"]
+    assert engine["pandas"]
+    assert "lib_lot4a_reservations_hh.py" in engine["lot4a_module"]
+
+    row = result["simulated_master_row"]
+    assert row["reservation_hh_id"] == "RESHH-2026-08-001"
+    assert row["mois"] == "2026-08"
+    assert row["nuits"] == 3
+    assert row["acompte_facture"] == expected_acompte
+    assert row["source_acompte_facture"] == expected_source
+    assert row["taux_commission"] == expected_taux
+    assert row["commission"] == expected_commission
+    assert result["manifest"]["lot4a_status"] == "ANALYSE_TERMINEE"
+    assert Path(result["manifest"]["paths"]["master_simule"]).exists()
+
+
+def test_app2c_lot4a_reel_recalcule_sans_cache_formules_excel(tmp_path):
+    result, _fake, _saisie, _ref = _run(tmp_path, preview=_preview(), real_engine=True)
+
+    formula_cache = result["manifest"]["formula_cache"]
+    row = result["simulated_master_row"]
+    assert formula_cache["lot4a_recomputes_derived_fields"] is True
+    assert formula_cache["requires_excel_recalc_for_lot4a"] is False
+    assert row["ROW_HASH"].startswith("RESHH-2026-08-001|CANAL_001|PROP_0001|LOG_0001|20260815|450.00")
+    assert row["mois"] == "2026-08"
+    assert row["nuits"] == 3
+    assert row["commission"] == 58.5
+
+
+def test_app2c_subprocess_refuse_chemin_hors_dryrun(tmp_path):
+    saisie = _copy_saisie(tmp_path)
+    ref = _minimal_ref(tmp_path)
+    with pytest.raises(dryrun_svc.DryRunError, match="hors dry-run"):
+        dryrun_svc._run_lot4a_engine(
+            saisie,
+            ref,
+            "2026-07-04T00:00:00+00:00",
+            tmp_path / "dryruns" / "isolated",
+        )
 
 
 def test_route_previsualisation_affiche_resultat_et_aucune_ecriture(client):

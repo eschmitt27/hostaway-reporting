@@ -83,6 +83,9 @@
       <tr><td>Ligne SAISIE ajoutée</td><td>{{ manifest.target_row or "—" }}</td></tr>
       <tr><td>Colonnes ajoutées par migration cible</td><td>{{ (manifest.migration.saisie_fields_added or []) | join(", ") if manifest.migration else "—" }}</td></tr>
       <tr><td>Résultat Lot4A</td><td>{{ manifest.lot4a_status or "—" }}</td></tr>
+      <tr><td>Interpréteur moteur</td><td><code>{{ manifest.engine.python if manifest.engine else "—" }}</code></td></tr>
+      <tr><td>NumPy / pandas</td><td>{{ manifest.engine.numpy if manifest.engine else "—" }} / {{ manifest.engine.pandas if manifest.engine else "—" }}</td></tr>
+      <tr><td>Formules Excel</td><td>{{ manifest.formula_cache.status if manifest.formula_cache else "—" }}</td></tr>
       <tr><td>Anomalies</td><td>{{ manifest.errors | join("; ") if manifest.errors else "Aucune" }}</td></tr>
       <tr><td>Statut final simulé</td><td>{{ manifest.status }}</td></tr>
       <tr><td>Dossier dry-run</td><td><code>{{ manifest.paths.run_dir }}</code></td></tr>

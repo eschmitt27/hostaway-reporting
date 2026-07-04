@@ -1589,3 +1589,19 @@ Regles d'architecture :
 - le writer reel reste protege par `HH_REAL_WRITE_ENABLED=False` et n'est pas appele par APP-2c ;
 - les formules critiques B/C/K/N/O/Q/V/Y/Z restent preservees dans la copie ;
 - l'activation d'une ecriture reelle est une etape separee, hors APP-2c, apres validation humaine et migration controlee du classeur source reel.
+
+### Note APP-2c - execution Lot4A reelle hors processus FastAPI (2026-07-04)
+
+Decision technique de correction : Option B.
+
+Motif : l'application locale est lancee avec `C:\Users\Ewan\miniconda3\python.exe`, environnement qui ne contient ni NumPy ni pandas. Installer ces dependances dans Miniconda modifierait un environnement local hors depot et ne constituerait pas un correctif versionne. APP-2c execute donc Lot4A reel dans un sous-processus controle avec `LOT4A_ENGINE_PYTHON` (par defaut `C:\Program Files\Python312\python.exe`).
+
+Contraintes appliquees :
+- aucun import Lot4A dans le processus FastAPI ;
+- chemins `saisie_path`, `ref_path`, `master_path`, requete et reponse obligatoirement sous le sous-dossier dry-run ;
+- timeout configure par `LOT4A_ENGINE_TIMEOUT_SECONDS` ;
+- sortie JSON standardisee avec interpreteur moteur, versions NumPy/pandas et chemin du module Lot4A ;
+- le MASTER simule est produit par le runner Lot4A, toujours dans le dossier dry-run ;
+- le manifest APP-2c porte les informations moteur et le statut de cache des formules Excel.
+
+Formules Excel : openpyxl ne recalcule pas les formules, il ne fait que poser `fullCalcOnLoad`. APP-2c controle la presence des formules critiques et trace l'absence eventuelle de cache Excel. Lot4A reste certifiable sans recalcul Excel car il recalcule en Python les champs derives qu'il publie dans le MASTER (`ROW_HASH`, `mois`, `nuits`, taux, commission, acompte, impacts).
