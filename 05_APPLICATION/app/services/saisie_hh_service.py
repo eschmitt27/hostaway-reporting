@@ -11,6 +11,8 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
+import openpyxl
+
 import app.config as cfg
 from app.readers.saisie_hh_reader import (
     MANUAL_COL_MAP,
@@ -67,6 +69,20 @@ _COMPTABILISATION_ID_FIELDS = (
     "comptabilisation", "comptabilisation_id", "code_comptabilisation",
 ) + _REF_ID_FIELDS
 _TECHNICAL_LOGEMENTS = {"APPARTEMENT_DIVERS", "LOGEMENT_DIVERS"}
+_MONTH_LABELS = {
+    "01": "janvier",
+    "02": "février",
+    "03": "mars",
+    "04": "avril",
+    "05": "mai",
+    "06": "juin",
+    "07": "juillet",
+    "08": "août",
+    "09": "septembre",
+    "10": "octobre",
+    "11": "novembre",
+    "12": "décembre",
+}
 
 
 def _text(value: Any) -> str:
@@ -91,6 +107,59 @@ def _option(value: str, label: str | None = None, **extra: Any) -> dict[str, Any
     option = {"value": value, "label": label or value}
     option.update(extra)
     return option
+
+
+def _month_label(mois: str) -> str:
+    raw = _text(mois)
+    if len(raw) >= 7 and raw[4] == "-":
+        year = raw[:4]
+        month = raw[5:7]
+        label = _MONTH_LABELS.get(month)
+        if label:
+            return f"{label} {year}"
+    return raw
+
+
+def _cloture_ui_state(ref_setup_path: Path) -> dict[str, Any]:
+    """Expose les mois ouverts/indisponibles pour l'ergonomie du formulaire."""
+    rows: list[dict[str, Any]] = []
+    try:
+        wb = openpyxl.load_workbook(str(ref_setup_path), read_only=True, data_only=True, keep_vba=True)
+        try:
+            ws = wb["REF_Cloture_Mensuelle"]
+            data = list(ws.iter_rows(values_only=True))
+        finally:
+            wb.close()
+    except Exception:
+        return {
+            "mois_ouverts": [],
+            "mois_ouverts_labels": [],
+            "cloture_mois_status": {},
+        }
+    if not data:
+        return {
+            "mois_ouverts": [],
+            "mois_ouverts_labels": [],
+            "cloture_mois_status": {},
+        }
+    headers = [_text(h) for h in data[0]]
+    for values in data[1:]:
+        rec = {headers[i]: values[i] if i < len(values) else None for i in range(len(headers))}
+        mois = _text(rec.get("mois"))
+        if not mois:
+            continue
+        statut = _text(rec.get("statut_mois")).upper()
+        rows.append({"mois": mois, "label": _month_label(mois), "statut_mois": statut})
+    rows.sort(key=lambda r: r["mois"])
+    open_rows = [row for row in rows if row["statut_mois"] == "OUVERT"]
+    return {
+        "mois_ouverts": [row["mois"] for row in open_rows],
+        "mois_ouverts_labels": [row["label"] for row in open_rows],
+        "cloture_mois_status": {
+            row["mois"]: {"statut_mois": row["statut_mois"], "label": row["label"]}
+            for row in rows
+        },
+    }
 
 
 def _label_map(rows: list[dict[str, Any]], id_key: str, label_keys: tuple[str, ...]) -> dict[str, str]:
@@ -414,6 +483,7 @@ def load_form_refs(
         couts_menage_rows = get_couts_standards_menage(ref_setup_path=p_ref)
     except Exception:
         pass
+    cloture_ui = _cloture_ui_state(p_ref)
 
     canal_labels = _label_map(canaux_rows, "canal_id", ("canal",))
     mode_labels = _label_map(modes_rows, "mode_paiement_id", ("mode_paiement",))
@@ -467,6 +537,9 @@ def load_form_refs(
         "impact_comptabilisation_map": _impact_comptabilisation_map(impacts_rows),
         "taux_commission_history": _taux_commission_history_for_ui(taux_commission_rows),
         "menage_standard_history": _menage_standard_history_for_ui(couts_menage_rows),
+        "mois_ouverts": cloture_ui["mois_ouverts"],
+        "mois_ouverts_labels": cloture_ui["mois_ouverts_labels"],
+        "cloture_mois_status": cloture_ui["cloture_mois_status"],
         "label_sources": {
             "canaux": canaux_sheet,
             "sources_financieres": None,
@@ -475,6 +548,7 @@ def load_form_refs(
             "comptabilisation": None,
             "taux_commission": "REF_Taux_Commission" if taux_commission_rows else None,
             "menage_standard": "REF_Couts_Standards_Menage" if couts_menage_rows else None,
+            "cloture_mensuelle": "REF_Cloture_Mensuelle",
         },
     })
     return refs

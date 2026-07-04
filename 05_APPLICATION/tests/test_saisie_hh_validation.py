@@ -7,7 +7,13 @@ import pytest
 from datetime import date
 from decimal import Decimal
 from unittest.mock import patch, MagicMock
-from app.services.saisie_hh_service import valider, load_form_refs, resolve_taux_commission
+import openpyxl
+from app.services.saisie_hh_service import (
+    valider,
+    load_form_refs,
+    resolve_taux_commission,
+    _cloture_ui_state,
+)
 from app.readers.saisie_hh_reader import generate_pk, SaisieHHReadError
 
 
@@ -211,11 +217,31 @@ def test_load_form_refs_prepare_libelles_et_proprietaire_du_logement():
         "comptabilisation": None,
         "taux_commission": "REF_Taux_Commission",
         "menage_standard": "REF_Couts_Standards_Menage",
+        "cloture_mensuelle": "REF_Cloture_Mensuelle",
     }
     assert refs["taux_commission_history"][0]["taux_commission"] == "0.15"
     assert refs["taux_commission_history"][1]["logement_id"] == "LOG_0009"
     assert refs["taux_commission_history"][1]["taux_commission"] == "0.18"
     assert refs["menage_standard_history"][0]["cout_standard_menage"] == "60.00"
+
+
+def test_cloture_ui_state_liste_uniquement_mois_ouverts(tmp_path):
+    ref = tmp_path / "REF_Setup_test.xlsm"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "REF_Cloture_Mensuelle"
+    ws.append(["mois", "statut_mois"])
+    ws.append(["2026-05", "CLOTURE"])
+    ws.append(["2026-06", "OUVERT"])
+    ws.append(["2026-07", "OUVERT"])
+    wb.save(ref)
+    wb.close()
+
+    state = _cloture_ui_state(ref)
+
+    assert state["mois_ouverts"] == ["2026-06", "2026-07"]
+    assert state["mois_ouverts_labels"] == ["juin 2026", "juillet 2026"]
+    assert state["cloture_mois_status"]["2026-05"]["statut_mois"] == "CLOTURE"
 
 
 def test_load_form_refs_exclut_logements_techniques_et_hors_parc():

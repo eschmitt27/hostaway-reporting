@@ -101,6 +101,13 @@ def _refs_data():
                     "date_fin": "",
                 }
             ],
+            "mois_ouverts": ["2026-06", "2026-07"],
+            "mois_ouverts_labels": ["juin 2026", "juillet 2026"],
+            "cloture_mois_status": {
+                "2026-05": {"statut_mois": "CLOTURE", "label": "mai 2026"},
+                "2026-06": {"statut_mois": "OUVERT", "label": "juin 2026"},
+                "2026-07": {"statut_mois": "OUVERT", "label": "juillet 2026"},
+            },
         }
 
 
@@ -268,6 +275,54 @@ def test_get_nouvelle_obligations_dynamiques_presentes(client):
     assert "form.checkValidity()" in resp.text
     assert "form.reportValidity()" in resp.text
     assert "novalidate" not in resp.text
+
+
+def test_get_nouvelle_affiche_mois_ouverts_ref_cloture(client):
+    with _patch_refs():
+        resp = client.get("/reservations/nouvelle")
+    assert "Mois ouverts pour saisie : juin 2026, juillet 2026" in resp.text
+    assert "const openMonths = new Set" in resp.text
+    assert '"2026-06"' in resp.text
+    assert '"2026-07"' in resp.text
+
+
+def test_get_nouvelle_mois_cloture_indisponible_cote_interface(client):
+    with _patch_refs():
+        resp = client.get("/reservations/nouvelle")
+    assert '"2026-05"' in resp.text
+    assert '"statut_mois": "CLOTURE"' in resp.text
+    assert "aucune nouvelle réservation ne peut être saisie sur ce mois" in resp.text
+
+
+def test_get_nouvelle_mois_absent_indisponible_cote_interface(client):
+    with _patch_refs():
+        resp = client.get("/reservations/nouvelle")
+    assert "n'est pas ouvert dans le référentiel de clôture" in resp.text
+    assert "clotureMonthStatus[monthId] || null" in resp.text
+
+
+def test_get_nouvelle_bouton_desactive_pour_mois_indisponible(client):
+    with _patch_refs():
+        resp = client.get("/reservations/nouvelle")
+    assert 'id="verify_submit"' in resp.text
+    assert "verifySubmit.disabled = true" in resp.text
+    assert "if (!validateClotureMonth())" in resp.text
+
+
+def test_get_nouvelle_bouton_reactive_pour_mois_ouvert(client):
+    with _patch_refs():
+        resp = client.get("/reservations/nouvelle")
+    assert "openMonths.has(monthId)" in resp.text
+    assert "verifySubmit.disabled = false" in resp.text
+
+
+def test_get_nouvelle_aucun_mois_ouvert_message_explicite(client):
+    refs = _refs_data()
+    refs["mois_ouverts"] = []
+    refs["mois_ouverts_labels"] = []
+    with patch("app.routes.reservations.saisie_svc.load_form_refs", return_value=refs):
+        resp = client.get("/reservations/nouvelle")
+    assert "Aucun mois ouvert actuellement dans le référentiel." in resp.text
 
 
 def test_get_nouvelle_derogation_menage_et_paiement_conditionnel(client):

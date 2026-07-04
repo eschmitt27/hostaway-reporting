@@ -132,6 +132,7 @@
           <label for="date_arrivee">Date d'arrivée <span class="required">*</span></label>
           <input type="date" id="date_arrivee" name="date_arrivee" required
                  value="{{ form.get('date_arrivee', '') }}">
+          <p id="date_arrivee_cloture_message" class="form-help closure-error" aria-live="polite"></p>
         </div>
 
         <div class="form-group">
@@ -139,6 +140,14 @@
           <input type="date" id="date_depart" name="date_depart" required
                  value="{{ form.get('date_depart', '') }}">
         </div>
+      </div>
+      <div class="closure-summary" id="mois_ouverts_summary">
+        {% set mois_labels = refs.get('mois_ouverts_labels', []) %}
+        {% if mois_labels %}
+        Mois ouverts pour saisie : {{ mois_labels | join(', ') }}
+        {% else %}
+        Aucun mois ouvert actuellement dans le référentiel.
+        {% endif %}
       </div>
     </fieldset>
 
@@ -297,7 +306,7 @@
     </div>
 
     <div class="flex gap-md">
-      <button type="submit" class="btn btn-primary">Vérifier avant validation</button>
+      <button type="submit" id="verify_submit" class="btn btn-primary">Vérifier avant validation</button>
       <a href="/reservations" class="btn btn-secondary">Annuler</a>
     </div>
 
@@ -334,6 +343,8 @@
   const form = document.getElementById("reservation_hh_form");
   const logement = document.getElementById("logement_id");
   const dateArrivee = document.getElementById("date_arrivee");
+  const dateClotureMessage = document.getElementById("date_arrivee_cloture_message");
+  const verifySubmit = document.getElementById("verify_submit");
   const ownerHidden = document.getElementById("proprietaire_id");
   const ownerDisplay = document.getElementById("proprietaire_display");
   const ownerMessage = document.getElementById("logement_owner_message");
@@ -368,6 +379,8 @@
   const logementTypeMap = {{ refs.get('logement_type_map', {})|tojson }};
   const modeCodeMap = {{ refs.get('mode_code_map', {})|tojson }};
   const impactComptabilisationMap = {{ refs.get('impact_comptabilisation_map', {})|tojson }};
+  const openMonths = new Set({{ refs.get('mois_ouverts', [])|tojson }});
+  const clotureMonthStatus = {{ refs.get('cloture_mois_status', {})|tojson }};
   const modal = document.getElementById("override_modal");
   const modalTaux = document.getElementById("override_modal_taux");
   const modalMenage = document.getElementById("override_modal_menage");
@@ -384,6 +397,47 @@
 
   function selectedOption(select) {
     return select && select.options.length ? select.options[select.selectedIndex] : null;
+  }
+
+  function capitalize(value) {
+    const text = String(value || "");
+    return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+  }
+
+  function monthLabel(monthId) {
+    const known = clotureMonthStatus[monthId];
+    if (known && known.label) {
+      return capitalize(known.label);
+    }
+    const [year, month] = String(monthId || "").split("-");
+    const names = {
+      "01": "janvier", "02": "février", "03": "mars", "04": "avril",
+      "05": "mai", "06": "juin", "07": "juillet", "08": "août",
+      "09": "septembre", "10": "octobre", "11": "novembre", "12": "décembre",
+    };
+    return names[month] && year ? capitalize(`${names[month]} ${year}`) : String(monthId || "");
+  }
+
+  function validateClotureMonth() {
+    const monthId = dateArrivee.value ? dateArrivee.value.slice(0, 7) : "";
+    if (!monthId) {
+      dateClotureMessage.textContent = "";
+      verifySubmit.disabled = false;
+      return true;
+    }
+    if (openMonths.has(monthId)) {
+      dateClotureMessage.textContent = "";
+      verifySubmit.disabled = false;
+      return true;
+    }
+    const info = clotureMonthStatus[monthId] || null;
+    if (info && String(info.statut_mois || "").toUpperCase() === "CLOTURE") {
+      dateClotureMessage.textContent = `${monthLabel(monthId)} est clôturé : aucune nouvelle réservation ne peut être saisie sur ce mois.`;
+    } else {
+      dateClotureMessage.textContent = `${monthLabel(monthId)} n'est pas ouvert dans le référentiel de clôture.`;
+    }
+    verifySubmit.disabled = true;
+    return false;
   }
 
   function updateOwner() {
@@ -693,7 +747,10 @@
   }
 
   logement.addEventListener("change", updateOwner);
-  dateArrivee.addEventListener("change", updateOwner);
+  dateArrivee.addEventListener("change", () => {
+    validateClotureMonth();
+    updateOwner();
+  });
   tauxDerogationToggle.addEventListener("click", () => {
     tauxDerogationInfo.hidden = false;
     tauxOverride.focus();
@@ -750,6 +807,10 @@
   document.getElementById("code_impact").addEventListener("change", updateComptabilisation);
   form.addEventListener("submit", (event) => {
     updateOwner();
+    if (!validateClotureMonth()) {
+      event.preventDefault();
+      return;
+    }
     updateMenageStandard();
     updatePaymentFields();
     updateComptabilisation();
@@ -774,6 +835,7 @@
   });
 
   updateOwner();
+  validateClotureMonth();
   updateMenageStandard();
   updatePaymentFields();
   updateComptabilisation();
@@ -791,6 +853,8 @@
 }
 [hidden] { display: none !important; }
 .form-help { min-height: 1rem; margin: 0; }
+.closure-summary { margin-top: var(--stack-sm); font-size: 0.88rem; color: var(--color-text-secondary); }
+.closure-error { color: var(--color-error); font-weight: 500; }
 #proprietaire_display[readonly], #comptabilisation_display[readonly] { background: var(--color-bg-subtle); }
 .override-edit { display: grid; grid-template-columns: minmax(120px, 1fr) auto; gap: 6px; align-items: end; }
 .override-edit label, .override-edit .form-help { grid-column: 1 / -1; }
