@@ -1652,3 +1652,21 @@ Propagation cible :
 - La comparaison APP-2d simulation/ecriture couvre les champs economiques et de tracabilite necessaires, dont `taux_commission_override` et `menage_override`.
 
 Aucune migration reelle automatique n'est exposee dans l'interface. L'ecran de previsualisation affiche seulement le diagnostic schema et continue de bloquer l'ecriture reelle tant que le schema reel n'est pas prepare.
+
+## Contrôle intégrité VBA et package ZIP (APP-2e durcissement — 2026-07-05)
+
+Distinction des trois niveaux de controle VBA :
+
+**Presence VBA** (`has_vba`) : verifie que `wb.vba_archive is not None` apres chargement openpyxl avec `keep_vba=True`. Necesssaire mais non suffisant.
+
+**Integrite binaire VBA** : compare le SHA-256 du contenu decompresse de `xl/vbaProject.bin` entre la copie reference (avant migration) et la copie de travail (apres migration). Un seul octet modifie produit `VBA_PRESERVATION_ECHEC`. Verifie aussi `xl/vbaProjectSignature.bin` si present, le marqueur `macroEnabled` dans `[Content_Types].xml`, et la relation `relationships/vbaProject` dans `xl/_rels/workbook.xml.rels`.
+
+**Preservation des parties ZIP sensibles** : protege les parties du package Excel qui ne sont pas reconstruites par openpyxl et qui representent des configurations metier ou systeme : `xl/activeX/`, `xl/ctrlProps/`, `xl/embeddings/`, `xl/externalLinks/`, `xl/connections.xml`, `customUI/`, `docProps/custom.xml`, `xl/printerSettings/`. Toute disparition ou modification produit `PACKAGE_SENSIBLE_PRESERVATION_ECHEC`.
+
+Nouveaux helpers dans `saisie_hh_schema_real_prepare_service.py` :
+- `_zip_sha256_entry(zf, name)` — SHA-256 contenu decompresse d'une entree ZIP
+- `_vba_snapshot(path)` — empreinte complete des parties VBA pour manifest
+- `_check_zip_vba_integrity(ref_path, work_path)` — controle binaire VBA complet
+- `_check_zip_sensitive_parts(ref_path, work_path)` — controle parties sensibles
+
+Le manifest APP-2e inclut desormais `vba_snapshots.saisie.avant/apres` et `vba_snapshots.ref_setup.avant/apres` pour traçabilite complete.

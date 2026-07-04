@@ -1059,3 +1059,20 @@ Controles requis avant commit :
 - hashes des fichiers Excel reels inchanges avant/apres ;
 - `git diff --check` vert ;
 - staging selectif APP-2e uniquement, sans Excel reel, logs, dryruns ni `.pytest_tmp*`.
+
+## Note d'etat - APP-2e durcissement intégrité binaire VBA (2026-07-05)
+
+Statut : controle binaire VBA et parties ZIP sensibles implemente et teste.
+
+Elements ajoutes :
+- `_vba_snapshot(path)` : empreinte complete avant/apres pour manifest (presence, SHA-256, macro-enabled, relation VBA) ;
+- `_check_zip_vba_integrity(ref, work)` : comparaison octet pour octet de `xl/vbaProject.bin`, `xl/vbaProjectSignature.bin`, `[Content_Types].xml` et `xl/_rels/workbook.xml.rels` ; code bloquant `VBA_PRESERVATION_ECHEC` ;
+- `_check_zip_sensitive_parts(ref, work)` : protection des 8 prefixes ZIP sensibles ; code bloquant `PACKAGE_SENSIBLE_PRESERVATION_ECHEC` ;
+- 6 tests supplementaires avec ZIPs synthetiques (tests 1-5 VBA + test 10 formule mutee).
+
+Controles requis avant commit :
+- tests application APP complets Miniconda (30 tests attendus) ;
+- tests Lot4A cibles py -3 ;
+- hashes des fichiers Excel reels inchanges avant/apres ;
+- `git diff --check` vert ;
+- staging selectif APP-2e durcissement uniquement.

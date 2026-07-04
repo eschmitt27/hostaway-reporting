@@ -6,12 +6,14 @@ La migration reelle future reste separee, explicite et protegee par confirmation
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
 import shutil
 import tempfile
 from typing import Any
+import zipfile
 
 import openpyxl
 
@@ -37,6 +39,25 @@ SAISIE_MIGREE_NAME = "SAISIE_ReservationsHorsHostaway_schema_prepare.xlsx"
 REF_MIGREE_NAME = "REF_Setup_schema_prepare.xlsm"
 SAISIE_REF_NAME = "SAISIE_ReservationsHorsHostaway_ref.xlsx"
 REF_REF_NAME = "REF_Setup_ref.xlsm"
+
+# ── Contrôle intégrité ZIP / VBA ───────────────────────────────────────────────
+_VBA_PROJECT_PATH = "xl/vbaProject.bin"
+_VBA_SIG_PATH = "xl/vbaProjectSignature.bin"
+_CONTENT_TYPES_PATH = "[Content_Types].xml"
+_WORKBOOK_RELS_PATH = "xl/_rels/workbook.xml.rels"
+_VBA_MACRO_ENABLED_MARKER = "macroEnabled"
+_VBA_RELATIONSHIP_TYPE = "relationships/vbaProject"
+
+_SENSITIVE_PREFIXES = (
+    "xl/activeX/",
+    "xl/ctrlProps/",
+    "xl/embeddings/",
+    "xl/externalLinks/",
+    "xl/connections.xml",
+    "customUI/",
+    "docProps/custom.xml",
+    "xl/printerSettings/",
+)
 
 
 def _utc_stamp() -> str:
@@ -112,16 +133,122 @@ def _workbook_features(path: Path, *, keep_vba: bool = False) -> dict[str, Any]:
         wb.close()
 
 
-def _check_vba_preserved(ref_path: Path, work_path: Path) -> list[str]:
-    """Détecte la perte du VBA entre la copie référence et la copie de travail."""
+def _zip_sha256_entry(zf: zipfile.ZipFile, name: str) -> str | None:
+    """SHA-256 du contenu décompressé d'une entrée ZIP, ou None si absente."""
     try:
-        has_vba_ref = _workbook_features(ref_path, keep_vba=True).get("has_vba", False)
-        has_vba_work = _workbook_features(work_path, keep_vba=True).get("has_vba", False)
-        if has_vba_ref and not has_vba_work:
-            return ["VBA_PERDU_APRES_MIGRATION"]
-        return []
+        return hashlib.sha256(zf.read(name)).hexdigest()
+    except KeyError:
+        return None
+
+
+def _vba_snapshot(path: Path) -> dict[str, Any]:
+    """Empreinte des parties VBA du package ZIP (pour manifest et comparaison)."""
+    try:
+        with zipfile.ZipFile(str(path), "r") as zf:
+            names = set(zf.namelist())
+            vba_present = _VBA_PROJECT_PATH in names
+            vba_sha256 = _zip_sha256_entry(zf, _VBA_PROJECT_PATH) if vba_present else None
+            sig_present = _VBA_SIG_PATH in names
+            sig_sha256 = _zip_sha256_entry(zf, _VBA_SIG_PATH) if sig_present else None
+            macro_enabled = False
+            vba_rel_valid = False
+            if _CONTENT_TYPES_PATH in names:
+                ct = zf.read(_CONTENT_TYPES_PATH).decode("utf-8", errors="replace")
+                macro_enabled = _VBA_MACRO_ENABLED_MARKER in ct
+            if _WORKBOOK_RELS_PATH in names:
+                wr = zf.read(_WORKBOOK_RELS_PATH).decode("utf-8", errors="replace")
+                vba_rel_valid = _VBA_RELATIONSHIP_TYPE in wr
+            return {
+                "vba_project_present": vba_present,
+                "vba_project_sha256": vba_sha256,
+                "vba_signature_present": sig_present,
+                "vba_signature_sha256": sig_sha256,
+                "macro_enabled_declared": macro_enabled,
+                "vba_relationship_valid": vba_rel_valid,
+            }
     except Exception as exc:
-        return [f"Verification VBA impossible : {exc}"]
+        return {"error": str(exc)}
+
+
+def _check_zip_vba_integrity(ref_path: Path, work_path: Path) -> list[str]:
+    """Vérifie l'intégrité binaire VBA (octet pour octet) entre ref et travail."""
+    violations: list[str] = []
+    try:
+        snap_ref = _vba_snapshot(ref_path)
+        snap_work = _vba_snapshot(work_path)
+
+        if "error" in snap_ref or "error" in snap_work:
+            return [
+                f"VBA_PRESERVATION_ECHEC: lecture ZIP impossible "
+                f"(ref={snap_ref.get('error')}, work={snap_work.get('error')})"
+            ]
+
+        if snap_ref["vba_project_present"]:
+            if not snap_work["vba_project_present"]:
+                violations.append(
+                    "VBA_PRESERVATION_ECHEC: xl/vbaProject.bin disparu apres migration"
+                )
+            elif snap_ref["vba_project_sha256"] != snap_work["vba_project_sha256"]:
+                violations.append(
+                    f"VBA_PRESERVATION_ECHEC: xl/vbaProject.bin modifie "
+                    f"(ref={snap_ref['vba_project_sha256'][:16]}... "
+                    f"work={snap_work['vba_project_sha256'][:16]}...)"
+                )
+
+        if snap_ref["vba_signature_present"]:
+            if not snap_work["vba_signature_present"]:
+                violations.append(
+                    "VBA_PRESERVATION_ECHEC: xl/vbaProjectSignature.bin disparu apres migration"
+                )
+            elif snap_ref["vba_signature_sha256"] != snap_work["vba_signature_sha256"]:
+                violations.append(
+                    "VBA_PRESERVATION_ECHEC: xl/vbaProjectSignature.bin modifie apres migration"
+                )
+
+        if snap_ref["macro_enabled_declared"] and not snap_work["macro_enabled_declared"]:
+            violations.append(
+                "VBA_PRESERVATION_ECHEC: [Content_Types].xml ne declare plus de classeur macro-enabled"
+            )
+
+        if snap_ref["vba_relationship_valid"] and not snap_work["vba_relationship_valid"]:
+            violations.append(
+                "VBA_PRESERVATION_ECHEC: xl/_rels/workbook.xml.rels ne contient plus de relation VBA"
+            )
+
+    except Exception as exc:
+        violations.append(f"VBA_PRESERVATION_ECHEC: verification impossible : {exc}")
+
+    return violations
+
+
+def _check_zip_sensitive_parts(ref_path: Path, work_path: Path) -> list[str]:
+    """Vérifie que les parties ZIP sensibles n'ont pas disparu ou été altérées."""
+    violations: list[str] = []
+    try:
+        with (
+            zipfile.ZipFile(str(ref_path), "r") as zf_ref,
+            zipfile.ZipFile(str(work_path), "r") as zf_work,
+        ):
+            ref_names = set(zf_ref.namelist())
+            work_names = set(zf_work.namelist())
+            for entry in sorted(ref_names):
+                for prefix in _SENSITIVE_PREFIXES:
+                    if entry == prefix or entry.startswith(prefix):
+                        if entry not in work_names:
+                            violations.append(
+                                f"PACKAGE_SENSIBLE_PRESERVATION_ECHEC: {entry} disparu apres migration"
+                            )
+                        else:
+                            if _zip_sha256_entry(zf_ref, entry) != _zip_sha256_entry(zf_work, entry):
+                                violations.append(
+                                    f"PACKAGE_SENSIBLE_PRESERVATION_ECHEC: {entry} modifie apres migration"
+                                )
+                        break
+    except Exception as exc:
+        violations.append(
+            f"PACKAGE_SENSIBLE_PRESERVATION_ECHEC: verification impossible : {exc}"
+        )
+    return violations
 
 
 def diagnostiquer_schema_hh(
@@ -237,8 +364,17 @@ def preparer_migration_hh_sur_copies(
     # 4. Comparer référence (avant) → travail (après)
     struct_saisie_errors = _check_structural_preservation(saisie_ref_copy, saisie_work, struct_saisie_avant)
     struct_ref_errors = _check_structural_preservation(ref_ref_copy, ref_work, struct_ref_avant)
-    vba_errors_saisie = _check_vba_preserved(saisie_ref_copy, saisie_work)
-    vba_errors_ref = _check_vba_preserved(ref_ref_copy, ref_work)
+
+    # Empreintes VBA avant/après pour manifest et contrôle binaire
+    vba_snap_saisie_avant = _vba_snapshot(saisie_ref_copy)
+    vba_snap_saisie_apres = _vba_snapshot(saisie_work)
+    vba_snap_ref_avant = _vba_snapshot(ref_ref_copy)
+    vba_snap_ref_apres = _vba_snapshot(ref_work)
+    vba_errors_saisie = _check_zip_vba_integrity(saisie_ref_copy, saisie_work)
+    vba_errors_ref = _check_zip_vba_integrity(ref_ref_copy, ref_work)
+    sens_errors_saisie = _check_zip_sensitive_parts(saisie_ref_copy, saisie_work)
+    sens_errors_ref = _check_zip_sensitive_parts(ref_ref_copy, ref_work)
+
     diag_apres = diagnostiquer_schema_hh(saisie_path=saisie_work, ref_setup_path=ref_work)
 
     errors: list[str] = []
@@ -246,6 +382,8 @@ def preparer_migration_hh_sur_copies(
     errors.extend(struct_ref_errors)
     errors.extend(vba_errors_saisie)
     errors.extend(vba_errors_ref)
+    errors.extend(sens_errors_saisie)
+    errors.extend(sens_errors_ref)
     errors.extend(diag_apres.get("formula_violations", []))
     if diag_apres["missing_saisie_fields"] or diag_apres["missing_ref_modes"]:
         errors.append("SCHEMA_COPIE_INCOMPLET_APRES_MIGRATION")
@@ -266,6 +404,10 @@ def preparer_migration_hh_sur_copies(
         "diagnostic_apres": diag_apres,
         "migration": {"saisie_fields_added": added_fields, "direct_proprietaire_added": direct_added},
         "structure_errors": {"saisie": struct_saisie_errors, "ref_setup": struct_ref_errors},
+        "vba_snapshots": {
+            "saisie": {"avant": vba_snap_saisie_avant, "apres": vba_snap_saisie_apres},
+            "ref_setup": {"avant": vba_snap_ref_avant, "apres": vba_snap_ref_apres},
+        },
         "errors": errors,
     }
     (out / MANIFEST_NAME).write_text(json.dumps(manifest, ensure_ascii=False, indent=2, default=str), encoding="utf-8")

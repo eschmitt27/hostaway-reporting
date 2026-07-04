@@ -682,3 +682,168 @@ def test_app2e_fichiers_reels_inchanges():
     fp_ref = schema_real_svc._fingerprint(cfg.REF_SETUP)
     assert fp_saisie["sha256"].lower() == _SAISIE_SHA256_EXPECTED
     assert fp_ref["sha256"].lower() == _REF_SETUP_SHA256_EXPECTED
+
+
+# ── APP-2e : contrôle intégrité binaire VBA ────────────────────────────────────
+
+import zipfile as _zipfile
+
+_CONTENT_TYPES_WITH_VBA = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+    '<Default Extension="xml" ContentType="application/xml"/>'
+    '<Default Extension="bin" ContentType="application/vnd.ms-office.vbaProject"/>'
+    '<Override PartName="/xl/workbook.xml"'
+    ' ContentType="application/vnd.ms-excel.sheet.macroEnabled.main+xml"/>'
+    '</Types>'
+)
+_WORKBOOK_RELS_WITH_VBA = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+    '<Relationship Id="rId1"'
+    ' Type="http://schemas.microsoft.com/office/2006/relationships/vbaProject"'
+    ' Target="vbaProject.bin"/>'
+    '</Relationships>'
+)
+_VBA_BIN_MINIMAL = b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1' + b'\x00' * 120
+_VBA_SIG_MINIMAL = b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1' + b'\xff' * 60
+
+
+def _make_synthetic_xlsm(
+    path: Path,
+    *,
+    with_vba: bool = True,
+    with_sig: bool = False,
+    vba_bytes: bytes | None = None,
+) -> Path:
+    """Crée un fichier .xlsm ZIP synthétique minimal pour les tests binaires VBA."""
+    vba_data = vba_bytes if vba_bytes is not None else _VBA_BIN_MINIMAL
+    with _zipfile.ZipFile(str(path), "w", _zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(_zipfile.ZipInfo("[Content_Types].xml"), _CONTENT_TYPES_WITH_VBA)
+        zf.writestr(_zipfile.ZipInfo("xl/_rels/workbook.xml.rels"), _WORKBOOK_RELS_WITH_VBA)
+        if with_vba:
+            zf.writestr(_zipfile.ZipInfo("xl/vbaProject.bin"), vba_data)
+        if with_sig:
+            zf.writestr(_zipfile.ZipInfo("xl/vbaProjectSignature.bin"), _VBA_SIG_MINIMAL)
+    return path
+
+
+def _mutate_zip(src: Path, dst: Path, *, remove: str | None = None,
+                replace: dict[str, bytes] | None = None) -> Path:
+    """Copie src → dst en supprimant ou remplaçant des entrées ZIP."""
+    with _zipfile.ZipFile(str(src), "r") as zf_in, \
+         _zipfile.ZipFile(str(dst), "w", _zipfile.ZIP_DEFLATED) as zf_out:
+        for item in zf_in.infolist():
+            if remove and item.filename == remove:
+                continue
+            data = (replace or {}).get(item.filename, zf_in.read(item.filename))
+            zf_out.writestr(item, data)
+    return dst
+
+
+# ── Test 1 : xl/vbaProject.bin supprimé détecté ───────────────────────────────
+
+def test_app2e_zip_vba_project_supprime_detecte(tmp_path):
+    """Suppression de xl/vbaProject.bin détectée par _check_zip_vba_integrity."""
+    ref = _make_synthetic_xlsm(tmp_path / "ref.xlsm")
+    work = _mutate_zip(ref, tmp_path / "work.xlsm", remove="xl/vbaProject.bin")
+
+    violations = schema_real_svc._check_zip_vba_integrity(ref, work)
+    assert any("vbaProject.bin disparu" in v for v in violations), violations
+
+
+# ── Test 2 : octet changé dans xl/vbaProject.bin détecté ─────────────────────
+
+def test_app2e_zip_vba_project_octet_modifie_detecte(tmp_path):
+    """Un octet modifié dans xl/vbaProject.bin détecté par _check_zip_vba_integrity."""
+    ref = _make_synthetic_xlsm(tmp_path / "ref.xlsm")
+    corrupted = bytearray(_VBA_BIN_MINIMAL)
+    corrupted[8] ^= 0xFF  # flip un octet
+    work = _mutate_zip(ref, tmp_path / "work.xlsm", replace={"xl/vbaProject.bin": bytes(corrupted)})
+
+    violations = schema_real_svc._check_zip_vba_integrity(ref, work)
+    assert any("vbaProject.bin modifie" in v for v in violations), violations
+
+
+# ── Test 3 : signature VBA disparue détectée ──────────────────────────────────
+
+def test_app2e_zip_vba_signature_disparue_detectee(tmp_path):
+    """Disparition de xl/vbaProjectSignature.bin détectée."""
+    ref = _make_synthetic_xlsm(tmp_path / "ref.xlsm", with_sig=True)
+    work = _mutate_zip(ref, tmp_path / "work.xlsm", remove="xl/vbaProjectSignature.bin")
+
+    violations = schema_real_svc._check_zip_vba_integrity(ref, work)
+    assert any("vbaProjectSignature.bin disparu" in v for v in violations), violations
+
+
+# ── Test 4 : relation VBA supprimée de workbook.xml.rels détectée ─────────────
+
+def test_app2e_zip_vba_relation_supprimee_detectee(tmp_path):
+    """Suppression de la relation VBA dans workbook.xml.rels détectée."""
+    ref = _make_synthetic_xlsm(tmp_path / "ref.xlsm")
+    rels_sans_vba = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '</Relationships>'
+    )
+    work = _mutate_zip(
+        ref, tmp_path / "work.xlsm",
+        replace={"xl/_rels/workbook.xml.rels": rels_sans_vba.encode()},
+    )
+
+    violations = schema_real_svc._check_zip_vba_integrity(ref, work)
+    assert any("relation VBA" in v for v in violations), violations
+
+
+# ── Test 5 : package .xlsx sans VBA accepté sans faux échec ───────────────────
+
+def test_app2e_zip_xlsx_sans_vba_accepte(tmp_path):
+    """Un fichier .xlsx sans VBA ne génère aucune violation VBA."""
+    # Crée un fichier xlsx minimal (pas de vbaProject.bin)
+    ref = tmp_path / "ref.xlsx"
+    work = tmp_path / "work.xlsx"
+    wb = openpyxl.Workbook()
+    wb.active.title = "SAISIE"
+    wb.calculation.fullCalcOnLoad = True
+    wb.save(str(ref))
+    wb.close()
+    shutil.copy2(ref, work)
+
+    violations = schema_real_svc._check_zip_vba_integrity(ref, work)
+    assert violations == [], violations
+
+
+# ── Test 10 : mutation d'une formule critique → ERREUR migration ───────────────
+
+def test_app2e_formule_mutee_apres_migration_rejetee(tmp_path):
+    """Une formule critique figée dans la copie de travail déclenche status=ERREUR."""
+    from app.services.saisie_hh_schema_migration import migrate_saisie_copy as _real_migrate
+    from app.readers.saisie_hh_reader import find_first_empty_data_row, _col_index
+
+    source_saisie = _copy_saisie(tmp_path)
+    source_ref = _make_ref(tmp_path / "ref.xlsm")
+
+    def corrupt_migrate(path):
+        result = _real_migrate(path)
+        target = find_first_empty_data_row(path)
+        if target:
+            wb = openpyxl.load_workbook(str(path))
+            wb["SAISIE"].cell(row=target, column=_col_index("B")).value = 99999
+            wb.save(str(path))
+            wb.close()
+        return result
+
+    with patch(
+        "app.services.saisie_hh_schema_real_prepare_service.migrate_saisie_copy",
+        corrupt_migrate,
+    ):
+        manifest = schema_real_svc.preparer_migration_hh_sur_copies(
+            saisie_source=source_saisie,
+            ref_setup_source=source_ref,
+            output_dir=tmp_path / "prepared",
+        )
+
+    assert manifest["status"] == "ERREUR", manifest
+    formula_errs = [e for e in manifest["errors"] if "FORMULE" in e]
+    assert formula_errs, f"Aucune erreur de formule dans {manifest['errors']}"

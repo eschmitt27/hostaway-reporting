@@ -1160,3 +1160,19 @@ Decisions validees :
 - La recette APP-2e execute sur copies le chemin complet APP-2c puis APP-2d : validation, migration copie, simulation, ecriture controlee sur copie, Lot4A post-ecriture, comparaison stricte simulation/ecriture et rollback force.
 - Les champs de derogation `taux_commission_override`, `motif_override_taux_commission`, `confirmation_override_taux_commission`, `menage_override`, `motif_override_menage`, `confirmation_override_menage` sont propages jusqu'aux colonnes cible lorsqu'elles existent. Les taux `0.005` et `0.00` restent des valeurs tracees et ne sont jamais traites comme vides.
 - `HH_REAL_WRITE_ENABLED=False` et `HH_REAL_WRITE_CONFIRMATION_ENABLED=False` restent les valeurs par defaut. La premiere activation reelle reste une etape separee apres migration reelle controlee et validation humaine.
+
+### D-APP-2E-VBA - Intégrité binaire VBA et parties ZIP sensibles (APP-2e durcissement)
+
+**Date** : 2026-07-05
+**Statut** : VALIDE
+**Perimetre** : APP-2e, controle VBA post-migration, protection package Excel.
+
+Decisions validees :
+- La presence du VBA (`has_vba=True`) n'est pas suffisante. La migration sur copies doit verifier l'integrite binaire octet pour octet de `xl/vbaProject.bin` via SHA-256 avant et apres migration. Toute difference produit le code bloquant `VBA_PRESERVATION_ECHEC`.
+- Si `xl/vbaProjectSignature.bin` est present avant migration, il doit etre present et identique apres. Toute disparition ou modification produit `VBA_PRESERVATION_ECHEC`.
+- `[Content_Types].xml` doit toujours declarer un classeur macro-enabled (`macroEnabled` dans le ContentType du workbook) apres migration d'un classeur `.xlsm` avec VBA.
+- `xl/_rels/workbook.xml.rels` doit toujours contenir une relation de type `relationships/vbaProject` apres migration d'un classeur avec VBA.
+- Les parties ZIP sensibles (`xl/activeX/`, `xl/ctrlProps/`, `xl/embeddings/`, `xl/externalLinks/`, `xl/connections.xml`, `customUI/`, `docProps/custom.xml`, `xl/printerSettings/`) doivent rester presentes et identiques si elles existent avant migration. Toute alteration non autorisee produit `PACKAGE_SENSIBLE_PRESERVATION_ECHEC`.
+- Ces controles ne s'appliquent qu'a la comparaison copie-reference/copie-travail ; ils ne touchent jamais les fichiers sources reels.
+- Le manifest `preparer_migration_hh_sur_copies` inclut desormais `vba_snapshots` avec les empreintes avant/apres pour audit.
+- Les tests de ces controles utilisent des fichiers ZIP `.xlsm` synthetiques construits en Python ; ils ne dependent pas du vrai `REF_Setup.xlsm`.

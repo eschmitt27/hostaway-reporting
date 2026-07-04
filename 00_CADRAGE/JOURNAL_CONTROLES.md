@@ -1805,3 +1805,26 @@ Resultat   : APP-2e prepare le diagnostic et la migration future du schema reel 
 Statut     : OUVERT - EN_ATTENTE_COMMIT_SELECTIF
 Commentaire: Aucun fichier Excel reel ne doit etre modifie ; la premiere migration reelle devra etre lancee par commande explicite avec confirmation humaine.
 ```
+
+### CTR-2026-07-05-APP2E-INTEGRITE-VBA
+
+```
+Date       : 2026-07-05
+Lot        : APP-2e durcissement
+Code       : APP2E_INTEGRITE_BINAIRE_VBA_PACKAGE_ZIP
+Severite   : BLOQUANT
+Fichiers   : saisie_hh_schema_real_prepare_service.py, test_saisie_hh_app2e.py
+Resultat   : Controle binaire VBA implemente et valide sur copies synthetiques.
+             xl/vbaProject.bin : present et SHA-256 identique avant/apres migration.
+             xl/vbaProjectSignature.bin : present et identique si existait avant.
+             [Content_Types].xml : declare classeur macro-enabled apres migration xlsm.
+             xl/_rels/workbook.xml.rels : relation vbaProject presente apres migration.
+             Parties ZIP sensibles (activeX, ctrlProps, embeddings, externalLinks,
+             connections.xml, customUI, docProps/custom.xml, printerSettings) :
+             presentes et identiques si existaient avant migration.
+             Codes bloquants : VBA_PRESERVATION_ECHEC, PACKAGE_SENSIBLE_PRESERVATION_ECHEC.
+             30 tests au total : 6 nouveaux (VBA binaire x5 + formule mutee x1).
+             Hashes REF_Setup.xlsm et SAISIE inchanges confirmes.
+Statut     : OUVERT - EN_ATTENTE_COMMIT_SELECTIF
+Commentaire: Aucun fichier Excel reel modifie. Tests VBA utilisent des ZIPs synthetiques uniquement.
+```
