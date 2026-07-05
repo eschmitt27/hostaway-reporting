@@ -2014,3 +2014,21 @@ Resultats  :
 Statut     : INFO -- TERMINE. Migration reelle validee et versionnee.
 Commentaire: flag reste False. Sauvegarde dans 99_ARCHIVES jamais stager ni modifier.
 ```
+
+
+## CTR-APP-3b-1-001 — Validation prévisualisation saisie charge
+
+Date       : 2026-07-05
+Lot        : APP-3b-1 — Prévisualisation saisie charge
+Code       : CTR-APP-3B1-001
+Sévérité   : INFO
+Fichier    : 05_APPLICATION/tests/test_charges_preview.py
+Résultat   : 61 tests passés (0 échec). 16 catégories couvertes :
+             flags sécurité, hash source inchangé, validation V01-V15,
+             mois clôturé, mode paiement + associé + carte, ASSOC_MODE,
+             affectation + logement, réservation CHG_021, génération charge_id,
+             token/manifest, copie créée, colonnes formule non écrites, référentiels.
+             Suite complète : 484 passés, 0 régression.
+Statut     : CORRIGÉ
+Commentaire: SAISIE_Charges_Flux.xlsx inchangé confirmé par test (hash avant = hash après).
+             Copie créée uniquement sous data/dryruns/. Aucune route de confirmation réelle.

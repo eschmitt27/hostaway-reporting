@@ -608,3 +608,35 @@ Cette discipline est appliquée à chaque nouveau lot, en s'appuyant sur la matr
 - **Aucun pipeline** Lot3/9/10/11/12 lance
 - **Aucune charge** creee
 - **Entree JOURNAL_CONTROLES** : CTR-2026-07-05-APP3B0-MIGRATION-REELLE
+
+
+## Ce qui a été modifié (session APP-3b-1 — Prévisualisation saisie charge, 2026-07-05)
+
+**Objectif :** construire les routes GET/POST/GET de prévisualisation de saisie charge sur copie.
+Aucune écriture réelle. SAISIE_Charges_Flux.xlsx strictement protégé.
+
+**Fichiers créés :**
+- `05_APPLICATION/app/readers/saisie_charges_reader.py` — lecture SAISIE + 11 référentiels REF_Setup
+- `05_APPLICATION/app/services/charges_preview_service.py` — validation (16 règles), résolution ASSOC_MODE, génération charge_id, copie dryrun, manifest
+- `05_APPLICATION/app/templates/fournisseurs_nouvelle.html` — formulaire saisie
+- `05_APPLICATION/app/templates/fournisseurs_previsualisation.html` — résultat prévisualisation
+- `05_APPLICATION/tests/test_charges_preview.py` — 61 tests (16 catégories)
+
+**Fichiers modifiés :**
+- `05_APPLICATION/app/config.py` — ajout `CHARGES_REAL_WRITE_ENABLED = False`, `CHARGES_REAL_WRITE_CONFIRMATION_ENABLED = False`, `MASTER_CALC_RESERVATIONS_RESOLUES`
+- `05_APPLICATION/app/routes/fournisseurs.py` — ajout 3 routes (GET nouvelle, POST previsualiser, GET previsualisation/{token})
+
+**Routes ajoutées :**
+- `GET  /fournisseurs/nouvelle` — formulaire de saisie
+- `POST /fournisseurs/nouvelle/previsualiser` — validation + création copie dryrun
+- `GET  /fournisseurs/nouvelle/previsualisation/{token}` — affichage résultat
+
+**Résultat tests :** 61/61 nouveaux + 484 suite complète, 0 régression.
+
+**Flags confirmés inchangés :**
+- `CHARGES_REAL_WRITE_ENABLED = False`
+- `CHARGES_REAL_WRITE_CONFIRMATION_ENABLED = False`
+- `HH_REAL_WRITE_ENABLED = False`
+- `REF_ASSOC_MODE_REAL_WRITE_ENABLED = False`
+
+**Source jamais modifiée :** SAISIE_Charges_Flux.xlsx — hash vérifié avant/après par test.

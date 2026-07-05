@@ -27,6 +27,8 @@ MASTER_RUN_LOG = TRAVAIL / "Lot1_Hostaway" / "MASTER_RUN_Log.xlsx"
 # Charges / Fournisseurs (APP-3a) — LECTURE SEULE
 MASTER_CHARGES = TRAVAIL / "Lot3_Charges" / "MASTER_FACT_MAN_Charges.xlsx"
 SAISIE_CHARGES = SOURCES_BRUTES / "Charges" / "SAISIE_Charges_Flux.xlsx"
+# Réservations résolues (APP-3b-1) — source de validation reservation_id, LECTURE SEULE
+MASTER_CALC_RESERVATIONS_RESOLUES = TRAVAIL / "Lot4quater_SourceResolue" / "MASTER_CALC_Reservations_Resolues.xlsx"
 # Propriétaires & règlements (APP-3c) — LECTURE SEULE
 MASTER_NET_PROPRIETAIRE = TRAVAIL / "Lot10_Resultats" / "MASTER_CALC_NetProprietaire.xlsx"
 MASTER_FACT_PROPRIETAIRES = TRAVAIL / "Lot12_Factures" / "MASTER_FACT_Proprietaires.xlsx"
@@ -47,6 +49,11 @@ HH_REAL_WRITE_CONFIRMATION_ENABLED = False
 # Migration REF_Assoc_Mode dans REF_Setup.xlsm — garde de sécurité (APP-3b-0).
 # Ne jamais activer implicitement ni par défaut.
 REF_ASSOC_MODE_REAL_WRITE_ENABLED = False
+
+# Écriture SAISIE Charges — garde de sécurité (APP-3b-1).
+# Ne jamais activer implicitement ni par défaut.
+CHARGES_REAL_WRITE_ENABLED = False
+CHARGES_REAL_WRITE_CONFIRMATION_ENABLED = False
 
 # Chemins saisie (écriture atomique uniquement — activée aux lots dédiés)
 SAISIE_ROOT = PROJECT_ROOT / "01_SOURCES_BRUTES"

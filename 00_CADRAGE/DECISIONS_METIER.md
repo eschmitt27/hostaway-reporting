@@ -1265,3 +1265,21 @@ Statut : APPLIQUEE -- 2026-07-05.
 - D-AM-R6 : flag REF_ASSOC_MODE_REAL_WRITE_ENABLED -- active temporairement et explicitement pour l'execution unique de la migration reelle, puis remis a False apres controle post-migration.
 - D-AM-R7 : Aucun pipeline Lot3/9/10/11/12 lance, aucune charge creee.
 - D-AM-R8 : 27 feuilles historiques preservees + REF_Assoc_Mode (28 total). Table tblRefAssocMode presente.
+
+
+### D-APP3B1-01 — Prévisualisation charge : copie uniquement sous DRYRUNS_DIR
+Date : 2026-07-05 | Statut : VALIDÉ | Lot : APP-3b-1
+Décision : La prévisualisation de saisie charge ne touche jamais SAISIE_Charges_Flux.xlsx. Elle crée
+une copie sous 05_APPLICATION/data/dryruns/{token}/. Aucune route de confirmation réelle n'existe.
+Le flag CHARGES_REAL_WRITE_ENABLED reste False tant que APP-3b-2 (écriture réelle) n'est pas validé.
+
+### D-APP3B1-02 — ASSOC_MODE résolu exclusivement depuis REF_Assoc_Mode (table fermée)
+Date : 2026-07-05 | Statut : VALIDÉ | Lot : APP-3b-1
+Décision : L'ASSOC_MODE entrant dans le charge_id est résolu par lookup (mode_paiement_id, associe_id) →
+REF_Assoc_Mode. Si aucune correspondance : erreur V10_ASSOC_MODE_NON_RESOLVABLE, saisie refusée.
+Jamais de saisie libre de l'ASSOC_MODE.
+
+### D-APP3B1-03 — Séquence NNN calculée sur préfixe CHG-{AAAA}-{MM}-{IMPACT}-{ASSOC_MODE}
+Date : 2026-07-05 | Statut : VALIDÉ | Lot : APP-3b-1
+Décision : NNN = (count des charge_id existants commençant par {prefix}-) + 1, sur 3 chiffres.
+Calculé en lecture seule sur SAISIE_Charges_Flux.xlsx à l'instant de la prévisualisation.

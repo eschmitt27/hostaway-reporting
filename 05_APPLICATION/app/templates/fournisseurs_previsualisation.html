@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% block title %}Prévisualisation charge{% endblock %}
+
+{% block content %}
+<div class="page-header flex justify-between items-center">
+  <div>
+    <h1 class="page-title">Prévisualisation de la saisie charge</h1>
+    <p class="page-subtitle">APP-3b-1 — Dry-run sur copie isolée</p>
+  </div>
+  <span class="badge badge-warning">CHARGES_REAL_WRITE_ENABLED = False</span>
+</div>
+
+{% if not_found %}
+<div class="alert alert-error">
+  <strong>Prévisualisation introuvable.</strong>
+  Identifiant <code>{{ token }}</code> inconnu ou expiré.
+</div>
+<p><a href="/fournisseurs/nouvelle" class="btn btn-primary">Nouvelle saisie</a></p>
+
+{% elif manifest %}
+
+<div class="alert alert-success" data-testid="app3b1-security-banner">
+  <strong>Simulation sur copie — aucune donnée réelle n'a été modifiée.</strong>
+</div>
+
+{% if manifest.status == "VALIDATION_REFUSEE" %}
+<div class="alert alert-error" data-status="VALIDATION_REFUSEE">
+  <strong>Validation refusée :</strong>
+  <ul style="margin: var(--stack-sm) 0 0 var(--stack-lg);">
+    {% for e in manifest.errors %}
+    <li><code>{{ e.code }}</code> — {{ e.message }}</li>
+    {% endfor %}
+  </ul>
+</div>
+<p><a href="/fournisseurs/nouvelle" class="btn btn-primary">Retour à la saisie</a></p>
+
+{% elif manifest.status == "OK" %}
+
+<div class="grid two-cols">
+
+  <section class="card">
+    <h2>Charge générée</h2>
+    <table class="dryrun-table">
+      <tbody>
+        <tr>
+          <td>charge_id</td>
+          <td><strong><code>{{ manifest.charge_id or "—" }}</code></strong></td>
+        </tr>
+        <tr>
+          <td>Mois</td>
+          <td>{{ manifest.mois_charge or "—" }}</td>
+        </tr>
+        <tr>
+          <td>ASSOC_MODE</td>
+          <td><code>{{ manifest.assoc_mode or "—" }}</code></td>
+        </tr>
+        <tr>
+          <td>Ligne cible (copie)</td>
+          <td>{{ manifest.target_row or "—" }}</td>
+        </tr>
+        <tr>
+          <td>Date charge</td>
+          <td>{{ manifest.form_data.get('date_charge', '—') }}</td>
+        </tr>
+        <tr>
+          <td>Montant</td>
+          <td>{{ manifest.form_data.get('montant', '—') }} €</td>
+        </tr>
+        <tr>
+          <td>Sens flux</td>
+          <td>{{ manifest.form_data.get('sens_flux', 'CHARGE') }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="card">
+    <h2>Classification</h2>
+    <table class="dryrun-table">
+      <tbody>
+        <tr><td>Catégorie</td><td>{{ manifest.form_data.get('categorie_charge_id', '—') }}</td></tr>
+        <tr><td>Type flux</td><td>{{ manifest.form_data.get('type_flux_id', '—') }}</td></tr>
+        <tr><td>Code impact</td><td>{{ manifest.form_data.get('code_impact', '—') }}</td></tr>
+        <tr><td>Statut contrôle</td><td>{{ manifest.form_data.get('statut_controle', '—') }}</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+</div>
+
+<div class="grid two-cols">
+
+  <section class="card">
+    <h2>Paiement</h2>
+    <table class="dryrun-table">
+      <tbody>
+        <tr><td>Mode paiement</td><td>{{ manifest.form_data.get('mode_paiement_id', '—') }}</td></tr>
+        <tr><td>Associé(e)</td><td>{{ manifest.form_data.get('associe_id', '—') or '—' }}</td></tr>
+        <tr><td>Carte</td><td>{{ manifest.form_data.get('carte_id', '—') or '—' }}</td></tr>
+        <tr><td>Statut rapprochement (auto)</td><td>NON_RAPPROCHE</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="card">
+    <h2>Affectation</h2>
+    <table class="dryrun-table">
+      <tbody>
+        <tr><td>Type affectation</td><td>{{ manifest.form_data.get('affectation_type', '—') }}</td></tr>
+        <tr><td>Logement</td><td>{{ manifest.form_data.get('logement_id', '—') or '—' }}</td></tr>
+        <tr><td>Propriétaire</td><td>{{ manifest.form_data.get('proprietaire_id', '—') or '—' }}</td></tr>
+        <tr><td>Réservation</td><td>{{ manifest.form_data.get('reservation_id', '—') or '—' }}</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+</div>
+
+<section class="card">
+  <h2>Intégrité source</h2>
+  <table class="dryrun-table">
+    <tbody>
+      <tr>
+        <td>Source inchangée</td>
+        <td>
+          {% if manifest.source_inchangee %}
+          <span style="color: var(--color-success);">✓ OUI</span>
+          {% else %}
+          <span style="color: var(--color-danger);">✗ NON — ALERTE INTÉGRITÉ</span>
+          {% endif %}
+        </td>
+      </tr>
+      <tr>
+        <td>Hash source avant</td>
+        <td><code>{{ manifest.source_hash_avant[:16] }}...</code></td>
+      </tr>
+      <tr>
+        <td>Hash source après</td>
+        <td><code>{{ manifest.source_hash_apres[:16] if manifest.source_hash_apres else '—' }}...</code></td>
+      </tr>
+      <tr>
+        <td>Hash copie</td>
+        <td><code>{{ manifest.copy_hash[:16] if manifest.copy_hash else '—' }}...</code></td>
+      </tr>
+      <tr>
+        <td>Token</td>
+        <td><code>{{ manifest.token }}</code></td>
+      </tr>
+      <tr>
+        <td>Créé le</td>
+        <td>{{ manifest.created_at_utc }}</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+{% if not manifest.source_inchangee %}
+<div class="alert alert-error">
+  <strong>ALERTE INTÉGRITÉ :</strong> la source SAISIE_Charges_Flux.xlsx a été modifiée pendant la simulation. Ce résultat doit être invalidé.
+</div>
+{% endif %}
+
+<div style="display:flex; gap:var(--stack-md); margin-top:var(--stack-xl);">
+  <a href="/fournisseurs/nouvelle" class="btn btn-secondary">Nouvelle saisie</a>
+  <a href="/fournisseurs" class="btn btn-secondary">Retour à la liste</a>
+</div>
+
+{% else %}
+<div class="alert alert-error">
+  <strong>Erreur :</strong> {{ manifest.status }}
+  {% if manifest.errors %}
+  <ul>{% for e in manifest.errors %}<li><code>{{ e.code }}</code> — {{ e.message }}</li>{% endfor %}</ul>
+  {% endif %}
+</div>
+<p><a href="/fournisseurs/nouvelle" class="btn btn-primary">Retour à la saisie</a></p>
+{% endif %}
+
+{% endif %}
+{% endblock %}
