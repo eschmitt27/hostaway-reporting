@@ -1845,3 +1845,42 @@ Contenu valide :
 | AM_007 | PAY_005 | | ADEF | OUI | Mode a definir -- controle obligatoire |
 
 Table Excel : tblRefAssocMode. Sauvegarde : 99_ARCHIVES/APP3B0_REF_ASSOC_MODE_20260705_182335/.
+
+
+---
+
+## APP-3b-1 — Prévisualisation saisie charge sur copie (2026-07-05)
+
+### Périmètre
+- Routes : `GET /fournisseurs/nouvelle`, `POST /fournisseurs/nouvelle/previsualiser`, `GET /fournisseurs/nouvelle/previsualisation/{token}`
+- Prévisualisation uniquement — aucune écriture dans `01_SOURCES_BRUTES/Charges/SAISIE_Charges_Flux.xlsx`
+- Copies créées sous `05_APPLICATION/data/dryruns/{token}/SAISIE_Charges_Flux_copie.xlsx`
+- Aucun pipeline Lot3 / Lot9 / Lot10 / Lot11 / Lot12 déclenché
+
+### charge_id généré
+Format canonique (§16.2) : `CHG-{AAAA}-{MM}-{IMPACT}-{ASSOC_MODE}-{NNN}`
+- `ASSOC_MODE` résolu exclusivement depuis `REF_Assoc_Mode` par lookup `(mode_paiement_id, associe_id)`
+- Si aucune correspondance : erreur `V10_ASSOC_MODE_NON_RESOLVABLE`, saisie refusée
+- `NNN` = nombre de charges existantes avec même préfixe + 1, sur 3 chiffres
+
+### Colonnes préservées (formules — jamais écrites)
+`C` (mois), `I` (impact_resultat_reel), `J` (impact_resultat_comptable), `AD` (ROW_HASH)
+
+### Règles de validation
+- V01 : `date_charge` obligatoire, format YYYY-MM-DD
+- V02 : mois de `date_charge` doit être OUVERT dans `REF_Cloture_Mensuelle`
+- V03 : `montant` obligatoire, strictement positif
+- V04-V06 : `categorie_charge_id`, `type_flux_id`, `code_impact` valides
+- V07 : `mode_paiement_id` valide dans `REF_Modes_Paiement`
+- V08 : `associe_id` obligatoire si mode PAY_003 ou PAY_004
+- V09 : `carte_id` obligatoire si PAY_003, interdit sinon ; cohérence carte/associe
+- V10 : ASSOC_MODE résolvable dans `REF_Assoc_Mode`
+- V11-V12 : `affectation_type` valide ; `logement_id` requis si AFF_LOGEMENT
+- V12b : `proprietaire_id` requis si AFF_PROPRIETAIRE
+- V13 : `reservation_id` requis et existant si catégorie CHG_021 (Incident voyageur)
+- V14 : `statut_controle` valide (famille import)
+- V15 : `sens_flux` CHARGE ou PRODUIT (défaut CHARGE si vide)
+
+### Flags de garde
+- `CHARGES_REAL_WRITE_ENABLED = False`
+- `CHARGES_REAL_WRITE_CONFIRMATION_ENABLED = False`
