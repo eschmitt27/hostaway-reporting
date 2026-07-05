@@ -331,8 +331,6 @@ def test_app2e_rollback_sur_divergence_post_ecriture(tmp_path, tmp_db):
 
 # ── APP-2e : tests structurels et validation migration ─────────────────────────
 
-_SAISIE_SHA256_EXPECTED = "c3c00e73017212e08bb3f9e9aef73a26bd3c828804e4fa21f7f2b37713d54c5c"
-_REF_SETUP_SHA256_EXPECTED = "6d9f21de919e80c1903ae5acdb2f64a3d776c858857dda52fb39b8335ab726da"
 
 
 # ── Tests 1-5 : mutations structurelles détectées par _check_structural_preservation ──
@@ -619,7 +617,11 @@ def test_app2e_rollback_double_fichier_restaure(tmp_path):
             raise OSError("Simulation panne disque")
         return real_replace(src, dst)
 
-    with patch("app.services.saisie_hh_schema_real_prepare_service.os.replace", mock_replace):
+    with (
+        patch.object(cfg, "SAISIE_RESERVATIONS_HH", source_saisie),
+        patch.object(cfg, "REF_SETUP", source_ref),
+        patch("app.services.saisie_hh_schema_real_prepare_service.os.replace", mock_replace),
+    ):
         result = schema_real_svc.executer_migration_hh_reelle(
             confirmation=schema_real_svc.CONFIRMATION_EXECUTION,
             saisie_path=source_saisie,
@@ -658,6 +660,8 @@ def test_app2e_rollback_hash_mismatch_detecte(tmp_path):
         return result
 
     with (
+        patch.object(cfg, "SAISIE_RESERVATIONS_HH", source_saisie),
+        patch.object(cfg, "REF_SETUP", source_ref),
         patch("app.services.saisie_hh_schema_real_prepare_service.os.replace", mock_replace),
         patch.object(schema_real_svc, "_fingerprint", mock_fingerprint),
     ):
@@ -672,16 +676,47 @@ def test_app2e_rollback_hash_mismatch_detecte(tmp_path):
     assert result["rollback_hash_verified"] is False
 
 
-# ── Test 13 : fichiers réels inchangés ─────────────────────────────────────────
+# ── Tests 13-14 : garde-fou cibles migration réelle ───────────────────────────
 
-def test_app2e_fichiers_reels_inchanges():
-    """REF_Setup.xlsm et SAISIE réels ont les hashes attendus — aucun test ne les a altérés."""
-    if not cfg.SAISIE_RESERVATIONS_HH.exists() or not cfg.REF_SETUP.exists():
-        pytest.skip("Fichiers sources reels absents")
-    fp_saisie = schema_real_svc._fingerprint(cfg.SAISIE_RESERVATIONS_HH)
-    fp_ref = schema_real_svc._fingerprint(cfg.REF_SETUP)
-    assert fp_saisie["sha256"].lower() == _SAISIE_SHA256_EXPECTED
-    assert fp_ref["sha256"].lower() == _REF_SETUP_SHA256_EXPECTED
+def test_app2e_migration_reelle_accepte_cibles_configurees(tmp_path):
+    """executer_migration_hh_reelle accepte exactement les cibles configurées (cfg patché vers tmp)."""
+    source_saisie = _copy_saisie(tmp_path)
+    source_ref = _make_ref(tmp_path / "ref.xlsm")
+
+    with (
+        patch.object(cfg, "SAISIE_RESERVATIONS_HH", source_saisie),
+        patch.object(cfg, "REF_SETUP", source_ref),
+    ):
+        # Ne doit pas lever CIBLE_MIGRATION_REELLE_NON_AUTORISEE
+        result = schema_real_svc.executer_migration_hh_reelle(
+            confirmation=schema_real_svc.CONFIRMATION_EXECUTION,
+            saisie_path=source_saisie,
+            ref_setup_path=source_ref,
+            work_dir=tmp_path / "work",
+        )
+    assert "real_status" in result or result.get("status") == "REFUSE"
+
+
+def test_app2e_migration_reelle_refuse_chemin_non_configure(tmp_path):
+    """executer_migration_hh_reelle refuse tout chemin non configuré avant tout os.replace."""
+    source_saisie = _copy_saisie(tmp_path)
+    source_ref = _make_ref(tmp_path / "ref.xlsm")
+    tiers = tmp_path / "tiers.xlsx"
+    shutil.copy2(source_saisie, tiers)
+
+    with (
+        patch.object(cfg, "SAISIE_RESERVATIONS_HH", source_saisie),
+        patch.object(cfg, "REF_SETUP", source_ref),
+        patch("app.services.saisie_hh_schema_real_prepare_service.os.replace") as mock_replace,
+    ):
+        with pytest.raises(RuntimeError, match="CIBLE_MIGRATION_REELLE_NON_AUTORISEE"):
+            schema_real_svc.executer_migration_hh_reelle(
+                confirmation=schema_real_svc.CONFIRMATION_EXECUTION,
+                saisie_path=tiers,
+                ref_setup_path=source_ref,
+                work_dir=tmp_path / "work",
+            )
+        mock_replace.assert_not_called()
 
 
 # ── APP-2e : contrôle intégrité binaire VBA ────────────────────────────────────

@@ -325,6 +325,22 @@ def _assert_not_real_source(path: Path) -> None:
             raise RuntimeError(f"Operation sur fichier source reel interdite pendant APP-2e: {resolved}")
 
 
+def _assert_real_migration_targets(p_saisie: Path, p_ref: Path) -> None:
+    """Vérifie que les deux cibles sont exactement les fichiers sources configurés dans cfg."""
+    expected_saisie = cfg.SAISIE_RESERVATIONS_HH.resolve()
+    expected_ref = cfg.REF_SETUP.resolve()
+    if p_saisie.resolve() != expected_saisie:
+        raise RuntimeError(
+            f"CIBLE_MIGRATION_REELLE_NON_AUTORISEE: "
+            f"saisie attendu {expected_saisie}, reçu {p_saisie.resolve()}"
+        )
+    if p_ref.resolve() != expected_ref:
+        raise RuntimeError(
+            f"CIBLE_MIGRATION_REELLE_NON_AUTORISEE: "
+            f"ref_setup attendu {expected_ref}, reçu {p_ref.resolve()}"
+        )
+
+
 def preparer_migration_hh_sur_copies(
     *,
     saisie_source: Path | None = None,
@@ -342,11 +358,24 @@ def preparer_migration_hh_sur_copies(
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
+    # Guard : output_dir ne doit pas être le dossier d'un fichier source
+    _src_parents = {source_saisie.parent.resolve(), source_ref.parent.resolve()}
+    if out.resolve() in _src_parents:
+        raise RuntimeError(
+            f"output_dir interdit : {out} est le dossier d'un fichier source"
+        )
+
+    # Empreinte des sources avant toute opération — vérifiée à nouveau en fin de fonction
+    _src_sha_saisie_avant = _fingerprint(source_saisie)["sha256"]
+    _src_sha_ref_avant = _fingerprint(source_ref)["sha256"]
+
     # 1. Deux copies par source : référence immuable + copie de travail
     saisie_work = out / SAISIE_MIGREE_NAME
     saisie_ref_copy = out / SAISIE_REF_NAME
     ref_work = out / REF_MIGREE_NAME
     ref_ref_copy = out / REF_REF_NAME
+    for _copy_path in (saisie_work, saisie_ref_copy, ref_work, ref_ref_copy):
+        _assert_not_real_source(_copy_path)
     shutil.copy2(source_saisie, saisie_work)
     shutil.copy2(source_saisie, saisie_ref_copy)
     shutil.copy2(source_ref, ref_work)
@@ -387,6 +416,13 @@ def preparer_migration_hh_sur_copies(
     errors.extend(diag_apres.get("formula_violations", []))
     if diag_apres["missing_saisie_fields"] or diag_apres["missing_ref_modes"]:
         errors.append("SCHEMA_COPIE_INCOMPLET_APRES_MIGRATION")
+
+    # 5. Invariant : les sources n'ont pas été modifiées pendant la préparation
+    if _fingerprint(source_saisie)["sha256"] != _src_sha_saisie_avant:
+        errors.append("SOURCE_SAISIE_MODIFIEE_PENDANT_PREPARATION")
+    if _fingerprint(source_ref)["sha256"] != _src_sha_ref_avant:
+        errors.append("SOURCE_REF_MODIFIEE_PENDANT_PREPARATION")
+
     status = "OK" if not errors else "ERREUR"
 
     manifest = {
@@ -426,6 +462,7 @@ def executer_migration_hh_reelle(
         return {"status": "REFUSE", "reason": "CONFIRMATION_INCORRECTE"}
     p_saisie = Path(saisie_path or cfg.SAISIE_RESERVATIONS_HH)
     p_ref = Path(ref_setup_path or cfg.REF_SETUP)
+    _assert_real_migration_targets(p_saisie, p_ref)
     root = Path(work_dir or (Path(tempfile.gettempdir()) / "schema_hh_real_migrations" / _utc_stamp()))
     root.mkdir(parents=True, exist_ok=True)
 
