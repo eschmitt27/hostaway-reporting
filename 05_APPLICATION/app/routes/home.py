@@ -30,7 +30,7 @@ def home(request: Request):
         {"name": "Réservations", "url": "/reservations", "status": "disponible"},
         {"name": "Fournisseurs", "url": "/fournisseurs", "status": "a_venir"},
         {"name": "Banques & caisse", "url": "/banques", "status": "a_venir"},
-        {"name": "Ménages", "url": "/menages", "status": "a_venir"},
+        {"name": "Ménages", "url": "/menages", "status": "disponible"},
         {"name": "Sources & calculs", "url": "/sources-calculs", "status": "disponible"},
         {"name": "Contrôles & clôture", "url": "/controles", "status": "a_venir"},
     ]

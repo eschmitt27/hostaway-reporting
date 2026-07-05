@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}Ménages{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Ménages — Rapprochement</h1>
+  <p class="page-subtitle">
+    Source : {{ data.source }} — lu le {{ data.read_at }}
+  </p>
+</div>
+
+{% if data.status == "ERROR" %}
+<div class="alert alert-error">
+  <strong>Source indisponible</strong> — {{ data.error_message }}
+</div>
+
+{% else %}
+
+<!-- Filtres -->
+<form method="get" action="/menages" class="filter-bar">
+  <div class="filter-group">
+    <label for="mois">Mois</label>
+    <select id="mois" name="mois" onchange="this.form.submit()">
+      <option value="">Tous</option>
+      {% for m in data.filters.mois %}
+        <option value="{{ m }}" {% if data.applied.mois == m %}selected{% endif %}>{{ m }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="filter-group">
+    <label for="logement_id">Logement</label>
+    <select id="logement_id" name="logement_id" onchange="this.form.submit()">
+      <option value="">Tous</option>
+      {% for l in data.filters.logements %}
+        <option value="{{ l }}" {% if data.applied.logement_id == l %}selected{% endif %}>{{ l }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="filter-group">
+    <label for="type_intervenant">Type</label>
+    <select id="type_intervenant" name="type_intervenant" onchange="this.form.submit()">
+      <option value="">Tous</option>
+      {% for t in data.filters.types %}
+        <option value="{{ t }}" {% if data.applied.type_intervenant == t %}selected{% endif %}>{{ t }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="filter-group">
+    <label for="statut_controle">Statut</label>
+    <select id="statut_controle" name="statut_controle" onchange="this.form.submit()">
+      <option value="">Tous</option>
+      {% for s in data.filters.statuts %}
+        <option value="{{ s }}" {% if data.applied.statut_controle == s %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% if data.applied.mois or data.applied.logement_id or data.applied.type_intervenant or data.applied.statut_controle %}
+    <a href="/menages" class="btn btn-secondary btn-sm">Effacer les filtres</a>
+  {% endif %}
+</form>
+
+<div class="table-meta">
+  {{ data.count_affiches }} ligne{% if data.count_affiches != 1 %}s{% endif %} affichée{% if data.count_affiches != 1 %}s{% endif %}
+  sur {{ data.count_total }} au total
+</div>
+
+{% if data.rows %}
+<div class="table-wrapper">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Mois</th>
+        <th>Logement</th>
+        <th>Intervenant</th>
+        <th>Type</th>
+        <th class="num">HA tasks</th>
+        <th class="num">Déclarés int.</th>
+        <th class="num">Déclarés ext.</th>
+        <th class="num">Total déclarés</th>
+        <th class="num">Écart</th>
+        <th>Statut</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in data.rows %}
+      <tr class="{% if row.statut_effectif == 'VALIDE' %}row-ok{% elif row.statut_effectif == 'JUSTIFIE' %}row-justifie{% elif row.statut_effectif == 'BLOQUANT' %}row-error{% else %}row-warning{% endif %}">
+        <td>{{ row.mois or "—" }}</td>
+        <td>
+          <span class="code-id">{{ row.logement_id or "—" }}</span>
+          {% if row.nom_appartement %}<br><span class="text-secondary text-sm">{{ row.nom_appartement }}</span>{% endif %}
+        </td>
+        <td>{{ row.nom_intervenant or row.intervenant_id or "—" }}</td>
+        <td>
+          <span class="badge badge-{{ 'interne' if row.type_intervenant == 'INTERNE' else 'externe' }}">
+            {{ row.type_intervenant or "—" }}
+          </span>
+        </td>
+        <td class="num">{{ row.nb_menages_tasks_hostaway_completed if row.nb_menages_tasks_hostaway_completed is not none else "—" }}</td>
+        <td class="num">{{ row.nb_menages_declares_interne_m04 if row.nb_menages_declares_interne_m04 is not none else "—" }}</td>
+        <td class="num">{{ row.nb_menages_declares_externe if row.nb_menages_declares_externe is not none else "—" }}</td>
+        <td class="num">{{ row.total_menages_declares if row.total_menages_declares is not none else "—" }}</td>
+        <td class="num {% if row.ecart and row.ecart != 0 %}text-warning{% endif %}">
+          {{ row.ecart if row.ecart is not none else "—" }}
+        </td>
+        <td>
+          <span class="status-badge status-{{ (row.statut_effectif or 'inconnu') | lower | replace('_','-') }}">
+            {{ row.statut_effectif or row.statut_controle or "—" }}
+          </span>
+          {% if row.override %}
+            <span class="badge badge-justifie" title="Outrepassé : {{ row.override.motif }}">Justifié</span>
+          {% endif %}
+        </td>
+        <td>
+          <a href="/menages/{{ row.mois }}/{{ row.logement_id }}/{{ row.intervenant_id }}"
+             class="btn btn-secondary btn-sm">Détail</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% else %}
+<div class="empty-state">
+  <p>Aucune ligne ne correspond aux filtres sélectionnés.</p>
+</div>
+{% endif %}
+
+<div class="source-note">
+  <strong>Source :</strong> {{ data.source }} — lecture seule, aucun recalcul.<br>
+  Les valeurs (tâches Hostaway, déclarés internes M04, déclarés externes) sont issues directement du moteur.
+</div>
+
+{% endif %}
+{% endblock %}

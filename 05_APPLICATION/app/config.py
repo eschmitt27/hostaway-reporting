@@ -24,6 +24,10 @@ MASTER_RESERVATIONS_HH = TRAVAIL / "Lot4_ReservationsHH" / "MASTER_FACT_MAN_Rese
 # SAISIE = source amont — nommée pour l'origine uniquement, jamais lue/écrite au Lot APP-2a
 SAISIE_RESERVATIONS_HH = SOURCES_BRUTES / "ReservationsHH" / "SAISIE_ReservationsHorsHostaway.xlsx"
 MASTER_RUN_LOG = TRAVAIL / "Lot1_Hostaway" / "MASTER_RUN_Log.xlsx"
+# Ménages (APP-2) — LECTURE SEULE
+MASTER_RAPPROCHEMENT_MENAGES = TRAVAIL / "Lot6d_Rapprochement_Menages" / "MASTER_CTRL_Rapprochement_Menages.xlsx"
+MASTER_GAINPERTE_MENAGES = TRAVAIL / "Lot6e_GainPerte_Menages" / "MASTER_CALC_GainPerte_Menages.xlsx"
+MASTER_COUTCOMPLET_MENAGES = TRAVAIL / "Lot6f_CoutComplet_Menages" / "MASTER_CALC_CoutComplet_Menages.xlsx"
 MASTER_CTRL_COHERENCE = TRAVAIL / "Lot11_Controles"
 # Chemin autonome obsolète — source officielle : REF_SETUP onglet REF_Cloture_Mensuelle.
 # Ne jamais utiliser cette constante ; elle désigne un fichier inexistant.

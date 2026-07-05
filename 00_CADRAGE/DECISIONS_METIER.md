@@ -1191,3 +1191,19 @@ Decisions validees :
 - Les flags `HH_REAL_WRITE_ENABLED = False` et `HH_REAL_WRITE_CONFIRMATION_ENABLED = False` restent a False. L'activation de l'ecriture reelle des reservations est une etape separee independante.
 - Sauvegarde manuelle pre-migration : `99_ARCHIVES\APP2E_SCHEMA_HH_20260705_020543\` (hors staging). Hashes pre-migration verifies : SAISIE `c3c00e73...`, REF `6d9f21de...`.
 - Hashes post-migration : SAISIE `60b7bc85f7d59530e0a0fcdb9596162012db44611aeefaa3b1f0a97d32b18943`, REF `3354ce22e1ad667e1a672e4f793af091c2907b3cd5469da9661a1997c16149e8`.
+
+---
+
+### D-APP-2-MENAGES — Module Ménages APP-2 : rapprochement + outrepassage
+
+- **Date** : 2026-07-05
+- **Lot** : APP-2 (ménages — sous-lot de Lot APP-2)
+- **Statut** : ACTÉ
+
+**Décisions :**
+- D-M1 : Source de liste = `MASTER_CTRL_Rapprochement_Menages.xlsx`, onglet `TABLEAU_COMPARAISON`. Lecture seule, aucun recalcul. Aucun fallback, aucune reconstruction par jointure.
+- D-M2 : Les 3 flux (tâches Hostaway completed / déclarés M04 internes / déclarés externes) restent **TOUJOURS** dans des champs séparés (`nb_menages_tasks_hostaway_completed`, `nb_menages_declares_interne_m04`, `nb_menages_declares_externe`). Jamais fusionnés, jamais agrégés dans un champ unique.
+- D-M3 : Aucune valorisation ne s'appuie sur les données Hostaway. Le coût Hostaway (H6 cost=NULL) n'est jamais lu ni exposé. Coût réel = `MASTER_CALC_GainPerte_Menages.xlsx` uniquement.
+- D-M4 : Enrichissement fiche = `MASTER_CALC_GainPerte_Menages.xlsx` (DETAIL_ECART_COUT). Coût complet (`MASTER_CALC_CoutComplet_Menages.xlsx`) = non chargé au MVP (lecture disponible à APP-3+ si besoin).
+- D-M5 : Outrepassage = écriture SQLite uniquement (`menage_overrides` migration 0003 + `audit_events`). Jamais d'écriture dans un fichier Excel ou MASTER. Motif obligatoire. Contrainte UNIQUE(mois, logement_id, intervenant_id) — 2e outrepassage = mise à jour, pas doublon.
+- D-M6 : Statut effectif = `JUSTIFIE` si override enregistré, sinon `statut_controle` du MASTER. L'affichage reflète l'override sans modifier la source.

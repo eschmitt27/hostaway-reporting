@@ -1,16 +1,15 @@
 """Navigation : routes réelles répondent 200, aucun lien cassé dans sidebar.
 
 APP-1 : /logements disponible. APP-2a : /reservations disponible (lecture seule).
-Les 5 autres modules restent « À venir ».
+APP-2 (ménages) : /menages disponible. Les 4 autres modules restent « À venir ».
 """
 
 
-ROUTES_DISPONIBLES = ["/", "/logements", "/reservations", "/sources-calculs"]
+ROUTES_DISPONIBLES = ["/", "/logements", "/reservations", "/menages", "/sources-calculs"]
 ROUTES_FUTURES_SANS_LIEN = [
     "/proprietaires",
     "/fournisseurs",
     "/banques",
-    "/menages",
     "/controles",
 ]
 
@@ -32,6 +31,11 @@ def test_logements_200(client):
 
 def test_reservations_200(client):
     r = client.get("/reservations")
+    assert r.status_code == 200
+
+
+def test_menages_200(client):
+    r = client.get("/menages")
     assert r.status_code == 200
 
 
@@ -61,6 +65,12 @@ def test_sidebar_contient_href_reservations(client):
     assert 'href="/reservations"' in r.text, "Menu Réservations doit être cliquable au Lot APP-2a"
 
 
+def test_sidebar_contient_href_menages(client):
+    r = client.get("/")
+    assert r.status_code == 200
+    assert 'href="/menages"' in r.text, "Menu Ménages doit être cliquable au Lot APP-2"
+
+
 def test_sidebar_contient_badge_avenir(client):
     r = client.get("/")
     assert r.status_code == 200
@@ -70,7 +80,7 @@ def test_sidebar_contient_badge_avenir(client):
 
 def test_header_global_sans_periode_sur_toutes_les_pages(client):
     """Élément global (header) : badge Période retiré partout, uniformément."""
-    for path in ("/", "/logements", "/reservations", "/sources-calculs"):
+    for path in ("/", "/logements", "/reservations", "/menages", "/sources-calculs"):
         r = client.get(path)
         assert r.status_code == 200
         assert "period-badge" not in r.text, f"Badge Période encore présent sur {path}"

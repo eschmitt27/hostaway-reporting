@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}Ménage — {{ mois }} / {{ logement_id }} / {{ intervenant_id }}{% endblock %}
+
+{% block content %}
+
+{% if detail is none %}
+<div class="page-header">
+  <h1 class="page-title">Ménage introuvable</h1>
+</div>
+<div class="alert alert-error">
+  Aucune ligne de rapprochement pour : mois={{ mois }}, logement={{ logement_id }}, intervenant={{ intervenant_id }}.
+</div>
+<a href="/menages" class="btn btn-secondary">← Retour à la liste</a>
+
+{% elif detail.status == "ERROR" %}
+<div class="page-header">
+  <h1 class="page-title">Erreur source</h1>
+</div>
+<div class="alert alert-error">{{ detail.error_message }}</div>
+<a href="/menages" class="btn btn-secondary">← Retour à la liste</a>
+
+{% else %}
+
+{% set ligne = detail.ligne %}
+
+<div class="page-header">
+  <a href="/menages" class="back-link">← Ménages</a>
+  <h1 class="page-title">
+    {{ ligne.nom_appartement or logement_id }}
+    <span class="page-title-sub">{{ mois }}</span>
+  </h1>
+  <p class="page-subtitle">
+    Intervenant : <strong>{{ ligne.nom_intervenant or intervenant_id }}</strong>
+    <span class="badge badge-{{ 'interne' if ligne.type_intervenant == 'INTERNE' else 'externe' }}">{{ ligne.type_intervenant or "—" }}</span>
+  </p>
+</div>
+
+{% if request.query_params.get('outrepassage') == 'ok' %}
+<div class="alert alert-success">Outrepassage enregistré avec succès.</div>
+{% endif %}
+
+{% if outrepassage_error %}
+<div class="alert alert-error">{{ outrepassage_error }}</div>
+{% endif %}
+
+<!-- Statut effectif -->
+<div class="detail-section">
+  <div class="statut-banner statut-{{ (detail.statut_effectif or 'inconnu') | lower | replace('_','-') }}">
+    Statut : <strong>{{ detail.statut_effectif or "—" }}</strong>
+    {% if detail.override %}
+      — Justifié le {{ detail.override.ts }} : <em>{{ detail.override.motif }}</em>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Bloc rapprochement — 3 flux séparés -->
+<div class="detail-section">
+  <h2 class="section-title">Rapprochement des 3 flux</h2>
+  <div class="note-moteur">
+    Valeurs issues directement du moteur — aucun recalcul dans l'application.
+  </div>
+  <div class="kpi-row">
+    <div class="kpi-card">
+      <div class="kpi-label">Tâches Hostaway completed</div>
+      <div class="kpi-value">{{ ligne.nb_menages_tasks_hostaway_completed if ligne.nb_menages_tasks_hostaway_completed is not none else "—" }}</div>
+      <div class="kpi-note">comptage uniquement — jamais valorisation coût</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Déclarés internes (M04)</div>
+      <div class="kpi-value">{{ ligne.nb_menages_declares_interne_m04 if ligne.nb_menages_declares_interne_m04 is not none else "—" }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Déclarés externes</div>
+      <div class="kpi-value">{{ ligne.nb_menages_declares_externe if ligne.nb_menages_declares_externe is not none else "—" }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Total déclarés</div>
+      <div class="kpi-value">{{ ligne.total_menages_declares if ligne.total_menages_declares is not none else "—" }}</div>
+    </div>
+    <div class="kpi-card {% if ligne.ecart and ligne.ecart != 0 %}kpi-card--warning{% endif %}">
+      <div class="kpi-label">Écart</div>
+      <div class="kpi-value">{{ ligne.ecart if ligne.ecart is not none else "—" }}</div>
+    </div>
+  </div>
+  {% if ligne.source_mapping_hostaway %}
+  <div class="detail-row">
+    <span class="detail-label">Source mapping Hostaway</span>
+    <span class="detail-value text-secondary">{{ ligne.source_mapping_hostaway }}</span>
+  </div>
+  {% endif %}
+  {% if ligne.commentaire %}
+  <div class="detail-row">
+    <span class="detail-label">Commentaire moteur</span>
+    <span class="detail-value">{{ ligne.commentaire }}</span>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Bloc gain/perte (si disponible) -->
+{% if detail.gainperte_disponible %}
+<div class="detail-section">
+  <h2 class="section-title">Coût standard vs coût réel</h2>
+  {% if detail.gainperte %}
+  {% set gp = detail.gainperte %}
+  <div class="note-moteur">Source : {{ detail.source_gainperte }} — aucun recalcul.</div>
+  <div class="kpi-row">
+    <div class="kpi-card">
+      <div class="kpi-label">Coût standard total</div>
+      <div class="kpi-value">{{ gp.cout_standard_total if gp.cout_standard_total is not none else "—" }} €</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Coût réel total</div>
+      <div class="kpi-value">{{ gp.cout_reel_total if gp.cout_reel_total is not none else "—" }} €</div>
+      {% if gp.methode_cout_reel %}
+      <div class="kpi-note">{{ gp.methode_cout_reel }}</div>
+      {% endif %}
+    </div>
+    <div class="kpi-card {% if gp.ecart_total and gp.ecart_total != 0 %}kpi-card--warning{% endif %}">
+      <div class="kpi-label">Écart coût</div>
+      <div class="kpi-value">{{ gp.ecart_total if gp.ecart_total is not none else "—" }} €</div>
+    </div>
+  </div>
+  {% else %}
+  <div class="empty-state">Aucune ligne gain/perte pour cette combinaison.</div>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- Outrepassage -->
+{% if detail.statut_effectif in ('A_CONTROLER', 'BLOQUANT', 'JUSTIFIE') %}
+<div class="detail-section">
+  <h2 class="section-title">Outrepassage</h2>
+  {% if detail.statut_effectif == 'JUSTIFIE' %}
+  <div class="alert alert-info">
+    Cet écart a déjà été outrepassé le {{ detail.override.ts }}.<br>
+    Motif enregistré : <em>{{ detail.override.motif }}</em><br>
+    Vous pouvez mettre à jour le motif ci-dessous.
+  </div>
+  {% endif %}
+  <p class="section-note">
+    L'outrepassage est tracé dans le journal applicatif (SQLite). Le fichier source n'est jamais modifié.
+    Le motif est obligatoire.
+  </p>
+  <form method="post"
+        action="/menages/{{ mois }}/{{ logement_id }}/{{ intervenant_id }}/outrepasser"
+        class="form-block">
+    <div class="form-group">
+      <label for="motif" class="form-label">Motif <span class="required">*</span></label>
+      <textarea id="motif" name="motif" rows="3" class="form-control"
+                placeholder="Expliquer pourquoi l'écart est acceptable ou justifié…"
+                required>{% if detail.override %}{{ detail.override.motif }}{% endif %}</textarea>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Enregistrer l'outrepassage</button>
+    </div>
+  </form>
+</div>
+{% endif %}
+
+<!-- Origine -->
+<div class="detail-section">
+  <h2 class="section-title">Origine des données</h2>
+  <div class="detail-row">
+    <span class="detail-label">Source rapprochement</span>
+    <span class="detail-value text-secondary">{{ detail.source_rapprochement }}</span>
+  </div>
+  {% if detail.source_gainperte %}
+  <div class="detail-row">
+    <span class="detail-label">Source gain/perte</span>
+    <span class="detail-value text-secondary">{{ detail.source_gainperte }}</span>
+  </div>
+  {% endif %}
+  <div class="detail-row">
+    <span class="detail-label">Lu le</span>
+    <span class="detail-value text-secondary">{{ detail.read_at }}</span>
+  </div>
+</div>
+
+{% endif %}
+{% endblock %}

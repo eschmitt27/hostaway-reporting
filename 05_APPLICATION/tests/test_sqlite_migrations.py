@@ -11,6 +11,7 @@ EXPECTED_TABLES = {
     "drafts",
     "periods",
     "saisie_hh_writes",
+    "menage_overrides",
 }
 
 

@@ -1851,3 +1851,28 @@ Resultat   : Controle binaire VBA implemente et valide sur copies synthetiques.
 Statut     : OUVERT - EN_ATTENTE_COMMIT_SELECTIF
 Commentaire: Aucun fichier Excel reel modifie. Tests VBA utilisent des ZIPs synthetiques uniquement.
 ```
+
+---
+
+### CTR-2026-07-05-APP2-MENAGES — Lot APP-2 Ménages — Contrôle module rapprochement
+
+- **Date** : 2026-07-05
+- **Session** : APP-2 ménages — rapprochement, 3 flux, outrepassage
+
+**Périmètre contrôlé :**
+1. Sources MASTER présentes et lisibles (Lot6d, Lot6e)
+2. 3 flux séparés dans la réponse service (HA tasks / M04 internes / externes)
+3. Aucune valorisation Hostaway (scan code service + reader)
+4. Outrepassage SQLite : motif obligatoire, UNIQUE constraint, audit_events
+5. Sources non modifiées après lecture (sha256 stable)
+6. Route /menages 200, /menages/{clé} 200, /menages/{clé inconnu} 404
+7. POST outrepassage motif vide → 422
+8. Migration 0003 : table menage_overrides créée, idempotente
+
+**Résultat :** 16/16 tests ménages verts. Suite application complète : 335/335 verts. Lot4A : 53/53 verts.
+
+**Sources Excel :**
+- SAISIE sha256 = `60b7bc85f7d59530e0a0fcdb9596162012db44611aeefaa3b1f0a97d32b18943` INCHANGÉE
+- REF_Setup sha256 = `3354ce22e1ad667e1a672e4f793af091c2907b3cd5469da9661a1997c16149e8` INCHANGÉE
+
+**Décision :** D-M1 à D-M6 appliquées (voir DECISIONS_METIER D-APP-2-MENAGES).

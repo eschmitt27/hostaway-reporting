@@ -1092,3 +1092,36 @@ Controles requis avant commit :
 - hashes des fichiers Excel reels inchanges avant/apres ;
 - `git diff --check` vert ;
 - staging selectif APP-2e durcissement uniquement.
+
+#### 2026-07-05 — Lot APP-2 (ménages) — Module Ménages rapprochement — TERMINÉ
+
+- **Statut** : TERMINÉ — 16/16 tests ménages verts. Suite application complète repassée verte.
+- **Lot concerné** : APP-2 ménages — second sous-lot de Lot APP-2 (réservations + ménages). Complète le critère de sortie APP-2 : « un écart ménage est lisible et outrepassable avec trace ».
+- **Sources lues (lecture seule)** :
+  - `02_TRAVAIL/Lot6d_Rapprochement_Menages/MASTER_CTRL_Rapprochement_Menages.xlsx` (TABLEAU_COMPARAISON, CONTROLES)
+  - `02_TRAVAIL/Lot6e_GainPerte_Menages/MASTER_CALC_GainPerte_Menages.xlsx` (DETAIL_ECART_COUT)
+  - Sources jamais modifiées (contrôlé par hash dans test).
+- **Arbitrages appliqués** :
+  - 3 flux (HA tasks / M04 internes / externes) toujours dans champs séparés — jamais fusionnés (D-M2).
+  - Aucune valorisation Hostaway (coût H6 cost=NULL jamais lu — D-M3).
+  - Outrepassage = SQLite uniquement (`menage_overrides` + `audit_events`). Jamais d'écriture Excel (D-M5).
+  - UNIQUE(mois, logement_id, intervenant_id) : 2e outrepassage = mise à jour, pas doublon.
+- **Fichiers créés (7)** :
+  1. `app/db/migrations/0003_menages.sql` — table `menage_overrides`
+  2. `app/readers/menages_reader.py` — lecture MASTER rapprochement + gain/perte
+  3. `app/services/menages_service.py` — liste, détail, outrepassage
+  4. `app/routes/menages.py` — GET /menages, GET /menages/{mois}/{logement}/{intervenant}, POST .../outrepasser
+  5. `app/templates/menages_list.html`
+  6. `app/templates/menages_detail.html`
+  7. `tests/test_menages.py` — 16 tests
+- **Fichiers modifiés (6)** :
+  1. `app/config.py` — 3 chemins MASTER ménages
+  2. `app/main.py` — router menages inclus
+  3. `app/templates/base.html` — menu Ménages cliquable
+  4. `app/routes/home.py` — module Ménages → disponible
+  5. `tests/test_sqlite_migrations.py` — `menage_overrides` dans EXPECTED_TABLES
+  6. `tests/test_navigation_no_404.py` — /menages dans routes disponibles
+- **Tests** : 16/16 ménages verts. Suite complète application : 335/335 verts.
+- **Sources réelles** : SAISIE `60b7bc85...` INCHANGÉE. REF_Setup `3354ce22...` INCHANGÉE.
+- **Critère de sortie APP-2 atteint** : réservations HH saisies (APP-2a/b/c/d/e) + écart ménage lisible et outrepassable avec trace (APP-2 ménages).
+- **Prochaine action** : APP-3 — Charges, fournisseurs & Propriétaires & règlements.
