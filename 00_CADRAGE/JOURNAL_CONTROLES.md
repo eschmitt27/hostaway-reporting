@@ -2005,7 +2005,7 @@ Resultats  :
              27 feuilles historiques preservees + REF_Assoc_Mode (28 total)
              VBA vbaProject.bin : hash inchange
              Package sensible : preserve
-             flag REF_ASSOC_MODE_REAL_WRITE_ENABLED : False (jamais modifie)
+             flag REF_ASSOC_MODE_REAL_WRITE_ENABLED : active temporairement pour migration reelle, remis a False apres controle post-migration
              Suite 423 passed, 2 skipped -- apres fix fixtures post-migration
              Lot4A 53 passed
              git diff --check : 0 whitespace error

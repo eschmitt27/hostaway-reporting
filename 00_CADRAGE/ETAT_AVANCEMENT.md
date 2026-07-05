@@ -604,7 +604,7 @@ Cette discipline est appliquée à chaque nouveau lot, en s'appuyant sur la matr
 - **Sauvegarde** : 99_ARCHIVES/APP3B0_REF_ASSOC_MODE_20260705_182335/ (ne jamais modifier ni stager)
 - **Feuilles historiques** : 27 feuilles preservees + REF_Assoc_Mode ajoutee (28 total)
 - **REF_Assoc_Mode** : 7 lignes, table tblRefAssocMode, 6 colonnes, unicite verifiee
-- **flag** : REF_ASSOC_MODE_REAL_WRITE_ENABLED = False (jamais modifie)
+- **flag** : REF_ASSOC_MODE_REAL_WRITE_ENABLED -- active temporairement et explicitement pour l'execution unique de la migration reelle, puis remis a False apres controle post-migration
 - **Aucun pipeline** Lot3/9/10/11/12 lance
 - **Aucune charge** creee
 - **Entree JOURNAL_CONTROLES** : CTR-2026-07-05-APP3B0-MIGRATION-REELLE
