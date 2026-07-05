@@ -1798,3 +1798,26 @@ Bloc REGLEMENT (7) : MONTANT_DU, ACOMPTE_AIRBNB, PAIEMENT_DEJA_RECU, RESTE_A_PAY
 - GET /proprietaires/{prop_id} — fiche + mois disponibles
 - GET /proprietaires/{prop_id}/{mois} — relevé (blocs séparés)
 - GET /proprietaires/{prop_id}/{mois}/prefacture — 12 lignes préfacture
+
+---
+
+## §22 — APP-3b-0 : Référentiel REF_Assoc_Mode
+
+Résout l'ambiguïté du segment ASSOC_MODE dans la nomenclature `charge_id` (§16.2).
+
+### Feuille REF_Assoc_Mode (REF_Setup.xlsm)
+
+| Colonne | Rôle |
+|---|---|
+| assoc_mode_id (PK) | Identifiant AM_001..AM_007 |
+| mode_paiement_id | FK REF_Modes_Paiement |
+| associe_id | FK REF_Associes (nullable) |
+| assoc_mode | Segment généré dans charge_id (BANQUE, LIQ, EWAN-CB, WAFA-CB, EWAN-PERSO, WAFA-PERSO, ADEF) |
+| actif | OUI/NON |
+| commentaire | Description métier |
+
+Unicité : assoc_mode_id / (mode_paiement_id, associe_id) / assoc_mode.
+
+Table Excel structurée : tblRefAssocMode.
+
+Migration : outil `tools/preparer_ref_assoc_mode.py`, service `app/services/ref_assoc_mode_prepare_service.py`. Gated par cfg.REF_ASSOC_MODE_REAL_WRITE_ENABLED. Non exécutée en APP-3b-0 (préparation sur copie uniquement).

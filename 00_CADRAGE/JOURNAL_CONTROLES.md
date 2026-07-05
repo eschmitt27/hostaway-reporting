@@ -1955,3 +1955,30 @@ Résultat   : APP-3c implémentée. 401/401 tests verts. 53/53 tests Lot4a verts
 Statut     : INFO — TERMINÉ. Lecture seule. Aucun Excel modifié. Aucune écriture SQLite.
 Commentaire: Aucune activation requise. Données disponibles immédiatement.
 ```
+
+---
+
+```
+CTR-2026-07-05-APP3B0-REF-ASSOC-MODE
+Date       : 2026-07-05
+Lot        : APP-3b-0 — préparation REF_Assoc_Mode
+Opération  : Dry-run — préparation REF_Assoc_Mode sur copie de REF_Setup.xlsm
+Source     : REF_Setup.xlsm (lecture seule)
+Copie      : REF_Setup_assoc_mode_prepare.xlsm (dans DATA_DIR ou tmpdir externe)
+Résultats  :
+             Suite complète : verts après ajout des tests test_ref_assoc_mode_prep.py
+             Lot4A          : verts (inchangé)
+             git diff --check : 0 whitespace error
+             REF_Setup.xlsm hash inchangé (vérifié par test_execute_source_ref_inchangee_apres_refus_flag)
+             VBA vbaProject.bin hash inchangé dans copie (test_preparer_vba_preserve)
+             Package sensible préservé (test_preparer_package_sensible_preserve)
+             Feuilles originales préservées (test_preparer_feuilles_originales_preservees)
+             Idempotence vérifiée (test_preparer_idempotent)
+             Feuille incoherente refusée (test_preparer_refuse_feuille_incoherente)
+             cfg.REF_ASSOC_MODE_REAL_WRITE_ENABLED = False (test_flag_ref_assoc_mode_est_false)
+Lignes     : 7 (AM_001..AM_007)
+Table Excel: tblRefAssocMode (openpyxl ListObject)
+Contrainte : aucun fichier réel modifié, aucun pipeline lot3/9/10/11/12 appelé
+Statut     : INFO — TERMINÉ. Préparation copie validée. Migration réelle non exécutée.
+Commentaire: cfg.REF_ASSOC_MODE_REAL_WRITE_ENABLED reste False. Activation requise avant APP-3b-2.
+```

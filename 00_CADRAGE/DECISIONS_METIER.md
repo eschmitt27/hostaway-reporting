@@ -1235,3 +1235,18 @@ Decisions validees :
 - D-P6 : Lot12 absent → préfacture status=UNAVAILABLE, sans exception, sans bloquer le relevé.
 - D-P7 : Aucun accès SQLite, aucune écriture Excel. Routes GET uniquement.
 - D-P8 : Clé relevé = prop_id × mois (VUE_MOIS) ; lignes par logement dans REGLEMENT (clé prop×log×mois unique — vérifié 270/270).
+
+---
+
+### D-APP-3B-0 — Référentiel ASSOC_MODE (QM-APP-3B-0)
+
+> Statut : VALIDÉES — 2026-07-05. Implémentées.
+
+- D-AM-1 : ASSOC_MODE n'est jamais un champ libre saisi par l'utilisateur. Il est généré déterministiquement depuis le référentiel fermé REF_Assoc_Mode.
+- D-AM-2 : Table REF_Assoc_Mode créée dans REF_Setup.xlsm (migration contrôlée, copie uniquement en APP-3b-0). Colonnes : assoc_mode_id, mode_paiement_id, associe_id, assoc_mode, actif, commentaire.
+- D-AM-3 : Lignes initiales : AM_001 PAY_001/BANQUE, AM_002 PAY_002/LIQ, AM_003 PAY_003+PERS_EWAN/EWAN-CB, AM_004 PAY_003+PERS_WAFA/WAFA-CB, AM_005 PAY_004+PERS_EWAN/EWAN-PERSO, AM_006 PAY_004+PERS_WAFA/WAFA-PERSO, AM_007 PAY_005/ADEF.
+- D-AM-4 : Contraintes métier PAY_001 / PAY_002 : associe_id et carte_id interdits. PAY_003 : associe_id et carte_id obligatoires, carte cohérente avec associé. PAY_004 : associe_id obligatoire, carte_id interdit. PAY_005 : associe_id et carte_id interdits, statut_controle=A_CONTROLER obligatoire. PAY_006 : hors périmètre APP-3b.
+- D-AM-5 : Avance liquide personnelle (PAY_002 + associe) non représentable dans REF_Assoc_Mode à ce stade — jamais détourner PAY_002 pour ce cas.
+- D-AM-6 : Unicité garantie : assoc_mode_id, (mode_paiement_id, associe_id), assoc_mode — trois clés distinctes.
+- D-AM-7 : Migration réelle gated par cfg.REF_ASSOC_MODE_REAL_WRITE_ENABLED = False. Copie de diagnostic disponible dans DATA_DIR/dryruns ou $env:TEMP.
+- D-AM-8 : La migration réelle (--execute --confirm MIGRER_REF_ASSOC_MODE) est préparée mais non exécutée en APP-3b-0. Activation explicite du flag requise.

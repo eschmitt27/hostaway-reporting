@@ -44,6 +44,10 @@ _REF_CLOTURE_OBSOLETE: None = None
 HH_REAL_WRITE_ENABLED = False
 HH_REAL_WRITE_CONFIRMATION_ENABLED = False
 
+# Migration REF_Assoc_Mode dans REF_Setup.xlsm — garde de sécurité (APP-3b-0).
+# Ne jamais activer implicitement ni par défaut.
+REF_ASSOC_MODE_REAL_WRITE_ENABLED = False
+
 # Chemins saisie (écriture atomique uniquement — activée aux lots dédiés)
 SAISIE_ROOT = PROJECT_ROOT / "01_SOURCES_BRUTES"
 SAISIE_PATTERN = "SAISIE_"
