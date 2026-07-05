@@ -41,18 +41,32 @@ def _sha256(path: Path) -> str:
 
 @pytest.fixture()
 def ref_source_copy(tmp_path: Path) -> Path:
-    """Copie de REF_Setup.xlsm dans tmp_path — source pour les tests."""
+    """Copie de REF_Setup.xlsm dans tmp_path, REF_Assoc_Mode retirée si présente.
+
+    Crée toujours une source dans l'état pré-migration pour tester la création,
+    quel que soit l'état du fichier réel (avant ou après migration réelle).
+    """
     dest = tmp_path / "REF_Setup_test.xlsm"
     shutil.copy2(str(cfg.REF_SETUP), str(dest))
+    wb = openpyxl.load_workbook(str(dest), data_only=False, keep_vba=True)
+    if SHEET_NAME in wb.sheetnames:
+        del wb[SHEET_NAME]
+        wb.save(str(dest))
+    wb.close()
     return dest
 
 
 @pytest.fixture()
 def ref_source_with_bad_sheet(tmp_path: Path) -> Path:
-    """Copie de REF_Setup.xlsm avec une REF_Assoc_Mode incoherente."""
+    """Copie de REF_Setup.xlsm avec une REF_Assoc_Mode incoherente.
+
+    Remplace la feuille correcte (si présente) par une feuille avec mauvaises colonnes.
+    """
     dest = tmp_path / "REF_Setup_bad.xlsm"
     shutil.copy2(str(cfg.REF_SETUP), str(dest))
     wb = openpyxl.load_workbook(str(dest), data_only=False, keep_vba=True)
+    if SHEET_NAME in wb.sheetnames:
+        del wb[SHEET_NAME]
     ws = wb.create_sheet(SHEET_NAME)
     ws.append(["mauvaise_colonne", "autre_colonne"])
     ws.append(["X", "Y"])

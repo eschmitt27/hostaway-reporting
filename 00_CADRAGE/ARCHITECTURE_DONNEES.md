@@ -1,4 +1,4 @@
-﻿# ARCHITECTURE_DONNEES.md
+# ARCHITECTURE_DONNEES.md
 
 > **Version dÃ©finitive consolidÃ©e.** Socle ancrÃ© dans les fichiers rÃ©els (19 onglets `REF_Setup`, 9 CSV master du run `20260523_005752`), enrichi des raffinements d'implÃ©mentation.
 > Ce document **n'implÃ©mente rien**. Il sert de rÃ©fÃ©rence pour construire le systÃ¨me lot par lot. Il doit Ãªtre assez clair pour qu'un autre dÃ©veloppeur ou assistant puisse construire le systÃ¨me.
@@ -1821,3 +1821,27 @@ Unicité : assoc_mode_id / (mode_paiement_id, associe_id) / assoc_mode.
 Table Excel structurée : tblRefAssocMode.
 
 Migration : outil `tools/preparer_ref_assoc_mode.py`, service `app/services/ref_assoc_mode_prepare_service.py`. Gated par cfg.REF_ASSOC_MODE_REAL_WRITE_ENABLED. Non exécutée en APP-3b-0 (préparation sur copie uniquement).
+
+---
+
+## §22.1 -- APP-3b-0 bis : Migration reelle REF_Assoc_Mode (2026-07-05)
+
+REF_Assoc_Mode ajoutee dans REF_Setup.xlsm (migration reelle du 2026-07-05).
+
+Hash REF_Setup.xlsm avant : 3354ce22e1ad667e1a672e4f793af091c2907b3cd5469da9661a1997c16149e8
+Hash REF_Setup.xlsm apres : c5a544e6a73f2815fbbec7ee0b2777c230085086d3f417bf42c4747ce9a78d9a
+Hash VBA inchange : 09eb44f98025583fad807b0784123e2c3d402ad3d38093b163170def3de8e5c2
+
+Contenu valide :
+
+| assoc_mode_id | mode_paiement_id | associe_id | assoc_mode | actif | commentaire |
+|---|---|---|---|---|---|
+| AM_001 | PAY_001 | | BANQUE | OUI | Banque professionnelle |
+| AM_002 | PAY_002 | | LIQ | OUI | Especes caisse |
+| AM_003 | PAY_003 | PERS_EWAN | EWAN-CB | OUI | Carte associee Ewan |
+| AM_004 | PAY_003 | PERS_WAFA | WAFA-CB | OUI | Carte associee Wafa |
+| AM_005 | PAY_004 | PERS_EWAN | EWAN-PERSO | OUI | Compte personnel Ewan |
+| AM_006 | PAY_004 | PERS_WAFA | WAFA-PERSO | OUI | Compte personnel Wafa |
+| AM_007 | PAY_005 | | ADEF | OUI | Mode a definir -- controle obligatoire |
+
+Table Excel : tblRefAssocMode. Sauvegarde : 99_ARCHIVES/APP3B0_REF_ASSOC_MODE_20260705_182335/.

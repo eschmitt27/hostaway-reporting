@@ -1,4 +1,4 @@
-﻿# DECISIONS_METIER.md
+# DECISIONS_METIER.md
 > Registre des décisions métier validées + décisions ouvertes.
 > Toute nouvelle décision = nouvelle entrée datée. Ne jamais modifier une décision existante : ajouter une révision.
 > Source de vérité : REGLES_METIER.md (métier) et ARCHITECTURE_DONNEES.md (structure).
@@ -1250,3 +1250,18 @@ Decisions validees :
 - D-AM-6 : Unicité garantie : assoc_mode_id, (mode_paiement_id, associe_id), assoc_mode — trois clés distinctes.
 - D-AM-7 : Migration réelle gated par cfg.REF_ASSOC_MODE_REAL_WRITE_ENABLED = False. Copie de diagnostic disponible dans DATA_DIR/dryruns ou $env:TEMP.
 - D-AM-8 : La migration réelle (--execute --confirm MIGRER_REF_ASSOC_MODE) est préparée mais non exécutée en APP-3b-0. Activation explicite du flag requise.
+
+---
+
+### D-APP-3B-0-BIS -- Migration reelle REF_Assoc_Mode executee (2026-07-05)
+
+Statut : APPLIQUEE -- 2026-07-05.
+
+- D-AM-R1 : Migration reelle executee manuellement. Resultat verifie par diagnostiquer() : feuille_presente=true, feuille_coherente=true, migration_necessaire=false.
+- D-AM-R2 : Hash avant (sauvegarde) : 3354ce22e1ad667e1a672e4f793af091c2907b3cd5469da9661a1997c16149e8
+- D-AM-R3 : Hash apres (REF_Setup.xlsm) : c5a544e6a73f2815fbbec7ee0b2777c230085086d3f417bf42c4747ce9a78d9a
+- D-AM-R4 : VBA vbaProject.bin inchange : 09eb44f98025583fad807b0784123e2c3d402ad3d38093b163170def3de8e5c2
+- D-AM-R5 : Sauvegarde conservee dans 99_ARCHIVES/APP3B0_REF_ASSOC_MODE_20260705_182335/ -- jamais modifier ni stager.
+- D-AM-R6 : flag REF_ASSOC_MODE_REAL_WRITE_ENABLED reste False apres migration.
+- D-AM-R7 : Aucun pipeline Lot3/9/10/11/12 lance, aucune charge creee.
+- D-AM-R8 : 27 feuilles historiques preservees + REF_Assoc_Mode (28 total). Table tblRefAssocMode presente.

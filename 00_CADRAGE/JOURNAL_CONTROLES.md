@@ -1,4 +1,4 @@
-﻿# JOURNAL_CONTROLES.md
+# JOURNAL_CONTROLES.md
 > Un contrôle exécuté sur données réelles = une entrée. Vide tant qu'aucun lot n'a tourné sur fichier réel.
 
 ---
@@ -1981,4 +1981,36 @@ Table Excel: tblRefAssocMode (openpyxl ListObject)
 Contrainte : aucun fichier réel modifié, aucun pipeline lot3/9/10/11/12 appelé
 Statut     : INFO — TERMINÉ. Préparation copie validée. Migration réelle non exécutée.
 Commentaire: cfg.REF_ASSOC_MODE_REAL_WRITE_ENABLED reste False. Activation requise avant APP-3b-2.
+```
+
+---
+
+```
+CTR-2026-07-05-APP3B0-MIGRATION-REELLE
+Date       : 2026-07-05
+Lot        : APP-3b-0 bis -- migration reelle REF_Assoc_Mode
+Operation  : Application migration reelle REF_Assoc_Mode dans REF_Setup.xlsm
+Hash avant : 3354ce22e1ad667e1a672e4f793af091c2907b3cd5469da9661a1997c16149e8
+Hash apres : c5a544e6a73f2815fbbec7ee0b2777c230085086d3f417bf42c4747ce9a78d9a
+Hash VBA   : 09eb44f98025583fad807b0784123e2c3d402ad3d38093b163170def3de8e5c2 (inchange)
+Sauvegarde : 99_ARCHIVES/APP3B0_REF_ASSOC_MODE_20260705_182335/REF_Setup.xlsm
+Resultats  :
+             Diagnostic : status=OK, feuille_presente=true, feuille_coherente=true
+             migration_necessaire=false, coherence_violations=[], errors=[]
+             REF_Assoc_Mode occurrences : 1 (unique)
+             Table tblRefAssocMode : presente
+             Headers : 6 colonnes exactes
+             Lignes : 7/7 correctes
+             Unicite IDs, pairs, abbrevs : OK
+             27 feuilles historiques preservees + REF_Assoc_Mode (28 total)
+             VBA vbaProject.bin : hash inchange
+             Package sensible : preserve
+             flag REF_ASSOC_MODE_REAL_WRITE_ENABLED : False (jamais modifie)
+             Suite 423 passed, 2 skipped -- apres fix fixtures post-migration
+             Lot4A 53 passed
+             git diff --check : 0 whitespace error
+             Aucun pipeline Lot3/9/10/11/12 lance
+             Aucune charge creee
+Statut     : INFO -- TERMINE. Migration reelle validee et versionnee.
+Commentaire: flag reste False. Sauvegarde dans 99_ARCHIVES jamais stager ni modifier.
 ```

@@ -589,3 +589,22 @@ Cette discipline est appliquée à chaque nouveau lot, en s'appuyant sur la matr
 - Ne jamais inclure une charge exceptionnelle refacturée dans `revenu_net_exploitation_proprietaire` (D034/EP7/P21)
 - Ne jamais traiter un remboursement AirCover perçu par le propriétaire comme un payout (D042/AC5)
 - Ne jamais livrer un dashboard Power BI dans un lot (D043/PBI2)
+
+---
+
+## 2026-07-05 -- APP-3b-0 bis : Migration reelle REF_Assoc_Mode appliquee
+
+- **Lot** : APP-3b-0 bis -- migration reelle REF_Assoc_Mode dans REF_Setup.xlsm
+- **Commit** : APP-3b-0 : applique referentiel assoc mode reel
+- **Operation** : Migration reelle executee manuellement hors outil (--execute), resultat valide
+- **Statut** : TERMINE -- feuille presente, coherente, migration_necessaire = false
+- **Hash avant migration (sauvegarde)** : 3354ce22e1ad667e1a672e4f793af091c2907b3cd5469da9661a1997c16149e8
+- **Hash apres migration (REF_Setup.xlsm actuel)** : c5a544e6a73f2815fbbec7ee0b2777c230085086d3f417bf42c4747ce9a78d9a
+- **Hash VBA inchange** : 09eb44f98025583fad807b0784123e2c3d402ad3d38093b163170def3de8e5c2
+- **Sauvegarde** : 99_ARCHIVES/APP3B0_REF_ASSOC_MODE_20260705_182335/ (ne jamais modifier ni stager)
+- **Feuilles historiques** : 27 feuilles preservees + REF_Assoc_Mode ajoutee (28 total)
+- **REF_Assoc_Mode** : 7 lignes, table tblRefAssocMode, 6 colonnes, unicite verifiee
+- **flag** : REF_ASSOC_MODE_REAL_WRITE_ENABLED = False (jamais modifie)
+- **Aucun pipeline** Lot3/9/10/11/12 lance
+- **Aucune charge** creee
+- **Entree JOURNAL_CONTROLES** : CTR-2026-07-05-APP3B0-MIGRATION-REELLE
