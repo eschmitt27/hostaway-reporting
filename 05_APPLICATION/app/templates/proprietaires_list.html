@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Propriétaires & règlements{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Propriétaires &amp; règlements</h1>
+  <p class="page-subtitle">Source : {{ data.source }} — lu le {{ data.read_at }}</p>
+</div>
+
+{% if data.status == "ERROR" %}
+<div class="alert alert-error">
+  <strong>Source indisponible</strong> — {{ data.error_message }}
+</div>
+
+{% else %}
+
+<div class="table-meta">{{ data.count }} propriétaire{% if data.count != 1 %}s{% endif %}</div>
+
+{% if data.rows %}
+<div class="table-wrapper">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Nom</th>
+        <th>Prénom</th>
+        <th>Mode facturation</th>
+        <th>Actif</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in data.rows %}
+      <tr>
+        <td><span class="code-id">{{ row.proprietaire_id or "—" }}</span></td>
+        <td>{{ row.nom_proprietaire or "—" }}</td>
+        <td>{{ row.prenom_proprietaire or "—" }}</td>
+        <td>{{ row.mode_facturation or "—" }}</td>
+        <td>
+          {% if row.actif == "OUI" %}
+            <span class="badge badge-ok">OUI</span>
+          {% else %}
+            <span class="badge badge-neutral">{{ row.actif or "—" }}</span>
+          {% endif %}
+        </td>
+        <td>
+          <a href="/proprietaires/{{ row.proprietaire_id }}" class="btn btn-secondary btn-sm">Fiche</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty-state">
+  <p>Aucun propriétaire dans le référentiel.</p>
+</div>
+{% endif %}
+
+<div class="source-note">
+  <strong>Source :</strong> {{ data.source }} — lecture seule, aucun recalcul.
+</div>
+{% endif %}
+{% endblock %}

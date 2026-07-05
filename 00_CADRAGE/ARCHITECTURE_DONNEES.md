@@ -1764,3 +1764,37 @@ Clé logique : charge_id.
 
 - GET /fournisseurs — liste filtrable (mois, logement_id, categorie_charge_id, code_impact, statut_controle, associe_id)
 - GET /fournisseurs/{charge_id} — fiche détail
+
+---
+
+## §22 APP-3c — Propriétaires & règlements (2026-07-05)
+
+### Sources
+
+| Fichier | Onglet | Lignes | Rôle |
+|---------|--------|--------|------|
+| REF_Setup.xlsm | REF_Proprietaires | 12 | Liste propriétaires |
+| MASTER_CALC_NetProprietaire.xlsx | REGLEMENT | 270 | Relevé par prop×log×mois (clé unique) |
+| MASTER_CALC_NetProprietaire.xlsx | VUE_MOIS | 221 | Agrégation par prop×mois |
+| MASTER_FACT_Proprietaires.xlsx | FACT_FACTURE_ENTETE | 270 | En-tête préfacture |
+| MASTER_FACT_Proprietaires.xlsx | FACT_FACTURE_LIGNES | 3240 | 12 lignes × 270 factures |
+
+### Structure préfacture (12 lignes fixes)
+
+Bloc EXPLOITATION (5) : TOTAL_PAYOUT, MENAGE_FACTURE, COMMISSION_CONCIERGERIE, CHARGE_FIXE, REVENU_NET_EXPLOITATION.
+Bloc REGLEMENT (7) : MONTANT_DU, ACOMPTE_AIRBNB, PAIEMENT_DEJA_RECU, RESTE_A_PAYER, CHARGES_EXCEPT_REFAC, ACOMPTES_PROPRIETAIRES, STATUT_REGLEMENT.
+
+### Règles d'affichage
+
+- Bloc EXPLOITATION et bloc REGLEMENT séparés structurellement (D033, EP1-EP7).
+- revenu_net_exploitation lu depuis MASTER, jamais recalculé (D-P3).
+- AirCover = ligne ACOMPTE_AIRBNB uniquement (D-P4).
+- Lot12 absent → status=UNAVAILABLE, relevé non bloqué (D-P6).
+- Aucun recalcul, aucune écriture, aucun accès SQLite.
+
+### Routes
+
+- GET /proprietaires — liste propriétaires
+- GET /proprietaires/{prop_id} — fiche + mois disponibles
+- GET /proprietaires/{prop_id}/{mois} — relevé (blocs séparés)
+- GET /proprietaires/{prop_id}/{mois}/prefacture — 12 lignes préfacture

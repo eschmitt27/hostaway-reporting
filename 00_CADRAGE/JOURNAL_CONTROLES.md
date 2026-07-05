@@ -1,4 +1,4 @@
-# JOURNAL_CONTROLES.md
+﻿# JOURNAL_CONTROLES.md
 > Un contrôle exécuté sur données réelles = une entrée. Vide tant qu'aucun lot n'a tourné sur fichier réel.
 
 ---
@@ -1913,3 +1913,45 @@ Commentaire: MASTER = Power Query, données présentes après refresh Excel + sa
 - MASTER_FACT_MAN_Charges sha256 = 90513baf64ca6a38b07b835c428ba6e6e3ba8a49c962f41b90... INCHANGÉ
 - SAISIE_HH sha256 = 60b7bc85f7d59530e0a0fcdb9596162012db44611aeefaa3b1f0a97d32b18943 INCHANGÉE
 - REF_Setup sha256 = 3354ce22e1ad667e1a672e4f793af091c2907b3cd5469da9661a1997c16149e8 INCHANGÉ
+
+---
+
+### CTR-2026-07-05-APP3C-PROPRIETAIRES
+
+```
+Date       : 2026-07-05
+Lot        : APP-3c — Propriétaires & règlements (lecture seule)
+Code       : APP3C_LECTURE_PROPRIETAIRES_RELEVES
+Sévérité   : INFO
+Fichier    : 05_APPLICATION/ (8 fichiers créés, 4 modifiés)
+             02_TRAVAIL/Lot10_Resultats/MASTER_CALC_NetProprietaire.xlsx
+             02_TRAVAIL/Lot12_Factures/MASTER_FACT_Proprietaires.xlsx
+             01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm
+Résultat   : APP-3c implémentée. 401/401 tests verts. 53/53 tests Lot4a verts.
+             Routes créées :
+               GET /proprietaires                         → liste 12 propriétaires
+               GET /proprietaires/{prop_id}               → fiche + mois disponibles
+               GET /proprietaires/{prop_id}/{mois}        → relevé (blocs séparés)
+               GET /proprietaires/{prop_id}/{mois}/prefacture → 12 lignes préfacture
+             Diagnostic sources :
+               MASTER_CALC_NetProprietaire.xlsx :
+                 REGLEMENT : 270 lignes, clé prop×log×mois 100% unique. Aucun placeholder PQ.
+                 VUE_MOIS  : 221 lignes agrégées par prop×mois.
+               MASTER_FACT_Proprietaires.xlsx :
+                 FACT_FACTURE_LIGNES : 3240 lignes = exactement 12/facture × 270 factures.
+                 Blocs : EXPLOITATION (5 lignes), REGLEMENT (7 lignes).
+               REF_Proprietaires : 12 propriétaires (PROP_0001–PROP_0012).
+             Règles :
+               D033/EP1-EP7 : blocs exploitation/règlement séparés structurellement.
+               revenu_net_exploitation affiché tel quel, jamais recalculé.
+               Lot12 absent → status=UNAVAILABLE, relevé non bloqué.
+             Hashes sources (inchangées) :
+               REF_Setup.xlsm                    : 3354CE22...C16149E8
+               SAISIE_ReservationsHorsHostaway   : 60B7BC85...B18943
+               SAISIE_Charges_Flux               : 82D133C3...E50E8E
+               MASTER_FACT_MAN_Charges           : 90513BAF...41B90...
+               MASTER_CALC_NetProprietaire       : F9E2666B...29B54...
+               MASTER_FACT_Proprietaires         : 8CDCA80F...7FE9...
+Statut     : INFO — TERMINÉ. Lecture seule. Aucun Excel modifié. Aucune écriture SQLite.
+Commentaire: Aucune activation requise. Données disponibles immédiatement.
+```

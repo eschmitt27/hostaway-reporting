@@ -1,4 +1,4 @@
-# DECISIONS_METIER.md
+﻿# DECISIONS_METIER.md
 > Registre des décisions métier validées + décisions ouvertes.
 > Toute nouvelle décision = nouvelle entrée datée. Ne jamais modifier une décision existante : ajouter une révision.
 > Source de vérité : REGLES_METIER.md (métier) et ARCHITECTURE_DONNEES.md (structure).
@@ -1222,3 +1222,16 @@ Decisions validees :
 - D-C6 : Aucun accès SQLite, aucune migration. Aucune écriture Excel. Aucune route POST.
 - D-C7 : Identifiant de route = charge_id. Unicité non vérifiable empiriquement (0 données au moment de l'implémentation) — schéma prévoit charge_id comme clé intentionnelle.
 - D-C8 : Filtres disponibles : mois, logement_id, categorie_charge_id, code_impact, statut_controle, associe_id.
+
+### D-APP-3C-PROPRIETAIRES — Propriétaires & règlements, relevés, préfacture
+
+> Statut : VALIDÉES — 2026-07-05. Implémentées.
+
+- D-P1 : Sources de lecture : REF_Setup.xlsm/REF_Proprietaires (liste), MASTER_CALC_NetProprietaire.xlsx onglets REGLEMENT + VUE_MOIS (relevés), MASTER_FACT_Proprietaires.xlsx onglets FACT_FACTURE_ENTETE + FACT_FACTURE_LIGNES (préfacture). Aucun fallback source brute.
+- D-P2 : Bloc EXPLOITATION et bloc REGLEMENT non mélangés dans le service ni dans les templates. Séparation structurelle (D033, EP1-EP7).
+- D-P3 : revenu_net_exploitation lu depuis MASTER, jamais recalculé par le service.
+- D-P4 : AirCover affiché uniquement comme information séparée : ligne ACOMPTE_AIRBNB dans le bloc règlement de la préfacture.
+- D-P5 : Les 12 lignes de préfacture sont structurellement présentes (5 EXPLOITATION + 7 REGLEMENT) pour chacune des 270 factures. Affiché tel quel.
+- D-P6 : Lot12 absent → préfacture status=UNAVAILABLE, sans exception, sans bloquer le relevé.
+- D-P7 : Aucun accès SQLite, aucune écriture Excel. Routes GET uniquement.
+- D-P8 : Clé relevé = prop_id × mois (VUE_MOIS) ; lignes par logement dans REGLEMENT (clé prop×log×mois unique — vérifié 270/270).

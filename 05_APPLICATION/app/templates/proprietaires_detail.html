@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Fiche propriétaire{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/proprietaires" class="btn btn-secondary btn-sm" style="margin-bottom:0.5rem">← Propriétaires</a>
+  <h1 class="page-title">
+    {% if detail and detail.status == "OK" %}
+      {{ detail.prop.nom_proprietaire or prop_id }} {{ detail.prop.prenom_proprietaire or "" }}
+    {% else %}
+      Propriétaire {{ prop_id }}
+    {% endif %}
+  </h1>
+</div>
+
+{% if detail is none %}
+<div class="alert alert-error">Propriétaire <strong>{{ prop_id }}</strong> introuvable.</div>
+
+{% elif detail.status == "ERROR" %}
+<div class="alert alert-error"><strong>Source indisponible</strong> — {{ detail.error_message }}</div>
+
+{% else %}
+
+<div class="detail-grid">
+  <div class="detail-field"><span class="detail-label">ID</span><span class="code-id">{{ detail.prop.proprietaire_id }}</span></div>
+  <div class="detail-field"><span class="detail-label">Nom</span>{{ detail.prop.nom_proprietaire or "—" }}</div>
+  <div class="detail-field"><span class="detail-label">Prénom</span>{{ detail.prop.prenom_proprietaire or "—" }}</div>
+  <div class="detail-field"><span class="detail-label">Email</span>{{ detail.prop.email or "—" }}</div>
+  <div class="detail-field"><span class="detail-label">Téléphone</span>{{ detail.prop.telephone or "—" }}</div>
+  <div class="detail-field"><span class="detail-label">Adresse facturation</span>{{ detail.prop.adresse_facturation or "—" }}</div>
+  <div class="detail-field"><span class="detail-label">Mode facturation</span>{{ detail.prop.mode_facturation or "—" }}</div>
+  <div class="detail-field"><span class="detail-label">Actif</span>{{ detail.prop.actif or "—" }}</div>
+</div>
+
+{% if detail.mois_disponibles %}
+<h2 class="section-title" style="margin-top:2rem">Relevés disponibles</h2>
+<div class="table-wrapper">
+  <table class="data-table">
+    <thead>
+      <tr><th>Mois</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for m in detail.mois_disponibles %}
+      <tr>
+        <td>{{ m }}</td>
+        <td>
+          <a href="/proprietaires/{{ detail.prop_id }}/{{ m }}" class="btn btn-secondary btn-sm">Relevé</a>
+          <a href="/proprietaires/{{ detail.prop_id }}/{{ m }}/prefacture" class="btn btn-secondary btn-sm">Préfacture</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty-state" style="margin-top:2rem">
+  <p>Aucun relevé disponible pour ce propriétaire.</p>
+</div>
+{% endif %}
+
+<div class="source-note">
+  <strong>Référentiel :</strong> {{ detail.source_ref }}
+  {% if detail.source_calc %} — <strong>Calculs :</strong> {{ detail.source_calc }}{% endif %}
+  — lu le {{ detail.read_at }}
+</div>
+
+{% endif %}
+{% endblock %}

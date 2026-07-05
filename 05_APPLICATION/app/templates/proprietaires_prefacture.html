@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Préfacture {{ mois }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/proprietaires/{{ prop_id }}/{{ mois }}" class="btn btn-secondary btn-sm" style="margin-bottom:0.5rem">← Relevé {{ mois }}</a>
+  <h1 class="page-title">Préfacture — {{ mois }}</h1>
+</div>
+
+{% if pref.status == "NOT_FOUND" %}
+<div class="alert alert-error">Aucune préfacture pour <strong>{{ prop_id }}</strong> / <strong>{{ mois }}</strong>.</div>
+
+{% elif pref.status == "UNAVAILABLE" %}
+<div class="alert alert-warning">
+  <strong>Préfacture indisponible</strong> — {{ pref.error_message }}<br>
+  Le relevé reste consultable.
+</div>
+
+{% elif pref.status == "ERROR" %}
+<div class="alert alert-error"><strong>Source indisponible</strong> — {{ pref.error_message }}</div>
+
+{% else %}
+
+{% for facture in pref.factures %}
+{% set e = facture.entete %}
+<div class="card" style="margin-bottom:2rem;padding:1.25rem">
+  <div class="detail-grid" style="margin-bottom:1rem">
+    <div class="detail-field"><span class="detail-label">Facture ID</span><span class="code-id">{{ e.facture_id or "—" }}</span></div>
+    <div class="detail-field"><span class="detail-label">Logement</span><span class="code-id">{{ e.logement_id or "—" }}</span></div>
+    <div class="detail-field"><span class="detail-label">Nom logement</span>{{ e.nom_logement or "—" }}</div>
+    <div class="detail-field"><span class="detail-label">Statut facture</span>{{ e.statut_facture or "—" }}</div>
+    <div class="detail-field"><span class="detail-label">Statut génération</span>{{ e.statut_generation or "—" }}</div>
+    <div class="detail-field"><span class="detail-label">Réservations</span>{{ e.nb_reservations or "—" }}</div>
+  </div>
+
+  <!-- BLOC EXPLOITATION (5 lignes) -->
+  <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:0.5rem;color:var(--color-text-muted)">Bloc Exploitation</h3>
+  <div class="table-wrapper" style="margin-bottom:1.25rem">
+    <table class="data-table">
+      <thead><tr><th>Type</th><th>Libellé</th><th class="num">Montant</th></tr></thead>
+      <tbody>
+        {% for l in facture.lignes_exploitation %}
+        <tr {% if l.type_ligne == "REVENU_NET_EXPLOITATION" %}style="font-weight:600"{% endif %}>
+          <td><span class="code-id">{{ l.type_ligne or "—" }}</span></td>
+          <td>{{ l.libelle or "—" }}</td>
+          <td class="num">{{ l.montant | round(2) if l.montant is not none else "—" }} €</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- BLOC REGLEMENT (7 lignes) -->
+  <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:0.5rem;color:var(--color-text-muted)">Bloc Règlement</h3>
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead><tr><th>Type</th><th>Libellé</th><th class="num">Montant / Valeur</th></tr></thead>
+      <tbody>
+        {% for l in facture.lignes_reglement %}
+        <tr {% if l.type_ligne == "RESTE_A_PAYER" %}style="font-weight:600"{% endif %}>
+          <td><span class="code-id">{{ l.type_ligne or "—" }}</span></td>
+          <td>{{ l.libelle or "—" }}</td>
+          <td class="num">
+            {% if l.montant is not none %}{{ l.montant | round(2) }} €{% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endfor %}
+
+<div class="source-note">
+  <strong>Source :</strong> {{ pref.source_fact }} — lu le {{ pref.read_at }}.
+  Données affichées telles quelles, aucun recalcul. Préfacture non finale.
+</div>
+
+{% endif %}
+{% endblock %}

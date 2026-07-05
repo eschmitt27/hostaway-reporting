@@ -1153,3 +1153,44 @@ Controles requis avant commit :
 - **Tests** : 19/21 fournisseurs verts, 2 skips légitimes. 49/51 ciblés verts. Tous ménages + navigation verts. 35 pre-existing failures test_saisie_hh_app2c/app2e (--basetemp inside APP_ROOT guard) non liés à APP-3a.
 - **Sources réelles** : SAISIE_Charges_Flux 82d133c3... INCHANGÉE. MASTER_FACT_MAN_Charges 90513baf... INCHANGÉ. REF_Setup 3354ce22... INCHANGÉ. SAISIE_HH 60b7bc85... INCHANGÉE.
 - **Prochaine action** : APP-3b — saisie SAISIE_Charges_Flux.xlsx ou APP-3c — relevé propriétaire.
+
+#### 2026-07-05 — APP-3c — Propriétaires & règlements (lecture seule) — TERMINÉ
+- **Statut** : TERMINÉ — 401/401 tests application verts. 53/53 tests propriétaires verts. 53/53 tests Lot4a verts.
+- **Portée** : consultation lecture seule des propriétaires, relevés mensuels (bloc exploitation / bloc règlement séparés), préfacture 12 lignes.
+- **Sources** :
+  - `02_TRAVAIL/Lot10_Resultats/MASTER_CALC_NetProprietaire.xlsx` — onglets EXPLOITATION (1349 lignes), REGLEMENT (270 lignes, clé prop×log×mois unique), VUE_MOIS (221 lignes). Aucun placeholder PQ.
+  - `02_TRAVAIL/Lot12_Factures/MASTER_FACT_Proprietaires.xlsx` — FACT_FACTURE_ENTETE (270 lignes), FACT_FACTURE_LIGNES (3240 lignes = 12 lignes × 270 factures, toujours). Aucun placeholder PQ.
+  - `01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm` — onglet REF_Proprietaires (12 propriétaires actifs).
+- **Routes créées** :
+  - `GET /proprietaires` — liste 12 propriétaires
+  - `GET /proprietaires/{prop_id}` — fiche + mois disponibles
+  - `GET /proprietaires/{prop_id}/{mois}` — relevé : bloc exploitation + bloc règlement
+  - `GET /proprietaires/{prop_id}/{mois}/prefacture` — 12 lignes structurées
+- **Règles appliquées** :
+  - D033/EP1-EP7 : blocs exploitation et règlement non mélangés — séparation stricte dans le service et les templates.
+  - revenu_net_exploitation jamais recalculé — affiché tel quel depuis MASTER.
+  - AirCover affiché uniquement comme ligne ACOMPTE_AIRBNB dans le bloc règlement.
+  - Lot12 absent → préfacture status=UNAVAILABLE, relevé non bloqué.
+  - Aucune écriture SQLite, aucune écriture Excel, aucun fallback source brute.
+- **Fichiers créés (8)** :
+  1. `app/readers/proprietaires_reader.py`
+  2. `app/services/proprietaires_service.py`
+  3. `app/routes/proprietaires.py`
+  4. `app/templates/proprietaires_list.html`
+  5. `app/templates/proprietaires_detail.html`
+  6. `app/templates/proprietaires_releve.html`
+  7. `app/templates/proprietaires_prefacture.html`
+  8. `tests/test_proprietaires.py` (38 tests)
+- **Fichiers modifiés (4)** :
+  1. `app/config.py` — MASTER_NET_PROPRIETAIRE, MASTER_FACT_PROPRIETAIRES
+  2. `app/main.py` — router proprietaires
+  3. `app/templates/base.html` — menu Propriétaires & règlements cliquable
+  4. `tests/test_navigation_no_404.py` — /proprietaires en ROUTES_DISPONIBLES
+- **Hashes sources (inchangées)** :
+  - REF_Setup sha256 = 3354ce22e1ad667e1a672e4f793af091c2907b3cd5469da9661a1997c16149e8
+  - SAISIE_ReservationsHorsHostaway sha256 = 60b7bc85f7d59530e0a0fcdb9596162012db44611aeefaa3b1f0a97d32b18943
+  - SAISIE_Charges_Flux sha256 = 82d133c3631608261b6b759ecaa48fbf6e50fe5e3bb26cc170ef4b11e0e50e8e
+  - MASTER_FACT_MAN_Charges sha256 = 90513baf64ca6a38b07b835c428ba6e6e3ba8a49c962f41b90...
+  - MASTER_CALC_NetProprietaire sha256 = f9e2666b955994421dd6545d040d4a4d87193ee3295f429b54...
+  - MASTER_FACT_Proprietaires sha256 = 8cdca80f94ce3dfaf6c9f9070c19949f9a337f14fc96d57fe9...
+- **Entrée JOURNAL_CONTROLES** : CTR-2026-07-05-APP3C-PROPRIETAIRES.

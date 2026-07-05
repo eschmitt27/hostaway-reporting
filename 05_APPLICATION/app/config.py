@@ -27,6 +27,9 @@ MASTER_RUN_LOG = TRAVAIL / "Lot1_Hostaway" / "MASTER_RUN_Log.xlsx"
 # Charges / Fournisseurs (APP-3a) — LECTURE SEULE
 MASTER_CHARGES = TRAVAIL / "Lot3_Charges" / "MASTER_FACT_MAN_Charges.xlsx"
 SAISIE_CHARGES = SOURCES_BRUTES / "Charges" / "SAISIE_Charges_Flux.xlsx"
+# Propriétaires & règlements (APP-3c) — LECTURE SEULE
+MASTER_NET_PROPRIETAIRE = TRAVAIL / "Lot10_Resultats" / "MASTER_CALC_NetProprietaire.xlsx"
+MASTER_FACT_PROPRIETAIRES = TRAVAIL / "Lot12_Factures" / "MASTER_FACT_Proprietaires.xlsx"
 # Ménages (APP-2) — LECTURE SEULE
 MASTER_RAPPROCHEMENT_MENAGES = TRAVAIL / "Lot6d_Rapprochement_Menages" / "MASTER_CTRL_Rapprochement_Menages.xlsx"
 MASTER_GAINPERTE_MENAGES = TRAVAIL / "Lot6e_GainPerte_Menages" / "MASTER_CALC_GainPerte_Menages.xlsx"

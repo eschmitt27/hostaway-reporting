@@ -3,13 +3,13 @@
 APP-1 : /logements disponible. APP-2a : /reservations disponible (lecture seule).
 APP-2 (ménages) : /menages disponible.
 APP-3a : /fournisseurs disponible (lecture seule charges Lot3).
-Les 3 autres modules restent « À venir ».
+APP-3c : /proprietaires disponible (lecture seule relevés Lot10/Lot12).
+Les 2 autres modules restent « À venir ».
 """
 
 
-ROUTES_DISPONIBLES = ["/", "/logements", "/reservations", "/menages", "/fournisseurs", "/sources-calculs"]
+ROUTES_DISPONIBLES = ["/", "/logements", "/reservations", "/menages", "/fournisseurs", "/proprietaires", "/sources-calculs"]
 ROUTES_FUTURES_SANS_LIEN = [
-    "/proprietaires",
     "/banques",
     "/controles",
 ]
@@ -76,6 +76,12 @@ def test_sidebar_contient_href_fournisseurs(client):
     r = client.get("/")
     assert r.status_code == 200
     assert 'href="/fournisseurs"' in r.text, "Menu Fournisseurs doit être cliquable au Lot APP-3a"
+
+
+def test_sidebar_contient_href_proprietaires(client):
+    r = client.get("/")
+    assert r.status_code == 200
+    assert 'href="/proprietaires"' in r.text, "Menu Propriétaires doit être cliquable au Lot APP-3c"
 
 
 def test_sidebar_contient_badge_avenir(client):
