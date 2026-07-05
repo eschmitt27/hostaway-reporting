@@ -216,3 +216,37 @@ def test_fournisseurs_nav_active_sur_liste(client):
     assert "nav-item--future" not in r.text or 'href="/fournisseurs"' in r.text, (
         "Menu Fournisseurs encore marqué 'future'"
     )
+
+
+# ---------------------------------------------------------------------------
+# Tests accès nouvelle charge (APP-3b-1)
+# ---------------------------------------------------------------------------
+
+def test_fournisseurs_liste_bouton_nouvelle_charge_href(client):
+    """GET /fournisseurs → href="/fournisseurs/nouvelle" présent."""
+    r = client.get("/fournisseurs")
+    assert r.status_code == 200
+    assert 'href="/fournisseurs/nouvelle"' in r.text
+
+
+def test_fournisseurs_liste_bouton_nouvelle_charge_texte(client):
+    """GET /fournisseurs → texte « Nouvelle charge » présent."""
+    r = client.get("/fournisseurs")
+    assert r.status_code == 200
+    assert "Nouvelle charge" in r.text
+
+
+def test_fournisseurs_nouvelle_get_200(client):
+    """GET /fournisseurs/nouvelle → 200."""
+    r = client.get("/fournisseurs/nouvelle")
+    assert r.status_code == 200
+
+
+def test_fournisseurs_nouvelle_accessible_meme_si_master_vide(client):
+    """Bouton Nouvelle charge accessible même quand MASTER Lot3 est vide."""
+    from unittest.mock import patch
+    from app.readers import charges_reader as cr
+    with patch.object(cr, "master_available", return_value=False):
+        r = client.get("/fournisseurs")
+    assert r.status_code == 200
+    assert 'href="/fournisseurs/nouvelle"' in r.text
