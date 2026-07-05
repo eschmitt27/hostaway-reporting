@@ -1806,6 +1806,29 @@ Statut     : OUVERT - EN_ATTENTE_COMMIT_SELECTIF
 Commentaire: Aucun fichier Excel reel ne doit etre modifie ; la premiere migration reelle devra etre lancee par commande explicite avec confirmation humaine.
 ```
 
+### CTR-2026-07-05-APP2E-MIGRATION-REELLE
+
+```
+Date       : 2026-07-05T00:17:47Z
+Lot        : APP-2e migration reelle
+Code       : APP2E_MIGRATION_REELLE_SCHEMA_HH
+Severite   : CRITIQUE — MIGRATION IRREVERSIBLE EXECUTEE
+Fichiers   : 01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm
+             01_SOURCES_BRUTES/ReservationsHH/SAISIE_ReservationsHorsHostaway.xlsx
+Resultat   : real_status = OK. Migration atomique avec backup preablable et validation sur temporaires.
+             SAISIE : 7 colonnes ajoutees (AE-AK), colonnes historiques et formules intactes.
+             REF_Setup : PAY_006 / DIRECT_PROPRIETAIRE ajoute dans REF_Modes_Paiement.
+             VBA preserve : xl/vbaProject.bin SHA-256 = 09eb44f98025583fad807b0784123e2c3d402ad3d38093b163170def3de8e5c2
+             Diagnostic post-migration : migration_needed=false, errors=[], formula_violations=[].
+             Flags HH_REAL_WRITE_ENABLED et HH_REAL_WRITE_CONFIRMATION_ENABLED restes a False.
+Hashes     : avant  SAISIE=c3c00e73017212e08bb3f9e9aef73a26bd3c828804e4fa21f7f2b37713d54c5c
+                    REF=6d9f21de919e80c1903ae5acdb2f64a3d776c858857dda52fb39b8335ab726da
+             apres  SAISIE=60b7bc85f7d59530e0a0fcdb9596162012db44611aeefaa3b1f0a97d32b18943
+                    REF=3354ce22e1ad667e1a672e4f793af091c2907b3cd5469da9661a1997c16149e8
+Sauvegarde : 99_ARCHIVES\APP2E_SCHEMA_HH_20260705_020543\ (hors staging)
+Statut     : FERME — MIGRATION CONFIRMEE ET VALIDEE
+```
+
 ### CTR-2026-07-05-APP2E-INTEGRITE-VBA
 
 ```

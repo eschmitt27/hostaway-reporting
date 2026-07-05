@@ -1060,6 +1060,22 @@ Controles requis avant commit :
 - `git diff --check` vert ;
 - staging selectif APP-2e uniquement, sans Excel reel, logs, dryruns ni `.pytest_tmp*`.
 
+## Note d'etat - APP-2e migration réelle exécutée (2026-07-05)
+
+Statut : MIGRATION REELLE APP-2e EXECUTEE ET VALIDEE.
+
+La migration reelle du schema HH a ete executee le 05/07/2026 via confirmation humaine explicite `MIGRER_SCHEMA_HH_REELLE`. Resultat : `real_status = OK`.
+
+Elements produits :
+- SAISIE : 7 nouvelles colonnes de derogation ajoutees (AE-AK), formules et colonnes historiques intactes ;
+- REF_Setup : PAY_006 / DIRECT_PROPRIETAIRE ajoute dans REF_Modes_Paiement, VBA preserve integralement ;
+- Hashes post-migration : SAISIE `60b7bc85...`, REF `3354ce22...` ;
+- Sauvegarde pre-migration : `99_ARCHIVES\APP2E_SCHEMA_HH_20260705_020543\` (hors git) ;
+- Diagnostic post-migration : `migration_needed = false`, `missing_saisie_fields = []`, `missing_ref_modes = []`, `errors = []` ;
+- Flags ecriture reservations : `HH_REAL_WRITE_ENABLED = False`, `HH_REAL_WRITE_CONFIRMATION_ENABLED = False` — toujours desactives.
+
+Prochaine etape : activation controlee de l'ecriture reelle des reservations (etape separee, validation humaine).
+
 ## Note d'etat - APP-2e durcissement intégrité binaire VBA (2026-07-05)
 
 Statut : controle binaire VBA et parties ZIP sensibles implemente et teste.

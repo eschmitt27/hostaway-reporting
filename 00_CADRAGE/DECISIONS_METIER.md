@@ -1176,3 +1176,18 @@ Decisions validees :
 - Ces controles ne s'appliquent qu'a la comparaison copie-reference/copie-travail ; ils ne touchent jamais les fichiers sources reels.
 - Le manifest `preparer_migration_hh_sur_copies` inclut desormais `vba_snapshots` avec les empreintes avant/apres pour audit.
 - Les tests de ces controles utilisent des fichiers ZIP `.xlsm` synthetiques construits en Python ; ils ne dependent pas du vrai `REF_Setup.xlsm`.
+
+### D-APP-2E-MIGREE - Migration réelle schéma HH exécutée (2026-07-05)
+
+**Date execution** : 2026-07-05T00:17:47Z
+**Operateur** : Ewan Schmitt — confirmation manuelle `MIGRER_SCHEMA_HH_REELLE`
+**Statut** : `real_status = OK`
+
+Decisions validees :
+- La migration reelle APP-2e a ete executee le 05/07/2026 via `executer_migration_hh_reelle()` avec confirmation humaine explicite.
+- Les deux fichiers sources reels ont ete migres en transaction atomique avec backup preablable et rollback double-fichier disponible.
+- SAISIE : 7 colonnes ajoutees en fin de schema (colonnes AE-AK), colonnes historiques intactes, formules B/C/K/N/O/Q/V/Y/Z preservees.
+- REF_Setup : ligne PAY_006 / DIRECT_PROPRIETAIRE ajoutee une seule fois dans REF_Modes_Paiement. VBA preserve (`xl/vbaProject.bin` SHA-256 identique avant/apres : `09eb44f98025583fad807b0784123e2c3d402ad3d38093b163170def3de8e5c2`).
+- Les flags `HH_REAL_WRITE_ENABLED = False` et `HH_REAL_WRITE_CONFIRMATION_ENABLED = False` restent a False. L'activation de l'ecriture reelle des reservations est une etape separee independante.
+- Sauvegarde manuelle pre-migration : `99_ARCHIVES\APP2E_SCHEMA_HH_20260705_020543\` (hors staging). Hashes pre-migration verifies : SAISIE `c3c00e73...`, REF `6d9f21de...`.
+- Hashes post-migration : SAISIE `60b7bc85f7d59530e0a0fcdb9596162012db44611aeefaa3b1f0a97d32b18943`, REF `3354ce22e1ad667e1a672e4f793af091c2907b3cd5469da9661a1997c16149e8`.
