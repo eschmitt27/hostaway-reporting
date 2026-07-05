@@ -1,4 +1,4 @@
-# ETAT_AVANCEMENT.md
+﻿# ETAT_AVANCEMENT.md
 > Fichier de mémoire inter-sessions. À lire en PREMIER à chaque reprise. À mettre à jour en FIN de session.
 > Deux pistes distinctes : **MOTEUR** (pipeline de calcul Lot 0→13, sections ci-dessous) et **APPLICATION LOCALE** (section dédiée juste après). Ne pas mélanger.
 
@@ -1125,3 +1125,31 @@ Controles requis avant commit :
 - **Sources réelles** : SAISIE `60b7bc85...` INCHANGÉE. REF_Setup `3354ce22...` INCHANGÉE.
 - **Critère de sortie APP-2 atteint** : réservations HH saisies (APP-2a/b/c/d/e) + écart ménage lisible et outrepassable avec trace (APP-2 ménages).
 - **Prochaine action** : APP-3 — Charges, fournisseurs & Propriétaires & règlements.
+
+#### 2026-07-05 — APP-3a — Fournisseurs lecture seule — VALIDÉ
+- **Statut** : VALIDÉ — 19/21 tests verts, 2 skips légitimes (MASTER Power Query sans données).
+- **Portée** : lecture charges MASTER Lot3, filtres, fiche détail. Menu Fournisseurs actif. Aucune écriture.
+- **Source** :  2_TRAVAIL/Lot3_Charges/MASTER_FACT_MAN_Charges.xlsx (Power Query). Données visibles après refresh Excel + saisie dans SAISIE_Charges_Flux.xlsx.
+- **Routes créées** :
+  - GET /fournisseurs — liste filtrable (mois, logement, catégorie, code_impact, statut, associé)
+  - GET /fournisseurs/{charge_id} — fiche détail charge
+- **Règles appliquées** :
+  - D026 : source unique = MASTER Lot3, jamais MASTER_CALC_Flux.
+  - D025 : IK et virements associés exclus du périmètre Fournisseurs.
+  - D044 : statut_controle affiché tel quel, aucun recalcul.
+  - Lignes placeholder Power Query [Charge par Power Query…] filtrées avant affichage.
+- **Fichiers créés (5)** :
+  1. pp/readers/charges_reader.py — lecture MASTER onglet MASTER, filtres IK/PQ
+  2. pp/services/charges_service.py — liste/détail, status=OK si vide, status=ERROR si MASTER absent
+  3. pp/routes/fournisseurs.py — 2 routes GET
+  4. pp/templates/fournisseurs_list.html
+  5. pp/templates/fournisseurs_detail.html
+  6. 	ests/test_fournisseurs.py — 21 tests (19 pass, 2 skip MASTER vide)
+- **Fichiers modifiés (4)** :
+  1. pp/config.py — MASTER_CHARGES + SAISIE_CHARGES
+  2. pp/main.py — router fournisseurs inclus
+  3. pp/templates/base.html — menu Fournisseurs cliquable (APP-3a)
+  4. 	ests/test_navigation_no_404.py — /fournisseurs dans routes disponibles
+- **Tests** : 19/21 fournisseurs verts, 2 skips légitimes. 49/51 ciblés verts. Tous ménages + navigation verts. 35 pre-existing failures test_saisie_hh_app2c/app2e (--basetemp inside APP_ROOT guard) non liés à APP-3a.
+- **Sources réelles** : SAISIE_Charges_Flux 82d133c3... INCHANGÉE. MASTER_FACT_MAN_Charges 90513baf... INCHANGÉ. REF_Setup 3354ce22... INCHANGÉ. SAISIE_HH 60b7bc85... INCHANGÉE.
+- **Prochaine action** : APP-3b — saisie SAISIE_Charges_Flux.xlsx ou APP-3c — relevé propriétaire.

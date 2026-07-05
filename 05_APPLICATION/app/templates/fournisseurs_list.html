@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title %}Fournisseurs{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Fournisseurs — Charges</h1>
+  <p class="page-subtitle">
+    Source : {{ data.source }} — lu le {{ data.read_at }}
+  </p>
+</div>
+
+{% if data.status == "ERROR" %}
+<div class="alert alert-error">
+  <strong>Source indisponible</strong> — {{ data.error_message }}
+</div>
+
+{% else %}
+
+<!-- Filtres -->
+<form method="get" action="/fournisseurs" class="filter-bar">
+  <div class="filter-group">
+    <label for="mois">Mois</label>
+    <select id="mois" name="mois" onchange="this.form.submit()">
+      <option value="">Tous</option>
+      {% for m in data.filters.mois %}
+        <option value="{{ m }}" {% if data.applied.mois == m %}selected{% endif %}>{{ m }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="filter-group">
+    <label for="logement_id">Logement</label>
+    <select id="logement_id" name="logement_id" onchange="this.form.submit()">
+      <option value="">Tous</option>
+      {% for l in data.filters.logements %}
+        <option value="{{ l }}" {% if data.applied.logement_id == l %}selected{% endif %}>{{ l }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="filter-group">
+    <label for="categorie_charge_id">Catégorie</label>
+    <select id="categorie_charge_id" name="categorie_charge_id" onchange="this.form.submit()">
+      <option value="">Toutes</option>
+      {% for c in data.filters.categories %}
+        <option value="{{ c }}" {% if data.applied.categorie_charge_id == c %}selected{% endif %}>{{ c }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="filter-group">
+    <label for="code_impact">Impact</label>
+    <select id="code_impact" name="code_impact" onchange="this.form.submit()">
+      <option value="">Tous</option>
+      {% for ci in data.filters.codes_impact %}
+        <option value="{{ ci }}" {% if data.applied.code_impact == ci %}selected{% endif %}>{{ ci }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="filter-group">
+    <label for="statut_controle">Statut</label>
+    <select id="statut_controle" name="statut_controle" onchange="this.form.submit()">
+      <option value="">Tous</option>
+      {% for s in data.filters.statuts %}
+        <option value="{{ s }}" {% if data.applied.statut_controle == s %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="filter-group">
+    <label for="associe_id">Associé</label>
+    <select id="associe_id" name="associe_id" onchange="this.form.submit()">
+      <option value="">Tous</option>
+      {% for a in data.filters.associes %}
+        <option value="{{ a }}" {% if data.applied.associe_id == a %}selected{% endif %}>{{ a }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% if data.applied.mois or data.applied.logement_id or data.applied.categorie_charge_id or data.applied.code_impact or data.applied.statut_controle or data.applied.associe_id %}
+    <a href="/fournisseurs" class="btn btn-secondary btn-sm">Effacer les filtres</a>
+  {% endif %}
+</form>
+
+<div class="table-meta">
+  {{ data.count_affiches }} ligne{% if data.count_affiches != 1 %}s{% endif %} affichée{% if data.count_affiches != 1 %}s{% endif %}
+  sur {{ data.count_total }} au total
+</div>
+
+{% if data.rows %}
+<div class="table-wrapper">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Charge ID</th>
+        <th>Mois</th>
+        <th>Date</th>
+        <th>Catégorie</th>
+        <th>Logement</th>
+        <th>Associé</th>
+        <th class="num">Montant</th>
+        <th>Impact</th>
+        <th>Refact.</th>
+        <th>Statut</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in data.rows %}
+      <tr class="{% if row.statut_controle == 'VALIDE' %}row-ok{% elif row.statut_controle == 'BLOQUANT' %}row-error{% elif row.statut_controle == 'A_CONTROLER' or row.statut_controle == 'A_VENTILER' %}row-warning{% else %}row-neutral{% endif %}">
+        <td><span class="code-id">{{ row.charge_id or "—" }}</span></td>
+        <td>{{ row.mois or "—" }}</td>
+        <td>{{ row.date_charge or "—" }}</td>
+        <td>{{ row.categorie_charge_id or "—" }}</td>
+        <td>
+          {% if row.logement_id %}<span class="code-id">{{ row.logement_id }}</span>{% else %}—{% endif %}
+        </td>
+        <td>{{ row.associe_id or "—" }}</td>
+        <td class="num">
+          {% if row.montant is not none %}
+            {{ row.montant | round(2) }} €
+          {% else %}—{% endif %}
+        </td>
+        <td>
+          {% if row.code_impact %}
+            <span class="badge badge-{{ row.code_impact | lower }}">{{ row.code_impact }}</span>
+          {% else %}—{% endif %}
+        </td>
+        <td>
+          {% if row.refacturable == 'OUI' %}
+            <span class="badge badge-info">OUI</span>
+          {% else %}
+            {{ row.refacturable or "—" }}
+          {% endif %}
+        </td>
+        <td>
+          <span class="status-badge status-{{ (row.statut_controle or 'inconnu') | lower | replace('_','-') }}">
+            {{ row.statut_controle or "—" }}
+          </span>
+        </td>
+        <td>
+          <a href="/fournisseurs/{{ row.charge_id }}" class="btn btn-secondary btn-sm">Détail</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% else %}
+<div class="empty-state">
+  {% if data.count_total == 0 %}
+    <p>Aucune charge dans le MASTER Lot3. Saisissez des charges dans <code>SAISIE_Charges_Flux.xlsx</code> puis rafraîchissez Power Query.</p>
+  {% else %}
+    <p>Aucune ligne ne correspond aux filtres sélectionnés.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="source-note">
+  <strong>Source :</strong> {{ data.source }} — lecture seule, aucun recalcul.<br>
+  Les valeurs sont issues directement du moteur Lot3 (Power Query). IK et virements associés exclus (D025).
+</div>
+
+{% endif %}
+{% endblock %}

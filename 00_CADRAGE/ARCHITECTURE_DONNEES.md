@@ -1737,3 +1737,30 @@ MASTER_COUTCOMPLET_MENAGES   = TRAVAIL / "Lot6f_CoutComplet_Menages"     / "MAST
 - `GET /menages` â€” liste avec filtres (mois, logement_id, type_intervenant, statut_controle)
 - `GET /menages/{mois}/{logement_id}/{intervenant_id}` â€” fiche dÃ©tail
 - `POST /menages/{mois}/{logement_id}/{intervenant_id}/outrepasser` â€” outrepassage tracÃ©
+
+---
+
+## §21 — APP-3a : Charges & Fournisseurs (lecture seule)
+
+### Sources
+
+- MASTER_CHARGES = TRAVAIL / "Lot3_Charges" / "MASTER_FACT_MAN_Charges.xlsx" — sortie Power Query Lot3, onglet MASTER. Données présentes après refresh Excel.
+- SAISIE_CHARGES = SOURCES_BRUTES / "Charges" / "SAISIE_Charges_Flux.xlsx" — source amont. Jamais lue ni écrite par l'app (hash-check uniquement).
+
+### Structure MASTER (37 colonnes)
+
+31 colonnes SAISIE + 6 colonnes Power Query : sens, iltre_vue_menage, source_module, source_table, source_pk, date_integration.
+
+Clé logique : charge_id.
+
+### Règles d'affichage
+
+- Lignes placeholder PQ (charge_id commence par [) filtrées avant affichage (D-C2).
+- IK et VIREMENT_ASSOCIE exclus (D025 / D-C3).
+- Statuts affichés tels quels (D044 / D-C4).
+- Aucun recalcul, aucune écriture, aucun accès SQLite.
+
+### Routes
+
+- GET /fournisseurs — liste filtrable (mois, logement_id, categorie_charge_id, code_impact, statut_controle, associe_id)
+- GET /fournisseurs/{charge_id} — fiche détail

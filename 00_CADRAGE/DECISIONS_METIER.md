@@ -1207,3 +1207,18 @@ Decisions validees :
 - D-M4 : Enrichissement fiche = `MASTER_CALC_GainPerte_Menages.xlsx` (DETAIL_ECART_COUT). Coût complet (`MASTER_CALC_CoutComplet_Menages.xlsx`) = non chargé au MVP (lecture disponible à APP-3+ si besoin).
 - D-M5 : Outrepassage = écriture SQLite uniquement (`menage_overrides` migration 0003 + `audit_events`). Jamais d'écriture dans un fichier Excel ou MASTER. Motif obligatoire. Contrainte UNIQUE(mois, logement_id, intervenant_id) — 2e outrepassage = mise à jour, pas doublon.
 - D-M6 : Statut effectif = `JUSTIFIE` si override enregistré, sinon `statut_controle` du MASTER. L'affichage reflète l'override sans modifier la source.
+
+
+## D-APP-3A-FOURNISSEURS — Décisions APP-3a : charges fournisseurs lecture seule
+
+> Décisions de conception pour le module Fournisseurs (APP-3a), lot APP-3.
+> Statut : VALIDÉES — 2026-07-05. Implémentées.
+
+- D-C1 : Source unique de la liste = MASTER_FACT_MAN_Charges.xlsx onglet MASTER. Jamais SAISIE_Charges_Flux ni MASTER_CALC_Flux. Conforme D026.
+- D-C2 : Lignes placeholder Power Query (charge_id commence par [) filtrées avant affichage. Aucune erreur levée — comportement normal si MASTER non rafraîchi.
+- D-C3 : IK (	ype_flux_id=IK) et virements associés (	ype_flux_id=VIREMENT_ASSOCIE) exclus du périmètre Fournisseurs. Conforme D025.
+- D-C4 : statut_controle affiché tel quel sans recalcul. Aucun calcul de métrique dans service ou reader. Conforme D044.
+- D-C5 : status=OK si liste vide (MASTER non rafraîchi = comportement normal). status=ERROR uniquement si MASTER absent ou illisible.
+- D-C6 : Aucun accès SQLite, aucune migration. Aucune écriture Excel. Aucune route POST.
+- D-C7 : Identifiant de route = charge_id. Unicité non vérifiable empiriquement (0 données au moment de l'implémentation) — schéma prévoit charge_id comme clé intentionnelle.
+- D-C8 : Filtres disponibles : mois, logement_id, categorie_charge_id, code_impact, statut_controle, associe_id.

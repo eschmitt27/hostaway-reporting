@@ -1876,3 +1876,40 @@ Commentaire: Aucun fichier Excel reel modifie. Tests VBA utilisent des ZIPs synt
 - REF_Setup sha256 = `3354ce22e1ad667e1a672e4f793af091c2907b3cd5469da9661a1997c16149e8` INCHANGÉE
 
 **Décision :** D-M1 à D-M6 appliquées (voir DECISIONS_METIER D-APP-2-MENAGES).
+
+---
+
+### CTR-2026-07-05-APP3A-FOURNISSEURS
+
+```
+Date       : 2026-07-05
+Lot        : APP-3a — Fournisseurs / Charges lecture seule
+Code       : APP3A_CHARGES_LECTURE_INTEGRITE
+Sévérité   : INFO
+Fichier    : 02_TRAVAIL/Lot3_Charges/MASTER_FACT_MAN_Charges.xlsx
+             01_SOURCES_BRUTES/Charges/SAISIE_Charges_Flux.xlsx
+Résultat   : 19/21 tests verts, 2 skips légitimes (MASTER Power Query sans données, liste vide attendue)
+Statut     : CONFORME
+Commentaire: MASTER = Power Query, données présentes après refresh Excel + saisie dans SAISIE.
+             Placeholder PQ filtré côté reader (charge_id commence par '[').
+             D025 (pas IK), D026 (source=MASTER Lot3), D044 (statut tel quel) vérifiés.
+             Aucun accès SQLite, aucune écriture Excel détectés (scan code).
+```
+
+**Périmètre contrôlé :**
+1. Source unique MASTER Lot3 (pas SAISIE, pas MASTER_CALC_Flux)
+2. Filtre placeholder PQ actif (charge_id starts with '[')
+3. IK et virements associés absents (D025) — scan sur liste
+4. statut_controle non recalculé (D044) — aucun calcul dans service/reader
+5. Sources non modifiées après lecture (sha256 stable — MASTER et SAISIE)
+6. Aucun import sqlite3 / get_db dans service et reader (scan code)
+7. Route /fournisseurs 200, /fournisseurs/{inconnu} 404
+8. Menu Fournisseurs actif dans sidebar
+
+**Résultat :** 19/21 tests fournisseurs verts. 49/51 tests ciblés verts. Tous ménages et navigation verts.
+
+**Sources Excel :**
+- SAISIE_Charges_Flux sha256 = 82d133c3631608261b6b759ecaa48fbf6e50fe5e3bb26cc170ef4b11e0e50e8e INCHANGÉE
+- MASTER_FACT_MAN_Charges sha256 = 90513baf64ca6a38b07b835c428ba6e6e3ba8a49c962f41b90... INCHANGÉ
+- SAISIE_HH sha256 = 60b7bc85f7d59530e0a0fcdb9596162012db44611aeefaa3b1f0a97d32b18943 INCHANGÉE
+- REF_Setup sha256 = 3354ce22e1ad667e1a672e4f793af091c2907b3cd5469da9661a1997c16149e8 INCHANGÉ

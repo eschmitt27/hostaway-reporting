@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from app.config import STATIC_DIR, DATA_DIR, SNAPSHOTS_DIR
 from app.db.connection import apply_migrations
-from app.routes import home, sources_calculs, health, logements, reservations, menages
+from app.routes import home, sources_calculs, health, logements, reservations, menages, fournisseurs
 
 
 @asynccontextmanager
@@ -22,5 +22,6 @@ app.include_router(home.router)
 app.include_router(logements.router)
 app.include_router(reservations.router)
 app.include_router(menages.router)
+app.include_router(fournisseurs.router)
 app.include_router(sources_calculs.router)
 app.include_router(health.router)

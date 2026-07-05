@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+{% block title %}Charge — {{ charge_id }}{% endblock %}
+
+{% block content %}
+
+{% if detail is none %}
+<div class="page-header">
+  <h1 class="page-title">Charge introuvable</h1>
+</div>
+<div class="alert alert-error">
+  Aucune charge pour l'identifiant : <code>{{ charge_id }}</code>.
+</div>
+<a href="/fournisseurs" class="btn btn-secondary">← Retour à la liste</a>
+
+{% elif detail.status == "ERROR" %}
+<div class="page-header">
+  <h1 class="page-title">Erreur source</h1>
+</div>
+<div class="alert alert-error">{{ detail.error_message }}</div>
+<a href="/fournisseurs" class="btn btn-secondary">← Retour à la liste</a>
+
+{% else %}
+
+{% set c = detail.charge %}
+
+<div class="page-header">
+  <a href="/fournisseurs" class="back-link">← Fournisseurs</a>
+  <h1 class="page-title">
+    {{ c.categorie_charge_id or charge_id }}
+    <span class="page-title-sub">{{ c.mois or "—" }}</span>
+  </h1>
+  <p class="page-subtitle">
+    Identifiant : <strong><code>{{ charge_id }}</code></strong>
+    {% if c.code_impact %}
+      <span class="badge badge-{{ c.code_impact | lower }}">{{ c.code_impact }}</span>
+    {% endif %}
+  </p>
+</div>
+
+<!-- Montant et statut -->
+<div class="detail-section">
+  <div class="kpi-row">
+    <div class="kpi-card">
+      <div class="kpi-label">Montant</div>
+      <div class="kpi-value">{{ c.montant | round(2) if c.montant is not none else "—" }} €</div>
+      {% if c.sens %}<div class="kpi-note">{{ c.sens }}</div>{% endif %}
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Statut contrôle</div>
+      <div class="kpi-value">
+        <span class="status-badge status-{{ (c.statut_controle or 'inconnu') | lower | replace('_','-') }}">
+          {{ c.statut_controle or "—" }}
+        </span>
+      </div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Impact résultat réel</div>
+      <div class="kpi-value">{{ c.impact_resultat_reel or "—" }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Impact résultat comptable</div>
+      <div class="kpi-value">{{ c.impact_resultat_comptable or "—" }}</div>
+    </div>
+  </div>
+</div>
+
+<!-- Identification -->
+<div class="detail-section">
+  <h2 class="section-title">Identification</h2>
+  <div class="detail-row">
+    <span class="detail-label">Date charge</span>
+    <span class="detail-value">{{ c.date_charge or "—" }}</span>
+  </div>
+  <div class="detail-row">
+    <span class="detail-label">Mois</span>
+    <span class="detail-value">{{ c.mois or "—" }}</span>
+  </div>
+  <div class="detail-row">
+    <span class="detail-label">Catégorie</span>
+    <span class="detail-value">{{ c.categorie_charge_id or "—" }}</span>
+  </div>
+  <div class="detail-row">
+    <span class="detail-label">Logement</span>
+    <span class="detail-value">
+      {% if c.logement_id %}<span class="code-id">{{ c.logement_id }}</span>{% else %}—{% endif %}
+    </span>
+  </div>
+  <div class="detail-row">
+    <span class="detail-label">Propriétaire</span>
+    <span class="detail-value">{{ c.proprietaire_id or "—" }}</span>
+  </div>
+  <div class="detail-row">
+    <span class="detail-label">Associé</span>
+    <span class="detail-value">{{ c.associe_id or "—" }}</span>
+  </div>
+  {% if c.reservation_id %}
+  <div class="detail-row">
+    <span class="detail-label">Réservation liée</span>
+    <span class="detail-value"><span class="code-id">{{ c.reservation_id }}</span></span>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Paiement -->
+<div class="detail-section">
+  <h2 class="section-title">Paiement</h2>
+  <div class="detail-row">
+    <span class="detail-label">Mode paiement</span>
+    <span class="detail-value">{{ c.mode_paiement_id or "—" }}</span>
+  </div>
+  <div class="detail-row">
+    <span class="detail-label">Carte</span>
+    <span class="detail-value">{{ c.carte_id or "—" }}</span>
+  </div>
+  <div class="detail-row">
+    <span class="detail-label">Refacturable</span>
+    <span class="detail-value">
+      {% if c.refacturable == 'OUI' %}
+        <span class="badge badge-info">OUI</span>
+      {% else %}
+        {{ c.refacturable or "—" }}
+      {% endif %}
+    </span>
+  </div>
+  {% if c.paye_avec_montant_recupere %}
+  <div class="detail-row">
+    <span class="detail-label">Payé avec montant récupéré</span>
+    <span class="detail-value">{{ c.paye_avec_montant_recupere }}</span>
+  </div>
+  {% endif %}
+  {% if c.lien_virement_banque %}
+  <div class="detail-row">
+    <span class="detail-label">Lien virement banque</span>
+    <span class="detail-value text-secondary">{{ c.lien_virement_banque }}</span>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Contrôle -->
+<div class="detail-section">
+  <h2 class="section-title">Contrôle</h2>
+  <div class="detail-row">
+    <span class="detail-label">Code impact</span>
+    <span class="detail-value">
+      {% if c.code_impact %}
+        <span class="badge badge-{{ c.code_impact | lower }}">{{ c.code_impact }}</span>
+      {% else %}—{% endif %}
+    </span>
+  </div>
+  <div class="detail-row">
+    <span class="detail-label">Prise en compta</span>
+    <span class="detail-value">{{ c.prise_en_compta or "—" }}</span>
+  </div>
+  <div class="detail-row">
+    <span class="detail-label">Statut rapprochement</span>
+    <span class="detail-value">{{ c.statut_rapprochement or "—" }}</span>
+  </div>
+  {% if c.niveau_anomalie %}
+  <div class="detail-row">
+    <span class="detail-label">Niveau anomalie</span>
+    <span class="detail-value">{{ c.niveau_anomalie }}</span>
+  </div>
+  {% endif %}
+  {% if c.code_anomalie %}
+  <div class="detail-row">
+    <span class="detail-label">Code anomalie</span>
+    <span class="detail-value text-warning">{{ c.code_anomalie }}</span>
+  </div>
+  {% endif %}
+  {% if c.commentaire %}
+  <div class="detail-row">
+    <span class="detail-label">Commentaire</span>
+    <span class="detail-value">{{ c.commentaire }}</span>
+  </div>
+  {% endif %}
+  {% if c.justificatif %}
+  <div class="detail-row">
+    <span class="detail-label">Justificatif</span>
+    <span class="detail-value text-secondary">{{ c.justificatif }}</span>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Origine -->
+<div class="detail-section">
+  <h2 class="section-title">Origine des données</h2>
+  <div class="note-moteur">
+    Valeurs issues directement du moteur Lot3 — aucun recalcul dans l'application.
+  </div>
+  <div class="detail-row">
+    <span class="detail-label">Source</span>
+    <span class="detail-value text-secondary">{{ detail.source }}</span>
+  </div>
+  {% if c.source_module %}
+  <div class="detail-row">
+    <span class="detail-label">Module source</span>
+    <span class="detail-value text-secondary">{{ c.source_module }}</span>
+  </div>
+  {% endif %}
+  {% if c.source_table %}
+  <div class="detail-row">
+    <span class="detail-label">Table source</span>
+    <span class="detail-value text-secondary">{{ c.source_table }}</span>
+  </div>
+  {% endif %}
+  <div class="detail-row">
+    <span class="detail-label">Date saisie</span>
+    <span class="detail-value text-secondary">{{ c.date_saisie or "—" }}</span>
+  </div>
+  {% if c.date_integration %}
+  <div class="detail-row">
+    <span class="detail-label">Date intégration</span>
+    <span class="detail-value text-secondary">{{ c.date_integration }}</span>
+  </div>
+  {% endif %}
+  <div class="detail-row">
+    <span class="detail-label">Lu le</span>
+    <span class="detail-value text-secondary">{{ detail.read_at }}</span>
+  </div>
+</div>
+
+{% endif %}
+{% endblock %}
