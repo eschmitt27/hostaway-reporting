@@ -1226,7 +1226,15 @@ reste_a_payer           = montant_du_conciergerie âˆ’ acompte_conciergerie_r
 
 `charges_exceptionnelles_refacturees` impacte le `montant_du_conciergerie` uniquement â€” **jamais** `revenu_net_exploitation_proprietaire`.
 
-### 17.3 Format de la facture propriÃ©taire (12 lignes obligatoires)
+### 17.3 Format de la facture propriÃ©taire (ordre lecture propriÃ©taire â€” 12 lignes sans canapÃ©, 13 avec)
+
+> **MAJ 2026-07-06 (D-PREF-ORDRE-01) â€” le tableau ci-dessous est SUPERSÃ‰DÃ‰.**
+> La prÃ©facture n'a plus de numÃ©rotation fixe Ã  12 lignes. Ordre d'affichage rÃ©el (lecture propriÃ©taire),
+> numÃ©rotation sÃ©quentielle â€” **12 lignes sans supplÃ©ment canapÃ©, 13 avec** :
+> EXPLOITATION : TOTAL_PAYOUT, MENAGE_FACTURE, COMMISSION_CONCIERGERIE, [PREPARATION_CANAPE si applicable],
+> CHARGE_FIXE, REVENU_NET_EXPLOITATION ; puis REGLEMENT : **CHARGES_EXCEPT_REFAC (avant MONTANT_DU, elle l'explique)**,
+> MONTANT_DU, ACOMPTE_AIRBNB, PAIEMENT_DEJA_RECU, ACOMPTES_PROPRIETAIRES, RESTE_A_PAYER, STATUT_REGLEMENT (dernière ligne).
+> `PREPARATION_CANAPE` apparaÃ®t une seule fois ; son montant est dÃ©jÃ  inclus une seule fois dans MONTANT_DU (lot10).
 
 La facture affiche sÃ©parÃ©ment et dans cet ordre :
 
@@ -1779,10 +1787,16 @@ Clé logique : charge_id.
 | MASTER_FACT_Proprietaires.xlsx | FACT_FACTURE_ENTETE | 270 | En-tête préfacture |
 | MASTER_FACT_Proprietaires.xlsx | FACT_FACTURE_LIGNES | 3240 | 12 lignes × 270 factures |
 
-### Structure préfacture (12 lignes fixes)
+### Structure préfacture (ordre lecture propriétaire — 12 lignes sans canapé, 13 avec)
 
-Bloc EXPLOITATION (5) : TOTAL_PAYOUT, MENAGE_FACTURE, COMMISSION_CONCIERGERIE, CHARGE_FIXE, REVENU_NET_EXPLOITATION.
-Bloc REGLEMENT (7) : MONTANT_DU, ACOMPTE_AIRBNB, PAIEMENT_DEJA_RECU, RESTE_A_PAYER, CHARGES_EXCEPT_REFAC, ACOMPTES_PROPRIETAIRES, STATUT_REGLEMENT.
+> MAJ 2026-07-06 : la préfacture n'est PLUS à numérotation fixe 12 lignes. L'ordre suit la lecture
+> propriétaire et la numérotation est séquentielle : **12 lignes sans supplément canapé, 13 avec**.
+> `CHARGES_EXCEPT_REFAC` est affichée AVANT `MONTANT_DU` (elle explique ce montant). `PREPARATION_CANAPE`
+> est une ligne d'exploitation optionnelle insérée après la commission (une seule fois, son montant est déjà
+> inclus une seule fois dans `MONTANT_DU` calculé par lot10). `STATUT_REGLEMENT` est toujours la dernière ligne.
+
+Bloc EXPLOITATION : TOTAL_PAYOUT, MENAGE_FACTURE, COMMISSION_CONCIERGERIE, [PREPARATION_CANAPE si applicable], CHARGE_FIXE, REVENU_NET_EXPLOITATION.
+Bloc REGLEMENT : CHARGES_EXCEPT_REFAC, MONTANT_DU, ACOMPTE_AIRBNB, PAIEMENT_DEJA_RECU, ACOMPTES_PROPRIETAIRES, RESTE_A_PAYER, STATUT_REGLEMENT.
 
 ### Règles d'affichage
 
@@ -1912,8 +1926,9 @@ M04 interne = jamais charge manuelle (TYPE_FLUX_013 analytique, D105).
 ### Refacturation propriétaire (rappel formule verrouillée D033/D034)
 `montant_du_conciergerie = commission_conciergerie + menage_facture + charge_fixe_mensuelle
 + charges_exceptionnelles_refacturees`. Le terme `charges_exceptionnelles_refacturees` alimente le bloc
-RÈGLEMENT uniquement, jamais `revenu_net_exploitation_proprietaire`. Sortie sur ligne 11 de préfacture
-(FACT_FACTURE_LIGNES, CHARGES_EXCEPT_REFAC). Correction pipeline tracée CTR-REFAC-LOT10-12.
+RÈGLEMENT uniquement, jamais `revenu_net_exploitation_proprietaire`. Sortie sur la ligne CHARGES_EXCEPT_REFAC
+de préfacture (FACT_FACTURE_LIGNES), affichée AVANT MONTANT_DU car elle l'explique (voir « Structure préfacture »).
+Correction pipeline tracée CTR-REFAC-LOT10-12 ; réorganisation d'affichage tracée D-PREF-ORDRE-01.
 
 ### Impact standard : IC / HC uniquement
 Le formulaire standard n'expose que IC et HC ; HR relève d'un parcours dédié (D-CHG-MODELE-08).

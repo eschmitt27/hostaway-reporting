@@ -96,47 +96,58 @@ def _write_sheet(wb, name, df):
 
 
 def build_facture_lignes(facture_id, rec, statut_facture):
-    """Build the §17.3 preface lines with an anchored REGLEMENT block.
+    """Build the preface lines in owner-reading order.
 
-    Pure function (no I/O). Les 12 lignes verrouillées de §17.3 (5 EXPLOITATION +
-    7 REGLEMENT) gardent des numéros FIXES 1..12 : STATUT_REGLEMENT est toujours la
-    ligne 12 et CHARGES_EXCEPT_REFAC toujours la ligne 10 (bloc REGLEMENT), quelle que
-    soit la donnée optionnelle. Le terme `charges_exceptionnelles_refacturees` (D033/D034)
-    n'apparaît que sur la ligne 10 — jamais dans le bloc EXPLOITATION.
+    Ordre métier (lecture propriétaire) : détail d'exploitation, puis les charges
+    exceptionnelles refacturées AVANT MONTANT_DU (elles expliquent ce montant), puis les
+    acomptes / paiements déjà reçus, RESTE_A_PAYER après tous les paiements, et
+    STATUT_REGLEMENT en dernière ligne.
 
-    La préparation canapé, quand elle existe, est ajoutée comme ligne d'exploitation
-    supplémentaire (ligne 13) SANS décaler le bloc REGLEMENT : son montant est déjà porté
-    par MONTANT_DU (calculé en amont par lot10). Sans canapé : exactement 12 lignes.
+    PREPARATION_CANAPE n'apparaît qu'une fois, en exploitation, entre la commission et la
+    charge fixe, uniquement si un supplément canapé existe. Son montant est déjà inclus une
+    seule fois dans MONTANT_DU (calculé par lot10) — la ligne n'est qu'un rappel de détail.
+    charges_exceptionnelles_refacturees (D033/D034) reste dans le bloc REGLEMENT, jamais
+    dans le bloc EXPLOITATION.
+
+    La numérotation est séquentielle et suit la lecture : 12 lignes sans canapé
+    (STATUT = ligne 12), 13 lignes avec canapé (STATUT = ligne 13). STATUT_REGLEMENT est
+    toujours la dernière ligne.
     """
-    # 12 lignes §17.3 à numérotation fixe (le bloc REGLEMENT ne dérive jamais)
-    L = [
-        (1,  "TOTAL_PAYOUT",            "Total payout",                                     rec["total_payout"],            "EXPLOITATION"),
-        (2,  "MENAGE_FACTURE",          "Ménage facturé",                                   rec["total_menage"],            "EXPLOITATION"),
-        (3,  "COMMISSION_CONCIERGERIE", "Commission conciergerie",                          rec["total_commission"],        "EXPLOITATION"),
-        (4,  "CHARGE_FIXE",             "Charge fixe mensuelle",                            rec["charge_fixe"],             "EXPLOITATION"),
-        (5,  "REVENU_NET_EXPLOITATION", "Revenu net d'exploitation propriétaire",           rec["revenu_net_exploitation"], "EXPLOITATION"),
-        (6,  "MONTANT_DU",              "Montant total dû à la conciergerie",               rec["montant_du"],              "REGLEMENT"),
-        (7,  "ACOMPTE_AIRBNB",          "Acompte reçu via Airbnb",                          rec["airbnb_impute"],           "REGLEMENT"),
-        (8,  "PAIEMENT_DEJA_RECU",      "Autres paiements déjà reçus",                      0.0,                            "REGLEMENT"),
-        (9,  "RESTE_A_PAYER",           "Reste à payer à la conciergerie",                  rec["reste_a_payer"],           "REGLEMENT"),
-        (10, "CHARGES_EXCEPT_REFAC",    "Charges / achats exceptionnels refacturés",        rec["charges_except_refac"],    "REGLEMENT"),
-        (11, "ACOMPTES_PROPRIETAIRES",  "Acomptes propriétaires (réservations hors HA)",    rec["acomptes"],                "REGLEMENT"),
-        (12, "STATUT_REGLEMENT",        "Statut règlement",                                 None,                           "REGLEMENT"),
+    exploitation = [
+        ("TOTAL_PAYOUT",            "Total payout",                           rec["total_payout"]),
+        ("MENAGE_FACTURE",          "Ménage facturé",                         rec["total_menage"]),
+        ("COMMISSION_CONCIERGERIE", "Commission conciergerie",                rec["total_commission"]),
+    ]
+    if rec["total_preparation_canape"] > 0:
+        exploitation.append(
+            ("PREPARATION_CANAPE", "Préparation du canapé payée par les voyageurs", rec["total_preparation_canape"])
+        )
+    exploitation += [
+        ("CHARGE_FIXE",             "Charge fixe mensuelle",                  rec["charge_fixe"]),
+        ("REVENU_NET_EXPLOITATION", "Revenu net d'exploitation propriétaire", rec["revenu_net_exploitation"]),
+    ]
+    reglement = [
+        ("CHARGES_EXCEPT_REFAC",   "Charges / achats exceptionnels refacturés",     rec["charges_except_refac"]),
+        ("MONTANT_DU",             "Montant total dû à la conciergerie",            rec["montant_du"]),
+        ("ACOMPTE_AIRBNB",         "Acompte reçu via Airbnb",                       rec["airbnb_impute"]),
+        ("PAIEMENT_DEJA_RECU",     "Autres paiements déjà reçus",                   0.0),
+        ("ACOMPTES_PROPRIETAIRES", "Acomptes propriétaires (réservations hors HA)", rec["acomptes"]),
+        ("RESTE_A_PAYER",          "Reste à payer à la conciergerie",               rec["reste_a_payer"]),
     ]
     out = []
-    for num, t, lib, mt, bloc in L:
-        out.append({
-            "facture_id": facture_id, "ligne_num": num, "type_ligne": t,
-            "libelle": lib, "montant": mt, "bloc": bloc,
-            "commentaire": statut_facture if t == "STATUT_REGLEMENT" else "",
-        })
-    # Ligne 13 optionnelle : préparation canapé (exploitation), n'altère pas le bloc REGLEMENT
-    if rec["total_preparation_canape"] > 0:
-        out.append({
-            "facture_id": facture_id, "ligne_num": 13, "type_ligne": "PREPARATION_CANAPE",
-            "libelle": "Préparation du canapé payée par les voyageurs",
-            "montant": rec["total_preparation_canape"], "bloc": "EXPLOITATION", "commentaire": "",
-        })
+    num = 0
+    for t, lib, mt in exploitation:
+        num += 1
+        out.append({"facture_id": facture_id, "ligne_num": num, "type_ligne": t,
+                    "libelle": lib, "montant": mt, "bloc": "EXPLOITATION", "commentaire": ""})
+    for t, lib, mt in reglement:
+        num += 1
+        out.append({"facture_id": facture_id, "ligne_num": num, "type_ligne": t,
+                    "libelle": lib, "montant": mt, "bloc": "REGLEMENT", "commentaire": ""})
+    num += 1
+    out.append({"facture_id": facture_id, "ligne_num": num, "type_ligne": "STATUT_REGLEMENT",
+                "libelle": "Statut règlement", "montant": None, "bloc": "REGLEMENT",
+                "commentaire": statut_facture})
     return out
 
 

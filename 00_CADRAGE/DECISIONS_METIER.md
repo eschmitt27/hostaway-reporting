@@ -345,7 +345,7 @@ Date : 2026-06-04 | Statut : VALIDÉ | Renforcé : 2026-06-05 (P11)
 Décision : La facture propriétaire produit les sorties logiques suivantes :
   - **Excel de contrôle propre et exploitable** (par mois / propriétaire / logement) — c'est l'objectif initial verrouillé ;
   - Table `FACT_FACTURE_ENTETE` : identifiants, propriétaire, logement, mois, statut_generation, dates, totaux blocs exploitation et règlement ;
-  - Table `FACT_FACTURE_LIGNES` : les 12 lignes de §17.3, avec type_ligne, libellé, montant, bloc (exploitation/règlement) ;
+  - Table `FACT_FACTURE_LIGNES` : les lignes de §17.3, avec type_ligne, libellé, montant, bloc (exploitation/règlement) — ordre et comptage révisés par D-PREF-ORDRE-01 (12 lignes sans canapé, 13 avec) ;
   - Champ `statut_generation` : BROUILLON / VALIDE / EMIS / ANNULE.
   - **Aucun PDF propriétaire produit au démarrage.** Les champs et tables sont conçus dès maintenant pour qu'un PDF puisse être généré au Lot 12 sans refactoring — mais la production PDF n'est pas prioritaire et n'est pas un livrable des lots initiaux.
 La structure logique des 12 lignes (§17.3) est verrouillée et doit être respectée avant toute mise en forme visuelle.
@@ -1231,7 +1231,7 @@ Decisions validees :
 - D-P2 : Bloc EXPLOITATION et bloc REGLEMENT non mélangés dans le service ni dans les templates. Séparation structurelle (D033, EP1-EP7).
 - D-P3 : revenu_net_exploitation lu depuis MASTER, jamais recalculé par le service.
 - D-P4 : AirCover affiché uniquement comme information séparée : ligne ACOMPTE_AIRBNB dans le bloc règlement de la préfacture.
-- D-P5 : Les 12 lignes de préfacture sont structurellement présentes (5 EXPLOITATION + 7 REGLEMENT) pour chacune des 270 factures. Affiché tel quel.
+- D-P5 : Les lignes de préfacture sont structurellement présentes (EXPLOITATION + REGLEMENT séparés) pour chacune des 270 factures. Affiché tel quel. Ordre et comptage révisés par D-PREF-ORDRE-01 (12 lignes sans canapé, 13 avec ; CHARGES_EXCEPT_REFAC avant MONTANT_DU).
 - D-P6 : Lot12 absent → préfacture status=UNAVAILABLE, sans exception, sans bloquer le relevé.
 - D-P7 : Aucun accès SQLite, aucune écriture Excel. Routes GET uniquement.
 - D-P8 : Clé relevé = prop_id × mois (VUE_MOIS) ; lignes par logement dans REGLEMENT (clé prop×log×mois unique — vérifié 270/270).
@@ -1367,6 +1367,20 @@ il est dérivé de l'impact choisi (D-APP-2B-REV1, D012).
 Date : 2026-07-06 | Statut : VALIDÉ | Lot : cadre APP-3b
 Décision : Aucune écriture réelle de charge marquée `refacturable=OUI` n'est autorisée tant que la chaîne de
 refacturation propriétaire n'est pas corrigée de bout en bout (Lot 10 : terme `charges_exceptionnelles_refacturees`
-dans `montant_du_conciergerie` ; Lot 12 : ligne 11 de préfacture CHARGES_EXCEPT_REFAC). La correction pipeline
-lot10/lot12 (formule D033/D034) précède l'ouverture de la refacturation à la saisie réelle. Voir trace de
-correction associée dans JOURNAL_CONTROLES (CTR-REFAC-LOT10-12).
+dans `montant_du_conciergerie` ; Lot 12 : ligne préfacture CHARGES_EXCEPT_REFAC, affichée avant MONTANT_DU). La
+correction pipeline lot10/lot12 (formule D033/D034) précède l'ouverture de la refacturation à la saisie réelle.
+Voir trace de correction associée dans JOURNAL_CONTROLES (CTR-REFAC-LOT10-12) et l'ordre d'affichage D-PREF-ORDRE-01.
+
+### D-PREF-ORDRE-01 — Ordre d'affichage préfacture propriétaire (supersède le verrou « 12 lignes fixes »)
+Date : 2026-07-06 | Statut : VALIDÉ | Lot : Lot 12 / APP-3b
+Décision : La préfacture propriétaire (FACT_FACTURE_LIGNES) n'a plus une numérotation fixe à 12 lignes. L'ordre
+suit la lecture propriétaire et la numérotation est séquentielle : **12 lignes sans supplément canapé, 13 avec**.
+Ordre : TOTAL_PAYOUT, MENAGE_FACTURE, COMMISSION_CONCIERGERIE, [PREPARATION_CANAPE si applicable], CHARGE_FIXE,
+REVENU_NET_EXPLOITATION (bloc EXPLOITATION) ; puis CHARGES_EXCEPT_REFAC, MONTANT_DU, ACOMPTE_AIRBNB,
+PAIEMENT_DEJA_RECU, ACOMPTES_PROPRIETAIRES, RESTE_A_PAYER, STATUT_REGLEMENT (bloc REGLEMENT).
+Règles : `CHARGES_EXCEPT_REFAC` est affichée AVANT `MONTANT_DU` car elle explique ce montant ; `PREPARATION_CANAPE`
+apparaît une seule fois (montant déjà inclus une seule fois dans `MONTANT_DU`, calculé par lot10) ;
+`RESTE_A_PAYER` est toujours après tous les acomptes/paiements ; `STATUT_REGLEMENT` est toujours la dernière ligne.
+Cette décision révise le libellé « 12 lignes fixes / §17.3 » de D040 et D-P5 : la cohérence de lecture propriétaire
+prime sur l'ancien verrou artificiel de numérotation. Les blocs EXPLOITATION / REGLEMENT restent séparés (D033).
+Périmètre : `02_TRAVAIL/lot12_generer_factures.py` (build_facture_lignes). Lot 10, Excel, flags, APP-3b inchangés.

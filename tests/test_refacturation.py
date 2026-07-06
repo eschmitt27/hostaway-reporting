@@ -217,97 +217,117 @@ def _rec(**over):
     return base
 
 
+# Structure cible obligatoire (ordre lecture propriétaire)
+ORDRE_SANS_CANAPE = [
+    "TOTAL_PAYOUT", "MENAGE_FACTURE", "COMMISSION_CONCIERGERIE",
+    "CHARGE_FIXE", "REVENU_NET_EXPLOITATION",
+    "CHARGES_EXCEPT_REFAC", "MONTANT_DU", "ACOMPTE_AIRBNB", "PAIEMENT_DEJA_RECU",
+    "ACOMPTES_PROPRIETAIRES", "RESTE_A_PAYER", "STATUT_REGLEMENT",
+]
+ORDRE_AVEC_CANAPE = [
+    "TOTAL_PAYOUT", "MENAGE_FACTURE", "COMMISSION_CONCIERGERIE",
+    "PREPARATION_CANAPE", "CHARGE_FIXE", "REVENU_NET_EXPLOITATION",
+    "CHARGES_EXCEPT_REFAC", "MONTANT_DU", "ACOMPTE_AIRBNB", "PAIEMENT_DEJA_RECU",
+    "ACOMPTES_PROPRIETAIRES", "RESTE_A_PAYER", "STATUT_REGLEMENT",
+]
+
+
 class Lot12PrefactureLignesTests(unittest.TestCase):
     def _lines(self, rec):
         return lot12.build_facture_lignes("PREF-1", rec, "A_CONTROLER")
 
-    def _by_type(self, lignes):
-        return {l["type_ligne"]: l for l in lignes}
+    def _pos(self, lignes, type_ligne):
+        return next(i for i, l in enumerate(lignes) if l["type_ligne"] == type_ligne)
 
-    # ── Structure verrouillée §17.3 : 12 lignes, STATUT ligne 12 ──
+    # ── Ordre complet identique à la structure cible ──
 
-    def test_sans_canape_exactement_12_lignes_1_a_12(self):
+    def test_ordre_complet_sans_canape(self):
+        lignes = self._lines(_rec(total_preparation_canape=0.0))
+        self.assertEqual([l["type_ligne"] for l in lignes], ORDRE_SANS_CANAPE)
+        self.assertEqual([l["ligne_num"] for l in lignes], list(range(1, 13)))
+
+    def test_ordre_complet_avec_canape(self):
+        lignes = self._lines(_rec(total_preparation_canape=10.0))
+        self.assertEqual([l["type_ligne"] for l in lignes], ORDRE_AVEC_CANAPE)
+        self.assertEqual([l["ligne_num"] for l in lignes], list(range(1, 14)))
+
+    # ── Comptes de lignes + statut en dernière ligne ──
+
+    def test_sans_canape_12_lignes_statut_ligne_12(self):
         lignes = self._lines(_rec(total_preparation_canape=0.0))
         self.assertEqual(len(lignes), 12)
-        self.assertEqual([l["ligne_num"] for l in lignes], list(range(1, 13)))
-        # aucune 13e ligne
-        self.assertFalse(any(l["ligne_num"] == 13 for l in lignes))
-
-    def test_sans_canape_statut_reglement_ligne_12(self):
-        lignes = self._lines(_rec(total_preparation_canape=0.0))
         self.assertEqual(lignes[-1]["type_ligne"], "STATUT_REGLEMENT")
         self.assertEqual(lignes[-1]["ligne_num"], 12)
-        self.assertEqual(lignes[-1]["bloc"], "REGLEMENT")
 
-    def test_charges_except_refac_presente_une_fois_ligne_10(self):
-        lignes = self._lines(_rec(charges_except_refac=30.0))
-        refac = [l for l in lignes if l["type_ligne"] == "CHARGES_EXCEPT_REFAC"]
-        self.assertEqual(len(refac), 1)
-        self.assertEqual(refac[0]["ligne_num"], 10)
-        self.assertEqual(refac[0]["bloc"], "REGLEMENT")
-        self.assertEqual(refac[0]["montant"], 30.0)
-
-    def test_aucune_ligne_exploitation_ne_porte_la_refac(self):
-        # montant refac isolé : aucune ligne EXPLOITATION ne doit valoir ce montant refac
-        lignes = self._lines(_rec(charges_except_refac=777.77))
-        exploit = [l for l in lignes if l["bloc"] == "EXPLOITATION"]
-        self.assertTrue(all(l["type_ligne"] != "CHARGES_EXCEPT_REFAC" for l in exploit))
-        self.assertTrue(all(l["montant"] != 777.77 for l in exploit))
-
-    def test_ligne_11_zero_si_aucune_refac(self):
-        by = self._by_type(self._lines(_rec(charges_except_refac=0.0)))
-        self.assertEqual(by["CHARGES_EXCEPT_REFAC"]["montant"], 0.0)
-
-    def test_refac_dans_reglement_pas_exploitation(self):
-        by = self._by_type(self._lines(_rec()))
-        # revenu net exploitation : bloc EXPLOITATION, n'inclut pas la refac
-        self.assertEqual(by["REVENU_NET_EXPLOITATION"]["bloc"], "EXPLOITATION")
-        self.assertEqual(by["REVENU_NET_EXPLOITATION"]["montant"], 200.0)
-        # montant dû : bloc REGLEMENT, inclut la refac (calculée par lot10)
-        self.assertEqual(by["MONTANT_DU"]["bloc"], "REGLEMENT")
-        self.assertEqual(by["MONTANT_DU"]["montant"], 180.0)
-
-    # ── Bloc REGLEMENT ancré : numéros fixes 6..12 ──
-
-    def test_bloc_reglement_numeros_fixes(self):
-        by = self._by_type(self._lines(_rec()))
-        attendu = {
-            "MONTANT_DU": 6, "ACOMPTE_AIRBNB": 7, "PAIEMENT_DEJA_RECU": 8,
-            "RESTE_A_PAYER": 9, "CHARGES_EXCEPT_REFAC": 10,
-            "ACOMPTES_PROPRIETAIRES": 11, "STATUT_REGLEMENT": 12,
-        }
-        for t, num in attendu.items():
-            self.assertEqual(by[t]["ligne_num"], num, t)
-            self.assertEqual(by[t]["bloc"], "REGLEMENT", t)
-
-    # ── Cas avec préparation canapé : ne dérive pas le bloc REGLEMENT ──
-
-    def test_avec_canape_ligne_supplementaire_sans_deriver_reglement(self):
+    def test_avec_canape_13_lignes_statut_ligne_13(self):
         lignes = self._lines(_rec(total_preparation_canape=10.0))
-        by = self._by_type(lignes)
-        # canapé présent une fois, en exploitation
+        self.assertEqual(len(lignes), 13)
+        self.assertEqual(lignes[-1]["type_ligne"], "STATUT_REGLEMENT")
+        self.assertEqual(lignes[-1]["ligne_num"], 13)
+
+    # ── Extras refacturés AVANT le montant dû (ils l'expliquent) ──
+
+    def test_charges_except_refac_avant_montant_du(self):
+        for canape in (0.0, 10.0):
+            lignes = self._lines(_rec(total_preparation_canape=canape))
+            self.assertLess(
+                self._pos(lignes, "CHARGES_EXCEPT_REFAC"),
+                self._pos(lignes, "MONTANT_DU"),
+                f"canape={canape}",
+            )
+
+    # ── Acomptes / paiements déjà reçus AVANT reste à payer ──
+
+    def test_acomptes_et_paiements_avant_reste_a_payer(self):
+        for canape in (0.0, 10.0):
+            lignes = self._lines(_rec(total_preparation_canape=canape))
+            reste = self._pos(lignes, "RESTE_A_PAYER")
+            for t in ("ACOMPTE_AIRBNB", "PAIEMENT_DEJA_RECU", "ACOMPTES_PROPRIETAIRES"):
+                self.assertLess(self._pos(lignes, t), reste, f"{t} canape={canape}")
+
+    # ── Canapé : une seule ligne, montant déjà inclus une fois dans MONTANT_DU ──
+
+    def test_canape_ligne_unique_et_non_recomptee_dans_montant_du(self):
+        rec = _rec(total_preparation_canape=10.0, montant_du=180.0)
+        lignes = self._lines(rec)
         canape = [l for l in lignes if l["type_ligne"] == "PREPARATION_CANAPE"]
         self.assertEqual(len(canape), 1)
         self.assertEqual(canape[0]["montant"], 10.0)
         self.assertEqual(canape[0]["bloc"], "EXPLOITATION")
-        # le bloc REGLEMENT garde exactement les mêmes numéros que sans canapé
-        self.assertEqual(by["MONTANT_DU"]["ligne_num"], 6)
-        self.assertEqual(by["CHARGES_EXCEPT_REFAC"]["ligne_num"], 10)
-        self.assertEqual(by["ACOMPTES_PROPRIETAIRES"]["ligne_num"], 11)
-        self.assertEqual(by["STATUT_REGLEMENT"]["ligne_num"], 12)
+        # lot12 ne recalcule pas MONTANT_DU : le canapé n'est PAS ré-additionné ici
+        montant_du = next(l for l in lignes if l["type_ligne"] == "MONTANT_DU")
+        self.assertEqual(montant_du["montant"], 180.0)
 
-    def test_canape_ne_decale_pas_la_numerotation_vs_sans_canape(self):
-        sans = self._by_type(self._lines(_rec(total_preparation_canape=0.0)))
-        avec = self._by_type(self._lines(_rec(total_preparation_canape=10.0)))
-        for t in ("MONTANT_DU", "CHARGES_EXCEPT_REFAC", "ACOMPTES_PROPRIETAIRES",
-                  "STATUT_REGLEMENT", "CHARGE_FIXE", "REVENU_NET_EXPLOITATION"):
-            self.assertEqual(sans[t]["ligne_num"], avec[t]["ligne_num"], t)
+    def test_canape_absent_pas_de_ligne_canape(self):
+        lignes = self._lines(_rec(total_preparation_canape=0.0))
+        self.assertEqual([l for l in lignes if l["type_ligne"] == "PREPARATION_CANAPE"], [])
 
-    def test_charges_except_refac_unique_avec_canape(self):
-        lignes = self._lines(_rec(total_preparation_canape=10.0, charges_except_refac=30.0))
-        refac = [l for l in lignes if l["type_ligne"] == "CHARGES_EXCEPT_REFAC"]
-        self.assertEqual(len(refac), 1)
-        self.assertEqual(refac[0]["ligne_num"], 10)
+    # ── Aucune ligne dupliquée ──
+
+    def test_aucune_ligne_dupliquee(self):
+        for canape in (0.0, 10.0):
+            lignes = self._lines(_rec(total_preparation_canape=canape))
+            types = [l["type_ligne"] for l in lignes]
+            self.assertEqual(len(types), len(set(types)), f"doublon canape={canape}")
+            nums = [l["ligne_num"] for l in lignes]
+            self.assertEqual(len(nums), len(set(nums)), f"num duplique canape={canape}")
+
+    # ── Refacturé dans REGLEMENT, jamais dans EXPLOITATION ──
+
+    def test_refac_dans_reglement_pas_exploitation(self):
+        lignes = self._lines(_rec(charges_except_refac=777.77))
+        by = {l["type_ligne"]: l for l in lignes}
+        self.assertEqual(by["CHARGES_EXCEPT_REFAC"]["bloc"], "REGLEMENT")
+        self.assertEqual(by["CHARGES_EXCEPT_REFAC"]["montant"], 777.77)
+        exploit = [l for l in lignes if l["bloc"] == "EXPLOITATION"]
+        self.assertTrue(all(l["montant"] != 777.77 for l in exploit))
+        # revenu net exploitation reste hors refac (D034)
+        self.assertEqual(by["REVENU_NET_EXPLOITATION"]["bloc"], "EXPLOITATION")
+        self.assertEqual(by["REVENU_NET_EXPLOITATION"]["montant"], 200.0)
+
+    def test_charges_except_refac_zero_si_aucune_refac(self):
+        by = {l["type_ligne"]: l for l in self._lines(_rec(charges_except_refac=0.0))}
+        self.assertEqual(by["CHARGES_EXCEPT_REFAC"]["montant"], 0.0)
 
 
 if __name__ == "__main__":
