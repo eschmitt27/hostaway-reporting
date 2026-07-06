@@ -95,6 +95,46 @@ def _write_sheet(wb, name, df):
         ws.column_dimensions[get_column_letter(ci)].width = min(m + 2, 50)
 
 
+def build_facture_lignes(facture_id, rec, statut_facture):
+    """Build the §17.3 preface lines for one owner×logement×month record.
+
+    Pure function (no I/O) so the 12-line structure and the refacturable line (11)
+    can be tested directly. Line 11 CHARGES_EXCEPT_REFAC carries
+    ``charges_exceptionnelles_refacturees`` (D033/D034) — bloc REGLEMENT only, never
+    mixed into the exploitation block (line 6).
+    """
+    L = [
+        (1,  "TOTAL_PAYOUT",            "Total payout",                                     rec["total_payout"],            "EXPLOITATION"),
+        (2,  "MENAGE_FACTURE",          "Ménage facturé",                                   rec["total_menage"],            "EXPLOITATION"),
+        (3,  "COMMISSION_CONCIERGERIE", "Commission conciergerie",                          rec["total_commission"],        "EXPLOITATION"),
+    ]
+    if rec["total_preparation_canape"] > 0:
+        L.append((4, "PREPARATION_CANAPE", "Préparation du canapé payée par les voyageurs", rec["total_preparation_canape"], "EXPLOITATION"))
+    L += [
+        (5,  "CHARGE_FIXE",             "Charge fixe mensuelle",                            rec["charge_fixe"],             "EXPLOITATION"),
+        (6,  "REVENU_NET_EXPLOITATION", "Revenu net d'exploitation propriétaire",           rec["revenu_net_exploitation"], "EXPLOITATION"),
+        (7,  "MONTANT_DU",              "Montant total dû à la conciergerie",               rec["montant_du"],              "REGLEMENT"),
+        (8,  "ACOMPTE_AIRBNB",          "Acompte reçu via Airbnb",                          rec["airbnb_impute"],           "REGLEMENT"),
+        (9,  "PAIEMENT_DEJA_RECU",      "Autres paiements déjà reçus",                      0.0,                            "REGLEMENT"),
+        (10, "RESTE_A_PAYER",           "Reste à payer à la conciergerie",                  rec["reste_a_payer"],           "REGLEMENT"),
+        (11, "CHARGES_EXCEPT_REFAC",    "Charges / achats exceptionnels refacturés",        rec["charges_except_refac"],    "REGLEMENT"),
+        (12, "ACOMPTES_PROPRIETAIRES",  "Acomptes propriétaires (réservations hors HA)",    rec["acomptes"],                "REGLEMENT"),
+    ]
+    out = []
+    for num, t, lib, mt, bloc in L:
+        out.append({
+            "facture_id": facture_id, "ligne_num": num, "type_ligne": t,
+            "libelle": lib, "montant": mt, "bloc": bloc, "commentaire": "",
+        })
+    # Ligne statut règlement (texte)
+    out.append({
+        "facture_id": facture_id, "ligne_num": max(num for num, *_ in L) + 1, "type_ligne": "STATUT_REGLEMENT",
+        "libelle": "Statut règlement", "montant": None, "bloc": "REGLEMENT",
+        "commentaire": statut_facture,
+    })
+    return out
+
+
 # ──────────────────────────────────────────────────────────────────────────
 
 def main():
@@ -170,6 +210,7 @@ def main():
             "total_commission": _n(r.get("total_commission_mois")),
             "total_preparation_canape": _n(r.get("total_preparation_canape_mois")),
             "charge_fixe": _n(r.get("charge_fixe_mensuelle")),
+            "charges_except_refac": _n(r.get("charges_exceptionnelles_refacturees")),
             "revenu_net_exploitation": _n(r.get("net_proprietaire_apres_charge_mois")),
             "montant_du": _n(r.get("montant_du_conciergerie")),
             "acomptes": _n(r.get("autres_acomptes_recus")),
@@ -261,35 +302,8 @@ def main():
             "date_generation": TODAY,
         })
 
-        # ── 12 lignes §17.3 ──
-        L = [
-            (1,  "TOTAL_PAYOUT",            "Total payout",                                     rec["total_payout"],            "EXPLOITATION"),
-            (2,  "MENAGE_FACTURE",          "Ménage facturé",                                   rec["total_menage"],            "EXPLOITATION"),
-            (3,  "COMMISSION_CONCIERGERIE", "Commission conciergerie",                          rec["total_commission"],        "EXPLOITATION"),
-        ]
-        if rec["total_preparation_canape"] > 0:
-            L.append((4, "PREPARATION_CANAPE", "Préparation du canapé payée par les voyageurs", rec["total_preparation_canape"], "EXPLOITATION"))
-        L += [
-            (5,  "CHARGE_FIXE",             "Charge fixe mensuelle",                            rec["charge_fixe"],             "EXPLOITATION"),
-            (6,  "REVENU_NET_EXPLOITATION", "Revenu net d'exploitation propriétaire",           rec["revenu_net_exploitation"], "EXPLOITATION"),
-            (7,  "MONTANT_DU",              "Montant total dû à la conciergerie",               rec["montant_du"],              "REGLEMENT"),
-            (8,  "ACOMPTE_AIRBNB",          "Acompte reçu via Airbnb",                          rec["airbnb_impute"],           "REGLEMENT"),
-            (9,  "PAIEMENT_DEJA_RECU",      "Autres paiements déjà reçus",                      0.0,                            "REGLEMENT"),
-            (10, "RESTE_A_PAYER",           "Reste à payer à la conciergerie",                  rec["reste_a_payer"],           "REGLEMENT"),
-            (11, "CHARGES_EXCEPT_REFAC",    "Charges / achats exceptionnels refacturés",        0.0,                            "REGLEMENT"),
-            (12, "ACOMPTES_PROPRIETAIRES",  "Acomptes propriétaires (réservations hors HA)",    rec["acomptes"],                "REGLEMENT"),
-        ]
-        for num, t, lib, mt, bloc in L:
-            lignes.append({
-                "facture_id": facture_id, "ligne_num": num, "type_ligne": t,
-                "libelle": lib, "montant": mt, "bloc": bloc, "commentaire": "",
-            })
-        # Ligne 12 : statut règlement (texte)
-        lignes.append({
-            "facture_id": facture_id, "ligne_num": max(num for num, *_ in L) + 1, "type_ligne": "STATUT_REGLEMENT",
-            "libelle": "Statut règlement", "montant": None, "bloc": "REGLEMENT",
-            "commentaire": statut_facture,
-        })
+        # ── 12 lignes §17.3 (fonction pure testable) ──
+        lignes.extend(build_facture_lignes(facture_id, rec, statut_facture))
 
     df_entete   = pd.DataFrame(entetes)
     df_lignes   = pd.DataFrame(lignes)

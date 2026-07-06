@@ -35,7 +35,11 @@ from openpyxl.styles import PatternFill, Font, Alignment
 from openpyxl.utils import get_column_letter
 
 from lib_ref_history import REF_GESTION_LOGEMENTS_HIST_SHEET, resolve_commission_rate, resolve_management_period
-from lib_settlements import settle_invoice, validated_airbnb_imputation
+from lib_settlements import (
+    aggregate_refacturable_charges,
+    settle_invoice,
+    validated_airbnb_imputation,
+)
 from lib_canape import calculate_canape_amount
 from lib_parc import (
     A_CONTROLER,
@@ -54,6 +58,7 @@ RES_FILE    = BASE / "02_TRAVAIL/Lot4quater_SourceResolue/MASTER_CALC_Reservatio
 PAYOUT_FILE = BASE / "02_TRAVAIL/Lot1_Hostaway/MASTER_CALC_HA_Payout.xlsx"
 HH_FILE     = BASE / "02_TRAVAIL/Lot4_ReservationsHH/MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx"
 ACC_FILE    = BASE / "02_TRAVAIL/Lot5_AcomptesProprietaires/MASTER_FACT_MAN_AcomptesProprietaires.xlsx"
+CHARGES_FILE = BASE / "02_TRAVAIL/Lot3_Charges/MASTER_FACT_MAN_Charges.xlsx"
 AIRBNB_IMPUT_FILE = BASE / "01_SOURCES_BRUTES/ImputationsAirbnb/SAISIE_ImputationsAirbnb.xlsx"
 REF_FILE    = BASE / "01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm"
 OUT_DIR     = BASE / "02_TRAVAIL/Lot10_Resultats"
@@ -168,11 +173,14 @@ def load_sources():
     # Sources HH + Acomptes (lecture seule, hors placeholder Power Query)
     df_hh  = _read_sheet(HH_FILE,  sheet="MASTER") if HH_FILE.exists()  else pd.DataFrame()
     df_acc = _read_sheet(ACC_FILE, sheet="MASTER") if ACC_FILE.exists() else pd.DataFrame()
+    df_charges = _read_sheet(CHARGES_FILE, sheet="MASTER") if CHARGES_FILE.exists() else pd.DataFrame()
     df_airbnb_imp = _read_sheet(AIRBNB_IMPUT_FILE, sheet="MASTER") if AIRBNB_IMPUT_FILE.exists() else pd.DataFrame()
     if len(df_hh) > 0 and "reservation_hh_id" in df_hh.columns:
         df_hh = df_hh[~df_hh["reservation_hh_id"].map(_is_placeholder_id)].reset_index(drop=True)
     if len(df_acc) > 0 and "acompte_id" in df_acc.columns:
         df_acc = df_acc[~df_acc["acompte_id"].map(_is_placeholder_id)].reset_index(drop=True)
+    if len(df_charges) > 0 and "charge_id" in df_charges.columns:
+        df_charges = df_charges[~df_charges["charge_id"].map(_is_placeholder_id)].reset_index(drop=True)
     if len(df_airbnb_imp) > 0 and "imputation_airbnb_id" in df_airbnb_imp.columns:
         df_airbnb_imp = df_airbnb_imp[~df_airbnb_imp["imputation_airbnb_id"].map(_is_placeholder_id)].reset_index(drop=True)
 
@@ -193,11 +201,12 @@ def load_sources():
     log.info(f"  Payout        : {len(df_payout)} lignes")
     log.info(f"  HH saisie     : {len(df_hh)} lignes (hors placeholder)")
     log.info(f"  Acomptes      : {len(df_acc)} lignes (hors placeholder)")
+    log.info(f"  Charges Lot3  : {len(df_charges)} lignes (hors placeholder)")
     log.info(f"  Airbnb imput. : {len(df_airbnb_imp)} lignes (hors placeholder)")
     log.info(f"  REF_Logements : {len(df_log)} logements")
     log.info(f"  REF_Prop      : {len(df_prop)} proprietaires")
     log.info(f"  REF_Taux_Comm : {len(df_taux)} lignes historisees")
-    return df_flux, df_res, df_payout, df_hh, df_acc, df_airbnb_imp, df_log, df_prop, df_taux, df_gest
+    return df_flux, df_res, df_payout, df_hh, df_acc, df_charges, df_airbnb_imp, df_log, df_prop, df_taux, df_gest
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -748,8 +757,21 @@ def build_resultats(df_flux):
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. Build net proprietaire
 # ─────────────────────────────────────────────────────────────────────────────
-def build_net_proprietaire(df_comm, df_cfix, df_acc, df_airbnb_imp):
+def build_net_proprietaire(df_comm, df_cfix, df_acc, df_airbnb_imp, df_charges=None):
     log.info("=== Construction net proprietaire ===")
+
+    # ── 5-refac. Charges exceptionnelles refacturees (D033/D034) ──
+    # Bloc REGLEMENT uniquement : alimente montant_du_conciergerie, jamais revenu_net_exploitation.
+    # Eligibilite : refacturable=OUI ET statut_controle=VALIDE ET proprietaire exploitable (jamais infere).
+    refac_by_log, refac_by_prop, refac_controls = {}, {}, []
+    if df_charges is not None and len(df_charges) > 0:
+        refac_by_log, refac_by_prop, refac_controls = aggregate_refacturable_charges(
+            df_charges.to_dict("records")
+        )
+        log.info(
+            f"  Charges refac. : {len(refac_by_log)} (mois x logement) / "
+            f"{len(refac_by_prop)} (mois x prop seul) / {len(refac_controls)} sans proprietaire"
+        )
 
     # ── 5a. EXPLOITATION (per reservation) — acomptes JAMAIS ici (D031/D033) ──
     df_exploit = df_comm.copy()
@@ -827,7 +849,11 @@ def build_net_proprietaire(df_comm, df_cfix, df_acc, df_airbnb_imp):
         set(zip(df_agg_res["mois"], df_agg_res["logement_id"])) if len(df_agg_res) > 0 else set()
     )
     # Inclure les acomptes (mois x logement) pour qu'un acompte sans resa/cfix reste visible
-    all_keys = cfix_keys | res_keys | set(acc_by_log.keys()) | set(airbnb_by_log.keys())
+    # Inclure les charges refacturables (mois x logement) pour qu'une charge refac. seule reste visible
+    all_keys = (
+        cfix_keys | res_keys | set(acc_by_log.keys())
+        | set(airbnb_by_log.keys()) | set(refac_by_log.keys())
+    )
 
     # Index for fast lookup
     cfix_idx = (
@@ -882,13 +908,22 @@ def build_net_proprietaire(df_comm, df_cfix, df_acc, df_airbnb_imp):
             if not row.get("proprietaire_id"):
                 row["proprietaire_id"] = acc_by_log[(mois, log_id)][1]
 
-        # Bloc reglement (n'impacte JAMAIS revenu_net_exploitation — D031/D033)
+        # Charges exceptionnelles refacturees (mois x logement) — bloc REGLEMENT uniquement (D033/D034)
+        refac_amt = 0.0
+        if (mois, log_id) in refac_by_log:
+            refac_amt = refac_by_log[(mois, log_id)][0]
+            if not row.get("proprietaire_id"):
+                row["proprietaire_id"] = refac_by_log[(mois, log_id)][1]
+        row["charges_exceptionnelles_refacturees"] = round(refac_amt, 2)
+
+        # Bloc reglement (n'impacte JAMAIS revenu_net_exploitation — D031/D033/D034)
         airbnb_amt = round(airbnb_by_log.get((mois, log_id), 0.0), 2)
         row["montant_du_conciergerie"] = round(
             row["total_commission_mois"]
             + row["total_menage_mois"]
             + row["total_preparation_canape_mois"]
-            + row["charge_fixe_mensuelle"],
+            + row["charge_fixe_mensuelle"]
+            + refac_amt,
             2,
         )
         settlement = settle_invoice(row["montant_du_conciergerie"], acc_amt, airbnb_amt, 0.0)
@@ -919,6 +954,7 @@ def build_net_proprietaire(df_comm, df_cfix, df_acc, df_airbnb_imp):
             "total_preparation_canape_mois": 0.0,
             "net_proprietaire_avant_charge_mois": 0.0, "nb_reservations": 0,
             "montant_du_conciergerie": 0.0,
+            "charges_exceptionnelles_refacturees": 0.0,
             "acompte_conciergerie_recu_via_airbnb": 0.0,
             "autres_acomptes_recus": round(amt, 2),
             "paiement_deja_recu": 0.0,
@@ -927,6 +963,47 @@ def build_net_proprietaire(df_comm, df_cfix, df_acc, df_airbnb_imp):
             "statut_credit": "TROP_PERÇU / CRÉDIT À TRAITER",
             "net_proprietaire_apres_charge_mois": 0.0,
             "statut_reglement": "ACOMPTE_SANS_LOGEMENT_A_CONTROLER",
+        })
+
+    # Charges refacturables avec proprietaire mais sans logement -> ligne GLOBAL_NON_AFFECTE (D033/D034)
+    # Montant du present mais non affectable a un logement -> hors prefacture (D-LOT12-07), A_CONTROLER.
+    for (mois, prop), amt in refac_by_prop.items():
+        reg_rows.append({
+            "mois": mois, "logement_id": SENTINEL_GLOBAL, "proprietaire_id": prop,
+            "charge_fixe_mensuelle": 0.0, "charge_fixe_source": "NON_APPLICABLE",
+            "total_payout_mois": 0.0, "total_menage_mois": 0.0, "total_commission_mois": 0.0,
+            "total_preparation_canape_mois": 0.0,
+            "net_proprietaire_avant_charge_mois": 0.0, "nb_reservations": 0,
+            "montant_du_conciergerie": round(amt, 2),
+            "charges_exceptionnelles_refacturees": round(amt, 2),
+            "acompte_conciergerie_recu_via_airbnb": 0.0,
+            "autres_acomptes_recus": 0.0,
+            "paiement_deja_recu": 0.0,
+            "reste_a_payer_conciergerie": round(amt, 2),
+            "credit_a_traiter": 0.0,
+            "statut_credit": "",
+            "net_proprietaire_apres_charge_mois": 0.0,
+            "statut_reglement": "REFAC_SANS_LOGEMENT_A_CONTROLER",
+        })
+
+    # Charges refacturables sans proprietaire exploitable -> ligne de controle, jamais perdue silencieusement
+    for ctrl in refac_controls:
+        reg_rows.append({
+            "mois": ctrl.get("mois"), "logement_id": SENTINEL_GLOBAL, "proprietaire_id": SENTINEL_GLOBAL,
+            "charge_fixe_mensuelle": 0.0, "charge_fixe_source": "NON_APPLICABLE",
+            "total_payout_mois": 0.0, "total_menage_mois": 0.0, "total_commission_mois": 0.0,
+            "total_preparation_canape_mois": 0.0,
+            "net_proprietaire_avant_charge_mois": 0.0, "nb_reservations": 0,
+            "montant_du_conciergerie": 0.0,
+            "charges_exceptionnelles_refacturees": round(_n(ctrl.get("montant")), 2),
+            "acompte_conciergerie_recu_via_airbnb": 0.0,
+            "autres_acomptes_recus": 0.0,
+            "paiement_deja_recu": 0.0,
+            "reste_a_payer_conciergerie": 0.0,
+            "credit_a_traiter": 0.0,
+            "statut_credit": "",
+            "net_proprietaire_apres_charge_mois": 0.0,
+            "statut_reglement": ctrl.get("code_controle", "REFAC_SANS_PROPRIETAIRE_A_CONTROLER"),
         })
 
     df_reg = pd.DataFrame(reg_rows)
@@ -939,6 +1016,7 @@ def build_net_proprietaire(df_comm, df_cfix, df_acc, df_airbnb_imp):
             "total_commission_mois":             "sum",
             "total_preparation_canape_mois":     "sum",
             "charge_fixe_mensuelle":             "sum",
+            "charges_exceptionnelles_refacturees": "sum",
             "montant_du_conciergerie":           "sum",
             "acompte_conciergerie_recu_via_airbnb": "sum",
             "autres_acomptes_recus":             "sum",
@@ -1197,12 +1275,12 @@ def main():
     log.info(f"Date : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     log.info("=" * 65)
 
-    df_flux, df_res, df_payout, df_hh, df_acc, df_airbnb_imp, df_log, df_prop, df_taux, df_gest = load_sources()
+    df_flux, df_res, df_payout, df_hh, df_acc, df_charges, df_airbnb_imp, df_log, df_prop, df_taux, df_gest = load_sources()
 
     df_comm, df_ac, hh_controls     = build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_taux)
     df_cfix, cfix_controls          = build_charge_fixe(df_flux, df_log, df_gest)
     df_reel, df_compt, df_hc        = build_resultats(df_flux)
-    df_exploit, df_reg, df_vue      = build_net_proprietaire(df_comm, df_cfix, df_acc, df_airbnb_imp)
+    df_exploit, df_reg, df_vue      = build_net_proprietaire(df_comm, df_cfix, df_acc, df_airbnb_imp, df_charges)
 
     write_all(df_comm, df_ac, df_reel, df_compt, df_hc, df_exploit, df_reg, df_vue)
     print_controls(
