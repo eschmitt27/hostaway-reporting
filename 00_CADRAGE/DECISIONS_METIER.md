@@ -1283,3 +1283,90 @@ Jamais de saisie libre de l'ASSOC_MODE.
 Date : 2026-07-05 | Statut : VALIDÉ | Lot : APP-3b-1
 Décision : NNN = (count des charge_id existants commençant par {prefix}-) + 1, sur 3 chiffres.
 Calculé en lecture seule sur SAISIE_Charges_Flux.xlsx à l'instant de la prévisualisation.
+
+---
+
+## MODÈLE CHARGES & RÈGLEMENTS (préparation APP-3b-2, décisions cadre)
+
+> Décisions issues de l'audit de confrontation modèle charges vs pipeline réel (2026-07-06).
+> Elles cadrent la refonte APP-3b à venir. Aucune n'est implémentée dans ce commit documentaire.
+
+### D-CHG-MODELE-01 — Une charge est toujours une dépense réelle ou une dette à régler
+Date : 2026-07-06 | Statut : VALIDÉ | Lot : cadre APP-3b
+Décision : Une charge manuelle représente toujours soit une dépense réellement engagée, soit une
+dette fournisseur réelle à régler. Elle doit pouvoir être rapprochée avec : un débit bancaire (Lot 8),
+une sortie de caisse, une dette envers associé puis son remboursement, ou un paiement fournisseur ultérieur.
+Le rapprochement ne crée JAMAIS une seconde charge — il lettre un mouvement de trésorerie existant à la charge.
+Ne sont pas des charges standard (parcours dédiés) : transfert banque↔caisse, avance associé et son
+remboursement, acompte propriétaire (Lot 5), paiement direct propriétaire, main-d'œuvre interne M04 (Lot 6b),
+AirCover (D042), remboursement voyageur.
+
+### D-CHG-MODELE-02 — Identité de la charge découplée de son règlement futur
+Date : 2026-07-06 | Statut : VALIDÉ | Lot : cadre APP-3b
+Décision : L'identité d'une charge (categorie, montant, impact, périmètre) doit être découplée de son
+règlement futur (qui paie, quand, par quel moyen). Une charge peut exister avant d'être payée (cas 4 :
+facture fournisseur non encore réglée). Une charge peut recevoir plusieurs règlements ; un règlement peut
+couvrir plusieurs charges (cas 5). La nomenclature actuelle `charge_id = CHG-{AAAA}-{MM}-{IMPACT}-{ASSOC_MODE}-{NNN}`
+encode l'ASSOC_MODE (donc le mode de paiement) dans l'identité : c'est une contrainte à lever pour supporter
+la dette fournisseur. Le futur objet Règlement et le lettrage sont distincts de l'objet Charge.
+
+### D-CHG-MODELE-03 — PAY_006 reste DIRECT_PROPRIETAIRE — jamais réutilisé pour une dette fournisseur
+Date : 2026-07-06 | Statut : VALIDÉ | Lot : cadre APP-3b
+Décision : Le mode de paiement PAY_006 = DIRECT_PROPRIETAIRE est réservé au paiement direct propriétaire.
+Il ne doit JAMAIS être détourné pour représenter une dette fournisseur « à payer ». Une future dette
+fournisseur nécessitera un nouveau mode de paiement distinct, à nommer après audit dédié (ne pas anticiper
+le code ni le libellé dans ce commit). Interdiction de recycler un mode existant pour changer sa sémantique.
+
+### D-CHG-MODELE-04 — Lettrage charge ↔ règlement = source métier contrôlée, pas SQLite seul
+Date : 2026-07-06 | Statut : VALIDÉ | Lot : cadre APP-3b
+Décision : Le futur lettrage charge ↔ règlement (table de liaison N-N permettant paiements partiels,
+règlements groupés, remboursements d'associés et sorties de caisse) doit être une source métier contrôlée
+et traçable (fichier / MASTER Excel versionné, comme les autres sources du pipeline), et non une vérité
+stockée uniquement dans SQLite. SQLite reste réservé à l'audit applicatif et aux outrepassages, jamais au
+calcul métier ni à la vérité de rapprochement.
+
+### D-CHG-MODELE-05 — Clé de répartition ménages inchangée = COUT_STANDARD_MENAGES_MOIS
+Date : 2026-07-06 | Statut : VALIDÉ (rappel D076/D103) | Lot : cadre APP-3b
+Décision : La clé de répartition des charges affectables aux ménages reste `COUT_STANDARD_MENAGES_MOIS` :
+`poids_ligne = nb_menages × cout_standard_menage(type_logement)`, puis
+`quote_part = montant_pool × poids_ligne / Σ poids_pool`. Aucune nouvelle clé n'est créée. La refonte APP-3b
+réutilise strictement cette clé existante (implémentée lot6f_cout_complet_menages.py). Une charge ménage
+utilise un seul mode : soit MENAGE_INTERVENANT, soit MENAGE_LOGEMENTS, jamais les deux (anti double-allocation).
+Les heures de ménage interne (M04, TYPE_FLUX_013) ne sont JAMAIS saisies comme charge manuelle (D027/D105).
+Le ménage externe garde son circuit unique Lot6c (facture prestataire) — pas de second circuit Charges.
+
+### D-CHG-MODELE-06 — Profils d'impact des catégories de charge
+Date : 2026-07-06 | Statut : VALIDÉ | Lot : cadre APP-3b
+Décision : Chaque catégorie de charge porte un profil d'impact qui déclenche un comportement réel (et non
+un simple libellé) : GLOBAL (aucun logement ciblé, aucune répartition), LOGEMENT_DIRECT (un logement précis,
+pas de clé ménage), MENAGE_INTERVENANT (réparti sur les ménages d'un intervenant via la clé D-CHG-MODELE-05),
+MENAGE_LOGEMENTS (réparti sur un ou plusieurs logements sélectionnés via la même clé), PARCOURS_DEDIE
+(hors formulaire standard : AirCover, incident voyageur, avance, acompte…). Multi-logements = N lignes filles
+ventilées, jamais une cellule multi-logements (cohérence grain lot9/lot10 : une ligne = un logement).
+
+### D-CHG-MODELE-07 — Catégorie personnalisée = profil GLOBAL forcé, libellé libre séparé
+Date : 2026-07-06 | Statut : VALIDÉ | Lot : cadre APP-3b
+Décision : `categorie_charge_id` reste une valeur fermée (préserve les listes déroulantes Excel, la validation
+V04, le routage lot6f et les analyses). Pour une charge sans catégorie existante adaptée, un futur code fermé
+dédié (pressenti CHG_024 — AUTRE_PERSONNALISEE) sera utilisé, avec le libellé personnalisé stocké dans un champ
+séparé (jamais un libellé libre dans `categorie_charge_id`, qui casserait la validation et le routage ménage).
+Une catégorie personnalisée est TOUJOURS traitée en profil GLOBAL forcé : jamais ménage, logement direct,
+incident voyageur, AirCover, avance associé ni aucun parcours spécialisé. Verrous d'anti-contournement :
+`affectable_menage=NON`, `reservation_id` interdit, `refacturable=NON` forcés sur ce chemin.
+
+### D-CHG-MODELE-08 — HR retiré de la saisie charge standard
+Date : 2026-07-06 | Statut : VALIDÉ | Lot : cadre APP-3b
+Décision : Le formulaire « Nouvelle charge » standard n'expose que deux impacts métier : « Impacte le résultat
+réel et comptable » (→ IC → prise_en_compta = OUI) et « Impacte le résultat réel, hors compta »
+(→ HC → prise_en_compta = NON). `HR` (hors résultat) est retiré du formulaire standard : un flux sans impact
+résultat n'est pas une charge dans ce modèle. Les rares cas exigeant HR (ex. CHG_014 Avance, impact_resultat=NON)
+relèvent d'un parcours dédié, hors formulaire standard. `prise_en_compta` n'est jamais saisi directement :
+il est dérivé de l'impact choisi (D-APP-2B-REV1, D012).
+
+### D-CHG-MODELE-09 — Charges refacturables bloquées tant que Lots 10/12 non corrigés
+Date : 2026-07-06 | Statut : VALIDÉ | Lot : cadre APP-3b
+Décision : Aucune écriture réelle de charge marquée `refacturable=OUI` n'est autorisée tant que la chaîne de
+refacturation propriétaire n'est pas corrigée de bout en bout (Lot 10 : terme `charges_exceptionnelles_refacturees`
+dans `montant_du_conciergerie` ; Lot 12 : ligne 11 de préfacture CHARGES_EXCEPT_REFAC). La correction pipeline
+lot10/lot12 (formule D033/D034) précède l'ouverture de la refacturation à la saisie réelle. Voir trace de
+correction associée dans JOURNAL_CONTROLES (CTR-REFAC-LOT10-12).

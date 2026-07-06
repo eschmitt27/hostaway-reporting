@@ -2032,3 +2032,30 @@ Résultat   : 61 tests passés (0 échec). 16 catégories couvertes :
 Statut     : CORRIGÉ
 Commentaire: SAISIE_Charges_Flux.xlsx inchangé confirmé par test (hash avant = hash après).
              Copie créée uniquement sous data/dryruns/. Aucune route de confirmation réelle.
+
+---
+
+Date       : 2026-07-06
+Code       : CTR-REFAC-LOT10-12
+Sévérité   : BLOQUANT (défaut métier corrigé)
+Fichier    : 02_TRAVAIL/lot10_calculer_resultats.py, 02_TRAVAIL/lot12_generer_factures.py,
+             02_TRAVAIL/lib_settlements.py
+Défaut     : Le terme `charges_exceptionnelles_refacturees` de la formule verrouillée D033
+             (montant_du_conciergerie = commission + menage + charge_fixe + charges_exceptionnelles_refacturees)
+             était absent de lot10 (settle_invoice appelé avec 4e argument figé 0.0) et la ligne 11
+             de préfacture CHARGES_EXCEPT_REFAC était codée en dur à 0.0 dans lot12.
+             Conséquence : toute charge refacturable=OUI validée était perdue pour le bloc RÈGLEMENT
+             propriétaire (montant dû, reste à payer, ligne 11 préfacture).
+Correction : Fonctions pures `eligible_refacturable_charge` et `aggregate_refacturable_charges` ajoutées
+             à lib_settlements. lot10.build_net_proprietaire agrège les charges refacturables validées
+             par (mois × logement × propriétaire) et les intègre à `montant_du_conciergerie` + expose la
+             colonne `charges_exceptionnelles_refacturees`. lot12 lit ce champ pour la ligne 11.
+             Éligibilité : refacturable=OUI ET statut_controle=VALIDE ET propriétaire exploitable
+             (jamais inféré depuis categorie ou type_flux). Charges refacturables sans logement/propriétaire
+             routées en lignes sentinelles A_CONTROLER (jamais perdues silencieusement, jamais affectées
+             arbitrairement). Jamais mélangé à revenu_net_exploitation (D034).
+Périmètre  : Aucune source Excel réelle modifiée. Aucun MASTER métier régénéré. Correction code + tests
+             sur fixtures synthétiques. Charge non refacturable et charge non validée inchangées (0.0).
+Statut     : CORRIGÉ (tests non-régression verts)
+Commentaire: Prérequis à l'ouverture de la refacturation en écriture réelle (D-CHG-MODELE-09).
+             Réparation de la chaîne, indépendante de APP-3b-1 (non modifié).

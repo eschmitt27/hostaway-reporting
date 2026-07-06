@@ -1884,3 +1884,41 @@ Format canonique (§16.2) : `CHG-{AAAA}-{MM}-{IMPACT}-{ASSOC_MODE}-{NNN}`
 ### Flags de garde
 - `CHARGES_REAL_WRITE_ENABLED = False`
 - `CHARGES_REAL_WRITE_CONFIRMATION_ENABLED = False`
+
+---
+
+## Modèle cible Charges / Règlements (cadre APP-3b, non implémenté)
+
+> Section append-only du 2026-07-06. Cadre l'architecture cible des charges. Voir décisions
+> D-CHG-MODELE-01 à 09 (DECISIONS_METIER.md). Aucune table n'est créée par ce commit.
+
+### Quatre objets distincts
+- **Charge** — quelle dépense/dette est engagée (existe : MASTER_FACT_MAN_Charges). Identité découplée du
+  règlement (D-CHG-MODELE-02).
+- **Impact** — ce que la charge affecte : porté par un futur champ `profil_impact` de REF_Categories_Charges
+  (GLOBAL / LOGEMENT_DIRECT / MENAGE_INTERVENANT / MENAGE_LOGEMENTS / PARCOURS_DEDIE, D-CHG-MODELE-06).
+- **Règlement** — qui a payé ou doit être payé (aujourd'hui écrasé dans la ligne charge via mode/associé/carte ;
+  cible : état `A_PAYER` possible pour les dettes fournisseur).
+- **Rapprochement** — quel mouvement (banque / caisse / remboursement associé) règle la charge. Table de
+  liaison N-N à venir, source métier contrôlée (D-CHG-MODELE-04), jamais SQLite seul :
+  `charge_id, mouvement_tresorerie_id, type_mouvement, montant_rapproche, date_rapprochement,
+  statut_rapprochement, mode_rapprochement, motif`. Supporte partiels et règlements groupés.
+
+### Répartition ménages (rappel, inchangé)
+Clé unique `COUT_STANDARD_MENAGES_MOIS` : `poids = nb_menages × cout_standard_menage(type_logement)` ;
+`quote_part = montant_pool × poids / Σ poids` (D076/D103, lot6f). Ménage externe = circuit Lot6c uniquement.
+M04 interne = jamais charge manuelle (TYPE_FLUX_013 analytique, D105).
+
+### Refacturation propriétaire (rappel formule verrouillée D033/D034)
+`montant_du_conciergerie = commission_conciergerie + menage_facture + charge_fixe_mensuelle
++ charges_exceptionnelles_refacturees`. Le terme `charges_exceptionnelles_refacturees` alimente le bloc
+RÈGLEMENT uniquement, jamais `revenu_net_exploitation_proprietaire`. Sortie sur ligne 11 de préfacture
+(FACT_FACTURE_LIGNES, CHARGES_EXCEPT_REFAC). Correction pipeline tracée CTR-REFAC-LOT10-12.
+
+### Impact standard : IC / HC uniquement
+Le formulaire standard n'expose que IC et HC ; HR relève d'un parcours dédié (D-CHG-MODELE-08).
+`prise_en_compta` dérivé de l'impact (IC→OUI, HC→NON), jamais saisi directement.
+
+### Catégorie personnalisée
+`categorie_charge_id` reste fermé. Futur code CHG_024 (AUTRE_PERSONNALISEE) + libellé libre en champ séparé,
+profil GLOBAL forcé, verrous anti-contournement (D-CHG-MODELE-07).

@@ -640,3 +640,24 @@ Aucune écriture réelle. SAISIE_Charges_Flux.xlsx strictement protégé.
 - `REF_ASSOC_MODE_REAL_WRITE_ENABLED = False`
 
 **Source jamais modifiée :** SAISIE_Charges_Flux.xlsx — hash vérifié avant/après par test.
+
+---
+
+## 2026-07-06 — Cadre modèle charges/règlements + correction refacturation (Phase 0/1)
+
+**Phase 0 — décisions cadre (commit documentaire).**
+Audit de confrontation modèle charges vs pipeline réel terminé (Lots 3/5/6/8/9/10/11/12, banque, ménages).
+Décisions D-CHG-MODELE-01 à 09 ajoutées (DECISIONS_METIER.md) : charge = dépense/dette réelle ;
+identité découplée du règlement ; PAY_006 réservé DIRECT_PROPRIETAIRE (dette fournisseur = futur mode distinct) ;
+lettrage = source métier contrôlée, pas SQLite ; clé ménages inchangée COUT_STANDARD_MENAGES_MOIS ;
+profils d'impact ; catégorie personnalisée GLOBAL forcée ; HR hors formulaire standard ;
+refacturable bloqué tant que Lots 10/12 non corrigés. Architecture cible append-only (ARCHITECTURE_DONNEES.md).
+
+**Phase 1 — correction refacturation propriétaire (défaut existant).**
+Défaut : le terme `charges_exceptionnelles_refacturees` (formule D033/D034) était absent de
+`montant_du_conciergerie` (lot10) et la ligne 11 de préfacture CHARGES_EXCEPT_REFAC était figée à 0.0 (lot12).
+Toute charge marquée `refacturable=OUI` et validée était donc perdue pour le règlement propriétaire.
+Correction pipeline lot10/lot12 + lib_settlements (agrégation pure), sans toucher aux sources Excel réelles
+ni régénérer les MASTER. Jamais mélangé au revenu net d'exploitation (D034). Trace CTR-REFAC-LOT10-12.
+
+**Flags confirmés inchangés :** CHARGES_REAL_WRITE_ENABLED = False (et tous les autres flags d'écriture).
