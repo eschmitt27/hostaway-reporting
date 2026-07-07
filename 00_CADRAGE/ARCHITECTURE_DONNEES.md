@@ -1938,6 +1938,18 @@ Le formulaire standard n'expose que IC et HC ; HR relève d'un parcours dédié 
 `categorie_charge_id` reste fermé. Futur code CHG_024 (AUTRE_PERSONNALISEE) + libellé libre en champ séparé,
 profil GLOBAL forcé, verrous anti-contournement (D-CHG-MODELE-07).
 
+### Persistance durable des impacts charges (MAJ 2026-07-07, D-CHG-GUIDE-08)
+Source de vérité : `01_SOURCES_BRUTES/Charges/SAISIE_Charges_Impacts.xlsx` (saisie, distincte des masters calc,
+non régénérée). Onglets normalisés liés par `charge_id` (tables ListObject, ROW_HASH) :
+| Onglet | Clé | Contenu | Consommateur futur |
+|---|---|---|---|
+| AFFECTATIONS | affectation_id, charge_id | logement_id, proprietaire_id, quote_part, statut, origine | Lot9/Lot10 (résultat par logement/propriétaire) |
+| MENAGE | menage_impact_id, charge_id | mode (INTERVENANT/LOGEMENT), intervenant_id, logement_id, statut | Lot6f (coût complet ménage, gain/perte) |
+| RESERVE_REFACTURATION | reserve_id, charge_id | logement_id, proprietaire_id, montant_refacturable, statut_traitement, trace_decision | Lot12 (préparation préfactures) |
+Avantages associés : source Lot7 `MASTER_FACT_MAN_IK_Avantages/SOURCE_SAISIE` (lien_origine=charge_id). Écriture
+réelle interdite (flags off) : persistance sur COPIE contrôlée, idempotente par charge_id. Somme des quotes-parts =
+montant ; charge ménage jamais dans RESERVE ; une charge = une seule charge économique (Lot3).
+
 ### Module Nouvelle charge guidée (MAJ 2026-07-07, D-CHG-GUIDE-01..07)
 Modèle : une charge = une seule charge économique (une ligne SAISIE). Les impacts analytiques sont des
 structures portées par le **manifest de prévisualisation** (jamais concaténées en cellule métier) :

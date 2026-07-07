@@ -2119,3 +2119,26 @@ Contrôles vérifiés par tests :
              - SAISIE_Charges_Flux.xlsx hash inchangé après prévisualisation.
 Statut     : APPLIQUÉ (34 tests moteur + intégration verts)
 Commentaire: Voir D-CHG-GUIDE-01 à 07. SQLite jamais vérité métier ; flags d'écriture inchangés.
+
+---
+
+Date       : 2026-07-07
+Code       : CTR-CHG-PERSIST-01
+Sévérité   : INFO
+Fichier    : 01_SOURCES_BRUTES/Charges/SAISIE_Charges_Impacts.xlsx (nouveau),
+             05_APPLICATION/tools/creer_saisie_charges_impacts.py,
+             05_APPLICATION/app/services/charges_impacts_persist_service.py
+Objet      : Source de vérité durable des impacts charges (affectations / ménage / réserve) + avantages Lot7.
+Contrôles vérifiés par tests :
+             - fichier source créé vide (0 ligne de charge métier), schéma conforme, générateur idempotent ;
+             - somme des quotes-parts d'affectations = montant (jamais répliqué) ;
+             - somme des quotes-parts de réserve = montant refacturable ;
+             - charge ménage : aucune ligne RESERVE (jamais refacturable) ;
+             - avantage associé : au plus une ligne par charge (dédup lien_origine=charge_id), source Lot7 ;
+             - écriture sur COPIE contrôlée ; fichier source réel intouché (hash inchangé) ;
+             - idempotence : réécrire un charge_id remplace ses lignes, jamais de doublon ;
+             - persister_reel interdit (PermissionError) tant que CHARGES_REAL_WRITE_ENABLED = False ;
+             - une charge économique reste unique (Lot3) ; aucune préfacture ni charge réelle écrite.
+Statut     : APPLIQUÉ (12 tests persistance + recettes complètes vertes)
+Commentaire: D-CHG-GUIDE-08. Consommateurs futurs : Lot9/Lot10 (affectations), Lot6f (ménage), Lot12 (réserve),
+             Lot7 (avantages). Application/report/ignore non automatique.

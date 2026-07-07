@@ -695,3 +695,20 @@ flags d'écriture inchangés) :
 - **Décisions** : D-CHG-GUIDE-01 à 07. **IK reste Lot7** (D026 préservé). **Forfait client CHG_016** = ligne
   de facturation propriétaire (préfacture Lot12), plus une charge.
 Aucune écriture réelle, aucune préfacture modifiée. Recettes complètes vertes (app + pipeline).
+
+---
+
+## 2026-07-07 — Persistance durable des impacts charges (source de vérité Excel)
+
+Réponse au contrôle de vérité : les impacts (affectations multi, ménage, réserve, avantage) n'étaient qu'en
+prévisualisation. Construction d'une **source de vérité durable** :
+- Nouveau fichier `01_SOURCES_BRUTES/Charges/SAISIE_Charges_Impacts.xlsx` (schéma vide, 3 onglets normalisés
+  AFFECTATIONS/MENAGE/RESERVE_REFACTURATION, liés par charge_id, tables + ROW_HASH). Générateur idempotent
+  `tools/creer_saisie_charges_impacts.py`.
+- Service `charges_impacts_persist_service.py` : normalise (charge_id + guide) → lignes persistables ; écrit sur
+  **COPIE contrôlée** (jamais le réel, flags off), idempotent par charge_id (remplace, jamais de doublon).
+  Avantages → source Lot7 existante (SOURCE_SAISIE, lien_origine=charge_id), dédup par charge.
+- Intégration `previsualiser` : manifest expose `persistable` + `persist_report` ; copie impacts écrite dans le dry-run.
+- Garde-fou : `persister_reel` lève PermissionError tant que CHARGES_REAL_WRITE_ENABLED = False.
+Tests : somme quotes-parts = montant, charge ménage jamais de réserve, avantage non doublé, fichier réel intouché,
+idempotence, schéma. Décision D-CHG-GUIDE-08. Application/report/ignore des réserves = préparé, non automatique.

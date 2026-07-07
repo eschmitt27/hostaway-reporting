@@ -1489,3 +1489,22 @@ Décision : Les indemnités kilométriques (IK) NE sont PAS ajoutées à Nouvell
 leur circuit dédié Lot7 (`MASTER_FACT_MAN_IK_Avantages`), conformément à l'exclusion D026 (SAISIE_Charges_Flux
 exclut IK et virements associés). L'avantage associé du formulaire couvre les autres catégories éligibles.
 Cette décision évite tout double comptage IK et préserve D026.
+
+### D-CHG-GUIDE-08 — Persistance durable des impacts (source de vérité SAISIE_Charges_Impacts.xlsx)
+Date : 2026-07-07 | Statut : VALIDÉ | Lot : APP-3b
+Décision : Les impacts analytiques d'une charge ne vivent plus seulement en prévisualisation (manifest/JSON) :
+ils ont une **source de vérité Excel durable**, `01_SOURCES_BRUTES/Charges/SAISIE_Charges_Impacts.xlsx`, source de
+SAISIE distincte des masters de calcul (jamais régénérée par un pipeline). Trois onglets normalisés liés par
+`charge_id`, chacun avec identifiant unique, mois, périmètre, montant/quote-part, statut, origine, commentaire,
+ROW_HASH :
+- **AFFECTATIONS** : ventilation analytique multi-logements/propriétaires (une ligne par quote-part ; somme = montant).
+- **MENAGE** : sélections/impacts ménage (mode INTERVENANT ou LOGEMENT, jamais les deux), pour Lot6f.
+- **RESERVE_REFACTURATION** : réserve de charges refacturables en attente (statut EN_ATTENTE), lue plus tard par Lot12.
+Les **avantages associés** n'ont PAS de nouvelle source : ils alimentent la source Lot7 existante
+(`MASTER_FACT_MAN_IK_Avantages`, onglet `SOURCE_SAISIE`) via `lien_origine = charge_id`, `nature = AVANTAGE_CHARGE`.
+Règles : une charge économique reste unique (Lot3) ; les ventilations ne sont jamais des doubles charges ; une
+charge ménage n'a jamais de ligne RESERVE ; un avantage n'est écrit qu'une fois par charge (dédup `lien_origine`) ;
+jamais de liste d'identifiants concaténée. **Écriture réelle interdite tant que CHARGES_REAL_WRITE_ENABLED = False** :
+la persistance s'effectue sur COPIE contrôlée (dry-run), idempotente par `charge_id` (réécrire remplace, ne duplique
+jamais). L'application/report/ignore d'une réserve en préfacture reste préparée mais NON automatique (Lot12 futur).
+Voir CTR-CHG-PERSIST-01.
