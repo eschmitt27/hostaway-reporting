@@ -240,3 +240,17 @@ PK : logement_id
 Description : `statut_parc` vide, invalide ou inconnu. Cette situation ne doit jamais etre assimilee a `GERE`.
 Traitement attendu : produire `A_CONTROLER` avec code anomalie `STATUT_PARC_INVALIDE` et interrompre tout calcul economique pour le logement concerne.
 Resolution : Regle centrale implementee dans `lib_parc.py`; referentiel actuel renseigne uniquement `GERE` et `HORS_PARC_TECHNIQUE`.
+
+### ANO-2026-07-030
+Date : 2026-07-07 | Lot : APP-3b - Nouvelle charge guidee | Severite : INFO | Statut : RESOLU
+Code : CHG_GUIDE_CONFLITS_MODELE
+Source : Mission module Nouvelle charge guidee vs referentiels/circuits existants.
+Description : Trois conflits potentiels identifies et tranches (sans contradiction residuelle) :
+  1. IK demande visible dans Nouvelle charge mais deja gere par Lot7 (D026 exclut IK de SAISIE_Charges_Flux).
+     -> IK reste hors formulaire (circuit Lot7 preserve, D026 intact). D-CHG-GUIDE-07.
+  2. Forfait client logiciel/consommables (CHG_016) saisi comme charge alors que c'est une ligne de
+     facturation proprietaire. -> CHG_016 retire de la saisie ; reste porte par la prefacture Lot12 et
+     REF_Charges_Recurrentes/REF_Logements. D-CHG-GUIDE-06.
+  3. Achat divers (CHG_018) classe MENAGE mais devant proposer impact menage au choix.
+     -> CHG_018 reclasse GLOBAL (impact menage au choix). Migration controlee documentee.
+Resolution : Decisions D-CHG-GUIDE-01 a 07 ; aucune ecriture reelle ; circuits Lot6c/Lot7/Lot12 non doubles.

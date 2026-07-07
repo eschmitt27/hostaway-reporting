@@ -2078,3 +2078,44 @@ Contrôles  : VBA identique (sha 09eb44f9…) ; 16 tables préservées ; formule
              CHG_024 unique ; 0 ligne de charge métier créée ou modifiée ; migration idempotente (2e passe = no-op).
 Statut     : APPLIQUÉ (tests schéma verts)
 Commentaire: Prérequis à la dérivation type_flux côté service (Commit 3, D-CHG-TYPEFLUX-01).
+
+---
+
+Date       : 2026-07-07
+Code       : CTR-CHG-GUIDE-MIGRATION-01
+Sévérité   : INFO
+Fichier    : 05_APPLICATION/tools/migrer_profils_impact.py,
+             01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm,
+             01_SOURCES_BRUTES/Charges/SAISIE_Charges_Flux.xlsx
+Objet      : Nouvelles catégories CHG_025 (Repas), CHG_026 (Prestation diverse), CHG_027 (Supplément ménage) ;
+             reclassement CHG_018 MENAGE→GLOBAL ; ajout des 3 catégories à lst_Categories (REF_LOCALE).
+Backup     : 99_ARCHIVES/CATEGORIES_NOUVELLES_20260707_180659/ (non commité)
+Hash REF   : avant be45aa09…749b155  →  après a0ae8fbd…cc6637a
+Hash SAISIE: avant c9a58527…f74dcc  →  après 6fa963c2…4da2df6
+Contrôles  : VBA identique (sha 09eb44f9…) ; 16 tables préservées ; formules SAISIE intactes ;
+             CHG_025/026/027 uniques ; table catégories A1:K28 ; 0 ligne de charge métier créée/modifiée ;
+             migration idempotente (2e passe = no-op).
+Statut     : APPLIQUÉ (tests schéma + moteur verts)
+Commentaire: Support du formulaire Nouvelle charge guidé (D-CHG-GUIDE-06).
+
+---
+
+Date       : 2026-07-07
+Code       : CTR-CHG-GUIDE-MOTEUR-01
+Sévérité   : INFO
+Fichier    : 05_APPLICATION/app/services/charges_impact_service.py,
+             05_APPLICATION/app/services/charges_preview_service.py
+Objet      : Moteur d'impacts charges (prévisualisation, aucune écriture réelle).
+Contrôles vérifiés par tests :
+             - une charge réelle jamais comptée deux fois (ligne SAISIE unique, ventilations en manifest) ;
+             - somme des quotes-parts = montant réel (répartition égale centimes déterministe) ;
+             - une charge ménage jamais refacturable (V22) ; jamais seconde charge comptable (analytique) ;
+             - périmètre : propriétaire élargit aux logements actifs, doublons éliminés (REF_Gestion) ;
+             - ménage intervenant XOR logement (jamais les deux) ;
+             - avantage associé distinct du moyen de paiement (champ dédié) ;
+             - forfait client CHG_016 non saisissable (V04) ; IK hors formulaire (Lot7, D026) ;
+             - champs cachés bloqués côté service ; requête navigateur manipulée neutralisée ;
+             - réserve : une entrée par quote-part, pas de doublon, statut EN_ATTENTE ;
+             - SAISIE_Charges_Flux.xlsx hash inchangé après prévisualisation.
+Statut     : APPLIQUÉ (34 tests moteur + intégration verts)
+Commentaire: Voir D-CHG-GUIDE-01 à 07. SQLite jamais vérité métier ; flags d'écriture inchangés.

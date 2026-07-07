@@ -1938,6 +1938,23 @@ Le formulaire standard n'expose que IC et HC ; HR relève d'un parcours dédié 
 `categorie_charge_id` reste fermé. Futur code CHG_024 (AUTRE_PERSONNALISEE) + libellé libre en champ séparé,
 profil GLOBAL forcé, verrous anti-contournement (D-CHG-MODELE-07).
 
+### Module Nouvelle charge guidée (MAJ 2026-07-07, D-CHG-GUIDE-01..07)
+Modèle : une charge = une seule charge économique (une ligne SAISIE). Les impacts analytiques sont des
+structures portées par le **manifest de prévisualisation** (jamais concaténées en cellule métier) :
+- `perimetre` : logements finaux = dédup(logements directs + logements actifs des propriétaires via
+  `REF_Gestion_Logements_Hist` ACTIF/dates) ; répartition égale déterministe (somme quotes-parts = montant).
+- `menage` : intervenants XOR logements (clé `COUT_STANDARD_MENAGES_MOIS`, ventilation réelle = Lot6f) ;
+  analytique seul, jamais seconde charge, jamais refacturable.
+- `reserve_refacturation` (fichier `reserve_refacturation.json` du dry-run) : une entrée par quote-part,
+  somme = montant refacturable, statut EN_ATTENTE (APPLIQUER/REPORTER/IGNORER préparés, non exécutés).
+- `avantage_associe` + `avantage_associe_id` (champ distinct du paiement).
+- `effet_saisie` : résumé métier (charge réelle, résultat réel/comptable, impact ménage, périmètre,
+  refacturation, avantage).
+Nouvelles catégories CHG_025 (Repas), CHG_026 (Prestation diverse), CHG_027 (Supplément ménage). CHG_018
+reclassé GLOBAL. Forfait client CHG_016 retiré de la saisie (facturation propriétaire, préfacture Lot12).
+IK reste Lot7 (D026 préservé). Colonnes SAISIE `profil_impact_charge`, `libelle_categorie_personnalise` déjà
+présentes ; aucune nouvelle colonne métier concaténée.
+
 ### Dérivation type_flux_id + TYPE_FLUX_020 (MAJ 2026-07-07, D-CHG-TYPEFLUX-01)
 `type_flux_id` n'est jamais saisi par l'utilisateur : dérivé côté service. **Nouveau TYPE_FLUX_020 =
 CHARGE_SOCIETE_COMPTE_PRO** (IC, comptabilisable OUI) pour les charges société payées banque pro — TYPE_FLUX_002

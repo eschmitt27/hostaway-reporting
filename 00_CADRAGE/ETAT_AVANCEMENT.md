@@ -674,3 +674,24 @@ Migration contrôlée référentiels (backup horodaté `99_ARCHIVES/TYPESFLUX_PA
   CHG_005/006/007/008/009/010/011/016/017/024.
 - VBA inchangé (sha 09eb44f9…), 16 tables préservées, 0 ligne de charge métier créée/modifiée. Migration idempotente.
 Prochaine étape : reprise Commit 3 (dérivation type_flux côté service) via `git stash apply stash@{0}`.
+
+---
+
+## 2026-07-07 — Module Nouvelle charge guidée (saisie assistée déterministe)
+
+Transformation de « Nouvelle charge » en outil de saisie guidé (4 commits, prévisualisation uniquement,
+flags d'écriture inchangés) :
+- **Migration REF contrôlée** : CHG_025 (Repas), CHG_026 (Prestation diverse), CHG_027 (Supplément ménage)
+  créées ; CHG_018 reclassé MENAGE→GLOBAL (« Achat divers »). Backup `99_ARCHIVES/CATEGORIES_NOUVELLES_*`,
+  VBA/tables/formules préservés, idempotent.
+- **Moteur d'impacts** (`charges_impact_service.py`) : périmètre analytique (dédup directs + logements actifs
+  des propriétaires via REF_Gestion_Logements_Hist), répartition égale centimes déterministe (somme=montant),
+  parcours ménage intervenant XOR logement (clé COUT_STANDARD_MENAGES_MOIS), réserve de facturation,
+  avantage associé distinct du paiement, effet-de-saisie. Intégré à `charges_preview_service` (V16/V20-V26).
+- **Formulaire guidé** : catégories en libellés métier groupés, impact ménage (forcé/choix/interdit), parcours
+  ménage, multi-sélection propriétaires/logements (cases à cocher, jamais concaténé), avantage associé,
+  refacturable conditionnel, bloc « Effet de la saisie » live. Champs techniques masqués
+  (sens_flux/type_flux_id/statut_controle/niveau_anomalie/prise_en_compta). Forfait client retiré.
+- **Décisions** : D-CHG-GUIDE-01 à 07. **IK reste Lot7** (D026 préservé). **Forfait client CHG_016** = ligne
+  de facturation propriétaire (préfacture Lot12), plus une charge.
+Aucune écriture réelle, aucune préfacture modifiée. Recettes complètes vertes (app + pipeline).

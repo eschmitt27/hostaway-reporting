@@ -1411,3 +1411,81 @@ restent famille MENAGE (parcours ménage dédié). Catégories GLOBAL standard r
 Migration `lst_TypesFlux_Lot3` (SAISIE) : ajout de TYPE_FLUX_016 et TYPE_FLUX_020.
 Périmètre : migration contrôlée (REF_Setup.xlsm + SAISIE_Charges_Flux.xlsx) avec backup/hash/VBA préservé.
 Voir trace JOURNAL_CONTROLES (CTR-TYPEFLUX-MIGRATION-01).
+
+---
+
+## MODULE NOUVELLE CHARGE GUIDÉE (saisie assistée déterministe)
+
+### D-CHG-GUIDE-01 — Une charge = une seule charge économique, N impacts analytiques
+Date : 2026-07-07 | Statut : VALIDÉ | Lot : APP-3b
+Décision : Toute charge saisie représente une seule dépense économique réelle. Elle n'est JAMAIS dupliquée
+parce qu'elle est ventilée analytiquement. Une charge de 100 € reste une charge de 100 € : elle peut porter
+plusieurs impacts analytiques (multi-logements, multi-propriétaires, ménage) mais jamais plusieurs dépenses
+réelles de 100 €. La ligne SAISIE reste unique ; les ventilations (quotes-parts, périmètre, réserve) sont des
+structures analytiques portées par le manifest de prévisualisation, **jamais** une liste d'identifiants
+concaténée dans une cellule métier.
+
+### D-CHG-GUIDE-02 — Périmètre analytique non ménage (déterministe)
+Date : 2026-07-07 | Statut : VALIDÉ | Lot : APP-3b
+Décision : Périmètre final logements = logements sélectionnés directement + logements ACTIFS des propriétaires
+sélectionnés (source `REF_Gestion_Logements_Hist`, statut ACTIF + dates englobant le mois) − doublons. Sans
+ciblage : charge globale conciergerie. Le montant est réparti **également** entre les logements finaux avec
+gestion déterministe des centimes (les premiers logements triés reçoivent le centime résiduel) ; la somme des
+quotes-parts est TOUJOURS égale au montant réel. Le montant n'est jamais répliqué intégralement sur chaque
+logement. Toute autre clé de répartition non ménage devrait être documentée explicitement.
+
+### D-CHG-GUIDE-03 — Impact ménage (analytique, jamais seconde charge)
+Date : 2026-07-07 | Statut : VALIDÉ | Lot : APP-3b
+Décision : Une charge ménage est une vraie charge économique ET porte un second effet **exclusivement
+analytique** : elle alimente le coût complet ménage et l'analyse gain/perte ménage. Elle ne crée jamais une
+seconde charge réelle ni comptable, ne double jamais le coût payé, et n'est jamais refacturable. La répartition
+ménage se fait soit par un ou plusieurs **intervenants**, soit par un ou plusieurs **logements** (propriétaires
+utilisables en filtre), **jamais les deux à la fois**. La clé de référence reste `COUT_STANDARD_MENAGES_MOIS`
+(D076/D103). La ventilation quantitative réelle relève de Lot6f : la prévisualisation établit le périmètre et
+l'intention, marque la charge à contrôler, et ne répartit jamais arbitrairement des montants ménage.
+Catégories : impact ménage FORCÉ pour Achat ménage (CHG_004), Blanchisserie (CHG_003), Supplément ménage
+(CHG_027) ; au CHOIX pour Déplacement (CHG_009), Repas (CHG_025), Achat divers (CHG_018), Prestation diverse
+(CHG_026) ; INTERDIT pour logiciels, frais bancaires, assurance, charge générale, maintenance, forfait client.
+M04 reste intégralement automatique/analytique (jamais charge manuelle). Le ménage externe garde son circuit
+Lot6c ; ce parcours ne recrée jamais une facture prestataire déjà traitée.
+
+### D-CHG-GUIDE-04 — Réserve de facturation (refacturable)
+Date : 2026-07-07 | Statut : VALIDÉ | Lot : APP-3b
+Décision : `refacturable = OUI` ne facture jamais automatiquement. Une charge non ménage n'est refacturable que
+si le périmètre final comprend au moins un logement cible. Cocher refacturable crée une **réserve de
+facturation** : une entrée par quote-part (jamais dupliquée), portant charge, montant refacturable, propriétaire,
+logement, mois, libellé, justificatif, statut EN_ATTENTE et décisions futures possibles (APPLIQUER / REPORTER /
+IGNORER). La somme des quotes-parts réservées = montant total réellement refacturable. Une charge répartie sur
+plusieurs logements ne reporte jamais son montant entier sur chaque préfacture. La mise en œuvre de la
+facturation (application/report/ignore) est préparée mais non exécutée : aucune préfacture n'est modifiée du seul
+fait qu'une charge devient refacturable. Une charge ménage n'est jamais refacturable.
+
+### D-CHG-GUIDE-05 — Avantage associé distinct du moyen de paiement
+Date : 2026-07-07 | Statut : VALIDÉ | Lot : APP-3b
+Décision : Le choix « Avantage associé ? » (Oui/Non) apparaît pour Déplacement, Repas, Achat divers, Prestation
+diverse (IK reste hors formulaire — circuit Lot7, D026 préservé). Si Oui : sélection d'un associé bénéficiaire
+**obligatoire**, dans un champ DISTINCT du mode de paiement (`avantage_associe_id` ≠ `associe_id` du paiement).
+Un paiement par carte/compte personnel associé n'implique pas un avantage ; une charge banque pro peut en
+constituer un. L'avantage alimente le suivi des avantages associés (traçable), cohérent avec Lot7.
+
+### D-CHG-GUIDE-06 — Catégories visibles + Forfait client hors saisie
+Date : 2026-07-07 | Statut : VALIDÉ | Lot : APP-3b
+Décision : Le formulaire Nouvelle charge n'affiche que des libellés métier (jamais type_flux_id, sens_flux,
+statut_controle, niveau_anomalie, prise_en_compta). Groupes : Logiciels (CHG_005/006/007) ; Charges courantes
+(CHG_010 Frais bancaires, CHG_011 Assurance, CHG_009 Déplacement, CHG_025 Repas, CHG_018 Achat divers,
+CHG_026 Prestation diverse, CHG_008 Maintenance, CHG_017 Charge générale) ; Ménages (CHG_004 Achat ménage,
+CHG_003 Blanchisserie, CHG_027 Supplément ménage) ; Autre (CHG_024 personnalisée). **CHG_016 Forfait client
+logiciel/consommables N'EST PLUS une charge saisissable** : c'est une ligne de facturation propriétaire
+(déjà portée par la préfacture Lot12, ligne applicable ; référentiel `forfait_logiciel_consommables_mensuel`
+dans REF_Logements + REF_Charges_Recurrentes REC_001). CHG_023 (forfait cave récurrent) reste hors saisie
+(REF_Charges_Recurrentes). Les catégories PARCOURS_DEDIE et ménage externe / M04 restent hors formulaire.
+Reclassement documenté : CHG_018 (Petit équipement) passe MENAGE→GLOBAL (« Achat divers », impact ménage au
+choix). Nouvelles catégories CHG_025 (Repas), CHG_026 (Prestation diverse), CHG_027 (Supplément ménage) créées
+par migration contrôlée (voir CTR-CHG-GUIDE-MIGRATION-01).
+
+### D-CHG-GUIDE-07 — IK hors Nouvelle charge (circuit Lot7 préservé)
+Date : 2026-07-07 | Statut : VALIDÉ | Lot : APP-3b
+Décision : Les indemnités kilométriques (IK) NE sont PAS ajoutées à Nouvelle charge. Elles restent traitées par
+leur circuit dédié Lot7 (`MASTER_FACT_MAN_IK_Avantages`), conformément à l'exclusion D026 (SAISIE_Charges_Flux
+exclut IK et virements associés). L'avantage associé du formulaire couvre les autres catégories éligibles.
+Cette décision évite tout double comptage IK et préserve D026.
