@@ -124,6 +124,45 @@
 
 </div>
 
+{% if manifest.effet_saisie %}
+<section class="card" data-testid="effet-saisie">
+  <h2>Effet de la saisie</h2>
+  {% set ef = manifest.effet_saisie %}
+  <ul style="margin:0; padding-left: var(--stack-lg);">
+    <li>Crée une charge réelle : <strong>{{ ef.cree_charge_reelle }}</strong></li>
+    <li>Impacte le résultat réel : <strong>{{ ef.impacte_resultat_reel }}</strong></li>
+    <li>Impacte le résultat comptable : <strong>{{ ef.impacte_resultat_comptable }}</strong></li>
+    <li>Impact ménage : <strong>{{ ef.impact_menage }}</strong></li>
+    {% if ef.menage_detail %}<li>Ménage : {{ ef.menage_detail | join(' ; ') }}</li>{% endif %}
+    <li>Périmètre analytique : <strong>{{ ef.perimetre_analytique }}</strong></li>
+    <li>Refacturation : <strong>{{ ef.refacturation }}</strong></li>
+    <li>Avantage associé : <strong>{{ ef.avantage_associe }}</strong></li>
+  </ul>
+</section>
+{% endif %}
+
+{% if manifest.perimetre and manifest.perimetre.logements_finaux %}
+<section class="card">
+  <h2>Périmètre analytique</h2>
+  <p>Logements finaux ({{ manifest.perimetre.nb_logements_finaux }}) :
+     {{ manifest.perimetre.logements_finaux | join(', ') }}</p>
+</section>
+{% endif %}
+
+{% if manifest.reserve_refacturation %}
+<section class="card" data-testid="reserve-refacturation">
+  <h2>Réserve de facturation (aucune facture créée)</h2>
+  {% set res = manifest.reserve_refacturation %}
+  <p>Montant total refacturable : <strong>{{ res.montant_total_refacturable }} €</strong> ·
+     {{ res.nb_entrees }} quote(s)-part(s) · statut EN_ATTENTE</p>
+  <table class="dryrun-table"><tbody>
+    {% for e in res.entrees %}
+    <tr><td>{{ e.logement_id }}</td><td>{{ e.proprietaire_id or '—' }}</td><td>{{ e.montant_refacturable }} €</td></tr>
+    {% endfor %}
+  </tbody></table>
+</section>
+{% endif %}
+
 <section class="card">
   <h2>Intégrité source</h2>
   <table class="dryrun-table">

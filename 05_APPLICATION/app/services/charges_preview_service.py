@@ -34,6 +34,7 @@ from app.readers.saisie_charges_reader import (
     read_ref_intervenants,
     read_ref_logements,
     read_ref_modes_paiement,
+    read_ref_proprietaires,
     read_ref_statuts,
     read_ref_types_affectation,
     read_ref_types_flux,
@@ -348,6 +349,7 @@ def load_form_refs(ref_path: Path | None = None) -> dict[str, Any]:
     gestion_rows = read_ref_gestion_logements(p)
     intervenants = read_ref_intervenants(p)
     couts_standards = read_ref_couts_standards_menage(p)
+    proprietaires = read_ref_proprietaires(p)
 
     def is_active(row: dict[str, Any]) -> bool:
         return str(row.get("actif", "")).upper() == "OUI"
@@ -394,6 +396,7 @@ def load_form_refs(ref_path: Path | None = None) -> dict[str, Any]:
         "gestion_logements": gestion_rows,
         "intervenants": [i for i in intervenants if is_active(i)],
         "couts_standards": couts_standards,
+        "proprietaires": [pr for pr in proprietaires if is_active(pr)],
         # types_flux conservé pour lookup code_impact_defaut (dérivation), pas pour dropdown.
         "types_flux": [t for t in types_flux if is_active(t)],
         # Code impact : IC et HC seulement (HR hors formulaire standard).

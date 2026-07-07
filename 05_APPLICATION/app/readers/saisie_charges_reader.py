@@ -145,6 +145,10 @@ def read_ref_couts_standards_menage(ref_path: Path | None = None) -> list[dict[s
     return _read_sheet_rows(Path(ref_path or cfg.REF_SETUP), "REF_Couts_Standards_Menage")
 
 
+def read_ref_proprietaires(ref_path: Path | None = None) -> list[dict[str, Any]]:
+    return _read_sheet_rows(Path(ref_path or cfg.REF_SETUP), "REF_Proprietaires")
+
+
 def find_model_row(saisie_path: Path | None = None) -> int | None:
     """Trouve la première ligne dont charge_id est vide et qui contient des formules.
 

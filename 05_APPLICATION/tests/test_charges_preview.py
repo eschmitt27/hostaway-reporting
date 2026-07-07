@@ -1017,3 +1017,36 @@ def test_source_saisie_inchangee_apres_previsualisation_phase2(tmp_path: Path):
     previsualiser(_form_chg024(), dryruns_root=tmp_path / "dryruns2")
     hash_apres = _sha256(cfg.SAISIE_CHARGES)
     assert hash_avant == hash_apres
+
+
+# ── 23. Formulaire guidé (template) ──────────────────────────────────────────
+
+def test_formulaire_guide_champs_presents(client):
+    html = client.get("/fournisseurs/nouvelle").text
+    assert 'name="impact_menage"' in html
+    assert 'name="menage_mode"' in html
+    assert 'name="avantage_associe"' in html
+    assert 'name="proprietaires"' in html
+    assert 'name="logements"' in html
+    # bloc effet de la saisie
+    assert 'id="effet_saisie"' in html
+
+
+def test_formulaire_guide_pas_affectation_type_ni_type_flux(client):
+    html = client.get("/fournisseurs/nouvelle").text
+    assert 'name="affectation_type"' not in html
+    assert 'name="type_flux_id"' not in html
+    assert 'name="sens_flux"' not in html
+
+
+def test_previsualisation_affiche_effet_saisie(tmp_path: Path, client):
+    from app.services.charges_preview_service import previsualiser as prev
+    form = {
+        "date_charge": "2026-06-15", "montant": "100.00",
+        "categorie_charge_id": "CHG_005", "code_impact": "IC", "mode_paiement_id": "PAY_001",
+    }
+    r = prev(form, dryruns_root=tmp_path / "dryruns")
+    assert r["ok"]
+    # La page de prévisualisation existante charge par token via DRYRUNS_DIR ; ici on vérifie le manifest.
+    assert r["manifest"]["effet_saisie"]["cree_charge_reelle"] == "Oui"
+    assert r["manifest"]["effet_saisie"]["perimetre_analytique"] == "global conciergerie"
