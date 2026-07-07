@@ -51,6 +51,8 @@ MANUAL_COL_MAP: dict[str, str] = {
     # Profils d'impact + catégorie personnalisée (migration CHG_024)
     "AH": "profil_impact_charge",
     "AI": "libelle_categorie_personnalise",
+    # Avantage associé porté par la charge (bénéficiaire, distinct du paiement) — agrégé par Lot7
+    "AJ": "avantage_associe_id",
 }
 
 

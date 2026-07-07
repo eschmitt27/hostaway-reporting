@@ -103,15 +103,35 @@ def test_persistable_reserve_somme_egale_montant():
     assert total == 100.0
 
 
-def test_persistable_avantage_une_seule_ligne():
+def test_persistable_avantage_porte_par_charge():
     refs = load_form_refs()
     assoc = [str(a["personne_id"]).strip() for a in refs["associes"]][:1]
     form = _base(cat="CHG_009", avantage_associe="OUI", avantage_associe_id=assoc[0])
     g = _guide(form)
     pers = persist.build_persistable("CHG-T-005", "2026-06", 100.0, g, form)
     assert pers["avantage"] is not None
-    assert pers["avantage"]["lien_origine"] == "CHG-T-005"
-    assert pers["avantage"]["nature"] == "AVANTAGE_CHARGE"
+    # Avantage porté par la charge (pas de ligne Lot7 résiduelle → anti double comptage)
+    assert pers["avantage"]["avantage_associe_id"] == assoc[0]
+    assert pers["avantage"]["porte_par"] == "SAISIE_Charges_Flux.avantage_associe_id"
+
+
+def test_avantage_ecrit_sur_ligne_charge(tmp_path: Path):
+    # L'avantage_associe_id est injecté sur la ligne charge de la copie SAISIE (col AJ), pas en Lot7.
+    refs = load_form_refs()
+    assoc = [str(a["personne_id"]).strip() for a in refs["associes"]][:1]
+    form = _base(cat="CHG_009", avantage_associe="OUI", avantage_associe_id=assoc[0])
+    r = previsualiser(form, dryruns_root=tmp_path / "d")
+    assert r["ok"], r["manifest"].get("errors")
+    from app.readers.saisie_charges_reader import _col_index
+    copy = Path(r["manifest"]["paths"]["saisie_copy"])
+    row = r["manifest"]["target_row"]
+    wb = openpyxl.load_workbook(str(copy), data_only=True)
+    try:
+        val = wb["SAISIE"].cell(row=row, column=_col_index("AJ")).value
+    finally:
+        wb.close()
+    assert str(val or "").strip() == assoc[0]
+    assert r["manifest"]["persist_report"]["avantage_porte_par_charge"] is True
 
 
 # ── persister_sur_copie (idempotence, fichier réel intouché) ─────────────────

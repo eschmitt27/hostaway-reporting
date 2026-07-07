@@ -52,7 +52,7 @@ PROFILS_IMPACT = ["GLOBAL", "LOGEMENT_DIRECT", "MENAGE_INTERVENANT", "MENAGE_LOG
 
 COL_FAMILLE = "famille_impact_categorie"
 COL_PROFILS = "profils_impact_autorises"
-SAISIE_NEW_COLS = ["profil_impact_charge", "libelle_categorie_personnalise"]
+SAISIE_NEW_COLS = ["profil_impact_charge", "libelle_categorie_personnalise", "avantage_associe_id"]
 
 # ── Nouveau type de flux TYPE_FLUX_020 (charge société payée compte pro) ──
 TYPE_FLUX_020_ID = "TYPE_FLUX_020"

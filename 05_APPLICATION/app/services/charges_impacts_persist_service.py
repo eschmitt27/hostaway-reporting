@@ -22,12 +22,10 @@ from app.services import charges_impact_service as impact
 AFFECT_SHEET = "AFFECTATIONS"
 MENAGE_SHEET = "MENAGE"
 RESERVE_SHEET = "RESERVE_REFACTURATION"
-AVANTAGE_SHEET = "SOURCE_SAISIE"  # Lot7
 
 STATUT_A_CONTROLER = "A_CONTROLER"
 STATUT_RESERVE = "EN_ATTENTE"
 ORIGINE = "NOUVELLE_CHARGE_GUIDEE"
-AVANTAGE_NATURE = "AVANTAGE_CHARGE"
 
 
 def _row_hash(*parts: Any) -> str:
@@ -125,18 +123,16 @@ def build_persistable(
                 "ROW_HASH": _row_hash(rid, charge_id, e.get("logement_id"), e.get("montant_refacturable")),
             })
 
-    # Avantage associé — au plus une ligne, source Lot7.
+    # Avantage associé : PORTÉ PAR LA CHARGE (colonne avantage_associe_id de SAISIE_Charges_Flux),
+    # jamais ressaisi dans Lot7 SOURCE_SAISIE (règle « NE PAS RESSAISIR », résiduelle) — évite le
+    # double comptage. L'agrégation Lot7 (lib_avantages) attribue l'avantage par bénéficiaire.
     if guide.get("avantage_associe") and guide.get("associe_id"):
         avantage = {
+            "charge_id": charge_id,
             "mois": mois,
-            "associe_id": guide["associe_id"],
-            "type_flux_id": None,
-            "type_remboursement": None,
-            "nature": AVANTAGE_NATURE,
+            "avantage_associe_id": guide["associe_id"],
             "montant": montant,
-            "mode_paiement_id": str(form_data.get("mode_paiement_id", "")).strip() or None,
-            "lien_origine": charge_id,
-            "commentaire": "Avantage issu d'une charge (distinct du moyen de paiement).",
+            "porte_par": "SAISIE_Charges_Flux.avantage_associe_id",
         }
 
     return {
@@ -182,31 +178,16 @@ def persister_sur_copie(
     finally:
         wb.close()
 
-    avantage_ecrit = False
-    if persistable.get("avantage") and avantages_copy_path is not None:
-        ap = Path(avantages_copy_path)
-        wb2 = openpyxl.load_workbook(str(ap), keep_vba=False)
-        try:
-            ws = wb2[AVANTAGE_SHEET]
-            headers = [str(c.value).strip() if c.value is not None else "" for c in ws[1]]
-            col = {h: i + 1 for i, h in enumerate(headers)}
-            lien_col = col.get("lien_origine")
-            # Dédup par lien_origine=charge_id : jamais deux fois pour la même charge.
-            for r in range(ws.max_row, 1, -1):
-                if lien_col and str(ws.cell(r, lien_col).value or "").strip() == charge_id:
-                    ws.delete_rows(r, 1)
-            ws.append([persistable["avantage"].get(h) for h in headers])
-            wb2.save(str(ap))
-            avantage_ecrit = True
-        finally:
-            wb2.close()
+    # Avantage : porté par la charge (colonne avantage_associe_id, écrite sur la ligne SAISIE
+    # par charges_preview_service._build_row_data). Aucune écriture Lot7 ici (anti double-comptage).
+    avantage_porte = persistable.get("avantage") is not None
 
     return {
         "charge_id": charge_id,
         "affectations_ecrites": len(persistable["affectations"]),
         "menage_ecrits": len(persistable["menage"]),
         "reserve_ecrites": len(persistable["reserve"]),
-        "avantage_ecrit": avantage_ecrit,
+        "avantage_porte_par_charge": avantage_porte,
         "cible_impacts": str(p),
     }
 
