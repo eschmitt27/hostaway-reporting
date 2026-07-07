@@ -33,7 +33,11 @@ from openpyxl.workbook.defined_name import DefinedName
 from openpyxl.worksheet.datavalidation import DataValidation
 
 # ── Modèle profils ────────────────────────────────────────────────────────────
-FAMILLE_PARCOURS_DEDIE = {"CHG_001", "CHG_002", "CHG_014", "CHG_020", "CHG_021", "CHG_022"}
+# CHG_012/013/015/019 reclassés PARCOURS_DEDIE (décision types flux et parcours dédiés).
+FAMILLE_PARCOURS_DEDIE = {
+    "CHG_001", "CHG_002", "CHG_012", "CHG_013", "CHG_014",
+    "CHG_015", "CHG_019", "CHG_020", "CHG_021", "CHG_022",
+}
 FAMILLE_MENAGE = {"CHG_003", "CHG_004", "CHG_018", "CHG_023"}
 
 PROFILS_PAR_FAMILLE = {
@@ -47,6 +51,25 @@ PROFILS_IMPACT = ["GLOBAL", "LOGEMENT_DIRECT", "MENAGE_INTERVENANT", "MENAGE_LOG
 COL_FAMILLE = "famille_impact_categorie"
 COL_PROFILS = "profils_impact_autorises"
 SAISIE_NEW_COLS = ["profil_impact_charge", "libelle_categorie_personnalise"]
+
+# ── Nouveau type de flux TYPE_FLUX_020 (charge société payée compte pro) ──
+TYPE_FLUX_020_ID = "TYPE_FLUX_020"
+TYPE_FLUX_020_ROW = {
+    "type_flux_id": "TYPE_FLUX_020",
+    "type_flux": "CHARGE_SOCIETE_COMPTE_PRO",
+    "description": "Charge société payée avec compte professionnel",
+    "code_impact_defaut": "IC",
+    "avantage_brut_defaut": "NON",
+    "deduit_avantage_defaut": "NON",
+    "comptabilisable_defaut": "OUI",
+    "actif": "OUI",
+    "commentaire": (
+        "Charge société réellement payée depuis le compte professionnel. "
+        "Remplace TYPE_FLUX_002 (dépense personnelle) pour les charges normales banque pro."
+    ),
+}
+# Types à garantir dans lst_TypesFlux_Lot3 de SAISIE (writer réel).
+LST_TYPESFLUX_ADD = ["TYPE_FLUX_016", "TYPE_FLUX_020"]
 
 CHG_024_ID = "CHG_024"
 CHG_024_ROW = {
@@ -85,6 +108,32 @@ def sha256(path: Path) -> str:
 
 def _headers(ws) -> list[str]:
     return [str(c.value).strip() if c.value is not None else "" for c in ws[1]]
+
+
+def migrate_ref_types_flux(ref_path: Path) -> dict:
+    """Ajoute TYPE_FLUX_020 dans REF_Types_Flux (idempotent). Pas de table ListObject ici."""
+    wb = openpyxl.load_workbook(str(ref_path), keep_vba=True, data_only=False)
+    report = {"tf020_ajoute": False}
+    try:
+        ws = wb["REF_Types_Flux"]
+        headers = _headers(ws)
+        col_idx = {h: i + 1 for i, h in enumerate(headers)}
+        id_col = col_idx["type_flux_id"]
+        existing = {
+            str(ws.cell(row=r, column=id_col).value or "").strip()
+            for r in range(2, ws.max_row + 1)
+        }
+        if TYPE_FLUX_020_ID not in existing:
+            new_row = ws.max_row + 1
+            for name, value in TYPE_FLUX_020_ROW.items():
+                if name in col_idx:
+                    ws.cell(row=new_row, column=col_idx[name], value=value)
+            report["tf020_ajoute"] = True
+            wb.calculation.fullCalcOnLoad = True
+            wb.save(str(ref_path))
+    finally:
+        wb.close()
+    return report
 
 
 def migrate_ref_setup(ref_path: Path) -> dict:
@@ -145,7 +194,10 @@ def migrate_ref_setup(ref_path: Path) -> dict:
 def migrate_saisie(saisie_path: Path) -> dict:
     """Migre SAISIE (2 colonnes) + REF_LOCALE (CHG_024, lst_Profils_Impact + DV). Idempotent."""
     wb = openpyxl.load_workbook(str(saisie_path), data_only=False)
-    report = {"colonnes_saisie": [], "chg024_reflocale": False, "lst_profils": False, "dv_profil": False}
+    report = {
+        "colonnes_saisie": [], "chg024_reflocale": False, "lst_profils": False,
+        "dv_profil": False, "typesflux_ajoutes": [],
+    }
     try:
         ws = wb["SAISIE"]
         headers = _headers(ws)
@@ -162,6 +214,23 @@ def migrate_saisie(saisie_path: Path) -> dict:
         rl = wb["REF_LOCALE"]
         rl_headers = _headers(rl)
         rl_idx = {h: i + 1 for i, h in enumerate(rl_headers)}
+
+        # lst_TypesFlux_Lot3 : ajouter TYPE_FLUX_016 et TYPE_FLUX_020 (idempotent)
+        from openpyxl.utils import get_column_letter as _gcl
+        tf_col = rl_idx["lst_TypesFlux_Lot3"]
+        tf_vals = [str(rl.cell(r, tf_col).value or "").strip() for r in range(2, rl.max_row + 1)]
+        tf_vals = [v for v in tf_vals if v]
+        for tf in LST_TYPESFLUX_ADD:
+            if tf not in tf_vals:
+                rl.cell(row=2 + len(tf_vals), column=tf_col, value=tf)
+                tf_vals.append(tf)
+                report["typesflux_ajoutes"].append(tf)
+        if report["typesflux_ajoutes"] and "lst_TypesFlux_Lot3" in wb.defined_names:
+            tf_letter = _gcl(tf_col)
+            last_tf = 1 + len(tf_vals)
+            wb.defined_names["lst_TypesFlux_Lot3"].value = (
+                f"'REF_LOCALE'!${tf_letter}$2:${tf_letter}${last_tf}"
+            )
 
         # CHG_024 dans lst_Categories (colonne A)
         cat_col = rl_idx["lst_Categories"]
@@ -227,6 +296,7 @@ def run(ref_path: Path, saisie_path: Path, backup_dir: Path) -> dict:
     result["saisie"]["hash_avant"] = sha256(saisie_path)
     result["backups"].append(str(backup(ref_path, backup_dir)))
     result["backups"].append(str(backup(saisie_path, backup_dir)))
+    result["ref_setup"].update(migrate_ref_types_flux(ref_path))
     result["ref_setup"].update(migrate_ref_setup(ref_path))
     result["saisie"].update(migrate_saisie(saisie_path))
     result["ref_setup"]["hash_apres"] = sha256(ref_path)

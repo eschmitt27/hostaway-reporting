@@ -2059,3 +2059,22 @@ Périmètre  : Aucune source Excel réelle modifiée. Aucun MASTER métier rég�
 Statut     : CORRIGÉ (tests non-régression verts)
 Commentaire: Prérequis à l'ouverture de la refacturation en écriture réelle (D-CHG-MODELE-09).
              Réparation de la chaîne, indépendante de APP-3b-1 (non modifié).
+
+---
+
+Date       : 2026-07-07
+Code       : CTR-TYPEFLUX-MIGRATION-01
+Sévérité   : INFO
+Fichier    : 05_APPLICATION/tools/migrer_profils_impact.py,
+             01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm,
+             01_SOURCES_BRUTES/Charges/SAISIE_Charges_Flux.xlsx
+Objet      : Migration contrôlée — TYPE_FLUX_020 (CHARGE_SOCIETE_COMPTE_PRO) + enrichissement
+             lst_TypesFlux_Lot3 (TF016, TF020) + reclassement CHG_012/013/015/019 en PARCOURS_DEDIE.
+Backup     : 99_ARCHIVES/TYPESFLUX_PARCOURS_20260707_125338/ (non commité)
+Hash REF   : avant 70ce2eb1…b0cff60  →  après be45aa09…749b155
+Hash SAISIE: avant 39d2bafe…c78409  →  après c9a58527…f74dcc
+Contrôles  : VBA identique (sha 09eb44f9…) ; 16 tables préservées ; formules SAISIE (C/I/J/AD) intactes ;
+             20 DV préservées ; TYPE_FLUX_020 unique (20 types) ; TF016+TF020 uniques dans REF_LOCALE ;
+             CHG_024 unique ; 0 ligne de charge métier créée ou modifiée ; migration idempotente (2e passe = no-op).
+Statut     : APPLIQUÉ (tests schéma verts)
+Commentaire: Prérequis à la dérivation type_flux côté service (Commit 3, D-CHG-TYPEFLUX-01).

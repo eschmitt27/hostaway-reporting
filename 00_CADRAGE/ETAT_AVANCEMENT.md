@@ -661,3 +661,16 @@ Correction pipeline lot10/lot12 + lib_settlements (agrégation pure), sans touch
 ni régénérer les MASTER. Jamais mélangé au revenu net d'exploitation (D034). Trace CTR-REFAC-LOT10-12.
 
 **Flags confirmés inchangés :** CHARGES_REAL_WRITE_ENABLED = False (et tous les autres flags d'écriture).
+
+---
+
+## 2026-07-07 — Migration types flux et parcours dédiés charges (Phase 1 APP-3b)
+
+Migration contrôlée référentiels (backup horodaté `99_ARCHIVES/TYPESFLUX_PARCOURS_20260707_125338/`, non commité) :
+- **TYPE_FLUX_020 = CHARGE_SOCIETE_COMPTE_PRO** ajouté à REF_Types_Flux (IC, comptabilisable OUI) — remplace
+  TYPE_FLUX_002 (dépense personnelle) pour les charges société payées banque pro (D-CHG-TYPEFLUX-01).
+- `lst_TypesFlux_Lot3` (SAISIE_Charges_Flux.xlsx) enrichi de TYPE_FLUX_016 + TYPE_FLUX_020.
+- **CHG_012/013/015/019 reclassés PARCOURS_DEDIE** (D-CHG-DEDIE-01). Catégories GLOBAL standard restantes :
+  CHG_005/006/007/008/009/010/011/016/017/024.
+- VBA inchangé (sha 09eb44f9…), 16 tables préservées, 0 ligne de charge métier créée/modifiée. Migration idempotente.
+Prochaine étape : reprise Commit 3 (dérivation type_flux côté service) via `git stash apply stash@{0}`.

@@ -1937,3 +1937,12 @@ Le formulaire standard n'expose que IC et HC ; HR relève d'un parcours dédié 
 ### Catégorie personnalisée
 `categorie_charge_id` reste fermé. Futur code CHG_024 (AUTRE_PERSONNALISEE) + libellé libre en champ séparé,
 profil GLOBAL forcé, verrous anti-contournement (D-CHG-MODELE-07).
+
+### Dérivation type_flux_id + TYPE_FLUX_020 (MAJ 2026-07-07, D-CHG-TYPEFLUX-01)
+`type_flux_id` n'est jamais saisi par l'utilisateur : dérivé côté service. **Nouveau TYPE_FLUX_020 =
+CHARGE_SOCIETE_COMPTE_PRO** (IC, comptabilisable OUI) pour les charges société payées banque pro — TYPE_FLUX_002
+(dépense personnelle) n'est plus utilisé pour ce cas. Matrice : CHG_016→TF012, CHG_010→TF016,
+CHG_008/011 refacturable→TF011 ; sinon règlement (PAY_001→TF020, PAY_002 récupéré→TF008, PAY_002→TF004,
+PAY_003/004→TF004). PAY_005/PAY_006 interdits en standard. `lst_TypesFlux_Lot3` (SAISIE) enrichi de TF016 + TF020.
+Reclassement PARCOURS_DEDIE : CHG_012/013/015/019 (D-CHG-DEDIE-01). Catégories GLOBAL standard :
+CHG_005/006/007/008/009/010/011/016/017/024.

@@ -1384,3 +1384,30 @@ apparaît une seule fois (montant déjà inclus une seule fois dans `MONTANT_DU`
 Cette décision révise le libellé « 12 lignes fixes / §17.3 » de D040 et D-P5 : la cohérence de lecture propriétaire
 prime sur l'ancien verrou artificiel de numérotation. Les blocs EXPLOITATION / REGLEMENT restent séparés (D033).
 Périmètre : `02_TRAVAIL/lot12_generer_factures.py` (build_facture_lignes). Lot 10, Excel, flags, APP-3b inchangés.
+
+### D-CHG-TYPEFLUX-01 — Dérivation type_flux_id (jamais choisi par l'utilisateur) + TYPE_FLUX_020
+Date : 2026-07-07 | Statut : VALIDÉ | Lot : APP-3b
+Décision : L'utilisateur ne choisit jamais `type_flux_id`. Le service le déduit ainsi (matrice validée) :
+- **Types spécifiques prioritaires** : CHG_016 → TYPE_FLUX_012 ; CHG_010 → TYPE_FLUX_016 ;
+  CHG_008 ou CHG_011 avec `refacturable=OUI` → TYPE_FLUX_011.
+- **Sinon, déterminé par le règlement** : PAY_001 → **TYPE_FLUX_020** ;
+  PAY_002 + montant récupéré=OUI → TYPE_FLUX_008 ; PAY_002 sinon → TYPE_FLUX_004 ;
+  PAY_003 → TYPE_FLUX_004 ; PAY_004 → TYPE_FLUX_004.
+- **Interdits en Nouvelle charge standard** : PAY_005 (A_DEFINIR), PAY_006 (DIRECT_PROPRIETAIRE — aucune sortie
+  d'argent conciergerie).
+`TYPE_FLUX_002` (DEPENSE_PERSO_COMPTE_PRO) n'est jamais utilisé pour une charge normale payée banque pro : sa
+sémantique est une dépense **personnelle**. Nouveau **TYPE_FLUX_020 = CHARGE_SOCIETE_COMPTE_PRO** (code_impact_defaut
+IC, comptabilisable_defaut OUI, actif OUI) créé pour ce cas.
+`CHG_024` : `type_flux_id` déterminé uniquement par le règlement ; **jamais TYPE_FLUX_011**.
+Impact résultat : l'utilisateur choisit IC ou HC, prioritaire sur `code_impact_defaut` du type. Si le choix diffère
+du défaut du type, un **commentaire de justification devient obligatoire**.
+
+### D-CHG-DEDIE-01 — Reclassement de 4 catégories en PARCOURS_DEDIE
+Date : 2026-07-07 | Statut : VALIDÉ | Lot : APP-3b
+Décision : CHG_012 (remboursement voyageur), CHG_013 (salaire associée), CHG_015 (remboursement frais associée) et
+CHG_019 (sinistre / dégât logement) passent `famille_impact_categorie = PARCOURS_DEDIE` (profils_impact_autorises =
+PARCOURS_DEDIE). Ils rejoignent CHG_001/002/014/020/021/022 hors formulaire Nouvelle charge standard. CHG_003/004/018/023
+restent famille MENAGE (parcours ménage dédié). Catégories GLOBAL standard restantes : CHG_005/006/007/008/009/010/011/016/017/024.
+Migration `lst_TypesFlux_Lot3` (SAISIE) : ajout de TYPE_FLUX_016 et TYPE_FLUX_020.
+Périmètre : migration contrôlée (REF_Setup.xlsm + SAISIE_Charges_Flux.xlsx) avec backup/hash/VBA préservé.
+Voir trace JOURNAL_CONTROLES (CTR-TYPEFLUX-MIGRATION-01).

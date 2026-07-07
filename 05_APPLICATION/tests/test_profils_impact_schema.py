@@ -22,19 +22,33 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tools.migrer_profils_impact import (  # noqa: E402
     FAMILLE_MENAGE,
     FAMILLE_PARCOURS_DEDIE,
+    LST_TYPESFLUX_ADD,
     PROFILS_IMPACT,
+    TYPE_FLUX_020_ID,
+    TYPE_FLUX_020_ROW,
     migrate_ref_setup,
+    migrate_ref_types_flux,
     migrate_saisie,
     run,
 )
+from app.readers.saisie_charges_reader import read_ref_types_flux  # noqa: E402
 
 FAMILLES = {"GLOBAL", "LOGEMENT_DIRECT", "MENAGE", "PARCOURS_DEDIE"}
+# Catégories reclassées PARCOURS_DEDIE (décision types flux)
+RECLASSEES = {"CHG_012", "CHG_013", "CHG_015", "CHG_019"}
 
 
 def _cats() -> dict[str, dict]:
     return {
         str(c.get("categorie_charge_id", "")).strip(): c
         for c in read_ref_categories_charges()
+    }
+
+
+def _types_flux() -> dict[str, dict]:
+    return {
+        str(t.get("type_flux_id", "")).strip(): t
+        for t in read_ref_types_flux()
     }
 
 
@@ -171,3 +185,69 @@ def test_profils_impact_liste_canonique(profil):
     assert profil in {
         "GLOBAL", "LOGEMENT_DIRECT", "MENAGE_INTERVENANT", "MENAGE_LOGEMENTS", "PARCOURS_DEDIE"
     }
+
+
+# ── TYPE_FLUX_020 + reclassement (migration types flux et parcours dédiés) ───
+
+def test_type_flux_020_present_et_canonique():
+    tf = _types_flux()
+    assert TYPE_FLUX_020_ID in tf, "TYPE_FLUX_020 absent de REF_Types_Flux"
+    row = tf[TYPE_FLUX_020_ID]
+    assert str(row["type_flux"]).strip() == "CHARGE_SOCIETE_COMPTE_PRO"
+    assert str(row["code_impact_defaut"]).strip() == "IC"
+    assert str(row["comptabilisable_defaut"]).strip() == "OUI"
+    assert str(row["actif"]).strip().upper() == "OUI"
+
+
+def test_type_flux_020_unique():
+    ids = [str(t.get("type_flux_id", "")).strip() for t in read_ref_types_flux()]
+    assert ids.count(TYPE_FLUX_020_ID) == 1
+
+
+def test_categories_reclassees_parcours_dedie():
+    cats = _cats()
+    for cid in RECLASSEES:
+        assert str(cats[cid]["famille_impact_categorie"]).strip() == "PARCOURS_DEDIE", cid
+        assert str(cats[cid]["profils_impact_autorises"]).strip() == "PARCOURS_DEDIE", cid
+
+
+def test_categories_standard_restantes_global():
+    cats = _cats()
+    standard_attendu = {
+        "CHG_005", "CHG_006", "CHG_007", "CHG_008", "CHG_009",
+        "CHG_010", "CHG_011", "CHG_016", "CHG_017", "CHG_024",
+    }
+    global_reel = {
+        cid for cid, row in cats.items()
+        if str(row.get("famille_impact_categorie", "")).strip() == "GLOBAL"
+    }
+    assert global_reel == standard_attendu
+
+
+def test_lst_typesflux_lot3_contient_tf016_tf020():
+    wb = openpyxl.load_workbook(str(cfg.SAISIE_CHARGES), read_only=True, data_only=True)
+    try:
+        rl = wb["REF_LOCALE"]
+        rows = list(rl.iter_rows(values_only=True))
+    finally:
+        wb.close()
+    headers = [str(h).strip() if h else "" for h in rows[0]]
+    col = headers.index("lst_TypesFlux_Lot3")
+    vals = [str(r[col]).strip() for r in rows[1:] if r[col]]
+    for tf in LST_TYPESFLUX_ADD:
+        assert vals.count(tf) == 1, tf
+
+
+def test_migration_types_flux_idempotente(tmp_path: Path):
+    ref = tmp_path / "REF_Setup.xlsm"
+    shutil.copy2(str(cfg.REF_SETUP), str(ref))
+    # Fichier réel déjà migré → réapplication n'ajoute rien
+    r = migrate_ref_types_flux(ref)
+    assert r["tf020_ajoute"] is False
+
+
+def test_migration_saisie_typesflux_idempotente(tmp_path: Path):
+    sai = tmp_path / "SAISIE.xlsx"
+    shutil.copy2(str(cfg.SAISIE_CHARGES), str(sai))
+    s = migrate_saisie(sai)
+    assert s["typesflux_ajoutes"] == []
