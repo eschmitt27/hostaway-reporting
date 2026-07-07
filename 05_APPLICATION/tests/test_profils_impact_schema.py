@@ -213,15 +213,37 @@ def test_categories_reclassees_parcours_dedie():
 
 def test_categories_standard_restantes_global():
     cats = _cats()
+    # CHG_018 reclassé MENAGE→GLOBAL (Achat divers) ; CHG_025/026 ajoutées GLOBAL.
     standard_attendu = {
         "CHG_005", "CHG_006", "CHG_007", "CHG_008", "CHG_009",
-        "CHG_010", "CHG_011", "CHG_016", "CHG_017", "CHG_024",
+        "CHG_010", "CHG_011", "CHG_016", "CHG_017", "CHG_018",
+        "CHG_024", "CHG_025", "CHG_026",
     }
     global_reel = {
         cid for cid, row in cats.items()
         if str(row.get("famille_impact_categorie", "")).strip() == "GLOBAL"
     }
     assert global_reel == standard_attendu
+
+
+def test_nouvelles_categories_presentes():
+    cats = _cats()
+    assert "CHG_025" in cats and str(cats["CHG_025"]["famille_impact_categorie"]).strip() == "GLOBAL"
+    assert "CHG_026" in cats and str(cats["CHG_026"]["famille_impact_categorie"]).strip() == "GLOBAL"
+    assert "CHG_027" in cats and str(cats["CHG_027"]["famille_impact_categorie"]).strip() == "MENAGE"
+
+
+def test_chg018_reclasse_global():
+    assert str(_cats()["CHG_018"]["famille_impact_categorie"]).strip() == "GLOBAL"
+
+
+def test_menage_categories_actuelles():
+    cats = _cats()
+    menage = {
+        cid for cid, row in cats.items()
+        if str(row.get("famille_impact_categorie", "")).strip() == "MENAGE"
+    }
+    assert menage == {"CHG_003", "CHG_004", "CHG_023", "CHG_027"}
 
 
 def test_lst_typesflux_lot3_contient_tf016_tf020():

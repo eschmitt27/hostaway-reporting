@@ -38,7 +38,9 @@ FAMILLE_PARCOURS_DEDIE = {
     "CHG_001", "CHG_002", "CHG_012", "CHG_013", "CHG_014",
     "CHG_015", "CHG_019", "CHG_020", "CHG_021", "CHG_022",
 }
-FAMILLE_MENAGE = {"CHG_003", "CHG_004", "CHG_018", "CHG_023"}
+# CHG_018 reclassé MENAGE→GLOBAL (« Achat divers », impact ménage au choix — mission Nouvelle charge).
+# CHG_027 (Supplément ménage) ajouté à MENAGE.
+FAMILLE_MENAGE = {"CHG_003", "CHG_004", "CHG_023", "CHG_027"}
 
 PROFILS_PAR_FAMILLE = {
     "PARCOURS_DEDIE": "PARCOURS_DEDIE",
@@ -88,6 +90,52 @@ CHG_024_ROW = {
     COL_FAMILLE: "GLOBAL",
     COL_PROFILS: "GLOBAL",
 }
+
+# ── Nouvelles catégories Nouvelle charge (mission saisie guidée) ──
+# CHG_025 REPAS, CHG_026 PRESTATION_DIVERSE : GLOBAL, impact ménage au choix, avantage possible.
+# CHG_027 SUPPLEMENT_MENAGE : MENAGE (parcours ménage forcé).
+NOUVELLES_CATEGORIES = [
+    {
+        "categorie_charge_id": "CHG_025",
+        "categorie_niveau_1": "Charges courantes",
+        "categorie_niveau_2": "Repas",
+        "description": "Repas professionnel. Peut impacter le coût ménage (au choix). Avantage associé possible.",
+        "impact_resultat": "OUI",
+        "refacturable_defaut": "NON",
+        "hors_compta_defaut": "NON",
+        "actif": "OUI",
+        "filtre_vue_menage": "NON",
+        COL_FAMILLE: "GLOBAL",
+        COL_PROFILS: "GLOBAL",
+    },
+    {
+        "categorie_charge_id": "CHG_026",
+        "categorie_niveau_1": "Charges courantes",
+        "categorie_niveau_2": "Prestation diverse",
+        "description": "Prestation de service diverse. Peut impacter le coût ménage (au choix). Avantage associé possible.",
+        "impact_resultat": "OUI",
+        "refacturable_defaut": "NON",
+        "hors_compta_defaut": "NON",
+        "actif": "OUI",
+        "filtre_vue_menage": "NON",
+        COL_FAMILLE: "GLOBAL",
+        COL_PROFILS: "GLOBAL",
+    },
+    {
+        "categorie_charge_id": "CHG_027",
+        "categorie_niveau_1": "Ménage",
+        "categorie_niveau_2": "Supplément ménage",
+        "description": "Supplément de coût ménage (analytique). Parcours ménage forcé. Jamais refacturable.",
+        "impact_resultat": "OUI",
+        "refacturable_defaut": "NON",
+        "hors_compta_defaut": "OUI",
+        "actif": "OUI",
+        "filtre_vue_menage": "OUI",
+        COL_FAMILLE: "MENAGE",
+        COL_PROFILS: "MENAGE_INTERVENANT,MENAGE_LOGEMENTS",
+    },
+]
+NOUVELLES_CATEGORIES_IDS = [c["categorie_charge_id"] for c in NOUVELLES_CATEGORIES]
 
 
 def _famille(cat_id: str) -> str:
@@ -139,7 +187,7 @@ def migrate_ref_types_flux(ref_path: Path) -> dict:
 def migrate_ref_setup(ref_path: Path) -> dict:
     """Migre REF_Categories_Charges : 2 colonnes profils + ligne CHG_024. Idempotent."""
     wb = openpyxl.load_workbook(str(ref_path), keep_vba=True, data_only=False)
-    report = {"colonnes_ajoutees": [], "chg024_ajoute": False}
+    report = {"colonnes_ajoutees": [], "chg024_ajoute": False, "categories_ajoutees": []}
     try:
         ws = wb["REF_Categories_Charges"]
         headers = _headers(ws)
@@ -155,6 +203,7 @@ def migrate_ref_setup(ref_path: Path) -> dict:
                 report["colonnes_ajoutees"].append(col)
 
         # 2. Remplir famille/profils pour chaque catégorie existante
+        #    (recalcul systématique = idempotent ; applique aussi le reclassement CHG_018→GLOBAL)
         id_col = col_idx["categorie_charge_id"]
         existing_ids = set()
         last_data_row = 1
@@ -175,6 +224,19 @@ def migrate_ref_setup(ref_path: Path) -> dict:
                 if name in col_idx:
                     ws.cell(row=new_row, column=col_idx[name], value=value)
             report["chg024_ajoute"] = True
+            last_data_row = new_row
+            existing_ids.add(CHG_024_ID)
+
+        # 3bis. Nouvelles catégories CHG_025/026/027 (idempotent)
+        for cat in NOUVELLES_CATEGORIES:
+            if cat["categorie_charge_id"] in existing_ids:
+                continue
+            new_row = last_data_row + 1
+            for name, value in cat.items():
+                if name in col_idx:
+                    ws.cell(row=new_row, column=col_idx[name], value=value)
+            report["categories_ajoutees"].append(cat["categorie_charge_id"])
+            existing_ids.add(cat["categorie_charge_id"])
             last_data_row = new_row
 
         # 4. Étendre la table pour couvrir toutes les colonnes/lignes réelles
@@ -232,16 +294,20 @@ def migrate_saisie(saisie_path: Path) -> dict:
                 f"'REF_LOCALE'!${tf_letter}$2:${tf_letter}${last_tf}"
             )
 
-        # CHG_024 dans lst_Categories (colonne A)
+        # CHG_024 + CHG_025/026/027 dans lst_Categories (colonne A), idempotent
         cat_col = rl_idx["lst_Categories"]
         cat_vals = [str(rl.cell(r, cat_col).value or "").strip() for r in range(2, rl.max_row + 1)]
         cat_vals = [v for v in cat_vals if v]
-        if CHG_024_ID not in cat_vals:
-            row_new = 2 + len(cat_vals)
-            rl.cell(row=row_new, column=cat_col, value=CHG_024_ID)
-            report["chg024_reflocale"] = True
+        report.setdefault("categories_reflocale", [])
+        for cid in [CHG_024_ID] + NOUVELLES_CATEGORIES_IDS:
+            if cid not in cat_vals:
+                rl.cell(row=2 + len(cat_vals), column=cat_col, value=cid)
+                cat_vals.append(cid)
+                report["categories_reflocale"].append(cid)
+        report["chg024_reflocale"] = CHG_024_ID in report["categories_reflocale"]
+        if report["categories_reflocale"]:
             # Étendre le nom défini lst_Categories
-            last_cat_row = 1 + len(cat_vals) + 1
+            last_cat_row = 1 + len(cat_vals)
             if "lst_Categories" in wb.defined_names:
                 wb.defined_names["lst_Categories"].value = f"'REF_LOCALE'!$A$2:$A${last_cat_row}"
 

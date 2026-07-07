@@ -735,7 +735,7 @@ def test_previsualiser_affectation_canonique_injectee(tmp_path: Path):
 from app.services.charges_preview_service import resolve_profil_impact  # noqa: E402
 
 
-@pytest.mark.parametrize("cat", ["CHG_003", "CHG_004", "CHG_018", "CHG_023"])
+@pytest.mark.parametrize("cat", ["CHG_003", "CHG_004", "CHG_023", "CHG_027"])
 def test_menage_categorie_bloquee(refs, cat):
     form = _valid_form()
     form["categorie_charge_id"] = cat
