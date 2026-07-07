@@ -57,22 +57,6 @@
                  placeholder="ex. 85.50">
         </div>
 
-        <div class="form-group">
-          <label for="sens_flux">Sens du flux</label>
-          <select id="sens_flux" name="sens_flux">
-            {% set sens_labels = {
-              'DEPENSE': 'Dépense',
-              'RECUPERATION': 'Récupération',
-              'REMBOURSEMENT': 'Remboursement',
-              'REFACTURATION': 'Refacturation',
-              'NEUTRE': 'Neutre'
-            } %}
-            {% for sv, sl in sens_labels.items() %}
-            <option value="{{ sv }}" {% if form.get('sens_flux', 'DEPENSE') == sv %}selected{% endif %}>{{ sl }}</option>
-            {% endfor %}
-          </select>
-        </div>
-
       </div>
     </fieldset>
 
@@ -89,6 +73,7 @@
             <option value="">— Sélectionner —</option>
             {% for c in refs.get('categories', []) %}
             <option value="{{ c.categorie_charge_id }}"
+                    data-famille="{{ c.famille_impact_categorie }}"
                     {% if form.get('categorie_charge_id') == c.categorie_charge_id %}selected{% endif %}>
               {{ c.categorie_charge_id }} — {{ c.categorie_niveau_1 }} / {{ c.categorie_niveau_2 }}
             </option>
@@ -96,17 +81,12 @@
           </select>
         </div>
 
-        <div class="form-group">
-          <label for="type_flux_id">Type de flux <span class="required">*</span></label>
-          <select id="type_flux_id" name="type_flux_id" required>
-            <option value="">— Sélectionner —</option>
-            {% for t in refs.get('types_flux', []) %}
-            <option value="{{ t.type_flux_id }}"
-                    {% if form.get('type_flux_id') == t.type_flux_id %}selected{% endif %}>
-              {{ t.type_flux_id }} — {{ t.type_flux }}
-            </option>
-            {% endfor %}
-          </select>
+        <div class="form-group" id="group_libelle_perso" style="display:none;">
+          <label for="libelle_categorie_personnalise">Libellé personnalisé <span class="required">*</span></label>
+          <input type="text" id="libelle_categorie_personnalise" name="libelle_categorie_personnalise"
+                 value="{{ form.get('libelle_categorie_personnalise', '') }}"
+                 placeholder="Décrire la charge (traitée en GLOBAL)">
+          <p class="form-help text-secondary">Catégorie personnalisée : toujours GLOBAL, jamais ménage / logement / incident.</p>
         </div>
 
         <div class="form-group">
@@ -124,9 +104,18 @@
             </option>
             {% endfor %}
           </select>
-          <p class="form-help text-secondary">« À comptabiliser » est déduit automatiquement : IC → oui, HC → non.</p>
+          <p class="form-help text-secondary">« À comptabiliser » est déduit automatiquement : IC → oui, HC → non.
+          Le type de flux est déduit automatiquement de la catégorie et du règlement. Si l'impact choisi diffère
+          du défaut du type, un commentaire de justification devient obligatoire.</p>
         </div>
 
+      </div>
+
+      <div class="alert alert-warning" id="menage_warning" data-testid="menage-parcours-dedie" style="display:none;">
+        <strong>Parcours ménage dédié requis.</strong>
+        Les charges ménage (répartition par intervenant ou par logements sélectionnés) ne sont pas
+        saisissables ici tant que la ventilation sélective Lot6f et les lignes filles ne sont pas conçues
+        et validées. Utilisez le circuit ménage dédié.
       </div>
     </fieldset>
 
@@ -271,7 +260,7 @@
     </fieldset>
 
     <div style="display:flex; gap:var(--stack-md); margin-top:var(--stack-xl);">
-      <button type="submit" class="btn btn-primary">Prévisualiser (copie)</button>
+      <button type="submit" class="btn btn-primary" id="btn_previsualiser">Prévisualiser (copie)</button>
       <a href="/fournisseurs" class="btn btn-secondary">Annuler</a>
     </div>
 
@@ -323,12 +312,40 @@
     }
   }
 
+  function updateCategorie() {
+    var sel = document.getElementById("categorie_charge_id");
+    var opt = sel.options[sel.selectedIndex];
+    var famille = opt ? (opt.getAttribute("data-famille") || "") : "";
+    var value = sel.value;
+    var submitBtn = document.getElementById("btn_previsualiser");
+
+    // Familles MENAGE : parcours dédié requis → prévisualisation bloquée
+    if (famille === "MENAGE") {
+      show("menage_warning");
+      if (submitBtn) submitBtn.disabled = true;
+    } else {
+      hide("menage_warning");
+      if (submitBtn) submitBtn.disabled = false;
+    }
+
+    // Catégorie personnalisée CHG_024 : libellé libre, GLOBAL forcé
+    if (value === "CHG_024") {
+      show("group_libelle_perso");
+    } else {
+      hide("group_libelle_perso");
+      var lib = document.getElementById("libelle_categorie_personnalise");
+      if (lib) lib.value = "";
+    }
+  }
+
   document.getElementById("mode_paiement_id").addEventListener("change", updatePaiement);
   document.getElementById("affectation_type").addEventListener("change", updateAffectation);
+  document.getElementById("categorie_charge_id").addEventListener("change", updateCategorie);
 
   // Initialise on load (repopulate after error redisplay)
   updatePaiement();
   updateAffectation();
+  updateCategorie();
 })();
 </script>
 {% endblock %}

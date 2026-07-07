@@ -46,10 +46,6 @@ MODES_REQUIRES_ASSOCIE: frozenset[str] = frozenset({"PAY_003", "PAY_004"})
 MODE_CARTE = "PAY_003"
 
 # ── Alignement référentiels Excel (Commit 1 — APP aligne saisie charges) ──
-# Catégories hors formulaire « Nouvelle charge » standard (parcours dédiés).
-FORM_EXCLUDED_CATEGORIES: frozenset[str] = frozenset(
-    {"CHG_001", "CHG_002", "CHG_014", "CHG_020", "CHG_021", "CHG_022"}
-)
 # Formulaire standard : IC et HC seulement ; HR hors parcours Nouvelle charge.
 STANDARD_CODES_IMPACT: frozenset[str] = frozenset({"IC", "HC"})
 # Valeurs canoniques SAISIE Excel (REF_LOCALE) — jamais CHARGE/PRODUIT ni AFF_*.
@@ -65,6 +61,70 @@ AUTO_STATUT_CONTROLE = "A_CONTROLER"
 AUTO_NIVEAU_ANOMALIE = "INFO"
 # prise_en_compta dérivée du code_impact (IC=OUI, HC=NON).
 PRISE_EN_COMPTA_BY_IMPACT: dict[str, str] = {"IC": "OUI", "HC": "NON"}
+
+# ── Profils d'impact + familles éligibles (Commit 3) ──
+FAMILLE_MENAGE = "MENAGE"
+FAMILLE_PARCOURS_DEDIE = "PARCOURS_DEDIE"
+# Familles previsualisables au formulaire standard.
+FAMILLES_STANDARD: frozenset[str] = frozenset({"GLOBAL", "LOGEMENT_DIRECT"})
+PROFIL_BY_FAMILLE: dict[str, str] = {"GLOBAL": "GLOBAL", "LOGEMENT_DIRECT": "LOGEMENT_DIRECT"}
+CATEGORIE_PERSONNALISEE = "CHG_024"
+
+# ── Dérivation type_flux_id (D-CHG-TYPEFLUX-01) — jamais choisi par l'utilisateur ──
+# Types spécifiques prioritaires par catégorie.
+TYPE_FLUX_BY_CATEGORIE: dict[str, str] = {
+    "CHG_016": "TYPE_FLUX_012",
+    "CHG_010": "TYPE_FLUX_016",
+}
+# Catégories → TYPE_FLUX_011 si refacturable=OUI.
+CATEGORIES_REFAC_TF011: frozenset[str] = frozenset({"CHG_008", "CHG_011"})
+TYPE_FLUX_REFAC = "TYPE_FLUX_011"
+# Modes de paiement interdits en Nouvelle charge standard.
+MODES_INTERDITS_STANDARD: frozenset[str] = frozenset({"PAY_005", "PAY_006"})
+MODE_ESPECES = "PAY_002"
+# Sinon, type déterminé par le règlement.
+TYPE_FLUX_BY_MODE: dict[str, str] = {
+    "PAY_001": "TYPE_FLUX_020",
+    "PAY_003": "TYPE_FLUX_004",
+    "PAY_004": "TYPE_FLUX_004",
+}
+TYPE_FLUX_ESPECES_RECUPERE = "TYPE_FLUX_008"
+TYPE_FLUX_ESPECES = "TYPE_FLUX_004"
+
+
+def derive_type_flux(
+    categorie_id: str,
+    mode_paiement_id: str,
+    refacturable: str | None,
+    paye_avec_montant_recupere: str | None,
+) -> str | None:
+    """Déduit type_flux_id selon la matrice validée (D-CHG-TYPEFLUX-01).
+
+    Ordre : type spécifique catégorie > refacturable TF011 > règlement.
+    Retourne None si non déductible (mode interdit / inconnu) — refusé en amont.
+    CHG_024 : jamais TYPE_FLUX_011 (traité comme paiement-driven pur).
+    """
+    cat = str(categorie_id or "").strip()
+    mode = str(mode_paiement_id or "").strip()
+
+    # 1. Type spécifique catégorie (prioritaire)
+    if cat in TYPE_FLUX_BY_CATEGORIE:
+        return TYPE_FLUX_BY_CATEGORIE[cat]
+    # 2. Refacturable → TF011 (jamais pour CHG_024)
+    if (
+        cat in CATEGORIES_REFAC_TF011
+        and cat != CATEGORIE_PERSONNALISEE
+        and str(refacturable or "").strip().upper() == "OUI"
+    ):
+        return TYPE_FLUX_REFAC
+    # 3. Déterminé par le règlement
+    if mode in MODES_INTERDITS_STANDARD:
+        return None
+    if mode == MODE_ESPECES:
+        if str(paye_avec_montant_recupere or "").strip().upper() == "OUI":
+            return TYPE_FLUX_ESPECES_RECUPERE
+        return TYPE_FLUX_ESPECES
+    return TYPE_FLUX_BY_MODE.get(mode)
 
 
 class ChargesPreviewError(RuntimeError):
@@ -128,20 +188,29 @@ def load_form_refs(ref_path: Path | None = None) -> dict[str, Any]:
         if str(m.get("statut_mois", "")).upper() != "CLOTURE"
     ]
 
+    categories_actives = [c for c in categories if is_active(c)]
+
+    def famille(c: dict[str, Any]) -> str:
+        return str(c.get("famille_impact_categorie", "")).strip()
+
     return {
-        # Catégories du formulaire standard : hors parcours dédiés (CHG_001/002/014/020/021/022).
-        "categories": [
-            c for c in categories
-            if is_active(c)
-            and str(c.get("categorie_charge_id", "")).strip() not in FORM_EXCLUDED_CATEGORIES
-        ],
+        # Dropdown : familles standard uniquement (GLOBAL / LOGEMENT_DIRECT).
+        # Familles MENAGE et PARCOURS_DEDIE absentes du formulaire.
+        "categories": [c for c in categories_actives if famille(c) in FAMILLES_STANDARD],
+        # Toutes les catégories actives (famille intacte) — validation défensive côté serveur.
+        "categories_all": categories_actives,
+        # types_flux conservé pour lookup code_impact_defaut (dérivation), pas pour dropdown.
         "types_flux": [t for t in types_flux if is_active(t)],
         # Code impact : IC et HC seulement (HR hors formulaire standard).
         "codes_impact": [
             c for c in codes_impact
             if is_active(c) and str(c.get("code_impact", "")).strip() in STANDARD_CODES_IMPACT
         ],
-        "modes_paiement": [m for m in modes_paiement if is_active(m)],
+        # Modes de paiement : hors modes interdits en standard (PAY_005, PAY_006).
+        "modes_paiement": [
+            m for m in modes_paiement
+            if is_active(m) and str(m.get("mode_paiement_id", "")).strip() not in MODES_INTERDITS_STANDARD
+        ],
         "associes": [a for a in associes if is_active(a)],
         "cartes": [c for c in cartes if is_active(c)],
         "logements": [l for l in logements if is_active(l)],
@@ -153,6 +222,41 @@ def load_form_refs(ref_path: Path | None = None) -> dict[str, Any]:
         "mois_ouverts": mois_ouverts,
         "cloture": cloture,
     }
+
+
+def _type_flux_impact_defaut(type_flux_id: str, refs: dict[str, Any]) -> str:
+    """code_impact_defaut d'un type_flux (ou '' si inconnu)."""
+    tid = str(type_flux_id or "").strip()
+    for t in refs.get("types_flux", []):
+        if str(t.get("type_flux_id", "")).strip() == tid:
+            return str(t.get("code_impact_defaut", "")).strip().upper()
+    return ""
+
+
+def category_famille(categorie_id: str, refs: dict[str, Any]) -> str:
+    """Retourne famille_impact_categorie de la catégorie (ou '' si inconnue).
+
+    Cherche dans categories_all (toutes actives) pour permettre la validation défensive
+    des familles MENAGE / PARCOURS_DEDIE absentes du dropdown.
+    """
+    cid = str(categorie_id or "").strip()
+    pool = refs.get("categories_all") or refs.get("categories", [])
+    for c in pool:
+        if str(c.get("categorie_charge_id", "")).strip() == cid:
+            return str(c.get("famille_impact_categorie", "")).strip()
+    return ""
+
+
+def resolve_profil_impact(categorie_id: str, refs: dict[str, Any]) -> str:
+    """Profil_impact_charge final pour une charge previsualisable.
+
+    CHG_024 → GLOBAL forcé. Sinon dérivé de la famille (GLOBAL / LOGEMENT_DIRECT).
+    Les familles MENAGE et PARCOURS_DEDIE ne sont pas previsualisables (bloquées en amont).
+    """
+    if str(categorie_id or "").strip() == CATEGORIE_PERSONNALISEE:
+        return "GLOBAL"
+    famille = category_famille(categorie_id, refs)
+    return PROFIL_BY_FAMILLE.get(famille, "GLOBAL")
 
 
 def resolve_assoc_mode(
@@ -242,24 +346,28 @@ def validate_charge(
         except ValueError:
             err("V03_MONTANT_NON_NUMERIQUE", f"Montant non convertible : {montant_raw!r}.")
 
-    # V04 — categorie_charge_id obligatoire, valide, et éligible au formulaire standard
+    # V04 — categorie_charge_id obligatoire, valide, et éligible au formulaire standard.
+    # Éligibilité par famille (categories_all) : familles MENAGE et PARCOURS_DEDIE refusées.
     categorie_id = str(form_data.get("categorie_charge_id", "")).strip()
-    valid_categories = {str(c.get("categorie_charge_id", "")).strip() for c in refs["categories"]}
+    valid_categories_all = {str(c.get("categorie_charge_id", "")).strip() for c in refs.get("categories_all", refs["categories"])}
+    famille = category_famille(categorie_id, refs) if categorie_id else ""
     if not categorie_id:
         err("V04_CATEGORIE_MANQUANTE", "La catégorie de charge est obligatoire.")
-    elif categorie_id in FORM_EXCLUDED_CATEGORIES:
+    elif categorie_id not in valid_categories_all:
+        err("V04_CATEGORIE_INVALIDE", f"Catégorie inconnue : {categorie_id!r}.")
+    elif famille == FAMILLE_PARCOURS_DEDIE:
         err("V04_CATEGORIE_HORS_FORMULAIRE",
             f"La catégorie {categorie_id} relève d'un parcours dédié — hors formulaire Nouvelle charge standard.")
-    elif categorie_id not in valid_categories:
-        err("V04_CATEGORIE_INVALIDE", f"Catégorie inconnue : {categorie_id!r}.")
 
-    # V05 — type_flux_id obligatoire et valide
-    type_flux_id = str(form_data.get("type_flux_id", "")).strip()
-    valid_types_flux = {str(t.get("type_flux_id", "")).strip() for t in refs["types_flux"]}
-    if not type_flux_id:
-        err("V05_TYPE_FLUX_MANQUANT", "Le type de flux est obligatoire.")
-    elif type_flux_id not in valid_types_flux:
-        err("V05_TYPE_FLUX_INVALIDE", f"Type de flux inconnu : {type_flux_id!r}.")
+    # V16 — familles MENAGE : parcours dédié requis (ventilation sélective Lot6f non conçue)
+    if famille == FAMILLE_MENAGE:
+        err("V16_MENAGE_PARCOURS_DEDIE",
+            "Les charges ménage nécessitent un parcours dédié (répartition par intervenant ou par "
+            "logements sélectionnés) — indisponible tant que la ventilation Lot6f et les lignes filles "
+            "ne sont pas conçues et validées. Aucune prévisualisation ménage en formulaire standard.")
+
+    # V05 — type_flux_id N'EST PLUS saisi : dérivé côté serveur (D-CHG-TYPEFLUX-01).
+    # Toute valeur type_flux_id envoyée par le navigateur est ignorée.
 
     # V06 — code_impact obligatoire ; formulaire standard = IC ou HC seulement (HR exclu)
     code_impact = str(form_data.get("code_impact", "")).strip().upper()
@@ -270,11 +378,15 @@ def validate_charge(
             f"Code impact {code_impact!r} hors formulaire standard : seuls IC (résultat réel et comptable) "
             f"et HC (résultat réel, hors compta) sont autorisés. HR relève d'un parcours dédié.")
 
-    # V07 — mode_paiement_id obligatoire et valide
+    # V07 — mode_paiement_id obligatoire, valide, et autorisé en standard (PAY_005/PAY_006 interdits)
     mode_paiement_id = str(form_data.get("mode_paiement_id", "")).strip()
     valid_modes = {str(m.get("mode_paiement_id", "")).strip() for m in refs["modes_paiement"]}
     if not mode_paiement_id:
         err("V07_MODE_PAIEMENT_MANQUANT", "Le mode de paiement est obligatoire.")
+    elif mode_paiement_id in MODES_INTERDITS_STANDARD:
+        err("V07_MODE_PAIEMENT_INTERDIT",
+            f"Le mode {mode_paiement_id} est interdit en Nouvelle charge standard "
+            f"(PAY_005 A_DEFINIR, PAY_006 DIRECT_PROPRIETAIRE — aucune sortie d'argent conciergerie).")
     elif mode_paiement_id not in valid_modes:
         err("V07_MODE_PAIEMENT_INVALIDE", f"Mode de paiement inconnu : {mode_paiement_id!r}.")
 
@@ -342,6 +454,24 @@ def validate_charge(
         err("V12B_PROPRIETAIRE_MANQUANT",
             "Le propriétaire est obligatoire pour l'affectation PROPRIETAIRE.")
 
+    # V17/V18 — Catégorie personnalisée CHG_024 : GLOBAL forcé + verrous anti-contournement
+    if categorie_id == CATEGORIE_PERSONNALISEE:
+        if not str(form_data.get("libelle_categorie_personnalise", "")).strip():
+            err("V17_LIBELLE_PERSONNALISE_MANQUANT",
+                "Un libellé de catégorie personnalisée est obligatoire pour CHG_024.")
+        if affectation_type in ("LOGEMENT", "PROPRIETAIRE") or logement_id or proprietaire_id:
+            err("V18_PERSONNALISE_NON_GLOBAL",
+                "Une catégorie personnalisée est toujours GLOBAL : ni logement ni propriétaire.")
+        if str(form_data.get("reservation_id", "")).strip():
+            err("V18_PERSONNALISE_RESERVATION_INTERDITE",
+                "Réservation interdite pour une catégorie personnalisée (jamais incident voyageur).")
+        if str(form_data.get("intervenant_concerne", "")).strip():
+            err("V18_PERSONNALISE_INTERVENANT_INTERDIT",
+                "Intervenant interdit pour une catégorie personnalisée (jamais ménage).")
+        if str(form_data.get("refacturable", "")).strip().upper() == "OUI":
+            err("V18_PERSONNALISE_REFAC_INTERDITE",
+                "Refacturable interdit pour une catégorie personnalisée.")
+
     # V13 — reservation_id requis si CHG_021 et doit exister dans MASTER_CALC_Reservations_Resolues
     reservation_id = str(form_data.get("reservation_id", "")).strip() or None
     if categorie_id in CATEGORIE_REQUIRES_RESERVATION:
@@ -361,18 +491,47 @@ def validate_charge(
         err("V14_STATUT_CONTROLE_REF_ABSENT",
             f"Statut auto {AUTO_STATUT_CONTROLE} absent de la famille statut_controle du référentiel.")
 
-    # V15 — sens_flux valeurs canoniques SAISIE Excel si fourni (défaut vide → DEPENSE)
-    sens_flux = str(form_data.get("sens_flux", "")).strip().upper()
-    if sens_flux and sens_flux not in CANONICAL_SENS_FLUX:
-        err("V15_SENS_FLUX_INVALIDE",
-            f"Sens flux invalide : {sens_flux!r} "
-            f"(attendu : DEPENSE / RECUPERATION / REMBOURSEMENT / REFACTURATION / NEUTRE).")
+    # V15 — sens_flux injecté serveur (DEPENSE) : jamais saisi. Valeur navigateur ignorée. Aucune validation.
+
+    # V05d — type_flux_id dérivé côté serveur : doit être déductible (D-CHG-TYPEFLUX-01)
+    type_flux_derive: str | None = None
+    if not has_err("V04_CATEGORIE", "V07_MODE_PAIEMENT") and categorie_id and mode_paiement_id:
+        type_flux_derive = derive_type_flux(
+            categorie_id,
+            mode_paiement_id,
+            form_data.get("refacturable"),
+            form_data.get("paye_avec_montant_recupere"),
+        )
+        if type_flux_derive is None:
+            err("V05_TYPE_FLUX_NON_DERIVABLE",
+                f"Impossible de déduire le type de flux pour catégorie={categorie_id}, "
+                f"mode={mode_paiement_id}.")
+
+    # V19 — commentaire de justification obligatoire si code_impact ≠ code_impact_defaut du type
+    if type_flux_derive and code_impact in STANDARD_CODES_IMPACT:
+        impact_defaut = _type_flux_impact_defaut(type_flux_derive, refs)
+        if impact_defaut and code_impact != impact_defaut:
+            if not str(form_data.get("commentaire", "")).strip():
+                err("V19_COMMENTAIRE_JUSTIFICATION_REQUIS",
+                    f"L'impact choisi ({code_impact}) diffère du défaut du type {type_flux_derive} "
+                    f"({impact_defaut}) — un commentaire de justification est obligatoire.")
 
     return errors
 
 
-def _build_row_data(form_data: dict[str, str], charge_id: str) -> dict[str, Any]:
-    """Construit le dictionnaire de données à injecter dans la copie SAISIE."""
+def _build_row_data(
+    form_data: dict[str, str],
+    charge_id: str,
+    profil_impact: str | None = None,
+    type_flux_id: str | None = None,
+) -> dict[str, Any]:
+    """Construit le dictionnaire de données à injecter dans la copie SAISIE.
+
+    Valeurs techniques injectées côté serveur (jamais du navigateur) : sens_flux=DEPENSE,
+    statut_controle=A_CONTROLER, niveau_anomalie=INFO, prise_en_compta dérivée, type_flux_id dérivé.
+    CHG_024 : toutes les valeurs métier forcées (GLOBAL, non refac, sans logement/prop/resa/intervenant),
+    même si la requête envoie d'autres valeurs.
+    """
     date_charge_raw = str(form_data.get("date_charge", "")).strip()
     date_charge_val: date | None = None
     try:
@@ -386,21 +545,40 @@ def _build_row_data(form_data: dict[str, str], charge_id: str) -> dict[str, Any]
     except ValueError:
         montant_val = None
 
-    # sens_flux : valeur canonique SAISIE, défaut DEPENSE (jamais CHARGE/PRODUIT)
-    sens_flux = str(form_data.get("sens_flux", "")).strip().upper() or DEFAULT_SENS_FLUX
-    # affectation_type : valeur canonique REF_LOCALE (jamais AFF_*)
-    affectation_type = str(form_data.get("affectation_type", "")).strip().upper() or None
     # code_impact standard (IC/HC) → prise_en_compta dérivée (IC=OUI, HC=NON)
     code_impact = str(form_data.get("code_impact", "")).strip().upper() or None
     prise_en_compta = PRISE_EN_COMPTA_BY_IMPACT.get(code_impact) if code_impact else None
+
+    categorie_id = str(form_data.get("categorie_charge_id", "")).strip() or None
+    is_perso = categorie_id == CATEGORIE_PERSONNALISEE
+
+    if is_perso:
+        # CHG_024 : valeurs métier FORCÉES côté serveur (ignore toute valeur navigateur contradictoire)
+        affectation_type = "GLOBAL"
+        affectable_menage = "NON"
+        refacturable = "NON"
+        logement_id = None
+        proprietaire_id = None
+        reservation_id = None
+        intervenant_concerne = None
+    else:
+        affectation_type = str(form_data.get("affectation_type", "")).strip().upper() or None
+        affectable_menage = str(form_data.get("affectable_menage", "")).strip() or None
+        refacturable = str(form_data.get("refacturable", "")).strip() or None
+        logement_id = str(form_data.get("logement_id", "")).strip() or None
+        proprietaire_id = str(form_data.get("proprietaire_id", "")).strip() or None
+        reservation_id = str(form_data.get("reservation_id", "")).strip() or None
+        intervenant_concerne = str(form_data.get("intervenant_concerne", "")).strip() or None
 
     return {
         "charge_id": charge_id,
         "date_charge": date_charge_val.isoformat() if date_charge_val else date_charge_raw,
         "montant": montant_val,
-        "sens_flux": sens_flux,
-        "categorie_charge_id": str(form_data.get("categorie_charge_id", "")).strip() or None,
-        "type_flux_id": str(form_data.get("type_flux_id", "")).strip() or None,
+        # sens_flux injecté serveur (jamais saisi)
+        "sens_flux": DEFAULT_SENS_FLUX,
+        "categorie_charge_id": categorie_id,
+        # type_flux_id dérivé serveur (jamais saisi)
+        "type_flux_id": type_flux_id,
         "code_impact": code_impact,
         # Dérivée du code_impact (D-APP-2B-REV1, D012) — jamais saisie directement
         "prise_en_compta": prise_en_compta,
@@ -408,10 +586,10 @@ def _build_row_data(form_data: dict[str, str], charge_id: str) -> dict[str, Any]
         "mode_paiement_id": str(form_data.get("mode_paiement_id", "")).strip() or None,
         "carte_id": str(form_data.get("carte_id", "")).strip() or None,
         "affectation_type": affectation_type,
-        "logement_id": str(form_data.get("logement_id", "")).strip() or None,
-        "proprietaire_id": str(form_data.get("proprietaire_id", "")).strip() or None,
-        "reservation_id": str(form_data.get("reservation_id", "")).strip() or None,
-        "refacturable": str(form_data.get("refacturable", "")).strip() or None,
+        "logement_id": logement_id,
+        "proprietaire_id": proprietaire_id,
+        "reservation_id": reservation_id,
+        "refacturable": refacturable,
         "source_flux": "SAISIE_MANUELLE",
         "methode_traitement": str(form_data.get("methode_traitement", "")).strip() or None,
         "paye_avec_montant_recupere": str(form_data.get("paye_avec_montant_recupere", "")).strip() or None,
@@ -424,8 +602,11 @@ def _build_row_data(form_data: dict[str, str], charge_id: str) -> dict[str, Any]
         "justificatif": str(form_data.get("justificatif", "")).strip() or None,
         "commentaire": str(form_data.get("commentaire", "")).strip() or None,
         "date_saisie": date.today().isoformat(),
-        "affectable_menage": str(form_data.get("affectable_menage", "")).strip() or None,
-        "intervenant_concerne": str(form_data.get("intervenant_concerne", "")).strip() or None,
+        "affectable_menage": affectable_menage,
+        "intervenant_concerne": intervenant_concerne,
+        # Profil d'impact final + libellé personnalisé (CHG_024)
+        "profil_impact_charge": profil_impact,
+        "libelle_categorie_personnalise": str(form_data.get("libelle_categorie_personnalise", "")).strip() or None,
     }
 
 
@@ -525,7 +706,19 @@ def previsualiser(
         )
         return {"ok": False, "token": token, "run_dir": run_dir, "manifest": manifest}
 
-    row_data = _build_row_data(form_data, charge_id)
+    categorie_id = str(form_data.get("categorie_charge_id", "")).strip()
+    profil_impact = resolve_profil_impact(categorie_id, refs)
+    # type_flux_id dérivé serveur. Pour CHG_024 refacturable forcé NON (jamais TF011).
+    refac_for_derive = None if categorie_id == CATEGORIE_PERSONNALISEE else form_data.get("refacturable")
+    type_flux_id = derive_type_flux(
+        categorie_id,
+        mode_paiement_id,
+        refac_for_derive,
+        form_data.get("paye_avec_montant_recupere"),
+    )
+    row_data = _build_row_data(
+        form_data, charge_id, profil_impact=profil_impact, type_flux_id=type_flux_id
+    )
     _inject_row(copy_path, target_row, row_data)
 
     source_hash_apres = _sha256(source)
@@ -544,6 +737,8 @@ def previsualiser(
         "charge_id": charge_id,
         "mois_charge": mois_charge,
         "assoc_mode": assoc_mode,
+        "profil_impact": profil_impact,
+        "type_flux_id": type_flux_id,
         "target_row": target_row,
         "source_hash_avant": source_hash_avant,
         "source_hash_apres": source_hash_apres,

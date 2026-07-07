@@ -57,16 +57,15 @@ def _sha256(path: Path) -> str:
 def _valid_form() -> dict[str, str]:
     """Formulaire minimal valide (mois 2026-06 ouvert), aligné référentiels Excel.
 
-    Catégorie éligible au formulaire standard (CHG_005 logiciel, non menage/dédié),
-    sens_flux canonique DEPENSE, affectation canonique GLOBAL, impact IC.
-    statut_controle et prise_en_compta ne sont plus saisis (injectés/dérivés).
+    Catégorie éligible au formulaire standard (CHG_005 logiciel, famille GLOBAL).
+    sens_flux, type_flux_id, statut_controle, niveau_anomalie, prise_en_compta ne sont plus
+    saisis (injectés/dérivés serveur). CHG_005 + PAY_001 + IC → type dérivé TYPE_FLUX_020
+    (défaut IC → aucun commentaire requis).
     """
     return {
         "date_charge": "2026-06-15",
         "montant": "85.00",
-        "sens_flux": "DEPENSE",
         "categorie_charge_id": "CHG_005",
-        "type_flux_id": "TYPE_FLUX_002",
         "code_impact": "IC",
         "mode_paiement_id": "PAY_001",
         "affectation_type": "GLOBAL",
@@ -185,12 +184,22 @@ def test_validate_categorie_invalide(refs):
     assert any(c.startswith("V04_CATEGORIE") for c in codes)
 
 
-def test_validate_type_flux_manquant(refs):
+def test_type_flux_non_saisi_derive_ok(refs):
+    # type_flux_id n'est plus saisi : absent du formulaire, dérivé serveur. Aucune erreur V05 manquant.
     form = _valid_form()
-    form["type_flux_id"] = ""
+    form.pop("type_flux_id", None)
     errors = validate_charge(form, refs)
     codes = [e["code"] for e in errors]
-    assert any(c.startswith("V05_TYPE_FLUX") for c in codes)
+    assert not any(c == "V05_TYPE_FLUX_MANQUANT" for c in codes)
+
+
+def test_type_flux_navigateur_ignore(refs):
+    # Une valeur type_flux_id envoyée par le navigateur est ignorée (jamais validée depuis le form).
+    form = _valid_form()
+    form["type_flux_id"] = "TYPE_FLUX_999_BIDON"
+    errors = validate_charge(form, refs)
+    codes = [e["code"] for e in errors]
+    assert not any(c.startswith("V05_TYPE_FLUX_INVALIDE") for c in codes)
 
 
 def test_validate_code_impact_manquant(refs):
@@ -574,39 +583,15 @@ def test_read_ref_codes_impact_contient_ic_hc_hr():
     assert {"IC", "HC", "HR"}.issubset(ids)
 
 
-# ── 16. Sens flux et valeur par défaut ────────────────────────────────────────
+# ── 16. Sens flux injecté serveur (jamais saisi) ─────────────────────────────
 
-def test_validate_sens_flux_invalide(refs):
-    form = _valid_form()
-    form["sens_flux"] = "INCONNU"
-    errors = validate_charge(form, refs)
-    codes = [e["code"] for e in errors]
-    assert "V15_SENS_FLUX_INVALIDE" in codes
-
-
-def test_validate_sens_flux_charge_produit_refuse(refs):
-    # Les valeurs CHARGE/PRODUIT ne sont plus acceptées (canonique SAISIE uniquement).
-    for bad in ("CHARGE", "PRODUIT"):
+def test_sens_flux_navigateur_ignore(refs):
+    # sens_flux n'est plus saisi : toute valeur navigateur est ignorée, aucune validation.
+    for v in ("INCONNU", "CHARGE", "PRODUIT", "REFACTURATION"):
         form = _valid_form()
-        form["sens_flux"] = bad
+        form["sens_flux"] = v
         codes = [e["code"] for e in validate_charge(form, refs)]
-        assert "V15_SENS_FLUX_INVALIDE" in codes, bad
-
-
-def test_validate_sens_flux_canonique_accepte(refs):
-    for ok in ("DEPENSE", "RECUPERATION", "REMBOURSEMENT", "REFACTURATION", "NEUTRE"):
-        form = _valid_form()
-        form["sens_flux"] = ok
-        codes = [e["code"] for e in validate_charge(form, refs)]
-        assert "V15_SENS_FLUX_INVALIDE" not in codes, ok
-
-
-def test_validate_sens_flux_vide_accepte(refs):
-    form = _valid_form()
-    form["sens_flux"] = ""
-    errors = validate_charge(form, refs)
-    codes = [e["code"] for e in errors]
-    assert "V15_SENS_FLUX_INVALIDE" not in codes
+        assert not any(c.startswith("V15_SENS_FLUX") for c in codes), v
 
 
 def _injected_cell(result, col_letter: str):
@@ -657,6 +642,8 @@ def test_prise_en_compta_derivee_ic_oui(tmp_path: Path):
 def test_prise_en_compta_derivee_hc_non(tmp_path: Path):
     form = _valid_form()
     form["code_impact"] = "HC"
+    # TF020 défaut IC ; HC diffère → commentaire de justification obligatoire (V19)
+    form["commentaire"] = "Hors compta volontaire"
     result = previsualiser(form, dryruns_root=tmp_path / "dryruns")
     assert result["ok"], result["manifest"].get("errors")
     assert str(_injected_cell(result, "K") or "").strip() == "NON"
@@ -687,7 +674,10 @@ def test_code_impact_ic_hc_acceptes(refs):
         assert not any(c.startswith("V06_CODE_IMPACT") for c in codes), ok
 
 
-@pytest.mark.parametrize("cat", ["CHG_001", "CHG_002", "CHG_014", "CHG_020", "CHG_021", "CHG_022"])
+@pytest.mark.parametrize("cat", [
+    "CHG_001", "CHG_002", "CHG_012", "CHG_013", "CHG_014",
+    "CHG_015", "CHG_019", "CHG_020", "CHG_021", "CHG_022",
+])
 def test_categorie_hors_formulaire_refusee(refs, cat):
     form = _valid_form()
     form["categorie_charge_id"] = cat
@@ -697,8 +687,15 @@ def test_categorie_hors_formulaire_refusee(refs, cat):
 
 def test_load_form_refs_categories_excluent_parcours_dedies(refs):
     ids = {str(c.get("categorie_charge_id", "")).strip() for c in refs["categories"]}
-    for excluded in ("CHG_001", "CHG_002", "CHG_014", "CHG_020", "CHG_021", "CHG_022"):
+    for excluded in ("CHG_001", "CHG_002", "CHG_012", "CHG_013", "CHG_014",
+                     "CHG_015", "CHG_019", "CHG_020", "CHG_021", "CHG_022"):
         assert excluded not in ids, excluded
+
+
+def test_load_form_refs_modes_excluent_pay005_pay006(refs):
+    ids = {str(m.get("mode_paiement_id", "")).strip() for m in refs["modes_paiement"]}
+    assert "PAY_005" not in ids
+    assert "PAY_006" not in ids
 
 
 def test_load_form_refs_codes_impact_ic_hc_seulement(refs):
@@ -731,3 +728,272 @@ def test_previsualiser_affectation_canonique_injectee(tmp_path: Path):
     assert result["ok"], result["manifest"].get("errors")
     # Colonne O = affectation_type
     assert str(_injected_cell(result, "O") or "").strip() == "GLOBAL"
+
+
+# ── 18. Profils d'impact — prévisualisation (Commit 3) ───────────────────────
+
+from app.services.charges_preview_service import resolve_profil_impact  # noqa: E402
+
+
+@pytest.mark.parametrize("cat", ["CHG_003", "CHG_004", "CHG_018", "CHG_023"])
+def test_menage_categorie_bloquee(refs, cat):
+    form = _valid_form()
+    form["categorie_charge_id"] = cat
+    codes = [e["code"] for e in validate_charge(form, refs)]
+    assert "V16_MENAGE_PARCOURS_DEDIE" in codes, cat
+
+
+def test_global_categorie_previsualisable(refs):
+    form = _valid_form()
+    form["categorie_charge_id"] = "CHG_005"
+    codes = [e["code"] for e in validate_charge(form, refs)]
+    assert "V16_MENAGE_PARCOURS_DEDIE" not in codes
+    assert "V04_CATEGORIE_HORS_FORMULAIRE" not in codes
+
+
+def test_resolve_profil_impact_global(refs):
+    assert resolve_profil_impact("CHG_005", refs) == "GLOBAL"
+
+
+def test_resolve_profil_impact_chg024_global(refs):
+    assert resolve_profil_impact("CHG_024", refs) == "GLOBAL"
+
+
+def test_profil_impact_injecte_dans_copie(tmp_path: Path):
+    result = previsualiser(_valid_form(), dryruns_root=tmp_path / "dryruns")
+    assert result["ok"], result["manifest"].get("errors")
+    # Colonne AH = profil_impact_charge
+    assert str(_injected_cell(result, "AH") or "").strip() == "GLOBAL"
+    assert result["manifest"]["profil_impact"] == "GLOBAL"
+
+
+def _form_chg024() -> dict[str, str]:
+    form = _valid_form()
+    form["categorie_charge_id"] = "CHG_024"
+    form["libelle_categorie_personnalise"] = "Frais divers exceptionnel"
+    return form
+
+
+def test_chg024_libelle_requis(refs):
+    form = _form_chg024()
+    form["libelle_categorie_personnalise"] = ""
+    codes = [e["code"] for e in validate_charge(form, refs)]
+    assert "V17_LIBELLE_PERSONNALISE_MANQUANT" in codes
+
+
+def test_chg024_valide_ok(refs):
+    codes = [e["code"] for e in validate_charge(_form_chg024(), refs)]
+    assert not any(c.startswith("V17") or c.startswith("V18") for c in codes), codes
+
+
+def test_chg024_logement_interdit(refs):
+    form = _form_chg024()
+    form["affectation_type"] = "LOGEMENT"
+    form["logement_id"] = "LOG_0001"
+    codes = [e["code"] for e in validate_charge(form, refs)]
+    assert "V18_PERSONNALISE_NON_GLOBAL" in codes
+
+
+def test_chg024_reservation_interdite(refs):
+    form = _form_chg024()
+    form["reservation_id"] = "12345"
+    codes = [e["code"] for e in validate_charge(form, refs)]
+    assert "V18_PERSONNALISE_RESERVATION_INTERDITE" in codes
+
+
+def test_chg024_intervenant_interdit(refs):
+    form = _form_chg024()
+    form["intervenant_concerne"] = "INT_0001"
+    codes = [e["code"] for e in validate_charge(form, refs)]
+    assert "V18_PERSONNALISE_INTERVENANT_INTERDIT" in codes
+
+
+def test_chg024_refacturable_interdit(refs):
+    form = _form_chg024()
+    form["refacturable"] = "OUI"
+    codes = [e["code"] for e in validate_charge(form, refs)]
+    assert "V18_PERSONNALISE_REFAC_INTERDITE" in codes
+
+
+def test_chg024_previsualisation_force_global_et_menage_non(tmp_path: Path):
+    result = previsualiser(_form_chg024(), dryruns_root=tmp_path / "dryruns")
+    assert result["ok"], result["manifest"].get("errors")
+    assert result["manifest"]["profil_impact"] == "GLOBAL"
+    assert str(_injected_cell(result, "AH") or "").strip() == "GLOBAL"
+    # AF = affectable_menage forcé NON
+    assert str(_injected_cell(result, "AF") or "").strip() == "NON"
+    # AI = libelle_categorie_personnalise
+    assert str(_injected_cell(result, "AI") or "").strip() == "Frais divers exceptionnel"
+
+
+def test_menage_categorie_refuse_previsualisation(tmp_path: Path):
+    form = _valid_form()
+    form["categorie_charge_id"] = "CHG_003"
+    result = previsualiser(form, dryruns_root=tmp_path / "dryruns")
+    assert result["ok"] is False
+    codes = [e["code"] for e in result["manifest"]["errors"]]
+    assert "V16_MENAGE_PARCOURS_DEDIE" in codes
+
+
+# ── 19. Dérivation type_flux serveur (Phase 2 — D-CHG-TYPEFLUX-01) ────────────
+
+from app.services.charges_preview_service import derive_type_flux  # noqa: E402
+
+
+def test_derive_pay001_tf020():
+    assert derive_type_flux("CHG_005", "PAY_001", None, None) == "TYPE_FLUX_020"
+
+
+def test_derive_pay002_recupere_tf008():
+    assert derive_type_flux("CHG_005", "PAY_002", None, "OUI") == "TYPE_FLUX_008"
+
+
+def test_derive_pay002_non_recupere_tf004():
+    assert derive_type_flux("CHG_005", "PAY_002", None, "NON") == "TYPE_FLUX_004"
+    assert derive_type_flux("CHG_005", "PAY_002", None, None) == "TYPE_FLUX_004"
+
+
+def test_derive_pay003_pay004_tf004():
+    assert derive_type_flux("CHG_005", "PAY_003", None, None) == "TYPE_FLUX_004"
+    assert derive_type_flux("CHG_005", "PAY_004", None, None) == "TYPE_FLUX_004"
+
+
+def test_derive_pay005_pay006_none():
+    assert derive_type_flux("CHG_005", "PAY_005", None, None) is None
+    assert derive_type_flux("CHG_005", "PAY_006", None, None) is None
+
+
+def test_derive_chg010_tf016():
+    assert derive_type_flux("CHG_010", "PAY_001", None, None) == "TYPE_FLUX_016"
+
+
+def test_derive_chg016_tf012():
+    assert derive_type_flux("CHG_016", "PAY_002", None, None) == "TYPE_FLUX_012"
+
+
+def test_derive_chg008_chg011_refacturable_tf011():
+    assert derive_type_flux("CHG_008", "PAY_001", "OUI", None) == "TYPE_FLUX_011"
+    assert derive_type_flux("CHG_011", "PAY_002", "OUI", None) == "TYPE_FLUX_011"
+
+
+def test_derive_chg008_chg011_non_refacturable_suit_reglement():
+    assert derive_type_flux("CHG_008", "PAY_001", "NON", None) == "TYPE_FLUX_020"
+    assert derive_type_flux("CHG_011", "PAY_003", None, None) == "TYPE_FLUX_004"
+
+
+def test_derive_chg024_jamais_tf011():
+    # CHG_024 refacturable ignoré → jamais TF011 ; suit le règlement.
+    assert derive_type_flux("CHG_024", "PAY_001", "OUI", None) == "TYPE_FLUX_020"
+
+
+def test_previsualiser_injecte_type_flux_derive(tmp_path: Path):
+    form = _valid_form()  # CHG_005 + PAY_001
+    result = previsualiser(form, dryruns_root=tmp_path / "dryruns")
+    assert result["ok"], result["manifest"].get("errors")
+    # Colonne G = type_flux_id
+    assert str(_injected_cell(result, "G") or "").strip() == "TYPE_FLUX_020"
+    assert result["manifest"]["type_flux_id"] == "TYPE_FLUX_020"
+
+
+def test_previsualiser_chg010_injecte_tf016(tmp_path: Path):
+    form = _valid_form()
+    form["categorie_charge_id"] = "CHG_010"
+    result = previsualiser(form, dryruns_root=tmp_path / "dryruns")
+    assert result["ok"], result["manifest"].get("errors")
+    assert str(_injected_cell(result, "G") or "").strip() == "TYPE_FLUX_016"
+
+
+def test_mode_interdit_pay005_refuse(refs):
+    form = _valid_form()
+    form["mode_paiement_id"] = "PAY_005"
+    codes = [e["code"] for e in validate_charge(form, refs)]
+    assert "V07_MODE_PAIEMENT_INTERDIT" in codes
+
+
+def test_mode_interdit_pay006_refuse(refs):
+    form = _valid_form()
+    form["mode_paiement_id"] = "PAY_006"
+    codes = [e["code"] for e in validate_charge(form, refs)]
+    assert "V07_MODE_PAIEMENT_INTERDIT" in codes
+
+
+# ── 20. Commentaire obligatoire si impact ≠ défaut du type ───────────────────
+
+def test_commentaire_requis_si_impact_diff_defaut(refs):
+    # CHG_005 + PAY_001 → TF020 (défaut IC). Choisir HC diffère → commentaire requis.
+    form = _valid_form()
+    form["code_impact"] = "HC"
+    form.pop("commentaire", None)
+    codes = [e["code"] for e in validate_charge(form, refs)]
+    assert "V19_COMMENTAIRE_JUSTIFICATION_REQUIS" in codes
+
+
+def test_commentaire_fourni_leve_exigence(refs):
+    form = _valid_form()
+    form["code_impact"] = "HC"
+    form["commentaire"] = "Justification : hors compta volontaire"
+    codes = [e["code"] for e in validate_charge(form, refs)]
+    assert "V19_COMMENTAIRE_JUSTIFICATION_REQUIS" not in codes
+
+
+def test_pas_de_commentaire_requis_si_impact_egal_defaut(refs):
+    # CHG_005 + PAY_001 → TF020 (défaut IC). Choisir IC = défaut → pas de commentaire requis.
+    form = _valid_form()
+    form["code_impact"] = "IC"
+    form.pop("commentaire", None)
+    codes = [e["code"] for e in validate_charge(form, refs)]
+    assert "V19_COMMENTAIRE_JUSTIFICATION_REQUIS" not in codes
+
+
+# ── 21. CHG_024 : forçage serveur complet (requête manipulée) ────────────────
+
+def test_chg024_force_toutes_valeurs_global_meme_si_manipule(tmp_path: Path):
+    # Requête manipulée envoyant logement/refac/reservation → doit être refusée (V18) OU forcée.
+    # Ici on envoie un formulaire CHG_024 valide et on vérifie le forçage serveur.
+    form = _form_chg024()  # PAY_001, code IC
+    result = previsualiser(form, dryruns_root=tmp_path / "dryruns")
+    assert result["ok"], result["manifest"].get("errors")
+    assert result["manifest"]["profil_impact"] == "GLOBAL"
+    assert str(_injected_cell(result, "AH") or "").strip() == "GLOBAL"   # profil_impact_charge
+    assert str(_injected_cell(result, "O") or "").strip() == "GLOBAL"    # affectation_type forcé
+    assert str(_injected_cell(result, "AF") or "").strip() == "NON"      # affectable_menage
+    assert str(_injected_cell(result, "S") or "").strip() in ("NON", "")  # refacturable forcé NON/None
+    # logement (P), proprietaire (Q), reservation (R), intervenant (AG) vides
+    for col in ("P", "Q", "R", "AG"):
+        assert (_injected_cell(result, col) in (None, "")), col
+    # type_flux dérivé du règlement (PAY_001 → TF020), jamais TF011
+    assert str(_injected_cell(result, "G") or "").strip() == "TYPE_FLUX_020"
+
+
+# ── 22. type_flux_id et sens_flux absents du HTML formulaire ──────────────────
+
+def test_type_flux_et_sens_flux_absents_du_html(client):
+    r = client.get("/fournisseurs/nouvelle")
+    assert r.status_code == 200
+    html = r.text
+    assert 'name="type_flux_id"' not in html
+    assert 'name="sens_flux"' not in html
+    assert 'name="statut_controle"' not in html
+    assert 'name="niveau_anomalie"' not in html
+    assert 'name="prise_en_compta"' not in html
+
+
+def test_categories_dediees_et_menage_absentes_du_formulaire(client):
+    r = client.get("/fournisseurs/nouvelle")
+    assert r.status_code == 200
+    html = r.text
+    # Catégories dédiées et ménage ne doivent pas apparaître comme options sélectionnables
+    for cat in ("CHG_001", "CHG_002", "CHG_003", "CHG_012", "CHG_014", "CHG_021", "CHG_023"):
+        assert f'value="{cat}"' not in html, cat
+    # PAY_005 / PAY_006 absents du dropdown mode
+    assert 'value="PAY_005"' not in html
+    assert 'value="PAY_006"' not in html
+
+
+def test_source_saisie_inchangee_apres_previsualisation_phase2(tmp_path: Path):
+    # Aucune écriture réelle : hash SAISIE inchangé.
+    hash_avant = _sha256(cfg.SAISIE_CHARGES)
+    previsualiser(_valid_form(), dryruns_root=tmp_path / "dryruns")
+    previsualiser(_form_chg024(), dryruns_root=tmp_path / "dryruns2")
+    hash_apres = _sha256(cfg.SAISIE_CHARGES)
+    assert hash_avant == hash_apres

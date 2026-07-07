@@ -55,6 +55,14 @@
           <td><code>{{ manifest.assoc_mode or "—" }}</code></td>
         </tr>
         <tr>
+          <td>Profil d'impact</td>
+          <td><code>{{ manifest.profil_impact or "—" }}</code></td>
+        </tr>
+        <tr>
+          <td>Type de flux (déduit)</td>
+          <td><code>{{ manifest.type_flux_id or "—" }}</code></td>
+        </tr>
+        <tr>
           <td>Ligne cible (copie)</td>
           <td>{{ manifest.target_row or "—" }}</td>
         </tr>
@@ -67,8 +75,8 @@
           <td>{{ manifest.form_data.get('montant', '—') }} €</td>
         </tr>
         <tr>
-          <td>Sens flux</td>
-          <td>{{ manifest.form_data.get('sens_flux', 'CHARGE') }}</td>
+          <td>Sens flux (injecté)</td>
+          <td>DEPENSE</td>
         </tr>
       </tbody>
     </table>
@@ -79,9 +87,9 @@
     <table class="dryrun-table">
       <tbody>
         <tr><td>Catégorie</td><td>{{ manifest.form_data.get('categorie_charge_id', '—') }}</td></tr>
-        <tr><td>Type flux</td><td>{{ manifest.form_data.get('type_flux_id', '—') }}</td></tr>
+        <tr><td>Type flux (déduit)</td><td><code>{{ manifest.type_flux_id or "—" }}</code></td></tr>
         <tr><td>Code impact</td><td>{{ manifest.form_data.get('code_impact', '—') }}</td></tr>
-        <tr><td>Statut contrôle</td><td>{{ manifest.form_data.get('statut_controle', '—') }}</td></tr>
+        <tr><td>Statut contrôle (injecté)</td><td>A_CONTROLER</td></tr>
       </tbody>
     </table>
   </section>
