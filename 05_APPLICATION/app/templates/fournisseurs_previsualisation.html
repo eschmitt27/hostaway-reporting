@@ -163,6 +163,21 @@
 </section>
 {% endif %}
 
+{% if manifest.persist_report %}
+<section class="card" data-testid="persistance-durable">
+  <h2>Persistance durable (aperçu — écrit sur copie contrôlée)</h2>
+  {% set pr = manifest.persist_report %}
+  <p>Cible : source de vérité <code>SAISIE_Charges_Impacts.xlsx</code> (liée par charge_id).
+     Aucune écriture réelle (flags désactivés).</p>
+  <ul style="margin:0; padding-left: var(--stack-lg);">
+    <li>Affectations analytiques : <strong>{{ pr.affectations_ecrites }}</strong></li>
+    <li>Impacts ménage : <strong>{{ pr.menage_ecrits }}</strong></li>
+    <li>Réserves refacturables : <strong>{{ pr.reserve_ecrites }}</strong></li>
+    <li>Avantage associé (Lot7) : <strong>{{ 'Oui' if pr.avantage_ecrit else 'Non' }}</strong></li>
+  </ul>
+</section>
+{% endif %}
+
 <section class="card">
   <h2>Intégrité source</h2>
   <table class="dryrun-table">

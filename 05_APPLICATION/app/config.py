@@ -27,6 +27,11 @@ MASTER_RUN_LOG = TRAVAIL / "Lot1_Hostaway" / "MASTER_RUN_Log.xlsx"
 # Charges / Fournisseurs (APP-3a) — LECTURE SEULE
 MASTER_CHARGES = TRAVAIL / "Lot3_Charges" / "MASTER_FACT_MAN_Charges.xlsx"
 SAISIE_CHARGES = SOURCES_BRUTES / "Charges" / "SAISIE_Charges_Flux.xlsx"
+# Source de vérité durable des impacts analytiques d'une charge (saisie, distincte des masters calc).
+# Onglets normalisés liés par charge_id : AFFECTATIONS, MENAGE, RESERVE_REFACTURATION.
+SAISIE_CHARGES_IMPACTS = SOURCES_BRUTES / "Charges" / "SAISIE_Charges_Impacts.xlsx"
+# Source de saisie durable des avantages associés (Lot7 existant, onglet SOURCE_SAISIE).
+SAISIE_IK_AVANTAGES = TRAVAIL / "Lot7_IK_Avantages" / "MASTER_FACT_MAN_IK_Avantages.xlsx"
 # Réservations résolues (APP-3b-1) — source de validation reservation_id, LECTURE SEULE
 MASTER_CALC_RESERVATIONS_RESOLUES = TRAVAIL / "Lot4quater_SourceResolue" / "MASTER_CALC_Reservations_Resolues.xlsx"
 # Propriétaires & règlements (APP-3c) — LECTURE SEULE

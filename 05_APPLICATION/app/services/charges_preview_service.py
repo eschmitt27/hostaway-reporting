@@ -41,6 +41,7 @@ from app.readers.saisie_charges_reader import (
     reservation_id_exists,
 )
 from app.services import charges_impact_service as impact
+from app.services import charges_impacts_persist_service as persist
 
 DRYRUNS_DIR = cfg.DRYRUNS_DIR
 SAISIE_COPY_NAME = "SAISIE_Charges_Flux_copie.xlsx"
@@ -957,6 +958,24 @@ def previsualiser(
     )
     _inject_row(copy_path, target_row, row_data)
 
+    # ── Persistance durable (sur COPIE contrôlée, jamais le fichier réel — flags off) ──
+    try:
+        montant_pre = float(str(form_data.get("montant", "0")).strip().replace(",", "."))
+    except ValueError:
+        montant_pre = 0.0
+    persistable = persist.build_persistable(charge_id, mois_charge_pre, montant_pre, guide, form_data)
+    impacts_copy = run_dir / "SAISIE_Charges_Impacts_copie.xlsx"
+    persist_report = None
+    if cfg.SAISIE_CHARGES_IMPACTS.exists():
+        shutil.copy2(cfg.SAISIE_CHARGES_IMPACTS, impacts_copy)
+        _assert_under(impacts_copy, root)
+        avantages_copy = None
+        if persistable.get("avantage") and cfg.SAISIE_IK_AVANTAGES.exists():
+            avantages_copy = run_dir / "SOURCE_AVANTAGES_copie.xlsx"
+            shutil.copy2(cfg.SAISIE_IK_AVANTAGES, avantages_copy)
+            _assert_under(avantages_copy, root)
+        persist_report = persist.persister_sur_copie(persistable, impacts_copy, avantages_copy)
+
     source_hash_apres = _sha256(source)
     source_inchangee = source_hash_avant == source_hash_apres
     copy_hash = _sha256(copy_path)
@@ -985,6 +1004,9 @@ def previsualiser(
         "avantage_associe": guide["avantage_associe"],
         "avantage_associe_id": guide["associe_id"],
         "effet_saisie": guide["effet"],
+        # Persistance durable (aperçu de ce qui serait écrit dans SAISIE_Charges_Impacts / Lot7)
+        "persistable": persistable,
+        "persist_report": persist_report,
         "source_hash_avant": source_hash_avant,
         "source_hash_apres": source_hash_apres,
         "source_inchangee": source_inchangee,

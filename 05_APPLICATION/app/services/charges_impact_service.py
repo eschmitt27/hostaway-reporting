@@ -124,12 +124,21 @@ def compute_perimetre_logements(
         finaux.update(logs)
     finaux_tries = sorted(finaux)
 
+    # Propriétaire par logement final (gestion active du mois) — trace sans concaténation.
+    prop_par_log: dict[str, str] = {}
+    for r in gestion_rows:
+        if gestion_active_pour_mois(r, mois):
+            lid = str(r.get("logement_id", "")).strip()
+            if lid in finaux and lid not in prop_par_log:
+                prop_par_log[lid] = str(r.get("proprietaire_id", "")).strip()
+
     return {
         "logements_directs": sorted(set(directs)),
         "proprietaires": sorted(set(props)),
         "logements_via_proprietaires": via_prop,
         "logements_finaux": finaux_tries,
         "nb_logements_finaux": len(finaux_tries),
+        "proprietaire_par_logement": prop_par_log,
         "global_conciergerie": len(finaux_tries) == 0 and len(props) == 0,
     }
 
