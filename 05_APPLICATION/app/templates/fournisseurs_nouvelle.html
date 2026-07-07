@@ -58,10 +58,18 @@
         </div>
 
         <div class="form-group">
-          <label for="sens_flux">Sens flux</label>
+          <label for="sens_flux">Sens du flux</label>
           <select id="sens_flux" name="sens_flux">
-            <option value="CHARGE" {% if form.get('sens_flux', 'CHARGE') == 'CHARGE' %}selected{% endif %}>CHARGE</option>
-            <option value="PRODUIT" {% if form.get('sens_flux') == 'PRODUIT' %}selected{% endif %}>PRODUIT</option>
+            {% set sens_labels = {
+              'DEPENSE': 'Dépense',
+              'RECUPERATION': 'Récupération',
+              'REMBOURSEMENT': 'Remboursement',
+              'REFACTURATION': 'Refacturation',
+              'NEUTRE': 'Neutre'
+            } %}
+            {% for sv, sl in sens_labels.items() %}
+            <option value="{{ sv }}" {% if form.get('sens_flux', 'DEPENSE') == sv %}selected{% endif %}>{{ sl }}</option>
+            {% endfor %}
           </select>
         </div>
 
@@ -102,29 +110,21 @@
         </div>
 
         <div class="form-group">
-          <label for="code_impact">Code impact <span class="required">*</span></label>
+          <label for="code_impact">Impact sur le résultat <span class="required">*</span></label>
+          {% set impact_labels = {
+            'IC': 'Impacte le résultat réel et comptable',
+            'HC': 'Impacte le résultat réel, hors compta'
+          } %}
           <select id="code_impact" name="code_impact" required>
             <option value="">— Sélectionner —</option>
             {% for ci in refs.get('codes_impact', []) %}
             <option value="{{ ci.code_impact }}"
                     {% if form.get('code_impact') == ci.code_impact %}selected{% endif %}>
-              {{ ci.code_impact }} — {{ ci.libelle }}
+              {{ impact_labels.get(ci.code_impact, ci.libelle) }}
             </option>
             {% endfor %}
           </select>
-        </div>
-
-        <div class="form-group">
-          <label for="statut_controle">Statut de contrôle <span class="required">*</span></label>
-          <select id="statut_controle" name="statut_controle" required>
-            <option value="">— Sélectionner —</option>
-            {% for s in refs.get('statuts_import', []) %}
-            <option value="{{ s.statut }}"
-                    {% if form.get('statut_controle') == s.statut %}selected{% endif %}>
-              {{ s.statut }}
-            </option>
-            {% endfor %}
-          </select>
+          <p class="form-help text-secondary">« À comptabiliser » est déduit automatiquement : IC → oui, HC → non.</p>
         </div>
 
       </div>
@@ -192,9 +192,9 @@
           <select id="affectation_type" name="affectation_type" required>
             <option value="">— Sélectionner —</option>
             {% for a in refs.get('affectation_types', []) %}
-            <option value="{{ a.affectation_id }}"
-                    {% if form.get('affectation_type') == a.affectation_id %}selected{% endif %}>
-              {{ a.affectation_id }} — {{ a.type_affectation }}
+            <option value="{{ a.type_affectation }}"
+                    {% if form.get('affectation_type') == a.type_affectation %}selected{% endif %}>
+              {{ a.type_affectation }}
             </option>
             {% endfor %}
           </select>
@@ -223,22 +223,6 @@
       </div>
     </fieldset>
 
-    <!-- ── Réservation liée (CHG_021) ── -->
-    <fieldset style="border:none; padding:0; margin:0 0 var(--stack-xl);" id="group_reservation" style="display:none;">
-      <legend class="text-sm text-secondary" style="font-weight:600; margin-bottom:var(--stack-md);">
-        Réservation liée
-      </legend>
-      <div class="form-grid">
-        <div class="form-group">
-          <label for="reservation_id">Identifiant réservation <span class="required">*</span></label>
-          <input type="text" id="reservation_id" name="reservation_id"
-                 value="{{ form.get('reservation_id', '') }}"
-                 placeholder="ID Hostaway ou HH">
-          <p class="form-help text-secondary">Obligatoire pour catégorie CHG_021 (Incident voyageur).</p>
-        </div>
-      </div>
-    </fieldset>
-
     <!-- ── Champs optionnels ── -->
     <fieldset style="border:none; padding:0; margin:0 0 var(--stack-xl);">
       <legend class="text-sm text-secondary" style="font-weight:600; margin-bottom:var(--stack-md);">
@@ -252,15 +236,6 @@
             <option value="">— Non renseigné —</option>
             <option value="OUI" {% if form.get('refacturable') == 'OUI' %}selected{% endif %}>OUI</option>
             <option value="NON" {% if form.get('refacturable') == 'NON' %}selected{% endif %}>NON</option>
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label for="prise_en_compta">Prise en compta</label>
-          <select id="prise_en_compta" name="prise_en_compta">
-            <option value="">— Non renseigné —</option>
-            <option value="OUI" {% if form.get('prise_en_compta') == 'OUI' %}selected{% endif %}>OUI</option>
-            <option value="NON" {% if form.get('prise_en_compta') == 'NON' %}selected{% endif %}>NON</option>
           </select>
         </div>
 
@@ -307,7 +282,6 @@
 (function () {
   var MODES_ASSOCIE = ["PAY_003", "PAY_004"];
   var MODE_CARTE = "PAY_003";
-  var CATEGORIE_RESERVATION = ["CHG_021"];
 
   function show(id) {
     var el = document.getElementById(id);
@@ -335,11 +309,12 @@
   }
 
   function updateAffectation() {
+    // Valeurs canoniques REF_LOCALE : LOGEMENT / PROPRIETAIRE / GLOBAL / NON_AFFECTABLE
     var aff = document.getElementById("affectation_type").value;
-    if (aff === "AFF_LOGEMENT") {
+    if (aff === "LOGEMENT") {
       show("group_logement_id");
       hide("group_proprietaire_id");
-    } else if (aff === "AFF_PROPRIETAIRE") {
+    } else if (aff === "PROPRIETAIRE") {
       hide("group_logement_id");
       show("group_proprietaire_id");
     } else {
@@ -348,25 +323,12 @@
     }
   }
 
-  function updateCategorie() {
-    var cat = document.getElementById("categorie_charge_id").value;
-    var grp = document.getElementById("group_reservation");
-    if (CATEGORIE_RESERVATION.indexOf(cat) >= 0) {
-      grp.style.display = "";
-    } else {
-      grp.style.display = "none";
-      document.getElementById("reservation_id").value = "";
-    }
-  }
-
   document.getElementById("mode_paiement_id").addEventListener("change", updatePaiement);
   document.getElementById("affectation_type").addEventListener("change", updateAffectation);
-  document.getElementById("categorie_charge_id").addEventListener("change", updateCategorie);
 
   // Initialise on load (repopulate after error redisplay)
   updatePaiement();
   updateAffectation();
-  updateCategorie();
 })();
 </script>
 {% endblock %}

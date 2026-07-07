@@ -55,17 +55,21 @@ def _sha256(path: Path) -> str:
 
 
 def _valid_form() -> dict[str, str]:
-    """Formulaire minimal valide (mois 2026-06 ouvert)."""
+    """Formulaire minimal valide (mois 2026-06 ouvert), aligné référentiels Excel.
+
+    Catégorie éligible au formulaire standard (CHG_005 logiciel, non menage/dédié),
+    sens_flux canonique DEPENSE, affectation canonique GLOBAL, impact IC.
+    statut_controle et prise_en_compta ne sont plus saisis (injectés/dérivés).
+    """
     return {
         "date_charge": "2026-06-15",
         "montant": "85.00",
-        "sens_flux": "CHARGE",
-        "categorie_charge_id": "CHG_001",
-        "type_flux_id": "TYPE_FLUX_014",
+        "sens_flux": "DEPENSE",
+        "categorie_charge_id": "CHG_005",
+        "type_flux_id": "TYPE_FLUX_002",
         "code_impact": "IC",
         "mode_paiement_id": "PAY_001",
-        "affectation_type": "AFF_GLOBAL",
-        "statut_controle": "A_IMPORTER",
+        "affectation_type": "GLOBAL",
     }
 
 
@@ -205,12 +209,13 @@ def test_validate_mode_paiement_manquant(refs):
     assert any(c.startswith("V07_MODE_PAIEMENT") for c in codes)
 
 
-def test_validate_statut_controle_manquant(refs):
+def test_validate_statut_controle_non_saisi_ok(refs):
+    # statut_controle n'est plus un champ saisi : le formulaire valide sans lui.
     form = _valid_form()
-    form["statut_controle"] = ""
+    form.pop("statut_controle", None)
     errors = validate_charge(form, refs)
     codes = [e["code"] for e in errors]
-    assert any(c.startswith("V14_STATUT_CONTROLE") for c in codes)
+    assert not any(c.startswith("V14_STATUT_CONTROLE") for c in codes)
 
 
 def test_validate_affectation_type_manquant(refs):
@@ -326,7 +331,7 @@ def test_resolve_assoc_mode_wafa_perso():
 
 def test_validate_logement_requis_si_aff_logement(refs):
     form = _valid_form()
-    form["affectation_type"] = "AFF_LOGEMENT"
+    form["affectation_type"] = "LOGEMENT"
     form.pop("logement_id", None)
     errors = validate_charge(form, refs)
     codes = [e["code"] for e in errors]
@@ -335,7 +340,7 @@ def test_validate_logement_requis_si_aff_logement(refs):
 
 def test_validate_logement_invalide(refs):
     form = _valid_form()
-    form["affectation_type"] = "AFF_LOGEMENT"
+    form["affectation_type"] = "LOGEMENT"
     form["logement_id"] = "LOG_INEXISTANT"
     errors = validate_charge(form, refs)
     codes = [e["code"] for e in errors]
@@ -344,7 +349,7 @@ def test_validate_logement_invalide(refs):
 
 def test_validate_proprietaire_requis_si_aff_proprietaire(refs):
     form = _valid_form()
-    form["affectation_type"] = "AFF_PROPRIETAIRE"
+    form["affectation_type"] = "PROPRIETAIRE"
     form.pop("proprietaire_id", None)
     errors = validate_charge(form, refs)
     codes = [e["code"] for e in errors]
@@ -353,10 +358,19 @@ def test_validate_proprietaire_requis_si_aff_proprietaire(refs):
 
 def test_validate_global_ne_requiert_pas_logement(refs):
     form = _valid_form()
-    form["affectation_type"] = "AFF_GLOBAL"
+    form["affectation_type"] = "GLOBAL"
     errors = validate_charge(form, refs)
     codes = [e["code"] for e in errors]
     assert not any(c.startswith("V12") for c in codes)
+
+
+def test_validate_affectation_prefixe_aff_refuse(refs):
+    # Ancien style AFF_* n'est plus accepté : seules les valeurs canoniques REF_LOCALE.
+    form = _valid_form()
+    form["affectation_type"] = "AFF_GLOBAL"
+    errors = validate_charge(form, refs)
+    codes = [e["code"] for e in errors]
+    assert "V11_AFFECTATION_INVALIDE" in codes
 
 
 # ── 8. Validation — reservation_id (CHG_021) ─────────────────────────────────
@@ -370,9 +384,9 @@ def test_validate_reservation_requise_chg021(refs):
     assert "V13_RESERVATION_MANQUANTE" in codes
 
 
-def test_validate_reservation_non_requise_chg001(refs):
+def test_validate_reservation_non_requise_categorie_standard(refs):
     form = _valid_form()
-    form["categorie_charge_id"] = "CHG_001"
+    form["categorie_charge_id"] = "CHG_005"  # catégorie standard éligible
     form.pop("reservation_id", None)
     errors = validate_charge(form, refs)
     codes = [e["code"] for e in errors]
@@ -570,6 +584,23 @@ def test_validate_sens_flux_invalide(refs):
     assert "V15_SENS_FLUX_INVALIDE" in codes
 
 
+def test_validate_sens_flux_charge_produit_refuse(refs):
+    # Les valeurs CHARGE/PRODUIT ne sont plus acceptées (canonique SAISIE uniquement).
+    for bad in ("CHARGE", "PRODUIT"):
+        form = _valid_form()
+        form["sens_flux"] = bad
+        codes = [e["code"] for e in validate_charge(form, refs)]
+        assert "V15_SENS_FLUX_INVALIDE" in codes, bad
+
+
+def test_validate_sens_flux_canonique_accepte(refs):
+    for ok in ("DEPENSE", "RECUPERATION", "REMBOURSEMENT", "REFACTURATION", "NEUTRE"):
+        form = _valid_form()
+        form["sens_flux"] = ok
+        codes = [e["code"] for e in validate_charge(form, refs)]
+        assert "V15_SENS_FLUX_INVALIDE" not in codes, ok
+
+
 def test_validate_sens_flux_vide_accepte(refs):
     form = _valid_form()
     form["sens_flux"] = ""
@@ -578,20 +609,125 @@ def test_validate_sens_flux_vide_accepte(refs):
     assert "V15_SENS_FLUX_INVALIDE" not in codes
 
 
-def test_previsualiser_sens_flux_defaut_charge(tmp_path: Path):
+def _injected_cell(result, col_letter: str):
+    import openpyxl
+    copy_path = Path(result["manifest"]["paths"]["saisie_copy"])
+    target_row = result["manifest"]["target_row"]
+    col = _col_index(col_letter)
+    wb = openpyxl.load_workbook(str(copy_path), data_only=True)
+    try:
+        return wb["SAISIE"].cell(row=target_row, column=col).value
+    finally:
+        wb.close()
+
+
+def test_previsualiser_sens_flux_defaut_depense(tmp_path: Path):
     form = _valid_form()
     form["sens_flux"] = ""
     result = previsualiser(form, dryruns_root=tmp_path / "dryruns")
     assert result["ok"], result["manifest"].get("errors")
-    # Vérifie la valeur injectée dans la copie
-    import openpyxl
-    copy_path = Path(result["manifest"]["paths"]["saisie_copy"])
-    target_row = result["manifest"]["target_row"]
-    col_e = _col_index("E")
-    wb = openpyxl.load_workbook(str(copy_path), data_only=True)
-    try:
-        ws = wb["SAISIE"]
-        val = ws.cell(row=target_row, column=col_e).value
-    finally:
-        wb.close()
-    assert str(val or "").upper() == "CHARGE"
+    assert str(_injected_cell(result, "E") or "").upper() == "DEPENSE"
+
+
+# ── 17. Alignement référentiels Excel (Commit 1) ─────────────────────────────
+
+def test_statut_controle_auto_injecte_a_controler(tmp_path: Path):
+    result = previsualiser(_valid_form(), dryruns_root=tmp_path / "dryruns")
+    assert result["ok"], result["manifest"].get("errors")
+    # Colonne X = statut_controle
+    assert str(_injected_cell(result, "X") or "").strip() == "A_CONTROLER"
+
+
+def test_niveau_anomalie_auto_injecte_info(tmp_path: Path):
+    result = previsualiser(_valid_form(), dryruns_root=tmp_path / "dryruns")
+    assert result["ok"], result["manifest"].get("errors")
+    # Colonne Y = niveau_anomalie
+    assert str(_injected_cell(result, "Y") or "").strip() == "INFO"
+
+
+def test_prise_en_compta_derivee_ic_oui(tmp_path: Path):
+    form = _valid_form()
+    form["code_impact"] = "IC"
+    result = previsualiser(form, dryruns_root=tmp_path / "dryruns")
+    assert result["ok"], result["manifest"].get("errors")
+    # Colonne K = prise_en_compta
+    assert str(_injected_cell(result, "K") or "").strip() == "OUI"
+
+
+def test_prise_en_compta_derivee_hc_non(tmp_path: Path):
+    form = _valid_form()
+    form["code_impact"] = "HC"
+    result = previsualiser(form, dryruns_root=tmp_path / "dryruns")
+    assert result["ok"], result["manifest"].get("errors")
+    assert str(_injected_cell(result, "K") or "").strip() == "NON"
+
+
+def test_prise_en_compta_form_ignoree(tmp_path: Path):
+    # Une valeur prise_en_compta envoyée par le formulaire est ignorée (dérivée du code_impact).
+    form = _valid_form()
+    form["code_impact"] = "IC"
+    form["prise_en_compta"] = "NON"  # mensonge → doit être écrasé par OUI (IC)
+    result = previsualiser(form, dryruns_root=tmp_path / "dryruns")
+    assert result["ok"], result["manifest"].get("errors")
+    assert str(_injected_cell(result, "K") or "").strip() == "OUI"
+
+
+def test_code_impact_hr_refuse(refs):
+    form = _valid_form()
+    form["code_impact"] = "HR"
+    codes = [e["code"] for e in validate_charge(form, refs)]
+    assert "V06_CODE_IMPACT_HORS_STANDARD" in codes
+
+
+def test_code_impact_ic_hc_acceptes(refs):
+    for ok in ("IC", "HC"):
+        form = _valid_form()
+        form["code_impact"] = ok
+        codes = [e["code"] for e in validate_charge(form, refs)]
+        assert not any(c.startswith("V06_CODE_IMPACT") for c in codes), ok
+
+
+@pytest.mark.parametrize("cat", ["CHG_001", "CHG_002", "CHG_014", "CHG_020", "CHG_021", "CHG_022"])
+def test_categorie_hors_formulaire_refusee(refs, cat):
+    form = _valid_form()
+    form["categorie_charge_id"] = cat
+    codes = [e["code"] for e in validate_charge(form, refs)]
+    assert "V04_CATEGORIE_HORS_FORMULAIRE" in codes, cat
+
+
+def test_load_form_refs_categories_excluent_parcours_dedies(refs):
+    ids = {str(c.get("categorie_charge_id", "")).strip() for c in refs["categories"]}
+    for excluded in ("CHG_001", "CHG_002", "CHG_014", "CHG_020", "CHG_021", "CHG_022"):
+        assert excluded not in ids, excluded
+
+
+def test_load_form_refs_codes_impact_ic_hc_seulement(refs):
+    ids = {str(c.get("code_impact", "")).strip() for c in refs["codes_impact"]}
+    assert ids <= {"IC", "HC"}
+    assert "HR" not in ids
+
+
+def test_load_form_refs_statuts_controle_famille(refs):
+    # Le formulaire n'utilise plus la famille import ; famille statut_controle uniquement.
+    assert "statuts_import" not in refs
+    familles = {str(s.get("famille_statut", "")).strip() for s in refs["statuts_controle"]}
+    assert familles == {"statut_controle"}
+    statuts = {str(s.get("statut", "")).strip() for s in refs["statuts_controle"]}
+    assert "A_CONTROLER" in statuts
+    # Aucune valeur de la famille import (A_IMPORTER/IMPORTE/CORRIGE...) présente
+    for import_val in ("A_IMPORTER", "IMPORTE", "CORRIGE", "REJETE"):
+        assert import_val not in statuts
+
+
+def test_load_form_refs_affectation_canonique(refs):
+    vals = {str(a.get("type_affectation", "")).strip() for a in refs["affectation_types"]}
+    assert vals == {"LOGEMENT", "PROPRIETAIRE", "GLOBAL", "NON_AFFECTABLE"}
+
+
+def test_previsualiser_affectation_canonique_injectee(tmp_path: Path):
+    form = _valid_form()
+    form["affectation_type"] = "GLOBAL"
+    result = previsualiser(form, dryruns_root=tmp_path / "dryruns")
+    assert result["ok"], result["manifest"].get("errors")
+    # Colonne O = affectation_type
+    assert str(_injected_cell(result, "O") or "").strip() == "GLOBAL"

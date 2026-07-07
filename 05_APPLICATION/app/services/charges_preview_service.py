@@ -45,6 +45,27 @@ CATEGORIE_REQUIRES_RESERVATION: frozenset[str] = frozenset({"CHG_021"})
 MODES_REQUIRES_ASSOCIE: frozenset[str] = frozenset({"PAY_003", "PAY_004"})
 MODE_CARTE = "PAY_003"
 
+# ── Alignement référentiels Excel (Commit 1 — APP aligne saisie charges) ──
+# Catégories hors formulaire « Nouvelle charge » standard (parcours dédiés).
+FORM_EXCLUDED_CATEGORIES: frozenset[str] = frozenset(
+    {"CHG_001", "CHG_002", "CHG_014", "CHG_020", "CHG_021", "CHG_022"}
+)
+# Formulaire standard : IC et HC seulement ; HR hors parcours Nouvelle charge.
+STANDARD_CODES_IMPACT: frozenset[str] = frozenset({"IC", "HC"})
+# Valeurs canoniques SAISIE Excel (REF_LOCALE) — jamais CHARGE/PRODUIT ni AFF_*.
+CANONICAL_SENS_FLUX: frozenset[str] = frozenset(
+    {"DEPENSE", "RECUPERATION", "REMBOURSEMENT", "REFACTURATION", "NEUTRE"}
+)
+CANONICAL_AFFECTATION: frozenset[str] = frozenset(
+    {"LOGEMENT", "PROPRIETAIRE", "GLOBAL", "NON_AFFECTABLE"}
+)
+DEFAULT_SENS_FLUX = "DEPENSE"
+# Valeurs injectées automatiquement (jamais saisies par l'utilisateur).
+AUTO_STATUT_CONTROLE = "A_CONTROLER"
+AUTO_NIVEAU_ANOMALIE = "INFO"
+# prise_en_compta dérivée du code_impact (IC=OUI, HC=NON).
+PRISE_EN_COMPTA_BY_IMPACT: dict[str, str] = {"IC": "OUI", "HC": "NON"}
+
 
 class ChargesPreviewError(RuntimeError):
     pass
@@ -97,9 +118,10 @@ def load_form_refs(ref_path: Path | None = None) -> dict[str, Any]:
     def is_active(row: dict[str, Any]) -> bool:
         return str(row.get("actif", "")).upper() == "OUI"
 
-    statuts_import = [
+    # Famille statut_controle (jamais famille import) — sert au contrôle défensif V14.
+    statuts_controle = [
         s for s in statuts
-        if s.get("famille_statut") == "import" and is_active(s)
+        if s.get("famille_statut") == "statut_controle" and is_active(s)
     ]
     mois_ouverts = [
         m for m in cloture
@@ -107,16 +129,27 @@ def load_form_refs(ref_path: Path | None = None) -> dict[str, Any]:
     ]
 
     return {
-        "categories": [c for c in categories if is_active(c)],
+        # Catégories du formulaire standard : hors parcours dédiés (CHG_001/002/014/020/021/022).
+        "categories": [
+            c for c in categories
+            if is_active(c)
+            and str(c.get("categorie_charge_id", "")).strip() not in FORM_EXCLUDED_CATEGORIES
+        ],
         "types_flux": [t for t in types_flux if is_active(t)],
-        "codes_impact": [c for c in codes_impact if is_active(c)],
+        # Code impact : IC et HC seulement (HR hors formulaire standard).
+        "codes_impact": [
+            c for c in codes_impact
+            if is_active(c) and str(c.get("code_impact", "")).strip() in STANDARD_CODES_IMPACT
+        ],
         "modes_paiement": [m for m in modes_paiement if is_active(m)],
         "associes": [a for a in associes if is_active(a)],
         "cartes": [c for c in cartes if is_active(c)],
         "logements": [l for l in logements if is_active(l)],
         "assoc_mode": assoc_mode_rows,
+        # Non filtré par actif : la valeur canonique (LOGEMENT/PROPRIETAIRE/GLOBAL/NON_AFFECTABLE)
+        # est la vérité (REF_LOCALE). V11 valide contre CANONICAL_AFFECTATION.
         "affectation_types": affectation_types,
-        "statuts_import": statuts_import,
+        "statuts_controle": statuts_controle,
         "mois_ouverts": mois_ouverts,
         "cloture": cloture,
     }
@@ -209,11 +242,14 @@ def validate_charge(
         except ValueError:
             err("V03_MONTANT_NON_NUMERIQUE", f"Montant non convertible : {montant_raw!r}.")
 
-    # V04 — categorie_charge_id obligatoire et valide
+    # V04 — categorie_charge_id obligatoire, valide, et éligible au formulaire standard
     categorie_id = str(form_data.get("categorie_charge_id", "")).strip()
     valid_categories = {str(c.get("categorie_charge_id", "")).strip() for c in refs["categories"]}
     if not categorie_id:
         err("V04_CATEGORIE_MANQUANTE", "La catégorie de charge est obligatoire.")
+    elif categorie_id in FORM_EXCLUDED_CATEGORIES:
+        err("V04_CATEGORIE_HORS_FORMULAIRE",
+            f"La catégorie {categorie_id} relève d'un parcours dédié — hors formulaire Nouvelle charge standard.")
     elif categorie_id not in valid_categories:
         err("V04_CATEGORIE_INVALIDE", f"Catégorie inconnue : {categorie_id!r}.")
 
@@ -225,13 +261,14 @@ def validate_charge(
     elif type_flux_id not in valid_types_flux:
         err("V05_TYPE_FLUX_INVALIDE", f"Type de flux inconnu : {type_flux_id!r}.")
 
-    # V06 — code_impact obligatoire et valide
-    code_impact = str(form_data.get("code_impact", "")).strip()
-    valid_codes_impact = {str(c.get("code_impact", "")).strip() for c in refs["codes_impact"]}
+    # V06 — code_impact obligatoire ; formulaire standard = IC ou HC seulement (HR exclu)
+    code_impact = str(form_data.get("code_impact", "")).strip().upper()
     if not code_impact:
         err("V06_CODE_IMPACT_MANQUANT", "Le code d'impact est obligatoire.")
-    elif code_impact not in valid_codes_impact:
-        err("V06_CODE_IMPACT_INVALIDE", f"Code impact inconnu : {code_impact!r}.")
+    elif code_impact not in STANDARD_CODES_IMPACT:
+        err("V06_CODE_IMPACT_HORS_STANDARD",
+            f"Code impact {code_impact!r} hors formulaire standard : seuls IC (résultat réel et comptable) "
+            f"et HC (résultat réel, hors compta) sont autorisés. HR relève d'un parcours dédié.")
 
     # V07 — mode_paiement_id obligatoire et valide
     mode_paiement_id = str(form_data.get("mode_paiement_id", "")).strip()
@@ -280,17 +317,18 @@ def validate_charge(
                 f"Aucune correspondance REF_Assoc_Mode pour mode={mode_paiement_id}, "
                 f"associe={associe_id!r}.")
 
-    # V11 — affectation_type obligatoire et valide
-    affectation_type = str(form_data.get("affectation_type", "")).strip()
-    valid_affectation = {str(a.get("affectation_id", "")).strip() for a in refs["affectation_types"]}
+    # V11 — affectation_type obligatoire et valide (valeurs canoniques REF_LOCALE, jamais AFF_*)
+    affectation_type = str(form_data.get("affectation_type", "")).strip().upper()
     if not affectation_type:
         err("V11_AFFECTATION_MANQUANTE", "Le type d'affectation est obligatoire.")
-    elif affectation_type not in valid_affectation:
-        err("V11_AFFECTATION_INVALIDE", f"Type d'affectation inconnu : {affectation_type!r}.")
+    elif affectation_type not in CANONICAL_AFFECTATION:
+        err("V11_AFFECTATION_INVALIDE",
+            f"Type d'affectation invalide : {affectation_type!r} "
+            f"(attendu : LOGEMENT / PROPRIETAIRE / GLOBAL / NON_AFFECTABLE).")
 
-    # V12 — logement_id requis si AFF_LOGEMENT
+    # V12 — logement_id requis si affectation LOGEMENT
     logement_id = str(form_data.get("logement_id", "")).strip() or None
-    if affectation_type == "AFF_LOGEMENT":
+    if affectation_type == "LOGEMENT":
         valid_logements = {str(l.get("logement_id", "")).strip() for l in refs["logements"]}
         if not logement_id:
             err("V12_LOGEMENT_MANQUANT",
@@ -298,9 +336,9 @@ def validate_charge(
         elif logement_id not in valid_logements:
             err("V12_LOGEMENT_INVALIDE", f"Logement inconnu : {logement_id!r}.")
 
-    # V12b — proprietaire_id requis si AFF_PROPRIETAIRE
+    # V12b — proprietaire_id requis si affectation PROPRIETAIRE
     proprietaire_id = str(form_data.get("proprietaire_id", "")).strip() or None
-    if affectation_type == "AFF_PROPRIETAIRE" and not proprietaire_id:
+    if affectation_type == "PROPRIETAIRE" and not proprietaire_id:
         err("V12B_PROPRIETAIRE_MANQUANT",
             "Le propriétaire est obligatoire pour l'affectation PROPRIETAIRE.")
 
@@ -316,20 +354,19 @@ def validate_charge(
                     f"Réservation introuvable dans MASTER_CALC_Reservations_Resolues : "
                     f"{reservation_id!r}.")
 
-    # V14 — statut_controle obligatoire et valide (famille import)
-    statut_controle = str(form_data.get("statut_controle", "")).strip()
-    valid_statuts = {str(s.get("statut", "")).strip() for s in refs["statuts_import"]}
-    if not statut_controle:
-        err("V14_STATUT_CONTROLE_MANQUANT", "Le statut de contrôle est obligatoire.")
-    elif statut_controle not in valid_statuts:
-        err("V14_STATUT_CONTROLE_INVALIDE",
-            f"Statut de contrôle inconnu : {statut_controle!r}.")
+    # V14 — statut_controle injecté automatiquement (A_CONTROLER) ; contrôle défensif famille
+    # statut_controle (jamais famille import). Le statut n'est jamais saisi par l'utilisateur.
+    valid_statuts_controle = {str(s.get("statut", "")).strip() for s in refs["statuts_controle"]}
+    if AUTO_STATUT_CONTROLE not in valid_statuts_controle:
+        err("V14_STATUT_CONTROLE_REF_ABSENT",
+            f"Statut auto {AUTO_STATUT_CONTROLE} absent de la famille statut_controle du référentiel.")
 
-    # V15 — sens_flux valide si fourni (défaut accepté vide → CHARGE)
+    # V15 — sens_flux valeurs canoniques SAISIE Excel si fourni (défaut vide → DEPENSE)
     sens_flux = str(form_data.get("sens_flux", "")).strip().upper()
-    if sens_flux and sens_flux not in ("CHARGE", "PRODUIT"):
+    if sens_flux and sens_flux not in CANONICAL_SENS_FLUX:
         err("V15_SENS_FLUX_INVALIDE",
-            f"Sens flux invalide : {sens_flux!r} (attendu : CHARGE ou PRODUIT).")
+            f"Sens flux invalide : {sens_flux!r} "
+            f"(attendu : DEPENSE / RECUPERATION / REMBOURSEMENT / REFACTURATION / NEUTRE).")
 
     return errors
 
@@ -349,7 +386,13 @@ def _build_row_data(form_data: dict[str, str], charge_id: str) -> dict[str, Any]
     except ValueError:
         montant_val = None
 
-    sens_flux = str(form_data.get("sens_flux", "")).strip().upper() or "CHARGE"
+    # sens_flux : valeur canonique SAISIE, défaut DEPENSE (jamais CHARGE/PRODUIT)
+    sens_flux = str(form_data.get("sens_flux", "")).strip().upper() or DEFAULT_SENS_FLUX
+    # affectation_type : valeur canonique REF_LOCALE (jamais AFF_*)
+    affectation_type = str(form_data.get("affectation_type", "")).strip().upper() or None
+    # code_impact standard (IC/HC) → prise_en_compta dérivée (IC=OUI, HC=NON)
+    code_impact = str(form_data.get("code_impact", "")).strip().upper() or None
+    prise_en_compta = PRISE_EN_COMPTA_BY_IMPACT.get(code_impact) if code_impact else None
 
     return {
         "charge_id": charge_id,
@@ -358,12 +401,13 @@ def _build_row_data(form_data: dict[str, str], charge_id: str) -> dict[str, Any]
         "sens_flux": sens_flux,
         "categorie_charge_id": str(form_data.get("categorie_charge_id", "")).strip() or None,
         "type_flux_id": str(form_data.get("type_flux_id", "")).strip() or None,
-        "code_impact": str(form_data.get("code_impact", "")).strip() or None,
-        "prise_en_compta": str(form_data.get("prise_en_compta", "")).strip() or None,
+        "code_impact": code_impact,
+        # Dérivée du code_impact (D-APP-2B-REV1, D012) — jamais saisie directement
+        "prise_en_compta": prise_en_compta,
         "associe_id": str(form_data.get("associe_id", "")).strip() or None,
         "mode_paiement_id": str(form_data.get("mode_paiement_id", "")).strip() or None,
         "carte_id": str(form_data.get("carte_id", "")).strip() or None,
-        "affectation_type": str(form_data.get("affectation_type", "")).strip() or None,
+        "affectation_type": affectation_type,
         "logement_id": str(form_data.get("logement_id", "")).strip() or None,
         "proprietaire_id": str(form_data.get("proprietaire_id", "")).strip() or None,
         "reservation_id": str(form_data.get("reservation_id", "")).strip() or None,
@@ -372,8 +416,9 @@ def _build_row_data(form_data: dict[str, str], charge_id: str) -> dict[str, Any]
         "methode_traitement": str(form_data.get("methode_traitement", "")).strip() or None,
         "paye_avec_montant_recupere": str(form_data.get("paye_avec_montant_recupere", "")).strip() or None,
         "lien_virement_banque": str(form_data.get("lien_virement_banque", "")).strip() or None,
-        "statut_controle": str(form_data.get("statut_controle", "")).strip() or None,
-        "niveau_anomalie": str(form_data.get("niveau_anomalie", "")).strip() or None,
+        # Injectés automatiquement — jamais saisis par l'utilisateur
+        "statut_controle": AUTO_STATUT_CONTROLE,
+        "niveau_anomalie": AUTO_NIVEAU_ANOMALIE,
         "code_anomalie": str(form_data.get("code_anomalie", "")).strip() or None,
         "statut_rapprochement": "NON_RAPPROCHE",
         "justificatif": str(form_data.get("justificatif", "")).strip() or None,
