@@ -48,6 +48,9 @@ MANUAL_COL_MAP: dict[str, str] = {
     "AE": "date_saisie",
     "AF": "affectable_menage",
     "AG": "intervenant_concerne",
+    # Profils d'impact + catégorie personnalisée (migration CHG_024)
+    "AH": "profil_impact_charge",
+    "AI": "libelle_categorie_personnalise",
 }
 
 
