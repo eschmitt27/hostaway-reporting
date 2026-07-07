@@ -52,7 +52,15 @@ def fournisseurs_nouvelle_form(request: Request):
 @router.post("/fournisseurs/nouvelle/previsualiser", response_class=HTMLResponse)
 async def fournisseurs_nouvelle_previsualiser(request: Request):
     form_raw = await request.form()
-    form_data = {k: str(v) for k, v in form_raw.items()}
+    # Champs multi-valeurs (cases à cocher / multi-select) transportés en listes.
+    MULTI = {"logements", "proprietaires", "menage_intervenants",
+             "menage_logements", "menage_proprietaires"}
+    form_data: dict = {}
+    for k in form_raw.keys():
+        if k in MULTI:
+            form_data[k] = [str(v) for v in form_raw.getlist(k)]
+        else:
+            form_data[k] = str(form_raw[k])
     result = previsualiser(form_data)
     if not result["ok"]:
         refs = load_form_refs()

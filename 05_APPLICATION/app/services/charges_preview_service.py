@@ -29,6 +29,9 @@ from app.readers.saisie_charges_reader import (
     read_ref_categories_charges,
     read_ref_cloture,
     read_ref_codes_impact,
+    read_ref_couts_standards_menage,
+    read_ref_gestion_logements,
+    read_ref_intervenants,
     read_ref_logements,
     read_ref_modes_paiement,
     read_ref_statuts,
@@ -36,6 +39,7 @@ from app.readers.saisie_charges_reader import (
     read_ref_types_flux,
     reservation_id_exists,
 )
+from app.services import charges_impact_service as impact
 
 DRYRUNS_DIR = cfg.DRYRUNS_DIR
 SAISIE_COPY_NAME = "SAISIE_Charges_Flux_copie.xlsx"
@@ -127,6 +131,173 @@ def derive_type_flux(
     return TYPE_FLUX_BY_MODE.get(mode)
 
 
+def _getlist(form_data: dict[str, Any], key: str) -> list[str]:
+    """Récupère une valeur multi-champ (liste ou str) en liste de str non vides."""
+    v = form_data.get(key)
+    if v is None:
+        return []
+    if isinstance(v, (list, tuple, set)):
+        return [str(x).strip() for x in v if str(x).strip()]
+    s = str(v).strip()
+    return [s] if s else []
+
+
+def resolve_impact_menage(categorie_id: str, form_data: dict[str, Any]) -> tuple[bool, str]:
+    """Résout l'impact ménage effectif + le comportement catalogue.
+
+    FORCE → toujours Oui. INTERDIT → toujours Non. CHOIX → valeur formulaire.
+    """
+    comportement = impact.menage_comportement(categorie_id)
+    if comportement == impact.MENAGE_FORCE:
+        return True, comportement
+    if comportement == impact.MENAGE_INTERDIT:
+        return False, comportement
+    val = str(form_data.get("impact_menage", "")).strip().upper()
+    return (val == "OUI"), comportement
+
+
+def compute_guidee(
+    form_data: dict[str, Any],
+    refs: dict[str, Any],
+    mois: str,
+) -> dict[str, Any]:
+    """Valide et calcule les impacts guidés (périmètre / ménage / réserve / avantage / effet).
+
+    Retourne {errors, impact_menage, perimetre, menage, reserve, avantage, effet, affectation}.
+    Aucune écriture réelle : structures de prévisualisation uniquement.
+    """
+    errors: list[dict[str, str]] = []
+
+    def err(code: str, message: str) -> None:
+        errors.append({"code": code, "message": message})
+
+    categorie_id = str(form_data.get("categorie_charge_id", "")).strip()
+    code_impact = str(form_data.get("code_impact", "")).strip().upper()
+    try:
+        montant = float(str(form_data.get("montant", "0")).strip().replace(",", "."))
+    except ValueError:
+        montant = 0.0
+
+    impact_menage, comportement = resolve_impact_menage(categorie_id, form_data)
+
+    # Cohérence impact ménage vs catalogue
+    form_menage = str(form_data.get("impact_menage", "")).strip().upper()
+    if comportement == impact.MENAGE_INTERDIT and form_menage == "OUI":
+        err("V20_IMPACT_MENAGE_INTERDIT",
+            f"La catégorie {categorie_id} ne peut pas impacter le coût ménage.")
+
+    gestion_rows = refs.get("gestion_logements", [])
+    perimetre = None
+    menage = None
+    reserve = None
+    refacturable_effectif = False
+    avantage_associe = False
+    # Avantage associé : champ DISTINCT du mode de paiement (associe_id du paiement).
+    avantage_assoc_id = str(form_data.get("avantage_associe_id", "")).strip() or None
+
+    if impact_menage:
+        # ── Parcours ménage (analytique) ──
+        mode = str(form_data.get("menage_mode", "")).strip().upper()
+        menage_mois = str(form_data.get("menage_mois", "")).strip() or mois
+        if mode not in (impact.MENAGE_MODE_INTERVENANT, impact.MENAGE_MODE_LOGEMENT):
+            err("V16_MENAGE_PARCOURS_DEDIE",
+                "Parcours ménage requis : choisir la répartition par intervenant(s) OU par logement(s).")
+        else:
+            menage = impact.menage_perimetre(
+                mode,
+                _getlist(form_data, "menage_intervenants"),
+                _getlist(form_data, "menage_logements"),
+                _getlist(form_data, "menage_proprietaires"),
+                menage_mois,
+                gestion_rows,
+            )
+            if menage["nb"] == 0:
+                err("V21_MENAGE_PERIMETRE_VIDE",
+                    "Le périmètre ménage est vide : sélectionner au moins un intervenant ou un logement.")
+        # Charge ménage jamais refacturable
+        if str(form_data.get("refacturable", "")).strip().upper() == "OUI":
+            err("V22_MENAGE_NON_REFACTURABLE",
+                "Une charge ménage ne peut jamais être refacturable.")
+    else:
+        # ── Périmètre analytique non ménage ──
+        logements_directs = _getlist(form_data, "logements")
+        proprietaires = _getlist(form_data, "proprietaires")
+        # Validation existence
+        valid_logs = {str(l.get("logement_id", "")).strip() for l in refs.get("logements", [])}
+        for lid in logements_directs:
+            if lid not in valid_logs:
+                err("V23_LOGEMENT_INCONNU", f"Logement inconnu : {lid!r}.")
+        perimetre = impact.compute_perimetre_logements(
+            logements_directs, proprietaires, mois, gestion_rows
+        )
+        # Refacturable : seulement si ≥1 logement final
+        if str(form_data.get("refacturable", "")).strip().upper() == "OUI":
+            if perimetre["nb_logements_finaux"] < 1:
+                err("V24_REFAC_SANS_LOGEMENT",
+                    "Refacturable impossible : le périmètre final ne comprend aucun logement cible.")
+            else:
+                refacturable_effectif = True
+
+    # ── Avantage associé ──
+    form_avantage = str(form_data.get("avantage_associe", "")).strip().upper()
+    if form_avantage == "OUI":
+        if not impact.avantage_possible(categorie_id):
+            err("V25_AVANTAGE_INTERDIT",
+                f"L'avantage associé n'est pas applicable à la catégorie {categorie_id}.")
+        elif not avantage_assoc_id:
+            err("V26_AVANTAGE_SANS_ASSOCIE",
+                "Avantage associé = Oui : la sélection de l'associé est obligatoire.")
+        else:
+            valid_assoc = {str(a.get("personne_id", "")).strip() for a in refs.get("associes", [])}
+            if avantage_assoc_id not in valid_assoc:
+                err("V26_AVANTAGE_ASSOCIE_INVALIDE", f"Associé inconnu : {avantage_assoc_id!r}.")
+            else:
+                avantage_associe = True
+
+    # ── Réserve de facturation (si refacturable effectif, non ménage) ──
+    if refacturable_effectif and perimetre:
+        quotes = impact.repartir_egal(montant, perimetre["logements_finaux"])
+        prop_par_log = {}
+        for r in gestion_rows:
+            if impact.gestion_active_pour_mois(r, mois):
+                prop_par_log.setdefault(
+                    str(r.get("logement_id", "")).strip(), str(r.get("proprietaire_id", "")).strip()
+                )
+        reserve = impact.build_reserve_refacturation(
+            charge_id="(prévisualisation)",
+            mois=mois,
+            libelle=str(form_data.get("commentaire", "")).strip()
+            or impact.catalog_entry(categorie_id).get("label", categorie_id) if impact.catalog_entry(categorie_id) else categorie_id,
+            justificatif=str(form_data.get("justificatif", "")).strip() or None,
+            quotes_parts=quotes,
+            proprietaire_par_logement=prop_par_log,
+        )
+
+    effet = impact.build_effet_saisie(
+        code_impact=code_impact,
+        impact_menage=impact_menage,
+        perimetre=perimetre,
+        menage=menage,
+        refacturable=refacturable_effectif,
+        reserve=reserve,
+        avantage_associe=avantage_associe,
+        associe_id=avantage_assoc_id,
+    )
+
+    return {
+        "errors": errors,
+        "impact_menage": impact_menage,
+        "menage_comportement": comportement,
+        "perimetre": perimetre,
+        "menage": menage,
+        "reserve": reserve,
+        "refacturable_effectif": refacturable_effectif,
+        "avantage_associe": avantage_associe,
+        "associe_id": avantage_assoc_id if avantage_associe else None,
+        "effet": effet,
+    }
+
+
 class ChargesPreviewError(RuntimeError):
     pass
 
@@ -174,6 +345,9 @@ def load_form_refs(ref_path: Path | None = None) -> dict[str, Any]:
     assoc_mode_rows = read_ref_assoc_mode(p)
     affectation_types = read_ref_types_affectation(p)
     statuts = read_ref_statuts(p)
+    gestion_rows = read_ref_gestion_logements(p)
+    intervenants = read_ref_intervenants(p)
+    couts_standards = read_ref_couts_standards_menage(p)
 
     def is_active(row: dict[str, Any]) -> bool:
         return str(row.get("actif", "")).upper() == "OUI"
@@ -193,12 +367,33 @@ def load_form_refs(ref_path: Path | None = None) -> dict[str, Any]:
     def famille(c: dict[str, Any]) -> str:
         return str(c.get("famille_impact_categorie", "")).strip()
 
+    def visible_form(c: dict[str, Any]) -> bool:
+        cid = str(c.get("categorie_charge_id", "")).strip()
+        # Visible = présente au catalogue métier, hors exclusions explicites.
+        return (
+            cid in impact.CATEGORY_CATALOG
+            and cid not in impact.CATEGORIES_HORS_FORMULAIRE_EXPLICITE
+        )
+
+    # Enrichit chaque catégorie visible du libellé + comportement métier (catalogue).
+    def enrichie(c: dict[str, Any]) -> dict[str, Any]:
+        cid = str(c.get("categorie_charge_id", "")).strip()
+        e = impact.CATEGORY_CATALOG.get(cid, {})
+        d = dict(c)
+        d["label_metier"] = e.get("label", cid)
+        d["groupe_metier"] = e.get("groupe", "Autre")
+        d["menage_comportement"] = e.get("menage", impact.MENAGE_INTERDIT)
+        d["avantage_possible"] = bool(e.get("avantage", False))
+        return d
+
     return {
-        # Dropdown : familles standard uniquement (GLOBAL / LOGEMENT_DIRECT).
-        # Familles MENAGE et PARCOURS_DEDIE absentes du formulaire.
-        "categories": [c for c in categories_actives if famille(c) in FAMILLES_STANDARD],
+        # Dropdown : catégories du catalogue métier (inclut ménage → parcours ménage).
+        "categories": [enrichie(c) for c in categories_actives if visible_form(c)],
         # Toutes les catégories actives (famille intacte) — validation défensive côté serveur.
         "categories_all": categories_actives,
+        "gestion_logements": gestion_rows,
+        "intervenants": [i for i in intervenants if is_active(i)],
+        "couts_standards": couts_standards,
         # types_flux conservé pour lookup code_impact_defaut (dérivation), pas pour dropdown.
         "types_flux": [t for t in types_flux if is_active(t)],
         # Code impact : IC et HC seulement (HR hors formulaire standard).
@@ -346,8 +541,7 @@ def validate_charge(
         except ValueError:
             err("V03_MONTANT_NON_NUMERIQUE", f"Montant non convertible : {montant_raw!r}.")
 
-    # V04 — categorie_charge_id obligatoire, valide, et éligible au formulaire standard.
-    # Éligibilité par famille (categories_all) : familles MENAGE et PARCOURS_DEDIE refusées.
+    # V04 — categorie_charge_id obligatoire, valide, visible au catalogue Nouvelle charge.
     categorie_id = str(form_data.get("categorie_charge_id", "")).strip()
     valid_categories_all = {str(c.get("categorie_charge_id", "")).strip() for c in refs.get("categories_all", refs["categories"])}
     famille = category_famille(categorie_id, refs) if categorie_id else ""
@@ -358,13 +552,15 @@ def validate_charge(
     elif famille == FAMILLE_PARCOURS_DEDIE:
         err("V04_CATEGORIE_HORS_FORMULAIRE",
             f"La catégorie {categorie_id} relève d'un parcours dédié — hors formulaire Nouvelle charge standard.")
+    elif (categorie_id not in impact.CATEGORY_CATALOG
+          or categorie_id in impact.CATEGORIES_HORS_FORMULAIRE_EXPLICITE):
+        err("V04_CATEGORIE_HORS_FORMULAIRE",
+            f"La catégorie {categorie_id} n'est pas saisissable en Nouvelle charge "
+            f"(forfait client / récurrente / parcours dédié).")
 
-    # V16 — familles MENAGE : parcours dédié requis (ventilation sélective Lot6f non conçue)
-    if famille == FAMILLE_MENAGE:
-        err("V16_MENAGE_PARCOURS_DEDIE",
-            "Les charges ménage nécessitent un parcours dédié (répartition par intervenant ou par "
-            "logements sélectionnés) — indisponible tant que la ventilation Lot6f et les lignes filles "
-            "ne sont pas conçues et validées. Aucune prévisualisation ménage en formulaire standard.")
+    # Mode guidé (nouveau formulaire) = absence du champ legacy affectation_type.
+    # Le formulaire guidé pilote l'affectation par périmètre/ménage (pas de affectation_type).
+    guided = "affectation_type" not in form_data
 
     # V05 — type_flux_id N'EST PLUS saisi : dérivé côté serveur (D-CHG-TYPEFLUX-01).
     # Toute valeur type_flux_id envoyée par le navigateur est ignorée.
@@ -429,30 +625,27 @@ def validate_charge(
                 f"Aucune correspondance REF_Assoc_Mode pour mode={mode_paiement_id}, "
                 f"associe={associe_id!r}.")
 
-    # V11 — affectation_type obligatoire et valide (valeurs canoniques REF_LOCALE, jamais AFF_*)
+    # V11/V12/V12b — affectation legacy (mono-champ). Ignorées en mode guidé (périmètre/ménage).
     affectation_type = str(form_data.get("affectation_type", "")).strip().upper()
-    if not affectation_type:
-        err("V11_AFFECTATION_MANQUANTE", "Le type d'affectation est obligatoire.")
-    elif affectation_type not in CANONICAL_AFFECTATION:
-        err("V11_AFFECTATION_INVALIDE",
-            f"Type d'affectation invalide : {affectation_type!r} "
-            f"(attendu : LOGEMENT / PROPRIETAIRE / GLOBAL / NON_AFFECTABLE).")
-
-    # V12 — logement_id requis si affectation LOGEMENT
     logement_id = str(form_data.get("logement_id", "")).strip() or None
-    if affectation_type == "LOGEMENT":
-        valid_logements = {str(l.get("logement_id", "")).strip() for l in refs["logements"]}
-        if not logement_id:
-            err("V12_LOGEMENT_MANQUANT",
-                "Le logement est obligatoire pour l'affectation LOGEMENT.")
-        elif logement_id not in valid_logements:
-            err("V12_LOGEMENT_INVALIDE", f"Logement inconnu : {logement_id!r}.")
-
-    # V12b — proprietaire_id requis si affectation PROPRIETAIRE
     proprietaire_id = str(form_data.get("proprietaire_id", "")).strip() or None
-    if affectation_type == "PROPRIETAIRE" and not proprietaire_id:
-        err("V12B_PROPRIETAIRE_MANQUANT",
-            "Le propriétaire est obligatoire pour l'affectation PROPRIETAIRE.")
+    if not guided:
+        if not affectation_type:
+            err("V11_AFFECTATION_MANQUANTE", "Le type d'affectation est obligatoire.")
+        elif affectation_type not in CANONICAL_AFFECTATION:
+            err("V11_AFFECTATION_INVALIDE",
+                f"Type d'affectation invalide : {affectation_type!r} "
+                f"(attendu : LOGEMENT / PROPRIETAIRE / GLOBAL / NON_AFFECTABLE).")
+        if affectation_type == "LOGEMENT":
+            valid_logements = {str(l.get("logement_id", "")).strip() for l in refs["logements"]}
+            if not logement_id:
+                err("V12_LOGEMENT_MANQUANT",
+                    "Le logement est obligatoire pour l'affectation LOGEMENT.")
+            elif logement_id not in valid_logements:
+                err("V12_LOGEMENT_INVALIDE", f"Logement inconnu : {logement_id!r}.")
+        if affectation_type == "PROPRIETAIRE" and not proprietaire_id:
+            err("V12B_PROPRIETAIRE_MANQUANT",
+                "Le propriétaire est obligatoire pour l'affectation PROPRIETAIRE.")
 
     # V17/V18 — Catégorie personnalisée CHG_024 : GLOBAL forcé + verrous anti-contournement
     if categorie_id == CATEGORIE_PERSONNALISEE:
@@ -516,6 +709,11 @@ def validate_charge(
                     f"L'impact choisi ({code_impact}) diffère du défaut du type {type_flux_derive} "
                     f"({impact_defaut}) — un commentaire de justification est obligatoire.")
 
+    # V16/V20-V26 — validation guidée (ménage, périmètre, refacturable, avantage)
+    mois_guide = date_charge.strftime("%Y-%m") if date_charge is not None else ""
+    guide = compute_guidee(form_data, refs, mois_guide)
+    errors.extend(guide["errors"])
+
     return errors
 
 
@@ -524,13 +722,15 @@ def _build_row_data(
     charge_id: str,
     profil_impact: str | None = None,
     type_flux_id: str | None = None,
+    guide: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Construit le dictionnaire de données à injecter dans la copie SAISIE.
 
+    La ligne SAISIE reste UNE charge économique unique. Les ventilations analytiques
+    multi-logements / ménage sont portées par le manifest (jamais concaténées en cellule).
     Valeurs techniques injectées côté serveur (jamais du navigateur) : sens_flux=DEPENSE,
     statut_controle=A_CONTROLER, niveau_anomalie=INFO, prise_en_compta dérivée, type_flux_id dérivé.
-    CHG_024 : toutes les valeurs métier forcées (GLOBAL, non refac, sans logement/prop/resa/intervenant),
-    même si la requête envoie d'autres valeurs.
+    CHG_024 : valeurs métier forcées. Charge ménage : affectable_menage=OUI, refacturable=NON.
     """
     date_charge_raw = str(form_data.get("date_charge", "")).strip()
     date_charge_val: date | None = None
@@ -551,6 +751,9 @@ def _build_row_data(
 
     categorie_id = str(form_data.get("categorie_charge_id", "")).strip() or None
     is_perso = categorie_id == CATEGORIE_PERSONNALISEE
+    g = guide or {}
+    impact_menage = bool(g.get("impact_menage"))
+    perimetre = g.get("perimetre") or {}
 
     if is_perso:
         # CHG_024 : valeurs métier FORCÉES côté serveur (ignore toute valeur navigateur contradictoire)
@@ -561,7 +764,35 @@ def _build_row_data(
         proprietaire_id = None
         reservation_id = None
         intervenant_concerne = None
+    elif impact_menage:
+        # Charge ménage : analytique. Ligne = charge économique unique, affectation GLOBAL,
+        # affectable_menage=OUI, jamais refacturable. Ventilation ménage portée par le manifest.
+        affectation_type = "GLOBAL"
+        affectable_menage = "OUI"
+        refacturable = "NON"
+        logement_id = None
+        proprietaire_id = None
+        reservation_id = None
+        intervenant_concerne = None
+    elif g:
+        # Charge non ménage guidée : affectation dérivée du périmètre déterministe.
+        finaux = perimetre.get("logements_finaux", [])
+        if len(finaux) == 1:
+            affectation_type = "LOGEMENT"
+            logement_id = finaux[0]
+            proprietaire_id = None
+        else:
+            # 0 ou >1 logements → charge économique GLOBAL (ventilation multi en manifest)
+            affectation_type = "GLOBAL"
+            logement_id = None
+            props = perimetre.get("proprietaires", [])
+            proprietaire_id = props[0] if len(props) == 1 and not finaux else None
+        affectable_menage = "NON"
+        refacturable = "OUI" if g.get("refacturable_effectif") else "NON"
+        reservation_id = None
+        intervenant_concerne = None
     else:
+        # Legacy mono-affectation
         affectation_type = str(form_data.get("affectation_type", "")).strip().upper() or None
         affectable_menage = str(form_data.get("affectable_menage", "")).strip() or None
         refacturable = str(form_data.get("refacturable", "")).strip() or None
@@ -708,6 +939,8 @@ def previsualiser(
 
     categorie_id = str(form_data.get("categorie_charge_id", "")).strip()
     profil_impact = resolve_profil_impact(categorie_id, refs)
+    # Calculs guidés (périmètre / ménage / réserve / avantage / effet)
+    guide = compute_guidee(form_data, refs, mois_charge_pre := date_charge.strftime("%Y-%m"))
     # type_flux_id dérivé serveur. Pour CHG_024 refacturable forcé NON (jamais TF011).
     refac_for_derive = None if categorie_id == CATEGORIE_PERSONNALISEE else form_data.get("refacturable")
     type_flux_id = derive_type_flux(
@@ -717,7 +950,7 @@ def previsualiser(
         form_data.get("paye_avec_montant_recupere"),
     )
     row_data = _build_row_data(
-        form_data, charge_id, profil_impact=profil_impact, type_flux_id=type_flux_id
+        form_data, charge_id, profil_impact=profil_impact, type_flux_id=type_flux_id, guide=guide
     )
     _inject_row(copy_path, target_row, row_data)
 
@@ -740,6 +973,15 @@ def previsualiser(
         "profil_impact": profil_impact,
         "type_flux_id": type_flux_id,
         "target_row": target_row,
+        # Impacts guidés (prévisualisation uniquement — aucune écriture réelle)
+        "impact_menage": guide["impact_menage"],
+        "perimetre": guide["perimetre"],
+        "menage": guide["menage"],
+        "reserve_refacturation": guide["reserve"],
+        "refacturable_effectif": guide["refacturable_effectif"],
+        "avantage_associe": guide["avantage_associe"],
+        "avantage_associe_id": guide["associe_id"],
+        "effet_saisie": guide["effet"],
         "source_hash_avant": source_hash_avant,
         "source_hash_apres": source_hash_apres,
         "source_inchangee": source_inchangee,
@@ -749,6 +991,11 @@ def previsualiser(
             "saisie_copy": str(copy_path),
         },
     }
+    # Réserve de facturation : fichier séparé (traçabilité), jamais en cellule métier concaténée.
+    if guide["reserve"]:
+        (run_dir / "reserve_refacturation.json").write_text(
+            json.dumps(guide["reserve"], ensure_ascii=False, indent=2), encoding="utf-8"
+        )
     (run_dir / MANIFEST_NAME).write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2),
         encoding="utf-8",

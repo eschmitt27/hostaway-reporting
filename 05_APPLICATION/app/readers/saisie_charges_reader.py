@@ -132,6 +132,19 @@ def read_ref_statuts(ref_path: Path | None = None) -> list[dict[str, Any]]:
     return _read_sheet_rows(Path(ref_path or cfg.REF_SETUP), "REF_Statuts")
 
 
+def read_ref_gestion_logements(ref_path: Path | None = None) -> list[dict[str, Any]]:
+    """Historique de gestion : lien logement ↔ propriétaire (statut, dates)."""
+    return _read_sheet_rows(Path(ref_path or cfg.REF_SETUP), "REF_Gestion_Logements_Hist")
+
+
+def read_ref_intervenants(ref_path: Path | None = None) -> list[dict[str, Any]]:
+    return _read_sheet_rows(Path(ref_path or cfg.REF_SETUP), "REF_Intervenants")
+
+
+def read_ref_couts_standards_menage(ref_path: Path | None = None) -> list[dict[str, Any]]:
+    return _read_sheet_rows(Path(ref_path or cfg.REF_SETUP), "REF_Couts_Standards_Menage")
+
+
 def find_model_row(saisie_path: Path | None = None) -> int | None:
     """Trouve la première ligne dont charge_id est vide et qui contient des formules.
 

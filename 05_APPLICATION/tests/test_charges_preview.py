@@ -735,12 +735,22 @@ def test_previsualiser_affectation_canonique_injectee(tmp_path: Path):
 from app.services.charges_preview_service import resolve_profil_impact  # noqa: E402
 
 
-@pytest.mark.parametrize("cat", ["CHG_003", "CHG_004", "CHG_023", "CHG_027"])
+@pytest.mark.parametrize("cat", ["CHG_003", "CHG_004", "CHG_027"])
 def test_menage_categorie_bloquee(refs, cat):
+    # Catégorie ménage sans parcours (pas de menage_mode) → V16 (parcours ménage requis).
     form = _valid_form()
     form["categorie_charge_id"] = cat
     codes = [e["code"] for e in validate_charge(form, refs)]
     assert "V16_MENAGE_PARCOURS_DEDIE" in codes, cat
+
+
+@pytest.mark.parametrize("cat", ["CHG_016", "CHG_023"])
+def test_categorie_hors_catalogue_refusee(refs, cat):
+    # Forfait client (CHG_016) et forfait cave récurrent (CHG_023) : hors Nouvelle charge.
+    form = _valid_form()
+    form["categorie_charge_id"] = cat
+    codes = [e["code"] for e in validate_charge(form, refs)]
+    assert "V04_CATEGORIE_HORS_FORMULAIRE" in codes, cat
 
 
 def test_global_categorie_previsualisable(refs):
@@ -978,16 +988,26 @@ def test_type_flux_et_sens_flux_absents_du_html(client):
     assert 'name="prise_en_compta"' not in html
 
 
-def test_categories_dediees_et_menage_absentes_du_formulaire(client):
+def test_categories_dediees_absentes_du_formulaire(client):
     r = client.get("/fournisseurs/nouvelle")
     assert r.status_code == 200
     html = r.text
-    # Catégories dédiées et ménage ne doivent pas apparaître comme options sélectionnables
-    for cat in ("CHG_001", "CHG_002", "CHG_003", "CHG_012", "CHG_014", "CHG_021", "CHG_023"):
+    # Catégories PARCOURS_DEDIE + forfait client (CHG_016) + forfait cave récurrent (CHG_023) absentes.
+    for cat in ("CHG_001", "CHG_002", "CHG_012", "CHG_013", "CHG_014",
+                "CHG_015", "CHG_016", "CHG_019", "CHG_021", "CHG_022", "CHG_023"):
         assert f'value="{cat}"' not in html, cat
     # PAY_005 / PAY_006 absents du dropdown mode
     assert 'value="PAY_005"' not in html
     assert 'value="PAY_006"' not in html
+
+
+def test_categories_menage_presentes_dans_formulaire(client):
+    # Le nouveau modèle : les catégories ménage SONT visibles (elles ouvrent le parcours ménage).
+    r = client.get("/fournisseurs/nouvelle")
+    assert r.status_code == 200
+    html = r.text
+    for cat in ("CHG_003", "CHG_004", "CHG_027"):
+        assert f'value="{cat}"' in html, cat
 
 
 def test_source_saisie_inchangee_apres_previsualisation_phase2(tmp_path: Path):
