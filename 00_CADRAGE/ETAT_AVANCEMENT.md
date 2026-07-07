@@ -712,3 +712,19 @@ prévisualisation. Construction d'une **source de vérité durable** :
 - Garde-fou : `persister_reel` lève PermissionError tant que CHARGES_REAL_WRITE_ENABLED = False.
 Tests : somme quotes-parts = montant, charge ménage jamais de réserve, avantage non doublé, fichier réel intouché,
 idempotence, schéma. Décision D-CHG-GUIDE-08. Application/report/ignore des réserves = préparé, non automatique.
+
+---
+
+## 2026-07-08 — Branchement lecture des impacts par les Lots (preuves sur copies)
+
+Verrou Lot7 levé : SOURCE_SAISIE est strictement résiduelle (Power Query, non Python) → écrire un avantage de
+charge y crée un double comptage. Correction : avantage **porté par la charge** (colonne `avantage_associe_id`
+de SAISIE_Charges_Flux), agrégé par `lib_avantages` (réplique testable du PQ Lot7). Retrait de l'écriture
+SOURCE_SAISIE.
+Libs de lecture (02_TRAVAIL, testées sur fixtures/copies ; table réelle vide = no-op) :
+- `lib_avantages` (Lot7) · `lib_charges_menage` (Lot6f, clé COUT_STANDARD_MENAGES_MOIS) ·
+  `lib_charges_affectation` (Lot9/Lot10) · `lib_charges_reserve` (Lot12, lecture préparatoire) ·
+  `lib_controles_impacts` (Lot11).
+Preuves : avantage 1×/bénéficiaire, ménage réparti sans 2e charge, 100 € 2 logements = 1 charge + 2 impacts=100,
+réserve EN_ATTENTE identifiée sans modifier la préfacture, contrôles Lot11. Aucune écriture réelle ; sources
+intouchées. Branchement effectif des pipelines (écriture) déféré à l'ouverture des flags. Voir CTR-CHG-BRANCHEMENT-LOTS-01.

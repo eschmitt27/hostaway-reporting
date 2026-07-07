@@ -2142,3 +2142,32 @@ Contrôles vérifiés par tests :
 Statut     : APPLIQUÉ (12 tests persistance + recettes complètes vertes)
 Commentaire: D-CHG-GUIDE-08. Consommateurs futurs : Lot9/Lot10 (affectations), Lot6f (ménage), Lot12 (réserve),
              Lot7 (avantages). Application/report/ignore non automatique.
+
+---
+
+Date       : 2026-07-08
+Code       : CTR-CHG-BRANCHEMENT-LOTS-01
+Sévérité   : INFO
+Fichier    : 02_TRAVAIL/lib_avantages.py, lib_charges_menage.py, lib_charges_affectation.py,
+             lib_charges_reserve.py, lib_controles_impacts.py
+Objet      : Preuve de LECTURE contrôlée des nouvelles sources d'impacts par chaque Lot (sur copies/fixtures,
+             aucune écriture réelle). Table réelle vide → 0 ligne → pipeline réel inchangé (no-op).
+Verrou Lot7 (levé) : SOURCE_SAISIE est strictement RÉSIDUELLE (« NE PAS RESSAISIR » les charges Lot3) et la
+             transformation Lot7 est Power Query (non Python). Écrire un avantage de charge dans SOURCE_SAISIE
+             = double comptage. Correction : l'avantage est PORTÉ PAR LA CHARGE (colonne avantage_associe_id de
+             SAISIE_Charges_Flux), agrégé par `lib_avantages` (réplique testable du PQ) — jamais ressaisi en Lot7.
+Preuves par Lot (tests) :
+             - Lot7  : avantage attribué exactement une fois par bénéficiaire ; 2e exécution sans duplication ;
+                       avantage distinct du paiement (banque pro) ; pas de double attribution (flag+TF002).
+             - Lot6f : ventilation ménage par COUT_STANDARD_MENAGES_MOIS (poids=nb×cout_standard) ; intervenants ;
+                       logements ; tous logements ; aucun ménage éligible → A_CONTROLER (jamais arbitraire) ;
+                       intervenant+logement simultané refusé ; somme quotes = montant ; jamais 2e charge / réserve.
+             - Lot9/Lot10 : 100 € sur 2 logements = 1 charge économique + 2 impacts totalisant 100 (jamais 200) ;
+                       global ; 1/N propriétaires ; directs+propriétaires dédupliqués ; centimes déterministes.
+             - Lot12 : propositions réserve EN_ATTENTE par propriétaire×mois ; préfacture inchangée ; aucune
+                       application automatique ; pas de double proposition (dédup reserve_id) ; états futurs lus sans casser.
+             - Lot11 : contrôles quotes=montant (affectations & réserve), ménage hors réserve, avantage unique par
+                       charge, aucune charge analytique recréée comme charge réelle, charge_id valide.
+Statut     : APPLIQUÉ (41 tests libs Lots verts + recettes complètes)
+Commentaire: Lecture uniquement via charge_id valide. Sources réelles intouchées (tables vides). Flags off.
+             Branchement effectif des pipelines (écriture des pools/résultats) déféré à l'ouverture de l'écriture réelle.
