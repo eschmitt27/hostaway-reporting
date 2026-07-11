@@ -48,7 +48,20 @@ TF_CHARGE_SOCIETE = frozenset({"TYPE_FLUX_004", "TYPE_FLUX_008"})
 REMB_ASSOC_VERS_SOC = "ASSOCIE_VERS_SOCIETE"
 REMB_SOC_VERS_ASSOC = "SOCIETE_VERS_ASSOCIE"
 
-# En-tête canonique MASTER_CALC_AVANTAGES (15 colonnes) — identique à lot7_ik_avantages.MC_HDR.
+# Suivi associé (Lot7B) — dimension ASSOCIÉ uniquement, HR STRICT.
+# Le suivi associé n'impacte JAMAIS le résultat conciergerie ni le net propriétaire (D011/D012).
+# Ce n'est PAS un règlement : aucun virement, aucun solde de trésorerie n'est produit ici.
+CODE_IMPACT_SUIVI = "HR"      # hors résultat réel ET comptable (D012)
+SOURCE_CALCUL = "LOT7"
+# Convention de signe PRUDENTE : le sens de règlement (« à payer » / « à rembourser ») n'est PAS
+# tranché ici — il dépendra d'un futur circuit de solde associé. On se limite à signaler le signe.
+SENS_POSITIF = "A_CONTROLER_POSITIF"   # avantage_net > 0
+SENS_NEGATIF = "A_CONTROLER_NEGATIF"   # avantage_net < 0
+SENS_NUL = "SOLDE_NUL"                 # avantage_net = 0
+
+# En-tête MASTER_CALC_AVANTAGES : 15 colonnes analytiques historiques + 4 colonnes suivi associé
+# (Lot7B) ajoutées EN FIN pour préserver le contrat existant (lecture par en-tête, Lot11 non cassé).
+# La table reste par (associe_id, mois) : elle EST le suivi associé, sans nouvelle table.
 MC_HEADERS: list[str] = [
     "pk_id", "mois", "associe_id",
     "avantage_brut_virements", "avantage_brut_ik",
@@ -56,6 +69,8 @@ MC_HEADERS: list[str] = [
     "avantages_bruts_total", "charges_payees_pour_societe",
     "remboursements_associe_vers_societe", "remboursements_societe_vers_associe",
     "avantages_nets", "detail_sources", "statut_controle", "code_anomalie",
+    # ── Suivi associé (Lot7B) ──
+    "code_impact", "source_calcul", "sens_suivi", "associe_nom",
 ]
 
 
@@ -173,6 +188,7 @@ def agreger(
     charges: Iterable[dict[str, Any]],
     residuels: Iterable[dict[str, Any]] | None = None,
     charge_ids_lot3: Iterable[str] | None = None,
+    associes_noms: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Agrège les avantages par (associe_id, mois) et construit les lignes MASTER_CALC_AVANTAGES.
 
@@ -187,6 +203,7 @@ def agreger(
     charges = list(charges)
     residuels = list(residuels or [])
     lot3 = {_txt(c) for c in (charge_ids_lot3 or []) if _txt(c)}
+    noms = {str(k).strip(): str(v) for k, v in (associes_noms or {}).items()}
     anomalies: list[dict[str, Any]] = []
 
     # 1) Avantage issu des charges (voie unique par charge_id via lib_avantages).
@@ -251,9 +268,12 @@ def agreger(
         detail = f"CHARGES={dp} | SOURCE_SAISIE={round(v + k, 2)} | REMB={round(rsva - ravs, 2)}"
         statut = "A_CONTROLER" if nets < 0 else "VALIDE"
         code = "AVANTAGE_NET_NEGATIF" if nets < 0 else ""
+        # Suivi associé (Lot7B) : HR strict, sens prudent (jamais « à payer/rembourser »).
+        sens = SENS_POSITIF if nets > 0 else (SENS_NEGATIF if nets < 0 else SENS_NUL)
         rows.append([
             f"{associe}-{mois}", mois, associe,
             v, k, dp, hh, bruts, ch, ravs, rsva, nets, detail, statut, code,
+            CODE_IMPACT_SUIVI, SOURCE_CALCUL, sens, noms.get(associe, ""),
         ])
 
     return {"rows": rows, "anomalies": anomalies, "doublons_charge_id": doublons}
@@ -314,16 +334,18 @@ def generer(
     saisie_charges_path: str,
     lot7_path: str,
     sortie_path: str,
+    associes_noms: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Orchestrateur : lit les sources durables, agrège, écrit MASTER_CALC_AVANTAGES sur COPIE.
 
-    `sortie_path` DOIT être une copie contrôlée (jamais le classeur métier réel). Retourne un
+    `sortie_path` DOIT être une copie contrôlée (jamais le classeur métier réel). `associes_noms`
+    (optionnel) = {associe_id -> nom} pour renseigner `associe_nom` (sinon vide). Retourne un
     résumé { nb_lignes, anomalies, doublons_charge_id, cible }.
     """
     charges = charger_charges_saisie(saisie_charges_path)
     residuels = charger_source_saisie_residuelle(lot7_path)
     charge_ids = [c["charge_id"] for c in charges]
-    res = agreger(charges, residuels, charge_ids_lot3=charge_ids)
+    res = agreger(charges, residuels, charge_ids_lot3=charge_ids, associes_noms=associes_noms)
     ecrire_master_calc(sortie_path, res["rows"])
     return {
         "nb_lignes": len(res["rows"]),
