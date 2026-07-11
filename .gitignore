@@ -79,3 +79,6 @@ Conciergerie app/
 04_LOGS/**/*.json
 04_LOGS/**/*.csv
 04_LOGS/**/*.log
+# Rapports dry-run / comparaison Lot4A : sorties générées timestampées, temporaires
+04_LOGS/LOT4A_COMPARE/
+04_LOGS/LOT4A_DRY_RUN/
