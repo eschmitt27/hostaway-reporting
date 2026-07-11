@@ -14,13 +14,19 @@ La **SAS porteuse est nouvelle** : pas d'historique comptable à reconstituer. L
 ## 2. Emplacement officiel des fichiers de cadrage
 
 ```text
-Pilotage_Conciergerie/99_DOCUMENTATION/
+Pilotage_Conciergerie/00_CADRAGE/
 ├── CLAUDE.md                  ← ce fichier (consignes permanentes)
 ├── README_PROJET.md
 ├── REGLES_METIER.md
 ├── ARCHITECTURE_DONNEES.md
-└── PLAN_CONSTRUCTION.md
+├── PLAN_CONSTRUCTION.md
+└── APPLICATION_LOCALE/
+    ├── CAHIER_CLAUDE_APPLICATION_LOCALE_CONCIERGERIE.md
+    ├── BRIEF_STITCH_DESIGN_CONCIERGERIE.md
+    └── Catalogue_operations_navigation_conciergerie.xlsx
 ```
+
+`00_CADRAGE` est l’emplacement de référence des documents de cadrage du projet.
 
 ## 3. Ordre de priorité des documents
 
@@ -35,6 +41,25 @@ En cas de conflit entre documents, l'ordre suivant tranche :
 ```
 
 Si une règle de `REGLES_METIER.md` contredit `ARCHITECTURE_DONNEES.md`, la règle métier gagne et l'architecture doit être corrigée.
+
+### 3.bis Documents d’application locale
+
+Les documents de `00_CADRAGE/APPLICATION_LOCALE/` décrivent le périmètre fonctionnel, la navigation et l’orientation visuelle de l’application locale.
+
+Ils ne remplacent jamais les documents de cadrage originaux. En cas de conflit, l’ordre de priorité ci-dessus s’applique.
+
+Pour les sujets propres à l’application locale, après lecture des documents originaux applicables, utiliser l’ordre complémentaire suivant :
+
+```text
+1. CAHIER_CLAUDE_APPLICATION_LOCALE_CONCIERGERIE.md
+   = périmètre fonctionnel et règles de construction de l’application
+
+2. Catalogue_operations_navigation_conciergerie.xlsx
+   = inventaire des opérations, menus et parcours à inclure ou retirer
+
+3. BRIEF_STITCH_DESIGN_CONCIERGERIE.md
+   = intention visuelle uniquement ; ne définit ni règles métier ni structure de données
+```
 
 ## 4. Règles non négociables
 
@@ -104,6 +129,40 @@ Règles de budget :
 2. Travailler lot par lot (jamais plusieurs lots en une passe).
 3. Avant modification : annoncer les fichiers touchés (cf. §7).
 4. Après modification : résumer changements, incohérences détectées, points à valider (cf. §8).
+```
+
+## 5.quater Règle spéciale : conception et construction de l’application locale
+
+Avant toute conception, modification ou développement de l’application locale, ne pas commencer directement par les maquettes ou les écrans.
+
+### Première intervention sur l’application ou reprise après interruption longue
+
+Lire d’abord les documents de cadrage originaux afin de comprendre ce qui existe déjà, ce qui est validé et le fonctionnement réel du projet aujourd’hui :
+
+```text
+1. CLAUDE.md
+2. README_PROJET.md
+3. PLAN_CONSTRUCTION.md
+4. Sections de REGLES_METIER.md liées aux modules concernés
+5. Sections de ARCHITECTURE_DONNEES.md liées aux tables, clés et flux concernés
+6. Les scripts, exports et référentiels réellement produits par les lots déjà validés
+7. CAHIER_CLAUDE_APPLICATION_LOCALE_CONCIERGERIE.md
+8. Catalogue_operations_navigation_conciergerie.xlsx
+9. BRIEF_STITCH_DESIGN_CONCIERGERIE.md, uniquement pour le design
+```
+
+Ne jamais déduire le fonctionnement actuel à partir d’une maquette, du catalogue d’opérations ou d’un besoin futur. Le fonctionnement actuel est établi par les documents de cadrage originaux, les lots validés et leurs sorties réellement présentes dans le dépôt.
+
+### À chaque intervention sur l’application
+
+```text
+1. Identifier les modules et lots existants concernés.
+2. Lire la matrice §5.bis pour charger les sections métier et architecture nécessaires.
+3. Vérifier les tables, clés, statuts et scripts déjà existants avant de créer un écran ou un flux.
+4. Lire ensuite le cahier d’application et le catalogue correspondant.
+5. Construire une tranche fonctionnelle à la fois ; ne pas développer l’application complète en une seule passe.
+6. Ne jamais écrire dans une source brute : l’application doit utiliser les tables de saisie, référentiels, tables calculées ou mécanismes d’ajustement prévus.
+7. Toute nouvelle règle métier, table, clé, statut ou exception doit être proposée et validée avant implémentation.
 ```
 
 ## 6. Interdictions

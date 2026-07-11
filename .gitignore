@@ -82,3 +82,8 @@ Conciergerie app/
 # Rapports dry-run / comparaison Lot4A : sorties générées timestampées, temporaires
 04_LOGS/LOT4A_COMPARE/
 04_LOGS/LOT4A_DRY_RUN/
+
+# Application locale — maquettes Stitch générées (captures PNG + HTML) : lourdes,
+# non indispensables. On versionne le cadrage texte (*.md) et le catalogue (*.xlsx).
+00_CADRAGE/APPLICATION_LOCALE/stitch/**/*.png
+00_CADRAGE/APPLICATION_LOCALE/stitch/**/*.html
