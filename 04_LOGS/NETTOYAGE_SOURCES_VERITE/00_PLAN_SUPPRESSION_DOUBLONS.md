@@ -1,0 +1,360 @@
+# Plan suppression contr?l?e des doubles sources de v?rit?
+
+Ce document est le verrou pr?alable. Aucune suppression, aucun renommage, aucune modification de scripts, tests, exports, documents ou `REF_Setup.xlsm` n'a ?t? r?alis? ? cette ?tape.
+
+## Plan par suppression
+
+| colonne supprim?e | table conserv?e | r?gle de d?rivation de remplacement | scripts lecteurs actuels | scripts ?crivains actuels | tests concern?s | exports Power BI concern?s | documents de cadrage concern?s | risques | backup n?cessaire | test de non-r?gression pr?vu |
+|---|---|---|---|---|---|---|---|---|---|---|
+| REF_Logements.proprietaire_id | REF_Gestion_Logements_Hist | D?river le propri?taire par `resolve_management_period(logement_id, date)`; pour affichage actuel, prendre l'unique p?riode active/applicable la plus r?cente, sinon contr?le. | 02_TRAVAIL/lib_canape.py<br>02_TRAVAIL/lib_cloture.py<br>02_TRAVAIL/lib_controls.py<br>02_TRAVAIL/lib_ref_history.py<br>02_TRAVAIL/lib_settlements.py<br>02_TRAVAIL/lot10_calculer_resultats.py<br>02_TRAVAIL/lot11_controles_coherence.py<br>02_TRAVAIL/lot12_generer_factures.py<br>02_TRAVAIL/lot12_seed_donnees_fictives.py<br>02_TRAVAIL/lot13_export_powerbi.py<br>02_TRAVAIL/lot1_hostaway_extract.py<br>02_TRAVAIL/lot4bis_charger_reservations.py<br>02_TRAVAIL/lot4quater_resoudre_source_reservations.py<br>02_TRAVAIL/lot4ter_historiser_reservations_cloturees.py<br>02_TRAVAIL/lot5_master_acomptes_proprietaires.py<br>02_TRAVAIL/lot6a_cleaning_tasks_comptage.py<br>02_TRAVAIL/lot6b_m04_menages_internes.py<br>02_TRAVAIL/lot6c_menages_externes.py<br>... +9 | Aucun ?crivain runtime identifi?; modification op?rateur dans REF_Setup. Scripts Lot4bis/Lot10/Lot11/Lot12/Lot13 lisent encore directement ou indirectement REF_Logements. | tests/test_cloture.py<br>tests/test_controls.py<br>tests/test_ref_history.py<br>tests/test_settlements.py | 02_TRAVAIL/lot13_export_powerbi.py:2 lot13_export_powerbi.py — Export Power BI (CSV plats, lecture seule)<br>02_TRAVAIL/lot13_export_powerbi.py:4 Génère 03_EXPORTS/PowerBI/PBI_*.csv depuis les sorties MASTER_* du pipeline.<br>02_TRAVAIL/lot13_export_powerbi.py:13 - exports régénérables -> non versionnés (.gitignore 03_EXPORTS/PowerBI/).<br>02_TRAVAIL/lot13_export_powerbi.py:25 OUTD = os.path.join(ROOT, "03_EXPORTS", "PowerBI")<br>02_TRAVAIL/lot13_export_powerbi.py:47 ["flux_id","mois","date_flux","logement_id","proprietaire_id","associe_id","type_flux_id","sens","montant",<br>02_TRAVAIL/lot13_export_powerbi.py:51 ["mois","logement_id","proprietaire_id","vision","total_produits","total_charges","resultat","nb_flux"]),<br>02_TRAVAIL/lot13_export_powerbi.py:54 "proprietaire_id","date_arrivee","date_depart","nuits","montant_retenu","code_impact","etat_mois",<br>02_TRAVAIL/lot13_export_powerbi.py:57 ["reservation_calc_id","reservation_id_hostaway","logement_id","proprietaire_id","mois","date_arrivee","date_depart",<br>02_TRAVAIL/lot13_export_powerbi.py:59 "taux_commission","commission_conciergerie","net_proprietaire"]),<br>02_TRAVAIL/lot13_export_powerbi.py:61 ["mois","proprietaire_id","total_payout_mois","total_menage_mois","total_commission_mois","charge_fixe_mensuelle",<br>02_TRAVAIL/lot13_export_powerbi.py:67 ["mois","logement_id","proprietaire_id","type_logement_id","intervenant_id","type_intervenant","nb_menages",<br>02_TRAVAIL/lot13_export_powerbi.py:71 ["mois","logement_id","proprietaire_id","intervenant_id","type_intervenant","nb_menages_tasks_hostaway_completed",<br>02_TRAVAIL/lot13_export_powerbi.py:74 ["ctrl_pk","code_controle","severity","mois","logement_id","proprietaire_id","message","statut_resolution"]),<br>02_TRAVAIL/lot13_export_powerbi.py:75 ("PBI_Referentiel_Logements", REF, "REF_Logements",<br>02_TRAVAIL/lot13_export_powerbi.py:76 ["logement_id","nom_logement_officiel","nom_court","ville","type_logement_id","proprietaire_id",<br>02_TRAVAIL/lot13_export_powerbi.py:77 "date_entree_gestion","date_sortie_gestion","sur_hostaway","actif","forfait_logiciel_consommables_mensuel"]),<br>02_TRAVAIL/lot13_export_powerbi.py:78 ("PBI_Referentiel_Proprietaires", REF, "REF_Proprietaires",<br>02_TRAVAIL/lot13_export_powerbi.py:79 ["proprietaire_id","nom_proprietaire","mode_facturation","taux_commission","actif"]), | aucun trouv? | Risque ?lev?: mapping propri?taire/logement, pr?factures, exports Power BI et contr?les peuvent casser ou utiliser un propri?taire vide si migration incompl?te. | Backup REF_Setup.xlsm + copie des exports Power BI et sorties Lot4bis/Lot10/Lot12 avant action. | Tests unitaires ref_history + tests Lot4bis/Lot10/Lot11/Lot12 si disponibles; scan `rg proprietaire_id REF_Logements`; contr?le Power BI; comparaison pr?factures mai. |
+| REF_Proprietaires.taux_commission | REF_Taux_Commission | D?river le taux par `resolve_commission_rate(proprietaire_id, logement_id, date_arrivee)`; aucun fallback non dat? pour calcul r?el. | 02_TRAVAIL/lib_ref_history.py<br>02_TRAVAIL/lot10_calculer_resultats.py<br>02_TRAVAIL/lot11_controles_coherence.py<br>02_TRAVAIL/lot12_generer_factures.py<br>02_TRAVAIL/lot12_seed_donnees_fictives.py<br>02_TRAVAIL/lot13_export_powerbi.py<br>02_TRAVAIL/lot5_master_acomptes_proprietaires.py<br>tests/test_ref_history.py | Aucun ?crivain runtime identifi?; Lot10 contient encore logique transitoire et Lot13 exporte le champ propri?taire. | tests/test_ref_history.py | 02_TRAVAIL/lib_ref_history.py:118 ids = ", ".join(norm_text(r.get("taux_commission_id")) for r in best)<br>02_TRAVAIL/lib_ref_history.py:122 raw_rate = row.get("taux_commission")<br>02_TRAVAIL/lot10_calculer_resultats.py:179 if len(df_taux) > 0 and "taux_commission_id" in df_taux.columns:<br>02_TRAVAIL/lot10_calculer_resultats.py:180 df_taux = df_taux[df_taux["taux_commission_id"].astype(str) != "taux_commission_id"].reset_index(drop=True)<br>02_TRAVAIL/lot10_calculer_resultats.py:181 df_taux = df_taux[df_taux["taux_commission_id"].notna()].reset_index(drop=True)<br>02_TRAVAIL/lot10_calculer_resultats.py:184 df_prop["taux_commission"] = pd.to_numeric(df_prop["taux_commission"], errors="coerce")<br>02_TRAVAIL/lot10_calculer_resultats.py:268 df_prop_sel = df_prop[["proprietaire_id", "taux_commission"]].copy()<br>02_TRAVAIL/lot10_calculer_resultats.py:273 for col in ("taux_commission", "taux_commission_id", "taux_commission_source",<br>02_TRAVAIL/lot10_calculer_resultats.py:274 "controle_taux_commission"):<br>02_TRAVAIL/lot10_calculer_resultats.py:282 out["taux_commission_id"] = None<br>02_TRAVAIL/lot10_calculer_resultats.py:283 out["taux_commission_source"] = "REF_Proprietaires.taux_commission_TRANSITOIRE"<br>02_TRAVAIL/lot10_calculer_resultats.py:284 out["controle_taux_commission"] = "TAUX_COMMISSION_HISTORIQUE_ABSENT_TRANSITOIRE"<br>02_TRAVAIL/lot10_calculer_resultats.py:321 ids.append(res.row.get("taux_commission_id") if res.row else None)<br>02_TRAVAIL/lot10_calculer_resultats.py:329 out["taux_commission"] = rates<br>02_TRAVAIL/lot10_calculer_resultats.py:330 out["taux_commission_id"] = ids<br>02_TRAVAIL/lot10_calculer_resultats.py:331 out["taux_commission_source"] = sources<br>02_TRAVAIL/lot10_calculer_resultats.py:332 out["controle_taux_commission"] = controles<br>02_TRAVAIL/lot10_calculer_resultats.py:361 if (normal_ha & df_ha["taux_commission"].isna()).any():<br>... +40 | aucun trouv? | Risque ?lev?: si fallback supprim? avant couverture compl?te, commissions peuvent devenir `MISSING`; si champ export?, Power BI peut casser. | Backup REF_Setup.xlsm + sauvegarde exports Power BI existants. | Tests ref_history/Lot10/Lot11; scan `rg taux_commission REF_Proprietaires`; contr?le absence fallback; comparaison commissions par r?servation. |
+| Lot8_Banque.REF_Cloture_Mensuelle / statut_mois si porte cl?ture globale | REF_Setup.xlsm / REF_Cloture_Mensuelle | Lot8 doit conserver uniquement preuve/condition bancaire: rapprochement, banque import?e, contr?les bancaires; le statut officiel de cl?ture mensuelle se lit dans REF_Setup. | 02_TRAVAIL/lib_cloture.py<br>02_TRAVAIL/lot11_controles_coherence.py<br>02_TRAVAIL/lot12_generer_factures.py<br>02_TRAVAIL/lot4quater_resoudre_source_reservations.py<br>02_TRAVAIL/lot4ter_historiser_reservations_cloturees.py<br>02_TRAVAIL/lot6d_rapprochement_menages.py<br>02_TRAVAIL/lot6f_cout_complet_menages.py<br>02_TRAVAIL/lot7_ik_avantages.py<br>02_TRAVAIL/lot8a_banque_import.py<br>tests/test_cloture.py | Lot8 ?crit le classeur banque; lib_cloture/Lot11/Lot12 peuvent lire statut officiel selon impl?mentation. | tests/test_cloture.py | 02_TRAVAIL/lot4ter_historiser_reservations_cloturees.py:28 (REF_Cloture_Mensuelle, REF_Logements, REF_Couts_Standards_Menage) | aucun trouv? | Risque moyen/?lev?: fusion mal faite peut confondre cl?ture bancaire et cl?ture globale, autorisant ou bloquant ? tort des factures. | Backup REF_Setup.xlsm + BANQUE_LOT8_IMPORT.xlsx. | Test lib_cloture/Lot11/Lot12; comparaison statut mois; contr?le que banque ne porte plus qu'une preuve bancaire. |
+
+## D?tail des occurrences actives relev?es
+
+### REF_Logements / proprietaire_id
+- `02_TRAVAIL/lib_canape.py:28` ? return int(seuil), float(montant), "REF_Logements"
+- `02_TRAVAIL/lib_cloture.py:23` ? "proprietaire_id",
+- `02_TRAVAIL/lib_cloture.py:87` ? "source_pk", "logement_id", "proprietaire_id", "type_ajustement",
+- `02_TRAVAIL/lib_controls.py:43` ? def control_targets_invoice(control, mois, logement_id=None, proprietaire_id=None, document_id=None):
+- `02_TRAVAIL/lib_controls.py:56` ? if not _same_or_empty(control.get("proprietaire_id"), proprietaire_id):
+- `02_TRAVAIL/lib_controls.py:63` ? def facture_control_counts(controls, mois, logement_id=None, proprietaire_id=None, document_id=None):
+- `02_TRAVAIL/lib_controls.py:66` ? if control_targets_invoice(c, mois, logement_id, proprietaire_id, document_id)
+- `02_TRAVAIL/lib_ref_history.py:85` ? proprietaire_id: Any,
+- `02_TRAVAIL/lib_ref_history.py:97` ? prop = norm_text(proprietaire_id)
+- `02_TRAVAIL/lib_ref_history.py:106` ? row_prop = norm_text(row.get("proprietaire_id"))
+- `02_TRAVAIL/lib_ref_history.py:177` ? if is_blank(row.get("proprietaire_id")):
+- `02_TRAVAIL/lib_ref_history.py:182` ? value=row.get("proprietaire_id"),
+- `02_TRAVAIL/lib_ref_history.py:186` ? return Resolution("OK", value=row.get("proprietaire_id"), row=row)
+- `02_TRAVAIL/lib_settlements.py:17` ? "proprietaire_id",
+- `02_TRAVAIL/lib_settlements.py:33` ? "proprietaire_id",
+- `02_TRAVAIL/lib_settlements.py:65` ? required = ["transaction_banque_id", "proprietaire_id", "logement_id", "mois", "document_id", "justificatif"]
+- `02_TRAVAIL/lot10_calculer_resultats.py:10` ? REF_Setup.xlsm                  (REF_Logements, REF_Proprietaires)
+- `02_TRAVAIL/lot10_calculer_resultats.py:161` ? df_log    = _read_sheet(REF_FILE, sheet="REF_Logements",     keep_vba=True)
+- `02_TRAVAIL/lot10_calculer_resultats.py:178` ? df_prop = df_prop[df_prop["proprietaire_id"].astype(str) != "proprietaire_id"].reset_index(drop=True)
+- `02_TRAVAIL/lot10_calculer_resultats.py:195` ? log.info(f"  REF_Logements : {len(df_log)} logements")
+- `02_TRAVAIL/lot10_calculer_resultats.py:219` ? "source_pk", "flux_id", "mois", "logement_id", "proprietaire_id",
+- `02_TRAVAIL/lot10_calculer_resultats.py:223` ? "proprietaire_id":"proprietaire_id_flux",
+- `02_TRAVAIL/lot10_calculer_resultats.py:238` ? "logement_id", "proprietaire_id", "date_arrivee", "date_depart", "nuits", "guestCount",
+- `02_TRAVAIL/lot10_calculer_resultats.py:256` ? df_j["proprietaire_id_eff"] = df_j["proprietaire_id"].combine_first(df_j["proprietaire_id_flux"])
+- `02_TRAVAIL/lot10_calculer_resultats.py:268` ? df_prop_sel = df_prop[["proprietaire_id", "taux_commission"]].copy()
+- `02_TRAVAIL/lot10_calculer_resultats.py:279` ? df_prop_sel, left_on="proprietaire_id_eff", right_on="proprietaire_id",
+- `02_TRAVAIL/lot10_calculer_resultats.py:301` ? proprietaire_id=row.get("proprietaire_id_eff"),
+- `02_TRAVAIL/lot10_calculer_resultats.py:312` ? f"proprietaire={row.get('proprietaire_id_eff')} date={row.get('date_arrivee')} - {res.message}"
+- `02_TRAVAIL/lot10_calculer_resultats.py:358` ? if (normal_ha & df_ha["proprietaire_id_eff"].isna()).any():
+- `02_TRAVAIL/lot10_calculer_resultats.py:481` ? "logement_id_eff", "proprietaire_id_eff", "mois_flux",
+- `02_TRAVAIL/lot10_calculer_resultats.py:503` ? "proprietaire_id_eff": "proprietaire_id",
+- `02_TRAVAIL/lot10_calculer_resultats.py:532` ? "proprietaire_id": r.get("proprietaire_id"),
+- `02_TRAVAIL/lot10_calculer_resultats.py:563` ? d_sortie = lr.get("date_sortie_gestion")
+- `02_TRAVAIL/lot10_calculer_resultats.py:564` ? d_entree = lr.get("date_entree_gestion")
+- `02_TRAVAIL/lot10_calculer_resultats.py:565` ? prop_id  = lr.get("proprietaire_id")
+- `02_TRAVAIL/lot10_calculer_resultats.py:591` ? # Override last_mois with date_sortie_gestion if logement is inactive
+- `02_TRAVAIL/lot10_calculer_resultats.py:598` ? # Control: first_mois < date_entree_gestion
+- `02_TRAVAIL/lot10_calculer_resultats.py:608` ? "code_anomalie": "CHARGE_FIXE_DATE_ENTREE_GESTION_INCOHERENTE",
+- `02_TRAVAIL/lot10_calculer_resultats.py:612` ? f"< date_entree_gestion REF={d_entree_str} (INFO justifiee D-LOT10-04)"
+- `02_TRAVAIL/lot10_calculer_resultats.py:620` ? "proprietaire_id":      prop_id,
+- `02_TRAVAIL/lot10_calculer_resultats.py:622` ? "charge_fixe_source":   "REF_Logements.forfait_logiciel_consommables_mensuel",
+- `02_TRAVAIL/lot10_calculer_resultats.py:626` ? "mois", "logement_id", "proprietaire_id",
+- `02_TRAVAIL/lot10_calculer_resultats.py:631` ? n_inco = sum(1 for c in controls if c["code_anomalie"] == "CHARGE_FIXE_DATE_ENTREE_GESTION_INCOHERENTE")
+- `02_TRAVAIL/lot10_calculer_resultats.py:634` ? log.info(f"  INCOHERENT   : {n_inco} logements (premier mois Flux < date_entree_gestion REF)")
+- `02_TRAVAIL/lot10_calculer_resultats.py:655` ? "mois", "logement_id", "proprietaire_id",
+- `02_TRAVAIL/lot10_calculer_resultats.py:662` ? df_v["proprietaire_id"] = df_v["proprietaire_id"].fillna(SENTINEL_GLOBAL)
+- `02_TRAVAIL/lot10_calculer_resultats.py:664` ? df_v.loc[df_v["proprietaire_id"].astype(str).str.strip() == "", "proprietaire_id"] = SENTINEL_GLOBAL
+- `02_TRAVAIL/lot10_calculer_resultats.py:665` ? grp = df_v.groupby(["mois", "logement_id", "proprietaire_id", "sens"]).agg(
+- `02_TRAVAIL/lot10_calculer_resultats.py:670` ? ["mois", "logement_id", "proprietaire_id"]
+- `02_TRAVAIL/lot10_calculer_resultats.py:673` ? ["mois", "logement_id", "proprietaire_id"]
+- `02_TRAVAIL/lot10_calculer_resultats.py:675` ? res = prod.merge(chg, on=["mois", "logement_id", "proprietaire_id"], how="outer").fillna(0)
+- `02_TRAVAIL/lot10_calculer_resultats.py:680` ? return res[["mois", "logement_id", "proprietaire_id",
+- `02_TRAVAIL/lot10_calculer_resultats.py:691` ? "mois": "N/A", "logement_id": "N/A", "proprietaire_id": "N/A",
+- `02_TRAVAIL/lot10_calculer_resultats.py:722` ? # acc_by_log : (mois, logement_id) -> (montant, proprietaire_id)   [acomptes avec logement]
+- `02_TRAVAIL/lot10_calculer_resultats.py:723` ? # acc_by_prop: (mois, proprietaire_id) -> montant                  [acomptes sans logement]
+- `02_TRAVAIL/lot10_calculer_resultats.py:731` ? prop = a.get("proprietaire_id")
+- `02_TRAVAIL/lot10_calculer_resultats.py:755` ? "proprietaire_id": imp.get("proprietaire_id"),
+- `02_TRAVAIL/lot10_calculer_resultats.py:772` ? df_agg_res = df_num.groupby(["mois", "logement_id", "proprietaire_id"]).agg(
+- `02_TRAVAIL/lot10_calculer_resultats.py:808` ? row["proprietaire_id"]      = cr["proprietaire_id"]
+- `02_TRAVAIL/lot10_calculer_resultats.py:820` ? if "proprietaire_id" not in row or not row.get("proprietaire_id"):
+- `02_TRAVAIL/lot10_calculer_resultats.py:821` ? row["proprietaire_id"] = rr["proprietaire_id"]
+- `02_TRAVAIL/lot10_calculer_resultats.py:829` ? row.setdefault("proprietaire_id", None)
+- `02_TRAVAIL/lot10_calculer_resultats.py:841` ? if not row.get("proprietaire_id"):
+- `02_TRAVAIL/lot10_calculer_resultats.py:842` ? row["proprietaire_id"] = acc_by_log[(mois, log_id)][1]
+- `02_TRAVAIL/lot10_calculer_resultats.py:875` ? "mois": mois, "logement_id": SENTINEL_GLOBAL, "proprietaire_id": prop,
+- `02_TRAVAIL/lot10_calculer_resultats.py:911` ? df_vue = df_reg.groupby(["mois", "proprietaire_id"]).agg(
+- `02_TRAVAIL/lot10_calculer_resultats.py:914` ? df_vue = df_vue.sort_values(["mois", "proprietaire_id"]).reset_index(drop=True)
+- `02_TRAVAIL/lot10_calculer_resultats.py:917` ? "mois", "proprietaire_id",
+- `02_TRAVAIL/lot10_calculer_resultats.py:951` ? return df_v.groupby(["mois", "proprietaire_id", "vision"]).agg(
+- `02_TRAVAIL/lot10_calculer_resultats.py:1065` ? if c["code_anomalie"] == "CHARGE_FIXE_DATE_ENTREE_GESTION_INCOHERENTE")
+- `02_TRAVAIL/lot10_calculer_resultats.py:1071` ? df_reel.groupby(["mois", "proprietaire_id"]).size()
+- `02_TRAVAIL/lot10_calculer_resultats.py:1105` ? ("CTR-LOT10-16", "CHARGE_FIXE_DATE_ENTREE_GESTION_INCOHERENTE",
+- `02_TRAVAIL/lot11_controles_coherence.py:127` ? mois=None, logement_id=None, proprietaire_id=None,
+- `02_TRAVAIL/lot11_controles_coherence.py:143` ? "proprietaire_id": proprietaire_id,
+- `02_TRAVAIL/lot11_controles_coherence.py:174` ? df_log  = _read_ref_sheet(REF_FILE, "REF_Logements",     "logement_id")
+- `02_TRAVAIL/lot11_controles_coherence.py:175` ? df_prop = _read_ref_sheet(REF_FILE, "REF_Proprietaires", "proprietaire_id")
+- `02_TRAVAIL/lot11_controles_coherence.py:267` ? "taux_commission_id", "proprietaire_id", "logement_id", "taux_commission",
+- `02_TRAVAIL/lot11_controles_coherence.py:271` ? "gestion_id", "logement_id", "proprietaire_id", "date_debut", "date_fin",
+- `02_TRAVAIL/lot11_controles_coherence.py:296` ? proprietaire_id=row.get("proprietaire_id"))
+- `02_TRAVAIL/lot11_controles_coherence.py:302` ? "proviennent encore de REF_Logements non historise; facture finale interdite.",
+
+### REF_Gestion_Logements_Hist
+- `02_TRAVAIL/lib_ref_history.py:14` ? REF_GESTION_LOGEMENTS_HIST_SHEET = "REF_Gestion_Logements_Hist"
+- `02_TRAVAIL/lib_ref_history.py:130` ? def resolve_management_period(
+- `02_TRAVAIL/lib_ref_history.py:174` ? ids = ", ".join(norm_text(r.get("gestion_id")) for r in candidates)
+- `02_TRAVAIL/lot11_controles_coherence.py:32` ? from lib_ref_history import REF_GESTION_LOGEMENTS_HIST_SHEET, resolve_management_period
+- `02_TRAVAIL/lot11_controles_coherence.py:178` ? df_gest_hist = _read_optional_ref_sheet(REF_FILE, REF_GESTION_LOGEMENTS_HIST_SHEET, "gestion_id")
+- `02_TRAVAIL/lot11_controles_coherence.py:271` ? "gestion_id", "logement_id", "proprietaire_id", "date_debut", "date_fin",
+- `02_TRAVAIL/lot11_controles_coherence.py:299` ? _ctrl(ctrl_rows, "REF", REF_GESTION_LOGEMENTS_HIST_SHEET, None,
+- `02_TRAVAIL/lot11_controles_coherence.py:301` ? "REF_Gestion_Logements_Historique absent ou vide. Les proprietaires/dates de gestion "
+- `02_TRAVAIL/lot11_controles_coherence.py:307` ? _ctrl(ctrl_rows, "REF", REF_GESTION_LOGEMENTS_HIST_SHEET, None,
+- `02_TRAVAIL/lot11_controles_coherence.py:309` ? f"Colonnes manquantes dans REF_Gestion_Logements_Historique: {missing}.")
+- `02_TRAVAIL/lot11_controles_coherence.py:313` ? res = resolve_management_period(
+- `02_TRAVAIL/lot4bis_charger_reservations.py:45` ? from lib_ref_history import REF_GESTION_LOGEMENTS_HIST_SHEET, resolve_management_period
+- `02_TRAVAIL/lot4bis_charger_reservations.py:149` ? h_gest, d_gest = load_optional_sheet(PATH_REF, REF_GESTION_LOGEMENTS_HIST_SHEET)
+- `02_TRAVAIL/lot4bis_charger_reservations.py:155` ? if r.get("gestion_id") is not None and str(r.get("gestion_id")) != "gestion_id"
+- `02_TRAVAIL/lot4bis_charger_reservations.py:260` ? gest = resolve_management_period(
+- `tests/test_ref_history.py:10` ? from lib_ref_history import resolve_commission_rate, resolve_management_period
+- `tests/test_ref_history.py:88` ? "gestion_id": "GST_OLD",
+- `tests/test_ref_history.py:96` ? "gestion_id": "GST_NEW",
+- `tests/test_ref_history.py:104` ? may = resolve_management_period(rows, logement_id="LOG_1", date_arrivee=dt.date(2026, 5, 10))
+- `tests/test_ref_history.py:105` ? june = resolve_management_period(rows, logement_id="LOG_1", date_arrivee="2026-06-10")
+- `tests/test_ref_history.py:113` ? "gestion_id": "GST_UNKNOWN_START",
+- `tests/test_ref_history.py:121` ? res = resolve_management_period(rows, logement_id="LOG_1", date_arrivee="2026-05-10")
+- `tests/test_ref_history.py:129` ? "gestion_id": "GST_UNKNOWN_START",
+- `tests/test_ref_history.py:137` ? "gestion_id": "GST_DATED",
+- `tests/test_ref_history.py:145` ? res = resolve_management_period(rows, logement_id="LOG_1", date_arrivee="2026-05-10")
+- `tests/test_ref_history.py:148` ? self.assertEqual(res.row["gestion_id"], "GST_DATED")
+- `tests/test_ref_history.py:153` ? "gestion_id": "GST_A",
+- `tests/test_ref_history.py:161` ? "gestion_id": "GST_B",
+- `tests/test_ref_history.py:169` ? res = resolve_management_period(rows, logement_id="LOG_1", date_arrivee="2026-05-10")
+- `tests/test_ref_history.py:175` ? "gestion_id": "GST_OLD",
+- `tests/test_ref_history.py:183` ? res = resolve_management_period(rows, logement_id="LOG_1", date_arrivee="2026-06-01")
+- `tests/test_ref_history.py:189` ? "gestion_id": "GST_NO_OWNER",
+- `tests/test_ref_history.py:198` ? res = resolve_management_period(rows, logement_id="LOG_1", date_arrivee="2026-06-01")
+- `tests/test_ref_history.py:203` ? res = resolve_management_period([], logement_id="LOG_1", date_arrivee="2026-06-01")
+- `tests/test_ref_history.py:211` ? "gestion_id": "GST_OLD",
+- `tests/test_ref_history.py:219` ? res = resolve_management_period(
+
+### REF_Proprietaires / taux_commission
+- `02_TRAVAIL/lib_ref_history.py:118` ? ids = ", ".join(norm_text(r.get("taux_commission_id")) for r in best)
+- `02_TRAVAIL/lib_ref_history.py:122` ? raw_rate = row.get("taux_commission")
+- `02_TRAVAIL/lot10_calculer_resultats.py:10` ? REF_Setup.xlsm                  (REF_Logements, REF_Proprietaires)
+- `02_TRAVAIL/lot10_calculer_resultats.py:162` ? df_prop   = _read_sheet(REF_FILE, sheet="REF_Proprietaires", keep_vba=True)
+- `02_TRAVAIL/lot10_calculer_resultats.py:163` ? df_taux   = _read_optional_sheet(REF_FILE, "REF_Taux_Commission", keep_vba=True)
+- `02_TRAVAIL/lot10_calculer_resultats.py:179` ? if len(df_taux) > 0 and "taux_commission_id" in df_taux.columns:
+- `02_TRAVAIL/lot10_calculer_resultats.py:180` ? df_taux = df_taux[df_taux["taux_commission_id"].astype(str) != "taux_commission_id"].reset_index(drop=True)
+- `02_TRAVAIL/lot10_calculer_resultats.py:181` ? df_taux = df_taux[df_taux["taux_commission_id"].notna()].reset_index(drop=True)
+- `02_TRAVAIL/lot10_calculer_resultats.py:184` ? df_prop["taux_commission"] = pd.to_numeric(df_prop["taux_commission"], errors="coerce")
+- `02_TRAVAIL/lot10_calculer_resultats.py:268` ? df_prop_sel = df_prop[["proprietaire_id", "taux_commission"]].copy()
+- `02_TRAVAIL/lot10_calculer_resultats.py:273` ? for col in ("taux_commission", "taux_commission_id", "taux_commission_source",
+- `02_TRAVAIL/lot10_calculer_resultats.py:274` ? "controle_taux_commission"):
+- `02_TRAVAIL/lot10_calculer_resultats.py:282` ? out["taux_commission_id"] = None
+- `02_TRAVAIL/lot10_calculer_resultats.py:283` ? out["taux_commission_source"] = "REF_Proprietaires.taux_commission_TRANSITOIRE"
+- `02_TRAVAIL/lot10_calculer_resultats.py:284` ? out["controle_taux_commission"] = "TAUX_COMMISSION_HISTORIQUE_ABSENT_TRANSITOIRE"
+- `02_TRAVAIL/lot10_calculer_resultats.py:287` ? "code_anomalie": "TAUX_COMMISSION_HISTORIQUE_ABSENT_TRANSITOIRE",
+- `02_TRAVAIL/lot10_calculer_resultats.py:290` ? f"{branch}: REF_Taux_Commission absent ou vide; utilisation transitoire "
+- `02_TRAVAIL/lot10_calculer_resultats.py:291` ? "du taux non date REF_Proprietaires. Facture finale interdite sans taux historise."
+- `02_TRAVAIL/lot10_calculer_resultats.py:308` ? "code_anomalie": f"TAUX_COMMISSION_{res.status}",
+- `02_TRAVAIL/lot10_calculer_resultats.py:317` ? sources.append("REF_Taux_Commission")
+- `02_TRAVAIL/lot10_calculer_resultats.py:318` ? controles.append(f"TAUX_COMMISSION_{res.status}")
+- `02_TRAVAIL/lot10_calculer_resultats.py:321` ? ids.append(res.row.get("taux_commission_id") if res.row else None)
+- `02_TRAVAIL/lot10_calculer_resultats.py:322` ? sources.append("REF_Taux_Commission")
+- `02_TRAVAIL/lot10_calculer_resultats.py:329` ? out["taux_commission"] = rates
+- `02_TRAVAIL/lot10_calculer_resultats.py:330` ? out["taux_commission_id"] = ids
+- `02_TRAVAIL/lot10_calculer_resultats.py:331` ? out["taux_commission_source"] = sources
+- `02_TRAVAIL/lot10_calculer_resultats.py:332` ? out["controle_taux_commission"] = controles
+- `02_TRAVAIL/lot10_calculer_resultats.py:361` ? if (normal_ha & df_ha["taux_commission"].isna()).any():
+- `02_TRAVAIL/lot10_calculer_resultats.py:364` ? for col in ["payout_calcule", "menage_retenu", "assiette_commission", "taux_commission"]:
+- `02_TRAVAIL/lot10_calculer_resultats.py:372` ? df_ha.loc[normal_ha, "assiette_commission"] * df_ha.loc[normal_ha, "taux_commission"]
+- `02_TRAVAIL/lot10_calculer_resultats.py:388` ? "reservation_hh_id", "total_percu", "menage", "commission", "taux_commission",
+- `02_TRAVAIL/lot10_calculer_resultats.py:390` ? "commission": "commission_saisie", "taux_commission": "taux_hh_saisie",
+- `02_TRAVAIL/lot10_calculer_resultats.py:399` ? df_hhb["taux_commission"] = pd.to_numeric(df_hhb["taux_commission"], errors="coerce")
+- `02_TRAVAIL/lot10_calculer_resultats.py:402` ? ok = df_hhb["total_percu"].notna() & (df_hhb["total_percu"] > 0) & df_hhb["taux_commission"].notna()
+- `02_TRAVAIL/lot10_calculer_resultats.py:414` ? df_hh_ok["assiette_commission"] * df_hh_ok["taux_commission"]
+- `02_TRAVAIL/lot10_calculer_resultats.py:452` ? for c in ("payout_resolu", "menage_resolu", "assiette_resolu", "taux_commission"):
+- `02_TRAVAIL/lot10_calculer_resultats.py:462` ? if df_vrbo["taux_commission"].isna().any():
+- `02_TRAVAIL/lot10_calculer_resultats.py:466` ? df_vrbo["assiette_commission"] * df_vrbo["taux_commission"]
+- `02_TRAVAIL/lot10_calculer_resultats.py:485` ? "assiette_commission", "taux_commission", "commission_conciergerie",
+- `02_TRAVAIL/lot10_calculer_resultats.py:486` ? "taux_commission_id", "taux_commission_source", "controle_taux_commission",
+- `02_TRAVAIL/lot11_controles_coherence.py:175` ? df_prop = _read_ref_sheet(REF_FILE, "REF_Proprietaires", "proprietaire_id")
+- `02_TRAVAIL/lot11_controles_coherence.py:177` ? df_taux_hist = _read_optional_ref_sheet(REF_FILE, "REF_Taux_Commission", "taux_commission_id")
+- `02_TRAVAIL/lot11_controles_coherence.py:267` ? "taux_commission_id", "proprietaire_id", "logement_id", "taux_commission",
+- `02_TRAVAIL/lot11_controles_coherence.py:276` ? _ctrl(ctrl_rows, "REF", "REF_Taux_Commission", None,
+- `02_TRAVAIL/lot11_controles_coherence.py:277` ? "TAUX_COMMISSION_HISTORIQUE_ABSENT_TRANSITOIRE", "A_CONTROLER",
+- `02_TRAVAIL/lot11_controles_coherence.py:278` ? "REF_Taux_Commission absent ou vide. Lot10 peut utiliser le taux non date "
+- `02_TRAVAIL/lot11_controles_coherence.py:279` ? "REF_Proprietaires uniquement en compatibilite transitoire; facture finale interdite.",
+- `02_TRAVAIL/lot11_controles_coherence.py:284` ? _ctrl(ctrl_rows, "REF", "REF_Taux_Commission", None,
+- `02_TRAVAIL/lot11_controles_coherence.py:285` ? "REF_TAUX_COMMISSION_SCHEMA_INCOMPLET", "BLOQUANT",
+- `02_TRAVAIL/lot11_controles_coherence.py:286` ? f"Colonnes manquantes dans REF_Taux_Commission: {missing}.")
+- `02_TRAVAIL/lot11_controles_coherence.py:287` ? if "controle_taux_commission" in df_com.columns:
+- `02_TRAVAIL/lot11_controles_coherence.py:288` ? bad = df_com[df_com["controle_taux_commission"].astype(str) != "OK"]
+- `02_TRAVAIL/lot11_controles_coherence.py:292` ? row.get("controle_taux_commission") or "TAUX_COMMISSION_A_CONTROLER",
+- `02_TRAVAIL/lot11_controles_coherence.py:663` ? for col in ["assiette_commission", "taux_commission", "commission_conciergerie",
+- `02_TRAVAIL/lot11_controles_coherence.py:670` ? mask_normal = df_c["taux_commission"] > 0
+- `02_TRAVAIL/lot11_controles_coherence.py:672` ? df_cn["_com_calcule"] = (df_cn["assiette_commission"] * df_cn["taux_commission"]).round(2)
+- `02_TRAVAIL/lot11_controles_coherence.py:682` ? f"assiette({row['assiette_commission']})*taux({row['taux_commission']})="
+- `02_TRAVAIL/lot11_controles_coherence.py:939` ? _ctrl(ctrl_rows, "TRANSVERSE", "REF_Proprietaires", None,
+- `02_TRAVAIL/lot11_controles_coherence.py:945` ? # 7b - Verifier taux_commission present pour proprietaires actifs
+- `02_TRAVAIL/lot11_controles_coherence.py:946` ? if "taux_commission" in df_prop.columns and "actif" in df_prop.columns:
+- `02_TRAVAIL/lot11_controles_coherence.py:949` ? (df_prop["taux_commission"].isna() | (df_prop["taux_commission"].astype(str) == ""))
+- `02_TRAVAIL/lot11_controles_coherence.py:953` ? _ctrl(ctrl_rows, "TRANSVERSE", "REF_Proprietaires",
+- `02_TRAVAIL/lot11_controles_coherence.py:956` ? f"Proprietaire {row.get('proprietaire_id')} actif sans taux_commission.",
+- `02_TRAVAIL/lot12_generer_factures.py:107` ? df_prop  = _read(REF_FILE,  "REF_Proprietaires", keep_vba=True)
+- `02_TRAVAIL/lot12_seed_donnees_fictives.py:114` ? "total_percu": 333.33, "menage": 111.11, "taux_commission": 0.18, "commission": 40.00,
+- `02_TRAVAIL/lot12_seed_donnees_fictives.py:124` ? "total_percu": 222.22, "menage": 111.11, "taux_commission": 0.15, "commission": 16.67,
+- `02_TRAVAIL/lot13_export_powerbi.py:59` ? "taux_commission","commission_conciergerie","net_proprietaire"]),
+- `02_TRAVAIL/lot13_export_powerbi.py:78` ? ("PBI_Referentiel_Proprietaires", REF, "REF_Proprietaires",
+- `02_TRAVAIL/lot13_export_powerbi.py:79` ? ["proprietaire_id","nom_proprietaire","mode_facturation","taux_commission","actif"]),
+- `02_TRAVAIL/lot5_master_acomptes_proprietaires.py:145` ? for row in wb["REF_Proprietaires"].iter_rows(min_row=2, values_only=True):
+- `02_TRAVAIL/lot5_master_acomptes_proprietaires.py:426` ? q3 = ("Q3_REF_Proprietaires_Source", f'''\
+- `02_TRAVAIL/lot5_master_acomptes_proprietaires.py:430` ? Sheet    = Source{{[Item="REF_Proprietaires", Kind="Sheet"]}}[Data],
+- `02_TRAVAIL/lot5_master_acomptes_proprietaires.py:596` ? "Q3_REF_Proprietaires_Source", "Q4_MASTER_FACT_MAN_AcomptesProprietaires",
+- `tests/test_ref_history.py:17` ? "taux_commission_id": "TX_PROP_OLD",
+- `tests/test_ref_history.py:20` ? "taux_commission": "0.20",
+- `tests/test_ref_history.py:26` ? "taux_commission_id": "TX_PROP_NEW",
+- `tests/test_ref_history.py:29` ? "taux_commission": "0.22",
+- `tests/test_ref_history.py:35` ? "taux_commission_id": "TX_LOG_NEW",
+- `tests/test_ref_history.py:38` ? "taux_commission": "0.25",
+- `tests/test_ref_history.py:52` ? self.assertEqual(june.row["taux_commission_id"], "TX_LOG_NEW")
+
+### REF_Taux_Commission
+- `02_TRAVAIL/lib_ref_history.py:82` ? def resolve_commission_rate(
+- `02_TRAVAIL/lib_ref_history.py:118` ? ids = ", ".join(norm_text(r.get("taux_commission_id")) for r in best)
+- `02_TRAVAIL/lot10_calculer_resultats.py:37` ? from lib_ref_history import resolve_commission_rate
+- `02_TRAVAIL/lot10_calculer_resultats.py:163` ? df_taux   = _read_optional_sheet(REF_FILE, "REF_Taux_Commission", keep_vba=True)
+- `02_TRAVAIL/lot10_calculer_resultats.py:179` ? if len(df_taux) > 0 and "taux_commission_id" in df_taux.columns:
+- `02_TRAVAIL/lot10_calculer_resultats.py:180` ? df_taux = df_taux[df_taux["taux_commission_id"].astype(str) != "taux_commission_id"].reset_index(drop=True)
+- `02_TRAVAIL/lot10_calculer_resultats.py:181` ? df_taux = df_taux[df_taux["taux_commission_id"].notna()].reset_index(drop=True)
+- `02_TRAVAIL/lot10_calculer_resultats.py:273` ? for col in ("taux_commission", "taux_commission_id", "taux_commission_source",
+- `02_TRAVAIL/lot10_calculer_resultats.py:282` ? out["taux_commission_id"] = None
+- `02_TRAVAIL/lot10_calculer_resultats.py:290` ? f"{branch}: REF_Taux_Commission absent ou vide; utilisation transitoire "
+- `02_TRAVAIL/lot10_calculer_resultats.py:299` ? res = resolve_commission_rate(
+- `02_TRAVAIL/lot10_calculer_resultats.py:317` ? sources.append("REF_Taux_Commission")
+- `02_TRAVAIL/lot10_calculer_resultats.py:321` ? ids.append(res.row.get("taux_commission_id") if res.row else None)
+- `02_TRAVAIL/lot10_calculer_resultats.py:322` ? sources.append("REF_Taux_Commission")
+- `02_TRAVAIL/lot10_calculer_resultats.py:330` ? out["taux_commission_id"] = ids
+- `02_TRAVAIL/lot10_calculer_resultats.py:486` ? "taux_commission_id", "taux_commission_source", "controle_taux_commission",
+- `02_TRAVAIL/lot11_controles_coherence.py:177` ? df_taux_hist = _read_optional_ref_sheet(REF_FILE, "REF_Taux_Commission", "taux_commission_id")
+- `02_TRAVAIL/lot11_controles_coherence.py:267` ? "taux_commission_id", "proprietaire_id", "logement_id", "taux_commission",
+- `02_TRAVAIL/lot11_controles_coherence.py:276` ? _ctrl(ctrl_rows, "REF", "REF_Taux_Commission", None,
+- `02_TRAVAIL/lot11_controles_coherence.py:278` ? "REF_Taux_Commission absent ou vide. Lot10 peut utiliser le taux non date "
+- `02_TRAVAIL/lot11_controles_coherence.py:284` ? _ctrl(ctrl_rows, "REF", "REF_Taux_Commission", None,
+- `02_TRAVAIL/lot11_controles_coherence.py:285` ? "REF_TAUX_COMMISSION_SCHEMA_INCOMPLET", "BLOQUANT",
+- `02_TRAVAIL/lot11_controles_coherence.py:286` ? f"Colonnes manquantes dans REF_Taux_Commission: {missing}.")
+- `tests/test_ref_history.py:10` ? from lib_ref_history import resolve_commission_rate, resolve_management_period
+- `tests/test_ref_history.py:17` ? "taux_commission_id": "TX_PROP_OLD",
+- `tests/test_ref_history.py:26` ? "taux_commission_id": "TX_PROP_NEW",
+- `tests/test_ref_history.py:35` ? "taux_commission_id": "TX_LOG_NEW",
+- `tests/test_ref_history.py:45` ? may = resolve_commission_rate(rows, proprietaire_id="PROP_1", logement_id="LOG_1", ref_date="2026-05-15")
+- `tests/test_ref_history.py:46` ? june = resolve_commission_rate(rows, proprietaire_id="PROP_1", logement_id="LOG_1", ref_date="2026-06-15")
+- `tests/test_ref_history.py:52` ? self.assertEqual(june.row["taux_commission_id"], "TX_LOG_NEW")
+- `tests/test_ref_history.py:55` ? res = resolve_commission_rate([], proprietaire_id="PROP_1", logement_id="LOG_1", ref_date="2026-05-15")
+- `tests/test_ref_history.py:62` ? "taux_commission_id": "TX_A",
+- `tests/test_ref_history.py:71` ? "taux_commission_id": "TX_B",
+- `tests/test_ref_history.py:80` ? res = resolve_commission_rate(rows, proprietaire_id="PROP_1", logement_id="LOG_1", ref_date="2026-06-01")
+
+### Cl?ture mensuelle
+- `02_TRAVAIL/lib_cloture.py:2` ? Regles pures de cloture mensuelle et corrections post-cloture.
+- `02_TRAVAIL/lib_cloture.py:12` ? STATUT_CLOTURE = "CLOTURE"
+- `02_TRAVAIL/lib_cloture.py:14` ? ALLOWED_CLOTURE_STATUSES = {STATUT_OUVERT, STATUT_EN_CONTROLE, STATUT_CLOTURE}
+- `02_TRAVAIL/lib_cloture.py:41` ? def normalise_cloture_status(value):
+- `02_TRAVAIL/lib_cloture.py:43` ? return status if status in ALLOWED_CLOTURE_STATUSES else None
+- `02_TRAVAIL/lib_cloture.py:46` ? def validate_cloture_status(value):
+- `02_TRAVAIL/lib_cloture.py:47` ? status = normalise_cloture_status(value)
+- `02_TRAVAIL/lib_cloture.py:49` ? return False, "STATUT_CLOTURE_INTERDIT"
+- `02_TRAVAIL/lib_cloture.py:54` ? """Valide une correction post-cloture sans jamais la valider metier."""
+- `02_TRAVAIL/lot11_controles_coherence.py:13` ? D-LOT11-02 REF_Cloture_Mensuelle non modifiee (dashboard manuel)
+- `02_TRAVAIL/lot11_controles_coherence.py:34` ? from lib_cloture import (
+- `02_TRAVAIL/lot11_controles_coherence.py:36` ? normalise_cloture_status,
+- `02_TRAVAIL/lot11_controles_coherence.py:38` ? validate_cloture_status,
+- `02_TRAVAIL/lot11_controles_coherence.py:69` ? AJUST_FILE = BASE / "01_SOURCES_BRUTES/AjustementsPostCloture/SAISIE_Ajustements_PostCloture.xlsx"
+- `02_TRAVAIL/lot11_controles_coherence.py:236` ? df_cloture  = _read_sheet(BNQ_FILE, sheet="REF_Cloture_Mensuelle")
+- `02_TRAVAIL/lot11_controles_coherence.py:280` ? commentaire="Creer les taux dates avant cloture/facture finale.")
+- `02_TRAVAIL/lot11_controles_coherence.py:303` ? commentaire="Creer les periodes de gestion datees avant cloture/facture finale.")
+- `02_TRAVAIL/lot11_controles_coherence.py:386` ? # GROUPE 0C - CORRECTIONS POST-CLOTURE TRACEES
+- `02_TRAVAIL/lot11_controles_coherence.py:388` ? print("CTR: Corrections post-cloture...")
+- `02_TRAVAIL/lot11_controles_coherence.py:391` ? _ctrl(ctrl_rows, "CLOTURE", "SAISIE_Ajustements_PostCloture", None,
+- `02_TRAVAIL/lot11_controles_coherence.py:392` ? "AJUSTEMENTS_POST_CLOTURE_SOURCE_ABSENTE", "INFO",
+- `02_TRAVAIL/lot11_controles_coherence.py:393` ? "Aucune saisie d'ajustement post-cloture disponible. Une correction future devra etre append-only.")
+- `02_TRAVAIL/lot11_controles_coherence.py:397` ? _ctrl(ctrl_rows, "CLOTURE", "SAISIE_Ajustements_PostCloture", None,
+- `02_TRAVAIL/lot11_controles_coherence.py:398` ? "AJUSTEMENTS_POST_CLOTURE_SCHEMA_INCOMPLET", "BLOQUANT",
+- `02_TRAVAIL/lot11_controles_coherence.py:404` ? _ctrl(ctrl_rows, "CLOTURE", "SAISIE_Ajustements_PostCloture",
+- `02_TRAVAIL/lot11_controles_coherence.py:991` ? # 8b - CLOTURE_IMPOSSIBLE_LIGNE_BANCAIRE_NON_CLASSEE
+- `02_TRAVAIL/lot11_controles_coherence.py:996` ? for _, row_clo in df_cloture.iterrows():
+- `02_TRAVAIL/lot11_controles_coherence.py:998` ? statut_clo = row_clo.get("statut_mois")
+- `02_TRAVAIL/lot11_controles_coherence.py:1002` ? ok_status, status_or_code = validate_cloture_status(statut_clo)
+- `02_TRAVAIL/lot11_controles_coherence.py:1004` ? _ctrl(ctrl_rows, "BANQUE", "BANQUE_LOT8_IMPORT_REF_Cloture", mois_str,
+- `02_TRAVAIL/lot11_controles_coherence.py:1006` ? f"Mois {mois_str}: statut_mois interdit '{statut_clo}'. "
+- `02_TRAVAIL/lot11_controles_coherence.py:1007` ? "Statuts autorises: OUVERT, EN_CONTROLE, CLOTURE.",
+- `02_TRAVAIL/lot11_controles_coherence.py:1024` ? _ctrl(ctrl_rows, "BANQUE", "BANQUE_LOT8_IMPORT_REF_Cloture", mois_str,
+- `02_TRAVAIL/lot11_controles_coherence.py:1025` ? "CLOTURE_IMPOSSIBLE_LIGNE_BANCAIRE_NON_CLASSEE", "A_CONTROLER",
+- `02_TRAVAIL/lot11_controles_coherence.py:1027` ? "Cloture impossible tant que rapprochements non resolus.",
+- `02_TRAVAIL/lot11_controles_coherence.py:1031` ? n_mois_clo = len(df_cloture[df_cloture["mois"].notna()]) if "mois" in df_cloture.columns else 0
+- `02_TRAVAIL/lot11_controles_coherence.py:1032` ? print(f"  CLOTURE: {n_rapproch_requis} lignes RAPPROCHEMENT_REQUIS sur {n_mois_clo} mois banque.")
+- `02_TRAVAIL/lot11_controles_coherence.py:1045` ? if BANQUE_DISPO and "mois" in df_cloture.columns:
+- `02_TRAVAIL/lot11_controles_coherence.py:1046` ? mois_banque = sorted(set(df_cloture["mois"].dropna().astype(str).str[:7]))
+- `02_TRAVAIL/lot11_controles_coherence.py:1072` ? # Statut cloture banque (REF_Cloture_Mensuelle du fichier Lot 8)
+- `02_TRAVAIL/lot11_controles_coherence.py:1074` ? a_enregistrement_cloture = False
+- `02_TRAVAIL/lot11_controles_coherence.py:1075` ? if BANQUE_DISPO and len(df_cloture) > 0 and "mois" in df_cloture.columns:
+- `02_TRAVAIL/lot11_controles_coherence.py:1076` ? row_clo = df_cloture[df_cloture["mois"].astype(str).str[:7] == m]
+- `02_TRAVAIL/lot11_controles_coherence.py:1078` ? a_enregistrement_cloture = True
+- `02_TRAVAIL/lot11_controles_coherence.py:1079` ? statut_clo = normalise_cloture_status(row_clo.iloc[0].get("statut_mois", "OUVERT")) or "OUVERT"
+- `02_TRAVAIL/lot11_controles_coherence.py:1081` ? # Banque compatible facturation uniquement si mois explicitement CLOTURE
+- `02_TRAVAIL/lot11_controles_coherence.py:1082` ? banque_cloturee = (statut_clo == "CLOTURE")
+- `02_TRAVAIL/lot11_controles_coherence.py:1085` ? #      ET clôture banque réellement validée (statut CLOTURE).
+- `02_TRAVAIL/lot11_controles_coherence.py:1087` ? cloture_possible = "NON_DONNEES_INCOMPLETES"
+- `02_TRAVAIL/lot11_controles_coherence.py:1090` ? cloture_possible = "NON"
+- `02_TRAVAIL/lot11_controles_coherence.py:1093` ? cloture_possible = "NON_A_CONTROLER_OUVERTS"
+- `02_TRAVAIL/lot11_controles_coherence.py:1095` ? elif not banque_cloturee:
+- `02_TRAVAIL/lot11_controles_coherence.py:1096` ? cloture_possible = "NON_CLOTURE_INCOMPLETE"
+- `02_TRAVAIL/lot11_controles_coherence.py:1097` ? facturation_lot12 = "NON_CLOTURE_INCOMPLETE"
+- `02_TRAVAIL/lot11_controles_coherence.py:1099` ? cloture_possible = "OUI"
+- `02_TRAVAIL/lot11_controles_coherence.py:1103` ? commentaire = "0 BLOQUANT, 0 A_CONTROLER, mois CLOTURE -> facturation Lot 12 possible."
+- `02_TRAVAIL/lot11_controles_coherence.py:1108` ? elif facturation_lot12 == "NON_CLOTURE_INCOMPLETE":
+- `02_TRAVAIL/lot11_controles_coherence.py:1109` ? sc = statut_clo if a_enregistrement_cloture else "AUCUN_ENREGISTREMENT_CLOTURE"
+- `02_TRAVAIL/lot11_controles_coherence.py:1110` ? commentaire = f"0 anomalie mais cloture banque non validee (statut={sc}) - facturation impossible."
+- `02_TRAVAIL/lot11_controles_coherence.py:1119` ? "statut_mois_banque":      statut_clo,
+- `02_TRAVAIL/lot11_controles_coherence.py:1120` ? "cloture_possible":        cloture_possible,
+- `02_TRAVAIL/lot12_generer_factures.py:130` ? "statut_banque": str(r.get("statut_mois_banque")),
+- `02_TRAVAIL/lot12_generer_factures.py:217` ? if statut_banque != "CLOTURE":
+- `02_TRAVAIL/lot12_generer_factures.py:218` ? balises.append("{{BANQUE_NON_CLOTUREE}}")
+- `02_TRAVAIL/lot12_generer_factures.py:299` ? "{{MODE_FACTURATION_A_DEFINIR}}", "{{BANQUE_NON_CLOTUREE}}",
+- `02_TRAVAIL/lot4quater_resoudre_source_reservations.py:12` ? - mois clôturé (REF_Cloture_Mensuelle.statut_mois == CLOTURE) = HIST_Reservations_Cloturees ;
+- `02_TRAVAIL/lot4quater_resoudre_source_reservations.py:35` ? PATH_HIST = os.path.join(ROOT, "02_DONNEES_NORMALISEES", "historique_reservations", "HIST_Reservations_Cloturees.xlsx")
+- `02_TRAVAIL/lot4quater_resoudre_source_reservations.py:59` ? SRC_HIST = "HIST_RESERVATIONS_CLOTUREES"
+- `02_TRAVAIL/lot4quater_resoudre_source_reservations.py:60` ? METHODE_HIST = "HIST_PRIME_MOIS_CLOTURE"
+- `02_TRAVAIL/lot4quater_resoudre_source_reservations.py:91` ? for d in load_sheet(PATH_REF, "REF_Cloture_Mensuelle"):
+- `02_TRAVAIL/lot4quater_resoudre_source_reservations.py:92` ? if str(d.get("statut_mois") or "").strip().upper() == "CLOTURE" and d.get("mois"):
+- `02_TRAVAIL/lot4quater_resoudre_source_reservations.py:99` ? print(f"[lot4quater] mois CLOTURE : {sorted(cmonths) or 'AUCUN'}")
+- `02_TRAVAIL/lot4quater_resoudre_source_reservations.py:102` ? hist = load_sheet(PATH_HIST, "HIST_Reservations_Cloturees") if os.path.exists(PATH_HIST) else []
+- `02_TRAVAIL/lot4quater_resoudre_source_reservations.py:112` ? n_open = n_closed = n_reinject = n_cloture_sans_hist = 0
+- `02_TRAVAIL/lot4quater_resoudre_source_reservations.py:136` ? # ── Mois CLOTURE : HIST_Reservations_Cloturees (autorité) ──
+- `02_TRAVAIL/lot4quater_resoudre_source_reservations.py:145` ? # mois déclaré CLOTURE mais aucune ligne en HIST -> alerte + repli live (non bloquant)
+- `02_TRAVAIL/lot4quater_resoudre_source_reservations.py:150` ? "canal": canal, "etat_mois": "CLOTURE_SANS_HIST",
+- `02_TRAVAIL/lot4quater_resoudre_source_reservations.py:156` ? "code_anomalie": "MOIS_CLOTURE_SANS_HISTORIQUE",
+- `02_TRAVAIL/lot4quater_resoudre_source_reservations.py:157` ? "commentaire": f"Mois {mois} CLOTURE mais absent de HIST — repli live",
+- `02_TRAVAIL/lot4quater_resoudre_source_reservations.py:160` ? n_cloture_sans_hist += 1
+
+## R?f?rences Excel d?tect?es dans REF_Setup
+- `proprietaire_id` : REF_Setup.xlsm / REF_Charges_Recurrentes / header-or-sheet, REF_Setup.xlsm / REF_Gestion_Logements_Hist / header-or-sheet, REF_Setup.xlsm / REF_Logements / header-or-sheet, REF_Setup.xlsm / REF_Proprietaires / header-or-sheet, REF_Setup.xlsm / REF_Taux_Commission / header-or-sheet
+- `taux_commission` : REF_Setup.xlsm / REF_Proprietaires / header-or-sheet, REF_Setup.xlsm / REF_Taux_Commission / header-or-sheet
+- `REF_Cloture_Mensuelle` : REF_Setup.xlsm / REF_Cloture_Mensuelle / header-or-sheet
+
+## Colonnes r?ellement supprimables
+
+- `REF_Logements.proprietaire_id` : supprimable **plus tard**, uniquement apr?s adaptation compl?te des scripts/export Power BI/docs et validation que tout propri?taire est d?riv? de `REF_Gestion_Logements_Hist`.
+- `REF_Proprietaires.taux_commission` : supprimable **plus tard**, uniquement apr?s suppression du fallback transitoire, adaptation de l'export Power BI et validation que tous les taux sont couverts dans `REF_Taux_Commission`.
+- Champ bancaire `REF_Cloture_Mensuelle.statut_mois` dans Lot8 : ? supprimer ou renommer **plus tard** seulement si la table Lot8 porte bien un statut global et non une preuve bancaire; d?cision de granularit? ? valider.
+
+## Scripts et exports ? adapter avant suppression
+
+- `02_TRAVAIL/lot4bis_charger_reservations.py` : d?rivation propri?taire/logement via historique uniquement.
+- `02_TRAVAIL/lot10_calculer_resultats.py` : suppression du fallback `REF_Proprietaires.taux_commission_TRANSITOIRE`.
+- `02_TRAVAIL/lot11_controles_coherence.py` : contr?les absence historique/taux et cl?ture officielle.
+- `02_TRAVAIL/lot12_generer_factures.py` : propri?taire affich? et statut facture depuis sources officielles.
+- `02_TRAVAIL/lot13_export_powerbi.py` : retirer ou remplacer les colonnes export?es `REF_Logements.proprietaire_id` et `REF_Proprietaires.taux_commission`.
+- Tests `tests/test_ref_history.py` et ?ventuels tests de contr?les/commissions.
+
+## Risques restants
+
+- Certains consommateurs Excel/Power Query peuvent ne pas appara?tre dans un scan texte; ils doivent ?tre inspect?s dans les classeurs avant suppression.
+- Les exports Power BI peuvent casser si les colonnes disparaissent sans sch?ma de remplacement.
+- Les documents/proc?dures op?rateur doivent ?tre mis ? jour avant que les champs legacy soient retir?s, sinon double saisie ou mauvaise saisie possible.
+- La cl?ture Lot8 doit ?tre distingu?e entre preuve bancaire et statut officiel avant renommage/suppression.

@@ -70,3 +70,12 @@ Thumbs.db
 
 # Vault Obsidian parasite (hors projet)
 Conciergerie app/
+
+# 04_LOGS : on TRACE les audits markdown (.md) et scripts (.py) ; on IGNORE les
+# binaires, données et logs techniques (régénérables / lourds).
+04_LOGS/**/*.xlsx
+04_LOGS/**/*.xlsm
+04_LOGS/**/*.pdf
+04_LOGS/**/*.json
+04_LOGS/**/*.csv
+04_LOGS/**/*.log
