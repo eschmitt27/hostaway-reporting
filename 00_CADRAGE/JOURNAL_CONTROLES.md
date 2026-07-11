@@ -2212,3 +2212,22 @@ Contrôles  : avantage absent du suivi ; charge_id doublé ; SOURCE_SAISIE lien 
              charge payée société non reprise ; avantage_net incohérent.
 Statut     : PROUVÉ (suivi HR, aucun impact résultat/propriétaire, aucun règlement)
 Commentaire: D-CHG-GUIDE-10. Ce n'est PAS un règlement (aucun virement/trésorerie). Flags off. Fichiers réels intacts.
+
+---
+
+Date       : 2026-07-11
+Code       : CTR-CHG-SUIVI-ASSOCIE-02
+Sévérité   : INFO
+Fichier    : 02_TRAVAIL/lot11_controles_coherence.py (fonction controles_suivi_associe),
+             02_TRAVAIL/lib_controles_avantages.py, tests/test_lot11_avantages_integration.py
+Objet      : Branchement des contrôles du suivi associé dans le pipeline Lot11 (lecture seule).
+Constat    : Lot11 exécute désormais les contrôles avantages sur SAISIE_Charges_Flux + SOURCE_SAISIE +
+             MASTER_CALC_AVANTAGES. 7 contrôles INTRINSÈQUES ACTIFS (code_impact HR, pas d'impact
+             propriétaire, clé mois/associé, avantage_net cohérent, lien SOURCE_SAISIE déjà Lot3, charge_id
+             doublé, IK hors Lot3). 2 cross-contrôles (AVANTAGE_ABSENT_DU_SUIVI, CHARGE_PAYEE_NON_REPRISE)
+             PRÉPARÉS mais DIFFÉRÉS tant que MASTER_CALC_AVANTAGES n'est pas régénéré depuis la SAISIE
+             (flags off) — sinon faux positifs. INFO SUIVI_ASSOCIE_NON_GENERE émise dans cet état.
+Preuve     : sur fichiers réels (lecture seule) = 1 seule entrée INFO SUIVI_ASSOCIE_NON_GENERE, 0 anomalie.
+             tests/test_lot11_avantages_integration.py : 6 cas déclencheurs + cas calc vide (différé). 236 root verts.
+Statut     : BRANCHÉ (7 contrôles actifs, 2 préparés/différés). Aucune écriture ; aucun impact résultat/propriétaire.
+Commentaire: Lot7C. Aucun fichier métier réel modifié. Flags off. Cross-contrôles activés quand le suivi sera généré.

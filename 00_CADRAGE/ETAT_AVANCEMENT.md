@@ -712,6 +712,10 @@ prévisualisation. Construction d'une **source de vérité durable** :
   `source_calcul=LOT7`, `sens_suivi`, `associe_nom`) = suivi par associé/mois, **HR strict**, sans impact
   résultat ni propriétaire, **sans règlement**. Contrôles Lot11 `lib_controles_avantages.py`. Tests :
   `test_lot7b_suivi_associes` (Cas A–F), `test_controles_avantages`. Générateur `lot7_generateur_avantages.py`.
+- **Lot7C branchement Lot11 (2026-07-11, CTR-CHG-SUIVI-ASSOCIE-02)** : `lot11_controles_coherence.py` exécute
+  les contrôles avantages (`controles_suivi_associe`, lecture seule). 7 contrôles **actifs**, 2 cross-contrôles
+  **différés** tant que le suivi n'est pas régénéré depuis la SAISIE (flags off, INFO `SUIVI_ASSOCIE_NON_GENERE`).
+  Réel : 0 anomalie, 1 INFO. Tests `test_lot11_avantages_integration`. Aucun impact résultat/propriétaire.
 - Intégration `previsualiser` : manifest expose `persistable` + `persist_report` ; copie impacts écrite dans le dry-run.
 - Garde-fou : `persister_reel` lève PermissionError tant que CHARGES_REAL_WRITE_ENABLED = False.
 Tests : somme quotes-parts = montant, charge ménage jamais de réserve, avantage non doublé, fichier réel intouché,

@@ -44,6 +44,8 @@ from lib_settlements import (
     aircover_auto_impact,
     validated_airbnb_imputation,
 )
+import lib_controles_avantages as ctl_av   # Lot7C — contrôles suivi associé (fonctions pures)
+import lot7_generateur_avantages as gen_av  # lecteurs des sources durables (lecture seule)
 
 # ---------------------------------------------------------------------------
 # Chemins
@@ -58,6 +60,7 @@ NET_FILE    = BASE / "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_NetProprietaire.xls
 RSLT_FILE   = BASE / "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Resultats.xlsx"
 HA_ANO_FILE = BASE / "02_TRAVAIL/Lot1_Hostaway/MASTER_CTRL_HA_Anomalies.xlsx"
 CHG_FILE    = BASE / "02_TRAVAIL/Lot3_Charges/MASTER_FACT_MAN_Charges.xlsx"
+SAISIE_CHG_FILE = BASE / "01_SOURCES_BRUTES/Charges/SAISIE_Charges_Flux.xlsx"  # source durable (avantage_associe_id)
 HH_FILE     = BASE / "02_TRAVAIL/Lot4_ReservationsHH/MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx"
 ACC_FILE    = BASE / "02_TRAVAIL/Lot5_AcomptesProprietaires/MASTER_FACT_MAN_AcomptesProprietaires.xlsx"
 MEX_FILE    = BASE / "02_TRAVAIL/Lot6c_MenagesExternes/MASTER_FACT_MEN_MenagesExternes.xlsx"
@@ -150,6 +153,54 @@ def _ctrl(ctrl_rows, source_module, source_table, source_pk,
 
 
 # ---------------------------------------------------------------------------
+
+def controles_suivi_associe(df_ik, saisie_charges_path, ik_path):
+    """Lot7C — contrôles du suivi associé (avantages HR). LECTURE SEULE, aucun fichier écrit.
+
+    Retourne une liste d'entrées {code, severity, message, commentaire?} prêtes pour `_ctrl`.
+    - 7 contrôles INTRINSÈQUES ACTIFS (sûrs : 0 faux positif sur les fichiers actuels).
+    - 2 cross-contrôles SAISIE<->calc activés seulement si le suivi est généré (calc non vide),
+      sinon DIFFÉRÉS (INFO) — car MASTER_CALC_AVANTAGES n'est pas régénéré depuis la SAISIE tant
+      que les flags d'écriture réelle sont désactivés.
+    """
+    entrees = []
+    try:
+        charges_av = gen_av.charger_charges_saisie(str(saisie_charges_path))
+        residuels_av = gen_av.charger_source_saisie_residuelle(str(ik_path))
+    except Exception as exc:  # sources illisibles -> contrôles non activés, trace INFO
+        return [{"code": "SUIVI_ASSOCIE_SOURCES_ILLISIBLES", "severity": "INFO",
+                 "message": f"Sources suivi associe illisibles ({exc}). Controles avantages non actives.",
+                 "commentaire": "Lot7C : sources durables indisponibles."}]
+
+    # calc = lignes GENUINE de MASTER_CALC_AVANTAGES (exclut la ligne documentaire '# formule').
+    _recs = df_ik.to_dict("records") if hasattr(df_ik, "empty") and not df_ik.empty else []
+    calc_av = [r for r in _recs if not str(r.get("pk_id", "")).strip().startswith("#")]
+    headers_av = list(df_ik.columns) if hasattr(df_ik, "columns") else []
+    charge_ids_av = [c.get("charge_id") for c in charges_av]
+
+    anos = []
+    anos += ctl_av.ctrl_code_impact_hr(calc_av)
+    anos += ctl_av.ctrl_pas_impact_proprietaire(headers_av)
+    anos += ctl_av.ctrl_cle_suivi_presente(calc_av)
+    anos += ctl_av.ctrl_avantage_net_coherent(calc_av)
+    anos += ctl_av.ctrl_source_saisie_lien_deja_lot3(residuels_av, charge_ids_av)
+    anos += ctl_av.ctrl_charge_id_double(charges_av)
+    anos += ctl_av.ctrl_ik_hors_charges_lot3(charges_av)
+
+    if calc_av:
+        anos += ctl_av.ctrl_avantage_absent_du_suivi(charges_av, calc_av)
+        anos += ctl_av.ctrl_charges_payees_reprises(charges_av, calc_av)
+    else:
+        entrees.append({
+            "code": "SUIVI_ASSOCIE_NON_GENERE", "severity": "INFO",
+            "message": "MASTER_CALC_AVANTAGES vide/non regenere depuis SAISIE : cross-controles "
+                       "AVANTAGE_ABSENT_DU_SUIVI et CHARGE_PAYEE_NON_REPRISE differes (prepares, non actifs).",
+            "commentaire": "Lot7C : cross-controles actives quand le suivi est genere."})
+
+    for a in anos:
+        entrees.append({"code": a["code"], "severity": a["niveau"], "message": a["detail"]})
+    return entrees
+
 
 def main():
     # Chargement des sources
@@ -759,6 +810,12 @@ def main():
               "HC_ZERO_SOURCES_VIDES", "INFO",
               "MASTER_FACT_MAN_IK_Avantages vide. Controle MONTANT_RECUPERE_HH_NON_REPRIS_AVANTAGES = 0.",
               commentaire="IK et avantages non encore saisis.")
+
+    # GROUPE Lot7C - CONTROLES SUIVI ASSOCIE (avantages, HR strict) - lecture seule.
+    print("CTR: Suivi associe (avantages HR)...")
+    for _e in controles_suivi_associe(df_ik, SAISIE_CHG_FILE, IK_FILE):
+        _ctrl(ctrl_rows, "AVANTAGES_ASSOCIES", "MASTER_CALC_AVANTAGES", None,
+              _e["code"], _e["severity"], _e["message"], commentaire=_e.get("commentaire"))
 
     if SOURCES_VIDES["HH"]:
         pass  # Deja traite en groupe 2
