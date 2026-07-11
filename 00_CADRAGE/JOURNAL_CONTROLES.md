@@ -2171,3 +2171,25 @@ Preuves par Lot (tests) :
 Statut     : APPLIQUÉ (41 tests libs Lots verts + recettes complètes)
 Commentaire: Lecture uniquement via charge_id valide. Sources réelles intouchées (tables vides). Flags off.
              Branchement effectif des pipelines (écriture des pools/résultats) déféré à l'ouverture de l'écriture réelle.
+
+---
+
+Date       : 2026-07-08 (reformulé 2026-07-11 — Option A)
+Code       : CTR-CHG-AVANTAGE-PQ-01
+Sévérité   : INFO
+Fichier    : 02_TRAVAIL/lot7_generateur_avantages.py (moteur réel, commit d5da30d),
+             tests/test_lot7_generateur_avantages.py (preuve principale),
+             02_TRAVAIL/lot7_pq_avantages.py + tests/test_pq_avantage_lot7_reel.py (preuve complémentaire optionnelle),
+             01_SOURCES_BRUTES/Charges/SAISIE_Charges_Flux.xlsx (colonne avantage_associe_id)
+Objet      : Attribution déterministe des avantages issus des charges — générateur Python Lot7 (Option A).
+Constat    : le classeur Lot7 ne contient AUCUN Power Query vivant (pas de connections.xml / DataMashup) ; l'onglet
+             POWER_QUERY_CODE est documentaire. Le moteur réel est Python : avantage_brut_depenses_perso est agrégé
+             depuis SAISIE_Charges_Flux (Lot3) avec priorité déterministe (avantage_associe_id > TYPE_FLUX_002).
+Preuve     : PRINCIPALE — tests/test_lot7_generateur_avantages.py (fixtures, aucune donnée métier réelle) :
+             PAY_001 100 € + avantage_associe_id=PERS_EWAN → PERS_EWAN 100 € exactement une fois ; 2e exécution →
+             toujours 100 € (jamais 200) ; TYPE_FLUX_002 historique préservé ; PAY_003/004 sans flag → 0.
+             COMPLÉMENTAIRE OPTIONNELLE — test_pq_avantage_lot7_reel.py (Excel COM, scratch) : mêmes résultats sur le
+             moteur Power Query Excel ; guardé (skip si Excel/win32com indisponible). Non nécessaire au pipeline.
+Statut     : PROUVÉ (générateur Python idempotent ; cross-check Excel COM optionnel concordant)
+Commentaire: D-CHG-GUIDE-09. Corrige les docs affirmant une écriture SOURCE_SAISIE ou un Power Query réel pour les
+             avantages de charge. Aucune écriture dans les données métier réelles. Flags off.

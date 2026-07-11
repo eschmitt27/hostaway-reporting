@@ -1500,11 +1500,36 @@ ROW_HASH :
 - **AFFECTATIONS** : ventilation analytique multi-logements/propriétaires (une ligne par quote-part ; somme = montant).
 - **MENAGE** : sélections/impacts ménage (mode INTERVENANT ou LOGEMENT, jamais les deux), pour Lot6f.
 - **RESERVE_REFACTURATION** : réserve de charges refacturables en attente (statut EN_ATTENTE), lue plus tard par Lot12.
-Les **avantages associés** n'ont PAS de nouvelle source : ils alimentent la source Lot7 existante
-(`MASTER_FACT_MAN_IK_Avantages`, onglet `SOURCE_SAISIE`) via `lien_origine = charge_id`, `nature = AVANTAGE_CHARGE`.
+Les **avantages associés** sont PORTÉS PAR LA CHARGE (colonne `avantage_associe_id` de
+`SAISIE_Charges_Flux`, distincte du paiement) et **JAMAIS ressaisis dans Lot7 SOURCE_SAISIE** (qui est
+strictement résiduelle — « NE PAS RESSAISIR » les charges Lot3). L'agrégation Lot7 (générateur Python
+`lot7_generateur_avantages.py`, logique `lib_avantages`) attribue l'avantage par bénéficiaire directement
+depuis SAISIE_Charges_Flux — voir D-CHG-GUIDE-09.
 Règles : une charge économique reste unique (Lot3) ; les ventilations ne sont jamais des doubles charges ; une
 charge ménage n'a jamais de ligne RESERVE ; un avantage n'est écrit qu'une fois par charge (dédup `lien_origine`) ;
 jamais de liste d'identifiants concaténée. **Écriture réelle interdite tant que CHARGES_REAL_WRITE_ENABLED = False** :
 la persistance s'effectue sur COPIE contrôlée (dry-run), idempotente par `charge_id` (réécrire remplace, ne duplique
 jamais). L'application/report/ignore d'une réserve en préfacture reste préparée mais NON automatique (Lot12 futur).
 Voir CTR-CHG-PERSIST-01.
+
+### D-CHG-GUIDE-09 — Avantage porté par la charge + Power Query Lot7 étendu (verrou résolu)
+Date : 2026-07-08 | Statut : VALIDÉ | Lot : APP-3b / Lot7
+Décision (corrige D-CHG-GUIDE-08 sur les avantages) : **aucune écriture dans SOURCE_SAISIE Lot7 pour une charge
+existant déjà dans SAISIE_Charges_Flux** (SOURCE_SAISIE est strictement résiduelle). L'avantage est porté
+uniquement par la charge via `avantage_associe_id` :
+- `avantage_associe_id` vide = pas d'avantage ;
+- `avantage_associe_id` renseigné = **totalité du montant de la charge** attribuée à cet associé ;
+- PAY_003 / PAY_004 ne créent JAMAIS automatiquement un avantage ;
+- PAY_001 peut créer un avantage si `avantage_associe_id` est renseigné.
+Le générateur **Python `lot7_generateur_avantages.py`** (Option A) produit `avantage_brut_depenses_perso`
+depuis SAISIE_Charges_Flux (Lot3) avec priorité déterministe :
+1. si `avantage_associe_id` renseigné → ce bénéficiaire (tout moyen de paiement) ;
+2. sinon → règle historique `TYPE_FLUX_002` par `associe_id` (traitement inchangé) ;
+jamais les deux voies pour une même charge ; une même `charge_id` jamais comptée deux fois ; génération
+idempotente. `TYPE_FLUX_004` / `TYPE_FLUX_008` (charges_payees_pour_societe) inchangés. L'onglet
+POWER_QUERY_CODE reste **documentaire** (aucun Power Query vivant : ni connections.xml, ni DataMashup).
+Preuve principale : `tests/test_lot7_generateur_avantages.py` (5 cas + idempotence, commit d5da30d) —
+charge PAY_001 100 € + avantage_associe_id → 100 € exactement une fois pour le bon associé ; seconde
+exécution → toujours 100 €, jamais 200 €. Preuve complémentaire OPTIONNELLE (non nécessaire au pipeline) :
+`tests/test_pq_avantage_lot7_reel.py` (Excel COM, skip si Excel indisponible) ; M-code documentaire
+`02_TRAVAIL/lot7_pq_avantages.py`. Voir CTR-CHG-AVANTAGE-PQ-01.

@@ -707,7 +707,7 @@ prévisualisation. Construction d'une **source de vérité durable** :
   `tools/creer_saisie_charges_impacts.py`.
 - Service `charges_impacts_persist_service.py` : normalise (charge_id + guide) → lignes persistables ; écrit sur
   **COPIE contrôlée** (jamais le réel, flags off), idempotent par charge_id (remplace, jamais de doublon).
-  Avantages → source Lot7 existante (SOURCE_SAISIE, lien_origine=charge_id), dédup par charge.
+  Avantages → PORTÉS PAR LA CHARGE (avantage_associe_id), jamais SOURCE_SAISIE (corrigé, voir D-CHG-GUIDE-09).
 - Intégration `previsualiser` : manifest expose `persistable` + `persist_report` ; copie impacts écrite dans le dry-run.
 - Garde-fou : `persister_reel` lève PermissionError tant que CHARGES_REAL_WRITE_ENABLED = False.
 Tests : somme quotes-parts = montant, charge ménage jamais de réserve, avantage non doublé, fichier réel intouché,
