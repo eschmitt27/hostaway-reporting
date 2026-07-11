@@ -53,3 +53,20 @@ Thumbs.db
 
 # Cache Google Sheet ménages — données opérationnelles, non versionnées (DEF-1)
 02_DONNEES_NORMALISEES/menages/_cache_google_sheet/
+
+# Artefacts temporaires de tests (pytest --basetemp) — générés, non versionnés
+.pytest_tmp*/
+
+# Dry-runs prévisualisation charges (copies contrôlées) — générés, non versionnés
+05_APPLICATION/data/dryruns/
+
+# Backups de migration openpyxl (timestampés, avant écriture) — non versionnés
+99_ARCHIVES/APP2E_SCHEMA_HH_*/
+99_ARCHIVES/APP3B0_REF_ASSOC_MODE_*/
+99_ARCHIVES/AVANTAGE_COL_*/
+99_ARCHIVES/CATEGORIES_NOUVELLES_*/
+99_ARCHIVES/PROFILS_IMPACT_CHG024_*/
+99_ARCHIVES/TYPESFLUX_PARCOURS_*/
+
+# Vault Obsidian parasite (hors projet)
+Conciergerie app/
