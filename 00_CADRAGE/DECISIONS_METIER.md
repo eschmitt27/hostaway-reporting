@@ -1533,3 +1533,18 @@ charge PAY_001 100 € + avantage_associe_id → 100 € exactement une fois pou
 exécution → toujours 100 €, jamais 200 €. Preuve complémentaire OPTIONNELLE (non nécessaire au pipeline) :
 `tests/test_pq_avantage_lot7_reel.py` (Excel COM, skip si Excel indisponible) ; M-code documentaire
 `02_TRAVAIL/lot7_pq_avantages.py`. Voir CTR-CHG-AVANTAGE-PQ-01.
+
+### D-CHG-GUIDE-10 — Suivi associé HR (Lot7B, compte courant associé)
+Date : 2026-07-11 | Statut : VALIDÉ | Lot : Lot7B
+Décision : `MASTER_CALC_AVANTAGES` (clé `associe_id` + `mois`) EST le **suivi associé**. Il porte
+`AvantageNet = AvantagesBruts + IK − ChargesPayéesPourSociété` (D011) et 4 colonnes de suivi :
+`code_impact = HR` (strict), `source_calcul = LOT7`, `sens_suivi`, `associe_nom`.
+- **Dimension ASSOCIÉ uniquement.** N'impacte JAMAIS : net propriétaire, résultat conciergerie
+  (réel ni comptable), préfactures. **Interdiction de brancher dans Lot10 / Lot12.**
+- **Pas un règlement** : aucun virement, aucun mouvement de trésorerie, aucun solde réel. Suivi
+  *calculé* uniquement. Le solde par virements/remboursements associés + le lettrage = **futur** circuit.
+- `sens_suivi` ∈ {A_CONTROLER_POSITIF, A_CONTROLER_NEGATIF, SOLDE_NUL} — convention PRUDENTE : le sens
+  « à payer / à rembourser » n'est PAS tranché ici.
+- Un avantage associé n'est jamais transformé en charge ni en produit ; un remboursement associé n'a
+  jamais d'impact résultat (HR/neutralise).
+Contrôles : `02_TRAVAIL/lib_controles_avantages.py` (Lot11). Voir CTR-CHG-SUIVI-ASSOCIE-01.

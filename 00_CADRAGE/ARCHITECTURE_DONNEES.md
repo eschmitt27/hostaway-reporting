@@ -1948,7 +1948,9 @@ non régénérée). Onglets normalisés liés par `charge_id` (tables ListObject
 | RESERVE_REFACTURATION | reserve_id, charge_id | logement_id, proprietaire_id, montant_refacturable, statut_traitement, trace_decision | Lot12 (préparation préfactures) |
 Avantages associés : PORTÉS PAR LA CHARGE (`SAISIE_Charges_Flux.avantage_associe_id`), jamais ressaisis dans
 Lot7 SOURCE_SAISIE (résiduelle). Le générateur Python `lot7_generateur_avantages.py` (Option A) les agrège
-depuis SAISIE_Charges_Flux ; l'onglet POWER_QUERY_CODE est documentaire (aucun Power Query vivant). Écriture
+depuis SAISIE_Charges_Flux ; l'onglet POWER_QUERY_CODE est documentaire (aucun Power Query vivant). `MASTER_CALC_AVANTAGES`
+EST le **suivi associé** (par `associe_id`+`mois`, colonnes `code_impact=HR`, `source_calcul`, `sens_suivi`, `associe_nom`) :
+**HR strict**, jamais d'impact résultat conciergerie ni net propriétaire, jamais de règlement (D-CHG-GUIDE-10). Écriture
 réelle interdite (flags off) : persistance sur COPIE contrôlée, idempotente par charge_id. Somme des quotes-parts =
 montant ; charge ménage jamais dans RESERVE ; une charge = une seule charge économique (Lot3).
 

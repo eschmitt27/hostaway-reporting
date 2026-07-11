@@ -708,6 +708,10 @@ prévisualisation. Construction d'une **source de vérité durable** :
 - Service `charges_impacts_persist_service.py` : normalise (charge_id + guide) → lignes persistables ; écrit sur
   **COPIE contrôlée** (jamais le réel, flags off), idempotent par charge_id (remplace, jamais de doublon).
   Avantages → PORTÉS PAR LA CHARGE (avantage_associe_id), jamais SOURCE_SAISIE (corrigé, voir D-CHG-GUIDE-09).
+- **Lot7B suivi associé (2026-07-11, D-CHG-GUIDE-10)** : `MASTER_CALC_AVANTAGES` enrichi (`code_impact=HR`,
+  `source_calcul=LOT7`, `sens_suivi`, `associe_nom`) = suivi par associé/mois, **HR strict**, sans impact
+  résultat ni propriétaire, **sans règlement**. Contrôles Lot11 `lib_controles_avantages.py`. Tests :
+  `test_lot7b_suivi_associes` (Cas A–F), `test_controles_avantages`. Générateur `lot7_generateur_avantages.py`.
 - Intégration `previsualiser` : manifest expose `persistable` + `persist_report` ; copie impacts écrite dans le dry-run.
 - Garde-fou : `persister_reel` lève PermissionError tant que CHARGES_REAL_WRITE_ENABLED = False.
 Tests : somme quotes-parts = montant, charge ménage jamais de réserve, avantage non doublé, fichier réel intouché,

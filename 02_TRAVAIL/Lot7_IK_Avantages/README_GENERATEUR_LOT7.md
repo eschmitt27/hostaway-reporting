@@ -63,3 +63,18 @@ resume = gen.generer(saisie_charges_path, lot7_path, sortie_path)  # sortie_path
 - `tests/test_avantages_charges.py` — logique d'agrégation (`lib_avantages`).
 - `tests/test_pq_avantage_lot7_reel.py` — preuve **complémentaire optionnelle** via Excel COM
   (skippée si Excel/win32com indisponible) ; ne conditionne pas Lot7.
+- `tests/test_lot7b_suivi_associes.py` — suivi associé (Cas A–F + HR strict + `sens_suivi`).
+- `tests/test_controles_avantages.py` — contrôles Lot11 du suivi (`lib_controles_avantages.py`).
+
+## Suivi associé (Lot7B)
+
+`MASTER_CALC_AVANTAGES` **EST** le suivi associé (clé `associe_id` + `mois`). Il porte 4 colonnes de
+suivi en fin de table : `code_impact` (= **HR** strict), `source_calcul` (= `LOT7`), `sens_suivi`,
+`associe_nom`. `AvantageNet = AvantagesBruts + IK − ChargesPayéesPourSociété` (D011).
+
+- **HR strict** : n'impacte **jamais** le résultat conciergerie (réel ni comptable), ni le net
+  propriétaire, ni les préfactures. **Interdiction de brancher dans Lot10 / Lot12.**
+- **Ce n'est PAS un règlement** : aucun virement, aucun solde de trésorerie. C'est un suivi *calculé* ;
+  le solde réel par virements/remboursements associés + le lettrage seront un **futur** circuit.
+- `sens_suivi` ∈ `A_CONTROLER_POSITIF` / `A_CONTROLER_NEGATIF` / `SOLDE_NUL` — convention **prudente** :
+  le sens « à payer / à rembourser » n'est **pas** tranché ici.

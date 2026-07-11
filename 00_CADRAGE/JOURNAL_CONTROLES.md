@@ -2193,3 +2193,22 @@ Preuve     : PRINCIPALE — tests/test_lot7_generateur_avantages.py (fixtures, a
 Statut     : PROUVÉ (générateur Python idempotent ; cross-check Excel COM optionnel concordant)
 Commentaire: D-CHG-GUIDE-09. Corrige les docs affirmant une écriture SOURCE_SAISIE ou un Power Query réel pour les
              avantages de charge. Aucune écriture dans les données métier réelles. Flags off.
+
+---
+
+Date       : 2026-07-11
+Code       : CTR-CHG-SUIVI-ASSOCIE-01
+Sévérité   : INFO
+Fichier    : 02_TRAVAIL/lot7_generateur_avantages.py (suivi associé), 02_TRAVAIL/lib_controles_avantages.py,
+             tests/test_lot7b_suivi_associes.py, tests/test_controles_avantages.py
+Objet      : Suivi associé HR (Lot7B) — MASTER_CALC_AVANTAGES enrichi + contrôles Lot11.
+Constat    : MASTER_CALC_AVANTAGES devient le suivi par associé/mois (code_impact=HR, source_calcul=LOT7,
+             sens_suivi, associe_nom). AvantageNet = AvantagesBruts + IK − ChargesPayéesPourSociété (D011).
+Preuve     : tests/test_lot7b_suivi_associes.py (Cas A–F + HR strict + idempotence) et
+             tests/test_controles_avantages.py (9 contrôles + intégration : la sortie générateur passe tous
+             les contrôles, 0 anomalie). Aucune donnée métier réelle (fixtures). 229 tests root verts.
+Contrôles  : avantage absent du suivi ; charge_id doublé ; SOURCE_SAISIE lien déjà Lot3 ; code_impact non-HR ;
+             colonne d'impact propriétaire/résultat interdite ; clé mois/associé manquante ; IK dans Lot3 ;
+             charge payée société non reprise ; avantage_net incohérent.
+Statut     : PROUVÉ (suivi HR, aucun impact résultat/propriétaire, aucun règlement)
+Commentaire: D-CHG-GUIDE-10. Ce n'est PAS un règlement (aucun virement/trésorerie). Flags off. Fichiers réels intacts.
