@@ -2231,3 +2231,32 @@ Preuve     : sur fichiers réels (lecture seule) = 1 seule entrée INFO SUIVI_AS
              tests/test_lot11_avantages_integration.py : 6 cas déclencheurs + cas calc vide (différé). 236 root verts.
 Statut     : BRANCHÉ (7 contrôles actifs, 2 préparés/différés). Aucune écriture ; aucun impact résultat/propriétaire.
 Commentaire: Lot7C. Aucun fichier métier réel modifié. Flags off. Cross-contrôles activés quand le suivi sera généré.
+
+---
+
+Date       : 2026-07-13
+Code       : CTR-APP3B-ECRITURE-REELLE-01
+Sévérité   : INFO
+Fichier    : 04_LOGS/APP3B_ECRITURE_REELLE/executer_protocole_copie.py (+ rapport horodaté),
+             00_CADRAGE/PROTOCOLE_ECRITURE_REELLE_CHARGES.md, 02_TRAVAIL/lot7_generateur_avantages.py
+Objet      : Exécution du protocole d'écriture réelle — UNIQUEMENT SUR COPIES ISOLÉES (hors dépôt).
+Constat    : 3 cas écrits sur copies ($TEMP/app3b_ecriture_<TS>/) : A) charge simple non ménage avec
+             avantage associé (CHG_025, 100 €, PAY_001, PERS_EWAN) ; B) charge refacturable (CHG_008,
+             LOG_0001) ; C) charge ménage (CHG_004, INT_0001). 59/59 contrôles verts.
+Preuve     : SHA256 des 3 fichiers réels IDENTIQUES avant/après (SAISIE_Charges_Flux, SAISIE_Charges_Impacts,
+             MASTER_FACT_MAN_IK_Avantages) → aucun fichier métier réel modifié. Colonnes formule C/I/J/AD
+             non écrasées (formules vivantes). 1 seule ligne charge après DOUBLE écriture (idempotence).
+             AFFECTATIONS Σ quote_part = montant ; RESERVE statut EN_ATTENTE ; MENAGE intervenant XOR
+             logement, jamais de réserve. Onglets/validations/tables Excel inchangés. Lot7 régénéré :
+             avantage PERS_EWAN 2026-06, code_impact=HR, net=100.00, exactement 1 fois, 2e génération
+             identique. Lot11 : 0 anomalie, les 2 cross-contrôles s'activent sans faux positif.
+Correctif  : lot7_generateur_avantages._mois_valide — le gabarit d'instruction 'AAAA-MM' de SOURCE_SAISIE
+             avait la FORME d'un mois (7 car., tiret en 5e) et franchissait le filtre. Rejeté désormais
+             (chiffres exigés). Test de non-régression ajouté.
+Statut     : MOTEUR PROUVÉ SUR COPIE — ÉCRITURE RÉELLE NON ACTIVÉE (flags restent False).
+Limites    : 1) persister_reel() est un stub (NotImplementedError) : aucun writer réel n'existe, activer le
+             flag ne suffirait pas ; 2) charge_id non réservé (collision possible en saisie concurrente) ;
+             3) verrou classeur ouvert / OneDrive non testé ; 4) formules C/I/J/AD sans valeur en cache tant
+             qu'Excel n'a pas rouvert le fichier (Lot7 immunisé, autres lecteurs à vérifier).
+Commentaire: Les 4 limites doivent être levées avant toute discussion d'activation (§8 du protocole).
+             Aucune copie Excel de test n'est versionnée.

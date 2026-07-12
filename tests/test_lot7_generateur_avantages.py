@@ -196,6 +196,21 @@ class Lot7GenerateurTests(unittest.TestCase):
         self._run()
         self.assertEqual(_read_calc(self.lot7), {})
 
+    # ── Gabarit d'instruction ('AAAA-MM') : jamais une donnée ─────────────────
+    def test_gabarit_instruction_source_saisie_rejete(self):
+        """La ligne d'instruction du classeur réel a la FORME d'un mois (7 car., tiret en 5e).
+
+        Elle ne doit jamais produire de clé de suivi, même si son type_flux_id est littéral.
+        """
+        _make_saisie(self.saisie, [])
+        _make_lot7(self.lot7, source_rows=[
+            {"mois": "AAAA-MM", "associe_id": "PERS_EWAN", "type_flux_id": "TYPE_FLUX_015",
+             "montant": 999, "lien_origine": ""},
+        ])
+        self._run()
+        self.assertEqual(_read_calc(self.lot7), {})
+        self.assertEqual(gen.charger_source_saisie_residuelle(self.lot7), [])
+
 
 if __name__ == "__main__":
     unittest.main()

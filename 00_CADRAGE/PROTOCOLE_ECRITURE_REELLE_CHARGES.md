@@ -1,9 +1,15 @@
 # APP-3b — Protocole d'écriture réelle contrôlée (Nouvelle charge guidée)
 
-> **STATUT : DOCUMENTÉ, NON ACTIVÉ.** Ce protocole n'est **pas** exécuté. Les flags
+> **STATUT : EXÉCUTÉ SUR COPIE ISOLÉE (2026-07-13) — ÉCRITURE RÉELLE NON ACTIVÉE.** Les flags
 > `CHARGES_REAL_WRITE_ENABLED` et `CHARGES_REAL_WRITE_CONFIRMATION_ENABLED` restent **False**
-> (`05_APPLICATION/app/config.py`). Toute activation fera l'objet d'une décision explicite séparée,
-> après exécution intégrale et verte de ce protocole sur copie isolée.
+> (`05_APPLICATION/app/config.py`). Toute activation fera l'objet d'une décision explicite séparée.
+>
+> Exécution : `04_LOGS/APP3B_ECRITURE_REELLE/executer_protocole_copie.py` — 3 cas (avantage associé,
+> refacturable, ménage), **59/59 contrôles verts**, SHA256 des 3 fichiers réels inchangés.
+> Rapport : `04_LOGS/APP3B_ECRITURE_REELLE/RAPPORT_PROTOCOLE_COPIE_<TS>.md` ; trace :
+> `CTR-APP3B-ECRITURE-REELLE-01`. **4 limites bloquantes** restent à lever avant §8 (voir §7 du rapport) :
+> writer réel inexistant (`persister_reel()` = stub), `charge_id` non réservé, verrou classeur ouvert
+> non testé, cache des formules `C/I/J/AD` non recalculé hors Excel.
 
 ## 0. Contexte
 

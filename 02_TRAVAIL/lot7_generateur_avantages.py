@@ -87,6 +87,14 @@ def _montant(v: Any) -> float:
         return 0.0
 
 
+def _mois_valide(mois: str) -> bool:
+    """True si `mois` est un vrai YYYY-MM (chiffres). Rejette les gabarits type 'AAAA-MM'."""
+    return (
+        len(mois) == 7 and mois[4] == "-"
+        and mois[:4].isdigit() and mois[5:].isdigit()
+    )
+
+
 def _mois_de(row: dict[str, Any]) -> str:
     """mois = YYYY-MM. Dérivé de date_charge (déterministe, sans dépendre du cache Excel).
 
@@ -168,8 +176,9 @@ def charger_source_saisie_residuelle(lot7_path: str) -> list[dict[str, Any]]:
             continue
         d = {headers[i]: r[i] for i in range(min(len(headers), len(r)))}
         mois = _txt(d.get("mois"))[:7]
-        # Ligne d'instruction / non-donnée : mois non conforme YYYY-MM.
-        if len(mois) != 7 or mois[4] != "-":
+        # Ligne d'instruction / gabarit / non-donnée : mois non conforme YYYY-MM (chiffres).
+        # Rejette explicitement le gabarit 'AAAA-MM' de la ligne d'instruction du classeur réel.
+        if not _mois_valide(mois):
             continue
         out.append({
             "mois": mois,
