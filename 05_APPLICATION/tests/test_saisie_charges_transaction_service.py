@@ -114,7 +114,11 @@ def _persistable(charge_id: str = CHARGE_ID) -> dict:
 
 
 def _demande(cibles, **kw) -> svc.DemandeEcritureCharge:
-    """Verrou et master isolés sous tmp : aucun verrou n'est posé à l'emplacement de production."""
+    """Verrou, master ET journal isolés sous tmp.
+
+    `db_path` est obligatoire ici : sans lui, la journalisation écrirait dans la VRAIE base
+    applicative (05_APPLICATION/data/app.db) et polluerait le journal de production.
+    """
     saisie, impacts = cibles
     tmp = saisie.parent
     params = {
@@ -123,6 +127,9 @@ def _demande(cibles, **kw) -> svc.DemandeEcritureCharge:
         "saisie_path": saisie, "impacts_path": impacts,
         "master_path": tmp / "verrous" / "MASTER_absent.xlsx",   # absent : aucune collision
         "lock_path": tmp / "verrous" / lk.LOCK_NAME,
+        # Journal isolé, dans un sous-dossier DISTINCT : sa base (+ -wal/-shm) ne doit pas polluer
+        # le dossier des classeurs, que les tests de résidus inspectent au fichier près.
+        "db_path": tmp / "journal" / "journal_test.db",
     }
     params.update(kw)
     return svc.DemandeEcritureCharge(**params)
@@ -701,6 +708,7 @@ def _worker_transaction(params: dict, ev_verrou_pris, ev_continuer, resultats) -
         row_data=params["row_data"], persistable=params["persistable"],
         saisie_path=saisie, impacts_path=impacts,
         master_path=Path(params["master"]), lock_path=Path(params["lock"]),
+        db_path=Path(params["db"]),                 # journal isolé, jamais la base de production
     )
     res = svc_enfant.confirmer_ecriture_charge(demande)
 
@@ -733,6 +741,7 @@ def test_20_21_22_deux_processus_concurrents(cibles, tmp_path):
         "saisie": str(saisie), "impacts": str(impacts),
         "master": str(tmp_path / "verrous" / "MASTER_absent.xlsx"),
         "lock": str(tmp_path / "verrous" / lk.LOCK_NAME),
+        "db": str(tmp_path / "journal" / "journal_test.db"),
         "charge_id": CHARGE_ID, "montant": MONTANT, "target_row": LIGNE,
         "row_data": _row_data(), "persistable": _persistable(),
     }

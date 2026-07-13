@@ -54,6 +54,7 @@ from typing import Any, Callable
 import openpyxl
 
 import app.config as cfg
+from app.services import saisie_charges_journal_service as journal
 from app.services import saisie_charges_lock_service as lock
 from app.writers import saisie_charges_writer as writer
 from app.writers.saisie_hh_writer import _same_volume, _sha256
@@ -69,6 +70,8 @@ STATUT_ROLLBACK = "ROLLBACK"
 
 E_FLAGS_DESACTIVES = "E_FLAGS_DESACTIVES"
 E_DEMANDE_INVALIDE = "E_DEMANDE_INVALIDE"
+E_TOKEN_DEJA_ECRIT = "E_TOKEN_DEJA_ECRIT"
+E_IDEMPOTENCE_INDISPONIBLE = "E_IDEMPOTENCE_INDISPONIBLE"
 E_VERROU_DEJA_PRIS = "E_VERROU_DEJA_PRIS"
 E_CHARGE_ID_INVALIDE = "E_CHARGE_ID_INVALIDE"
 E_CHARGE_ID_EXISTANT = "E_CHARGE_ID_EXISTANT"
@@ -111,6 +114,9 @@ class RollbackCritiqueError(RuntimeError):
     def __init__(self, fichiers_non_restaures: list[dict[str, str]], cause: str) -> None:
         self.fichiers_non_restaures = fichiers_non_restaures
         self.cause = cause
+        # Renseigné par la journalisation : si la trace n'a pas pu être écrite, on le dit ici plutôt
+        # que de le perdre (l'incident critique prime, mais son absence de trace doit se voir).
+        self.journal_erreur: str | None = None
         details = "; ".join(
             f"{f['cible']} (sauvegarde conservée : {f['sauvegarde']})"
             for f in fichiers_non_restaures
@@ -150,6 +156,9 @@ class DemandeEcritureCharge:
     lock_path: Path | None = None
     sha256_saisie_attendu: str | None = None
     sha256_impacts_attendu: str | None = None
+    # Journalisation : token du dry-run (clé d'idempotence) et base cible (injectable en test).
+    token_previsualisation: str | None = None
+    db_path: Path | None = None
 
 
 @dataclass
@@ -180,6 +189,14 @@ class ResultatTransaction:
     sauvegardes_restantes: list[str] = field(default_factory=list)
     nettoyage_incomplet: list[str] = field(default_factory=list)
     sha256_finaux: dict[str, str] = field(default_factory=dict)
+    # ── Journalisation ──
+    transaction_id: str | None = None
+    statut_journal: str | None = None          # verdict métier écrit au journal (9 valeurs)
+    journal_erreur: str | None = None          # panne du journal : signalée, jamais avalée
+    rollback_tente: bool = False
+    rollback_reussi: bool | None = None
+    verrou_pid: int | None = None              # détenteur du verrou en cas de refus
+    verrou_hostname: str | None = None
 
     @property
     def ok(self) -> bool:
@@ -505,18 +522,140 @@ def _nettoyer(chemins: list[Path]) -> list[str]:
 # ── Point d'entrée ───────────────────────────────────────────────────────────
 
 def confirmer_ecriture_charge(demande: DemandeEcritureCharge) -> ResultatTransaction:
-    """Écrit une charge dans les deux classeurs SAISIE, de façon transactionnelle et VERROUILLÉE.
+    """Écrit une charge dans les deux classeurs SAISIE : transactionnelle, VERROUILLÉE, TRACÉE.
 
     Ordre non négociable : garde des flags → verrou → résolution du charge_id → préparation →
-    commit → vérification → libération. Le verrou est pris **avant** toute lecture concluant à la
-    disponibilité d'un identifiant, et n'est relâché qu'une fois la transaction entièrement jouée
-    (succès, échec récupéré, ou rollback) — c'est lui qui tient la réservation.
+    commit → vérification → libération → **journalisation**. Le verrou est pris avant toute lecture
+    concluant à la disponibilité d'un identifiant ; il n'est relâché qu'une fois la transaction
+    entièrement jouée — c'est lui qui tient la réservation.
 
-    Aucun fichier réel n'est modifié tant que TOUS les temporaires ne sont pas préparés et validés.
-    Si un remplacement ou une vérification post-commit échoue, les fichiers déjà remplacés sont
-    restaurés ; si cette restauration échoue, RollbackCritiqueError est levée (le verrou est
-    malgré tout libéré : l'état critique est décrit par l'exception, pas par un verrou bloqué).
+    **Toute tentative est journalisée**, y compris les refus.
+
+    Deux règles distinctes sur les pannes du journal, à ne pas confondre :
+
+    - **AVANT la transaction (garde d'idempotence) : FAIL-CLOSED.** Si un `token_previsualisation`
+      est fourni et que le journal est illisible, on ne peut pas savoir si cette charge a déjà été
+      écrite → refus (`E_IDEMPOTENCE_INDISPONIBLE`), avant toute préparation. Une saisie bloquée
+      vaut mieux qu'une charge comptée deux fois.
+    - **PENDANT ou APRÈS la transaction (clôture de la trace) : jamais bloquant.** Une panne à ce
+      moment-là n'empêche ni l'écriture ni un rollback ; elle est signalée dans
+      `ResultatTransaction.journal_erreur` (ou `RollbackCritiqueError.journal_erreur`), jamais avalée.
     """
+    trace = journal.ouvrir_trace(
+        token_previsualisation=demande.token_previsualisation,
+        charge_id=demande.charge_id or None,
+        charge_id_source=journal.ID_FOURNI if demande.charge_id else journal.ID_DEMANDE,
+        cible_saisie=demande.saisie_path,
+        cible_impacts=demande.impacts_path,
+        db_path=demande.db_path,
+    )
+    trace.sha256_saisie_avant = _sha_si_existe(demande.saisie_path)
+    trace.sha256_impacts_avant = _sha_si_existe(demande.impacts_path)
+
+    try:
+        resultat = _confirmer(demande)
+    except RollbackCritiqueError as exc:
+        # État critique : la trace est ce qui restera pour reconstituer les faits.
+        trace.rollback_tente = True
+        trace.rollback_reussi = False
+        trace.fichiers_non_restaures = exc.fichiers_non_restaures
+        exc.journal_erreur = journal.cloturer_trace_signalee(
+            trace, journal.ROLLBACK_CRITIQUE, code=E_REMPLACEMENT, details=str(exc),
+            sha256_saisie_apres=_sha_si_existe(demande.saisie_path),
+            sha256_impacts_apres=_sha_si_existe(demande.impacts_path),
+        )
+        raise                                   # l'incident prime, le journal ne le masque jamais
+    except Exception as exc:
+        # Chemin non prévu (bug, panne système…) : on ne sait PAS conclure sur l'état des fichiers.
+        # On refuse de le deviner : statut ETAT_INCOHERENT, empreintes réelles relevées telles
+        # quelles. Aucun rollback n'est tenté à l'aveugle, et les sauvegardes techniques ne sont
+        # PAS nettoyées (le nettoyage est en aval du point de rupture) : elles restent la voie de
+        # retour. Le verrou, lui, est bien libéré — un état incohérent ne doit pas bloquer en plus.
+        journal.cloturer_trace_signalee(
+            trace, journal.ETAT_INCOHERENT, code=type(exc).__name__, details=str(exc),
+            sha256_saisie_apres=_sha_si_existe(demande.saisie_path),
+            sha256_impacts_apres=_sha_si_existe(demande.impacts_path),
+        )
+        raise
+
+    _completer_trace(trace, demande, resultat)
+    statut_journal = _statut_journal(resultat)
+    resultat.transaction_id = trace.transaction_id
+    resultat.statut_journal = statut_journal
+    erreur_journal = journal.cloturer_trace_signalee(
+        trace, statut_journal, code=resultat.code, details=resultat.details,
+        sha256_saisie_apres=_sha_si_existe(demande.saisie_path),
+        sha256_impacts_apres=_sha_si_existe(demande.impacts_path),
+    )
+    # Le résultat principal est conservé tel quel ; la panne de journal est ajoutée, pas substituée.
+    resultat.journal_erreur = _fusionner_erreur_journal(resultat.journal_erreur, erreur_journal)
+    return resultat
+
+
+def _sha_si_existe(path: Path | None) -> str | None:
+    try:
+        p = Path(path)
+        return _sha256(p) if p.exists() else None
+    except Exception:
+        return None
+
+
+def _fusionner_erreur_journal(existante: str | None, nouvelle: str | None) -> str | None:
+    if existante and nouvelle:
+        return f"{existante} | {nouvelle}"
+    return nouvelle or existante
+
+
+def _completer_trace(
+    trace: journal.TraceTransaction, demande: DemandeEcritureCharge, res: ResultatTransaction
+) -> None:
+    """Reporte dans la trace ce que la transaction a réellement fait."""
+    trace.charge_id = res.charge_id or demande.charge_id or None
+    if demande.charge_id:
+        trace.charge_id_source = journal.ID_FOURNI
+    elif res.charge_id:
+        trace.charge_id_source = journal.ID_GENERE
+    else:
+        trace.charge_id_source = journal.ID_DEMANDE
+    # NOMS de fichiers seulement — jamais de chemins temporaires.
+    trace.fichiers_remplaces = [Path(f).name for f in res.fichiers_remplaces]
+    trace.rollback_tente = res.rollback_tente
+    trace.rollback_reussi = res.rollback_reussi
+    trace.verrou_pid = res.verrou_pid
+    trace.verrou_hostname = res.verrou_hostname
+    trace.residus = [Path(r).name for r in (res.nettoyage_incomplet + res.sauvegardes_restantes)]
+
+
+# Correspondance code TECHNIQUE → verdict MÉTIER. Les deux restent distincts en base.
+_STATUT_PAR_CODE: dict[str, str] = {
+    E_FLAGS_DESACTIVES: journal.REFUSE_FLAGS,
+    E_VERROU_DEJA_PRIS: journal.REFUSE_VERROU,
+    E_DEMANDE_INVALIDE: journal.REFUSE_VALIDATION,
+    E_TOKEN_DEJA_ECRIT: journal.REFUSE_VALIDATION,
+    E_IDEMPOTENCE_INDISPONIBLE: journal.REFUSE_VALIDATION,
+    E_CHARGE_ID_INVALIDE: journal.REFUSE_CHARGE_ID,
+    E_CHARGE_ID_EXISTANT: journal.REFUSE_CHARGE_ID,
+    E_CHARGE_ID_EPUISE: journal.REFUSE_CHARGE_ID,
+    E_PREPARATION: journal.ECHEC_PREPARATION,
+    E_TEMPORAIRE_MANQUANT: journal.ECHEC_PREPARATION,
+    E_TEMPORAIRE_INVALIDE: journal.ECHEC_PREPARATION,
+    E_SAUVEGARDE: journal.ECHEC_PREPARATION,
+    E_REMPLACEMENT: journal.ROLLBACK_REUSSI,
+    E_POST_COMMIT: journal.ROLLBACK_REUSSI,
+}
+
+
+def _statut_journal(res: ResultatTransaction) -> str:
+    if res.statut == STATUT_OK:
+        return journal.SUCCES
+    statut = _STATUT_PAR_CODE.get(res.code or "")
+    if statut is not None:
+        return statut
+    return journal.ETAT_INCOHERENT      # code inconnu : on ne prétend pas savoir
+
+
+def _confirmer(demande: DemandeEcritureCharge) -> ResultatTransaction:
+    """Transaction proprement dite (inchangée par la journalisation)."""
     # 1. Flags — AVANT le verrou : un refus de garde ne doit même pas créer de fichier de verrou.
     if (garde := _garde_flags()) is not None:
         return garde
@@ -541,11 +680,59 @@ def confirmer_ecriture_charge(demande: DemandeEcritureCharge) -> ResultatTransac
         return ResultatTransaction(
             statut=STATUT_ERREUR, charge_id=demande.charge_id,
             code=E_VERROU_DEJA_PRIS, details=str(exc),
+            verrou_pid=exc.metadonnees.get("pid"),
+            verrou_hostname=exc.metadonnees.get("hostname"),
+        )
+
+
+def _consulter_idempotence(
+    demande: DemandeEcritureCharge,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Ce token a-t-il déjà produit une écriture réussie ? → (trace_succes, indisponibilite).
+
+    **FAIL-CLOSED quand un token est fourni.** Si le journal est illisible, on ne peut pas savoir si
+    cette charge a déjà été écrite : on REFUSE. La disponibilité ne prime pas sur le risque d'une
+    double écriture comptable — mieux vaut une saisie bloquée qu'une charge comptée deux fois.
+
+    Sans token, aucune garde d'idempotence ne s'applique (il n'y a rien à comparer) : la transaction
+    suit son cours, et c'est l'unicité du `charge_id` — vérifiée sous verrou — qui protège.
+    """
+    token = demande.token_previsualisation
+    if not token:
+        return None, None
+    try:
+        return journal.token_deja_ecrit(token, db_path=demande.db_path), None
+    except Exception as exc:
+        return None, (
+            f"Garde d'idempotence indisponible ({type(exc).__name__}: {exc}) : le journal n'a pas "
+            f"pu être lu, donc il est impossible de savoir si le token {token} a déjà produit une "
+            f"écriture. Transaction REFUSÉE avant toute préparation — aucun fichier n'a été touché."
         )
 
 
 def _executer_sous_verrou(demande: DemandeEcritureCharge) -> ResultatTransaction:
     """Corps de la transaction. Le verrou est tenu pendant TOUTE cette fonction."""
+    # 3-bis. Idempotence : ce token de prévisualisation a-t-il DÉJÀ produit une écriture réussie ?
+    # Vérifié sous verrou, donc sérialisé. C'est ce qui neutralise le double-clic et le retry aveugle.
+    deja, indisponible = _consulter_idempotence(demande)
+    if indisponible is not None:
+        # Refus AVANT toute préparation et tout remplacement (fail-closed).
+        return ResultatTransaction(
+            statut=STATUT_ERREUR, charge_id=demande.charge_id,
+            code=E_IDEMPOTENCE_INDISPONIBLE, details=indisponible,
+        )
+    if deja is not None:
+        return ResultatTransaction(
+            statut=STATUT_ERREUR, charge_id=str(deja.get("charge_id") or ""),
+            code=E_TOKEN_DEJA_ECRIT,
+            details=(
+                f"Le token de prévisualisation {demande.token_previsualisation} a déjà produit "
+                f"l'écriture de la charge {deja.get('charge_id')} "
+                f"(transaction {deja.get('transaction_id')}, le {deja.get('fin_utc')}). "
+                f"Aucune seconde écriture."
+            ),
+        )
+
     # 4. Résolution du charge_id — vérifié ou généré ICI, jamais avant le verrou.
     try:
         charge_id, row_data, persistable = _resoudre_charge_id(demande)
@@ -602,6 +789,7 @@ def _executer_sous_verrou(demande: DemandeEcritureCharge) -> ResultatTransaction
                 statut=STATUT_ROLLBACK, charge_id=demande.charge_id, code=E_REMPLACEMENT,
                 details=f"{cause} Tous les fichiers ont été restaurés.",
                 nettoyage_incomplet=restants,
+                rollback_tente=True, rollback_reussi=True,   # sinon RollbackCritiqueError aurait été levée
             )
         remplaces.append(FichierRemplace(
             cible=p.cible, sauvegarde=sauvegardes[p.cible],
@@ -618,6 +806,7 @@ def _executer_sous_verrou(demande: DemandeEcritureCharge) -> ResultatTransaction
             statut=STATUT_ROLLBACK, charge_id=demande.charge_id, code=E_POST_COMMIT,
             details=f"{cause} Tous les fichiers ont été restaurés.",
             nettoyage_incomplet=restants,
+            rollback_tente=True, rollback_reussi=True,
         )
 
     # ── Succès : nettoyage des temporaires PUIS des sauvegardes ───────────────

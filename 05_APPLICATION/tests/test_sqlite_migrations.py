@@ -12,6 +12,7 @@ EXPECTED_TABLES = {
     "periods",
     "saisie_hh_writes",
     "menage_overrides",
+    "saisie_charges_writes",   # 0004 — journal des tentatives d'écriture des charges (APP-3b)
 }
 
 
