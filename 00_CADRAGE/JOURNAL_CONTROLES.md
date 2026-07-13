@@ -2260,3 +2260,42 @@ Limites    : 1) persister_reel() est un stub (NotImplementedError) : aucun write
              qu'Excel n'a pas rouvert le fichier (Lot7 immunisé, autres lecteurs à vérifier).
 Commentaire: Les 4 limites doivent être levées avant toute discussion d'activation (§8 du protocole).
              Aucune copie Excel de test n'est versionnée.
+
+---
+
+Date       : 2026-07-13
+Code       : CTR-LOT3-GENERATEUR-01
+Sévérité   : INFO
+Fichier    : 02_TRAVAIL/lot3_generateur_charges.py (créé), 02_TRAVAIL/lot6f_cout_complet_menages.py,
+             tests/test_lot3_generateur_charges.py, 00_CADRAGE/ARCHITECTURE_DONNEES.md
+Objet      : Lot3 — générateur réel du MASTER charges (Option A) + correctif du cache formules Lot6f.
+Constat    : MASTER_FACT_MAN_Charges.xlsx ne contenait AUCUN Power Query vivant (pas de
+             connections.xml / DataMashup / queryTables) et aucun script lot3_*.py n'existait. Rien ne
+             l'alimentait : son onglet MASTER ne contenait qu'une ligne placeholder. Or Lot9, Lot10,
+             Lot11, Lot12 et la page Charges de l'app lisent le MASTER, pas la SAISIE — une charge
+             écrite réellement dans SAISIE_Charges_Flux serait restée invisible pour le résultat et le
+             net propriétaire. Même situation que Lot7 avant Option A.
+Correctif  : lot3_generateur_charges.py — lit SAISIE_Charges_Flux (vérité métier) + REF_Categories_Charges,
+             écrit MASTER (37 colonnes, contrat identique au M-code documentaire) + VUE_MENAGE
+             (filtre_vue_menage=OUI ET statut_controle=VALIDE, D028). Idempotent. Colonnes formule
+             RECALCULÉES en Python, jamais lues depuis le cache Excel : mois (← date_charge),
+             impact_resultat_reel / impact_resultat_comptable (← code_impact, D012), ROW_HASH.
+             Lignes vides / gabarits / placeholders ignorées. date_charge inexploitable → anomalie
+             DATE_CHARGE_INVALIDE (jamais un mois inventé).
+             lot6f_cout_complet_menages.py — dérive désormais le mois des charges ménage depuis
+             date_charge (helper mois_charge) au lieu de lire la colonne formule C en data_only=True.
+             Sans ce correctif, une charge écrite par openpyxl sans réouverture Excel était
+             silencieusement exclue des pools ménage, avec le contrôle POOL_VIDE_NON_SAISI affirmant à
+             tort « aucune charge ménage saisie ». Nouveaux contrôles : CHARGE_MENAGE_DATE_INVALIDE
+             (A_CONTROLER) et POOL_VIDE_HORS_MOIS (INFO, distingué de POOL_VIDE_NON_SAISI).
+Preuve     : tests/test_lot3_generateur_charges.py — 13 tests sur fixtures (mois dérivé sans cache,
+             gabarit ignoré, IC/HC/HR, charge ménage vue par Lot6f, idempotence, sources intactes,
+             contrat 37 colonnes, une charge = une ligne, sens dérivé, date invalide, doublon,
+             VUE_MENAGE). Exécution sur sources réelles avec sortie sur COPIE : 0 charge lue
+             (SAISIE vide), 27 catégories REF, fichiers réels intacts (SHA256). 251 tests root verts.
+Statut     : MAILLON LOT3 RÉTABLI — la SAISIE alimente enfin le MASTER, sans dépendance au cache Excel.
+Limites    : le MASTER n'est pas régénéré automatiquement après une saisie ; la régénération reste une
+             étape moteur explicite, hors transaction d'écriture app (file_registry interdit à juste
+             titre l'écriture app dans 02_TRAVAIL / MASTER_*).
+Commentaire: Prérequis au writer réel (APP-3b). Flags inchangés (CHARGES_REAL_WRITE_ENABLED = False).
+             Aucun fichier métier réel modifié.

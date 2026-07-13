@@ -28,6 +28,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import openpyxl
 from openpyxl.styles import Font, PatternFill
 from lib_menage_costs import resolve_internal_cleaning_cost
+import lot3_generateur_charges as lot3   # mois dérivé de date_charge (jamais le cache formule)
 
 # AUD-005 — mono-mois volontaire : l'extension multi-mois de l'écart analytique ménage est
 # différée jusqu'à la mise en place d'un vrai processus de clôture mensuelle métier/comptable.
@@ -58,6 +59,16 @@ def sh(p, s):
     if s not in wb.sheetnames: wb.close(); return []
     ws = wb[s]; rows = [r for r in ws.iter_rows(values_only=True) if any(c is not None for c in r)]; wb.close()
     return [dict(zip([str(c) for c in rows[0]], r)) for r in rows[1:]]
+
+def mois_charge(d):
+    """mois d'une charge SAISIE, dérivé de date_charge — JAMAIS la colonne formule C.
+
+    La colonne `mois` de SAISIE_Charges_Flux est une formule Excel : openpyxl la préserve mais ne
+    la recalcule pas. Lue en data_only=True après une écriture applicative, son cache est vide et
+    la charge serait silencieusement exclue des pools ménage. On dérive donc depuis date_charge.
+    Retourne "" si la date est inexploitable (l'appelant émet alors un contrôle explicite).
+    """
+    return lot3.mois_de(d.get("date_charge"))
 
 def norm(s):
     s = str(s or "").strip().lower()
@@ -211,19 +222,33 @@ for l in lines:
 saisie_rows = sh(SAISIE, "SAISIE")
 saisie_has_col = bool(saisie_rows) and "affectable_menage" in saisie_rows[0]
 pool_courses = pool_conso = pool_autres = 0.0
+nb_affectables = nb_date_invalide = 0
 if saisie_has_col:
     for d in saisie_rows:
-        if str(d.get("affectable_menage")) != "OUI" or str(d.get("mois"))[:7] != MONTH: continue
+        if str(d.get("affectable_menage")) != "OUI": continue
+        nb_affectables += 1
+        m_charge = mois_charge(d)
+        if not m_charge:
+            nb_date_invalide += 1
+            continue
+        if m_charge != MONTH: continue
         cat = str(d.get("categorie_charge_id")); m = f(d.get("montant")) or 0
         if cat == "CHG_004": pool_conso += m
         elif cat in ("CHG_018",): pool_autres += m
         else: pool_courses += m
+if nb_date_invalide:
+    controls.append(("CHARGE_MENAGE_DATE_INVALIDE", "A_CONTROLER",
+                     f"{nb_date_invalide} charge(s) ménage affectable(s) sans date_charge exploitable — mois non dérivable, exclues des pools"))
 if pool_courses == 0 and pool_conso == 0 and pool_autres == 0:
-    controls.append(("POOL_VIDE_NON_SAISI", "INFO", "Aucune charge ménage affectable saisie dans SAISIE_Charges_Flux (pools courses/conso=0)"))
+    if nb_affectables:
+        controls.append(("POOL_VIDE_HORS_MOIS", "INFO",
+                         f"{nb_affectables} charge(s) ménage affectable(s) en SAISIE, aucune sur {MONTH} (pools courses/conso=0)"))
+    else:
+        controls.append(("POOL_VIDE_NON_SAISI", "INFO", "Aucune charge ménage affectable saisie dans SAISIE_Charges_Flux (pools courses/conso=0)"))
 
 # contrôle double source lavage
 if saisie_has_col:
-    lav_saisie = [d for d in saisie_rows if str(d.get("categorie_charge_id")) == "CHG_003" and str(d.get("affectable_menage")) == "OUI" and str(d.get("mois"))[:7] == MONTH]
+    lav_saisie = [d for d in saisie_rows if str(d.get("categorie_charge_id")) == "CHG_003" and str(d.get("affectable_menage")) == "OUI" and mois_charge(d) == MONTH]
     if lav_saisie and sum(l["lavage_attribuable"] for l in lines) > 0:
         controls.append(("DOUBLE_SOURCE_LAVAGE_A_CONTROLER", "A_CONTROLER", f"{len(lav_saisie)} lignes lavage SAISIE affectable=OUI + lavage Google Sheet présent"))
 

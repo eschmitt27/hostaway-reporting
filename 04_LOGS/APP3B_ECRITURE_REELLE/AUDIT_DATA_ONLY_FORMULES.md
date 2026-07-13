@@ -151,13 +151,30 @@ elle vient **avant** le writer :
 
 | # | Contenu | Statut |
 |---|---|---|
-| 1 | **Cet audit** | fait |
-| 1-bis | **Générateur Lot3 + correctif Lot6f** | **à décider — nouveau, prérequis** |
-| 2 | `saisie_charges_writer` + tests unitaires | inchangé |
-| 3 | Orchestrateur + rollback deux fichiers + tests transactionnels | inchangé |
-| 4 | Branchement `persister_reel` + protocole rejoué sur copies | inchangé |
+| 1 | **Cet audit** | fait (commit `26dae35`) |
+| 1-bis | **Générateur Lot3 + correctif Lot6f** | **fait** (voir §9) |
+| 2 | `saisie_charges_writer` + tests unitaires | à faire |
+| 3 | Orchestrateur + rollback deux fichiers + tests transactionnels | à faire |
+| 4 | Branchement `persister_reel` + protocole rejoué sur copies | à faire |
 
 Sans le commit 1-bis, le writer réel serait techniquement correct et **métier-ement inutile** : il
 écrirait une charge que le résultat et le net propriétaire ne verraient jamais.
+
+## 9. Suites données (commit 1-bis)
+
+Les deux conclusions de cet audit ont été traitées :
+
+- **`02_TRAVAIL/lot3_generateur_charges.py` (créé)** — le MASTER charges est désormais une **sortie
+  calculée** produite depuis la SAISIE (37 colonnes, contrat identique au M-code documentaire, plus
+  l'onglet VUE_MENAGE). `mois`, `impact_resultat_reel`, `impact_resultat_comptable` et `ROW_HASH` sont
+  **recalculés en Python** : le cache Excel n'est plus jamais lu. Le maillon manquant du §3 est rétabli.
+- **`02_TRAVAIL/lot6f_cout_complet_menages.py` (corrigé)** — le mois des charges ménage est dérivé de
+  `date_charge` (helper `mois_charge`). La dernière dépendance au cache de la colonne `C` disparaît, et
+  une date inexploitable produit désormais `CHARGE_MENAGE_DATE_INVALIDE` au lieu du faux diagnostic
+  « aucune charge ménage saisie ».
+
+**Le risque « cache des formules » du §4 est donc levé pour l'ensemble du projet.** Il ne reste, avant
+le writer réel, que les limites propres à l'écriture elle-même (writer inexistant, `charge_id` non
+réservé, verrou classeur ouvert / OneDrive).
 
 Flags inchangés (`CHARGES_REAL_WRITE_ENABLED = False`). Aucun fichier métier réel touché.

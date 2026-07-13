@@ -1752,12 +1752,27 @@ MASTER_COUTCOMPLET_MENAGES   = TRAVAIL / "Lot6f_CoutComplet_Menages"     / "MAST
 
 ### Sources
 
-- MASTER_CHARGES = TRAVAIL / "Lot3_Charges" / "MASTER_FACT_MAN_Charges.xlsx" — sortie Power Query Lot3, onglet MASTER. Données présentes après refresh Excel.
-- SAISIE_CHARGES = SOURCES_BRUTES / "Charges" / "SAISIE_Charges_Flux.xlsx" — source amont. Jamais lue ni écrite par l'app (hash-check uniquement).
+- MASTER_CHARGES = TRAVAIL / "Lot3_Charges" / "MASTER_FACT_MAN_Charges.xlsx" — **sortie CALCULÉE**, onglet MASTER. Produite par `02_TRAVAIL/lot3_generateur_charges.py` (Python/openpyxl). **Aucun Power Query vivant** dans ce classeur (ni connections.xml, ni DataMashup, ni queryTables) : l'onglet POWER_QUERY_CODE est **documentaire**. Aucun refresh Excel n'alimente ce fichier.
+- SAISIE_CHARGES = SOURCES_BRUTES / "Charges" / "SAISIE_Charges_Flux.xlsx" — **vérité métier** (source durable). Jamais lue ni écrite par l'app en APP-3a (hash-check uniquement).
+
+> **SAISIE = vérité métier ; MASTER = sortie calculée.** Le MASTER n'est jamais saisi à la main : il se régénère depuis la SAISIE. Même principe qu'en Lot7 (Option A).
 
 ### Structure MASTER (37 colonnes)
 
-31 colonnes SAISIE + 6 colonnes Power Query : sens, iltre_vue_menage, source_module, source_table, source_pk, date_integration.
+31 colonnes SAISIE + 6 colonnes dérivées : sens, filtre_vue_menage, source_module, source_table, source_pk, date_integration.
+
+**Colonnes recalculées en Python, jamais lues depuis le cache Excel** (openpyxl préserve les formules mais ne les recalcule pas) :
+
+| Colonne | Dérivée de |
+|---|---|
+| `mois` | `date_charge` (jamais la colonne formule `C` de la SAISIE) |
+| `impact_resultat_reel` | `code_impact` — IC/HC → OUI, HR → NON (D012) |
+| `impact_resultat_comptable` | `code_impact` — IC → OUI, HC/HR → NON (D012) |
+| `ROW_HASH` | recalculé (jamais la colonne formule `AD`) |
+| `sens` | `sens_flux` (DEPENSE/REFACTURATION → CHARGE ; RECUPERATION → PRODUIT ; REMBOURSEMENT/NEUTRE → NEUTRALISATION) |
+| `filtre_vue_menage` | REF_Categories_Charges (REF_Setup) |
+
+Onglet `VUE_MENAGE` = MASTER filtré `filtre_vue_menage = OUI` ET `statut_controle = VALIDE` (D028).
 
 Clé logique : charge_id.
 
