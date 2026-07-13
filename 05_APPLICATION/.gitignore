@@ -1,4 +1,8 @@
 data/app.db
+# Fichiers auxiliaires SQLite en mode WAL (PRAGMA journal_mode=WAL) — artefacts runtime locaux,
+# recréés et purgés par SQLite lui-même. Jamais versionnés.
+data/app.db-wal
+data/app.db-shm
 data/snapshots/
 data/restore_workspace/
 .env
