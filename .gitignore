@@ -60,6 +60,9 @@ Thumbs.db
 # Dry-runs prévisualisation charges (copies contrôlées) — générés, non versionnés
 05_APPLICATION/data/dryruns/
 
+# Verrou d'écriture des charges (runtime, propre à la machine) — jamais versionné
+05_APPLICATION/data/.saisie_charges_write.lock
+
 # Backups de migration openpyxl (timestampés, avant écriture) — non versionnés
 99_ARCHIVES/APP2E_SCHEMA_HH_*/
 99_ARCHIVES/APP3B0_REF_ASSOC_MODE_*/

@@ -10,6 +10,7 @@ et vérifier que le rollback ramène les fichiers à leur empreinte initiale.
 from __future__ import annotations
 
 import hashlib
+import multiprocessing as mp
 import os
 from pathlib import Path
 
@@ -18,6 +19,7 @@ import pytest
 
 import app.config as cfg
 from app.readers.saisie_charges_reader import MANUAL_COL_MAP, _col_index
+from app.services import saisie_charges_lock_service as lk
 from app.services import saisie_charges_transaction_service as svc
 from app.writers import saisie_charges_writer as writer
 
@@ -87,30 +89,40 @@ def cibles(tmp_path: Path) -> tuple[Path, Path]:
     return saisie, impacts
 
 
-def _demande(cibles, **kw) -> svc.DemandeEcritureCharge:
-    saisie, impacts = cibles
-    row_data = {
-        "charge_id": CHARGE_ID, "date_charge": "2026-06-15", "montant": MONTANT,
+def _row_data(charge_id: str = CHARGE_ID) -> dict:
+    return {
+        "charge_id": charge_id, "date_charge": "2026-06-15", "montant": MONTANT,
         "sens_flux": "DEPENSE", "categorie_charge_id": "CHG_025", "type_flux_id": "TYPE_FLUX_020",
         "code_impact": "IC", "prise_en_compta": "OUI", "mode_paiement_id": "PAY_001",
         "affectation_type": "GLOBAL", "refacturable": "NON", "source_flux": "SAISIE_MANUELLE",
         "statut_controle": "A_CONTROLER", "niveau_anomalie": "INFO",
         "avantage_associe_id": "PERS_EWAN",
     }
-    persistable = {
-        "charge_id": CHARGE_ID,
+
+
+def _persistable(charge_id: str = CHARGE_ID) -> dict:
+    return {
+        "charge_id": charge_id,
         "affectations": [{
-            "affectation_id": f"{CHARGE_ID}-AFF-001", "charge_id": CHARGE_ID, "mois": "2026-06",
+            "affectation_id": f"{charge_id}-AFF-001", "charge_id": charge_id, "mois": "2026-06",
             "logement_id": "LOG_0001", "proprietaire_id": "PROP_01", "quote_part": MONTANT,
             "statut": "A_CONTROLER", "origine": "NOUVELLE_CHARGE_GUIDEE", "commentaire": None,
             "ROW_HASH": "h1",
         }],
         "menage": [], "reserve": [],
     }
+
+
+def _demande(cibles, **kw) -> svc.DemandeEcritureCharge:
+    """Verrou et master isolés sous tmp : aucun verrou n'est posé à l'emplacement de production."""
+    saisie, impacts = cibles
+    tmp = saisie.parent
     params = {
         "charge_id": CHARGE_ID, "montant": MONTANT, "target_row": LIGNE,
-        "row_data": row_data, "persistable": persistable,
+        "row_data": _row_data(), "persistable": _persistable(),
         "saisie_path": saisie, "impacts_path": impacts,
+        "master_path": tmp / "verrous" / "MASTER_absent.xlsx",   # absent : aucune collision
+        "lock_path": tmp / "verrous" / lk.LOCK_NAME,
     }
     params.update(kw)
     return svc.DemandeEcritureCharge(**params)
@@ -458,3 +470,302 @@ def test_20b_os_replace_uniquement_dans_l_orchestrateur():
     """Le writer bas niveau ne remplace jamais : l'unique os.replace du flux est ici."""
     assert "os.replace(" not in Path(writer.__file__).read_text(encoding="utf-8")
     assert "os.replace(" in Path(svc.__file__).read_text(encoding="utf-8")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Commit 4 — verrou et réservation du charge_id
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _verrou(d: svc.DemandeEcritureCharge) -> Path:
+    return Path(d.lock_path)
+
+
+# ── 15-18 : collision de charge_id détectée SOUS verrou, avant préparation ───
+
+def test_15_identifiant_fourni_libre_accepte(cibles, flags_on):
+    res = svc.confirmer_ecriture_charge(_demande(cibles))
+    assert res.ok, res
+    assert res.charge_id == CHARGE_ID
+
+
+def test_16_identifiant_deja_present_dans_saisie_refuse(cibles, flags_on):
+    saisie, impacts = cibles
+    assert svc.confirmer_ecriture_charge(_demande(cibles)).ok      # 1re écriture
+    avant = {p: _sha(p) for p in (saisie, impacts)}
+
+    res = svc.confirmer_ecriture_charge(_demande(cibles, target_row=3))   # même charge_id
+    assert res.statut == svc.STATUT_ERREUR
+    assert res.code == svc.E_CHARGE_ID_EXISTANT
+    assert "SAISIE_Charges_Flux" in res.details
+    assert {p: _sha(p) for p in (saisie, impacts)} == avant        # rien préparé, rien remplacé
+
+
+def test_17_identifiant_present_uniquement_dans_les_impacts_refuse(cibles, flags_on):
+    saisie, impacts = cibles
+    wb = openpyxl.load_workbook(impacts)
+    wb["AFFECTATIONS"].append([f"{CHARGE_ID}-AFF-009", CHARGE_ID, "2026-06", "LOG_0001",
+                               "PROP_01", 10.0, "A_CONTROLER", "AUTRE", None, "h"])
+    wb.save(impacts)
+    wb.close()
+    avant = {p: _sha(p) for p in (saisie, impacts)}
+
+    res = svc.confirmer_ecriture_charge(_demande(cibles))
+    assert res.code == svc.E_CHARGE_ID_EXISTANT
+    assert "SAISIE_Charges_Impacts" in res.details
+    assert {p: _sha(p) for p in (saisie, impacts)} == avant
+
+
+def test_18_identifiant_present_uniquement_dans_le_master_refuse(cibles, flags_on, tmp_path):
+    """Un identifiant déjà consommé en aval (MASTER Lot3) reste une collision."""
+    saisie, impacts = cibles
+    master = tmp_path / "MASTER_FACT_MAN_Charges.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "MASTER"
+    ws.append(["charge_id", "mois", "montant"])
+    ws.append(["[Charge par Power Query — placeholder]", None, None])   # gabarit : jamais une donnée
+    ws.append([CHARGE_ID, "2026-06", MONTANT])
+    wb.save(master)
+    wb.close()
+    avant = {p: _sha(p) for p in (saisie, impacts)}
+
+    res = svc.confirmer_ecriture_charge(_demande(cibles, master_path=master))
+    assert res.code == svc.E_CHARGE_ID_EXISTANT
+    assert "MASTER_FACT_MAN_Charges" in res.details
+    assert {p: _sha(p) for p in (saisie, impacts)} == avant
+
+
+def test_18b_identifiant_de_syntaxe_invalide_refuse(cibles, flags_on):
+    res = svc.confirmer_ecriture_charge(_demande(
+        cibles, charge_id="CHG-TRUC", row_data={"charge_id": "CHG-TRUC"},
+        persistable={"charge_id": "CHG-TRUC", "affectations": [], "menage": [], "reserve": []},
+    ))
+    assert res.code == svc.E_CHARGE_ID_INVALIDE
+
+
+# ── 19 : génération de l'identifiant APRÈS acquisition du verrou ─────────────
+
+def test_19_identifiant_genere_sous_verrou(cibles, flags_on):
+    """La fabrique de payload n'est appelée qu'une fois le verrou tenu : c'est ce qui rend
+    la séquence « lire les ids → en choisir un libre → écrire » réellement sûre."""
+    saisie, impacts = cibles
+    d_ref = _demande(cibles)
+    verrou = _verrou(d_ref)
+    vu: list[bool] = []
+
+    def fabrique(charge_id: str):
+        vu.append(verrou.exists())                 # le verrou est-il tenu à cet instant ?
+        return _row_data(charge_id), _persistable(charge_id)
+
+    d = _demande(cibles, charge_id="", row_data=None, persistable=None,
+                 charge_id_prefixe="CHG-2026-06-IC-BANQUE", payload_factory=fabrique)
+    res = svc.confirmer_ecriture_charge(d)
+
+    assert res.ok, res
+    assert res.charge_id == "CHG-2026-06-IC-BANQUE-001"   # premier numéro libre
+    assert vu == [True]                                   # verrou TENU pendant la génération
+    assert not verrou.exists()                            # et libéré ensuite
+
+
+def test_19b_generation_saute_les_identifiants_deja_pris(cibles, flags_on):
+    """Deux charges successives : la seconde reçoit -002, jamais -001 (relecture sous verrou)."""
+    def fabrique(charge_id: str):
+        return _row_data(charge_id), _persistable(charge_id)
+
+    base = dict(charge_id="", row_data=None, persistable=None,
+                charge_id_prefixe="CHG-2026-06-IC-BANQUE", payload_factory=fabrique)
+
+    r1 = svc.confirmer_ecriture_charge(_demande(cibles, **base))
+    assert r1.charge_id == "CHG-2026-06-IC-BANQUE-001", r1
+    r2 = svc.confirmer_ecriture_charge(_demande(cibles, target_row=3, **base))
+    assert r2.ok, r2
+    assert r2.charge_id == "CHG-2026-06-IC-BANQUE-002"
+
+
+# ── 23-24 : le verrou couvre les remplacements ET la vérification post-commit ─
+
+def test_23_verrou_tenu_pendant_tous_les_remplacements(cibles, flags_on, monkeypatch):
+    d = _demande(cibles)
+    verrou = _verrou(d)
+    presence: list[bool] = []
+    vrai = svc._remplacer_fichier
+
+    def espion(temp, cible):
+        presence.append(verrou.exists())
+        return vrai(temp, cible)
+
+    monkeypatch.setattr(svc, "_remplacer_fichier", espion)
+    assert svc.confirmer_ecriture_charge(d).ok
+    assert presence == [True, True]        # verrou tenu aux DEUX os.replace
+
+
+def test_24_verrou_libere_seulement_apres_la_verification_post_commit(cibles, flags_on, monkeypatch):
+    d = _demande(cibles)
+    verrou = _verrou(d)
+    presence: list[bool] = []
+    vrai = svc._verifier_post_commit
+
+    def espion(remplaces):
+        presence.append(verrou.exists())
+        return vrai(remplaces)
+
+    monkeypatch.setattr(svc, "_verifier_post_commit", espion)
+    res = svc.confirmer_ecriture_charge(d)
+
+    assert res.ok, res
+    assert presence == [True]              # encore tenu pendant la vérification
+    assert not verrou.exists()             # libéré seulement après
+
+
+# ── 25 : flags désactivés → aucun verrou n'est même créé ─────────────────────
+
+def test_25_flags_desactives_aucun_verrou_cree(cibles):
+    d = _demande(cibles)
+    res = svc.confirmer_ecriture_charge(d)
+    assert res.statut == svc.STATUT_GARDE
+    assert not _verrou(d).exists()
+    assert not _verrou(d).parent.exists()   # même le dossier du verrou n'a pas été créé
+
+
+# ── 27-28 : aucun résidu de verrou ───────────────────────────────────────────
+
+def test_27_aucun_residu_de_verrou_apres_succes(cibles, flags_on):
+    d = _demande(cibles)
+    assert svc.confirmer_ecriture_charge(d).ok
+    assert not _verrou(d).exists()
+
+
+def test_28_aucun_residu_de_verrou_apres_erreur_recuperee(cibles, flags_on):
+    """Erreur de préparation (Σ quotes ≠ montant) : le verrou est libéré dans le finally."""
+    d = _demande(cibles)
+    d.persistable["affectations"][0]["quote_part"] = 60.0
+    res = svc.confirmer_ecriture_charge(d)
+    assert res.code == svc.E_PREPARATION
+    assert not _verrou(d).exists()
+
+
+def test_28b_verrou_libere_apres_rollback(cibles, flags_on, monkeypatch):
+    d = _demande(cibles)
+    faux, _ = _replace_qui_echoue_a(2)
+    monkeypatch.setattr(os, "replace", faux)
+
+    res = svc.confirmer_ecriture_charge(d)
+    assert res.statut == svc.STATUT_ROLLBACK
+    assert not _verrou(d).exists()          # libéré malgré le rollback
+
+
+def test_28c_verrou_libere_apres_rollback_critique(cibles, flags_on, monkeypatch):
+    """Même un état critique ne laisse pas de verrou bloqué : l'incident est porté par l'exception."""
+    d = _demande(cibles)
+    faux, _ = _replace_qui_echoue_a(2)
+    monkeypatch.setattr(os, "replace", faux)
+    monkeypatch.setattr(svc, "_restaurer_fichier",
+                        lambda s, c: (_ for _ in ()).throw(OSError("restauration impossible")))
+
+    with pytest.raises(svc.RollbackCritiqueError):
+        svc.confirmer_ecriture_charge(d)
+    assert not _verrou(d).exists()
+
+
+# ── 20-22 : deux VRAIS processus concurrents ─────────────────────────────────
+
+def _worker_transaction(params: dict, ev_verrou_pris, ev_continuer, resultats) -> None:
+    """Exécuté dans un processus séparé (spawn). Les flags ne sont forcés qu'EN MÉMOIRE ici."""
+    import app.config as cfg_enfant
+    cfg_enfant.CHARGES_REAL_WRITE_ENABLED = True
+    cfg_enfant.CHARGES_REAL_WRITE_CONFIRMATION_ENABLED = True
+
+    from app.services import saisie_charges_transaction_service as svc_enfant
+
+    saisie = Path(params["saisie"])
+    impacts = Path(params["impacts"])
+
+    if params["role"] == "A":
+        # A s'arrête AU MILIEU de la section critique, verrou tenu, avant toute préparation.
+        vrai_preparer = svc_enfant._preparer
+
+        def preparer_bloquant(d):
+            ev_verrou_pris.set()               # « je tiens le verrou »
+            ev_continuer.wait(timeout=30)      # B a fini d'essayer
+            return vrai_preparer(d)
+
+        svc_enfant._preparer = preparer_bloquant
+    else:
+        ev_verrou_pris.wait(timeout=30)        # B n'essaie QUE pendant que A tient le verrou
+
+    fichiers_avant = sorted(f.name for f in saisie.parent.iterdir() if f.is_file())
+    hashes_avant = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in (saisie, impacts)}
+
+    demande = svc_enfant.DemandeEcritureCharge(
+        charge_id=params["charge_id"], montant=params["montant"], target_row=params["target_row"],
+        row_data=params["row_data"], persistable=params["persistable"],
+        saisie_path=saisie, impacts_path=impacts,
+        master_path=Path(params["master"]), lock_path=Path(params["lock"]),
+    )
+    res = svc_enfant.confirmer_ecriture_charge(demande)
+
+    fichiers_apres = sorted(f.name for f in saisie.parent.iterdir() if f.is_file())
+    hashes_apres = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in (saisie, impacts)}
+
+    resultats.put({
+        "role": params["role"], "statut": res.statut, "code": res.code,
+        "charge_id": res.charge_id, "fichiers_remplaces": res.fichiers_remplaces,
+        "fichiers_avant": fichiers_avant, "fichiers_apres": fichiers_apres,
+        "hashes_avant": hashes_avant, "hashes_apres": hashes_apres,
+    })
+    if params["role"] == "B":
+        ev_continuer.set()                     # B a fini : A peut reprendre
+
+
+def test_20_21_22_deux_processus_concurrents(cibles, tmp_path):
+    """Deux VRAIS processus (multiprocessing, spawn) tentent d'écrire la même charge.
+
+    Synchronisation déterministe par Event : B n'essaie que pendant que A tient le verrou —
+    aucun sleep fragile. B doit être refusé, sans préparer ni modifier quoi que ce soit.
+    """
+    saisie, impacts = cibles
+    ctx = mp.get_context("spawn")              # comportement Windows réel, pas un fork
+    ev_verrou_pris = ctx.Event()
+    ev_continuer = ctx.Event()
+    resultats = ctx.Queue()
+
+    base = {
+        "saisie": str(saisie), "impacts": str(impacts),
+        "master": str(tmp_path / "verrous" / "MASTER_absent.xlsx"),
+        "lock": str(tmp_path / "verrous" / lk.LOCK_NAME),
+        "charge_id": CHARGE_ID, "montant": MONTANT, "target_row": LIGNE,
+        "row_data": _row_data(), "persistable": _persistable(),
+    }
+    pa = ctx.Process(target=_worker_transaction,
+                     args=({**base, "role": "A"}, ev_verrou_pris, ev_continuer, resultats))
+    pb = ctx.Process(target=_worker_transaction,
+                     args=({**base, "role": "B"}, ev_verrou_pris, ev_continuer, resultats))
+    pa.start()
+    pb.start()
+    recus = [resultats.get(timeout=60), resultats.get(timeout=60)]
+    pa.join(timeout=60)
+    pb.join(timeout=60)
+    assert pa.exitcode == 0 and pb.exitcode == 0
+
+    par_role = {r["role"]: r for r in recus}
+    a, b = par_role["A"], par_role["B"]
+
+    # 20. Les deux ne sont jamais entrés ensemble : A écrit, B est refusé par le VERROU.
+    assert a["statut"] == svc.STATUT_OK, a
+    assert b["statut"] == svc.STATUT_ERREUR, b
+    assert b["code"] == svc.E_VERROU_DEJA_PRIS, b
+
+    # 21. B n'a préparé AUCUN temporaire (le contenu du dossier est identique avant/après son essai).
+    assert b["fichiers_avant"] == b["fichiers_apres"]
+    assert b["fichiers_apres"] == ["SAISIE_Charges_Flux.xlsx", "SAISIE_Charges_Impacts.xlsx"]
+
+    # 22. B n'a modifié AUCUN fichier.
+    assert b["hashes_avant"] == b["hashes_apres"]
+    assert b["fichiers_remplaces"] == []
+
+    # État final : une seule charge écrite, par A, et aucun verrou résiduel.
+    wb = openpyxl.load_workbook(saisie, read_only=True, data_only=True)
+    lignes = [r for r in wb["SAISIE"].iter_rows(values_only=True) if r[0] == CHARGE_ID]
+    wb.close()
+    assert len(lignes) == 1
+    assert not (tmp_path / "verrous" / lk.LOCK_NAME).exists()

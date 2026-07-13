@@ -18,32 +18,43 @@ d'écrire dans `02_TRAVAIL` / `MASTER_*`. L'avantage associé est porté par la 
 `avantage_associe_id` de la ligne de charge ; Lot7 se régénère ensuite par le moteur.
 
 Séquence (chaque étape est une fonction distincte, monkeypatchable) :
-    1. garde des flags          — refus AVANT toute préparation
-    2. validation de la demande
-    3. préparation des temporaires (writer bas niveau — aucun remplacement)
-    4. validation des temporaires (existence, lisibilité, empreinte, même volume)
-    5. sauvegardes techniques    — créées AVANT le premier remplacement
-    6. commit                    — os.replace, dans l'ordre déterministe (SEUL endroit du projet)
-    7. vérification post-commit  — fichiers finaux lisibles et conformes aux temporaires
-    8. rollback si échec         — restauration vérifiée par SHA256
-    9. nettoyage                 — temporaires puis sauvegardes ; jamais avant la validation complète
+    1. garde des flags          — refus AVANT tout verrou et toute préparation
+    2. validation syntaxique de la demande
+    3. ACQUISITION DU VERROU    — interprocessus, avant toute lecture concluant à l'unicité
+    4. résolution du charge_id   — vérifié (ou généré) SOUS verrou, jamais avant
+    5. préparation des temporaires (writer bas niveau — aucun remplacement)
+    6. validation des temporaires (existence, lisibilité, empreinte, même volume)
+    7. sauvegardes techniques    — créées AVANT le premier remplacement
+    8. commit                    — os.replace, dans l'ordre déterministe (SEUL endroit du projet)
+    9. vérification post-commit  — fichiers finaux lisibles et conformes aux temporaires
+   10. rollback si échec         — restauration vérifiée par SHA256
+   11. nettoyage                 — temporaires puis sauvegardes ; jamais avant la validation complète
+   12. LIBÉRATION DU VERROU      — dans un finally, quoi qu'il arrive
+
+**Le verrou est la réservation.** Il n'existe pas de registre séparé d'identifiants : l'unicité d'un
+`charge_id` tient au fait que sa vérification (ou sa génération) et l'écriture qui en découle se font
+sans jamais relâcher le verrou entre les deux. Sans lui, deux processus liraient tous deux « cet
+identifiant est libre » avant que l'un des deux n'écrive — et aucune relecture ne rattraperait ça.
 
 Garde-fous : tant que `CHARGES_REAL_WRITE_ENABLED` **et**
 `CHARGES_REAL_WRITE_CONFIRMATION_ENABLED` ne sont pas tous deux à True, la transaction est refusée
-avant qu'un seul octet d'un fichier réel ne soit touché. L'orchestrateur ne contourne jamais ces flags.
+avant qu'un seul octet d'un fichier réel ne soit touché, et **sans même poser de verrou**.
+L'orchestrateur ne contourne jamais ces flags.
 """
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as dataclass_replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import openpyxl
 
 import app.config as cfg
+from app.services import saisie_charges_lock_service as lock
 from app.writers import saisie_charges_writer as writer
 from app.writers.saisie_hh_writer import _same_volume, _sha256
 
@@ -58,12 +69,36 @@ STATUT_ROLLBACK = "ROLLBACK"
 
 E_FLAGS_DESACTIVES = "E_FLAGS_DESACTIVES"
 E_DEMANDE_INVALIDE = "E_DEMANDE_INVALIDE"
+E_VERROU_DEJA_PRIS = "E_VERROU_DEJA_PRIS"
+E_CHARGE_ID_INVALIDE = "E_CHARGE_ID_INVALIDE"
+E_CHARGE_ID_EXISTANT = "E_CHARGE_ID_EXISTANT"
+E_CHARGE_ID_EPUISE = "E_CHARGE_ID_EPUISE"
 E_PREPARATION = "E_PREPARATION"
 E_TEMPORAIRE_MANQUANT = "E_TEMPORAIRE_MANQUANT"
 E_TEMPORAIRE_INVALIDE = "E_TEMPORAIRE_INVALIDE"
 E_SAUVEGARDE = "E_SAUVEGARDE"
 E_REMPLACEMENT = "E_REMPLACEMENT"
 E_POST_COMMIT = "E_POST_COMMIT"
+
+# CHG-AAAA-MM-<IMPACT>-<ASSOC_MODE>-NNN (format verrouillé, cf. generate_charge_id).
+CHARGE_ID_RE = re.compile(r"^CHG-\d{4}-\d{2}-(IC|HC|HR)-[A-Z0-9_]+-\d{3}$")
+SEQUENCE_MAX = 999
+
+
+class ChargeIdInvalideError(ValueError):
+    """Le charge_id ne respecte pas le format attendu."""
+
+
+class ChargeIdDejaExistantError(RuntimeError):
+    """Le charge_id est déjà utilisé. Détecté SOUS verrou, avant toute préparation."""
+
+    def __init__(self, charge_id: str, emplacements: list[str]) -> None:
+        self.charge_id = charge_id
+        self.emplacements = emplacements
+        super().__init__(
+            f"charge_id={charge_id} déjà présent dans : {', '.join(emplacements)}. "
+            f"Aucun fichier n'a été préparé."
+        )
 
 
 class RollbackCritiqueError(RuntimeError):
@@ -90,15 +125,29 @@ class RollbackCritiqueError(RuntimeError):
 
 @dataclass(frozen=True)
 class DemandeEcritureCharge:
-    """Demande déjà structurée (validée en amont par la prévisualisation)."""
+    """Demande déjà structurée (validée en amont par la prévisualisation).
 
-    charge_id: str
+    Deux modes d'identifiant :
+
+    - **fourni** : `charge_id` renseigné, avec `row_data` et `persistable` cohérents. L'orchestrateur
+      vérifie sa syntaxe et son absence de toutes les tables — **sous verrou**, avant préparation.
+    - **généré** : `charge_id` vide, `charge_id_prefixe` et `payload_factory` renseignés.
+      L'identifiant est choisi **sous verrou**, puis `payload_factory(charge_id)` construit le
+      payload. La fabrique est fournie par l'appelant (ses propres constructeurs) : l'orchestrateur
+      ne duplique aucune logique métier.
+    """
+
     montant: float
     target_row: int
-    row_data: dict[str, Any]
-    persistable: dict[str, Any]
     saisie_path: Path
     impacts_path: Path
+    charge_id: str = ""
+    row_data: dict[str, Any] | None = None
+    persistable: dict[str, Any] | None = None
+    charge_id_prefixe: str | None = None
+    payload_factory: Callable[[str], tuple[dict[str, Any], dict[str, Any]]] | None = None
+    master_path: Path | None = None
+    lock_path: Path | None = None
     sha256_saisie_attendu: str | None = None
     sha256_impacts_attendu: str | None = None
 
@@ -162,17 +211,127 @@ def _garde_flags() -> ResultatTransaction | None:
 # ── 2. Validation de la demande ──────────────────────────────────────────────
 
 def _valider_demande(d: DemandeEcritureCharge) -> str | None:
-    if not str(d.charge_id or "").strip():
-        return "charge_id obligatoire."
-    if str(d.row_data.get("charge_id") or "").strip() != d.charge_id:
-        return "row_data.charge_id incohérent avec la demande."
-    if str(d.persistable.get("charge_id") or "").strip() != d.charge_id:
-        return "persistable.charge_id incohérent avec la demande."
+    """Validation PUREMENT syntaxique — aucune lecture de classeur, donc autorisée avant le verrou.
+
+    Tout ce qui conclut à la disponibilité d'un charge_id se fait plus tard, sous verrou.
+    """
     if float(d.montant) <= 0:
         return f"montant invalide : {d.montant}."
     if int(d.target_row) < 2:
         return f"target_row invalide : {d.target_row} (la ligne 1 est l'en-tête)."
+
+    if str(d.charge_id or "").strip():
+        if d.row_data is None or d.persistable is None:
+            return "charge_id fourni : row_data et persistable sont obligatoires."
+        return None
+
+    # Mode génération : la fabrique de payload est indispensable (aucune logique métier ici).
+    if not d.charge_id_prefixe:
+        return "charge_id absent : charge_id_prefixe est obligatoire pour le générer."
+    if d.payload_factory is None:
+        return "charge_id absent : payload_factory est obligatoire pour construire le payload."
     return None
+
+
+def _identifiants_existants(d: DemandeEcritureCharge) -> dict[str, set[str]]:
+    """Lit les charge_id présents dans TOUTES les tables concernées. **Appelé sous verrou.**
+
+    Lecture seule : SAISIE_Charges_Flux (colonne A), SAISIE_Charges_Impacts (3 onglets) et
+    MASTER_FACT_MAN_Charges (sortie calculée Lot3 — un identifiant déjà consommé en aval reste
+    une collision).
+    """
+    par_source: dict[str, set[str]] = {}
+
+    par_source["SAISIE_Charges_Flux"] = _ids_colonne(d.saisie_path, {"SAISIE": "charge_id"})
+    par_source["SAISIE_Charges_Impacts"] = _ids_colonne(
+        d.impacts_path,
+        {"AFFECTATIONS": "charge_id", "MENAGE": "charge_id", "RESERVE_REFACTURATION": "charge_id"},
+    )
+    master = Path(d.master_path) if d.master_path is not None else Path(cfg.MASTER_CHARGES)
+    if master.exists():
+        par_source["MASTER_FACT_MAN_Charges"] = _ids_colonne(master, {"MASTER": "charge_id"})
+    return par_source
+
+
+def _ids_colonne(path: Path, onglets: dict[str, str]) -> set[str]:
+    """charge_id non vides d'un classeur (lignes gabarit/placeholder ignorées)."""
+    ids: set[str] = set()
+    p = Path(path)
+    if not p.exists():
+        return ids
+    wb = openpyxl.load_workbook(str(p), read_only=True, data_only=True)
+    try:
+        for onglet, colonne in onglets.items():
+            if onglet not in wb.sheetnames:
+                continue
+            lignes = wb[onglet].iter_rows(values_only=True)
+            entetes = next(lignes, None)
+            if not entetes:
+                continue
+            noms = [str(h).strip() if h is not None else "" for h in entetes]
+            if colonne not in noms:
+                continue
+            idx = noms.index(colonne)
+            for r in lignes:
+                if idx >= len(r):
+                    continue
+                cid = str(r[idx] or "").strip()
+                if cid and not cid.startswith("["):      # placeholder Lot3, jamais une donnée
+                    ids.add(cid)
+    finally:
+        wb.close()
+    return ids
+
+
+def _resoudre_charge_id(
+    d: DemandeEcritureCharge,
+) -> tuple[str, dict[str, Any], dict[str, Any]]:
+    """Décide l'identifiant définitif. **À n'appeler que le verrou tenu.**
+
+    Lève ChargeIdInvalideError / ChargeIdDejaExistantError. Aucun temporaire n'est préparé avant
+    que cette fonction n'ait rendu son verdict.
+    """
+    existants = _identifiants_existants(d)
+    tous = set().union(*existants.values()) if existants else set()
+
+    fourni = str(d.charge_id or "").strip()
+    if fourni:
+        if not CHARGE_ID_RE.match(fourni):
+            raise ChargeIdInvalideError(
+                f"charge_id={fourni!r} : format attendu CHG-AAAA-MM-<IC|HC|HR>-<MODE>-NNN."
+            )
+        emplacements = [source for source, ids in existants.items() if fourni in ids]
+        if emplacements:
+            raise ChargeIdDejaExistantError(fourni, emplacements)
+
+        row_data, persistable = d.row_data or {}, d.persistable or {}
+        if str(row_data.get("charge_id") or "").strip() != fourni:
+            raise ChargeIdInvalideError("row_data.charge_id incohérent avec la demande.")
+        if str(persistable.get("charge_id") or "").strip() != fourni:
+            raise ChargeIdInvalideError("persistable.charge_id incohérent avec la demande.")
+        return fourni, row_data, persistable
+
+    # ── Génération sous verrou : le premier numéro libre de TOUTES les tables ──
+    prefixe = str(d.charge_id_prefixe).strip().rstrip("-")
+    genere = None
+    for n in range(1, SEQUENCE_MAX + 1):
+        candidat = f"{prefixe}-{n:03d}"
+        if candidat not in tous:
+            genere = candidat
+            break
+    if genere is None:
+        raise ChargeIdDejaExistantError(f"{prefixe}-NNN", [f"séquence saturée (>{SEQUENCE_MAX})"])
+    if not CHARGE_ID_RE.match(genere):
+        raise ChargeIdInvalideError(
+            f"charge_id généré {genere!r} invalide — préfixe {prefixe!r} non conforme."
+        )
+
+    row_data, persistable = d.payload_factory(genere)    # fabrique de l'appelant
+    if str(row_data.get("charge_id") or "").strip() != genere:
+        raise ChargeIdInvalideError("payload_factory : row_data.charge_id incohérent.")
+    if str(persistable.get("charge_id") or "").strip() != genere:
+        raise ChargeIdInvalideError("payload_factory : persistable.charge_id incohérent.")
+    return genere, row_data, persistable
 
 
 # ── 3. Préparation des temporaires (writer bas niveau) ───────────────────────
@@ -318,6 +477,20 @@ def _rollback(
         raise RollbackCritiqueError(non_restaures, cause)
 
 
+def _verifier_post_commit(remplaces: list[FichierRemplace]) -> list[str]:
+    """Les fichiers finaux sont-ils lisibles et conformes aux temporaires validés ?
+
+    Étape distincte et monkeypatchable : elle s'exécute **verrou tenu**, avant toute libération.
+    """
+    ecarts: list[str] = []
+    for r in remplaces:
+        if not _lisible(r.cible):
+            ecarts.append(f"{r.cible.name} : illisible après remplacement.")
+        elif _sha256(r.cible) != r.sha256_apres:
+            ecarts.append(f"{r.cible.name} : empreinte différente du temporaire validé.")
+    return ecarts
+
+
 def _nettoyer(chemins: list[Path]) -> list[str]:
     """Suppression best-effort. Retourne ce qui n'a PAS pu être supprimé (jamais silencieux)."""
     restants: list[str] = []
@@ -332,21 +505,64 @@ def _nettoyer(chemins: list[Path]) -> list[str]:
 # ── Point d'entrée ───────────────────────────────────────────────────────────
 
 def confirmer_ecriture_charge(demande: DemandeEcritureCharge) -> ResultatTransaction:
-    """Écrit une charge dans les deux classeurs SAISIE, de façon transactionnelle.
+    """Écrit une charge dans les deux classeurs SAISIE, de façon transactionnelle et VERROUILLÉE.
+
+    Ordre non négociable : garde des flags → verrou → résolution du charge_id → préparation →
+    commit → vérification → libération. Le verrou est pris **avant** toute lecture concluant à la
+    disponibilité d'un identifiant, et n'est relâché qu'une fois la transaction entièrement jouée
+    (succès, échec récupéré, ou rollback) — c'est lui qui tient la réservation.
 
     Aucun fichier réel n'est modifié tant que TOUS les temporaires ne sont pas préparés et validés.
     Si un remplacement ou une vérification post-commit échoue, les fichiers déjà remplacés sont
-    restaurés depuis leurs sauvegardes ; si cette restauration échoue, RollbackCritiqueError est
-    levée (état explicite, sauvegardes conservées).
+    restaurés ; si cette restauration échoue, RollbackCritiqueError est levée (le verrou est
+    malgré tout libéré : l'état critique est décrit par l'exception, pas par un verrou bloqué).
     """
+    # 1. Flags — AVANT le verrou : un refus de garde ne doit même pas créer de fichier de verrou.
     if (garde := _garde_flags()) is not None:
         return garde
 
+    # 2. Validation syntaxique — aucune lecture de classeur, donc légitime hors verrou.
     if (invalide := _valider_demande(demande)) is not None:
         return ResultatTransaction(
             statut=STATUT_ERREUR, charge_id=demande.charge_id,
             code=E_DEMANDE_INVALIDE, details=invalide,
         )
+
+    # 3. Verrou interprocessus — tenu jusqu'à la fin, libéré dans un finally.
+    try:
+        with lock.verrou_saisie_charges(
+            operation=lock.OPERATION_SAISIE_CHARGE,
+            charge_id=demande.charge_id or None,      # peut être None : l'id naîtra sous verrou
+            lock_path=demande.lock_path,
+        ):
+            return _executer_sous_verrou(demande)
+    except lock.VerrouSaisieChargesDejaPrisError as exc:
+        # Un autre processus écrit déjà : on n'a rien lu, rien préparé, rien remplacé.
+        return ResultatTransaction(
+            statut=STATUT_ERREUR, charge_id=demande.charge_id,
+            code=E_VERROU_DEJA_PRIS, details=str(exc),
+        )
+
+
+def _executer_sous_verrou(demande: DemandeEcritureCharge) -> ResultatTransaction:
+    """Corps de la transaction. Le verrou est tenu pendant TOUTE cette fonction."""
+    # 4. Résolution du charge_id — vérifié ou généré ICI, jamais avant le verrou.
+    try:
+        charge_id, row_data, persistable = _resoudre_charge_id(demande)
+    except ChargeIdInvalideError as exc:
+        return ResultatTransaction(
+            statut=STATUT_ERREUR, charge_id=demande.charge_id,
+            code=E_CHARGE_ID_INVALIDE, details=str(exc),
+        )
+    except ChargeIdDejaExistantError as exc:
+        return ResultatTransaction(
+            statut=STATUT_ERREUR, charge_id=exc.charge_id,
+            code=E_CHARGE_ID_EXISTANT, details=str(exc),
+        )
+
+    demande = dataclass_replace(
+        demande, charge_id=charge_id, row_data=row_data, persistable=persistable
+    )
 
     # ── Préparation : rien de réel n'est touché ───────────────────────────────
     prepares, erreur = _preparer(demande)
@@ -392,13 +608,8 @@ def confirmer_ecriture_charge(demande: DemandeEcritureCharge) -> ResultatTransac
             sha256_avant=p.sha256_cible_avant, sha256_apres=p.sha256_temp,
         ))
 
-    # ── Vérification post-commit ──────────────────────────────────────────────
-    ecarts = []
-    for r in remplaces:
-        if not _lisible(r.cible):
-            ecarts.append(f"{r.cible.name} : illisible après remplacement.")
-        elif _sha256(r.cible) != r.sha256_apres:
-            ecarts.append(f"{r.cible.name} : empreinte différente du temporaire validé.")
+    # ── Vérification post-commit (verrou toujours tenu) ───────────────────────
+    ecarts = _verifier_post_commit(remplaces)
     if ecarts:
         cause = "Vérification post-commit : " + " ".join(ecarts)
         _rollback(remplaces, sauvegardes, cause)       # peut lever RollbackCritiqueError
