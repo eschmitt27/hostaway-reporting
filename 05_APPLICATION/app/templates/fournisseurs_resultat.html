@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Résultat de l'enregistrement{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Résultat de l'enregistrement</h1>
+  <p class="page-subtitle">APP-3b — Confirmation d'une charge</p>
+</div>
+
+{% if not resultat %}
+<div class="alert alert-error" data-testid="resultat-introuvable">
+  <strong>Aucun résultat pour cette prévisualisation.</strong>
+  Identifiant <code>{{ token }}</code> inconnu, ou confirmation jamais effectuée.
+</div>
+<p><a href="/fournisseurs/nouvelle" class="btn btn-primary">Nouvelle saisie</a></p>
+
+{% else %}
+{% set tx = resultat.transaction %}
+{% set post = resultat.post_ecriture %}
+
+{# ── Verdict ── #}
+{% if resultat.statut == "SUCCES" %}
+<div class="alert alert-success" data-testid="resultat" data-statut="SUCCES">
+  <strong>Charge enregistrée.</strong>
+  {{ resultat.message }}
+</div>
+
+{% elif resultat.statut == "CRITIQUE" %}
+<div class="alert alert-error" data-testid="resultat" data-statut="CRITIQUE">
+  <strong>INCIDENT — état incohérent.</strong>
+  {{ resultat.message }}
+  {% if tx.fichiers_non_restaures %}
+  <ul style="margin: var(--stack-sm) 0 0 var(--stack-lg);">
+    {% for f in tx.fichiers_non_restaures %}<li><code>{{ f }}</code> non restauré</li>{% endfor %}
+  </ul>
+  {% endif %}
+</div>
+
+{% elif resultat.statut == "ROLLBACK" %}
+<div class="alert alert-warning" data-testid="resultat" data-statut="ROLLBACK">
+  <strong>Écriture annulée — tout a été restauré.</strong>
+  {{ resultat.message }}
+  Aucune charge n'a été enregistrée : vous pouvez réessayer.
+</div>
+
+{% else %}
+<div class="alert alert-warning" data-testid="resultat" data-statut="REFUSE">
+  <strong>Écriture refusée.</strong>
+  {{ resultat.message }}
+</div>
+{% endif %}
+
+{# ── Journal : une panne de trace ne remet jamais en cause le résultat ci-dessus ── #}
+{% if resultat.journal_erreur %}
+<div class="alert alert-warning" data-testid="journal-erreur">
+  <strong>Journalisation en échec.</strong>
+  L'opération ci-dessus a bien eu lieu, mais elle n'a pas pu être tracée en base.
+  Signalez-le : la traçabilité est incomplète.
+</div>
+{% endif %}
+
+<div class="grid two-cols">
+
+  <section class="card">
+    <h2>Écriture métier</h2>
+    <table class="dryrun-table"><tbody>
+      <tr><td>Statut</td><td><strong data-testid="statut-ecriture">{{ resultat.statut }}</strong></td></tr>
+      <tr><td>charge_id</td><td><code>{{ resultat.charge_id or "—" }}</code></td></tr>
+      {% if tx.code %}
+      <tr><td>Code technique</td><td><code data-testid="code-technique">{{ tx.code }}</code></td></tr>
+      {% endif %}
+      <tr><td>Fichiers écrits</td>
+          <td>{{ tx.fichiers_remplaces | join(', ') if tx.fichiers_remplaces else '— aucun' }}</td></tr>
+      {% if tx.rollback_tente %}
+      <tr><td>Restauration</td>
+          <td>{{ "réussie" if tx.rollback_reussi else "ÉCHOUÉE" }}</td></tr>
+      {% endif %}
+      <tr><td>Transaction</td><td><code>{{ tx.transaction_id or "—" }}</code></td></tr>
+      <tr><td>Journal</td><td><code>{{ tx.statut_journal or "—" }}</code></td></tr>
+      <tr><td>Horodatage</td><td>{{ resultat.horodatage_utc }}</td></tr>
+    </tbody></table>
+  </section>
+
+  {% if post %}
+  <section class="card" data-testid="post-ecriture">
+    <h2>Recalcul aval (hors transaction)</h2>
+    {% if not post.ok %}
+    <div class="alert alert-warning">
+      <strong>La charge est bien écrite</strong>, mais un recalcul a échoué.
+      Les masters doivent être régénérés avant exploitation. Ne resaisissez pas la charge.
+    </div>
+    {% endif %}
+    <table class="dryrun-table">
+      <thead><tr><th>Lot</th><th>Statut</th><th>Détail</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Lot3 — MASTER charges</td>
+          <td><strong data-testid="statut-lot3">{{ post.lot3.statut }}</strong></td>
+          <td>{{ post.lot3.details }}</td>
+        </tr>
+        <tr>
+          <td>Lot7 — avantages associés</td>
+          <td><strong data-testid="statut-lot7">{{ post.lot7.statut }}</strong></td>
+          <td>{{ post.lot7.details }}</td>
+        </tr>
+        <tr>
+          <td>Lot11 — contrôles</td>
+          <td><strong data-testid="statut-lot11">{{ post.lot11.statut }}</strong></td>
+          <td>{{ post.lot11.details }}</td>
+        </tr>
+      </tbody>
+    </table>
+    {% if post.erreur %}
+    <p class="page-subtitle"><strong>Moteur :</strong> {{ post.erreur }}</p>
+    {% endif %}
+    {% if post.lot11.donnees and post.lot11.donnees.anomalies %}
+    <h3 style="margin-top: var(--stack-md);">Anomalies remontées</h3>
+    <ul style="margin:0; padding-left: var(--stack-lg);">
+      {% for a in post.lot11.donnees.anomalies %}
+      <li><code>{{ a.code }}</code> ({{ a.severity }}) — {{ a.message }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </section>
+  {% endif %}
+
+</div>
+
+<div style="display:flex; gap:var(--stack-md); margin-top:var(--stack-xl);">
+  {% if resultat.charge_id and resultat.statut == "SUCCES" %}
+  <a href="/fournisseurs/{{ resultat.charge_id }}" class="btn btn-primary">Voir la charge</a>
+  {% endif %}
+  <a href="/fournisseurs/nouvelle" class="btn btn-secondary">Nouvelle saisie</a>
+  <a href="/fournisseurs" class="btn btn-secondary">Retour à la liste</a>
+</div>
+
+{% endif %}
+{% endblock %}

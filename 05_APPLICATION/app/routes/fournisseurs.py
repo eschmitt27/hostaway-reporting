@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+import app.config as cfg
 from app.config import TEMPLATES_DIR
+from app.services import charges_confirmation_service as confirmation
 from app.services import charges_service as svc
 from app.services.charges_preview_service import (
     ChargesPreviewError,
@@ -12,6 +14,11 @@ from app.services.charges_preview_service import (
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+
+def _ecriture_activee() -> bool:
+    """Les DEUX flags sont requis. Lu à chaud : jamais figé à l'import."""
+    return bool(cfg.CHARGES_REAL_WRITE_ENABLED and cfg.CHARGES_REAL_WRITE_CONFIRMATION_ENABLED)
 
 
 @router.get("/fournisseurs", response_class=HTMLResponse)
@@ -92,6 +99,52 @@ def fournisseurs_previsualisation(request: Request, token: str):
         "token": token,
         "manifest": data["manifest"],
         "not_found": False,
+        "ecriture_activee": _ecriture_activee(),
+        "deja_confirme": confirmation.resultat_existe(token),
+    })
+
+
+@router.post("/fournisseurs/nouvelle/confirmer/{token}")
+def fournisseurs_confirmer(request: Request, token: str):
+    """Confirme l'écriture réelle. **Ne reçoit AUCUNE donnée métier du navigateur** : seul le token
+    compte, tout le reste est relu du manifest serveur.
+
+    Protection contre la double soumission : si un résultat existe déjà pour ce token, on redirige
+    sans rien réexécuter. Et comme on répond par une redirection (POST-Redirect-Get), rafraîchir la
+    page de résultat est un simple GET — l'écriture n'est jamais rejouée.
+    """
+    if confirmation.resultat_existe(token):
+        return RedirectResponse(url=f"/fournisseurs/nouvelle/resultat/{token}", status_code=303)
+
+    resultat = confirmation.confirmer(token)   # les flags sont gardés en aval, avant toute écriture
+
+    if not confirmation.resultat_existe(token):
+        # Refus qui ne peut pas être persisté (token inconnu, manifest illisible) : aucun dossier de
+        # prévisualisation où déposer un résultat. On rend le refus directement plutôt que de
+        # rediriger vers une page vide. Sans écriture, rejouer ce POST est sans conséquence.
+        return templates.TemplateResponse(request, "fournisseurs_resultat.html", {
+            "active_menu": "fournisseurs",
+            "token": token,
+            "resultat": resultat.as_dict(),
+        }, status_code=404)
+
+    return RedirectResponse(url=f"/fournisseurs/nouvelle/resultat/{token}", status_code=303)
+
+
+@router.get("/fournisseurs/nouvelle/resultat/{token}", response_class=HTMLResponse)
+def fournisseurs_resultat(request: Request, token: str):
+    """Affiche le résultat d'une confirmation. Lecture seule : n'écrit jamais."""
+    resultat = confirmation.charger_resultat(token)
+    if resultat is None:
+        return templates.TemplateResponse(request, "fournisseurs_resultat.html", {
+            "active_menu": "fournisseurs",
+            "token": token,
+            "resultat": None,
+        }, status_code=404)
+    return templates.TemplateResponse(request, "fournisseurs_resultat.html", {
+        "active_menu": "fournisseurs",
+        "token": token,
+        "resultat": resultat,
     })
 
 

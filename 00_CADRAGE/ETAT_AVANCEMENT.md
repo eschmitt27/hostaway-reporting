@@ -737,3 +737,57 @@ Libs de lecture (02_TRAVAIL, testées sur fixtures/copies ; table réelle vide =
 Preuves : avantage 1×/bénéficiaire, ménage réparti sans 2e charge, 100 € 2 logements = 1 charge + 2 impacts=100,
 réserve EN_ATTENTE identifiée sans modifier la préfacture, contrôles Lot11. Aucune écriture réelle ; sources
 intouchées. Branchement effectif des pipelines (écriture) déféré à l'ouverture des flags. Voir CTR-CHG-BRANCHEMENT-LOTS-01.
+
+---
+
+## 2026-07-14 — APP-3b : Nouvelle charge guidée — CLÔTURE TECHNIQUE
+
+**Statut : TERMINE_TECHNIQUEMENT_NON_ACTIVE.** La chaîne complète est construite, testée et prouvée
+de bout en bout **sur copies isolées**. **Aucune écriture réelle n'a jamais eu lieu** : les deux
+flags restent `False` (`CHARGES_REAL_WRITE_ENABLED`, `CHARGES_REAL_WRITE_CONFIRMATION_ENABLED`).
+
+### Chaîne livrée
+
+Formulaire → prévisualisation (manifest scellé + copies) → **confirmation par token** → écriture
+**transactionnelle** des deux fichiers de saisie (verrou interprocessus, `charge_id` résolu sous
+verrou, sauvegardes, `os.replace` ×2, vérification post-commit, rollback vérifié) → **journal
+SQLite** → **recalculs aval hors transaction** (Lot3, Lot7 si avantage, Lot11) en sous-processus.
+
+### Décisions structurantes
+
+- **Le navigateur ne fournit qu'un token.** Aucune donnée métier n'est acceptée à la confirmation :
+  tout est relu du manifest serveur.
+- **`SAISIE_*` = vérité métier ; `MASTER_*` = sorties calculées.** L'app n'écrit jamais un master
+  (interdit par `file_registry`) : le moteur les régénère, dans un autre processus.
+- **Transaction ≠ recalcul.** Un échec de Lot3/Lot7/Lot11 n'annule pas la charge écrite et n'est
+  jamais présenté comme un échec d'écriture. Quatre statuts distincts.
+- **Ordre des gardes** : flags → manifest → sceau → fraîcheur → token → copie → empreintes →
+  **revalidation métier sur l'état actuel** → verrou → `charge_id` → écriture.
+
+### Audit de clôture (2026-07-14) — 4 défauts trouvés et corrigés
+
+1. **La validation métier n'était pas rejouée à la confirmation.** Les empreintes SHA256 ne couvrent
+   que les deux fichiers de saisie, **pas les référentiels** : une prévisualisation faite avant une
+   clôture mensuelle restait confirmable après, et aurait écrit dans un mois fermé.
+2. Les flags étaient vérifiés en dernier → faux message utilisateur (« refaites la saisie » au lieu
+   de « écriture non activée »).
+3. Un manifest corrompu était annoncé comme « token inconnu ».
+4. Aucune notion de fraîcheur de la prévisualisation. **Durée de vie validée à 24 h** (décision
+   humaine du 2026-07-14) : au-delà, une nouvelle prévisualisation est obligatoire. Une expiration
+   ne signifie jamais qu'une charge a été écrite ; l'idempotence reste fondée sur le token
+   journalisé sous verrou.
+
+### Preuves
+
+E2E 18 cas sur copies isolées, routes 12, audit de clôture 18 (dont **deux vrais processus
+concurrents** sur le même token, et un E2E HTTP complet formulaire → 303 → résultat). Suite
+applicative complète verte. Les quatre Excel réels et `app.db` sont **intacts** (SHA256 vérifiés).
+
+### Reste pour l'activation réelle
+
+Uniquement : passer les deux flags à `True`, écrire une première charge réelle sous supervision, la
+vérifier, puis remettre les flags à `False`. C'est une **recette humaine distincte** —
+`00_CADRAGE/APPLICATION_LOCALE/APP3B_RUNBOOK_PREMIERE_ACTIVATION.md`.
+
+Documentation de clôture : `00_CADRAGE/APPLICATION_LOCALE/APP3B_CHARGES_CLOTURE.md`.
+Contrôle : `CTR-APP3B-CLOTURE-01`.

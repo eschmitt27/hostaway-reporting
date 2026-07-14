@@ -192,10 +192,20 @@ def persister_sur_copie(
     }
 
 
-def persister_reel(*_args, **_kwargs):
-    """Écriture réelle — INTERDITE tant que le flag est désactivé."""
-    if not cfg.CHARGES_REAL_WRITE_ENABLED:
-        raise PermissionError(
-            "Écriture réelle des impacts interdite : CHARGES_REAL_WRITE_ENABLED = False."
-        )
-    raise NotImplementedError("Writer réel non implémenté (flags off).")
+def persister_reel(token: str, **options: Any):
+    """Écriture réelle d'une charge, à partir du SEUL token de prévisualisation.
+
+    Aucune donnée métier n'est acceptée ici : tout est relu du manifest serveur. La chaîne complète
+    (vérification du manifest et des empreintes → flags → verrou → résolution du charge_id →
+    transaction deux fichiers → journal → lots aval) est portée par
+    `charges_confirmation_service.confirmer`, seul point d'entrée de l'écriture réelle.
+
+    Les flags restent le garde-fou : `confirmer_ecriture_charge` refuse avant toute écriture si
+    `CHARGES_REAL_WRITE_ENABLED` ou `CHARGES_REAL_WRITE_CONFIRMATION_ENABLED` est False.
+
+    Retourne un `ResultatConfirmation` (jamais d'exception : l'incident est dans le résultat).
+    """
+    # Import différé : charges_confirmation_service dépend de ce module (cycle sinon).
+    from app.services import charges_confirmation_service as confirmation
+
+    return confirmation.confirmer(token, **options)

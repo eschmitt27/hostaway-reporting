@@ -46,6 +46,23 @@ from app.services import charges_impacts_persist_service as persist
 DRYRUNS_DIR = cfg.DRYRUNS_DIR
 SAISIE_COPY_NAME = "SAISIE_Charges_Flux_copie.xlsx"
 MANIFEST_NAME = "manifest.json"
+IMPACTS_COPY_NAME = "SAISIE_Charges_Impacts_copie.xlsx"
+
+# Champs du manifest qui portent la DÉCISION (ce qui sera écrit). Leur empreinte est scellée dans
+# `integrite` : la confirmation la recalcule et refuse d'écrire si elle diffère. Ce n'est pas un
+# dispositif anti-intrusion (le fichier est local et réinscriptible) mais une détection de
+# corruption / d'altération accidentelle entre la prévisualisation et la confirmation.
+CHAMPS_SCELLES: tuple[str, ...] = (
+    "token", "status", "charge_id", "mois_charge", "target_row", "type_flux_id", "profil_impact",
+    "assoc_mode", "form_data", "persistable", "source_hash_avant", "impacts_hash_avant",
+)
+
+
+def sceller_manifest(manifest: dict[str, Any]) -> str:
+    """Empreinte des champs de décision du manifest (ordre stable, indépendant de l'insertion)."""
+    charge = {k: manifest.get(k) for k in CHAMPS_SCELLES}
+    payload = json.dumps(charge, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 CATEGORIE_REQUIRES_RESERVATION: frozenset[str] = frozenset({"CHG_021"})
 MODES_REQUIRES_ASSOCIE: frozenset[str] = frozenset({"PAY_003", "PAY_004"})
@@ -966,8 +983,13 @@ def previsualiser(
     except ValueError:
         montant_pre = 0.0
     persistable = persist.build_persistable(charge_id, mois_charge_pre, montant_pre, guide, form_data)
-    impacts_copy = run_dir / "SAISIE_Charges_Impacts_copie.xlsx"
+    impacts_copy = run_dir / IMPACTS_COPY_NAME
     persist_report = None
+    # Empreinte du fichier d'impacts RÉEL au moment de la prévisualisation : la confirmation la
+    # revérifiera pour refuser d'écrire sur une base qui a bougé entre-temps.
+    impacts_hash_avant = (
+        _sha256(cfg.SAISIE_CHARGES_IMPACTS) if cfg.SAISIE_CHARGES_IMPACTS.exists() else None
+    )
     if cfg.SAISIE_CHARGES_IMPACTS.exists():
         shutil.copy2(cfg.SAISIE_CHARGES_IMPACTS, impacts_copy)
         _assert_under(impacts_copy, root)
@@ -1009,11 +1031,15 @@ def previsualiser(
         "source_hash_apres": source_hash_apres,
         "source_inchangee": source_inchangee,
         "copy_hash": copy_hash,
+        # Empreinte du SAISIE_Charges_Impacts réel (vérifiée à la confirmation).
+        "impacts_hash_avant": impacts_hash_avant,
         "paths": {
             "run_dir": str(run_dir),
             "saisie_copy": str(copy_path),
         },
     }
+    # Sceau des champs de décision — recalculé et comparé à la confirmation (détection d'altération).
+    manifest["integrite"] = sceller_manifest(manifest)
     # Réserve de facturation : fichier séparé (traçabilité), jamais en cellule métier concaténée.
     if guide["reserve"]:
         (run_dir / "reserve_refacturation.json").write_text(

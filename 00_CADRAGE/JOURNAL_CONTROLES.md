@@ -2299,3 +2299,57 @@ Limites    : le MASTER n'est pas régénéré automatiquement après une saisie 
              titre l'écriture app dans 02_TRAVAIL / MASTER_*).
 Commentaire: Prérequis au writer réel (APP-3b). Flags inchangés (CHARGES_REAL_WRITE_ENABLED = False).
              Aucun fichier métier réel modifié.
+
+---
+
+Date       : 2026-07-14
+Code       : CTR-APP3B-CLOTURE-01
+Sévérité   : INFO
+Fichier    : 05_APPLICATION/app/services/charges_confirmation_service.py (créé),
+             charges_post_write_service.py (créé), runners/charges_post_write_runner.py (créé),
+             charges_impacts_persist_service.py (persister_reel branché), charges_preview_service.py
+             (manifest scellé + empreinte impacts), routes/fournisseurs.py (POST confirmer,
+             GET resultat), templates fournisseurs_previsualisation/resultat.html,
+             tests test_charges_confirmation_{e2e,route,audit}.py
+Objet      : APP-3b — Nouvelle charge guidée : chaîne complète saisie → confirmation → écriture
+             transactionnelle → journal → recalculs aval. Clôture technique.
+Constat    : persister_reel n'est plus un stub : il prend un token de prévisualisation et délègue à
+             la chaîne sécurisée. Le navigateur ne fournit AUCUNE donnée métier (seul le token
+             transite) ; tout est relu du manifest serveur. Le charge_id définitif reste résolu SOUS
+             VERROU par l'orchestrateur. Lot3/Lot7/Lot11 sont déclenchés hors transaction, en
+             sous-processus (interpréteur moteur) : l'app n'importe jamais le moteur.
+Contrôles  : 0. flags (les DEUX) — refus avant tout, tracé ; 1. manifest serveur (corruption ≠ token
+             inconnu) ; 2. sceau d'intégrité ; 3. fraîcheur (24 h) ; 4. token déjà écrit ;
+             5. copie conforme ; 6. empreintes SHA256 des deux fichiers réels ; 7. REVALIDATION
+             MÉTIER sur l'état actuel (mois clôturé, référentiels) ; 8. verrou, unicité charge_id,
+             transaction deux fichiers, rollback vérifié, journal.
+Défauts    : audit adversarial du 2026-07-14 — 4 défauts trouvés et corrigés :
+  corrigés    1) la validation métier n'était PAS rejouée à la confirmation : une prévisualisation
+                 faite AVANT une clôture restait confirmable APRÈS (les empreintes ne couvrent pas
+                 REF_Setup). Correctif : validate_charge + compute_guidee rejoués sur l'état actuel
+                 → E_VALIDATION_PERIMEE ;
+              2) les flags étaient vérifiés en DERNIER : flags off + source modifiée renvoyait
+                 « refaites la saisie » au lieu de « écriture non activée » (faux guidage).
+                 Correctif : garde des flags en premier, refus tracé (REFUSE_FLAGS) ;
+              3) un manifest corrompu était annoncé comme « token inconnu » → E_MANIFEST_ILLISIBLE ;
+              4) aucune notion de fraîcheur → E_MANIFEST_EXPIRE. Durée de vie d'une
+                 prévisualisation VALIDÉE À 24 H (décision humaine 2026-07-14) : au-delà, une
+                 nouvelle prévisualisation est obligatoire. Une expiration ne signifie jamais
+                 qu'une charge a été écrite (refus AVANT toute écriture) ; l'idempotence reste
+                 fondée sur le token journalisé, consulté sous verrou.
+Preuve     : 05_APPLICATION/tests — E2E 18 cas sur copies isolées (globale, multi-logements, ménage,
+             réserve, avantage, double-clic, token inconnu, manifest altéré, source modifiée, flags
+             off, verrou pris, échec Lot3 après écriture, rollback, panne journal) ; routes 12 ;
+             audit 18 (revalidation, fraîcheur, manifest illisible, Lot7/Lot11 en échec, runner
+             cassé, DEUX VRAIS PROCESSUS sur le même token, deux tokens → jamais le même charge_id,
+             E2E HTTP complet formulaire→303→résultat). Suite applicative complète verte.
+             Les quatre Excel réels et app.db sont INTACTS (SHA256 vérifiés avant/après).
+Statut     : TERMINE_TECHNIQUEMENT_NON_ACTIVE — aucune écriture réelle n'a jamais eu lieu.
+Limites    : atomicité inter-fichiers inexistante (pire cas choisi : impacts orphelins plutôt qu'une
+             charge sans impacts) ; OneDrive non maîtrisable par un verrou applicatif ; un verrou
+             périmé bloque jusqu'à décision humaine (aucune purge automatique — un PID est
+             recyclable) ; le sceau du manifest détecte la corruption, pas un attaquant.
+Commentaire: Flags inchangés (CHARGES_REAL_WRITE_ENABLED = False,
+             CHARGES_REAL_WRITE_CONFIRMATION_ENABLED = False). La première écriture réelle est une
+             recette humaine distincte : 00_CADRAGE/APPLICATION_LOCALE/APP3B_RUNBOOK_PREMIERE_ACTIVATION.md.
+             Documentation de clôture : APP3B_CHARGES_CLOTURE.md.

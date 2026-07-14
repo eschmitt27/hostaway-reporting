@@ -170,10 +170,28 @@ def test_persister_fichier_reel_intouche(tmp_path: Path):
 
 # ── Garde-fou écriture réelle ────────────────────────────────────────────────
 
-def test_persister_reel_interdit_flags_off():
+def test_persister_reel_refuse_flags_off(tmp_path: Path):
+    """persister_reel est désormais branché (APP-3b) : il ne lève plus, il REFUSE explicitement.
+
+    Le garde-fou n'a pas changé de nature — aucune écriture n'est possible flags off — mais le refus
+    est rendu comme un résultat exploitable par l'interface, et tracé au journal.
+    """
     assert cfg.CHARGES_REAL_WRITE_ENABLED is False
-    with pytest.raises(PermissionError):
-        persist.persister_reel()
+    h_saisie = _sha(cfg.SAISIE_CHARGES)
+    h_impacts = _sha(cfg.SAISIE_CHARGES_IMPACTS)
+
+    # Flags off : refusé AVANT tout le reste (manifest, empreintes…). Le message parle des flags,
+    # pas d'un token — annoncer autre chose serait un faux guidage.
+    # `db_path` isolé : le refus est journalisé, et cette trace ne doit pas atterrir dans la
+    # base applicative réelle.
+    res = persist.persister_reel(
+        "token-inconnu", dryruns_root=tmp_path, db_path=tmp_path / "journal_test.db"
+    )
+    assert res.statut == "REFUSE"
+    assert res.code == "E_FLAGS_DESACTIVES"
+
+    assert _sha(cfg.SAISIE_CHARGES) == h_saisie
+    assert _sha(cfg.SAISIE_CHARGES_IMPACTS) == h_impacts
 
 
 # ── Intégration previsualiser (persistable dans manifest, source réelle intouchée) ──

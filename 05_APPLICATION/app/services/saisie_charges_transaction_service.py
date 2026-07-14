@@ -205,6 +205,15 @@ class ResultatTransaction:
 
 # ── 1. Garde des flags ───────────────────────────────────────────────────────
 
+def flags_actifs() -> bool:
+    """Les DEUX flags sont requis. Lu à chaud, jamais figé à l'import.
+
+    Exposé pour que les appelants puissent refuser AU PLUS TÔT (et donner le bon message) ; la garde
+    autoritaire reste `_garde_flags`, appliquée dans la transaction elle-même.
+    """
+    return bool(cfg.CHARGES_REAL_WRITE_ENABLED and cfg.CHARGES_REAL_WRITE_CONFIRMATION_ENABLED)
+
+
 def _garde_flags() -> ResultatTransaction | None:
     """Refus AVANT toute préparation. Les deux flags sont requis (double garde-fou)."""
     manquants = []
