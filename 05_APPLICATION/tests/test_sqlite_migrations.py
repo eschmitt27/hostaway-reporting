@@ -13,6 +13,16 @@ EXPECTED_TABLES = {
     "saisie_hh_writes",
     "menage_overrides",
     "saisie_charges_writes",   # 0004 — journal des tentatives d'écriture des charges (APP-3b)
+    "menages_recalcul_runs",   # 0005 — journal des recalculs ménages (APP-2b)
+    "banque_overrides",        # 0006 — journal des décisions bancaires (APP-4B)
+    "banque_controle_runs",    # 0006 — runs d'enregistrement sur copie (APP-4B)
+    "controles_suivi",             # 0007 — journal du suivi humain des contrôles (APP-5B)
+    "controles_suivi_historique",  # 0007 — historique append-only du suivi (APP-5B)
+    "controles_runs",              # 0007 — runs de recalcul moteur sur copies (APP-5B)
+    "clotures_mensuelles",     # 0008 — suivi humain de la clôture mensuelle (APP-5C)
+    "cloture_evenements",      # 0008 — historique append-only des événements de clôture (APP-5C)
+    "cloture_elements",        # 0008 — snapshot des contrôles à la clôture (APP-5C)
+    "cloture_documents",       # 0008 — métadonnées de preuves de clôture (APP-5C)
 }
 
 
