@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Référentiel fournisseurs{% endblock %}
+{% block content %}
+
+<div class="page-header flex justify-between items-center">
+  <div>
+    <h1 class="page-title">Référentiel fournisseurs</h1>
+    <p class="page-subtitle">Fiche minimale — nom, type, statut. Aucune donnée bancaire.</p>
+  </div>
+  <span class="read-only-badge">SQLite isolée — aucun fichier métier réel</span>
+</div>
+
+{% if erreur %}<div class="alert alert-error">{{ erreur }}</div>{% endif %}
+
+<div class="card mb-md">
+  <h2 class="card-title">Nouveau fournisseur</h2>
+  <form method="post" action="/referentiel-fournisseurs/creer">
+    <div class="form-field">
+      <label for="f-nom">Nom / raison sociale (requis)</label>
+      <input id="f-nom" name="nom" class="filter-input" required>
+    </div>
+    <div class="form-field">
+      <label for="f-type">Type</label>
+      <select id="f-type" name="type" class="filter-input">
+        {% for t in types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="form-field form-field-full">
+      <label for="f-commentaire">Commentaire</label>
+      <textarea id="f-commentaire" name="commentaire" class="filter-input"></textarea>
+    </div>
+    <button type="submit" class="btn btn-primary mt-md">Créer</button>
+  </form>
+</div>
+
+<form method="get" action="/referentiel-fournisseurs" class="filter-bar">
+  <label><input type="checkbox" name="actif_seul" value="true" {{ 'checked' if actif_seul }}> Actifs seulement</label>
+  <button type="submit" class="btn btn-secondary">Filtrer</button>
+</form>
+
+<div class="card mt-md">
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Nom</th><th>Type</th><th>Statut</th><th></th></tr></thead>
+      <tbody>
+        {% for f in lignes %}
+        <tr>
+          <td>{{ f.nom }}</td>
+          <td class="text-xs">{{ f.type }}</td>
+          <td><span class="status-badge status-{{ 'valide' if f.statut == 'ACTIF' else 'info' }}">{{ f.statut }}</span></td>
+          <td><a href="/referentiel-fournisseurs/{{ f.fournisseur_id_opaque }}">Ouvrir</a></td>
+        </tr>
+        {% else %}<tr><td colspan="4" class="section-note">Aucun fournisseur.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

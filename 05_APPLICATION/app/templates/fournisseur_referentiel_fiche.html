@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Fournisseur{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <a href="/referentiel-fournisseurs" class="back-link">← Référentiel fournisseurs</a>
+  <h1 class="page-title">{{ fournisseur.nom if fournisseur else '' }}</h1>
+</div>
+
+{% if fournisseur is none %}
+<div class="alert alert-warning">Fournisseur introuvable.</div>
+{% else %}
+
+{% if erreur %}<div class="alert alert-error">{{ erreur }}</div>{% endif %}
+
+<div class="card mb-md">
+  <h2 class="card-title">Fiche</h2>
+  <dl class="detail-grid">
+    <div><dt>Identifiant</dt><dd class="font-mono text-xs">{{ fournisseur.fournisseur_id_opaque }}</dd></div>
+    <div><dt>Type</dt><dd>{{ fournisseur.type }}</dd></div>
+    <div><dt>Statut</dt><dd><span class="status-badge status-{{ 'valide' if fournisseur.statut == 'ACTIF' else 'info' }}">{{ fournisseur.statut }}</span></dd></div>
+    <div><dt>Créé le</dt><dd>{{ fournisseur.date_creation }}</dd></div>
+    <div><dt>Modifié le</dt><dd>{{ fournisseur.date_modification }}</dd></div>
+    {% if fournisseur.commentaire %}<div><dt>Commentaire</dt><dd>{{ fournisseur.commentaire }}</dd></div>{% endif %}
+  </dl>
+  <div class="flex flex-wrap gap-md mt-md">
+    {% if fournisseur.statut == 'ACTIF' %}
+    <form method="post" action="/referentiel-fournisseurs/{{ fournisseur.fournisseur_id_opaque }}/desactiver"
+          onsubmit="return confirm('Désactiver ce fournisseur ?');">
+      <button type="submit" class="btn btn-secondary">Désactiver</button>
+    </form>
+    {% else %}
+    <form method="post" action="/referentiel-fournisseurs/{{ fournisseur.fournisseur_id_opaque }}/reactiver">
+      <button type="submit" class="btn btn-secondary">Réactiver</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <h2 class="card-title">Historique</h2>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Événement</th><th>Ancien statut</th><th>Nouveau statut</th><th>Date</th><th>Acteur</th></tr></thead>
+      <tbody>
+        {% for h in historique %}
+        <tr>
+          <td class="text-xs">{{ h.type_evenement }}</td>
+          <td class="text-xs">{{ h.ancien_statut or "—" }}</td>
+          <td class="text-xs">{{ h.nouveau_statut or "—" }}</td>
+          <td class="font-mono text-xs">{{ h.date_evenement }}</td>
+          <td class="text-xs">{{ h.acteur or "—" }}</td>
+        </tr>
+        {% else %}<tr><td colspan="5" class="section-note">Aucun événement.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endif %}
+{% endblock %}
