@@ -11,7 +11,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.config import STATIC_DIR, DATA_DIR, SNAPSHOTS_DIR
 from app.db.connection import apply_migrations
 from app.services.logging_config import log_erreur
-from app.routes import home, sources_calculs, health, logements, reservations, menages, fournisseurs, proprietaires, banques, proprietaires_reglements, controles_cloture
+from app.routes import home, sources_calculs, health, logements, reservations, menages, fournisseurs, proprietaires, banques, proprietaires_reglements, controles_cloture, clotures, pilotage_mensuel
 
 
 @asynccontextmanager
@@ -60,8 +60,9 @@ async def headers_securite(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
     path = request.url.path
-    if path.startswith(("/banques-caisse", "/controles-cloture", "/proprietaires",
-                        "/reservations", "/logements", "/menages", "/fournisseurs", "/health")):
+    if path.startswith(("/banques-caisse", "/controles-cloture", "/clotures", "/proprietaires",
+                        "/reservations", "/logements", "/menages", "/fournisseurs", "/health",
+                        "/pilotage-mensuel")):
         response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -77,5 +78,7 @@ app.include_router(proprietaires.router)
 app.include_router(banques.router)
 app.include_router(proprietaires_reglements.router)
 app.include_router(controles_cloture.router)
+app.include_router(clotures.router)
+app.include_router(pilotage_mensuel.router)
 app.include_router(sources_calculs.router)
 app.include_router(health.router)

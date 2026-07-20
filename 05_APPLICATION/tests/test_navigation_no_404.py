@@ -8,11 +8,23 @@ Les 2 autres modules restent « À venir ».
 """
 
 
-ROUTES_DISPONIBLES = ["/", "/logements", "/reservations", "/menages", "/fournisseurs", "/proprietaires", "/sources-calculs"]
+ROUTES_DISPONIBLES = ["/", "/logements", "/reservations", "/menages", "/fournisseurs", "/proprietaires",
+                      "/sources-calculs",
+                      # Intégration : quatre modules désormais disponibles.
+                      "/banques-caisse", "/proprietaires-reglements", "/controles-cloture",
+                      # APP-5C / APP-5D
+                      "/clotures", "/pilotage-mensuel"]
+# Chemins volontairement non construits (les modules ont un préfixe complet distinct).
 ROUTES_FUTURES_SANS_LIEN = [
     "/banques",
     "/controles",
 ]
+
+
+def test_modules_integres_repondent(client):
+    """Les quatre modules intégrés répondent (non 404)."""
+    for path in ("/menages", "/banques-caisse", "/proprietaires-reglements", "/controles-cloture"):
+        assert client.get(path).status_code == 200, f"Module indisponible : {path}"
 
 
 def test_accueil_200(client):
@@ -81,14 +93,21 @@ def test_sidebar_contient_href_fournisseurs(client):
 def test_sidebar_contient_href_proprietaires(client):
     r = client.get("/")
     assert r.status_code == 200
-    assert 'href="/proprietaires"' in r.text, "Menu Propriétaires doit être cliquable au Lot APP-3c"
+    # APP-3C : le menu « Propriétaires & règlements » pointe vers l'écran consolidé.
+    assert 'href="/proprietaires-reglements"' in r.text, "Menu Propriétaires doit être cliquable"
 
 
-def test_sidebar_contient_badge_avenir(client):
+def test_sidebar_contient_liens_modules_integres(client):
+    """Intégration : les liens des quatre modules sont présents ; plus aucun badge « futur »
+    pour Banques et Contrôles (désormais disponibles)."""
     r = client.get("/")
     assert r.status_code == 200
-    assert "nav-badge-future" in r.text, "Badge 'À venir' absent de la sidebar"
-    assert "nav-item--future" in r.text, "Classe nav-item--future absente de la sidebar"
+    for href in ('href="/menages"', 'href="/banques-caisse"',
+                 'href="/proprietaires-reglements"', 'href="/controles-cloture"'):
+        assert href in r.text, f"Lien de module manquant dans la sidebar : {href}"
+    # Banques et Contrôles ne sont plus « à venir » ; aucun badge futur ne doit subsister.
+    assert "nav-badge-future" not in r.text
+    assert "nav-item--future" not in r.text
 
 
 def test_header_global_sans_periode_sur_toutes_les_pages(client):

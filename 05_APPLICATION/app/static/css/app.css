@@ -190,6 +190,7 @@ button { font-family: inherit; cursor: pointer; }
 .main-area {
   margin-left: var(--sidebar-width);
   flex: 1;
+  min-width: 0;   /* laisse .table-container faire son propre overflow-x plutôt que d'étirer la page */
   display: flex;
   flex-direction: column;
   min-height: 100vh;
