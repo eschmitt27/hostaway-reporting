@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}Ménages — À contrôler{% endblock %}
+
+{% block content %}
+
+<div class="page-header flex justify-between items-center">
+  <div>
+    <a href="/menages?mois={{ data.mois }}" class="back-link">← Ménages</a>
+    <h1 class="page-title">À contrôler</h1>
+    <p class="page-subtitle">
+      Anomalies produites par le moteur — période
+      <span class="periode-active">{{ data.mois or "toutes" }}</span>
+    </p>
+  </div>
+  <form method="get" action="/menages/a-controler" class="filter-bar">
+    <select name="mois" class="filter-input" onchange="this.form.submit()" aria-label="Période">
+      {% for o in options.periodes %}
+        <option value="{{ o.id }}" {% if data.mois == o.id %}selected{% endif %}>{{ o.libelle }}</option>
+      {% endfor %}
+    </select>
+    <noscript><button type="submit" class="btn btn-secondary btn-sm">Filtrer</button></noscript>
+  </form>
+</div>
+
+{% if data.status != "OK" %}
+<div class="alert alert-error">
+  <strong>Source indisponible</strong> — {{ data.etat_source.fichier }} :
+  {{ data.etat_source.etat_libelle }}.
+</div>
+{% else %}
+
+{% if data.sources_manquantes %}
+<div class="alert alert-warning">
+  <strong>Sources non alimentées</strong> —
+  {% for e in data.sources_manquantes %}{{ e.libelle }} ({{ e.etat_libelle }}){% if not loop.last %} · {% endif %}{% endfor %}
+</div>
+{% endif %}
+
+<!-- Lignes à contrôler -->
+<div class="card mb-md">
+  <h2 class="card-title">Lignes de rapprochement à contrôler ({{ data.lignes | length }})</h2>
+  {% if data.lignes %}
+  <div class="table-container">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Logement</th><th>Intervenant</th>
+          <th class="num">Hostaway</th><th class="num">Interne</th><th class="num">Externe</th>
+          <th class="num">Écart</th><th>Code</th><th>Niveau</th><th>Résumé</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in data.lignes %}
+        <tr class="row-warn">
+          <td>
+            <div>{{ r.nom_appartement or r.logement_id }}</div>
+            <div class="text-xs text-secondary">{{ r.logement_id }}</div>
+          </td>
+          <td>
+            {{ r.nom_intervenant or r.intervenant_id or "—" }}
+            {% if r.identification_incomplete %}
+              <span class="badge badge-warning">Non identifié</span>
+            {% endif %}
+          </td>
+          <td class="num">{{ r.hostaway_realise if r.hostaway_realise is not none else "—" }}</td>
+          <td class="num">{{ r.interne_declare if r.interne_declare is not none else "—" }}</td>
+          <td class="num">{{ r.externe_facture if r.externe_facture is not none else "—" }}</td>
+          <td class="num text-error">{{ r.ecart if r.ecart is not none else "—" }}</td>
+          <td><span class="font-mono text-xs">{{ r.code_controle or "—" }}</span></td>
+          <td>
+            <span class="status-badge status-{{ (r.statut_effectif or 'inconnu') | lower | replace('_','-') }}">
+              {{ r.statut_effectif }}
+            </span>
+          </td>
+          <td class="text-sm">{{ r.commentaire or "Écart de comptage entre les flux." }}</td>
+          <td>
+            <a class="btn btn-secondary btn-sm"
+               href="/menages/{{ r.mois }}/{{ r.logement_id }}/{{ r.intervenant_id }}">Voir le détail</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">✓</div>
+    <p>Aucune ligne à contrôler sur cette période.</p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Contrôles moteur (Lot6d) -->
+<div class="card mb-md">
+  <h2 class="card-title">Contrôles du rapprochement (Lot6d)</h2>
+  {% if data.controles_moteur %}
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Code</th><th>Niveau</th><th class="num">Occurrences</th><th>Exemple</th></tr></thead>
+      <tbody>
+        {% for c in data.controles_moteur %}
+        <tr>
+          <td><span class="font-mono text-xs">{{ c.code }}</span></td>
+          <td>
+            <span class="status-badge status-{{ c.niveau | lower | replace('_','-') }}">{{ c.niveau }}</span>
+          </td>
+          <td class="num">{{ c.nb if c.nb is not none else "—" }}</td>
+          <td class="text-sm text-secondary">{{ c.exemple }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="section-note">Aucun contrôle produit par le moteur de rapprochement.</p>
+  {% endif %}
+</div>
+
+<!-- Contrôles transverses (Lot11) -->
+<div class="card">
+  <h2 class="card-title">Contrôles de cohérence ménages (Lot11)</h2>
+  {% if data.controles_lot11 %}
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Code</th><th>Niveau</th><th>Message</th><th>Résolution</th></tr></thead>
+      <tbody>
+        {% for c in data.controles_lot11 %}
+        <tr>
+          <td><span class="font-mono text-xs">{{ c.code }}</span></td>
+          <td>
+            <span class="status-badge status-{{ c.niveau | lower | replace('_','-') }}">{{ c.niveau }}</span>
+          </td>
+          <td class="text-sm">
+            {{ c.message }}
+            {% if c.commentaire %}<div class="text-xs text-secondary">{{ c.commentaire }}</div>{% endif %}
+          </td>
+          <td>{{ c.statut_resolution or "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="section-note">Aucun contrôle ménages dans {{ data.etat_source.fichier }}.</p>
+  {% endif %}
+</div>
+
+{% endif %}
+
+<div class="origine-block">
+  <strong>Aucune anomalie n'est inventée ici.</strong> Les codes, niveaux et commentaires
+  proviennent des sorties du moteur. Corriger la source ou relancer le calcul reste
+  l'action à privilégier ; l'outrepassage n'est qu'une annotation tracée.
+</div>
+
+{% endblock %}

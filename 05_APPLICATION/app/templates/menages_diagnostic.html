@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Ménages — Diagnostic du pipeline{% endblock %}
+
+{% set dc = dernier_calcul %}
+
+{% block content %}
+
+<div class="page-header">
+  <a href="/menages" class="back-link">← Ménages</a>
+  <h1 class="page-title">Diagnostic du pipeline Ménages</h1>
+  <p class="page-subtitle">Page de diagnostic — aucune exécution n'est lancée depuis ici.</p>
+</div>
+
+<div class="alert alert-info">
+  <strong>Recalcul désactivé.</strong> À ce lot, l'application ne relance pas le pipeline
+  sur les fichiers réels. La commande ci-dessous est celle qu'exécuterait le serveur ; elle
+  doit être lancée manuellement, hors application.
+</div>
+
+<div class="card mb-md">
+  <h2 class="card-title">Dernier calcul</h2>
+  <dl class="detail-grid">
+    <div><dt>Dernière génération des sorties</dt><dd>{{ dc.derniere_generation or "inconnue" }}</dd></div>
+    <div><dt>Anomalies signalées</dt><dd>{{ dc.nb_anomalies }}</dd></div>
+    <div><dt>Lu le</dt><dd>{{ dc.read_at }}</dd></div>
+  </dl>
+</div>
+
+<div class="card mb-md">
+  <h2 class="card-title">État des sources</h2>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Bloc</th><th>Fichier</th><th>Onglet</th><th class="num">Lignes</th><th>État</th><th>Générée le</th></tr></thead>
+      <tbody>
+        {% for e in dc.etats_sources %}
+        <tr>
+          <td>{{ e.libelle }}</td>
+          <td><span class="font-mono text-xs">{{ e.fichier }}</span></td>
+          <td><span class="font-mono text-xs">{{ e.onglet }}</span></td>
+          <td class="num">{{ e.nb_lignes if e.etat == "OK" else "—" }}</td>
+          <td>
+            <span class="status-badge status-{{ 'valide' if e.etat == 'OK' else 'a-controler' }}">
+              {{ e.etat_libelle }}
+            </span>
+          </td>
+          <td>{{ e.derniere_maj or "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <h2 class="card-title">Recalcul du pipeline</h2>
+  <p class="section-note">Étapes exécutées, dans cet ordre :</p>
+  <ol class="etapes">
+    {% for etape in dc.etapes %}
+      <li><span class="font-mono text-xs">{{ etape }}</span></li>
+    {% endfor %}
+  </ol>
+  <p class="section-note mt-md">Commande serveur (mode réel, exécutée hors application) :</p>
+  <pre class="log-block"><code>{{ dc.commande }}</code></pre>
+  <div class="mt-md">
+    <a href="/menages/recalculer" class="btn btn-primary">Simuler avec les derniers exports (copies)…</a>
+    <span class="text-xs text-secondary">
+      lot6d + lot6e sur les MASTER existants. Ne recharge ni Hostaway, ni les déclarations, ni les PDF.
+    </span>
+  </div>
+  <div class="mt-md">
+    <a href="/menages/chaine" class="btn btn-secondary">Tester la chaîne complète sur copies (6a→11)…</a>
+    <span class="text-xs text-secondary">
+      Régénère les trois sources (Hostaway simulé, déclarations copiées, factures externes) puis
+      6d/6e/6f/11. Aucun fichier réel touché. Le recalcul réel reste désactivé.
+    </span>
+  </div>
+</div>
+
+<div class="card mt-md">
+  <h2 class="card-title">Trois actions, trois portées distinctes</h2>
+  <table class="data-table">
+    <thead><tr><th>Action</th><th>Ce qu'elle fait</th><th>Sources rechargées</th><th>Écrit ?</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Actualiser l'affichage</strong></td>
+        <td>Vide le cache, relit les MASTER existants.</td>
+        <td>Aucune (relecture disque)</td>
+        <td>Non</td>
+      </tr>
+      <tr>
+        <td><strong>Simuler avec les derniers exports</strong></td>
+        <td>lot6d + lot6e sur copies des MASTER actuels.</td>
+        <td>Aucune source amont</td>
+        <td>Non (workspace isolé)</td>
+      </tr>
+      <tr>
+        <td><strong>Actualiser les sources et recalculer</strong></td>
+        <td>Hostaway + déclarations + PDF (Lot6c) puis 6d/6e/6f/11.</td>
+        <td>Les trois sources</td>
+        <td>Réel : <strong>désactivé</strong> · Recette : copies uniquement</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="section-note mt-md">
+    <strong>Factures de ménage externes</strong> — extraction manuelle : lot6c transcrit les factures
+    dans le script (aucune lecture automatique des PDF). Dossier de dépôt :
+    <span class="font-mono text-xs">01_SOURCES_BRUTES\MenagesExternes\Factures_PDF</span>.
+  </p>
+</div>
+
+<div class="origine-block">
+  Le pipeline ménages écrit dans les MASTER du dossier de travail. L'application ne les
+  écrit jamais : elle les lit. Tant que le recalcul n'est pas activé, régénérer les sorties
+  se fait en dehors de l'application.
+</div>
+
+{% endblock %}

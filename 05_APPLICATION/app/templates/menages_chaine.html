@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}Ménages — Chaîne complète (recette sur copies){% endblock %}
+
+{% set p = plan %}
+
+{% block content %}
+
+<div class="page-header">
+  <a href="/menages" class="back-link">← Ménages</a>
+  <h1 class="page-title">Actualiser les sources et recalculer — recette sur copies</h1>
+  <p class="page-subtitle">
+    Régénère les <strong>trois sources</strong> (Hostaway, déclarations internes, factures externes)
+    puis 6d → 6e → 6f → 11.
+    <span class="status-badge status-valide">Aucun fichier réel ne sera modifié</span>
+  </p>
+</div>
+
+<div class="alert alert-info">
+  <strong>Recette sur copies.</strong> Tout se déroule dans un workspace isolé sous <code>data/</code>.
+  L'extraction Hostaway est simulée (aucune requête API), les déclarations internes proviennent d'une
+  <strong>source copiée</strong> (aucun réseau), les factures externes sont régénérées par lot6c depuis
+  les PDF copiés. Le recalcul <strong>réel</strong> (qui réécrirait les MASTER) reste désactivé
+  (<code>MENAGES_REAL_RECALC_ENABLED = False</code>).
+</div>
+
+<div class="alert alert-info">
+  <strong>Factures de ménage externes — extraction automatique.</strong>
+  Les formats <strong>Aissata</strong> et <strong>Mounir</strong> sont extraits automatiquement depuis
+  les PDF. Les formats non reconnus passent en contrôle. La saisie manuelle reste un mode de secours explicite.
+</div>
+
+{% set pdf = pdf_externes %}
+{% if pdf %}
+<div class="card mb-md">
+  <div class="flex justify-between items-center mb-md">
+    <h2 class="card-title">Diagnostic extraction PDF</h2>
+    {% if pdf.mode_extraction == "PDF_AUTOMATIQUE" %}
+      <span class="status-badge status-valide">Extraction PDF automatique</span>
+    {% elif pdf.mode_extraction == "SAISIE_MANUELLE_SECOURS" %}
+      <span class="status-badge status-a-controler">Saisie manuelle (secours)</span>
+    {% else %}
+      <span class="status-badge status-a-controler">Mode inconnu (relancer la chaîne)</span>
+    {% endif %}
+  </div>
+  <dl class="detail-grid">
+    <div><dt>PDF reconnus</dt><dd>{{ pdf.nb_pdf_reconnus }}</dd></div>
+    <div><dt>Non supportés</dt><dd>{{ pdf.nb_pdf_non_supportes }}</dd></div>
+    <div><dt>En erreur</dt><dd>{{ pdf.nb_pdf_erreur }}</dd></div>
+    <div><dt>Doublons</dt><dd>{{ pdf.nb_pdf_doublon }}</dd></div>
+    <div><dt>Dernière génération</dt><dd>{{ pdf.derniere_extraction or "inconnue" }}</dd></div>
+  </dl>
+  {% if pdf.diagnostic_disponible and pdf.diagnostic %}
+  <table class="data-table mt-md">
+    <thead><tr><th>Fournisseur</th><th>Statut</th><th class="num">Montant</th><th class="num">Écart</th><th class="num">Lignes</th></tr></thead>
+    <tbody>
+      {% for d in pdf.diagnostic %}
+      <tr>
+        <td>{{ d.format }}</td>
+        <td><span class="status-badge status-{{ 'valide' if d.statut == 'OK' and not d.doublon_de else 'a-controler' }}">{{ 'DOUBLON' if d.doublon_de else d.statut }}</span></td>
+        <td class="num">{% if d.montant_total is not none %}{{ "%.0f"|format(d.montant_total) }} €{% else %}—{% endif %}</td>
+        <td class="num">{% if d.ecart is not none %}{{ "%.2f"|format(d.ecart) }}{% else %}—{% endif %}</td>
+        <td class="num">{{ d.nb_lignes if d.nb_lignes is not none else "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="section-note">Diagnostic détaillé disponible après une génération en mode PDF (onglet DIAGNOSTIC_PDF).</p>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card mb-md">
+  <h2 class="card-title">Étapes (ordre imposé)</h2>
+  <ol class="etapes">
+    {% for e in p.etapes %}<li>{{ e.libelle }}</li>{% endfor %}
+  </ol>
+  <details class="mt-sm">
+    <summary class="text-xs text-secondary">Détail technique (scripts moteur)</summary>
+    <ol class="etapes">
+      {% for e in p.etapes %}<li><span class="font-mono text-xs">{{ e.name }}</span></li>{% endfor %}
+    </ol>
+  </details>
+  <p class="section-note">
+    Ordre audité : la récupération Hostaway précède l'extraction des factures externes (qui lit le
+    comptage Hostaway) ; les trois sources sont régénérées avant le rapprochement.
+  </p>
+</div>
+
+<div class="grid-2 mb-md">
+  <div class="card">
+    <h2 class="card-title">Factures de ménage externes</h2>
+    <dl class="detail-grid">
+      <div><dt>Dossier de dépôt</dt><dd><span class="font-mono text-xs">{{ p.pdf_dossier_relatif }}</span></dd></div>
+      <div><dt>PDF présents</dt><dd>{{ p.nb_pdf }}</dd></div>
+    </dl>
+    {% if p.pdf_presents %}
+    <p class="section-note">{% for f in p.pdf_presents %}<span class="font-mono text-xs">{{ f }}</span>{% if not loop.last %}, {% endif %}{% endfor %}</p>
+    {% endif %}
+  </div>
+  <div class="card">
+    <h2 class="card-title">Sources cœur — obligatoires (Lot6a-Lot6e)</h2>
+    <table class="data-table">
+      <thead><tr><th>Fichier</th><th>Présent</th></tr></thead>
+      <tbody>
+        {% for s in p.sources_coeur %}
+        <tr>
+          <td><span class="font-mono text-xs">{{ s.nom }}</span></td>
+          <td><span class="status-badge status-{{ 'valide' if s.present else 'bloquant' }}">
+            {{ "oui" if s.present else "ABSENT" }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if p.sources_facultatives %}
+<div class="card mb-md">
+  <h2 class="card-title">Sources facultatives (Lot6f / contrôles) — non bloquantes</h2>
+  <table class="data-table">
+    <thead><tr><th>Fichier</th><th>Présent</th><th>Impact si absente</th></tr></thead>
+    <tbody>
+      {% for s in p.sources_facultatives %}
+      <tr>
+        <td><span class="font-mono text-xs">{{ s.nom }}</span></td>
+        <td><span class="status-badge status-{{ 'valide' if s.present else 'a-controler' }}">
+          {{ "oui" if s.present else "absente" }}</span></td>
+        <td class="text-xs">Pools courses/consommables du coût complet (vides aujourd'hui) — n'empêche pas Lot6a-Lot6e.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if p.warnings %}
+<div class="alert alert-warning mb-md">
+  <strong>Contrôles préalables :</strong>
+  <ul>{% for w in p.warnings %}<li>{{ w }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+<div class="card mb-md">
+  <h2 class="card-title">Lancer la recette</h2>
+  <h3>Chaîne complète sur copies
+    <span class="status-badge status-valide">Aucun fichier réel ne sera modifié</span></h3>
+  {% if p.prete %}
+  <form method="post" action="/menages/chaine/executer">
+    <button type="submit" class="btn btn-primary">Régénérer toutes les sources sur copies (6a→11)</button>
+    <span class="text-xs text-secondary">Exécute Hostaway (stub) + lot6b + lot6c + 6d/6e/6f/11 dans un workspace isolé.</span>
+  </form>
+  {% else %}
+  <button type="button" class="btn btn-primary" disabled>Régénérer toutes les sources sur copies</button>
+  <span class="text-xs text-secondary">Résous d'abord les contrôles préalables ci-dessus.</span>
+  {% endif %}
+
+  <h3 class="mt-md">Recalcul réel (toutes sources en place)</h3>
+  <button type="button" class="btn btn-secondary" disabled title="Non activé — nécessite une recette contrôlée">
+    Actualiser les sources et recalculer (réel)
+  </button>
+  <span class="text-xs text-secondary">
+    <strong>Non activé</strong> — nécessite une recette contrôlée sur les données réelles
+    (garde <code>MENAGES_REAL_RECALC_ENABLED = False</code>). Réécrirait les MASTER réels.
+  </span>
+</div>
+
+<div class="card">
+  <h2 class="card-title">Derniers recalculs / recettes</h2>
+  {% if runs %}
+  <table class="data-table">
+    <thead><tr><th>#</th><th>Date</th><th>Mode</th><th>Statut</th><th class="num">Durée (s)</th><th>Erreur</th></tr></thead>
+    <tbody>
+      {% for r in runs %}
+      <tr>
+        <td><a href="/menages/recalculer/runs/{{ r.id }}">{{ r.id }}</a></td>
+        <td class="font-mono text-xs">{{ r.ts }}</td>
+        <td>{{ r.mode }}</td>
+        <td><span class="status-badge status-{{ 'valide' if r.statut == 'SUCCES' else 'a-controler' }}">{{ r.statut }}</span></td>
+        <td class="num">{{ r.duree_secondes if r.duree_secondes is not none else "—" }}</td>
+        <td class="text-xs">{{ r.erreur_code or "" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="section-note">Aucun recalcul enregistré.</p>
+  {% endif %}
+</div>
+
+{% endblock %}

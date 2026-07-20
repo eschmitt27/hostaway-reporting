@@ -1,0 +1,95 @@
+{# Tableau de rapprochement — fragment réutilisable (page complète et rafraîchissement partiel). #}
+<div class="table-meta">
+  {{ liste.count_filtre }} ligne{{ "s" if liste.count_filtre != 1 }} retenue{{ "s" if liste.count_filtre != 1 }}
+  sur {{ liste.count_total }} · page {{ liste.page }} / {{ liste.pages }}
+</div>
+
+{% if liste.rows %}
+<div class="table-container">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Logement</th>
+        <th>Intervenant</th>
+        <th>Type</th>
+        <th class="num" title="Non alimenté par le moteur">Attendu</th>
+        <th class="num">Hostaway</th>
+        <th class="num">Interne</th>
+        <th class="num">Externe</th>
+        <th class="num">Écart</th>
+        <th class="num" title="Coût réel + quotes-parts de charges (Lot6f)">Coût complet</th>
+        <th>Statut</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in liste.rows %}
+      <tr class="{% if r.statut_effectif in ('A_CONTROLER', 'BLOQUANT') %}row-warn{% endif %}">
+        <td>
+          <div>{{ r.nom_appartement or r.logement_id or "—" }}</div>
+          <div class="text-xs text-secondary">{{ r.logement_id }}</div>
+          {% if r.proprietaire_libelle %}
+          <div class="text-xs text-secondary">{{ r.proprietaire_libelle }}</div>
+          {% endif %}
+        </td>
+        <td>{{ r.nom_intervenant or r.intervenant_id or "—" }}</td>
+        <td>
+          {% if r.type_intervenant %}
+            <span class="badge badge-{{ 'info' if r.type_intervenant == 'INTERNE' else 'neutral' }}">
+              {{ r.type_intervenant }}
+            </span>
+          {% else %}
+            <span class="badge badge-warning">Non identifié</span>
+          {% endif %}
+        </td>
+        <td class="num text-secondary">—</td>
+        <td class="num">{{ r.hostaway_realise if r.hostaway_realise is not none else "—" }}</td>
+        <td class="num">{{ r.interne_declare if r.interne_declare is not none else "—" }}</td>
+        <td class="num">{{ r.externe_facture if r.externe_facture is not none else "—" }}</td>
+        <td class="num {% if r.ecart %}text-error{% endif %}">
+          {{ r.ecart if r.ecart is not none else "—" }}
+        </td>
+        <td class="num">
+          {% if r.cout_complet is not none %}{{ "%.2f"|format(r.cout_complet) }} €{% else %}—{% endif %}
+        </td>
+        <td>
+          <span class="status-badge status-{{ (r.statut_effectif or 'inconnu') | lower | replace('_','-') }}">
+            {{ r.statut_effectif or "—" }}
+          </span>
+          {% if r.override %}<span class="badge badge-info" title="Motif enregistré">Outrepassé</span>{% endif %}
+        </td>
+        <td>
+          <a class="btn btn-secondary btn-sm"
+             href="/menages/{{ r.mois }}/{{ r.logement_id }}/{{ r.intervenant_id }}">Voir</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if liste.pages > 1 %}
+{% set base = "/menages?mois=" ~ data.mois
+   ~ "&logement_id=" ~ a.logement_id ~ "&proprietaire_id=" ~ a.proprietaire_id
+   ~ "&intervenant_id=" ~ a.intervenant_id ~ "&type_intervenant=" ~ a.type_intervenant
+   ~ "&statut=" ~ a.statut ~ "&tri=" ~ a.tri
+   ~ ("&ecart_seul=true" if a.ecart_seul else "")
+   ~ ("&identification_incomplete=true" if a.identification_incomplete else "") %}
+<nav class="pagination" aria-label="Pagination">
+  {% if liste.page > 1 %}
+    <a class="btn btn-secondary btn-sm" href="{{ base }}&page={{ liste.page - 1 }}">← Précédent</a>
+  {% endif %}
+  <span class="pagination-info">Page {{ liste.page }} sur {{ liste.pages }}</span>
+  {% if liste.page < liste.pages %}
+    <a class="btn btn-secondary btn-sm" href="{{ base }}&page={{ liste.page + 1 }}">Suivant →</a>
+  {% endif %}
+</nav>
+{% endif %}
+
+{% else %}
+<div class="empty-state">
+  <div class="empty-icon">∅</div>
+  <p>Aucune ligne de rapprochement pour ces filtres.</p>
+  <a href="/menages" class="btn btn-secondary btn-sm">Réinitialiser les filtres</a>
+</div>
+{% endif %}

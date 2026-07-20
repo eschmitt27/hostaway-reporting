@@ -1,136 +1,319 @@
 {% extends "base.html" %}
 {% block title %}Ménages{% endblock %}
 
+{% set s = data.summary %}
+{% set liste = data.liste %}
+{% set a = data.applied %}
+
 {% block content %}
-<div class="page-header">
-  <h1 class="page-title">Ménages — Rapprochement</h1>
-  <p class="page-subtitle">
-    Source : {{ data.source }} — lu le {{ data.read_at }}
+
+<div class="page-header flex justify-between items-center">
+  <div>
+    <h1 class="page-title">Ménages</h1>
+    <p class="page-subtitle">
+      Rapprochement des flux — période
+      <span class="periode-active">{{ data.mois or "aucune" }}</span>
+      · sources lues le {{ s.read_at }}
+    </p>
+  </div>
+  <div class="flex gap-sm items-center">
+    {% set params = [] %}
+    {% for k, v in a.items() if k not in ['page'] and v not in [None, '', False] %}
+      {% set _ = params.append(k ~ '=' ~ (v|lower if v is boolean else v)) %}
+    {% endfor %}
+    <a href="/menages/export.csv{% if params %}?{{ params|join('&') }}{% endif %}" class="btn btn-secondary">Export CSV</a>
+    <span class="read-only-badge">Lecture seule</span>
+    {% if s.etat_global == "CONFORME" %}
+      <span class="etat-global etat-global--ok">Conforme</span>
+    {% elif s.etat_global == "A_CONTROLER" %}
+      <span class="etat-global etat-global--warn">À contrôler</span>
+    {% else %}
+      <span class="etat-global etat-global--err">Source incomplète</span>
+    {% endif %}
+  </div>
+</div>
+
+{% if a.affichage == "actualise" %}
+<div class="alert alert-info">Affichage actualisé — cache vidé, MASTER relus depuis le disque.</div>
+{% endif %}
+
+<!-- ===== Trois actions DISTINCTES (jamais ambiguës) ===== -->
+<div class="card mb-md">
+  <h2 class="card-title">Actions</h2>
+  <div class="flex gap-md items-start" style="flex-wrap:wrap">
+    <form method="post" action="/menages/actualiser-affichage">
+      <input type="hidden" name="mois" value="{{ data.mois }}">
+      <button type="submit" class="btn btn-secondary">Actualiser l'affichage</button>
+      <div class="text-xs text-secondary" style="max-width:22rem">
+        Relit les MASTER existants et vide le cache. Aucun script, aucun réseau, aucune écriture.
+      </div>
+    </form>
+
+    <div>
+      <a href="/menages/recalculer" class="btn btn-primary">Simuler avec les derniers exports</a>
+      <div class="text-xs text-secondary" style="max-width:22rem">
+        Cette simulation utilise les derniers fichiers déjà générés. Elle ne recharge pas Hostaway,
+        les déclarations internes ni les factures PDF.
+      </div>
+    </div>
+
+    <div>
+      <button type="button" class="btn btn-secondary" disabled
+              title="Non activé — nécessite une recette contrôlée sur les données réelles">
+        Actualiser les sources et recalculer
+      </button>
+      <div class="text-xs text-secondary" style="max-width:24rem">
+        <strong>Non activé</strong> — nécessite une recette contrôlée sur les données réelles.
+        Régénérerait Hostaway, les déclarations internes, les factures externes (Lot6c), puis
+        6d/6e/6f/11. Garde <code>MENAGES_REAL_RECALC_ENABLED = False</code>.
+        <a href="/menages/chaine">Tester cette chaîne complète sur copies…</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% set fr = data.fraicheur %}
+{% if fr and fr.recommander_relance %}
+<div class="alert alert-warning">
+  <strong>Des sources ont été modifiées depuis le dernier rapprochement.</strong>
+  Fichiers plus récents : {{ fr.sources_recentes|join(", ") }}.
+  Dernier rapprochement : {{ fr.master_maj }}. Relance recommandée.
+  <span class="text-xs text-secondary">(Indicateur de fraîcheur — comparaison de dates, pas une preuve comptable.)</span>
+</div>
+{% elif fr and fr.etat == "A_JOUR" %}
+<div class="alert alert-info">
+  Rapprochement à jour (aucune source modifiée depuis le {{ fr.master_maj }}).
+</div>
+{% endif %}
+
+{% if liste.status != "OK" %}
+<div class="alert alert-error">
+  <strong>Source indisponible</strong> —
+  {{ liste.etat_source.fichier }} ({{ liste.etat_source.onglet }}) :
+  {{ liste.etat_source.etat_libelle }}.
+  Le rapprochement ne peut pas être affiché tant que le moteur n'a pas produit cette sortie.
+</div>
+{% else %}
+
+<!-- ===== Cartes de synthèse — 4 flux jamais fusionnés ===== -->
+<div class="kpi-grid kpi-grid--6">
+  <div class="kpi-card kpi-card--muted">
+    <div class="kpi-label">Ménages attendus</div>
+    <div class="kpi-value">—</div>
+    <div class="kpi-sub">Non alimenté par le moteur</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Hostaway réalisés</div>
+    <div class="kpi-value">{{ s.hostaway_realise if s.hostaway_realise is not none else "—" }}</div>
+    <div class="kpi-sub">Comptage opérationnel</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Internes déclarés</div>
+    <div class="kpi-value">{{ s.interne_declare if s.interne_declare is not none else "—" }}</div>
+    <div class="kpi-sub">M04</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Externes facturés</div>
+    <div class="kpi-value">{{ s.externe_facture if s.externe_facture is not none else "—" }}</div>
+    <div class="kpi-sub">Factures de ménage externes</div>
+  </div>
+  <div class="kpi-card {% if s.a_controler %}kpi-card--warn{% endif %}">
+    <div class="kpi-label">Écarts à contrôler</div>
+    <div class="kpi-value">{{ s.a_controler }}</div>
+    <div class="kpi-sub"><a href="/menages/a-controler?mois={{ data.mois }}">Ouvrir la liste</a></div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Coût complet total</div>
+    <div class="kpi-value">
+      {% if s.cout_complet_disponible and s.cout_complet_total is not none %}
+        {{ "%.2f"|format(s.cout_complet_total) }} €
+      {% else %}—{% endif %}
+    </div>
+    <div class="kpi-sub">
+      {% if s.cout_reel_total is not none %}
+        dont coût réel {{ "%.2f"|format(s.cout_reel_total) }} €
+      {% else %}Lot6f{% endif %}
+    </div>
+  </div>
+</div>
+
+{% if s.sources_manquantes %}
+<div class="alert alert-warning mt-md">
+  <strong>Sources incomplètes</strong> —
+  {% for e in s.sources_manquantes %}
+    {{ e.libelle }} : {{ e.etat_libelle }}{% if not loop.last %} · {% endif %}
+  {% endfor %}
+  <br>Les blocs concernés affichent « Source indisponible » plutôt qu'une valeur fabriquée.
+</div>
+{% endif %}
+
+<!-- ===== Filtres ===== -->
+<div class="card mb-md">
+  <form method="get" action="/menages" class="filter-bar">
+    <select name="mois" class="filter-input" aria-label="Période">
+      {% for o in data.options.periodes %}
+        <option value="{{ o.id }}" {% if data.mois == o.id %}selected{% endif %}>{{ o.libelle }}</option>
+      {% endfor %}
+    </select>
+
+    <select name="logement_id" class="filter-input" aria-label="Logement">
+      <option value="">Tous les logements</option>
+      {% for o in data.options.logements %}
+        <option value="{{ o.id }}" {% if a.logement_id == o.id %}selected{% endif %}>{{ o.libelle }}</option>
+      {% endfor %}
+    </select>
+
+    <select name="proprietaire_id" class="filter-input" aria-label="Propriétaire">
+      <option value="">Tous les propriétaires</option>
+      {% for o in data.options.proprietaires %}
+        <option value="{{ o.id }}" {% if a.proprietaire_id == o.id %}selected{% endif %}>{{ o.libelle }}</option>
+      {% endfor %}
+    </select>
+
+    <select name="intervenant_id" class="filter-input" aria-label="Intervenant">
+      <option value="">Tous les intervenants</option>
+      {% for o in data.options.intervenants %}
+        <option value="{{ o.id }}" {% if a.intervenant_id == o.id %}selected{% endif %}>{{ o.libelle }}</option>
+      {% endfor %}
+    </select>
+
+    <select name="type_intervenant" class="filter-input" aria-label="Type de ménage">
+      <option value="">Tous les types</option>
+      {% for o in data.options.types %}
+        <option value="{{ o.id }}" {% if a.type_intervenant == o.id %}selected{% endif %}>{{ o.libelle }}</option>
+      {% endfor %}
+    </select>
+
+    <select name="statut" class="filter-input" aria-label="Statut">
+      <option value="">Tous les statuts</option>
+      {% for o in data.options.statuts %}
+        <option value="{{ o.id }}" {% if a.statut == o.id %}selected{% endif %}>{{ o.libelle }}</option>
+      {% endfor %}
+      <option value="JUSTIFIE" {% if a.statut == "JUSTIFIE" %}selected{% endif %}>JUSTIFIE</option>
+    </select>
+
+    <select name="tri" class="filter-input" aria-label="Tri">
+      {% for cle, libelle in data.tris.items() %}
+        <option value="{{ cle }}" {% if a.tri == cle %}selected{% endif %}>Tri : {{ libelle }}</option>
+      {% endfor %}
+    </select>
+
+    <label class="filter-check">
+      <input type="checkbox" name="ecart_seul" value="true" {% if a.ecart_seul %}checked{% endif %}>
+      Avec écart uniquement
+    </label>
+    <label class="filter-check">
+      <input type="checkbox" name="identification_incomplete" value="true"
+             {% if a.identification_incomplete %}checked{% endif %}>
+      Identification incomplète
+    </label>
+
+    <button type="submit" class="btn btn-primary">Filtrer</button>
+    <a href="/menages" class="btn btn-ghost">Réinitialiser</a>
+  </form>
+</div>
+
+<!-- ===== Factures de ménage externes (PDF) ===== -->
+{% set pdf = data.pdf_externes %}
+{% if pdf %}
+<div class="card mb-md">
+  <div class="flex justify-between items-center mb-md">
+    <h2 class="card-title">Factures de ménage externes</h2>
+    {% if pdf.mode_extraction == "PDF_AUTOMATIQUE" %}
+      <span class="status-badge status-valide">Extraction PDF automatique</span>
+    {% elif pdf.mode_extraction == "SAISIE_MANUELLE_SECOURS" %}
+      <span class="status-badge status-a-controler">Saisie manuelle (secours)</span>
+    {% else %}
+      <span class="status-badge status-a-controler">Mode inconnu</span>
+    {% endif %}
+  </div>
+  <dl class="detail-grid">
+    <div><dt>Dossier de dépôt des factures</dt>
+      <dd><span class="font-mono text-xs">{{ pdf.dossier_relatif }}</span></dd></div>
+    <div><dt>PDF présents dans le dossier</dt><dd>{{ pdf.nb_pdf_presents }}</dd></div>
+    <div><dt>PDF reconnus</dt><dd>{{ pdf.nb_pdf_reconnus }}</dd></div>
+    <div><dt>PDF non supportés</dt><dd>{{ pdf.nb_pdf_non_supportes }}</dd></div>
+    <div><dt>PDF en erreur</dt><dd>{{ pdf.nb_pdf_erreur }}</dd></div>
+    <div><dt>PDF en doublon</dt><dd>{{ pdf.nb_pdf_doublon }}</dd></div>
+    <div><dt>Factures extraites (MASTER)</dt><dd>{{ pdf.nb_fichiers_transcrits }}</dd></div>
+    <div><dt>Lignes de ménage extraites</dt><dd>{{ pdf.nb_lignes_master }}</dd></div>
+    <div><dt>Prestataires détectés</dt>
+      <dd>{{ pdf.prestataires_detectes|join(", ") if pdf.prestataires_detectes else "—" }}</dd></div>
+    <div><dt>Période couverte</dt>
+      <dd>{{ pdf.periode_couverte|join(", ") if pdf.periode_couverte else "—" }}</dd></div>
+    <div><dt>Dernière extraction</dt><dd>{{ pdf.derniere_extraction or "inconnue" }}</dd></div>
+  </dl>
+
+  {% if pdf.diagnostic_disponible and pdf.diagnostic %}
+  <div class="table-container mt-md">
+    <table class="data-table">
+      <thead><tr><th>Fichier</th><th>Fournisseur</th><th>Statut</th><th>N° facture</th>
+        <th class="num">Montant</th><th class="num">Écart</th><th class="num">Lignes</th><th>Anomalie</th></tr></thead>
+      <tbody>
+        {% for d in pdf.diagnostic %}
+        <tr>
+          <td><span class="font-mono text-xs">{{ d.fichier }}</span></td>
+          <td>{{ d.format }}</td>
+          <td><span class="status-badge status-{{ 'valide' if d.statut == 'OK' and not d.doublon_de else 'a-controler' }}">
+            {{ 'DOUBLON' if d.doublon_de else d.statut }}</span></td>
+          <td>{{ d.numero_facture or "—" }}</td>
+          <td class="num">{% if d.montant_total is not none %}{{ "%.0f"|format(d.montant_total) }} €{% else %}—{% endif %}</td>
+          <td class="num">{% if d.ecart is not none %}{{ "%.2f"|format(d.ecart) }}{% else %}—{% endif %}</td>
+          <td class="num">{{ d.nb_lignes if d.nb_lignes is not none else "—" }}</td>
+          <td class="text-xs">{{ d.anomalies or "" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <div class="alert {{ 'alert-info' if pdf.mode_extraction == 'PDF_AUTOMATIQUE' else 'alert-warning' }} mt-md">
+    {{ pdf.note_extraction }}
+  </div>
+  <p class="section-note">
+    Les factures de ménage externes sont extraites depuis les PDF déposés dans
+    <span class="font-mono text-xs">{{ pdf.dossier_relatif }}</span>.
+    Elles ne doivent pas être saisies une seconde fois dans les charges générales.
   </p>
 </div>
-
-{% if data.status == "ERROR" %}
-<div class="alert alert-error">
-  <strong>Source indisponible</strong> — {{ data.error_message }}
-</div>
-
-{% else %}
-
-<!-- Filtres -->
-<form method="get" action="/menages" class="filter-bar">
-  <div class="filter-group">
-    <label for="mois">Mois</label>
-    <select id="mois" name="mois" onchange="this.form.submit()">
-      <option value="">Tous</option>
-      {% for m in data.filters.mois %}
-        <option value="{{ m }}" {% if data.applied.mois == m %}selected{% endif %}>{{ m }}</option>
-      {% endfor %}
-    </select>
-  </div>
-  <div class="filter-group">
-    <label for="logement_id">Logement</label>
-    <select id="logement_id" name="logement_id" onchange="this.form.submit()">
-      <option value="">Tous</option>
-      {% for l in data.filters.logements %}
-        <option value="{{ l }}" {% if data.applied.logement_id == l %}selected{% endif %}>{{ l }}</option>
-      {% endfor %}
-    </select>
-  </div>
-  <div class="filter-group">
-    <label for="type_intervenant">Type</label>
-    <select id="type_intervenant" name="type_intervenant" onchange="this.form.submit()">
-      <option value="">Tous</option>
-      {% for t in data.filters.types %}
-        <option value="{{ t }}" {% if data.applied.type_intervenant == t %}selected{% endif %}>{{ t }}</option>
-      {% endfor %}
-    </select>
-  </div>
-  <div class="filter-group">
-    <label for="statut_controle">Statut</label>
-    <select id="statut_controle" name="statut_controle" onchange="this.form.submit()">
-      <option value="">Tous</option>
-      {% for s in data.filters.statuts %}
-        <option value="{{ s }}" {% if data.applied.statut_controle == s %}selected{% endif %}>{{ s }}</option>
-      {% endfor %}
-    </select>
-  </div>
-  {% if data.applied.mois or data.applied.logement_id or data.applied.type_intervenant or data.applied.statut_controle %}
-    <a href="/menages" class="btn btn-secondary btn-sm">Effacer les filtres</a>
-  {% endif %}
-</form>
-
-<div class="table-meta">
-  {{ data.count_affiches }} ligne{% if data.count_affiches != 1 %}s{% endif %} affichée{% if data.count_affiches != 1 %}s{% endif %}
-  sur {{ data.count_total }} au total
-</div>
-
-{% if data.rows %}
-<div class="table-wrapper">
-  <table class="data-table">
-    <thead>
-      <tr>
-        <th>Mois</th>
-        <th>Logement</th>
-        <th>Intervenant</th>
-        <th>Type</th>
-        <th class="num">HA tasks</th>
-        <th class="num">Déclarés int.</th>
-        <th class="num">Déclarés ext.</th>
-        <th class="num">Total déclarés</th>
-        <th class="num">Écart</th>
-        <th>Statut</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in data.rows %}
-      <tr class="{% if row.statut_effectif == 'VALIDE' %}row-ok{% elif row.statut_effectif == 'JUSTIFIE' %}row-justifie{% elif row.statut_effectif == 'BLOQUANT' %}row-error{% else %}row-warning{% endif %}">
-        <td>{{ row.mois or "—" }}</td>
-        <td>
-          <span class="code-id">{{ row.logement_id or "—" }}</span>
-          {% if row.nom_appartement %}<br><span class="text-secondary text-sm">{{ row.nom_appartement }}</span>{% endif %}
-        </td>
-        <td>{{ row.nom_intervenant or row.intervenant_id or "—" }}</td>
-        <td>
-          <span class="badge badge-{{ 'interne' if row.type_intervenant == 'INTERNE' else 'externe' }}">
-            {{ row.type_intervenant or "—" }}
-          </span>
-        </td>
-        <td class="num">{{ row.nb_menages_tasks_hostaway_completed if row.nb_menages_tasks_hostaway_completed is not none else "—" }}</td>
-        <td class="num">{{ row.nb_menages_declares_interne_m04 if row.nb_menages_declares_interne_m04 is not none else "—" }}</td>
-        <td class="num">{{ row.nb_menages_declares_externe if row.nb_menages_declares_externe is not none else "—" }}</td>
-        <td class="num">{{ row.total_menages_declares if row.total_menages_declares is not none else "—" }}</td>
-        <td class="num {% if row.ecart and row.ecart != 0 %}text-warning{% endif %}">
-          {{ row.ecart if row.ecart is not none else "—" }}
-        </td>
-        <td>
-          <span class="status-badge status-{{ (row.statut_effectif or 'inconnu') | lower | replace('_','-') }}">
-            {{ row.statut_effectif or row.statut_controle or "—" }}
-          </span>
-          {% if row.override %}
-            <span class="badge badge-justifie" title="Outrepassé : {{ row.override.motif }}">Justifié</span>
-          {% endif %}
-        </td>
-        <td>
-          <a href="/menages/{{ row.mois }}/{{ row.logement_id }}/{{ row.intervenant_id }}"
-             class="btn btn-secondary btn-sm">Détail</a>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-
-{% else %}
-<div class="empty-state">
-  <p>Aucune ligne ne correspond aux filtres sélectionnés.</p>
-</div>
 {% endif %}
 
-<div class="source-note">
-  <strong>Source :</strong> {{ data.source }} — lecture seule, aucun recalcul.<br>
-  Les valeurs (tâches Hostaway, déclarés internes M04, déclarés externes) sont issues directement du moteur.
+<!-- ===== Tableau de rapprochement ===== -->
+<div class="card">
+  {% include "partials/menages_table.html" %}
+</div>
+
+<!-- ===== Dernier calcul ===== -->
+{% set dc = data.dernier_calcul %}
+<div class="card mt-lg">
+  <div class="flex justify-between items-center mb-md">
+    <h2 class="card-title">Dernier calcul Ménages</h2>
+    <a href="/menages/diagnostic" class="btn btn-secondary">Diagnostic du pipeline</a>
+  </div>
+  <dl class="detail-grid">
+    <div><dt>Dernière génération</dt><dd>{{ dc.derniere_generation or "inconnue" }}</dd></div>
+    <div><dt>Anomalies signalées</dt><dd>{{ dc.nb_anomalies }}</dd></div>
+    <div><dt>Recalcul depuis l'application</dt><dd>Désactivé à ce lot</dd></div>
+  </dl>
+  <div class="source-list mt-md">
+    {% for e in dc.etats_sources %}
+      <span class="source-chip source-chip--{{ 'ok' if e.etat == 'OK' else ('na' if e.etat == 'NON_ALIMENTE' else 'ko') }}"
+            title="{{ e.fichier }} — {{ e.onglet }}">
+        {{ e.libelle }} : {{ e.etat_libelle }}
+      </span>
+    {% endfor %}
+  </div>
 </div>
 
 {% endif %}
+
+<div class="origine-block">
+  <strong>Origine des données :</strong> sorties du pipeline ménages, lues en seule lecture.
+  Les quatre flux (attendu, Hostaway réalisé, interne déclaré, externe facturé) restent
+  séparés et ne sont jamais fusionnés. Les écarts et les statuts sont ceux produits par le
+  moteur : l'application ne recalcule rien et ne valorise jamais un ménage à partir des
+  données de coût Hostaway.
+</div>
+
 {% endblock %}

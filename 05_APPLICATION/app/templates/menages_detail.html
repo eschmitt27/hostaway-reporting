@@ -1,179 +1,335 @@
 {% extends "base.html" %}
-{% block title %}Ménage — {{ mois }} / {{ logement_id }} / {{ intervenant_id }}{% endblock %}
+{% block title %}Ménage — {{ logement_id }} / {{ mois }}{% endblock %}
 
 {% block content %}
 
 {% if detail is none %}
-<div class="page-header">
-  <h1 class="page-title">Ménage introuvable</h1>
-</div>
+<div class="page-header"><h1 class="page-title">Rapprochement introuvable</h1></div>
 <div class="alert alert-error">
-  Aucune ligne de rapprochement pour : mois={{ mois }}, logement={{ logement_id }}, intervenant={{ intervenant_id }}.
+  Aucune ligne de rapprochement pour la période {{ mois }}, le logement {{ logement_id }}
+  et l'intervenant {{ intervenant_id }}.
 </div>
-<a href="/menages" class="btn btn-secondary">← Retour à la liste</a>
+<a href="/menages" class="btn btn-secondary">← Retour aux ménages</a>
 
-{% elif detail.status == "ERROR" %}
-<div class="page-header">
-  <h1 class="page-title">Erreur source</h1>
+{% elif detail.status != "OK" %}
+<div class="page-header"><h1 class="page-title">Source indisponible</h1></div>
+<div class="alert alert-error">
+  {{ detail.etat_source.fichier }} ({{ detail.etat_source.onglet }}) :
+  {{ detail.etat_source.etat_libelle }}.
 </div>
-<div class="alert alert-error">{{ detail.error_message }}</div>
-<a href="/menages" class="btn btn-secondary">← Retour à la liste</a>
+<a href="/menages" class="btn btn-secondary">← Retour aux ménages</a>
 
 {% else %}
-
-{% set ligne = detail.ligne %}
+{% set v = detail.vue %}
 
 <div class="page-header">
-  <a href="/menages" class="back-link">← Ménages</a>
-  <h1 class="page-title">
-    {{ ligne.nom_appartement or logement_id }}
-    <span class="page-title-sub">{{ mois }}</span>
-  </h1>
-  <p class="page-subtitle">
-    Intervenant : <strong>{{ ligne.nom_intervenant or intervenant_id }}</strong>
-    <span class="badge badge-{{ 'interne' if ligne.type_intervenant == 'INTERNE' else 'externe' }}">{{ ligne.type_intervenant or "—" }}</span>
-  </p>
+  <a href="/menages?mois={{ mois }}" class="back-link">← Ménages</a>
+  <div class="flex justify-between items-center">
+    <div>
+      <h1 class="page-title">{{ v.nom_appartement or v.logement_id }}</h1>
+      <p class="page-subtitle">
+        Période <span class="periode-active">{{ v.mois }}</span> ·
+        Intervenant <strong>{{ v.nom_intervenant or v.intervenant_id }}</strong>
+        {% if v.type_intervenant %}
+          <span class="badge badge-{{ 'info' if v.type_intervenant == 'INTERNE' else 'neutral' }}">{{ v.type_intervenant }}</span>
+        {% else %}
+          <span class="badge badge-warning">Intervenant non identifié</span>
+        {% endif %}
+        {% if v.proprietaire_id %} · Propriétaire {{ v.proprietaire_libelle or v.proprietaire_id }}{% endif %}
+      </p>
+    </div>
+    <span class="status-badge status-{{ (v.statut_effectif or 'inconnu') | lower | replace('_','-') }}">
+      {{ v.statut_effectif or "—" }}
+    </span>
+  </div>
 </div>
 
 {% if request.query_params.get('outrepassage') == 'ok' %}
-<div class="alert alert-success">Outrepassage enregistré avec succès.</div>
+<div class="alert alert-success">Motif d'outrepassage enregistré (trace applicative — aucune source modifiée).</div>
 {% endif %}
-
 {% if outrepassage_error %}
 <div class="alert alert-error">{{ outrepassage_error }}</div>
 {% endif %}
 
-<!-- Statut effectif -->
-<div class="detail-section">
-  <div class="statut-banner statut-{{ (detail.statut_effectif or 'inconnu') | lower | replace('_','-') }}">
-    Statut : <strong>{{ detail.statut_effectif or "—" }}</strong>
-    {% if detail.override %}
-      — Justifié le {{ detail.override.ts }} : <em>{{ detail.override.motif }}</em>
-    {% endif %}
-  </div>
-</div>
-
-<!-- Bloc rapprochement — 3 flux séparés -->
-<div class="detail-section">
-  <h2 class="section-title">Rapprochement des 3 flux</h2>
-  <div class="note-moteur">
-    Valeurs issues directement du moteur — aucun recalcul dans l'application.
-  </div>
-  <div class="kpi-row">
-    <div class="kpi-card">
-      <div class="kpi-label">Tâches Hostaway completed</div>
-      <div class="kpi-value">{{ ligne.nb_menages_tasks_hostaway_completed if ligne.nb_menages_tasks_hostaway_completed is not none else "—" }}</div>
-      <div class="kpi-note">comptage uniquement — jamais valorisation coût</div>
+<!-- ===== 1. Résumé — les 4 flux côte à côte ===== -->
+<div class="card mb-md">
+  <h2 class="card-title">Résumé du rapprochement</h2>
+  <div class="kpi-grid kpi-grid--5">
+    <div class="kpi-card kpi-card--muted">
+      <div class="kpi-label">Attendu</div>
+      <div class="kpi-value">—</div>
+      <div class="kpi-sub">{{ detail.attendu.etat.etat_libelle }}</div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-label">Déclarés internes (M04)</div>
-      <div class="kpi-value">{{ ligne.nb_menages_declares_interne_m04 if ligne.nb_menages_declares_interne_m04 is not none else "—" }}</div>
+      <div class="kpi-label">Hostaway réalisé</div>
+      <div class="kpi-value">{{ v.hostaway_realise if v.hostaway_realise is not none else "—" }}</div>
+      <div class="kpi-sub">Jamais une valorisation</div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-label">Déclarés externes</div>
-      <div class="kpi-value">{{ ligne.nb_menages_declares_externe if ligne.nb_menages_declares_externe is not none else "—" }}</div>
+      <div class="kpi-label">Interne déclaré</div>
+      <div class="kpi-value">{{ v.interne_declare if v.interne_declare is not none else "—" }}</div>
+      <div class="kpi-sub">M04</div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-label">Total déclarés</div>
-      <div class="kpi-value">{{ ligne.total_menages_declares if ligne.total_menages_declares is not none else "—" }}</div>
+      <div class="kpi-label">Externe facturé</div>
+      <div class="kpi-value">{{ v.externe_facture if v.externe_facture is not none else "—" }}</div>
+      <div class="kpi-sub">Facture</div>
     </div>
-    <div class="kpi-card {% if ligne.ecart and ligne.ecart != 0 %}kpi-card--warning{% endif %}">
+    <div class="kpi-card {% if v.ecart %}kpi-card--warn{% endif %}">
       <div class="kpi-label">Écart</div>
-      <div class="kpi-value">{{ ligne.ecart if ligne.ecart is not none else "—" }}</div>
+      <div class="kpi-value">{{ v.ecart if v.ecart is not none else "—" }}</div>
+      <div class="kpi-sub">Hostaway − déclarés (moteur)</div>
     </div>
   </div>
-  {% if ligne.source_mapping_hostaway %}
-  <div class="detail-row">
-    <span class="detail-label">Source mapping Hostaway</span>
-    <span class="detail-value text-secondary">{{ ligne.source_mapping_hostaway }}</span>
-  </div>
-  {% endif %}
-  {% if ligne.commentaire %}
-  <div class="detail-row">
-    <span class="detail-label">Commentaire moteur</span>
-    <span class="detail-value">{{ ligne.commentaire }}</span>
-  </div>
+  {% if v.commentaire %}
+    <p class="section-note mt-md"><strong>Commentaire du moteur :</strong> {{ v.commentaire }}</p>
   {% endif %}
 </div>
 
-<!-- Bloc gain/perte (si disponible) -->
-{% if detail.gainperte_disponible %}
-<div class="detail-section">
-  <h2 class="section-title">Coût standard vs coût réel</h2>
-  {% if detail.gainperte %}
-  {% set gp = detail.gainperte %}
-  <div class="note-moteur">Source : {{ detail.source_gainperte }} — aucun recalcul.</div>
-  <div class="kpi-row">
-    <div class="kpi-card">
-      <div class="kpi-label">Coût standard total</div>
-      <div class="kpi-value">{{ gp.cout_standard_total if gp.cout_standard_total is not none else "—" }} €</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">Coût réel total</div>
-      <div class="kpi-value">{{ gp.cout_reel_total if gp.cout_reel_total is not none else "—" }} €</div>
-      {% if gp.methode_cout_reel %}
-      <div class="kpi-note">{{ gp.methode_cout_reel }}</div>
-      {% endif %}
-    </div>
-    <div class="kpi-card {% if gp.ecart_total and gp.ecart_total != 0 %}kpi-card--warning{% endif %}">
-      <div class="kpi-label">Écart coût</div>
-      <div class="kpi-value">{{ gp.ecart_total if gp.ecart_total is not none else "—" }} €</div>
-    </div>
-  </div>
-  {% else %}
-  <div class="empty-state">Aucune ligne gain/perte pour cette combinaison.</div>
-  {% endif %}
-</div>
-{% endif %}
-
-<!-- Outrepassage -->
-{% if detail.statut_effectif in ('A_CONTROLER', 'BLOQUANT', 'JUSTIFIE') %}
-<div class="detail-section">
-  <h2 class="section-title">Outrepassage</h2>
-  {% if detail.statut_effectif == 'JUSTIFIE' %}
+<!-- ===== 2. Ménages attendus ===== -->
+<div class="card mb-md">
+  <h2 class="card-title">1 · Ménages attendus</h2>
   <div class="alert alert-info">
-    Cet écart a déjà été outrepassé le {{ detail.override.ts }}.<br>
-    Motif enregistré : <em>{{ detail.override.motif }}</em><br>
-    Vous pouvez mettre à jour le motif ci-dessous.
+    Le moteur ne produit aucun flux « ménages attendus ». L'application ne le déduit pas :
+    fabriquer un attendu ici reviendrait à inventer une règle de rapprochement.
   </div>
+  {% if detail.attendu.comptage_hostaway %}
+    {% set c = detail.attendu.comptage_hostaway %}
+    <p class="section-note">
+      À titre indicatif, le comptage Hostaway du logement sur le mois (produit par Lot6a) :
+    </p>
+    <dl class="detail-grid">
+      <div><dt>Tâches planifiées</dt><dd>{{ c.planifiees if c.planifiees is not none else "—" }}</dd></div>
+      <div><dt>Réalisées</dt><dd>{{ c.realisees if c.realisees is not none else "—" }}</dd></div>
+      <div><dt>En attente</dt><dd>{{ c.pending if c.pending is not none else "—" }}</dd></div>
+      <div><dt>Annulées</dt><dd>{{ c.annulees if c.annulees is not none else "—" }}</dd></div>
+    </dl>
+    <p class="section-note">Ce comptage est un planifié Hostaway, pas un attendu métier.</p>
+  {% else %}
+    <p class="section-note">Aucun comptage Hostaway pour ce logement et ce mois
+      ({{ detail.attendu.etat_comptage.etat_libelle }}).</p>
+  {% endif %}
+</div>
+
+<!-- ===== 3. Hostaway ===== -->
+<div class="card mb-md">
+  <h2 class="card-title">2 · Tâches Hostaway</h2>
+  {% if not detail.hostaway.etat.disponible %}
+    <div class="alert alert-warning">
+      Source indisponible — {{ detail.hostaway.etat.fichier }} : {{ detail.hostaway.etat.etat_libelle }}.
+    </div>
+  {% elif detail.hostaway.taches %}
+    <p class="section-note">{{ detail.hostaway.portee }}</p>
+    <div class="table-container">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Date prévue</th><th>Tâche</th><th>Réservation</th>
+            <th>Statut Hostaway</th><th>Statut ménage</th><th>Compté</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in detail.hostaway.taches %}
+          <tr>
+            <td>{{ t.date_prevue or "—" }}</td>
+            <td><span class="font-mono text-xs">{{ t.task_id }}</span></td>
+            <td><span class="font-mono text-xs">{{ t.reservation_id or "—" }}</span></td>
+            <td>{{ t.status or "—" }}</td>
+            <td>{{ t.statut_menage or "—" }}</td>
+            <td>{{ t.compte_comme_menage or "—" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty-state"><p>Aucune tâche Hostaway pour ce logement sur la période.</p></div>
+  {% endif %}
+</div>
+
+<!-- ===== 4. Interne ===== -->
+<div class="card mb-md">
+  <h2 class="card-title">3 · Ménages internes déclarés (M04)</h2>
+  {% if not detail.interne.etat.disponible %}
+    <div class="alert alert-warning">
+      Source indisponible — {{ detail.interne.etat.fichier }} : {{ detail.interne.etat.etat_libelle }}.
+    </div>
+  {% elif detail.interne.lignes %}
+    <div class="table-container">
+      <table class="data-table">
+        <thead>
+          <tr><th>Intervenant</th><th class="num">Ménages</th><th class="num">Heures</th>
+              <th class="num">Lavage attribué</th><th>Statut</th></tr>
+        </thead>
+        <tbody>
+          {% for l in detail.interne.lignes %}
+          <tr>
+            <td>{{ l.nom_intervenant or "—" }}</td>
+            <td class="num">{{ l.nb_menages if l.nb_menages is not none else "—" }}</td>
+            <td class="num">{{ l.nb_heures if l.nb_heures is not none else "—" }}</td>
+            <td class="num">{% if l.cout_lavage_attribue is not none %}{{ "%.2f"|format(l.cout_lavage_attribue) }} €{% else %}—{% endif %}</td>
+            <td>{{ l.statut_controle or "—" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="section-note">Le coût interne provient des heures et taux internes (moteur), jamais d'Hostaway.</p>
+  {% else %}
+    <div class="empty-state"><p>Aucune déclaration interne pour cette ligne.</p></div>
+  {% endif %}
+</div>
+
+<!-- ===== 5. Externe ===== -->
+<div class="card mb-md">
+  <h2 class="card-title">4 · Ménages externes facturés</h2>
+  {% if not detail.externe.etat.disponible %}
+    <div class="alert alert-warning">
+      Source indisponible — {{ detail.externe.etat.fichier }} : {{ detail.externe.etat.etat_libelle }}.
+    </div>
+  {% elif detail.externe.lignes %}
+    <div class="table-container">
+      <table class="data-table">
+        <thead>
+          <tr><th>Prestataire</th><th>Facture</th><th>Ligne</th><th>Date ménage</th>
+              <th class="num">Ménages</th><th class="num">Montant TTC</th><th>Statut</th></tr>
+        </thead>
+        <tbody>
+          {% for l in detail.externe.lignes %}
+          <tr>
+            <td>{{ l.nom_prestataire or "—" }}</td>
+            <td>
+              <div>{{ l.facture_id or "—" }}</div>
+              <div class="text-xs text-secondary">{{ l.nom_fichier_source }}</div>
+            </td>
+            <td><span class="font-mono text-xs">{{ l.menage_externe_id }}</span></td>
+            <td>
+              {% if l.date_absente %}
+                <span class="badge badge-warning">Date absente</span>
+              {% else %}
+                {{ l.date_menage }}
+                {% if l.precision_date_menage and l.precision_date_menage != "DATE_PRECISE" %}
+                  <span class="text-xs text-secondary">{{ l.precision_date_menage }}</span>
+                {% endif %}
+              {% endif %}
+            </td>
+            <td class="num">{{ l.nombre_menages if l.nombre_menages is not none else "—" }}</td>
+            <td class="num">{% if l.montant_ligne_ttc is not none %}{{ "%.2f"|format(l.montant_ligne_ttc) }} €{% else %}—{% endif %}</td>
+            <td>{{ l.statut_controle or "—" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="section-note">Le coût externe provient de la facture, jamais du coût standard Hostaway.</p>
+  {% else %}
+    <div class="empty-state"><p>Aucune facture externe pour cette ligne.</p></div>
+  {% endif %}
+</div>
+
+<!-- ===== 6. Coûts ===== -->
+{% set c = detail.cout %}
+<div class="card mb-md">
+  <h2 class="card-title">5 · Coûts</h2>
+  {% if not c.etat_gainperte.disponible and not c.etat_coutcomplet.disponible %}
+    <div class="alert alert-warning">Sources de coût indisponibles (Lot6e / Lot6f).</div>
+  {% else %}
+  <dl class="detail-grid">
+    <div><dt>Coût standard</dt>
+      <dd>{% if c.cout_standard_total is not none %}{{ "%.2f"|format(c.cout_standard_total) }} €{% else %}—{% endif %}</dd></dl>
+    <div><dt>Coût réel</dt>
+      <dd>{% if c.cout_reel_total is not none %}{{ "%.2f"|format(c.cout_reel_total) }} €{% else %}—{% endif %}</dd></div>
+    <div><dt>Méthode du coût réel</dt><dd>{{ c.methode_cout_reel or "—" }}</dd></div>
+    <div><dt>Gain / perte</dt>
+      <dd>{% if c.gain_perte is not none %}{{ "%.2f"|format(c.gain_perte) }} €{% else %}—{% endif %}
+        {% if c.statut_ecart %}<span class="text-xs text-secondary">({{ c.statut_ecart }})</span>{% endif %}</dd></div>
+    <div><dt>Coût direct</dt>
+      <dd>{% if c.cout_direct_total is not none %}{{ "%.2f"|format(c.cout_direct_total) }} €{% else %}—{% endif %}</dd></div>
+    <div><dt>Quote-part lavage</dt>
+      <dd>{% if c.quote_part_lavage is not none %}{{ "%.2f"|format(c.quote_part_lavage) }} €{% else %}—{% endif %}</dd></div>
+    <div><dt>Quote-part local</dt>
+      <dd>{% if c.quote_part_local is not none %}{{ "%.2f"|format(c.quote_part_local) }} €{% else %}—{% endif %}</dd></div>
+    <div><dt>Coût complet</dt>
+      <dd><strong>{% if c.cout_complet_total is not none %}{{ "%.2f"|format(c.cout_complet_total) }} €{% else %}—{% endif %}</strong></dd></div>
+  </div>
+  <p class="section-note">
+    Valeurs reprises telles quelles de {{ c.etat_gainperte.fichier }} et {{ c.etat_coutcomplet.fichier }}.
+    L'application n'en recalcule aucune.
+  </p>
+  {% endif %}
+</div>
+
+<!-- ===== 7. Anomalies ===== -->
+<div class="card mb-md">
+  <h2 class="card-title">6 · Anomalies</h2>
+  {% if detail.anomalies %}
+    {% for an in detail.anomalies %}
+    <div class="anomalie">
+      <span class="status-badge status-{{ an.niveau | lower | replace('_','-') }}">{{ an.niveau }}</span>
+      <span class="font-mono text-xs">{{ an.code }}</span>
+      {% if an.explication %}
+      <p class="section-note"><strong>Pourquoi cette ligne est à contrôler ?</strong> {{ an.explication }}</p>
+      {% endif %}
+      <p class="text-xs text-secondary">{{ an.resume }}</p>
+      <p class="text-xs text-secondary">Source : {{ an.source }}</p>
+    </div>
+    {% endfor %}
+  {% else %}
+    <p class="section-note">Aucune anomalie signalée par le moteur pour cette ligne.</p>
+  {% endif %}
+</div>
+
+<!-- ===== Outrepassage ===== -->
+{% if v.statut_effectif in ('A_CONTROLER', 'BLOQUANT', 'JUSTIFIE') %}
+<div class="card mb-md">
+  <h2 class="card-title">Outrepasser l'écart</h2>
+  {% if detail.override %}
+    <div class="alert alert-info">
+      Motif enregistré le {{ detail.override.ts }} : <em>{{ detail.override.motif }}</em>
+    </div>
   {% endif %}
   <p class="section-note">
-    L'outrepassage est tracé dans le journal applicatif (SQLite). Le fichier source n'est jamais modifié.
-    Le motif est obligatoire.
+    L'outrepassage est une annotation tracée dans le journal applicatif. Il ne modifie
+    aucune source et ne remplace pas le statut du moteur, qui reste affiché.
+    Corriger la source ou relancer le calcul reste l'action à privilégier.
   </p>
-  <form method="post"
-        action="/menages/{{ mois }}/{{ logement_id }}/{{ intervenant_id }}/outrepasser"
-        class="form-block">
-    <div class="form-group">
-      <label for="motif" class="form-label">Motif <span class="required">*</span></label>
-      <textarea id="motif" name="motif" rows="3" class="form-control"
-                placeholder="Expliquer pourquoi l'écart est acceptable ou justifié…"
-                required>{% if detail.override %}{{ detail.override.motif }}{% endif %}</textarea>
-    </div>
-    <div class="form-actions">
-      <button type="submit" class="btn btn-primary">Enregistrer l'outrepassage</button>
+  <form method="post" action="/menages/{{ mois }}/{{ logement_id }}/{{ intervenant_id }}/outrepasser">
+    <label for="motif" class="text-sm">Motif <span class="text-error">*</span></label>
+    <textarea id="motif" name="motif" rows="3" class="filter-input" style="width:100%;"
+              required>{% if detail.override %}{{ detail.override.motif }}{% endif %}</textarea>
+    <div class="mt-sm">
+      <button type="submit" class="btn btn-secondary">Enregistrer le motif</button>
     </div>
   </form>
 </div>
 {% endif %}
 
-<!-- Origine -->
-<div class="detail-section">
-  <h2 class="section-title">Origine des données</h2>
-  <div class="detail-row">
-    <span class="detail-label">Source rapprochement</span>
-    <span class="detail-value text-secondary">{{ detail.source_rapprochement }}</span>
+<!-- ===== 8. Traçabilité ===== -->
+<div class="card">
+  <h2 class="card-title">7 · Traçabilité</h2>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Bloc</th><th>Fichier source</th><th>Onglet</th><th>État</th><th>Générée le</th></tr></thead>
+      <tbody>
+        {% for e in detail.tracabilite.sources %}
+        <tr>
+          <td>{{ e.libelle }}</td>
+          <td><span class="font-mono text-xs">{{ e.fichier }}</span></td>
+          <td><span class="font-mono text-xs">{{ e.onglet }}</span></td>
+          <td>
+            <span class="status-badge status-{{ 'valide' if e.etat == 'OK' else 'a-controler' }}">
+              {{ e.etat_libelle }}
+            </span>
+          </td>
+          <td>{{ e.derniere_maj or "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
-  {% if detail.source_gainperte %}
-  <div class="detail-row">
-    <span class="detail-label">Source gain/perte</span>
-    <span class="detail-value text-secondary">{{ detail.source_gainperte }}</span>
-  </div>
-  {% endif %}
-  <div class="detail-row">
-    <span class="detail-label">Lu le</span>
-    <span class="detail-value text-secondary">{{ detail.read_at }}</span>
-  </div>
+  <p class="section-note mt-md">
+    Produit par : {{ detail.tracabilite.moteur }} · lu le {{ detail.read_at }}.
+  </p>
 </div>
 
 {% endif %}

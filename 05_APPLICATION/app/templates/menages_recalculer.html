@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}Ménages — Simuler le recalcul{% endblock %}
+
+{% set p = plan %}
+
+{% block content %}
+
+<div class="page-header">
+  <a href="/menages/diagnostic" class="back-link">← Diagnostic</a>
+  <h1 class="page-title">Simuler le recalcul du rapprochement</h1>
+  <p class="page-subtitle">
+    Mois moteur figé : <strong>{{ p.mois_moteur_fige }}</strong>.
+    <span class="status-badge status-valide">Aucun fichier réel ne sera modifié</span>
+  </p>
+</div>
+
+<div class="alert alert-info">
+  <strong>Ceci est une simulation sur copies.</strong> Le moteur tourne sur une copie isolée des
+  sources ; les MASTER réels affichés sur <code>/menages</code> <strong>ne sont pas régénérés</strong>.
+  Le recalcul réel (qui réécrirait les MASTER) reste désactivé.
+</div>
+
+<div class="card mb-md">
+  <h2 class="card-title">Ce qui va se passer</h2>
+  <dl class="detail-grid">
+    <div><dt>Mode</dt><dd>{{ p.mode }}{% if p.mode == "COPIES" %} — recette isolée{% endif %}</dd></div>
+    <div><dt>Mode réel activé ?</dt>
+      <dd><span class="status-badge status-{{ 'valide' if p.reel_active else 'a-controler' }}">
+        {{ "OUI" if p.reel_active else "NON (désactivé)" }}</span></dd></div>
+    <div><dt>Étapes</dt><dd>{% for e in p.etapes %}<span class="font-mono text-xs">{{ e }}</span>{% if not loop.last %} → {% endif %}{% endfor %}</dd></div>
+  </dl>
+  <p class="section-note mt-md">
+    En mode copies, le sous-arbre nécessaire est copié dans un workspace sous <code>data/</code>,
+    lot6d puis lot6e y sont exécutés, et l'état produit est comparé à l'état réel.
+    lot6f (coût complet) est exclu : il lit une source réseau (Google Sheet) non déterministe hors ligne.
+  </p>
+</div>
+
+<div class="grid-2 mb-md">
+  <div class="card">
+    <h2 class="card-title">Sources lues (copiées)</h2>
+    <table class="data-table">
+      <thead><tr><th>Fichier</th><th>Présent</th></tr></thead>
+      <tbody>
+        {% for s in p.sources %}
+        <tr>
+          <td><span class="font-mono text-xs">{{ s.nom }}</span></td>
+          <td><span class="status-badge status-{{ 'valide' if s.present else 'bloquant' }}">
+            {{ "oui" if s.present else "ABSENT" }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card">
+    <h2 class="card-title">Sorties régénérées (dans le workspace)</h2>
+    <table class="data-table">
+      <thead><tr><th>Sortie</th><th>Fichier réel présent</th></tr></thead>
+      <tbody>
+        {% for s in p.sorties %}
+        <tr>
+          <td>{{ s.cle }}</td>
+          <td><span class="font-mono text-xs">{{ s.nom }}</span> —
+            <span class="status-badge status-{{ 'valide' if s.present else 'a-controler' }}">
+              {{ "oui" if s.present else "à créer" }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if p.warnings %}
+<div class="alert alert-warning mb-md">
+  <strong>Contrôles préalables :</strong>
+  <ul>{% for w in p.warnings %}<li>{{ w }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+<div class="card mb-md">
+  <h2 class="card-title">État du verrou</h2>
+  <dl class="detail-grid">
+    <div><dt>État</dt><dd><span class="status-badge status-{{ 'valide' if p.verrou.etat == 'ABSENT' else 'a-controler' }}">{{ p.verrou.etat }}</span></dd></div>
+    <div><dt>Détail</dt><dd>{{ p.verrou.raison }}</dd></div>
+  </dl>
+</div>
+
+<div class="card mb-md">
+  <h2 class="card-title">Lancer</h2>
+
+  <form method="post" action="/menages/recalculer/preparer" class="mb-md">
+    <input type="hidden" name="mode" value="COPIES">
+    <input type="hidden" name="mois" value="{{ p.mois }}">
+    <button type="submit" class="btn btn-secondary">Revérifier les contrôles préalables</button>
+  </form>
+
+  <h3>Simulation sur copies <span class="status-badge status-valide">Aucun fichier réel ne sera modifié</span></h3>
+  {% if p.prete %}
+  <form method="post" action="/menages/recalculer/confirmer">
+    <input type="hidden" name="mode" value="COPIES">
+    <input type="hidden" name="mois" value="{{ p.mois }}">
+    <button type="submit" class="btn btn-primary">Simuler le recalcul sur copies</button>
+    <span class="text-xs text-secondary">Exécute lot6d + lot6e sur une copie isolée. Les MASTER réels ne changent pas.</span>
+  </form>
+  {% else %}
+  <button type="button" class="btn btn-primary" disabled>Simuler le recalcul sur copies</button>
+  <span class="text-xs text-secondary">Résous d'abord les contrôles préalables ci-dessus.</span>
+  {% endif %}
+
+  <h3 class="mt-md">Recalcul réel</h3>
+  <button type="button" class="btn btn-secondary" disabled title="Non activé — nécessite une recette contrôlée">
+    Relancer le rapprochement réel
+  </button>
+  <span class="text-xs text-secondary">
+    <strong>Non activé</strong> — nécessite une recette contrôlée
+    (garde <code>MENAGES_REAL_RECALC_ENABLED = False</code>). Régénérerait les MASTER réels.
+  </span>
+</div>
+
+<div class="card">
+  <h2 class="card-title">Derniers recalculs</h2>
+  {% if runs %}
+  <table class="data-table">
+    <thead><tr><th>#</th><th>Date</th><th>Mode</th><th>Période</th><th>Statut</th><th class="num">Durée (s)</th><th>Erreur</th></tr></thead>
+    <tbody>
+      {% for r in runs %}
+      <tr>
+        <td><a href="/menages/recalculer/runs/{{ r.id }}">{{ r.id }}</a></td>
+        <td class="font-mono text-xs">{{ r.ts }}</td>
+        <td>{{ r.mode }}</td>
+        <td>{{ r.periode or "—" }}</td>
+        <td><span class="status-badge status-{{ 'valide' if r.statut == 'SUCCES' else 'a-controler' }}">{{ r.statut }}</span></td>
+        <td class="num">{{ r.duree_secondes if r.duree_secondes is not none else "—" }}</td>
+        <td class="text-xs">{{ r.erreur_code or "" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="section-note">Aucun recalcul enregistré.</p>
+  {% endif %}
+</div>
+
+{% endblock %}

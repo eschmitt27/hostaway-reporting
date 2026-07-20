@@ -108,10 +108,14 @@ def main():
         "studio puits vert (caroline)":  "LOG_0006",
     }
 
-    # ─── SOURCE_RAW (extraite des PDFs) ──────────────────────────────────────────
+    # ─── SOURCE_RAW ──────────────────────────────────────────────────────────────
+    # Deux origines possibles, tracées par MODE_EXTRACTION :
+    #   PDF_AUTOMATIQUE        — extraction réelle des PDF déposés (lib_menages_externes_pdf) ;
+    #   SAISIE_MANUELLE_SECOURS — transcription figée ci-dessous (RAW_MANUEL), utilisée seulement
+    #                             si aucun PDF exploitable n'est présent. Jamais fusionnée avec le PDF.
     def d(s): return date(*map(int, s.split("-"))) if s else None
 
-    RAW = [
+    RAW_MANUEL = [
         # === AISSATA — Facture n°2026-37 — 31/05/2026 — Total TTC 1 439 € ===
         ("FAC-2026-05-AISSATA-001","2026-37",d("2026-05-31"),"Facture mai Aissata.pdf",
          "Kandia DIABATE / Rends-moi un service","studio 76 (Dureuil)",
@@ -175,6 +179,64 @@ def main():
                 "montant_unitaire","montant_ligne_ttc","montant_facture_total_ttc",
                 "commentaire_source"]
 
+    # ─── EXTRACTION PDF (source principale) ───────────────────────────────────────
+    # Lit les PDF déposés dans 01_SOURCES_BRUTES/MenagesExternes/Factures_PDF et construit RAW
+    # au MÊME contrat de colonnes que la transcription. Dédoublonnage par empreinte de facture
+    # (SHA256 PDF + numéro + prestataire + date + total). Aucune écriture, aucune invention.
+    PREST_BRUT = {"INT_0004": "Kandia DIABATE / Rends-moi un service", "INT_0003": "MH Entreprise"}
+
+    def _raw_depuis_pdf():
+        try:
+            import lib_menages_externes_pdf as pdfex
+        except ImportError:
+            return [], [], {}
+        if not os.path.isdir(PDF_DIR):
+            return [], [], {}
+        raw, diagnostics, vues = [], [], {}
+        empreintes = {}
+        for nom in sorted(os.listdir(PDF_DIR)):
+            if not nom.lower().endswith(".pdf"):
+                continue
+            fac = pdfex.extraire_pdf(os.path.join(PDF_DIR, nom))
+            emp = pdfex.empreinte_facture(fac)
+            doublon = emp in empreintes
+            diagnostics.append({
+                "fichier": nom, "format": fac.format_detecte, "statut": fac.statut_extraction,
+                "numero": fac.numero_facture, "date": fac.date_facture, "total": fac.montant_total_facture,
+                "somme_lignes": fac.somme_lignes, "ecart": fac.ecart_reconciliation,
+                "nb_lignes": len(fac.lignes), "anomalies": list(fac.anomalies),
+                "doublon_de": empreintes.get(emp), "sha256": fac.sha256_pdf,
+            })
+            if fac.statut_extraction != "OK" or doublon:
+                continue
+            empreintes[emp] = nom
+            pcode = "AISSATA" if fac.prestataire_id == "INT_0004" else \
+                    "MOUNIR" if fac.prestataire_id == "INT_0003" else "UNK"
+            per = fac.periode_facture or (str(fac.date_facture)[:7] if fac.date_facture else "0000-00")
+            fid = f"FAC-{per}-{pcode}-001"
+            for l in fac.lignes:
+                prec = "DATE_PRECISE" if l.precision_date == "DATE_PRECISE" else "MOIS_FACTURE"
+                raw.append((
+                    fid, fac.numero_facture, d(fac.date_facture), nom,
+                    PREST_BRUT.get(fac.prestataire_id, fac.nom_prestataire or "INCONNU"),
+                    l.logement_source, d(l.date_menage), prec, "TLM_001",
+                    int(l.quantite or 0), float(l.prix_unitaire or 0.0), float(l.montant_ligne or 0.0),
+                    float(fac.montant_total_facture or 0.0),
+                    f"PDF auto ({fac.format_detecte}) — {l.precision_date}"
+                    + (f" — {l.code_anomalie}" if l.code_anomalie else ""),
+                ))
+        return raw, diagnostics, empreintes
+
+    RAW_PDF, PDF_DIAGNOSTICS, _EMPREINTES = _raw_depuis_pdf()
+    if RAW_PDF:
+        RAW = RAW_PDF
+        MODE_EXTRACTION = "PDF_AUTOMATIQUE"
+    else:
+        RAW = RAW_MANUEL
+        MODE_EXTRACTION = "SAISIE_MANUELLE_SECOURS"
+    print(f"[lot6c] MODE_EXTRACTION = {MODE_EXTRACTION} | {len(RAW)} lignes | "
+          f"{len(PDF_DIAGNOSTICS)} PDF analysés")
+
     # ─── SOMMES PAR FACTURE (réconciliation) ──────────────────────────────────────
     from collections import defaultdict
     sommes_ttc = defaultdict(float)
@@ -215,15 +277,14 @@ def main():
         nom_p   = pinfo.get("nom_intervenant","INCONNU")
         type_p  = pinfo.get("type_intervenant","A_CONTROLER")
 
-        prop_id, ha_id, actif, date_sortie, hors_parc = log_info(lid) if lid else (None,None,None,None,False)
-
-        # Logement activité
-        log_inactif = False
-        if date_sortie:
-            ds = date_sortie.date() if hasattr(date_sortie,"date") else date_sortie
-            ref_d = date_men or date_fac
-            if ref_d and ref_d >= ds:
-                log_inactif = True
+        # Date de référence de la ligne : date précise du ménage sinon date de facture.
+        # (Définie AVANT log_info : resolve_management_period en a besoin — corrige un
+        #  appel log_info(lid) à 1 argument qui levait TypeError et bloquait tout lot6c.)
+        ref_d = date_men or date_fac
+        # log_info(lid, ref_date) -> (prop_id, hostaway_listing_id, actif, hors_parc, gestion_status)
+        prop_id, ha_id, actif, hors_parc, gestion_status = (
+            log_info(lid, ref_d) if lid else (None, None, None, False, None)
+        )
 
         # TVA (FRANCHISE_TVA pour les deux prestataires confirmés)
         regime_tva = "FRANCHISE_TVA"
@@ -303,7 +364,7 @@ def main():
         row = [
             mid, h,
             fid, date_fac, date_men, prec_date,
-            mois, annee, fichier, f"lot6c_menages_externes.py — {TS}",
+            mois, annee, fichier, f"lot6c_menages_externes.py — {TS} — {MODE_EXTRACTION}",
             pid or "A_CONTROLER", nom_p, type_p, regime_tva,
             lid or "A_CONTROLER", prop_id, ha_id, appt_src,
             tlm, nb_men, "NON",
@@ -427,6 +488,8 @@ def main():
         ("LOT",                   "6c"),
         ("DESCRIPTION",           "Ménages externes — factures PDF prestataires"),
         ("DATE_RUN",              TS),
+        ("MODE_EXTRACTION",       MODE_EXTRACTION),
+        ("NB_PDF_ANALYSES",       len(PDF_DIAGNOSTICS)),
         ("TOLERANCE_FACTURE",     1.0),
         ("SOURCE_PDF_DIR",        r"01_SOURCES_BRUTES\MenagesExternes\Factures_PDF"),
         ("CHEMIN_REF_SETUP",      r"01_SOURCES_BRUTES\REF_Setup\REF_Setup.xlsm"),
@@ -690,6 +753,25 @@ def main():
             c.font = Font(color="BFBFBF")
         elif line.isupper() and line.endswith(")") or (line and not line.startswith(" ")):
             c.font = Font(bold=True)
+
+    # ── Sheet 8 : DIAGNOSTIC_PDF (une ligne par PDF analysé) ──────────────────────
+    ws8 = wb.create_sheet("DIAGNOSTIC_PDF")
+    DCOLS = ["nom_fichier", "format_detecte", "statut_extraction", "numero_facture",
+             "date_facture", "montant_total", "somme_lignes", "ecart_reconciliation",
+             "nb_lignes", "doublon_de", "sha256_pdf", "anomalies", "mode_extraction"]
+    for ci, col in enumerate(DCOLS, 1):
+        hdr(ws8, 1, ci, col, 20)
+    for ri, dg in enumerate(PDF_DIAGNOSTICS, 2):
+        vals = [dg["fichier"], dg["format"], dg["statut"], dg["numero"], dg["date"],
+                dg["total"], dg["somme_lignes"], dg["ecart"], dg["nb_lignes"],
+                dg.get("doublon_de") or "", (dg["sha256"] or "")[:16],
+                " | ".join(dg["anomalies"]), MODE_EXTRACTION]
+        f = VAL_FILL if dg["statut"] == "OK" and not dg.get("doublon_de") else CTRL_FILL
+        for ci, v in enumerate(vals, 1):
+            c = cell(ws8, ri, ci, v)
+            if ci == 3:
+                c.fill = f
+    ws8.freeze_panes = "A2"
 
     # ── Ordre des onglets ─────────────────────────────────────────────────────────
     wb.save(OUT)

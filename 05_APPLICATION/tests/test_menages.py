@@ -25,7 +25,8 @@ def db(tmp_path):
     """Base SQLite isolée — patch get_db dans le service pour utiliser la DB de test."""
     db_path = tmp_path / "test.db"
     apply_migrations(db_path)
-    with patch("app.services.menages_service.get_db", lambda: get_db(db_path)):
+    # Le service passe désormais cfg.DB_PATH explicitement : le double accepte l'argument.
+    with patch("app.services.menages_service.get_db", lambda *_a, **_k: get_db(db_path)):
         yield db_path
 
 

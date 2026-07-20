@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Ménages — Recalcul{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+  <a href="/menages/recalculer" class="back-link">← Relancer</a>
+  <h1 class="page-title">Recalcul ménages{% if run %} — run #{{ run.id }}{% endif %}</h1>
+</div>
+
+{% if run is none %}
+<div class="alert alert-warning">
+  {% if erreur %}{{ erreur }}{% else %}Run #{{ run_id }} introuvable.{% endif %}
+</div>
+<a href="/menages/recalculer" class="btn btn-secondary">← Retour à la simulation</a>
+{% else %}
+
+{% set ok = run.statut == "SUCCES" %}
+
+{% if run.mode == "COPIES" %}
+<div class="alert alert-info">
+  <strong>MODE COPIES — simulation.</strong> Le moteur a tourné sur une copie isolée.
+  Les MASTER réels <strong>n'ont pas changé</strong>. Les cartes et le tableau affichés sur
+  <code>/menages</code> restent ceux du <strong>dernier calcul réel</strong> :
+  cette simulation ne remplace pas le rapprochement affiché.
+</div>
+{% elif run.mode == "REEL" %}
+<div class="alert alert-warning">
+  <strong>Mode réel.</strong> {{ run.erreur_resume or "Recalcul réel." }}
+</div>
+{% endif %}
+
+<div class="card mb-md">
+  <h2 class="card-title">
+    Statut :
+    <span class="status-badge status-{{ 'valide' if ok else ('bloquant' if run.statut in ['ECHEC','BLOQUE'] else 'a-controler') }}">
+      {{ run.statut }}
+    </span>
+  </h2>
+  <dl class="detail-grid">
+    <div><dt>Mode</dt><dd>{{ run.mode }}</dd></div>
+    <div><dt>Période</dt><dd>{{ run.periode or "—" }}</dd></div>
+    <div><dt>Début</dt><dd class="font-mono text-xs">{{ run.date_debut or run.ts }}</dd></div>
+    <div><dt>Fin</dt><dd class="font-mono text-xs">{{ run.date_fin or "—" }}</dd></div>
+    <div><dt>Durée</dt><dd>{{ run.duree_secondes if run.duree_secondes is not none else "—" }} s</dd></div>
+    <div><dt>Snapshot préalable</dt><dd>{{ run.snapshot_id or "—" }}</dd></div>
+    <div><dt>git HEAD</dt><dd class="font-mono text-xs">{{ run.git_head or "—" }}</dd></div>
+    <div><dt>Fichiers réels intacts</dt>
+      <dd><span class="status-badge status-{{ 'valide' if run.reel_intact else 'bloquant' }}">
+        {{ "OUI" if run.reel_intact else ("—" if run.reel_intact is none else "NON — ANOMALIE") }}</span></dd></div>
+  </dl>
+  {% if run.erreur_code %}
+  <div class="alert alert-warning mt-md">
+    <strong>{{ run.erreur_code }}</strong>{% if run.erreur_resume %} — {{ run.erreur_resume }}{% endif %}
+  </div>
+  {% endif %}
+</div>
+
+<div class="card mb-md">
+  <h2 class="card-title">Étapes</h2>
+  {% if run.etapes %}
+  <table class="data-table">
+    <thead><tr><th>Étape</th><th>Statut</th><th class="num">Code retour</th><th>Sorties produites</th><th>Détail</th></tr></thead>
+    <tbody>
+      {% for e in run.etapes %}
+      <tr>
+        <td><span class="font-mono text-xs">{{ e.name }}</span></td>
+        <td><span class="status-badge status-{{ 'valide' if e.statut == 'OK' else 'bloquant' }}">{{ e.statut }}</span></td>
+        <td class="num">{{ e.returncode if e.returncode is not none else "—" }}</td>
+        <td>
+          {% for pr in e.produces %}
+            <div class="text-xs">
+              <span class="status-badge status-{{ 'valide' if pr.exists else 'bloquant' }}">{{ "ok" if pr.exists else "absent" }}</span>
+              <span class="font-mono">{{ pr.path.split('/')[-1] }}</span>
+              {% if pr.sha256 %}<span class="text-secondary">{{ pr.sha256[:12] }}</span>{% endif %}
+            </div>
+          {% endfor %}
+        </td>
+        <td class="text-xs">{{ e.detail or "" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="section-note">Aucune étape exécutée (run bloqué ou refusé avant lancement).</p>
+  {% endif %}
+</div>
+
+{% if run.comparaison and run.comparaison.rapprochement and run.comparaison.rapprochement.avant %}
+{% set cmp = run.comparaison.rapprochement %}
+<div class="card mb-md">
+  <h2 class="card-title">Comparaison rapprochement — avant / après</h2>
+  <table class="data-table">
+    <thead><tr><th>Indicateur</th><th class="num">Réel (avant)</th><th class="num">Recalculé (workspace)</th></tr></thead>
+    <tbody>
+      <tr><td>Lignes</td><td class="num">{{ cmp.avant.nb_lignes }}</td><td class="num">{{ cmp.apres.nb_lignes if cmp.apres else "—" }}</td></tr>
+      <tr><td>Lignes avec écart</td><td class="num">{{ cmp.avant.nb_ecarts }}</td><td class="num">{{ cmp.apres.nb_ecarts if cmp.apres else "—" }}</td></tr>
+    </tbody>
+  </table>
+  <p class="section-note mt-md">
+    Le résultat « après » est lu depuis le workspace de copies. Le MASTER réel n'a pas été régénéré.
+  </p>
+</div>
+{% endif %}
+
+<div class="card mb-md">
+  <h2 class="card-title">Empreintes des sorties</h2>
+  <table class="data-table">
+    <thead><tr><th>Sortie</th><th>sha256 réel (avant)</th><th>sha256 recalculé (workspace)</th></tr></thead>
+    <tbody>
+      {% for cle, sha in (run.sha256_sorties_avant or {}).items() %}
+      <tr>
+        <td>{{ cle }}</td>
+        <td class="font-mono text-xs">{{ (sha or "—")[:16] }}</td>
+        <td class="font-mono text-xs">{{ ((run.sha256_sorties_apres or {}).get(cle) or "—")[:16] }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="origine-block">
+  Recalcul {{ run.mode }} : le moteur a tourné dans un workspace de copies sous <code>data/</code>.
+  Les MASTER réels ne sont jamais écrits par l'application. Pour appliquer réellement un recalcul,
+  le mode réel doit être activé (garde <code>MENAGES_REAL_RECALC_ENABLED</code>) — désactivé ici.
+</div>
+
+{% endif %}
+{% endblock %}
