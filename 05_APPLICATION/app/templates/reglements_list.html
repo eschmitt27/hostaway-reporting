@@ -16,7 +16,7 @@
       · {{ data.freshness.libelle }} · lu le {{ s.read_at }}
     </p>
   </div>
-  <div class="flex gap-sm items-center">
+  <div class="flex flex-wrap gap-sm items-center">
     {% set params = [] %}
     {% for k, v in a.items() if k not in ['page'] and v not in [None, '', False] %}
       {% set _ = params.append(k ~ '=' ~ (v|lower if v is boolean else v)) %}
@@ -91,10 +91,12 @@
       <thead><tr>
         <th>Propriétaire</th><th class="num">Log.</th><th class="num">CA retenu</th><th class="num">Ménage</th>
         <th class="num">Base comm.</th><th class="num">Commission</th><th class="num">Autres</th>
-        <th class="num">Net</th><th>Facture</th><th class="num">Règlement</th><th class="num">Reste</th><th>Statut</th><th></th>
+        <th class="num">Net</th><th>Facture</th><th class="num">Règlement</th><th class="num">Reste</th><th>Statut</th>
+        <th>Suivi facturation</th><th></th>
       </tr></thead>
       <tbody>
         {% for m in liste.rows %}
+        {% set sf = suivis_facturation.get(m.proprietaire_id) if suivis_facturation else None %}
         <tr>
           <td>{{ m.nom or m.proprietaire_id }}</td>
           <td class="num">{{ m.nb_logements }}</td>
@@ -108,10 +110,26 @@
           <td class="num">{{ "%.2f"|format(m.reglement_paiement) }}</td>
           <td class="num">{{ "%.2f"|format(m.reste) if m.reste is not none else "—" }}</td>
           <td><span class="status-badge status-{{ 'a-controler' if m.nb_bloquants or m.nb_a_controler or (m.reste and m.reste > 0.005) else 'valide' }}">{{ m.reglement_statut }}</span></td>
-          <td><a href="/proprietaires-reglements/{{ m.proprietaire_id }}?mois={{ m.mois }}">Voir</a></td>
+          <td>
+            {% if sf %}
+              <span class="status-badge status-{{ 'valide' if sf.statut_facturation == 'FACTURE' else 'info' }}">{{ sf.statut_facturation }}</span>
+            {% else %}<span class="text-xs text-secondary">Non démarré</span>{% endif %}
+          </td>
+          <td>
+            {{ '' }}<a href="/proprietaires-reglements/{{ m.proprietaire_id }}?mois={{ m.mois }}">Voir</a>
+            {% if sf %}
+              · <a href="/proprietaires-reglements/{{ sf.releve_id_opaque }}">Suivi</a>
+            {% elif data.mois %}
+              · <form method="post" action="/proprietaires-reglements/demarrer" style="display:inline">
+                  <input type="hidden" name="proprietaire_id" value="{{ m.proprietaire_id }}">
+                  <input type="hidden" name="mois" value="{{ data.mois }}">
+                  <button type="submit" class="btn btn-ghost btn-sm">Démarrer suivi</button>
+                </form>
+            {% endif %}
+          </td>
         </tr>
         {% else %}
-        <tr><td colspan="13" class="section-note">Aucun propriétaire pour ces filtres.</td></tr>
+        <tr><td colspan="15" class="section-note">Aucun propriétaire pour ces filtres.</td></tr>
         {% endfor %}
       </tbody>
     </table>

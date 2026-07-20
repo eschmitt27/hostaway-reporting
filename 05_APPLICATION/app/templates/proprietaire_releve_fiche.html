@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Relevé propriétaire{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <a href="/proprietaires-reglements" class="back-link">← Relevés propriétaires</a>
+  <h1 class="page-title">Relevé {{ releve.mois if releve else '' }}</h1>
+</div>
+
+{% if releve is none %}
+<div class="alert alert-warning">Relevé introuvable.</div>
+{% else %}
+
+{% if erreur %}<div class="alert alert-error">{{ erreur }}</div>{% endif %}
+
+<div class="alert alert-info">
+  Suivi humain uniquement — la facturation réelle reste pilotée par le moteur (Lot10/Lot12).
+  Statut réel moteur du mois : <strong>{{ statut_moteur }}</strong> ·
+  Statut clôture humaine (APP-5C) : <strong>{{ statut_cloture_humain or "non démarrée" }}</strong>
+</div>
+
+{% if blocages.bloquants %}
+<div class="alert alert-error">
+  ⚠ Bloqueur(s) empêchant la préparation : {{ blocages.bloquants|join(', ') }}
+</div>
+{% endif %}
+{% if blocages.informatifs %}
+<div class="alert alert-warning">Informatif : {{ blocages.informatifs|join(', ') }}</div>
+{% endif %}
+
+<div class="grid-2 mb-md">
+  <div class="card">
+    <h2 class="card-title">État</h2>
+    <dl class="detail-grid">
+      <div><dt>Statut facturation</dt><dd><span class="status-badge status-{{ 'valide' if releve.statut_facturation == 'FACTURE' else 'info' }}">{{ releve.statut_facturation }}</span></dd></div>
+      <div><dt>Identifiant</dt><dd class="font-mono text-xs">{{ releve.releve_id_opaque }}</dd></div>
+      <div><dt>Créé le</dt><dd>{{ releve.date_creation }}</dd></div>
+      {% if releve.date_validation %}<div><dt>Facturé le</dt><dd>{{ releve.date_validation }}</dd></div>{% endif %}
+    </dl>
+    <div class="flex flex-wrap gap-md mt-md">
+      {% if 'marquer_a_facturer' in actions %}
+      <form method="post" action="/proprietaires-reglements/{{ releve.releve_id_opaque }}/marquer-a-facturer">
+        <button type="submit" class="btn btn-primary" {{ 'disabled' if not blocages.preparable }}>Marquer à facturer</button>
+      </form>
+      {% endif %}
+      <a href="/proprietaires-reglements/{{ releve.releve_id_opaque }}/releve" class="btn btn-secondary">Relevé détaillé</a>
+      {% if 'marquer_facture' in actions %}
+      <a href="/proprietaires-reglements/{{ releve.releve_id_opaque }}/prefacture" class="btn btn-secondary">Préfacture</a>
+      {% endif %}
+      {% if releve.statut_facturation == 'FACTURE' %}
+      <a href="/proprietaires-reglements/{{ releve.releve_id_opaque }}/reouvrir" class="btn btn-secondary">Rouvrir</a>
+      {% endif %}
+      <a href="/proprietaires-reglements/{{ releve.releve_id_opaque }}/historique" class="btn btn-ghost">Historique</a>
+      <a href="/proprietaires-reglements/{{ releve.releve_id_opaque }}/export-releve.csv" class="btn btn-ghost">Export CSV</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 class="card-title">Exploitation (moteur)</h2>
+    {% if detail and detail.status == 'OK' and detail.vue %}
+    <dl class="detail-grid">
+      <div><dt>CA retenu</dt><dd>{{ detail.vue.ca_retenu }}</dd></div>
+      <div><dt>Ménages</dt><dd>{{ detail.vue.menage }}</dd></div>
+      <div><dt>Base commission</dt><dd>{{ detail.vue.base_commission }}</dd></div>
+      <div><dt>Commission</dt><dd>{{ detail.vue.commission }}</dd></div>
+      <div><dt>Net d'exploitation</dt><dd><strong>{{ detail.vue.net }}</strong></dd></div>
+    </dl>
+    {% else %}<p class="section-note">Donnée moteur indisponible pour ce mois.</p>{% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <h2 class="card-title">Règlement (distinct de l'exploitation)</h2>
+  {% if detail and detail.status == 'OK' and detail.vue %}
+  <dl class="detail-grid">
+    <div><dt>Acomptes reçus</dt><dd>{{ detail.vue.reglement_acomptes }}</dd></div>
+    <div><dt>Paiement reçu</dt><dd>{{ detail.vue.reglement_paiement }}</dd></div>
+    <div><dt>Reste à régler</dt><dd>{{ detail.vue.reste }}</dd></div>
+    <div><dt>Statut règlement</dt><dd>{{ detail.vue.reglement_statut }}</dd></div>
+  </dl>
+  {% else %}<p class="section-note">Donnée moteur indisponible pour ce mois.</p>{% endif %}
+</div>
+
+{% endif %}
+{% endblock %}

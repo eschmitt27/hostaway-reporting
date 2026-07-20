@@ -62,6 +62,7 @@
 <div class="grid-2 mb-md">
   <div class="card">
     <h2 class="card-title">3 · Taux de commission (historique)</h2>
+    <div class="table-container">
     <table class="data-table">
       <thead><tr><th>Logement</th><th class="num">Taux</th></tr></thead>
       <tbody>
@@ -70,10 +71,12 @@
         {% else %}<tr><td colspan="2" class="section-note">Aucun taux.</td></tr>{% endfor %}
       </tbody>
     </table>
+    </div>
     <p class="section-note">Taux appliqué produit par le moteur (15 % jusqu'au 31/01/2026, puis propre au propriétaire/logement). Jamais recalculé ici.</p>
   </div>
   <div class="card">
     <h2 class="card-title">4 · Factures</h2>
+    <div class="table-container">
     <table class="data-table">
       <thead><tr><th>Facture</th><th>Logement</th><th>Statut</th><th class="num">Reste</th></tr></thead>
       <tbody>
@@ -84,6 +87,7 @@
         {% else %}<tr><td colspan="4" class="section-note">Aucune facture. (Une préfacture n'est pas une facture.)</td></tr>{% endfor %}
       </tbody>
     </table>
+    </div>
   </div>
 </div>
 

@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Relevé détaillé{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <a href="/proprietaires-reglements/{{ releve.releve_id_opaque if releve else '' }}" class="back-link">← Relevé</a>
+  <h1 class="page-title">Relevé détaillé — {{ releve.mois if releve else '' }}</h1>
+</div>
+
+{% if releve is none %}
+<div class="alert alert-warning">Relevé introuvable.</div>
+{% elif data.status == 'ERROR' %}
+<div class="alert alert-error">{{ data.error_message }}</div>
+{% elif data.status == 'NOT_FOUND' %}
+<div class="alert alert-warning">Aucune donnée moteur pour ce propriétaire/mois.</div>
+{% else %}
+
+<div class="alert alert-info">Relevé de gestion — document préparatoire, pas une pièce comptable définitive.</div>
+
+<div class="grid-2 mb-md">
+  <div class="card">
+    <h2 class="card-title">Exploitation</h2>
+    <div class="table-container">
+      <table class="data-table">
+        <thead><tr><th>Logement</th><th>Payout</th><th>Ménages</th><th>Commission</th><th>Net avant charge</th><th>Réservations</th></tr></thead>
+        <tbody>
+          {% for l in data.bloc_exploitation %}
+          <tr>
+            <td class="font-mono text-xs">{{ l.logement_id }}</td>
+            <td>{{ l.total_payout_mois }}</td>
+            <td>{{ l.total_menage_mois }}</td>
+            <td>{{ l.total_commission_mois }}</td>
+            <td>{{ l.net_proprietaire_avant_charge_mois }}</td>
+            <td>{{ l.nb_reservations }}</td>
+          </tr>
+          {% else %}<tr><td colspan="6" class="section-note">Aucune ligne.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 class="card-title">Règlement</h2>
+    <div class="table-container">
+      <table class="data-table">
+        <thead><tr><th>Logement</th><th>Dû</th><th>Acompte</th><th>Payé</th><th>Reste</th><th>Statut</th></tr></thead>
+        <tbody>
+          {% for l in data.bloc_reglement %}
+          <tr>
+            <td class="font-mono text-xs">{{ l.logement_id }}</td>
+            <td>{{ l.montant_du_conciergerie }}</td>
+            <td>{{ (l.acompte_conciergerie_recu_via_airbnb or 0) + (l.autres_acomptes_recus or 0) }}</td>
+            <td>{{ l.paiement_deja_recu }}</td>
+            <td>{{ l.reste_a_payer_conciergerie }}</td>
+            <td>{{ l.statut_reglement }}</td>
+          </tr>
+          {% else %}<tr><td colspan="6" class="section-note">Aucune ligne.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% endif %}
+{% endblock %}

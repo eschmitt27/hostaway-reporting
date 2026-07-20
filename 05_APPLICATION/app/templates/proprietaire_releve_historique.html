@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Historique relevé{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <a href="/proprietaires-reglements/{{ releve.releve_id_opaque if releve else '' }}" class="back-link">← Relevé</a>
+  <h1 class="page-title">Historique — {{ releve.mois if releve else '' }}</h1>
+</div>
+
+{% if releve is none %}
+<div class="alert alert-warning">Relevé introuvable.</div>
+{% else %}
+
+<div class="card">
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Événement</th><th>Ancien statut</th><th>Nouveau statut</th><th>Commentaire</th><th>Date</th><th>Acteur</th></tr></thead>
+      <tbody>
+        {% for h in historique %}
+        <tr>
+          <td class="font-mono text-xs">{{ h.type_evenement }}</td>
+          <td class="text-xs">{{ h.ancien_statut or "—" }}</td>
+          <td class="text-xs">{{ h.nouveau_statut or "—" }}</td>
+          <td class="text-xs">{{ h.commentaire or "—" }}</td>
+          <td class="font-mono text-xs">{{ h.date_evenement }}</td>
+          <td class="text-xs">{{ h.acteur or "—" }}</td>
+        </tr>
+        {% else %}<tr><td colspan="6" class="section-note">Aucun événement.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endif %}
+{% endblock %}

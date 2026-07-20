@@ -761,6 +761,7 @@ code {
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: var(--stack-md, 16px);
 }
+.grid-2 > * { min-width: 0; }
 
 /* === PASTILLES DE SOURCE === */
 .source-list { display: flex; flex-wrap: wrap; gap: var(--stack-sm); }

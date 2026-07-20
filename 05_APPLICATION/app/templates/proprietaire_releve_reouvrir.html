@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Réouverture relevé{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <a href="/proprietaires-reglements/{{ releve.releve_id_opaque if releve else '' }}" class="back-link">← Relevé</a>
+  <h1 class="page-title">Rouvrir — {{ releve.mois if releve else '' }}</h1>
+</div>
+
+{% if releve is none %}
+<div class="alert alert-warning">Relevé introuvable.</div>
+{% else %}
+
+<div class="alert alert-info">Réouverture exceptionnelle du suivi humain. L'historique complet est
+  conservé — aucune suppression.</div>
+
+{% if erreur %}<div class="alert alert-error">{{ erreur }}</div>{% endif %}
+
+<div class="card">
+  <form method="post" action="/proprietaires-reglements/{{ releve.releve_id_opaque }}/reouvrir"
+        onsubmit="return confirm('Confirmez-vous la réouverture du relevé pour {{ releve.mois }} ?');">
+    <div class="form-field form-field-full">
+      <label for="f-justification">Justification (requise)</label>
+      <textarea id="f-justification" name="justification" class="filter-input" required></textarea>
+    </div>
+    <button type="submit" class="btn btn-primary mt-md">Rouvrir le relevé</button>
+  </form>
+</div>
+
+{% endif %}
+{% endblock %}

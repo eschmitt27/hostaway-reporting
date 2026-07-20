@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Préfacture{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <a href="/proprietaires-reglements/{{ releve.releve_id_opaque if releve else '' }}" class="back-link">← Relevé</a>
+  <h1 class="page-title">Préfacture — {{ releve.mois if releve else '' }}</h1>
+</div>
+
+{% if releve is none %}
+<div class="alert alert-warning">Relevé introuvable.</div>
+{% else %}
+
+{% if erreur %}<div class="alert alert-error">{{ erreur }}</div>{% endif %}
+
+<div class="alert alert-warning">
+  <strong>Document préparatoire</strong> — ne constitue pas une facture définitive tant que son
+  émission n'a pas été validée.
+</div>
+
+{% if data.status == 'UNAVAILABLE' %}
+<div class="alert alert-error">{{ data.error_message }}</div>
+{% elif data.status == 'NOT_FOUND' %}
+<div class="alert alert-warning">Aucune facture moteur pour ce propriétaire/mois.</div>
+{% else %}
+
+{% if blocages.bloquants %}
+<div class="alert alert-error">⚠ Bloqueur(s) : {{ blocages.bloquants|join(', ') }}</div>
+{% endif %}
+
+{% for f in data.factures %}
+<div class="card mb-md">
+  <h2 class="card-title">Facture {{ f.entete.facture_id }} — statut {{ f.entete.statut_facture }}</h2>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Ligne</th><th>Bloc</th><th>Libellé</th><th>Montant</th></tr></thead>
+      <tbody>
+        {% for l in f.lignes_exploitation %}
+        <tr><td>{{ l.ligne_num }}</td><td>Exploitation</td><td>{{ l.libelle }}</td><td>{{ l.montant }}</td></tr>
+        {% endfor %}
+        {% for l in f.lignes_reglement %}
+        <tr><td>{{ l.ligne_num }}</td><td>Règlement</td><td>{{ l.libelle }}</td><td>{{ l.montant }}</td></tr>
+        {% endfor %}
+        {% if not f.lignes_exploitation and not f.lignes_reglement %}
+        <tr><td colspan="4" class="section-note">Aucune ligne.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="section-note">Aucune facture pour ce mois.</div>
+{% endfor %}
+
+<div class="card">
+  <h2 class="card-title">Décision</h2>
+  <form method="post" action="/proprietaires-reglements/{{ releve.releve_id_opaque }}/marquer-facture"
+        onsubmit="return confirm('Confirmez-vous le passage au statut Facturé pour {{ releve.mois }} ?');">
+    <div class="form-field form-field-full">
+      <label for="f-commentaire">Commentaire de validation (requis)</label>
+      <textarea id="f-commentaire" name="commentaire" class="filter-input" required></textarea>
+    </div>
+    <button type="submit" class="btn btn-primary mt-md" {{ 'disabled' if not blocages.preparable }}>
+      Marquer facturé
+    </button>
+  </form>
+</div>
+
+{% endif %}
+{% endif %}
+{% endblock %}
