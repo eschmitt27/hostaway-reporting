@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}Propriétaires & règlements{% endblock %}
+
+{% set s = data.summary %}
+{% set liste = data.liste %}
+{% set a = data.applied %}
+{% set o = data.options %}
+
+{% block content %}
+
+<div class="page-header flex justify-between items-center">
+  <div>
+    <h1 class="page-title">Propriétaires &amp; règlements</h1>
+    <p class="page-subtitle">
+      Période <span class="periode-active">{{ data.mois or "aucune" }}</span>
+      · {{ data.freshness.libelle }} · lu le {{ s.read_at }}
+    </p>
+  </div>
+  <div class="flex gap-sm items-center">
+    {% set params = [] %}
+    {% for k, v in a.items() if k not in ['page'] and v not in [None, '', False] %}
+      {% set _ = params.append(k ~ '=' ~ (v|lower if v is boolean else v)) %}
+    {% endfor %}
+    <a href="/proprietaires-reglements/export.csv{% if params %}?{{ params|join('&') }}{% endif %}" class="btn btn-secondary">Export CSV</a>
+    <a href="/proprietaires-reglements/a-controler?mois={{ data.mois }}" class="btn btn-secondary">À contrôler ({{ s.nb_a_controler }})</a>
+    <span class="read-only-badge">Lecture seule</span>
+    {% if s.etat_global == "CONFORME" %}<span class="etat-global etat-global--ok">Conforme</span>
+    {% elif s.etat_global == "A_CONTROLER" %}<span class="etat-global etat-global--warn">À contrôler</span>
+    {% else %}<span class="etat-global etat-global--err">Source incomplète</span>{% endif %}
+  </div>
+</div>
+
+{% if liste.status != "OK" %}
+<div class="alert alert-error">
+  <strong>Source indisponible</strong> — {{ liste.etat_source.fichier }}
+  ({{ liste.etat_source.onglet }}) : {{ liste.etat_source.etat_libelle }}.
+</div>
+{% else %}
+
+<div class="kpi-grid kpi-grid--6">
+  <div class="kpi-card"><div class="kpi-label">Propriétaires</div><div class="kpi-value">{{ s.nb_proprietaires }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Logements</div><div class="kpi-value">{{ s.nb_logements }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Commission totale</div>
+    <div class="kpi-value" style="font-size:18px">{{ "%.2f"|format(s.commission_totale) if s.commission_totale is not none else "—" }} €</div>
+    <div class="kpi-sub">moteur (non recalculée)</div></div>
+  <div class="kpi-card"><div class="kpi-label">Net propriétaire total</div>
+    <div class="kpi-value" style="font-size:18px">{{ "%.2f"|format(s.net_total) if s.net_total is not none else "—" }} €</div></div>
+  <div class="kpi-card"><div class="kpi-label">Reste à régler</div>
+    <div class="kpi-value" style="font-size:18px">{{ "%.2f"|format(s.reste_total) if s.reste_total is not none else "—" }} €</div></div>
+  <div class="kpi-card"><div class="kpi-label">Factures / à contrôler</div>
+    <div class="kpi-value">{{ s.nb_factures }} / {{ s.nb_a_controler }}</div></div>
+</div>
+
+<form method="get" action="/proprietaires-reglements" class="filter-bar mt-md">
+  <label>Période
+    <select name="mois"><option value="">—</option>
+      {% for p in o.periodes %}<option value="{{ p.id }}" {{ 'selected' if p.id == data.mois }}>{{ p.libelle }}</option>{% endfor %}
+      {% if o.periodes_futures %}
+      <optgroup label="Données futures à contrôler">
+        {% for p in o.periodes_futures %}<option value="{{ p.id }}" {{ 'selected' if p.id == data.mois }}>{{ p.libelle }} ⚠</option>{% endfor %}
+      </optgroup>
+      {% endif %}
+    </select></label>
+  <label>Propriétaire
+    <select name="proprietaire_id"><option value="">Tous</option>
+      {% for c in o.proprietaires %}<option value="{{ c.id }}" {{ 'selected' if c.id == a.proprietaire_id }}>{{ c.libelle }}</option>{% endfor %}
+    </select></label>
+  <label>Logement
+    <select name="logement_id"><option value="">Tous</option>
+      {% for c in o.logements %}<option value="{{ c.id }}" {{ 'selected' if c.id == a.logement_id }}>{{ c.libelle }}</option>{% endfor %}
+    </select></label>
+  <label>Facture
+    <select name="facture"><option value="">—</option>
+      <option value="oui" {{ 'selected' if a.facture == 'oui' }}>Facturé</option>
+      <option value="non" {{ 'selected' if a.facture == 'non' }}>Non facturé</option></select></label>
+  <label>Règlement
+    <select name="regle"><option value="">—</option>
+      <option value="oui" {{ 'selected' if a.regle == 'oui' }}>Réglé</option>
+      <option value="non" {{ 'selected' if a.regle == 'non' }}>Non réglé</option></select></label>
+  <label>Tri
+    <select name="tri">{% for k, v in data.tris.items() %}<option value="{{ k }}" {{ 'selected' if k == a.tri }}>{{ v }}</option>{% endfor %}</select></label>
+  <label>&nbsp;<label><input type="checkbox" name="avec_anomalie" value="true" {{ 'checked' if a.avec_anomalie }}> Avec anomalie</label></label>
+  <label>&nbsp;<label><input type="checkbox" name="avec_reste" value="true" {{ 'checked' if a.avec_reste }}> Avec reste à régler</label></label>
+  <button type="submit" class="btn btn-primary">Filtrer</button>
+</form>
+
+<div class="card">
+  <p class="section-note">{{ liste.count_filtre }} propriétaire(s) sur {{ liste.count_total }} — page {{ liste.page }}/{{ liste.pages }}</p>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr>
+        <th>Propriétaire</th><th class="num">Log.</th><th class="num">CA retenu</th><th class="num">Ménage</th>
+        <th class="num">Base comm.</th><th class="num">Commission</th><th class="num">Autres</th>
+        <th class="num">Net</th><th>Facture</th><th class="num">Règlement</th><th class="num">Reste</th><th>Statut</th><th></th>
+      </tr></thead>
+      <tbody>
+        {% for m in liste.rows %}
+        <tr>
+          <td>{{ m.nom or m.proprietaire_id }}</td>
+          <td class="num">{{ m.nb_logements }}</td>
+          <td class="num">{{ "%.2f"|format(m.ca_retenu) if m.ca_retenu is not none else "—" }}</td>
+          <td class="num">{{ "%.2f"|format(m.menage) if m.menage is not none else "—" }}</td>
+          <td class="num">{{ "%.2f"|format(m.base_commission) if m.base_commission is not none else "—" }}</td>
+          <td class="num">{{ "%.2f"|format(m.commission) if m.commission is not none else "—" }}</td>
+          <td class="num">{{ "%.2f"|format(m.autres_impacts) if m.autres_impacts is not none else "—" }}</td>
+          <td class="num">{{ "%.2f"|format(m.net) if m.net is not none else "—" }}</td>
+          <td class="text-xs">{{ m.facture_statut }}</td>
+          <td class="num">{{ "%.2f"|format(m.reglement_paiement) }}</td>
+          <td class="num">{{ "%.2f"|format(m.reste) if m.reste is not none else "—" }}</td>
+          <td><span class="status-badge status-{{ 'a-controler' if m.nb_bloquants or m.nb_a_controler or (m.reste and m.reste > 0.005) else 'valide' }}">{{ m.reglement_statut }}</span></td>
+          <td><a href="/proprietaires-reglements/{{ m.proprietaire_id }}?mois={{ m.mois }}">Voir</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="13" class="section-note">Aucun propriétaire pour ces filtres.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if liste.pages > 1 %}
+  <div class="pagination">
+    {% set base = '/proprietaires-reglements?' ~ (params|join('&')) %}
+    {% if liste.page > 1 %}<a href="{{ base }}&page={{ liste.page - 1 }}">← Précédent</a>{% endif %}
+    <span class="current">{{ liste.page }} / {{ liste.pages }}</span>
+    {% if liste.page < liste.pages %}<a href="{{ base }}&page={{ liste.page + 1 }}">Suivant →</a>{% endif %}
+  </div>
+  {% endif %}
+</div>
+
+<div class="origine-block-card mt-md">
+  <strong>Lecture seule.</strong> Aucun virement, aucune génération de facture, aucun déclenchement
+  Lot12. Commissions et net repris du moteur (jamais recalculés). Une préfacture n'est pas une facture ;
+  une facture n'est pas un paiement ; un acompte reste distinct d'un règlement final. Adresses et données
+  bancaires non affichées.
+</div>
+{% endif %}
+
+{% endblock %}

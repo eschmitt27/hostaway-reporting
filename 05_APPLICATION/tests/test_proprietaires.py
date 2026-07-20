@@ -323,13 +323,13 @@ def test_proprietaires_get_prefacture_inconnu_404(client):
 def test_sidebar_contient_href_proprietaires(client):
     r = client.get("/")
     assert r.status_code == 200
-    assert 'href="/proprietaires"' in r.text, "Lien /proprietaires absent de la sidebar"
+    assert 'href="/proprietaires-reglements"' in r.text, "Lien Propriétaires & règlements absent de la sidebar"
 
 
 def test_proprietaires_nav_active_sur_liste(client):
     r = client.get("/proprietaires")
     assert r.status_code == 200
-    assert "nav-item--future" not in r.text or 'href="/proprietaires"' in r.text
+    assert "nav-item--future" not in r.text or 'href="/proprietaires-reglements"' in r.text
 
 
 def test_proprietaires_nav_badge_future_disparu(client):

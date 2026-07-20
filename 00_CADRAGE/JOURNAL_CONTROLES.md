@@ -2353,3 +2353,84 @@ Commentaire: Flags inchangés (CHARGES_REAL_WRITE_ENABLED = False,
              CHARGES_REAL_WRITE_CONFIRMATION_ENABLED = False). La première écriture réelle est une
              recette humaine distincte : 00_CADRAGE/APPLICATION_LOCALE/APP3B_RUNBOOK_PREMIERE_ACTIVATION.md.
              Documentation de clôture : APP3B_CHARGES_CLOTURE.md.
+
+================================================================================
+CTR-APP2A-MENAGES-01 — Module Ménages : rapprochement en lecture
+================================================================================
+Date       : 2026-07-14
+Objet      : Rendre le rapprochement ménages visible, filtrable et explicable dans
+             l'application, sans jamais rejouer une règle du moteur ni écrire une source.
+Périmètre  : 05_APPLICATION — readers/menages_reader.py, services/menages_service.py,
+             routes/menages.py, 4 gabarits + 1 partial, app.css.
+Sources    : Lot6a (tâches Hostaway), Lot6b (internes M04), Lot6c (externes facturés),
+             Lot6d (rapprochement), Lot6e (gain/perte), Lot6f (coût complet), Lot11 (cohérence).
+             Toutes en lecture seule (openpyxl read_only=True).
+
+Constat    : le flux « MÉNAGES ATTENDUS » n'est produit par AUCUN script du moteur.
+principal    D090 énonce la règle (1 réservation validée = 1 ménage attendu au check-out) mais
+             aucune colonne ne la matérialise. Lot6d compare trois flux : Hostaway réalisé,
+             interne déclaré, externe facturé ; son `ecart` = Hostaway − déclarés.
+             DÉCISION : l'application ne déduit PAS l'attendu. Le fabriquer reviendrait à
+             créer une règle de matching dans FastAPI. Affiché « Non alimenté par le moteur ».
+             À produire côté moteur si le besoin est confirmé (décision métier).
+
+Règles     - les 4 flux restent des champs distincts ; jamais fusionnés ;
+tenues     - le coût Hostaway (`cost`) n'est ni lu, ni exposé, ni nommé : un test injecte
+             999 € dans la fixture et vérifie qu'il n'apparaît nulle part ;
+           - coût interne = heures et taux M04 ; coût externe = facture ;
+           - aucun statut inventé : statut_controle et code_controle viennent du moteur ;
+           - aucune écriture Excel ; aucun import de module 02_TRAVAIL ;
+           - aucune route ne lance le pipeline (ni run_pipeline, ni subprocess).
+
+États      Le reader distingue FICHIER_ABSENT / ONGLET_ABSENT / VIDE / ILLISIBLE et ne les
+sources    confond jamais avec « zéro ménage ». Une source manquante affiche
+           « Source indisponible », jamais une valeur fabriquée.
+
+Preuve     05_APPLICATION/tests/test_menages_rapprochement.py — 20 scénarios sur fixtures Excel
+           isolées : conforme ; Hostaway sans déclaration ; déclaration sans tâche ; interne
+           rapproché ; externe rapproché ; interne ET externe simultanés restant distincts ;
+           coût Hostaway jamais utilisé ; source interne vide ; source externe vide ; fichier
+           absent ; onglet absent ; date externe absente ; logement inconnu ; anomalie
+           bloquante ; filtres période / logement / écarts / intervenant / type / statut ;
+           pagination ; fiche détail ; aucune source modifiée (SHA256 avant/après).
+           Plus 10 tests de route (200, cartes, filtres, à-contrôler, diagnostic désactivé,
+           404, aucun chemin absolu exposé) et 5 gardes structurelles.
+           test_menages.py (APP-2 d'origine) reste vert, inchangé.
+
+Statut     : APP-2A_RAPPROCHEMENT_MENAGES_LECTURE_EN_ATTENTE_VALIDATION
+Limites    : un seul mois rapproché (2026-05 — Lot6d fixe MONTH en dur) ; le rattachement d'une
+             tâche Hostaway à un intervenant est fait par le moteur, donc la fiche liste les
+             tâches du LOGEMENT et du MOIS, toutes assignations confondues (et le dit) ;
+             CONFLIT_TITLE_ASSIGNEE : 15 occurrences à instruire côté moteur ; l'outrepassage
+             SQLite préexistant affiche un statut effectif JUSTIFIE — le statut moteur reste
+             affiché à côté, mais le principe mérite une décision formelle.
+Commentaire: aucune écriture métier, aucun recalcul, aucun fichier réel modifié.
+             Documentation : 00_CADRAGE/APPLICATION_LOCALE/APP2_MENAGES_ETAT.md
+
+Défaut      DÉFAUT TROUVÉ ET CORRIGÉ (suite complète, 2026-07-15) : le service ménages appelait
+trouvé      get_db() sans argument. Le défaut de get_db(db_path=DB_PATH) étant figé à l'import, la
+            vraie app.db était ouverte même sous fixture isolée ; PRAGMA journal_mode=WAL écrit
+            dans l'en-tête → le fichier réel bougeait (aucune donnée écrite, intégrité ok). Détecté
+            par la garde APP-3b test_charges_confirmation_e2e::test_aucun_fichier_reel_ni_base_reelle
+            _touches, uniquement en suite complète. Correctif : lecture de cfg.DB_PATH à chaud
+            (get_db(cfg.DB_PATH)). Régression : test_route_ne_touche_jamais_la_base_reelle (SHA256 +
+            mtime de la base réelle avant/après 3 pages). Correctif contenu dans le module ménages —
+            APP-3b non rouvert.
+Recette     823 passed, 2 skipped (suite applicative complète, code figé). Tests ciblés ménages 59.
+finale      La contamination Jinja (édition d'un gabarit pendant qu'une suite tourne, templates
+            rechargés à chaud) a faussé 3 suites intermédiaires ; mesure refaite sur code figé.
+
+CTR-APP2B-RECALCUL-01 — Recalcul ménages sur copies (mode réel gardé)
+Contexte    Bouton « Relancer le rapprochement » rendu réellement fonctionnel en mode COPIES ;
+            mode RÉEL bloqué par MENAGES_REAL_RECALC_ENABLED=False.
+Vérifs      (1) recette E2E : lot6d+lot6e exécutés sur copies des vraies sources → MASTER réel
+            sha256 INCHANGÉ (0759fa8d… avant = après) ; sortie écrite dans le workspace, pas le réel.
+            (2) confirmer(REEL) → run BLOQUE, aucune exécution, aucun workspace créé.
+            (3) préflight : Excel ouvert (~$) → E_EXCEL_OUVERT ; source absente → E_SOURCE_ABSENTE ;
+            verrou déjà pris → E_VERROU. (4) SUCCES seulement si rc==0 ET sorties présentes
+            (runner stub : fail → ECHEC, réponse absente → E_REPONSE_INVALIDE). (5) verrou libéré
+            en finally (état ABSENT après chaque cas). (6) routes : la vraie app.db jamais touchée
+            (client isolé tmp_db). Résultat : 23 tests verts (dont E2E réel).
+Attendu     Règle réelle = D100/D099 (attendu réservé aux logements hors Hostaway, anti double-
+            comptage), PAS D090. Gap décision↔code : lot6d n'ajoute pas les réservations HH de D099.
+            Sous-partie documentée et ARRÊTÉE (aucune exception devinée, aucun Lot6g créé).

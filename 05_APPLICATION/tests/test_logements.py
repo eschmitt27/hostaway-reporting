@@ -108,10 +108,43 @@ def test_fiche_detail_existante_200(client):
     assert "Origine des données" in r.text
 
 
-def test_fiche_detail_inconnue_404(client):
+_PBI_HEADER = ("logement_id;nom_logement_officiel;nom_court;ville;type_logement_id;proprietaire_id;"
+               "date_entree_gestion;date_sortie_gestion;sur_hostaway;actif;"
+               "forfait_logiciel_consommables_mensuel\n")
+
+
+def _pbi_fixture(tmp_path):
+    """Petit CSV PBI isolé (source PRÉSENTE) pour tester le vrai chemin « logement inconnu »
+    indépendamment de la présence du CSV réel (untracked)."""
+    p = tmp_path / "PBI_Referentiel_Logements.csv"
+    p.write_text(_PBI_HEADER + "LOG_0001;Studio - 46;Studio 46;TOULOUSE;TYPE_001;PROP_0001;2026-01-01;;OUI;OUI;0\n",
+                 encoding="utf-8")
+    return p
+
+
+def test_fiche_detail_inconnue_404(client, monkeypatch, tmp_path):
+    """Source PRÉSENTE + identifiant inconnu → 404 (jamais la page source-indisponible en 200)."""
+    monkeypatch.setattr(svc, "PBI_LOGEMENTS", _pbi_fixture(tmp_path))
     r = client.get("/logements/LOG_INEXISTANT_9999")
     assert r.status_code == 404
     assert "introuvable" in r.text.lower()
+
+
+def test_fiche_detail_existante_200_fixture(client, monkeypatch, tmp_path):
+    """Source PRÉSENTE + logement existant → 200 (chemin « logement trouvé »)."""
+    monkeypatch.setattr(svc, "PBI_LOGEMENTS", _pbi_fixture(tmp_path))
+    r = client.get("/logements/LOG_0001")
+    assert r.status_code == 200
+    assert "LOG_0001" in r.text
+
+
+def test_fiche_detail_source_absente_statut_distinct(client, monkeypatch, tmp_path):
+    """Source INDISPONIBLE → statut distinct (page d'erreur, HTTP 200 déjà prévu), jamais confondu
+    avec « logement inconnu » (404). Distingue clairement : source absente ≠ logement absent."""
+    monkeypatch.setattr(svc, "PBI_LOGEMENTS", tmp_path / "inexistant_PBI.csv")
+    r = client.get("/logements/LOG_0001")
+    assert r.status_code == 200
+    assert "indisponible" in r.text.lower() or "introuvable" in r.text.lower()
 
 
 @pbi_required
@@ -229,10 +262,14 @@ def test_service_logements_n_importe_pas_sqlite():
 
 # ---------------------------------------------------------------- health
 
-def test_health_confirme_chemin_ref_setup(client):
-    r = client.get("/health")
+def test_health_confirme_chemin_ref_setup(client, monkeypatch):
+    # Contrat public /health minimal (APP-SEC-1) : le détail par source (dont REF_Setup) vit
+    # désormais dans /health/diagnostic, réservé au local et désactivé par défaut.
+    import app.config as cfg
+    monkeypatch.setattr(cfg, "DIAGNOSTIC_DETAILS_ENABLED", True)
+    r = client.get("/health/diagnostic")
     data = r.json()
-    assert data["checks"]["ref_setup"]["exists"] is True, (
+    assert data["checks"]["ref_setup"]["present"] is True, (
         "REF_Setup doit être présent — chemin corrigé au Lot APP-1"
     )
-    assert "REF_Setup" in data["checks"]["ref_setup"]["path"]
+    assert data["checks"]["ref_setup"]["source"] == "REF_Setup"

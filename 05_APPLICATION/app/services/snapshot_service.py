@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 from app.db.connection import get_db
-from app.config import DB_PATH, SNAPSHOTS_DIR, RESTORE_DIR
+from app.config import SNAPSHOTS_DIR, RESTORE_DIR
 
 
 def _sha256(path: Path) -> str:
@@ -19,7 +19,7 @@ def _sha256(path: Path) -> str:
 def create_snapshot(
     snapshot_type: str,
     scope_paths: list[Path],
-    db_path: Path = DB_PATH,
+    db_path: Path | None = None,
 ) -> dict[str, Any]:
     """Copie horodatée + manifeste sha256 + enregistrement SQLite."""
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -61,7 +61,7 @@ def create_snapshot(
     return {"id": snapshot_id, "path": str(dest), "files": len(manifest), "ts": ts}
 
 
-def verify_snapshot(snapshot_id: int, db_path: Path = DB_PATH) -> dict[str, Any]:
+def verify_snapshot(snapshot_id: int, db_path: Path | None = None) -> dict[str, Any]:
     """Revérifie les sha256 d'un snapshot existant."""
     conn = get_db(db_path)
     try:
@@ -91,7 +91,7 @@ def verify_snapshot(snapshot_id: int, db_path: Path = DB_PATH) -> dict[str, Any]
     return {"ok": ok, "errors": errors, "files_checked": len(manifest)}
 
 
-def restore_to_workspace(snapshot_id: int, db_path: Path = DB_PATH) -> dict[str, Any]:
+def restore_to_workspace(snapshot_id: int, db_path: Path | None = None) -> dict[str, Any]:
     """Restauration en copie isolée uniquement — jamais écrasement des sources actives."""
     conn = get_db(db_path)
     try:
@@ -114,7 +114,7 @@ def restore_to_workspace(snapshot_id: int, db_path: Path = DB_PATH) -> dict[str,
     return {"ok": True, "workspace": str(workspace), "files": len(manifest)}
 
 
-def list_snapshots(db_path: Path = DB_PATH) -> list[dict]:
+def list_snapshots(db_path: Path | None = None) -> list[dict]:
     conn = get_db(db_path)
     try:
         rows = conn.execute(

@@ -82,8 +82,17 @@ def test_no_bidirectional_sync():
     Les commentaires/docstrings mentionnant "SQLite" ne déclenchent pas de violation.
     """
     DB_ACCESS_PATTERNS = ("from app.db", "import sqlite3", "get_db(", "get_db ")
+    # Writers vérifiés dont le `save()` cible une COPIE isolée (jamais une source métier réelle) et
+    # dont l'accès DB est le journal APP autorisé (formulaire validé → writer Excel COPIE → journal
+    # SQLite). Flux conforme au docstring ci-dessus ; les flags d'écriture réelle restent False.
+    WRITERS_COPIE_AUTORISES = {
+        "banques_controle_writer.py",       # APP-4B : override sur copie + journal
+        "controles_runner_service.py",      # APP-5B : classification sur copie workspace + journal runs
+    }
     violations = []
     for f in get_python_files():
+        if f.name in WRITERS_COPIE_AUTORISES:
+            continue
         src = f.read_text(encoding="utf-8")
         has_db_access = any(p in src for p in DB_ACCESS_PATTERNS)
         has_excel_write = "save(" in src

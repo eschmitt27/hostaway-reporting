@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Propriétaires — à contrôler{% endblock %}
+
+{% set d = data %}
+
+{% block content %}
+
+<div class="page-header">
+  <a href="/proprietaires-reglements" class="back-link">← Propriétaires &amp; règlements</a>
+  <h1 class="page-title">À régler / à contrôler</h1>
+  <p class="page-subtitle">
+    Période <span class="periode-active">{{ d.mois or "aucune" }}</span> · lu le {{ d.read_at }}.
+    Anomalies signalées par le moteur — aucune action de paiement disponible.
+  </p>
+</div>
+
+{% if d.status != "OK" %}
+<div class="alert alert-error">Source indisponible : {{ d.etat_source.etat_libelle }}.</div>
+{% else %}
+
+<div class="alert alert-info">
+  <strong>Règlement — prochain lot.</strong>
+  <button type="button" class="btn btn-secondary" disabled title="Non activé — lot ultérieur">Préparer un règlement</button>
+  À ce lot, l'écran est en lecture : aucun virement, aucune génération de facture.
+</div>
+
+<div class="card mb-md">
+  <h2 class="card-title">Propriétaires à contrôler ({{ d.lignes|length }})</h2>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Propriétaire</th><th class="num">Net</th><th class="num">Reste</th>
+        <th class="num">Bloquants</th><th class="num">À contrôler</th><th>Balises</th><th>Statut</th><th></th></tr></thead>
+      <tbody>
+        {% for m in d.lignes %}
+        <tr>
+          <td>{{ m.nom or m.proprietaire_id }}</td>
+          <td class="num">{{ "%.2f"|format(m.net) if m.net is not none else "—" }}</td>
+          <td class="num">{{ "%.2f"|format(m.reste) if m.reste is not none else "—" }}</td>
+          <td class="num">{{ m.nb_bloquants }}</td>
+          <td class="num">{{ m.nb_a_controler }}</td>
+          <td class="text-xs">{{ m.balises or "—" }}</td>
+          <td><span class="status-badge status-a-controler">{{ m.reglement_statut }}</span></td>
+          <td><a href="/proprietaires-reglements/{{ m.proprietaire_id }}?mois={{ m.mois }}">Voir</a></td>
+        </tr>
+        {% else %}<tr><td colspan="8" class="section-note">Aucun propriétaire à contrôler sur la période.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <h2 class="card-title">Contrôles facturation (moteur)</h2>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Propriétaire</th><th>Code</th><th>Sévérité</th><th>Description</th></tr></thead>
+      <tbody>
+        {% for c in d.controles %}
+        <tr><td class="font-mono text-xs">{{ c.proprietaire_id or "—" }}</td><td class="font-mono text-xs">{{ c.code }}</td>
+          <td>{{ c.severite }}</td><td class="text-xs">{{ c.description }}</td></tr>
+        {% else %}<tr><td colspan="4" class="section-note">Aucun contrôle facturation.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

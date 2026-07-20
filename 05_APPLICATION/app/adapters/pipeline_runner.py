@@ -1,6 +1,5 @@
 import time
 from pathlib import Path
-from app.config import DB_PATH
 from app.adapters.pipeline_registry import get_script_path
 from app.db.connection import get_db
 from app.services.audit_service import log_event
@@ -13,7 +12,7 @@ _REAL_EXECUTION_ENABLED = False
 def run_pipeline(
     script_name: str,
     dry_run: bool = True,
-    db_path: Path = DB_PATH,
+    db_path: Path | None = None,
 ) -> dict:
     """Exécute (ou simule) un script pipeline.
 
@@ -65,7 +64,7 @@ def run_pipeline(
         raise RuntimeError(f"Timeout — {script_name} dépasse 600 secondes.")
 
 
-def _record_run(name, dry_run, status, output, duration_ms, error=None, db_path=DB_PATH):
+def _record_run(name, dry_run, status, output, duration_ms, error=None, db_path=None):
     conn = get_db(db_path)
     try:
         conn.execute(

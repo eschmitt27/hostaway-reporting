@@ -791,3 +791,74 @@ vérifier, puis remettre les flags à `False`. C'est une **recette humaine disti
 
 Documentation de clôture : `00_CADRAGE/APPLICATION_LOCALE/APP3B_CHARGES_CLOTURE.md`.
 Contrôle : `CTR-APP3B-CLOTURE-01`.
+
+---
+
+## APP-2a — Module Ménages : rapprochement en lecture (2026-07-14)
+
+**Statut : `APP-2A_RAPPROCHEMENT_MENAGES_LECTURE_EN_ATTENTE_VALIDATION`.**
+Module visible et navigable, alimenté par les données réelles. Aucune écriture métier,
+aucun recalcul de pipeline.
+
+### Livré
+
+- `/menages` — synthèse (6 cartes), tableau de rapprochement paginé et trié, 9 filtres,
+  bloc « Dernier calcul », états vide / source absente / erreur distincts.
+- `/menages/{mois}/{logement}/{intervenant}` — fiche en 7 blocs : résumé des 4 flux,
+  attendu, tâches Hostaway, internes M04, externes facturés, coûts, anomalies, traçabilité.
+- `/menages/a-controler` — lignes à contrôler + contrôles Lot6d + contrôles ménages Lot11.
+- `/menages/diagnostic` — état des sources, commande du pipeline, **bouton de recalcul désactivé**.
+- Reader à 4 états dégradés (fichier absent / onglet absent / source vide / illisible),
+  jamais confondus avec « zéro ménage ».
+- CSS : les classes de tableau (`data-table`, `status-badge`, pagination…) étaient utilisées
+  par les gabarits **sans jamais avoir été définies**. Ajoutées — les pages Fournisseurs et
+  Ménages étaient affichées sans style.
+
+### Découverte structurante — le flux « ménages attendus » n'existe pas
+
+D090 énonce la règle (« 1 réservation validée = 1 ménage attendu »), mais **aucun script ne
+produit cette colonne**. Lot6d compare trois flux et son `ecart` vaut *Hostaway − déclarés*.
+L'application **ne fabrique pas** l'attendu : le déduire des réservations serait créer une
+règle de matching dans FastAPI. La colonne affiche `—` / « Non alimenté par le moteur ».
+Produire l'attendu est une décision métier, à instruire côté moteur.
+
+### Règles tenues
+
+Les 4 flux restent séparés. Le coût Hostaway (`cost`) n'est ni lu ni exposé — un test injecte
+999 € et vérifie qu'il n'apparaît jamais. Le coût interne vient des heures M04, le coût externe
+de la facture. Aucun statut n'est inventé. Aucun import de module `02_TRAVAIL` dans `app/`.
+
+### Limites des données réelles
+
+Un seul mois rapproché : **`2026-05`** (Lot6d fixe `MONTH` en dur). 18 lignes, 7 avec écart,
+6 à contrôler. `CONFLIT_TITLE_ASSIGNEE` : 15 occurrences à instruire côté moteur.
+
+### Reste à faire
+
+Attendu métier dans le moteur · mois paramétrable dans Lot6d · matching relançable
+(instantané + confirmation) · trancher le statut de l'outrepassage SQLite · vendorer HTMX si
+rafraîchissement partiel souhaité (aucun CDN autorisé ; le tableau est déjà isolé en partial).
+
+Documentation : `00_CADRAGE/APPLICATION_LOCALE/APP2_MENAGES_ETAT.md`. Contrôle : `CTR-APP2A-MENAGES-01`.
+
+## APP-2b — Recalcul du rapprochement (sur copies, mode réel gardé)
+
+Statut : `APP-2B_RECALCUL_COPIES_EN_ATTENTE_VALIDATION` — implémenté, testé, **non commité**.
+
+Bouton **« Relancer le rapprochement… »** réellement fonctionnel : parcours préparation → confirmation
+→ résultat (POST-Redirect-GET). Le mode **COPIES** exécute lot6d puis lot6e dans un workspace copié
+sous `data/menages_recalc/` (via `runners/menages_recalcul_runner.py`, hors paquet `app/`, interpréteur
+moteur) et compare l'état produit au réel — **aucun fichier métier touché**. Le mode **RÉEL** reste
+**bloqué** par `MENAGES_REAL_RECALC_ENABLED = False` ; `confirmer(REEL)` refuse et trace un run
+`BLOQUE`. lot6f exclu (source réseau Google Sheet, non déterministe hors ligne).
+
+Garde-fous (repris d'APP-3b) : verrou interprocessus dédié libéré en `finally` ; préflight (Excel
+ouvert `~$`, source absente, verrou) ; snapshot + manifeste sha256 avant ; `SUCCES` seulement si
+`rc==0` **et** sorties présentes ; recontrôle sha256 réel avant/après. Historique dans
+`menages_recalcul_runs` (migration 0005). Recette E2E prouvée sur copies (MASTER réel sha inchangé).
+
+Affichage livré : indicateur de **fraîcheur** (mtime sources vs master), **export CSV** en mémoire
+(filtres partagés), bloc **« pourquoi cette ligne est à contrôler ? »**. **Attendu métier NON fabriqué** :
+la règle est D100/D099 (attendu réservé aux logements hors Hostaway, anti double-comptage) ; gap
+décision↔code documenté (lot6d n'ajoute pas les réservations HH) ; décision humaine requise, aucun Lot6g
+deviné. Documentation : `APP2_MENAGES_ETAT.md` §9-§14. Contrôle : `CTR-APP2B-RECALCUL-01`.

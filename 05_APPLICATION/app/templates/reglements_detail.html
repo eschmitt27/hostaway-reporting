@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}Propriétaire — règlements{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+  <a href="/proprietaires-reglements" class="back-link">← Propriétaires &amp; règlements</a>
+  <h1 class="page-title">Propriétaire{% if detail and detail.status == "OK" %} — {{ detail.vue.nom if detail.vue else detail.proprietaire_id }}{% endif %}</h1>
+</div>
+
+{% if detail is none %}
+<div class="alert alert-warning">Propriétaire <span class="font-mono">{{ proprietaire_id }}</span> introuvable.</div>
+{% elif detail.status != "OK" %}
+<div class="alert alert-error">Source indisponible : {{ detail.etat_source.etat_libelle }}.</div>
+{% else %}
+{% set v = detail.vue %}
+
+{% if v %}
+<div class="card mb-md">
+  <h2 class="card-title">1 · Résultat de la période {{ detail.mois }}</h2>
+  <dl class="detail-grid">
+    <div><dt>Propriétaire</dt><dd class="font-mono">{{ detail.proprietaire_id }}</dd></div>
+    <div><dt>Logements</dt><dd>{{ v.nb_logements }}</dd></div>
+    <div><dt>Réservations</dt><dd>{{ v.nb_reservations if v.nb_reservations is not none else "—" }}</dd></div>
+    <div><dt>CA retenu</dt><dd>{{ "%.2f"|format(v.ca_retenu) if v.ca_retenu is not none else "—" }} €</dd></div>
+    <div><dt>Ménage</dt><dd>{{ "%.2f"|format(v.menage) if v.menage is not none else "—" }} €</dd></div>
+    <div><dt>Base commission</dt><dd>{{ "%.2f"|format(v.base_commission) if v.base_commission is not none else "—" }} €</dd></div>
+    <div><dt>Commission (moteur)</dt><dd>{{ "%.2f"|format(v.commission) if v.commission is not none else "—" }} €</dd></div>
+    <div><dt>Autres impacts</dt><dd>{{ "%.2f"|format(v.autres_impacts) if v.autres_impacts is not none else "—" }} €</dd></div>
+    <div><dt>Net avant charge</dt><dd>{{ "%.2f"|format(v.net_avant_charge) if v.net_avant_charge is not none else "—" }} €</dd></div>
+    <div><dt>Net propriétaire</dt><dd><strong>{{ "%.2f"|format(v.net) if v.net is not none else "—" }} €</strong></dd></div>
+    <div><dt>Reste à régler</dt><dd>{{ "%.2f"|format(v.reste) if v.reste is not none else "—" }} €</dd></div>
+  </dl>
+  <p class="section-note">CA retenu ≠ commission ≠ net : montants distincts, tous produits par le moteur.</p>
+</div>
+{% endif %}
+
+<div class="card mb-md">
+  <h2 class="card-title">2 · Logements &amp; règlements</h2>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Logement</th><th class="num">CA</th><th class="num">Commission</th><th class="num">Net avant charge</th>
+        <th class="num">Acomptes</th><th class="num">Paiement</th><th class="num">Reste</th><th>Statut règlement</th></tr></thead>
+      <tbody>
+        {% for l in detail.logements %}
+        <tr>
+          <td class="font-mono text-xs">{{ l.logement_id }}</td>
+          <td class="num">{{ "%.2f"|format(l.total_payout) if l.total_payout is not none else "—" }}</td>
+          <td class="num">{{ "%.2f"|format(l.total_commission) if l.total_commission is not none else "—" }}</td>
+          <td class="num">{{ "%.2f"|format(l.net_avant_charge) if l.net_avant_charge is not none else "—" }}</td>
+          <td class="num">{{ "%.2f"|format(l.acomptes) }}</td>
+          <td class="num">{{ "%.2f"|format(l.paiement) if l.paiement is not none else "—" }}</td>
+          <td class="num">{{ "%.2f"|format(l.reste) if l.reste is not none else "—" }}</td>
+          <td class="text-xs">{{ l.statut_reglement or "—" }}</td>
+        </tr>
+        {% else %}<tr><td colspan="8" class="section-note">Aucun règlement détaillé.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="grid-2 mb-md">
+  <div class="card">
+    <h2 class="card-title">3 · Taux de commission (historique)</h2>
+    <table class="data-table">
+      <thead><tr><th>Logement</th><th class="num">Taux</th></tr></thead>
+      <tbody>
+        {% for t in detail.taux_historiques %}
+        <tr><td class="font-mono text-xs">{{ t.logement_id }}</td><td class="num">{{ "%.1f"|format(t.taux*100) if t.taux is not none and t.taux < 1 else t.taux }}{% if t.taux is not none and t.taux < 1 %} %{% endif %}</td></tr>
+        {% else %}<tr><td colspan="2" class="section-note">Aucun taux.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+    <p class="section-note">Taux appliqué produit par le moteur (15 % jusqu'au 31/01/2026, puis propre au propriétaire/logement). Jamais recalculé ici.</p>
+  </div>
+  <div class="card">
+    <h2 class="card-title">4 · Factures</h2>
+    <table class="data-table">
+      <thead><tr><th>Facture</th><th>Logement</th><th>Statut</th><th class="num">Reste</th></tr></thead>
+      <tbody>
+        {% for f in detail.factures %}
+        <tr><td class="font-mono text-xs">{{ f.facture_id }}</td><td class="font-mono text-xs">{{ f.logement_id }}</td>
+          <td class="text-xs">{{ f.statut_facture }} / {{ f.statut_generation }}</td>
+          <td class="num">{{ "%.2f"|format(f.reste_a_payer) if f.reste_a_payer is not none else "—" }}</td></tr>
+        {% else %}<tr><td colspan="4" class="section-note">Aucune facture. (Une préfacture n'est pas une facture.)</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card mb-md">
+  <h2 class="card-title">5 · Anomalies &amp; contrôles</h2>
+  {% if detail.anomalies %}
+    {% for an in detail.anomalies %}
+    <div class="anomalie">
+      <span class="status-badge status-a-controler">{{ an.severite }}</span>
+      <span class="font-mono text-xs">{{ an.code }}</span>
+      <p class="section-note">{{ an.description }}</p>
+    </div>
+    {% endfor %}
+  {% else %}<p class="section-note">Aucune anomalie moteur pour ce propriétaire sur la période.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2 class="card-title">6 · Traçabilité</h2>
+  <p class="section-note">Sources : {% for s in detail.tracabilite.sources %}<span class="font-mono text-xs">{{ s }}</span>{% if not loop.last %}, {% endif %}{% endfor %}. {{ detail.tracabilite.note }}</p>
+</div>
+{% endif %}
+
+{% endblock %}

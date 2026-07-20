@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from app.config import TEMPLATES_DIR, DB_PATH
+from app.config import TEMPLATES_DIR
 from app.adapters.pipeline_registry import list_scripts
 from app.adapters.pipeline_runner import run_pipeline
 from app.db.connection import get_db
@@ -27,7 +27,7 @@ def sources_calculs(request: Request):
 
 @router.post("/sources-calculs/run", response_class=HTMLResponse)
 def run_script(request: Request, script_name: str = Form(...)):
-    result = run_pipeline(script_name, dry_run=True, db_path=DB_PATH)
+    result = run_pipeline(script_name, dry_run=True)
     runs = _get_recent_pipeline_runs()
     return templates.TemplateResponse(request, "partials/pipeline_log.html", {
         "result": result,
@@ -36,7 +36,7 @@ def run_script(request: Request, script_name: str = Form(...)):
 
 
 def _get_recent_pipeline_runs(limit: int = 20) -> list[dict]:
-    conn = get_db(DB_PATH)
+    conn = get_db()
     try:
         rows = conn.execute(
             "SELECT id, ts, script_name, dry_run, status, duration_ms FROM pipeline_runs ORDER BY id DESC LIMIT ?",

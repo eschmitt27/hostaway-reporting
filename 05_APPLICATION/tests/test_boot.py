@@ -22,8 +22,8 @@ def test_health_responds(client):
     r = client.get("/health")
     assert r.status_code in (200, 503)
     data = r.json()
-    assert "status" in data
-    assert "checks" in data
+    # Contrat public minimal APP-SEC-1 : aucun chemin, aucun détail technique.
+    assert set(data.keys()) == {"status", "application", "database", "sources", "writers_enabled"}
 
 
 def test_static_css_accessible(client):
