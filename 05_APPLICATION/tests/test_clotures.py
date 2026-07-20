@@ -271,13 +271,13 @@ def test_30_migration_depuis_0007(tmp_path):
 # ── 31 : idempotence ────────────────────────────────────────────────────────────
 
 def test_31_idempotence(tmp_path):
-    from app.db.connection import apply_migrations, get_db
+    from app.db.connection import apply_migrations, get_db, MIGRATIONS_DIR
     db = tmp_path / "idem.db"
     apply_migrations(db); apply_migrations(db)
     conn = get_db(db)
     n = conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0]
     conn.close()
-    assert n == 8
+    assert n == len(list(MIGRATIONS_DIR.glob("*.sql")))   # une entree par fichier, jamais dupliquee
 
 
 # ── 32 : concurrence légère / transaction atomique ───────────────────────────
