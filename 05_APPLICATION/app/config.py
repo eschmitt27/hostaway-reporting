@@ -59,6 +59,12 @@ MASTER_CAISSE = None
 # Propriétaires & règlements (APP-3C) — complète MASTER_NET_PROPRIETAIRE / MASTER_FACT_PROPRIETAIRES.
 MASTER_COMMISSIONS = TRAVAIL / "Lot10_Resultats" / "MASTER_CALC_Commissions.xlsx"
 MASTER_RESULTATS = TRAVAIL / "Lot10_Resultats" / "MASTER_CALC_Resultats.xlsx"
+# Relevés propriétaires (APP-3D) — sources brutes non encore lues par aucun module applicatif.
+SAISIE_ACOMPTES_PROPRIETAIRES = SOURCES_BRUTES / "AcomptesProprietaires" / "SAISIE_AcomptesProprietaires.xlsx"
+SAISIE_AIRCOVER = SOURCES_BRUTES / "AirCover" / "SAISIE_AirCover.xlsx"
+SAISIE_IMPUTATIONS_AIRBNB = SOURCES_BRUTES / "ImputationsAirbnb" / "SAISIE_ImputationsAirbnb.xlsx"
+SAISIE_AJUSTEMENTS_POST_CLOTURE = SOURCES_BRUTES / "AjustementsPostCloture" / "SAISIE_Ajustements_PostCloture.xlsx"
+PROPRIETAIRE_OPAQUE_SALT = "APP3D_RELEVES_v1"
 # Contrôles & clôture (APP-5A) — alias fichier (MASTER_CTRL_COHERENCE pointe déjà le fichier).
 MASTER_CTRL_COHERENCE_FILE = MASTER_CTRL_COHERENCE
 # Chemin autonome obsolète — source officielle : REF_SETUP onglet REF_Cloture_Mensuelle.
