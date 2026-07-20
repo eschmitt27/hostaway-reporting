@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}Contrôle — élément{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <a href="/controles-cloture" class="back-link">← Contrôles &amp; clôture</a>
+  <h1 class="page-title">Contrôle détaillé</h1>
+</div>
+
+{% if fiche is none %}
+<div class="alert alert-warning">Contrôle introuvable.</div>
+<a href="/controles-cloture" class="btn btn-secondary">← Retour</a>
+{% else %}
+{% set e = fiche.element %}
+{% set etat = e.etat %}
+
+{% if erreur %}<div class="alert alert-error">{{ erreur }}</div>{% endif %}
+
+<div class="alert alert-info">
+  Le moteur reste la vérité de l'anomalie. Le suivi ci-dessous est journalisé dans une base isolée
+  (<code>CONTROLES_REAL_WRITE_ENABLED = False</code>) et ne masque jamais une anomalie moteur présente.
+</div>
+
+<div class="grid-2 mb-md">
+  <div class="card">
+    <h2 class="card-title">Anomalie moteur</h2>
+    <dl class="detail-grid">
+      <div><dt>Code</dt><dd class="font-mono text-xs">{{ e.code }}</dd></div>
+      <div><dt>Module</dt><dd>{{ e.module }}</dd></div>
+      <div><dt>Niveau</dt><dd><span class="status-badge status-{{ 'info' if e.est_info else 'a-controler' }}">{{ e.niveau }}</span></dd></div>
+      <div><dt>Période</dt><dd class="font-mono text-xs">{{ e.mois or "—" }}</dd></div>
+      <div><dt>Anomalie moteur</dt><dd>
+        {% if e.est_info %}<span class="badge badge-info">Informatif — aucune action requise</span>
+        {% elif etat.anomalie_moteur_presente %}<span class="status-badge status-a-controler">Présente</span>
+        {% else %}<span class="status-badge status-valide">Absente</span>{% endif %}</dd></div>
+      <div><dt>Classification</dt><dd>{{ e.classification_libelle or "—" }}</dd></div>
+    </dl>
+    <p class="section-note mt-sm">{{ e.resume }}</p>
+  </div>
+
+  <div class="card">
+    <h2 class="card-title">Données détaillées</h2>
+    <dl class="detail-grid">
+      {% for k, v in e.donnees.items() %}
+      <div><dt>{{ k|replace('_',' ') }}</dt><dd class="text-xs">{{ v if v not in [none, ''] else "—" }}</dd></div>
+      {% endfor %}
+    </dl>
+    {% if e.lien_module %}
+    <a href="{{ e.lien_module }}" class="btn btn-primary mt-md">{{ e.lien_libelle }}</a>
+    {% else %}
+    <p class="section-note mt-md">{{ e.lien_libelle or "Aucun écran de correction disponible pour ce contrôle." }}</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card mb-md">
+  <h2 class="card-title">Suivi humain</h2>
+  {% if fiche.suivi %}
+  <dl class="detail-grid">
+    <div><dt>Statut de suivi</dt><dd><span class="status-badge status-{{ 'valide' if etat.statut_suivi in ['RESOLU','ACCEPTE_AVEC_JUSTIFICATION'] else 'info' }}">{{ etat.statut_suivi_libelle }}</span>
+      {% if etat.incoherence_suivi %}<span class="badge badge-warn">⚠ Résolu mais anomalie présente</span>{% endif %}
+      {% if etat.statut_suivi == 'ROUVERT' %}<span class="badge badge-warn">Réapparu</span>{% endif %}</dd></div>
+    <div><dt>Résultat humain</dt><dd>{{ etat.resultat_humain or "—" }}</dd></div>
+    <div><dt>Prise en charge</dt><dd>{{ etat.prise_en_charge }}</dd></div>
+    <div><dt>Responsable</dt><dd>{{ fiche.suivi.responsable or "—" }}</dd></div>
+    <div><dt>Commentaire</dt><dd>{{ fiche.suivi.commentaire or "—" }}</dd></div>
+    {% if fiche.suivi.justification %}<div><dt>Justification</dt><dd>{{ fiche.suivi.justification }}</dd></div>{% endif %}
+    {% if fiche.suivi.preuve_reference %}<div><dt>Preuve / recalcul</dt><dd>{{ fiche.suivi.preuve_reference }}</dd></div>{% endif %}
+    <div><dt>Version</dt><dd>{{ fiche.suivi.version }}</dd></div>
+  </dl>
+  {% if etat.exception_active %}
+  <p class="section-note mt-sm"><strong>Anomalie toujours présente — exception acceptée.</strong>
+    Portée : {{ fiche.suivi.exception_portee or "ENTITE" }}{% if fiche.suivi.exception_expiration %}, expire le {{ fiche.suivi.exception_expiration }}{% endif %}.</p>
+  {% endif %}
+  {% else %}
+  <p class="section-note">Aucun suivi enregistré. Le moteur reste la seule source de l'anomalie.</p>
+  {% endif %}
+</div>
+
+{% if not e.est_info %}
+<div class="card mb-md">
+  <h2 class="card-title">Actions (journal isolé)</h2>
+  <form method="post" action="/controles-cloture/element/{{ e.ctrl_opaque }}/action">
+    <div class="form-grid-3">
+      <div class="form-field"><label>Responsable</label><input type="text" name="responsable" class="filter-input"></div>
+      <div class="form-field form-field-full"><label>Commentaire</label><textarea name="commentaire" class="filter-input"></textarea></div>
+      <div class="form-field form-field-full"><label>Justification (exception)</label><textarea name="justification" class="filter-input"></textarea></div>
+      <div class="form-field"><label>Preuve / recalcul (corrigé)</label><input type="text" name="preuve_reference" class="filter-input"></div>
+      <div class="form-field"><label>Motif (réouverture)</label><input type="text" name="motif" class="filter-input"></div>
+      <div class="form-field"><label>Portée exception</label>
+        <select name="portee" class="filter-input"><option value="ENTITE">Entité</option><option value="MOIS">Mois</option><option value="PERIODE">Période</option></select></div>
+    </div>
+    <div class="flex gap-md mt-md">
+      {% set ap = fiche.actions_possibles %}
+      {% if 'prendre_en_charge' in ap %}<button type="submit" name="action" value="prendre_en_charge" class="btn btn-secondary">Prendre en charge</button>{% endif %}
+      {% if 'commenter' in ap %}<button type="submit" name="action" value="commenter" class="btn btn-ghost">Commenter</button>{% endif %}
+      {% if 'marquer_corrige' in ap %}<button type="submit" name="action" value="marquer_corrige" class="btn btn-primary">Marquer corrigé</button>{% endif %}
+      {% if 'accepter_exception' in ap %}<button type="submit" name="action" value="accepter_exception" class="btn btn-secondary">Accepter l'exception</button>{% endif %}
+      {% if 'rouvrir' in ap %}<button type="submit" name="action" value="rouvrir" class="btn btn-secondary">Rouvrir</button>{% endif %}
+      {% if 'annuler' in ap %}<button type="submit" name="action" value="annuler" class="btn btn-ghost">Annuler la décision</button>{% endif %}
+    </div>
+  </form>
+  {% if 'recalcul_copie' in fiche.actions_possibles %}
+  <form method="post" action="/controles-cloture/element/{{ e.ctrl_opaque }}/recalcul-copie" class="mt-md">
+    <button type="submit" class="btn btn-secondary">Relancer le contrôle sur copie (Lot8c + Lot11)</button>
+    <span class="section-note">Copie isolée ; le réel n'est jamais touché.</span>
+  </form>
+  {% endif %}
+  <p class="section-note mt-sm">Règles : « Corrigé » exige une preuve et l'absence d'anomalie moteur ;
+    « Exception » exige une justification ; « Rouvrir » exige un motif.</p>
+</div>
+{% else %}
+<div class="card mb-md">
+  <p class="section-note"><strong>Contrôle informatif.</strong> Aucune action de résolution métier
+    par défaut. Vous pouvez consulter le détail ou ajouter un commentaire.</p>
+</div>
+{% endif %}
+
+{% if fiche.historique %}
+<div class="card">
+  <h2 class="card-title">Historique du suivi</h2>
+  <table class="data-table">
+    <thead><tr><th>Version</th><th>Action</th><th>Ancien</th><th>Nouveau</th><th>Auteur</th><th>Date</th></tr></thead>
+    <tbody>
+      {% for h in fiche.historique %}
+      <tr><td>{{ h.version }}</td><td class="font-mono text-xs">{{ h.action }}</td>
+        <td class="text-xs">{{ h.ancienne_valeur or "—" }}</td><td class="text-xs">{{ h.nouvelle_valeur or "—" }}</td>
+        <td class="text-xs">{{ h.auteur or "—" }}</td><td class="font-mono text-xs">{{ h.date_action }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}

@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}Contrôles & clôture{% endblock %}
+
+{% set d = data %}
+{% set a = data.applied %}
+{% set o = data.options %}
+{% set c = data.cartes %}
+
+{% block content %}
+
+<div class="page-header flex justify-between items-center">
+  <div>
+    <h1 class="page-title">Contrôles &amp; clôture</h1>
+    <p class="page-subtitle">Contrôles moteur détaillés &amp; suivi humain · lu le {{ d.read_at }}</p>
+  </div>
+  <div class="flex gap-sm items-center">
+    {% set params = [] %}
+    {% for k, v in a.items() if k not in ['page'] and v not in [None, '', False] %}
+      {% set _ = params.append(k ~ '=' ~ (v|lower if v is boolean else v)) %}
+    {% endfor %}
+    <a href="/controles-cloture/export.csv{% if params %}?{{ params|join('&') }}{% endif %}" class="btn btn-secondary">Export CSV</a>
+    <a href="/controles-cloture/bloquants" class="btn btn-secondary">Bloquants moteur</a>
+    <span class="read-only-badge">Clôture réelle non active</span>
+  </div>
+</div>
+
+<div class="kpi-grid kpi-grid--6">
+  <div class="kpi-card kpi-card--warn"><div class="kpi-label">Anomalies moteur</div><div class="kpi-value">{{ c.anomalies_moteur }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">À traiter</div><div class="kpi-value">{{ c.a_traiter }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">En cours</div><div class="kpi-value">{{ c.en_cours }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Résolus</div><div class="kpi-value">{{ c.resolus }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Exceptions</div><div class="kpi-value">{{ c.exceptions }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Réapparus</div><div class="kpi-value">{{ c.reapparus }}</div></div>
+</div>
+<div class="kpi-grid kpi-grid--6 mt-sm">
+  <div class="kpi-card kpi-card--muted"><div class="kpi-label">Informatifs</div><div class="kpi-value">{{ c.informatifs }}</div><div class="kpi-sub">aucune action requise</div></div>
+  <div class="kpi-card kpi-card--warn"><div class="kpi-label">Bloquants clôture</div><div class="kpi-value">{{ c.bloquants_cloture }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Incohérences suivi</div><div class="kpi-value">{{ c.incoherences }}</div></div>
+</div>
+
+<div class="tabs mt-md">
+  {% for vk, vlib in d.vues.items() %}
+  <a href="/controles-cloture?vue={{ vk }}{% if a.mois %}&mois={{ a.mois }}{% endif %}"
+     class="tab {{ 'tab--active' if d.vue == vk }}">{{ vlib }}</a>
+  {% endfor %}
+</div>
+
+<form method="get" action="/controles-cloture" class="filter-bar mt-md">
+  <input type="hidden" name="vue" value="{{ d.vue }}">
+  <label>Période <select name="mois"><option value="">Toutes</option>
+    {% for p in o.mois %}<option value="{{ p.id }}" {{ 'selected' if p.id == a.mois }}>{{ p.libelle }}</option>{% endfor %}</select></label>
+  <label>Module <select name="module"><option value="">Tous</option>
+    {% for p in o.modules %}<option value="{{ p.id }}" {{ 'selected' if p.id == a.module }}>{{ p.libelle }}</option>{% endfor %}</select></label>
+  <label>Niveau <select name="niveau"><option value="">Tous</option>
+    {% for p in o.niveaux %}<option value="{{ p.id }}" {{ 'selected' if p.id == a.niveau }}>{{ p.libelle }}</option>{% endfor %}</select></label>
+  <label>Code <select name="code"><option value="">Tous</option>
+    {% for p in o.codes %}<option value="{{ p.id }}" {{ 'selected' if p.id == a.code }}>{{ p.libelle }}</option>{% endfor %}</select></label>
+  <label>Statut suivi <select name="statut_suivi"><option value="">Tous</option>
+    {% for p in o.statuts_suivi %}<option value="{{ p.id }}" {{ 'selected' if p.id == a.statut_suivi }}>{{ p.libelle }}</option>{% endfor %}</select></label>
+  <label>Responsable <select name="responsable"><option value="">Tous</option>
+    {% for p in o.responsables %}<option value="{{ p.id }}" {{ 'selected' if p.id == a.responsable }}>{{ p.libelle }}</option>{% endfor %}</select></label>
+  <label>Propriétaire <select name="proprietaire"><option value="">Tous</option>
+    {% for p in o.proprietaires %}<option value="{{ p.id }}" {{ 'selected' if p.id == a.proprietaire }}>{{ p.libelle }}</option>{% endfor %}</select></label>
+  <label>Logement <select name="logement"><option value="">Tous</option>
+    {% for p in o.logements %}<option value="{{ p.id }}" {{ 'selected' if p.id == a.logement }}>{{ p.libelle }}</option>{% endfor %}</select></label>
+  <label>Recherche <input type="text" name="recherche" value="{{ a.recherche or '' }}" size="12"></label>
+  <label>&nbsp;<label><input type="checkbox" name="actionnables_seul" value="true" {{ 'checked' if a.actionnables_seul }}> Actionnables</label></label>
+  <label>&nbsp;<label><input type="checkbox" name="cloture_bloquee" value="true" {{ 'checked' if a.cloture_bloquee }}> Bloque clôture</label></label>
+  <button type="submit" class="btn btn-primary">Filtrer</button>
+</form>
+
+<div class="card mb-md">
+  <p class="section-note">{{ d.count_filtre }} élément(s) — page {{ d.page }}/{{ d.pages }}</p>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Période</th><th>Module</th><th>Code</th><th>Niveau</th><th>Résumé</th>
+        <th>Anomalie moteur</th><th>Suivi</th><th>Impact clôture</th><th></th></tr></thead>
+      <tbody>
+        {% for e in d.rows %}
+        <tr>
+          <td class="font-mono text-xs">{{ e.mois or "—" }}</td>
+          <td class="text-xs">{{ e.module }}</td>
+          <td class="font-mono text-xs">{{ e.code }}</td>
+          <td><span class="status-badge status-{{ 'info' if e.est_info else ('bloquant' if e.niveau == 'BLOQUANT' else 'a-controler') }}">{{ e.niveau }}</span></td>
+          <td class="text-xs">{{ e.resume[:64] }}</td>
+          <td class="text-xs">
+            {% if e.est_info %}<span class="badge badge-info">Informatif</span>
+            {% elif e.etat.anomalie_moteur_presente %}<span class="status-badge status-a-controler">Présente</span>
+            {% else %}<span class="status-badge status-valide">Absente</span>{% endif %}
+          </td>
+          <td class="text-xs">
+            {% if e.est_info %}—
+            {% else %}<span class="status-badge status-{{ 'valide' if e.etat.statut_suivi in ['RESOLU','ACCEPTE_AVEC_JUSTIFICATION'] else 'info' }}">{{ e.etat.statut_suivi_libelle }}</span>
+              {% if e.etat.incoherence_suivi %}<span class="badge badge-warn" title="Résolu mais anomalie présente">⚠ incohérent</span>{% endif %}
+              {% if e.etat.statut_suivi == 'ROUVERT' %}<span class="badge badge-warn">Réapparu</span>{% endif %}
+            {% endif %}
+          </td>
+          <td class="text-xs">
+            {% if e.est_info %}<span class="text-secondary">Aucun</span>
+            {% elif e.etat.exception_active %}Exception
+            {% elif e.etat.anomalie_moteur_presente %}<span class="text-warn">Bloque</span>
+            {% else %}—{% endif %}
+          </td>
+          <td><a href="/controles-cloture/element/{{ e.ctrl_opaque }}">Voir</a></td>
+        </tr>
+        {% else %}<tr><td colspan="9" class="section-note">Aucun élément pour cette vue.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if d.pages > 1 %}
+  <div class="pagination">
+    {% set base = '/controles-cloture?' ~ (params|join('&')) %}
+    {% if d.page > 1 %}<a href="{{ base }}&page={{ d.page - 1 }}">← Précédent</a>{% endif %}
+    <span class="current">{{ d.page }} / {{ d.pages }}</span>
+    {% if d.page < d.pages %}<a href="{{ base }}&page={{ d.page + 1 }}">Suivant →</a>{% endif %}
+  </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2 class="card-title">Préparation clôture par mois <span class="read-only-badge">Clôture réelle non active</span></h2>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Mois</th><th>Préparation</th><th>Anomalies</th><th>Bloquantes</th><th>Exceptions</th></tr></thead>
+      <tbody>
+        {% for p in d.preparation_cloture %}
+        <tr>
+          <td class="font-mono text-xs">{{ p.mois }}</td>
+          <td><span class="status-badge status-{{ 'valide' if p.statut == 'PRET' else ('a-controler' if p.statut in ['A_CONTROLER','PRET_SOUS_EXCEPTION'] else 'bloquant') }}">{{ p.statut }}</span></td>
+          <td>{{ p.nb_anomalies }}</td><td>{{ p.nb_bloquantes }}</td><td>{{ p.nb_exceptions }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="origine-block-card mt-md">
+  <strong>Le moteur reste la vérité de l'anomalie.</strong> Le suivi humain (prise en charge, exception,
+  résolution) est journalisé séparément et ne masque jamais une anomalie moteur encore présente. Les
+  contrôles informatifs n'exigent aucune action et ne bloquent pas la clôture. Recalcul moteur sur
+  copies uniquement ; aucune clôture réelle (préparation APP-5C).
+</div>
+
+{% endblock %}

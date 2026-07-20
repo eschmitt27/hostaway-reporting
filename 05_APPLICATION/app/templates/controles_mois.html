@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Clôture — mois{% endblock %}
+
+{% set d = data %}
+
+{% block content %}
+
+<div class="page-header">
+  <a href="/controles-cloture" class="back-link">← Contrôles &amp; clôture</a>
+  <h1 class="page-title">Clôture du mois {{ d.mois }}</h1>
+</div>
+
+<div class="card mb-md">
+  <h2 class="card-title">
+    Statut :
+    <span class="status-badge status-{{ 'valide' if d.statut_mois == 'CLOTURE' else ('a-controler' if d.statut_mois == 'EN_CONTROLE' else 'info') }}">{{ d.statut_mois or "—" }}</span>
+  </h2>
+  <dl class="detail-grid">
+    <div><dt>Clôturable (moteur)</dt>
+      <dd><span class="status-badge status-{{ 'valide' if d.cloturable else 'bloquant' }}">
+        {{ 'oui' if d.cloturable else ('non' if d.cloturable is false else '—') }}</span>
+        {% if d.cloture_possible_moteur %} <span class="text-xs text-secondary">({{ d.cloture_possible_moteur }})</span>{% endif %}</dd></div>
+    <div><dt>Date de clôture</dt><dd class="font-mono">{{ d.date_cloture or "—" }}</dd></div>
+    <div><dt>Passage en contrôle</dt><dd class="font-mono">{{ d.date_controle or "—" }}</dd></div>
+  </dl>
+  {% if d.commentaire %}<p class="section-note">{{ d.commentaire }}</p>{% endif %}
+  {% if d.anomalies_post_cloture %}
+  <div class="alert alert-warning mt-md"><strong>Anomalie après clôture.</strong> Des contrôles bloquants ouverts subsistent alors que le mois est marqué clôturé — visibles ci-dessous.</div>
+  {% endif %}
+  {% if d.sources_manquantes %}
+  <div class="alert alert-error mt-md"><strong>Sources indisponibles :</strong>
+    {% for e in d.sources_manquantes %}{{ e.fichier }} ({{ e.onglet }}) — {{ e.etat_libelle }}{% if not loop.last %}; {% endif %}{% endfor %}</div>
+  {% endif %}
+</div>
+
+<div class="card mb-md">
+  <h2 class="card-title">Contrôles bloquants ({{ d.bloquants|length }}) — empêchent la clôture</h2>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Code</th><th>Module</th><th>Message</th><th>Entité</th><th>Statut</th><th></th></tr></thead>
+      <tbody>
+        {% for c in d.bloquants %}
+        <tr><td class="font-mono text-xs">{{ c.code }}</td><td class="text-xs">{{ c.module }}</td>
+          <td class="text-xs">{{ c.message[:60] }}</td><td class="font-mono text-xs">{{ c.entite or "—" }}</td>
+          <td class="text-xs">{{ c.statut }}</td><td><a href="/controles-cloture/{{ c.stable_id }}">Voir</a></td></tr>
+        {% else %}<tr><td colspan="6" class="section-note">Aucun contrôle bloquant ouvert pour ce mois.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card mb-md">
+  <h2 class="card-title">Contrôles à contrôler ({{ d.a_controler|length }})</h2>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Code</th><th>Module</th><th>Message</th><th>Statut</th><th></th></tr></thead>
+      <tbody>
+        {% for c in d.a_controler %}
+        <tr><td class="font-mono text-xs">{{ c.code }}</td><td class="text-xs">{{ c.module }}</td>
+          <td class="text-xs">{{ c.message[:70] }}</td><td class="text-xs">{{ c.statut }}</td>
+          <td><a href="/controles-cloture/{{ c.stable_id }}">Voir</a></td></tr>
+        {% else %}<tr><td colspan="5" class="section-note">Aucun.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <button type="button" class="btn btn-primary" disabled title="Non activé — lot ultérieur">Clôturer le mois — prochain lot</button>
+  <span class="text-xs text-secondary">La clôture réelle n'est pas activée à ce lot. Aucun changement d'état OUVERT/EN_CONTROLE/CLOTURE depuis l'application.</span>
+</div>
+
+{% endblock %}

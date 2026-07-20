@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Contrôles bloquants{% endblock %}
+
+{% set d = data %}
+
+{% block content %}
+
+<div class="page-header">
+  <a href="/controles-cloture" class="back-link">← Contrôles &amp; clôture</a>
+  <h1 class="page-title">Contrôles bloquants</h1>
+  <p class="page-subtitle">Niveau BLOQUANT uniquement — produits par le moteur. Lu le {{ d.read_at }}.</p>
+</div>
+
+{% if d.status != "OK" %}
+<div class="alert alert-error">Source indisponible : {{ d.etat_source.etat_libelle }}.</div>
+{% elif not d.lignes %}
+<div class="alert alert-info"><strong>Aucun contrôle bloquant ouvert.</strong></div>
+{% else %}
+
+{% for module, controles in d.par_module.items() %}
+<div class="card mb-md">
+  <h2 class="card-title">{{ module }} <span class="status-badge status-bloquant">{{ controles|length }}</span></h2>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Période</th><th>Code</th><th>Message</th><th>Entité</th><th>Statut</th><th>Mois</th><th></th></tr></thead>
+      <tbody>
+        {% for c in controles %}
+        <tr>
+          <td class="font-mono text-xs">{{ c.mois or "—" }}</td>
+          <td class="font-mono text-xs">{{ c.code }}</td>
+          <td class="text-xs">{{ c.message[:60] }}</td>
+          <td class="font-mono text-xs">{{ c.entite or "—" }}</td>
+          <td class="text-xs">{{ c.statut }}</td>
+          <td>{% if c.mois %}<a href="/controles-cloture/mois/{{ c.mois }}">{{ c.mois }}</a>{% else %}—{% endif %}</td>
+          <td><a href="/controles-cloture/{{ c.stable_id }}">Voir</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+
+{% endblock %}

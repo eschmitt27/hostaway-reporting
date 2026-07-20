@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Recalcul sur copie{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <a href="/controles-cloture/element/{{ ctrl_opaque }}" class="back-link">← Contrôle</a>
+  <h1 class="page-title">Recalcul moteur sur copie — Lot8c → Lot11</h1>
+</div>
+
+<div class="alert alert-info">
+  Recalcul exécuté sur une <strong>copie isolée</strong> (Lot8c puis Lot11 réellement lancés). La
+  banque réelle et le MASTER_CTRL réel ne sont jamais modifiés
+  (<code>CONTROLES_REAL_WRITE_ENABLED = False</code>). La résolution est prouvée par le moteur, jamais
+  déduite du journal.
+</div>
+
+<div class="card mb-md">
+  <dl class="detail-grid">
+    <div><dt>Statut du run</dt><dd><span class="status-badge status-{{ 'valide' if resultat.statut == 'SUCCES' else ('a-controler' if resultat.statut == 'BLOQUE' else 'bloquant') }}">{{ resultat.statut }}</span></dd></div>
+    <div><dt>Conclusion moteur</dt><dd><span class="status-badge status-{{ 'valide' if resultat.verdict == 'RESOLU_MOTEUR' else ('a-controler' if resultat.verdict in ['TOUJOURS_PRESENT','TRANSFORME'] else 'info') }}">{{ resultat.verdict }}</span></dd></div>
+    <div><dt>Réel intact</dt><dd>{{ 'Oui' if resultat.reel_intact else 'NON — à vérifier' }}</dd></div>
+    <div><dt>Contrôle avant → après</dt><dd class="font-mono">{{ resultat.n_avant if resultat.n_avant is not none else '—' }} → {{ resultat.n_apres if resultat.n_apres is not none else '—' }}</dd></div>
+    <div><dt>Entrées copiées</dt><dd>{{ resultat.chemins|length }}{% if resultat.manquants %} ({{ resultat.manquants|length }} absente(s)){% endif %}</dd></div>
+    <div><dt>Run</dt><dd class="font-mono text-xs">{{ resultat.run_id }}</dd></div>
+  </dl>
+  <p class="section-note mt-sm">{{ resultat.motif }}</p>
+</div>
+
+{% if resultat.etapes %}
+<div class="card mb-md">
+  <h2 class="card-title">Étapes exécutées</h2>
+  <table class="data-table">
+    <thead><tr><th>Étape</th><th>Code retour</th><th>Durée</th><th>Détail</th></tr></thead>
+    <tbody>
+      {% for e in resultat.etapes %}
+      <tr>
+        <td class="font-mono text-xs">{{ e.etape }}</td>
+        <td>{% if e.rc is defined %}<span class="status-badge status-{{ 'valide' if e.rc == 0 else 'bloquant' }}">{{ e.rc }}</span>{% else %}—{% endif %}</td>
+        <td class="font-mono text-xs">{{ e.duree_s ~ ' s' if e.duree_s is defined else '—' }}</td>
+        <td class="text-xs">{% if e.mouvement_classe is defined %}mouvement classé : {{ 'oui' if e.mouvement_classe else 'non' }}{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<a href="/controles-cloture/element/{{ ctrl_opaque }}" class="btn btn-secondary mt-md">← Retour au contrôle</a>
+
+{% endblock %}

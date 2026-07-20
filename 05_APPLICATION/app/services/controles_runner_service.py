@@ -1,0 +1,403 @@
+"""Runner de recalcul moteur sur COPIES (APP-5B) — Lot8c puis Lot11 RÉELLEMENT exécutés.
+
+Corrige la limite APP-4B (« modifier NORM_Banque ne prouve rien ») ET la réserve APP-5B (« Lot8c/Lot11
+pas réellement exécutés »). Pour un élément bancaire, on construit un workspace isolé contenant toutes
+les entrées, on applique la décision humaine (classification) sur la COPIE de NORM_Banque, puis on
+lance réellement `lot8c_rapprochement_banque.py --project-root <ws> --no-real-write` puis
+`lot11_controles_coherence.py --project-root <ws> --no-real-write`. On compare la présence du contrôle
+bancaire AVANT / APRÈS. La résolution n'est jamais déduite de SQLite : elle est prouvée par le moteur.
+
+Le réel n'est jamais touché (SHA avant/après vérifié). Aucun chemin résolu ne sort du workspace.
+Flags réels toujours False. Aucun 500 : tout échec devient un run ÉCHEC/BLOQUE lisible.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import openpyxl
+
+import app.config as cfg
+from app.db.connection import get_db
+from app.services import banques_controle_service as banque_ctrl
+from app.services.path_sanitizer import sanitize_text as _sanitize
+
+STATUT_SUCCES = "SUCCES"
+STATUT_ECHEC = "ECHEC"
+STATUT_BLOQUE = "BLOQUE"
+
+# Verdicts moteur (jamais déduits de SQLite).
+V_RESOLU = "RESOLU_MOTEUR"
+V_PRESENT = "TOUJOURS_PRESENT"
+V_TRANSFORME = "TRANSFORME"
+V_ERREUR = "ERREUR_MOTEUR"
+V_NON_COMPARABLE = "NON_COMPARABLE"
+
+TIMEOUT_MOTEUR_S = 300
+
+# Entrées Lot11 (relatives à PROJECT_ROOT) — copiées dans le workspace, chemins confinés au workspace.
+INPUTS_LOT11 = [
+    "02_TRAVAIL/Lot9_FluxUnifie/MASTER_CALC_Flux.xlsx",
+    "02_TRAVAIL/Lot4quater_SourceResolue/MASTER_CALC_Reservations_Resolues.xlsx",
+    "02_TRAVAIL/Lot1_Hostaway/MASTER_CALC_HA_Payout.xlsx",
+    "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Commissions.xlsx",
+    "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_NetProprietaire.xlsx",
+    "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Resultats.xlsx",
+    "02_TRAVAIL/Lot1_Hostaway/MASTER_CTRL_HA_Anomalies.xlsx",
+    "02_TRAVAIL/Lot3_Charges/MASTER_FACT_MAN_Charges.xlsx",
+    "01_SOURCES_BRUTES/Charges/SAISIE_Charges_Flux.xlsx",
+    "02_TRAVAIL/Lot4_ReservationsHH/MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx",
+    "02_TRAVAIL/Lot5_AcomptesProprietaires/MASTER_FACT_MAN_AcomptesProprietaires.xlsx",
+    "02_TRAVAIL/Lot6c_MenagesExternes/MASTER_FACT_MEN_MenagesExternes.xlsx",
+    "02_DONNEES_NORMALISEES/menages/M04_MENAGES_PowerQuery.xlsx",
+    "02_TRAVAIL/Lot7_IK_Avantages/MASTER_FACT_MAN_IK_Avantages.xlsx",
+    "01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm",
+    "02_TRAVAIL/Lot8_Banque/BANQUE_LOT8_IMPORT.xlsx",
+    "01_SOURCES_BRUTES/AirCover/SAISIE_AirCover.xlsx",
+    "01_SOURCES_BRUTES/ImputationsAirbnb/SAISIE_ImputationsAirbnb.xlsx",
+    "01_SOURCES_BRUTES/AjustementsPostCloture/SAISIE_Ajustements_PostCloture.xlsx",
+    "02_TRAVAIL/Lot6b_DeclarationsInternes/MASTER_NORM_Declarations_Internes.xlsx",
+    "02_TRAVAIL/Lot6f_CoutComplet_Menages/MASTER_CALC_CoutComplet_Menages.xlsx",
+]
+BANQUE_REL = "02_TRAVAIL/Lot8_Banque/BANQUE_LOT8_IMPORT.xlsx"
+OUT_REL = "02_TRAVAIL/Lot11_Controles/MASTER_CTRL_Coherence.xlsx"
+SCRIPT_LOT8C = "lot8c_rapprochement_banque.py"
+SCRIPT_LOT11 = "lot11_controles_coherence.py"
+
+
+def _sha(p: Path) -> str:
+    h = hashlib.sha256()
+    with open(p, "rb") as f:
+        for c in iter(lambda: f.read(1 << 20), b""):
+            h.update(c)
+    return h.hexdigest()
+
+
+def _now_ns() -> str:
+    return datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+
+
+def _preflight() -> tuple[bool, str]:
+    if cfg.CONTROLES_REAL_WRITE_ENABLED or cfg.CONTROLES_REAL_WRITE_CONFIRMATION_ENABLED:
+        return False, "Flags d'écriture réelle actifs : recalcul sur copie refusé."
+    return True, ""
+
+
+def _engine_python() -> str | None:
+    """Interpréteur avec pandas (le moteur en dépend ; l'app peut tourner sous un python sans pandas)."""
+    candidats = []
+    if os.environ.get("PILOTAGE_ENGINE_PYTHON"):
+        candidats.append(os.environ["PILOTAGE_ENGINE_PYTHON"])
+    candidats += [sys.executable, r"C:\Program Files\Python312\python.exe"]
+    for c in candidats:
+        if not c or not Path(c).exists():
+            continue
+        try:
+            r = subprocess.run([c, "-c", "import pandas, openpyxl"], capture_output=True, timeout=30)
+            if r.returncode == 0:
+                return c
+        except Exception:
+            continue
+    return None
+
+
+INJECTION_MARQUEUR = "PILOTAGE_PROJECT_ROOT"
+
+
+def _scripts_dir() -> Path:
+    """Scripts moteur du WORKTREE isolé (injectés), jamais ceux du dépôt réel.
+
+    Les scripts injectés (`--project-root`/`--no-real-write`) vivent dans l'arbre applicatif isolé,
+    à côté du package `app` (APP_ROOT.parent/02_TRAVAIL). Utiliser `cfg.PROJECT_ROOT` pointerait vers
+    l'arbre RÉEL dont les scripts ne sont pas injectés et écriraient le réel : interdit.
+    """
+    return Path(cfg.APP_ROOT).parent / "02_TRAVAIL"
+
+
+def _script_injecte(script: str) -> bool:
+    """Vrai si le script moteur contient bien le marqueur d'injection (sinon : refus de l'exécuter)."""
+    p = _scripts_dir() / script
+    if not p.exists():
+        return False
+    try:
+        return INJECTION_MARQUEUR in p.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return False
+
+
+def _build_workspace(ws: Path) -> tuple[list[str], list[str]]:
+    """Copie les entrées dans le workspace. Retourne (chemins_resolus, manquants)."""
+    resolus, manquants = [], []
+    for rel in INPUTS_LOT11:
+        src = Path(cfg.PROJECT_ROOT) / rel
+        dst = ws / rel
+        if src.exists():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            resolus.append(str(dst))
+        else:
+            manquants.append(rel)
+    (ws / "02_TRAVAIL/Lot11_Controles").mkdir(parents=True, exist_ok=True)
+    return resolus, manquants
+
+
+def _chemins_hors_workspace(resolus: list[str], ws: Path) -> list[str]:
+    wsr = ws.resolve()
+    return [p for p in resolus if wsr not in Path(p).resolve().parents]
+
+
+def _valider_workspace_isole(ws: Path) -> tuple[bool, str]:
+    """Garde post-incident : le workspace et les scripts doivent être HORS de l'arbre réel.
+
+    L'incident du 18/07 venait de scripts NON injectés lancés contre l'arbre réel. Ici on refuse en
+    plus tout workspace qui résoudrait À L'INTÉRIEUR de `cfg.PROJECT_ROOT` (le vrai dépôt / OneDrive) :
+    même avec des scripts injectés, écrire sous l'arbre réel est interdit. Les scripts moteur doivent
+    aussi provenir du worktree isolé (jamais de `cfg.PROJECT_ROOT`).
+    """
+    real = Path(cfg.PROJECT_ROOT).resolve()
+    wsr = ws.resolve()
+    if wsr == real or real in wsr.parents:
+        return False, f"Workspace imbriqué dans l'arbre réel ({real}) : refusé."
+    scripts = _scripts_dir().resolve()
+    if scripts == real or real in scripts.parents:
+        return False, f"Scripts moteur situés dans l'arbre réel ({real}) : refusé."
+    return True, ""
+
+
+def _appliquer_classification(ws: Path, mouvement_id_reel: str) -> bool:
+    """Classe le mouvement dans la COPIE de NORM_Banque (statut_classification=CLASSE).
+
+    Simule la décision humaine « classé/rapproché » sur la copie, jamais sur le réel. Retourne True
+    si le mouvement a été trouvé et modifié.
+    """
+    banq = ws / BANQUE_REL
+    wb = openpyxl.load_workbook(str(banq))
+    try:
+        if "NORM_Banque" not in wb.sheetnames:
+            return False
+        w = wb["NORM_Banque"]
+        hdr = [str(c.value) if c.value is not None else "" for c in w[1]]
+        if "mouvement_id" not in hdr or "statut_classification" not in hdr:
+            return False
+        ci = hdr.index("mouvement_id"); si = hdr.index("statut_classification")
+        touche = False
+        for row in w.iter_rows(min_row=2):
+            if str(row[ci].value) == str(mouvement_id_reel):
+                row[si].value = "CLASSE"
+                touche = True
+        if touche:
+            wb.save(str(banq))
+        return touche
+    finally:
+        wb.close()
+
+
+def _compter_controle_banque(master_ctrl: Path, mois: str) -> int | None:
+    """Nombre de lignes CLOTURE_IMPOSSIBLE_LIGNE_BANCAIRE_NON_CLASSEE pour un mois dans un MASTER_CTRL."""
+    if not master_ctrl.exists():
+        return None
+    wb = openpyxl.load_workbook(str(master_ctrl), read_only=True, data_only=True)
+    try:
+        if "MASTER" not in wb.sheetnames:
+            return None
+        w = wb["MASTER"]
+        rows = list(w.iter_rows(values_only=True))
+        hdr = list(rows[0]); idx = {c: i for i, c in enumerate(hdr)}
+        code_i = idx.get("code_controle"); mois_i = idx.get("mois")
+        n = 0
+        for r in rows[1:]:
+            if str(r[code_i]) == "CLOTURE_IMPOSSIBLE_LIGNE_BANCAIRE_NON_CLASSEE" \
+                    and str(r[mois_i])[:7] == mois:
+                n += 1
+        return n
+    finally:
+        wb.close()
+
+
+def _run_script(py: str, script: str, ws: Path) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [py, str(_scripts_dir() / script), "--project-root", str(ws), "--no-real-write", "--run-id", ws.name],
+        capture_output=True, text=True, cwd=str(_scripts_dir()), timeout=TIMEOUT_MOTEUR_S)
+
+
+def _journaliser(type_action, statut, nb, workspace, reel_intact, avant, apres,
+                 err_code="", err_resume="", db_path=None) -> int:
+    conn = get_db(db_path)
+    try:
+        cur = conn.execute(
+            "INSERT INTO controles_runs (type_action, statut, nb_elements, workspace_path, "
+            "reel_intact, avant_json, apres_json, erreur_code, erreur_resume) VALUES (?,?,?,?,?,?,?,?,?)",
+            (type_action, statut, nb, workspace, 1 if reel_intact else 0,
+             json.dumps(avant, default=str), json.dumps(apres, default=str), err_code, err_resume))
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def recalculer_sur_copie(element: dict[str, Any], appliquer_classification: bool = True,
+                         db_path=None) -> dict[str, Any]:
+    """Recalcule réellement Lot8c+Lot11 sur copie pour un élément. Ne touche jamais le réel, jamais 500.
+
+    `appliquer_classification` : True simule la décision « classé » (case A) — le contrôle peut
+    disparaître ; False laisse le mouvement non classé (case B) — le contrôle reste présent.
+    """
+    ok, motif = _preflight()
+    # Résoudre l'opaque contre la banque ACTUELLEMENT configurée (jamais un index mémorisé obsolète).
+    banque_ctrl.vider_cache()
+    ws = Path(cfg.CONTROLES_RUNNER_WORKSPACE) / _now_ns()
+    reel_banque = Path(cfg.MASTER_BANQUE)
+    reel_ctrl = Path(cfg.MASTER_CTRL_COHERENCE)
+    sha_bnq = _sha(reel_banque) if reel_banque.exists() else ""
+    sha_ctrl = _sha(reel_ctrl) if reel_ctrl.exists() else ""
+    avant = {"element": element.get("ctrl_opaque"), "code": element.get("code"), "mois": element.get("mois")}
+
+    def _reel_intact() -> bool:
+        b = (_sha(reel_banque) if reel_banque.exists() else "") == sha_bnq
+        c = (_sha(reel_ctrl) if reel_ctrl.exists() else "") == sha_ctrl
+        return b and c
+
+    if not ok:
+        rid = _journaliser("PREFLIGHT", STATUT_BLOQUE, 0, "", True, avant, None, "FLAGS", motif, db_path)
+        return {"statut": STATUT_BLOQUE, "verdict": V_NON_COMPARABLE, "motif": motif, "run_id": rid,
+                "reel_intact": True, "chemins": [], "etapes": []}
+
+    if element.get("module") != "BANQUE":
+        motif = ("Recalcul Lot8c/Lot11 sur copie disponible pour les mouvements bancaires. Pour ce "
+                 "module, la disparition se constate à la prochaine génération moteur.")
+        rid = _journaliser("RECALCUL_COPIE_LOT8C_LOT11", STATUT_BLOQUE, 1, "", _reel_intact(),
+                           avant, {"note": motif}, "HORS_PERIMETRE", motif, db_path)
+        return {"statut": STATUT_BLOQUE, "verdict": V_NON_COMPARABLE, "motif": motif, "run_id": rid,
+                "reel_intact": _reel_intact(), "chemins": [], "etapes": []}
+
+    # Garde-fou dur : ne jamais exécuter un script moteur NON injecté (il écrirait le réel).
+    non_injectes = [s for s in (SCRIPT_LOT8C, SCRIPT_LOT11) if not _script_injecte(s)]
+    if non_injectes:
+        motif = (f"Scripts moteur non injectés (marqueur absent) : {non_injectes}. Exécution refusée "
+                 "pour ne jamais écrire le réel.")
+        rid = _journaliser("RECALCUL_COPIE_LOT8C_LOT11", STATUT_BLOQUE, 1, str(ws), True,
+                           avant, None, "SCRIPT_NON_INJECTE", motif, db_path)
+        return {"statut": STATUT_BLOQUE, "verdict": V_NON_COMPARABLE, "motif": motif, "run_id": rid,
+                "reel_intact": True, "chemins": [], "etapes": []}
+
+    # Garde-fou post-incident : workspace + scripts obligatoirement HORS de l'arbre réel.
+    ws_ok, ws_motif = _valider_workspace_isole(ws)
+    if not ws_ok:
+        rid = _journaliser("RECALCUL_COPIE_LOT8C_LOT11", STATUT_BLOQUE, 1, str(ws), True,
+                           avant, None, "WORKSPACE_NON_ISOLE", ws_motif, db_path)
+        return {"statut": STATUT_BLOQUE, "verdict": V_NON_COMPARABLE, "motif": ws_motif, "run_id": rid,
+                "reel_intact": True, "chemins": [], "etapes": []}
+
+    py = _engine_python()
+    if py is None:
+        motif = "Aucun interpréteur Python avec pandas trouvé (définir PILOTAGE_ENGINE_PYTHON)."
+        rid = _journaliser("RECALCUL_COPIE_LOT8C_LOT11", STATUT_BLOQUE, 1, str(ws), True,
+                           avant, None, "PANDAS_ABSENT", motif, db_path)
+        return {"statut": STATUT_BLOQUE, "verdict": V_NON_COMPARABLE, "motif": motif, "run_id": rid,
+                "reel_intact": True, "chemins": [], "etapes": []}
+
+    etapes: list[dict[str, Any]] = []
+    try:
+        ws.mkdir(parents=True, exist_ok=True)
+        resolus, manquants = _build_workspace(ws)
+        hors = _chemins_hors_workspace(resolus, ws)
+        if hors:
+            raise RuntimeError(f"Chemins résolus hors workspace refusés : {hors[:3]}")
+        mois = element.get("mois", "")
+        mvt_reel = banque_ctrl.resoudre_opaque(element.get("entite_id", ""))
+
+        # 1) baseline : Lot11 sur copie (avant décision)
+        t0 = datetime.now()
+        r11a = _run_script(py, SCRIPT_LOT11, ws)
+        etapes.append({"etape": "LOT11_BASELINE", "rc": r11a.returncode,
+                       "duree_s": round((datetime.now() - t0).total_seconds(), 1)})
+        if r11a.returncode != 0:
+            raise RuntimeError(f"Lot11 baseline rc={r11a.returncode} : {_sanitize(r11a.stderr[-300:])}")
+        n_avant = _compter_controle_banque(ws / OUT_REL, mois)
+
+        # 2) décision sur copie (classification) — optionnelle
+        classifie = False
+        if appliquer_classification and mvt_reel:
+            classifie = _appliquer_classification(ws, mvt_reel)
+            etapes.append({"etape": "CLASSIFICATION_COPIE", "mouvement_classe": classifie})
+
+        # 3) Lot8c puis Lot11 après décision
+        t1 = datetime.now()
+        r8c = _run_script(py, SCRIPT_LOT8C, ws)
+        etapes.append({"etape": "LOT8C", "rc": r8c.returncode,
+                       "duree_s": round((datetime.now() - t1).total_seconds(), 1)})
+        if r8c.returncode != 0:
+            raise RuntimeError(f"Lot8c rc={r8c.returncode} : {_sanitize(r8c.stderr[-300:])}")
+        t2 = datetime.now()
+        r11b = _run_script(py, SCRIPT_LOT11, ws)
+        etapes.append({"etape": "LOT11", "rc": r11b.returncode,
+                       "duree_s": round((datetime.now() - t2).total_seconds(), 1)})
+        if r11b.returncode != 0:
+            raise RuntimeError(f"Lot11 rc={r11b.returncode} : {_sanitize(r11b.stderr[-300:])}")
+        n_apres = _compter_controle_banque(ws / OUT_REL, mois)
+
+        # 4) verdict moteur (jamais SQLite)
+        if n_avant is None or n_apres is None:
+            verdict = V_NON_COMPARABLE
+        elif classifie and n_apres < n_avant:
+            verdict = V_RESOLU
+        elif n_apres == n_avant:
+            verdict = V_PRESENT
+        elif n_apres != n_avant:
+            verdict = V_TRANSFORME
+        else:
+            verdict = V_NON_COMPARABLE
+
+        reel_intact = _reel_intact()
+        apres = {"n_controle_avant": n_avant, "n_controle_apres": n_apres, "mois": mois,
+                 "classification_appliquee": classifie, "manquants": manquants,
+                 "master_ctrl_copie": (ws / OUT_REL).exists()}
+        statut = STATUT_SUCCES if reel_intact else STATUT_ECHEC
+        rid = _journaliser("RECALCUL_COPIE_LOT8C_LOT11", statut, 1, str(ws), reel_intact,
+                           avant, apres, "", "", db_path)
+        return {"statut": statut, "verdict": verdict, "motif": _motif_verdict(verdict, n_avant, n_apres),
+                "run_id": rid, "reel_intact": reel_intact, "chemins": resolus, "manquants": manquants,
+                "etapes": etapes, "n_avant": n_avant, "n_apres": n_apres, "python": py}
+    except subprocess.TimeoutExpired:
+        rid = _journaliser("RECALCUL_COPIE_LOT8C_LOT11", STATUT_ECHEC, 1, _sanitize(str(ws)), _reel_intact(),
+                           avant, {"etapes": etapes}, "TIMEOUT", "Timeout moteur", db_path)
+        return {"statut": STATUT_ECHEC, "verdict": V_ERREUR, "motif": "Timeout du moteur.",
+                "run_id": rid, "reel_intact": _reel_intact(), "chemins": [], "etapes": etapes}
+    except Exception as exc:
+        motif_sanitise = _sanitize(f"Échec : {exc}")
+        rid = _journaliser("RECALCUL_COPIE_LOT8C_LOT11", STATUT_ECHEC, 1, _sanitize(str(ws)), _reel_intact(),
+                           avant, {"etapes": etapes}, "EXCEPTION", motif_sanitise, db_path)
+        return {"statut": STATUT_ECHEC, "verdict": V_ERREUR, "motif": motif_sanitise,
+                "run_id": rid, "reel_intact": _reel_intact(), "chemins": [], "etapes": etapes}
+    finally:
+        try:
+            if ws.exists():
+                shutil.rmtree(ws, ignore_errors=True)   # nettoyage : locks/copies isolés
+        except Exception:
+            pass
+
+
+def _motif_verdict(verdict: str, n_avant, n_apres) -> str:
+    return {
+        V_RESOLU: f"Contrôle bancaire résolu par le moteur ({n_avant} → {n_apres} pour ce mois).",
+        V_PRESENT: f"Contrôle toujours présent après recalcul moteur ({n_apres} pour ce mois).",
+        V_TRANSFORME: f"Contrôle transformé ({n_avant} → {n_apres}).",
+        V_NON_COMPARABLE: "Comparaison impossible (sortie moteur absente).",
+        V_ERREUR: "Erreur moteur.",
+    }.get(verdict, verdict)
+
+
+def load_run(run_id: int, db_path=None) -> dict[str, Any] | None:
+    conn = get_db(db_path)
+    try:
+        row = conn.execute("SELECT * FROM controles_runs WHERE id=?", (run_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()

@@ -24,7 +24,10 @@ Dependances:
 from pathlib import Path
 from datetime import date
 from collections import Counter
+import argparse
+import os
 import re
+import sys
 import json
 import openpyxl
 import pandas as pd
@@ -48,9 +51,35 @@ import lib_controles_avantages as ctl_av   # Lot7C — contrôles suivi associé
 import lot7_generateur_avantages as gen_av  # lecteurs des sources durables (lecture seule)
 
 # ---------------------------------------------------------------------------
-# Chemins
+# Chemins — racine INJECTABLE (APP-5B) : recalcul moteur sur COPIE sans toucher le réel.
+# Priorité : --project-root (CLI) > env PILOTAGE_PROJECT_ROOT > racine dérivée du fichier (défaut CLI
+# historique inchangé). Toutes les entrées/sorties (y compris les chemins passés à gen_av) dérivent
+# de cette racine unique.
 # ---------------------------------------------------------------------------
-BASE = Path(__file__).resolve().parent.parent
+_DEFAULT_BASE = Path(__file__).resolve().parent.parent
+
+
+def _parse_injection():
+    p = argparse.ArgumentParser(add_help=False)
+    p.add_argument("--project-root")
+    p.add_argument("--no-real-write", action="store_true")
+    p.add_argument("--run-id")
+    args, _ = p.parse_known_args()
+    return args
+
+
+_ARGS = _parse_injection()
+if _ARGS.project_root:
+    BASE = Path(_ARGS.project_root).resolve()
+elif os.environ.get("PILOTAGE_PROJECT_ROOT"):
+    BASE = Path(os.environ["PILOTAGE_PROJECT_ROOT"]).resolve()
+else:
+    BASE = _DEFAULT_BASE
+NO_REAL_WRITE = bool(_ARGS.no_real_write)
+RUN_ID = _ARGS.run_id or ""
+# Garde-fou : --no-real-write exige une racine explicite vers un workspace (jamais le dépôt réel).
+if NO_REAL_WRITE and not (_ARGS.project_root or os.environ.get("PILOTAGE_PROJECT_ROOT")):
+    sys.exit("[LOT11] --no-real-write exige --project-root ou PILOTAGE_PROJECT_ROOT vers un workspace.")
 
 FLUX_FILE   = BASE / "02_TRAVAIL/Lot9_FluxUnifie/MASTER_CALC_Flux.xlsx"
 RES_FILE    = BASE / "02_TRAVAIL/Lot4quater_SourceResolue/MASTER_CALC_Reservations_Resolues.xlsx"  # source résolue (lot4quater)

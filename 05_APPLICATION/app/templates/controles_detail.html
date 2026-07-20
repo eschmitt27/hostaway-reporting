@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Contrôle{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+  <a href="/controles-cloture" class="back-link">← Contrôles &amp; clôture</a>
+  <h1 class="page-title">Contrôle{% if detail and detail.status == "OK" %} — {{ detail.vue.code }}{% endif %}</h1>
+</div>
+
+{% if detail is none %}
+<div class="alert alert-warning">Contrôle <span class="font-mono">{{ stable_id }}</span> introuvable.</div>
+{% elif detail.status != "OK" %}
+<div class="alert alert-error">Source indisponible : {{ detail.etat_source.etat_libelle }}.</div>
+{% else %}
+{% set v = detail.vue %}
+
+<div class="card mb-md">
+  <h2 class="card-title">
+    <span class="status-badge status-{{ 'bloquant' if v.niveau == 'BLOQUANT' else ('a-controler' if v.niveau in ['A_CONTROLER','AVERTISSEMENT'] else 'info') }}">{{ v.niveau }}</span>
+    {{ v.code }}
+  </h2>
+  <dl class="detail-grid">
+    <div><dt>Code</dt><dd class="font-mono">{{ v.code }}</dd></div>
+    <div><dt>Niveau</dt><dd>{{ v.niveau }}</dd></div>
+    <div><dt>Période</dt><dd class="font-mono">{{ v.mois or "— (sans période)" }}</dd></div>
+    <div><dt>Module</dt><dd>{{ v.module }}</dd></div>
+    <div><dt>Entité concernée</dt><dd class="font-mono">{{ v.entite or "—" }}</dd></div>
+    <div><dt>Statut</dt><dd>{{ v.statut }}</dd></div>
+    <div><dt>Détecté le</dt><dd class="font-mono">{{ v.date_detection or "—" }}</dd></div>
+  </dl>
+  <p class="section-note"><strong>Message moteur :</strong> {{ v.message or "—" }}</p>
+  {% if v.explication %}<p class="section-note"><strong>Explication :</strong> {{ v.explication }}</p>{% endif %}
+  {% if v.commentaire %}<p class="section-note"><strong>Commentaire :</strong> {{ v.commentaire }}</p>{% endif %}
+</div>
+
+<div class="card mb-md">
+  <h2 class="card-title">Impact sur la clôture</h2>
+  <dl class="detail-grid">
+    <div><dt>Mois</dt><dd class="font-mono">{{ detail.impact_cloture.mois or "—" }}</dd></div>
+    <div><dt>Statut du mois</dt><dd>{{ detail.impact_cloture.statut_mois or "—" }}</dd></div>
+    <div><dt>Empêche la clôture ?</dt>
+      <dd><span class="status-badge status-{{ 'bloquant' if detail.impact_cloture.empeche_cloture else 'valide' }}">
+        {{ "OUI" if detail.impact_cloture.empeche_cloture else "non" }}</span></dd></div>
+  </dl>
+  {% if detail.impact_cloture.mois %}
+  <p class="section-note"><a href="/controles-cloture/mois/{{ detail.impact_cloture.mois }}">Voir l'état de clôture du mois →</a></p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2 class="card-title">Traçabilité</h2>
+  <p class="section-note">Source : <span class="font-mono text-xs">{{ detail.tracabilite.fichier }} · {{ detail.tracabilite.onglet }}</span>
+    · module {{ detail.tracabilite.module }} · table {{ detail.tracabilite.table or "—" }}. Contrôle produit par le moteur, jamais recréé par l'application.</p>
+</div>
+{% endif %}
+
+{% endblock %}
