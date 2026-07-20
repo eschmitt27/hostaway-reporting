@@ -20,20 +20,44 @@ Onglets ajoutes dans BANQUE_LOT8_IMPORT.xlsx :
 Decisions : D-8c-01 a D-8c-07
 """
 
+import argparse
 import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 import shutil
 import os
+import sys
 import re
 from pathlib import Path
 from datetime import datetime
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CHEMINS
+# CHEMINS — racine INJECTABLE (APP-5B) : recalcul moteur sur COPIE sans toucher le réel.
 # ─────────────────────────────────────────────────────────────────────────────
-# Racine dérivée du fichier (jamais de chemin Windows fixe) : confine le script à sa propre instance.
-BASE = str(Path(__file__).resolve().parent.parent)
+# Priorité : --project-root (CLI) > env PILOTAGE_PROJECT_ROOT > racine dérivée du fichier (défaut CLI
+# historique inchangé). Tous les chemins d'entrée/sortie dérivent de cette racine unique.
+_DEFAULT_BASE = str(Path(__file__).resolve().parent.parent)
+
+
+def _parse_injection():
+    p = argparse.ArgumentParser(add_help=False)
+    p.add_argument("--project-root")
+    p.add_argument("--no-real-write", action="store_true")
+    p.add_argument("--run-id")
+    args, _ = p.parse_known_args()
+    return args
+
+
+_ARGS = _parse_injection()
+BASE = str(Path(_ARGS.project_root).resolve()) if _ARGS.project_root else \
+    (str(Path(os.environ["PILOTAGE_PROJECT_ROOT"]).resolve())
+     if os.environ.get("PILOTAGE_PROJECT_ROOT") else _DEFAULT_BASE)
+NO_REAL_WRITE = bool(_ARGS.no_real_write)
+RUN_ID = _ARGS.run_id or ""
+# Garde-fou : --no-real-write exige une racine explicite vers un workspace (jamais le dépôt réel).
+if NO_REAL_WRITE and not (_ARGS.project_root or os.environ.get("PILOTAGE_PROJECT_ROOT")):
+    sys.exit("[LOT8C] --no-real-write exige --project-root ou PILOTAGE_PROJECT_ROOT vers un workspace.")
+
 BANQUE_PATH = os.path.join(BASE, "02_TRAVAIL", "Lot8_Banque", "BANQUE_LOT8_IMPORT.xlsx")
 ARCHIVE_DIR = os.path.join(BASE, "99_ARCHIVES", "LOT8_Banque")
 

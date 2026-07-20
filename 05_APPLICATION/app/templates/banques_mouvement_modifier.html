@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}Contrôler un mouvement{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <a href="/banques-caisse/mouvements/{{ fiche.id_opaque if fiche else '' }}" class="back-link">← Mouvement</a>
+  <h1 class="page-title">Contrôler / catégoriser</h1>
+</div>
+
+{% if fiche is none %}
+<div class="alert alert-warning">Mouvement introuvable.</div>
+{% else %}
+
+<div class="alert alert-info">
+  Décision <strong>sur copie</strong> : rien n'est écrit dans la banque réelle. Le writer applique les
+  décisions sur une copie isolée (flags <code>BANQUE_REAL_WRITE_ENABLED = False</code>).
+</div>
+
+{% if erreur %}<div class="alert alert-error">{{ erreur }}</div>{% endif %}
+
+{% set pv = previsualisation %}
+{% if pv %}
+<div class="card mb-md">
+  <h2 class="card-title">Prévisualisation (non enregistrée)</h2>
+  <dl class="detail-grid">
+    <div><dt>Catégorie</dt><dd>{{ pv.categorie or "—" }}</dd></div>
+    <div><dt>Statut</dt><dd>{{ pv.statut_controle or "—" }}</dd></div>
+    <div><dt>Propriétaire</dt><dd>{{ pv.proprietaire_id or "—" }}</dd></div>
+    <div><dt>Logement</dt><dd>{{ pv.logement_id or "—" }}</dd></div>
+  </dl>
+</div>
+{% endif %}
+
+<form method="post" id="ctrlform">
+
+  <!-- ===== Bloc A — Mouvement bancaire (lecture) ===== -->
+  <div class="card mb-md">
+    <h2 class="card-title">Mouvement bancaire</h2>
+    <dl class="detail-grid">
+      <div><dt>Date</dt><dd>{{ fiche.date_operation|date_fr }}</dd></div>
+      <div><dt>Montant</dt><dd>{{ "%.2f"|format(fiche.montant) }} €</dd></div>
+      <div><dt>Sens</dt><dd>{{ fiche.sens }}</dd></div>
+      <div><dt>Compte</dt><dd>{{ fiche.compte_masque }}</dd></div>
+      <div><dt>Statut effectif</dt><dd>
+        <span class="status-badge status-{{ fiche.statut_effectif|lower|replace('_','-') }}">{{ fiche.statut_effectif_libelle }}</span></dd></div>
+    </dl>
+
+    <dl class="detail-grid mt-md">
+      <div class="form-field-full"><dt>Libellé bancaire</dt><dd class="mouvement-libelle">{{ fiche.libelle }}</dd></div>
+    </dl>
+
+    <dl class="detail-grid mt-md">
+      <div><dt>Proposition du moteur</dt><dd>{{ fiche.proposition_moteur.categorie_libelle or "—" }}</dd></div>
+      <div><dt>Source de la proposition</dt><dd>{{ fiche.proposition_moteur.libelle_source }}</dd></div>
+      <div><dt>Confiance</dt><dd>
+        {% if fiche.proposition_ia and fiche.proposition_ia.score_confiance is not none %}
+          {{ "%.0f"|format(fiche.proposition_ia.score_confiance * 100 if fiche.proposition_ia.score_confiance <= 1 else fiche.proposition_ia.score_confiance) }}%
+        {% else %}— (non disponible){% endif %}
+      </dd></div>
+    </dl>
+  </div>
+
+  <!-- ===== Bloc B — Décision humaine (sur copie) ===== -->
+  <div class="card mb-md">
+    <h2 class="card-title">Décision humaine</h2>
+    <div class="form-grid-3">
+      <div class="form-field">
+        <label for="f-categorie">Catégorie</label>
+        <select id="f-categorie" name="categorie" class="filter-input">
+          <option value="">— inchangée —</option>
+          {% for c in options.categories %}<option value="{{ c.id }}" {{ 'selected' if pv and pv.categorie == c.id }}>{{ c.libelle }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="form-field">
+        <label for="f-type-flux">Type de flux</label>
+        <select id="f-type-flux" name="type_flux_id" class="filter-input">
+          <option value="">— aucun —</option>
+          {% for t in options.types_flux %}<option value="{{ t.id }}" {{ 'selected' if pv and pv.type_flux_id == t.id }}>{{ t.libelle }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="form-field">
+        <label for="f-statut">Statut</label>
+        <select id="f-statut" name="statut_controle" class="filter-input">
+          {% for s in options.statuts %}<option value="{{ s.id }}" {{ 'selected' if (pv.statut_controle if pv else fiche.statut_effectif) == s.id }}>{{ s.libelle }}</option>{% endfor %}
+        </select>
+        <span class="text-xs text-secondary" id="aide-statut"></span>
+      </div>
+      <div class="form-field">
+        <label for="f-proprietaire">Propriétaire</label>
+        <select id="f-proprietaire" name="proprietaire_id" class="filter-input">
+          <option value="">— aucun —</option>
+          {% for p in options.proprietaires %}<option value="{{ p.id }}" {{ 'selected' if pv and pv.proprietaire_id == p.id }}>{{ p.libelle }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="form-field">
+        <label for="f-logement">Logement</label>
+        <select id="f-logement" name="logement_id" class="filter-input">
+          <option value="">— aucun —</option>
+          {% for l in options.logements %}<option value="{{ l.id }}" {{ 'selected' if pv and pv.logement_id == l.id }}>{{ l.libelle }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="form-field">
+        <label for="f-reservation">Réservation (id)</label>
+        <input id="f-reservation" type="text" name="reservation_id" class="filter-input" value="{{ pv.reservation_id if pv else '' }}">
+      </div>
+      <div class="form-field">
+        <label for="f-facture">Facture (id)</label>
+        <input id="f-facture" type="text" name="facture_id" class="filter-input" value="{{ pv.facture_id if pv else '' }}">
+      </div>
+      <div class="form-field form-field-full">
+        <label for="f-commentaire">Commentaire</label>
+        <textarea id="f-commentaire" name="commentaire" class="filter-input">{{ pv.commentaire if pv else '' }}</textarea>
+      </div>
+      <div class="form-field form-field-full form-field-justification" id="bloc-justification">
+        <label for="f-justification">Justification (obligatoire si statut « Ignoré »)</label>
+        <textarea id="f-justification" name="justification" class="filter-input">{{ pv.justification if pv else '' }}</textarea>
+      </div>
+    </div>
+
+    <div class="flex gap-md mt-md">
+      <button type="submit" formaction="/banques-caisse/mouvements/{{ fiche.id_opaque }}/previsualiser" class="btn btn-secondary">Prévisualiser</button>
+      <button type="submit" formaction="/banques-caisse/mouvements/{{ fiche.id_opaque }}/enregistrer-copie" class="btn btn-primary">Enregistrer sur copie</button>
+      <a href="/banques-caisse/mouvements/{{ fiche.id_opaque }}" class="btn btn-ghost">Annuler</a>
+    </div>
+    <p class="section-note mt-sm">Transitions possibles depuis « {{ fiche.statut_effectif_libelle }} » :
+      {{ fiche.transitions_possibles|join(", ") or "—" }}.</p>
+  </div>
+</form>
+
+<script>
+  // Met en évidence la justification uniquement quand le statut sélectionné est « Ignoré », et
+  // affiche une aide courte pour « En cours » — aide visuelle pure (le refus serveur reste la
+  // garde réelle, jamais contournable côté client).
+  (function () {
+    var statut = document.getElementById("f-statut");
+    var bloc = document.getElementById("bloc-justification");
+    var aide = document.getElementById("aide-statut");
+    var AIDES = {
+      "EN_COURS": "En cours : mouvement pris en charge, mais décision non finalisée.",
+    };
+    function maj() {
+      bloc.classList.toggle("is-required", statut.value === "IGNORE");
+      aide.textContent = AIDES[statut.value] || "";
+    }
+    statut.addEventListener("change", maj);
+    maj();
+  })();
+</script>
+
+{% endif %}
+{% endblock %}

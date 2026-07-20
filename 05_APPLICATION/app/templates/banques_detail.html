@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Banques — Mouvement{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+  <a href="/banques-caisse" class="back-link">← Banques &amp; caisse</a>
+  <h1 class="page-title">Mouvement bancaire{% if detail and detail.status == "OK" %} — {{ detail.vue.mouvement_id|mvt_opaque }}{% endif %}</h1>
+</div>
+
+{% if detail is none %}
+<div class="alert alert-warning">Mouvement introuvable.</div>
+{% elif detail.status != "OK" %}
+<div class="alert alert-error">Source indisponible : {{ detail.etat_source.etat_libelle }}.</div>
+{% else %}
+{% set v = detail.vue %}
+
+<div class="card mb-md">
+  <h2 class="card-title">1 · Mouvement</h2>
+  <dl class="detail-grid">
+    <div><dt>Date opération</dt><dd class="font-mono">{{ v.date_operation }}</dd></div>
+    <div><dt>Date valeur</dt><dd class="font-mono">{{ v.date_valeur or "—" }}</dd></div>
+    <div><dt>Compte</dt><dd class="font-mono">{{ v.compte_masque }}</dd></div>
+    <div><dt>Montant</dt><dd>{{ "%.2f"|format(v.montant) if v.montant is not none else "—" }} {{ v.devise }}</dd></div>
+    <div><dt>Sens</dt><dd>{{ v.sens }}</dd></div>
+    <div><dt>Libellé</dt><dd>{{ v.libelle }}</dd></div>
+    <div><dt>Tiers détecté</dt><dd>{{ v.tiers or "—" }}</dd></div>
+    <div><dt>Catégorie</dt><dd>{{ v.categorie or "—" }}</dd></div>
+    <div><dt>Type de flux</dt><dd class="font-mono">{{ v.type_flux_id or "—" }}</dd></div>
+    <div><dt>Statut moteur</dt><dd><span class="status-badge status-{{ 'a-controler' if v.statut_moteur in ['A_CONTROLER','BLOQUANT'] else 'valide' }}">{{ v.statut_moteur or "—" }}</span></dd></div>
+    <div><dt>Niveau de risque</dt><dd>{{ v.niveau_risque or "—" }}</dd></div>
+  </dl>
+</div>
+
+<div class="card mb-md">
+  <h2 class="card-title">2 · Rapprochement (moteur)</h2>
+  {% if v.rappro_statut %}
+  <dl class="detail-grid">
+    <div><dt>Canal</dt><dd>{{ v.rappro_canal }}</dd></div>
+    <div><dt>Statut</dt><dd><span class="status-badge status-a-rapprocher">{{ v.rappro_statut }}</span></dd></div>
+    <div><dt>Référence</dt><dd class="font-mono">{{ v.rappro_reference or "—" }}</dd></div>
+  </dl>
+  <p class="section-note">Rapprochement produit par le moteur (Lot 8c). L'application ne rapproche pas et n'invente aucun lien.</p>
+  {% else %}
+  <p class="section-note">Aucune attente de rapprochement signalée par le moteur pour ce mouvement.</p>
+  {% endif %}
+</div>
+
+<div class="card mb-md">
+  <h2 class="card-title">3 · Anomalies &amp; contrôles</h2>
+  {% if detail.anomalies or detail.controles %}
+    {% for an in detail.anomalies %}
+    <div class="anomalie">
+      <span class="status-badge status-a-controler">{{ an.niveau }}</span>
+      <span class="font-mono text-xs">{{ an.code }}</span>
+      {% if an.explication %}<p class="section-note">{{ an.explication }}</p>{% endif %}
+    </div>
+    {% endfor %}
+    {% for c in detail.controles %}
+    <div class="anomalie">
+      <span class="status-badge status-a-controler">{{ c.severite }}</span>
+      <span class="font-mono text-xs">{{ c.code }}</span>
+      <p class="section-note">{{ c.description }}</p>
+    </div>
+    {% endfor %}
+  {% else %}
+  <p class="section-note">Aucune anomalie signalée par le moteur pour ce mouvement.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2 class="card-title">4 · Traçabilité</h2>
+  <dl class="detail-grid">
+    <div><dt>Source</dt><dd class="font-mono">{{ detail.tracabilite.source }} · {{ detail.tracabilite.onglet }}</dd></div>
+    <div><dt>Import</dt><dd class="font-mono">{{ detail.tracabilite.import_id or "—" }}</dd></div>
+    <div><dt>Règle appliquée</dt><dd class="font-mono">{{ detail.tracabilite.regle_id or "—" }}</dd></div>
+    <div><dt>ROW_HASH</dt><dd class="font-mono text-xs">{{ detail.tracabilite.row_hash or "—" }}</dd></div>
+  </dl>
+</div>
+{% endif %}
+
+{% endblock %}

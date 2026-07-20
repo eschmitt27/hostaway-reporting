@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Action bancaire — résultat{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <a href="/banques-caisse/controle" class="back-link">← Contrôle bancaire</a>
+  <h1 class="page-title">Enregistrement sur copie{% if run %} — run #{{ run.id }}{% endif %}</h1>
+</div>
+
+{% if run is none %}
+<div class="alert alert-warning">{% if erreur %}{{ erreur }}{% else %}Run introuvable.{% endif %}</div>
+<a href="/banques-caisse/controle" class="btn btn-secondary">← Retour</a>
+{% else %}
+
+<div class="alert {{ 'alert-info' if run.statut == 'SUCCES' else 'alert-warning' }}">
+  <strong>{{ run.statut }}</strong> — décisions appliquées sur une COPIE isolée.
+  {% if run.reel_intact %}Le fichier bancaire réel est <strong>intact</strong>.{% endif %}
+  {% if run.erreur_resume %}<br>{{ run.erreur_resume }}{% endif %}
+</div>
+
+<div class="card mb-md">
+  <dl class="detail-grid">
+    <div><dt>Mode</dt><dd>{{ run.mode }}</dd></div>
+    <div><dt>Décisions appliquées</dt><dd>{{ run.nb_overrides }}</dd></div>
+    <div><dt>Réel intact</dt><dd>{{ "oui" if run.reel_intact else "NON" }}</dd></div>
+    <div><dt>Date</dt><dd class="font-mono text-xs">{{ run.ts|datetime_fr }}</dd></div>
+  </dl>
+</div>
+
+{% if run.controles_avant and run.controles_apres %}
+<div class="card mb-md">
+  <h2 class="card-title">Impact sur les contrôles bancaires (statuts NORM, sur copie)</h2>
+  <table class="data-table">
+    <thead><tr><th>Statut</th><th class="num">Avant</th><th class="num">Après</th><th class="num">Δ</th></tr></thead>
+    <tbody>
+      {% set statuts = (run.controles_avant.keys()|list + run.controles_apres.keys()|list)|unique|list %}
+      {% for s in statuts %}
+      {% set av = run.controles_avant.get(s, 0) %}{% set ap = run.controles_apres.get(s, 0) %}
+      <tr><td>{{ s }}</td><td class="num">{{ av }}</td><td class="num">{{ ap }}</td>
+        <td class="num {% if ap != av %}text-error{% endif %}">{{ ap - av }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="section-note">Le contrôle bancaire évolue réellement (statut recalculé sur la copie),
+    jamais masqué dans SQLite. Une anomalie encore vue par le moteur reste présente.</p>
+</div>
+{% endif %}
+
+{% if fiche %}
+<a href="/banques-caisse/mouvements/{{ fiche.id_opaque }}" class="btn btn-secondary">Revenir au mouvement</a>
+{% endif %}
+
+{% endif %}
+{% endblock %}

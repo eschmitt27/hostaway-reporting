@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}Banques & caisse{% endblock %}
+
+{% set s = data.summary %}
+{% set liste = data.liste %}
+{% set a = data.applied %}
+{% set o = data.options %}
+
+{% block content %}
+
+<div class="page-header flex justify-between items-center">
+  <div>
+    <h1 class="page-title">Banques &amp; caisse</h1>
+    <p class="page-subtitle">
+      Flux bancaires — période <span class="periode-active">{{ data.mois or "aucune" }}</span>
+      · {{ data.freshness.libelle }} · lu le {{ s.read_at }}
+    </p>
+  </div>
+  <div class="flex gap-sm items-center">
+    {% set params = [] %}
+    {% for k, v in a.items() if k not in ['page'] and v not in [None, '', False] %}
+      {% set _ = params.append(k ~ '=' ~ (v|lower if v is boolean else v)) %}
+    {% endfor %}
+    <a href="/banques-caisse/export.csv{% if params %}?{{ params|join('&') }}{% endif %}" class="btn btn-secondary">Export CSV</a>
+    <a href="/banques-caisse/a-rapprocher?mois={{ data.mois }}" class="btn btn-secondary">À rapprocher ({{ s.nb_a_rapprocher }})</a>
+    <a href="/banques-caisse/controle" class="btn btn-primary">Contrôler les mouvements ({{ nb_a_controler }})</a>
+    <span class="read-only-badge">Lecture seule</span>
+    {% if s.etat_global == "CONFORME" %}<span class="etat-global etat-global--ok">Conforme</span>
+    {% elif s.etat_global == "A_RAPPROCHER" %}<span class="etat-global etat-global--warn">À rapprocher</span>
+    {% else %}<span class="etat-global etat-global--err">Source incomplète</span>{% endif %}
+  </div>
+</div>
+
+{% if liste.status != "OK" %}
+<div class="alert alert-error">
+  <strong>Source indisponible</strong> — {{ liste.etat_source.fichier }}
+  ({{ liste.etat_source.onglet }}) : {{ liste.etat_source.etat_libelle }}.
+  Le pipeline banque (lot8a → lot8b → lot8c) n'a pas produit cette sortie dans ce dépôt.
+</div>
+{% else %}
+
+{% if liste.compte_id_invalide %}
+<div class="alert alert-warning">
+  Filtre compte invalide ou inconnu — filtre ignoré (refusé), aucun compte brut n'est accepté.
+</div>
+{% endif %}
+
+<div class="kpi-grid kpi-grid--6">
+  <div class="kpi-card"><div class="kpi-label">Mouvements bancaires</div>
+    <div class="kpi-value">{{ s.nb_mouvements_bancaires }}</div><div class="kpi-sub">Crédit Mutuel</div></div>
+  <div class="kpi-card kpi-card--muted"><div class="kpi-label">Mouvements caisse</div>
+    <div class="kpi-value">—</div><div class="kpi-sub">Non alimenté (aucun module)</div></div>
+  <div class="kpi-card"><div class="kpi-label">Rapprochés</div>
+    <div class="kpi-value">{{ s.nb_rapproches }}</div><div class="kpi-sub">validés par le moteur</div></div>
+  <div class="kpi-card"><div class="kpi-label">À rapprocher</div>
+    <div class="kpi-value">{{ s.nb_a_rapprocher }}</div><div class="kpi-sub">en attente</div></div>
+  <div class="kpi-card"><div class="kpi-label">À contrôler</div>
+    <div class="kpi-value">{{ s.nb_a_controler }}</div><div class="kpi-sub">anomalies moteur</div></div>
+  <div class="kpi-card"><div class="kpi-label">Débit / Crédit</div>
+    <div class="kpi-value" style="font-size:16px">{{ "%.2f"|format(s.total_debit) }} / {{ "%.2f"|format(s.total_credit) }} €</div>
+    <div class="kpi-sub">totaux période</div></div>
+</div>
+
+<form method="get" action="/banques-caisse" class="filter-bar mt-md">
+  <label>Période
+    <select name="mois"><option value="">—</option>
+      {% for p in o.periodes %}<option value="{{ p.id }}" {{ 'selected' if p.id == data.mois }}>{{ p.libelle }}</option>{% endfor %}
+    </select></label>
+  <label>Compte
+    <select name="compte_id"><option value="">Tous</option>
+      {% for c in o.comptes %}<option value="{{ c.id }}" {{ 'selected' if c.id == a.compte_id }}>{{ c.libelle }}</option>{% endfor %}
+    </select></label>
+  <label>Sens
+    <select name="sens"><option value="">Tous</option>
+      <option value="DEBIT" {{ 'selected' if a.sens == 'DEBIT' }}>Débit</option>
+      <option value="CREDIT" {{ 'selected' if a.sens == 'CREDIT' }}>Crédit</option>
+    </select></label>
+  <label>Statut
+    <select name="statut"><option value="">Tous</option>
+      {% for st in o.statuts %}<option value="{{ st.id }}" {{ 'selected' if st.id == a.statut }}>{{ st.libelle }}</option>{% endfor %}
+    </select></label>
+  <label>Montant min <input type="text" name="montant_min" value="{{ a.montant_min or '' }}" size="6"></label>
+  <label>Montant max <input type="text" name="montant_max" value="{{ a.montant_max or '' }}" size="6"></label>
+  <label>Recherche <input type="text" name="recherche" value="{{ a.recherche or '' }}" size="14"></label>
+  <label>Tri
+    <select name="tri">{% for k, v in data.tris.items() %}<option value="{{ k }}" {{ 'selected' if k == a.tri }}>{{ v }}</option>{% endfor %}</select></label>
+  <label>&nbsp;<label><input type="checkbox" name="non_rapproche" value="true" {{ 'checked' if a.non_rapproche }}> Non rapprochés seulement</label></label>
+  <button type="submit" class="btn btn-primary">Filtrer</button>
+</form>
+
+<div class="card">
+  <p class="section-note">{{ liste.count_filtre }} mouvement(s) sur {{ liste.count_total }} — page {{ liste.page }}/{{ liste.pages }}</p>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr>
+        <th>Date</th><th>Compte</th><th>Libellé</th><th class="num">Montant</th><th>Sens</th>
+        <th>Type flux</th><th>Rapprochement</th><th>Statut</th><th>Anomalie</th><th></th>
+      </tr></thead>
+      <tbody>
+        {% for m in liste.rows %}
+        <tr>
+          <td class="font-mono text-xs">{{ m.date_operation }}</td>
+          <td class="font-mono text-xs">{{ m.compte_masque }}</td>
+          <td>{{ m.libelle[:48] }}</td>
+          <td class="num">{{ "%.2f"|format(m.montant) if m.montant is not none else "—" }}</td>
+          <td>{{ m.sens }}</td>
+          <td class="font-mono text-xs">{{ m.type_flux_id or "—" }}</td>
+          <td class="text-xs">{% if m.rappro_statut %}<span class="status-badge status-a-rapprocher">{{ m.rappro_canal }}</span>{% else %}—{% endif %}</td>
+          <td><span class="status-badge status-{{ 'a-controler' if m.statut_moteur in ['A_CONTROLER','BLOQUANT'] else 'valide' }}">{{ m.statut_moteur or "—" }}</span></td>
+          <td class="text-xs">{{ m.codes_anomalie or "" }}</td>
+          <td><a href="/banques-caisse/mouvements/{{ m.mouvement_id|mvt_opaque }}">Voir</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="10" class="section-note">Aucun mouvement pour ces filtres.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if liste.pages > 1 %}
+  <div class="pagination">
+    {% set base = '/banques-caisse?' ~ (params|join('&')) %}
+    {% if liste.page > 1 %}<a href="{{ base }}&page={{ liste.page - 1 }}">← Précédent</a>{% endif %}
+    <span class="current">{{ liste.page }} / {{ liste.pages }}</span>
+    {% if liste.page < liste.pages %}<a href="{{ base }}&page={{ liste.page + 1 }}">Suivant →</a>{% endif %}
+  </div>
+  {% endif %}
+</div>
+
+<div class="origine-block-card mt-md">
+  <strong>Lecture seule.</strong> Aucun import bancaire, aucun virement, aucune connexion Qonto / Crédit
+  Mutuel. Un mouvement bancaire ne devient jamais automatiquement une charge ou un revenu : les statuts
+  et rapprochements proviennent du moteur (lot8a/8b/8c). Numéros de compte masqués.
+</div>
+{% endif %}
+
+{% endblock %}

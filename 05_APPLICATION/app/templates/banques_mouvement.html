@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Mouvement bancaire{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <a href="/banques-caisse/controle" class="back-link">← Contrôle bancaire</a>
+  <h1 class="page-title">Mouvement bancaire</h1>
+</div>
+
+{% if fiche is none %}
+<div class="alert alert-warning">Mouvement introuvable.</div>
+<a href="/banques-caisse/controle" class="btn btn-secondary">← Retour</a>
+{% else %}
+
+<div class="card mb-md">
+  <dl class="detail-grid">
+    <div><dt>Date opération</dt><dd>{{ fiche.date_operation|date_fr }}</dd></div>
+    <div><dt>Date valeur</dt><dd>{{ fiche.date_valeur|date_fr }}</dd></div>
+    <div><dt>Montant</dt><dd>{{ "%.2f"|format(fiche.montant) }} € — {{ fiche.sens }}</dd></div>
+    <div><dt>Compte</dt><dd>{{ fiche.compte_masque }}</dd></div>
+    <div><dt>Niveau de risque</dt><dd>{{ fiche.niveau_risque or "—" }}</dd></div>
+    <div><dt>Statut effectif</dt>
+      <dd><span class="status-badge status-{{ fiche.statut_effectif|lower|replace('_','-') }}">{{ fiche.statut_effectif_libelle }}</span></dd></div>
+  </dl>
+  <dl class="detail-grid mt-sm">
+    <div class="form-field-full"><dt>Libellé</dt><dd class="mouvement-libelle">{{ fiche.libelle }}</dd></div>
+  </dl>
+  <a href="/banques-caisse/mouvements/{{ fiche.id_opaque }}/modifier" class="btn btn-primary mt-md">Contrôler / catégoriser…</a>
+</div>
+
+<div class="grid-2 mb-md">
+  <div class="card">
+    <h2 class="card-title">{{ fiche.proposition_moteur.libelle_source }}</h2>
+    <dl class="detail-grid">
+      <div><dt>Catégorie</dt><dd>{{ fiche.proposition_moteur.categorie_libelle or "—" }}</dd></div>
+      <div><dt>Type de flux</dt><dd>{{ fiche.proposition_moteur.type_flux_libelle or "—" }}</dd></div>
+      <div><dt>Statut moteur</dt><dd>{{ fiche.proposition_moteur.statut_controle or "—" }}</dd></div>
+    </dl>
+    {% if fiche.proposition_ia and fiche.proposition_ia.score_confiance is not none %}
+    <p class="section-note mt-md">Score de confiance IA : {{ "%.0f"|format(fiche.proposition_ia.score_confiance * 100 if fiche.proposition_ia.score_confiance <= 1 else fiche.proposition_ia.score_confiance) }}%</p>
+    {% endif %}
+    <details class="mt-sm">
+      <summary class="text-xs text-secondary">Détail technique</summary>
+      <dl class="detail-grid mt-sm">
+        <div><dt class="text-xs">Source</dt><dd class="font-mono text-xs">{{ fiche.proposition_moteur.source_classification }}</dd></div>
+        {% if fiche.proposition_moteur.regle_id_appliquee %}
+        <div><dt class="text-xs">Règle appliquée</dt><dd class="font-mono text-xs">{{ fiche.proposition_moteur.regle_id_appliquee }}</dd></div>
+        {% endif %}
+        <div><dt class="text-xs">Catégorie NORM</dt><dd class="font-mono text-xs">{{ fiche.proposition_moteur.categorie or "—" }}</dd></div>
+      </dl>
+    </details>
+  </div>
+  <div class="card">
+    <h2 class="card-title">Décision validée</h2>
+    {% if fiche.decision %}
+    <dl class="detail-grid">
+      <div><dt>Catégorie</dt><dd>{{ fiche.decision.categorie_libelle or "—" }}</dd></div>
+      <div><dt>Type de flux</dt><dd>{{ fiche.decision.type_flux_libelle or "—" }}</dd></div>
+      <div><dt>Propriétaire</dt><dd>{{ fiche.decision.proprietaire_libelle or "—" }}</dd></div>
+      <div><dt>Logement</dt><dd>{{ fiche.decision.logement_libelle or "—" }}</dd></div>
+      <div><dt>Statut</dt><dd>{{ fiche.decision.statut_controle }}</dd></div>
+      <div><dt>Commentaire</dt><dd>{{ fiche.decision.commentaire or "—" }}</dd></div>
+      {% if fiche.decision.justification %}<div><dt>Justification</dt><dd>{{ fiche.decision.justification }}</dd></div>{% endif %}
+      <div><dt>Version</dt><dd>{{ fiche.decision.version }} — {{ fiche.decision.date_action|datetime_fr }}</dd></div>
+    </dl>
+    {% else %}
+    <p class="section-note">Aucune décision enregistrée. La proposition du moteur est préservée séparément.</p>
+    {% endif %}
+  </div>
+</div>
+
+{% if fiche.historique %}
+<div class="card">
+  <h2 class="card-title">Historique des actions</h2>
+  <table class="data-table">
+    <thead><tr><th>Version</th><th>Statut</th><th>Catégorie</th><th>Commentaire</th><th>Date</th><th>Actif</th></tr></thead>
+    <tbody>
+      {% for h in fiche.historique %}
+      <tr>
+        <td>{{ h.version }}</td><td>{{ h.statut_controle }}</td><td>{{ h.categorie_validee or "—" }}</td>
+        <td class="text-sm">{{ h.commentaire or "" }}{% if h.justification %} — {{ h.justification }}{% endif %}</td>
+        <td class="font-mono text-xs">{{ h.date_action|datetime_fr }}</td>
+        <td>{{ "actif" if h.actif else "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}

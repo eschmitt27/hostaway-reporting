@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Banques — À rapprocher{% endblock %}
+
+{% set d = data %}
+
+{% block content %}
+
+<div class="page-header">
+  <a href="/banques-caisse" class="back-link">← Banques &amp; caisse</a>
+  <h1 class="page-title">Mouvements à rapprocher</h1>
+  <p class="page-subtitle">
+    Période <span class="periode-active">{{ d.mois or "aucune" }}</span> · lu le {{ d.read_at }}.
+    Signalés par le moteur — l'application ne rapproche pas.
+  </p>
+</div>
+
+{% if d.status != "OK" %}
+<div class="alert alert-error">Source indisponible : {{ d.etat_source.etat_libelle }}.</div>
+{% else %}
+
+<div class="alert alert-info">
+  <strong>Rapprochement manuel — prochain lot.</strong>
+  <button type="button" class="btn btn-secondary" disabled title="Non activé — lot ultérieur">Rapprocher manuellement</button>
+  À ce lot, l'écran est en lecture : aucune action de rapprochement n'est disponible.
+</div>
+
+<div class="card mb-md">
+  <h2 class="card-title">Lignes à rapprocher ({{ d.lignes|length }})</h2>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr>
+        <th>Date</th><th>Compte</th><th>Libellé</th><th class="num">Montant</th><th>Sens</th>
+        <th>Canal</th><th>Statut rapprochement</th><th>Statut moteur</th><th></th>
+      </tr></thead>
+      <tbody>
+        {% for m in d.lignes %}
+        <tr>
+          <td class="font-mono text-xs">{{ m.date_operation }}</td>
+          <td class="font-mono text-xs">{{ m.compte_masque }}</td>
+          <td>{{ m.libelle[:44] }}</td>
+          <td class="num">{{ "%.2f"|format(m.montant) if m.montant is not none else "—" }}</td>
+          <td>{{ m.sens }}</td>
+          <td>{{ m.rappro_canal or "—" }}</td>
+          <td class="text-xs">{% if m.rappro_statut %}<span class="status-badge status-a-rapprocher">{{ m.rappro_statut }}</span>{% else %}—{% endif %}</td>
+          <td><span class="status-badge status-{{ 'a-controler' if m.statut_moteur in ['A_CONTROLER','BLOQUANT'] else 'valide' }}">{{ m.statut_moteur or "—" }}</span></td>
+          <td><a href="/banques-caisse/mouvements/{{ m.mouvement_id|mvt_opaque }}">Voir</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="section-note">Aucun mouvement à rapprocher sur la période.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <h2 class="card-title">Contrôles de rapprochement (Lot 8c)</h2>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Code</th><th>Sévérité</th><th class="num">Lignes</th><th class="num">Montant €</th><th>Description</th><th>Action requise</th></tr></thead>
+      <tbody>
+        {% for c in d.controles_8c %}
+        <tr>
+          <td class="font-mono text-xs">{{ c.code }}</td>
+          <td>{{ c.severite }}</td>
+          <td class="num">{{ c.nb_lignes if c.nb_lignes is not none else "—" }}</td>
+          <td class="num">{{ "%.2f"|format(c.total) if c.total is not none else "—" }}</td>
+          <td class="text-xs">{{ c.description }}</td>
+          <td class="text-xs">{{ c.action or "—" }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="section-note">Aucun contrôle de rapprochement.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
