@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Validation clôture{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <a href="/clotures/{{ cloture.cloture_id_opaque if cloture else '' }}" class="back-link">← Clôture</a>
+  <h1 class="page-title">Validation finale — {{ cloture.mois if cloture else '' }}</h1>
+</div>
+
+{% if cloture is none %}
+<div class="alert alert-warning">Clôture introuvable.</div>
+{% else %}
+
+<div class="alert alert-info">« Valider » enregistre uniquement le suivi humain (SQLite). La clôture
+  réelle (REF_Cloture_Mensuelle) n'est jamais modifiée.</div>
+
+{% if erreur %}<div class="alert alert-error">{{ erreur }}</div>{% endif %}
+
+{% if snapshot_derive %}
+<div class="alert alert-warning">
+  ⚠ Les contrôles ont évolué depuis la préparation de cette clôture. Le résumé ci-dessous reflète
+  l'état ACTUEL (recalculé à chaque tentative de validation), pas l'instantané de préparation.
+</div>
+{% endif %}
+
+<div class="card mb-md">
+  <h2 class="card-title">Résumé (état courant — recalculé à chaque validation)</h2>
+  <dl class="detail-grid">
+    <div><dt>Bloqueurs</dt><dd>{{ progression.nb_bloqueurs }}</dd></div>
+    <div><dt>Exceptions</dt><dd>{{ progression.nb_exceptions }}</dd></div>
+    <div><dt>Résolus</dt><dd>{{ progression.nb_resolus }}</dd></div>
+    <div><dt>Informatifs</dt><dd>{{ progression.nb_informatifs }}</dd></div>
+  </dl>
+</div>
+
+<div class="card">
+  <h2 class="card-title">Décision</h2>
+  <form method="post" action="/clotures/{{ cloture.cloture_id_opaque }}/valider"
+        onsubmit="return confirm('Confirmez-vous la validation du suivi humain pour {{ cloture.mois }} ? Ceci n\'affecte pas la clôture réelle du moteur.');">
+    <div class="form-field form-field-full">
+      <label for="f-commentaire">Commentaire final (requis)</label>
+      <textarea id="f-commentaire" name="commentaire" class="filter-input" required></textarea>
+    </div>
+    <button type="submit" class="btn btn-primary mt-md" {{ 'disabled' if not progression.cloturable }}>
+      Valider la clôture
+    </button>
+    {% if not progression.cloturable %}
+    <p class="section-note mt-sm">Bouton désactivé : {{ progression.nb_bloqueurs }} bloqueur(s) subsiste(nt).</p>
+    {% endif %}
+  </form>
+</div>
+
+{% endif %}
+{% endblock %}

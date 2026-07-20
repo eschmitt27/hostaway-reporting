@@ -560,6 +560,7 @@ td {
 
 /* === UTILITAIRES === */
 .flex { display: flex; }
+.flex-wrap { flex-wrap: wrap; }
 .flex-col { flex-direction: column; }
 .items-center { align-items: center; }
 .justify-between { justify-content: space-between; }

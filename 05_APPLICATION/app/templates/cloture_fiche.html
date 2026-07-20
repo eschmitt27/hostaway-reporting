@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Clôture{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <a href="/clotures" class="back-link">← Clôtures mensuelles</a>
+  <h1 class="page-title">Clôture {{ cloture.mois if cloture else '' }}</h1>
+</div>
+
+{% if cloture is none %}
+<div class="alert alert-warning">Clôture introuvable.</div>
+{% else %}
+
+{% if erreur %}<div class="alert alert-error">{{ erreur }}</div>{% endif %}
+
+<div class="alert alert-info">
+  Suivi humain uniquement — la clôture réelle reste pilotée par le moteur (REF_Cloture_Mensuelle).
+</div>
+
+{% if a_snapshot and snapshot_derive %}
+<div class="alert alert-warning">
+  ⚠ Les contrôles ont évolué depuis la préparation de cette clôture. Le tableau ci-dessous affiche
+  l'instantané figé au moment du passage en « À valider » — <a href="/controles-cloture?mois={{ cloture.mois }}">voir l'état actuel des contrôles</a>.
+</div>
+{% elif a_snapshot %}
+<div class="alert alert-info">
+  Instantané figé au moment de la préparation (aucun écart détecté avec l'état courant).
+</div>
+{% endif %}
+
+<div class="grid-2 mb-md">
+  <div class="card">
+    <h2 class="card-title">État</h2>
+    <dl class="detail-grid">
+      <div><dt>Statut</dt><dd><span class="status-badge status-{{ 'valide' if cloture.statut == 'VALIDEE' else 'info' }}">{{ cloture.statut }}</span></dd></div>
+      <div><dt>Identifiant</dt><dd class="font-mono text-xs">{{ cloture.cloture_id_opaque }}</dd></div>
+      <div><dt>Créée le</dt><dd>{{ cloture.date_creation|datetime_fr }}</dd></div>
+      {% if cloture.date_validation %}<div><dt>Validée le</dt><dd>{{ cloture.date_validation|datetime_fr }}</dd></div>{% endif %}
+    </dl>
+    <div class="flex flex-wrap gap-md mt-md">
+      {% if 'passer_a_valider' in actions %}
+      <form method="post" action="/clotures/{{ cloture.cloture_id_opaque }}/passer-a-valider">
+        <button type="submit" class="btn btn-primary">Passer en préparation à validation</button>
+      </form>
+      {% endif %}
+      <a href="/clotures/{{ cloture.cloture_id_opaque }}/preparation" class="btn btn-secondary">Préparation</a>
+      {% if cloture.statut == 'A_VALIDER' %}<a href="/clotures/{{ cloture.cloture_id_opaque }}/validation" class="btn btn-secondary">Validation</a>{% endif %}
+      {% if 'rouvrir' in actions %}<a href="/clotures/{{ cloture.cloture_id_opaque }}/reouvrir" class="btn btn-secondary">Rouvrir</a>{% endif %}
+      <a href="/clotures/{{ cloture.cloture_id_opaque }}/historique" class="btn btn-ghost">Historique</a>
+      <a href="/clotures/{{ cloture.cloture_id_opaque }}/export.csv" class="btn btn-ghost">Export CSV</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 class="card-title">Progression</h2>
+    <div class="kpi-grid kpi-grid--3">
+      <div class="kpi-card kpi-card--warn"><div class="kpi-label">Bloqueurs</div><div class="kpi-value">{{ progression.nb_bloqueurs }}</div></div>
+      <div class="kpi-card"><div class="kpi-label">À traiter</div><div class="kpi-value">{{ progression.nb_a_traiter }}</div></div>
+      <div class="kpi-card"><div class="kpi-label">En cours</div><div class="kpi-value">{{ progression.nb_en_cours }}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Résolus</div><div class="kpi-value">{{ progression.nb_resolus }}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Exceptions</div><div class="kpi-value">{{ progression.nb_exceptions }}</div></div>
+      <div class="kpi-card kpi-card--muted"><div class="kpi-label">Informatifs</div><div class="kpi-value">{{ progression.nb_informatifs }}</div></div>
+    </div>
+    <p class="section-note mt-sm">{{ 'Aucun bloqueur — prête à valider.' if progression.cloturable else progression.nb_bloqueurs ~ ' bloqueur(s) empêchent la validation.' }}</p>
+  </div>
+</div>
+
+<div class="card mb-md">
+  <h2 class="card-title">{{ 'Contrôles au moment de la préparation (figé)' if a_snapshot else 'Contrôles du mois (état courant)' }}</h2>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Code</th><th>Module</th><th>Niveau</th><th>Entité</th><th>Statut suivi</th><th></th></tr></thead>
+      <tbody>
+        {% for e in elements[:50] %}
+        <tr>
+          <td class="font-mono text-xs">{{ e.code }}</td>
+          <td class="text-xs">{{ e.module }}</td>
+          <td><span class="status-badge status-{{ 'info' if e.est_info else ('bloquant' if e.etat.anomalie_moteur_presente else 'valide') }}">{{ e.niveau }}</span></td>
+          <td class="font-mono text-xs">{{ e.entite_id }}</td>
+          <td class="text-xs">{{ e.etat.statut_suivi_libelle if not e.est_info else 'Informatif' }}</td>
+          <td><a href="/controles-cloture/element/{{ e.ctrl_opaque }}">Voir</a></td>
+        </tr>
+        {% else %}<tr><td colspan="6" class="section-note">Aucun contrôle pour ce mois.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if elements|length > 50 %}<p class="section-note">{{ elements|length - 50 }} élément(s) supplémentaire(s) — voir <a href="/controles-cloture">Contrôles &amp; clôture</a>.</p>{% endif %}
+</div>
+
+{% if documents %}
+<div class="card">
+  <h2 class="card-title">Preuves</h2>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Nom</th><th>Type</th><th>Date</th></tr></thead>
+      <tbody>
+        {% for d in documents %}
+        <tr><td>{{ d.nom_logique }}</td><td class="text-xs">{{ d.type_document }}</td><td class="text-xs">{{ d.date_creation|datetime_fr }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}

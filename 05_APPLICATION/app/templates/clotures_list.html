@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Clôtures mensuelles{% endblock %}
+
+{% block content %}
+
+<div class="page-header flex justify-between items-center">
+  <div>
+    <h1 class="page-title">Clôtures mensuelles</h1>
+    <p class="page-subtitle">Suivi humain de préparation — la clôture réelle reste pilotée par le moteur</p>
+  </div>
+  <span class="read-only-badge">Clôture réelle non active</span>
+</div>
+
+{% if erreur %}<div class="alert alert-error">{{ erreur }}</div>{% endif %}
+
+<div class="alert alert-info">
+  Cet écran journalise la préparation et la revue humaine des contrôles avant clôture. Il n'écrit
+  jamais dans la clôture réelle (REF_Cloture_Mensuelle) : celle-ci reste exclusivement pilotée par le
+  moteur.
+</div>
+
+<form method="get" action="/clotures" class="filter-bar mt-md">
+  <label>Statut <select name="statut"><option value="">Tous</option>
+    {% for k, v in statuts.items() %}<option value="{{ k }}" {{ 'selected' if k == applied.statut }}>{{ v }}</option>{% endfor %}</select></label>
+  <label>Année <input type="text" name="annee" value="{{ applied.annee or '' }}" size="6" placeholder="2026"></label>
+  <label>&nbsp;<label><input type="checkbox" name="avec_bloqueurs" value="true" {{ 'checked' if applied.avec_bloqueurs }}> Avec bloqueurs</label></label>
+  <button type="submit" class="btn btn-primary">Filtrer</button>
+</form>
+
+<div class="card mt-md">
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Mois</th><th>Statut</th><th>Bloqueurs</th><th>À traiter</th><th>Résolus</th>
+        <th>Exceptions</th><th>Informatifs</th><th>Dernière action</th><th></th></tr></thead>
+      <tbody>
+        {% for l in lignes %}
+        <tr>
+          <td class="font-mono text-xs">{{ l.mois }}</td>
+          <td><span class="status-badge status-{{ 'valide' if l.statut == 'VALIDEE' else ('bloquant' if l.progression.nb_bloqueurs > 0 else 'info') }}">{{ l.statut_libelle }}</span></td>
+          <td>{{ l.progression.nb_bloqueurs }}</td>
+          <td>{{ l.progression.nb_a_traiter }}</td>
+          <td>{{ l.progression.nb_resolus }}</td>
+          <td>{{ l.progression.nb_exceptions }}</td>
+          <td>{{ l.progression.nb_informatifs }}</td>
+          <td class="text-xs">{{ l.derniere_action or "—" }}</td>
+          <td>
+            {% if l.cloture_id_opaque %}
+              <a href="/clotures/{{ l.cloture_id_opaque }}">Ouvrir</a>
+            {% else %}
+              <form method="post" action="/clotures/demarrer" style="display:inline">
+                <input type="hidden" name="mois" value="{{ l.mois }}">
+                <button type="submit" class="btn btn-ghost btn-sm">Démarrer</button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}<tr><td colspan="9" class="section-note">Aucun mois pour ces filtres.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Préparation clôture{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <a href="/clotures/{{ cloture.cloture_id_opaque if cloture else '' }}" class="back-link">← Clôture</a>
+  <h1 class="page-title">Préparation — {{ cloture.mois if cloture else '' }}</h1>
+</div>
+
+{% if cloture is none %}
+<div class="alert alert-warning">Clôture introuvable.</div>
+{% else %}
+
+<div class="card mb-md">
+  <h2 class="card-title">Checklist</h2>
+  <dl class="detail-grid">
+    <div><dt>Bloqueurs restants</dt><dd>{{ progression.nb_bloqueurs }}</dd></div>
+    <div><dt>À traiter</dt><dd>{{ progression.nb_a_traiter }}</dd></div>
+    <div><dt>En cours</dt><dd>{{ progression.nb_en_cours }}</dd></div>
+    <div><dt>Exceptions actives</dt><dd>{{ progression.nb_exceptions }}</dd></div>
+  </dl>
+</div>
+
+<div class="card mb-md">
+  <h2 class="card-title">Anomalies restantes (bloquantes)</h2>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Code</th><th>Module</th><th>Entité</th><th></th></tr></thead>
+      <tbody>
+        {% for b in progression.bloqueurs %}
+        <tr>
+          <td class="font-mono text-xs">{{ b.code }}</td>
+          <td class="text-xs">{{ b.module }}</td>
+          <td class="font-mono text-xs">{{ b.entite_id }}</td>
+          <td><a href="/controles-cloture/element/{{ b.ctrl_opaque }}">Traiter</a></td>
+        </tr>
+        {% else %}<tr><td colspan="4" class="section-note">Aucune anomalie bloquante.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<form method="post" action="/clotures/{{ cloture.cloture_id_opaque }}/passer-a-valider">
+  <button type="submit" class="btn btn-primary">Passer à validation</button>
+</form>
+
+{% endif %}
+{% endblock %}
