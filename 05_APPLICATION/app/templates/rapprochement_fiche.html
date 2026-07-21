@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Rapprochement du règlement{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <a href="/proprietaires-reglements/a-payer" class="back-link">← Préparation des règlements</a>
+  <h1 class="page-title">Rapprochement — {{ releve.mois if releve else '' }}</h1>
+</div>
+
+{% if releve is none %}
+<div class="alert alert-warning">Règlement introuvable.</div>
+{% else %}
+
+<div class="alert alert-info">{{ mention_rapprochement }}</div>
+{% if erreur %}<div class="alert alert-error">{{ erreur }}</div>{% endif %}
+
+<div class="card mb-md">
+  <h2 class="card-title">Règlement déclaré</h2>
+  <dl class="detail-grid">
+    <div><dt>Propriétaire</dt><dd class="font-mono text-xs">{{ releve.proprietaire_id }}</dd></div>
+    <div><dt>Mois</dt><dd>{{ releve.mois }}</dd></div>
+    <div><dt>Logements</dt><dd>{{ logements|join(', ') if logements else '—' }}</dd></div>
+    <div><dt>Montant déclaré (moteur)</dt><dd>{% if montant_declare is not none %}{{ "%.2f"|format(montant_declare) }} €{% else %}DONNEE_MOTEUR_INDISPONIBLE{% endif %}</dd></div>
+    <div><dt>Date de déclaration humaine</dt><dd>{{ date_declaration or '—' }}</dd></div>
+    <div><dt>Référence interne</dt><dd>{{ reference_interne or '—' }}</dd></div>
+    <div><dt>Statut règlement (APP-3E)</dt><dd><span class="status-badge">{{ paiement.statut_paiement }}</span></dd></div>
+    <div><dt>Statut rapprochement</dt><dd><span class="status-badge">{{ rapprochement.statut }}</span></dd></div>
+  </dl>
+</div>
+
+{% if controles.bloquants or controles.informatifs %}
+<div class="card mb-md">
+  <h2 class="card-title">Contrôles</h2>
+  {% if controles.bloquants %}<p class="section-note">Bloquant(s) : {{ controles.bloquants|join(', ') }}</p>{% endif %}
+  {% if controles.informatifs %}<p class="section-note">Information(s) : {{ controles.informatifs|join(', ') }}</p>{% endif %}
+</div>
+{% endif %}
+
+<div class="card mb-md">
+  <h2 class="card-title">Candidat bancaire (masqué)</h2>
+  {% if candidat %}
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Mouvement</th><th>Date</th><th>Montant</th><th>Sens</th><th>Libellé masqué</th>
+        <th>Écart montant</th><th>Écart jours</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="font-mono text-xs">{{ candidat.mouvement_opaque }}</td>
+          <td class="font-mono text-xs">{{ candidat.date }}</td>
+          <td class="num">{{ "%.2f"|format(candidat.montant) if candidat.montant is not none else '—' }}</td>
+          <td class="text-xs">{{ candidat.sens }}</td>
+          <td class="text-xs">{{ candidat.libelle_masque }}</td>
+          <td class="num">{{ "%.2f"|format(rapprochement.ecart_montant) if rapprochement.ecart_montant is not none else '—' }}</td>
+          <td class="num">{{ rapprochement.ecart_jours if rapprochement.ecart_jours is not none else '—' }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="section-note">Critères satisfaits : {{ criteres|join(', ') if criteres else 'aucun' }}.</p>
+  {% if not mouvement_present %}
+  <div class="alert alert-error">Le mouvement a disparu de la source depuis la proposition — réouverture nécessaire.</div>
+  {% endif %}
+  {% else %}
+  <p class="section-note">Aucun candidat sélectionné. Lancez une recherche de candidats.</p>
+  {% endif %}
+</div>
+
+<div class="card mb-md">
+  <h2 class="card-title">Actions</h2>
+  <div class="flex flex-wrap gap-sm">
+    {% if rapprochement.statut in ("NON_RAPPROCHE", "ROUVERT") %}
+    <form method="post" action="/proprietaires-reglements/{{ releve.releve_id_opaque }}/rapprochement/rechercher">
+      <button type="submit" class="btn btn-secondary">Rechercher les candidats</button>
+    </form>
+    {% endif %}
+    {% if rapprochement.statut == "PROPOSITION_DISPONIBLE" %}
+    <form method="post" action="/proprietaires-reglements/{{ releve.releve_id_opaque }}/rapprochement/controler">
+      <button type="submit" class="btn btn-secondary">Passer à contrôler</button>
+    </form>
+    {% endif %}
+    {% if rapprochement.statut == "A_CONTROLER" %}
+    <form method="post" action="/proprietaires-reglements/{{ releve.releve_id_opaque }}/rapprochement/confirmer"
+          onsubmit="return confirm('Confirmer ce rapprochement déclaratif ? (ne constitue pas une preuve bancaire)');">
+      <input type="text" name="commentaire" placeholder="Commentaire">
+      <button type="submit" class="btn btn-primary" {% if not controles.confirmable %}disabled{% endif %}>Confirmer le rapprochement</button>
+    </form>
+    {% endif %}
+    {% if rapprochement.statut in ("PROPOSITION_DISPONIBLE", "A_CONTROLER") %}
+    <form method="post" action="/proprietaires-reglements/{{ releve.releve_id_opaque }}/rapprochement/ecarter">
+      <input type="text" name="motif" placeholder="Motif d'écartement" required>
+      <button type="submit" class="btn btn-secondary">Écarter</button>
+    </form>
+    {% endif %}
+    {% if rapprochement.statut in ("NON_RAPPROCHE", "PROPOSITION_DISPONIBLE", "A_CONTROLER") %}
+    <form method="post" action="/proprietaires-reglements/{{ releve.releve_id_opaque }}/rapprochement/anomalie">
+      <input type="text" name="motif" placeholder="Motif d'anomalie" required>
+      <button type="submit" class="btn btn-secondary">Signaler une anomalie</button>
+    </form>
+    {% endif %}
+    {% if rapprochement.statut in ("RAPPROCHE", "ECARTE", "ANOMALIE") %}
+    <form method="post" action="/proprietaires-reglements/{{ releve.releve_id_opaque }}/rapprochement/rouvrir">
+      <input type="text" name="motif" placeholder="Motif de réouverture" required>
+      <button type="submit" class="btn btn-secondary">Rouvrir</button>
+    </form>
+    {% endif %}
+  </div>
+  <p class="section-note">Aucun paiement, aucun virement, aucune modification du mouvement ne sont possibles ici.</p>
+</div>
+
+<div class="card">
+  <h2 class="card-title">Historique</h2>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Événement</th><th>Ancien</th><th>Nouveau</th><th>Commentaire</th><th>Date</th></tr></thead>
+      <tbody>
+        {% for h in historique %}
+        <tr>
+          <td class="text-xs">{{ h.type_evenement }}</td>
+          <td class="text-xs">{{ h.ancien_statut or '—' }}</td>
+          <td class="text-xs">{{ h.nouveau_statut or '—' }}</td>
+          <td class="text-xs">{{ h.commentaire or '—' }}</td>
+          <td class="font-mono text-xs">{{ h.date_evenement }}</td>
+        </tr>
+        {% else %}<tr><td colspan="5" class="section-note">Aucun événement.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endif %}
+{% endblock %}

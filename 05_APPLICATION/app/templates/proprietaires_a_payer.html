@@ -9,6 +9,7 @@
   </div>
   <div class="flex flex-wrap gap-sm items-center">
     <a href="/proprietaires-reglements/a-payer/export.csv" class="btn btn-secondary">Export préparatoire (CSV)</a>
+    <a href="/proprietaires-reglements/a-payer/rapprochement-export.csv" class="btn btn-secondary">Export contrôle rapprochement (CSV)</a>
     <span class="read-only-badge">Lecture seule — aucun ordre bancaire possible</span>
   </div>
 </div>
@@ -23,7 +24,8 @@
     <table class="data-table">
       <thead><tr>
         <th>Propriétaire</th><th>Mois</th><th>Statut relevé</th><th>État cycle</th>
-        <th>Statut moteur</th><th class="num">Montant (moteur)</th><th>Statut paiement</th><th></th>
+        <th>Statut moteur</th><th class="num">Montant (moteur)</th><th>Statut paiement</th>
+        <th>Rapprochement</th><th class="num">Candidats</th><th></th>
       </tr></thead>
       <tbody>
         {% for l in lignes %}
@@ -41,9 +43,14 @@
             {% endif %}
           </td>
           <td class="text-xs">{{ l.statut_paiement }}</td>
-          <td><a href="/proprietaires-reglements/{{ l.releve_id_opaque }}/releve" class="btn btn-secondary">Ouvrir</a></td>
+          <td class="text-xs">{{ l.statut_rapprochement }}</td>
+          <td class="num">{{ l.nb_candidats if l.nb_candidats is not none else '—' }}</td>
+          <td>
+            <a href="/proprietaires-reglements/{{ l.releve_id_opaque }}/releve" class="btn btn-secondary">Ouvrir</a>
+            <a href="/proprietaires-reglements/{{ l.releve_id_opaque }}/rapprochement" class="btn btn-secondary">Contrôler le mouvement</a>
+          </td>
         </tr>
-        {% else %}<tr><td colspan="8" class="section-note">Aucun relevé en préparation.</td></tr>{% endfor %}
+        {% else %}<tr><td colspan="10" class="section-note">Aucun relevé en préparation.</td></tr>{% endfor %}
       </tbody>
     </table>
   </div>

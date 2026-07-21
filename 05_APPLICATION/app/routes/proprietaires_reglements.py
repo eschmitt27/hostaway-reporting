@@ -17,6 +17,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.config import TEMPLATES_DIR
 from app.readers import controles_cloture_reader as ref_reader
+from app.readers import rapprochement_bancaire_reader as banque_contrat
 from app.services import charges_affectations_service as charges_aff
 from app.services import clotures_service as cs
 from app.services import fournisseurs_referentiel_service as frs
@@ -27,6 +28,8 @@ from app.services import proprietaires_releve_export_service as export_svc
 from app.services import proprietaires_reglements_service as svc
 from app.services import proprietaires_service as legacy_svc
 from app.services import proprietaires_suivi_service as suivi
+from app.services import rapprochement_candidats_service as rap_cand
+from app.services import rapprochement_reglements_service as rap
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -121,6 +124,7 @@ def a_payer_liste(request: Request):
         montant = None
         if detail and detail.get("status") == "OK" and detail.get("vue"):
             montant = detail["vue"].get("net")
+        rapp = rap.charger_par_releve(r["releve_id_opaque"])
         lignes.append({
             "proprietaire_id": r["proprietaire_id"], "mois": r["mois"],
             "releve_id_opaque": r["releve_id_opaque"],
@@ -128,10 +132,12 @@ def a_payer_liste(request: Request):
             "statut_moteur": _statut_moteur_mois(r["mois"]),
             "montant_moteur": montant if montant is not None else "DONNEE_MOTEUR_INDISPONIBLE",
             "statut_paiement": p["statut_paiement"],
+            "statut_rapprochement": rapp["statut"] if rapp else rap.ST_NON_RAPPROCHE,
+            "nb_candidats": rapp["score_explicable"] if rapp and rapp.get("mouvement_id_opaque") else None,
             "date_modification": p["date_modification"],
         })
     return templates.TemplateResponse(request, "proprietaires_a_payer.html", {
-        "active_menu": "proprietaires", "lignes": lignes})
+        "active_menu": "proprietaires", "lignes": lignes, "mention_rapprochement": rap.MENTION})
 
 
 @router.get("/proprietaires-reglements/a-payer/export.csv")
@@ -474,6 +480,212 @@ async def paiement_annuler(request: Request, releve_opaque: str):
         return RedirectResponse(
             url=f"/proprietaires-reglements/{releve_opaque}/releve?erreur={quote(str(exc))}", status_code=303)
     return RedirectResponse(url=f"/proprietaires-reglements/{releve_opaque}/releve", status_code=303)
+
+
+# ── APP-3F — Rapprochement déclaratif règlement ↔ mouvement bancaire (lecture seule) ──
+# Aucun paiement, aucun virement, aucune écriture bancaire, aucune API bancaire, aucun IBAN.
+
+def _rapprochement_ctx(releve_opaque: str) -> dict | None:
+    r = suivi.charger_par_opaque(releve_opaque)
+    if r is None:
+        return None
+    paiement = pay.creer_ou_charger(releve_opaque)
+    rapp = rap.creer_ou_charger(releve_opaque)
+    detail = svc.load_owner_detail(r["proprietaire_id"], r["mois"])
+    montant_declare = None
+    logements = []
+    if detail and detail.get("status") == "OK" and detail.get("vue"):
+        montant_declare = detail["vue"].get("net")
+        logements = [l.get("logement_id") for l in detail.get("logements", [])]
+    reglement_paye = paiement["statut_paiement"] == pay.ST_MARQUE_COMME_PAYE
+    reglement_annule = paiement["statut_paiement"] == pay.ST_ANNULE
+    # Candidat sélectionné (le cas échéant) résolu depuis la source courante (détection disparition).
+    candidat_courant = None
+    mouvement_present = None
+    if rapp.get("mouvement_id_opaque"):
+        candidat_courant = banque_contrat.charger_mouvement(rapp["mouvement_id_opaque"])
+        mouvement_present = candidat_courant is not None
+    controles = rap_cand.evaluer_controles(
+        source_etat_code=None, reglement_paye=reglement_paye, reglement_annule=reglement_annule,
+        nb_candidats=1 if rapp.get("mouvement_id_opaque") else 0, mouvement_present=mouvement_present,
+        empreinte_snapshot=rapp.get("mouvement_empreinte") or "",
+        empreinte_courante=candidat_courant.empreinte if candidat_courant else "",
+        ecart_montant=rapp.get("ecart_montant"),
+        sens_sortant=(candidat_courant.sens == "DEBIT") if candidat_courant else None)
+    import json as _json
+    criteres = _json.loads(rapp["criteres_json"]) if rapp.get("criteres_json") else []
+    return {
+        "releve": r, "paiement": paiement, "rapprochement": rapp, "montant_declare": montant_declare,
+        "logements": logements, "date_declaration": paiement.get("date_paiement"),
+        "reference_interne": paiement.get("reference_interne_paiement"),
+        "candidat": candidat_courant, "mouvement_present": mouvement_present,
+        "criteres": criteres, "controles": controles,
+        "historique": rap.historique(rapp["rapprochement_id_opaque"]),
+        "mention_rapprochement": rap.MENTION,
+    }
+
+
+@router.get("/proprietaires-reglements/{releve_opaque}/rapprochement", response_class=HTMLResponse)
+def rapprochement_fiche(request: Request, releve_opaque: str, erreur: str = ""):
+    ctx = _rapprochement_ctx(releve_opaque)
+    if ctx is None:
+        return templates.TemplateResponse(request, "rapprochement_fiche.html", {
+            "active_menu": "proprietaires", "releve": None}, status_code=404)
+    return templates.TemplateResponse(request, "rapprochement_fiche.html", {
+        "active_menu": "proprietaires", "erreur": erreur, **ctx})
+
+
+@router.post("/proprietaires-reglements/{releve_opaque}/rapprochement/rechercher")
+async def rapprochement_rechercher(request: Request, releve_opaque: str):
+    r = suivi.charger_par_opaque(releve_opaque)
+    if r is None:
+        return RedirectResponse(url="/proprietaires-reglements/a-payer", status_code=303)
+    paiement = pay.creer_ou_charger(releve_opaque)
+    rapp = rap.creer_ou_charger(releve_opaque)
+    detail = svc.load_owner_detail(r["proprietaire_id"], r["mois"])
+    montant = detail["vue"].get("net") if detail and detail.get("status") == "OK" and detail.get("vue") else None
+    deja = {x["mouvement_id_opaque"] for x in rap.lister()
+            if x["statut"] == rap.ST_RAPPROCHE and x["mouvement_id_opaque"]}
+    res = rap_cand.chercher_candidats(
+        montant_declare=montant, date_declaree=paiement.get("date_paiement") or "", mois=r["mois"],
+        reference_interne=paiement.get("reference_interne_paiement") or "",
+        mouvements_deja_rapproches=deja)
+    candidats = res["candidats"]
+    try:
+        if candidats:
+            best = candidats[0]
+            m = best["mouvement"]
+            ecart_j = best["ecart_jours"]
+            rap.enregistrer_proposition(
+                rapp, m.mouvement_opaque, criteres=best["criteres"], score=best["score"],
+                mouvement_empreinte=m.empreinte,
+                ecart_montant=best["ecart_montant"], ecart_jours=ecart_j,
+                acteur="local", version_attendue=rapp["version"])
+        else:
+            rap.signaler_anomalie(rapp, "Aucun mouvement candidat trouvé", acteur="local",
+                                  version_attendue=rapp["version"]) if False else None
+    except rap.RapprochementRefuse as exc:
+        return RedirectResponse(
+            url=f"/proprietaires-reglements/{releve_opaque}/rapprochement?erreur={quote(str(exc))}",
+            status_code=303)
+    return RedirectResponse(url=f"/proprietaires-reglements/{releve_opaque}/rapprochement", status_code=303)
+
+
+@router.post("/proprietaires-reglements/{releve_opaque}/rapprochement/controler")
+async def rapprochement_controler(request: Request, releve_opaque: str):
+    rapp = rap.creer_ou_charger(releve_opaque)
+    try:
+        rap.passer_a_controler(rapp, acteur="local", version_attendue=rapp["version"])
+    except rap.RapprochementRefuse as exc:
+        return RedirectResponse(
+            url=f"/proprietaires-reglements/{releve_opaque}/rapprochement?erreur={quote(str(exc))}",
+            status_code=303)
+    return RedirectResponse(url=f"/proprietaires-reglements/{releve_opaque}/rapprochement", status_code=303)
+
+
+@router.post("/proprietaires-reglements/{releve_opaque}/rapprochement/confirmer")
+async def rapprochement_confirmer(request: Request, releve_opaque: str):
+    rapp = rap.creer_ou_charger(releve_opaque)
+    paiement = pay.creer_ou_charger(releve_opaque)
+    form = await request.form()
+    commentaire = (form.get("commentaire") or "").strip()
+    candidat = banque_contrat.charger_mouvement(rapp["mouvement_id_opaque"]) if rapp.get("mouvement_id_opaque") else None
+    try:
+        rap.confirmer(
+            rapp, reglement_paye=(paiement["statut_paiement"] == pay.ST_MARQUE_COMME_PAYE),
+            mouvement_present=candidat is not None,
+            sens_sortant=(candidat.sens == "DEBIT") if candidat else False,
+            acteur="local", commentaire=commentaire, version_attendue=rapp["version"])
+    except rap.RapprochementRefuse as exc:
+        return RedirectResponse(
+            url=f"/proprietaires-reglements/{releve_opaque}/rapprochement?erreur={quote(str(exc))}",
+            status_code=303)
+    return RedirectResponse(url=f"/proprietaires-reglements/{releve_opaque}/rapprochement", status_code=303)
+
+
+@router.post("/proprietaires-reglements/{releve_opaque}/rapprochement/ecarter")
+async def rapprochement_ecarter(request: Request, releve_opaque: str):
+    rapp = rap.creer_ou_charger(releve_opaque)
+    form = await request.form()
+    motif = (form.get("motif") or "").strip()
+    try:
+        rap.ecarter(rapp, motif, acteur="local", version_attendue=rapp["version"])
+    except rap.RapprochementRefuse as exc:
+        return RedirectResponse(
+            url=f"/proprietaires-reglements/{releve_opaque}/rapprochement?erreur={quote(str(exc))}",
+            status_code=303)
+    return RedirectResponse(url=f"/proprietaires-reglements/{releve_opaque}/rapprochement", status_code=303)
+
+
+@router.post("/proprietaires-reglements/{releve_opaque}/rapprochement/anomalie")
+async def rapprochement_anomalie(request: Request, releve_opaque: str):
+    rapp = rap.creer_ou_charger(releve_opaque)
+    form = await request.form()
+    motif = (form.get("motif") or "").strip()
+    try:
+        rap.signaler_anomalie(rapp, motif, acteur="local", version_attendue=rapp["version"])
+    except rap.RapprochementRefuse as exc:
+        return RedirectResponse(
+            url=f"/proprietaires-reglements/{releve_opaque}/rapprochement?erreur={quote(str(exc))}",
+            status_code=303)
+    return RedirectResponse(url=f"/proprietaires-reglements/{releve_opaque}/rapprochement", status_code=303)
+
+
+@router.post("/proprietaires-reglements/{releve_opaque}/rapprochement/rouvrir")
+async def rapprochement_rouvrir(request: Request, releve_opaque: str):
+    rapp = rap.creer_ou_charger(releve_opaque)
+    form = await request.form()
+    motif = (form.get("motif") or "").strip()
+    try:
+        rap.rouvrir(rapp, motif, acteur="local", version_attendue=rapp["version"])
+    except rap.RapprochementRefuse as exc:
+        return RedirectResponse(
+            url=f"/proprietaires-reglements/{releve_opaque}/rapprochement?erreur={quote(str(exc))}",
+            status_code=303)
+    return RedirectResponse(url=f"/proprietaires-reglements/{releve_opaque}/rapprochement", status_code=303)
+
+
+@router.post("/proprietaires-reglements/{releve_opaque}/rapprochement/annuler")
+async def rapprochement_annuler(request: Request, releve_opaque: str):
+    rapp = rap.creer_ou_charger(releve_opaque)
+    form = await request.form()
+    motif = (form.get("motif") or "").strip()
+    try:
+        rap.annuler(rapp, motif, acteur="local", version_attendue=rapp["version"])
+    except rap.RapprochementRefuse as exc:
+        return RedirectResponse(
+            url=f"/proprietaires-reglements/{releve_opaque}/rapprochement?erreur={quote(str(exc))}",
+            status_code=303)
+    return RedirectResponse(url=f"/proprietaires-reglements/{releve_opaque}/rapprochement", status_code=303)
+
+
+@router.get("/proprietaires-reglements/a-payer/rapprochement-export.csv")
+def rapprochement_export_csv():
+    import csv
+    import io
+    from app.services.proprietaires_releve_export_service import _cellule_sure
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=";", lineterminator="\n")
+    w.writerow([f"# {rap.MENTION}"])
+    w.writerow(["rapprochement_opaque", "releve_opaque", "proprietaire", "mois", "montant_declare",
+               "montant_candidat", "ecart_montant", "date_candidat", "statut", "commentaire",
+               "date_controle"])
+    for x in rap.lister():
+        r = suivi.charger_par_opaque(x["releve_id_opaque"])
+        if r is None:
+            continue
+        detail = svc.load_owner_detail(r["proprietaire_id"], r["mois"])
+        montant = detail["vue"].get("net") if detail and detail.get("status") == "OK" and detail.get("vue") else ""
+        cand_mvt = banque_contrat.charger_mouvement(x["mouvement_id_opaque"]) if x.get("mouvement_id_opaque") else None
+        w.writerow([
+            _cellule_sure(x["rapprochement_id_opaque"]), _cellule_sure(x["releve_id_opaque"]),
+            _cellule_sure(r["proprietaire_id"]), _cellule_sure(r["mois"]), _cellule_sure(montant),
+            _cellule_sure(cand_mvt.montant if cand_mvt else ""),
+            _cellule_sure(x.get("ecart_montant") if x.get("ecart_montant") is not None else ""),
+            _cellule_sure(cand_mvt.date if cand_mvt else ""), _cellule_sure(x["statut"]),
+            _cellule_sure(x.get("commentaire") or ""), _cellule_sure(x["date_modification"])])
+    return Response(content=buf.getvalue(), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="rapprochement_controle.csv"'})
 
 
 @router.get("/proprietaires-reglements/{releve_opaque}/historique", response_class=HTMLResponse)
