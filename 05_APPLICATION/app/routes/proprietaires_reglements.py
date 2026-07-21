@@ -683,7 +683,8 @@ def rapprochement_export_csv():
             _cellule_sure(cand_mvt.montant if cand_mvt else ""),
             _cellule_sure(x.get("ecart_montant") if x.get("ecart_montant") is not None else ""),
             _cellule_sure(cand_mvt.date if cand_mvt else ""), _cellule_sure(x["statut"]),
-            _cellule_sure(x.get("commentaire") or ""), _cellule_sure(x["date_modification"])])
+            _cellule_sure(x.get("commentaire") or x.get("motif") or ""),
+            _cellule_sure(x["date_modification"])])
     return Response(content=buf.getvalue(), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": 'attachment; filename="rapprochement_controle.csv"'})
 
