@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Préparation des règlements{% endblock %}
+{% block content %}
+
+<div class="page-header flex justify-between items-center">
+  <div>
+    <h1 class="page-title">Préparation des règlements propriétaires</h1>
+    <p class="page-subtitle">Vue interne — aucun virement, aucune donnée bancaire.</p>
+  </div>
+  <div class="flex flex-wrap gap-sm items-center">
+    <a href="/proprietaires-reglements/a-payer/export.csv" class="btn btn-secondary">Export préparatoire (CSV)</a>
+    <span class="read-only-badge">Lecture seule — aucun ordre bancaire possible</span>
+  </div>
+</div>
+
+<div class="alert alert-info">
+  « MARQUE_COMME_PAYE » signifie uniquement qu'un utilisateur déclare le règlement réalisé.
+  Cela ne constitue pas une preuve bancaire, ni un ordre de virement.
+</div>
+
+<div class="card">
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr>
+        <th>Propriétaire</th><th>Mois</th><th>Statut relevé</th><th>État cycle</th>
+        <th>Statut moteur</th><th class="num">Montant (moteur)</th><th>Statut paiement</th><th></th>
+      </tr></thead>
+      <tbody>
+        {% for l in lignes %}
+        <tr>
+          <td class="font-mono text-xs">{{ l.proprietaire_id }}</td>
+          <td>{{ l.mois }}</td>
+          <td class="text-xs">{{ l.statut_releve }}</td>
+          <td class="text-xs">{{ l.etat_cycle }}</td>
+          <td class="text-xs">{{ l.statut_moteur }}</td>
+          <td class="num">
+            {% if l.montant_moteur == "DONNEE_MOTEUR_INDISPONIBLE" %}
+              <span class="status-badge status-a-controler">DONNEE_MOTEUR_INDISPONIBLE</span>
+            {% else %}
+              {{ "%.2f"|format(l.montant_moteur) }} €
+            {% endif %}
+          </td>
+          <td class="text-xs">{{ l.statut_paiement }}</td>
+          <td><a href="/proprietaires-reglements/{{ l.releve_id_opaque }}/releve" class="btn btn-secondary">Ouvrir</a></td>
+        </tr>
+        {% else %}<tr><td colspan="8" class="section-note">Aucun relevé en préparation.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

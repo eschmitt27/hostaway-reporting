@@ -97,5 +97,35 @@
   {% endif %}
 </div>
 
+<div class="card mb-md">
+  <h2 class="card-title">Préparation du règlement — <span class="text-xs">aucun virement, aucune donnée bancaire</span></h2>
+  <p>Statut : <span class="status-badge">{{ paiement.statut_paiement if paiement else "NON_PREPARE" }}</span></p>
+  <div class="flex flex-wrap gap-sm">
+    {% if paiement and paiement.statut_paiement in ("NON_PREPARE", "BLOQUE") %}
+    <form method="post" action="/proprietaires-reglements/{{ releve.releve_id_opaque }}/paiement/controler">
+      <button type="submit" class="btn btn-secondary">Démarrer le contrôle</button>
+    </form>
+    {% endif %}
+    {% if paiement and paiement.statut_paiement == "A_CONTROLER" %}
+    <form method="post" action="/proprietaires-reglements/{{ releve.releve_id_opaque }}/paiement/pret-a-payer">
+      <button type="submit" class="btn btn-primary">Marquer prêt à payer</button>
+    </form>
+    {% endif %}
+    {% if paiement and paiement.statut_paiement == "PRET_A_PAYER" %}
+    <form method="post" action="/proprietaires-reglements/{{ releve.releve_id_opaque }}/paiement/marquer-paye">
+      <input type="text" name="reference_interne" placeholder="Référence interne (non bancaire)">
+      <button type="submit" class="btn btn-primary">Marquer comme payé (déclaratif)</button>
+    </form>
+    {% endif %}
+    {% if paiement and paiement.statut_paiement == "MARQUE_COMME_PAYE" %}
+    <form method="post" action="/proprietaires-reglements/{{ releve.releve_id_opaque }}/paiement/reouvrir">
+      <input type="text" name="motif" placeholder="Motif de réouverture" required>
+      <button type="submit" class="btn btn-secondary">Rouvrir</button>
+    </form>
+    {% endif %}
+  </div>
+  <p class="section-note">« Marqué comme payé » = déclaration humaine, jamais une preuve bancaire ni un ordre de virement.</p>
+</div>
+
 {% endif %}
 {% endblock %}

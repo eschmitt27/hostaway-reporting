@@ -21,6 +21,7 @@ from app.services import charges_affectations_service as charges_aff
 from app.services import clotures_service as cs
 from app.services import fournisseurs_referentiel_service as frs
 from app.services import proprietaires_blocages_service as blocages
+from app.services import proprietaires_paiement_service as pay
 from app.services import proprietaires_releve_cycle_service as cycle_svc
 from app.services import proprietaires_releve_export_service as export_svc
 from app.services import proprietaires_reglements_service as svc
@@ -103,6 +104,56 @@ def reglements_export_csv(
     nom = f"proprietaires_reglements_{mois or 'tous'}.csv"
     return Response(content=contenu, media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="{nom}"'})
+
+
+# ── APP-3E — Préparation des règlements, SANS virement (route statique, avant {identifiant}) ──
+# Aucun virement, aucune API bancaire, aucun IBAN. MARQUE_COMME_PAYE est une déclaration humaine.
+
+@router.get("/proprietaires-reglements/a-payer", response_class=HTMLResponse)
+def a_payer_liste(request: Request):
+    lignes = []
+    for p in pay.lister_a_payer():
+        r = suivi.charger_par_opaque(p["releve_id_opaque"])
+        if r is None:
+            continue
+        c = cycle_svc.charger(p["releve_id_opaque"])
+        detail = svc.load_owner_detail(r["proprietaire_id"], r["mois"])
+        montant = None
+        if detail and detail.get("status") == "OK" and detail.get("vue"):
+            montant = detail["vue"].get("net")
+        lignes.append({
+            "proprietaire_id": r["proprietaire_id"], "mois": r["mois"],
+            "releve_id_opaque": r["releve_id_opaque"],
+            "statut_releve": r["statut_facturation"], "etat_cycle": c["etat_cycle"] if c else "NON_DEMARRE",
+            "statut_moteur": _statut_moteur_mois(r["mois"]),
+            "montant_moteur": montant if montant is not None else "DONNEE_MOTEUR_INDISPONIBLE",
+            "statut_paiement": p["statut_paiement"],
+            "date_modification": p["date_modification"],
+        })
+    return templates.TemplateResponse(request, "proprietaires_a_payer.html", {
+        "active_menu": "proprietaires", "lignes": lignes})
+
+
+@router.get("/proprietaires-reglements/a-payer/export.csv")
+def a_payer_export_csv():
+    import csv
+    import io
+    from app.services.proprietaires_releve_export_service import _cellule_sure
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=";", lineterminator="\n")
+    w.writerow(["# Fichier préparatoire interne — ne constitue pas un ordre bancaire."])
+    w.writerow(["releve_id_opaque", "proprietaire_id", "mois", "statut_paiement", "reference_interne",
+               "date_preparation"])
+    for p in pay.lister_a_payer():
+        r = suivi.charger_par_opaque(p["releve_id_opaque"])
+        if r is None:
+            continue
+        w.writerow([_cellule_sure(r["releve_id_opaque"]), _cellule_sure(r["proprietaire_id"]),
+                   _cellule_sure(r["mois"]), _cellule_sure(p["statut_paiement"]),
+                   _cellule_sure(p.get("reference_interne_paiement") or ""),
+                   _cellule_sure(p["date_modification"])])
+    return Response(content=buf.getvalue(), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="a_payer_preparatoire.csv"'})
 
 
 # ── APP-3D — Démarrer un suivi de facturation (route statique, avant {identifiant}) ──
@@ -188,9 +239,10 @@ def releve_detail(request: Request, releve_opaque: str, erreur: str = ""):
     cycle = cycle_svc.creer_ou_charger(releve_opaque)
     derive = cycle_svc.detecter_derive(cycle, _snapshot_donnees(r, data))
     eval_blocages = blocages.evaluer(r["proprietaire_id"], r["mois"])
+    paiement = pay.creer_ou_charger(releve_opaque)
     return templates.TemplateResponse(request, "proprietaire_releve_detail.html", {
         "active_menu": "proprietaires", "releve": r, "data": data, "cycle": cycle,
-        "derive": derive, "blocages": eval_blocages, "erreur": erreur})
+        "derive": derive, "blocages": eval_blocages, "erreur": erreur, "paiement": paiement})
 
 
 @router.post("/proprietaires-reglements/{releve_opaque}/cycle/demarrer")
@@ -340,6 +392,88 @@ async def releve_reouvrir(request: Request, releve_opaque: str):
             url=f"/proprietaires-reglements/{releve_opaque}/reouvrir?erreur={quote(str(exc))}",
             status_code=303)
     return RedirectResponse(url=f"/proprietaires-reglements/{releve_opaque}", status_code=303)
+
+
+# ── APP-3E — Préparation du règlement (actions), SANS virement ───────────────
+
+@router.post("/proprietaires-reglements/{releve_opaque}/paiement/controler")
+async def paiement_controler(request: Request, releve_opaque: str):
+    r = suivi.charger_par_opaque(releve_opaque)
+    if r is None:
+        return RedirectResponse(url="/proprietaires-reglements", status_code=303)
+    p = pay.creer_ou_charger(releve_opaque)
+    try:
+        pay.demarrer_controle(p, acteur="local", version_attendue=p["version"])
+    except pay.PaiementRefuse as exc:
+        return RedirectResponse(
+            url=f"/proprietaires-reglements/{releve_opaque}/releve?erreur={quote(str(exc))}", status_code=303)
+    return RedirectResponse(url=f"/proprietaires-reglements/{releve_opaque}/releve", status_code=303)
+
+
+@router.post("/proprietaires-reglements/{releve_opaque}/paiement/pret-a-payer")
+async def paiement_pret_a_payer(request: Request, releve_opaque: str):
+    r = suivi.charger_par_opaque(releve_opaque)
+    if r is None:
+        return RedirectResponse(url="/proprietaires-reglements", status_code=303)
+    p = pay.creer_ou_charger(releve_opaque)
+    cycle = cycle_svc.creer_ou_charger(releve_opaque)
+    data = legacy_svc.load_releve(r["proprietaire_id"], r["mois"])
+    derive = cycle_svc.detecter_derive(cycle, _snapshot_donnees(r, data))
+    detail = svc.load_owner_detail(r["proprietaire_id"], r["mois"])
+    montant_dispo = bool(detail and detail.get("status") == "OK" and detail.get("vue")
+                        and detail["vue"].get("net") is not None)
+    codes = pay.controler_passage_pret_a_payer(
+        cycle_etat=cycle["etat_cycle"], derive=derive["derive"], statut_app5c_compatible=True,
+        statut_moteur_compatible=_statut_moteur_mois(r["mois"]) == "CLOTURE",
+        montant_moteur_disponible=montant_dispo, proprietaire_connu=detail is not None,
+        source_obligatoire_disponible=detail is not None and detail.get("status") == "OK")
+    try:
+        pay.marquer_pret_a_payer(p, bloquants=codes, acteur="local", version_attendue=p["version"])
+    except pay.PaiementRefuse as exc:
+        return RedirectResponse(
+            url=f"/proprietaires-reglements/{releve_opaque}/releve?erreur={quote(str(exc))}", status_code=303)
+    return RedirectResponse(url=f"/proprietaires-reglements/{releve_opaque}/releve", status_code=303)
+
+
+@router.post("/proprietaires-reglements/{releve_opaque}/paiement/marquer-paye")
+async def paiement_marquer_paye(request: Request, releve_opaque: str):
+    p = pay.creer_ou_charger(releve_opaque)
+    form = await request.form()
+    reference = (form.get("reference_interne") or "").strip()
+    commentaire = (form.get("commentaire") or "").strip()
+    try:
+        pay.marquer_paye(p, reference_interne=reference, commentaire=commentaire, acteur="local",
+                         version_attendue=p["version"])
+    except pay.PaiementRefuse as exc:
+        return RedirectResponse(
+            url=f"/proprietaires-reglements/{releve_opaque}/releve?erreur={quote(str(exc))}", status_code=303)
+    return RedirectResponse(url=f"/proprietaires-reglements/{releve_opaque}/releve", status_code=303)
+
+
+@router.post("/proprietaires-reglements/{releve_opaque}/paiement/reouvrir")
+async def paiement_reouvrir(request: Request, releve_opaque: str):
+    p = pay.creer_ou_charger(releve_opaque)
+    form = await request.form()
+    motif = (form.get("motif") or "").strip()
+    try:
+        pay.rouvrir(p, motif, acteur="local", version_attendue=p["version"])
+    except pay.PaiementRefuse as exc:
+        return RedirectResponse(
+            url=f"/proprietaires-reglements/{releve_opaque}/releve?erreur={quote(str(exc))}", status_code=303)
+    return RedirectResponse(url=f"/proprietaires-reglements/{releve_opaque}/releve", status_code=303)
+
+
+@router.post("/proprietaires-reglements/{releve_opaque}/paiement/annuler")
+async def paiement_annuler(request: Request, releve_opaque: str):
+    p = pay.creer_ou_charger(releve_opaque)
+    form = await request.form()
+    motif = (form.get("motif") or "").strip()
+    try:
+        pay.annuler(p, motif, acteur="local", version_attendue=p["version"])
+    except pay.PaiementRefuse as exc:
+        return RedirectResponse(
+            url=f"/proprietaires-reglements/{releve_opaque}/releve?erreur={quote(str(exc))}", status_code=303)
+    return RedirectResponse(url=f"/proprietaires-reglements/{releve_opaque}/releve", status_code=303)
 
 
 @router.get("/proprietaires-reglements/{releve_opaque}/historique", response_class=HTMLResponse)
