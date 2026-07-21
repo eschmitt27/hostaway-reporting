@@ -29,6 +29,8 @@ EXPECTED_TABLES = {
     "fournisseur_evenements",   # 0010 — historique append-only fournisseurs (APP-3D)
     "charges_affectations",             # 0011 — affectation logique des charges (APP-3E)
     "charges_affectation_evenements",   # 0011 — historique append-only des affectations (APP-3E)
+    "proprietaires_releve_cycle",   # 0012 — cycle de préparation du relevé, snapshot/dérive (APP-3E)
+    "proprietaires_paiement",       # 0012 — préparation des règlements, sans virement (APP-3E)
 }
 
 
