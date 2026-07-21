@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.config import TEMPLATES_DIR
+from app.services import fournisseur_rattachements_service as fl
 from app.services import fournisseurs_referentiel_service as frs
 
 router = APIRouter()
@@ -46,10 +47,56 @@ def fournisseur_fiche(request: Request, fournisseur_opaque: str, erreur: str = "
         return templates.TemplateResponse(request, "fournisseur_referentiel_fiche.html", {
             "active_menu": "fournisseurs", "fournisseur": None,
         }, status_code=404)
+    associations = [a for a in _associations_du_fournisseur(fournisseur_opaque)]
     return templates.TemplateResponse(request, "fournisseur_referentiel_fiche.html", {
         "active_menu": "fournisseurs", "fournisseur": f, "erreur": erreur,
         "historique": frs.historique(fournisseur_opaque),
+        "associations": associations, "types_prestation": sorted(fl.TYPES_PRESTATION),
     })
+
+
+def _associations_du_fournisseur(fournisseur_opaque: str):
+    from app.db.connection import get_db
+    import app.config as cfg
+    conn = get_db(cfg.DB_PATH)
+    try:
+        rows = conn.execute(
+            "SELECT * FROM fournisseur_rattachements WHERE fournisseur_id_opaque=? ORDER BY date_debut DESC",
+            (fournisseur_opaque,)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+@router.post("/referentiel-fournisseurs/{fournisseur_opaque}/associer-logement")
+async def fournisseur_associer_logement(request: Request, fournisseur_opaque: str):
+    form = await request.form()
+    logement_id = (form.get("logement_id") or "").strip()
+    type_prestation = (form.get("type_prestation") or "AUTRE").strip()
+    date_debut = (form.get("date_debut") or "").strip()
+    try:
+        fl.associer(fournisseur_opaque, logement_id, type_prestation=type_prestation,
+                    date_debut=date_debut, acteur="local")
+    except fl.AssociationRefusee as exc:
+        return RedirectResponse(
+            url=f"/referentiel-fournisseurs/{fournisseur_opaque}?erreur={quote(str(exc))}", status_code=303)
+    return RedirectResponse(url=f"/referentiel-fournisseurs/{fournisseur_opaque}", status_code=303)
+
+
+@router.post("/referentiel-fournisseurs/{fournisseur_opaque}/fermer-association")
+async def fournisseur_fermer_association(request: Request, fournisseur_opaque: str):
+    form = await request.form()
+    association_opaque = (form.get("association_opaque") or "").strip()
+    date_fin = (form.get("date_fin") or "").strip()
+    a = fl.charger_par_opaque(association_opaque)
+    if a is None:
+        return RedirectResponse(url=f"/referentiel-fournisseurs/{fournisseur_opaque}", status_code=303)
+    try:
+        fl.fermer(a, date_fin, acteur="local", version_attendue=a["version"])
+    except fl.AssociationRefusee as exc:
+        return RedirectResponse(
+            url=f"/referentiel-fournisseurs/{fournisseur_opaque}?erreur={quote(str(exc))}", status_code=303)
+    return RedirectResponse(url=f"/referentiel-fournisseurs/{fournisseur_opaque}", status_code=303)
 
 
 @router.post("/referentiel-fournisseurs/{fournisseur_opaque}/desactiver")

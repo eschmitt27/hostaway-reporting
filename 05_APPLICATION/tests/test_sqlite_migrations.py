@@ -31,6 +31,8 @@ EXPECTED_TABLES = {
     "charges_affectation_evenements",   # 0011 — historique append-only des affectations (APP-3E)
     "proprietaires_releve_cycle",   # 0012 — cycle de préparation du relevé, snapshot/dérive (APP-3E)
     "proprietaires_paiement",       # 0012 — préparation des règlements, sans virement (APP-3E)
+    "fournisseur_rattachements",            # 0013 — association historisée fournisseur↔logement (APP-3E)
+    "fournisseur_rattachement_evenements",  # 0013 — historique append-only de l'association (APP-3E)
 }
 
 

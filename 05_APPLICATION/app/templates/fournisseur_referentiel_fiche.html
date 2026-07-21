@@ -37,6 +37,45 @@
   </div>
 </div>
 
+<div class="card mb-md">
+  <h2 class="card-title">Logements associés (historisé) — <span class="text-xs">aucun montant, distinct du ménage moteur</span></h2>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Logement</th><th>Type</th><th>Début</th><th>Fin</th><th>Statut</th><th></th></tr></thead>
+      <tbody>
+        {% for a in associations %}
+        <tr>
+          <td class="font-mono text-xs">{{ a.logement_id }}</td>
+          <td class="text-xs">{{ a.type_prestation }}</td>
+          <td class="font-mono text-xs">{{ a.date_debut }}</td>
+          <td class="font-mono text-xs">{{ a.date_fin or "ouverte" }}</td>
+          <td class="text-xs">{{ a.statut }}</td>
+          <td>
+            {% if a.date_fin is none and a.statut == 'ACTIF' %}
+            <form method="post" action="/referentiel-fournisseurs/{{ fournisseur.fournisseur_id_opaque }}/fermer-association" class="flex gap-sm">
+              <input type="hidden" name="association_opaque" value="{{ a.association_id_opaque }}">
+              <input type="date" name="date_fin" required>
+              <button type="submit" class="btn btn-secondary">Fermer</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}<tr><td colspan="6" class="section-note">Aucun logement associé.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if fournisseur.statut == 'ACTIF' %}
+  <form method="post" action="/referentiel-fournisseurs/{{ fournisseur.fournisseur_id_opaque }}/associer-logement" class="flex flex-wrap gap-sm mt-md">
+    <input type="text" name="logement_id" placeholder="Logement" required>
+    <select name="type_prestation">
+      {% for t in types_prestation %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+    </select>
+    <input type="date" name="date_debut" required>
+    <button type="submit" class="btn btn-primary">Associer un logement</button>
+  </form>
+  {% endif %}
+</div>
+
 <div class="card">
   <h2 class="card-title">Historique</h2>
   <div class="table-container">
