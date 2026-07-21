@@ -27,6 +27,8 @@ EXPECTED_TABLES = {
     "proprietaires_releve_evenements",   # 0009 — historique append-only des relevés (APP-3D)
     "fournisseurs",             # 0010 — référentiel fournisseur minimal (APP-3D)
     "fournisseur_evenements",   # 0010 — historique append-only fournisseurs (APP-3D)
+    "charges_affectations",             # 0011 — affectation logique des charges (APP-3E)
+    "charges_affectation_evenements",   # 0011 — historique append-only des affectations (APP-3E)
 }
 
 

@@ -17,7 +17,9 @@ from fastapi.templating import Jinja2Templates
 
 from app.config import TEMPLATES_DIR
 from app.readers import controles_cloture_reader as ref_reader
+from app.services import charges_affectations_service as charges_aff
 from app.services import clotures_service as cs
+from app.services import fournisseurs_referentiel_service as frs
 from app.services import proprietaires_blocages_service as blocages
 from app.services import proprietaires_releve_export_service as export_svc
 from app.services import proprietaires_reglements_service as svc
@@ -159,8 +161,14 @@ def reglements_detail(request: Request, identifiant: str, mois: str = "", erreur
         return templates.TemplateResponse(request, "reglements_detail.html", {
             "active_menu": "proprietaires", "detail": None, "proprietaire_id": identifiant,
         }, status_code=404)
+    charges_affectees = []
+    if mois:
+        for a in charges_aff.lister_par_proprietaire_mois(identifiant, mois):
+            fournisseur = frs.charger_par_opaque(a["fournisseur_id_opaque"]) if a.get("fournisseur_id_opaque") else None
+            charges_affectees.append({**a, "fournisseur_nom": fournisseur["nom"] if fournisseur else None})
     return templates.TemplateResponse(request, "reglements_detail.html", {
         "active_menu": "proprietaires", "detail": detail, "proprietaire_id": identifiant,
+        "charges_affectees": charges_affectees,
     })
 
 

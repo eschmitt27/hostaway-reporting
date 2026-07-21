@@ -91,6 +91,31 @@
   </div>
 </div>
 
+{% if charges_affectees %}
+<div class="card mb-md">
+  <h2 class="card-title">4b · Charges affectées (APP-3E)</h2>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Charge</th><th>Nature</th><th>Fournisseur</th><th>Logement</th>
+        <th>Refacturable</th><th>Statut contrôle</th></tr></thead>
+      <tbody>
+        {% for c in charges_affectees %}
+        <tr>
+          <td class="font-mono text-xs">{{ c.charge_id }}</td>
+          <td class="text-xs">{{ c.nature or "—" }}</td>
+          <td class="text-xs">{{ c.fournisseur_nom or "Non affecté" }}</td>
+          <td class="font-mono text-xs">{{ c.logement_id or "—" }}</td>
+          <td class="text-xs">{{ "Oui" if c.refacturable else ("Non" if c.refacturable == 0 else "—") }}</td>
+          <td class="text-xs">{{ c.statut_controle }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="section-note">Le montant provient exclusivement du moteur — l'affectation n'est jamais un recalcul.</p>
+</div>
+{% endif %}
+
 <div class="card mb-md">
   <h2 class="card-title">5 · Anomalies &amp; contrôles</h2>
   {% if detail.anomalies %}
