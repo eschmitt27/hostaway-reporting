@@ -7,6 +7,13 @@
   <h1 class="page-title">Relevé détaillé — {{ releve.mois if releve else '' }}</h1>
 </div>
 
+{% if releve is not none %}
+<div class="alert alert-info">
+  Préparation interne du règlement — un statut « marqué comme payé » est une déclaration humaine,
+  jamais une preuve bancaire ni un ordre de virement.
+</div>
+{% endif %}
+
 {% if releve is none %}
 <div class="alert alert-warning">Relevé introuvable.</div>
 {% elif data.status == 'ERROR' %}

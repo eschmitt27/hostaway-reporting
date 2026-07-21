@@ -162,3 +162,22 @@ def test_20_lister_a_payer(tmp_db):
     _p(tmp_db)
     rows = pay.lister_a_payer(db_path=tmp_db)
     assert len(rows) == 1
+
+
+def test_21_retour_en_controle_depuis_pret_a_payer(tmp_db):
+    """PRET_A_PAYER -> A_CONTROLER : retour en contrôle autorisé et tracé."""
+    p = _p(tmp_db)
+    p = pay.demarrer_controle(p, version_attendue=p["version"], db_path=tmp_db)
+    p = pay.marquer_pret_a_payer(p, version_attendue=p["version"], db_path=tmp_db)
+    p = pay.demarrer_controle(p, version_attendue=p["version"], db_path=tmp_db)   # retour en contrôle
+    assert p["statut_paiement"] == pay.ST_A_CONTROLER
+
+
+def test_22_declaration_repetee_marquer_paye_refusee(tmp_db):
+    """Une 2e déclaration « payé » sur un paiement déjà MARQUE_COMME_PAYE est refusée (transition rejouée)."""
+    p = _p(tmp_db)
+    p = pay.demarrer_controle(p, version_attendue=p["version"], db_path=tmp_db)
+    p = pay.marquer_pret_a_payer(p, version_attendue=p["version"], db_path=tmp_db)
+    p = pay.marquer_paye(p, version_attendue=p["version"], db_path=tmp_db)
+    with pytest.raises(pay.PaiementRefuse):
+        pay.marquer_paye(p, version_attendue=p["version"], db_path=tmp_db)

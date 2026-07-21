@@ -213,3 +213,25 @@ def test_24_migration_0012_cree_tables(tmp_path):
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
     conn.close()
     assert {"proprietaires_releve_cycle", "proprietaires_paiement"} <= tables
+
+
+def test_25_derive_source_devenue_indisponible(tmp_db):
+    """Une source dont l'empreinte disparaît (devenue indisponible) est détectée comme dérive."""
+    c = _c(tmp_db)
+    c = cycle_svc.demarrer(c, version_attendue=c["version"], db_path=tmp_db)
+    c = cycle_svc.marquer_a_valider(c, version_attendue=c["version"], db_path=tmp_db)
+    c = cycle_svc.valider(c, {"empreintes_sources": {"aircover": "h1"}},
+                          version_attendue=c["version"], db_path=tmp_db)
+    d = cycle_svc.detecter_derive(c, {"empreintes_sources": {"aircover": None}})
+    assert d["derive"] is True and "empreintes_sources" in d["champs_modifies"]
+
+
+def test_26_derive_source_redevenue_disponible(tmp_db):
+    """Une source redevenue disponible (empreinte réapparue) est également une dérive vs snapshot."""
+    c = _c(tmp_db)
+    c = cycle_svc.demarrer(c, version_attendue=c["version"], db_path=tmp_db)
+    c = cycle_svc.marquer_a_valider(c, version_attendue=c["version"], db_path=tmp_db)
+    c = cycle_svc.valider(c, {"empreintes_sources": {"aircover": None}},
+                          version_attendue=c["version"], db_path=tmp_db)
+    d = cycle_svc.detecter_derive(c, {"empreintes_sources": {"aircover": "h2"}})
+    assert d["derive"] is True and "empreintes_sources" in d["champs_modifies"]
