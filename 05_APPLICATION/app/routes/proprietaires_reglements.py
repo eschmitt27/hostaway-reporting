@@ -21,6 +21,7 @@ from app.services import charges_affectations_service as charges_aff
 from app.services import clotures_service as cs
 from app.services import fournisseurs_referentiel_service as frs
 from app.services import proprietaires_blocages_service as blocages
+from app.services import proprietaires_releve_cycle_service as cycle_svc
 from app.services import proprietaires_releve_export_service as export_svc
 from app.services import proprietaires_reglements_service as svc
 from app.services import proprietaires_service as legacy_svc
@@ -172,16 +173,69 @@ def reglements_detail(request: Request, identifiant: str, mois: str = "", erreur
     })
 
 
+def _snapshot_donnees(r: dict, data: dict) -> dict:
+    return {**data, "proprietaire_id": r["proprietaire_id"], "mois": r["mois"]}
+
+
 @router.get("/proprietaires-reglements/{releve_opaque}/releve", response_class=HTMLResponse)
-def releve_detail(request: Request, releve_opaque: str):
+def releve_detail(request: Request, releve_opaque: str, erreur: str = ""):
     r = suivi.charger_par_opaque(releve_opaque)
     if r is None:
         return templates.TemplateResponse(request, "proprietaire_releve_detail.html", {
             "active_menu": "proprietaires", "releve": None,
         }, status_code=404)
     data = legacy_svc.load_releve(r["proprietaire_id"], r["mois"])
+    cycle = cycle_svc.creer_ou_charger(releve_opaque)
+    derive = cycle_svc.detecter_derive(cycle, _snapshot_donnees(r, data))
+    eval_blocages = blocages.evaluer(r["proprietaire_id"], r["mois"])
     return templates.TemplateResponse(request, "proprietaire_releve_detail.html", {
-        "active_menu": "proprietaires", "releve": r, "data": data})
+        "active_menu": "proprietaires", "releve": r, "data": data, "cycle": cycle,
+        "derive": derive, "blocages": eval_blocages, "erreur": erreur})
+
+
+@router.post("/proprietaires-reglements/{releve_opaque}/cycle/demarrer")
+async def releve_cycle_demarrer(request: Request, releve_opaque: str):
+    cycle = cycle_svc.creer_ou_charger(releve_opaque)
+    try:
+        cycle_svc.demarrer(cycle, acteur="local", version_attendue=cycle["version"])
+    except cycle_svc.CycleRefuse as exc:
+        return RedirectResponse(
+            url=f"/proprietaires-reglements/{releve_opaque}/releve?erreur={quote(str(exc))}", status_code=303)
+    return RedirectResponse(url=f"/proprietaires-reglements/{releve_opaque}/releve", status_code=303)
+
+
+@router.post("/proprietaires-reglements/{releve_opaque}/cycle/valider")
+async def releve_cycle_valider(request: Request, releve_opaque: str):
+    r = suivi.charger_par_opaque(releve_opaque)
+    if r is None:
+        return RedirectResponse(url="/proprietaires-reglements", status_code=303)
+    cycle = cycle_svc.creer_ou_charger(releve_opaque)
+    eval_blocages = blocages.evaluer(r["proprietaire_id"], r["mois"])
+    data = legacy_svc.load_releve(r["proprietaire_id"], r["mois"])
+    try:
+        if cycle["etat_cycle"] not in (cycle_svc.ETAT_EN_PREPARATION, cycle_svc.ETAT_A_VALIDER):
+            cycle = cycle_svc.demarrer(cycle, acteur="local", version_attendue=cycle["version"])
+        if cycle["etat_cycle"] == cycle_svc.ETAT_EN_PREPARATION:
+            cycle = cycle_svc.marquer_a_valider(cycle, acteur="local", version_attendue=cycle["version"])
+        cycle_svc.valider(cycle, _snapshot_donnees(r, data), bloquants=eval_blocages["bloquants"],
+                          acteur="local", version_attendue=cycle["version"])
+    except cycle_svc.CycleRefuse as exc:
+        return RedirectResponse(
+            url=f"/proprietaires-reglements/{releve_opaque}/releve?erreur={quote(str(exc))}", status_code=303)
+    return RedirectResponse(url=f"/proprietaires-reglements/{releve_opaque}/releve", status_code=303)
+
+
+@router.post("/proprietaires-reglements/{releve_opaque}/cycle/reouvrir")
+async def releve_cycle_reouvrir(request: Request, releve_opaque: str):
+    cycle = cycle_svc.creer_ou_charger(releve_opaque)
+    form = await request.form()
+    motif = (form.get("motif") or "").strip()
+    try:
+        cycle_svc.rouvrir(cycle, motif, acteur="local", version_attendue=cycle["version"])
+    except cycle_svc.CycleRefuse as exc:
+        return RedirectResponse(
+            url=f"/proprietaires-reglements/{releve_opaque}/releve?erreur={quote(str(exc))}", status_code=303)
+    return RedirectResponse(url=f"/proprietaires-reglements/{releve_opaque}/releve", status_code=303)
 
 
 @router.get("/proprietaires-reglements/{releve_opaque}/prefacture", response_class=HTMLResponse)

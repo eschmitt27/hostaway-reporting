@@ -61,5 +61,41 @@
   </div>
 </div>
 
+{% if erreur %}<div class="alert alert-error">{{ erreur }}</div>{% endif %}
+
+{% if derive and derive.derive %}
+<div class="alert alert-error">
+  Les données du moteur ou des sources ont évolué depuis la préparation de ce relevé.
+  Une réouverture est nécessaire avant une nouvelle validation.
+  <span class="text-xs">(champs modifiés : {{ derive.champs_modifies|join(', ') }})</span>
+</div>
+{% endif %}
+
+<div class="card mb-md">
+  <h2 class="card-title">Cycle de préparation</h2>
+  <p>État : <span class="status-badge">{{ cycle.etat_cycle if cycle else "NON_DEMARRE" }}</span></p>
+  <div class="flex flex-wrap gap-sm">
+    {% if cycle and cycle.etat_cycle in ("NON_DEMARRE", "BLOQUE") %}
+    <form method="post" action="/proprietaires-reglements/{{ releve.releve_id_opaque }}/cycle/demarrer">
+      <button type="submit" class="btn btn-secondary">Démarrer la préparation</button>
+    </form>
+    {% endif %}
+    {% if cycle and cycle.etat_cycle in ("EN_PREPARATION", "A_VALIDER") %}
+    <form method="post" action="/proprietaires-reglements/{{ releve.releve_id_opaque }}/cycle/valider">
+      <button type="submit" class="btn btn-primary" {% if blocages and not blocages.preparable %}disabled{% endif %}>Valider le relevé</button>
+    </form>
+    {% endif %}
+    {% if cycle and cycle.etat_cycle == "VALIDE" %}
+    <form method="post" action="/proprietaires-reglements/{{ releve.releve_id_opaque }}/cycle/reouvrir">
+      <input type="text" name="motif" placeholder="Motif de réouverture" required>
+      <button type="submit" class="btn btn-secondary">Rouvrir</button>
+    </form>
+    {% endif %}
+  </div>
+  {% if blocages and blocages.bloquants %}
+  <p class="section-note">Bloquant(s) : {{ blocages.bloquants|join(', ') }}</p>
+  {% endif %}
+</div>
+
 {% endif %}
 {% endblock %}
