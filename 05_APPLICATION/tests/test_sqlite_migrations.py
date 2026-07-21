@@ -33,6 +33,8 @@ EXPECTED_TABLES = {
     "proprietaires_paiement",       # 0012 — préparation des règlements, sans virement (APP-3E)
     "fournisseur_rattachements",            # 0013 — association historisée fournisseur↔logement (APP-3E)
     "fournisseur_rattachement_evenements",  # 0013 — historique append-only de l'association (APP-3E)
+    "rapprochements_reglements",   # 0014 — rapprochement déclaratif règlement↔mouvement (APP-3F)
+    "rapprochement_evenements",    # 0014 — historique append-only du rapprochement (APP-3F)
 }
 
 
