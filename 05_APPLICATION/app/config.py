@@ -171,6 +171,12 @@ BANQUE_OPAQUE_SALT = "APP4B_BANQUE_v1"
 FACTURES_REAL_WRITE_ENABLED = RECETTE_MODE and _env_flag("FACTURES_REAL_WRITE_ENABLED")
 FACTURES_REAL_WRITE_CONFIRMATION_ENABLED = RECETTE_MODE and _env_flag("FACTURES_REAL_WRITE_CONFIRMATION_ENABLED")
 
+# ── Pilotage des calculs (runs de pipeline) — garde de sécurité ──────────────
+# Le mode RÉEL (exécution des lots sur l'arborescence métier réelle) reste DÉSACTIVÉ par défaut.
+# En recette, les lots tournent sous PROJECT_ROOT=<data_recette>, donc sans jamais toucher le réel.
+CALCULS_REAL_RUN_ENABLED = RECETTE_MODE and _env_flag("CALCULS_REAL_RUN_ENABLED")
+CALCULS_REAL_RUN_CONFIRMATION_ENABLED = RECETTE_MODE and _env_flag("CALCULS_REAL_RUN_CONFIRMATION_ENABLED")
+
 # ── APP-5B — Contrôles détaillés & suivi humain ──────────────────────────────
 #   Le moteur (Lot11) reste la vérité de l'anomalie. SQLite JOURNALISE uniquement le suivi humain
 #   (prise en charge, résolution, exception) — jamais une nouvelle vérité, jamais un masquage moteur.

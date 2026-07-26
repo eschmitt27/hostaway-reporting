@@ -44,6 +44,12 @@ EXPECTED_TABLES = {
     "facture_evenements",                   # 0017 — historique append-only des factures
     "reglements_fournisseurs",              # 0017 — règlements fournisseurs (paiement effectué)
     "reglement_repartitions",               # 0017 — ventilation d'un règlement (paiement groupé)
+    "calculs_runs",                         # 0018 — runs de pipeline de calcul
+    "calculs_run_lots",                     # 0018 — un enregistrement par lot exécuté
+    "calculs_indicateurs",                  # 0018 — indicateurs métier relevés par run
+    "calculs_sauvegardes",                  # 0018 — sauvegardes des sorties (rollback)
+    "cloture_statuts",                      # 0018 — statut mensuel applicatif
+    "cloture_statut_evenements",            # 0018 — historique des transitions de clôture
 }
 
 
