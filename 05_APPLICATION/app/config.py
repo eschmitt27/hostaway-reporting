@@ -152,8 +152,11 @@ MENAGES_PDF_DIR_REL = r"01_SOURCES_BRUTES\MenagesExternes\Factures_PDF"
 #   Le writer refuse toute écriture réelle ; il ne travaille que sur une COPIE de
 #   BANQUE_LOT8_IMPORT.xlsx dans un workspace isolé sous data/. Excel reste la vérité métier ;
 #   SQLite ne fait que JOURNALISER les décisions applicatives (jamais une nouvelle vérité).
-BANQUE_REAL_WRITE_ENABLED = False
-BANQUE_REAL_WRITE_CONFIRMATION_ENABLED = False
+#   Import bancaire (APP-3F+) : mêmes flags, même double verrou que Charges — activables
+#   UNIQUEMENT en mode recette (RECETTE_MODE ET variable d'environnement dédiée). Une instance NON
+#   recette ne peut jamais écrire NORM_Banque, même si les variables sont positionnées.
+BANQUE_REAL_WRITE_ENABLED = RECETTE_MODE and _env_flag("BANQUE_REAL_WRITE_ENABLED")
+BANQUE_REAL_WRITE_CONFIRMATION_ENABLED = RECETTE_MODE and _env_flag("BANQUE_REAL_WRITE_CONFIRMATION_ENABLED")
 # Workspace isolé des overrides bancaires sur copies (jamais dans l'arbre métier).
 BANQUE_CONTROLE_WORKSPACE = DATA_DIR / "banque_controle"
 # Onglet d'override écrit dans la COPIE (jamais dans les onglets moteur BRUT/NORM/CTRL).

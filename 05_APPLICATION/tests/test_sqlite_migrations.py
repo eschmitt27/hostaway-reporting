@@ -35,6 +35,9 @@ EXPECTED_TABLES = {
     "fournisseur_rattachement_evenements",  # 0013 — historique append-only de l'association (APP-3E)
     "rapprochements_reglements",   # 0014 — rapprochement déclaratif règlement↔mouvement (APP-3F)
     "rapprochement_evenements",    # 0014 — historique append-only du rapprochement (APP-3F)
+    "banque_imports",                       # 0015 — journal des imports bancaires (module Banque)
+    "banque_rapprochements",                # 0015 — rapprochement mouvement↔objet métier (module Banque)
+    "banque_rapprochement_evenements",      # 0015 — historique append-only du rapprochement (module Banque)
 }
 
 

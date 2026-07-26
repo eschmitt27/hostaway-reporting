@@ -18,11 +18,16 @@
 <div class="alert alert-error">Source indisponible : {{ d.etat_source.etat_libelle }}.</div>
 {% else %}
 
-<div class="alert alert-info">
-  <strong>Rapprochement manuel — prochain lot.</strong>
-  <button type="button" class="btn btn-secondary" disabled title="Non activé — lot ultérieur">Rapprocher manuellement</button>
-  À ce lot, l'écran est en lecture : aucune action de rapprochement n'est disponible.
+<div class="kpi-grid kpi-grid--4 mb-md">
+  <div class="kpi-card"><div class="kpi-label">Non rapprochés</div><div class="kpi-value">{{ compteurs_appli.non_rapproches }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Partiellement rapprochés</div><div class="kpi-value">{{ compteurs_appli.partiels }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Rapprochés</div><div class="kpi-value">{{ compteurs_appli.rapproches }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Bloquants (moteur)</div><div class="kpi-value">{{ d.controles_8c|selectattr('severite','equalto','BLOQUANT')|list|length }}</div></div>
 </div>
+<p class="section-note mb-md">
+  Le rapprochement applicatif (proposition, confirmation, montant partiel/multiple) se fait depuis
+  la fiche de chaque mouvement (« Voir » ci-dessous).
+</p>
 
 <div class="card mb-md">
   <h2 class="card-title">Lignes à rapprocher ({{ d.lignes|length }})</h2>

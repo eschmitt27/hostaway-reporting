@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Importer un relevé bancaire{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/banques-caisse" class="back-link">← Banques &amp; caisse</a>
+  <h1 class="page-title">Importer un relevé bancaire</h1>
+  <p class="page-subtitle">
+    Lecture seule tant que vous n'avez pas confirmé : le fichier importé n'est jamais modifié, et
+    aucune écriture n'a lieu avant la page de confirmation.
+  </p>
+</div>
+
+{% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+
+{% if not ecriture_active %}
+<div class="alert alert-warning">
+  Écriture désactivée sur cette installation : l'import restera bloqué à l'étape de confirmation.
+</div>
+{% endif %}
+
+<div class="card mb-md">
+  <form method="post" action="/banques-caisse/importer/previsualiser" enctype="multipart/form-data">
+    <div class="detail-grid">
+      <label>Fichier (CSV ou XLSX) *
+        <input type="file" name="fichier" accept=".csv,.xlsx,.xlsm" required>
+      </label>
+      <label>Identifiant du compte *
+        <input type="text" name="compte_id" required placeholder="CM_02211_00021321603">
+      </label>
+    </div>
+    <p class="section-note mt-sm">
+      Colonnes attendues : date d'opération, libellé, et débit/crédit (ou montant + sens).
+    </p>
+    <button type="submit" class="btn btn-primary mt-sm">Prévisualiser</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 class="card-title">Derniers imports</h2>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr>
+        <th>Date</th><th>Fichier</th><th class="num">Lues</th><th class="num">Ajoutées</th>
+        <th class="num">Doublons certains</th><th class="num">Doublons probables</th>
+        <th class="num">Invalides</th><th>Acteur</th>
+      </tr></thead>
+      <tbody>
+        {% for h in historique %}
+        <tr>
+          <td class="font-mono text-xs">{{ h.date_import }}</td>
+          <td>{{ h.nom_fichier_origine }}</td>
+          <td class="num">{{ h.nb_lignes_lues }}</td>
+          <td class="num">{{ h.nb_valides }}</td>
+          <td class="num">{{ h.nb_doublons_certains }}</td>
+          <td class="num">{{ h.nb_doublons_probables }}</td>
+          <td class="num">{{ h.nb_invalides }}</td>
+          <td>{{ h.acteur }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="section-note">Aucun import réalisé pour l'instant.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Résultat de l'import{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/banques-caisse" class="back-link">← Banques &amp; caisse</a>
+  <h1 class="page-title">Résultat de l'import</h1>
+</div>
+
+{% if resultat.ok %}
+<div class="alert alert-success">Import réussi.</div>
+<div class="card">
+  <dl class="detail-grid">
+    <div><dt>Mouvements ajoutés</dt><dd>{{ resultat.nb_ajoutees }}</dd></div>
+    <div><dt>Doublons certains ignorés</dt><dd>{{ resultat.nb_doublons_certains_ignores }}</dd></div>
+    <div><dt>Doublons probables ignorés</dt><dd>{{ resultat.nb_doublons_probables_ignores }}</dd></div>
+    <div><dt>Lignes invalides</dt><dd>{{ resultat.nb_invalides }}</dd></div>
+  </dl>
+</div>
+{% else %}
+<div class="alert alert-error">Import refusé — {{ resultat.message }}</div>
+{% endif %}
+
+<a href="/banques-caisse/importer" class="btn btn-secondary mt-md">Nouvel import</a>
+<a href="/banques-caisse" class="btn btn-primary mt-md">Voir les mouvements</a>
+{% endblock %}

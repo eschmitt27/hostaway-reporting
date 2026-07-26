@@ -7,6 +7,9 @@
   <h1 class="page-title">Mouvement bancaire</h1>
 </div>
 
+{% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+
 {% if fiche is none %}
 <div class="alert alert-warning">Mouvement introuvable.</div>
 <a href="/banques-caisse/controle" class="btn btn-secondary">← Retour</a>
@@ -67,6 +70,75 @@
     <p class="section-note">Aucune décision enregistrée. La proposition du moteur est préservée séparément.</p>
     {% endif %}
   </div>
+</div>
+
+<div class="card mb-md">
+  <h2 class="card-title">Rapprochement —
+    <span class="status-badge status-{{ etat_rapprochement.statut|lower|replace('_','-') }}">{{ etat_rapprochement.statut }}</span>
+  </h2>
+  <p class="section-note">
+    Rapproché : {{ "%.2f"|format(etat_rapprochement.montant_rapproche) }} € ·
+    Restant : {{ "%.2f"|format(etat_rapprochement.montant_restant) }} €
+  </p>
+
+  {% if liens_rapprochement %}
+  <div class="table-container mb-sm">
+    <table class="data-table">
+      <thead><tr>
+        <th>Type d'objet</th><th>Identifiant</th><th class="num">Montant</th>
+        <th>Statut</th><th>Source</th><th>Commentaire</th><th></th>
+      </tr></thead>
+      <tbody>
+        {% for l in liens_rapprochement %}
+        <tr>
+          <td>{{ l.type_objet }}</td>
+          <td class="font-mono text-xs">{{ l.objet_id or "—" }}</td>
+          <td class="num">{{ "%.2f"|format(l.montant_rapproche) }}</td>
+          <td><span class="status-badge status-{{ l.statut|lower }}">{{ l.statut }}</span></td>
+          <td>{{ l.source }}</td>
+          <td class="text-xs">{{ l.commentaire or "" }}</td>
+          <td>
+            {% if l.statut == 'PROPOSE' %}
+            <form method="post" action="/banques-caisse/rapprochements/{{ l.rapprochement_id_opaque }}/confirmer?mvt={{ fiche.id_opaque }}" style="display:inline">
+              <button type="submit" class="btn btn-primary" {% if not ecriture_active %}disabled{% endif %}>Confirmer</button>
+            </form>
+            <form method="post" action="/banques-caisse/rapprochements/{{ l.rapprochement_id_opaque }}/refuser?mvt={{ fiche.id_opaque }}" style="display:inline">
+              <button type="submit" class="btn btn-ghost" {% if not ecriture_active %}disabled{% endif %}>Refuser</button>
+            </form>
+            {% elif l.statut == 'CONFIRME' %}
+            <form method="post" action="/banques-caisse/rapprochements/{{ l.rapprochement_id_opaque }}/annuler?mvt={{ fiche.id_opaque }}" style="display:inline">
+              <button type="submit" class="btn btn-ghost" {% if not ecriture_active %}disabled{% endif %}>Annuler</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="section-note mb-sm">Aucun rapprochement enregistré pour ce mouvement.</p>
+  {% endif %}
+
+  {% if etat_rapprochement.statut != 'RAPPROCHE' %}
+  {% if not ecriture_active %}
+  <div class="alert alert-warning">Écriture désactivée sur cette installation : le rapprochement est indisponible.</div>
+  {% endif %}
+  <form method="post" action="/banques-caisse/mouvements/{{ fiche.id_opaque }}/rapprocher">
+    <div class="detail-grid">
+      <label>Type d'objet *
+        <select name="type_objet" required>
+          <option value="">—</option>
+          {% for t in types_objet %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Identifiant de l'objet <input type="text" name="objet_id"></label>
+      <label>Montant à rapprocher * <input type="number" step="0.01" min="0.01" name="montant_rapproche" required></label>
+      <label>Commentaire <input type="text" name="commentaire"></label>
+    </div>
+    <button type="submit" class="btn btn-primary mt-sm" {% if not ecriture_active %}disabled{% endif %}>Proposer le rapprochement</button>
+  </form>
+  {% endif %}
 </div>
 
 {% if fiche.historique %}

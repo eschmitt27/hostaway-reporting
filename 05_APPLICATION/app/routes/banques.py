@@ -1,8 +1,11 @@
-"""Routes Banques & Caisse (APP-4A) — lecture seule.
+"""Routes Banques & Caisse (APP-4A/4B) + import et rapprochement (module Banque, suite APP-3F).
 
-Aucune route n'écrit, ne déclenche d'import, ni ne rapproche : l'application lit les sorties du
-pipeline banque (lot8a/8b/8c). Aucune connexion bancaire, aucun virement.
+Les routes de LECTURE (dashboard, à rapprocher, export, fiche APP-4A) n'écrivent jamais : elles
+lisent les sorties du pipeline banque (lot8a/8b/8c). Les routes d'IMPORT et de RAPPROCHEMENT
+écrivent, mais uniquement sous garde (`BANQUE_REAL_WRITE_*` + write-guard mode recette) — jamais de
+connexion bancaire, jamais de virement, jamais d'écriture hors `data_recette`.
 """
+import app.config as cfg
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
@@ -11,6 +14,8 @@ from app.config import TEMPLATES_DIR
 from app.services import banques_service as svc
 from app.services import banques_controle_service as ctrl
 from app.services import banques_controle_writer as writer
+from app.services import banques_import_service as imp
+from app.services import banques_rapprochement_service as rappro
 from app.readers.banques_reader import date_affichage, datetime_affichage
 
 router = APIRouter()
@@ -20,6 +25,10 @@ templates.env.filters["datetime_fr"] = datetime_affichage
 # Identifiant mouvement opaque pour tout lien généré (jamais le mouvement_id brut, qui contient le
 # compte, dans un href/option/HTML visible). Les nouvelles pages ne génèrent que des MVT-<hash>.
 templates.env.filters["mvt_opaque"] = ctrl.id_opaque
+
+
+def _ecriture_active() -> bool:
+    return bool(cfg.BANQUE_REAL_WRITE_ENABLED and cfg.BANQUE_REAL_WRITE_CONFIRMATION_ENABLED)
 
 
 def _form_to_decision(form) -> dict:
@@ -56,6 +65,7 @@ def banques_dashboard(
     )
     return templates.TemplateResponse(request, "banques_list.html", {
         "active_menu": "banques", "data": data, "nb_a_controler": ctrl.compter_a_controler(),
+        "ecriture_active": _ecriture_active(),
     })
 
 
@@ -64,8 +74,15 @@ def banques_a_rapprocher(request: Request, mois: str = ""):
     if not mois:
         mois = svc.periode_par_defaut()
     data = svc.load_unmatched(mois)
+    # Compteurs applicatifs (journal SQLite banque_rapprochements) — distincts des statuts du
+    # moteur affichés dans `data` : jamais mélangés, toujours étiquetés séparément dans le template.
+    compteurs_appli = {"non_rapproches": 0, "partiels": 0, "rapproches": 0}
+    for m in data.get("lignes", []):
+        etat = rappro.etat_rapprochement(ctrl.id_opaque(m["mouvement_id"]), m["montant"] or 0)
+        compteurs_appli[{"NON_RAPPROCHE": "non_rapproches", "PARTIEL": "partiels",
+                         "RAPPROCHE": "rapproches"}[etat["statut"]]] += 1
     return templates.TemplateResponse(request, "banques_a_rapprocher.html", {
-        "active_menu": "banques", "data": data,
+        "active_menu": "banques", "data": data, "compteurs_appli": compteurs_appli,
     })
 
 
@@ -159,12 +176,16 @@ def banque_action_run(request: Request, run_id: int, mvt: str = ""):
 
 
 @router.get("/banques-caisse/mouvements/{stable_id}", response_class=HTMLResponse)
-def banque_detail(request: Request, stable_id: str):
+def banque_detail(request: Request, stable_id: str, message: str = "", erreur: str = ""):
     # Délégation APP-4B : un identifiant OPAQUE (MVT-<hash12>) ouvre la fiche actionnable.
     if ctrl.resoudre_opaque(stable_id) is not None:
         fiche = ctrl.load_fiche(stable_id)
+        liens = rappro.lister(stable_id) if fiche else []
+        etat = rappro.etat_rapprochement(stable_id, fiche["montant"]) if fiche else None
         return templates.TemplateResponse(request, "banques_mouvement.html", {
-            "active_menu": "banques", "fiche": fiche,
+            "active_menu": "banques", "fiche": fiche, "liens_rapprochement": liens,
+            "etat_rapprochement": etat, "types_objet": rappro.TYPES_OBJET,
+            "ecriture_active": _ecriture_active(), "message": message, "erreur": erreur,
         })
     # Sinon : ancienne fiche APP-4A (lecture seule) — non utilisée dans la nouvelle interface.
     detail = svc.load_detail(stable_id)
@@ -188,3 +209,107 @@ def banque_controle_liste(request: Request, statut: str = "", categorie: str = "
         "applied": {"statut": statut, "categorie": categorie, "proprietaire_id": proprietaire_id,
                     "logement_id": logement_id, "anomalie": anomalie, "mois": mois},
     })
+
+
+# ── Import bancaire (suite APP-3F) — upload → prévisualisation → confirmation ──
+
+@router.get("/banques-caisse/importer", response_class=HTMLResponse)
+def banque_importer_form(request: Request, message: str = "", erreur: str = ""):
+    return templates.TemplateResponse(request, "banques_importer.html", {
+        "active_menu": "banques", "ecriture_active": _ecriture_active(),
+        "historique": imp.historique_imports(limit=10), "message": message, "erreur": erreur,
+    })
+
+
+@router.post("/banques-caisse/importer/previsualiser", response_class=HTMLResponse)
+async def banque_importer_previsualiser(request: Request):
+    form = await request.form()
+    compte_id = str(form.get("compte_id", "") or "").strip()
+    fichier = form.get("fichier")
+    if fichier is None or not getattr(fichier, "filename", ""):
+        return RedirectResponse(url="/banques-caisse/importer?erreur=Aucun fichier sélectionné.",
+                                status_code=303)
+    contenu = await fichier.read()
+    res = imp.previsualiser(contenu, fichier.filename, compte_id)
+    if not res.get("ok"):
+        return RedirectResponse(url=f"/banques-caisse/importer?erreur={res.get('message')}",
+                                status_code=303)
+    return RedirectResponse(url=f"/banques-caisse/importer/previsualisation/{res['token']}",
+                            status_code=303)
+
+
+@router.get("/banques-caisse/importer/previsualisation/{token}", response_class=HTMLResponse)
+def banque_importer_previsualisation(request: Request, token: str):
+    manifest = imp._charger_manifest(token)
+    if manifest is None:
+        return templates.TemplateResponse(request, "banques_importer_previsualisation.html", {
+            "active_menu": "banques", "manifest": None, "token": token,
+        }, status_code=404)
+    return templates.TemplateResponse(request, "banques_importer_previsualisation.html", {
+        "active_menu": "banques", "manifest": manifest, "token": token,
+        "ecriture_active": _ecriture_active(),
+    })
+
+
+@router.post("/banques-caisse/importer/confirmer/{token}")
+async def banque_importer_confirmer(request: Request, token: str):
+    form = await request.form()
+    justifier = str(form.get("justifier_doublons_probables", "") or "") in ("1", "on", "true")
+    res = imp.confirmer(token, justifier_doublons_probables=justifier,
+                        acteur=str(form.get("acteur", "") or "local"))
+    if not res.get("ok"):
+        return RedirectResponse(
+            url=f"/banques-caisse/importer/previsualisation/{token}?erreur={res.get('message')}",
+            status_code=303)
+    return templates.TemplateResponse(request, "banques_importer_resultat.html", {
+        "active_menu": "banques", "resultat": res,
+    })
+
+
+# ── Rapprochement (suite APP-4A/4B) — lien mouvement <-> objet métier ────────
+
+@router.post("/banques-caisse/mouvements/{id_opaque}/rapprocher")
+async def banque_mouvement_rapprocher(request: Request, id_opaque: str):
+    form = await request.form()
+    fiche = ctrl.load_fiche(id_opaque)
+    if fiche is None:
+        return RedirectResponse(url=f"/banques-caisse/mouvements/{id_opaque}?erreur=Mouvement introuvable.",
+                                status_code=303)
+    res = rappro.enregistrer(
+        id_opaque, str(form.get("type_objet", "") or ""), str(form.get("objet_id", "") or "").strip(),
+        float(form.get("montant_rapproche") or 0) if str(form.get("montant_rapproche", "")).strip() else 0,
+        montant_mouvement=fiche["montant"], statut=rappro.ST_PROPOSE, source="MANUEL",
+        commentaire=str(form.get("commentaire", "") or ""), acteur=str(form.get("acteur", "") or "local"),
+    )
+    if not res.get("ok"):
+        return RedirectResponse(url=f"/banques-caisse/mouvements/{id_opaque}?erreur={res.get('message')}",
+                                status_code=303)
+    return RedirectResponse(url=f"/banques-caisse/mouvements/{id_opaque}?message=Rapprochement proposé.",
+                            status_code=303)
+
+
+@router.post("/banques-caisse/rapprochements/{opaque}/confirmer")
+async def banque_rapprochement_confirmer(request: Request, opaque: str, mvt: str = ""):
+    form = await request.form()
+    res = rappro.confirmer(opaque, commentaire=str(form.get("commentaire", "") or ""),
+                           acteur=str(form.get("acteur", "") or "local"))
+    msg = "message=Rapprochement confirmé." if res.get("ok") else f"erreur={res.get('message')}"
+    return RedirectResponse(url=f"/banques-caisse/mouvements/{mvt}?{msg}", status_code=303)
+
+
+@router.post("/banques-caisse/rapprochements/{opaque}/refuser")
+async def banque_rapprochement_refuser(request: Request, opaque: str, mvt: str = ""):
+    form = await request.form()
+    res = rappro.refuser(opaque, commentaire=str(form.get("commentaire", "") or ""),
+                         acteur=str(form.get("acteur", "") or "local"))
+    msg = "message=Rapprochement refusé." if res.get("ok") else f"erreur={res.get('message')}"
+    return RedirectResponse(url=f"/banques-caisse/mouvements/{mvt}?{msg}", status_code=303)
+
+
+@router.post("/banques-caisse/rapprochements/{opaque}/annuler")
+async def banque_rapprochement_annuler(request: Request, opaque: str, mvt: str = ""):
+    form = await request.form()
+    res = rappro.annuler(opaque, commentaire=str(form.get("commentaire", "") or ""),
+                         acteur=str(form.get("acteur", "") or "local"))
+    msg = "message=Rapprochement annulé." if res.get("ok") else f"erreur={res.get('message')}"
+    return RedirectResponse(url=f"/banques-caisse/mouvements/{mvt}?{msg}", status_code=303)

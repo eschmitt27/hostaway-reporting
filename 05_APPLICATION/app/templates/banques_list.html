@@ -21,10 +21,10 @@
     {% for k, v in a.items() if k not in ['page'] and v not in [None, '', False] %}
       {% set _ = params.append(k ~ '=' ~ (v|lower if v is boolean else v)) %}
     {% endfor %}
+    <a href="/banques-caisse/importer" class="btn btn-primary">+ Importer un relevé</a>
     <a href="/banques-caisse/export.csv{% if params %}?{{ params|join('&') }}{% endif %}" class="btn btn-secondary">Export CSV</a>
     <a href="/banques-caisse/a-rapprocher?mois={{ data.mois }}" class="btn btn-secondary">À rapprocher ({{ s.nb_a_rapprocher }})</a>
     <a href="/banques-caisse/controle" class="btn btn-primary">Contrôler les mouvements ({{ nb_a_controler }})</a>
-    <span class="read-only-badge">Lecture seule</span>
     {% if s.etat_global == "CONFORME" %}<span class="etat-global etat-global--ok">Conforme</span>
     {% elif s.etat_global == "A_RAPPROCHER" %}<span class="etat-global etat-global--warn">À rapprocher</span>
     {% else %}<span class="etat-global etat-global--err">Source incomplète</span>{% endif %}
@@ -127,9 +127,12 @@
 </div>
 
 <div class="origine-block-card mt-md">
-  <strong>Lecture seule.</strong> Aucun import bancaire, aucun virement, aucune connexion Qonto / Crédit
-  Mutuel. Un mouvement bancaire ne devient jamais automatiquement une charge ou un revenu : les statuts
-  et rapprochements proviennent du moteur (lot8a/8b/8c). Numéros de compte masqués.
+  Cette liste reste en lecture seule (elle ne modifie jamais un mouvement). L'import d'un relevé et
+  le rapprochement se font depuis les écrans dédiés (« + Importer un relevé », fiche mouvement).
+  Aucun virement, aucune connexion Qonto / Crédit Mutuel. Un mouvement bancaire ne devient jamais
+  automatiquement une charge ou un revenu : les statuts moteur proviennent de lot8a/8b/8c ; les
+  rapprochements applicatifs sont journalisés séparément (jamais une nouvelle vérité moteur).
+  Numéros de compte masqués.
 </div>
 {% endif %}
 

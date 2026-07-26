@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Prévisualisation de l'import{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/banques-caisse/importer" class="back-link">← Revenir modifier</a>
+  <h1 class="page-title">Prévisualisation de l'import</h1>
+</div>
+
+{% if manifest is none %}
+<div class="alert alert-error">
+  Prévisualisation introuvable ou expirée. Reprenez l'import depuis le début.
+</div>
+{% else %}
+{% set c = manifest.compteurs %}
+
+<div class="card mb-md">
+  <h2 class="card-title">{{ manifest.nom_fichier }}</h2>
+  <div class="kpi-grid kpi-grid--6">
+    <div class="kpi-card"><div class="kpi-label">Lignes lues</div><div class="kpi-value">{{ c.lignes_lues }}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Mouvements valides</div><div class="kpi-value">{{ c.valides }}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Doublons certains</div><div class="kpi-value">{{ c.doublons_certains }}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Doublons probables</div><div class="kpi-value">{{ c.doublons_probables }}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Lignes invalides</div><div class="kpi-value">{{ c.invalides }}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Débits / Crédits</div>
+      <div class="kpi-value" style="font-size:16px">{{ c.debits }} / {{ c.credits }}</div></div>
+  </div>
+  <p class="section-note mt-sm">
+    Total débits : {{ "%.2f"|format(c.total_debit) }} € · Total crédits : {{ "%.2f"|format(c.total_credit) }} €
+  </p>
+  {% if c.doublons_certains %}
+  <div class="alert alert-warning mt-sm" data-testid="doublons-certains">
+    {{ c.doublons_certains }} doublon(s) certain(s) — même empreinte qu'une ligne déjà importée
+    (ou déjà vue dans ce fichier). Ces lignes sont automatiquement exclues, jamais fusionnées.
+  </div>
+  {% endif %}
+</div>
+
+{% if manifest.doublons_probables %}
+<div class="card mb-md">
+  <h2 class="card-title">Doublons probables ({{ manifest.doublons_probables|length }})</h2>
+  <p class="section-note">
+    Même compte, date, montant et libellé qu'une ligne déjà présente, mais empreinte différente
+    (généralement une date de valeur différente). Ces lignes sont exclues par défaut ; cochez
+    « Confirmer malgré les doublons probables » pour les importer, avec justification.
+  </p>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Ligne</th><th>Libellé</th><th class="num">Montant</th><th>Sens</th></tr></thead>
+      <tbody>
+        {% for d in manifest.doublons_probables %}
+        <tr><td>{{ d.ligne }}</td><td>{{ d.libelle }}</td>
+            <td class="num">{{ "%.2f"|format(d.montant) }}</td><td>{{ d.sens }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if manifest.invalides %}
+<div class="card mb-md">
+  <h2 class="card-title">Lignes invalides ({{ manifest.invalides|length }})</h2>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Ligne</th><th>Libellé</th><th>Erreur(s)</th></tr></thead>
+      <tbody>
+        {% for i in manifest.invalides %}
+        <tr><td>{{ i.ligne }}</td><td>{{ i.libelle }}</td><td class="text-xs">{{ i.erreurs|join(', ') }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="card" data-testid="bloc-confirmation">
+  {% if not ecriture_active %}
+  <div class="alert alert-warning" data-testid="ecriture-desactivee">
+    Écriture désactivée sur cette installation : la confirmation n'est pas activée.
+  </div>
+  {% endif %}
+  <form method="post" action="/banques-caisse/importer/confirmer/{{ token }}">
+    {% if manifest.doublons_probables %}
+    <label><input type="checkbox" name="justifier_doublons_probables" value="1">
+      Confirmer malgré les doublons probables (justification : import déjà vérifié manuellement)</label>
+    {% endif %}
+    <input type="hidden" name="acteur" value="recette">
+    <button type="submit" class="btn btn-primary mt-sm" {% if not ecriture_active %}disabled{% endif %}>
+      Confirmer l'import
+    </button>
+  </form>
+  <a href="/banques-caisse/importer" class="btn btn-ghost mt-sm">Revenir modifier</a>
+</div>
+{% endif %}
+{% endblock %}

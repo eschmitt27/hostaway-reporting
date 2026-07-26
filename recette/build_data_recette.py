@@ -267,6 +267,72 @@ def build_pbi_logements(dst: Path):
                         pr, nom, typ, act, statut, taux])
 
 
+NORM_BANQUE_HDR = [
+    "mouvement_id", "ROW_HASH", "import_id", "ligne_source",
+    "date_operation", "date_valeur", "libelle", "libelle_brut",
+    "montant", "sens", "devise", "compte_id",
+    "tiers_detecte", "categorie", "type_flux_id", "code_impact",
+    "source_classification", "source_economique",
+    "statut_controle", "niveau_risque",
+    "codes_anomalie", "date_integration", "commentaire",
+    "statut_classification", "niveau_anomalie", "regle_id_appliquee",
+]
+
+
+def build_banque(dst: Path):
+    """Jeu fictif NORM_Banque (schéma lot8a/8b exact — 26 colonnes) : un cas par catégorie du
+    petit jeu demandé pour la recette Banque (encaissement, payout, paiement propriétaire,
+    paiement fournisseur, remboursement associé, frais bancaire, doublon certain, inconnu)."""
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    ws = wb.create_sheet("NORM_Banque")
+    ws.append(NORM_BANQUE_HDR)
+    compte = "CM_02211_00021321603"
+    lignes = [
+        # (id, date_op, libelle, montant, sens, tiers, categorie, type_flux, statut, commentaire)
+        ("MVT-SEED-001", "2026-06-05", "VIR HOSTAWAY PAYOUT", 850.00, "CREDIT", "HOSTAWAY",
+         "PAYOUT_PLATEFORME", "TYPE_FLUX_017", "VALIDE", "Encaissement reservation Hostaway"),
+        ("MVT-SEED-002", "2026-06-06", "VIR HOSTAWAY PAYOUT LOT", 1200.00, "CREDIT", "HOSTAWAY",
+         "PAYOUT_PLATEFORME", "TYPE_FLUX_017", "VALIDE", "Payout plateforme groupe"),
+        ("MVT-SEED-003", "2026-06-10", "VIR PROPRIETAIRE PROP A", 400.00, "DEBIT", "PROP_A",
+         "VIREMENT_PROPRIETAIRE_A_RAPPROCHER", "TYPE_FLUX_007", "VALIDE", "Reversement proprietaire"),
+        ("MVT-SEED-004", "2026-06-12", "VIR FOURNISSEUR MENAGE B", 120.00, "DEBIT", "FOURNISSEUR_B",
+         "FACTURE_PRESTATAIRE", "TYPE_FLUX_014", "VALIDE", "Paiement fournisseur menage"),
+        ("MVT-SEED-005", "2026-06-14", "VIR ASSOCIE REMBOURSEMENT", 75.00, "DEBIT", "PERS_X",
+         "VIR_ASSOCIE", "TYPE_FLUX_005", "VALIDE", "Remboursement associe"),
+        ("MVT-SEED-006", "2026-06-15", "FRAIS TENUE DE COMPTE", 8.90, "DEBIT", "",
+         "FRAIS_BANCAIRES", "TYPE_FLUX_016", "VALIDE", "Frais bancaires"),
+        ("MVT-SEED-008", "2026-06-20", "PRLV INCONNU DIVERS", 45.00, "DEBIT", "",
+         "DEPENSE_CB_A_CLASSIFIER", "", "EN_ATTENTE_CLASSIFICATION", "Mouvement non identifie"),
+    ]
+    for mid, date_op, libelle, montant, sens, tiers, categorie, type_flux, statut, commentaire in lignes:
+        row_hash = f"{mid}-HASH"
+        ws.append([
+            mid, row_hash, "IMPORT_SEED_2026_06", 1,
+            date_op, date_op, libelle, libelle,
+            montant, sens, "EUR", compte,
+            tiers, categorie, type_flux, "",
+            "REGLE_DETERMINISTE", "",
+            statut, "FAIBLE",
+            "", "2026-06-30", commentaire,
+            "CLASSIFIEE", "FAIBLE", "",
+        ])
+    # Doublon certain : même empreinte que MVT-SEED-006 (même date/montant/sens/libellé/compte) —
+    # démontre la détection à la réimportation du même relevé.
+    ws.append([
+        "MVT-SEED-007", f"MVT-SEED-006-HASH", "IMPORT_SEED_2026_06", 2,
+        "2026-06-15", "2026-06-15", "FRAIS TENUE DE COMPTE", "FRAIS TENUE DE COMPTE",
+        8.90, "DEBIT", "EUR", compte,
+        "", "FRAIS_BANCAIRES", "TYPE_FLUX_016", "",
+        "REGLE_DETERMINISTE", "",
+        "A_CONTROLER", "MOYEN",
+        "DOUBLON_BANCAIRE_POTENTIEL", "2026-06-30", "Doublon certain (meme empreinte que SEED-006)",
+        "CLASSIFIEE", "MOYEN", "",
+    ])
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(dst)
+
+
 def _robust_rmtree(path: Path, tries: int = 5):
     import stat
     import time
@@ -318,6 +384,7 @@ def main():
     for py in (WT / "02_TRAVAIL").glob("*.py"):
         shutil.copy2(py, dst_travail / py.name)
     build_pbi_logements(REC / "03_EXPORTS" / "PowerBI" / "PBI_Referentiel_Logements.csv")
+    build_banque(REC / "02_TRAVAIL" / "Lot8_Banque" / "BANQUE_LOT8_IMPORT.xlsx")
     # dossiers data applicatifs isolés
     (REC / "data" / "snapshots").mkdir(parents=True, exist_ok=True)
     print("data_recette généré :", REC.resolve())

@@ -91,6 +91,9 @@ def test_no_bidirectional_sync():
         "charges_validation_service.py",    # APP-3f : write-guard + remplacement atomique de la
                                              # SAISIE (vérité) puis journal SQLite one-way (jamais de
                                              # relecture SQLite réinjectée dans l'Excel)
+        "banques_import_service.py",        # Module Banque : write-guard + remplacement atomique de
+                                             # NORM_Banque puis journal SQLite one-way (import_id
+                                             # seulement — jamais de relecture SQLite dans l'Excel)
     }
     violations = []
     for f in get_python_files():
