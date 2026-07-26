@@ -213,11 +213,19 @@ def banque_detail(request: Request, stable_id: str, message: str = "", erreur: s
         fiche = ctrl.load_fiche(stable_id)
         liens = rappro.lister(stable_id) if fiche else []
         etat = rappro.etat_rapprochement(stable_id, fiche["montant"]) if fiche else None
+        # Contexte métier (facture / règlement / fournisseur) — importé paresseusement pour ne pas
+        # créer de dépendance circulaire entre les routes Banque et le module Factures.
+        try:
+            from app.services import factures_banque_service as pont_factures
+            contexte_metier = pont_factures.contexte_metier_du_mouvement(stable_id)
+        except Exception:
+            contexte_metier = []
         return templates.TemplateResponse(request, "banques_mouvement.html", {
             "active_menu": "banques", "fiche": fiche, "liens_rapprochement": liens,
             "etat_rapprochement": etat, "types_objet": rappro.TYPES_OBJET,
             "suggestions": _suggestions(stable_id),
             "historique_suggestions": sugg.historique_decisions(stable_id),
+            "contexte_metier": contexte_metier,
             "ecriture_active": _ecriture_active(), "message": message, "erreur": erreur,
         })
     # Sinon : ancienne fiche APP-4A (lecture seule) — non utilisée dans la nouvelle interface.

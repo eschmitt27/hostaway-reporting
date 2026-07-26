@@ -13,6 +13,8 @@ from app.config import TEMPLATES_DIR
 from app.services import factures_service as svc
 from app.services import reglements_fournisseurs_service as reg
 from app.services import fournisseurs_referentiel_service as frs
+from app.services import factures_banque_service as pont
+from app.services import factures_controles_service as controles
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -58,6 +60,18 @@ def factures_a_payer(request: Request):
         "active_menu": "factures", "factures": a_payer, "libelles": _libelles_fournisseurs(),
         "total_du": round(sum(f["solde_restant"] for f in a_payer), 2),
         "nb_echues": sum(1 for f in a_payer if f["echue"]),
+    })
+
+
+@router.get("/factures/controles", response_class=HTMLResponse)
+def factures_controles(request: Request, severite: str = ""):
+    data = controles.controler()
+    anomalies = data["anomalies"]
+    if severite:
+        anomalies = [a for a in anomalies if a["severite"] == severite]
+    return templates.TemplateResponse(request, "factures_controles.html", {
+        "active_menu": "factures", "data": data, "anomalies": anomalies,
+        "niveaux": controles.NIVEAUX, "applied": {"severite": severite},
     })
 
 
@@ -146,6 +160,80 @@ def reglements_list(request: Request, non_rapproches: str = ""):
         "libelles": _libelles_fournisseurs(),
         "applied": {"non_rapproches": non_rapproches},
     })
+
+
+@router.get("/fournisseurs-soldes/{opaque}", response_class=HTMLResponse)
+def fournisseur_solde(request: Request, opaque: str, message: str = "", erreur: str = ""):
+    """Fiche fournisseur orientée dette : identité, solde, factures, règlements, anomalies.
+    Complète `/referentiel-fournisseurs/{id}` (identité seule) sans la remplacer."""
+    fournisseur = frs.charger_par_opaque(opaque)
+    if fournisseur is None:
+        return templates.TemplateResponse(request, "fournisseur_solde.html", {
+            "active_menu": "factures", "fournisseur": None, "opaque": opaque,
+        }, status_code=404)
+    solde = svc.solde_fournisseur(opaque)
+    reglements = reg.lister(fournisseur=opaque)
+    etats = {r["reglement_id_opaque"]: pont.etat_reglement(r["reglement_id_opaque"])
+             for r in reglements}
+    anomalies = [a for a in controles.controler()["anomalies"]
+                 if a["identifiant"] in {f["facture_ref"] for f in solde["factures"]}
+                 or a["identifiant"] in etats]
+    return templates.TemplateResponse(request, "fournisseur_solde.html", {
+        "active_menu": "factures", "fournisseur": fournisseur, "solde": solde,
+        "reglements": reglements, "etats_rapprochement": etats, "anomalies": anomalies,
+        "historique": frs.historique(opaque),
+        "ecriture_active": _ecriture_active(), "message": message, "erreur": erreur,
+    })
+
+
+# ── Rapprochement bancaire (réutilise le moteur Banque, aucun second moteur) ──
+
+@router.get("/reglements/{opaque}/rapprocher", response_class=HTMLResponse)
+def reglement_rapprocher_form(request: Request, opaque: str, message: str = "", erreur: str = ""):
+    reglement = reg.charger(opaque)
+    if reglement is None:
+        return templates.TemplateResponse(request, "reglement_rapprocher.html", {
+            "active_menu": "factures", "reglement": None, "opaque": opaque,
+        }, status_code=404)
+    return templates.TemplateResponse(request, "reglement_rapprocher.html", {
+        "active_menu": "factures", "reglement": reglement,
+        "etat": pont.etat_reglement(opaque),
+        "candidats": pont.candidats_pour_reglement(opaque),
+        "liens": pont.liens_du_reglement(opaque),
+        "libelles": _libelles_fournisseurs(),
+        "ecriture_active": _ecriture_active(), "message": message, "erreur": erreur,
+    })
+
+
+@router.post("/reglements/{opaque}/rapprocher")
+async def reglement_rapprocher(request: Request, opaque: str):
+    form = await request.form()
+    montant_txt = str(form.get("montant", "") or "").strip()
+    res = pont.rapprocher(opaque, str(form.get("mouvement_id_opaque", "") or ""),
+                          float(montant_txt) if montant_txt else 0,
+                          acteur=str(form.get("acteur", "") or "local"),
+                          commentaire=str(form.get("commentaire", "") or ""))
+    msg = ("message=Rapprochement proposé — à confirmer." if res.get("ok")
+           else f"erreur={res.get('message')}")
+    return RedirectResponse(url=f"/reglements/{opaque}/rapprocher?{msg}", status_code=303)
+
+
+@router.post("/reglements/{opaque}/rapprochements/{rap}/confirmer")
+async def reglement_rapprochement_confirmer(request: Request, opaque: str, rap: str):
+    form = await request.form()
+    res = pont.confirmer(rap, opaque, acteur=str(form.get("acteur", "") or "local"),
+                         commentaire=str(form.get("commentaire", "") or ""))
+    msg = "message=Rapprochement confirmé." if res.get("ok") else f"erreur={res.get('message')}"
+    return RedirectResponse(url=f"/reglements/{opaque}/rapprocher?{msg}", status_code=303)
+
+
+@router.post("/reglements/{opaque}/rapprochements/{rap}/annuler")
+async def reglement_rapprochement_annuler(request: Request, opaque: str, rap: str):
+    form = await request.form()
+    res = pont.annuler(rap, opaque, acteur=str(form.get("acteur", "") or "local"),
+                       commentaire=str(form.get("commentaire", "") or ""))
+    msg = "message=Rapprochement annulé." if res.get("ok") else f"erreur={res.get('message')}"
+    return RedirectResponse(url=f"/reglements/{opaque}/rapprocher?{msg}", status_code=303)
 
 
 @router.post("/reglements/{opaque}/annuler")

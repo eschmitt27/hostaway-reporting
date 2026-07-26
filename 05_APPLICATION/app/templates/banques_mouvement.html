@@ -120,6 +120,45 @@
   <p class="section-note mb-sm">Aucun rapprochement enregistré pour ce mouvement.</p>
   {% endif %}
 
+  {% if contexte_metier %}
+  <div class="mb-md" data-testid="contexte-metier">
+    <h3 class="card-title">Factures et règlements liés</h3>
+    {% for c in contexte_metier %}
+    <div class="table-container mb-sm">
+      <table class="data-table">
+        <thead><tr>
+          <th>Facture</th><th>Fournisseur</th><th class="num">TTC</th><th class="num">Imputé</th>
+          <th class="num">Solde avant</th><th class="num">Solde après</th><th>Statut</th><th></th>
+        </tr></thead>
+        <tbody>
+          {% for f in c.factures %}
+          <tr>
+            <td class="font-mono text-xs">{{ f.facture_ref }}</td>
+            <td class="font-mono text-xs">{{ c.fournisseur_id_opaque }}</td>
+            <td class="num">{{ "%.2f"|format(f.montant_ttc) }}</td>
+            <td class="num">{{ "%.2f"|format(f.montant_impute) }}</td>
+            <td class="num">{{ "%.2f"|format(f.solde_avant) }}</td>
+            <td class="num">{{ "%.2f"|format(f.solde_apres) }}</td>
+            <td><span class="status-badge status-{{ 'valide' if f.statut == 'REGLEE' else 'a-controler' }}">{{ f.statut }}</span></td>
+            <td><a href="/factures/{{ f.facture_id_opaque }}">Ouvrir la facture</a></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="8" class="section-note">Règlement sans facture imputée.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if c.reglement %}
+      <p class="section-note">
+        Règlement du {{ c.reglement.date_reglement }} — {{ "%.2f"|format(c.reglement.montant) }} €
+        ({{ c.reglement.moyen }}) ·
+        <a href="/reglements/{{ c.reglement.reglement_id_opaque }}/rapprocher">Voir le rapprochement</a>
+      </p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   {% if suggestions %}
   <div class="mb-md" data-testid="suggestions">
     <h3 class="card-title">Suggestions ({{ suggestions|length }})</h3>

@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}{% if fournisseur %}Fournisseur {{ fournisseur.nom }}{% else %}Fournisseur introuvable{% endif %}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/factures" class="back-link">← Factures</a>
+</div>
+
+{% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+
+{% if fournisseur is none %}
+<div class="alert alert-error"><strong>Fournisseur introuvable.</strong> <code>{{ opaque }}</code></div>
+{% else %}
+
+<div class="flex justify-between items-center" style="margin-bottom: var(--stack-lg);">
+  <div>
+    <h1 class="page-title">{{ fournisseur.nom }}</h1>
+    <p class="page-subtitle">{{ fournisseur.type }} · {{ fournisseur.fournisseur_id_opaque }}</p>
+  </div>
+  <div class="flex gap-sm items-center">
+    <span class="status-badge status-{{ 'valide' if fournisseur.statut == 'ACTIF' else 'bloquant' }}">{{ fournisseur.statut }}</span>
+    {% if fournisseur.statut == 'ACTIF' %}
+    <a href="/factures/nouvelle" class="btn btn-primary">+ Nouvelle facture</a>
+    {% endif %}
+    <a href="/factures?fournisseur={{ fournisseur.fournisseur_id_opaque }}" class="btn btn-secondary">Ses factures</a>
+  </div>
+</div>
+
+{% if fournisseur.statut != 'ACTIF' %}
+<div class="alert alert-warning">
+  Fournisseur archivé : il ne peut plus recevoir de nouvelle facture, mais reste visible sur les
+  factures et règlements existants.
+</div>
+{% endif %}
+
+<div class="kpi-grid kpi-grid--6">
+  <div class="kpi-card"><div class="kpi-label">Total facturé</div>
+    <div class="kpi-value" style="font-size:18px">{{ "%.2f"|format(solde.total_facture) }} €</div></div>
+  <div class="kpi-card"><div class="kpi-label">Total réglé</div>
+    <div class="kpi-value" style="font-size:18px">{{ "%.2f"|format(solde.total_regle) }} €</div></div>
+  <div class="kpi-card"><div class="kpi-label">Solde à payer</div>
+    <div class="kpi-value" style="font-size:18px">{{ "%.2f"|format(solde.solde_a_payer) }} €</div></div>
+  <div class="kpi-card"><div class="kpi-label">Factures</div><div class="kpi-value">{{ solde.nb_factures }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Échues</div><div class="kpi-value">{{ solde.nb_echues }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">En litige</div><div class="kpi-value">{{ solde.nb_litige }}</div></div>
+</div>
+
+<div class="card mt-md mb-md">
+  <div class="card-title">Factures ({{ solde.factures|length }})</div>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Référence</th><th>Date</th><th>Échéance</th><th class="num">TTC</th>
+        <th class="num">Réglé</th><th class="num">Solde</th><th>Statut</th><th></th></tr></thead>
+      <tbody>
+        {% for f in solde.factures %}
+        <tr>
+          <td class="font-mono text-xs">{{ f.facture_ref }}</td>
+          <td class="font-mono text-xs">{{ f.date_facture or "—" }}</td>
+          <td class="font-mono text-xs">{{ f.date_echeance or "—" }}
+            {% if f.echue %}<span class="status-badge status-bloquant">échue</span>{% endif %}</td>
+          <td class="num">{{ "%.2f"|format(f.montant_ttc) }}</td>
+          <td class="num">{{ "%.2f"|format(f.montant_regle) }}</td>
+          <td class="num">{{ "%.2f"|format(f.solde_restant) }}</td>
+          <td><span class="status-badge status-{{ 'valide' if f.statut == 'REGLEE' else 'bloquant' if f.statut in ['ANNULEE','LITIGE'] else 'a-controler' }}">{{ f.statut }}</span></td>
+          <td><a href="/factures/{{ f.facture_id_opaque }}">Voir</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="section-note">Aucune facture.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card mb-md">
+  <div class="card-title">Règlements ({{ reglements|length }})</div>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Date</th><th class="num">Montant</th><th>Moyen</th><th>Statut</th>
+        <th>Rapprochement bancaire</th><th></th></tr></thead>
+      <tbody>
+        {% for r in reglements %}
+        {% set e = etats_rapprochement.get(r.reglement_id_opaque) %}
+        <tr>
+          <td class="font-mono text-xs">{{ r.date_reglement }}</td>
+          <td class="num">{{ "%.2f"|format(r.montant) }}</td>
+          <td>{{ r.moyen }}</td>
+          <td><span class="status-badge status-{{ 'bloquant' if r.statut == 'ANNULE' else 'valide' if r.statut == 'RAPPROCHE' else 'a-controler' }}">{{ r.statut }}</span></td>
+          <td class="text-xs">
+            {% if e %}{{ e.statut }} — rapproché {{ "%.2f"|format(e.montant_rapproche) }} € /
+            restant {{ "%.2f"|format(e.montant_restant) }} €{% else %}—{% endif %}
+          </td>
+          <td><a href="/reglements/{{ r.reglement_id_opaque }}/rapprocher">Rapprocher</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="section-note">Aucun règlement.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card mb-md">
+  <div class="card-title">Anomalies ({{ anomalies|length }})</div>
+  {% if anomalies %}
+  <table class="data-table">
+    <thead><tr><th>Niveau</th><th>Code</th><th>Objet</th><th>Message</th></tr></thead>
+    <tbody>
+      {% for a in anomalies %}
+      <tr>
+        <td><span class="status-badge status-{{ 'bloquant' if a.severite in ['BLOQUANT','CRITIQUE'] else 'a-controler' }}">{{ a.severite }}</span></td>
+        <td class="font-mono text-xs">{{ a.code }}</td>
+        <td class="font-mono text-xs">{{ a.identifiant }}</td>
+        <td class="text-xs">{{ a.message }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="section-note">Aucune anomalie sur ce fournisseur.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-title">Historique du fournisseur</div>
+  <table class="data-table">
+    <thead><tr><th>Événement</th><th>Ancien</th><th>Nouveau</th><th>Acteur</th><th>Date</th></tr></thead>
+    <tbody>
+      {% for h in historique %}
+      <tr><td>{{ h.type_evenement }}</td><td>{{ h.ancien_statut or "—" }}</td>
+          <td>{{ h.nouveau_statut or "—" }}</td><td>{{ h.acteur or "—" }}</td>
+          <td class="font-mono text-xs">{{ h.date_evenement }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

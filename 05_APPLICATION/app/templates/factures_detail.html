@@ -16,7 +16,9 @@
 <div class="flex justify-between items-center" style="margin-bottom: var(--stack-lg);">
   <div>
     <h1 class="page-title">Facture {{ facture.facture_ref }}</h1>
-    <p class="page-subtitle">{{ libelles.get(facture.fournisseur_id_opaque) or facture.fournisseur_id_opaque }}</p>
+    <p class="page-subtitle">
+      <a href="/fournisseurs-soldes/{{ facture.fournisseur_id_opaque }}">{{ libelles.get(facture.fournisseur_id_opaque) or facture.fournisseur_id_opaque }}</a>
+    </p>
   </div>
   <span class="status-badge status-{{ 'valide' if facture.statut == 'REGLEE' else 'bloquant' if facture.statut in ['ANNULEE','LITIGE'] else 'a-controler' }}">{{ facture.statut }}</span>
 </div>
@@ -110,6 +112,7 @@
             {% else %}Non rapproché{% endif %}
           </td>
           <td>
+            <a href="/reglements/{{ r.reglement_id_opaque }}/rapprocher" class="btn btn-secondary">Rapprocher</a>
             {% if r.statut != 'ANNULE' %}
             <form method="post" action="/reglements/{{ r.reglement_id_opaque }}/annuler" style="display:inline">
               <input type="hidden" name="retour" value="/factures/{{ facture.facture_id_opaque }}">

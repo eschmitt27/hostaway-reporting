@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Contrôles factures et règlements{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/factures" class="back-link">← Factures</a>
+  <h1 class="page-title">Contrôles factures et règlements</h1>
+  <p class="page-subtitle">
+    Contrôles applicatifs — certains états sont déjà interdits au niveau du schéma ; ces contrôles
+    servent aussi de défense en profondeur.
+  </p>
+</div>
+
+{% if data.statut != "OK" %}
+<div class="alert alert-error"><strong>Contrôles indisponibles.</strong> {{ data.detail or "" }}</div>
+{% else %}
+
+{% set c = data.compteurs %}
+<div class="kpi-grid kpi-grid--6">
+  <div class="kpi-card"><div class="kpi-label">Bloquants</div><div class="kpi-value">{{ c.BLOQUANT }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Critiques</div><div class="kpi-value">{{ c.CRITIQUE }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Avertissements</div><div class="kpi-value">{{ c.AVERTISSEMENT }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Informatifs</div><div class="kpi-value">{{ c.INFO }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Résolus</div><div class="kpi-value">{{ c.RESOLU }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Justifiés</div><div class="kpi-value">{{ c.JUSTIFIE }}</div></div>
+</div>
+
+{% if data.nb_bloquants %}
+<div class="alert alert-error mt-md">
+  <strong>{{ data.nb_bloquants }} contrôle(s) bloquant(s)</strong> — à corriger avant de considérer
+  les soldes fournisseurs comme fiables.
+</div>
+{% endif %}
+
+<form method="get" action="/factures/controles" class="filter-bar mt-md">
+  <label>Niveau
+    <select name="severite"><option value="">Tous</option>
+      {% for n in niveaux %}<option value="{{ n }}" {{ 'selected' if applied.severite == n }}>{{ n }}</option>{% endfor %}
+    </select></label>
+  <button type="submit" class="btn btn-primary">Filtrer</button>
+  <a href="/factures/controles" class="btn btn-ghost">Réinitialiser</a>
+</form>
+
+<div class="card mt-md">
+  <p class="section-note">{{ anomalies|length }} anomalie(s) · généré le {{ data.genere_le }}</p>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr>
+        <th>Niveau</th><th>Code</th><th>Objet</th><th>Identifiant</th><th>Message</th>
+        <th class="num">Montant</th><th>Action recommandée</th><th>Statut</th>
+      </tr></thead>
+      <tbody>
+        {% for a in anomalies %}
+        <tr>
+          <td><span class="status-badge status-{{ 'bloquant' if a.severite in ['BLOQUANT','CRITIQUE'] else 'a-controler' if a.severite == 'AVERTISSEMENT' else 'valide' if a.severite in ['RESOLU','JUSTIFIE'] else 'info' }}">{{ a.severite }}</span></td>
+          <td class="font-mono text-xs">{{ a.code }}</td>
+          <td>{{ a.objet }}</td>
+          <td class="font-mono text-xs">{{ a.identifiant }}</td>
+          <td>{{ a.message }}{% if a.detail %} <span class="text-xs text-secondary">({{ a.detail }})</span>{% endif %}</td>
+          <td class="num">{{ "%.2f"|format(a.montant) if a.montant is not none else "—" }}</td>
+          <td class="text-xs">{{ a.action or "—" }}</td>
+          <td class="text-xs">{{ a.statut }}{% if a.justification %} — {{ a.justification }}{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="section-note">Aucune anomalie pour ce filtre.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

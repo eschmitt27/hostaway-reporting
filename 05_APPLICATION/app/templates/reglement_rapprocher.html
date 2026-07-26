@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Rapprocher un règlement{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/reglements" class="back-link">← Règlements</a>
+  <h1 class="page-title">Rapprochement bancaire du règlement</h1>
+  <p class="page-subtitle">
+    Le lien est enregistré par le moteur Banque (source de vérité unique). Un rapprochement ne crée
+    jamais de charge : il relie seulement mouvement ↔ règlement ↔ facture.
+  </p>
+</div>
+
+{% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+
+{% if reglement is none %}
+<div class="alert alert-error"><strong>Règlement introuvable.</strong> <code>{{ opaque }}</code></div>
+{% else %}
+
+<div class="card mb-md">
+  <div class="card-title">Règlement —
+    <span class="status-badge status-{{ 'valide' if etat.statut == 'RAPPROCHE' else 'a-controler' }}">{{ etat.statut }}</span>
+  </div>
+  <dl class="detail-grid">
+    <div><dt>Date</dt><dd>{{ reglement.date_reglement }}</dd></div>
+    <div><dt>Montant</dt><dd><strong>{{ "%.2f"|format(reglement.montant) }} €</strong></dd></div>
+    <div><dt>Moyen</dt><dd>{{ reglement.moyen }}</dd></div>
+    <div><dt>Fournisseur</dt><dd>{{ libelles.get(reglement.fournisseur_id_opaque) or reglement.fournisseur_id_opaque }}</dd></div>
+    <div><dt>Déjà rapproché</dt><dd>{{ "%.2f"|format(etat.montant_rapproche) }} €</dd></div>
+    <div><dt>Restant à rapprocher</dt><dd><strong>{{ "%.2f"|format(etat.montant_restant) }} €</strong></dd></div>
+  </dl>
+</div>
+
+{% if liens %}
+<div class="card mb-md">
+  <div class="card-title">Mouvements rapprochés ({{ liens|length }})</div>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Mouvement</th><th class="num">Montant</th><th>Statut</th><th>Source</th><th></th></tr></thead>
+      <tbody>
+        {% for l in liens %}
+        <tr>
+          <td class="font-mono text-xs">
+            <a href="/banques-caisse/mouvements/{{ l.mouvement_id_opaque }}">{{ l.mouvement_id_opaque }}</a>
+          </td>
+          <td class="num">{{ "%.2f"|format(l.montant_rapproche) }}</td>
+          <td><span class="status-badge status-{{ 'valide' if l.statut == 'CONFIRME' else 'bloquant' if l.statut in ['ANNULE','REFUSE'] else 'a-controler' }}">{{ l.statut }}</span></td>
+          <td>{{ l.source }}</td>
+          <td>
+            {% if l.statut == 'PROPOSE' %}
+            <form method="post" action="/reglements/{{ reglement.reglement_id_opaque }}/rapprochements/{{ l.rapprochement_id_opaque }}/confirmer" style="display:inline">
+              <button type="submit" class="btn btn-primary" {% if not ecriture_active %}disabled{% endif %}>Confirmer</button>
+            </form>
+            {% endif %}
+            {% if l.statut in ['PROPOSE', 'CONFIRME'] %}
+            <form method="post" action="/reglements/{{ reglement.reglement_id_opaque }}/rapprochements/{{ l.rapprochement_id_opaque }}/annuler" style="display:inline">
+              <button type="submit" class="btn btn-ghost" {% if not ecriture_active %}disabled{% endif %}>Annuler</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if etat.statut != 'RAPPROCHE' %}
+<div class="card" data-testid="candidats">
+  <div class="card-title">Mouvements bancaires candidats ({{ candidats|length }})</div>
+  {% if candidats %}
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr>
+        <th>Niveau</th><th>Date</th><th>Libellé</th><th>Compte</th>
+        <th class="num">Montant</th><th class="num">Disponible</th><th>Raison</th><th>Écarts</th><th></th>
+      </tr></thead>
+      <tbody>
+        {% for c in candidats %}
+        <tr>
+          <td><span class="status-badge status-{{ 'valide' if c.niveau == 'EXACT' else 'a-controler' if c.niveau == 'PROBABLE' else 'info' }}">{{ c.niveau }}</span>
+              <span class="text-xs">({{ c.score }})</span></td>
+          <td class="font-mono text-xs">{{ c.date_operation }}</td>
+          <td>{{ c.libelle[:36] }}</td>
+          <td class="font-mono text-xs">{{ c.compte_masque }}</td>
+          <td class="num">{{ "%.2f"|format(c.montant_mouvement) }}</td>
+          <td class="num">{{ "%.2f"|format(c.montant_disponible) }}</td>
+          <td class="text-xs">{{ c.raison }}</td>
+          <td class="text-xs">{{ c.criteres_divergents|join(' ; ') or "—" }}</td>
+          <td>
+            <form method="post" action="/reglements/{{ reglement.reglement_id_opaque }}/rapprocher">
+              <input type="hidden" name="mouvement_id_opaque" value="{{ c.mouvement_id_opaque }}">
+              <input type="number" step="0.01" min="0.01" name="montant"
+                     value="{{ "%.2f"|format(c.montant_propose) }}" size="7">
+              <button type="submit" class="btn btn-primary" {% if not ecriture_active %}disabled{% endif %}>Rapprocher</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="section-note">
+    Aucun mouvement bancaire candidat. Les crédits, les mouvements bloquants et les mouvements déjà
+    entièrement rapprochés ne sont jamais proposés.
+  </p>
+  {% endif %}
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}
