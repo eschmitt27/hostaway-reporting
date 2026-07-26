@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Nouveau logement{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/logements" class="btn btn-ghost">← Retour à la liste</a>
+  <h1 class="page-title">Ajouter un logement</h1>
+</div>
+
+{% if not ecriture_active %}
+<div class="alert alert-warning">
+  Écriture désactivée sur cette installation : la création est impossible tant que les
+  variables d'environnement de mode recette ne sont pas activées.
+</div>
+{% endif %}
+
+{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+
+{% if refs.status != 'OK' %}
+<div class="alert alert-error"><strong>Référentiel indisponible.</strong> Impossible de charger le formulaire.</div>
+{% else %}
+<div class="card">
+  <form method="post" action="/logements">
+    <div class="detail-grid">
+      <label>Identifiant du logement *
+        <input type="text" name="logement_id" required placeholder="LOG_XXX">
+      </label>
+      <label>Nom officiel
+        <input type="text" name="nom_logement_officiel">
+      </label>
+      <label>Nom court *
+        <input type="text" name="nom_court" required>
+      </label>
+      <label>Adresse
+        <input type="text" name="adresse">
+      </label>
+      <label>Ville
+        <input type="text" name="ville">
+      </label>
+      <label>Type de logement
+        <select name="type_logement_id">
+          <option value="">—</option>
+          {% for t in refs.types %}
+          <option value="{{ t.type_logement_id }}">{{ t.libelle or t.type_logement_id }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Propriétaire *
+        <select name="proprietaire_id" required>
+          <option value="">—</option>
+          {% for p in refs.proprietaires %}
+          <option value="{{ p.proprietaire_id }}">{{ p.nom or p.proprietaire_id }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Date de début de gestion *
+        <input type="date" name="date_debut" required>
+      </label>
+      <label>Identifiant Hostaway
+        <input type="text" name="hostaway_listing_id">
+      </label>
+      <label>Sur Hostaway
+        <select name="sur_hostaway">
+          <option value="NON">Non</option>
+          <option value="OUI">Oui</option>
+        </select>
+      </label>
+      <label>Forfait logiciel/consommables mensuel
+        <input type="number" step="0.01" name="forfait_logiciel_consommables_mensuel" value="0">
+      </label>
+      <label>Commentaire
+        <input type="text" name="commentaire">
+      </label>
+    </div>
+    <div style="margin-top: var(--stack-md);">
+      <button type="submit" class="btn btn-primary" {% if not ecriture_active %}disabled{% endif %}>
+        Créer le logement
+      </button>
+    </div>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

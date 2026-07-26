@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{% if detail %}Fiche logement{% else %}Logement introuvable{% endif %}{% endblock %}
+{% block title %}{% if detail or fiche_minimale %}Fiche logement{% else %}Logement introuvable{% endif %}{% endblock %}
 
 {% block content %}
 
@@ -7,10 +7,149 @@
   <a href="/logements" class="btn btn-ghost">← Retour à la liste</a>
 </div>
 
-{% if detail is none %}
+{% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+
+{% if detail is none and not fiche_minimale %}
   <div class="alert alert-error">
     <strong>Logement introuvable.</strong>
     Aucun logement d'identifiant <code>{{ logement_id }}</code> dans la source liste.
+  </div>
+
+{% elif detail is none and fiche_minimale %}
+  <div class="alert alert-warning">
+    <strong>Logement créé, en attente de l'export PBI (Lot13).</strong>
+    Ce logement existe dans <code>REF_Setup.xlsm</code> mais le pipeline n'a pas encore régénéré
+    <code>PBI_Referentiel_Logements.csv</code> : la fiche complète (liste, ménage, informations
+    enrichies) n'est pas encore disponible. Voici l'état actuel lu directement dans REF_Setup.
+  </div>
+
+  <div class="flex justify-between items-center" style="margin-bottom: var(--stack-lg);">
+    <div>
+      <h1 class="page-title">{{ etat.fiche.nom_logement_officiel or etat.fiche.nom_court or logement_id }}</h1>
+      <p class="page-subtitle">{{ logement_id }}</p>
+    </div>
+    <div>
+      {% if (etat.fiche.actif or '')|upper == 'OUI' %}
+        <span class="badge badge-success">Actif</span>
+      {% else %}
+        <span class="badge badge-neutral">Inactif</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom: var(--stack-lg);">
+    <div class="card-title">État actuel (temps réel)</div>
+    <dl class="detail-grid">
+      <div><dt>Actif</dt><dd>{{ etat.fiche.actif or "Non renseigné" }}</dd></div>
+      <div><dt>Statut parc</dt><dd>{{ etat.fiche.statut_parc or "Non renseigné" }}</dd></div>
+      <div><dt>Adresse</dt><dd>{{ etat.fiche.adresse or "Non renseigné" }}</dd></div>
+      <div><dt>Ville</dt><dd>{{ etat.fiche.ville or "Non renseigné" }}</dd></div>
+      <div><dt>Propriétaire en gestion</dt>
+        <dd>{{ etat.gestion_active.proprietaire_id if etat.gestion_active else "Aucun rattachement actif" }}</dd></div>
+      <div><dt>Depuis le</dt><dd>{{ etat.gestion_active.date_debut if etat.gestion_active else "—" }}</dd></div>
+    </dl>
+  </div>
+
+  <div class="card" style="margin-bottom: var(--stack-lg);">
+    <div class="card-title">Historique — rattachements de gestion</div>
+    {% if histo.gestion %}
+    <div class="table-container">
+      <table>
+        <thead><tr><th>Propriétaire</th><th>Date début</th><th>Date fin</th><th>Statut</th></tr></thead>
+        <tbody>
+          {% for g in histo.gestion %}
+          <tr><td>{{ g.proprietaire_id }}</td><td>{{ g.date_debut }}</td>
+              <td>{{ g.date_fin or "En cours" }}</td><td>{{ g.statut_gestion }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state"><p>Aucun rattachement enregistré.</p></div>
+    {% endif %}
+  </div>
+
+  <!-- Actions de gestion (fiche minimale : mêmes actions, disponibles sans attendre Lot13) -->
+  <div class="card" style="margin-bottom: var(--stack-lg);">
+    <div class="card-title">Actions</div>
+    {% if not ecriture_active %}
+    <div class="alert alert-warning">
+      Écriture désactivée sur cette installation : ces actions sont indisponibles.
+    </div>
+    {% endif %}
+
+    <details style="margin-bottom: var(--stack-md);">
+      <summary class="btn btn-ghost">Modifier les informations</summary>
+      <form method="post" action="/logements/{{ logement_id }}/modifier" style="margin-top: var(--stack-sm);">
+        <div class="detail-grid">
+          <label>Nom officiel <input type="text" name="nom_logement_officiel" value="{{ etat.fiche.nom_logement_officiel or '' }}"></label>
+          <label>Nom court <input type="text" name="nom_court" value="{{ etat.fiche.nom_court or '' }}"></label>
+          <label>Adresse <input type="text" name="adresse" value="{{ etat.fiche.adresse or '' }}"></label>
+          <label>Ville <input type="text" name="ville" value="{{ etat.fiche.ville or '' }}"></label>
+          <label>Forfait logiciel/consommables mensuel
+            <input type="number" step="0.01" name="forfait_logiciel_consommables_mensuel" value="{{ etat.fiche.forfait_logiciel_consommables_mensuel or 0 }}">
+          </label>
+        </div>
+        <button type="submit" class="btn btn-primary" style="margin-top: var(--stack-sm);" {% if not ecriture_active %}disabled{% endif %}>Enregistrer</button>
+      </form>
+    </details>
+
+    <details style="margin-bottom: var(--stack-md);">
+      <summary class="btn btn-ghost">Changer de propriétaire</summary>
+      <form method="post" action="/logements/{{ logement_id }}/changer-proprietaire" style="margin-top: var(--stack-sm);">
+        <label>Nouveau propriétaire *
+          <select name="proprietaire_id" required>
+            <option value="">—</option>
+            {% for p in refs.proprietaires %}
+            <option value="{{ p.proprietaire_id }}">{{ p.nom or p.proprietaire_id }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>À compter du *<input type="date" name="date_debut" required></label>
+        <button type="submit" class="btn btn-primary" {% if not ecriture_active %}disabled{% endif %}>Changer le propriétaire</button>
+      </form>
+    </details>
+
+    <details style="margin-bottom: var(--stack-md);">
+      <summary class="btn btn-ghost">Changer le taux de commission</summary>
+      <form method="post" action="/logements/{{ logement_id }}/changer-taux-commission" style="margin-top: var(--stack-sm);">
+        <label>Nouveau taux (ex. 0.15 pour 15 %) *
+          <input type="number" step="0.0001" min="0" max="1" name="taux_commission" required></label>
+        <label>À compter du *<input type="date" name="date_debut" required></label>
+        <button type="submit" class="btn btn-primary" {% if not ecriture_active %}disabled{% endif %}>Changer le taux</button>
+      </form>
+    </details>
+
+    {% if (etat.fiche.actif or '')|upper == 'OUI' %}
+    <details style="margin-bottom: var(--stack-md);">
+      <summary class="btn btn-ghost">Archiver ce logement</summary>
+      <form method="post" action="/logements/{{ logement_id }}/archiver" style="margin-top: var(--stack-sm);">
+        <p class="text-sm text-secondary">
+          Le logement n'apparaîtra plus dans les nouvelles réservations ni les nouvelles charges,
+          mais reste visible ici et dans l'historique.
+        </p>
+        <label>Date de sortie de gestion *<input type="date" name="date_fin" required></label>
+        <button type="submit" class="btn btn-ghost" {% if not ecriture_active %}disabled{% endif %}>Archiver</button>
+      </form>
+    </details>
+    {% else %}
+    <details style="margin-bottom: var(--stack-md);">
+      <summary class="btn btn-ghost">Réactiver ce logement</summary>
+      <form method="post" action="/logements/{{ logement_id }}/reactiver" style="margin-top: var(--stack-sm);">
+        <label>Nouveau propriétaire *
+          <select name="proprietaire_id" required>
+            <option value="">—</option>
+            {% for p in refs.proprietaires %}
+            <option value="{{ p.proprietaire_id }}">{{ p.nom or p.proprietaire_id }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Date de reprise de gestion *<input type="date" name="date_debut" required></label>
+        <button type="submit" class="btn btn-primary" {% if not ecriture_active %}disabled{% endif %}>Réactiver</button>
+      </form>
+    </details>
+    {% endif %}
   </div>
 
 {% elif detail.status == 'ERROR' %}
@@ -44,6 +183,123 @@
   <div class="alert alert-warning">
     Ligne <strong>technique</strong> (hors parc). Utilisée par le moteur pour rattacher des flux
     non affectables à un logement réel. Ne représente pas un bien géré.
+  </div>
+  {% endif %}
+
+  {% if not detail.is_technique %}
+  <!-- État actuel (lecture directe REF_Setup, toujours à jour) -->
+  <div class="card" style="margin-bottom: var(--stack-lg);">
+    <div class="card-title">État actuel (temps réel)</div>
+    {% if etat.status != 'OK' %}
+      <p class="text-sm">Non disponible : {{ etat.status }}.</p>
+    {% else %}
+      <dl class="detail-grid">
+        <div><dt>Actif</dt><dd>{{ etat.fiche.actif or "Non renseigné" }}</dd></div>
+        <div><dt>Statut parc</dt><dd>{{ etat.fiche.statut_parc or "Non renseigné" }}</dd></div>
+        <div><dt>Propriétaire en gestion (ligne active)</dt>
+          <dd>{{ etat.gestion_active.proprietaire_id if etat.gestion_active else "Aucun rattachement actif" }}</dd></div>
+        <div><dt>Depuis le</dt>
+          <dd>{{ etat.gestion_active.date_debut if etat.gestion_active else "—" }}</dd></div>
+        <div><dt>Taux de commission actif (grain logement)</dt>
+          <dd>{% if etat.taux_actif %}{{ ((etat.taux_actif.taux_commission or 0) * 100) | round(2) }} %{% else %}Aucun taux dédié à ce logement{% endif %}</dd></div>
+      </dl>
+    {% endif %}
+    <p class="text-sm text-secondary" style="margin-top: var(--stack-sm);">
+      Cette section reflète l'état réel de <code>REF_Setup.xlsm</code> immédiatement après chaque
+      action ci-dessous. La liste des logements et les blocs « Informations principales »/« Historique
+      des taux » plus bas restent basés sur l'export PBI (Lot13) et peuvent être en retard tant que
+      le pipeline n'a pas été relancé.
+    </p>
+  </div>
+
+  <!-- Actions de gestion -->
+  <div class="card" style="margin-bottom: var(--stack-lg);">
+    <div class="card-title">Actions</div>
+    {% if not ecriture_active %}
+    <div class="alert alert-warning">
+      Écriture désactivée sur cette installation : ces actions sont indisponibles.
+    </div>
+    {% endif %}
+
+    <details style="margin-bottom: var(--stack-md);">
+      <summary class="btn btn-ghost">Modifier les informations</summary>
+      <form method="post" action="/logements/{{ detail.logement_id }}/modifier" style="margin-top: var(--stack-sm);">
+        <div class="detail-grid">
+          <label>Nom officiel <input type="text" name="nom_logement_officiel" value="{{ ref.nom_logement_officiel if ref else '' }}"></label>
+          <label>Nom court <input type="text" name="nom_court" value="{{ ref.nom_court if ref else '' }}"></label>
+          <label>Adresse <input type="text" name="adresse" value="{{ ref.adresse if ref else '' }}"></label>
+          <label>Ville <input type="text" name="ville" value="{{ base.ville or '' }}"></label>
+          <label>Type de logement
+            <select name="type_logement_id">
+              <option value="">—</option>
+              {% for t in refs.types %}
+              <option value="{{ t.type_logement_id }}" {{ 'selected' if t.type_logement_id == detail.type_logement_id }}>{{ t.libelle or t.type_logement_id }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>Forfait logiciel/consommables mensuel
+            <input type="number" step="0.01" name="forfait_logiciel_consommables_mensuel" value="{{ base.forfait_logiciel_consommables_mensuel or 0 }}">
+          </label>
+        </div>
+        <button type="submit" class="btn btn-primary" style="margin-top: var(--stack-sm);" {% if not ecriture_active %}disabled{% endif %}>Enregistrer</button>
+      </form>
+    </details>
+
+    <details style="margin-bottom: var(--stack-md);">
+      <summary class="btn btn-ghost">Changer de propriétaire</summary>
+      <form method="post" action="/logements/{{ detail.logement_id }}/changer-proprietaire" style="margin-top: var(--stack-sm);">
+        <label>Nouveau propriétaire *
+          <select name="proprietaire_id" required>
+            <option value="">—</option>
+            {% for p in refs.proprietaires %}
+            <option value="{{ p.proprietaire_id }}">{{ p.nom or p.proprietaire_id }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>À compter du *<input type="date" name="date_debut" required></label>
+        <button type="submit" class="btn btn-primary" {% if not ecriture_active %}disabled{% endif %}>Changer le propriétaire</button>
+      </form>
+    </details>
+
+    <details style="margin-bottom: var(--stack-md);">
+      <summary class="btn btn-ghost">Changer le taux de commission</summary>
+      <form method="post" action="/logements/{{ detail.logement_id }}/changer-taux-commission" style="margin-top: var(--stack-sm);">
+        <label>Nouveau taux (ex. 0.15 pour 15 %) *
+          <input type="number" step="0.0001" min="0" max="1" name="taux_commission" required></label>
+        <label>À compter du *<input type="date" name="date_debut" required></label>
+        <button type="submit" class="btn btn-primary" {% if not ecriture_active %}disabled{% endif %}>Changer le taux</button>
+      </form>
+    </details>
+
+    {% if (etat.fiche.actif or '')|upper == 'OUI' %}
+    <details style="margin-bottom: var(--stack-md);">
+      <summary class="btn btn-ghost">Archiver ce logement</summary>
+      <form method="post" action="/logements/{{ detail.logement_id }}/archiver" style="margin-top: var(--stack-sm);">
+        <p class="text-sm text-secondary">
+          Le logement n'apparaîtra plus dans les nouvelles réservations ni les nouvelles charges,
+          mais reste visible ici et dans l'historique.
+        </p>
+        <label>Date de sortie de gestion *<input type="date" name="date_fin" required></label>
+        <button type="submit" class="btn btn-ghost" {% if not ecriture_active %}disabled{% endif %}>Archiver</button>
+      </form>
+    </details>
+    {% else %}
+    <details style="margin-bottom: var(--stack-md);">
+      <summary class="btn btn-ghost">Réactiver ce logement</summary>
+      <form method="post" action="/logements/{{ detail.logement_id }}/reactiver" style="margin-top: var(--stack-sm);">
+        <label>Nouveau propriétaire *
+          <select name="proprietaire_id" required>
+            <option value="">—</option>
+            {% for p in refs.proprietaires %}
+            <option value="{{ p.proprietaire_id }}">{{ p.nom or p.proprietaire_id }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Date de reprise de gestion *<input type="date" name="date_debut" required></label>
+        <button type="submit" class="btn btn-primary" {% if not ecriture_active %}disabled{% endif %}>Réactiver</button>
+      </form>
+    </details>
+    {% endif %}
   </div>
   {% endif %}
 
@@ -154,6 +410,56 @@
       </div>
     </dl>
   </div>
+
+  {% if not detail.is_technique %}
+  <!-- Historique complet gestion + taux (lecture directe REF_Setup) -->
+  <div class="card" style="margin-bottom: var(--stack-lg);">
+    <div class="card-title">Historique — rattachements de gestion</div>
+    {% if histo.gestion %}
+    <div class="table-container">
+      <table>
+        <thead><tr><th>Propriétaire</th><th>Date début</th><th>Date fin</th><th>Statut</th><th>Source</th></tr></thead>
+        <tbody>
+          {% for g in histo.gestion %}
+          <tr>
+            <td>{{ g.proprietaire_id }}</td>
+            <td>{{ g.date_debut }}</td>
+            <td>{{ g.date_fin or "En cours" }}</td>
+            <td>{{ g.statut_gestion }}</td>
+            <td>{{ g.source }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state"><p>Aucun rattachement de gestion enregistré.</p></div>
+    {% endif %}
+  </div>
+
+  <div class="card" style="margin-bottom: var(--stack-lg);">
+    <div class="card-title">Historique — taux de commission (grain logement)</div>
+    {% if histo.taux %}
+    <div class="table-container">
+      <table>
+        <thead><tr><th>Taux</th><th>Date début</th><th>Date fin</th><th>Justification</th></tr></thead>
+        <tbody>
+          {% for t in histo.taux %}
+          <tr>
+            <td>{{ ((t.taux_commission or 0) * 100) | round(2) }} %</td>
+            <td>{{ t.date_debut }}</td>
+            <td>{{ t.date_fin or "En cours" }}</td>
+            <td>{{ t.justification }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state"><p>Aucun taux de commission dédié à ce logement (grain logement).</p></div>
+    {% endif %}
+  </div>
+  {% endif %}
 
   <!-- Origine des données -->
   <div class="origine-block-card">

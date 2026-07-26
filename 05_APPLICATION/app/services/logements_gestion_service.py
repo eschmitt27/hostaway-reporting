@@ -385,3 +385,65 @@ def changer_taux_commission(logement_id: str, taux: float, date_debut: str,
 
     return {"ok": True, "logement_id": logement_id, "taux_commission": taux_f,
             "date_debut": date_debut}
+
+
+# ── Lecture directe REF_Setup (état actuel + historique complet) ────────────
+#
+# Distincte de `app/services/logements_service.py` (qui respecte l'arbitrage APP-1 : résolution
+# propriétaire/gestion EXCLUSIVEMENT via le CSV PBI, jamais via REF_Gestion_Logements_Hist). Ici,
+# c'est le module qui ÉCRIT ces feuilles : il peut légitimement les relire pour donner un état
+# immédiat après une action, sans attendre un cycle de pipeline (Lot13). Résolution simple :
+# la ligne sans `date_fin` est la ligne active (invariant maintenu par ce module lui-même).
+
+
+def etat_actuel(logement_id: str, ref_path: Path | None = None) -> dict[str, Any]:
+    """État courant d'un logement lu directement dans REF_Setup : fiche + rattachement de gestion
+    actif + taux de commission actif (grain logement). Toujours à jour, y compris juste après une
+    action de ce service — contrairement à la vue PBI qui attend un cycle Lot13."""
+    p = Path(ref_path or cfg.REF_SETUP)
+    if not p.exists():
+        return {"status": "SOURCE_ABSENTE"}
+
+    wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
+    try:
+        _, logs = _lire(wb, SH_LOG)
+        fiche = next((r for r in logs if _txt(r.get("logement_id")) == logement_id), None)
+        if fiche is None:
+            return {"status": "INTROUVABLE"}
+
+        _, gest = _lire(wb, SH_GEST)
+        actives_gest = [g for g in gest if _txt(g.get("logement_id")) == logement_id
+                        and not _txt(g.get("date_fin"))]
+        gestion_active = actives_gest[-1] if actives_gest else None
+
+        _, taux = _lire(wb, SH_TAUX)
+        actifs_taux = [t for t in taux if _txt(t.get("logement_id")) == logement_id
+                       and not _txt(t.get("date_fin"))]
+        taux_actif = actifs_taux[-1] if actifs_taux else None
+
+        return {"status": "OK", "fiche": fiche, "gestion_active": gestion_active,
+                "taux_actif": taux_actif}
+    finally:
+        wb.close()
+
+
+def historique(logement_id: str, ref_path: Path | None = None) -> dict[str, Any]:
+    """Historique complet (toutes les lignes, closes ou non) des rattachements de gestion et des
+    taux de commission d'un logement, triées par date de début décroissante."""
+    p = Path(ref_path or cfg.REF_SETUP)
+    if not p.exists():
+        return {"status": "SOURCE_ABSENTE", "gestion": [], "taux": []}
+
+    wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
+    try:
+        _, gest = _lire(wb, SH_GEST)
+        gestion = [g for g in gest if _txt(g.get("logement_id")) == logement_id]
+        gestion.sort(key=lambda g: _txt(g.get("date_debut")), reverse=True)
+
+        _, taux = _lire(wb, SH_TAUX)
+        taux_rows = [t for t in taux if _txt(t.get("logement_id")) == logement_id]
+        taux_rows.sort(key=lambda t: _txt(t.get("date_debut")), reverse=True)
+
+        return {"status": "OK", "gestion": gestion, "taux": taux_rows}
+    finally:
+        wb.close()
