@@ -16,6 +16,9 @@ from app.services import banques_controle_service as ctrl
 from app.services import banques_controle_writer as writer
 from app.services import banques_import_service as imp
 from app.services import banques_rapprochement_service as rappro
+from app.services import banques_suggestions_service as sugg
+from app.services import banques_candidats_service as candidats
+from app.services import banques_controles_catalogue_service as catalogue
 from app.readers.banques_reader import date_affichage, datetime_affichage
 
 router = APIRouter()
@@ -29,6 +32,26 @@ templates.env.filters["mvt_opaque"] = ctrl.id_opaque
 
 def _ecriture_active() -> bool:
     return bool(cfg.BANQUE_REAL_WRITE_ENABLED and cfg.BANQUE_REAL_WRITE_CONFIRMATION_ENABLED)
+
+
+def _mouvement_pour_suggestions(id_opaque: str) -> dict | None:
+    """Vue minimale d'un mouvement, suffisante pour le moteur de suggestions."""
+    fiche = ctrl.load_fiche(id_opaque)
+    if fiche is None:
+        return None
+    return {"id_opaque": id_opaque, "montant": fiche["montant"],
+            "date_operation": fiche["date_operation"], "libelle": fiche["libelle"],
+            "sens": fiche.get("sens", "")}
+
+
+def _suggestions(id_opaque: str) -> list[dict]:
+    mvt = _mouvement_pour_suggestions(id_opaque)
+    if mvt is None:
+        return []
+    try:
+        return sugg.suggerer(mvt, candidats.candidats_pour(mvt))
+    except Exception:
+        return []      # une source de candidats indisponible ne casse jamais la page
 
 
 def _form_to_decision(form) -> dict:
@@ -77,12 +100,20 @@ def banques_a_rapprocher(request: Request, mois: str = ""):
     # Compteurs applicatifs (journal SQLite banque_rapprochements) — distincts des statuts du
     # moteur affichés dans `data` : jamais mélangés, toujours étiquetés séparément dans le template.
     compteurs_appli = {"non_rapproches": 0, "partiels": 0, "rapproches": 0}
+    resume_suggestions: dict[str, dict] = {}
     for m in data.get("lignes", []):
-        etat = rappro.etat_rapprochement(ctrl.id_opaque(m["mouvement_id"]), m["montant"] or 0)
+        opaque = ctrl.id_opaque(m["mouvement_id"])
+        etat = rappro.etat_rapprochement(opaque, m["montant"] or 0)
         compteurs_appli[{"NON_RAPPROCHE": "non_rapproches", "PARTIEL": "partiels",
                          "RAPPROCHE": "rapproches"}[etat["statut"]]] += 1
+        props = _suggestions(opaque)
+        resume_suggestions[m["mouvement_id"]] = {
+            "opaque": opaque, "nb": len(props), "meilleure": props[0] if props else None,
+            "montant_disponible": etat["montant_restant"],
+        }
     return templates.TemplateResponse(request, "banques_a_rapprocher.html", {
         "active_menu": "banques", "data": data, "compteurs_appli": compteurs_appli,
+        "resume_suggestions": resume_suggestions,
     })
 
 
@@ -185,6 +216,8 @@ def banque_detail(request: Request, stable_id: str, message: str = "", erreur: s
         return templates.TemplateResponse(request, "banques_mouvement.html", {
             "active_menu": "banques", "fiche": fiche, "liens_rapprochement": liens,
             "etat_rapprochement": etat, "types_objet": rappro.TYPES_OBJET,
+            "suggestions": _suggestions(stable_id),
+            "historique_suggestions": sugg.historique_decisions(stable_id),
             "ecriture_active": _ecriture_active(), "message": message, "erreur": erreur,
         })
     # Sinon : ancienne fiche APP-4A (lecture seule) — non utilisée dans la nouvelle interface.
@@ -313,3 +346,67 @@ async def banque_rapprochement_annuler(request: Request, opaque: str, mvt: str =
                          acteur=str(form.get("acteur", "") or "local"))
     msg = "message=Rapprochement annulé." if res.get("ok") else f"erreur={res.get('message')}"
     return RedirectResponse(url=f"/banques-caisse/mouvements/{mvt}?{msg}", status_code=303)
+
+
+# ── Suggestions de rapprochement — jamais de validation silencieuse ──────────
+
+def _retrouver_suggestion(id_opaque: str, type_objet: str, objet_id: str) -> dict | None:
+    for s in _suggestions(id_opaque):
+        if s["type_objet"] == type_objet and str(s.get("objet_id") or "") == objet_id:
+            return s
+    return None
+
+
+@router.post("/banques-caisse/mouvements/{id_opaque}/suggestions/accepter")
+async def banque_suggestion_accepter(request: Request, id_opaque: str):
+    form = await request.form()
+    mvt = _mouvement_pour_suggestions(id_opaque)
+    s = _retrouver_suggestion(id_opaque, str(form.get("type_objet", "") or ""),
+                              str(form.get("objet_id", "") or ""))
+    if mvt is None or s is None:
+        return RedirectResponse(
+            url=f"/banques-caisse/mouvements/{id_opaque}?erreur=Suggestion introuvable ou expirée.",
+            status_code=303)
+    montant_txt = str(form.get("montant", "") or "").strip()
+    montant = float(montant_txt) if montant_txt else None
+    res = sugg.accepter(mvt, s, montant=montant, acteur=str(form.get("acteur", "") or "local"),
+                        commentaire=str(form.get("commentaire", "") or ""))
+    if not res.get("ok"):
+        return RedirectResponse(url=f"/banques-caisse/mouvements/{id_opaque}?erreur={res.get('message')}",
+                                status_code=303)
+    return RedirectResponse(
+        url=f"/banques-caisse/mouvements/{id_opaque}?message=Suggestion acceptée — rapprochement proposé, à confirmer.",
+        status_code=303)
+
+
+@router.post("/banques-caisse/mouvements/{id_opaque}/suggestions/refuser")
+async def banque_suggestion_refuser(request: Request, id_opaque: str):
+    form = await request.form()
+    mvt = _mouvement_pour_suggestions(id_opaque)
+    s = _retrouver_suggestion(id_opaque, str(form.get("type_objet", "") or ""),
+                              str(form.get("objet_id", "") or ""))
+    if mvt is None or s is None:
+        return RedirectResponse(
+            url=f"/banques-caisse/mouvements/{id_opaque}?erreur=Suggestion introuvable ou expirée.",
+            status_code=303)
+    definitif = str(form.get("definitif", "1") or "1") in ("1", "on", "true")
+    sugg.refuser(mvt, s, definitif=definitif, commentaire=str(form.get("commentaire", "") or ""),
+                 acteur=str(form.get("acteur", "") or "local"))
+    libelle = "refusée" if definitif else "ignorée temporairement"
+    return RedirectResponse(url=f"/banques-caisse/mouvements/{id_opaque}?message=Suggestion {libelle}.",
+                            status_code=303)
+
+
+# ── Contrôles Banque (catalogue applicatif, complète les contrôles moteur) ───
+
+@router.get("/banques-caisse/controles", response_class=HTMLResponse)
+def banque_controles(request: Request, severite: str = ""):
+    data = catalogue.controler()
+    anomalies = data["anomalies"]
+    if severite:
+        anomalies = [a for a in anomalies if a["severite"] == severite]
+    return templates.TemplateResponse(request, "banques_controles.html", {
+        "active_menu": "banques", "data": data, "anomalies": anomalies,
+        "applied": {"severite": severite},
+        "severites": [catalogue.BLOQUANT, catalogue.CRITIQUE, catalogue.AVERTISSEMENT, catalogue.INFO],
+    })

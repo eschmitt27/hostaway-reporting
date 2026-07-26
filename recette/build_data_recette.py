@@ -244,8 +244,22 @@ def build_master_charges_empty(dst: Path):
     ws = wb.active
     ws.title = "MASTER"
     # En-têtes minimales lues par charges_reader (charge_id + colonnes usuelles). Le Lot3 réécrira.
-    ws.append(["charge_id", "mois", "date_charge", "montant", "categorie_charge_id",
-               "type_flux_id", "code_impact", "logement_id", "proprietaire_id", "statut_controle"])
+    hdr = ["charge_id", "mois", "date_charge", "montant", "categorie_charge_id",
+           "type_flux_id", "code_impact", "logement_id", "proprietaire_id", "statut_controle",
+           "facture_ref", "fournisseur"]
+    ws.append(hdr)
+    # Quelques charges fictives : servent de CANDIDATS réels au moteur de suggestions bancaires
+    # (sans elles, la recette ne peut pas démontrer une suggestion). Le Lot3 les réécrit dès qu'il
+    # tourne — ce sont des données de démarrage, jamais une vérité concurrente.
+    for row in [
+        ("CHG_SEED_001", PERIODE, "2026-06-12", 120.00, "CHG_003", "TYPE_FLUX_014", "IC",
+         "LOG_B1", "PROP_B", "VALIDE", "FA-2026-0012", "FOURNISSEUR_B"),
+        ("CHG_SEED_002", PERIODE, "2026-06-25", 95.00, "CHG_003", "TYPE_FLUX_014", "IC",
+         "LOG_C1", "PROP_C", "VALIDE", "FA-2026-0025", "FOURNISSEUR_C"),
+        ("CHG_SEED_003", PERIODE, "2026-06-15", 8.90, "CHG_010", "TYPE_FLUX_016", "IC",
+         None, None, "VALIDE", "", "BANQUE"),
+    ]:
+        ws.append(list(row))
     dst.parent.mkdir(parents=True, exist_ok=True)
     wb.save(dst)
 

@@ -120,6 +120,70 @@
   <p class="section-note mb-sm">Aucun rapprochement enregistré pour ce mouvement.</p>
   {% endif %}
 
+  {% if suggestions %}
+  <div class="mb-md" data-testid="suggestions">
+    <h3 class="card-title">Suggestions ({{ suggestions|length }})</h3>
+    <p class="section-note">
+      Aucune suggestion n'est appliquée automatiquement : accepter crée un rapprochement
+      <strong>proposé</strong>, qui reste à confirmer.
+    </p>
+    <div class="table-container">
+      <table class="data-table">
+        <thead><tr>
+          <th>Niveau</th><th>Objet</th><th class="num">Montant proposé</th><th>Raison</th>
+          <th>Écarts</th><th></th>
+        </tr></thead>
+        <tbody>
+          {% for s in suggestions %}
+          <tr>
+            <td><span class="status-badge status-{{ 'valide' if s.niveau == 'EXACT' else 'a-controler' if s.niveau == 'PROBABLE' else 'info' }}">{{ s.niveau }}</span>
+                <span class="text-xs">({{ s.score }})</span></td>
+            <td>{{ s.type_objet }}<div class="text-xs font-mono">{{ s.objet_id }}</div></td>
+            <td class="num">{{ "%.2f"|format(s.montant_propose) }}</td>
+            <td class="text-xs">{{ s.raison }}</td>
+            <td class="text-xs">{{ s.criteres_divergents|join(' ; ') or "—" }}</td>
+            <td>
+              <form method="post" action="/banques-caisse/mouvements/{{ fiche.id_opaque }}/suggestions/accepter" style="display:inline">
+                <input type="hidden" name="type_objet" value="{{ s.type_objet }}">
+                <input type="hidden" name="objet_id" value="{{ s.objet_id }}">
+                <input type="number" step="0.01" name="montant" value="{{ "%.2f"|format(s.montant_propose) }}" size="7" title="Montant modifiable avant acceptation">
+                <button type="submit" class="btn btn-primary" {% if not ecriture_active %}disabled{% endif %}>Accepter</button>
+              </form>
+              <form method="post" action="/banques-caisse/mouvements/{{ fiche.id_opaque }}/suggestions/refuser" style="display:inline">
+                <input type="hidden" name="type_objet" value="{{ s.type_objet }}">
+                <input type="hidden" name="objet_id" value="{{ s.objet_id }}">
+                <button type="submit" name="definitif" value="1" class="btn btn-ghost" {% if not ecriture_active %}disabled{% endif %}>Refuser</button>
+                <button type="submit" name="definitif" value="0" class="btn btn-ghost" {% if not ecriture_active %}disabled{% endif %}>Ignorer</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if historique_suggestions %}
+  <details class="mb-md">
+    <summary class="text-xs text-secondary">Historique des suggestions ({{ historique_suggestions|length }})</summary>
+    <table class="data-table mt-sm">
+      <thead><tr><th>Décision</th><th>Objet</th><th>Niveau</th><th>Acteur</th><th>Date</th><th>Commentaire</th></tr></thead>
+      <tbody>
+        {% for h in historique_suggestions %}
+        <tr>
+          <td>{{ h.decision }}</td>
+          <td class="text-xs">{{ h.type_objet }} — {{ h.objet_id }}</td>
+          <td>{{ h.niveau or "—" }}</td><td>{{ h.acteur }}</td>
+          <td class="font-mono text-xs">{{ h.date_decision }}</td>
+          <td class="text-xs">{{ h.commentaire or "" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </details>
+  {% endif %}
+
   {% if etat_rapprochement.statut != 'RAPPROCHE' %}
   {% if not ecriture_active %}
   <div class="alert alert-warning">Écriture désactivée sur cette installation : le rapprochement est indisponible.</div>

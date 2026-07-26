@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Contrôles bancaires{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/banques-caisse" class="back-link">← Banques &amp; caisse</a>
+  <h1 class="page-title">Contrôles bancaires</h1>
+  <p class="page-subtitle">
+    Contrôles applicatifs — complètent les contrôles moteur (lot8a/8b/8c, Lot11) sans jamais les
+    masquer ni les réécrire.
+  </p>
+</div>
+
+{% if data.statut != "OK" %}
+<div class="alert alert-error">
+  <strong>Source indisponible</strong> — {{ data.etat_source.fichier }} :
+  {{ data.etat_source.etat_libelle }}. Aucun contrôle ne peut être calculé.
+</div>
+{% else %}
+
+{% set c = data.compteurs %}
+<div class="kpi-grid kpi-grid--6">
+  <div class="kpi-card"><div class="kpi-label">Bloquants</div><div class="kpi-value">{{ c.BLOQUANT }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Critiques</div><div class="kpi-value">{{ c.CRITIQUE }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Avertissements</div><div class="kpi-value">{{ c.AVERTISSEMENT }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Informatifs</div><div class="kpi-value">{{ c.INFO }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Recalcul fiable</div>
+    <div class="kpi-value" style="font-size:16px">{{ "Oui" if data.recalcul_fiable else "Non" }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Généré le</div>
+    <div class="kpi-value" style="font-size:14px">{{ data.genere_le }}</div></div>
+</div>
+
+{% if data.nb_bloquants %}
+<div class="alert alert-error mt-md">
+  <strong>{{ data.nb_bloquants }} contrôle(s) bloquant(s)</strong> — le recalcul aval n'est pas
+  fiable tant qu'ils ne sont pas corrigés.
+</div>
+{% endif %}
+
+<form method="get" action="/banques-caisse/controles" class="filter-bar mt-md">
+  <label>Sévérité
+    <select name="severite">
+      <option value="">Toutes</option>
+      {% for s in severites %}
+      <option value="{{ s }}" {{ 'selected' if applied.severite == s }}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <button type="submit" class="btn btn-primary">Filtrer</button>
+  <a href="/banques-caisse/controles" class="btn btn-ghost">Réinitialiser</a>
+</form>
+
+<div class="card mt-md">
+  <p class="section-note">{{ anomalies|length }} anomalie(s) affichée(s).</p>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr>
+        <th>Sévérité</th><th>Code</th><th>Message</th><th>Détail</th><th>Mouvement</th>
+      </tr></thead>
+      <tbody>
+        {% for a in anomalies %}
+        <tr>
+          <td><span class="status-badge status-{{ 'bloquant' if a.severite in ['BLOQUANT','CRITIQUE'] else 'a-controler' if a.severite == 'AVERTISSEMENT' else 'info' }}">{{ a.severite }}</span></td>
+          <td class="font-mono text-xs">{{ a.code }}</td>
+          <td>{{ a.message }}</td>
+          <td class="text-xs">{{ a.detail or "—" }}</td>
+          <td>
+            {% if a.mouvement_id_opaque %}
+            <a href="/banques-caisse/mouvements/{{ a.mouvement_id_opaque }}">Voir</a>
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="section-note">Aucune anomalie pour ce filtre.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

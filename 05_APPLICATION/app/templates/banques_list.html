@@ -24,6 +24,7 @@
     <a href="/banques-caisse/importer" class="btn btn-primary">+ Importer un relevé</a>
     <a href="/banques-caisse/export.csv{% if params %}?{{ params|join('&') }}{% endif %}" class="btn btn-secondary">Export CSV</a>
     <a href="/banques-caisse/a-rapprocher?mois={{ data.mois }}" class="btn btn-secondary">À rapprocher ({{ s.nb_a_rapprocher }})</a>
+    <a href="/banques-caisse/controles" class="btn btn-secondary">Contrôles</a>
     <a href="/banques-caisse/controle" class="btn btn-primary">Contrôler les mouvements ({{ nb_a_controler }})</a>
     {% if s.etat_global == "CONFORME" %}<span class="etat-global etat-global--ok">Conforme</span>
     {% elif s.etat_global == "A_RAPPROCHER" %}<span class="etat-global etat-global--warn">À rapprocher</span>
