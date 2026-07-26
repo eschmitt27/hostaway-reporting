@@ -164,6 +164,13 @@ BANQUE_OVERRIDE_SHEET = "OVERRIDE_APP4B"
 # Sel de l'empreinte opaque des mouvements (aucune donnée de compte dans l'identifiant public).
 BANQUE_OPAQUE_SALT = "APP4B_BANQUE_v1"
 
+# ── Factures fournisseurs & règlements — garde de sécurité ───────────────────
+# Même double verrou que Charges / Banque / Logements : activables UNIQUEMENT en mode recette
+# (RECETTE_MODE ET variable d'environnement dédiée). Une instance NON recette ne peut jamais
+# enregistrer une facture ni un règlement, même si les variables sont positionnées.
+FACTURES_REAL_WRITE_ENABLED = RECETTE_MODE and _env_flag("FACTURES_REAL_WRITE_ENABLED")
+FACTURES_REAL_WRITE_CONFIRMATION_ENABLED = RECETTE_MODE and _env_flag("FACTURES_REAL_WRITE_CONFIRMATION_ENABLED")
+
 # ── APP-5B — Contrôles détaillés & suivi humain ──────────────────────────────
 #   Le moteur (Lot11) reste la vérité de l'anomalie. SQLite JOURNALISE uniquement le suivi humain
 #   (prise en charge, résolution, exception) — jamais une nouvelle vérité, jamais un masquage moteur.

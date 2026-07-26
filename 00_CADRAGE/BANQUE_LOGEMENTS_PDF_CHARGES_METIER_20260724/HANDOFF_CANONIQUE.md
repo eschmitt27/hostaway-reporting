@@ -9,7 +9,7 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 |---|---|
 | Worktree | `C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Worktrees\BANQUE_LOGEMENTS_PDF_CHARGES_METIER` |
 | Branche | `feature/banque-logements-pdf-charges-metier` |
-| HEAD | `a4d5cb4` — `feat(banque): suggestions branchees a l'interface et page de controles` |
+| HEAD | `b17d3c8` — `feat(banque): suggestions branchees a l'interface et page de controles` |
 | Dernier commit utile | idem |
 | git status | propre (`data_recette/` ignoré, régénérable) |
 | master / canonique | **intacts, jamais touchés** (`master` = `8b47807`) |
@@ -69,7 +69,7 @@ Points déjà repérés pour cet audit (à confirmer, pas à re-chercher) :
 ```
 cd "C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Worktrees\BANQUE_LOGEMENTS_PDF_CHARGES_METIER"
 git branch --show-current          # doit afficher feature/banque-logements-pdf-charges-metier
-git log -1 --format="%H %s"        # doit afficher a4d5cb4 ...
+git log -1 --format="%H %s"        # doit afficher b17d3c8 ...
 git status --porcelain             # doit être vide
 
 # Régénérer le jeu de recette fictif (idempotent, écrase data_recette/) :

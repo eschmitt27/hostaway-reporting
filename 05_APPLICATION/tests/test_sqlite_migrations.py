@@ -39,6 +39,11 @@ EXPECTED_TABLES = {
     "banque_rapprochements",                # 0015 — rapprochement mouvement↔objet métier (module Banque)
     "banque_rapprochement_evenements",      # 0015 — historique append-only du rapprochement (module Banque)
     "banque_suggestion_decisions",          # 0016 — décisions sur les suggestions (module Banque)
+    "fournisseur_details",                  # 0017 — champs métier étendus fournisseur
+    "factures",                             # 0017 — factures fournisseurs (dette + pièce)
+    "facture_evenements",                   # 0017 — historique append-only des factures
+    "reglements_fournisseurs",              # 0017 — règlements fournisseurs (paiement effectué)
+    "reglement_repartitions",               # 0017 — ventilation d'un règlement (paiement groupé)
 }
 
 
