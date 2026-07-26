@@ -9,7 +9,7 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 |---|---|
 | Worktree | `C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Worktrees\BANQUE_LOGEMENTS_PDF_CHARGES_METIER` |
 | Branche | `feature/banque-logements-pdf-charges-metier` |
-| HEAD | `2e97ff9` — `feat(calculs): routes, interface et recette de pilotage` |
+| HEAD | `685b38a` — `feat(calculs): routes, interface et recette de pilotage` |
 | git status | propre (`data_recette/` ignoré, régénérable) |
 | master / canonique | **intacts, jamais touchés** (`master` = `8b47807`) |
 | Sources réelles | **jamais modifiées** — toutes les écritures de recette sous `data_recette/` |
@@ -77,7 +77,7 @@ testé, jamais exercé sur de vraies données).
 ```
 cd "C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Worktrees\BANQUE_LOGEMENTS_PDF_CHARGES_METIER"
 git branch --show-current          # feature/banque-logements-pdf-charges-metier
-git log -1 --format="%H %s"        # doit afficher 2e97ff9 ...
+git log -1 --format="%H %s"        # doit afficher 685b38a ...
 git status --porcelain             # doit être vide
 
 # Régénérer le jeu de recette (idempotent, écrase data_recette/) :
