@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Factures fournisseurs{% endblock %}
+
+{% block content %}
+<div class="page-header flex justify-between items-center">
+  <div>
+    <h1 class="page-title">Factures fournisseurs</h1>
+    <p class="page-subtitle">Dette et pièce fournisseur — distincte de la charge économique.</p>
+  </div>
+  <div class="flex gap-sm items-center">
+    <a href="/factures/a-payer" class="btn btn-secondary">À payer</a>
+    <a href="/reglements" class="btn btn-secondary">Règlements</a>
+    <a href="/factures/nouvelle" class="btn btn-primary">+ Nouvelle facture</a>
+  </div>
+</div>
+
+{% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+
+<form method="get" action="/factures" class="filter-bar mt-md">
+  <label>Statut
+    <select name="statut"><option value="">Tous</option>
+      {% for s in statuts %}<option value="{{ s }}" {{ 'selected' if applied.statut == s }}>{{ s }}</option>{% endfor %}
+    </select></label>
+  <label>Fournisseur
+    <select name="fournisseur"><option value="">Tous</option>
+      {% for f in fournisseurs %}
+      <option value="{{ f.fournisseur_id_opaque }}" {{ 'selected' if applied.fournisseur == f.fournisseur_id_opaque }}>{{ f.nom }}</option>
+      {% endfor %}
+    </select></label>
+  <label><input type="checkbox" name="echues" value="1" {{ 'checked' if applied.echues }}> Échues seulement</label>
+  <button type="submit" class="btn btn-primary">Filtrer</button>
+  <a href="/factures" class="btn btn-ghost">Réinitialiser</a>
+</form>
+
+<div class="card mt-md">
+  <p class="section-note">{{ factures|length }} facture(s).</p>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr>
+        <th>Référence</th><th>Fournisseur</th><th>Date</th><th>Échéance</th>
+        <th class="num">TTC</th><th class="num">Réglé</th><th class="num">Solde</th>
+        <th>Statut</th><th>Charge</th><th></th>
+      </tr></thead>
+      <tbody>
+        {% for f in factures %}
+        <tr>
+          <td class="font-mono text-xs">{{ f.facture_ref }}</td>
+          <td>{{ libelles.get(f.fournisseur_id_opaque) or f.fournisseur_id_opaque }}</td>
+          <td class="font-mono text-xs">{{ f.date_facture or "—" }}</td>
+          <td class="font-mono text-xs">
+            {{ f.date_echeance or "—" }}
+            {% if f.echue %}<span class="status-badge status-bloquant">échue</span>{% endif %}
+          </td>
+          <td class="num">{{ "%.2f"|format(f.montant_ttc) }}</td>
+          <td class="num">{{ "%.2f"|format(f.montant_regle) }}</td>
+          <td class="num">{{ "%.2f"|format(f.solde_restant) }}</td>
+          <td><span class="status-badge status-{{ 'valide' if f.statut == 'REGLEE' else 'bloquant' if f.statut in ['ANNULEE','LITIGE'] else 'a-controler' }}">{{ f.statut }}</span></td>
+          <td class="font-mono text-xs">{{ f.charge_id or "—" }}</td>
+          <td><a href="/factures/{{ f.facture_id_opaque }}">Voir</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="10" class="section-note">Aucune facture pour ces filtres.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}{% if facture %}Facture {{ facture.facture_ref }}{% else %}Facture introuvable{% endif %}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/factures" class="back-link">← Factures</a>
+</div>
+
+{% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+
+{% if facture is none %}
+<div class="alert alert-error"><strong>Facture introuvable.</strong> <code>{{ opaque }}</code></div>
+{% else %}
+
+<div class="flex justify-between items-center" style="margin-bottom: var(--stack-lg);">
+  <div>
+    <h1 class="page-title">Facture {{ facture.facture_ref }}</h1>
+    <p class="page-subtitle">{{ libelles.get(facture.fournisseur_id_opaque) or facture.fournisseur_id_opaque }}</p>
+  </div>
+  <span class="status-badge status-{{ 'valide' if facture.statut == 'REGLEE' else 'bloquant' if facture.statut in ['ANNULEE','LITIGE'] else 'a-controler' }}">{{ facture.statut }}</span>
+</div>
+
+<div class="card mb-md">
+  <div class="card-title">Facture</div>
+  <dl class="detail-grid">
+    <div><dt>Date de facture</dt><dd>{{ facture.date_facture or "—" }}</dd></div>
+    <div><dt>Date d'échéance</dt><dd>{{ facture.date_echeance or "—" }}
+      {% if facture.echue %}<span class="status-badge status-bloquant">échue</span>{% endif %}</dd></div>
+    <div><dt>Montant HT</dt><dd>{{ "%.2f"|format(facture.montant_ht) if facture.montant_ht is not none else "—" }}</dd></div>
+    <div><dt>TVA</dt><dd>{{ "%.2f"|format(facture.montant_tva) if facture.montant_tva is not none else "—" }}</dd></div>
+    <div><dt>Montant TTC</dt><dd><strong>{{ "%.2f"|format(facture.montant_ttc) }} {{ facture.devise }}</strong></dd></div>
+    <div><dt>Réglé</dt><dd>{{ "%.2f"|format(facture.montant_regle) }}</dd></div>
+    <div><dt>Solde restant</dt><dd><strong>{{ "%.2f"|format(facture.solde_restant) }}</strong></dd></div>
+    <div><dt>Charge liée</dt><dd>{{ facture.charge_id or "Aucune" }}</dd></div>
+    <div><dt>Justificatif</dt><dd>{{ facture.justificatif or "Absent" }}</dd></div>
+    <div><dt>Source</dt><dd>{{ facture.source }}</dd></div>
+  </dl>
+</div>
+
+{% if not ecriture_active %}
+<div class="alert alert-warning">Écriture désactivée sur cette installation : les actions sont indisponibles.</div>
+{% endif %}
+
+<div class="card mb-md">
+  <div class="card-title">Actions</div>
+
+  <details class="mb-sm">
+    <summary class="btn btn-ghost">Changer le statut</summary>
+    <form method="post" action="/factures/{{ facture.facture_id_opaque }}/statut" style="margin-top: var(--stack-sm);">
+      <label>Nouveau statut
+        <select name="statut" required>
+          {% for s in statuts %}<option value="{{ s }}" {{ 'selected' if s == facture.statut }}>{{ s }}</option>{% endfor %}
+        </select></label>
+      <label>Commentaire <input type="text" name="commentaire"></label>
+      <button type="submit" class="btn btn-primary" {% if not ecriture_active %}disabled{% endif %}>Appliquer</button>
+    </form>
+  </details>
+
+  <details class="mb-sm">
+    <summary class="btn btn-ghost">Rattacher une charge</summary>
+    <form method="post" action="/factures/{{ facture.facture_id_opaque }}/lier-charge" style="margin-top: var(--stack-sm);">
+      <p class="section-note">
+        La charge doit avoir été créée par le parcours Charges. Ce formulaire ne crée jamais de
+        charge : il enregistre le lien.
+      </p>
+      <label>Identifiant de charge * <input type="text" name="charge_id" required placeholder="CHG_..."></label>
+      <button type="submit" class="btn btn-primary" {% if not ecriture_active %}disabled{% endif %}>Rattacher</button>
+    </form>
+  </details>
+
+  {% if facture.solde_restant > 0.005 and facture.statut not in ['ANNULEE'] %}
+  <details class="mb-sm">
+    <summary class="btn btn-ghost">Enregistrer un règlement</summary>
+    <form method="post" action="/factures/{{ facture.facture_id_opaque }}/reglement" style="margin-top: var(--stack-sm);">
+      <div class="detail-grid">
+        <label>Date * <input type="date" name="date_reglement" required></label>
+        <label>Montant * <input type="number" step="0.01" min="0.01" name="montant"
+                                value="{{ "%.2f"|format(facture.solde_restant) }}" required></label>
+        <label>Moyen *
+          <select name="moyen" required>
+            {% for m in moyens %}<option value="{{ m }}">{{ m }}</option>{% endfor %}
+          </select></label>
+        <label>Compte <input type="text" name="compte"></label>
+        <label>Commentaire <input type="text" name="commentaire"></label>
+      </div>
+      <button type="submit" class="btn btn-primary mt-sm" {% if not ecriture_active %}disabled{% endif %}>Enregistrer le règlement</button>
+    </form>
+  </details>
+  {% endif %}
+</div>
+
+<div class="card mb-md">
+  <div class="card-title">Règlements ({{ reglements|length }})</div>
+  {% if reglements %}
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Date</th><th class="num">Montant imputé</th><th>Moyen</th><th>Statut</th>
+        <th>Mouvement bancaire</th><th></th></tr></thead>
+      <tbody>
+        {% for r in reglements %}
+        <tr>
+          <td class="font-mono text-xs">{{ r.date_reglement }}</td>
+          <td class="num">{{ "%.2f"|format(r.montant_impute) }}</td>
+          <td>{{ r.moyen }}</td>
+          <td><span class="status-badge status-{{ 'bloquant' if r.statut == 'ANNULE' else 'valide' if r.statut == 'RAPPROCHE' else 'a-controler' }}">{{ r.statut }}</span></td>
+          <td class="font-mono text-xs">
+            {% if r.mouvement_id_opaque %}
+            <a href="/banques-caisse/mouvements/{{ r.mouvement_id_opaque }}">{{ r.mouvement_id_opaque }}</a>
+            {% else %}Non rapproché{% endif %}
+          </td>
+          <td>
+            {% if r.statut != 'ANNULE' %}
+            <form method="post" action="/reglements/{{ r.reglement_id_opaque }}/annuler" style="display:inline">
+              <input type="hidden" name="retour" value="/factures/{{ facture.facture_id_opaque }}">
+              <button type="submit" class="btn btn-ghost" {% if not ecriture_active %}disabled{% endif %}>Annuler</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="section-note">Aucun règlement enregistré.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-title">Historique</div>
+  <table class="data-table">
+    <thead><tr><th>Événement</th><th>Ancien</th><th>Nouveau</th><th>Acteur</th><th>Date</th><th>Commentaire</th></tr></thead>
+    <tbody>
+      {% for h in historique %}
+      <tr><td>{{ h.type_evenement }}</td><td>{{ h.ancien_statut or "—" }}</td>
+          <td>{{ h.nouveau_statut or "—" }}</td><td>{{ h.acteur }}</td>
+          <td class="font-mono text-xs">{{ h.date_evenement }}</td>
+          <td class="text-xs">{{ h.commentaire or "" }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

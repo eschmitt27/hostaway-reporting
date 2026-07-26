@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Nouvelle facture{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/factures" class="back-link">← Factures</a>
+  <h1 class="page-title">Nouvelle facture fournisseur</h1>
+</div>
+
+{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+{% if not ecriture_active %}
+<div class="alert alert-warning">
+  Écriture désactivée sur cette installation : l'enregistrement est impossible.
+</div>
+{% endif %}
+
+<div class="card">
+  <form method="post" action="/factures">
+    <div class="detail-grid">
+      <label>Fournisseur *
+        <select name="fournisseur_id_opaque" required>
+          <option value="">—</option>
+          {% for f in fournisseurs %}
+          <option value="{{ f.fournisseur_id_opaque }}">{{ f.nom }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Référence de facture * <input type="text" name="facture_ref" required></label>
+      <label>Date de facture <input type="date" name="date_facture"></label>
+      <label>Date d'échéance <input type="date" name="date_echeance"></label>
+      <label>Montant HT <input type="number" step="0.01" name="montant_ht"></label>
+      <label>Montant TVA <input type="number" step="0.01" name="montant_tva"></label>
+      <label>Montant TTC * <input type="number" step="0.01" name="montant_ttc" required></label>
+      <label>Devise <input type="text" name="devise" value="EUR"></label>
+      <label>Justificatif (nom de fichier) <input type="text" name="justificatif"></label>
+      <label>Commentaire <input type="text" name="commentaire"></label>
+    </div>
+    <p class="section-note mt-sm">
+      Une facture n'est pas une charge : la charge économique reste créée par le parcours Charges,
+      puis rattachée depuis la fiche de cette facture.
+    </p>
+    <button type="submit" class="btn btn-primary mt-sm" {% if not ecriture_active %}disabled{% endif %}>
+      Enregistrer la facture
+    </button>
+  </form>
+</div>
+{% endblock %}
