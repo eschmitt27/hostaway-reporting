@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Prévisualisation de l'import PDF{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/factures/importer" class="back-link">← Reprendre l'import</a>
+  <h1 class="page-title">Prévisualisation de la facture</h1>
+</div>
+
+{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+
+{% if manifest is none %}
+<div class="alert alert-error">Prévisualisation introuvable ou expirée. Reprenez l'import.</div>
+{% else %}
+{% set p = manifest.propose %}
+
+<div class="card mb-md">
+  <div class="card-title">{{ manifest.nom_fichier }}</div>
+  <dl class="detail-grid">
+    <div><dt>Format détecté</dt><dd>{{ manifest.format_detecte or "Inconnu" }}</dd></div>
+    <div><dt>Extraction</dt>
+      <dd><span class="status-badge status-{{ 'valide' if manifest.supporte else 'a-controler' }}">{{ manifest.statut_extraction }}</span></dd></div>
+    <div><dt>Somme des lignes</dt>
+      <dd>{{ "%.2f"|format(manifest.somme_lignes) if manifest.somme_lignes is not none else "—" }}</dd></div>
+    <div><dt>Écart de réconciliation</dt>
+      <dd>{{ "%.2f"|format(manifest.ecart_reconciliation) if manifest.ecart_reconciliation is not none else "—" }}</dd></div>
+  </dl>
+</div>
+
+{% if manifest.doublon_certain %}
+<div class="alert alert-error" data-testid="doublon-certain">
+  <strong>Doublon certain.</strong> Une facture portant cette référence existe déjà pour ce
+  fournisseur. La confirmation sera refusée.
+</div>
+{% endif %}
+
+{% if manifest.doublons_probables %}
+<div class="alert alert-warning" data-testid="doublon-probable">
+  <strong>{{ manifest.doublons_probables|length }} doublon(s) probable(s)</strong> — même montant et
+  date proche chez ce fournisseur :
+  {% for d in manifest.doublons_probables %}{{ d.facture_ref }} ({{ "%.2f"|format(d.montant_ttc) }} €){% if not loop.last %}, {% endif %}{% endfor %}
+</div>
+{% endif %}
+
+{% if manifest.incertitudes %}
+<div class="alert alert-warning" data-testid="incertitudes">
+  <strong>Incertitudes à lever :</strong>
+  <ul>{% for i in manifest.incertitudes %}<li>{{ i }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+{% if manifest.lignes %}
+<div class="card mb-md">
+  <div class="card-title">Lignes extraites ({{ manifest.lignes|length }})</div>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Libellé</th><th class="num">Montant</th><th>Logement proposé</th></tr></thead>
+      <tbody>
+        {% for l in manifest.lignes %}
+        <tr><td>{{ l.libelle }}</td>
+            <td class="num">{{ "%.2f"|format(l.montant) if l.montant is not none else "—" }}</td>
+            <td class="font-mono text-xs">{{ l.logement_id or "Non déterminé" }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="card" data-testid="bloc-confirmation">
+  <div class="card-title">Vérifier et compléter avant confirmation</div>
+  {% if not ecriture_active %}
+  <div class="alert alert-warning">Écriture désactivée : la confirmation n'est pas possible.</div>
+  {% endif %}
+  <form method="post" action="/factures/importer/confirmer/{{ token }}">
+    <div class="detail-grid">
+      <label>Fournisseur *
+        <select name="fournisseur_id_opaque" required>
+          <option value="">—</option>
+          {% for f in fournisseurs %}
+          <option value="{{ f.fournisseur_id_opaque }}" {{ 'selected' if f.fournisseur_id_opaque == p.fournisseur_id_opaque }}>{{ f.nom }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Référence * <input type="text" name="facture_ref" value="{{ p.facture_ref }}" required></label>
+      <label>Date de facture <input type="date" name="date_facture" value="{{ p.date_facture }}"></label>
+      <label>Date d'échéance <input type="date" name="date_echeance" value="{{ p.date_echeance }}"></label>
+      <label>Montant HT <input type="number" step="0.01" name="montant_ht" value="{{ p.montant_ht if p.montant_ht is not none else '' }}"></label>
+      <label>Montant TVA <input type="number" step="0.01" name="montant_tva" value="{{ p.montant_tva if p.montant_tva is not none else '' }}"></label>
+      <label>Montant TTC * <input type="number" step="0.01" name="montant_ttc" value="{{ p.montant_ttc if p.montant_ttc is not none else '' }}" required></label>
+      <label>Justificatif <input type="text" name="justificatif" value="{{ p.justificatif }}"></label>
+    </div>
+    <p class="section-note mt-sm">
+      La confirmation crée la <strong>facture</strong> uniquement. La charge économique reste
+      produite par le parcours Charges, puis rattachée depuis la fiche facture.
+    </p>
+    <input type="hidden" name="source" value="PDF">
+    <input type="hidden" name="acteur" value="recette">
+    <button type="submit" class="btn btn-primary mt-sm" {% if not ecriture_active %}disabled{% endif %}>
+      Confirmer et créer la facture
+    </button>
+    <a href="/factures/importer" class="btn btn-ghost mt-sm">Reprendre</a>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

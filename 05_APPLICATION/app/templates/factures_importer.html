@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Importer une facture PDF{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/factures" class="back-link">← Factures</a>
+  <h1 class="page-title">Importer une facture (PDF)</h1>
+  <p class="page-subtitle">
+    Lecture du texte natif du PDF (jamais d'OCR). Le fichier importé n'est jamais modifié, et
+    aucune écriture n'a lieu avant confirmation.
+  </p>
+</div>
+
+{% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+{% if not ecriture_active %}
+<div class="alert alert-warning">
+  Écriture désactivée sur cette installation : l'import restera bloqué à la confirmation.
+</div>
+{% endif %}
+
+<div class="card">
+  <form method="post" action="/factures/importer/previsualiser" enctype="multipart/form-data">
+    <div class="detail-grid">
+      <label>Fichier PDF * <input type="file" name="fichier" accept=".pdf" required></label>
+      <label>Fournisseur (recommandé)
+        <select name="fournisseur_id_opaque">
+          <option value="">— à choisir à l'étape suivante —</option>
+          {% for f in fournisseurs %}
+          <option value="{{ f.fournisseur_id_opaque }}">{{ f.nom }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+    <p class="section-note mt-sm">
+      Seuls deux formats fournisseur sont reconnus automatiquement. Pour tout autre PDF, les champs
+      lisibles sont proposés et les manquants restent à saisir : l'import n'échoue pas.
+    </p>
+    <button type="submit" class="btn btn-primary mt-sm">Prévisualiser</button>
+  </form>
+</div>
+{% endblock %}

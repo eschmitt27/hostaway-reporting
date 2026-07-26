@@ -133,14 +133,29 @@ def enregistrer(fournisseur_opaque: str, repartitions: list[dict[str, Any]], *,
 
 
 def _rafraichir_statut_facture(facture_opaque: str, *, acteur: str = "", db_path=None) -> None:
+    """Recalcule le statut de règlement d'une facture depuis son solde, DANS LES DEUX SENS.
+
+    Le statut de règlement est une valeur DÉRIVÉE : il doit redescendre quand le solde remonte
+    (annulation d'un règlement), pas seulement monter quand on paie. Sans cela une facture restait
+    « REGLEE » avec un solde non nul après annulation — incohérence réellement observée en recette
+    et détectée par `CTRL_FAC_REGLEE_AVEC_SOLDE_NON_NUL`.
+
+    Les statuts portés par une décision humaine (ANNULEE, LITIGE) ne sont jamais écrasés ici.
+    Comme il s'agit d'une dérivation et non d'une transition humaine, la table `TRANSITIONS` n'a
+    pas à s'appliquer (elle interdit REGLEE -> VALIDEE, qui est pourtant le retour légitime après
+    annulation d'un paiement).
+    """
     f = fact.charger(facture_opaque, db_path)
     if f is None or f["statut"] in (fact.ST_ANNULEE, fact.ST_LITIGE):
         return
     solde = f["solde_restant"]
+    regle = f["montant_regle"]
     if solde <= 0.005:
         cible = fact.ST_REGLEE
-    elif f["montant_regle"] > 0.005:
+    elif regle > 0.005:
         cible = fact.ST_PARTIELLEMENT_REGLEE
+    elif f["statut"] in (fact.ST_REGLEE, fact.ST_PARTIELLEMENT_REGLEE):
+        cible = fact.ST_VALIDEE      # plus aucun règlement actif : retour à l'état validé
     else:
         return
     if cible == f["statut"]:

@@ -378,6 +378,130 @@ def _robust_rmtree(path: Path, tries: int = 5):
             pass
 
 
+def build_factures_sqlite(db_path: Path):
+    """Base applicative de recette : fournisseurs, factures et règlements 100 % fictifs.
+
+    Écrit dans une base SQLite ISOLÉE (sous data_recette), jamais la base applicative réelle.
+    Idempotent : la base est recréée à chaque exécution puisque data_recette est effacé d'abord.
+    Le module Factures est piloté par ses propres services pour que les invariants (soldes dérivés,
+    statuts, historique) soient produits exactement comme en production — jamais des INSERT bruts
+    qui pourraient fabriquer un état impossible.
+    """
+    import os
+    import sys
+
+    app_root = WT / "05_APPLICATION"
+    if str(app_root) not in sys.path:
+        sys.path.insert(0, str(app_root))
+    # Les services exigent le double verrou : mode recette + flags dédiés.
+    os.environ["RECETTE_MODE"] = "1"
+    os.environ["FACTURES_REAL_WRITE_ENABLED"] = "1"
+    os.environ["FACTURES_REAL_WRITE_CONFIRMATION_ENABLED"] = "1"
+
+    import app.config as cfg
+    cfg.RECETTE_MODE = True
+    cfg.FACTURES_REAL_WRITE_ENABLED = True
+    cfg.FACTURES_REAL_WRITE_CONFIRMATION_ENABLED = True
+    cfg.DB_PATH = db_path
+
+    from app.db.connection import apply_migrations
+    from app.services import factures_service as fact
+    from app.services import fournisseurs_referentiel_service as frs
+    from app.services import reglements_fournisseurs_service as regl
+
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    apply_migrations(db_path)
+
+    fournisseurs = {}
+    for nom, type_f in (("Menage Externe Fictif", "MENAGE"),
+                        ("Logiciel Gestion Fictif", "FOURNITURE"),
+                        ("Maintenance Fictive", "MAINTENANCE")):
+        r = frs.creer(nom, type_f, acteur="seed", commentaire="FICTIF recette", db_path=db_path)
+        fournisseurs[type_f] = r["fournisseur_id_opaque"]
+
+    men, log, maint = fournisseurs["MENAGE"], fournisseurs["FOURNITURE"], fournisseurs["MAINTENANCE"]
+
+    def facture(frs_id, ref, ttc, *, date_f="2026-06-05", ech="2026-07-05", statut=None,
+                justificatif="justificatif_fictif.pdf", ht=None, tva=None):
+        r = fact.creer({"fournisseur_id_opaque": frs_id, "facture_ref": ref,
+                        "date_facture": date_f, "date_echeance": ech, "montant_ttc": ttc,
+                        "montant_ht": ht, "montant_tva": tva, "justificatif": justificatif},
+                       acteur="seed", db_path=db_path)
+        fid = r["facture_id_opaque"]
+        if statut:
+            fact.changer_statut(fid, statut, acteur="seed", db_path=db_path)
+        return fid
+
+    # 1. Facture simple, validée, réglée en totalité (banque).
+    f_simple = facture(log, "FA-LOG-2026-06", 35.00, statut=fact.ST_VALIDEE)
+    fact.lier_charge(f_simple, "CHG_SEED_003", acteur="seed", db_path=db_path)
+    regl.enregistrer(log, [{"facture_id_opaque": f_simple, "montant": 35.00}],
+                     date_reglement="2026-06-15", moyen="BANQUE", acteur="seed", db_path=db_path)
+
+    # 2. Facture ménage externe refacturable propriétaire, partiellement réglée.
+    f_menage = facture(men, "FA-MEN-2026-06", 120.00, ht=100.00, tva=20.00,
+                       statut=fact.ST_VALIDEE)
+    fact.lier_charge(f_menage, "CHG_SEED_001", acteur="seed", db_path=db_path)
+    regl.enregistrer(men, [{"facture_id_opaque": f_menage, "montant": 50.00}],
+                     date_reglement="2026-06-20", moyen="BANQUE", acteur="seed", db_path=db_path)
+
+    # 3. Facture réglée en plusieurs fois (banque puis caisse).
+    f_multi = facture(maint, "FA-MAINT-MULTI", 200.00, statut=fact.ST_VALIDEE)
+    regl.enregistrer(maint, [{"facture_id_opaque": f_multi, "montant": 120.00}],
+                     date_reglement="2026-06-18", moyen="BANQUE", acteur="seed", db_path=db_path)
+    regl.enregistrer(maint, [{"facture_id_opaque": f_multi, "montant": 80.00}],
+                     date_reglement="2026-06-25", moyen="CAISSE", acteur="seed", db_path=db_path)
+
+    # 4. Paiement GROUPÉ : un règlement couvrant deux factures du même fournisseur.
+    f_g1 = facture(maint, "FA-MAINT-G1", 60.00, statut=fact.ST_VALIDEE)
+    f_g2 = facture(maint, "FA-MAINT-G2", 40.00, statut=fact.ST_VALIDEE)
+    regl.enregistrer(maint, [{"facture_id_opaque": f_g1, "montant": 60.00},
+                             {"facture_id_opaque": f_g2, "montant": 40.00}],
+                     date_reglement="2026-06-28", moyen="BANQUE", acteur="seed", db_path=db_path)
+
+    # 5. Facture EN RETARD (échéance dépassée, non réglée).
+    facture(men, "FA-MEN-RETARD", 95.00, date_f="2026-01-10", ech="2026-02-10",
+            statut=fact.ST_VALIDEE)
+
+    # 6. Facture EN LITIGE.
+    f_litige = facture(maint, "FA-MAINT-LITIGE", 500.00, statut=fact.ST_VALIDEE)
+    fact.changer_statut(f_litige, fact.ST_LITIGE, commentaire="montant contesté",
+                        acteur="seed", db_path=db_path)
+
+    # 7. Doublon PROBABLE : même fournisseur, même montant, date proche, référence différente.
+    facture(men, "FA-MEN-DOUBLON-A", 77.00, date_f="2026-06-02")
+    facture(men, "FA-MEN-DOUBLON-B", 77.00, date_f="2026-06-04")
+    # (Le doublon CERTAIN — même référence — est impossible : refusé par l'index unique du schéma.)
+
+    # 8. Facture ANNULÉE (jamais supprimée).
+    f_annulee = facture(log, "FA-LOG-ANNULEE", 12.00)
+    fact.changer_statut(f_annulee, fact.ST_ANNULEE, commentaire="saisie erronée",
+                        acteur="seed", db_path=db_path)
+
+    # 9. AVOIR : traité comme moyen de règlement sur une facture ouverte.
+    f_avoir = facture(log, "FA-LOG-AVOIR", 30.00, statut=fact.ST_VALIDEE)
+    regl.enregistrer(log, [{"facture_id_opaque": f_avoir, "montant": 30.00}],
+                     date_reglement="2026-06-30", moyen="AVOIR", acteur="seed", db_path=db_path)
+
+    # 10. Règlement ANNULÉ (le solde de la facture doit repartir à son montant plein).
+    f_regl_annule = facture(maint, "FA-MAINT-REGANN", 45.00, statut=fact.ST_VALIDEE)
+    r_ann = regl.enregistrer(maint, [{"facture_id_opaque": f_regl_annule, "montant": 45.00}],
+                             date_reglement="2026-06-29", moyen="BANQUE", acteur="seed",
+                             db_path=db_path)
+    regl.annuler(r_ann["reglement_id_opaque"], commentaire="erreur de saisie", acteur="seed",
+                 db_path=db_path)
+
+    # 11. Règlement par paiement PERSONNEL ASSOCIÉ.
+    f_perso = facture(men, "FA-MEN-PERSO", 25.00, statut=fact.ST_VALIDEE)
+    regl.enregistrer(men, [{"facture_id_opaque": f_perso, "montant": 25.00}],
+                     date_reglement="2026-06-27", moyen="PERSONNEL_ASSOCIE", acteur="seed",
+                     db_path=db_path)
+
+    print(f"   base factures de recette : {db_path.name} "
+          f"({len(fact.lister(db_path=db_path))} factures, "
+          f"{len(regl.lister(db_path=db_path))} règlements, 3 fournisseurs)")
+
+
 def main():
     _robust_rmtree(REC)
     REC.mkdir(parents=True, exist_ok=True)
@@ -401,6 +525,9 @@ def main():
     build_banque(REC / "02_TRAVAIL" / "Lot8_Banque" / "BANQUE_LOT8_IMPORT.xlsx")
     # dossiers data applicatifs isolés
     (REC / "data" / "snapshots").mkdir(parents=True, exist_ok=True)
+    # Base applicative de recette (fournisseurs/factures/règlements) — jamais la base réelle.
+    # Le serveur de recette doit être lancé avec APP_DATA_DIR=<data_recette>/app_data pour la lire.
+    build_factures_sqlite(REC / "app_data" / "app.db")
     print("data_recette généré :", REC.resolve())
     for p in sorted(REC.rglob("*")):
         if p.is_file():

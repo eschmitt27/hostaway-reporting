@@ -150,6 +150,32 @@ def test_annulation_libere_le_solde(db):
     svc.annuler(r["reglement_id_opaque"], commentaire="erreur de saisie", db_path=db)
     f = fact.charger(fid, db)
     assert f["montant_regle"] == 0.0 and f["solde_restant"] == 100.0
+    # Le statut est DÉRIVÉ du solde : il doit redescendre, sinon la facture reste « REGLEE » avec
+    # un solde non nul (incohérence détectée en recette par CTRL_FAC_REGLEE_AVEC_SOLDE_NON_NUL).
+    assert f["statut"] == fact.ST_VALIDEE
+
+
+def test_annulation_partielle_repasse_en_partiellement_reglee(db):
+    fid = _facture(db, "FA-AN3", 100.0)
+    svc.enregistrer(FRS, [{"facture_id_opaque": fid, "montant": 40.0}],
+                    date_reglement="2026-07-01", moyen="BANQUE", db_path=db)
+    r2 = svc.enregistrer(FRS, [{"facture_id_opaque": fid, "montant": 60.0}],
+                         date_reglement="2026-07-02", moyen="CAISSE", db_path=db)
+    assert fact.charger(fid, db)["statut"] == fact.ST_REGLEE
+
+    svc.annuler(r2["reglement_id_opaque"], db_path=db)
+    f = fact.charger(fid, db)
+    assert f["statut"] == fact.ST_PARTIELLEMENT_REGLEE
+    assert f["solde_restant"] == 60.0
+
+
+def test_annulation_ne_reveille_pas_une_facture_en_litige(db):
+    fid = _facture(db, "FA-AN4", 100.0)
+    r = svc.enregistrer(FRS, [{"facture_id_opaque": fid, "montant": 100.0}],
+                        date_reglement="2026-07-01", moyen="BANQUE", db_path=db)
+    fact.changer_statut(fid, fact.ST_LITIGE, commentaire="contesté", db_path=db)
+    svc.annuler(r["reglement_id_opaque"], db_path=db)
+    assert fact.charger(fid, db)["statut"] == fact.ST_LITIGE   # décision humaine préservée
 
 
 def test_marquer_rapproche(db):

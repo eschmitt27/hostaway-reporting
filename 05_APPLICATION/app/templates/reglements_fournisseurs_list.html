@@ -27,7 +27,7 @@
     <table class="data-table">
       <thead><tr>
         <th>Date</th><th>Fournisseur</th><th class="num">Montant</th><th>Moyen</th>
-        <th>Compte</th><th>Statut</th><th>Mouvement bancaire</th>
+        <th>Compte</th><th>Statut</th><th>Mouvement bancaire</th><th></th>
       </tr></thead>
       <tbody>
         {% for r in reglements %}
@@ -43,9 +43,14 @@
             <a href="/banques-caisse/mouvements/{{ r.mouvement_id_opaque }}">{{ r.mouvement_id_opaque }}</a>
             {% else %}Non rapproché{% endif %}
           </td>
+          <td>
+            {% if r.statut != 'ANNULE' %}
+            <a href="/reglements/{{ r.reglement_id_opaque }}/rapprocher">Rapprocher</a>
+            {% endif %}
+          </td>
         </tr>
         {% else %}
-        <tr><td colspan="7" class="section-note">Aucun règlement enregistré.</td></tr>
+        <tr><td colspan="8" class="section-note">Aucun règlement enregistré.</td></tr>
         {% endfor %}
       </tbody>
     </table>

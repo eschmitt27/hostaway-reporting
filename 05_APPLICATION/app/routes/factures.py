@@ -15,6 +15,7 @@ from app.services import reglements_fournisseurs_service as reg
 from app.services import fournisseurs_referentiel_service as frs
 from app.services import factures_banque_service as pont
 from app.services import factures_controles_service as controles
+from app.services import factures_import_service as imp
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -73,6 +74,59 @@ def factures_controles(request: Request, severite: str = ""):
         "active_menu": "factures", "data": data, "anomalies": anomalies,
         "niveaux": controles.NIVEAUX, "applied": {"severite": severite},
     })
+
+
+@router.get("/factures/importer", response_class=HTMLResponse)
+def facture_importer_form(request: Request, message: str = "", erreur: str = ""):
+    return templates.TemplateResponse(request, "factures_importer.html", {
+        "active_menu": "factures", "fournisseurs": _fournisseurs_actifs(),
+        "ecriture_active": _ecriture_active(), "message": message, "erreur": erreur,
+    })
+
+
+@router.post("/factures/importer/previsualiser")
+async def facture_importer_previsualiser(request: Request):
+    form = await request.form()
+    fichier = form.get("fichier")
+    if fichier is None or not getattr(fichier, "filename", ""):
+        return RedirectResponse(url="/factures/importer?erreur=Aucun fichier sélectionné.",
+                                status_code=303)
+    contenu = await fichier.read()
+    res = imp.previsualiser(contenu, fichier.filename,
+                            fournisseur_id_opaque=str(form.get("fournisseur_id_opaque", "") or ""))
+    if not res.get("ok"):
+        return RedirectResponse(url=f"/factures/importer?erreur={res.get('message')}",
+                                status_code=303)
+    return RedirectResponse(url=f"/factures/importer/previsualisation/{res['token']}",
+                            status_code=303)
+
+
+@router.get("/factures/importer/previsualisation/{token}", response_class=HTMLResponse)
+def facture_importer_previsualisation(request: Request, token: str, erreur: str = ""):
+    manifest = imp.charger_manifest(token)
+    if manifest is None:
+        return templates.TemplateResponse(request, "factures_importer_previsualisation.html", {
+            "active_menu": "factures", "manifest": None, "token": token,
+        }, status_code=404)
+    return templates.TemplateResponse(request, "factures_importer_previsualisation.html", {
+        "active_menu": "factures", "manifest": manifest, "token": token,
+        "fournisseurs": _fournisseurs_actifs(), "ecriture_active": _ecriture_active(),
+        "erreur": erreur,
+    })
+
+
+@router.post("/factures/importer/confirmer/{token}")
+async def facture_importer_confirmer(request: Request, token: str):
+    form = dict(await request.form())
+    corrections = {k: v for k, v in form.items() if k != "acteur"}
+    res = imp.confirmer(token, corrections, acteur=str(form.get("acteur", "") or "local"))
+    if not res.get("ok"):
+        msgs = "; ".join(e["message"] for e in res.get("erreurs", [])) or res.get("message", "")
+        return RedirectResponse(
+            url=f"/factures/importer/previsualisation/{token}?erreur={msgs}", status_code=303)
+    return RedirectResponse(
+        url=f"/factures/{res['facture_id_opaque']}?message=Facture importée depuis le PDF.",
+        status_code=303)
 
 
 @router.get("/factures/nouvelle", response_class=HTMLResponse)
