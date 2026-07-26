@@ -60,6 +60,10 @@ Thumbs.db
 # Dry-runs prévisualisation charges (copies contrôlées) — générés, non versionnés
 05_APPLICATION/data/dryruns/
 
+# Jeu de données fictif de recette (généré par recette/build_data_recette.py) — régénérable,
+# jamais versionné ; seul le générateur (recette/*.py) est source.
+data_recette/
+
 # Verrou d'écriture des charges (runtime, propre à la machine) — jamais versionné
 05_APPLICATION/data/.saisie_charges_write.lock
 

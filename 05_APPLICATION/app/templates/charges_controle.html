@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}Charges à contrôler{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Charges à contrôler</h1>
+  <p class="page-subtitle">{{ avertissement }}</p>
+</div>
+
+{% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+
+{% if controles and controles.nb_bloquants %}
+<div class="alert alert-warning">
+  <strong>{{ controles.nb_bloquants }} contrôle(s) bloquant(s)</strong> — une charge bloquante ne peut pas être validée.
+  <ul>
+    {% for a in controles.anomalies %}{% if a.severite == 'BLOQUANT' %}
+      <li><span class="status-badge status-bloquant">{{ a.code }}</span>
+          <code>{{ a.charge_id }}</code> — {{ a.message }} {{ a.detail }}</li>
+    {% endif %}{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% set c = data.compteurs %}
+<div class="kpi-grid kpi-grid--6 mt-md">
+  <div class="kpi-card"><div class="kpi-label">À contrôler</div><div class="kpi-value">{{ c.A_CONTROLER or 0 }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Validées</div><div class="kpi-value">{{ c.VALIDE or 0 }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Rejetées</div><div class="kpi-value">{{ c.REJETE or 0 }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Refacturables</div><div class="kpi-value">{{ c.refacturables or 0 }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Sans propriétaire</div><div class="kpi-value">{{ c.sans_proprietaire or 0 }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Bloquantes</div><div class="kpi-value">{{ controles.nb_bloquants or 0 }}</div></div>
+</div>
+
+<form method="get" action="/charges-controle" class="filter-bar mt-md">
+  <label>Statut
+    <select name="statut">
+      <option value="">Tous</option>
+      {% for s in ['A_CONTROLER','VALIDE','REJETE'] %}
+        <option value="{{ s }}" {{ 'selected' if applied.statut == s }}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Refacturable
+    <select name="refacturable">
+      <option value="">Tous</option>
+      <option value="OUI" {{ 'selected' if applied.refacturable == 'OUI' }}>Oui</option>
+      <option value="NON" {{ 'selected' if applied.refacturable == 'NON' }}>Non</option>
+    </select>
+  </label>
+  <label>Impact
+    <select name="code_impact">
+      <option value="">Tous</option>
+      {% for i in ['IC','HC','HR'] %}
+        <option value="{{ i }}" {{ 'selected' if applied.code_impact == i }}>{{ i }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label><input type="checkbox" name="sans_proprietaire" value="1"
+        {{ 'checked' if applied.sans_proprietaire }}> Sans propriétaire</label>
+  <button type="submit" class="btn btn-primary">Filtrer</button>
+</form>
+
+<div class="card mt-md">
+  <div class="table-container">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Charge</th><th>Mois</th><th>Date</th><th>Catégorie</th><th>Montant</th>
+          <th>Logement</th><th>Propriétaire</th><th>Refac.</th><th>Impact</th>
+          <th>Compta</th><th>Statut</th><th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in data.rows %}
+        {% set bloquante = r.charge_id in bloquantes %}
+        <tr>
+          <td class="font-mono text-xs">{{ r.charge_id }}</td>
+          <td>{{ r.mois or '—' }}</td>
+          <td>{{ r.date_charge or '—' }}</td>
+          <td>{{ r.categorie_charge_id or '—' }}</td>
+          <td>{{ r.montant if r.montant is not none else '—' }} €</td>
+          <td>{{ r.logement_id or '—' }}</td>
+          <td>{{ r.proprietaire_id or '—' }}</td>
+          <td>{{ r.refacturable or '—' }}</td>
+          <td>{{ r.code_impact or '—' }}</td>
+          <td>{{ r.prise_en_compta or '—' }}</td>
+          <td>
+            <span class="status-badge status-{{ 'valide' if r.statut_controle == 'VALIDE' else ('bloquant' if r.statut_controle == 'REJETE' else 'info') }}">
+              {{ r.statut_controle or '—' }}
+            </span>
+            {% if bloquante %}<span class="status-badge status-bloquant">BLOQUANTE</span>{% endif %}
+          </td>
+          <td>
+            {% if r.statut_controle == 'A_CONTROLER' and not bloquante %}
+              <form method="post" action="/charges-controle/{{ r.charge_id }}/valider" style="display:inline">
+                <button type="submit" class="btn btn-primary"
+                        title="La validation rendra cette charge active dans les calculs financiers.">Valider</button>
+              </form>
+              <form method="post" action="/charges-controle/{{ r.charge_id }}/rejeter" style="display:inline">
+                <select name="motif" required>
+                  <option value="">Motif…</option>
+                  {% for m in ['justificatif manquant','mauvais propriétaire','mauvais logement','montant incorrect','doublon','charge non refacturable','autre'] %}
+                    <option value="{{ m }}">{{ m }}</option>
+                  {% endfor %}
+                </select>
+                <input type="text" name="commentaire" placeholder="Commentaire (obligatoire)" required>
+                <button type="submit" class="btn btn-ghost">Rejeter</button>
+              </form>
+            {% else %}
+              <a href="/charges-controle/{{ r.charge_id }}/historique">Historique</a>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="12" class="section-note">Aucune charge pour ces filtres.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if historique is defined %}
+<div class="card mt-md">
+  <h2 class="card-title">Historique — {{ charge_id }}</h2>
+  <table class="data-table">
+    <thead><tr><th>Horodatage</th><th>Ancien</th><th>Nouveau</th><th>Acteur</th><th>Commentaire</th></tr></thead>
+    <tbody>
+      {% for h in historique %}
+      <tr><td class="text-xs">{{ h.horodatage_utc }}</td><td>{{ h.ancien_statut }}</td>
+          <td>{{ h.nouveau_statut }}</td><td>{{ h.acteur }}</td><td>{{ h.commentaire }}</td></tr>
+      {% else %}<tr><td colspan="5" class="section-note">Aucun mouvement.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<p class="section-note mt-sm">
+  La validation rendra cette charge active dans les calculs financiers (Lot3 → Lot9 → Lot10 → Lot11).
+</p>
+{% endblock %}

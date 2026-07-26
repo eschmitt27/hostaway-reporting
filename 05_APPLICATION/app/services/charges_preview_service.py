@@ -798,16 +798,30 @@ def _build_row_data(
     elif g:
         # Charge non ménage guidée : affectation dérivée du périmètre déterministe.
         finaux = perimetre.get("logements_finaux", [])
+        # Le périmètre a DÉJÀ résolu le propriétaire de façon historisée (gestion active du mois).
+        # On le MATÉRIALISE sur la ligne : Lot10 n'infère jamais le propriétaire, donc sans cette
+        # valeur une charge refacturable ne rejoint ni la préfacture ni le net propriétaire.
+        prop_par_log: dict[str, str] = perimetre.get("proprietaire_par_logement", {}) or {}
         if len(finaux) == 1:
             affectation_type = "LOGEMENT"
             logement_id = finaux[0]
-            proprietaire_id = None
+            proprietaire_id = (prop_par_log.get(logement_id) or "").strip() or None
         else:
             # 0 ou >1 logements → charge économique GLOBAL (ventilation multi en manifest)
             affectation_type = "GLOBAL"
             logement_id = None
             props = perimetre.get("proprietaires", [])
-            proprietaire_id = props[0] if len(props) == 1 and not finaux else None
+            if len(props) == 1 and not finaux:
+                proprietaire_id = props[0]
+            else:
+                # Plusieurs logements : propriétaire matérialisé UNIQUEMENT s'il est unique
+                # (aucune ambiguïté). Sinon None — jamais d'attribution arbitraire.
+                proprios_finaux = {
+                    (prop_par_log.get(lg) or "").strip()
+                    for lg in finaux
+                    if (prop_par_log.get(lg) or "").strip()
+                }
+                proprietaire_id = proprios_finaux.pop() if len(proprios_finaux) == 1 else None
         affectable_menage = "NON"
         refacturable = "OUI" if g.get("refacturable_effectif") else "NON"
         reservation_id = None

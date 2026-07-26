@@ -80,10 +80,27 @@ HH_REAL_WRITE_CONFIRMATION_ENABLED = False
 # Ne jamais activer implicitement ni par défaut.
 REF_ASSOC_MODE_REAL_WRITE_ENABLED = False
 
+# ── MODE RECETTE — données fictives isolées ──────────────────────────────────
+# Activé par RECETTE_MODE=1. Quand actif : l'interface affiche un bandeau, et le write-guard
+# (app/recette_guard.py) n'autorise une écriture que si le chemin cible est sous RECETTE_ROOT.
+# Ne change RIEN au comportement par défaut (RECETTE_MODE absent => False).
+RECETTE_MODE = os.environ.get("RECETTE_MODE", "0").strip() in ("1", "true", "True")
+
+
+def _env_flag(nom: str) -> bool:
+    return os.environ.get(nom, "0").strip() in ("1", "true", "True")
+
+
 # Écriture SAISIE Charges — garde de sécurité (APP-3b-1).
-# Ne jamais activer implicitement ni par défaut.
-CHARGES_REAL_WRITE_ENABLED = False
-CHARGES_REAL_WRITE_CONFIRMATION_ENABLED = False
+# Ne jamais activer implicitement ni par défaut. Activables par variable d'environnement
+# UNIQUEMENT en mode recette : une instance NON recette ne peut jamais écrire, même si les
+# variables sont positionnées (double verrou : RECETTE_MODE ET la variable dédiée).
+CHARGES_REAL_WRITE_ENABLED = RECETTE_MODE and _env_flag("CHARGES_REAL_WRITE_ENABLED")
+CHARGES_REAL_WRITE_CONFIRMATION_ENABLED = RECETTE_MODE and _env_flag("CHARGES_REAL_WRITE_CONFIRMATION_ENABLED")
+# Racine unique autorisée en écriture en mode recette. Par défaut, le PROJECT_ROOT courant : en
+# lançant l'instance de recette avec PROJECT_ROOT=<dossier data_recette>, TOUTES les sources et
+# sorties vivent déjà dans ce dossier isolé, et le guard interdit toute écriture en dehors.
+RECETTE_ROOT = Path(os.environ.get("RECETTE_ROOT", str(PROJECT_ROOT))).resolve()
 
 # Chemins saisie (écriture atomique uniquement — activée aux lots dédiés)
 SAISIE_ROOT = PROJECT_ROOT / "01_SOURCES_BRUTES"

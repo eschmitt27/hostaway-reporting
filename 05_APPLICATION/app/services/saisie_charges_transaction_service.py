@@ -459,7 +459,13 @@ def _sauvegarder(prepares: list[FichierPrepare], jeton: str) -> tuple[dict[Path,
 # ── 6/7/8. Commit, vérification post-commit, rollback ────────────────────────
 
 def _remplacer_fichier(temp: Path, cible: Path) -> None:
-    """SEUL point de remplacement définitif du projet. Atomique (même volume garanti en amont)."""
+    """SEUL point de remplacement définitif du projet. Atomique (même volume garanti en amont).
+
+    Garde-fou MODE RECETTE : refuse tout remplacement d'une cible hors du dossier de recette isolé
+    (barrière de dernière ligne, indépendante des flags REAL_WRITE).
+    """
+    from app.recette_guard import assert_ecriture_autorisee
+    assert_ecriture_autorisee(cible)
     os.replace(str(temp), str(cible))
 
 

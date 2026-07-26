@@ -11,7 +11,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.config import STATIC_DIR, DATA_DIR, SNAPSHOTS_DIR
 from app.db.connection import apply_migrations
 from app.services.logging_config import log_erreur
-from app.routes import home, sources_calculs, health, logements, reservations, menages, fournisseurs, proprietaires, banques, proprietaires_reglements, controles_cloture, clotures, pilotage_mensuel, fournisseurs_referentiel
+from app.routes import home, sources_calculs, health, logements, reservations, menages, fournisseurs, proprietaires, banques, proprietaires_reglements, controles_cloture, clotures, pilotage_mensuel, fournisseurs_referentiel, charges_controle
 
 
 @asynccontextmanager
@@ -81,5 +81,21 @@ app.include_router(controles_cloture.router)
 app.include_router(clotures.router)
 app.include_router(pilotage_mensuel.router)
 app.include_router(fournisseurs_referentiel.router)
+app.include_router(charges_controle.router)
 app.include_router(sources_calculs.router)
 app.include_router(health.router)
+
+# ── Bandeau MODE RECETTE : exposé à tous les templates (globals Jinja centralisés) ──
+import app.config as _cfg
+_recette_globals = {
+    "RECETTE_MODE": _cfg.RECETTE_MODE,
+    "RECETTE_ROOT": str(_cfg.RECETTE_ROOT),
+    "RECETTE_DB": str(_cfg.DB_PATH),
+    "RECETTE_CHARGES_WRITE": bool(_cfg.CHARGES_REAL_WRITE_ENABLED),
+}
+for _mod in (home, logements, reservations, menages, fournisseurs, proprietaires, banques,
+             proprietaires_reglements, controles_cloture, clotures, pilotage_mensuel,
+             fournisseurs_referentiel, sources_calculs, charges_controle):
+    _t = getattr(_mod, "templates", None)
+    if _t is not None:
+        _t.env.globals.update(_recette_globals)

@@ -88,6 +88,9 @@ def test_no_bidirectional_sync():
     WRITERS_COPIE_AUTORISES = {
         "banques_controle_writer.py",       # APP-4B : override sur copie + journal
         "controles_runner_service.py",      # APP-5B : classification sur copie workspace + journal runs
+        "charges_validation_service.py",    # APP-3f : write-guard + remplacement atomique de la
+                                             # SAISIE (vérité) puis journal SQLite one-way (jamais de
+                                             # relecture SQLite réinjectée dans l'Excel)
     }
     violations = []
     for f in get_python_files():

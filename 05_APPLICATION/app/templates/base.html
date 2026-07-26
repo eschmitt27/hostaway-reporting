@@ -126,6 +126,16 @@
       </div>
     </header>
 
+    {% if RECETTE_MODE %}
+    <div style="background:#7c3f00;color:#fff;padding:8px 16px;font-weight:700;font-size:13px;text-align:center;">
+      MODE RECETTE — DONNÉES FICTIVES — ÉCRITURES AUTORISÉES UNIQUEMENT DANS DATA_RECETTE
+      <span style="font-weight:400;font-size:11px;display:block;">
+        racine : {{ RECETTE_ROOT }} · base : {{ RECETTE_DB }} ·
+        writers charges : {{ 'ACTIVÉS' if RECETTE_CHARGES_WRITE else 'désactivés' }}
+      </span>
+    </div>
+    {% endif %}
+
     <!-- Contenu page -->
     <main class="page-content">
       {% block content %}{% endblock %}

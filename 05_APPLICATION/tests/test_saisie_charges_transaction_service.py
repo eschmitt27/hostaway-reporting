@@ -465,11 +465,13 @@ def test_19_les_vrais_fichiers_du_projet_ne_sont_jamais_touches(cibles, flags_on
 
 
 def test_20_les_flags_du_depot_restent_a_false():
-    """Les flags ne sont forcés qu'en mémoire (monkeypatch). Le dépôt, lui, reste à False."""
+    """Les flags ne sont forcés qu'en mémoire (monkeypatch). Le dépôt, lui, reste sûr par défaut :
+    aucune valeur littérale True codée en dur, activation possible uniquement via RECETTE_MODE ET
+    variable d'environnement dédiée (double verrou)."""
     source = Path(cfg.__file__).read_text(encoding="utf-8")
-    assert "CHARGES_REAL_WRITE_ENABLED = False" in source
-    assert "CHARGES_REAL_WRITE_CONFIRMATION_ENABLED = False" in source
-    assert cfg.CHARGES_REAL_WRITE_ENABLED is False        # hors monkeypatch
+    assert "CHARGES_REAL_WRITE_ENABLED = RECETTE_MODE and _env_flag(" in source
+    assert "CHARGES_REAL_WRITE_CONFIRMATION_ENABLED = RECETTE_MODE and _env_flag(" in source
+    assert cfg.CHARGES_REAL_WRITE_ENABLED is False        # hors monkeypatch/env
     assert cfg.CHARGES_REAL_WRITE_CONFIRMATION_ENABLED is False
 
 

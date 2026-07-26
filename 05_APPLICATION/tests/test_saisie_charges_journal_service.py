@@ -498,8 +498,8 @@ def test_11_aucune_donnee_metier_ni_fichier_reel_dans_le_journal(cibles, db, fla
 
 def test_12_les_flags_du_depot_restent_a_false():
     source = Path(cfg.__file__).read_text(encoding="utf-8")
-    assert "CHARGES_REAL_WRITE_ENABLED = False" in source
-    assert "CHARGES_REAL_WRITE_CONFIRMATION_ENABLED = False" in source
+    assert "CHARGES_REAL_WRITE_ENABLED = RECETTE_MODE and _env_flag(" in source
+    assert "CHARGES_REAL_WRITE_CONFIRMATION_ENABLED = RECETTE_MODE and _env_flag(" in source
     assert cfg.CHARGES_REAL_WRITE_ENABLED is False
     assert cfg.CHARGES_REAL_WRITE_CONFIRMATION_ENABLED is False
 
