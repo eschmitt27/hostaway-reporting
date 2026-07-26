@@ -880,6 +880,14 @@ Suivi détaillé : `00_CADRAGE/BANQUE_LOGEMENTS_PDF_CHARGES_METIER_20260724/HAND
   Restent : import PDF/CSV, fiche fournisseur avec solde, branchement du rapprochement bancaire,
   page de contrôles dédiée. Docs 32 et 33.
 
+- **Fournisseurs / Factures / Reglements — TERMINE.** Chaine complete fournisseur -> facture (saisie
+  ou import PDF) -> charge -> reglement (total/partiel/multiple/groupe) -> rapprochement bancaire
+  (pont vers le moteur Banque unique) -> solde fournisseur -> controles. Docs 32, 33, 34.
+- **Pilotage des calculs & cloture — PARTIEL.** Les lots sont reellement executes (interpreteur
+  dedie portant pandas), avec previsualisation scellee, arret au premier echec, rollback, journal
+  par lot et cloture a conditions verifiees. Manque un jeu de recette permettant une chaine aval
+  verte de bout en bout. Docs 35, 36.
+
 Limites persistantes assumées : forfait logiciel historisé (moteur Lot10) non commencé ; `pandas`
 absent de l'environnement, donc les moteurs Lot9/Lot10 complets ne sont pas exécutables — les
 vérifications d'impact reproduisent *verbatim* leurs filtres réels dans des tests.

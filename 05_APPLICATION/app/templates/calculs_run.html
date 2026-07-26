@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Run de calcul{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/calculs" class="back-link">← Pilotage des calculs</a>
+</div>
+
+{% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+
+{% if run is none %}
+<div class="alert alert-error"><strong>Run introuvable.</strong> <code>{{ run_id }}</code></div>
+{% else %}
+
+<div class="flex justify-between items-center" style="margin-bottom: var(--stack-lg);">
+  <div>
+    <h1 class="page-title">Run {{ run.run_id_opaque }}</h1>
+    <p class="page-subtitle">Mois {{ run.mois }} · mode {{ run.mode }}</p>
+  </div>
+  <span class="status-badge status-{{ 'valide' if run.statut == 'SUCCES' else 'bloquant' if run.statut == 'ECHEC' else 'a-controler' }}">{{ run.statut }}</span>
+</div>
+
+{% if run.statut == 'ECHEC' %}
+<div class="alert alert-error" data-testid="run-echec">
+  <strong>Pipeline en échec.</strong> {{ run.erreur_resume or "" }}
+  <p>Les sorties existantes ont été sauvegardées avant exécution : vous pouvez les restaurer.</p>
+</div>
+{% endif %}
+
+<div class="card mb-md">
+  <dl class="detail-grid">
+    <div><dt>Lots réussis</dt><dd>{{ run.nb_lots_reussis }}</dd></div>
+    <div><dt>Lots en échec</dt><dd>{{ run.nb_lots_echoues }}</dd></div>
+    <div><dt>Durée totale</dt><dd>{{ "%.1f"|format(run.duree_totale_s) if run.duree_totale_s is not none else "—" }} s</dd></div>
+    <div><dt>Début</dt><dd class="font-mono text-xs">{{ run.date_debut }}</dd></div>
+    <div><dt>Fin</dt><dd class="font-mono text-xs">{{ run.date_fin or "—" }}</dd></div>
+    <div><dt>Interpréteur</dt><dd class="font-mono text-xs">{{ run.interpreteur }}</dd></div>
+  </dl>
+  <form method="post" action="/calculs/runs/{{ run.run_id_opaque }}/restaurer" class="mt-sm">
+    <button type="submit" class="btn btn-ghost">Restaurer les sorties d'avant ce run</button>
+  </form>
+</div>
+
+<div class="card mb-md">
+  <div class="card-title">Suivi des lots</div>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr>
+        <th>#</th><th>Lot</th><th>Statut</th><th class="num">Code</th><th class="num">Durée (s)</th>
+        <th>Début</th><th>Fin</th><th>Message</th>
+      </tr></thead>
+      <tbody>
+        {% for l in run.lots %}
+        <tr>
+          <td>{{ l.ordre }}</td>
+          <td><strong>{{ l.lot }}</strong></td>
+          <td><span class="status-badge status-{{ 'valide' if l.statut == 'SUCCES' else 'bloquant' if l.statut in ['ECHEC','TIMEOUT'] else 'info' }}">{{ l.statut }}</span></td>
+          <td class="num">{{ l.code_retour if l.code_retour is not none else "—" }}</td>
+          <td class="num">{{ "%.1f"|format(l.duree_s) if l.duree_s is not none else "—" }}</td>
+          <td class="font-mono text-xs">{{ l.date_debut or "—" }}</td>
+          <td class="font-mono text-xs">{{ l.date_fin or "—" }}</td>
+          <td class="text-xs">{{ l.message or "" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% for l in run.lots %}
+  {% if l.stdout_extrait or l.stderr_extrait or l.sorties_json %}
+  <details class="mt-sm">
+    <summary class="text-xs text-secondary">{{ l.lot }} — journaux et sorties</summary>
+    {% if l.sorties_json %}
+    <p class="text-xs mt-sm"><strong>Sorties :</strong> <code>{{ l.sorties_json }}</code></p>
+    {% endif %}
+    {% if l.stdout_extrait %}
+    <p class="text-xs"><strong>stdout</strong></p>
+    <pre class="text-xs" style="white-space:pre-wrap;overflow-x:auto">{{ l.stdout_extrait }}</pre>
+    {% endif %}
+    {% if l.stderr_extrait %}
+    <p class="text-xs"><strong>stderr</strong></p>
+    <pre class="text-xs" style="white-space:pre-wrap;overflow-x:auto">{{ l.stderr_extrait }}</pre>
+    {% endif %}
+  </details>
+  {% endif %}
+  {% endfor %}
+</div>
+
+{% if run.indicateurs %}
+<div class="card mb-md">
+  <div class="card-title">Indicateurs relevés</div>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Indicateur</th><th class="num">Valeur</th><th class="num">Lignes</th></tr></thead>
+      <tbody>
+        {% for i in run.indicateurs %}
+        <tr><td>{{ i.indicateur }}</td>
+            <td class="num">{{ "%.2f"|format(i.valeur) if i.valeur is not none else "—" }}</td>
+            <td class="num">{{ i.nb_lignes if i.nb_lignes is not none else "—" }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if comparaison.statut == "OK" %}
+<div class="card">
+  <div class="card-title">Comparaison avant / après</div>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Indicateur</th><th class="num">Précédent</th><th class="num">Nouveau</th>
+        <th class="num">Écart</th><th>Signalement</th></tr></thead>
+      <tbody>
+        {% for l in comparaison.lignes %}
+        <tr>
+          <td>{{ l.indicateur }}</td>
+          <td class="num">{{ "%.2f"|format(l.precedent) if l.precedent is not none else "—" }}</td>
+          <td class="num">{{ "%.2f"|format(l.nouveau) if l.nouveau is not none else "—" }}</td>
+          <td class="num">{{ "%.2f"|format(l.ecart) if l.ecart is not none else "—" }}</td>
+          <td>{% if l.anormal %}<span class="status-badge status-bloquant">écart anormal</span>{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}

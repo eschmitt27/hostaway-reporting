@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}Pilotage des calculs{% endblock %}
+
+{% block content %}
+<div class="page-header flex justify-between items-center">
+  <div>
+    <h1 class="page-title">Pilotage des calculs</h1>
+    <p class="page-subtitle">
+      Mois <span class="periode-active">{{ mois }}</span> · mode <strong>{{ mode }}</strong> ·
+      racine <code>{{ racine }}</code>
+    </p>
+  </div>
+</div>
+
+{% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+
+<div class="card mb-md">
+  <div class="card-title">Environnement d'exécution</div>
+  <dl class="detail-grid">
+    <div><dt>Interpréteur des lots</dt><dd class="font-mono text-xs">{{ interpreteur.chemin }}</dd></div>
+    <div><dt>Version</dt><dd>{{ interpreteur.version or "—" }}</dd></div>
+    <div><dt>pandas</dt>
+      <dd><span class="status-badge status-{{ 'valide' if interpreteur.pandas else 'bloquant' }}">{{ "présent" if interpreteur.pandas else "absent" }}</span></dd></div>
+    <div><dt>Prérequis</dt>
+      <dd><span class="status-badge status-{{ 'valide' if prerequis.ok else 'bloquant' }}">{{ "satisfaits" if prerequis.ok else "non satisfaits" }}</span></dd></div>
+  </dl>
+  {% if not prerequis.ok %}
+  <div class="alert alert-warning mt-sm">
+    {% if prerequis.pandas_manquant %}
+    <p>Au moins un lot demandé exige <code>pandas</code>, absent de l'interpréteur configuré.</p>
+    {% endif %}
+    {% if prerequis.scripts_manquants %}
+    <p>Scripts absents : {{ prerequis.scripts_manquants|join(', ') }}</p>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% if prerequis.dependances_manquantes %}
+  <p class="section-note">Dépendances à surveiller : {{ prerequis.dependances_manquantes|join(' ; ') }}</p>
+  {% endif %}
+</div>
+
+<div class="card mb-md">
+  <div class="card-title">Lancer un calcul</div>
+  <form method="post" action="/calculs/previsualiser">
+    <div class="detail-grid">
+      <label>Mois * <input type="text" name="mois" value="{{ mois }}" pattern="\d{4}-\d{2}" required></label>
+      <label>Chaîne *
+        <select name="chaine" required>
+          {% for nom, lots_c in chaines.items() %}
+          <option value="{{ nom }}" {{ 'selected' if nom == chaine }}>{{ nom }} ({{ lots_c|join(' → ') }})</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+    <p class="section-note mt-sm">
+      La prévisualisation n'exécute rien : elle montre les entrées, les sorties qui seront
+      remplacées et les contrôles bloquants, puis demande une confirmation explicite.
+    </p>
+    <button type="submit" class="btn btn-primary mt-sm">Prévisualiser le pipeline</button>
+  </form>
+</div>
+
+<div class="card mb-md">
+  <div class="card-title">Lots de la chaîne « {{ chaine }} »</div>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Lot</th><th>Script</th><th>Dépend de</th><th>Sorties attendues</th><th>pandas</th></tr></thead>
+      <tbody>
+        {% for l in lots %}
+        <tr>
+          <td><strong>{{ l.nom }}</strong></td>
+          <td class="font-mono text-xs">{{ l.script }}</td>
+          <td class="text-xs">{{ l.depend_de|join(', ') or "—" }}</td>
+          <td class="text-xs">{{ l.sorties|join('<br>')|safe if l.sorties else "—" }}</td>
+          <td>{{ "oui" if l.requiert_pandas else "non" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card mb-md">
+  <div class="card-title">Derniers runs ({{ runs|length }})</div>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Run</th><th>Mois</th><th>Mode</th><th>Statut</th>
+        <th class="num">Lots OK</th><th class="num">Lots KO</th><th class="num">Durée (s)</th>
+        <th>Début</th><th></th></tr></thead>
+      <tbody>
+        {% for r in runs %}
+        <tr>
+          <td class="font-mono text-xs">{{ r.run_id_opaque }}</td>
+          <td>{{ r.mois }}</td><td>{{ r.mode }}</td>
+          <td><span class="status-badge status-{{ 'valide' if r.statut == 'SUCCES' else 'bloquant' if r.statut == 'ECHEC' else 'a-controler' }}">{{ r.statut }}</span></td>
+          <td class="num">{{ r.nb_lots_reussis }}</td>
+          <td class="num">{{ r.nb_lots_echoues }}</td>
+          <td class="num">{{ "%.1f"|format(r.duree_totale_s) if r.duree_totale_s is not none else "—" }}</td>
+          <td class="font-mono text-xs">{{ r.date_debut }}</td>
+          <td><a href="/calculs/runs/{{ r.run_id_opaque }}">Détail</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="section-note">Aucun run pour ce mois.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if comparaison.statut == "OK" %}
+<div class="card mb-md">
+  <div class="card-title">Comparaison avec le calcul précédent</div>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Indicateur</th><th class="num">Précédent</th><th class="num">Nouveau</th>
+        <th class="num">Écart</th><th>Signalement</th></tr></thead>
+      <tbody>
+        {% for l in comparaison.lignes %}
+        <tr>
+          <td>{{ l.indicateur }}</td>
+          <td class="num">{{ "%.2f"|format(l.precedent) if l.precedent is not none else "—" }}</td>
+          <td class="num">{{ "%.2f"|format(l.nouveau) if l.nouveau is not none else "—" }}</td>
+          <td class="num">{{ "%.2f"|format(l.ecart) if l.ecart is not none else "—" }}</td>
+          <td>{% if l.anormal %}<span class="status-badge status-bloquant">écart anormal</span>{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="card" data-testid="cloture">
+  <div class="card-title">Clôture mensuelle —
+    <span class="status-badge status-{{ 'valide' if cloture.statut in ['VALIDEE','CLOTUREE'] else 'bloquant' if cloture.statut == 'BLOQUEE' else 'a-controler' }}">{{ cloture.statut }}</span>
+  </div>
+  <p class="section-note">
+    La clôture réelle reste portée par <code>REF_Cloture_Mensuelle</code> (moteur) : ce suivi est la
+    préparation et la validation applicatives.
+  </p>
+  <div class="table-container mb-sm">
+    <table class="data-table">
+      <thead><tr><th>Condition</th><th>État</th></tr></thead>
+      <tbody>
+        {% for nom, ok in conditions.conditions.items() %}
+        <tr>
+          <td>{{ nom|replace('_', ' ') }}</td>
+          <td><span class="status-badge status-{{ 'valide' if ok else 'bloquant' }}">{{ "OK" if ok else "non" }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="section-note">
+    Contrôles bloquants — banque : {{ conditions.bloquants_banque }} ·
+    factures : {{ conditions.bloquants_factures }}
+  </p>
+  <form method="post" action="/calculs/cloture/{{ mois }}">
+    <label>Nouveau statut
+      <select name="statut" required>
+        {% for s in statuts_cloture %}<option value="{{ s }}" {{ 'selected' if s == cloture.statut }}>{{ s }}</option>{% endfor %}
+      </select></label>
+    <label>Commentaire <input type="text" name="commentaire"></label>
+    <button type="submit" class="btn btn-primary">Appliquer</button>
+  </form>
+</div>
+{% endblock %}

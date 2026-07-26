@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Prévisualisation du pipeline{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/calculs" class="back-link">← Pilotage des calculs</a>
+  <h1 class="page-title">Prévisualisation du pipeline</h1>
+</div>
+
+{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+
+{% if manifest is none %}
+<div class="alert alert-error">Prévisualisation introuvable ou expirée. Reprenez depuis /calculs.</div>
+{% else %}
+
+<div class="card mb-md">
+  <div class="card-title">Périmètre</div>
+  <dl class="detail-grid">
+    <div><dt>Mois</dt><dd>{{ manifest.mois }}</dd></div>
+    <div><dt>Mode</dt><dd>{{ manifest.mode }}</dd></div>
+    <div><dt>Lots exécutés</dt><dd>{{ manifest.lots|join(' → ') }}</dd></div>
+    <div><dt>Racine</dt><dd class="font-mono text-xs">{{ manifest.racine }}</dd></div>
+    <div><dt>Empreinte des entrées</dt><dd class="font-mono text-xs">{{ manifest.empreinte_entrees }}</dd></div>
+    <div><dt>Token</dt><dd class="font-mono text-xs">{{ manifest.token }}</dd></div>
+  </dl>
+</div>
+
+<div class="card mb-md">
+  <div class="card-title">Fichiers lus</div>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Fichier</th><th>Présent</th><th>Modifié le</th></tr></thead>
+      <tbody>
+        {% for e in manifest.entrees %}
+        <tr>
+          <td class="font-mono text-xs">{{ e.fichier }}</td>
+          <td><span class="status-badge status-{{ 'valide' if e.existe else 'bloquant' }}">{{ "oui" if e.existe else "absent" }}</span></td>
+          <td class="font-mono text-xs">{{ e.modifie_le or "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card mb-md">
+  <div class="card-title">Sorties qui seront remplacées</div>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Fichier</th><th>Existe déjà</th><th>Modifié le</th><th class="num">Taille</th></tr></thead>
+      <tbody>
+        {% for s in manifest.sorties_remplacees %}
+        <tr>
+          <td class="font-mono text-xs">{{ s.fichier }}</td>
+          <td>{{ "oui — sera sauvegardé avant écrasement" if s.existe else "non (création)" }}</td>
+          <td class="font-mono text-xs">{{ s.modifie_le or "—" }}</td>
+          <td class="num">{{ s.taille if s.taille is not none else "—" }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="section-note">Aucune sortie déclarée.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% set p = manifest.prerequis %}
+{% if not p.ok %}
+<div class="alert alert-error" data-testid="prerequis-bloquants">
+  <strong>Prérequis non satisfaits — le lancement sera refusé.</strong>
+  <ul>
+    {% if p.pandas_manquant %}<li>Un lot demandé exige pandas, absent de l'interpréteur configuré.</li>{% endif %}
+    {% for s in p.scripts_manquants %}<li>Script absent : {{ s }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+{% if p.dependances_manquantes %}
+<div class="alert alert-warning">
+  <strong>Avertissements de dépendance :</strong>
+  <ul>{% for d in p.dependances_manquantes %}<li>{{ d }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+<div class="card" data-testid="bloc-confirmation">
+  <p class="section-note">
+    Aucun lot n'a encore été exécuté. Le lancement est refusé si les entrées ont changé depuis cette
+    prévisualisation, et les sorties existantes sont sauvegardées avant écrasement.
+  </p>
+  <form method="post" action="/calculs/lancer/{{ token }}">
+    <input type="hidden" name="acteur" value="recette">
+    <button type="submit" class="btn btn-primary" {% if not p.ok %}disabled{% endif %}>
+      Lancer le calcul
+    </button>
+  </form>
+  <a href="/calculs?mois={{ manifest.mois }}" class="btn btn-ghost mt-sm">Annuler</a>
+</div>
+{% endif %}
+{% endblock %}
