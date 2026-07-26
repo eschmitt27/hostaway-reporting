@@ -38,6 +38,7 @@ EXPECTED_TABLES = {
     "banque_imports",                       # 0015 — journal des imports bancaires (module Banque)
     "banque_rapprochements",                # 0015 — rapprochement mouvement↔objet métier (module Banque)
     "banque_rapprochement_evenements",      # 0015 — historique append-only du rapprochement (module Banque)
+    "banque_suggestion_decisions",          # 0016 — décisions sur les suggestions (module Banque)
 }
 
 
