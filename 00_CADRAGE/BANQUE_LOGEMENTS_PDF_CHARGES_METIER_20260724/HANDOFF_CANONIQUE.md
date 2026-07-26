@@ -9,7 +9,7 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 |---|---|
 | Worktree | `C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Worktrees\BANQUE_LOGEMENTS_PDF_CHARGES_METIER` |
 | Branche | `feature/banque-logements-pdf-charges-metier` |
-| HEAD | `a9ba40d` — `feat(factures): couche HTTP factures, factures a payer et reglements` (+ doc de statut) |
+| HEAD | `7d2e0a5` — `docs: etat du module Factures, handoff canonique et avancement global` |
 | Dernier commit utile | idem |
 | git status | propre (`data_recette/` ignoré, régénérable) |
 | master / canonique | **intacts, jamais touchés** (`master` = `8b47807`) |
@@ -78,7 +78,7 @@ construits et prouvés en navigateur. Statut **PARTIEL** (détail exhaustif dans
 ```
 cd "C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Worktrees\BANQUE_LOGEMENTS_PDF_CHARGES_METIER"
 git branch --show-current          # doit afficher feature/banque-logements-pdf-charges-metier
-git log -1 --format="%H %s"        # doit afficher a9ba40d ...
+git log -1 --format="%H %s"        # doit afficher 7d2e0a5 ...
 git status --porcelain             # doit être vide
 
 # Régénérer le jeu de recette fictif (idempotent, écrase data_recette/) :
