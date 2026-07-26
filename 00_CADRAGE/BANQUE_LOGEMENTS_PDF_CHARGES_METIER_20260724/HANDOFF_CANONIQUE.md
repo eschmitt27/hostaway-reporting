@@ -9,7 +9,7 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 |---|---|
 | Worktree | `C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Worktrees\BANQUE_LOGEMENTS_PDF_CHARGES_METIER` |
 | Branche | `feature/banque-logements-pdf-charges-metier` |
-| HEAD | `b17d3c8` — `feat(banque): suggestions branchees a l'interface et page de controles` |
+| HEAD | `a9ba40d` — `feat(factures): couche HTTP factures, factures a payer et reglements` (+ doc de statut) |
 | Dernier commit utile | idem |
 | git status | propre (`data_recette/` ignoré, régénérable) |
 | master / canonique | **intacts, jamais touchés** (`master` = `8b47807`) |
@@ -22,7 +22,7 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 | Logements | **TERMINÉ** | `28_CYCLE_DE_VIE_LOGEMENT.md`, `29_MODULE_LOGEMENTS_COUCHE_HTTP.md` |
 | Banque | **TERMINÉ** | `30_MODULE_BANQUE_IMPORT_RAPPROCHEMENT.md`, `31_MODULE_BANQUE_ETAT_FINAL.md` |
 | Charges | Antérieur, non retouché ce chantier | `27_VALIDATION_CHARGES_ET_CONTROLES.md` |
-| Fournisseurs / Factures / Règlements | **NON COMMENCÉ** (mission suivante) | — |
+| Fournisseurs / Factures / Règlements | **PARTIEL** — cœur utilisable et prouvé | `32_AUDIT_FOURNISSEURS_FACTURES.md`, `33_MODULE_FACTURES_ETAT.md` |
 
 ## Limites persistantes (volontaires, à ne pas re-auditer)
 
@@ -46,30 +46,39 @@ avec une régression.
 
 ## Mission active
 
-**Mission 2 — Fournisseurs, Factures et Règlements** (non commencée).
-Prochaine action précise : **audit ciblé §7** (45 min max) → produire le tableau
-`| Objet | Source de vérité actuelle | Manque | Cible |` dans un nouveau document
-`32_AUDIT_FOURNISSEURS_FACTURES.md` du même dossier, puis enchaîner sur le modèle de données.
+**Mission 2 — Fournisseurs, Factures et Règlements** : audit fait, modèle + services + couche HTTP
+construits et prouvés en navigateur. Statut **PARTIEL** (détail exhaustif dans
+`33_MODULE_FACTURES_ETAT.md`, section « Ce qui N'EST PAS construit »).
 
-Points déjà repérés pour cet audit (à confirmer, pas à re-chercher) :
-- `app/services/fournisseurs_referentiel_service.py` existe déjà et couvre **une grande partie du
-  §8** : lister / charger / rechercher doublons / créer / modifier / désactiver / réactiver /
-  historique, avec journal SQLite (`fournisseurs`, `fournisseur_evenements`, migration 0010).
-- `app/services/fournisseur_rattachements_service.py` + migration 0013 : association historisée
-  fournisseur↔logement.
-- `app/services/charges_affectations_service.py` + migration 0011, et
-  `proprietaires_paiement_service.py` + migration 0012 : briques de règlement déjà présentes.
-- Migration 0014 (`rapprochements_reglements`) : rapprochement déclaratif règlement↔mouvement, à
-  **réutiliser** plutôt que dupliquer.
-- Le module Banque expose déjà `banques_rapprochement_service` (générique, multi-objets) : le
-  rapprochement facture/règlement doit **réutiliser ce service**, jamais en créer un second.
+### Prochaine action précise (par ordre de valeur)
+
+1. **Brancher le rapprochement bancaire dans les deux sens** — c'est le chaînon manquant le plus
+   structurant. Tout existe déjà côté service :
+   - `banques_rapprochement_service.enregistrer(...)` accepte déjà le type d'objet
+     `REGLEMENT_CHARGE` ;
+   - `reglements_fournisseurs_service.marquer_rapproche(reglement_opaque, mvt_opaque)` existe et est
+     testé, mais n'est appelé par **aucune route**.
+   À faire : bouton « Rapprocher » sur la fiche facture/règlement → réutiliser
+   `banques_candidats_service` pour proposer les mouvements, puis appeler le service Banque.
+   **Ne jamais créer un second moteur de rapprochement.**
+2. **Fiche fournisseur enrichie** — `factures_service.solde_fournisseur()` existe et est testé,
+   mais aucun écran ne l'expose. Ajouter une fiche `/referentiel-fournisseurs/{opaque}` avec
+   total facturé / réglé / solde / échues / litiges + liste des factures et règlements.
+3. **Import PDF de facture** — réutiliser `02_TRAVAIL/lib_menages_externes_pdf.py`
+   (`extraire_pdf()`, `FactureExtraite`, `empreinte_facture()`). PyMuPDF est disponible ici.
+   Attention : l'extracteur ne connaît que 2 formats fournisseur ; prévoir un repli en saisie
+   manuelle pré-remplie plutôt qu'un échec.
+4. **Page `/factures/controles`** sur le modèle de `/banques-caisse/controles` (le service
+   `banques_controles_catalogue_service.py` est un bon patron à copier).
+5. **Seed du jeu de recette** — ajouter fournisseurs + factures fictives dans
+   `recette/build_data_recette.py` (aujourd'hui il ne seed que charges/banque/logements).
 
 ## Commandes exactes de reprise
 
 ```
 cd "C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Worktrees\BANQUE_LOGEMENTS_PDF_CHARGES_METIER"
 git branch --show-current          # doit afficher feature/banque-logements-pdf-charges-metier
-git log -1 --format="%H %s"        # doit afficher b17d3c8 ...
+git log -1 --format="%H %s"        # doit afficher a9ba40d ...
 git status --porcelain             # doit être vide
 
 # Régénérer le jeu de recette fictif (idempotent, écrase data_recette/) :
@@ -77,14 +86,19 @@ python recette/build_data_recette.py
 
 # Tests ciblés :
 cd 05_APPLICATION
-python -m pytest -q tests/ -k "banque"        # 171 passés, 29 skipés
-python -m pytest -q                            # suite complète (~21 min)
+python -m pytest -q tests/ -k "banque"                    # 171 passés, 29 skipés
+python -m pytest -q tests/ -k "facture or reglement"      # 49 passés
+python -m pytest -q                                        # suite complète (~28 min)
 
-# Serveur de recette (données fictives isolées, écritures autorisées uniquement sous data_recette) :
+# Serveur de recette (données fictives isolées, écritures autorisées uniquement sous data_recette).
+# APP_DATA_DIR isole aussi la base SQLite : sans lui, les factures de recette iraient dans la vraie
+# base applicative 05_APPLICATION/data/app.db.
 cd 05_APPLICATION
-PROJECT_ROOT="<worktree>/data_recette" RECETTE_MODE=1 \
+APP_DATA_DIR="<worktree>/data_recette/app_data" \
+  PROJECT_ROOT="<worktree>/data_recette" RECETTE_MODE=1 \
   BANQUE_REAL_WRITE_ENABLED=1 BANQUE_REAL_WRITE_CONFIRMATION_ENABLED=1 \
   CHARGES_REAL_WRITE_ENABLED=1 CHARGES_REAL_WRITE_CONFIRMATION_ENABLED=1 \
+  FACTURES_REAL_WRITE_ENABLED=1 FACTURES_REAL_WRITE_CONFIRMATION_ENABLED=1 \
   python -m uvicorn app.main:app --port 8020 --host 127.0.0.1
 ```
 

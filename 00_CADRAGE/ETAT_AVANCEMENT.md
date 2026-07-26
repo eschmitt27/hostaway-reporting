@@ -862,3 +862,24 @@ Affichage livré : indicateur de **fraîcheur** (mtime sources vs master), **exp
 la règle est D100/D099 (attendu réservé aux logements hors Hostaway, anti double-comptage) ; gap
 décision↔code documenté (lot6d n'ajoute pas les réservations HH) ; décision humaine requise, aucun Lot6g
 deviné. Documentation : `APP2_MENAGES_ETAT.md` §9-§14. Contrôle : `CTR-APP2B-RECALCUL-01`.
+
+## Chantier BANQUE_LOGEMENTS_PDF_CHARGES_METIER (branche dédiée, 2026-07)
+
+Suivi détaillé : `00_CADRAGE/BANQUE_LOGEMENTS_PDF_CHARGES_METIER_20260724/HANDOFF_CANONIQUE.md`
+(document de reprise canonique, à lire en premier).
+
+- **Logements — TERMINÉ.** Cycle de vie complet piloté depuis le navigateur (création, modification,
+  archivage, réactivation, changement de propriétaire et de taux de commission, historisation
+  datée, jamais de modification d'une ligne close). Docs 28 et 29.
+- **Banque — TERMINÉ.** Import CSV/XLSX (prévisualisation scellée, confirmation transactionnelle,
+  réimport idempotent), rapprochement persistant multi-objets (partiel/multiple, refus des
+  dépassements et doubles), suggestions explicables sans validation silencieuse, catalogue de
+  contrôles applicatifs. Docs 30 et 31.
+- **Fournisseurs / Factures / Règlements — PARTIEL.** Chaîne
+  `Fournisseur → Facture → Charge → Règlement → Solde` utilisable et prouvée en navigateur.
+  Restent : import PDF/CSV, fiche fournisseur avec solde, branchement du rapprochement bancaire,
+  page de contrôles dédiée. Docs 32 et 33.
+
+Limites persistantes assumées : forfait logiciel historisé (moteur Lot10) non commencé ; `pandas`
+absent de l'environnement, donc les moteurs Lot9/Lot10 complets ne sont pas exécutables — les
+vérifications d'impact reproduisent *verbatim* leurs filtres réels dans des tests.
