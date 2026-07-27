@@ -50,6 +50,9 @@ EXPECTED_TABLES = {
     "calculs_sauvegardes",                  # 0018 — sauvegardes des sorties (rollback)
     "cloture_statuts",                      # 0018 — statut mensuel applicatif
     "cloture_statut_evenements",            # 0018 — historique des transitions de clôture
+    "menages",                              # 0019 — cycle de vie opérationnel du ménage unitaire
+    "menage_evenements",                    # 0019 — historique append-only des ménages
+    "fournisseur_menage_qualification",     # 0019 — qualification ménage du référentiel Fournisseurs
 }
 
 
