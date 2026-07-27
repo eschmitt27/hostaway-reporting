@@ -15,9 +15,14 @@ from __future__ import annotations
 import csv
 import os
 import shutil
+import sys
 from pathlib import Path
 
 import openpyxl
+
+# Import robuste quel que soit le répertoire courant (le dossier recette/ n'est pas un package).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import build_reservations_recette  # noqa: E402
 
 WT = Path(__file__).resolve().parent.parent          # racine du worktree
 SRC_REF = WT / "01_SOURCES_BRUTES" / "REF_Setup" / "REF_Setup.xlsm"
@@ -34,6 +39,11 @@ SCRUB = {
 }
 
 PERIODE = "2026-06"
+# Mois forcés OUVERT dans le REF de recette. Le mois de recette lui-même, plus les mois qui
+# portent le remplissage de volume de `build_reservations_recette` : sur un mois CLOTURE sans
+# historique, lot4quater bascule en repli CLOTURE_SANS_HIST et n'alimente pas VUE_FLUX, ce qui
+# ferait échouer le contrôle de volume CTR-9-003 de lot9 (VUE_FLUX >= 1000).
+MOIS_OUVERTS = {PERIODE} | {f"2026-{m:02d}" for m in range(1, 6)}
 
 # Feuilles copiées mais vidées (PII non nécessaire à la recette Charges — ex. règles banque).
 EMPTY_HEADER_ONLY = {"REF_Banque_Regles"}
@@ -175,14 +185,14 @@ def build_ref_setup(dst: Path):
             seen = set()
             for r in rows[1:]:
                 d = dict(zip(header, r))
-                # forcer la période de recette OUVERTE
-                if str(d.get("mois")) == PERIODE:
+                # forcer les mois de recette OUVERTS (cf. MOIS_OUVERTS)
+                if str(d.get("mois")) in MOIS_OUVERTS:
                     d["statut_mois"] = "OUVERT"
                 seen.add(str(d.get("mois")))
                 new.append([d.get(h) for h in header])
-            if PERIODE not in seen:
+            for mois in sorted(MOIS_OUVERTS - seen):
                 d = {h: None for h in header}
-                d["mois"] = PERIODE; d["statut_mois"] = "OUVERT"; d["commentaire"] = "FICTIF recette"
+                d["mois"] = mois; d["statut_mois"] = "OUVERT"; d["commentaire"] = "FICTIF recette"
                 new.append([d.get(h) for h in header])
         elif ws.title in EMPTY_HEADER_ONLY:
             new.append(header)                      # PII réelle retirée : en-tête seul
@@ -237,6 +247,42 @@ def build_lot7(dst: Path):
     src.close()
     dst.parent.mkdir(parents=True, exist_ok=True)
     out.save(dst)
+
+
+# Sources que lot11 charge inconditionnellement : leur ABSENCE fait planter le lot, alors qu'une
+# source vide est un cas métier normal. On en recopie l'EN-TÊTE SEUL depuis le fichier réel —
+# lecture seule, aucune ligne de données, donc aucune PII.
+ENTETES_SEULES = (
+    "02_TRAVAIL/Lot1_Hostaway/MASTER_CTRL_HA_Anomalies.xlsx",
+    "02_TRAVAIL/Lot4_ReservationsHH/MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx",
+    "02_TRAVAIL/Lot5_AcomptesProprietaires/MASTER_FACT_MAN_AcomptesProprietaires.xlsx",
+    "02_DONNEES_NORMALISEES/menages/M04_MENAGES_PowerQuery.xlsx",
+    "01_SOURCES_BRUTES/AirCover/SAISIE_AirCover.xlsx",
+    "01_SOURCES_BRUTES/ImputationsAirbnb/SAISIE_ImputationsAirbnb.xlsx",
+    "01_SOURCES_BRUTES/AjustementsPostCloture/SAISIE_Ajustements_PostCloture.xlsx",
+)
+
+
+def build_entetes_seules():
+    """Recopie l'en-tête (1re ligne) de chaque onglet des sources ci-dessus, sans aucune donnée."""
+    for rel in ENTETES_SEULES:
+        src_path = WT / rel
+        if not src_path.exists():
+            print(f"   [entête seule] source absente, ignorée : {rel}")
+            continue
+        src = openpyxl.load_workbook(src_path, read_only=True, data_only=True)
+        out = openpyxl.Workbook()
+        out.remove(out.active)
+        for ws in src.worksheets:
+            new = out.create_sheet(ws.title)
+            premiere = next(ws.iter_rows(values_only=True), None)
+            if premiere is not None:
+                new.append([_sanitize(v) for v in premiere])
+        src.close()
+        dst = REC / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        out.save(dst)
+    print(f"   {len(ENTETES_SEULES)} sources recopiées en en-tête seul (aucune donnée)")
 
 
 def build_master_charges_empty(dst: Path):
@@ -321,11 +367,15 @@ def build_banque(dst: Path):
     ]
     for mid, date_op, libelle, montant, sens, tiers, categorie, type_flux, statut, commentaire in lignes:
         row_hash = f"{mid}-HASH"
+        # code_impact : seuls les flux repris par lot9 doivent en porter un. lot9 exige un
+        # code_impact valide (CTR-9-006) sur les TYPE_FLUX_016 (frais bancaires) qu'il injecte ;
+        # un code_impact vide y produirait un BLOQUANT. Les autres mouvements ne sont pas repris.
+        code_impact = "IC" if type_flux == "TYPE_FLUX_016" else ""
         ws.append([
             mid, row_hash, "IMPORT_SEED_2026_06", 1,
             date_op, date_op, libelle, libelle,
             montant, sens, "EUR", compte,
-            tiers, categorie, type_flux, "",
+            tiers, categorie, type_flux, code_impact,
             "REGLE_DETERMINISTE", "",
             statut, "FAIBLE",
             "", "2026-06-30", commentaire,
@@ -522,9 +572,20 @@ def main():
     for py in (WT / "02_TRAVAIL").glob("*.py"):
         shutil.copy2(py, dst_travail / py.name)
     build_pbi_logements(REC / "03_EXPORTS" / "PowerBI" / "PBI_Referentiel_Logements.csv")
+    # Sources amont de la chaîne aval (réservations live lot4bis + payout + ménages externes).
+    # Appelé AVANT build_banque : ce builder ne touche pas au fichier bancaire, mais l'ordre rend
+    # explicite que build_banque est la seule autorité sur BANQUE_LOT8_IMPORT.xlsx.
+    build_reservations_recette.build()
+    build_entetes_seules()
     build_banque(REC / "02_TRAVAIL" / "Lot8_Banque" / "BANQUE_LOT8_IMPORT.xlsx")
     # dossiers data applicatifs isolés
     (REC / "data" / "snapshots").mkdir(parents=True, exist_ok=True)
+    # Dossiers de sortie des lots aval : certains moteurs écrivent sans créer leur répertoire
+    # (pd.ExcelWriter échoue alors APRÈS avoir fait tout le travail). En réel ils existent déjà.
+    for rel in ("02_TRAVAIL/Lot9_FluxUnifie", "02_TRAVAIL/Lot10_Resultats",
+                "02_TRAVAIL/Lot11_Controles", "02_TRAVAIL/Lot12_Factures",
+                "03_EXPORTS/PowerBI"):
+        (REC / rel).mkdir(parents=True, exist_ok=True)
     # Base applicative de recette (fournisseurs/factures/règlements) — jamais la base réelle.
     # Le serveur de recette doit être lancé avec APP_DATA_DIR=<data_recette>/app_data pour la lire.
     build_factures_sqlite(REC / "app_data" / "app.db")
