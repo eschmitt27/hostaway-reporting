@@ -91,6 +91,61 @@ def _payout_row(rid_ha, lg, typ, montant):
     }
 
 
+HA_TASKS_HDR = ['task_id', 'ROW_HASH', 'mois', 'logement_id', 'proprietaire_id', 'listingMapId',
+                'reservation_id', 'scheduled_date', 'title', 'status', 'statut_menage',
+                'type_ligne_menage_id', 'type_ligne_menage_lib', 'compte_comme_menage']
+
+HA_COMPTAGE_HDR = ['mois', 'logement_id', 'proprietaire_id', 'nb_menages_realises',
+                   'nb_menages_confirmes', 'nb_menages_pending', 'nb_menages_annules',
+                   'nb_taches_total', 'statut_controle', 'niveau_anomalie', 'code_anomalie']
+
+
+def build_menages_hostaway():
+    """Tâches de ménage Hostaway fictives — source amont de lot6d (onglet MASTER_ENRICHI).
+
+    Un ménage réalisé par logement du parc sur le mois de recette. Sans cette source, lot6d
+    échoue (`IndexError` sur le glob du MASTER Hostaway) et toute la chaîne ménages s'arrête.
+    """
+    enrichi, comptage = [], []
+    for n, (lg, pr, _typ) in enumerate(PARC, start=1):
+        enrichi.append({
+            'task_id': 800000 + n, 'ROW_HASH': _hash('TASK', lg), 'mois': '2026-06',
+            'logement_id': lg, 'proprietaire_id': pr, 'listingMapId': 900000,
+            'reservation_id': 700000 + n, 'scheduled_date': '2026-06-08',
+            'title': 'Menage sortie', 'status': 'completed', 'statut_menage': 'REALISE',
+            'type_ligne_menage_id': 'MEN_STD', 'type_ligne_menage_lib': 'Menage standard',
+            'compte_comme_menage': 'OUI',
+        })
+        comptage.append({
+            'mois': '2026-06', 'logement_id': lg, 'proprietaire_id': pr,
+            'nb_menages_realises': 1, 'nb_menages_confirmes': 1, 'nb_menages_pending': 0,
+            'nb_menages_annules': 0, 'nb_taches_total': 1, 'statut_controle': 'VALIDE',
+            'niveau_anomalie': 'INFO', 'code_anomalie': None,
+        })
+
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    ws = wb.create_sheet('data')
+    ws.append(['task_id', 'reservation_id', 'listingMapId', 'title', 'status', 'canStartFrom',
+               'assigneeUserId', 'cost', 'h6_note', 'extrait_le', 'ROW_HASH'])
+    for r in enrichi:
+        ws.append([r['task_id'], r['reservation_id'], r['listingMapId'], r['title'], r['status'],
+                   '2026-06-08', 1, 0, '', '2026-06-30T00:00:00', r['ROW_HASH']])
+    ws = wb.create_sheet('MASTER_ENRICHI')
+    ws.append(HA_TASKS_HDR)
+    for r in enrichi:
+        ws.append([r.get(h) for h in HA_TASKS_HDR])
+    ws = wb.create_sheet('VUE_COMPTAGE')
+    ws.append(HA_COMPTAGE_HDR)
+    for r in comptage:
+        ws.append([r.get(h) for h in HA_COMPTAGE_HDR])
+
+    dst = REC / "02_TRAVAIL" / "Lot1_Hostaway" / "MASTER_FACT_HA_CleaningTasks_Discovery.xlsx"
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(dst)
+    print(f"   menages Hostaway : {len(enrichi)} taches realisees (1 par logement)")
+
+
 def build():
     live_rows, payout_rows = [], []
     n = 0
@@ -146,6 +201,8 @@ def build():
     dst = REC / "02_TRAVAIL" / "Lot6c_MenagesExternes" / "MASTER_FACT_MEN_MenagesExternes.xlsx"
     dst.parent.mkdir(parents=True, exist_ok=True)
     wb.save(dst)
+
+    build_menages_hostaway()
 
     print(f"   réservations live : {len(live_rows)} lignes (dont 4 propres 2026-06) "
           f"| payout : {len(payout_rows)}")

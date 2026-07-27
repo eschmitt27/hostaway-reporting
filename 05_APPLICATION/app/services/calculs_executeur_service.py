@@ -107,11 +107,25 @@ CHAINE_CHARGES: tuple[Lot, ...] = (
         runner="charges_post_write_runner.py"),
 )
 
+# Sorties reprises de `menages_chaine_service.SORTIES_CHAINE`, seule cartographie auditée de cette
+# chaîne. Elles étaient absentes : sans sortie déclarée, `sorties_ok` vaut True par construction et
+# la garantie « jamais de faux succès » ne s'appliquait PAS à ces lots — un lot6* sortant 0 sans
+# rien produire aurait été annoncé SUCCES.
 CHAINE_MENAGES: tuple[Lot, ...] = (
-    Lot("lot6b", "lot6b_m04_menages_internes.py"),
-    Lot("lot6d", "lot6d_rapprochement_menages.py", depend_de=("lot6b",)),
-    Lot("lot6e", "lot6e_gainperte_menages.py", depend_de=("lot6d",)),
-    Lot("lot6f", "lot6f_cout_complet_menages.py", depend_de=("lot6e",)),
+    Lot("lot6b", "lot6b_m04_menages_internes.py",
+        sorties=("02_TRAVAIL/Lot6b_DeclarationsInternes/MASTER_NORM_Declarations_Internes.xlsx",
+                 "02_DONNEES_NORMALISEES/menages/M04_MENAGES_PowerQuery.xlsx")),
+    Lot("lot6c", "lot6c_menages_externes.py",
+        sorties=("02_TRAVAIL/Lot6c_MenagesExternes/MASTER_FACT_MEN_MenagesExternes.xlsx",)),
+    Lot("lot6d", "lot6d_rapprochement_menages.py",
+        sorties=("02_TRAVAIL/Lot6d_Rapprochement_Menages/MASTER_CTRL_Rapprochement_Menages.xlsx",),
+        depend_de=("lot6b", "lot6c")),
+    Lot("lot6e", "lot6e_gainperte_menages.py",
+        sorties=("02_TRAVAIL/Lot6e_GainPerte_Menages/MASTER_CALC_GainPerte_Menages.xlsx",),
+        depend_de=("lot6d",)),
+    Lot("lot6f", "lot6f_cout_complet_menages.py",
+        sorties=("02_TRAVAIL/Lot6f_CoutComplet_Menages/MASTER_CALC_CoutComplet_Menages.xlsx",),
+        depend_de=("lot6e",)),
 )
 
 TOUS_LES_LOTS: dict[str, Lot] = {

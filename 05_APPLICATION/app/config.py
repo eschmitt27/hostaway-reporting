@@ -125,7 +125,10 @@ LOT4A_ENGINE_TIMEOUT_SECONDS = int(os.environ.get("LOT4A_ENGINE_TIMEOUT_SECONDS"
 #   MODE_REEL   : régénérerait les MASTER ménages EN PLACE (via run_menages_pipeline,
 #                 qui commence par lot6b → Google Sheet + réécriture M04/MASTER_NORM).
 #                 BLOQUÉ tant que ce flag est False. Ne jamais l'activer par défaut.
-MENAGES_REAL_RECALC_ENABLED = False
+# Aligné sur le double verrou commun à tous les writers (RECETTE_MODE + variable dédiée) : c'était
+# la dernière garde codée en dur, ce qui faisait mentir la règle « double verrou partout » et
+# empêchait de l'activer comme les autres. Reste False par défaut ; mode réel jamais activé.
+MENAGES_REAL_RECALC_ENABLED = RECETTE_MODE and _env_flag("MENAGES_REAL_RECALC_ENABLED")
 # Interpréteur moteur du recalcul (porte openpyxl ; réutilise l'interpréteur pandas du moteur).
 MENAGES_ENGINE_PYTHON = Path(os.environ.get("MENAGES_ENGINE_PYTHON", str(LOT4A_ENGINE_PYTHON)))
 MENAGES_RECALC_TIMEOUT_SECONDS = int(os.environ.get("MENAGES_RECALC_TIMEOUT_SECONDS", "300"))

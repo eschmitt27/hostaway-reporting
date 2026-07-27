@@ -2505,3 +2505,33 @@ NON CONSTRUIT, SIGNALE : "charge posterieure a une cloture validee" n'est interd
 mecanisme applicatif. La cloture applicative est un suivi ; la cloture reelle reste portee par
 REF_Cloture_Mensuelle.
 REFERENCE : 39_CHAINE_CHARGES_EXERCEE.md
+
+
+## 2026-07-27 - Menages : audit et trou dans la garantie "jamais de faux succes" (phase 3)
+
+CONTROLE : sorties declarees des lots pilotes.
+CONSTAT : les lots Menages etaient declares sorties=(). Or sorties_ok = all(...) if sorties else
+True : SANS SORTIE DECLAREE, LA GARANTIE NE S'APPLIQUAIT PAS. Un lot6* sortant en code 0 sans rien
+produire aurait ete annonce SUCCES. Le meme piege que lot3, sur une autre chaine.
+CORRECTION : sorties declarees d'apres menages_chaine_service.SORTIES_CHAINE (seule cartographie
+auditee) + test test_chaque_lot_menages_declare_ses_sorties.
+
+CONTROLE : completude de la chaine Menages du pilotage.
+CONSTAT : lot6c manquait, alors que lot6d consomme sa sortie. Le test d'ordre comparait la chaine
+a une liste recopiee a la main, donc il ne pouvait pas detecter l'oubli.
+CORRECTION : lot6c ajoute, dependance lot6d <- (lot6b, lot6c) ; le test compare desormais a
+menages_chaine_service.STEPS_CHAINE.
+
+CONTROLE : double verrou d'ecriture.
+CONSTAT : MENAGES_REAL_RECALC_ENABLED etait la DERNIERE garde codee en dur (= False), ce qui
+faisait mentir la regle "double verrou partout".
+CORRECTION : aligne sur RECETTE_MODE and _env_flag(...). Reste False par defaut ; mode reel NON
+active.
+
+ETAT REEL DE LA CHAINE : lot6b SUCCES (2,6 s), lot6c SUCCES (1,7 s), lot6d ECHEC.
+Blocage 1 (leve) : source Hostaway absente -> IndexError sur le glob de
+MASTER_FACT_HA_CleaningTasks_Discovery.xlsx. build_menages_hostaway() la seede (4 taches).
+Blocage 2 (NON leve) : lot6d_rapprochement_menages.py:220
+TypeError: '<' not supported between instances of 'NoneType' and 'str' - une source agregee porte
+un logement_id ou proprietaire_id nul. Rien n'est declare fonctionnel au-dela de lot6c.
+REFERENCE : 40_AUDIT_MENAGES.md

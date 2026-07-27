@@ -92,6 +92,59 @@ autres verrous d'écriture ont été migrés vers le double verrou
 elle empêche d'activer ce mode par variable d'environnement comme les autres, et fait mentir la
 règle « double verrou partout ». À aligner.
 
+## Ce qui a été fait après l'audit (phase 3, bloc 1)
+
+Trois corrections isolées, chacune trouvée en exerçant et non en relisant.
+
+### 1. Dernier verrou codé en dur, aligné
+
+`MENAGES_REAL_RECALC_ENABLED = False` était la seule garde d'écriture encore écrite en dur. Elle
+fait mentir la règle « double verrou partout » et interdisait l'activation par variable
+d'environnement. Alignée sur `RECETTE_MODE and _env_flag(…)`. **Reste False par défaut ; le mode
+réel n'est pas activé.**
+
+### 2. Trou dans la garantie « jamais de faux succès »
+
+Les lots Ménages étaient déclarés `sorties=()`. Or `sorties_ok = all(...) if sorties else True` :
+sans sortie déclarée, **la garantie ne s'appliquait pas à ces lots**. Un lot6* sortant en code 0
+sans rien produire aurait été annoncé SUCCES.
+
+Sorties déclarées d'après `menages_chaine_service.SORTIES_CHAINE`, seule cartographie auditée. Un
+test (`test_chaque_lot_menages_declare_ses_sorties`) empêche la régression.
+
+### 3. `lot6c` manquait dans la chaîne du pilotage
+
+Le pilotage déclarait `lot6b → lot6d → lot6e → lot6f`. `lot6c` (ménages externes) est pourtant une
+étape du runner existant, et lot6d **consomme** sa sortie. Ajouté, avec la dépendance
+`lot6d ← (lot6b, lot6c)`.
+
+Le test d'ordre comparait la chaîne à une liste recopiée à la main ; il la compare désormais à
+`menages_chaine_service.STEPS_CHAINE`, de sorte qu'une divergence entre le pilotage et
+l'orchestrateur casse le test au lieu de passer inaperçue.
+
+## État réel de la chaîne Ménages en recette
+
+| Lot | Statut | Détail |
+|---|---|---|
+| lot6b | ✅ **SUCCES** | 2,6 s — déclarations internes + M04 produits et vérifiés |
+| lot6c | ✅ **SUCCES** | 1,7 s — ménages externes produits et vérifiés |
+| lot6d | ⛔ **ECHEC** | voir ci-dessous |
+| lot6e | — | non atteint |
+| lot6f | — | non atteint |
+
+Deux blocages successifs, le premier levé :
+
+1. **Source Hostaway absente** — `IndexError` sur le glob de
+   `MASTER_FACT_HA_CleaningTasks_Discovery.xlsx`. **Levé** : `build_menages_hostaway()` seede
+   désormais cette source (4 tâches réalisées, une par logement du parc, onglets `data`,
+   `MASTER_ENRICHI`, `VUE_COMPTAGE`).
+2. **Clé `None` dans l'agrégation de lot6d** — `TypeError: '<' not supported between instances of
+   'NoneType' and 'str'` (`lot6d_rapprochement_menages.py:220`, tri de `res_app`). Une des sources
+   agrégées porte un `logement_id` ou `proprietaire_id` nul. **Non résolu** : identifier laquelle
+   demande d'inspecter les sorties de lot6b/lot6c dans le workspace, travail non entamé.
+
+C'est le point de reprise exact. Rien n'est déclaré fonctionnel au-delà de lot6c.
+
 ## Décision de conduite
 
 Construire le cycle de vie opérationnel demandé (statuts, création hors Hostaway, affectation,

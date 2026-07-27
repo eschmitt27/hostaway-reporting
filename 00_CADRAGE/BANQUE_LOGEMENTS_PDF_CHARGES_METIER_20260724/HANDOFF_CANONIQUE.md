@@ -122,15 +122,53 @@ et Lot3 produit lui-même le MASTER.
 Réconciliation : REEL 558,90 = COMPTABLE 493,90 + HC 65,00. Net propriétaire **inchangé**
 (scénario A), somme à payer **+150,00 exactement** (scénario B). Idempotence et rollback prouvés.
 
+## Phase 3 — Ménages : audit fait, chaîne partiellement exercée (doc `40`)
+
+**Le module Ménages existe déjà** : 3 services, 13 routes, 7 écrans, 6 fichiers de tests, 2 exports
+Power BI. Ce n'est pas une construction mais une **extension**. Ce qui manque est le **cycle de vie
+opérationnel** (statuts, création hors Hostaway, affectation d'un prestataire, rattachements
+facture/charge/règlement/banque, prestataires qualifiés, catalogue de contrôles) — un chantier
+comparable à Factures.
+
+Trois corrections livrées, chacune trouvée en exerçant :
+
+1. `MENAGES_REAL_RECALC_ENABLED` était le **dernier verrou codé en dur** → aligné sur le double
+   verrou. Reste False ; mode réel non activé.
+2. Les lots Ménages ne déclaraient **aucune sortie** : la garantie « jamais de faux succès » ne
+   s'appliquait donc **pas** à eux. Sorties déclarées + test de non-régression.
+3. `lot6c` **manquait** dans la chaîne du pilotage alors que lot6d consomme sa sortie. Ajouté ; le
+   test d'ordre compare désormais à `menages_chaine_service.STEPS_CHAINE` au lieu d'une liste
+   recopiée.
+
+État réel : **lot6b ✅, lot6c ✅, lot6d ⛔**. Le premier blocage (source Hostaway absente) est levé
+par `build_menages_hostaway()`. Le second ne l'est pas :
+
+```
+lot6d_rapprochement_menages.py:220
+TypeError: '<' not supported between instances of 'NoneType' and 'str'
+```
+
+Une des sources agrégées porte un `logement_id` ou `proprietaire_id` nul.
+
 ## Prochaine action précise
 
-1. **Phase 3 — module Ménages**. Point de départ : `menages_chaine_service.py` **existe déjà** avec
-   un runner complet lot6b → lot6f + lot11 (`runners/menages_recalcul_runner.py`, stubs Hostaway
-   sous `runners/stubs_menages/`). Ne pas le réécrire : l'auditer, le brancher, puis construire le
-   module opérationnel (écrans, statuts, prestataires, contrôles).
-2. Le **mode réel** du pilotage reste à activer sur décision explicite
+1. **Débloquer lot6d** : inspecter les sorties de lot6b (`MASTER_NORM_Declarations_Internes`,
+   `M04_MENAGES_PowerQuery`) et de lot6c (`MASTER_FACT_MEN_MenagesExternes`) dans `data_recette`,
+   trouver la ligne à clé nulle et corriger la **source de recette** (pas le moteur). Puis
+   lot6d → lot6e → lot6f, et vérifier l'effet sur Lot9/Lot10/Lot11.
+2. **Arbitrer trois règles métier** avant tout écran de tarif — détail dans `40` :
+   - pivot du coût fixe : le brief dit « avant mai 2026 », le moteur pivote au **1er juin 2026**
+     (`lib_menage_costs.PIVOT_FIXED_COST`) ;
+   - « ménage externe = facture + quote-part des courses ménage » : quote-part présente côté lot6f
+     mais **pools vides** ;
+   - « ménage interne + cave 50 € » : **introuvable dans le code**.
+3. **Puis** le cycle de vie opérationnel, dans cet ordre : modèle SQLite du ménage unitaire +
+   statuts → qualification prestataires sur le référentiel Fournisseurs (jamais un second
+   référentiel) → services → écrans et rattachements → catalogue de contrôles → jeu de recette,
+   recette navigateur, pipeline.
+4. Le **mode réel** du pilotage reste à activer sur décision explicite
    (`CALCULS_REAL_RUN_ENABLED`) — garde-fous en place, jamais activé.
-3. Non construit, signalé : « charge postérieure à une clôture validée » n'est interdit par aucun
+5. Non construit, signalé : « charge postérieure à une clôture validée » n'est interdit par aucun
    mécanisme applicatif.
 
 ## Commandes exactes de reprise

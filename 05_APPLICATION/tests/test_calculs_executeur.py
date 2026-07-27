@@ -180,8 +180,23 @@ def test_chaine_aval_respecte_l_ordre_du_runner_existant():
 
 
 def test_chaine_menages_respecte_l_ordre_du_runner_existant():
-    noms = [l.nom for l in ex.CHAINE_MENAGES]
-    assert noms == ["lot6b", "lot6d", "lot6e", "lot6f"]
+    """L'ordre vient de `menages_chaine_service.STEPS_CHAINE`, seule cartographie auditée.
+
+    Comparé à cette source plutôt qu'à une liste recopiée : une divergence entre le pilotage et
+    l'orchestrateur existant doit casser ce test au lieu de passer inaperçue. `lot6c` manquait —
+    c'est pourtant une étape du runner, et il produit les ménages externes que lot6d consomme.
+    """
+    from app.services import menages_chaine_service as chaine
+    attendu = [e["name"].split("_")[0] for e in chaine.STEPS_CHAINE
+               if e["name"].startswith("lot6")]
+    assert [l.nom for l in ex.CHAINE_MENAGES] == attendu
+
+
+def test_chaque_lot_menages_declare_ses_sorties():
+    """Sans sortie déclarée, `sorties_ok` vaut True par construction : la garantie « jamais de faux
+    succès » ne s'appliquait PAS à ces lots. Aucun n'en déclarait."""
+    for lot in ex.CHAINE_MENAGES:
+        assert lot.sorties, f"{lot.nom} ne déclare aucune sortie : faux succès possible."
 
 
 def test_dependances_declarees_coherentes():
