@@ -53,6 +53,7 @@ EXPECTED_TABLES = {
     "menages",                              # 0019 — cycle de vie opérationnel du ménage unitaire
     "menage_evenements",                    # 0019 — historique append-only des ménages
     "fournisseur_menage_qualification",     # 0019 — qualification ménage du référentiel Fournisseurs
+    "facture_classification",               # 0020 — sens/type de facture (audit Factures/Charges)
 }
 
 
