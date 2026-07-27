@@ -16,7 +16,7 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 | master / canonique | **intacts, jamais touchés** (`master` = `8b47807`) |
 | Sources réelles | inchangées, **une exception assumée** : `02_TRAVAIL/lot13_export_powerbi.py`, sur décision utilisateur explicite (renommage de la colonne d'export). Aucune donnée réelle touchée ; toutes les écritures de recette restent sous `data_recette/` |
 | Campagnes ciblées de ce tour | `test_lot13_filet_anti_sensible` **11 passés** · `test_charges_pipeline` **19 passés** · `test_calculs_executeur` **21 passés** · `-k "calculs or lot13 or charges_pipeline or menages_chaine"` **103 passés / 10 skipés** · `test_recette_scenarios` **1 passé** · tests moteur racine (interpréteur pandas) **31 passés** |
-| Suite complète | **à relancer** — dernier total connu **1948 passés / 65 skipés / 1 échec pré-existant** (tour précédent, HEAD `a19d6b4`). La relance de ce tour a été interrompue avant terme ; aucun total n'est reporté ici tant qu'il n'est pas constaté. Commande : `cd 05_APPLICATION && python -m pytest -q` (~20 min) |
+| Suite complète | **1967 passés / 75 skipés / 1 échec pré-existant** (`test_appsec1_diagnostic`). Exécutée en **4 tranches** (507+17 · 508+8 · 578+6 · 374+44) car la suite d'un seul tenant dépasse le délai d'exécution disponible : `python -m pytest -q -p no:cacheprovider $(ls tests/test_*.py \| awk 'NR%4==1')`, puis `NR%4==2`, `==3`, `==0` |
 
 ## Modules
 
@@ -62,6 +62,23 @@ soumission ne se propagent pas au DOM (même défaillance qu'aux tours précéde
 Contournement utilisé : `element.click()` puis `form.requestSubmit()` dans le moteur JS de la page
 — vrais événements DOM, vraie soumission HTTP, mais le geste physique n'est pas reproduit. Le reste
 du parcours (navigation, lecture, vérification, redémarrage) est réel.
+
+## Piège d'exploitation : verrou d'exécution périmé
+
+`test_menages_chaine.py::test_chaine_e2e_reelle_sur_copies` a échoué sur
+`KeyError: 'reel_intact'` : `executer_chaine` sortait avant terme parce que
+`05_APPLICATION/data/.menages_chaine.lock` traînait, laissé par un run interrompu. Le pid inscrit
+dans le verrou n'existait plus.
+
+Le verrou n'est **pas invalidé automatiquement quand son pid est mort**. Après toute interruption
+brutale d'un run ménages :
+
+```
+rm -f 05_APPLICATION/data/.menages_chaine.lock
+```
+
+Ce fichier est désormais dans `.gitignore` (il porte un pid et un nom de machine) ; il y avait été
+oublié, contrairement à son équivalent `.saisie_charges_write.lock`.
 
 ## Anomalie de test connue (pré-existante, hors périmètre)
 
