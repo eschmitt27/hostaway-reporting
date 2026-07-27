@@ -19,6 +19,8 @@ def db(tmp_path, monkeypatch):
     p = tmp_path / "test.db"
     apply_migrations(p)
     monkeypatch.setattr(cfg, "RECETTE_MODE", True)
+    monkeypatch.setattr(cfg, "MENAGES_CYCLE_REAL_WRITE_ENABLED", True)
+    monkeypatch.setattr(cfg, "MENAGES_CYCLE_REAL_WRITE_CONFIRMATION_ENABLED", True)
 
     def _fake_load_detail(logement_id):
         if logement_id == LOGEMENT:
@@ -66,6 +68,20 @@ def fournisseur_interne(db):
 
 FORM = {"logement_id": LOGEMENT, "mois": "2026-06", "type_menage": "EXTERNE",
         "date_prevue": "2026-06-10", "duree_prevue_h": 2.0, "cout_prevu": 45.0}
+
+
+# ── Double verrou d'écriture ──────────────────────────────────────────────────
+
+def test_creer_refuse_sans_les_flags(db, monkeypatch):
+    monkeypatch.setattr(cfg, "MENAGES_CYCLE_REAL_WRITE_ENABLED", False)
+    res = svc.creer(dict(FORM), db_path=db)
+    assert not res["ok"] and res["code"] == svc.E_FLAGS
+
+
+def test_creer_refuse_avec_le_flag_seul_sans_confirmation(db, monkeypatch):
+    monkeypatch.setattr(cfg, "MENAGES_CYCLE_REAL_WRITE_CONFIRMATION_ENABLED", False)
+    res = svc.creer(dict(FORM), db_path=db)
+    assert not res["ok"] and res["code"] == svc.E_FLAGS
 
 
 # ── Création hors Hostaway ───────────────────────────────────────────────────

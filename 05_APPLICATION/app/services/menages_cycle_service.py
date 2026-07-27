@@ -24,7 +24,16 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+import app.config as cfg
 from app.db.connection import get_db
+
+E_FLAGS = "E_FLAGS_DESACTIVES"
+
+
+def _flags_actifs() -> bool:
+    return bool(cfg.MENAGES_CYCLE_REAL_WRITE_ENABLED
+               and cfg.MENAGES_CYCLE_REAL_WRITE_CONFIRMATION_ENABLED)
+
 
 # ── Statuts ───────────────────────────────────────────────────────────────────
 ST_PREVU = "PREVU"
@@ -82,6 +91,7 @@ MESSAGES = {
     E_PRESTATAIRE_INCOMPATIBLE: "Ce prestataire n'est pas qualifié pour ce type de ménage.",
     E_DOUBLON: "Un ménage identique existe déjà pour ce logement, ce mois et cette date.",
     E_TARIF_HISTORIQUE_ABSENT: "Aucun tarif historique applicable à cette date.",
+    E_FLAGS: "Écriture du cycle Ménages désactivée sur cette installation.",
 }
 
 
@@ -173,6 +183,8 @@ def _prestataire_qualifie(fournisseur_opaque: str, type_menage: str, logement_id
 def creer(form: dict[str, Any], *, acteur: str = "", db_path=None) -> dict[str, Any]:
     """Création hors Hostaway. Bloque : doublon, logement inconnu, propriétaire non résolu,
     prestataire archivé, date invalide, tarif historique absent (si prestataire déjà affecté)."""
+    if not _flags_actifs():
+        return _refus(E_FLAGS)
     logement_id = _txt(form.get("logement_id"))
     mois = _txt(form.get("mois"))
     type_menage = _txt(form.get("type_menage")).upper()
@@ -263,6 +275,8 @@ def historique(opaque: str, db_path=None) -> list[dict[str, Any]]:
 def affecter(opaque: str, fournisseur_opaque: str, *, acteur: str = "", commentaire: str = "",
             db_path=None) -> dict[str, Any]:
     """Affecte (ou change) le prestataire. L'ancien reste dans l'historique — jamais réécrit."""
+    if not _flags_actifs():
+        return _refus(E_FLAGS)
     m = charger(opaque, db_path)
     if m is None:
         return _refus(E_INTROUVABLE, opaque)
@@ -296,6 +310,8 @@ def remplacer(opaque: str, nouveau_fournisseur_opaque: str, *, acteur: str = "",
              commentaire: str = "", db_path=None) -> dict[str, Any]:
     """Remplace un ménage affecté/à réaliser : l'ancien passe REMPLACE (terminal, jamais supprimé),
     un nouveau ménage repart de PREVU avec le nouveau prestataire déjà affecté."""
+    if not _flags_actifs():
+        return _refus(E_FLAGS)
     m = charger(opaque, db_path)
     if m is None:
         return _refus(E_INTROUVABLE, opaque)
@@ -341,6 +357,8 @@ def remplacer(opaque: str, nouveau_fournisseur_opaque: str, *, acteur: str = "",
 def realiser(opaque: str, *, duree_reelle_h: Any = None, cout_reel: Any = None,
             methode_cout: str = "", ecart_justification: str = "", acteur: str = "",
             db_path=None) -> dict[str, Any]:
+    if not _flags_actifs():
+        return _refus(E_FLAGS)
     m = charger(opaque, db_path)
     if m is None:
         return _refus(E_INTROUVABLE, opaque)
@@ -375,6 +393,8 @@ def realiser(opaque: str, *, duree_reelle_h: Any = None, cout_reel: Any = None,
 def changer_statut(opaque: str, nouveau: str, *, commentaire: str = "", acteur: str = "",
                    db_path=None) -> dict[str, Any]:
     """Transition générique — validation, mise en litige, réouverture, annulation."""
+    if not _flags_actifs():
+        return _refus(E_FLAGS)
     m = charger(opaque, db_path)
     if m is None:
         return _refus(E_INTROUVABLE, opaque)
@@ -403,6 +423,8 @@ def lier_facture(opaque: str, facture_id_opaque: str, *, acteur: str = "",
                  db_path=None) -> dict[str, Any]:
     """Rattache une facture DÉJÀ créée par le parcours Factures. Ne crée jamais la facture, et
     refuse qu'une facture soit rattachée à deux ménages (même règle que factures↔charge en 0017)."""
+    if not _flags_actifs():
+        return _refus(E_FLAGS)
     m = charger(opaque, db_path)
     if m is None:
         return _refus(E_INTROUVABLE, opaque)
@@ -427,6 +449,8 @@ def lier_facture(opaque: str, facture_id_opaque: str, *, acteur: str = "",
 def lier_charge(opaque: str, charge_id: str, *, acteur: str = "", db_path=None) -> dict[str, Any]:
     """Rattache une charge DÉJÀ créée. Ne la crée jamais ; l'index unique de la migration 0019
     refuse qu'elle soit rattachée à deux ménages."""
+    if not _flags_actifs():
+        return _refus(E_FLAGS)
     m = charger(opaque, db_path)
     if m is None:
         return _refus(E_INTROUVABLE, opaque)

@@ -180,6 +180,13 @@ FACTURES_REAL_WRITE_CONFIRMATION_ENABLED = RECETTE_MODE and _env_flag("FACTURES_
 CALCULS_REAL_RUN_ENABLED = RECETTE_MODE and _env_flag("CALCULS_REAL_RUN_ENABLED")
 CALCULS_REAL_RUN_CONFIRMATION_ENABLED = RECETTE_MODE and _env_flag("CALCULS_REAL_RUN_CONFIRMATION_ENABLED")
 
+# ── Cycle de vie Ménages (migration 0019) — garde de sécurité ────────────────
+# Même double verrou que Factures/Banque/Charges : ces écritures ne touchent aucun fichier réel
+# (SQLite applicatif uniquement, distinct de MENAGES_REAL_RECALC_ENABLED qui gouverne le recalcul
+# des sources Excel), mais suivent la même politique — jamais activable hors recette.
+MENAGES_CYCLE_REAL_WRITE_ENABLED = RECETTE_MODE and _env_flag("MENAGES_CYCLE_REAL_WRITE_ENABLED")
+MENAGES_CYCLE_REAL_WRITE_CONFIRMATION_ENABLED = RECETTE_MODE and _env_flag("MENAGES_CYCLE_REAL_WRITE_CONFIRMATION_ENABLED")
+
 # ── APP-5B — Contrôles détaillés & suivi humain ──────────────────────────────
 #   Le moteur (Lot11) reste la vérité de l'anomalie. SQLite JOURNALISE uniquement le suivi humain
 #   (prise en charge, résolution, exception) — jamais une nouvelle vérité, jamais un masquage moteur.
