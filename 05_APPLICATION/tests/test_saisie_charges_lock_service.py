@@ -235,8 +235,15 @@ def test_emplacement_par_defaut_est_stable_et_hors_git():
     assert p.name == ".saisie_charges_write.lock"
     assert p.parent == Path(cfg.DATA_DIR)     # emplacement applicatif stable, jamais aléatoire
 
-    ignore = (Path(cfg.PROJECT_ROOT) / ".gitignore").read_text(encoding="utf-8")
-    assert "05_APPLICATION/data/.saisie_charges_write.lock" in ignore
+    # On vérifie l'INTENTION — que Git ignore réellement ce chemin — plutôt que la présence d'une
+    # ligne littérale : le .gitignore utilise désormais un motif générique (`data/*.lock`), qui
+    # couvre aussi les verrous écartés par la reprise (`*.lock.perime-<ts>-<pid>`).
+    import subprocess
+    proc = subprocess.run(["git", "check-ignore", "-q", str(p)],
+                          cwd=str(Path(cfg.PROJECT_ROOT)), capture_output=True)
+    if proc.returncode not in (0, 1):               # pragma: no cover - hors dépôt git
+        pytest.skip("Pas de dépôt git exploitable ici.")
+    assert proc.returncode == 0, f"Le verrou n'est pas ignoré par git : {p}"
 
 
 def test_acquisition_atomique_sans_verification_prealable():
