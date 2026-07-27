@@ -9,12 +9,14 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 |---|---|
 | Worktree | `C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Worktrees\BANQUE_LOGEMENTS_PDF_CHARGES_METIER` |
 | Branche | `feature/banque-logements-pdf-charges-metier` |
-| Dernier commit de contenu | `7775097` — `docs(calculs): chaine aval executee de bout en bout, et defaut moteur lot13` |
-| HEAD | ce fichier est mis à jour par le commit **suivant** (`docs(handoff): …`), dont le SHA ne peut pas figurer dans son propre contenu — vérifier avec `git log -1` |
+| Dernier commit stable | `25bde6d` — `fix(menages): sorties declarees, lot6c ajoute, dernier verrou aligne` |
+| Commits de ce tour | `053f195` (lot13) · `88f2337` (Charges) · `25bde6d` (Ménages) |
+| HEAD | vérifier avec `git log -1` — ce fichier est mis à jour par le commit qui le porte |
 | git status | propre (`data_recette/` ignoré, régénérable) |
 | master / canonique | **intacts, jamais touchés** (`master` = `8b47807`) |
-| Sources réelles | **jamais modifiées** — toutes les écritures de recette sous `data_recette/` |
-| Suite complète | **1948 passés / 65 skipés / 1 xfail attendu / 1 échec pré-existant** (21 min 43) |
+| Sources réelles | inchangées, **une exception assumée** : `02_TRAVAIL/lot13_export_powerbi.py`, sur décision utilisateur explicite (renommage de la colonne d'export). Aucune donnée réelle touchée ; toutes les écritures de recette restent sous `data_recette/` |
+| Campagnes ciblées de ce tour | `test_lot13_filet_anti_sensible` **11 passés** · `test_charges_pipeline` **19 passés** · `test_calculs_executeur` **21 passés** · `-k "calculs or lot13 or charges_pipeline or menages_chaine"` **103 passés / 10 skipés** · `test_recette_scenarios` **1 passé** · tests moteur racine (interpréteur pandas) **31 passés** |
+| Suite complète | **à relancer** — dernier total connu **1948 passés / 65 skipés / 1 échec pré-existant** (tour précédent, HEAD `a19d6b4`). La relance de ce tour a été interrompue avant terme ; aucun total n'est reporté ici tant qu'il n'est pas constaté. Commande : `cd 05_APPLICATION && python -m pytest -q` (~20 min) |
 
 ## Modules
 
@@ -24,7 +26,8 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 | Banque (import, rapprochement, suggestions, contrôles) | **TERMINÉ** | `30`, `31` |
 | Fournisseurs / Factures / Règlements | **TERMINÉ** | `32`, `33`, `34` |
 | Pilotage des calculs & clôture | **TERMINÉ** — chaîne aval complète `lot4quater → lot13` | `35`, `36`, `37`, `38` |
-| Charges | Antérieur, non retouché | `27` |
+| Charges | **chaîne exercée depuis `/calculs`**, scénarios A→F réconciliés | `27`, `39` |
+| Ménages | **EN COURS** — existant audité, chaîne bloquée à lot6d | `40` |
 
 ## ⚠️ Correction importante d'une limite documentée à tort
 
@@ -186,7 +189,16 @@ python recette/build_data_recette.py
 cd 05_APPLICATION
 python -m pytest -q tests/ -k "banque"                        # 171 passés
 python -m pytest -q tests/ -k "facture or reglement"          # 120 passés
-python -m pytest -q tests/ -k "calculs or lot13"               # 69 passés + 1 xfail attendu
+python -m pytest -q tests/ -k "calculs or lot13"               # exécuteur, pipeline, routes, contrat lot13
+python -m pytest -q tests/test_charges_pipeline.py             # 19 passés (chaîne Charges)
+python -m pytest -q tests/test_recette_scenarios.py            # scénarios charges bout en bout
+
+# Reprendre le blocage lot6d (prochaine action n°1) :
+cd 05_APPLICATION
+APP_DATA_DIR="<wt>/data_recette/app_data" PROJECT_ROOT="<wt>/data_recette" RECETTE_MODE=1 \
+  LOT4A_ENGINE_PYTHON="C:\Program Files\Python312\python.exe" \
+  python -c "from app.services import calculs_executeur_service as ex; \
+r=ex.executer_lot('lot6d'); print(r.statut, r.message); print(r.stderr[-800:])"
 python -m pytest -q                                            # suite complète (~32 min)
 
 # Lancer un lot moteur à la main (interpréteur AVEC pandas) :
