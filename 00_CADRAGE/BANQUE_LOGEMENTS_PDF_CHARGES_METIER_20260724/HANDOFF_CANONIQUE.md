@@ -9,7 +9,8 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 |---|---|
 | Worktree | `C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Worktrees\BANQUE_LOGEMENTS_PDF_CHARGES_METIER` |
 | Branche | `feature/banque-logements-pdf-charges-metier` |
-| HEAD | `685b38a` — `feat(calculs): routes, interface et recette de pilotage` |
+| Dernier commit de contenu | `7775097` — `docs(calculs): chaine aval executee de bout en bout, et defaut moteur lot13` |
+| HEAD | ce fichier est mis à jour par le commit **suivant** (`docs(handoff): …`), dont le SHA ne peut pas figurer dans son propre contenu — vérifier avec `git log -1` |
 | git status | propre (`data_recette/` ignoré, régénérable) |
 | master / canonique | **intacts, jamais touchés** (`master` = `8b47807`) |
 | Sources réelles | **jamais modifiées** — toutes les écritures de recette sous `data_recette/` |
@@ -114,7 +115,7 @@ qu'un montant) / restreindre le motif `voyageur` aux colonnes nominatives.
 ```
 cd "C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Worktrees\BANQUE_LOGEMENTS_PDF_CHARGES_METIER"
 git branch --show-current          # feature/banque-logements-pdf-charges-metier
-git log -1 --format="%H %s"        # doit afficher 685b38a ...
+git log -1 --format="%H %s"        # docs(handoff): ... ; le commit precedent est 7775097
 git status --porcelain             # doit être vide
 
 # Régénérer le jeu de recette (idempotent, écrase data_recette/) :
