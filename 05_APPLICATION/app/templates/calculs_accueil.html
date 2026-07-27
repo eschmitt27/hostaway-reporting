@@ -53,32 +53,35 @@
         </select>
       </label>
     </div>
+    <fieldset class="mt-sm" data-testid="selection-lots">
+      <legend class="text-xs">Lots à exécuter (aucun coché = toute la chaîne)</legend>
+      <table class="data-table">
+        <thead><tr><th>Exécuter</th><th>Lot</th><th>Script</th><th>Dépend de</th><th>Sorties attendues</th><th>pandas</th></tr></thead>
+        <tbody>
+          {% for l in lots %}
+          <tr>
+            <td><input type="checkbox" name="lots" value="{{ l.nom }}" id="lot-{{ l.nom }}"></td>
+            <td><label for="lot-{{ l.nom }}"><strong>{{ l.nom }}</strong></label></td>
+            <td class="font-mono text-xs">{{ l.script }}</td>
+            <td class="text-xs">{{ l.depend_de|join(', ') or "—" }}</td>
+            <td class="text-xs">{{ l.sorties|join('<br>')|safe if l.sorties else "—" }}</td>
+            <td>{{ "oui" if l.requiert_pandas else "non" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p class="section-note text-xs">
+        Cocher un seul lot le rejoue isolément. L'ordre d'exécution reste celui de la chaîne, jamais
+        celui du formulaire. Les dépendances non cochées sont signalées à la prévisualisation si
+        leurs sorties sont absentes.
+      </p>
+    </fieldset>
     <p class="section-note mt-sm">
       La prévisualisation n'exécute rien : elle montre les entrées, les sorties qui seront
       remplacées et les contrôles bloquants, puis demande une confirmation explicite.
     </p>
     <button type="submit" class="btn btn-primary mt-sm">Prévisualiser le pipeline</button>
   </form>
-</div>
-
-<div class="card mb-md">
-  <div class="card-title">Lots de la chaîne « {{ chaine }} »</div>
-  <div class="table-container">
-    <table class="data-table">
-      <thead><tr><th>Lot</th><th>Script</th><th>Dépend de</th><th>Sorties attendues</th><th>pandas</th></tr></thead>
-      <tbody>
-        {% for l in lots %}
-        <tr>
-          <td><strong>{{ l.nom }}</strong></td>
-          <td class="font-mono text-xs">{{ l.script }}</td>
-          <td class="text-xs">{{ l.depend_de|join(', ') or "—" }}</td>
-          <td class="text-xs">{{ l.sorties|join('<br>')|safe if l.sorties else "—" }}</td>
-          <td>{{ "oui" if l.requiert_pandas else "non" }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
 </div>
 
 <div class="card mb-md">

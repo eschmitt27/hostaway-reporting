@@ -64,6 +64,65 @@ def test_page_affiche_les_lots_de_la_chaine(client, env):
     assert "out/f.txt" in html
 
 
+def test_page_expose_la_selection_de_lots(client, env):
+    """« Rejouer un lot » : chaque lot est cochable dans le formulaire de lancement."""
+    html = client.get("/calculs?mois=2026-06").text
+    assert 'data-testid="selection-lots"' in html
+    assert 'name="lots" value="faux"' in html
+
+
+# ── Sélection de lots (rejouer un lot isolé) ─────────────────────────────────
+
+def test_selection_vide_execute_toute_la_chaine(client, env, monkeypatch):
+    from app.routes import calculs as rc
+    monkeypatch.setitem(rc.CHAINES, "aval", ["faux", "faux2"])
+    tous = dict(ex.TOUS_LES_LOTS)
+    tous["faux2"] = ex.Lot("faux2", "faux.py", sorties=("out/f.txt",), requiert_pandas=False)
+    monkeypatch.setattr(ex, "TOUS_LES_LOTS", tous)
+
+    r = client.post("/calculs/previsualiser", data={"mois": "2026-06", "chaine": "aval"},
+                    follow_redirects=False)
+    token = r.headers["location"].rsplit("/", 1)[-1]
+    assert pipe.charger_manifest(token)["lots"] == ["faux", "faux2"]
+
+
+def test_selection_d_un_seul_lot_le_rejoue_isolement(client, env, monkeypatch):
+    from app.routes import calculs as rc
+    monkeypatch.setitem(rc.CHAINES, "aval", ["faux", "faux2"])
+    tous = dict(ex.TOUS_LES_LOTS)
+    tous["faux2"] = ex.Lot("faux2", "faux.py", sorties=("out/f.txt",), requiert_pandas=False)
+    monkeypatch.setattr(ex, "TOUS_LES_LOTS", tous)
+
+    r = client.post("/calculs/previsualiser",
+                    data={"mois": "2026-06", "chaine": "aval", "lots": ["faux2"]},
+                    follow_redirects=False)
+    token = r.headers["location"].rsplit("/", 1)[-1]
+    assert pipe.charger_manifest(token)["lots"] == ["faux2"]
+
+
+def test_ordre_de_la_chaine_prime_sur_l_ordre_du_formulaire(client, env, monkeypatch):
+    """Le formulaire ne doit jamais décider de l'ordre d'exécution des moteurs."""
+    from app.routes import calculs as rc
+    monkeypatch.setitem(rc.CHAINES, "aval", ["faux", "faux2"])
+    tous = dict(ex.TOUS_LES_LOTS)
+    tous["faux2"] = ex.Lot("faux2", "faux.py", sorties=("out/f.txt",), requiert_pandas=False)
+    monkeypatch.setattr(ex, "TOUS_LES_LOTS", tous)
+
+    r = client.post("/calculs/previsualiser",
+                    data={"mois": "2026-06", "chaine": "aval", "lots": ["faux2", "faux"]},
+                    follow_redirects=False)
+    token = r.headers["location"].rsplit("/", 1)[-1]
+    assert pipe.charger_manifest(token)["lots"] == ["faux", "faux2"]
+
+
+def test_lot_inconnu_ignore_et_repli_sur_la_chaine(client, env):
+    r = client.post("/calculs/previsualiser",
+                    data={"mois": "2026-06", "chaine": "aval", "lots": ["inexistant"]},
+                    follow_redirects=False)
+    token = r.headers["location"].rsplit("/", 1)[-1]
+    assert pipe.charger_manifest(token)["lots"] == ["faux"]
+
+
 # ── Prévisualisation ─────────────────────────────────────────────────────────
 
 def test_previsualiser_puis_lancer(client, env):

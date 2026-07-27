@@ -49,12 +49,26 @@ def calculs_accueil(request: Request, mois: str = "", chaine: str = "aval",
     })
 
 
+def _lots_demandes(form) -> list[str]:
+    """Lots à exécuter : sélection explicite si fournie, sinon la chaîne entière.
+
+    La sélection permet de rejouer un lot isolé (ou un segment) sans réexécuter toute la chaîne.
+    Elle reste ordonnée selon la chaîne : on ne laisse pas l'ordre d'un formulaire décider de
+    l'ordre d'exécution des moteurs.
+    """
+    chaine = str(form.get("chaine", "aval") or "aval")
+    chaine_lots = CHAINES.get(chaine, CHAINES["aval"])
+    demandes = {str(v) for v in form.getlist("lots")} if hasattr(form, "getlist") else set()
+    if not demandes:
+        return chaine_lots
+    return [n for n in chaine_lots if n in demandes] or chaine_lots
+
+
 @router.post("/calculs/previsualiser")
 async def calculs_previsualiser(request: Request):
     form = await request.form()
     mois = str(form.get("mois", "") or _mois_defaut())
-    chaine = str(form.get("chaine", "aval") or "aval")
-    lots = CHAINES.get(chaine, CHAINES["aval"])
+    lots = _lots_demandes(form)
     res = pipe.previsualiser(mois, lots)
     if not res.get("ok"):
         return RedirectResponse(url=f"/calculs?mois={mois}&erreur=Prévisualisation impossible.",
