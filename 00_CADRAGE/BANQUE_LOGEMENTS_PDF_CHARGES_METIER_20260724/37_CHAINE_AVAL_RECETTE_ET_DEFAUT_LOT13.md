@@ -73,6 +73,12 @@ résultat réel = 14 060 − 232,80 = **13 827,20** ✅.
 
 ## 4. Défaut moteur découvert : lot13 échoue systématiquement
 
+> **✅ CORRIGÉ depuis — voir `38_LOT13_CONTRAT_EXPORT_POWERBI.md`.**
+> La colonne est renommée à la frontière d'export en `montant_preparation_canape` ; le filet n'est
+> pas affaibli et la donnée n'est pas supprimée. La chaîne complète `lot4quater → lot13` tourne en
+> **6/6 SUCCES** (`RUN-64BF7084CBB0`). La section ci-dessous décrit le défaut tel qu'il a été
+> constaté, et reste utile comme trace d'analyse.
+
 C'est la première fois que la chaîne allait assez loin pour atteindre lot13. Il **abort** :
 
 ```
@@ -175,7 +181,7 @@ n'est pas reproduit. Le reste du parcours (navigation, lecture, vérification) e
 
 | Sujet | État | Raison |
 |---|---|---|
-| lot13 / export PowerBI | ⛔ bloqué | défaut moteur ci-dessus, décision métier requise |
+| lot13 / export PowerBI | ✅ **corrigé** | renommage de frontière, cf. `38` |
 | Chaînes `charges` et `menages` | ⚠️ | déclarées et lançables, non exercées en recette |
 | Mode réel du pilotage | ⛔ | garde-fous en place, `CALCULS_REAL_RUN_ENABLED` jamais activé |
 | Forfait logiciel/consommables historisé | ⛔ | nécessite `build_charge_fixe()` de lot10 — jamais commencé |

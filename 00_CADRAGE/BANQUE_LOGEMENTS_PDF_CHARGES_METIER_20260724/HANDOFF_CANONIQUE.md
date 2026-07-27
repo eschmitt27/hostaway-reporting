@@ -23,7 +23,7 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 | Logements | **TERMINÉ** | `28`, `29` |
 | Banque (import, rapprochement, suggestions, contrôles) | **TERMINÉ** | `30`, `31` |
 | Fournisseurs / Factures / Règlements | **TERMINÉ** | `32`, `33`, `34` |
-| Pilotage des calculs & clôture | **TERMINÉ côté applicatif** — reste un défaut *moteur* sur lot13 | `35`, `36`, `37` |
+| Pilotage des calculs & clôture | **TERMINÉ** — chaîne aval complète `lot4quater → lot13` | `35`, `36`, `37`, `38` |
 | Charges | Antérieur, non retouché | `27` |
 
 ## ⚠️ Correction importante d'une limite documentée à tort
@@ -80,33 +80,36 @@ Correction de raisonnement du handoff précédent : il ne fallait **pas** seeder
 fabriqué un faux succès. Ce qui manquait, ce sont les **entrées** (table live lot4bis, payout, et
 7 sources que lot11 charge inconditionnellement, recopiées en en-tête seul).
 
-## ⛔ Défaut moteur ouvert : lot13 échoue systématiquement
+## ✅ Défaut lot13 : corrigé (phase 1 du tour du 2026-07-27)
 
-Première exécution de la chaîne assez loin pour atteindre lot13 :
+Décision utilisateur : **renommer à la frontière d'export**, sans supprimer la donnée ni affaiblir
+le filet. `preparation_canape_voyageurs` (nom interne, inchangé dans les `MASTER_*`) est exporté
+sous `montant_preparation_canape` dans `PBI_Commissions.csv`.
 
-```
-[BLOQUANT lot13] colonnes sensibles dans des exports :
-   PBI_Commissions: colonne sensible détectée ['preparation_canape_voyageurs']
-```
+Seul point de code modifié : `RENOMMAGES_EXPORT` dans `lot13_export_powerbi.py`, et le filet qui
+contrôle désormais les noms **réellement exportés**. Aucun calcul métier touché.
 
-`lot13_export_powerbi.py` se contredit : sa whitelist `PBI_Commissions` contient
-`preparation_canape_voyageurs`, que son propre filet anti-sensible interdit (motif `voyageur`).
-**Statique, donc valable aussi en mode réel.** Postérieur au commit `8763676`.
+Preuves : 11 tests (le `xfail(strict)` est **remplacé par la preuve**, pas supprimé) ;
+`RUN-64BF7084CBB0` = `lot4quater → lot13` en **6/6 SUCCES** ; second run `RUN-048B5CF57C3F` avec
+tous écarts à 0,00. Détail dans `38_LOT13_CONTRAT_EXPORT_POWERBI.md`.
 
-Moteur **non modifié** (règle du chantier). Le défaut est tenu par
-`tests/test_lot13_filet_anti_sensible.py` en `xfail(strict=True)` : le test échouera dès la
-correction du moteur, forçant à retirer le garde-fou.
+**À répercuter côté utilisateur** : le rapport Power BI doit référencer
+`montant_preparation_canape`. C'est le seul consommateur externe du CSV.
 
-Décision métier requise, au choix : retirer la colonne de la whitelist / la renommer (elle ne porte
-qu'un montant) / restreindre le motif `voyageur` aux colonnes nominatives.
+## Module actif / module terminé
+
+| | |
+|---|---|
+| Modules terminés | Logements, Banque, Fournisseurs-Factures-Règlements, Pilotage des calculs (chaîne aval complète) |
+| Module actif | *(phase 2 en cours : exercer la chaîne Charges)* |
 
 ## Prochaine action précise
 
-1. **Trancher le défaut lot13** ci-dessus (hors périmètre applicatif — décision sur le moteur).
-   Une fois corrigé : relancer la chaîne complète avec lot13 coché, le run doit passer SUCCES et
-   le test `xfail` doit être supprimé.
-2. Exercer les chaînes **`charges`** et **`menages`** en recette (déclarées et lançables, jamais
-   exécutées).
+1. **Phase 2 — exercer et valider la chaîne Charges** depuis `/calculs` (lot3, déclaré et lançable,
+   jamais exécuté). Scénarios A→F du brief, réconciliation des montants, préfactures, sommes à
+   payer, idempotence, rollback.
+2. **Phase 3 — module Ménages** : audit ciblé des lots 6b/6c/6d/6e/6f, modèle, services, écrans,
+   intégrations Factures/Charges/Banque, contrôles, recette, pipeline.
 3. Le **mode réel** du pilotage reste à activer sur décision explicite
    (`CALCULS_REAL_RUN_ENABLED`) — garde-fous en place, jamais activé.
 

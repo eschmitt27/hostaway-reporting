@@ -2434,3 +2434,30 @@ Vérifs      (1) recette E2E : lot6d+lot6e exécutés sur copies des vraies sour
 Attendu     Règle réelle = D100/D099 (attendu réservé aux logements hors Hostaway, anti double-
             comptage), PAS D090. Gap décision↔code : lot6d n'ajoute pas les réservations HH de D099.
             Sous-partie documentée et ARRÊTÉE (aucune exception devinée, aucun Lot6g créé).
+
+
+## 2026-07-27 - Lot13 : filet anti-sensible et contrat d'export
+
+CONTROLE : filet de confidentialite de lot13 (ABORT si une colonne sensible sort).
+ETAT AVANT : BLOQUANT permanent. `PBI_Commissions` whitelistait `preparation_canape_voyageurs`,
+refusee par le motif `voyageur` du filet. Defaut statique, donc valable aussi en mode reel ;
+jamais vu avant parce que la chaine n'atteignait jamais lot13.
+CORRECTION : renommage a la frontiere d'export vers `montant_preparation_canape`. Filet non
+affaibli, donnee non supprimee, calcul metier non touche.
+
+PREUVES :
+- 11 tests dans `05_APPLICATION/tests/test_lot13_filet_anti_sensible.py`, dont la comparaison
+  valeur par valeur entre `MASTER_CALC_Commissions.xlsx` et `PBI_Commissions.csv` ;
+- le xfail(strict) qui tenait le defaut est remplace par la preuve de correction, pas supprime ;
+- run RUN-64BF7084CBB0 : lot4quater -> lot13, 6/6 SUCCES, 23,3 s, aucun controle de
+  confidentialite bloquant ; 11 exports sur 13 + dictionnaire (114 entrees) ;
+- l'ancien nom n'apparait dans AUCUN CSV exporte (verifie par grep sur 03_EXPORTS/PowerBI) ;
+- prevision : toutes les sorties en "non (creation)" -> aucune sortie anterieure reutilisee ;
+- run RUN-048B5CF57C3F : 6/6 SUCCES, tous ecarts 0,00 -> idempotence avec lot13 inclus ;
+- indicateurs inchanges (CA 14 060,00 ; commissions 2 430,60 ; net 11 629,40 ;
+  resultat reel 13 827,20) ; six conditions de cloture toujours OK.
+
+CONTROLES RESTES ACTIFS : le filet refuse toujours `nom_voyageur`, `voyageur_email`,
+`guest_name`, `telephone_voyageur`, `adresse_voyageur` (test dedie). La table de renommage est
+verrouillee a une seule entree : toute addition casse la suite et exige une decision explicite.
+REFERENCE : 38_LOT13_CONTRAT_EXPORT_POWERBI.md

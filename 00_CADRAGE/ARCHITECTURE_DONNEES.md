@@ -1994,3 +1994,40 @@ CHG_008/011 refacturable→TF011 ; sinon règlement (PAY_001→TF020, PAY_002 r�
 PAY_003/004→TF004). PAY_005/PAY_006 interdits en standard. `lst_TypesFlux_Lot3` (SAISIE) enrichi de TF016 + TF020.
 Reclassement PARCOURS_DEDIE : CHG_012/013/015/019 (D-CHG-DEDIE-01). Catégories GLOBAL standard :
 CHG_005/006/007/008/009/010/011/016/017/024.
+
+
+## Contrat d'export Power BI — renommage de frontiere (2026-07-27)
+
+`lot13_export_powerbi.py` expose desormais un nom d'en-tete different du nom interne pour UNE
+colonne, via `RENOMMAGES_EXPORT`. C'est le seul endroit du systeme ou un nom de colonne differe
+entre les `MASTER_*` et le CSV consomme par Power BI.
+
+| Nom interne (MASTER_CALC_Commissions) | Nom exporte (PBI_Commissions.csv) |
+|---|---|
+| `preparation_canape_voyageurs` | `montant_preparation_canape` |
+
+Raison : la colonne porte un MONTANT (supplement de preparation du canape selon le nombre de
+voyageurs), jamais une identite. Son nom declenchait le motif `voyageur` du filet anti-sensible de
+lot13, qui interrompait tout l'export (`sys.exit(1)`). Plutot que d'affaiblir le filet ou de
+supprimer la donnee, l'export la renomme.
+
+Invariants garantis par tests (`05_APPLICATION/tests/test_lot13_filet_anti_sensible.py`) :
+
+- la valeur, le type numerique et l'arrondi sont identiques a la source ;
+- le calcul metier, l'assiette et la commission ne sont pas touches ;
+- les deux noms ne coexistent jamais dans l'export ;
+- le filet continue de refuser les colonnes reellement nominatives ;
+- la table de renommage est verrouillee a cette unique entree.
+
+Consequence pour l'utilisateur : le rapport Power BI doit referencer `montant_preparation_canape`.
+C'est le seul consommateur externe — aucun code du depot ne lit ce CSV.
+
+Schema `PBI_Commissions` :
+
+```
+reservation_calc_id ; reservation_id_hostaway ; logement_id ; proprietaire_id ; mois ;
+date_arrivee ; date_depart ; nuits ; channel_type ; source_type ; statut_calcul_payout ;
+payout_calcule ; menage_retenu ; assiette_commission ; taux_commission ;
+commission_conciergerie ; montant_preparation_canape ; controle_preparation_canape ;
+net_proprietaire
+```

@@ -29,6 +29,21 @@ REF = os.path.join(ROOT, "01_SOURCES_BRUTES", "REF_Setup", "REF_Setup.xlsm")
 SENSIBLE = re.compile(r"(e[-_ ]?mail|^mail|t[ée]l[ée]?phone|^tel$|iban|rib|adresse|secret|token|password|"
                       r"guest|voyageur|libelle_brut|libelle_banque|compte_bancaire|num_compte)", re.I)
 
+# Renommages appliqués À LA FRONTIÈRE D'EXPORT uniquement : la colonne garde son nom historique
+# dans les MASTER_* (lot10 la produit, lot11 la contrôle), seul le CSV Power BI voit le nouveau nom.
+#
+# `preparation_canape_voyageurs` porte un MONTANT (supplément de préparation du canapé lorsque le
+# nombre de voyageurs l'impose), jamais une identité. Son nom déclenchait pourtant le motif
+# `voyageur` du filet ci-dessus, qui interrompait tout l'export. Plutôt que d'affaiblir le filet ou
+# de supprimer la donnée, l'export expose `montant_preparation_canape`.
+#
+# Cette table est délibérément minuscule et fermée : un renommage permet, par construction, de
+# faire sortir une colonne qui serait autrement refusée. Toute entrée supplémentaire doit être une
+# décision explicite et documentée — un test la verrouille.
+RENOMMAGES_EXPORT = {
+    "PBI_Commissions": {"preparation_canape_voyageurs": "montant_preparation_canape"},
+}
+
 def cols_of(p, s):
     wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
     if s not in wb.sheetnames:
@@ -104,18 +119,20 @@ def main():
             rapport.append((name, "ONGLET_ABSENT", 0)); continue
         keep = [c for c in wl if c in h]            # whitelist ∩ colonnes réelles
         manquantes = [c for c in wl if c not in h]
-        # filet anti-sensible sur colonnes exportées
-        sens = [c for c in keep if SENSIBLE.search(c)]
+        ren = RENOMMAGES_EXPORT.get(name, {})
+        entetes = [ren.get(c, c) for c in keep]     # noms tels qu'ils SORTENT du système
+        # filet anti-sensible sur les noms réellement exportés
+        sens = [n for n in entetes if SENSIBLE.search(n)]
         if sens:
             abort_msgs.append(f"{name}: colonne sensible détectée {sens}")
             continue
         out = os.path.join(OUTD, f"{name}.csv")
         with open(out, "w", newline="", encoding="utf-8-sig") as f:
             w = csv.writer(f, delimiter=";")
-            w.writerow(keep)
+            w.writerow(entetes)
             for r in rows:
                 w.writerow([val(r.get(c)) for c in keep])
-        for c in keep: dico.append((name, c))
+        for c in entetes: dico.append((name, c))
         rapport.append((name, "OK" + (f" (cols manquantes ignorées: {manquantes})" if manquantes else ""), len(rows)))
 
     # Dictionnaire des colonnes
