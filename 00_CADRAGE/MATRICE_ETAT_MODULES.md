@@ -61,9 +61,14 @@ plus sûr que de leur ouvrir un chemin d'activation. Les ouvrir serait un **éla
 
 | Réf | Sujet | Gravité |
 |---|---|---|
-| Arbitrage pivot | Consigne 1er mai 2026 vs décision **D101** (pivot 2026-06). Pivot **non modifié**, arbitrage en attente. Bloque les écrans de tarif ménage. | métier |
 | `test_appsec1_diagnostic` | Échec environnemental **pré-existant** : le nom d'utilisateur Windows apparaît dans un chemin temporaire pytest. Antérieur au chantier. | test |
 | Charge post-clôture | Aucun mécanisme applicatif n'interdit une charge postérieure à une clôture validée. Non construit, signalé. | métier |
+
+## Tranchées
+
+| Réf | Sujet |
+|---|---|
+| Pivot D101 | **D101 reste la règle.** Le moteur (`PIVOT_FIXED_COST = 2026-06-01`) était conforme, pas en dérive ; non modifié. Verrouillé par 9 tests. |
 
 ## Résolues ce tour
 

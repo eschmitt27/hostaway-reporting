@@ -9,15 +9,32 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 |---|---|
 | Worktree | `C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Worktrees\BANQUE_LOGEMENTS_PDF_CHARGES_METIER` |
 | Branche | `feature/banque-logements-pdf-charges-metier` |
-| Dernier commit stable | `25bde6d` — `fix(menages): sorties declarees, lot6c ajoute, dernier verrou aligne` |
-| Commits de ce tour | `053f195` (lot13) · `88f2337` (Charges) · `25bde6d` (Ménages) |
+| Dernier commit stable avant ce tour | `208fdaa` — `docs(handoff): suite complete 2028 passes, etat de la mission d'integration` |
 | HEAD | vérifier avec `git log -1` — ce fichier est mis à jour par le commit qui le porte |
 | git status | propre (`data_recette/` ignoré, régénérable) |
 | master / canonique | **intacts, jamais touchés** (`master` = `8b47807`) |
 | Sources réelles | inchangées, **une exception assumée** : `02_TRAVAIL/lot13_export_powerbi.py`, sur décision utilisateur explicite (renommage de la colonne d'export). Aucune donnée réelle touchée ; toutes les écritures de recette restent sous `data_recette/` |
-| Campagnes ciblées de ce tour | `test_lot13_filet_anti_sensible` **11 passés** · `test_charges_pipeline` **19 passés** · `test_calculs_executeur` **21 passés** · `-k "calculs or lot13 or charges_pipeline or menages_chaine"` **103 passés / 10 skipés** · `test_recette_scenarios` **1 passé** · tests moteur racine (interpréteur pandas) **31 passés** |
-| Suite complète | **2028 passés / 75 skipés / 1 échec pré-existant** (`test_appsec1_diagnostic`). Exécutée en **4 tranches** (547+26 · 507+26 · 521+6 · 453+17) car la suite d'un seul tenant dépasse le délai d'exécution disponible : `python -m pytest -q -p no:cacheprovider $(ls tests/test_*.py \| awk 'NR%4==1')`, puis `NR%4==2`, `==3`, `==0` |
+| Suite complète (dernier total constaté) | **2028 passés / 75 skipés / 1 échec pré-existant** (`test_appsec1_diagnostic`). En 4 tranches : `python -m pytest -q -p no:cacheprovider $(ls tests/test_*.py \| awk 'NR%4==1')`, puis `==2`, `==3`, `==0` |
 | Documents transverses | `MATRICE_ETAT_MODULES.md` · `GUIDE_ACTIVATION_MODE_REEL.md` (verdict **NO GO** au 2026-07-27) |
+| **Avancement global estimé** | **65 %**, marge ± 4 points — voir « Périmètre restant » ci-dessous. Plafond : aucun pourcentage > 85 % avant Comptabilité + Analytique + Résultats fonctionnels et validés. |
+
+## Périmètre restant avant achèvement
+
+1. cycle opérationnel Ménages ;
+2. corrections transverses (modèle Factures/Charges/Règlements) ;
+3. modèle définitif Factures / Charges / Règlements ;
+4. factures fournisseurs reçues ;
+5. factures propriétaires émises ;
+6. factures voyageurs ou tiers si applicables ;
+7. module Comptabilité ;
+8. journaux et écritures ;
+9. comptabilités auxiliaires ;
+10. rapprochement comptable et bancaire ;
+11. analyse analytique ;
+12. écrans Résultats ;
+13. clôture comptable ;
+14. recette globale sur copies ;
+15. activation progressive du mode réel.
 
 ## Modules
 
@@ -196,28 +213,26 @@ est mort, jamais celui d'un processus vivant ; journalisé sans le nom de machin
 standard** (D103, révise D045) sur les **seuls ménages internes**. Ce n'est pas « +50 € par
 ménage ». **Aucun arbitrage nécessaire** — le grain est documenté.
 
-## ⛔ ARBITRAGE EN ATTENTE — pivot du coût de ménage interne
+## ✅ FAIT VALIDÉ — pivot du coût de ménage interne (D101)
 
-Une consigne du 2026-07-27 demandait de déplacer le pivot au **1er mai 2026**, au motif que le
-moteur aurait dérivé au 1er juin. **Vérification faite : le moteur est conforme.**
+Tranché : **D101 reste la règle.** Ce n'est plus une anomalie ouverte.
+
+Une consigne du 2026-07-27 avait demandé de déplacer le pivot au 1er mai 2026, au motif d'une
+dérive du moteur. Vérification faite : **le moteur était conforme**, pas en dérive.
 
 `DECISIONS_METIER.md` → **D101 — Méthode interne selon période**, VALIDÉ le 2026-06-18 :
 
-> Pivot **2026-06**. ≤ 2026-05 : `INTERNE_HEURES_M04` = nb_heures × taux horaire (PARAM_004).
-> ≥ 2026-06 : `INTERNE_STANDARD_PARAMETRE` = nb_menages × forfait `REF_Couts_Menage_Interne`.
+> Pivot **2026-06**. **Jusqu'à mai 2026 inclus** : `INTERNE_HEURES_M04` = nb_heures × taux horaire
+> (PARAM_004). **À compter de juin 2026** : `INTERNE_STANDARD_PARAMETRE` = nb_menages × forfait
+> `REF_Couts_Menage_Interne`.
 
-`lib_menage_costs.PIVOT_FIXED_COST = 2026-06-01` applique exactement D101.
+`lib_menage_costs.PIVOT_FIXED_COST = 2026-06-01` applique exactement D101. **Le pivot n'a pas été
+modifié** — l'avancer au 1er mai aurait recalculé mai 2026, le mois qui porte les données réelles
+(factures Aissata / Mounir, heures Imène / Kheira), avec l'autre méthode.
 
-**Le pivot n'a donc PAS été modifié.** Avancer au 1er mai recalculerait **mai 2026** — le mois qui
-porte les données réelles (factures Aissata / Mounir, heures Imène / Kheira) — avec l'autre méthode,
-ce que la consigne elle-même interdit (« vérifier qu'aucun mois passé n'est recalculé avec une
-mauvaise règle »).
-
-Deux issues possibles, à trancher explicitement :
-1. **D101 reste la règle** → rien à faire, le comportement est déjà juste et désormais verrouillé
-   par `tests/test_menages_pivot_historique.py` (9 tests, dont les 4 frontières demandées).
-2. **D101 est révisée** → il faut modifier `PIVOT_FIXED_COST`, amender D101 (nouvelle décision
-   datée, pas une réécriture), recalculer mai 2026 et mesurer l'écart avant/après.
+Comportement verrouillé par `tests/test_menages_pivot_historique.py` (9 tests, dont les 4
+frontières 30/04, 01/05, 31/05, 01/06 — cf. Mission 1 §6 de ce tour pour la ré-vérification
+demandée).
 
 Tant que ce n'est pas tranché, aucun écran ni calcul ne doit présenter une règle contredisant D101.
 
@@ -237,17 +252,16 @@ sûr que de leur ouvrir un chemin d'activation. Les deux catégories sont désor
 
 ## Prochaine action précise
 
-1. **Trancher l'arbitrage du pivot** ci-dessus. C'est bloquant pour tout écran de tarif ménage.
-2. **Cycle de vie opérationnel Ménages** — le gros du travail restant, dans cet ordre :
+1. **Cycle de vie opérationnel Ménages** — le gros du travail restant, dans cet ordre :
    modèle SQLite du ménage unitaire + statuts (auditer d'abord les statuts réellement utilisés,
    ne pas créer une seconde norme) → qualification prestataires **sur le référentiel Fournisseurs**
    (jamais une table concurrente) → services → écrans et rattachements facture/charge/règlement/
    banque → catalogue de contrôles sur le modèle de `/factures/controles` → jeu de recette →
    recette navigateur → pipeline.
-3. **Alimenter les pools de courses** du jeu de recette, pour exercer réellement la quote-part
+2. **Alimenter les pools de courses** du jeu de recette, pour exercer réellement la quote-part
    (mécanisme présent dans lot6f, pools vides aujourd'hui). Garder distinguables : pool vide valide,
    source absente, source illisible, courses non ventilées.
-4. Le **mode réel** reste à activer sur décision explicite (`CALCULS_REAL_RUN_ENABLED`,
+3. Le **mode réel** reste à activer sur décision explicite (`CALCULS_REAL_RUN_ENABLED`,
    `MENAGES_REAL_RECALC_ENABLED`) — garde-fous en place, jamais activés.
 5. Non construit, signalé : « charge postérieure à une clôture validée » n'est interdit par aucun
    mécanisme applicatif.
