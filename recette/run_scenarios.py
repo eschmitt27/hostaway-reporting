@@ -34,11 +34,18 @@ def reset():
 
 
 def read_charge():
+    """Charge écrite par le scénario courant = la DERNIÈRE ligne de la SAISIE.
+
+    Lisait `rows[0]` : juste tant que la SAISIE de recette était vide, faux dès qu'elle porte des
+    charges de départ — le writer ajoute à la suite. Les vérifications portaient alors sur la
+    première charge du jeu de recette et passaient par coïncidence quand elle avait les mêmes
+    valeurs attendues. `reset()` précède chaque scénario : la dernière ligne est bien la sienne.
+    """
     wb = openpyxl.load_workbook(REC / "01_SOURCES_BRUTES" / "Charges" / "SAISIE_Charges_Flux.xlsx",
                                read_only=True, data_only=True)
     ws = wb["SAISIE"]; hdr = [c.value for c in next(ws.iter_rows(max_row=1))]
     rows = [dict(zip(hdr, r)) for r in ws.iter_rows(min_row=2, values_only=True) if r[0]]
-    wb.close(); return rows[0] if rows else {}
+    wb.close(); return rows[-1] if rows else {}
 
 
 def read_impacts():

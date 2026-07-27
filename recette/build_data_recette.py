@@ -294,20 +294,116 @@ def build_master_charges_empty(dst: Path):
            "type_flux_id", "code_impact", "logement_id", "proprietaire_id", "statut_controle",
            "facture_ref", "fournisseur"]
     ws.append(hdr)
-    # Quelques charges fictives : servent de CANDIDATS réels au moteur de suggestions bancaires
-    # (sans elles, la recette ne peut pas démontrer une suggestion). Le Lot3 les réécrit dès qu'il
-    # tourne — ce sont des données de démarrage, jamais une vérité concurrente.
-    for row in [
-        ("CHG_SEED_001", PERIODE, "2026-06-12", 120.00, "CHG_003", "TYPE_FLUX_014", "IC",
-         "LOG_B1", "PROP_B", "VALIDE", "FA-2026-0012", "FOURNISSEUR_B"),
-        ("CHG_SEED_002", PERIODE, "2026-06-25", 95.00, "CHG_003", "TYPE_FLUX_014", "IC",
-         "LOG_C1", "PROP_C", "VALIDE", "FA-2026-0025", "FOURNISSEUR_C"),
-        ("CHG_SEED_003", PERIODE, "2026-06-15", 8.90, "CHG_010", "TYPE_FLUX_016", "IC",
-         None, None, "VALIDE", "", "BANQUE"),
-    ]:
-        ws.append(list(row))
+    # AUCUNE charge n'est seedée ici : le MASTER est une SORTIE de Lot3. Le seeder créerait une
+    # seconde vérité, que le premier passage de Lot3 écraserait. Les charges vivent dans la SAISIE
+    # (cf. SCENARIOS_CHARGES), et `build_charges()` fait produire ce classeur par Lot3.
+    # Le classeur doit néanmoins pré-exister : `ecrire_master` ouvre la cible pour en préserver
+    # les autres onglets, il ne la crée pas.
     dst.parent.mkdir(parents=True, exist_ok=True)
     wb.save(dst)
+
+
+# Scénarios Charges de la recette — écrits dans la SAISIE, qui est la VÉRITÉ MÉTIER.
+# Le MASTER n'est pas seedé : il est produit par Lot3 à partir de ces lignes (cf. build_charges()).
+# Colonnes renseignées : celles que Lot3 lit. Les colonnes formule de la SAISIE (mois, impacts,
+# ROW_HASH) sont laissées telles quelles — Lot3 les recalcule en Python, jamais depuis le cache.
+#
+# (charge_id, date, montant, sens_flux, categorie, type_flux, code_impact, prise_en_compta,
+#  associe_id, affectation_type, logement_id, proprietaire_id, refacturable, source_flux,
+#  methode_traitement, statut_controle, justificatif, commentaire)
+SCENARIOS_CHARGES = [
+    # A — charge conciergerie pure : impact réel ET comptable, non refacturable.
+    #     Diminue le résultat conciergerie, laisse le net propriétaire intact.
+    ("CHG_A_LOGICIEL", "2026-06-03", 60.00, "DEPENSE", "CHG_005", "TYPE_FLUX_002", "IC", "OUI",
+     None, "GLOBAL", None, None, "NON", "SAISIE_MANUELLE", "DIRECT", "VALIDE", "OUI",
+     "A - abonnement Hostaway, charge conciergerie"),
+    # B — charge refacturable propriétaire : rattachée à un logement, refacturable=OUI.
+    ("CHG_B_REFACT", "2026-06-08", 150.00, "DEPENSE", "CHG_008", "TYPE_FLUX_009", "IC", "OUI",
+     None, "LOGEMENT", "LOG_A1", "PROP_A", "OUI", "FACTURE_PDF", "REFACTURATION_PROPRIETAIRE",
+     "VALIDE", "OUI", "B - reparation refacturable au proprietaire"),
+    # C — paiement personnel associé : porté par une associée, hors comptabilité.
+    ("CHG_C_PERSO", "2026-06-11", 40.00, "DEPENSE", "CHG_004", "TYPE_FLUX_004", "HC", "NON",
+     "PERS_EWAN", "GLOBAL", None, None, "NON", "SAISIE_MANUELLE", "DIRECT", "VALIDE", "OUI",
+     "C - paiement personnel associe, hors compta"),
+    # D — charge hors comptabilité : impact réel, aucun impact comptable, justification conservée.
+    ("CHG_D_HORSCOMPTA", "2026-06-13", 25.00, "DEPENSE", "CHG_009", "TYPE_FLUX_010", "HC", "NON",
+     None, "GLOBAL", None, None, "NON", "SAISIE_MANUELLE", "DIRECT", "VALIDE", "NON",
+     "D - frais de deplacement hors comptabilite, justification au dossier"),
+    # E — répartition multi-logements : DEUX charges distinctes, une par logement. Le modèle
+    #     interdit de dupliquer une charge par affectation ; une ventilation = plusieurs charges.
+    ("CHG_E_MULTI_1", "2026-06-17", 30.00, "DEPENSE", "CHG_004", "TYPE_FLUX_004", "IC", "OUI",
+     None, "LOGEMENT", "LOG_A2", "PROP_A", "NON", "SAISIE_MANUELLE", "DIRECT", "VALIDE", "OUI",
+     "E - consommables ventiles 1/2 (total 60)"),
+    ("CHG_E_MULTI_2", "2026-06-17", 30.00, "DEPENSE", "CHG_004", "TYPE_FLUX_004", "IC", "OUI",
+     None, "LOGEMENT", "LOG_B1", "PROP_B", "NON", "SAISIE_MANUELLE", "DIRECT", "VALIDE", "OUI",
+     "E - consommables ventiles 2/2 (total 60)"),
+    # F — charge fournisseur adossée à une facture : la charge reste UNIQUE. Facture, règlement et
+    #     rapprochement bancaire vivent dans SQLite et ne recréent jamais d'impact économique.
+    ("CHG_SEED_001", "2026-06-12", 120.00, "DEPENSE", "CHG_003", "TYPE_FLUX_014", "IC", "OUI",
+     None, "LOGEMENT", "LOG_B1", "PROP_B", "NON", "FACTURE_PDF", "DIRECT", "VALIDE", "OUI",
+     "F - blanchisserie, facture FA-2026-0012"),
+    ("CHG_SEED_002", "2026-06-25", 95.00, "DEPENSE", "CHG_003", "TYPE_FLUX_014", "IC", "OUI",
+     None, "LOGEMENT", "LOG_C1", "PROP_C", "NON", "FACTURE_PDF", "DIRECT", "VALIDE", "OUI",
+     "F - blanchisserie, facture FA-2026-0025"),
+    # PAS de charge manuelle pour le frais bancaire de 8,90 € : Lot9 injecte déjà les mouvements
+    # TYPE_FLUX_016 VALIDE depuis NORM_Banque. La saisir en plus la compterait DEUX FOIS.
+    # Ce double comptage existait dans le jeu de recette précédent et n'était détecté par rien —
+    # cf. `test_charges_pipeline.py::test_pas_de_double_comptage_frais_bancaire`.
+    # Cas de contrôle : charge NON validée — ne doit jamais entrer dans les résultats.
+    ("CHG_CTRL_NONVALID", "2026-06-19", 500.00, "DEPENSE", "CHG_008", "TYPE_FLUX_009", "IC", "OUI",
+     None, "LOGEMENT", "LOG_A1", "PROP_A", "NON", "SAISIE_MANUELLE", "DIRECT", "A_CONTROLER",
+     "NON", "CONTROLE - non validee, ne doit pas etre injectee"),
+    # Cas de contrôle : charge exclue du résultat — idem.
+    ("CHG_CTRL_EXCLUE", "2026-06-20", 400.00, "DEPENSE", "CHG_008", "TYPE_FLUX_009", "IC", "OUI",
+     None, "LOGEMENT", "LOG_A1", "PROP_A", "NON", "SAISIE_MANUELLE", "DIRECT", "EXCLU_RESULTAT",
+     "NON", "CONTROLE - exclue du resultat, ne doit pas etre injectee"),
+]
+
+# Colonnes de la SAISIE renseignées par le seeding, dans l'ordre des tuples ci-dessus.
+_COLS_SCENARIO = [
+    "charge_id", "date_charge", "montant", "sens_flux", "categorie_charge_id", "type_flux_id",
+    "code_impact", "prise_en_compta", "associe_id", "affectation_type", "logement_id",
+    "proprietaire_id", "refacturable", "source_flux", "methode_traitement", "statut_controle",
+    "justificatif", "commentaire",
+]
+
+
+def build_saisie_charges(saisie_path: Path):
+    """Écrit les scénarios dans l'onglet SAISIE, sans toucher aux colonnes formule ni au gabarit."""
+    wb = openpyxl.load_workbook(saisie_path)
+    ws = wb["SAISIE"]
+    entetes = [c.value for c in ws[1]]
+    index = {nom: i + 1 for i, nom in enumerate(entetes) if nom}
+    manquantes = [c for c in _COLS_SCENARIO if c not in index]
+    if manquantes:
+        raise RuntimeError(f"Colonnes absentes de la SAISIE : {manquantes}")
+
+    for decalage, valeurs in enumerate(SCENARIOS_CHARGES):
+        ligne = 2 + decalage                      # les lignes 2..N portent déjà les formules
+        for nom, valeur in zip(_COLS_SCENARIO, valeurs):
+            ws.cell(row=ligne, column=index[nom]).value = valeur
+    wb.save(saisie_path)
+    wb.close()
+    print(f"   {len(SCENARIOS_CHARGES)} charges de scenario ecrites dans la SAISIE")
+
+
+def build_charges(saisie_path: Path, ref_path: Path, master_path: Path):
+    """Fait produire le MASTER par LOT3 LUI-MÊME, à partir de la SAISIE.
+
+    Le MASTER n'est pas seedé à la main : ce serait une seconde vérité, et le premier passage de
+    Lot3 l'écraserait. Lot3 n'utilise qu'openpyxl — il tourne donc avec l'interpréteur courant.
+    """
+    import sys as _sys
+    _sys.path.insert(0, str(WT / "02_TRAVAIL"))
+    import lot3_generateur_charges as lot3
+
+    res = lot3.generer(str(saisie_path), str(ref_path), str(master_path),
+                       date_integration="2026-06-30T00:00:00")
+    bloquants = [a for a in res["anomalies"] if a.get("niveau") == "BLOQUANT"]
+    print(f"   Lot3 : {res['nb_lignes']} lignes MASTER, {res['nb_vue_menage']} en VUE_MENAGE, "
+          f"{len(res['anomalies'])} anomalie(s) dont {len(bloquants)} bloquante(s)")
+    if bloquants:
+        raise RuntimeError(f"Lot3 a produit des anomalies bloquantes : {bloquants}")
 
 
 def build_pbi_logements(dst: Path):
@@ -564,6 +660,10 @@ def main():
     shutil.copy2(SRC_SAISIE_FLUX, dst_flux)
     shutil.copy2(SRC_SAISIE_IMP, dst_imp)
     build_master_charges_empty(REC / "02_TRAVAIL" / "Lot3_Charges" / "MASTER_FACT_MAN_Charges.xlsx")
+    # Charges de recette : écrites dans la SAISIE (vérité), puis MASTER produit par Lot3 lui-même.
+    build_saisie_charges(dst_flux)
+    build_charges(dst_flux, REC / "01_SOURCES_BRUTES" / "REF_Setup" / "REF_Setup.xlsm",
+                  REC / "02_TRAVAIL" / "Lot3_Charges" / "MASTER_FACT_MAN_Charges.xlsx")
     build_lot7(REC / "02_TRAVAIL" / "Lot7_IK_Avantages" / "MASTER_FACT_MAN_IK_Avantages.xlsx")
     # Copier les scripts moteur Python (CODE, aucune PII) — requis par le runner aval qui ajoute
     # <project_root>/02_TRAVAIL au sys.path pour importer lot3_generateur_charges & libs.

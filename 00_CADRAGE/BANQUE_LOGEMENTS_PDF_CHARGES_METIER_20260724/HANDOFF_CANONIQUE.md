@@ -100,18 +100,38 @@ tous écarts à 0,00. Détail dans `38_LOT13_CONTRAT_EXPORT_POWERBI.md`.
 
 | | |
 |---|---|
-| Modules terminés | Logements, Banque, Fournisseurs-Factures-Règlements, Pilotage des calculs (chaîne aval complète) |
-| Module actif | *(phase 2 en cours : exercer la chaîne Charges)* |
+| Modules terminés | Logements, Banque, Fournisseurs-Factures-Règlements, Pilotage des calculs (chaîne aval complète), **chaîne Charges exercée** |
+| Module actif | *(phase 3 : module Ménages)* |
+
+## ✅ Phase 2 — chaîne Charges exercée (doc `39`)
+
+Deux défauts trouvés **en exécutant**, pas en relisant :
+
+1. **La chaîne `charges` ne pouvait pas fonctionner.** `lot3_generateur_charges.py` est une
+   bibliothèque (aucun `__main__`) : lancé comme script il rend `EXIT=0` sans rien produire. Le
+   garde-fou « jamais de faux succès » le rattrapait, mais la chaîne restait inutilisable.
+   Corrigé par `Lot.runner` → `charges_post_write_runner.py`, l'orchestrateur **déjà existant**.
+   Point critique : ce runner rend **toujours 0** et porte l'échec dans son JSON ; `_verdict_runner`
+   le lit, sans quoi une étape en échec passerait pour un succès.
+2. **Double comptage de 8,90 €** : le frais bancaire était à la fois charge manuelle et flux
+   bancaire injecté par Lot9. **Préexistant, non détecté.** Charge retirée + contrôle ajouté.
+
+Le MASTER charges n'est plus seedé à la main (seconde vérité) : les charges vivent dans la SAISIE,
+et Lot3 produit lui-même le MASTER.
+
+Réconciliation : REEL 558,90 = COMPTABLE 493,90 + HC 65,00. Net propriétaire **inchangé**
+(scénario A), somme à payer **+150,00 exactement** (scénario B). Idempotence et rollback prouvés.
 
 ## Prochaine action précise
 
-1. **Phase 2 — exercer et valider la chaîne Charges** depuis `/calculs` (lot3, déclaré et lançable,
-   jamais exécuté). Scénarios A→F du brief, réconciliation des montants, préfactures, sommes à
-   payer, idempotence, rollback.
-2. **Phase 3 — module Ménages** : audit ciblé des lots 6b/6c/6d/6e/6f, modèle, services, écrans,
-   intégrations Factures/Charges/Banque, contrôles, recette, pipeline.
-3. Le **mode réel** du pilotage reste à activer sur décision explicite
+1. **Phase 3 — module Ménages**. Point de départ : `menages_chaine_service.py` **existe déjà** avec
+   un runner complet lot6b → lot6f + lot11 (`runners/menages_recalcul_runner.py`, stubs Hostaway
+   sous `runners/stubs_menages/`). Ne pas le réécrire : l'auditer, le brancher, puis construire le
+   module opérationnel (écrans, statuts, prestataires, contrôles).
+2. Le **mode réel** du pilotage reste à activer sur décision explicite
    (`CALCULS_REAL_RUN_ENABLED`) — garde-fous en place, jamais activé.
+3. Non construit, signalé : « charge postérieure à une clôture validée » n'est interdit par aucun
+   mécanisme applicatif.
 
 ## Commandes exactes de reprise
 

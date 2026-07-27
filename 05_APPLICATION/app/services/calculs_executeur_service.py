@@ -13,6 +13,7 @@ Garanties :
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import time
@@ -49,6 +50,15 @@ class Lot:
     depend_de: tuple[str, ...] = ()
     entrees: tuple[str, ...] = ()
     requiert_pandas: bool = True
+    runner: str = ""
+    """Runner de `05_APPLICATION/runners/` lancé À LA PLACE d'un appel direct au script.
+
+    Tous les moteurs ne sont pas des scripts autonomes : `lot3_generateur_charges.py` est une
+    **bibliothèque** — aucun bloc `__main__`. Le lancer directement rendait code retour 0 sans
+    rien produire ; seul le contrôle de sorties rattrapait ce faux succès. Le pilotage réutilise
+    donc l'orchestrateur qui existait déjà (`charges_post_write_runner.py`) plutôt que d'en écrire
+    un second. `script` reste renseigné : il sert au contrôle de présence du moteur.
+    """
 
 
 @dataclass
@@ -91,7 +101,10 @@ CHAINE_AVAL: tuple[Lot, ...] = (
 
 CHAINE_CHARGES: tuple[Lot, ...] = (
     Lot("lot3", "lot3_generateur_charges.py",
-        sorties=("02_TRAVAIL/Lot3_Charges/MASTER_FACT_MAN_Charges.xlsx",)),
+        sorties=("02_TRAVAIL/Lot3_Charges/MASTER_FACT_MAN_Charges.xlsx",),
+        entrees=("01_SOURCES_BRUTES/Charges/SAISIE_Charges_Flux.xlsx",
+                 "01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm"),
+        runner="charges_post_write_runner.py"),
 )
 
 CHAINE_MENAGES: tuple[Lot, ...] = (
@@ -200,6 +213,76 @@ def _extrait(texte: str | None) -> str:
     return t[:MAX_EXTRAIT] + f"\n… (tronqué, {len(t)} caractères au total)"
 
 
+RUNNERS_DIR = Path(__file__).resolve().parents[2] / "runners"
+
+# Statuts d'étape du runner Charges (cf. charges_post_write_runner.py).
+_RUNNER_STATUTS_OK = ("OK", "NON_APPLICABLE")
+
+
+def _preparer_runner(lot: Lot, racine: Path) -> tuple[list[str], ResultatLot | None]:
+    """Écrit la requête JSON du runner et rend la commande à lancer.
+
+    Le second membre est un `ResultatLot` d'échec si la préparation est impossible — on ne lance
+    rien dans ce cas plutôt que de laisser le runner échouer de façon obscure.
+    """
+    chemin = RUNNERS_DIR / lot.runner
+    if not chemin.exists():
+        return [], ResultatLot(lot.nom, ST_ECHEC, message=f"Runner absent : {lot.runner}")
+
+    travail = cfg.DRYRUNS_DIR / "calculs_runners"
+    try:
+        travail.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        return [], ResultatLot(lot.nom, ST_ECHEC,
+                               message=f"Répertoire de travail indisponible : {exc}")
+
+    requete = travail / f"{lot.nom}_requete.json"
+    reponse = travail / f"{lot.nom}_reponse.json"
+    if reponse.exists():
+        reponse.unlink()            # jamais relire la réponse d'un run précédent
+
+    charge = {
+        "project_root": str(racine),
+        "charge_id": None,
+        "saisie": str(racine / "01_SOURCES_BRUTES/Charges/SAISIE_Charges_Flux.xlsx"),
+        "ref": str(racine / "01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm"),
+        "master_charges": str(racine / "02_TRAVAIL/Lot3_Charges/MASTER_FACT_MAN_Charges.xlsx"),
+        "lot7": str(racine / "02_TRAVAIL/Lot7_IK_Avantages/MASTER_FACT_MAN_IK_Avantages.xlsx"),
+        # Régénération complète du MASTER : aucun avantage particulier n'est ciblé, donc Lot7 est
+        # NON_APPLICABLE. Le pilotage régénère, il ne rejoue pas l'écriture d'une charge précise.
+        "avantage": False,
+    }
+    requete.write_text(json.dumps(charge, ensure_ascii=False, indent=2), encoding="utf-8")
+    return [str(chemin), str(requete), str(reponse)], None
+
+
+def _verdict_runner(lot: Lot, racine: Path) -> tuple[bool, str]:
+    """Lit la réponse JSON du runner. Indispensable : le runner rend TOUJOURS le code 0 et porte
+    l'échec métier dans son JSON. Sans cette lecture, une étape en échec passerait pour un succès
+    dès lors qu'une sortie d'un run précédent traîne sur le disque."""
+    reponse = cfg.DRYRUNS_DIR / "calculs_runners" / f"{lot.nom}_reponse.json"
+    if not reponse.exists():
+        return False, "Le runner n'a produit aucune réponse."
+    try:
+        data = json.loads(reponse.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return False, f"Réponse du runner illisible : {type(exc).__name__}: {exc}"
+
+    echecs = []
+    for etape in ("lot3", "lot7", "lot11"):
+        detail = data.get(etape)
+        if not isinstance(detail, dict):
+            continue
+        statut = str(detail.get("statut", ""))
+        if statut not in _RUNNER_STATUTS_OK:
+            echecs.append(f"{etape}={statut or '?'} ({detail.get('details', '')})".strip())
+    if not data.get("ok", False):
+        echecs.append("le runner se déclare en échec")
+    if echecs:
+        return False, "Étapes du runner en échec : " + " ; ".join(echecs)
+    return True, ""
+
+
 def executer_lot(nom: str, *, racine: Path | None = None, timeout_s: int = TIMEOUT_DEFAUT_S,
                  interpreteur: Path | None = None) -> ResultatLot:
     """Exécute UN lot. Ne conclut au succès que si code retour 0 ET sorties présentes."""
@@ -215,6 +298,13 @@ def executer_lot(nom: str, *, racine: Path | None = None, timeout_s: int = TIMEO
     if not interp.exists():
         return ResultatLot(nom, ST_ECHEC, message="Interpréteur des lots introuvable.")
 
+    if lot.runner:
+        arguments, prepare = _preparer_runner(lot, r)
+        if prepare is not None:
+            return prepare
+    else:
+        arguments = [str(script)]
+
     # Environnement DÉRIVÉ : l'environnement global du serveur n'est jamais modifié.
     env = dict(os.environ)
     env["PROJECT_ROOT"] = str(r)
@@ -222,7 +312,7 @@ def executer_lot(nom: str, *, racine: Path | None = None, timeout_s: int = TIMEO
 
     debut = time.monotonic()
     try:
-        proc = subprocess.run([str(interp), str(script)], cwd=str(r), env=env,
+        proc = subprocess.run([str(interp), *arguments], cwd=str(r), env=env,
                               capture_output=True, text=True, timeout=timeout_s,
                               encoding="utf-8", errors="replace")
         duree = round(time.monotonic() - debut, 2)
@@ -240,8 +330,14 @@ def executer_lot(nom: str, *, racine: Path | None = None, timeout_s: int = TIMEO
     sorties = {s: (r / s).exists() for s in lot.sorties}
     sorties_ok = all(sorties.values()) if sorties else True
 
+    runner_ok, runner_message = (True, "")
+    if lot.runner:
+        runner_ok, runner_message = _verdict_runner(lot, r)
+
     if code != 0:
         statut, message = ST_ECHEC, f"Code retour {code}."
+    elif not runner_ok:
+        statut, message = ST_ECHEC, runner_message
     elif not sorties_ok:
         # Cas piège : le lot « réussit » mais n'a rien produit -> jamais annoncé comme un succès.
         absentes = [s for s, present in sorties.items() if not present]

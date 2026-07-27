@@ -2461,3 +2461,47 @@ CONTROLES RESTES ACTIFS : le filet refuse toujours `nom_voyageur`, `voyageur_ema
 `guest_name`, `telephone_voyageur`, `adresse_voyageur` (test dedie). La table de renommage est
 verrouillee a une seule entree : toute addition casse la suite et exige une decision explicite.
 REFERENCE : 38_LOT13_CONTRAT_EXPORT_POWERBI.md
+
+
+## 2026-07-27 - Chaine Charges exercee depuis l'application (phase 2)
+
+CONTROLE 1 : "jamais de faux succes" du pilotage.
+CONSTAT : la chaine `charges` de /calculs declarait lot3_generateur_charges.py comme script
+autonome. Or ce moteur est une BIBLIOTHEQUE (aucun bloc __main__) : lance ainsi il rend EXIT=0 et
+ne produit RIEN. Le garde-fou l'a bien rattrape ("Code retour 0 mais sortie absente"), mais la
+chaine etait inutilisable.
+CORRECTION : Lot.runner pointe sur runners/charges_post_write_runner.py, l'orchestrateur qui
+existait deja (lot3 + lot7 + lot11). Aucun second moteur ecrit.
+POINT CRITIQUE : ce runner rend TOUJOURS le code 0 et porte l'echec metier dans son JSON. Sans
+lecture de ce JSON, une etape en echec passerait pour un succes des qu'une sortie d'un run
+precedent traine sur le disque. _verdict_runner() refuse tout statut hors OK / NON_APPLICABLE.
+Verifie en conditions reelles : ECHEC "lot3=ECHEC (FileNotFoundError)" avec code retour 0.
+
+CONTROLE 2 : double comptage facture/charge/banque.
+CONSTAT : le jeu de recette portait le frais bancaire de 8,90 EUR a la fois en charge manuelle
+(CHG_SEED_003) et en flux bancaire injecte par Lot9 depuis NORM_Banque (MVT-SEED-006).
+Total charges 567,80 au lieu de 558,90. Le defaut PREEXISTAIT (ancien charges_reel 232,80 =
+223,90 + 8,90) et rien ne le detectait.
+CORRECTION : charge manuelle retiree du jeu de recette ; nouveau controle
+test_pas_de_double_comptage_frais_bancaire signalant tout couple mois+montant present a la fois
+en flux bancaire et en charge manuelle.
+
+CONTROLE 3 : le MASTER charges n'est plus seede a la main. Il etait une seconde verite que le
+premier passage de Lot3 aurait ecrasee. Les charges vivent desormais dans la SAISIE et Lot3
+produit lui-meme le MASTER.
+
+PREUVES CHIFFREES (run RUN-C87382B8DA79, SUCCES, 3,0 s) :
+- charges manuelles VALIDE 550,00 + frais bancaire 8,90 = REEL 558,90 ;
+- dont hors comptabilite 65,00 -> COMPTABLE 493,90 ;
+- invariant REEL = COMPTABLE + HORS_COMPTA verifie : 493,90 + 65,00 = 558,90 ;
+- charges non validees (500 + 400 = 900) absentes du flux ;
+- net_proprietaire 11 629,40 INCHANGE -> scenario A prouve ;
+- somme_a_payer 2 430,60 -> 2 580,60, soit +150,00 exactement -> scenario B prouve ;
+- resultat_hors_compta -65,00 -> scenarios C + D prouves ;
+- second run RUN-653B6C4AE68F : tous ecarts 0,00 (idempotence) ;
+- rollback : 1 fichier restaure, run repasse RESTAURE.
+
+NON CONSTRUIT, SIGNALE : "charge posterieure a une cloture validee" n'est interdit par aucun
+mecanisme applicatif. La cloture applicative est un suivi ; la cloture reelle reste portee par
+REF_Cloture_Mensuelle.
+REFERENCE : 39_CHAINE_CHARGES_EXERCEE.md
