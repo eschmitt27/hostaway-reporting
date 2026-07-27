@@ -27,6 +27,7 @@ import json
 import os
 import socket
 import sys
+import time
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -56,9 +57,10 @@ class VerrouSaisieChargesDejaPrisError(VerrouSaisieChargesError):
     def __init__(self, lock_path: Path, metadonnees: dict[str, Any] | None) -> None:
         self.lock_path = Path(lock_path)
         self.metadonnees = metadonnees or {}
+        # Le nom de machine n'apparaît PAS dans le message : il remonte jusqu'à l'interface et aux
+        # logs partageables. Il reste dans `self.metadonnees` pour le diagnostic local.
         detenteur = (
-            f"pid={self.metadonnees.get('pid')} sur {self.metadonnees.get('hostname')} "
-            f"depuis {self.metadonnees.get('created_at_utc')}"
+            f"pid={self.metadonnees.get('pid')} depuis {self.metadonnees.get('created_at_utc')}"
             if self.metadonnees else "détenteur inconnu (métadonnées illisibles)"
         )
         super().__init__(
@@ -278,6 +280,89 @@ def _pid_actif(pid: int) -> bool | None:
         return True                 # existe, mais appartient à un autre utilisateur
     except OSError:
         return None
+
+
+# Âge au-delà duquel un verrou dont le PID est mort est jugé récupérable sans hésitation.
+# En deçà, la récupération reste possible mais l'âge est journalisé : un verrou tout juste posé
+# dont le PID a déjà disparu mérite d'être remarqué.
+AGE_VERROU_SUSPECT_S = 60
+
+RECUP_ABSENT = "AUCUN_VERROU"
+RECUP_ACTIF = "REFUS_PROCESSUS_ACTIF"
+RECUP_INDETERMINABLE = "REFUS_INDETERMINABLE"
+RECUP_EFFECTUEE = "RECUPERE"
+RECUP_CONCURRENTE = "RECUPERE_PAR_UN_AUTRE"
+
+
+def _age_verrou_s(metadonnees: dict[str, Any] | None) -> float | None:
+    from datetime import datetime, timezone
+    horodatage = (metadonnees or {}).get("created_at_utc")
+    if not horodatage:
+        return None
+    try:
+        pose = datetime.fromisoformat(str(horodatage))
+    except ValueError:
+        return None
+    if pose.tzinfo is None:
+        pose = pose.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - pose).total_seconds()
+
+
+def recuperer_verrou_perime(lock_path: Path | None = None,
+                            *, operation: str = "") -> dict[str, Any]:
+    """Écarte un verrou dont le processus détenteur n'existe plus. Journalisé, jamais silencieux.
+
+    Un processus interrompu (Ctrl-C, kill, coupure) laisse son verrou derrière lui et bloque
+    définitivement les exécutions suivantes — c'est arrivé sur `.menages_chaine.lock`, avec un
+    symptôme trompeur très loin de la cause.
+
+    La suppression restait volontairement humaine, au motif qu'un PID est recyclable. L'argument
+    tient, mais il porte sur le sens inverse : un PID recyclé rend le verrou **actif**, donc
+    protégé. Le vrai risque d'une récupération automatique est la course entre deux repreneurs.
+    Il est écarté ici par un **renommage atomique** : le premier qui renomme gagne, les autres
+    constatent que le verrou a disparu sous eux et ne relancent rien.
+
+    Ne supprime jamais le fichier : il est mis de côté sous `<nom>.perime-<horodatage>`, ce qui
+    laisse une trace inspectable.
+    """
+    p = Path(lock_path or chemin_verrou_par_defaut())
+    etat = inspecter_verrou(p)
+
+    if etat["etat"] == ETAT_ABSENT:
+        return {"recupere": False, "code": RECUP_ABSENT, "raison": etat["raison"]}
+    if etat["etat"] == ETAT_ACTIF_PROBABLE:
+        # Jamais le verrou d'un processus vivant.
+        return {"recupere": False, "code": RECUP_ACTIF, "raison": etat["raison"]}
+    if etat["etat"] != ETAT_POTENTIELLEMENT_PERIME:
+        # Verrou illisible ou posé par une autre machine : pas de décision automatique.
+        return {"recupere": False, "code": RECUP_INDETERMINABLE, "raison": etat["raison"]}
+
+    age = _age_verrou_s(etat.get("metadonnees"))
+    ecarte = p.with_name(f"{p.name}.perime-{int(time.time())}-{os.getpid()}")
+    try:
+        os.replace(p, ecarte)                 # atomique : un seul repreneur peut réussir
+    except OSError as exc:
+        return {"recupere": False, "code": RECUP_CONCURRENTE,
+                "raison": f"Verrou déjà écarté par un autre processus ({exc.__class__.__name__})."}
+
+    detail = {
+        "recupere": True, "code": RECUP_EFFECTUEE,
+        "pid_mort": (etat.get("metadonnees") or {}).get("pid"),
+        "age_s": round(age, 1) if age is not None else None,
+        "age_suspect": bool(age is not None and age < AGE_VERROU_SUSPECT_S),
+        "ecarte_vers": str(ecarte),
+        "raison": etat["raison"],
+    }
+    try:
+        from app.services.audit_service import log_event
+        log_event("verrou_recupere", {
+            "operation": operation or (etat.get("metadonnees") or {}).get("operation"),
+            "pid_mort": detail["pid_mort"], "age_s": detail["age_s"],
+            "age_suspect": detail["age_suspect"], "lock": p.name,   # jamais le nom de machine
+        })
+    except Exception:                          # la journalisation ne doit jamais bloquer la reprise
+        pass
+    return detail
 
 
 def inspecter_verrou(lock_path: Path | None = None) -> dict[str, Any]:

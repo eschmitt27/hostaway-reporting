@@ -434,6 +434,12 @@ def executer_chaine(mode: str = MODE_COPIES, declarations_csv: str | None = None
                 "erreur_code": "E_EXCEL_OUVERT",
                 "message": "Fichier(s) ouverts dans Excel : " + ", ".join(plan["excel_ouverts"])}
 
+    # Un run interrompu (Ctrl-C, kill, coupure) laisse son verrou et bloque définitivement les
+    # suivants — avec un symptôme très éloigné de la cause. La reprise n'écarte QUE les verrous dont
+    # le processus détenteur n'existe plus, par renommage atomique, et la journalise. Un verrou tenu
+    # par un processus vivant reste intouché.
+    verrou_lib.recuperer_verrou_perime(_lock_path(), operation=OPERATION)
+
     try:
         verrou = verrou_lib.acquerir_verrou(operation=OPERATION, lock_path=_lock_path())
     except verrou_lib.VerrouSaisieChargesDejaPrisError as exc:
