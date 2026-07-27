@@ -64,8 +64,9 @@ Thumbs.db
 # jamais versionné ; seul le générateur (recette/*.py) est source.
 data_recette/
 
-# Verrou d'écriture des charges (runtime, propre à la machine) — jamais versionné
+# Verrous d'exécution (runtime : pid + nom de machine) — jamais versionnés
 05_APPLICATION/data/.saisie_charges_write.lock
+05_APPLICATION/data/.menages_chaine.lock
 
 # Backups de migration openpyxl (timestampés, avant écriture) — non versionnés
 99_ARCHIVES/APP2E_SCHEMA_HH_*/
