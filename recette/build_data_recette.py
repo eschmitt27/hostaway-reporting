@@ -643,6 +643,18 @@ def build_factures_sqlite(db_path: Path):
                      date_reglement="2026-06-27", moyen="PERSONNEL_ASSOCIE", acteur="seed",
                      db_path=db_path)
 
+    # Qualification ménage du fournisseur externe fictif (module Ménages, migration 0019) : sans
+    # cela la recette navigateur du cycle de vie ne peut affecter aucun prestataire.
+    from app.db.connection import get_db as _get_db
+    conn = _get_db(db_path)
+    try:
+        conn.execute(
+            "INSERT INTO fournisseur_menage_qualification (fournisseur_id_opaque, type_menage, "
+            "date_debut_validite) VALUES (?,?,?)", (men, "EXTERNE", "2026-01-01"))
+        conn.commit()
+    finally:
+        conn.close()
+
     print(f"   base factures de recette : {db_path.name} "
           f"({len(fact.lister(db_path=db_path))} factures, "
           f"{len(regl.lister(db_path=db_path))} règlements, 3 fournisseurs)")

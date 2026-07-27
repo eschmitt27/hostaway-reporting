@@ -2569,3 +2569,29 @@ NON FAIT, DIT CLAIREMENT : le cycle de vie operationnel des menages (statuts, cr
 Hostaway, affectation, rattachements facture/charge/reglement/banque, prestataires qualifies,
 catalogue de controles) n'est PAS construit. Module PARTIEL.
 REFERENCE : 41_MODULE_MENAGES_ETAT_FINAL.md
+
+
+## 2026-07-27 (nuit) - Cycle de vie Menages construit et prouve en recette
+
+CONTROLE : recette navigateur reelle du cycle complet (port 8070, double verrou
+MENAGES_CYCLE_REAL_WRITE_*).
+PARCOURS PROUVE : creation (propriétaire resolu automatiquement) -> PREVU -> affectation ->
+A_REALISER -> realisation (ecart 45->46 sous seuil) -> REALISE -> A_CONTROLER -> VALIDE.
+A ce stade, /menages/cycle/controles a REELLEMENT signale CTRL_MEN_EXTERNE_SANS_FACTURE
+(CRITIQUE) et CTRL_MEN_SANS_RESERVATION (INFO) - les controles fonctionnent sur un cas reel, pas
+seulement en test unitaire.
+Rattachement d'une facture existante (FAC-477C2F7A50BB, REGLEE, solde 0) -> contexte
+facture/reglement/banque correctement affiche (reglement REG-1ED3A40AA329, aucun mouvement
+bancaire rapproche - exact, ce reglement n'etait pas rapproche dans le jeu de recette).
+Transitions FACTURE -> REGLE, historique 7 evenements tous horodates.
+Second menage cree puis ANNULE : etat terminal, aucune action restante, jamais supprime.
+REDEMARRAGE DU SERVEUR -> GET renvoie toujours REGLE. PERSISTANCE PROUVEE.
+
+82 tests ajoutes (modele+service 28, controles 8, routes HTTP 11, plus les 46 du bloc precedent
+de ce meme tour : pivot 9, verrou perime 14, cave/pools 6, garde workspace 4, flags 2 + ajustements).
+Campagne ciblee -k "menage" : 230 passes / 14 skipes.
+
+STATUT MODULE : PARTIEL (pas TERMINE) - restent pools de courses non alimentes en recette,
+rattachement de charge non exerce en reel, formulaire UI de rattachement facture absent (fait par
+script dans cette recette).
+REFERENCE : 41_MODULE_MENAGES_ETAT_FINAL.md, 41b_AUDIT_MENAGES_CYCLE_DE_VIE.md

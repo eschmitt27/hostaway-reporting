@@ -12,7 +12,7 @@ complets du parcours ; **Contrôles** = catalogue d'anomalies exposé ; **Mode r
 | Logements | ✅ | ✅ | — | ✅ | ✅ | ⛔ | **TERMINÉ** | `28`, `29` |
 | Propriétaires | ✅ | ⚠️ | — | ✅ | ⚠️ | ⛔ | **PARTIEL** | antérieur au chantier |
 | Réservations | ✅ | ⛔ | ✅ | ✅ | ⚠️ | ⛔ | **PARTIEL** | lecture seule (APP-2a) |
-| Ménages | ✅ | ⛔ | ✅ | ⚠️ | ⚠️ | ⛔ | **PARTIEL** | `40`, `41` |
+| Ménages | ✅ | ✅ | ✅ | ✅ | ✅ | ⛔ | **PARTIEL** | `40`, `41`, `41b` |
 | Charges | ✅ | ✅ | ✅ | ✅ | ✅ | ⛔ | **TERMINÉ** | `24`, `27`, `39` |
 | Fournisseurs | ✅ | ✅ | — | ✅ | ✅ | ⛔ | **TERMINÉ** | `32`, `34` |
 | Factures | ✅ | ✅ | — | ✅ | ✅ | ⛔ | **TERMINÉ** | `33`, `34` |
@@ -29,7 +29,7 @@ complets du parcours ; **Contrôles** = catalogue d'anomalies exposé ; **Mode r
 |---|---|
 | Propriétaires | module antérieur au chantier, jamais ré-exercé ici ; pas de recette navigateur récente |
 | Réservations | lecture seule assumée ; aucune écriture applicative prévue à ce stade |
-| **Ménages** | **cycle de vie opérationnel** : statuts, création hors Hostaway, affectation, remplacement, rattachements facture/charge/règlement/banque, prestataires qualifiés sur le référentiel Fournisseurs, catalogue de contrôles applicatif |
+| **Ménages** | cycle de vie construit et prouvé en recette ; restent : pools de courses alimentés en recette, rattachement de charge exercé en réel, formulaire UI de rattachement facture (fait par script dans la recette de ce tour) |
 | Contrôles | suivi humain livré ; l'écriture réelle est **gelée volontairement** (le moteur reste la vérité de l'anomalie) |
 
 ## Mode réel : aucun module activé

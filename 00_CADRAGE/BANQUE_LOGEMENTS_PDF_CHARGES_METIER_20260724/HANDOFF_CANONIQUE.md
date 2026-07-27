@@ -45,7 +45,7 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 | Fournisseurs / Factures / Règlements | **TERMINÉ** | `32`, `33`, `34` |
 | Pilotage des calculs & clôture | **TERMINÉ** — chaîne aval complète `lot4quater → lot13` | `35`, `36`, `37`, `38` |
 | Charges | **chaîne exercée depuis `/calculs`**, scénarios A→F réconciliés | `27`, `39` |
-| Ménages | **PARTIEL** — chaîne 7/7 verte ; cycle de vie opérationnel non construit | `40`, `41` |
+| Ménages | **PARTIEL** — chaîne 7/7 verte, cycle de vie construit et prouvé en recette navigateur (persistance incluse) ; pools de courses et rattachement charge non exercés en recette | `40`, `41`, `41b` |
 
 ## ⚠️ Correction importante d'une limite documentée à tort
 
@@ -138,8 +138,32 @@ tous écarts à 0,00. Détail dans `38_LOT13_CONTRAT_EXPORT_POWERBI.md`.
 
 | | |
 |---|---|
-| Modules terminés | Logements, Banque, Fournisseurs-Factures-Règlements, Pilotage des calculs (chaîne aval complète), **chaîne Charges exercée** |
-| Module actif | *(phase 3 : module Ménages)* |
+| Modules terminés | Logements, Banque, Fournisseurs-Factures-Règlements, Pilotage des calculs (chaîne aval complète), Charges exercée |
+| Module actif | *(Mission 2 de ce tour : audit Factures/Charges/Règlements)* |
+
+## ✅ Mission 1 de ce tour — cycle de vie Ménages construit et prouvé
+
+Modèle SQLite (migration `0019`, patron de `factures_service.py`), service `menages_cycle_service.py`
+(11 statuts, transitions du brief, qualification prestataire, historique jamais réécrit),
+`menages_controles_service.py` (11 codes), 11 routes + 4 écrans sous `/menages/cycle`.
+
+**Défaut de confidentialité corrigé en premier** (`ANO-2026-07-27-01`) : `lot6b`, lancé directement
+depuis `/calculs` au tour précédent, interrogeait réellement la feuille Google des déclarations
+internes et avait fait entrer de vraies données (prénoms d'intervenantes) dans `data_recette`.
+Corrigé par `Lot.exige_workspace_controle` : refus avant tout lancement, chaîne retirée de
+`/calculs`. `data_recette` purgé et vérifié vierge.
+
+**Correction de mon propre diagnostic précédent** : « lot6d ECHEC » n'était pas un défaut de lot6d
+ni du jeu de recette — c'était une conséquence de l'exécution illégitime ci-dessus (M04 pollué,
+`logement_id` nul partout). Prouvé : via l'orchestrateur légitime, la chaîne complète passe 7/7,
+`reel_intact=True`.
+
+**Recette navigateur réelle** : cycle complet `PREVU → A_REALISER → REALISE → A_CONTROLER → VALIDE
+→ FACTURE → REGLE` sur un ménage fictif, contrôles déclenchés en conditions réelles (pas seulement
+en test), rattachement d'une facture existante avec contexte règlement affiché, second ménage
+annulé, **persistance prouvée après redémarrage du serveur**.
+
+82 tests ajoutés. Détail complet : doc `41`.
 
 ## ✅ Phase 2 — chaîne Charges exercée (doc `39`)
 

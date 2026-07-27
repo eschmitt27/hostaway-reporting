@@ -1,11 +1,14 @@
 # 41 — Module Ménages : état
 
-Suite de `40_AUDIT_MENAGES.md`. Ce document dit ce qui est prouvé et ce qui ne l'est pas.
+Suite de `40_AUDIT_MENAGES.md` et `41b_AUDIT_MENAGES_CYCLE_DE_VIE.md`. Ce document dit ce qui est
+prouvé et ce qui ne l'est pas.
 
-## Statut : **PARTIEL**
+## Statut : **PARTIEL** (cycle de vie construit et prouvé ; module non fermé)
 
-La chaîne de calcul est **verte de bout en bout**. Le **cycle de vie opérationnel n'est pas
-construit** — il n'est donc pas déclaré fait.
+La chaîne de calcul est **verte de bout en bout**. Le **cycle de vie opérationnel a été construit ce
+tour** : modèle SQLite, service, contrôles, routes, écrans, recette navigateur réelle. Reste ouvert :
+alimentation des pools de courses en recette, rattachement charge exercé en réel (facture exercée),
+et le module n'a pas eu de seconde passe de durcissement — voir §7.
 
 ## 1. La chaîne passe (correction d'un diagnostic erroné)
 
@@ -97,22 +100,67 @@ en dur, réservé aux internes, clé D103, ventilé une seule fois, pools décla
 
 **Aucun arbitrage n'est nécessaire sur la cave** : le grain est documenté.
 
-## 5. Ce qui N'EST PAS fait
+## 5. Cycle de vie construit ce tour (audit `41b`)
 
-| Attendu | État | Raison |
+Modèle SQLite (migration `0019`) : table `menages` (grain = occurrence, `MEN-xxxx`), 11 statuts du
+brief (`PREVU → A_AFFECTER → A_REALISER → REALISE → A_CONTROLER → VALIDE → FACTURE → REGLE`,
+`ANNULE`, `REMPLACE`, `LITIGE`), `menage_evenements` (historique append-only),
+`fournisseur_menage_qualification` (extension du référentiel Fournisseurs — **pas** une table
+concurrente).
+
+`menages_cycle_service.py` — patron identique à `factures_service.py` :
+- `creer()` résout le propriétaire depuis `logements_service.load_detail` (aucun second référentiel),
+  bloque doublon/logement inconnu/propriétaire non résolu/type/date invalides ;
+- `affecter()`/`remplacer()` vérifient la qualification (type + période + logements autorisés),
+  refusent un prestataire archivé ; l'ancien prestataire reste dans l'historique, jamais réécrit ;
+- `realiser()` exige une justification au-delà d'un seuil d'écart coût prévu/réel ;
+- `changer_statut()` applique les transitions, dont la réouverture contrôlée depuis LITIGE (jamais
+  un saut direct vers FACTURE/REGLE) ; refuse VALIDE sans coût ;
+- `lier_facture()`/`lier_charge()` ne créent **jamais** l'objet lié, refusent la double liaison ;
+- `contexte_facture_charge_reglement_banque()` délègue en lecture seule aux services existants.
+
+`menages_controles_service.py` — même patron que `factures_controles_service.py` : 11 codes
+(sans réservation, doublon probable, prestataire archivé, externe sans facture, durée négative,
+validé sans coût, annulé encore facturé, charge dupliquée, écart non justifié, facture réglée sans
+règlement retrouvé), ne lève jamais.
+
+11 routes sous `/menages/cycle` + 4 écrans (liste/filtres, création, fiche détaillée avec actions
+contextuelles selon les transitions autorisées, contrôles).
+
+## 6. Recette navigateur réelle — parcours complet prouvé
+
+Serveur de recette, port 8070, `RECETTE_MODE=1` + double verrou `MENAGES_CYCLE_REAL_WRITE_*`.
+
+1. **Création** `MEN-36ACD6E735B8` (LOG_A1, EXTERNE, 2026-06-20) → propriétaire `PROP_A` résolu
+   automatiquement, statut `PREVU`.
+2. **Affectation** du prestataire fictif → `A_REALISER`, historique `AFFECTATION` horodaté.
+3. **Réalisation** (coût réel 46 € vs prévu 45 €, écart sous le seuil) → `REALISE`.
+4. Transitions `A_CONTROLER` → `VALIDE`.
+5. **Contrôle en conditions réelles** : `/menages/cycle/controles` a immédiatement signalé
+   `CTRL_MEN_EXTERNE_SANS_FACTURE` (CRITIQUE) et `CTRL_MEN_SANS_RESERVATION` (INFO) — les contrôles
+   fonctionnent sur un cas réel, pas seulement en test unitaire.
+6. **Rattachement** d'une facture existante (`FAC-477C2F7A50BB`, REGLEE, solde 0 €) → la fiche
+   affiche facture, statut, solde, règlement `REG-1ED3A40AA329` (35 €), et « aucun mouvement
+   bancaire rapproché » (exact : ce règlement n'était pas rapproché dans le jeu de recette).
+7. Transitions `FACTURE` → `REGLE`, historique intégral (7 événements, tous horodatés).
+8. **Second ménage** créé (LOG_B1, INTERNE) puis **annulé** → `ANNULE`, aucune action restante
+   (état terminal), jamais supprimé.
+9. **Redémarrage du serveur** → `GET /menages/cycle/MEN-36ACD6E735B8` renvoie toujours `REGLE`.
+   **Persistance prouvée.**
+
+## 7. Ce qui reste ouvert
+
+| Sujet | État | Raison |
 |---|---|---|
-| Cycle de vie opérationnel (PLANIFIE → … → REGLE / ANNULE / LITIGE) | ⛔ | Non construit. L'existant est un module de **rapprochement et de reporting**, sans objet ménage unitaire ni statut. |
-| Création d'un ménage hors Hostaway, affectation, remplacement | ⛔ | Dépend du modèle unitaire ci-dessus. |
-| Rattachement ménage ↔ facture / charge / règlement / banque | ⛔ | Idem. |
-| Prestataires qualifiés sur le référentiel Fournisseurs | ⛔ | `REF_Intervenants` (Excel) et `fournisseurs_referentiel_service` (SQLite) coexistent sans lien. |
-| Catalogue applicatif de contrôles Ménages | ⛔ | lot6d/lot11 en couvrent une partie côté moteur ; rien d'équivalent à `/factures/controles`. |
-| Recette navigateur du cycle de vie | ⛔ | Sans objet tant que le cycle n'existe pas. |
-| Quote-part des courses alimentée | ⚠️ | Mécanisme présent dans lot6f, pools **vides** faute de charges de courses dans le jeu de recette. Pool vide et source absente restent distinguables. |
+| Pools de courses en recette | ⚠️ | Mécanisme présent dans lot6f, pools **vides** faute de charges de courses dans le jeu de recette. Distingué de « source absente » par construction. |
+| Rattachement de charge exercé en réel | ⚠️ | `lier_charge()` testé unitairement (12 tests) ; non exercé en recette navigateur (aucune charge de recette disponible à lier lors de ce parcours). |
+| Import PDF de facture ménage → lien direct depuis la fiche ménage | ⛔ | Le rattachement facture existe (`lier_facture`) ; aucun formulaire UI ne l'expose encore (fait par script dans cette recette). |
+| Chaîne lot6 exercée avec un ménage du cycle en entrée | ⛔ | Le cycle de vie et la chaîne de comptage (lot6b→lot11) restent deux couches parallèles, non connectées par un flux de données. |
 
-Le module reste **PARTIEL**. Les critères de clôture du brief ne sont pas réunis, et il aurait été
-faux de le déclarer terminé.
+Ce qui a été fait est **prouvé** (modèle, service, contrôles, routes, écrans, recette navigateur,
+persistance). Ce qui manque est cité sans arrondi.
 
-## 6. Tests ajoutés ce tour
+## 8. Tests ajoutés ce tour
 
 | Fichier | Nb | Objet |
 |---|--:|---|
@@ -120,7 +168,13 @@ faux de le déclarer terminé.
 | `test_menages_pivot_historique.py` | 9 | pivot D101 et frontières |
 | `test_verrou_perime.py` | 14 | reprise de verrou, huit cas |
 | `test_menages_cave_et_pools.py` | 6 | cave REC_002 et pools |
-| **Total** | **33** | |
+| `test_menages_cycle.py` | 28 | modèle SQLite + service (dont double verrou) |
+| `test_menages_controles.py` | 8 | catalogue de contrôles |
+| `test_menages_cycle_routes.py` | 11 | couche HTTP, cycle complet, persistance |
+| `test_flags_inventaire.py` (ajouts) | 2 | flag `MENAGES_CYCLE_REAL_WRITE_*` |
+| **Total** | **82** | |
+
+Campagne ciblée `-k "menage"` : 230 passés / 14 skipés.
 
 Campagnes ciblées : `-k "menage or calculs"` → 229 passés ;
 `-k "verrou or lock or menage or charges_confirmation or saisie_charges"` → 340 passés.
