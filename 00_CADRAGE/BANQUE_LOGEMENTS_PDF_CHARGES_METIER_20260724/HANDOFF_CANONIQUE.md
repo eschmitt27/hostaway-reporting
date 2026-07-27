@@ -170,6 +170,31 @@ TypeError: '<' not supported between instances of 'NoneType' and 'str'
 
 Une des sources agrégées porte un `logement_id` ou `proprietaire_id` nul.
 
+## ⛔ ARBITRAGE EN ATTENTE — pivot du coût de ménage interne
+
+Une consigne du 2026-07-27 demandait de déplacer le pivot au **1er mai 2026**, au motif que le
+moteur aurait dérivé au 1er juin. **Vérification faite : le moteur est conforme.**
+
+`DECISIONS_METIER.md` → **D101 — Méthode interne selon période**, VALIDÉ le 2026-06-18 :
+
+> Pivot **2026-06**. ≤ 2026-05 : `INTERNE_HEURES_M04` = nb_heures × taux horaire (PARAM_004).
+> ≥ 2026-06 : `INTERNE_STANDARD_PARAMETRE` = nb_menages × forfait `REF_Couts_Menage_Interne`.
+
+`lib_menage_costs.PIVOT_FIXED_COST = 2026-06-01` applique exactement D101.
+
+**Le pivot n'a donc PAS été modifié.** Avancer au 1er mai recalculerait **mai 2026** — le mois qui
+porte les données réelles (factures Aissata / Mounir, heures Imène / Kheira) — avec l'autre méthode,
+ce que la consigne elle-même interdit (« vérifier qu'aucun mois passé n'est recalculé avec une
+mauvaise règle »).
+
+Deux issues possibles, à trancher explicitement :
+1. **D101 reste la règle** → rien à faire, le comportement est déjà juste et désormais verrouillé
+   par `tests/test_menages_pivot_historique.py` (9 tests, dont les 4 frontières demandées).
+2. **D101 est révisée** → il faut modifier `PIVOT_FIXED_COST`, amender D101 (nouvelle décision
+   datée, pas une réécriture), recalculer mai 2026 et mesurer l'écart avant/après.
+
+Tant que ce n'est pas tranché, aucun écran ni calcul ne doit présenter une règle contredisant D101.
+
 ## Prochaine action précise
 
 1. **Débloquer lot6d** : inspecter les sorties de lot6b (`MASTER_NORM_Declarations_Internes`,
