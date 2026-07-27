@@ -891,3 +891,25 @@ Suivi détaillé : `00_CADRAGE/BANQUE_LOGEMENTS_PDF_CHARGES_METIER_20260724/HAND
 Limites persistantes assumées : forfait logiciel historisé (moteur Lot10) non commencé ; `pandas`
 absent de l'environnement, donc les moteurs Lot9/Lot10 complets ne sont pas exécutables — les
 vérifications d'impact reproduisent *verbatim* leurs filtres réels dans des tests.
+
+
+## 2026-07-27 — Chaine aval executee de bout en bout en recette (Bloc 1 a 4)
+
+CORRECTION du paragraphe ci-dessus : `pandas` n'est PAS absent de la machine. Il manque a
+l'interpreteur de l'application (miniconda) ; les moteurs tournent avec
+`C:\Program Files\Python312\python.exe`, que `config.py` connaissait deja. Les lots sont bel et
+bien executables ici, et l'ont ete reellement.
+
+- Chaine `lot4quater -> lot9 -> lot10 -> lot11 -> lot12` : run **SUCCES** en 20,4 s
+  (`RUN-27CA69FD8D87`). CA 14 060 EUR, commissions 2 430,60, net proprietaire 11 629,40,
+  resultat reel 13 827,20 — chiffres verifies a la main.
+- Comparaison avant/apres alimentee par deux runs reussis : tous ecarts 0,00, ce qui prouve aussi
+  l'idempotence des moteurs sur entrees identiques.
+- Rollback exerce : 7 fichiers restaures, run repasse en RESTAURE.
+- Cloture `OUVERTE -> EN_CALCUL -> A_CONTROLER -> VALIDEE`, persistante apres redemarrage.
+- Selection de lots dans l'ecran de lancement (couvre « rejouer un lot »), 4 tests.
+
+**Defaut moteur ouvert** : `lot13_export_powerbi.py` echoue systematiquement — sa whitelist
+`PBI_Commissions` contient `preparation_canape_voyageurs`, que son propre filet anti-sensible
+interdit. Defaut statique, donc valable aussi en mode reel. Moteur NON modifie ; tenu par
+`tests/test_lot13_filet_anti_sensible.py` en xfail(strict). Decision metier requise. Doc 37.

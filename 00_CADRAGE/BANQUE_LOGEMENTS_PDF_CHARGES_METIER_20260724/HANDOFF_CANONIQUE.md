@@ -13,7 +13,7 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 | git status | propre (`data_recette/` ignoré, régénérable) |
 | master / canonique | **intacts, jamais touchés** (`master` = `8b47807`) |
 | Sources réelles | **jamais modifiées** — toutes les écritures de recette sous `data_recette/` |
-| Suite complète | **1939 passés / 65 skipés / 1 échec pré-existant** (~32 min) |
+| Suite complète | **1948 passés / 65 skipés / 1 xfail attendu / 1 échec pré-existant** (21 min 43) |
 
 ## Modules
 
@@ -22,7 +22,7 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 | Logements | **TERMINÉ** | `28`, `29` |
 | Banque (import, rapprochement, suggestions, contrôles) | **TERMINÉ** | `30`, `31` |
 | Fournisseurs / Factures / Règlements | **TERMINÉ** | `32`, `33`, `34` |
-| Pilotage des calculs & clôture | **PARTIEL** | `35`, `36` |
+| Pilotage des calculs & clôture | **TERMINÉ côté applicatif** — reste un défaut *moteur* sur lot13 | `35`, `36`, `37` |
 | Charges | Antérieur, non retouché | `27` |
 
 ## ⚠️ Correction importante d'une limite documentée à tort
@@ -46,6 +46,18 @@ Ne plus propager l'ancienne affirmation.
    jamais activé.
 3. **OFX (Banque) / import CSV-XLSX de factures / caisse** — aucun besoin métier démontré.
 4. Contrôles inter-lots (`total Lot8 vs Lot9`, double comptage payout) — non construits.
+5. Chaînes `charges` (lot3) et `menages` (lot6b→lot6f) déclarées et lançables, **jamais exercées**
+   en recette.
+6. Aucune **durée estimée a priori** n'est affichée : volontaire, pas d'estimation inventée. Les
+   durées réelles sont mesurées et journalisées à chaque run.
+
+## Limite de méthode de recette navigateur
+
+Les clics de l'outil d'automatisation sur les **cases à cocher** et sur certains boutons de
+soumission ne se propagent pas au DOM (même défaillance qu'aux tours précédents sur `<summary>`).
+Contournement utilisé : `element.click()` puis `form.requestSubmit()` dans le moteur JS de la page
+— vrais événements DOM, vraie soumission HTTP, mais le geste physique n'est pas reproduit. Le reste
+du parcours (navigation, lecture, vérification, redémarrage) est réel.
 
 ## Anomalie de test connue (pré-existante, hors périmètre)
 
@@ -53,24 +65,49 @@ Ne plus propager l'ancienne affirmation.
 d'utilisateur Windows apparaît dans un chemin temporaire pytest, ce que le test interdit.
 **Antérieure à tout ce chantier.** Ne pas la confondre avec une régression.
 
+## Blocs 1 à 4 : faits — voir `37_CHAINE_AVAL_RECETTE_ET_DEFAUT_LOT13.md`
+
+| Bloc | État | Preuve |
+|---|---|---|
+| 1 — chaîne aval verte en recette | ✅ **fait** (hors lot13) | `RUN-27CA69FD8D87` : lot4quater → lot12 **SUCCES**, 20,4 s |
+| 2 — comparaison avant/après | ✅ **fait** | deux runs réussis, tous écarts 0,00 (prouve aussi l'idempotence) |
+| 3 — clôture `VALIDEE` | ✅ **fait** | `OUVERTE → EN_CALCUL → A_CONTROLER → VALIDEE`, persiste au redémarrage |
+| 4 — rejouer un lot | ✅ **fait** | case à cocher par lot dans le formulaire de lancement, 4 tests |
+
+Correction de raisonnement du handoff précédent : il ne fallait **pas** seeder
+`MASTER_CALC_Reservations_Resolues.xlsx` — c'est la *sortie* de lot4quater, la seeder aurait
+fabriqué un faux succès. Ce qui manquait, ce sont les **entrées** (table live lot4bis, payout, et
+7 sources que lot11 charge inconditionnellement, recopiées en en-tête seul).
+
+## ⛔ Défaut moteur ouvert : lot13 échoue systématiquement
+
+Première exécution de la chaîne assez loin pour atteindre lot13 :
+
+```
+[BLOQUANT lot13] colonnes sensibles dans des exports :
+   PBI_Commissions: colonne sensible détectée ['preparation_canape_voyageurs']
+```
+
+`lot13_export_powerbi.py` se contredit : sa whitelist `PBI_Commissions` contient
+`preparation_canape_voyageurs`, que son propre filet anti-sensible interdit (motif `voyageur`).
+**Statique, donc valable aussi en mode réel.** Postérieur au commit `8763676`.
+
+Moteur **non modifié** (règle du chantier). Le défaut est tenu par
+`tests/test_lot13_filet_anti_sensible.py` en `xfail(strict=True)` : le test échouera dès la
+correction du moteur, forçant à retirer le garde-fou.
+
+Décision métier requise, au choix : retirer la colonne de la whitelist / la renommer (elle ne porte
+qu'un montant) / restreindre le motif `voyageur` aux colonnes nominatives.
+
 ## Prochaine action précise
 
-**Bloc 1 — rendre la chaîne aval verte en recette** (condition nécessaire au reste) :
-`lot4quater` échoue (code 1) faute de sources de réservations dans `data_recette`. Il manque :
-- `02_TRAVAIL/Lot4quater_SourceResolue/MASTER_CALC_Reservations_Resolues.xlsx`
-- `02_TRAVAIL/Lot6c_MenagesExternes/MASTER_FACT_MEN_MenagesExternes.xlsx`
-
-`recette/build_reservations_recette.py` existe déjà — vérifier ce qu'il produit et le brancher dans
-`build_data_recette.py`, ou seeder directement ces deux fichiers. Objectif : un run
-`lot4quater → … → lot13` en **SUCCES**, ce qui débloque ensuite :
-
-**Bloc 2** — comparaison avant/après alimentée par deux runs réussis (le mécanisme est construit et
-testé, jamais exercé sur de vraies données).
-
-**Bloc 3** — atteindre la clôture `VALIDEE` de bout en bout (aujourd'hui refusée à juste titre).
-
-**Bloc 4** — bouton « rejouer un lot » isolé (`executer_lot()` le permet déjà côté service, aucun
-écran ne l'expose).
+1. **Trancher le défaut lot13** ci-dessus (hors périmètre applicatif — décision sur le moteur).
+   Une fois corrigé : relancer la chaîne complète avec lot13 coché, le run doit passer SUCCES et
+   le test `xfail` doit être supprimé.
+2. Exercer les chaînes **`charges`** et **`menages`** en recette (déclarées et lançables, jamais
+   exécutées).
+3. Le **mode réel** du pilotage reste à activer sur décision explicite
+   (`CALCULS_REAL_RUN_ENABLED`) — garde-fous en place, jamais activé.
 
 ## Commandes exactes de reprise
 
@@ -87,7 +124,7 @@ python recette/build_data_recette.py
 cd 05_APPLICATION
 python -m pytest -q tests/ -k "banque"                        # 171 passés
 python -m pytest -q tests/ -k "facture or reglement"          # 120 passés
-python -m pytest -q tests/ -k "calculs"                       # 58 passés
+python -m pytest -q tests/ -k "calculs or lot13"               # 69 passés + 1 xfail attendu
 python -m pytest -q                                            # suite complète (~32 min)
 
 # Lancer un lot moteur à la main (interpréteur AVEC pandas) :
@@ -124,6 +161,15 @@ APP_DATA_DIR="<worktree>/data_recette/app_data" \
    / rapprochement (lien bancaire). Un rapprochement ne crée jamais de charge.
 10. **Réutiliser les orchestrateurs existants** : l'ordre des lots vient de
     `run_regression_pipeline.py` et `run_menages_pipeline.py`, jamais réinventé.
+11. **Seeder des entrées, jamais des sorties de lot.** Seeder une sortie court-circuite le moteur
+    et fabrique un faux succès. Corollaire : un jeu de recette se rend *conforme aux contrôles*,
+    on ne contourne jamais un contrôle.
+12. **Un défaut moteur se documente, il ne se contourne pas.** Le défaut lot13 est tenu par un test
+    `xfail(strict=True)` côté application ; ni le moteur réel ni sa copie de recette n'ont été
+    retouchés.
+13. **Un nom de colonne d'indicateur se relève sur la sortie réelle, jamais par déduction.** Une
+    colonne mal nommée ne lève aucune erreur : elle rend la valeur silencieusement absente. Un test
+    compare désormais la déclaration aux en-têtes réels.
 
 ## État de reprise
 

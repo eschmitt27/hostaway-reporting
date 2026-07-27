@@ -69,6 +69,19 @@ Bouton de restauration proposé.
 C'est exactement le comportement voulu : le pipeline s'arrête proprement, dit quel lot a échoué avec
 son code retour et sa trace, et n'engage pas la suite.
 
+## ⚠️ Ce document est dépassé sur trois points — voir `37`
+
+Le Bloc 1 annoncé ci-dessous a été réalisé. Depuis `37_CHAINE_AVAL_RECETTE_ET_DEFAUT_LOT13.md` :
+
+- **la chaîne `lot4quater → lot12` tourne réellement en SUCCES** (run `RUN-27CA69FD8D87`, 20,4 s) ;
+- **la comparaison avant/après est alimentée** par deux runs réussis (tous écarts 0,00, ce qui
+  prouve aussi l'idempotence des moteurs) ;
+- **la clôture `VALIDEE` est atteinte** de bout en bout, et persiste après redémarrage.
+
+Ce qui reste bloqué est **lot13**, pour un défaut du moteur lui-même (whitelist et filet
+anti-sensible contradictoires), et non pour une limite du pilotage. Le tableau ci-dessous reste
+valable pour tout le reste.
+
 ## Ce qui N'EST PAS fait (honnêteté)
 
 | Attendu | État | Raison |
