@@ -72,12 +72,36 @@ MESSAGES = {
 }
 
 # Indicateurs relevés après un run — (nom, fichier, onglet, colonne à sommer).
+# Colonne None = seul le nombre de lignes fait sens pour cet indicateur.
+# Les noms de colonnes sont ceux RÉELLEMENT produits par les moteurs, relevés sur les sorties d'un
+# run réussi. Un nom approximatif produirait une valeur absente — jamais un faux total — mais prive
+# la comparaison avant/après de son intérêt : c'était le cas avant qu'une chaîne aille au bout.
 INDICATEURS = (
     ("flux_lignes", "02_TRAVAIL/Lot9_FluxUnifie/MASTER_CALC_Flux.xlsx", "MASTER", None),
+    ("ca_payout", "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Commissions.xlsx", "COMMISSIONS",
+     "payout_calcule"),
     ("commissions", "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Commissions.xlsx", "COMMISSIONS",
-     "montant_commission"),
+     "commission_conciergerie"),
+    ("menages", "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Commissions.xlsx", "COMMISSIONS",
+     "menage_retenu"),
+    ("forfaits", "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_NetProprietaire.xlsx", "REGLEMENT",
+     "charge_fixe_mensuelle"),
     ("net_proprietaire", "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_NetProprietaire.xlsx", "REGLEMENT",
-     "net_a_payer"),
+     "net_proprietaire_apres_charge_mois"),
+    ("somme_a_payer", "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_NetProprietaire.xlsx", "REGLEMENT",
+     "reste_a_payer_conciergerie"),
+    # L'onglet GLOBAL porte une ligne par vision (REEL / COMPTABLE / HORS_COMPTA) : sommer les
+    # trois double-compterait. Chaque vision est donc relevée séparément, avec un filtre explicite.
+    ("produits_reel", "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Resultats.xlsx", "GLOBAL",
+     "total_produits", ("vision", "REEL")),
+    ("charges_reel", "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Resultats.xlsx", "GLOBAL",
+     "total_charges", ("vision", "REEL")),
+    ("resultat_reel", "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Resultats.xlsx", "GLOBAL",
+     "resultat", ("vision", "REEL")),
+    ("resultat_comptable", "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Resultats.xlsx", "GLOBAL",
+     "resultat", ("vision", "COMPTABLE")),
+    ("resultat_hors_compta", "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Resultats.xlsx", "GLOBAL",
+     "resultat", ("vision", "HORS_COMPTA")),
     ("controles", "02_TRAVAIL/Lot11_Controles/MASTER_CTRL_Coherence.xlsx", "MASTER", None),
     ("prefactures", "02_TRAVAIL/Lot12_Factures/MASTER_FACT_Proprietaires.xlsx",
      "FACT_FACTURE_ENTETE", None),
@@ -376,7 +400,9 @@ def relever_indicateurs(run_id: str, mois: str, *, racine: Path | None = None,
     indicateur absent, jamais un zéro inventé."""
     r = _racine(racine)
     releves: list[dict[str, Any]] = []
-    for nom, rel, onglet, colonne in INDICATEURS:
+    for entree in INDICATEURS:
+        nom, rel, onglet, colonne = entree[:4]
+        filtre = entree[4] if len(entree) > 4 else None
         p = r / rel
         if not p.exists():
             continue
@@ -396,6 +422,9 @@ def relever_indicateurs(run_id: str, mois: str, *, racine: Path | None = None,
             continue
         hdr = [str(c) if c is not None else "" for c in rows[0]]
         data = [dict(zip(hdr, row)) for row in rows[1:] if any(c is not None for c in row)]
+        if filtre:
+            col_f, val_f = filtre
+            data = [d for d in data if str(d.get(col_f)) == str(val_f)]
         valeur = None
         if colonne and colonne in hdr:
             total = 0.0

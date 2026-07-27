@@ -228,7 +228,7 @@ def _xlsx(chemin: Path, onglet: str, entetes: list[str], lignes: list[list]):
 
 def test_indicateurs_releves_depuis_les_fichiers_reels(env, monkeypatch):
     _xlsx(env["racine"] / "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Commissions.xlsx",
-          "COMMISSIONS", ["montant_commission"], [[100.0], [50.5]])
+          "COMMISSIONS", ["commission_conciergerie"], [[100.0], [50.5]])
     rel = pipe.relever_indicateurs("RUN-TEST", "2026-06", racine=env["racine"], db_path=env["db"])
     comm = next(r for r in rel if r["indicateur"] == "commissions")
     assert comm["valeur"] == 150.5 and comm["nb_lignes"] == 2
@@ -239,9 +239,63 @@ def test_indicateur_absent_si_fichier_absent(env):
     assert all(r["indicateur"] != "commissions" for r in rel)     # jamais un zéro inventé
 
 
+def test_filtre_de_vision_evite_le_double_comptage(env):
+    """L'onglet GLOBAL porte une ligne par vision : sans filtre, REEL + COMPTABLE + HORS_COMPTA
+    seraient additionnés et le résultat serait faux."""
+    _xlsx(env["racine"] / "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Resultats.xlsx",
+          "GLOBAL", ["vision", "total_produits", "total_charges", "resultat"],
+          [["REEL", 14060.0, 232.8, 13827.2],
+           ["COMPTABLE", 14060.0, 232.8, 13827.2],
+           ["HORS_COMPTA", 0.0, 0.0, 0.0]])
+    rel = pipe.relever_indicateurs("RUN-VIS", "2026-06", racine=env["racine"], db_path=env["db"])
+    par_nom = {r["indicateur"]: r for r in rel}
+    assert par_nom["produits_reel"]["valeur"] == 14060.0        # pas 28120
+    assert par_nom["resultat_reel"]["valeur"] == 13827.2
+    assert par_nom["resultat_hors_compta"]["valeur"] == 0.0
+    assert par_nom["resultat_reel"]["nb_lignes"] == 1
+
+
+def test_les_colonnes_declarees_existent_dans_les_sorties_reelles():
+    """Garde-fou : une colonne d'indicateur mal nommée ne lève aucune erreur — elle rend
+    simplement la valeur absente. Ce test le rattrape sur les sorties réellement produites.
+
+    Il s'ignore tant qu'aucune chaîne n'a tourné sur la racine courante : il vérifie la cohérence
+    entre déclaration et réalité, il ne remplace pas l'exécution des moteurs.
+    """
+    import openpyxl
+    import app.config as cfg
+    racine = Path(cfg.PROJECT_ROOT)
+    verifies, manquantes = 0, []
+    for entree in pipe.INDICATEURS:
+        nom, rel, onglet, colonne = entree[:4]
+        filtre = entree[4] if len(entree) > 4 else None
+        if colonne is None:
+            continue
+        p = racine / rel
+        if not p.exists():
+            continue
+        wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
+        try:
+            if onglet not in wb.sheetnames:
+                manquantes.append(f"{nom}: onglet {onglet} absent de {rel}")
+                continue
+            entetes = [str(c) for c in next(wb[onglet].iter_rows(values_only=True), ()) if c]
+        finally:
+            wb.close()
+        verifies += 1
+        if colonne not in entetes:
+            manquantes.append(f"{nom}: colonne {colonne} absente de {rel}[{onglet}]")
+        if filtre and filtre[0] not in entetes:
+            manquantes.append(f"{nom}: colonne de filtre {filtre[0]} absente de {rel}[{onglet}]")
+    if verifies == 0:
+        pytest.skip("Aucune sortie de lot sur cette racine — rien à vérifier.")
+    assert not manquantes, "Indicateurs déclarés sur des colonnes inexistantes : " + "; ".join(
+        manquantes)
+
+
 def test_comparaison_avant_apres(env, monkeypatch):
     _xlsx(env["racine"] / "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Commissions.xlsx",
-          "COMMISSIONS", ["montant_commission"], [[100.0]])
+          "COMMISSIONS", ["commission_conciergerie"], [[100.0]])
     _lot_produisant(env, monkeypatch, "a", "out/a.txt")
 
     p1 = pipe.previsualiser("2026-06", ["a"], racine=env["racine"])
@@ -249,7 +303,7 @@ def test_comparaison_avant_apres(env, monkeypatch):
 
     # Le calcul suivant produit une valeur différente.
     _xlsx(env["racine"] / "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Commissions.xlsx",
-          "COMMISSIONS", ["montant_commission"], [[180.0]])
+          "COMMISSIONS", ["commission_conciergerie"], [[180.0]])
     p2 = pipe.previsualiser("2026-06", ["a"], racine=env["racine"])
     pipe.lancer(p2["token"], db_path=env["db"])
 
