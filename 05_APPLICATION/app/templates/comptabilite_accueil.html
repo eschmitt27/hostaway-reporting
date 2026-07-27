@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Comptabilité{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Comptabilité — premier socle</h1>
+  <p class="page-subtitle">
+    Écritures en partie double dérivées des factures et rapprochements. Ne recalcule aucun résultat
+    de gestion — Lot10 reste seul maître du résultat économique.
+  </p>
+</div>
+
+{% if not ecriture_active %}
+<div class="alert alert-warning">Écriture comptable désactivée sur cette installation.</div>
+{% endif %}
+
+<div class="kpi-grid">
+  <div class="kpi-card"><div class="kpi-label">Écritures</div><div class="kpi-value">{{ nb_ecritures }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">À contrôler (proposées)</div><div class="kpi-value">{{ nb_proposees }}</div></div>
+</div>
+
+<div class="card mt-md">
+  <div class="card-title">Journaux</div>
+  <ul>
+    {% for j in journaux %}<li><a href="/comptabilite/ecritures?journal={{ j }}">{{ j }}</a></li>{% endfor %}
+  </ul>
+</div>
+
+<div class="card mt-md">
+  <a href="/comptabilite/ecritures" class="btn btn-secondary">Toutes les écritures</a>
+  <a href="/comptabilite/a-controler" class="btn btn-secondary">À contrôler</a>
+  <a href="/comptabilite/plan-comptable" class="btn btn-secondary">Plan comptable</a>
+  <a href="/comptabilite/auxiliaires" class="btn btn-secondary">Auxiliaires</a>
+</div>
+{% endblock %}

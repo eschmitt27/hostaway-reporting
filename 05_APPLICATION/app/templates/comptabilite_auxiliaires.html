@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Auxiliaires{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/comptabilite" class="back-link">← Comptabilité</a>
+  <h1 class="page-title">Auxiliaires</h1>
+</div>
+
+<div class="card mb-md">
+  <form method="get" class="filters-row">
+    <label>Identifiant auxiliaire (fournisseur / propriétaire / associé)
+      <input type="text" name="auxiliaire" value="{{ auxiliaire }}"></label>
+    <button type="submit" class="btn btn-primary">Consulter le solde</button>
+  </form>
+</div>
+
+{% if solde %}
+<div class="card">
+  <div class="kpi-grid">
+    <div class="kpi-card"><div class="kpi-label">Débit</div><div class="kpi-value">{{ "%.2f"|format(solde.debit) }}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Crédit</div><div class="kpi-value">{{ "%.2f"|format(solde.credit) }}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Solde</div><div class="kpi-value">{{ "%.2f"|format(solde.solde) }}</div></div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

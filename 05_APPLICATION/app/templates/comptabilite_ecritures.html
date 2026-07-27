@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Écritures{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/comptabilite" class="back-link">← Comptabilité</a>
+  <h1 class="page-title">{{ titre or "Écritures" }}</h1>
+</div>
+
+<div class="card mb-md">
+  <form method="get" class="filters-row">
+    <label>Journal
+      <select name="journal"><option value="">—</option>
+        {% for j in journaux %}<option value="{{ j }}" {{ 'selected' if applied.journal == j }}>{{ j }}</option>{% endfor %}
+      </select></label>
+    <label>Période <input type="text" name="periode" value="{{ applied.periode or '' }}" placeholder="AAAA-MM"></label>
+    <label>Statut
+      <select name="statut"><option value="">—</option>
+        {% for s in statuts %}<option value="{{ s }}" {{ 'selected' if applied.statut == s }}>{{ s }}</option>{% endfor %}
+      </select></label>
+    <button type="submit" class="btn btn-secondary">Filtrer</button>
+  </form>
+</div>
+
+<div class="table-container">
+  <table class="data-table">
+    <thead><tr><th>ID</th><th>Journal</th><th>Date</th><th>Pièce</th><th>Libellé</th><th>Débit</th><th>Crédit</th><th>Statut</th></tr></thead>
+    <tbody>
+      {% for e in ecritures %}
+      <tr>
+        <td><a href="/comptabilite/ecritures/{{ e.ecriture_id_opaque }}">{{ e.ecriture_id_opaque }}</a></td>
+        <td>{{ e.journal }}</td>
+        <td>{{ e.date_ecriture }}</td>
+        <td>{{ e.piece or "—" }}</td>
+        <td>{{ e.libelle }}</td>
+        <td>{{ "%.2f"|format(e.total_debit) }}</td>
+        <td>{{ "%.2f"|format(e.total_credit) }}</td>
+        <td><span class="badge">{{ e.statut }}</span></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8">Aucune écriture.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

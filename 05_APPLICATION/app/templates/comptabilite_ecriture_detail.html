@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Écriture {{ opaque }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/comptabilite/ecritures" class="back-link">← Écritures</a>
+  <h1 class="page-title">Écriture {{ opaque }}</h1>
+</div>
+
+{% if ecriture is none %}
+<div class="alert alert-error">Écriture introuvable.</div>
+{% else %}
+{% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+
+<div class="card mb-md" data-testid="fiche-ecriture">
+  <div class="detail-grid">
+    <div><strong>Journal</strong><br>{{ ecriture.journal }}</div>
+    <div><strong>Statut</strong><br><span class="badge">{{ ecriture.statut }}</span></div>
+    <div><strong>Date</strong><br>{{ ecriture.date_ecriture }}</div>
+    <div><strong>Période</strong><br>{{ ecriture.periode }}</div>
+    <div><strong>Pièce</strong><br>{{ ecriture.piece or "—" }}</div>
+    <div><strong>Origine</strong><br>{{ ecriture.origine_type }} {{ ecriture.origine_id_opaque or "" }}</div>
+    <div><strong>Total débit</strong><br>{{ "%.2f"|format(ecriture.total_debit) }} €</div>
+    <div><strong>Total crédit</strong><br>{{ "%.2f"|format(ecriture.total_credit) }} €</div>
+    {% if ecriture.contrepasse_de %}<div><strong>Contrepasse</strong><br><a href="/comptabilite/ecritures/{{ ecriture.contrepasse_de }}">{{ ecriture.contrepasse_de }}</a></div>{% endif %}
+  </div>
+</div>
+
+<div class="table-container mb-md">
+  <table class="data-table">
+    <thead><tr><th>#</th><th>Compte</th><th>Auxiliaire</th><th>Débit</th><th>Crédit</th><th>Libellé</th></tr></thead>
+    <tbody>
+      {% for l in lignes %}
+      <tr>
+        <td>{{ l.ligne_num }}</td>
+        <td>{{ l.compte }}</td>
+        <td>{{ l.auxiliaire or "—" }}</td>
+        <td>{{ "%.2f"|format(l.debit) if l.debit else "" }}</td>
+        <td>{{ "%.2f"|format(l.credit) if l.credit else "" }}</td>
+        <td>{{ l.libelle or "" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  {% if ecriture.statut == 'PROPOSEE' %}
+  <form method="post" action="/comptabilite/ecritures/{{ opaque }}/valider" class="inline-form">
+    <button type="submit" class="btn btn-primary" {% if not ecriture_active %}disabled{% endif %}>Valider</button>
+  </form>
+  {% endif %}
+  {% if ecriture.statut in ('PROPOSEE', 'VALIDEE') %}
+  <form method="post" action="/comptabilite/ecritures/{{ opaque }}/contrepasser" class="inline-form">
+    <input type="text" name="commentaire" placeholder="Motif de la contrepassation">
+    <button type="submit" class="btn btn-secondary" {% if not ecriture_active %}disabled{% endif %}>Contrepasser</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

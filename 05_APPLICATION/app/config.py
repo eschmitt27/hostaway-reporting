@@ -187,6 +187,12 @@ CALCULS_REAL_RUN_CONFIRMATION_ENABLED = RECETTE_MODE and _env_flag("CALCULS_REAL
 MENAGES_CYCLE_REAL_WRITE_ENABLED = RECETTE_MODE and _env_flag("MENAGES_CYCLE_REAL_WRITE_ENABLED")
 MENAGES_CYCLE_REAL_WRITE_CONFIRMATION_ENABLED = RECETTE_MODE and _env_flag("MENAGES_CYCLE_REAL_WRITE_CONFIRMATION_ENABLED")
 
+# ── Premier socle Comptabilité (migration 0021) — garde de sécurité ──────────
+# Même double verrou que le reste : ces écritures sont purement SQLite (aucun fichier réel touché,
+# aucun recalcul de résultat de gestion — Lot10 reste seul maître), mais suivent la même politique.
+COMPTABILITE_REAL_WRITE_ENABLED = RECETTE_MODE and _env_flag("COMPTABILITE_REAL_WRITE_ENABLED")
+COMPTABILITE_REAL_WRITE_CONFIRMATION_ENABLED = RECETTE_MODE and _env_flag("COMPTABILITE_REAL_WRITE_CONFIRMATION_ENABLED")
+
 # ── APP-5B — Contrôles détaillés & suivi humain ──────────────────────────────
 #   Le moteur (Lot11) reste la vérité de l'anomalie. SQLite JOURNALISE uniquement le suivi humain
 #   (prise en charge, résolution, exception) — jamais une nouvelle vérité, jamais un masquage moteur.

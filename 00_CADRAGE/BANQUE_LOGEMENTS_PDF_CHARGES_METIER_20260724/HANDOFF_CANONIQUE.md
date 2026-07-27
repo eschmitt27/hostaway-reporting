@@ -14,7 +14,7 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 | git status | propre (`data_recette/` ignoré, régénérable) |
 | master / canonique | **intacts, jamais touchés** (`master` = `8b47807`) |
 | Sources réelles | inchangées, **une exception assumée** : `02_TRAVAIL/lot13_export_powerbi.py`, sur décision utilisateur explicite (renommage de la colonne d'export). Aucune donnée réelle touchée ; toutes les écritures de recette restent sous `data_recette/` |
-| Suite complète (dernier total constaté) | **2028 passés / 75 skipés / 1 échec pré-existant** (`test_appsec1_diagnostic`). En 4 tranches : `python -m pytest -q -p no:cacheprovider $(ls tests/test_*.py \| awk 'NR%4==1')`, puis `==2`, `==3`, `==0` |
+| Suite complète (dernier total constaté) | **2110 passés / 75 skipés / 1 échec pré-existant** (`test_appsec1_diagnostic`). En 4 tranches : `python -m pytest -q -p no:cacheprovider $(ls tests/test_*.py \| awk 'NR%4==1')`, puis `==2`, `==3`, `==0` |
 | Documents transverses | `MATRICE_ETAT_MODULES.md` · `GUIDE_ACTIVATION_MODE_REEL.md` (verdict **NO GO** au 2026-07-27) |
 | **Avancement global estimé** | **65 %**, marge ± 4 points — voir « Périmètre restant » ci-dessous. Plafond : aucun pourcentage > 85 % avant Comptabilité + Analytique + Résultats fonctionnels et validés. |
 
@@ -139,7 +139,46 @@ tous écarts à 0,00. Détail dans `38_LOT13_CONTRAT_EXPORT_POWERBI.md`.
 | | |
 |---|---|
 | Modules terminés | Logements, Banque, Fournisseurs-Factures-Règlements, Pilotage des calculs (chaîne aval complète), Charges exercée |
-| Module actif | *(Mission 2 de ce tour : audit Factures/Charges/Règlements)* |
+| Module actif | *(prochain tour : analytique complet + écrans Résultats)* |
+
+## ✅ Mission 3 de ce tour — premier socle Comptabilité construit et prouvé (docs `43`, `45`, `46`, `47`)
+
+Migration `0021` : `plan_comptable` (seed provisoire 401000/411000/512000/606000), `ecritures`,
+`ecriture_lignes`, `ecriture_evenements`. Service `comptabilite_ecritures_service.py` : deux
+journaux câblés (**ACHATS**, **BANQUE** — les seuls exigés par la verticale de recette du brief),
+équilibre débit/crédit imposé en code, idempotence par index unique
+`(journal, origine_type, origine_id_opaque)`, contrepassation en écriture miroir (jamais de
+suppression), double verrou `COMPTABILITE_REAL_WRITE_*`.
+
+**Défaut trouvé et corrigé en écrivant les tests** : `solde_compte`/`solde_auxiliaire` excluaient
+les écritures `CONTREPASSEE`, ce qui empêchait le solde de revenir à zéro après un avoir (le miroir
+compensait une ligne qui n'était plus comptée). Corrigé : `VALIDEE` et `CONTREPASSEE` comptent
+toutes deux, seule `PROPOSEE` reste exclue.
+
+**Recette navigateur réelle** (port 8080, sur une vraie facture du jeu de recette,
+`FA-MEN-2026-06`) : génération de l'écriture ACHATS (120,00 € équilibrés) → validation → solde
+fournisseur −120,00 € → contrepassation (avoir) → solde revenu à **0,00 €** → redémarrage du
+serveur → écriture toujours `CONTREPASSEE` (persistance) → régénération deux fois de suite →
+**même** `ecriture_id_opaque` (idempotence).
+
+37 tests ajoutés (15 service + 9 routes + migrations/flags). Suite complète : 2110 passés.
+
+**Décision explicite, non entreprise ce tour** : le circuit propriétaire (lot12, Excel) n'est pas
+migré vers SQLite (doc `44`) ; le plan comptable détaillé et le mapping catégorie→compte ne sont
+pas arbitrés (doc `46`, `606000` générique par défaut) ; l'analytique est préparé (colonnes) mais
+non exploité (doc `47`) ; aucun écran Résultats, aucune clôture comptable, aucun contrôle TVA.
+
+## ✅ Mission 2 de ce tour — audit Factures/Charges/Règlements (doc `42`, `44`)
+
+Audit systématique des 9 incohérences citées par le brief : **une seule confirmée** — facture
+fournisseur (SQLite) et facture propriétaire (Excel, lot12) n'ont aucun modèle commun. Ce n'est pas
+un bug, c'est une absence de modèle, sans conséquence tant qu'aucune comptabilité applicative
+n'existait. Les 13 contrôles demandés étaient déjà couverts à 9/13, 3/13 structurellement
+impossibles (index uniques), 1/13 hors périmètre SQLite (créance propriétaire).
+
+**Décision explicite** : le circuit propriétaire n'est **pas** migré vers SQLite (lot12 reste seul
+maître). Correction additive : migration `0020`, table `facture_classification` (`sens`,
+`type_facture`), trigger auto-peuplé, rétro-classification. Aucun code de service modifié. 8 tests.
 
 ## ✅ Mission 1 de ce tour — cycle de vie Ménages construit et prouvé
 

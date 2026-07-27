@@ -2595,3 +2595,24 @@ STATUT MODULE : PARTIEL (pas TERMINE) - restent pools de courses non alimentes e
 rattachement de charge non exerce en reel, formulaire UI de rattachement facture absent (fait par
 script dans cette recette).
 REFERENCE : 41_MODULE_MENAGES_ETAT_FINAL.md, 41b_AUDIT_MENAGES_CYCLE_DE_VIE.md
+
+
+## 2026-07-27 (Mission 3) - Premier socle Comptabilite : defaut de solde corrige, prouve en recette
+
+CONTROLE : equilibre debit/credit et idempotence de la generation d'ecritures.
+CONSTAT (trouve en ecrivant les tests) : solde_compte()/solde_auxiliaire() ne comptaient que les
+ecritures VALIDEE. Apres contrepassation (avoir), l'ecriture d'origine passe CONTREPASSEE et
+sortait du calcul, alors que son miroir (VALIDEE) y restait compte. Consequence : le solde ne
+revenait JAMAIS a zero apres un avoir - l'inverse de ce qu'une contrepassation doit garantir.
+CORRECTION : VALIDEE et CONTREPASSEE comptent toutes les deux (une ecriture contrepassee reste une
+ecriture historiquement postee, compensee par son miroir) ; seule PROPOSEE reste exclue.
+
+PREUVE REELLE (recette navigateur, port 8080, sur FA-MEN-2026-06, facture reelle du jeu de
+recette) : generation ACHATS 120,00 EUR equilibres -> validation -> solde fournisseur -120,00 EUR
+-> contrepassation -> solde EXACTEMENT 0,00 EUR -> redemarrage serveur -> ecriture toujours
+CONTREPASSEE (persistance) -> regeneration deux fois de suite -> MEME ecriture_id_opaque
+(idempotence).
+
+37 tests ajoutes (15 service + 9 routes + migrations/flags). Suite complete : 2110 passes / 75
+skipes / 1 echec pre-existant (test_appsec1_diagnostic, inchange).
+REFERENCE : 43_CADRAGE_COMPTABILITE_APPLICATION.md, 45_MODELE_ECRITURES_COMPTABLES.md

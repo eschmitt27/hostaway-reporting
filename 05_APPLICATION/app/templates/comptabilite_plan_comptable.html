@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Plan comptable{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/comptabilite" class="back-link">← Comptabilité</a>
+  <h1 class="page-title">Plan comptable</h1>
+  <p class="page-subtitle">Seed provisoire — le mapping catégorie de charge → compte fin n'est pas
+    arbitré ; à valider métier avant tout usage réel.</p>
+</div>
+
+<div class="table-container">
+  <table class="data-table">
+    <thead><tr><th>Compte</th><th>Libellé</th><th>Type</th><th>Auxiliaire</th><th>Actif</th><th>Commentaire</th></tr></thead>
+    <tbody>
+      {% for c in comptes %}
+      <tr>
+        <td class="font-mono">{{ c.compte }}</td>
+        <td>{{ c.libelle }}</td>
+        <td>{{ c.type_compte }}</td>
+        <td>{{ "OUI" if c.auxiliaire_autorise else "NON" }}</td>
+        <td>{{ "OUI" if c.actif else "NON" }}</td>
+        <td class="text-xs">{{ c.commentaire or "" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
