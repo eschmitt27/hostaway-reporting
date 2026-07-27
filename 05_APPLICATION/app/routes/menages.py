@@ -12,6 +12,10 @@ from app.config import TEMPLATES_DIR
 from app.services import menages_service as svc
 from app.services import menages_recalcul_service as recalc
 from app.services import menages_chaine_service as chaine
+import app.config as cfg
+from app.services import menages_cycle_service as cycle
+from app.services import menages_controles_service as cycle_controles
+from app.services import fournisseurs_referentiel_service as frs_svc
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -202,6 +206,133 @@ async def menages_chaine_executer(request: Request):
             "erreur": resultat.get("message") or "La recette n'a pas pu être enregistrée.",
         }, status_code=200)
     return RedirectResponse(url=f"/menages/recalculer/runs/{run_id}", status_code=303)
+
+
+def _cycle_ecriture_active() -> bool:
+    return bool(cfg.MENAGES_CYCLE_REAL_WRITE_ENABLED and cfg.MENAGES_CYCLE_REAL_WRITE_CONFIRMATION_ENABLED)
+
+
+def _fournisseurs_menage_actifs():
+    return [f for f in frs_svc.lister(actif_seul=True) if f["type"] == "MENAGE"]
+
+
+# ── Cycle de vie opérationnel du ménage unitaire ─────────────────────────────
+# Distinct du comptage/rapprochement ci-dessus : voir menages_cycle_service.py.
+
+@router.get("/menages/cycle", response_class=HTMLResponse)
+def menages_cycle_liste(request: Request, mois: str = "", logement_id: str = "",
+                        fournisseur: str = "", type_menage: str = "", statut: str = ""):
+    menages = cycle.lister(mois=mois, logement_id=logement_id, fournisseur=fournisseur,
+                           type_menage=type_menage, statut=statut)
+    return templates.TemplateResponse(request, "menages_cycle_liste.html", {
+        "active_menu": "menages", "menages": menages, "statuts": cycle.STATUTS,
+        "types": cycle.TYPES, "applied": {"mois": mois, "logement_id": logement_id,
+        "fournisseur": fournisseur, "type_menage": type_menage, "statut": statut},
+    })
+
+
+@router.get("/menages/cycle/a-affecter", response_class=HTMLResponse)
+def menages_cycle_a_affecter(request: Request):
+    menages = [m for m in cycle.lister() if m["statut"] in (cycle.ST_PREVU, cycle.ST_A_AFFECTER)]
+    return templates.TemplateResponse(request, "menages_cycle_liste.html", {
+        "active_menu": "menages", "menages": menages, "statuts": cycle.STATUTS,
+        "types": cycle.TYPES, "applied": {}, "titre": "Ménages à affecter",
+    })
+
+
+@router.get("/menages/cycle/controles", response_class=HTMLResponse)
+def menages_cycle_controles(request: Request, severite: str = ""):
+    data = cycle_controles.controler()
+    anomalies = data["anomalies"]
+    if severite:
+        anomalies = [a for a in anomalies if a["severite"] == severite]
+    return templates.TemplateResponse(request, "menages_cycle_controles.html", {
+        "active_menu": "menages", "data": data, "anomalies": anomalies,
+        "niveaux": cycle_controles.NIVEAUX, "applied": {"severite": severite},
+    })
+
+
+@router.get("/menages/cycle/nouveau", response_class=HTMLResponse)
+def menages_cycle_nouveau_form(request: Request, erreur: str = ""):
+    return templates.TemplateResponse(request, "menages_cycle_nouveau.html", {
+        "active_menu": "menages", "types": cycle.TYPES,
+        "ecriture_active": _cycle_ecriture_active(), "erreur": erreur,
+    })
+
+
+@router.post("/menages/cycle")
+async def menages_cycle_creer(request: Request):
+    form = dict(await request.form())
+    res = cycle.creer(form, acteur=str(form.get("acteur", "") or "local"))
+    if not res.get("ok"):
+        return RedirectResponse(url=f"/menages/cycle/nouveau?erreur={res.get('message')}",
+                                status_code=303)
+    return RedirectResponse(
+        url=f"/menages/cycle/{res['menage_id_opaque']}?message=Ménage créé.", status_code=303)
+
+
+@router.get("/menages/cycle/{opaque}", response_class=HTMLResponse)
+def menages_cycle_detail(request: Request, opaque: str, message: str = "", erreur: str = ""):
+    m = cycle.charger(opaque)
+    if m is None:
+        return templates.TemplateResponse(request, "menages_cycle_detail.html", {
+            "active_menu": "menages", "menage": None, "opaque": opaque,
+        }, status_code=404)
+    contexte = cycle.contexte_facture_charge_reglement_banque(opaque)
+    return templates.TemplateResponse(request, "menages_cycle_detail.html", {
+        "active_menu": "menages", "menage": m, "opaque": opaque,
+        "historique": cycle.historique(opaque), "contexte": contexte,
+        "fournisseurs": _fournisseurs_menage_actifs(), "transitions": cycle.TRANSITIONS.get(m["statut"], set()),
+        "ecriture_active": _cycle_ecriture_active(), "message": message, "erreur": erreur,
+    })
+
+
+@router.post("/menages/cycle/{opaque}/affecter")
+async def menages_cycle_affecter(request: Request, opaque: str):
+    form = await request.form()
+    res = cycle.affecter(opaque, str(form.get("fournisseur_id_opaque", "") or ""),
+                         acteur=str(form.get("acteur", "") or "local"),
+                         commentaire=str(form.get("commentaire", "") or ""))
+    suffixe = "" if res.get("ok") else f"&erreur={res.get('message')}"
+    msg = "Prestataire affecté." if res.get("ok") else ""
+    return RedirectResponse(url=f"/menages/cycle/{opaque}?message={msg}{suffixe}", status_code=303)
+
+
+@router.post("/menages/cycle/{opaque}/remplacer")
+async def menages_cycle_remplacer(request: Request, opaque: str):
+    form = await request.form()
+    res = cycle.remplacer(opaque, str(form.get("nouveau_fournisseur_id_opaque", "") or ""),
+                          acteur=str(form.get("acteur", "") or "local"),
+                          commentaire=str(form.get("commentaire", "") or ""))
+    if not res.get("ok"):
+        return RedirectResponse(url=f"/menages/cycle/{opaque}?erreur={res.get('message')}",
+                                status_code=303)
+    return RedirectResponse(
+        url=f"/menages/cycle/{res['nouveau_menage_id_opaque']}?message=Ménage remplacé "
+            f"(ancien : {opaque}).", status_code=303)
+
+
+@router.post("/menages/cycle/{opaque}/realiser")
+async def menages_cycle_realiser(request: Request, opaque: str):
+    form = await request.form()
+    res = cycle.realiser(opaque, duree_reelle_h=form.get("duree_reelle_h"),
+                         cout_reel=form.get("cout_reel"), methode_cout=str(form.get("methode_cout", "") or ""),
+                         ecart_justification=str(form.get("ecart_justification", "") or ""),
+                         acteur=str(form.get("acteur", "") or "local"))
+    suffixe = "" if res.get("ok") else f"&erreur={res.get('message')}"
+    msg = "Réalisation enregistrée." if res.get("ok") else ""
+    return RedirectResponse(url=f"/menages/cycle/{opaque}?message={msg}{suffixe}", status_code=303)
+
+
+@router.post("/menages/cycle/{opaque}/statut")
+async def menages_cycle_statut(request: Request, opaque: str):
+    form = await request.form()
+    nouveau = str(form.get("statut", "") or "")
+    res = cycle.changer_statut(opaque, nouveau, commentaire=str(form.get("commentaire", "") or ""),
+                               acteur=str(form.get("acteur", "") or "local"))
+    suffixe = "" if res.get("ok") else f"&erreur={res.get('message')}"
+    msg = f"Statut : {nouveau}." if res.get("ok") else ""
+    return RedirectResponse(url=f"/menages/cycle/{opaque}?message={msg}{suffixe}", status_code=303)
 
 
 @router.get("/menages/{mois}/{logement_id}/{intervenant_id}", response_class=HTMLResponse)

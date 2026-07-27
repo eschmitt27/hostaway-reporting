@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Cycle des ménages{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/menages" class="back-link">← Ménages (comptage)</a>
+  <h1 class="page-title">{{ titre or "Cycle de vie des ménages" }}</h1>
+</div>
+
+<div class="card mb-md">
+  <form method="get" class="filters-row">
+    <label>Mois <input type="text" name="mois" value="{{ applied.mois or '' }}" placeholder="AAAA-MM"></label>
+    <label>Logement <input type="text" name="logement_id" value="{{ applied.logement_id or '' }}"></label>
+    <label>Prestataire <input type="text" name="fournisseur" value="{{ applied.fournisseur or '' }}"></label>
+    <label>Type
+      <select name="type_menage">
+        <option value="">—</option>
+        {% for t in types %}<option value="{{ t }}" {{ 'selected' if applied.type_menage == t }}>{{ t }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Statut
+      <select name="statut">
+        <option value="">—</option>
+        {% for s in statuts %}<option value="{{ s }}" {{ 'selected' if applied.statut == s }}>{{ s }}</option>{% endfor %}
+      </select>
+    </label>
+    <button type="submit" class="btn btn-secondary">Filtrer</button>
+  </form>
+</div>
+
+<div class="card mb-md">
+  <a href="/menages/cycle/nouveau" class="btn btn-primary">+ Nouveau ménage hors Hostaway</a>
+  <a href="/menages/cycle/controles" class="btn btn-secondary">Contrôles</a>
+</div>
+
+<div class="table-container">
+  <table class="data-table">
+    <thead><tr><th>ID</th><th>Mois</th><th>Logement</th><th>Type</th><th>Prestataire</th>
+      <th>Statut</th><th>Coût prévu</th><th>Coût réel</th></tr></thead>
+    <tbody>
+      {% for m in menages %}
+      <tr>
+        <td><a href="/menages/cycle/{{ m.menage_id_opaque }}">{{ m.menage_id_opaque }}</a></td>
+        <td>{{ m.mois }}</td>
+        <td>{{ m.logement_id }}</td>
+        <td>{{ m.type_menage }}</td>
+        <td>{{ m.fournisseur_id_opaque or "—" }}</td>
+        <td><span class="badge">{{ m.statut }}</span></td>
+        <td>{{ "%.2f"|format(m.cout_prevu) if m.cout_prevu is not none else "—" }}</td>
+        <td>{{ "%.2f"|format(m.cout_reel) if m.cout_reel is not none else "—" }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8">Aucun ménage.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

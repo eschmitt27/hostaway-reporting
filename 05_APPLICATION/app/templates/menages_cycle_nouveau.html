@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Nouveau ménage{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/menages/cycle" class="back-link">← Cycle des ménages</a>
+  <h1 class="page-title">Nouveau ménage hors Hostaway</h1>
+</div>
+
+{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+{% if not ecriture_active %}
+<div class="alert alert-warning">Écriture désactivée sur cette installation.</div>
+{% endif %}
+
+<div class="card">
+  <form method="post" action="/menages/cycle">
+    <div class="detail-grid">
+      <label>Logement * <input type="text" name="logement_id" required></label>
+      <label>Mois * <input type="text" name="mois" placeholder="AAAA-MM" required></label>
+      <label>Type *
+        <select name="type_menage" required>
+          {% for t in types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Date prévue <input type="date" name="date_prevue"></label>
+      <label>Réservation (optionnel) <input type="text" name="reservation_id"></label>
+      <label>Durée prévue (h) <input type="number" step="0.25" name="duree_prevue_h"></label>
+      <label>Coût prévu <input type="number" step="0.01" name="cout_prevu"></label>
+      <label>Commentaire <input type="text" name="commentaire"></label>
+    </div>
+    <p class="section-note mt-sm">
+      Le propriétaire est résolu automatiquement depuis le logement. Un ménage identique
+      (logement + mois + type + date) est refusé comme doublon.
+    </p>
+    <button type="submit" class="btn btn-primary mt-sm" {% if not ecriture_active %}disabled{% endif %}>
+      Créer le ménage
+    </button>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}Ménage {{ opaque }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/menages/cycle" class="back-link">← Cycle des ménages</a>
+  <h1 class="page-title">Ménage {{ opaque }}</h1>
+</div>
+
+{% if menage is none %}
+<div class="alert alert-error">Ménage introuvable.</div>
+{% else %}
+{% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+{% if not ecriture_active %}
+<div class="alert alert-warning">Écriture désactivée sur cette installation.</div>
+{% endif %}
+
+<div class="card mb-md" data-testid="fiche-menage">
+  <div class="detail-grid">
+    <div><strong>Statut</strong><br><span class="badge">{{ menage.statut }}</span></div>
+    <div><strong>Mois</strong><br>{{ menage.mois }}</div>
+    <div><strong>Logement</strong><br>{{ menage.logement_id }}</div>
+    <div><strong>Propriétaire</strong><br>{{ menage.proprietaire_id }}</div>
+    <div><strong>Type</strong><br>{{ menage.type_menage }}</div>
+    <div><strong>Réservation</strong><br>{{ menage.reservation_id or "—" }}</div>
+    <div><strong>Date prévue</strong><br>{{ menage.date_prevue or "—" }}</div>
+    <div><strong>Date réalisation</strong><br>{{ menage.date_realisation or "—" }}</div>
+    <div><strong>Prestataire</strong><br>{{ menage.fournisseur_id_opaque or "—" }}</div>
+    <div><strong>Durée prévue / réelle</strong><br>{{ menage.duree_prevue_h or "—" }} / {{ menage.duree_reelle_h or "—" }} h</div>
+    <div><strong>Coût prévu / réel</strong><br>{{ menage.cout_prevu or "—" }} / {{ menage.cout_reel or "—" }} €</div>
+    <div><strong>Méthode de coût</strong><br>{{ menage.methode_cout or "—" }}</div>
+    <div><strong>Facture</strong><br>{{ menage.facture_id_opaque or "—" }}</div>
+    <div><strong>Charge</strong><br>{{ menage.charge_id or "—" }}</div>
+  </div>
+</div>
+
+<div class="card mb-md" data-testid="contexte-facture">
+  <div class="card-title">Facture / Règlement / Banque</div>
+  {% if contexte.facture %}
+  <p>Facture <a href="/factures/{{ contexte.facture.facture_id_opaque }}">{{ contexte.facture.facture_id_opaque }}</a>
+     — statut {{ contexte.facture.statut }} — solde {{ contexte.facture.solde_restant }} €</p>
+  {% if contexte.reglements %}
+  <ul>
+    {% for r in contexte.reglements %}
+    <li>Règlement {{ r.reglement_id_opaque }} — {{ r.montant }} € — {{ r.statut }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="section-note">Aucun règlement retrouvé.</p>{% endif %}
+  {% if contexte.rapprochements %}
+  <ul>
+    {% for l in contexte.rapprochements %}
+    <li>Rapprochement {{ l.rapprochement_id_opaque or l }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="section-note">Aucun mouvement bancaire rapproché.</p>{% endif %}
+  {% else %}
+  <p class="section-note">Aucune facture rattachée.</p>
+  {% endif %}
+</div>
+
+<div class="card mb-md">
+  <div class="card-title">Actions</div>
+
+  {% if 'A_AFFECTER' in transitions or menage.statut == 'PREVU' %}
+  <form method="post" action="/menages/cycle/{{ opaque }}/affecter" class="inline-form">
+    <select name="fournisseur_id_opaque" required>
+      <option value="">Choisir un prestataire…</option>
+      {% for f in fournisseurs %}<option value="{{ f.fournisseur_id_opaque }}">{{ f.nom }}</option>{% endfor %}
+    </select>
+    <button type="submit" class="btn btn-secondary" {% if not ecriture_active %}disabled{% endif %}>Affecter</button>
+  </form>
+  {% endif %}
+
+  {% if menage.statut in ('A_AFFECTER', 'A_REALISER') %}
+  <form method="post" action="/menages/cycle/{{ opaque }}/remplacer" class="inline-form">
+    <select name="nouveau_fournisseur_id_opaque" required>
+      <option value="">Nouveau prestataire…</option>
+      {% for f in fournisseurs %}<option value="{{ f.fournisseur_id_opaque }}">{{ f.nom }}</option>{% endfor %}
+    </select>
+    <button type="submit" class="btn btn-secondary" {% if not ecriture_active %}disabled{% endif %}>Remplacer</button>
+  </form>
+  {% endif %}
+
+  {% if 'REALISE' in transitions %}
+  <form method="post" action="/menages/cycle/{{ opaque }}/realiser" class="inline-form">
+    <input type="number" step="0.25" name="duree_reelle_h" placeholder="Durée réelle (h)">
+    <input type="number" step="0.01" name="cout_reel" placeholder="Coût réel">
+    <input type="text" name="methode_cout" placeholder="Méthode (ex. EXTERNE_FACTURE)">
+    <input type="text" name="ecart_justification" placeholder="Justification si écart important">
+    <button type="submit" class="btn btn-secondary" {% if not ecriture_active %}disabled{% endif %}>Déclarer réalisé</button>
+  </form>
+  {% endif %}
+
+  {% for cible in transitions %}
+  <form method="post" action="/menages/cycle/{{ opaque }}/statut" class="inline-form">
+    <input type="hidden" name="statut" value="{{ cible }}">
+    <input type="text" name="commentaire" placeholder="Commentaire (optionnel)">
+    <button type="submit" class="btn btn-secondary" {% if not ecriture_active %}disabled{% endif %}>
+      → {{ cible }}
+    </button>
+  </form>
+  {% endfor %}
+</div>
+
+<div class="card" data-testid="historique">
+  <div class="card-title">Historique</div>
+  <table class="data-table">
+    <thead><tr><th>Date</th><th>Événement</th><th>Ancien</th><th>Nouveau</th><th>Prestataire</th><th>Commentaire</th></tr></thead>
+    <tbody>
+      {% for h in historique %}
+      <tr>
+        <td>{{ h.date_evenement }}</td>
+        <td>{{ h.type_evenement }}</td>
+        <td>{{ h.ancien_statut or "—" }}</td>
+        <td>{{ h.nouveau_statut or "—" }}</td>
+        <td>{% if h.ancien_prestataire or h.nouveau_prestataire %}{{ h.ancien_prestataire or "—" }} → {{ h.nouveau_prestataire or "—" }}{% else %}—{% endif %}</td>
+        <td>{{ h.commentaire or "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}
