@@ -50,6 +50,18 @@ class Lot:
     depend_de: tuple[str, ...] = ()
     entrees: tuple[str, ...] = ()
     requiert_pandas: bool = True
+    exige_workspace_controle: bool = False
+    """Le lot ne doit JAMAIS être lancé par exécution directe du script.
+
+    Certains moteurs atteignent le réseau ou des sources hors racine. `lot6b` interroge réellement
+    la feuille Google des déclarations internes : lancé directement avec `PROJECT_ROOT=data_recette`
+    il a rapatrié 40 lignes de données RÉELLES (noms d'intervenantes) dans le jeu de recette.
+
+    `menages_chaine_service` existe précisément pour cela : il copie les sources dans un workspace
+    isolé et substitue `stub_lib_sheet_source.py` à l'accès réseau. Ces lots passent donc par lui,
+    jamais par `executer_lot`.
+    """
+
     runner: str = ""
     """Runner de `05_APPLICATION/runners/` lancé À LA PLACE d'un appel direct au script.
 
@@ -109,23 +121,29 @@ CHAINE_CHARGES: tuple[Lot, ...] = (
 
 # Sorties reprises de `menages_chaine_service.SORTIES_CHAINE`, seule cartographie auditée de cette
 # chaîne. Elles étaient absentes : sans sortie déclarée, `sorties_ok` vaut True par construction et
-# la garantie « jamais de faux succès » ne s'appliquait PAS à ces lots — un lot6* sortant 0 sans
-# rien produire aurait été annoncé SUCCES.
+# la garantie « jamais de faux succès » ne s'appliquait PAS à ces lots.
+#
+# `exige_workspace_controle` sur TOUTE la chaîne : elle démarre par `lot6b`, qui interroge réellement
+# la feuille Google des déclarations internes. Ces lots ne sont donc déclarés ici que pour DOCUMENTER
+# l'ordre et les sorties ; leur exécution passe par `menages_chaine_service`, qui isole le workspace
+# et substitue un stub à l'accès réseau. `executer_lot` les refuse explicitement.
 CHAINE_MENAGES: tuple[Lot, ...] = (
     Lot("lot6b", "lot6b_m04_menages_internes.py",
         sorties=("02_TRAVAIL/Lot6b_DeclarationsInternes/MASTER_NORM_Declarations_Internes.xlsx",
-                 "02_DONNEES_NORMALISEES/menages/M04_MENAGES_PowerQuery.xlsx")),
+                 "02_DONNEES_NORMALISEES/menages/M04_MENAGES_PowerQuery.xlsx"),
+        exige_workspace_controle=True),
     Lot("lot6c", "lot6c_menages_externes.py",
-        sorties=("02_TRAVAIL/Lot6c_MenagesExternes/MASTER_FACT_MEN_MenagesExternes.xlsx",)),
+        sorties=("02_TRAVAIL/Lot6c_MenagesExternes/MASTER_FACT_MEN_MenagesExternes.xlsx",),
+        exige_workspace_controle=True),
     Lot("lot6d", "lot6d_rapprochement_menages.py",
         sorties=("02_TRAVAIL/Lot6d_Rapprochement_Menages/MASTER_CTRL_Rapprochement_Menages.xlsx",),
-        depend_de=("lot6b", "lot6c")),
+        depend_de=("lot6b", "lot6c"), exige_workspace_controle=True),
     Lot("lot6e", "lot6e_gainperte_menages.py",
         sorties=("02_TRAVAIL/Lot6e_GainPerte_Menages/MASTER_CALC_GainPerte_Menages.xlsx",),
-        depend_de=("lot6d",)),
+        depend_de=("lot6d",), exige_workspace_controle=True),
     Lot("lot6f", "lot6f_cout_complet_menages.py",
         sorties=("02_TRAVAIL/Lot6f_CoutComplet_Menages/MASTER_CALC_CoutComplet_Menages.xlsx",),
-        depend_de=("lot6e",)),
+        depend_de=("lot6e",), exige_workspace_controle=True),
 )
 
 TOUS_LES_LOTS: dict[str, Lot] = {
@@ -303,6 +321,14 @@ def executer_lot(nom: str, *, racine: Path | None = None, timeout_s: int = TIMEO
     lot = TOUS_LES_LOTS.get(nom)
     if lot is None:
         return ResultatLot(nom, ST_ECHEC, message="Lot inconnu.")
+    if lot.exige_workspace_controle:
+        # Refus AVANT tout lancement : ces moteurs atteignent le réseau ou des sources hors racine.
+        return ResultatLot(
+            nom, ST_ECHEC,
+            message="Ce lot exige le workspace contrôlé de la chaîne ménages "
+                    "(sources copiées, accès réseau remplacé par un stub). Le lancer directement "
+                    "ferait entrer des données réelles dans le jeu de recette. "
+                    "Passer par /menages/chaine.")
     r = _racine(racine)
     script = r / "02_TRAVAIL" / lot.script
     if not script.exists():

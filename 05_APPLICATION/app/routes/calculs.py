@@ -16,10 +16,13 @@ from app.services import calculs_pipeline_service as pipe
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
+# La chaîne ménages n'est PAS proposée ici : elle démarre par lot6b, qui interroge réellement la
+# feuille Google des déclarations internes. Elle se lance depuis /menages/chaine, qui copie les
+# sources dans un workspace isolé et substitue un stub à l'accès réseau. `executer_lot` refuse
+# d'ailleurs ces lots explicitement — cette liste ne fait que ne pas les proposer.
 CHAINES = {
     "aval": [l.nom for l in ex.CHAINE_AVAL],
     "charges": [l.nom for l in ex.CHAINE_CHARGES],
-    "menages": [l.nom for l in ex.CHAINE_MENAGES],
 }
 
 

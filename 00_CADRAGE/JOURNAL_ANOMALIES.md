@@ -254,3 +254,52 @@ Description : Trois conflits potentiels identifies et tranches (sans contradicti
   3. Achat divers (CHG_018) classe MENAGE mais devant proposer impact menage au choix.
      -> CHG_018 reclasse GLOBAL (impact menage au choix). Migration controlee documentee.
 Resolution : Decisions D-CHG-GUIDE-01 a 07 ; aucune ecriture reelle ; circuits Lot6c/Lot7/Lot12 non doubles.
+
+
+## ANO-2026-07-27-01 — Lot6b atteint le reseau et fait entrer des donnees reelles en recette
+
+GRAVITE : HAUTE (confidentialite + integrite du jeu de recette).
+STATUT : CORRIGE.
+
+CONTEXTE : au tour precedent, la chaine Menages (lot6b..lot6f) a ete ajoutee aux chaines lancables
+depuis /calculs, qui execute chaque lot par appel DIRECT du script avec PROJECT_ROOT=data_recette.
+
+CONSTAT : lot6b_m04_menages_internes.py resout une URL depuis REF_Sources_Systeme (SRC_011) et
+interroge REELLEMENT la feuille Google des declarations internes. Lance ainsi il a rapatrie
+40 lignes de donnees reelles :
+  [lot6b] URL REF OK (SRC_011) | CSV 40 lignes | normalisees 24 | M04 MASTER 24 lignes
+  [lot6b] mai 2026 par intervenant : {('INT_0002', 'Kheira'), ('INT_0001', 'Imene')}
+Des prenoms reels d'intervenantes ont ete ecrits dans data_recette :
+  02_DONNEES_NORMALISEES/menages/M04_MENAGES_PowerQuery.xlsx (SOURCE_RAW, MASTER)
+  02_TRAVAIL/Lot6b_DeclarationsInternes/MASTER_NORM_Declarations_Internes.xlsx
+
+PORTEE : aucune donnee reelle n'a ete ECRITE (les sources reelles n'ont ete que lues) ; data_recette
+est gitignore, donc rien n'a ete commite. L'exposition est restee locale.
+
+EFFET DE BORD DIAGNOSTIQUE : le mapping des noms d'appartements reels vers le parc FICTIF echouait
+(24 lignes A_CONTROLER), donc M04 sortait avec logement_id = None sur toutes ses lignes. C'est CE
+M04 pollue qui faisait ensuite echouer lot6d :
+  TypeError: '<' not supported between instances of 'NoneType' and 'str'
+Le rapport precedent attribuait cet echec a lot6d ou au jeu de recette. C'ETAIT FAUX : lot6d n'a
+aucun defaut, et build_data_recette non plus. La cause etait le CHEMIN D'EXECUTION.
+
+CAUSE RACINE : menages_chaine_service existe precisement pour cela — il copie les sources dans un
+workspace isole et substitue stub_lib_sheet_source.py a l'acces reseau. Le chemin /calculs
+contournait cette protection.
+
+CORRECTION :
+- Lot.exige_workspace_controle marque toute la chaine Menages ;
+- executer_lot() refuse ces lots AVANT tout lancement, avec un message qui renvoie vers
+  /menages/chaine ; aucun processus n'est demarre ;
+- la chaine menages n'est plus proposee dans les chaines de /calculs ;
+- data_recette regenere : plus aucune donnee reelle (verifie par balayage des classeurs) ;
+- 4 tests de non-regression, dont un qui verifie que le garde-fou ne deborde pas sur les chaines
+  aval et charges.
+
+PREUVE DE BON FONCTIONNEMENT : via l'orchestrateur legitime, la chaine complete passe —
+hostaway_stub, lot6b, lot6c, lot6d, lot6e, lot6f, lot11 tous OK, statut SUCCES, reel_intact=True
+(sources reelles verifiees inchangees par sha256).
+
+LECON : un lot qui atteint le reseau ou des sources hors racine ne doit jamais etre expose a une
+execution directe. Le pilotage doit passer par l'orchestrateur qui porte les garde-fous — meme
+lecon que lot3, sur un risque plus grave.

@@ -199,6 +199,39 @@ def test_chaque_lot_menages_declare_ses_sorties():
         assert lot.sorties, f"{lot.nom} ne déclare aucune sortie : faux succès possible."
 
 
+# ── Lots exigeant le workspace contrôlé ──────────────────────────────────────
+
+def test_les_lots_menages_exigent_le_workspace_controle():
+    """lot6b interroge RÉELLEMENT la feuille Google des déclarations internes. Lancé directement
+    avec PROJECT_ROOT=data_recette, il a rapatrié 40 lignes de données réelles (noms
+    d'intervenantes) dans le jeu de recette. Toute la chaîne est donc marquée."""
+    for lot in ex.CHAINE_MENAGES:
+        assert lot.exige_workspace_controle, f"{lot.nom} doit exiger le workspace contrôlé."
+
+
+def test_executer_lot_refuse_un_lot_exigeant_le_workspace(tmp_path):
+    """Refus AVANT lancement : rien ne doit être exécuté, et le message doit dire où aller."""
+    r = ex.executer_lot("lot6b", racine=tmp_path)
+    assert r.statut == ex.ST_ECHEC
+    assert r.code_retour is None, "Aucun processus ne doit avoir été lancé."
+    assert "/menages/chaine" in r.message
+
+
+def test_la_chaine_menages_n_est_pas_proposee_dans_calculs():
+    """L'écran /calculs ne doit pas offrir de lancer ces lots : leur exécution passe par
+    /menages/chaine, qui isole les sources et remplace l'accès réseau par un stub."""
+    from app.routes import calculs as rc
+    assert "menages" not in rc.CHAINES
+    proposees = {n for lots in rc.CHAINES.values() for n in lots}
+    assert not proposees & {l.nom for l in ex.CHAINE_MENAGES}
+
+
+def test_les_lots_aval_et_charges_restent_executables():
+    """Le garde-fou ne doit pas déborder sur les chaînes qui n'en ont pas besoin."""
+    for lot in (*ex.CHAINE_AVAL, *ex.CHAINE_CHARGES):
+        assert not lot.exige_workspace_controle, f"{lot.nom} n'a pas à être bloqué."
+
+
 def test_dependances_declarees_coherentes():
     for lot in ex.TOUS_LES_LOTS.values():
         for dep in lot.depend_de:
