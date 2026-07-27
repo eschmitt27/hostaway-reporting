@@ -27,7 +27,7 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 | Fournisseurs / Factures / Règlements | **TERMINÉ** | `32`, `33`, `34` |
 | Pilotage des calculs & clôture | **TERMINÉ** — chaîne aval complète `lot4quater → lot13` | `35`, `36`, `37`, `38` |
 | Charges | **chaîne exercée depuis `/calculs`**, scénarios A→F réconciliés | `27`, `39` |
-| Ménages | **EN COURS** — existant audité, chaîne bloquée à lot6d | `40` |
+| Ménages | **PARTIEL** — chaîne 7/7 verte ; cycle de vie opérationnel non construit | `40`, `41` |
 
 ## ⚠️ Correction importante d'une limite documentée à tort
 
@@ -170,6 +170,31 @@ TypeError: '<' not supported between instances of 'NoneType' and 'str'
 
 Une des sources agrégées porte un `logement_id` ou `proprietaire_id` nul.
 
+## ✅ Ménages — chaîne verte, cycle de vie non construit (doc `41`)
+
+`lot6b → lot6c → lot6d → lot6e → lot6f → lot11` + étape Hostaway : **7/7 OK**, `SUCCES`,
+`reel_intact = True`. Lancement par **`/menages/chaine`** uniquement.
+
+**Trois corrections de mes propres affirmations précédentes :**
+
+1. **lot6d n'a jamais eu de défaut.** Le `TypeError` venait d'un M04 pollué par une exécution
+   illégitime (voir ci-dessous), pas du jeu de recette.
+2. **Le pivot du coût interne était conforme** à D101, pas en dérive.
+3. **La règle « cave 50 € » existe** : je l'avais déclarée introuvable après une recherche limitée
+   à `lib_menage_costs`. Elle est dans `REC_002` + D103 + `lot6f`.
+
+**Défaut de confidentialité corrigé (ANO-2026-07-27-01)** : `lot6b` interroge réellement la feuille
+Google des déclarations internes. Exécuté directement via `/calculs`, il a fait entrer de vraies
+données (prénoms d'intervenantes) dans `data_recette`. Rien n'a été écrit côté réel ni committé.
+`Lot.exige_workspace_controle` + refus dans `executer_lot` + retrait de `/calculs`.
+
+**Verrou périmé** : `recuperer_verrou_perime()` écarte par renommage atomique un verrou dont le PID
+est mort, jamais celui d'un processus vivant ; journalisé sans le nom de machine.
+
+**Cave (REC_002)** : forfait mensuel de `REF_Charges_Recurrentes`, ventilé au prorata du **coût
+standard** (D103, révise D045) sur les **seuls ménages internes**. Ce n'est pas « +50 € par
+ménage ». **Aucun arbitrage nécessaire** — le grain est documenté.
+
 ## ⛔ ARBITRAGE EN ATTENTE — pivot du coût de ménage interne
 
 Une consigne du 2026-07-27 demandait de déplacer le pivot au **1er mai 2026**, au motif que le
@@ -197,22 +222,18 @@ Tant que ce n'est pas tranché, aucun écran ni calcul ne doit présenter une r�
 
 ## Prochaine action précise
 
-1. **Débloquer lot6d** : inspecter les sorties de lot6b (`MASTER_NORM_Declarations_Internes`,
-   `M04_MENAGES_PowerQuery`) et de lot6c (`MASTER_FACT_MEN_MenagesExternes`) dans `data_recette`,
-   trouver la ligne à clé nulle et corriger la **source de recette** (pas le moteur). Puis
-   lot6d → lot6e → lot6f, et vérifier l'effet sur Lot9/Lot10/Lot11.
-2. **Arbitrer trois règles métier** avant tout écran de tarif — détail dans `40` :
-   - pivot du coût fixe : le brief dit « avant mai 2026 », le moteur pivote au **1er juin 2026**
-     (`lib_menage_costs.PIVOT_FIXED_COST`) ;
-   - « ménage externe = facture + quote-part des courses ménage » : quote-part présente côté lot6f
-     mais **pools vides** ;
-   - « ménage interne + cave 50 € » : **introuvable dans le code**.
-3. **Puis** le cycle de vie opérationnel, dans cet ordre : modèle SQLite du ménage unitaire +
-   statuts → qualification prestataires sur le référentiel Fournisseurs (jamais un second
-   référentiel) → services → écrans et rattachements → catalogue de contrôles → jeu de recette,
-   recette navigateur, pipeline.
-4. Le **mode réel** du pilotage reste à activer sur décision explicite
-   (`CALCULS_REAL_RUN_ENABLED`) — garde-fous en place, jamais activé.
+1. **Trancher l'arbitrage du pivot** ci-dessus. C'est bloquant pour tout écran de tarif ménage.
+2. **Cycle de vie opérationnel Ménages** — le gros du travail restant, dans cet ordre :
+   modèle SQLite du ménage unitaire + statuts (auditer d'abord les statuts réellement utilisés,
+   ne pas créer une seconde norme) → qualification prestataires **sur le référentiel Fournisseurs**
+   (jamais une table concurrente) → services → écrans et rattachements facture/charge/règlement/
+   banque → catalogue de contrôles sur le modèle de `/factures/controles` → jeu de recette →
+   recette navigateur → pipeline.
+3. **Alimenter les pools de courses** du jeu de recette, pour exercer réellement la quote-part
+   (mécanisme présent dans lot6f, pools vides aujourd'hui). Garder distinguables : pool vide valide,
+   source absente, source illisible, courses non ventilées.
+4. Le **mode réel** reste à activer sur décision explicite (`CALCULS_REAL_RUN_ENABLED`,
+   `MENAGES_REAL_RECALC_ENABLED`) — garde-fous en place, jamais activés.
 5. Non construit, signalé : « charge postérieure à une clôture validée » n'est interdit par aucun
    mécanisme applicatif.
 

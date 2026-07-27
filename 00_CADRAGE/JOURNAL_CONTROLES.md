@@ -2535,3 +2535,37 @@ Blocage 2 (NON leve) : lot6d_rapprochement_menages.py:220
 TypeError: '<' not supported between instances of 'NoneType' and 'str' - une source agregee porte
 un logement_id ou proprietaire_id nul. Rien n'est declare fonctionnel au-dela de lot6c.
 REFERENCE : 40_AUDIT_MENAGES.md
+
+
+## 2026-07-27 (soir) - Menages : chaine verte, trois corrections de diagnostic
+
+CONTROLE : chaine Menages complete via son orchestrateur legitime.
+RESULTAT : hostaway_stub, lot6b, lot6c, lot6d, lot6e, lot6f, lot11 -> 7/7 OK, statut SUCCES,
+reel_intact=True (sources reelles verifiees inchangees par sha256).
+
+CORRECTION 1 - lot6d n'a jamais eu de defaut. Le TypeError NoneType/str venait d'un M04 pollue
+par une execution illegitime (lot6b lance en direct atteint le reseau et rapatrie des donnees
+reelles dont le mapping vers le parc fictif echoue -> logement_id nul partout). Ni lot6d ni
+build_data_recette n'etaient en cause. Voir ANO-2026-07-27-01.
+
+CORRECTION 2 - pivot du cout interne. D101 (VALIDE 2026-06-18) fixe le pivot a 2026-06 ;
+lib_menage_costs.PIVOT_FIXED_COST = 2026-06-01 y est CONFORME. Une consigne demandait de le
+deplacer au 1er mai en supposant une derive : le pivot n'a PAS ete modifie, l'avancer
+recalculerait mai 2026 (mois portant les donnees reelles) avec l'autre methode. Arbitrage inscrit
+au handoff. 9 tests dont les 4 frontieres demandees.
+
+CORRECTION 3 - regle cave 50 EUR. Declaree introuvable au tour precedent : AFFIRMATION FAUSSE,
+due a une recherche limitee a lib_menage_costs. La regle existe : REC_002 dans
+REF_Charges_Recurrentes, D103 (cle COUT_STANDARD_MENAGES_MOIS, revise D045), ventilee UNIQUEMENT
+sur les menages internes, implementee dans lot6f. Ce n'est pas "+50 EUR par menage" mais un
+forfait mensuel ventile au prorata du poids. Aucun arbitrage necessaire. 6 tests.
+
+CONTROLE : verrou perime. recuperer_verrou_perime() ecarte par renommage atomique un verrou dont
+le PID est mort, jamais celui d'un processus vivant, jamais un verrou illisible ou d'une autre
+machine. Fichier conserve pour inspection, age calcule, reprise journalisee SANS nom de machine.
+14 tests (huit cas demandes). Preuve reelle : verrou perime pose, chaine relancee, 7/7 OK.
+
+NON FAIT, DIT CLAIREMENT : le cycle de vie operationnel des menages (statuts, creation hors
+Hostaway, affectation, rattachements facture/charge/reglement/banque, prestataires qualifies,
+catalogue de controles) n'est PAS construit. Module PARTIEL.
+REFERENCE : 41_MODULE_MENAGES_ETAT_FINAL.md
