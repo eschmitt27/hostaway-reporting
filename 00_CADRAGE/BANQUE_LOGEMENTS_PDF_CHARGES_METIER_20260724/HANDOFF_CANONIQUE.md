@@ -16,7 +16,8 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 | master / canonique | **intacts, jamais touchés** (`master` = `8b47807`) |
 | Sources réelles | inchangées, **une exception assumée** : `02_TRAVAIL/lot13_export_powerbi.py`, sur décision utilisateur explicite (renommage de la colonne d'export). Aucune donnée réelle touchée ; toutes les écritures de recette restent sous `data_recette/` |
 | Campagnes ciblées de ce tour | `test_lot13_filet_anti_sensible` **11 passés** · `test_charges_pipeline` **19 passés** · `test_calculs_executeur` **21 passés** · `-k "calculs or lot13 or charges_pipeline or menages_chaine"` **103 passés / 10 skipés** · `test_recette_scenarios` **1 passé** · tests moteur racine (interpréteur pandas) **31 passés** |
-| Suite complète | **1967 passés / 75 skipés / 1 échec pré-existant** (`test_appsec1_diagnostic`). Exécutée en **4 tranches** (507+17 · 508+8 · 578+6 · 374+44) car la suite d'un seul tenant dépasse le délai d'exécution disponible : `python -m pytest -q -p no:cacheprovider $(ls tests/test_*.py \| awk 'NR%4==1')`, puis `NR%4==2`, `==3`, `==0` |
+| Suite complète | **2028 passés / 75 skipés / 1 échec pré-existant** (`test_appsec1_diagnostic`). Exécutée en **4 tranches** (547+26 · 507+26 · 521+6 · 453+17) car la suite d'un seul tenant dépasse le délai d'exécution disponible : `python -m pytest -q -p no:cacheprovider $(ls tests/test_*.py \| awk 'NR%4==1')`, puis `NR%4==2`, `==3`, `==0` |
+| Documents transverses | `MATRICE_ETAT_MODULES.md` · `GUIDE_ACTIVATION_MODE_REEL.md` (verdict **NO GO** au 2026-07-27) |
 
 ## Modules
 
@@ -219,6 +220,20 @@ Deux issues possibles, à trancher explicitement :
    datée, pas une réécriture), recalculer mai 2026 et mesurer l'écart avant/après.
 
 Tant que ce n'est pas tranché, aucun écran ni calcul ne doit présenter une règle contredisant D101.
+
+## Mission d'intégration : parties bornées livrées, mission NON terminée
+
+Livré : `MATRICE_ETAT_MODULES.md` (13 modules classés avec preuve — 8 TERMINÉ, 4 PARTIEL, mode réel
+à l'arrêt partout), audit des verrous (`test_flags_inventaire.py`, 28 tests),
+`GUIDE_ACTIVATION_MODE_REEL.md` avec checklist GO/NO GO.
+
+**Non fait** : recette sur copies contrôlées des données réelles (§16), mesures de performance
+(§18), revue de sécurité complète (§19), `RAPPORT_RECETTE_GLOBALE.md`.
+
+**Correction d'une affirmation précédente** : `MENAGES_REAL_RECALC_ENABLED` n'était pas « la
+dernière garde codée en dur ». Cinq gardes **gelées** subsistent (`HH_*` ×2,
+`REF_ASSOC_MODE_REAL_WRITE_ENABLED`, `CONTROLES_*` ×2). Ce n'est pas une dérive : les geler est plus
+sûr que de leur ouvrir un chemin d'activation. Les deux catégories sont désormais figées par tests.
 
 ## Prochaine action précise
 
