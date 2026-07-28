@@ -9,32 +9,30 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 |---|---|
 | Worktree | `C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Worktrees\BANQUE_LOGEMENTS_PDF_CHARGES_METIER` |
 | Branche | `feature/banque-logements-pdf-charges-metier` |
-| Dernier commit stable avant ce tour | `208fdaa` — `docs(handoff): suite complete 2028 passes, etat de la mission d'integration` |
+| État figé le | **2026-07-28** |
+| Dernier commit stable avant ce tour | `b367afd` — `feat(comptabilite): premier socle - ecritures ACHATS/BANQUE, equilibre, idempotence` |
 | HEAD | vérifier avec `git log -1` — ce fichier est mis à jour par le commit qui le porte |
 | git status | propre (`data_recette/` ignoré, régénérable) |
 | master / canonique | **intacts, jamais touchés** (`master` = `8b47807`) |
 | Sources réelles | inchangées, **une exception assumée** : `02_TRAVAIL/lot13_export_powerbi.py`, sur décision utilisateur explicite (renommage de la colonne d'export). Aucune donnée réelle touchée ; toutes les écritures de recette restent sous `data_recette/` |
-| Suite complète (dernier total constaté) | **2110 passés / 75 skipés / 1 échec pré-existant** (`test_appsec1_diagnostic`). En 4 tranches : `python -m pytest -q -p no:cacheprovider $(ls tests/test_*.py \| awk 'NR%4==1')`, puis `==2`, `==3`, `==0` |
-| Documents transverses | `MATRICE_ETAT_MODULES.md` · `GUIDE_ACTIVATION_MODE_REEL.md` (verdict **NO GO** au 2026-07-27) |
-| **Avancement global estimé** | **65 %**, marge ± 4 points — voir « Périmètre restant » ci-dessous. Plafond : aucun pourcentage > 85 % avant Comptabilité + Analytique + Résultats fonctionnels et validés. |
+| Suite complète (dernier total constaté) | **2110 passés / 75 ignorés / 1 échec pré-existant** (`test_appsec1_diagnostic`). En 4 tranches : `python -m pytest -q -p no:cacheprovider $(ls tests/test_*.py \| awk 'NR%4==1')`, puis `==2`, `==3`, `==0` |
+| Documents transverses | `MATRICE_ETAT_MODULES.md` (état livré) · **`48_ROADMAP_RESTANTE_PROJET.md` (trajectoire)** · `GUIDE_ACTIVATION_MODE_REEL.md` (verdict **NO GO**) |
+| **Avancement global estimé** | **70 %**, marge ± 4 points. Plafond : aucun pourcentage > 85 % tant que Comptabilité + Analytique + Résultats ne sont pas fonctionnels, **réconciliés** et **validés**. |
 
 ## Périmètre restant avant achèvement
 
-1. cycle opérationnel Ménages ;
-2. corrections transverses (modèle Factures/Charges/Règlements) ;
-3. modèle définitif Factures / Charges / Règlements ;
-4. factures fournisseurs reçues ;
-5. factures propriétaires émises ;
-6. factures voyageurs ou tiers si applicables ;
-7. module Comptabilité ;
-8. journaux et écritures ;
-9. comptabilités auxiliaires ;
-10. rapprochement comptable et bancaire ;
-11. analyse analytique ;
-12. écrans Résultats ;
-13. clôture comptable ;
-14. recette globale sur copies ;
-15. activation progressive du mode réel.
+Détail complet, avec dépendances et critères de fin : **`48_ROADMAP_RESTANTE_PROJET.md`**.
+
+Ordre arrêté : (1) fermer les écarts Ménages · (2) compléter la facturation · (3) compléter la
+Comptabilité · (4) analytique · (5) Résultats · (6) réconciliations · (7) recette globale sur
+copies · (8) validation humaine · (9) activation progressive du mode réel.
+
+## Arbitrages métier en attente (cf. `48`)
+
+1. **Plan de comptes détaillé** — `606000` générique, mapping catégorie → compte non arbitré.
+2. **Ventilation analytique** d'une facture multi-logements — aucune règle documentée.
+3. **Circuit propriétaire en SQLite** — décision actuelle : ne pas migrer lot12.
+4. **Charge postérieure à une clôture validée** — non interdite applicativement.
 
 ## Modules
 
