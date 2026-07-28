@@ -34,7 +34,6 @@ NORM_OUT = os.path.join(NORM_DIR, "MASTER_NORM_Declarations_Internes.xlsx")
 NOW = datetime.datetime.now().isoformat(timespec="seconds")
 
 MOIS = {"janvier":"01","fevrier":"02","mars":"03","avril":"04","mai":"05","juin":"06","juillet":"07","aout":"08","septembre":"09","octobre":"10","novembre":"11","decembre":"12"}
-INTMAP = {"imene": ("INT_0001","Imène"), "kira": ("INT_0002","Kheira"), "kheira": ("INT_0002","Kheira")}
 REQUIRED_COLS = ["Prénom", "Mois des ménages", "Année des ménages", "Appartement"]
 
 def abort(msg):
@@ -106,6 +105,35 @@ for d in sh(REF, "REF_Logements"):
 std_ref = sh(REF, "REF_Couts_Standards_Menage")
 hourly_ref = sh_opt(REF, "REF_Taux_Heures_Menage")
 fixed_ref = sh_opt(REF, "REF_Couts_Menage_Interne")
+
+# ── Mapping prénom Google Sheet -> intervenant ────────────────────────────────
+# Construit DEPUIS REF_Intervenants.nom_normalise (D104) : ni prénom réel ni identifiant ne sont
+# codés en dur ici. Corrige ANO-2026-07-28-01 — l'ancien mapping (dict `INTMAP` figé sur trois
+# prénoms réels) empêchait tout jeu de données fictif de traverser ce moteur : un intervenant
+# fictif n'y était jamais reconnu, et l'agrégation aval (lot6d) plantait sur un intervenant_id nul
+# mêlé à des chaînes lors d'un tri. Un référentiel fictif définit ses propres nom_normalise et le
+# mapping fonctionne alors identiquement, sans aucune donnée réelle requise.
+intmap = {}
+for d in sh(REF, "REF_Intervenants"):
+    iid = d.get("intervenant_id")
+    if not iid or str(iid) == "intervenant_id":
+        continue
+    cle = d.get("nom_normalise")
+    if cle:
+        intmap[norm(cle)] = (iid, d.get("nom_intervenant") or iid)
+
+# Alias orthographiques Google Sheet (ex. D104 : « Kira » = Kheira). Exception nominative et
+# documentée, PAS un mécanisme général : chargée depuis un module optionnel, absent du jeu de
+# recette (jamais copié par `recette/build_data_recette.py`), donc sans effet sur un référentiel
+# fictif. Son absence ne bloque rien — seule la résolution exacte par nom_normalise reste requise.
+try:
+    from _data_lot6b_alias_reel import ALIAS_PRENOMS_GOOGLE_SHEET as _alias
+except ImportError:
+    _alias = {}
+for _brut, _canonique in _alias.items():
+    _cible = intmap.get(norm(_canonique))
+    if _cible:
+        intmap[norm(_brut)] = _cible
 def std_unit(type_id, dref):
     best = None
     for d in std_ref:
@@ -126,7 +154,7 @@ for r in rows[1:]:
     if not any(c.strip() for c in r): continue
     pre = r[i_pre].strip(); mm = MOIS.get(norm(r[i_mois])); yr = r[i_an].strip()
     miso = f"{yr}-{mm}" if (mm and yr) else None
-    iid, inom = INTMAP.get(norm(pre), (None, pre))
+    iid, inom = intmap.get(norm(pre), (None, pre))
     lav_na = fnum(r[i_lav_na]) if (i_lav_na is not None and i_lav_na < len(r) and r[i_lav_na].strip()) else 0
     for ci in appcols:
         app = r[ci].strip() if ci < len(r) else ""

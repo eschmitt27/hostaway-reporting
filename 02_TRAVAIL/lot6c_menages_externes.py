@@ -89,89 +89,48 @@ def main():
         return (prop_id, r.get("hostaway_listing_id"), r.get("actif"), is_hors_parc_technique(r), gestion_status)
 
     # ─── MAPPING FACTURE → REFERENTIEL ───────────────────────────────────────────
-    PREST_MAP = {
-        "kandia diabate / rends-moi un service": "INT_0004",
-        "mh entreprise": "INT_0003",
-    }
-    LOG_MAP = {
-        "studio 76 (dureuil)":           "LOG_0014",
-        "studio - cote pavé (françois)": "LOG_0012",
-        "studio puits verts (caroline)": "LOG_0006",
-        "t3 310 muret (david)":          "LOG_0011",
-        "studio st pierre (florane)":    "LOG_0010",
-        "t2 9 rue du toul":              "LOG_0007",
-        "t3 4 rue engalières":           "LOG_0009",
-        "t3 20 rue l'amiral galache":    "LOG_0016",
-        "t.4-90 blagnac (cédrine)":      "LOG_0002",
-        "t.3 sept deniers (françois)":   "LOG_0013",
-        "t.2-65 (gabriel)":              "LOG_0003",
-        "studio puits vert (caroline)":  "LOG_0006",
-    }
-
-    # ─── SOURCE_RAW ──────────────────────────────────────────────────────────────
-    # Deux origines possibles, tracées par MODE_EXTRACTION :
-    #   PDF_AUTOMATIQUE        — extraction réelle des PDF déposés (lib_menages_externes_pdf) ;
-    #   SAISIE_MANUELLE_SECOURS — transcription figée ci-dessous (RAW_MANUEL), utilisée seulement
-    #                             si aucun PDF exploitable n'est présent. Jamais fusionnée avec le PDF.
+    # Corrige ANO-2026-07-28-01 : le mapping et la transcription de secours réels vivent
+    # dans un module optionnel isolé (`_data_lot6c_secours_reel.py`), jamais copié vers
+    # data_recette. Son absence (recette) bascule sur un repli fictif local — zéro donnée
+    # réelle, chaîne quand même exerçable de bout en bout.
     def d(s): return date(*map(int, s.split("-"))) if s else None
 
-    RAW_MANUEL = [
-        # === AISSATA — Facture n°2026-37 — 31/05/2026 — Total TTC 1 439 € ===
-        ("FAC-2026-05-AISSATA-001","2026-37",d("2026-05-31"),"Facture mai Aissata.pdf",
-         "Kandia DIABATE / Rends-moi un service","studio 76 (Dureuil)",
-         d("2026-05-10"),"DATE_PRECISE","TLM_001",1,29.0,29.0,1439.0,
-         "Ligne 1 fac.2026-37 — date précise sur facture"),
-        ("FAC-2026-05-AISSATA-001","2026-37",d("2026-05-31"),"Facture mai Aissata.pdf",
-         "Kandia DIABATE / Rends-moi un service","studio - cote pavé (François)",
-         None,"MOIS_FACTURE","TLM_001",5,29.0,145.0,1439.0,
-         "Ligne 2 fac.2026-37 — 5 passages mai 2026, date absente"),
-        ("FAC-2026-05-AISSATA-001","2026-37",d("2026-05-31"),"Facture mai Aissata.pdf",
-         "Kandia DIABATE / Rends-moi un service","studio Puits verts (Caroline)",
-         None,"MOIS_FACTURE","TLM_001",10,29.0,290.0,1439.0,
-         "Ligne 3 fac.2026-37 — 10 passages mai 2026, date absente"),
-        ("FAC-2026-05-AISSATA-001","2026-37",d("2026-05-31"),"Facture mai Aissata.pdf",
-         "Kandia DIABATE / Rends-moi un service","T3 310 muret (David)",
-         None,"MOIS_FACTURE","TLM_001",8,55.0,440.0,1439.0,
-         "Ligne 4 fac.2026-37 — 8 passages mai 2026, date absente"),
-        ("FAC-2026-05-AISSATA-001","2026-37",d("2026-05-31"),"Facture mai Aissata.pdf",
-         "Kandia DIABATE / Rends-moi un service","studio st Pierre (Florane)",
-         None,"MOIS_FACTURE","TLM_001",2,29.0,58.0,1439.0,
-         "Ligne 5 fac.2026-37 — 2 passages mai 2026, date absente"),
-        ("FAC-2026-05-AISSATA-001","2026-37",d("2026-05-31"),"Facture mai Aissata.pdf",
-         "Kandia DIABATE / Rends-moi un service","T2 9 rue du Toul",
-         None,"MOIS_FACTURE","TLM_001",8,39.0,312.0,1439.0,
-         "Ligne 6 fac.2026-37 — 8 passages mai 2026, date absente"),
-        ("FAC-2026-05-AISSATA-001","2026-37",d("2026-05-31"),"Facture mai Aissata.pdf",
-         "Kandia DIABATE / Rends-moi un service","T3 4 rue engalières",
-         d("2026-05-23"),"DATE_PRECISE","TLM_001",1,55.0,55.0,1439.0,
-         "Ligne 7 fac.2026-37 — date précise sur facture"),
-        # Ligne 8 originale splittée (2 dates distinctes : 03/05 et 10/05)
-        ("FAC-2026-05-AISSATA-001","2026-37",d("2026-05-31"),"Facture mai Aissata.pdf",
-         "Kandia DIABATE / Rends-moi un service","T3 20 rue l'Amiral Galache",
-         d("2026-05-03"),"DATE_PRECISE","TLM_001",1,55.0,55.0,1439.0,
-         "Ligne 8a — splittée (2 dates). Facture: T3, REF: T2 (LOG_0016). Prix 55€ tarif T3 Aissata."),
-        ("FAC-2026-05-AISSATA-001","2026-37",d("2026-05-31"),"Facture mai Aissata.pdf",
-         "Kandia DIABATE / Rends-moi un service","T3 20 rue l'Amiral Galache",
-         d("2026-05-10"),"DATE_PRECISE","TLM_001",1,55.0,55.0,1439.0,
-         "Ligne 8b — splittée (2 dates). Facture: T3, REF: T2 (LOG_0016). Prix 55€ tarif T3 Aissata."),
-        # === MOUNIR — Facture n°0003 — 31/05/2026 — Total TTC 942 € ===
-        ("FAC-2026-05-MOUNIR-001","0003",d("2026-05-31"),"Facture mai Mounir.pdf",
-         "MH Entreprise","T.4-90 Blagnac (Cédrine)",
-         None,"MOIS_FACTURE","TLM_001",6,65.0,390.0,942.0,
-         "Ligne 1 fac.0003 — 6 ménages mai 2026, date absente"),
-        ("FAC-2026-05-MOUNIR-001","0003",d("2026-05-31"),"Facture mai Mounir.pdf",
-         "MH Entreprise","T.3 Sept Deniers (François)",
-         None,"MOIS_FACTURE","TLM_001",10,52.0,520.0,942.0,
-         "Ligne 2 fac.0003 — 10 ménages mai 2026, date absente"),
-        ("FAC-2026-05-MOUNIR-001","0003",d("2026-05-31"),"Facture mai Mounir.pdf",
-         "MH Entreprise","T.2-65 (Gabriel)",
-         None,"MOIS_FACTURE","TLM_001",0,36.0,0.0,942.0,
-         "Ligne 3 fac.0003 — 0 ménage, logement inactif depuis 2026-04-26. Présent à 0€."),
-        ("FAC-2026-05-MOUNIR-001","0003",d("2026-05-31"),"Facture mai Mounir.pdf",
-         "MH Entreprise","Studio Puits vert (Caroline)",
-         None,"MOIS_FACTURE","TLM_001",1,32.0,32.0,942.0,
-         "Ligne 4 fac.0003 — 1 ménage mai 2026, date absente"),
+    try:
+        from _data_lot6c_secours_reel import (
+            RAW_MANUEL as _RAW_MANUEL_REEL,
+            PREST_MAP as _PREST_MAP_REEL,
+            LOG_MAP as _LOG_MAP_REEL,
+            PREST_BRUT as _PREST_BRUT_REEL,
+            PCODE_MAP as _PCODE_MAP_REEL,
+            MODE_PAIEMENT_MAP as _MODE_PAIEMENT_MAP_REEL,
+        )
+    except ImportError:
+        _RAW_MANUEL_REEL, _PREST_MAP_REEL, _LOG_MAP_REEL, _PREST_BRUT_REEL = [], {}, {}, {}
+        _PCODE_MAP_REEL, _MODE_PAIEMENT_MAP_REEL = {}, {}
+
+    # Repli fictif (recette) : aucun nom/référence réel, aligné sur les identifiants
+    # FICTIF de `recette/build_data_recette.py` (INT_B externe, LOG_A1/LOG_B1).
+    RAW_FICTIF = [
+        ("FAC-2026-06-FICTIF-001", "F-0001", d("2026-06-30"), "Facture_Fictive_Recette.pdf",
+         "Prestataire Fictif Recette", "Logement Fictif A1",
+         d("2026-06-10"), "DATE_PRECISE", "TLM_001", 1, 30.0, 30.0, 60.0,
+         "Ligne fictive recette 1"),
+        ("FAC-2026-06-FICTIF-001", "F-0001", d("2026-06-30"), "Facture_Fictive_Recette.pdf",
+         "Prestataire Fictif Recette", "Logement Fictif B1",
+         d("2026-06-15"), "DATE_PRECISE", "TLM_001", 1, 30.0, 30.0, 60.0,
+         "Ligne fictive recette 2"),
     ]
+    PREST_MAP_FICTIF = {"prestataire fictif recette": "INT_B"}
+    LOG_MAP_FICTIF = {"logement fictif a1": "LOG_A1", "logement fictif b1": "LOG_B1"}
+    PREST_BRUT_FICTIF = {"INT_B": "Prestataire Fictif Recette"}
+    PCODE_MAP_FICTIF = {"INT_B": "FICTIF"}
+    MODE_PAIEMENT_MAP_FICTIF = {}
+
+    RAW_MANUEL = _RAW_MANUEL_REEL or RAW_FICTIF
+    PREST_MAP = _PREST_MAP_REEL or PREST_MAP_FICTIF
+    LOG_MAP = _LOG_MAP_REEL or LOG_MAP_FICTIF
+    PCODE_MAP = _PCODE_MAP_REEL or PCODE_MAP_FICTIF
+    MODE_PAIEMENT_MAP = _MODE_PAIEMENT_MAP_REEL or MODE_PAIEMENT_MAP_FICTIF
 
     RAW_COLS = ["facture_id","numero_facture_original","date_facture","nom_fichier_source",
                 "prestataire_nom_brut","appartement_source","date_menage",
@@ -183,7 +142,7 @@ def main():
     # Lit les PDF déposés dans 01_SOURCES_BRUTES/MenagesExternes/Factures_PDF et construit RAW
     # au MÊME contrat de colonnes que la transcription. Dédoublonnage par empreinte de facture
     # (SHA256 PDF + numéro + prestataire + date + total). Aucune écriture, aucune invention.
-    PREST_BRUT = {"INT_0004": "Kandia DIABATE / Rends-moi un service", "INT_0003": "MH Entreprise"}
+    PREST_BRUT = _PREST_BRUT_REEL or PREST_BRUT_FICTIF
 
     def _raw_depuis_pdf():
         try:
@@ -210,8 +169,7 @@ def main():
             if fac.statut_extraction != "OK" or doublon:
                 continue
             empreintes[emp] = nom
-            pcode = "AISSATA" if fac.prestataire_id == "INT_0004" else \
-                    "MOUNIR" if fac.prestataire_id == "INT_0003" else "UNK"
+            pcode = PCODE_MAP.get(fac.prestataire_id, "UNK")
             per = fac.periode_facture or (str(fac.date_facture)[:7] if fac.date_facture else "0000-00")
             fid = f"FAC-{per}-{pcode}-001"
             for l in fac.lignes:
@@ -299,10 +257,10 @@ def main():
         e_ttc = round(s_ttc - fac_ttc, 2)
 
         # Mode paiement
-        mode_paie = "VIREMENT" if pid == "INT_0004" else "A_CONTROLER"
+        mode_paie = MODE_PAIEMENT_MAP.get(pid, "A_CONTROLER")
 
         # menage_externe_id
-        pcode = "AISSATA" if pid == "INT_0004" else "MOUNIR" if pid == "INT_0003" else "UNK"
+        pcode = PCODE_MAP.get(pid, "UNK")
         key = f"{mois}-{pcode}"
         counters[key] += 1
         mid = f"MENEXT-{mois}-{pcode}-{counters[key]:03d}"
@@ -497,7 +455,8 @@ def main():
         ("NB_LIGNES_SOURCE_RAW",  len(RAW)),
         ("NB_LIGNES_MASTER",      len(MASTER)),
         ("NB_LIGNES_VUE_ACTIVE",  len(VUE_ACTIVE)),
-        ("FACTURES_TRAITEES",     "FAC-2026-05-AISSATA-001 (1439€) ; FAC-2026-05-MOUNIR-001 (942€)"),
+        ("FACTURES_TRAITEES",     " ; ".join(
+            f"{fid2} ({sommes_ttc[fid2]:.0f}€)" for fid2 in dict.fromkeys(r[0] for r in RAW))),
     ]
     hdr(ws2, 1, 1, "parametre", 30); hdr(ws2, 1, 2, "valeur", 60)
     for ri, (k, v) in enumerate(params, 2):
@@ -675,21 +634,33 @@ def main():
     ws7 = wb.create_sheet("README")
     ws7.column_dimensions["A"].width = 120
 
+    sources_lines = (
+        [
+            "SOURCES",
+            f"  - Facture mai Aissata.pdf  (Kandia DIABATE / INT_0004) — n°2026-37 — 1 439 € TTC",
+            f"  - Facture mai Mounir.pdf   (MH Entreprise  / INT_0003) — n°0003    — 942 € TTC",
+            f"  - Deux prestataires en franchise TVA (art.293B CGI)",
+        ]
+        if _RAW_MANUEL_REEL and MODE_EXTRACTION == "SAISIE_MANUELLE_SECOURS"
+        else ["SOURCES", "  - Jeu de recette FICTIF (aucune facture réelle, aucune PII)."]
+    )
+    decision_d086 = (
+        "  D086 (D-6c-08) : Kandia DIABATE = INT_0004 ; MH Entreprise = INT_0003"
+        if _RAW_MANUEL_REEL and MODE_EXTRACTION == "SAISIE_MANUELLE_SECOURS"
+        else "  D086 (D-6c-08) : mapping prestataire → intervenant_id (recette : identifiants fictifs)"
+    )
     readme_lines = [
         "MASTER_FACT_MEN_MenagesExternes.xlsx — Lot 6c — Ménages externes",
         "=" * 70,
         f"Généré le {TS} par lot6c_menages_externes.py",
         "",
-        "SOURCES",
-        f"  - Facture mai Aissata.pdf  (Kandia DIABATE / INT_0004) — n°2026-37 — 1 439 € TTC",
-        f"  - Facture mai Mounir.pdf   (MH Entreprise  / INT_0003) — n°0003    — 942 € TTC",
-        f"  - Deux prestataires en franchise TVA (art.293B CGI)",
+        *sources_lines,
         "",
         "STRUCTURE",
-        f"  - SOURCE_RAW       : {len(RAW)} lignes extraites des PDF (ligne 8 Aissata splittée en 8a+8b)",
+        f"  - SOURCE_RAW       : {len(RAW)} lignes ({MODE_EXTRACTION})",
         f"  - MASTER           : {len(MASTER)} lignes — 49 colonnes",
         f"  - VUE_ACTIVE       : {len(VUE_ACTIVE)} lignes (filtre VALIDE + IC/HC + montant>0 + réconcilié)",
-        f"  - VUE_ECART_HA     : {len(ECART_ROWS)} logements — comparaison HA vs externes mai 2026",
+        f"  - VUE_ECART_HA     : {len(ECART_ROWS)} logements — comparaison HA vs externes",
         "",
         "DECISIONS METIER ACTEES",
         "  D079 (D-6c-01) : 2 PDFs fournis — format analysé — FRANCHISE_TVA confirmé",
@@ -699,7 +670,7 @@ def main():
         "  D083 (D-6c-05) : TVA 3 valeurs — FRANCHISE_TVA / ASSUJETTI_TVA / A_CONTROLER",
         "  D084 (D-6c-06) : Lignes séparées par type_ligne_menage_id (TLM_001–006)",
         "  D085 (D-6c-07) : Chemin 02_TRAVAIL/Lot6c_MenagesExternes/",
-        "  D086 (D-6c-08) : Kandia DIABATE = INT_0004 ; MH Entreprise = INT_0003",
+        decision_d086,
         "  D087 (D-6c-09) : Option B — date_menage=null + precision_date_menage=MOIS_FACTURE + A_CONTROLER",
         "  D088 (D-6c-10) : Ligne 0€/0 ménage conservée MASTER, exclue VUE_ACTIVE",
         "",
@@ -783,15 +754,15 @@ def main():
     n_blok    = sum(1 for r in MASTER if r[MASTER_COLS.index("statut_controle")] == "BLOQUANT")
 
     print(f"\n=== RÉSUMÉ LOT 6C ===")
-    print(f"SOURCE_RAW   : {len(RAW)} lignes (9 Aissata + 4 Mounir)")
+    print(f"SOURCE_RAW   : {len(RAW)} lignes")
     print(f"MASTER       : {len(MASTER)} lignes — 49 colonnes")
     print(f"  VALIDE     : {n_valide}")
     print(f"  A_CONTRÔLER: {n_ctrl}")
     print(f"  BLOQUANT   : {n_blok}")
     print(f"VUE_ACTIVE   : {len(VUE_ACTIVE)} lignes")
-    print(f"VUE_ECART_HA : {len(ECART_ROWS)} logements mois=2026-05")
+    print(f"VUE_ECART_HA : {len(ECART_ROWS)} logements")
 
-    for fid2 in ["FAC-2026-05-AISSATA-001","FAC-2026-05-MOUNIR-001"]:
+    for fid2 in dict.fromkeys(r[0] for r in RAW):
         s2 = sommes_ttc[fid2]
         fac_t = next(r[12] for r in RAW if r[0]==fid2)
         print(f"  Réconciliation {fid2}: somme={s2:.2f} total={fac_t:.2f} écart={s2-fac_t:.2f}")

@@ -152,7 +152,7 @@ Serveur de recette, port 8070, `RECETTE_MODE=1` + double verrou `MENAGES_CYCLE_R
 
 | Sujet | État | Raison |
 |---|---|---|
-| Pools de courses en recette | ⛔ **bloqué, cause identifiée** | Les charges `affectable_menage=OUI` sont désormais seedées (G1 courses 80 €, G2 consommables 40 €, G3 hors mois 25 €) et Lot3 les traite correctement. **Mais la chaîne ménages ne peut pas tourner sur le parc fictif** : `menages_chaine_service` copie les sources depuis `PROJECT_ROOT`, et la source des déclarations internes — même remplacée par le stub — porte des noms d'appartements **réels** qui ne se mappent sur aucun `logement_id` du parc fictif. lot6d échoue alors sur `nom_app(lg) → None` (`TypeError: NoneType < str`), exactement le symptôme déjà rencontré. Voir §7bis. |
+| Pools de courses en recette | ⚠️ **partiellement débloqué** | Les charges `affectable_menage=OUI` sont désormais seedées (G1 courses 80 €, G2 consommables 40 €, G3 hors mois 25 €) et Lot3 les traite correctement. Le blocage **intervenants** (`INTMAP` codé en dur) est résolu (`ANO-2026-07-28-01`, cf. §7bis) : lot6b/lot6c tournent désormais sur données entièrement fictives sans `intervenant_id` nul. **Reste** : la source des déclarations internes doit encore porter des noms d'appartements fictifs alignés sur `logement_id` du parc fictif (gap `REF_Mapping_Logements`, indépendant de l'anomalie ci-dessus) avant d'exercer la ventilation des pools bout en bout sur `data_recette`. Voir §7bis. |
 | Rattachement de charge exercé en réel | ⚠️ | `lier_charge()` testé unitairement (12 tests) ; non exercé en recette navigateur (aucune charge de recette disponible à lier lors de ce parcours). |
 | Import PDF de facture ménage → lien direct depuis la fiche ménage | ⛔ | Le rattachement facture existe (`lier_facture`) ; aucun formulaire UI ne l'expose encore (fait par script dans cette recette). |
 | Chaîne lot6 exercée avec un ménage du cycle en entrée | ⛔ | Le cycle de vie et la chaîne de comptage (lot6b→lot11) restent deux couches parallèles, non connectées par un flux de données. |
@@ -194,37 +194,27 @@ mappings :
 1. **Logements** — `lmap` se construit depuis `REF_Mapping_Logements.valeur_source`. Le REF fictif
    ne contient aujourd'hui que des lignes `listingMapId` (900001…), pas de lignes portant un **nom
    d'appartement**. Ajoutable sans difficulté.
-2. **Intervenants** — bloquant. `lot6b_m04_menages_internes.py` porte un mapping **codé en dur dans
-   le source du moteur** :
+2. **Intervenants** — **résolu** (`ANO-2026-07-28-01`, corrigée le 2026-07-28). Issue A retenue :
+   `INTMAP` (dict figé de prénoms réels) supprimé de `lot6b_m04_menages_internes.py` ; le mapping
+   prénom → `intervenant_id` est reconstruit dynamiquement depuis `REF_Intervenants.nom_normalise`
+   (D104) — un référentiel fictif définit ses propres `nom_normalise` et le mapping fonctionne
+   identiquement, sans aucune donnée réelle requise. L'alias orthographique réel (« Kira » =
+   Kheira, D104) est externalisé dans `02_TRAVAIL/_data_lot6b_alias_reel.py`, module optionnel
+   jamais copié vers `data_recette`. Compatibilité historique prouvée (les 3 clés réelles
+   `imene`/`kira`/`kheira` résolvent vers les mêmes `intervenant_id` qu'avant le refactor).
+   `lot6c_menages_externes.py` a reçu le même traitement : `RAW_MANUEL`, `PREST_MAP`, `LOG_MAP`,
+   `PREST_BRUT` externalisés dans `_data_lot6c_secours_reel.py`, avec repli fictif local si le
+   module est absent. Détail complet et preuves : `JOURNAL_ANOMALIES.md` (`ANO-2026-07-28-01`).
 
-   ```python
-   INTMAP = {"imene": ("INT_0001","Imène"), "kira": ("INT_0002","Kheira"), "kheira": (...)}
-   ```
-
-   Un prénom fictif donnerait `intervenant_id = None`. Or lot6d agrège aussi **par intervenant**
-   (`res_int`), avec le même `sorted()` que pour les appartements : on retomberait exactement sur le
-   `TypeError: NoneType < str`, en ayant seulement déplacé le problème.
-
-   Utiliser les prénoms réels pour contourner **réinjecterait de la PII réelle dans le jeu de
-   recette** — précisément le défaut corrigé au tour précédent (`ANO-2026-07-27-01`). Écarté.
-
-C'est le **même motif que `lot6c`**, qui porte lui aussi des données réelles en dur (références de
-factures `FAC-2026-05-AISSATA-001`, noms de prestataires). Deux moteurs de la chaîne ménages
-embarquent des données réelles dans leur code source.
-
-**Décision : ne pas bricoler.** Trois issues possibles, toutes des décisions à prendre :
-
-- **A** — externaliser `INTMAP` (et les données en dur de `lot6c`) vers `REF_Intervenants` /
-  `REF_Setup`, ce qui rendrait les moteurs pilotables par référentiel. Modification de moteur, à
-  arbitrer.
-- **B** — accepter que la chaîne ménages ne soit exerçable que sur l'arbre **réel** (en copies,
-  7/7 OK, `reel_intact=True`), et renoncer à l'exercer sur données fictives. La ventilation des
-  pools serait alors validée sur données réelles en lecture seule, jamais en recette isolée.
-- **C** — enrichir le jeu de recette d'intervenants dont les identifiants correspondent aux clés
-  d'`INTMAP` **sans en reprendre les prénoms réels** — impossible en l'état, `INTMAP` est indexé
-  par prénom normalisé, pas par identifiant.
-
-Tant que ce n'est pas tranché, la ventilation des pools et de REC_002 reste non exercée.
+**Ce qui reste** — la levée du blocage intervenants ne suffit pas encore à exercer la ventilation
+des pools de bout en bout : `menages_chaine_service` copie les sources depuis `PROJECT_ROOT`, et
+même avec `PROJECT_ROOT = data_recette`, la source des **déclarations internes** (Google Sheet,
+point 1 ci-dessus) doit encore porter des noms d'appartements fictifs alignés sur `logement_id` du
+parc fictif (`REF_Mapping_Logements` n'a aujourd'hui que des lignes `listingMapId`, pas de nom
+d'appartement). Cette lacune est indépendante d'`ANO-2026-07-28-01` (déjà corrigée) : c'est un gap
+du jeu de recette, pas un défaut moteur. Tant que ce n'est pas fait, la ventilation des pools et de
+REC_002 reste non exercée sur données fictives — mais la chaîne reste exerçable et validée sur
+l'arbre réel en copies (7/7, `reel_intact=True`).
 
 ## 8. Tests ajoutés ce tour
 

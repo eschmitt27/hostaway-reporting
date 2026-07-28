@@ -308,7 +308,7 @@ lecon que lot3, sur un risque plus grave.
 ## ANO-2026-07-28-01 — Donnees reelles codees en dur dans les moteurs menages
 
 GRAVITE : MOYENNE (confidentialite + testabilite).
-STATUT : OUVERTE — arbitrage requis.
+STATUT : CORRIGEE (2026-07-28) — issue A retenue et implementee.
 
 CONSTAT : deux moteurs de la chaine menages embarquent des donnees reelles dans leur CODE SOURCE,
 versionne :
@@ -329,11 +329,48 @@ vrais prenoms pour contourner reinjecterait de la PII en recette : ecarte (cf. A
 IMPACT : pools de courses, ventilation REC_002 et chaine Menage complete restent non exercables
 sur donnees fictives. La chaine reste exercable sur l'arbre REEL en copies (7/7, reel_intact=True).
 
-ISSUES POSSIBLES (a arbitrer, aucune engagee) :
+ISSUES POSSIBLES (a arbitrer) :
 A. Externaliser INTMAP et les donnees de lot6c vers REF_Intervenants / REF_Setup. Rend les moteurs
    pilotables par referentiel et la recette fictive possible. Modification de moteur.
 B. Accepter que la chaine ne soit exercable que sur l'arbre reel, en copies et en lecture seule.
 C. Enrichir le jeu de recette d'intervenants correspondant aux cles d'INTMAP sans reprendre les
    prenoms reels : IMPOSSIBLE en l'etat, INTMAP est indexe par prenom.
 
-AUCUNE MODIFICATION DE MOTEUR N'A ETE FAITE. Detail : 41_MODULE_MENAGES_ETAT_FINAL.md section 7bis.
+ISSUE A RETENUE ET IMPLEMENTEE (2026-07-28) :
+
+lot6b_m04_menages_internes.py : INTMAP (dict fige de prenoms reels) supprime. Le mapping
+prenom -> intervenant_id est desormais construit dynamiquement depuis
+REF_Intervenants.nom_normalise (D104) — un referentiel fictif definit ses propres nom_normalise et
+le mapping fonctionne identiquement, sans aucune donnee reelle requise. L'alias orthographique reel
+("Kira" = Kheira, D104) est externalise dans un nouveau module optionnel
+`02_TRAVAIL/_data_lot6b_alias_reel.py`, importe via try/except ImportError (absence sans effet).
+
+lot6c_menages_externes.py : RAW_MANUEL (transcription des factures reelles mai 2026), PREST_MAP,
+LOG_MAP, PREST_BRUT, ainsi que les mappings pcode/mode_paiement bases sur des intervenant_id reels
+en dur, sont externalises dans un nouveau module optionnel
+`02_TRAVAIL/_data_lot6c_secours_reel.py`. En son absence, le moteur bascule sur un repli fictif
+local (RAW_FICTIF, 2 lignes, aucun nom reel) aligne sur les identifiants FICTIF de
+`recette/build_data_recette.py` (INT_B, LOG_A1/LOG_B1). Les textes du README genere (section
+SOURCES, decision D086) sont rendus conditionnels au mode reellement actif — plus de nom reel
+injecte dans un artefact de recette.
+
+`recette/build_data_recette.py` exclut explicitement ces deux modules de la copie des scripts
+moteur vers `data_recette/02_TRAVAIL` (`EXCLUS_DONNEES_REELLES`).
+
+PREUVES :
+- Compatibilite historique lot6b : intmap reconstruit depuis REF_Intervenants reel resout les
+  3 cles (imene, kira, kheira) vers les memes intervenant_id que l'ancien INTMAP (verifie).
+- Compatibilite historique lot6c : rerun sur l'arbre reel (module _data_lot6c_secours_reel.py
+  present) — 13 lignes SOURCE_RAW, 12 VALIDE / 1 BLOQUANT, reconciliation exacte (1439€ / 942€),
+  identique au comportement de l'ancien script (verifie par diff colonne-a-colonne du MASTER,
+  hors horodatage/hash — un seul ecart preexistant sur la ligne T.2-65/Gabriel, confirme
+  independant du refactor par rerun de l'ancien script tel quel).
+- Recette entierement fictive : lot6b et lot6c executes sur `data_recette` (module reel absent,
+  ImportError attendue) produisent des lignes VALIDE avec intervenant_id/logement_id fictifs
+  (INT_A/INT_B, LOG_A1/LOG_B1), sans aucun intervenant_id nul — la chaine ne bloque plus lot6d.
+  Scan de l'export lot6c genere sur data_recette : 0 occurrence des noms/references reels
+  (Aissata, Mounir, Kandia, DIABATE, MH Entreprise, prenoms proprietaires).
+- Non-regression : suites test_menages*.py + test_charges_pipeline.py — 148 passed, 22 skipped,
+  0 echec.
+
+Detail (a mettre a jour) : 41_MODULE_MENAGES_ETAT_FINAL.md section 7bis, 48_ROADMAP_RESTANTE_PROJET.md.

@@ -703,7 +703,15 @@ def main():
     # <project_root>/02_TRAVAIL au sys.path pour importer lot3_generateur_charges & libs.
     dst_travail = REC / "02_TRAVAIL"
     dst_travail.mkdir(parents=True, exist_ok=True)
+    # Modules de données réelles isolés (ANO-2026-07-28-01) : jamais copiés en recette.
+    # Absence sans effet côté moteur (import optionnel, capturé par ImportError).
+    EXCLUS_DONNEES_REELLES = {
+        "_data_lot6b_alias_reel.py",
+        "_data_lot6c_secours_reel.py",
+    }
     for py in (WT / "02_TRAVAIL").glob("*.py"):
+        if py.name in EXCLUS_DONNEES_REELLES:
+            continue
         shutil.copy2(py, dst_travail / py.name)
     build_pbi_logements(REC / "03_EXPORTS" / "PowerBI" / "PBI_Referentiel_Logements.csv")
     # Sources amont de la chaîne aval (réservations live lot4bis + payout + ménages externes).

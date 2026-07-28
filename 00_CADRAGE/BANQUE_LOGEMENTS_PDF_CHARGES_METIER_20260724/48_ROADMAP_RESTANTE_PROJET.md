@@ -45,15 +45,15 @@ l'état, ce document pour le reste à faire.
 1. **Fermer les écarts Ménages** — pools de courses, ventilation REC_002 sur données réelles, lien
    Ménage → Charge exercé, chaîne complète Ménage → Facture → Charge → Règlement → Banque,
    contrôles inter-lots. *Critère : le module passe TERMINÉ.*
-   **Préalable identifié (2026-07-28), qui demande un ARBITRAGE** : les charges de pools sont
-   seedées et traitées par Lot3, mais la ventilation reste inexerçable. Deux moteurs de la chaîne
-   ménages embarquent des **données réelles en dur dans leur code source** :
-   `lot6b.INTMAP` (prénoms d'intervenantes) et `lot6c` (références de factures, noms de
-   prestataires). Un jeu fictif ne peut donc pas traverser la chaîne : soit `intervenant_id` est
-   nul et lot6d échoue, soit il faut réinjecter de la PII réelle en recette — écarté.
-   Trois issues, détaillées dans `41` §7bis : **A** externaliser ces données vers les référentiels
-   (modification de moteur) · **B** n'exercer la chaîne que sur l'arbre réel en copies · **C**
-   impossible en l'état. **Arbitrage requis avant tout autre travail Ménages.**
+   **Préalable résolu (`ANO-2026-07-28-01`, corrigée 2026-07-28)** : `lot6b.INTMAP` et les données
+   réelles de `lot6c` (factures, prestataires) étaient codées en dur, empêchant tout jeu fictif de
+   traverser la chaîne. Issue **A** retenue : mapping `lot6b` reconstruit dynamiquement depuis
+   `REF_Intervenants.nom_normalise` ; données réelles `lot6b`/`lot6c` externalisées vers des modules
+   optionnels (`_data_lot6b_alias_reel.py`, `_data_lot6c_secours_reel.py`) jamais copiés vers
+   `data_recette`, avec repli fictif local pour `lot6c`. Compatibilité historique et recette
+   entièrement fictive prouvées (détail : `JOURNAL_ANOMALIES.md`). Reste à faire : pools de
+   courses, ventilation REC_002 sur données réelles, lien Ménage→Charge exercé, chaîne complète
+   bout en bout.
 2. **Compléter la facturation** — lignes de facture, multi-charges/multi-logements, factures
    propriétaires émises, factures tiers, avoirs comme objet à cycle propre.
 3. **Compléter la Comptabilité** — VENTES, CAISSE, OD ; auxiliaires propriétaires et associés ;
@@ -76,7 +76,6 @@ l'état, ce document pour le reste à faire.
 | Ventilation analytique d'une facture multi-logements | aucune règle documentée ; ne pas improviser (`47`) | Analytique |
 | Circuit propriétaire en SQLite | décision actuelle : **ne pas** migrer lot12 (`44`) ; à réviser si la facture propriétaire émise devient un objet applicatif | Facturation propriétaire, journal VENTES |
 | Charge postérieure à une clôture validée | aucun mécanisme applicatif ne l'interdit | Clôture comptable |
-| **Données réelles en dur dans les moteurs ménages** | `lot6b.INTMAP` (prénoms d'intervenantes) et `lot6c` (références de factures, noms de prestataires) sont codés dans le source. Empêche tout jeu de recette fictif de traverser la chaîne. Issues A/B/C dans `41` §7bis | **Ménages entier** — pools, REC_002, chaîne complète |
 
 ## Anomalies ouvertes
 

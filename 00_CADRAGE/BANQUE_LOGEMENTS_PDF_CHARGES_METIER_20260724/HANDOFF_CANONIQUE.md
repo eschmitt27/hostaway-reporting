@@ -43,7 +43,7 @@ copies · (8) validation humaine · (9) activation progressive du mode réel.
 | Fournisseurs / Factures / Règlements | **TERMINÉ** | `32`, `33`, `34` |
 | Pilotage des calculs & clôture | **TERMINÉ** — chaîne aval complète `lot4quater → lot13` | `35`, `36`, `37`, `38` |
 | Charges | **chaîne exercée depuis `/calculs`**, scénarios A→F réconciliés | `27`, `39` |
-| Ménages | **PARTIEL** — chaîne 7/7 verte, cycle de vie construit et prouvé en recette navigateur (persistance incluse) ; pools de courses et rattachement charge non exercés en recette | `40`, `41`, `41b` |
+| Ménages | **PARTIEL** — chaîne 7/7 verte, cycle de vie construit et prouvé en recette navigateur (persistance incluse) ; `ANO-2026-07-28-01` (données réelles en dur lot6b/lot6c) **corrigée** ; pools de courses et rattachement charge encore non exercés en recette (gap distinct : appartements fictifs à aligner sur le parc) | `40`, `41`, `41b`, `JOURNAL_ANOMALIES.md` |
 
 ## ⚠️ Correction importante d'une limite documentée à tort
 
@@ -137,7 +137,47 @@ tous écarts à 0,00. Détail dans `38_LOT13_CONTRAT_EXPORT_POWERBI.md`.
 | | |
 |---|---|
 | Modules terminés | Logements, Banque, Fournisseurs-Factures-Règlements, Pilotage des calculs (chaîne aval complète), Charges exercée |
-| Module actif | *(prochain tour : analytique complet + écrans Résultats)* |
+| Module actif | *(prochain tour : compléter Factures fournisseurs / Charges / Règlements / liaison Facture → Charge → Dette → Paiement → Banque — audit déjà fait, doc `42`/`44` ; ne pas comptabilité générale/analytique)* |
+
+## ✅ Mission 4 de ce tour — `ANO-2026-07-28-01` corrigée : plus de données réelles en dur dans lot6b/lot6c
+
+Choix utilisateur explicite (« Choix A ») : ne pas reconstruire APP-5C (déjà livrée à l'identique
+du brief reçu, devenu obsolète face à l'état réel du worktree), reprendre la roadmap réelle.
+Priorité imposée : corriger complètement cette anomalie avant tout autre travail.
+
+**lot6b_m04_menages_internes.py** : `INTMAP` (dict figé, prénoms réels d'intervenantes) supprimé.
+Mapping reconstruit dynamiquement depuis `REF_Intervenants.nom_normalise` (D104) — un référentiel
+fictif définit ses propres `nom_normalise`, donc un jeu de recette fictif traverse désormais le
+moteur sans aucun `intervenant_id` nul. L'alias réel documenté « Kira = Kheira » (D104) est
+externalisé dans `02_TRAVAIL/_data_lot6b_alias_reel.py`, module optionnel jamais copié vers
+`data_recette`.
+
+**lot6c_menages_externes.py** : `RAW_MANUEL` (transcription de factures réelles mai 2026),
+`PREST_MAP`, `LOG_MAP`, `PREST_BRUT`, ainsi que les mappings pcode/mode-paiement basés sur des
+`intervenant_id` réels codés en dur, externalisés dans `02_TRAVAIL/_data_lot6c_secours_reel.py`.
+Repli fictif local (2 lignes, identifiants `INT_B`/`LOG_A1`/`LOG_B1` alignés sur
+`build_data_recette.py`) si ce module est absent. Textes du README généré (section SOURCES,
+décision D086) rendus conditionnels au mode réellement actif.
+
+`recette/build_data_recette.py` exclut désormais explicitement ces deux modules de la copie des
+scripts moteur vers `data_recette/02_TRAVAIL` (`EXCLUS_DONNEES_REELLES`).
+
+**Preuves** : compatibilité historique lot6b (3/3 clés réelles résolvent au même `intervenant_id`
+qu'avant) ; compatibilité historique lot6c (rerun réel : 13 lignes, 12 VALIDE/1 BLOQUANT,
+réconciliation exacte 1439€/942€, identique à l'ancien script — le seul écart constaté sur la ligne
+T.2-65/Gabriel est **préexistant**, reproduit à l'identique avec l'ancien script non modifié, donc
+sans lien avec ce refactor) ; recette entièrement fictive (lot6b + lot6c exécutés sur
+`data_recette`, module réel absent, `ImportError` attendue, zéro `intervenant_id` nul, zéro nom
+réel dans l'export généré — scanné) ; non-régression (`test_menages*.py` +
+`test_charges_pipeline.py` : 148 passed, 22 skipped, 0 échec).
+
+Détail complet : `JOURNAL_ANOMALIES.md` (`ANO-2026-07-28-01`), `41_MODULE_MENAGES_ETAT_FINAL.md`
+§7bis, `48_ROADMAP_RESTANTE_PROJET.md`.
+
+**Gap restant, distinct de cette anomalie** : la ventilation des pools de courses sur données
+fictives nécessite encore une source de déclarations internes fictive dont les noms
+d'appartements se mappent sur le parc fictif (`REF_Mapping_Logements` n'a que des `listingMapId`
+aujourd'hui) — non traité ce tour, hors périmètre de la priorité demandée.
 
 ## ✅ Mission 3 de ce tour — premier socle Comptabilité construit et prouvé (docs `43`, `45`, `46`, `47`)
 
