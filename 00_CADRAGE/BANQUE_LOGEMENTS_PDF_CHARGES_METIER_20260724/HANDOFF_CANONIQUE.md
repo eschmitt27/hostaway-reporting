@@ -9,9 +9,9 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 |---|---|
 | Worktree | `C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Worktrees\BANQUE_LOGEMENTS_PDF_CHARGES_METIER` |
 | Branche | `feature/banque-logements-pdf-charges-metier` |
-| État figé le | **2026-07-28** |
+| État figé le | **2026-07-28**, par le commit `ea5937a` (`docs(roadmap): figer l'etat…`) — l'état décrit ci-dessous est celui de son **parent** `b367afd` |
 | Dernier commit stable avant ce tour | `b367afd` — `feat(comptabilite): premier socle - ecritures ACHATS/BANQUE, equilibre, idempotence` |
-| HEAD | vérifier avec `git log -1` — ce fichier est mis à jour par le commit qui le porte |
+| HEAD | vérifier avec `git log -1` — ce fichier est mis à jour par le commit qui le porte, dont le SHA ne peut donc pas y figurer |
 | git status | propre (`data_recette/` ignoré, régénérable) |
 | master / canonique | **intacts, jamais touchés** (`master` = `8b47807`) |
 | Sources réelles | inchangées, **une exception assumée** : `02_TRAVAIL/lot13_export_powerbi.py`, sur décision utilisateur explicite (renommage de la colonne d'export). Aucune donnée réelle touchée ; toutes les écritures de recette restent sous `data_recette/` |
