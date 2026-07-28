@@ -357,6 +357,23 @@ SCENARIOS_CHARGES = [
     ("CHG_CTRL_EXCLUE", "2026-06-20", 400.00, "DEPENSE", "CHG_008", "TYPE_FLUX_009", "IC", "OUI",
      None, "LOGEMENT", "LOG_A1", "PROP_A", "NON", "SAISIE_MANUELLE", "DIRECT", "EXCLU_RESULTAT",
      "NON", "CONTROLE - exclue du resultat, ne doit pas etre injectee"),
+    # ── G — pools de courses/consommables du coût complet ménages (lot6f) ────────────
+    # `affectable_menage = OUI` fait entrer la charge dans les pools ventilés sur les ménages.
+    # Sans ces lignes, lot6f n'émettait que `POOL_VIDE_NON_SAISI` : le mécanisme de ventilation
+    # existait mais n'était jamais exercé.
+    # G1 — courses ménage du mois : alimente le pool COURSES.
+    ("CHG_G1_COURSES", "2026-06-09", 80.00, "DEPENSE", "CHG_003", "TYPE_FLUX_014", "IC", "OUI",
+     None, "GLOBAL", None, None, "NON", "SAISIE_MANUELLE", "DIRECT", "VALIDE", "OUI",
+     "G1 - courses menage du mois, ventilees", "OUI"),
+    # G2 — consommables du mois : alimente le pool CONSOMMABLES (catégorie CHG_004, cf. lot6f).
+    ("CHG_G2_CONSO", "2026-06-11", 40.00, "DEPENSE", "CHG_004", "TYPE_FLUX_004", "IC", "OUI",
+     None, "GLOBAL", None, None, "NON", "SAISIE_MANUELLE", "DIRECT", "VALIDE", "OUI",
+     "G2 - consommables du mois, ventiles", "OUI"),
+    # G3 — charge affectable mais HORS du mois de recette : doit être exclue des pools, sans
+    # disparaître silencieusement (lot6f la compte dans `nb_affectables`).
+    ("CHG_G3_HORS_MOIS", "2026-04-15", 25.00, "DEPENSE", "CHG_003", "TYPE_FLUX_014", "IC", "OUI",
+     None, "GLOBAL", None, None, "NON", "SAISIE_MANUELLE", "DIRECT", "VALIDE", "OUI",
+     "G3 - affectable mais hors mois de recette", "OUI"),
 ]
 
 # Colonnes de la SAISIE renseignées par le seeding, dans l'ordre des tuples ci-dessus.
@@ -364,7 +381,7 @@ _COLS_SCENARIO = [
     "charge_id", "date_charge", "montant", "sens_flux", "categorie_charge_id", "type_flux_id",
     "code_impact", "prise_en_compta", "associe_id", "affectation_type", "logement_id",
     "proprietaire_id", "refacturable", "source_flux", "methode_traitement", "statut_controle",
-    "justificatif", "commentaire",
+    "justificatif", "commentaire", "affectable_menage",
 ]
 
 
@@ -378,9 +395,14 @@ def build_saisie_charges(saisie_path: Path):
     if manquantes:
         raise RuntimeError(f"Colonnes absentes de la SAISIE : {manquantes}")
 
+    # Les tuples plus courts que `_COLS_SCENARIO` reçoivent les valeurs par défaut ci-dessous :
+    # ajouter une colonne au contrat n'oblige pas à réécrire tous les scénarios existants.
+    defauts = {"affectable_menage": "NON"}
+
     for decalage, valeurs in enumerate(SCENARIOS_CHARGES):
         ligne = 2 + decalage                      # les lignes 2..N portent déjà les formules
-        for nom, valeur in zip(_COLS_SCENARIO, valeurs):
+        for i, nom in enumerate(_COLS_SCENARIO):
+            valeur = valeurs[i] if i < len(valeurs) else defauts.get(nom)
             ws.cell(row=ligne, column=index[nom]).value = valeur
     wb.save(saisie_path)
     wb.close()

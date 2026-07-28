@@ -2616,3 +2616,30 @@ CONTREPASSEE (persistance) -> regeneration deux fois de suite -> MEME ecriture_i
 37 tests ajoutes (15 service + 9 routes + migrations/flags). Suite complete : 2110 passes / 75
 skipes / 1 echec pre-existant (test_appsec1_diagnostic, inchange).
 REFERENCE : 43_CADRAGE_COMPTABILITE_APPLICATION.md, 45_MODELE_ECRITURES_COMPTABLES.md
+
+
+## 2026-07-28 - Pools de courses menages : seedes, ventilation bloquee (cause identifiee)
+
+FAIT : trois charges affectable_menage=OUI ajoutees au jeu de recette (CHG_G1_COURSES 80 EUR ->
+pool COURSES, CHG_G2_CONSO 40 EUR -> pool CONSOMMABLES, CHG_G3_HORS_MOIS 25 EUR en avril ->
+exclue du mois mais comptee dans nb_affectables). Colonne affectable_menage ajoutee au contrat de
+seeding, avec valeur par defaut NON pour les scenarios existants.
+
+RECONCILIATION VERIFIEE : REEL 703,90 = 558,90 (avant) + 145,00 (G1+G2+G3).
+COMPTABLE 638,90. Invariant REEL = COMPTABLE + HORS_COMPTA respecte (638,90 + 65,00 = 703,90).
+19 tests de test_charges_pipeline.py passent.
+
+BLOQUE, CAUSE STRUCTURELLE IDENTIFIEE : la ventilation des pools n'est pas exercable.
+menages_chaine_service copie les sources depuis PROJECT_ROOT puis execute dans un workspace isole
+avec stub reseau. Deux cas, aucun exploitable :
+- PROJECT_ROOT = arbre reel : chaine 7/7 OK, mais elle lit la SAISIE REELLE, qui ne contient pas
+  les charges fictives (et il est exclu d'y ecrire) ;
+- PROJECT_ROOT = data_recette : la SAISIE fictive est bien lue, mais la source des declarations
+  internes porte des noms d'appartements REELS qui ne se mappent sur aucun logement_id du parc
+  fictif -> lot6d echoue sur nom_app(lg) = None (TypeError NoneType < str).
+
+CE N'EST NI UN DEFAUT MOTEUR NI UN DEFAUT DE build_data_recette : c'est une lacune du jeu de
+recette, qui n'a pas de source de declarations internes fictive alignee sur le parc fictif.
+DEBLOCAGE : fabriquer cette source fictive (equivalent de source_sheet_copiee.csv) mappee sur
+LOG_A1/A2/B1/C1 via REF_Mapping_Logements. C'est le premier travail du prochain tour.
+REFERENCE : 41_MODULE_MENAGES_ETAT_FINAL.md section 7bis, 48_ROADMAP_RESTANTE_PROJET.md

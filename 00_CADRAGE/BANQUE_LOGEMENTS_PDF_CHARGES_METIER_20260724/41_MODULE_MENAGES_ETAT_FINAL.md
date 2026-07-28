@@ -152,13 +152,46 @@ Serveur de recette, port 8070, `RECETTE_MODE=1` + double verrou `MENAGES_CYCLE_R
 
 | Sujet | État | Raison |
 |---|---|---|
-| Pools de courses en recette | ⚠️ | Mécanisme présent dans lot6f, pools **vides** faute de charges de courses dans le jeu de recette. Distingué de « source absente » par construction. |
+| Pools de courses en recette | ⛔ **bloqué, cause identifiée** | Les charges `affectable_menage=OUI` sont désormais seedées (G1 courses 80 €, G2 consommables 40 €, G3 hors mois 25 €) et Lot3 les traite correctement. **Mais la chaîne ménages ne peut pas tourner sur le parc fictif** : `menages_chaine_service` copie les sources depuis `PROJECT_ROOT`, et la source des déclarations internes — même remplacée par le stub — porte des noms d'appartements **réels** qui ne se mappent sur aucun `logement_id` du parc fictif. lot6d échoue alors sur `nom_app(lg) → None` (`TypeError: NoneType < str`), exactement le symptôme déjà rencontré. Voir §7bis. |
 | Rattachement de charge exercé en réel | ⚠️ | `lier_charge()` testé unitairement (12 tests) ; non exercé en recette navigateur (aucune charge de recette disponible à lier lors de ce parcours). |
 | Import PDF de facture ménage → lien direct depuis la fiche ménage | ⛔ | Le rattachement facture existe (`lier_facture`) ; aucun formulaire UI ne l'expose encore (fait par script dans cette recette). |
 | Chaîne lot6 exercée avec un ménage du cycle en entrée | ⛔ | Le cycle de vie et la chaîne de comptage (lot6b→lot11) restent deux couches parallèles, non connectées par un flux de données. |
 
 Ce qui a été fait est **prouvé** (modèle, service, contrôles, routes, écrans, recette navigateur,
 persistance). Ce qui manque est cité sans arrondi.
+
+## 7bis. Pools de courses : ce qui est fait, et le blocage exact
+
+**Fait** — le jeu de recette porte désormais trois charges `affectable_menage=OUI` couvrant les cas
+demandés :
+
+| Scénario | Montant | Catégorie | Attendu |
+|---|--:|---|---|
+| `CHG_G1_COURSES` | 80,00 € | `CHG_003` | alimente le pool **COURSES** |
+| `CHG_G2_CONSO` | 40,00 € | `CHG_004` | alimente le pool **CONSOMMABLES** |
+| `CHG_G3_HORS_MOIS` | 25,00 € | `CHG_003`, avril | **exclue** des pools, comptée dans `nb_affectables` |
+
+Lot3 les traite correctement (13 lignes MASTER, 8 en VUE_MENAGE) et la réconciliation aval reste
+juste : REEL 703,90 = 558,90 + 145,00, invariant `REEL = COMPTABLE + HORS_COMPTA` vérifié
+(638,90 + 65,00). Les 19 tests de `test_charges_pipeline.py` passent.
+
+**Bloqué** — la ventilation elle-même n'est pas exercée, pour une raison structurelle :
+
+- `menages_chaine_service` copie les sources depuis `PROJECT_ROOT` puis exécute la chaîne dans un
+  workspace isolé, en remplaçant l'accès réseau par `stub_lib_sheet_source` ;
+- avec `PROJECT_ROOT` = arbre **réel**, la chaîne passe **7/7** — mais elle lit alors la SAISIE
+  réelle, qui ne contient pas mes charges fictives (et il est hors de question d'y écrire) ;
+- avec `PROJECT_ROOT` = `data_recette`, la chaîne lit bien ma SAISIE fictive, mais la source des
+  **déclarations internes** porte des noms d'appartements réels qui ne se mappent sur aucun
+  `logement_id` du parc fictif → lot6d échoue sur `nom_app(lg) → None`.
+
+**Ce n'est ni un défaut moteur ni un défaut de `build_data_recette`** : c'est une lacune du jeu de
+recette, qui n'a pas de source de déclarations internes fictive alignée sur le parc fictif.
+
+**Ce qu'il faut pour débloquer** : fabriquer une source de déclarations internes 100 % fictive
+(l'équivalent de `source_sheet_copiee.csv`) dont les noms d'appartements se mappent sur
+`LOG_A1/A2/B1/C1` via `REF_Mapping_Logements`. Le stub la consommera alors sans réseau, et la
+ventilation des pools et de REC_002 deviendra exerçable de bout en bout.
 
 ## 8. Tests ajoutés ce tour
 

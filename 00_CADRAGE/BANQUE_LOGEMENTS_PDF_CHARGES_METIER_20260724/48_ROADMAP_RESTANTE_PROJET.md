@@ -45,6 +45,11 @@ l'état, ce document pour le reste à faire.
 1. **Fermer les écarts Ménages** — pools de courses, ventilation REC_002 sur données réelles, lien
    Ménage → Charge exercé, chaîne complète Ménage → Facture → Charge → Règlement → Banque,
    contrôles inter-lots. *Critère : le module passe TERMINÉ.*
+   **Préalable identifié (2026-07-28)** : les charges de pools sont seedées et traitées par Lot3,
+   mais la ventilation reste inexerçable tant qu'il n'existe pas une **source de déclarations
+   internes fictive** alignée sur le parc fictif. Sans elle, la chaîne ménages ne tourne que sur
+   l'arbre réel (7/7, mais sans les charges fictives) ; pointée sur `data_recette`, lot6d échoue
+   sur un `logement_id` non mappé. Détail dans `41` §7bis. **C'est le premier travail à faire.**
 2. **Compléter la facturation** — lignes de facture, multi-charges/multi-logements, factures
    propriétaires émises, factures tiers, avoirs comme objet à cycle propre.
 3. **Compléter la Comptabilité** — VENTES, CAISSE, OD ; auxiliaires propriétaires et associés ;
