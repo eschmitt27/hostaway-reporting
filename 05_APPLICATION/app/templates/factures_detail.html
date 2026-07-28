@@ -59,17 +59,41 @@
     </form>
   </details>
 
+  {% if not facture.charge_id and not facture.lignes %}
   <details class="mb-sm">
-    <summary class="btn btn-ghost">Rattacher une charge</summary>
+    <summary class="btn btn-ghost">Rattacher une charge (mono-charge)</summary>
     <form method="post" action="/factures/{{ facture.facture_id_opaque }}/lier-charge" style="margin-top: var(--stack-sm);">
       <p class="section-note">
         La charge doit avoir été créée par le parcours Charges. Ce formulaire ne crée jamais de
-        charge : il enregistre le lien.
+        charge : il enregistre le lien. À utiliser quand la facture ne couvre qu'une seule charge —
+        sinon, utiliser « Ajouter une ligne » ci-dessous.
       </p>
       <label>Identifiant de charge * <input type="text" name="charge_id" required placeholder="CHG_..."></label>
       <button type="submit" class="btn btn-primary" {% if not ecriture_active %}disabled{% endif %}>Rattacher</button>
     </form>
   </details>
+  {% endif %}
+
+  {% if not facture.charge_id %}
+  <details class="mb-sm">
+    <summary class="btn btn-ghost">Ajouter une ligne (multi-charges / multi-logements)</summary>
+    <form method="post" action="/factures/{{ facture.facture_id_opaque }}/lignes" style="margin-top: var(--stack-sm);">
+      <p class="section-note">
+        Une ligne rattache une charge et, si connu, un logement, avec sa quote-part du montant de
+        la facture. Ce formulaire ne crée jamais de charge : il enregistre le lien.
+      </p>
+      <div class="detail-grid">
+        <label>Identifiant de charge * <input type="text" name="charge_id" required placeholder="CHG_..."></label>
+        <label>Logement <input type="text" name="logement_id" placeholder="LOG_..."></label>
+        <label>Montant TTC * <input type="number" step="0.01" name="montant_ttc" required></label>
+        <label>Montant HT <input type="number" step="0.01" name="montant_ht"></label>
+        <label>TVA <input type="number" step="0.01" name="montant_tva"></label>
+        <label>Commentaire <input type="text" name="commentaire"></label>
+      </div>
+      <button type="submit" class="btn btn-primary mt-sm" {% if not ecriture_active %}disabled{% endif %}>Ajouter la ligne</button>
+    </form>
+  </details>
+  {% endif %}
 
   {% if facture.solde_restant > 0.005 and facture.statut not in ['ANNULEE'] %}
   <details class="mb-sm">
@@ -89,6 +113,34 @@
       <button type="submit" class="btn btn-primary mt-sm" {% if not ecriture_active %}disabled{% endif %}>Enregistrer le règlement</button>
     </form>
   </details>
+  {% endif %}
+</div>
+
+<div class="card mb-md">
+  <div class="card-title">Lignes de facture ({{ facture.lignes|length }})</div>
+  {% if facture.lignes %}
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Charge</th><th>Logement</th><th class="num">Montant TTC</th><th>Commentaire</th></tr></thead>
+      <tbody>
+        {% for l in facture.lignes %}
+        <tr>
+          <td>{{ l.charge_id }}</td>
+          <td>{{ l.logement_id or "—" }}</td>
+          <td class="num">{{ "%.2f"|format(l.montant_ttc) }}</td>
+          <td>{{ l.commentaire or "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot><tr><th colspan="2">Total des lignes</th>
+        <th class="num">{{ "%.2f"|format(facture.montant_lignes_ttc) }}</th><th></th></tr></tfoot>
+    </table>
+  </div>
+  {% if (facture.montant_lignes_ttc - facture.montant_ttc)|abs > 0.005 %}
+  <div class="alert alert-warning mt-sm">Le total des lignes ({{ "%.2f"|format(facture.montant_lignes_ttc) }}) ne correspond pas au montant TTC de la facture ({{ "%.2f"|format(facture.montant_ttc) }}).</div>
+  {% endif %}
+  {% else %}
+  <p class="section-note">Aucune ligne. {% if facture.charge_id %}Cette facture utilise le rattachement mono-charge.{% endif %}</p>
   {% endif %}
 </div>
 

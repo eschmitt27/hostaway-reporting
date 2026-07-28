@@ -134,6 +134,86 @@ def test_une_charge_ne_peut_pas_etre_liee_a_deux_factures(db):
     assert res["ok"] is False and res["code"] == svc.E_CHARGE_DEJA_LIEE
 
 
+# ── Lignes de facture (multi-charges / multi-logements) ─────────────────────
+
+def test_ajouter_ligne(db):
+    r = svc.creer(dict(FORM), acteur="recette", db_path=db)
+    res = svc.ajouter_ligne(r["facture_id_opaque"], "CHG_001", logement_id="LOG_A1",
+                            montant_ttc=60.0, acteur="recette", db_path=db)
+    assert res["ok"], res
+    f = svc.charger(r["facture_id_opaque"], db)
+    assert len(f["lignes"]) == 1
+    assert f["lignes"][0]["charge_id"] == "CHG_001"
+    assert f["lignes"][0]["logement_id"] == "LOG_A1"
+    assert f["montant_lignes_ttc"] == 60.0
+
+
+def test_ajouter_plusieurs_lignes_multi_charges_multi_logements(db):
+    r = svc.creer(dict(FORM), acteur="recette", db_path=db)
+    svc.ajouter_ligne(r["facture_id_opaque"], "CHG_001", logement_id="LOG_A1",
+                      montant_ttc=60.0, db_path=db)
+    svc.ajouter_ligne(r["facture_id_opaque"], "CHG_002", logement_id="LOG_B1",
+                      montant_ttc=60.0, db_path=db)
+    f = svc.charger(r["facture_id_opaque"], db)
+    assert len(f["lignes"]) == 2
+    assert f["montant_lignes_ttc"] == 120.0
+
+
+def test_ligne_charge_manquante_refusee(db):
+    r = svc.creer(dict(FORM), acteur="recette", db_path=db)
+    res = svc.ajouter_ligne(r["facture_id_opaque"], "", montant_ttc=60.0, db_path=db)
+    assert res["ok"] is False and res["code"] == svc.E_LIGNE_CHARGE_MANQUANTE
+
+
+def test_ligne_montant_invalide_refuse(db):
+    r = svc.creer(dict(FORM), acteur="recette", db_path=db)
+    res = svc.ajouter_ligne(r["facture_id_opaque"], "CHG_001", montant_ttc=0, db_path=db)
+    assert res["ok"] is False and res["code"] == svc.E_LIGNE_MONTANT_INVALIDE
+
+
+def test_ligne_charge_deja_liee_a_autre_facture_refusee(db):
+    r1 = svc.creer(dict(FORM), acteur="recette", db_path=db)
+    r2 = svc.creer(dict(FORM, facture_ref="FA-2026-002"), acteur="recette", db_path=db)
+    svc.ajouter_ligne(r1["facture_id_opaque"], "CHG_001", montant_ttc=60.0, db_path=db)
+    res = svc.ajouter_ligne(r2["facture_id_opaque"], "CHG_001", montant_ttc=60.0, db_path=db)
+    assert res["ok"] is False and res["code"] == svc.E_CHARGE_DEJA_LIEE
+
+
+def test_ligne_charge_deja_liee_via_lier_charge_refusee(db):
+    """La même charge ne peut pas être à la fois en mono-charge (facture 1) et en ligne (facture 2)."""
+    r1 = svc.creer(dict(FORM), acteur="recette", db_path=db)
+    r2 = svc.creer(dict(FORM, facture_ref="FA-2026-002"), acteur="recette", db_path=db)
+    svc.lier_charge(r1["facture_id_opaque"], "CHG_001", db_path=db)
+    res = svc.ajouter_ligne(r2["facture_id_opaque"], "CHG_001", montant_ttc=60.0, db_path=db)
+    assert res["ok"] is False and res["code"] == svc.E_CHARGE_DEJA_LIEE
+
+
+def test_facture_mono_charge_refuse_ajout_ligne(db):
+    r = svc.creer(dict(FORM), acteur="recette", db_path=db)
+    svc.lier_charge(r["facture_id_opaque"], "CHG_001", db_path=db)
+    res = svc.ajouter_ligne(r["facture_id_opaque"], "CHG_002", montant_ttc=60.0, db_path=db)
+    assert res["ok"] is False and res["code"] == svc.E_LIGNE_FACTURE_MONO_CHARGE
+
+
+def test_facture_avec_lignes_refuse_lier_charge_mono(db):
+    r = svc.creer(dict(FORM), acteur="recette", db_path=db)
+    svc.ajouter_ligne(r["facture_id_opaque"], "CHG_001", montant_ttc=60.0, db_path=db)
+    res = svc.lier_charge(r["facture_id_opaque"], "CHG_002", db_path=db)
+    assert res["ok"] is False and res["code"] == svc.E_LIGNE_FACTURE_MONO_CHARGE
+
+
+def test_ajouter_ligne_refuse_si_flags_off(db, monkeypatch):
+    r = svc.creer(dict(FORM), acteur="recette", db_path=db)
+    monkeypatch.setattr(cfg, "FACTURES_REAL_WRITE_ENABLED", False)
+    res = svc.ajouter_ligne(r["facture_id_opaque"], "CHG_001", montant_ttc=60.0, db_path=db)
+    assert res["ok"] is False and res["code"] == svc.E_FLAGS
+
+
+def test_ajouter_ligne_facture_introuvable(db):
+    res = svc.ajouter_ligne("FAC-INEXISTANTE", "CHG_001", montant_ttc=60.0, db_path=db)
+    assert res["ok"] is False and res["code"] == svc.E_INTROUVABLE
+
+
 # ── Listes et soldes ──────────────────────────────────────────────────────────
 
 def test_facture_echue_detectee(db):

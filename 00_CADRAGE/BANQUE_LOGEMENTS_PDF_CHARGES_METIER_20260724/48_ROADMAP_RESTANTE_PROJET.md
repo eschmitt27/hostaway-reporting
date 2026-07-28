@@ -29,7 +29,7 @@ l'état, ce document pour le reste à faire.
 | **Ménages** | PARTIEL | `40`, `41`, `41b` — cycle PREVU→REGLE prouvé en navigateur, persistance, chaîne lot6 7/7 | pools de courses non alimentés ; ventilation REC_002 non exercée sur données ; lien Ménage→Charge non exercé en réel ; contrôles inter-lots | Charges (pools) | chaîne Ménage→Facture→Charge→Règlement→Banque prouvée bout en bout |
 | **Charges** | TERMINÉ | `24`, `27`, `39` — scénarios A→F réconciliés, REEL = COMPTABLE + HC | pools de courses à alimenter pour Ménages | — | atteint (hors pools, qui relèvent de Ménages) |
 | **Fournisseurs** | TERMINÉ | `32`, `34` — référentiel, archivage, qualification ménage (`0019`) | — | — | atteint |
-| **Factures** | PARTIEL | `33`, `34`, `42`, `44` — fournisseurs complet ; `facture_classification` (`0020`) | lignes de facture ; multi-charges / multi-logements ; factures propriétaires émises ; factures tiers ; avoirs comme objet | Comptabilité (VENTES) | les 5 types du brief portés par le modèle, avec recette |
+| **Factures** | PARTIEL | `33`, `34`, `42`, `44` — fournisseurs complet ; `facture_classification` (`0020`) ; **lignes de facture / multi-charges / multi-logements** (`facture_lignes`, `0022`, 2026-07-28) | factures propriétaires émises ; factures tiers ; avoirs comme objet | Comptabilité (VENTES) | les 5 types du brief portés par le modèle, avec recette |
 | **Règlements** | TERMINÉ | `34` — total/partiel/multiple/groupé, annulation, statuts dérivés | — | — | atteint |
 | **Banque** | TERMINÉ | `30`, `31` — import, rapprochement, suggestions, contrôles | — | — | atteint |
 | **Comptabilité** | PARTIEL | `43`, `45`, `46`, `47` — ACHATS + BANQUE, équilibre, idempotence, contrepassation, recette navigateur | VENTES, CAISSE, OD ; auxiliaires propriétaires/associés ; périodes et clôture comptable ; rapprochement comptable ; plan de comptes à arbitrer ; mappings | Facturation (VENTES) | les 5 journaux opérationnels + clôture + réconciliation |
@@ -54,7 +54,8 @@ l'état, ce document pour le reste à faire.
    entièrement fictive prouvées (détail : `JOURNAL_ANOMALIES.md`). Reste à faire : pools de
    courses, ventilation REC_002 sur données réelles, lien Ménage→Charge exercé, chaîne complète
    bout en bout.
-2. **Compléter la facturation** — lignes de facture, multi-charges/multi-logements, factures
+2. **Compléter la facturation** — lignes de facture / multi-charges / multi-logements **fait**
+   (`facture_lignes`, 2026-07-28, cf. `44`). Reste, hors périmètre décidé pour l'instant : factures
    propriétaires émises, factures tiers, avoirs comme objet à cycle propre.
 3. **Compléter la Comptabilité** — VENTES, CAISSE, OD ; auxiliaires propriétaires et associés ;
    périodes et clôture comptable ; rapprochement comptable réutilisant le moteur bancaire existant ;

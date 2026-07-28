@@ -58,6 +58,7 @@ EXPECTED_TABLES = {
     "ecritures",                            # 0021
     "ecriture_lignes",                      # 0021
     "ecriture_evenements",                  # 0021
+    "facture_lignes",                       # 0022 — lignes de facture (multi-charges/multi-logements)
 }
 
 

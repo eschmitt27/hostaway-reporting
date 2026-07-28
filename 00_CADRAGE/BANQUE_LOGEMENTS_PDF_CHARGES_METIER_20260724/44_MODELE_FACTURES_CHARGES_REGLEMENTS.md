@@ -35,6 +35,27 @@ déjà couverts**, 3 sont structurellement impossibles par construction (index u
 périmètre SQLite (créance propriétaire, portée par l'Excel). Aucun code de contrôle n'a dû être
 ajouté ce tour — l'audit a confirmé la solidité du modèle plutôt que d'y trouver des trous.
 
+## Lignes de facture — multi-charges / multi-logements (migration `0022`, 2026-07-28)
+
+Gap comblé, identifié dans `48_ROADMAP_RESTANTE_PROJET.md` : `factures.charge_id` (0017) impose
+une charge unique par facture (index unique). Ajout **additif** : table `facture_lignes`
+(`facture_id_opaque`, `charge_id`, `logement_id`, `montant_ht`/`tva`/`ttc`, `commentaire`), une ligne
+par charge, avec la même règle qu'avant — une charge n'est jamais rattachée deux fois (index unique
+sur `charge_id`).
+
+Décision explicite (utilisateur) : `charge_id` reste sur `factures` pour le cas mono-charge
+historique ; les nouvelles factures qui couvrent plusieurs charges/logements utilisent
+`facture_lignes`. Les deux mécanismes sont mutuellement exclusifs par facture (contrôlé dans
+`factures_service.ajouter_ligne` et `lier_charge`, code `E04_FACTURE_DEJA_MONO_CHARGE`).
+
+Ne change rien au reste : `facture_lignes` ne crée jamais de charge, comme `lier_charge`. Le solde
+et le montant réglé restent calculés depuis `montant_ttc` de la facture (inchangé) ; le total des
+lignes est affiché à titre informatif (alerte non bloquante si écart avec `montant_ttc`).
+
+Portée volontairement restreinte (décision utilisateur) : factures propriétaires émises et factures
+tiers restent hors périmètre de ce tour, la décision de ne pas migrer lot12 vers SQLite (ci-dessus)
+n'est pas remise en cause.
+
 ## Ce qui reste à faire, si le circuit propriétaire devait un jour entrer en SQLite
 
 Non entrepris ce tour, noté pour mémoire : il faudrait un objet `facture_id_opaque` de type

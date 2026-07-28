@@ -40,7 +40,7 @@ copies · (8) validation humaine · (9) activation progressive du mode réel.
 |---|---|---|
 | Logements | **TERMINÉ** | `28`, `29` |
 | Banque (import, rapprochement, suggestions, contrôles) | **TERMINÉ** | `30`, `31` |
-| Fournisseurs / Factures / Règlements | **TERMINÉ** | `32`, `33`, `34` |
+| Fournisseurs / Factures / Règlements | **TERMINÉ** (circuit fournisseur ; lignes multi-charges/multi-logements ajoutées `0022`) | `32`, `33`, `34`, `44` |
 | Pilotage des calculs & clôture | **TERMINÉ** — chaîne aval complète `lot4quater → lot13` | `35`, `36`, `37`, `38` |
 | Charges | **chaîne exercée depuis `/calculs`**, scénarios A→F réconciliés | `27`, `39` |
 | Ménages | **PARTIEL** — chaîne 7/7 verte, cycle de vie construit et prouvé en recette navigateur (persistance incluse) ; `ANO-2026-07-28-01` (données réelles en dur lot6b/lot6c) **corrigée** ; pools de courses et rattachement charge encore non exercés en recette (gap distinct : appartements fictifs à aligner sur le parc) | `40`, `41`, `41b`, `JOURNAL_ANOMALIES.md` |
@@ -137,7 +137,34 @@ tous écarts à 0,00. Détail dans `38_LOT13_CONTRAT_EXPORT_POWERBI.md`.
 | | |
 |---|---|
 | Modules terminés | Logements, Banque, Fournisseurs-Factures-Règlements, Pilotage des calculs (chaîne aval complète), Charges exercée |
-| Module actif | *(prochain tour : compléter Factures fournisseurs / Charges / Règlements / liaison Facture → Charge → Dette → Paiement → Banque — audit déjà fait, doc `42`/`44` ; ne pas comptabilité générale/analytique)* |
+| Module actif | *(prochain tour : factures propriétaires émises / factures tiers / avoir comme objet, si un besoin réel se présente — décision explicite de ne pas les construire ce tour ; sinon, Comptabilité VENTES/CAISSE/OD)* |
+
+## ✅ Mission 5 de ce tour — Factures : lignes de facture, multi-charges / multi-logements (migration `0022`)
+
+Gap du roadmap `48` : `factures.charge_id` (0017) impose une charge unique par facture (index
+unique) — aucune facture ne pouvait couvrir plusieurs charges ou plusieurs logements. Décision
+utilisateur explicite (choix recommandé) : ajout **additif**, `charge_id` reste pour le cas
+mono-charge historique, nouvelle table `facture_lignes` pour le cas multi-charges/multi-logements.
+Décision utilisateur explicite n°2 : ne pas construire factures propriétaires émises / factures
+tiers / avoir-objet ce tour — la décision `44` de ne pas migrer lot12 vers SQLite n'est pas remise
+en cause.
+
+Ajouté : migration `0022_facture_lignes.sql` (table + index unique sur `charge_id`, même règle
+qu'avant : une charge n'est jamais rattachée deux fois) ; `factures_service.ajouter_ligne()` /
+`lignes()` ; les deux mécanismes (mono-charge / lignes) sont mutuellement exclusifs par facture,
+contrôlé dans les deux sens (`lier_charge` refuse si des lignes existent déjà, `ajouter_ligne`
+refuse si `charge_id` est déjà posé) — code `E04_FACTURE_DEJA_MONO_CHARGE`. Route
+`POST /factures/{opaque}/lignes` et UI (carte « Lignes de facture », formulaire d'ajout,
+alerte non bloquante si le total des lignes diverge du montant TTC).
+
+18 tests ajoutés (`test_factures.py` : 10 service ; `test_factures_routes.py` : 1 HTTP ; correction
+de `test_sqlite_migrations.py` pour inclure `facture_lignes` dans les tables attendues).
+
+**Suite complète rejouée intégralement après ce changement** (4 tranches, par sous-lots de fichiers
+pour éviter les coupures de l'environnement d'exécution en tâche de fond) : tous les tests passent,
+seul le même échec pré-existant documenté (`test_appsec1_diagnostic`) subsiste. Aucune régression.
+
+Détail : `44_MODELE_FACTURES_CHARGES_REGLEMENTS.md`, `48_ROADMAP_RESTANTE_PROJET.md`.
 
 ## ✅ Mission 4 de ce tour — `ANO-2026-07-28-01` corrigée : plus de données réelles en dur dans lot6b/lot6c
 

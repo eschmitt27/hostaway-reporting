@@ -120,6 +120,16 @@ def test_lier_charge_via_http(client, env):
     assert "CHG_WEB_1" in html
 
 
+def test_ajouter_ligne_via_http(client, env):
+    fid = _creer_facture(env, ttc=120.0)
+    r = client.post(f"/factures/{fid}/lignes",
+                    data={"charge_id": "CHG_WEB_L1", "logement_id": "LOG_A1", "montant_ttc": "60.0"},
+                    follow_redirects=False)
+    html = client.get(r.headers["location"]).text
+    assert "Ligne ajoutée" in html
+    assert "CHG_WEB_L1" in html and "LOG_A1" in html
+
+
 # ── Règlement depuis la fiche ────────────────────────────────────────────────
 
 def test_reglement_partiel_puis_solde_via_http(client, env):

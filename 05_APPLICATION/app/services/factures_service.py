@@ -44,6 +44,9 @@ E_DATE_INCOHERENTE = "V07_ECHEANCE_ANTERIEURE_FACTURE"
 E_INTROUVABLE = "E01_FACTURE_INTROUVABLE"
 E_STATUT = "E02_TRANSITION_INTERDITE"
 E_CHARGE_DEJA_LIEE = "E03_CHARGE_DEJA_LIEE"
+E_LIGNE_CHARGE_MANQUANTE = "V08_LIGNE_CHARGE_MANQUANTE"
+E_LIGNE_MONTANT_INVALIDE = "V09_LIGNE_MONTANT_INVALIDE"
+E_LIGNE_FACTURE_MONO_CHARGE = "E04_FACTURE_DEJA_MONO_CHARGE"
 
 MESSAGES = {
     E_FLAGS: "Écriture désactivée sur cette installation : l'enregistrement est impossible.",
@@ -57,6 +60,10 @@ MESSAGES = {
     E_INTROUVABLE: "Facture introuvable.",
     E_STATUT: "Transition de statut interdite.",
     E_CHARGE_DEJA_LIEE: "Cette charge est déjà rattachée à une autre facture.",
+    E_LIGNE_CHARGE_MANQUANTE: "La charge est obligatoire pour ajouter une ligne.",
+    E_LIGNE_MONTANT_INVALIDE: "Le montant TTC de la ligne doit être un nombre différent de zéro.",
+    E_LIGNE_FACTURE_MONO_CHARGE: "Cette facture porte déjà une charge unique (charge_id) : "
+                                  "utiliser soit charge_id, soit des lignes, jamais les deux.",
 }
 
 # Transitions autorisées. Une facture VALIDEE n'est jamais supprimée : elle est ANNULEE (tracée).
@@ -236,6 +243,8 @@ def charger(opaque: str, db_path=None) -> dict[str, Any] | None:
         return None
     f = dict(row)
     f.update(solde(opaque, db_path))
+    f["lignes"] = lignes(opaque, db_path)
+    f["montant_lignes_ttc"] = round(sum(l["montant_ttc"] for l in f["lignes"]), 2)
     return f
 
 
@@ -313,11 +322,14 @@ def lier_charge(opaque: str, charge_id: str, *, acteur: str = "", db_path=None) 
     charge_id = _txt(charge_id)
     conn = get_db(db_path)
     try:
+        if conn.execute("SELECT 1 FROM factures WHERE facture_id_opaque=?", (opaque,)).fetchone() is None:
+            return _refus(E_INTROUVABLE, opaque)
+        if conn.execute("SELECT 1 FROM facture_lignes WHERE facture_id_opaque=?",
+                        (opaque,)).fetchone():
+            return _refus(E_LIGNE_FACTURE_MONO_CHARGE, opaque)
         if conn.execute("SELECT 1 FROM factures WHERE charge_id=? AND facture_id_opaque<>? "
                         "AND statut <> ?", (charge_id, opaque, ST_ANNULEE)).fetchone():
             return _refus(E_CHARGE_DEJA_LIEE, charge_id)
-        if conn.execute("SELECT 1 FROM factures WHERE facture_id_opaque=?", (opaque,)).fetchone() is None:
-            return _refus(E_INTROUVABLE, opaque)
         conn.execute("UPDATE factures SET charge_id=?, date_modification=?, version=version+1 "
                      "WHERE facture_id_opaque=?", (charge_id, _now(), opaque))
         _evenement(conn, opaque, "CHARGE_LIEE", None, None, f"charge {charge_id}", acteur)
@@ -325,6 +337,65 @@ def lier_charge(opaque: str, charge_id: str, *, acteur: str = "", db_path=None) 
     finally:
         conn.close()
     return {"ok": True, "facture_id_opaque": opaque, "charge_id": charge_id}
+
+
+def lignes(opaque: str, db_path=None) -> list[dict[str, Any]]:
+    conn = get_db(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT * FROM facture_lignes WHERE facture_id_opaque=? ORDER BY id",
+            (opaque,)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def ajouter_ligne(opaque: str, charge_id: str, *, logement_id: str = "",
+                  montant_ttc: Any = None, montant_ht: Any = None, montant_tva: Any = None,
+                  commentaire: str = "", acteur: str = "", db_path=None) -> dict[str, Any]:
+    """Ajoute une ligne de facture rattachant UNE charge (et, si connu, un logement) à une facture
+    existante. Permet le cas multi-charges/multi-logements sans toucher au cas mono-charge
+    historique (`factures.charge_id`) : une facture utilise l'un OU l'autre mécanisme, jamais les
+    deux. Ne crée jamais la charge elle-même (même garde-fou que `lier_charge`)."""
+    if not _flags_actifs():
+        return _refus(E_FLAGS)
+    charge_id = _txt(charge_id)
+    if not charge_id:
+        return _refus(E_LIGNE_CHARGE_MANQUANTE)
+    ttc = _nombre(montant_ttc)
+    if ttc is None or ttc == 0:
+        return _refus(E_LIGNE_MONTANT_INVALIDE)
+    conn = get_db(db_path)
+    try:
+        f = conn.execute("SELECT charge_id FROM factures WHERE facture_id_opaque=?",
+                         (opaque,)).fetchone()
+        if f is None:
+            return _refus(E_INTROUVABLE, opaque)
+        if f["charge_id"]:
+            return _refus(E_LIGNE_FACTURE_MONO_CHARGE, opaque)
+        if conn.execute("SELECT 1 FROM factures WHERE charge_id=? AND statut <> ?",
+                        (charge_id, ST_ANNULEE)).fetchone():
+            return _refus(E_CHARGE_DEJA_LIEE, charge_id)
+        if conn.execute(
+                "SELECT 1 FROM facture_lignes fl "
+                "JOIN factures fc ON fc.facture_id_opaque = fl.facture_id_opaque "
+                "WHERE fl.charge_id=? AND fc.statut <> ?", (charge_id, ST_ANNULEE)).fetchone():
+            return _refus(E_CHARGE_DEJA_LIEE, charge_id)
+        ligne_id = "FACL-" + uuid.uuid4().hex[:12].upper()
+        conn.execute(
+            "INSERT INTO facture_lignes (ligne_id_opaque, facture_id_opaque, charge_id, "
+            "logement_id, montant_ht, montant_tva, montant_ttc, commentaire, acteur) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (ligne_id, opaque, charge_id, _txt(logement_id) or None,
+             _nombre(montant_ht), _nombre(montant_tva), ttc,
+             _txt(commentaire) or None, acteur or "local"))
+        _evenement(conn, opaque, "LIGNE_AJOUTEE", None, None,
+                  f"ligne {ligne_id} charge {charge_id}", acteur)
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "facture_id_opaque": opaque, "ligne_id_opaque": ligne_id,
+            "charge_id": charge_id}
 
 
 def historique(opaque: str, db_path=None) -> list[dict[str, Any]]:

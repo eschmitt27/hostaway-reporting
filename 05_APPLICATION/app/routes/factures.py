@@ -186,6 +186,20 @@ async def facture_lier_charge(request: Request, opaque: str):
     return RedirectResponse(url=f"/factures/{opaque}?{msg}", status_code=303)
 
 
+@router.post("/factures/{opaque}/lignes")
+async def facture_ajouter_ligne(request: Request, opaque: str):
+    form = await request.form()
+    res = svc.ajouter_ligne(
+        opaque, str(form.get("charge_id", "") or ""),
+        logement_id=str(form.get("logement_id", "") or ""),
+        montant_ttc=form.get("montant_ttc"), montant_ht=form.get("montant_ht"),
+        montant_tva=form.get("montant_tva"),
+        commentaire=str(form.get("commentaire", "") or ""),
+        acteur=str(form.get("acteur", "") or "local"))
+    msg = "message=Ligne ajoutée." if res.get("ok") else f"erreur={res.get('message')}"
+    return RedirectResponse(url=f"/factures/{opaque}?{msg}", status_code=303)
+
+
 @router.post("/factures/{opaque}/reglement")
 async def facture_reglement(request: Request, opaque: str):
     form = await request.form()
