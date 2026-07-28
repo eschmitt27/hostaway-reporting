@@ -188,10 +188,43 @@ juste : REEL 703,90 = 558,90 + 145,00, invariant `REEL = COMPTABLE + HORS_COMPTA
 **Ce n'est ni un défaut moteur ni un défaut de `build_data_recette`** : c'est une lacune du jeu de
 recette, qui n'a pas de source de déclarations internes fictive alignée sur le parc fictif.
 
-**Ce qu'il faut pour débloquer** : fabriquer une source de déclarations internes 100 % fictive
-(l'équivalent de `source_sheet_copiee.csv`) dont les noms d'appartements se mappent sur
-`LOG_A1/A2/B1/C1` via `REF_Mapping_Logements`. Le stub la consommera alors sans réseau, et la
-ventilation des pools et de REC_002 deviendra exerçable de bout en bout.
+**Tentative de déblocage et second obstacle trouvé.** Fabriquer la source fictive supposait deux
+mappings :
+
+1. **Logements** — `lmap` se construit depuis `REF_Mapping_Logements.valeur_source`. Le REF fictif
+   ne contient aujourd'hui que des lignes `listingMapId` (900001…), pas de lignes portant un **nom
+   d'appartement**. Ajoutable sans difficulté.
+2. **Intervenants** — bloquant. `lot6b_m04_menages_internes.py` porte un mapping **codé en dur dans
+   le source du moteur** :
+
+   ```python
+   INTMAP = {"imene": ("INT_0001","Imène"), "kira": ("INT_0002","Kheira"), "kheira": (...)}
+   ```
+
+   Un prénom fictif donnerait `intervenant_id = None`. Or lot6d agrège aussi **par intervenant**
+   (`res_int`), avec le même `sorted()` que pour les appartements : on retomberait exactement sur le
+   `TypeError: NoneType < str`, en ayant seulement déplacé le problème.
+
+   Utiliser les prénoms réels pour contourner **réinjecterait de la PII réelle dans le jeu de
+   recette** — précisément le défaut corrigé au tour précédent (`ANO-2026-07-27-01`). Écarté.
+
+C'est le **même motif que `lot6c`**, qui porte lui aussi des données réelles en dur (références de
+factures `FAC-2026-05-AISSATA-001`, noms de prestataires). Deux moteurs de la chaîne ménages
+embarquent des données réelles dans leur code source.
+
+**Décision : ne pas bricoler.** Trois issues possibles, toutes des décisions à prendre :
+
+- **A** — externaliser `INTMAP` (et les données en dur de `lot6c`) vers `REF_Intervenants` /
+  `REF_Setup`, ce qui rendrait les moteurs pilotables par référentiel. Modification de moteur, à
+  arbitrer.
+- **B** — accepter que la chaîne ménages ne soit exerçable que sur l'arbre **réel** (en copies,
+  7/7 OK, `reel_intact=True`), et renoncer à l'exercer sur données fictives. La ventilation des
+  pools serait alors validée sur données réelles en lecture seule, jamais en recette isolée.
+- **C** — enrichir le jeu de recette d'intervenants dont les identifiants correspondent aux clés
+  d'`INTMAP` **sans en reprendre les prénoms réels** — impossible en l'état, `INTMAP` est indexé
+  par prénom normalisé, pas par identifiant.
+
+Tant que ce n'est pas tranché, la ventilation des pools et de REC_002 reste non exercée.
 
 ## 8. Tests ajoutés ce tour
 

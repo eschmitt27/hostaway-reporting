@@ -313,18 +313,23 @@ sûr que de leur ouvrir un chemin d'activation. Les deux catégories sont désor
 
 ## Prochaine action précise
 
-1. **Cycle de vie opérationnel Ménages** — le gros du travail restant, dans cet ordre :
-   modèle SQLite du ménage unitaire + statuts (auditer d'abord les statuts réellement utilisés,
-   ne pas créer une seconde norme) → qualification prestataires **sur le référentiel Fournisseurs**
-   (jamais une table concurrente) → services → écrans et rattachements facture/charge/règlement/
-   banque → catalogue de contrôles sur le modèle de `/factures/controles` → jeu de recette →
-   recette navigateur → pipeline.
-2. **Alimenter les pools de courses** du jeu de recette, pour exercer réellement la quote-part
-   (mécanisme présent dans lot6f, pools vides aujourd'hui). Garder distinguables : pool vide valide,
-   source absente, source illisible, courses non ventilées.
-3. Le **mode réel** reste à activer sur décision explicite (`CALCULS_REAL_RUN_ENABLED`,
-   `MENAGES_REAL_RECALC_ENABLED`) — garde-fous en place, jamais activés.
-5. Non construit, signalé : « charge postérieure à une clôture validée » n'est interdit par aucun
+**⛔ Un arbitrage bloque le premier point de la roadmap.**
+
+1. **TRANCHER : données réelles en dur dans les moteurs ménages.** `lot6b.INTMAP` (prénoms
+   d'intervenantes) et `lot6c` (références de factures, noms de prestataires) sont codés dans le
+   source. Conséquence : **aucun jeu de recette fictif ne peut traverser la chaîne ménages** — un
+   prénom fictif donne `intervenant_id = None` et lot6d échoue sur `TypeError: NoneType < str`,
+   et utiliser les vrais prénoms réinjecterait de la PII en recette (défaut déjà corrigé,
+   `ANO-2026-07-27-01`). Trois issues dans `41` §7bis :
+   **A** externaliser vers les référentiels (modification de moteur) ·
+   **B** n'exercer la chaîne que sur l'arbre réel en copies (aujourd'hui 7/7, `reel_intact=True`) ·
+   **C** impossible en l'état (`INTMAP` est indexé par prénom, pas par identifiant).
+   Tant que ce n'est pas tranché : pools de courses, ventilation REC_002 et chaîne Ménage complète
+   restent non exerçables.
+2. **Puis** le reste de la roadmap `48` : compléter la facturation → compléter la Comptabilité
+   (VENTES/CAISSE/OD, auxiliaires, périodes, clôture) → analytique → Résultats → réconciliations.
+3. Le **mode réel** reste à activer sur décision explicite — garde-fous en place, jamais activés.
+4. Non construit, signalé : « charge postérieure à une clôture validée » n'est interdit par aucun
    mécanisme applicatif.
 
 ## Commandes exactes de reprise

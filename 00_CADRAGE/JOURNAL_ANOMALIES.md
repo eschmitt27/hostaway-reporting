@@ -303,3 +303,37 @@ hostaway_stub, lot6b, lot6c, lot6d, lot6e, lot6f, lot11 tous OK, statut SUCCES, 
 LECON : un lot qui atteint le reseau ou des sources hors racine ne doit jamais etre expose a une
 execution directe. Le pilotage doit passer par l'orchestrateur qui porte les garde-fous — meme
 lecon que lot3, sur un risque plus grave.
+
+
+## ANO-2026-07-28-01 — Donnees reelles codees en dur dans les moteurs menages
+
+GRAVITE : MOYENNE (confidentialite + testabilite).
+STATUT : OUVERTE — arbitrage requis.
+
+CONSTAT : deux moteurs de la chaine menages embarquent des donnees reelles dans leur CODE SOURCE,
+versionne :
+- lot6b_m04_menages_internes.py ligne 37 :
+    INTMAP = {"imene": ("INT_0001","Imene"), "kira": ("INT_0002","Kheira"), ...}
+  prenoms reels d'intervenantes, servant de cle de mapping ;
+- lot6c_menages_externes.py lignes 4-5 et 120+ : references de factures reelles
+  (FAC-2026-05-AISSATA-001), noms de prestataires (Kandia DIABATE, MH Entreprise), montants.
+
+CONSEQUENCE 1 (confidentialite) : ces donnees sortent du perimetre des sources et vivent dans le
+depot. Elles ne transitent pas par data_recette, mais elles sont dans le code.
+
+CONSEQUENCE 2 (testabilite) : AUCUN jeu de recette fictif ne peut traverser la chaine menages.
+INTMAP etant indexe par prenom normalise, un intervenant fictif donne intervenant_id = None, et
+lot6d echoue sur sorted() -> TypeError: '<' not supported between NoneType and str. Utiliser les
+vrais prenoms pour contourner reinjecterait de la PII en recette : ecarte (cf. ANO-2026-07-27-01).
+
+IMPACT : pools de courses, ventilation REC_002 et chaine Menage complete restent non exercables
+sur donnees fictives. La chaine reste exercable sur l'arbre REEL en copies (7/7, reel_intact=True).
+
+ISSUES POSSIBLES (a arbitrer, aucune engagee) :
+A. Externaliser INTMAP et les donnees de lot6c vers REF_Intervenants / REF_Setup. Rend les moteurs
+   pilotables par referentiel et la recette fictive possible. Modification de moteur.
+B. Accepter que la chaine ne soit exercable que sur l'arbre reel, en copies et en lecture seule.
+C. Enrichir le jeu de recette d'intervenants correspondant aux cles d'INTMAP sans reprendre les
+   prenoms reels : IMPOSSIBLE en l'etat, INTMAP est indexe par prenom.
+
+AUCUNE MODIFICATION DE MOTEUR N'A ETE FAITE. Detail : 41_MODULE_MENAGES_ETAT_FINAL.md section 7bis.

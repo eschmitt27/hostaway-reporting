@@ -45,11 +45,15 @@ l'état, ce document pour le reste à faire.
 1. **Fermer les écarts Ménages** — pools de courses, ventilation REC_002 sur données réelles, lien
    Ménage → Charge exercé, chaîne complète Ménage → Facture → Charge → Règlement → Banque,
    contrôles inter-lots. *Critère : le module passe TERMINÉ.*
-   **Préalable identifié (2026-07-28)** : les charges de pools sont seedées et traitées par Lot3,
-   mais la ventilation reste inexerçable tant qu'il n'existe pas une **source de déclarations
-   internes fictive** alignée sur le parc fictif. Sans elle, la chaîne ménages ne tourne que sur
-   l'arbre réel (7/7, mais sans les charges fictives) ; pointée sur `data_recette`, lot6d échoue
-   sur un `logement_id` non mappé. Détail dans `41` §7bis. **C'est le premier travail à faire.**
+   **Préalable identifié (2026-07-28), qui demande un ARBITRAGE** : les charges de pools sont
+   seedées et traitées par Lot3, mais la ventilation reste inexerçable. Deux moteurs de la chaîne
+   ménages embarquent des **données réelles en dur dans leur code source** :
+   `lot6b.INTMAP` (prénoms d'intervenantes) et `lot6c` (références de factures, noms de
+   prestataires). Un jeu fictif ne peut donc pas traverser la chaîne : soit `intervenant_id` est
+   nul et lot6d échoue, soit il faut réinjecter de la PII réelle en recette — écarté.
+   Trois issues, détaillées dans `41` §7bis : **A** externaliser ces données vers les référentiels
+   (modification de moteur) · **B** n'exercer la chaîne que sur l'arbre réel en copies · **C**
+   impossible en l'état. **Arbitrage requis avant tout autre travail Ménages.**
 2. **Compléter la facturation** — lignes de facture, multi-charges/multi-logements, factures
    propriétaires émises, factures tiers, avoirs comme objet à cycle propre.
 3. **Compléter la Comptabilité** — VENTES, CAISSE, OD ; auxiliaires propriétaires et associés ;
@@ -72,6 +76,7 @@ l'état, ce document pour le reste à faire.
 | Ventilation analytique d'une facture multi-logements | aucune règle documentée ; ne pas improviser (`47`) | Analytique |
 | Circuit propriétaire en SQLite | décision actuelle : **ne pas** migrer lot12 (`44`) ; à réviser si la facture propriétaire émise devient un objet applicatif | Facturation propriétaire, journal VENTES |
 | Charge postérieure à une clôture validée | aucun mécanisme applicatif ne l'interdit | Clôture comptable |
+| **Données réelles en dur dans les moteurs ménages** | `lot6b.INTMAP` (prénoms d'intervenantes) et `lot6c` (références de factures, noms de prestataires) sont codés dans le source. Empêche tout jeu de recette fictif de traverser la chaîne. Issues A/B/C dans `41` §7bis | **Ménages entier** — pools, REC_002, chaîne complète |
 
 ## Anomalies ouvertes
 
