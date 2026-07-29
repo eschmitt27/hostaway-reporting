@@ -16,7 +16,7 @@
 </div>
 
 {% if solde %}
-<div class="card">
+<div class="card mb-md">
   <div class="kpi-grid">
     <div class="kpi-card"><div class="kpi-label">Débit</div><div class="kpi-value">{{ "%.2f"|format(solde.debit) }}</div></div>
     <div class="kpi-card"><div class="kpi-label">Crédit</div><div class="kpi-value">{{ "%.2f"|format(solde.credit) }}</div></div>
@@ -24,4 +24,27 @@
   </div>
 </div>
 {% endif %}
+
+{% for famille, lignes in synthese.items() %}
+<div class="card mb-md">
+  <div class="card-title">{{ famille }} ({{ lignes|length }})</div>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Auxiliaire</th><th class="num">Débit</th><th class="num">Crédit</th><th class="num">Solde</th></tr></thead>
+      <tbody>
+        {% for l in lignes %}
+        <tr>
+          <td><a href="/comptabilite/auxiliaires/{{ l.auxiliaire }}?famille={{ famille }}">{{ l.auxiliaire }}</a></td>
+          <td class="num">{{ "%.2f"|format(l.debit) }}</td>
+          <td class="num">{{ "%.2f"|format(l.credit) }}</td>
+          <td class="num">{{ "%.2f"|format(l.solde) }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4">Aucun mouvement.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endfor %}
 {% endblock %}

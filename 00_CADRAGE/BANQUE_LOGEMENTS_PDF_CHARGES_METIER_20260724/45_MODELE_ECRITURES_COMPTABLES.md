@@ -54,14 +54,38 @@ absence. Seule `PROPOSEE` (jamais validée) reste exclue. Preuve : `test_contrep
 - **Double verrou** : `test_generer_refuse_sans_flags`, flag `COMPTABILITE_REAL_WRITE_*` figé par
   `test_flags_inventaire.py` (32 tests, catégorie « double verrou »).
 
+## Suite (2026-07-29) — cœur Comptabilité complet : VENTES, CAISSE, OD, périodes, clôture
+
+Détail complet dans `49_COEUR_COMPTABILITE_ETAT_FINAL.md`. Résumé des ajouts (migration `0023`) :
+
+- **VENTES** : adaptateur `ventes_lot12_adapter_service.py`, lit `montant_du_conciergerie` déjà
+  calculé par Lot12 (jamais recalculé), génère une écriture par propriétaire/mois, marquée
+  `SOURCE_PROVISOIRE_LOT12` partout où elle apparaît. Ce n'est PAS une facture propriétaire émise
+  comme objet applicatif (décision explicite, hors périmètre).
+- **CAISSE** : `generer_ecriture_caisse_reglement` (règlement fournisseur moyen=CAISSE, source déjà
+  réelle) + `operations_caisse_service.py` (encaissement, remboursement associé — objet neuf, aucune
+  source préexistante pour ces cas).
+- **ODIVERSES** : `operations_diverses_service.py` — objet BROUILLON avec ses propres lignes
+  équilibrées (`od_lignes`), ne devient écriture qu'après validation explicite.
+- **Périodes comptables** (`comptabilite_periodes_service.py`) : `OUVERTE → EN_CONTROLE → VALIDEE →
+  CLOTUREE → ROUVERTE`, distinctes de la clôture applicative du pilotage des calculs (`0008`). Une
+  période `CLOTUREE` fait refuser toute nouvelle écriture par `_inserer_ecriture` (code
+  `E_PERIODE_CLOTUREE`) — vérifié y compris par contournement SQL direct dans les tests.
+- **Contrôles comptables** (`comptabilite_controles_service.py`) : catalogue de 15 codes, utilisé
+  comme garde de clôture (`cloturer()` refuse si un `BLOQUANT` subsiste).
+- **Auxiliaires** (`comptabilite_auxiliaires_service.py`) : vue consolidée fournisseurs/
+  propriétaires/associés, solde + éléments ouverts, aucun second calcul de solde.
+- Preuve : parcours complet ACHATS→BANQUE→VENTES→CAISSE→OD→contrepassation→période→clôture→
+  écriture refusée→réouverture, via les routes HTTP réelles (`test_comptabilite_coeur_recette.py`),
+  plus une passe navigateur réel sur les écrans CAISSE/OD/Périodes/Auxiliaires/VENTES.
+
 ## Ce qui n'est pas fait
 
 | Sujet | État |
 |---|---|
-| Journal VENTES/CAISSE/ODIVERSES | ⛔ déclarés, non générés |
-| Mapping catégorie de charge → compte fin | ⛔ `606000` générique par défaut, non arbitré |
-| Dimensions analytiques exploitées | ⚠️ colonnes présentes sur chaque ligne, aucun tableau de bord |
+| Mapping catégorie de charge → compte fin | ⚠️ table `mapping_categorie_compte` créée (statut `A_CONTROLER`), **pas encore reliée** à la résolution du compte dans `generer_ecriture_achat` (nécessiterait de lire la catégorie de charge depuis l'Excel `SAISIE_Charges_Flux` au moment de la génération — non traité, gap honnêtement documenté) |
+| Dimensions analytiques exploitées | ⚠️ colonnes présentes sur chaque ligne, aucun tableau de bord — hors périmètre explicite |
 | Écrans Résultats | ⛔ hors périmètre de cette mission |
-| Clôture comptable | ⛔ distincte de la clôture applicative du pilotage des calculs, non construite |
-| Contrôle TVA | ⛔ non construit |
-| Circuit propriétaire en écritures | ⛔ dépend de la décision `44` de ne pas migrer lot12 vers SQLite |
+| Contrôle TVA | ⛔ non construit — signalé en INFO permanent par le contrôle `CTRL_CPT_TVA_NON_ARBITREE` |
+| Circuit propriétaire en écritures | ⚠️ VENTES généré via adaptateur Lot12 (lecture seule) ; facture propriétaire comme objet applicatif reste hors périmètre (décision `44`) |
+| Ventilation pools de courses en recette | ⛔ gap distinct, cf. `41` §7bis — indépendant de ce tour |

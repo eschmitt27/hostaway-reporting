@@ -26,8 +26,12 @@ ST_CONTREPASSEE = "CONTREPASSEE"
 STATUTS = (ST_PROPOSEE, ST_VALIDEE, ST_CONTREPASSEE)
 
 COMPTE_FOURNISSEURS = "401000"
+COMPTE_PROPRIETAIRES = "411000"
 COMPTE_BANQUE = "512000"
+COMPTE_CAISSE = "530000"
+COMPTE_ASSOCIES = "467000"
 COMPTE_ACHAT_GENERIQUE = "606000"
+COMPTE_VENTE_GENERIQUE = "706000"
 
 E_FLAGS = "E_FLAGS_DESACTIVES"
 E_INTROUVABLE = "E_ECRITURE_INTROUVABLE"
@@ -36,6 +40,7 @@ E_DESEQUILIBRE = "E_ECRITURE_DESEQUILIBREE"
 E_COMPTE_INCONNU = "E_COMPTE_INCONNU"
 E_ORIGINE_INVALIDE = "E_ORIGINE_INVALIDE"
 E_STATUT = "E_TRANSITION_INTERDITE"
+E_PERIODE_CLOTUREE = "E_PERIODE_CLOTUREE"
 
 MESSAGES = {
     E_FLAGS: "Écriture comptable désactivée sur cette installation.",
@@ -45,6 +50,7 @@ MESSAGES = {
     E_COMPTE_INCONNU: "Compte inconnu ou inactif dans le plan comptable.",
     E_ORIGINE_INVALIDE: "Origine de l'écriture invalide pour ce journal.",
     E_STATUT: "Transition de statut interdite.",
+    E_PERIODE_CLOTUREE: "Cette période comptable est clôturée : aucune écriture directe n'est autorisée.",
 }
 
 
@@ -99,6 +105,10 @@ def _inserer_ecriture(journal: str, date_ecriture: str, periode: str, piece: str
     total_credit = round(sum(l.get("credit", 0) or 0 for l in lignes), 2)
     if total_debit != total_credit or total_debit == 0:
         return _refus(E_DESEQUILIBRE, f"débit={total_debit} crédit={total_credit}")
+
+    from app.services import comptabilite_periodes_service as per
+    if per.est_fermee(periode, db_path):
+        return _refus(E_PERIODE_CLOTUREE, periode)
 
     for l in lignes:
         if _compte_valide(l["compte"], db_path) is None:
@@ -218,6 +228,125 @@ def generer_ecriture_avoir(facture_avoir_id_opaque: str, ecriture_origine_id_opa
         origine["journal"], _now()[:10], _now()[:7], facture_avoir_id_opaque,
         f"Avoir sur {origine['piece']}", "AVOIR", facture_avoir_id_opaque, lignes_inversees,
         acteur=acteur, db_path=db_path)
+
+
+def generer_ecriture_vente(proprietaire_id: str, mois: str, montant_du_conciergerie: float, *,
+                           nom_proprietaire: str = "", acteur: str = "",
+                           db_path=None) -> dict[str, Any]:
+    """Génère l'écriture VENTES d'un propriétaire pour un mois, depuis le montant déjà calculé par
+    Lot12 (`montant_du_conciergerie`, jamais recalculé ici — cf. cadrage §4). Origine
+    `LOT12_PROPRIETAIRE_MOIS` : adaptateur explicite, Lot12 reste l'unique moteur de calcul.
+
+    411 (Propriétaires, débit — créance conciergerie) / 706 (Ventes, crédit) si le montant est
+    positif ; sens inversé si négatif (conciergerie redevable au propriétaire ce mois-ci). Montant
+    nul : aucune écriture (rien à constater).
+    """
+    if not _flags_actifs():
+        return _refus(E_FLAGS)
+    montant = round(montant_du_conciergerie or 0, 2)
+    if montant == 0:
+        return _refus(E_ORIGINE_INVALIDE, "montant_du_conciergerie nul — rien à générer")
+    origine_id = f"{proprietaire_id}:{mois}"
+    libelle = f"Prestations {nom_proprietaire or proprietaire_id} — {mois} (SOURCE_PROVISOIRE_LOT12)"
+    if montant > 0:
+        lignes = [
+            {"compte": COMPTE_PROPRIETAIRES, "debit": montant, "credit": 0,
+             "auxiliaire": proprietaire_id, "libelle": libelle},
+            {"compte": COMPTE_VENTE_GENERIQUE, "debit": 0, "credit": montant, "libelle": libelle},
+        ]
+    else:
+        m = abs(montant)
+        lignes = [
+            {"compte": COMPTE_VENTE_GENERIQUE, "debit": m, "credit": 0, "libelle": libelle},
+            {"compte": COMPTE_PROPRIETAIRES, "debit": 0, "credit": m,
+             "auxiliaire": proprietaire_id, "libelle": libelle},
+        ]
+    return _inserer_ecriture(
+        "VENTES", f"{mois}-01", mois, origine_id, libelle, "LOT12_PROPRIETAIRE_MOIS", origine_id,
+        lignes, acteur=acteur, db_path=db_path)
+
+
+def generer_ecriture_caisse_reglement(reglement_id_opaque: str, *, acteur: str = "",
+                                      db_path=None) -> dict[str, Any]:
+    """Génère l'écriture CAISSE d'un règlement fournisseur payé en espèces (moyen=CAISSE) — même
+    source déjà réelle que le journal ACHATS, jamais un second moteur de règlement."""
+    if not _flags_actifs():
+        return _refus(E_FLAGS)
+    from app.services import reglements_fournisseurs_service as regl
+    r = regl.charger(reglement_id_opaque, db_path)
+    if r is None or r["moyen"] != "CAISSE" or r["statut"] == regl.ST_ANNULE:
+        return _refus(E_ORIGINE_INVALIDE, reglement_id_opaque)
+    montant = round(r["montant"], 2)
+    lignes = [
+        {"compte": COMPTE_FOURNISSEURS, "debit": montant, "credit": 0,
+         "auxiliaire": r["fournisseur_id_opaque"], "libelle": "Règlement caisse"},
+        {"compte": COMPTE_CAISSE, "debit": 0, "credit": montant, "libelle": "Sortie caisse"},
+    ]
+    return _inserer_ecriture(
+        "CAISSE", r["date_reglement"], r["date_reglement"][:7], reglement_id_opaque,
+        "Règlement fournisseur en espèces", "REGLEMENT", reglement_id_opaque, lignes,
+        acteur=acteur, db_path=db_path)
+
+
+def generer_ecriture_caisse_operation(operation_id_opaque: str, *, acteur: str = "",
+                                      db_path=None) -> dict[str, Any]:
+    """Génère l'écriture CAISSE d'une opération de caisse sans objet existant (encaissement,
+    remboursement associé en espèces) — cf. `operations_caisse` (migration 0023)."""
+    if not _flags_actifs():
+        return _refus(E_FLAGS)
+    conn = get_db(db_path)
+    try:
+        op = conn.execute(
+            "SELECT * FROM operations_caisse WHERE operation_id_opaque=?",
+            (operation_id_opaque,)).fetchone()
+    finally:
+        conn.close()
+    if op is None or op["statut"] == "ANNULEE":
+        return _refus(E_ORIGINE_INVALIDE, operation_id_opaque)
+    montant = round(op["montant"], 2)
+    if op["type_operation"] == "ENCAISSEMENT":
+        # entrée d'argent en caisse : contrepartie sur l'auxiliaire du tiers (créance qui diminue)
+        lignes = [
+            {"compte": COMPTE_CAISSE, "debit": montant, "credit": 0, "libelle": "Encaissement"},
+            {"compte": COMPTE_PROPRIETAIRES if op["tiers_type"] == "PROPRIETAIRE" else COMPTE_ASSOCIES,
+             "debit": 0, "credit": montant, "auxiliaire": op["tiers_id"], "libelle": "Encaissement"},
+        ]
+    else:
+        # REMBOURSEMENT_ASSOCIE ou AUTRE : sortie de caisse vers le tiers (compte associés par défaut)
+        lignes = [
+            {"compte": COMPTE_ASSOCIES, "debit": montant, "credit": 0,
+             "auxiliaire": op["tiers_id"], "libelle": op["type_operation"]},
+            {"compte": COMPTE_CAISSE, "debit": 0, "credit": montant, "libelle": op["type_operation"]},
+        ]
+    return _inserer_ecriture(
+        "CAISSE", op["date_operation"], op["date_operation"][:7], operation_id_opaque,
+        f"Opération caisse {op['type_operation']}", "OPERATION_CAISSE", operation_id_opaque, lignes,
+        acteur=acteur, db_path=db_path)
+
+
+def generer_ecriture_od(od_id_opaque: str, *, acteur: str = "", db_path=None) -> dict[str, Any]:
+    """Génère l'écriture ODIVERSES d'une opération diverse VALIDÉE — les lignes viennent
+    directement de `od_lignes` (déjà équilibrées à la validation, cf. `operations_diverses_service`)."""
+    if not _flags_actifs():
+        return _refus(E_FLAGS)
+    conn = get_db(db_path)
+    try:
+        od = conn.execute(
+            "SELECT * FROM operations_diverses WHERE od_id_opaque=?", (od_id_opaque,)).fetchone()
+        if od is None:
+            return _refus(E_ORIGINE_INVALIDE, od_id_opaque)
+        rows = conn.execute(
+            "SELECT * FROM od_lignes WHERE od_id_opaque=? ORDER BY ligne_num",
+            (od_id_opaque,)).fetchall()
+    finally:
+        conn.close()
+    if od["statut"] != "VALIDEE":
+        return _refus(E_ORIGINE_INVALIDE, f"OD au statut {od['statut']}")
+    lignes = [{"compte": r["compte"], "auxiliaire": r["auxiliaire"], "debit": r["debit"],
+              "credit": r["credit"], "libelle": r["commentaire"] or od["libelle"]} for r in rows]
+    return _inserer_ecriture(
+        "ODIVERSES", od["date_operation"], od["date_operation"][:7], od_id_opaque, od["libelle"],
+        "OPERATION_DIVERSE", od_id_opaque, lignes, acteur=acteur, db_path=db_path)
 
 
 def charger(opaque: str, db_path=None) -> dict[str, Any] | None:

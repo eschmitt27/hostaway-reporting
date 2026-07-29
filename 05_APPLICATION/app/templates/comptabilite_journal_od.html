@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Journal OD{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/comptabilite/journaux" class="back-link">← Journaux</a>
+  <h1 class="page-title">Opérations diverses (OD)</h1>
+</div>
+
+{% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+{% if not ecriture_active %}
+<div class="alert alert-warning">Écriture désactivée sur cette installation : les actions sont indisponibles.</div>
+{% endif %}
+
+<div class="card mb-md">
+  <div class="card-title">Nouvelle opération diverse</div>
+  <p class="section-note">Deux lignes minimum, débit = crédit. Reste BROUILLON tant qu'elle n'est pas validée.</p>
+  <form method="post" action="/comptabilite/journaux/od">
+    <div class="detail-grid">
+      <label>Type *
+        <select name="type_operation" required>
+          {% for t in types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+        </select></label>
+      <label>Date <input type="date" name="date_operation"></label>
+      <label>Libellé * <input type="text" name="libelle" required></label>
+      <label>Justification <input type="text" name="justification"></label>
+    </div>
+    <fieldset class="mt-sm">
+      <legend>Ligne 1</legend>
+      <div class="detail-grid">
+        <label>Compte * <input type="text" name="compte_1" required placeholder="606000"></label>
+        <label>Auxiliaire <input type="text" name="auxiliaire_1"></label>
+        <label>Débit <input type="number" step="0.01" name="debit_1"></label>
+        <label>Crédit <input type="number" step="0.01" name="credit_1"></label>
+      </div>
+    </fieldset>
+    <fieldset class="mt-sm">
+      <legend>Ligne 2</legend>
+      <div class="detail-grid">
+        <label>Compte * <input type="text" name="compte_2" required placeholder="401000"></label>
+        <label>Auxiliaire <input type="text" name="auxiliaire_2"></label>
+        <label>Débit <input type="number" step="0.01" name="debit_2"></label>
+        <label>Crédit <input type="number" step="0.01" name="credit_2"></label>
+      </div>
+    </fieldset>
+    <button type="submit" class="btn btn-primary mt-sm" {% if not ecriture_active %}disabled{% endif %}>Créer l'OD (BROUILLON)</button>
+  </form>
+</div>
+
+<div class="card mb-md">
+  <div class="card-title">Opérations diverses ({{ ods|length }})</div>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>OD</th><th>Type</th><th>Libellé</th><th>Statut</th><th></th></tr></thead>
+      <tbody>
+        {% for o in ods %}
+        <tr>
+          <td>{{ o.od_id_opaque }}</td><td>{{ o.type_operation }}</td><td>{{ o.libelle }}</td>
+          <td><span class="badge">{{ o.statut }}</span></td>
+          <td>
+            {% if o.statut == "BROUILLON" %}
+            <form method="post" action="/comptabilite/journaux/od/{{ o.od_id_opaque }}/valider" style="display:inline">
+              <button type="submit" class="btn btn-secondary" {% if not ecriture_active %}disabled{% endif %}>Valider</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5">Aucune OD.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Écritures ODIVERSES</div>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>ID</th><th>Date</th><th>Libellé</th><th class="num">Débit</th><th class="num">Crédit</th><th>Statut</th></tr></thead>
+      <tbody>
+        {% for e in ecritures %}
+        <tr>
+          <td><a href="/comptabilite/ecritures/{{ e.ecriture_id_opaque }}">{{ e.ecriture_id_opaque }}</a></td>
+          <td>{{ e.date_ecriture }}</td><td>{{ e.libelle }}</td>
+          <td class="num">{{ "%.2f"|format(e.total_debit) }}</td><td class="num">{{ "%.2f"|format(e.total_credit) }}</td>
+          <td><span class="badge">{{ e.statut }}</span></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6">Aucune écriture ODIVERSES.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

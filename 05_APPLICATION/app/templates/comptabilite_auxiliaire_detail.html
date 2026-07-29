@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Auxiliaire {{ opaque }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/comptabilite/auxiliaires" class="back-link">← Auxiliaires</a>
+  <h1 class="page-title">{{ fiche.auxiliaire }}</h1>
+  <p class="page-subtitle">{{ fiche.famille }} — compte {{ fiche.compte }}</p>
+</div>
+
+<div class="card mb-md">
+  <div class="kpi-grid">
+    <div class="kpi-card"><div class="kpi-label">Débit</div><div class="kpi-value">{{ "%.2f"|format(fiche.solde.debit) }}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Crédit</div><div class="kpi-value">{{ "%.2f"|format(fiche.solde.credit) }}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Solde</div><div class="kpi-value">{{ "%.2f"|format(fiche.solde.solde) }}</div></div>
+  </div>
+</div>
+
+<div class="card mb-md">
+  <div class="card-title">Éléments ouverts ({{ fiche.elements_ouverts|length }})</div>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Type</th><th>Identifiant</th><th class="num">Montant</th><th>Statut</th></tr></thead>
+      <tbody>
+        {% for el in fiche.elements_ouverts %}
+        <tr><td>{{ el.type }}</td><td>{{ el.identifiant }}</td>
+          <td class="num">{{ "%.2f"|format(el.montant) }}</td><td>{{ el.statut }}</td></tr>
+        {% else %}
+        <tr><td colspan="4">Aucun élément ouvert.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Mouvements ({{ fiche.mouvements|length }})</div>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Écriture</th><th>Journal</th><th>Date</th><th class="num">Débit</th><th class="num">Crédit</th><th>Statut</th></tr></thead>
+      <tbody>
+        {% for m in fiche.mouvements %}
+        <tr>
+          <td><a href="/comptabilite/ecritures/{{ m.ecriture_id_opaque }}">{{ m.ecriture_id_opaque }}</a></td>
+          <td>{{ m.journal }}</td><td>{{ m.date_ecriture }}</td>
+          <td class="num">{{ "%.2f"|format(m.debit) }}</td><td class="num">{{ "%.2f"|format(m.credit) }}</td>
+          <td><span class="badge">{{ m.statut }}</span></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6">Aucun mouvement.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

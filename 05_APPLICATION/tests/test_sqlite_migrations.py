@@ -59,6 +59,12 @@ EXPECTED_TABLES = {
     "ecriture_lignes",                      # 0021
     "ecriture_evenements",                  # 0021
     "facture_lignes",                       # 0022 — lignes de facture (multi-charges/multi-logements)
+    "mapping_categorie_compte",              # 0023 — mapping catégorie de charge -> compte (A_CONTROLER)
+    "operations_caisse",                     # 0023 — journal CAISSE, cas sans objet existant
+    "operations_diverses",                   # 0023 — OD, objet avec ses propres lignes
+    "od_lignes",                              # 0023
+    "periodes_comptables",                    # 0023 — périodes comptables (distinctes clôture pilotage)
+    "periode_evenements",                     # 0023
 }
 
 

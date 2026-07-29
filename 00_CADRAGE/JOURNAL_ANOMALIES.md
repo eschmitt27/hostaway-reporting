@@ -374,3 +374,56 @@ PREUVES :
   0 echec.
 
 Detail (a mettre a jour) : 41_MODULE_MENAGES_ETAT_FINAL.md section 7bis, 48_ROADMAP_RESTANTE_PROJET.md.
+
+
+## LECON (2026-07-29) — recette navigateur ad hoc sur le coeur Comptabilite : PROJECT_ROOT oublie
+
+Pendant la recette navigateur du nouveau journal VENTES (adaptateur Lot12, mission Comptabilite
+coeur), un serveur de recette a ete demarre avec seulement `APP_DATA_DIR=<data_recette>/app_data`,
+sans `PROJECT_ROOT=<data_recette>`. Consequence : la base SQLite (ecritures, factures) etait bien
+isolee dans data_recette, mais les chemins Excel Lot12 (`cfg.MASTER_NET_PROPRIETAIRE`,
+`MASTER_FACT_PROPRIETAIRES`, etc.) sont derives de `PROJECT_ROOT`, pas de `APP_DATA_DIR` — ils
+pointaient donc vers l'arbre REEL. Generer les ecritures VENTES a lu les VRAIS noms et montants de
+10 proprietaires reels depuis Lot12 (lecture seule, aucune source reelle modifiee) et les a ecrits
+dans le libelle des ecritures de `data_recette/app_data/app.db` — une PII reelle dans un artefact de
+recette cense etre entierement fictif.
+
+DETECTION : immediate, en relisant le texte de la page apres generation (noms reels visibles).
+CORRECTION : `data_recette/app_data/app.db` supprime et regenere via `recette/build_data_recette.py`
+(idempotent) ; verifie par scan de tokens PII sur la base regeneree — 0 occurrence. Aucune source
+reelle modifiee a aucun moment (Lot12 est lu, jamais ecrit, par ce parcours).
+
+LECON : demarrer un serveur de recette qui touche a un moteur lisant l'arbre reel (Lot9/Lot10/Lot12,
+comme ici) exige `PROJECT_ROOT=<data_recette>` en plus de `APP_DATA_DIR` — sinon seule la base
+applicative est isolee, pas les sources Excel lues par les adaptateurs. Meme categorie de risque que
+la lecon deja consignee plus haut sur les executions directes hors orchestrateur : un point d'entree
+qui lit l'arbre reel doit toujours etre lance avec la racine de recette explicitement forcee, jamais
+suppose par defaut.
+
+
+## ANOMALIE DE TEST (2026-07-29) — flake pre-existant, ordre-dependant, confirme non lie au chantier
+
+Suite complete rejouee en tranches apres la mission Comptabilite coeur : en plus de l'echec connu
+`test_appsec1_diagnostic`, un second echec est apparu dans une tranche (decoupage ad hoc, pas le
+decoupage habituel a 4 voies) :
+
+`tests/test_proprietaires_reglements.py::test_route_dashboard_200` echoue quand precede, dans le
+meme processus pytest, par `test_menages_cave_et_pools.py`, `test_menages_cycle_routes.py`,
+`test_menages_recalcul.py`, `test_no_metier_calc.py`, `test_pilotage_mensuel_resilience.py`,
+`test_proprietaires.py` (dans cet ordre) : le rendu de `/proprietaires-reglements` contient alors un
+bandeau de diagnostic avec chemin Windows complet et donnees non masquees (adresse `SECRETVILLE` de
+fixture), au lieu du rendu normal masque. Passe seul, ou avec seulement `test_proprietaires.py`
+avant : 100% vert.
+
+VERIFICATION : reproduit a l'identique sur le commit `9bb24a7` (avant tout changement de ce tour,
+via `git stash`), confirmant que ce n'est PAS une regression introduite par la mission Comptabilite
+coeur (aucun fichier de ce tour ne touche `proprietaires_reglements*`, `base.html`, ou les fichiers
+menages listes ci-dessus). Deterministe (reproduit 2 fois de suite avec le meme ordre), donc un vrai
+probleme d'isolation entre tests (etat global — probablement un flag de diagnostic ou `RECETTE_MODE`
+mute par un test amont sans passer par `monkeypatch`, a investiguer), pas un flake aleatoire.
+
+STATUT : OUVERT, ordre-dependant, non bloquant (n'affecte que cette combinaison precise de fichiers,
+jamais rencontree dans le decoupage a 4 tranches habituel qui a servi de base a tous les totaux
+« suite complete » consignes dans `HANDOFF_CANONIQUE.md`). A investiguer si ce decoupage devient la
+norme, ou en le bisectant explicitement (retirer un fichier a la fois du groupe amont) — non fait ce
+tour faute de temps, le probleme n'appartenant pas au perimetre de cette mission.

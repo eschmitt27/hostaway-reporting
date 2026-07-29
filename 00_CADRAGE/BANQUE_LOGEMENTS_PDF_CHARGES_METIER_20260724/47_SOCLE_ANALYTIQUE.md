@@ -33,6 +33,13 @@ réservation pour une facture fournisseur qui n'en porte pas nécessairement un 
 Aucune décision métier consultée ne tranche cette règle de ventilation — le cadrage le signale
 explicitement plutôt que de l'improviser.
 
+## Suite (2026-07-29) — toujours non exploité, sur instruction explicite
+
+Le cœur Comptabilité a été complété (VENTES/CAISSE/OD/périodes/clôture, cf. `49`) sans toucher à ce
+socle : aucune dimension supplémentaire, aucun peuplement de `logement_id`/`proprietaire_id`/
+`reservation_id`, aucun tableau de bord. Décision explicite de la mission : ne pas commencer
+l'Analytique ni les Résultats.
+
 ## Prochaine étape, si le socle analytique est repris
 
 1. Décider la règle de ventilation d'une facture multi-logements vers les lignes d'écriture (le

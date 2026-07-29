@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Périodes comptables{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/comptabilite" class="back-link">← Comptabilité</a>
+  <h1 class="page-title">Périodes comptables</h1>
+  <p class="page-subtitle">Distinctes de la clôture applicative du pilotage des calculs.</p>
+</div>
+
+<div class="card mb-md">
+  <form method="get" action="/comptabilite/periodes">
+    <label>Consulter/ouvrir une période (AAAA-MM)
+      <input type="text" name="periode" placeholder="2026-06"></label>
+    <button type="submit" class="btn btn-primary">Ouvrir</button>
+  </form>
+</div>
+
+<div class="card">
+  <div class="card-title">Périodes connues ({{ periodes|length }})</div>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Période</th><th>Statut</th><th>Modifiée le</th><th></th></tr></thead>
+      <tbody>
+        {% for p in periodes %}
+        <tr>
+          <td>{{ p.periode }}</td>
+          <td><span class="badge">{{ p.statut }}</span></td>
+          <td>{{ p.date_modification }}</td>
+          <td><a href="/comptabilite/periodes/{{ p.periode }}" class="btn btn-secondary">Détail</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4">Aucune période consultée pour l'instant.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

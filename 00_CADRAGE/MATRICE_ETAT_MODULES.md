@@ -22,7 +22,7 @@ complets du parcours ; **Contrôles** = catalogue d'anomalies exposé ; **Mode r
 | Contrôles | ✅ | ⛔ | ✅ | ✅ | ✅ | ⛔ (gelé) | **PARTIEL** | APP-5B |
 | Clôture | ✅ | ✅ | ✅ | ✅ | ✅ | ⛔ | **TERMINÉ** | `36`, `37` |
 | Exports Power BI | ✅ | ✅ | ✅ | — | ✅ | ⛔ | **TERMINÉ** | `38` |
-| Comptabilité (premier socle) | ✅ | ✅ | — | ✅ | ⚠️ | ⛔ | **PARTIEL** | `43`, `45`, `46`, `47` |
+| Comptabilité (cœur : 5 journaux, auxiliaires, périodes, clôture) | ✅ | ✅ | — | ✅ | ✅ | ⛔ | **TERMINÉ** | `43`, `45`, `46`, `47`, `49` |
 
 ## Ce qui manque à chaque module PARTIEL
 

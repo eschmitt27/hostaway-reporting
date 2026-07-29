@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Rapprochement comptable{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/comptabilite" class="back-link">← Comptabilité</a>
+  <h1 class="page-title">Rapprochement comptable</h1>
+  <p class="page-subtitle">Mouvement bancaire → rapprochement → règlement → facture → écriture BANQUE → auxiliaire.</p>
+</div>
+
+<div class="card">
+  <div class="card-title">Rapprochements confirmés (règlement de charge)</div>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Rapprochement</th><th class="num">Montant rapproché</th><th>Règlement</th><th>Facture</th><th>Fournisseur</th><th>Écriture BANQUE</th></tr></thead>
+      <tbody>
+        {% for r in lignes %}
+        <tr>
+          <td><a href="/banques-caisse/mouvements/{{ r.mouvement_id_opaque }}">{{ r.rapprochement_id_opaque }}</a></td>
+          <td class="num">{{ "%.2f"|format(r.montant_rapproche) }}</td>
+          <td>{% if r.reglement_id_opaque %}<a href="/reglements/{{ r.reglement_id_opaque }}">{{ r.reglement_id_opaque }}</a>{% else %}—{% endif %}</td>
+          <td>{% if r.facture_id_opaque %}<a href="/factures/{{ r.facture_id_opaque }}">{{ r.facture_id_opaque }}</a>{% else %}—{% endif %}</td>
+          <td>{{ r.fournisseur_id_opaque or "—" }}</td>
+          <td>{% if r.ecriture_id_opaque %}<a href="/comptabilite/ecritures/{{ r.ecriture_id_opaque }}">{{ r.ecriture_id_opaque }}</a>{% else %}<span class="status-badge status-bloquant">absente</span>{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6">Aucun rapprochement confirmé.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

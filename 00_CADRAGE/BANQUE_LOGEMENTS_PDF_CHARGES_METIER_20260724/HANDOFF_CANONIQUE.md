@@ -9,15 +9,15 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 |---|---|
 | Worktree | `C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Worktrees\BANQUE_LOGEMENTS_PDF_CHARGES_METIER` |
 | Branche | `feature/banque-logements-pdf-charges-metier` |
-| État figé le | **2026-07-28**, par le commit `ea5937a` (`docs(roadmap): figer l'etat…`) — l'état décrit ci-dessous est celui de son **parent** `b367afd` |
-| Dernier commit stable avant ce tour | `b367afd` — `feat(comptabilite): premier socle - ecritures ACHATS/BANQUE, equilibre, idempotence` |
+| État figé le | **2026-07-29** — cœur Comptabilité complété (VENTES/CAISSE/OD/périodes/clôture, cf. `49`) |
+| Dernier commit stable avant ce tour | `9bb24a7` — `feat(factures): ajoute lignes de facture - multi-charges / multi-logements` |
 | HEAD | vérifier avec `git log -1` — ce fichier est mis à jour par le commit qui le porte, dont le SHA ne peut donc pas y figurer |
 | git status | propre (`data_recette/` ignoré, régénérable) |
 | master / canonique | **intacts, jamais touchés** (`master` = `8b47807`) |
 | Sources réelles | inchangées, **une exception assumée** : `02_TRAVAIL/lot13_export_powerbi.py`, sur décision utilisateur explicite (renommage de la colonne d'export). Aucune donnée réelle touchée ; toutes les écritures de recette restent sous `data_recette/` |
-| Suite complète (dernier total constaté) | **2110 passés / 75 ignorés / 1 échec pré-existant** (`test_appsec1_diagnostic`). En 4 tranches : `python -m pytest -q -p no:cacheprovider $(ls tests/test_*.py \| awk 'NR%4==1')`, puis `==2`, `==3`, `==0` |
+| Suite complète (dernier total constaté) | **2166 passés / 76 ignorés / 2 échecs pré-existants** (`test_appsec1_diagnostic` ; `test_proprietaires_reglements.py::test_route_dashboard_200`, flake ordre-dépendant confirmé antérieur à ce tour via `git stash` sur `9bb24a7`, cf. `JOURNAL_ANOMALIES.md` 2026-07-29). En 4 tranches : `python -m pytest -q -p no:cacheprovider $(ls tests/test_*.py \| awk 'NR%4==1')`, puis `==2`, `==3`, `==0` (la tranche `==0` a dû être scindée en deux moitiés ce tour, l'environnement l'ayant tuée deux fois en run unique — sans lien avec le contenu des tests) |
 | Documents transverses | `MATRICE_ETAT_MODULES.md` (état livré) · **`48_ROADMAP_RESTANTE_PROJET.md` (trajectoire)** · `GUIDE_ACTIVATION_MODE_REEL.md` (verdict **NO GO**) |
-| **Avancement global estimé** | **70 %**, marge ± 4 points. Plafond : aucun pourcentage > 85 % tant que Comptabilité + Analytique + Résultats ne sont pas fonctionnels, **réconciliés** et **validés**. |
+| **Avancement global estimé** | **71 %**, marge ± 4 points. Plafond : aucun pourcentage > 85 % tant que Analytique + Résultats ne sont pas fonctionnels, **réconciliés** et **validés** (Comptabilité, elle, est TERMINÉE pour son périmètre — cf. `49`). |
 
 ## Périmètre restant avant achèvement
 
@@ -27,12 +27,18 @@ Ordre arrêté : (1) fermer les écarts Ménages · (2) compléter la facturatio
 Comptabilité · (4) analytique · (5) Résultats · (6) réconciliations · (7) recette globale sur
 copies · (8) validation humaine · (9) activation progressive du mode réel.
 
+**(3) Comptabilité : FAIT** (2026-07-29, cf. `49`). Prochaine étape réelle : **(4) analytique**,
+explicitement non commencée sur instruction de ce tour.
+
 ## Arbitrages métier en attente (cf. `48`)
 
-1. **Plan de comptes détaillé** — `606000` générique, mapping catégorie → compte non arbitré.
+1. **Plan de comptes détaillé** — `606000`/`530000`/`467000`/`706000` génériques, mapping
+   catégorie → compte créé (`mapping_categorie_compte`) mais non relié à la génération réelle.
 2. **Ventilation analytique** d'une facture multi-logements — aucune règle documentée.
-3. **Circuit propriétaire en SQLite** — décision actuelle : ne pas migrer lot12.
-4. **Charge postérieure à une clôture validée** — non interdite applicativement.
+3. **Circuit propriétaire en SQLite** — décision actuelle : ne pas migrer lot12 ; VENTES le lit
+   en adaptateur (`SOURCE_PROVISOIRE_LOT12`), ne le remplace pas.
+4. **Charge postérieure à une clôture validée** — non interdite applicativement (clôture du
+   pilotage des calculs ; la clôture **comptable**, elle, refuse toute écriture directe, cf. `49`).
 
 ## Modules
 
@@ -44,6 +50,7 @@ copies · (8) validation humaine · (9) activation progressive du mode réel.
 | Pilotage des calculs & clôture | **TERMINÉ** — chaîne aval complète `lot4quater → lot13` | `35`, `36`, `37`, `38` |
 | Charges | **chaîne exercée depuis `/calculs`**, scénarios A→F réconciliés | `27`, `39` |
 | Ménages | **PARTIEL** — chaîne 7/7 verte, cycle de vie construit et prouvé en recette navigateur (persistance incluse) ; `ANO-2026-07-28-01` (données réelles en dur lot6b/lot6c) **corrigée** ; pools de courses et rattachement charge encore non exercés en recette (gap distinct : appartements fictifs à aligner sur le parc) | `40`, `41`, `41b`, `JOURNAL_ANOMALIES.md` |
+| Comptabilité (cœur : ACHATS/VENTES/BANQUE/CAISSE/ODIVERSES, auxiliaires, périodes, clôture) | **TERMINÉ** — plan de comptes reste PROVISOIRE (assumé, affiché comme tel) | `43`, `45`, `46`, `47`, `49` |
 
 ## ⚠️ Correction importante d'une limite documentée à tort
 
@@ -137,7 +144,58 @@ tous écarts à 0,00. Détail dans `38_LOT13_CONTRAT_EXPORT_POWERBI.md`.
 | | |
 |---|---|
 | Modules terminés | Logements, Banque, Fournisseurs-Factures-Règlements, Pilotage des calculs (chaîne aval complète), Charges exercée |
-| Module actif | *(prochain tour : factures propriétaires émises / factures tiers / avoir comme objet, si un besoin réel se présente — décision explicite de ne pas les construire ce tour ; sinon, Comptabilité VENTES/CAISSE/OD)* |
+| Module actif | *(prochain tour : Analytique — règle de ventilation, peuplement des dimensions, mesures ; explicitement non commencé sur instruction. Ne pas reprendre facture propriétaire/tiers/avoir sans besoin réel exprimé.)* |
+
+## ✅ Mission 6 de ce tour — Cœur Comptabilité complet : VENTES, CAISSE, OD, auxiliaires, périodes, clôture (migration `0023`)
+
+Continuation autonome sur instruction explicite, après vérification préalable complète (worktree,
+branche, HEAD `9bb24a7`, master `8b47807`, git status propre, absence de verrou périmé, intégrité
+des sources réelles, lecture intégrale de `HANDOFF_CANONIQUE.md`/`48`/`43`-`47`/
+`DECISIONS_METIER.md`/`ARCHITECTURE_DONNEES.md`/`JOURNAL_CONTROLES.md`/`JOURNAL_ANOMALIES.md`).
+Audit ciblé (45 min) : ACHATS/BANQUE déjà solides (mission 3), VENTES/CAISSE/OD/périodes/clôture/
+auxiliaires propriétaires-associés absents comme annoncé par `45`.
+
+**Ajouté (additif, aucune table `0021`/`0022` modifiée)** :
+- Plan comptable étendu : `530000` Caisse, `467000` Associés, `706000` Ventes (commissions).
+- Table `mapping_categorie_compte` (catégorie de charge → compte, statut `A_CONTROLER`) —
+  infrastructure créée, **pas reliée** à `generer_ecriture_achat` (gap honnêtement documenté, `46`).
+- **VENTES** : `ventes_lot12_adapter_service.py`, lit `montant_du_conciergerie` (Lot12, jamais
+  recalculé), génère une écriture par propriétaire/mois, libellé `SOURCE_PROVISOIRE_LOT12`.
+- **CAISSE** : règlement fournisseur (moyen CAISSE) + `operations_caisse_service.py` (encaissement,
+  remboursement associé — objets neufs).
+- **ODIVERSES** : `operations_diverses_service.py`, objet BROUILLON à lignes équilibrées, écriture
+  générée seulement à la validation.
+- **Périodes comptables** (`comptabilite_periodes_service.py`) : `OUVERTE→EN_CONTROLE→VALIDEE→
+  CLOTUREE→ROUVERTE`, contrôle de fermeture câblé dans `_inserer_ecriture` (partagé par tous les
+  générateurs, pas dupliqué par journal) — une période clôturée refuse toute écriture directe,
+  vérifié y compris par contournement SQL direct. Réouverture exige une justification non vide.
+- **Contrôles comptables** (`comptabilite_controles_service.py`) : 15 codes, garde de clôture
+  (refuse si un `BLOQUANT` subsiste).
+- **Auxiliaires** (`comptabilite_auxiliaires_service.py`) : vue fournisseurs/propriétaires/associés,
+  solde + éléments ouverts, aucun second calcul de solde.
+- 12 nouvelles routes, 7 nouveaux templates.
+
+**Preuves** : 104 tests ajoutés (36+9+7+4+4+1 nouveaux fichiers, 100 % verts) ; parcours complet
+ACHATS→BANQUE→VENTES→CAISSE→OD→contrepassation→période→clôture→écriture refusée→réouverture via
+HTTP réel (`test_comptabilite_coeur_recette.py`) ; passe navigateur Chrome réelle (port 8091,
+`data_recette` isolé) sur CAISSE/OD/Périodes/Auxiliaires/VENTES — toutes les transitions et calculs
+observés correspondent exactement au comportement attendu. Suite complète rejouée en tranches après
+le changement, sans régression (seul l'échec pré-existant documenté subsiste).
+
+**Incident détecté et corrigé pendant la recette** : un premier essai navigateur a démarré le
+serveur avec `APP_DATA_DIR` seul (sans `PROJECT_ROOT`), ce qui a fait lire les VRAIS fichiers Lot12
+(lecture seule, aucune source modifiée) et écrire de vrais noms de propriétaires dans le libellé
+d'écritures VENTES de `data_recette/app_data/app.db`. Détecté immédiatement, corrigé en supprimant
+et régénérant ce fichier (idempotent), vérifié sans PII résiduelle. Leçon consignée dans
+`JOURNAL_ANOMALIES.md` : toujours fixer `PROJECT_ROOT=<data_recette>` en plus de `APP_DATA_DIR`
+pour tout écran qui touche un adaptateur lisant l'arbre réel (Lot9/Lot10/Lot12).
+
+**Décision explicite, non entreprise ce tour** : plan de comptes détaillé toujours PROVISOIRE ;
+mapping catégorie→compte non relié à la génération réelle ; facture propriétaire/tiers/avoir comme
+objets applicatifs restent hors périmètre (décision `44` non révisée) ; Analytique et Résultats non
+commencés, sur instruction explicite.
+
+Détail complet : `49_COEUR_COMPTABILITE_ETAT_FINAL.md`.
 
 ## ✅ Mission 5 de ce tour — Factures : lignes de facture, multi-charges / multi-logements (migration `0022`)
 

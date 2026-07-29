@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Période {{ periode.periode }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/comptabilite/periodes" class="back-link">← Périodes</a>
+  <h1 class="page-title">Période {{ periode.periode }}</h1>
+  <span class="status-badge status-{{ 'valide' if periode.statut in ['VALIDEE','CLOTUREE'] else 'a-controler' }}">{{ periode.statut }}</span>
+</div>
+
+{% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+{% if not ecriture_active %}
+<div class="alert alert-warning">Écriture désactivée sur cette installation : les actions sont indisponibles.</div>
+{% endif %}
+
+<div class="card mb-md">
+  <div class="card-title">Résumé des contrôles</div>
+  <div class="kpi-grid">
+    <div class="kpi-card"><div class="kpi-label">Écritures</div><div class="kpi-value">{{ rapport.nb_ecritures }}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Total débit</div><div class="kpi-value">{{ "%.2f"|format(rapport.total_debit) }}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Total crédit</div><div class="kpi-value">{{ "%.2f"|format(rapport.total_credit) }}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Anomalies bloquantes</div><div class="kpi-value">{{ rapport.nb_bloquants }}</div></div>
+  </div>
+  <div class="table-container mt-sm">
+    <table class="data-table">
+      <thead><tr><th>Code</th><th>Sévérité</th><th>Objet</th><th>Message</th></tr></thead>
+      <tbody>
+        {% for a in rapport.anomalies %}
+        <tr><td>{{ a.code }}</td><td><span class="badge">{{ a.severite }}</span></td>
+          <td>{{ a.objet }} {{ a.identifiant }}</td><td>{{ a.message }} {{ a.detail }}</td></tr>
+        {% else %}
+        <tr><td colspan="4">Aucune anomalie.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card mb-md">
+  <div class="card-title">Transitions</div>
+
+  {% if periode.statut == "OUVERTE" %}
+  <form method="post" action="/comptabilite/periodes/{{ periode.periode }}/passer-en-controle">
+    <button type="submit" class="btn btn-primary" {% if not ecriture_active %}disabled{% endif %}>Passer EN_CONTROLE</button>
+  </form>
+  {% endif %}
+
+  {% if periode.statut == "EN_CONTROLE" %}
+  <form method="post" action="/comptabilite/periodes/{{ periode.periode }}/rouvrir-controle" style="display:inline">
+    <button type="submit" class="btn btn-ghost" {% if not ecriture_active %}disabled{% endif %}>Revenir OUVERTE</button>
+  </form>
+  <form method="post" action="/comptabilite/periodes/{{ periode.periode }}/valider" style="display:inline">
+    <button type="submit" class="btn btn-primary" {% if not ecriture_active %}disabled{% endif %}>Valider</button>
+  </form>
+  {% endif %}
+
+  {% if periode.statut == "VALIDEE" %}
+  <form method="post" action="/comptabilite/periodes/{{ periode.periode }}/cloturer">
+    <button type="submit" class="btn btn-primary" {% if not ecriture_active %}disabled{% endif %}>Clôturer</button>
+  </form>
+  {% endif %}
+
+  {% if periode.statut == "CLOTUREE" %}
+  <form method="post" action="/comptabilite/periodes/{{ periode.periode }}/rouvrir">
+    <label>Justification * <input type="text" name="justification" required></label>
+    <button type="submit" class="btn btn-primary" {% if not ecriture_active %}disabled{% endif %}>Rouvrir</button>
+  </form>
+  {% endif %}
+
+  {% if periode.statut == "ROUVERTE" %}
+  <form method="post" action="/comptabilite/periodes/{{ periode.periode }}/rouvrir-controle">
+    <button type="submit" class="btn btn-primary" {% if not ecriture_active %}disabled{% endif %}>Repasser EN_CONTROLE</button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-title">Historique ({{ historique|length }})</div>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Date</th><th>Transition</th><th>Commentaire</th><th>Acteur</th></tr></thead>
+      <tbody>
+        {% for h in historique %}
+        <tr><td>{{ h.date_evenement }}</td><td>{{ h.ancien_statut }} → {{ h.nouveau_statut }}</td>
+          <td>{{ h.commentaire or "—" }}</td><td>{{ h.acteur }}</td></tr>
+        {% else %}
+        <tr><td colspan="4">Aucune transition.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,9 +1,12 @@
 # 48 — Roadmap restante du projet
 
-État figé au **2026-07-28**, HEAD `b367afd`, master `8b47807`, worktree propre.
-Suite complète : **2110 passés / 75 ignorés / 1 échec pré-existant** (`test_appsec1_diagnostic`).
+État figé au **2026-07-29**, voir `HANDOFF_CANONIQUE.md` pour le HEAD exact (mis à jour à chaque
+commit stable). Master `8b47807`, worktree propre.
+Suite complète : voir dernier total constaté dans `HANDOFF_CANONIQUE.md` (1 échec pré-existant
+connu, `test_appsec1_diagnostic`, non lié au chantier).
 
-**Estimation globale : 70 %**, marge ± 4 points.
+**Estimation globale : 71 %**, marge ± 4 points. Cœur Comptabilité (ACHATS/VENTES/BANQUE/CAISSE/
+ODIVERSES, auxiliaires, périodes, clôture) TERMINÉ depuis le 2026-07-29 (cf. `49`).
 
 > **Règle de plafond.** Aucun pourcentage supérieur à **85 %** ne peut être annoncé tant que
 > Comptabilité, Analytique et Résultats ne sont pas fonctionnels, **réconciliés** et **validés**.
@@ -32,11 +35,11 @@ l'état, ce document pour le reste à faire.
 | **Factures** | PARTIEL | `33`, `34`, `42`, `44` — fournisseurs complet ; `facture_classification` (`0020`) ; **lignes de facture / multi-charges / multi-logements** (`facture_lignes`, `0022`, 2026-07-28) | factures propriétaires émises ; factures tiers ; avoirs comme objet | Comptabilité (VENTES) | les 5 types du brief portés par le modèle, avec recette |
 | **Règlements** | TERMINÉ | `34` — total/partiel/multiple/groupé, annulation, statuts dérivés | — | — | atteint |
 | **Banque** | TERMINÉ | `30`, `31` — import, rapprochement, suggestions, contrôles | — | — | atteint |
-| **Comptabilité** | PARTIEL | `43`, `45`, `46`, `47` — ACHATS + BANQUE, équilibre, idempotence, contrepassation, recette navigateur | VENTES, CAISSE, OD ; auxiliaires propriétaires/associés ; périodes et clôture comptable ; rapprochement comptable ; plan de comptes à arbitrer ; mappings | Facturation (VENTES) | les 5 journaux opérationnels + clôture + réconciliation |
-| **Analytique** | NON COMMENCÉ | `47` — colonnes présentes sur `ecriture_lignes`, jamais peuplées | règle de ventilation multi-logements ; peuplement des dimensions ; mesures | Comptabilité | dimensions peuplées + mesures réconciliées |
+| **Comptabilité** | **TERMINÉ (cœur opérationnel)** | `43`, `45`, `46`, `47`, `49` — 5 journaux (ACHATS/VENTES/BANQUE/CAISSE/ODIVERSES), équilibre, idempotence, contrepassation, auxiliaires (fournisseurs/propriétaires/associés), périodes et clôture comptable, rapprochement comptable, recette navigateur | plan de comptes détaillé à arbitrer (reste PROVISOIRE, affiché comme tel) ; mapping catégorie→compte non relié à la génération réelle ; facture propriétaire comme objet applicatif (VENTES reste un adaptateur en lecture) | Facturation (VENTES, fait via adaptateur) | atteint pour le périmètre défini — reste PROVISOIRE sur le plan de comptes, assumé |
+| **Analytique** | NON COMMENCÉ | `47` — colonnes présentes sur `ecriture_lignes`, jamais peuplées | règle de ventilation multi-logements ; peuplement des dimensions ; mesures | Comptabilité (fait) | dimensions peuplées + mesures réconciliées |
 | **Résultats** | NON COMMENCÉ | — | écrans `/resultats/*`, drill-down, exports | Analytique | drill-down complet résultat → pièce |
-| **Contrôles** | PARTIEL | catalogues Banque, Factures, Ménages, Charges livrés | contrôles comptables ; contrôles inter-lots ; réconciliations | Comptabilité, Analytique | réconciliations à 0,01 € |
-| **Clôture** | PARTIEL | `36`, `37` — clôture applicative du pilotage des calculs, 7 statuts, VALIDEE atteinte | clôture **comptable** (distincte) ; interdiction d'écriture en période clôturée | Comptabilité | période clôturée refuse toute écriture directe |
+| **Contrôles** | PARTIEL | catalogues Banque, Factures, Ménages, Charges, **Comptabilité** (`49`, 15 codes) livrés | contrôles inter-lots ; réconciliations globales | Analytique | réconciliations à 0,01 € |
+| **Clôture** | PARTIEL | `36`, `37` — clôture applicative du pilotage des calculs, 7 statuts, VALIDEE atteinte ; **clôture comptable** (`49`) — 5 statuts, période clôturée refuse toute écriture directe, réouverture justifiée | réconciliation globale entre les deux clôtures | Analytique | atteint pour la clôture comptable elle-même |
 | **Power BI** | TERMINÉ | `38` — 11 exports + dictionnaire, filet de confidentialité, contrat verrouillé | exports analytiques éventuels | Analytique | atteint pour le périmètre actuel |
 | **Mode réel** | NON ACTIVÉ | `GUIDE_ACTIVATION_MODE_REEL.md` — checklist GO/NO GO, verdict **NO GO** | sauvegarde des sources ; recette sur copies ; activation module par module | tout le reste | GO franchi, un module à la fois |
 
@@ -57,9 +60,11 @@ l'état, ce document pour le reste à faire.
 2. **Compléter la facturation** — lignes de facture / multi-charges / multi-logements **fait**
    (`facture_lignes`, 2026-07-28, cf. `44`). Reste, hors périmètre décidé pour l'instant : factures
    propriétaires émises, factures tiers, avoirs comme objet à cycle propre.
-3. **Compléter la Comptabilité** — VENTES, CAISSE, OD ; auxiliaires propriétaires et associés ;
-   périodes et clôture comptable ; rapprochement comptable réutilisant le moteur bancaire existant ;
-   plan de comptes arbitré et mappings.
+3. **Compléter la Comptabilité** — **fait** (2026-07-29, cf. `49`) : VENTES (adaptateur Lot12),
+   CAISSE, OD, auxiliaires propriétaires et associés, périodes et clôture comptable, rapprochement
+   comptable réutilisant le moteur bancaire existant, contrôles comptables, recette. Reste : plan de
+   comptes détaillé arbitré et mapping catégorie→compte relié à la génération réelle (non bloquant
+   pour la suite — le cœur fonctionne sur le plan provisoire, affiché comme tel).
 4. **Construire l'analytique** — règle de ventilation, peuplement des dimensions, mesures.
 5. **Construire les Résultats** — écrans et drill-down jusqu'à la pièce.
 6. **Construire les réconciliations** — Lot9↔Lot10, Lot10↔Comptabilité, Banque↔journal BANQUE,

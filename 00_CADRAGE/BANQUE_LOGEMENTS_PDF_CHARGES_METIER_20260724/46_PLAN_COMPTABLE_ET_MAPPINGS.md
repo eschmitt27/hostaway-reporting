@@ -41,10 +41,35 @@ est tranché : ajouter une ligne ne casse rien.
 - **Propriétaire → auxiliaire, associé → auxiliaire** : colonnes prévues (`411000` déclaré), aucune
   génération câblée.
 
+## Suite (2026-07-29, migration `0023`) — comptes ajoutés pour VENTES/CAISSE/OD
+
+| Compte | Libellé | Type | Auxiliaire | Usage |
+|---|---|---|---|---|
+| 530000 | Caisse | ACTIF | NON | crédité/débité par CAISSE — compte de caisse unique (recette : un seul compte fictif, comme 512000 pour la banque) |
+| 467000 | Associés — comptes courants | PASSIF | OUI | avances, dépenses personnelles, remboursements associés — CAISSE et OD |
+| 706000 | Prestations de services (commissions) | PRODUIT | NON | crédité par VENTES — montant `montant_du_conciergerie` de Lot12, mapping non arbitré au-delà de ce compte générique |
+
+Toujours **provisoire** : ces trois comptes couvrent le besoin technique minimal pour que les trois
+journaux fonctionnent, ils ne préjugent d'aucun plan comptable détaillé futur.
+
+## Table `mapping_categorie_compte` (migration `0023`) — infrastructure créée, non reliée
+
+Une ligne par catégorie de charge, `compte` par défaut `606000`, `statut` `A_CONTROLER` tant qu'un
+arbitrage métier ne la fait pas passer `VALIDE`. Le contrôle `CTRL_CPT_MAPPING_CATEGORIE_NON_ARBITRE`
+signale chaque ligne `A_CONTROLER`.
+
+**Non fait, honnêtement** : `generer_ecriture_achat` (journal ACHATS) continue d'utiliser `606000`
+en dur, comme avant cette mission. Relier le mapping demanderait de résoudre, au moment de la
+génération, la catégorie de la charge liée à la facture (`SAISIE_Charges_Flux.categorie_charge_id`,
+un fichier Excel) — un second changement, non entrepris ce tour faute de temps, à traiter avant que
+cette table serve à autre chose qu'à afficher un contrôle A_CONTROLER.
+
 ## Ce qui reste à faire
 
 1. Décision métier sur le plan de comptes détaillé (hors périmètre de ce tour, aucune source ne le
    fixait).
-2. Mapping catégorie de charge → compte, une fois le plan validé.
-3. Génération d'écritures pour le circuit propriétaire, si la décision `44` de ne pas migrer lot12
-   est un jour révisée.
+2. Relier `mapping_categorie_compte` à la résolution réelle du compte dans `generer_ecriture_achat`
+   (lecture de la catégorie de charge depuis l'Excel), une fois le plan détaillé arbitré.
+3. Génération d'écritures pour le circuit propriétaire COMME OBJET APPLICATIF (facture propriétaire
+   émise), si la décision `44` de ne pas migrer lot12 est un jour révisée — l'adaptateur VENTES
+   actuel reste une lecture, pas une migration.

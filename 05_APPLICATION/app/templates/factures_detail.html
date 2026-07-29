@@ -165,6 +165,11 @@
           </td>
           <td>
             <a href="/reglements/{{ r.reglement_id_opaque }}/rapprocher" class="btn btn-secondary">Rapprocher</a>
+            {% if r.moyen == 'CAISSE' and r.statut != 'ANNULE' %}
+            <form method="post" action="/reglements/{{ r.reglement_id_opaque }}/generer-ecriture-caisse" style="display:inline">
+              <button type="submit" class="btn btn-secondary" {% if not ecriture_active %}disabled{% endif %}>Générer écriture CAISSE</button>
+            </form>
+            {% endif %}
             {% if r.statut != 'ANNULE' %}
             <form method="post" action="/reglements/{{ r.reglement_id_opaque }}/annuler" style="display:inline">
               <input type="hidden" name="retour" value="/factures/{{ facture.facture_id_opaque }}">
