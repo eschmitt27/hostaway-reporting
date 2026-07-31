@@ -5,10 +5,10 @@ commit stable). Master `8b47807`, worktree propre.
 Suite complète : voir dernier total constaté dans `HANDOFF_CANONIQUE.md` (2 échecs pré-existants
 connus, `test_appsec1_diagnostic` et un flake ordre-dépendant confirmé, non liés au chantier).
 
-**Estimation globale : 72 %**, marge ± 4 points. Cœur Comptabilité (ACHATS/VENTES/BANQUE/CAISSE/
-ODIVERSES, auxiliaires, périodes, clôture) TERMINÉ depuis le 2026-07-29 (cf. `49`). Phase 1 Analytique
-(mappings comptables branchés, ventilation analytique ACHATS/VENTES) FAITE depuis le 2026-07-31
-(cf. `50`). Moteur analytique (Phase 2) et écrans Résultats (Phase 3) non commencés.
+**Estimation globale : 73 %**, marge ± 4 points. Cœur Comptabilité (ACHATS/VENTES/BANQUE/CAISSE/
+ODIVERSES, auxiliaires, périodes, clôture) TERMINÉ depuis le 2026-07-29 (cf. `49`). Analytique
+Phase 1 (mappings comptables branchés, ventilation) et Phase 2 (moteur analytique, réconciliations)
+FAITES depuis le 2026-07-31 (cf. `50`, `51`). Écrans Résultats (Phase 3) non commencés.
 
 > **Règle de plafond.** Aucun pourcentage supérieur à **85 %** ne peut être annoncé tant que
 > Comptabilité, Analytique et Résultats ne sont pas fonctionnels, **réconciliés** et **validés**.
@@ -38,7 +38,7 @@ l'état, ce document pour le reste à faire.
 | **Règlements** | TERMINÉ | `34` — total/partiel/multiple/groupé, annulation, statuts dérivés | — | — | atteint |
 | **Banque** | TERMINÉ | `30`, `31` — import, rapprochement, suggestions, contrôles | — | — | atteint |
 | **Comptabilité** | **TERMINÉ (cœur opérationnel)** | `43`, `45`, `46`, `47`, `49`, `50` — 5 journaux (ACHATS/VENTES/BANQUE/CAISSE/ODIVERSES), équilibre, idempotence, contrepassation, auxiliaires (fournisseurs/propriétaires/associés), périodes et clôture comptable, rapprochement comptable, recette navigateur, mapping catégorie→compte **relié** à la génération réelle (`0024`) | plan de comptes détaillé à arbitrer (reste PROVISOIRE, affiché comme tel) ; facture propriétaire comme objet applicatif (VENTES reste un adaptateur en lecture) | Facturation (VENTES, fait via adaptateur) | atteint pour le périmètre défini — reste PROVISOIRE sur le plan de comptes, assumé |
-| **Analytique** | PARTIEL (Phase 1 faite) | `50` — mappings comptables branchés, dimensions `logement_id`/`proprietaire_id` peuplées sur ACHATS/VENTES (cases A/D/E) | grain analytique complet (`lignes_analytiques`), mesures, axes, réconciliations, répartition pool multi-logements (case C, gap Ménages lié) | Comptabilité (fait) | dimensions peuplées + mesures réconciliées |
+| **Analytique** | PARTIEL (Phases 1+2 faites) | `50`, `51` — mappings branchés, dimensions peuplées (ACHATS/VENTES), moteur de lecture Lot10 (mesures/axes/drill-down), 7 réconciliations sur 8 | axes plateforme/réservation/fournisseur/prestataire/catégorie/activité non peuplés ; réconciliation Lot9↔Lot10 non construite (redondante moteur) ; répartition pool multi-logements (case C, gap Ménages) | Résultats (Phase 3) | axes peuplés + réconciliations toutes couvertes |
 | **Résultats** | NON COMMENCÉ | — | écrans `/resultats/*`, drill-down, exports | Analytique | drill-down complet résultat → pièce |
 | **Contrôles** | PARTIEL | catalogues Banque, Factures, Ménages, Charges, **Comptabilité** (`49`, 15 codes) livrés | contrôles inter-lots ; réconciliations globales | Analytique | réconciliations à 0,01 € |
 | **Clôture** | PARTIEL | `36`, `37` — clôture applicative du pilotage des calculs, 7 statuts, VALIDEE atteinte ; **clôture comptable** (`49`) — 5 statuts, période clôturée refuse toute écriture directe, réouverture justifiée | réconciliation globale entre les deux clôtures | Analytique | atteint pour la clôture comptable elle-même |

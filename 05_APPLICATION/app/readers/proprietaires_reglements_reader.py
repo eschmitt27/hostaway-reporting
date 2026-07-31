@@ -25,6 +25,8 @@ ONGLET_VUE_MOIS = "VUE_MOIS"
 ONGLET_REGLEMENT = "REGLEMENT"
 ONGLET_COMMISSIONS = "COMMISSIONS"
 ONGLET_RESULTATS = "PAR_MOIS_PROPRIETAIRE"
+ONGLET_RESULTATS_LOGEMENT = "PAR_MOIS_LOGEMENT"
+ONGLET_RESULTATS_GLOBAL = "GLOBAL"
 ONGLET_FACT_ENTETE = "FACT_FACTURE_ENTETE"
 ONGLET_DASHBOARD = "DASHBOARD_FACTURATION"
 ONGLET_A_CONTROLER = "A_CONTROLER"
@@ -158,6 +160,20 @@ def commissions() -> Source:
 
 def resultats() -> Source:
     return _src(cfg.MASTER_RESULTATS, "resultats", "Résultats par mois/propriétaire", SOURCE_RESULTATS, ONGLET_RESULTATS)
+
+
+def resultats_par_logement() -> Source:
+    """PAR_MOIS_LOGEMENT — mois × logement × vision (REEL/COMPTABLE/HORS_COMPTA empilées),
+    déjà calculé par Lot10 (`build_resultats`). Jamais recalculé ici."""
+    return _src(cfg.MASTER_RESULTATS, "resultats_logement", "Résultats par mois/logement/vision",
+               SOURCE_RESULTATS, ONGLET_RESULTATS_LOGEMENT)
+
+
+def resultats_global() -> Source:
+    """GLOBAL — un total par vision (REEL/COMPTABLE/HORS_COMPTA), avec la vérification de
+    cohérence REEL=COMPTABLE+HC déjà faite par Lot10 (`commentaire_hc`)."""
+    return _src(cfg.MASTER_RESULTATS, "resultats_global", "Résultats globaux par vision",
+               SOURCE_RESULTATS, ONGLET_RESULTATS_GLOBAL)
 
 
 def factures_entetes() -> Source:
