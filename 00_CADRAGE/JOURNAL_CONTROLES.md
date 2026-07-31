@@ -2679,3 +2679,32 @@ NON_DISPONIBLE assumes, pools multi-logements toujours un gap Menages connu, pla
 toujours PROVISOIRE).
 REFERENCE : 53_AXES_ANALYTIQUES_ETAT_FINAL.md, 51_MOTEUR_ANALYTIQUE_ET_RECONCILIATIONS.md,
 48_ROADMAP_RESTANTE_PROJET.md, HANDOFF_CANONIQUE.md
+
+
+## 2026-08-01 - Recette globale sur copies controlees des donnees reelles : verdict GO validation humaine
+
+CONTROLE : recette complete de l'application sur une copie fidele des structures reelles (85
+fichiers hashes SHA256, jamais le reel touche), hors mandat de mode reel.
+
+CONSTAT : migrations saines sur copie de l'app.db reel (integrity_check ok, 0 violation FK,
+idempotentes) et sur base vierge. Pipeline aval BLOQUE des lot9 : source Banque reelle
+(BANQUE_LOT8_IMPORT.xlsx) inexistante dans l'arbre reel (dossier Lot8_Banque/ absent) - controle
+moteur CTR-9-001 fonctionne comme concu, pas un defaut de code. Chaine charges (lot3) : SUCCES,
+idempotente, 0 charge reelle saisie actuellement (etat reel, pas un defaut).
+
+RECONCILIATIONS SUR 24 MOIS REELS (2025-01 a 2027-02, deux mois absents 2026-11/2027-01) : A, B, D,
+H OK (ecart 0,00 EUR) - B confirme en conditions reelles le correctif de grains incompatibles du
+2026-07-31. C, G A_CONTROLER et E, F NON_DISPONIBLE : attendus, 0 ecriture/facture/menage reel
+enregistre dans l'app. Invariant REEL=COMPTABLE+HORS_COMPTA verifie sur le total reel (291
+779,67 EUR), ecart 0,00.
+
+SECURITE : 0 fuite (chemins absolus, PII, secrets) sur les pages et exports scannes. PERFORMANCE :
+toutes les pages < 1 s. DOUBLE COMPTAGE : aucun trouve sur les axes exerces.
+
+AUCUNE CORRECTION DE CODE APPLIQUEE (l'unique anomalie est un ecart de donnees reelles, pas un
+bug). Suite de tests inchangee (2281/75/1, campagne du 2026-07-31 toujours valide).
+
+VERDICT : GO POUR VALIDATION HUMAINE (jamais GO mode reel).
+REFERENCE : 54_RAPPORT_RECETTE_GLOBALE_COPIES.md, 55_MATRICE_ECARTS_CONTRATS_REELS.md,
+56_RAPPORT_RECONCILIATIONS_GLOBALES.md, 57_RAPPORT_DOUBLE_COMPTAGE.md,
+58_RAPPORT_SECURITE_RECETTE_GLOBALE.md, 59_RAPPORT_PERFORMANCE.md, 60_VERDICT_GO_NO_GO.md

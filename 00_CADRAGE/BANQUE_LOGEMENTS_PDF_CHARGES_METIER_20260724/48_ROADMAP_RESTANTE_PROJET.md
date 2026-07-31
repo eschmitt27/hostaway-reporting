@@ -5,7 +5,7 @@ commit stable). Master `8b47807`, worktree propre.
 Suite complète : voir dernier total constaté dans `HANDOFF_CANONIQUE.md` (2 échecs pré-existants
 connus, `test_appsec1_diagnostic` et un flake ordre-dépendant confirmé, non liés au chantier).
 
-**Estimation globale : 79 %**, marge ± 4 points. Cœur Comptabilité (ACHATS/VENTES/BANQUE/CAISSE/
+**Estimation globale : 80 %**, marge ± 4 points. Cœur Comptabilité (ACHATS/VENTES/BANQUE/CAISSE/
 ODIVERSES, auxiliaires, périodes, clôture) TERMINÉ depuis le 2026-07-29 (cf. `49`). Analytique et
 Résultats (mappings, ventilation, moteur, réconciliations, écrans) TERMINÉS pour le périmètre
 défini depuis le 2026-07-31 (cf. `50`, `51`, `52`).
@@ -45,7 +45,7 @@ l'état, ce document pour le reste à faire.
 | **Contrôles** | PARTIEL | catalogues Banque, Factures, Ménages, Charges, **Comptabilité** (`49`, 15 codes) livrés ; **8 réconciliations globales sur 8** (`51`, Lot9↔Lot10 fermée) | contrôles inter-lots | — | réconciliations à 0,01 € — atteint |
 | **Clôture** | PARTIEL | `36`, `37` — clôture applicative du pilotage des calculs, 7 statuts, VALIDEE atteinte ; **clôture comptable** (`49`) — 5 statuts, période clôturée refuse toute écriture directe, réouverture justifiée | réconciliation globale entre les deux clôtures | Analytique | atteint pour la clôture comptable elle-même |
 | **Power BI** | TERMINÉ | `38` — 11 exports + dictionnaire, filet de confidentialité, contrat verrouillé | exports analytiques éventuels | Analytique | atteint pour le périmètre actuel |
-| **Mode réel** | NON ACTIVÉ | `GUIDE_ACTIVATION_MODE_REEL.md` — checklist GO/NO GO, verdict **NO GO** | sauvegarde des sources ; recette sur copies ; activation module par module | tout le reste | GO franchi, un module à la fois |
+| **Mode réel** | NON ACTIVÉ | `GUIDE_ACTIVATION_MODE_REEL.md` — checklist GO/NO GO, verdict **NO GO** ; recette globale sur copies **faite** (`54`-`60`, 2026-08-01, verdict **GO pour validation humaine**, pas GO mode réel) | validation humaine (source Banque réelle, mois manquants) ; activation module par module | tout le reste | GO franchi, un module à la fois |
 
 ## Roadmap ordonnée
 
@@ -79,8 +79,13 @@ l'état, ce document pour le reste à faire.
    Lot10↔Analytique, Analytique↔Comptabilité, Banque↔journal BANQUE, Factures↔auxiliaires,
    Ménages↔charges, Commissions↔VENTES Lot12, total analytique↔résultat global. Tolérance
    **0,01 €** appliquée partout où c'est pertinent.
-7. **Recette globale sur copies** des données réelles (jamais en écriture).
-8. **Validation humaine** — arbitrages métier en attente (plan de comptes, axes analytiques restants).
+7. **Recette globale sur copies** des données réelles (jamais en écriture) — **fait**
+   (2026-08-01, cf. `54`-`60`) : verdict **GO pour validation humaine**. Écart réel trouvé (pas un
+   bug) : source Banque (`BANQUE_LOT8_IMPORT.xlsx`) jamais alimentée en réel, bloque la
+   ré-exécution du pipeline aval à partir de lot9. Aucune correction de code nécessaire.
+8. **Validation humaine** — arbitrages métier en attente (plan de comptes, axes analytiques
+   restants, source Banque réelle manquante, deux mois absents de la série réelle Lot10
+   2026-11/2027-01).
 9. **Activation progressive du mode réel**, module par module, selon `GUIDE_ACTIVATION_MODE_REEL.md`.
 
 ## Arbitrages métier en attente
@@ -91,6 +96,8 @@ l'état, ce document pour le reste à faire.
 | Ventilation d'une charge multi-logements par pool (hors `facture_lignes`) | aucune clé de poids n'existe ; ne pas improviser — gap Ménages déjà connu (`41` §7bis) | Analytique complet |
 | Circuit propriétaire en SQLite | décision actuelle : **ne pas** migrer lot12 (`44`) ; à réviser si la facture propriétaire émise devient un objet applicatif | Facturation propriétaire, journal VENTES |
 | Charge postérieure à une clôture validée | aucun mécanisme applicatif ne l'interdit | Clôture comptable |
+| Source Banque réelle (`BANQUE_LOT8_IMPORT.xlsx`) jamais alimentée | dossier `Lot8_Banque/` inexistant dans le réel ; bloque `lot9` (`CTR-9-001`) donc toute ré-exécution du pipeline aval | Ré-exécution complète du pipeline aval sur données réelles |
+| Deux mois absents de la série réelle Lot10 (2026-11, 2027-01) | à vérifier auprès du métier (mois réellement sans activité ou oubli d'exécution) — ne pas fabriquer | Fraîcheur des Résultats réels |
 
 ## Anomalies ouvertes
 
@@ -98,3 +105,4 @@ l'état, ce document pour le reste à faire.
 |---|---|---|
 | `test_appsec1_diagnostic` | échec environnemental **pré-existant** (nom d'utilisateur Windows dans un chemin temporaire pytest), antérieur au chantier | test |
 | Charge post-clôture | non interdite applicativement | métier |
+| Source Banque réelle manquante (`55_MATRICE_ECARTS_CONTRATS_REELS.md`) | bloque lot9+ en réel ; pas un bug, un écart de données | données réelles |

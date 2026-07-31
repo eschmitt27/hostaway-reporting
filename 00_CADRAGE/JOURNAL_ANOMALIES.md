@@ -483,3 +483,32 @@ reconciliations_service.py`) mis a jour ; aucun test ne referencait le module pa
 LECON : ne jamais nommer un module `app/` avec un prefixe `lotN_` meme s'il ne fait que LIRE une
 sortie Lot9/Lot10/etc. — le garde APP-0 le traite comme un import moteur interdit. Suivre la
 convention descriptive deja en place pour tous les autres lecteurs.
+
+
+## ANOMALIE REELLE TROUVEE EN RECETTE GLOBALE SUR COPIES (2026-08-01) — source Banque reelle absente
+
+Trouvee pendant la recette globale sur copies controlees des donnees reelles (mission dediee,
+HEAD `ede8c52`) : lancement du pipeline aval (`lot4quater->lot9->lot10->lot11->lot12->lot13`) sur
+une copie fidele de `01_SOURCES_BRUTES/`+`02_TRAVAIL/` pour verifier que la chaine reste rejouable
+sur donnees reelles. `lot4quater` SUCCES, **`lot9` ECHEC** : `BLOQUANT [CTR-9-001] Source
+manquante : BANQUE_LOT8_IMPORT`.
+
+CAUSE : `lot9_construire_flux.py` exige trois sources en dur (`MASTER_CALC_Reservations`,
+`MASTER_FACT_MEN_MenagesExternes`, `BANQUE_LOT8_IMPORT`) via son controle `CTR-9-001`. Verification
+sur le reel : le dossier `02_TRAVAIL/Lot8_Banque/` **n'existe pas du tout** dans l'arbre reel — le
+module Banque n'a jamais ete execute en reel, uniquement dans `data_recette` fictif. Les sorties
+Lot9-13 reelles actuellement presentes (datees du 2026-07-24) proviennent donc d'une execution
+anterieure a l'ajout de ce controle, ou d'une source Banque qui existait alors et a disparu depuis.
+
+CE N'EST PAS UN DEFAUT DE CODE : le controle `CTR-9-001` fonctionne exactement comme concu (refuse
+de produire un resultat sur une source metier absente plutot que de fabriquer un flux a partir de
+rien). Aucune correction de code appliquee. Aucune donnee reelle modifiee ou fabriquee pour
+satisfaire ce controle (interdit par la mission).
+
+VERIFICATION DE NON-REGRESSION : la reconciliation Lot9<->Lot10 (A) sur les sorties Lot9-13
+existantes confirme leur coherence mutuelle (ecart 0,00 EUR sur 24 mois reels) — ces sorties ne
+sont pas cassees, seulement non regenerables aujourd'hui faute de source Banque.
+
+STATUT : OUVERT, decision humaine requise (alimenter la source Banque reelle avant toute nouvelle
+execution complete du pipeline aval, ou accepter que les sorties actuelles restent figees).
+Detail complet : `55_MATRICE_ECARTS_CONTRATS_REELS.md`, `60_VERDICT_GO_NO_GO.md`.

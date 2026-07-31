@@ -9,15 +9,15 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 |---|---|
 | Worktree | `C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Worktrees\BANQUE_LOGEMENTS_PDF_CHARGES_METIER` |
 | Branche | `feature/banque-logements-pdf-charges-metier` |
-| État figé le | **2026-07-31** — Analytique et Résultats **TERMINÉS pour le périmètre défini** : 8/8 réconciliations, axes fournisseur/catégorie/prestataire construits (plateforme/activité `NON_DISPONIBLE` assumé), drill-down vérifié, exports par axe livrés, recette navigateur 30 étapes faite, suite complète passée par shards (cf. `53`) |
-| Dernier commit stable avant ce tour | `ab8291e` — `fix(analytique): renomme lot9_flux_reader.py - faux positif garde APP-0 (Bloc 8)` |
+| État figé le | **2026-08-01** — Recette globale sur copies contrôlées des données réelles effectuée : verdict **GO POUR VALIDATION HUMAINE** (cf. `60`). Aucune donnée réelle modifiée, 85/85 fichiers réels re-vérifiés identiques avant/après |
+| Dernier commit stable avant ce tour | `ede8c52` — `docs(handoff): cloture Blocs 5-9, Analytique et Resultats TERMINES (perimetre defini)` |
 | HEAD | vérifier avec `git log -1` — ce fichier est mis à jour par le commit qui le porte, dont le SHA ne peut donc pas y figurer |
 | git status | propre (`data_recette/` ignoré, régénérable) |
 | master / canonique | **intacts, jamais touchés** (`master` = `8b47807`) |
-| Sources réelles | inchangées, **une exception assumée** : `02_TRAVAIL/lot13_export_powerbi.py`, sur décision utilisateur explicite (renommage de la colonne d'export). Aucune donnée réelle touchée ; toutes les écritures de recette restent sous `data_recette/` |
-| Suite complète (dernier total constaté) | **2281 passés / 75 ignorés / 1 échec pré-existant** (2026-07-31, campagne par shards complète — cf. `TEST_SHARDS_ANALYTIQUE_RESULTATS.txt`, 05_APPLICATION/, fichier temporaire hors documentation métier). Seul échec : `test_appsec1_diagnostic` (pré-existant, connu, chemin temp Windows). Le flake `test_proprietaires_reglements.py::test_route_dashboard_200` **n'est pas apparu** dans ce découpage (fichiers déclencheurs isolés du shard qui contient `test_proprietaires.py`). Une anomalie **nouvelle** trouvée et corrigée pendant la campagne : `test_no_metier_calc.py::test_no_import_of_travail_modules` faux positif sur `lot9_flux_reader.py` (renommé `flux_unifie_reader.py`, commit `ab8291e`). Suite ciblée Comptabilité+Résultats+Axes rejouée après Bloc 7 : 78 passés, 0 échec. |
-| Documents transverses | `MATRICE_ETAT_MODULES.md` (état livré) · **`48_ROADMAP_RESTANTE_PROJET.md` (trajectoire)** · `GUIDE_ACTIVATION_MODE_REEL.md` (verdict **NO GO**) |
-| **Avancement global estimé** | **79 %**, marge ± 4 points. Plafond : aucun pourcentage > 85 % tant que le périmètre restant (plan de comptes détaillé, facturation propriétaire/tiers, mode réel) n'est pas tranché. Comptabilité TERMINÉE (`49`). Analytique et Résultats **TERMINÉS pour le périmètre défini** (`53`) : réconciliations 8/8, axes fournisseur/catégorie/prestataire construits, plateforme/activité `NON_DISPONIBLE` assumé (raison explicite, pas un report), drill-down et exports vérifiés, recette navigateur et campagne de tests faites. Résultats : 22 routes + 7 exports CSV par axe. |
+| Sources réelles | inchangées, **une exception assumée** : `02_TRAVAIL/lot13_export_powerbi.py`, sur décision utilisateur explicite (renommage de la colonne d'export). Aucune donnée réelle touchée ; toutes les écritures de recette restent sous `data_recette/` ou, pour ce tour, sous l'environnement de copies externe `_RECETTES_GLOBALES/` (hors Git, jamais committé) |
+| Suite complète (dernier total constaté) | **2281 passés / 75 ignorés / 1 échec pré-existant** (2026-07-31, campagne par shards complète — cf. `TEST_SHARDS_ANALYTIQUE_RESULTATS.txt`, 05_APPLICATION/, fichier temporaire hors documentation métier). Seul échec : `test_appsec1_diagnostic` (pré-existant, connu, chemin temp Windows). **Inchangée ce tour** : aucun code n'a été modifié pendant la recette globale (l'unique anomalie trouvée est un écart de données réelles, pas un défaut de code), donc pas de nouveau manifeste ni de nouvelle campagne — cf. `54`-`60`. |
+| Documents transverses | `MATRICE_ETAT_MODULES.md` (état livré) · **`48_ROADMAP_RESTANTE_PROJET.md` (trajectoire)** · `GUIDE_ACTIVATION_MODE_REEL.md` (verdict **NO GO**) · `60_VERDICT_GO_NO_GO.md` (recette globale) |
+| **Avancement global estimé** | **80 %**, marge ± 4 points. Plafond : aucun pourcentage > 85 % tant que le périmètre restant (plan de comptes détaillé, facturation propriétaire/tiers, mode réel) n'est pas tranché. Comptabilité TERMINÉE (`49`). Analytique et Résultats **TERMINÉS pour le périmètre défini** (`53`), **validés sur copies de données réelles** ce tour (`54`-`60`, verdict GO validation humaine) : réconciliations A/B/D/H **OK sur 24 mois réels** (0,00€ d'écart), invariant REEL=COMPTABLE+HC vérifié sur données réelles, 0 fuite sécurité, 0 double comptage, migrations saines sur copie de l'`app.db` réel. Écart réel trouvé (pas un bug) : source Banque jamais alimentée en réel, bloque la ré-exécution du pipeline aval à partir de lot9 — décision humaine requise. |
 
 ## Périmètre restant avant achèvement
 
@@ -29,8 +29,10 @@ copies · (8) validation humaine · (9) activation progressive du mode réel.
 
 **(3) Comptabilité : FAIT** (2026-07-29, cf. `49`). **(4) analytique : FAIT** pour le périmètre
 défini, **(5) Résultats : FAIT** pour le périmètre défini, **(6) réconciliations : FAIT (8/8)**
-(2026-07-31, cf. `53`). Prochaine étape réelle : **(7) recette globale sur copies des données
-réelles** — non commencée sur ce tour (hors mandat explicite de la mission close ici).
+(2026-07-31, cf. `53`). **(7) recette globale sur copies : FAITE** (2026-08-01, cf. `54`-`60`,
+verdict GO pour validation humaine). Prochaine étape réelle : **(8) validation humaine** — décision
+sur la source Banque réelle manquante, puis arbitrages métier en attente (plan de comptes, mois
+manquants 2026-11/2027-01).
 
 ## Arbitrages métier en attente (cf. `48`)
 
@@ -148,7 +150,58 @@ tous écarts à 0,00. Détail dans `38_LOT13_CONTRAT_EXPORT_POWERBI.md`.
 | | |
 |---|---|
 | Modules terminés | Logements, Banque, Fournisseurs-Factures-Règlements, Pilotage des calculs (chaîne aval complète), Charges exercée, Comptabilité (cœur), Analytique (périmètre défini), Résultats (périmètre défini) |
-| Module actif | *(Aucun — la fermeture Analytique/Résultats (Blocs 1-9) est close ce tour. Prochaine étape réelle non entreprise : (7) recette globale sur copies des données réelles, ou tout autre chantier explicitement demandé par un prochain tour. Ne pas démarrer le mode réel ni une autre mission sans instruction explicite.)* |
+| Module actif | *(Aucun — la recette globale sur copies est close ce tour, verdict GO pour validation humaine. Prochaine étape réelle non entreprise : (8) validation humaine (décision sur la source Banque réelle manquante), ou tout autre chantier explicitement demandé par un prochain tour. Ne pas démarrer le mode réel ni une autre mission sans instruction explicite.)* |
+
+## ✅ Mission 11 de ce tour — Recette globale sur copies contrôlées des données réelles : verdict GO pour validation humaine
+
+Continuation autonome après vérification préalable complète (worktree, branche, HEAD `ede8c52`,
+master `8b47807`, git status propre, lecture intégrale de `HANDOFF_CANONIQUE.md`/`48`/`49`/
+documents Analytique/Résultats/`TEST_SHARDS_ANALYTIQUE_RESULTATS.txt`).
+
+**Environnement de copies** créé hors Git (`_RECETTES_GLOBALES/RECETTE_GLOBALE_20260801_004232/`) :
+85 fichiers réels (`01_SOURCES_BRUTES/`, `02_TRAVAIL/`, plus une copie de l'`app.db` réel) hashés
+(SHA256), copiés, re-vérifiés identiques source=copie, puis **re-hashés après toutes les
+opérations : 85/85 identiques, 0 écart**. Aucune donnée réelle jamais modifiée.
+
+**Migrations** testées sur une copie de l'`app.db` réel ET sur une base vierge : `integrity_check`
+ok, 0 violation de clé étrangère, idempotentes au niveau des lignes (24 migrations, comptages de
+tables identiques après une deuxième application, même si le hash brut du fichier change —
+réallocation de pages SQLite, pas une duplication logique).
+
+**Pipeline sur copies** : chaîne aval (`lot4quater→lot9→lot10→lot11→lot12→lot13`) lancée pour
+2026-06 — **lot4quater SUCCÈS, lot9 ÉCHEC** (`BLOQUANT [CTR-9-001] Source manquante :
+BANQUE_LOT8_IMPORT`, dossier `Lot8_Banque/` inexistant dans le réel — Banque n'a jamais été
+exécuté en réel, seulement en `data_recette` fictif). Lots 10-13 correctement IGNORÉS (dépendance
+en échec, aucun faux succès). Sorties restaurées (7 fichiers, hash de restauration vérifié
+identique à l'original copié). Chaîne `charges` (lot3) lancée deux fois : SUCCÈS les deux fois,
+idempotente (0 charge réelle saisie actuellement — `SAISIE` réelle à 0 ligne, état réel, pas un
+défaut).
+
+**Réconciliations sur copies réelles (24 mois, 2025-01→2027-02, hors 2026-11/2027-01 absents)** :
+A, B, D, H **OK** (écart 0,00€) — B confirme en conditions réelles le correctif de grains
+incompatibles du tour précédent. C, G `A_CONTROLER` et E, F `NON_DISPONIBLE` : attendus, 0
+écriture/facture/ménage réels enregistrés dans l'app (module jamais exercé en réel). Invariant
+REEL=COMPTABLE+HORS_COMPTA vérifié sur le total réel (291 779,67€), écart 0,00€.
+
+**Sécurité** : 0 fuite (chemins absolus, username, email, téléphone, IBAN, token) sur les pages et
+exports scannés. **Performance** : toutes les pages < 1 s, rien à corriger (pas de problème
+mesuré). **Double comptage** : aucun trouvé sur les axes exercés ; contrôles Factures/Ménages/
+Comptabilité sans objet (0 ligne réelle).
+
+**Aucune correction de code appliquée** : l'unique anomalie trouvée (source Banque manquante) est
+un écart de données/processus réel, pas un défaut applicatif — le contrôle `CTR-9-001` fonctionne
+exactement comme conçu. **0 commit de correction**, suite de tests inchangée (2281/75/1, campagne
+du tour précédent toujours valide).
+
+**Verdict : GO POUR VALIDATION HUMAINE** (jamais GO pour mode réel). Détail complet :
+`54_RAPPORT_RECETTE_GLOBALE_COPIES.md`, `55_MATRICE_ECARTS_CONTRATS_REELS.md`,
+`56_RAPPORT_RECONCILIATIONS_GLOBALES.md`, `57_RAPPORT_DOUBLE_COMPTAGE.md`,
+`58_RAPPORT_SECURITE_RECETTE_GLOBALE.md`, `59_RAPPORT_PERFORMANCE.md`, `60_VERDICT_GO_NO_GO.md`.
+
+`ETAT_AVANCEMENT.md`/`ARCHITECTURE_DONNEES.md` non modifiés ce tour non plus : confirmé via
+`git log` qu'ils appartiennent à une couche de documentation antérieure à ce chantier (dernière
+modification `053f195`, avant les missions Comptabilité/Analytique/Résultats/recette globale) —
+même jugement assumé que le tour précédent, pas un oubli.
 
 ## ✅ Mission 10 de ce tour — Fermeture Analytique/Résultats : Lot9↔Lot10 (8/8), axes fournisseur/catégorie/prestataire, plateforme/activité assumés
 
