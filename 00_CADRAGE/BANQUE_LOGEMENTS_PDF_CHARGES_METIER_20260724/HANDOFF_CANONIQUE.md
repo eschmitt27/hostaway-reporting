@@ -9,15 +9,15 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 |---|---|
 | Worktree | `C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Worktrees\BANQUE_LOGEMENTS_PDF_CHARGES_METIER` |
 | Branche | `feature/banque-logements-pdf-charges-metier` |
-| État figé le | **2026-08-01** — axes analytiques fournisseur/catégorie/prestataire construits, plateforme/activité `NON_DISPONIBLE` assumé (cf. `53`) |
-| Dernier commit stable avant ce tour | `5166c79` — `feat(analytique): ferme la reconciliation Lot9 <-> Lot10 (8/8)` |
+| État figé le | **2026-07-31** — Analytique et Résultats **TERMINÉS pour le périmètre défini** : 8/8 réconciliations, axes fournisseur/catégorie/prestataire construits (plateforme/activité `NON_DISPONIBLE` assumé), drill-down vérifié, exports par axe livrés, recette navigateur 30 étapes faite, suite complète passée par shards (cf. `53`) |
+| Dernier commit stable avant ce tour | `ab8291e` — `fix(analytique): renomme lot9_flux_reader.py - faux positif garde APP-0 (Bloc 8)` |
 | HEAD | vérifier avec `git log -1` — ce fichier est mis à jour par le commit qui le porte, dont le SHA ne peut donc pas y figurer |
 | git status | propre (`data_recette/` ignoré, régénérable) |
 | master / canonique | **intacts, jamais touchés** (`master` = `8b47807`) |
 | Sources réelles | inchangées, **une exception assumée** : `02_TRAVAIL/lot13_export_powerbi.py`, sur décision utilisateur explicite (renommage de la colonne d'export). Aucune donnée réelle touchée ; toutes les écritures de recette restent sous `data_recette/` |
-| Suite complète (dernier total constaté) | **2166 passés / 76 ignorés / 2 échecs pré-existants** avant ce tour (`test_appsec1_diagnostic` ; `test_proprietaires_reglements.py::test_route_dashboard_200`, flake ordre-dépendant confirmé antérieur via `git stash` sur `9bb24a7`, cf. `JOURNAL_ANOMALIES.md` 2026-07-29 — reproduit à l'identique à plusieurs reprises, toujours sans lien). Suite ciblée Comptabilité+Résultats+Axes rejouée après Bloc 3/4 : **246 passés, 0 échec**. **Suite complète : voir manifeste de shards** (`TEST_SHARDS_ANALYTIQUE_RESULTATS.txt` si construit ce tour, sinon statut le plus récent connu). Suite complète en 4 tranches : `python -m pytest -q -p no:cacheprovider $(ls tests/test_*.py \| awk 'NR%4==1')`, puis `==2`, `==3`, `==0` — scinder en quarts (`split -n l/4`) si un run se fait tuer, l'environnement le fait indépendamment du contenu des tests |
+| Suite complète (dernier total constaté) | **2281 passés / 75 ignorés / 1 échec pré-existant** (2026-07-31, campagne par shards complète — cf. `TEST_SHARDS_ANALYTIQUE_RESULTATS.txt`, 05_APPLICATION/, fichier temporaire hors documentation métier). Seul échec : `test_appsec1_diagnostic` (pré-existant, connu, chemin temp Windows). Le flake `test_proprietaires_reglements.py::test_route_dashboard_200` **n'est pas apparu** dans ce découpage (fichiers déclencheurs isolés du shard qui contient `test_proprietaires.py`). Une anomalie **nouvelle** trouvée et corrigée pendant la campagne : `test_no_metier_calc.py::test_no_import_of_travail_modules` faux positif sur `lot9_flux_reader.py` (renommé `flux_unifie_reader.py`, commit `ab8291e`). Suite ciblée Comptabilité+Résultats+Axes rejouée après Bloc 7 : 78 passés, 0 échec. |
 | Documents transverses | `MATRICE_ETAT_MODULES.md` (état livré) · **`48_ROADMAP_RESTANTE_PROJET.md` (trajectoire)** · `GUIDE_ACTIVATION_MODE_REEL.md` (verdict **NO GO**) |
-| **Avancement global estimé** | **77 %**, marge ± 4 points. Plafond : aucun pourcentage > 85 % tant que le périmètre restant (plan de comptes détaillé, facturation propriétaire/tiers, mode réel) n'est pas tranché. Comptabilité TERMINÉE (`49`). Analytique : réconciliations 8/8, axes fournisseur/catégorie/prestataire construits, plateforme/activité `NON_DISPONIBLE` assumé (raison explicite, pas un report) — cf. `53`. Résultats : 22 routes au total (14 initiales + 8 par axe). |
+| **Avancement global estimé** | **79 %**, marge ± 4 points. Plafond : aucun pourcentage > 85 % tant que le périmètre restant (plan de comptes détaillé, facturation propriétaire/tiers, mode réel) n'est pas tranché. Comptabilité TERMINÉE (`49`). Analytique et Résultats **TERMINÉS pour le périmètre défini** (`53`) : réconciliations 8/8, axes fournisseur/catégorie/prestataire construits, plateforme/activité `NON_DISPONIBLE` assumé (raison explicite, pas un report), drill-down et exports vérifiés, recette navigateur et campagne de tests faites. Résultats : 22 routes + 7 exports CSV par axe. |
 
 ## Périmètre restant avant achèvement
 
@@ -27,8 +27,10 @@ Ordre arrêté : (1) fermer les écarts Ménages · (2) compléter la facturatio
 Comptabilité · (4) analytique · (5) Résultats · (6) réconciliations · (7) recette globale sur
 copies · (8) validation humaine · (9) activation progressive du mode réel.
 
-**(3) Comptabilité : FAIT** (2026-07-29, cf. `49`). Prochaine étape réelle : **(4) analytique**,
-explicitement non commencée sur instruction de ce tour.
+**(3) Comptabilité : FAIT** (2026-07-29, cf. `49`). **(4) analytique : FAIT** pour le périmètre
+défini, **(5) Résultats : FAIT** pour le périmètre défini, **(6) réconciliations : FAIT (8/8)**
+(2026-07-31, cf. `53`). Prochaine étape réelle : **(7) recette globale sur copies des données
+réelles** — non commencée sur ce tour (hors mandat explicite de la mission close ici).
 
 ## Arbitrages métier en attente (cf. `48`)
 
@@ -51,6 +53,8 @@ explicitement non commencée sur instruction de ce tour.
 | Charges | **chaîne exercée depuis `/calculs`**, scénarios A→F réconciliés | `27`, `39` |
 | Ménages | **PARTIEL** — chaîne 7/7 verte, cycle de vie construit et prouvé en recette navigateur (persistance incluse) ; `ANO-2026-07-28-01` (données réelles en dur lot6b/lot6c) **corrigée** ; pools de courses et rattachement charge encore non exercés en recette (gap distinct : appartements fictifs à aligner sur le parc) | `40`, `41`, `41b`, `JOURNAL_ANOMALIES.md` |
 | Comptabilité (cœur : ACHATS/VENTES/BANQUE/CAISSE/ODIVERSES, auxiliaires, périodes, clôture) | **TERMINÉ** — plan de comptes reste PROVISOIRE (assumé, affiché comme tel) | `43`, `45`, `46`, `47`, `49` |
+| Analytique (mappings, ventilation, moteur, réconciliations 8/8, axes) | **TERMINÉ pour le périmètre défini** — plateforme/activité `NON_DISPONIBLE` assumé | `50`, `51`, `53` |
+| Résultats (22 routes, drill-down, exports par axe) | **TERMINÉ pour le périmètre défini** | `52`, `53` |
 
 ## ⚠️ Correction importante d'une limite documentée à tort
 
@@ -143,8 +147,8 @@ tous écarts à 0,00. Détail dans `38_LOT13_CONTRAT_EXPORT_POWERBI.md`.
 
 | | |
 |---|---|
-| Modules terminés | Logements, Banque, Fournisseurs-Factures-Règlements, Pilotage des calculs (chaîne aval complète), Charges exercée |
-| Module actif | *(Blocs 1-4 de la fermeture Analytique/Résultats terminés. Reste, sur ce tour ou le suivant : Bloc 5 vérification drill-down complet, Bloc 6 exports par axe, Bloc 7 recette navigateur 30 étapes, Bloc 8 campagne de tests par shards déterministe, Bloc 9 documentation finale. Ne pas démarrer le mode réel ni une autre mission.)* |
+| Modules terminés | Logements, Banque, Fournisseurs-Factures-Règlements, Pilotage des calculs (chaîne aval complète), Charges exercée, Comptabilité (cœur), Analytique (périmètre défini), Résultats (périmètre défini) |
+| Module actif | *(Aucun — la fermeture Analytique/Résultats (Blocs 1-9) est close ce tour. Prochaine étape réelle non entreprise : (7) recette globale sur copies des données réelles, ou tout autre chantier explicitement demandé par un prochain tour. Ne pas démarrer le mode réel ni une autre mission sans instruction explicite.)* |
 
 ## ✅ Mission 10 de ce tour — Fermeture Analytique/Résultats : Lot9↔Lot10 (8/8), axes fournisseur/catégorie/prestataire, plateforme/activité assumés
 
@@ -187,9 +191,52 @@ prestataires(+{id})`, `/resultats/categories(+{id})`, `/resultats/plateformes/{i
 activites(+{id})`. 23 tests ajoutés (`test_comptabilite_axes.py` 13, `test_resultats_axes_routes.py`
 10). Suite ciblée Comptabilité+Résultats+Axes rejouée : **246 passés, 0 échec**.
 
-**Décision explicite, non entreprise ce tour** : Blocs 5-9 (vérification drill-down complet,
-exports dédiés par axe, recette navigateur 30 étapes, campagne de tests par shards déterministe,
-documentation finale) — reste à faire, cf. « Module actif » ci-dessus pour la suite exacte.
+**Bloc 5 — Drill-down.** L'écriture comptable affichait son origine (`FACTURE`/`REGLEMENT`/
+`LOT12_PROPRIETAIRE_MOIS`/`RAPPROCHEMENT`) en texte brut — la chaîne axe → mesure → écriture
+s'arrêtait là. Liens ajoutés par `origine_type` vers l'objet réel (aucun lien ajouté là où aucune
+route de détail n'existe, ex. `CHARGE`/`FACTURE_LIGNE` au niveau ventilation). Fiche prestataire :
+`menage_id_opaque` rendu cliquable. 6 tests (`test_resultats_drilldown.py`), vérifiant aussi les
+404 propres sur identifiant inconnu.
+
+**Bloc 6 — Exports par axe.** CSV ajoutés : dashboard (global), propriétaire, fournisseur,
+prestataire, catégorie, réconciliation (logement existait déjà). Bug attrapé par les tests : les
+routes `export.csv` étaient déclarées après les routes `/{id}` correspondantes — FastAPI matchait
+`"export.csv"` comme identifiant opaque. Corrigé par réordonnancement. Plateforme/activité : pas
+d'export, cohérent avec `NON_DISPONIBLE`. 8 tests (`test_resultats_exports_axes.py`).
+
+**Bloc 7 — Recette navigateur réelle (30 étapes, pas seulement TestClient).** `build_data_recette.py`
+rejoué, serveur lancé (port 8020, `PROJECT_ROOT` et `APP_DATA_DIR` isolés, tous les flags d'écriture
+activés), pipeline aval lancé pour 2026-06 (6/6 lots OK). **Anomalie réelle trouvée, absente des
+tests unitaires** : la réconciliation B (Lot10↔Analytique) comparait `Lot10 GLOBAL` (tout le jeu de
+données, sans grain mensuel) à l'Analytique filtrée sur le mois choisi — écart artificiel de
+10 035,00 € dès qu'un mois était sélectionné. Corrigé (`app/routes/resultats.py`) : B ignore
+désormais le filtre mois, comme son alias H. Test de non-régression à deux mois ajouté. Vérifié en
+navigateur réel : dashboard, 3 visions, tous les écrans par axe, 8 réconciliations, tous les exports,
+cumul, comparaison mois précédent, redémarrage serveur (persistance confirmée), relance du pipeline
+(idempotence confirmée, écarts 0,00), aucun double comptage.
+
+**Bloc 8 — Campagne de tests par shards.** Manifeste `TEST_SHARDS_ANALYTIQUE_RESULTATS.txt`
+(05_APPLICATION/, temporaire, hors documentation métier) : 131 fichiers de tests, 6 shards
+consécutifs, exécution séquentielle avec `--basetemp` distinct, codes retour réels à chaque fois.
+**Anomalie nouvelle trouvée et corrigée** : `test_no_metier_calc.py::test_no_import_of_travail_
+modules` — faux positif sur `lot9_flux_reader.py` (le nom contenait littéralement "import lot9...").
+Renommé en `flux_unifie_reader.py` (seul importeur : `comptabilite_reconciliations_service.py`).
+**Total : 2281 passés, 75 ignorés, 1 échec** (`test_appsec1_diagnostic`, pré-existant, connu). Le
+flake `test_proprietaires_reglements` n'est pas apparu (fichiers déclencheurs isolés du shard
+contenant `test_proprietaires.py`). Aucun run tué par l'environnement.
+
+**Bloc 9 — Documentation.** `53_AXES_ANALYTIQUES_ETAT_FINAL.md` complété (drill-down, exports,
+recette, anomalie B). `48_ROADMAP_RESTANTE_PROJET.md` : Analytique et Résultats passés
+**TERMINÉ (périmètre défini)**. Ce document (`HANDOFF_CANONIQUE.md`) mis à jour. `JOURNAL_
+ANOMALIES.md`/`ETAT_AVANCEMENT.md`/`ARCHITECTURE_DONNEES.md` jugés hors périmètre de ce chantier
+SQLite-app (couche documentation antérieure, même jugement que les tours précédents) — non modifiés.
+
+**Critère de fin atteint pour le périmètre défini** : réconciliations 8/8 ✓, axes demandés
+construits ou `NON_DISPONIBLE` assumé avec raison explicite ✓, drill-down vérifié sans 404 ni id
+SQLite brut ✓, exports par axe livrés ✓, absence de double comptage vérifiée en recette réelle ✓,
+campagne de tests complète ✓. Analytique et Résultats passent **TERMINÉ (périmètre défini)** —
+jamais présenté comme validé métier au-delà (plan de comptes toujours PROVISOIRE, pools
+multi-logements toujours un gap Ménages connu).
 
 Détail complet : `51_MOTEUR_ANALYTIQUE_ET_RECONCILIATIONS.md` (section « Suite »),
 `53_AXES_ANALYTIQUES_ETAT_FINAL.md`.

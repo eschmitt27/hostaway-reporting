@@ -427,3 +427,59 @@ jamais rencontree dans le decoupage a 4 tranches habituel qui a servi de base a 
 « suite complete » consignes dans `HANDOFF_CANONIQUE.md`). A investiguer si ce decoupage devient la
 norme, ou en le bisectant explicitement (retirer un fichier a la fois du groupe amont) — non fait ce
 tour faute de temps, le probleme n'appartenant pas au perimetre de cette mission.
+
+Confirme a nouveau le 2026-07-31 (mission fermeture Analytique/Resultats, Bloc 8) : le decoupage a
+6 shards utilise pour la campagne de tests complete separe deliberement les fichiers declencheurs
+(shard 03) de `test_proprietaires.py`/`test_proprietaires_reglements.py` (shard 04) — le flake n'est
+pas apparu, coherent avec l'analyse ci-dessus. Toujours OUVERT, toujours non lie a ce chantier.
+
+
+## ANOMALIE REELLE TROUVEE EN RECETTE NAVIGATEUR (2026-07-31) — reconciliation B grains incompatibles
+
+Trouvee pendant la recette navigateur reelle (Bloc 7, mission fermeture Analytique/Resultats) :
+pipeline aval lance sur donnees neuves (mois 2026-06), la reconciliation **B — Lot10 <-> Analytique**
+affichait un statut `A_CONTROLER` avec un ecart de 10 035,00 EUR des qu'un mois etait selectionne
+dans l'ecran `/resultats/reconciliation`, alors que toutes les autres verifications de coherence
+etaient au vert.
+
+CAUSE : `Lot10 GLOBAL` (feuille `GLOBAL` de `MASTER_CALC_Resultats.xlsx`) est un total unique sur
+TOUT le jeu de donnees, sans grain mensuel. La route `/resultats/reconciliation` (et son export CSV)
+appelait `recon.lot10_vs_analytique(mois=mois)`, qui filtrait le cote Analytique sur le mois
+selectionne avant de le comparer au total global non filtre — une comparaison de grains
+incompatibles, exactement le type d'erreur que la mission interdisait explicitement. Les tests
+unitaires ne l'avaient jamais detecte car leur fixture ne portait qu'un seul mois (le total global
+coincidait par hasard avec le total mensuel).
+
+CORRECTION : `app/routes/resultats.py` — B ignore desormais le filtre mois (route HTML et export
+CSV), coherent avec H (dont B est l'alias interne) : elle est par construction a l'echelle du jeu de
+donnees complet. Note explicative ajoutee au template `resultats_reconciliation.html`. Test de
+non-regression avec fixture Excel a deux mois
+(`test_reconciliation_b_reste_ok_quel_que_soit_le_mois_filtre`, `tests/test_resultats_routes.py`).
+
+LECON : une reconciliation contre un total agrege sans dimension temporelle ne doit jamais recevoir
+un filtre temporel provenant de l'ecran — verifier, pour chaque reconciliation, que le grain des deux
+cotes est explicite et compatible AVANT de brancher un filtre d'ecran dessus, pas seulement sur des
+donnees de test a un seul mois.
+
+
+## ANOMALIE DE TEST TROUVEE EN CAMPAGNE PAR SHARDS (2026-07-31) — faux positif garde APP-0
+
+Trouvee en executant la suite complete par shards (Bloc 8, jamais rejouee jusque-la avec le fichier
+`lot9_flux_reader.py` present, cree lors du Bloc 2 de la meme mission) :
+`test_no_metier_calc.py::test_no_import_of_travail_modules` echouait, signalant un import direct
+d'un module 02_TRAVAIL dans `comptabilite_reconciliations_service.py`.
+
+CAUSE : le garde APP-0 detecte toute occurrence litterale du texte `"import lot"` dans le code de
+`app/` pour interdire un import direct des scripts moteur `02_TRAVAIL/lotN_*.py`. Le nom du reader
+`lot9_flux_reader.py` declenchait un faux positif : la ligne `from app.readers import
+lot9_flux_reader as lot9` contient litteralement `"import lot9..."`. Le reader lui-meme est un
+module `app/readers/` legitime (lecture seule d'un fichier Excel Lot9), pas un import du moteur.
+
+CORRECTION : renomme en `flux_unifie_reader.py` — coherent avec la convention deja suivie par tous
+les autres lecteurs (`charges_reader.py`, `proprietaires_reglements_reader.py`,
+`controles_cloture_reader.py` : jamais de prefixe `lotN`). Seul importeur (`comptabilite_
+reconciliations_service.py`) mis a jour ; aucun test ne referencait le module par son nom.
+
+LECON : ne jamais nommer un module `app/` avec un prefixe `lotN_` meme s'il ne fait que LIRE une
+sortie Lot9/Lot10/etc. — le garde APP-0 le traite comme un import moteur interdit. Suivre la
+convention descriptive deja en place pour tous les autres lecteurs.

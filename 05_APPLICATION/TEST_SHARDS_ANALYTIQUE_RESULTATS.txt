@@ -1,0 +1,177 @@
+# Manifeste de shards — mission Analytique/Résultats, finalisation (Bloc 8)
+# Fichier TEMPORAIRE, hors documentation métier (ne pas archiver dans 00_CADRAGE).
+# Généré le 2026-07-31 depuis `ls tests/test_*.py` (131 fichiers, ordre alphabétique, découpe en 6
+# tranches consécutives ~22 fichiers chacune, sans chevauchement, sans omission).
+#
+# Exécution : séquentielle, un shard à la fois, --basetemp distinct par shard.
+# Si un shard est tué par l'environnement (kill sandbox, pas un vrai code retour) : ne rejouer QUE
+# ce shard, jamais l'ensemble. Si ça se reproduit, découper ce shard en deux et rejouer les deux
+# moitiés séparément.
+#
+# Échecs pré-existants connus (non liés à ce chantier, ne pas re-diagnostiquer) :
+#   - test_appsec1_diagnostic.py (chemin temporaire pytest contenant le nom d'utilisateur Windows)
+#   - tests/test_proprietaires_reglements.py::test_route_dashboard_200, UNIQUEMENT si précédé dans
+#     le même process pytest par : test_menages_cave_et_pools, test_menages_cycle_routes,
+#     test_menages_recalcul, test_no_metier_calc, test_pilotage_mensuel_resilience,
+#     test_proprietaires (dans cet ordre). Ce découpage les sépare (shard 03 vs shard 04) —
+#     le flake ne doit donc pas apparaître ici ; si il apparaît quand même, le documenter comme
+#     nouvelle anomalie, ne pas l'attribuer automatiquement au flake connu.
+
+[SHARD_00]
+test_appsec1_correctifs.py
+test_appsec1_diagnostic.py
+test_banque_compte_opaque.py
+test_banque_controle.py
+test_banque_controle_finition.py
+test_banques.py
+test_banques_controles_catalogue.py
+test_banques_impact_lot9.py
+test_banques_import.py
+test_banques_import_routes.py
+test_banques_rapprochement.py
+test_banques_rapprochement_routes.py
+test_banques_suggestions.py
+test_banques_suggestions_routes.py
+test_boot.py
+test_calculs_executeur.py
+test_calculs_pipeline.py
+test_calculs_routes.py
+test_charge_refacturable_proprietaire.py
+test_charges_affectations.py
+test_charges_confirmation_audit.py
+test_charges_confirmation_e2e.py
+test_charges_confirmation_route.py
+
+[SHARD_01]
+test_charges_impact.py
+test_charges_impacts_persist.py
+test_charges_pipeline.py
+test_charges_preview.py
+test_charges_validation_et_controles.py
+test_clotures.py
+test_clotures_audit_complementaire.py
+test_comptabilite_analytique.py
+test_comptabilite_auxiliaires.py
+test_comptabilite_axes.py
+test_comptabilite_coeur_recette.py
+test_comptabilite_controles.py
+test_comptabilite_ecritures.py
+test_comptabilite_journaux_ventes_caisse_od.py
+test_comptabilite_mappings.py
+test_comptabilite_mappings_routes.py
+test_comptabilite_periodes.py
+test_comptabilite_reconciliation_lot9_lot10.py
+test_comptabilite_reconciliations.py
+test_comptabilite_routes.py
+
+[SHARD_02]
+test_comptabilite_ventilation_analytique.py
+test_controles_actionnable.py
+test_controles_cloture.py
+test_controles_runner_gardes.py
+test_controles_runner_validation_positive.py
+test_db_isolation.py
+test_facture_classification.py
+test_factures.py
+test_factures_banque.py
+test_factures_banque_routes.py
+test_factures_controles.py
+test_factures_import_pdf.py
+test_factures_import_routes.py
+test_factures_routes.py
+test_flags_inventaire.py
+test_fournisseur_rattachements.py
+test_fournisseur_rattachements_routes.py
+test_fournisseurs.py
+test_fournisseurs_referentiel.py
+test_gardes_bancaires_coherence.py
+test_logements.py
+test_logements_creation.py
+
+[SHARD_03]
+test_logements_cross_module.py
+test_logements_gestion.py
+test_logements_routes.py
+test_lot13_filet_anti_sensible.py
+test_menages.py
+test_menages_cave_et_pools.py
+test_menages_chaine.py
+test_menages_controles.py
+test_menages_cycle.py
+test_menages_cycle_routes.py
+test_menages_pdf_extraction.py
+test_menages_pivot_historique.py
+test_menages_rapprochement.py
+test_menages_recalcul.py
+test_menages_recalcul_hotfix.py
+test_migrations_app3e_validation.py
+test_navigation_no_404.py
+test_no_metier_calc.py
+test_path_guard.py
+test_pilotage_mensuel.py
+test_pilotage_mensuel_drilldown_fonctionnel.py
+test_pilotage_mensuel_resilience.py
+test_pipeline_registry_paths.py
+
+[SHARD_04]
+test_pipeline_runner_dryrun.py
+test_profils_impact_schema.py
+test_proprietaires.py
+test_proprietaires_a_payer_routes.py
+test_proprietaires_extras_contract.py
+test_proprietaires_paiement.py
+test_proprietaires_reglements.py
+test_proprietaires_releve.py
+test_proprietaires_releve_cycle.py
+test_proprietaires_releve_cycle_routes.py
+test_rapprochement_contrat_candidats.py
+test_rapprochement_modele.py
+test_rapprochement_routes.py
+test_rapprochement_transverse.py
+test_readonly_guarantee.py
+test_recette_guard.py
+test_recette_scenarios.py
+test_ref_assoc_mode_prep.py
+test_reglements_fournisseurs.py
+test_reservations_hh.py
+test_resultats_axes_routes.py
+
+[SHARD_05]
+test_resultats_drilldown.py
+test_resultats_exports_axes.py
+test_resultats_routes.py
+test_saisie_charges_journal_service.py
+test_saisie_charges_lock_service.py
+test_saisie_charges_transaction_service.py
+test_saisie_charges_writer.py
+test_saisie_hh_app2c.py
+test_saisie_hh_app2d.py
+test_saisie_hh_app2e.py
+test_saisie_hh_no_real_file.py
+test_saisie_hh_orchestrator.py
+test_saisie_hh_routes.py
+test_saisie_hh_schema_migration.py
+test_saisie_hh_validation.py
+test_saisie_hh_writer.py
+test_securite_app3e.py
+test_securite_app3f.py
+test_snapshot.py
+test_sqlite_migrations.py
+test_ventes_lot12_adapter.py
+test_verrou_perime.py
+
+# RÉSULTATS D'EXÉCUTION (renseigné au fur et à mesure, code retour réel à chaque fois)
+# | Shard | Fichiers | Passés | Ignorés | Échecs | Code retour | Remarque |
+# |-------|----------|--------|---------|--------|-------------|----------|
+# | 00 | 23 | 405 | 29 | 1 | 1 | test_appsec1_diagnostic — pré-existant, connu (chemin temp Windows) |
+# | 01 | 20 | 417 | 8 | 0 | 0 | — |
+# | 02 | 22 | 339 | 22 | 0 | 0 | — |
+# | 03 (1er run) | 23 | 309 | 16 | 1 | 1 | NOUVELLE anomalie trouvée : test_no_metier_calc.py::test_no_import_of_travail_modules — faux positif sur le nom lot9_flux_reader.py ("import lot9..." matchait le motif interdit "import lot"). Corrigée par renommage en flux_unifie_reader.py (commit ab8291e). |
+# | 03 (rejoué après correction) | 23 | 310 | 16 | 0 | 0 | flake proprietaires_reglements NON reproduit (fichiers déclencheurs isolés du shard 04) |
+# | 04 | 21 | 409 | 0 | 0 | 0 | flake proprietaires_reglements NON reproduit |
+# | 05 | 22 | 401 | 0 | 0 | 0 | avertissements ZipFile.__del__ bénins (nettoyage ressource pytest), aucun échec |
+#
+# TOTAL (shard 03 compté une seule fois, après correction) : 131 fichiers, 2281 passés, 75 ignorés,
+# 1 échec (pré-existant, connu, non lié au chantier). Aucun run tué par l'environnement (tous les
+# codes retour ci-dessus sont réels, aucun shard n'a dû être re-décomposé). Une seule anomalie
+# NOUVELLE trouvée et corrigée pendant cette campagne (lot9_flux_reader.py → flux_unifie_reader.py).

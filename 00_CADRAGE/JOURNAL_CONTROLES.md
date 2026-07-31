@@ -2643,3 +2643,39 @@ recette, qui n'a pas de source de declarations internes fictive alignee sur le p
 DEBLOCAGE : fabriquer cette source fictive (equivalent de source_sheet_copiee.csv) mappee sur
 LOG_A1/A2/B1/C1 via REF_Mapping_Logements. C'est le premier travail du prochain tour.
 REFERENCE : 41_MODULE_MENAGES_ETAT_FINAL.md section 7bis, 48_ROADMAP_RESTANTE_PROJET.md
+
+
+## 2026-07-31 - Fermeture Analytique/Resultats : 8/8 reconciliations, recette reelle, campagne complete
+
+CONTROLE : coherence des 8 reconciliations globales (Lot9<->Lot10, Lot10<->Analytique,
+Analytique<->Comptabilite, Banque<->journal BANQUE, Factures<->auxiliaires, Menages<->charges,
+Commissions<->VENTES, total analytique<->resultat global) sur un jeu fictif neuf, pipeline aval
+complet lance en reel (6/6 lots OK, mois 2026-06).
+
+CONSTAT (trouve en recette navigateur, pas en test unitaire) : reconciliation B comparait
+`Lot10 GLOBAL` (total sur tout le jeu de donnees, sans grain mensuel) a l'Analytique filtree sur
+le mois selectionne - ecart artificiel de 10 035,00 EUR. Grains incompatibles. Corrige : B ignore
+desormais le filtre mois (route + export CSV), coherent avec son alias H. Detail complet :
+JOURNAL_ANOMALIES.md (2026-07-31).
+
+PREUVE REELLE (recette navigateur, port 8020, PROJECT_ROOT et APP_DATA_DIR isoles) : dashboard,
+3 visions, tous les ecrans par axe (logement/proprietaire/plateforme/fournisseur/prestataire/
+categorie/activite/menages/comptabilite), 8 reconciliations, tous les exports CSV, cumul,
+comparaison mois precedent -> redemarrage serveur (persistance confirmee, valeurs identiques) ->
+pipeline relance sur le meme mois (sorties sauvegardees avant ecrasement) -> second run
+IDEMPOTENT (tous les indicateurs de comparaison a ecart 0,00) -> totaux /resultats et export
+dashboard identiques -> AUCUN DOUBLE COMPTAGE.
+
+CAMPAGNE DE TESTS PAR SHARDS (manifeste 05_APPLICATION/TEST_SHARDS_ANALYTIQUE_RESULTATS.txt,
+temporaire) : 131 fichiers, 6 shards, codes retour reels a chaque fois, aucun run tue par
+l'environnement. Anomalie de test trouvee et corrigee (faux positif garde APP-0 sur
+lot9_flux_reader.py, renomme flux_unifie_reader.py - detail JOURNAL_ANOMALIES.md). TOTAL :
+2281 passes / 75 skipes / 1 echec pre-existant (test_appsec1_diagnostic, inchange). Flake
+proprietaires_reglements non reproduit (fichiers declencheurs isoles du shard qui contient
+test_proprietaires.py).
+
+STATUT MODULE : Analytique et Resultats TERMINES pour le perimetre defini (plateforme/activite
+NON_DISPONIBLE assumes, pools multi-logements toujours un gap Menages connu, plan de comptes
+toujours PROVISOIRE).
+REFERENCE : 53_AXES_ANALYTIQUES_ETAT_FINAL.md, 51_MOTEUR_ANALYTIQUE_ET_RECONCILIATIONS.md,
+48_ROADMAP_RESTANTE_PROJET.md, HANDOFF_CANONIQUE.md
