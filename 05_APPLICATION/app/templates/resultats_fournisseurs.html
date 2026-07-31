@@ -14,7 +14,7 @@
     <tbody>
       {% for f in fournisseurs %}
       <tr>
-        <td><a href="/comptabilite/auxiliaires/{{ f.auxiliaire }}?famille=FOURNISSEUR">{{ f.auxiliaire }}</a></td>
+        <td><a href="/resultats/fournisseurs/{{ f.auxiliaire }}">{{ f.auxiliaire }}</a></td>
         <td class="num">{{ "%.2f"|format(f.debit) }}</td>
         <td class="num">{{ "%.2f"|format(f.credit) }}</td>
         <td class="num">{{ "%.2f"|format(f.solde) }}</td>

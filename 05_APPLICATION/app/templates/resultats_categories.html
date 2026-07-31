@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Résultats par catégorie{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/resultats" class="back-link">← Résultats</a>
+  <h1 class="page-title">Catégories de charge</h1>
+  <p class="page-subtitle">Source : MASTER Lot3 (lecture seule) — aucun recalcul.</p>
+</div>
+
+{% if resultat.statut != "OK" %}
+<div class="alert alert-warning">NON_DISPONIBLE — source MASTER Lot3 absente ou vide.</div>
+{% else %}
+<div class="table-container">
+  <table class="data-table">
+    <thead><tr><th>Catégorie</th><th class="num">Montant</th><th class="num">Nb lignes</th></tr></thead>
+    <tbody>
+      {% for c in resultat.lignes %}
+      <tr>
+        <td><a href="/resultats/categories/{{ c.categorie }}">{{ c.categorie }}</a></td>
+        <td class="num">{{ "%.2f"|format(c.montant) }}</td>
+        <td class="num">{{ c.nb }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

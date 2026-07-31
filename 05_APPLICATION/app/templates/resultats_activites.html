@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Résultats par activité{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/resultats" class="back-link">← Résultats</a>
+  <h1 class="page-title">Activités</h1>
+</div>
+
+{% if activite_id %}<p class="page-subtitle">{{ activite_id }}</p>{% endif %}
+
+<div class="alert alert-warning">
+  {{ statut }} — {{ raison or "aucune taxonomie d'activité documentée n'existe." }}
+</div>
+{% endblock %}

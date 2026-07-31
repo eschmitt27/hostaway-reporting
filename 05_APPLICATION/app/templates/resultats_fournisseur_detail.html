@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Résultats — Fournisseur {{ fournisseur_id_opaque }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/resultats/fournisseurs" class="back-link">← Fournisseurs</a>
+  <h1 class="page-title">{{ fournisseur_id_opaque }}</h1>
+</div>
+
+{% if resultat.statut != "OK" %}
+<div class="alert alert-warning">NON_DISPONIBLE — aucun mouvement comptable pour ce fournisseur.</div>
+{% else %}
+<div class="kpi-grid mb-md">
+  <div class="kpi-card"><div class="kpi-label">Débit</div><div class="kpi-value">{{ "%.2f"|format(resultat.fiche.solde.debit) }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Crédit</div><div class="kpi-value">{{ "%.2f"|format(resultat.fiche.solde.credit) }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Solde (dette)</div><div class="kpi-value">{{ "%.2f"|format(resultat.fiche.solde.solde) }}</div></div>
+</div>
+
+<div class="card mb-md">
+  <div class="card-title">Éléments ouverts ({{ resultat.fiche.elements_ouverts|length }})</div>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Type</th><th>Identifiant</th><th class="num">Montant</th><th>Statut</th></tr></thead>
+      <tbody>
+        {% for el in resultat.fiche.elements_ouverts %}
+        <tr><td>{{ el.type }}</td><td>{{ el.identifiant }}</td>
+          <td class="num">{{ "%.2f"|format(el.montant) }}</td><td>{{ el.statut }}</td></tr>
+        {% else %}
+        <tr><td colspan="4">Aucun élément ouvert.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Mouvements ({{ resultat.fiche.mouvements|length }})</div>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Écriture</th><th>Journal</th><th>Date</th><th class="num">Débit</th><th class="num">Crédit</th><th>Statut</th></tr></thead>
+      <tbody>
+        {% for m in resultat.fiche.mouvements %}
+        <tr>
+          <td><a href="/resultats/lignes/{{ m.ecriture_id_opaque }}">{{ m.ecriture_id_opaque }}</a></td>
+          <td>{{ m.journal }}</td><td>{{ m.date_ecriture }}</td>
+          <td class="num">{{ "%.2f"|format(m.debit) if m.debit else "" }}</td>
+          <td class="num">{{ "%.2f"|format(m.credit) if m.credit else "" }}</td>
+          <td><span class="badge">{{ m.statut }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Catégorie {{ categorie }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/resultats/categories" class="back-link">← Catégories</a>
+  <h1 class="page-title">{{ categorie }}</h1>
+</div>
+
+{% if resultat.statut != "OK" %}
+<div class="alert alert-warning">NON_DISPONIBLE — aucune charge pour cette catégorie.</div>
+{% else %}
+<div class="kpi-grid mb-md">
+  <div class="kpi-card"><div class="kpi-label">Montant total</div><div class="kpi-value">{{ "%.2f"|format(resultat.montant_total) }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Nb lignes</div><div class="kpi-value">{{ resultat.lignes|length }}</div></div>
+</div>
+<div class="table-container">
+  <table class="data-table">
+    <thead><tr><th>Charge</th><th>Logement</th><th>Fournisseur</th><th class="num">Montant</th></tr></thead>
+    <tbody>
+      {% for c in resultat.lignes %}
+      <tr>
+        <td>{{ c.charge_id }}</td>
+        <td>{{ c.logement_id or "—" }}</td>
+        <td>{{ c.fournisseur_id_opaque or "—" }}</td>
+        <td class="num">{{ "%.2f"|format(c.montant|float) if c.montant is not none else "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Résultats par prestataire{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/resultats" class="back-link">← Résultats</a>
+  <h1 class="page-title">Prestataires ménage — {{ mois or "toutes périodes" }}</h1>
+  <p class="page-subtitle">Vue opérationnelle Ménages — distincte de la vue comptable Fournisseurs, même tiers possible.</p>
+</div>
+
+<div class="card mb-md">
+  <form method="get" class="filters-row">
+    <label>Mois <input type="text" name="mois" value="{{ mois }}" placeholder="2026-06"></label>
+    <button type="submit" class="btn btn-primary">Appliquer</button>
+  </form>
+</div>
+
+{% if resultat.statut != "OK" %}
+<div class="alert alert-warning">NON_DISPONIBLE — aucun ménage avec prestataire pour cette période.</div>
+{% else %}
+<div class="table-container">
+  <table class="data-table">
+    <thead><tr><th>Prestataire</th><th class="num">Nb ménages</th><th class="num">Coût prévu</th><th class="num">Coût réel</th><th class="num">Écart</th><th class="num">Logements</th></tr></thead>
+    <tbody>
+      {% for p in resultat.lignes %}
+      <tr>
+        <td><a href="/resultats/prestataires/{{ p.prestataire_id }}?mois={{ mois }}">{{ p.prestataire_id }}</a></td>
+        <td class="num">{{ p.nb_menages }}</td>
+        <td class="num">{{ "%.2f"|format(p.cout_prevu) }}</td>
+        <td class="num">{{ "%.2f"|format(p.cout_reel) }}</td>
+        <td class="num">{{ "%.2f"|format(p.ecart) }}</td>
+        <td class="num">{{ p.nb_logements }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

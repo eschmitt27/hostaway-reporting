@@ -9,15 +9,15 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 |---|---|
 | Worktree | `C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Worktrees\BANQUE_LOGEMENTS_PDF_CHARGES_METIER` |
 | Branche | `feature/banque-logements-pdf-charges-metier` |
-| État figé le | **2026-08-01** — fermeture de la mission Analytique/Résultats : réconciliation Lot9↔Lot10 construite, **réconciliations 8/8** (cf. `51` suite) |
-| Dernier commit stable avant ce tour | `bef5609` — `feat(resultats): ecrans Resultats - Phase 3, mission Analytique/Resultats complete` |
+| État figé le | **2026-08-01** — axes analytiques fournisseur/catégorie/prestataire construits, plateforme/activité `NON_DISPONIBLE` assumé (cf. `53`) |
+| Dernier commit stable avant ce tour | `5166c79` — `feat(analytique): ferme la reconciliation Lot9 <-> Lot10 (8/8)` |
 | HEAD | vérifier avec `git log -1` — ce fichier est mis à jour par le commit qui le porte, dont le SHA ne peut donc pas y figurer |
 | git status | propre (`data_recette/` ignoré, régénérable) |
 | master / canonique | **intacts, jamais touchés** (`master` = `8b47807`) |
 | Sources réelles | inchangées, **une exception assumée** : `02_TRAVAIL/lot13_export_powerbi.py`, sur décision utilisateur explicite (renommage de la colonne d'export). Aucune donnée réelle touchée ; toutes les écritures de recette restent sous `data_recette/` |
-| Suite complète (dernier total constaté) | **2166 passés / 76 ignorés / 2 échecs pré-existants** avant ce tour (`test_appsec1_diagnostic` ; `test_proprietaires_reglements.py::test_route_dashboard_200`, flake ordre-dépendant confirmé antérieur via `git stash` sur `9bb24a7`, cf. `JOURNAL_ANOMALIES.md` 2026-07-29 — reproduit à l'identique à plusieurs reprises, toujours sans lien). Suite ciblée Comptabilité+Résultats rejouée après réconciliation Lot9↔Lot10 : **195 passés, 0 échec**. **Suite complète non rejouée intégralement ce tour** (statut : voir le manifeste de shards si construit, sinon INCOMPLÈTE) — l'environnement tue fréquemment les runs de tranche complète (cf. note ci-dessous), la vérification s'est portée sur la suite ciblée Comptabilité/Résultats/Analytique. Suite complète en 4 tranches : `python -m pytest -q -p no:cacheprovider $(ls tests/test_*.py \| awk 'NR%4==1')`, puis `==2`, `==3`, `==0` — scinder en quarts (`split -n l/4`) si un run se fait tuer, ce qui arrive indépendamment du contenu des tests |
+| Suite complète (dernier total constaté) | **2166 passés / 76 ignorés / 2 échecs pré-existants** avant ce tour (`test_appsec1_diagnostic` ; `test_proprietaires_reglements.py::test_route_dashboard_200`, flake ordre-dépendant confirmé antérieur via `git stash` sur `9bb24a7`, cf. `JOURNAL_ANOMALIES.md` 2026-07-29 — reproduit à l'identique à plusieurs reprises, toujours sans lien). Suite ciblée Comptabilité+Résultats+Axes rejouée après Bloc 3/4 : **246 passés, 0 échec**. **Suite complète : voir manifeste de shards** (`TEST_SHARDS_ANALYTIQUE_RESULTATS.txt` si construit ce tour, sinon statut le plus récent connu). Suite complète en 4 tranches : `python -m pytest -q -p no:cacheprovider $(ls tests/test_*.py \| awk 'NR%4==1')`, puis `==2`, `==3`, `==0` — scinder en quarts (`split -n l/4`) si un run se fait tuer, l'environnement le fait indépendamment du contenu des tests |
 | Documents transverses | `MATRICE_ETAT_MODULES.md` (état livré) · **`48_ROADMAP_RESTANTE_PROJET.md` (trajectoire)** · `GUIDE_ACTIVATION_MODE_REEL.md` (verdict **NO GO**) |
-| **Avancement global estimé** | **76 %**, marge ± 4 points. Plafond : aucun pourcentage > 85 % tant que le périmètre restant (axes analytiques non peuplés, plan de comptes détaillé, facturation propriétaire/tiers, mode réel, suite complète non rejouée intégralement) n'est pas tranché. Comptabilité TERMINÉE (`49`). Analytique : réconciliations **8/8** faites, axes plateforme/fournisseur/prestataire/catégorie/activité **restent à construire** (cf. Bloc 3 en cours). Résultats : écrans du périmètre initial livrés (`52`), écrans par axe restant liés au Bloc 3. |
+| **Avancement global estimé** | **77 %**, marge ± 4 points. Plafond : aucun pourcentage > 85 % tant que le périmètre restant (plan de comptes détaillé, facturation propriétaire/tiers, mode réel) n'est pas tranché. Comptabilité TERMINÉE (`49`). Analytique : réconciliations 8/8, axes fournisseur/catégorie/prestataire construits, plateforme/activité `NON_DISPONIBLE` assumé (raison explicite, pas un report) — cf. `53`. Résultats : 22 routes au total (14 initiales + 8 par axe). |
 
 ## Périmètre restant avant achèvement
 
@@ -144,9 +144,9 @@ tous écarts à 0,00. Détail dans `38_LOT13_CONTRAT_EXPORT_POWERBI.md`.
 | | |
 |---|---|
 | Modules terminés | Logements, Banque, Fournisseurs-Factures-Règlements, Pilotage des calculs (chaîne aval complète), Charges exercée |
-| Module actif | *(en cours — Bloc 3 : peupler les axes analytiques fournisseur/catégorie (sources réelles disponibles) ; plateforme/prestataire/activité NON_DISPONIBLE assumé si aucune source fiable. Puis Blocs 4-9 : écrans par axe, drill-down, exports, recette navigateur étendue, campagne de tests par shards. Ne pas démarrer le mode réel ni une autre mission.)* |
+| Module actif | *(Blocs 1-4 de la fermeture Analytique/Résultats terminés. Reste, sur ce tour ou le suivant : Bloc 5 vérification drill-down complet, Bloc 6 exports par axe, Bloc 7 recette navigateur 30 étapes, Bloc 8 campagne de tests par shards déterministe, Bloc 9 documentation finale. Ne pas démarrer le mode réel ni une autre mission.)* |
 
-## ✅ Mission 10 de ce tour — Fermeture réconciliation Lot9↔Lot10 (8/8), en cours : axes analytiques
+## ✅ Mission 10 de ce tour — Fermeture Analytique/Résultats : Lot9↔Lot10 (8/8), axes fournisseur/catégorie/prestataire, plateforme/activité assumés
 
 Continuation autonome après vérification préalable complète (worktree, branche, HEAD `bef5609`,
 master `8b47807`, git status propre, lecture intégrale de `HANDOFF_CANONIQUE.md`/`48`/`49`/`50`/
@@ -169,11 +169,30 @@ catégorie de correction que pour `test_resultats_routes.py`).
 **Les 8 réconciliations sont désormais toutes implémentées.** Suite ciblée Comptabilité+Résultats
 rejouée : 195 passés, 0 échec.
 
-**Décision explicite, non entreprise ce tour** : Blocs 3-9 (axes analytiques, écrans par axe,
-drill-down étendu, exports par axe, recette navigateur 30 étapes, campagne de tests par shards) —
-en cours au moment de cette mise à jour, cf. section suivante du handoff pour la suite exacte.
+**Bloc 3/4 — Axes analytiques.** Audit : `menages.fournisseur_id_opaque`/`cout_prevu`/`cout_reel`
+(`0019`) — source réelle jamais exploitée comme axe — et `charges_reader.categorie_charge_id`
+(déjà lu par `/resultats/charges`) sont des sources fiables et complètes pour prestataire et
+catégorie ; `canal_id` n'existe que côté réservations hors Hostaway (fraction non représentative)
+et `type_flux_id` est une classification technique fine, jamais organisée en taxonomie d'activité
+dans les décisions métier.
 
-Détail complet : `51_MOTEUR_ANALYTIQUE_ET_RECONCILIATIONS.md` (section « Suite »).
+Nouveau `comptabilite_axes_service.py` : fournisseur (relit `comptabilite_auxiliaires_service`,
+`49`, aucun second calcul), catégorie (relit `charges_reader`, ajoute le détail par catégorie),
+prestataire (agrège `menages` directement — **≠ fournisseur même si même tiers**, chaque fiche
+prestataire lie explicitement vers la fiche fournisseur du même tiers). Plateforme et activité :
+`NON_DISPONIBLE` avec raison explicite, jamais une taxonomie inventée.
+
+8 routes ajoutées : `/resultats/fournisseurs/{id}` (nouveau — la liste existait), `/resultats/
+prestataires(+{id})`, `/resultats/categories(+{id})`, `/resultats/plateformes/{id}`, `/resultats/
+activites(+{id})`. 23 tests ajoutés (`test_comptabilite_axes.py` 13, `test_resultats_axes_routes.py`
+10). Suite ciblée Comptabilité+Résultats+Axes rejouée : **246 passés, 0 échec**.
+
+**Décision explicite, non entreprise ce tour** : Blocs 5-9 (vérification drill-down complet,
+exports dédiés par axe, recette navigateur 30 étapes, campagne de tests par shards déterministe,
+documentation finale) — reste à faire, cf. « Module actif » ci-dessus pour la suite exacte.
+
+Détail complet : `51_MOTEUR_ANALYTIQUE_ET_RECONCILIATIONS.md` (section « Suite »),
+`53_AXES_ANALYTIQUES_ETAT_FINAL.md`.
 
 ## ✅ Mission 9 de ce tour — Phase 3 Analytique/Résultats : écrans Résultats — mission complète
 

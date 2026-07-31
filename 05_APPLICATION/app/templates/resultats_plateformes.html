@@ -7,9 +7,9 @@
   <h1 class="page-title">Plateformes</h1>
 </div>
 
+{% if plateforme_id %}<p class="page-subtitle">{{ plateforme_id }}</p>{% endif %}
+
 <div class="alert alert-warning">
-  {{ statut }} — aucune dimension plateforme n'est peuplée à ce stade, ni côté Lot10 (résultats
-  lus ici) ni côté écritures comptables. Construire cet axe demande de décider où la plateforme se
-  rattache (réservation ? logement ? les deux ?) — non arbitré, non improvisé ici.
+  {{ statut }} — {{ raison or "aucune dimension plateforme fiable n'est peuplée à ce stade." }}
 </div>
 {% endblock %}

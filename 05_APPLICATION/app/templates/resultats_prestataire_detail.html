@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Prestataire {{ prestataire_id }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/resultats/prestataires?mois={{ mois }}" class="back-link">← Prestataires</a>
+  <h1 class="page-title">{{ prestataire_id }}</h1>
+  <p class="page-subtitle">
+    <a href="/resultats/fournisseurs/{{ prestataire_id }}">Voir la vue comptable de ce tiers (fournisseur)</a>
+  </p>
+</div>
+
+{% if resultat.statut != "OK" %}
+<div class="alert alert-warning">NON_DISPONIBLE — aucun ménage pour ce prestataire/cette période.</div>
+{% else %}
+<div class="kpi-grid mb-md">
+  <div class="kpi-card"><div class="kpi-label">Coût prévu total</div><div class="kpi-value">{{ "%.2f"|format(resultat.cout_prevu_total) }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Coût réel total</div><div class="kpi-value">{{ "%.2f"|format(resultat.cout_reel_total) }}</div></div>
+</div>
+<div class="table-container">
+  <table class="data-table">
+    <thead><tr><th>Ménage</th><th>Mois</th><th>Logement</th><th>Type</th><th class="num">Coût prévu</th><th class="num">Coût réel</th><th>Statut</th><th>Charge</th><th>Facture</th></tr></thead>
+    <tbody>
+      {% for m in resultat.lignes %}
+      <tr>
+        <td>{{ m.menage_id_opaque }}</td>
+        <td>{{ m.mois }}</td>
+        <td>{{ m.logement_id }}</td>
+        <td>{{ m.type_menage }}</td>
+        <td class="num">{{ "%.2f"|format(m.cout_prevu) if m.cout_prevu is not none else "—" }}</td>
+        <td class="num">{{ "%.2f"|format(m.cout_reel) if m.cout_reel is not none else "—" }}</td>
+        <td><span class="badge">{{ m.statut }}</span></td>
+        <td>{{ m.charge_id or "—" }}</td>
+        <td>{% if m.facture_id_opaque %}<a href="/factures/{{ m.facture_id_opaque }}">{{ m.facture_id_opaque }}</a>{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

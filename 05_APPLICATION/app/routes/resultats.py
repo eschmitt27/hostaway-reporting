@@ -17,6 +17,7 @@ from fastapi.templating import Jinja2Templates
 from app.config import TEMPLATES_DIR
 from app.services import comptabilite_analytique_service as ana
 from app.services import comptabilite_auxiliaires_service as aux
+from app.services import comptabilite_axes_service as axes
 from app.services import comptabilite_ecritures_service as compta
 from app.services import comptabilite_periodes_service as per
 from app.services import comptabilite_reconciliations_service as recon
@@ -120,18 +121,88 @@ def resultats_proprietaire_detail(request: Request, proprietaire_id: str, mois: 
 
 @router.get("/resultats/plateformes", response_class=HTMLResponse)
 def resultats_plateformes(request: Request):
-    """Aucune dimension plateforme n'est peuplée à ce stade (ni Lot10 lu ici, ni les écritures) —
-    écran honnête : NON_DISPONIBLE affiché explicitement, jamais un tableau de zéros."""
+    """Aucune dimension plateforme fiable n'est peuplée à ce stade — écran honnête :
+    NON_DISPONIBLE affiché explicitement avec sa raison, jamais un tableau de zéros."""
+    res = axes.plateformes()
     return templates.TemplateResponse(request, "resultats_plateformes.html", {
-        "active_menu": "resultats", "statut": ana.NON_DISPONIBLE,
+        "active_menu": "resultats", "statut": res["statut"], "raison": res.get("raison"),
+    })
+
+
+@router.get("/resultats/plateformes/{plateforme_id}", response_class=HTMLResponse)
+def resultats_plateforme_detail(request: Request, plateforme_id: str):
+    res = axes.plateformes()
+    return templates.TemplateResponse(request, "resultats_plateformes.html", {
+        "active_menu": "resultats", "statut": res["statut"], "raison": res.get("raison"),
+        "plateforme_id": plateforme_id,
     })
 
 
 @router.get("/resultats/fournisseurs", response_class=HTMLResponse)
 def resultats_fournisseurs(request: Request):
-    synthese = aux.synthese()
+    res = axes.fournisseurs()
     return templates.TemplateResponse(request, "resultats_fournisseurs.html", {
-        "active_menu": "resultats", "fournisseurs": synthese.get(aux.FAMILLE_FOURNISSEUR, []),
+        "active_menu": "resultats", "fournisseurs": res.get("lignes", []),
+    })
+
+
+@router.get("/resultats/fournisseurs/{fournisseur_id_opaque}", response_class=HTMLResponse)
+def resultats_fournisseur_detail(request: Request, fournisseur_id_opaque: str):
+    res = axes.fournisseur_detail(fournisseur_id_opaque)
+    return templates.TemplateResponse(request, "resultats_fournisseur_detail.html", {
+        "active_menu": "resultats", "fournisseur_id_opaque": fournisseur_id_opaque, "resultat": res,
+    })
+
+
+@router.get("/resultats/categories", response_class=HTMLResponse)
+def resultats_categories(request: Request):
+    res = axes.categories()
+    return templates.TemplateResponse(request, "resultats_categories.html", {
+        "active_menu": "resultats", "resultat": res,
+    })
+
+
+@router.get("/resultats/categories/{categorie}", response_class=HTMLResponse)
+def resultats_categorie_detail(request: Request, categorie: str):
+    res = axes.categorie_detail(categorie)
+    return templates.TemplateResponse(request, "resultats_categorie_detail.html", {
+        "active_menu": "resultats", "categorie": categorie, "resultat": res,
+    })
+
+
+@router.get("/resultats/prestataires", response_class=HTMLResponse)
+def resultats_prestataires(request: Request, mois: str = ""):
+    mois = _mois_defaut(mois) or mois
+    res = axes.prestataires(mois=mois)
+    return templates.TemplateResponse(request, "resultats_prestataires.html", {
+        "active_menu": "resultats", "mois": mois, "resultat": res,
+    })
+
+
+@router.get("/resultats/prestataires/{prestataire_id}", response_class=HTMLResponse)
+def resultats_prestataire_detail(request: Request, prestataire_id: str, mois: str = ""):
+    res = axes.prestataire_detail(prestataire_id, mois=mois)
+    return templates.TemplateResponse(request, "resultats_prestataire_detail.html", {
+        "active_menu": "resultats", "prestataire_id": prestataire_id, "mois": mois, "resultat": res,
+    })
+
+
+@router.get("/resultats/activites", response_class=HTMLResponse)
+def resultats_activites(request: Request):
+    """Aucune taxonomie d'activité documentée n'existe (`type_flux_id` est une classification
+    technique fine, pas un regroupement métier) — NON_DISPONIBLE assumé, jamais inventé."""
+    res = axes.activites()
+    return templates.TemplateResponse(request, "resultats_activites.html", {
+        "active_menu": "resultats", "statut": res["statut"], "raison": res.get("raison"),
+    })
+
+
+@router.get("/resultats/activites/{activite_id}", response_class=HTMLResponse)
+def resultats_activite_detail(request: Request, activite_id: str):
+    res = axes.activites()
+    return templates.TemplateResponse(request, "resultats_activites.html", {
+        "active_menu": "resultats", "statut": res["statut"], "raison": res.get("raison"),
+        "activite_id": activite_id,
     })
 
 
