@@ -56,12 +56,16 @@ def resultats_files(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _env(tmp_db, monkeypatch):
+def _env(tmp_db, tmp_path, monkeypatch):
     monkeypatch.setattr(cfg, "RECETTE_MODE", True)
     monkeypatch.setattr(cfg, "FACTURES_REAL_WRITE_ENABLED", True)
     monkeypatch.setattr(cfg, "FACTURES_REAL_WRITE_CONFIRMATION_ENABLED", True)
     monkeypatch.setattr(cfg, "COMPTABILITE_REAL_WRITE_ENABLED", True)
     monkeypatch.setattr(cfg, "COMPTABILITE_REAL_WRITE_CONFIRMATION_ENABLED", True)
+    # Isolation : le worktree réel porte un vrai MASTER_CALC_Flux.xlsx (Lot9) — sans ce
+    # monkeypatch, la réconciliation Lot9↔Lot10 lirait de vraies données au lieu d'être testée
+    # de façon déterministe.
+    monkeypatch.setattr(cfg, "MASTER_CALC_FLUX", tmp_path / "absent_flux.xlsx")
     return tmp_db
 
 

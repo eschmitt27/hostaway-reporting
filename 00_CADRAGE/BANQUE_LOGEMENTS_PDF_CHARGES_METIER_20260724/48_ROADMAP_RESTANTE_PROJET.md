@@ -40,9 +40,9 @@ l'état, ce document pour le reste à faire.
 | **Règlements** | TERMINÉ | `34` — total/partiel/multiple/groupé, annulation, statuts dérivés | — | — | atteint |
 | **Banque** | TERMINÉ | `30`, `31` — import, rapprochement, suggestions, contrôles | — | — | atteint |
 | **Comptabilité** | **TERMINÉ (cœur opérationnel)** | `43`, `45`, `46`, `47`, `49`, `50` — 5 journaux (ACHATS/VENTES/BANQUE/CAISSE/ODIVERSES), équilibre, idempotence, contrepassation, auxiliaires (fournisseurs/propriétaires/associés), périodes et clôture comptable, rapprochement comptable, recette navigateur, mapping catégorie→compte **relié** à la génération réelle (`0024`) | plan de comptes détaillé à arbitrer (reste PROVISOIRE, affiché comme tel) ; facture propriétaire comme objet applicatif (VENTES reste un adaptateur en lecture) | Facturation (VENTES, fait via adaptateur) | atteint pour le périmètre défini — reste PROVISOIRE sur le plan de comptes, assumé |
-| **Analytique** | **TERMINÉ (périmètre défini)** | `50`, `51` — mappings branchés, dimensions peuplées (ACHATS/VENTES), moteur de lecture Lot10 (mesures/axes/drill-down), 7 réconciliations sur 8 | axes plateforme/réservation/fournisseur/prestataire/catégorie/activité non peuplés ; réconciliation Lot9↔Lot10 non construite (redondante moteur) ; répartition pool multi-logements (case C, gap Ménages) | — | atteint pour le périmètre défini |
+| **Analytique** | PARTIEL (réconciliations 8/8, axes en cours) | `50`, `51` — mappings branchés, dimensions peuplées (ACHATS/VENTES), moteur de lecture Lot10, **8 réconciliations sur 8** (Lot9↔Lot10 fermée) | axes plateforme/fournisseur/prestataire/catégorie/activité non peuplés ; répartition pool multi-logements (case C, gap Ménages) | — | axes analytiques peuplés (source disponible) ou `NON_DISPONIBLE` assumé |
 | **Résultats** | **TERMINÉ (périmètre défini)** | `52` — 14 routes `/resultats/*`, drill-down jusqu'à l'écriture, export CSV, recette navigateur avec persistance | export XLSX/Power BI ; écran de delta chiffré dédié entre visions ; tout ce qui dépend d'axes non peuplés | — | atteint pour le périmètre défini |
-| **Contrôles** | PARTIEL | catalogues Banque, Factures, Ménages, Charges, **Comptabilité** (`49`, 15 codes) livrés ; **7 réconciliations globales sur 8** (`51`) | contrôles inter-lots ; réconciliation Lot9↔Lot10 (assumée non disponible) | — | réconciliations à 0,01 € — atteint pour le périmètre défini |
+| **Contrôles** | PARTIEL | catalogues Banque, Factures, Ménages, Charges, **Comptabilité** (`49`, 15 codes) livrés ; **8 réconciliations globales sur 8** (`51`, Lot9↔Lot10 fermée) | contrôles inter-lots | — | réconciliations à 0,01 € — atteint |
 | **Clôture** | PARTIEL | `36`, `37` — clôture applicative du pilotage des calculs, 7 statuts, VALIDEE atteinte ; **clôture comptable** (`49`) — 5 statuts, période clôturée refuse toute écriture directe, réouverture justifiée | réconciliation globale entre les deux clôtures | Analytique | atteint pour la clôture comptable elle-même |
 | **Power BI** | TERMINÉ | `38` — 11 exports + dictionnaire, filet de confidentialité, contrat verrouillé | exports analytiques éventuels | Analytique | atteint pour le périmètre actuel |
 | **Mode réel** | NON ACTIVÉ | `GUIDE_ACTIVATION_MODE_REEL.md` — checklist GO/NO GO, verdict **NO GO** | sauvegarde des sources ; recette sur copies ; activation module par module | tout le reste | GO franchi, un module à la fois |
@@ -75,11 +75,10 @@ l'état, ce document pour le reste à faire.
    plateforme/fournisseur/prestataire/catégorie/activité, non peuplés faute de source.
 5. **Construire les Résultats** — **fait** (2026-07-31, cf. `52`) : 14 routes, drill-down jusqu'à
    l'écriture, export CSV, recette navigateur avec persistance.
-6. **Construire les réconciliations** — **fait, 7 sur 8** (cf. `51`) : Lot10↔Analytique,
-   Analytique↔Comptabilité, Banque↔journal BANQUE, Factures↔auxiliaires, Ménages↔charges,
-   Commissions↔VENTES Lot12, total analytique↔résultat global. Reste : Lot9↔Lot10 (assumé non
-   disponible, redondant avec les contrôles déjà portés par le moteur Lot10). Tolérance **0,01 €**
-   appliquée partout où c'est pertinent.
+6. **Construire les réconciliations** — **fait, 8 sur 8** (cf. `51` suite, 2026-08-01) : Lot9↔Lot10,
+   Lot10↔Analytique, Analytique↔Comptabilité, Banque↔journal BANQUE, Factures↔auxiliaires,
+   Ménages↔charges, Commissions↔VENTES Lot12, total analytique↔résultat global. Tolérance
+   **0,01 €** appliquée partout où c'est pertinent.
 7. **Recette globale sur copies** des données réelles (jamais en écriture).
 8. **Validation humaine** — arbitrages métier en attente (plan de comptes, axes analytiques restants).
 9. **Activation progressive du mode réel**, module par module, selon `GUIDE_ACTIVATION_MODE_REEL.md`.

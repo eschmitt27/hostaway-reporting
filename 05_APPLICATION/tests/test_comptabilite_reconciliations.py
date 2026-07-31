@@ -27,9 +27,11 @@ def db(tmp_path, monkeypatch):
     return p
 
 
-# ── A. Lot9 ↔ Lot10 : toujours NON_DISPONIBLE, honnêtement ───────────────────
+# ── A. Lot9 ↔ Lot10 : NON_DISPONIBLE si MASTER_CALC_Flux absent ──────────────
+# Implémentation complète et tests dédiés : test_comptabilite_reconciliation_lot9_lot10.py.
 
-def test_lot9_vs_lot10_non_disponible():
+def test_lot9_vs_lot10_non_disponible_si_source_absente(tmp_path, monkeypatch):
+    monkeypatch.setattr(cfg, "MASTER_CALC_FLUX", tmp_path / "absent.xlsx")
     res = recon.lot9_vs_lot10()
     assert res["statut"] == recon.ST_NON_DISPONIBLE
     assert "raison" in res

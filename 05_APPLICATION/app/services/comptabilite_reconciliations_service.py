@@ -11,6 +11,10 @@ from typing import Any
 from app.db.connection import get_db
 
 TOLERANCE = 0.01
+# Même sentinelle que `lot10_calculer_resultats.SENTINEL_GLOBAL` : un flux sans logement_id est
+# rattaché à cette clé par Lot10 (jamais laissé "vide" dans le groupby), la réconciliation doit
+# utiliser exactement la même convention pour comparer des grains compatibles.
+SENTINEL_GLOBAL_LOT10 = "GLOBAL_NON_AFFECTE"
 
 ST_OK = "OK"
 ST_ECART_TOLERE = "ECART_TOLERE"
@@ -36,16 +40,102 @@ def _resultat(montant_gauche: float | None, montant_droit: float | None, *, libe
 
 # ── A. Lot9 ↔ Lot10 ──────────────────────────────────────────────────────────
 
-def lot9_vs_lot10(*, mois: str = "") -> dict[str, Any]:
-    """Non disponible : aucun lecteur Lot9 n'existe à ce niveau applicatif (SQLite/app). Les
-    contrôles Lot9↔Lot10 existent déjà dans le moteur (CTR-LOT10-*, cf. `lot10_calculer_resultats.py`)
-    — les répliquer ici recalculerait ce que le moteur contrôle déjà. Signalé honnêtement plutôt
-    qu'improvisé."""
-    return {"statut": ST_NON_DISPONIBLE, "libelle_gauche": "Lot9 (VUE_FLUX)",
-            "libelle_droit": "Lot10 (résultats)", "montant_gauche": None, "montant_droit": None,
-            "ecart": None, "tolerance": TOLERANCE, "detail": [],
-            "raison": "Aucun lecteur Lot9 au niveau applicatif — contrôle déjà porté par le moteur "
-                      "(CTR-LOT10-*), pas dupliqué ici."}
+def _mois_flux(v: Any) -> str:
+    import datetime as _dt
+    if v is None:
+        return ""
+    if isinstance(v, (_dt.datetime, _dt.date)):
+        return v.strftime("%Y-%m")
+    return str(v)[:7]
+
+
+def _montant(v: Any) -> float:
+    try:
+        return float(v or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def lot9_vs_lot10(*, mois: str = "", vision: str = "REEL", logement_id: str = "") -> dict[str, Any]:
+    """Compare le grain déjà produit par Lot9 (`MASTER_CALC_Flux`, flux signés par `sens`
+    PRODUIT/CHARGE/NEUTRALISATION, filtrés par `inclure_resultat_<vision>`) à ce que Lot10 en a
+    tiré (`PAR_MOIS_LOGEMENT`). Ne recalcule PAS Lot10 : applique la MÊME règle de filtrage que
+    `lot10_calculer_resultats.build_resultats` documente elle-même (mêmes noms de colonnes, même
+    sens) pour vérifier que la somme correspond — un audit de cohérence, pas un second moteur.
+    Ne modifie jamais Lot9. `NON_DISPONIBLE` uniquement si `MASTER_CALC_Flux.xlsx` n'existe pas
+    encore (Lot9 pas encore exécuté sur ce jeu)."""
+    from app.readers import lot9_flux_reader as lot9
+    from app.services import comptabilite_analytique_service as ana
+
+    if not lot9.disponible():
+        return {"statut": ST_NON_DISPONIBLE, "libelle_gauche": "Lot9 (MASTER_CALC_Flux)",
+                "libelle_droit": "Lot10 (PAR_MOIS_LOGEMENT)", "montant_gauche": None,
+                "montant_droit": None, "ecart": None, "tolerance": TOLERANCE, "detail": [],
+                "raison": "MASTER_CALC_Flux.xlsx absent — Lot9 n'a pas encore été exécuté sur ce jeu."}
+
+    colonne_vision = lot9.VISION_COLONNE.get(vision)
+    if colonne_vision is None:
+        return {"statut": ST_NON_DISPONIBLE, "libelle_gauche": "Lot9 (MASTER_CALC_Flux)",
+                "libelle_droit": "Lot10 (PAR_MOIS_LOGEMENT)", "montant_gauche": None,
+                "montant_droit": None, "ecart": None, "tolerance": TOLERANCE, "detail": [],
+                "raison": f"Vision inconnue : {vision}"}
+
+    lignes = lot9.lire_flux()
+    par_cle: dict[tuple, float] = {}
+    doublons: list[dict[str, Any]] = []
+    vus_hash: set[str] = set()
+    for r in lignes:
+        m = _mois_flux(r.get("mois"))
+        if mois and m != mois:
+            continue
+        lg = str(r.get("logement_id") or "").strip() or SENTINEL_GLOBAL_LOT10
+        if logement_id and lg != logement_id:
+            continue
+        if str(r.get(colonne_vision) or "").strip().upper() != "OUI":
+            continue
+        row_hash = r.get("ROW_HASH")
+        if row_hash:
+            if row_hash in vus_hash:
+                doublons.append({"flux_id": r.get("flux_id"), "row_hash": row_hash})
+                continue
+            vus_hash.add(row_hash)
+        sens = str(r.get("sens") or "").strip().upper()
+        montant = _montant(r.get("montant"))
+        if sens == "PRODUIT":
+            signe = 1.0
+        elif sens == "CHARGE":
+            signe = -1.0
+        else:
+            continue   # NEUTRALISATION : exclu du résultat, comme dans Lot10
+        cle = (m, lg)
+        par_cle[cle] = par_cle.get(cle, 0.0) + signe * montant
+
+    gauche = round(sum(par_cle.values()), 2)
+
+    m_log = ana.mesures_par_logement(mois=mois, vision=vision)
+    if m_log["statut"] != "OK":
+        return {"statut": ST_NON_DISPONIBLE, "libelle_gauche": "Lot9 (MASTER_CALC_Flux, filtré)",
+                "libelle_droit": "Lot10 (PAR_MOIS_LOGEMENT)", "montant_gauche": gauche,
+                "montant_droit": None, "ecart": None, "tolerance": TOLERANCE, "detail": [],
+                "raison": "Lot10 (PAR_MOIS_LOGEMENT) indisponible pour ce mois/cette vision."}
+
+    lignes_lot10 = [l for l in m_log["lignes"]
+                   if not logement_id or l["logement_id"] == logement_id]
+    droit = round(sum(l["resultat"] for l in lignes_lot10), 2)
+
+    cles_lot9 = set(par_cle.keys())
+    cles_lot10 = {(l["mois"], l["logement_id"]) for l in lignes_lot10}
+    sans_lot10 = sorted(cles_lot9 - cles_lot10)
+    sans_lot9 = sorted(cles_lot10 - cles_lot9)
+    detail = ([{"cle_sans_lot10": c} for c in sans_lot10] +
+              [{"cle_sans_lot9": c} for c in sans_lot9] +
+              [{"doublon_lot9": d} for d in doublons])
+
+    res = _resultat(gauche, droit, libelle_gauche="Lot9 (MASTER_CALC_Flux, filtré)",
+                    libelle_droit="Lot10 (PAR_MOIS_LOGEMENT)", detail=detail)
+    if detail and res["statut"] == ST_OK:
+        res["statut"] = ST_A_CONTROLER
+    return res
 
 
 # ── B. Lot10 ↔ Analytique ────────────────────────────────────────────────────

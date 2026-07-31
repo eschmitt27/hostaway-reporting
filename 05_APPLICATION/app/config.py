@@ -27,6 +27,8 @@ MASTER_RUN_LOG = TRAVAIL / "Lot1_Hostaway" / "MASTER_RUN_Log.xlsx"
 # Charges / Fournisseurs (APP-3a) — LECTURE SEULE
 MASTER_CHARGES = TRAVAIL / "Lot3_Charges" / "MASTER_FACT_MAN_Charges.xlsx"
 SAISIE_CHARGES = SOURCES_BRUTES / "Charges" / "SAISIE_Charges_Flux.xlsx"
+# Lot9 — flux unifiés (mission Analytique/Résultats, réconciliation Lot9↔Lot10) — LECTURE SEULE
+MASTER_CALC_FLUX = TRAVAIL / "Lot9_FluxUnifie" / "MASTER_CALC_Flux.xlsx"
 # Source de vérité durable des impacts analytiques d'une charge (saisie, distincte des masters calc).
 # Onglets normalisés liés par charge_id : AFFECTATIONS, MENAGE, RESERVE_REFACTURATION.
 SAISIE_CHARGES_IMPACTS = SOURCES_BRUTES / "Charges" / "SAISIE_Charges_Impacts.xlsx"

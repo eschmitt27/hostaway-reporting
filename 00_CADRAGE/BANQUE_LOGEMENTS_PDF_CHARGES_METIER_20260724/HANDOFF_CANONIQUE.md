@@ -9,15 +9,15 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 |---|---|
 | Worktree | `C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Worktrees\BANQUE_LOGEMENTS_PDF_CHARGES_METIER` |
 | Branche | `feature/banque-logements-pdf-charges-metier` |
-| État figé le | **2026-07-31** — Phase 3 de la mission Analytique/Résultats : écrans Résultats livrés (cf. `52`) — mission complète |
-| Dernier commit stable avant ce tour | `fd2845f` — `feat(analytique): moteur analytique et reconciliations (Phase 2)` |
+| État figé le | **2026-08-01** — fermeture de la mission Analytique/Résultats : réconciliation Lot9↔Lot10 construite, **réconciliations 8/8** (cf. `51` suite) |
+| Dernier commit stable avant ce tour | `bef5609` — `feat(resultats): ecrans Resultats - Phase 3, mission Analytique/Resultats complete` |
 | HEAD | vérifier avec `git log -1` — ce fichier est mis à jour par le commit qui le porte, dont le SHA ne peut donc pas y figurer |
 | git status | propre (`data_recette/` ignoré, régénérable) |
 | master / canonique | **intacts, jamais touchés** (`master` = `8b47807`) |
 | Sources réelles | inchangées, **une exception assumée** : `02_TRAVAIL/lot13_export_powerbi.py`, sur décision utilisateur explicite (renommage de la colonne d'export). Aucune donnée réelle touchée ; toutes les écritures de recette restent sous `data_recette/` |
-| Suite complète (dernier total constaté) | **2166 passés / 76 ignorés / 2 échecs pré-existants** avant ce tour (`test_appsec1_diagnostic` ; `test_proprietaires_reglements.py::test_route_dashboard_200`, flake ordre-dépendant confirmé antérieur via `git stash` sur `9bb24a7`, cf. `JOURNAL_ANOMALIES.md` 2026-07-29 — reproduit à l'identique à plusieurs reprises ce tour, toujours sans lien). Suite ciblée Comptabilité+Résultats rejouée après Phase 3 : **184 passés, 0 échec**. Suite complète en 4 tranches : `python -m pytest -q -p no:cacheprovider $(ls tests/test_*.py \| awk 'NR%4==1')`, puis `==2`, `==3`, `==0` (la tranche `==0` demande parfois une scission en deux moitiés, l'environnement l'ayant tuée en run unique — sans lien avec le contenu des tests) |
+| Suite complète (dernier total constaté) | **2166 passés / 76 ignorés / 2 échecs pré-existants** avant ce tour (`test_appsec1_diagnostic` ; `test_proprietaires_reglements.py::test_route_dashboard_200`, flake ordre-dépendant confirmé antérieur via `git stash` sur `9bb24a7`, cf. `JOURNAL_ANOMALIES.md` 2026-07-29 — reproduit à l'identique à plusieurs reprises, toujours sans lien). Suite ciblée Comptabilité+Résultats rejouée après réconciliation Lot9↔Lot10 : **195 passés, 0 échec**. **Suite complète non rejouée intégralement ce tour** (statut : voir le manifeste de shards si construit, sinon INCOMPLÈTE) — l'environnement tue fréquemment les runs de tranche complète (cf. note ci-dessous), la vérification s'est portée sur la suite ciblée Comptabilité/Résultats/Analytique. Suite complète en 4 tranches : `python -m pytest -q -p no:cacheprovider $(ls tests/test_*.py \| awk 'NR%4==1')`, puis `==2`, `==3`, `==0` — scinder en quarts (`split -n l/4`) si un run se fait tuer, ce qui arrive indépendamment du contenu des tests |
 | Documents transverses | `MATRICE_ETAT_MODULES.md` (état livré) · **`48_ROADMAP_RESTANTE_PROJET.md` (trajectoire)** · `GUIDE_ACTIVATION_MODE_REEL.md` (verdict **NO GO**) |
-| **Avancement global estimé** | **75 %**, marge ± 4 points. Plafond : aucun pourcentage > 85 % tant que le périmètre restant (facturation propriétaire/tiers, plan de comptes détaillé, axes analytiques non peuplés, mode réel) n'est pas tranché. Comptabilité TERMINÉE (`49`) ; Analytique + Résultats **TERMINÉS pour le périmètre défini** (`50`, `51`, `52`). |
+| **Avancement global estimé** | **76 %**, marge ± 4 points. Plafond : aucun pourcentage > 85 % tant que le périmètre restant (axes analytiques non peuplés, plan de comptes détaillé, facturation propriétaire/tiers, mode réel, suite complète non rejouée intégralement) n'est pas tranché. Comptabilité TERMINÉE (`49`). Analytique : réconciliations **8/8** faites, axes plateforme/fournisseur/prestataire/catégorie/activité **restent à construire** (cf. Bloc 3 en cours). Résultats : écrans du périmètre initial livrés (`52`), écrans par axe restant liés au Bloc 3. |
 
 ## Périmètre restant avant achèvement
 
@@ -144,7 +144,36 @@ tous écarts à 0,00. Détail dans `38_LOT13_CONTRAT_EXPORT_POWERBI.md`.
 | | |
 |---|---|
 | Modules terminés | Logements, Banque, Fournisseurs-Factures-Règlements, Pilotage des calculs (chaîne aval complète), Charges exercée |
-| Module actif | *(mission Analytique/Résultats terminée pour son périmètre. Prochain tour, sur décision utilisateur : soit peupler les axes analytiques restants (plateforme/fournisseur/prestataire/catégorie/activité), soit arbitrer le plan de comptes détaillé, soit facturation propriétaire/tiers comme objets applicatifs, soit démarrer l'activation progressive du mode réel module par module. Ne rien commencer sans instruction explicite.)* |
+| Module actif | *(en cours — Bloc 3 : peupler les axes analytiques fournisseur/catégorie (sources réelles disponibles) ; plateforme/prestataire/activité NON_DISPONIBLE assumé si aucune source fiable. Puis Blocs 4-9 : écrans par axe, drill-down, exports, recette navigateur étendue, campagne de tests par shards. Ne pas démarrer le mode réel ni une autre mission.)* |
+
+## ✅ Mission 10 de ce tour — Fermeture réconciliation Lot9↔Lot10 (8/8), en cours : axes analytiques
+
+Continuation autonome après vérification préalable complète (worktree, branche, HEAD `bef5609`,
+master `8b47807`, git status propre, lecture intégrale de `HANDOFF_CANONIQUE.md`/`48`/`49`/`50`/
+`51`/`52`). Audit ciblé (Bloc 1) : `MASTER_CALC_Flux.xlsx` (Lot9, 22 colonnes documentées dans
+`lot9_construire_flux.py`) porte déjà `mois`/`logement_id`/`sens`/`montant`/
+`inclure_resultat_<vision>` — exactement les colonnes que `lot10_calculer_resultats.build_resultats`
+lit pour produire `PAR_MOIS_LOGEMENT`. Aucun lecteur applicatif n'existait pour ce fichier — seul
+manque réel identifié pour fermer la réconciliation A.
+
+**Bloc 2 — Réconciliation Lot9↔Lot10 construite** : `app/readers/lot9_flux_reader.py` (lecture
+seule) + `cfg.MASTER_CALC_FLUX` (additif) ; `comptabilite_reconciliations_service.lot9_vs_lot10`
+réimplémentée (l'ancienne version renvoyait toujours `NON_DISPONIBLE`). Grain `(mois, logement_id)`,
+même sentinelle `GLOBAL_NON_AFFECTE` que Lot10, `NEUTRALISATION` exclue, doublons de `ROW_HASH`
+détectés et signalés (jamais masqués même si les totaux coïncident). 11 tests dédiés. Un test
+existant (`test_lot9_vs_lot10_non_disponible`) supposait à tort une absence permanente de source —
+corrigé pour isoler `cfg.MASTER_CALC_FLUX` explicitement (le vrai worktree porte un vrai fichier
+Lot9, lisible en lecture seule, ce qui rendait le test non déterministe sans ce monkeypatch — même
+catégorie de correction que pour `test_resultats_routes.py`).
+
+**Les 8 réconciliations sont désormais toutes implémentées.** Suite ciblée Comptabilité+Résultats
+rejouée : 195 passés, 0 échec.
+
+**Décision explicite, non entreprise ce tour** : Blocs 3-9 (axes analytiques, écrans par axe,
+drill-down étendu, exports par axe, recette navigateur 30 étapes, campagne de tests par shards) —
+en cours au moment de cette mise à jour, cf. section suivante du handoff pour la suite exacte.
+
+Détail complet : `51_MOTEUR_ANALYTIQUE_ET_RECONCILIATIONS.md` (section « Suite »).
 
 ## ✅ Mission 9 de ce tour — Phase 3 Analytique/Résultats : écrans Résultats — mission complète
 
