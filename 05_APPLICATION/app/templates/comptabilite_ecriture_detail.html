@@ -20,7 +20,19 @@
     <div><strong>Date</strong><br>{{ ecriture.date_ecriture }}</div>
     <div><strong>Période</strong><br>{{ ecriture.periode }}</div>
     <div><strong>Pièce</strong><br>{{ ecriture.piece or "—" }}</div>
-    <div><strong>Origine</strong><br>{{ ecriture.origine_type }} {{ ecriture.origine_id_opaque or "" }}</div>
+    <div><strong>Origine</strong><br>
+      {% if ecriture.origine_type == "FACTURE" %}
+        {{ ecriture.origine_type }} <a href="/factures/{{ ecriture.origine_id_opaque }}">{{ ecriture.origine_id_opaque }}</a>
+      {% elif ecriture.origine_type == "REGLEMENT" %}
+        {{ ecriture.origine_type }} <a href="/reglements/{{ ecriture.origine_id_opaque }}/rapprocher">{{ ecriture.origine_id_opaque }}</a>
+      {% elif ecriture.origine_type == "LOT12_PROPRIETAIRE_MOIS" %}
+        {{ ecriture.origine_type }} <a href="/proprietaires-reglements/{{ ecriture.origine_id_opaque.split(':')[0] }}">{{ ecriture.origine_id_opaque }}</a>
+      {% elif ecriture.origine_type == "RAPPROCHEMENT" %}
+        {{ ecriture.origine_type }} <a href="/comptabilite/rapprochement">{{ ecriture.origine_id_opaque }}</a>
+      {% else %}
+        {{ ecriture.origine_type }} {{ ecriture.origine_id_opaque or "" }}
+      {% endif %}
+    </div>
     <div><strong>Total débit</strong><br>{{ "%.2f"|format(ecriture.total_debit) }} €</div>
     <div><strong>Total crédit</strong><br>{{ "%.2f"|format(ecriture.total_credit) }} €</div>
     {% if ecriture.contrepasse_de %}<div><strong>Contrepasse</strong><br><a href="/comptabilite/ecritures/{{ ecriture.contrepasse_de }}">{{ ecriture.contrepasse_de }}</a></div>{% endif %}

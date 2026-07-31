@@ -23,7 +23,7 @@
     <tbody>
       {% for m in resultat.lignes %}
       <tr>
-        <td>{{ m.menage_id_opaque }}</td>
+        <td><a href="/menages/cycle/{{ m.menage_id_opaque }}">{{ m.menage_id_opaque }}</a></td>
         <td>{{ m.mois }}</td>
         <td>{{ m.logement_id }}</td>
         <td>{{ m.type_menage }}</td>
