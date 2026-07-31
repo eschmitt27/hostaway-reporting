@@ -39,11 +39,27 @@ catégorie relisent des services/lecteurs déjà réels, prestataire agrège dir
   d'inventer une taxonomie (activité).
 - Pagination/filtres avancés par axe : les listes actuelles ne paginent pas (volumes actuels
   faibles, cf. jeu de recette) — à ajouter si le volume réel le justifie.
-- Export CSV par axe : cf. `51`/`52` pour l'export dashboard existant ; les nouveaux axes n'ont pas
-  reçu leur propre bouton d'export dédié ce tour (l'export générique reste disponible pour
-  logement/mois/vision).
+
+## Drill-down (Bloc 5, 2026-07-31)
+
+L'écriture comptable affichait son origine (`FACTURE`/`REGLEMENT`/`LOT12_PROPRIETAIRE_MOIS`/
+`RAPPROCHEMENT`) en texte brut — la chaîne axe → mesure → écriture s'arrêtait là. Ajout de liens
+ciblés par `origine_type` vers l'objet réel (facture, règlement, fiche propriétaire, rapprochement)
+— aucun lien ajouté là où aucune route de détail n'existe (ex. `CHARGE`/`FACTURE_LIGNE` au niveau
+ventilation, laissés en texte). Fiche prestataire : `menage_id_opaque` rendu cliquable vers
+`/menages/cycle/{id}`. Aucune 404 sur objet existant ; 404 propre confirmée sur identifiant inconnu
+(écriture, ménage). 6 tests dédiés (`test_resultats_drilldown.py`).
+
+## Exports par axe (Bloc 6, 2026-07-31)
+
+CSV livrés : dashboard (global par vision), logement (grain `PAR_MOIS_LOGEMENT`, existant),
+propriétaire, fournisseur, prestataire, catégorie, réconciliation. Plateforme et activité n'ont pas
+d'export — cohérent avec `NON_DISPONIBLE` : aucune donnée à exporter. Aucun chemin absolu, aucun
+identifiant SQLite brut, aucune donnée bancaire dans ces exports (seuls les axes analytiques, pas le
+rapprochement bancaire lui-même). 8 tests dédiés (`test_resultats_exports_axes.py`).
 
 ## Tests
 
-`test_comptabilite_axes.py` (13), `test_resultats_axes_routes.py` (10) — 23 tests. Suite ciblée
-Comptabilité+Résultats+Axes rejouée : 246 passés, 0 échec.
+`test_comptabilite_axes.py` (13), `test_resultats_axes_routes.py` (10),
+`test_resultats_drilldown.py` (6), `test_resultats_exports_axes.py` (8) — 37 tests. Suite ciblée
+Comptabilité+Résultats+Axes rejouée : 93 passés, 0 échec (dernier sous-ensemble contrôlé).

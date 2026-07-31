@@ -12,6 +12,7 @@
   <form method="get" class="filters-row">
     <label>Mois <input type="text" name="mois" value="{{ mois }}" placeholder="2026-06"></label>
     <button type="submit" class="btn btn-primary">Appliquer</button>
+    <a href="/resultats/prestataires/export.csv?mois={{ mois }}" class="btn btn-ghost">Exporter CSV</a>
   </form>
 </div>
 

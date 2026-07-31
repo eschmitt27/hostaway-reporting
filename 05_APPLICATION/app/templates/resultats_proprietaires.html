@@ -18,6 +18,7 @@
         {% for v in ["REEL","COMPTABLE","HORS_COMPTA"] %}<option value="{{ v }}" {{ 'selected' if v == vision }}>{{ v }}</option>{% endfor %}
       </select></label>
     <button type="submit" class="btn btn-primary">Appliquer</button>
+    <a href="/resultats/proprietaires/export.csv?mois={{ mois }}&vision={{ vision }}" class="btn btn-ghost">Exporter CSV</a>
   </form>
 </div>
 

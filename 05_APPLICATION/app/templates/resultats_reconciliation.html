@@ -14,6 +14,7 @@
         {% for m in mois_disponibles %}<option value="{{ m }}" {{ 'selected' if m == mois }}>{{ m }}</option>{% endfor %}
       </select></label>
     <button type="submit" class="btn btn-primary">Appliquer</button>
+    <a href="/resultats/reconciliation/export.csv?mois={{ mois }}" class="btn btn-ghost">Exporter CSV</a>
   </form>
 </div>
 

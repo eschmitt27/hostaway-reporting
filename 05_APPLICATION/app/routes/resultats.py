@@ -108,6 +108,18 @@ def resultats_proprietaires(request: Request, mois: str = "", vision: str = "REE
     })
 
 
+@router.get("/resultats/proprietaires/export.csv")
+def resultats_proprietaires_export_csv(mois: str = "", vision: str = "REEL"):
+    mois = _mois_defaut(mois)
+    par_proprietaire = ana.mesures_par_proprietaire(mois=mois, vision=vision)
+    lignes = [[l["mois"], l["proprietaire_id"], l["vision"], l["total_produits"],
+              l["total_charges"], l["resultat"], l["nb_flux"]]
+             for l in par_proprietaire.get("lignes", [])]
+    return _csv_response(f"resultats_proprietaires_{mois or 'aucun_mois'}_{vision}",
+        ["mois", "proprietaire_id", "vision", "total_produits", "total_charges", "resultat", "nb_flux"],
+        lignes)
+
+
 @router.get("/resultats/proprietaires/{proprietaire_id}", response_class=HTMLResponse)
 def resultats_proprietaire_detail(request: Request, proprietaire_id: str, mois: str = ""):
     mois = _mois_defaut(mois)
@@ -146,6 +158,15 @@ def resultats_fournisseurs(request: Request):
     })
 
 
+@router.get("/resultats/fournisseurs/export.csv")
+def resultats_fournisseurs_export_csv():
+    res = axes.fournisseurs()
+    lignes = [[f["auxiliaire"], f["debit"], f["credit"], f["solde"]]
+             for f in res.get("lignes", [])]
+    return _csv_response("resultats_fournisseurs",
+        ["fournisseur_id_opaque", "debit", "credit", "solde"], lignes)
+
+
 @router.get("/resultats/fournisseurs/{fournisseur_id_opaque}", response_class=HTMLResponse)
 def resultats_fournisseur_detail(request: Request, fournisseur_id_opaque: str):
     res = axes.fournisseur_detail(fournisseur_id_opaque)
@@ -160,6 +181,13 @@ def resultats_categories(request: Request):
     return templates.TemplateResponse(request, "resultats_categories.html", {
         "active_menu": "resultats", "resultat": res,
     })
+
+
+@router.get("/resultats/categories/export.csv")
+def resultats_categories_export_csv():
+    res = axes.categories()
+    lignes = [[c["categorie"], c["montant"], c["nb"]] for c in res.get("lignes", [])]
+    return _csv_response("resultats_categories", ["categorie", "montant", "nb"], lignes)
 
 
 @router.get("/resultats/categories/{categorie}", response_class=HTMLResponse)
@@ -177,6 +205,16 @@ def resultats_prestataires(request: Request, mois: str = ""):
     return templates.TemplateResponse(request, "resultats_prestataires.html", {
         "active_menu": "resultats", "mois": mois, "resultat": res,
     })
+
+
+@router.get("/resultats/prestataires/export.csv")
+def resultats_prestataires_export_csv(mois: str = ""):
+    mois = _mois_defaut(mois) or mois
+    res = axes.prestataires(mois=mois)
+    lignes = [[p["prestataire_id"], p["nb_menages"], p["cout_prevu"], p["cout_reel"],
+              p["ecart"], p["nb_logements"]] for p in res.get("lignes", [])]
+    return _csv_response(f"resultats_prestataires_{mois or 'tous_mois'}",
+        ["prestataire_id", "nb_menages", "cout_prevu", "cout_reel", "ecart", "nb_logements"], lignes)
 
 
 @router.get("/resultats/prestataires/{prestataire_id}", response_class=HTMLResponse)
@@ -295,17 +333,53 @@ def resultats_ligne_detail(ecriture_id_opaque: str):
     return RedirectResponse(url=f"/comptabilite/ecritures/{ecriture_id_opaque}", status_code=303)
 
 
-@router.get("/resultats/export.csv")
-def resultats_export_csv(mois: str = "", vision: str = "REEL"):
-    mois = mois or (ana.mois_disponibles()[-1] if ana.mois_disponibles() else "")
-    par_logement = ana.mesures_par_logement(mois=mois, vision=vision)
+def _csv_response(nom: str, entetes: list[str], lignes: list[list]) -> StreamingResponse:
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["mois", "logement_id", "proprietaire_id", "vision", "total_produits",
-               "total_charges", "resultat", "nb_flux"])
-    for l in par_logement.get("lignes", []):
-        w.writerow([l["mois"], l["logement_id"], l["proprietaire_id"], l["vision"],
-                   l["total_produits"], l["total_charges"], l["resultat"], l["nb_flux"]])
+    w.writerow(entetes)
+    for l in lignes:
+        w.writerow(l)
     buf.seek(0)
-    return StreamingResponse(buf, media_type="text/csv", headers={
-        "Content-Disposition": f'attachment; filename="resultats_{mois or "aucun_mois"}_{vision}.csv"'})
+    return StreamingResponse(buf, media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{nom}.csv"'})
+
+
+@router.get("/resultats/export.csv")
+def resultats_export_csv(mois: str = "", vision: str = "REEL"):
+    """Export logement — grain `PAR_MOIS_LOGEMENT`, filtré mois/vision."""
+    mois = mois or (ana.mois_disponibles()[-1] if ana.mois_disponibles() else "")
+    par_logement = ana.mesures_par_logement(mois=mois, vision=vision)
+    lignes = [[l["mois"], l["logement_id"], l["proprietaire_id"], l["vision"],
+              l["total_produits"], l["total_charges"], l["resultat"], l["nb_flux"]]
+             for l in par_logement.get("lignes", [])]
+    return _csv_response(f"resultats_logements_{mois or 'aucun_mois'}_{vision}",
+        ["mois", "logement_id", "proprietaire_id", "vision", "total_produits",
+         "total_charges", "resultat", "nb_flux"], lignes)
+
+
+@router.get("/resultats/dashboard/export.csv")
+def resultats_dashboard_export_csv():
+    """Export dashboard — grain global par vision (`GLOBAL`), sans recalcul."""
+    globales = ana.mesures_globales()
+    lignes = [[v, d["total_produits"], d["total_charges"], d["resultat"], d["commentaire"]]
+             for v, d in globales.get("visions", {}).items()]
+    return _csv_response("resultats_dashboard_global",
+        ["vision", "total_produits", "total_charges", "resultat", "commentaire"], lignes)
+
+
+@router.get("/resultats/reconciliation/export.csv")
+def resultats_reconciliation_export_csv(mois: str = ""):
+    mois = _mois_defaut(mois)
+    reconciliations = {
+        "A_Lot9_Lot10": recon.lot9_vs_lot10(mois=mois),
+        "B_Lot10_Analytique": recon.lot10_vs_analytique(mois=mois),
+        "C_Analytique_Comptabilite": recon.analytique_vs_comptabilite(mois=mois),
+        "D_Banque_JournalBanque": recon.banque_vs_journal_banque(mois=mois),
+        "E_Factures_Auxiliaires": recon.factures_vs_auxiliaires(),
+        "F_Menages_Charges": recon.menages_vs_charges(mois=mois),
+        "H_Total_analytique_resultat_global": recon.total_analytique_vs_resultat_global(),
+    }
+    lignes = [[nom, r.get("statut"), r.get("montant_gauche"), r.get("montant_droit"),
+              r.get("ecart"), r.get("tolerance")] for nom, r in reconciliations.items()]
+    return _csv_response(f"resultats_reconciliation_{mois or 'aucun_mois'}",
+        ["reconciliation", "statut", "montant_gauche", "montant_droit", "ecart", "tolerance"], lignes)
