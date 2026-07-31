@@ -163,6 +163,36 @@ def test_reconciliation(client, resultats_files):
     assert "NON_DISPONIBLE" in r.text   # au moins Lot9<->Lot10
 
 
+def test_reconciliation_b_reste_ok_quel_que_soit_le_mois_filtre(client, tmp_path, monkeypatch):
+    """Bloc 7 (recette navigateur) : détecté en réel — B compare Lot10 GLOBAL (tout le jeu de
+    données) à l'Analytique. GLOBAL n'a pas de grain mensuel : filtrer par mois côté route cassait
+    la comparaison (grains incompatibles) dès qu'il y avait plus d'un mois de données. B doit
+    toujours comparer GLOBAL à la somme Analytique COMPLÈTE, jamais un sous-ensemble filtré."""
+    res = tmp_path / "RES.xlsx"
+    par_logement = [
+        {"mois": "2026-05", "logement_id": "LOG_A1", "proprietaire_id": "PROP_A",
+         "total_produits": 500.0, "total_charges": 100.0, "resultat": 400.0, "nb_flux": 2,
+         "vision": "REEL", "commentaire": ""},
+        {"mois": "2026-06", "logement_id": "LOG_A1", "proprietaire_id": "PROP_A",
+         "total_produits": 1000.0, "total_charges": 300.0, "resultat": 700.0, "nb_flux": 5,
+         "vision": "REEL", "commentaire": ""},
+    ]
+    glob = [{"vision": "REEL", "total_produits": 1500.0, "total_charges": 400.0,
+            "resultat": 1100.0, "commentaire_hc": "OK"}]
+    _wb(res, {"PAR_MOIS_LOGEMENT": (LOG_COLS, par_logement),
+             "PAR_MOIS_PROPRIETAIRE": (PROP_COLS, []), "GLOBAL": (GLOBAL_COLS, glob)})
+    monkeypatch.setattr(cfg, "MASTER_RESULTATS", res)
+    reader.vider_cache()
+
+    r = client.get("/resultats/reconciliation?mois=2026-06")
+    assert "B — Lot10 ↔ Analytique" in r.text
+    idx = r.text.index("B — Lot10 ↔ Analytique")
+    bloc_b = r.text[idx:idx + 600]
+    assert "1100.00" in bloc_b and "1100.00" in bloc_b  # gauche = droit = cumul complet
+    assert ">OK<" in bloc_b or "status-valide" in bloc_b
+    reader.vider_cache()
+
+
 def test_ligne_redirige_vers_ecriture(client, tmp_db):
     frs = frs_svc.creer("Fournisseur Resultats Ligne", "MAINTENANCE", db_path=tmp_db)["fournisseur_id_opaque"]
     r = fact.creer({"fournisseur_id_opaque": frs, "facture_ref": "FA-RES-3",

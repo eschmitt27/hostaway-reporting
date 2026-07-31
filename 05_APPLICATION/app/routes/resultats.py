@@ -310,7 +310,7 @@ def resultats_reconciliation(request: Request, mois: str = ""):
     mois = _mois_defaut(mois)
     lignes = {
         "A — Lot9 ↔ Lot10": recon.lot9_vs_lot10(mois=mois),
-        "B — Lot10 ↔ Analytique": recon.lot10_vs_analytique(mois=mois),
+        "B — Lot10 ↔ Analytique": recon.lot10_vs_analytique(),
         "C — Analytique ↔ Comptabilité": recon.analytique_vs_comptabilite(mois=mois),
         "D — Banque ↔ journal BANQUE": recon.banque_vs_journal_banque(mois=mois),
         "E — Factures ↔ auxiliaires": recon.factures_vs_auxiliaires(),
@@ -372,7 +372,7 @@ def resultats_reconciliation_export_csv(mois: str = ""):
     mois = _mois_defaut(mois)
     reconciliations = {
         "A_Lot9_Lot10": recon.lot9_vs_lot10(mois=mois),
-        "B_Lot10_Analytique": recon.lot10_vs_analytique(mois=mois),
+        "B_Lot10_Analytique": recon.lot10_vs_analytique(),
         "C_Analytique_Comptabilite": recon.analytique_vs_comptabilite(mois=mois),
         "D_Banque_JournalBanque": recon.banque_vs_journal_banque(mois=mois),
         "E_Factures_Auxiliaires": recon.factures_vs_auxiliaires(),

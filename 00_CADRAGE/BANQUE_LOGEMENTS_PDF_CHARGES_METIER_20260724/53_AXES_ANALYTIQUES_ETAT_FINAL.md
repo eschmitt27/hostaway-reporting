@@ -63,3 +63,33 @@ rapprochement bancaire lui-même). 8 tests dédiés (`test_resultats_exports_axe
 `test_comptabilite_axes.py` (13), `test_resultats_axes_routes.py` (10),
 `test_resultats_drilldown.py` (6), `test_resultats_exports_axes.py` (8) — 37 tests. Suite ciblée
 Comptabilité+Résultats+Axes rejouée : 93 passés, 0 échec (dernier sous-ensemble contrôlé).
+
+## Recette navigateur réelle (Bloc 7, 2026-07-31) — anomalie trouvée et corrigée
+
+`build_data_recette.py` rejoué, serveur recette lancé (port 8020, `PROJECT_ROOT` **et**
+`APP_DATA_DIR` sur `data_recette`, tous les flags d'écriture réelle activés), pipeline aval complet
+lancé pour 2026-06 via `/calculs` (6/6 lots OK, 43,8 s) — jeu de données neuf, aucune sortie
+préexistante.
+
+**Anomalie réelle trouvée en navigateur, absente des tests unitaires** : la réconciliation
+**B — Lot10 ↔ Analytique** comparait `Lot10 GLOBAL` (un total sur tout le jeu de données, sans
+grain mensuel) à l'Analytique **filtrée sur le mois sélectionné** — un écart artificiel de
+10 035,00 € apparaissait dès qu'un mois était choisi (`A_CONTROLER` alors que tout est cohérent).
+Exactement le type d'erreur que le brief interdit : comparer des grains incompatibles. Les tests
+unitaires ne l'avaient jamais vu car leur fixture ne portait qu'un seul mois (global = mensuel par
+coïncidence). Corrigé dans `app/routes/resultats.py` (route HTML et export CSV) : B ignore
+désormais le filtre mois — elle est, par construction, à l'échelle du jeu de données complet,
+comme `H` (dont elle est l'alias). Note explicative ajoutée dans le template. Test de non-régression
+avec fixture à deux mois (`test_reconciliation_b_reste_ok_quel_que_soit_le_mois_filtre`).
+
+Vérifié en suite (navigateur réel, pas seulement TestClient) : dashboard, 3 visions, logements
+(liste + détail + drill-down écritures), propriétaires (liste + détail, non-confusion résultat
+conciergerie/net propriétaire), plateformes (`NON_DISPONIBLE`), fournisseurs, prestataires
+(`NON_DISPONIBLE` — aucun ménage produit par ce pipeline), catégories (liste + détail réel),
+activités (`NON_DISPONIBLE`), ménages, comptabilité (vide — aucune écriture générée par ce
+pipeline, cohérent), 8 réconciliations, cumul (13 356,10 € sur 6 mois = GLOBAL exact), tous les
+exports CSV (contenu réel, aucun chemin absolu). Redémarrage du serveur : persistance confirmée
+(valeurs identiques). Pipeline relancé une seconde fois sur le même mois : sorties sauvegardées
+avant écrasement, second run **idempotent** (tous les indicateurs de comparaison à écart 0,00),
+totaux `/resultats` et export dashboard identiques après la seconde exécution — **aucun double
+comptage**.

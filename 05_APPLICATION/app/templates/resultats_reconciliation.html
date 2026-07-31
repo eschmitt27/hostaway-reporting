@@ -24,7 +24,9 @@
     <tbody>
       {% for nom, r in lignes.items() %}
       <tr>
-        <td>{{ nom }}<br><span class="section-note">{{ r.libelle_gauche }} / {{ r.libelle_droit }}</span></td>
+        <td>{{ nom }}<br><span class="section-note">{{ r.libelle_gauche }} / {{ r.libelle_droit }}</span>
+          {% if nom.startswith('B ') %}<br><span class="section-note">Toujours à l'échelle du jeu de données complet (GLOBAL n'a pas de grain mensuel) — indépendante du mois sélectionné ci-dessus.</span>{% endif %}
+        </td>
         <td class="num">{{ "%.2f"|format(r.montant_gauche) if r.montant_gauche is not none else "—" }}</td>
         <td class="num">{{ "%.2f"|format(r.montant_droit) if r.montant_droit is not none else "—" }}</td>
         <td class="num">{{ "%.2f"|format(r.ecart) if r.ecart is not none else "—" }}</td>
