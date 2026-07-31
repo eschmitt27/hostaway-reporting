@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Mappings comptables{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/comptabilite/plan-comptable" class="back-link">← Plan comptable</a>
+  <h1 class="page-title">Mappings comptables</h1>
+  <p class="page-subtitle">Résolution catégorie/type de flux → compte. PROVISOIRE tant qu'un arbitrage métier ne passe pas la règle en VALIDE.</p>
+</div>
+
+{% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+
+<div class="card mb-md">
+  <div class="card-title">Nouvelle règle</div>
+  <form method="post" action="/comptabilite/mappings">
+    <div class="detail-grid">
+      <label>Portée *
+        <select name="portee" required>
+          <option value="CATEGORIE">CATEGORIE</option>
+          <option value="TYPE_FLUX">TYPE_FLUX</option>
+          <option value="PROVISOIRE_GENERIQUE">PROVISOIRE_GENERIQUE</option>
+        </select></label>
+      <label>Clé (catégorie ou type de flux) <input type="text" name="cle" placeholder="CHG_001"></label>
+      <label>Compte cible * <input type="text" name="compte" required placeholder="606100"></label>
+      <label>Statut *
+        <select name="statut" required>
+          <option value="PROVISOIRE">PROVISOIRE</option>
+          <option value="VALIDE">VALIDE</option>
+        </select></label>
+      <label>Date début validité <input type="date" name="date_debut_validite"></label>
+      <label>Date fin validité <input type="date" name="date_fin_validite"></label>
+      <label>Source / justification <input type="text" name="source"></label>
+    </div>
+    <button type="submit" class="btn btn-primary mt-sm">Créer la règle</button>
+  </form>
+</div>
+
+<div class="card">
+  <div class="card-title">Règles existantes ({{ regles|length }})</div>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Portée</th><th>Clé</th><th>Compte</th><th>Statut</th><th>Début</th><th>Fin</th><th>Source</th></tr></thead>
+      <tbody>
+        {% for r in regles %}
+        <tr>
+          <td>{{ r.portee }}</td>
+          <td>{{ r.cle or "—" }}</td>
+          <td>{{ r.compte }}</td>
+          <td><span class="status-badge status-{{ 'valide' if r.statut == 'VALIDE' else 'a-controler' }}">{{ r.statut }}</span></td>
+          <td>{{ r.date_debut_validite or "—" }}</td>
+          <td>{{ r.date_fin_validite or "—" }}</td>
+          <td>{{ r.source or "—" }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7">Aucune règle.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

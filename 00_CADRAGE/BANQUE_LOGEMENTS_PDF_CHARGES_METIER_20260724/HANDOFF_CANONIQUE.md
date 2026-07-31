@@ -9,15 +9,15 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 |---|---|
 | Worktree | `C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Worktrees\BANQUE_LOGEMENTS_PDF_CHARGES_METIER` |
 | Branche | `feature/banque-logements-pdf-charges-metier` |
-| État figé le | **2026-07-29** — cœur Comptabilité complété (VENTES/CAISSE/OD/périodes/clôture, cf. `49`) |
-| Dernier commit stable avant ce tour | `9bb24a7` — `feat(factures): ajoute lignes de facture - multi-charges / multi-logements` |
+| État figé le | **2026-07-31** — Phase 1 de la mission Analytique/Résultats : mappings comptables branchés + ventilation analytique (cf. `50`) |
+| Dernier commit stable avant ce tour | `4e0b159` — `feat(comptabilite): coeur complet - VENTES, CAISSE, OD, auxiliaires, periodes, cloture` |
 | HEAD | vérifier avec `git log -1` — ce fichier est mis à jour par le commit qui le porte, dont le SHA ne peut donc pas y figurer |
 | git status | propre (`data_recette/` ignoré, régénérable) |
 | master / canonique | **intacts, jamais touchés** (`master` = `8b47807`) |
 | Sources réelles | inchangées, **une exception assumée** : `02_TRAVAIL/lot13_export_powerbi.py`, sur décision utilisateur explicite (renommage de la colonne d'export). Aucune donnée réelle touchée ; toutes les écritures de recette restent sous `data_recette/` |
-| Suite complète (dernier total constaté) | **2166 passés / 76 ignorés / 2 échecs pré-existants** (`test_appsec1_diagnostic` ; `test_proprietaires_reglements.py::test_route_dashboard_200`, flake ordre-dépendant confirmé antérieur à ce tour via `git stash` sur `9bb24a7`, cf. `JOURNAL_ANOMALIES.md` 2026-07-29). En 4 tranches : `python -m pytest -q -p no:cacheprovider $(ls tests/test_*.py \| awk 'NR%4==1')`, puis `==2`, `==3`, `==0` (la tranche `==0` a dû être scindée en deux moitiés ce tour, l'environnement l'ayant tuée deux fois en run unique — sans lien avec le contenu des tests) |
+| Suite complète (dernier total constaté) | **2166 passés / 76 ignorés / 2 échecs pré-existants** avant ce tour (`test_appsec1_diagnostic` ; `test_proprietaires_reglements.py::test_route_dashboard_200`, flake ordre-dépendant confirmé antérieur via `git stash` sur `9bb24a7`, cf. `JOURNAL_ANOMALIES.md` 2026-07-29). Suite ciblée Comptabilité rejouée après Phase 1 : **169 passés, 0 échec** (les deux échecs connus sont hors du périmètre de cette suite ciblée). Suite complète en 4 tranches : `python -m pytest -q -p no:cacheprovider $(ls tests/test_*.py \| awk 'NR%4==1')`, puis `==2`, `==3`, `==0` (la tranche `==0` demande parfois une scission en deux moitiés, l'environnement l'ayant tuée en run unique — sans lien avec le contenu des tests) |
 | Documents transverses | `MATRICE_ETAT_MODULES.md` (état livré) · **`48_ROADMAP_RESTANTE_PROJET.md` (trajectoire)** · `GUIDE_ACTIVATION_MODE_REEL.md` (verdict **NO GO**) |
-| **Avancement global estimé** | **71 %**, marge ± 4 points. Plafond : aucun pourcentage > 85 % tant que Analytique + Résultats ne sont pas fonctionnels, **réconciliés** et **validés** (Comptabilité, elle, est TERMINÉE pour son périmètre — cf. `49`). |
+| **Avancement global estimé** | **72 %**, marge ± 4 points. Plafond : aucun pourcentage > 85 % tant que Analytique + Résultats ne sont pas fonctionnels, **réconciliés** et **validés**. Comptabilité TERMINÉE (`49`) ; Phase 1 Analytique (mappings + ventilation) FAITE (`50`) ; moteur analytique et Résultats **non commencés**. |
 
 ## Périmètre restant avant achèvement
 
@@ -144,7 +144,41 @@ tous écarts à 0,00. Détail dans `38_LOT13_CONTRAT_EXPORT_POWERBI.md`.
 | | |
 |---|---|
 | Modules terminés | Logements, Banque, Fournisseurs-Factures-Règlements, Pilotage des calculs (chaîne aval complète), Charges exercée |
-| Module actif | *(prochain tour : Analytique — règle de ventilation, peuplement des dimensions, mesures ; explicitement non commencé sur instruction. Ne pas reprendre facture propriétaire/tiers/avoir sans besoin réel exprimé.)* |
+| Module actif | *(prochain tour : Phase 2 — moteur analytique et réconciliations (grain `lignes_analytiques`, mesures, réconciliations Lot9↔Lot10↔Comptabilité↔Banque↔Factures↔Ménages↔VENTES), puis Phase 3 — écrans Résultats. Ne pas reprendre facture propriétaire/tiers/avoir sans besoin réel exprimé.)* |
+
+## ✅ Mission 7 de ce tour — Phase 1 Analytique : mappings comptables branchés, ventilation analytique (migration `0024`)
+
+Continuation autonome après vérification préalable complète (worktree, branche, HEAD `4e0b159`,
+master `8b47807`, git status propre, absence de processus/verrou, lecture intégrale de
+`HANDOFF_CANONIQUE.md`/`48`/`49`/`43`-`47`). Phase 1 des trois phases demandées (mappings/
+ventilation → moteur analytique → Résultats) — les deux suivantes non commencées, sur instruction
+de ne pas enchaîner sans stabiliser d'abord chaque bloc.
+
+**Audit ciblé** : `categorie_charge_id`, `type_flux_id`, `logement_id`, `proprietaire_id` existent
+déjà dans le MASTER Lot3 (jamais lus par la Comptabilité) ; `facture_lignes.logement_id` existe
+déjà (`0022`, jamais transmis à l'écriture) ; `menages.logement_id`/`proprietaire_id` (NOT NULL,
+`0019`) résolvent une charge liée à un ménage sans dimension propre. Aucune clé de poids n'existe
+pour une charge multi-logements hors `facture_lignes` (pools/`REC_002`, gap déjà connu `41` §7bis) —
+resté explicitement non traité, pas improvisé.
+
+**Ajouté (migration `0024`, additive)** : `mapping_comptable_regles` (résolution historisée
+CATEGORIE→TYPE_FLUX→PROVISOIRE_GENERIQUE, jamais un mapping expiré ou pas encore actif) ;
+`ecriture_ligne_ventilation` (traçabilité méthode/statut/origine/mapping par ligne). `generer_ecriture_achat`
+refondu : une ligne de débit par charge source (mono-charge ou `facture_lignes`), compte résolu via
+mapping, dimensions peuplées selon 4 cas (A affectation directe, D facture multi-lignes, E ménage,
+F sans dimension → `A_CONTROLER`, jamais bloquant). VENTES : `proprietaire_id` posé sur les deux
+lignes (déjà en paramètre, jamais transmis avant). Écran `/comptabilite/mappings` (liste + création
+de règle) ; bloc « Ventilation analytique » sur la fiche écriture.
+
+**Preuves** : 22 tests ajoutés (mappings 10, routes 3, ventilation 9), suite ciblée Comptabilité
+rejouée — **169 passés, 0 échec**. Réconciliation montant source = somme ventilations garantie
+structurellement (aucun recalcul, seule redistribution de montants déjà exacts).
+
+**Décision explicite, non entreprise ce tour** : case C (répartition multi-logements par pool) reste
+non traitée — gap Ménages déjà connu, pas improvisé ici. Plan de comptes détaillé toujours non
+arbitré (le mécanisme est prêt, aucune règle `VALIDE` n'est créée par défaut).
+
+Détail complet : `50_MODELE_MAPPINGS_ET_VENTILATION_ANALYTIQUE.md`.
 
 ## ✅ Mission 6 de ce tour — Cœur Comptabilité complet : VENTES, CAISSE, OD, auxiliaires, périodes, clôture (migration `0023`)
 

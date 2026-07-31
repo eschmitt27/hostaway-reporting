@@ -143,13 +143,70 @@ def _inserer_ecriture(journal: str, date_ecriture: str, periode: str, piece: str
     return {"ok": True, "ecriture_id_opaque": opaque, "deja_generee": False}
 
 
+def _menage_dimensions(charge_id: str, db_path=None) -> tuple[str | None, str | None]:
+    """Case E — répartition Ménages : un ménage porte NOT NULL logement_id/proprietaire_id et,
+    s'il est lié à cette charge, fournit la dimension quand la charge elle-même n'en porte aucune."""
+    conn = get_db(db_path)
+    try:
+        row = conn.execute(
+            "SELECT logement_id, proprietaire_id FROM menages WHERE charge_id=? AND statut <> 'ANNULE'",
+            (charge_id,)).fetchone()
+    finally:
+        conn.close()
+    return (row["logement_id"], row["proprietaire_id"]) if row else (None, None)
+
+
+def _ligne_source_depuis_charge(charge_id: str, montant: float, *, origine_type: str,
+                                origine_id: str, logement_id_hint: str | None = None,
+                                db_path=None) -> dict[str, Any]:
+    """Résout compte + dimensions pour UNE charge (cas mono-charge historique, ou une ligne d'une
+    facture multi-lignes) — cases A/B (affectation directe), E (ménage) et F (A_CONTROLER).
+
+    `logement_id_hint` : logement saisi explicitement sur la ligne de facture (`facture_lignes`,
+    case D) — prioritaire sur celui de la charge elle-même, car c'est une précision humaine
+    explicite au moment de la facturation, pas une donnée dérivée."""
+    from app.readers import charges_reader
+
+    charge = charges_reader.find_charge(charge_id)
+    logement_id = logement_id_hint or (charge or {}).get("logement_id") or None
+    proprietaire_id = (charge or {}).get("proprietaire_id") or None
+    categorie_charge_id = (charge or {}).get("categorie_charge_id") or None
+    type_flux_id = (charge or {}).get("type_flux_id") or None
+    methode = "AFFECTATION_DIRECTE_LOGEMENT" if logement_id else None
+    statut_ventilation = "VALIDE"
+
+    if not logement_id:
+        men_log, men_prop = _menage_dimensions(charge_id, db_path)
+        if men_log:
+            logement_id, proprietaire_id = men_log, men_prop
+            methode = "REPARTITION_MENAGE"
+        else:
+            methode = "SANS_DIMENSION"
+            statut_ventilation = "A_CONTROLER"
+
+    from app.services import comptabilite_mappings_service as maps
+    resolu = maps.resoudre_compte(categorie_charge_id=categorie_charge_id or "",
+                                  type_flux_id=type_flux_id or "", db_path=db_path)
+
+    return {
+        "compte": resolu["compte"], "montant": round(montant, 2),
+        "logement_id": logement_id, "proprietaire_id": proprietaire_id,
+        "methode": methode, "statut_ventilation": statut_ventilation,
+        "origine_type": origine_type, "origine_id": origine_id,
+        "mapping_regle_id_opaque": resolu.get("regle_id_opaque"),
+        "mapping_statut": resolu["statut"],
+    }
+
+
 def generer_ecriture_achat(facture_id_opaque: str, *, acteur: str = "",
                            db_path=None) -> dict[str, Any]:
     """Génère l'écriture ACHATS d'une facture fournisseur VALIDÉE (ou plus avancée dans son cycle).
 
-    606 (Achats, débit) / 401 (Fournisseurs, crédit) — compte générique par défaut (cf. cadrage 43,
-    le mapping catégorie->compte fin n'est pas arbitré). Idempotent : une facture ne génère jamais
-    deux écritures ACHATS.
+    Une ligne de débit PAR charge source (mono-charge historique, ou une ligne par
+    `facture_lignes` — case D « facture multi-lignes »), chacune sur le compte résolu par
+    `comptabilite_mappings_service` et portant ses propres `logement_id`/`proprietaire_id` quand
+    disponibles. Une seule ligne de crédit 401 (fournisseur). Idempotent : une facture ne génère
+    jamais deux écritures ACHATS.
     """
     if not _flags_actifs():
         return _refus(E_FLAGS)
@@ -161,16 +218,84 @@ def generer_ecriture_achat(facture_id_opaque: str, *, acteur: str = "",
         return _refus(E_ORIGINE_INVALIDE, f"facture au statut {f['statut']}")
 
     montant = round(f["montant_ttc"], 2)
+    facture_lignes = f.get("lignes") or []
+
+    ventilation: list[dict[str, Any]] = []
+    if facture_lignes:
+        for fl in facture_lignes:
+            src = _ligne_source_depuis_charge(
+                fl["charge_id"], fl["montant_ttc"], origine_type="FACTURE_LIGNE",
+                origine_id=fl["ligne_id_opaque"], logement_id_hint=fl.get("logement_id"),
+                db_path=db_path)
+            if src["methode"] != "SANS_DIMENSION":
+                src["methode"] = "FACTURE_MULTI_LIGNES"
+            ventilation.append(src)
+    elif f.get("charge_id"):
+        ventilation.append(_ligne_source_depuis_charge(
+            f["charge_id"], montant, origine_type="CHARGE", origine_id=f["charge_id"],
+            db_path=db_path))
+    else:
+        # Aucune charge liée du tout (facture pas encore rattachée) : un seul débit générique,
+        # sans dimension, A_CONTROLER — le générateur ne bloque jamais sur ce cas historique.
+        from app.services import comptabilite_mappings_service as maps
+        resolu = maps.resoudre_compte(db_path=db_path)
+        ventilation.append({
+            "compte": resolu["compte"], "montant": montant, "logement_id": None,
+            "proprietaire_id": None, "methode": "SANS_DIMENSION", "statut_ventilation": "A_CONTROLER",
+            "origine_type": "FACTURE", "origine_id": facture_id_opaque,
+            "mapping_regle_id_opaque": resolu.get("regle_id_opaque"),
+            "mapping_statut": resolu["statut"],
+        })
+
     lignes = [
-        {"compte": COMPTE_ACHAT_GENERIQUE, "debit": montant, "credit": 0,
-         "libelle": f"Achat {f['facture_ref']}"},
+        {"compte": v["compte"], "debit": v["montant"], "credit": 0,
+         "logement_id": v["logement_id"], "proprietaire_id": v["proprietaire_id"],
+         "libelle": f"Achat {f['facture_ref']}"}
+        for v in ventilation
+    ] + [
         {"compte": COMPTE_FOURNISSEURS, "debit": 0, "credit": montant,
          "auxiliaire": f["fournisseur_id_opaque"], "libelle": f["facture_ref"]},
     ]
-    return _inserer_ecriture(
+    res = _inserer_ecriture(
         "ACHATS", f.get("date_facture") or _now()[:10], (f.get("date_facture") or _now())[:7],
         f["facture_ref"], f"Facture fournisseur {f['facture_ref']}", "FACTURE", facture_id_opaque,
         lignes, acteur=acteur, db_path=db_path)
+
+    if res.get("ok") and not res.get("deja_generee"):
+        _enregistrer_ventilation(res["ecriture_id_opaque"], ventilation, db_path=db_path)
+    return res
+
+
+def _enregistrer_ventilation(ecriture_id_opaque: str, ventilation: list[dict[str, Any]],
+                             db_path=None) -> None:
+    """Trace, pour chaque ligne de débit générée (dans l'ordre, `ligne_num` 1..N), comment sa
+    dimension et son compte ont été déterminés — jamais un second calcul du montant lui-même."""
+    if not ventilation:
+        return
+    conn = get_db(db_path)
+    try:
+        for i, v in enumerate(ventilation, start=1):
+            conn.execute(
+                "INSERT INTO ecriture_ligne_ventilation (ecriture_id_opaque, ligne_num, methode, "
+                "pourcentage, montant_non_arrondi, montant_affiche, statut_ventilation, "
+                "origine_type, origine_id, mapping_regle_id_opaque) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (ecriture_id_opaque, i, v["methode"], None, v["montant"], v["montant"],
+                 v["statut_ventilation"], v.get("origine_type"), v.get("origine_id"),
+                 v.get("mapping_regle_id_opaque")))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def ventilation_ecriture(ecriture_id_opaque: str, db_path=None) -> list[dict[str, Any]]:
+    conn = get_db(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT * FROM ecriture_ligne_ventilation WHERE ecriture_id_opaque=? ORDER BY ligne_num",
+            (ecriture_id_opaque,)).fetchall()
+    finally:
+        conn.close()
+    return [dict(r) for r in rows]
 
 
 def generer_ecriture_banque(rapprochement_id_opaque: str, *, acteur: str = "",
@@ -251,15 +376,17 @@ def generer_ecriture_vente(proprietaire_id: str, mois: str, montant_du_concierge
     if montant > 0:
         lignes = [
             {"compte": COMPTE_PROPRIETAIRES, "debit": montant, "credit": 0,
-             "auxiliaire": proprietaire_id, "libelle": libelle},
-            {"compte": COMPTE_VENTE_GENERIQUE, "debit": 0, "credit": montant, "libelle": libelle},
+             "auxiliaire": proprietaire_id, "proprietaire_id": proprietaire_id, "libelle": libelle},
+            {"compte": COMPTE_VENTE_GENERIQUE, "debit": 0, "credit": montant,
+             "proprietaire_id": proprietaire_id, "libelle": libelle},
         ]
     else:
         m = abs(montant)
         lignes = [
-            {"compte": COMPTE_VENTE_GENERIQUE, "debit": m, "credit": 0, "libelle": libelle},
+            {"compte": COMPTE_VENTE_GENERIQUE, "debit": m, "credit": 0,
+             "proprietaire_id": proprietaire_id, "libelle": libelle},
             {"compte": COMPTE_PROPRIETAIRES, "debit": 0, "credit": m,
-             "auxiliaire": proprietaire_id, "libelle": libelle},
+             "auxiliaire": proprietaire_id, "proprietaire_id": proprietaire_id, "libelle": libelle},
         ]
     return _inserer_ecriture(
         "VENTES", f"{mois}-01", mois, origine_id, libelle, "LOT12_PROPRIETAIRE_MOIS", origine_id,

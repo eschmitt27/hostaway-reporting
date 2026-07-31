@@ -65,6 +65,8 @@ EXPECTED_TABLES = {
     "od_lignes",                              # 0023
     "periodes_comptables",                    # 0023 — périodes comptables (distinctes clôture pilotage)
     "periode_evenements",                     # 0023
+    "mapping_comptable_regles",                 # 0024 — mappings comptables historisés
+    "ecriture_ligne_ventilation",                # 0024 — ventilation analytique par ligne d'écriture
 }
 
 

@@ -29,13 +29,15 @@
 
 <div class="table-container mb-md">
   <table class="data-table">
-    <thead><tr><th>#</th><th>Compte</th><th>Auxiliaire</th><th>Débit</th><th>Crédit</th><th>Libellé</th></tr></thead>
+    <thead><tr><th>#</th><th>Compte</th><th>Auxiliaire</th><th>Logement</th><th>Propriétaire</th><th>Débit</th><th>Crédit</th><th>Libellé</th></tr></thead>
     <tbody>
       {% for l in lignes %}
       <tr>
         <td>{{ l.ligne_num }}</td>
         <td>{{ l.compte }}</td>
         <td>{{ l.auxiliaire or "—" }}</td>
+        <td>{{ l.logement_id or "—" }}</td>
+        <td>{{ l.proprietaire_id or "—" }}</td>
         <td>{{ "%.2f"|format(l.debit) if l.debit else "" }}</td>
         <td>{{ "%.2f"|format(l.credit) if l.credit else "" }}</td>
         <td>{{ l.libelle or "" }}</td>
@@ -44,6 +46,29 @@
     </tbody>
   </table>
 </div>
+
+{% if ventilation %}
+<div class="card mb-md">
+  <div class="card-title">Ventilation analytique</div>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Ligne</th><th>Méthode</th><th>Montant</th><th>Statut</th><th>Mapping</th><th>Origine</th></tr></thead>
+      <tbody>
+        {% for v in ventilation %}
+        <tr>
+          <td>{{ v.ligne_num }}</td>
+          <td>{{ v.methode }}</td>
+          <td>{{ "%.2f"|format(v.montant_affiche) if v.montant_affiche is not none else "—" }}</td>
+          <td><span class="status-badge status-{{ 'bloquant' if v.statut_ventilation == 'A_CONTROLER' else 'valide' }}">{{ v.statut_ventilation }}</span></td>
+          <td>{{ v.mapping_regle_id_opaque or "—" }}</td>
+          <td>{{ v.origine_type or "—" }} {{ v.origine_id or "" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
 
 <div class="card">
   {% if ecriture.statut == 'PROPOSEE' %}

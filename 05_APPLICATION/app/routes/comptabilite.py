@@ -13,6 +13,7 @@ from app.config import TEMPLATES_DIR
 from app.services import comptabilite_auxiliaires_service as aux
 from app.services import comptabilite_controles_service as ctrl
 from app.services import comptabilite_ecritures_service as compta
+from app.services import comptabilite_mappings_service as maps
 from app.services import comptabilite_periodes_service as per
 from app.services import operations_caisse_service as caisse
 from app.services import operations_diverses_service as od
@@ -81,6 +82,27 @@ def comptabilite_plan_comptable(request: Request):
     })
 
 
+@router.get("/comptabilite/mappings", response_class=HTMLResponse)
+def comptabilite_mappings(request: Request, message: str = "", erreur: str = ""):
+    return templates.TemplateResponse(request, "comptabilite_mappings.html", {
+        "active_menu": "comptabilite", "regles": maps.lister_regles(),
+        "message": message, "erreur": erreur,
+    })
+
+
+@router.post("/comptabilite/mappings")
+async def comptabilite_mappings_creer(request: Request):
+    form = await request.form()
+    res = maps.creer_regle(
+        str(form.get("portee", "") or ""), str(form.get("compte", "") or ""),
+        cle=str(form.get("cle", "") or ""), statut=str(form.get("statut", "") or "PROVISOIRE"),
+        date_debut_validite=str(form.get("date_debut_validite", "") or ""),
+        date_fin_validite=str(form.get("date_fin_validite", "") or ""),
+        source=str(form.get("source", "") or ""), acteur=str(form.get("acteur", "") or "local"))
+    msg = "message=Règle créée." if res.get("ok") else f"erreur={res.get('message')}"
+    return RedirectResponse(url=f"/comptabilite/mappings?{msg}", status_code=303)
+
+
 @router.get("/comptabilite/auxiliaires", response_class=HTMLResponse)
 def comptabilite_auxiliaires(request: Request, auxiliaire: str = ""):
     solde = compta.solde_auxiliaire(auxiliaire) if auxiliaire else None
@@ -108,8 +130,8 @@ def comptabilite_ecriture_detail(request: Request, opaque: str, message: str = "
         }, status_code=404)
     return templates.TemplateResponse(request, "comptabilite_ecriture_detail.html", {
         "active_menu": "comptabilite", "ecriture": e, "opaque": opaque,
-        "lignes": compta.lignes(opaque), "ecriture_active": _ecriture_active(),
-        "message": message, "erreur": erreur,
+        "lignes": compta.lignes(opaque), "ventilation": compta.ventilation_ecriture(opaque),
+        "ecriture_active": _ecriture_active(), "message": message, "erreur": erreur,
     })
 
 
