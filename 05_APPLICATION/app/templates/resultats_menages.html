@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Résultats — Ménages{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/resultats" class="back-link">← Résultats</a>
+  <h1 class="page-title">Ménages — {{ mois or "aucun mois" }}</h1>
+</div>
+
+<div class="card mb-md">
+  <form method="get" class="filters-row">
+    <label>Mois
+      <select name="mois">
+        {% for m in mois_disponibles %}<option value="{{ m }}" {{ 'selected' if m == mois }}>{{ m }}</option>{% endfor %}
+      </select></label>
+    <button type="submit" class="btn btn-primary">Appliquer</button>
+  </form>
+</div>
+
+{% if statut != "OK" %}
+<div class="alert alert-warning">NON_DISPONIBLE — aucun ménage pour ce mois.</div>
+{% else %}
+<div class="kpi-grid mb-md">
+  <div class="kpi-card"><div class="kpi-label">Total ménages</div><div class="kpi-value">{{ nb_total }}</div></div>
+</div>
+<div class="table-container">
+  <table class="data-table">
+    <thead><tr><th>Type</th><th class="num">Nb</th></tr></thead>
+    <tbody>
+      {% for t in par_type %}
+      <tr><td>{{ t.type_menage }}</td><td class="num">{{ t.nb }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="mt-sm"><a href="/menages/cycle?mois={{ mois }}" class="btn btn-secondary">Détail (module Ménages)</a></p>
+{% endif %}
+{% endblock %}

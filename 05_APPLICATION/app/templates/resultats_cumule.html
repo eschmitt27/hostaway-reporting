@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Résultats cumulés{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/resultats" class="back-link">← Résultats</a>
+  <h1 class="page-title">Cumul {{ vision }} {{ annee }}</h1>
+</div>
+
+<div class="card mb-md">
+  <form method="get" class="filters-row">
+    <label>Année <input type="text" name="annee" value="{{ annee }}" placeholder="2026"></label>
+    <label>Vision
+      <select name="vision">
+        {% for v in ["REEL","COMPTABLE","HORS_COMPTA"] %}<option value="{{ v }}" {{ 'selected' if v == vision }}>{{ v }}</option>{% endfor %}
+      </select></label>
+    <button type="submit" class="btn btn-primary">Appliquer</button>
+  </form>
+</div>
+
+{% if cumule.statut != "OK" %}
+<div class="alert alert-warning">NON_DISPONIBLE</div>
+{% else %}
+<div class="kpi-grid mb-md">
+  <div class="kpi-card"><div class="kpi-label">Produits</div><div class="kpi-value">{{ "%.2f"|format(cumule.total_produits) }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Charges</div><div class="kpi-value">{{ "%.2f"|format(cumule.total_charges) }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Résultat</div><div class="kpi-value">{{ "%.2f"|format(cumule.resultat) }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Mois couverts</div><div class="kpi-value">{{ cumule.nb_mois_couverts }}</div></div>
+</div>
+<div class="card">
+  <div class="card-title">Mois inclus dans ce cumul</div>
+  <p>{{ cumule.mois_couverts|join(", ") }}</p>
+  {% if cumule.nb_mois_couverts < 12 %}
+  <p class="section-note">Cumul partiel ({{ cumule.nb_mois_couverts }} mois) — pas nécessairement un exercice complet.</p>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

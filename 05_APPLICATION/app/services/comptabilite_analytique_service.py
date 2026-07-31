@@ -28,6 +28,42 @@ def source_disponible() -> bool:
     return reader.resultats_par_logement().etat.disponible
 
 
+def mois_disponibles() -> list[str]:
+    """Liste triée des mois présents dans `PAR_MOIS_LOGEMENT` — sert à choisir un mois par défaut
+    et à construire les comparaisons (mois précédent, cumul annuel)."""
+    src = reader.resultats_par_logement()
+    if not src.etat.disponible:
+        return []
+    return sorted({reader.to_mois(r.get("mois")) for r in src.lignes if r.get("mois")})
+
+
+def mesures_cumulees(*, vision: str = "REEL", annee: str = "") -> dict[str, Any]:
+    """Somme de toutes les lignes `PAR_MOIS_LOGEMENT` disponibles pour cette vision — jamais
+    présentée comme le cumul annuel officiel s'il manque des mois : `nb_mois_couverts` est
+    toujours renvoyé pour que l'écran distingue un cumul complet d'un cumul partiel."""
+    src = reader.resultats_par_logement()
+    if not src.etat.disponible:
+        return {"statut": NON_DISPONIBLE, "total_produits": None, "total_charges": None,
+                "resultat": None, "nb_mois_couverts": 0, "mois_couverts": []}
+    lignes = [r for r in src.lignes if reader.to_texte(r.get("vision")) == vision
+             and (not annee or reader.to_mois(r.get("mois")).startswith(annee))]
+    mois_couverts = sorted({reader.to_mois(r.get("mois")) for r in lignes})
+    return {
+        "statut": "OK" if lignes else NON_DISPONIBLE,
+        "total_produits": round(sum(_num(r.get("total_produits")) for r in lignes), 2),
+        "total_charges": round(sum(_num(r.get("total_charges")) for r in lignes), 2),
+        "resultat": round(sum(_num(r.get("resultat")) for r in lignes), 2),
+        "nb_mois_couverts": len(mois_couverts), "mois_couverts": mois_couverts,
+    }
+
+
+def mois_precedent(mois: str) -> str:
+    if not mois or len(mois) != 7:
+        return ""
+    annee, m = int(mois[:4]), int(mois[5:7])
+    return f"{annee-1}-12" if m == 1 else f"{annee}-{m-1:02d}"
+
+
 def mesures_globales() -> dict[str, Any]:
     """Une entrée par vision, telle que Lot10 l'a déjà calculée et contrôlée (`commentaire_hc`
     porte déjà la vérification REEL=COMPTABLE+HC, jamais refaite ici)."""

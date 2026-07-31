@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Résultats par propriétaire{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/resultats" class="back-link">← Résultats</a>
+  <h1 class="page-title">Propriétaires — {{ mois or "aucun mois" }} ({{ vision }})</h1>
+</div>
+
+<div class="card mb-md">
+  <form method="get" class="filters-row">
+    <label>Mois
+      <select name="mois">
+        {% for m in mois_disponibles %}<option value="{{ m }}" {{ 'selected' if m == mois }}>{{ m }}</option>{% endfor %}
+      </select></label>
+    <label>Vision
+      <select name="vision">
+        {% for v in ["REEL","COMPTABLE","HORS_COMPTA"] %}<option value="{{ v }}" {{ 'selected' if v == vision }}>{{ v }}</option>{% endfor %}
+      </select></label>
+    <button type="submit" class="btn btn-primary">Appliquer</button>
+  </form>
+</div>
+
+{% if resultats.statut != "OK" %}
+<div class="alert alert-warning">NON_DISPONIBLE</div>
+{% else %}
+<p class="section-note">« Résultat » ci-dessous = résultat de la conciergerie sur ce propriétaire (Lot10), pas le net versé au propriétaire — voir la fiche propriétaire pour le net.</p>
+<div class="table-container">
+  <table class="data-table">
+    <thead><tr><th>Propriétaire</th><th class="num">Produits</th><th class="num">Charges</th><th class="num">Résultat conciergerie</th></tr></thead>
+    <tbody>
+      {% for l in resultats.lignes %}
+      <tr>
+        <td><a href="/resultats/proprietaires/{{ l.proprietaire_id }}?mois={{ mois }}">{{ l.proprietaire_id }}</a></td>
+        <td class="num">{{ "%.2f"|format(l.total_produits) }}</td>
+        <td class="num">{{ "%.2f"|format(l.total_charges) }}</td>
+        <td class="num">{{ "%.2f"|format(l.resultat) }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4">Aucune ligne.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

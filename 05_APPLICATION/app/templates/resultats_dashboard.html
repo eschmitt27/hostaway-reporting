@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Résultats{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Résultats</h1>
+  <p class="page-subtitle">Lecture des sorties Lot10 et de la Comptabilité — aucun recalcul.</p>
+</div>
+
+<div class="card mb-md">
+  <form method="get" class="filters-row">
+    <label>Mois
+      <select name="mois">
+        {% for m in mois_disponibles %}<option value="{{ m }}" {{ 'selected' if m == mois }}>{{ m }}</option>{% endfor %}
+        {% if not mois_disponibles %}<option value="">Aucun mois disponible</option>{% endif %}
+      </select></label>
+    <label>Vision
+      <select name="vision">
+        {% for v in visions %}<option value="{{ v }}" {{ 'selected' if v == vision }}>{{ v }}</option>{% endfor %}
+      </select></label>
+    <button type="submit" class="btn btn-primary">Appliquer</button>
+  </form>
+</div>
+
+{% if globales.statut != "OK" %}
+<div class="alert alert-warning">Sorties Lot10 (`MASTER_CALC_Resultats.xlsx`) indisponibles — {{ globales.statut }}.</div>
+{% else %}
+<div class="card mb-md">
+  <div class="card-title">Global par vision (Lot10)</div>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Vision</th><th class="num">Produits</th><th class="num">Charges</th><th class="num">Résultat</th><th>Commentaire</th></tr></thead>
+      <tbody>
+        {% for v, d in globales.visions.items() %}
+        <tr class="{{ 'active' if v == vision }}">
+          <td>{{ v }}</td>
+          <td class="num">{{ "%.2f"|format(d.total_produits) }}</td>
+          <td class="num">{{ "%.2f"|format(d.total_charges) }}</td>
+          <td class="num">{{ "%.2f"|format(d.resultat) }}</td>
+          <td>{{ d.commentaire }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="kpi-grid mb-md">
+  <div class="kpi-card">
+    <div class="kpi-label">Résultat {{ mois or "NON_DISPONIBLE" }} ({{ vision }})</div>
+    <div class="kpi-value">{{ "%.2f"|format(resultat_courant) if resultat_courant is not none else "NON_DISPONIBLE" }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Mois précédent ({{ mois_precedent or "—" }})</div>
+    <div class="kpi-value">{{ "%.2f"|format(resultat_precedent) if resultat_precedent is not none else "NON_DISPONIBLE" }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Cumul {{ cumule.mois_couverts|length }} mois</div>
+    <div class="kpi-value">{{ "%.2f"|format(cumule.resultat) if cumule.statut == "OK" else "NON_DISPONIBLE" }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Période comptable {{ mois or "—" }}</div>
+    <div class="kpi-value">{{ periode.statut if periode else "NON_APPLICABLE" }}</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Navigation</div>
+  <div class="flex" style="gap: var(--stack-sm); flex-wrap: wrap;">
+    <a href="/resultats/mensuel?mois={{ mois }}&vision={{ vision }}" class="btn btn-secondary">Mensuel</a>
+    <a href="/resultats/cumule?vision={{ vision }}" class="btn btn-secondary">Cumulé</a>
+    <a href="/resultats/logements?mois={{ mois }}&vision={{ vision }}" class="btn btn-secondary">Logements</a>
+    <a href="/resultats/proprietaires?mois={{ mois }}&vision={{ vision }}" class="btn btn-secondary">Propriétaires</a>
+    <a href="/resultats/plateformes" class="btn btn-secondary">Plateformes</a>
+    <a href="/resultats/fournisseurs" class="btn btn-secondary">Fournisseurs</a>
+    <a href="/resultats/charges" class="btn btn-secondary">Charges</a>
+    <a href="/resultats/menages?mois={{ mois }}" class="btn btn-secondary">Ménages</a>
+    <a href="/resultats/comptabilite?mois={{ mois }}" class="btn btn-secondary">Comptabilité</a>
+    <a href="/resultats/reconciliation?mois={{ mois }}" class="btn btn-secondary">Réconciliations</a>
+    <a href="/resultats/export.csv?mois={{ mois }}&vision={{ vision }}" class="btn btn-ghost">Exporter CSV</a>
+  </div>
+</div>
+{% endblock %}

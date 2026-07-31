@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Résultats — Fournisseurs{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/resultats" class="back-link">← Résultats</a>
+  <h1 class="page-title">Fournisseurs</h1>
+  <p class="page-subtitle">Auxiliaires comptables (compte 401000) — réutilise la Comptabilité, aucun second calcul.</p>
+</div>
+
+<div class="table-container">
+  <table class="data-table">
+    <thead><tr><th>Fournisseur</th><th class="num">Débit</th><th class="num">Crédit</th><th class="num">Solde (dette)</th></tr></thead>
+    <tbody>
+      {% for f in fournisseurs %}
+      <tr>
+        <td><a href="/comptabilite/auxiliaires/{{ f.auxiliaire }}?famille=FOURNISSEUR">{{ f.auxiliaire }}</a></td>
+        <td class="num">{{ "%.2f"|format(f.debit) }}</td>
+        <td class="num">{{ "%.2f"|format(f.credit) }}</td>
+        <td class="num">{{ "%.2f"|format(f.solde) }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4">Aucun fournisseur avec mouvement.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

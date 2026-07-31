@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Résultats — Comptabilité{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/resultats" class="back-link">← Résultats</a>
+  <h1 class="page-title">Comptabilité — {{ mois or "toutes périodes" }}</h1>
+</div>
+
+<div class="card mb-md">
+  <form method="get" class="filters-row">
+    <label>Mois
+      <select name="mois">
+        <option value="">Toutes périodes</option>
+        {% for m in mois_disponibles %}<option value="{{ m }}" {{ 'selected' if m == mois }}>{{ m }}</option>{% endfor %}
+      </select></label>
+    <button type="submit" class="btn btn-primary">Appliquer</button>
+  </form>
+</div>
+
+{% if periode %}
+<div class="kpi-grid mb-md">
+  <div class="kpi-card"><div class="kpi-label">Statut période</div><div class="kpi-value">{{ periode.statut }}</div></div>
+</div>
+{% endif %}
+
+<div class="table-container">
+  <table class="data-table">
+    <thead><tr><th>Journal</th><th class="num">Nb écritures</th><th class="num">Total débit</th><th class="num">Total crédit</th></tr></thead>
+    <tbody>
+      {% for j in par_journal %}
+      <tr>
+        <td><a href="/comptabilite/ecritures?journal={{ j.journal }}&periode={{ mois }}">{{ j.journal }}</a></td>
+        <td class="num">{{ j.nb }}</td>
+        <td class="num">{{ "%.2f"|format(j.total_debit) }}</td>
+        <td class="num">{{ "%.2f"|format(j.total_credit) }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4">Aucune écriture.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<p class="mt-md">
+  <a href="/comptabilite/auxiliaires" class="btn btn-secondary">Auxiliaires</a>
+  <a href="/comptabilite/rapprochement" class="btn btn-secondary">Rapprochement bancaire</a>
+  <a href="/resultats/reconciliation?mois={{ mois }}" class="btn btn-secondary">Réconciliations</a>
+</p>
+{% endblock %}

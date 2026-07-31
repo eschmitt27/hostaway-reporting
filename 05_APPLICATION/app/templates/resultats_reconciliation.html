@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Réconciliations{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/resultats" class="back-link">← Résultats</a>
+  <h1 class="page-title">Réconciliations — {{ mois or "aucun mois" }}</h1>
+</div>
+
+<div class="card mb-md">
+  <form method="get" class="filters-row">
+    <label>Mois
+      <select name="mois">
+        {% for m in mois_disponibles %}<option value="{{ m }}" {{ 'selected' if m == mois }}>{{ m }}</option>{% endfor %}
+      </select></label>
+    <button type="submit" class="btn btn-primary">Appliquer</button>
+  </form>
+</div>
+
+<div class="table-container">
+  <table class="data-table">
+    <thead><tr><th>Réconciliation</th><th class="num">Gauche</th><th class="num">Droit</th><th class="num">Écart</th><th>Statut</th></tr></thead>
+    <tbody>
+      {% for nom, r in lignes.items() %}
+      <tr>
+        <td>{{ nom }}<br><span class="section-note">{{ r.libelle_gauche }} / {{ r.libelle_droit }}</span></td>
+        <td class="num">{{ "%.2f"|format(r.montant_gauche) if r.montant_gauche is not none else "—" }}</td>
+        <td class="num">{{ "%.2f"|format(r.montant_droit) if r.montant_droit is not none else "—" }}</td>
+        <td class="num">{{ "%.2f"|format(r.ecart) if r.ecart is not none else "—" }}</td>
+        <td>
+          <span class="status-badge status-{{ 'valide' if r.statut == 'OK' else 'bloquant' if r.statut == 'BLOQUANT' else 'a-controler' }}">{{ r.statut }}</span>
+          {% if r.get('raison') %}<br><span class="section-note">{{ r.raison }}</span>{% endif %}
+        </td>
+      </tr>
+      {% if r.detail %}
+      <tr><td colspan="5">
+        <details><summary>Détail ({{ r.detail|length }})</summary>
+          <pre style="white-space: pre-wrap; font-size: 0.85em;">{{ r.detail }}</pre>
+        </details>
+      </td></tr>
+      {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

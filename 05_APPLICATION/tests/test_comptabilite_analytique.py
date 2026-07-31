@@ -134,3 +134,36 @@ def test_drill_down_logement_jusqua_lecriture(db):
 
 def test_drill_down_logement_sans_mouvement(db):
     assert ana.drill_down_logement("LOG_VIDE", db_path=db) == []
+
+
+def test_mois_disponibles(resultats_files):
+    assert ana.mois_disponibles() == ["2026-06"]
+
+
+def test_mois_disponibles_source_absente(tmp_path, monkeypatch):
+    monkeypatch.setattr(cfg, "MASTER_RESULTATS", tmp_path / "absent.xlsx")
+    reader.vider_cache()
+    assert ana.mois_disponibles() == []
+    reader.vider_cache()
+
+
+def test_mesures_cumulees(resultats_files):
+    m = ana.mesures_cumulees(vision="REEL")
+    assert m["statut"] == "OK"
+    assert m["resultat"] == 1100.0    # 700 (LOG_A1) + 400 (LOG_B1)
+    assert m["nb_mois_couverts"] == 1
+    assert m["mois_couverts"] == ["2026-06"]
+
+
+def test_mesures_cumulees_source_absente(tmp_path, monkeypatch):
+    monkeypatch.setattr(cfg, "MASTER_RESULTATS", tmp_path / "absent.xlsx")
+    reader.vider_cache()
+    m = ana.mesures_cumulees()
+    assert m["statut"] == ana.NON_DISPONIBLE
+    reader.vider_cache()
+
+
+def test_mois_precedent():
+    assert ana.mois_precedent("2026-06") == "2026-05"
+    assert ana.mois_precedent("2026-01") == "2025-12"
+    assert ana.mois_precedent("") == ""

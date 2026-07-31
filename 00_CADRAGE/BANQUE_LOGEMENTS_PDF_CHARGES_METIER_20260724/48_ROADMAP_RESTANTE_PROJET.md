@@ -5,13 +5,15 @@ commit stable). Master `8b47807`, worktree propre.
 Suite complète : voir dernier total constaté dans `HANDOFF_CANONIQUE.md` (2 échecs pré-existants
 connus, `test_appsec1_diagnostic` et un flake ordre-dépendant confirmé, non liés au chantier).
 
-**Estimation globale : 73 %**, marge ± 4 points. Cœur Comptabilité (ACHATS/VENTES/BANQUE/CAISSE/
-ODIVERSES, auxiliaires, périodes, clôture) TERMINÉ depuis le 2026-07-29 (cf. `49`). Analytique
-Phase 1 (mappings comptables branchés, ventilation) et Phase 2 (moteur analytique, réconciliations)
-FAITES depuis le 2026-07-31 (cf. `50`, `51`). Écrans Résultats (Phase 3) non commencés.
+**Estimation globale : 75 %**, marge ± 4 points. Cœur Comptabilité (ACHATS/VENTES/BANQUE/CAISSE/
+ODIVERSES, auxiliaires, périodes, clôture) TERMINÉ depuis le 2026-07-29 (cf. `49`). Analytique et
+Résultats (mappings, ventilation, moteur, réconciliations, écrans) TERMINÉS pour le périmètre
+défini depuis le 2026-07-31 (cf. `50`, `51`, `52`).
 
-> **Règle de plafond.** Aucun pourcentage supérieur à **85 %** ne peut être annoncé tant que
-> Comptabilité, Analytique et Résultats ne sont pas fonctionnels, **réconciliés** et **validés**.
+> **Règle de plafond.** Aucun pourcentage supérieur à **85 %** ne peut être annoncé tant que le
+> plan de comptes détaillé, les axes analytiques restants (plateforme/fournisseur/prestataire/
+> catégorie/activité) et le mode réel ne sont pas tranchés — Comptabilité/Analytique/Résultats sont
+> désormais fonctionnels et réconciliés pour le périmètre livré, mais pas validés métier au-delà.
 
 ## Relation avec les autres documents
 
@@ -38,9 +40,9 @@ l'état, ce document pour le reste à faire.
 | **Règlements** | TERMINÉ | `34` — total/partiel/multiple/groupé, annulation, statuts dérivés | — | — | atteint |
 | **Banque** | TERMINÉ | `30`, `31` — import, rapprochement, suggestions, contrôles | — | — | atteint |
 | **Comptabilité** | **TERMINÉ (cœur opérationnel)** | `43`, `45`, `46`, `47`, `49`, `50` — 5 journaux (ACHATS/VENTES/BANQUE/CAISSE/ODIVERSES), équilibre, idempotence, contrepassation, auxiliaires (fournisseurs/propriétaires/associés), périodes et clôture comptable, rapprochement comptable, recette navigateur, mapping catégorie→compte **relié** à la génération réelle (`0024`) | plan de comptes détaillé à arbitrer (reste PROVISOIRE, affiché comme tel) ; facture propriétaire comme objet applicatif (VENTES reste un adaptateur en lecture) | Facturation (VENTES, fait via adaptateur) | atteint pour le périmètre défini — reste PROVISOIRE sur le plan de comptes, assumé |
-| **Analytique** | PARTIEL (Phases 1+2 faites) | `50`, `51` — mappings branchés, dimensions peuplées (ACHATS/VENTES), moteur de lecture Lot10 (mesures/axes/drill-down), 7 réconciliations sur 8 | axes plateforme/réservation/fournisseur/prestataire/catégorie/activité non peuplés ; réconciliation Lot9↔Lot10 non construite (redondante moteur) ; répartition pool multi-logements (case C, gap Ménages) | Résultats (Phase 3) | axes peuplés + réconciliations toutes couvertes |
-| **Résultats** | NON COMMENCÉ | — | écrans `/resultats/*`, drill-down, exports | Analytique | drill-down complet résultat → pièce |
-| **Contrôles** | PARTIEL | catalogues Banque, Factures, Ménages, Charges, **Comptabilité** (`49`, 15 codes) livrés | contrôles inter-lots ; réconciliations globales | Analytique | réconciliations à 0,01 € |
+| **Analytique** | **TERMINÉ (périmètre défini)** | `50`, `51` — mappings branchés, dimensions peuplées (ACHATS/VENTES), moteur de lecture Lot10 (mesures/axes/drill-down), 7 réconciliations sur 8 | axes plateforme/réservation/fournisseur/prestataire/catégorie/activité non peuplés ; réconciliation Lot9↔Lot10 non construite (redondante moteur) ; répartition pool multi-logements (case C, gap Ménages) | — | atteint pour le périmètre défini |
+| **Résultats** | **TERMINÉ (périmètre défini)** | `52` — 14 routes `/resultats/*`, drill-down jusqu'à l'écriture, export CSV, recette navigateur avec persistance | export XLSX/Power BI ; écran de delta chiffré dédié entre visions ; tout ce qui dépend d'axes non peuplés | — | atteint pour le périmètre défini |
+| **Contrôles** | PARTIEL | catalogues Banque, Factures, Ménages, Charges, **Comptabilité** (`49`, 15 codes) livrés ; **7 réconciliations globales sur 8** (`51`) | contrôles inter-lots ; réconciliation Lot9↔Lot10 (assumée non disponible) | — | réconciliations à 0,01 € — atteint pour le périmètre défini |
 | **Clôture** | PARTIEL | `36`, `37` — clôture applicative du pilotage des calculs, 7 statuts, VALIDEE atteinte ; **clôture comptable** (`49`) — 5 statuts, période clôturée refuse toute écriture directe, réouverture justifiée | réconciliation globale entre les deux clôtures | Analytique | atteint pour la clôture comptable elle-même |
 | **Power BI** | TERMINÉ | `38` — 11 exports + dictionnaire, filet de confidentialité, contrat verrouillé | exports analytiques éventuels | Analytique | atteint pour le périmètre actuel |
 | **Mode réel** | NON ACTIVÉ | `GUIDE_ACTIVATION_MODE_REEL.md` — checklist GO/NO GO, verdict **NO GO** | sauvegarde des sources ; recette sur copies ; activation module par module | tout le reste | GO franchi, un module à la fois |
@@ -64,16 +66,22 @@ l'état, ce document pour le reste à faire.
    propriétaires émises, factures tiers, avoirs comme objet à cycle propre.
 3. **Compléter la Comptabilité** — **fait** (2026-07-29, cf. `49`) : VENTES (adaptateur Lot12),
    CAISSE, OD, auxiliaires propriétaires et associés, périodes et clôture comptable, rapprochement
-   comptable réutilisant le moteur bancaire existant, contrôles comptables, recette. Reste : plan de
-   comptes détaillé arbitré et mapping catégorie→compte relié à la génération réelle (non bloquant
-   pour la suite — le cœur fonctionne sur le plan provisoire, affiché comme tel).
-4. **Construire l'analytique** — règle de ventilation, peuplement des dimensions, mesures.
-5. **Construire les Résultats** — écrans et drill-down jusqu'à la pièce.
-6. **Construire les réconciliations** — Lot9↔Lot10, Lot10↔Comptabilité, Banque↔journal BANQUE,
-   factures↔auxiliaires, ménages↔charges, commissions↔factures propriétaires, analytique↔résultat
-   global, réel↔comptable↔hors-compta. Tolérance **0,01 €**.
+   comptable réutilisant le moteur bancaire existant, contrôles comptables, recette. Mapping
+   catégorie→compte **relié** à la génération réelle depuis le 2026-07-31 (`0024`, cf. `50`). Reste :
+   plan de comptes détaillé arbitré (non bloquant — le cœur fonctionne sur le plan provisoire,
+   affiché comme tel).
+4. **Construire l'analytique** — **fait** (2026-07-31, cf. `50`, `51`) : ventilation, dimensions
+   logement/propriétaire peuplées, moteur de lecture Lot10, mesures, axes. Reste : axes
+   plateforme/fournisseur/prestataire/catégorie/activité, non peuplés faute de source.
+5. **Construire les Résultats** — **fait** (2026-07-31, cf. `52`) : 14 routes, drill-down jusqu'à
+   l'écriture, export CSV, recette navigateur avec persistance.
+6. **Construire les réconciliations** — **fait, 7 sur 8** (cf. `51`) : Lot10↔Analytique,
+   Analytique↔Comptabilité, Banque↔journal BANQUE, Factures↔auxiliaires, Ménages↔charges,
+   Commissions↔VENTES Lot12, total analytique↔résultat global. Reste : Lot9↔Lot10 (assumé non
+   disponible, redondant avec les contrôles déjà portés par le moteur Lot10). Tolérance **0,01 €**
+   appliquée partout où c'est pertinent.
 7. **Recette globale sur copies** des données réelles (jamais en écriture).
-8. **Validation humaine** — arbitrages métier en attente (plan de comptes, ventilation analytique).
+8. **Validation humaine** — arbitrages métier en attente (plan de comptes, axes analytiques restants).
 9. **Activation progressive du mode réel**, module par module, selon `GUIDE_ACTIVATION_MODE_REEL.md`.
 
 ## Arbitrages métier en attente

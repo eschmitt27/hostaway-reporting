@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Résultat {{ logement_id }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/resultats/logements?mois={{ mois }}" class="back-link">← Logements</a>
+  <h1 class="page-title">{{ logement_id }}</h1>
+  <p class="page-subtitle">{{ mois or "aucun mois" }}</p>
+</div>
+
+{% if fiche.statut != "OK" %}
+<div class="alert alert-warning">NON_DISPONIBLE pour ce logement/mois.</div>
+{% else %}
+<div class="table-container mb-md">
+  <table class="data-table">
+    <thead><tr><th>Vision</th><th class="num">Produits</th><th class="num">Charges</th><th class="num">Résultat</th><th class="num">Flux</th></tr></thead>
+    <tbody>
+      {% for v, d in fiche.visions.items() %}
+      <tr>
+        <td>{{ v }}</td>
+        <td class="num">{{ "%.2f"|format(d.total_produits) }}</td>
+        <td class="num">{{ "%.2f"|format(d.total_charges) }}</td>
+        <td class="num">{{ "%.2f"|format(d.resultat) }}</td>
+        <td class="num">{{ d.nb_flux }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-title">Drill-down — écritures portant ce logement ({{ mouvements|length }})</div>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Écriture</th><th>Journal</th><th>Date</th><th>Statut</th><th class="num">Débit</th><th class="num">Crédit</th></tr></thead>
+      <tbody>
+        {% for m in mouvements %}
+        <tr>
+          <td><a href="/comptabilite/ecritures/{{ m.ecriture_id_opaque }}">{{ m.ecriture_id_opaque }}</a></td>
+          <td>{{ m.journal }}</td><td>{{ m.date_ecriture }}</td>
+          <td><span class="badge">{{ m.statut }}</span></td>
+          <td class="num">{{ "%.2f"|format(m.debit) if m.debit else "" }}</td>
+          <td class="num">{{ "%.2f"|format(m.credit) if m.credit else "" }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6">Aucune écriture ne porte encore ce logement.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -9,15 +9,15 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 |---|---|
 | Worktree | `C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Worktrees\BANQUE_LOGEMENTS_PDF_CHARGES_METIER` |
 | Branche | `feature/banque-logements-pdf-charges-metier` |
-| État figé le | **2026-07-31** — Phase 2 de la mission Analytique/Résultats : moteur analytique et réconciliations (cf. `51`) |
-| Dernier commit stable avant ce tour | `29b6e50` — `feat(comptabilite): branche les mappings comptables et la ventilation analytique` |
+| État figé le | **2026-07-31** — Phase 3 de la mission Analytique/Résultats : écrans Résultats livrés (cf. `52`) — mission complète |
+| Dernier commit stable avant ce tour | `fd2845f` — `feat(analytique): moteur analytique et reconciliations (Phase 2)` |
 | HEAD | vérifier avec `git log -1` — ce fichier est mis à jour par le commit qui le porte, dont le SHA ne peut donc pas y figurer |
 | git status | propre (`data_recette/` ignoré, régénérable) |
 | master / canonique | **intacts, jamais touchés** (`master` = `8b47807`) |
 | Sources réelles | inchangées, **une exception assumée** : `02_TRAVAIL/lot13_export_powerbi.py`, sur décision utilisateur explicite (renommage de la colonne d'export). Aucune donnée réelle touchée ; toutes les écritures de recette restent sous `data_recette/` |
-| Suite complète (dernier total constaté) | **2166 passés / 76 ignorés / 2 échecs pré-existants** avant ce tour (`test_appsec1_diagnostic` ; `test_proprietaires_reglements.py::test_route_dashboard_200`, flake ordre-dépendant confirmé antérieur via `git stash` sur `9bb24a7`, cf. `JOURNAL_ANOMALIES.md` 2026-07-29 — reproduit à l'identique une nouvelle fois ce tour, toujours sans lien). Suite ciblée Comptabilité+Propriétaires rejouée après Phase 2 : **144 passés, 1 échec** (le même flake connu). Suite complète en 4 tranches : `python -m pytest -q -p no:cacheprovider $(ls tests/test_*.py \| awk 'NR%4==1')`, puis `==2`, `==3`, `==0` (la tranche `==0` demande parfois une scission en deux moitiés, l'environnement l'ayant tuée en run unique — sans lien avec le contenu des tests) |
+| Suite complète (dernier total constaté) | **2166 passés / 76 ignorés / 2 échecs pré-existants** avant ce tour (`test_appsec1_diagnostic` ; `test_proprietaires_reglements.py::test_route_dashboard_200`, flake ordre-dépendant confirmé antérieur via `git stash` sur `9bb24a7`, cf. `JOURNAL_ANOMALIES.md` 2026-07-29 — reproduit à l'identique à plusieurs reprises ce tour, toujours sans lien). Suite ciblée Comptabilité+Résultats rejouée après Phase 3 : **184 passés, 0 échec**. Suite complète en 4 tranches : `python -m pytest -q -p no:cacheprovider $(ls tests/test_*.py \| awk 'NR%4==1')`, puis `==2`, `==3`, `==0` (la tranche `==0` demande parfois une scission en deux moitiés, l'environnement l'ayant tuée en run unique — sans lien avec le contenu des tests) |
 | Documents transverses | `MATRICE_ETAT_MODULES.md` (état livré) · **`48_ROADMAP_RESTANTE_PROJET.md` (trajectoire)** · `GUIDE_ACTIVATION_MODE_REEL.md` (verdict **NO GO**) |
-| **Avancement global estimé** | **73 %**, marge ± 4 points. Plafond : aucun pourcentage > 85 % tant que Résultats ne sont pas fonctionnels, **réconciliés** et **validés**. Comptabilité TERMINÉE (`49`) ; Analytique Phase 1+2 (mappings, ventilation, moteur, réconciliations) FAITES (`50`, `51`) ; écrans Résultats **non commencés**. |
+| **Avancement global estimé** | **75 %**, marge ± 4 points. Plafond : aucun pourcentage > 85 % tant que le périmètre restant (facturation propriétaire/tiers, plan de comptes détaillé, axes analytiques non peuplés, mode réel) n'est pas tranché. Comptabilité TERMINÉE (`49`) ; Analytique + Résultats **TERMINÉS pour le périmètre défini** (`50`, `51`, `52`). |
 
 ## Périmètre restant avant achèvement
 
@@ -144,7 +144,40 @@ tous écarts à 0,00. Détail dans `38_LOT13_CONTRAT_EXPORT_POWERBI.md`.
 | | |
 |---|---|
 | Modules terminés | Logements, Banque, Fournisseurs-Factures-Règlements, Pilotage des calculs (chaîne aval complète), Charges exercée |
-| Module actif | *(prochain tour : Phase 3 — écrans Résultats : `/resultats/*`, filtres période/vision, comparaisons, drill-down jusqu'à l'écriture/facture/mouvement, exports, recette navigateur 25 étapes. S'appuyer sur `comptabilite_analytique_service.py`/`comptabilite_reconciliations_service.py` (Phase 2), ne rien recalculer. Ne pas reprendre facture propriétaire/tiers/avoir sans besoin réel exprimé.)* |
+| Module actif | *(mission Analytique/Résultats terminée pour son périmètre. Prochain tour, sur décision utilisateur : soit peupler les axes analytiques restants (plateforme/fournisseur/prestataire/catégorie/activité), soit arbitrer le plan de comptes détaillé, soit facturation propriétaire/tiers comme objets applicatifs, soit démarrer l'activation progressive du mode réel module par module. Ne rien commencer sans instruction explicite.)* |
+
+## ✅ Mission 9 de ce tour — Phase 3 Analytique/Résultats : écrans Résultats — mission complète
+
+Continuation autonome après vérification préalable complète (worktree, branche, HEAD `fd2845f`,
+master `8b47807`, git status propre, lecture intégrale de `HANDOFF_CANONIQUE.md`/`48`/`49`/`50`/
+`51`). Phase 3 sur 3 — clôt la mission Analytique/Résultats démarrée en Mission 7.
+
+**14 routes livrées** sous `/resultats/*` (dashboard, mensuel, cumulé, logements + détail,
+propriétaires + détail, plateformes, fournisseurs, charges, ménages, comptabilité, réconciliation,
+lignes/{id}, export CSV) — toutes lisent `comptabilite_analytique_service.py`/
+`comptabilite_reconciliations_service.py` (Phase 2) ou les services Comptabilité déjà livrés
+(`49`), aucun recalcul. Fiche propriétaire distingue explicitement résultat conciergerie (Lot10) et
+net propriétaire (auxiliaire/Lot12) — jamais additionnés. Page plateformes : `NON_DISPONIBLE`
+assumé, aucune dimension n'existe pour cet axe. Aucun calendrier construit : les mois viennent de
+`ana.mois_disponibles()`.
+
+**Preuves** : 18 tests (`test_resultats_routes.py`). Recette navigateur réelle (Chrome, port 8092,
+`data_recette` avec `PROJECT_ROOT` correctement isolé dès le départ) : dashboard sur données
+fictives sans sorties Lot10 → `NON_DISPONIBLE` partout, aucun zéro fabriqué ; génération réelle
+d'une écriture ACHATS depuis une facture fictive de `data_recette` → validation → apparition
+immédiate dans `/resultats/fournisseurs` et `/resultats/comptabilite` ; `/resultats/charges` agrège
+5 catégories réelles du MASTER Lot3 de `data_recette` ; `/resultats/reconciliation` rend les 8
+lignes (D confirmée `OK`, E affiche un montant réel avec droit `NON_DISPONIBLE` en mode agrégé,
+comportement attendu) ; **persistance** vérifiée par redémarrage du serveur (écriture toujours
+`VALIDEE`). `data_recette/app_data/app.db` régénéré après la recette, aucune trace résiduelle.
+
+Suite ciblée Comptabilité+Résultats rejouée : **184 passés, 0 échec**.
+
+**Décision explicite, non entreprise ce tour** : export XLSX/Power BI (seul CSV construit) ; écran
+de delta chiffré dédié entre visions (l'information existe déjà dans le tableau GLOBAL) ; tout ce
+qui dépend d'axes non peuplés (plateforme, fournisseur analytique, prestataire, catégorie, activité).
+
+Détail complet : `52_ECRANS_RESULTATS_ETAT_FINAL.md`.
 
 ## ✅ Mission 8 de ce tour — Phase 2 Analytique : moteur analytique et réconciliations
 
