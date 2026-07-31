@@ -64,7 +64,7 @@ def lot9_vs_lot10(*, mois: str = "", vision: str = "REEL", logement_id: str = ""
     sens) pour vérifier que la somme correspond — un audit de cohérence, pas un second moteur.
     Ne modifie jamais Lot9. `NON_DISPONIBLE` uniquement si `MASTER_CALC_Flux.xlsx` n'existe pas
     encore (Lot9 pas encore exécuté sur ce jeu)."""
-    from app.readers import lot9_flux_reader as lot9
+    from app.readers import flux_unifie_reader as lot9
     from app.services import comptabilite_analytique_service as ana
 
     if not lot9.disponible():
