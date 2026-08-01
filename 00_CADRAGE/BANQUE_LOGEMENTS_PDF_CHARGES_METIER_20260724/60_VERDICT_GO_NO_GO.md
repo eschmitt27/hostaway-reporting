@@ -1,5 +1,9 @@
 # 60 — Verdict GO / NO GO (recette globale sur copies, 2026-08-01, mis à jour le 2026-08-02)
 
+> Re-vérifié le 2026-08-02 (suite) : une mission a annoncé un relevé Crédit Mutuel « nouvellement
+> fourni » — vérifié absent en pratique (dossier `01_SOURCES_BRUTES/Banque/` toujours inexistant,
+> aucune trace ailleurs). Verdict **inchangé**. Détail : `JOURNAL_ANOMALIES.md`.
+
 ## Verdict final
 
 **NO GO — SOURCE BANQUE REQUISE**

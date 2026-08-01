@@ -537,6 +537,26 @@ STATUT : OUVERT, decision et geste humains requis. Verdict formalise :
 `60_VERDICT_GO_NO_GO.md` -> **NO GO — SOURCE BANQUE REQUISE**.
 
 
+## VERIFICATION (2026-08-02, suite) — fichier annonce comme fourni, toujours absent en pratique
+
+Mission recue annoncant un releve Credit Mutuel "nouvellement fourni" sous
+`01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx`. Verification directe avant toute
+lecture metier (regle de la mission : controler le fichier avant tout traitement) :
+
+- `01_SOURCES_BRUTES/Banque/` **n'existe toujours pas** sur disque, dans le reel ;
+- recherche large (nom de fichier, motif `*BRUT_Banque*`, `*CreditMutuel*`) sur tout le worktree,
+  sur l'environnement de copies (`_RECETTES_GLOBALES/RECETTE_GLOBALE_20260801_004232/`) et sur
+  tout fichier `.xlsx` modifie depuis le dernier verdict : **aucune trace du fichier annonce** ;
+- 85/85 hashes des sources reelles reference re-verifies identiques a la baseline (aucun
+  changement, ni ajout, ni modification).
+
+CONCLUSION : la premisse de la mission ("fichier nouvellement fourni") ne correspond pas a l'etat
+observe du disque. Aucun contournement tente, aucune donnee fabriquee, aucune execution de Lot8
+lancee (rien a traiter). Signale a l'utilisateur plutot que suppose resolu.
+
+STATUT : INCHANGE. Verdict toujours `60_VERDICT_GO_NO_GO.md` -> **NO GO — SOURCE BANQUE REQUISE**.
+
+
 ## RESOLU (2026-08-02) — deux mois Lot10 manquants (2026-11, 2027-01) : cause identifiee, pas un bug
 
 Remontee de la chaine Lot10 -> Lot9 -> Lot4quater (mission recette globale, suite). Les deux mois

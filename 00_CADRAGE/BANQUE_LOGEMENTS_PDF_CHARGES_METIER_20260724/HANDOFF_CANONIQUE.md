@@ -9,8 +9,8 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 |---|---|
 | Worktree | `C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Worktrees\BANQUE_LOGEMENTS_PDF_CHARGES_METIER` |
 | Branche | `feature/banque-logements-pdf-charges-metier` |
-| État figé le | **2026-08-02** — Recette globale : **PARTIELLE**. Validation humaine du périmètre alimenté **AUTORISÉE** ; préparation du mode réel **NO GO**. Blocage principal : source bancaire brute Crédit Mutuel jamais fournie côté réel (`61`). Second écart (deux mois Lot10 manquants) **résolu et expliqué** ce tour (`62`) : filtrage upstream cohérent, pas un défaut |
-| Dernier commit stable avant ce tour | `e3b9b1f` — `docs(recette): recette globale sur copies reelles - verdict GO validation humaine` |
+| État figé le | **2026-08-02** — Recette globale : **PARTIELLE, inchangée**. Une mission a annoncé un relevé Crédit Mutuel "nouvellement fourni" sous `01_SOURCES_BRUTES/Banque/` : **vérifié absent en pratique** (recherche large sur le worktree et l'environnement de copies, 0 trace) — la prémisse ne correspondait pas à l'état réel du disque. Aucune action tentée sur cette base, 85/85 hashes réels re-vérifiés identiques. Validation humaine du périmètre alimenté **AUTORISÉE** ; préparation du mode réel **NO GO**. Blocage inchangé : source bancaire brute jamais fournie côté réel (`61`) |
+| Dernier commit stable avant ce tour | `893c630` — `docs(recette): contrat Banque Lot8 resolu a la racine, mois Lot10 expliques - NO GO source Banque requise` |
 | HEAD | vérifier avec `git log -1` — ce fichier est mis à jour par le commit qui le porte, dont le SHA ne peut donc pas y figurer |
 | git status | propre (`data_recette/` ignoré, régénérable) |
 | master / canonique | **intacts, jamais touchés** (`master` = `8b47807`) |
@@ -153,7 +153,32 @@ tous écarts à 0,00. Détail dans `38_LOT13_CONTRAT_EXPORT_POWERBI.md`.
 | | |
 |---|---|
 | Modules terminés | Logements, Banque, Fournisseurs-Factures-Règlements, Pilotage des calculs (chaîne aval complète), Charges exercée, Comptabilité (cœur), Analytique (périmètre défini), Résultats (périmètre défini) |
-| Module actif | *(Aucun — l'audit du contrat Banque et l'explication des mois Lot10 manquants sont clos ce tour, verdict final NO GO — SOURCE BANQUE REQUISE. Prochaine étape réelle non entreprise : geste utilisateur (déposer l'export Crédit Mutuel réel), ou tout autre chantier explicitement demandé par un prochain tour. Ne pas démarrer le mode réel ni une autre mission sans instruction explicite.)* |
+| Module actif | *(Aucun — vérification faite, rien à intégrer (fichier Banque toujours absent en pratique). Verdict inchangé : NO GO — SOURCE BANQUE REQUISE. Prochaine étape réelle non entreprise : déposer réellement l'export Crédit Mutuel sous `01_SOURCES_BRUTES/Banque/` avant toute nouvelle tentative, ou tout autre chantier explicitement demandé. Ne pas démarrer le mode réel ni une autre mission sans instruction explicite.)* |
+
+## ✅ Mission 13 de ce tour — Vérification du relevé Banque annoncé : toujours absent, aucune action possible
+
+Continuation autonome après vérification préalable complète (worktree, branche, HEAD `893c630`,
+master `8b47807`, git status propre, 85/85 hashes réels re-vérifiés identiques).
+
+La mission reçue annonçait un relevé Crédit Mutuel « nouvellement fourni » sous
+`01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx`. Conformément à l'étape 1 de la
+mission (« contrôler le fichier fourni avant toute lecture métier »), vérification directe avant
+tout traitement : **le dossier `01_SOURCES_BRUTES/Banque/` n'existe toujours pas** sur disque, dans
+le réel. Recherche large complémentaire (motifs `*BRUT_Banque*`, `*CreditMutuel*`, tout `.xlsx`
+modifié depuis le dernier verdict) sur l'ensemble du worktree ET sur l'environnement de copies
+(`_RECETTES_GLOBALES/RECETTE_GLOBALE_20260801_004232/`) : **aucune trace du fichier annoncé**.
+
+**Aucune action tentée sur cette base** : ni copie, ni exécution de Lot8, ni pipeline, ni
+réconciliation, ni recette navigateur — la prémisse de la mission (fichier fourni) ne correspondait
+pas à l'état observé du disque, et fabriquer un résultat sur cette base aurait été le type même de
+faux succès explicitement interdit par les missions précédentes. Signalé à l'utilisateur plutôt que
+supposé résolu silencieusement.
+
+**Aucune correction de code, aucun commit de correction.** Suite de tests inchangée (2281/75/1).
+85/85 hashes réels re-vérifiés identiques (aucun ajout, aucune modification).
+
+**Verdict inchangé : NO GO — SOURCE BANQUE REQUISE.** Détail : `61_CONTRAT_SOURCE_BANQUE_LOT8.md`
+(contrat, toujours d'actualité), `JOURNAL_ANOMALIES.md` (entrée « VÉRIFICATION 2026-08-02 »).
 
 ## ✅ Mission 12 de ce tour — Contrat Banque Lot8 résolu à la racine, mois Lot10 expliqués, verdict final NO GO — SOURCE BANQUE REQUISE
 
