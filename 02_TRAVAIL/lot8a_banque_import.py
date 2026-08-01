@@ -6,11 +6,19 @@ Lot 8a — Import & normalisation bancaire Crédit Mutuel
 Ingère 01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx
 Produit 02_TRAVAIL/Lot8_Banque/BANQUE_LOT8_IMPORT.xlsx
 
+Deux formats d'entrée acceptés, convergeant vers le même raw_rows canonique (D-8a-FORMAT) :
+  FORMAT_CREDIT_MUTUEL_NATIF — export brut historique, feuille `Cpt ...` (comportement inchangé).
+  FORMAT_RELEVE_CONSOLIDE    — fusion outillée de plusieurs relevés successifs, feuille
+                               `Mouvements` uniquement comme source économique (Synthese/Mensuel/
+                               Controles/Sources ne génèrent jamais de mouvement, elles ne
+                               vérifient que des totaux déjà calculés par le fichier lui-même).
+Détection par présence de feuilles, jamais par nom de fichier. Ni l'un ni l'autre n'est remplacé.
+
 Onglets :
   BRUT_Banque           — copie brute intégrale
   NORM_Banque           — mouvements normalisés + contrôles structurels
   CTRL_A_CONTROLER      — anomalies bloquantes et à contrôler
-  LOG_Traitement        — trace du run import
+  LOG_Traitement        — trace du run import (colonne `format_source` : format détecté)
   REF_Cloture_Mensuelle — structure vide des états de mois (alimentée Lot 8c)
   POWER_QUERY_CODE      — documentation technique
 
@@ -31,14 +39,20 @@ from datetime import datetime, date
 BASE        = os.path.dirname(os.path.abspath(__file__))
 ROOT        = os.path.dirname(BASE)
 BANQUE_DIR  = os.path.join(ROOT, '01_SOURCES_BRUTES', 'Banque')
-BRUT_FILE   = os.path.join(BANQUE_DIR, '2026_03_BRUT_Banque_CreditMutuel.xlsx')
+# Overrides d'environnement (tests uniquement) : mêmes conventions que
+# PROJECT_ROOT/LOT4A_ENGINE_PYTHON ailleurs dans 02_TRAVAIL — absent => comportement inchangé.
+BRUT_FILE   = os.environ.get(
+    'LOT8A_BRUT_FILE_OVERRIDE',
+    os.path.join(BANQUE_DIR, '2026_03_BRUT_Banque_CreditMutuel.xlsx'))
 OUT_DIR     = os.path.join(BASE, 'Lot8_Banque')
-OUT_FILE    = os.path.join(OUT_DIR, 'BANQUE_LOT8_IMPORT.xlsx')
+OUT_FILE    = os.environ.get(
+    'LOT8A_OUT_FILE_OVERRIDE',
+    os.path.join(OUT_DIR, 'BANQUE_LOT8_IMPORT.xlsx'))
 ARCHIVE_DIR = os.path.join(ROOT, '99_ARCHIVES', 'LOT8_Banque')
 
 TS = datetime.now().strftime('%Y%m%d_%H%M%S')
 
-os.makedirs(OUT_DIR,     exist_ok=True)
+os.makedirs(os.path.dirname(OUT_FILE), exist_ok=True)
 os.makedirs(ARCHIVE_DIR, exist_ok=True)
 
 # ── Constantes ────────────────────────────────────────────────────────────
@@ -50,6 +64,20 @@ HDR_ROW      = 5
 DATA_ROW     = 6
 NOM_ANNEE    = 2026
 NOM_MOIS     = 3
+
+# ── Formats d'entrée acceptés (D-8a-FORMAT) ─────────────────────────────────
+# Deux adaptateurs convergent vers le même raw_rows canonique (7 colonnes) : le format natif
+# Crédit Mutuel (export brut, feuille `Cpt ...`) et le format « relevé consolidé » (fusion
+# outillée de plusieurs relevés successifs, feuilles Synthese/Mouvements/Mensuel/Controles/
+# Sources). Ni l'un ni l'autre n'est remplacé — c'est un ajout, pas une migration de contrat.
+FORMAT_CREDIT_MUTUEL_NATIF = 'CREDIT_MUTUEL_NATIF'
+FORMAT_RELEVE_CONSOLIDE    = 'RELEVE_CONSOLIDE'
+FORMAT_INCONNU             = 'INCONNU'
+
+SHEET_CONSOLIDE_MOUVEMENTS  = 'Mouvements'
+SHEETS_CONSOLIDE_REQUISES   = {'Mouvements', 'Controles', 'Sources'}
+CONSOLIDE_HDR_ROW  = 5
+CONSOLIDE_DATA_ROW = 6
 
 BLOQUANT_CODES = {
     'BANQUE_DATE_INEXPLOITABLE',
@@ -176,6 +204,83 @@ def is_cm_footer_row(cols):
     return not has_date and not has_lib and not has_numeric_amount
 
 
+def detecter_format(sheetnames):
+    """Détecte le format d'entrée sans jamais se fier au nom du fichier (D-8a-FORMAT).
+
+    FORMAT_CREDIT_MUTUEL_NATIF : la feuille métier `Cpt ...` est présente (export brut historique).
+    FORMAT_RELEVE_CONSOLIDE    : les 3 feuilles `Mouvements`/`Controles`/`Sources` sont présentes
+                                 (fusion outillée de plusieurs relevés successifs).
+    FORMAT_INCONNU             : ni l'un ni l'autre — erreur bloquante explicite, jamais un
+                                 contournement silencieux.
+    """
+    noms = set(sheetnames)
+    if SHEET_METIER in noms:
+        return FORMAT_CREDIT_MUTUEL_NATIF
+    if SHEETS_CONSOLIDE_REQUISES <= noms:
+        return FORMAT_RELEVE_CONSOLIDE
+    return FORMAT_INCONNU
+
+
+def lire_natif(wb_src):
+    """Adaptateur FORMAT_CREDIT_MUTUEL_NATIF — comportement historique, inchangé.
+
+    Retourne (raw_rows, raw_notes, excluded_footer) : raw_rows en 7 colonnes canoniques
+    (Date|Valeur|Libellé|Débit|Crédit|Solde|Devise), raw_notes toujours None (pas de provenance
+    multi-source à tracer pour ce format).
+    """
+    ws_src = wb_src[SHEET_METIER]
+    raw_rows = []
+    raw_notes = []
+    excluded_footer = []
+    for row in ws_src.iter_rows(min_row=DATA_ROW, values_only=True):
+        if all(c is None or str(c).strip() == '' for c in row):
+            continue
+        padded = list(row) + [None] * max(0, 7 - len(row))
+        cols7 = padded[:7]
+        if is_cm_footer_row(cols7):
+            excluded_footer.append(cols7)
+            continue
+        raw_rows.append(cols7)
+        raw_notes.append(None)
+    return raw_rows, raw_notes, excluded_footer
+
+
+def lire_consolide(wb_src):
+    """Adaptateur FORMAT_RELEVE_CONSOLIDE — feuille `Mouvements` UNIQUEMENT (règle §5 de la
+    mission) : Synthese/Mensuel/Controles/Sources ne génèrent jamais de mouvement, elles ne
+    servent qu'à vérifier des totaux déjà calculés par le fichier lui-même.
+
+    Colonnes réelles (12) : N°|Date opération|Date de valeur|Libellé|Débit|Crédit|Montant net|
+    Solde consolidé|Devise|Source du relevé|Mois|Ligne source. Converties vers les 7 colonnes
+    canoniques natives. Débit/Crédit y sont TOUJOURS renseignés (0 si inactif, jamais vide) —
+    contrairement au format natif où le côté inactif est une cellule vide : sans cette conversion,
+    chaque ligne déclencherait à tort BANQUE_DEBIT_CREDIT_DOUBLES (les deux côtés « renseignés »).
+    """
+    ws_mouv = wb_src[SHEET_CONSOLIDE_MOUVEMENTS]
+    raw_rows = []
+    raw_notes = []
+    excluded_footer = []
+    for row in ws_mouv.iter_rows(min_row=CONSOLIDE_DATA_ROW, values_only=True):
+        if all(c is None or str(c).strip() == '' for c in row):
+            continue
+        padded = list(row) + [None] * max(0, 12 - len(row))
+        (_num, date_op, date_val, libelle, debit, credit, _montant_net,
+         solde, devise, source_releve, _mois, _ligne_source) = padded[:12]
+
+        deb_val, deb_ok = to_float(debit)
+        cre_val, cre_ok = to_float(credit)
+        deb_norm = deb_val if (deb_ok and deb_val) else None
+        cre_norm = cre_val if (cre_ok and cre_val) else None
+
+        cols7 = [date_op, date_val, libelle, deb_norm, cre_norm, solde, devise]
+        if is_cm_footer_row(cols7):
+            excluded_footer.append(cols7)
+            continue
+        raw_rows.append(cols7)
+        raw_notes.append(str(source_releve) if source_releve else None)
+    return raw_rows, raw_notes, excluded_footer
+
+
 # ==========================================================================
 # 1. LECTURE DU FICHIER BRUT (B2 : jamais modifié)
 # ==========================================================================
@@ -189,29 +294,22 @@ if not os.path.exists(BRUT_FILE):
 print(f'[OK] Source brute : {BRUT_FILE}')
 wb_src = openpyxl.load_workbook(BRUT_FILE, data_only=True, read_only=True)
 
-if SHEET_METIER not in wb_src.sheetnames:
+format_detecte = detecter_format(wb_src.sheetnames)
+print(f'[OK] Format détecté : {format_detecte}')
+
+if format_detecte == FORMAT_CREDIT_MUTUEL_NATIF:
+    raw_rows, raw_notes, excluded_footer = lire_natif(wb_src)
+elif format_detecte == FORMAT_RELEVE_CONSOLIDE:
+    raw_rows, raw_notes, excluded_footer = lire_consolide(wb_src)
+else:
     print(f'[ERREUR BLOQUANT] Feuille "{SHEET_METIER}" absente.')
     print(f'  Feuilles disponibles : {wb_src.sheetnames}')
+    print('  Format non reconnu : ni Crédit Mutuel natif, ni relevé consolidé '
+          f'({sorted(SHEETS_CONSOLIDE_REQUISES)} requises).')
     sys.exit(1)
-
-ws_src = wb_src[SHEET_METIER]
-raw_rows       = []
-excluded_footer = []
-for row in ws_src.iter_rows(min_row=DATA_ROW, values_only=True):
-    # Ignorer lignes entièrement vides
-    if all(c is None or str(c).strip() == '' for c in row):
-        continue
-    # Pad à 7 colonnes (Date|Valeur|Libellé|Débit|Crédit|Solde|Dev)
-    padded = list(row) + [None] * max(0, 7 - len(row))
-    cols7  = padded[:7]
-    # Exclure pieds d'export CM (ARCHI §13.6)
-    if is_cm_footer_row(cols7):
-        excluded_footer.append(cols7)
-        continue
-    raw_rows.append(cols7)
 wb_src.close()
 print(f'[OK] {len(raw_rows)} mouvements retenus '
-      f'({len(excluded_footer)} pied(s) export exclus) depuis ligne {DATA_ROW}')
+      f'({len(excluded_footer)} pied(s) export exclus)')
 
 # ==========================================================================
 # 2. NORMALISATION + CONTRÔLES STRUCTURELS
@@ -223,8 +321,11 @@ norm_data        = []
 ctrl_data        = []
 stats = dict(bloquants=0, a_controler=0, doublons=0, ok=0)
 
+_data_row_effectif = DATA_ROW if format_detecte == FORMAT_CREDIT_MUTUEL_NATIF else CONSOLIDE_DATA_ROW
+
 for idx, r in enumerate(raw_rows, 1):
-    ligne_src = DATA_ROW + idx - 1
+    ligne_src = _data_row_effectif + idx - 1
+    note_provenance = raw_notes[idx - 1] if idx - 1 < len(raw_notes) else None
     date_brute, val_brute, lib_brut, deb_brut, cre_brut, sol_brut, dev_brut = r
 
     anomalies = []
@@ -333,7 +434,7 @@ for idx, r in enumerate(raw_rows, 1):
         None,                        # 20 niveau_risque
         codes_str,                   # 21 codes_anomalie
         date_integration,            # 22 date_integration
-        None,                        # 23 commentaire
+        note_provenance,             # 23 commentaire (provenance consolidée, sinon None)
     ])
 
     for code in anomalies:
@@ -504,9 +605,9 @@ LOG_HDR = [
     'run_id', 'import_id', 'etape', 'timestamp',
     'nb_lignes_lues', 'nb_lignes_exclues_pied', 'nb_lignes_brut', 'nb_lignes_norm',
     'nb_bloquants', 'nb_a_controler', 'nb_doublons',
-    'periode_incoherente', 'commentaire',
+    'periode_incoherente', 'commentaire', 'format_source',
 ]
-LOG_WID = [30, 26, 18, 22, 15, 22, 15, 15, 14, 16, 13, 22, 55]
+LOG_WID = [30, 26, 18, 22, 15, 22, 15, 15, 14, 16, 13, 22, 55, 22]
 
 ws_l.append(LOG_HDR)
 style_header(ws_l, 1, len(LOG_HDR))
@@ -526,6 +627,7 @@ ws_l.append([
     stats['doublons'],
     'OUI' if periode_incoherente else 'NON',
     f'lot8a_banque_import.py — {TS}',
+    format_detecte,
 ])
 for row in ws_l.iter_rows(min_row=2):
     for cell in row:
@@ -611,7 +713,7 @@ print('=' * 65)
 print('BILAN LOT 8a — Import & normalisation bancaire')
 print('=' * 65)
 nb_lues_total = len(raw_rows) + len(excluded_footer)
-print(f'  Source brute       : 2026_03_BRUT_Banque_CreditMutuel.xlsx')
+print(f'  Format detecte     : {format_detecte}')
 print(f'  Lignes lues total  : {nb_lues_total}')
 print(f'  Pieds export exclus: {len(excluded_footer)}')
 print(f'  Lignes BRUT/NORM   : {len(raw_rows)}')
