@@ -9,15 +9,15 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 |---|---|
 | Worktree | `C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Worktrees\BANQUE_LOGEMENTS_PDF_CHARGES_METIER` |
 | Branche | `feature/banque-logements-pdf-charges-metier` |
-| État figé le | **2026-08-02** — Recette globale : **PARTIELLE**. Le relevé Crédit Mutuel a été déposé sous `01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx` ; **exécution réelle de Lot8 sur copie : ÉCHEC reproduit (code retour 1)** — le fichier est un rapport consolidé, pas l'export brut attendu (feuille `Cpt 02211 00021321603` absente, 12 colonnes au lieu de 7). `BANQUE_LOT8_IMPORT.xlsx` non produit. Validation humaine du périmètre alimenté **AUTORISÉE** ; préparation du mode réel **NO GO** |
-| Dernier commit stable avant ce tour | `1ff9e52` — `docs(recette): verifie le releve Banque annonce - toujours absent, verdict inchange` |
+| État figé le | **2026-08-02** — Recette globale : **PARTIELLE, verdict amélioré**. Lot8 accepte désormais le format consolidé (en plus du natif historique) : `BANQUE_LOT8_IMPORT.xlsx` produit réellement (541 mouvements, 0 BLOQUANT). **Chaîne aval complète rejouée avec succès** (lot9→lot13, scripts moteur directs, idempotente, REEL=COMPTABLE+HC vérifié). Réconciliations A/B/D/H **OK**. Verdict : **GO POUR VALIDATION HUMAINE PARTIELLE** — nouvelle anomalie hors mandat trouvée (régénération `lot4quater` scopée au mois via `/calculs`, sans rapport avec Banque), non corrigée, consignée |
+| Dernier commit stable avant ce tour | `da76d0f` — `feat(lot8): accepte le format releve bancaire consolide en plus du natif CM` |
 | HEAD | vérifier avec `git log -1` — ce fichier est mis à jour par le commit qui le porte, dont le SHA ne peut donc pas y figurer |
 | git status | propre (`data_recette/` ignoré, régénérable) |
 | master / canonique | **intacts, jamais touchés** (`master` = `8b47807`) |
-| Sources réelles | inchangées, **une exception assumée** : `02_TRAVAIL/lot13_export_powerbi.py`, sur décision utilisateur explicite (renommage de la colonne d'export). Aucune donnée réelle touchée, y compris le nouveau relevé Banque (jamais modifié, jamais ouvert en écriture) ; toutes les écritures de recette restent sous `data_recette/` ou sous l'environnement de copies externe `_RECETTES_GLOBALES/` (hors Git, jamais committé). 85/85 hashes réels historiques re-vérifiés identiques ; le nouveau relevé Banque ajouté au manifeste d'intégrité (86e fichier suivi) |
-| Suite complète (dernier total constaté) | **2281 passés / 75 ignorés / 1 échec pré-existant** (2026-07-31, campagne par shards complète — cf. `TEST_SHARDS_ANALYTIQUE_RESULTATS.txt`, 05_APPLICATION/, fichier temporaire hors documentation métier). Seul échec : `test_appsec1_diagnostic` (pré-existant, connu, chemin temp Windows). **Inchangée ce tour aussi** : aucun code applicatif modifié (reproduction d'un échec Lot8 réel, décision de ne pas adapter le script pour accepter un format non conforme). |
-| Documents transverses | `MATRICE_ETAT_MODULES.md` (état livré) · **`48_ROADMAP_RESTANTE_PROJET.md` (trajectoire)** · `GUIDE_ACTIVATION_MODE_REEL.md` (verdict **NO GO**) · `60_VERDICT_GO_NO_GO.md` (verdict final **NO GO — SOURCE BANQUE INCOMPATIBLE**) · `61_CONTRAT_SOURCE_BANQUE_LOT8.md` (mis à jour, section « Suite ») · `62_RAPPORT_MOIS_LOT10_MANQUANTS.md` |
-| **Avancement global estimé** | **80 %**, marge ± 4 points. Plafond : aucun pourcentage > 85 % tant que le périmètre restant (plan de comptes détaillé, facturation propriétaire/tiers, mode réel, **source Banque réelle conforme**) n'est pas tranché. Comptabilité TERMINÉE (`49`). Analytique et Résultats **TERMINÉS pour le périmètre défini** (`53`), validés sur copies de données réelles (`54`-`60`) : réconciliations A/B/D/H **OK sur 24 mois réels** (0,00€ d'écart), invariant REEL=COMPTABLE+HC vérifié, 0 fuite sécurité, 0 double comptage, migrations saines. Deux mois Lot10 manquants **expliqués** (`62`, filtrage upstream cohérent). Blocage restant, non applicatif : le relevé Banque fourni ne respecte pas le contrat Lot8 (`61`) — décision humaine requise (fournir l'export brut natif, ou décider d'adapter le script au format consolidé). |
+| Sources réelles | inchangées, **une exception assumée** : `02_TRAVAIL/lot13_export_powerbi.py`, sur décision utilisateur explicite (renommage de la colonne d'export). Aucune donnée réelle touchée en écriture, y compris le relevé Banque réel (jamais modifié). **Exception distincte et intentionnelle** : `02_TRAVAIL/lot8a_banque_import.py` a été modifié — c'est du **code** (git-tracké, commité `da76d0f`), pas une donnée métier ; la garantie « sources réelles jamais touchées » porte sur les fichiers Excel/CSV de données, pas sur le code applicatif que la mission demandait explicitement de faire évoluer. 88/88 fichiers réels de données re-vérifiés identiques (85 historiques + relevé Banque + 2 fichiers `02_DONNEES_NORMALISEES/` ajoutés au manifeste ce tour, requis par lot11) |
+| Suite complète (dernier total constaté) | **2281 passés / 75 ignorés / 1 échec pré-existant** (2026-07-31, `05_APPLICATION/tests/`, campagne par shards — inchangée, aucun code applicatif touché). **Nouvelle suite ce tour** : `tests/` racine (moteur 02_TRAVAIL) — **262 passés, 0 échec** (dont 11 nouveaux pour Lot8, format natif + consolidé). Suite ciblée Banque de l'application : **58 passés, 17 ignorés, 0 échec**. |
+| Documents transverses | `MATRICE_ETAT_MODULES.md` (état livré) · **`48_ROADMAP_RESTANTE_PROJET.md` (trajectoire)** · `GUIDE_ACTIVATION_MODE_REEL.md` (verdict **NO GO**) · `60_VERDICT_GO_NO_GO.md` (verdict final **GO POUR VALIDATION HUMAINE PARTIELLE**) · `61_CONTRAT_SOURCE_BANQUE_LOT8.md` · `62_RAPPORT_MOIS_LOT10_MANQUANTS.md` · `63_CONTRAT_FORMAT_RELEVE_BANCAIRE_CONSOLIDE.md` (nouveau) |
+| **Avancement global estimé** | **81 %**, marge ± 4 points. Plafond : aucun pourcentage > 85 % tant que le périmètre restant (plan de comptes détaillé, facturation propriétaire/tiers, mode réel, activation Lot8b/8c) n'est pas tranché. Comptabilité TERMINÉE (`49`). Analytique et Résultats **TERMINÉS pour le périmètre défini** (`53`), validés sur copies de données réelles (`54`-`63`) : réconciliations A/B/D/H **OK** sur la chaîne aval fraîchement régénérée (0,00€ d'écart), invariant REEL=COMPTABLE+HC vérifié, 0 fuite sécurité, idempotence prouvée à deux niveaux (Lot8 et Lot9/Lot10). Blocage restant, hors mandat de cette mission : `lot4quater` régénère `VUE_FLUX` scopé au mois via l'écran `/calculs`, empêchant la ré-exécution de la chaîne depuis l'application elle-même (contournée ce tour via exécution directe des scripts moteur) — mission dédiée future. |
 
 ## Périmètre restant avant achèvement
 
@@ -153,7 +153,65 @@ tous écarts à 0,00. Détail dans `38_LOT13_CONTRAT_EXPORT_POWERBI.md`.
 | | |
 |---|---|
 | Modules terminés | Logements, Banque, Fournisseurs-Factures-Règlements, Pilotage des calculs (chaîne aval complète), Charges exercée, Comptabilité (cœur), Analytique (périmètre défini), Résultats (périmètre défini) |
-| Module actif | *(Aucun — Lot8 tenté sur copie avec le fichier réellement fourni, échec reproduit (contrat incompatible), rien de plus à faire tant qu'une décision humaine n'est pas prise sur le format. Verdict : NO GO — SOURCE BANQUE INCOMPATIBLE. Prochaine étape réelle non entreprise : fournir l'export brut natif, ou décider d'adapter `lot8a_banque_import.py` au format consolidé. Ne pas démarrer le mode réel ni une autre mission sans instruction explicite.)* |
+| Module actif | *(Aucun — Lot8 accepte désormais les deux formats, chaîne aval rejouée avec succès sur copie. Prochaine étape réelle non entreprise : mission dédiée sur l'anomalie `lot4quater` (régénération scopée au mois via `/calculs`), ou Lot8b/8c si un cycle Banque complet est souhaité, ou tout autre chantier explicitement demandé. Ne pas démarrer le mode réel ni une autre mission sans instruction explicite.)* |
+
+## ✅ Mission 15 de ce tour — Lot8 accepte le format consolidé, chaîne aval rejouée avec succès, verdict GO validation humaine partielle
+
+Continuation autonome après vérification préalable complète (worktree, branche, HEAD `35a04b1`,
+master `8b47807`, git status propre, 86/86 hashes réels re-vérifiés identiques).
+
+**Audit de provenance** (30 min) : le relevé consolidé fourni fusionne 3 exports bruts Crédit
+Mutuel successifs (`comptes_4_complet_lignes_releve(1).xlsx`, `comptes (6).xlsx`,
+`comptes (7).xlsx`, cités dans son propre onglet `Sources`) — **non circulaire**, ne provient
+d'aucune sortie Lot8/Lot9+. Méthode de fusion et contrôles déjà documentés par le fichier lui-même
+(103 doublons retirés, solde raccordé sans écart). Poursuite autorisée.
+
+**Implémentation (`02_TRAVAIL/lot8a_banque_import.py`)** : détection de format par présence de
+feuilles (`FORMAT_CREDIT_MUTUEL_NATIF`/`FORMAT_RELEVE_CONSOLIDE`/`FORMAT_INCONNU`, jamais par nom
+de fichier), deux adaptateurs (`lire_natif`/`lire_consolide`) convergeant vers le même `raw_rows`
+canonique (7 colonnes) avant de rejoindre la normalisation/dédoublonnage/écriture déjà existante —
+aucune duplication de moteur. Point critique corrigé dans l'adaptateur consolidé : conversion
+`0 → None` sur Débit/Crédit (le format consolidé renseigne toujours les deux colonnes, contrairement
+au natif) — sans elle, chaque ligne aurait été signalée à tort `BANQUE_DEBIT_CREDIT_DOUBLES`.
+Nouvelle colonne `format_source` en fin de `LOG_Traitement` (position 14, aucun consommateur
+`lot8b`/`lot8c` cassé, ils lisent par position ≤13). Colonne `commentaire` existante réutilisée
+pour la provenance par ligne — aucune colonne inventée.
+
+**11 tests nouveaux** (`tests/test_lot8a_banque_import.py`, fixtures entièrement fictives) :
+régression format natif, détection/adaptateur consolidé, conversion 0→None, totaux, multi-mois
+`A_CONTROLER` non bloquant, doublon détecté non masqué, idempotence, consolidé incomplet →
+`INCONNU`, fichier absent, confidentialité stdout. Suite complète `tests/` (moteur) : **262 passés,
+0 échec**. Suite ciblée Banque application : **58 passés, 17 ignorés, 0 échec**.
+
+**Exécution réelle sur copie** : `lot8a` produit `BANQUE_LOT8_IMPORT.xlsx` (541 mouvements, 0
+BLOQUANT, 1 `A_CONTROLER` pour la période multi-mois — non bloquant). Totaux **identiques au
+centime près** à ceux de la feuille `Synthese` du fichier (51 744,37 € débit / 52 148,21 € crédit).
+Idempotent (2 exécutions, mêmes totaux, mêmes identifiants). Fichier original jamais modifié (hash
+inchangé, vérifié).
+
+**Chaîne aval rejouée avec succès** (`lot9`→`lot10`→`lot11`→`lot12`→`lot13`, scripts moteur
+directs — cf. ci-dessous pour la raison) : tous contrôles bloquants OK, REEL=COMPTABLE+HC vérifié
+(291 852,76 = 281 328,60 + 10 524,16, écart 0,00 €), idempotence confirmée (lot9/lot10 relancés,
+mêmes totaux). Réconciliations rejouées via l'application sur les sorties fraîches : A/B/D/H
+**OK** (écart 0,00 €), C/E/F/G toujours `A_CONTROLER`/`NON_DISPONIBLE` (attendu). Sécurité : 0
+fuite sur les pages et les 13 exports Power BI.
+
+**Écart de copie corrigé en cours de route** : `02_DONNEES_NORMALISEES/` (requis par `lot11`)
+n'avait pas été copié dans l'environnement de recette globale — complété, hash vérifié, ajouté au
+manifeste (88 fichiers réels de données suivis désormais).
+
+**Anomalie nouvelle trouvée, hors mandat, non corrigée** : en tentant de rejouer la chaîne via
+l'écran `/calculs` de l'application (plutôt que les scripts moteur directs), `lot9` échoue —
+`lot4quater_resoudre_source_reservations.py` régénère `VUE_FLUX` scopé au seul mois demandé (104
+lignes) au lieu de l'historique complet (1349 lignes), déclenchant `CTR-9-003` (volume suspect).
+Sans rapport avec le format Banque. Sorties restaurées, aucune correction appliquée (« ne commence
+aucune nouvelle fonctionnalité »). Consigné comme anomalie ouverte distincte, mission future.
+
+**Verdict : GO POUR VALIDATION HUMAINE PARTIELLE** (jamais GO mode réel) — « partielle » car la
+chaîne n'a pas encore été rejouée depuis l'écran applicatif lui-même (anomalie `lot4quater`
+ci-dessus), et Lot8b/8c (classification/rapprochement) restent à exécuter pour un cycle Banque
+complet. Détail complet : `63_CONTRAT_FORMAT_RELEVE_BANCAIRE_CONSOLIDE.md`,
+`60_VERDICT_GO_NO_GO.md` (mis à jour).
 
 ## ✅ Mission 14 de ce tour — Relevé Banque fourni, Lot8 exécuté sur copie : contrat incompatible, verdict NO GO — SOURCE BANQUE INCOMPATIBLE
 

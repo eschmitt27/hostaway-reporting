@@ -14,29 +14,35 @@
 > de 7 et une logique de fusion entre deux sources. **`BANQUE_LOT8_IMPORT.xlsx` n'a pas été
 > produit.** Détail complet : `61_CONTRAT_SOURCE_BANQUE_LOT8.md` (section « Suite »).
 
-## Verdict final
+## Verdict final (mis à jour 2026-08-02, suite 3 — après ajout du support du format consolidé)
 
-**NO GO — SOURCE BANQUE INCOMPATIBLE**
+**GO POUR VALIDATION HUMAINE PARTIELLE**
 
-Un fichier a été fourni au bon emplacement, pour le bon compte, mais dans un format que
-`lot8a_banque_import.py` ne peut pas traiter tel quel (feuille attendue absente, structure de
-colonnes différente, fichier déjà consolidé/dédoublonné plutôt qu'un export brut). Reproduit
-réellement sur copie (code retour 1, aucune sortie produite). Aucune correction de
-`lot8a_banque_import.py` appliquée pour accepter ce format — cela aurait été un changement de
-contrat métier décidé unilatéralement, explicitement hors mandat. `lot9` continue de refuser
-systématiquement de s'exécuter (`CTR-9-001`, comportement voulu, source toujours indisponible dans
-le format attendu).
+Décision prise et implémentée : Lot8 accepte désormais deux formats (natif Crédit Mutuel + relevé
+consolidé), sans remplacer le contrat historique (`63_CONTRAT_FORMAT_RELEVE_BANCAIRE_CONSOLIDE.md`).
+Provenance du consolidé auditée et **non circulaire** (3 exports bruts successifs, jamais une
+sortie Lot8/Lot9+). Exécuté réellement sur copie : `lot8a` produit `BANQUE_LOT8_IMPORT.xlsx` (541
+mouvements, 0 BLOQUANT, totaux identiques au centime près à ceux du fichier source), idempotent.
+**Chaîne aval complète rejouée avec succès** (lot9→lot10→lot11→lot12→lot13, scripts moteur
+directs) : REEL=COMPTABLE+HC vérifié (291 852,76 = 281 328,60 + 10 524,16, écart 0,00 €),
+idempotence confirmée sur un second passage. Réconciliations A/B/D/H **OK** (écart 0,00 €) sur les
+sorties fraîchement régénérées ; C/E/F/G toujours `A_CONTROLER`/`NON_DISPONIBLE` (attendu, 0
+écriture réelle Comptabilité). Sécurité : 0 fuite. Sources réelles : 88/88 intactes (le seul écart
+est la modification intentionnelle et commitée de `lot8a_banque_import.py`, du code).
 
-Ce verdict porte spécifiquement sur la **capacité à ré-exécuter le pipeline aval complet sur
-données réelles** — il ne remet pas en cause la validité de l'application sur les modules déjà
-alimentés (Analytique/Résultats sur les sorties Lot9-13 existantes, toutes réconciliations
-disponibles vertes, 0 fuite, 0 double comptage, migrations saines — cf. sections ci-dessous,
-inchangées depuis le 2026-08-01). Aucune anomalie logicielle bloquante n'a été trouvée : c'est un
-verdict sur la **donnée**, pas sur le **code**.
+**« Partielle » et non « complète »**, honnêtement, pour deux raisons :
+1. La chaîne aval a été rejouée en exécutant les **scripts moteur directement**, pas via l'écran
+   `/calculs` de l'application — une anomalie **nouvelle, distincte, hors mandat** de cette mission
+   a été trouvée en tentant cette voie (`lot4quater` régénère `VUE_FLUX` scopé au seul mois demandé
+   via le pipeline applicatif, produisant 104 lignes au lieu de 1349, ce qui déclenche
+   `CTR-9-003` — sans rapport avec le format Banque). Non corrigée (hors mandat), consignée pour
+   une mission dédiée. Cf. `63` section 9, `JOURNAL_ANOMALIES.md`.
+2. Lot8b (classification)/Lot8c (rapprochement bancaire) n'ont pas été exécutés — non requis pour
+   démontrer la compatibilité du format, mais signifie que le rapprochement Banque↔réconciliation D
+   reste vérifié sur un état « 0 mouvement classifié », pas sur un cycle complet de classification.
 
-Le second écart (deux mois Lot10 manquants) est **résolu et expliqué** ce tour
-(`62_RAPPORT_MOIS_LOT10_MANQUANTS.md`) : filtrage upstream cohérent, pas un défaut — statut
-VIDE_VALIDE/NON_APPLICABLE, aucune correction nécessaire.
+Le second écart (deux mois Lot10 manquants) reste **résolu et expliqué** depuis le tour précédent
+(`62_RAPPORT_MOIS_LOT10_MANQUANTS.md`) : filtrage upstream cohérent, pas un défaut.
 
 ## Modules validés (sur copies réelles)
 
@@ -57,26 +63,33 @@ VIDE_VALIDE/NON_APPLICABLE, aucune correction nécessaire.
 
 - Comptabilité (0 écriture réelle), Factures (0), Règlements (0), Ménages (0) — jamais alimentés en
   réel, réconciliations C/E/F/G correctement `A_CONTROLER`/`NON_DISPONIBLE`, pas un défaut.
-- Chaîne aval complète (lot9→lot13) : non ré-exécutable ce tour (source Banque manquante) ; les
-  sorties réelles utilisées datent du 2026-07-24, cohérence interne confirmée mais fraîcheur non
-  garantie face à l'état actuel exact des sources.
+- Lot8b (classification déterministe) / Lot8c (rapprochement bancaire) : non exécutés ce tour, non
+  requis pour prouver la compatibilité de format — reste à faire pour un cycle Banque complet.
+- Chaîne aval réellement rejouée (lot9→lot13) **via les scripts moteur directs** — pas encore via
+  l'écran `/calculs` de l'application pour un mois donné, bloqué par l'anomalie ci-dessous.
 
 ## Anomalies
 
-- **BLOQUANT (donnée, pas code)** : le fichier fourni pour la source Banque est un rapport
-  consolidé, pas l'export brut attendu — `BANQUE_LOT8_IMPORT.xlsx` ne peut pas être produit. Cf.
-  `61_CONTRAT_SOURCE_BANQUE_LOT8.md`.
+- **CORRIGÉ (code, ce tour)** : format Banque consolidé désormais accepté par Lot8, sans casser le
+  format natif historique (11 tests de régression/nouveaux, tous verts). Cf. `63`.
+- **NOUVELLE ANOMALIE, HORS MANDAT, NON CORRIGÉE** : `lot4quater_resoudre_source_reservations.py`,
+  invoqué via l'écran `/calculs` de l'application pour un mois donné, régénère `VUE_FLUX` scopé à
+  ce seul mois (104 lignes) au lieu de l'historique complet (1349 lignes) — déclenche
+  `BLOQUANT [CTR-9-003] VUE_FLUX volume suspect`. Sans rapport avec le format Banque. Sorties
+  restaurées, aucune correction appliquée (hors mandat strict : « ne commence aucune nouvelle
+  fonctionnalité »). Cf. `63` section 9, `JOURNAL_ANOMALIES.md`.
 - **RÉSOLU (expliqué)** : deux mois absents de la série réelle Lot10 (2026-11, 2027-01) — cause
   identifiée (filtrage upstream cohérent d'une réservation placeholder sans montant), pas un
   défaut. Cf. `62_RAPPORT_MOIS_LOT10_MANQUANTS.md`.
 - **MINEUR** : `réconciliation /resultats/reconciliation` à ~1 s — acceptable, surveiller si le
   volume augmente.
 
-Aucune anomalie de code n'a été trouvée ni corrigée ce tour : **0 commit de correction sur
-l'application**. La suite de tests déterministe reste celle du tour précédent
-(`TEST_SHARDS_ANALYTIQUE_RESULTATS.txt`, 2281 passés / 75 ignorés / 1 échec préexistant connu) —
-inchangée car aucun code n'a été modifié ; un nouveau manifeste n'a donc pas lieu d'être créé
-(règle explicite : uniquement si la liste des tests a changé).
+Suite de tests : **262 passés** dans `tests/` (moteur, dont 11 nouveaux pour Lot8), 0 échec.
+Suite ciblée Banque de l'application : **58 passés, 17 ignorés**, 0 échec. Campagne complète par
+shards (`TEST_SHARDS_ANALYTIQUE_RESULTATS.txt`) non rejouée dans son intégralité ce tour — le code
+modifié (`lot8a_banque_import.py`) est un script moteur `02_TRAVAIL/`, hors du périmètre couvert
+par ce manifeste (`05_APPLICATION/tests/`) ; sa propre suite ciblée (`tests/` racine, 262 tests) a
+servi de campagne complète pertinente pour ce changement.
 
 ## Risques
 
@@ -90,19 +103,17 @@ inchangée car aucun code n'a été modifié ; un nouveau manifeste n'a donc pas
 
 ## Prochaines actions
 
-1. **Décision utilisateur requise** : soit (a) fournir l'export **brut natif** Crédit Mutuel du
-   compte `02211 00021321603` (fichier tel que téléchargé depuis l'espace bancaire, sans
-   retraitement, feuille `Cpt 02211 00021321603`, 7 colonnes), soit (b) décider explicitement
-   d'adapter `lot8a_banque_import.py` pour consommer le format consolidé déjà fourni — un
-   changement de contrat métier à trancher humainement, hors mandat de cette mission.
-2. Une fois une source conforme disponible : exécuter `lot8a_banque_import.py`, puis reprendre la
-   recette globale à partir de Lot8/Lot9.
+1. **Décision humaine (mission dédiée future)** : traiter l'anomalie `lot4quater` (régénération
+   scopée au mois via `/calculs`, sans rapport avec Banque) — nécessaire pour que la chaîne aval
+   soit rejouable depuis l'écran applicatif, pas seulement via les scripts moteur directs.
+2. Exécuter Lot8b (classification)/Lot8c (rapprochement) si un cycle Banque complet est souhaité.
 3. Mois 2026-11/2027-01 : compléter la saisie Hors-Hostaway pour `LOG_0015`/`PROP_0011` si
    l'activité de ces mois doit apparaître dans les Résultats — sinon, aucune action requise (état
    correct).
 4. Nettoyer l'environnement de copies (`_RECETTES_GLOBALES/RECETTE_GLOBALE_20260801_004232/`) une
-   fois ce rapport validé — il contient une copie de l'`app.db` réel, à ne jamais committer ni
-   partager tel quel (hors du dépôt Git par construction, mais toujours une donnée sensible locale).
+   fois ce rapport validé — il contient une copie de l'`app.db` réel et le relevé bancaire réel, à
+   ne jamais committer ni partager tel quel (hors du dépôt Git par construction, mais toujours des
+   données sensibles locales).
 
 ## Commandes exactes de reprise
 

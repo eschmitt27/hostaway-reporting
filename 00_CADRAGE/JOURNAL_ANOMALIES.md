@@ -597,6 +597,75 @@ correction de bug. Verdict formalise : `60_VERDICT_GO_NO_GO.md` -> **NO GO — S
 INCOMPATIBLE**. Detail complet : `61_CONTRAT_SOURCE_BANQUE_LOT8.md` (section « Suite »).
 
 
+## RESOLU (2026-08-02, suite) — Lot8 accepte le format consolide, chaine aval rejouee avec succes
+
+Decision prise et implementee : `lot8a_banque_import.py` accepte desormais le format consolide EN
+PLUS du format natif Credit Mutuel historique (contrat non remplace). Detection par presence de
+feuilles (`FORMAT_CREDIT_MUTUEL_NATIF`/`FORMAT_RELEVE_CONSOLIDE`/`FORMAT_INCONNU`, jamais par nom
+de fichier). Deux adaptateurs (`lire_natif`/`lire_consolide`) convergent vers le meme `raw_rows`
+canonique avant de rejoindre la normalisation deja existante.
+
+PROVENANCE AUDITEE (30 min, avant toute correction) : le releve consolide fusionne 3 exports bruts
+successifs du meme compte (`comptes_4_complet_lignes_releve(1).xlsx`, `comptes (6).xlsx`,
+`comptes (7).xlsx`, cites dans son propre onglet `Sources`) — NON CIRCULAIRE, ne provient d'aucune
+sortie Lot8/Lot9+. Methode de fusion et controles deja documentes par le fichier lui-meme (103
+doublons retires, solde raccorde sans ecart).
+
+POINT CRITIQUE CORRIGE DANS L'ADAPTATEUR : le format consolide renseigne toujours Debit ET Credit
+(0 cote inactif, jamais vide), contrairement au natif ou le cote inactif est une cellule vide —
+sans conversion `0 -> None`, chaque ligne aurait ete signalee a tort `BANQUE_DEBIT_CREDIT_DOUBLES`.
+
+EXECUTION REELLE SUR COPIE : `lot8a` produit `BANQUE_LOT8_IMPORT.xlsx` (541 mouvements, 0
+BLOQUANT, 1 A_CONTROLER pour la periode multi-mois). Totaux identiques au centime pres a ceux de
+la feuille `Synthese` du fichier (51744,37 EUR debit / 52148,21 EUR credit). Idempotent (2
+executions, memes totaux, memes identifiants mouvement_id). Fichier original jamais modifie (hash
+inchange, verifie).
+
+CHAINE AVAL REJOUEE AVEC SUCCES (lot9->lot10->lot11->lot12->lot13, scripts moteur directs) : tous
+controles bloquants OK, REEL=COMPTABLE+HC verifie (291852,76 = 281328,60+10524,16, ecart 0,00 EUR),
+idempotence confirmee sur un second passage lot9/lot10. Reconciliations rejouees via l'application
+sur les sorties fraiches : A/B/D/H OK (ecart 0,00 EUR), C/E/F/G toujours A_CONTROLER/NON_DISPONIBLE
+(attendu, 0 ecriture Comptabilite reelle). Securite : 0 fuite sur les pages et les 13 exports Power
+BI.
+
+ECART DE COPIE CORRIGE EN COURS DE ROUTE : `02_DONNEES_NORMALISEES/` (requis par lot11 pour
+M04_MENAGES_PowerQuery.xlsx et l'historique cloture) n'avait pas ete copie dans l'environnement de
+recette globale lors de sa creation initiale (2026-08-01) — complete ce tour, hash source=copie
+verifie identique, ajoute au manifeste (88 fichiers reels de donnees suivis au total).
+
+11 TESTS NOUVEAUX (`tests/test_lot8a_banque_import.py`, fixtures fictives, aucune donnee bancaire
+reelle) : regression format natif, format consolide (detection, conversion 0->None, totaux,
+multi-mois non bloquant, doublon detecte non masque, idempotence, consolide incomplet -> INCONNU),
+format inconnu, fichier absent, confidentialite stdout. Suite complete tests/ (moteur) : 262
+passes, 0 echec. Suite ciblee Banque application : 58 passes, 17 ignores, 0 echec.
+
+STATUT : RESOLU (code). Verdict formalise : `60_VERDICT_GO_NO_GO.md` -> **GO POUR VALIDATION
+HUMAINE PARTIELLE**. Detail complet : `63_CONTRAT_FORMAT_RELEVE_BANCAIRE_CONSOLIDE.md`.
+
+
+## ANOMALIE NOUVELLE TROUVEE (2026-08-02, suite), HORS MANDAT, NON CORRIGEE — lot4quater scope au mois
+
+En tentant de rejouer la chaine aval via l'ecran `/calculs` de l'application (plutot que les
+scripts moteur directs), `lot9` echoue : `lot4quater_resoudre_source_reservations.py`, invoque
+pour le mois 2026-06, regenere `VUE_FLUX` avec seulement 104 lignes (les mois a partir de
+2026-06) au lieu de l'historique complet (1349 lignes, 2025-01->2027-02) — declenche `BLOQUANT
+[CTR-9-003] VUE_FLUX volume suspect : 104 lignes (attendu >= 1000)`.
+
+CAUSE : comportement de regeneration scope au mois de `lot4quater` quand invoque via le pipeline
+applicatif avec un parametre `mois` — sans aucun rapport avec le format Banque (le controle qui
+bloquait avant cette mission, CTR-9-001, est bien resolu ; c'est un AUTRE controle, CTR-9-003, qui
+bloque maintenant, pour une raison entierement differente).
+
+CE N'EST PAS CORRIGE CE TOUR : hors mandat strict de la mission Banque (« ne commence aucune
+nouvelle fonctionnalite »). Sorties restaurees immediatement apres la tentative (7 fichiers, hash
+verifie identique a l'original copie). La reprise de la chaine aval documentee ci-dessus a donc ete
+faite en executant les scripts moteur directement — un contournement legitime pour isoler le sujet
+Banque, pas une correction du probleme lot4quater lui-meme.
+
+STATUT : OUVERT, mission dediee future necessaire pour permettre la re-execution de la chaine aval
+depuis l'ecran applicatif `/calculs` pour un mois donne sans perdre l'historique complet.
+
+
 ## RESOLU (2026-08-02) — deux mois Lot10 manquants (2026-11, 2027-01) : cause identifiee, pas un bug
 
 Remontee de la chaine Lot10 -> Lot9 -> Lot4quater (mission recette globale, suite). Les deux mois

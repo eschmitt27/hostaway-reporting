@@ -2759,3 +2759,43 @@ AUCUNE CORRECTION DE CODE APPLIQUEE. Suite de tests inchangee (2281/75/1).
 VERDICT FINAL (mis a jour) : NO GO — SOURCE BANQUE INCOMPATIBLE. Decision humaine requise : export
 brut natif, ou adaptation explicite du contrat Lot8 au format consolide.
 REFERENCE : 60_VERDICT_GO_NO_GO.md (mis a jour), 61_CONTRAT_SOURCE_BANQUE_LOT8.md (section Suite)
+
+
+## 2026-08-02 (suite) - Lot8 accepte le format consolide, chaine aval rejouee, GO validation partielle
+
+CONTROLE : implementation de deux adaptateurs convergents (FORMAT_CREDIT_MUTUEL_NATIF /
+FORMAT_RELEVE_CONSOLIDE) dans lot8a_banque_import.py, provenance du consolide auditee (non
+circulaire, 3 exports bruts successifs du meme compte), execution reelle sur copie, reprise de la
+chaine aval complete.
+
+CONSTAT LOT8 : BANQUE_LOT8_IMPORT.xlsx produit reellement - 541 mouvements, 0 BLOQUANT, 1
+A_CONTROLER (periode multi-mois, non bloquant). Totaux identiques au centime pres a la feuille
+Synthese du fichier source (51744,37 debit / 52148,21 credit). Idempotent (2 executions, memes
+totaux, memes mouvement_id). Point corrige dans l'adaptateur : conversion 0->None sur Debit/Credit
+(le format consolide renseigne toujours les deux colonnes, contrairement au natif) - sans elle,
+chaque ligne aurait declenche a tort BANQUE_DEBIT_CREDIT_DOUBLES.
+
+CONSTAT CHAINE AVAL : lot9->lot10->lot11->lot12->lot13 executes directement (scripts moteur, sur
+copie) : tous verts. REEL=COMPTABLE+HC verifie (291852,76 = 281328,60+10524,16, ecart 0,00).
+Idempotence confirmee (lot9/lot10 relances, memes totaux). Reconciliations rejouees via
+l'application sur les sorties fraiches : A/B/D/H OK (ecart 0,00), C/E/F/G attendus A_CONTROLER/
+NON_DISPONIBLE (0 ecriture Comptabilite reelle). Securite : 0 fuite (pages + 13 exports Power BI).
+
+ECART DE COPIE CORRIGE : 02_DONNEES_NORMALISEES/ (requis par lot11) manquait dans l'environnement
+de copies - complete, hash verifie, 88 fichiers reels de donnees suivis desormais.
+
+NOUVELLE ANOMALIE TROUVEE, HORS MANDAT, NON CORRIGEE : lot4quater regenere VUE_FLUX scope au seul
+mois demande (104 lignes) quand invoque via l'ecran /calculs de l'application, au lieu de
+l'historique complet (1349 lignes) - declenche CTR-9-003 (volume suspect), sans rapport avec la
+Banque. Sorties restaurees, aucune correction appliquee (hors mandat : "ne commence aucune nouvelle
+fonctionnalite"). C'est pourquoi la chaine aval a ete rejouee via les scripts moteur directs plutot
+que via /calculs.
+
+11 tests nouveaux (tests/test_lot8a_banque_import.py). Suite complete tests/ (moteur) : 262
+passes, 0 echec. Suite ciblee Banque application : 58 passes, 17 ignores, 0 echec.
+
+VERDICT FINAL : GO POUR VALIDATION HUMAINE PARTIELLE (jamais GO mode reel). "Partielle" car (1)
+l'anomalie lot4quater/CTR-9-003 empeche la re-execution depuis l'ecran applicatif lui-meme, (2)
+Lot8b/Lot8c (classification/rapprochement) non executes, non requis pour prouver la compatibilite
+de format mais necessaires pour un cycle Banque complet.
+REFERENCE : 60_VERDICT_GO_NO_GO.md (mis a jour), 63_CONTRAT_FORMAT_RELEVE_BANCAIRE_CONSOLIDE.md

@@ -106,3 +106,58 @@ Lot8 accepte désormais deux formats d'entrée (natif historique + consolidé), 
 format canonique (`BANQUE_LOT8_IMPORT.xlsx`, structure `NORM_Banque` inchangée). Format natif :
 comportement 100 % préservé (11e test de régression). Format consolidé : nouveau, vert, idempotent,
 totaux vérifiés identiques à la source.
+
+## 7. Reprise de la chaîne aval (Lot9→Lot13), exécutée directement sur copie
+
+`BANQUE_LOT8_IMPORT.xlsx` produit, la chaîne complète a été rejouée directement (scripts moteur,
+sur l'environnement de copies, jamais sur le réel — `_RECETTES_GLOBALES/RECETTE_GLOBALE_20260801_
+004232/SOURCES_COPIEES/`) :
+
+| Lot | Résultat | Détail |
+|---|---|---|
+| lot9 (flux unifiés) | **SUCCÈS** | 1385 flux (1349 RES + 12 MEN + 0 BNQ + 0 CHG + 24 GPM) ; 0 BNQ car aucune ligne `NORM_Banque` n'est encore `VALIDE`/`TYPE_FLUX_016` (lot8b/lot8c non exécutés, hors mandat de cette mission) — comportement correct, pas un défaut ; tous contrôles bloquants OK, 0 doublon |
+| lot10 (résultats/commissions) | **SUCCÈS** | REEL 291 852,76 € = COMPTABLE 281 328,60 € + HORS_COMPTA 10 524,16 € (écart 0,00 €, CTR-LOT10-20 OK) |
+| lot11 (contrôles cohérence) | **SUCCÈS** | 1528 contrôles générés ; Banque en dégradation propre (`BANQUE_NON_DISPONIBLE_GIT` — `RAPPROCH_AIRBNB_ATTENTE` n'existe que si lot8c a tourné, ce qui n'était pas requis pour ce tour, mécanisme de dégradation déjà existant, pas un défaut introduit) |
+| lot12 (préfactures) | **SUCCÈS** | 261 préfactures, 3132 lignes ; 612 lignes `A_CONTROLER` — **pré-existantes**, identiques au compte de lot10 (« 612 réservations A_CONTROLER exclues »), sans lien avec le format Banque ; factures finales = 0 (attente validation humaine, comportement voulu) |
+| lot13 (export Power BI) | **SUCCÈS** | 13/13 exports + dictionnaire, filet de confidentialité actif (IBAN/RIB/emails/téléphones/noms voyageurs exclus, vérifié par scan : 0 occurrence) |
+
+**Idempotence prouvée** : lot9 et lot10 relancés une seconde fois — mêmes totaux au centime près
+(REEL 291 852,76 / COMPTABLE 281 328,60 / HORS_COMPTA 10 524,16, écart 0,00 €).
+
+**Écart de copie corrigé en cours de route** : `02_DONNEES_NORMALISEES/` (requis par lot11 pour
+`M04_MENAGES_PowerQuery.xlsx` et l'historique clôturé) n'avait pas été copié dans l'environnement
+de recette globale lors de sa création initiale (2026-08-01) — complété ce tour, hash source=copie
+vérifié identique pour les 2 fichiers, ajoutés au manifeste (88 fichiers réels suivis au total).
+
+## 8. Réconciliations rejouées (via l'application, sur les sorties fraîchement régénérées)
+
+| Réconciliation | Écart | Statut |
+|---|---|---|
+| A — Lot9 ↔ Lot10 | 0,00 € | **OK** |
+| B — Lot10 ↔ Analytique | 0,00 € | **OK** |
+| C — Analytique ↔ Comptabilité | 281 328,60 € | A_CONTROLER (attendu — 0 écriture réelle, module jamais exercé en réel) |
+| D — Banque ↔ journal BANQUE | 0,00 € | **OK** |
+| E — Factures ↔ auxiliaires | — | NON_DISPONIBLE (attendu) |
+| F — Ménages ↔ charges | — | NON_DISPONIBLE (attendu) |
+| G — Commissions ↔ VENTES | 4 231,90 € | A_CONTROLER (attendu, cohérent avec C) |
+| H — Total analytique ↔ résultat global | 0,00 € | **OK** |
+
+Sécurité : 0 fuite sur les pages `/resultats`, `/resultats/logements`, `/resultats/proprietaires`,
+`/health/diagnostic` et les 13 exports Power BI (scan chemins absolus/username/RIB/email). Intégrité
+finale : 88/88 fichiers réels re-vérifiés identiques (le seul écart est la modification
+intentionnelle et déjà commitée de `lot8a_banque_import.py`, du code, pas une donnée).
+
+## 9. Anomalie nouvelle trouvée, hors mandat de cette mission — non corrigée
+
+En tentant de rejouer la chaîne aval via l'écran `/calculs` de l'application (et non via les
+scripts moteur directement), `lot9` échoue avec `BLOQUANT [CTR-9-003] VUE_FLUX volume suspect : 104
+lignes (attendu >= 1000)`. Cause : `lot4quater_resoudre_source_reservations.py`, invoqué par le
+pipeline applicatif pour le mois `2026-06`, régénère `VUE_FLUX` avec seulement les mois à partir de
+2026-06 (104 lignes) au lieu de l'historique complet (1349 lignes, 2025-01→2027-02) — un
+comportement de régénération scopée au mois qui n'a aucun rapport avec le format Banque. Sorties
+restaurées immédiatement (7 fichiers, hash vérifié identique à l'original). **Aucune correction
+appliquée** : hors mandat strict de cette mission (« ne commence aucune nouvelle fonctionnalité »).
+Consigné comme anomalie ouverte distincte (`JOURNAL_ANOMALIES.md`) pour une mission dédiée future.
+C'est la raison pour laquelle la reprise de la chaîne aval ci-dessus (section 7) a été faite en
+exécutant les scripts moteur directement plutôt que via l'écran `/calculs` — un contournement
+légitime pour ce tour (isoler le sujet Banque), pas une correction du problème lot4quater lui-même.
