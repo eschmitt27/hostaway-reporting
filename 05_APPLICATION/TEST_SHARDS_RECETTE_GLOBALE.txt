@@ -1,0 +1,39 @@
+# Manifeste de shards — mission "corriger orchestration lot4quater, cycle Banque complet" (2026-08-02)
+# Fichier TEMPORAIRE, hors documentation métier (ne pas archiver dans 00_CADRAGE).
+# Meme liste de fichiers que TEST_SHARDS_ANALYTIQUE_RESULTATS.txt (05_APPLICATION/tests/ inchange,
+# 131 fichiers) : campagne rejouee integralement car du code a ete modifie dans la serie de
+# missions Banque precedente (lot8a_banque_import.py), meme si aucun code applicatif (05_APPLICATION/)
+# n'a ete touche cette fois-ci — uniquement des tests moteur (tests/test_lot4quater_...py).
+#
+# Execution : sequentielle, un shard a la fois, --basetemp distinct par shard, codes retour reels.
+#
+# Echecs pre-existants connus (non lies a ce chantier) :
+#   - test_appsec1_diagnostic.py (chemin temporaire pytest contenant le nom d'utilisateur Windows)
+#   - proprietaires_reglements flake ordre-dependant : non reproduit dans ce decoupage (fichiers
+#     declencheurs isoles du shard contenant test_proprietaires.py, comme lors des campagnes
+#     precedentes)
+
+[SHARD_00] (23 fichiers, test_appsec1_correctifs.py -> test_charges_confirmation_route.py)
+[SHARD_01] (20 fichiers, test_charges_impact.py -> test_comptabilite_routes.py)
+[SHARD_02] (22 fichiers, test_comptabilite_ventilation_analytique.py -> test_logements_creation.py)
+[SHARD_03] (23 fichiers, test_logements_cross_module.py -> test_pipeline_registry_paths.py)
+[SHARD_04] (21 fichiers, test_pipeline_runner_dryrun.py -> test_resultats_axes_routes.py)
+[SHARD_05] (22 fichiers, test_resultats_drilldown.py -> test_verrou_perime.py)
+
+# Voir TEST_SHARDS_ANALYTIQUE_RESULTATS.txt pour la liste exacte des 131 fichiers par shard
+# (identique, non reproduite ici pour eviter la duplication).
+
+# RESULTATS D'EXECUTION (codes retour reels)
+# | Shard | Fichiers | Passés | Ignorés | Échecs | Code retour | Durée |
+# |-------|----------|--------|---------|--------|-------------|-------|
+# | 00 | 23 | 405 | 29 | 1 | 1 | 7m18s |  test_appsec1_diagnostic — pré-existant, connu
+# | 01 | 20 | 417 | 8  | 0 | 0 | 7m14s |  —
+# | 02 | 22 | 339 | 22 | 0 | 0 | 3m19s |  —
+# | 03 | 23 | 310 | 16 | 0 | 0 | 4m19s |  flake proprietaires_reglements non reproduit
+# | 04 | 21 | 409 | 0  | 0 | 0 | 6m54s |  flake proprietaires_reglements non reproduit
+# | 05 | 22 | 401 | 0  | 0 | 0 | 8m56s |  avertissements ZipFile.__del__ bénins, aucun échec
+#
+# TOTAL : 131 fichiers, 2281 passés, 75 ignorés, 1 échec (pré-existant, connu, non lié au
+# chantier). AUCUN run tué par l'environnement. Résultat identique au caractère près à la
+# dernière campagne complète (2026-07-31), confirmant : aucune régression introduite par la série
+# de missions Banque (dual-format Lot8, tests lot4quater).

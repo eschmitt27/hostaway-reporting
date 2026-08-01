@@ -691,3 +691,61 @@ STATUT : RESOLU (explique). Statut retenu : VIDE_VALIDE/NON_APPLICABLE, jamais u
 Reste ouvert cote metier : completer la saisie Hors-Hostaway pour LOG_0015/PROP_0011 (trois mois
 consecutifs concernes : 2026-11, 2026-12, 2027-01) si l'activite reelle doit apparaitre dans les
 Resultats. Detail complet : `62_RAPPORT_MOIS_LOT10_MANQUANTS.md`.
+
+
+## RESOLU (2026-08-02, suite) — anomalie lot4quater/CTR-9-003 : artefact d'environnement, pas un bug
+
+Suite a l'anomalie consignee precedemment ("lot4quater regenere VUE_FLUX scope au mois via
+/calculs"), audit complet (45 min) : lecture integrale de `lot4quater_resoudre_source_
+reservations.py` confirme qu'**aucun parametre mois n'existe dans ce script** — il reconstruit
+TOUJOURS l'integralite de l'historique (mois ouverts depuis le live, mois clotures depuis HIST),
+sans aucune notion de "mois demande".
+
+CAUSE REELLE ETABLIE : execution directe sur la copie actuelle -> 1391 MASTER / 1349 VUE_FLUX,
+correct. La difference avec le run defaillant precedent (104 lignes) tient entierement a
+l'absence, A CE MOMENT PRECIS, de `02_DONNEES_NORMALISEES/historique_reservations/HIST_
+Reservations_Cloturees.xlsx` dans l'environnement de copies (copie depuis, lors d'une mission
+anterieure, pour debloquer lot11 — mais APRES le run /calculs qui avait echoue). Lot4quater a
+applique son propre mecanisme de repli DEJA DOCUMENTE (CLOTURE_SANS_HIST -> A_CONTROLER, alerte
+explicite dans les logs), jamais un crash ni une donnee fabriquee.
+
+PREUVE DEFINITIVE : `/calculs` relance deux fois pour le mois 2026-06 DEPUIS L'ECRAN APPLICATIF
+lui-meme (pas les scripts moteur) -> 6/6 lots SUCCES les deux fois, totaux identiques au centime
+pres a l'execution moteur directe (REEL 291852,76 EUR), idempotent (ecart 0,00 EUR au 2e run).
+Equivalence moteur direct <-> application confirmee.
+
+AUCUNE CORRECTION DE CODE APPLIQUEE : le contrat etait deja correct. Aucune regle metier modifiee,
+aucun contournement de CTR-9-003, aucune donnee fabriquee.
+
+6 tests nouveaux (tests/test_lot4quater_resoudre_source_reservations.py, fixtures fictives,
+script reel execute via runpy) fixant ce contrat : aucun filtre mois, HIST prime sur le live pour
+les mois clotures, repli documente et signale si HIST absent, reinjection, idempotence, filtre
+VUE_FLUX. Suite complete tests/ (moteur) : 268 passes, 0 echec.
+
+STATUT : RESOLU (explique, pas un defaut). Detail complet :
+`64_RAPPORT_ORCHESTRATION_LOT4QUATER_LOT9.md`.
+
+
+## CYCLE BANQUE COMPLET EXECUTE (2026-08-02, suite) — Lot8a/8b/8c, aucune anomalie bloquante
+
+Lot8b (classification, 24 VALIDE/517 A_CONTROLER, 30 regles seed) et Lot8c (rapprochement, 166
+Airbnb + 56 proprietaires en attente, 0 confirmation automatique) executes sur copie apres Lot8a
+(format consolide). Les deux SUCCES, les deux applicables au format consolide sans adaptation
+(Lot8b/8c ne lisent que NORM_Banque, structure canonique identique quel que soit le format
+d'entree — aucun NON_APPLICABLE necessaire).
+
+Effet mesure sur la chaine aval : Lot9 integre 24 flux de frais bancaires (TYPE_FLUX_016,
+auparavant 0), Lot11 passe de BANQUE_NON_DISPONIBLE_GIT a BANQUE_DISPONIBLE. Nouveaux totaux
+reconcilies et idempotents (REEL 291722,75 = COMPTABLE 281198,59 + HORS_COMPTA 10524,16, ecart
+0,00). Reconciliations rejouees via l'application : A/B/D/H OK.
+
+Deux points de securite pre-existants notes (hors mandat, non corriges) : bandeau MODE RECETTE
+affichant un chemin absolu (comportement de template anterieur a cette mission) ; libelles
+bancaires pouvant contenir des fragments de compte tiers (inherent au texte des releves, jamais
+reproduit dans la documentation).
+
+Campagne complete rejouee (TEST_SHARDS_RECETTE_GLOBALE.txt, 131 fichiers, 6 shards) : 2281 passes
+/ 75 ignores / 1 echec pre-existant — identique a la reference, aucune regression.
+
+STATUT : TERMINE pour le perimetre defini. Verdict formalise : `60_VERDICT_GO_NO_GO.md` ->
+**GO POUR VALIDATION HUMAINE COMPLETE**. Detail complet : `65_RAPPORT_CYCLE_BANQUE_COMPLET.md`.

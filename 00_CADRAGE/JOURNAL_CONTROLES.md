@@ -2799,3 +2799,39 @@ l'anomalie lot4quater/CTR-9-003 empeche la re-execution depuis l'ecran applicati
 Lot8b/Lot8c (classification/rapprochement) non executes, non requis pour prouver la compatibilite
 de format mais necessaires pour un cycle Banque complet.
 REFERENCE : 60_VERDICT_GO_NO_GO.md (mis a jour), 63_CONTRAT_FORMAT_RELEVE_BANCAIRE_CONSOLIDE.md
+
+
+## 2026-08-02 (suite) - Anomalie lot4quater expliquee, cycle Banque complet, GO validation complete
+
+CONTROLE : audit de l'anomalie lot4quater/CTR-9-003 (soupconnee bug d'orchestration), puis
+execution du cycle Banque complet Lot8a->8b->8c, puis chaine aval depuis /calculs.
+
+CONSTAT LOT4QUATER : le script ne prend AUCUN parametre mois, reconstruit TOUJOURS l'integralite
+de l'historique. Execution directe sur copie -> 1391 MASTER / 1349 VUE_FLUX, correct. Cause reelle
+du run defaillant precedent : HIST_Reservations_Cloturees.xlsx pas encore copie a ce moment
+precis (complete depuis, mission anterieure, pour lot11) - lot4quater a applique son repli deja
+documente (CLOTURE_SANS_HIST -> A_CONTROLER), pas un crash. PREUVE : /calculs relance deux fois
+depuis l'ecran applicatif -> 6/6 lots SUCCES les deux fois, totaux identiques au centime pres a
+l'execution moteur directe, idempotent. AUCUNE CORRECTION DE CODE - le contrat etait deja correct.
+6 tests nouveaux (test_lot4quater_resoudre_source_reservations.py).
+
+CONSTAT CYCLE BANQUE : Lot8b (classification, 24 VALIDE/517 A_CONTROLER) et Lot8c (rapprochement,
+166 Airbnb + 56 proprietaires en attente, 0 confirmation automatique) tous deux SUCCES, tous deux
+applicables au format consolide. Effet : Lot9 integre 24 flux frais bancaires (auparavant 0),
+Lot11 passe a BANQUE_DISPONIBLE. Nouveaux totaux reconcilies et idempotents (REEL 291722,75 =
+COMPTABLE 281198,59 + HORS_COMPTA 10524,16). Reconciliations A/B/D/H OK.
+
+SECURITE : deux points pre-existants notes (bandeau MODE RECETTE chemin absolu ; libelles
+bancaires avec fragments de compte tiers), hors mandat, non corriges, jamais reproduits dans la
+documentation.
+
+CAMPAGNE COMPLETE REJOUEE (TEST_SHARDS_RECETTE_GLOBALE.txt, 131 fichiers, 6 shards) : 2281 passes
+/ 75 ignores / 1 echec pre-existant - identique a la reference, aucune regression sur toute la
+serie de missions Banque.
+
+88/88 fichiers reels de donnees re-verifies identiques.
+
+VERDICT FINAL : GO POUR VALIDATION HUMAINE COMPLETE (jamais GO mode reel). Tous les criteres de
+fin du bloc Banque/chaine applicative sont atteints.
+REFERENCE : 60_VERDICT_GO_NO_GO.md (mis a jour), 64_RAPPORT_ORCHESTRATION_LOT4QUATER_LOT9.md,
+65_RAPPORT_CYCLE_BANQUE_COMPLET.md
