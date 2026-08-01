@@ -63,4 +63,58 @@ contournement codé, aucune donnée fabriquée. Action requise, côté utilisate
 3. Exécuter `lot8a_banque_import.py` (puis `lot8b`/`lot8c` si le rapprochement bancaire est
    souhaité) avant toute nouvelle tentative de ré-exécution complète du pipeline aval.
 
-**Verdict pour ce volet : NO GO — SOURCE BANQUE REQUISE.**
+**Verdict pour ce volet (au 2026-08-01) : NO GO — SOURCE BANQUE REQUISE.**
+
+## Suite (2026-08-02) — fichier fourni, contrat incompatible
+
+Un fichier a été déposé au chemin attendu :
+`01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx` (141 986 octets, SHA256
+`a84c9b51b1c0eb50d17216272bd3c6cf2669d159bf7e1299c2b762face0ca4a8`, copié dans l'environnement de
+copies avec hash identique vérifié). Reproduction réelle sur la copie (jamais sur le réel) :
+
+```
+[OK] Source brute : ...\SOURCES_COPIEES\01_SOURCES_BRUTES\Banque\2026_03_BRUT_Banque_CreditMutuel.xlsx
+[ERREUR BLOQUANT] Feuille "Cpt 02211 00021321603" absente.
+  Feuilles disponibles : ['Synthese', 'Mouvements', 'Mensuel', 'Controles', 'Sources']
+EXITCODE=1
+```
+
+`BANQUE_LOT8_IMPORT.xlsx` **n'a pas été produit** — le script sort avant l'écriture. Aucune donnée
+inventée, aucune ancienne sortie réutilisée, aucun contournement.
+
+### Tableau de contrat (fichier réellement fourni)
+
+| Élément | Attendu (`lot8a_banque_import.py`) | Trouvé dans le fichier fourni | Statut | Action |
+|---|---|---|---|---|
+| Nom de fichier / chemin | `01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx` | identique | **OK** | — |
+| Feuille métier | `Cpt 02211 00021321603` | absente — feuilles présentes : `Synthese`, `Mouvements`, `Mensuel`, `Controles`, `Sources` | **INCOMPATIBLE** | ne pas renommer une feuille pour faire matcher — décision humaine sur le format à fournir |
+| Compte (RIB) | `02211 00021321603` | **identique** — RIB `10278 02211 00021321603` cité dans `Synthese` (« C/C EUROCOMPTE PRO WONDERBNB ») | OK (même compte, tiers confirmé) | — |
+| En-tête ligne 5 / données ligne 6 | ligne 5 = en-têtes, ligne 6 = première donnée | dans `Mouvements` : ligne 5 = en-têtes, ligne 6 = première donnée (coïncidence structurelle) | partiellement compatible | insuffisant seul — le nom de feuille bloque avant même de lire les colonnes |
+| Colonnes (7, ordre fixe Date\|Valeur\|Libellé\|Débit\|Crédit\|Solde\|Devise) | 7 colonnes | `Mouvements` a **12 colonnes** : `N°`, `Date opération`, `Date de valeur`, `Libellé`, `Débit`, `Crédit`, `Montant net`, `Solde consolidé`, `Devise`, `Source du relevé`, `Mois`, `Ligne source` | **INCOMPATIBLE** | format différent, pas un export brut CM direct |
+| Nature du fichier | export brut banque, non retraité | **rapport consolidé** — titre `"Relevé bancaire consolidé — WONDERBNB"`, note explicite : *« ancien consolidé retenu jusqu'au 31/05/2026, puis relevé du 01/08/2026 prioritaire »* | **INCOMPATIBLE** | ce fichier fusionne déjà plusieurs relevés et une logique de priorité — exactement le type de source dérivée que la mission interdit de traiter comme un export brut |
+| Période | nominal `2026-03` (nom de fichier) | couvre `03/11/2025` → `01/08/2026` (9 mois) | **INCOMPATIBLE** (secondaire, masqué par le blocage sheet) | cohérent avec la nature consolidée du fichier |
+
+### Réponse
+
+Ce fichier est un **rapport consolidé** (probablement produit par un tiers outil ou une
+compilation manuelle de plusieurs relevés Crédit Mutuel), pas l'**export brut** que
+`lot8a_banque_import.py` attend en entrée. Le compte est le bon (RIB identique), mais la structure
+ne correspond pas au contrat : ni le nom de feuille, ni le nombre de colonnes, ni la nature du
+fichier (déjà consolidé/dédoublonné avec une logique de priorité entre deux sources) ne
+correspondent à un export brut CM à traiter tel quel.
+
+**Aucune correction de `lot8a_banque_import.py` n'a été appliquée** pour accepter ce format — cela
+reviendrait à modifier le contrat uniquement pour s'adapter à un fichier absent du contrat
+d'origine, explicitement interdit par la mission. Aucune tentative de renommer une feuille, de
+réordonner des colonnes ou de convertir le fichier n'a été faite.
+
+### Verdict pour ce fichier : NO GO — SOURCE BANQUE INCOMPATIBLE
+
+Action requise, côté utilisateur — deux options, décision humaine :
+
+1. **Fournir l'export brut natif** du compte Crédit Mutuel `02211 00021321603` (le fichier tel que
+   téléchargé depuis l'espace bancaire en ligne, sans retraitement), au format attendu par
+   `lot8a_banque_import.py` (feuille `Cpt 02211 00021321603`, 7 colonnes) ; ou
+2. **Décider explicitement** d'adapter `lot8a_banque_import.py` pour consommer ce format consolidé
+   à la place — un changement de contrat métier, pas une correction de bug, à trancher humainement
+   avant toute implémentation (hors mandat de cette mission).

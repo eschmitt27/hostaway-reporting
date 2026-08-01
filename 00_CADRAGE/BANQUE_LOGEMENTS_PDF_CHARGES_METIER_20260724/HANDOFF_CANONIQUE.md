@@ -9,15 +9,15 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 |---|---|
 | Worktree | `C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Worktrees\BANQUE_LOGEMENTS_PDF_CHARGES_METIER` |
 | Branche | `feature/banque-logements-pdf-charges-metier` |
-| État figé le | **2026-08-02** — Recette globale : **PARTIELLE, inchangée**. Une mission a annoncé un relevé Crédit Mutuel "nouvellement fourni" sous `01_SOURCES_BRUTES/Banque/` : **vérifié absent en pratique** (recherche large sur le worktree et l'environnement de copies, 0 trace) — la prémisse ne correspondait pas à l'état réel du disque. Aucune action tentée sur cette base, 85/85 hashes réels re-vérifiés identiques. Validation humaine du périmètre alimenté **AUTORISÉE** ; préparation du mode réel **NO GO**. Blocage inchangé : source bancaire brute jamais fournie côté réel (`61`) |
-| Dernier commit stable avant ce tour | `893c630` — `docs(recette): contrat Banque Lot8 resolu a la racine, mois Lot10 expliques - NO GO source Banque requise` |
+| État figé le | **2026-08-02** — Recette globale : **PARTIELLE**. Le relevé Crédit Mutuel a été déposé sous `01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx` ; **exécution réelle de Lot8 sur copie : ÉCHEC reproduit (code retour 1)** — le fichier est un rapport consolidé, pas l'export brut attendu (feuille `Cpt 02211 00021321603` absente, 12 colonnes au lieu de 7). `BANQUE_LOT8_IMPORT.xlsx` non produit. Validation humaine du périmètre alimenté **AUTORISÉE** ; préparation du mode réel **NO GO** |
+| Dernier commit stable avant ce tour | `1ff9e52` — `docs(recette): verifie le releve Banque annonce - toujours absent, verdict inchange` |
 | HEAD | vérifier avec `git log -1` — ce fichier est mis à jour par le commit qui le porte, dont le SHA ne peut donc pas y figurer |
 | git status | propre (`data_recette/` ignoré, régénérable) |
 | master / canonique | **intacts, jamais touchés** (`master` = `8b47807`) |
-| Sources réelles | inchangées, **une exception assumée** : `02_TRAVAIL/lot13_export_powerbi.py`, sur décision utilisateur explicite (renommage de la colonne d'export). Aucune donnée réelle touchée ; toutes les écritures de recette restent sous `data_recette/` ou, pour ce tour, sous l'environnement de copies externe `_RECETTES_GLOBALES/` (hors Git, jamais committé). 85/85 hashes réels re-vérifiés identiques après ce tour aussi |
-| Suite complète (dernier total constaté) | **2281 passés / 75 ignorés / 1 échec pré-existant** (2026-07-31, campagne par shards complète — cf. `TEST_SHARDS_ANALYTIQUE_RESULTATS.txt`, 05_APPLICATION/, fichier temporaire hors documentation métier). Seul échec : `test_appsec1_diagnostic` (pré-existant, connu, chemin temp Windows). **Inchangée ce tour aussi** : aucun code modifié (audit de contrat + remontée de cause racine uniquement), donc pas de nouveau manifeste ni de nouvelle campagne. |
-| Documents transverses | `MATRICE_ETAT_MODULES.md` (état livré) · **`48_ROADMAP_RESTANTE_PROJET.md` (trajectoire)** · `GUIDE_ACTIVATION_MODE_REEL.md` (verdict **NO GO**) · `60_VERDICT_GO_NO_GO.md` (verdict final **NO GO — SOURCE BANQUE REQUISE**) · `61_CONTRAT_SOURCE_BANQUE_LOT8.md` · `62_RAPPORT_MOIS_LOT10_MANQUANTS.md` |
-| **Avancement global estimé** | **80 %**, marge ± 4 points. Plafond : aucun pourcentage > 85 % tant que le périmètre restant (plan de comptes détaillé, facturation propriétaire/tiers, mode réel, **source Banque réelle**) n'est pas tranché. Comptabilité TERMINÉE (`49`). Analytique et Résultats **TERMINÉS pour le périmètre défini** (`53`), validés sur copies de données réelles (`54`-`60`) : réconciliations A/B/D/H **OK sur 24 mois réels** (0,00€ d'écart), invariant REEL=COMPTABLE+HC vérifié, 0 fuite sécurité, 0 double comptage, migrations saines. Deux mois Lot10 manquants **expliqués** (`62`, filtrage upstream cohérent). Blocage restant, non applicatif : source Banque réelle jamais fournie (`61`) — action humaine requise avant toute nouvelle ré-exécution du pipeline aval. |
+| Sources réelles | inchangées, **une exception assumée** : `02_TRAVAIL/lot13_export_powerbi.py`, sur décision utilisateur explicite (renommage de la colonne d'export). Aucune donnée réelle touchée, y compris le nouveau relevé Banque (jamais modifié, jamais ouvert en écriture) ; toutes les écritures de recette restent sous `data_recette/` ou sous l'environnement de copies externe `_RECETTES_GLOBALES/` (hors Git, jamais committé). 85/85 hashes réels historiques re-vérifiés identiques ; le nouveau relevé Banque ajouté au manifeste d'intégrité (86e fichier suivi) |
+| Suite complète (dernier total constaté) | **2281 passés / 75 ignorés / 1 échec pré-existant** (2026-07-31, campagne par shards complète — cf. `TEST_SHARDS_ANALYTIQUE_RESULTATS.txt`, 05_APPLICATION/, fichier temporaire hors documentation métier). Seul échec : `test_appsec1_diagnostic` (pré-existant, connu, chemin temp Windows). **Inchangée ce tour aussi** : aucun code applicatif modifié (reproduction d'un échec Lot8 réel, décision de ne pas adapter le script pour accepter un format non conforme). |
+| Documents transverses | `MATRICE_ETAT_MODULES.md` (état livré) · **`48_ROADMAP_RESTANTE_PROJET.md` (trajectoire)** · `GUIDE_ACTIVATION_MODE_REEL.md` (verdict **NO GO**) · `60_VERDICT_GO_NO_GO.md` (verdict final **NO GO — SOURCE BANQUE INCOMPATIBLE**) · `61_CONTRAT_SOURCE_BANQUE_LOT8.md` (mis à jour, section « Suite ») · `62_RAPPORT_MOIS_LOT10_MANQUANTS.md` |
+| **Avancement global estimé** | **80 %**, marge ± 4 points. Plafond : aucun pourcentage > 85 % tant que le périmètre restant (plan de comptes détaillé, facturation propriétaire/tiers, mode réel, **source Banque réelle conforme**) n'est pas tranché. Comptabilité TERMINÉE (`49`). Analytique et Résultats **TERMINÉS pour le périmètre défini** (`53`), validés sur copies de données réelles (`54`-`60`) : réconciliations A/B/D/H **OK sur 24 mois réels** (0,00€ d'écart), invariant REEL=COMPTABLE+HC vérifié, 0 fuite sécurité, 0 double comptage, migrations saines. Deux mois Lot10 manquants **expliqués** (`62`, filtrage upstream cohérent). Blocage restant, non applicatif : le relevé Banque fourni ne respecte pas le contrat Lot8 (`61`) — décision humaine requise (fournir l'export brut natif, ou décider d'adapter le script au format consolidé). |
 
 ## Périmètre restant avant achèvement
 
@@ -153,7 +153,51 @@ tous écarts à 0,00. Détail dans `38_LOT13_CONTRAT_EXPORT_POWERBI.md`.
 | | |
 |---|---|
 | Modules terminés | Logements, Banque, Fournisseurs-Factures-Règlements, Pilotage des calculs (chaîne aval complète), Charges exercée, Comptabilité (cœur), Analytique (périmètre défini), Résultats (périmètre défini) |
-| Module actif | *(Aucun — vérification faite, rien à intégrer (fichier Banque toujours absent en pratique). Verdict inchangé : NO GO — SOURCE BANQUE REQUISE. Prochaine étape réelle non entreprise : déposer réellement l'export Crédit Mutuel sous `01_SOURCES_BRUTES/Banque/` avant toute nouvelle tentative, ou tout autre chantier explicitement demandé. Ne pas démarrer le mode réel ni une autre mission sans instruction explicite.)* |
+| Module actif | *(Aucun — Lot8 tenté sur copie avec le fichier réellement fourni, échec reproduit (contrat incompatible), rien de plus à faire tant qu'une décision humaine n'est pas prise sur le format. Verdict : NO GO — SOURCE BANQUE INCOMPATIBLE. Prochaine étape réelle non entreprise : fournir l'export brut natif, ou décider d'adapter `lot8a_banque_import.py` au format consolidé. Ne pas démarrer le mode réel ni une autre mission sans instruction explicite.)* |
+
+## ✅ Mission 14 de ce tour — Relevé Banque fourni, Lot8 exécuté sur copie : contrat incompatible, verdict NO GO — SOURCE BANQUE INCOMPATIBLE
+
+Continuation autonome après vérification préalable complète (worktree, branche, HEAD `1ff9e52`,
+master `8b47807`, git status propre). Cette fois, `01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_
+CreditMutuel.xlsx` **existe réellement** (141 986 octets, SHA256 `a84c9b51b1c0eb50d17216272bd3c6cf
+2669d159bf7e1299c2b762face0ca4a8`) — vérifié avant toute lecture métier.
+
+**Copie contrôlée** : fichier copié dans `_RECETTES_GLOBALES/RECETTE_GLOBALE_20260801_004232/
+SOURCES_COPIEES/01_SOURCES_BRUTES/Banque/`, hash source=copie vérifié identique. Fichier original
+jamais ouvert en écriture, jamais renommé, jamais modifié.
+
+**Lot8 exécuté sur la copie uniquement** (jamais sur le réel) :
+```
+[OK] Source brute : ...SOURCES_COPIEES\01_SOURCES_BRUTES\Banque\2026_03_BRUT_Banque_CreditMutuel.xlsx
+[ERREUR BLOQUANT] Feuille "Cpt 02211 00021321603" absente.
+  Feuilles disponibles : ['Synthese', 'Mouvements', 'Mensuel', 'Controles', 'Sources']
+EXITCODE=1
+```
+`BANQUE_LOT8_IMPORT.xlsx` **non produit** (le script sort avant l'écriture — aucun fichier vide,
+aucune ancienne sortie réutilisée, dossier `Lot8_Banque/` créé vide comme simple effet de bord).
+
+**Analyse du fichier fourni** : c'est un **rapport consolidé** (titre interne *« Relevé bancaire
+consolidé — WONDERBNB »*, note *« ancien consolidé retenu jusqu'au 31/05/2026, puis relevé du
+01/08/2026 prioritaire »*), pas l'export brut Crédit Mutuel que le script attend. Même compte (RIB
+`10278 02211 00021321603` identique à `CM_02211_00021321603`), mais feuille `Mouvements` à
+**12 colonnes** (`N°`, `Date opération`, `Date de valeur`, `Libellé`, `Débit`, `Crédit`, `Montant
+net`, `Solde consolidé`, `Devise`, `Source du relevé`, `Mois`, `Ligne source`) contre les 7
+attendues, et une période de 9 mois (03/11/2025→01/08/2026) au lieu du mois nominal `2026-03`.
+
+**Aucune correction appliquée** : ni renommage de feuille, ni adaptation des colonnes lues par
+`lot8a_banque_import.py`, ni conversion du fichier — cela aurait changé le contrat métier
+unilatéralement pour accepter un format non prévu, explicitement hors mandat. 85/85 hashes réels
+historiques re-vérifiés identiques ; le nouveau relevé ajouté au manifeste d'intégrité, jamais
+modifié (hash inchangé après traitement).
+
+**Aucune correction de code, aucun commit de correction applicative.** Suite de tests inchangée
+(2281/75/1).
+
+**Verdict : NO GO — SOURCE BANQUE INCOMPATIBLE.** Action requise, décision humaine : fournir
+l'export brut natif Crédit Mutuel (feuille `Cpt 02211 00021321603`, 7 colonnes), ou décider
+explicitement d'adapter `lot8a_banque_import.py` pour consommer ce format consolidé — un
+changement de contrat, pas une correction de bug. Détail complet :
+`61_CONTRAT_SOURCE_BANQUE_LOT8.md` (section « Suite »), `60_VERDICT_GO_NO_GO.md` (mis à jour).
 
 ## ✅ Mission 13 de ce tour — Vérification du relevé Banque annoncé : toujours absent, aucune action possible
 

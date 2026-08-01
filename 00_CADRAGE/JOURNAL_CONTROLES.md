@@ -2734,3 +2734,28 @@ la validite applicative des modules alimentes - validation humaine du perimetre 
 AUTORISEE ; preparation du mode reel reste NO GO).
 REFERENCE : 60_VERDICT_GO_NO_GO.md (mis a jour), 61_CONTRAT_SOURCE_BANQUE_LOT8.md,
 62_RAPPORT_MOIS_LOT10_MANQUANTS.md
+
+
+## 2026-08-02 (suite) - Releve Banque fourni, Lot8 execute sur copie : contrat incompatible
+
+CONTROLE : le releve Credit Mutuel a ete depose (01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_
+CreditMutuel.xlsx, 141986 octets, SHA256 a84c9b51...). Copie controlee vers l'environnement de
+copies (hash source=copie identique verifie). Lot8a execute REELLEMENT sur la copie.
+
+CONSTAT : ECHEC reproduit, code retour 1 - "[ERREUR BLOQUANT] Feuille Cpt 02211 00021321603
+absente. Feuilles disponibles : ['Synthese', 'Mouvements', 'Mensuel', 'Controles', 'Sources']".
+BANQUE_LOT8_IMPORT.xlsx non produit. Le fichier fourni est un rapport CONSOLIDE ("Releve bancaire
+consolide - WONDERBNB", fusion de deux sources avec logique de priorite), pas l'export brut CM
+attendu : meme compte (RIB identique), mais 12 colonnes au lieu de 7, periode de 9 mois au lieu du
+mois nominal.
+
+AUCUNE CORRECTION APPLIQUEE : ni renommage de feuille, ni adaptation des colonnes du script, ni
+conversion du fichier - changerait le contrat metier unilateralement. Fichier original jamais
+modifie (hash inchange verifie). 85/85 hashes reels historiques re-verifies identiques ; nouveau
+releve ajoute au manifeste (86e fichier suivi).
+
+AUCUNE CORRECTION DE CODE APPLIQUEE. Suite de tests inchangee (2281/75/1).
+
+VERDICT FINAL (mis a jour) : NO GO — SOURCE BANQUE INCOMPATIBLE. Decision humaine requise : export
+brut natif, ou adaptation explicite du contrat Lot8 au format consolide.
+REFERENCE : 60_VERDICT_GO_NO_GO.md (mis a jour), 61_CONTRAT_SOURCE_BANQUE_LOT8.md (section Suite)

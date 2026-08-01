@@ -557,6 +557,46 @@ lancee (rien a traiter). Signale a l'utilisateur plutot que suppose resolu.
 STATUT : INCHANGE. Verdict toujours `60_VERDICT_GO_NO_GO.md` -> **NO GO — SOURCE BANQUE REQUISE**.
 
 
+## ANOMALIE REELLE TROUVEE EN RECETTE (2026-08-02, suite) — releve fourni, contrat incompatible
+
+Le fichier `01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx` a ete reellement depose
+(141986 octets, SHA256 `a84c9b51b1c0eb50d17216272bd3c6cf2669d159bf7e1299c2b762face0ca4a8`).
+Verification avant tout traitement metier : taille > 0, extension correcte, 5 feuilles
+(`Synthese`, `Mouvements`, `Mensuel`, `Controles`, `Sources`).
+
+Copie controlee vers l'environnement de copies (hash source=copie verifie identique). Execution
+REELLE de `lot8a_banque_import.py` sur la copie (jamais sur le reel) :
+
+```
+[OK] Source brute : ...SOURCES_COPIEES\01_SOURCES_BRUTES\Banque\2026_03_BRUT_Banque_CreditMutuel.xlsx
+[ERREUR BLOQUANT] Feuille "Cpt 02211 00021321603" absente.
+  Feuilles disponibles : ['Synthese', 'Mouvements', 'Mensuel', 'Controles', 'Sources']
+EXITCODE=1
+```
+
+CAUSE : le fichier fourni est un **rapport consolide** (titre interne "Releve bancaire consolide -
+WONDERBNB", note "ancien consolide retenu jusqu'au 31/05/2026, puis releve du 01/08/2026
+prioritaire"), pas l'export brut Credit Mutuel que `lot8a_banque_import.py` attend. Meme compte
+(RIB `10278 02211 00021321603` = `CM_02211_00021321603`), mais feuille `Mouvements` a 12 colonnes
+(`N°`, `Date operation`, `Date de valeur`, `Libelle`, `Debit`, `Credit`, `Montant net`, `Solde
+consolide`, `Devise`, `Source du releve`, `Mois`, `Ligne source`) contre les 7 attendues
+(Date|Valeur|Libelle|Debit|Credit|Solde|Devise), et couvre 9 mois (03/11/2025->01/08/2026) au lieu
+du mois nominal 2026-03.
+
+CE N'EST PAS UNE CORRECTION A APPLIQUER SILENCIEUSEMENT : aucun renommage de feuille, aucune
+adaptation des colonnes lues par le script, aucune conversion du fichier n'a ete tentee — cela
+aurait change le contrat metier de Lot8 unilateralement pour accepter un format non prevu.
+`BANQUE_LOT8_IMPORT.xlsx` n'a pas ete produit. Fichier original jamais modifie (hash inchange
+apres traitement, verifie). 85/85 hashes reels historiques re-verifies identiques ; le nouveau
+releve ajoute au manifeste d'integrite (86e fichier suivi).
+
+STATUT : OUVERT, decision humaine requise entre deux options : (1) fournir l'export brut natif
+Credit Mutuel (feuille `Cpt 02211 00021321603`, 7 colonnes), ou (2) decider explicitement d'adapter
+`lot8a_banque_import.py` pour consommer ce format consolide — un changement de contrat, pas une
+correction de bug. Verdict formalise : `60_VERDICT_GO_NO_GO.md` -> **NO GO — SOURCE BANQUE
+INCOMPATIBLE**. Detail complet : `61_CONTRAT_SOURCE_BANQUE_LOT8.md` (section « Suite »).
+
+
 ## RESOLU (2026-08-02) — deux mois Lot10 manquants (2026-11, 2027-01) : cause identifiee, pas un bug
 
 Remontee de la chaine Lot10 -> Lot9 -> Lot4quater (mission recette globale, suite). Les deux mois

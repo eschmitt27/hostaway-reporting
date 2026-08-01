@@ -45,7 +45,7 @@ l'état, ce document pour le reste à faire.
 | **Contrôles** | PARTIEL | catalogues Banque, Factures, Ménages, Charges, **Comptabilité** (`49`, 15 codes) livrés ; **8 réconciliations globales sur 8** (`51`, Lot9↔Lot10 fermée) | contrôles inter-lots | — | réconciliations à 0,01 € — atteint |
 | **Clôture** | PARTIEL | `36`, `37` — clôture applicative du pilotage des calculs, 7 statuts, VALIDEE atteinte ; **clôture comptable** (`49`) — 5 statuts, période clôturée refuse toute écriture directe, réouverture justifiée | réconciliation globale entre les deux clôtures | Analytique | atteint pour la clôture comptable elle-même |
 | **Power BI** | TERMINÉ | `38` — 11 exports + dictionnaire, filet de confidentialité, contrat verrouillé | exports analytiques éventuels | Analytique | atteint pour le périmètre actuel |
-| **Mode réel** | NON ACTIVÉ | `GUIDE_ACTIVATION_MODE_REEL.md` — checklist GO/NO GO, verdict **NO GO** ; recette globale sur copies **faite, partielle** (`54`-`62`, 2026-08-01/02, verdict final **NO GO — SOURCE BANQUE REQUISE**, jamais GO mode réel) | dépôt de la source Banque réelle par l'utilisateur (`61`) ; activation module par module | tout le reste | GO franchi, un module à la fois |
+| **Mode réel** | NON ACTIVÉ | `GUIDE_ACTIVATION_MODE_REEL.md` — checklist GO/NO GO, verdict **NO GO** ; recette globale sur copies **faite, partielle** (`54`-`62`, 2026-08-01/02, verdict final **NO GO — SOURCE BANQUE INCOMPATIBLE**, jamais GO mode réel) | décision sur le format Banque (export brut natif vs adaptation du contrat Lot8) ; activation module par module | tout le reste | GO franchi, un module à la fois |
 
 ## Roadmap ordonnée
 
@@ -80,17 +80,19 @@ l'état, ce document pour le reste à faire.
    Ménages↔charges, Commissions↔VENTES Lot12, total analytique↔résultat global. Tolérance
    **0,01 €** appliquée partout où c'est pertinent.
 7. **Recette globale sur copies** des données réelles (jamais en écriture) — **faite, partielle**
-   (2026-08-01/02, cf. `54`-`62`) : verdict final **NO GO — SOURCE BANQUE REQUISE** (porte sur la
-   ré-exécution du pipeline aval, pas sur la validité applicative des modules alimentés — validation
-   humaine du périmètre alimenté reste AUTORISÉE). Cause racine identifiée : `BANQUE_LOT8_IMPORT.
-   xlsx` est une **sortie** Lot8, jamais produite car sa source brute (export Crédit Mutuel réel)
-   n'a jamais été déposée (`61`). Deux mois Lot10 manquants **expliqués** (`62`) : filtrage upstream
-   cohérent d'une réservation placeholder sans montant, pas un défaut. Aucune correction de code
-   nécessaire dans les deux cas.
+   (2026-08-01/02, cf. `54`-`62`) : verdict final **NO GO — SOURCE BANQUE INCOMPATIBLE** (porte sur
+   la ré-exécution du pipeline aval, pas sur la validité applicative des modules alimentés —
+   validation humaine du périmètre alimenté reste AUTORISÉE). Un relevé Crédit Mutuel a été fourni
+   côté réel, mais Lot8 exécuté sur copie a échoué (code retour 1, reproduit réellement) : c'est un
+   **rapport consolidé**, pas l'export brut attendu par `lot8a_banque_import.py` (feuille `Cpt
+   02211 00021321603` absente, 12 colonnes au lieu de 7). `BANQUE_LOT8_IMPORT.xlsx` toujours non
+   produit. Aucune correction de `lot8a` appliquée pour accepter ce format (changement de contrat,
+   pas un bug). Deux mois Lot10 manquants **expliqués** (`62`) : filtrage upstream cohérent d'une
+   réservation placeholder sans montant, pas un défaut.
 8. **Validation humaine** — arbitrages métier en attente (plan de comptes, axes analytiques
-   restants, dépôt de la source Banque réelle par l'utilisateur, complément de saisie
-   Hors-Hostaway pour LOG_0015/PROP_0011 si les mois 2026-11/2027-01/2026-12 doivent être
-   complétés).
+   restants, décision sur le format Banque — export brut natif vs adaptation du contrat Lot8 au
+   format consolidé fourni, complément de saisie Hors-Hostaway pour LOG_0015/PROP_0011 si les mois
+   2026-11/2027-01/2026-12 doivent être complétés).
 9. **Activation progressive du mode réel**, module par module, selon `GUIDE_ACTIVATION_MODE_REEL.md`.
 
 ## Arbitrages métier en attente
@@ -101,7 +103,7 @@ l'état, ce document pour le reste à faire.
 | Ventilation d'une charge multi-logements par pool (hors `facture_lignes`) | aucune clé de poids n'existe ; ne pas improviser — gap Ménages déjà connu (`41` §7bis) | Analytique complet |
 | Circuit propriétaire en SQLite | décision actuelle : **ne pas** migrer lot12 (`44`) ; à réviser si la facture propriétaire émise devient un objet applicatif | Facturation propriétaire, journal VENTES |
 | Charge postérieure à une clôture validée | aucun mécanisme applicatif ne l'interdit | Clôture comptable |
-| Source Banque réelle jamais fournie | `BANQUE_LOT8_IMPORT.xlsx` est une **sortie** de `lot8a_banque_import.py`, jamais produite car sa source brute (`01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx`) n'a jamais été déposée côté réel — geste utilisateur requis, cf. `61` | Ré-exécution complète du pipeline aval sur données réelles |
+| Source Banque réelle fournie mais incompatible | `01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx` déposé (SHA256 `a84c9b51...`), mais c'est un rapport consolidé (feuilles `Synthese`/`Mouvements`/`Mensuel`/`Controles`/`Sources`, 12 colonnes), pas l'export brut attendu par `lot8a_banque_import.py` (feuille `Cpt 02211 00021321603`, 7 colonnes) — Lot8 échoue, reproduit réellement (code retour 1) sur copie, cf. `61` | Ré-exécution complète du pipeline aval sur données réelles |
 | Deux mois absents de la série réelle Lot10 (2026-11, 2027-01) | **RÉSOLU (expliqué)** : filtrage upstream cohérent d'une réservation `A_CONTROLER`/`DIRECT_SANS_SAISIE_HH` sans montant (LOG_0015/PROP_0011), seule ligne de ces mois — cf. `62` | Fraîcheur des Résultats réels, sauf complément de saisie Hors-Hostaway |
 
 ## Anomalies ouvertes
