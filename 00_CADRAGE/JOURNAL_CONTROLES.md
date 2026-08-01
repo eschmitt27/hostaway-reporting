@@ -2708,3 +2708,29 @@ VERDICT : GO POUR VALIDATION HUMAINE (jamais GO mode reel).
 REFERENCE : 54_RAPPORT_RECETTE_GLOBALE_COPIES.md, 55_MATRICE_ECARTS_CONTRATS_REELS.md,
 56_RAPPORT_RECONCILIATIONS_GLOBALES.md, 57_RAPPORT_DOUBLE_COMPTAGE.md,
 58_RAPPORT_SECURITE_RECETTE_GLOBALE.md, 59_RAPPORT_PERFORMANCE.md, 60_VERDICT_GO_NO_GO.md
+
+
+## 2026-08-02 - Contrat Banque Lot8 remonte a la racine, mois Lot10 expliques, verdict final NO GO
+
+CONTROLE : audit cible du producteur de BANQUE_LOT8_IMPORT.xlsx (lot8a_banque_import.py) et
+remontee de cause des deux mois Lot10 manquants (2026-11, 2027-01).
+
+CONSTAT BANQUE : BANQUE_LOT8_IMPORT.xlsx est une SORTIE de Lot8, jamais une source directe. Sa
+source brute (01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx, export Credit
+Mutuel compte 02211 00021321603) n'existe nulle part - dossier absent du disque, reel et copies.
+Lot8 100% executable hors reseau des que la source est fournie. Contrat Lot8->Lot9 verifie
+coherent, aucune divergence code/documentation. CAS B confirme : NO GO — SOURCE BANQUE REQUISE.
+
+CONSTAT MOIS LOT10 : remontee Lot10->Lot9->Lot4quater. Les deux mois sont deja absents de VUE_FLUX
+(Lot4quater, onglet consomme par Lot9) alors que presents dans l'onglet MASTER (historique complet)
+- chacun ne porte qu'une seule reservation placeholder A_CONTROLER/DIRECT_SANS_SAISIE_HH a montant
+0 (LOG_0015/PROP_0011), exclue legitimement de la vue financiere. Filtrage upstream coherent, pas
+un bug. RESOLU (explique), statut VIDE_VALIDE/NON_APPLICABLE.
+
+AUCUNE CORRECTION DE CODE APPLIQUEE. Suite de tests inchangee (2281/75/1).
+
+VERDICT FINAL : NO GO — SOURCE BANQUE REQUISE (porte sur la re-execution du pipeline aval, pas sur
+la validite applicative des modules alimentes - validation humaine du perimetre alimente reste
+AUTORISEE ; preparation du mode reel reste NO GO).
+REFERENCE : 60_VERDICT_GO_NO_GO.md (mis a jour), 61_CONTRAT_SOURCE_BANQUE_LOT8.md,
+62_RAPPORT_MOIS_LOT10_MANQUANTS.md

@@ -9,15 +9,15 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 |---|---|
 | Worktree | `C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Worktrees\BANQUE_LOGEMENTS_PDF_CHARGES_METIER` |
 | Branche | `feature/banque-logements-pdf-charges-metier` |
-| État figé le | **2026-08-01** — Recette globale sur copies contrôlées des données réelles effectuée : verdict **GO POUR VALIDATION HUMAINE** (cf. `60`). Aucune donnée réelle modifiée, 85/85 fichiers réels re-vérifiés identiques avant/après |
-| Dernier commit stable avant ce tour | `ede8c52` — `docs(handoff): cloture Blocs 5-9, Analytique et Resultats TERMINES (perimetre defini)` |
+| État figé le | **2026-08-02** — Recette globale : **PARTIELLE**. Validation humaine du périmètre alimenté **AUTORISÉE** ; préparation du mode réel **NO GO**. Blocage principal : source bancaire brute Crédit Mutuel jamais fournie côté réel (`61`). Second écart (deux mois Lot10 manquants) **résolu et expliqué** ce tour (`62`) : filtrage upstream cohérent, pas un défaut |
+| Dernier commit stable avant ce tour | `e3b9b1f` — `docs(recette): recette globale sur copies reelles - verdict GO validation humaine` |
 | HEAD | vérifier avec `git log -1` — ce fichier est mis à jour par le commit qui le porte, dont le SHA ne peut donc pas y figurer |
 | git status | propre (`data_recette/` ignoré, régénérable) |
 | master / canonique | **intacts, jamais touchés** (`master` = `8b47807`) |
-| Sources réelles | inchangées, **une exception assumée** : `02_TRAVAIL/lot13_export_powerbi.py`, sur décision utilisateur explicite (renommage de la colonne d'export). Aucune donnée réelle touchée ; toutes les écritures de recette restent sous `data_recette/` ou, pour ce tour, sous l'environnement de copies externe `_RECETTES_GLOBALES/` (hors Git, jamais committé) |
-| Suite complète (dernier total constaté) | **2281 passés / 75 ignorés / 1 échec pré-existant** (2026-07-31, campagne par shards complète — cf. `TEST_SHARDS_ANALYTIQUE_RESULTATS.txt`, 05_APPLICATION/, fichier temporaire hors documentation métier). Seul échec : `test_appsec1_diagnostic` (pré-existant, connu, chemin temp Windows). **Inchangée ce tour** : aucun code n'a été modifié pendant la recette globale (l'unique anomalie trouvée est un écart de données réelles, pas un défaut de code), donc pas de nouveau manifeste ni de nouvelle campagne — cf. `54`-`60`. |
-| Documents transverses | `MATRICE_ETAT_MODULES.md` (état livré) · **`48_ROADMAP_RESTANTE_PROJET.md` (trajectoire)** · `GUIDE_ACTIVATION_MODE_REEL.md` (verdict **NO GO**) · `60_VERDICT_GO_NO_GO.md` (recette globale) |
-| **Avancement global estimé** | **80 %**, marge ± 4 points. Plafond : aucun pourcentage > 85 % tant que le périmètre restant (plan de comptes détaillé, facturation propriétaire/tiers, mode réel) n'est pas tranché. Comptabilité TERMINÉE (`49`). Analytique et Résultats **TERMINÉS pour le périmètre défini** (`53`), **validés sur copies de données réelles** ce tour (`54`-`60`, verdict GO validation humaine) : réconciliations A/B/D/H **OK sur 24 mois réels** (0,00€ d'écart), invariant REEL=COMPTABLE+HC vérifié sur données réelles, 0 fuite sécurité, 0 double comptage, migrations saines sur copie de l'`app.db` réel. Écart réel trouvé (pas un bug) : source Banque jamais alimentée en réel, bloque la ré-exécution du pipeline aval à partir de lot9 — décision humaine requise. |
+| Sources réelles | inchangées, **une exception assumée** : `02_TRAVAIL/lot13_export_powerbi.py`, sur décision utilisateur explicite (renommage de la colonne d'export). Aucune donnée réelle touchée ; toutes les écritures de recette restent sous `data_recette/` ou, pour ce tour, sous l'environnement de copies externe `_RECETTES_GLOBALES/` (hors Git, jamais committé). 85/85 hashes réels re-vérifiés identiques après ce tour aussi |
+| Suite complète (dernier total constaté) | **2281 passés / 75 ignorés / 1 échec pré-existant** (2026-07-31, campagne par shards complète — cf. `TEST_SHARDS_ANALYTIQUE_RESULTATS.txt`, 05_APPLICATION/, fichier temporaire hors documentation métier). Seul échec : `test_appsec1_diagnostic` (pré-existant, connu, chemin temp Windows). **Inchangée ce tour aussi** : aucun code modifié (audit de contrat + remontée de cause racine uniquement), donc pas de nouveau manifeste ni de nouvelle campagne. |
+| Documents transverses | `MATRICE_ETAT_MODULES.md` (état livré) · **`48_ROADMAP_RESTANTE_PROJET.md` (trajectoire)** · `GUIDE_ACTIVATION_MODE_REEL.md` (verdict **NO GO**) · `60_VERDICT_GO_NO_GO.md` (verdict final **NO GO — SOURCE BANQUE REQUISE**) · `61_CONTRAT_SOURCE_BANQUE_LOT8.md` · `62_RAPPORT_MOIS_LOT10_MANQUANTS.md` |
+| **Avancement global estimé** | **80 %**, marge ± 4 points. Plafond : aucun pourcentage > 85 % tant que le périmètre restant (plan de comptes détaillé, facturation propriétaire/tiers, mode réel, **source Banque réelle**) n'est pas tranché. Comptabilité TERMINÉE (`49`). Analytique et Résultats **TERMINÉS pour le périmètre défini** (`53`), validés sur copies de données réelles (`54`-`60`) : réconciliations A/B/D/H **OK sur 24 mois réels** (0,00€ d'écart), invariant REEL=COMPTABLE+HC vérifié, 0 fuite sécurité, 0 double comptage, migrations saines. Deux mois Lot10 manquants **expliqués** (`62`, filtrage upstream cohérent). Blocage restant, non applicatif : source Banque réelle jamais fournie (`61`) — action humaine requise avant toute nouvelle ré-exécution du pipeline aval. |
 
 ## Périmètre restant avant achèvement
 
@@ -29,10 +29,13 @@ copies · (8) validation humaine · (9) activation progressive du mode réel.
 
 **(3) Comptabilité : FAIT** (2026-07-29, cf. `49`). **(4) analytique : FAIT** pour le périmètre
 défini, **(5) Résultats : FAIT** pour le périmètre défini, **(6) réconciliations : FAIT (8/8)**
-(2026-07-31, cf. `53`). **(7) recette globale sur copies : FAITE** (2026-08-01, cf. `54`-`60`,
-verdict GO pour validation humaine). Prochaine étape réelle : **(8) validation humaine** — décision
-sur la source Banque réelle manquante, puis arbitrages métier en attente (plan de comptes, mois
-manquants 2026-11/2027-01).
+(2026-07-31, cf. `53`). **(7) recette globale sur copies : FAITE, PARTIELLE** (2026-08-01/02, cf.
+`54`-`62`) — verdict final **NO GO — SOURCE BANQUE REQUISE** (pas un blocage applicatif : validation
+humaine du périmètre alimenté reste AUTORISÉE ; c'est la préparation du mode réel qui reste NO GO).
+Prochaine étape réelle : **(8) validation humaine** — décision sur la source Banque réelle
+manquante (`61`, geste utilisateur requis), puis arbitrages métier en attente (plan de comptes,
+saisie Hors-Hostaway LOG_0015/PROP_0011 si les mois 2026-11/2027-01/2026-12 doivent être
+complétés).
 
 ## Arbitrages métier en attente (cf. `48`)
 
@@ -150,7 +153,50 @@ tous écarts à 0,00. Détail dans `38_LOT13_CONTRAT_EXPORT_POWERBI.md`.
 | | |
 |---|---|
 | Modules terminés | Logements, Banque, Fournisseurs-Factures-Règlements, Pilotage des calculs (chaîne aval complète), Charges exercée, Comptabilité (cœur), Analytique (périmètre défini), Résultats (périmètre défini) |
-| Module actif | *(Aucun — la recette globale sur copies est close ce tour, verdict GO pour validation humaine. Prochaine étape réelle non entreprise : (8) validation humaine (décision sur la source Banque réelle manquante), ou tout autre chantier explicitement demandé par un prochain tour. Ne pas démarrer le mode réel ni une autre mission sans instruction explicite.)* |
+| Module actif | *(Aucun — l'audit du contrat Banque et l'explication des mois Lot10 manquants sont clos ce tour, verdict final NO GO — SOURCE BANQUE REQUISE. Prochaine étape réelle non entreprise : geste utilisateur (déposer l'export Crédit Mutuel réel), ou tout autre chantier explicitement demandé par un prochain tour. Ne pas démarrer le mode réel ni une autre mission sans instruction explicite.)* |
+
+## ✅ Mission 12 de ce tour — Contrat Banque Lot8 résolu à la racine, mois Lot10 expliqués, verdict final NO GO — SOURCE BANQUE REQUISE
+
+Continuation autonome après vérification préalable complète (worktree, branche, HEAD `e3b9b1f`,
+master `8b47807`, git status propre, 85/85 hashes réels re-vérifiés identiques, environnement de
+copies `_RECETTES_GLOBALES/RECETTE_GLOBALE_20260801_004232/` toujours présent, lecture intégrale de
+`HANDOFF_CANONIQUE.md`/`48`/`54`-`60`).
+
+**Contrat Lot8 (audit ciblé, `61_CONTRAT_SOURCE_BANQUE_LOT8.md`)** : lecture complète de
+`lot8a_banque_import.py`. `BANQUE_LOT8_IMPORT.xlsx` est une **sortie** de Lot8 (jamais une source
+utilisateur), produite depuis `01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx`
+(export brut Crédit Mutuel, compte `02211 00021321603`, feuille `Cpt 02211 00021321603`, en-tête
+ligne 5, données ligne 6). Ce fichier brut **n'existe nulle part** — le dossier
+`01_SOURCES_BRUTES/Banque/` n'existe pas physiquement sur disque, ni dans le réel ni dans les
+copies (rien à copier). Lot8 est 100 % exécutable hors réseau (openpyxl pur) dès que la source est
+fournie. Contrat Lot8→Lot9 vérifié cohérent (`SRC_BNQ` de `lot9_construire_flux.py` pointe
+exactement vers `OUT_FILE` de `lot8a`), aucune divergence code/documentation.
+
+**Cas B confirmé** (aucune source bancaire brute exploitable) : aucun contournement codé, aucune
+donnée fabriquée, aucune source réelle modifiée. Action précisément documentée pour l'utilisateur :
+exporter le relevé, le déposer sous `01_SOURCES_BRUTES/Banque/` (réel), exécuter `lot8a` avant toute
+nouvelle recette pipeline complète.
+
+**Deux mois Lot10 manquants, cause trouvée (`62_RAPPORT_MOIS_LOT10_MANQUANTS.md`)** : remontée de
+Lot10 → Lot9 → Lot4quater. Les deux mois (2026-11, 2027-01) sont déjà absents du flux Lot9 ; en
+remontant à `MASTER_CALC_Reservations_Resolues.xlsx`, l'onglet `VUE_FLUX` (celui que Lot9 consomme
+réellement) les exclut déjà, alors que l'onglet `MASTER` (historique complet) les contient : chacun
+de ces deux mois ne porte qu'**une seule réservation**, un placeholder `A_CONTROLER`/
+`DIRECT_SANS_SAISIE_HH` à montant 0 (LOG_0015/PROP_0011, réservation directe sans saisie
+Hors-Hostaway) — la même ligne existe aussi en 2026-12 (qui, elle, apparaît en Lot9/Lot10 grâce à
+une autre réservation validée ce mois-là). Lot4quater exclut légitimement ces placeholders de sa
+vue financière (`VUE_FLUX`) ; pour ces deux mois précis, c'était la seule ligne, donc le mois entier
+disparaît en aval. **Filtrage upstream cohérent, pas un bug** — statut VIDE_VALIDE/NON_APPLICABLE.
+Aucune correction de code nécessaire, aucun test rouge/vert requis.
+
+**Aucune correction de code appliquée ce tour non plus** — audit et remontée de cause racine
+uniquement. **0 commit de correction**, suite de tests inchangée (2281/75/1).
+
+**Verdict final : NO GO — SOURCE BANQUE REQUISE** (porte sur la ré-exécution du pipeline aval, pas
+sur la validité applicative des modules déjà alimentés — validation humaine du périmètre alimenté
+reste AUTORISÉE ; préparation du mode réel reste NO GO). Détail complet :
+`60_VERDICT_GO_NO_GO.md` (mis à jour), `61_CONTRAT_SOURCE_BANQUE_LOT8.md`,
+`62_RAPPORT_MOIS_LOT10_MANQUANTS.md`.
 
 ## ✅ Mission 11 de ce tour — Recette globale sur copies contrôlées des données réelles : verdict GO pour validation humaine
 

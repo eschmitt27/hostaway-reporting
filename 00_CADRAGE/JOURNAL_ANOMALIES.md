@@ -512,3 +512,53 @@ sont pas cassees, seulement non regenerables aujourd'hui faute de source Banque.
 STATUT : OUVERT, decision humaine requise (alimenter la source Banque reelle avant toute nouvelle
 execution complete du pipeline aval, ou accepter que les sorties actuelles restent figees).
 Detail complet : `55_MATRICE_ECARTS_CONTRATS_REELS.md`, `60_VERDICT_GO_NO_GO.md`.
+
+
+## SUITE (2026-08-02) — contrat Lot8 remonte a la cause racine : sortie, pas source, jamais produite
+
+Audit ciblé de `lot8a_banque_import.py` (mission dediee) : `BANQUE_LOT8_IMPORT.xlsx` est une
+**sortie** de Lot8, jamais une source deposable directement. Sa source brute d'entree est
+`01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx` (export Credit Mutuel, compte
+`02211 00021321603`, feuille `Cpt 02211 00021321603`, en-tete ligne 5, donnees ligne 6). Ce fichier
+brut **n'existe nulle part** — le dossier `01_SOURCES_BRUTES/Banque/` n'existe pas physiquement sur
+disque, ni dans le reel ni dans les copies. Lot8 est 100% executable hors reseau (openpyxl pur),
+mais rien a traiter sans ce depot humain.
+
+Contrat Lot8->Lot9 verifie coherent : `SRC_BNQ` de `lot9_construire_flux.py` pointe exactement vers
+`OUT_FILE` de `lot8a`, aucune divergence code/documentation.
+
+CAS B CONFIRME (aucune source bancaire brute exploitable) : aucun contournement code, aucune
+donnee fabriquee. Action precise documentee pour l'utilisateur dans
+`61_CONTRAT_SOURCE_BANQUE_LOT8.md` : exporter le releve, le deposer sous
+`01_SOURCES_BRUTES/Banque/` (reel), executer `lot8a` avant toute nouvelle recette pipeline
+complete.
+
+STATUT : OUVERT, decision et geste humains requis. Verdict formalise :
+`60_VERDICT_GO_NO_GO.md` -> **NO GO — SOURCE BANQUE REQUISE**.
+
+
+## RESOLU (2026-08-02) — deux mois Lot10 manquants (2026-11, 2027-01) : cause identifiee, pas un bug
+
+Remontee de la chaine Lot10 -> Lot9 -> Lot4quater (mission recette globale, suite). Les deux mois
+sont deja absents du flux Lot9 (`MASTER_CALC_Flux.xlsx`). En remontant a `MASTER_CALC_Reservations_
+Resolues.xlsx` : l'onglet `VUE_FLUX` (celui que `lot9_construire_flux.py` consomme reellement, `SRC_
+RES`) les exclut deja (1349 lignes), alors que l'onglet `MASTER` (historique complet, 1391 lignes)
+les contient.
+
+CAUSE : chacun de ces deux mois ne porte qu'**une seule reservation** dans `MASTER` :
+`RES-2026-11-HA-001` et `RES-2027-01-HA-001`, meme logement/proprietaire (LOG_0015/PROP_0011), meme
+profil — `montant_retenu=0`, `statut_controle=A_CONTROLER`, `code_anomalie=DIRECT_SANS_SAISIE_HH`,
+canal DIRECT (reservation directe sans saisie Hors-Hostaway). Lot4quater exclut legitimement ces
+placeholders sans montant de sa vue financiere (`VUE_FLUX`) — comportement deja verifie coherent :
+la meme ligne existe en 2026-12 (`RES-2026-12-HA-002`, meme profil exact) mais ce mois-la porte
+aussi une reservation validee (`RES-2026-12-HA-003`, 317,77 EUR), donc le mois n'est pas vide et
+apparait normalement en Lot9/Lot10.
+
+CE N'EST PAS UN DEFAUT : filtrage upstream coherent et deja documente dans Lot4quater. Aucune
+divergence entre Lot9 et Lot10 (Lot10 reflete fidelement ce que Lot9 recoit). Aucune correction de
+code necessaire, aucun test rouge/vert requis.
+
+STATUT : RESOLU (explique). Statut retenu : VIDE_VALIDE/NON_APPLICABLE, jamais un zero fabrique.
+Reste ouvert cote metier : completer la saisie Hors-Hostaway pour LOG_0015/PROP_0011 (trois mois
+consecutifs concernes : 2026-11, 2026-12, 2027-01) si l'activite reelle doit apparaitre dans les
+Resultats. Detail complet : `62_RAPPORT_MOIS_LOT10_MANQUANTS.md`.

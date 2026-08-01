@@ -1,16 +1,26 @@
-# 60 — Verdict GO / NO GO (recette globale sur copies, 2026-08-01)
+# 60 — Verdict GO / NO GO (recette globale sur copies, 2026-08-01, mis à jour le 2026-08-02)
 
-## Verdict
+## Verdict final
 
-**GO POUR VALIDATION HUMAINE**
+**NO GO — SOURCE BANQUE REQUISE**
 
-Pas de blocage applicatif : l'application se comporte correctement face aux données réelles
-(mêmes réconciliations vertes qu'en fictif, aucune fuite, aucun double comptage, migrations saines
-sur une copie de l'`app.db` réel). Le seul blocage trouvé est un **écart de données réelles**
-(source Banque jamais alimentée), pas un défaut applicatif — il ne bloque ni la lecture, ni les
-écrans, ni les réconciliations disponibles ; il bloque seulement la **ré-exécution** du pipeline
-aval au-delà de lot9. D'où : pas de NO GO applicatif, mais une décision humaine reste nécessaire
-sur la donnée manquante avant d'aller plus loin.
+Confirmé après audit ciblé du contrat Lot8 (`61_CONTRAT_SOURCE_BANQUE_LOT8.md`) : aucune source
+bancaire brute n'existe nulle part (ni dans le réel, ni dans les copies) — le dossier
+`01_SOURCES_BRUTES/Banque/` n'existe pas physiquement. `BANQUE_LOT8_IMPORT.xlsx` est une **sortie**
+de `lot8a_banque_import.py`, jamais une source déposable directement ; sans le relevé Crédit Mutuel
+brut, Lot8 ne peut pas être exécuté, même sur copies, et `lot9` continuera de refuser
+systématiquement de s'exécuter (`CTR-9-001`, comportement voulu).
+
+Ce verdict porte spécifiquement sur la **capacité à ré-exécuter le pipeline aval complet sur
+données réelles** — il ne remet pas en cause la validité de l'application sur les modules déjà
+alimentés (Analytique/Résultats sur les sorties Lot9-13 existantes, toutes réconciliations
+disponibles vertes, 0 fuite, 0 double comptage, migrations saines — cf. sections ci-dessous,
+inchangées depuis le 2026-08-01). Aucune anomalie logicielle bloquante n'a été trouvée : c'est un
+verdict sur la **donnée**, pas sur le **code**.
+
+Le second écart (deux mois Lot10 manquants) est **résolu et expliqué** ce tour
+(`62_RAPPORT_MOIS_LOT10_MANQUANTS.md`) : filtrage upstream cohérent, pas un défaut — statut
+VIDE_VALIDE/NON_APPLICABLE, aucune correction nécessaire.
 
 ## Modules validés (sur copies réelles)
 
@@ -37,10 +47,11 @@ sur la donnée manquante avant d'aller plus loin.
 
 ## Anomalies
 
-- **BLOQUANT (donnée, pas code)** : `BANQUE_LOT8_IMPORT.xlsx` absent du réel — bloque la
-  ré-exécution du pipeline aval à partir de lot9. Cf. `55_MATRICE_ECARTS_CONTRATS_REELS.md`.
-- **MINEUR** : deux mois absents de la série réelle Lot10 (2026-11, 2027-01) — à vérifier auprès du
-  métier, pas fabriqué.
+- **BLOQUANT (donnée, pas code)** : source bancaire brute Crédit Mutuel jamais fournie côté réel —
+  `BANQUE_LOT8_IMPORT.xlsx` ne peut pas être produit. Cf. `61_CONTRAT_SOURCE_BANQUE_LOT8.md`.
+- **RÉSOLU (expliqué)** : deux mois absents de la série réelle Lot10 (2026-11, 2027-01) — cause
+  identifiée (filtrage upstream cohérent d'une réservation placeholder sans montant), pas un
+  défaut. Cf. `62_RAPPORT_MOIS_LOT10_MANQUANTS.md`.
 - **MINEUR** : `réconciliation /resultats/reconciliation` à ~1 s — acceptable, surveiller si le
   volume augmente.
 
@@ -62,10 +73,15 @@ tests a changé).
 
 ## Prochaines actions
 
-1. Décision humaine : alimenter (ou non) la source Banque réelle avant toute nouvelle recette
-   pipeline complète.
-2. Vérifier auprès du métier les deux mois manquants (2026-11, 2027-01).
-3. Nettoyer l'environnement de copies (`_RECETTES_GLOBALES/RECETTE_GLOBALE_20260801_004232/`) une
+1. **Action utilisateur requise** : exporter le relevé Crédit Mutuel réel (`02211 00021321603`) et
+   le déposer sous `01_SOURCES_BRUTES/Banque/` (réel), au format et à l'emplacement documentés dans
+   `61_CONTRAT_SOURCE_BANQUE_LOT8.md` — geste humain, pas une action technique de ce tour.
+2. Une fois la source déposée : exécuter `lot8a_banque_import.py` sur le réel (ou sur une nouvelle
+   copie), puis reprendre la recette globale à partir de Lot8/Lot9.
+3. Mois 2026-11/2027-01 : compléter la saisie Hors-Hostaway pour `LOG_0015`/`PROP_0011` si
+   l'activité de ces mois doit apparaître dans les Résultats — sinon, aucune action requise (état
+   correct).
+4. Nettoyer l'environnement de copies (`_RECETTES_GLOBALES/RECETTE_GLOBALE_20260801_004232/`) une
    fois ce rapport validé — il contient une copie de l'`app.db` réel, à ne jamais committer ni
    partager tel quel (hors du dépôt Git par construction, mais toujours une donnée sensible locale).
 
