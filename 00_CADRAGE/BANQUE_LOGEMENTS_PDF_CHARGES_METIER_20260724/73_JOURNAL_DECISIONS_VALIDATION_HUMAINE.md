@@ -384,7 +384,89 @@ fuite ponctuelle du chat n'a jamais atteint Git (corrigée avant le premier comm
 humain). L'audit élargi (8 fichiers pré-existants) est noté ci-dessus pour information, pas comme
 une anomalie de ce tour.
 
-### DEC-005
+### DEC-005 (finalisée, 2026-08-03)
+
+- date : 2026-08-03
+- domaine : Banque — groupe 5 (CLASSE / risque ÉLEVÉ / CREDIT, 19 mouvements, 9678,52 €)
+
+**Correction de comptage (avant décision)** : la répartition présentée initialement en chat
+("16 mouvements, 6841,16 €, 71 %") était erronée — elle comptait par erreur la ligne 10 (anomalie
+de détection, voir ci-dessous) dans la mauvaise famille. Répartition exacte, vérifiée par script :
+
+| Famille | Nombre | Montant |
+|---|---:|---:|
+| Crédits de tiers à identifier (`TIERS_CREDIT_A/B/C/D`) | 15 | 6 473,16 € |
+| Crédits liés à ASSOCIE_A | 3 | 2 900,00 € |
+| Impayé | 1 | 305,36 € |
+| **Total** | **19** | **9 678,52 €** |
+
+Contrôle : 15+3+1=19 ✓ ; 6473,16+2900,00+305,36=9678,52 ✓ ; aucun doublon, aucune omission. Les
+valeurs "16 mouvements / 6841,16 € / 71 %" **ne sont conservées nulle part**.
+
+**Renommage des alias** : `VOYAGEUR_A/B/C/D` (utilisés dans un tour précédent) renommés
+`TIERS_CREDIT_A/B/C/D` — la qualité réelle de ces tiers (voyageur, client, propriétaire, associé,
+fournisseur) n'est pas prouvée et ne doit jamais être présumée par le nom de l'alias.
+
+**Décision 1 — 15 crédits de tiers (`TIERS_CREDIT_A` 4/1565,43 €, `B` 6/2586,25 €, `C` 4/2236,14 €,
+`D` 1/85,34 €)** :
+- catégorie candidate : `ENCAISSEMENT_TIERS_A_IDENTIFIER`
+- decision_utilisateur : REPORTER AVEC CATEGORIE CANDIDATE
+- statut : A_CONTROLER
+- jamais qualifié en chiffre d'affaires ni en réservation directe automatiquement ; jamais
+  rapproché sur la seule identité bancaire
+
+**Décision 2 — 3 crédits ASSOCIE_A (1000,00 € / 1300,00 € / 600,00 €)** :
+- catégorie candidate : `APPORT_OU_REMBOURSEMENT_ASSOCIE_A_IDENTIFIER`
+- decision_utilisateur : REPORTER AVEC CATEGORIE CANDIDATE
+- statut : A_CONTROLER
+- aucun choix automatique entre apport/remboursement/restitution/correction/transfert
+- **anomalie enregistrée pour la ligne 1300,00 €** : `BANQUE_NORMALISATION_TIERS_INCOHERENTE` —
+  identité textuelle candidate identique aux deux autres lignes de la famille, mais catégorie
+  moteur différente (`VIR_INST_GENERIQUE` au lieu de `VIR_ASSOCIE`) ; motif documenté sans PII :
+  caractère anormal dans le libellé source cassant la détection du moteur. Catégorie moteur
+  **non modifiée**, correction différée (arbitrage métier/technique futur).
+
+**Décision 3 — 1 impayé (305,36 €)** :
+- catégorie candidate : `RETOUR_PRELEVEMENT_OU_IMPAYE_A_RAPPROCHER`
+- decision_utilisateur : REPORTER — CONTRÔLE PRIORITAIRE
+- statut : A_CONTROLER
+- jamais classé en revenu ni en remboursement commercial
+
+**Recherches locales effectuées (sur copies)** :
+
+| Ligne/série | Pièce candidate | Objet candidat | Montant cohérent | Date cohérente | Tiers cohérent | Conclusion |
+|---|---|---|---|---|---|---|
+| TIERS_CREDIT_A (4) | ABSENT (`SAISIE_ReservationsHorsHostaway`, 500 lignes réelles vérifiées, 0 correspondance de `total_percu`) | Hypothèse réservation non confirmée ; réservations Hostaway non vérifiables dans le temps de cette session (format JSON imbriqué, non parsé) | ABSENT | PARTIEL (régularité ~mensuelle sur 3/4 lignes) | TROUVÉ (identité récurrente) | **PARTIEL** |
+| TIERS_CREDIT_B (6) | ABSENT (idem) | Idem, série la plus longue (9 mois) | ABSENT | PARTIEL (irrégulier) | TROUVÉ | **PARTIEL** |
+| TIERS_CREDIT_C (4) | ABSENT (idem) | Idem | ABSENT | PARTIEL | TROUVÉ | **PARTIEL** |
+| TIERS_CREDIT_D (1) | ABSENT | Occurrence isolée | ABSENT | — | TROUVÉ (identité, isolée) | **PARTIEL** |
+| ASSOCIE_A crédits (2, détectés) | ABSENT (aucun compte courant associé construit applicativement) | Sens inverse des débits du groupe 4 — dépôt ou remboursement à la société | ABSENT | — | TROUVÉ | **PARTIEL** |
+| ASSOCIE_A crédit non détecté (1, 1300 €) | ABSENT | Identité textuelle identique, détection moteur incohérente (anomalie enregistrée) | ABSENT | — | AMBIGU | **AMBIGU** |
+| Impayé (1, 305,36 €) | ABSENT (aucun module de suivi des rejets bancaires ; aucun prélèvement de même montant exact trouvé ailleurs dans les 541 mouvements) | Rejet d'un prélèvement SEPA nommé dans le libellé, opération d'origine introuvable | ABSENT | — | INCONNU | **AMBIGU** |
+
+| Conclusion | Nombre | Montant |
+|---|---:|---:|
+| TROUVÉ | 0 | 0,00 € |
+| PARTIEL | 17 | 9 373,16 € |
+| AMBIGU | 2 | 305,36 € (impayé) + 1300,00 € (associé non détecté) = 1605,36 € |
+| ABSENT | 0 | 0,00 € |
+| **Total** | **19** | **9 678,52 €** |
+
+*(Note : les 17 `PARTIEL` regroupent les 15 crédits de tiers + les 2 crédits ASSOCIE_A correctement
+détectés ; les 2 `AMBIGU` sont l'impayé et le crédit ASSOCIE_A non détecté — statuts exclusifs,
+somme vérifiée = 9678,52 €.)*
+
+- application_copies : OUI, uniquement dans l'overlay (colonne `categorie_candidate`, 19 lignes)
+- application_dans_BANQUE_LOT8_IMPORT : NON
+- application_dans_app.db : NON
+- application_reelle : NON
+- rapprochement confirmé : NON
+- écriture comptable : NON
+
+**Groupe 5 clos : 19/19 lignes analysées.** Aucune validée définitivement, aucune règle moteur
+modifiée.
+
+### DEC-005 (historique, pré-correction)
 
 - date : 2026-08-02
 - domaine : Banque — classification

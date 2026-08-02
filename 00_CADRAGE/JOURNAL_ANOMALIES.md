@@ -774,3 +774,27 @@ mission, jamais reproduit dans la documentation Git.
 
 STATUT : CORRIGE ET TESTE (commit `c65f891`). Detail complet : `HANDOFF_CANONIQUE.md`,
 `JOURNAL_CONTROLES.md` (entree mission 2026-08-02 suite).
+
+
+## BANQUE_NORMALISATION_TIERS_INCOHERENTE (2026-08-03) — DETECTION MOTEUR DIFFEREE, NON CORRIGEE
+
+Constat pendant la validation humaine du groupe 5 Banque (19 credits CLASSE/risque eleve) : un
+mouvement credit de 1300,00 EUR (2026-01-31) porte une identite textuelle candidate identique a
+deux autres mouvements de la meme famille (credits 1000,00 EUR et 600,00 EUR, tous deux tagues
+`VIR_ASSOCIE` par le moteur, regle R_020), mais ce mouvement precis est classe `VIR_INST_GENERIQUE`
+(regle R_090) — le moteur ne l'a pas rattache au meme tiers associe.
+
+Cause probable identifiee (sans PII) : un caractere anormal dans le libelle bancaire source (un
+symbole non alphabetique insere au milieu du texte normalement attendu) casse le pattern-matching
+de la regle de detection R_020/R_021. Le meme type d'incoherence de detection a ete observe a
+plusieurs reprises pendant la validation humaine du groupe 4 (lignes portant une identite reelle
+non detectee par le moteur malgre sa presence dans le libelle).
+
+Aucune correction de regle appliquee — categorie moteur inchangee, aucune donnee source modifiee.
+Categorie candidate humaine enregistree en overlay uniquement (hors Git) :
+`APPORT_OU_REMBOURSEMENT_ASSOCIE_A_IDENTIFIER_ANOMALIE_DETECTION`. Arbitrage requis : affiner la
+regle de detection de tiers (R_020/R_021) pour tolerer les caracteres anormaux de saisie bancaire,
+ou accepter le residu comme limite connue du moteur de classification.
+
+STATUT : DIFFEREE (categorie candidate seulement, aucune correction technique). Detail complet :
+`73_JOURNAL_DECISIONS_VALIDATION_HUMAINE.md` (DEC-005).
