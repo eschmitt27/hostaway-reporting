@@ -179,6 +179,56 @@ rapprochement, aucune confirmation, aucune modification moteur.
 - application_dans_app.db : **NON**
 - application_reelle : **NON**
 
+**Lignes 11 à 20 du groupe 4 — sous-décisions détaillées (REPORTER AVEC CATÉGORIE CANDIDATE) :**
+
+| # | ID opaque (suffixe) | Catégorie candidate | Statut | Confiance |
+|---|---|---|---|---|
+| 11 | `...C73548` (1072,14 €) | CONTRAT_RECURRENT_A_IDENTIFIER / EFFET_DOMICILIE | A_CONTROLER | Faible (nature), moyenne (existence du contrat) |
+| 12 | `...AC9B00` (50,00 €) | INDEMNITE_KILOMETRIQUE / REMBOURSEMENT_ASSOCIE | A_CONTROLER | Moyenne |
+| 13 | `...C660AC` (416,88 €) | REMUNERATION_OU_PAIEMENT_PERSONNE_A_IDENTIFIER | A_CONTROLER | Faible |
+| 14 | `...B5E94D` (900,00 €) | INDEMNITE_KILOMETRIQUE / REMBOURSEMENT_ASSOCIE | A_CONTROLER | Moyenne |
+| 15 | `...BEE17F` (331,50 €) | GESTE_COMMERCIAL / REMBOURSEMENT_CLIENT / DEDOMMAGEMENT_A_IDENTIFIER | A_CONTROLER | Faible |
+| 16 | `...CA9195` (165,00 €) | FOURNISSEUR_001 / DEPENSE_PROFESSIONNELLE | A_CONTROLER (facture obligatoire) | Identité moyenne-haute, comptable non validée |
+| 17 | `...9E07BD` (275,00 €) | FOURNISSEUR_INCONNU / PAIEMENT_FACTURE | A_CONTROLER | Faible |
+| 18 | `...F20BEB` (1259,93 €) | CONTRAT_RECURRENT_A_IDENTIFIER / EFFET_DOMICILIE | A_CONTROLER | Faible (nature), moyenne (échéancier commun avec ligne 11) |
+| 19 | `...0C2445` (299,64 €) | GESTE_COMMERCIAL / REMBOURSEMENT_CLIENT / DEDOMMAGEMENT_A_IDENTIFIER | A_CONTROLER | Faible |
+| 20 | `...45558F` (250,00 €) | PEAGE / DEPLACEMENT_PROFESSIONNEL_POTENTIEL | A_CONTROLER (à défaut de preuve : envisager DEPENSE_PERSONNELLE_ASSOCIE) | Faible |
+
+Toutes restent `A_CONTROLER`. Aucune écriture comptable, aucun rapprochement confirmé, aucun
+mapping comptable validé, aucune règle moteur modifiée.
+
+- application_copies : **OUI, uniquement dans l'overlay de contrôle** (colonne `categorie_candidate`)
+- application_dans_BANQUE_LOT8_IMPORT : **NON**
+- application_dans_app.db : **NON**
+- application_reelle : **NON**
+
+**Lignes 21 à 30 du groupe 4 — sous-décisions détaillées (REPORTER AVEC CATÉGORIE CANDIDATE) :**
+
+| # | ID opaque (suffixe) | Catégorie candidate | Statut | Confiance |
+|---|---|---|---|---|
+| 21 | `...787D76` (164,57 €) | REMUNERATION_OU_PAIEMENT_PERSONNE_A_IDENTIFIER (rattaché analytiquement aux lignes 6 et 13, même série candidate) | A_CONTROLER | Faible |
+| 22 | `...F62DFB` (1500,00 €) | CONTRAT_OU_PRESTATION_A_IDENTIFIER ("IL" non interprété comme IK/indemnité/loyer) | A_CONTROLER | Faible |
+| 23 | `...2605E7` (370,00 €) | FOURNISSEUR_INCONNU / PAIEMENT_FACTURE | A_CONTROLER | Faible |
+| 24 | `...D08174` (462,00 €) | FOURNISSEUR / PAIEMENT_FACTURE_FRACTIONNE (candidat textuel ligne 3, écart 7 € non expliqué) | A_CONTROLER | Moyenne |
+| 25 | `...8DC75E` (270,00 €) | FOURNISSEUR_001 / DEPENSE_PROFESSIONNELLE (série complète avec 590 €/165 €) | A_CONTROLER (facture requise) | Identité moyenne-haute, comptable non validée |
+| 26 | `...A37649` (1464,56 €) | CONTRAT_RECURRENT_A_IDENTIFIER / EFFET_DOMICILIE (série avec lignes 11/18) | A_CONTROLER | Moyenne (récurrence), faible (nature) |
+| 27 | `...6D5255` (357,00 €) | GESTE_COMMERCIAL / REMBOURSEMENT_CLIENT / DEDOMMAGEMENT_A_IDENTIFIER (série avec lignes 15/19) | A_CONTROLER | Faible |
+| 28 | `...401E78` (1185,50 €) | FOURNISSEUR_MENAGE_A_IDENTIFIER (non rattaché à la facture Ménages de mai 2026 déjà connue) | A_CONTROLER | Faible-moyenne (nature), faible (tiers/pièce) |
+| 29 | `...798B4A` (650,00 €) | INDEMNITE_KILOMETRIQUE / REMBOURSEMENT_ASSOCIE (campagne candidate lignes 2/4/9/12/14) | A_CONTROLER | Moyenne |
+| 30 | `...2CB810` (600,00 €) | REMBOURSEMENT_ASSOCIE (terme "actionnaire", pas une identité) | A_CONTROLER | Moyenne (famille métier) |
+
+Toutes restent `A_CONTROLER`. Aucune écriture comptable, aucun rapprochement confirmé, aucun
+mapping comptable validé, aucune règle moteur modifiée.
+
+- application_copies : **OUI, uniquement dans l'overlay de contrôle** (colonne `categorie_candidate`)
+- application_dans_BANQUE_LOT8_IMPORT : **NON**
+- application_dans_app.db : **NON**
+- application_reelle : **NON**
+
+**Vérification de comptage (groupe 4)** : total groupe 4 = 55 ; lignes détaillées après ce tour =
+30 ; restant = 25. Groupes 1-5 = 212, autres statuts (RAPPROCHEMENT_REQUIS 222 + A_ENVOYER_IA 83)
+= 305. Total 212+305 = 517. Cohérent, aucune correction nécessaire.
+
 ### DEC-005
 
 - date : 2026-08-02
