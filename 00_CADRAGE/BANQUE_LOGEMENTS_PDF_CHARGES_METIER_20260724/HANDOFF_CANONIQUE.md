@@ -706,8 +706,9 @@ Priorité imposée : corriger complètement cette anomalie avant tout autre trav
 **lot6b_m04_menages_internes.py** : `INTMAP` (dict figé, prénoms réels d'intervenantes) supprimé.
 Mapping reconstruit dynamiquement depuis `REF_Intervenants.nom_normalise` (D104) — un référentiel
 fictif définit ses propres `nom_normalise`, donc un jeu de recette fictif traverse désormais le
-moteur sans aucun `intervenant_id` nul. L'alias réel documenté « Kira = Kheira » (D104) est
-externalisé dans `02_TRAVAIL/_data_lot6b_alias_reel.py`, module optionnel jamais copié vers
+moteur sans aucun `intervenant_id` nul. L'alias réel documenté (D104, deux prénoms d'intervenante
+liés au même identifiant) est externalisé dans `02_TRAVAIL/_data_lot6b_alias_reel.py`, module
+optionnel jamais copié vers
 `data_recette`.
 
 **lot6c_menages_externes.py** : `RAW_MANUEL` (transcription de factures réelles mai 2026),
@@ -887,7 +888,7 @@ dérive du moteur. Vérification faite : **le moteur était conforme**, pas en d
 
 `lib_menage_costs.PIVOT_FIXED_COST = 2026-06-01` applique exactement D101. **Le pivot n'a pas été
 modifié** — l'avancer au 1er mai aurait recalculé mai 2026, le mois qui porte les données réelles
-(factures Aissata / Mounir, heures Imène / Kheira), avec l'autre méthode.
+(factures et heures de deux prestataires/intervenantes externes réels), avec l'autre méthode.
 
 Comportement verrouillé par `tests/test_menages_pivot_historique.py` (9 tests, dont les 4
 frontières 30/04, 01/05, 31/05, 01/06 — cf. Mission 1 §6 de ce tour pour la ré-vérification

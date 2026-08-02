@@ -312,6 +312,78 @@ applicative fiable trouvée pour aucune des cinq lignes) :**
 Groupe 4 **clos à 55/55 lignes analysées** — toutes restent `A_CONTROLER`, aucune validée
 définitivement, aucune règle moteur modifiée, aucune application réelle.
 
+## Correction — synthèse par statut du groupe 4 (2026-08-02, suite)
+
+La synthèse publiée initialement (Candidat partiel 33926,71 € + Ambigu 4259,00 € + Pièce absente
+4620,07 € = 42805,78 €) était **incohérente** avec le total réel du groupe (38585,85 €) — la
+répartition avait été faite par famille métier (avec chevauchements de lecture) et non par statut
+de recherche exclusif ligne par ligne. Corrigée par recalcul programmatique direct sur les 55
+lignes sources (script Python, une seule exécution, un seul statut par ligne, aucune saisie
+manuelle du total) :
+
+| Statut | Nombre | Montant absolu |
+|---|---:|---:|
+| PREUVE_TROUVEE_A_VALIDER | 0 | 0,00 € |
+| CANDIDAT_PARTIEL | 34 | 24 311,04 € |
+| AMBIGU | 2 | 3 330,00 € |
+| PIECE_ABSENTE | 19 | 10 944,81 € |
+| **Total** | **55** | **38 585,85 €** |
+
+| Contrôle | Attendu | Obtenu | Statut |
+|---|---:|---:|---|
+| Nombre de lignes | 55 | 55 | OK |
+| Doublon de ligne | 0 | 0 | OK |
+| Ligne oubliée | 0 | 0 | OK |
+| Somme des 4 statuts | 38 585,85 € | 38 585,85 € | OK |
+| Somme des familles (déjà publiée) | 38 585,85 € | 38 585,85 € | OK (inchangée, correcte) |
+| Somme moteur (NORM_Banque, 55 lignes) | 38 585,85 € | 38 585,85 € | OK |
+
+Les 2 lignes `AMBIGU` sont la ligne 5 (chevauchement de tag ASSOCIE_A/PROP_0008, nature non
+tranchable) et la ligne 37 (flux mixte ménage/IK, décomposition non vérifiable). Les 19 lignes
+`PIECE_ABSENTE` sont celles pour lesquelles aucun indice exploitable n'a été trouvé dans les
+copies (aucune facture, relevé, référentiel ou pièce candidate, même partielle). Les 34 lignes
+`CANDIDAT_PARTIEL` disposent d'au moins un indice (récurrence, identité référentielle, motif
+textuel) mais aucune pièce applicative complète. **Aucune ligne `PREUVE_TROUVEE_A_VALIDER`** —
+confirmé, cohérent avec le fait qu'aucune décision de ce tour n'a validé quoi que ce soit
+définitivement.
+
+## Audit et purge de confidentialité (2026-08-02, suite)
+
+Le compte-rendu oral (chat) d'un tour antérieur avait fait apparaître une fois la valeur brute
+d'un champ moteur (`tiers_detecte=PERS_WAFA`) au lieu du masquage `ASSOCIE_A` utilisé partout
+ailleurs. Audit effectué :
+
+- **Dans ce fichier et dans `HANDOFF_CANONIQUE.md` (version committée, `d61c277`)** : recherche
+  du prénom et de tout autre prénom/nom réel — **absence confirmée** par recherche directe sur le
+  contenu du commit (`git show d61c277:<fichier>`), aucune occurrence.
+- **Dans l'historique Git complet de `73_JOURNAL_DECISIONS_VALIDATION_HUMAINE.md`** (tous
+  commits) : aucune occurrence à aucun moment — le correctif appliqué avant le premier commit de
+  ce fichier a fonctionné, rien à purger côté Git.
+- **Dans `HANDOFF_CANONIQUE.md`, deux occurrences pré-existantes trouvées**, non liées à cette
+  session, datant de missions antérieures à ce chantier de validation humaine (commit
+  `5d90739`, mission Ménages, antérieure de plusieurs semaines) : un alias documenté (D104) et une
+  référence à des prestataires réels dans une note sur le pivot de coût ménage. **Corrigées ce
+  tour** (masquage générique, sens inchangé) car ce fichier fait partie du périmètre explicite de
+  purge demandé.
+- **Constat plus large, hors périmètre de correction immédiate** : un audit élargi à tout
+  `00_CADRAGE/` a trouvé des occurrences de prénoms réels dans 8 fichiers historiques
+  (`JOURNAL_ANOMALIES.md`, `JOURNAL_CONTROLES.md`, `41_MODULE_MENAGES_ETAT_FINAL.md`,
+  `ARCHITECTURE_DONNEES.md`, `ETAT_AVANCEMENT.md`, `DECISIONS_METIER.md`, et deux documents dans
+  `APPLICATION_LOCALE/`), **toutes pré-existantes**, introduites par des missions antérieures à ce
+  chantier de validation humaine Banque (vérifié par `git log -S` sur chaque fichier — aucune ne
+  provient d'un commit de cette série). **Non corrigées ce tour** : purger 8 documents historiques
+  d'autres chantiers dépasse le périmètre de cette mission (validation Banque) et constituerait une
+  nouvelle mission de fond (audit de confidentialité documentaire global), à traiter séparément si
+  l'utilisateur le demande explicitement.
+- **L'overlay hors Git** ne contient et n'a jamais contenu que des alias (`ASSOCIE_A`,
+  `PRESTATAIRE_MENAGE_A`, `PRESTATAIRE_MENAGE_B`, `TIERS_NON_REFERENCE`, `FOURNISSEUR_00X`) —
+  vérifié, aucune identité réelle n'y a été écrite à aucun moment de la session.
+
+**Aucune anomalie à consigner dans `JOURNAL_ANOMALIES.md` pour le périmètre de cette session** — la
+fuite ponctuelle du chat n'a jamais atteint Git (corrigée avant le premier commit du journal
+humain). L'audit élargi (8 fichiers pré-existants) est noté ci-dessus pour information, pas comme
+une anomalie de ce tour.
+
 ### DEC-005
 
 - date : 2026-08-02
