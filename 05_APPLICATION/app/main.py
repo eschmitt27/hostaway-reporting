@@ -90,11 +90,23 @@ app.include_router(sources_calculs.router)
 app.include_router(health.router)
 
 # ── Bandeau MODE RECETTE : exposé à tous les templates (globals Jinja centralisés) ──
+# APP-SEC : jamais de chemin absolu ni de nom d'utilisateur dans une page rendue — seul le nom
+# logique de l'environnement (basename) est affiché, jamais le chemin complet (trouvé exposé en
+# clair sur toute page RECETTE_MODE lors d'une recette globale, 2026-08-02 — corrigé ici).
 import app.config as _cfg
+
+
+def _nom_logique(chemin) -> str:
+    """Nom logique d'un chemin (dernier segment) — jamais le chemin absolu complet."""
+    from pathlib import Path
+    p = Path(chemin)
+    return p.name or str(p)
+
+
 _recette_globals = {
     "RECETTE_MODE": _cfg.RECETTE_MODE,
-    "RECETTE_ROOT": str(_cfg.RECETTE_ROOT),
-    "RECETTE_DB": str(_cfg.DB_PATH),
+    "RECETTE_ROOT": _nom_logique(_cfg.RECETTE_ROOT),
+    "RECETTE_DB": f"{_nom_logique(_cfg.DB_PATH.parent)}/{_nom_logique(_cfg.DB_PATH)}",
     "RECETTE_CHARGES_WRITE": bool(_cfg.CHARGES_REAL_WRITE_ENABLED),
 }
 for _mod in (home, logements, reservations, menages, fournisseurs, proprietaires, banques,
