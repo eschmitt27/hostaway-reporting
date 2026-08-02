@@ -255,6 +255,63 @@ mapping comptable validé, aucune règle moteur modifiée.
 **Vérification de comptage (groupe 4)** : total = 55 ; lignes détaillées après ce tour = 40 ;
 restant = 15. Groupes 1-5 = 212, autres statuts = 305. Total 517. Cohérent.
 
+**Lignes 41 à 50 du groupe 4 — sous-décisions détaillées (REPORTER AVEC CATÉGORIE CANDIDATE) :**
+
+| # | ID opaque (suffixe) | Catégorie candidate | Statut | Confiance |
+|---|---|---|---|---|
+| 41 | `...678C9D` (250,00 €) | MOUVEMENT_ASSOCIE_A_A_QUALIFIER | A_CONTROLER | Moyenne (tiers), faible (nature) |
+| 42 | `...B1DBDC` (2879,00 €) | MOUVEMENT_ASSOCIE_A_MONTANT_ATYPIQUE | A_CONTROLER — contrôle individuel prioritaire | Faible (nature), risque financier ÉLEVÉ |
+| 43 | `...E60B8C` (600,00 €) | MOUVEMENT_ASSOCIE_A_A_QUALIFIER | A_CONTROLER | Non tranchée |
+| 44 | `...EBCA46` (970,00 €) | MOUVEMENT_ASSOCIE_A_A_QUALIFIER | A_CONTROLER | Non tranchée |
+| 45 | `...743E86` (1129,00 €) | FLUX_MIXTE_LINGE_FRAIS_PLATEFORME_A_DECOMPOSER | A_CONTROLER | Faible ; **risque de double comptage : ÉLEVÉ** |
+| 46 | `...E376D3` (315,00 €) | MOUVEMENT_ASSOCIE_A_A_QUALIFIER | A_CONTROLER | Non tranchée |
+| 47 | `...87A060` (1444,00 €) | MOUVEMENT_ASSOCIE_A_MONTANT_ATYPIQUE | A_CONTROLER — contrôle individuel prioritaire | Faible |
+| 48 | `...D7A176` (716,00 €) | MOUVEMENT_ASSOCIE_A_A_QUALIFIER | A_CONTROLER | Non tranchée |
+| 49 | `...BF95CA` (900,00 €) | PRESTATAIRE_MENAGE_A / PAIEMENT_PRESTATION_MENAGE_POTENTIEL | A_CONTROLER | Moyenne-haute (tiers), non validée (comptable) |
+| 50 | `...77B5D1` (400,00 €) | PRESTATAIRE_MENAGE_A / PAIEMENT_PRESTATION_MENAGE_POTENTIEL | A_CONTROLER | Moyenne-haute (tiers), non validée (comptable) |
+
+Toutes restent `A_CONTROLER`. Aucune écriture comptable, aucun rapprochement confirmé, aucun
+mapping comptable validé, aucune règle moteur modifiée.
+
+- application_copies : **OUI, uniquement dans l'overlay de contrôle**
+- application_dans_BANQUE_LOT8_IMPORT : **NON**
+- application_dans_app.db : **NON**
+- application_reelle : **NON**
+
+**Synthèse agrégée série ASSOCIE_A (identifiant technique du tiers détecté par le moteur, masqué
+`ASSOCIE_A` dans toute cette session ; toutes catégories, tous statuts) :**
+
+| Indicateur | Valeur |
+|---|---:|
+| Nombre total de mouvements (toutes catégories) | 61 |
+| Dont `VIR_ASSOCIE` (famille stricte) | 14 (12 dans le groupe 4 + 2 hors groupe 4/hors périmètre de cette session) |
+| Total débit (`VIR_ASSOCIE`) | 8719,00 € |
+| Total crédit (`VIR_ASSOCIE`) | 1600,00 € |
+| Solde net (crédit − débit) | -7119,00 € (net versé à l'associé sur la période) |
+| Nombre sans justificatif applicatif | 61 (aucun module de compte courant associé alimenté) |
+| Nombre avec objet candidat (masqué ASSOCIE_A) | 61 |
+| Montants atypiques (> 1000 €) | 2 : 2879,00 € (2026-05-10), 1444,00 € (2026-06-11) |
+
+Aucune identité reproduite. Aucune conclusion sur le sens économique (avance/remboursement) prise à
+la place de l'utilisateur.
+
+**Vérification de comptage (groupe 4)** : total = 55 ; lignes détaillées après ce tour = 50 ;
+restant = 5. Groupes 1-5 = 212, autres statuts = 305. Total 517. Cohérent.
+
+**Lignes 51 à 55 du groupe 4 — finalisation (REPORTER AVEC CATÉGORIE CANDIDATE, aucune preuve
+applicative fiable trouvée pour aucune des cinq lignes) :**
+
+| # | ID opaque (suffixe) | Catégorie candidate | Statut | Confiance |
+|---|---|---|---|---|
+| 51 | `...5EBCFC` (160,00 €) | MOUVEMENT_ASSOCIE_A_A_QUALIFIER | A_CONTROLER | Non tranchée |
+| 52 | `...8C4BA9` (815,00 €) | PRESTATAIRE_MENAGE_B / PAIEMENT_PRESTATION_MENAGE_POTENTIEL | A_CONTROLER | Moyenne (tiers référencé), non validée (comptable) |
+| 53 | `...C8869F` (615,25 €) | TIERS_NON_REFERENCE / PAIEMENT_A_IDENTIFIER | A_CONTROLER | Faible (tiers non trouvé au référentiel) |
+| 54 | `...4647CE` (1016,00 €) | PRESTATAIRE_MENAGE_A / PAIEMENT_PRESTATION_MENAGE_POTENTIEL | A_CONTROLER | Moyenne-haute (tiers), non validée (comptable) |
+| 55 | `...3823E7` (615,00 €) | MOUVEMENT_ASSOCIE_A_A_QUALIFIER | A_CONTROLER | Non tranchée |
+
+Groupe 4 **clos à 55/55 lignes analysées** — toutes restent `A_CONTROLER`, aucune validée
+définitivement, aucune règle moteur modifiée, aucune application réelle.
+
 ### DEC-005
 
 - date : 2026-08-02
