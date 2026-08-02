@@ -14,7 +14,32 @@
 > de 7 et une logique de fusion entre deux sources. **`BANQUE_LOT8_IMPORT.xlsx` n'a pas été
 > produit.** Détail complet : `61_CONTRAT_SOURCE_BANQUE_LOT8.md` (section « Suite »).
 
-## Verdict final (mis à jour 2026-08-02, suite 4 — anomalie lot4quater expliquée, cycle Banque complet)
+## Verdict final (mis à jour 2026-08-02, suite 5 — dossier de validation humaine et de préparation du mode réel livré)
+
+**NO GO — VALIDATION HUMAINE REQUISE**
+
+Le socle technique est prêt (recette globale complète, cycle Banque exercé, sécurité corrigée,
+campagne de tests verte) mais **aucune décision humaine n'a encore été rendue**. Package complet
+livré ce tour : `66_BASELINE_VALIDATION_HUMAINE.md` (photographie figée de l'état technique),
+`67_PLAN_VALIDATION_HUMAINE.md` (matrice module × scénario, décisions volontairement laissées
+vides), `68_MATRICE_ARBITRAGES_BANQUE.md` (synthèse des 517 mouvements `A_CONTROLER`, 166+56
+propositions de rapprochement en attente), `69_GUIDE_RECETTE_UTILISATEUR.md` (parcours pas-à-pas),
+`70_MATRICE_ARBITRAGES_COMPTABLES.md` (comptes provisoires à arbitrer), `71_DOSSIER_PREPARATION_
+MODE_REEL.md` (sauvegardes, flags, 5 phases documentées, **aucune exécutée**), `72_CHECKLIST_GO_NO_
+GO_MODE_REEL.md` (checklist + fiche de signature vierge).
+
+**Sécurité** : une fuite réelle de chemin absolu (incluant le nom d'utilisateur Windows) dans le
+bandeau `MODE RECETTE` de chaque page a été trouvée et corrigée ce tour (`c65f891`), procédure
+test-rouge→correction→test-vert respectée (`test_securite_bandeau_recette.py`, 3 tests). Campagne
+complète rejouée après correction : **2284 passés / 75 ignorés / 1 échec pré-existant** (3 tests de
+plus que la référence, aucune régression).
+
+Aucun rapprochement bancaire confirmé, aucune règle métier décidée, aucun flag de mode réel activé
+par cette mission. Le paragraphe ci-dessous (verdict précédent, 2026-08-02 suite 4) reste valide
+techniquement mais est remplacé par ce verdict, plus prudent, tant que la fiche de signature
+(`72`) n'est pas remplie par l'utilisateur.
+
+### Verdict précédent (2026-08-02, suite 4 — anomalie lot4quater expliquée, cycle Banque complet)
 
 **GO POUR VALIDATION HUMAINE COMPLÈTE**
 

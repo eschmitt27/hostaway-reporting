@@ -2835,3 +2835,49 @@ VERDICT FINAL : GO POUR VALIDATION HUMAINE COMPLETE (jamais GO mode reel). Tous 
 fin du bloc Banque/chaine applicative sont atteints.
 REFERENCE : 60_VERDICT_GO_NO_GO.md (mis a jour), 64_RAPPORT_ORCHESTRATION_LOT4QUATER_LOT9.md,
 65_RAPPORT_CYCLE_BANQUE_COMPLET.md
+
+---
+
+MISSION 2026-08-02 (suite) : preparation de la validation humaine et du dossier de mode reel.
+
+CORRECTION FACTUELLE : le rapport oral (chat) de la mission precedente annoncait "3 commits" entre
+7ea5a81 et e5248fd. Verifie via git log --oneline 7ea5a81..e5248fd : exactement 2 commits
+(6d80612, e5248fd). HANDOFF_CANONIQUE.md n'avait jamais porte l'erreur - seul le recapitulatif oral.
+Note ajoutee dans HANDOFF_CANONIQUE.md.
+
+SECURITE - FUITE REELLE TROUVEE ET CORRIGEE : app.main._recette_globals exposait le chemin absolu
+complet (incluant le nom d'utilisateur Windows) via RECETTE_ROOT/RECETTE_DB sur chaque page rendue
+en RECETTE_MODE. Procedure test-rouge->correction->test-vert respectee :
+test_securite_bandeau_recette.py (3 tests, rouges avant fix, verts apres). Correction : fonction
+_nom_logique() (masquage par nom de fichier, jamais le chemin complet), app/main.py + base.html
+(libelle "racine :" -> "environnement :"). Regression : 81 passes (subset), puis campagne complete
+rejouee : 2284 passes / 75 ignores / 1 echec pre-existant (3 tests de plus que la reference, aucune
+regression). Deux notes de securite pre-existantes restent ouvertes (hors mandat de correction,
+cf. 60/65).
+
+PACKAGE DE VALIDATION HUMAINE LIVRE (documents 66 a 72, 00_CADRAGE/BANQUE_LOGEMENTS_PDF_CHARGES_
+METIER_20260724/) :
+- 66_BASELINE_VALIDATION_HUMAINE.md : photographie figee de l'etat technique (git, sources,
+  migrations, pipeline, Banque, reconciliations, tests, parametres recette).
+- 67_PLAN_VALIDATION_HUMAINE.md : matrice module x scenario (colonne decision humaine vide),
+  table des fonctions differees.
+- 68_MATRICE_ARBITRAGES_BANQUE.md : synthese des 517 mouvements A_CONTROLER par motif, 166
+  propositions Airbnb + 56 propositions proprietaires, aucune confirmation automatique.
+- 69_GUIDE_RECETTE_UTILISATEUR.md : parcours pas-a-pas reproductible, 17 etapes.
+- 70_MATRICE_ARBITRAGES_COMPTABLES.md : comptes provisoires a arbitrer (mapping catégorie->compte,
+  frais bancaires, TVA hors perimetre - fiscal, pas technique).
+- 71_DOSSIER_PREPARATION_MODE_REEL.md : sauvegardes, flags, 5 phases d'activation documentees,
+  AUCUNE EXECUTEE, procedure de rollback et d'audit.
+- 72_CHECKLIST_GO_NO_GO_MODE_REEL.md : 13 items de checklist, fiche de signature vierge (jamais
+  remplie par Claude), verdict.
+
+VERIFICATION FINALE D'INTEGRITE : 88/88 fichiers reels de donnees re-controles identiques au hash
+baseline apres ce tour (seul ecart : lot8a_banque_import.py, code, deja documente comme
+modification intentionnelle d'une mission anterieure).
+
+VERDICT FINAL DE CE TOUR : NO GO - VALIDATION HUMAINE REQUISE (remplace le GO POUR VALIDATION
+HUMAINE COMPLETE precedent, plus prudent tant qu'aucune decision humaine n'est rendue). Aucune
+confirmation de rapprochement, aucun arbitrage metier decide, aucun flag de mode reel active par
+cette mission.
+REFERENCE : 60_VERDICT_GO_NO_GO.md (mis a jour, suite 5), 66 a 72, HANDOFF_CANONIQUE.md,
+48_ROADMAP_RESTANTE_PROJET.md (mis a jour)

@@ -88,10 +88,18 @@ l'état, ce document pour le reste à faire.
    même résultat que les moteurs directs (6/6 lots, idempotent, deux fois). Deux mois Lot10
    manquants **expliqués** (`62`) : filtrage upstream cohérent. Campagne de tests complète rejouée
    (2281/75/1, identique à la référence).
-8. **Validation humaine** — arbitrages métier en attente (plan de comptes, axes analytiques
-   restants, complément de saisie Hors-Hostaway pour LOG_0015/PROP_0011 si les mois
-   2026-11/2027-01/2026-12 doivent être complétés, règles de classification Banque fines).
-9. **Activation progressive du mode réel**, module par module, selon `GUIDE_ACTIVATION_MODE_REEL.md`.
+8. **Validation humaine** — **dossier complet préparé** (2026-08-02, cf. `66`-`70`) : baseline
+   figée, plan de validation par module/scénario, matrice d'arbitrage Banque (517 `A_CONTROLER`,
+   166+56 rapprochements en attente), matrice d'arbitrage comptable (comptes provisoires), guide de
+   recette utilisateur. Les décisions elles-mêmes restent en attente (plan de comptes, axes
+   analytiques restants, complément de saisie Hors-Hostaway pour LOG_0015/PROP_0011 si les mois
+   2026-11/2027-01/2026-12 doivent être complétés, règles de classification Banque fines, fiche de
+   signature `72`).
+9. **Activation progressive du mode réel** — **dossier de préparation livré** (2026-08-02, cf. `71`-
+   `72`) : sauvegardes, flags, ordre d'activation en 5 phases, procédure de rollback documentés,
+   **aucune phase exécutée, aucun flag activé**. Checklist GO/NO-GO formalisée, verdict actuel
+   **NO GO — VALIDATION HUMAINE REQUISE**. Reste : décision humaine puis activation module par
+   module selon `GUIDE_ACTIVATION_MODE_REEL.md` et `71_DOSSIER_PREPARATION_MODE_REEL.md`.
 
 ## Arbitrages métier en attente
 

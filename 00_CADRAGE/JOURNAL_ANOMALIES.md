@@ -749,3 +749,28 @@ Campagne complete rejouee (TEST_SHARDS_RECETTE_GLOBALE.txt, 131 fichiers, 6 shar
 
 STATUT : TERMINE pour le perimetre defini. Verdict formalise : `60_VERDICT_GO_NO_GO.md` ->
 **GO POUR VALIDATION HUMAINE COMPLETE**. Detail complet : `65_RAPPORT_CYCLE_BANQUE_COMPLET.md`.
+
+
+## FUITE DE CHEMIN ABSOLU DANS LE BANDEAU MODE RECETTE (2026-08-02, suite) — CORRIGEE
+
+Un des deux points de securite pre-existants notes ci-dessus (bandeau MODE RECETTE) a ete pris en
+charge explicitement par le mandat de cette mission (contrairement aux missions precedentes ou il
+etait note "hors mandat"). Reproduit : `app.main._recette_globals` exposait `str(_cfg.RECETTE_ROOT)`
+et `str(_cfg.DB_PATH)` bruts (chemin Windows complet, incluant le nom d'utilisateur reel) dans les
+globals Jinja pousses sur chaque page rendue en RECETTE_MODE.
+
+PROCEDURE RESPECTEE : test rouge d'abord — `tests/test_securite_bandeau_recette.py` (3 tests)
+ecrit et execute AVANT la correction, confirmant la presence litterale du chemin/nom d'utilisateur
+dans `app.main._recette_globals`. Correction ensuite : fonction `_nom_logique()` (nom de fichier
+seul, jamais le chemin complet) appliquee a `RECETTE_ROOT`/`RECETTE_DB` ; `base.html` : libelle
+"racine :" -> "environnement :" (coherent avec la nouvelle semantique masquee). Tests relances :
+3/3 verts. Regression : 81 tests (sous-ensemble cible), puis campagne complete par shards
+(132 fichiers) : 2284 passes / 75 ignores / 1 echec pre-existant — 3 tests de plus que la
+reference du 2026-07-31, aucune regression.
+
+Le second point de securite pre-existant (libelles bancaires avec fragments de compte tiers)
+reste NOTE, NON CORRIGE — inherent au texte brut des releves bancaires reels, hors mandat de cette
+mission, jamais reproduit dans la documentation Git.
+
+STATUT : CORRIGE ET TESTE (commit `c65f891`). Detail complet : `HANDOFF_CANONIQUE.md`,
+`JOURNAL_CONTROLES.md` (entree mission 2026-08-02 suite).

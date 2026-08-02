@@ -9,16 +9,15 @@ Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais
 |---|---|
 | Worktree | `C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Worktrees\BANQUE_LOGEMENTS_PDF_CHARGES_METIER` |
 | Branche | `feature/banque-logements-pdf-charges-metier` |
-| État figé le | **2026-08-02** — Recette globale : **COMPLÈTE**. L'anomalie `lot4quater`/`CTR-9-003` s'est révélée être un artefact de l'environnement de copies (fichier réel pas encore copié), pas un défaut — confirmé, `/calculs` relancé deux fois depuis l'écran applicatif lui-même, 6/6 lots SUCCÈS les deux fois, idempotent, identique au centime près à l'exécution moteur directe. **Cycle Banque complet exécuté** (Lot8a→8b→8c) : classification + rapprochement, 0 confirmation automatique. **Campagne complète rejouée** : 2281/75/1, identique à la référence. Verdict : **GO POUR VALIDATION HUMAINE COMPLÈTE** |
-| Dernier commit stable avant ce tour | `6d80612` — `test(lot4quater): documente le contrat global - pas de bug d'orchestration` |
-| Correction (2026-08-02, suite) | Le rapport final de la mission précédente (chat, pas ce fichier) annonçait « 3 commits » entre `7ea5a81` et `e5248fd` — vérifié via `git log --oneline 7ea5a81..e5248fd` : **exactement 2 commits**, `6d80612` (tests lot4quater, aucun code de production) et `e5248fd` (documentation seule). Aucun code de production (`05_APPLICATION/`, `02_TRAVAIL/*.py` hors tests) modifié durant ce tour-là. Ce fichier lui-même n'avait jamais porté l'erreur — seul le récapitulatif oral l'avait |
+| État figé le | **2026-08-02** — Dossier de préparation de la validation humaine et du mode réel **LIVRÉ, mode réel NON activé**. Sécurité : fuite réelle de chemin absolu dans le bandeau MODE RECETTE trouvée et corrigée (`c65f891`, test rouge→vert). Package complet de validation humaine créé (`66`-`72` : baseline figée, plan de validation, matrices d'arbitrage Banque et Comptabilité, guide utilisateur, dossier de préparation du mode réel en 5 phases documentées mais non exécutées, checklist GO/NO-GO). Verdict : **NO GO — VALIDATION HUMAINE REQUISE** |
+| Dernier commit stable avant ce tour | `c65f891` — `fix(securite): masque le chemin absolu du bandeau MODE RECETTE` |
 | HEAD | vérifier avec `git log -1` — ce fichier est mis à jour par le commit qui le porte, dont le SHA ne peut donc pas y figurer |
-| git status | propre (`data_recette/` ignoré, régénérable) |
+| git status | propre avant ce tour ; ce tour ajoute uniquement des documents `00_CADRAGE` (`66`-`72`), aucun code |
 | master / canonique | **intacts, jamais touchés** (`master` = `8b47807`) |
-| Sources réelles | inchangées, **une exception assumée** : `02_TRAVAIL/lot13_export_powerbi.py`, sur décision utilisateur explicite (renommage de la colonne d'export). Aucune donnée réelle touchée en écriture, y compris le relevé Banque réel (jamais modifié, jamais rouvert en écriture même après le cycle Lot8b/8c complet sur la copie). **Exception distincte et intentionnelle** : `02_TRAVAIL/lot8a_banque_import.py` a été modifié (mission antérieure, commit `da76d0f`) — c'est du **code**, pas une donnée métier. 88/88 fichiers réels de données re-vérifiés identiques après le cycle Banque complet |
-| Suite complète (dernier total constaté) | **2281 passés / 75 ignorés / 1 échec pré-existant** — campagne complète rejouée ce tour (`TEST_SHARDS_RECETTE_GLOBALE.txt`, 131 fichiers, 6 shards, codes retour réels), identique au caractère près à la référence du 2026-07-31 : aucune régression sur toute la série de missions Banque. `tests/` racine (moteur) : **268 passés, 0 échec** (dont 6 nouveaux pour lot4quater). |
-| Documents transverses | `MATRICE_ETAT_MODULES.md` (état livré) · **`48_ROADMAP_RESTANTE_PROJET.md` (trajectoire)** · `GUIDE_ACTIVATION_MODE_REEL.md` (verdict **NO GO**) · `60_VERDICT_GO_NO_GO.md` (verdict final **GO POUR VALIDATION HUMAINE COMPLÈTE**) · `61_CONTRAT_SOURCE_BANQUE_LOT8.md` · `62_RAPPORT_MOIS_LOT10_MANQUANTS.md` · `63_CONTRAT_FORMAT_RELEVE_BANCAIRE_CONSOLIDE.md` · `64_RAPPORT_ORCHESTRATION_LOT4QUATER_LOT9.md` (nouveau) · `65_RAPPORT_CYCLE_BANQUE_COMPLET.md` (nouveau) |
-| **Avancement global estimé** | **82 %**, marge ± 4 points. Plafond : aucun pourcentage > 85 % tant que le périmètre restant (plan de comptes détaillé, facturation propriétaire/tiers, mode réel) n'est pas tranché. Comptabilité TERMINÉE (`49`). Analytique et Résultats **TERMINÉS pour le périmètre défini** (`53`), validés sur copies de données réelles (`54`-`65`) : cycle Banque complet (Lot8a/8b/8c) exercé, chaîne aval Lot9-13 rejouée avec succès **depuis l'application elle-même** (`/calculs`, pas seulement scripts moteur), réconciliations A/B/D/H OK, idempotence prouvée à tous les niveaux, campagne de tests complète rejouée sans régression. Reste hors périmètre (arbitrages métier, pas des défauts) : plan de comptes, règles de classification Banque fines. |
+| Sources réelles | inchangées ce tour. **88/88 fichiers réels re-vérifiés identiques** au hash baseline, **une seule exception assumée et déjà documentée** : `02_TRAVAIL/lot8a_banque_import.py` (code, mission `da76d0f`, format bancaire consolidé), jamais une donnée. Relevé Banque réel jamais rouvert en écriture |
+| Suite complète (dernier total constaté) | **2284 passés / 75 ignorés / 1 échec pré-existant** (`test_appsec1_diagnostic.py`, indépendant), campagne rejouée après le fix sécurité (`TEST_SHARDS_RECETTE_GLOBALE.txt`, 132 fichiers) — 3 tests de plus que la référence (`test_securite_bandeau_recette.py`), aucune régression |
+| Documents transverses | `MATRICE_ETAT_MODULES.md` · `48_ROADMAP_RESTANTE_PROJET.md` · `GUIDE_ACTIVATION_MODE_REEL.md` · `60_VERDICT_GO_NO_GO.md` (verdict **NO GO — VALIDATION HUMAINE REQUISE**) · `61`-`65` (contrats/rapports Banque et lot4quater) · `66_BASELINE_VALIDATION_HUMAINE.md` (nouveau) · `67_PLAN_VALIDATION_HUMAINE.md` (nouveau) · `68_MATRICE_ARBITRAGES_BANQUE.md` (nouveau) · `69_GUIDE_RECETTE_UTILISATEUR.md` (nouveau) · `70_MATRICE_ARBITRAGES_COMPTABLES.md` (nouveau) · `71_DOSSIER_PREPARATION_MODE_REEL.md` (nouveau) · `72_CHECKLIST_GO_NO_GO_MODE_REEL.md` (nouveau, verdict + fiche de signature vierge) |
+| **Avancement global estimé** | **83 %**, marge ± 4 points (+1 point : fuite de sécurité réelle corrigée et testée ce tour). Plafond inchangé : aucun pourcentage > 85 % tant que le périmètre restant (plan de comptes détaillé, facturation propriétaire/tiers, arbitrages Banque, mode réel) n'est pas tranché. Le socle technique est prêt à recevoir la décision humaine ; celle-ci n'a pas eu lieu (`72`). |
 
 ## Périmètre restant avant achèvement
 
@@ -30,13 +29,15 @@ copies · (8) validation humaine · (9) activation progressive du mode réel.
 
 **(3) Comptabilité : FAIT** (2026-07-29, cf. `49`). **(4) analytique : FAIT** pour le périmètre
 défini, **(5) Résultats : FAIT** pour le périmètre défini, **(6) réconciliations : FAIT (8/8)**
-(2026-07-31, cf. `53`). **(7) recette globale sur copies : FAITE, PARTIELLE** (2026-08-01/02, cf.
-`54`-`62`) — verdict final **NO GO — SOURCE BANQUE REQUISE** (pas un blocage applicatif : validation
-humaine du périmètre alimenté reste AUTORISÉE ; c'est la préparation du mode réel qui reste NO GO).
-Prochaine étape réelle : **(8) validation humaine** — décision sur la source Banque réelle
-manquante (`61`, geste utilisateur requis), puis arbitrages métier en attente (plan de comptes,
-saisie Hors-Hostaway LOG_0015/PROP_0011 si les mois 2026-11/2027-01/2026-12 doivent être
-complétés).
+(2026-07-31, cf. `53`). **(7) recette globale sur copies : FAITE, COMPLÈTE** (2026-08-01/02, cf. `54`-`65`) — cycle Banque
+Lot8a/8b/8c exécuté avec la source réelle, chaîne aval rejouée avec succès depuis l'application.
+**(8) validation humaine : PRÉPARÉE, PAS ENCORE RENDUE** (2026-08-02, cf. `66`-`70`) — dossier complet
+livré (baseline, plan de validation par module, matrices d'arbitrage Banque et Comptabilité, guide
+utilisateur) ; les décisions elles-mêmes (arbitrages Banque, plan de comptes, fiche de signature)
+restent à rendre par l'utilisateur, jamais par Claude. **(9) activation progressive du mode réel :
+PRÉPARÉE, NON DÉMARRÉE** (cf. `71`-`72`) — dossier de rollout en 5 phases et checklist GO/NO-GO
+documentés, aucune phase exécutée, aucun flag activé. Verdict global : **NO GO — VALIDATION HUMAINE
+REQUISE**.
 
 ## Arbitrages métier en attente (cf. `48`)
 
@@ -998,6 +999,15 @@ APP_DATA_DIR="<worktree>/data_recette/app_data" \
 13. **Un nom de colonne d'indicateur se relève sur la sortie réelle, jamais par déduction.** Une
     colonne mal nommée ne lève aucune erreur : elle rend la valeur silencieusement absente. Un test
     compare désormais la déclaration aux en-têtes réels.
+
+## Scope explicite : `ETAT_AVANCEMENT.md` / `ARCHITECTURE_DONNEES.md` (00_CADRAGE racine)
+
+Décision réaffirmée explicitement ce tour (2026-08-02), déjà jugée ainsi lors de missions
+antérieures : ces deux documents appartiennent à une couche de documentation historique/legacy du
+projet, antérieure au chantier `BANQUE_LOGEMENTS_PDF_CHARGES_METIER_20260724`. Ils restent **hors
+périmètre** de ce chantier et ne sont ni mis à jour ni remplacés par les documents `54`-`72` — pas
+un oubli, une décision de scope assumée pour ne pas dupliquer/écraser une documentation dont la
+structure n'est pas celle de ce chantier.
 
 ## État de reprise
 
