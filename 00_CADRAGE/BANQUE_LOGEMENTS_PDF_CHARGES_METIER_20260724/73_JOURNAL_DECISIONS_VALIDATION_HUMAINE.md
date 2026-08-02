@@ -229,6 +229,32 @@ mapping comptable validé, aucune règle moteur modifiée.
 30 ; restant = 25. Groupes 1-5 = 212, autres statuts (RAPPROCHEMENT_REQUIS 222 + A_ENVOYER_IA 83)
 = 305. Total 212+305 = 517. Cohérent, aucune correction nécessaire.
 
+**Lignes 31 à 40 du groupe 4 — sous-décisions détaillées (REPORTER AVEC CATÉGORIE CANDIDATE) :**
+
+| # | ID opaque (suffixe) | Catégorie candidate | Statut | Confiance |
+|---|---|---|---|---|
+| 31 | `...F18C69` (120,00 €) | CONTRAT_OU_PRESTATION_A_IDENTIFIER (rattaché ligne 22, sigle "IL" non interprété) | A_CONTROLER | Faible |
+| 32 | `...0A9AE5` (220,00 €) | FOURNISSEUR_002 / DEPENSE_PROFESSIONNELLE_POTENTIELLE | A_CONTROLER | Moyenne (identité), non validée (nature/comptable) |
+| 33 | `...907C08` (1369,96 €) | CONTRAT_RECURRENT_A_IDENTIFIER / EFFET_DOMICILIE (série avec lignes 11/18/26) | A_CONTROLER | Moyenne (récurrence), faible (nature) |
+| 34 | `...0748EC` (750,00 €) | PRESTATAIRE_MENAGE_A / PAIEMENT_PRESTATION_MENAGE_POTENTIEL | A_CONTROLER | Moyenne (tiers candidat), non validée (comptable) |
+| 35 | `...A898C6` (205,00 €) | FOURNISSEUR_INCONNU / PAIEMENT_FACTURE (pattern lignes 17/23) | A_CONTROLER | Faible |
+| 36 | `...317412` (600,00 €) | REMBOURSEMENT_ASSOCIE (famille lignes 30/38) | A_CONTROLER | Moyenne (famille métier) |
+| 37 | `...C5212A` (3130,00 €) | FLUX_MIXTE_MENAGE_IK_A_DECOMPOSER | A_CONTROLER | Faible ; **risque de double comptage : ÉLEVÉ** |
+| 38 | `...3140EA` (1800,00 €) | REMBOURSEMENT_ASSOCIE (famille lignes 30/36) | A_CONTROLER | Moyenne (famille métier) |
+| 39 | `...6AC67A` (270,00 €) | MOUVEMENT_ASSOCIE_A_A_QUALIFIER | A_CONTROLER | Non tranchée entre avance/remboursement |
+| 40 | `...11DDFF` (300,00 €) | MOUVEMENT_ASSOCIE_A_A_QUALIFIER | A_CONTROLER | Non tranchée entre avance/remboursement |
+
+Toutes restent `A_CONTROLER`. Aucune écriture comptable, aucun rapprochement confirmé, aucun
+mapping comptable validé, aucune règle moteur modifiée.
+
+- application_copies : **OUI, uniquement dans l'overlay de contrôle** (colonne `categorie_candidate`)
+- application_dans_BANQUE_LOT8_IMPORT : **NON**
+- application_dans_app.db : **NON**
+- application_reelle : **NON**
+
+**Vérification de comptage (groupe 4)** : total = 55 ; lignes détaillées après ce tour = 40 ;
+restant = 15. Groupes 1-5 = 212, autres statuts = 305. Total 517. Cohérent.
+
 ### DEC-005
 
 - date : 2026-08-02
