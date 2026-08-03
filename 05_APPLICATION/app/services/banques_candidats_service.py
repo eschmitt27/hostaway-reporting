@@ -64,17 +64,17 @@ def _reservations() -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for r in rows[1:]:
         d = dict(zip(hdr, r))
-        rid = to_texte(d.get("reservation_id"))
-        montant = to_nombre(d.get("montant_paye") or d.get("montant_total") or d.get("montant"))
+        rid = to_texte(d.get("reservation_calc_id"))
+        montant = to_nombre(d.get("montant_retenu"))
         if not rid or montant is None:
             continue
         out.append({
             "type_objet": "RESERVATION",
             "objet_id": rid,
             "montant": abs(montant),
-            "date": to_date(d.get("date_checkin") or d.get("date_reservation")),
+            "date": to_date(d.get("date_arrivee")),
             "reference": rid,
-            "plateforme": to_texte(d.get("canal_id") or d.get("plateforme")),
+            "plateforme": to_texte(d.get("canal")),
             "proprietaire_id": to_texte(d.get("proprietaire_id")),
             "libelle": f"Réservation {rid}",
         })
