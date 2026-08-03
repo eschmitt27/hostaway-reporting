@@ -294,17 +294,6 @@ PROP_HDR = [
 ]
 PROP_WIDTHS = [32, 14, 60, 14, 10, 28, 36, 32, 38, 12, 20, 70]
 
-PROP_LABELS = {
-    "PROP_0002": "Cedrine Delrieu",
-    "PROP_0005": "Florane Vassal",
-    "PROP_0006": "Caroline Pons-Dinneweth",
-    "PROP_0008": "David Toure",
-    "PROP_0009": "Francois Maurer",
-    "PROP_0010": "Noel Dureuil",
-    "FAMILLE_UZON_A_CONTROLER": "Famille Uzon (Didier PROP_0001 ou Maryline PROP_0011)",
-}
-
-
 def build_rapproch_proprietaires(wb, prop_rows):
     drop_sheet_if_exists(wb, "RAPPROCH_PROPRIETAIRES_ATTENTE")
     ws = wb.create_sheet("RAPPROCH_PROPRIETAIRES_ATTENTE")
@@ -316,10 +305,9 @@ def build_rapproch_proprietaires(wb, prop_rows):
     for row_idx, row in enumerate(sorted(prop_rows, key=lambda x: str(x["date_operation"])), 2):
         mt = row["montant"]
         prop_id = row["tiers_detecte"]
-        prop_label = PROP_LABELS.get(prop_id, prop_id)
-        comment = ("Proprietaire identifie : %s (%s). "
+        comment = ("Proprietaire identifie : %s. "
                    "Nature comptable inconnue (acompte facture / remboursement charge / regularisation). "
-                   "Aucune validation sans justificatif ou saisie Lot 5." % (prop_label, prop_id))
+                   "Aucune validation sans justificatif ou saisie Lot 5." % prop_id)
 
         vals = [
             row["mouvement_id"],

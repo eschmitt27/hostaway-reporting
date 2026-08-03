@@ -798,3 +798,20 @@ ou accepter le residu comme limite connue du moteur de classification.
 
 STATUT : DIFFEREE (categorie candidate seulement, aucune correction technique). Detail complet :
 `73_JOURNAL_DECISIONS_VALIDATION_HUMAINE.md` (DEC-005).
+
+
+## NOMS REELS EN DUR DANS LOT8C — CORRIGEE (2026-08-03)
+
+Constat pendant l'audit des prerequis du rapprochement bancaire : `02_TRAVAIL/lot8c_rapprochement_
+banque.py` contenait un dictionnaire `PROP_LABELS` codant en dur des prenoms et noms reels de
+proprietaires (associes a des identifiants `PROP_00XX`), utilise uniquement pour enrichir un
+commentaire genere dans l'onglet `RAPPROCH_PROPRIETAIRES_ATTENTE` de `BANQUE_LOT8_IMPORT.xlsx`.
+
+Correction : dictionnaire supprime, le commentaire genere n'utilise plus que l'identifiant opaque
+`PROP_00XX` deja disponible (aucune information necessaire perdue — le commentaire restait
+exploitable avec le seul identifiant). Aucune donnee deplacee vers un autre fichier suivi. Verifie
+par relecture directe de la sortie regeneree sur l'environnement de copies (aucune donnee reelle
+modifiee) : plus aucun nom reel dans les 56 lignes de l'onglet concerne.
+
+STATUT : CORRIGE. Detail complet : `74_CONTRAT_SOURCE_AIRBNB_RAPPROCHEMENT.md` (mission trésorerie
+propriétaires du 2026-08-03).
