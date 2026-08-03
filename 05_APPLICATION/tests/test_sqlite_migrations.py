@@ -67,6 +67,8 @@ EXPECTED_TABLES = {
     "periode_evenements",                     # 0023
     "mapping_comptable_regles",                 # 0024 — mappings comptables historisés
     "ecriture_ligne_ventilation",                # 0024 — ventilation analytique par ligne d'écriture
+    "mouvements_tresorerie_proprietaires",              # 0025 — trésorerie propriétaires
+    "mouvements_tresorerie_proprietaires_evenements",   # 0025 — historique append-only
 }
 
 
