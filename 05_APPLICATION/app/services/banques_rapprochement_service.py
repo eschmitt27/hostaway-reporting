@@ -33,6 +33,7 @@ TYPES_OBJET = (
 )
 
 ST_PROPOSE = "PROPOSE"
+ST_A_CONTROLER = "A_CONTROLER"
 ST_CONFIRME = "CONFIRME"
 ST_REFUSE = "REFUSE"
 ST_ANNULE = "ANNULE"
@@ -57,8 +58,11 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _refus(code: str) -> dict[str, Any]:
-    return {"ok": False, "code": code, "message": MESSAGES.get(code, code)}
+def _refus(code: str, detail: str = "") -> dict[str, Any]:
+    out = {"ok": False, "code": code, "message": MESSAGES.get(code, code)}
+    if detail:
+        out["detail"] = detail
+    return out
 
 
 def montant_deja_rapproche(mouvement_id_opaque: str, db_path=None,
@@ -219,6 +223,158 @@ def proposer(mouvement: dict[str, Any], objets_candidats: list[dict[str, Any]]) 
         propositions.append({**c, "score": score, "criteres": criteres, "raison": raison})
     propositions.sort(key=lambda p: -p["score"])
     return propositions
+
+
+# ── Rapprochement groupé (recherche bornée, jamais une confirmation silencieuse) ─────────────
+
+FENETRE_JOURS_GROUPE_DEFAUT = 30
+MAX_CANDIDATS_GROUPE_DEFAUT = 20
+MAX_OBJETS_GROUPE_DEFAUT = 5
+TOLERANCE_GROUPE_DEFAUT = 0.01
+MAX_ITERATIONS_GROUPE_DEFAUT = 20000
+
+E_GROUPE_VIDE = "V05_GROUPE_SANS_OBJET"
+E_GROUPE_OBJET_DEJA_UTILISE = "V07_GROUPE_OBJET_DEJA_UTILISE_DANS_LE_GROUPE"
+MESSAGES[E_GROUPE_VIDE] = "Un groupe doit contenir au moins un objet."
+MESSAGES[E_GROUPE_OBJET_DEJA_UTILISE] = "Un même objet ne peut pas apparaître deux fois dans un groupe."
+
+
+def _reste_objet(c: dict[str, Any]) -> float:
+    """`reste` explicite fourni par l'appelant (ex. reste_a_rapprocher), sinon `montant` brut —
+    jamais recalculé ici, la vérité du reste appartient au service métier de l'objet."""
+    v = c.get("reste") if c.get("reste") is not None else c.get("montant")
+    return round(abs(float(v or 0)), 2)
+
+
+def proposer_groupes(mouvement: dict[str, Any], objets_candidats: list[dict[str, Any]], *,
+                     fenetre_jours: int = FENETRE_JOURS_GROUPE_DEFAUT,
+                     max_candidats: int = MAX_CANDIDATS_GROUPE_DEFAUT,
+                     max_objets_groupe: int = MAX_OBJETS_GROUPE_DEFAUT,
+                     tolerance: float = TOLERANCE_GROUPE_DEFAUT,
+                     max_iterations: int = MAX_ITERATIONS_GROUPE_DEFAUT) -> dict[str, Any]:
+    """Recherche BORNÉE de combinaisons d'objets dont la somme des restes égale (à `tolerance`
+    près) le montant du mouvement bancaire. Jamais une recherche exhaustive sur toute la base :
+    fenêtre de date, nombre de candidats et taille de groupe sont tous bornés en amont ; le nombre
+    de combinaisons explorées est compté et la recherche s'arrête proprement à `max_iterations`
+    (résultat partiel signalé, jamais un calcul silencieusement incomplet présenté comme complet).
+
+    Ne persiste rien — un groupe proposé n'est confirmé qu'via `confirmer_groupe`, jamais ici."""
+    import itertools
+    from datetime import date as _d
+
+    montant_mvt = round(abs(float(mouvement.get("montant") or 0)), 2)
+    date_mvt_str = str(mouvement.get("date_operation") or "")
+    try:
+        date_mvt = _d.fromisoformat(date_mvt_str[:10]) if date_mvt_str else None
+    except ValueError:
+        date_mvt = None
+
+    # 1) Filtrage fenêtre de date + tri déterministe (date puis objet_id) AVANT toute recherche.
+    candidats: list[dict[str, Any]] = []
+    for c in objets_candidats:
+        reste = _reste_objet(c)
+        if reste <= 1e-9:
+            continue
+        if date_mvt is not None and c.get("date"):
+            try:
+                d_c = _d.fromisoformat(str(c["date"])[:10])
+                if abs((date_mvt - d_c).days) > fenetre_jours:
+                    continue
+            except ValueError:
+                pass
+        candidats.append({**c, "_reste": reste})
+    candidats.sort(key=lambda c: (str(c.get("date") or ""), str(c.get("objet_id") or "")))
+    candidats = candidats[:max_candidats]
+
+    # 2) Recherche bornée : tailles croissantes 1..max_objets_groupe, arrêt sur limite d'itérations.
+    combinaisons_valides: list[tuple[dict, ...]] = []
+    iterations = 0
+    limite_atteinte = False
+    for taille in range(1, min(max_objets_groupe, len(candidats)) + 1):
+        for combo in itertools.combinations(candidats, taille):
+            iterations += 1
+            if iterations > max_iterations:
+                limite_atteinte = True
+                break
+            somme = round(sum(c["_reste"] for c in combo), 2)
+            if abs(somme - montant_mvt) <= tolerance:
+                combinaisons_valides.append(combo)
+        if limite_atteinte:
+            break
+
+    ambigu = len(combinaisons_valides) > 1
+    groupes = []
+    for combo in combinaisons_valides:
+        groupes.append({
+            "objets": [{"type_objet": c.get("type_objet"), "objet_id": c.get("objet_id"),
+                       "montant_affecte": c["_reste"], "date": c.get("date")} for c in combo],
+            "nb_objets": len(combo),
+            "somme": round(sum(c["_reste"] for c in combo), 2),
+            "ecart": round(sum(c["_reste"] for c in combo) - montant_mvt, 2),
+            "partiel": False,
+            "statut_propose": ST_A_CONTROLER if ambigu else ST_PROPOSE,
+        })
+
+    return {
+        "montant_mouvement": montant_mvt,
+        "nb_candidats_examines": len(candidats),
+        "iterations": iterations,
+        "limite_atteinte": limite_atteinte,
+        "ambigu": ambigu,
+        "groupes": groupes,
+    }
+
+
+def confirmer_groupe(mouvement_id_opaque: str, montant_mouvement: float,
+                     affectations: list[dict[str, Any]], *, statut: str = ST_PROPOSE,
+                     source: str = "MANUEL", commentaire: str = "", acteur: str = "",
+                     db_path=None) -> dict[str, Any]:
+    """Enregistre ATOMIQUEMENT tous les liens d'un groupe (tout ou rien) — jamais une confirmation
+    automatique : appelée uniquement après décision humaine explicite sur un groupe proposé par
+    `proposer_groupes`. `affectations` : [{type_objet, objet_id, montant_affecte}, ...]."""
+    if not affectations:
+        return _refus(E_GROUPE_VIDE)
+    objets_vus = set()
+    for a in affectations:
+        cle = (a.get("type_objet"), a.get("objet_id"))
+        if cle in objets_vus:
+            return _refus(E_GROUPE_OBJET_DEJA_UTILISE, str(cle))
+        objets_vus.add(cle)
+
+    somme = round(sum(abs(float(a.get("montant_affecte") or 0)) for a in affectations), 2)
+    if somme <= 0:
+        return _refus(E_MONTANT_INVALIDE)
+    montant_mvt_abs = round(abs(float(montant_mouvement)), 2)
+
+    deja = montant_deja_rapproche(mouvement_id_opaque, db_path)
+    if deja + somme > montant_mvt_abs + 1e-9:
+        return _refus(E_DEPASSEMENT)
+
+    conn = get_db(db_path)
+    opaques = []
+    try:
+        for a in affectations:
+            if a.get("type_objet") not in TYPES_OBJET:
+                conn.rollback()
+                return _refus(E_TYPE_OBJET_INCONNU, str(a.get("type_objet")))
+            opaque = "BRP-" + uuid.uuid4().hex[:12].upper()
+            conn.execute(
+                "INSERT INTO banque_rapprochements (rapprochement_id_opaque, mouvement_id_opaque, "
+                "type_objet, objet_id, montant_rapproche, statut, source, commentaire, acteur) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                (opaque, mouvement_id_opaque, a["type_objet"], a.get("objet_id"),
+                 round(abs(float(a["montant_affecte"])), 2), statut, source, commentaire, acteur))
+            _evenement(conn, opaque, "CREATION", None, statut,
+                      commentaire or "rapprochement groupé", acteur)
+            opaques.append(opaque)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return {"ok": True, "rapprochements_ids_opaques": opaques, "statut": statut,
+            "nb_objets": len(affectations), "montant_total": somme}
 
 
 # ── Vue « mouvements non rapprochés » ────────────────────────────────────────
