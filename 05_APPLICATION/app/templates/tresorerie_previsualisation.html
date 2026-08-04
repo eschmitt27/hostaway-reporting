@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Prévisualisation du mouvement{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/proprietaires/{{ proprietaire_id }}/tresorerie/nouveau" class="back-link">← Revenir modifier</a>
+  <h1 class="page-title">Prévisualisation — {{ proprietaire_id }}</h1>
+</div>
+
+<div class="card mb-md">
+  <div class="detail-grid">
+    <div><strong>Propriétaire</strong><br>{{ apercu.proprietaire_id }}</div>
+    <div><strong>Logement</strong><br>{{ apercu.logement_id or "—" }}</div>
+    <div><strong>Date</strong><br>{{ apercu.date_mouvement }}</div>
+    <div><strong>Montant</strong><br>{{ "%.2f"|format(apercu.montant) }} €</div>
+    <div><strong>Sens</strong><br>{{ apercu.sens }}</div>
+    <div><strong>Nature</strong><br>{{ apercu.nature }}</div>
+    <div><strong>Mode de règlement</strong><br>{{ apercu.mode_reglement or "—" }}</div>
+    <div><strong>Référence</strong><br>{{ apercu.reference_metier or "—" }}</div>
+    <div><strong>Justification</strong><br>{{ apercu.justification or "—" }}</div>
+  </div>
+</div>
+
+<div class="card" data-testid="bloc-confirmation">
+  <form method="post" action="/proprietaires/{{ proprietaire_id }}/tresorerie/confirmer">
+    <input type="hidden" name="sens" value="{{ champs.sens }}">
+    <input type="hidden" name="nature" value="{{ champs.nature }}">
+    <input type="hidden" name="montant" value="{{ champs.montant }}">
+    <input type="hidden" name="date_mouvement" value="{{ champs.date_mouvement }}">
+    <input type="hidden" name="logement_id" value="{{ champs.logement_id }}">
+    <input type="hidden" name="mode_reglement" value="{{ champs.mode_reglement }}">
+    <input type="hidden" name="reference_metier" value="{{ champs.reference_metier }}">
+    <input type="hidden" name="justification" value="{{ champs.justification }}">
+    <button type="submit" class="btn btn-primary mt-sm">Confirmer (créera un mouvement BROUILLON)</button>
+  </form>
+  <a href="/proprietaires/{{ proprietaire_id }}/tresorerie/nouveau" class="btn btn-ghost mt-sm">Revenir modifier</a>
+</div>
+{% endblock %}

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Historique du mouvement{% endblock %}
+
+{% block content %}
+{% if mouvement is none %}
+<div class="page-header"><h1 class="page-title">Mouvement introuvable</h1></div>
+<div class="alert alert-error">Ce mouvement de trésorerie n'existe pas.</div>
+{% else %}
+<div class="page-header">
+  <a href="/proprietaires/tresorerie/{{ mouvement.mouvement_opaque }}" class="back-link">← Mouvement {{ mouvement.mouvement_opaque }}</a>
+  <h1 class="page-title">Historique — {{ mouvement.mouvement_opaque }}</h1>
+</div>
+
+{% if historique %}
+<div class="table-wrapper">
+  <table class="data-table">
+    <thead><tr><th>Date</th><th>Événement</th><th>Ancien statut</th><th>Nouveau statut</th><th>Commentaire</th></tr></thead>
+    <tbody>
+      {% for h in historique %}
+      <tr>
+        <td>{{ h.date_evenement }}</td>
+        <td>{{ h.type_evenement }}</td>
+        <td>{{ h.ancien_statut or "—" }}</td>
+        <td>{{ h.nouveau_statut or "—" }}</td>
+        <td>{{ h.commentaire or "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty-state"><p>Aucun événement.</p></div>
+{% endif %}
+{% endif %}
+{% endblock %}

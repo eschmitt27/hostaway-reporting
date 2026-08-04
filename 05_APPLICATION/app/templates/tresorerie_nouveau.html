@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Nouveau mouvement de trésorerie{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/proprietaires/{{ proprietaire_id }}/tresorerie" class="back-link">← Trésorerie {{ proprietaire_id }}</a>
+  <h1 class="page-title">Nouveau mouvement de trésorerie — {{ proprietaire_id }}</h1>
+</div>
+
+{% if not proprietaire_filtre %}
+<div class="alert alert-error">Propriétaire inconnu ou inactif.</div>
+{% else %}
+{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+
+<div class="card">
+  <form method="post" action="/proprietaires/{{ proprietaire_id }}/tresorerie/previsualiser">
+    <div class="detail-grid">
+      <label>Logement (facultatif) <input type="text" name="logement_id"></label>
+      <label>Date * <input type="date" name="date_mouvement" required></label>
+      <label>Montant * <input type="number" step="0.01" name="montant" required></label>
+      <label>Sens *
+        <select name="sens" required>
+          <option value="">—</option>
+          {% for s in sens_valeurs %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Nature *
+        <select name="nature" required>
+          <option value="">—</option>
+          {% for n in natures %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Mode de règlement <input type="text" name="mode_reglement"></label>
+      <label>Référence métier <input type="text" name="reference_metier"></label>
+      <label>Justification <input type="text" name="justification"></label>
+    </div>
+    <p class="section-note mt-sm">
+      Ce mouvement représente un flux de trésorerie société↔propriétaire (acompte, remboursement,
+      régularisation...) — jamais une réservation, une charge, une facture ou une écriture
+      comptable. Il ne devient un candidat au rapprochement bancaire qu'une fois validé.
+    </p>
+    <button type="submit" class="btn btn-primary mt-sm">Prévisualiser</button>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

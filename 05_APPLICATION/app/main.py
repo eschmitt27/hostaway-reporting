@@ -11,7 +11,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.config import STATIC_DIR, DATA_DIR, SNAPSHOTS_DIR
 from app.db.connection import apply_migrations
 from app.services.logging_config import log_erreur
-from app.routes import home, sources_calculs, health, logements, reservations, menages, fournisseurs, proprietaires, banques, proprietaires_reglements, controles_cloture, clotures, pilotage_mensuel, fournisseurs_referentiel, charges_controle, factures, calculs, comptabilite, resultats
+from app.routes import home, sources_calculs, health, logements, reservations, menages, fournisseurs, proprietaires, proprietaires_tresorerie, banques, proprietaires_reglements, controles_cloture, clotures, pilotage_mensuel, fournisseurs_referentiel, charges_controle, factures, calculs, comptabilite, resultats
 
 
 @asynccontextmanager
@@ -74,6 +74,7 @@ app.include_router(logements.router)
 app.include_router(reservations.router)
 app.include_router(menages.router)
 app.include_router(fournisseurs.router)
+app.include_router(proprietaires_tresorerie.router)
 app.include_router(proprietaires.router)
 app.include_router(banques.router)
 app.include_router(proprietaires_reglements.router)
@@ -109,7 +110,8 @@ _recette_globals = {
     "RECETTE_DB": f"{_nom_logique(_cfg.DB_PATH.parent)}/{_nom_logique(_cfg.DB_PATH)}",
     "RECETTE_CHARGES_WRITE": bool(_cfg.CHARGES_REAL_WRITE_ENABLED),
 }
-for _mod in (home, logements, reservations, menages, fournisseurs, proprietaires, banques,
+for _mod in (home, logements, reservations, menages, fournisseurs, proprietaires,
+             proprietaires_tresorerie, banques,
              proprietaires_reglements, controles_cloture, clotures, pilotage_mensuel,
              fournisseurs_referentiel, sources_calculs, charges_controle, factures, calculs):
     _t = getattr(_mod, "templates", None)

@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Trésorerie propriétaires{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  {% if proprietaire_filtre %}
+  <a href="/proprietaires/{{ proprietaire_id }}" class="back-link">← Propriétaire {{ proprietaire_id }}</a>
+  <h1 class="page-title">Trésorerie — {{ proprietaire_id }}</h1>
+  {% if solde %}
+  <p class="page-subtitle">
+    Reçu du propriétaire : {{ "%.2f"|format(solde.total_recu_de_proprietaire) }} € ·
+    Versé au propriétaire : {{ "%.2f"|format(solde.total_verse_a_proprietaire) }} € ·
+    Solde net : {{ "%.2f"|format(solde.solde_net) }} €
+  </p>
+  {% endif %}
+  <a href="/proprietaires/{{ proprietaire_id }}/tresorerie/nouveau" class="btn btn-primary mt-sm">
+    Nouveau mouvement
+  </a>
+  {% else %}
+  <h1 class="page-title">Trésorerie propriétaires — vue globale</h1>
+  <p class="page-subtitle">Mouvements de trésorerie déclarés (acompte, remboursement, régularisation, compensation...) — distinct des réservations et des charges.</p>
+  {% endif %}
+</div>
+
+<form method="get" class="card mb-md">
+  <div class="detail-grid">
+    <label>Logement <input type="text" name="logement_id" value="{{ logement_id }}"></label>
+    <label>Sens
+      <select name="sens">
+        <option value="">—</option>
+        {% for s in sens_valeurs %}<option value="{{ s }}" {% if s==sens %}selected{% endif %}>{{ s }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Nature
+      <select name="nature">
+        <option value="">—</option>
+        {% for n in natures %}<option value="{{ n }}" {% if n==nature %}selected{% endif %}>{{ n }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Statut
+      <select name="statut">
+        <option value="">—</option>
+        {% for st in statuts %}<option value="{{ st }}" {% if st==statut %}selected{% endif %}>{{ st }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Référence <input type="text" name="reference" value="{{ reference }}"></label>
+    <label>Montant min <input type="number" step="0.01" name="montant_min" value="{{ montant_min or '' }}"></label>
+    <label>Montant max <input type="number" step="0.01" name="montant_max" value="{{ montant_max or '' }}"></label>
+    <label><input type="checkbox" name="avec_reste" value="true" {% if avec_reste %}checked{% endif %}> Avec reste à rapprocher</label>
+    <label><input type="checkbox" name="totalement_rapproche" value="true" {% if totalement_rapproche %}checked{% endif %}> Totalement rapproché</label>
+  </div>
+  <button type="submit" class="btn btn-secondary mt-sm">Filtrer</button>
+</form>
+
+<div class="table-meta">{{ total }} mouvement{% if total != 1 %}s{% endif %}</div>
+
+{% if lignes %}
+<div class="table-wrapper">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>ID</th><th>Propriétaire</th><th>Logement</th><th>Date</th><th class="num">Montant</th>
+        <th>Sens</th><th>Nature</th><th>Statut</th><th class="num">Rapproché</th>
+        <th class="num">Reste</th><th>Justificatif</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in lignes %}
+      <tr>
+        <td><span class="code-id">{{ m.mouvement_opaque }}</span></td>
+        <td>{{ m.proprietaire_id }}</td>
+        <td>{{ m.logement_id or "—" }}</td>
+        <td>{{ m.date_mouvement }}</td>
+        <td class="num">{{ "%.2f"|format(m.montant) }} €</td>
+        <td>{{ m.sens }}</td>
+        <td>{{ m.nature }}</td>
+        <td><span class="badge badge-neutral">{{ m.statut }}</span></td>
+        <td class="num">{{ "%.2f"|format(m.montant_rapproche) if m.montant_rapproche is defined else "—" }}</td>
+        <td class="num">{{ "%.2f"|format(m.reste_a_rapprocher) if m.reste_a_rapprocher is defined else "—" }}</td>
+        <td>{% if m.justificatif_present %}<span class="badge badge-success">Oui</span>{% else %}<span class="badge badge-neutral">Non</span>{% endif %}</td>
+        <td><a href="/proprietaires/tresorerie/{{ m.mouvement_opaque }}" class="btn btn-secondary btn-sm">Voir</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if total > page_size %}
+<div class="pagination mt-sm">
+  {% if page > 1 %}<a class="btn btn-ghost btn-sm" href="?page={{ page - 1 }}">← Précédent</a>{% endif %}
+  <span class="section-note">Page {{ page }} / {{ ((total - 1) // page_size) + 1 }}</span>
+  {% if page * page_size < total %}<a class="btn btn-ghost btn-sm" href="?page={{ page + 1 }}">Suivant →</a>{% endif %}
+</div>
+{% endif %}
+{% else %}
+<div class="empty-state"><p>Aucun mouvement de trésorerie.</p></div>
+{% endif %}
+{% endblock %}

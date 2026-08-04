@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Mouvement de trésorerie{% endblock %}
+
+{% block content %}
+{% if mouvement is none %}
+<div class="page-header"><h1 class="page-title">Mouvement introuvable</h1></div>
+<div class="alert alert-error">Ce mouvement de trésorerie n'existe pas.</div>
+{% else %}
+<div class="page-header">
+  <a href="/proprietaires/{{ mouvement.proprietaire_id }}/tresorerie" class="back-link">← Trésorerie {{ mouvement.proprietaire_id }}</a>
+  <h1 class="page-title">Mouvement {{ mouvement.mouvement_opaque }}</h1>
+</div>
+
+{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+
+<div class="card mb-md">
+  <div class="detail-grid">
+    <div><strong>Propriétaire</strong><br>{{ mouvement.proprietaire_id }}</div>
+    <div><strong>Logement</strong><br>{{ mouvement.logement_id or "—" }}</div>
+    <div><strong>Date</strong><br>{{ mouvement.date_mouvement }}</div>
+    <div><strong>Montant</strong><br>{{ "%.2f"|format(mouvement.montant) }} €</div>
+    <div><strong>Sens</strong><br>{{ mouvement.sens }}</div>
+    <div><strong>Nature</strong><br>{{ mouvement.nature }}</div>
+    <div><strong>Statut</strong><br><span class="badge badge-neutral">{{ mouvement.statut }}</span></div>
+    <div><strong>Référence</strong><br>{{ mouvement.reference_metier or "—" }}</div>
+    <div><strong>Mode de règlement</strong><br>{{ mouvement.mode_reglement or "—" }}</div>
+    <div><strong>Justificatif</strong><br>{% if mouvement.justificatif_present %}Oui{% else %}Non{% endif %}</div>
+    <div><strong>Justification</strong><br>{{ mouvement.justification or "—" }}</div>
+    <div><strong>Montant rapproché</strong><br>{{ "%.2f"|format(montant_rapproche) }} €</div>
+    <div><strong>Reste à rapprocher</strong><br>{{ "%.2f"|format(reste_a_rapprocher) }} €</div>
+  </div>
+</div>
+
+<div class="card mb-md">
+  <h2 class="card-title">Actions</h2>
+  {% if modifiable %}
+  <form method="post" action="/proprietaires/tresorerie/{{ mouvement.mouvement_opaque }}/modifier" class="mb-sm">
+    <div class="detail-grid">
+      <label>Montant <input type="number" step="0.01" name="montant" value="{{ mouvement.montant }}"></label>
+      <label>Date <input type="date" name="date_mouvement" value="{{ mouvement.date_mouvement }}"></label>
+    </div>
+    <button type="submit" class="btn btn-secondary mt-sm">Modifier le brouillon</button>
+  </form>
+  {% endif %}
+  {% if validable %}
+  <form method="post" action="/proprietaires/tresorerie/{{ mouvement.mouvement_opaque }}/valider" class="mb-sm">
+    <button type="submit" class="btn btn-primary">Valider (devient rapprochable)</button>
+  </form>
+  {% endif %}
+  {% if annulable %}
+  <form method="post" action="/proprietaires/tresorerie/{{ mouvement.mouvement_opaque }}/annuler">
+    <label>Justification (obligatoire) <input type="text" name="justification" required></label>
+    <button type="submit" class="btn btn-danger mt-sm">Annuler ce mouvement</button>
+  </form>
+  {% endif %}
+  {% if mouvement.statut == "VALIDE" %}
+  <p class="section-note">Un mouvement validé ne peut plus être modifié ni supprimé — seulement annulé.</p>
+  {% endif %}
+</div>
+
+<a href="/proprietaires/tresorerie/{{ mouvement.mouvement_opaque }}/historique" class="btn btn-ghost">
+  Voir l'historique
+</a>
+{% endif %}
+{% endblock %}
