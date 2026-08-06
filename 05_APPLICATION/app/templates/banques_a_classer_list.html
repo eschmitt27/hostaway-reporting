@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}À classer{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/banques-caisse" class="back-link">← Banque</a>
+  <h1 class="page-title">File de classement — mouvements à classer</h1>
+  <p class="page-subtitle">
+    Aucune IA externe. Chaque mouvement reste dans son statut moteur jusqu'à décision humaine
+    explicite — cette file ne modifie jamais BANQUE_LOT8_IMPORT.xlsx.
+  </p>
+</div>
+
+<form method="get" class="card mb-md">
+  <div class="detail-grid">
+    <label>Période (AAAA-MM) <input type="text" name="periode" value="{{ periode }}"></label>
+    <label>Montant min <input type="number" step="0.01" name="montant_min" value="{{ montant_min or '' }}"></label>
+    <label>Montant max <input type="number" step="0.01" name="montant_max" value="{{ montant_max or '' }}"></label>
+    <label>Sens
+      <select name="sens">
+        <option value="">—</option>
+        <option value="DEBIT" {% if sens=="DEBIT" %}selected{% endif %}>DEBIT</option>
+        <option value="CREDIT" {% if sens=="CREDIT" %}selected{% endif %}>CREDIT</option>
+      </select>
+    </label>
+    <label>Catégorie moteur
+      <select name="categorie">
+        <option value="">—</option>
+        {% for c in categories %}<option value="{{ c }}" {% if c==categorie %}selected{% endif %}>{{ c }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Décision humaine
+      <select name="statut_humain">
+        <option value="">—</option>
+        {% for t in types_decision %}<option value="{{ t }}" {% if t==statut_humain %}selected{% endif %}>{{ t }}</option>{% endfor %}
+        <option value="SANS_DECISION" {% if statut_humain=="SANS_DECISION" %}selected{% endif %}>SANS_DECISION</option>
+      </select>
+    </label>
+    <label><input type="checkbox" name="sans_decision" value="true" {% if sans_decision %}checked{% endif %}> Uniquement sans décision</label>
+  </div>
+  <button type="submit" class="btn btn-secondary mt-sm">Filtrer</button>
+</form>
+
+<div class="table-meta">{{ total }} mouvement{% if total != 1 %}s{% endif %} à classer</div>
+
+{% if lignes %}
+<div class="table-wrapper">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>ID</th><th>Date</th><th class="num">Montant</th><th>Sens</th><th>Compte</th>
+        <th>Catégorie moteur</th><th>Risque</th><th>Statut humain</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for l in lignes %}
+      <tr>
+        <td><span class="code-id">{{ l.id_opaque }}</span></td>
+        <td>{{ l.date_operation }}</td>
+        <td class="num">{{ "%.2f"|format(l.montant) }} €</td>
+        <td>{{ l.sens }}</td>
+        <td class="font-mono text-xs">{{ l.compte_masque }}</td>
+        <td>{{ l.categorie_libelle or "NON_CLASSE" }}</td>
+        <td>{{ l.niveau_risque }}</td>
+        <td><span class="badge badge-neutral">{{ l.statut_humain }}</span></td>
+        <td><a href="/banques-caisse/a-classer/{{ l.id_opaque }}" class="btn btn-secondary btn-sm">Voir</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if total > page_size %}
+<div class="pagination mt-sm">
+  {% if page > 1 %}<a class="btn btn-ghost btn-sm" href="?page={{ page - 1 }}">← Précédent</a>{% endif %}
+  <span class="section-note">Page {{ page }} / {{ ((total - 1) // page_size) + 1 }}</span>
+  {% if page * page_size < total %}<a class="btn btn-ghost btn-sm" href="?page={{ page + 1 }}">Suivant →</a>{% endif %}
+</div>
+{% endif %}
+{% else %}
+<div class="empty-state"><p>Aucun mouvement à classer.</p></div>
+{% endif %}
+{% endblock %}

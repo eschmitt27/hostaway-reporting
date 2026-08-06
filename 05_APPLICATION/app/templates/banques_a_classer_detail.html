@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Mouvement à classer{% endblock %}
+
+{% block content %}
+{% if mouvement is none %}
+<div class="page-header"><h1 class="page-title">Mouvement introuvable</h1></div>
+<div class="alert alert-error">Ce mouvement n'existe pas ou n'est pas dans la file à classer.</div>
+{% else %}
+<div class="page-header">
+  <a href="/banques-caisse/a-classer" class="back-link">← File à classer</a>
+  <h1 class="page-title">{{ mouvement.id_opaque }}</h1>
+</div>
+
+{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+
+<div class="alert alert-info">
+  Aucune IA externe n'est jamais consultée. Cette fiche affiche uniquement des données déjà
+  présentes dans le moteur de classification déterministe.
+</div>
+
+<div class="card mb-md">
+  <div class="detail-grid">
+    <div><strong>Date</strong><br>{{ mouvement.date_operation }}</div>
+    <div><strong>Montant</strong><br>{{ "%.2f"|format(mouvement.montant) }} €</div>
+    <div><strong>Sens</strong><br>{{ mouvement.sens }}</div>
+    <div><strong>Compte</strong><br><span class="font-mono text-xs">{{ mouvement.compte_masque }}</span></div>
+    <div><strong>Catégorie moteur actuelle</strong><br>{{ mouvement.categorie_libelle or "NON_CLASSE" }}</div>
+    <div><strong>Règle moteur</strong><br>{{ mouvement.regle_id_appliquee or "—" }}</div>
+    <div><strong>Niveau de risque</strong><br>{{ mouvement.niveau_risque }}</div>
+    <div><strong>Statut humain</strong><br><span class="badge badge-neutral">{{ mouvement.statut_humain }}</span></div>
+  </div>
+  <p class="section-note mt-sm">
+    Libellé bancaire brut jamais affiché ici — uniquement le libellé nettoyé et masqué.
+  </p>
+</div>
+
+<div class="card">
+  <h2 class="card-title">Décision</h2>
+  <form method="post" action="/banques-caisse/a-classer/{{ mouvement.id_opaque }}/previsualiser">
+    <div class="detail-grid">
+      <label>Type de décision *
+        <select name="type_decision" required>
+          <option value="">—</option>
+          {% for t in types_decision %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Catégorie (si CATEGORISER)
+        <select name="nouvelle_categorie">
+          <option value="">—</option>
+          {% for c in categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Justification <input type="text" name="justification"></label>
+      <label>Anomalie moteur (optionnel) <input type="text" name="anomalie_moteur"></label>
+      <label>Future règle (optionnel) <input type="text" name="future_regle"></label>
+    </div>
+    <button type="submit" class="btn btn-primary mt-sm">Prévisualiser la décision</button>
+  </form>
+</div>
+
+<a href="/banques-caisse/a-classer/{{ mouvement.id_opaque }}/historique" class="btn btn-ghost mt-sm">
+  Voir l'historique
+</a>
+{% endif %}
+{% endblock %}

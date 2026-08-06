@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Historique de classement{% endblock %}
+
+{% block content %}
+{% if mouvement is none %}
+<div class="page-header"><h1 class="page-title">Mouvement introuvable</h1></div>
+<div class="alert alert-error">Ce mouvement n'existe pas ou n'est pas dans la file à classer.</div>
+{% else %}
+<div class="page-header">
+  <a href="/banques-caisse/a-classer/{{ mouvement.id_opaque }}" class="back-link">← {{ mouvement.id_opaque }}</a>
+  <h1 class="page-title">Historique — {{ mouvement.id_opaque }}</h1>
+</div>
+
+{% if historique %}
+<div class="table-wrapper">
+  <table class="data-table">
+    <thead><tr><th>Date</th><th>Décision</th><th>Ancienne catégorie</th><th>Nouvelle catégorie</th><th>Justification</th><th>Actif</th></tr></thead>
+    <tbody>
+      {% for h in historique %}
+      <tr>
+        <td>{{ h.date_decision }}</td>
+        <td>{{ h.type_decision }}</td>
+        <td>{{ h.ancienne_categorie or "—" }}</td>
+        <td>{{ h.nouvelle_categorie or "—" }}</td>
+        <td>{{ h.justification or "—" }}</td>
+        <td>{% if h.actif %}<span class="badge badge-success">Active</span>{% else %}<span class="badge badge-neutral">Remplacée</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty-state"><p>Aucune décision enregistrée.</p></div>
+{% endif %}
+{% endif %}
+{% endblock %}

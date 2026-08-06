@@ -19,6 +19,7 @@ from app.services import banques_rapprochement_service as rappro
 from app.services import banques_suggestions_service as sugg
 from app.services import banques_candidats_service as candidats
 from app.services import banques_controles_catalogue_service as catalogue
+from app.services import banques_classement_service as classement
 from app.readers.banques_reader import date_affichage, datetime_affichage
 
 router = APIRouter()
@@ -489,4 +490,91 @@ def banque_controles(request: Request, severite: str = ""):
         "active_menu": "banques", "data": data, "anomalies": anomalies,
         "applied": {"severite": severite},
         "severites": [catalogue.BLOQUANT, catalogue.CRITIQUE, catalogue.AVERTISSEMENT, catalogue.INFO],
+    })
+
+
+# ── File humaine de classement (mouvements A_ENVOYER_IA) — aucune IA externe ─
+
+@router.get("/banques-caisse/a-classer", response_class=HTMLResponse)
+def banque_a_classer_liste(
+    request: Request, periode: str = "", montant_min: float | None = None,
+    montant_max: float | None = None, sens: str = "", categorie: str = "",
+    statut_humain: str = "", sans_decision: bool = False, page: int = 1,
+):
+    lignes = classement.lister(
+        periode=periode, montant_min=montant_min, montant_max=montant_max, sens=sens,
+        categorie=categorie, statut_humain=statut_humain, uniquement_sans_decision=sans_decision)
+    page = max(1, page)
+    taille = 20
+    total = len(lignes)
+    page_lignes = lignes[(page - 1) * taille: page * taille]
+    return templates.TemplateResponse(request, "banques_a_classer_list.html", {
+        "active_menu": "banques", "lignes": page_lignes, "total": total, "page": page,
+        "page_size": taille, "periode": periode, "montant_min": montant_min,
+        "montant_max": montant_max, "sens": sens, "categorie": categorie,
+        "statut_humain": statut_humain, "sans_decision": sans_decision,
+        "categories": classement.categories_disponibles(), "types_decision": classement.TYPES_DECISION,
+    })
+
+
+@router.get("/banques-caisse/a-classer/{id_opaque}", response_class=HTMLResponse)
+def banque_a_classer_detail(request: Request, id_opaque: str, erreur: str = ""):
+    d = classement.charger(id_opaque)
+    if d is None:
+        return templates.TemplateResponse(request, "banques_a_classer_detail.html", {
+            "active_menu": "banques", "mouvement": None,
+        }, status_code=404)
+    return templates.TemplateResponse(request, "banques_a_classer_detail.html", {
+        "active_menu": "banques", "mouvement": d, "erreur": erreur,
+        "categories": classement.categories_disponibles(), "types_decision": classement.TYPES_DECISION,
+    })
+
+
+@router.post("/banques-caisse/a-classer/{id_opaque}/previsualiser", response_class=HTMLResponse)
+async def banque_a_classer_previsualiser(request: Request, id_opaque: str):
+    form = await request.form()
+    champs = {
+        "type_decision": str(form.get("type_decision", "") or ""),
+        "nouvelle_categorie": str(form.get("nouvelle_categorie", "") or ""),
+        "justification": str(form.get("justification", "") or ""),
+        "anomalie_moteur": str(form.get("anomalie_moteur", "") or ""),
+        "future_regle": str(form.get("future_regle", "") or ""),
+    }
+    res = classement.previsualiser(id_opaque, champs["type_decision"],
+                                   nouvelle_categorie=champs["nouvelle_categorie"],
+                                   justification=champs["justification"],
+                                   anomalie_moteur=champs["anomalie_moteur"],
+                                   future_regle=champs["future_regle"])
+    if not res["ok"]:
+        return RedirectResponse(
+            url=f"/banques-caisse/a-classer/{id_opaque}?erreur={res['message']}", status_code=303)
+    return templates.TemplateResponse(request, "banques_a_classer_previsualisation.html", {
+        "active_menu": "banques", "id_opaque": id_opaque, "apercu": res["apercu"], "champs": champs,
+    })
+
+
+@router.post("/banques-caisse/a-classer/{id_opaque}/decision")
+async def banque_a_classer_decision(request: Request, id_opaque: str):
+    form = await request.form()
+    res = classement.decider(
+        id_opaque, str(form.get("type_decision", "") or ""),
+        nouvelle_categorie=str(form.get("nouvelle_categorie", "") or ""),
+        justification=str(form.get("justification", "") or ""),
+        anomalie_moteur=str(form.get("anomalie_moteur", "") or ""),
+        future_regle=str(form.get("future_regle", "") or ""), acteur="local")
+    if not res["ok"]:
+        return RedirectResponse(
+            url=f"/banques-caisse/a-classer/{id_opaque}?erreur={res['message']}", status_code=303)
+    return RedirectResponse(url=f"/banques-caisse/a-classer/{id_opaque}", status_code=303)
+
+
+@router.get("/banques-caisse/a-classer/{id_opaque}/historique", response_class=HTMLResponse)
+def banque_a_classer_historique(request: Request, id_opaque: str):
+    d = classement.charger(id_opaque)
+    if d is None:
+        return templates.TemplateResponse(request, "banques_a_classer_historique.html", {
+            "active_menu": "banques", "mouvement": None,
+        }, status_code=404)
+    return templates.TemplateResponse(request, "banques_a_classer_historique.html", {
+        "active_menu": "banques", "mouvement": d, "historique": classement.historique(id_opaque),
     })

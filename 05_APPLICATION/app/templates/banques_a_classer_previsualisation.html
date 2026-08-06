@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Prévisualisation de la décision{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/banques-caisse/a-classer/{{ id_opaque }}" class="back-link">← Revenir modifier</a>
+  <h1 class="page-title">Prévisualisation — {{ id_opaque }}</h1>
+</div>
+
+<div class="card mb-md">
+  <div class="detail-grid">
+    <div><strong>Type de décision</strong><br>{{ apercu.type_decision }}</div>
+    <div><strong>Ancienne catégorie</strong><br>{{ apercu.ancienne_categorie }}</div>
+    <div><strong>Nouvelle catégorie</strong><br>{{ apercu.nouvelle_categorie }}</div>
+    <div><strong>Justification</strong><br>{{ apercu.justification or "—" }}</div>
+  </div>
+  <ul class="mt-sm">
+    <li>Effet sur le statut : {{ apercu.effet_statut }}</li>
+    <li>Effet sur le moteur : {{ apercu.effet_moteur }}</li>
+    <li>Effet comptable : {{ apercu.effet_comptable }}</li>
+    <li>Application réelle : {{ apercu.effet_reel }}</li>
+  </ul>
+</div>
+
+<div class="card" data-testid="bloc-confirmation">
+  <form method="post" action="/banques-caisse/a-classer/{{ id_opaque }}/decision">
+    <input type="hidden" name="type_decision" value="{{ champs.type_decision }}">
+    <input type="hidden" name="nouvelle_categorie" value="{{ champs.nouvelle_categorie }}">
+    <input type="hidden" name="justification" value="{{ champs.justification }}">
+    <input type="hidden" name="anomalie_moteur" value="{{ champs.anomalie_moteur }}">
+    <input type="hidden" name="future_regle" value="{{ champs.future_regle }}">
+    <button type="submit" class="btn btn-primary mt-sm">Confirmer la décision</button>
+  </form>
+  <a href="/banques-caisse/a-classer/{{ id_opaque }}" class="btn btn-ghost mt-sm">Revenir modifier</a>
+</div>
+{% endblock %}

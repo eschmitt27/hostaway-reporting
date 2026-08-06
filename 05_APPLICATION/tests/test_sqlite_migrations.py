@@ -69,6 +69,7 @@ EXPECTED_TABLES = {
     "ecriture_ligne_ventilation",                # 0024 — ventilation analytique par ligne d'écriture
     "mouvements_tresorerie_proprietaires",              # 0025 — trésorerie propriétaires
     "mouvements_tresorerie_proprietaires_evenements",   # 0025 — historique append-only
+    "banque_classement_decisions",              # 0026 — décisions de classement A_ENVOYER_IA
 }
 
 
