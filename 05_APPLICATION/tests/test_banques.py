@@ -280,3 +280,46 @@ def test_route_a_rapprocher_et_export(client, bank_file):
 def test_sidebar_nav_present(client, bank_file):
     r = client.get("/banques-caisse")
     assert 'href="/banques-caisse"' in r.text  # lien nav actif
+
+
+# ── Statut source Airbnb absente (SOURCE_AIRBNB_DETAILLEE_ABSENTE) ───────────
+
+def test_statut_airbnb_compte_les_bloquees(bank_file):
+    st = svc.statut_source_airbnb()
+    assert st["disponible_export"] is False
+    assert st["nb_bloquees"] == 2   # MVT-001 + MVT-005 dans la fixture
+
+
+def test_statut_airbnb_visible_sur_dashboard(client, bank_file):
+    r = client.get("/banques-caisse")
+    assert "SOURCE_AIRBNB_DETAILLEE_ABSENTE" in r.text
+    assert ">2<" in r.text or "2</strong>" in r.text or "<strong>2</strong>" in r.text
+
+
+def test_statut_airbnb_donnees_minimales_affichees(client, bank_file):
+    r = client.get("/banques-caisse")
+    assert "référence Airbnb" in r.text and "montant net" in r.text
+
+
+def test_statut_airbnb_aucun_bouton_import_actif(client, bank_file):
+    r = client.get("/banques-caisse")
+    assert "Import disponible après validation d'un format réel" in r.text
+    assert 'disabled' in r.text
+
+
+def test_statut_airbnb_source_absente_ne_casse_pas(monkeypatch, tmp_path):
+    monkeypatch.setattr(cfg, "MASTER_BANQUE", tmp_path / "absent.xlsx")
+    reader.vider_cache()
+    st = svc.statut_source_airbnb()
+    assert st["nb_bloquees"] == 0 and st["source_lisible"] is False
+    reader.vider_cache()
+
+
+def test_statut_airbnb_aucune_pii(client, bank_file):
+    r = client.get("/banques-caisse")
+    assert "iban" not in r.text.lower()
+
+
+def test_statut_airbnb_aucun_chemin_absolu(client, bank_file):
+    r = client.get("/banques-caisse")
+    assert "C:\\" not in r.text

@@ -133,7 +133,8 @@ def banques_dashboard(
     )
     return templates.TemplateResponse(request, "banques_list.html", {
         "active_menu": "banques", "data": data, "nb_a_controler": ctrl.compter_a_controler(),
-        "ecriture_active": _ecriture_active(),
+        "ecriture_active": _ecriture_active(), "airbnb": svc.statut_source_airbnb(),
+        "nb_a_classer": classement.compter(),
     })
 
 

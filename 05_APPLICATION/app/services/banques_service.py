@@ -53,6 +53,31 @@ def explication(code: str) -> str:
     return EXPLICATIONS.get(str(code or "").strip(), "")
 
 
+# ── Statut de la source Airbnb détaillée (SOURCE_AIRBNB_DETAILLEE_ABSENTE) ───
+# Aucun import spéculatif : ce bloc affiche uniquement un état, jamais un bouton d'import
+# fonctionnel tant qu'aucun format réel n'a été validé (cf. 74_CONTRAT_SOURCE_AIRBNB_
+# RAPPROCHEMENT.md). Le contrat cible y est documenté (transaction_id, payout_id, reference_
+# airbnb/G-code, dates, montant_brut/frais/montant_net, devise, listing_id, reservation_id).
+
+DONNEES_MINIMALES_AIRBNB = (
+    "identifiant transaction ou payout", "référence Airbnb (G-code)", "date du versement",
+    "montant net", "frais", "devise", "réservation associée (lorsque disponible)",
+)
+
+
+def statut_source_airbnb() -> dict[str, Any]:
+    """Compte les propositions Airbnb réellement bloquées par l'absence d'export détaillé —
+    jamais un chiffre fabriqué : lu directement sur RAPPROCH_AIRBNB_ATTENTE."""
+    src = reader.rappro_airbnb()
+    if not src.etat.disponible:
+        return {"disponible_export": False, "nb_bloquees": 0, "source_lisible": False,
+                "donnees_minimales": DONNEES_MINIMALES_AIRBNB, "date_audit": _now()}
+    nb = sum(1 for r in src.lignes
+            if to_texte(r.get("statut_rapprochement")) == "EN_ATTENTE_EXPORT_AIRBNB")
+    return {"disponible_export": False, "nb_bloquees": nb, "source_lisible": True,
+            "donnees_minimales": DONNEES_MINIMALES_AIRBNB, "date_audit": _now()}
+
+
 # ── Index des attentes de rapprochement (par mouvement_id) ───────────────────
 
 def _index_rappro() -> dict[str, dict[str, Any]]:
