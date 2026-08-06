@@ -54,6 +54,50 @@ def _suggestions(id_opaque: str) -> list[dict]:
         return []      # une source de candidats indisponible ne casse jamais la page
 
 
+def _groupes(id_opaque: str) -> dict:
+    """Propositions de rapprochement groupé (≥2 objets) — jamais une confirmation automatique,
+    jamais un second moteur : délègue entièrement à banques_rapprochement_service.
+
+    La recherche est faite SÉPARÉMENT par type d'objet (une réservation et un reversement
+    propriétaire n'ont jamais vocation à être groupés ensemble) — sinon un pool hétérogène de
+    candidats (ex. des centaines de réservations proches en date) épuise la limite d'itérations
+    bornée avant même d'atteindre les objets réellement pertinents pour ce mouvement."""
+    mvt = _mouvement_pour_suggestions(id_opaque)
+    if mvt is None:
+        return {"groupes": [], "ambigu": False, "limite_atteinte": False}
+    try:
+        tous_candidats = candidats.candidats_pour(mvt)
+    except Exception:
+        return {"groupes": [], "ambigu": False, "limite_atteinte": False}
+
+    import json as _json
+    from collections import defaultdict
+    par_type: dict[str, list] = defaultdict(list)
+    for c in tous_candidats:
+        par_type[c["type_objet"]].append(c)
+
+    groupes: list[dict] = []
+    ambigu = False
+    limite_atteinte = False
+    for type_objet, sous_liste in par_type.items():
+        if len(sous_liste) < 2:
+            continue
+        try:
+            res = rappro.proposer_groupes(mvt, sous_liste)
+        except Exception:
+            continue
+        ambigu = ambigu or res["ambigu"]
+        limite_atteinte = limite_atteinte or res["limite_atteinte"]
+        for g in res["groupes"]:
+            if g["nb_objets"] < 2:
+                continue
+            g["affectations_json"] = _json.dumps([
+                {"type_objet": o["type_objet"], "objet_id": o["objet_id"],
+                 "montant_affecte": o["montant_affecte"]} for o in g["objets"]])
+            groupes.append(g)
+    return {"groupes": groupes, "ambigu": ambigu, "limite_atteinte": limite_atteinte}
+
+
 def _form_to_decision(form) -> dict:
     """Extrait les champs de décision d'un formulaire (valeurs vides -> None)."""
     def g(k):
@@ -220,12 +264,15 @@ def banque_detail(request: Request, stable_id: str, message: str = "", erreur: s
             contexte_metier = pont_factures.contexte_metier_du_mouvement(stable_id)
         except Exception:
             contexte_metier = []
+        groupes_ctx = _groupes(stable_id)
         return templates.TemplateResponse(request, "banques_mouvement.html", {
             "active_menu": "banques", "fiche": fiche, "liens_rapprochement": liens,
             "etat_rapprochement": etat, "types_objet": rappro.TYPES_OBJET,
             "suggestions": _suggestions(stable_id),
             "historique_suggestions": sugg.historique_decisions(stable_id),
             "contexte_metier": contexte_metier,
+            "groupes_proposes": groupes_ctx["groupes"], "groupes_ambigu": groupes_ctx["ambigu"],
+            "groupes_limite_atteinte": groupes_ctx["limite_atteinte"],
             "ecriture_active": _ecriture_active(), "message": message, "erreur": erreur,
         })
     # Sinon : ancienne fiche APP-4A (lecture seule) — non utilisée dans la nouvelle interface.
@@ -327,6 +374,31 @@ async def banque_mouvement_rapprocher(request: Request, id_opaque: str):
                                 status_code=303)
     return RedirectResponse(url=f"/banques-caisse/mouvements/{id_opaque}?message=Rapprochement proposé.",
                             status_code=303)
+
+
+@router.post("/banques-caisse/mouvements/{id_opaque}/groupes/confirmer")
+async def banque_groupe_confirmer(request: Request, id_opaque: str):
+    """Confirme UN groupe proposé par `proposer_groupes` — jamais automatique, jamais un
+    sur-règlement (revalidé côté service), jamais une consommation double."""
+    import json as _json
+    form = await request.form()
+    fiche = ctrl.load_fiche(id_opaque)
+    if fiche is None:
+        return RedirectResponse(url=f"/banques-caisse/mouvements/{id_opaque}?erreur=Mouvement introuvable.",
+                                status_code=303)
+    try:
+        affectations = _json.loads(str(form.get("affectations", "") or "[]"))
+    except (ValueError, TypeError):
+        return RedirectResponse(
+            url=f"/banques-caisse/mouvements/{id_opaque}?erreur=Groupe invalide.", status_code=303)
+    res = rappro.confirmer_groupe(id_opaque, fiche["montant"], affectations, statut=rappro.ST_PROPOSE,
+                                  source="MANUEL", acteur=str(form.get("acteur", "") or "local"))
+    if not res.get("ok"):
+        return RedirectResponse(url=f"/banques-caisse/mouvements/{id_opaque}?erreur={res.get('message')}",
+                                status_code=303)
+    return RedirectResponse(
+        url=f"/banques-caisse/mouvements/{id_opaque}?message=Groupe proposé ({res['nb_objets']} objets) — à confirmer individuellement.",
+        status_code=303)
 
 
 @router.post("/banques-caisse/rapprochements/{opaque}/confirmer")

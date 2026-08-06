@@ -203,6 +203,47 @@
   </div>
   {% endif %}
 
+  {% if groupes_proposes %}
+  <div class="mb-md" data-testid="groupes-proposes">
+    <h3 class="card-title">Rapprochements groupés proposés ({{ groupes_proposes|length }})</h3>
+    <p class="section-note">
+      Un mouvement peut couvrir plusieurs objets métier. Chaque groupe reste au statut
+      <strong>{{ "A_CONTROLER" if groupes_ambigu else "PROPOSE" }}</strong>{% if groupes_ambigu %}
+      — plusieurs combinaisons équivalentes existent, contrôle individuel obligatoire, aucune
+      confirmation en masse{% endif %} ; confirmer un groupe crée un lien par objet, chacun à
+      confirmer ensuite individuellement ci-dessus.
+    </p>
+    {% if groupes_limite_atteinte %}
+    <div class="alert alert-warning">
+      Limite de recherche atteinte — résultat potentiellement incomplet (bornes de sécurité,
+      jamais une recherche exhaustive sur toute la base).
+    </div>
+    {% endif %}
+    {% for g in groupes_proposes %}
+    <div class="card mb-sm">
+      <p><strong>Groupe de {{ g.nb_objets }} objets</strong> — somme {{ "%.2f"|format(g.somme) }} €
+        (écart {{ "%.2f"|format(g.ecart) }} €) —
+        <span class="status-badge status-{{ 'a-controler' if groupes_ambigu else 'valide' }}">{{ g.statut_propose }}</span></p>
+      <table class="data-table">
+        <thead><tr><th>Type</th><th>Objet</th><th class="num">Montant affecté</th><th>Date</th></tr></thead>
+        <tbody>
+          {% for o in g.objets %}
+          <tr><td>{{ o.type_objet }}</td><td class="font-mono text-xs">{{ o.objet_id }}</td>
+              <td class="num">{{ "%.2f"|format(o.montant_affecte) }}</td><td>{{ o.date or "—" }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <form method="post" action="/banques-caisse/mouvements/{{ fiche.id_opaque }}/groupes/confirmer">
+        <input type="hidden" name="affectations" value="{{ g.affectations_json }}">
+        <button type="submit" class="btn btn-primary" {% if not ecriture_active %}disabled{% endif %}>
+          Proposer ce groupe
+        </button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   {% if historique_suggestions %}
   <details class="mb-md">
     <summary class="text-xs text-secondary">Historique des suggestions ({{ historique_suggestions|length }})</summary>
