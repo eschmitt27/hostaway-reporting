@@ -1024,7 +1024,18 @@ périmètre** de ce chantier et ne sont ni mis à jour ni remplacés par les doc
 un oubli, une décision de scope assumée pour ne pas dupliquer/écraser une documentation dont la
 structure n'est pas celle de ce chantier.
 
+## Validation finale Banque/Trésorerie (2026-08-07)
+
+Mission de validation dédiée : recette navigateur complète, pipeline Lot8a→Lot13 exécuté deux fois
+sur copies (idempotence prouvée), rollback exercé, campagne complète (2500 tests, 0 échec nouveau,
+1 échec pré-existant reproduit et confirmé antérieur), intégrité avant/après vérifiée (85/88
+identiques, 3 écarts tous ATTENDUS). Aucun bug applicatif trouvé — aucune correction de code
+nécessaire. Détail complet : `76_VALIDATION_FINALE_BANQUE_TRESORERIE.md`. Verdict séparé : Bloc
+Banque/Trésorerie **VALIDÉ SUR COPIES** ; Airbnb et Mode réel **NO GO** (inchangés).
+
 ## État de reprise
 
-Worktree propre, suite complète verte (hors flake pré-existant), quatre modules documentés. La
-prochaine session peut démarrer directement sur le Bloc 1 ci-dessus.
+Worktree propre, suite complète verte (hors flake pré-existant), quatre modules documentés, bloc
+Banque/Trésorerie validé sur copies. La prochaine session peut démarrer directement sur le Bloc 1
+ci-dessus, ou sur l'obtention de la validation humaine (`72_CHECKLIST_GO_NO_GO_MODE_REEL.md`) et/ou
+d'un export Airbnb détaillé exploitable.

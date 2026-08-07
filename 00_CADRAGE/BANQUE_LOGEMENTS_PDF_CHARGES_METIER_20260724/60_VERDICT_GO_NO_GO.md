@@ -1,5 +1,15 @@
 # 60 — Verdict GO / NO GO (recette globale sur copies, 2026-08-01, mis à jour le 2026-08-02)
 
+> **Suite 6 (2026-08-07)** : validation finale ciblée du bloc Banque/Trésorerie — recette
+> navigateur complète (trésorerie, exact/partiel/groupé/ambigu/partiel-puis-groupé, file
+> A_ENVOYER_IA, statut Airbnb), pipeline Lot8a→Lot13 exécuté deux fois à l'identique (idempotence
+> prouvée), rollback exercé, campagne complète (2500 tests, 0 échec nouveau, 1 échec pré-existant
+> reproduit et confirmé antérieur), intégrité avant/après vérifiée (85/88 identiques, 3 écarts tous
+> classés ATTENDU). Détail complet : `76_VALIDATION_FINALE_BANQUE_TRESORERIE.md`.
+> **Verdict séparé : Bloc Banque/Trésorerie VALIDÉ SUR COPIES ; Airbnb NO GO (source absente) ;
+> Mode réel NO GO (validation humaine toujours non rendue).** Verdict global inchangé, ce tour ne
+> le remplace pas — il le confirme sur le périmètre Banque/Trésorerie.
+
 > Re-vérifié le 2026-08-02 (suite 1) : une mission a annoncé un relevé Crédit Mutuel « nouvellement
 > fourni » — vérifié absent en pratique. Verdict inchangé à cette étape.
 >

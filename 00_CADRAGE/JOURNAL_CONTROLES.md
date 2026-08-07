@@ -2881,3 +2881,31 @@ confirmation de rapprochement, aucun arbitrage metier decide, aucun flag de mode
 cette mission.
 REFERENCE : 60_VERDICT_GO_NO_GO.md (mis a jour, suite 5), 66 a 72, HANDOFF_CANONIQUE.md,
 48_ROADMAP_RESTANTE_PROJET.md (mis a jour)
+
+---
+
+## Validation finale Banque/Tresorerie (2026-08-07)
+
+Mission dediee : recette navigateur complete (tresorerie proprietaires, rapprochements exact/
+partiel/groupe/ambigu/partiel-puis-groupe, file A_ENVOYER_IA, statut Airbnb), pipeline Lot8a a
+Lot13 execute deux fois integralement sur copies (idempotence prouvee, chiffres identiques au
+chiffre pres entre les deux passages), rollback exerce (sauvegardes horodatees restaurees et
+verifiees), campagne complete rejouee : 2500 tests collectes, 0 echec nouveau, 1 echec deja
+documente comme anterieur (test_07_diagnostic_local_avec_flag_explicite, chemin pytest local
+contenant le nom d'utilisateur).
+
+Controle d'integrite avant/apres : 85/88 fichiers reels identiques au hash baseline ; 3 ecarts, tous
+ATTENDUS (deux fichiers de code lot8a/lot8c correspondant exactement au commit HEAD courant, deja
+landes via des commits anterieurs a cette mission ; app.db reelle, gitignoree, usage normal de
+l'application via le port 8000 preexistant, jamais touchee par les environnements isoles de cette
+mission). git status vide en permanence sur le worktree. Port 8000/PID 21136 intact. Mode reel
+jamais active.
+
+Incident autocorrige : un lancement de lot8a a ecrit par erreur dans le worktree reel (flag
+--project-root suppose a tort supporte partout) ; detecte immediatement, fichier gitignore
+supprime, git status verifie vide, relance correcte. Documente : ANO-2026-08-... (JOURNAL_
+ANOMALIES.md, "LOT8A CIBLE PAR ERREUR SUR LE WORKTREE REEL").
+
+VERDICT (separe) : Bloc Banque/Tresorerie VALIDE SUR COPIES. Airbnb : NO GO (source absente).
+Mode reel : NO GO (validation humaine toujours non rendue).
+REFERENCE : 76_VALIDATION_FINALE_BANQUE_TRESORERIE.md, 60_VERDICT_GO_NO_GO.md (suite 6).

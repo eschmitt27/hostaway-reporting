@@ -815,3 +815,28 @@ modifiee) : plus aucun nom reel dans les 56 lignes de l'onglet concerne.
 
 STATUT : CORRIGE. Detail complet : `74_CONTRAT_SOURCE_AIRBNB_RAPPROCHEMENT.md` (mission trésorerie
 propriétaires du 2026-08-03).
+
+
+## LOT8A CIBLE PAR ERREUR SUR LE WORKTREE REEL — CORRIGEE (2026-08-07)
+
+Constat pendant l'execution du pipeline Lot8a->Lot13 sur copies (mission de validation finale
+Banque/Tresorerie) : `lot8a_banque_import.py` a ete invoque avec `--project-root` en supposant ce
+flag supporte par tous les scripts lot8, comme lot8c. Le script l'a silencieusement ignore (il ne
+supporte que les variables d'environnement `LOT8A_BRUT_FILE_OVERRIDE`/`LOT8A_OUT_FILE_OVERRIDE`,
+pas d'argparse) et a ecrit dans le worktree reel :
+`02_TRAVAIL/Lot8_Banque/BANQUE_LOT8_IMPORT.xlsx` (fichier gitignore, jamais suivi par git).
+
+Detection immediate via le chemin "Sortie" imprime par le script lui-meme. Impact verifie par
+lecture directe du code : `01_SOURCES_BRUTES` n'est jamais ecrit par ce script (lecture seule).
+Aucune sauvegarde automatique n'a ete creee dans `99_ARCHIVES` avec la date du jour, preuve que le
+fichier n'existait pas avant cette ecriture (premiere creation, pas d'ecrasement d'un etat
+anterieur a restaurer).
+
+Correction : fichier cree supprime immediatement (`rm`), `git status --short` verifie vide.
+Relance correcte avec les variables d'environnement adequates, pointant vers l'environnement de
+copies. Lecon retenue et appliquee pour la suite du pipeline (lot8b/lot9/lot10/lot12/lot13 :
+mecanisme de redirection de chaque script verifie par lecture du code AVANT tout lancement, technique
+de copie temporaire du script utilisee la ou aucune redirection n'existe).
+
+STATUT : CORRIGE, aucune donnee reelle perdue ni modifiee. Detail complet :
+`76_VALIDATION_FINALE_BANQUE_TRESORERIE.md`.
