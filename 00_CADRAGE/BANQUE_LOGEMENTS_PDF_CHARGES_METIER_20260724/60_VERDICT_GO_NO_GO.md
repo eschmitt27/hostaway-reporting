@@ -1,5 +1,14 @@
 # 60 — Verdict GO / NO GO (recette globale sur copies, 2026-08-01, mis à jour le 2026-08-02)
 
+> **Suite 9 (2026-08-08)** : recette fonctionnelle globale exécutée sur copies (port isolé 8030,
+> `RECETTE_MODE=1`, port 8000/PID 21136 jamais touché). 18/18 modules techniquement fonctionnels
+> (smoke HTTP réel), parcours navigateur approfondi sur Réservations hors Hostaway (résolution
+> propriétaire/taux/ménage confirmée en direct). **Aucun bug trouvé, aucun code modifié.** TVA :
+> utilisateur confirme qu'aucune TVA n'est applicable actuellement. Détail : `RECETTE_
+> FONCTIONNELLE_GLOBALE.md`.
+> **VERDICT TECHNIQUE : PRÊT POUR VALIDATION HUMAINE GLOBALE** (fiche vierge livrée, à remplir par
+> l'utilisateur module par module) — ceci n'est PAS une activation du mode réel.
+
 > **Suite 8 (2026-08-08)** : cadrage comptable fermé sans invention de compte. Matrice exhaustive
 > (`70_MATRICE_ARBITRAGES_COMPTABLES.md`) : 7 comptes existent dans le plan comptable applicatif,
 > aucune règle `mapping_comptable_regles` `VALIDE` seedée au-delà du filet générique `606000`.

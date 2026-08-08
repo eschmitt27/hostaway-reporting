@@ -1,5 +1,11 @@
 # ETAT_AVANCEMENT.md
 > Fichier de mémoire inter-sessions. À lire en PREMIER à chaque reprise. À mettre à jour en FIN de session.
+>
+> Ce document reste hors périmètre structurel du chantier `BANQUE_LOGEMENTS_PDF_CHARGES_METIER_
+> 20260724` (décision de scope, cf. `HANDOFF_CANONIQUE.md`). Pointeur seulement, pas de duplication
+> de contenu : recette fonctionnelle globale du 2026-08-08 (18 modules, aucun bug, PRÊT POUR
+> VALIDATION HUMAINE GLOBALE) → `00_CADRAGE/BANQUE_LOGEMENTS_PDF_CHARGES_METIER_20260724/
+> RECETTE_FONCTIONNELLE_GLOBALE.md`.
 
 ---
 

@@ -7,6 +7,13 @@
 > filet générique `606000`. Checklist de préparation à la recette fonctionnelle globale (16
 > modules, aucun `BLOQUANT`) dans `HANDOFF_CANONIQUE.md`. Prochaine étape : réponses utilisateur
 > sur les comptes définitifs, puis validation humaine module par module.
+>
+> **Suite (2026-08-08)** : recette fonctionnelle globale exécutée sur copies (`RECETTE_
+> FONCTIONNELLE_GLOBALE.md`) — 18/18 modules répondent techniquement (smoke HTTP réel), parcours
+> navigateur approfondi sur Réservations hors Hostaway (seul point signalé à risque), aucun bug
+> trouvé, aucun code modifié. TVA : utilisateur confirme aucune TVA applicable actuellement.
+> **Verdict technique : PRÊT POUR VALIDATION HUMAINE GLOBALE** — fiche de validation vierge livrée,
+> à remplir par l'utilisateur module par module, avant toute activation de mode réel.
 
 État figé au **2026-07-31**, voir `HANDOFF_CANONIQUE.md` pour le HEAD exact (mis à jour à chaque
 commit stable). Master `8b47807`, worktree propre.

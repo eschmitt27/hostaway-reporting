@@ -2909,3 +2909,20 @@ ANOMALIES.md, "LOT8A CIBLE PAR ERREUR SUR LE WORKTREE REEL").
 VERDICT (separe) : Bloc Banque/Tresorerie VALIDE SUR COPIES. Airbnb : NO GO (source absente).
 Mode reel : NO GO (validation humaine toujours non rendue).
 REFERENCE : 76_VALIDATION_FINALE_BANQUE_TRESORERIE.md, 60_VERDICT_GO_NO_GO.md (suite 6).
+
+---
+
+## Recette fonctionnelle globale (2026-08-08)
+
+Smoke HTTP reel sur instance isolee (port 8030, copies, RECETTE_MODE=1) : 18/18 modules + 8
+sous-ecrans Comptabilite repondent 200, aucune erreur 500/404. Parcours navigateur reel approfondi
+sur Reservations hors Hostaway (seul module signale a risque par la mission) : resolution
+propriataire/taux/menage standard confirmee fonctionnelle contre donnees copiees reelles.
+**Aucun bug trouve, aucune correction necessaire, aucun code modifie.**
+
+TVA : utilisateur confirme aucune TVA applicable actuellement (reponse enregistree dans
+70_MATRICE_ARBITRAGES_COMPTABLES.md, aucune regle fiscale automatisee construite).
+
+VERDICT TECHNIQUE : PRET POUR VALIDATION HUMAINE GLOBALE (pas une activation de mode reel).
+Fiche de validation vierge livree (16 modules), a remplir exclusivement par l'utilisateur.
+REFERENCE : RECETTE_FONCTIONNELLE_GLOBALE.md.

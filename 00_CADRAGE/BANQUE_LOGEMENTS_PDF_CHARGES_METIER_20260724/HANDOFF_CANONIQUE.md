@@ -1154,6 +1154,25 @@ Aucun module `BLOQUANT`. Le point commun à tous : aucune **validation humaine**
 encore eu lieu (seule la Banque a une validation humaine partielle, groupes 1-5). C'est la
 prochaine étape naturelle du projet, pas un nouveau développement.
 
+## Recette fonctionnelle globale (2026-08-08, suite) — aucun code modifié
+
+Smoke HTTP réel sur les 18 modules (instance isolée port 8030, copies, `RECETTE_MODE=1`,
+`APP_DATA_DIR` isolé, port 8000/PID 21136 jamais touché) : **18/18 écrans principaux + 8
+sous-écrans Comptabilité répondent 200, aucun 404/500**. Parcours navigateur réel approfondi sur
+Réservations hors Hostaway (seul module explicitement signalé à corriger si non fonctionnel) :
+résolution automatique propriétaire (logement+date → PROP_0001), taux commission (18 %, source
+« taux propriétaire »), prix ménage standard (29 €, source `REF_Couts_Standards_Menage`) — tous
+confirmés fonctionnels en direct contre les données copiées. Écriture finale non poussée jusqu'au
+bout en navigateur (le formulaire ouvre une modale de confirmation JS avant le POST — non forcée,
+écriture déjà prouvée par `test_reservations_hh.py`, vert cette session). **Aucun bug trouvé,
+aucune correction nécessaire.** TVA : l'utilisateur confirme qu'aucune TVA n'est applicable
+actuellement — information enregistrée dans `70_MATRICE_ARBITRAGES_COMPTABLES.md`, aucune règle
+fiscale automatisée construite. Détail complet, fiche de validation vierge, verdict par module :
+`RECETTE_FONCTIONNELLE_GLOBALE.md`.
+
+**VERDICT TECHNIQUE : PRÊT POUR VALIDATION HUMAINE GLOBALE** (pas une activation de mode réel —
+la fiche de validation attend les réponses de l'utilisateur, module par module).
+
 ## État de reprise
 
 Worktree propre, suite complète verte (hors flake pré-existant), bloc Banque/Trésorerie validé sur
