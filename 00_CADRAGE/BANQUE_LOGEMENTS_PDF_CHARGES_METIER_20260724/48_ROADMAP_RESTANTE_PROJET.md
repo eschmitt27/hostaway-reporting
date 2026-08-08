@@ -1,5 +1,13 @@
 # 48 — Roadmap restante du projet
 
+> **Mise à jour 2026-08-08** : cadrage comptable fermé sans invention de compte —
+> `70_MATRICE_ARBITRAGES_COMPTABLES.md` reconstruite exhaustivement (27 catégories charges, 17
+> catégories bancaires, trésorerie propriétaires, IK, dépenses personnelles, gestes commerciaux).
+> 7 comptes existent au total dans le plan comptable, aucune règle `VALIDE` seedée au-delà du
+> filet générique `606000`. Checklist de préparation à la recette fonctionnelle globale (16
+> modules, aucun `BLOQUANT`) dans `HANDOFF_CANONIQUE.md`. Prochaine étape : réponses utilisateur
+> sur les comptes définitifs, puis validation humaine module par module.
+
 État figé au **2026-07-31**, voir `HANDOFF_CANONIQUE.md` pour le HEAD exact (mis à jour à chaque
 commit stable). Master `8b47807`, worktree propre.
 Suite complète : voir dernier total constaté dans `HANDOFF_CANONIQUE.md` (2 échecs pré-existants

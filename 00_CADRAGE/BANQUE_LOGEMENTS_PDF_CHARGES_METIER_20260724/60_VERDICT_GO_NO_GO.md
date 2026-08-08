@@ -1,5 +1,15 @@
 # 60 — Verdict GO / NO GO (recette globale sur copies, 2026-08-01, mis à jour le 2026-08-02)
 
+> **Suite 8 (2026-08-08)** : cadrage comptable fermé sans invention de compte. Matrice exhaustive
+> (`70_MATRICE_ARBITRAGES_COMPTABLES.md`) : 7 comptes existent dans le plan comptable applicatif,
+> aucune règle `mapping_comptable_regles` `VALIDE` seedée au-delà du filet générique `606000`.
+> Aucun numéro de compte choisi par cette mission (dont deux candidats identifiés dans les
+> commentaires de schéma : `467000` pour associés, `411000` pour propriétaires — jamais arbitrés
+> comme définitifs). **Le cœur Comptabilité est techniquement fonctionnel. Les comptes/mappings
+> non validés restent PROVISOIRES/A_ARBITRER et ne doivent pas empêcher la recette fonctionnelle
+> des autres modules.** Checklist de préparation recette globale (16 modules, 0 BLOQUANT) dans
+> `HANDOFF_CANONIQUE.md`.
+
 > **Suite 7 (2026-08-08)** : correction de cadrage métier — un virement plateforme reçu n'est
 > JAMAIS rapproché d'une réservation individuelle (règle métier définitive). Fausse logique
 > supprimée : `banques_candidats_service._reservations()` générait des candidats RESERVATION pour

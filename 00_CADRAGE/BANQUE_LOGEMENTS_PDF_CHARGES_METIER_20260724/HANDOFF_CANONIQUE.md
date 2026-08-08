@@ -1110,12 +1110,55 @@ n'est pas documenté (règle absolue « ne rien inventer »), plutôt que de fab
 compte/nature non validé. Le cœur déjà livré reste la source de vérité ; rien n'a été rouvert côté
 Banque (règles de cadrage du tour précédent non retouchées).
 
+## Fermeture du cadrage comptable + checklist recette globale (2026-08-08, suite)
+
+`70_MATRICE_ARBITRAGES_COMPTABLES.md` reconstruite exhaustivement (27 catégories `CHG_XXX`, 17
+catégories bancaires, 7 natures trésorerie propriétaires, IK, dépenses personnelles associés,
+gestes commerciaux, refacturations, avoirs, ventes). Constat central, vérifié directement dans les
+migrations SQL : **7 comptes existent au total** dans le plan comptable applicatif (`401000`,
+`411000`, `512000`, `530000`, `467000`, `606000`, `706000`) ; aucune règle `mapping_comptable_
+regles` `VALIDE` n'est seedée pour aucune catégorie ou type de flux — seul le filet générique
+`606000` PROVISOIRE existe. Deux comptes déjà existants portent un usage documenté en commentaire
+de schéma, jamais exploité : `467000` (« avances/dépenses personnelles/remboursements » —
+associés) et `411000` (« créance/compensation » — propriétaires, trésorerie propriétaires). Aucun
+numéro de compte n'a été choisi ou inventé par cette mission — chaque écart reste `PROVISOIRE` ou
+`A_ARBITRER`, jamais transformé silencieusement en `VALIDE`. Aucun code modifié (documentation
+uniquement).
+
+**Le cœur Comptabilité est techniquement fonctionnel. Les comptes/mappings non validés restent
+PROVISOIRES/A_ARBITRER et ne doivent pas empêcher la recette fonctionnelle des autres modules.**
+
+État des modules pour préparation de la recette fonctionnelle globale (technique/tests connus par
+cette session et les précédentes, aucune recette relancée ce tour) :
+
+| Module | Technique | Tests | Recette sur copies | Validation humaine |
+|---|---|---|---|---|
+| Logements | OK | OK | Faite (`28`/`29`) | NON_TESTE |
+| Réservations | OK (lecture seule assumée) | OK | Faite (lecture) | NON_TESTE |
+| Propriétaires | A_VALIDER | OK | Ancienne, non rejouée récemment | NON_TESTE |
+| Ménages | A_VALIDER (pools de courses non alimentés) | OK | Partielle (cycle prouvé) | NON_TESTE |
+| Charges | OK (hors pools) | OK | Faite | NON_TESTE |
+| Fournisseurs | OK | OK | Faite | NON_TESTE |
+| Factures | A_VALIDER (factures propriétaires émises absentes) | OK | Faite (fournisseurs) | NON_TESTE |
+| Règlements | OK | OK | Faite | NON_TESTE |
+| Banque | OK (cadrage corrigé 2026-08-08) | OK (612+ passés) | **VALIDÉ SUR COPIES** | Partielle (groupes 1-5 décidés) |
+| Trésorerie propriétaires | OK (module) / A_ARBITRER (pont comptable) | OK | Faite | NON_TESTE |
+| Comptabilité | OK (cœur) / PROVISOIRE (mappings) | OK (142 passés) | Faite (`49`) | NON_TESTE |
+| Analytique | OK (périmètre défini) | OK | Faite | NON_TESTE |
+| Résultats | OK (périmètre défini) | OK | Faite | NON_TESTE |
+| Contrôles | A_VALIDER (contrôles inter-lots restants) | OK | Partielle | NON_TESTE |
+| Clôture | A_VALIDER (réconciliation clôture applicative ↔ clôture comptable) | OK | Faite (comptable) | NON_TESTE |
+| Exports | OK (Power BI, 13 exports + dictionnaire) | OK | Faite | NON_TESTE |
+
+Aucun module `BLOQUANT`. Le point commun à tous : aucune **validation humaine** globale n'a
+encore eu lieu (seule la Banque a une validation humaine partielle, groupes 1-5). C'est la
+prochaine étape naturelle du projet, pas un nouveau développement.
+
 ## État de reprise
 
-Worktree propre, suite complète verte (hors flake pré-existant), quatre modules documentés, bloc
-Banque/Trésorerie validé sur copies, cadrage métier virement↔réservation corrigé. La prochaine
-session peut démarrer directement sur le Bloc 1 ci-dessus, sur la classification progressive des
-83 A_ENVOYER_IA / 56 propriétaires dans l'application, ou sur l'obtention de la validation humaine
-(`72_CHECKLIST_GO_NO_GO_MODE_REEL.md`). Comptabilité auditée (2026-08-08) : cœur TERMINÉ et vert,
-arbitrages restants listés ci-dessus — attendre les décisions utilisateur avant tout nouveau code
-comptable (trésorerie propriétaires, frais bancaires, TVA, `606000`).
+Worktree propre, suite complète verte (hors flake pré-existant), bloc Banque/Trésorerie validé sur
+copies, cadrage métier virement↔réservation corrigé, cadrage comptable fermé (matrice exhaustive,
+aucun compte inventé). La prochaine session peut démarrer sur : (a) la classification progressive
+des 83 A_ENVOYER_IA / 56 propriétaires dans l'application, (b) l'obtention des réponses utilisateur
+sur `70_MATRICE_ARBITRAGES_COMPTABLES.md` (comptes définitifs), ou (c) la préparation d'une recette
+fonctionnelle globale avec validation humaine module par module (tableau ci-dessus).
