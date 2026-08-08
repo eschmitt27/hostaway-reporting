@@ -1070,10 +1070,52 @@ reprise ici) et les 56 propriétaires (identité univoque/ambiguë, objet tréso
 restent à traiter progressivement dans l'application, comme prévu. Checklist GO/NO-GO mode réel
 (`72`) toujours à signer par l'utilisateur.
 
+## Audit ciblé Comptabilité (2026-08-08) — aucun code modifié
+
+Mission « finaliser le bloc Comptabilité ». Audit confirme que le cœur Comptabilité est **déjà
+construit et testé** par des missions antérieures (`43`/`45`/`46`/`47`/`49`/`50`) : migrations
+`0021`-`0024`, 8 services (`comptabilite_ecritures_service.py` — 7 générateurs ACHATS/BANQUE/
+AVOIR/VENTES/CAISSE×2/OD —, `comptabilite_mappings_service.py`, `comptabilite_auxiliaires_service.py`,
+`comptabilite_periodes_service.py`, `comptabilite_controles_service.py`,
+`comptabilite_analytique_service.py`, `comptabilite_axes_service.py`,
+`comptabilite_reconciliations_service.py`), 32 routes, 15 templates, équilibre imposé en code,
+idempotence, périodes/clôture avec réouverture tracée, 15 contrôles (4 niveaux). Régression
+ciblée `-k comptabilite` ce tour : **142 passés / 1 ignoré / 0 échec** — aucune régression après la
+correction Banque du tour précédent (`78877da`).
+
+**Écarts confirmés, tous déjà documentés (`70_MATRICE_ARBITRAGES_COMPTABLES.md`, inchangée et
+toujours exacte)**, aucun nouveau code écrit pour ne pas inventer une règle comptable :
+- `606000` générique (achats fournisseurs) — mécanisme de résolution fonctionnel, aucune règle
+  `VALIDE` arbitrée par catégorie de charge ;
+- VENTES — adaptateur Lot12 provisoire (`SOURCE_PROVISOIRE_LOT12`), jamais recalculé ;
+- Frais bancaires (`TYPE_FLUX_016`, 24 lignes Lot9) — aucun générateur d'écriture Comptabilité
+  dédié, compte cible (ex. `627000`) non arbitré ;
+- TVA — non traitée par aucun chantier, nécessite un avis fiscal, hors périmètre technique ;
+- **Trésorerie propriétaires** (migration `0025`, natures ACOMPTE/REMBOURSEMENT/REGULARISATION/
+  COMPENSATION/AVANCE/RESTITUTION/AUTRE_A_CONTROLER) — **aucun générateur d'écriture comptable
+  n'existe** pour cet objet (absent de `comptabilite_ecritures_service.py`), et aucun compte n'est
+  documenté nulle part (`DECISIONS_METIER.md`, `ARCHITECTURE_DONNEES.md` : recherche directe, 0
+  résultat) — **A_ARBITRER**, décision utilisateur requise avant tout code ;
+- Dépenses personnelles associés / IK / gestes commerciaux (identifiés dans `73_JOURNAL_DECISIONS_
+  VALIDATION_HUMAINE.md`, groupes Banque 1-5) — classification métier faite, mapping comptable
+  explicitement laissé `A_CONTROLER` par l'utilisateur à l'époque, toujours non tranché.
+
+**Documents métier externes cités par la mission** (« Système compta et réservations.txt », « Résumé
+règles métier.txt », « Application gestion acteurs factures.txt », « Fusion de prompts.txt »)
+introuvables dans le dépôt (`find` sur tout le worktree, 0 résultat) — probablement des fichiers
+locaux à l'utilisateur, jamais versés au repo. Aucune tentative de deviner leur contenu.
+
+Décision de cette mission : ne construire aucun lien comptable pour les objets dont le traitement
+n'est pas documenté (règle absolue « ne rien inventer »), plutôt que de fabriquer un mapping
+compte/nature non validé. Le cœur déjà livré reste la source de vérité ; rien n'a été rouvert côté
+Banque (règles de cadrage du tour précédent non retouchées).
+
 ## État de reprise
 
 Worktree propre, suite complète verte (hors flake pré-existant), quatre modules documentés, bloc
 Banque/Trésorerie validé sur copies, cadrage métier virement↔réservation corrigé. La prochaine
 session peut démarrer directement sur le Bloc 1 ci-dessus, sur la classification progressive des
 83 A_ENVOYER_IA / 56 propriétaires dans l'application, ou sur l'obtention de la validation humaine
-(`72_CHECKLIST_GO_NO_GO_MODE_REEL.md`).
+(`72_CHECKLIST_GO_NO_GO_MODE_REEL.md`). Comptabilité auditée (2026-08-08) : cœur TERMINÉ et vert,
+arbitrages restants listés ci-dessus — attendre les décisions utilisateur avant tout nouveau code
+comptable (trésorerie propriétaires, frais bancaires, TVA, `606000`).
