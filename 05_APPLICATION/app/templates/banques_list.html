@@ -34,22 +34,13 @@
 </div>
 
 {% if airbnb %}
-<div class="alert alert-warning" data-testid="statut-airbnb-absent">
-  <strong>SOURCE_AIRBNB_DETAILLEE_ABSENTE</strong> — aucun export Airbnb détaillé (paiement par
-  paiement) n'est disponible. Conséquence : le rapprochement Airbnb réel ne peut pas être confirmé.
-  <strong>{{ airbnb.nb_bloquees }}</strong> proposition{% if airbnb.nb_bloquees != 1 %}s{% endif %}
-  Airbnb {% if airbnb.nb_bloquees != 1 %}restent{% else %}reste{% endif %} bloquée{% if airbnb.nb_bloquees != 1 %}s{% endif %}
-  en attente. Dernier audit : {{ airbnb.date_audit }}.
-  <details class="mt-sm">
-    <summary class="text-xs">Données minimales attendues pour lever ce blocage</summary>
-    <ul class="text-xs">
-      {% for d in airbnb.donnees_minimales %}<li>{{ d }}</li>{% endfor %}
-    </ul>
-    <p class="text-xs">Contrat documenté : <code>74_CONTRAT_SOURCE_AIRBNB_RAPPROCHEMENT.md</code>.</p>
-  </details>
-  <button type="button" class="btn btn-ghost btn-sm mt-sm" disabled title="Import disponible après validation d'un format réel">
-    Import disponible après validation d'un format réel
-  </button>
+<div class="alert alert-info" data-testid="categorisation-airbnb">
+  <strong>VERSEMENTS PLATEFORMES</strong> —
+  <strong>{{ airbnb.nb_identifiables }}</strong> versement{% if airbnb.nb_identifiables != 1 %}s{% endif %}
+  catégorisé{% if airbnb.nb_identifiables != 1 %}s{% endif %} Airbnb (PAYOUT_PLATEFORME),
+  {{ "%.2f"|format(airbnb.montant_identifiables) }} €. Ces virements ne sont jamais rapprochés
+  d'une réservation individuelle — la Banque catégorise leur origine, les réservations sont
+  gérées indépendamment (Hostaway ou saisie hors Hostaway). Dernier audit : {{ airbnb.date_audit }}.
 </div>
 {% endif %}
 

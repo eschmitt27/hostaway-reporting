@@ -96,12 +96,19 @@ def lister(*, db_path=None, periode: str = "", montant_min: float | None = None,
         return []
     decisions = _decisions_actives(db_path)
     out = []
+    vus: set[str] = set()
     for r in src.lignes:
         if to_texte(r.get("statut_classification")) != "A_ENVOYER_IA":
             continue
         mid = to_texte(r.get("mouvement_id"))
         if not mid:
             continue
+        # Doublon physique de mouvement_id (ex. ligne_source dupliquée en amont) : une seule
+        # décision économique possible par mouvement_id — jamais deux lignes de file pour le même
+        # opaque, jamais un double traitement humain. La ligne source n'est pas modifiée.
+        if mid in vus:
+            continue
+        vus.add(mid)
         opq = id_opaque(mid)
         ligne = _ligne_vue(r, opq, decisions.get(opq))
         if periode and ligne["mois"] != periode:
@@ -123,10 +130,19 @@ def lister(*, db_path=None, periode: str = "", montant_min: float | None = None,
 
 
 def compter() -> int:
+    """Compte les mouvements A_ENVOYER_IA distincts par mouvement_id — jamais un doublon physique
+    de ligne source compté deux fois (voir `lister()`)."""
     src = reader.mouvements()
     if not src.etat.disponible:
         return 0
-    return sum(1 for r in src.lignes if to_texte(r.get("statut_classification")) == "A_ENVOYER_IA")
+    vus: set[str] = set()
+    for r in src.lignes:
+        if to_texte(r.get("statut_classification")) != "A_ENVOYER_IA":
+            continue
+        mid = to_texte(r.get("mouvement_id"))
+        if mid:
+            vus.add(mid)
+    return len(vus)
 
 
 def charger(id_opaque_mvt: str, *, db_path=None) -> dict[str, Any] | None:

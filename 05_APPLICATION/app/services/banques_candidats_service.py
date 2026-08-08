@@ -1,9 +1,13 @@
 """Collecte des objets métier réellement rapprochables avec un mouvement bancaire.
 
 Aucun objet fictif n'est fabriqué ici : chaque candidat vient d'une source existante du dépôt
-(charges Lot3, propriétaires, réservations résolues...). Quand une source est absente ou illisible,
-elle est simplement ignorée — jamais remplacée par des données inventées, jamais une exception qui
-ferait échouer la page.
+(charges Lot3, trésorerie propriétaires...). Quand une source est absente ou illisible, elle est
+simplement ignorée — jamais remplacée par des données inventées, jamais une exception qui ferait
+échouer la page.
+
+RÈGLE MÉTIER (2026-08-08, définitive) : les réservations (Hostaway ou hors Hostaway) ne sont
+JAMAIS des candidats de rapprochement bancaire — un virement entrant de plateforme ne correspond
+pas de façon fiable à une réservation individuelle. Voir `candidats_pour()` ci-dessous.
 
 Ce service ne score rien : il fournit la matière à `banques_suggestions_service.evaluer()`.
 """
@@ -43,44 +47,6 @@ def _charges() -> list[dict[str, Any]]:
     return out
 
 
-def _reservations() -> list[dict[str, Any]]:
-    """Réservations résolues (Lot4quater) → candidats RESERVATION / PAYOUT_PLATEFORME."""
-    p = getattr(cfg, "MASTER_CALC_RESERVATIONS_RESOLUES", None)
-    if not p or not p.exists():
-        return []
-    try:
-        import openpyxl
-        wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
-        try:
-            ws = wb.worksheets[0]
-            rows = list(ws.iter_rows(values_only=True))
-        finally:
-            wb.close()
-    except Exception:
-        return []
-    if len(rows) <= 1:
-        return []
-    hdr = [to_texte(c) for c in rows[0]]
-    out: list[dict[str, Any]] = []
-    for r in rows[1:]:
-        d = dict(zip(hdr, r))
-        rid = to_texte(d.get("reservation_calc_id"))
-        montant = to_nombre(d.get("montant_retenu"))
-        if not rid or montant is None:
-            continue
-        out.append({
-            "type_objet": "RESERVATION",
-            "objet_id": rid,
-            "montant": abs(montant),
-            "date": to_date(d.get("date_arrivee")),
-            "reference": rid,
-            "plateforme": to_texte(d.get("canal")),
-            "proprietaire_id": to_texte(d.get("proprietaire_id")),
-            "libelle": f"Réservation {rid}",
-        })
-    return out
-
-
 def _reversements_proprietaires() -> list[dict[str, Any]]:
     """Mouvements de trésorerie propriétaires VALIDE avec un reste à rapprocher > 0 →
     candidats REVERSEMENT_PROPRIETAIRE. Ne duplique jamais le calcul de solde/reste, délègue à
@@ -111,6 +77,13 @@ def candidats_pour(mouvement: dict[str, Any]) -> list[dict[str, Any]]:
     de réservation, un crédit ne peut pas être un paiement de charge : filtrer ici évite d'exposer
     des suggestions absurdes à l'utilisateur.
 
+    RÈGLE MÉTIER (2026-08-08, définitive) : un virement entrant de plateforme (Airbnb ou autre)
+    n'est JAMAIS rapproché d'une réservation individuelle — le montant reçu en banque n'a pas de
+    correspondance fiable avec une réservation (commissions/frais agrégés, versements groupés,
+    plateformes multiples). La Banque catégorise l'origine du flux (cf. `banques_service`,
+    catégorie moteur `PAYOUT_PLATEFORME`) ; elle ne génère jamais de candidat RESERVATION. Aucun
+    générateur de ce type n'existe dans ce module — ne pas en réintroduire un.
+
     Trésorerie propriétaire : le sens du mouvement bancaire doit être cohérent avec le sens
     déclaré de l'objet (un CREDIT bancaire ne peut candidater que sur un mouvement propriétaire
     PROPRIETAIRE_VERS_SOCIETE ; un DEBIT bancaire, que sur SOCIETE_VERS_PROPRIETAIRE) — jamais
@@ -118,15 +91,14 @@ def candidats_pour(mouvement: dict[str, Any]) -> list[dict[str, Any]]:
     sens = to_texte(mouvement.get("sens")).upper()
     tresorerie = _reversements_proprietaires()
     if sens == "CREDIT":
-        return _reservations() + [c for c in tresorerie
-                                  if c["sens_objet"] == "PROPRIETAIRE_VERS_SOCIETE"]
+        return [c for c in tresorerie if c["sens_objet"] == "PROPRIETAIRE_VERS_SOCIETE"]
     if sens == "DEBIT":
         return _charges() + [c for c in tresorerie
                              if c["sens_objet"] == "SOCIETE_VERS_PROPRIETAIRE"]
-    return _charges() + _reservations() + tresorerie
+    return _charges() + tresorerie
 
 
 def compter_sources() -> dict[str, int]:
     """Diagnostic honnête pour l'interface : combien de candidats sont réellement disponibles."""
-    return {"charges": len(_charges()), "reservations": len(_reservations()),
+    return {"charges": len(_charges()),
             "tresorerie_proprietaires": len(_reversements_proprietaires())}

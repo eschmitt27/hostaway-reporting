@@ -1,6 +1,29 @@
 # 60 — Verdict GO / NO GO (recette globale sur copies, 2026-08-01, mis à jour le 2026-08-02)
 
+> **Suite 7 (2026-08-08)** : correction de cadrage métier — un virement plateforme reçu n'est
+> JAMAIS rapproché d'une réservation individuelle (règle métier définitive). Fausse logique
+> supprimée : `banques_candidats_service._reservations()` générait des candidats RESERVATION pour
+> tout mouvement CREDIT (Hostaway et hors Hostaway), exposés à exact/partiel/groupé — supprimé,
+> exact/partiel/groupé restent intacts pour charges et trésorerie propriétaires. UI Airbnb
+> (`SOURCE_AIRBNB_DETAILLEE_ABSENTE`, "en attente d'export pour rapprochement") remplacée par une
+> catégorisation neutre (`VERSEMENTS PLATEFORMES`, 166 mouvements PAYOUT_PLATEFORME identifiés,
+> 14 467,27 €, aucun export requis). Doublon mouvement_id (83 lignes/82 mouvements) : garantie de
+> traitement unique absente, corrigée dans `banques_classement_service` (déduplication par
+> `mouvement_id`, 4 tests). Régression ciblée verte (612+304+44+130 passés, 0 échec). Détail
+> complet : `76_VALIDATION_FINALE_BANQUE_TRESORERIE.md` (section G), `74_CONTRAT_SOURCE_AIRBNB_
+> RAPPROCHEMENT.md` (marqué SUPERCÉDÉ).
+> **Verdict séparé : Bloc Banque/Trésorerie VALIDÉ SUR COPIES (cadrage corrigé) ; Airbnb —
+> catégorisation fonctionnelle, plus de blocage lié à un export absent (le besoin n'existe plus) ;
+> Mode réel NO GO (validation humaine toujours non rendue).**
+
 > **Suite 6 (2026-08-07)** : validation finale ciblée du bloc Banque/Trésorerie — recette
+> navigateur complète (trésorerie, exact/partiel/groupé/ambigu/partiel-puis-groupé, file
+> A_ENVOYER_IA, statut Airbnb), pipeline Lot8a→Lot13 exécuté deux fois à l'identique (idempotence
+> prouvée), rollback exercé, campagne complète (2500 tests, 0 échec nouveau, 1 échec pré-existant
+> reproduit et confirmé antérieur), intégrité avant/après vérifiée (85/88 identiques, 3 écarts tous
+> classés ATTENDU). Détail complet : `76_VALIDATION_FINALE_BANQUE_TRESORERIE.md`.
+> **Verdict séparé : Bloc Banque/Trésorerie VALIDÉ SUR COPIES ; Airbnb NO GO (source absente) ;
+> Mode réel NO GO (validation humaine toujours non rendue).** Verdict global inchangé, ce tour ne **Suite 6 (2026-08-07)** : validation finale ciblée du bloc Banque/Trésorerie — recette
 > navigateur complète (trésorerie, exact/partiel/groupé/ambigu/partiel-puis-groupé, file
 > A_ENVOYER_IA, statut Airbnb), pipeline Lot8a→Lot13 exécuté deux fois à l'identique (idempotence
 > prouvée), rollback exercé, campagne complète (2500 tests, 0 échec nouveau, 1 échec pré-existant

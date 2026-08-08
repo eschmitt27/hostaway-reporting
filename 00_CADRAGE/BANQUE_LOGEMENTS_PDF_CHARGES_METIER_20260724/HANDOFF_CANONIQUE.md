@@ -1033,9 +1033,47 @@ identiques, 3 écarts tous ATTENDUS). Aucun bug applicatif trouvé — aucune co
 nécessaire. Détail complet : `76_VALIDATION_FINALE_BANQUE_TRESORERIE.md`. Verdict séparé : Bloc
 Banque/Trésorerie **VALIDÉ SUR COPIES** ; Airbnb et Mode réel **NO GO** (inchangés).
 
+## Correction de cadrage métier — versements plateformes ↔ réservations (2026-08-08)
+
+**Règle métier définitive** : un virement entrant de plateforme (Airbnb ou autre) n'est jamais
+rapproché d'une réservation individuelle (montant agrégé, versements groupés, plusieurs
+plateformes — aucune correspondance fiable montant↔réservation). La Banque catégorise l'origine du
+flux (catégorie moteur déterministe `PAYOUT_PLATEFORME`) ; les réservations restent gérées
+indépendamment (Hostaway API ou saisie manuelle hors Hostaway).
+
+**Fausse logique supprimée** : `banques_candidats_service._reservations()` générait des candidats
+`RESERVATION` pour tout mouvement CREDIT et les exposait à exact/partiel/groupé — supprimé
+entièrement (fonction + câblage dans `candidats_pour()`/`compter_sources()`). Exact/partiel/groupé
+restent pleinement fonctionnels pour charges (`_charges()`) et trésorerie propriétaires
+(`_reversements_proprietaires()`) — aucune régression sur ces objets.
+
+**UI Airbnb corrigée** : `SOURCE_AIRBNB_DETAILLEE_ABSENTE` (alerte bloquante impliquant qu'un export
+serait nécessaire pour rapprocher à une réservation) remplacée par `categorisation_versements_
+airbnb()` / bloc `VERSEMENTS PLATEFORMES` — 166 mouvements catégorisés `PAYOUT_PLATEFORME`,
+14 467,27 €, aucun export requis, aucune tentative de rattachement à une réservation.
+
+**Doublon 83 lignes/82 mouvements** : `banques_classement_service.lister()`/`compter()` ne
+dédoublonnaient pas par `mouvement_id` — le mouvement dupliqué en amont (ligne_source 149/151)
+apparaissait deux fois dans la file A_ENVOYER_IA sous le même `id_opaque`. Corrigé (déduplication
+par `mouvement_id`, ligne source non modifiée, 4 tests). `compter()` retourne désormais 82, pas 83.
+
+**56 propriétaires** : inchangé, toujours en attente (56 virements, 27 069,18 €, 0 confirmé),
+hors périmètre de cette correction (objet de rapprochement légitime, `REVERSEMENT_PROPRIETAIRE`).
+
+Détail complet, tests, régression : `76_VALIDATION_FINALE_BANQUE_TRESORERIE.md` (section G).
+`74_CONTRAT_SOURCE_AIRBNB_RAPPROCHEMENT.md` marqué **SUPERCÉDÉ** en tête de document. Commit
+ciblé : "Correction cadrage Banque - categorisation versements plateformes".
+
+Reste à faire (prochaine action) : les 83 A_ENVOYER_IA (classification humaine progressive, hors
+mandat de cette correction — mission antérieure interrompue à 10/82 lignes présentées, non
+reprise ici) et les 56 propriétaires (identité univoque/ambiguë, objet trésorerie existant/absent)
+restent à traiter progressivement dans l'application, comme prévu. Checklist GO/NO-GO mode réel
+(`72`) toujours à signer par l'utilisateur.
+
 ## État de reprise
 
 Worktree propre, suite complète verte (hors flake pré-existant), quatre modules documentés, bloc
-Banque/Trésorerie validé sur copies. La prochaine session peut démarrer directement sur le Bloc 1
-ci-dessus, ou sur l'obtention de la validation humaine (`72_CHECKLIST_GO_NO_GO_MODE_REEL.md`) et/ou
-d'un export Airbnb détaillé exploitable.
+Banque/Trésorerie validé sur copies, cadrage métier virement↔réservation corrigé. La prochaine
+session peut démarrer directement sur le Bloc 1 ci-dessus, sur la classification progressive des
+83 A_ENVOYER_IA / 56 propriétaires dans l'application, ou sur l'obtention de la validation humaine
+(`72_CHECKLIST_GO_NO_GO_MODE_REEL.md`).

@@ -40,8 +40,6 @@ def ref(tmp_path, monkeypatch):
     monkeypatch.setattr(cfg, "RECETTE_ROOT", tmp_path.resolve())
     monkeypatch.setattr(cfg, "BANQUE_REAL_WRITE_ENABLED", True)
     monkeypatch.setattr(cfg, "BANQUE_REAL_WRITE_CONFIRMATION_ENABLED", True)
-    # Isole la source réservations (sinon _reservations() lit le vrai fichier du dépôt).
-    monkeypatch.setattr(cfg, "MASTER_CALC_RESERVATIONS_RESOLUES", tmp_path / "absent.xlsx")
     ctrl_svc.vider_cache()
     yield p
     ctrl_svc.vider_cache()

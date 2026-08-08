@@ -1,5 +1,23 @@
 # 74 — Audit des prérequis du rapprochement bancaire (Airbnb, Lot5, Lot8c)
 
+> **SUPERCÉDÉ (2026-08-08)** — ce document part d'une hypothèse métier désormais abandonnée :
+> qu'un virement Airbnb reçu en banque devrait, une fois un export détaillé disponible, être
+> rapproché à une ou plusieurs réservations individuelles (candidats RESERVATION, algorithme de
+> paiement groupé montant↔réservations). **Cette hypothèse est fausse pour cette activité** : les
+> versements plateformes n'ont pas de correspondance fiable avec une réservation individuelle
+> (commissions/frais agrégés, versements groupés, plusieurs plateformes). Règle définitive :
+> *« Les virements entrants provenant des plateformes ne sont pas rapprochés des réservations
+> individuelles. Ils sont catégorisés par origine lorsque celle-ci est identifiable. Les
+> réservations proviennent soit de l'API Hostaway, soit d'une saisie manuelle hors Hostaway,
+> indépendamment des virements reçus. »* Conséquence pratique : le blocage « aucun export Airbnb
+> détaillé » décrit ci-dessous **n'est plus un blocage** — la Banque catégorise déjà les virements
+> Airbnb via la catégorie moteur déterministe `PAYOUT_PLATEFORME` (`tiers_detecte=AIRBNB`), ce qui
+> suffit à son rôle. Le générateur de candidats `banques_candidats_service._reservations()`
+> mentionné plus bas (corrigé le 2026-08-03) a été **supprimé** le 2026-08-08 — il n'aurait jamais
+> dû exister. Le reste de ce document (contexte historique de l'audit, contrat de fichier
+> non implémenté) est conservé pour traçabilité, pas comme cible à construire. Détail complet :
+> `76_VALIDATION_FINALE_BANQUE_TRESORERIE.md` (section corrections 2026-08-08).
+
 Mission d'audit ciblé (2026-08-03), pas un audit général du projet. Objectif : déterminer
 précisément ce qui bloque un rapprochement bancaire réellement vérifiable pour les 222 propositions
 (166 Airbnb + 56 propriétaires), et ne construire que ce qui est sûr, testé et nécessaire.

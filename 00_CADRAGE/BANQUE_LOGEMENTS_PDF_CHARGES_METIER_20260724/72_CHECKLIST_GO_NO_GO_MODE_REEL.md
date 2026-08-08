@@ -9,7 +9,7 @@ aucune activation.
 |---|---|---|---|
 | 1 | Validation humaine signée (`67`, fiche ci-dessous) | colonnes laissées vides, jamais remplies par Claude | ☐ |
 | 2 | Règles Banque validées (classification) | 517/541 encore `A_CONTROLER`, arbitrage non fait (`68`) | ☐ |
-| 3 | Rapprochements prioritaires revus | 166 Airbnb + 56 propriétaires en attente, 0 confirmé | ☐ |
+| 3 | Rapprochements prioritaires revus | 166 Airbnb **catégorisés** (PAYOUT_PLATEFORME, jamais rapprochés à une réservation — cadrage corrigé 2026-08-08, cf. `76`) ; 56 propriétaires en attente, 0 confirmé | ☐ |
 | 4 | Mappings comptables validés | filet provisoire `606000` partout, aucune règle `VALIDE` arbitrée (`70`) | ☐ |
 | 5 | Fonctions différées arbitrées | décisions déjà explicitées en `67` (la plupart « non nécessaire »), 2 recommandées avant activation Comptabilité | ☐ (partiel, voir `67`) |
 | 6 | Sécurité validée | leak chemin absolu corrigé et testé ce tour (`c65f891`) ; 2 notes de sécurité pré-existantes restent ouvertes (voir `60`) | ☐ |

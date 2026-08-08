@@ -123,3 +123,67 @@ landés de ce chantier) :
 Prochaine action exacte : obtenir la fiche de signature `72_CHECKLIST_GO_NO_GO_MODE_REEL.md`
 remplie par un humain, et/ou un export Airbnb détaillé exploitable, avant toute activation
 progressive du mode réel décrite dans `71_DOSSIER_PREPARATION_MODE_REEL.md`.
+
+## G. Correction de cadrage métier — versements plateformes ↔ réservations (2026-08-08)
+
+**Règle métier définitive** (remplace toute hypothèse antérieure de rapprochement banque↔réservation) :
+« Les virements entrants provenant des plateformes ne sont pas rapprochés des réservations
+individuelles. Ils sont catégorisés par origine lorsque celle-ci est identifiable. Les réservations
+proviennent soit de l'API Hostaway, soit d'une saisie manuelle hors Hostaway, indépendamment des
+virements reçus. »
+
+**Fausse logique identifiée** : `app/services/banques_candidats_service.py::_reservations()`
+générait des candidats `RESERVATION` à partir de `MASTER_CALC_Reservations_Resolues.xlsx` et les
+injectait dans `candidats_pour()` pour tout mouvement CREDIT — exposés ensuite aux moteurs
+exact/partiel/groupé génériques (`banques_rapprochement_service`, routes `_suggestions`/`_groupes`).
+Ce générateur n'était pas Airbnb-spécifique : il s'appliquait à TOUTE réservation résolue (Hostaway
+et hors Hostaway). Doc `74_CONTRAT_SOURCE_AIRBNB_RAPPROCHEMENT.md` documentait cette hypothèse comme
+un axe à construire ("algorithme de paiement groupé"), désormais abandonné. L'UI (`banques_list.html`)
+affichait par ailleurs `SOURCE_AIRBNB_DETAILLEE_ABSENTE`, un cadre "en attente d'export pour être
+rapproché" qui présupposait la même hypothèse fausse.
+
+**Corrections appliquées** :
+- Suppression complète de `_reservations()` et de son câblage dans `candidats_pour()`/
+  `compter_sources()` — `banques_candidats_service` ne fournit plus jamais de candidat
+  `RESERVATION`. Conservé intact : `_charges()` (CHARGE_FOURNISSEUR) et
+  `_reversements_proprietaires()` (REVERSEMENT_PROPRIETAIRE, trésorerie propriétaires) — exact/
+  partiel/groupé restent pleinement fonctionnels pour ces objets.
+- `banques_service.statut_source_airbnb()` remplacé par `categorisation_versements_airbnb()` :
+  compte les virements déjà catégorisés `PAYOUT_PLATEFORME` (catégorie moteur déterministe
+  existante, `tiers_detecte=AIRBNB`) — aucun export requis, aucune tentative de rattachement à une
+  réservation.
+- `banques_list.html` : bloc `SOURCE_AIRBNB_DETAILLEE_ABSENTE` (alerte bloquante, bouton d'import
+  désactivé, liste de "données minimales attendues" incluant "réservation associée") remplacé par
+  un bloc informatif `VERSEMENTS PLATEFORMES` (nombre + montant catégorisés). Écran existant
+  réutilisé, aucune nouvelle UI créée.
+- Documentation : `74_CONTRAT_SOURCE_AIRBNB_RAPPROCHEMENT.md` marqué **SUPERCÉDÉ** en tête de
+  document (hypothèse conservée pour traçabilité historique, plus une cible).
+
+**Ce qui reste inchangé** : Hostaway API → réservations (import, lecture, calculs) ; réservations
+hors Hostaway → saisie manuelle ; `lot8c_rapprochement_banque.py` (script Excel) — n'a jamais
+construit de lien virement→réservation, aucune modification nécessaire côté moteur.
+
+**Doublon 83 lignes / 82 mouvements** : garantie de traitement unique absente avant ce tour —
+`banques_classement_service.lister()`/`compter()` itéraient les lignes source brutes sans dédoublonner
+par `mouvement_id`, exposant deux fois la même ligne (même `id_opaque`) dans la file A_ENVOYER_IA
+pour le mouvement dupliqué (`MVT-CM_02211_00021321603-20260115-DEBIT-12000-0FB68A`, ligne_source
+149/151). Corrigé : déduplication par `mouvement_id` dans les deux fonctions, ligne source non
+modifiée. 4 tests ajoutés (`test_banques_classement_service.py`, préfixe `test_02b`-`test_02d`)
+prouvant : comptage correct, une seule ligne de file par opaque, une seule décision économique
+possible.
+
+**Tests** : 4 nouveaux tests structurels (`_reservations` absente, aucun candidat `RESERVATION`
+quel que soit le sens, `compter_sources()` sans clé `reservations`) + 4 tests doublon +
+tests UI Airbnb réécrits (11 tests au total modifiés/ajoutés dans `test_banques_candidats_service.py`,
+`test_banques.py`, `test_banques_classement_service.py`). Régression ciblée : `-k "banque or
+proprietaire"` 612 passés/29 ignorés/0 échec ; `-k "banque or classement"` 304 passés/29 ignorés/
+0 échec ; `-k reservation` 44 passés/1 ignoré/0 échec ; navigation/pilotage/contrôles/catalogue
+130 passés/5 ignorés/0 échec. Aucune régression. PII scan sur le diff : aucune occurrence.
+`git diff --check` : propre. Sources réelles et port 8000/PID 21136 intacts pendant toute la
+mission.
+
+**Verdict** : Bloc Banque **VALIDÉ SUR COPIES**, cadrage métier corrigé. Airbnb : catégorisation
+fonctionnelle (166 virements identifiés, 14 467,27 €), aucun export requis, aucune tentative de
+rattachement à une réservation — **NO GO levé sur ce point précis** (le "NO GO — source absente"
+antérieur concernait un besoin qui n'existe plus). Mode réel : **NO GO** inchangé (validation
+humaine toujours non rendue).

@@ -838,5 +838,52 @@ copies. Lecon retenue et appliquee pour la suite du pipeline (lot8b/lot9/lot10/l
 mecanisme de redirection de chaque script verifie par lecture du code AVANT tout lancement, technique
 de copie temporaire du script utilisee la ou aucune redirection n'existe).
 
+
+## FAUSSE LOGIQUE METIER — RAPPROCHEMENT VIREMENT PLATEFORME <-> RESERVATION — CORRIGEE (2026-08-08)
+
+GRAVITE : MAJEURE (regle metier fausse construite dans le moteur applicatif, pas seulement documentee).
+STATUT : CORRIGE.
+
+Constat (signale par l'utilisateur) : `app/services/banques_candidats_service.py::_reservations()`
+generait des candidats de type `RESERVATION` a partir de `MASTER_CALC_Reservations_Resolues.xlsx`
+(Hostaway ET hors Hostaway) pour tout mouvement bancaire CREDIT, exposes ensuite au moteur generique
+exact/partiel/groupe (`banques_rapprochement_service`, routes `_suggestions`/`_groupes`). Cette
+fonction avait ete corrigee (pas creee) le 2026-08-03 (`74_CONTRAT_SOURCE_AIRBNB_RAPPROCHEMENT.md`)
+en pensant reparer un bug de lecture de colonnes — mais la logique elle-meme (chercher une reservation
+candidate a partir d'un montant bancaire recu) est fausse pour cette activite : un versement de
+plateforme n'a pas de correspondance fiable avec une reservation individuelle (commissions/frais
+agreges, versements groupes, plusieurs plateformes).
+
+L'interface Banque (`banques_list.html`) portait la meme hypothese : bloc `SOURCE_AIRBNB_DETAILLEE_
+ABSENTE` presentant les 166 virements Airbnb comme "bloques en attente d'export pour etre rapproches",
+avec une liste de donnees minimales attendues incluant "reservation associee (lorsque disponible)".
+
+Regle metier definitive enregistree : « Les virements entrants provenant des plateformes ne sont pas
+rapproches des reservations individuelles. Ils sont categorises par origine lorsque celle-ci est
+identifiable. Les reservations proviennent soit de l'API Hostaway, soit d'une saisie manuelle hors
+Hostaway, independamment des virements recus. »
+
+Correction : `_reservations()` supprimee entierement (fonction + cablage dans `candidats_pour()`/
+`compter_sources()`) — aucun candidat `RESERVATION` n'est plus jamais genere. Exact/partiel/groupe
+restent intacts pour charges (`_charges()`) et tresorerie proprietaires (`_reversements_
+proprietaires()`), aucune regression. UI Airbnb remplacee par une categorisation neutre
+(`categorisation_versements_airbnb()`, bloc `VERSEMENTS PLATEFORMES`) : 166 mouvements categorises
+`PAYOUT_PLATEFORME` (categorie moteur deterministe deja existante, `tiers_detecte=AIRBNB`),
+14467,27 EUR, aucun export requis. `74_CONTRAT_SOURCE_AIRBNB_RAPPROCHEMENT.md` marque SUPERCEDE.
+lot8c_rapprochement_banque.py (script moteur) non modifie — il n'a jamais construit de lien
+virement->reservation, seulement un statut d'attente desormais reinterprete cote application.
+
+Effet secondaire trouve et corrige au meme tour (mission section 9) : `banques_classement_service.
+lister()`/`compter()` ne dedoublonnaient pas par `mouvement_id`, exposant deux fois la meme ligne
+(meme `id_opaque`) dans la file A_ENVOYER_IA pour le doublon physique deja connu
+(`MVT-CM_02211_00021321603-20260115-DEBIT-12000-0FB68A`, ligne_source 149/151). Corrige : deduplication
+par `mouvement_id`, ligne source non modifiee, 4 tests ajoutes.
+
+Regression ciblee verte : `-k "banque or proprietaire"` 612 passes/29 ignores/0 echec ; `-k "banque or
+classement"` 304 passes/29 ignores/0 echec ; `-k reservation` 44 passes/1 ignore/0 echec ; navigation/
+pilotage/controles/catalogue 130 passes/5 ignores/0 echec. Aucune source reelle modifiee, port 8000/
+PID 21136 intact, mode reel jamais active. Detail complet : `76_VALIDATION_FINALE_BANQUE_
+TRESORERIE.md` (section G).
+
 STATUT : CORRIGE, aucune donnee reelle perdue ni modifiee. Detail complet :
 `76_VALIDATION_FINALE_BANQUE_TRESORERIE.md`.

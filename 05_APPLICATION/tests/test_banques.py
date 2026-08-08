@@ -282,44 +282,44 @@ def test_sidebar_nav_present(client, bank_file):
     assert 'href="/banques-caisse"' in r.text  # lien nav actif
 
 
-# ── Statut source Airbnb absente (SOURCE_AIRBNB_DETAILLEE_ABSENTE) ───────────
+# ── Catégorisation des versements plateformes (Airbnb) ───────────────────────
+# RÈGLE MÉTIER (2026-08-08) : la Banque catégorise l'origine d'un virement (PAYOUT_PLATEFORME),
+# elle ne le rapproche jamais à une réservation individuelle. Aucun export Airbnb requis.
 
-def test_statut_airbnb_compte_les_bloquees(bank_file):
-    st = svc.statut_source_airbnb()
-    assert st["disponible_export"] is False
-    assert st["nb_bloquees"] == 2   # MVT-001 + MVT-005 dans la fixture
+def test_categorisation_airbnb_compte_les_identifiables(bank_file):
+    st = svc.categorisation_versements_airbnb()
+    assert st["source_lisible"] is True
+    assert st["nb_identifiables"] == 2   # MVT-001 + MVT-005 dans la fixture
+    assert st["montant_identifiables"] == 2230.0
 
 
-def test_statut_airbnb_visible_sur_dashboard(client, bank_file):
+def test_categorisation_airbnb_visible_sur_dashboard(client, bank_file):
     r = client.get("/banques-caisse")
-    assert "SOURCE_AIRBNB_DETAILLEE_ABSENTE" in r.text
+    assert "VERSEMENTS PLATEFORMES" in r.text
     assert ">2<" in r.text or "2</strong>" in r.text or "<strong>2</strong>" in r.text
 
 
-def test_statut_airbnb_donnees_minimales_affichees(client, bank_file):
+def test_categorisation_airbnb_aucune_reference_a_une_reservation(client, bank_file):
+    """Ne jamais suggérer qu'un export Airbnb ou une réservation candidate est nécessaire."""
     r = client.get("/banques-caisse")
-    assert "référence Airbnb" in r.text and "montant net" in r.text
+    assert "SOURCE_AIRBNB_DETAILLEE_ABSENTE" not in r.text
+    assert "export Airbnb détaillé" not in r.text
+    assert "réservation candidate" not in r.text.lower()
 
 
-def test_statut_airbnb_aucun_bouton_import_actif(client, bank_file):
-    r = client.get("/banques-caisse")
-    assert "Import disponible après validation d'un format réel" in r.text
-    assert 'disabled' in r.text
-
-
-def test_statut_airbnb_source_absente_ne_casse_pas(monkeypatch, tmp_path):
+def test_categorisation_airbnb_source_absente_ne_casse_pas(monkeypatch, tmp_path):
     monkeypatch.setattr(cfg, "MASTER_BANQUE", tmp_path / "absent.xlsx")
     reader.vider_cache()
-    st = svc.statut_source_airbnb()
-    assert st["nb_bloquees"] == 0 and st["source_lisible"] is False
+    st = svc.categorisation_versements_airbnb()
+    assert st["nb_identifiables"] == 0 and st["source_lisible"] is False
     reader.vider_cache()
 
 
-def test_statut_airbnb_aucune_pii(client, bank_file):
+def test_categorisation_airbnb_aucune_pii(client, bank_file):
     r = client.get("/banques-caisse")
     assert "iban" not in r.text.lower()
 
 
-def test_statut_airbnb_aucun_chemin_absolu(client, bank_file):
+def test_categorisation_airbnb_aucun_chemin_absolu(client, bank_file):
     r = client.get("/banques-caisse")
     assert "C:\\" not in r.text

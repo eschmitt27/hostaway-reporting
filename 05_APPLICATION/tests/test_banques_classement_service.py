@@ -55,6 +55,47 @@ def test_02_compter(source):
     assert svc.compter() == 2
 
 
+@pytest.fixture
+def source_avec_doublon(tmp_path, monkeypatch):
+    """Reproduit un doublon physique de mouvement_id (même ligne source dupliquée en amont, ex.
+    lot8a) — garantie requise : jamais deux lignes de file ni un double comptage pour ce cas."""
+    p = tmp_path / "BANQUE_LOT8_IMPORT.xlsx"
+    wb = openpyxl.Workbook(); wb.remove(wb.active)
+    ws = wb.create_sheet("NORM_Banque")
+    ws.append(NORM_HDR)
+    ws.append(_ligne("MVT-DUP-001", montant=120.0))
+    ws.append(_ligne("MVT-DUP-001", montant=120.0))  # doublon exact du mouvement_id ci-dessus
+    ws.append(_ligne("MVT-TEST-002", montant=45.0))
+    wb.save(p); wb.close()
+    monkeypatch.setattr(cfg, "MASTER_BANQUE", p)
+    ctrl_svc.vider_cache()
+    yield p
+    ctrl_svc.vider_cache()
+
+
+def test_02b_doublon_mouvement_id_compte_une_seule_fois(source_avec_doublon):
+    assert svc.compter() == 2  # MVT-DUP-001 (une fois) + MVT-TEST-002
+
+
+def test_02c_doublon_mouvement_id_une_seule_ligne_dans_la_file(source_avec_doublon, tmp_db):
+    lignes = svc.lister(db_path=tmp_db)
+    assert len(lignes) == 2
+    ids_opaques = [l["id_opaque"] for l in lignes]
+    assert len(ids_opaques) == len(set(ids_opaques)), "aucun id_opaque ne doit apparaître deux fois"
+
+
+def test_02d_doublon_mouvement_id_une_seule_decision_economique_possible(source_avec_doublon, tmp_db):
+    """Une décision prise sur l'opaque du mouvement dupliqué s'applique une seule fois — pas de
+    second enregistrement indépendant possible pour la même ligne source dupliquée."""
+    opq = _opq("MVT-DUP-001")
+    svc.decider(opq, "MAINTENIR_A_CONTROLER", db_path=tmp_db)
+    lignes = svc.lister(db_path=tmp_db)
+    ligne = next(l for l in lignes if l["id_opaque"] == opq)
+    assert ligne["statut_humain"] == "MAINTENIR_A_CONTROLER"
+    # Toujours une seule ligne pour cet opaque, même après décision.
+    assert sum(1 for l in lignes if l["id_opaque"] == opq) == 1
+
+
 def test_03_filtre_montant(source, tmp_db):
     assert len(svc.lister(montant_min=100, db_path=tmp_db)) == 1
 

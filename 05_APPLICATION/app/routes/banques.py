@@ -59,10 +59,11 @@ def _groupes(id_opaque: str) -> dict:
     """Propositions de rapprochement groupé (≥2 objets) — jamais une confirmation automatique,
     jamais un second moteur : délègue entièrement à banques_rapprochement_service.
 
-    La recherche est faite SÉPARÉMENT par type d'objet (une réservation et un reversement
-    propriétaire n'ont jamais vocation à être groupés ensemble) — sinon un pool hétérogène de
-    candidats (ex. des centaines de réservations proches en date) épuise la limite d'itérations
-    bornée avant même d'atteindre les objets réellement pertinents pour ce mouvement."""
+    La recherche est faite SÉPARÉMENT par type d'objet (deux types d'objets différents n'ont
+    jamais vocation à être groupés ensemble) — sinon un pool hétérogène de candidats épuiserait
+    la limite d'itérations bornée avant même d'atteindre les objets réellement pertinents pour ce
+    mouvement. `candidats_pour()` ne fournit jamais de candidat de type RESERVATION (règle métier
+    2026-08-08 : un virement bancaire n'est jamais rapproché d'une réservation individuelle)."""
     mvt = _mouvement_pour_suggestions(id_opaque)
     if mvt is None:
         return {"groupes": [], "ambigu": False, "limite_atteinte": False}
@@ -133,7 +134,7 @@ def banques_dashboard(
     )
     return templates.TemplateResponse(request, "banques_list.html", {
         "active_menu": "banques", "data": data, "nb_a_controler": ctrl.compter_a_controler(),
-        "ecriture_active": _ecriture_active(), "airbnb": svc.statut_source_airbnb(),
+        "ecriture_active": _ecriture_active(), "airbnb": svc.categorisation_versements_airbnb(),
         "nb_a_classer": classement.compter(),
     })
 

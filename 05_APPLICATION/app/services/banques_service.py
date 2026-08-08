@@ -37,7 +37,8 @@ TRIS = {
 # Explications lisibles (affichage seul — le code moteur reste autoritaire).
 EXPLICATIONS: dict[str, str] = {
     "EN_ATTENTE_EXPORT_AIRBNB":
-        "Encaissement Airbnb en attente de l'export détaillé Airbnb pour être rapproché.",
+        "Versement plateforme catégorisé Airbnb (PAYOUT_PLATEFORME) — flux identifié, jamais "
+        "rapproché à une réservation individuelle.",
     "EN_ATTENTE_SAISIE_ACOMPTE":
         "Virement propriétaire en attente de la saisie de l'acompte correspondant (Lot 5).",
     "AJUSTEMENT":
@@ -53,29 +54,29 @@ def explication(code: str) -> str:
     return EXPLICATIONS.get(str(code or "").strip(), "")
 
 
-# ── Statut de la source Airbnb détaillée (SOURCE_AIRBNB_DETAILLEE_ABSENTE) ───
-# Aucun import spéculatif : ce bloc affiche uniquement un état, jamais un bouton d'import
-# fonctionnel tant qu'aucun format réel n'a été validé (cf. 74_CONTRAT_SOURCE_AIRBNB_
-# RAPPROCHEMENT.md). Le contrat cible y est documenté (transaction_id, payout_id, reference_
-# airbnb/G-code, dates, montant_brut/frais/montant_net, devise, listing_id, reservation_id).
-
-DONNEES_MINIMALES_AIRBNB = (
-    "identifiant transaction ou payout", "référence Airbnb (G-code)", "date du versement",
-    "montant net", "frais", "devise", "réservation associée (lorsque disponible)",
-)
+# ── Catégorisation des versements plateformes (Airbnb) ───────────────────────
+# RÈGLE MÉTIER (2026-08-08, définitive) : la Banque CATÉGORISE l'origine d'un virement entrant de
+# plateforme (catégorie moteur déterministe PAYOUT_PLATEFORME, tiers_detecte=AIRBNB) — elle ne le
+# rapproche JAMAIS d'une réservation individuelle (Hostaway ou hors Hostaway). Aucun export Airbnb
+# détaillé n'est requis pour ce fonctionnement ; un tel export ne servirait qu'à des besoins
+# strictement extérieurs à ce rapprochement (jamais construit ici, cf. 74_CONTRAT_SOURCE_AIRBNB_
+# RAPPROCHEMENT.md, section historique — contrat non implémenté, non nécessaire à la Banque).
 
 
-def statut_source_airbnb() -> dict[str, Any]:
-    """Compte les propositions Airbnb réellement bloquées par l'absence d'export détaillé —
-    jamais un chiffre fabriqué : lu directement sur RAPPROCH_AIRBNB_ATTENTE."""
+def categorisation_versements_airbnb() -> dict[str, Any]:
+    """Compte les virements entrants déjà catégorisés Airbnb par le moteur (PAYOUT_PLATEFORME) —
+    jamais un chiffre fabriqué, jamais une tentative de rattachement à une réservation. Lu
+    directement sur RAPPROCH_AIRBNB_ATTENTE (alimentée par lot8c à partir de tiers_detecte=AIRBNB)."""
     src = reader.rappro_airbnb()
     if not src.etat.disponible:
-        return {"disponible_export": False, "nb_bloquees": 0, "source_lisible": False,
-                "donnees_minimales": DONNEES_MINIMALES_AIRBNB, "date_audit": _now()}
-    nb = sum(1 for r in src.lignes
-            if to_texte(r.get("statut_rapprochement")) == "EN_ATTENTE_EXPORT_AIRBNB")
-    return {"disponible_export": False, "nb_bloquees": nb, "source_lisible": True,
-            "donnees_minimales": DONNEES_MINIMALES_AIRBNB, "date_audit": _now()}
+        return {"source_lisible": False, "nb_identifiables": 0, "montant_identifiables": 0.0,
+                "date_audit": _now()}
+    lignes = [r for r in src.lignes
+             if to_texte(r.get("statut_rapprochement")) in
+             ("EN_ATTENTE_EXPORT_AIRBNB", "AJUSTEMENT_AIRBNB_A_CONTROLER")]
+    montant = sum(to_nombre(r.get("montant_banque")) or 0.0 for r in lignes)
+    return {"source_lisible": True, "nb_identifiables": len(lignes),
+            "montant_identifiables": round(montant, 2), "date_audit": _now()}
 
 
 # ── Index des attentes de rapprochement (par mouvement_id) ───────────────────
