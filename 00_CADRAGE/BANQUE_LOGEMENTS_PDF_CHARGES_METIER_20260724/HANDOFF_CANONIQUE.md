@@ -1173,11 +1173,28 @@ fiscale automatisée construite. Détail complet, fiche de validation vierge, ve
 **VERDICT TECHNIQUE : PRÊT POUR VALIDATION HUMAINE GLOBALE** (pas une activation de mode réel —
 la fiche de validation attend les réponses de l'utilisateur, module par module).
 
+## Validation humaine globale — en cours (2026-08-10)
+
+Recette par lots, décisions utilisateur explicites, jamais déduites. **LOT A clos** : Tableau de
+bord/Navigation ACCEPTE_AVEC_RESERVE (widget « Modules » accueil obsolète, cosmétique), Logements
+ACCEPTE_AVEC_RESERVE (sections PBI « Non renseigné » tant que pipeline non rafraîchi, déjà
+explicité en UI), Propriétaires ACCEPTE, Réservations (Hostaway + hors Hostaway)
+ACCEPTE_AVEC_RESERVE (aucun écran dédié de parcours des réservations Hostaway — réserve
+fonctionnelle, pas un défaut de calcul). Aucune correction demandée par l'utilisateur (réserves
+toutes non bloquantes, corrections explicitement refusées pour l'instant). Détail : `RECETTE_
+FONCTIONNELLE_GLOBALE.md` section I. **LOT B exercé (2026-08-10), en attente de décision
+utilisateur** : recette réelle sur instance isolée (port 8041, écritures fictives). Chaîne
+Fournisseur→Facture→Règlements×2 entièrement exercée en écriture réelle (persistée, isolée) :
+création fournisseur, facture 120,00 €, deux règlements (50,00 € puis 70,00 €), statut dérivé
+automatiquement A_CONTROLER→PARTIELLEMENT_REGLEE→REGLEE, solde à 0, historique complet, aucune
+recréation de facture. Ménages : drill-down réel rapprochement→facture→coûts confirmé, sources
+jamais fusionnées. Charges : prévisualisation réelle correcte, écriture finale non poussée en
+direct (modale JS, couverte par tests automatisés verts). **Aucun bug trouvé dans le LOT B.**
+
 ## État de reprise
 
 Worktree propre, suite complète verte (hors flake pré-existant), bloc Banque/Trésorerie validé sur
 copies, cadrage métier virement↔réservation corrigé, cadrage comptable fermé (matrice exhaustive,
-aucun compte inventé). La prochaine session peut démarrer sur : (a) la classification progressive
-des 83 A_ENVOYER_IA / 56 propriétaires dans l'application, (b) l'obtention des réponses utilisateur
-sur `70_MATRICE_ARBITRAGES_COMPTABLES.md` (comptes définitifs), ou (c) la préparation d'une recette
-fonctionnelle globale avec validation humaine module par module (tableau ci-dessus).
+aucun compte inventé), validation humaine globale démarrée (LOT A clos, LOT B en cours). Prochaine
+action : terminer LOT B, puis LOT C (Banque/Trésorerie), D (Comptabilité/Analytique/Résultats), E
+(Contrôles/Calculs/Exports) — voir `RECETTE_FONCTIONNELLE_GLOBALE.md` pour la fiche de suivi.

@@ -92,26 +92,46 @@ la mission (aucun code touché). Serveur de recette (port 8030) arrêté proprem
 
 ## I. Fiche de validation utilisateur
 
-À remplir exclusivement par l'utilisateur — aucune case cochée par Claude.
+Décisions saisies exclusivement sur réponse explicite de l'utilisateur, lot par lot — jamais
+déduites d'un silence.
 
-| Module | ACCEPTÉ | ACCEPTÉ AVEC RÉSERVE | REFUSÉ | NON TESTÉ |
-|---|---|---|---|---|
-| Logements | | | | |
-| Propriétaires | | | | |
-| Réservations Hostaway | | | | |
-| Réservations hors Hostaway | | | | |
-| Ménages | | | | |
-| Fournisseurs | | | | |
-| Charges | | | | |
-| Factures | | | | |
-| Règlements | | | | |
-| Banque / Caisse | | | | |
-| Trésorerie propriétaires | | | | |
-| Comptabilité | | | | |
-| Analytique | | | | |
-| Résultats | | | | |
-| Contrôles / Clôture | | | | |
-| Exports | | | | |
+| Module | Décision utilisateur | Réserve | Date |
+|---|---|---|---|
+| Tableau de bord / Navigation | ACCEPTE_AVEC_RESERVE | Widget « Modules » de l'accueil affiche encore « À VENIR » pour des modules existants (Fournisseurs, Banques & caisse, Contrôles & clôture, Propriétaires & règlements) — cosmétique, non bloquant, non corrigé sur demande explicite | 2026-08-10 |
+| Logements | ACCEPTE_AVEC_RESERVE | Sections dépendantes de l'export PBI (liste, historique commission) peuvent afficher « Non renseigné » tant que le pipeline n'a pas été rafraîchi — comportement déjà explicité dans l'interface, non bloquant | 2026-08-10 |
+| Propriétaires | ACCEPTE | Aucune réserve bloquante | 2026-08-10 |
+| Réservations Hostaway | ACCEPTE_AVEC_RESERVE | Aucun écran dédié pour parcourir les réservations Hostaway dans l'application (l'API Hostaway alimente le pipeline, mais pas de vue navigable) — réserve fonctionnelle, pas un défaut de calcul | 2026-08-10 |
+| Réservations hors Hostaway | ACCEPTE_AVEC_RESERVE | Saisie et gestion fonctionnelles ; réserve portée par le même constat que Réservations Hostaway (absence d'écran Hostaway, cf. ci-dessus) | 2026-08-10 |
+| Ménages | | | |
+| Fournisseurs | | | |
+| Charges | | | |
+| Factures | | | |
+| Règlements | | | |
+| Banque / Caisse | | | |
+| Trésorerie propriétaires | | | |
+| Comptabilité | | | |
+| Analytique | | | |
+| Résultats | | | |
+| Contrôles / Clôture | | | |
+| Calculs / Exports | | | |
+
+**LOT A clos (2026-08-10)** : 1 ACCEPTE, 3 ACCEPTE_AVEC_RESERVE, 0 REFUSE. Aucune réserve
+bloquante, aucune correction demandée (toutes cosmétiques/fonctionnelles mineures, conformes à la
+décision explicite de l'utilisateur de ne pas les corriger maintenant).
+
+**LOT B — constats (2026-08-10, en attente de décision utilisateur, cellules non remplies) :**
+recette réelle sur instance isolée (port 8041, écritures fictives, RECETTE_MODE + writers Charges/
+Factures/Ménages activés). Ménages : drill-down réel rapprochement→facture externe→coûts→gain-
+perte, sources correctement séparées (attendu/Hostaway/interne/externe jamais fusionnées), aucun
+recalcul côté application. Fournisseurs : création réelle persistée (référentiel SQLite isolé).
+Charges : prévisualisation réelle exercée (catégorie, impact, périmètre analytique, refacturation
+tous corrects) — écriture finale non poussée en direct (modale de confirmation JS, comme
+Réservations hors Hostaway), couverte par les tests automatisés déjà verts. Factures : création
+réelle persistée, rattachée au fournisseur créé. Règlements : deux règlements réels enregistrés sur
+la même facture (50,00 € puis 70,00 €) — statut dérivé automatiquement A_CONTROLER →
+PARTIELLEMENT_REGLEE → REGLEE, solde 120,00 €→70,00 €→0,00 €, historique complet, aucune
+recréation de facture, action « Générer écriture CAISSE » disponible (pont Règlement→Comptabilité
+existant). **Aucun bug trouvé.**
 
 ## J. Verdict technique
 
