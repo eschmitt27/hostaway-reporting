@@ -1191,6 +1191,16 @@ recréation de facture. Ménages : drill-down réel rapprochement→facture→co
 jamais fusionnées. Charges : prévisualisation réelle correcte, écriture finale non poussée en
 direct (modale JS, couverte par tests automatisés verts). **Aucun bug trouvé dans le LOT B.**
 
+**LOT B clos (2026-08-10)** — décisions utilisateur : Ménages ACCEPTE, Fournisseurs ACCEPTE,
+Charges ACCEPTE_AVEC_RESERVE (réserve non bloquante, non corrigée sur demande explicite), Factures
+ACCEPTE, Règlements ACCEPTE. **LOT C exercé (2026-08-10), en attente de décision utilisateur** :
+Banque/Caisse — 82 mouvements confirmés dans la file (dédoublonnage toujours actif), catégorisation
+PAYOUT_PLATEFORME conforme au cadrage corrigé (aucun export manquant, aucun rattachement
+réservation), décision humaine réelle exercée bout en bout (liste→détail→confirmation→historique).
+Caisse : ABSENT (aucun mouvement dans cette copie, état déjà connu). Trésorerie propriétaires :
+parcours réel création→BROUILLON→VALIDE (immuabilité confirmée)→ANNULE→historique, tous corrects.
+**Aucun bug trouvé dans le LOT C.**
+
 ## État de reprise
 
 Worktree propre, suite complète verte (hors flake pré-existant), bloc Banque/Trésorerie validé sur

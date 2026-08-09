@@ -102,13 +102,13 @@ déduites d'un silence.
 | Propriétaires | ACCEPTE | Aucune réserve bloquante | 2026-08-10 |
 | Réservations Hostaway | ACCEPTE_AVEC_RESERVE | Aucun écran dédié pour parcourir les réservations Hostaway dans l'application (l'API Hostaway alimente le pipeline, mais pas de vue navigable) — réserve fonctionnelle, pas un défaut de calcul | 2026-08-10 |
 | Réservations hors Hostaway | ACCEPTE_AVEC_RESERVE | Saisie et gestion fonctionnelles ; réserve portée par le même constat que Réservations Hostaway (absence d'écran Hostaway, cf. ci-dessus) | 2026-08-10 |
-| Ménages | | | |
-| Fournisseurs | | | |
-| Charges | | | |
-| Factures | | | |
-| Règlements | | | |
-| Banque / Caisse | | | |
-| Trésorerie propriétaires | | | |
+| Ménages | ACCEPTE | Aucune réserve fonctionnelle constatée. Parcours exercé : rapprochement ménage, logement/intervenant, facture externe, coût standard, coût réel, gain/perte, distinction des 4 flux, absence de fusion/double valorisation | 2026-08-10 |
+| Fournisseurs | ACCEPTE | Création fictive réellement persistée dans l'environnement isolé. Référentiel unique confirmé. Aucune donnée bancaire inutile | 2026-08-10 |
+| Charges | ACCEPTE_AVEC_RESERVE | Prévisualisation complète exercée en navigateur (catégorie, impact résultat, analytique, refacturation, contrôles). Confirmation finale non poussée jusqu'à la persistance ce lot (workflow de modale JS) — writer et persistance couverts par tests automatisés verts (`test_charges_confirmation_e2e.py`, `test_charges_confirmation_route.py`, `test_charges_confirmation_audit.py`). Réserve de validation humaine, pas un bug — non corrigée | 2026-08-10 |
+| Factures | ACCEPTE | Création réellement persistée, fournisseur correctement lié, historique présent. Règle FACTURE ≠ CHARGE validée : la création n'a pas créé automatiquement de nouvelle charge | 2026-08-10 |
+| Règlements | ACCEPTE | Deux règlements réels (50 € puis 70 €) sur facture 120 € : A_CONTROLER → PARTIELLEMENT_REGLEE → REGLEE, solde 120 €→70 €→0 €, historique complet, aucune recréation de facture, aucun double comptage | 2026-08-10 |
+| Banque / Caisse | | (en attente décision) | |
+| Trésorerie propriétaires | | (en attente décision) | |
 | Comptabilité | | | |
 | Analytique | | | |
 | Résultats | | | |
@@ -132,6 +132,34 @@ la même facture (50,00 € puis 70,00 €) — statut dérivé automatiquement 
 PARTIELLEMENT_REGLEE → REGLEE, solde 120,00 €→70,00 €→0,00 €, historique complet, aucune
 recréation de facture, action « Générer écriture CAISSE » disponible (pont Règlement→Comptabilité
 existant). **Aucun bug trouvé.**
+
+**LOT B clos (2026-08-10)** : 4 ACCEPTE, 1 ACCEPTE_AVEC_RESERVE (Charges, réserve non bloquante,
+non corrigée sur demande explicite), 0 REFUSE.
+
+**LOT C — constats (2026-08-10, en attente de décision utilisateur, cellules non remplies) :**
+recette réelle sur instance isolée (port 8042, `BANQUE_REAL_WRITE_ENABLED=1`).
+
+Banque/Caisse : liste période/filtres/détail fonctionnels, comptes masqués, libellé brut jamais
+affiché. Boîte « VERSEMENTS PLATEFORMES » confirmée conforme au cadrage corrigé (166 mouvements
+catégorisés PAYOUT_PLATEFORME, 14 467,27 €, aucune mention d'export manquant, aucune proposition de
+rattachement à une réservation). File « À classer » : **82 mouvements** confirmés (dédoublonnage
+par `mouvement_id` toujours actif, aucune régression sur le doublon 83/82). Parcours de décision
+humaine exercé réellement de bout en bout sur un mouvement réel (liste → détail → prévisualisation
+→ confirmation → persistance → historique append-only) : statut humain passé de SANS_DECISION à
+REPORTER, historique tracé avec justification. Caisse : aucun mouvement, confirmé « non alimenté
+(aucun module) » — **CAISSE : ABSENT** (aucune donnée dans cette copie, cohérent avec l'état déjà
+documenté du module, pas une invention).
+
+Trésorerie propriétaires : parcours complet réel exercé sur PROP_0001 — création (prévisualisation
+puis confirmation, 500,00 €, ACOMPTE_PROPRIETAIRE, PROPRIETAIRE_VERS_SOCIETE) → BROUILLON → VALIDE
+(action « Modifier » disparaît après validation, conforme à l'immuabilité attendue) → ANNULE (avec
+justification obligatoire, aucune action de rapprochement proposée sur un mouvement annulé) →
+historique append-only complet (CREATION, VALIDATION, chaque événement horodaté). Exact/partiel/
+groupé/ambigu : non rejoués ce lot (déjà prouvés avec fixtures dédiées lors de la mission de
+validation Banque précédente, `76_VALIDATION_FINALE_BANQUE_TRESORERIE.md`) — smoke de continuité
+uniquement, conforme au périmètre demandé. Mappings comptables : aucune écriture générée
+automatiquement à partir d'un mouvement de trésorerie, `411000` non validé automatiquement (rien à
+constater côté Comptabilité ce lot, conforme). **Aucun bug trouvé.**
 
 ## J. Verdict technique
 
