@@ -109,11 +109,62 @@ déduites d'un silence.
 | Règlements | ACCEPTE | Deux règlements réels (50 € puis 70 €) sur facture 120 € : A_CONTROLER → PARTIELLEMENT_REGLEE → REGLEE, solde 120 €→70 €→0 €, historique complet, aucune recréation de facture, aucun double comptage | 2026-08-10 |
 | Banque / Caisse | ACCEPTE_AVEC_RESERVE | Banque réellement exercée, catégorisation PAYOUT_PLATEFORME conforme (166 mvts / 14 467,27 €), aucune relation Banque↔Réservation, file A_ENVOYER_IA dédupliquée à 82 mouvements économiques, décision humaine persistée, historique append-only, aucune régression du doublon 83/82. **Réserve : CAISSE non validable sur cette copie (aucun mouvement Caisse disponible)** — ce n'est pas un défaut Banque, aucune donnée métier réelle ne sera fabriquée pour lever cette réserve | 2026-08-10 |
 | Trésorerie propriétaires | ACCEPTE | Création, prévisualisation, confirmation, BROUILLON, validation, immuabilité après validation, annulation justifiée, historique, mouvement annulé non rapprochable, aucune écriture comptable définitive générée, aucun mapping 411000 inventé. Exact/partiel/groupé/ambigu couverts par la recette dédiée antérieure | 2026-08-10 |
-| Comptabilité | RECOMMANDATION : ACCEPTE_AVEC_RESERVE (en attente validation utilisateur) | Voir constats LOT D ci-dessous | — |
-| Analytique | RECOMMANDATION : ACCEPTE (en attente validation utilisateur) | Voir constats LOT D ci-dessous | — |
-| Résultats | RECOMMANDATION : ACCEPTE (en attente validation utilisateur) | Voir constats LOT D ci-dessous | — |
-| Contrôles / Clôture | RECOMMANDATION : ACCEPTE (en attente validation utilisateur) | Voir constats LOT E ci-dessous | — |
-| Calculs / Exports | RECOMMANDATION : ACCEPTE (en attente validation utilisateur) | Voir constats LOT E ci-dessous | — |
+| Comptabilité | ACCEPTE_AVEC_RESERVE | Cœur fonctionnel validé, écritures équilibrées, déséquilibres refusés, clôture respectée. Réserve : mappings `606000` encore provisoires ; mappings trésorerie propriétaires / associés non arbitrés définitivement | 2026-08-10 |
+| Analytique | ACCEPTE | REEL = COMPTABLE + HORS_COMPTA, écart 0,00 €, axes et réconciliations cohérents, aucun double comptage | 2026-08-10 |
+| Résultats | ACCEPTE | Chiffres cohérents avec Lot10, réel/comptable/hors-compta cohérents, résultats explicables | 2026-08-10 |
+| Contrôles / Clôture | ACCEPTE **sous condition** | Accepté sous condition de la clarification des contrôles bloquants — **condition levée quant à l'ambiguïté documentaire, mais le fond révèle 2357 lignes bloquant réellement la clôture** (cf. section « Clarification » ci-dessous) | 2026-08-10 |
+| Calculs / Exports | ACCEPTE | Chaîne aval 6/6 SUCCES, 2ᵉ run identique, rollback natif exercé, exports propres, aucune PII, Lot13 conforme | 2026-08-10 |
+
+## Clarification des contrôles « 2358 bloquants » (2026-08-10) — correction d'une ambiguïté de mes rapports précédents
+
+Mes rapports des 2026-08-08/10 écrivaient « 62 INFO séparés des 2358 bloquants ». **Cette formulation
+conflatait deux notions distinctes** et devait être corrigée. Comptage exact, réalisé sur l'export
+CSV applicatif (colonnes `niveau` et `impact_cloture`, vérité terrain) :
+
+| Statut réel | Nombre |
+|---|---:|
+| BLOQUANT (sévérité) | 959 |
+| A_CONTROLER (sévérité) | 1399 |
+| AVERTISSEMENT | 0 |
+| INFO | 62 |
+| RESOLU / EXCEPTION | 1 (exception acceptée pendant la recette) |
+| **TOTAL** | **2420** |
+
+Répartition par effet réel sur la clôture :
+
+| Effet | Nombre |
+|---|---:|
+| **Bloque la clôture** | **2357** |
+| Sans effet (INFO) | 62 |
+| Exception justifiée | 1 |
+
+**Conclusion honnête : ce n'était pas seulement une erreur de formulation.** Le chiffre 2357/2358
+était exact au sens « empêche la clôture », mais il ne correspond PAS à la sévérité BLOQUANT (959).
+Les deux sévérités BLOQUANT **et** A_CONTROLER portent `impact_cloture = "Bloque la clôture"`.
+**2357 lignes empêchent donc réellement une clôture aujourd'hui.**
+
+Familles (9 codes seulement, aucune résolution automatique appliquée) :
+
+| Code | Sévérité | Nombre | Module |
+|---|---|---:|---|
+| `GESTION_LOGEMENT_MISSING` | BLOQUANT | 838 | RESERVATIONS |
+| `RESERVATION_A_CONTROLER_SANS_COMMISSION` | A_CONTROLER | 612 | COMMISSIONS |
+| `GUEST_COUNT_MANQUANT_PREPARATION_CANAPE` | A_CONTROLER | 553 | COMMISSIONS |
+| `CLOTURE_IMPOSSIBLE_LIGNE_BANCAIRE_NON_CLASSEE` | A_CONTROLER | 221 | BANQUE |
+| `CHARGE_EXCEPTIONNELLE_DANS_CHARGE_FIXE` | BLOQUANT | 121 | EXPLOITATION |
+| 4 autres codes résiduels | A_CONTROLER | 12 | MENAGES / MENAGES_EXT |
+
+**Nature de ces bloqueurs : ce sont des lacunes de DONNÉES MÉTIER, pas des défauts applicatifs.**
+Périodes de gestion absentes du référentiel, réservations sans commission calculable, guest count
+manquant, lignes bancaires non encore classées (directement liées aux 82 A_ENVOYER_IA et 222
+rapprochements en attente), charges exceptionnelles mal rangées. Le moteur fait exactement son
+travail : il refuse de clôturer un mois dont les données ne sont pas complètes. Aucun de ces
+contrôles n'a été résolu, masqué, skippé ou transformé en exception par cette mission.
+
+**Conséquence directe sur le verdict** : conformément à la règle posée par la mission
+(« si ce sont réellement des bloquants actifs, ne pas poursuivre comme si le mode réel était
+prêt »), **la préparation du mode réel repasse en NO GO**. Une bascule en écriture réelle sur un
+périmètre dont aucun mois ne peut être clôturé serait prématurée.
 
 **LOT A clos (2026-08-10)** : 1 ACCEPTE, 3 ACCEPTE_AVEC_RESERVE, 0 REFUSE. Aucune réserve
 bloquante, aucune correction demandée (toutes cosmétiques/fonctionnelles mineures, conformes à la

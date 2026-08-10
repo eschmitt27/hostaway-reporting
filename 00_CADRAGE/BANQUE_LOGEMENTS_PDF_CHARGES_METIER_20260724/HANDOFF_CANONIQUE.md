@@ -1234,14 +1234,43 @@ d'environnement** — l'activation exige une modification revue de `app/config.p
 conception, à connaître avant toute planification. Dossier complet : `PREPARATION_MODE_REEL.md`
 (9 writers inventoriés, ordre d'activation en 7 étapes, backup/rollback, conditions GO/NO GO).
 
+## Validation LOT D/E signée + clarification des bloqueurs de clôture (2026-08-10, suite)
+
+**LOT D/E — décisions utilisateur enregistrées** : Comptabilité ACCEPTE_AVEC_RESERVE (mappings
+`606000` / trésorerie / associés encore provisoires), Analytique ACCEPTE, Résultats ACCEPTE,
+Contrôles/Clôture ACCEPTE **sous condition** de clarification, Calculs/Exports ACCEPTE.
+**Les 16 modules ont désormais une décision humaine.**
+
+**La condition a été instruite — et change le verdict.** Comptage exact sur l'export applicatif :
+2420 lignes, sévérité BLOQUANT **959**, A_CONTROLER **1399**, INFO **62** ; **2357 lignes portent
+`impact_cloture = "Bloque la clôture"`**. Mes rapports précédents écrivaient « 2358 bloquants » en
+conflatant sévérité et effet : chiffre exact, lecture ambiguë, **corrigée dans tous les documents**.
+Ces 2357 lignes se répartissent en **9 familles de codes** et sont des **lacunes de données métier**
+(périodes de gestion absentes 838, réservations sans commission 612, guest count manquant 553,
+lignes bancaires non classées 221, charges exceptionnelles mal rangées 121, 12 résiduelles) — pas
+des défauts applicatifs. **Aucune n'a été résolue, masquée ni transformée en exception.**
+**Conséquence : aucun mois n'est clôturable → préparation mode réel NO GO.**
+
+**Audit des 9 writers — le contrat de sécurité demandé existe déjà.** Double garde
+(`RECETTE_MODE and _env_flag(...)`), défaut fail-closed, second flag de confirmation, write-guard
+de chemin indépendant (`app/recette_guard.py`, interdit en dur `01_SOURCES_BRUTES`/`02_TRAVAIL`/
+`03_EXPORTS`), backup pré-écriture, prévisualisation + confirmation, historiques append-only,
+rollback : **tout est en place et vérifié dans le code**. Construire un second mécanisme aurait
+contrevenu à l'instruction « ne crée pas un troisième système de permission parallèle ».
+**Aucune ligne de `app/config.py` n'a été modifiée.** Ce qui manque est l'état « écriture réelle »
+(état C), délibérément jamais construit : le créer maintenant retirerait la protection qui garantit
+qu'aucune écriture réelle accidentelle n'est possible, alors qu'aucune n'est encore souhaitable.
+Les 3 hardcodes ont été analysés individuellement : HH et CONTROLES sont **prêts fonctionnellement
+mais maintenus `False`** ; REF_ASSOC_MODE est **NON_ACTIVABLE**.
+
 ## État de reprise
 
-Worktree propre, bloc Banque/Trésorerie validé sur copies, cadrage métier virement↔réservation
-corrigé, cadrage comptable fermé, validation humaine LOT A/B/C signée, LOT D/E exercés avec
-recommandations techniques (Comptabilité ACCEPTE_AVEC_RESERVE, Analytique/Résultats/Contrôles/
-Calculs ACCEPTE), préparation du mode réel documentée sans activation. **Prochaine action unique :
-décisions utilisateur sur les 5 modules du LOT D/E** (`RECETTE_FONCTIONNELLE_GLOBALE.md` partie J
-pour les recommandations, partie I pour la fiche).
+Worktree propre, application validée sur copies avec les 16 modules décidés par l'utilisateur,
+cadrage comptable fermé, contrat de sécurité des writers audité et confirmé déjà en place, mode réel
+jamais activé. **Prochaine action unique : traiter les 2357 bloqueurs de clôture**, en commençant par
+la famille la plus volumineuse et la plus mécanique — `GESTION_LOGEMENT_MISSING` (838 lignes :
+compléter `REF_Gestion_Logements_Hist` pour les couples logement×mois non couverts). C'est le
+préalable à toute clôture, donc à toute bascule en mode réel.
 
 Commandes de reprise : `cd <worktree> && git status && git log --oneline -5` ; instance de recette
 type : `RECETTE_MODE=1 PROJECT_ROOT=<copies> APP_DATA_DIR=<recette>/APP_DATA python -m uvicorn

@@ -2965,3 +2965,42 @@ restante) ; Comptabilite FONCTIONNELLE AVEC MAPPINGS PROVISOIRES ; Preparation m
 TECHNIQUEMENT / A SIGNER ; Mode reel NO GO - NON ACTIVE.
 REFERENCE : RECETTE_FONCTIONNELLE_GLOBALE.md, PREPARATION_MODE_REEL.md, 72_CHECKLIST_GO_NO_GO_
 MODE_REEL.md (restructuree en 6 domaines A-F).
+
+---
+
+## Clarification des bloqueurs de cloture + audit des writers (2026-08-10, suite)
+
+DECISIONS LOT D/E signees par l'utilisateur : Comptabilite ACCEPTE_AVEC_RESERVE, Analytique
+ACCEPTE, Resultats ACCEPTE, Controles/Cloture ACCEPTE SOUS CONDITION, Calculs/Exports ACCEPTE.
+Les 16 modules ont desormais une decision humaine.
+
+CORRECTION D'UN CHIFFRE DE MES RAPPORTS PRECEDENTS. Comptage exact sur l'export applicatif
+(colonnes niveau + impact_cloture) : TOTAL 2420 lignes ; severite BLOQUANT 959, A_CONTROLER 1399,
+INFO 62 ; 2357 lignes portent impact_cloture = "Bloque la cloture" ; 1 exception justifiee.
+Mes rapports ecrivaient "62 INFO separes des 2358 bloquants", ce qui conflatait l'effet sur la
+cloture et la severite BLOQUANT. Chiffre exact au sens "bloque la cloture", lecture ambigue.
+CORRIGE dans tous les documents.
+
+9 familles de codes, toutes des LACUNES DE DONNEES METIER (pas des defauts applicatifs) :
+  838  BLOQUANT     GESTION_LOGEMENT_MISSING                        (RESERVATIONS)
+  612  A_CONTROLER  RESERVATION_A_CONTROLER_SANS_COMMISSION         (COMMISSIONS)
+  553  A_CONTROLER  GUEST_COUNT_MANQUANT_PREPARATION_CANAPE         (COMMISSIONS)
+  221  A_CONTROLER  CLOTURE_IMPOSSIBLE_LIGNE_BANCAIRE_NON_CLASSEE   (BANQUE)
+  121  BLOQUANT     CHARGE_EXCEPTIONNELLE_DANS_CHARGE_FIXE          (EXPLOITATION)
+   12  A_CONTROLER  4 codes residuels                               (MENAGES / MENAGES_EXT)
+AUCUNE resolue automatiquement, masquee, skippee ni transformee en exception.
+
+CONSEQUENCE : aucun mois n'est cloturable aujourd'hui -> PREPARATION MODE REEL = NO GO.
+
+AUDIT DES 9 WRITERS : le contrat de securite demande par la mission (double garde, defaut
+fail-closed, write-guard de chemin, backup pre-ecriture, previsualisation/confirmation,
+historique append-only, rollback) EXISTE DEJA et a ete verifie dans le code. Aucun mecanisme
+parallele construit, AUCUNE ligne de app/config.py modifiee. Ce qui manque est l'etat "ecriture
+reelle" (etat C), delibarement jamais construit ; le creer maintenant retirerait la protection
+qui garantit qu'aucune ecriture reelle accidentelle n'est possible.
+3 hardcodes analyses : HH et CONTROLES prets fonctionnellement mais maintenus False ;
+REF_ASSOC_MODE NON_ACTIVABLE.
+
+Sources reelles intactes, port 8000/PID 21136 intact, mode reel jamais active, aucun writer active.
+REFERENCE : RECETTE_FONCTIONNELLE_GLOBALE.md, PREPARATION_MODE_REEL.md (section 2bis),
+72_CHECKLIST_GO_NO_GO_MODE_REEL.md.

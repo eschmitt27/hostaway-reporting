@@ -1,5 +1,24 @@
 # 60 — Verdict GO / NO GO (recette globale sur copies, 2026-08-01, mis à jour le 2026-08-02)
 
+> **Suite 11 (2026-08-10) — LA PRÉPARATION DU MODE RÉEL REPASSE EN NO GO.**
+> Validation humaine LOT D/E signée (Comptabilité ACCEPTE_AVEC_RESERVE, Analytique/Résultats/
+> Calculs ACCEPTE, Contrôles/Clôture ACCEPTE sous condition). La condition a été instruite et
+> **révèle un fait qui change le verdict** : **2357 lignes de contrôle empêchent réellement toute
+> clôture** (959 BLOQUANT + 1399 A_CONTROLER, toutes `impact_cloture = "Bloque la clôture"`). Mes
+> rapports précédents écrivaient « 2358 bloquants » en conflatant sévérité et effet — chiffre exact,
+> lecture ambiguë, **corrigée**. Ce sont des **lacunes de données métier** (9 familles), pas des
+> défauts applicatifs, et aucune n'a été résolue automatiquement.
+>
+> Audit des 9 writers : **le contrat de sécurité demandé (double garde, défaut fail-closed,
+> write-guard de chemin, backup pré-écriture, prévisualisation/confirmation) est déjà implémenté**.
+> Aucun second mécanisme n'a été construit, aucune ligne de `app/config.py` modifiée. Ce qui manque
+> est l'état « écriture réelle », délibérément jamais construit — et qui ne doit pas l'être tant que
+> le verdict est NO GO.
+>
+> **Verdicts : Application VALIDÉE SUR COPIES (LOT A→E signés) ; Configuration writers PRÊTE
+> (déjà fail-closed) ; Writers 0/9 activables aujourd'hui, par conception ; Préparation mode réel
+> NO GO (bloqueurs de clôture + arbitrages comptables) ; Mode réel NO GO — NON ACTIVÉ.**
+
 > **Suite 10 (2026-08-10) — 4 verdicts séparés.** Validation humaine LOT A/B/C signée par
 > l'utilisateur ; LOT D/E exercés en profondeur (chaîne E2E comptable réelle, équilibre imposé,
 > période clôturée verrouillée, invariant REEL=COMPTABLE+HC à 0,00 €, pipeline 6/6 depuis

@@ -40,6 +40,28 @@ aucune activation.
 
 Colonnes intentionnellement vides. Claude ne coche, ne remplit, ni n'infère aucune de ces cases.
 
+## Mise à jour 2026-08-10 (suite) — clarification des bloqueurs de clôture
+
+**Correction majeure d'un chiffre de mes rapports précédents.** Comptage exact sur l'export
+applicatif : **2420 lignes** au total — sévérité BLOQUANT **959**, A_CONTROLER **1399**, INFO **62** ;
+**2357 lignes portent `impact_cloture = "Bloque la clôture"`**. Mes rapports écrivaient « 62 INFO
+séparés des 2358 bloquants », ce qui conflatait « bloque la clôture » et « sévérité BLOQUANT ».
+
+**Ce ne sont pas des défauts applicatifs mais des lacunes de données métier** (9 familles de codes :
+périodes de gestion absentes 838, réservations sans commission 612, guest count manquant 553, lignes
+bancaires non classées 221, charges exceptionnelles mal rangées 121, 12 résiduelles). Aucune n'a été
+résolue, masquée ni transformée en exception.
+
+**Conséquence : aucun mois n'est clôturable aujourd'hui → préparation mode réel = NO GO.**
+
+| Item | Statut |
+|---|---|
+| Bloqueurs de clôture identifiés et catégorisés | VALIDE |
+| Bloqueurs de clôture traités | **BLOQUE** — 2357 ouverts, traitement métier requis |
+| Contrat de sécurité des writers (double garde, fail-closed, write-guard, backup, prévisualisation) | VALIDE — **déjà implémenté**, aucun mécanisme parallèle créé |
+| État « écriture réelle » (état C) | **NON CONSTRUIT — délibérément** ; ne doit pas l'être tant que le verdict est NO GO |
+| 3 hardcodes analysés individuellement | VALIDE — 2 prêts fonctionnellement mais maintenus `False`, 1 NON_ACTIVABLE |
+
 ## Mise à jour 2026-08-10 — checklist restructurée par domaine
 
 Statuts : `VALIDE` / `VALIDE_AVEC_RESERVE` / `BLOQUE` / `NON_TESTE` / `A_SIGNER_UTILISATEUR`.

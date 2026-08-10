@@ -1,5 +1,23 @@
 # Préparation technique du mode réel (2026-08-10)
 
+> **MISE À JOUR (2026-08-10, suite) — LE VERDICT REPASSE EN NO GO.**
+> La clarification des contrôles bloquants (cf. `RECETTE_FONCTIONNELLE_GLOBALE.md`) établit que
+> **2357 lignes empêchent réellement la clôture** (959 de sévérité BLOQUANT + 1399 A_CONTROLER,
+> toutes porteuses de `impact_cloture = "Bloque la clôture"`). Ce ne sont pas des défauts
+> applicatifs mais des **lacunes de données métier** ; elles n'en bloquent pas moins toute clôture.
+> Basculer un writer en écriture réelle sur un périmètre dont aucun mois ne peut être clôturé
+> serait prématuré. **Préparation mode réel : NO GO** jusqu'à traitement de ces familles.
+>
+> **Second constat de cet audit : le contrat de sécurité demandé existe déjà pour l'essentiel.**
+> L'audit des 9 writers (ci-dessous, section 2bis) montre que la double garde, le défaut
+> fail-closed, le write-guard de chemin, le backup pré-écriture, la prévisualisation et la
+> confirmation sont **déjà implémentés**. Construire un second mécanisme de permission
+> contreviendrait à l'instruction explicite de la mission (« ne crée pas un troisième système de
+> permission parallèle », « n'invente pas si l'architecture actuelle peut être étendue »).
+> **Aucune modification de `app/config.py` n'a donc été faite** — ce qui manque n'est pas un
+> mécanisme de sécurité, c'est l'**état « écriture réelle »** lui-même, délibérément jamais
+> construit, dont la création doit rester une décision humaine explicite et revue.
+
 **Ce document ne déclenche aucune activation.** Il documente ce qui existe, dans quel ordre une
 activation future devrait se faire, et ce qui la bloque aujourd'hui. Aucun flag n'a été modifié,
 aucun writer n'a été activé, le mode réel reste NO GO.
@@ -53,6 +71,68 @@ planification de bascule.
 | Suivi des contrôles | SQLite applicatif (suivi humain) | `CONTROLES_REAL_WRITE_ENABLED` — **codé en dur `False`** | FAIBLE — journalise seulement, ne masque jamais le moteur | Modification de `config.py` obligatoire | `-k controle` vert | Vérifier que l'anomalie moteur reste visible | Restaurer `app.db` |
 
 **Aucun writer n'a été créé, modifié ou activé par cette mission.**
+
+## 2bis. Audit détaillé des 9 writers (2026-08-10) — le contrat de sécurité est déjà en place
+
+| Writer | Module | Cible réelle | Flag | RECETTE_MODE requis ? | Hardcodé ? | Risque |
+|---|---|---|---|---|---|---|
+| Charges | Charges | `SAISIE_Charges_Flux.xlsx` (fichier métier) | `CHARGES_REAL_WRITE_ENABLED` + `_CONFIRMATION_` | **oui** | non | ÉLEVÉ |
+| Réservations HH | Réservations | `SAISIE_ReservationsHorsHostaway.xlsx` (fichier métier) | `HH_REAL_WRITE_ENABLED` | — | **oui, `False`** | ÉLEVÉ |
+| Banque contrôle | Banque | **copie** de `BANQUE_LOT8_IMPORT.xlsx` (onglet `OVERRIDE_APP4B`, workspace isolé sous `data/`) | `BANQUE_REAL_WRITE_ENABLED` + `_CONFIRMATION_` | **oui** | non | FAIBLE (copie par conception) |
+| Banque import | Banque | `NORM_Banque` via fichier temporaire | `BANQUE_REAL_WRITE_ENABLED` + `_CONFIRMATION_` | **oui** | non | ÉLEVÉ |
+| Factures / Règlements | Factures | SQLite applicatif uniquement | `FACTURES_REAL_WRITE_ENABLED` + `_CONFIRMATION_` | **oui** | non | MOYEN |
+| Ménages (cycle) | Ménages | SQLite applicatif uniquement | `MENAGES_CYCLE_REAL_WRITE_ENABLED` + `_CONFIRMATION_` | **oui** | non | MOYEN |
+| Comptabilité | Comptabilité | SQLite applicatif uniquement | `COMPTABILITE_REAL_WRITE_ENABLED` + `_CONFIRMATION_` | **oui** | non | MOYEN |
+| Calculs (runs) | Calculs | MASTER de `02_TRAVAIL` + `03_EXPORTS` | `CALCULS_REAL_RUN_ENABLED` + `_CONFIRMATION_` | **oui** | non | ÉLEVÉ |
+| Suivi contrôles | Contrôles | SQLite applicatif uniquement | `CONTROLES_REAL_WRITE_ENABLED` | — | **oui, `False`** | FAIBLE |
+| *(bonus)* REF_Assoc_Mode | Référentiel | `REF_Setup.xlsm` | `REF_ASSOC_MODE_REAL_WRITE_ENABLED` | — | **oui, `False`** | ÉLEVÉ |
+
+### Ce qui existe déjà (vérifié dans le code, pas déduit)
+
+- **Double garde** : `X_REAL_WRITE_ENABLED = RECETTE_MODE and _env_flag("X_REAL_WRITE_ENABLED")` —
+  contexte **et** flag individuel requis, exactement le contrat demandé (§4/§5 de la mission).
+- **Défaut fail-closed** : `_env_flag()` retourne `False` pour toute variable absente ; aucun
+  writer ne s'active par omission, ni en développement, ni via une route HTTP.
+- **Second verrou de confirmation** : chaque writer a un flag `_CONFIRMATION_ENABLED` distinct.
+- **Write-guard de chemin** (`app/recette_guard.py`) : barrière indépendante des flags, explicitement
+  « fail-closed », qui refuse toute écriture hors `RECETTE_ROOT` en mode recette et interdit en dur
+  les segments `01_SOURCES_BRUTES`, `02_TRAVAIL`, `03_EXPORTS`.
+- **Backup pré-écriture** : présent (sauvegardes horodatées, vérifiées lors des missions Banque et
+  Calculs — « sera sauvegardé avant écrasement » affiché en prévisualisation).
+- **Prévisualisation + confirmation explicite** : exercées réellement sur Charges, Réservations HH,
+  Trésorerie, Banque, Comptabilité, Calculs.
+- **Écriture transactionnelle et journalisée** : historiques append-only vérifiés (factures,
+  trésorerie, classement bancaire, périodes comptables).
+- **Rollback** : natif et exercé pour Calculs (8 fichiers restaurés) ; par restauration `app.db`
+  pour les writers SQLite ; par backup horodaté pour les writers fichier.
+
+### Ce qui n'existe pas — et pourquoi ce n'est pas un défaut
+
+Il n'existe **aucun état « écriture réelle »**. Ce n'est pas un oubli : c'est la conséquence directe
+du choix `RECETTE_MODE and ...`. Les trois états prévus par la mission se lisent ainsi :
+
+| État | Existe ? | Comportement |
+|---|---|---|
+| A — RECETTE | **oui** | Writers activables, cibles exclusivement sous `RECETTE_ROOT`, write-guard actif |
+| B — LECTURE RÉELLE | **oui** (état par défaut aujourd'hui) | Tous les writers `False`, aucune écriture possible |
+| C — ÉCRITURE RÉELLE | **non, jamais construit** | Exigerait de modifier `app/config.py` |
+
+**Recommandation : ne pas créer l'état C tant que le verdict est NO GO.** Le créer maintenant
+reviendrait à retirer la protection qui garantit aujourd'hui qu'aucune écriture réelle accidentelle
+n'est possible, sans qu'aucune écriture réelle ne soit encore souhaitée ni sûre (2357 bloqueurs de
+clôture ouverts, mappings comptables non arbitrés, validation humaine partielle).
+
+### Les 3 hardcodes à `False` — analyse individuelle
+
+| Writer | Cause réelle | Verdict |
+|---|---|---|
+| `HH_REAL_WRITE_ENABLED` | Écrit une **source métier Excel**. Le module est fonctionnellement validé (LOT A ACCEPTE_AVEC_RESERVE) et couvert par des tests verts. Le hardcode est une **protection volontaire**, pas une fonction inachevée | **PRÊT fonctionnellement, MAIS laisser `False`** — son activation relève de l'état C, à créer sous revue |
+| `REF_ASSOC_MODE_REAL_WRITE_ENABLED` | Migration ponctuelle d'un référentiel, écrit `REF_Setup.xlsm`. Opération one-shot, jamais exercée en réel | **NON_ACTIVABLE** — laisser `False` |
+| `CONTROLES_REAL_WRITE_ENABLED` | Journalise le suivi humain (SQLite seul, ne masque jamais le moteur). Fonctionnellement exercé en recette | **PRÊT fonctionnellement, MAIS laisser `False`** — même raison que HH |
+
+Aucun hardcode n'a été levé par cette mission. Conformément à l'instruction : « ne rends jamais
+activable un writer incomplet juste pour uniformiser la config » — et, ici, ne pas lever non plus
+un writer *complet* tant que le contexte global est NO GO.
 
 ## 3. Ordre d'activation proposé (technique, non exécuté)
 
@@ -129,5 +209,12 @@ Procédure :
 - anomalie BLOQUANT ouverte sur le périmètre concerné ;
 - activation de plusieurs writers simultanément.
 
-**Statut actuel : NO GO** — validation humaine LOT D/E non rendue, arbitrages comptables non
-rendus, aucune modification de `config.py` faite ni souhaitée à ce stade.
+**Statut actuel : NO GO** — trois causes cumulatives, chacune suffisante :
+1. **2357 lignes bloquent réellement la clôture** (lacunes de données métier, 9 familles de
+   codes, aucune résolue automatiquement) — aucun mois n'est clôturable aujourd'hui ;
+2. arbitrages comptables non rendus (`70` : 606000, frais bancaires, trésorerie propriétaires,
+   associés/IK) ;
+3. l'état « écriture réelle » n'existe pas et ne doit pas être créé tant que 1 et 2 tiennent.
+
+Validation humaine : LOT A à E désormais tous signés par l'utilisateur (2026-08-10) — ce point
+n'est plus bloquant, les deux autres le restent.

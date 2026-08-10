@@ -918,3 +918,31 @@ donc activer AUCUN writer par variable d'environnement : l'activation du mode re
 modification delibaree et revue de app/config.py. Protection par conception (impossible d'activer
 le reel par accident), a connaitre avant toute planification de bascule.
 Detail complet : PREPARATION_MODE_REEL.md.
+
+
+## AMBIGUITE DOCUMENTAIRE "2358 BLOQUANTS" — CORRIGEE (2026-08-10)
+
+GRAVITE : MOYENNE (erreur de restitution dans mes propres rapports, pas un defaut applicatif).
+STATUT : CORRIGE.
+
+Constat (souleve par l'utilisateur) : mes rapports des 2026-08-08/10 ecrivaient "62 INFO separes
+des 2358 bloquants", formulation qui conflatait deux notions distinctes :
+  - la SEVERITE du controle (BLOQUANT / A_CONTROLER / INFO) ;
+  - l'EFFET du controle sur la cloture (impact_cloture).
+
+Comptage exact realise sur l'export CSV applicatif : TOTAL 2420 lignes ; severite BLOQUANT 959,
+A_CONTROLER 1399, INFO 62 ; 2357 lignes portent impact_cloture = "Bloque la cloture" ; 1 exception.
+
+Le chiffre 2357/2358 etait donc EXACT au sens "empeche la cloture", mais sa lecture laissait
+croire a 2358 controles de severite BLOQUANT alors qu'ils ne sont que 959. Les deux severites
+BLOQUANT et A_CONTROLER bloquent la cloture.
+
+Correction appliquee : tous les documents concernes (RECETTE_FONCTIONNELLE_GLOBALE.md,
+PREPARATION_MODE_REEL.md, 72_CHECKLIST_GO_NO_GO_MODE_REEL.md, 60_VERDICT_GO_NO_GO.md,
+HANDOFF_CANONIQUE.md, JOURNAL_CONTROLES.md) portent desormais les compteurs exacts et la
+distinction severite / effet.
+
+CONSEQUENCE DE FOND, plus importante que l'erreur elle-meme : 2357 lignes empechent REELLEMENT
+toute cloture aujourd'hui. Ce sont des lacunes de donnees metier (9 familles), pas des defauts
+applicatifs, mais elles rendent prematuree toute bascule en mode reel. Le verdict de preparation
+du mode reel repasse en NO GO. Aucun controle n'a ete resolu automatiquement.
