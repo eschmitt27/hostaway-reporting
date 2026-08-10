@@ -234,3 +234,12 @@ et 2 (arbitrages comptables) demeurent → préparation mode réel reste NO GO.*
 612 lignes bloquantes sont causées par `GUEST_COUNT_MANQUANT` (553) et un statut de payout non
 résolu pour des réservations VRBO/Direct (59) — deux causes indépendantes du taux, non traitées
 ici. Aucun impact sur le statut NO GO.
+
+
+**Mise a jour 2026-08-10 (suite, GUEST_COUNT_MANQUANT_PREPARATION_CANAPE)** : audit complet, code
+deja correct (correctif du 20/06/2026, numberOfGuests). Cause reelle : aucune re-extraction
+Hostaway reelle depuis ce correctif (le fichier source a guestCount vide sur 100% des
+reservations et ne porte pas la colonne d'audit ajoutee par le correctif). Aucune source locale
+fiable pour reconstruire - la seule voie est une re-extraction Hostaway reelle (writer reel,
+acces reseau externe), non entreprise, question posee a l'utilisateur. 553 inchange. Aucun
+impact sur le statut NO GO.

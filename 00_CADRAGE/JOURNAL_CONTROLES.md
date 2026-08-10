@@ -3132,3 +3132,41 @@ VERDICT : GESTION_LOGEMENT_MISSING 472 inchange. GUEST_COUNT 553 inchange. BANQU
 CHARGES 69 inchange. CLOTURE : NO GO. PREPARATION MODE REEL : NO GO. MODE REEL : NO GO - NON
 ACTIVE. Aucun code ni donnee reelle modifie ce tour.
 REFERENCE : 78_RECONSTRUCTION_HISTORIQUE_COMMISSIONS.md
+
+---
+
+## GUEST_COUNT_MANQUANT_PREPARATION_CANAPE - constat, aucune action possible (2026-08-10, suite)
+
+Dedup : 553 lignes = 553 reservations distinctes (source Lot10, onglet A_CONTROLER), sur 4
+logements ayant une regle de preparation canape configuree (LOG_0006/0008/0011/0013 - les seuls
+du parc), 23 mois (2025-01 a 2027-02).
+
+Chaine tracee : lib_canape.calculate_canape_amount() - si le logement a une regle configuree et
+guestCount absent -> A_CONTROLER, montant 0, jamais de valeur inventee. Taux de commission non
+implique a aucun moment.
+
+AUDIT TECHNIQUE : le correctif necessaire EXISTE DEJA (commit 719169d, "Correctif Hostaway -
+nombre voyageurs pour preparation canape", 2026-06-20) - res.get("numberOfGuests") au lieu de
+res.get("guestCount") qui n'existe pas dans l'API. Code deja correct.
+
+CONSTAT DETERMINANT : le fichier reel MASTER_FACT_HA_Reservations.xlsx (copies) a guestCount vide
+sur 1391/1391 reservations (100%) ET NE PORTE PAS la colonne numberOfGuests que le correctif
+ajoute - preuve qu'il a ete produit par une extraction ANTERIEURE au correctif, jamais regeneree
+depuis. Pas un bug de code : un probleme de fraicheur de donnees (aucune re-extraction Hostaway
+reelle depuis le 20/06/2026).
+
+Recherche de source locale fiable : NEGATIVE. Aucun cache de payload API brut, aucune archive
+Lot1, aucune autre source. PREUVE_A=0, PREUVE_B=0, AMBIGU=0, ABSENT=553.
+
+CONSEQUENCE : aucune correction de code, aucune donnee ecrite, aucune simulation (rien a
+simuler). 553 reste inchange. RESERVATION_A_CONTROLER_SANS_COMMISSION reste a 612. TOTAL
+controles reste a 2002.
+
+QUESTION UTILISATEUR UNIQUE : autoriser une re-extraction Hostaway reelle (acces API reseau reel,
+writer touchant des sources metier reelles) ? Resultat non garanti a 100% si l'API elle-meme ne
+fournit pas numberOfGuests pour d'anciennes reservations.
+
+VERDICT : GESTION_LOGEMENT_MISSING 472 inchange. BANQUE 222 inchange. CHARGES 69 inchange.
+CLOTURE : NO GO. PREPARATION MODE REEL : NO GO. MODE REEL : NO GO - NON ACTIVE. Aucun code ni
+donnee reelle modifie ce tour.
+REFERENCE : 79_RECONSTRUCTION_GUEST_COUNT.md

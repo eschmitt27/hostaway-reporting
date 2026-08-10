@@ -1356,17 +1356,45 @@ cible et le référentiel actuel sont identiques. `RESERVATION_A_CONTROLER_SANS_
 **612, inchangé** — pour des causes totalement indépendantes du taux, hors périmètre de cette
 mission (guest count, payout VRBO/Direct).
 
+## GUEST_COUNT_MANQUANT_PREPARATION_CANAPE — constat, aucune action possible (2026-08-10, suite)
+
+Détail complet : `79_RECONSTRUCTION_GUEST_COUNT.md`.
+
+**553 lignes = 553 réservations distinctes**, sur les **4 seuls logements du parc** ayant une règle
+de préparation canapé configurée (`LOG_0006/0008/0011/0013`), 23 mois.
+
+**Le code est déjà correct** — commit `719169d` (« Correctif Hostaway - nombre voyageurs pour
+preparation canape », **2026-06-20**) : `res.get("numberOfGuests")` remplace
+`res.get("guestCount")` (champ API inexistant). **Constat déterminant** : le fichier réel
+`MASTER_FACT_HA_Reservations.xlsx` a `guestCount` vide sur 1391/1391 réservations (100 %) **et ne
+porte pas la colonne `numberOfGuests`** que le correctif ajoute — preuve qu'il provient d'une
+extraction **antérieure au correctif**, jamais régénérée depuis. **Ce n'est pas un bug de code,
+c'est une absence de ré-extraction Hostaway réelle.**
+
+Recherche de source locale fiable : négative (aucun cache de payload API, aucune archive Lot1,
+aucune autre source). **PREUVE_A = 0 sur 553.** Aucune correction de code, aucune donnée écrite,
+aucune simulation possible — rien à simuler puisque rien ne change.
+
+`RESERVATION_A_CONTROLER_SANS_COMMISSION` reste à **612** (553 guest count + 59 VRBO/Direct,
+inchangé). TOTAL contrôles reste à **2002**.
+
+**Question utilisateur unique, posée, en attente** : autoriser une ré-extraction Hostaway réelle
+(accès API réseau réel, writer touchant des sources métier réelles, résultat non garanti à 100 %
+si l'API elle-même ne fournit pas `numberOfGuests` pour d'anciennes réservations) ? Mission dédiée
+et distincte si oui.
+
 ## État de reprise
 
 Worktree propre, application validée sur copies avec les 16 modules décidés, cadrage comptable
-fermé, contrat de sécurité des writers confirmé déjà en place, `GESTION_LOGEMENT_MISSING`
-partiellement résolu sur décision utilisateur (838→472 lignes, 137→77 couples),
-`RESERVATION_A_CONTROLER_SANS_COMMISSION` auditée — référentiel de taux déjà complet, rien à faire,
-612 inchangé pour causes distinctes. Aucune donnée inventée, mode réel jamais activé. **Prochaine
-action : famille bloquante suivante par volume, `GUEST_COUNT_MANQUANT_PREPARATION_CANAPE` (553
-lignes, dont 553 des 612 commission actuelles — la résoudre réduirait mécaniquement les deux
-familles), ou statuer sur les 59 `RESERVATION_EXCLUE_A_CONTROLER` (VRBO/Direct), ou sur les 77
-couples `GESTION_LOGEMENT_MISSING` restants (jan-juil 2025).**
+fermé, contrat de sécurité des writers confirmé déjà en place. Trois familles bloquantes auditées
+ce tour : `GESTION_LOGEMENT_MISSING` (838→472, décision appliquée au réel), `RESERVATION_A_
+CONTROLER_SANS_COMMISSION` (612, référentiel de taux déjà complet, rien à faire),
+`GUEST_COUNT_MANQUANT_PREPARATION_CANAPE` (553, code déjà correct, ré-extraction Hostaway réelle
+nécessaire pour aller plus loin — hors périmètre technique). Aucune donnée inventée, mode réel
+jamais activé. **Prochaine action : réponse utilisateur sur l'autorisation d'une ré-extraction
+Hostaway réelle, OU statuer sur les 59 `RESERVATION_EXCLUE_A_CONTROLER` (VRBO/Direct), OU sur les
+77 couples `GESTION_LOGEMENT_MISSING` restants (jan-juil 2025), OU passer à `BANQUE` (222 lignes)
+ou `CHARGES` (69 lignes).**
 
 Commandes de reprise : `cd <worktree> && git status && git log --oneline -5` ; instance de recette
 type : `RECETTE_MODE=1 PROJECT_ROOT=<copies> APP_DATA_DIR=<recette>/APP_DATA python -m uvicorn

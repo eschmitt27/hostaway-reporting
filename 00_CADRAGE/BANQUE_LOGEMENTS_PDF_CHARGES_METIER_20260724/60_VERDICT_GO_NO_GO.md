@@ -1,5 +1,14 @@
 # 60 — Verdict GO / NO GO (recette globale sur copies, 2026-08-01, mis à jour le 2026-08-02)
 
+> **Suite 14 (2026-08-10)** - GUEST_COUNT_MANQUANT_PREPARATION_CANAPE audite. 553 lignes
+> = 553 reservations distinctes, 4 logements avec regle canape configuree. Code deja correct
+> (correctif 20/06/2026, numberOfGuests). Cause reelle : aucune re-extraction Hostaway reelle
+> depuis ce correctif (fichier source 100% vide, colonne d audit du correctif absente - preuve
+> d une extraction anterieure). Aucune source locale fiable. PREUVE_A=0. Aucune ecriture, aucun
+> code modifie. 553 inchange, 612 inchange, TOTAL 2002 inchange. Question posee : autoriser une
+> re-extraction Hostaway reelle (hors perimetre technique de cette mission).
+> **CLOTURE NO GO. PREPARATION MODE REEL NO GO. MODE REEL NO GO - NON ACTIVE.**
+
 > **Suite 13 (2026-08-10)** — `RESERVATION_A_CONTROLER_SANS_COMMISSION` auditée. Baseline
 > contrôles corrigée à 2002 (exact, écart de −52 sur `CHARGE_EXCEPTIONNELLE_DANS_CHARGE_FIXE`
 > expliqué — effet aval de la prolongation gestion). **Découverte : `REF_Taux_Commission` existe
