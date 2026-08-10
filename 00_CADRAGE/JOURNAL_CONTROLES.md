@@ -3004,3 +3004,43 @@ REF_ASSOC_MODE NON_ACTIVABLE.
 Sources reelles intactes, port 8000/PID 21136 intact, mode reel jamais active, aucun writer active.
 REFERENCE : RECETTE_FONCTIONNELLE_GLOBALE.md, PREPARATION_MODE_REEL.md (section 2bis),
 72_CHECKLIST_GO_NO_GO_MODE_REEL.md.
+
+---
+
+## GESTION_LOGEMENT_MISSING — diagnostic (2026-08-10, suite)
+
+DEDUPLICATION : 838 lignes de controle = 137 couples logement x mois distincts, sur 14 logements
+et la seule annee 2025 (ratio 6.12 : une ligne par reservation concernee). Le volume apparent
+etait un artefact de comptage.
+
+CAUSE UNIQUE (137/137 categorie A, ABSENCE_REELLE_HISTORIQUE) : les 17 lignes de
+REF_Gestion_Logements_Hist ont TOUTES date_debut = 2026-01-01, toutes sourcees "Confirmation
+operateur 28/06/2026". Le referentiel est une photographie de l'etat au 01/01/2026 ; il n'a jamais
+contenu d'historique anterieur. Aucune autre categorie (borne, trou, statut, alias, incoherence)
+n'est representee.
+
+MOTEUR NON EN CAUSE - verifie empiriquement, pas suppose. lib_ref_history.applies_on() : debut
+inclusif, fin inclusive, periode ouverte si date_fin vide. 6 cas de bornes testes sur le moteur
+reel, tous conformes. Confirmation croisee par les donnees : aucun mois de 2026 n'apparait parmi
+les couples manquants alors que tous les mois de 2025 y sont. 0 des 838 lignes imputable a un bug.
+Aucune correction moteur appliquee (il n'y en avait pas besoin).
+
+PREUVES HISTORIQUES : recherche negative. Les 5 archives datees de REF_Setup (99_ARCHIVES, juin
+2026) NE CONTIENNENT PAS l'onglet REF_Gestion_Logements_Hist (cree posterieurement).
+REF_Logements n'a aucune colonne de date d'entree/sortie. Bilan : PREUVE_A=0, PREUVE_B=0,
+AMBIGU=0, ABSENT=137.
+
+CONSEQUENCE : aucune reconstruction deterministe possible. Aucun overlay construit, aucune
+simulation d'injection (ensemble vide). AUCUNE donnee inventee : ni date d'entree en gestion, ni
+proprietaire historique. L'existence d'une reservation en 2025 et l'identite du proprietaire actuel
+ont ete explicitement ecartees comme preuves insuffisantes, conformement au cadrage.
+
+QUESTION UTILISATEUR (une seule, motif uniforme) : les 14 logements etaient-ils (a) deja en gestion
+en 2025 avec les memes proprietaires - date d'entree reelle a preciser ; (b) avec d'autres
+proprietaires/dates ; ou (c) hors perimetre de gestion en 2025 - regle de perimetre a ecrire.
+
+VERDICT : GESTION_LOGEMENT_MISSING reste a 838 lignes / 137 couples / 14 logements.
+CLOTURE : NO GO (137 couples ouverts + 8 autres familles bloquantes, 1519 lignes, non traitees).
+PREPARATION MODE REEL : NO GO. MODE REEL : NO GO - NON ACTIVE.
+Sources reelles intactes, port 8000/PID 21136 intact.
+REFERENCE : 77_RECONSTRUCTION_GESTION_LOGEMENTS_HIST.md

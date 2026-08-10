@@ -1263,14 +1263,47 @@ qu'aucune écriture réelle accidentelle n'est possible, alors qu'aucune n'est e
 Les 3 hardcodes ont été analysés individuellement : HH et CONTROLES sont **prêts fonctionnellement
 mais maintenus `False`** ; REF_ASSOC_MODE est **NON_ACTIVABLE**.
 
+## GESTION_LOGEMENT_MISSING — diagnostic complet (2026-08-10, suite) — aucune donnée inventée
+
+Détail complet : `77_RECONSTRUCTION_GESTION_LOGEMENTS_HIST.md`.
+
+**Le volume était trompeur : 838 lignes = 137 couples logement×mois distincts, sur 14 logements et
+la seule année 2025** (ratio 6,12 — une ligne par réservation concernée).
+
+**Cause unique et uniforme (137/137 en catégorie A, ABSENCE_REELLE_HISTORIQUE)** : les 17 lignes de
+`REF_Gestion_Logements_Hist` ont **toutes** `date_debut = 2026-01-01`, toutes sourcées
+« Confirmation opérateur 28/06/2026 ». Le référentiel est une **photographie de l'état au
+01/01/2026**, il n'a jamais contenu d'historique antérieur.
+
+**Aucun bug moteur — vérifié, pas supposé.** `lib_ref_history.applies_on()` : début inclusif, fin
+inclusive, période ouverte si `date_fin` vide. Vérification empirique exécutée (6 cas de bornes,
+tous conformes) et confirmation croisée par les données : aucun mois de 2026 n'apparaît parmi les
+couples manquants. **0 des 838 lignes n'est imputable à un défaut de résolution.**
+
+**Recherche de preuves historiques : résultat négatif.** Les 5 archives datées de `REF_Setup`
+**ne contiennent pas l'onglet** (créé après) ; `REF_Logements` n'a aucune colonne de date. Bilan :
+**PREUVE_A = 0, PREUVE_B = 0, AMBIGU = 0, ABSENT = 137.** Aucune reconstruction déterministe n'est
+donc possible, aucun overlay n'a été construit, aucune simulation n'avait d'objet.
+
+**Rien n'a été inventé** : ni date d'entrée en gestion, ni propriétaire historique. L'existence
+d'une réservation en 2025 et l'identité du propriétaire actuel ont été explicitement écartées comme
+preuves insuffisantes.
+
+**Question posée à l'utilisateur** (une seule, le motif étant uniforme) : les 14 logements
+étaient-ils (a) déjà en gestion en 2025 avec les mêmes propriétaires — auquel cas il faut la date
+d'entrée réelle de chacun ; (b) en gestion avec d'autres propriétaires/dates ; ou (c) hors
+périmètre de gestion en 2025 — auquel cas c'est une règle de périmètre à écrire, pas une donnée à
+reconstruire.
+
 ## État de reprise
 
-Worktree propre, application validée sur copies avec les 16 modules décidés par l'utilisateur,
-cadrage comptable fermé, contrat de sécurité des writers audité et confirmé déjà en place, mode réel
-jamais activé. **Prochaine action unique : traiter les 2357 bloqueurs de clôture**, en commençant par
-la famille la plus volumineuse et la plus mécanique — `GESTION_LOGEMENT_MISSING` (838 lignes :
-compléter `REF_Gestion_Logements_Hist` pour les couples logement×mois non couverts). C'est le
-préalable à toute clôture, donc à toute bascule en mode réel.
+Worktree propre, application validée sur copies avec les 16 modules décidés, cadrage comptable
+fermé, contrat de sécurité des writers confirmé déjà en place, `GESTION_LOGEMENT_MISSING` diagnostiqué
+sans invention, mode réel jamais activé. **Prochaine action unique : réponse utilisateur à la
+question (a)/(b)/(c)** du §6 de `77_RECONSTRUCTION_GESTION_LOGEMENTS_HIST.md`. Elle débloque
+mécaniquement les 137 couples. Les 8 autres familles bloquantes (1519 lignes) restent à traiter
+ensuite, séparément — en particulier les 612 contrôles de commission, qui relèvent d'un référentiel
+**distinct** (taux de commission) et ne doivent pas être confondus avec l'historique de gestion.
 
 Commandes de reprise : `cd <worktree> && git status && git log --oneline -5` ; instance de recette
 type : `RECETTE_MODE=1 PROJECT_ROOT=<copies> APP_DATA_DIR=<recette>/APP_DATA python -m uvicorn
