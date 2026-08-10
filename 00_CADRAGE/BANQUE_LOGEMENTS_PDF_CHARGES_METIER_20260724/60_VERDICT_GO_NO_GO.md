@@ -1,5 +1,14 @@
 # 60 — Verdict GO / NO GO (recette globale sur copies, 2026-08-01, mis à jour le 2026-08-02)
 
+> **Suite 12 (2026-08-10)** — Première écriture réelle contrôlée de la mission. Sur décision
+> utilisateur explicite, `REF_Gestion_Logements_Hist` (14 logements) modifié : couverture
+> propriétaire prolongée au 01/08/2025 (procédure backup+SHA256+prévisualisation+écriture+relecture
+> respectée, intégrité vérifiée : 1/950 fichiers modifiés, exactement celui attendu).
+> `GESTION_LOGEMENT_MISSING` : 838→472 lignes, 137→77 couples (mesuré sur copies, diff identique
+> au réel, non recalculé sur le réel). **77 couples restent (jan-juil 2025), 8 autres familles
+> bloquantes (1519 lignes) intactes. CLÔTURE NO GO. PRÉPARATION MODE RÉEL NO GO. MODE RÉEL
+> NO GO — NON ACTIVÉ.**
+
 > **Suite 11 (2026-08-10) — LA PRÉPARATION DU MODE RÉEL REPASSE EN NO GO.**
 > Validation humaine LOT D/E signée (Comptabilité ACCEPTE_AVEC_RESERVE, Analytique/Résultats/
 > Calculs ACCEPTE, Contrôles/Clôture ACCEPTE sous condition). La condition a été instruite et

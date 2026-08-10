@@ -57,7 +57,7 @@ résolue, masquée ni transformée en exception.
 | Item | Statut |
 |---|---|
 | Bloqueurs de clôture identifiés et catégorisés | VALIDE |
-| Bloqueurs de clôture traités | **BLOQUE** — 2357 ouverts, traitement métier requis |
+| Bloqueurs de clôture traités | **BLOQUE (partiel)** — `GESTION_LOGEMENT_MISSING` : 838→472 lignes (137→77 couples) sur décision utilisateur explicite (couverture prolongée au 01/08/2025, réel modifié) ; 8 autres familles (1519 lignes) + reste de cette famille (77 couples, jan-juil 2025) encore ouverts |
 | Contrat de sécurité des writers (double garde, fail-closed, write-guard, backup, prévisualisation) | VALIDE — **déjà implémenté**, aucun mécanisme parallèle créé |
 | État « écriture réelle » (état C) | **NON CONSTRUIT — délibérément** ; ne doit pas l'être tant que le verdict est NO GO |
 | 3 hardcodes analysés individuellement | VALIDE — 2 prêts fonctionnellement mais maintenus `False`, 1 NON_ACTIVABLE |

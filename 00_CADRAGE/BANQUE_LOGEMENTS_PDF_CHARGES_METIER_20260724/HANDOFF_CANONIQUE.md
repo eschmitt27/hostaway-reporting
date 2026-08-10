@@ -1295,15 +1295,47 @@ d'entrée réelle de chacun ; (b) en gestion avec d'autres propriétaires/dates 
 périmètre de gestion en 2025 — auquel cas c'est une règle de périmètre à écrire, pas une donnée à
 reconstruire.
 
+## GESTION_LOGEMENT_MISSING — décision appliquée au réel (2026-08-10, suite)
+
+Décision utilisateur reçue : couverture propriétaire (même `proprietaire_id` qu'au 01/01/2026)
+prolongée jusqu'au **01/08/2025** pour les 14 logements concernés — date de couverture décidée,
+pas affirmée comme date commerciale réelle. Janvier→juillet 2025 explicitement hors périmètre,
+non reconstruits.
+
+**Appliqué d'abord sur copie** : 14 lignes de `REF_Gestion_Logements_Hist` modifiées
+(`date_debut` uniquement), contrôles structurels verts (0 chevauchement, 0 doublon, propriétaire/
+statut/`date_fin` inchangés, 3 autres logements intacts). Mesure : **GESTION_LOGEMENT_MISSING
+838→472 lignes, 137→77 couples**, les 77 restants tous en janvier-juillet 2025 sur les mêmes 14
+logements. Effets aval : **REEL/COMPTABLE/HORS_COMPTA strictement identiques** (291 722,75 /
+281 198,59 / 10 524,16, écart 0,00 €) — explicable : une seule ligne de gestion par logement,
+aucune ambiguïté de propriétaire n'a jamais existé pour le calcul.
+
+**Appliqué ensuite au référentiel réel**, dans l'ordre imposé : backup
+(`99_ARCHIVES/LOT0_REF_Setup/REF_Setup_PRE_PROLONGATION_GESTION_20260810.xlsm`) → SHA256 vérifié
+identique avant écriture → prévisualisation exacte du diff (seule `date_debut` de 14 lignes) →
+écriture → relecture (14 lignes conformes, 3 autres logements intacts, 17 lignes au total comme
+avant) → **intégrité globale : 1 seul fichier modifié sur 950 (`REF_Setup.xlsm`), exactement
+celui attendu.**
+
+**Recalcul réel non effectué, délibérément** : régénérer Lot9→Lot13 sur le réel exige le writer
+Calculs (`CALCULS_REAL_RUN_ENABLED`), désactivé conformément au NO GO mode réel en vigueur. La
+mesure 838→472/137→77 a été faite sur copies avec un diff strictement identique à celui appliqué
+au réel — représentative, mais non recalculée sur le réel lui-même. *(Incident mineur autocorrigé :
+une instance de lecture a été démarrée sans `PROJECT_ROOT` explicite puis arrêtée immédiatement,
+aucun writer actif à aucun moment, aucune donnée touchée — cf. `JOURNAL_ANOMALIES.md`.)*
+
+Cette famille (`GESTION_LOGEMENT_MISSING`) reste ouverte à **77 couples** (janvier→juillet 2025).
+Les 8 autres familles bloquantes (1519 lignes) restent intactes — en particulier les 612 contrôles
+de commission, référentiel **distinct** (taux), non traités ici.
+
 ## État de reprise
 
-Worktree propre, application validée sur copies avec les 16 modules décidés, cadrage comptable
-fermé, contrat de sécurité des writers confirmé déjà en place, `GESTION_LOGEMENT_MISSING` diagnostiqué
-sans invention, mode réel jamais activé. **Prochaine action unique : réponse utilisateur à la
-question (a)/(b)/(c)** du §6 de `77_RECONSTRUCTION_GESTION_LOGEMENTS_HIST.md`. Elle débloque
-mécaniquement les 137 couples. Les 8 autres familles bloquantes (1519 lignes) restent à traiter
-ensuite, séparément — en particulier les 612 contrôles de commission, qui relèvent d'un référentiel
-**distinct** (taux de commission) et ne doivent pas être confondus avec l'historique de gestion.
+Worktree propre (hors la modification réelle documentée ci-dessus), application validée sur copies
+avec les 16 modules décidés, cadrage comptable fermé, contrat de sécurité des writers confirmé déjà
+en place, `GESTION_LOGEMENT_MISSING` partiellement résolu (838→472 lignes, 137→77 couples) sur
+décision utilisateur explicite, aucune donnée inventée, mode réel jamais activé. **Prochaine action :
+statuer sur janvier→juillet 2025 (77 couples, mêmes 14 logements) ou passer à la famille bloquante
+suivante par volume (`RESERVATION_A_CONTROLER_SANS_COMMISSION`, 612 lignes, référentiel distinct).**
 
 Commandes de reprise : `cd <worktree> && git status && git log --oneline -5` ; instance de recette
 type : `RECETTE_MODE=1 PROJECT_ROOT=<copies> APP_DATA_DIR=<recette>/APP_DATA python -m uvicorn

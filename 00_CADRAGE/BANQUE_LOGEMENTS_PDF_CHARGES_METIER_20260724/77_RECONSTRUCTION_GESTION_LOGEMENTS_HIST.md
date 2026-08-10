@@ -1,8 +1,16 @@
 # 77 — GESTION_LOGEMENT_MISSING : diagnostic et plan de reconstruction (2026-08-10)
 
-**Aucune source réelle modifiée. Aucun historique inventé. Aucun contrôle résolu automatiquement.**
-Cette mission diagnostique uniquement la famille `GESTION_LOGEMENT_MISSING` ; les 8 autres familles
-bloquantes ne sont pas traitées.
+**Aucun historique inventé. Aucun contrôle résolu automatiquement.** Cette mission traite
+uniquement la famille `GESTION_LOGEMENT_MISSING` ; les 8 autres familles bloquantes ne sont pas
+traitées.
+
+> **Mise à jour (2026-08-10, suite) — DÉCISION UTILISATEUR APPLIQUÉE, SOURCE RÉELLE MODIFIÉE.**
+> Décision explicite reçue : pour les 14 logements sans historique, considérer que le propriétaire
+> renseigné au 01/01/2026 était déjà applicable à partir du **01/08/2025** (date de couverture
+> décidée, pas nécessairement la date commerciale réelle d'entrée en gestion). Appliqué d'abord sur
+> copie, vérifié structurellement et fonctionnellement, puis appliqué au référentiel réel après
+> backup + SHA256 + prévisualisation exacte du diff. Voir section 10 ci-dessous pour le détail
+> complet. Janvier→juillet 2025 restent explicitement **hors couverture, non reconstruits**.
 
 ## 1. Déduplication : 838 lignes ≠ 838 problèmes
 
@@ -173,8 +181,112 @@ elle n'est pas nécessairement identique pour les 14. Elle ne sera pas devinée.
 - **PRÉPARATION MODE RÉEL : NO GO** — inchangé.
 - **MODE RÉEL : NO GO — NON ACTIVÉ.**
 
-## 9. Prochaine action exacte
+## 9. (superседée par la section 10 — décision (a) reçue et appliquée)
 
-Obtenir de l'utilisateur la réponse à la question (a)/(b)/(c) du §6. Cette seule réponse débloque
-mécaniquement les 137 couples : dans le cas (a), une mission courte de reconstruction contrôlée
-suffit ; dans le cas (c), c'est une règle de périmètre à écrire, pas une donnée à reconstruire.
+## 10. Application de la décision utilisateur (2026-08-10)
+
+**Décision reçue, verbatim résumée** : cas (a) — même propriétaire qu'au 01/01/2026, couverture
+prolongée jusqu'au **01/08/2025** (date de couverture décidée par l'utilisateur, pas affirmée comme
+la date commerciale réelle). Ne pas prolonger avant. Aucun changement de propriétaire. Ne rien
+inventer pour janvier→juillet 2025.
+
+### 10.1 Application sur copie
+
+14 lignes de `REF_Gestion_Logements_Hist` modifiées sur la copie de recette : seule `date_debut`
+passée de `2026-01-01` à `2025-08-01` pour `LOG_0001, 0002, 0003, 0004, 0006, 0007, 0008, 0010,
+0011, 0012, 0013, 0014, 0015, 0016`. `proprietaire_id`, `date_fin`, `statut_gestion` strictement
+inchangés. `LOG_0005`, `LOG_0009`, `LOG_0017` (hors périmètre) non touchés.
+
+### 10.2 Contrôles structurels (avant toute simulation)
+
+| Contrôle | Résultat |
+|---|---|
+| Aucun chevauchement illégal | OK — une seule ligne par logement, aucun chevauchement possible |
+| Aucun doublon exact | OK — 0 doublon détecté |
+| Même propriétaire, même statut, même `date_fin` pour les 14 lignes | OK — vérifié ligne à ligne |
+| Autres logements (3) strictement inchangés | OK — vérifié ligne à ligne |
+| Nombre de lignes du référentiel inchangé | OK — 17 avant, 17 après |
+
+### 10.3 Mesure sur copies
+
+| Mesure | Avant | Après | Delta |
+|---|---:|---:|---:|
+| Lignes GESTION_LOGEMENT_MISSING | 838 | **472** | **−366** |
+| Couples logement × mois | 137 | **77** | **−60** |
+| Logements encore concernés | 14 | 14 | 0 (mêmes 14, mois restants seulement) |
+| Total lignes de contrôle (toutes familles) | 2420 | 2002 | −418 (dont 60 couples ci-dessus × ratio de duplication par réservation ≈ 6,1) |
+
+**Restes janvier→juillet 2025** (77 couples, tous dans cette fenêtre, sur les 14 mêmes logements) :
+
+| Mois | Couples restants |
+|---|---:|
+| 2025-01 | 7 |
+| 2025-02 | 64 |
+| 2025-03 | 79 |
+| 2025-04 | 83 |
+| 2025-05 | 73 |
+| 2025-06 | 82 |
+| 2025-07 | 84 |
+
+Exactement conforme à la décision : rien n'a été prolongé avant le 01/08/2025.
+
+### 10.4 Effets aval (sur copies)
+
+| Sortie | Avant | Après | Écart | Explication |
+|---|---:|---:|---:|---|
+| REEL (Lot10 global) | 291 722,75 € | 291 722,75 € | 0,00 € | Chaque logement n'a qu'une seule ligne de gestion — aucune ambiguïté propriétaire n'a jamais existé pour le calcul de commission ; prolonger `date_debut` n'a pas pu changer le propriétaire ni le taux déjà utilisés |
+| COMPTABLE | 281 198,59 € | 281 198,59 € | 0,00 € | Idem |
+| HORS_COMPTA | 10 524,16 € | 10 524,16 € | 0,00 € | Idem |
+| Réconciliations A/B/D/H | OK | OK | — | Inchangées |
+| Réconciliations C/G | A_CONTROLER | A_CONTROLER | — | Inchangées (mappings comptables provisoires, sans lien avec cette mission) |
+
+**Aucune variation économique inattendue.** Zéro variation, triviale à expliquer.
+
+### 10.5 Application au référentiel réel
+
+Procédure suivie strictement dans l'ordre demandé :
+
+1. **Backup** : `99_ARCHIVES/LOT0_REF_Setup/REF_Setup_PRE_PROLONGATION_GESTION_20260810.xlsm`.
+2. **SHA256** : réel et backup identiques avant écriture
+   (`a0ae8fbd0e73d5e94fd1f0ecd4f68195ca3ce0f994c62314ed92ef25ecc6637a`, 88 670 octets).
+3. **Prévisualisation du diff exact** : produite et vérifiée conforme à la décision — seule
+   `date_debut` des 14 lignes concernées change, rien d'autre.
+4. **Écriture** : 14 lignes modifiées, identique au diff prévisualisé et à ce qui avait été validé
+   sur copie.
+5. **Relecture post-écriture** : les 14 lignes portent `date_debut = 2025-08-01` ; `LOG_0005`,
+   `LOG_0009`, `LOG_0017` strictement inchangés ; 17 lignes au total, comme avant.
+6. **Intégrité globale** : comparaison au baseline (950 fichiers) — **1 seul fichier modifié,
+   `REF_Setup.xlsm`, exactement celui attendu. 949 autres fichiers identiques.**
+
+**Recalcul du réel non effectué — délibérément.** Régénérer les sorties réelles Lot9→Lot13 exige le
+writer Calculs (`CALCULS_REAL_RUN_ENABLED`), qui reste désactivé conformément au NO GO mode réel
+en vigueur. Une instance de lecture a été démarrée par erreur sans `PROJECT_ROOT` explicite
+(risque qu'elle résolve par défaut sur l'arborescence réelle) ; elle a été **arrêtée immédiatement**
+sans qu'aucun writer n'ait été actif à aucun moment — aucune donnée touchée par cet instant. La
+mesure §10.3 (838→472, 137→77) a été faite sur copies avec un diff **strictement identique** à
+celui appliqué au réel ; elle est donc représentative de l'effet qu'aura le réel une fois son
+pipeline relancé — action séparée, toujours gatée, non entreprise ici.
+
+## 11. Verdict final
+
+| Mesure | Valeur |
+|---|---|
+| GESTION_LOGEMENT_MISSING — avant | 838 lignes / 137 couples / 14 logements |
+| Après corrections moteur | 838 (aucune correction nécessaire) |
+| Après reconstruction PREUVE_A | 838 (PREUVE_A initial = 0) |
+| **Après décision utilisateur (01/08/2025), sur copies** | **472 lignes / 77 couples / 14 logements** |
+| **Appliqué au référentiel réel** | **Oui — 14 lignes, backup + SHA256 + prévisualisation vérifiés** |
+| **Reste à validation humaine** | **77 couples, janvier→juillet 2025, mêmes 14 logements — hors périmètre de cette décision** |
+
+- **CLÔTURE : NO GO** — 77 couples `GESTION_LOGEMENT_MISSING` restent ouverts (janvier→juillet
+  2025), et les 8 autres familles bloquantes (1519 lignes) n'ont pas été traitées.
+- **PRÉPARATION MODE RÉEL : NO GO** — inchangé.
+- **MODE RÉEL : NO GO — NON ACTIVÉ.**
+
+## 12. Prochaine action exacte
+
+Deux voies indépendantes, au choix de l'utilisateur :
+1. Statuer sur janvier→juillet 2025 (74 couples restants) — même logique de décision de couverture,
+   ou explicitement « hors périmètre » ;
+2. Passer à la famille bloquante suivante par volume : `RESERVATION_A_CONTROLER_SANS_COMMISSION`
+   (612 lignes) — référentiel **distinct** (taux de commission), à ne pas confondre avec celui-ci.

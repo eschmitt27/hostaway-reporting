@@ -946,3 +946,26 @@ CONSEQUENCE DE FOND, plus importante que l'erreur elle-meme : 2357 lignes empech
 toute cloture aujourd'hui. Ce sont des lacunes de donnees metier (9 familles), pas des defauts
 applicatifs, mais elles rendent prematuree toute bascule en mode reel. Le verdict de preparation
 du mode reel repasse en NO GO. Aucun controle n'a ete resolu automatiquement.
+
+
+## INSTANCE DE RECETTE SANS PROJECT_ROOT EXPLICITE — AUTOCORRIGEE (2026-08-10)
+
+GRAVITE : MINEURE. STATUT : CORRIGE, aucun impact.
+
+Constat : apres application de la decision GESTION_LOGEMENT_MISSING au referentiel reel, une
+instance applicative a ete demarree (port 8070) avec RECETTE_MODE=1 mais sans PROJECT_ROOT
+explicitement positionne (variable non "unset" correctement dans l'environnement du shell
+precedent), risquant une resolution par defaut sur l'arborescence reelle du worktree au lieu d'une
+copie.
+
+Detection immediate avant toute action de l'instance. Verification : CALCULS_REAL_RUN_ENABLED
+n'a jamais ete positionne pour cette instance, donc aucun writer de calcul n'etait actif - meme si
+l'instance avait servi une page en lecture sur donnees reelles, aucune ecriture n'etait possible.
+Instance arretee immediatement (taskkill), avant toute requete HTTP traitee.
+
+Impact reel : AUCUN. Confirme par le controle d'integrite final : 949/950 fichiers identiques,
+seul REF_Setup.xlsm modifie (modification volontaire et documentee de cette meme mission).
+
+Lecon retenue : toujours verifier explicitement PROJECT_ROOT (echo $PROJECT_ROOT) avant de
+demarrer une instance de recette, particulierement apres une sequence de commandes multiples dans
+la meme session shell.

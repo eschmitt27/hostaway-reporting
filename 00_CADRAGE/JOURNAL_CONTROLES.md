@@ -3044,3 +3044,41 @@ CLOTURE : NO GO (137 couples ouverts + 8 autres familles bloquantes, 1519 lignes
 PREPARATION MODE REEL : NO GO. MODE REEL : NO GO - NON ACTIVE.
 Sources reelles intactes, port 8000/PID 21136 intact.
 REFERENCE : 77_RECONSTRUCTION_GESTION_LOGEMENTS_HIST.md
+
+---
+
+## GESTION_LOGEMENT_MISSING - decision utilisateur appliquee au reel (2026-08-10, suite)
+
+DECISION UTILISATEUR : couverture proprietaire (meme proprietaire_id qu'au 01/01/2026) prolongee
+jusqu'au 01/08/2025 pour les 14 logements concernes. Janvier-juillet 2025 explicitement hors
+perimetre, non reconstruits, rien invente.
+
+APPLIQUE SUR COPIE D'ABORD : 14 lignes de REF_Gestion_Logements_Hist modifiees (date_debut
+uniquement). Controles structurels verts : 0 chevauchement, 0 doublon, proprietaire/statut/
+date_fin inchanges, 3 autres logements (LOG_0005/0009/0017) strictement intacts.
+
+MESURE : GESTION_LOGEMENT_MISSING 838 -> 472 lignes (-366) ; couples logement x mois 137 -> 77
+(-60). Restes janvier-juillet 2025 (77 couples, memes 14 logements) : jan=7 fev=64 mar=79 avr=83
+mai=73 jun=82 jul=84.
+
+EFFETS AVAL (copies) : REEL/COMPTABLE/HORS_COMPTA strictement identiques (291722.75/281198.59/
+10524.16, ecart 0.00). Explicable : chaque logement n'a qu'une seule ligne de gestion, aucune
+ambiguite proprietaire n'a jamais existe pour le calcul de commission.
+
+APPLIQUE AU REFERENTIEL REEL, ordre impose respecte :
+  1. backup 99_ARCHIVES/LOT0_REF_Setup/REF_Setup_PRE_PROLONGATION_GESTION_20260810.xlsm
+  2. SHA256 verifie identique avant ecriture (a0ae8fbd... 88670 octets)
+  3. previsualisation exacte du diff (seule date_debut de 14 lignes)
+  4. ecriture (14 lignes, conforme au diff previsualise)
+  5. relecture post-ecriture (14 lignes conformes, 3 autres intacts, 17 lignes au total comme avant)
+  6. integrite globale : 1 seul fichier modifie sur 950 (REF_Setup.xlsm), exactement celui attendu.
+
+RECALCUL REEL NON EFFECTUE, DELIBEREMENT : regenerer Lot9->Lot13 sur le reel exige le writer
+Calculs (CALCULS_REAL_RUN_ENABLED), desactive conformement au NO GO mode reel en vigueur. La
+mesure 838->472/137->77 a ete faite sur copies avec un diff strictement identique au reel -
+representative, non recalculee sur le reel lui-meme.
+
+VERDICT : GESTION_LOGEMENT_MISSING reste ouvert a 77 couples (jan-juil 2025, memes 14 logements).
+CLOTURE : NO GO. PREPARATION MODE REEL : NO GO. MODE REEL : NO GO - NON ACTIVE.
+Port 8000/PID 21136 intact tout du long.
+REFERENCE : 77_RECONSTRUCTION_GESTION_LOGEMENTS_HIST.md section 10.

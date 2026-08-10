@@ -218,3 +218,12 @@ Procédure :
 
 Validation humaine : LOT A à E désormais tous signés par l'utilisateur (2026-08-10) — ce point
 n'est plus bloquant, les deux autres le restent.
+
+**Mise à jour 2026-08-10 (suite)** : première écriture réelle contrôlée de la mission, exécutée
+strictement selon la procédure décrite en §4 (backup, SHA256, prévisualisation, écriture, relecture,
+contrôle d'intégrité global). `REF_Setup.xlsm` (`REF_Gestion_Logements_Hist`) modifié sur décision
+utilisateur explicite : 14 logements, `date_debut` prolongée à 2025-08-01. Intégrité vérifiée :
+1 seul fichier modifié sur 950, exactement celui attendu. `GESTION_LOGEMENT_MISSING` réduit de
+838 à 472 lignes (mesuré sur copies avec un diff identique, non recalculé sur le réel — le writer
+Calculs reste désactivé). **Cause 1 du NO GO partiellement traitée, causes 1 (reste 77 couples)
+et 2 (arbitrages comptables) demeurent → préparation mode réel reste NO GO.**
