@@ -1,5 +1,18 @@
 # 48 — Roadmap restante du projet
 
+> **Mise à jour 2026-08-10 (ré-extraction Hostaway réelle exécutée)** : autorisation utilisateur
+> scopée strictement (lecture API + nouveau `MASTER_FACT_HA_Reservations.xlsx` + remplacement
+> contrôlé de ce seul fichier). Backup vérifié, extraction 1391→1527 réservations (guestCount
+> 0→100 %), comparaison exhaustive concluante (17 disparues vérifiées en direct via l'API =
+> annulées sans payout, 153 nouvelles = activité normale, 1 seul écart économique réel =
+> réservation prolongée, cohérent). Simulation complète sur copie intégrale (jamais sur le réel) :
+> `lot4bis→lot4quater→lot9→lot10→lot11`, 0 bloquant partout. **Résultat mesuré :
+> `GUEST_COUNT_MANQUANT` 553→506 (-47)**, mécanisme vérifié à 100 % (506 restantes = 100 % en
+> mois clôturé, gelées par conception, résolution complète de ce qui était atteignable par API).
+> Master réel remplacé (hash relu identique). Intégrité 950/950, 2 diffs attendus. Port
+> 8000/PID 21136 intact. **Pipeline aval réel non relancé : le chiffre de clôture officiel reste
+> 553 tant que ce run n'est pas rejoué.** Clôture NO GO, mode réel NO GO — non activé.
+
 > **Mise à jour 2026-08-10 (blocage clôture)** : `GESTION_LOGEMENT_MISSING` réduit 838→472 lignes
 > (décision utilisateur, réel modifié, couverture 2025-08-01). `RESERVATION_A_CONTROLER_SANS_
 > COMMISSION` auditée : référentiel de taux déjà complet et conforme, 0 écriture nécessaire, 612

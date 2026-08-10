@@ -1,5 +1,20 @@
 # 60 — Verdict GO / NO GO (recette globale sur copies, 2026-08-01, mis à jour le 2026-08-02)
 
+> **Suite 15 (2026-08-10)** - Re-extraction Hostaway reelle AUTORISEE et EXECUTEE (perimetre
+> strict : lecture API + nouveau MASTER_FACT_HA_Reservations.xlsx + remplacement controle de ce
+> seul fichier - pas d activation generale du mode reel, pas d autorisation Banque, pas de
+> pipeline aval reel relance). Backup verifie, extraction 1391->1527 reservations (guestCount
+> 0%->100%), comparaison exhaustive (17 disparues verifiees EN DIRECT via l API = cancelled sans
+> payout, 153 nouvelles = activite normale, 1 seul ecart economique reel = resa prolongee,
+> coherent). Simulation complete sur copie integrale (jamais sur le reel) : lot4bis->lot4quater->
+> lot9->lot10->lot11, 0 bloquant, REEL=COMPTABLE+HC verifie a l euro. RESULTAT MESURE :
+> GUEST_COUNT_MANQUANT 553->506 (-47), mecanisme verifie a 100% par jointure (506 restantes =
+> 100% mois cloture/gele par design, resolution complete de ce qui etait atteignable par API).
+> Master reel remplace (hash relu identique). Integrite 950/950, 2 diffs attendus. Port
+> 8000/PID 21136 intact. Tests cibles 62 passed, 0 nouvel echec. **Pipeline aval reel NON
+> relance : le chiffre de cloture officiel reste 553 tant que ce run n est pas rejoue.**
+> **CLOTURE NO GO. PREPARATION MODE REEL NO GO. MODE REEL NO GO - NON ACTIVE.**
+
 > **Suite 14 (2026-08-10)** - GUEST_COUNT_MANQUANT_PREPARATION_CANAPE audite. 553 lignes
 > = 553 reservations distinctes, 4 logements avec regle canape configuree. Code deja correct
 > (correctif 20/06/2026, numberOfGuests). Cause reelle : aucune re-extraction Hostaway reelle

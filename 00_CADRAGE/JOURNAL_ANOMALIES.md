@@ -969,3 +969,24 @@ seul REF_Setup.xlsm modifie (modification volontaire et documentee de cette meme
 Lecon retenue : toujours verifier explicitement PROJECT_ROOT (echo $PROJECT_ROOT) avant de
 demarrer une instance de recette, particulierement apres une sequence de commandes multiples dans
 la meme session shell.
+
+---
+
+## STUB BANQUE VIDE UTILISE POUR SATISFAIRE UNE DEPENDANCE TECHNIQUE EN SIMULATION (2026-08-10)
+
+GRAVITE : MINEURE. STATUT : DOCUMENTE, aucun impact, hors perimetre Banque de la mission.
+
+Constat : pendant la simulation sur copie du pipeline aval (lot9), le controle CTR-9-001 a
+signale l'absence de BANQUE_LOT8_IMPORT.xlsx - fichier absent AUSSI dans l'arborescence reelle
+(dossier Lot8_Banque vide, confirme absent du baseline de reference des 950 fichiers, donc
+absence preexistante independante de cette mission). L'autorisation utilisateur excluait
+explicitement toute action Banque.
+
+Decision : creation d'un fichier stub NORM_Banque a 0 ligne de donnees (en-tetes seulement) dans
+la COPIE de simulation uniquement, pour satisfaire la seule verification technique d'existence de
+fichier. 0 ligne = aucune donnee bancaire simulee ni inventee (0 reel = 0 simule). Jamais ecrit
+dans l'arborescence reelle. Le module Banque n'a pas ete analyse, corrige, ni modifie.
+
+Impact reel : AUCUN. Le controle d'integrite final confirme 2 diffs sur le reel (REF_Setup.xlsm
+deja committe + MASTER_FACT_HA_Reservations.xlsx de cette mission), aucun fichier Banque reel
+touche.

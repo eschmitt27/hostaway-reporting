@@ -57,7 +57,7 @@ résolue, masquée ni transformée en exception.
 | Item | Statut |
 |---|---|
 | Bloqueurs de clôture identifiés et catégorisés | VALIDE |
-| Bloqueurs de clôture traités | **BLOQUE (partiel)** — `GESTION_LOGEMENT_MISSING` : 838→472 (réel modifié, décision utilisateur) ; `RESERVATION_A_CONTROLER_SANS_COMMISSION` : 612 inchangé (référentiel de taux déjà complet, rien à faire) ; `GUEST_COUNT_MANQUANT` : 553 inchangé (code déjà correct, ré-extraction Hostaway réelle requise, décision utilisateur en attente) ; 5 autres familles + restes ci-dessus encore ouverts |
+| Bloqueurs de clôture traités | **BLOQUE (partiel)** — `GESTION_LOGEMENT_MISSING` : 838→472 (réel modifié, décision utilisateur) ; `RESERVATION_A_CONTROLER_SANS_COMMISSION` : 612 inchangé (référentiel de taux déjà complet, rien à faire) ; `GUEST_COUNT_MANQUANT` : ré-extraction Hostaway réelle autorisée et exécutée, master `MASTER_FACT_HA_Reservations.xlsx` remplacé (1391→1527 réservations), effet mesuré en **simulation sur copie** : 553→506 (-47, mécanisme vérifié : 100% des cas atteignables — mois ouverts — résolus, 506 restantes 100% en mois clôturé/gelé) ; **chiffre de clôture réel reste 553 tant que le pipeline aval réel n'est pas rejoué (non fait, hors périmètre de l'autorisation)** ; 5 autres familles + restes ci-dessus encore ouverts |
 | Contrat de sécurité des writers (double garde, fail-closed, write-guard, backup, prévisualisation) | VALIDE — **déjà implémenté**, aucun mécanisme parallèle créé |
 | État « écriture réelle » (état C) | **NON CONSTRUIT — délibérément** ; ne doit pas l'être tant que le verdict est NO GO |
 | 3 hardcodes analysés individuellement | VALIDE — 2 prêts fonctionnellement mais maintenus `False`, 1 NON_ACTIVABLE |

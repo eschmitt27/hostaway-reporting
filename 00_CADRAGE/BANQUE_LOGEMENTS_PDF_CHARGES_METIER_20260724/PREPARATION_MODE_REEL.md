@@ -243,3 +243,18 @@ reservations et ne porte pas la colonne d'audit ajoutee par le correctif). Aucun
 fiable pour reconstruire - la seule voie est une re-extraction Hostaway reelle (writer reel,
 acces reseau externe), non entreprise, question posee a l'utilisateur. 553 inchange. Aucun
 impact sur le statut NO GO.
+
+**Mise a jour 2026-08-10 (suite, re-extraction Hostaway reelle executee)** : autorisation
+utilisateur explicite et strictement scopee (lecture API reelle + nouveau
+MASTER_FACT_HA_Reservations.xlsx + remplacement controle de ce seul fichier - PAS une activation
+generale du mode reel, PAS d'autorisation Banque, PAS de pipeline aval reel). Deuxieme ecriture
+reelle controlee de la mission, procedure identique a la premiere (backup, hash, comparaison
+exhaustive verifiee y compris par appel API direct sur les 17 reservations disparues, simulation
+sur copie integrale du projet, gate, remplacement atomique, relecture, integrite globale).
+Resultat mesure en simulation : GUEST_COUNT_MANQUANT 553->506 (-47), mecanisme verifie a 100%
+(les 506 restantes sont 100% en mois cloture/gele par design, resolution complete de ce qui etait
+techniquement atteignable par API). Master reel remplace (1391->1527 reservations, hash relu
+identique a la source). Integrite : 950/950 fichiers, 2 diffs attendus. Port 8000/PID 21136
+intact. Tests cibles : 62 passed, 0 nouvel echec. **Le pipeline aval reel n'a pas ete relance : le
+chiffre de cloture officiel reste 553 tant que ce run n'est pas rejoue. Aucun flag app/config.py
+modifie. Statut NO GO inchange.**

@@ -3170,3 +3170,50 @@ VERDICT : GESTION_LOGEMENT_MISSING 472 inchange. BANQUE 222 inchange. CHARGES 69
 CLOTURE : NO GO. PREPARATION MODE REEL : NO GO. MODE REEL : NO GO - NON ACTIVE. Aucun code ni
 donnee reelle modifie ce tour.
 REFERENCE : 79_RECONSTRUCTION_GUEST_COUNT.md
+
+---
+
+## RE-EXTRACTION HOSTAWAY REELLE EXECUTEE - GUEST_COUNT 553->506 (2026-08-10, suite)
+
+Autorisation utilisateur explicite et scopee : lecture API reelle + nouveau
+MASTER_FACT_HA_Reservations.xlsx + remplacement controle de ce seul fichier. Pas d'activation
+mode reel general, pas d'autorisation Banque, pas de modification REF_Setup, pas de pipeline aval
+reel relance.
+
+Backup reel prealable verifie (hash identique). Extraction API reelle en zone temporaire isolee
+(jamais d'ecriture reelle avant validation) : 1391->1527 reservations, guestCount 0%->100%
+rempli. Comparaison exhaustive ancien/nouveau par reservation_id : 17 disparues verifiees EN
+DIRECT via l'API (status=cancelled, cancellationAmount=None - conforme au code existant, aucune
+modification de regle), 153 nouvelles (activite normale), 1 seul ecart economique reel (resa
+prolongee 5->7 nuits, prix coherent au prorata). 0 doublon reservation_id.
+
+Simulation complete sur COPIE INTEGRALE du projet (jamais sur le reel) : lot4bis->lot4quater->
+lot9->lot10->lot11 rejoues avec l'interpreteur des lots. Stub NORM_Banque vide (0 ligne, hors
+perimetre Banque, le dossier Lot8_Banque reel est aussi vide independamment de cette mission) pour
+satisfaire uniquement la dependance technique CTR-9-001. 0 bloquant sur toute la chaine,
+REEL=COMPTABLE+HC verifie a l'euro pres.
+
+RESULTAT MESURE : GUEST_COUNT_MANQUANT_PREPARATION_CANAPE 553->506 (-47). Mecanisme verifie par
+jointure exhaustive avec MASTER_CALC_Reservations_Resolues : les 506 restantes sont 100% en
+etat_mois=CLOTURE (historique gele par conception, jamais reecrit meme par ce correctif) - la
+resolution a atteint 100% de ce qui etait techniquement atteignable par re-extraction API (mois
+ouverts), 0% des mois clotures par construction deliberee (immutabilite de la cloture), pas une
+limite du correctif. RESERVATION_EXCLUE_A_CONTROLER 59->70 (base elargie, explicable). Total
+A_CONTROLER Lot10 612->576.
+
+REMPLACEMENT REEL : uniquement MASTER_FACT_HA_Reservations.xlsx (hash relu identique a la source,
+1527 lignes/1527 reservation_id distincts/26 colonnes confirmes). Les autres fichiers
+Lot1_Hostaway (Payout, Details, Fees, FinanceFields, Listings, Anomalies) restent les anciens -
+desynchronisation partielle DELIBEREE, pipeline aval reel non relance (interdit explicitement par
+l'autorisation).
+
+INTEGRITE : 950/950 fichiers reels controles apres operation. 2 diffs, tous deux attendus :
+REF_Setup.xlsm (deja committe 4b49a9d) + MASTER_FACT_HA_Reservations.xlsx (ce tour). 0 diff
+imprevu. Port 8000/PID 21136 intact. Tests cibles : 62 passed, 0 nouvel echec.
+
+AUCUN CHIFFRE DE CLOTURE REEL N'A CHANGE (pipeline aval reel non relance, chiffre 553 reste le
+chiffre de cloture officiel tant qu'un run reel n'est pas rejoue).
+
+VERDICT : CLOTURE : NO GO. PREPARATION MODE REEL : NO GO. MODE REEL : NO GO - NON ACTIVE. Aucun
+flag app/config.py modifie.
+REFERENCE : 79_RECONSTRUCTION_GUEST_COUNT.md section 11

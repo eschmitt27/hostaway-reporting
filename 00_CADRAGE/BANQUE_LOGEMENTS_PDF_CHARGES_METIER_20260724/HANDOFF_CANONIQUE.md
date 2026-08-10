@@ -1383,18 +1383,54 @@ inchangé). TOTAL contrôles reste à **2002**.
 si l'API elle-même ne fournit pas `numberOfGuests` pour d'anciennes réservations) ? Mission dédiée
 et distincte si oui.
 
+## Ré-extraction Hostaway réelle exécutée — GUEST_COUNT_MANQUANT 553→506 (2026-08-10, suite)
+
+Détail complet : `79_RECONSTRUCTION_GUEST_COUNT.md` §11. **Ré-extraction Hostaway réelle
+autorisée par l'utilisateur pour rafraîchir le master après correction `numberOfGuests`. Cette
+autorisation ne constitue pas une activation générale du mode réel.**
+
+Backup réel préalable (`99_ARCHIVES/LOT1_MASTER_HA_Reservations/…PRE_REEXTRACT_20260810_184807.xlsx`,
+hash vérifié). Extraction API réelle en zone temporaire isolée (jamais d'écriture directe dans
+`02_TRAVAIL` réel avant validation) : 1391→1527 réservations, `guestCount` 0 %→100 % rempli, 4
+colonnes ajoutées (`numberOfGuests` + audit). Comparaison exhaustive ancien/nouveau : 17 disparues
+vérifiées en direct via l'API (`status=cancelled`, sans payout — comportement conforme au code
+existant, inchangé), 153 nouvelles (activité normale), 1 seul écart économique réel (résa
+prolongée, cohérent). Simulation complète sur copie intégrale du projet (jamais sur le réel) :
+lot4bis→lot4quater→lot9→lot10→lot11, 0 bloquant partout, REEL=COMPTABLE+HC vérifié à l'euro.
+
+**Résultat mesuré : `GUEST_COUNT_MANQUANT_PREPARATION_CANAPE` 553→506 (-47).** Mécanisme
+intégralement vérifié par jointure : les 506 restantes sont **100 % en mois clôturé** (historique
+gelé par conception, jamais réécrit même par ce correctif) — la résolution a atteint 100 % de ce
+qui était techniquement atteignable par API (mois ouverts). `RESERVATION_EXCLUE_A_CONTROLER`
+59→70 (base élargie, explicable). Total A_CONTROLER Lot10 612→576.
+
+**Seul `MASTER_FACT_HA_Reservations.xlsx` remplacé dans le réel** (hash relu identique à la
+source, 1527 lignes/1527 `reservation_id` distincts/26 colonnes confirmés). Les autres fichiers
+`Lot1_Hostaway` (Payout, Details, Fees, FinanceFields, Listings, Anomalies) restent les anciens —
+désynchronisation partielle **délibérée**, le pipeline aval réel n'a **pas** été relancé (interdit
+explicitement par l'autorisation). Intégrité globale : 950/950 fichiers réels contrôlés, 2 diffs,
+tous deux attendus et documentés (`REF_Setup.xlsm` déjà committé + ce nouveau master). Port 8000/
+PID 21136 intact. Tests ciblés : 62 passed, 0 nouvel échec.
+
+**Aucun chiffre de clôture réel n'a changé** (pipeline aval réel non relancé). **CLÔTURE : NO GO.
+PRÉPARATION MODE RÉEL : NO GO. MODE RÉEL : NO GO — NON ACTIVÉ**, aucun flag `app/config.py`
+touché.
+
 ## État de reprise
 
 Worktree propre, application validée sur copies avec les 16 modules décidés, cadrage comptable
-fermé, contrat de sécurité des writers confirmé déjà en place. Trois familles bloquantes auditées
-ce tour : `GESTION_LOGEMENT_MISSING` (838→472, décision appliquée au réel), `RESERVATION_A_
-CONTROLER_SANS_COMMISSION` (612, référentiel de taux déjà complet, rien à faire),
-`GUEST_COUNT_MANQUANT_PREPARATION_CANAPE` (553, code déjà correct, ré-extraction Hostaway réelle
-nécessaire pour aller plus loin — hors périmètre technique). Aucune donnée inventée, mode réel
-jamais activé. **Prochaine action : réponse utilisateur sur l'autorisation d'une ré-extraction
-Hostaway réelle, OU statuer sur les 59 `RESERVATION_EXCLUE_A_CONTROLER` (VRBO/Direct), OU sur les
-77 couples `GESTION_LOGEMENT_MISSING` restants (jan-juil 2025), OU passer à `BANQUE` (222 lignes)
-ou `CHARGES` (69 lignes).**
+fermé, contrat de sécurité des writers confirmé déjà en place. Quatre familles bloquantes auditées
+depuis le début de ce cycle : `GESTION_LOGEMENT_MISSING` (838→472, décision appliquée au réel),
+`RESERVATION_A_CONTROLER_SANS_COMMISSION` (612, référentiel de taux déjà complet, rien à faire),
+`GUEST_COUNT_MANQUANT_PREPARATION_CANAPE` (553→506 en simulation, ré-extraction réelle exécutée et
+master remplacé, mais pipeline aval réel non relancé donc chiffre de clôture réel encore à 553
+tant que ce run n'est pas rejoué), aucune donnée inventée, mode réel jamais activé. **Prochaine
+action possible : (a) relancer le pipeline aval réel pour propager le nouveau master (nécessite un
+`BANQUE_LOT8_IMPORT.xlsx` réel, actuellement vide aussi, indépendamment de cette mission) ; (b)
+décision utilisateur sur les 506 réservations restantes en mois clôturé (gelées par design) ; (c)
+statuer sur les 59-70 `RESERVATION_EXCLUE_A_CONTROLER` (VRBO/Direct) ; (d) sur les 77 couples
+`GESTION_LOGEMENT_MISSING` restants (jan-juil 2025) ; (e) passer à `BANQUE` (222 lignes) ou
+`CHARGES` (69 lignes).**
 
 Commandes de reprise : `cd <worktree> && git status && git log --oneline -5` ; instance de recette
 type : `RECETTE_MODE=1 PROJECT_ROOT=<copies> APP_DATA_DIR=<recette>/APP_DATA python -m uvicorn
