@@ -6,6 +6,10 @@
 > de contenu : recette fonctionnelle globale du 2026-08-08 (18 modules, aucun bug, PRÊT POUR
 > VALIDATION HUMAINE GLOBALE) → `00_CADRAGE/BANQUE_LOGEMENTS_PDF_CHARGES_METIER_20260724/
 > RECETTE_FONCTIONNELLE_GLOBALE.md`.
+>
+> Mise à jour 2026-08-10 : validation humaine LOT A/B/C signée, LOT D/E exercés (aucun bug,
+> intégrité 950/950, 591 tests verts), préparation du mode réel documentée sans activation →
+> `PREPARATION_MODE_REEL.md` et `72_CHECKLIST_GO_NO_GO_MODE_REEL.md`. Mode réel : NO GO, non activé.
 
 ---
 

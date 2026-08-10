@@ -2926,3 +2926,42 @@ TVA : utilisateur confirme aucune TVA applicable actuellement (reponse enregistr
 VERDICT TECHNIQUE : PRET POUR VALIDATION HUMAINE GLOBALE (pas une activation de mode reel).
 Fiche de validation vierge livree (16 modules), a remplir exclusivement par l'utilisateur.
 REFERENCE : RECETTE_FONCTIONNELLE_GLOBALE.md.
+
+---
+
+## Validation humaine LOT C/D/E + preparation mode reel (2026-08-10)
+
+LOT C signe par l'utilisateur : Banque/Caisse ACCEPTE_AVEC_RESERVE (Caisse non validable, aucun
+mouvement disponible sur la copie - pas un defaut Banque), Tresorerie proprietaires ACCEPTE.
+
+LOT D/E exerces en profondeur sur instance isolee (port 8050, ecritures fictives, baseline
+d'integrite 950 fichiers prise avant) :
+- Chaine E2E comptable reelle : fournisseur -> facture 120 EUR -> ecriture ACHATS equilibree
+  (606000/401000, auxiliaire opaque) -> validation -> 2 reglements -> 2 ecritures CAISSE -> OD
+  validee (ODIVERSES). 3 journaux reellement alimentes.
+- Desequilibre 100/60 REFUSE ("Le total debit doit egaler le total credit.").
+- Periode 2026-05 clOturee -> ecriture REFUSEE ; reouverture sans justification REFUSEE, avec
+  justification acceptee.
+- Mapping provisoire explicitement marque (A_CONTROLER + MAP-GENERIQUE-606000, bandeau "Seed
+  provisoire" sur le plan comptable). Jamais presente comme definitif.
+- Invariant REEL = COMPTABLE + HORS_COMPTA verifie en direct : 291722.75 = 281198.59 + 10524.16,
+  ecart 0.00 EUR. 8 reconciliations affichees, statuts honnetes (A/B/D/H OK, C/G A_CONTROLER,
+  E/F NON_DISPONIBLE - attendu sur base vierge).
+- Controles : 62 INFO comptes separement des 2358 bloquants (INFO != blocage). Exception sans
+  justification REFUSEE, avec justification acceptee.
+- Calculs : chaine aval 6/6 SUCCES depuis l'interface applicative (74.4 s) - couverture nouvelle.
+  Idempotence : 2e run identique au centime. Rollback natif exerce : 8 fichiers restaures.
+- Exports : 6 CSV applicatifs + 13 Power BI. Scan PII : aucune fuite (un motif suspect s'est
+  revele etre un fragment d'identifiant opaque CTRL-70693637186f, verifie ligne par ligne).
+
+INTEGRITE FINALE : 950/950 fichiers reels identiques au baseline, 0 modification, 0 absent.
+REGRESSION : 591 passes / 37 ignores / 0 echec (perimetre Comptabilite/Resultats/Controles/
+Cloture/Calculs). AUCUN BUG TROUVE - aucune correction necessaire, aucun code modifie.
+
+Port 8000/PID 21136 intact. Toutes les instances de recette arretees. Mode reel jamais active.
+
+VERDICTS (4 separes) : Application VALIDEE TECHNIQUEMENT SUR COPIES (validation utilisateur LOT D/E
+restante) ; Comptabilite FONCTIONNELLE AVEC MAPPINGS PROVISOIRES ; Preparation mode reel PRETE
+TECHNIQUEMENT / A SIGNER ; Mode reel NO GO - NON ACTIVE.
+REFERENCE : RECETTE_FONCTIONNELLE_GLOBALE.md, PREPARATION_MODE_REEL.md, 72_CHECKLIST_GO_NO_GO_
+MODE_REEL.md (restructuree en 6 domaines A-F).

@@ -1201,10 +1201,48 @@ Caisse : ABSENT (aucun mouvement dans cette copie, état déjà connu). Trésore
 parcours réel création→BROUILLON→VALIDE (immuabilité confirmée)→ANNULE→historique, tous corrects.
 **Aucun bug trouvé dans le LOT C.**
 
+## LOT C signé + LOT D/E exercés (2026-08-10) — aucun code modifié
+
+**LOT C — décisions utilisateur** : Banque/Caisse ACCEPTE_AVEC_RESERVE (réserve : Caisse non
+validable, aucun mouvement disponible sur la copie — pas un défaut Banque, aucune donnée métier
+fabriquée pour lever la réserve), Trésorerie propriétaires ACCEPTE.
+
+**LOT D/E exercés en profondeur** (instance isolée port 8050, écritures fictives, baseline
+d'intégrité 950 fichiers prise avant) :
+- **Comptabilité** : chaîne E2E réelle fournisseur→facture 120 €→écriture ACHATS équilibrée
+  (606000/401000, auxiliaire opaque)→validation→2 règlements→2 écritures CAISSE→OD validée
+  (ODIVERSES). Déséquilibre 100/60 **refusé**. Période 2026-05 clôturée → écriture **refusée** ;
+  réouverture sans justification **refusée**, avec justification acceptée. Mapping provisoire
+  explicitement marqué (`A_CONTROLER` + `MAP-GENERIQUE-606000`, bandeau « Seed provisoire »).
+- **Analytique/Résultats** : REEL 291 722,75 = COMPTABLE 281 198,59 + HC 10 524,16, écart 0,00 €.
+  8 réconciliations, statuts honnêtes.
+- **Contrôles** : 62 INFO comptés séparément des 2358 bloquants ; exception sans justification
+  refusée, avec justification acceptée.
+- **Calculs** : chaîne aval **6/6 SUCCES depuis l'interface** (74,4 s) — couverture nouvelle ;
+  **idempotence** prouvée (2ᵉ run identique au centime) ; **rollback natif exercé** (8 fichiers
+  restaurés).
+- **Exports** : 6 CSV applicatifs + 13 Power BI, aucune PII (un motif suspect s'est révélé être un
+  fragment d'ID opaque, vérifié).
+- **Intégrité finale** : **950/950 fichiers réels identiques au baseline, 0 modification.**
+- Régression : **591 passés / 37 ignorés / 0 échec**. **Aucun bug trouvé — aucune correction
+  nécessaire.**
+
+**Découverte structurante pour le mode réel** : tous les writers sont gatés par `RECETTE_MODE`
+(`X_REAL_WRITE_ENABLED = RECETTE_MODE and _env_flag(...)`) et trois sont codés en dur à `False`
+(HH, REF_ASSOC_MODE, CONTROLES). **Une instance réelle ne peut activer aucun writer par variable
+d'environnement** — l'activation exige une modification revue de `app/config.py`. Protection par
+conception, à connaître avant toute planification. Dossier complet : `PREPARATION_MODE_REEL.md`
+(9 writers inventoriés, ordre d'activation en 7 étapes, backup/rollback, conditions GO/NO GO).
+
 ## État de reprise
 
-Worktree propre, suite complète verte (hors flake pré-existant), bloc Banque/Trésorerie validé sur
-copies, cadrage métier virement↔réservation corrigé, cadrage comptable fermé (matrice exhaustive,
-aucun compte inventé), validation humaine globale démarrée (LOT A clos, LOT B en cours). Prochaine
-action : terminer LOT B, puis LOT C (Banque/Trésorerie), D (Comptabilité/Analytique/Résultats), E
-(Contrôles/Calculs/Exports) — voir `RECETTE_FONCTIONNELLE_GLOBALE.md` pour la fiche de suivi.
+Worktree propre, bloc Banque/Trésorerie validé sur copies, cadrage métier virement↔réservation
+corrigé, cadrage comptable fermé, validation humaine LOT A/B/C signée, LOT D/E exercés avec
+recommandations techniques (Comptabilité ACCEPTE_AVEC_RESERVE, Analytique/Résultats/Contrôles/
+Calculs ACCEPTE), préparation du mode réel documentée sans activation. **Prochaine action unique :
+décisions utilisateur sur les 5 modules du LOT D/E** (`RECETTE_FONCTIONNELLE_GLOBALE.md` partie J
+pour les recommandations, partie I pour la fiche).
+
+Commandes de reprise : `cd <worktree> && git status && git log --oneline -5` ; instance de recette
+type : `RECETTE_MODE=1 PROJECT_ROOT=<copies> APP_DATA_DIR=<recette>/APP_DATA python -m uvicorn
+app.main:app --port 80XX` depuis `05_APPLICATION` (jamais le port 8000).

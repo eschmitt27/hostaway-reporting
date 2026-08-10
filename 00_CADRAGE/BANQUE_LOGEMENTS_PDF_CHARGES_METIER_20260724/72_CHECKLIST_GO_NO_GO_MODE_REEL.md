@@ -40,6 +40,80 @@ aucune activation.
 
 Colonnes intentionnellement vides. Claude ne coche, ne remplit, ni n'infère aucune de ces cases.
 
+## Mise à jour 2026-08-10 — checklist restructurée par domaine
+
+Statuts : `VALIDE` / `VALIDE_AVEC_RESERVE` / `BLOQUE` / `NON_TESTE` / `A_SIGNER_UTILISATEUR`.
+Aucune case signée par Claude.
+
+### A. Prêt techniquement
+
+| Item | Statut | Preuve |
+|---|---|---|
+| 18 modules répondent, aucune erreur 500/404 | VALIDE | Smoke HTTP + recette navigateur (`RECETTE_FONCTIONNELLE_GLOBALE.md`) |
+| Chaîne E2E Fournisseur→Facture→Règlements→Comptabilité | VALIDE | LOT D, écritures réelles générées et équilibrées |
+| Équilibre comptable imposé (déséquilibre refusé) | VALIDE | OD 100/60 refusée, message exact |
+| Période clôturée verrouillée + réouverture justifiée | VALIDE | LOT D, cycle complet exercé |
+| Invariant REEL = COMPTABLE + HORS_COMPTA | VALIDE | Écart 0,00 € vérifié en direct |
+| Pipeline aval 6/6 depuis l'interface | VALIDE | RUN-430E7833235E, 74,4 s |
+| Idempotence | VALIDE | 2ᵉ run identique au centime |
+| Rollback pipeline | VALIDE | 8 fichiers restaurés, exercé |
+| Campagne de tests | VALIDE | 591 passés / 37 ignorés / 0 échec (périmètre modifié), plus campagnes antérieures |
+| Intégrité des sources réelles | VALIDE | 950/950 fichiers identiques au baseline, 0 modification |
+| Confidentialité (PII, IBAN, chemins) | VALIDE | Scan sur tous les exports : aucune fuite |
+| Séparation Charge/Facture/Règlement/Banque/Écriture | VALIDE | Aucun objet recréé, aucun double comptage |
+
+### B. Validation humaine
+
+| Item | Statut |
+|---|---|
+| LOT A (Navigation, Logements, Propriétaires, Réservations) | VALIDE_AVEC_RESERVE — signé utilisateur 2026-08-10 |
+| LOT B (Ménages, Fournisseurs, Charges, Factures, Règlements) | VALIDE_AVEC_RESERVE — signé utilisateur 2026-08-10 |
+| LOT C (Banque/Caisse, Trésorerie propriétaires) | VALIDE_AVEC_RESERVE — signé utilisateur 2026-08-10 |
+| LOT D (Comptabilité, Analytique, Résultats) | **A_SIGNER_UTILISATEUR** |
+| LOT E (Contrôles/Clôture, Calculs/Exports) | **A_SIGNER_UTILISATEUR** |
+| Responsables désignés (qui décide quoi) | A_SIGNER_UTILISATEUR |
+| Fenêtre de bascule définie | A_SIGNER_UTILISATEUR |
+
+### C. Arbitrages comptables
+
+| Item | Statut |
+|---|---|
+| 27 catégories `CHG_XXX` → comptes définitifs | **BLOQUE** (tout sur `606000` provisoire) |
+| Frais bancaires → compte définitif | **BLOQUE** |
+| Trésorerie propriétaires → compte/circuit | **BLOQUE** (`411000` candidat non validé) |
+| Associés / IK / remboursements | **BLOQUE** (`467000` candidat non validé) |
+| TVA | VALIDE — utilisateur : aucune TVA applicable actuellement (2026-08-08) |
+
+### D. Fonctionnalités différées
+
+| Élément | Statut |
+|---|---|
+| Écran dédié de consultation Hostaway | A_ARBITRER (réserve LOT A) |
+| Factures propriétaires émises | A_ARBITRER |
+| Factures voyageurs / tiers | A_ARBITRER |
+| Avoir autonome | A_ARBITRER |
+| Pool multi-logements (clé de répartition) | A_ARBITRER |
+| Caisse (aucune donnée de recette disponible) | A_ARBITRER (réserve LOT C) |
+| Mappings comptables définitifs | A_ARBITRER (cf. section C) |
+
+### E. Rollback
+
+| Item | Statut |
+|---|---|
+| Rollback pipeline (natif, bouton applicatif) | VALIDE — exercé |
+| Rollback base applicative (`app.db`) | VALIDE — procédure documentée (`PREPARATION_MODE_REEL.md`) |
+| Backup complet + manifest SHA256 | VALIDE — générateur éprouvé (950 fichiers) |
+| Rollback testé de bout en bout en conditions réelles | NON_TESTE |
+
+### F. Mode réel
+
+| Item | Statut |
+|---|---|
+| Inventaire des writers | VALIDE — 9 writers documentés (`PREPARATION_MODE_REEL.md`) |
+| Ordre d'activation proposé | VALIDE — 7 étapes, du risque le plus faible au plus élevé |
+| Verrou technique | **BLOQUE par conception** — tous les writers gatés par `RECETTE_MODE`, 3 codés en dur à `False`. L'activation exige une modification revue de `app/config.py`, pas un changement de variable |
+| Activation | **NON — aucun flag modifié, mode réel jamais activé** |
+
 ## Verdict
 
 **NO GO — VALIDATION HUMAINE REQUISE.**

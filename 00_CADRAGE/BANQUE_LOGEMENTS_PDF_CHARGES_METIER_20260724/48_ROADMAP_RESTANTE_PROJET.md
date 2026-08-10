@@ -14,6 +14,15 @@
 > trouvé, aucun code modifié. TVA : utilisateur confirme aucune TVA applicable actuellement.
 > **Verdict technique : PRÊT POUR VALIDATION HUMAINE GLOBALE** — fiche de validation vierge livrée,
 > à remplir par l'utilisateur module par module, avant toute activation de mode réel.
+>
+> **Suite (2026-08-10)** : validation humaine LOT A/B/C signée ; LOT D/E exercés en profondeur
+> (chaîne E2E comptable réelle, pipeline aval 6/6 depuis l'interface, idempotence, rollback natif,
+> exports sans PII, intégrité 950/950 fichiers identiques, 591 tests verts, **aucun bug**).
+> Préparation du mode réel documentée (`PREPARATION_MODE_REEL.md`, 9 writers, ordre d'activation,
+> backup/rollback). **Blocage restant identifié : l'activation du mode réel exige une modification
+> revue de `app/config.py`** (tous les writers gatés par `RECETTE_MODE`, 3 codés en dur à `False`)
+> — protection par conception, pas un défaut. Reste : décisions utilisateur LOT D/E, arbitrages
+> comptables (`70`), signature de la checklist (`72`).
 
 État figé au **2026-07-31**, voir `HANDOFF_CANONIQUE.md` pour le HEAD exact (mis à jour à chaque
 commit stable). Master `8b47807`, worktree propre.

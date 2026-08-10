@@ -887,3 +887,34 @@ TRESORERIE.md` (section G).
 
 STATUT : CORRIGE, aucune donnee reelle perdue ni modifiee. Detail complet :
 `76_VALIDATION_FINALE_BANQUE_TRESORERIE.md`.
+
+
+## RECETTE LOT D/E (2026-08-10) — AUCUNE ANOMALIE APPLICATIVE TROUVEE
+
+Recette fonctionnelle approfondie des lots D (Comptabilite, Analytique, Resultats) et E (Controles/
+Cloture, Calculs, Exports) sur instance isolee : aucun defaut BLOQUANT, MAJEUR, MINEUR ni
+COSMETIQUE nouveau. Aucune correction appliquee, aucun code modifie.
+
+Deux constats a ne PAS confondre avec des anomalies :
+
+1. ORCHESTRATEUR CALCULS - "Prerequis non satisfaits : scripts absents (lot9/lot10/lot12/lot13)"
+   Artefact de l'arbre de COPIES uniquement : ces 4 scripts existent bien dans le worktree reel
+   mais n'etaient pas presents dans l'arbre de copies (technique de securite des missions
+   anterieures : copie temporaire du script puis suppression). Le comportement applicatif est
+   CORRECT - l'orchestrateur verifie ses prerequis et refuse de lancer plutot que de produire un
+   faux succes. Les 4 scripts ont ete copies dans l'arbre de copies pour exercer l'orchestrateur.
+   STATUT : NON-ANOMALIE (artefact d'environnement de recette).
+
+2. RECONCILIATIONS C et G en A_CONTROLER, E et F en NON_DISPONIBLE
+   Attendu sur une base applicative vierge : aucune ecriture comptable n'a ete generee pour les
+   donnees reelles dans cet environnement isole (seules des ecritures fictives ont ete creees).
+   Les statuts sont honnetes et jamais masques. STATUT : NON-ANOMALIE (etat de donnees attendu).
+
+DECOUVERTE STRUCTURANTE (pas une anomalie, une propriete de conception a documenter) :
+tous les writers sont gates par RECETTE_MODE (X_REAL_WRITE_ENABLED = RECETTE_MODE and
+_env_flag(...)), et trois sont codes en dur a False (HH_REAL_WRITE_ENABLED,
+REF_ASSOC_MODE_REAL_WRITE_ENABLED, CONTROLES_REAL_WRITE_ENABLED). Une instance NON recette ne peut
+donc activer AUCUN writer par variable d'environnement : l'activation du mode reel exige une
+modification delibaree et revue de app/config.py. Protection par conception (impossible d'activer
+le reel par accident), a connaitre avant toute planification de bascule.
+Detail complet : PREPARATION_MODE_REEL.md.

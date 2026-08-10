@@ -1,5 +1,19 @@
 # 60 — Verdict GO / NO GO (recette globale sur copies, 2026-08-01, mis à jour le 2026-08-02)
 
+> **Suite 10 (2026-08-10) — 4 verdicts séparés.** Validation humaine LOT A/B/C signée par
+> l'utilisateur ; LOT D/E exercés en profondeur (chaîne E2E comptable réelle, équilibre imposé,
+> période clôturée verrouillée, invariant REEL=COMPTABLE+HC à 0,00 €, pipeline 6/6 depuis
+> l'interface, idempotence, rollback natif, exports sans PII). **950/950 fichiers réels identiques
+> au baseline, 0 modification. 591 passés / 37 ignorés / 0 échec. Aucun bug trouvé.**
+>
+> 1. **APPLICATION FONCTIONNELLE SUR COPIES : VALIDÉE TECHNIQUEMENT** — validation utilisateur
+>    LOT D/E restante.
+> 2. **COMPTABILITÉ : FONCTIONNELLE AVEC MAPPINGS PROVISOIRES** (`606000` générique, à arbitrer).
+> 3. **PRÉPARATION MODE RÉEL : PRÊTE TECHNIQUEMENT / À SIGNER** — `PREPARATION_MODE_REEL.md`.
+> 4. **MODE RÉEL : NO GO — NON ACTIVÉ.** Aucun flag modifié. L'activation exige une modification
+>    revue de `app/config.py` (writers gatés par `RECETTE_MODE`, 3 codés en dur à `False`), pas un
+>    changement de variable d'environnement.
+
 > **Suite 9 (2026-08-08)** : recette fonctionnelle globale exécutée sur copies (port isolé 8030,
 > `RECETTE_MODE=1`, port 8000/PID 21136 jamais touché). 18/18 modules techniquement fonctionnels
 > (smoke HTTP réel), parcours navigateur approfondi sur Réservations hors Hostaway (résolution

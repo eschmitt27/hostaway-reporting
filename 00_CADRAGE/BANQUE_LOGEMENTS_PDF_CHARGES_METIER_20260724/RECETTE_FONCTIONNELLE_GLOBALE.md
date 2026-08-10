@@ -107,13 +107,13 @@ déduites d'un silence.
 | Charges | ACCEPTE_AVEC_RESERVE | Prévisualisation complète exercée en navigateur (catégorie, impact résultat, analytique, refacturation, contrôles). Confirmation finale non poussée jusqu'à la persistance ce lot (workflow de modale JS) — writer et persistance couverts par tests automatisés verts (`test_charges_confirmation_e2e.py`, `test_charges_confirmation_route.py`, `test_charges_confirmation_audit.py`). Réserve de validation humaine, pas un bug — non corrigée | 2026-08-10 |
 | Factures | ACCEPTE | Création réellement persistée, fournisseur correctement lié, historique présent. Règle FACTURE ≠ CHARGE validée : la création n'a pas créé automatiquement de nouvelle charge | 2026-08-10 |
 | Règlements | ACCEPTE | Deux règlements réels (50 € puis 70 €) sur facture 120 € : A_CONTROLER → PARTIELLEMENT_REGLEE → REGLEE, solde 120 €→70 €→0 €, historique complet, aucune recréation de facture, aucun double comptage | 2026-08-10 |
-| Banque / Caisse | | (en attente décision) | |
-| Trésorerie propriétaires | | (en attente décision) | |
-| Comptabilité | | | |
-| Analytique | | | |
-| Résultats | | | |
-| Contrôles / Clôture | | | |
-| Calculs / Exports | | | |
+| Banque / Caisse | ACCEPTE_AVEC_RESERVE | Banque réellement exercée, catégorisation PAYOUT_PLATEFORME conforme (166 mvts / 14 467,27 €), aucune relation Banque↔Réservation, file A_ENVOYER_IA dédupliquée à 82 mouvements économiques, décision humaine persistée, historique append-only, aucune régression du doublon 83/82. **Réserve : CAISSE non validable sur cette copie (aucun mouvement Caisse disponible)** — ce n'est pas un défaut Banque, aucune donnée métier réelle ne sera fabriquée pour lever cette réserve | 2026-08-10 |
+| Trésorerie propriétaires | ACCEPTE | Création, prévisualisation, confirmation, BROUILLON, validation, immuabilité après validation, annulation justifiée, historique, mouvement annulé non rapprochable, aucune écriture comptable définitive générée, aucun mapping 411000 inventé. Exact/partiel/groupé/ambigu couverts par la recette dédiée antérieure | 2026-08-10 |
+| Comptabilité | RECOMMANDATION : ACCEPTE_AVEC_RESERVE (en attente validation utilisateur) | Voir constats LOT D ci-dessous | — |
+| Analytique | RECOMMANDATION : ACCEPTE (en attente validation utilisateur) | Voir constats LOT D ci-dessous | — |
+| Résultats | RECOMMANDATION : ACCEPTE (en attente validation utilisateur) | Voir constats LOT D ci-dessous | — |
+| Contrôles / Clôture | RECOMMANDATION : ACCEPTE (en attente validation utilisateur) | Voir constats LOT E ci-dessous | — |
+| Calculs / Exports | RECOMMANDATION : ACCEPTE (en attente validation utilisateur) | Voir constats LOT E ci-dessous | — |
 
 **LOT A clos (2026-08-10)** : 1 ACCEPTE, 3 ACCEPTE_AVEC_RESERVE, 0 REFUSE. Aucune réserve
 bloquante, aucune correction demandée (toutes cosmétiques/fonctionnelles mineures, conformes à la
@@ -161,18 +161,113 @@ uniquement, conforme au périmètre demandé. Mappings comptables : aucune écri
 automatiquement à partir d'un mouvement de trésorerie, `411000` non validé automatiquement (rien à
 constater côté Comptabilité ce lot, conforme). **Aucun bug trouvé.**
 
-## J. Verdict technique
+**LOT C clos (2026-08-10)** : 1 ACCEPTE, 1 ACCEPTE_AVEC_RESERVE (Caisse non validable faute de
+données, pas un défaut applicatif), 0 REFUSE.
 
-**PRÊT POUR VALIDATION HUMAINE GLOBALE.** Aucun bloqueur applicatif ne subsiste. Ceci n'est **pas**
-une activation du mode réel — la décision d'acceptation module par module (fiche ci-dessus) revient
-exclusivement à l'utilisateur, tout comme les arbitrages comptables restants (`70`).
+---
 
-## K. Prochaine étape exacte
+## LOT D — constats (2026-08-10, instance isolée port 8050, écritures fictives)
 
-1. L'utilisateur remplit la fiche de validation (partie I) module par module.
-2. En parallèle ou séparément : réponses aux 5 questions comptables déjà posées
-   (`70_MATRICE_ARBITRAGES_COMPTABLES.md`) — TVA déjà répondue ce tour (aucune TVA applicable
-   actuellement).
-3. Une fois la fiche remplie et les comptes arbitrés : `72_CHECKLIST_GO_NO_GO_MODE_REEL.md` peut
-   être signée, préalable obligatoire à toute activation progressive du mode réel
-   (`71_DOSSIER_PREPARATION_MODE_REEL.md`) — non déclenchée par cette mission.
+**Comptabilité — chaîne E2E réellement exercée de bout en bout :**
+fournisseur fictif → facture 120,00 € → statut VALIDEE → **écriture ACHATS générée** (équilibrée
+120,00/120,00 : débit `606000`, crédit `401000` avec auxiliaire opaque `FRS-…`) → validation →
+2 règlements (50,00 € puis 70,00 €) → **2 écritures CAISSE générées** → OD équilibrée créée et
+validée (écriture ODIVERSES). Total : 3 journaux réellement alimentés (ACHATS, CAISSE, ODIVERSES).
+
+Invariants prouvés en direct :
+- **Équilibre imposé** : OD volontairement déséquilibrée (100 débit / 60 crédit) **refusée** —
+  « Le total débit doit égaler le total crédit. » Aucune écriture déséquilibrée n'a pu être créée.
+- **Mapping provisoire clairement identifié** : la ventilation analytique de l'écriture ACHATS
+  porte `statut = A_CONTROLER` et `mapping = MAP-GENERIQUE-606000`. L'écran Plan comptable affiche
+  en tête « Seed provisoire — le mapping catégorie de charge → compte fin n'est pas arbitré ; à
+  valider métier avant tout usage réel ». Le provisoire n'est jamais présenté comme définitif.
+- **Statut initial jamais VALIDEE** : toute écriture générée naît `PROPOSEE`.
+- **Période clôturée verrouillée** : période 2026-05 passée OUVERTE→EN_CONTROLE→VALIDEE→CLOTUREE,
+  puis tentative d'écriture sur cette période **refusée** — « Cette période comptable est clôturée :
+  aucune écriture directe n'est autorisée. »
+- **Réouverture justifiée** : sans justification **refusée** (« La réouverture d'une période
+  clôturée exige une justification. »), avec justification acceptée.
+- **Objets distincts** : la facture n'a créé aucune charge, les règlements n'ont recréé ni facture
+  ni charge, l'écriture n'a recréé aucun objet source. Aucun double comptage.
+- **Aucune PII** : auxiliaires en identifiants opaques, aucun IBAN, aucun chemin absolu.
+
+**Analytique / Résultats — invariant central vérifié en direct sur données réelles copiées :**
+REEL 291 722,75 € = COMPTABLE 281 198,59 € + HORS_COMPTA 10 524,16 €, mention applicative
+« REEL=COMPTABLE+HC verifie (ecart=0.00 EUR) ». Écran Réconciliations : 8 réconciliations affichées,
+A/B/D/H à **0,00 € d'écart (OK)**, C et G en `A_CONTROLER` et E/F en `NON_DISPONIBLE` — attendu sur
+une base applicative vierge (aucune écriture réelle générée pour les données réelles), statuts
+honnêtes, jamais masqués. Axes disponibles : mensuel, cumulé, logements, propriétaires, plateformes,
+fournisseurs, prestataires, charges, catégories, activités, ménages, comptabilité, réconciliations.
+Aucun résultat calculé à partir d'un virement plateforme individuel. **Aucun bug trouvé.**
+
+## LOT E — constats (2026-08-10)
+
+**Contrôles** : 2358 anomalies moteur, **62 informatifs comptés séparément** (INFO ≠ blocage
+confirmé), 2358 bloquants clôture, 0 incohérence de suivi. Décision humaine exercée réellement :
+exception **sans** justification **refusée** (« Justification requise pour accepter une
+exception. »), exception **avec** justification acceptée et tracée.
+
+**Clôture comptable** : cycle complet exercé (cf. LOT D ci-dessus) — transitions, blocage
+d'écriture, réouverture justifiée, historique.
+
+**Calculs** : chaîne aval complète lancée **depuis l'interface applicative** (couverture nouvelle —
+les missions précédentes lançaient les scripts directement) : prévisualisation (périmètre, racine,
+empreinte des entrées, fichiers lus, sorties « sauvegardées avant écrasement »), puis exécution
+`lot4quater → lot9 → lot10 → lot11 → lot12 → lot13` : **6/6 lots SUCCES, 74,4 s**.
+**Idempotence** : 2ᵉ exécution identique, **6/6 SUCCES**, totaux inchangés au centime
+(291 722,75 / 281 198,59 / 10 524,16, écart 0,00 €) — aucune duplication, aucune dérive.
+**Rollback natif exercé** : bouton « Restaurer les sorties d'avant ce run » → **8 fichiers
+restaurés**, application cohérente après restauration.
+
+*Note d'environnement (pas un défaut)* : avant ce tour, l'orchestrateur signalait honnêtement
+« Prérequis non satisfaits — Scripts absents : lot9/lot10/lot12/lot13 » car l'arbre de **copies** ne
+contenait pas ces 4 scripts (ils sont bien présents dans le worktree réel). Les 4 scripts ont été
+copiés dans l'arbre de copies pour exercer l'orchestrateur. Comportement applicatif correct : aucun
+faux succès, prérequis vérifiés avant lancement.
+
+**Exports** : 6 exports CSV applicatifs testés (résultats global/propriétaires/catégories/
+fournisseurs, contrôles, pilotage mensuel) — tous HTTP 200, fichiers non vides, schémas conformes.
+Exports Power BI (Lot13) : 13/13 régénérés, `montant_preparation_canape` présent conformément au
+contrat en vigueur, ancien champ sensible absent. **Scan PII sur tous les exports : aucune fuite**
+(un motif détecté s'est révélé être un fragment d'identifiant opaque `CTRL-70693637186f`, pas un
+numéro de téléphone — faux positif de la regex, vérifié ligne par ligne). Aucun IBAN, aucun email,
+aucun chemin absolu, aucun nom de voyageur. **Aucun bug trouvé.**
+
+## J. Recommandations techniques LOT D / LOT E (jamais une signature à la place de l'utilisateur)
+
+**COMPTABILITÉ : ACCEPTE_AVEC_RESERVE.** Chaîne E2E réelle prouvée, équilibre imposé, déséquilibre
+refusé, période clôturée verrouillée, réouverture justifiée. Réserve : mappings comptables encore
+PROVISOIRES (`606000` générique), correctement signalés comme tels, à arbitrer avant usage réel.
+
+**ANALYTIQUE : ACCEPTE.** Invariant REEL = COMPTABLE + HORS_COMPTA vérifié en direct (écart 0,00 €),
+axes disponibles et cohérents, aucun double comptage, aucune dépendance Banque↔Réservation.
+
+**RÉSULTATS : ACCEPTE.** Montants explicables et cohérents avec Lot10, 8 réconciliations affichées
+avec statuts honnêtes (jamais masqués), drill-down et exports fonctionnels.
+
+**CONTRÔLES / CLÔTURE : ACCEPTE.** INFO distingué des bloquants, exception sans justification
+refusée, cycle de clôture complet avec verrouillage et réouverture justifiée, historique tracé.
+
+**CALCULS / EXPORTS : ACCEPTE.** Chaîne aval 6/6 SUCCES depuis l'interface, idempotence prouvée
+(2ᵉ run identique au centime), rollback natif exercé (8 fichiers restaurés), exports sans PII.
+
+## K. Verdicts (4 verdicts séparés)
+
+1. **APPLICATION FONCTIONNELLE SUR COPIES : VALIDÉE TECHNIQUEMENT** — validation utilisateur
+   LOT D/E restante (LOT A/B/C déjà signés par l'utilisateur).
+2. **COMPTABILITÉ : FONCTIONNELLE AVEC MAPPINGS PROVISOIRES** — mécanique complète et éprouvée,
+   comptes définitifs non arbitrés (`70`).
+3. **PRÉPARATION MODE RÉEL : PRÊTE TECHNIQUEMENT / À SIGNER** — dossier complet dans
+   `PREPARATION_MODE_REEL.md` (inventaire des writers, ordre d'activation, backup, rollback,
+   conditions GO/NO GO).
+4. **MODE RÉEL : NO GO — NON ACTIVÉ.** Aucun flag modifié. Découverte structurante : l'activation
+   exige une **modification de code** de `app/config.py` (tous les writers sont gatés par
+   `RECETTE_MODE`, trois sont codés en dur à `False`) — ce n'est pas une opération de configuration.
+
+## L. Prochaine étape exacte
+
+**Une seule action** : l'utilisateur rend ses décisions de validation pour les 5 modules du
+LOT D/E (Comptabilité, Analytique, Résultats, Contrôles/Clôture, Calculs/Exports), en s'appuyant
+sur les recommandations de la partie J. Tout le reste (arbitrages comptables `70`, signature de la
+checklist `72`, activation progressive) en découle et reste bloqué tant que cette étape n'est pas
+faite.
