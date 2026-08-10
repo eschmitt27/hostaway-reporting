@@ -1328,14 +1328,45 @@ Cette famille (`GESTION_LOGEMENT_MISSING`) reste ouverte à **77 couples** (janv
 Les 8 autres familles bloquantes (1519 lignes) restent intactes — en particulier les 612 contrôles
 de commission, référentiel **distinct** (taux), non traités ici.
 
+## RESERVATION_A_CONTROLER_SANS_COMMISSION — constat : rien à construire (2026-08-10, suite)
+
+Détail complet : `78_RECONSTRUCTION_HISTORIQUE_COMMISSIONS.md`.
+
+**Gate baseline corrigé** : le total de contrôles après prolongation gestion est **2002**, vérifié
+exact (pas une erreur). L'hypothèse « 2054 » supposait que seule `GESTION_LOGEMENT_MISSING` avait
+varié ; en réalité `CHARGE_EXCEPTIONNELLE_DANS_CHARGE_FIXE` a aussi varié de −52 (121→69), effet
+aval réel et explicable (ce contrôle dépend lui aussi de `REF_Gestion_Logements_Hist`). Tous les
+autres codes strictement inchangés, vérifiés un à un.
+
+**Audit des 612** : source directe (`MASTER_CALC_Commissions.xlsx`, onglet `A_CONTROLER`) — 612
+réservations distinctes, causes **553 `GUEST_COUNT_MANQUANT`** + **59 `RESERVATION_EXCLUE_A_
+CONTROLER`** (VRBO/Direct, statut de payout non résolu, indépendant du taux). **0 causée par un
+taux manquant.**
+
+**Découverte** : `REF_Taux_Commission` **existe déjà**, 19 lignes, 12/12 propriétaires couverts,
+structure **exactement conforme** à la règle utilisateur (2025-01-01→2026-01-31 à 15 % pour tous,
+puis taux spécifique à partir du 01/02/2026 quand il diffère — construit le même jour que
+`REF_Gestion_Logements_Hist`, 28/06/2026). Vérifié dans le code (`lot10_calculer_resultats.py`) :
+un taux manquant provoque `sys.exit(1)` (arrêt dur, pas un A_CONTROLER par ligne) — puisque tous
+les runs ont toujours abouti à `SUCCES`, la preuve directe est qu'aucune réservation n'a jamais
+manqué de taux.
+
+**Conséquence : aucune reconstruction, aucune simulation, aucune écriture réelle.** Le référentiel
+cible et le référentiel actuel sont identiques. `RESERVATION_A_CONTROLER_SANS_COMMISSION` reste à
+**612, inchangé** — pour des causes totalement indépendantes du taux, hors périmètre de cette
+mission (guest count, payout VRBO/Direct).
+
 ## État de reprise
 
-Worktree propre (hors la modification réelle documentée ci-dessus), application validée sur copies
-avec les 16 modules décidés, cadrage comptable fermé, contrat de sécurité des writers confirmé déjà
-en place, `GESTION_LOGEMENT_MISSING` partiellement résolu (838→472 lignes, 137→77 couples) sur
-décision utilisateur explicite, aucune donnée inventée, mode réel jamais activé. **Prochaine action :
-statuer sur janvier→juillet 2025 (77 couples, mêmes 14 logements) ou passer à la famille bloquante
-suivante par volume (`RESERVATION_A_CONTROLER_SANS_COMMISSION`, 612 lignes, référentiel distinct).**
+Worktree propre, application validée sur copies avec les 16 modules décidés, cadrage comptable
+fermé, contrat de sécurité des writers confirmé déjà en place, `GESTION_LOGEMENT_MISSING`
+partiellement résolu sur décision utilisateur (838→472 lignes, 137→77 couples),
+`RESERVATION_A_CONTROLER_SANS_COMMISSION` auditée — référentiel de taux déjà complet, rien à faire,
+612 inchangé pour causes distinctes. Aucune donnée inventée, mode réel jamais activé. **Prochaine
+action : famille bloquante suivante par volume, `GUEST_COUNT_MANQUANT_PREPARATION_CANAPE` (553
+lignes, dont 553 des 612 commission actuelles — la résoudre réduirait mécaniquement les deux
+familles), ou statuer sur les 59 `RESERVATION_EXCLUE_A_CONTROLER` (VRBO/Direct), ou sur les 77
+couples `GESTION_LOGEMENT_MISSING` restants (jan-juil 2025).**
 
 Commandes de reprise : `cd <worktree> && git status && git log --oneline -5` ; instance de recette
 type : `RECETTE_MODE=1 PROJECT_ROOT=<copies> APP_DATA_DIR=<recette>/APP_DATA python -m uvicorn

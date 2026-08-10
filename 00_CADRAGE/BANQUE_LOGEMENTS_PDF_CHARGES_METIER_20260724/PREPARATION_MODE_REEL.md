@@ -227,3 +227,10 @@ utilisateur explicite : 14 logements, `date_debut` prolongée à 2025-08-01. Int
 838 à 472 lignes (mesuré sur copies avec un diff identique, non recalculé sur le réel — le writer
 Calculs reste désactivé). **Cause 1 du NO GO partiellement traitée, causes 1 (reste 77 couples)
 et 2 (arbitrages comptables) demeurent → préparation mode réel reste NO GO.**
+
+**Mise à jour 2026-08-10 (suite, RESERVATION_A_CONTROLER_SANS_COMMISSION)** : audit complet, aucune
+écriture nécessaire — le référentiel `REF_Taux_Commission` couvre déjà exactement la règle utilisateur
+(2025-01-01→2026-01-31 à 15 % pour tous, taux spécifique dès le 01/02/2026 quand il diffère). Les
+612 lignes bloquantes sont causées par `GUEST_COUNT_MANQUANT` (553) et un statut de payout non
+résolu pour des réservations VRBO/Direct (59) — deux causes indépendantes du taux, non traitées
+ici. Aucun impact sur le statut NO GO.

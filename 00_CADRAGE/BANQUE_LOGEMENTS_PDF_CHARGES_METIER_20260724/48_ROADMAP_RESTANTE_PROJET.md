@@ -1,5 +1,12 @@
 # 48 — Roadmap restante du projet
 
+> **Mise à jour 2026-08-10 (blocage clôture)** : `GESTION_LOGEMENT_MISSING` réduit 838→472 lignes
+> (décision utilisateur, réel modifié, couverture 2025-08-01). `RESERVATION_A_CONTROLER_SANS_
+> COMMISSION` auditée : référentiel de taux déjà complet et conforme, 0 écriture nécessaire, 612
+> inchangé (causes réelles : `GUEST_COUNT_MANQUANT` 553, payout VRBO/Direct non résolu 59). Reste
+> bloquant : 77 couples gestion (jan-juil 2025), 612 commission (guest count + payout), 553 guest
+> count, 222 Banque, 69 charges. Clôture NO GO.
+
 > **Mise à jour 2026-08-08** : cadrage comptable fermé sans invention de compte —
 > `70_MATRICE_ARBITRAGES_COMPTABLES.md` reconstruite exhaustivement (27 catégories charges, 17
 > catégories bancaires, trésorerie propriétaires, IK, dépenses personnelles, gestes commerciaux).

@@ -1,5 +1,14 @@
 # 60 — Verdict GO / NO GO (recette globale sur copies, 2026-08-01, mis à jour le 2026-08-02)
 
+> **Suite 13 (2026-08-10)** — `RESERVATION_A_CONTROLER_SANS_COMMISSION` auditée. Baseline
+> contrôles corrigée à 2002 (exact, écart de −52 sur `CHARGE_EXCEPTIONNELLE_DANS_CHARGE_FIXE`
+> expliqué — effet aval de la prolongation gestion). **Découverte : `REF_Taux_Commission` existe
+> déjà, conforme exactement à la règle utilisateur (15 % 2025-01→2026-01, taux spécifique dès
+> 2026-02 si différent), 12/12 propriétaires couverts.** 0 des 612 lignes causé par un taux
+> manquant — causes réelles : `GUEST_COUNT_MANQUANT` (553) et payout VRBO/Direct non résolu (59).
+> **Aucune écriture nécessaire, aucune faite. 612 inchangé. CLÔTURE NO GO. PRÉPARATION MODE RÉEL
+> NO GO. MODE RÉEL NO GO — NON ACTIVÉ.**
+
 > **Suite 12 (2026-08-10)** — Première écriture réelle contrôlée de la mission. Sur décision
 > utilisateur explicite, `REF_Gestion_Logements_Hist` (14 logements) modifié : couverture
 > propriétaire prolongée au 01/08/2025 (procédure backup+SHA256+prévisualisation+écriture+relecture

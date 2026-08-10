@@ -3082,3 +3082,53 @@ VERDICT : GESTION_LOGEMENT_MISSING reste ouvert a 77 couples (jan-juil 2025, mem
 CLOTURE : NO GO. PREPARATION MODE REEL : NO GO. MODE REEL : NO GO - NON ACTIVE.
 Port 8000/PID 21136 intact tout du long.
 REFERENCE : 77_RECONSTRUCTION_GESTION_LOGEMENTS_HIST.md section 10.
+
+---
+
+## Correction baseline controles - 2002 confirme exact (2026-08-10, suite)
+
+Verifie sur l'artefact reel controles-cloture (comparaison code par code, avant vs apres
+prolongation gestion) : TOTAL apres = 2002, EXACT, pas une erreur.
+
+L'hypothese "2420-366=2054" supposait que seule GESTION_LOGEMENT_MISSING avait varie. FAUX :
+CHARGE_EXCEPTIONNELLE_DANS_CHARGE_FIXE a aussi varie de -52 (121->69), effet aval REEL et
+EXPLICABLE : ce controle depend de REF_Gestion_Logements_Hist (charges fixes resolues via ce
+referentiel, CTR-LOT10-16). Delta reel total = -366-52 = -418. 2420-418 = 2002.
+
+Repartition exacte apres (2002 lignes, verifiee code par code, tous les autres codes a delta 0) :
+  GESTION_LOGEMENT_MISSING                        472
+  RESERVATION_A_CONTROLER_SANS_COMMISSION         612  (inchange)
+  GUEST_COUNT_MANQUANT_PREPARATION_CANAPE         553  (inchange)
+  CLOTURE_IMPOSSIBLE_LIGNE_BANCAIRE_NON_CLASSEE   222  (inchange)
+  CHARGE_EXCEPTIONNELLE_DANS_CHARGE_FIXE           69  (etait 121, -52 explique ci-dessus)
+  11 codes residuels mineurs                       74  (inchanges individuellement)
+  TOTAL                                          2002
+
+---
+
+## RESERVATION_A_CONTROLER_SANS_COMMISSION - rien a construire (2026-08-10, suite)
+
+Audit des 612 : source directe MASTER_CALC_Commissions.xlsx onglet A_CONTROLER, 612 reservations
+distinctes (pas de duplication). Causes : GUEST_COUNT_MANQUANT_PREPARATION_CANAPE 553,
+RESERVATION_EXCLUE_A_CONTROLER 59 (source VRBO 32 + Direct 27, statut_calcul_payout=A_CONTROLER,
+assigne en amont dans lot1_hostaway_extract.py, independant de tout taux). 0 cause liee au taux.
+
+Verifie dans le code (lot10_calculer_resultats.py, _attach_commission_rate) : un taux manquant
+declenche sys.exit(1) - arret dur du pipeline, jamais un simple A_CONTROLER par ligne. Puisque
+tous les runs de cette session ont toujours abouti a SUCCES, la preuve directe est qu'aucune
+reservation n'a jamais manque de taux.
+
+DECOUVERTE : REF_Taux_Commission EXISTE DEJA (19 lignes, 12/12 proprietaires couverts), construit
+le meme jour que REF_Gestion_Logements_Hist (28/06/2026), structure EXACTEMENT conforme a la
+regle utilisateur : 2025-01-01->2026-01-31 a 15% pour tous, puis taux specifique a partir du
+01/02/2026 quand il differe (7 proprietaires), ligne unique continue a 15% sinon (5 proprietaires).
+0 trou, 0 chevauchement, 0 doublon.
+
+CONSEQUENCE : aucune reconstruction necessaire, aucune simulation, aucune ecriture reelle - le
+referentiel cible et le referentiel actuel sont identiques. RESERVATION_A_CONTROLER_SANS_
+COMMISSION reste a 612, INCHANGE, pour des causes totalement independantes du taux.
+
+VERDICT : GESTION_LOGEMENT_MISSING 472 inchange. GUEST_COUNT 553 inchange. BANQUE 222 inchange.
+CHARGES 69 inchange. CLOTURE : NO GO. PREPARATION MODE REEL : NO GO. MODE REEL : NO GO - NON
+ACTIVE. Aucun code ni donnee reelle modifie ce tour.
+REFERENCE : 78_RECONSTRUCTION_HISTORIQUE_COMMISSIONS.md
