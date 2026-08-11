@@ -565,6 +565,12 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
     }).reset_index(drop=True)
 
     df_ac = df_payout[df_payout["statut_calcul_payout"] == "A_CONTROLER"].copy()
+    # Deduplication : une reservation deja resolue ailleurs (typiquement HH, branche
+    # DIRECT/VRBO liee a une saisie manuelle) ne doit pas AUSSI etre listee ici depuis
+    # le statut brut Lot1 - sinon double-comptage (presente en COMMISSIONS et en A_CONTROLER).
+    if len(df_ac) > 0 and len(df_comm) > 0 and "reservation_id_hostaway" in df_comm.columns:
+        resolved_ids = pd.to_numeric(df_comm["reservation_id_hostaway"], errors="coerce").dropna()
+        df_ac = df_ac[~pd.to_numeric(df_ac["reservation_id"], errors="coerce").isin(resolved_ids)]
     df_ac["code_anomalie_lot10"] = "RESERVATION_EXCLUE_A_CONTROLER"
     df_ac = df_ac.reset_index(drop=True)
     if hors_parc_controls:
