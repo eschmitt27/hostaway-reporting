@@ -1416,21 +1416,60 @@ PID 21136 intact. Tests ciblés : 62 passed, 0 nouvel échec.
 PRÉPARATION MODE RÉEL : NO GO. MODE RÉEL : NO GO — NON ACTIVÉ**, aucun flag `app/config.py`
 touché.
 
+## Audit impact 506 guest count clôturés + correctif lot4ter (2026-08-11, suite)
+
+Détail complet : `79_RECONSTRUCTION_GUEST_COUNT.md` (à compléter §12). Deux missions d'audit/
+correction enchaînées, **aucune donnée réelle modifiée par ce tour — uniquement du code, committé
+séparément.**
+
+**Audit d'impact (copies)** : les 506 `GUEST_COUNT_MANQUANT_PREPARATION_CANAPE` restants sont
+100% en mois clôturé, guestCount désormais connu pour 100% d'entre elles (0 cas encore
+indéterminé). 397 sans impact canapé (delta 0), 109 avec correction nécessaire (+1 090,00 €
+canapé). Ces 506 sont actuellement **exclues** de Commissions/NetProprietaire (statut
+A_CONTROLER) — les y réintégrer ajouterait 14 302,91 € de commission et 75 412,65 € de net
+propriétaire jamais formellement reconnus. **Résultat société global : delta 0,00 €** (REEL/
+COMPTABLE/HORS_COMPTA déjà comptés via le Flux Lot9, indépendant du contrôle canapé Lot10) —
+invariant vérifié à l'identique sur toutes les simulations de ce tour. 0 relevé propriétaire
+existant pour ces 3 propriétaires/17 mois (vérifié en lecture seule sur `app.db` réelle).
+
+**Découverte critique** : `lot4ter_historiser_reservations_cloturees.py` réécrivait HIST depuis
+une liste `COLS` fixe de 28 colonnes n'incluant pas `guestCount` — toute correction ciblée de ce
+champ était **silencieusement effacée** au run normal suivant (nouvelle clôture). Bug reproduit
+par un test rouge (`tests/test_lot4ter_guestcount_persistence.py`, 4 cas), corrigé par l'ajout
+minimal de `"guestCount"` à `COLS` + capture dans la construction de nouvelle ligne (2 lignes de
+code modifiées). Test rouge→vert. Régression complète : 272 passed (moteur, root `tests/`) + 432
+passed/36 skipped (app, `05_APPLICATION/tests`), 0 nouvel échec.
+
+**Preuve de persistance** : correction fail-closed des 506 guestCount appliquée sur copie de HIST
+(script dédié `correction_guestcount_hist_ciblee.py`, refuse tout champ hors guestCount, toute
+réservation hors liste, toute valeur invalide, toute écriture réelle sans
+`AUTORISATION_ECRITURE_REELLE=1` explicite), puis run **normal** de `lot4ter` (le fix appliqué) :
+guestCount survit (506/506 conservés, 1269 lignes inchangées, 17 mois toujours CLOTURE). Chaîne
+aval rejouée (lot4quater→lot9→lot10→lot11) : GUEST_COUNT 506→0, A_CONTROLER 576→70 (VRBO/Direct
+seuls), résultat société identique au centime. Idempotence du cycle complet vérifiée (2e passage
+correction+lot4ter+aval : mêmes compteurs exacts). Rollback vérifié (hash restauré exact,
+compteurs reviennent à 576/506/70 avant correction).
+
+**Code committé, donnée réelle PAS ENCORE appliquée** — en attente du commit et de la validation
+finale avant écriture réelle sur `HIST_Reservations_Cloturees.xlsx` (backup + hash + diff exact
+prévus, procédure identique aux précédentes écritures réelles de cette session).
+
 ## État de reprise
 
-Worktree propre, application validée sur copies avec les 16 modules décidés, cadrage comptable
-fermé, contrat de sécurité des writers confirmé déjà en place. Quatre familles bloquantes auditées
-depuis le début de ce cycle : `GESTION_LOGEMENT_MISSING` (838→472, décision appliquée au réel),
-`RESERVATION_A_CONTROLER_SANS_COMMISSION` (612, référentiel de taux déjà complet, rien à faire),
-`GUEST_COUNT_MANQUANT_PREPARATION_CANAPE` (553→506 en simulation, ré-extraction réelle exécutée et
-master remplacé, mais pipeline aval réel non relancé donc chiffre de clôture réel encore à 553
-tant que ce run n'est pas rejoué), aucune donnée inventée, mode réel jamais activé. **Prochaine
-action possible : (a) relancer le pipeline aval réel pour propager le nouveau master (nécessite un
-`BANQUE_LOT8_IMPORT.xlsx` réel, actuellement vide aussi, indépendamment de cette mission) ; (b)
-décision utilisateur sur les 506 réservations restantes en mois clôturé (gelées par design) ; (c)
-statuer sur les 59-70 `RESERVATION_EXCLUE_A_CONTROLER` (VRBO/Direct) ; (d) sur les 77 couples
-`GESTION_LOGEMENT_MISSING` restants (jan-juil 2025) ; (e) passer à `BANQUE` (222 lignes) ou
-`CHARGES` (69 lignes).**
+Worktree propre (après commit du fix code), application validée sur copies avec les 16 modules
+décidés, cadrage comptable fermé, contrat de sécurité des writers confirmé déjà en place. Quatre
+familles bloquantes auditées depuis le début de ce cycle : `GESTION_LOGEMENT_MISSING` (838→472,
+décision appliquée au réel), `RESERVATION_A_CONTROLER_SANS_COMMISSION` (612, référentiel de taux
+déjà complet, rien à faire), `GUEST_COUNT_MANQUANT_PREPARATION_CANAPE` (553→506 en simulation,
+ré-extraction réelle exécutée et master remplacé ; correctif `lot4ter` prouvé et committé ;
+correction ciblée des 506 dans HIST réel **autorisée par l'utilisateur, prête, backup/diff
+préparés, écriture réelle non encore exécutée** à ce point de la session), aucune donnée inventée,
+mode réel jamais activé. **Prochaine action : appliquer la correction réelle des 506 dans
+`HIST_Reservations_Cloturees.xlsx` (backup+hash+diff+écriture+relecture), puis documenter le
+résultat final ; ensuite (a) relancer le pipeline aval réel pour propager (nécessite Banque réelle,
+vide indépendamment de cette mission) ; (b) statuer sur les 70 `RESERVATION_EXCLUE_A_CONTROLER`
+(VRBO/Direct) ; (c) sur les 77 couples `GESTION_LOGEMENT_MISSING` restants (jan-juil 2025) ; (d)
+passer à `BANQUE` (222 lignes) ou `CHARGES` (69 lignes).**
 
 Commandes de reprise : `cd <worktree> && git status && git log --oneline -5` ; instance de recette
 type : `RECETTE_MODE=1 PROJECT_ROOT=<copies> APP_DATA_DIR=<recette>/APP_DATA python -m uvicorn

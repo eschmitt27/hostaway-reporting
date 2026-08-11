@@ -66,13 +66,17 @@ COLS = [
     "cle_historisation", "reservation_calc_id",
     "reservation_id_hostaway", "reservation_hh_id",
     "canal", "logement_id", "proprietaire_id",
-    "mois", "date_arrivee", "date_depart", "nuits",
+    "mois", "date_arrivee", "date_depart", "nuits", "guestCount",
     "montant_retenu", "payout_calcule", "menage_retenu", "assiette_commission",
     "code_impact", "impact_resultat_reel", "impact_resultat_comptable",
     "statut_controle", "niveau_anomalie", "code_anomalie",
     "origine_initiale", "source_ligne", "source_montant", "methode",
     "mois_cloture", "fige_le", "ROW_HASH",
 ]
+# guestCount ajoute au schema HIST : une ligne deja historisee (existing, ligne 224)
+# conserve sa valeur via `d.get(c) for c in COLS` (None si absente a l'epoque, jamais
+# de backfill depuis le live). Une nouvelle historisation (ci-dessous) capture le
+# guestCount live des le premier passage.
 
 # source (lot4bis) -> canal générique
 CANAL_MAP = {
@@ -265,6 +269,7 @@ def main():
             cle, calc_id, rid_ha, rid_hh,
             canal, r.get("logement_id"), r.get("proprietaire_id"),
             mois, str(r.get("date_arrivee"))[:10], str(r.get("date_depart"))[:10], r.get("nuits"),
+            r.get("guestCount"),
             montant, payout_c, menage, assiette,
             r.get("code_impact"), r.get("impact_resultat_reel"), r.get("impact_resultat_comptable"),
             statut, r.get("niveau_anomalie"), code_ano,
