@@ -1,5 +1,19 @@
 # 60 — Verdict GO / NO GO (recette globale sur copies, 2026-08-01, mis à jour le 2026-08-02)
 
+> **Suite 17 (2026-08-11/12)** - Audit des 70 RESERVATION_EXCLUE_A_CONTROLER (VRBO/Direct).
+> Bug reel trouve : `lot10_calculer_resultats.py` listait en double des reservations DEJA
+> comptees dans COMMISSIONS (28 = 27 VRBO resolues via backfill CSV historique + 1 Direct
+> resolue via saisie HH deja validee D054), a partir du statut brut Lot1 sans verifier la
+> resolution aval. Preuve programmatique : 100% des 28 supprimees etaient reellement dans
+> COMMISSIONS (0 suppression injustifiee). Test rouge->vert
+> (`tests/test_lot10_reservation_exclue_dedup.py`), fix minimal (5 lignes), regression 274
+> passed, 0 nouvel echec. **AUCUNE ecriture reelle** (bug de reporting, pas de donnee source -
+> 0 PREUVE_A eligible sur les 42 restantes). Simulation : `RESERVATION_A_CONTROLER` 70->42,
+> delta resultat societe **0,00 EUR** (les 28 deja comptees). 42 restantes = 38 Direct sans
+> saisie HH + 4 VRBO sans backfill, donnee genuinement absente, saisie manuelle necessaire (pas
+> une decision de regle metier). Port 8000/PID 21136 intact.
+> **CLOTURE NO GO. PREPARATION MODE REEL NO GO. MODE REEL NO GO - NON ACTIVE.**
+
 > **Suite 16 (2026-08-11)** - Correction retroactive CIBLEE des 506 GUEST_COUNT_MANQUANT clotures
 > (decision utilisateur : pas de reouverture globale, pas de recalcul aveugle depuis le live, pas
 > de sync LIVE->HIST generale). Audit d'impact prealable (copies) : 397/506 sans impact canape

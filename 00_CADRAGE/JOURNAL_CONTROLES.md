@@ -3274,3 +3274,51 @@ societe : delta 0,00 EUR. Rollback VALIDE. Idempotence VALIDEE. HIST reel modifi
 reel relance : NON. CLOTURE : NO GO. PREPARATION MODE REEL : NO GO. MODE REEL : NO GO - NON
 ACTIVE.
 REFERENCE : 79_RECONSTRUCTION_GUEST_COUNT.md section 12
+
+---
+
+## AUDIT DES 70 RESERVATION_EXCLUE_A_CONTROLER VRBO/DIRECT (2026-08-11/12)
+
+70 reservations (39 Direct + 31 VRBO), toutes connues de Hostaway, sans payout plateforme
+calculable par design (DIRECT_HORS_HOSTAWAY/VRBO_UNKNOWN, comportement voulu et documente de
+lot1_hostaway_extract.py::PayoutCalculator, docstring "H3: Direct/VRBO-Unknown -> None, jamais
+valorise depuis Hostaway").
+
+BUG REEL TROUVE ET CORRIGE : lot10_calculer_resultats.py construisait l'onglet A_CONTROLER
+directement depuis le statut brut Lot1 (statut_calcul_payout=A_CONTROLER), sans verifier si la
+reservation avait deja ete resolue ailleurs dans le pipeline via un mecanisme legitime deja
+existant : VRBO via backfill CSV historique (deja en place depuis debut aout 2026), Direct via
+saisie HH existante (decision D054, validee 2026-06-15). 28 reservations (27 VRBO + 1 Direct,
+reservation_id_hostaway=60559486) etaient DEJA correctement comptees dans COMMISSIONS mais
+listees une seconde fois par erreur en A_CONTROLER - double-comptage, pas une perte financiere.
+
+PREUVE VERIFIEE PROGRAMMATIQUEMENT (pas une supposition) : les 28 reservation_id supprimees de
+A_CONTROLER apres correctif sont 100% presentes dans COMMISSIONS avec des montants reels (0
+suppression injustifiee, verifie explicitement).
+
+CORRECTION : test rouge (tests/test_lot10_reservation_exclue_dedup.py, 2 cas - reproduit le bug
++ prouve qu'une reservation genuinement non resolue reste A_CONTROLER) -> fix minimal (5 lignes,
+exclusion des reservation_id deja presents dans df_comm avant construction de df_ac) -> test
+vert. Regression complete : 274 passed (moteur), 0 nouvel echec. Aucune autre regle de canal
+modifiee.
+
+SIMULATION (copie fidele, jamais sur le reel, idempotent) : RESERVATION_A_CONTROLER 70->42.
+DELTA RESULTAT SOCIETE : 0,00 EUR (commission 41208,44 EUR, net proprietaire 215397,04 EUR,
+REEL 313886,49 EUR, COMPTABLE 303362,33 EUR, HORS_COMPTA 10524,16 EUR - tous identiques
+avant/apres, les 28 etaient deja comptees).
+
+LES 42 RESTANTES : 38 Direct sans saisie HH + 4 VRBO sans backfill disponible = donnee absente
+(DONNEE_ABSENTE), 0 cas ambigu, 0 bug technique residuel. Necessitent une saisie manuelle
+humaine (mecanisme HH deja existant), pas une nouvelle decision de regle metier - la regle D054
+existe deja et fonctionne correctement quand la donnee est fournie. Aucun payout invente, aucune
+donnee Banque consultee, aucun mois cloture reouvert (10 logements, 7 proprietaires, 27 en mois
+OUVERT / 15 en mois CLOTURE parmi les 42, aucune correction HIST necessaire - donnee absente,
+pas gelee).
+
+AUCUNE DONNEE REELLE MODIFIEE (correctif de code uniquement - aucune ecriture de donnee n'etait
+eligible : ni PREUVE_A sur les 42 restantes, ni besoin de correction HIST puisque le bug etait
+purement dans la construction de l'onglet A_CONTROLER, pas dans une donnee source).
+
+VERDICT : CLOTURE : NO GO. PREPARATION MODE REEL : NO GO. MODE REEL : NO GO - NON ACTIVE. Aucun
+flag app/config.py modifie.
+REFERENCE : 80_AUDIT_RESERVATIONS_VRBO_DIRECT_A_CONTROLER.md

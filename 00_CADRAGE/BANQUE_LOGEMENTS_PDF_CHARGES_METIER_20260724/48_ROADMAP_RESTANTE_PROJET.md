@@ -1,5 +1,15 @@
 # 48 — Roadmap restante du projet
 
+> **Mise à jour 2026-08-11/12 (audit des 70 RESERVATION_EXCLUE_A_CONTROLER VRBO/Direct)** : bug
+> réel de double-comptage trouvé et corrigé dans `lot10_calculer_resultats.py` — 28 réservations
+> (27 VRBO résolues via backfill CSV historique, 1 Direct résolue via saisie HH déjà validée
+> D054) étaient déjà comptées dans `COMMISSIONS` mais listées en double dans `A_CONTROLER`. Test
+> rouge→vert, fix minimal (5 lignes), régression 274 passed, 0 échec. **Aucune écriture réelle**
+> (bug de reporting, pas de donnée source à corriger). Simulation : `RESERVATION_A_CONTROLER`
+> 70→42, delta résultat société 0,00 €. 42 restantes = donnée absente (38 Direct sans saisie HH +
+> 4 VRBO sans backfill), nécessitent une saisie manuelle humaine, pas une décision de règle
+> métier. Clôture NO GO, mode réel NO GO — non activé.
+
 > **Mise à jour 2026-08-11 (correctif lot4ter + correction réelle des 506 guestCount clôturés)** :
 > décision utilisateur, correction rétroactive ciblée (pas de réouverture globale, pas de
 > synchronisation LIVE→HIST générale). Audit d'impact préalable : 397/506 sans effet canapé, 109/

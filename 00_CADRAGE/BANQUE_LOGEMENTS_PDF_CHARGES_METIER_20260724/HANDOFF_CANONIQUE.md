@@ -1466,21 +1466,44 @@ reflètent pas encore la correction — cela nécessitera un futur run du pipeli
 séparément. Le HIST réel est corrigé et durable (fix `lot4ter` committé), mais les résultats de
 clôture affichés restent ceux d'avant jusqu'à ce run futur.
 
+## Audit des 70 RESERVATION_EXCLUE_A_CONTROLER (VRBO/Direct) — bug corrigé (2026-08-11/12)
+
+Détail complet : `80_AUDIT_RESERVATIONS_VRBO_DIRECT_A_CONTROLER.md`. Sur les 70 (39 Direct + 31
+VRBO), toutes connues de Hostaway mais sans payout plateforme calculable par design
+(`DIRECT_HORS_HOSTAWAY`/`VRBO_UNKNOWN`, comportement voulu de `lot1_hostaway_extract.py`).
+
+**Bug réel trouvé et corrigé** : `lot10_calculer_resultats.py` construisait l'onglet A_CONTROLER
+directement depuis le statut brut Lot1, sans vérifier si la réservation avait déjà été résolue
+ailleurs (VRBO via backfill CSV historique déjà en place, Direct via saisie HH déjà existante,
+décision D054). **28 réservations (27 VRBO + 1 Direct) étaient déjà correctement comptées dans
+COMMISSIONS mais listées une seconde fois par erreur** — vérifié programmatiquement (0 suppression
+injustifiée). Test rouge→vert (`tests/test_lot10_reservation_exclue_dedup.py`), fix minimal (5
+lignes), régression complète 274 passed (moteur) + app en cours, 0 nouvel échec attendu.
+
+**Résultat simulation (idempotent, moteur réel)** : `RESERVATION_A_CONTROLER` 70→42.
+**Delta résultat société : 0,00 €** (les 28 étaient déjà comptées financièrement, seul un
+doublon d'affichage/exclusion corrigé). 42 restantes (38 Direct sans saisie HH + 4 VRBO sans
+backfill) = donnée absente, nécessitent une saisie manuelle humaine, pas une décision de règle
+métier (la règle existe déjà et fonctionne). **Aucune donnée réelle modifiée** (correctif de code
+uniquement, aucune écriture de donnée n'était éligible).
+
 ## État de reprise
 
-Worktree propre (après commit du fix code), application validée sur copies avec les 16 modules
-décidés, cadrage comptable fermé, contrat de sécurité des writers confirmé déjà en place. Quatre
-familles bloquantes auditées depuis le début de ce cycle : `GESTION_LOGEMENT_MISSING` (838→472,
-décision appliquée au réel), `RESERVATION_A_CONTROLER_SANS_COMMISSION` (612, référentiel de taux
-déjà complet, rien à faire), `GUEST_COUNT_MANQUANT_PREPARATION_CANAPE` (553→506 en simulation,
-ré-extraction réelle exécutée et master remplacé ; correctif `lot4ter` committé (`9a0a6aa`)
-et correction réelle des 506 appliquée dans HIST (schéma corrigé, durable) ; pipeline aval réel
-non relancé, donc les sorties de clôture réelles affichent encore les anciens chiffres jusqu'au
-prochain run autorisé), aucune donnée inventée, mode réel jamais activé. **Prochaine action :
-(a) relancer le pipeline aval réel pour que la correction se propage aux résultats de clôture
-(nécessite Banque réelle, vide indépendamment de cette mission) ; (b) statuer sur les 70
-`RESERVATION_EXCLUE_A_CONTROLER` (VRBO/Direct) ; (c) sur les 77 couples `GESTION_LOGEMENT_MISSING`
-restants (jan-juil 2025) ; (d) passer à `BANQUE` (222 lignes) ou `CHARGES` (69 lignes).**
+Worktree propre, application validée sur copies avec les 16 modules décidés, cadrage comptable
+fermé, contrat de sécurité des writers confirmé déjà en place. Cinq familles bloquantes auditées
+depuis le début de ce cycle : `GESTION_LOGEMENT_MISSING` (838→472, décision appliquée au réel),
+`RESERVATION_A_CONTROLER_SANS_COMMISSION` (612, référentiel de taux déjà complet, rien à faire),
+`GUEST_COUNT_MANQUANT_PREPARATION_CANAPE` (553→506 en simulation, ré-extraction réelle exécutée,
+master remplacé, correctif `lot4ter` committé, correction réelle des 506 appliquée dans HIST),
+`RESERVATION_EXCLUE_A_CONTROLER` (70→42 en simulation, bug de double-comptage corrigé et committé,
+0 impact financier, 42 restantes = saisie manuelle nécessaire) — pipeline aval réel non relancé
+pour aucune de ces corrections, donc les sorties de clôture réelles affichent encore les anciens
+chiffres jusqu'au prochain run autorisé. Aucune donnée inventée, mode réel jamais activé.
+**Prochaine action : (a) relancer le pipeline aval réel pour que les corrections se propagent aux
+résultats de clôture (nécessite Banque réelle, vide indépendamment de cette mission) ; (b) saisie
+manuelle des 42 Direct/VRBO restantes (hors périmètre technique) ; (c) sur les 77 couples
+`GESTION_LOGEMENT_MISSING` restants (jan-juil 2025) ; (d) passer à `BANQUE` (222 lignes) ou
+`CHARGES` (69 lignes).**
 
 Commandes de reprise : `cd <worktree> && git status && git log --oneline -5` ; instance de recette
 type : `RECETTE_MODE=1 PROJECT_ROOT=<copies> APP_DATA_DIR=<recette>/APP_DATA python -m uvicorn

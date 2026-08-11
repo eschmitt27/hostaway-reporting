@@ -1027,3 +1027,42 @@ Impact reel : le HIST reel a ensuite ete corrige (506 guestCount ajoutes) avec c
 place — la correction est donc durable des le depart, pas de risque de perte au prochain cycle
 d'historisation. Detail complet : `79_RECONSTRUCTION_GUEST_COUNT.md` section 12,
 `JOURNAL_CONTROLES.md` (entree du meme jour).
+
+---
+
+## BUG REEL TROUVE ET CORRIGE (2026-08-11/12) — double-comptage RESERVATION_EXCLUE_A_CONTROLER
+
+GRAVITE : MOYENNE (integrite du reporting de controle, pas de perte financiere). STATUT :
+CORRIGE, teste rouge->vert, 0 regression, 0 impact financier.
+
+CONSTAT : pendant l'audit des 70 `RESERVATION_EXCLUE_A_CONTROLER` (VRBO/Direct),
+`lot10_calculer_resultats.py` construisait l'onglet `A_CONTROLER` directement depuis le statut
+brut de `lot1_hostaway_extract.py` (`statut_calcul_payout == "A_CONTROLER"`), **sans verifier si
+la reservation avait deja ete resolue ailleurs dans le pipeline**. Deux mecanismes de resolution
+legitimes existent deja et fonctionnent correctement : le backfill CSV VRBO historique (deja en
+place depuis debut aout 2026) et la saisie manuelle HH pour les reservations Direct liees
+(decision D054, validee 2026-06-15). Consequence : 28 reservations (27 VRBO + 1 Direct,
+`reservation_id_hostaway=60559486`) etaient deja correctement integrees dans `COMMISSIONS` avec
+un montant reel, mais listees UNE SECONDE FOIS dans `A_CONTROLER` — un double-affichage, jamais
+un double-comptage financier (verifie : les totaux `commission_conciergerie`/`net_proprietaire`/
+REEL/COMPTABLE/HORS_COMPTA sont identiques avant/apres correctif).
+
+CE N'ETAIT PAS UNE REGLE METIER MANQUANTE : les mecanismes de resolution (backfill VRBO, saisie
+HH Direct) existaient et fonctionnaient deja parfaitement — Lot10 ignorait simplement leur
+resultat au moment de batir la liste d'exclusion.
+
+CORRECTION (minimale, 5 lignes) : avant construction de `df_ac`, exclusion des `reservation_id`
+deja presents dans `df_comm["reservation_id_hostaway"]` (deja resolus via HH ou VRBO backfill).
+Test rouge->vert (`tests/test_lot10_reservation_exclue_dedup.py`, 2 cas : reproduit le bug +
+prouve qu'une reservation genuinement non resolue reste correctement A_CONTROLER — non-
+regression). Regression complete : 274 passed (moteur), 0 nouvel echec.
+
+PREUVE DE NON-SUPPRESSION INJUSTIFIEE : verifie programmatiquement que les 28 reservation_id
+supprimees de A_CONTROLER apres correctif sont 100% presentes dans COMMISSIONS avec des donnees
+reelles — aucune reservation genuinement non resolue n'a ete masquee a tort.
+
+Impact reel : aucune donnee reelle modifiee (correctif de code uniquement — le bug n'affectait
+pas une donnee source mais la construction d'un onglet de reporting). Les 42 reservations
+restantes (38 Direct sans saisie HH + 4 VRBO sans backfill) restent honnetement A_CONTROLER,
+donnee genuinement absente. Detail complet :
+`80_AUDIT_RESERVATIONS_VRBO_DIRECT_A_CONTROLER.md`.

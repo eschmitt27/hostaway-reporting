@@ -278,3 +278,16 @@ corrige apres correction : guestCount survit), idempotence et rollback verifies 
 reelle. Integrite : 950/950, 3 diffs attendus. Port 8000/PID 21136 intact. **Pipeline aval reel
 non relance (interdit explicitement) : les resultats de cloture reels n'integrent pas encore la
 correction. Aucun flag `app/config.py` modifie. Statut NO GO inchange.**
+
+**Mise a jour 2026-08-11/12 (suite, audit des 70 RESERVATION_EXCLUE_A_CONTROLER VRBO/Direct)** :
+bug reel trouve (pas une donnee reelle a corriger cette fois) : `lot10_calculer_resultats.py`
+construisait l'onglet A_CONTROLER directement depuis le statut brut Lot1, sans verifier si la
+reservation avait deja ete resolue via un mecanisme existant (backfill VRBO, saisie HH Direct
+deja validee D054). 28 reservations (27 VRBO + 1 Direct) etaient deja comptees dans COMMISSIONS
+mais listees en double dans A_CONTROLER. Corrige minimalement (5 lignes), test rouge->vert
+(`tests/test_lot10_reservation_exclue_dedup.py`), regression complete 274 passed, 0 nouvel echec.
+**AUCUNE ecriture reelle cette fois** : le bug etait dans la construction d'un onglet de
+reporting, pas dans une donnee source — aucune correction de donnee n'etait eligible (0
+PREUVE_A sur les 42 restantes, qui necessitent une saisie manuelle humaine, pas une correction de
+champ existant). Simulation : `RESERVATION_A_CONTROLER` 70->42, delta resultat societe 0,00 EUR
+(les 28 etaient deja comptees). Port 8000/PID 21136 intact. Statut NO GO inchange.
