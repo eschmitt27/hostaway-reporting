@@ -3217,3 +3217,60 @@ chiffre de cloture officiel tant qu'un run reel n'est pas rejoue).
 VERDICT : CLOTURE : NO GO. PREPARATION MODE REEL : NO GO. MODE REEL : NO GO - NON ACTIVE. Aucun
 flag app/config.py modifie.
 REFERENCE : 79_RECONSTRUCTION_GUEST_COUNT.md section 11
+
+---
+
+## AUDIT IMPACT 506 + CORRECTIF LOT4TER + CORRECTION REELLE (2026-08-11, suite)
+
+Decision utilisateur : correction retroactive CIBLEE des 506 GUEST_COUNT_MANQUANT clotures (pas
+de reouverture globale, pas de recalcul aveugle depuis le live, pas de synchronisation LIVE->HIST
+generale, pas d'activation mode reel).
+
+AUDIT D'IMPACT (copies) : 397/506 sans impact canape (delta 0), 109/506 avec correction
+necessaire (+1090,00 EUR canape). Les 506 exclues de Commissions/NetProprietaire (A_CONTROLER) -
+les y reintegrer ajoute 14302,91 EUR de commission et 75412,65 EUR de net proprietaire jamais
+formellement reconnus. RESULTAT SOCIETE GLOBAL INCHANGE (REEL/COMPTABLE/HORS_COMPTA identiques au
+centime dans toutes les simulations - le Flux Lot9 compte deja ces revenus independamment du
+controle canape Lot10). 0 releve proprietaire existant pour ces 3 proprietaires/17 mois (verifie
+en lecture seule sur app.db reelle).
+
+DECOUVERTE CRITIQUE ET CORRIGEE : lot4ter_historiser_reservations_cloturees.py reecrivait HIST
+depuis une liste COLS fixe de 28 colonnes n'incluant pas guestCount - toute correction de ce
+champ etait silencieusement effacee au run normal suivant (nouvelle cloture). Reproduit par un
+test rouge (tests/test_lot4ter_guestcount_persistence.py, 4 cas), corrige par l'ajout minimal de
+"guestCount" a COLS + capture dans la construction de nouvelle ligne (2 lignes de code
+modifiees). Test rouge->vert. Regression complete : 272 passed (moteur, root tests/) + 432
+passed/36 skipped (app, 05_APPLICATION/tests), 0 nouvel echec. COMMITTE (9a0a6aa) AVANT toute
+donnee reelle.
+
+PREUVE DE PERSISTANCE (copies) : correction fail-closed des 506 (script
+correction_guestcount_hist_ciblee.py - refuse tout champ hors guestCount, toute reservation hors
+liste, toute valeur invalide, toute ecriture reelle sans AUTORISATION_ECRITURE_REELLE=1
+explicite) puis run NORMAL de lot4ter corrige : guestCount survit (506/506, 1269 lignes
+inchangees, 17 mois toujours CLOTURE). Chaine aval rejouee : GUEST_COUNT 506->0, A_CONTROLER
+576->70 (VRBO/Direct seuls), resultat societe identique. Idempotence du cycle complet verifiee
+(2e passage correction+lot4ter+aval : memes compteurs exacts, 506/70/313886.49 EUR). Rollback
+verifie (hash restaure exact, compteurs reviennent a 576/506/70).
+
+CORRECTION REELLE APPLIQUEE : backup horodate
+(99_ARCHIVES/HIST_Reservations_Cloturees/..._PRE_CORRECTION_GUESTCOUNT_20260811_144118.xlsx, hash
+verifie). Ecriture reelle : colonne guestCount ajoutee (29e colonne), 506 valeurs renseignees,
+1269 lignes inchangees, 0 diff sur les 28 colonnes existantes (verifie programmatiquement contre
+le backup). Journal append-only :
+99_ARCHIVES/JOURNAL_CORRECTIONS/journal_correction_guestcount_hist_20260811.json (506 entrees,
+aucune PII - reservation_id_hostaway = ID numerique opaque). Integrite globale : 950/950 fichiers
+baseline controles, 3 diffs tous attendus et documentes (REF_Setup.xlsm + MASTER_FACT_HA_
+Reservations.xlsx deja committes + HIST_Reservations_Cloturees.xlsx ce tour). Port 8000/PID 21136
+intact.
+
+PIPELINE AVAL REEL NON RELANCE (interdit explicitement, CALCULS_REAL_RUN_ENABLED jamais touche).
+Les sorties de cloture reelles (MASTER_CTRL_Coherence.xlsx, export applicatif) n'integrent pas
+encore la correction - effet d'un futur run autorise separement.
+
+VERDICT : SNAPSHOTS CIBLES 506/506. CHAMPS MODIFIES guestCount uniquement. MOIS 17/17 toujours
+CLOTURE. GUEST_COUNT (simulation) 506->0. A_CONTROLER (simulation) 576->70. Canape +1090,00 EUR.
+Commission +14302,91 EUR (debloquee). Net proprietaire +75412,65 EUR (debloque). Resultat
+societe : delta 0,00 EUR. Rollback VALIDE. Idempotence VALIDEE. HIST reel modifie : OUI. Pipeline
+reel relance : NON. CLOTURE : NO GO. PREPARATION MODE REEL : NO GO. MODE REEL : NO GO - NON
+ACTIVE.
+REFERENCE : 79_RECONSTRUCTION_GUEST_COUNT.md section 12

@@ -1450,9 +1450,21 @@ seuls), résultat société identique au centime. Idempotence du cycle complet v
 correction+lot4ter+aval : mêmes compteurs exacts). Rollback vérifié (hash restauré exact,
 compteurs reviennent à 576/506/70 avant correction).
 
-**Code committé, donnée réelle PAS ENCORE appliquée** — en attente du commit et de la validation
-finale avant écriture réelle sur `HIST_Reservations_Cloturees.xlsx` (backup + hash + diff exact
-prévus, procédure identique aux précédentes écritures réelles de cette session).
+**Code committé (`9a0a6aa`), puis donnée réelle appliquée.** Backup réel préalable
+(`99_ARCHIVES/HIST_Reservations_Cloturees/…PRE_CORRECTION_GUESTCOUNT_20260811_144118.xlsx`, hash
+vérifié). Écriture réelle : colonne `guestCount` ajoutée (29e colonne), 506 valeurs renseignées,
+1269 lignes inchangées, **0 diff sur les 28 colonnes existantes** (vérifié programmatiquement
+contre le backup). Journal append-only des 506 corrections :
+`99_ARCHIVES/JOURNAL_CORRECTIONS/journal_correction_guestcount_hist_20260811.json`. Intégrité
+globale : 950/950 fichiers baseline contrôlés, **3 diffs, tous attendus et documentés**
+(`REF_Setup.xlsm`, `MASTER_FACT_HA_Reservations.xlsx` déjà committés + `HIST_Reservations_
+Cloturees.xlsx` ce tour). Port 8000/PID 21136 intact.
+
+**Pipeline aval réel non relancé** (interdit explicitement par l'autorisation, `CALCULS_REAL_
+RUN_ENABLED` jamais touché). Les sorties `MASTER_CTRL_Coherence.xlsx`/export de clôture réels ne
+reflètent pas encore la correction — cela nécessitera un futur run du pipeline aval autorisé
+séparément. Le HIST réel est corrigé et durable (fix `lot4ter` committé), mais les résultats de
+clôture affichés restent ceux d'avant jusqu'à ce run futur.
 
 ## État de reprise
 
@@ -1461,15 +1473,14 @@ décidés, cadrage comptable fermé, contrat de sécurité des writers confirmé
 familles bloquantes auditées depuis le début de ce cycle : `GESTION_LOGEMENT_MISSING` (838→472,
 décision appliquée au réel), `RESERVATION_A_CONTROLER_SANS_COMMISSION` (612, référentiel de taux
 déjà complet, rien à faire), `GUEST_COUNT_MANQUANT_PREPARATION_CANAPE` (553→506 en simulation,
-ré-extraction réelle exécutée et master remplacé ; correctif `lot4ter` prouvé et committé ;
-correction ciblée des 506 dans HIST réel **autorisée par l'utilisateur, prête, backup/diff
-préparés, écriture réelle non encore exécutée** à ce point de la session), aucune donnée inventée,
-mode réel jamais activé. **Prochaine action : appliquer la correction réelle des 506 dans
-`HIST_Reservations_Cloturees.xlsx` (backup+hash+diff+écriture+relecture), puis documenter le
-résultat final ; ensuite (a) relancer le pipeline aval réel pour propager (nécessite Banque réelle,
-vide indépendamment de cette mission) ; (b) statuer sur les 70 `RESERVATION_EXCLUE_A_CONTROLER`
-(VRBO/Direct) ; (c) sur les 77 couples `GESTION_LOGEMENT_MISSING` restants (jan-juil 2025) ; (d)
-passer à `BANQUE` (222 lignes) ou `CHARGES` (69 lignes).**
+ré-extraction réelle exécutée et master remplacé ; correctif `lot4ter` committé (`9a0a6aa`)
+et correction réelle des 506 appliquée dans HIST (schéma corrigé, durable) ; pipeline aval réel
+non relancé, donc les sorties de clôture réelles affichent encore les anciens chiffres jusqu'au
+prochain run autorisé), aucune donnée inventée, mode réel jamais activé. **Prochaine action :
+(a) relancer le pipeline aval réel pour que la correction se propage aux résultats de clôture
+(nécessite Banque réelle, vide indépendamment de cette mission) ; (b) statuer sur les 70
+`RESERVATION_EXCLUE_A_CONTROLER` (VRBO/Direct) ; (c) sur les 77 couples `GESTION_LOGEMENT_MISSING`
+restants (jan-juil 2025) ; (d) passer à `BANQUE` (222 lignes) ou `CHARGES` (69 lignes).**
 
 Commandes de reprise : `cd <worktree> && git status && git log --oneline -5` ; instance de recette
 type : `RECETTE_MODE=1 PROJECT_ROOT=<copies> APP_DATA_DIR=<recette>/APP_DATA python -m uvicorn

@@ -1,5 +1,18 @@
 # 48 — Roadmap restante du projet
 
+> **Mise à jour 2026-08-11 (correctif lot4ter + correction réelle des 506 guestCount clôturés)** :
+> décision utilisateur, correction rétroactive ciblée (pas de réouverture globale, pas de
+> synchronisation LIVE→HIST générale). Audit d'impact préalable : 397/506 sans effet canapé, 109/
+> 506 avec correction nécessaire (+1 090 € canapé) ; résultat société global inchangé. **Bug réel
+> trouvé et corrigé** : `lot4ter` ne conservait jamais `guestCount` dans HIST (colonne absente du
+> schéma depuis l'origine) — toute correction était effacée au run normal suivant. Test rouge→vert,
+> fix minimal, régression 272+432 passed, 0 échec. Committé (`9a0a6aa`) avant toute donnée réelle.
+> Correction réelle des 506 appliquée dans `HIST_Reservations_Cloturees.xlsx` (backup+hash+diff
+> exact vérifiés, 0 autre colonne touchée), persistance/idempotence/rollback prouvés sur copies
+> avant écriture réelle. Intégrité 950/950, 3 diffs attendus. Port 8000/PID 21136 intact.
+> **Pipeline aval réel non relancé : le chiffre de clôture officiel reste 553** jusqu'au prochain
+> run autorisé. Clôture NO GO, mode réel NO GO — non activé.
+
 > **Mise à jour 2026-08-10 (ré-extraction Hostaway réelle exécutée)** : autorisation utilisateur
 > scopée strictement (lecture API + nouveau `MASTER_FACT_HA_Reservations.xlsx` + remplacement
 > contrôlé de ce seul fichier). Backup vérifié, extraction 1391→1527 réservations (guestCount

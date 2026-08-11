@@ -295,3 +295,52 @@ Deux voies possibles, aucune engagée par cette mission :
    `GESTION_LOGEMENT_MISSING`) — décision métier distincte, à formuler si souhaitée.
 
 Aucune des deux n'est engagée automatiquement. Mode réel reste NO GO.
+
+## 12. Suite (2026-08-11) — audit d'impact + correctif lot4ter + correction réelle des 506
+
+Décision utilisateur : correction rétroactive **ciblée** des 506 snapshots historiques (pas de
+réouverture globale, pas de recalcul aveugle depuis le live, pas de synchronisation LIVE→HIST
+générale).
+
+**Audit d'impact préalable (copies)** : 397/506 sans impact canapé (delta 0), 109/506 avec
+correction nécessaire (+1 090,00 € canapé). Les 506 étant exclues de Commissions/NetProprietaire
+(A_CONTROLER), leur résolution ajouterait 14 302,91 € de commission et 75 412,65 € de net
+propriétaire jamais formellement reconnus — **résultat société global inchangé** (REEL/COMPTABLE/
+HORS_COMPTA identiques au centime dans toutes les simulations : le Flux Lot9 compte déjà ces
+revenus indépendamment du contrôle canapé Lot10). 0 relevé propriétaire existant pour ces 3
+propriétaires/17 mois (vérifié en lecture seule sur `app.db` réelle).
+
+**Découverte critique et corrigée** : `lot4ter_historiser_reservations_cloturees.py` réécrivait
+HIST depuis une liste `COLS` fixe de 28 colonnes n'incluant pas `guestCount` — toute correction de
+ce champ était silencieusement effacée au run normal suivant. Reproduit par un test rouge
+(`tests/test_lot4ter_guestcount_persistence.py`, 4 cas), corrigé par l'ajout minimal de
+`"guestCount"` à `COLS` + capture dans la construction de nouvelle ligne. Test rouge→vert.
+Régression : 272 passed (moteur) + 432 passed/36 skipped (app), 0 nouvel échec. **Committé
+(`9a0a6aa`) avant toute donnée réelle.**
+
+**Preuve de persistance sur copies** : correction fail-closed des 506 (script
+`correction_guestcount_hist_ciblee.py` — refuse tout champ hors `guestCount`, toute réservation
+hors liste, toute valeur invalide, toute écriture réelle sans `AUTORISATION_ECRITURE_REELLE=1`
+explicite) puis run **normal** de `lot4ter` corrigé : guestCount survit (506/506, 1269 lignes
+inchangées, 17 mois toujours CLOTURE). Chaîne aval rejouée : GUEST_COUNT 506→0, A_CONTROLER
+576→70 (VRBO/Direct seuls), résultat société identique. Idempotence du cycle complet vérifiée
+(2e passage : mêmes compteurs exacts). Rollback vérifié (hash restauré exact, compteurs reviennent
+à 576/506/70).
+
+**Correction réelle appliquée** : backup horodaté (`99_ARCHIVES/HIST_Reservations_Cloturees/…
+PRE_CORRECTION_GUESTCOUNT_20260811_144118.xlsx`, hash vérifié), écriture réelle (colonne
+`guestCount` ajoutée, 506 valeurs, 1269 lignes inchangées, **0 diff sur les 28 colonnes
+existantes** vérifié contre le backup), relecture confirmée. Journal append-only :
+`99_ARCHIVES/JOURNAL_CORRECTIONS/journal_correction_guestcount_hist_20260811.json` (506 entrées,
+aucune PII). Intégrité globale : 950/950 fichiers baseline, 3 diffs tous attendus et documentés.
+Port 8000/PID 21136 intact.
+
+**Pipeline aval réel non relancé** (interdit explicitement, `CALCULS_REAL_RUN_ENABLED` jamais
+touché) — les sorties de clôture réelles (`MASTER_CTRL_Coherence.xlsx`, export applicatif)
+n'intègrent pas encore la correction, ce sera l'effet d'un futur run autorisé séparément.
+
+**Verdict** : SNAPSHOTS CIBLES 506/506. CHAMPS MODIFIÉS guestCount uniquement (schéma étendu, 0
+autre colonne touchée). MOIS 17/17 toujours CLOTURE. GUEST_COUNT (simulation) 506→0. A_CONTROLER
+(simulation) 576→70. Canapé +1 090,00 €. Commission +14 302,91 € (débloquée). Net propriétaire
++75 412,65 € (débloqué). Résultat société : delta 0,00 €. Rollback VALIDÉ. Idempotence VALIDÉE.
+HIST réel modifié : **OUI**. Pipeline réel relancé : **NON**. **MODE RÉEL : NO GO — NON ACTIVÉ.**

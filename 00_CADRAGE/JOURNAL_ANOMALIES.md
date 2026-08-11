@@ -990,3 +990,40 @@ dans l'arborescence reelle. Le module Banque n'a pas ete analyse, corrige, ni mo
 Impact reel : AUCUN. Le controle d'integrite final confirme 2 diffs sur le reel (REF_Setup.xlsm
 deja committe + MASTER_FACT_HA_Reservations.xlsx de cette mission), aucun fichier Banque reel
 touche.
+
+---
+
+## BUG REEL TROUVE ET CORRIGE (2026-08-11) — lot4ter efface silencieusement guestCount au run normal
+
+GRAVITE : MOYENNE (integrite de donnee historique, pas de perte de revenu ni de PII). STATUT :
+CORRIGE (commit 9a0a6aa), teste rouge->vert, 0 regression.
+
+CONSTAT : pendant l'audit d'impact des 506 GUEST_COUNT_MANQUANT clotures, un test de robustesse
+(run normal de lot4ter sur une copie deja corrigee) a revele que
+`lot4ter_historiser_reservations_cloturees.py` reconstruit INTEGRALEMENT HIST_Reservations_
+Cloturees.xlsx a chaque execution depuis une liste `COLS` fixe de 28 colonnes qui n'a jamais
+inclus `guestCount`. Consequence : toute valeur de guestCount presente dans le fichier (ajoutee
+par une correction ciblee ou par une future extension du schema) est SILENCIEUSEMENT PERDUE au
+prochain run normal (declenche par toute nouvelle cloture mensuelle), meme si aucune des lignes
+concernees n'est elle-meme "reecrite" par la logique d'upsert (`cle in hist: already += 1;
+continue` fonctionne correctement au niveau ligne, mais la RECONSTRUCTION du fichier entier ne
+projette que les colonnes de COLS).
+
+CE N'ETAIT PAS UN DEFAUT DE LA REGLE D'IMMUTABILITE : la regle "une reservation deja historisee
+n'est jamais reecrite" fonctionnait correctement. Le defaut etait un schema de colonnes incomplet
+qui existait depuis l'origine du fichier (avant meme la creation du concept guestCount/canape),
+jamais mis a jour lors de l'ajout de la fonctionnalite preparation canape.
+
+CORRECTION (minimale, 2 lignes) : ajout de `"guestCount"` a `COLS` (position apres `nuits`) +
+capture de `r.get("guestCount")` dans la construction de nouvelle ligne (source live, pour une
+premiere historisation). Aucune autre regle d'historisation touchee. Test rouge->vert
+(`tests/test_lot4ter_guestcount_persistence.py`, 4 cas : ancienne ligne avec guestCount corrige
+conservee, nouvelle historisation ecrit guestCount, ancienne ligne sans guestCount reste vide
+(pas de backfill automatique depuis le live), schema/autres champs inchanges). Regression
+complete : 272 passed (moteur) + 432 passed/36 skipped (app), 0 nouvel echec. Committe (9a0a6aa)
+avant toute donnee reelle, conformement a la regle "code avant donnee".
+
+Impact reel : le HIST reel a ensuite ete corrige (506 guestCount ajoutes) avec ce fix deja en
+place — la correction est donc durable des le depart, pas de risque de perte au prochain cycle
+d'historisation. Detail complet : `79_RECONSTRUCTION_GUEST_COUNT.md` section 12,
+`JOURNAL_CONTROLES.md` (entree du meme jour).

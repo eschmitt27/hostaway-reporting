@@ -258,3 +258,23 @@ identique a la source). Integrite : 950/950 fichiers, 2 diffs attendus. Port 800
 intact. Tests cibles : 62 passed, 0 nouvel echec. **Le pipeline aval reel n'a pas ete relance : le
 chiffre de cloture officiel reste 553 tant que ce run n'est pas rejoue. Aucun flag app/config.py
 modifie. Statut NO GO inchange.**
+
+**Mise a jour 2026-08-11 (suite, correctif lot4ter + correction reelle des 506 guestCount
+historiques cloturees)** : decision utilisateur, correction retroactive CIBLEE (pas de reouverture
+globale, pas de recalcul aveugle depuis le live, pas de synchronisation LIVE->HIST generale, pas
+d'autorisation Banque, pas d'autorisation mode reel general). Bug reel trouve pendant l'audit
+d'impact : `lot4ter_historiser_reservations_cloturees.py` reconstruisait HIST depuis une liste
+`COLS` fixe sans `guestCount` — toute correction de ce champ etait effacee au run normal suivant.
+Corrige minimalement (2 lignes), test rouge->vert
+(`tests/test_lot4ter_guestcount_persistence.py`), regression complete 272+432 passed, 0 nouvel
+echec. **Committe (`9a0a6aa`) avant toute donnee reelle**, conformement a la regle. Troisieme
+ecriture reelle controlee de la mission (HIST_Reservations_Cloturees.xlsx), procedure identique
+aux precedentes : backup horodate + hash verifie, script de correction dedie fail-closed (refuse
+tout champ hors `guestCount`, toute reservation hors liste explicite, toute valeur invalide,
+toute ecriture reelle sans variable d'environnement dediee explicite), 506 valeurs ajoutees, 1269
+lignes inchangees, 0 diff sur les 28 colonnes existantes (verifie programmatiquement), relecture
+confirmee. Journal append-only cree. Preuve de persistance sur copie (run normal de lot4ter
+corrige apres correction : guestCount survit), idempotence et rollback verifies avant l'ecriture
+reelle. Integrite : 950/950, 3 diffs attendus. Port 8000/PID 21136 intact. **Pipeline aval reel
+non relance (interdit explicitement) : les resultats de cloture reels n'integrent pas encore la
+correction. Aucun flag `app/config.py` modifie. Statut NO GO inchange.**

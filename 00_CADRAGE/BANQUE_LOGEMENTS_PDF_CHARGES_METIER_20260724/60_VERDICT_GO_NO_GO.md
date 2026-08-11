@@ -1,5 +1,21 @@
 # 60 — Verdict GO / NO GO (recette globale sur copies, 2026-08-01, mis à jour le 2026-08-02)
 
+> **Suite 16 (2026-08-11)** - Correction retroactive CIBLEE des 506 GUEST_COUNT_MANQUANT clotures
+> (decision utilisateur : pas de reouverture globale, pas de recalcul aveugle depuis le live, pas
+> de sync LIVE->HIST generale). Audit d'impact prealable (copies) : 397/506 sans impact canape
+> (delta 0), 109/506 avec correction necessaire (+1090 EUR canape). Resultat societe global
+> INCHANGE (REEL/COMPTABLE/HORS_COMPTA identiques au centime). Bug reel trouve et corrige :
+> `lot4ter_historiser_reservations_cloturees.py` reecrivait HIST sans jamais conserver `guestCount`
+> (colonne absente du schema depuis l'origine, pas juste vide) - toute correction etait effacee au
+> run normal suivant. Test rouge->vert, fix minimal (2 lignes), regression 272+432 passed, 0 nouvel
+> echec. **Committe (`9a0a6aa`) avant toute donnee reelle.** Correction reelle appliquee : backup
+> horodate + hash verifie, ecriture reelle des 506 guestCount (colonne ajoutee, 0 diff sur les 28
+> colonnes existantes, verifie), journal append-only cree. Preuve de persistance/idempotence/
+> rollback verifiees sur copies avant l'ecriture reelle. Integrite : 950/950, 3 diffs attendus.
+> Port 8000/PID 21136 intact. **Pipeline aval reel NON relance (interdit explicitement) : les
+> resultats de cloture reels n'integrent pas encore la correction, le chiffre officiel reste 553.**
+> **CLOTURE NO GO. PREPARATION MODE REEL NO GO. MODE REEL NO GO - NON ACTIVE.**
+
 > **Suite 15 (2026-08-10)** - Re-extraction Hostaway reelle AUTORISEE et EXECUTEE (perimetre
 > strict : lecture API + nouveau MASTER_FACT_HA_Reservations.xlsx + remplacement controle de ce
 > seul fichier - pas d activation generale du mode reel, pas d autorisation Banque, pas de
