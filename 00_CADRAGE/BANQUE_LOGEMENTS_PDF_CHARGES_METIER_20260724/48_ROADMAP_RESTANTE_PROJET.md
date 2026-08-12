@@ -1,5 +1,16 @@
 # 48 — Roadmap restante du projet
 
+> **Mise à jour 2026-08-12 (mission de nuit — baseline canonique après nettoyage)** : simulation
+> fraîche avec Banque réelle régénérée sur copie (pipeline déjà validé rejoué, 0 stub). **Les
+> 541 BLOQUANT du système sont exactement `GESTION_LOGEMENT_MISSING` (472) + `CHARGE_
+> EXCEPTIONNELLE_DANS_CHARGE_FIXE` (69, sous-ensemble strict des 77 couples gestion, même
+> cause)** — aucun autre BLOQUANT n'existe. 0 nouveau bug de code trouvé après audit complet.
+> Banque : 541 mouvements, 236 classés, 222 rapprochement humain, 83 file assistée, statut
+> `BANQUE_DISPONIBLE`. 42 Direct/VRBO : 0 nouvelle preuve (API vérifiée en direct cette nuit).
+> Résiduels Ménages classifiés, hors périmètre. Idempotence + intégrité vérifiées, 0 donnée
+> réelle modifiée. **3 décisions humaines ferment tout : historique gestion 2025, saisies
+> Direct/VRBO, classification Banque.** Détail : `81_BASELINE_CLOTURE_APRES_NETTOYAGE.md`.
+
 > **Mise à jour 2026-08-11/12 (audit des 70 RESERVATION_EXCLUE_A_CONTROLER VRBO/Direct)** : bug
 > réel de double-comptage trouvé et corrigé dans `lot10_calculer_resultats.py` — 28 réservations
 > (27 VRBO résolues via backfill CSV historique, 1 Direct résolue via saisie HH déjà validée

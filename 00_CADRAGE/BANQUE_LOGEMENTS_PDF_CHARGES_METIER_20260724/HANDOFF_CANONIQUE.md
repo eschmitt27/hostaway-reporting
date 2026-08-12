@@ -1487,23 +1487,41 @@ backfill) = donnée absente, nécessitent une saisie manuelle humaine, pas une d
 métier (la règle existe déjà et fonctionne). **Aucune donnée réelle modifiée** (correctif de code
 uniquement, aucune écriture de donnée n'était éligible).
 
+## Mission de nuit — baseline de clôture canonique après nettoyage complet (2026-08-12)
+
+Détail complet : `81_BASELINE_CLOTURE_APRES_NETTOYAGE.md`. Simulation canonique fraîche
+reconstruite depuis HEAD `6b60577` (sources actuelles + **Banque réelle régénérée sur copie**,
+pipeline `lot8a→lot8b→lot8c` déjà validé rejoué, aucun stub). **Aucune donnée réelle modifiée,
+aucun code modifié — 0 nouveau bug trouvé après audit complet.**
+
+**Découverte majeure : les 541 BLOQUANT du dernier run réel sont EXACTEMENT et UNIQUEMENT
+`GESTION_LOGEMENT_MISSING` (472) + `CHARGE_EXCEPTIONNELLE_DANS_CHARGE_FIXE` (69).** Vérifié
+programmatiquement : les 69 charges sont un sous-ensemble strict à 100 % des 77 couples gestion
+— même cause racine, pas un bug séparé. Aucun autre BLOQUANT n'existe dans le système.
+
+Banque fraîche : 541 mouvements, 236 classés déterministement, 222 en rapprochement humain
+(166 Airbnb + 56 propriétaires), 83 en file `A_ENVOYER_IA`. Statut Lot11 passe de
+`BANQUE_NON_DISPONIBLE_GIT` à `BANQUE_DISPONIBLE`. 0 produit économique créé, 0 matching
+Banque↔Réservation (interdit, respecté).
+
+Les 42 Direct/VRBO : nouvelle vérification API Hostaway en direct cette nuit, 0 nouvelle preuve
+(100 % `paymentStatus=Unknown` confirmé fraîchement). Résiduels (Ménages, provenance) audités,
+classifiés, 0 bug technique, hors périmètre d'action immédiate.
+
+REEL/COMPTABLE/HORS_COMPTA avec Banque réelle : 313 756,48 / 303 232,32 / 10 524,16 € (écart
+0,00 €). Idempotence vérifiée (2 runs identiques). Intégrité : 950/950, 3 diffs déjà committés,
+0 nouvelle modification réelle. Port 8000/PID 21136 intact.
+
 ## État de reprise
 
-Worktree propre, application validée sur copies avec les 16 modules décidés, cadrage comptable
-fermé, contrat de sécurité des writers confirmé déjà en place. Cinq familles bloquantes auditées
-depuis le début de ce cycle : `GESTION_LOGEMENT_MISSING` (838→472, décision appliquée au réel),
-`RESERVATION_A_CONTROLER_SANS_COMMISSION` (612, référentiel de taux déjà complet, rien à faire),
-`GUEST_COUNT_MANQUANT_PREPARATION_CANAPE` (553→506 en simulation, ré-extraction réelle exécutée,
-master remplacé, correctif `lot4ter` committé, correction réelle des 506 appliquée dans HIST),
-`RESERVATION_EXCLUE_A_CONTROLER` (70→42 en simulation, bug de double-comptage corrigé et committé,
-0 impact financier, 42 restantes = saisie manuelle nécessaire) — pipeline aval réel non relancé
-pour aucune de ces corrections, donc les sorties de clôture réelles affichent encore les anciens
-chiffres jusqu'au prochain run autorisé. Aucune donnée inventée, mode réel jamais activé.
-**Prochaine action : (a) relancer le pipeline aval réel pour que les corrections se propagent aux
-résultats de clôture (nécessite Banque réelle, vide indépendamment de cette mission) ; (b) saisie
-manuelle des 42 Direct/VRBO restantes (hors périmètre technique) ; (c) sur les 77 couples
-`GESTION_LOGEMENT_MISSING` restants (jan-juil 2025) ; (d) passer à `BANQUE` (222 lignes) ou
-`CHARGES` (69 lignes).**
+**3 décisions/actions humaines distinctes ferment tout le reste** (voir `81_BASELINE_CLOTURE_
+APRES_NETTOYAGE.md` §13) : (1) historique gestion 14 logements jan-juil 2025 (résout 472+69=541
+BLOQUANT) ; (2) 42 saisies manuelles Direct/VRBO ; (3) 222 mouvements bancaires humains (166
+Airbnb export détaillé absent + 56 acomptes) + 83 file assistée. Aucune autre correction
+technique possible sans invention de règle/donnée. Toutes les corrections déterministes de code
+sont épuisées. **Prochaine action : décision utilisateur sur l'historique de gestion 2025
+(impact le plus large, résout deux familles BLOQUANT d'un coup) ; en parallèle, saisies humaines
+Direct/VRBO et classification Banque peuvent avancer indépendamment.**
 
 Commandes de reprise : `cd <worktree> && git status && git log --oneline -5` ; instance de recette
 type : `RECETTE_MODE=1 PROJECT_ROOT=<copies> APP_DATA_DIR=<recette>/APP_DATA python -m uvicorn

@@ -1066,3 +1066,31 @@ pas une donnee source mais la construction d'un onglet de reporting). Les 42 res
 restantes (38 Direct sans saisie HH + 4 VRBO sans backfill) restent honnetement A_CONTROLER,
 donnee genuinement absente. Detail complet :
 `80_AUDIT_RESERVATIONS_VRBO_DIRECT_A_CONTROLER.md`.
+
+---
+
+## AUDIT COMPLET DE NUIT (2026-08-12) — 0 NOUVELLE ANOMALIE, BASELINE ENTIEREMENT EXPLIQUEE
+
+GRAVITE : N/A (confirmation positive, pas une anomalie). STATUT : mission accomplie sans defaut
+trouve.
+
+Suite a la reconstruction d'une simulation canonique fraiche avec Banque reelle (pipeline
+lot8a/8b/8c deja valide rejoue sur copie) et a l'audit exhaustif de tous les codes de controle
+residuels (CHARGE_EXCEPTIONNELLE_DANS_CHARGE_FIXE, Menages, sources optionnelles absentes) :
+**0 bug technique trouve**. Chaque ligne A_CONTROLER ou BLOQUANT du systeme a une cause identifiee
+et documentee, aucune n'est un artefact du moteur.
+
+Fait notable verifie programmatiquement : `CHARGE_EXCEPTIONNELLE_DANS_CHARGE_FIXE` (69 lignes)
+n'est PAS une famille independante malgre son apparence — c'est un sous-ensemble strict a 100%
+des 77 couples `GESTION_LOGEMENT_MISSING` deja connus. Resoudre l'historique de gestion
+jan-juillet 2025 resoudrait automatiquement les deux familles BLOQUANT simultanement (541
+lignes sur 565 controles totaux).
+
+Nouvelle verification API Hostaway en direct sur les 42 Direct/VRBO restantes : confirme
+fraichement (pas une supposition reportee) qu'aucune donnee de payout n'existe cote Hostaway
+pour aucune des 42 — `paymentStatus=Unknown` sur 100% d'entre elles.
+
+Lecon retenue : une simulation construite avec un stub (Banque vide) peut masquer des controles
+reels (Banque, frais bancaires) sans jamais introduire de faux positifs — confirme ici par
+comparaison directe avant/apres reconstruction avec donnees reelles (REEL/COMPTABLE inchanges a
+130,01 EUR pres, entierement explique par les frais bancaires reels desormais comptes).

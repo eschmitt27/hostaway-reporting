@@ -1,5 +1,21 @@
 # 60 — Verdict GO / NO GO (recette globale sur copies, 2026-08-01, mis à jour le 2026-08-02)
 
+> **Suite 18 (2026-08-12)** - Mission de nuit autonome : baseline canonique fraiche avec Banque
+> reelle (pipeline lot8a/8b/8c deja valide rejoue sur copie, 0 stub, 0 reaudition metier, 0
+> matching Banque-Reservation). **Decouverte : les 541 BLOQUANT du systeme sont exactement et
+> uniquement GESTION_LOGEMENT_MISSING (472) + CHARGE_EXCEPTIONNELLE_DANS_CHARGE_FIXE (69, sous-
+> ensemble strict verifie a 100% des 77 couples gestion, meme cause racine).** Aucun autre
+> BLOQUANT n'existe. Audit complet des residuels : 0 nouveau bug technique trouve, 0 code
+> modifie cette nuit. Banque fraiche : 541 mouvements, 236 classes, 222 rapprochement humain,
+> 83 file assistee, statut BANQUE_DISPONIBLE. 42 Direct/VRBO : requete API Hostaway en direct
+> refaite cette nuit, 0 nouvelle preuve (paymentStatus=Unknown confirme frais sur les 42).
+> REEL/COMPTABLE/HORS_COMPTA avec Banque reelle : 313756,48/303232,32/10524,16 EUR, ecart 0,00.
+> Idempotence verifiee (2 runs identiques). Integrite : 950/950, 3 diffs deja committes, 0
+> nouvelle modification reelle cette nuit. Port 8000/PID 21136 intact.
+> **3 decisions humaines ferment tout : historique gestion 2025 (resout 541 BLOQUANT d'un coup),
+> 42 saisies Direct/VRBO, 222 mouvements bancaires + 83 file assistee.**
+> **CLOTURE NO GO. PREPARATION MODE REEL NO GO. MODE REEL NO GO - NON ACTIVE.**
+
 > **Suite 17 (2026-08-11/12)** - Audit des 70 RESERVATION_EXCLUE_A_CONTROLER (VRBO/Direct).
 > Bug reel trouve : `lot10_calculer_resultats.py` listait en double des reservations DEJA
 > comptees dans COMMISSIONS (28 = 27 VRBO resolues via backfill CSV historique + 1 Direct

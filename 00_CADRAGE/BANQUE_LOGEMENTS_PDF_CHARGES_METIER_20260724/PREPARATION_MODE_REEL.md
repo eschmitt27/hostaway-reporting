@@ -291,3 +291,20 @@ reporting, pas dans une donnee source — aucune correction de donnee n'etait el
 PREUVE_A sur les 42 restantes, qui necessitent une saisie manuelle humaine, pas une correction de
 champ existant). Simulation : `RESERVATION_A_CONTROLER` 70->42, delta resultat societe 0,00 EUR
 (les 28 etaient deja comptees). Port 8000/PID 21136 intact. Statut NO GO inchange.
+
+**Mise a jour 2026-08-12 (mission de nuit — baseline canonique fraiche avec Banque reelle)** :
+simulation reconstruite depuis HEAD `6b60577` avec Banque reelle regeneree sur copie (pipeline
+`lot8a/8b/8c` deja valide rejoue, 0 stub, 0 reaudition metier, 0 matching Banque-Reservation).
+**Decouverte determinante : les 541 BLOQUANT actuels sont exactement et uniquement
+GESTION_LOGEMENT_MISSING (472) + CHARGE_EXCEPTIONNELLE_DANS_CHARGE_FIXE (69, verifie
+programmatiquement comme sous-ensemble strict a 100% des 77 couples gestion, meme cause
+racine).** Aucun autre BLOQUANT n'existe dans le systeme. Audit complet des residuels : 0
+nouveau bug technique trouve, 0 code modifie cette nuit. 42 Direct/VRBO : requete API Hostaway
+en direct refaite, 0 nouvelle preuve (paymentStatus=Unknown confirme frais). Banque fraiche :
+541 mouvements, 236 classes, 222 rapprochement humain (166 Airbnb + 56 proprietaires), 83 file
+assistee, statut Lot11 passe a BANQUE_DISPONIBLE. REEL/COMPTABLE/HORS_COMPTA avec Banque reelle :
+313756,48/303232,32/10524,16 EUR, ecart 0,00. Idempotence verifiee. Integrite : 950/950, 3 diffs
+deja committes, **0 nouvelle modification reelle cette nuit**. Port 8000/PID 21136 intact. **3
+decisions humaines ferment tout ce qui reste : historique gestion 2025 (resout les 541 BLOQUANT
+d'un coup), 42 saisies Direct/VRBO, 222+83 mouvements bancaires. Statut NO GO inchange — toutes
+les corrections deterministes de code sont epuisees.**

@@ -3322,3 +3322,56 @@ purement dans la construction de l'onglet A_CONTROLER, pas dans une donnee sourc
 VERDICT : CLOTURE : NO GO. PREPARATION MODE REEL : NO GO. MODE REEL : NO GO - NON ACTIVE. Aucun
 flag app/config.py modifie.
 REFERENCE : 80_AUDIT_RESERVATIONS_VRBO_DIRECT_A_CONTROLER.md
+
+---
+
+## MISSION DE NUIT - BASELINE CANONIQUE FRAICHE AVEC BANQUE REELLE (2026-08-12)
+
+Simulation canonique fraiche reconstruite depuis HEAD 6b60577 : sources actuelles (REF_Setup,
+MASTER Hostaway, HIST corrige) + Banque reelle regeneree sur copie (pipeline lot8a->lot8b->lot8c
+DEJA VALIDE rejoue, 0 stub, 0 reaudition metier, 0 matching Banque-Reservation, 0 classification
+manuelle des mouvements humains). Chaine complete rejouee : lot1(recalc-payout)->lot4bis->
+lot4quater->lot9->lot10->lot11. Idempotent (2 runs consecutifs, memes compteurs exacts).
+
+DECOUVERTE DETERMINANTE : les 541 controles BLOQUANT du systeme sont EXACTEMENT et UNIQUEMENT
+GESTION_LOGEMENT_MISSING (472) + CHARGE_EXCEPTIONNELLE_DANS_CHARGE_FIXE (69). Verifie
+programmatiquement : les 69 couples logement x mois de CHARGE_EXCEPTIONNELLE sont un
+sous-ensemble strict a 100% des 77 couples GESTION_LOGEMENT_MISSING (0 couple hors gestion) -
+meme cause racine (absence de periode de gestion applicable avant le 01/08/2025), pas un bug
+separe, pas une donnee independante a corriger. Aucun autre BLOQUANT n'existe.
+
+BANQUE FRAICHE : source reelle 01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx
+(format consolide, deja gere), 541 mouvements, 1 doublon detecte, 236 classes deterministement,
+222 en rapprochement humain (166 Airbnb export detaille absent + 56 proprietaires attente
+acompte), 83 en file A_ENVOYER_IA. 0 produit economique cree (rapprochement/categorisation
+seulement). Statut Lot11 passe de BANQUE_NON_DISPONIBLE_GIT a BANQUE_DISPONIBLE. REEL/COMPTABLE/
+HORS_COMPTA avec Banque reelle : 313756,48/303232,32/10524,16 EUR, ecart 0,00 EUR (delta vs
+simulation stub anterieure : -130,01 EUR sur REEL/COMPTABLE, explique par 24 flux de frais
+bancaires reels desormais comptes au lieu de 0).
+
+AUDIT RESIDUELS (Phase 11-12) : 0 nouveau BUG_TECHNIQUE trouve. Codes residuels tous classifies :
+CLOTURE_IMPOSSIBLE_LIGNE_BANCAIRE_NON_CLASSEE (9, A_CONTROLER, ACTION_HUMAINE) ;
+RESERVATION_A_CONTROLER_SANS_COMMISSION (42 agregees, ACTION_HUMAINE, deja documente) ;
+VRBO_MONTANT_NON_RENSEIGNE (4 agregees, ACTION_HUMAINE) ; MENAGE_EXTERNE_ECART_HOSTAWAY (4
+logements) ; MENAGE_EXTERNE_LOGEMENT_HORS_HA (2 logements) ; SOURCE_SHEET_PROVENANCE_INCOMPLETE
+(garde-fou existant) - ces 3 derniers hors perimetre Menages de cette mission, documentes non
+traites. 10 lignes INFO_LEGITIME (sources optionnelles absentes, HC_ZERO_SOURCES_VIDES) ne
+bloquent pas la cloture.
+
+42 DIRECT/VRBO : nouvelle requete API Hostaway en direct (lecture seule) sur les 42
+reservation_id cette nuit - 100% ont paymentStatus=Unknown, airbnbExpectedPayoutAmount=None,
+cancellationAmount=None confirmes frais. totalPrice existe mais n'est pas un payout (utiliser ce
+champ inventerait une formule prix->payout non validee, interdit). 0 nouvelle PREUVE_A trouvee.
+
+0 CODE MODIFIE CETTE NUIT (audit complet, 0 bug technique residuel). AUCUNE DONNEE REELLE
+MODIFIEE (950/950 fichiers baseline, 3 diffs deja committes lors des missions precedentes, 0
+nouvelle modification). Port 8000/PID 21136 intact tout du long.
+
+VERDICT : APPLICATION VALIDEE. CORRECTIONS DETERMINISTES TOUTES EPUISEES. CLOTURE : NO GO (541
+BLOQUANT, cause unique = historique gestion 2025). PREPARATION MODE REEL : NO GO. MODE REEL :
+NO GO - NON ACTIVE.
+
+3 DECISIONS HUMAINES FERMENT TOUT LE RESTE : (1) historique gestion 14 logements jan-juil 2025
+(resout 472+69=541 BLOQUANT d'un coup) ; (2) 42 saisies manuelles Direct/VRBO ; (3) 222
+mouvements bancaires humains + 83 file assistee deja engagee.
+REFERENCE : 81_BASELINE_CLOTURE_APRES_NETTOYAGE.md
