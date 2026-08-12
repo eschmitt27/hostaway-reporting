@@ -334,3 +334,20 @@ comptes. Mappings comptables (606000 generique) : non bloquants techniquement, r
 
 **PREPARATION MODE REEL : NO GO** — 138 decisions Banque + 42 saisies Reservations restent a
 traiter humainement, rollback reel jamais exerce hors recette. **MODE REEL : NO GO — NON ACTIVE.**
+
+## Mise a jour 2026-08-13 — audit Lot 5, file humaine finale
+
+Lot 5 FONCTIONNEL mais NON ALIMENTE : 0 ligne dans SAISIE_AcomptesProprietaires.xlsx, 0 dans sa
+sortie, 0 dans mouvements_tresorerie_proprietaires. Les 56 mouvements proprietaires sont donc tous
+sans preuve (PREUVE_A=0, ABSENT=56), aucun rapprochement possible faute d'objet a rapprocher.
+56 -> 56 decisions humaines (plancher 7 si nature uniforme par proprietaire, a confirmer).
+82 A_ENVOYER_IA -> 37 decisions si reponse par regle (12 regles candidates couvrant 57 mouvements),
+0 correspondance deterministe avec les referentiels existants.
+
+File humaine finale dedupliquee : 183 objets economiques, **89 a 183 decisions humaines** selon
+les reponses de compression. Detail et questions : 82_PACK_FINAL_ACTIONS_HUMAINES.md.
+
+Nouveau prerequis technique : migrations 0017->0026 a appliquer a la base reelle (actuellement
+0016) avant exploitation de la tresorerie proprietaires.
+
+**PREPARATION MODE REEL : NO GO. MODE REEL : NO GO — NON ACTIVE.**

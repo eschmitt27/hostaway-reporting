@@ -223,3 +223,23 @@ de mission qui était imprécis.
 - **SAISIES HUMAINES RÉSERVATIONS : 42** (38 Direct + 4 VRBO), inchangé.
 - **A_CONTROLER résiduel réel (hors reformulations des blocs ci-dessus) : 3** (Ménages/provenance).
 - **CLÔTURE TECHNIQUE : GO. PRÉPARATION MODE RÉEL : NO GO. MODE RÉEL : NO GO — NON ACTIVÉ.**
+
+## 16. Audit Lot 5 — file humaine finale chiffree (2026-08-13)
+
+Detail : `83_AUDIT_LOT5_RAPPROCHEMENT_PROPRIETAIRES.md`, pack operateur :
+`82_PACK_FINAL_ACTIONS_HUMAINES.md`.
+
+Lot 5 est FONCTIONNEL mais NON ALIMENTE (0 ligne partout). Consequence : les 56 mouvements
+proprietaires sont tous ABSENT de preuve (PREUVE_A = 0), aucun rapprochement possible. Ce n'est
+pas un echec moteur : il n'existe aucun objet a rapprocher.
+
+| Bloc | Objets | Decisions humaines (min-max) |
+|---|---:|---|
+| Proprietaires / Lot 5 | 56 | 7 - 56 |
+| Banque A_ENVOYER_IA | 82 | 37 - 82 |
+| Reservations Direct/VRBO | 42 | 42 |
+| Autres A_CONTROLER | 3 | 3 |
+| **TOTAL** | **183** | **89 - 183** |
+
+Baseline controles inchangee : 0 BLOQUANT / 14 A_CONTROLER / 10 INFO / 24 total. Sur les 14
+A_CONTROLER, 11 reformulent les blocs ci-dessus, 3 sont distincts (Menages/provenance).

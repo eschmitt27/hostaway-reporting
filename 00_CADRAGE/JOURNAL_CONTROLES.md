@@ -3405,3 +3405,24 @@ Reservations/Banque deja comptes, 3 seulement nouveaux (Menages ecart/hors HA, p
 Mappings comptables 606000 : non bloquants techniquement. 0 code modifie, 0 bug trouve (mission
 docs-only). CLOTURE TECHNIQUE : GO. PREPARATION MODE REEL : NO GO. MODE REEL : NO GO - NON
 ACTIVE. Reference : 82_PACK_FINAL_ACTIONS_HUMAINES.md
+
+--- Audit Lot 5 et 82 A_ENVOYER_IA (2026-08-13) ---
+Lot 5 identifie (lot5_master_acomptes_proprietaires.py, SAISIE_AcomptesProprietaires.xlsx,
+MASTER_FACT_MAN_AcomptesProprietaires.xlsx) : FONCTIONNEL mais 0 ligne. Table
+mouvements_tresorerie_proprietaires (migration 0025) : 0 ligne en recette, absente de la base
+reelle (migration 0016). Aucun objet metier proprietaire n'existe.
+
+56 mouvements proprietaires : PREUVE_A=0, PREUVE_B=0, AMBIGU=0, ABSENT=56. Rapprochement
+EXACT/PARTIEL/GROUPE/AMBIGU=0, AUCUN=56. 100% CREDIT, 27069,18 EUR, 0 montant repete, 7 identites
+candidates (dont FAMILLE_UZON_A_CONTROLER non resolue). 56 -> 56 decisions humaines, plancher 7 si
+nature uniforme par proprietaire (non deduit).
+
+82 A_ENVOYER_IA (83 physiques, 1 doublon mouvement_id confirme) : 79 DEBIT / 3 CREDIT, 3204,79 EUR.
+0 correspondance deterministe avec les referentiels (proprietaires/associes/intervenants). 12
+regles candidates preparees couvrant 57 mouvements sur 82. 82 -> 37 decisions si l'utilisateur
+repond par regle, jamais par validation inventee.
+
+Tests fixtures 126/126 verts. Idempotence Banque revalidee (236/222/83 identiques apres relance
+lot8a/8b/8c). Integrite 3/950 diffs deja committes, 0 nouvelle modification reelle. 0 code
+modifie, 0 bug. CLOTURE TECHNIQUE : GO. PREPARATION MODE REEL : NO GO. MODE REEL : NO GO -
+NON ACTIVE. Reference : 83_AUDIT_LOT5_RAPPROCHEMENT_PROPRIETAIRES.md

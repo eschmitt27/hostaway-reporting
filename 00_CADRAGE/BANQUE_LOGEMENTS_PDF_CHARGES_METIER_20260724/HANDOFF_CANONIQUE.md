@@ -1578,3 +1578,32 @@ techniquement — réserve acceptable, écritures restent équilibrées.
 **0 code modifié, 0 bug trouvé, mission docs-only.** CLÔTURE TECHNIQUE : GO. PRÉPARATION MODE
 RÉEL : NO GO (138 décisions Banque + 42 saisies Réservations + rollback jamais exercé hors
 recette). MODE RÉEL : NO GO — NON ACTIVÉ.
+
+## Audit Lot 5 — les 56 proprietaires ne sont pas reductibles par preuve (2026-08-13)
+
+Detail complet : `83_AUDIT_LOT5_RAPPROCHEMENT_PROPRIETAIRES.md`. Question posee : quelle preuve
+Lot 5 existe deja permettant de resoudre tout ou partie des 56 mouvements proprietaires Banque ?
+**Reponse mesuree : aucune.** SAISIE_AcomptesProprietaires.xlsx = 0 ligne, sortie Lot 5 = 0 ligne,
+table mouvements_tresorerie_proprietaires = 0 ligne (base recette) et absente de la base reelle
+(migration 0016 alors que la table est creee en 0025). Aucun objet metier proprietaire n'existe
+nulle part dans le depot.
+
+PREUVE_A=0, PREUVE_B=0, AMBIGU=0, ABSENT=56. Rapprochement EXACT/PARTIEL/GROUPE/AMBIGU = 0,
+AUCUN = 56 — non par echec moteur mais faute d'objet a rapprocher. Les 56 sont 100% CREDIT,
+27069,18 EUR, 2025-11 -> 2026-07, **aucun montant repete** (0 recurrence exploitable), reparties
+sur 7 identites dont une explicitement non resolue (`FAMILLE_UZON_A_CONTROLER`, 7 mvts). Les
+proprietaire_id proviennent de regles de libelle bancaire : IDENTITE_CANDIDATE, jamais prouvee.
+
+**56 -> 56 decisions humaines**, compressibles a **7** si l'utilisateur confirme une nature
+uniforme par proprietaire (non deduit ici). Les 82 A_ENVOYER_IA : 0 correspondance deterministe
+avec les referentiels existants, 12 regles candidates preparees couvrant 57 mouvements sur 82
+(compression possible 82 -> 37, jamais par validation inventee). Prerequis technique consigne :
+migrations 0017->0026 a appliquer a la base reelle avant exploitation de la tresorerie
+proprietaires.
+
+Tests fixtures : 126/126 verts (tresorerie proprietaires, rapprochement exact/partiel/groupe/
+ambigu, candidats). Idempotence Banque reverifiee (lot8a/8b/8c relances : 236/222/83 identiques,
+0 doublon). Integrite : 3/950 diffs, tous deja committes, **0 nouvelle modification reelle**.
+0 code modifie, 0 bug trouve. Port 8000 constate libre, non manipule. Mode reel OFF.
+
+**CLOTURE TECHNIQUE : GO. PREPARATION MODE REEL : NO GO. MODE REEL : NO GO — NON ACTIVE.**

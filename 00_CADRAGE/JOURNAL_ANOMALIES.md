@@ -1112,3 +1112,15 @@ app/services/banques_candidats_service.py -- seul le reporting de mission (81_BA
 HANDOFF) amalgamait a tort ces 166 lignes avec les 56 vrais candidats proprietaires sous un
 meme intitule "222 rapprochement humain". Corrige (reporting uniquement, 0 donnee/0 code
 modifie).
+
+Audit Lot 5 (2026-08-13) : 0 anomalie moteur. Point technique consigne sans etre une anomalie :
+la base applicative reelle (05_APPLICATION/data/app.db) est en migration 0016 alors que la table
+mouvements_tresorerie_proprietaires est creee en migration 0025 -- normal puisque le mode reel n'a
+jamais ete active et que cette base ne contient aucune donnee metier, mais les migrations
+0017->0026 devront etre appliquees avant toute exploitation reelle de la tresorerie proprietaires.
+Consigne en prerequis dans la checklist mode reel.
+
+Lecon : un controle moteur en attente (LOT5_PREREQUIS_MANQUANT) disait deja exactement la verite ;
+l'audit l'a confirme au lieu de le contourner. Aucune nature economique n'a ete inferee depuis un
+montant, une date, un nom de contrepartie ou une recurrence -- d'autant que la mesure montre 0
+montant repete parmi les 56, donc aucune serie n'aurait de toute facon pu servir de preuve.

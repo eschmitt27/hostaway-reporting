@@ -161,3 +161,13 @@ Vraie file Banque humaine ventilee : 138 decisions reelles (56 proprietaires + 8
 82_PACK_FINAL_ACTIONS_HUMAINES.md. Items Banque de la checklist : A_FAIRE_HUMAIN sur 138 items
 precis (au lieu de 305 bruts). Rollback reel jamais exerce hors recette : NON_TESTE. Verdict
 global inchange : NO GO — VALIDATION HUMAINE REQUISE.
+
+## Mise a jour 2026-08-13 — audit Lot 5
+
+LOT 5 : FONCTIONNEL mais NON ALIMENTE (0 ligne) -> A_FAIRE_HUMAIN.
+DONNEES PROPRIETAIRES : A_FAIRE_HUMAIN (56 mouvements, 0 preuve existante, 7 a 56 decisions).
+BANQUE A_ENVOYER_IA : A_FAIRE_HUMAIN (82 mouvements, 37 a 82 decisions selon regles candidates).
+MIGRATIONS BASE REELLE : NON_TESTE — base reelle en migration 0016, tresorerie proprietaires
+requiert 0025 ; migrations 0017->0026 a appliquer avant exploitation reelle (nouvel item).
+ROLLBACK : NON_TESTE (inchange).
+Verdict global inchange : NO GO — VALIDATION HUMAINE REQUISE.

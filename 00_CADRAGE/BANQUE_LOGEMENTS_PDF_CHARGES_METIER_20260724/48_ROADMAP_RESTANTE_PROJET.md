@@ -218,3 +218,12 @@ Vraie file humaine finale etablie : 42 saisies Reservations (Direct/VRBO) + 138 
 (56 proprietaires + 82 A_ENVOYER_IA) + 3 residuels Menages/provenance + arbitrage comptable fin
 non bloquant. 166 PAYOUT_PLATEFORME Airbnb definitivement exclues du travail humain (categorie
 moteur deja correcte). Detail et priorisation : 82_PACK_FINAL_ACTIONS_HUMAINES.md.
+
+## Mise a jour 2026-08-13 — audit Lot 5
+
+Lot 5 audite : fonctionnel, non alimente. Les 56 mouvements proprietaires restent 56 decisions
+humaines (0 preuve existante, plancher 7 si nature uniforme). 82 A_ENVOYER_IA : 12 regles
+candidates preparees (couvrent 57/82), compression possible a 37 decisions. File humaine finale :
+89 a 183 decisions. Nouveau prerequis : migrations 0017->0026 sur la base reelle avant
+exploitation tresorerie proprietaires. Detail : 83_AUDIT_LOT5_RAPPROCHEMENT_PROPRIETAIRES.md et
+82_PACK_FINAL_ACTIONS_HUMAINES.md.
