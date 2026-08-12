@@ -200,3 +200,26 @@ Simulation canonique fraîche (Banque réelle incluse), idempotence vérifiée (
 Restes humains désormais **2 décisions** (au lieu de 3) : 42 saisies Direct/VRBO, Banque humaine
 (222 + 83 file assistée). Plus 14 A_CONTROLER résiduels mineurs et mappings comptables non
 bloquants moteur.
+
+## 15. Correction de reporting — la vraie file Banque humaine (2026-08-12)
+
+**Correction de libellé, pas de donnée** : les « 222 mouvements bancaires humains » cités ci-dessus
+et dans `HANDOFF_CANONIQUE.md` amalgamaient à tort deux populations très différentes. Ventilation
+exacte (détail complet : `82_PACK_FINAL_ACTIONS_HUMAINES.md` §3) :
+
+| Sous-catégorie | Lignes | Décision humaine ? |
+|---|---:|---|
+| `PAYOUT_PLATEFORME` (Airbnb, catégorie moteur déjà correcte, exclue du matching réservation) | 166 | **NON** — 0 décision, informatif, en attente export Airbnb |
+| `VIREMENT_PROPRIETAIRE_A_RAPPROCHER` (candidats légitimes, Lot 5 non alimenté) | 56 | OUI |
+
+**Vrai total de décisions Banque humaines : 56 (propriétaires) + 82 (A_ENVOYER_IA distincts, 83
+lignes physiques dédupliquées par `mouvement_id`) = 138**, et non 222+83=305. Vérifié :
+`app/services/banques_candidats_service.py` exclut déjà `PAYOUT_PLATEFORME` du rapprochement
+réservation (conforme au commit `78877da`) — **0 bug de code**, uniquement notre propre reporting
+de mission qui était imprécis.
+
+**Verdict final mis à jour** :
+- **DÉCISIONS HUMAINES BANQUE : 138** (au lieu de 305 brut).
+- **SAISIES HUMAINES RÉSERVATIONS : 42** (38 Direct + 4 VRBO), inchangé.
+- **A_CONTROLER résiduel réel (hors reformulations des blocs ci-dessus) : 3** (Ménages/provenance).
+- **CLÔTURE TECHNIQUE : GO. PRÉPARATION MODE RÉEL : NO GO. MODE RÉEL : NO GO — NON ACTIVÉ.**

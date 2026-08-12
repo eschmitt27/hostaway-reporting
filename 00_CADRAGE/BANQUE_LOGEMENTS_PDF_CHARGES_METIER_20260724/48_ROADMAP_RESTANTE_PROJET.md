@@ -211,3 +211,10 @@ utilisateur) applique reel + verifie. 541 BLOQUANT (GESTION_LOGEMENT_MISSING +
 CHARGE_EXCEPTIONNELLE_DANS_CHARGE_FIXE) -> 0 sur simulation canonique fraiche, delta
 economique 0,00 EUR. Reste roadmap inchange pour le reste (42 Direct/VRBO, Banque humaine,
 mappings comptables, anomalies ci-dessus).
+
+## Mise a jour 2026-08-12 (2)
+
+Vraie file humaine finale etablie : 42 saisies Reservations (Direct/VRBO) + 138 decisions Banque
+(56 proprietaires + 82 A_ENVOYER_IA) + 3 residuels Menages/provenance + arbitrage comptable fin
+non bloquant. 166 PAYOUT_PLATEFORME Airbnb definitivement exclues du travail humain (categorie
+moteur deja correcte). Detail et priorisation : 82_PACK_FINAL_ACTIONS_HUMAINES.md.

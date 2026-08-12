@@ -153,3 +153,11 @@ Historique gestion 2025 (items dependant de la cloture technique gestion/charges
 541 BLOQUANT -> 0 (voir `81_BASELINE_CLOTURE_APRES_NETTOYAGE.md` §14). Items 1-4/12/13
 restants : concernent desormais uniquement 42 Direct/VRBO, Banque humaine, mappings comptables.
 Verdict global inchange : **NO GO — VALIDATION HUMAINE REQUISE** sur les points restants.
+
+## Mise a jour 2026-08-12 (2)
+
+Vraie file Banque humaine ventilee : 138 decisions reelles (56 proprietaires + 82 A_ENVOYER_IA),
+166 PAYOUT_PLATEFORME exclues (0 decision, deja categorisees correctement par le moteur). Detail :
+82_PACK_FINAL_ACTIONS_HUMAINES.md. Items Banque de la checklist : A_FAIRE_HUMAIN sur 138 items
+precis (au lieu de 305 bruts). Rollback reel jamais exerce hors recette : NON_TESTE. Verdict
+global inchange : NO GO — VALIDATION HUMAINE REQUISE.

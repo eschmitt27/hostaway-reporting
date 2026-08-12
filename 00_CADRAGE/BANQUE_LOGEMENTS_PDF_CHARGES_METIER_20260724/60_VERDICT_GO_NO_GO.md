@@ -346,3 +346,11 @@ Delta economique 0,00 EUR. Voir `77_RECONSTRUCTION_GESTION_LOGEMENTS_HIST.md` §
 **CLOTURE TECHNIQUE (gestion+charges) : GO. PREPARATION MODE REEL : NO GO** (42 Direct/VRBO,
 Banque humaine, 14 A_CONTROLER residuels, mappings comptables restent ouverts). **MODE REEL :
 NO GO — NON ACTIVE.**
+
+## Mise a jour 2026-08-12 (2) — vraie file humaine finale, 138 decisions Banque
+
+Detail complet : `82_PACK_FINAL_ACTIONS_HUMAINES.md`. APPLICATION : VALIDEE. CLOTURE TECHNIQUE :
+GO. BLOQUANTS : 0. SAISIES HUMAINES RESERVATIONS : 42. DECISIONS HUMAINES BANQUE : 138 (au lieu
+de 305 brut — 166 PAYOUT_PLATEFORME exclues, 0 decision). A_CONTROLER non bloquants : 14 (3
+reellement nouveaux). COMPTABILITE : PRETE AVEC RESERVES. **PREPARATION MODE REEL : NO GO. MODE
+REEL : NO GO — NON ACTIVE.**

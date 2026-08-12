@@ -3393,3 +3393,15 @@ VERDICT : CLOTURE TECHNIQUE (gestion+charges) GO. PREPARATION MODE REEL : NO GO 
 Banque humaine, 14 A_CONTROLER residuels, mappings comptables restent). MODE REEL : NO GO -
 NON ACTIVE.
 REFERENCE : 77_RECONSTRUCTION_GESTION_LOGEMENTS_HIST.md §13, 81_BASELINE_CLOTURE_APRES_NETTOYAGE.md §14
+
+--- Pack final actions humaines (2026-08-12) ---
+Ventilation exacte des 541 mouvements Banque : 236 CLASSE (deterministe), 166 PAYOUT_PLATEFORME
+(0 decision, deja exclues du rapprochement reservation dans l'app, conforme 78877da), 56
+proprietaires (1 prerequis Lot 5), 82 A_ENVOYER_IA distincts (83 physiques, 1 doublon
+mouvement_id verifie conforme, 0 bug). Vrai total decisions Banque humaines : 138 (pas 305 brut).
+42 Direct/VRBO : mecanisme de saisie existant audite et prouve sur fixtures (58/58 tests verts,
+0 vraie reservation touchee). 14 A_CONTROLER decomposes : 11 reformulent les blocs
+Reservations/Banque deja comptes, 3 seulement nouveaux (Menages ecart/hors HA, provenance info).
+Mappings comptables 606000 : non bloquants techniquement. 0 code modifie, 0 bug trouve (mission
+docs-only). CLOTURE TECHNIQUE : GO. PREPARATION MODE REEL : NO GO. MODE REEL : NO GO - NON
+ACTIVE. Reference : 82_PACK_FINAL_ACTIONS_HUMAINES.md

@@ -1101,3 +1101,14 @@ toute la periode) fait tomber les 541 BLOQUANT (472 gestion + 69 charges dependa
 aucun effet economique (delta 0,00 EUR sur REEL/COMPTABLE/HORS_COMPTA) car chaque logement n'a
 qu'une seule ligne de gestion continue -- le controle etait purement une lacune de couverture
 referentielle, jamais une ambiguite de calcul.
+
+Pack final actions humaines (2026-08-12) : 0 anomalie moteur trouvee. Un point verifie et non
+corrige car deja conforme : le doublon mouvement_id (MVT-CM_02211_00021321603-20260115-DEBIT-
+12000-0FB68A, 2 lignes sources 149/151) est deja gere correctement par le moteur (1 seule
+decision par mouvement_id, tracabilite par ligne_source conservee) -- comportement voulu, pas un
+bug. Les 166 lignes PAYOUT_PLATEFORME Airbnb sont deja categorisees correctement par
+lot8b_banque_regles.py (regle R_001) et deja exclues du rapprochement reservation par
+app/services/banques_candidats_service.py -- seul le reporting de mission (81_BASELINE,
+HANDOFF) amalgamait a tort ces 166 lignes avec les 56 vrais candidats proprietaires sous un
+meme intitule "222 rapprochement humain". Corrige (reporting uniquement, 0 donnee/0 code
+modifie).

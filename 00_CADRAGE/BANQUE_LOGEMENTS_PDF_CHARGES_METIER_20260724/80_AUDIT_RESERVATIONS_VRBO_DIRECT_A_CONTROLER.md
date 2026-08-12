@@ -159,3 +159,11 @@ de donnée). MOIS CLÔTURÉS : aucun réouvert, aucune correction HIST nécessai
 HH existant — pas une décision de règle métier, une collecte de données. Aucune question
 utilisateur nécessaire sur ce point : le système sait déjà quoi faire, il manque la donnée
 source elle-même.
+
+## 13. Pack opérateur final (2026-08-12)
+
+Mécanisme de saisie des 42 audité et prouvé sur fixtures (58/58 tests verts, 0 vraie réservation
+touchée). Détail complet, champs exacts, groupement par logement, priorisation :
+`82_PACK_FINAL_ACTIONS_HUMAINES.md` §2. Aucune nouvelle recherche de preuve effectuée (déjà
+epuisée). Chiffres 38 Direct + 4 VRBO reconfirmés exacts sur baseline fraîche (541 BLOQUANT -> 0,
+sans impact sur ces 42).

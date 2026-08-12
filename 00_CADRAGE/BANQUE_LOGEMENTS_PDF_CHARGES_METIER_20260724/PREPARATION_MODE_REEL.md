@@ -320,3 +320,17 @@ integrite 3/950 diffs (attendus), 24/24 tests cibles verts.
 
 **Restes : 2 decisions humaines** (au lieu de 3) : 42 saisies Direct/VRBO, 222+83 mouvements
 bancaires. Statut **NO GO inchange** — corrections deterministes de code toujours epuisees.
+
+## Mise a jour 2026-08-12 (2) — vraie file humaine finale
+
+Ventilation Banque exacte : 236 CLASSE (0 action), 166 PAYOUT_PLATEFORME (0 decision, categorie
+deja correcte, exclue du rapprochement reservation dans l'app, conforme 78877da), 56 proprietaires
+(1 prerequis: alimenter Lot 5), 82 A_ENVOYER_IA distincts (83 lignes physiques, 1 doublon
+mouvement_id verifie conforme). Vrai total decisions Banque : 138 (pas 305). Reservations : 42
+(38 Direct + 4 VRBO), mecanisme existant audite + preuve fixtures 58/58 verts. 14 A_CONTROLER : 3
+seulement nouveaux (Menages/provenance), 11 = reformulations des blocs Reservations/Banque deja
+comptes. Mappings comptables (606000 generique) : non bloquants techniquement, reserve acceptable.
+0 code modifie, 0 bug trouve. Detail complet : 82_PACK_FINAL_ACTIONS_HUMAINES.md.
+
+**PREPARATION MODE REEL : NO GO** — 138 decisions Banque + 42 saisies Reservations restent a
+traiter humainement, rollback reel jamais exerce hors recette. **MODE REEL : NO GO — NON ACTIVE.**

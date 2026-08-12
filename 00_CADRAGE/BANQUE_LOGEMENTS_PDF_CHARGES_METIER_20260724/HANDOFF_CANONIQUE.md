@@ -1554,3 +1554,27 @@ attendus (ce changement + les 2 déjà committés). Pipeline réel **non relanc�
 **CLÔTURE TECHNIQUE (gestion + charges dépendantes) : GO.** Restes humains inchangés (42
 Direct/VRBO, Banque humaine 222+83, 14 A_CONTROLER résiduels, mappings comptables provisoires).
 **PRÉPARATION MODE RÉEL : NO GO. MODE RÉEL : NO GO — NON ACTIVÉ.**
+
+## Pack final actions humaines — vraie file Banque = 138, pas 305 (2026-08-12)
+
+Détail complet : `82_PACK_FINAL_ACTIONS_HUMAINES.md`. Les « 222 mouvements Banque humains »
+ci-dessus étaient un amalgame de reporting (pas un bug de code) : 166 sont `PAYOUT_PLATEFORME`
+(Airbnb) — catégorie moteur déjà correcte, déjà exclue du rapprochement réservation dans
+l'application (`banques_candidats_service.py`, conforme au commit `78877da`), **0 décision
+humaine**, informatif, en attente de l'export Airbnb détaillé. Les 56 restants sont de vrais
+candidats propriétaires (`VIREMENT_PROPRIETAIRE_A_RAPPROCHER`), bloqués par un seul prérequis :
+alimenter `SAISIE_AcomptesProprietaires.xlsx` (Lot 5). Les 83 lignes `A_ENVOYER_IA` se ramènent à
+**82 décisions distinctes** (1 doublon `mouvement_id` vérifié conforme, dédupliqué proprement,
+traçabilité conservée).
+
+**Vraie baseline opérationnelle Banque : 56 + 82 = 138 décisions humaines** (au lieu de 222+83=305
+brut). Réservations : 42 (38 Direct + 4 VRBO) inchangé, mécanisme de saisie existant audité et
+prouvé sur fixtures (58/58 tests verts, aucune vraie réservation touchée). Des 14 A_CONTROLER,
+seuls 3 sont un travail réellement nouveau (Ménages : écart Hostaway 4 logements, hors HA
+2 logements, provenance informative) — les 11 autres reformulent en agrégat les blocs
+Réservations/Banque déjà comptés. Mappings comptables (606000 générique) confirmés non bloquants
+techniquement — réserve acceptable, écritures restent équilibrées.
+
+**0 code modifié, 0 bug trouvé, mission docs-only.** CLÔTURE TECHNIQUE : GO. PRÉPARATION MODE
+RÉEL : NO GO (138 décisions Banque + 42 saisies Réservations + rollback jamais exercé hors
+recette). MODE RÉEL : NO GO — NON ACTIVÉ.
