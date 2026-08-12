@@ -308,3 +308,15 @@ deja committes, **0 nouvelle modification reelle cette nuit**. Port 8000/PID 211
 decisions humaines ferment tout ce qui reste : historique gestion 2025 (resout les 541 BLOQUANT
 d'un coup), 42 saisies Direct/VRBO, 222+83 mouvements bancaires. Statut NO GO inchange — toutes
 les corrections deterministes de code sont epuisees.**
+
+## Mise a jour 2026-08-12 — decision (1) appliquee, 541 BLOQUANT -> 0
+
+Decision utilisateur recue et appliquee : meme proprietaire par logement sur toute 2025.
+REF_Gestion_Logements_Hist prolonge 2025-08-01 -> 2025-01-01 (14 logements). Simulation
+canonique fraiche (Banque reelle incluse) : GESTION_LOGEMENT_MISSING 472->0,
+CHARGE_EXCEPTIONNELLE_DANS_CHARGE_FIXE 69->0, BLOQUANT total 541->0. Delta economique 0,00 EUR.
+Reel modifie (14 cellules date_debut, backup+SHA256 verifies), pipeline reel non relance,
+integrite 3/950 diffs (attendus), 24/24 tests cibles verts.
+
+**Restes : 2 decisions humaines** (au lieu de 3) : 42 saisies Direct/VRBO, 222+83 mouvements
+bancaires. Statut **NO GO inchange** — corrections deterministes de code toujours epuisees.

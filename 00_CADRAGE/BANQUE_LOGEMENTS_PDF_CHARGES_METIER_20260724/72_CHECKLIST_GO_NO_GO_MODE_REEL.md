@@ -146,3 +146,10 @@ Comptabilité ; items 6-9 sont techniquement prêts mais non éprouvés en condi
 corrigée mais 2 notes ouvertes, sauvegardes/rollback jamais exercés hors recette). Aucun blocage
 technique de fond (item 10-11 verts) — le socle technique est prêt à recevoir la décision humaine,
 mais celle-ci n'a pas eu lieu.
+
+## Mise a jour 2026-08-12
+
+Historique gestion 2025 (items dependant de la cloture technique gestion/charges) : RESOLU.
+541 BLOQUANT -> 0 (voir `81_BASELINE_CLOTURE_APRES_NETTOYAGE.md` §14). Items 1-4/12/13
+restants : concernent desormais uniquement 42 Direct/VRBO, Banque humaine, mappings comptables.
+Verdict global inchange : **NO GO — VALIDATION HUMAINE REQUISE** sur les points restants.

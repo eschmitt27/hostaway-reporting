@@ -1094,3 +1094,10 @@ Lecon retenue : une simulation construite avec un stub (Banque vide) peut masque
 reels (Banque, frais bancaires) sans jamais introduire de faux positifs — confirme ici par
 comparaison directe avant/apres reconstruction avec donnees reelles (REEL/COMPTABLE inchanges a
 130,01 EUR pres, entierement explique par les frais bancaires reels desormais comptes).
+
+Mission gestion 2025 finale (2026-08-12) : aucune anomalie moteur trouvee. Prolongation
+date_debut 2025-08-01->2025-01-01 sur 14 logements (decision utilisateur : meme proprietaire
+toute la periode) fait tomber les 541 BLOQUANT (472 gestion + 69 charges dependantes) sans
+aucun effet economique (delta 0,00 EUR sur REEL/COMPTABLE/HORS_COMPTA) car chaque logement n'a
+qu'une seule ligne de gestion continue -- le controle etait purement une lacune de couverture
+referentielle, jamais une ambiguite de calcul.

@@ -334,3 +334,15 @@ git status --porcelain      # doit être vide après le commit de ce tour
 ```
 
 Ne relance pas le mode réel. Ne modifie aucune donnée réelle. Ne déclare pas le projet terminé.
+
+## Mise a jour 2026-08-12 — decision gestion 2025 appliquee
+
+REF_Gestion_Logements_Hist prolonge au 01/01/2025 pour 14 logements (decision utilisateur :
+meme proprietaire toute la periode). BLOQUANT 541 -> 0 sur simulation canonique fraiche
+(GESTION_LOGEMENT_MISSING + CHARGE_EXCEPTIONNELLE_DANS_CHARGE_FIXE, cause unique resolue).
+Delta economique 0,00 EUR. Voir `77_RECONSTRUCTION_GESTION_LOGEMENTS_HIST.md` §13,
+`81_BASELINE_CLOTURE_APRES_NETTOYAGE.md` §14.
+
+**CLOTURE TECHNIQUE (gestion+charges) : GO. PREPARATION MODE REEL : NO GO** (42 Direct/VRBO,
+Banque humaine, 14 A_CONTROLER residuels, mappings comptables restent ouverts). **MODE REEL :
+NO GO — NON ACTIVE.**

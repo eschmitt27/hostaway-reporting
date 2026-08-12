@@ -170,3 +170,33 @@ missions précédentes (`REF_Setup.xlsm`, `MASTER_FACT_HA_Reservations.xlsx`,
    83 en file de classification assistée déjà engagée.
 
 Rien d'autre ne bloque techniquement la clôture.
+
+## 14. Décision (1) appliquée — 541 BLOQUANT → 0 (2026-08-12)
+
+Décision utilisateur reçue : « le propriétaire a toujours été le même pour chaque logement. »
+Couverture `REF_Gestion_Logements_Hist` prolongée 2025-08-01 → **2025-01-01** pour les 14
+logements concernés. Détail complet : `77_RECONSTRUCTION_GESTION_LOGEMENTS_HIST.md` §13.
+
+| Mesure | Avant | Après |
+|---|---:|---:|
+| `GESTION_LOGEMENT_MISSING` | 472 | **0** |
+| `CHARGE_EXCEPTIONNELLE_DANS_CHARGE_FIXE` | 69 | **0** |
+| BLOQUANT total | 541 | **0** |
+| A_CONTROLER | 14 | 14 |
+| INFO | 10 | 10 |
+| REEL / COMPTABLE / HORS_COMPTA | 313 756,48 / 303 232,32 / 10 524,16 € | identiques, delta 0,00 € |
+
+Simulation canonique fraîche (Banque réelle incluse), idempotence vérifiée (2 runs identiques),
+14/14 cellules réelles modifiées et relues, backup + SHA256 vérifiés, intégrité 3/950 diffs
+(exactement attendus), pipeline réel non relancé, 24/24 tests ciblés verts.
+
+**Verdict mis à jour** :
+- **DONNÉES POUR CLÔTURE : 0 contrôle BLOQUANT.** Familles gestion/charges définitivement closes.
+- **CLÔTURE TECHNIQUE (sur ces deux familles) : GO.**
+- **PRÉPARATION MODE RÉEL : NO GO** — décisions (2) et (3) ci-dessus restent ouvertes, ainsi que
+  les 14 A_CONTROLER résiduels et les mappings comptables provisoires.
+- **MODE RÉEL : NO GO — NON ACTIVÉ.**
+
+Restes humains désormais **2 décisions** (au lieu de 3) : 42 saisies Direct/VRBO, Banque humaine
+(222 + 83 file assistée). Plus 14 A_CONTROLER résiduels mineurs et mappings comptables non
+bloquants moteur.

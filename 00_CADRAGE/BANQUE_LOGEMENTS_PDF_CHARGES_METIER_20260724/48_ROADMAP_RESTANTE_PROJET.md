@@ -203,3 +203,11 @@ l'état, ce document pour le reste à faire.
 | `test_appsec1_diagnostic` | échec environnemental **pré-existant** (nom d'utilisateur Windows dans un chemin temporaire pytest), antérieur au chantier | test |
 | Charge post-clôture | non interdite applicativement | métier |
 | Bandeau `MODE RECETTE` (chemin absolu) | pré-existant, hors mandat de la mission Banque, non corrigé — cf. `65` §Sécurité | affichage, RECETTE_MODE uniquement |
+
+## Mise a jour 2026-08-12
+
+Historique gestion 2025 (14 logements, prolongation date_debut au 01/01/2025, decision
+utilisateur) applique reel + verifie. 541 BLOQUANT (GESTION_LOGEMENT_MISSING +
+CHARGE_EXCEPTIONNELLE_DANS_CHARGE_FIXE) -> 0 sur simulation canonique fraiche, delta
+economique 0,00 EUR. Reste roadmap inchange pour le reste (42 Direct/VRBO, Banque humaine,
+mappings comptables, anomalies ci-dessus).

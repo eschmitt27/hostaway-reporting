@@ -1526,3 +1526,31 @@ Direct/VRBO et classification Banque peuvent avancer indépendamment.**
 Commandes de reprise : `cd <worktree> && git status && git log --oneline -5` ; instance de recette
 type : `RECETTE_MODE=1 PROJECT_ROOT=<copies> APP_DATA_DIR=<recette>/APP_DATA python -m uvicorn
 app.main:app --port 80XX` depuis `05_APPLICATION` (jamais le port 8000).
+
+## Prolongation gestion au 01/01/2025 — 541 BLOQUANT → 0 (2026-08-12)
+
+Décision utilisateur reçue : « le propriétaire a toujours été le même pour chaque logement ».
+Couverture `REF_Gestion_Logements_Hist` prolongée de 2025-08-01 à **2025-01-01** pour les 14
+logements déjà prolongés en amont. Détail complet : `77_RECONSTRUCTION_GESTION_LOGEMENTS_HIST.md`
+§13.
+
+Procédure identique aux corrections précédentes : copie d'abord, script fail-closed (refuse tout
+`gestion_id`/valeur de départ hors liste autorisée), simulation canonique fraîche rejouée sur
+`SIMULATION_CANONIQUE_HEAD_6b60577` (Banque réelle déjà incluse) via `run_regression_pipeline.py`,
+2 runs identiques (idempotence), puis backup réel + SHA256 + écriture gatée
+(`AUTORISATION_ECRITURE_REELLE=1`) + relecture immédiate.
+
+**Résultat simulation (avant → après)** : `GESTION_LOGEMENT_MISSING` 472→**0**,
+`CHARGE_EXCEPTIONNELLE_DANS_CHARGE_FIXE` 69→**0**, BLOQUANT total 541→**0**. A_CONTROLER (14) et
+INFO (10) strictement inchangés, code par code. REEL/COMPTABLE/HORS_COMPTA : **0,00 € de delta**
+(chaque logement n'a qu'une ligne de gestion — prolonger `date_debut` ne change ni propriétaire ni
+taux déjà utilisés par le calcul).
+
+Réel modifié : 14 cellules `date_debut` uniquement dans `REF_Setup.xlsm`, backup horodaté
+disponible dans `99_ARCHIVES/REF_Setup/`. Intégrité globale : 3/950 diffs, exactement les 3
+attendus (ce changement + les 2 déjà committés). Pipeline réel **non relancé**
+(`CALCULS_REAL_RUN_ENABLED` OFF). Tests ciblés (0 code modifié) : 24/24 verts.
+
+**CLÔTURE TECHNIQUE (gestion + charges dépendantes) : GO.** Restes humains inchangés (42
+Direct/VRBO, Banque humaine 222+83, 14 A_CONTROLER résiduels, mappings comptables provisoires).
+**PRÉPARATION MODE RÉEL : NO GO. MODE RÉEL : NO GO — NON ACTIVÉ.**

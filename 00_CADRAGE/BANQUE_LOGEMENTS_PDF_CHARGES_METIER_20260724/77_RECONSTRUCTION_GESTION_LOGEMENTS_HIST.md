@@ -290,3 +290,95 @@ Deux voies indépendantes, au choix de l'utilisateur :
    ou explicitement « hors périmètre » ;
 2. Passer à la famille bloquante suivante par volume : `RESERVATION_A_CONTROLER_SANS_COMMISSION`
    (612 lignes) — référentiel **distinct** (taux de commission), à ne pas confondre avec celui-ci.
+
+## 13. Prolongation finale au 01/01/2025 (2026-08-12) — clôture du chantier gestion
+
+**Décision utilisateur reçue, verbatim** : « Oui le propriétaire a toujours été le même pour chaque
+logement. » Interprétation enregistrée : pour les 14 logements déjà prolongés au 01/08/2025, le
+propriétaire renseigné était déjà applicable sur toute la période 01/01/2025 → 31/07/2025. Date de
+**couverture historique décidée pour le projet**, non affirmée comme date commerciale réelle
+d'entrée en gestion antérieure à 2025.
+
+### 13.1 Application
+
+Même procédure que §10 : copie d'abord (`REF_Setup_COPY.xlsm`), correction fail-closed
+(`correction_gestion_2025_ciblee.py`, refuse tout `gestion_id` hors liste, toute valeur de départ
+≠ `2025-08-01`, toute autre colonne), 14 lignes modifiées `date_debut` 2025-08-01 → 2025-01-01 pour
+`LOG_0001, 0002, 0003, 0004, 0006, 0007, 0008, 0010, 0011, 0012, 0013, 0014, 0015, 0016`.
+`proprietaire_id`, `date_fin`, `statut_gestion` strictement inchangés. `LOG_0005`, `LOG_0009`,
+`LOG_0017` non touchés (hors périmètre, jamais prolongés).
+
+Diff exact (copie et réel, identique) : 14 cellules, colonne `date_debut` uniquement, 0 autre
+cellule sur les 28 feuilles du classeur.
+
+### 13.2 Mesure sur copies — simulation canonique fraîche avec Banque réelle
+
+Base : `SIMULATION_CANONIQUE_HEAD_6b60577` (Banque réelle déjà reconstruite, 541 mouvements),
+REF_Setup remplacé par la copie corrigée, chaîne rejouée via `run_regression_pipeline.py`
+(lot4quater → lot9 → lot10 → lot11 → lot12 → lot13), **2 runs consécutifs, idempotence confirmée
+(`[OK] Rejeu deterministe`)**.
+
+| Mesure | Avant | Après | Delta |
+|---|---:|---:|---:|
+| `GESTION_LOGEMENT_MISSING` | 472 | **0** | −472 |
+| `CHARGE_EXCEPTIONNELLE_DANS_CHARGE_FIXE` | 69 | **0** | −69 |
+| BLOQUANT total | 541 | **0** | −541 |
+| A_CONTROLER | 14 | 14 | 0 |
+| INFO | 10 | 10 | 0 |
+| Total contrôles | 565 | 24 | −541 |
+
+Les 13 codes résiduels (A_CONTROLER + INFO) sont strictement identiques avant/après, code par code,
+nombre par nombre — aucun effet de bord.
+
+### 13.3 Effets économiques
+
+| Vision | Avant | Après | Delta |
+|---|---:|---:|---:|
+| REEL | 313 756,48 € | 313 756,48 € | 0,00 € |
+| COMPTABLE | 303 232,32 € | 303 232,32 € | 0,00 € |
+| HORS_COMPTA | 10 524,16 € | 10 524,16 € | 0,00 € |
+
+**Zéro variation**, cohérent avec §10.4 : chaque logement n'a qu'une seule ligne de gestion (un
+seul propriétaire, un seul taux) — prolonger `date_debut` ne change ni propriétaire ni taux déjà
+utilisés par le moteur de calcul. Les contrôles `GESTION_LOGEMENT_MISSING` et
+`CHARGE_EXCEPTIONNELLE_DANS_CHARGE_FIXE` sont des contrôles de **couverture référentielle**, pas des
+recalculs de payout : leur disparition ne pouvait mécaniquement produire aucun delta.
+
+### 13.4 Application au référentiel réel
+
+1. Backup : `99_ARCHIVES/REF_Setup/REF_Setup_PRE_CORRECTION_GESTION_2025_20260812_105900.xlsm`,
+   SHA256 identique à l'original avant écriture (`18e54236...f321f0a3`).
+2. Écriture via script fail-closed, gate `AUTORISATION_ECRITURE_REELLE=1`.
+3. Relecture immédiate : 14/14 lignes conformes, diff exact identique à la copie (14 cellules,
+   `date_debut` uniquement), `LOG_0005/0009/0017` et les 3 autres feuilles/colonnes intacts.
+4. Intégrité globale (950 fichiers baseline) : **3 diffs, exactement les 3 attendus**
+   (`REF_Setup.xlsm` — ce changement ; `MASTER_FACT_HA_Reservations.xlsx` et
+   `HIST_Reservations_Cloturees.xlsx` — déjà committés lors des missions précédentes). 0 autre
+   fichier source touché.
+5. Pipeline réel **non relancé** (`CALCULS_REAL_RUN_ENABLED` reste OFF). La preuve quantitative
+   §13.2 fait foi ; le recalcul réel Lot9→Lot13 est une action séparée, toujours gatée.
+6. Tests ciblés (0 code modifié) : `test_cloture.py`, `test_lot10_reservation_exclue_dedup.py`,
+   `test_lot11_avantages_integration.py`, `test_lot4quater_resoudre_source_reservations.py`,
+   `test_lot4ter_guestcount_persistence.py` — **24/24 verts**.
+
+### 13.5 Verdict final du chantier gestion
+
+| Mesure | Valeur |
+|---|---|
+| `GESTION_LOGEMENT_MISSING` — départ (mission initiale) | 838 lignes / 137 couples / 14 logements |
+| Après décision (a), prolongation au 01/08/2025 | 472 lignes / 77 couples / 14 logements |
+| **Après décision finale, prolongation au 01/01/2025** | **0 ligne / 0 couple** |
+| `CHARGE_EXCEPTIONNELLE_DANS_CHARGE_FIXE` (sous-ensemble dépendant) | 69 → **0** |
+| **BLOQUANT total baseline clôture** | 541 → **0** |
+
+**Chantier gestion historique 2025 : CLÔTURÉ.** Aucune ligne `GESTION_LOGEMENT_MISSING` ni
+`CHARGE_EXCEPTIONNELLE_DANS_CHARGE_FIXE` ne reste ouverte sur simulation canonique fraîche.
+
+- **CLÔTURE TECHNIQUE (sur ces deux familles) : GO.**
+- **PRÉPARATION MODE RÉEL : NO GO** — inchangé (42 Direct/VRBO, Banque humaine, mappings
+  comptables provisoires restent).
+- **MODE RÉEL : NO GO — NON ACTIVÉ.**
+
+Restes humains inchangés, indépendants de ce chantier : 42 réservations Direct/VRBO (saisie), 222
+mouvements Banque + file assistée (rapprochement humain), 14 contrôles A_CONTROLER résiduels,
+mappings comptables provisoires (non bloquants moteur).

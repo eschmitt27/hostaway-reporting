@@ -3375,3 +3375,21 @@ NO GO - NON ACTIVE.
 (resout 472+69=541 BLOQUANT d'un coup) ; (2) 42 saisies manuelles Direct/VRBO ; (3) 222
 mouvements bancaires humains + 83 file assistee deja engagee.
 REFERENCE : 81_BASELINE_CLOTURE_APRES_NETTOYAGE.md
+
+--- Mission gestion 2025 finale (2026-08-12) ---
+Decision utilisateur : proprietaire toujours identique par logement sur toute la periode 2025.
+REF_Gestion_Logements_Hist prolonge 2025-08-01 -> 2025-01-01 pour les 14 logements deja
+prolonges. Simulation canonique fraiche (Banque reelle incluse, run_regression_pipeline.py,
+2 runs identiques) : GESTION_LOGEMENT_MISSING 472->0, CHARGE_EXCEPTIONNELLE_DANS_CHARGE_FIXE
+69->0, BLOQUANT total 541->0. A_CONTROLER (14) et INFO (10) inchanges code par code.
+REEL/COMPTABLE/HORS_COMPTA : delta 0,00 EUR (une seule ligne de gestion par logement, aucun
+changement de proprietaire/taux possible).
+
+Reel modifie : 14 cellules date_debut uniquement (REF_Setup.xlsm), backup + SHA256 verifies,
+relecture 14/14 conforme. Integrite globale : 3/950 diffs, exactement attendus. Pipeline reel
+NON relance (garde OFF). Tests cibles 24/24 verts (0 code modifie).
+
+VERDICT : CLOTURE TECHNIQUE (gestion+charges) GO. PREPARATION MODE REEL : NO GO (42 Direct/VRBO,
+Banque humaine, 14 A_CONTROLER residuels, mappings comptables restent). MODE REEL : NO GO -
+NON ACTIVE.
+REFERENCE : 77_RECONSTRUCTION_GESTION_LOGEMENTS_HIST.md §13, 81_BASELINE_CLOTURE_APRES_NETTOYAGE.md §14
