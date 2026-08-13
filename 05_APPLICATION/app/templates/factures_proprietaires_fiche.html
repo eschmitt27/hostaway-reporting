@@ -47,6 +47,37 @@
 </div>
 
 <div class="card">
+  <h3>Comptabilité</h3>
+  {% if comptabilite.conflit %}
+  <p><span class="badge">{{ comptabilite.conflit }}</span></p>
+  {% endif %}
+  {% if comptabilite.statut == "SANS_OBJET" %}
+  <p class="text-muted">Aucune écriture : {{ comptabilite.detail }}.</p>
+  {% elif comptabilite.ecriture %}
+  {% set e = comptabilite.ecriture %}
+  <p>Journal <strong>{{ e.journal }}</strong> · pièce {{ e.piece }} · statut
+     <strong>{{ e.statut }}</strong> · période {{ e.periode }}</p>
+  <p>Débit {{ "%.2f"|format(e.total_debit) }} € · crédit {{ "%.2f"|format(e.total_credit) }} €
+     · {% if e.total_debit == e.total_credit %}équilibrée{% else %}<strong>DÉSÉQUILIBRÉE</strong>{% endif %}</p>
+  <table class="table">
+    <thead><tr><th>Compte</th><th>Auxiliaire</th><th class="text-right">Débit</th><th class="text-right">Crédit</th></tr></thead>
+    <tbody>
+      {% for l in comptabilite.lignes %}
+      <tr><td>{{ l.compte }}</td><td>{{ l.auxiliaire or "—" }}</td>
+          <td class="text-right">{{ "%.2f"|format(l.debit or 0) }} €</td>
+          <td class="text-right">{{ "%.2f"|format(l.credit or 0) }} €</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="text-muted">La facture émise est la source unique de cette vente. Le compte de produit
+     utilisé reste provisoire.</p>
+  {% else %}
+  <p><span class="badge">ÉCRITURE ABSENTE</span> — facture émise sans écriture de vente
+     enregistrée.</p>
+  {% endif %}
+</div>
+
+<div class="card">
   <h3>Actions</h3>
   {% if peut_valider %}
   <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/valider">

@@ -14,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.config import TEMPLATES_DIR
 from app.readers import proprietaires_reader as prop_reader
+from app.services import comptabilite_ecritures_service as compta
 from app.services import factures_proprietaires_pdf as pdf
 from app.services import factures_proprietaires_service as svc
 from app.services import factures_proprietaires_source as source_svc
@@ -50,6 +51,34 @@ def _destinataire(proprietaire_id: str) -> dict:
     return {"nom": nom or proprietaire_id,
             "adresse": p.get("adresse_facturation") or "",
             "proprietaire_id": proprietaire_id}
+
+
+def _comptabilite(facture: dict) -> dict:
+    """État de l'écriture VENTES liée à la facture, pour affichage sur la fiche.
+
+    Une facture non émise n'a pas d'écriture : ce n'est pas une anomalie, c'est le contrat —
+    la vente naît à l'émission.
+    """
+    etat = {"statut": "ABSENTE", "ecriture": None, "lignes": [], "conflit": None}
+    if facture["statut"] != svc.ST_EMIS:
+        etat["statut"] = "SANS_OBJET"
+        etat["detail"] = "la vente est constatée à l'émission, pas avant"
+        return etat
+
+    conflits = compta._ventes_lot12_du_mois(facture["proprietaire_id"], facture["mois"])
+    if conflits:
+        etat["conflit"] = (f"{compta.E_DOUBLE_SOURCE} : la vente de ce mois a déjà été "
+                           f"comptabilisée par l'ancien mécanisme ({', '.join(conflits)})")
+
+    try:
+        ecr = compta.charger_par_origine(compta.ORIGINE_FACTURE, facture["facture_id_opaque"])
+    except Exception:
+        ecr = None
+    if ecr:
+        etat["statut"] = ecr["statut"]
+        etat["ecriture"] = ecr
+        etat["lignes"] = compta.lignes(ecr["ecriture_id_opaque"])
+    return etat
 
 
 def _ids_proprietaires() -> list[str]:
@@ -106,6 +135,7 @@ def fiche(request: Request, facture_id: str):
         "peut_emettre": facture["statut"] == svc.ST_VALIDE,
         "peut_avoir": facture["statut"] == svc.ST_EMIS
                       and facture["type_document"] == svc.TYPE_FACTURE,
+        "comptabilite": _comptabilite(facture),
     })
 
 
@@ -120,10 +150,14 @@ def valider(facture_id: str):
 @router.post("/factures-proprietaires/{facture_id}/emettre")
 def emettre(facture_id: str, date_facture: str = Form(...)):
     facture = svc.lire(facture_id)
-    svc.emettre(facture_id, emetteur=_emetteur(),
-                destinataire=_destinataire(facture["proprietaire_id"]),
-                serie=SERIE_RECETTE, date_facture=date_facture,
-                generer_pdf=pdf.fabrique(_repertoire_documents()), acteur="interface")
+    emise = svc.emettre(facture_id, emetteur=_emetteur(),
+                        destinataire=_destinataire(facture["proprietaire_id"]),
+                        serie=SERIE_RECETTE, date_facture=date_facture,
+                        generer_pdf=pdf.fabrique(_repertoire_documents()), acteur="interface")
+    # L'émission constate la vente : c'est ici, et nulle part ailleurs, que naît l'écriture VENTES.
+    # Un refus (flags désactivés, mapping, double source) n'annule pas l'émission — la facture est
+    # émise et le conflit reste visible sur la fiche, jamais résolu en silence.
+    compta.generer_ecriture_vente_facture(emise, acteur="interface")
     return RedirectResponse(f"/factures-proprietaires/{facture_id}", status_code=303)
 
 

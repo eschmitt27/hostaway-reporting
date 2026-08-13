@@ -11,6 +11,7 @@ non générés.
 """
 from __future__ import annotations
 
+import sqlite3
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -355,6 +356,115 @@ def generer_ecriture_avoir(facture_avoir_id_opaque: str, ecriture_origine_id_opa
         acteur=acteur, db_path=db_path)
 
 
+ORIGINE_LOT12 = "LOT12_PROPRIETAIRE_MOIS"
+ORIGINE_FACTURE = "FACTURE_PROPRIETAIRE"
+E_DOUBLE_SOURCE = "FACTURE_PROPRIETAIRE_DOUBLE_SOURCE_COMPTABLE"
+
+
+def _ventes_lot12_du_mois(proprietaire_id: str, mois: str, db_path=None) -> list[str]:
+    """Écritures VENTES déjà produites par l'ancien mécanisme agrégé, pour ce propriétaire/mois."""
+    conn = get_db(db_path)
+    try:
+        return [r[0] for r in conn.execute(
+            "SELECT ecriture_id_opaque FROM ecritures WHERE journal='VENTES' AND origine_type=? "
+            "AND origine_id_opaque=? AND statut <> ?",
+            (ORIGINE_LOT12, f"{proprietaire_id}:{mois}", ST_CONTREPASSEE)).fetchall()]
+    finally:
+        conn.close()
+
+
+def ventes_factures_du_mois(proprietaire_id: str, mois: str, db_path=None) -> list[str]:
+    """Factures propriétaires déjà comptabilisées pour ce propriétaire/mois."""
+    conn = get_db(db_path)
+    try:
+        return [r[0] for r in conn.execute(
+            "SELECT e.origine_id_opaque FROM ecritures e "
+            "JOIN factures_proprietaires f ON f.facture_id_opaque = e.origine_id_opaque "
+            "WHERE e.journal='VENTES' AND e.origine_type=? AND e.statut <> ? "
+            "AND f.proprietaire_id=? AND f.mois=?",
+            (ORIGINE_FACTURE, ST_CONTREPASSEE, proprietaire_id, mois)).fetchall()]
+    except sqlite3.OperationalError:
+        return []   # base antérieure à la migration 0027 : aucune facture ne peut exister
+    finally:
+        conn.close()
+
+
+def charger_par_origine(origine_type: str, origine_id: str, db_path=None) -> dict[str, Any] | None:
+    """Écriture vivante rattachée à un objet source — permet de remonter d'une facture à sa vente."""
+    conn = get_db(db_path)
+    try:
+        row = conn.execute(
+            "SELECT * FROM ecritures WHERE origine_type=? AND origine_id_opaque=? AND statut <> ?",
+            (origine_type, origine_id, ST_CONTREPASSEE)).fetchone()
+    finally:
+        conn.close()
+    return dict(row) if row else None
+
+
+def generer_ecriture_vente_facture(facture: dict[str, Any], *, acteur: str = "",
+                                   db_path=None) -> dict[str, Any]:
+    """Écriture VENTES d'une facture propriétaire **ÉMISE** — source unique de la vente.
+
+    Décision d'architecture : c'est la facture au statut EMIS qui matérialise la vente. Lot 10
+    calcule, Lot 12 prépare le relevé, la facture constate, le règlement éteint la créance, la
+    Banque prouve le mouvement. Une facture BROUILLON ou VALIDE ne produit aucune écriture.
+
+    Le montant provient du **total figé de la facture**, jamais d'un recalcul : une écriture
+    comptable ne doit pas pouvoir diverger du document remis au propriétaire.
+
+    Anti-double comptage : si l'ancien mécanisme agrégé (`LOT12_PROPRIETAIRE_MOIS`) a déjà produit
+    une vente pour ce propriétaire et ce mois, on **refuse**. Le conflit est signalé, jamais résolu
+    en silence — les deux sources décrivent la même réalité économique à des grains différents
+    (mois × propriétaire d'un côté, mois × propriétaire × logement de l'autre).
+    """
+    if not _flags_actifs():
+        return _refus(E_FLAGS)
+    if facture.get("statut") != "EMIS":
+        return _refus(E_ORIGINE_INVALIDE,
+                      f"statut {facture.get('statut')} — seule une facture EMIS constate la vente")
+
+    facture_id = facture["facture_id_opaque"]
+    proprietaire_id = facture["proprietaire_id"]
+    mois = facture["mois"]
+
+    conflits = _ventes_lot12_du_mois(proprietaire_id, mois, db_path)
+    if conflits:
+        return _refus(E_DOUBLE_SOURCE,
+                      f"vente deja comptabilisee par {ORIGINE_LOT12} pour {proprietaire_id}:{mois} "
+                      f"({', '.join(conflits)}) — arbitrer avant de facturer cette periode")
+
+    montant = round(float(facture.get("montant_total") or 0), 2)
+    if montant == 0:
+        return _refus(E_ORIGINE_INVALIDE, "montant de facture nul — rien a constater")
+
+    numero = facture.get("numero_facture") or facture_id
+    libelle = f"Facture {numero} — {proprietaire_id} / {facture.get('logement_id')} — {mois}"
+
+    # Un avoir porte un montant négatif : le sens s'inverse, sans traitement particulier ailleurs.
+    if montant > 0:
+        lignes_ecr = [
+            {"compte": COMPTE_PROPRIETAIRES, "debit": montant, "credit": 0,
+             "auxiliaire": proprietaire_id, "proprietaire_id": proprietaire_id, "libelle": libelle},
+            {"compte": COMPTE_VENTE_GENERIQUE, "debit": 0, "credit": montant,
+             "proprietaire_id": proprietaire_id, "libelle": libelle},
+        ]
+    else:
+        m = abs(montant)
+        lignes_ecr = [
+            {"compte": COMPTE_VENTE_GENERIQUE, "debit": m, "credit": 0,
+             "proprietaire_id": proprietaire_id, "libelle": libelle},
+            {"compte": COMPTE_PROPRIETAIRES, "debit": 0, "credit": m,
+             "auxiliaire": proprietaire_id, "proprietaire_id": proprietaire_id, "libelle": libelle},
+        ]
+
+    # Écriture agrégée au total de la facture : le détail par prestation reste porté par les lignes
+    # de facture, qui constituent la piste d'audit. Ventiler par type exigerait un compte de produit
+    # par prestation — mapping non arbitré, qu'on ne décide pas ici (706000 reste provisoire).
+    return _inserer_ecriture(
+        "VENTES", facture.get("date_facture") or f"{mois}-01", mois, numero, libelle,
+        ORIGINE_FACTURE, facture_id, lignes_ecr, acteur=acteur, db_path=db_path)
+
+
 def generer_ecriture_vente(proprietaire_id: str, mois: str, montant_du_conciergerie: float, *,
                            nom_proprietaire: str = "", acteur: str = "",
                            db_path=None) -> dict[str, Any]:
@@ -371,6 +481,16 @@ def generer_ecriture_vente(proprietaire_id: str, mois: str, montant_du_concierge
     montant = round(montant_du_conciergerie or 0, 2)
     if montant == 0:
         return _refus(E_ORIGINE_INVALIDE, "montant_du_conciergerie nul — rien à générer")
+
+    # Garde symétrique de `generer_ecriture_vente_facture` : dès qu'une facture propriétaire a
+    # constaté la vente de ce mois, l'ancien mécanisme agrégé doit se taire. Sans cette garde, le
+    # double comptage resterait possible dans ce sens-là (facture émise puis pipeline Lot12 rejoué).
+    deja_facture = ventes_factures_du_mois(proprietaire_id, mois, db_path)
+    if deja_facture:
+        return _refus(E_DOUBLE_SOURCE,
+                      f"vente deja constatee par facture(s) {', '.join(deja_facture)} pour "
+                      f"{proprietaire_id}:{mois} — {ORIGINE_LOT12} ne doit plus generer")
+
     origine_id = f"{proprietaire_id}:{mois}"
     libelle = f"Prestations {nom_proprietaire or proprietaire_id} — {mois} (SOURCE_PROVISOIRE_LOT12)"
     if montant > 0:
