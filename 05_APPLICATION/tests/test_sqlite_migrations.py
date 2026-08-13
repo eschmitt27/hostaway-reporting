@@ -70,6 +70,12 @@ EXPECTED_TABLES = {
     "mouvements_tresorerie_proprietaires",              # 0025 — trésorerie propriétaires
     "mouvements_tresorerie_proprietaires_evenements",   # 0025 — historique append-only
     "banque_classement_decisions",              # 0026 — décisions de classement A_ENVOYER_IA
+    "factures_proprietaires",                   # 0027 — factures ÉMISES par la conciergerie
+    "factures_proprietaires_lignes",            # 0027 — lignes facturées
+    "factures_proprietaires_evenements",        # 0027 — journal append-only des factures
+    "factures_proprietaires_sequence",          # 0027 — compteurs de numérotation par série
+    "factures_proprietaires_conformite",        # 0028 — données réglementaires figées à l'émission
+    "factures_proprietaires_lignes_detail",     # 0028 — quantité et prix unitaire par ligne
 }
 
 
