@@ -57,6 +57,10 @@ Thumbs.db
 # Artefacts temporaires de tests (pytest --basetemp) — générés, non versionnés
 .pytest_tmp*/
 
+# Documents de facturation propriétaire émis (PDF) — jamais versionnés : ce sont des pièces
+# métier, potentiellement nominatives, régénérables depuis le snapshot de la facture.
+05_APPLICATION/data/factures_proprietaires/
+
 # Dry-runs prévisualisation charges (copies contrôlées) — générés, non versionnés
 05_APPLICATION/data/dryruns/
 

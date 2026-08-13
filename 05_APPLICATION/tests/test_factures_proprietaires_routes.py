@@ -107,6 +107,27 @@ def test_avoir_depuis_l_interface(client):
     assert svc.lire(fid, db_path=db)["montant_total"] == 500.0   # originale intacte
 
 
+def test_documents_ecrits_sous_data_dir_redirige(client):
+    """Non-régression : le répertoire des PDF doit suivre DATA_DIR, résolu à l'appel.
+
+    Un défaut initial figeait ce répertoire à l'import de la configuration : une instance de
+    recette (ou ce test) écrivait alors son PDF dans le vrai dossier `data/` de l'application.
+    """
+    from app.routes import factures_proprietaires as routes
+
+    c, db, tmp = client
+    f = svc.creer(_source(), db_path=db)
+    fid = f["facture_id_opaque"]
+    c.post(f"/factures-proprietaires/{fid}/valider", follow_redirects=False)
+    c.post(f"/factures-proprietaires/{fid}/emettre", data={"date_facture": "2026-07-01"},
+           follow_redirects=False)
+
+    repertoire = routes._repertoire_documents()
+    assert Path(tmp) in repertoire.parents or repertoire == Path(tmp) / "factures_proprietaires"
+    emise = svc.lire(fid, db_path=db)
+    assert (repertoire / "2026" / "06" / emise["document_nom"]).exists()
+
+
 def test_identite_emetteur_incomplete_bloque_la_validation(client, monkeypatch):
     c, db, _ = client
     monkeypatch.setattr(cfg, "SOCIETE_SIRET", "", raising=False)

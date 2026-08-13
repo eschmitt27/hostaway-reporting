@@ -25,9 +25,14 @@ SERIE_RECETTE = "RECETTE-2026"
 
 
 def _repertoire_documents() -> Path:
-    """Emplacement de stockage des PDF. Configurable, jamais un chemin utilisateur en dur."""
-    base = getattr(cfg, "FACTURES_PROPRIETAIRES_DIR", None)
-    return Path(base) if base else Path(cfg.DATA_DIR) / "factures_proprietaires"
+    """Emplacement de stockage des PDF, résolu **à chaque appel**.
+
+    `cfg.DATA_DIR` est lu au moment de l'appel et non figé : sans cela, une instance de recette ou
+    un test qui redirige DATA_DIR écrirait quand même dans le vrai dossier `data/`. Seule une
+    surcharge explicite par variable d'environnement prend le pas.
+    """
+    surcharge = getattr(cfg, "FACTURES_PROPRIETAIRES_DIR", None)
+    return Path(surcharge) if surcharge else Path(cfg.DATA_DIR) / "factures_proprietaires"
 
 
 def _emetteur() -> dict:

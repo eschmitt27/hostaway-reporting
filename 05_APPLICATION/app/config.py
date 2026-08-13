@@ -113,6 +113,24 @@ SAISIE_PATTERN = "SAISIE_"
 # toucher la vraie base ni le vrai dossier data/ (snapshots, workspaces). Défaut = comportement normal.
 DATA_DIR = Path(os.environ.get("APP_DATA_DIR", str(APP_ROOT / "data")))
 DB_PATH = DATA_DIR / "app.db"
+
+# Identité de la société émettrice, imprimée sur les factures propriétaires. Volontairement vide
+# par défaut : une facture ne peut pas être validée tant que ces informations manquent
+# (FACTURE_PROPRIETAIRE_IDENTITE_INCOMPLETE). Rien n'est inventé pour compléter un document, et
+# aucune mention légale n'est décidée ici — elles restent à arbitrer avant toute émission réelle.
+SOCIETE_NOM = os.environ.get("SOCIETE_NOM", "")
+SOCIETE_ADRESSE = os.environ.get("SOCIETE_ADRESSE", "")
+SOCIETE_SIRET = os.environ.get("SOCIETE_SIRET", "")
+
+# Emplacement des PDF émis. Surcharge explicite uniquement : `None` par défaut, et le répertoire
+# est alors dérivé de DATA_DIR *au moment de l'appel* (cf. routes). Figer ici un défaut calculé
+# depuis DATA_DIR contournerait l'isolation : une instance ou un test qui redirige DATA_DIR
+# écrirait quand même dans le vrai dossier data/. Même raison que `cfg.DB_PATH` lu à chaud dans
+# `db/connection.py`.
+_FACTURES_PROPRIETAIRES_DIR_ENV = os.environ.get("FACTURES_PROPRIETAIRES_DIR", "").strip()
+FACTURES_PROPRIETAIRES_DIR = (Path(_FACTURES_PROPRIETAIRES_DIR_ENV)
+                              if _FACTURES_PROPRIETAIRES_DIR_ENV else None)
+
 SNAPSHOTS_DIR = DATA_DIR / "snapshots"
 RESTORE_DIR = DATA_DIR / "restore_workspace"
 DRYRUNS_DIR = DATA_DIR / "dryruns"

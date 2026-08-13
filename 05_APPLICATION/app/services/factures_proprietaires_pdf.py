@@ -18,11 +18,19 @@ from fpdf import FPDF
 from fpdf.enums import XPos, YPos
 
 
+# Les polices de base (Helvetica) sont encodées en latin-1. Les caractères typographiques
+# courants y sont absents et deviendraient des "?" sur le document : on les translittère vers
+# leur équivalent ASCII avant l'encodage. Les accents, eux, existent en latin-1 et sont conservés.
+_TRANSLITTERATION = str.maketrans({
+    "—": "-", "–": "-", "’": "'", "‘": "'", "“": '"', "”": '"',
+    "€": "EUR", "…": "...", " ": " ", " ": " ",
+})
+
+
 def _t(v: Any) -> str:
-    """fpdf (v1) écrit en latin-1 : les caractères hors jeu sont translittérés proprement plutôt
-    que de faire échouer la génération d'un document."""
+    """Texte prêt pour une police latin-1, sans caractère de remplacement visible."""
     s = "" if v is None else str(v)
-    return s.encode("latin-1", "replace").decode("latin-1")
+    return s.translate(_TRANSLITTERATION).encode("latin-1", "replace").decode("latin-1")
 
 
 def _montant(v: Any) -> str:
