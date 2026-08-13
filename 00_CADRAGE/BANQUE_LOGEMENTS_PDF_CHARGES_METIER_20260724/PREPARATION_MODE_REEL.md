@@ -369,3 +369,16 @@ proprietaires, identite FAMILLE_UZON, classification des 82, montants des 42) et
 ouverte sur la migration ni sur l'exploitabilite de Lot 5.
 
 **PREPARATION MODE REEL : NO GO** (donnees humaines non traitees). **MODE REEL : NO GO — NON ACTIVE.**
+
+## Mise a jour 2026-08-13 (3) — facturation proprietaires operationnelle en recette
+
+L'application cree desormais de vraies factures proprietaires (migration 0027) : previsualisation,
+generation en lot d'un mois, brouillon, validation, emission avec numero et snapshot fige, PDF
+deterministe telechargeable, avoir, solde derive, historique append-only. Detail : `86`, recette : `87`.
+
+Reste avant toute emission reelle, par ordre : (1) arbitrer la source unique de l'ecriture
+comptable de vente (risque de double comptage, non contourne) ; (2) arreter le format de numero et
+les mentions legales ; (3) renseigner l'identite de la societe emettrice ; (4) cabler l'imputation
+d'un mouvement bancaire sur une creance de facture.
+
+**EMISSION REELLE : NON AUTORISEE. APP.DB REELLE : NON MIGREE. MODE REEL : NO GO — NON ACTIVE.**

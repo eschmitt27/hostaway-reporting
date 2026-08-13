@@ -236,3 +236,10 @@ documentee : peuplement MASTER par refresh Power Query dans Excel. 12 regles can
 validees techniquement. Il ne reste aucune question technique sur la migration ou l'exploitation de
 Lot 5 — uniquement des decisions metier et deux arbitrages (regles Lot5<->Banque, mappings
 comptables fins).
+
+## Mise a jour 2026-08-13 (3)
+
+Facturation proprietaires construite et recettee (migration 0027, docs 86 et 87). Nouveaux points
+ouverts, tous metier : source unique de l'ecriture comptable de vente (anti double comptage),
+format de numero et mentions legales, identite de la societe emettrice, imputation d'un mouvement
+bancaire sur une creance de facture. Factures voyageurs/tiers : hors perimetre, modele extensible.

@@ -1646,3 +1646,47 @@ Baseline de controles inchangee (0 BLOQUANT / 14 A_CONTROLER / 10 INFO / 24) et 
 economiques identiques (313 756,48 = 303 232,32 + 10 524,16, ecart 0,00 EUR) apres le fix.
 Integrite : app.db reelle hash identique, 3/950 diffs deja committes, 0 nouvelle modification
 reelle. Port 8000 constate libre, non manipule. **MODE REEL : NO GO — NON ACTIVE.**
+
+## Facturation proprietaires : l'application cree desormais ses factures (2026-08-13)
+
+Detail : `86_FACTURATION_PROPRIETAIRES_APPLICATION.md`, recette :
+`87_RECETTE_FACTURES_PROPRIETAIRES.md`.
+
+**L'application ne se contente pas de calculer une prefacture proprietaire. Elle genere desormais
+une facture proprietaire reelle dans son modele applicatif, avec snapshot, numero, document PDF,
+statuts, historique et suivi du reglement.**
+
+**Les factures fournisseurs recues restent des documents externes importes/enregistres.**
+
+**Facture, reglement, Banque, reservation et charge restent des objets distincts.**
+
+RELEVE != FACTURE. Le releve Lot 12 (12/13 lignes) explique au proprietaire son revenu et son
+solde. La facture ne porte QUE les 5 composants de `montant_du_conciergerie` : commission, menage,
+preparation canape, charge fixe, charges exceptionnelles refacturees. Les 7 autres types (payout,
+revenu net, acomptes, paiements recus, reste a payer, statut) sont listes explicitement comme non
+facturables dans le code. Grain conserve : mois x proprietaire x logement.
+
+Modele : migration **0027**, table separee de `factures` (0017/0022) qui est entierement orientee
+fournisseur (`fournisseur_id_opaque NOT NULL`, index unique fournisseur+reference,
+`facture_lignes.charge_id NOT NULL`) -- la reutiliser aurait impose un fournisseur fictif et une
+charge fictive par ligne.
+
+Cycle : BROUILLON -> VALIDE -> EMIS (+ ANNULE). Une facture EMIS est **immutable** : contenu fige
+dans un snapshot JSON hashe, relu depuis ce snapshot et jamais depuis les sources -- un recalcul
+Lot 10 ou un changement de taux ne peut plus la modifier. Correction par AVOIR lie, jamais par
+edition ni suppression. Numerotation serialisee (BEGIN IMMEDIATE), numero jamais reutilise. PDF
+deterministe (meme snapshot = meme hash), servi fige et jamais reconstruit. Pas de TVA (decision
+utilisateur). Identite emetteur incomplete -> validation refusee, facture reste BROUILLON.
+
+Recette complete sur copie migree 0027, port 8042 (jamais 8000) : facture emise
+`RECETTE-2026-00001`, PDF telecharge avec hash identique au hash fige, anti-doublon, avoir, solde
+derive, immutabilite -- tous verifies sur instance vivante. 89 tests cibles verts (dont
+non-regression fournisseurs).
+
+**Point ouvert assume, non contourne** : l'ecriture comptable de VENTES n'est pas branchee. Decider
+quelle est la source unique de l'ecriture (Lot 10 ou la facture) est un arbitrage metier ; brancher
+un generateur sans cet arbitrage creerait le double comptage que le cadrage interdit. De meme,
+l'imputation d'un mouvement bancaire sur une creance de facture reste a cabler sur le moteur de
+rapprochement generique existant (le solde, lui, se calcule deja).
+
+**EMISSION REELLE : NON AUTORISEE. APP.DB REELLE : NON MIGREE. MODE REEL : NO GO — NON ACTIVE.**

@@ -372,3 +372,11 @@ LOT 5 : PRET A ETRE ALIMENTE (contrainte : refresh Power Query dans Excel pour p
 BANQUE : PRETE TECHNIQUEMENT. 56 proprietaires -> 7 a 56 decisions. 82 IA -> 37 a 82 decisions.
 42 Direct/VRBO. 3 autres A_CONTROLER. COMPTABILITE : PRETE AVEC RESERVES.
 **PREPARATION MODE REEL : NO GO. MODE REEL : NO GO — NON ACTIVE.**
+
+## Mise a jour 2026-08-13 (3) — facturation proprietaires
+
+FACTURES FOURNISSEURS : VALIDEES. FACTURES PROPRIETAIRES : **APPLICATION CAPABLE DE LES CREER**.
+PDF : GENERE. NUMEROTATION : PRETE (format juridique a arbitrer). SNAPSHOT : VALIDE (immutabilite
+prouvee). REGLEMENT : solde derive valide, imputation Banque a cabler. COMPTABILITE : **ecriture de
+vente non branchee — arbitrage requis pour eviter le double comptage**.
+**EMISSION REELLE : NON AUTORISEE. APP.DB REELLE : NON MIGREE. MODE REEL : NO GO — NON ACTIVE.**

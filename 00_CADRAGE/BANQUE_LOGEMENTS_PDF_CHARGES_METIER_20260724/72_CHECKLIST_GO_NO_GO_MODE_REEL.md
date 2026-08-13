@@ -184,3 +184,18 @@ depuis SAISIE par refresh Power Query dans Excel, pas par Python).
 BANQUE : PRETE TECHNIQUEMENT (lot8c corrige, lit desormais l'etat reel de Lot 5).
 DONNEES HUMAINES : A_FAIRE_HUMAIN (56 proprietaires + 82 A_ENVOYER_IA + 42 Direct/VRBO + 3 autres).
 Verdict global inchange : **NO GO — VALIDATION HUMAINE REQUISE. MODE REEL : NO GO — NON ACTIVE.**
+
+## Mise a jour 2026-08-13 (3) — facturation proprietaires
+
+FACTURES PROPRIETAIRES : l'application sait desormais les CREER (etait : NON). Modele 0027, cycle
+BROUILLON/VALIDE/EMIS/ANNULE, snapshot immutable, numerotation serialisee, PDF deterministe,
+avoir, solde derive. Recette complete verte sur copie migree.
+FACTURES FOURNISSEURS : VALIDE — non-regression verifiee.
+ECRITURE COMPTABLE DE VENTE : **A_FAIRE_HUMAIN** (nouvel item) — arbitrer la source unique de
+l'ecriture (Lot 10 ou facture) avant de brancher un generateur, sous peine de double comptage.
+MENTIONS LEGALES / FORMAT DE NUMERO : **A_FAIRE_HUMAIN** (nouvel item) — le format actuel est un
+defaut technique, pas une decision juridique.
+IDENTITE SOCIETE EMETTRICE : **A_FAIRE_HUMAIN** — vide par defaut, une facture ne peut pas etre
+validee sans elle.
+IMPUTATION BANQUE SUR CREANCE DE FACTURE : NON_TESTE — a cabler sur le moteur de rapprochement.
+EMISSION REELLE : NON AUTORISEE. Verdict global inchange : **NO GO. MODE REEL : NO GO — NON ACTIVE.**

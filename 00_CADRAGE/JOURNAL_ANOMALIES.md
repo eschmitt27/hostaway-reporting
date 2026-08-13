@@ -1146,3 +1146,29 @@ chemin de style bash (/c/Users/...) invalide sous Python Windows a cree une base
 repertoire parasite C:\c\... Detecte immediatement, contenu verifie (1 seul fichier, cree par cette
 mission), repertoire supprime. Aucune donnee reelle concernee. Regle : toujours passer des chemins
 Windows natifs aux interpreteurs Windows.
+
+Facturation proprietaires (2026-08-13) : 1 defaut cosmetique trouve et corrige pendant la recette
+-- les tirets cadratins et apostrophes typographiques sortaient en "?" sur le PDF (caracteres
+absents du jeu latin-1 des polices de base fpdf). Table de translitteration vers ASCII ajoutee ;
+les accents, presents en latin-1, sont conserves.
+
+Point ouvert assume, non contourne : l'ecriture comptable de VENTES n'est pas branchee sur
+l'emission d'une facture proprietaire. Decider quelle est la source unique de l'ecriture (Lot 10
+ou la facture) est un arbitrage metier ; brancher un generateur sans cet arbitrage produirait
+exactement le double comptage que le cadrage interdit (commission comptee au calcul, puis a la
+facture, puis au reglement, puis en Banque). Consigne comme decision utilisateur requise.
+
+Bug d'isolation introduit puis corrige dans la meme mission (2026-08-13) : le repertoire de
+stockage des PDF de facture etait calcule a l'IMPORT de la configuration
+(FACTURES_PROPRIETAIRES_DIR = DATA_DIR / 'factures_proprietaires'). Consequence : une instance ou
+un test qui redirige DATA_DIR ecrivait quand meme dans le vrai dossier 05_APPLICATION/data/ -- un
+PDF de fixture y a effectivement ete cree, constate lors du scan avant commit, supprime.
+
+Corrige : la surcharge par variable d'environnement reste possible mais vaut None par defaut, et
+le repertoire est desormais derive de cfg.DATA_DIR **au moment de l'appel**. Meme convention que
+cfg.DB_PATH lu a chaud dans db/connection.py, dont le commentaire documentait deja precisement ce
+piege. Test de non-regression ajoute (test_documents_ecrits_sous_data_dir_redirige) et regle
+.gitignore posee pour que ces PDF ne soient jamais versionnes.
+
+Lecon : dans ce projet, tout chemin derive de DATA_DIR doit etre resolu a l'appel, jamais fige a
+l'import -- sinon l'isolation des instances de recette est silencieusement contournee.

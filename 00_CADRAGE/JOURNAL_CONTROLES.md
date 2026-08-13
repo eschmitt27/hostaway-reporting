@@ -3489,3 +3489,35 @@ deux Uzon.
 AUCUNE ecriture reelle : ni Lot 5, ni Banque, ni referentiel, ni app.db. R_074 non modifiee
 (classification Banque gelee jusqu'a reponse utilisateur sur les 12 regles). HEAD 727d073,
 worktree propre, port 8000 constate libre, mode reel OFF.
+
+--- Facturation proprietaires (2026-08-13) ---
+Migration 0027 : 4 tables (factures_proprietaires, _lignes, _evenements, _sequence). Table separee
+de `factures` (fournisseur) apres audit : fournisseur_id_opaque NOT NULL, index unique
+fournisseur+reference, facture_lignes.charge_id NOT NULL -> reutilisation impossible sans donnees
+fictives.
+
+Contrat facturable etabli : 5 types (COMMISSION_CONCIERGERIE, MENAGE_FACTURE, PREPARATION_CANAPE,
+CHARGE_FIXE, CHARGES_EXCEPT_REFAC) = exactement les composants de montant_du_conciergerie (Lot 10).
+7 types Lot 12 explicitement non facturables (payout, revenu net, acomptes, paiements recus, reste
+a payer, statut). Grain conserve : mois x proprietaire x logement.
+
+Nouveaux codes de controle : FACTURE_PROPRIETAIRE_SOURCE_INCOMPLETE, _DOUBLON, _TOTAL_INCOHERENT,
+_IDENTITE_INCOMPLETE, _PDF_ABSENT, _SNAPSHOT_INCOHERENT, _EMISE_MODIFIEE.
+
+Recette sur copie migree 0027, port 8042 (8000 jamais touche) : 3 factures fictives, emission
+RECETTE-2026-00001, PDF 3582 octets telecharge avec sha256 identique au hash fige, anti-doublon
+refuse, avoir -500 EUR avec originale intacte, solde derive sur 4 paliers, immutabilite du snapshot
+apres changement des sources. 1 defaut cosmetique trouve et corrige (tirets cadratins hors latin-1
+sortaient en "?").
+
+Tests cibles : 89 verts (25 modele + 6 routes + 58 non-regression fournisseurs/charges).
+Integrite : app.db reelle non migree, hash inchange ; REF_Setup, MASTER Hostaway, HIST, Banque,
+sources Lot 5 inchanges. EMISSION REELLE : NON AUTORISEE. MODE REEL : NO GO - NON ACTIVE.
+Reference : 86_FACTURATION_PROPRIETAIRES_APPLICATION.md, 87_RECETTE_FACTURES_PROPRIETAIRES.md
+
+Regression ciblee facturation (2026-08-13) : suites factures (fournisseurs + proprietaires),
+reglements, comptabilite et proprietaires -- **555 passed, 0 echec** (6m20). Non-regression du
+module factures fournisseurs confirmee : creation, import PDF, liens charges, reglements partiel /
+total / groupe, rapprochement Banque, controles. La campagne complete de la suite applicative a ete
+lancee mais interrompue par l'environnement (killed) ; la regression ciblee ci-dessus couvre les
+modules touches et ceux exposes au risque.
