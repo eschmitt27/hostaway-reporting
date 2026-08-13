@@ -3521,3 +3521,36 @@ module factures fournisseurs confirmee : creation, import PDF, liens charges, re
 total / groupe, rapprochement Banque, controles. La campagne complete de la suite applicative a ete
 lancee mais interrompue par l'environnement (killed) ; la regression ciblee ci-dessus couvre les
 modules touches et ceux exposes au risque.
+
+--- Source comptable unique : facture proprietaire (2026-08-13) ---
+Audit prealable : la source VENTES etait ventes_lot12_adapter_service, origine
+LOT12_PROPRIETAIRE_MOIS, grain proprietaire x mois (agrege), deja marque SOURCE_PROVISOIRE_LOT12.
+La facture est au grain proprietaire x mois x logement -> meme realite economique a deux grains,
+d'ou le risque de double comptage.
+
+Nouveau generateur generer_ecriture_vente_facture : origine FACTURE_PROPRIETAIRE, origine_id =
+facture_id_opaque, montant pris sur le total FIGE de la facture. BROUILLON 0 ecriture, VALIDE 0,
+EMIS 1 (411000 debit / 706000 credit, statut PROPOSEE).
+
+Garde bidirectionnelle FACTURE_PROPRIETAIRE_DOUBLE_SOURCE_COMPTABLE : refus dans les deux sens,
+conflit signale jamais resolu en silence. Frontiere historique/futur = origine_type (reference
+source explicite, pas une date). Aucune ecriture historique supprimee ni regeneree.
+
+Verifie sur instance vivante (port 8043, base copie 0027) : BROUILLON 0 -> VALIDE 0 -> EMIS 1
+ecriture equilibree 500/500 ; rejeu du generateur Lot 12 sur le meme mois -> refus explicite
+citant la facture, total VENTES reste 500,00 EUR. Reconciliation lignes facture (300+150+50) =
+total facture = produit comptable = creance = 500,00 EUR, ecart 0,00.
+
+Reglement 200 -> solde 300 ; 500 -> solde 0 REGLEE ; compensation traitee comme extinction ;
+aucune vente supplementaire a aucune etape. Avoir total : net produit 0,00 EUR, originale intacte.
+Avoir partiel 100 : net 400,00 EUR.
+
+Migration repetee jusqu'a 0027 : sequentielle (71 tables, 118 index, 0 perte), automatique
+identique, idempotence 3 passages, rollback hash exact. Base reelle toujours 0016, non migree.
+Tests : 15 nouveaux (comptabilite) + 62 verts sur le bloc facturation/comptabilite.
+Reference : 86_FACTURATION_PROPRIETAIRES_APPLICATION.md §14, 84 §10, 87 §7-8.
+
+Regression ciblee apres branchement comptable (2026-08-13) : factures (fournisseurs +
+proprietaires), comptabilite, reglements, proprietaires, rapprochement bancaire, clotures --
+**706 passed, 0 echec** (6m17). Non-regression du module factures fournisseurs et du socle
+comptable confirmee.

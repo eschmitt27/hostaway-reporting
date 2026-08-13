@@ -382,3 +382,17 @@ les mentions legales ; (3) renseigner l'identite de la societe emettrice ; (4) c
 d'un mouvement bancaire sur une creance de facture.
 
 **EMISSION REELLE : NON AUTORISEE. APP.DB REELLE : NON MIGREE. MODE REEL : NO GO — NON ACTIVE.**
+
+## Mise a jour 2026-08-13 (4) — chaine comptable fermee
+
+Le dernier point technique ouvert est ferme : la facture proprietaire EMIS est desormais la source
+unique de l'ecriture de vente, et le double comptage est impossible par construction (garde
+bidirectionnelle entre l'ancien mecanisme agrege et le nouveau, verifiee sur instance vivante).
+Chaine complete : Lot 10 calcule -> Lot 12 releve -> facture constate -> reglement eteint ->
+Banque prouve.
+
+Reste avant emission reelle, tous non techniques sauf le dernier : format de numero et mentions
+legales (arbitrage juridique), identite societe a renseigner, mapping de compte produit definitif
+(706000 provisoire), imputation d'un mouvement bancaire sur une creance de facture a cabler.
+
+**EMISSION REELLE : NON AUTORISEE. APP.DB REELLE : NON MIGREE (0016). MODE REEL : NO GO — NON ACTIVE.**

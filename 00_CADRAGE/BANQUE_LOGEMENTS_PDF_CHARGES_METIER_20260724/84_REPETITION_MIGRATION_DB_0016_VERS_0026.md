@@ -185,3 +185,22 @@ toujours passer des chemins Windows natifs aux interpréteurs Windows.
 
 Migration prête ≠ activation autorisée. Le mode réel reste **NO GO — NON ACTIVÉ**, et la migration
 réelle elle-même n'a pas été exécutée : elle attend une décision explicite.
+
+## 10. Extension a 0027 (2026-08-13)
+
+La migration `0027` (factures proprietaires emises) a ete ajoutee apres la redaction de ce
+document. La repetition a ete rejouee de bout en bout jusqu'a elle, meme protocole :
+
+| Etape | integrity | version | tables | index | triggers | pertes |
+|---|---|---:|---:|---:|---:|---:|
+| ... 0026 | ok | 26 | 67 | 108 | 1 | 0 |
+| **-> 0027** | **ok** | **27** | **71** | **118** | **1** | **0** |
+
+`0027` est additive comme les precedentes (4 CREATE TABLE, 4 index, 1 INSERT OR IGNORE de version ;
+0 ALTER, 0 DROP, 0 DELETE, 0 UPDATE). Migration automatique via `apply_migrations()` : schema
+strictement identique au sequentiel, contenu identique hors horodatages et id autoincrement.
+Idempotence : 3 passages consecutifs, 0 ecart. Rollback par restauration de backup : hash exact
+restitue (`8e299b93...70aa81d6`), base relisible en 0016, apres avoir ecrit dans
+`factures_proprietaires` sur la base migree.
+
+**MIGRATION APP.DB 0016 -> 0027 : PRETE ET REPETEE.** La base reelle n'a toujours pas ete migree.

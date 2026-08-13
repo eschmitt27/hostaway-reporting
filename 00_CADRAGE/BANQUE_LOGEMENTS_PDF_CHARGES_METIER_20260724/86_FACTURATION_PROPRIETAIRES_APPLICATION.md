@@ -170,3 +170,106 @@ fournisseurs reçues) :
 | ÉMISSION RÉELLE | NON AUTORISÉE |
 | APP.DB RÉELLE | NON MIGRÉE |
 | MODE RÉEL | **NO GO — NON ACTIVÉ** |
+
+---
+
+## 14. La facture émise est la source unique de la vente (2026-08-13, suite)
+
+Le §12 laissait l'écriture comptable de vente non branchée, faute d'arbitrage sur la source
+unique. **Décision utilisateur reçue : c'est la facture au statut EMIS qui matérialise la vente.**
+Elle est appliquée ici.
+
+### 14.1 Ce qui créait une vente avant
+
+`ventes_lot12_adapter_service.generer_ecritures_du_mois(mois)` lisait `montant_du_conciergerie`
+via `proprietaires_reglements_service.load_owners`, puis appelait `generer_ecriture_vente` :
+
+| | Ancien mécanisme | Nouveau |
+|---|---|---|
+| `origine_type` | `LOT12_PROPRIETAIRE_MOIS` | `FACTURE_PROPRIETAIRE` |
+| `origine_id` | `{proprietaire_id}:{mois}` | `facture_id_opaque` |
+| Grain | mois × propriétaire (**agrégé**) | mois × propriétaire × **logement** |
+| Déclencheur | exécution du pipeline | **émission** de la facture |
+| Source du montant | recalcul Lot 12 | **total figé** de la facture |
+
+Le code se décrivait déjà lui-même comme `SOURCE_PROVISOIRE_LOT12`.
+
+**Le risque était réel** : les deux mécanismes décrivent la même réalité économique à des grains
+différents. Sans garde, un propriétaire à deux logements aurait été comptabilisé une fois en
+agrégé, puis deux fois par facture.
+
+### 14.2 Chaîne cible
+
+```
+Lot 10 (calcule) → Lot 12 (relève) → FACTURE → EMIS → VENTES → règlement/compensation → Banque
+```
+
+- **BROUILLON** : aucune écriture. **VALIDE** : aucune écriture. La vente naît à l'émission.
+- **EMIS** : une écriture VENTES, `411000` débit (créance propriétaire) / `706000` crédit (produit).
+- **Règlement / compensation** : éteignent la créance, ne recréent aucun produit.
+- **Banque** : prouve le mouvement, ne crée ni facture ni produit.
+
+Le montant vient du **total figé de la facture**, jamais d'un recalcul : une écriture comptable ne
+doit pas pouvoir diverger du document remis au propriétaire.
+
+### 14.3 Double comptage impossible par construction
+
+Garde **bidirectionnelle**, code stable `FACTURE_PROPRIETAIRE_DOUBLE_SOURCE_COMPTABLE` :
+
+- une facture **refuse** de constater la vente si `LOT12_PROPRIETAIRE_MOIS` a déjà comptabilisé ce
+  propriétaire pour ce mois ;
+- l'ancien générateur **refuse** de générer si une facture a déjà constaté ce mois.
+
+Le conflit est signalé et visible sur la fiche, **jamais résolu en silence**. L'idempotence
+existante (`_deja_generee` sur journal + origine) empêche par ailleurs tout doublon d'une même
+origine.
+
+Vérifié sur instance en fonctionnement : après émission, rejouer le générateur Lot 12 renvoie
+`FACTURE_PROPRIETAIRE_DOUBLE_SOURCE_COMPTABLE` en citant la facture, et le total VENTES reste
+**500,00 €** — jamais 1 000 ni 1 500.
+
+### 14.4 Frontière historique / futur
+
+La frontière est **`origine_type`**, une référence source explicite — pas une date de bascule.
+Chaque écriture porte l'origine qui l'a produite ; les anciennes restent lisibles et attribuables.
+**Aucune écriture historique n'est supprimée ni régénérée.** Une période déjà comptabilisée par
+l'ancien mécanisme continue de l'être ; seules les nouvelles factures émises constatent par le
+nouveau chemin. Si les deux se rencontrent sur le même propriétaire/mois, le refus force
+l'arbitrage humain.
+
+### 14.5 Granularité de l'écriture
+
+Écriture **agrégée au total de la facture**. Le détail par prestation reste porté par les lignes de
+facture, qui constituent la piste d'audit et permettent de réconcilier commission, ménage, canapé,
+charge fixe et refacturation. Ventiler l'écriture par type de ligne exigerait un compte de produit
+par prestation — un mapping non arbitré, que ce chantier ne décide pas. `706000` reste provisoire
+et l'écriture reste au statut `PROPOSEE`.
+
+### 14.6 Réconciliation vérifiée
+
+| Étape | Montant |
+|---|---:|
+| Lignes de facture (300 + 150 + 50) | 500,00 € |
+| Total facture | 500,00 € |
+| Crédit `706000` (produit) | 500,00 € |
+| Débit `411000` (créance) | 500,00 € |
+| **Écart** | **0,00 €** |
+
+Puis : règlement 200 € → solde 300 € · règlement 300 € → solde 0 €, `REGLEE`. **Aucune vente
+supplémentaire** à aucune étape. Une compensation éteint la créance au même titre qu'un règlement.
+
+Avoir total : 500 constatés puis 500 annulés → **net produit 0,00 €**, facture originale intacte.
+Avoir partiel de 100 € → **net 400,00 €**, originale toujours à 500 €.
+
+### 14.7 Verdict mis à jour
+
+| Axe | État |
+|---|---|
+| FACTURE PROPRIÉTAIRE | **SOURCE UNIQUE DE VENTE** |
+| DOUBLE COMPTAGE | **IMPOSSIBLE PAR CONSTRUCTION** (garde bidirectionnelle + idempotence) |
+| ÉCRITURE VENTES | **VALIDÉE** (statut `PROPOSEE`, mapping provisoire assumé) |
+| RÈGLEMENT / COMPENSATION | VALIDÉS — n'altèrent jamais la vente |
+| AVOIR | VALIDÉ — total et partiel |
+| MIGRATION DB JUSQU'À 0027 | **PRÊTE SUR COPIE** |
+| ÉMISSION RÉELLE | NON AUTORISÉE |
+| MODE RÉEL | **NO GO — NON ACTIVÉ** |

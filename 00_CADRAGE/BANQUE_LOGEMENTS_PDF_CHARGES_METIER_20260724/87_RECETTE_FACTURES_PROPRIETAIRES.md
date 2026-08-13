@@ -113,3 +113,46 @@ dans le scratchpad. Le serveur de recette (port 8042) a été arrêté à la fin
 8000 n'a jamais été utilisé ni manipulé.** Mode réel resté OFF.
 
 **Aucun PDF de recette n'est versionné dans Git.**
+
+## 7. Recette comptabilité — la facture constate la vente (2026-08-13, suite)
+
+Nouvelle instance de recette sur copie migrée **0027**, port 8043 (jamais 8000), flags comptables
+de recette actifs (double verrou `RECETTE_MODE` + `COMPTABILITE_REAL_WRITE_*`).
+
+| Étape | Écritures VENTES | Vérification |
+|---|---:|---|
+| Facture créée (BROUILLON) | **0** | la vente ne naît pas à la création |
+| Validée (VALIDE) | **0** | ni à la validation |
+| Émise (EMIS) | **1** | `RECETTE-2026-00001`, statut `PROPOSEE`, débit = crédit = 500,00 € |
+
+Lignes de l'écriture produite :
+
+| Compte | Auxiliaire | Débit | Crédit |
+|---|---|---:|---:|
+| 411000 (créance propriétaire) | PROP_E2E | 500,00 € | — |
+| 706000 (produit, provisoire) | — | — | 500,00 € |
+
+`origine_type = FACTURE_PROPRIETAIRE`, `origine_id = FPR-…` : la facture est traçable vers son
+écriture, et l'écriture vers sa facture.
+
+**Tentative de double comptage, sur instance vivante** : après émission, rejeu du générateur
+Lot 12 sur le même propriétaire/mois →
+
+```
+Lot12 rejeu -> False | FACTURE_PROPRIETAIRE_DOUBLE_SOURCE_COMPTABLE
+detail: vente deja constatee par facture(s) FPR-CBF9E1CF341A pour PROP_E2E:2026-06 ...
+VENTES apres rejeu: 1 ecriture(s), total 500.0 EUR
+```
+
+Le total reste **500,00 €** — jamais 1 000 ni 1 500. Une seconde émission de la même facture est
+refusée par le service (une facture EMIS ne se réémet pas).
+
+La fiche affiche la section **Comptabilité** : journal, pièce, statut, débit/crédit, équilibre,
+lignes, et le conflit éventuel.
+
+## 8. Migration 0027
+
+Répétition rejouée jusqu'à `0027` (voir `84` §10) : séquentielle verte (71 tables, 118 index,
+0 perte), automatique identique au séquentiel hors horodatages, idempotence sur 3 passages,
+rollback avec hash exact restitué après écriture dans `factures_proprietaires`. **La base réelle
+reste en 0016.**

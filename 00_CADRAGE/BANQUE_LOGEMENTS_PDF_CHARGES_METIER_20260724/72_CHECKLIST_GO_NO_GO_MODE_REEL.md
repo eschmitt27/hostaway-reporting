@@ -199,3 +199,15 @@ IDENTITE SOCIETE EMETTRICE : **A_FAIRE_HUMAIN** — vide par defaut, une facture
 validee sans elle.
 IMPUTATION BANQUE SUR CREANCE DE FACTURE : NON_TESTE — a cabler sur le moteur de rapprochement.
 EMISSION REELLE : NON AUTORISEE. Verdict global inchange : **NO GO. MODE REEL : NO GO — NON ACTIVE.**
+
+## Mise a jour 2026-08-13 (4) — source comptable unique
+
+ECRITURE COMPTABLE DE VENTE : **VALIDE** (etait A_FAIRE_HUMAIN). La facture proprietaire EMIS est
+la source unique ; double comptage impossible par construction (garde bidirectionnelle
+FACTURE_PROPRIETAIRE_DOUBLE_SOURCE_COMPTABLE + idempotence par origine). Statut des ecritures :
+PROPOSEE, mapping 706000 toujours provisoire — reserve assumee, non bloquante.
+MIGRATION DB JUSQU'A 0027 : **PRETE SUR COPIE** (sequentielle, automatique, idempotence, rollback).
+MENTIONS LEGALES / FORMAT DE NUMERO : A_FAIRE_HUMAIN (inchange).
+IDENTITE SOCIETE EMETTRICE : A_FAIRE_HUMAIN (configuration en place, valeurs a renseigner).
+IMPUTATION BANQUE SUR CREANCE DE FACTURE : NON_TESTE (inchange).
+EMISSION REELLE : NON AUTORISEE. Verdict global : **NO GO. MODE REEL : NO GO — NON ACTIVE.**

@@ -243,3 +243,10 @@ Facturation proprietaires construite et recettee (migration 0027, docs 86 et 87)
 ouverts, tous metier : source unique de l'ecriture comptable de vente (anti double comptage),
 format de numero et mentions legales, identite de la societe emettrice, imputation d'un mouvement
 bancaire sur une creance de facture. Factures voyageurs/tiers : hors perimetre, modele extensible.
+
+## Mise a jour 2026-08-13 (4)
+
+Chaine comptable fermee : facture EMIS = source unique de vente, double comptage impossible par
+construction. Migration repetee jusqu'a 0027. Restent : format de numero et mentions legales,
+identite societe, mapping compte produit definitif (706000 provisoire), imputation Banque sur
+creance de facture.

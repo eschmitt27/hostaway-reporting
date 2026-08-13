@@ -1690,3 +1690,40 @@ l'imputation d'un mouvement bancaire sur une creance de facture reste a cabler s
 rapprochement generique existant (le solde, lui, se calcule deja).
 
 **EMISSION REELLE : NON AUTORISEE. APP.DB REELLE : NON MIGREE. MODE REEL : NO GO — NON ACTIVE.**
+
+## La facture emise est la source unique de la vente (2026-08-13, suite)
+
+Detail : `86_FACTURATION_PROPRIETAIRES_APPLICATION.md` §14. Le point ouvert de la mission
+precedente (ecriture comptable non branchee, risque de double comptage) est **ferme**.
+
+**Decision utilisateur appliquee : la facture propriétaire au statut EMIS materialise la vente.**
+Chaine : Lot 10 calcule -> Lot 12 prepare le releve -> la FACTURE constate -> le REGLEMENT eteint
+la creance -> la BANQUE prouve le mouvement. Aucun de ces objets n'en cree un autre.
+
+Source VENTES avant : `ventes_lot12_adapter_service`, origine `LOT12_PROPRIETAIRE_MOIS`, grain
+proprietaire x mois (agrege), deja marque SOURCE_PROVISOIRE_LOT12. Source apres :
+`generer_ecriture_vente_facture`, origine `FACTURE_PROPRIETAIRE`, origine_id = facture_id_opaque,
+montant pris sur le total FIGE de la facture (jamais recalcule).
+
+BROUILLON : 0 ecriture. VALIDE : 0 ecriture. EMIS : 1 ecriture VENTES, 411000 debit / 706000
+credit, statut PROPOSEE (mapping provisoire assume).
+
+**Double comptage impossible par construction** : garde bidirectionnelle, code stable
+`FACTURE_PROPRIETAIRE_DOUBLE_SOURCE_COMPTABLE`. Une facture refuse de constater si l'ancien
+mecanisme a deja comptabilise ce proprietaire/mois ; l'ancien generateur refuse si une facture a
+deja constate. Conflit signale, jamais resolu en silence. Verifie sur instance vivante : apres
+emission, rejouer le generateur Lot 12 renvoie le refus en citant la facture, total VENTES reste
+500,00 EUR.
+
+**Frontiere historique/futur = `origine_type`**, reference source explicite et non une date de
+bascule. Aucune ecriture historique supprimee ni regeneree.
+
+Migration repetee **jusqu'a 0027** sur copie : sequentielle verte (71 tables, 118 index, 0 perte),
+automatique identique au sequentiel hors horodatages, idempotence (3 passages, 0 ecart), rollback
+hash exact. **La base reelle reste en 0016, non migree, hash inchange.**
+
+Restent avant emission reelle : format de numero et mentions legales (arbitrage juridique),
+identite societe a renseigner, imputation d'un mouvement bancaire sur une creance de facture a
+cabler, et le mapping de compte produit (706000) toujours provisoire.
+
+**EMISSION REELLE : NON AUTORISEE. MODE REEL : NO GO — NON ACTIVE.**
