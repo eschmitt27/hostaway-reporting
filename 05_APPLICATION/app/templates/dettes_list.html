@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Dettes fournisseurs{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Dettes fournisseurs</h1>
+  <p class="page-subtitle">Ce qui reste à payer sur les factures fournisseurs ouvertes.</p>
+</div>
+
+<div class="card">
+  <p><strong>{{ lignes|length }}</strong> dette(s) ouverte(s) · total
+     <strong>{{ "%.2f"|format(total) }} €</strong> · dont échu
+     <strong>{{ "%.2f"|format(total_echu) }} €</strong></p>
+</div>
+
+<form method="get" class="flex gap-sm items-center" style="margin-bottom:1rem">
+  <label>Fournisseur <input type="text" name="fournisseur" value="{{ filtres.fournisseur }}"></label>
+  <label>Statut <input type="text" name="statut" value="{{ filtres.statut }}"></label>
+  <label><input type="checkbox" name="echues" value="1" {% if filtres.echues %}checked{% endif %}> échues seulement</label>
+  <button type="submit">Filtrer</button>
+</form>
+
+<table class="table">
+  <thead>
+    <tr><th>Fournisseur</th><th>Facture</th><th>Date</th><th>Échéance</th>
+        <th class="text-right">Total</th><th class="text-right">Payé</th>
+        <th class="text-right">Solde</th><th>Statut</th><th>Retard</th></tr>
+  </thead>
+  <tbody>
+  {% for l in lignes %}
+    <tr>
+      <td>{{ l.tiers_id }}</td>
+      <td><a href="/factures/{{ l.facture_id_opaque }}">{{ l.numero or "—" }}</a></td>
+      <td>{{ l.date_facture or "—" }}</td>
+      <td>{{ l.date_echeance or "—" }}</td>
+      <td class="text-right">{{ "%.2f"|format(l.total) }} €</td>
+      <td class="text-right">{{ "%.2f"|format(l.regle) }} €</td>
+      <td class="text-right"><strong>{{ "%.2f"|format(l.solde) }} €</strong></td>
+      <td>{{ l.statut }}</td>
+      <td>{% if l.echue %}<span class="badge">{{ l.jours_retard }} j</span>{% else %}—{% endif %}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="9">Aucune dette ouverte.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+{% if par_tiers %}
+<div class="card">
+  <h3>Par fournisseur</h3>
+  <table class="table">
+    <thead><tr><th>Fournisseur</th><th class="text-right">Factures</th><th class="text-right">Solde</th><th class="text-right">dont échu</th></tr></thead>
+    <tbody>
+      {% for t in par_tiers %}
+      <tr><td>{{ t.tiers_id }}</td><td class="text-right">{{ t.nombre }}</td>
+          <td class="text-right">{{ "%.2f"|format(t.total) }} €</td>
+          <td class="text-right">{{ "%.2f"|format(t.echu) }} €</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

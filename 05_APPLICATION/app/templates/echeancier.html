@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Échéancier{% endblock %}
+{% block content %}
+{% set s = data.synthese %}
+<div class="page-header">
+  <h1 class="page-title">Échéancier</h1>
+  <p class="page-subtitle">Créances à encaisser et dettes à payer, par échéance.</p>
+</div>
+
+<div class="card">
+  <table class="table">
+    <thead><tr><th></th><th class="text-right">Nombre</th><th class="text-right">Total</th>
+               <th class="text-right">Échu</th><th class="text-right">À venir</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Créances propriétaires</strong></td>
+          <td class="text-right">{{ s.creances.nombre }}</td>
+          <td class="text-right">{{ "%.2f"|format(s.creances.total) }} €</td>
+          <td class="text-right">{{ "%.2f"|format(s.creances.echu) }} €</td>
+          <td class="text-right">{{ "%.2f"|format(s.creances.a_venir) }} €</td></tr>
+      <tr><td><strong>Dettes fournisseurs</strong></td>
+          <td class="text-right">{{ s.dettes.nombre }}</td>
+          <td class="text-right">{{ "%.2f"|format(s.dettes.total) }} €</td>
+          <td class="text-right">{{ "%.2f"|format(s.dettes.echu) }} €</td>
+          <td class="text-right">{{ "%.2f"|format(s.dettes.a_venir) }} €</td></tr>
+      <tr><th>Position nette</th><th></th>
+          <th class="text-right">{{ "%.2f"|format(s.position_nette) }} €</th><th></th><th></th></tr>
+    </tbody>
+  </table>
+  <p class="text-muted">La position nette est un solde de créances et dettes ouvertes — ce n'est
+     pas une trésorerie disponible.</p>
+</div>
+
+{% for t in data.tranches %}
+{% if t.creances_nb or t.dettes_nb %}
+<div class="card">
+  <h3>{{ t.libelle }}</h3>
+  <p>{{ t.creances_nb }} créance(s) — {{ "%.2f"|format(t.creances_total) }} € ·
+     {{ t.dettes_nb }} dette(s) — {{ "%.2f"|format(t.dettes_total) }} €</p>
+  <table class="table">
+    <thead><tr><th>Sens</th><th>Tiers</th><th>Document</th><th>Échéance</th><th class="text-right">Solde</th></tr></thead>
+    <tbody>
+      {% for l in t.creances %}
+      <tr><td>À encaisser</td><td>{{ l.tiers_id }}</td>
+          <td><a href="/factures-proprietaires/{{ l.facture_id_opaque }}">{{ l.numero or "—" }}</a></td>
+          <td>{{ l.date_echeance or "—" }}</td>
+          <td class="text-right">{{ "%.2f"|format(l.solde) }} €</td></tr>
+      {% endfor %}
+      {% for l in t.dettes %}
+      <tr><td>À payer</td><td>{{ l.tiers_id }}</td>
+          <td><a href="/factures/{{ l.facture_id_opaque }}">{{ l.numero or "—" }}</a></td>
+          <td>{{ l.date_echeance or "—" }}</td>
+          <td class="text-right">{{ "%.2f"|format(l.solde) }} €</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endfor %}
+{% endblock %}

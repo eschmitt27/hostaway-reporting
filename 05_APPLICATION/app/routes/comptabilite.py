@@ -360,3 +360,14 @@ def comptabilite_rapprochement(request: Request):
     return templates.TemplateResponse(request, "comptabilite_rapprochement.html", {
         "active_menu": "comptabilite", "lignes": lignes,
     })
+
+@router.get("/comptabilite/balance", response_class=HTMLResponse)
+def balance(request: Request, periode_debut: str = "", periode_fin: str = "", journal: str = ""):
+    """Balance générale : vue de consultation, ne génère aucune écriture."""
+    from app.services import comptabilite_balance_service as bal
+    return templates.TemplateResponse(request, "comptabilite_balance.html", {
+        "active_menu": "comptabilite",
+        "data": bal.balance(periode_debut=periode_debut, periode_fin=periode_fin, journal=journal),
+        "periodes": bal.periodes_disponibles(),
+        "journaux": compta.JOURNAUX,
+    })

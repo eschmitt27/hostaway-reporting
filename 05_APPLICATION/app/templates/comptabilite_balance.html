@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Balance générale{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Balance générale</h1>
+  <p class="page-subtitle">
+    Totaux débit / crédit et solde par compte. Les écritures contrepassées sont exclues — elles
+    restent consultables dans les journaux.
+  </p>
+</div>
+
+<form method="get" class="flex gap-sm items-center" style="margin-bottom:1rem">
+  <label>Période du
+    <select name="periode_debut">
+      <option value="">—</option>
+      {% for p in periodes %}<option value="{{ p }}" {% if p == data.filtres.periode_debut %}selected{% endif %}>{{ p }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>au
+    <select name="periode_fin">
+      <option value="">—</option>
+      {% for p in periodes %}<option value="{{ p }}" {% if p == data.filtres.periode_fin %}selected{% endif %}>{{ p }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Journal
+    <select name="journal">
+      <option value="">tous</option>
+      {% for j in journaux %}<option value="{{ j }}" {% if j == data.filtres.journal %}selected{% endif %}>{{ j }}</option>{% endfor %}
+    </select>
+  </label>
+  <button type="submit">Filtrer</button>
+</form>
+
+<div class="card">
+  <p>Total débit <strong>{{ "%.2f"|format(data.total_debit) }} €</strong> ·
+     total crédit <strong>{{ "%.2f"|format(data.total_credit) }} €</strong> ·
+     {% if data.equilibree %}équilibrée{% else %}<strong>DÉSÉQUILIBRÉE — écart {{ "%.2f"|format(data.ecart) }} €</strong>{% endif %}</p>
+</div>
+
+<table class="table">
+  <thead>
+    <tr><th>Compte</th><th>Libellé</th><th>Classe</th><th class="text-right">Débit</th>
+        <th class="text-right">Crédit</th><th class="text-right">Solde débiteur</th>
+        <th class="text-right">Solde créditeur</th><th class="text-right">Lignes</th></tr>
+  </thead>
+  <tbody>
+  {% for c in data.comptes %}
+    <tr>
+      <td>{{ c.compte }}</td>
+      <td>{{ c.libelle or "—" }}</td>
+      <td>{{ c.classe }}</td>
+      <td class="text-right">{{ "%.2f"|format(c.debit) }} €</td>
+      <td class="text-right">{{ "%.2f"|format(c.credit) }} €</td>
+      <td class="text-right">{% if c.solde_debiteur %}{{ "%.2f"|format(c.solde_debiteur) }} €{% endif %}</td>
+      <td class="text-right">{% if c.solde_crediteur %}{{ "%.2f"|format(c.solde_crediteur) }} €{% endif %}</td>
+      <td class="text-right">{{ c.nb_lignes }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="8">Aucune écriture sur la période.</td></tr>
+  {% endfor %}
+  </tbody>
+  {% if data.comptes %}
+  <tfoot>
+    <tr><th colspan="3">TOTAUX</th>
+        <th class="text-right">{{ "%.2f"|format(data.total_debit) }} €</th>
+        <th class="text-right">{{ "%.2f"|format(data.total_credit) }} €</th>
+        <th class="text-right">{{ "%.2f"|format(data.total_solde_debiteur) }} €</th>
+        <th class="text-right">{{ "%.2f"|format(data.total_solde_crediteur) }} €</th>
+        <th></th></tr>
+  </tfoot>
+  {% endif %}
+</table>
+{% endblock %}

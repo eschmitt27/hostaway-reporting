@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Créances propriétaires{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Créances propriétaires</h1>
+  <p class="page-subtitle">
+    Ce que les propriétaires restent devoir sur les factures <strong>émises</strong>.
+    Une facture non émise n'est pas une créance. À ne pas confondre avec la trésorerie
+    propriétaire ni avec le net d'exploitation.
+  </p>
+</div>
+
+<div class="card">
+  <p><strong>{{ lignes|length }}</strong> créance(s) ouverte(s) · total
+     <strong>{{ "%.2f"|format(total) }} €</strong> · dont échu
+     <strong>{{ "%.2f"|format(total_echu) }} €</strong></p>
+</div>
+
+<form method="get" class="flex gap-sm items-center" style="margin-bottom:1rem">
+  <label>Propriétaire <input type="text" name="proprietaire" value="{{ filtres.proprietaire }}"></label>
+  <label>Logement <input type="text" name="logement" value="{{ filtres.logement }}"></label>
+  <label>Mois <input type="text" name="mois" value="{{ filtres.mois }}" placeholder="AAAA-MM"></label>
+  <label>Statut
+    <select name="statut">
+      <option value="">tous</option>
+      {% for s in statuts %}<option value="{{ s }}" {% if s == filtres.statut %}selected{% endif %}>{{ s }}</option>{% endfor %}
+    </select>
+  </label>
+  <label><input type="checkbox" name="echues" value="1" {% if filtres.echues %}checked{% endif %}> échues seulement</label>
+  <button type="submit">Filtrer</button>
+</form>
+
+<table class="table">
+  <thead>
+    <tr><th>Propriétaire</th><th>Facture</th><th>Logement</th><th>Période</th><th>Date</th>
+        <th>Échéance</th><th class="text-right">Total</th><th class="text-right">Réglé</th>
+        <th class="text-right">Compensé</th><th class="text-right">Solde</th><th>Statut</th><th>Retard</th></tr>
+  </thead>
+  <tbody>
+  {% for l in lignes %}
+    <tr>
+      <td>{{ l.tiers_id }}</td>
+      <td><a href="/factures-proprietaires/{{ l.facture_id_opaque }}">{{ l.numero or "—" }}</a>
+          {% if l.type_document == "AVOIR" %}<span class="badge">AVOIR</span>{% endif %}</td>
+      <td>{{ l.logement_id }}</td>
+      <td>{{ l.mois }}</td>
+      <td>{{ l.date_facture or "—" }}</td>
+      <td>{{ l.date_echeance or "—" }}</td>
+      <td class="text-right">{{ "%.2f"|format(l.total) }} €</td>
+      <td class="text-right">{{ "%.2f"|format(l.regle) }} €</td>
+      <td class="text-right">{{ "%.2f"|format(l.compense) }} €</td>
+      <td class="text-right"><strong>{{ "%.2f"|format(l.solde) }} €</strong></td>
+      <td>{{ l.statut_reglement }}</td>
+      <td>{% if l.echue %}<span class="badge">{{ l.jours_retard }} j</span>{% else %}—{% endif %}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="12">Aucune créance ouverte.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+{% if par_tiers %}
+<div class="card">
+  <h3>Par propriétaire</h3>
+  <table class="table">
+    <thead><tr><th>Propriétaire</th><th class="text-right">Factures</th><th class="text-right">Solde</th><th class="text-right">dont échu</th></tr></thead>
+    <tbody>
+      {% for t in par_tiers %}
+      <tr><td>{{ t.tiers_id }}</td><td class="text-right">{{ t.nombre }}</td>
+          <td class="text-right">{{ "%.2f"|format(t.total) }} €</td>
+          <td class="text-right">{{ "%.2f"|format(t.echu) }} €</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}
