@@ -346,7 +346,10 @@ def _texte_pdf(chemin):
 
 
 def test_pdf_particulier(db, config, client_particulier, tmp_path):
-    config()
+    # Clauses B2B configurées globalement : elles ne doivent malgré tout pas apparaître ici.
+    # Ne pas les configurer masquerait le défaut que ce test doit attraper.
+    config(FACTURATION_TAUX_PENALITES_RETARD="Taux fixture",
+           FACTURATION_INDEMNITE_RECOUVREMENT="Indemnite fixture")
     f = svc.creer(source(), db_path=db)
     emise = _emettre(db, f["facture_id_opaque"], repertoire=tmp_path / "pdf")
     texte = _texte_pdf(tmp_path / "pdf" / "2026" / "07" / emise["document_nom"])
@@ -376,6 +379,18 @@ def test_pdf_professionnel(db, config, client_professionnel, tmp_path):
     assert "Penalites de retard : Taux fixture" in texte
     assert "Indemnite forfaitaire de recouvrement : Indemnite fixture" in texte
     assert "PRESTATION_DE_SERVICES" in texte
+
+
+def test_pdf_type_client_non_tranche_sans_clause_b2b(db, config, monkeypatch, tmp_path):
+    """Type de client indéterminé : aucune clause professionnelle ne doit être imprimée."""
+    config(FACTURATION_TAUX_PENALITES_RETARD="Taux fixture",
+           FACTURATION_INDEMNITE_RECOUVREMENT="Indemnite fixture")
+    monkeypatch.setattr(conformite, "client", lambda pid, **kw: _client(fconf.CLIENT_A_CONTROLER))
+    f = svc.creer(source(), db_path=db)
+    emise = _emettre(db, f["facture_id_opaque"], repertoire=tmp_path / "pdf")
+    texte = _texte_pdf(tmp_path / "pdf" / "2026" / "07" / emise["document_nom"])
+    assert "Penalites de retard" not in texte
+    assert "Indemnite forfaitaire" not in texte
 
 
 def test_pdf_avoir_reference_la_facture(db, config, client_particulier, tmp_path):

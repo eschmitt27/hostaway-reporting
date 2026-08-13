@@ -174,15 +174,22 @@ class _Facture(FPDF):
 
         # ── Conditions de règlement et mentions ──────────────────────────────────────────────
         self.set_font("Helvetica", "", 9)
-        for libelle, valeur in (
-                ("Echeance de paiement", _date_fr(conf.get("date_echeance"))),
-                ("Delai de paiement", (f"{conf['delai_paiement_jours']} jours"
-                                       if conf.get("delai_paiement_jours") else "")),
-                ("Conditions d'escompte", conf.get("conditions_escompte")),
+        conditions = [
+            ("Echeance de paiement", _date_fr(conf.get("date_echeance"))),
+            ("Delai de paiement", (f"{conf['delai_paiement_jours']} jours"
+                                   if conf.get("delai_paiement_jours") else "")),
+            ("Conditions d'escompte", conf.get("conditions_escompte")),
+        ]
+        # Les clauses B2B ne s'impriment que face à un client explicitement PROFESSIONNEL. Les
+        # afficher parce qu'elles sont configurées globalement mettrait une mention inadaptée sur
+        # la facture d'un particulier — ou pire, sur celle d'un client dont le type n'est pas
+        # encore tranché.
+        if (conf.get("client") or {}).get("type_client") == "PROFESSIONNEL":
+            conditions += [
                 ("Penalites de retard", conf.get("taux_penalites_retard")),
-                ("Indemnite forfaitaire de recouvrement", conf.get("indemnite_recouvrement"))):
-            # Les clauses B2B ne sont imprimées que si elles ont été configurées : une facture
-            # adressée a un particulier n'affiche pas de clause professionnelle inadaptée.
+                ("Indemnite forfaitaire de recouvrement", conf.get("indemnite_recouvrement")),
+            ]
+        for libelle, valeur in conditions:
             if valeur:
                 self.cell(0, 5, _t(f"{libelle} : {valeur}"), new_x=XPos.LMARGIN,
                           new_y=YPos.NEXT)
