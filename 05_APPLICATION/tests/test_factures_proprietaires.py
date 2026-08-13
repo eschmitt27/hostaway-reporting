@@ -148,11 +148,12 @@ def _emettre(fid, db, repertoire=None, serie="RECETTE-2026"):
 
 
 def test_numeros_uniques_et_sequentiels(db):
+    """Série explicite : la mécanique numérote sans trou dans la série qu'on lui donne."""
     numeros = []
     for i in range(3):
         f = svc.creer(source(logement_id=f"LOG_FIXT_{i}"), db_path=db)
         numeros.append(_emettre(f["facture_id_opaque"], db)["numero_facture"])
-    assert numeros == ["RECETTE-2026-00001", "RECETTE-2026-00002", "RECETTE-2026-00003"]
+    assert numeros == ["RECETTE-2026-000001", "RECETTE-2026-000002", "RECETTE-2026-000003"]
     assert len(set(numeros)) == 3
 
 
@@ -231,10 +232,11 @@ def test_pdf_sans_tva(db, tmp_path):
     f = svc.creer(source(), db_path=db)
     emise = _emettre(f["facture_id_opaque"], db, repertoire=tmp_path / "f")
     snap = svc.contenu_emis(emise["facture_id_opaque"], db_path=db)
-    assert snap["regime_tva"].startswith("NON_ASSUJETTI")
-    assert "montant_tva" not in snap
-    for l in snap["lignes"]:
-        assert "tva" not in json.dumps(l).lower()
+    # Sans configuration de régime, celui-ci reste A_CONTROLER : l'absence de TVA facturée ne
+    # suffit pas à en déterminer le fondement juridique, et rien n'est supposé à la place.
+    assert snap["regime_tva"] == "A_CONTROLER"
+    assert snap["total_tva"] == 0.0
+    assert snap["total_ht"] == snap["total_ttc"] == 500.0
 
 
 # ── Avoir ───────────────────────────────────────────────────────────────────────────────────────

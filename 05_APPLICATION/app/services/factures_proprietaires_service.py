@@ -279,9 +279,11 @@ def valider(facture_id: str, *, emetteur: dict[str, Any], destinataire: dict[str
 def _attribuer_numero(conn, serie: str) -> str:
     """Numéro unique, jamais réutilisé. `BEGIN IMMEDIATE` sérialise deux émissions concurrentes.
 
-    Le format `<serie>-<seq:05d>` est un défaut technique et non une décision juridique : les
-    mentions légales et le format officiel restent à arbitrer avec l'utilisateur.
+    Le numéro n'est consommé qu'à l'émission : un brouillon abandonné ne crée aucun trou dans la
+    séquence. Le format est porté par `facturation_config_service`, pas décidé ici.
     """
+    from app.services import facturation_config_service as fconf
+
     conn.execute("BEGIN IMMEDIATE")
     conn.execute("INSERT OR IGNORE INTO factures_proprietaires_sequence (serie) VALUES (?)",
                  (serie,))
@@ -290,22 +292,39 @@ def _attribuer_numero(conn, serie: str) -> str:
         "date_modification = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE serie=?", (serie,))
     seq = conn.execute("SELECT dernier_numero FROM factures_proprietaires_sequence WHERE serie=?",
                        (serie,)).fetchone()[0]
-    return f"{serie}-{seq:05d}"
+    return fconf.formater_numero(serie, seq)
 
 
 # ── Émission ────────────────────────────────────────────────────────────────────────────────────
 
 def emettre(facture_id: str, *, emetteur: dict[str, Any], destinataire: dict[str, Any],
-            serie: str, date_facture: str, generer_pdf=None, acteur: str = "",
-            db_path=None) -> dict[str, Any]:
+            serie: str | None = None, date_facture: str, generer_pdf=None, acteur: str = "",
+            db_path=None, exiger_conformite: bool = False) -> dict[str, Any]:
     """VALIDE -> EMIS. Fige le snapshot, attribue le numéro, génère le document, enregistre le hash.
 
     `generer_pdf(snapshot) -> (nom_fichier, sha256)` est injecté : ce service ne connaît ni le
     format du document ni son emplacement de stockage.
     """
+    from app.services import facturation_config_service as fconf
+    from app.services import factures_proprietaires_conformite_service as conformite
+
     f = lire(facture_id, db_path=db_path)
     if f["statut"] != ST_VALIDE:
         raise FactureProprietaireError(f"statut {f['statut']}: seul un VALIDE peut etre emis")
+
+    # Contrôle de pré-émission : il décrit toujours l'état de conformité, mais ne bloque que si on
+    # le lui demande. La recette peut ainsi émettre avec une configuration fictive incomplète,
+    # tandis que l'émission réelle exige `exiger_conformite=True` et refuse au premier manque.
+    controle = conformite.verifier(f, date_facture=date_facture, db_path=db_path)
+    if exiger_conformite and controle["statut"] != conformite.PRETE:
+        codes = ", ".join(m["code"] for m in controle["manques"])
+        raise FactureProprietaireError(f"emission refusee — conformite incomplete: {codes}")
+    bloc = controle["conformite"]
+
+    # Série dérivée du type de document et de l'année de facturation : factures et avoirs ont
+    # chacun leur compteur, et chaque année ouvre sa propre série.
+    if serie is None:
+        serie = fconf.serie(f["type_document"], str(date_facture)[:4])
 
     conn = get_db(db_path)
     try:
@@ -328,8 +347,14 @@ def emettre(facture_id: str, *, emetteur: dict[str, Any], destinataire: dict[str
                        for l in f["lignes"]],
             "montant_total": _round(f["montant_total"]),
             "source_calcul": f["source_calcul"],
-            # Décision utilisateur en vigueur : pas de TVA. Aucune TVA n'est calculée ni affichée.
-            "regime_tva": "NON_ASSUJETTI_DECISION_UTILISATEUR",
+            # Bloc réglementaire figé : identités complètes, type de client, régime de TVA et son
+            # fondement, période de prestation, conditions de règlement. C'est lui qui rend le
+            # document reproductible à l'identique, et non un recalcul depuis les référentiels.
+            "conformite": bloc,
+            "regime_tva": bloc["regime_tva"],
+            "total_ht": bloc["total_ht"],
+            "total_tva": bloc["total_tva"],
+            "total_ttc": bloc["total_ttc"],
         }
         payload = json.dumps(snapshot, sort_keys=True, ensure_ascii=False)
         snapshot_hash = hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -353,6 +378,10 @@ def emettre(facture_id: str, *, emetteur: dict[str, Any], destinataire: dict[str
         raise
     finally:
         conn.close()
+
+    # Le bloc réglementaire est figé après l'émission, en écriture unique : une facture émise ne
+    # voit jamais ses données de conformité réécrites.
+    conformite.enregistrer(bloc, db_path=db_path)
     return lire(facture_id, db_path=db_path)
 
 

@@ -47,6 +47,40 @@
 </div>
 
 <div class="card">
+  <h3>Conformité de la facture</h3>
+  {% if conformite.statut == "PRETE_A_EMETTRE" %}
+  <p><strong>PRÊTE À ÉMETTRE</strong> — toutes les données réglementaires sont renseignées.</p>
+  {% else %}
+  <p><strong>ÉMISSION BLOQUÉE</strong> — {{ conformite.manques|length }} point(s) à régler :</p>
+  <ul>
+    {% for m in conformite.manques %}
+    <li><span class="badge">{{ m.code }}</span> {{ m.message }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% set c = conformite.conformite %}
+  <table class="table">
+    <tbody>
+      <tr><td>Identité émetteur</td><td>{{ "✓" if c.emetteur.denomination and c.emetteur.siren and c.emetteur.adresse_siege else "✗" }} {{ c.emetteur.denomination or "—" }}{% if c.emetteur.siren %} · SIREN {{ c.emetteur.siren }}{% endif %}</td></tr>
+      <tr><td>Identité client</td><td>{{ "✓" if c.client.denomination and c.client.adresse else "✗" }} {{ c.client.denomination or "—" }} ({{ c.client.type_client }})</td></tr>
+      <tr><td>Période de prestation</td><td>{{ "✓" if c.periode_debut else "✗" }} {{ c.periode_debut }} → {{ c.periode_fin }}</td></tr>
+      <tr><td>Nature de l'opération</td><td>✓ {{ c.nature_operation }}</td></tr>
+      <tr><td>Prestations</td><td>{{ "✓" if facture.lignes else "✗" }} {{ facture.lignes|length }} ligne(s)</td></tr>
+      <tr><td>Montants</td><td>HT {{ "%.2f"|format(c.total_ht) }} € · TVA {{ "%.2f"|format(c.total_tva) }} € · TTC {{ "%.2f"|format(c.total_ttc) }} €</td></tr>
+      <tr><td>Régime de TVA</td><td>{{ "✓" if c.regime_tva != "A_CONTROLER" else "✗" }} {{ c.regime_tva }}{% if c.mention_tva %} · mention configurée{% endif %}</td></tr>
+      <tr><td>Conditions de règlement</td><td>{{ "✓" if c.date_echeance else "✗" }} échéance {{ c.date_echeance or "—" }}{% if c.delai_paiement_jours %} ({{ c.delai_paiement_jours }} j){% endif %}</td></tr>
+      {% if c.client.type_client == "PROFESSIONNEL" %}
+      <tr><td>Pénalités de retard</td><td>{{ "✓" if c.taux_penalites_retard else "✗" }} {{ c.taux_penalites_retard or "non configurées" }}</td></tr>
+      <tr><td>Indemnité de recouvrement</td><td>{{ "✓" if c.indemnite_recouvrement else "✗" }} {{ c.indemnite_recouvrement or "non configurée" }}</td></tr>
+      {% endif %}
+      <tr><td>Numérotation</td><td>{{ "✓ " ~ facture.numero_facture if facture.numero_facture else "attribuée à l'émission" }}</td></tr>
+      <tr><td>Comptabilité</td><td>{{ "✓" if comptabilite.ecriture else ("—" if comptabilite.statut == "SANS_OBJET" else "✗") }} {{ comptabilite.statut }}</td></tr>
+      <tr><td>Facturation électronique</td><td>{{ c.facturation_electronique.status }}{% if c.facturation_electronique.provider %} · {{ c.facturation_electronique.provider }}{% endif %}</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
   <h3>Comptabilité</h3>
   {% if comptabilite.conflit %}
   <p><span class="badge">{{ comptabilite.conflit }}</span></p>

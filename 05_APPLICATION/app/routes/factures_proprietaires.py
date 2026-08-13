@@ -15,14 +15,14 @@ from fastapi.templating import Jinja2Templates
 from app.config import TEMPLATES_DIR
 from app.readers import proprietaires_reader as prop_reader
 from app.services import comptabilite_ecritures_service as compta
+from app.services import facturation_config_service as fconf
+from app.services import factures_proprietaires_conformite_service as conformite
 from app.services import factures_proprietaires_pdf as pdf
 from app.services import factures_proprietaires_service as svc
 from app.services import factures_proprietaires_source as source_svc
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
-
-SERIE_RECETTE = "RECETTE-2026"
 
 
 def _repertoire_documents() -> Path:
@@ -136,6 +136,8 @@ def fiche(request: Request, facture_id: str):
         "peut_avoir": facture["statut"] == svc.ST_EMIS
                       and facture["type_document"] == svc.TYPE_FACTURE,
         "comptabilite": _comptabilite(facture),
+        "conformite": conformite.verifier(facture, db_path=None),
+        "conformite_figee": conformite.charger(facture["facture_id_opaque"]),
     })
 
 
@@ -150,10 +152,14 @@ def valider(facture_id: str):
 @router.post("/factures-proprietaires/{facture_id}/emettre")
 def emettre(facture_id: str, date_facture: str = Form(...)):
     facture = svc.lire(facture_id)
+    # Série laissée à la configuration : F-AAAA-NNNNNN pour les factures, A-AAAA-NNNNNN pour les
+    # avoirs. La conformité est exigée dès que l'émission réelle est ouverte ; en recette elle est
+    # seulement affichée, pour pouvoir exercer le parcours avec une configuration incomplète.
     emise = svc.emettre(facture_id, emetteur=_emetteur(),
                         destinataire=_destinataire(facture["proprietaire_id"]),
-                        serie=SERIE_RECETTE, date_facture=date_facture,
-                        generer_pdf=pdf.fabrique(_repertoire_documents()), acteur="interface")
+                        date_facture=date_facture,
+                        generer_pdf=pdf.fabrique(_repertoire_documents()), acteur="interface",
+                        exiger_conformite=fconf.emission_reelle_autorisee())
     # L'émission constate la vente : c'est ici, et nulle part ailleurs, que naît l'écriture VENTES.
     # Un refus (flags désactivés, mapping, double source) n'annule pas l'émission — la facture est
     # émise et le conflit reste visible sur la fiche, jamais résolu en silence.
