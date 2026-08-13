@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Facture {{ facture.numero_facture or facture.facture_id_opaque }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">
+    {{ "AVOIR" if facture.type_document == "AVOIR" else "Facture" }}
+    {{ facture.numero_facture or "(sans numéro — non émise)" }}
+    <span class="badge">{{ facture.statut }}</span>
+  </h1>
+  <p class="page-subtitle">
+    {{ facture.proprietaire_id }} · {{ facture.logement_id }} · période {{ facture.mois }}
+    {% if facture.facture_origine %}· avoir sur {{ facture.facture_origine }}{% endif %}
+  </p>
+</div>
+
+<div class="card">
+  <h3>Identités</h3>
+  <p><strong>Émetteur :</strong> {{ emetteur.nom or "— non renseigné —" }}
+     {% if not emetteur.nom or not emetteur.siret %}
+     <span class="badge">FACTURE_PROPRIETAIRE_IDENTITE_INCOMPLETE</span>
+     {% endif %}</p>
+  <p><strong>Destinataire :</strong> {{ destinataire.nom }}</p>
+</div>
+
+<div class="card">
+  <h3>Lignes facturées</h3>
+  <table class="table">
+    <thead><tr><th>N°</th><th>Type</th><th>Libellé</th><th class="text-right">Montant</th></tr></thead>
+    <tbody>
+      {% for l in facture.lignes %}
+      <tr><td>{{ l.numero_ligne }}</td><td>{{ l.type_ligne }}</td><td>{{ l.libelle }}</td>
+          <td class="text-right">{{ "%.2f"|format(l.montant) }} €</td></tr>
+      {% endfor %}
+      <tr><th colspan="3" class="text-right">TOTAL</th>
+          <th class="text-right">{{ "%.2f"|format(facture.montant_total) }} €</th></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h3>Règlement</h3>
+  <p>Total {{ "%.2f"|format(solde.montant_total) }} € · imputé
+     {{ "%.2f"|format(solde.paiements_imputes) }} € · <strong>solde
+     {{ "%.2f"|format(solde.solde) }} €</strong> — {{ solde.statut_reglement }}</p>
+  <p class="text-muted">Un règlement impute une créance existante : il ne recrée ni commission,
+     ni charge, ni facture.</p>
+</div>
+
+<div class="card">
+  <h3>Actions</h3>
+  {% if peut_valider %}
+  <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/valider">
+    <button type="submit">Valider</button>
+  </form>
+  {% endif %}
+  {% if peut_emettre %}
+  <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/emettre">
+    <label>Date de facture <input type="text" name="date_facture" placeholder="AAAA-MM-JJ" required></label>
+    <button type="submit">Émettre (fige le contenu et génère le PDF)</button>
+  </form>
+  {% endif %}
+  {% if facture.statut == "EMIS" %}
+  <p><a href="/factures-proprietaires/{{ facture.facture_id_opaque }}/document">Télécharger le PDF</a>
+     — empreinte {{ (facture.document_hash or "")[:16] }}…</p>
+  {% endif %}
+  {% if peut_avoir %}
+  <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/avoir">
+    <label>Motif <input type="text" name="motif" required></label>
+    <button type="submit">Créer un avoir</button>
+  </form>
+  <p class="text-muted">Une facture émise n'est jamais modifiée ni supprimée : elle se corrige par un avoir.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h3>Historique</h3>
+  <table class="table">
+    <thead><tr><th>Date</th><th>Événement</th><th>Statut</th><th>Commentaire</th></tr></thead>
+    <tbody>
+      {% for e in facture.evenements %}
+      <tr><td>{{ e.date_evenement }}</td><td>{{ e.type_evenement }}</td>
+          <td>{{ e.ancien_statut or "—" }} → {{ e.nouveau_statut or "—" }}</td>
+          <td>{{ e.commentaire or "" }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

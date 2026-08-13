@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Factures propriétaires{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Factures propriétaires</h1>
+  <p class="page-subtitle">
+    Factures <strong>émises par la conciergerie</strong>. Le relevé propriétaire, qui explique
+    le revenu et le solde, est un document distinct.
+  </p>
+</div>
+
+<form method="get" class="flex gap-sm items-center" style="margin-bottom:1rem">
+  <label>Mois <input type="text" name="mois" value="{{ mois }}" placeholder="AAAA-MM"></label>
+  <label>Statut
+    <select name="statut">
+      <option value="">tous</option>
+      {% for s in statuts %}<option value="{{ s }}" {% if s == statut %}selected{% endif %}>{{ s }}</option>{% endfor %}
+    </select>
+  </label>
+  <button type="submit">Filtrer</button>
+  <a href="/factures-proprietaires/proposer?mois={{ mois }}" class="btn">Générer les factures</a>
+</form>
+
+<table class="table">
+  <thead>
+    <tr>
+      <th>Numéro</th><th>Type</th><th>Période</th><th>Propriétaire</th><th>Logement</th>
+      <th class="text-right">Total</th><th class="text-right">Solde</th><th>Statut</th><th>Émise le</th><th></th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for f in factures %}
+    <tr>
+      <td>{{ f.numero_facture or "—" }}</td>
+      <td>{{ f.type_document }}</td>
+      <td>{{ f.mois }}</td>
+      <td>{{ f.proprietaire_id }}</td>
+      <td>{{ f.logement_id }}</td>
+      <td class="text-right">{{ "%.2f"|format(f.montant_total) }} €</td>
+      <td class="text-right">{{ "%.2f"|format(f.solde) }} €</td>
+      <td>{{ f.statut }}</td>
+      <td>{{ f.date_emission or "—" }}</td>
+      <td><a href="/factures-proprietaires/{{ f.facture_id_opaque }}">ouvrir</a></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="10">Aucune facture propriétaire.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Prévisualisation des factures{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Prévisualisation — {{ mois or "choisir un mois" }}</h1>
+  <p class="page-subtitle">Lecture seule. Aucune facture n'est créée tant que vous n'avez pas confirmé.</p>
+</div>
+
+<form method="get" class="flex gap-sm items-center" style="margin-bottom:1rem">
+  <label>Mois <input type="text" name="mois" value="{{ mois }}" placeholder="AAAA-MM"></label>
+  <button type="submit">Prévisualiser</button>
+</form>
+
+{% if mois %}
+<p>
+  <strong>{{ resume.PRETE }}</strong> prête(s) · <strong>{{ resume.A_CONTROLER }}</strong> à contrôler ·
+  <strong>{{ resume.NON_CONCERNE }}</strong> non concernée(s) — total facturable
+  <strong>{{ "%.2f"|format(total_pret) }} €</strong>
+</p>
+
+{% for p in propositions %}
+<div class="card" style="margin-bottom:1rem">
+  <h3>{{ p.proprietaire_id }} — {{ p.logement_id }} <span class="badge">{{ p.statut_proposition }}</span></h3>
+  {% if p.detail %}<p class="text-muted">{{ p.detail }}</p>{% endif %}
+  <table class="table">
+    <thead><tr><th>N°</th><th>Prestation facturée</th><th class="text-right">Montant</th></tr></thead>
+    <tbody>
+      {% for l in p.lignes %}
+      <tr><td>{{ l.numero_ligne }}</td><td>{{ l.libelle }}</td>
+          <td class="text-right">{{ "%.2f"|format(l.montant) }} €</td></tr>
+      {% endfor %}
+      <tr><th colspan="2" class="text-right">TOTAL FACTURE</th>
+          <th class="text-right">{{ "%.2f"|format(p.montant_total) }} €</th></tr>
+    </tbody>
+  </table>
+  {% if p.releve_informatif %}
+  <details>
+    <summary>Éléments du relevé (informatifs, <strong>non facturés</strong>)</summary>
+    <ul>{% for k, v in p.releve_informatif.items() %}<li>{{ k }} : {{ "%.2f"|format(v) }} €</li>{% endfor %}</ul>
+  </details>
+  {% endif %}
+</div>
+{% endfor %}
+
+{% if resume.PRETE %}
+<form method="post" action="/factures-proprietaires/generer">
+  <input type="hidden" name="mois" value="{{ mois }}">
+  <button type="submit">Confirmer et créer {{ resume.PRETE }} brouillon(s)</button>
+</form>
+{% endif %}
+{% endif %}
+{% endblock %}
