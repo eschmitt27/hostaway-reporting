@@ -1774,3 +1774,38 @@ identique, idempotence, rollback hash exact. **Base reelle toujours 0016.**
 
 **IDENTITE SOCIETE : DONNEES A FOURNIR. REGIME TVA : A CONFIRMER. EMISSION REELLE : NON AUTORISEE.
 MODE REEL : NO GO — NON ACTIVE.**
+
+## Completude fonctionnelle : inventaire, construction des manques (2026-08-14)
+
+Matrice : `92_MATRICE_COMPLETUDE_FONCTIONNELLE.md`. Recette utilisateur :
+`89_RECETTE_MANUELLE_AVANT_BASCULE.md` (**PRETE A EXECUTER**, jamais validee sans retour explicite).
+
+Inventaire fait a partir des **250 routes reellement montees**, pas de la roadmap. Constat
+contraire a ce qu'on pouvait craindre : l'application etait deja largement complete. Les manques
+reels se reduisaient a **quatre ecrans financiers**, tous construits :
+
+1. **Creances proprietaires** (`/creances`) — factures emises seulement (un brouillon n'est pas une
+   creance), avoirs inclus en negatif, filtres, agregation par tiers, anciennete.
+2. **Dettes fournisseurs** (`/dettes`) — factures ouvertes a solde non nul, solde delegue au
+   service factures.
+3. **Echeancier** (`/echeancier`) — ECHU / 7 j / 30 j / au-dela + tranche SANS_ECHEANCE isolee,
+   position nette avec la reserve explicite que ce n'est pas une tresorerie disponible.
+4. **Balance generale** (`/comptabilite/balance`) — soldes debiteur/crediteur, classes, filtres
+   periode et journal, contrepassees exclues, desequilibre affiche et non masque.
+
+Vocabulaire clarifie : **trois soldes distincts** coexistent et ne doivent pas etre confondus —
+solde de facture (traite par ces vues), solde de tresorerie proprietaire (objet separe), net
+d'exploitation (resultat Lot 10, qui n'est pas une creance).
+
+Comptage : 54 fonctions inventoriees, **48 DISPONIBLE, 5 PARTIEL, 1 MANQUANT, 0 BUG** —
+**completude 89 %**. Les 5 partiels sont utilisables ; aucun n'est un trou d'architecture :
+backfill VRBO par CSV (4 reservations), provenance Menages (relance reseau), imputation d'un
+reglement sur facture proprietaire (solde derive correct, cablage restant), mappings comptables
+definitifs (arbitrage), valeurs d'identite/TVA (doc 88). Le seul MANQUANT est la facturation
+electronique, chantier `FACTURATION_ELECTRONIQUE_PA`, modele deja pret.
+
+22 nouveaux tests dont la persistance apres redemarrage (creances et dettes relues depuis la base,
+aucune dependance a un etat memoire).
+
+**Prochaine etape : la recette manuelle par l'utilisateur.** Le cut-over n'est pas la prochaine
+etape. MODE REEL : NO GO — NON ACTIVE.

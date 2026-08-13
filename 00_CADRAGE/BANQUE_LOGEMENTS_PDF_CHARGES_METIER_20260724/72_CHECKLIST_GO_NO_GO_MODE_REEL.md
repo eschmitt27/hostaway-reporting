@@ -230,3 +230,11 @@ MIGRATION DB JUSQU'A 0028 : **PRETE SUR COPIE**.
 FACTURATION ELECTRONIQUE : **NON_TESTE** — architecture prete, aucun raccordement (chantier
 FACTURATION_ELECTRONIQUE_PA).
 EMISSION REELLE : NON AUTORISEE. Verdict global : **NO GO. MODE REEL : NO GO — NON ACTIVE.**
+
+## Mise a jour 2026-08-14 — completude fonctionnelle
+
+COMPLETUDE FONCTIONNELLE : **89 %** (48/54), 0 bug connu. Creances, dettes, echeancier et balance
+generale desormais DISPONIBLE (etaient MANQUANT).
+RECETTE MANUELLE UTILISATEUR : **PRETE A EXECUTER** (`89_RECETTE_MANUELLE_AVANT_BASCULE.md`) —
+non validee, en attente du retour utilisateur point par point.
+Verdict global inchange : **NO GO. MODE REEL : NO GO — NON ACTIVE.**

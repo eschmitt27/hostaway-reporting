@@ -262,3 +262,13 @@ agreee. Le modele est deja prepare (champs electronic_invoice_*, SIREN client st
 nature_operation, separation snapshot / rendu PDF) ; restent le choix du fournisseur, le format
 (Factur-X ou autre), l'integration et le e-reporting. Non entrepris volontairement : aucune
 plateforme n'est choisie a ce jour.
+
+## Mise a jour 2026-08-14 — completude fonctionnelle
+
+Quatre ecrans financiers construits (creances, dettes, echeancier, balance). Matrice complete :
+`92_MATRICE_COMPLETUDE_FONCTIONNELLE.md` — 48 DISPONIBLE / 5 PARTIEL / 1 MANQUANT / 0 BUG,
+completude 89 %.
+
+Ordre du projet rappele : completude -> corrections -> consolidation -> tests -> **recette manuelle
+utilisateur** -> preparation cut-over -> donnees nouvelle structure -> bascule -> mode reel. La
+recette manuelle (`89`) est prete a executer ; le cut-over n'est pas la prochaine etape.

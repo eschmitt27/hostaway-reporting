@@ -3584,3 +3584,26 @@ Reference : 88_CONFORMITE_FACTURES_PROPRIETAIRES.md
 Regression ciblee apres conformite (2026-08-13) : factures (fournisseurs + proprietaires),
 comptabilite, reglements, proprietaires, clotures -- **688 passed, 0 echec** (7m10).
 Non-regression des factures fournisseurs et du socle comptable confirmee.
+
+--- Completude fonctionnelle (2026-08-14) ---
+Inventaire a partir des 250 routes reellement montees (pas de la roadmap). 54 fonctions
+inventoriees : 48 DISPONIBLE, 5 PARTIEL, 1 MANQUANT, 0 BUG -> completude 89 %.
+
+Quatre manques reels construits : creances proprietaires, dettes fournisseurs, echeancier,
+balance generale. 22 tests dont persistance apres redemarrage. Navigation ajoutee.
+
+Les 5 partiels restants sont tous utilisables et aucun n'est un trou d'architecture. Le seul
+MANQUANT est la facturation electronique (chantier FACTURATION_ELECTRONIQUE_PA, modele pret).
+
+Recette manuelle utilisateur redigee (89_RECETTE_MANUELLE_AVANT_BASCULE.md) : 15 sections, ~100
+points, PRETE A EXECUTER. **Non validee** — elle ne le sera qu'apres retour explicite de
+l'utilisateur. Reference : 92_MATRICE_COMPLETUDE_FONCTIONNELLE.md
+
+Campagne large complete (2026-08-14), 144 fichiers en 3 shards :
+- shard 1 (70 fichiers) : 1286 passed, 1 failed, 44 skipped (15m46)
+- shard 2a (37 fichiers) : 606 passed, 31 skipped (4m12)
+- shard 2b (37 fichiers) : 627 passed, 2 failed -> corriges -> verts (9m38)
+TOTAL : **2519 passed, 1 failed** (test_appsec1_diagnostic::test_07, echec environnemental
+pre-existant documente : nom d'utilisateur Windows dans le chemin temporaire pytest), 75 skipped.
+Les 2 echecs de shard 2b etaient reels (inventaire EXPECTED_TABLES non mis a jour apres les
+migrations 0027/0028) et ont ete corriges : test_sqlite_migrations 5/5 vert.

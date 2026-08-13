@@ -412,3 +412,13 @@ Tant que ces valeurs manquent, le controle de pre-emission bloque et **l'emissio
 fermee** — c'est le comportement voulu, pas une limitation.
 
 **EMISSION REELLE : NON AUTORISEE. APP.DB REELLE : NON MIGREE (0016). MODE REEL : NO GO — NON ACTIVE.**
+
+## Mise a jour 2026-08-14 — completude fonctionnelle atteinte
+
+Les quatre derniers ecrans financiers manquants sont construits. L'utilisateur peut desormais
+suivre depuis l'application : activite, proprietaires, logements, reservations, menages, charges,
+fournisseurs, **creances**, **dettes**, **soldes**, Banque, factures, reglements, comptabilite
+(dont **balance**), analytique, resultats, controles, clotures.
+
+Prochaine etape : **recette manuelle par l'utilisateur** (`89`). Le cut-over vient apres, et
+seulement apres. MODE REEL : NO GO — NON ACTIVE.

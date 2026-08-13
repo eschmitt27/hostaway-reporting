@@ -1185,3 +1185,17 @@ absence, et un test supplementaire couvre le cas du type de client non tranche.
 
 Lecon : un test qui verifie l'absence de quelque chose doit d'abord s'assurer que ce quelque chose
 aurait pu apparaitre -- sinon il passe pour de mauvaises raisons.
+
+Completude fonctionnelle (2026-08-14) : 2 echecs reels detectes par la campagne large, dans
+test_sqlite_migrations (test_migration_creates_all_tables, test_migration_is_idempotent). Cause :
+les 6 tables ajoutees par mes migrations 0027 et 0028 n'avaient pas ete declarees dans l'inventaire
+EXPECTED_TABLES de ce test. Le message "Tables manquantes : set()" etait trompeur -- rien ne
+manquait, il y avait 6 tables en trop par rapport a l'inventaire attendu.
+
+Ce test est un garde-fou volontaire : il exige que toute migration ajoutant une table le declare
+explicitement. Le completer est donc la correction juste, pas un contournement.
+
+Cause de la detection tardive : mes regressions ciblees des missions 0027/0028 filtraient sur
+test_factur*, test_comptabilite*, test_reglements*, test_proprietaires*, test_clotures* --
+test_sqlite_migrations.py n'y figurait pas. Une migration doit desormais entrainer
+systematiquement l'execution de test_sqlite_migrations.py, quel que soit le domaine touche.
