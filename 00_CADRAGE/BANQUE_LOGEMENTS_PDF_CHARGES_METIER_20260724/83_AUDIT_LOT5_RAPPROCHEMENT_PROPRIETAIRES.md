@@ -232,3 +232,118 @@ correctement (depuis le gap 1 corrige).
 | Rapprochement MASTER <-> mouvements Banque | **regles metier non arbitrees** — aucun rapprochement automatique |
 
 Le dernier point est le seul reste, et c'est une **decision metier**, pas un manque technique.
+
+## 13. Decisions utilisateur enregistrees (2026-08-13)
+
+### 13.1 Historique proprietaires : granularite non differenciee
+
+Decision utilisateur, verbatim resume : « Pour l'historique, ca n'a pas d'interet de differencier
+finement les differents types de reglements proprietaires. En revanche, A L'AVENIR, les futurs
+reglements devront etre differencies correctement selon leur vraie nature au moment de leur
+saisie/validation. »
+
+Portee exacte :
+- **Historique existant (les 56 mouvements)** : ne pas reconstruire une granularite metier qui
+  n'existait pas dans les donnees sources. Aucune nature precise n'est pour autant inventee ici.
+- **Futur** : chaque nouveau reglement proprietaire doit conserver sa vraie nature au moment de la
+  saisie (acompte, remboursement, avance, restitution, regularisation, compensation, ou autre
+  nature existante appropriee).
+
+**Le traitement simplifie de l'historique ne doit JAMAIS devenir le comportement futur.** Voir
+§13.4.
+
+### 13.2 Valeur technique neutre : elle existe deja, rien a inventer
+
+Le contrat `mouvements_tresorerie_proprietaires` (migration 0025) impose une nature parmi 7 valeurs
+fermees. La 7e est explicitement neutre :
+
+| Valeur | Sens | Neutre ? |
+|---|---|---|
+| `ACOMPTE_PROPRIETAIRE` | avance sur facture a venir | non — affirme un rattachement facture |
+| `REMBOURSEMENT_PROPRIETAIRE` | remboursement d'une depense avancee | non |
+| `REGULARISATION_PROPRIETAIRE` | correction d'un ecart anterieur | non |
+| `COMPENSATION_PROPRIETAIRE` | compensation entre creances/dettes | non |
+| `AVANCE_PROPRIETAIRE` | avance de tresorerie | non |
+| `RESTITUTION_PROPRIETAIRE` | restitution de fonds | non |
+| **`AUTRE_A_CONTROLER`** | **nature non tranchee, signalee comme telle** | **OUI** |
+
+`AUTRE_A_CONTROLER` fait deja partie du contrat, n'affirme aucune realite economique et reste
+visible comme non tranchee. **Le choix reste a l'utilisateur** — il n'est pas fait ici.
+
+Consequences de chaque option, pour information :
+- **`AUTRE_A_CONTROLER`** : les 56 entrent, la tresorerie proprietaire devient exploitable, aucune
+  affirmation economique fausse n'est ecrite. Contrepartie : les mouvements resteront signales
+  comme non tranches dans les controles, ce qui est exact.
+- **Une nature precise appliquee en bloc** (ex. tout en `ACOMPTE_PROPRIETAIRE`) : les controles
+  seraient silencieux, mais le systeme affirmerait une nature qui n'a pas ete etablie —
+  contradictoire avec la decision §13.1 qui dit seulement que la distinction n'a pas d'interet,
+  pas qu'une nature particuliere est vraie.
+
+### 13.3 FAMILLE_UZON dissocie : deux proprietaires distincts
+
+Decision utilisateur : le groupe `FAMILLE_UZON_A_CONTROLER` doit etre **entierement dissocie**.
+
+| Proprietaire | Logement | Preuve referentiel |
+|---|---|---|
+| **Maryline UZON** = `PROP_0011` | `LOG_0015` « Studio - 97 » (nom officiel « Studio - 97 (Maryline) ») | `REF_Proprietaires` + `REF_Gestion_Logements_Hist` |
+| **Didier UZON** = `PROP_0001` | `LOG_0001` « Studio - 46 », adresse **46 allee Charles de Fitte** | idem |
+
+**INTERDIT, definitivement** : creer un proprietaire « Famille Uzon », fusionner les deux,
+partager une tresorerie, partager une identite metier, rattacher automatiquement un mouvement de
+l'un a l'autre. Ils restent separes partout : referentiel, tresorerie, Lot 5, Banque, releves,
+comptabilite auxiliaire, historique, controles.
+
+### 13.4 Regle permanente pour les futurs reglements
+
+**A compter de la mise en exploitation reelle, tout nouveau mouvement de tresorerie proprietaire
+doit etre saisi avec sa nature reelle.** Le traitement simplifie applique a l'historique
+(§13.1-13.2) est une mesure de rattrapage ponctuelle, liee a l'absence de granularite dans les
+donnees sources d'avant l'exploitation. Il **ne constitue pas** une regle generale et ne doit pas
+etre repris comme comportement par defaut.
+
+Note a l'attention d'un futur developpeur ou d'une future session : si vous trouvez un lot
+historique de mouvements proprietaires portant tous la meme nature, **ce n'est pas un modele a
+imiter**. C'est la trace d'une decision explicite et datee, limitee aux mouvements anterieurs a la
+mise en exploitation reelle.
+
+## 14. Audit des 7 mouvements UZON — identite etablie (2026-08-13)
+
+Les 7 mouvements portent **tous le meme libelle bancaire explicite** : `VIR MLLE MARIE-LINE UZON`
+(deux d'entre eux avec une reference de virement en suffixe).
+
+| Mouvement (opaque) | Date | Sens | Montant | Maryline | Didier | Ambigu | Preuve |
+|---|---|---|---:|:---:|:---:|:---:|---|
+| …78964C | 2025-11-11 | CREDIT | 100,46 € | X | | | prenom explicite au libelle |
+| …4EB02B | 2025-12-09 | CREDIT | 230,47 € | X | | | idem |
+| …FCC52E | 2026-02-03 | CREDIT | 169,45 € | X | | | idem |
+| …591EB1 | 2026-02-03 | CREDIT | 138,08 € | X | | | idem |
+| …D5204A | 2026-03-19 | CREDIT | 304,49 € | X | | | idem |
+| …2A1C9F | 2026-05-05 | CREDIT | 35,00 € | X | | | idem + reference de virement |
+| …709CAB | 2026-05-05 | CREDIT | 183,74 € | X | | | idem + reference de virement |
+
+**MARYLINE (`PROP_0011`) : 7 — DIDIER (`PROP_0001`) : 0 — AMBIGU : 0.** Total 7 ✔
+Montant concerne : **1 161,69 €**.
+
+### Pourquoi ces 7 etaient marques ambigus
+
+La regle de classification `R_074` cherche uniquement la chaine **« UZON »** dans le libelle,
+c'est-a-dire le seul nom de famille — partage par les deux proprietaires. Elle ne regarde pas le
+prenom. Tout virement Uzon tombait donc mecaniquement dans un groupe « a controler ».
+
+Or le prenom **est present** dans les 7 libelles, et il ne designe qu'une seule des deux personnes :
+`MARIE-LINE` (variante d'ecriture de `Maryline` au referentiel) — jamais `DIDIER`. L'identite
+etait donc etablissable sans rien deviner.
+
+Variante d'ecriture signalee par honnetete : la banque ecrit `MARIE-LINE`, le referentiel
+`Maryline`. L'ecart est purement orthographique et ne cree aucune ambiguite entre les deux
+proprietaires Uzon, dont les prenoms (Maryline / Didier) sont sans rapport.
+
+### Consequence
+
+Aucun des 7 mouvements ne necessite d'arbitrage d'identite. **Zero mouvement ne doit etre rattache
+a Didier UZON.** Reste a trancher pour ces 7, comme pour les 49 autres : uniquement la **nature**
+(§13.1-13.2), pas l'identite.
+
+**Aucune ecriture reelle n'a ete faite** : ni Lot 5, ni Banque, ni referentiel, ni base applicative.
+La regle `R_074` n'a pas ete modifiee — l'affiner (distinguer les prenoms) serait une correction
+possible, mais elle touche la classification Banque, gelee jusqu'a la reponse utilisateur.

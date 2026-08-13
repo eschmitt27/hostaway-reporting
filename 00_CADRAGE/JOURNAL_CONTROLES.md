@@ -3467,3 +3467,25 @@ Campagne de tests sur base migree 0026 (APP_DATA_DIR isole) : shard 1 = 1253 pas
 (nom d'utilisateur Windows dans le chemin temporaire pytest) -- echec environnemental
 PRE-EXISTANT deja consigne dans 48_ROADMAP §Anomalies, sans lien avec le schema migre.
 0 nouvel echec, 0 skip opportuniste.
+
+--- Decisions utilisateur + audit UZON (2026-08-13) ---
+DECISION 1 (historique proprietaires) : pas de differenciation fine des types de reglements pour
+l'historique ; les FUTURS reglements devront porter leur vraie nature a la saisie. Le traitement
+simplifie de l'historique NE DEVIENT PAS le comportement futur. Aucune nature n'a ete inventee :
+le contrat 0025 contient deja une valeur neutre existante (AUTRE_A_CONTROLER), presentee a
+l'utilisateur avec les consequences de chaque option ; le choix lui reste.
+
+DECISION 2 (FAMILLE_UZON dissocie) : Maryline UZON = PROP_0011 = LOG_0015 "Studio - 97" ;
+Didier UZON = PROP_0001 = LOG_0001 "Studio - 46", 46 allee Charles de Fitte. Deux proprietaires
+distincts, jamais fusionnes, jamais de tresorerie partagee.
+
+AUDIT des 7 mouvements FAMILLE_UZON_A_CONTROLER : les 7 portent le libelle explicite
+"VIR MLLE MARIE-LINE UZON". MARYLINE 7 / DIDIER 0 / AMBIGU 0 (total 7, 1161,69 EUR). Cause du
+regroupement : la regle R_074 ne cherche que le nom de famille "UZON", partage par les deux
+proprietaires, et ignore le prenom -- qui etait pourtant present et discriminant. Variante
+orthographique signalee (banque "MARIE-LINE" vs referentiel "Maryline"), sans ambiguite entre les
+deux Uzon.
+
+AUCUNE ecriture reelle : ni Lot 5, ni Banque, ni referentiel, ni app.db. R_074 non modifiee
+(classification Banque gelee jusqu'a reponse utilisateur sur les 12 regles). HEAD 727d073,
+worktree propre, port 8000 constate libre, mode reel OFF.
