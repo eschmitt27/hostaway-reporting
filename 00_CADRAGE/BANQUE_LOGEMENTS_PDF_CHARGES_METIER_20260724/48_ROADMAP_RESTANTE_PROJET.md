@@ -250,3 +250,15 @@ Chaine comptable fermee : facture EMIS = source unique de vente, double comptage
 construction. Migration repetee jusqu'a 0027. Restent : format de numero et mentions legales,
 identite societe, mapping compte produit definitif (706000 provisoire), imputation Banque sur
 creance de facture.
+
+## Mise a jour 2026-08-13 (5)
+
+Module facture **termine** (doc 88). Restent uniquement des valeurs a renseigner : identite
+societe, regime TVA + mention, conditions de reglement, penalites/indemnite B2B, type de client par
+proprietaire.
+
+**Nouveau chantier identifie : FACTURATION_ELECTRONIQUE_PA** — raccordement a une plateforme
+agreee. Le modele est deja prepare (champs electronic_invoice_*, SIREN client structure,
+nature_operation, separation snapshot / rendu PDF) ; restent le choix du fournisseur, le format
+(Factur-X ou autre), l'integration et le e-reporting. Non entrepris volontairement : aucune
+plateforme n'est choisie a ce jour.

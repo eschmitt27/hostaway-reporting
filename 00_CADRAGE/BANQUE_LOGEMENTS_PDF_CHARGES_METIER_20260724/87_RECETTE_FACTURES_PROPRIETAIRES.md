@@ -156,3 +156,22 @@ Répétition rejouée jusqu'à `0027` (voir `84` §10) : séquentielle verte (71
 0 perte), automatique identique au séquentiel hors horodatages, idempotence sur 3 passages,
 rollback avec hash exact restitué après écriture dans `factures_proprietaires`. **La base réelle
 reste en 0016.**
+
+## 9. Recette conformite (2026-08-13, suite)
+
+Instance sur copie migree **0028**, port 8044 (jamais 8000), configuration fictive complete
+(`SAS DEMO CONCIERGERIE`, franchise TVA, delai 30 jours, clauses B2B fictives).
+
+| Verification | Resultat |
+|---|---|
+| Numerotation legale | `F-2026-000001` puis `F-2026-000002` |
+| Conformite figee | periode 01/07/2026 → 31/07/2026, echeance 31/08/2026, FRANCHISE_TVA, HT = TTC = 500,00 € |
+| Ecritures VENTES | une par facture, 500,00 € chacune |
+| Checklist sur la fiche | « ÉMISSION BLOQUÉE » + `FACTURE_TYPE_CLIENT_NON_DETERMINE` (le referentiel proprietaires ne porte pas encore le type de client) |
+| PDF | en-tete legal complet, periode de prestation, tableau Qte/PU HT/Total HT/TVA, TOTAL HT/TVA/TTC, echeance, conditions, mention de franchise |
+| Avoir | cree depuis l'interface, −500,00 €, serie A-2026 |
+
+**Defaut trouve et corrige pendant cette recette** : les clauses B2B (penalites, indemnite)
+s'imprimaient des qu'elles etaient configurees, sans regarder le type de client — visible en E2E
+sur une facture dont le client etait `A_CONTROLER`. Corrige (impression conditionnee a
+`PROFESSIONNEL`) et test du profil particulier renforce pour qu'il puisse attraper ce cas.

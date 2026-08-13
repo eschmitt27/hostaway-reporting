@@ -396,3 +396,19 @@ legales (arbitrage juridique), identite societe a renseigner, mapping de compte 
 (706000 provisoire), imputation d'un mouvement bancaire sur une creance de facture a cabler.
 
 **EMISSION REELLE : NON AUTORISEE. APP.DB REELLE : NON MIGREE (0016). MODE REEL : NO GO — NON ACTIVE.**
+
+## Mise a jour 2026-08-13 (5) — le module facture est termine
+
+Plus aucun trou d'architecture sur la facturation : numerotation legale, identites figees, type de
+client, TVA, mentions, conditions de reglement, controle de pre-emission, PDF conforme,
+comptabilite branchee, preparation de la facturation electronique. Detail : `88`.
+
+Ce qui reste est **exclusivement des valeurs a renseigner** : identite de la societe, regime de
+TVA et sa mention, delai de paiement et escompte, taux de penalites et indemnite forfaitaire
+(clients professionnels uniquement), type de client par proprietaire. Plus une obligation future :
+le raccordement a une plateforme de facturation electronique.
+
+Tant que ces valeurs manquent, le controle de pre-emission bloque et **l'emission reelle reste
+fermee** — c'est le comportement voulu, pas une limitation.
+
+**EMISSION REELLE : NON AUTORISEE. APP.DB REELLE : NON MIGREE (0016). MODE REEL : NO GO — NON ACTIVE.**

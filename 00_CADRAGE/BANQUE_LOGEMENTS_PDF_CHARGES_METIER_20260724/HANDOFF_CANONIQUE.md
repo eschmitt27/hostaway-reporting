@@ -1727,3 +1727,50 @@ identite societe a renseigner, imputation d'un mouvement bancaire sur une creanc
 cabler, et le mapping de compte produit (706000) toujours provisoire.
 
 **EMISSION REELLE : NON AUTORISEE. MODE REEL : NO GO — NON ACTIVE.**
+
+## Conformite des factures proprietaires (2026-08-13, suite)
+
+Detail : `88_CONFORMITE_FACTURES_PROPRIETAIRES.md`. Le module facture est desormais **termine**.
+Ce qui reste n'est plus de l'architecture : ce sont des **valeurs a renseigner** et une
+**obligation future de transmission electronique**.
+
+Numerotation legale : **F-AAAA-NNNNNN** (factures) et **A-AAAA-NNNNNN** (avoirs), deux series
+independantes portees par le compteur existant. Numero consomme uniquement a l'emission (un
+brouillon abandonne ne cree aucun trou), fige, jamais reutilise, concurrence protegee. Chaque
+annee ouvre une serie explicite.
+
+Migration **0028** additive : `factures_proprietaires_conformite` (identites completes figees,
+type de client, nature d'operation, periode de prestation, regime TVA + mention, HT/TVA/TTC,
+conditions de reglement, champs electronic_invoice_* neutres) et
+`factures_proprietaires_lignes_detail` (quantite, prix unitaire).
+
+Configuration unique `facturation_config_service` : **aucune valeur juridique inventee**, tout vide
+par defaut. Regime TVA = A_CONTROLER tant qu'il n'est pas declare (la decision "pas de TVA" dit
+qu'aucune TVA n'est facturee, pas pourquoi). Taux de penalites et indemnite forfaitaire sans
+defaut : ils bloquent l'emission professionnelle. Vocabulaire TVA aligne sur D083.
+
+Controle de pre-emission unique : PRETE_A_EMETTRE / BLOQUEE + liste des manques nommes par code
+stable. Toujours affiche, ne bloque que si l'emission reelle est ouverte — la recette peut exercer
+le parcours avec une configuration incomplete sans creer de chemin permissif en production.
+
+Type de client jamais devine : sans information explicite il vaut A_CONTROLER et bloque. Les
+clauses B2B sont exigees ET imprimees uniquement face a un PROFESSIONNEL.
+
+PDF refondu : periode de prestation distincte de la date d'emission, tableau
+Designation/Qte/PU HT/Total HT/TVA, totaux HT/TVA/TTC, echeance, conditions, mentions configurees.
+Determinisme conserve. Le PDF est un **rendu derive** du snapshot, jamais la source de verite —
+une future facture electronique sera un autre rendu du meme snapshot, sans recalcul metier.
+
+Facturation electronique : **architecture prete, rien de branche** (aucune plateforme choisie,
+aucune API, aucun envoi, pas de Factur-X). Chantier futur : FACTURATION_ELECTRONIQUE_PA.
+
+Recette E2E (port 8044, base copie 0028) : F-2026-000001 et F-2026-000002 emises, conformite figee
+(periode 01/07->31/07, echeance 31/08, franchise TVA, HT=TTC=500), ventes comptables generees,
+PDF complet verifie, avoir cree. 1 defaut trouve et corrige pendant la recette (clauses B2B
+imprimees sans regarder le type de client) + test renforce.
+
+Migration repetee 0016->0028 : sequentielle (73 tables, 122 index, 0 perte), automatique
+identique, idempotence, rollback hash exact. **Base reelle toujours 0016.**
+
+**IDENTITE SOCIETE : DONNEES A FOURNIR. REGIME TVA : A CONFIRMER. EMISSION REELLE : NON AUTORISEE.
+MODE REEL : NO GO — NON ACTIVE.**

@@ -1172,3 +1172,16 @@ piege. Test de non-regression ajoute (test_documents_ecrits_sous_data_dir_rediri
 
 Lecon : dans ce projet, tout chemin derive de DATA_DIR doit etre resolu a l'appel, jamais fige a
 l'import -- sinon l'isolation des instances de recette est silencieusement contournee.
+
+Conformite des factures (2026-08-13) : 1 defaut trouve et corrige pendant la recette E2E. Le PDF
+imprimait les clauses B2B (penalites de retard, indemnite forfaitaire de recouvrement) des
+qu'elles etaient configurees, sans regarder le type de client -- visible sur une facture dont le
+client etait A_CONTROLER. Une facture adressee a un particulier aurait donc pu porter une mention
+professionnelle inadaptee. Corrige : impression conditionnee a type_client == PROFESSIONNEL.
+
+Le test du profil particulier a ete **renforce** dans la foulee : il ne configurait pas les clauses
+B2B, il ne pouvait donc pas attraper ce defaut. Il les configure desormais avant de verifier leur
+absence, et un test supplementaire couvre le cas du type de client non tranche.
+
+Lecon : un test qui verifie l'absence de quelque chose doit d'abord s'assurer que ce quelque chose
+aurait pu apparaitre -- sinon il passe pour de mauvaises raisons.

@@ -273,3 +273,12 @@ Avoir partiel de 100 € → **net 400,00 €**, originale toujours à 500 €.
 | MIGRATION DB JUSQU'À 0027 | **PRÊTE SUR COPIE** |
 | ÉMISSION RÉELLE | NON AUTORISÉE |
 | MODE RÉEL | **NO GO — NON ACTIVÉ** |
+
+---
+
+## 15. Conformite (2026-08-13, suite)
+
+Le format de numero et les mentions, signales comme « a arbitrer » aux §7 et §12, sont desormais
+traites : numerotation **F-AAAA-NNNNNN / A-AAAA-NNNNNN**, mentions et regime de TVA portes par une
+configuration unique, controle de pre-emission qui bloque sur donnee reglementaire manquante.
+Detail complet : `88_CONFORMITE_FACTURES_PROPRIETAIRES.md`.

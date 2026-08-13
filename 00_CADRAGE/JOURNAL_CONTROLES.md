@@ -3554,3 +3554,33 @@ Regression ciblee apres branchement comptable (2026-08-13) : factures (fournisse
 proprietaires), comptabilite, reglements, proprietaires, rapprochement bancaire, clotures --
 **706 passed, 0 echec** (6m17). Non-regression du module factures fournisseurs et du socle
 comptable confirmee.
+
+--- Conformite des factures proprietaires (2026-08-13) ---
+Numerotation legale : F-AAAA-NNNNNN (factures), A-AAAA-NNNNNN (avoirs), series independantes
+portees par le compteur existant. Numero consomme uniquement a l'emission (brouillon abandonne =
+aucun trou, verifie), fige, jamais reutilise, concurrence protegee, nouvelle serie par annee.
+
+Migration 0028 additive : factures_proprietaires_conformite (identites figees, type client,
+nature operation, periode prestation, regime TVA + mention, HT/TVA/TTC, conditions reglement,
+champs electronic_invoice_* neutres) + factures_proprietaires_lignes_detail (qte, PU HT).
+Sequentielle 73 tables / 122 index / 0 perte, automatique identique, idempotence 3 passages,
+rollback hash exact. Base reelle toujours 0016.
+
+Configuration unique facturation_config_service : aucune valeur juridique inventee, tout vide par
+defaut. Regime TVA A_CONTROLER tant que non declare. Taux penalites et indemnite forfaitaire sans
+defaut (bloquent l'emission professionnelle). Vocabulaire TVA aligne sur D083.
+
+Controle de pre-emission unique : PRETE_A_EMETTRE / BLOQUEE + manques nommes. 11 codes stables.
+Toujours affiche, ne bloque que si l'emission reelle est ouverte.
+
+Recette E2E (port 8044, copie 0028) : F-2026-000001 et 000002 emises, conformite figee (periode
+01/07->31/07, echeance 31/08, FRANCHISE_TVA, HT=TTC=500), ventes comptables generees, PDF complet
+verifie, avoir cree, checklist de conformite affichee sur la fiche.
+
+Tests : 28 nouveaux (conformite) + mises a jour. 74 verts sur le bloc facturation complet.
+EMISSION REELLE : NON AUTORISEE. MODE REEL : NO GO - NON ACTIVE.
+Reference : 88_CONFORMITE_FACTURES_PROPRIETAIRES.md
+
+Regression ciblee apres conformite (2026-08-13) : factures (fournisseurs + proprietaires),
+comptabilite, reglements, proprietaires, clotures -- **688 passed, 0 echec** (7m10).
+Non-regression des factures fournisseurs et du socle comptable confirmee.

@@ -211,3 +211,22 @@ MENTIONS LEGALES / FORMAT DE NUMERO : A_FAIRE_HUMAIN (inchange).
 IDENTITE SOCIETE EMETTRICE : A_FAIRE_HUMAIN (configuration en place, valeurs a renseigner).
 IMPUTATION BANQUE SUR CREANCE DE FACTURE : NON_TESTE (inchange).
 EMISSION REELLE : NON AUTORISEE. Verdict global : **NO GO. MODE REEL : NO GO — NON ACTIVE.**
+
+## Mise a jour 2026-08-13 (5) — conformite des factures
+
+NUMEROTATION : **VALIDE** (etait : format a valider). F-AAAA-NNNNNN / A-AAAA-NNNNNN, series
+independantes, continuite, figeage, concurrence protegee.
+MENTIONS LEGALES : **VALIDE_AVEC_RESERVE** — structure et controles en place ; le texte des
+mentions reste une valeur a renseigner, pas un manque d'architecture.
+IDENTITE SOCIETE EMETTRICE : **A_FAIRE_HUMAIN** — configuration complete, valeurs a fournir
+(denomination, forme juridique, capital, SIREN, SIRET/RCS, adresse, contact, coordonnees paiement).
+REGIME TVA : **A_FAIRE_HUMAIN** — A_CONTROLER par defaut, bloque l'emission tant qu'il n'est pas
+declare avec sa mention.
+TYPE DE CLIENT PAR PROPRIETAIRE : **A_FAIRE_HUMAIN** (nouvel item) — particulier ou professionnel,
++ SIREN pour les professionnels. Jamais devine.
+CONDITIONS DE REGLEMENT / PENALITES / INDEMNITE : **A_FAIRE_HUMAIN** — sans defaut choisi par le
+code ; penalites et indemnite bloquent l'emission professionnelle.
+MIGRATION DB JUSQU'A 0028 : **PRETE SUR COPIE**.
+FACTURATION ELECTRONIQUE : **NON_TESTE** — architecture prete, aucun raccordement (chantier
+FACTURATION_ELECTRONIQUE_PA).
+EMISSION REELLE : NON AUTORISEE. Verdict global : **NO GO. MODE REEL : NO GO — NON ACTIVE.**
