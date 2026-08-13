@@ -248,3 +248,71 @@ ci-dessus (9 lignes `CLOTURE_IMPOSSIBLE_LIGNE_BANCAIRE_NON_CLASSEE` = section 1+
 - **COMPTABILITÉ : PRÊTE AVEC RÉSERVES.**
 - **PRÉPARATION MODE RÉEL : NO GO.**
 - **MODE RÉEL : NO GO — NON ACTIVÉ.**
+
+---
+
+## Mise a jour 2026-08-13 — tout le technique est leve
+
+Ce qui a change depuis la version precedente (preuves : `84`, `85`, `83` §12) :
+
+**1. Migration app.db : PRETE ET REPETEE.** Le principal risque technique restant est leve. Les 10
+migrations 0017->0026 sont purement additives, testees une par une puis d'un coup, idempotentes,
+avec rollback valide (hash exact restitue). La base reelle n'a pas ete migree — c'est une decision
+a prendre, plus une inconnue. Runbook pret : `85_RUNBOOK_MIGRATION_APP_DB_REELLE.md`.
+**Rien a demander a l'utilisateur sur ce sujet.**
+
+**2. Un bug reel corrige (commit `1759ce0`).** `lot8c` affirmait que le master Lot 5 etait vide
+sans jamais l'ouvrir : alimenter Lot 5 puis relancer n'aurait rien change et rien signale. Vous
+auriez fait le travail pour rien. Corrige.
+
+**3. Une contrainte operationnelle a connaitre.** Apres avoir rempli
+`SAISIE_AcomptesProprietaires.xlsx`, il faut **ouvrir le classeur MASTER dans Excel et actualiser
+les requetes Power Query** avant de relancer lot8c — le script Python ne peuple pas MASTER.
+
+**4. Les 12 regles candidates §2 sont validees techniquement** : 0 collision entre regles,
+0 `PAYOUT_PLATEFORME`, 0 mouvement proprietaire, 0 mouvement deja classe, 57 couverts + 25 isoles
+= 82 exact.
+
+### Les 3 decisions attendues (rien d'autre)
+
+**DECISION 1 — PROPRIETAIRES** (QUESTION_01, inchangee)
+> Pour chaque propriétaire (PROP_0009, 0002, 0006, 0008, 0010, 0005), tous les encaissements
+> listés §1 ont-ils la même nature ? Si oui laquelle (acompte / remboursement / avance / autre) ?
+
+Affecte **49 mouvements, 25 907,49 EUR**, 6 proprietaires. Si la reponse est uniforme par
+proprietaire : **6 reponses suffisent** pour 49 mouvements. Si certains different, il faut
+distinguer les exceptions mouvement par mouvement — la liste opaque est dans
+`BANQUE_LOT8_IMPORT.xlsx` onglet `RAPPROCH_PROPRIETAIRES_ATTENTE`.
+
+**DECISION 2 — IDENTITE** (QUESTION_02, inchangee)
+> Qui est le propriétaire réel derrière `FAMILLE_UZON_A_CONTROLER` ?
+
+Affecte **7 mouvements, 1 161,69 EUR** (2025-11 -> 2026-05). Identite candidate produite par une
+regle de libelle bancaire qui ne distingue pas plusieurs personnes d'un meme foyer. Ce qui manque
+pour confirmer : un rattachement explicite entre le libelle bancaire et un `proprietaire_id` du
+referentiel. **Non tranche ici, aucune supposition.**
+
+**DECISION 3+ — A_ENVOYER_IA**, par levier decroissant :
+
+| # | Regle candidate | Mvts | Montant | Question |
+|---|---|---:|---:|---|
+| 3 | `PAIEMENT CB … VILNIUS` | 14 | 210,44 € | Meme marchand : quelle nature ? |
+| 4 | `PAIEMENT PSC … LA BREDE` | 9 | 199,21 € | idem |
+| 5 | `PAIEMENT CB … ,# EUR` | 8 | 307,21 € | Motif peu discriminant — a examiner |
+| 6 | `PAIEMENT PSC … CADAUJAC` | 5 | 76,44 € | idem |
+| 7 | `PAIEMENT PSC … ST SELVE` | 5 | 16,60 € | idem |
+| 8 | `RETRAIT DAB … LA BREDE` | 2 | 420,00 € | Especes : usage pro ou perso ? |
+| 9-14 | 6 regles de 2 a 3 mouvements | 15 | 349,25 € | idem |
+| — | 25 cas isoles | 25 | ~1 626 € | dont 2 virements CREDIT d'un tiers nomme (876,38 €) : qui, et a quel titre ? |
+
+### File humaine finale (dedupliquee)
+
+| | Valeur |
+|---|---:|
+| Lignes de controle ouvertes | 24 |
+| **Objets economiques** | **183** |
+| **Decisions humaines — minimum** | **89** (7 + 37 + 42 + 3) |
+| **Decisions humaines — maximum** | **183** |
+
+Le minimum suppose des reponses uniformes par propriétaire et par regle candidate ; le maximum
+suppose que chaque objet est un cas particulier. Aucun des deux n'est presume.

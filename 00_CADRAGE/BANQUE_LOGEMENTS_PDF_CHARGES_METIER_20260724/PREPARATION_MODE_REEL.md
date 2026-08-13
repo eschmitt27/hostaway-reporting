@@ -351,3 +351,21 @@ Nouveau prerequis technique : migrations 0017->0026 a appliquer a la base reelle
 0016) avant exploitation de la tresorerie proprietaires.
 
 **PREPARATION MODE REEL : NO GO. MODE REEL : NO GO — NON ACTIVE.**
+
+## Mise a jour 2026-08-13 (2) — migration DB repetee, chaine Lot 5 fiabilisee
+
+Le principal risque technique restant est leve : la migration app.db 0016->0026 a ete **repetee
+integralement sur copies** (sequentielle une par une, automatique, idempotence, rollback), avec
+0 perte de donnees et hash exact restitue au rollback. La base reelle n'a **pas** ete migree
+(hash identique, toujours 0016). Runbook pret et non execute : 85_RUNBOOK_MIGRATION_APP_DB_REELLE.md.
+
+Un bug reel a ete trouve et corrige au passage (commit 1759ce0) : lot8c n'ouvrait jamais le master
+Lot 5 tout en affirmant qu'il etait vide — alimenter Lot 5 puis relancer n'avait aucun effet
+observable. Corrige de facon minimale, sans inventer de regle de rapprochement.
+
+Reste apres cette mission : uniquement des **decisions metier** (nature des encaissements
+proprietaires, identite FAMILLE_UZON, classification des 82, montants des 42) et deux arbitrages
+(regles de rapprochement Lot5<->Banque, mappings comptables fins). Plus aucune question technique
+ouverte sur la migration ni sur l'exploitabilite de Lot 5.
+
+**PREPARATION MODE REEL : NO GO** (donnees humaines non traitees). **MODE REEL : NO GO — NON ACTIVE.**

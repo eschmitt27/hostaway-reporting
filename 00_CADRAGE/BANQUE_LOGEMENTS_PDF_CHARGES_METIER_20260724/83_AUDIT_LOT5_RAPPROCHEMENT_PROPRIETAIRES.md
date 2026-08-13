@@ -179,3 +179,56 @@ définitif se posera au moment de l'arbitrage comptable global, pas ici.
 - **MOUVEMENTS PROPRIÉTAIRES : 56 → 56 décisions humaines restantes** (0 résoluble par preuve),
   compressibles à **7 décisions** si l'utilisateur confirme une nature uniforme par propriétaire.
 - **Aucune donnée réelle modifiée. Aucun objet créé. Aucune nature inférée.**
+
+## 12. Chaine Lot 5 -> Banque : deux gaps techniques trouves (2026-08-13)
+
+L'audit du 2026-08-12 concluait « Lot 5 FONCTIONNEL mais NON ALIMENTE ». La repetition generale a
+teste la chaine complete et trouve **deux gaps qui auraient fait perdre son travail a
+l'utilisateur** apres avoir rempli Lot 5.
+
+### Gap 1 — lot8c n'ouvrait jamais le master Lot 5 (CORRIGE, commit `1759ce0`)
+
+Le prerequis "MASTER_FACT_MAN_AcomptesProprietaires vide - attendre saisie Lot 5" et le controle
+`LOT5_PREREQUIS_MANQUANT` etaient des **chaines codees en dur**. `lot8c` ne lit que
+`BANQUE_LOT8_IMPORT.xlsx`.
+
+Preuve empirique sur copie : 5 acomptes synthetiques injectes dans SAISIE (montants et
+proprietaires identiques a de vrais mouvements), relance lot5 + lot8c -> **sortie strictement
+identique**, 56 lignes `EN_ATTENTE_SAISIE_ACOMPTE`, 27 069,18 EUR. L'action demandee a
+l'utilisateur ("alimenter Lot 5 puis relancer") n'avait donc aucun effet observable.
+
+Corrige : lecture reelle de l'onglet MASTER. 0 objet -> message et controle inchanges
+(non-regression). >0 objet -> `LOT5_REGLES_RAPPROCHEMENT_A_ARBITRER` avec le nombre reel.
+
+### Gap 2 — lot5 ne peuple pas MASTER depuis SAISIE (documente, non corrige)
+
+`lot5_master_acomptes_proprietaires.py` est un **generateur de template**. `build_master()` cree un
+onglet MASTER vide avec ses en-tetes et une feuille `POWER_QUERY_CODE`. Il ne lit pas SAISIE.
+
+Mesure : SAISIE 5 lignes -> lot5 -> **MASTER 0 ligne**.
+
+Le peuplement se fait par **refresh Power Query dans Excel**. Le M-code embarque n'est pas trivial :
+5 controles BLOQUANT (`ACOMPTE_CALC_ID_DUPLIQUE`, `ACOMPTE_PROPRIETAIRE_ABSENT`,
+`ACOMPTE_MONTANT_INVALIDE`, `ACOMPTE_NON_RATTACHE_FACTURE`, `ACOMPTE_HH_INCOHERENT`), 5
+A_CONTROLER, validation croisee avec le master HH (Lot 4), detection de doublons `acompte_id`.
+
+**Non reimplemente volontairement** : reproduire cette logique de controle en Python est une vraie
+fonctionnalite, avec un risque reel de diverger subtilement des regles metier existantes. Ce n'est
+pas un bug — c'est l'architecture prevue, coherente avec le fait que la saisie est humaine et se
+fait dans Excel.
+
+**Consequence operationnelle a connaitre** : apres avoir rempli
+`SAISIE_AcomptesProprietaires.xlsx`, il faut **ouvrir le classeur MASTER dans Excel et actualiser
+les requetes** avant de relancer lot8c. Sans cette etape, MASTER reste vide et lot8c le signalera
+correctement (depuis le gap 1 corrige).
+
+### Etat de la chaine apres correction
+
+| Etape | Etat |
+|---|---|
+| Saisie humaine dans `SAISIE_AcomptesProprietaires.xlsx` | disponible |
+| SAISIE -> MASTER | **manuel (refresh Power Query dans Excel)** |
+| MASTER lu par lot8c | **OUI depuis le fix** (etait : jamais) |
+| Rapprochement MASTER <-> mouvements Banque | **regles metier non arbitrees** — aucun rapprochement automatique |
+
+Le dernier point est le seul reste, et c'est une **decision metier**, pas un manque technique.

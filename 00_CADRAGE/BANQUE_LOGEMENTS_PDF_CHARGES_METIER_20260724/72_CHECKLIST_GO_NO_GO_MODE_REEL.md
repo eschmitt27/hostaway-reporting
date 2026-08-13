@@ -171,3 +171,16 @@ MIGRATIONS BASE REELLE : NON_TESTE — base reelle en migration 0016, tresorerie
 requiert 0025 ; migrations 0017->0026 a appliquer avant exploitation reelle (nouvel item).
 ROLLBACK : NON_TESTE (inchange).
 Verdict global inchange : NO GO — VALIDATION HUMAINE REQUISE.
+
+## Mise a jour 2026-08-13 (2) — repetition migration app.db
+
+MIGRATION APP.DB 0016->0026 : **PRETE ET REPETEE** (etait NON_TESTE). Sequentielle + automatique +
+idempotence + rollback tous verts sur copies, base reelle jamais migree. Preuves :
+84_REPETITION_MIGRATION_DB_0016_VERS_0026.md. Runbook pret, non execute :
+85_RUNBOOK_MIGRATION_APP_DB_REELLE.md.
+ROLLBACK DB : **VALIDE SUR COPIE** (hash exact restitue) — etait NON_TESTE.
+LOT 5 : PRET A ETRE ALIMENTE, avec une contrainte operationnelle documentee (peuplement de MASTER
+depuis SAISIE par refresh Power Query dans Excel, pas par Python).
+BANQUE : PRETE TECHNIQUEMENT (lot8c corrige, lit desormais l'etat reel de Lot 5).
+DONNEES HUMAINES : A_FAIRE_HUMAIN (56 proprietaires + 82 A_ENVOYER_IA + 42 Direct/VRBO + 3 autres).
+Verdict global inchange : **NO GO — VALIDATION HUMAINE REQUISE. MODE REEL : NO GO — NON ACTIVE.**

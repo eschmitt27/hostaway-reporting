@@ -1124,3 +1124,25 @@ Lecon : un controle moteur en attente (LOT5_PREREQUIS_MANQUANT) disait deja exac
 l'audit l'a confirme au lieu de le contourner. Aucune nature economique n'a ete inferee depuis un
 montant, une date, un nom de contrepartie ou une recurrence -- d'autant que la mesure montre 0
 montant repete parmi les 56, donc aucune serie n'aurait de toute facon pu servir de preuve.
+
+Repetition migration + Lot 5 (2026-08-13) : 1 bug reel trouve et corrige, 1 gap documente.
+
+BUG (corrige, commit 1759ce0) : lot8c_rapprochement_banque.py ecrivait en dur le prerequis
+"MASTER_FACT_MAN_AcomptesProprietaires vide - attendre saisie Lot 5" et le controle
+LOT5_PREREQUIS_MANQUANT sans jamais ouvrir ce fichier (il ne lit que BANQUE_LOT8_IMPORT.xlsx).
+L'action demandee a l'utilisateur ("alimenter Lot 5 puis relancer Lot 8c") n'aboutissait donc a
+aucun effet observable -- prouve empiriquement en injectant 5 acomptes synthetiques : sortie
+strictement identique. Classe comme bug de contrat/reporting : le moteur affirmait un fait qu'il
+n'avait jamais verifie.
+
+GAP documente (non corrige, pas un bug) : lot5_master_acomptes_proprietaires.py est un generateur
+de template ; build_master() ne lit pas SAISIE. MASTER est peuple par refresh Power Query dans
+Excel. Architecture prevue et coherente (saisie humaine dans Excel), mais consequence
+operationnelle a connaitre : apres saisie, actualiser les requetes dans Excel avant de relancer
+lot8c.
+
+Incident mineur de cette mission, signale par transparence : un appel a apply_migrations() avec un
+chemin de style bash (/c/Users/...) invalide sous Python Windows a cree une base vide dans un
+repertoire parasite C:\c\... Detecte immediatement, contenu verifie (1 seul fichier, cree par cette
+mission), repertoire supprime. Aucune donnee reelle concernee. Regle : toujours passer des chemins
+Windows natifs aux interpreteurs Windows.

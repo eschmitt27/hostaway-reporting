@@ -3426,3 +3426,44 @@ Tests fixtures 126/126 verts. Idempotence Banque revalidee (236/222/83 identique
 lot8a/8b/8c). Integrite 3/950 diffs deja committes, 0 nouvelle modification reelle. 0 code
 modifie, 0 bug. CLOTURE TECHNIQUE : GO. PREPARATION MODE REEL : NO GO. MODE REEL : NO GO -
 NON ACTIVE. Reference : 83_AUDIT_LOT5_RAPPROCHEMENT_PROPRIETAIRES.md
+
+--- Repetition migration app.db 0016->0026 + chaine Lot 5 (2026-08-13) ---
+Base reelle app.db : baseline capturee (SHA256 8e299b93...70aa81d6, 421888 octets, integrity ok,
+migration 0016, 36 tables / 52 index / 0 trigger, 6 tables non vides = 62 lignes). 2 copies
+byte-identiques creees. **Base reelle jamais migree ni ouverte en ecriture ; hash identique a la
+fin.**
+
+Migrations 0017->0026 : purement additives (0 ALTER, 0 DROP, 0 DELETE, 0 UPDATE ; tous CREATE en
+IF NOT EXISTS ; tous INSERT en OR IGNORE ; 0 clause REFERENCES). Sequentielle une par une :
+integrity ok aux 10 etapes, 36->67 tables, 52->108 index, 0->1 trigger, 0 perte (hash canonique
+des 5 tables metier conserve a chaque etape). Automatique via apply_migrations() : schema
+strictement identique, contenu identique hors horodatages. Idempotence : 2 rejeux, 0 ecart.
+Rollback par restauration de backup : hash exact restitue, base relisible en 0016.
+MIGRATION PRETE ET REPETEE.
+
+BUG REEL corrige (commit 1759ce0) : lot8c affirmait en dur "MASTER_FACT_MAN_AcomptesProprietaires
+vide" sans jamais ouvrir ce fichier ; alimenter Lot 5 puis relancer ne changeait rien et ne le
+signalait pas (prouve empiriquement sur copie). Fix minimal : lecture reelle de l'onglet MASTER,
+0 objet -> comportement inchange, >0 -> LOT5_REGLES_RAPPROCHEMENT_A_ARBITRER. Aucune regle de
+rapprochement inventee. 4 tests (1 non-regression + 3 rouges avant fix) verts.
+
+GAP 2 documente non corrige : lot5 ne peuple pas MASTER depuis SAISIE (refresh Power Query dans
+Excel requis ; M-code = 5 controles BLOQUANT + 5 A_CONTROLER + validation croisee HH + doublons).
+Reimplementation en Python volontairement non entreprise (vraie feature, risque de divergence
+metier).
+
+12 regles candidates sur les 82 A_ENVOYER_IA validees TECHNIQUEMENT (pas metier) : 0 collision,
+0 PAYOUT_PLATEFORME, 0 mouvement proprietaire, 0 deja classe ; 57 couverts + 25 isoles = 82.
+
+Baseline controles apres fix : 0 BLOQUANT / 14 A_CONTROLER / 10 INFO / 24 total (inchangee).
+Invariants : REEL 313756,48 = COMPTABLE 303232,32 + HORS_COMPTA 10524,16, ecart 0,00 EUR.
+Integrite : app.db reelle hash identique, 3/950 diffs deja committes, 0 nouvelle modification
+reelle. Port 8000 constate libre, non manipule. MODE REEL : NO GO - NON ACTIVE.
+Reference : 84_REPETITION_MIGRATION_DB_0016_VERS_0026.md, 85_RUNBOOK_MIGRATION_APP_DB_REELLE.md
+
+Campagne de tests sur base migree 0026 (APP_DATA_DIR isole) : shard 1 = 1253 passed / 1 failed /
+59 skipped (16m28), shard 2 = 1170 passed / 0 failed / 17 skipped (14m08). TOTAL 139 fichiers :
+**2423 passed, 1 failed, 76 skipped**. L'unique echec est test_appsec1_diagnostic::test_07
+(nom d'utilisateur Windows dans le chemin temporaire pytest) -- echec environnemental
+PRE-EXISTANT deja consigne dans 48_ROADMAP §Anomalies, sans lien avec le schema migre.
+0 nouvel echec, 0 skip opportuniste.

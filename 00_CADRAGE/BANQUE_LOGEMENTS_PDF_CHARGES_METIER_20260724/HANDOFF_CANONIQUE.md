@@ -1607,3 +1607,42 @@ ambigu, candidats). Idempotence Banque reverifiee (lot8a/8b/8c relances : 236/22
 0 code modifie, 0 bug trouve. Port 8000 constate libre, non manipule. Mode reel OFF.
 
 **CLOTURE TECHNIQUE : GO. PREPARATION MODE REEL : NO GO. MODE REEL : NO GO — NON ACTIVE.**
+
+## Repetition migration app.db 0016 -> 0026 + bug lot8c/Lot5 (2026-08-13)
+
+Preuves : `84_REPETITION_MIGRATION_DB_0016_VERS_0026.md`, runbook :
+`85_RUNBOOK_MIGRATION_APP_DB_REELLE.md`.
+
+**Migration repetee sur copies, base reelle JAMAIS migree** (hash inchange, toujours 0016). Les 10
+migrations 0017->0026 sont **purement additives** : 0 ALTER, 0 DROP, 0 DELETE, 0 UPDATE, tous les
+CREATE en IF NOT EXISTS, tous les INSERT en OR IGNORE, 0 clause REFERENCES. Sequentielle une par
+une : integrity ok aux 10 etapes, 36->67 tables, 52->108 index, 0 trigger -> 1, **0 perte** (hash
+canonique des 5 tables metier non vides conserve a chaque etape). Migration automatique via
+`apply_migrations()` : schema strictement identique au sequentiel, contenu identique hors
+horodatages (`applied_at`, `date_creation`, id autoincrement). Idempotence : 2 rejeux
+supplementaires, 0 ecart. Rollback par restauration de backup : **hash exact restitue**, base
+relisible en 0016. **MIGRATION PRETE ET REPETEE** (prete != autorisee).
+
+**Bug reel trouve et corrige (commit `1759ce0`)** : `lot8c` affirmait en dur "MASTER_FACT_MAN_
+AcomptesProprietaires vide - attendre saisie Lot 5" sans jamais ouvrir ce fichier. Prouve
+empiriquement : alimenter Lot 5 puis relancer lot8c ne changeait rien et ne le signalait pas.
+Correction minimale (lecture reelle de l'onglet MASTER ; 0 objet -> comportement inchange, >0 ->
+controle `LOT5_REGLES_RAPPROCHEMENT_A_ARBITRER`). **Aucune regle de rapprochement Lot5<->Banque
+n'a ete definie** : tolerance, fenetre de date et groupement restent un arbitrage metier ouvert.
+4 tests (1 non-regression + 3 rouges avant fix).
+
+**Contrainte Lot 5 documentee** : `lot5_master_acomptes_proprietaires.py` est un generateur de
+template ; `build_master()` ne lit pas SAISIE. Le peuplement de MASTER depuis SAISIE se fait par
+**refresh Power Query dans Excel** (M-code embarque : 5 controles BLOQUANT + 5 A_CONTROLER +
+validation croisee HH + detection de doublons). Reimplementer cette ingestion en Python serait une
+vraie feature, volontairement non entreprise. Consequence pratique : apres saisie, l'utilisateur
+doit ouvrir le classeur dans Excel et actualiser les requetes avant de relancer lot8c.
+
+12 regles candidates sur les 82 A_ENVOYER_IA **validees techniquement** (pas metier) : 0 collision,
+0 PAYOUT_PLATEFORME, 0 mouvement proprietaire, 0 mouvement deja classe, 57 couverts + 25 isoles =
+82 exact -> compression possible 82 -> 37 decisions.
+
+Baseline de controles inchangee (0 BLOQUANT / 14 A_CONTROLER / 10 INFO / 24) et invariants
+economiques identiques (313 756,48 = 303 232,32 + 10 524,16, ecart 0,00 EUR) apres le fix.
+Integrite : app.db reelle hash identique, 3/950 diffs deja committes, 0 nouvelle modification
+reelle. Port 8000 constate libre, non manipule. **MODE REEL : NO GO — NON ACTIVE.**

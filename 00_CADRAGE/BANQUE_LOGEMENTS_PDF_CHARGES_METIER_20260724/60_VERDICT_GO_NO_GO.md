@@ -363,3 +363,12 @@ plancher 7). A_ENVOYER_IA : 82 -> 37 a 82 decisions. DIRECT/VRBO : 42. AUTRES A_
 TOTAL DECISIONS HUMAINES : 89 a 183. COMPTABILITE : PRETE AVEC RESERVES (les 56 proprietaires ne
 creent aucune question comptable nouvelle). **PREPARATION MODE REEL : NO GO. MODE REEL : NO GO —
 NON ACTIVE.**
+
+## Mise a jour 2026-08-13 (2) — repetition migration DB
+
+APPLICATION : VALIDEE. CLOTURE TECHNIQUE : GO. BLOQUANTS : 0.
+MIGRATION APP.DB 0016->0026 : **PRETE ET REPETEE**. ROLLBACK DB : **VALIDE SUR COPIE**.
+LOT 5 : PRET A ETRE ALIMENTE (contrainte : refresh Power Query dans Excel pour peupler MASTER).
+BANQUE : PRETE TECHNIQUEMENT. 56 proprietaires -> 7 a 56 decisions. 82 IA -> 37 a 82 decisions.
+42 Direct/VRBO. 3 autres A_CONTROLER. COMPTABILITE : PRETE AVEC RESERVES.
+**PREPARATION MODE REEL : NO GO. MODE REEL : NO GO — NON ACTIVE.**

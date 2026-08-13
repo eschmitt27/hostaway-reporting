@@ -227,3 +227,12 @@ candidates preparees (couvrent 57/82), compression possible a 37 decisions. File
 89 a 183 decisions. Nouveau prerequis : migrations 0017->0026 sur la base reelle avant
 exploitation tresorerie proprietaires. Detail : 83_AUDIT_LOT5_RAPPROCHEMENT_PROPRIETAIRES.md et
 82_PACK_FINAL_ACTIONS_HUMAINES.md.
+
+## Mise a jour 2026-08-13 (2)
+
+Migration app.db 0016->0026 repetee et prete (base reelle non migree) ; rollback valide sur copie ;
+runbook 85 pret a executer sur decision. Bug lot8c/Lot5 corrige (1759ce0). Contrainte Lot 5
+documentee : peuplement MASTER par refresh Power Query dans Excel. 12 regles candidates sur les 82
+validees techniquement. Il ne reste aucune question technique sur la migration ou l'exploitation de
+Lot 5 — uniquement des decisions metier et deux arbitrages (regles Lot5<->Banque, mappings
+comptables fins).
