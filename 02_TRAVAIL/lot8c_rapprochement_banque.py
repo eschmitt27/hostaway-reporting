@@ -60,6 +60,8 @@ if NO_REAL_WRITE and not (_ARGS.project_root or os.environ.get("PILOTAGE_PROJECT
 
 BANQUE_PATH = os.path.join(BASE, "02_TRAVAIL", "Lot8_Banque", "BANQUE_LOT8_IMPORT.xlsx")
 ARCHIVE_DIR = os.path.join(BASE, "99_ARCHIVES", "LOT8_Banque")
+LOT5_MASTER_PATH = os.path.join(BASE, "02_TRAVAIL", "Lot5_AcomptesProprietaires",
+                                "MASTER_FACT_MAN_AcomptesProprietaires.xlsx")
 
 IMPORT_ID = "IMP-BQ-CM-2026-03-001"
 
@@ -294,12 +296,45 @@ PROP_HDR = [
 ]
 PROP_WIDTHS = [32, 14, 60, 14, 10, 28, 36, 32, 38, 12, 20, 70]
 
-def build_rapproch_proprietaires(wb, prop_rows):
+def compter_objets_lot5():
+    """Nombre d'objets presents dans MASTER_FACT_MAN_AcomptesProprietaires (onglet MASTER).
+
+    Lot 8c annoncait auparavant en dur "MASTER_FACT_MAN_AcomptesProprietaires vide" sans jamais
+    ouvrir ce fichier : l'utilisateur pouvait alimenter Lot 5, relancer Lot 8c, et retrouver
+    exactement le meme message. On lit donc l'etat reel. Absence de fichier == 0 objet (Lot 5 n'a
+    jamais tourne), ce qui rend le message d'origine correct dans ce cas.
+    """
+    if not os.path.exists(LOT5_MASTER_PATH):
+        return 0
+    try:
+        wb5 = openpyxl.load_workbook(LOT5_MASTER_PATH, read_only=True, data_only=True)
+    except Exception:
+        return 0
+    try:
+        if "MASTER" not in wb5.sheetnames:
+            return 0
+        ws5 = wb5["MASTER"]
+        return sum(1 for r in ws5.iter_rows(min_row=2, values_only=True)
+                   if any(v is not None and str(v).strip() != "" for v in r))
+    finally:
+        wb5.close()
+
+
+def build_rapproch_proprietaires(wb, prop_rows, nb_lot5):
     drop_sheet_if_exists(wb, "RAPPROCH_PROPRIETAIRES_ATTENTE")
     ws = wb.create_sheet("RAPPROCH_PROPRIETAIRES_ATTENTE")
     write_header_row(ws, 1, PROP_HDR, PROP_WIDTHS)
     ws.row_dimensions[1].height = 28
     ws.freeze_panes = "A2"
+
+    if nb_lot5 == 0:
+        prerequis = "MASTER_FACT_MAN_AcomptesProprietaires vide — attendre saisie Lot 5"
+    else:
+        # Lot 5 est alimente : ne plus affirmer l'inverse. Aucun rapprochement n'est fait pour
+        # autant — les regles Lot5<->Banque (tolerance, fenetre de date, groupement) ne sont pas
+        # arbitrees, et elles ne seront pas devinees ici.
+        prerequis = ("MASTER_FACT_MAN_AcomptesProprietaires alimente (%d objets) — "
+                     "regles de rapprochement Lot5<->Banque non arbitrees" % nb_lot5)
 
     total_prop = 0.0
     for row_idx, row in enumerate(sorted(prop_rows, key=lambda x: str(x["date_operation"])), 2):
@@ -318,7 +353,7 @@ def build_rapproch_proprietaires(wb, prop_rows):
             prop_id,
             "ENCAISSEMENT_PROPRIETAIRE_A_VENTILER",
             STATUT_PROP_ATTENTE,
-            "MASTER_FACT_MAN_AcomptesProprietaires vide — attendre saisie Lot 5",
+            prerequis,
             LOT_REF,
             NOW_STR,
             comment,
@@ -345,7 +380,7 @@ CTRL_8C_HDR = [
 CTRL_8C_WIDTHS = [42, 16, 12, 20, 70, 28, 10, 20, 80]
 
 
-def build_ctrl_rapprochement(wb, nb_attente, nb_ajust, total_attente, total_ajust, nb_prop, total_prop):
+def build_ctrl_rapprochement(wb, nb_attente, nb_ajust, total_attente, total_ajust, nb_prop, total_prop, nb_lot5):
     drop_sheet_if_exists(wb, "CTRL_RAPPROCHEMENT_8C")
     ws = wb.create_sheet("CTRL_RAPPROCHEMENT_8C")
     write_header_row(ws, 1, CTRL_8C_HDR, CTRL_8C_WIDTHS)
@@ -412,6 +447,20 @@ def build_ctrl_rapprochement(wb, nb_attente, nb_ajust, total_attente, total_ajus
              "Les %d virements restent EN_ATTENTE_SAISIE_ACOMPTE." % nb_prop),
             "A_CONTROLER",
             "Alimenter SAISIE_AcomptesProprietaires.xlsx pour Lot 5, puis relancer Lot 8c.",
+            FILL_ATTENTE,
+        ) if nb_lot5 == 0 else (
+            # Lot 5 alimente : demander de l'alimenter serait faux et sans effet. Le vrai reste
+            # a faire est un arbitrage metier des regles de rapprochement, jamais devine ici.
+            "LOT5_REGLES_RAPPROCHEMENT_A_ARBITRER",
+            "A_CONTROLER",
+            nb_prop,
+            round(total_prop, 2),
+            ("Lot 5 alimente (%d objets) mais les regles de rapprochement Lot5<->Banque "
+             "(tolerance montant, fenetre de date, groupement) ne sont pas arbitrees. "
+             "Les %d virements restent EN_ATTENTE_SAISIE_ACOMPTE : aucun rapprochement "
+             "automatique n'est effectue sans regle metier explicite." % (nb_lot5, nb_prop)),
+            "A_CONTROLER",
+            "Arbitrer les regles de rapprochement Lot5<->Banque, puis relancer Lot 8c.",
             FILL_ATTENTE,
         ),
     ]
@@ -484,9 +533,11 @@ def main():
 
     print("\n--- Construction onglets ---")
     nb_attente, nb_ajust, total_attente, total_ajust = build_rapproch_airbnb(wb, airbnb_rows)
-    total_prop = build_rapproch_proprietaires(wb, prop_rows)
+    nb_lot5 = compter_objets_lot5()
+    print("  Objets Lot 5 (MASTER_FACT_MAN_AcomptesProprietaires) : %d" % nb_lot5)
+    total_prop = build_rapproch_proprietaires(wb, prop_rows, nb_lot5)
     nb_prop = len(prop_rows)
-    build_ctrl_rapprochement(wb, nb_attente, nb_ajust, total_attente, total_ajust, nb_prop, total_prop)
+    build_ctrl_rapprochement(wb, nb_attente, nb_ajust, total_attente, total_ajust, nb_prop, total_prop, nb_lot5)
 
     print("\n--- LOG_Traitement ---")
     total_airbnb = round(total_attente + total_ajust, 2)
