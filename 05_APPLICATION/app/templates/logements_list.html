@@ -62,6 +62,12 @@
       · Affichés : <strong>{{ data.count_affiches }}</strong>
       {% if data.include_technique %}· lignes techniques incluses ({{ data.count_technique }}){% endif %}
     </div>
+    {% if data.status == 'OK' and not data.gestion_disponible %}
+    <div class="alert alert-warning" style="margin-top: var(--stack-md);">
+      Rattachements de gestion indisponibles : <code>{{ data.source_gestion }}</code> n'a pas été
+      généré. La colonne « Propriétaire » reste vide tant que le pipeline (Lot13) n'a pas été relancé.
+    </div>
+    {% endif %}
   </div>
 
   <div class="card">
@@ -86,7 +92,16 @@
               <strong>{{ r.nom_court or r.nom_logement_officiel or r.logement_id }}</strong>
               <div class="text-sm text-secondary">{{ r.logement_id }}</div>
             </td>
-            <td>{{ r.proprietaire_id or "Non renseigné" }}</td>
+            <td>
+              {% if r.proprietaire_id %}{{ r.proprietaire_id }}
+                {% if r.gestion_statut == 'CLOS' %}<div class="text-sm text-secondary">gestion terminée</div>{% endif %}
+              {% elif r.gestion_statut == 'A_CONTROLER' %}
+                <span class="badge badge-warning">À contrôler</span>
+                <div class="text-sm text-secondary">rattachement non univoque</div>
+              {% elif r.gestion_statut == 'SOURCE_ABSENTE' %}
+                <span class="text-secondary">—</span>
+              {% else %}Aucun rattachement{% endif %}
+            </td>
             <td>{{ r.ville or "Non renseigné" }}</td>
             <td>{{ r.type_logement_id or "Non renseigné" }}</td>
             <td>

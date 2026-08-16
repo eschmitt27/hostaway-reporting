@@ -16,8 +16,14 @@ TRAVAIL = PROJECT_ROOT / "02_TRAVAIL"
 EXPORTS_POWERBI = PROJECT_ROOT / "03_EXPORTS" / "PowerBI"
 # REF_Setup.xlsm vit dans un sous-dossier REF_Setup/ (corrigé APP-1)
 REF_SETUP = PROJECT_ROOT / "01_SOURCES_BRUTES" / "REF_Setup" / "REF_Setup.xlsm"
-# Export généré par le moteur — source unique de la LISTE logements (propriétaire + dates déjà résolus)
+# Export généré par le moteur — source unique de la LISTE logements (identité du bien uniquement).
 PBI_LOGEMENTS = EXPORTS_POWERBI / "PBI_Referentiel_Logements.csv"
+# Rattachement logement↔propriétaire, historisé et DÉJÀ RÉSOLU par le moteur (Lot13, depuis
+# REF_Gestion_Logements_Hist). Export distinct depuis le commit `c8dea3c` : `PBI_Referentiel_
+# Logements.csv` ne porte plus ni `proprietaire_id` ni les dates de gestion, pour ne pas les
+# dupliquer. Toute lecture applicative du propriétaire d'un logement passe donc par CE fichier,
+# jamais par une reconstruction depuis REF_Setup.
+PBI_GESTION_LOGEMENTS = EXPORTS_POWERBI / "PBI_Referentiel_Gestion_Logements.csv"
 # Réservations hors Hostaway (APP-2a) — LECTURE SEULE
 # MASTER généré par Power Query = source de consultation (onglet MASTER)
 MASTER_RESERVATIONS_HH = TRAVAIL / "Lot4_ReservationsHH" / "MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx"

@@ -108,17 +108,26 @@ def test_fiche_detail_existante_200(client):
     assert "Origine des données" in r.text
 
 
-_PBI_HEADER = ("logement_id;nom_logement_officiel;nom_court;ville;type_logement_id;proprietaire_id;"
-               "date_entree_gestion;date_sortie_gestion;sur_hostaway;actif;"
-               "forfait_logiciel_consommables_mensuel\n")
+# Schéma réel de l'export depuis le commit moteur `c8dea3c` : ni `proprietaire_id` ni dates de
+# gestion — elles vivent dans PBI_Referentiel_Gestion_Logements.csv et n'y sont plus dupliquées.
+_PBI_HEADER = ("logement_id;nom_logement_officiel;nom_court;ville;type_logement_id;"
+               "sur_hostaway;actif;statut_parc;forfait_logiciel_consommables_mensuel\n")
+_GESTION_HEADER = ("gestion_id;logement_id;proprietaire_id;date_debut;date_fin;"
+                   "statut_gestion;source\n")
 
 
 def _pbi_fixture(tmp_path):
     """Petit CSV PBI isolé (source PRÉSENTE) pour tester le vrai chemin « logement inconnu »
     indépendamment de la présence du CSV réel (untracked)."""
     p = tmp_path / "PBI_Referentiel_Logements.csv"
-    p.write_text(_PBI_HEADER + "LOG_0001;Studio - 46;Studio 46;TOULOUSE;TYPE_001;PROP_0001;2026-01-01;;OUI;OUI;0\n",
+    p.write_text(_PBI_HEADER + "LOG_0001;Studio - 46;Studio 46;TOULOUSE;TYPE_001;OUI;OUI;GERE;0\n",
                  encoding="utf-8")
+    return p
+
+
+def _gestion_fixture(tmp_path, lignes: str):
+    p = tmp_path / "PBI_Referentiel_Gestion_Logements.csv"
+    p.write_text(_GESTION_HEADER + lignes, encoding="utf-8")
     return p
 
 
@@ -145,6 +154,84 @@ def test_fiche_detail_source_absente_statut_distinct(client, monkeypatch, tmp_pa
     r = client.get("/logements/LOG_0001")
     assert r.status_code == 200
     assert "indisponible" in r.text.lower() or "introuvable" in r.text.lower()
+
+
+# ------------------------------------------------- propriétaire (export de gestion)
+# Régression constatée en recette : l'export moteur `c8dea3c` a sorti `proprietaire_id` de
+# PBI_Referentiel_Logements.csv sans que le service suive. La colonne « Propriétaire » affichait
+# « Non renseigné » sur TOUT le parc, le filtre propriétaire était vide, et `commission_rows`
+# restait systématiquement vide — le tout SANS aucun message d'erreur.
+
+def test_liste_resout_le_proprietaire_via_export_gestion(monkeypatch, tmp_path):
+    monkeypatch.setattr(svc, "PBI_LOGEMENTS", _pbi_fixture(tmp_path))
+    monkeypatch.setattr(svc, "PBI_GESTION_LOGEMENTS", _gestion_fixture(
+        tmp_path, "GST_1;LOG_0001;PROP_0001;2025-01-01;;ACTIF;fixture\n"))
+    data = svc.load_list()
+    ligne = next(r for r in data["rows"] if r["logement_id"] == "LOG_0001")
+    assert ligne["proprietaire_id"] == "PROP_0001"
+    assert ligne["gestion_statut"] == svc.GESTION_RESOLU
+    assert data["filters"]["proprietaires"] == ["PROP_0001"]
+    assert data["gestion_disponible"] is True
+
+
+def test_liste_filtre_par_proprietaire_resolu(monkeypatch, tmp_path):
+    monkeypatch.setattr(svc, "PBI_LOGEMENTS", _pbi_fixture(tmp_path))
+    monkeypatch.setattr(svc, "PBI_GESTION_LOGEMENTS", _gestion_fixture(
+        tmp_path, "GST_1;LOG_0001;PROP_0001;2025-01-01;;ACTIF;fixture\n"))
+    assert len(svc.load_list(proprietaire_id="PROP_0001")["rows"]) == 1
+    assert svc.load_list(proprietaire_id="PROP_9999")["rows"] == []
+
+
+def test_gestion_close_reste_attribuee_et_signalee(monkeypatch, tmp_path):
+    """Rattachement terminé : le propriétaire reste lisible, l'état est distinct d'un rattachement actif."""
+    monkeypatch.setattr(svc, "PBI_LOGEMENTS", _pbi_fixture(tmp_path))
+    monkeypatch.setattr(svc, "PBI_GESTION_LOGEMENTS", _gestion_fixture(
+        tmp_path, "GST_1;LOG_0001;PROP_0001;2025-01-01;2026-04-26;INACTIF;fixture\n"))
+    ligne = svc.load_list()["rows"][0]
+    assert ligne["proprietaire_id"] == "PROP_0001"
+    assert ligne["gestion_statut"] == svc.GESTION_CLOS
+
+
+def test_rattachement_ambigu_jamais_devine(monkeypatch, tmp_path):
+    """Deux rattachements actifs : aucun propriétaire n'est choisi arbitrairement."""
+    monkeypatch.setattr(svc, "PBI_LOGEMENTS", _pbi_fixture(tmp_path))
+    monkeypatch.setattr(svc, "PBI_GESTION_LOGEMENTS", _gestion_fixture(
+        tmp_path,
+        "GST_1;LOG_0001;PROP_0001;2025-01-01;;ACTIF;fixture\n"
+        "GST_2;LOG_0001;PROP_0002;2026-01-01;;ACTIF;fixture\n"))
+    ligne = svc.load_list()["rows"][0]
+    assert ligne["proprietaire_id"] == ""
+    assert ligne["gestion_statut"] == svc.GESTION_A_CONTROLER
+
+
+def test_logement_sans_rattachement_exporte(monkeypatch, tmp_path):
+    monkeypatch.setattr(svc, "PBI_LOGEMENTS", _pbi_fixture(tmp_path))
+    monkeypatch.setattr(svc, "PBI_GESTION_LOGEMENTS", _gestion_fixture(tmp_path, ""))
+    ligne = svc.load_list()["rows"][0]
+    assert ligne["proprietaire_id"] == ""
+    assert ligne["gestion_statut"] == svc.GESTION_ABSENT
+
+
+def test_export_gestion_absent_est_signale(client, monkeypatch, tmp_path):
+    """Export non généré : la colonne vide doit être EXPLIQUÉE, jamais silencieuse."""
+    monkeypatch.setattr(svc, "PBI_LOGEMENTS", _pbi_fixture(tmp_path))
+    monkeypatch.setattr(svc, "PBI_GESTION_LOGEMENTS", tmp_path / "absent.csv")
+    data = svc.load_list()
+    assert data["status"] == "OK"          # la liste reste consultable
+    assert data["gestion_disponible"] is False
+    assert data["rows"][0]["gestion_statut"] == svc.GESTION_SOURCE_ABSENTE
+    r = client.get("/logements")
+    assert "Rattachements de gestion indisponibles" in r.text
+
+
+def test_detail_resout_le_proprietaire_via_export_gestion(monkeypatch, tmp_path):
+    monkeypatch.setattr(svc, "PBI_LOGEMENTS", _pbi_fixture(tmp_path))
+    monkeypatch.setattr(svc, "PBI_GESTION_LOGEMENTS", _gestion_fixture(
+        tmp_path, "GST_1;LOG_0001;PROP_0001;2025-01-01;;ACTIF;fixture\n"))
+    detail = svc.load_detail("LOG_0001")
+    assert detail["proprietaire_id"] == "PROP_0001"
+    assert detail["gestion_statut"] == svc.GESTION_RESOLU
+    assert len(detail["gestion_rattachements"]) == 1
 
 
 @pbi_required
