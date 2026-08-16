@@ -31,6 +31,21 @@ from datetime import datetime
 # CHEMINS
 # ─────────────────────────────────────────────────────────────────────────────
 # Racine dérivée du fichier (jamais de chemin Windows fixe) : confine le script à sa propre instance.
+import argparse
+import sys
+
+
+def _parse_8b():
+    p = argparse.ArgumentParser(add_help=False)
+    p.add_argument("--source-regles", default="AUTO",
+                   help="SQLITE | EXCEL | SEED | AUTO (defaut)")
+    p.add_argument("--db", help="Base applicative portant ref_banque_regles")
+    args, _ = p.parse_known_args()
+    return args
+
+
+_ARGS_8B = _parse_8b()
+
 BASE = str(Path(__file__).resolve().parent.parent)
 REF_PATH = os.path.join(BASE, "01_SOURCES_BRUTES", "REF_Setup", "REF_Setup.xlsm")
 BANQUE_PATH = os.path.join(BASE, "02_TRAVAIL", "Lot8_Banque", "BANQUE_LOT8_IMPORT.xlsx")
@@ -350,76 +365,146 @@ def backup_file(src_path, label):
 # STEP 1 - UPDATE REF_Setup.xlsm
 # ─────────────────────────────────────────────────────────────────────────────
 
-def update_ref_setup():
-    print("\n=== STEP 1: REF_Setup.xlsm ===")
-
-    backup_file(REF_PATH, "REF_Setup")
-
-    wb = openpyxl.load_workbook(REF_PATH, keep_vba=True)
-
-    # --- A. Ajouter TYPE_FLUX_016 dans REF_Types_Flux ---
-    ws_tf = wb["REF_Types_Flux"]
-    existing_ids = [ws_tf.cell(r, 1).value for r in range(2, ws_tf.max_row + 1)]
-    if "TYPE_FLUX_016" in existing_ids:
-        print("  TYPE_FLUX_016 deja present - skip")
-    else:
-        new_row = ws_tf.max_row + 1
-        tf_data = [
-            "TYPE_FLUX_016",
-            "FRAIS_BANCAIRES",
-            "Frais bancaires",
-            "IC",
-            "NON",
-            "NON",
-            "OUI",
-            "OUI",
-            "Source banque - frais bancaires deterministes, hors frais lies a une operation a controler.",
-        ]
-        for c, val in enumerate(tf_data, 1):
-            cell = ws_tf.cell(new_row, c, val)
-            style_cell(cell, font=DATA_FONT, alignment=ALN_LEFT, border=THIN_BORDER)
-        print("  TYPE_FLUX_016 ajoute (ligne %d)" % new_row)
-
-    # --- B. Ajouter onglet REF_Banque_Regles ---
-    if "REF_Banque_Regles" in wb.sheetnames:
-        del wb["REF_Banque_Regles"]
-        print("  Onglet REF_Banque_Regles existant supprime (recréation)")
-
-    ws_r = wb.create_sheet("REF_Banque_Regles")
-
-    col_widths = [12, 10, 8, 14, 18, 14, 30, 28, 36, 20, 12, 28, 20, 20, 12, 26, 30, 18, 18, 55]
-    write_header_row(ws_r, 1, REGLES_HDR, col_widths)
-    ws_r.row_dimensions[1].height = 30
-    ws_r.freeze_panes = "A2"
-
-    rules_dicts = rules_as_dicts(SEED_RULES)
-    for row_idx, r in enumerate(rules_dicts, 2):
-        for c_idx, key in enumerate(REGLES_HDR, 1):
-            val = r[key]
-            cell = ws_r.cell(row_idx, c_idx, val)
-            # Fill by niveau_risque
-            nr = r["niveau_risque"]
-            if nr == "ELEVE":
-                fill = FILL_ELEVE
-            elif nr == "MOYEN":
-                fill = FILL_MOYEN
-            elif nr == "FAIBLE":
-                fill = FILL_FAIBLE
-            else:
-                fill = FILL_WHITE
-            style_cell(cell, fill=fill, font=DATA_FONT, alignment=ALN_LEFT, border=THIN_BORDER)
-        ws_r.row_dimensions[row_idx].height = 16
-
-    print("  REF_Banque_Regles: %d regles seed ecrites" % len(rules_dicts))
-
-    wb.save(REF_PATH)
-    print("  REF_Setup.xlsm sauvegarde")
-    return rules_dicts
+SOURCES_REGLES = ("SQLITE", "EXCEL", "SEED")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# STEP 2 - CLASSIFY NORM_Banque + CTRL + IA + LOG
-# ─────────────────────────────────────────────────────────────────────────────
+def _chemin_db():
+    """Base applicative a interroger. Resolue a l'appel, jamais figee.
+
+    Priorite : --db > PILOTAGE_DB_PATH > APP_DATA_DIR/app.db. Aucun defaut vers la base reelle :
+    un lot ne doit pas tomber par accident sur la base de production.
+    """
+    if _ARGS_8B.db:
+        return Path(_ARGS_8B.db)
+    env = os.environ.get("PILOTAGE_DB_PATH")
+    if env:
+        return Path(env)
+    data = os.environ.get("APP_DATA_DIR")
+    if data:
+        return Path(data) / "app.db"
+    return None
+
+
+def _regles_depuis_sqlite():
+    """Lit ref_banque_regles (migration 0029). None si la base ou la table est indisponible."""
+    chemin = _chemin_db()
+    if chemin is None or not chemin.exists():
+        return None, "aucune base applicative designee"
+    import sqlite3
+    conn = sqlite3.connect(str(chemin))
+    try:
+        presente = conn.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='ref_banque_regles'"
+        ).fetchone()[0]
+        if not presente:
+            return None, "table ref_banque_regles absente (migration 0029 non appliquee)"
+        cols = ", ".join(REGLES_HDR)
+        rows = conn.execute("SELECT %s FROM ref_banque_regles" % cols).fetchall()
+    finally:
+        conn.close()
+    if not rows:
+        return None, "table ref_banque_regles vide (referentiel non importe)"
+    return [dict(zip(REGLES_HDR, r)) for r in rows], "%s (%d regles)" % (chemin, len(rows))
+
+
+def _regles_depuis_excel():
+    """Lit l'onglet REF_Banque_Regles en LECTURE SEULE. Ne modifie jamais le classeur."""
+    if not os.path.exists(REF_PATH):
+        return None, "REF_Setup.xlsm introuvable"
+    wb = openpyxl.load_workbook(REF_PATH, read_only=True, data_only=True, keep_vba=True)
+    try:
+        if "REF_Banque_Regles" not in wb.sheetnames:
+            return None, "onglet REF_Banque_Regles absent"
+        ws = wb["REF_Banque_Regles"]
+        it = ws.iter_rows(values_only=True)
+        entete = [str(c).strip() if c is not None else "" for c in next(it)]
+        if entete[:len(REGLES_HDR)] != REGLES_HDR:
+            return None, "colonnes REF_Banque_Regles non conformes"
+        rows = []
+        for brute in it:
+            vals = list(brute)[:len(REGLES_HDR)]
+            vals += [None] * (len(REGLES_HDR) - len(vals))
+            if not any(v not in (None, "") for v in vals):
+                continue
+            rows.append(dict(zip(REGLES_HDR, vals)))
+    finally:
+        wb.close()
+    if not rows:
+        return None, "onglet REF_Banque_Regles vide"
+    return rows, "%s (%d regles)" % (REF_PATH, len(rows))
+
+
+def _priorite(valeur):
+    """Priorite comparable.
+
+    SQLite rend du TEXTE : trier "10" et "9" comme des chaines inverserait leur ordre et changerait
+    la regle appliquee a un mouvement. Conversion explicite, sentinelle haute (donc appliquee en
+    dernier) quand la valeur n'est pas un entier.
+    """
+    try:
+        return int(str(valeur).strip())
+    except (TypeError, ValueError):
+        return 10 ** 9
+
+
+def _normaliser(regles):
+    """Meme contrat de sortie que rules_as_dicts : trie par (priorite, regle_id), vides -> None."""
+    out = []
+    for r in regles:
+        d = {}
+        for k in REGLES_HDR:
+            v = r.get(k)
+            if isinstance(v, str):
+                v = v.strip()
+            d[k] = None if v in ("", None) else v
+        d["priorite"] = _priorite(r.get("priorite"))
+        out.append(d)
+    out.sort(key=lambda d: (d["priorite"], str(d.get("regle_id") or "")))
+    return out
+
+
+def charger_regles():
+    """Charge les regles de classification. NE MODIFIE AUCUNE SOURCE.
+
+    Ce lot ecrivait auparavant dans REF_Setup.xlsm : il y re-semait l'onglet REF_Banque_Regles
+    (suppression puis recreation) et y ajoutait TYPE_FLUX_016. Ce semis est HISTORIQUE, il a deja
+    ete fait, et le refaire a chaque execution rendait le lot inexecutable des lors que le
+    referentiel reel ne doit pas etre modifie.
+
+    Les regles vivent desormais en SQLite (ref_banque_regles, migration 0029). L'onglet Excel reste
+    lisible en secours pendant la transition, en LECTURE SEULE. SEED reste accessible
+    explicitement, pour reconstruire un referentiel vierge - jamais par defaut.
+    """
+    demande = (_ARGS_8B.source_regles or "AUTO").upper()
+    if demande not in SOURCES_REGLES + ("AUTO",):
+        sys.exit("[LOT8B] --source-regles doit valoir %s ou AUTO." % "/".join(SOURCES_REGLES))
+
+    essais = []
+    if demande in ("AUTO", "SQLITE"):
+        regles, detail = _regles_depuis_sqlite()
+        if regles:
+            print("[OK] Regles chargees depuis SQLITE : %s" % detail)
+            return _normaliser(regles), "SQLITE"
+        essais.append("SQLITE : %s" % detail)
+        if demande == "SQLITE":
+            sys.exit("[LOT8B] Source SQLITE exigee mais indisponible - %s" % detail)
+
+    if demande in ("AUTO", "EXCEL"):
+        regles, detail = _regles_depuis_excel()
+        if regles:
+            print("[OK] Regles chargees depuis EXCEL (lecture seule) : %s" % detail)
+            return _normaliser(regles), "EXCEL"
+        essais.append("EXCEL : %s" % detail)
+        if demande == "EXCEL":
+            sys.exit("[LOT8B] Source EXCEL exigee mais indisponible - %s" % detail)
+
+    if demande == "SEED":
+        print("[OK] Regles chargees depuis SEED (%d regles codees dans le lot)" % len(SEED_RULES))
+        return rules_as_dicts(SEED_RULES), "SEED"
+
+    sys.exit("[LOT8B] Aucune source de regles exploitable.\n  " + "\n  ".join(essais)
+             + "\n  Importer le referentiel depuis l'application, ou passer --source-regles SEED.")
+
 
 def update_banque_import(rules_dicts):
     print("\n=== STEP 2: BANQUE_LOT8_IMPORT.xlsx ===")
@@ -666,15 +751,16 @@ def main():
     print("Timestamp: %s" % NOW_STR)
     print("=" * 68)
 
-    rules_dicts = update_ref_setup()
+    rules_dicts, source_regles = charger_regles()
     stats, nb_ctrl, nb_ia = update_banque_import(rules_dicts)
 
     print("\n" + "=" * 68)
     print("BILAN LOT 8B")
     print("=" * 68)
-    print("  REF_Setup.xlsm:")
-    print("    TYPE_FLUX_016 (FRAIS_BANCAIRES) ajoute")
-    print("    REF_Banque_Regles: %d regles seed (20 colonnes)" % len(rules_dicts))
+    print("  Regles de classification:")
+    print("    Source : %s" % source_regles)
+    print("    %d regles chargees (20 colonnes)" % len(rules_dicts))
+    print("    REF_Setup.xlsm : NON MODIFIE")
     print("")
     print("  NORM_Banque (%d lignes classifiees):" % stats["total"])
     print("    statut_controle VALIDE      : %d" % stats["valide"])
@@ -691,15 +777,13 @@ def main():
     print("  LOG_Traitement: entree LOT8B_CLASSIF ajoutee")
     print("")
     print("  Backups:")
-    print("    REF_Setup_PRE_LOT8B_%s.xlsm" % TS)
     print("    BANQUE_LOT8_IMPORT_PRE_LOT8B_%s.xlsx" % TS)
     print("")
     print("  Fichiers modifies:")
-    print("    01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm")
     print("    02_TRAVAIL/Lot8_Banque/BANQUE_LOT8_IMPORT.xlsx")
     print("")
     print("CONTRAINTE: ne pas commiter les fichiers bancaires.")
-    print("Seuls lot8b_banque_regles.py et REF_Setup.xlsm seront commites.")
+    print("Seul lot8b_banque_regles.py est versionne ; REF_Setup.xlsm n est plus touche.")
     print("=" * 68)
 
 
