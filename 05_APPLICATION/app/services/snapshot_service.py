@@ -5,7 +5,22 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 from app.db.connection import get_db
-from app.config import SNAPSHOTS_DIR, RESTORE_DIR
+from app import config as cfg
+
+
+# Les répertoires de snapshot et de restauration se lisent À L'APPEL, jamais à l'import.
+#
+# `from app.config import SNAPSHOTS_DIR` gelait le chemin au chargement du module : une instance ou
+# un test qui redirige `APP_DATA_DIR` continuait à écrire dans le VRAI `05_APPLICATION/data/`.
+# Constaté en conditions réelles — des snapshots de test s'y étaient accumulés. Même règle que
+# `cfg.DB_PATH` dans `db/connection.py`, et pour la même raison.
+
+def _snapshots_dir() -> Path:
+    return Path(cfg.SNAPSHOTS_DIR)
+
+
+def _restore_dir() -> Path:
+    return Path(cfg.RESTORE_DIR)
 
 
 def _sha256(path: Path) -> str:
@@ -23,7 +38,7 @@ def create_snapshot(
 ) -> dict[str, Any]:
     """Copie horodatée + manifeste sha256 + enregistrement SQLite."""
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    dest = SNAPSHOTS_DIR / f"{ts}_{snapshot_type}"
+    dest = _snapshots_dir() / f"{ts}_{snapshot_type}"
     dest.mkdir(parents=True, exist_ok=True)
 
     manifest = []
@@ -102,7 +117,7 @@ def restore_to_workspace(snapshot_id: int, db_path: Path | None = None) -> dict[
     finally:
         conn.close()
 
-    workspace = RESTORE_DIR / f"restore_{snapshot_id}"
+    workspace = _restore_dir() / f"restore_{snapshot_id}"
     workspace.mkdir(parents=True, exist_ok=True)
 
     for entry in manifest:

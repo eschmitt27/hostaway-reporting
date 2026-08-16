@@ -48,7 +48,7 @@ def mini_project(tmp_path, monkeypatch):
     monkeypatch.setattr(cfg, "MENAGES_RECALC_WORKSPACE", tmp_path / "ws")
     monkeypatch.setattr(cfg, "DATA_DIR", tmp_path / "data")
     (tmp_path / "data").mkdir(exist_ok=True)
-    monkeypatch.setattr(snapshot_service, "SNAPSHOTS_DIR", tmp_path / "snapshots")
+    monkeypatch.setattr(cfg, "SNAPSHOTS_DIR", tmp_path / "snapshots")
     return root
 
 
@@ -324,7 +324,7 @@ def test_fraicheur_structure(client):
 def test_recette_e2e_copies_reel_intact(tmp_path, db, monkeypatch):
     """Exécute lot6d+lot6e sur copies des VRAIES sources et prouve que le réel ne bouge pas."""
     monkeypatch.setattr(cfg, "MENAGES_RECALC_WORKSPACE", tmp_path / "ws")
-    monkeypatch.setattr(snapshot_service, "SNAPSHOTS_DIR", tmp_path / "snap")
+    monkeypatch.setattr(cfg, "SNAPSHOTS_DIR", tmp_path / "snap")
     reel = cfg.PROJECT_ROOT / rc.SORTIES_REELLES["rapprochement"]
     if not reel.exists():
         pytest.skip("MASTER rapprochement réel absent")

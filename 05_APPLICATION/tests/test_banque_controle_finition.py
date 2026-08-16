@@ -26,7 +26,7 @@ def _sha(p: Path) -> str:
 def _isoler_workspace(tmp_path, monkeypatch):
     monkeypatch.setattr(cfg, "BANQUE_CONTROLE_WORKSPACE", tmp_path / "banque_ws")
     from app.services import snapshot_service
-    monkeypatch.setattr(snapshot_service, "SNAPSHOTS_DIR", tmp_path / "snapshots")
+    monkeypatch.setattr(cfg, "SNAPSHOTS_DIR", tmp_path / "snapshots")
 
 
 @pytest.fixture
