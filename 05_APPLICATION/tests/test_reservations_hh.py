@@ -165,7 +165,11 @@ def test_aucune_reservation_metier_en_sqlite(client, tmp_db):
         ).fetchall()]
     finally:
         conn.close()
-    for t in tables:
+    # Les tables `ref_*` sont le RÉFÉRENTIEL importé (migration 0029) : `ref_canaux_reservation`
+    # est une nomenclature de canaux, pas un stock de réservations. L'invariant visé reste entier —
+    # aucune réservation métier ne doit vivre en SQLite — mais il se vérifie hors référentiel.
+    metier = [t for t in tables if not t.startswith("ref_")]
+    for t in metier:
         assert "reservation" not in t.lower(), f"Table métier réservation interdite en SQLite : {t}"
 
 
