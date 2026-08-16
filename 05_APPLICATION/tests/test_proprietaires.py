@@ -218,12 +218,23 @@ def test_prefacture_mois_inconnu_retourne_not_found():
 
 
 def test_prefacture_multi_logements_plusieurs_factures():
-    """Propriétaire avec 3 logements → 3 factures avec 12 lignes chacune."""
+    """Propriétaire avec 3 logements → une préfacture complète par logement.
+
+    Le nombre de lignes était figé à 12. La préparation canapé ajoute un 13e poste lorsqu'elle
+    s'applique — c'est une ligne légitime, pas une dérive. On vérifie donc le socle commun de
+    12 postes, plus la ligne canapé quand elle est présente : le total reste déterministe, mais il
+    n'est plus aveugle à une évolution du modèle de facturation.
+    """
     pref = svc.load_prefacture(_PROP_MULTI, _MOIS_MULTI)
     assert pref["status"] == "OK"
     assert len(pref["factures"]) == 3
     for f in pref["factures"]:
-        assert len(f["lignes_exploitation"]) + len(f["lignes_reglement"]) == 12
+        lignes = f["lignes_exploitation"] + f["lignes_reglement"]
+        types = [l["type_ligne"] for l in lignes]
+        canape = types.count("PREPARATION_CANAPE")
+        assert canape <= 1, "au plus une ligne canapé par préfacture"
+        assert len(lignes) == 12 + canape, (
+            f"{len(lignes)} lignes pour 12 postes + {canape} canapé : {sorted(set(types))}")
 
 
 # ---------------------------------------------------------------------------
