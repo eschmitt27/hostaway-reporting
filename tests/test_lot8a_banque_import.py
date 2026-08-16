@@ -162,18 +162,67 @@ def test_format_consolide_montants_totaux_coherents_avec_synthese(tmp_path, monk
     assert total_credit == 25.5
 
 
-def test_format_consolide_multi_mois_signale_a_controler_pas_bloquant(tmp_path, monkeypatch):
+def test_fichier_declare_mensuel_multi_mois_signale_pas_bloquant(tmp_path, monkeypatch):
+    """Un export DECLARE mensuel qui deborde de son mois reste une anomalie.
+
+    C est le coeur du controle et il est conserve : le nom promet un mois, le contenu doit le
+    tenir. Signale, jamais bloquant — les deux lignes restent traitees.
+    """
+    brut = tmp_path / "2026_03_BRUT_Banque_Test.xlsx"
+    _make_consolide(brut, [
+        _mvt(1, datetime(2025, 11, 3), "A", 10.0, 0),
+        _mvt(2, datetime(2026, 8, 1), "B", 0, 25.5),
+    ])
+    _, out = _run(monkeypatch, tmp_path, brut)
+    assert "BANQUE_FICHIER_PERIODE_INCOHERENTE" in _read_ctrl_codes(out)
+    assert len(_read_norm(out)) == 2
+
+
+def test_fichier_declare_historique_multi_mois_est_normal(tmp_path, monkeypatch):
+    """Un export DECLARE historique couvre plusieurs mois par nature : aucune anomalie.
+
+    Le controle comparait la periode reelle a un mois code en dur dans le lot. Il se declenchait
+    donc a chaque import de l historique consolide, sans qu aucune anomalie n existe — un controle
+    qui crie toujours n est plus un controle.
+    """
+    brut = tmp_path / "BANQUE_ACTUELLE_HISTORIQUE_2025-11-03_2026-08-01.xlsx"
+    _make_consolide(brut, [
+        _mvt(1, datetime(2025, 11, 3), "A", 10.0, 0),
+        _mvt(2, datetime(2026, 8, 1), "B", 0, 25.5),
+    ])
+    _, out = _run(monkeypatch, tmp_path, brut)
+    assert "BANQUE_FICHIER_PERIODE_INCOHERENTE" not in _read_ctrl_codes(out)
+    assert len(_read_norm(out)) == 2
+
+
+def test_fichier_historique_aux_bornes_fausses_est_signale(tmp_path, monkeypatch):
+    """Un nom d historique qui ment sur ses bornes reste une anomalie.
+
+    Declarer HISTORIQUE n est pas une dispense : le nom annonce des bornes, le contenu doit les
+    tenir. Sans cela, la declaration deviendrait un moyen de faire taire le controle.
+    """
+    brut = tmp_path / "BANQUE_ACTUELLE_HISTORIQUE_2025-11-03_2026-08-01.xlsx"
+    _make_consolide(brut, [
+        _mvt(1, datetime(2026, 1, 5), "A", 10.0, 0),
+        _mvt(2, datetime(2026, 2, 9), "B", 0, 25.5),
+    ])
+    _, out = _run(monkeypatch, tmp_path, brut)
+    assert "BANQUE_FICHIER_PERIODE_INCOHERENTE" in _read_ctrl_codes(out)
+
+
+def test_nom_non_declaratif_aucune_promesse_aucun_controle(tmp_path, monkeypatch):
+    """Un nom qui ne declare rien ne permet d attendre rien.
+
+    Mieux vaut ne pas controler que d inventer une periode attendue et produire une fausse alerte.
+    """
     brut = tmp_path / "releve_consolide.xlsx"
     _make_consolide(brut, [
         _mvt(1, datetime(2025, 11, 3), "A", 10.0, 0),
         _mvt(2, datetime(2026, 8, 1), "B", 0, 25.5),
     ])
     _, out = _run(monkeypatch, tmp_path, brut)
-    codes = _read_ctrl_codes(out)
-    assert "BANQUE_FICHIER_PERIODE_INCOHERENTE" in codes
-    rows = _read_norm(out)
-    # signale, mais jamais bloquant : les deux lignes restent traitees
-    assert len(rows) == 2
+    assert "BANQUE_FICHIER_PERIODE_INCOHERENTE" not in _read_ctrl_codes(out)
+    assert len(_read_norm(out)) == 2
 
 
 def test_format_consolide_doublon_exact_detecte_pas_masque(tmp_path, monkeypatch):

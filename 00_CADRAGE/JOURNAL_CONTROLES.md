@@ -2716,7 +2716,7 @@ CONTROLE : audit cible du producteur de BANQUE_LOT8_IMPORT.xlsx (lot8a_banque_im
 remontee de cause des deux mois Lot10 manquants (2026-11, 2027-01).
 
 CONSTAT BANQUE : BANQUE_LOT8_IMPORT.xlsx est une SORTIE de Lot8, jamais une source directe. Sa
-source brute (01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx, export Credit
+source brute (01_SOURCES_BRUTES/Banque/BANQUE_ACTUELLE_HISTORIQUE_2025-11-03_2026-08-01.xlsx, export Credit
 Mutuel compte 02211 00021321603) n'existe nulle part - dossier absent du disque, reel et copies.
 Lot8 100% executable hors reseau des que la source est fournie. Contrat Lot8->Lot9 verifie
 coherent, aucune divergence code/documentation. CAS B confirme : NO GO — SOURCE BANQUE REQUISE.
@@ -3340,7 +3340,7 @@ sous-ensemble strict a 100% des 77 couples GESTION_LOGEMENT_MISSING (0 couple ho
 meme cause racine (absence de periode de gestion applicable avant le 01/08/2025), pas un bug
 separe, pas une donnee independante a corriger. Aucun autre BLOQUANT n'existe.
 
-BANQUE FRAICHE : source reelle 01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx
+BANQUE FRAICHE : source reelle 01_SOURCES_BRUTES/Banque/BANQUE_ACTUELLE_HISTORIQUE_2025-11-03_2026-08-01.xlsx
 (format consolide, deja gere), 541 mouvements, 1 doublon detecte, 236 classes deterministement,
 222 en rapprochement humain (166 Airbnb export detaille absent + 56 proprietaires attente
 acompte), 83 en file A_ENVOYER_IA. 0 produit economique cree (rapprochement/categorisation
@@ -3607,3 +3607,24 @@ TOTAL : **2519 passed, 1 failed** (test_appsec1_diagnostic::test_07, echec envir
 pre-existant documente : nom d'utilisateur Windows dans le chemin temporaire pytest), 75 skipped.
 Les 2 echecs de shard 2b etaient reels (inventaire EXPECTED_TABLES non mis a jour apres les
 migrations 0027/0028) et ont ete corriges : test_sqlite_migrations 5/5 vert.
+
+## 2026-08-16 — Renommage de la source bancaire et revision du controle de periode
+
+CONSTAT : le fichier `2026_03_BRUT_Banque_CreditMutuel.xlsx` ne contenait pas le mois de mars 2026.
+Mesure sur son contenu : 541 mouvements du 2025-11-03 au 2026-08-01, soit dix mois, dont seulement
+74 en mars. Le nom etait faux.
+
+ACTION : renomme en `BANQUE_ACTUELLE_HISTORIQUE_2025-11-03_2026-08-01.xlsx`.
+SHA256 identique avant et apres (`a84c9b51...face0ca4a8`) : le renommage n a pas touche au contenu.
+
+CONTROLE `BANQUE_FICHIER_PERIODE_INCOHERENTE` : il comparait la periode reelle a un mois nominal
+code en dur dans lot8a (NOM_ANNEE=2026, NOM_MOIS=3). Il se declenchait donc a chaque import sans
+qu aucune anomalie n existe. Le nom DECLARE desormais la nature de la source (HISTORIQUE / MENSUEL
+/ INDETERMINE) et le controle ne verifie que ce que cette declaration promet. Il reste entier pour
+un fichier declare mensuel.
+
+VERIFICATION : chaine Banque relancee apres renommage. 541 mouvements, 222 RAPPROCHEMENT_REQUIS,
+236 CLASSE, 83 A_ENVOYER_IA, Airbnb 166 lignes / 14467,27 EUR, proprietaires 56 lignes /
+27069,18 EUR — identiques a avant. Ecart economique : 0.
+
+Detail complet : document 97.

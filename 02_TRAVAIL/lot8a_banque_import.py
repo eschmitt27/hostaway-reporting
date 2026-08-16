@@ -3,7 +3,7 @@
 """
 lot8a_banque_import.py
 Lot 8a — Import & normalisation bancaire Crédit Mutuel
-Ingère 01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx
+Ingère un export de la banque actuelle depuis 01_SOURCES_BRUTES/Banque/
 Produit 02_TRAVAIL/Lot8_Banque/BANQUE_LOT8_IMPORT.xlsx
 
 Deux formats d'entrée acceptés, convergeant vers le même raw_rows canonique (D-8a-FORMAT) :
@@ -43,7 +43,7 @@ BANQUE_DIR  = os.path.join(ROOT, '01_SOURCES_BRUTES', 'Banque')
 # PROJECT_ROOT/LOT4A_ENGINE_PYTHON ailleurs dans 02_TRAVAIL — absent => comportement inchangé.
 BRUT_FILE   = os.environ.get(
     'LOT8A_BRUT_FILE_OVERRIDE',
-    os.path.join(BANQUE_DIR, '2026_03_BRUT_Banque_CreditMutuel.xlsx'))
+    os.path.join(BANQUE_DIR, 'BANQUE_ACTUELLE_HISTORIQUE_2025-11-03_2026-08-01.xlsx'))
 OUT_DIR     = os.path.join(BASE, 'Lot8_Banque')
 OUT_FILE    = os.environ.get(
     'LOT8A_OUT_FILE_OVERRIDE',
@@ -62,8 +62,49 @@ DEVISE_REF   = 'EUR'
 SHEET_METIER = 'Cpt 02211 00021321603'
 HDR_ROW      = 5
 DATA_ROW     = 6
-NOM_ANNEE    = 2026
-NOM_MOIS     = 3
+
+# ── Declaration de la source (D-8a-DECLARATION) ─────────────────────────────
+# Le lot supposait qu un export bancaire couvrait UN mois, deduit d un NOM_ANNEE/NOM_MOIS codes en
+# dur. C etait faux pour le fichier reel : nomme "2026_03", il couvrait en realite dix mois, et le
+# controle de periode se declenchait a chaque import sans qu il y ait la moindre anomalie.
+#
+# Le NOM DECLARE desormais la nature de la source, et le controle verifie ce que cette declaration
+# promet - rien de plus :
+#
+#   BANQUE_ACTUELLE_HISTORIQUE_<debut>_<fin>.xlsx  -> HISTORIQUE : plusieurs mois sont NORMAUX ;
+#                                                     on verifie que les bornes annoncees sont
+#                                                     tenues.
+#   <AAAA>_<MM>_BRUT_...xlsx                       -> MENSUEL : tout mouvement hors du mois
+#                                                     annonce est une anomalie.
+#   tout autre nom                                 -> INDETERMINE : aucune promesse, donc aucun
+#                                                     controle de periode. Mieux vaut ne rien
+#                                                     affirmer que d inventer une attente.
+SRC_HISTORIQUE = 'HISTORIQUE'
+SRC_MENSUEL = 'MENSUEL'
+SRC_INDETERMINE = 'INDETERMINE'
+
+
+def declarer_source(chemin):
+    """(source_type, borne_min, borne_max) d apres le NOM du fichier. Bornes None si non annoncees."""
+    nom = os.path.basename(chemin)
+    m = re.match(r'BANQUE_ACTUELLE_HISTORIQUE_(\d{4}-\d{2}-\d{2})_(\d{4}-\d{2}-\d{2})',
+                 nom, re.IGNORECASE)
+    if m:
+        try:
+            return (SRC_HISTORIQUE,
+                    datetime.strptime(m.group(1), '%Y-%m-%d').date(),
+                    datetime.strptime(m.group(2), '%Y-%m-%d').date())
+        except ValueError:
+            return SRC_HISTORIQUE, None, None
+    m = re.match(r'(\d{4})[_-](\d{2})[_-]', nom)
+    if m:
+        annee, mois = int(m.group(1)), int(m.group(2))
+        if 1 <= mois <= 12:
+            return SRC_MENSUEL, date(annee, mois, 1), None
+    return SRC_INDETERMINE, None, None
+
+
+SOURCE_TYPE, BORNE_DECLAREE_MIN, BORNE_DECLAREE_MAX = declarer_source(BRUT_FILE)
 
 # ── Formats d'entrée acceptés (D-8a-FORMAT) ─────────────────────────────────
 # Deux adaptateurs convergent vers le même raw_rows canonique (7 colonnes) : le format natif
@@ -468,26 +509,44 @@ dmin_global = dmax_global = None
 if real_dates:
     dmin_global = min(real_dates)
     dmax_global = max(real_dates)
-    if not (dmin_global.year == NOM_ANNEE and dmin_global.month == NOM_MOIS
-            and dmax_global.year == NOM_ANNEE and dmax_global.month == NOM_MOIS):
+    ecart = None
+
+    if SOURCE_TYPE == SRC_MENSUEL:
+        # Un export declare mensuel ne doit contenir QUE ce mois.
+        attendu = f'{BORNE_DECLAREE_MIN.year}-{BORNE_DECLAREE_MIN.month:02d}'
+        hors = [d for d in (dmin_global, dmax_global)
+                if (d.year, d.month) != (BORNE_DECLAREE_MIN.year, BORNE_DECLAREE_MIN.month)]
+        if hors:
+            ecart = (f'Le fichier est declare MENSUEL {attendu} '
+                     f'mais couvre {dmin_global} -> {dmax_global}.')
+
+    elif SOURCE_TYPE == SRC_HISTORIQUE and BORNE_DECLAREE_MIN and BORNE_DECLAREE_MAX:
+        # Plusieurs mois sont NORMAUX. On verifie seulement que le nom dit vrai.
+        if dmin_global != BORNE_DECLAREE_MIN or dmax_global != BORNE_DECLAREE_MAX:
+            ecart = (f'Le nom annonce {BORNE_DECLAREE_MIN} -> {BORNE_DECLAREE_MAX} '
+                     f'mais le contenu couvre {dmin_global} -> {dmax_global}.')
+
+    # SRC_INDETERMINE : aucune promesse dans le nom, donc aucun controle de periode.
+
+    if ecart:
         periode_incoherente = True
         ctrl_data.insert(0, [
             f'IMPORT-{IMPORT_ID}',
             'GLOBAL',
             str(dmin_global),
             str(dmax_global),
-            (f'Période réelle {dmin_global}→{dmax_global}, '
-             f'nominal {NOM_ANNEE}-{NOM_MOIS:02d}'),
+            f'Periode reelle {dmin_global}->{dmax_global}, source declaree {SOURCE_TYPE}',
             None,
             None,
             'BANQUE_FICHIER_PERIODE_INCOHERENTE',
             'A_CONTROLER',
-            (f'Le fichier est nommé {NOM_ANNEE}-{NOM_MOIS:02d} '
-             f'mais couvre {dmin_global} → {dmax_global}. '
-             f'Non bloquant si au moins une date exploitable (B10).'),
+            ecart + ' Non bloquant si au moins une date exploitable (B10).',
             'A_CONTROLER',
         ])
-        print(f'[WARN] BANQUE_FICHIER_PERIODE_INCOHERENTE : {dmin_global} -> {dmax_global}')
+        print(f'[WARN] BANQUE_FICHIER_PERIODE_INCOHERENTE : {ecart}')
+    else:
+        print(f'[OK] Periode conforme a la declaration {SOURCE_TYPE} : '
+              f'{dmin_global} -> {dmax_global}')
 
 print(f'[OK] Normalisation terminée : {len(norm_data)} lignes NORM | '
       f'{stats["bloquants"]} BLOQUANT | {stats["a_controler"]} A_CONTROLER | '
@@ -693,7 +752,7 @@ doc_lines = [
     '  B10 — BANQUE_FICHIER_PERIODE_INCOHERENTE : A_CONTROLER (non bloquant)',
     '',
     'Source brute (jamais committée, .gitignore) :',
-    '  01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx',
+    '  01_SOURCES_BRUTES/Banque/<export declare>',
     '',
     'Script : 02_TRAVAIL/lot8a_banque_import.py',
     'ARCHI §13.2–§13.4 / REGLES §6 / Plan Lot 8a',

@@ -51,7 +51,7 @@ documentée depuis le correctif `/logements`, mais elle existe toujours.
 
 | Fichier | Producteur | Git |
 |---|---|---|
-| `01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx` | tiers (banque) | non |
+| `01_SOURCES_BRUTES/Banque/BANQUE_ACTUELLE_HISTORIQUE_2025-11-03_2026-08-01.xlsx` | tiers (banque) | non |
 
 Seul fichier légitimement Excel dans l'architecture cible. Aucun module applicatif ne le lit
 directement : il passe par `lot8a`.

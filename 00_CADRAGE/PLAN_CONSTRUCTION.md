@@ -332,7 +332,7 @@ Le Module 4 Ménages combine **trois sources** qui n'ont pas le même statut. El
 
 **Pré-requis.** Lots 3 et 7 stabilisés (pour rapprocher), Lot 1 (payouts).
 
-**Entrées.** Export Crédit Mutuel (ex. `2026_03_BRUT_Banque_CreditMutuel.xlsx`) ; `REF_Banque_Regles` (à créer) ; `REF_Cartes_Paiement`, `REF_Types_Flux`, `REF_Categories_Charges`.
+**Entrées.** Export Crédit Mutuel (ex. `BANQUE_ACTUELLE_HISTORIQUE_2025-11-03_2026-08-01.xlsx`) ; `REF_Banque_Regles` (à créer) ; `REF_Cartes_Paiement`, `REF_Types_Flux`, `REF_Categories_Charges`.
 
 **Sorties.** `BRUT_Banque`, `NORM_Banque`, `IA_Classification`, `CTRL_A_CONTROLER`, `LOG_Traitement`, `REF_Cloture_Mensuelle` (états de mois, Archi §23.2), et `REF_Banque_Regles` peuplé.
 

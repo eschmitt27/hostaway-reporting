@@ -9,7 +9,7 @@ vue non-rapprochés, contrôles ciblés, vérification d'impact Lot9.
 
 | Élément | État constaté |
 |---|---|
-| Source bancaire attendue | Crédit Mutuel, un seul fichier/compte/mois codé en dur dans `lot8a_banque_import.py` (`01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx`) — **absent de ce worktree** |
+| Source bancaire attendue | Crédit Mutuel, un seul fichier/compte/mois codé en dur dans `lot8a_banque_import.py` (`01_SOURCES_BRUTES/Banque/BANQUE_ACTUELLE_HISTORIQUE_2025-11-03_2026-08-01.xlsx`) — **absent de ce worktree** |
 | Formats supportés (avant ce tour) | XLSX uniquement, batch, aucune UI d'upload |
 | Fichier normalisé | `BANQUE_LOT8_IMPORT.xlsx` onglet `NORM_Banque`, 26 colonnes (23 lot8a + 3 lot8b) |
 | Clé mouvement | `mouvement_id` = `MVT-<compte>-<date YYYYMMDD>-<sens>-<centimes>-<hash6>` ; `ROW_HASH` = sha256(compte, date_op, date_valeur, sens, montant_centimes, libellé normalisé, devise) |

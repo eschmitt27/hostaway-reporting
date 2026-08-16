@@ -49,7 +49,7 @@ FORMAT_RELEVE_CONSOLIDE    : {"Mouvements", "Controles", "Sources"} ⊆ feuilles
 FORMAT_INCONNU             : ni l'un ni l'autre → BLOQUANT explicite, sys.exit(1)
 ```
 
-Le nom de fichier (`2026_03_BRUT_Banque_CreditMutuel.xlsx`) n'intervient jamais dans la détection.
+Le nom de fichier (`BANQUE_ACTUELLE_HISTORIQUE_2025-11-03_2026-08-01.xlsx`) n'intervient jamais dans la détection.
 Le contrôle `BANQUE_FICHIER_PERIODE_INCOHERENTE` — **déjà présent avant cette mission** (`CTR-9`
 n'est pas concerné ici, c'est un contrôle Lot8a natif) — reste `A_CONTROLER` et non `BLOQUANT` :
 le fichier consolidé fourni couvre 9 mois (03/11/2025→01/08/2026), largement hors du mois nominal

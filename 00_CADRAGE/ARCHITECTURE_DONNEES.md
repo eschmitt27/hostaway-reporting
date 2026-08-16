@@ -185,7 +185,7 @@ Le Module 1 (Hostaway) est dÃ©jÃ  construit. Tous les autres dÃ©pendent du
 | Factures mÃ©nage externe | Excel standardisÃ© | Semi-auto | Ã€ brancher |
 | Suivi mÃ©nage interne | Excel | Manuelle | Ã€ brancher |
 | `M04_MENAGES_PowerQuery.xlsx` | Excel + Power Query actualisable | Semi-auto (refresh requis avant lecture) | En cours â€” produit `tbl_MASTER_FACT_MEN_Menages` (Â§11.4) |
-| `2026_03_BRUT_Banque_CreditMutuel.xlsx` | Export bancaire brut CrÃ©dit Mutuel | Manuel â†’ pipeline banque | Ã€ brancher (Module 6) â€” dÃ©tail Â§13.6 |
+| `BANQUE_ACTUELLE_HISTORIQUE_2025-11-03_2026-08-01.xlsx` | Export bancaire brut CrÃ©dit Mutuel | Manuel â†’ pipeline banque | Ã€ brancher (Module 6) â€” dÃ©tail Â§13.6 |
 | DÃ©penses terrain | Formulaire mobile | Manuelle | Ã€ brancher |
 | Caisse espÃ¨ces | Excel caisse | Manuelle | Ã€ brancher |
 | `SAISIE_Charges_Flux.xlsx` | **Source unique** des achats, charges, consommables, produits mÃ©nage, linge, lavage, matÃ©riel, charges perso/liquide, dÃ©penses perso sur compte pro | Manuelle | Ã€ construire (Lot 3) |
@@ -1001,12 +1001,12 @@ L'IA ne traite que les lignes restantes aprÃ¨s les rÃ¨gles dÃ©terministes.
 
 > Module autonome : il ne bloque pas le cÅ“ur du systÃ¨me, mais devient prioritaire dÃ¨s que les tables Charges, IK/Avantages et Payout sont stabilisÃ©es, car il permet de vÃ©rifier versements plateformes, dÃ©penses perso sur compte pro et virements associÃ©s.
 
-### 13.6 Source brute observÃ©e â€” `2026_03_BRUT_Banque_CreditMutuel.xlsx`
+### 13.6 Source brute observÃ©e â€” `BANQUE_ACTUELLE_HISTORIQUE_2025-11-03_2026-08-01.xlsx`
 
 **Emplacement officiel**
 
 ```text
-C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Conciergerie\01_SOURCES_BRUTES\Banque\2026_03_BRUT_Banque_CreditMutuel.xlsx
+C:\Users\Ewan\OneDrive\Documents\Conciergerie\Pilotage_Conciergerie\01_SOURCES_BRUTES\Banque\BANQUE_ACTUELLE_HISTORIQUE_2025-11-03_2026-08-01.xlsx
 ```
 
 **Statut.** Source brute bancaire CrÃ©dit Mutuel. **Ne jamais modifier le fichier.** Toutes les transformations produisent des tables dÃ©rivÃ©es (`BRUT_Banque`, `NORM_Banque`, `IA_Classification`, `CTRL_A_CONTROLER`, `LOG_Traitement`).

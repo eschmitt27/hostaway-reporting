@@ -8,7 +8,7 @@ Audit du producteur de `BANQUE_LOT8_IMPORT.xlsx`, mené sur les copies et sur le
 | Élément | Attendu | Présent sur copies | Présent dans le réel | Conclusion |
 |---|---|---|---|---|
 | Script producteur | `02_TRAVAIL/lot8a_banque_import.py` | oui (copié) | oui | présent, jamais exécuté en réel |
-| Source brute d'entrée | `01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx` | **absent** | **absent — le dossier `Banque/` n'existe pas du tout sur disque** | source utilisateur jamais fournie |
+| Source brute d'entrée | `01_SOURCES_BRUTES/Banque/BANQUE_ACTUELLE_HISTORIQUE_2025-11-03_2026-08-01.xlsx` | **absent** | **absent — le dossier `Banque/` n'existe pas du tout sur disque** | source utilisateur jamais fournie |
 | Feuille métier attendue | `Cpt 02211 00021321603`, en-tête ligne 5, données ligne 6 | — | — | contrat documenté dans le script (§13.2-§13.4) |
 | Colonnes attendues (7, ordre fixe) | Date \| Valeur \| Libellé \| Débit \| Crédit \| Solde \| Devise | — | — | export brut Crédit Mutuel standard |
 | Compte concerné | `CM_02211_00021321603` (identifiant opaque déjà construit dans le script) | — | — | un seul compte, en dur dans le script |
@@ -24,7 +24,7 @@ Audit du producteur de `BANQUE_LOT8_IMPORT.xlsx`, mené sur les copies et sur le
    C'est une **sortie de Lot8** (`lot8a_banque_import.py`, `OUT_FILE`), jamais saisie directement.
 
 2. **Quel fichier brut doit être fourni à Lot8 ?**
-   `01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx` — export brut du compte
+   `01_SOURCES_BRUTES/Banque/BANQUE_ACTUELLE_HISTORIQUE_2025-11-03_2026-08-01.xlsx` — export brut du compte
    Crédit Mutuel `02211 00021321603`, feuille nommée `Cpt 02211 00021321603`, en-têtes en ligne 5,
    données à partir de la ligne 6, colonnes Date/Valeur/Libellé/Débit/Crédit/Solde/Devise (format
    export banque standard, aucune transformation avant dépôt).
@@ -68,12 +68,12 @@ contournement codé, aucune donnée fabriquée. Action requise, côté utilisate
 ## Suite (2026-08-02) — fichier fourni, contrat incompatible
 
 Un fichier a été déposé au chemin attendu :
-`01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx` (141 986 octets, SHA256
+`01_SOURCES_BRUTES/Banque/BANQUE_ACTUELLE_HISTORIQUE_2025-11-03_2026-08-01.xlsx` (141 986 octets, SHA256
 `a84c9b51b1c0eb50d17216272bd3c6cf2669d159bf7e1299c2b762face0ca4a8`, copié dans l'environnement de
 copies avec hash identique vérifié). Reproduction réelle sur la copie (jamais sur le réel) :
 
 ```
-[OK] Source brute : ...\SOURCES_COPIEES\01_SOURCES_BRUTES\Banque\2026_03_BRUT_Banque_CreditMutuel.xlsx
+[OK] Source brute : ...\SOURCES_COPIEES\01_SOURCES_BRUTES\Banque\BANQUE_ACTUELLE_HISTORIQUE_2025-11-03_2026-08-01.xlsx
 [ERREUR BLOQUANT] Feuille "Cpt 02211 00021321603" absente.
   Feuilles disponibles : ['Synthese', 'Mouvements', 'Mensuel', 'Controles', 'Sources']
 EXITCODE=1
@@ -86,7 +86,7 @@ inventée, aucune ancienne sortie réutilisée, aucun contournement.
 
 | Élément | Attendu (`lot8a_banque_import.py`) | Trouvé dans le fichier fourni | Statut | Action |
 |---|---|---|---|---|
-| Nom de fichier / chemin | `01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx` | identique | **OK** | — |
+| Nom de fichier / chemin | `01_SOURCES_BRUTES/Banque/BANQUE_ACTUELLE_HISTORIQUE_2025-11-03_2026-08-01.xlsx` | identique | **OK** | — |
 | Feuille métier | `Cpt 02211 00021321603` | absente — feuilles présentes : `Synthese`, `Mouvements`, `Mensuel`, `Controles`, `Sources` | **INCOMPATIBLE** | ne pas renommer une feuille pour faire matcher — décision humaine sur le format à fournir |
 | Compte (RIB) | `02211 00021321603` | **identique** — RIB `10278 02211 00021321603` cité dans `Synthese` (« C/C EUROCOMPTE PRO WONDERBNB ») | OK (même compte, tiers confirmé) | — |
 | En-tête ligne 5 / données ligne 6 | ligne 5 = en-têtes, ligne 6 = première donnée | dans `Mouvements` : ligne 5 = en-têtes, ligne 6 = première donnée (coïncidence structurelle) | partiellement compatible | insuffisant seul — le nom de feuille bloque avant même de lire les colonnes |

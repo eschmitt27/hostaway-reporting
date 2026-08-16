@@ -177,7 +177,7 @@
 > fourni » — vérifié absent en pratique. Verdict inchangé à cette étape.
 >
 > **Suite 2 (2026-08-02)** : le fichier a réellement été déposé
-> (`01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx`, SHA256
+> (`01_SOURCES_BRUTES/Banque/BANQUE_ACTUELLE_HISTORIQUE_2025-11-03_2026-08-01.xlsx`, SHA256
 > `a84c9b51b1c0eb50d17216272bd3c6cf2669d159bf7e1299c2b762face0ca4a8`, copié et hash vérifié
 > identique dans l'environnement de copies). Exécution réelle de `lot8a_banque_import.py` sur la
 > copie : **ÉCHEC reproduit, code retour 1** — `[ERREUR BLOQUANT] Feuille "Cpt 02211 00021321603"

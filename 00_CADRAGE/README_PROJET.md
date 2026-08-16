@@ -46,7 +46,7 @@ Le détail vit dans ces fichiers. Ce README **n'en duplique pas le contenu**, il
 Pilotage_Conciergerie/
 ├── 01_SOURCES_BRUTES/
 │   ├── Banque/                     ← exports bancaires bruts, jamais modifiés
-│   │   └── 2026_03_BRUT_Banque_CreditMutuel.xlsx
+│   │   └── BANQUE_ACTUELLE_HISTORIQUE_2025-11-03_2026-08-01.xlsx
 │   └── factures/                   ← factures prestataires / fournisseurs
 ├── 02_DONNEES_NORMALISEES/
 │   └── menages/
@@ -69,7 +69,7 @@ Pilotage_Conciergerie/
 | API Hostaway | Opérationnelle | Archi §6 |
 | `REF_Setup.xlsm` (19 onglets) | Opérationnel | Archi §4 |
 | `M04_MENAGES_PowerQuery.xlsx` | Source officielle ménages internes | Archi §11.4 |
-| `2026_03_BRUT_Banque_CreditMutuel.xlsx` | Source brute bancaire | Archi §13.6 |
+| `BANQUE_ACTUELLE_HISTORIQUE_2025-11-03_2026-08-01.xlsx` | Source brute bancaire | Archi §13.6 |
 
 ---
 

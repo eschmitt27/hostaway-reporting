@@ -518,7 +518,7 @@ Detail complet : `55_MATRICE_ECARTS_CONTRATS_REELS.md`, `60_VERDICT_GO_NO_GO.md`
 
 Audit ciblé de `lot8a_banque_import.py` (mission dediee) : `BANQUE_LOT8_IMPORT.xlsx` est une
 **sortie** de Lot8, jamais une source deposable directement. Sa source brute d'entree est
-`01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx` (export Credit Mutuel, compte
+`01_SOURCES_BRUTES/Banque/BANQUE_ACTUELLE_HISTORIQUE_2025-11-03_2026-08-01.xlsx` (export Credit Mutuel, compte
 `02211 00021321603`, feuille `Cpt 02211 00021321603`, en-tete ligne 5, donnees ligne 6). Ce fichier
 brut **n'existe nulle part** — le dossier `01_SOURCES_BRUTES/Banque/` n'existe pas physiquement sur
 disque, ni dans le reel ni dans les copies. Lot8 est 100% executable hors reseau (openpyxl pur),
@@ -540,7 +540,7 @@ STATUT : OUVERT, decision et geste humains requis. Verdict formalise :
 ## VERIFICATION (2026-08-02, suite) — fichier annonce comme fourni, toujours absent en pratique
 
 Mission recue annoncant un releve Credit Mutuel "nouvellement fourni" sous
-`01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx`. Verification directe avant toute
+`01_SOURCES_BRUTES/Banque/BANQUE_ACTUELLE_HISTORIQUE_2025-11-03_2026-08-01.xlsx`. Verification directe avant toute
 lecture metier (regle de la mission : controler le fichier avant tout traitement) :
 
 - `01_SOURCES_BRUTES/Banque/` **n'existe toujours pas** sur disque, dans le reel ;
@@ -559,7 +559,7 @@ STATUT : INCHANGE. Verdict toujours `60_VERDICT_GO_NO_GO.md` -> **NO GO — SOUR
 
 ## ANOMALIE REELLE TROUVEE EN RECETTE (2026-08-02, suite) — releve fourni, contrat incompatible
 
-Le fichier `01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx` a ete reellement depose
+Le fichier `01_SOURCES_BRUTES/Banque/BANQUE_ACTUELLE_HISTORIQUE_2025-11-03_2026-08-01.xlsx` a ete reellement depose
 (141986 octets, SHA256 `a84c9b51b1c0eb50d17216272bd3c6cf2669d159bf7e1299c2b762face0ca4a8`).
 Verification avant tout traitement metier : taille > 0, extension correcte, 5 feuilles
 (`Synthese`, `Mouvements`, `Mensuel`, `Controles`, `Sources`).
@@ -568,7 +568,7 @@ Copie controlee vers l'environnement de copies (hash source=copie verifie identi
 REELLE de `lot8a_banque_import.py` sur la copie (jamais sur le reel) :
 
 ```
-[OK] Source brute : ...SOURCES_COPIEES\01_SOURCES_BRUTES\Banque\2026_03_BRUT_Banque_CreditMutuel.xlsx
+[OK] Source brute : ...SOURCES_COPIEES\01_SOURCES_BRUTES\Banque\BANQUE_ACTUELLE_HISTORIQUE_2025-11-03_2026-08-01.xlsx
 [ERREUR BLOQUANT] Feuille "Cpt 02211 00021321603" absente.
   Feuilles disponibles : ['Synthese', 'Mouvements', 'Mensuel', 'Controles', 'Sources']
 EXITCODE=1
@@ -1199,3 +1199,23 @@ Cause de la detection tardive : mes regressions ciblees des missions 0027/0028 f
 test_factur*, test_comptabilite*, test_reglements*, test_proprietaires*, test_clotures* --
 test_sqlite_migrations.py n'y figurait pas. Une migration doit desormais entrainer
 systematiquement l'execution de test_sqlite_migrations.py, quel que soit le domaine touche.
+
+## 2026-08-16 — 128 controles JOINTURE_PAYOUT_MANQUANTE : decalage de fraicheur Lot1
+
+CONSTAT : apres regeneration autorisee de la chaine aval, Lot11 remonte 128 controles BLOQUANT,
+tous de code `JOINTURE_PAYOUT_MANQUANTE`, sur les mois 2026-06 a 2026-12.
+
+CAUSE MESUREE : `MASTER_CALC_HA_Payout.xlsx` a ete extrait le 2026-06-08 (1380 payouts), alors que
+les reservations vont jusqu en decembre 2026. Toute reservation posterieure a cette extraction n a
+mecaniquement pas de payout.
+
+NATURE : ce n est pas une incoherence de calcul ni une regression. C est un decalage de fraicheur
+entre deux masters produits par Lot1 a des dates differentes. La regeneration ne l a pas cree :
+elle l a rendu visible.
+
+RESOLUTION : un nouveau run Lot1 contre l API Hostaway. Hors perimetre de la mission en cours
+(aucun appel reseau autorise).
+
+PORTEE : la baseline Excel figee ce jour est fiable pour les mois clos, pas pour les mois recents.
+Le test de severite tolere ce code precis, date et explique ; tout autre code bloquant le fait
+toujours echouer.

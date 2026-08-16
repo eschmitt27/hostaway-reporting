@@ -293,7 +293,7 @@ jamais ouvert en écriture, jamais renommé, jamais modifié.
 
 **Lot8 exécuté sur la copie uniquement** (jamais sur le réel) :
 ```
-[OK] Source brute : ...SOURCES_COPIEES\01_SOURCES_BRUTES\Banque\2026_03_BRUT_Banque_CreditMutuel.xlsx
+[OK] Source brute : ...SOURCES_COPIEES\01_SOURCES_BRUTES\Banque\BANQUE_ACTUELLE_HISTORIQUE_2025-11-03_2026-08-01.xlsx
 [ERREUR BLOQUANT] Feuille "Cpt 02211 00021321603" absente.
   Feuilles disponibles : ['Synthese', 'Mouvements', 'Mensuel', 'Controles', 'Sources']
 EXITCODE=1
@@ -330,7 +330,7 @@ Continuation autonome après vérification préalable complète (worktree, branc
 master `8b47807`, git status propre, 85/85 hashes réels re-vérifiés identiques).
 
 La mission reçue annonçait un relevé Crédit Mutuel « nouvellement fourni » sous
-`01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx`. Conformément à l'étape 1 de la
+`01_SOURCES_BRUTES/Banque/BANQUE_ACTUELLE_HISTORIQUE_2025-11-03_2026-08-01.xlsx`. Conformément à l'étape 1 de la
 mission (« contrôler le fichier fourni avant toute lecture métier »), vérification directe avant
 tout traitement : **le dossier `01_SOURCES_BRUTES/Banque/` n'existe toujours pas** sur disque, dans
 le réel. Recherche large complémentaire (motifs `*BRUT_Banque*`, `*CreditMutuel*`, tout `.xlsx`
@@ -358,7 +358,7 @@ copies `_RECETTES_GLOBALES/RECETTE_GLOBALE_20260801_004232/` toujours présent, 
 
 **Contrat Lot8 (audit ciblé, `61_CONTRAT_SOURCE_BANQUE_LOT8.md`)** : lecture complète de
 `lot8a_banque_import.py`. `BANQUE_LOT8_IMPORT.xlsx` est une **sortie** de Lot8 (jamais une source
-utilisateur), produite depuis `01_SOURCES_BRUTES/Banque/2026_03_BRUT_Banque_CreditMutuel.xlsx`
+utilisateur), produite depuis `01_SOURCES_BRUTES/Banque/BANQUE_ACTUELLE_HISTORIQUE_2025-11-03_2026-08-01.xlsx`
 (export brut Crédit Mutuel, compte `02211 00021321603`, feuille `Cpt 02211 00021321603`, en-tête
 ligne 5, données ligne 6). Ce fichier brut **n'existe nulle part** — le dossier
 `01_SOURCES_BRUTES/Banque/` n'existe pas physiquement sur disque, ni dans le réel ni dans les
