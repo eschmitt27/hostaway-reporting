@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Prévisualisation de l'import{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Prévisualisation de l'import</h1>
+  <p class="page-subtitle">Rien n'a été écrit. Voici exactement ce que l'import ferait.</p>
+</div>
+
+{% set p = previsualisation %}
+
+{% if not p.ok %}
+<div class="card">
+  <div class="alert alert-warning">
+    <strong>Import refusé — {{ p.code }}</strong><br>
+    {{ p.message }}
+    {% if p.detail %}<div class="text-sm" style="margin-top:.5rem"><code>{{ p.detail }}</code></div>{% endif %}
+  </div>
+  <p class="text-sm text-secondary">
+    Aucune ligne ne serait écrite. Un import est intégral ou inexistant : il n'y a pas d'état
+    partiellement importé.
+  </p>
+  <a href="/referentiel-setup">Retour</a>
+</div>
+{% else %}
+
+<div class="card">
+  <p><strong>{{ p.nb_feuilles }}</strong> onglets ·
+     <strong>{{ p.nb_lignes }}</strong> lignes seraient écrites.</p>
+  <div class="text-sm text-secondary">
+    Source <code>{{ p.chemin_source }}</code><br>
+    Empreinte <code>{{ p.empreinte_source[:32] }}…</code>
+  </div>
+</div>
+
+{% if p.avertissements %}
+<div class="card">
+  <div class="card-title">{{ p.avertissements|length }} point(s) à contrôler</div>
+  <p class="text-sm text-secondary">
+    Ces points <strong>ne bloquent pas</strong> l'import. Ils décrivent le référentiel tel qu'il
+    est ; refuser l'import les rendrait invisibles au lieu de les exposer.
+  </p>
+  <div class="table-container">
+    <table class="table">
+      <thead><tr><th>Code</th><th>Cible</th><th>Constat</th></tr></thead>
+      <tbody>
+        {% for a in p.avertissements %}
+        <tr><td><span class="badge badge-warning">{{ a.code }}</span></td>
+            <td class="text-sm">{{ a.cible }}</td><td>{{ a.message }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-title">Effet par référentiel</div>
+  <div class="table-container">
+    <table class="table">
+      <thead>
+        <tr><th>Onglet</th><th class="text-right">Actuellement</th>
+            <th class="text-right">Après import</th><th>Empreinte du contenu</th></tr>
+      </thead>
+      <tbody>
+        {% for f in p.feuilles %}
+        <tr>
+          <td>{{ f.onglet }}</td>
+          <td class="text-right text-secondary">{{ f.nb_lignes_actuelles if f.nb_lignes_actuelles is not none else "—" }}</td>
+          <td class="text-right"><strong>{{ f.nb_lignes }}</strong></td>
+          <td class="text-sm text-secondary"><code>{{ f.empreinte[:16] }}</code></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <p class="text-sm text-secondary">
+    L'import remplace intégralement le contenu de ces tables : le classeur est la source, pas un
+    complément. Une ligne supprimée dans Excel disparaît de la base.
+  </p>
+  <div class="flex gap-sm">
+    <form method="post" action="/referentiel-setup/importer">
+      <button type="submit">Confirmer l'import</button>
+    </form>
+    <a href="/referentiel-setup">Annuler</a>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

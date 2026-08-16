@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Référentiel Setup{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Référentiel Setup</h1>
+  <p class="page-subtitle">Les 28 référentiels de l'exploitation, importés depuis REF_Setup.xlsm
+     et stockés en base. Aucun calcul : ce que contient le classeur, rien d'autre.</p>
+</div>
+
+{% if message %}<div class="alert alert-info">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+
+<div class="card">
+  {% if etat.disponible %}
+    <p><strong>{{ etat.nb_lignes }}</strong> lignes réparties sur
+       <strong>{{ etat.feuilles|length }}</strong> référentiels.</p>
+    <div class="text-sm text-secondary">
+      Dernier import <code>{{ etat.dernier_import.import_id }}</code>
+      du {{ etat.dernier_import.horodatage }} ·
+      empreinte source <code>{{ etat.dernier_import.empreinte_source[:16] }}…</code>
+    </div>
+  {% else %}
+    <div class="alert alert-warning">
+      Référentiel jamais importé. Les tables existent mais sont vides — ce n'est pas la même chose
+      qu'un référentiel sans données. Prévisualisez l'import pour voir ce qu'il écrirait.
+    </div>
+  {% endif %}
+
+  <div class="flex gap-sm" style="margin-top: var(--stack-md);">
+    <form method="post" action="/referentiel-setup/previsualiser">
+      <button type="submit">Prévisualiser l'import</button>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Contenu par référentiel</div>
+  <div class="table-container">
+    <table class="table">
+      <thead>
+        <tr><th>Onglet</th><th>Table</th><th>Clé</th>
+            <th class="text-right">Colonnes</th><th class="text-right">Lignes</th></tr>
+      </thead>
+      <tbody>
+        {% for f in etat.feuilles %}
+        <tr>
+          <td>{{ f.onglet }}</td>
+          <td><code>{{ f.table }}</code></td>
+          <td class="text-sm text-secondary">{{ f.cle }}</td>
+          <td class="text-right">{{ f.nb_colonnes }}</td>
+          <td class="text-right">
+            {% if f.nb_lignes %}{{ f.nb_lignes }}{% else %}<span class="text-secondary">—</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Historique des imports</div>
+  {% if historique %}
+  <div class="table-container">
+    <table class="table">
+      <thead>
+        <tr><th>Import</th><th>Horodatage</th><th>Statut</th>
+            <th class="text-right">Onglets</th><th class="text-right">Lignes</th><th>Motif</th></tr>
+      </thead>
+      <tbody>
+        {% for h in historique %}
+        <tr>
+          <td><code>{{ h.import_id }}</code></td>
+          <td>{{ h.horodatage }}</td>
+          <td>
+            {% if h.statut == 'IMPORTE' %}<span class="badge badge-success">Importé</span>
+            {% else %}<span class="badge badge-warning">Refusé</span>{% endif %}
+          </td>
+          <td class="text-right">{{ h.nb_feuilles }}</td>
+          <td class="text-right">{{ h.nb_lignes }}</td>
+          <td class="text-sm text-secondary">{{ h.code_refus or "" }} {{ h.message or "" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="text-sm text-secondary" style="margin-top: var(--stack-sm);">
+    Les tentatives refusées restent listées : un import qui échoue doit se voir.
+  </p>
+  {% else %}
+  <p class="text-secondary">Aucun import enregistré.</p>
+  {% endif %}
+</div>
+{% endblock %}

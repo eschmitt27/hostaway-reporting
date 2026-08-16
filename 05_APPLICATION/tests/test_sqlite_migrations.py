@@ -1,6 +1,7 @@
 """APP-0 — Migrations SQLite idempotentes."""
 from pathlib import Path
 from app.db.connection import apply_migrations, get_db
+from app.services import ref_setup_catalogue as _CATALOGUE_SETUP
 
 EXPECTED_TABLES = {
     "schema_migrations",
@@ -76,6 +77,11 @@ EXPECTED_TABLES = {
     "factures_proprietaires_sequence",          # 0027 — compteurs de numérotation par série
     "factures_proprietaires_conformite",        # 0028 — données réglementaires figées à l'émission
     "factures_proprietaires_lignes_detail",     # 0028 — quantité et prix unitaire par ligne
+    # 0029 — référentiel Setup canonique : une table par onglet de REF_Setup.xlsm.
+    # Déclarées depuis le catalogue plutôt que recopiées : la liste ne peut pas diverger de lui.
+    *(f.table for f in _CATALOGUE_SETUP.FEUILLES),
+    "ref_setup_imports",                        # 0029 — journal des imports (tentatives incluses)
+    "ref_setup_import_feuilles",                # 0029 — détail par onglet d'un import
 }
 
 
