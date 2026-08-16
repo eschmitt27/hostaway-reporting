@@ -5,9 +5,8 @@ lot8b_banque_regles.py
 Lot 8b - REF_Banque_Regles + classification deterministe bancaire
 
 Actions:
-  1. Backup REF_Setup.xlsm -> 99_ARCHIVES/LOT8_Banque/
-  2. Ajoute TYPE_FLUX_016 (FRAIS_BANCAIRES) dans REF_Types_Flux
-  3. Ajoute onglet REF_Banque_Regles (20 cols, 30 regles seed)
+  2. Charge les regles de classification depuis SQLite (ref_banque_regles, migration 0029)
+  3. N ecrit JAMAIS dans REF_Setup.xlsm
   4. Backup BANQUE_LOT8_IMPORT.xlsx -> 99_ARCHIVES/LOT8_Banque/
   5. Applique les regles a NORM_Banque (+ 3 nouvelles colonnes)
   6. Cree onglet IA_Classification (catch-all R_099)
@@ -109,186 +108,51 @@ REGLES_HDR = [
     "date_debut_validite", "date_fin_validite", "commentaire",
 ]
 
+# ─────────────────────────────────────────────────────────────────────────────
+# SEED SYNTHETIQUE — TESTS ET DEMOS UNIQUEMENT
+# ─────────────────────────────────────────────────────────────────────────────
+# Ce bloc contenait les 30 regles REELLES de classification bancaire, motifs et tiers compris :
+# noms de proprietaires, de prestataires et d'associes en clair, dans un fichier versionne. C'etait
+# une fuite de donnees personnelles dans Git, et c'etait aussi une seconde source de verite pour des
+# regles metier qui vivent deja dans le referentiel.
+#
+# Les regles reelles vivent desormais dans `ref_banque_regles` (migration 0029), alimentee par
+# l'import du referentiel. Ce seed ne sert plus qu'a faire tourner des tests et des demonstrations
+# sans referentiel : ses motifs ne correspondent a AUCUN mouvement reel, volontairement.
+#
+# Il n'est JAMAIS choisi automatiquement — `--source-regles SEED` doit etre demande explicitement.
+# Reconstituer des regles metier reelles depuis du code embarque produirait une classification
+# plausible mais fausse, et silencieusement.
 SEED_RULES = [
-    ("R_001", 10, "OUI", "*", "COMMENCE_PAR", "libelle", "VIR AIRBNB PAYMENTS",
-     "AIRBNB", "PAYOUT_PLATEFORME", None, None,
-     "HOSTAWAY_PRIORITAIRE", "OUI", "OUI", "FAIBLE", "A_CONTROLER", "RAPPROCHEMENT_REQUIS",
+    ("R_DEMO_010", 10, "OUI", "*", "COMMENCE_PAR", "libelle", "VIR DEMO PLATEFORME",
+     "DEMO_PLATEFORME", "PAYOUT_PLATEFORME", None, None,
+     "DEMO", "OUI", "OUI", "FAIBLE", "A_CONTROLER", "RAPPROCHEMENT_REQUIS",
      None, None,
-     "B8/DC1 - rapprochement Hostaway prioritaire, jamais nouveau produit"),
+     "Fixture synthetique - versement plateforme"),
 
-    ("R_010", 15, "OUI", "*", "COMMENCE_PAR", "libelle", "IMPAYE",
-     "INCONNU", "IMPAYE", None, None,
-     "BANQUE_SOURCE", "NON", "NON", "ELEVE", "A_CONTROLER", "CLASSE",
+    ("R_DEMO_020", 20, "OUI", "*", "CONTIENT", "libelle", "DEMO FOURNISSEUR",
+     "FRS_DEMO", "CHARGE_FOURNISSEUR", None, None,
+     "DEMO", "NON", "OUI", "FAIBLE", "VALIDE", "CLASSE",
      None, None,
-     "Impaye - ELEVE, controle obligatoire, pas de validation auto"),
+     "Fixture synthetique - charge fournisseur"),
 
-    ("R_020", 20, "OUI", "*", "CONTIENT", "libelle", "WAFA SOUCI",
-     "PERS_WAFA", "VIR_ASSOCIE", None, None,
-     "BANQUE_SOURCE", "NON", "NON", "ELEVE", "A_CONTROLER", "CLASSE",
+    ("R_DEMO_030", 30, "OUI", "*", "CONTIENT", "libelle", "DEMO PROPRIETAIRE",
+     "PROP_DEMO", "VIREMENT_PROPRIETAIRE_A_RAPPROCHER", None, None,
+     "DEMO", "OUI", "NON", "MOYEN", "A_CONTROLER", "RAPPROCHEMENT_REQUIS",
      None, None,
-     "Virement associe Wafa Souci - ELEVE"),
+     "Fixture synthetique - virement proprietaire"),
 
-    ("R_021", 20, "OUI", "*", "CONTIENT", "libelle", "SOUCI WAFA",
-     "PERS_WAFA", "VIR_ASSOCIE", None, None,
-     "BANQUE_SOURCE", "NON", "NON", "ELEVE", "A_CONTROLER", "CLASSE",
+    ("R_DEMO_040", 40, "OUI", "*", "COMMENCE_PAR", "libelle", "FRAIS DEMO",
+     "BANQUE_DEMO", "FRAIS_BANCAIRES", None, None,
+     "DEMO", "NON", "OUI", "FAIBLE", "VALIDE", "CLASSE",
      None, None,
-     "Virement Souci Wafa (ordre inverse) - ELEVE"),
+     "Fixture synthetique - frais bancaires"),
 
-    ("R_030", 30, "OUI", "*", "COMMENCE_PAR", "libelle", "F COMM INTERVENTION",
-     "CREDIT_MUTUEL", "FRAIS_BANCAIRES", "TYPE_FLUX_016", "IC",
-     "BANQUE_SOURCE", "NON", "OUI", "FAIBLE", "VALIDE", "CLASSE",
+    ("R_DEMO_099", 99, "OUI", "*", "CONTIENT", "libelle", "*",
+     "INCONNU", "A_CLASSER", None, None,
+     "DEMO", "NON", "NON", "ELEVE", "A_CONTROLER", "A_ENVOYER_IA",
      None, None,
-     "Frais CM intervention - TYPE_FLUX_016 IC, validation auto"),
-
-    ("R_031", 30, "OUI", "*", "COMMENCE_PAR", "libelle", "FRAIS PAIE CB",
-     "CREDIT_MUTUEL", "FRAIS_BANCAIRES", "TYPE_FLUX_016", "IC",
-     "BANQUE_SOURCE", "NON", "OUI", "FAIBLE", "VALIDE", "CLASSE",
-     None, None,
-     "Frais paiement CB - TYPE_FLUX_016 IC, validation auto"),
-
-    ("R_040", 35, "OUI", "*", "CONTIENT", "libelle", "EFFET DOMICILIE",
-     "INCONNU", "EFFET_DOMICILIE", None, None,
-     "A_CONTROLER", "NON", "NON", "ELEVE", "A_CONTROLER", "CLASSE",
-     None, None,
-     "Effet domicilie - prestataire non identifie, ELEVE"),
-
-    ("R_050", 40, "OUI", "*", "CONTIENT", "libelle", "VINTED CARTE 8259",
-     "VINTED", "ACHAT_PERSO_CB", "TYPE_FLUX_002", "IC",
-     "BANQUE_SOURCE", "NON", "OUI", "FAIBLE", "A_CONTROLER", "CLASSE",
-     None, None,
-     "Vinted - achat personnel CB Wafa (TYPE_FLUX_002)"),
-
-    ("R_051", 40, "OUI", "*", "CONTIENT", "libelle", "UBER",
-     "UBER", "ACHAT_PERSO_CB", "TYPE_FLUX_002", "IC",
-     "BANQUE_SOURCE", "NON", "OUI", "FAIBLE", "A_CONTROLER", "CLASSE",
-     None, None,
-     "Uber (Eats/Trip) - achat personnel CB (TYPE_FLUX_002)"),
-
-    ("R_052", 40, "OUI", "*", "CONTIENT", "libelle", "PRICELABSINC",
-     "PRICELABS", "LOGICIEL_GESTION", None, "IC",
-     "BANQUE_SOURCE", "NON", "OUI", "FAIBLE", "A_CONTROLER", "CLASSE",
-     None, None,
-     "PriceLabs - logiciel gestion tarifs, IC"),
-
-    ("R_053", 45, "OUI", "*", "CONTIENT", "libelle", "CARTE 8259",
-     "PERS_WAFA", "DEPENSE_CB_A_CLASSIFIER", None, None,
-     "BANQUE_SOURCE", "NON", "NON", "MOYEN", "A_CONTROLER", "CLASSE",
-     None, None,
-     "Depense CB Wafa non identifiee par regle specifique - MOYEN"),
-
-    ("R_060", 50, "OUI", "*", "CONTIENT", "libelle", "GIE KLESIA",
-     "GIE_KLESIA", "COTISATION_PREVOYANCE", None, "IC",
-     "BANQUE_SOURCE", "NON", "OUI", "FAIBLE", "A_CONTROLER", "CLASSE",
-     None, None,
-     "Cotisation prevoyance retraite GIE Klesia"),
-
-    ("R_061", 50, "OUI", "*", "CONTIENT", "libelle", "CABINET GILLES HOURQU",
-     "CAB_HOURQUESSEAUX", "HONORAIRES_COMPTABLES", None, "IC",
-     "BANQUE_SOURCE", "NON", "OUI", "FAIBLE", "A_CONTROLER", "CLASSE",
-     None, None,
-     "Cabinet comptable Gilles Hourquesseaux"),
-
-    ("R_062", 50, "OUI", "*", "CONTIENT", "libelle", "URSSAF",
-     "URSSAF", "COTISATIONS_SOCIALES", None, "IC",
-     "BANQUE_SOURCE", "NON", "OUI", "FAIBLE", "A_CONTROLER", "CLASSE",
-     None, None,
-     "Cotisations URSSAF"),
-
-    ("R_063", 50, "OUI", "*", "CONTIENT", "libelle", "PASSPASS",
-     "PASSPASS", "ABONNEMENT_MOBILITE", None, None,
-     "A_CONTROLER", "NON", "NON", "MOYEN", "A_CONTROLER", "CLASSE",
-     None, None,
-     "PassPass - IC vs HC non tranche, D-8b-02"),
-
-    ("R_064", 50, "OUI", "*", "CONTIENT", "libelle", "PLAN SANTE ENTREPRISE",
-     "INCONNU", "SANTE_A_CONTROLER", None, None,
-     "A_CONTROLER", "NON", "NON", "MOYEN", "A_CONTROLER", "CLASSE",
-     None, None,
-     "Libelle bancaire sante non confirme ; ne pas valider sans justificatif."),
-
-    ("R_065", 65, "OUI", "*", "COMMENCE_PAR", "libelle", "FACT",
-     "INCONNU", "FACTURE_PRESTATAIRE", None, None,
-     "A_CONTROLER", "NON", "NON", "MOYEN", "A_CONTROLER", "CLASSE",
-     None, None,
-     "Facture prestataire non identifie (SGT...) - D-8b-04"),
-
-    ("R_071", 71, "OUI", "*", "CONTIENT", "libelle", "DELRIEU",
-     "PROP_0002", "VIREMENT_PROPRIETAIRE_A_RAPPROCHER", None, None,
-     "BANQUE_RAPPROCHEMENT", "OUI", "NON", "MOYEN", "A_CONTROLER", "RAPPROCHEMENT_REQUIS",
-     None, None,
-     "Proprietaire Cedrine Delrieu - PROP_0002 - D-8b-07"),
-
-    ("R_072", 72, "OUI", "*", "CONTIENT", "libelle", "DINNEWETH",
-     "PROP_0006", "VIREMENT_PROPRIETAIRE_A_RAPPROCHER", None, None,
-     "BANQUE_RAPPROCHEMENT", "OUI", "NON", "MOYEN", "A_CONTROLER", "RAPPROCHEMENT_REQUIS",
-     None, None,
-     "Proprietaire Caroline Pons-Dinneweth - PROP_0006 - D-8b-07"),
-
-    ("R_073", 73, "OUI", "*", "CONTIENT", "libelle", "MAURER",
-     "PROP_0009", "VIREMENT_PROPRIETAIRE_A_RAPPROCHER", None, None,
-     "BANQUE_RAPPROCHEMENT", "OUI", "NON", "MOYEN", "A_CONTROLER", "RAPPROCHEMENT_REQUIS",
-     None, None,
-     "Proprietaire Francois Maurer - PROP_0009 (multi-variantes) - D-8b-07"),
-
-    ("R_074", 74, "OUI", "*", "CONTIENT", "libelle", "UZON",
-     "FAMILLE_UZON_A_CONTROLER", "VIREMENT_PROPRIETAIRE_A_RAPPROCHER", None, None,
-     "BANQUE_RAPPROCHEMENT", "OUI", "NON", "MOYEN", "A_CONTROLER", "RAPPROCHEMENT_REQUIS",
-     None, None,
-     "Famille Uzon (Didier PROP_0001 ou Maryline PROP_0011) - identifier - D-8b-07"),
-
-    ("R_075", 75, "OUI", "*", "CONTIENT", "libelle", "DUREUIL",
-     "PROP_0010", "VIREMENT_PROPRIETAIRE_A_RAPPROCHER", None, None,
-     "BANQUE_RAPPROCHEMENT", "OUI", "NON", "MOYEN", "A_CONTROLER", "RAPPROCHEMENT_REQUIS",
-     None, None,
-     "Proprietaire Noel Dureuil - PROP_0010 - D-8b-07"),
-
-    ("R_076", 76, "OUI", "*", "CONTIENT", "libelle", "VASSAL",
-     "PROP_0005", "VIREMENT_PROPRIETAIRE_A_RAPPROCHER", None, None,
-     "BANQUE_RAPPROCHEMENT", "OUI", "NON", "MOYEN", "A_CONTROLER", "RAPPROCHEMENT_REQUIS",
-     None, None,
-     "Proprietaire Florane Vassal - PROP_0005 - D-8b-07"),
-
-    ("R_077", 77, "OUI", "*", "CONTIENT", "libelle", "DAVID TOURE",
-     "PROP_0008", "VIREMENT_PROPRIETAIRE_A_RAPPROCHER", None, None,
-     "BANQUE_RAPPROCHEMENT", "OUI", "NON", "MOYEN", "A_CONTROLER", "RAPPROCHEMENT_REQUIS",
-     None, None,
-     "Proprietaire David Toure - PROP_0008 (NB: contient WAFA non declenche R_020) - D-8b-07"),
-
-    ("R_078", 78, "OUI", "*", "CONTIENT", "libelle", "LOYER",
-     "INCONNU", "LOYER_LOCAL_A_CONTROLER", None, None,
-     "A_CONTROLER", "NON", "NON", "MOYEN", "A_CONTROLER", "CLASSE",
-     None, None,
-     "Loyer local - TYPE_FLUX_010 non confirme - D-8b-03"),
-
-    ("R_080", 80, "OUI", "*", "COMMENCE_PAR", "libelle", "PRLV SEPA",
-     "INCONNU", "PRELEVEMENT_NON_IDENTIFIE", None, None,
-     "A_CONTROLER", "NON", "NON", "MOYEN", "A_CONTROLER", "CLASSE",
-     None, None,
-     "Prelevement SEPA non identifie par regle specifique"),
-
-    ("R_085", 85, "OUI", "*", "COMMENCE_PAR", "libelle", "VIR SEPA",
-     "INCONNU", "VIREMENT_SORTANT_A_CONTROLER", None, None,
-     "A_CONTROLER", "NON", "NON", "MOYEN", "A_CONTROLER", "CLASSE",
-     None, None,
-     "Virement SEPA sortant non identifie - D-8b-08"),
-
-    ("R_090", 90, "OUI", "*", "COMMENCE_PAR", "libelle", "VIR INST",
-     "INCONNU", "VIR_INST_GENERIQUE", None, None,
-     "A_CONTROLER", "NON", "NON", "ELEVE", "A_CONTROLER", "CLASSE",
-     None, None,
-     "VIR INST non identifie - ELEVE, controle obligatoire"),
-
-    ("R_091", 91, "OUI", "*", "COMMENCE_PAR", "libelle", "VIR",
-     "INCONNU", "VIR_GENERIQUE", None, None,
-     "A_CONTROLER", "NON", "NON", "ELEVE", "A_CONTROLER", "CLASSE",
-     None, None,
-     "Virement generique non identifie - ELEVE"),
-
-    ("R_099", 99, "OUI", "*", "CATCH_ALL", "*", "*",
-     "INCONNU", "NON_CLASSE", None, None,
-     "A_CONTROLER", "NON", "NON", "MOYEN", "A_CONTROLER", "A_ENVOYER_IA",
-     None, None,
-     "Catch-all technique - vers IA_Classification (stub)"),
+     "Fixture synthetique - catch-all"),
 ]
 
 # Regles triggering CTRL entries
@@ -388,8 +252,10 @@ def _chemin_db():
 def _regles_depuis_sqlite():
     """Lit ref_banque_regles (migration 0029). None si la base ou la table est indisponible."""
     chemin = _chemin_db()
-    if chemin is None or not chemin.exists():
+    if chemin is None:
         return None, "aucune base applicative designee"
+    if not chemin.exists():
+        return None, "base applicative introuvable : %s" % chemin
     import sqlite3
     conn = sqlite3.connect(str(chemin))
     try:
@@ -479,31 +345,32 @@ def charger_regles():
     if demande not in SOURCES_REGLES + ("AUTO",):
         sys.exit("[LOT8B] --source-regles doit valoir %s ou AUTO." % "/".join(SOURCES_REGLES))
 
-    essais = []
-    if demande in ("AUTO", "SQLITE"):
-        regles, detail = _regles_depuis_sqlite()
-        if regles:
-            print("[OK] Regles chargees depuis SQLITE : %s" % detail)
-            return _normaliser(regles), "SQLITE"
-        essais.append("SQLITE : %s" % detail)
-        if demande == "SQLITE":
-            sys.exit("[LOT8B] Source SQLITE exigee mais indisponible - %s" % detail)
-
-    if demande in ("AUTO", "EXCEL"):
-        regles, detail = _regles_depuis_excel()
-        if regles:
-            print("[OK] Regles chargees depuis EXCEL (lecture seule) : %s" % detail)
-            return _normaliser(regles), "EXCEL"
-        essais.append("EXCEL : %s" % detail)
-        if demande == "EXCEL":
-            sys.exit("[LOT8B] Source EXCEL exigee mais indisponible - %s" % detail)
-
     if demande == "SEED":
-        print("[OK] Regles chargees depuis SEED (%d regles codees dans le lot)" % len(SEED_RULES))
+        # Jamais automatique : ces regles sont synthetiques et ne classifient rien de reel.
+        print("[OK] Regles SYNTHETIQUES depuis SEED (%d regles) - tests/demos uniquement"
+              % len(SEED_RULES))
         return rules_as_dicts(SEED_RULES), "SEED"
 
-    sys.exit("[LOT8B] Aucune source de regles exploitable.\n  " + "\n  ".join(essais)
-             + "\n  Importer le referentiel depuis l'application, ou passer --source-regles SEED.")
+    if demande == "EXCEL":
+        # Chemin de transition explicite, pour comparer SQLite et le classeur pendant la bascule.
+        regles, detail = _regles_depuis_excel()
+        if not regles:
+            sys.exit("[LOT8B] Source EXCEL exigee mais indisponible - %s" % detail)
+        print("[OK] Regles chargees depuis EXCEL (lecture seule) : %s" % detail)
+        return _normaliser(regles), "EXCEL"
+
+    # AUTO et SQLITE : meme comportement, et il est FAIL-CLOSED.
+    # Se rabattre silencieusement sur Excel ou sur le seed produirait une classification plausible
+    # mais fausse. Mieux vaut refuser de tourner et dire quoi faire.
+    regles, detail = _regles_depuis_sqlite()
+    if not regles:
+        sys.exit(
+            "[LOT8B] Referentiel des regles indisponible en SQLite - %s\n"
+            "  Importer le referentiel depuis l'application (ecran Referentiel Setup),\n"
+            "  ou passer explicitement --source-regles EXCEL (transition) ou SEED (demo)."
+            % detail)
+    print("[OK] Regles chargees depuis SQLITE : %s" % detail)
+    return _normaliser(regles), "SQLITE"
 
 
 def update_banque_import(rules_dicts):
@@ -642,7 +509,7 @@ def update_banque_import(rules_dicts):
         if ctrl_code:
             desc_map = {
                 "IMPAYE_DETECTE":           "Impaye detecte - verifier retour debit et impact (ELEVE)",
-                "VIR_ASSOCIE_DETECTE":      "Virement associe Wafa Souci detecte - ELEVE - controle obligatoire",
+                "VIR_ASSOCIE_DETECTE":      "Virement associe detecte - ELEVE - controle obligatoire",
                 "VIREMENT_BANCAIRE_AMBIGU": "Virement/effet non identifie - controle humain requis",
                 "IA_CONFIANCE_INSUFFISANTE":"Aucune regle deterministe - envoi IA (stub)",
             }

@@ -134,7 +134,9 @@ def test_sqlite_exige_mais_base_absente_arrete_le_lot(monkeypatch, tmp_path):
         monkeypatch, ["--source-regles", "SQLITE", "--db", str(tmp_path / "inexistante.db")])
     with pytest.raises(SystemExit) as exc:
         mod.charger_regles()
-    assert "SQLITE" in str(exc.value)
+    message = str(exc.value)
+    assert "introuvable" in message
+    assert "inexistante.db" in message, "le refus doit nommer la base cherchee"
 
 
 def test_sqlite_exige_mais_table_vide_arrete_le_lot(monkeypatch, tmp_path):
@@ -154,17 +156,78 @@ def test_source_inconnue_refusee(monkeypatch):
 
 # ── Secours ─────────────────────────────────────────────────────────────────────────────────────
 
-def test_seed_reste_accessible_explicitement(monkeypatch):
-    """SEED permet de reconstruire un référentiel vierge — jamais choisi par défaut."""
-    mod = _charger_module(monkeypatch, ["--source-regles", "SEED"])
-    regles, source = mod.charger_regles()
-    assert source == "SEED"
-    assert len(regles) == len(mod.SEED_RULES)
-
-
 def test_aucune_base_designee_ne_tombe_pas_sur_la_base_reelle(monkeypatch):
     """`_chemin_db()` ne doit JAMAIS deviner un chemin de production."""
     monkeypatch.delenv("PILOTAGE_DB_PATH", raising=False)
     monkeypatch.delenv("APP_DATA_DIR", raising=False)
     mod = _charger_module(monkeypatch, [])
     assert mod._chemin_db() is None
+
+
+# ── Fail-closed : SQLite est obligatoire en exploitation ────────────────────────────────────────
+
+def test_auto_ne_se_rabat_jamais_silencieusement(monkeypatch, tmp_path):
+    """AUTO sans referentiel SQLite doit REFUSER de tourner.
+
+    Se rabattre sur Excel ou sur le seed produirait une classification plausible mais fausse, et
+    silencieusement : c'est le pire des comportements pour un moteur de classification bancaire.
+    """
+    monkeypatch.delenv("PILOTAGE_DB_PATH", raising=False)
+    monkeypatch.delenv("APP_DATA_DIR", raising=False)
+    mod = _charger_module(monkeypatch, [])
+    with pytest.raises(SystemExit) as exc:
+        mod.charger_regles()
+    message = str(exc.value)
+    assert "indisponible en SQLite" in message
+    assert "Referentiel Setup" in message, "le refus doit dire QUOI FAIRE"
+
+
+def test_auto_ne_choisit_jamais_le_seed(monkeypatch, tmp_path):
+    """Meme avec un seed disponible en memoire, AUTO ne doit pas s'en servir."""
+    monkeypatch.delenv("PILOTAGE_DB_PATH", raising=False)
+    monkeypatch.delenv("APP_DATA_DIR", raising=False)
+    mod = _charger_module(monkeypatch, [])
+    assert mod.SEED_RULES, "le seed existe bien"
+    with pytest.raises(SystemExit):
+        mod.charger_regles()
+
+
+def test_auto_utilise_sqlite_quand_il_est_la(monkeypatch, tmp_path):
+    mod = _charger_module(monkeypatch, [])
+    db = _db_avec_regles(tmp_path / "app.db", [_regle(mod, "R_001", "10")],
+                         list(mod.REGLES_HDR))
+    mod = _charger_module(monkeypatch, ["--db", str(db)])
+    _, source = mod.charger_regles()
+    assert source == "SQLITE"
+
+
+# ── Le seed ne doit contenir aucune donnee reelle ───────────────────────────────────────────────
+
+# Fragments de noms reels qui figuraient dans le fichier versionne avant nettoyage.
+_PII_INTERDITE = ("MAURER", "DUREUIL", "VASSAL", "DINNEWETH", "DELRIEU", "GAUTHROT",
+                  "RODRIGUES", "TREIBER", "BERRADA", "UZON", "WAFA", "HOURQU")
+
+
+def test_le_lot_ne_contient_aucun_nom_reel():
+    """Garde-fou permanent : ces regles vivent dans le referentiel, pas dans le code versionne."""
+    source = LOT8B.read_text(encoding="utf-8").upper()
+    trouves = [nom for nom in _PII_INTERDITE if nom in source]
+    assert trouves == [], f"Donnees personnelles reintroduites dans le code : {trouves}"
+
+
+def test_le_seed_est_explicitement_synthetique(monkeypatch):
+    mod = _charger_module(monkeypatch, ["--source-regles", "SEED"])
+    regles, source = mod.charger_regles()
+    assert source == "SEED"
+    for r in regles:
+        assert r["regle_id"].startswith("R_DEMO_"), r["regle_id"]
+        assert r["source_economique"] == "DEMO"
+
+
+def test_le_seed_ne_reconstitue_aucune_regle_proprietaire_reelle(monkeypatch):
+    """Un motif du seed ne doit correspondre a aucun libelle bancaire reel plausible."""
+    mod = _charger_module(monkeypatch, ["--source-regles", "SEED"])
+    regles, _ = mod.charger_regles()
+    for r in regles:
+        motif = str(r["motif"]).upper()
+        assert motif == "*" or "DEMO" in motif, motif
