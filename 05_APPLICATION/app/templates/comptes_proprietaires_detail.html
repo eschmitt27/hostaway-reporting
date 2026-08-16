@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block title %}Compte {{ position.proprietaire_id }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Compte — {{ position.proprietaire_id }}</h1>
+  <p class="page-subtitle">Position financière, tous logements confondus.</p>
+</div>
+
+{% if message %}<div class="alert alert-info">{{ message }}</div>{% endif %}
+
+<div class="card">
+  <div class="card-title">Position financière</div>
+  <div class="table-container">
+    <table class="table">
+      <tbody>
+        <tr><td>Factures à recevoir</td>
+            <td class="text-right">{{ "%.2f"|format(position.factures_a_recevoir) }} €</td></tr>
+        <tr><td>Paiements reçus</td>
+            <td class="text-right">{{ "%.2f"|format(position.paiements_recus) }} €</td></tr>
+        <tr><td>Créances restantes</td>
+            <td class="text-right">{{ "%.2f"|format(position.creance_restante) }} €</td></tr>
+        <tr><td>Acompte / crédit disponible</td>
+            <td class="text-right">{{ "%.2f"|format(position.credit_disponible) }} €</td></tr>
+        <tr><td>Sommes à reverser</td>
+            <td class="text-right">{{ "%.2f"|format(position.reversements_dus) }} €</td></tr>
+        <tr><td>Compensations appliquées</td>
+            <td class="text-right">{{ "%.2f"|format(position.compensations) }} €</td></tr>
+        <tr><td>Virement net à effectuer</td>
+            <td class="text-right">{{ "%.2f"|format(position.virement_net) }} €</td></tr>
+        <tr><td><strong>Position nette</strong></td>
+            <td class="text-right"><strong>{{ "%.2f"|format(position.position_nette) }} €</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="text-sm text-secondary" style="margin-top: var(--stack-sm);">
+    Chaque composant reste lisible séparément : une facture, un paiement, une somme à reverser et
+    une compensation sont des faits économiques distincts. Le compte en calcule la position, il ne
+    les fusionne pas.
+  </p>
+  <form method="post" action="/comptes-proprietaires/{{ position.proprietaire_id }}/recalculer"
+        style="margin-top: var(--stack-md);">
+    <button type="submit">Recalculer les allocations</button>
+  </form>
+</div>
+
+<div class="card">
+  <div class="card-title">Factures émises</div>
+  {% if logements|length > 1 %}
+  <form method="get" class="flex gap-sm items-center" style="margin-bottom:1rem">
+    <label>Logement
+      <select name="logement">
+        <option value="">tous</option>
+        {% for l in logements %}
+        <option value="{{ l }}" {% if logement == l %}selected{% endif %}>{{ l }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Filtrer</button>
+    <span class="text-sm text-secondary">Filtre d'analyse : les totaux ci-dessus restent ceux du
+      compte entier.</span>
+  </form>
+  {% endif %}
+  {% if factures_affichees %}
+  <div class="table-container">
+    <table class="table">
+      <thead>
+        <tr><th>Facture</th><th>Logement</th><th>Période</th><th>Émise le</th>
+            <th class="text-right">Total</th><th class="text-right">Réglé</th>
+            <th class="text-right">Solde</th><th>Statut</th></tr>
+      </thead>
+      <tbody>
+        {% for f in factures_affichees %}
+        <tr>
+          <td><code>{{ f.numero_facture or f.facture_id_opaque }}</code></td>
+          <td>{{ f.logement_id }}</td>
+          <td>{{ f.mois }}</td>
+          <td>{{ f.date_emission }}</td>
+          <td class="text-right">{{ "%.2f"|format(f.montant_total) }} €</td>
+          <td class="text-right">{{ "%.2f"|format(f.regle) }} €</td>
+          <td class="text-right">{{ "%.2f"|format(f.solde) }} €</td>
+          <td>
+            {% if f.statut_reglement == 'REGLEE' %}<span class="badge badge-success">Réglée</span>
+            {% elif f.statut_reglement == 'PARTIELLEMENT_REGLEE' %}<span class="badge badge-warning">Partielle</span>
+            {% else %}<span class="badge badge-neutral">Non réglée</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="text-secondary">Aucune facture émise.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-title">Sources financières</div>
+  {% if position.sources %}
+  <div class="table-container">
+    <table class="table">
+      <thead>
+        <tr><th>Date</th><th>Type</th><th>Nature</th><th>Référence</th>
+            <th class="text-right">Montant</th><th class="text-right">Utilisé</th>
+            <th class="text-right">Disponible</th></tr>
+      </thead>
+      <tbody>
+        {% for s in position.sources %}
+        <tr>
+          <td>{{ s.source_date }}</td>
+          <td>
+            {% if s.source_type == 'PAIEMENT' %}<span class="badge badge-success">Paiement reçu</span>
+            {% else %}<span class="badge badge-neutral">À reverser</span>{% endif %}
+          </td>
+          <td class="text-sm text-secondary">{{ s.nature }}</td>
+          <td><code>{{ s.source_ref }}</code></td>
+          <td class="text-right">{{ "%.2f"|format(s.montant) }} €</td>
+          <td class="text-right">{{ "%.2f"|format(s.utilise) }} €</td>
+          <td class="text-right">{{ "%.2f"|format(s.disponible) }} €</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="text-sm text-secondary" style="margin-top: var(--stack-sm);">
+    Le disponible d'un paiement est un <strong>acompte</strong> : il soldera automatiquement la
+    prochaine facture émise. Le disponible d'une somme à reverser est ce qu'il reste à virer.
+  </p>
+  {% else %}
+  <p class="text-secondary">Aucun mouvement validé.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-title">Allocations — comment le solde se construit</div>
+  {% if position.allocations %}
+  <div class="table-container">
+    <table class="table">
+      <thead>
+        <tr><th class="text-right">Rang</th><th>Source</th><th>Référence</th>
+            <th>Facture soldée</th><th class="text-right">Montant alloué</th></tr>
+      </thead>
+      <tbody>
+        {% for a in position.allocations %}
+        <tr>
+          <td class="text-right">{{ a.rang_fifo }}</td>
+          <td>{% if a.source_type == 'PAIEMENT' %}Paiement{% else %}Compensation{% endif %}</td>
+          <td><code>{{ a.source_ref }}</code></td>
+          <td><code>{{ a.facture_id_opaque }}</code></td>
+          <td class="text-right">{{ "%.2f"|format(a.montant_alloue) }} €</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="text-sm text-secondary" style="margin-top: var(--stack-sm);">
+    L'ordre est déterminé par la règle FIFO, jamais choisi à la main. Ces lignes permettent de
+    reconstruire le solde de chaque facture.
+  </p>
+  {% else %}
+  <p class="text-secondary">Aucune allocation — il n'y a rien à imputer.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-title">Historique des recalculs</div>
+  {% if historique %}
+  <div class="table-container">
+    <table class="table">
+      <thead>
+        <tr><th>Recalcul</th><th>Horodatage</th><th>Déclencheur</th>
+            <th class="text-right">Factures</th><th class="text-right">Sources</th>
+            <th class="text-right">Créance</th><th class="text-right">Crédit</th>
+            <th>Empreinte des entrées</th></tr>
+      </thead>
+      <tbody>
+        {% for h in historique %}
+        <tr>
+          <td><code>{{ h.recalcul_id }}</code></td>
+          <td>{{ h.horodatage }}</td>
+          <td class="text-sm text-secondary">{{ h.declencheur }}</td>
+          <td class="text-right">{{ h.nb_factures }}</td>
+          <td class="text-right">{{ h.nb_sources }}</td>
+          <td class="text-right">{{ "%.2f"|format(h.creance_restante) }} €</td>
+          <td class="text-right">{{ "%.2f"|format(h.credit_restant) }} €</td>
+          <td class="text-sm text-secondary"><code>{{ h.empreinte_entrees[:12] }}</code></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="text-sm text-secondary" style="margin-top: var(--stack-sm);">
+    Deux recalculs de même empreinte produisent les mêmes allocations. Une empreinte qui change
+    signifie que les factures ou les mouvements ont changé.
+  </p>
+  {% endif %}
+</div>
+
+<a href="/comptes-proprietaires">Retour aux comptes</a>
+{% endblock %}

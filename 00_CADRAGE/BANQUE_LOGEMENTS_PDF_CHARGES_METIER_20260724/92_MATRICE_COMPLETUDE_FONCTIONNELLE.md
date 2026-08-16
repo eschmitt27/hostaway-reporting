@@ -105,7 +105,7 @@ comme utilisables, ce qu'ils sont tous).
 |---|---|
 | Backfill VRBO | Passe par le CSV source. 4 réservations concernées. Un écran serait disproportionné pour ce volume. |
 | Provenance Ménages | 1 contrôle ouvert, résolu par une relance `lot6b`/`lot6f` avec accès réseau — action d'environnement, pas de développement. |
-| Imputation d'un règlement sur facture propriétaire | Le solde est dérivé et correct ; il manque le câblage sur le moteur de rapprochement générique existant. Point d'entrée déjà en place. |
+| ~~Imputation d'un règlement sur facture propriétaire~~ | **RÉSOLU** — compte global propriétaire et allocations FIFO (migration 0030). `_imputations()` et la colonne « Compensé » lisent désormais les allocations. Voir `94`. |
 | Mappings comptables définitifs | Arbitrage comptable (606000, 706000 provisoires). Les écritures restent équilibrées et signalées `A_CONTROLER`. |
 | Identité société / régime TVA / type de client | **Valeurs à renseigner**, pas du code. Voir `88`. |
 
@@ -145,3 +145,19 @@ migration doit désormais entraîner son exécution.
 | BUGS CONNUS | **0** |
 | TESTS | **2519 passed, 1 failed** (échec environnemental pré-existant) |
 | MODE RÉEL | **NO GO — NON ACTIVÉ** |
+
+
+---
+
+## Mise à jour — référentiel SQLite et compte propriétaire
+
+Deux capacités se sont ajoutées depuis la rédaction de cette matrice (voir `94`) :
+
+| Fonction | État |
+|---|---|
+| Référentiel Setup en base, importable depuis l'interface | **DISPONIBLE** — 28 onglets, 366 lignes, import idempotent et fail-closed |
+| Compte global propriétaire, allocations FIFO | **DISPONIBLE** — crédits, compensations, traçabilité rang par rang |
+| Imputation règlement → facture | **DISPONIBLE** — n'est plus PARTIEL |
+
+Ces ajouts **ne changent pas** le constat sur Excel : aucun service métier ne lit encore SQLite
+plutôt que le classeur. Le référentiel est importable, il n'est pas encore consommé.

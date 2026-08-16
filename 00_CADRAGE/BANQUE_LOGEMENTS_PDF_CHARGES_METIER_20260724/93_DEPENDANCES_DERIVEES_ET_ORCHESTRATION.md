@@ -62,6 +62,22 @@ mais non classée**.
 Décision requise : autoriser `lot8b` à réécrire `REF_Setup.xlsm`, ou lui ajouter un override de
 chemin comme en possède `lot8a`.
 
+**Effet de bord découvert ensuite — 12 tests réveillés.** `test_banque_controle.py` porte
+`skipif(not BANQUE_LOT8_IMPORT.exists())`. Tant que le fichier était absent du worktree, ses
+34 points de recette étaient **silencieusement sautés**. En régénérant le classeur avec `lot8a`,
+ils se sont mis à s'exécuter — et 12 échouent, tous sur la même cause :
+
+```
+DecisionRefusee: Transition interdite : EN_ATTENTE_CLASSIFICATION → EN_COURS
+```
+
+540 mouvements sur 541 sont `EN_ATTENTE_CLASSIFICATION`, état normal d'un master passé par `lot8a`
+mais pas par `lot8b`. Les tests attendent, légitimement, un master classé.
+
+Ce n'est **pas** une régression de code : c'est une couverture qui n'existait pas et qui existe
+maintenant. Le classeur n'a pas été supprimé pour reverdir la suite — cela reviendrait à masquer le
+problème et à re-désactiver 34 points de recette. La correction est l'arbitrage sur `lot8b`.
+
 ### 4.2 Chaîne aval `lot4quater → lot9 → lot10 → lot11 → lot12` — sorties suivies par Git
 
 Les 26 masters de `02_TRAVAIL/` **sont versionnés**. Les relancer modifierait des fichiers suivis :
@@ -176,6 +192,11 @@ restant ».
 **Verdict : PARTIEL, et c'est une véritable brique à construire**, pas un bug local. Il faut
 une table d'imputation append-only, un type d'objet dédié, une action utilisateur, et les règles de
 refus (facture non émise, facture annulée, période clôturée, dépassement, désimputation).
+
+> **Mise à jour — cette brique a été construite.** La réponse retenue n'est pas l'imputation
+> manuelle facture par facture décrite ci-dessus, mais un **compte global propriétaire** dont les
+> allocations sont calculées en FIFO : l'utilisateur ne choisit aucune facture. Migration 0030,
+> détail dans `94`.
 
 Elle dépend en outre de `QUESTION_01` (nature des encaissements propriétaires), toujours sans
 réponse, et de la décision déjà enregistrée : « à l'avenir, les règlements devront être différenciés

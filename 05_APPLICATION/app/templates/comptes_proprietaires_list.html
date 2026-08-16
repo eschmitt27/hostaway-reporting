@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Comptes propriétaires{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Comptes propriétaires</h1>
+  <p class="page-subtitle">Un compte global par propriétaire, tous logements confondus.
+     Les paiements soldent les factures de la plus ancienne à la plus récente.</p>
+</div>
+
+<div class="card">
+  <div class="card-title">Tous propriétaires</div>
+  <div class="table-container">
+    <table class="table">
+      <thead>
+        <tr><th>Poste</th><th class="text-right">Montant</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Factures à recevoir</td><td class="text-right">{{ "%.2f"|format(totaux.factures_a_recevoir) }} €</td></tr>
+        <tr><td>Paiements reçus</td><td class="text-right">{{ "%.2f"|format(totaux.paiements_recus) }} €</td></tr>
+        <tr><td>Créances restantes</td><td class="text-right">{{ "%.2f"|format(totaux.creance_restante) }} €</td></tr>
+        <tr><td>Acomptes / crédits disponibles</td><td class="text-right">{{ "%.2f"|format(totaux.credit_disponible) }} €</td></tr>
+        <tr><td>Sommes à reverser</td><td class="text-right">{{ "%.2f"|format(totaux.reversements_dus) }} €</td></tr>
+        <tr><td>Compensations</td><td class="text-right">{{ "%.2f"|format(totaux.compensations) }} €</td></tr>
+        <tr><td>Virement net à effectuer</td><td class="text-right">{{ "%.2f"|format(totaux.virement_net) }} €</td></tr>
+        <tr><td><strong>Position nette</strong></td>
+            <td class="text-right"><strong>{{ "%.2f"|format(totaux.position_nette) }} €</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="text-sm text-secondary" style="margin-top: var(--stack-sm);">
+    Position nette positive : les propriétaires nous doivent. Négative : nous leur devons.
+    Ce n'est pas une trésorerie disponible.
+  </p>
+</div>
+
+<div class="card">
+  {% if positions %}
+  <div class="table-container">
+    <table class="table">
+      <thead>
+        <tr><th>Propriétaire</th><th class="text-right">Factures</th>
+            <th class="text-right">Créance restante</th><th class="text-right">Crédit</th>
+            <th class="text-right">À reverser</th><th class="text-right">Compensé</th>
+            <th class="text-right">Virement net</th><th class="text-right">Position nette</th></tr>
+      </thead>
+      <tbody>
+        {% for p in positions %}
+        <tr onclick="window.location='/comptes-proprietaires/{{ p.proprietaire_id }}'" style="cursor:pointer">
+          <td><strong>{{ p.proprietaire_id }}</strong>
+              <div class="text-sm text-secondary">{{ p.factures|length }} facture(s) émise(s)</div></td>
+          <td class="text-right">{{ "%.2f"|format(p.factures_a_recevoir) }} €</td>
+          <td class="text-right">{{ "%.2f"|format(p.creance_restante) }} €</td>
+          <td class="text-right">{{ "%.2f"|format(p.credit_disponible) }} €</td>
+          <td class="text-right">{{ "%.2f"|format(p.reversements_dus) }} €</td>
+          <td class="text-right">{{ "%.2f"|format(p.compensations) }} €</td>
+          <td class="text-right">{{ "%.2f"|format(p.virement_net) }} €</td>
+          <td class="text-right"><strong>{{ "%.2f"|format(p.position_nette) }} €</strong></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="text-secondary">Aucun propriétaire ne porte de facture émise ni de mouvement validé.</p>
+  {% endif %}
+</div>
+{% endblock %}

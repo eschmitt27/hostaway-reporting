@@ -58,14 +58,18 @@ def creances(*, proprietaire_id: str = "", logement_id: str = "", mois: str = ""
     from app.services import factures_proprietaires_service as fpr
     from app.services import factures_proprietaires_conformite_service as conformite
 
+    # Les allocations FIFO sont dérivées : elles doivent être à jour avant d'être lues, sinon
+    # l'écran afficherait des soldes exacts au moment d'un calcul passé.
+    _cpt().recalculer_tous(db_path=db_path)
+
     out: list[dict[str, Any]] = []
     for f in fpr.lister(mois=mois or None, proprietaire_id=proprietaire_id or None,
                         statut=fpr.ST_EMIS, db_path=db_path):
         if logement_id and f["logement_id"] != logement_id:
             continue
 
-        s = fpr.solde(f["facture_id_opaque"], paiements_imputes=_imputations(
-            f["facture_id_opaque"], db_path=db_path), db_path=db_path)
+        imput = _imputations_detail(f["facture_id_opaque"], db_path=db_path)
+        s = fpr.solde(f["facture_id_opaque"], paiements_imputes=imput["total"], db_path=db_path)
         conf = conformite.charger(f["facture_id_opaque"], db_path=db_path) or {}
         echeance = conf.get("date_echeance")
         jours = _anciennete(echeance)
@@ -81,8 +85,8 @@ def creances(*, proprietaire_id: str = "", logement_id: str = "", mois: str = ""
             "date_facture": f["date_facture"],
             "date_echeance": echeance,
             "total": s["montant_total"],
-            "regle": s["paiements_imputes"],
-            "compense": 0.0,
+            "regle": imput["regle"],
+            "compense": imput["compense"],
             "solde": s["solde"],
             "statut_reglement": s["statut_reglement"],
             "jours_retard": jours,
@@ -98,14 +102,26 @@ def creances(*, proprietaire_id: str = "", logement_id: str = "", mois: str = ""
     return out
 
 
+def _cpt():
+    """Import différé : le compte propriétaire lit les factures, qui lisent ce module."""
+    from app.services import compte_proprietaire_service
+    return compte_proprietaire_service
+
+
+def _imputations_detail(facture_id: str, *, db_path=None) -> dict[str, float]:
+    """Détail de l'imputation : règlement encaissé et compensation, gardés distincts."""
+    return _cpt().imputations_detail(facture_id, db_path=db_path)
+
+
 def _imputations(facture_id: str, *, db_path=None) -> float:
     """Montant déjà imputé sur une facture propriétaire (règlements et compensations).
 
-    Aucun mécanisme d'imputation n'est encore câblé sur ces factures : la fonction renvoie 0 et
-    reste le point d'accroche unique du jour où il le sera. Mieux vaut un point d'entrée explicite
-    qu'un `0.0` disséminé dans les appelants.
+    Câblé sur le compte global propriétaire (migration 0030) : l'imputation n'est jamais choisie
+    facture par facture, elle résulte de l'allocation FIFO des sources financières du propriétaire.
+    Cette fonction ne fait que lire le résultat de cette allocation.
     """
-    return 0.0
+    from app.services import compte_proprietaire_service as cpt
+    return cpt.imputations_facture(facture_id, db_path=db_path)
 
 
 # ── Dettes fournisseurs ─────────────────────────────────────────────────────────────────────────

@@ -82,6 +82,8 @@ EXPECTED_TABLES = {
     *(f.table for f in _CATALOGUE_SETUP.FEUILLES),
     "ref_setup_imports",                        # 0029 — journal des imports (tentatives incluses)
     "ref_setup_import_feuilles",                # 0029 — détail par onglet d'un import
+    "proprietaire_allocations",                 # 0030 — allocations FIFO source → facture
+    "proprietaire_recalculs",                   # 0030 — journal append-only des recalculs FIFO
 }
 
 
