@@ -10,6 +10,7 @@
 from datetime import datetime
 from typing import Any
 from app.readers import proprietaires_reader as reader
+from app.services import referentiel_service as referentiel
 
 
 def _now() -> str:
@@ -22,7 +23,8 @@ def load_list() -> dict[str, Any]:
     if not reader.ref_available():
         return {
             "status": "ERROR",
-            "error_message": f"Source introuvable : {reader.SOURCE_REF}.",
+            "error_message": referentiel.MESSAGE_ABSENT,
+            "code": referentiel.REFERENTIEL_ABSENT,
             "source": reader.SOURCE_REF,
             "read_at": read_at,
             "rows": [],
@@ -44,7 +46,8 @@ def load_detail(prop_id: str) -> dict[str, Any] | None:
     if not reader.ref_available():
         return {
             "status": "ERROR",
-            "error_message": f"Source introuvable : {reader.SOURCE_REF}.",
+            "error_message": referentiel.MESSAGE_ABSENT,
+            "code": referentiel.REFERENTIEL_ABSENT,
             "prop_id": prop_id,
             "read_at": read_at,
         }
@@ -80,7 +83,8 @@ def load_releve(prop_id: str, mois: str) -> dict[str, Any]:
     if not reader.ref_available():
         return {
             "status": "ERROR",
-            "error_message": f"Source introuvable : {reader.SOURCE_REF}.",
+            "error_message": referentiel.MESSAGE_ABSENT,
+            "code": referentiel.REFERENTIEL_ABSENT,
             "prop_id": prop_id,
             "mois": mois,
             "read_at": read_at,

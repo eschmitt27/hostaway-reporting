@@ -25,7 +25,10 @@ SHEET_VUE_MOIS = "VUE_MOIS"
 SHEET_ENTETE = "FACT_FACTURE_ENTETE"
 SHEET_LIGNES = "FACT_FACTURE_LIGNES"
 
-SOURCE_REF = "REF_Setup.xlsm"
+# Le référentiel n'est plus un fichier : un écran ne doit jamais annoncer
+# « REF_Setup.xlsm introuvable » à un utilisateur qui n'a simplement pas encore
+# importé son paramétrage.
+SOURCE_REF = "Référentiel SQLite (ref_proprietaires)"
 SOURCE_CALC = "MASTER_CALC_NetProprietaire.xlsx"
 SOURCE_FACT = "MASTER_FACT_Proprietaires.xlsx"
 
