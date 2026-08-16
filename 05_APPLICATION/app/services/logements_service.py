@@ -1,31 +1,33 @@
 """Service métier logements — LECTURE SEULE, AUCUN CALCUL.
 
-Arbitrages APP-1 :
-- Liste : source unique = PBI_Referentiel_Logements.csv (identité du bien).
-  Si absent / vide / illisible → état d'erreur clair, JAMAIS de fallback Excel,
-  JAMAIS de reconstruction par jointure REF_Logements × REF_Gestion × REF_Proprietaires.
-- Propriétaire : second export du moteur, PBI_Referentiel_Gestion_Logements.csv. Depuis le commit
-  moteur `c8dea3c`, `proprietaire_id` et les dates de gestion ont quitté l'export logements pour ne
-  plus y être dupliqués. Ce service n'avait pas suivi : la colonne « Propriétaire » de la liste
-  affichait « Non renseigné » sur TOUT le parc et le filtre propriétaire restait vide, sans aucun
-  message d'erreur. On lit donc désormais les deux exports.
-  La sélection du rattachement s'appuie sur `statut_gestion`, champ produit PAR LE MOTEUR : aucune
-  comparaison de dates n'est refaite ici (cf. règle « le moteur calcule, l'application lit »).
-  Aucun rattachement n'est deviné : un logement sans ligne active exploitable est signalé, pas
-  complété.
-- Détail : enrichissement REF_Setup UNIQUEMENT par clé directe logement_id.
-- Commission : historique BRUT rattaché au propriétaire résolu par le CSV, sans notion d'« actuel ».
+SOURCE : SQLITE UNIQUEMENT
+Ce service lisait deux exports CSV du moteur (`PBI_Referentiel_Logements.csv` et
+`PBI_Referentiel_Gestion_Logements.csv`) et enrichissait la fiche depuis `REF_Setup.xlsm`. Les
+trois lectures sont supprimées : le référentiel vit en base depuis la migration 0029, et faire
+transiter une donnée par `SQLite → CSV → application` était précisément la boucle que
+l'architecture interdit.
+
+Il ne reste donc AUCUNE dépendance à un fichier dans ce module.
+
+Arbitrages conservés à l'identique :
+- Propriétaire : résolu depuis `ref_gestion_logements_hist` en s'appuyant sur `statut_gestion`,
+  champ produit PAR LE MOTEUR. Aucune comparaison de dates n'est refaite ici, et un rattachement
+  ambigu n'est jamais tranché arbitrairement.
+- Commission, coûts de ménage, libellé de type : lignes BRUTES, aucun tri, aucune notion
+  d'« actuel ».
 - Lignes techniques (logement_id ne commençant pas par LOG_) : exclues par défaut, jamais masquées.
+
+FAIL-CLOSED
+Si le référentiel n'a jamais été importé, ce service le DIT — il ne se rabat pas sur le classeur.
+« Référentiel absent » et « référentiel vide » appellent des actions opposées ; les confondre
+enverrait l'utilisateur chercher un problème de données là où il manque un import.
 """
 from datetime import datetime
 from typing import Any
-from app.config import PBI_LOGEMENTS, PBI_GESTION_LOGEMENTS, REF_SETUP
-from app.readers.csv_reader import read_csv
-from app.readers import ref_setup_reader as ref
+from app.services import referentiel_service as referentiel
 
-PBI_SOURCE_NAME = "PBI_Referentiel_Logements.csv"
-PBI_GESTION_SOURCE_NAME = "PBI_Referentiel_Gestion_Logements.csv"
-REF_SOURCE_NAME = "REF_Setup.xlsm"
+SOURCE_NAME = "Référentiel SQLite (ref_logements)"
+SOURCE_GESTION_NAME = "Référentiel SQLite (ref_gestion_logements_hist)"
 _LOG_PREFIX = "LOG_"
 _STATUT_ACTIF = "ACTIF"
 
@@ -37,14 +39,11 @@ GESTION_ABSENT = "ABSENT"              # aucun rattachement exporté pour ce log
 GESTION_SOURCE_ABSENTE = "SOURCE_ABSENTE"  # export de gestion non généré (Lot13 non lancé)
 
 
-def _lire_rattachements() -> dict[str, list[dict[str, Any]]] | None:
-    """{logement_id: [lignes de gestion]}. None si l'export du moteur est absent."""
-    if not PBI_GESTION_LOGEMENTS.exists():
+def _lire_rattachements(db_path=None) -> dict[str, list[dict[str, Any]]] | None:
+    """{logement_id: [lignes de gestion]}. None si le référentiel n'est pas initialisé."""
+    if not referentiel.disponible(db_path=db_path):
         return None
-    par_logement: dict[str, list[dict[str, Any]]] = {}
-    for r in read_csv(PBI_GESTION_LOGEMENTS, max_rows=None):
-        par_logement.setdefault(str(r.get("logement_id") or "").strip(), []).append(r)
-    return par_logement
+    return referentiel.gestion_par_logement(db_path=db_path)
 
 
 def _resoudre_gestion(lignes: list[dict[str, Any]] | None) -> tuple[str, str]:
@@ -89,37 +88,37 @@ def load_list(
     proprietaire_id: str = "",
     actif: str = "",
     include_technique: bool = False,
+    db_path=None,
 ) -> dict[str, Any]:
-    """Charge la liste depuis le CSV PBI. Retourne un état structuré (jamais d'exception nue)."""
+    """Charge la liste depuis le référentiel SQLite. État structuré, jamais d'exception nue."""
     read_at = _read_at()
 
-    # État d'erreur : fichier absent
-    if not PBI_LOGEMENTS.exists():
+    # Fail-closed : référentiel jamais importé. Distinct d'un référentiel vide.
+    if not referentiel.disponible(db_path=db_path):
         return {
             "status": "ERROR",
-            "error_message": f"Source liste introuvable : {PBI_SOURCE_NAME}. "
-                             "La liste des logements ne peut pas être affichée.",
-            "source": PBI_SOURCE_NAME,
+            "code": referentiel.REFERENTIEL_ABSENT,
+            "error_message": referentiel.MESSAGE_ABSENT,
+            "source": SOURCE_NAME,
             "read_at": read_at,
             "rows": [], "count_parc": 0, "count_technique": 0,
             "filters": _empty_filters(),
         }
 
-    rows = read_csv(PBI_LOGEMENTS, max_rows=None)
+    rows = referentiel.logements(db_path=db_path)
 
-    # État d'erreur : fichier vide ou illisible (aucune ligne exploitable)
     if not rows:
         return {
             "status": "ERROR",
-            "error_message": f"Source liste vide ou illisible : {PBI_SOURCE_NAME}.",
-            "source": PBI_SOURCE_NAME,
+            "error_message": "Le référentiel a été importé mais ne contient aucun logement.",
+            "source": SOURCE_NAME,
             "read_at": read_at,
             "rows": [], "count_parc": 0, "count_technique": 0,
             "filters": _empty_filters(),
         }
 
-    # Propriétaire : second export du moteur, jamais recalculé ici.
-    _enrichir_gestion(rows, _lire_rattachements())
+    # Propriétaire : rattachement historisé du référentiel, jamais recalculé ici.
+    _enrichir_gestion(rows, _lire_rattachements(db_path))
 
     # Classement parc / technique (jamais de suppression)
     parc, technique = [], []
@@ -164,11 +163,11 @@ def load_list(
     return {
         "status": "OK",
         "error_message": None,
-        "source": PBI_SOURCE_NAME,
-        "source_gestion": PBI_GESTION_SOURCE_NAME,
-        # Signalé explicitement : sans cet export, la colonne Propriétaire est vide pour une raison
-        # connue (Lot13 non lancé) et non par absence de rattachement.
-        "gestion_disponible": PBI_GESTION_LOGEMENTS.exists(),
+        "source": SOURCE_NAME,
+        "source_gestion": SOURCE_GESTION_NAME,
+        # Le référentiel étant disponible à ce stade, les rattachements le sont aussi : ils vivent
+        # dans la même base et sont importés par la même transaction.
+        "gestion_disponible": True,
         "read_at": read_at,
         "rows": filtered,
         "count_parc": count_parc,
@@ -187,20 +186,20 @@ def _empty_filters() -> dict[str, list]:
     return {"villes": [], "types": [], "proprietaires": [], "actifs": []}
 
 
-def load_detail(logement_id: str) -> dict[str, Any] | None:
-    """Charge la fiche détail. None si le logement n'existe pas dans le CSV PBI (→ 404 propre)."""
+def load_detail(logement_id: str, *, db_path=None) -> dict[str, Any] | None:
+    """Charge la fiche détail. None si le logement n'existe pas (→ 404 propre)."""
     read_at = _read_at()
 
-    if not PBI_LOGEMENTS.exists():
+    if not referentiel.disponible(db_path=db_path):
         return {
             "status": "ERROR",
-            "error_message": f"Source liste introuvable : {PBI_SOURCE_NAME}.",
+            "code": referentiel.REFERENTIEL_ABSENT,
+            "error_message": referentiel.MESSAGE_ABSENT,
             "logement_id": logement_id,
             "read_at": read_at,
         }
 
-    rows = read_csv(PBI_LOGEMENTS, max_rows=None)
-    base = next((r for r in rows if str(r.get("logement_id", "")).strip() == str(logement_id).strip()), None)
+    base = referentiel.logement(logement_id, db_path=db_path)
     if base is None:
         return None  # 404 propre géré par la route
 
@@ -210,37 +209,34 @@ def load_detail(logement_id: str) -> dict[str, Any] | None:
     # Propriétaire : export de gestion du moteur. `base` ne le porte plus (cf. docstring). Sans
     # cette résolution, `commission_rows` était systématiquement vide : l'historique des taux
     # disparaissait de toutes les fiches.
-    par_logement = _lire_rattachements()
+    par_logement = _lire_rattachements(db_path)
     rattachements = [] if par_logement is None else par_logement.get(str(logement_id).strip(), [])
     proprietaire_id, gestion_statut = _resoudre_gestion(
         None if par_logement is None else rattachements)
     base["proprietaire_id"] = proprietaire_id
     base["gestion_statut"] = gestion_statut
 
-    # --- Enrichissement REF_Setup par clé directe logement_id ---
-    ref_available = ref.ref_setup_available()
-    ref_row = ref.get_logement_ref(logement_id) if ref_available else None
-    enrichissement_absent = ref_available and ref_row is None
+    # --- Enrichissement depuis le référentiel SQLite, par clé directe ---
+    # `base` EST déjà la ligne de référentiel : ref_logements porte toutes les colonnes de
+    # l'ancien export CSV et davantage. L'ancien « enrichissement » consistait à retrouver dans
+    # REF_Setup.xlsm ce que le CSV avait tronqué ; ce détour n'a plus lieu d'être.
+    ref_row = base
+    enrichissement_absent = False
 
-    type_label = ref.get_type_label(type_id) if ref_available else None
-    commission_rows = ref.get_commission_rows(proprietaire_id) if ref_available else []
-    menage_interne = ref.get_menage_interne_rows(logement_id) if ref_available else []
-    menage_standard = ref.get_menage_standard_rows(type_id) if ref_available else []
+    type_label = referentiel.type_label(type_id, db_path=db_path)
+    commission_rows = referentiel.taux_commission(proprietaire_id, db_path=db_path)
+    menage_interne = referentiel.couts_menage_interne(logement_id, db_path=db_path)
+    menage_standard = referentiel.couts_standards_menage(type_id, db_path=db_path)
 
     origine = {
-        "source_liste": PBI_SOURCE_NAME,
-        "source_gestion": PBI_GESTION_SOURCE_NAME,
-        "source_referentiel": REF_SOURCE_NAME,
-        "referentiel_disponible": ref_available,
+        "source_liste": SOURCE_NAME,
+        "source_gestion": SOURCE_GESTION_NAME,
+        "source_referentiel": SOURCE_NAME,
+        "referentiel_disponible": True,
         "read_at": read_at,
         "logement_id_enrichissement": logement_id,
-        "enrichissement_message": (
-            "Référentiel REF_Setup.xlsm introuvable — fiche limitée aux données de la liste."
-            if not ref_available else
-            (f"Aucune ligne REF_Logements pour {logement_id} — enrichissement partiel."
-             if enrichissement_absent else
-             "Enrichissement REF_Setup trouvé par clé directe logement_id.")
-        ),
+        "enrichissement_message":
+            "Fiche construite depuis le référentiel SQLite, par clé directe logement_id.",
     }
 
     return {

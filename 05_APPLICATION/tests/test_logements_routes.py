@@ -7,14 +7,12 @@ fichiers Excel directement. Complète les tests de service (`test_logements_crea
 """
 from __future__ import annotations
 
-import csv
-
 import openpyxl
 import pytest
 
 import app.config as cfg
-from app.services import logements_service
 from app.readers import ref_setup_reader
+from test_logements import construire_referentiel
 
 
 def _ref(tmp_path):
@@ -44,27 +42,38 @@ def _ref(tmp_path):
     return p
 
 
-def _pbi_csv(tmp_path):
-    p = tmp_path / "PBI_Referentiel_Logements.csv"
-    with open(p, "w", newline="", encoding="utf-8") as fh:
-        w = csv.writer(fh, delimiter=";")
-        w.writerow(["logement_id", "nom_court", "nom_logement_officiel", "adresse", "ville",
-                    "proprietaire_id", "nom_proprietaire", "type_logement_id", "actif", "statut_parc",
-                    "taux_commission"])
-        w.writerow(["LOG_A1", "A1", "Fictif A1", "1 rue", "RECETTE", "PROP_A", "Nom PROP_A",
-                    "TYPE_001", "OUI", "GERE", 0.19])
-    return p
-
-
 @pytest.fixture
 def ref(tmp_path, monkeypatch):
+    """Classeur pour les ÉCRITURES, référentiel SQLite pour les LECTURES.
+
+    Les actions d'administration (créer, changer de propriétaire, changer de taux) écrivent encore
+    dans REF_Setup.xlsm — c'est le périmètre de la mission « administration du référentiel ». Les
+    lectures d'écran, elles, passent désormais par la base. Les deux fixtures décrivent le même
+    logement, ce qui permet de vérifier que l'écran reste cohérent pendant la transition.
+    """
     p = _ref(tmp_path)
     monkeypatch.setattr(cfg, "REF_SETUP", p)
-    monkeypatch.setattr(logements_service, "REF_SETUP", p)
     monkeypatch.setattr(ref_setup_reader, "REF_SETUP", p)
-    csv_path = _pbi_csv(tmp_path)
-    monkeypatch.setattr(cfg, "PBI_LOGEMENTS", csv_path)
-    monkeypatch.setattr(logements_service, "PBI_LOGEMENTS", csv_path)
+
+    db = construire_referentiel(
+        tmp_path,
+        logements=[{"logement_id": "LOG_A1", "nom_logement_officiel": "Fictif A1",
+                    "nom_court": "A1", "adresse": "1 rue", "ville": "RECETTE",
+                    "type_logement_id": "TYPE_001", "sur_hostaway": "OUI", "actif": "OUI",
+                    "statut_parc": "GERE",
+                    "forfait_logiciel_consommables_mensuel": "0"}],
+        gestion=[{"gestion_id": "GST_1", "logement_id": "LOG_A1", "proprietaire_id": "PROP_A",
+                  "date_debut": "2026-01-01", "date_fin": "", "statut_gestion": "ACTIF",
+                  "source": "FICTIF"}],
+        types=[{"type_logement_id": "TYPE_001", "type_logement": "STUDIO"}],
+        taux=[{"taux_commission_id": "TX_A1", "proprietaire_id": "PROP_A",
+               "logement_id": "LOG_A1", "taux_commission": "0.19", "date_debut": "2026-01-01",
+               "date_fin": "", "actif": "OUI"}],
+        proprietaires=[{"proprietaire_id": "PROP_A", "nom_proprietaire": "Nom PROP_A",
+                        "actif": "OUI"},
+                       {"proprietaire_id": "PROP_B", "nom_proprietaire": "Nom PROP_B",
+                        "actif": "OUI"}])
+    monkeypatch.setattr(cfg, "DB_PATH", db)
     monkeypatch.setattr(cfg, "RECETTE_MODE", True)
     monkeypatch.setattr(cfg, "RECETTE_ROOT", tmp_path.resolve())
     monkeypatch.setattr(cfg, "CHARGES_REAL_WRITE_ENABLED", True)

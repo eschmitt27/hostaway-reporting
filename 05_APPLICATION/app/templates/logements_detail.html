@@ -3,6 +3,14 @@
 
 {% block content %}
 
+{# `etat` vient de REF_Setup et peut ne rien contenir : logement présent au référentiel SQLite mais
+   absent du classeur, ou classeur indisponible. Sans cette garde, la fiche plantait sur
+   `etat.fiche` et un logement parfaitement valide devenait une page d'erreur.
+   Défini ici, au niveau du bloc, pour être visible de toutes les branches — un `set` placé dans
+   une branche `{% if %}` n'existe pas dans les autres. #}
+{% set fiche = etat.fiche if etat and etat.status == 'OK' else None %}
+{% set fiche_sure = fiche or {} %}
+
 <div class="page-header">
   <a href="/logements" class="btn btn-ghost">← Retour à la liste</a>
 </div>
@@ -26,30 +34,37 @@
 
   <div class="flex justify-between items-center" style="margin-bottom: var(--stack-lg);">
     <div>
-      <h1 class="page-title">{{ etat.fiche.nom_logement_officiel or etat.fiche.nom_court or logement_id }}</h1>
+      <h1 class="page-title">
+        {% if fiche %}{{ fiche.nom_logement_officiel or fiche.nom_court or logement_id }}
+        {% else %}{{ logement_id }}{% endif %}
+      </h1>
       <p class="page-subtitle">{{ logement_id }}</p>
     </div>
     <div>
-      {% if (etat.fiche.actif or '')|upper == 'OUI' %}
-        <span class="badge badge-success">Actif</span>
-      {% else %}
-        <span class="badge badge-neutral">Inactif</span>
+      {% if fiche %}
+        {% if (fiche.actif or '')|upper == 'OUI' %}
+          <span class="badge badge-success">Actif</span>
+        {% else %}
+          <span class="badge badge-neutral">Inactif</span>
+        {% endif %}
       {% endif %}
     </div>
   </div>
 
+  {% if fiche %}
   <div class="card" style="margin-bottom: var(--stack-lg);">
     <div class="card-title">État actuel (temps réel)</div>
     <dl class="detail-grid">
-      <div><dt>Actif</dt><dd>{{ etat.fiche.actif or "Non renseigné" }}</dd></div>
-      <div><dt>Statut parc</dt><dd>{{ etat.fiche.statut_parc or "Non renseigné" }}</dd></div>
-      <div><dt>Adresse</dt><dd>{{ etat.fiche.adresse or "Non renseigné" }}</dd></div>
-      <div><dt>Ville</dt><dd>{{ etat.fiche.ville or "Non renseigné" }}</dd></div>
+      <div><dt>Actif</dt><dd>{{ fiche.actif or "Non renseigné" }}</dd></div>
+      <div><dt>Statut parc</dt><dd>{{ fiche.statut_parc or "Non renseigné" }}</dd></div>
+      <div><dt>Adresse</dt><dd>{{ fiche.adresse or "Non renseigné" }}</dd></div>
+      <div><dt>Ville</dt><dd>{{ fiche.ville or "Non renseigné" }}</dd></div>
       <div><dt>Propriétaire en gestion</dt>
         <dd>{{ etat.gestion_active.proprietaire_id if etat.gestion_active else "Aucun rattachement actif" }}</dd></div>
       <div><dt>Depuis le</dt><dd>{{ etat.gestion_active.date_debut if etat.gestion_active else "—" }}</dd></div>
     </dl>
   </div>
+  {% endif %}
 
   <div class="card" style="margin-bottom: var(--stack-lg);">
     <div class="card-title">Historique — rattachements de gestion</div>
@@ -83,12 +98,12 @@
       <summary class="btn btn-ghost">Modifier les informations</summary>
       <form method="post" action="/logements/{{ logement_id }}/modifier" style="margin-top: var(--stack-sm);">
         <div class="detail-grid">
-          <label>Nom officiel <input type="text" name="nom_logement_officiel" value="{{ etat.fiche.nom_logement_officiel or '' }}"></label>
-          <label>Nom court <input type="text" name="nom_court" value="{{ etat.fiche.nom_court or '' }}"></label>
-          <label>Adresse <input type="text" name="adresse" value="{{ etat.fiche.adresse or '' }}"></label>
-          <label>Ville <input type="text" name="ville" value="{{ etat.fiche.ville or '' }}"></label>
+          <label>Nom officiel <input type="text" name="nom_logement_officiel" value="{{ fiche_sure.nom_logement_officiel or '' }}"></label>
+          <label>Nom court <input type="text" name="nom_court" value="{{ fiche_sure.nom_court or '' }}"></label>
+          <label>Adresse <input type="text" name="adresse" value="{{ fiche_sure.adresse or '' }}"></label>
+          <label>Ville <input type="text" name="ville" value="{{ fiche_sure.ville or '' }}"></label>
           <label>Forfait logiciel/consommables mensuel
-            <input type="number" step="0.01" name="forfait_logiciel_consommables_mensuel" value="{{ etat.fiche.forfait_logiciel_consommables_mensuel or 0 }}">
+            <input type="number" step="0.01" name="forfait_logiciel_consommables_mensuel" value="{{ fiche_sure.forfait_logiciel_consommables_mensuel or 0 }}">
           </label>
         </div>
         <button type="submit" class="btn btn-primary" style="margin-top: var(--stack-sm);" {% if not ecriture_active %}disabled{% endif %}>Enregistrer</button>
@@ -121,7 +136,7 @@
       </form>
     </details>
 
-    {% if (etat.fiche.actif or '')|upper == 'OUI' %}
+    {% if (fiche_sure.actif or '')|upper == 'OUI' %}
     <details style="margin-bottom: var(--stack-md);">
       <summary class="btn btn-ghost">Archiver ce logement</summary>
       <form method="post" action="/logements/{{ logement_id }}/archiver" style="margin-top: var(--stack-sm);">
@@ -194,8 +209,8 @@
       <p class="text-sm">Non disponible : {{ etat.status }}.</p>
     {% else %}
       <dl class="detail-grid">
-        <div><dt>Actif</dt><dd>{{ etat.fiche.actif or "Non renseigné" }}</dd></div>
-        <div><dt>Statut parc</dt><dd>{{ etat.fiche.statut_parc or "Non renseigné" }}</dd></div>
+        <div><dt>Actif</dt><dd>{{ fiche_sure.actif or "Non renseigné" }}</dd></div>
+        <div><dt>Statut parc</dt><dd>{{ fiche_sure.statut_parc or "Non renseigné" }}</dd></div>
         <div><dt>Propriétaire en gestion (ligne active)</dt>
           <dd>{{ etat.gestion_active.proprietaire_id if etat.gestion_active else "Aucun rattachement actif" }}</dd></div>
         <div><dt>Depuis le</dt>
@@ -271,7 +286,7 @@
       </form>
     </details>
 
-    {% if (etat.fiche.actif or '')|upper == 'OUI' %}
+    {% if (fiche_sure.actif or '')|upper == 'OUI' %}
     <details style="margin-bottom: var(--stack-md);">
       <summary class="btn btn-ghost">Archiver ce logement</summary>
       <form method="post" action="/logements/{{ detail.logement_id }}/archiver" style="margin-top: var(--stack-sm);">
