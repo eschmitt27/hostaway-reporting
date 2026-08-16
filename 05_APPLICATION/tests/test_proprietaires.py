@@ -18,8 +18,13 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
+import app.config as cfg
+from app.db.connection import apply_migrations
 from app.readers import proprietaires_reader as reader
 from app.services import proprietaires_service as svc
+from app.services import ref_setup_import_service as imp
 from app.config import REF_SETUP, MASTER_NET_PROPRIETAIRE, MASTER_FACT_PROPRIETAIRES
 
 # Constantes de test tirées du diagnostic des sources réelles
@@ -29,6 +34,27 @@ _PROP_MULTI = "PROP_0008"
 _MOIS_MULTI = "2026-03"   # 3 logements pour PROP_0008
 _PROP_INCONNU = "PROP_INEXISTANT_9999"
 _MOIS_INCONNU = "9999-99"
+
+
+@pytest.fixture(autouse=True)
+def referentiel_importe(tmp_db, monkeypatch):
+    """Importe le VRAI référentiel dans une base isolée, puis fait lire l'application depuis elle.
+
+    Ces tests portent sur des données réelles (12 propriétaires, PROP_0001…). Les faire passer par
+    l'import SQLite plutôt que par une fixture inventée prouve la parité : si l'import perdait ou
+    déformait une ligne, les compteurs ci-dessous tomberaient.
+
+    Le classeur reste la SOURCE de l'import ; il n'est jamais lu pour afficher un écran.
+    """
+    if not Path(cfg.REF_SETUP).exists():
+        pytest.skip("REF_Setup.xlsm absent de cet environnement")
+    # Dépend de `tmp_db` À DESSEIN : cette fixture repositionne `cfg.DB_PATH`, et une fixture
+    # autouse qui ne la précéderait pas se ferait écraser. On importe donc DANS sa base.
+    db = Path(cfg.DB_PATH)
+    apply_migrations(db)
+    resultat = imp.importer(db_path=db)
+    assert resultat.get("ok"), resultat
+    return db
 
 
 # ---------------------------------------------------------------------------

@@ -7,12 +7,20 @@ from __future__ import annotations
 
 import pytest
 
+from app.readers import proprietaires_reader
 from app.services import proprietaires_tresorerie_service as svc
 
 
 @pytest.fixture(autouse=True)
 def _proprietaire_connu(monkeypatch):
-    monkeypatch.setattr(svc, "find_proprietaire",
+    """Patch du LECTEUR, pas du service.
+
+    Le service importait `find_proprietaire` par son nom, ce qui figeait la fonction au chargement :
+    patcher le lecteur n'avait aucun effet, et il fallait patcher le service. C'est l'inverse qui
+    est correct — le service appelle désormais le module, donc le lecteur est le bon point d'entrée.
+    """
+    monkeypatch.setattr(proprietaires_reader, "ref_available", lambda: True)
+    monkeypatch.setattr(proprietaires_reader, "find_proprietaire",
                         lambda pid: {"proprietaire_id": pid} if pid == "PROP_TEST01" else None)
 
 

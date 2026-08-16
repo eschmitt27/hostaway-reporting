@@ -9,6 +9,9 @@ from app.services import proprietaires_tresorerie_service as svc
 
 @pytest.fixture(autouse=True)
 def _proprietaire_connu(monkeypatch):
+    # Le référentiel vient désormais de SQLite : sans cette bascule, `ref_available()` répond
+    # « non importé » et les routes rendent 404 avant même de chercher le propriétaire.
+    monkeypatch.setattr(proprietaires_reader, "ref_available", lambda: True)
     monkeypatch.setattr(proprietaires_reader, "find_proprietaire",
                         lambda pid: {"proprietaire_id": pid} if pid == "PROP_0001" else None)
 

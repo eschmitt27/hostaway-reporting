@@ -12,7 +12,10 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.config import TEMPLATES_DIR
-from app.readers.proprietaires_reader import find_proprietaire
+# Import du MODULE, pas du nom : `from ... import find_proprietaire` fige la
+# fonction au chargement de la route, et toute redirection ultérieure du
+# référentiel reste sans effet. Même raison que les chemins lus à l'appel.
+from app.readers import proprietaires_reader
 from app.services import proprietaires_tresorerie_service as svc
 
 router = APIRouter()
@@ -90,7 +93,7 @@ def tresorerie_liste_globale(
 @router.get("/proprietaires/{proprietaire_id}/tresorerie", response_class=HTMLResponse)
 def tresorerie_liste_proprietaire(request: Request, proprietaire_id: str, page: int = 1,
                                   statut: str = ""):
-    prop = find_proprietaire(proprietaire_id)
+    prop = proprietaires_reader.find_proprietaire(proprietaire_id)
     if prop is None:
         return templates.TemplateResponse(request, "tresorerie_list.html", {
             "active_menu": "proprietaires", "lignes": [], "total": 0, "page": 1,
@@ -114,7 +117,7 @@ def tresorerie_liste_proprietaire(request: Request, proprietaire_id: str, page: 
 
 @router.get("/proprietaires/{proprietaire_id}/tresorerie/nouveau", response_class=HTMLResponse)
 def tresorerie_nouveau_form(request: Request, proprietaire_id: str, erreur: str = ""):
-    prop = find_proprietaire(proprietaire_id)
+    prop = proprietaires_reader.find_proprietaire(proprietaire_id)
     if prop is None:
         return templates.TemplateResponse(request, "tresorerie_nouveau.html", {
             "active_menu": "proprietaires", "proprietaire_id": proprietaire_id,
@@ -176,7 +179,7 @@ def _detail_ctx(mouvement_opaque: str) -> dict | None:
     m = svc.charger(mouvement_opaque)
     if m is None:
         return None
-    prop = find_proprietaire(m["proprietaire_id"])
+    prop = proprietaires_reader.find_proprietaire(m["proprietaire_id"])
     return {
         "mouvement": m, "proprietaire": prop,
         "montant_rapproche": svc.montant_rapproche(mouvement_opaque),

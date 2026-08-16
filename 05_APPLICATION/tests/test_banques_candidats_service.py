@@ -54,7 +54,10 @@ def test_compter_sources_ne_reference_plus_les_reservations():
 @pytest.fixture(autouse=True)
 def _proprietaire_connu(monkeypatch):
     from app.services import proprietaires_tresorerie_service as tresorerie
-    monkeypatch.setattr(tresorerie, "find_proprietaire",
+    # Le service appelle le lecteur par son module : c'est lui qu'il faut patcher.
+    from app.readers import proprietaires_reader
+    monkeypatch.setattr(proprietaires_reader, "ref_available", lambda: True)
+    monkeypatch.setattr(proprietaires_reader, "find_proprietaire",
                         lambda pid: {"proprietaire_id": pid} if pid == "PROP_TEST01" else None)
 
 

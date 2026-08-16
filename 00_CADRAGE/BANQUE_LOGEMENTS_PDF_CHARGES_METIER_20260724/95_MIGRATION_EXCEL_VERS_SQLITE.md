@@ -173,3 +173,98 @@ Il découle de l'inventaire, pas d'une préférence :
 
 Le critère du §44 s'applique à chaque retrait : producteur SQLite, consommateur SQLite, parité
 vérifiée, tests verts, UI fonctionnelle, redémarrage, environnement neuf.
+
+
+---
+
+## 11. Mise à jour — l'application est détachée des exports Power BI
+
+### 11.1 Ce qui a changé
+
+| Consommateur | Lisait | Lit désormais |
+|---|---|---|
+| `logements_service` (liste) | `PBI_Referentiel_Logements.csv` | `ref_logements` |
+| `logements_service` (propriétaire) | `PBI_Referentiel_Gestion_Logements.csv` | `ref_gestion_logements_hist` |
+| `logements_service` (fiche) | `REF_Setup.xlsm` | `ref_logements`, `ref_types_logements`, `ref_taux_commission`, `ref_couts_*` |
+| `home` — logements | `PBI_Referentiel_Logements.csv` | `ref_logements` (parc, hors lignes techniques) |
+| `home` — propriétaires | `PBI_Referentiel_Proprietaires.csv` | `ref_proprietaires` |
+| `home` — réservations | `PBI_Flux.csv` | `MASTER_CALC_Flux` via `flux_unifie_reader` |
+| `home` — contrôles | `PBI_Controles_Ouverts.csv` | `MASTER_CTRL_Coherence` via `controles_cloture_reader` |
+| `proprietaires_reader` | `REF_Setup.xlsm` / `REF_Proprietaires` | `ref_proprietaires` |
+
+**Lectures d'export Power BI par l'application : 9 → 0.**
+
+Les deux compteurs du tableau de bord adossés à des masters ne sont pas un recul : ils quittent un
+**export** pour une **sortie de moteur**. Ils basculeront quand le moteur écrira en SQLite. La
+différence est explicite dans le code (`_compteur_referentiel` / `_compteur_moteur`).
+
+### 11.2 Nouvelle couche
+
+`referentiel_service` s'intercale entre les services d'écran et `ref_setup_repo` :
+
+    route → service métier → referentiel_service → ref_setup_repo → SQLite
+
+Chaque fonction reproduit la sémantique du lecteur Excel qu'elle remplace, y compris l'absence de
+tri des taux et la notion volontairement absente de taux « actuel ».
+
+### 11.3 Fail-closed
+
+Sans référentiel importé, les écrans affichent `REFERENTIEL_NON_INITIALISE` et renvoient vers
+l'écran d'import. Aucun repli sur le classeur. « Référentiel absent » et « référentiel vide »
+restent deux messages distincts.
+
+### 11.4 Parité vérifiée
+
+| Contrôle | Ancien chemin | Nouveau chemin |
+|---|---|---|
+| Propriétaires réels | 12 (Excel) | 12 (SQLite) |
+| Logements du parc | 17 | 17 |
+| Rattachements de gestion | 17 | 17 |
+| Compteur logements du tableau de bord | **19** | **17** |
+
+Le dernier écart est **assumé** : l'ancien compteur incluait les deux lignes techniques
+(`APPARTEMENT_DIVERS`, `LOGEMENT_DIVERS`) que l'écran Logements a toujours exclues. Les deux
+affichages disaient des chiffres différents pour la même chose.
+
+Les tests de `test_proprietaires.py` importent le **vrai** référentiel dans une base isolée : si
+l'import perdait ou déformait une ligne, leurs compteurs tomberaient.
+
+### 11.5 Consommateurs de `REF_Setup.xlsm` restants
+
+18 modules au début de la mission, **16 à la fin** (`logements_service` et `proprietaires_reader`
+migrés). La liste est figée dans `test_non_dependance_fichiers.py` : elle doit décroître, jamais
+croître.
+
+Ils se répartissent en deux familles, à traiter par deux missions distinctes :
+
+- **Administration du référentiel** — services qui ÉCRIVENT dans le classeur
+  (`logements_creation_service`, `logements_gestion_service`, `ref_assoc_mode_prepare_service`,
+  la famille `saisie_hh_*`).
+- **Moteur** — services qui pilotent ou contrôlent des lots
+  (`calculs_executeur_service`, `calculs_pipeline_service`, `controles_runner_service`,
+  `menages_chaine_service`, `menages_recalcul_service`, `file_registry`,
+  `charges_preview_service`, `charges_controles_integrite_service`,
+  `controles_cloture_reader`, `proprietaires_reglements_reader`).
+
+### 11.6 Services lisant encore un MASTER du moteur (§27)
+
+Frontière d'entrée de la mission suivante :
+
+`flux_unifie_reader`, `controles_cloture_reader`, `controles_detail_reader`, `menages_reader`,
+`banques_reader`, `charges_reader`, `proprietaires_reader` (parties `MASTER_*`),
+`proprietaires_reglements_reader`, `rapprochement_bancaire_reader`, `reservations_hh_reader`,
+`run_log_reader`.
+
+Ces lectures sont **hors périmètre** de la présente mission : elles ne concernent ni un export ni
+le référentiel, mais des résultats de calcul.
+
+### 11.7 Bugs trouvés et corrigés
+
+1. **Fiche logement en erreur 500** — le template supposait `etat.fiche` toujours défini. Un
+   logement présent en base mais absent du classeur produisait une `UndefinedError`. Corrigé, avec
+   la garde placée au niveau du bloc : un `set` Jinja déclaré dans une branche `{% if %}` n'existe
+   pas dans les autres, ce qui avait provoqué un second échec.
+2. **Liaisons figées à l'import** — `routes/proprietaires_tresorerie.py` et
+   `proprietaires_tresorerie_service.py` faisaient `from ... import find_proprietaire`. Le nom
+   étant lié au chargement, toute redirection du référentiel restait sans effet. Même famille que
+   le défaut `snapshot_service` corrigé précédemment.

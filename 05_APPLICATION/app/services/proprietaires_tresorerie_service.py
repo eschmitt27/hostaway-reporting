@@ -17,7 +17,9 @@ from datetime import date, datetime, timezone
 from typing import Any
 
 from app.db.connection import get_db
-from app.readers.proprietaires_reader import find_proprietaire
+# Import du MODULE : lier le nom fige la fonction au chargement et rend toute
+# redirection du référentiel sans effet.
+from app.readers import proprietaires_reader
 
 SENS = ("PROPRIETAIRE_VERS_SOCIETE", "SOCIETE_VERS_PROPRIETAIRE")
 NATURES = (
@@ -89,7 +91,7 @@ def previsualiser(proprietaire_id: str, sens: str, nature: str, montant: Any,
                   reference_metier: str = "", justification: str = "") -> dict[str, Any]:
     """Valide les champs sans écrire — retourne les erreurs ou un aperçu."""
     pid = _txt(proprietaire_id)
-    if not find_proprietaire(pid):
+    if not proprietaires_reader.find_proprietaire(pid):
         return _refus(E_PROPRIETAIRE_INCONNU, pid)
     sens = _txt(sens)
     if sens not in SENS:
