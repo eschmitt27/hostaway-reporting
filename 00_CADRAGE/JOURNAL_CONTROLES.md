@@ -3628,3 +3628,22 @@ VERIFICATION : chaine Banque relancee apres renommage. 541 mouvements, 222 RAPPR
 27069,18 EUR — identiques a avant. Ecart economique : 0.
 
 Detail complet : document 97.
+
+## 2026-08-17 — Rafraichissement Hostaway : run partiellement interrompu
+
+CONSTAT : Lot1 relance en lecture seule. L extraction des reservations et des payouts est allee a
+son terme (1542 reservations traitees, 288 sautees, 7 tables ecrites a 07:26:53-55). L etape
+suivante - taches menage H6 - a tourne plus d une heure en butant sur des HTTP 429 (limites de
+debit Hostaway), puis le processus a ete interrompu par l environnement a 08:32.
+
+CONSEQUENCES : MASTER_FACT_HA_CleaningTasks_Discovery reste date du 2026-06-09, et surtout
+MASTER_RUN_Log ne porte AUCUNE entree pour ce run - le lot ecrit son journal apres l etape menages.
+Sa derniere entree reste celle du 2026-06-08.
+
+PORTEE : nulle sur la baseline. Les chiffres ont ete mesures directement dans les fichiers produits
+(payouts 1518 lignes, extraction 2026-08-17) et confirmes fonctionnellement par la disparition des
+128 controles JOINTURE_PAYOUT_MANQUANTE.
+
+A RETENIR : le journal de run du moteur n est pas une preuve fiable de rafraichissement tant qu il
+est ecrit en toute fin de parcours. Un run interrompu apres l ecriture des donnees ne s y voit pas.
+

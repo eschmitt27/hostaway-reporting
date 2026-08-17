@@ -139,8 +139,26 @@ mutation, aucune création, aucune modification côté Hostaway.
 Payouts et réservations portent désormais **la même date d'extraction**. L'écart de deux mois est
 fermé.
 
-`MASTER_FACT_HA_CleaningTasks_Discovery` reste daté du 2026-06-09 : l'étape ménages n'a pas été
-rejouée. Elle n'entre dans aucun des contrôles visés.
+### 11.3 bis — Ce que le run n'a PAS terminé
+
+L'extraction des réservations et des payouts est allée à son terme : 1 542 réservations traitées,
+288 sautées, et les sept tables écrites entre 07:26:53 et 07:26:55.
+
+Le lot a ensuite enchaîné sur l'étape **tâches ménage (H6)**. Elle a tourné plus d'une heure en
+butant à répétition sur les limites de débit de l'API (`HTTP 429`), puis le processus a été
+interrompu par l'environnement d'exécution à 08:32.
+
+Deux conséquences, sans effet sur la baseline :
+
+- `MASTER_FACT_HA_CleaningTasks_Discovery` reste daté du **2026-06-09**. Il n'entre dans aucun des
+  contrôles visés par cette mission.
+- **`MASTER_RUN_Log` ne contient aucune entrée pour ce run** : le lot écrit son journal en fin de
+  parcours, après l'étape ménages. Sa dernière entrée reste celle du 2026-06-08. Le rafraîchissement
+  n'est donc pas tracé dans le journal du moteur — il l'est ici, et par les dates d'extraction
+  inscrites dans chaque table.
+
+Rien de tout cela n'affecte les chiffres ci-dessous : ils ont été mesurés directement dans les
+fichiers produits, et vérifiés par la disparition des 128 contrôles bloquants.
 
 ### 11.4 Le point ouvert est refermé
 
