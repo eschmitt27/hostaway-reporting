@@ -36,14 +36,25 @@ def mouvement(mid: str, date: str, libelle: str, montant: float, sens: str, *,
               tiers: str = "", categorie: str = "", niveau_risque: str = "",
               regle_id: str = "R_001", codes_anomalie: str = "",
               niveau_anomalie: str = "", ligne_source: int | None = None,
-              classe: bool = True) -> dict[str, Any]:
-    """Un mouvement et sa classification. `classe=False` en fabrique un non encore classé."""
-    return {"mouvement_id": mid, "date_operation": date, "date_valeur": date, "libelle": libelle,
+              classe: bool = True, devise: str = "EUR", fingerprint: str | None = None,
+              import_id: str | None = None, date_valeur: str | None = None,
+              source_economique: str | None = None) -> dict[str, Any]:
+    """Un mouvement et sa classification. `classe=False` en fabrique un non encore classé.
+
+    `devise`, `fingerprint` et `date_valeur` sont réglables pour permettre de fabriquer des lignes
+    ANORMALES — devise étrangère, empreinte absente. Les contrôles structurels existent précisément
+    pour détecter celles-là : une fabrique incapable de produire autre chose que des lignes valides
+    les rendrait intestables.
+    """
+    return {"mouvement_id": mid, "date_operation": date,
+            "date_valeur": date if date_valeur is None else date_valeur, "libelle": libelle,
             "montant": montant, "sens": sens, "compte": compte, "ligne_source": ligne_source,
             "classe": classe, "statut_controle": statut_controle,
             "statut_classification": statut_classification, "type_flux": type_flux, "tiers": tiers,
             "categorie": categorie, "niveau_risque": niveau_risque, "regle_id": regle_id,
-            "codes_anomalie": codes_anomalie, "niveau_anomalie": niveau_anomalie}
+            "codes_anomalie": codes_anomalie, "niveau_anomalie": niveau_anomalie,
+            "devise": devise, "fingerprint": fingerprint, "import_id": import_id,
+            "source_economique": source_economique}
 
 
 def attente(mid: str, montant: float, motif: str, *, tiers: str = "", reference: str = "",
@@ -56,6 +67,20 @@ def controle(mid: str, code: str, description: str, *, severite: str = cls.ST_A_
              origine: str = cls.ORIGINE_CLASSIFICATION) -> dict[str, Any]:
     return {"mouvement_id": mid, "code": code, "description": description, "severite": severite,
             "origine": origine}
+
+
+def _empreinte(m: dict[str, Any]) -> str:
+    """Empreinte du mouvement. Une valeur FOURNIE est respectée, y compris vide.
+
+    Distinguer « non précisée » (None → on calcule) de « absente » (chaîne vide → on la laisse
+    absente) est nécessaire : le contrôle d'identifiant stable cherche précisément l'empreinte
+    manquante, et la recalculer lui retirerait son objet.
+    """
+    if m.get("fingerprint") is not None:
+        return m["fingerprint"]
+    return bq.empreinte(m["compte"], m["date_operation"], m["montant"], m["libelle"],
+                        date_valeur=m["date_valeur"], sens=m["sens"],
+                        devise=m.get("devise") or "EUR")
 
 
 def construire(db_path, *, mouvements: list[dict] = (), attentes: list[dict] = (),
@@ -81,12 +106,11 @@ def construire(db_path, *, mouvements: list[dict] = (), attentes: list[dict] = (
                 "INSERT INTO banque_mouvements (mouvement_id_opaque, import_id, bank_account_id, "
                 "external_transaction_id, date_operation, date_valeur, sens, montant, devise, "
                 "libelle_brut, contrepartie_brute, fingerprint, ligne_source) "
-                "VALUES (?,?,?,'',?,?,?,?,'EUR',?,?,?,?)",
-                (m["mouvement_id"], IMPORT_ID, m["compte"], m["date_operation"], m["date_valeur"],
-                 m["sens"], m["montant"], m["libelle"], CONTREPARTIE_SENSIBLE,
-                 bq.empreinte(m["compte"], m["date_operation"], m["montant"], m["libelle"],
-                              date_valeur=m["date_valeur"], sens=m["sens"], devise="EUR"),
-                 m["ligne_source"] if m["ligne_source"] is not None else i))
+                "VALUES (?,?,?,'',?,?,?,?,?,?,?,?,?)",
+                (m["mouvement_id"], m.get("import_id") or IMPORT_ID, m["compte"],
+                 m["date_operation"], m["date_valeur"], m["sens"], m["montant"],
+                 m.get("devise") or "EUR", m["libelle"], CONTREPARTIE_SENSIBLE,
+                 _empreinte(m), m["ligne_source"] if m["ligne_source"] is not None else i))
 
             if not m["classe"]:
                 continue
@@ -96,8 +120,8 @@ def construire(db_path, *, mouvements: list[dict] = (), attentes: list[dict] = (
                 "statut_controle, statut_classification, niveau_risque, rapprochement_requis) "
                 "VALUES (?,?,?,?,?,?,'',?,?,?,?,'')",
                 (m["mouvement_id"], run_id, m["regle_id"], m["categorie"], m["tiers"],
-                 m["type_flux"], cls.SOURCE_REGLE, m["statut_controle"],
-                 m["statut_classification"], m["niveau_risque"]))
+                 m["type_flux"], m.get("source_economique") or cls.SOURCE_REGLE,
+                 m["statut_controle"], m["statut_classification"], m["niveau_risque"]))
             conn.execute(
                 "INSERT INTO banque_classification_signaux (mouvement_id_opaque, "
                 "classification_run_id, niveau_anomalie, codes_anomalie) VALUES (?,?,?,?)",

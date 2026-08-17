@@ -268,3 +268,104 @@ le référentiel, mais des résultats de calcul.
    `proprietaires_tresorerie_service.py` faisaient `from ... import find_proprietaire`. Le nom
    étant lié au chargement, toute redirection du référentiel restait sans effet. Même famille que
    le défaut `snapshot_service` corrigé précédemment.
+
+## 12. Mise à jour — Banque et Lot 5 sont sortis d'Excel
+
+### 12.1 Classement des sources concernées
+
+| Fichier | Classement | Lu par le runtime |
+|---|---|---|
+| `BANQUE_ACTUELLE_HISTORIQUE_*.xlsx` (relevé reçu de la banque) | `SOURCE_EXTERNE` | à l'import uniquement |
+| `BANQUE_LOT8_IMPORT.xlsx` | `LEGACY_PARITE_TEMPORAIRE` / `À_RETIRER` | **non** |
+| `SAISIE_AcomptesProprietaires.xlsx` | `LEGACY_PARITE_TEMPORAIRE` / `À_RETIRER` | **non** |
+| `MASTER_FACT_MAN_AcomptesProprietaires.xlsx` | `LEGACY_PARITE_TEMPORAIRE` / `À_RETIRER` | **non** |
+| Power Query (5 requêtes Lot 5) | `REMPLACÉ` | — |
+
+Le relevé bancaire reste un fichier, et c'est normal : il vient de la banque, l'application ne le
+fabrique pas. Ce qui a changé, c'est qu'il n'est plus *stocké* comme vérité — il est importé, puis la
+base fait foi.
+
+### 12.2 Ce qui lit quoi, désormais
+
+La Banque vit dans `banque_mouvements` (brut immuable), `banque_classifications` +
+`banque_classification_signaux` (interprétation, par exécution), `banque_controles` (constats) et
+`banque_rapprochements` (files d'attente et décisions). Les acomptes propriétaires vivent dans
+`mouvements_tresorerie_proprietaires`, avec leur historique d'événements.
+
+Une couche de vues (`banque_vues_service`) rend depuis la base les mêmes jeux de colonnes que les
+onglets du classeur produisaient. Le vocabulaire du moteur est conservé volontairement : une dizaine
+de routes, services et gabarits lisent ces clés, et les renommer en même temps qu'on change de source
+rendrait impossible de savoir laquelle des deux modifications casse un affichage.
+
+### 12.3 L'adaptateur moteur — ce qu'il est, ce qu'il n'est pas
+
+`lot8c_rapprochement_banque.py` et `lot11_controles_coherence.py` lisent encore un classeur. Les
+migrer relève du chantier Lot 9/10/11 ; réécrire leurs règles dans l'application produirait deux
+moteurs de contrôle divergents. `banque_adaptateur_moteur` fabrique donc ce classeur **à la demande**,
+depuis la base, dans un workspace jetable.
+
+Ce fichier n'est source de vérité pour rien, n'est lu que par le sous-processus moteur, et disparaît
+avec le workspace. **Il ne doit jamais devenir un MASTER.** S'il se met à être lu ailleurs, c'est que
+la frontière a bougé : il faut la remettre en place, pas l'élargir.
+
+### 12.4 Ce que la migration a révélé
+
+Quatre défauts trouvés en portant le code, et qui existaient avant :
+
+1. **Lot 11 conclut « Banque non disponible » avec un code retour 0** s'il manque un seul de ses
+   quatre onglets bancaires — il les lit dans un même bloc protégé. Un onglet oublié ne casse rien de
+   visible : il fait simplement disparaître les contrôles bancaires du rapport. La liste des onglets
+   attendus est désormais relevée un par un dans la source des moteurs, et un test la vérifie.
+
+2. **Deux définitions d'empreinte bancaire coexistaient**, sur les mêmes champs mais avec un format de
+   montant différent (centimes d'un côté, décimal de l'autre). Elles ne coïncidaient jamais : un
+   réimport n'était plus reconnu comme doublon dès que la comparaison changeait de côté. Une seule
+   subsiste.
+
+3. **L'empreinte ignorait le sens et la date de valeur.** Un débit et un crédit de 120 € le même jour
+   sous le même libellé portaient la même empreinte — l'un signalé comme doublon de l'autre alors
+   qu'ils s'annulent. Et deux prélèvements identiques valorisés à des dates différentes devenaient
+   indistinguables, ce qui produisait un constat de doublon de trop sur le relevé réel.
+
+4. **Les tables ajoutées après 0016 faisaient échouer la lecture sur la base réelle**, qui est restée
+   en 0016. « no such table » transformait un état parfaitement normal en écran illisible. Les lectures
+   Banque et trésorerie répondent maintenant « non initialisée », ce qui est un état, pas une panne.
+
+### 12.5 Parité vérifiée
+
+Banque, sur le relevé réel : 541 mouvements importés ; classification 222 `RAPPROCHEMENT_REQUIS` /
+236 `CLASSE` / 83 `A_ENVOYER_IA` ; 24 `VALIDE` / 517 `A_CONTROLER` ; risques 74 / 215 / 252 ;
+169 constats de contrôle avec les mêmes codes qu'au classeur ; files d'attente plateforme
+166 lignes / 14 467,27 € et propriétaires 56 lignes / 27 069,18 € ; **0 rapprochement de type
+`RESERVATION`** ; écart financier 0,00 €.
+
+Lot 5 : le dataset réel est vide, donc la parité se mesure sur une fixture synthétique, contre la
+règle **telle que le Lot 5 la rédige** (colonne `regle` de sa table `CONTROLS`), réencodée dans le test
+sur le vocabulaire d'origine et sans partager de code avec le portage. Comparer deux sorties vides
+n'aurait rien prouvé.
+
+### 12.6 Trois contrôles Lot 5 qui ont dû être traduits
+
+Les dix contrôles gardent leurs codes et leurs niveaux (5 bloquants, 5 à contrôler). Trois ne se
+transposent pas littéralement, et le dire vaut mieux que le masquer :
+
+- `ACOMPTE_CALC_ID_DUPLIQUE` cherchait un identifiant présent deux fois — un risque propre à une
+  feuille de calcul. En base l'identifiant est UNIQUE : ce risque a disparu. Celui qui reste est le
+  doublon **métier**, le même versement saisi deux fois, et c'est lui qui fausse un compte.
+- `ACOMPTE_HH_INCOHERENT` comparait le montant à une réservation du Lot 4, pas encore en base. Le
+  contrôle signale l'impossibilité de vérifier, au lieu de conclure « cohérent » faute de pouvoir
+  comparer.
+- `ACOMPTE_REPORT_INCOHERENT` visait un report sans justification ; le modèle porte une nature, pas un
+  report. Même exigence, exprimée dans son vocabulaire.
+
+Aucune nature nouvelle n'a été créée : les sept existantes suffisent. Aucune règle de cohérence
+nature ↔ sens n'a été inventée — personne ne l'a décidée, et la déduire d'exemples aurait fabriqué
+une règle métier.
+
+### 12.7 Ce qui reste à faire
+
+- Retirer les trois classeurs `LEGACY_PARITE_TEMPORAIRE` une fois la période de parité close.
+- Migrer Lot 8c et Lot 11 vers SQLite, ce qui supprimera `banque_adaptateur_moteur`.
+- Migrer les trois autres sources de `proprietaires_extras_reader` (AirCover, imputations Airbnb,
+  ajustements post-clôture), restées des classeurs.
+- Chaîne suivante : Hostaway / réservations.

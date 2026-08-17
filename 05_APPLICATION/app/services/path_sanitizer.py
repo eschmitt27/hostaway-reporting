@@ -2,7 +2,9 @@
 
 Remplace toute occurrence de racines sensibles (PROJECT_ROOT, APP_DATA_DIR, worktree courant,
 répertoire utilisateur, dossier temporaire) par un jeton logique stable, dans des chaînes, des
-`Path`, des messages d'exception et des textes de commande. Le remplacement se fait sur le chemin le
+`Path`, des messages d'exception et des textes de commande. Le NOM D'UTILISATEUR est masqué en
+plus, pour lui-même : les jetons de racine conservent leur suffixe, et ce suffixe peut le
+contenir. Le remplacement se fait sur le chemin le
 plus SPÉCIFIQUE en premier (le plus long), pour ne jamais laisser un préfixe partiel révélateur
 (ex. le nom du profil Windows) une fois PROJECT_ROOT/APP_DATA_DIR retirés.
 """
@@ -73,6 +75,19 @@ _RE_ENV_VARS = re.compile(r'%USERPROFILE%|%TEMP%|%APPDATA%|%LOCALAPPDATA%', re.I
 
 _TOKEN_GENERIQUE = "<PATH>"
 
+_TOKEN_UTILISATEUR = "<USER>"
+
+# Longueur minimale pour masquer le nom d'utilisateur. Un nom très court risquerait de mutiler du
+# texte légitime ; en dessous de ce seuil on préfère ne rien faire plutôt que rendre un message
+# illisible.
+_LONGUEUR_MIN_UTILISATEUR = 3
+
+
+def _nom_utilisateur() -> str:
+    """Nom du compte courant, ou chaîne vide."""
+    return (os.environ.get("USERNAME") or os.environ.get("USER")
+            or Path.home().name or "").strip()
+
 # Identifiants bancaires reconnus (forme réelle du codebase, cf. banques_reader.masquer_compte /
 # banques_controle_service.id_opaque) : ne doivent jamais apparaître bruts, même hors chemin.
 _RE_MOUVEMENT_BRUT = re.compile(r'MVT-CM_\d+_\d+[A-Za-z0-9\-]*')
@@ -122,6 +137,14 @@ def sanitize_text(texte: Any) -> str:
     out = _RE_MOUVEMENT_BRUT.sub("<MVT_BRUT>", out)
     out = _RE_COMPTE_BRUT.sub("<COMPTE_BRUT>", out)
     out = _RE_IBAN.sub("<IBAN>", out)
+    # 5) nom d'utilisateur, où qu'il apparaisse.
+    #    Les racines connues ne le masquent que lorsqu'il fait partie du chemin du profil. Or il se
+    #    retrouve aussi dans des NOMS DE DOSSIER conservés après un jeton de racine — ces jetons
+    #    gardent volontairement leur suffixe, utile au diagnostic — et dans des messages d'outils
+    #    tiers. Le nom doit donc être masqué pour lui-même, pas seulement comme partie d'un chemin.
+    utilisateur = _nom_utilisateur()
+    if len(utilisateur) >= _LONGUEUR_MIN_UTILISATEUR:
+        out = re.sub(re.escape(utilisateur), _TOKEN_UTILISATEUR, out, flags=re.IGNORECASE)
     return out
 
 

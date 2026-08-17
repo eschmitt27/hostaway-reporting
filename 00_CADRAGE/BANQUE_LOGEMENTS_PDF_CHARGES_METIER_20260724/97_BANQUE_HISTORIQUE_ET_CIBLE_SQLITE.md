@@ -157,3 +157,60 @@ contre l'API Hostaway peut le résorber — hors périmètre de cette mission.
 Conséquence pratique : **la baseline est fiable pour les mois clos, pas pour les mois récents.**
 Le test de sévérité tolère ce code précis, daté et expliqué ; tout autre code bloquant le fait
 toujours échouer.
+
+## 11. Le contrat cible est en place
+
+Ce document décrivait une cible. Elle existe désormais, et ce chapitre dit où.
+
+### 11.1 Tables
+
+| Table | Migration | Rôle |
+|---|---|---|
+| `banque_mouvements` | 0032 | ce que la banque a envoyé, immuable |
+| `banque_import_source` | 0032 | extension 1-1 de `banque_imports` (empreinte du fichier, période, compte) |
+| `banque_classifications` | 0032 | interprétation, une ligne par mouvement **et par exécution** |
+| `banque_classification_signaux` | 0033 | extension 1-1 : `niveau_anomalie`, `codes_anomalie` |
+| `banque_controles` | 0033 | constats de contrôle par mouvement |
+| `banque_rapprochements` | 0015 | files d'attente et décisions humaines |
+
+Les deux extensions « 1-1 » ne sont pas une élégance : les migrations sont rejouées à chaque
+démarrage, et un `ALTER TABLE ADD COLUMN` échouerait au second passage. Compléter une table existante
+par une table compagne portant strictement ce qui lui manque est le seul motif additif disponible.
+
+### 11.2 Séparer le fait de son interprétation
+
+`banque_mouvements` ne porte aucun statut, aucune catégorie, aucune décision. Rejouer les règles
+n'altère donc jamais la source, et deux classifications restent comparables sur la même donnée. C'est
+ce qui permet, après une décision humaine, de dire encore ce que la règle avait proposé.
+
+### 11.3 Déduplication — la règle est maintenant codée
+
+Le chapitre 6 énonçait la règle ; voici le code.
+
+Deux régimes, de nature différente :
+
+- **L'identifiant fourni par la banque fait foi** quand il existe. Deux lignes portant le même
+  `external_transaction_id` sur le même compte SONT le même mouvement : contrainte UNIQUE, doublon
+  rejeté.
+- **À défaut, l'empreinte est un INDICE, pas une preuve.** Un même montant, à la même date, sous le
+  même libellé peut être **deux vrais mouvements** — un double prélèvement existe. L'index n'est donc
+  pas unique : la ligne est insérée et marquée `A_CONTROLER`. Fusionner silencieusement ferait perdre
+  un mouvement réel et falsifierait un solde ; en garder un de trop se corrige.
+
+L'empreinte porte compte, date d'opération, date de valeur, sens, montant, libellé normalisé et
+devise — les mêmes éléments que le `ROW_HASH` du moteur. Le sens et la date de valeur comptent : sans
+le sens, un débit et un crédit de 120 € le même jour sous le même libellé se signaleraient l'un
+l'autre comme doublons alors qu'ils s'annulent.
+
+### 11.4 BANQUE ≠ RÉSERVATION — garanti par un test
+
+`PAYOUT_PLATEFORME` qualifie l'ORIGINE d'un mouvement. Aucun versement de plateforme n'est jamais
+rapproché d'une réservation individuelle, et un test l'affirme : `type_objet = 'RESERVATION'` doit
+rester à zéro. Le rapprochement mouvement → réservation reste impossible sans export détaillé de la
+plateforme, et cette impossibilité est une **information**, pas un manque à combler par déduction.
+
+### 11.5 Cut-over futur — inchangé
+
+Le chapitre 8 reste valable : au cut-over, le nouveau compte est un contexte distinct
+(`bank_account_id`), pas une reprise de solde. Les mouvements de l'ancienne banque restent lisibles
+comme historique et ne se mélangent jamais aux nouveaux.

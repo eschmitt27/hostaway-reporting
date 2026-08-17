@@ -1,38 +1,32 @@
 """Rapprochement depuis la fiche mouvement (HTTP) : proposer, confirmer, refuser, annuler."""
 from __future__ import annotations
 
-import openpyxl
 import pytest
 
 import app.config as cfg
+import fixtures_banque as fx
+from app.readers import banques_reader as reader
 from app.services import banques_controle_service as ctrl_svc
 
-NORM_HDR = [
-    "mouvement_id", "ROW_HASH", "import_id", "ligne_source", "date_operation", "date_valeur",
-    "libelle", "libelle_brut", "montant", "sens", "devise", "compte_id", "tiers_detecte",
-    "categorie", "type_flux_id", "code_impact", "source_classification", "source_economique",
-    "statut_controle", "niveau_risque", "codes_anomalie", "date_integration", "commentaire",
-]
 
 
 @pytest.fixture
-def ref(tmp_path, monkeypatch):
-    p = tmp_path / "BANQUE_LOT8_IMPORT.xlsx"
-    wb = openpyxl.Workbook(); wb.remove(wb.active)
-    ws = wb.create_sheet("NORM_Banque")
-    ws.append(NORM_HDR)
-    ws.append(["MVT-CM_TEST-20260605-CREDIT-85000-ABCDEF", "HASH1", "IMP1", 2,
-              "2026-06-05", "2026-06-05", "VIR HOSTAWAY PAYOUT", "VIR HOSTAWAY PAYOUT",
-              850.0, "CREDIT", "EUR", "CM_TEST", "HOSTAWAY", "PAYOUT_PLATEFORME",
-              "TYPE_FLUX_017", "", "REGLE_DETERMINISTE", "", "VALIDE", "FAIBLE", "", "2026-06-30", ""])
-    wb.save(p); wb.close()
-    monkeypatch.setattr(cfg, "MASTER_BANQUE", p)
+def ref(tmp_db, tmp_path, monkeypatch):
+    """Un versement de plateforme, en base. Aucun classeur."""
+    monkeypatch.setattr(cfg, "MASTER_BANQUE", tmp_path / "CLASSEUR_ABSENT.xlsx")
     monkeypatch.setattr(cfg, "RECETTE_MODE", True)
     monkeypatch.setattr(cfg, "RECETTE_ROOT", tmp_path.resolve())
     monkeypatch.setattr(cfg, "BANQUE_REAL_WRITE_ENABLED", True)
     monkeypatch.setattr(cfg, "BANQUE_REAL_WRITE_CONFIRMATION_ENABLED", True)
+    fx.construire(tmp_db, mouvements=[
+        fx.mouvement("MVT-CM_TEST-20260605-CREDIT-85000-ABCDEF", "2026-06-05",
+                     "VIR HOSTAWAY PAYOUT", 850.0, "CREDIT", compte="CM_TEST",
+                     tiers="HOSTAWAY", categorie="PAYOUT_PLATEFORME", niveau_risque="FAIBLE"),
+    ])
+    reader.vider_cache()
     ctrl_svc.vider_cache()
-    yield p
+    yield tmp_db
+    reader.vider_cache()
     ctrl_svc.vider_cache()
 
 

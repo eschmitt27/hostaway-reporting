@@ -1,43 +1,40 @@
 """File humaine de classement Banque (A_ENVOYER_IA, migration 0026). Fixtures fictives uniquement."""
 from __future__ import annotations
 
-import openpyxl
 import pytest
 
 import app.config as cfg
+import fixtures_banque as fx
+from app.readers import banques_reader as reader
 from app.services import banques_classement_service as svc
 from app.services import banques_controle_service as ctrl_svc
 
-NORM_HDR = [
-    "mouvement_id", "ROW_HASH", "import_id", "ligne_source", "date_operation", "date_valeur",
-    "libelle", "libelle_brut", "montant", "sens", "devise", "compte_id", "tiers_detecte",
-    "categorie", "type_flux_id", "code_impact", "source_classification", "source_economique",
-    "statut_controle", "niveau_risque", "codes_anomalie", "date_integration", "commentaire",
-    "statut_classification", "niveau_anomalie", "regle_id_appliquee",
-]
 
 
 def _ligne(mid, montant=8.64, sens="DEBIT", categorie="", statut_classification="A_ENVOYER_IA",
           date_operation="2026-01-05"):
-    return [mid, f"HASH-{mid}", "IMP1", 1, date_operation, date_operation,
-           "PAIEMENT CB TEST", "PAIEMENT CB TEST", montant, sens, "EUR", "CM_TEST", None,
-           categorie, None, "", "REGLE_DETERMINISTE", "", "A_CONTROLER", "MOYEN", "", "2026-01-31",
-           "", statut_classification, "A_CONTROLER", "R_099"]
+    """Un mouvement A_ENVOYER_IA par défaut : c'est la file que ces tests exercent."""
+    return fx.mouvement(mid, date_operation, "PAIEMENT CB TEST", montant, sens,
+                        compte="CM_TEST", categorie=categorie, niveau_risque="MOYEN",
+                        statut_controle="A_CONTROLER", niveau_anomalie="A_CONTROLER",
+                        statut_classification=statut_classification, regle_id="R_099",
+                        type_flux="")
 
 
 @pytest.fixture
-def source(tmp_path, monkeypatch):
-    p = tmp_path / "BANQUE_LOT8_IMPORT.xlsx"
-    wb = openpyxl.Workbook(); wb.remove(wb.active)
-    ws = wb.create_sheet("NORM_Banque")
-    ws.append(NORM_HDR)
-    ws.append(_ligne("MVT-TEST-001"))
-    ws.append(_ligne("MVT-TEST-002", montant=120.0, sens="CREDIT"))
-    ws.append(_ligne("MVT-TEST-003", montant=45.0, statut_classification="CLASSE", categorie="LOGICIEL_GESTION"))
-    wb.save(p); wb.close()
-    monkeypatch.setattr(cfg, "MASTER_BANQUE", p)
+def source(tmp_db, tmp_path, monkeypatch):
+    """Jeu Banque en base. Aucun classeur."""
+    monkeypatch.setattr(cfg, "MASTER_BANQUE", tmp_path / "CLASSEUR_ABSENT.xlsx")
+    fx.construire(tmp_db, mouvements=[
+        _ligne("MVT-TEST-001"),
+        _ligne("MVT-TEST-002", montant=120.0, sens="CREDIT"),
+        _ligne("MVT-TEST-003", montant=45.0, statut_classification="CLASSE",
+               categorie="LOGICIEL_GESTION"),
+    ])
+    reader.vider_cache()
     ctrl_svc.vider_cache()
-    yield p
+    yield tmp_db
+    reader.vider_cache()
     ctrl_svc.vider_cache()
 
 
@@ -56,44 +53,62 @@ def test_02_compter(source):
 
 
 @pytest.fixture
-def source_avec_doublon(tmp_path, monkeypatch):
-    """Reproduit un doublon physique de mouvement_id (même ligne source dupliquée en amont, ex.
-    lot8a) — garantie requise : jamais deux lignes de file ni un double comptage pour ce cas."""
-    p = tmp_path / "BANQUE_LOT8_IMPORT.xlsx"
-    wb = openpyxl.Workbook(); wb.remove(wb.active)
-    ws = wb.create_sheet("NORM_Banque")
-    ws.append(NORM_HDR)
-    ws.append(_ligne("MVT-DUP-001", montant=120.0))
-    ws.append(_ligne("MVT-DUP-001", montant=120.0))  # doublon exact du mouvement_id ci-dessus
-    ws.append(_ligne("MVT-TEST-002", montant=45.0))
-    wb.save(p); wb.close()
-    monkeypatch.setattr(cfg, "MASTER_BANQUE", p)
+def source_avec_doublon(tmp_db, tmp_path, monkeypatch):
+    """Deux mouvements DISTINCTS partageant tout sauf leur identifiant.
+
+    Le cas d'origine — deux lignes portant le MÊME `mouvement_id`, dupliquées en amont par lot8a — ne
+    peut plus se produire : `mouvement_id_opaque` est UNIQUE en base. La garantie n'est plus à tester,
+    elle est structurelle, et un test la vérifie directement ci-dessous.
+
+    Ce qui reste à couvrir est le cas voisin et bien réel : deux mouvements identiques au montant et
+    au libellé près, qui doivent rester DEUX lignes — un double prélèvement existe.
+    """
+    monkeypatch.setattr(cfg, "MASTER_BANQUE", tmp_path / "CLASSEUR_ABSENT.xlsx")
+    fx.construire(tmp_db, mouvements=[
+        _ligne("MVT-DUP-001", montant=120.0),
+        _ligne("MVT-DUP-002", montant=120.0),
+        _ligne("MVT-TEST-002", montant=45.0),
+    ])
+    reader.vider_cache()
     ctrl_svc.vider_cache()
-    yield p
+    yield tmp_db
+    reader.vider_cache()
     ctrl_svc.vider_cache()
 
 
-def test_02b_doublon_mouvement_id_compte_une_seule_fois(source_avec_doublon):
-    assert svc.compter() == 2  # MVT-DUP-001 (une fois) + MVT-TEST-002
+def test_02a_identifiant_duplique_impossible_en_base(tmp_db):
+    """Ce que le classeur ne pouvait pas empêcher, la base l'interdit."""
+    import sqlite3
+
+    fx.construire(tmp_db, mouvements=[_ligne("MVT-UNIQUE-001")])
+    with pytest.raises(sqlite3.IntegrityError):
+        fx.construire(tmp_db, mouvements=[_ligne("MVT-UNIQUE-001")])
 
 
-def test_02c_doublon_mouvement_id_une_seule_ligne_dans_la_file(source_avec_doublon, tmp_db):
+def test_02b_deux_mouvements_identiques_restent_deux(source_avec_doublon):
+    """Même montant, même libellé : deux vrais mouvements possibles. Les fondre en perdrait un."""
+    assert svc.compter() == 3
+
+
+def test_02c_chaque_mouvement_a_son_propre_identifiant_opaque(source_avec_doublon, tmp_db):
     lignes = svc.lister(db_path=tmp_db)
-    assert len(lignes) == 2
+    assert len(lignes) == 3
     ids_opaques = [l["id_opaque"] for l in lignes]
     assert len(ids_opaques) == len(set(ids_opaques)), "aucun id_opaque ne doit apparaître deux fois"
 
 
-def test_02d_doublon_mouvement_id_une_seule_decision_economique_possible(source_avec_doublon, tmp_db):
-    """Une décision prise sur l'opaque du mouvement dupliqué s'applique une seule fois — pas de
-    second enregistrement indépendant possible pour la même ligne source dupliquée."""
+def test_02d_une_decision_ne_porte_que_sur_son_mouvement(source_avec_doublon, tmp_db):
+    """Décider sur l'un des deux mouvements identiques ne décide pas pour l'autre."""
     opq = _opq("MVT-DUP-001")
     svc.decider(opq, "MAINTENIR_A_CONTROLER", db_path=tmp_db)
     lignes = svc.lister(db_path=tmp_db)
     ligne = next(l for l in lignes if l["id_opaque"] == opq)
     assert ligne["statut_humain"] == "MAINTENIR_A_CONTROLER"
-    # Toujours une seule ligne pour cet opaque, même après décision.
     assert sum(1 for l in lignes if l["id_opaque"] == opq) == 1
+
+    autre = next(l for l in lignes if l["id_opaque"] == _opq("MVT-DUP-002"))
+    assert autre["statut_humain"] != "MAINTENIR_A_CONTROLER", \
+        "le mouvement jumeau garde son propre statut"
 
 
 def test_03_filtre_montant(source, tmp_db):
@@ -207,11 +222,26 @@ def test_21_aucun_libelle_complet_dans_la_liste(source, tmp_db):
     assert all("PAIEMENT CB TEST" != l.get("libelle_brut") for l in lignes)  # champ jamais exposé
 
 
-def test_22_aucune_ecriture_excel(source, tmp_db):
-    import os
-    mtime_avant = os.path.getmtime(source)
+def test_22_le_brut_bancaire_nest_jamais_reecrit(source, tmp_db):
+    """Une décision de classement ne touche pas ce que la banque a envoyé.
+
+    Il n'y a plus de fichier dont vérifier la date : la garantie porte désormais sur la table du
+    brut, qui est ce qu'il fallait protéger depuis le début.
+    """
+    from app.db.connection import get_db
+
+    def _brut():
+        conn = get_db(source)
+        try:
+            return conn.execute(
+                "SELECT mouvement_id_opaque, montant, sens, libelle_brut, fingerprint "
+                "FROM banque_mouvements ORDER BY mouvement_id_opaque").fetchall()
+        finally:
+            conn.close()
+
+    avant = _brut()
     svc.decider(_opq("MVT-TEST-001"), "NON_CLASSE", db_path=tmp_db)
-    assert os.path.getmtime(source) == mtime_avant   # le fichier Excel n'a jamais bougé
+    assert _brut() == avant
 
 
 def test_23_idempotence_meme_decision_repetee(source, tmp_db):

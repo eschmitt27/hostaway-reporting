@@ -232,3 +232,23 @@ filtre opérationnel. 14 rattachements portent bien `date_debut = 2025-01-01` (c
 2025) et 3 conservent `2026-01-01`, conformes à leur historique propre.
 
 8 tests de non-régression ajoutés.
+
+## Mise à jour 2026-08-17 — Banque et Lot 5 sont en SQLite
+
+**Banque : 9 consommateurs sur 9 migrés.** Plus aucun service applicatif ne lit
+`BANQUE_LOT8_IMPORT.xlsx`. Les mouvements, leur classification, les constats de contrôle et les files
+d'attente vivent en base (migrations 0032 et 0033). L'import se fait depuis l'interface :
+prévisualisation avec compte, période et empreinte du fichier, puis confirmation transactionnelle.
+
+**Lot 5 : Power Query supprimé du runtime.** Un acompte propriétaire est un mouvement de trésorerie de
+nature `ACOMPTE_PROPRIETAIRE` — un seul objet, saisi dans l'application. Les dix contrôles du Lot 5
+sont portés en Python avec leurs codes et niveaux d'origine.
+
+**Ce qui reste, et pourquoi.** Lot 8c et Lot 11 lisent encore un classeur ; il est désormais
+**fabriqué depuis la base** dans un workspace jetable (`banque_adaptateur_moteur`). Leur migration
+relève du chantier Lot 9/10/11 — réécrire leurs règles dans l'application produirait deux moteurs de
+contrôle divergents. Cet adaptateur disparaîtra avec eux.
+
+**Chaîne suivante : Hostaway / réservations.**
+
+Détail complet : documents `95` (§12) et `97` (§11).

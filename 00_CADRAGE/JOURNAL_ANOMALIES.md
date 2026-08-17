@@ -1219,3 +1219,45 @@ RESOLUTION : un nouveau run Lot1 contre l API Hostaway. Hors perimetre de la mis
 PORTEE : la baseline Excel figee ce jour est fiable pour les mois clos, pas pour les mois recents.
 Le test de severite tolere ce code precis, date et explique ; tout autre code bloquant le fait
 toujours echouer.
+
+## 2026-08-17 — Défauts trouvés en migrant Banque et Lot 5
+
+Cinq défauts, tous antérieurs à cette mission.
+
+1. **Lot 11 perdait silencieusement ses contrôles bancaires.** Il lit ses onglets bancaires dans un
+   même bloc protégé ; s'il en manque un seul, il conclut « Banque non disponible » et rend un code
+   retour **0**. Aucune erreur visible, simplement zéro anomalie bancaire signalée. Découvert en
+   fabriquant le classeur depuis la base avec quatre onglets sur cinq. La liste des onglets attendus
+   est maintenant relevée un par un dans la source des moteurs, et un test la vérifie.
+   *Gravité : élevée — un rapport de contrôle silencieusement incomplet.*
+
+2. **Deux définitions d'empreinte bancaire incompatibles.** Le service d'import et le service de
+   mouvements calculaient l'empreinte sur les mêmes champs, mais formataient le montant différemment
+   (centimes contre décimal). Elles ne coïncidaient jamais : un réimport n'était plus reconnu comme
+   doublon dès que la comparaison changeait de côté. Une seule définition subsiste.
+   *Gravité : élevée — doublons non détectés à l'import.*
+
+3. **L'empreinte ignorait le sens et la date de valeur.** Conséquences : un débit et un crédit de 120 €
+   le même jour sous le même libellé portaient la même empreinte, l'un signalé comme doublon de
+   l'autre alors qu'ils s'annulent ; et deux prélèvements identiques valorisés à des dates
+   différentes devenaient indistinguables — ce qui produisait un constat de doublon **de trop** sur le
+   relevé réel (2 au lieu de 1). Corrigé, parité rétablie.
+   *Gravité : moyenne — faux positifs et faux négatifs de doublon.*
+
+4. **Les lectures échouaient sur la base réelle.** Les tables Banque (0032, 0033) et trésorerie (0025)
+   n'existent pas dans la base réelle, restée en 0016. « no such table » remontait jusqu'à l'écran,
+   transformant un état parfaitement normal — « pas encore migré » — en source illisible ou en
+   erreur 500. Les lectures répondent maintenant par un état nommé.
+   *Gravité : moyenne — état normal présenté comme une panne.*
+
+5. **Le nom d'utilisateur fuyait dans le diagnostic.** `path_sanitizer` remplace les racines
+   sensibles par un jeton mais conserve volontairement le suffixe du chemin, utile au diagnostic. Ce
+   suffixe peut contenir le nom du compte Windows (`<TEMP>\pytest-of-<nom>\…`). Le nom est désormais
+   masqué pour lui-même, indépendamment des chemins. Défaut préexistant, vérifié présent au commit
+   `a3653de`.
+   *Gravité : faible — information d'environnement, pas de donnée métier.*
+
+### Point ouvert conservé
+
+`FAMILLE_UZON_A_CONTROLER` reste présent dans les données réelles (`REF_Setup.xlsm`, règle `R_074`).
+Retiré du code, il ne peut pas l'être des données sans modifier un référentiel réel — hors périmètre.

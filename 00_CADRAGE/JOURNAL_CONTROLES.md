@@ -3647,3 +3647,45 @@ PORTEE : nulle sur la baseline. Les chiffres ont ete mesures directement dans le
 A RETENIR : le journal de run du moteur n est pas une preuve fiable de rafraichissement tant qu il
 est ecrit en toute fin de parcours. Un run interrompu apres l ecriture des donnees ne s y voit pas.
 
+
+## 2026-08-17 — Banque et Lot 5 en SQLite
+
+### Banque, sur le relevé réel (541 mouvements)
+
+| Contrôle | Attendu (classeur) | Obtenu (SQLite) | Écart |
+|---|---|---|---|
+| Mouvements importés | 541 | 541 | 0 |
+| `RAPPROCHEMENT_REQUIS` / `CLASSE` / `A_ENVOYER_IA` | 222 / 236 / 83 | 222 / 236 / 83 | 0 |
+| `VALIDE` / `A_CONTROLER` | 24 / 517 | 24 / 517 | 0 |
+| Risques ÉLEVÉ / MOYEN / FAIBLE | 74 / 215 / 252 | 74 / 215 / 252 | 0 |
+| Constats de contrôle | 169 | 169 | 0 |
+| `niveau_anomalie` renseigné | 74 | 74 | 0 |
+| `codes_anomalie` renseigné | 1 | 1 | 0 |
+| Attente plateforme | 166 lignes / 14 467,27 € | 166 / 14 467,27 € | 0,00 € |
+| Attente propriétaires | 56 lignes / 27 069,18 € | 56 / 27 069,18 € | 0,00 € |
+| Rapprochements `RESERVATION` | 0 | 0 | 0 |
+| Débit / Crédit | 51 744,37 / 52 148,21 € | idem | 0,00 € |
+
+Codes de contrôle identiques un à un : `IA_CONFIANCE_INSUFFISANTE` 83, `VIREMENT_BANCAIRE_AMBIGU` 67,
+`VIR_ASSOCIE_DETECTE` 14, `REMBOURSEMENT_BANCAIRE_AMBIGU` 3, `IMPAYE_DETECTE` 1,
+`DOUBLON_BANCAIRE_POTENTIEL` 1.
+
+### Banque sans classeur
+
+Classeur rendu introuvable : écrans, classification, files d'attente, contrôles et détail des
+contrôles fonctionnent. Sans donnée en base, chaque écran annonce un état nommé
+(`BANQUE_NON_INITIALISEE`, `BANQUE_NON_CLASSEE`) au lieu de se rabattre sur le fichier.
+
+### Lot 5
+
+Dix contrôles portés, comparés à la règle telle que le Lot 5 la rédige, sur fixture synthétique :
+même verdict, même code, même niveau pour les huit cas de ligne, plus le doublon métier et le montant
+invalide. FIFO : acompte 100 € sans facture → 100 € de crédit ; facture 80 € → soldée, 20 € de crédit
+restant ; recalcul idempotent.
+
+### Migrations et isolation
+
+Copie de la base réelle 0016 → HEAD : 33 versions appliquées, `integrity_check` **ok**,
+`foreign_key_check` **ok**, rejeu deux fois sans erreur ni changement de versions. Base réelle
+**inchangée**, toujours en 0016. Deux instances `APP_DATA_DIR` distinctes : aucune contamination, ni
+côté Banque ni côté Lot 5.

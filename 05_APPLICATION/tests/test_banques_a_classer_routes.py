@@ -1,40 +1,40 @@
 """File humaine de classement Banque (HTTP) : liste, détail, prévisualisation, décision, historique."""
 from __future__ import annotations
 
-import openpyxl
 import pytest
 
 import app.config as cfg
+import fixtures_banque as fx
+from app.readers import banques_reader as reader
 from app.services import banques_controle_service as ctrl_svc
 
-NORM_HDR = [
-    "mouvement_id", "ROW_HASH", "import_id", "ligne_source", "date_operation", "date_valeur",
-    "libelle", "libelle_brut", "montant", "sens", "devise", "compte_id", "tiers_detecte",
-    "categorie", "type_flux_id", "code_impact", "source_classification", "source_economique",
-    "statut_controle", "niveau_risque", "codes_anomalie", "date_integration", "commentaire",
-    "statut_classification", "niveau_anomalie", "regle_id_appliquee",
-]
 
 
 def _ligne(mid, montant=8.64, sens="DEBIT", categorie="", statut_classification="A_ENVOYER_IA"):
-    return [mid, f"HASH-{mid}", "IMP1", 1, "2026-01-05", "2026-01-05",
-           "PAIEMENT CB TEST", "PAIEMENT CB TEST NUMERO COMPTE SECRET", montant, sens, "EUR",
-           "CM_TEST", None, categorie, None, "", "REGLE_DETERMINISTE", "", "A_CONTROLER", "MOYEN",
-           "", "2026-01-31", "", statut_classification, "A_CONTROLER", "R_099"]
+    """Un mouvement de la file « à classer ».
+
+    Le libellé est affiché, et c'est légitime : la banque n'en fournit pas de version expurgée. Ce qui
+    ne doit jamais sortir est la contrepartie brute, que la fabrique remplit avec un marqueur.
+    """
+    return fx.mouvement(mid, "2026-01-05", "PAIEMENT CB TEST", montant, sens,
+                        compte="CM_TEST", categorie=categorie, niveau_risque="MOYEN",
+                        statut_controle="A_CONTROLER", niveau_anomalie="A_CONTROLER",
+                        statut_classification=statut_classification, regle_id="R_099",
+                        type_flux="")
 
 
 @pytest.fixture
-def ref(tmp_path, monkeypatch):
-    p = tmp_path / "BANQUE_LOT8_IMPORT.xlsx"
-    wb = openpyxl.Workbook(); wb.remove(wb.active)
-    ws = wb.create_sheet("NORM_Banque")
-    ws.append(NORM_HDR)
-    ws.append(_ligne("MVT-CLASS-001"))
-    ws.append(_ligne("MVT-CLASS-002", montant=200.0, sens="CREDIT"))
-    wb.save(p); wb.close()
-    monkeypatch.setattr(cfg, "MASTER_BANQUE", p)
+def ref(tmp_db, tmp_path, monkeypatch):
+    """Jeu Banque en base. Aucun classeur."""
+    monkeypatch.setattr(cfg, "MASTER_BANQUE", tmp_path / "CLASSEUR_ABSENT.xlsx")
+    fx.construire(tmp_db, mouvements=[
+        _ligne("MVT-CLASS-001"),
+        _ligne("MVT-CLASS-002", montant=200.0, sens="CREDIT"),
+    ])
+    reader.vider_cache()
     ctrl_svc.vider_cache()
-    yield p
+    yield tmp_db
+    reader.vider_cache()
     ctrl_svc.vider_cache()
 
 
@@ -176,12 +176,26 @@ def test_19_aucun_libelle_brut_complet(client, ref):
     assert "NUMERO COMPTE SECRET" not in r.text
 
 
-def test_20_aucune_ecriture_excel(client, ref):
-    import os
+def test_20_le_brut_bancaire_nest_jamais_reecrit(client, ref):
+    """Une décision passée par l'écran ne touche pas ce que la banque a envoyé.
+
+    Il n'y a plus de fichier dont vérifier la date : la garantie porte sur la table du brut.
+    """
+    from app.db.connection import get_db
+
+    def _brut():
+        conn = get_db(ref)
+        try:
+            return conn.execute(
+                "SELECT mouvement_id_opaque, montant, sens, libelle_brut, fingerprint "
+                "FROM banque_mouvements ORDER BY mouvement_id_opaque").fetchall()
+        finally:
+            conn.close()
+
+    avant = _brut()
     opq = _opq("MVT-CLASS-001")
-    mtime_avant = os.path.getmtime(ref)
     client.post(f"/banques-caisse/a-classer/{opq}/decision", data={"type_decision": "NON_CLASSE"})
-    assert os.path.getmtime(ref) == mtime_avant
+    assert _brut() == avant
 
 
 def test_21_aucune_ecriture_reelle(client, ref):
