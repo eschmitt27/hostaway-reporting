@@ -3,7 +3,9 @@
 Lit les sorties moteur consolidées du Lot11 et l'état de clôture :
   - MASTER_CTRL_Coherence.xlsx : MASTER (contrôles unifiés), BLOQUANTS_OUVERTS, A_CONTROLER_OUVERTS,
     DASHBOARD_MOIS (état de clôturabilité par mois)
-  - REF_Setup.xlsm > REF_Cloture_Mensuelle : statut de clôture officiel des mois (OUVERT/EN_CONTROLE/CLOTURE)
+  - Référentiel SQLite `ref_cloture_mensuelle` : statut de clôture officiel des mois
+    (OUVERT/EN_CONTROLE/CLOTURE). Le classeur n'est plus lu — le référentiel vit en base
+    depuis la migration 0029.
 
 Ne recrée aucun contrôle, ne clôture rien, n'écrit rien. Le code, le niveau et le statut viennent du
 moteur. openpyxl read_only=True. Aucun chemin absolu exposé.
@@ -27,7 +29,8 @@ ONGLET_DASHBOARD = "DASHBOARD_MOIS"
 ONGLET_CLOTURE_REF = "REF_Cloture_Mensuelle"
 
 SOURCE_COHERENCE = "MASTER_CTRL_Coherence.xlsx"
-SOURCE_REF = "REF_Setup.xlsm"
+SOURCE_REF = "Référentiel SQLite (ref_cloture_mensuelle)"
+ETAT_REFERENTIEL_ABSENT = "REFERENTIEL_NON_INITIALISE"
 
 # ── États ────────────────────────────────────────────────────────────────────
 ETAT_OK = "OK"
@@ -39,6 +42,7 @@ ETAT_ILLISIBLE = "ILLISIBLE"
 _ETAT_LIBELLE = {
     ETAT_OK: "Alimentée", ETAT_FICHIER_ABSENT: "Fichier absent", ETAT_ONGLET_ABSENT: "Onglet absent",
     ETAT_VIDE: "Source vide", ETAT_ILLISIBLE: "Source illisible",
+    ETAT_REFERENTIEL_ABSENT: "Référentiel non initialisé",
 }
 
 
@@ -166,7 +170,16 @@ def dashboard_mois() -> Source:
 
 def cloture_ref() -> Source:
     """État de clôture officiel des mois — REF_Setup.xlsm > REF_Cloture_Mensuelle."""
-    etat, lignes, maj = _lire(cfg.REF_SETUP, ONGLET_CLOTURE_REF)
+    # Lecture du référentiel SQLite. Aucun repli sur le classeur : « référentiel non initialisé »
+    # et « statuts de clôture vides » appellent deux actions différentes, et les confondre
+    # enverrait l'utilisateur chercher un problème de données là où il manque un import.
+    from app.services import referentiel_service as referentiel
+
+    if not referentiel.disponible():
+        etat, lignes, maj = ETAT_REFERENTIEL_ABSENT, [], None
+    else:
+        lignes = referentiel.cloture_mensuelle()
+        etat, maj = (ETAT_OK if lignes else ETAT_VIDE), None
     return Source(etat=EtatSource(cle="cloture_ref", libelle="Statut de clôture des mois",
                                   fichier=SOURCE_REF, onglet=ONGLET_CLOTURE_REF, etat=etat,
                                   nb_lignes=len(lignes), derniere_maj=maj), lignes=lignes)

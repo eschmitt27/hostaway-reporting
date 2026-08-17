@@ -2,9 +2,16 @@ from pathlib import Path
 from app.config import PROJECT_ROOT, SAISIE_PATTERN
 
 
-# Chemins jamais modifiables par l'application
+# Chemins jamais modifiables par l'application.
+#
+# `01_SOURCES_BRUTES/REF_Setup` est le RÉPERTOIRE, pas le classeur. L'entrée pointait auparavant
+# vers `01_SOURCES_BRUTES/REF_Setup.xlsm`, un chemin qui n'existe pas : le classeur vit dans un
+# sous-dossier (correction APP-1 appliquée à `config.py`, jamais répercutée ici). Le garde couvrait
+# donc un fichier fantôme. `REF_Setup.xlsm` restait protégé par le contrôle de nom — il ne commence
+# pas par `SAISIE_` — mais un fichier nommé `SAISIE_*.xlsx` déposé DANS ce répertoire aurait été
+# jugé modifiable. Viser le répertoire couvre le classeur et tout ce qui l'accompagne.
 _READONLY_ROOTS = [
-    PROJECT_ROOT / "01_SOURCES_BRUTES" / "REF_Setup.xlsm",
+    PROJECT_ROOT / "01_SOURCES_BRUTES" / "REF_Setup",
     PROJECT_ROOT / "02_TRAVAIL",
     PROJECT_ROOT / "03_EXPORTS",
     PROJECT_ROOT / "01_SOURCES_BRUTES" / "REF_Cloture_Mensuelle.xlsx",

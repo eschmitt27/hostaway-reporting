@@ -76,6 +76,7 @@ def construire_referentiel(tmp_path, **contenu):
         "ref_proprietaires": contenu.get("proprietaires", _PROPRIETAIRES),
         "ref_couts_menage_interne": contenu.get("couts_interne", []),
         "ref_couts_standards_menage": contenu.get("couts_std", []),
+        "ref_cloture_mensuelle": contenu.get("cloture", []),
     }
     conn = get_db(db)
     try:

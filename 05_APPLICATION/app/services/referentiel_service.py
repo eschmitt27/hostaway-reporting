@@ -133,3 +133,14 @@ def couts_standards_menage(type_logement_id: str, *, db_path=None) -> list[dict[
     cible = _txt(type_logement_id)
     return [r for r in repo.lire_table("ref_couts_standards_menage", db_path=db_path)
             if _txt(r.get("type_logement_id")) == cible]
+
+
+# ── Clôture mensuelle ───────────────────────────────────────────────────────────────────────────
+
+def cloture_mensuelle(*, db_path=None) -> list[dict[str, str]]:
+    """Statut officiel de clôture par mois, tel que le référentiel le déclare.
+
+    Rendu brut et non trié : l'ordre d'affichage appartient aux écrans, et la notion de « mois
+    courant » n'est pas décidée ici.
+    """
+    return repo.lire_table("ref_cloture_mensuelle", db_path=db_path)

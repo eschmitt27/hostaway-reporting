@@ -1,5 +1,9 @@
 # 96 — Dernière baseline Excel avant migration SQLite
 
+> **VERSION FINALE ET FRAÎCHE — 2026-08-17.** La section 11 remplace les chiffres des
+> sections 1 à 6, produits avant le rafraîchissement Hostaway. Celles-ci sont conservées
+> pour montrer ce que le rafraîchissement a changé.
+
 > **BASELINE_LEGACY_SQLITE_MIGRATION**
 >
 > Ces masters ne sont **pas la cible**. Ils constituent la dernière référence fiable de l'ancien
@@ -102,3 +106,106 @@ Un écart non expliqué invalide la migration de la chaîne concernée.
 Ils restent suivis par Git le temps des comparaisons OLD/NEW. Leur retrait suppose, pour chaque
 chaîne : producteur SQLite, consommateur SQLite, parité vérifiée, tests verts, interface
 fonctionnelle, redémarrage, et environnement neuf reconstructible.
+
+---
+
+## 11. Version finale — après rafraîchissement Hostaway (2026-08-17)
+
+### 11.1 Pourquoi une seconde production
+
+La première baseline portait **128 contrôles bloquants** `JOINTURE_PAYOUT_MANQUANTE`. Cause
+mesurée : `MASTER_CALC_HA_Payout` datait du **2026-06-08** alors que les réservations allaient
+jusqu'en décembre 2026. Ce n'était pas une erreur de calcul mais un décalage entre deux extractions
+Lot 1.
+
+Lot 1 a donc été relancé contre l'API Hostaway, **en lecture seule**.
+
+### 11.2 Preuve de lecture seule
+
+Les trois `POST` du lot visent tous `/v1/accessTokens` — OAuth2 `client_credentials`,
+c'est-à-dire l'authentification. **Toute lecture de données passe par `_get()`.** Aucune route de
+mutation, aucune création, aucune modification côté Hostaway.
+
+### 11.3 Fraîcheur obtenue
+
+| Sortie Lot 1 | Avant | Après |
+|---|---|---|
+| `MASTER_CALC_HA_Payout` | 1 380 lignes, extrait **2026-06-08** | **1 518 lignes, extrait 2026-08-17** |
+| `MASTER_FACT_HA_Reservations` | 1 527 lignes, extrait 2026-08-10 | **1 542 lignes, extrait 2026-08-17** |
+| `MASTER_FACT_HA_ReservationDetails` | 86 lignes | 113 lignes |
+| `MASTER_REF_HA_Listings` | 17 lignes | 17 lignes, extrait 2026-08-17 |
+| `MASTER_CTRL_HA_Anomalies` | 55 lignes | **31 lignes** |
+
+Payouts et réservations portent désormais **la même date d'extraction**. L'écart de deux mois est
+fermé.
+
+`MASTER_FACT_HA_CleaningTasks_Discovery` reste daté du 2026-06-09 : l'étape ménages n'a pas été
+rejouée. Elle n'entre dans aucun des contrôles visés.
+
+### 11.4 Le point ouvert est refermé
+
+| Contrôle | Avant | Après |
+|---|---|---|
+| `JOINTURE_PAYOUT_MANQUANTE` | **128** | **0** |
+| Total `BLOQUANTS_OUVERTS` | 128 | **0** |
+
+Aucun payout n'a été estimé, reconstitué depuis la Banque, ni déduit d'un montant de réservation.
+Hostaway est resté la seule source : les jointures manquantes ont disparu parce que les payouts
+existent désormais réellement.
+
+Restent **14 contrôles `A_CONTROLER`**, tous légitimes et non bloquants :
+
+| Nombre | Code |
+|---|---|
+| 9 | `CLOTURE_IMPOSSIBLE_LIGNE_BANCAIRE_NON_CLASSEE` |
+| 1 | `VRBO_MONTANT_NON_RENSEIGNE` |
+| 1 | `RESERVATION_A_CONTROLER_SANS_COMMISSION` |
+| 1 | `MENAGE_EXTERNE_ECART_HOSTAWAY` |
+| 1 | `MENAGE_EXTERNE_LOGEMENT_HORS_HA` |
+| 1 | `SOURCE_SHEET_PROVENANCE_INCOMPLETE` |
+
+### 11.5 Empreintes finales
+
+| Master | SHA256 | Lignes |
+|---|---|---|
+| `MASTER_CALC_Reservations_Resolues` | `49a15e47470e` | 3020 |
+| `MASTER_CALC_Flux` | `ce4bc14a4fb2` | 1537 |
+| `MASTER_CALC_Commissions` | `7688dc37dd21` | 1520 |
+| `MASTER_CALC_NetProprietaire` | `6b2160955aea` | 1997 |
+| `MASTER_CALC_Resultats` | `959d55b9b4d8` | 1033 |
+| `MASTER_CTRL_Coherence` | `416d474f7bda` | 71 |
+| `MASTER_FACT_Proprietaires` | `a3fd50a464aa` | 4331 |
+
+### 11.6 Parité métier — écart 0,00 €
+
+233 lignes mois × propriétaire :
+
+| Composant | Montant |
+|---|---|
+| `total_commission_mois` | 41 602,41 € |
+| `total_menage_mois` | 62 609,00 € |
+| `total_preparation_canape_mois` | 1 390,00 € |
+| `charge_fixe_mensuelle` | 8 025,00 € |
+| `charges_exceptionnelles_refacturees` | 0,00 € |
+| **`montant_du_conciergerie`** | **113 626,41 €** |
+
+**0 ligne en écart.**
+
+### 11.7 Totaux financiers de référence
+
+| Indicateur | Montant |
+|---|---|
+| Net propriétaire après charges | 209 242,15 € |
+| Résultat REEL | 316 654,56 € |
+| Résultat COMPTABLE | 306 130,40 € |
+| Résultat HORS_COMPTA | 10 524,16 € |
+| **REEL − (COMPTABLE + HORS_COMPTA)** | **0,00 €** |
+
+Préparation canapé : **1 390,00 €**, 61 lignes `PREPARATION_CANAPE` au Lot 12, colonnes exportées
+par Lot 13 sans aucune colonne manquante signalée.
+
+### 11.8 Statut
+
+**C'est la dernière baseline Excel légitime avant migration SQLite.** Elle est fraîche, sans
+contrôle bloquant, et financièrement cohérente. C'est elle qui servira de référence pour valider
+chaque table dérivée SQLite — et donc pour pouvoir supprimer ces masters.

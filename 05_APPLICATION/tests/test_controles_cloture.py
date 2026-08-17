@@ -67,9 +67,17 @@ def ctrl_files(tmp_path, monkeypatch):
               "DASHBOARD_MOIS": (DASH_COLS, dash),
               "BLOQUANTS_OUVERTS": (MASTER_COLS, [m for m in master if m["severity"] == "BLOQUANT"]),
               "A_CONTROLER_OUVERTS": (MASTER_COLS, [m for m in master if m["severity"] == "A_CONTROLER"])})
+    # Le statut de clôture vient désormais du référentiel SQLite, plus du classeur : la fixture
+    # décrit donc les mêmes trois mois en base. Le classeur reste construit pour les tests qui
+    # vérifient encore le chemin Excel (source absente, onglet absent).
     _wb(ref, {"REF_Cloture_Mensuelle": (REF_COLS, ref_rows)})
     monkeypatch.setattr(cfg, "MASTER_CTRL_COHERENCE_FILE", coh)
     monkeypatch.setattr(cfg, "REF_SETUP", ref)
+
+    from test_logements import construire_referentiel
+    db = construire_referentiel(tmp_path, cloture=[
+        {k: str(v) for k, v in r.items()} for r in ref_rows])
+    monkeypatch.setattr(cfg, "DB_PATH", db)
     reader.vider_cache()
     yield tmp_path
     reader.vider_cache()
