@@ -2,15 +2,23 @@
 Lot 4bis — Correctif : peuplement de MASTER_CALC_Reservations.xlsx
 Décisions : D052, D053, D054, D055, D056, D057
 
-Sources :
-  - MASTER_FACT_HA_Reservations.xlsx   (02_TRAVAIL/Lot1_Hostaway/)
-  - MASTER_CALC_HA_Payout.xlsx         (02_TRAVAIL/Lot1_Hostaway/)
+Sources Hostaway (réservations, payouts, payloads) :
+  - SQLite : hostaway_reservations / hostaway_payouts, extraction courante  ← chemin normal
+  - Excel  : MASTER_FACT_HA_*.xlsx                                          ← parité legacy
+
+Sources non encore migrées :
   - MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx (02_TRAVAIL/Lot4_ReservationsHH/)
   - REF_Setup.xlsm                     (01_SOURCES_BRUTES/REF_Setup/)
 
-Cible :
-  - 02_TRAVAIL/Lot4bis_TableCommune/MASTER_CALC_Reservations.xlsx
-    onglets MASTER + VUE_FLUX (POWER_QUERY_CODE conservé)
+Cibles :
+  - SQLite : reservations_calculees, sous un dataset identifié          ← chemin normal
+  - Excel  : 02_TRAVAIL/Lot4bis_TableCommune/MASTER_CALC_Reservations.xlsx
+             onglets MASTER + VUE_FLUX (POWER_QUERY_CODE conservé)      ← parité legacy
+
+`--source-hostaway` choisit la source, `--sans-excel` coupe l'écriture du classeur. La logique métier
+ci-dessous est INCHANGÉE : seule la provenance et la destination des lignes varient. C'est ce qui
+permet de comparer les deux chemins ligne à ligne, et donc de vérifier que la migration ne déplace
+aucun montant.
 
 Règles métier :
   S1  AIRBNB HA pur              → HOSTAWAY_AIRBNB,           HOSTAWAY_PAYOUT, IC, VALIDE
@@ -76,6 +84,12 @@ SOURCE_MODULE    = "lot4bis"
 # Helpers
 # ---------------------------------------------------------------------------
 
+import argparse  # noqa: E402  (place apres les constantes historiques du module)
+
+import lib_db_moteur as dbm  # noqa: E402
+from lib_db_moteur import SOURCE_AUTO, SOURCE_EXCEL, SOURCE_SQLITE  # noqa: E402
+
+
 def row_hash(values):
     s = "|".join("" if v is None else str(v) for v in values)
     return hashlib.sha256(s.encode("utf-8")).hexdigest()[:16]
@@ -131,9 +145,215 @@ def abort(msg):
 
 # ---------------------------------------------------------------------------
 
-def main():
+SOURCES_HOSTAWAY = (SOURCE_SQLITE, SOURCE_EXCEL, SOURCE_AUTO)
+
+# Colonnes lues dans la couche RAW, et leur nom côté moteur. La logique en aval attend le vocabulaire
+# du classeur ; le traduire ici évite de la réécrire.
+_COLS_RES_SQL = (
+    "reservation_id", "listing_map_id", "source", "channel_type", "source_financiere", "status",
+    "payment_status", "check_in_date", "check_out_date", "nights", "number_of_guests",
+    "guest_count", "source_guest_count", "controle_guest_count", "code_controle_guest_count",
+    "total_price", "cleaning_fee_res", "channel_commission", "airbnb_expected_payout",
+    "is_owner_stay", "inclure_resultat", "updated_on", "created_on", "extrait_le", "row_hash",
+    "payload_json")
+_VERS_MOTEUR_RES = {
+    "listing_map_id": "listingMapId", "payment_status": "paymentStatus",
+    "check_in_date": "checkInDate", "check_out_date": "checkOutDate",
+    "number_of_guests": "numberOfGuests", "guest_count": "guestCount",
+    "source_guest_count": "source_guestCount", "controle_guest_count": "controle_guestCount",
+    "code_controle_guest_count": "code_controle_guestCount", "total_price": "totalPrice",
+    "cleaning_fee_res": "cleaningFee_res", "channel_commission": "channelCommission",
+    "airbnb_expected_payout": "airbnbExpectedPayout", "is_owner_stay": "is_ownerStay",
+    "updated_on": "updatedOn", "created_on": "createdOn", "row_hash": "ROW_HASH",
+    "payload_json": "json_snapshot",
+}
+
+_COLS_PAY_SQL = (
+    "reservation_id", "listing_map_id", "source", "channel_type", "statut_calcul_payout",
+    "payout_calcule", "source_payout", "menage_retenu", "assiette_commission",
+    "menage_retenu_source", "cout_standard_id", "cout_standard_menage_snapshot",
+    "cout_standard_date_debut_validite", "cout_standard_date_fin_validite",
+    "logement_id_snapshot", "type_logement_id_snapshot", "date_reference_cout_menage",
+    "inclure_resultat_auto", "extrait_le", "row_hash")
+_VERS_MOTEUR_PAY = {"listing_map_id": "listingMapId", "row_hash": "ROW_HASH"}
+
+# Colonnes de reservations_calculees, et le nom moteur correspondant.
+_COLS_CALC_SQL = (
+    "reservation_calc_id", "row_hash", "source", "reservation_id_hostaway", "reservation_hh_id",
+    "mois", "logement_id", "proprietaire_id", "date_arrivee", "date_depart", "nuits",
+    "guest_count", "source_guest_count", "montant_retenu", "source_montant", "code_impact",
+    "impact_resultat_reel", "impact_resultat_comptable", "statut_controle", "niveau_anomalie",
+    "code_anomalie", "commentaire", "source_module", "source_table", "source_pk",
+    "date_integration")
+_CALC_DEPUIS_MOTEUR = {"row_hash": "ROW_HASH", "guest_count": "guestCount",
+                       "source_guest_count": "source_guestCount"}
+
+
+# Identifiants que le moteur manipule comme des ENTIERS.
+#
+# La couche RAW les stocke en TEXTE, et c'est correct : un identifiant externe n'est pas un nombre, le
+# comparer numeriquement n'a pas de sens et un zero non significatif serait perdu. Mais les index du
+# moteur (mapping REF_Mapping_Logements, index payout) sont construits sur des cles ENTIERES, telles
+# que le classeur les fournissait. Rendre une chaine ferait echouer chaque recherche en silence — et
+# ici pas en silence : le premier listingMapId non trouve arrete le script sur LOGEMENT_NON_MAPPE.
+#
+# On restitue donc a la frontiere le type que le moteur attend, sans changer sa logique.
+_IDS_ENTIERS = ("reservation_id", "listingMapId")
+
+
+def _entier_si_possible(valeur):
+    """Entier quand la valeur en est un, sinon la valeur telle quelle."""
+    if valeur is None or isinstance(valeur, int):
+        return valeur
+    texte = str(valeur).strip()
+    if not texte:
+        return valeur
+    try:
+        return int(texte)
+    except ValueError:
+        return valeur
+
+
+def _traduire(ligne, correspondance):
+    """Renomme les cles d'une ligne SQLite vers le vocabulaire du moteur, types compris."""
+    traduite = {correspondance.get(k, k): v for k, v in ligne.items()}
+    for cle in _IDS_ENTIERS:
+        if cle in traduite:
+            traduite[cle] = _entier_si_possible(traduite[cle])
+    return traduite
+
+
+def charger_hostaway_sqlite(chemin_base):
+    """(reservations, guestCount par reservation, payouts) depuis la couche RAW.
+
+    Rend None si la base est inutilisable, avec la raison : base non designee, introuvable, migration
+    absente, ou aucune extraction exploitable. Quatre causes distinctes, quatre corrections
+    differentes.
+    """
+    conn, message = dbm.verifier(chemin_base, ("hostaway_reservations", "hostaway_payouts"))
+    if conn is None:
+        return None, message
+    try:
+        extraction = dbm.extraction_utilisable(conn)
+        if not extraction:
+            return None, "aucune extraction Hostaway exploitable en base"
+        # ORDRE D'ARRIVEE, pas ordre d'identifiant.
+        #
+        # `reservation_calc_id` est construit plus bas comme RES-<mois>-HA-<n>, ou n est un compteur
+        # d'iteration : la cle depend donc de l'ORDRE dans lequel les reservations sont parcourues.
+        # Trier par reservation_id decalerait toutes les cles d'un cran sans changer un seul montant
+        # — les totaux resteraient justes et chaque ligne serait pourtant renumerotee. `id` preserve
+        # l'ordre d'insertion, donc celui de l'extraction, donc celui que le classeur avait.
+        #
+        # Cette dependance a l'ordre est une faiblesse du modele de cle, notee comme point ouvert :
+        # une cle stable devrait deriver de l'identifiant de la reservation, pas de sa position.
+        res = [_traduire(r, _VERS_MOTEUR_RES) for r in dbm.lignes(
+            conn, "hostaway_reservations", _COLS_RES_SQL,
+            ou="extraction_id = ?", args=(extraction,), ordre="id")]
+        pay = [_traduire(r, _VERS_MOTEUR_PAY) for r in dbm.lignes(
+            conn, "hostaway_payouts", _COLS_PAY_SQL,
+            ou="extraction_id = ?", args=(extraction,), ordre="id")]
+    finally:
+        conn.close()
+
+    # Le repli historique de guestCount vient du payload conserve. Il est TRONQUE a 4 000 caracteres
+    # dans les masters d'origine (limite d'une cellule Excel) : `extract_number_of_guests_from_snapshot`
+    # sait le lire quand meme, et c'est exactement pour cela qu'on l'appelle plutot qu'un json.loads.
+    guests = {}
+    for r in res:
+        valeur = extract_number_of_guests_from_snapshot(r.get("json_snapshot"))
+        if valeur is not None and valeur != "":
+            guests[str(r.get("reservation_id"))] = valeur
+
+    return (res, guests, pay), "%s (extraction %s : %d reservations, %d payouts)" % (
+        message, extraction, len(res), len(pay))
+
+
+def charger_hostaway_excel():
+    """(reservations, guestCount par reservation, payouts) depuis les masters legacy."""
+    h_res, d_res = load_sheet(PATH_HA_RES, "data")
+    res = rows_to_dicts(h_res, d_res)
+
+    h_det, d_det = (load_optional_sheet(PATH_HA_DET, "data")
+                    if os.path.exists(PATH_HA_DET) else ([], []))
+    details = rows_to_dicts(h_det, d_det) if h_det else []
+    guests = {
+        str(d.get("reservation_id")): extract_number_of_guests_from_snapshot(d.get("json_snapshot"))
+        for d in details if d.get("reservation_id") is not None
+    }
+    guests = {k: v for k, v in guests.items() if v is not None and v != ""}
+
+    h_pay, d_pay = load_sheet(PATH_HA_PAY, "data")
+    pay = rows_to_dicts(h_pay, d_pay)
+    return res, guests, pay
+
+
+def charger_hostaway(source, chemin_base):
+    """Charge les donnees Hostaway selon la source demandee.
+
+    AUTO essaie SQLite puis retombe sur Excel, en le DISANT. SQLITE explicite refuse plutot que de
+    se rabattre : demander la base et lire un classeur sans le savoir produirait une parite fausse.
+    """
+    if source == SOURCE_SQLITE:
+        jeu, message = charger_hostaway_sqlite(chemin_base)
+        if jeu is None:
+            abort("source SQLite demandee mais inutilisable : %s" % message)
+        print("      source : SQLite — %s" % message)
+        return jeu
+    if source == SOURCE_EXCEL:
+        print("      source : masters Excel (parite legacy)")
+        return charger_hostaway_excel()
+
+    jeu, message = charger_hostaway_sqlite(chemin_base)
+    if jeu is not None:
+        print("      source : SQLite — %s" % message)
+        return jeu
+    print("      source : masters Excel — SQLite indisponible (%s)" % message)
+    return charger_hostaway_excel()
+
+
+def ecrire_sqlite(chemin_base, master_rows, extraction_id=""):
+    """Ecrit les lignes calculees dans un nouveau dataset. Une transaction.
+
+    Un dataset a moitie ecrit fausserait tous les agregats calcules ensuite, sans qu'aucune erreur ne
+    subsiste pour l'expliquer.
+    """
+    conn, message = dbm.verifier(chemin_base, ("reservations_datasets", "reservations_calculees"))
+    if conn is None:
+        return None, message
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            dataset_id = dbm.ouvrir_dataset(conn, dbm.ETAPE_CALCULEES, extraction_id=extraction_id)
+            dbm.ecrire_lignes(conn, "reservations_calculees", _COLS_CALC_SQL, dataset_id,
+                              master_rows, _CALC_DEPUIS_MOTEUR)
+            nb = dbm.cloturer_dataset(conn, dataset_id, table="reservations_calculees")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+    finally:
+        conn.close()
+    return dataset_id, "%s (dataset %s : %d lignes)" % (message, dataset_id, nb)
+
+
+def _analyser_arguments(argv=None):
+    parseur = argparse.ArgumentParser(description="Lot 4bis — table commune des reservations")
+    parseur.add_argument("--source-hostaway", choices=SOURCES_HOSTAWAY, default=SOURCE_AUTO,
+                         help="Provenance des reservations et payouts Hostaway")
+    parseur.add_argument("--db", help="Base applicative (defaut : PILOTAGE_DB_PATH / APP_DATA_DIR)")
+    parseur.add_argument("--sans-excel", action="store_true",
+                         help="N'ecrit pas MASTER_CALC_Reservations.xlsx")
+    parseur.add_argument("--sans-sqlite", action="store_true",
+                         help="N'ecrit pas reservations_calculees (parite legacy seule)")
+    return parseur.parse_args(argv)
+
+
+def main(argv=None):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    args = _analyser_arguments(argv)
+    chemin_base = dbm.chemin_db(args.db)
 
     # 1. Lecture des sources
     # ---------------------------------------------------------------------------
@@ -141,26 +361,11 @@ def main():
     print(f"Date : {DATE_INTEGRATION}")
     print()
 
-    print("[1/5] Lecture MASTER_FACT_HA_Reservations...")
-    h_res, d_res = load_sheet(PATH_HA_RES, "data")
-    res_dicts = rows_to_dicts(h_res, d_res)
-    print(f"      {len(res_dicts)} lignes")
-
-    print("[1b/5] Lecture MASTER_FACT_HA_ReservationDetails pour fallback historique guestCount...")
-    h_det, d_det = load_optional_sheet(PATH_HA_DET, "data") if os.path.exists(PATH_HA_DET) else ([], [])
-    det_dicts = rows_to_dicts(h_det, d_det) if h_det else []
-    guest_by_reservation_id = {
-        str(d.get("reservation_id")): extract_number_of_guests_from_snapshot(d.get("json_snapshot"))
-        for d in det_dicts
-        if d.get("reservation_id") is not None
-    }
-    guest_by_reservation_id = {k: v for k, v in guest_by_reservation_id.items() if v is not None and v != ""}
-    print(f"      {len(guest_by_reservation_id)} guestCount disponibles depuis snapshots historiques")
-
-    print("[2/5] Lecture MASTER_CALC_HA_Payout...")
-    h_pay, d_pay = load_sheet(PATH_HA_PAY, "data")
-    pay_dicts = rows_to_dicts(h_pay, d_pay)
-    print(f"      {len(pay_dicts)} lignes")
+    print("[1/5] Lecture des reservations et payouts Hostaway...")
+    res_dicts, guest_by_reservation_id, pay_dicts = charger_hostaway(
+        args.source_hostaway, chemin_base)
+    print(f"      {len(res_dicts)} reservations, {len(pay_dicts)} payouts")
+    print(f"      {len(guest_by_reservation_id)} guestCount disponibles depuis les payloads")
 
     print("[3/5] Lecture MASTER_FACT_MAN_ReservationsHorsHostaway...")
     h_hh, d_hh = load_sheet(PATH_HH_FACT, "MASTER")
@@ -647,32 +852,48 @@ def main():
     ]
     assert len(HEADERS) == 26, f"Attendu 26 colonnes, trouvé {len(HEADERS)}"
 
-    print(f"\n[6/6] Écriture dans {PATH_TARGET}...")
+    # ── Ecriture SQLite (chemin normal) ──
+    if args.sans_sqlite:
+        print("\n[6/6] Ecriture SQLite ignoree (--sans-sqlite).")
+    else:
+        dataset_id, message = ecrire_sqlite(chemin_base, master_rows)
+        if dataset_id is None:
+            abort("ecriture SQLite impossible : %s" % message)
+        print(f"\n[6/6] reservations_calculees : {message}")
 
-    # Load workbook preserving POWER_QUERY_CODE
-    wb = load_workbook(PATH_TARGET)
+    # ── Ecriture Excel (parite legacy, temporaire) ──
+    #
+    # Ce classeur ne sert plus qu'a comparer avec l'historique. Le couper (--sans-excel) doit rester
+    # sans effet sur ce qui precede : si une valeur changeait selon qu'on ecrit le classeur ou non,
+    # la parite ne voudrait rien dire.
+    if args.sans_excel:
+        print("      Classeur de parite non ecrit (--sans-excel).")
+    else:
+        print(f"      Ecriture parite dans {PATH_TARGET}...")
+        # Load workbook preserving POWER_QUERY_CODE
+        wb = load_workbook(PATH_TARGET)
 
-    # Rebuild MASTER sheet
-    if "MASTER" in wb.sheetnames:
-        del wb["MASTER"]
-    ws_master = wb.create_sheet("MASTER", 0)
+        # Rebuild MASTER sheet
+        if "MASTER" in wb.sheetnames:
+            del wb["MASTER"]
+        ws_master = wb.create_sheet("MASTER", 0)
 
-    ws_master.append(HEADERS)
-    for r in master_rows:
-        ws_master.append([r.get(h) for h in HEADERS])
+        ws_master.append(HEADERS)
+        for r in master_rows:
+            ws_master.append([r.get(h) for h in HEADERS])
 
-    # Rebuild VUE_FLUX sheet
-    if "VUE_FLUX" in wb.sheetnames:
-        del wb["VUE_FLUX"]
-    ws_vue = wb.create_sheet("VUE_FLUX", 1)
+        # Rebuild VUE_FLUX sheet
+        if "VUE_FLUX" in wb.sheetnames:
+            del wb["VUE_FLUX"]
+        ws_vue = wb.create_sheet("VUE_FLUX", 1)
 
-    ws_vue.append(HEADERS)
-    for r in vue_rows:
-        ws_vue.append([r.get(h) for h in HEADERS])
+        ws_vue.append(HEADERS)
+        for r in vue_rows:
+            ws_vue.append([r.get(h) for h in HEADERS])
 
-    wb.save(PATH_TARGET)
-    wb.close()
-    print("Fichier sauvegardé.")
+        wb.save(PATH_TARGET)
+        wb.close()
+        print("Fichier sauvegardé.")
 
     # ---------------------------------------------------------------------------
     # 8. Rapport final
