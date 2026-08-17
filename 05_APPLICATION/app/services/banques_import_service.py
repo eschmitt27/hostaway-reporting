@@ -356,8 +356,15 @@ def previsualiser(contenu: bytes, nom_fichier: str, compte_id: str,
     token = uuid.uuid4().hex
     root = Path(dryruns_root or cfg.DRYRUNS_DIR) / "banque_import" / token
     root.mkdir(parents=True, exist_ok=True)
+    dates = sorted(l["date_operation"] for l in resultat["valides"] if l.get("date_operation"))
     manifest = {
         "token": token, "nom_fichier": nom_fichier, "compte_id": compte_id,
+        # Empreinte du FICHIER REÇU, pas des lignes : c'est ce qui permet de dire « c'est bien ce
+        # relevé-là qui a été importé », y compris si deux extractions produisent les mêmes lignes.
+        "sha256_fichier": hashlib.sha256(contenu).hexdigest(),
+        "taille_octets": len(contenu),
+        "date_min": dates[0] if dates else "",
+        "date_max": dates[-1] if dates else "",
         "cree_le": datetime.now(timezone.utc).isoformat(),
         "compteurs": resultat["compteurs"], "valides": resultat["valides"],
         "doublons_certains": resultat["doublons_certains"],
@@ -368,7 +375,9 @@ def previsualiser(contenu: bytes, nom_fichier: str, compte_id: str,
                                       encoding="utf-8")
     return {"ok": True, "token": token, "compteurs": resultat["compteurs"],
             "doublons_probables": resultat["doublons_probables"],
-            "invalides": resultat["invalides"], "nom_fichier": nom_fichier}
+            "invalides": resultat["invalides"], "nom_fichier": nom_fichier,
+            "sha256_fichier": manifest["sha256_fichier"], "compte_id": compte_id,
+            "date_min": manifest["date_min"], "date_max": manifest["date_max"]}
 
 
 def _charger_manifest(token: str, dryruns_root: Path | None = None) -> dict[str, Any] | None:
@@ -438,6 +447,7 @@ def confirmer(token: str, *, justifier_doublons_probables: bool = False, acteur:
             bank_account_id=manifest.get("compte_id", ""),
             source_type=bq.SOURCE_MENSUEL,
             source_filename=manifest.get("nom_fichier", ""),
+            source_sha256=manifest.get("sha256_fichier", ""),
             import_id=manifest["token"],
             db_path=db_path,
         )

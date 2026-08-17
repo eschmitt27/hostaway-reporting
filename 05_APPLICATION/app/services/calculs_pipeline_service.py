@@ -134,6 +134,30 @@ def _sha256(p: Path) -> str:
     return h.hexdigest()
 
 
+def _entree_banque() -> dict[str, Any]:
+    """État du jeu de données Banque, présenté comme les autres entrées du pipeline.
+
+    La Banque n'est plus un fichier : parler de « fichier absent » ferait chercher un classeur qui
+    n'existe plus. On expose donc l'état du dataset — non initialisé, importé mais non classé, ou
+    prêt — avec la date du dernier import comme repère de fraîcheur.
+    """
+    from app.services import banque_mouvements_service as bq
+    from app.services import banque_vues_service as vues
+
+    etat = vues.etat()
+    imports = bq.imports()
+    dernier = max((i.get("date_import") or "" for i in imports), default="")
+    return {
+        "fichier": "Banque (base de pilotage)",
+        "dataset": "banque_mouvements",
+        "existe": etat == vues.ETAT_OK,
+        "etat": etat,
+        "message": vues.MESSAGES.get(etat, ""),
+        "nb_mouvements": bq.compter(),
+        "modifie_le": dernier.replace("T", " ")[:16] or None,
+    }
+
+
 def empreinte_entrees(lots: list[str], racine: Path | None = None) -> str:
     """Empreinte des SORTIES existantes des lots amont + des sources de saisie : si l'une change
     entre prévisualisation et lancement, le token est refusé."""
@@ -174,13 +198,13 @@ def previsualiser(mois: str, lots: list[str], *, racine: Path | None = None,
                                if p.exists() else None),
                 "taille": p.stat().st_size if p.exists() else None})
     for rel in ("01_SOURCES_BRUTES/Charges/SAISIE_Charges_Flux.xlsx",
-                "01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm",
-                "02_TRAVAIL/Lot8_Banque/BANQUE_LOT8_IMPORT.xlsx"):
+                "01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm"):
         p = r / rel
         entrees.append({
             "fichier": rel, "existe": p.exists(),
             "modifie_le": (datetime.fromtimestamp(p.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
                            if p.exists() else None)})
+    entrees.append(_entree_banque())
 
     token = uuid.uuid4().hex
     empreinte = empreinte_entrees(lots, racine=r)

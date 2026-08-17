@@ -2,10 +2,18 @@
 
 Corrige la limite APP-4B (« modifier NORM_Banque ne prouve rien ») ET la réserve APP-5B (« Lot8c/Lot11
 pas réellement exécutés »). Pour un élément bancaire, on construit un workspace isolé contenant toutes
-les entrées, on applique la décision humaine (classification) sur la COPIE de NORM_Banque, puis on
-lance réellement `lot8c_rapprochement_banque.py --project-root <ws> --no-real-write` puis
-`lot11_controles_coherence.py --project-root <ws> --no-real-write`. On compare la présence du contrôle
-bancaire AVANT / APRÈS. La résolution n'est jamais déduite de SQLite : elle est prouvée par le moteur.
+les entrées, puis on lance réellement `lot8c_rapprochement_banque.py --project-root <ws>
+--no-real-write` puis `lot11_controles_coherence.py --project-root <ws> --no-real-write`. On compare la
+présence du contrôle bancaire AVANT / APRÈS. La résolution n'est jamais déduite de SQLite : elle est
+prouvée par le moteur.
+
+LA BANQUE VIENT DE SQLITE, PAS DU CLASSEUR
+Le classeur bancaire du workspace n'est plus une copie du réel : il est FABRIQUÉ depuis la base par
+`banque_adaptateur_moteur`, une fois avec le mouvement laissé en l'état, une fois avec ce même
+mouvement présenté comme classé. Les deux moteurs ne savent pas encore lire SQLite, et leur apprendre
+relèverait du chantier Lot9/10/11 ; recréer leurs règles ici produirait deux moteurs de contrôle
+divergents. Ce classeur intermédiaire est donc un adaptateur jetable, pas une source : aucun service
+applicatif ne le lit, et la base n'est jamais modifiée pour le produire.
 
 Le réel n'est jamais touché (SHA avant/après vérifié). Aucun chemin résolu ne sort du workspace.
 Flags réels toujours False. Aucun 500 : tout échec devient un run ÉCHEC/BLOQUE lisible.
@@ -59,7 +67,7 @@ INPUTS_LOT11 = [
     "02_DONNEES_NORMALISEES/menages/M04_MENAGES_PowerQuery.xlsx",
     "02_TRAVAIL/Lot7_IK_Avantages/MASTER_FACT_MAN_IK_Avantages.xlsx",
     "01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm",
-    "02_TRAVAIL/Lot8_Banque/BANQUE_LOT8_IMPORT.xlsx",
+    # La Banque N'EST PLUS copiée : elle est fabriquée depuis SQLite dans le workspace.
     "01_SOURCES_BRUTES/AirCover/SAISIE_AirCover.xlsx",
     "01_SOURCES_BRUTES/ImputationsAirbnb/SAISIE_ImputationsAirbnb.xlsx",
     "01_SOURCES_BRUTES/AjustementsPostCloture/SAISIE_Ajustements_PostCloture.xlsx",
@@ -171,32 +179,17 @@ def _valider_workspace_isole(ws: Path) -> tuple[bool, str]:
     return True, ""
 
 
-def _appliquer_classification(ws: Path, mouvement_id_reel: str) -> bool:
-    """Classe le mouvement dans la COPIE de NORM_Banque (statut_classification=CLASSE).
+def _generer_banque(ws: Path, mouvement_classe: str = "", db_path=None) -> dict[str, Any]:
+    """Fabrique le classeur bancaire du workspace depuis SQLite.
 
-    Simule la décision humaine « classé/rapproché » sur la copie, jamais sur le réel. Retourne True
-    si le mouvement a été trouvé et modifié.
+    Appelé deux fois : sans `mouvement_classe` pour la baseline, puis avec, pour simuler la décision
+    humaine. La simulation se fait donc dans le classeur jetable — la base n'est jamais modifiée pour
+    répondre à une question.
     """
-    banq = ws / BANQUE_REL
-    wb = openpyxl.load_workbook(str(banq))
-    try:
-        if "NORM_Banque" not in wb.sheetnames:
-            return False
-        w = wb["NORM_Banque"]
-        hdr = [str(c.value) if c.value is not None else "" for c in w[1]]
-        if "mouvement_id" not in hdr or "statut_classification" not in hdr:
-            return False
-        ci = hdr.index("mouvement_id"); si = hdr.index("statut_classification")
-        touche = False
-        for row in w.iter_rows(min_row=2):
-            if str(row[ci].value) == str(mouvement_id_reel):
-                row[si].value = "CLASSE"
-                touche = True
-        if touche:
-            wb.save(str(banq))
-        return touche
-    finally:
-        wb.close()
+    from app.services import banque_adaptateur_moteur as adaptateur
+
+    return adaptateur.ecrire_classeur_moteur(ws / BANQUE_REL, mouvement_classe=mouvement_classe,
+                                            db_path=db_path)
 
 
 def _compter_controle_banque(master_ctrl: Path, mois: str) -> int | None:
@@ -253,16 +246,19 @@ def recalculer_sur_copie(element: dict[str, Any], appliquer_classification: bool
     # Résoudre l'opaque contre la banque ACTUELLEMENT configurée (jamais un index mémorisé obsolète).
     banque_ctrl.vider_cache()
     ws = Path(cfg.CONTROLES_RUNNER_WORKSPACE) / _now_ns()
-    reel_banque = Path(cfg.MASTER_BANQUE)
     reel_ctrl = Path(cfg.MASTER_CTRL_COHERENCE)
-    sha_bnq = _sha(reel_banque) if reel_banque.exists() else ""
     sha_ctrl = _sha(reel_ctrl) if reel_ctrl.exists() else ""
-    avant = {"element": element.get("ctrl_opaque"), "code": element.get("code"), "mois": element.get("mois")}
+    # Le classeur bancaire n'est plus une entrée ; la Banque à protéger est la base. On la surveille
+    # comme on surveillait le fichier : par empreinte avant/après, pas par confiance.
+    reel_db = Path(cfg.DB_PATH)
+    sha_db = _sha(reel_db) if reel_db.exists() else ""
+    avant = {"element": element.get("ctrl_opaque"), "code": element.get("code"),
+             "mois": element.get("mois")}
 
     def _reel_intact() -> bool:
-        b = (_sha(reel_banque) if reel_banque.exists() else "") == sha_bnq
         c = (_sha(reel_ctrl) if reel_ctrl.exists() else "") == sha_ctrl
-        return b and c
+        d = (_sha(reel_db) if reel_db.exists() else "") == sha_db
+        return c and d
 
     if not ok:
         rid = _journaliser("PREFLIGHT", STATUT_BLOQUE, 0, "", True, avant, None, "FLAGS", motif, db_path)
@@ -313,6 +309,14 @@ def recalculer_sur_copie(element: dict[str, Any], appliquer_classification: bool
         mois = element.get("mois", "")
         mvt_reel = banque_ctrl.resoudre_opaque(element.get("entite_id", ""))
 
+        # 0) Banque du workspace, fabriquée depuis SQLite — état actuel, sans décision simulée.
+        gen = _generer_banque(ws, db_path=db_path)
+        if not gen.get("ok"):
+            raise RuntimeError(gen.get("message", "Banque indisponible"))
+        etapes.append({"etape": "BANQUE_DEPUIS_SQLITE", "nb_mouvements": gen["nb_mouvements"],
+                       "nb_controles": gen["nb_controles"],
+                       "nb_mois_clotures": gen["nb_mois_clotures"]})
+
         # 1) baseline : Lot11 sur copie (avant décision)
         t0 = datetime.now()
         r11a = _run_script(py, SCRIPT_LOT11, ws)
@@ -322,11 +326,13 @@ def recalculer_sur_copie(element: dict[str, Any], appliquer_classification: bool
             raise RuntimeError(f"Lot11 baseline rc={r11a.returncode} : {_sanitize(r11a.stderr[-300:])}")
         n_avant = _compter_controle_banque(ws / OUT_REL, mois)
 
-        # 2) décision sur copie (classification) — optionnelle
+        # 2) décision simulée : on régénère la Banque du workspace avec ce mouvement présenté comme
+        #    classé. Rien n'est modifié en base — la question posée au moteur reste hypothétique.
         classifie = False
         if appliquer_classification and mvt_reel:
-            classifie = _appliquer_classification(ws, mvt_reel)
-            etapes.append({"etape": "CLASSIFICATION_COPIE", "mouvement_classe": classifie})
+            gen2 = _generer_banque(ws, mouvement_classe=mvt_reel, db_path=db_path)
+            classifie = bool(gen2.get("ok") and gen2.get("mouvement_classe"))
+            etapes.append({"etape": "CLASSIFICATION_SIMULEE", "mouvement_classe": classifie})
 
         # 3) Lot8c puis Lot11 après décision
         t1 = datetime.now()

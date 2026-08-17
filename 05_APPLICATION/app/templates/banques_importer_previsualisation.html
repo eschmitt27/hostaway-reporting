@@ -16,6 +16,23 @@
 
 <div class="card mb-md">
   <h2 class="card-title">{{ manifest.nom_fichier }}</h2>
+
+  {# Identité de ce qui va être importé : de quel relevé il s'agit, sur quel compte, sur quelle
+     période. Sans ces trois éléments, confirmer revient à valider un décompte sans savoir sur quoi
+     il porte — et deux relevés successifs se ressemblent beaucoup. #}
+  <dl class="detail-grid mb-sm" data-testid="identite-import">
+    <dt>Compte bancaire</dt>
+    <dd>{{ manifest.compte_id or "— non précisé" }}</dd>
+    <dt>Période couverte</dt>
+    <dd>
+      {% if manifest.date_min %}
+        du {{ manifest.date_min|date_fr }} au {{ manifest.date_max|date_fr }}
+      {% else %}—{% endif %}
+    </dd>
+    <dt>Empreinte du fichier</dt>
+    <dd><code>{{ (manifest.sha256_fichier or "")[:16] }}…</code></dd>
+  </dl>
+
   <div class="kpi-grid kpi-grid--6">
     <div class="kpi-card"><div class="kpi-label">Lignes lues</div><div class="kpi-value">{{ c.lignes_lues }}</div></div>
     <div class="kpi-card"><div class="kpi-label">Mouvements valides</div><div class="kpi-value">{{ c.valides }}</div></div>

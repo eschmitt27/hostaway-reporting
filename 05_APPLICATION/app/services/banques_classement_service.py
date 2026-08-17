@@ -181,7 +181,8 @@ def previsualiser(id_opaque_mvt: str, type_decision: str, *, nouvelle_categorie:
         "justification": justification, "anomalie_moteur": anomalie_moteur,
         "future_regle": future_regle,
         "effet_statut": "Le statut humain de ce mouvement sera mis à jour dans le journal de recette.",
-        "effet_moteur": "Aucun — BANQUE_LOT8_IMPORT.xlsx n'est jamais modifié par cette décision.",
+        "effet_moteur": ("Aucun — la classification déterministe n'est jamais réécrite par cette "
+                         "décision ; les deux restent lisibles côte à côte."),
         "effet_comptable": "Aucun.", "effet_reel": "Aucun — décision de recette uniquement.",
     }}
 

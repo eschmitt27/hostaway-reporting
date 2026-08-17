@@ -61,7 +61,16 @@ MASTER_MENAGES_EXTERNES = TRAVAIL / "Lot6c_MenagesExternes" / "MASTER_FACT_MEN_M
 MASTER_CTRL_COHERENCE_DIR = TRAVAIL / "Lot11_Controles"
 MASTER_CTRL_COHERENCE = MASTER_CTRL_COHERENCE_DIR / "MASTER_CTRL_Coherence.xlsx"
 # ── Intégration : constantes des modules APP-4 / APP-3C / APP-5A ──────────────
-# Banques & caisse (APP-4A) — LECTURE SEULE.
+# Banques & caisse (APP-4A).
+#
+# LEGACY_PARITE_TEMPORAIRE — plus aucun service ne lit ce classeur. La Banque vit en base
+# (`banque_mouvements`, `banque_classifications`, `banque_controles`, `banque_rapprochements`), et le
+# classeur que les moteurs Lot8c/Lot11 attendent est fabriqué à la demande par
+# `banque_adaptateur_moteur`, dans un workspace jetable.
+#
+# Le chemin subsiste pour deux usages seulement : comparer avec l'historique, et permettre aux tests
+# d'affirmer que les écrans fonctionnent quand ce fichier est ABSENT. À retirer une fois la période
+# de parité close.
 MASTER_BANQUE = TRAVAIL / "Lot8_Banque" / "BANQUE_LOT8_IMPORT.xlsx"
 MASTER_CAISSE = None
 # Propriétaires & règlements (APP-3C) — complète MASTER_NET_PROPRIETAIRE / MASTER_FACT_PROPRIETAIRES.
@@ -176,14 +185,14 @@ MENAGES_STUBS_DIR = APP_ROOT / "runners" / "stubs_menages"
 MENAGES_PDF_DIR = PROJECT_ROOT / "01_SOURCES_BRUTES" / "MenagesExternes" / "Factures_PDF"
 MENAGES_PDF_DIR_REL = r"01_SOURCES_BRUTES\MenagesExternes\Factures_PDF"
 
-# ── APP-4B — Contrôle & catégorisation bancaire sur copies. Garde de sécurité. ──
+# ── APP-4B — Contrôle & catégorisation bancaire. Garde de sécurité. ──
 # Aucune écriture bancaire réelle possible tant que ces flags sont False. Jamais activés par défaut.
-#   Le writer refuse toute écriture réelle ; il ne travaille que sur une COPIE de
-#   BANQUE_LOT8_IMPORT.xlsx dans un workspace isolé sous data/. Excel reste la vérité métier ;
-#   SQLite ne fait que JOURNALISER les décisions applicatives (jamais une nouvelle vérité).
+#   La vérité bancaire est en base : mouvements bruts, classification, décisions humaines. Une
+#   décision est enregistrée puis appliquée à la lecture ; rien n'est réécrit, donc il n'y a plus de
+#   copie de classeur à protéger.
 #   Import bancaire (APP-3F+) : mêmes flags, même double verrou que Charges — activables
 #   UNIQUEMENT en mode recette (RECETTE_MODE ET variable d'environnement dédiée). Une instance NON
-#   recette ne peut jamais écrire NORM_Banque, même si les variables sont positionnées.
+#   recette ne peut jamais écrire de mouvement, même si les variables sont positionnées.
 BANQUE_REAL_WRITE_ENABLED = RECETTE_MODE and _env_flag("BANQUE_REAL_WRITE_ENABLED")
 BANQUE_REAL_WRITE_CONFIRMATION_ENABLED = RECETTE_MODE and _env_flag("BANQUE_REAL_WRITE_CONFIRMATION_ENABLED")
 # Workspace isolé des overrides bancaires sur copies (jamais dans l'arbre métier).

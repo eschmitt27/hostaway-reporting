@@ -3,10 +3,10 @@ rapprochement depuis la fiche mouvement. Complète `test_banques_import.py` (ser
 `test_banques_rapprochement.py` (service) par des tests de bout en bout HTTP."""
 from __future__ import annotations
 
-import openpyxl
 import pytest
 
 import app.config as cfg
+from app.services import banque_vues_service as vues
 from app.services import banques_controle_service as ctrl_svc
 
 CSV_VALIDE = (
@@ -16,29 +16,24 @@ CSV_VALIDE = (
 
 
 @pytest.fixture
-def ref(tmp_path, monkeypatch):
-    p = tmp_path / "BANQUE_LOT8_IMPORT.xlsx"
-    monkeypatch.setattr(cfg, "MASTER_BANQUE", p)
+def ref(tmp_db, tmp_path, monkeypatch):
+    """Base isolée + flags d'écriture. Aucun classeur : l'import écrit en base.
+
+    Le nom `ref` est conservé — ces tests le nomment partout — mais il désigne désormais la base.
+    """
+    monkeypatch.setattr(cfg, "MASTER_BANQUE", tmp_path / "CLASSEUR_ABSENT.xlsx")
     monkeypatch.setattr(cfg, "RECETTE_MODE", True)
     monkeypatch.setattr(cfg, "RECETTE_ROOT", tmp_path.resolve())
     monkeypatch.setattr(cfg, "BANQUE_REAL_WRITE_ENABLED", True)
     monkeypatch.setattr(cfg, "BANQUE_REAL_WRITE_CONFIRMATION_ENABLED", True)
     ctrl_svc.vider_cache()
-    yield p
+    yield tmp_db
     ctrl_svc.vider_cache()
 
 
-def _lignes(p):
-    if not p.exists():
-        return []
-    wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
-    ws = wb["NORM_Banque"]
-    rows = list(ws.iter_rows(values_only=True))
-    wb.close()
-    if len(rows) <= 1:
-        return []
-    hdr = rows[0]
-    return [dict(zip(hdr, r)) for r in rows[1:]]
+def _lignes(db_path=None):
+    """Mouvements effectivement écrits, lus par la vue applicative."""
+    return vues.mouvements_normalises(db_path=db_path)
 
 
 # ── Page d'import ─────────────────────────────────────────────────────────────
@@ -112,4 +107,4 @@ def test_confirmer_refuse_si_flags_off(client, ref, monkeypatch):
     assert r2.status_code == 303
     html = client.get(r2.headers["location"]).text
     assert "Écriture désactivée" in html
-    assert not ref.exists()
+    assert _lignes(ref) == [], "aucun mouvement écrit"

@@ -90,11 +90,15 @@ SOURCES_LOT11 = [
     "02_TRAVAIL/Lot4_ReservationsHH/MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx",
     "02_TRAVAIL/Lot5_AcomptesProprietaires/MASTER_FACT_MAN_AcomptesProprietaires.xlsx",
     "02_TRAVAIL/Lot7_IK_Avantages/MASTER_FACT_MAN_IK_Avantages.xlsx",
-    "02_TRAVAIL/Lot8_Banque/BANQUE_LOT8_IMPORT.xlsx",
+    # La Banque ne figure plus ici : elle n'est pas un fichier à copier, mais un jeu de données en
+    # base, écrit dans le workspace par `banque_adaptateur_moteur` juste avant lot11.
     "01_SOURCES_BRUTES/AirCover/SAISIE_AirCover.xlsx",
     "01_SOURCES_BRUTES/ImputationsAirbnb/SAISIE_ImputationsAirbnb.xlsx",
     "01_SOURCES_BRUTES/AjustementsPostCloture/SAISIE_Ajustements_PostCloture.xlsx",
 ]
+
+# Emplacement, dans le workspace, du classeur bancaire fabriqué depuis la base pour lot11.
+BANQUE_MOTEUR_REL = "02_TRAVAIL/Lot8_Banque/BANQUE_LOT8_IMPORT.xlsx"
 
 # Scripts moteur copiés (fermeture d'imports auditée : lib_* + lot3/lot7 importés).
 SCRIPTS_MOTEUR = [
@@ -328,6 +332,16 @@ def _construire_workspace(run_ts: str, declarations_csv: str,
         dst = workspace / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
+
+    # Banque : fabriquée depuis SQLite plutôt que copiée. Lot11 lit encore un classeur, et lui
+    # apprendre SQLite relève d'un autre chantier ; le fichier produit ici est jetable et n'est lu
+    # que par le sous-processus moteur.
+    from app.services import banque_adaptateur_moteur as banque_adaptateur
+
+    gen = banque_adaptateur.ecrire_classeur_moteur(workspace / BANQUE_MOTEUR_REL)
+    if not gen.get("ok"):
+        # Ne pas taire : sans Banque, lot11 conclurait « aucune anomalie bancaire » en code retour 0.
+        warnings.append(f"Banque non fournie à lot11 : {gen.get('message', gen.get('code'))}")
 
     # Copie des PDF (étape 3 de l'ordre imposé) — fichier par fichier, octets identiques.
     pdf_dst = workspace / PDF_DIR_REL

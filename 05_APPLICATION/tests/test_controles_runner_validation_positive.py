@@ -4,6 +4,10 @@ Prouve que le chemin SÛR fonctionne réellement : Lot8c puis Lot11 (scripts du 
 exécutés sur un mini-projet synthétique, le contrôle bancaire est présent avant / absent après
 classification, et AUCUN fichier réel n'est touché. Aucune donnée réelle en entrée ; le code moteur
 appelé est bien celui du worktree (jamais une fonction factice qui le remplace).
+
+La Banque du mini-projet est en BASE, plus dans un classeur : le runner fabrique lui-même le classeur
+que les moteurs attendent. Ce test vérifie donc aussi que cette fabrication est correcte — un moteur
+qui ne verrait pas le mouvement conclurait « aucune anomalie », ce qui passerait inaperçu.
 """
 import hashlib
 import shutil
@@ -50,23 +54,7 @@ def _mvt(mid, montant, sens, sc, mois, cat=""):
 def _mini_projet(root: Path):
     """Génère un mini-projet synthétique (aucune donnée réelle) suffisant pour Lot8c + Lot11."""
     E = [{}]  # ligne all-None : préserve les colonnes sans déclencher de logique
-    _w(root/"02_TRAVAIL/Lot8_Banque/BANQUE_LOT8_IMPORT.xlsx", {
-        "BRUT_Banque": (["mouvement_id","libelle"], E),
-        "NORM_Banque": (_NORM, [_mvt("MVT-TEST-A",100.0,"CREDIT","RAPPROCHEMENT_REQUIS",MOIS),
-                                _mvt("MVT-TEST-B",5.0,"DEBIT","CLASSE",MOIS,cat="FRAIS_BANCAIRES"),
-                                _mvt("MVT-TEST-C",33.0,"DEBIT","RAPPROCHEMENT_REQUIS",MOIS2)]),
-        "CTRL_A_CONTROLER": (["mouvement_id","code_controle","severite","description","statut_controle"], E),
-        "LOG_Traitement": (["etape","valeur"], E),
-        "REF_Cloture_Mensuelle": (["mois","statut_mois","date_cloture","date_passage_controle",
-            "nb_controles_bloquants_ouverts","nb_lignes_bancaires_non_classees","commentaire"],
-            [{"mois":MOIS,"statut_mois":"OUVERT"},{"mois":MOIS2,"statut_mois":"OUVERT"}]),
-        "IA_Classification": (["mouvement_id","categorie"], E),
-        "RAPPROCH_AIRBNB_ATTENTE": (["mouvement_id","montant_banque","reference_airbnb",
-            "statut_rapprochement","methode_rapprochement","commentaire"], E),
-        "RAPPROCH_PROPRIETAIRES_ATTENTE": (["mouvement_id","proprietaire_id","nature_presumee",
-            "statut_rapprochement","prerequis_rapprochement","commentaire"], E),
-        "CTRL_RAPPROCHEMENT_8C": (["code_controle","severite","nb_lignes","total_montant_eur",
-            "description","action_requise"], E)})
+    # Aucun classeur bancaire : le runner le fabrique depuis SQLite (voir la fixture `banque_sqlite`).
     _w(root/"02_TRAVAIL/Lot9_FluxUnifie/MASTER_CALC_Flux.xlsx", {"MASTER":(
         ["flux_id","mois","logement_id","proprietaire_id","source_pk","type_flux_id","code_impact",
          "sens","source_table"], E)})
@@ -130,16 +118,53 @@ def _sha(p):
     return hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else "ABSENT"
 
 
+def _banque_sqlite(db_path):
+    """Les trois mêmes mouvements qu'auparavant, en base au lieu d'un classeur.
+
+    MVT-TEST-A porte le contrôle qu'on cherche à faire disparaître ; MVT-TEST-B est déjà classé ;
+    MVT-TEST-C est sur un autre mois, et doit donc rester intact quoi qu'il arrive au premier.
+    """
+    import fixtures_banque as fx
+    from app.services import banque_classification_service as cls
+    from app.db.connection import get_db
+
+    fx.construire(db_path, mouvements=[
+        fx.mouvement("MVT-TEST-A", MOIS + "-15", "TEST MVT-TEST-A", 100.0, "CREDIT",
+                     statut_controle="A_CONTROLER",
+                     statut_classification=cls.CLASS_RAPPROCHEMENT_REQUIS),
+        fx.mouvement("MVT-TEST-B", MOIS + "-15", "TEST MVT-TEST-B", 5.0, "DEBIT",
+                     categorie="FRAIS_BANCAIRES"),
+        fx.mouvement("MVT-TEST-C", MOIS2 + "-15", "TEST MVT-TEST-C", 33.0, "DEBIT",
+                     statut_controle="A_CONTROLER",
+                     statut_classification=cls.CLASS_RAPPROCHEMENT_REQUIS),
+    ])
+    # Statut de clôture : lot11 le lit dans le classeur bancaire, l'adaptateur le prend en base.
+    conn = get_db(db_path)
+    try:
+        for mois in (MOIS, MOIS2):
+            conn.execute(
+                "INSERT OR REPLACE INTO ref_cloture_mensuelle (mois, statut_mois, "
+                "date_passage_controle, date_cloture, nb_lignes_bancaires_non_classees, "
+                "nb_controles_bloquants_ouverts, commentaire, import_id) "
+                "VALUES (?, 'OUVERT', '', '', '', '', '', 'IMP-TEST')", (mois,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 @pytest.fixture
-def mini(tmp_path, monkeypatch):
+def mini(tmp_path, tmp_db, monkeypatch):
     """Mini-projet factice + cfg monkeypatché dessus ; workspace runner HORS du mini-projet."""
     root = tmp_path / "mini_projet"
     _mini_projet(root)
+    _banque_sqlite(tmp_db)
     ws = tmp_path / "runner_ws"    # hors mini-projet (respecte la garde d'isolation)
     monkeypatch.setattr(cfg, "PROJECT_ROOT", root)
-    monkeypatch.setattr(cfg, "MASTER_BANQUE", root/"02_TRAVAIL/Lot8_Banque/BANQUE_LOT8_IMPORT.xlsx")
     monkeypatch.setattr(cfg, "MASTER_CTRL_COHERENCE", root/"02_TRAVAIL/Lot11_Controles/MASTER_CTRL_Coherence.xlsx")
     monkeypatch.setattr(cfg, "CONTROLES_RUNNER_WORKSPACE", ws)
+    from app.readers import banques_reader as reader
+    reader.vider_cache()
+    bq.vider_cache()
     return root
 
 
