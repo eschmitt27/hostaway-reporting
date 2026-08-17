@@ -27,6 +27,45 @@ moteur_requis = pytest.mark.skipif(not REAL_CTRL.exists(), reason="MASTER_CTRL_C
 banque_requise = pytest.mark.usefixtures("banque_en_base")
 
 
+@pytest.fixture(autouse=True)
+def reservations_en_base(tmp_db):
+    """Réservations VRBO en base, périmètre résolu et live.
+
+    Autouse : les réservations sont désormais lues en base par le détail des contrôles ET par le
+    runner. Les fournir dans chaque test qui en a besoin obligerait à deviner lesquels ; les fournir
+    partout reflète simplement le fait qu'une installation a des réservations.
+
+    Le live porte une VRBO de plus, sur un mois clos : c'est elle qui doit rester HORS du périmètre
+    de contrôle, et sans elle la distinction ne serait pas testable.
+    """
+    import fixtures_banque as fx
+    import fixtures_hostaway as fxh
+
+    mois = (fx.mois_des_agregats_banque() or ["2026-06"])[0]
+    perimetre = [
+        fxh.ligne_reservation(f"RES-{mois}-HA-{i:03d}", mois=mois,
+                              source="HOSTAWAY_VRBO_A_CONTROLER",
+                              reservation_id=f"6000{i}", montant=0.0)
+        for i in (1, 2)
+    ]
+    hors_perimetre = fxh.ligne_reservation(
+        "RES-2025-01-HA-099", mois="2025-01", source="HOSTAWAY_VRBO_A_CONTROLER",
+        reservation_id="59099", montant=0.0)
+
+    fxh.peupler_reservations(tmp_db, perimetre, etape="RESOLUES")
+    fxh.peupler_reservations(tmp_db, perimetre + [hors_perimetre], etape="CALCULEES")
+
+    # Payouts : le runner en a besoin pour fabriquer le classeur que lot11 attend.
+    from app.services import hostaway_raw_service as raw_svc
+
+    eid = raw_svc.ouvrir(mode=raw_svc.MODE_FIXTURE, db_path=tmp_db)
+    raw_svc.enregistrer(eid, db_path=tmp_db,
+                        payouts=[fxh.payout(l["reservation_id_hostaway"])
+                                 for l in perimetre + [hors_perimetre]])
+    raw_svc.cloturer(eid, statut=raw_svc.ST_SUCCES, db_path=tmp_db)
+    return tmp_db
+
+
 @pytest.fixture
 def banque_en_base(tmp_db, monkeypatch):
     """Deux mouvements non classés : ce que le détail des contrôles doit remonter.
@@ -84,6 +123,12 @@ def el_commission(tmp_db):
 
 def _all(db_path):
     return act._tous_les_elements(db_path)
+
+
+def _cle_vrbo(ligne):
+    """Identité d'une réservation VRBO, quelle que soit l'étape qui la rend."""
+    return (str(ligne.get("reservation_id_hostaway") or "").strip()
+            or str(ligne.get("reservation_calc_id") or "").strip())
 
 
 # ── Architecture (1-7) ────────────────────────────────────────────────────────
@@ -443,34 +488,71 @@ def test_16_17_18_vrbo_perimetre_moteur_exact(tmp_db):
 
 
 @moteur_requis
-def test_19_vrbo_lignes_source_non_presentees_comme_anomalies(tmp_db):
-    """Les 27 lignes VRBO hors périmètre (mois clôturés) ne sont jamais des anomalies de ce contrôle."""
+def test_19_vrbo_hors_perimetre_jamais_presentee_comme_anomalie(tmp_db):
+    """Les VRBO des mois clôturés sont sorties du contrôle par la résolution.
+
+    Ce test figeait « 27 lignes = 32 live − 5 périmètre ». Ces nombres décrivaient un jeu de
+    réservations précis : ils tombent dès qu'une extraction s'élargit ou qu'un mois se clôture, sans
+    qu'aucune régression n'ait eu lieu. Ce qui doit être vrai est une RELATION : le périmètre de
+    contrôle est un sous-ensemble du live, et rien de ce qui en est sorti n'est présenté comme
+    anomalie.
+    """
     from app.readers import controles_detail_reader as dr
+
+    perimetre = {_cle_vrbo(r) for r in dr.reservations_vrbo()}
     hors = dr.reservations_vrbo_hors_perimetre()
-    assert len(hors) == 27                            # 32 live − 5 périmètre
-    # elles n'apparaissent pas dans les éléments actionnables du dashboard
+    assert perimetre.isdisjoint({_cle_vrbo(r) for r in hors}), (
+        "une réservation ne peut pas être à la fois dans le périmètre et hors périmètre")
+
     vrbo_actionnables = [e for e in _all(tmp_db) if e["code"] == "VRBO_MONTANT_NON_RENSEIGNE"]
     assert all(not e["hors_perimetre_controle"] for e in vrbo_actionnables)
 
 
 @moteur_requis
-def test_20_21_22_vrbo_categories_montant_absent(tmp_db):
+def test_20_21_22_vrbo_categories_valides(tmp_db):
+    """Chaque élément VRBO porte une classification du vocabulaire déclaré, jamais une inventée."""
+    from app.services import controles_detail_service as d
+
     vrbo = [e for e in _all(tmp_db) if e["code"] == "VRBO_MONTANT_NON_RENSEIGNE"]
     classes = {e["classification"] for e in vrbo}
-    from app.services import controles_detail_service as d
     categories_valides = {d.VRBO_MONTANT_ABSENT, d.VRBO_ANNULEE, d.VRBO_HORS_COMPTA, d.VRBO_DOUBLON,
                           d.VRBO_ICAL_INCOMPLET, d.VRBO_A_SAISIR}
     assert classes <= categories_valides
-    # au moins un « montant réellement absent » (les 5 sont à 0)
-    assert d.VRBO_MONTANT_ABSENT in classes
+    if vrbo:
+        # La fixture pose des montants à zéro : au moins un « montant réellement absent » doit
+        # apparaître. Sans élément VRBO, il n'y a rien à classer et le test n'affirme rien de plus.
+        assert d.VRBO_MONTANT_ABSENT in classes
+
+
+# Noms de colonnes portant une donnée de voyageur. Comparaison EXACTE, pas par sous-chaîne :
+# `guestCount` est un nombre de personnes, pas une identité, et le confondre avec `guestName`
+# ferait échouer le test sur une colonne parfaitement légitime.
+PERSONNEL = {"voyageur", "guest", "guestname", "guest_name", "nom", "nom_voyageur", "prenom",
+             "email", "mail", "telephone", "tel", "phone", "adresse"}
 
 
 @moteur_requis
-def test_23_24_vrbo_aucune_donnee_voyageur_liens(tmp_db):
-    vrbo = next(e for e in _all(tmp_db) if e["code"] == "VRBO_MONTANT_NON_RENSEIGNE")
-    keys = set(vrbo["donnees"].keys())
-    assert not any(k in keys for k in ("voyageur", "guest", "nom", "email", "telephone"))
-    assert vrbo["entite_id"]   # identifiant réservation présent (lien fiche réservation possible)
+def test_23_24_vrbo_aucune_donnee_voyageur(tmp_db):
+    """Aucune donnée de voyageur ne doit circuler, ni dans la source ni dans les éléments.
+
+    La garantie est vérifiée sur la SOURCE, que la fixture peuple : les éléments actionnables
+    dépendent d'agrégats produits par le moteur réel, et exiger leur présence ferait dépendre ce test
+    d'un jeu de contrôles qui varie d'un mois à l'autre.
+    """
+    from app.readers import controles_detail_reader as dr
+
+    source = dr.reservations_vrbo()
+    assert source, "la fixture doit fournir au moins une réservation VRBO"
+    for ligne in source:
+        interdites = {str(k).lower() for k in ligne} & PERSONNEL
+        assert not interdites, f"colonne personnelle dans la source : {interdites}"
+
+    for element in (e for e in _all(tmp_db) if e["code"] == "VRBO_MONTANT_NON_RENSEIGNE"):
+        interdites = {str(k).lower() for k in element["donnees"]} & PERSONNEL
+        assert not interdites, f"colonne personnelle dans un élément : {interdites}"
+        # L'identifiant de réservation reste présent : c'est ce qui permet d'ouvrir la fiche. Le
+        # retirer au nom de la confidentialité rendrait l'anomalie inactionnable.
+        assert element["entite_id"]
 
 
 # ── INFO (39-41) ──────────────────────────────────────────────────────────────

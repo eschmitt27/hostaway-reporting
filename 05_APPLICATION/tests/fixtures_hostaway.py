@@ -163,3 +163,58 @@ def jeu_minimal(db_path, *, nb: int = 3, mois: str = "2026-07", **kw) -> str:
                     fees=[fee(r["reservation_id"]) for r in reservations],
                     finance_fields=[finance_field(r["reservation_id"]) for r in reservations],
                     **kw)
+
+
+def peupler_reservations(db_path, lignes=None, *, etape="RESOLUES", dataset_id=None):
+    """Ecrit un dataset de reservations et le rend courant.
+
+    Les ecrans de controle lisent les reservations en base : sans dataset, ils n'ouvrent aucun
+    element et un test conclurait a tort que le controle a disparu.
+    """
+    import uuid
+
+    from app.db.connection import get_db
+    from app.services import reservations_dataset_service as ds
+
+    dataset_id = dataset_id or "RDS-" + uuid.uuid4().hex[:12].upper()
+    table = "reservations_calculees" if etape == ds.ETAPE_CALCULEES else "reservations_resolues"
+    colonnes = (ds.COLONNES_BASE if etape == ds.ETAPE_CALCULEES
+                else ds.COLONNES_BASE + ds.COLONNES_RESOLUTION)
+    lignes = list(lignes if lignes is not None else [ligne_reservation("RES-2026-07-HA-001")])
+
+    conn = get_db(db_path)
+    try:
+        conn.execute("UPDATE reservations_datasets SET actif = 0 WHERE etape = ?", (etape,))
+        conn.execute(
+            "INSERT INTO reservations_datasets (dataset_id, etape, nb_lignes, actif) "
+            "VALUES (?,?,?,1)", (dataset_id, etape, len(lignes)))
+        trous = ", ".join(["?"] * (len(colonnes) + 1))
+        conn.executemany(
+            f"INSERT INTO {table} (dataset_id, {', '.join(colonnes)}) VALUES ({trous})",
+            [(dataset_id, *(l.get(c) for c in colonnes)) for l in lignes])
+        conn.commit()
+    finally:
+        conn.close()
+    return dataset_id
+
+
+def ligne_reservation(calc_id, *, mois="2026-07", source="HOSTAWAY_AIRBNB", reservation_id="",
+                      montant=200.0, guests=2, statut="VALIDE", **extra):
+    """Une ligne de dataset de reservations, tous champs remplis."""
+    base = {
+        "reservation_calc_id": calc_id, "row_hash": f"H-{calc_id}", "source": source,
+        "reservation_id_hostaway": reservation_id, "reservation_hh_id": "", "mois": mois,
+        "logement_id": "LOG_0001", "proprietaire_id": "PROP_0001",
+        "date_arrivee": f"{mois}-05", "date_depart": f"{mois}-07", "nuits": 2,
+        "guest_count": guests, "source_guest_count": "API_LIST", "montant_retenu": montant,
+        "source_montant": "HOSTAWAY_PAYOUT", "code_impact": "IC",
+        "impact_resultat_reel": "OUI", "impact_resultat_comptable": "OUI",
+        "statut_controle": statut, "niveau_anomalie": "", "code_anomalie": "",
+        "commentaire": "", "source_module": "LOT1", "source_table": "hostaway_reservations",
+        "source_pk": reservation_id, "date_integration": "2026-08-18", "canal": "AIRBNB",
+        "etat_mois": "OUVERT", "origine_initiale": "API_HOSTAWAY", "source_ligne": source,
+        "methode": "LIVE", "payout_calcule": montant - 50, "menage_retenu": 50.0,
+        "assiette_commission": montant - 100,
+    }
+    base.update(extra)
+    return base

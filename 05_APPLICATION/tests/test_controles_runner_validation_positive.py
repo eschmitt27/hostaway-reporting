@@ -138,6 +138,20 @@ def _banque_sqlite(db_path):
                      statut_controle="A_CONTROLER",
                      statut_classification=cls.CLASS_RAPPROCHEMENT_REQUIS),
     ])
+    # Les reservations aussi viennent de la base : le runner fabrique desormais leurs classeurs
+    # depuis SQLite, et refuse plutot que d'en produire un vide — un classeur vide ferait conclure
+    # au moteur « aucune anomalie », en code retour 0.
+    import fixtures_hostaway as fxh
+
+    fxh.peupler_reservations(
+        db_path, [fxh.ligne_reservation("RES-2099-01-HA-001", mois=MOIS, reservation_id="90001")],
+        etape="RESOLUES")
+    from app.services import hostaway_raw_service as raw_svc
+    eid = raw_svc.ouvrir(mode=raw_svc.MODE_FIXTURE, db_path=db_path)
+    raw_svc.enregistrer(eid, db_path=db_path,
+                        payouts=[fxh.payout("90001", montant=150.0)])
+    raw_svc.cloturer(eid, statut=raw_svc.ST_SUCCES, db_path=db_path)
+
     # Statut de clôture : lot11 le lit dans le classeur bancaire, l'adaptateur le prend en base.
     conn = get_db(db_path)
     try:
