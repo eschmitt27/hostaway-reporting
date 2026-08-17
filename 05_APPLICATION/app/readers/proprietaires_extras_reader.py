@@ -1,9 +1,11 @@
 """Reader Acomptes / AirCover / Imputations Airbnb / Ajustements post-clôture (APP-3D) — LECTURE
 SEULE.
 
-Sources brutes non encore lues par aucun autre module applicatif (jusqu'ici uniquement utilisées
-comme simples contrôles de présence de fichier ailleurs dans l'app). Ne recalcule rien, n'écrit
-jamais. openpyxl read_only=True. Aucun chemin absolu exposé, aucun IBAN.
+Ne recalcule rien, n'écrit jamais. Aucun chemin absolu exposé, aucun IBAN.
+
+Les ACOMPTES viennent de la base : ce sont les mouvements de trésorerie propriétaires validés, saisis
+dans l'application. Les trois autres sources restent des classeurs, et seront migrées séparément —
+mélanger leur migration à celle des acomptes rendrait une régression difficile à situer.
 """
 from __future__ import annotations
 
@@ -21,7 +23,12 @@ ONGLET_AIRCOVER = "MASTER"
 ONGLET_IMPUTATIONS = "MASTER"
 ONGLET_AJUSTEMENTS = "MASTER"
 
-SOURCE_ACOMPTES = "SAISIE_AcomptesProprietaires.xlsx"
+# Libellé d'origine de la source acomptes. Elle vient désormais de la base ; le nom est conservé le
+# temps de la parité, puis à retirer.
+SOURCE_ACOMPTES = "Mouvements de trésorerie propriétaires (base)"
+
+# Nature d'un mouvement de trésorerie qui EST un acompte propriétaire.
+NATURE_ACOMPTE = "ACOMPTE_PROPRIETAIRE"
 SOURCE_AIRCOVER = "SAISIE_AirCover.xlsx"
 SOURCE_IMPUTATIONS = "SAISIE_ImputationsAirbnb.xlsx"
 SOURCE_AJUSTEMENTS = "SAISIE_Ajustements_PostCloture.xlsx"
@@ -31,10 +38,14 @@ ETAT_FICHIER_ABSENT = "FICHIER_ABSENT"
 ETAT_ONGLET_ABSENT = "ONGLET_ABSENT"
 ETAT_VIDE = "VIDE"
 ETAT_ILLISIBLE = "ILLISIBLE"
+# Propre aux sources en base : la table n'existe pas encore. Distinct de VIDE, qui veut dire « la
+# table existe et ne contient rien » — le premier appelle une migration, le second une saisie.
+ETAT_NON_INITIALISE = "NON_INITIALISE"
 
 _ETAT_LIBELLE = {
     ETAT_OK: "Alimentée", ETAT_FICHIER_ABSENT: "Fichier absent", ETAT_ONGLET_ABSENT: "Onglet absent",
     ETAT_VIDE: "Source vide", ETAT_ILLISIBLE: "Source illisible",
+    ETAT_NON_INITIALISE: "Non initialisée en base",
 }
 
 
@@ -139,8 +150,57 @@ def to_date(v: Any) -> str:
 # ── Sources ──────────────────────────────────────────────────────────────────
 
 def acomptes() -> Source:
-    return _src(cfg.SAISIE_ACOMPTES_PROPRIETAIRES, "acomptes", "Acomptes propriétaires",
-               SOURCE_ACOMPTES, ONGLET_ACOMPTES)
+    """Acomptes propriétaires — lus en BASE, plus dans `SAISIE_AcomptesProprietaires.xlsx`.
+
+    Un acompte propriétaire est un mouvement de trésorerie de nature `ACOMPTE_PROPRIETAIRE` : il n'y
+    a pas deux objets, il y en a un seul, saisi dans l'application. Tenir une seconde liste dans un
+    classeur ferait exister deux vérités qui divergeraient dès la première saisie faite d'un côté
+    seulement.
+
+    Seuls les mouvements VALIDÉS sont rendus : un brouillon n'est pas encore un acompte reçu, et le
+    compter fausserait le solde d'un propriétaire.
+
+    Les noms de colonnes du Lot 5 sont conservés — plusieurs écrans et contrôles les lisent, et les
+    renommer en même temps qu'on change de source rendrait indémêlable ce qui casse quoi.
+    """
+    from app.services import proprietaires_tresorerie_service as tresorerie
+
+    def _etat(code: str, nb: int = 0, maj=None) -> Source:
+        return Source(etat=EtatSource(cle="acomptes", libelle="Acomptes propriétaires",
+                                      fichier=SOURCE_ACOMPTES, onglet="—", etat=code,
+                                      nb_lignes=nb, derniere_maj=maj))
+
+    try:
+        if not tresorerie.table_presente():
+            return _etat(ETAT_NON_INITIALISE)
+        mouvements = [m for m in tresorerie.lister(statut=tresorerie.ST_VALIDE)
+                      if to_texte(m.get("nature")) == NATURE_ACOMPTE]
+    except Exception:
+        return _etat(ETAT_ILLISIBLE)
+
+    lignes = [{
+        "acompte_id": m.get("mouvement_opaque"),
+        "mois": to_mois(m.get("date_mouvement")),
+        "proprietaire_id": m.get("proprietaire_id"),
+        "logement_id": m.get("logement_id"),
+        "facture_ref": m.get("reference_metier"),
+        "source_acompte": m.get("source_type"),
+        "source_hh_id": m.get("source_id"),
+        "montant_acompte": m.get("montant"),
+        "mode_paiement_id": m.get("mode_reglement"),
+        "statut_controle": m.get("statut"),
+        "commentaire": m.get("justification"),
+        "date_mouvement": m.get("date_mouvement"),
+        "sens": m.get("sens"),
+    } for m in mouvements]
+
+    return Source(
+        etat=EtatSource(cle="acomptes", libelle="Acomptes propriétaires", fichier=SOURCE_ACOMPTES,
+                        onglet="—", etat=ETAT_OK if lignes else ETAT_VIDE, nb_lignes=len(lignes),
+                        derniere_maj=max((to_texte(m.get("cree_le")) for m in mouvements),
+                                         default=None)),
+        lignes=lignes,
+    )
 
 
 def aircover() -> Source:

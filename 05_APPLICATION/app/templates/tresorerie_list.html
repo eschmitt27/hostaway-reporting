@@ -54,6 +54,53 @@
 
 <div class="table-meta">{{ total }} mouvement{% if total != 1 %}s{% endif %}</div>
 
+{# Contrôles métier (anciennement les 5 requêtes Power Query du Lot 5). Ils portent sur TOUS les
+   mouvements, pas sur la page affichée : un constat qui n'apparaîtrait qu'en page 3 serait invisible
+   au moment où l'on décide. Ils ne bloquent rien — la correction reste une décision humaine. #}
+{% if controles and controles.nb_constats %}
+<div class="card mb-md" data-testid="controles-tresorerie">
+  <h2 class="card-title">
+    Contrôles — {{ controles.nb_bloquants }} bloquant{% if controles.nb_bloquants != 1 %}s{% endif %},
+    {{ controles.nb_a_controler }} à contrôler
+  </h2>
+  <p class="section-note">
+    Sur {{ controles.nb_mouvements }} mouvement{% if controles.nb_mouvements != 1 %}s{% endif %}
+    non annulé{% if controles.nb_mouvements != 1 %}s{% endif %}.
+    Aucun mouvement n'est modifié par ces contrôles.
+  </p>
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Niveau</th><th>Contrôle</th><th>Mouvement</th>
+          <th>Propriétaire</th><th class="num">Montant</th><th>Constat</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in controles.constats %}
+        <tr>
+          <td>
+            {% if c.niveau == "BLOQUANT" %}<span class="badge badge-danger">Bloquant</span>
+            {% else %}<span class="badge badge-warning">À contrôler</span>{% endif %}
+          </td>
+          <td><code>{{ c.code_controle }}</code></td>
+          <td><a href="/proprietaires/tresorerie/{{ c.mouvement_opaque }}">{{ c.mouvement_opaque }}</a></td>
+          <td>{{ c.proprietaire_id or "—" }}</td>
+          <td class="num">{{ "%.2f"|format(c.montant) if c.montant is not none else "—" }}</td>
+          <td>{{ c.detail }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% elif controles and controles.nb_mouvements %}
+<div class="alert alert-success mb-md" data-testid="controles-tresorerie">
+  Aucun constat sur les {{ controles.nb_mouvements }} mouvement{% if controles.nb_mouvements != 1 %}s{% endif %}
+  contrôlé{% if controles.nb_mouvements != 1 %}s{% endif %}.
+</div>
+{% endif %}
+
 {% if lignes %}
 <div class="table-wrapper">
   <table class="data-table">

@@ -165,9 +165,10 @@ def test_15_aircover_reader_disponible():
 
 
 def test_16_acompte_reader_disponible():
+    """Les acomptes viennent de la base : l'état possible inclut « non initialisée »."""
     from app.readers import proprietaires_extras_reader as extras
     s = extras.acomptes()
-    assert s.etat.etat in (extras.ETAT_OK, extras.ETAT_VIDE, extras.ETAT_FICHIER_ABSENT)
+    assert s.etat.etat in (extras.ETAT_OK, extras.ETAT_VIDE, extras.ETAT_NON_INITIALISE)
 
 
 def test_17_imputations_reader_disponible():

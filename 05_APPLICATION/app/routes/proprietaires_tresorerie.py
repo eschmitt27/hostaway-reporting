@@ -17,6 +17,7 @@ from app.config import TEMPLATES_DIR
 # référentiel reste sans effet. Même raison que les chemins lus à l'appel.
 from app.readers import proprietaires_reader
 from app.services import proprietaires_tresorerie_service as svc
+from app.services import tresorerie_controles_service as ctrl
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -87,6 +88,9 @@ def tresorerie_liste_globale(
         "montant_min": montant_min, "montant_max": montant_max, "avec_reste": avec_reste,
         "totalement_rapproche": totalement_rapproche, "natures": svc.NATURES, "sens_valeurs": svc.SENS,
         "statuts": svc.STATUTS, "proprietaire_filtre": None,
+        # Les dix contrôles Lot 5, calculés sur les mouvements et non sur la page affichée : un
+        # constat qui n'apparaît qu'en page 3 doit être visible dès la page 1.
+        "controles": ctrl.controler(proprietaire_id=proprietaire_id),
     })
 
 

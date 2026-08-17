@@ -161,9 +161,28 @@ def charger(mouvement_opaque: str, db_path=None) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
+def table_presente(*, db_path=None) -> bool:
+    """La table n'existe qu'à partir de la migration 0025.
+
+    Une base antérieure est un état LÉGITIME — la base réelle en production n'est pas encore migrée.
+    Laisser remonter « no such table » transformerait cet état normal en écran illisible.
+    """
+    conn = get_db(db_path)
+    try:
+        return bool(conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' "
+            "AND name='mouvements_tresorerie_proprietaires'").fetchone())
+    finally:
+        conn.close()
+
+
 def lister(*, proprietaire_id: str = "", statut: str = "", db_path=None) -> list[dict[str, Any]]:
     conn = get_db(db_path)
     try:
+        if not conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' "
+                "AND name='mouvements_tresorerie_proprietaires'").fetchone():
+            return []
         rows = conn.execute(
             "SELECT * FROM mouvements_tresorerie_proprietaires ORDER BY id DESC").fetchall()
     finally:
