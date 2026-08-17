@@ -2,7 +2,45 @@
 
 Aucun virement, aucune API bancaire, aucun IBAN. MARQUE_COMME_PAYE est déclaratif.
 """
+import pytest
+
+import app.config as cfg
 from app.services import proprietaires_suivi_service as suivi
+
+
+@pytest.fixture(autouse=True)
+def _cloture_referentiel(tmp_db):
+    """Statut de clôture du mois testé, désormais lu en SQLite.
+
+    Ces tests s'appuyaient sur le VRAI `REF_Setup.xlsm` pour connaître le statut du mois — une
+    dépendance implicite à des données réelles. Le statut vient maintenant du référentiel en base,
+    et la fixture le déclare explicitement : le mois testé est clôturé côté moteur, condition que
+    le parcours « prêt à payer » exige.
+
+    Dépend de `tmp_db` À DESSEIN : cette fixture repositionne `cfg.DB_PATH`, et une fixture autouse
+    qui ne la précéderait pas se ferait écraser. On écrit donc DANS sa base.
+    """
+    from app.db.connection import get_db
+    from app.readers import controles_cloture_reader as _ccr
+
+    conn = get_db(tmp_db)
+    try:
+        conn.execute(
+            "INSERT INTO ref_cloture_mensuelle (mois, statut_mois, date_passage_controle, "
+            "date_cloture, nb_lignes_bancaires_non_classees, nb_controles_bloquants_ouverts, "
+            "commentaire, import_id) VALUES "
+            "('2026-01','CLOTURE','2026-02-05','2026-02-10','0','0','fixture','IMP-TEST')")
+        conn.execute(
+            "INSERT INTO ref_setup_imports (import_id, horodatage, chemin_source, "
+            "empreinte_source, statut, nb_feuilles, nb_lignes) "
+            "VALUES ('IMP-TEST','2026-01-01T00:00:00','fixture','x','IMPORTE',28,1)")
+        conn.commit()
+    finally:
+        conn.close()
+    _ccr.vider_cache()
+    yield
+    _ccr.vider_cache()
+
 
 
 def _demarrer(client, prop="PROP_A_PAYER", mois="2026-01"):
