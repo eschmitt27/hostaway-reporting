@@ -338,21 +338,29 @@ def _lire(table: str, colonnes: tuple[str, ...], extraction_id: str, *, db_path=
         conn.close()
 
 
+# ORDRE D'ARRIVÉE PARTOUT.
+#
+# Les lignes sont rendues dans l'ordre où l'extraction les a écrites (`id`), jamais triées par
+# identifiant. La raison n'est pas esthétique : le moteur construit `reservation_calc_id` comme
+# `RES-<mois>-HA-<n>`, où n est un compteur d'itération. Deux lecteurs qui ordonnent différemment la
+# même extraction produisent donc des clés différentes — sans qu'aucun total ne change, ce qui rend
+# l'écart invisible en agrégat. Le moteur lit dans l'ordre d'insertion ; ce service fait de même.
+
+
 def reservations(*, extraction_id: str = "", db_path=None) -> list[dict[str, Any]]:
     """Réservations d'une extraction. Par défaut la dernière utilisable."""
     eid = extraction_id or derniere_extraction_utilisable(db_path=db_path)
-    return _lire("hostaway_reservations", _COLS_RESERVATION, eid, db_path=db_path,
-                 ordre="reservation_id")
+    return _lire("hostaway_reservations", _COLS_RESERVATION, eid, db_path=db_path)
 
 
 def payouts(*, extraction_id: str = "", db_path=None) -> list[dict[str, Any]]:
     eid = extraction_id or derniere_extraction_utilisable(db_path=db_path)
-    return _lire("hostaway_payouts", _COLS_PAYOUT, eid, db_path=db_path, ordre="reservation_id")
+    return _lire("hostaway_payouts", _COLS_PAYOUT, eid, db_path=db_path)
 
 
 def listings(*, extraction_id: str = "", db_path=None) -> list[dict[str, Any]]:
     eid = extraction_id or derniere_extraction_utilisable(db_path=db_path)
-    return _lire("hostaway_listings", _COLS_LISTING, eid, db_path=db_path, ordre="listing_map_id")
+    return _lire("hostaway_listings", _COLS_LISTING, eid, db_path=db_path)
 
 
 def fees(*, extraction_id: str = "", db_path=None) -> list[dict[str, Any]]:
