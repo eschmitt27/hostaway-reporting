@@ -84,6 +84,8 @@ EXPECTED_TABLES = {
     "ref_setup_import_feuilles",                # 0029 — détail par onglet d'un import
     "proprietaire_allocations",                 # 0030 — allocations FIFO source → facture
     "proprietaire_recalculs",                   # 0030 — journal append-only des recalculs FIFO
+    "moteur_runs",                              # 0031 — runs moteur, écrits dès le démarrage
+    "moteur_run_etapes",                        # 0031 — une ligne par étape terminée
 }
 
 

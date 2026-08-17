@@ -30,6 +30,8 @@ import hashlib
 import logging
 import argparse
 from datetime import datetime, timezone
+
+from lib_run_journal import RunJournal, ETAPE_SUCCES, ETAPE_ECHEC, ETAPE_IGNOREE
 from pathlib import Path
 
 # ── Vérification dépendances ─────────────────────────────────
@@ -63,6 +65,24 @@ DATE_FROM       = "2026-01-01"
 PAGE_SIZE       = 100
 MAX_RETRIES     = 3
 RETRY_BASE_WAIT = 2   # secondes (exponentiel)
+RETRY_MAX_WAIT  = 60  # plafond d'une attente unitaire (s)
+RETRY_BUDGET_S  = 180 # budget total d'attente pour UNE requete (s)
+
+
+class RateLimitEpuise(RuntimeError):
+    """Le debit de l'API a bloque la requete jusqu'a epuisement des tentatives.
+
+    Type distinct d'une erreur HTTP ordinaire : il dit « donnee non obtenue », jamais
+    « donnee absente ». C'est precisement la confusion qui a coute une heure d'appels vides.
+    """
+
+    def __init__(self, path, tentatives, attente_totale):
+        self.path = path
+        self.tentatives = tentatives
+        self.attente_totale = attente_totale
+        super().__init__(
+            f"Rate limit HTTP 429 non resorbe sur {path} apres {tentatives} tentative(s) "
+            f"et {attente_totale:.0f}s d'attente. Donnee NON obtenue (et non pas absente).")
 
 DETAILS_MINIMAL = "minimal"   # détail uniquement si payout impossible depuis liste
 DETAILS_FULL    = "full"      # détail systématique (comportement original)
@@ -546,13 +566,32 @@ class HostawayClient:
 
     def _get(self, path: str, params: dict = None) -> dict:
         url = f"{self._base}{path}"
+        attente_totale = 0.0
         for attempt in range(1, MAX_RETRIES + 1):
             try:
                 r = requests.get(url, headers=self._headers(), params=params, timeout=60)
                 if r.status_code == 429:
-                    wait = RETRY_BASE_WAIT * (2 ** attempt)
-                    self._log.warning(f"Rate limit 429 — attente {wait}s (tentative {attempt})")
+                    # `Retry-After` fait foi quand l'API le fournit : c'est elle qui sait quand
+                    # elle acceptera de repondre. Sinon, backoff exponentiel PLAFONNE.
+                    entete = (r.headers or {}).get("Retry-After")
+                    wait = None
+                    if entete:
+                        try:
+                            wait = float(str(entete).strip())
+                        except ValueError:
+                            wait = None
+                    if wait is None:
+                        wait = RETRY_BASE_WAIT * (2 ** attempt)
+                    wait = min(wait, RETRY_MAX_WAIT)
+                    # Budget d'attente par requete : sans lui, une API durablement saturee
+                    # ferait patienter indefiniment sans jamais rien ramener.
+                    if attente_totale + wait > RETRY_BUDGET_S or attempt == MAX_RETRIES:
+                        raise RateLimitEpuise(path, attempt, attente_totale + wait)
+                    self._log.warning(
+                        f"Rate limit 429 sur {path} — attente {wait:.0f}s "
+                        f"(tentative {attempt}/{MAX_RETRIES}, cumul {attente_totale:.0f}s)")
                     time.sleep(wait)
+                    attente_totale += wait
                     continue
                 # Erreurs HTTP : message propre, sans traceback brut
                 if r.status_code == 404:
@@ -567,6 +606,8 @@ class HostawayClient:
                     raise RuntimeError(f"Erreur HTTP {r.status_code} sur {path}")
                 r.raise_for_status()
                 return r.json()
+            except RateLimitEpuise:
+                raise  # remonter tel quel : « non obtenu » n'est pas « absent »
             except RuntimeError:
                 raise  # propager sans retry
             except requests.exceptions.ConnectionError:
@@ -587,7 +628,11 @@ class HostawayClient:
                 wait = RETRY_BASE_WAIT * attempt
                 self._log.warning(f"Erreur requête (t.{attempt}/{MAX_RETRIES}) : {exc} — retry {wait}s")
                 time.sleep(wait)
-        return {}
+        # Jamais `return {}` ici. Rendre un dictionnaire vide apres epuisement des tentatives
+        # faisait passer « je n'ai pas pu lire » pour « il n'y a rien » : l'appelant enchainait
+        # sur la page suivante et le lot produisait des sorties amputees sans rien signaler.
+        raise RuntimeError(
+            f"Aucune reponse exploitable de {path} apres {MAX_RETRIES} tentatives.")
 
     # ── Endpoints ────────────────────────────────────────────
 
@@ -1420,6 +1465,10 @@ def main():
              "Défaut : fichier production MASTER_CALC_HA_Payout.xlsx.",
     )
     parser.add_argument(
+        "--db", type=str, default=None,
+        help="Base applicative ou journaliser le run (sinon PILOTAGE_DB_PATH / APP_DATA_DIR).",
+    )
+    parser.add_argument(
         "--limit", type=int, default=0,
         help="Limiter à N réservations (0 = pas de limite). Pour tests.",
     )
@@ -1437,6 +1486,12 @@ def main():
 
     run_id    = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_start = datetime.now(timezone.utc)
+    # Journal du run : ouvert AVANT le premier appel reseau. Un run interrompu apres
+    # avoir ecrit des masters doit rester visible — c'etait le defaut du 2026-08-17.
+    journal = RunJournal('lot1_hostaway_extract', racine=BASE_DIR,
+                         db_path=getattr(args, 'db', None), log=log,
+                         fallback_dir=OUT_DIR / '_runs')
+    etape_debut = journal.started_at
     log       = setup_logging(run_id, silent_file=args.dry_run)
 
     # ── Recalcul payout sans API ─────────────────────────────────
@@ -1772,16 +1827,37 @@ def main():
                 "MASTER_CALC_HA_Payout":                   pd.DataFrame(rows_payout),
                 "MASTER_CTRL_HA_Anomalies":                detector.to_df(),
             }
+            sorties_principales = []
             for name, df in main_tables.items():
                 write_excel(df, OUT_DIR / f"{name}.xlsx")
                 log.info(f"  {name} : {len(df)} lignes")
+                sorties_principales.append({"fichier": f"{name}.xlsx", "lignes": len(df)})
+
+            # Une etape par famille : le journal doit pouvoir dire « reservations OK, menages KO ».
+            journal.etape("LISTINGS", ETAPE_SUCCES, nb_lus=len(rows_listings),
+                          nb_ecrits=len(rows_listings), started_at=etape_debut)
+            journal.etape("RESERVATIONS", ETAPE_SUCCES, nb_lus=processed + skipped,
+                          nb_ecrits=len(rows_res), position=str(offset))
+            journal.etape("DETAILS", ETAPE_SUCCES, nb_lus=nb_details, nb_ecrits=len(rows_details))
+            journal.etape("FINANCE_FIELDS", ETAPE_SUCCES, nb_ecrits=len(rows_ff))
+            journal.etape("FEES", ETAPE_SUCCES, nb_ecrits=len(rows_fees))
+            journal.etape("PAYOUTS", ETAPE_SUCCES, nb_ecrits=len(rows_payout),
+                          sorties=sorties_principales)
+            journal.etape("ANOMALIES", ETAPE_SUCCES, nb_ecrits=len(main_tables["MASTER_CTRL_HA_Anomalies"]))
 
             # ── CLEANING TASKS (non-bloquant) ─────────────────
+            debut_tasks = datetime.now(timezone.utc).isoformat(timespec="seconds")
             if skip_tasks:
                 log.info("--skip-cleaning-tasks : taches menage ignorees.")
                 tasks_statut = "SKIPPED"
+                journal.etape("CLEANING_TASKS", ETAPE_IGNOREE, erreur="--skip-cleaning-tasks",
+                              started_at=debut_tasks)
             else:
                 rows_tasks, tasks_statut = _extract_cleaning_tasks(client, DATE_FROM, detector, log)
+                journal.etape("CLEANING_TASKS",
+                              ETAPE_SUCCES if tasks_statut == "OK" else ETAPE_ECHEC,
+                              nb_ecrits=len(rows_tasks), erreur="" if tasks_statut == "OK"
+                              else f"statut={tasks_statut}", started_at=debut_tasks)
                 if tasks_statut != "OK":
                     log.warning("Taches menage incompletes — voir anomalie CLEANING_TASKS_EXTRACTION_INCOMPLETE.")
 
@@ -1846,6 +1922,15 @@ def main():
             write_excel(df_log, OUT_DIR / "MASTER_RUN_Log.xlsx")
         except Exception as e:
             log.error(f"Impossible d'ecrire MASTER_RUN_Log : {e}")
+
+        # Cloture du journal : le statut global est DEDUIT des etapes, jamais affirme.
+        # MASTER_RUN_Log reste ecrit pour compatibilite, mais il n'est plus la seule trace :
+        # lui seul manquait totalement quand le run etait interrompu avant sa derniere etape.
+        try:
+            statut_journal = journal.fermer()
+            log.info(f"Journal de run : {statut_journal}")
+        except Exception as e:
+            log.error(f"Cloture du journal de run impossible : {e}")
 
     # ── RÉSUMÉ CONSOLE (dans finally les vars sont disponibles) ──
     run_end_summary = datetime.now(timezone.utc)
