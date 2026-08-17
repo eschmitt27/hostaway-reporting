@@ -155,22 +155,36 @@ def test_module_hh_ne_lit_pas_saisie_pour_donnees():
 
 # ---------------------------------------------------------------- SQLite = pas de métier
 
-def test_aucune_reservation_metier_en_sqlite(client, tmp_db):
-    client.get("/reservations")
-    client.get(f"/reservations/{PK}")
+def test_consulter_les_ecrans_hh_n_ecrit_aucune_reservation(client, tmp_db):
+    """Consulter un écran ne crée jamais de réservation en base.
+
+    Ce test affirmait qu'AUCUNE table de réservation ne devait exister en SQLite. Cet invariant
+    datait de l'époque où les réservations vivaient dans des classeurs ; la migration l'a inversé —
+    les réservations calculées, résolues et historisées vivent maintenant en base, et c'est le but.
+
+    Ce qui reste vrai, et qui compte davantage : les tables de réservations sont alimentées par le
+    MOTEUR, jamais par la consultation d'un écran. Une lecture qui écrirait créerait des lignes que
+    personne n'a calculées.
+    """
     conn = sqlite3.connect(str(tmp_db))
     try:
-        tables = [row[0] for row in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()]
+        tables = [r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name LIKE 'reservations_%'").fetchall()]
+        avant = {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in tables}
     finally:
         conn.close()
-    # Les tables `ref_*` sont le RÉFÉRENTIEL importé (migration 0029) : `ref_canaux_reservation`
-    # est une nomenclature de canaux, pas un stock de réservations. L'invariant visé reste entier —
-    # aucune réservation métier ne doit vivre en SQLite — mais il se vérifie hors référentiel.
-    metier = [t for t in tables if not t.startswith("ref_")]
-    for t in metier:
-        assert "reservation" not in t.lower(), f"Table métier réservation interdite en SQLite : {t}"
+
+    client.get("/reservations")
+    client.get(f"/reservations/{PK}")
+
+    conn = sqlite3.connect(str(tmp_db))
+    try:
+        apres = {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in tables}
+    finally:
+        conn.close()
+    assert apres == avant, "consulter un écran ne doit rien écrire"
+    assert all(n == 0 for n in apres.values()), "aucune réservation n'a été calculée dans ce test"
 
 
 def test_service_hh_n_importe_pas_sqlite():
