@@ -86,6 +86,9 @@ EXPECTED_TABLES = {
     "proprietaire_recalculs",                   # 0030 — journal append-only des recalculs FIFO
     "moteur_runs",                              # 0031 — runs moteur, écrits dès le démarrage
     "moteur_run_etapes",                        # 0031 — une ligne par étape terminée
+    "banque_mouvements",                        # 0032 — mouvements bruts, immuables
+    "banque_import_source",                     # 0032 — extension 1-1 de banque_imports
+    "banque_classifications",                   # 0032 — résultat de classification, séparé du brut
 }
 
 
