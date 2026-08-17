@@ -4,6 +4,10 @@ Le moteur (Lot11) reste la vérité de l'anomalie. Le suivi humain est journalis
 et ne masque jamais une anomalie moteur présente. Aucune écriture réelle, réel intact, flags False.
 
 Ces tests s'appuient sur les données moteur réelles (via PROJECT_ROOT) + une app.db isolée (tmp_db).
+
+La BANQUE, elle, n'est plus lue dans un classeur : la fixture `banque_en_base` fabrique les mouvements
+non classés que le détail des contrôles doit remonter. Ces tests dépendaient auparavant du relevé réel
+et se skipaient sans lui — ils ne prouvaient donc rien sur une installation neuve.
 """
 import hashlib
 from pathlib import Path
@@ -19,8 +23,48 @@ from app.services import controles_runner_service as runner
 
 REAL_CTRL = Path(cfg.MASTER_CTRL_COHERENCE)
 moteur_requis = pytest.mark.skipif(not REAL_CTRL.exists(), reason="MASTER_CTRL_Coherence.xlsx absent")
-REAL_BANQUE = Path(cfg.MASTER_BANQUE)
-banque_requise = pytest.mark.skipif(not REAL_BANQUE.exists(), reason="BANQUE_LOT8_IMPORT.xlsx absent")
+# Ne skipe plus rien : la donnée bancaire nécessaire est fabriquée, plus empruntée au relevé réel.
+banque_requise = pytest.mark.usefixtures("banque_en_base")
+
+
+@pytest.fixture
+def banque_en_base(tmp_db, monkeypatch):
+    """Deux mouvements non classés : ce que le détail des contrôles doit remonter.
+
+    `RAPPROCHEMENT_REQUIS` est le statut que `controles_detail_reader.banque_non_classees()` retient.
+    Le mois est aligné sur un mois ouvert du référentiel de clôture pour que l'agrégat existe.
+    """
+    import fixtures_banque as fx
+    from app.readers import banques_reader as bq_reader
+    from app.readers import controles_detail_reader as detail
+    from app.services import banque_classification_service as bq_cls
+    from app.services import banques_controle_service as bq_ctrl
+
+    monkeypatch.setattr(cfg, "MASTER_BANQUE", Path(cfg.APP_ROOT) / "data" / "CLASSEUR_ABSENT.xlsx")
+
+    # Les mois viennent des agrégats bancaires que le moteur a réellement produits : un mouvement
+    # fabriqué sur un autre mois n'ouvrirait aucun agrégat, et le détail semblerait vide à tort.
+    mois_attendus = sorted({v["mois"] for v in base._toutes_les_vues()
+                            if v["module"] == "BANQUE" and v.get("mois")})
+    if not mois_attendus:
+        mois_attendus = ["2026-06"]
+
+    mouvements = []
+    for i, mois in enumerate(mois_attendus, start=1):
+        for j in (1, 2):
+            mouvements.append(fx.mouvement(
+                f"MVT-ACT-{i:02d}{j:02d}", f"{mois}-0{j}", f"VIR A RAPPROCHER {i}{j}",
+                100.0 * i + j, "CREDIT", compte="CM_TEST", tiers="AIRBNB",
+                statut_classification=bq_cls.CLASS_RAPPROCHEMENT_REQUIS,
+                statut_controle=bq_cls.ST_A_CONTROLER))
+    fx.construire(tmp_db, mouvements=mouvements)
+    bq_reader.vider_cache()
+    bq_ctrl.vider_cache()
+    detail.vider_cache()
+    yield tmp_db
+    bq_reader.vider_cache()
+    bq_ctrl.vider_cache()
+    detail.vider_cache()
 
 
 def _runner_isolable() -> bool:
@@ -291,7 +335,7 @@ def test_21_22_lot8c_lot11_reellement_executes_reel_intact(tmp_db):
     entrees = [e for e in _all(tmp_db) if e["module"] == "BANQUE"]
     assert entrees, "aucun contrôle Banque à recalculer"
     banq = entrees[0]
-    sha_bnq = _sha(Path(cfg.MASTER_BANQUE)); sha_ctrl = _sha(REAL_CTRL)
+    sha_ctrl = _sha(REAL_CTRL)
     res = runner.recalculer_sur_copie(banq, appliquer_classification=True, db_path=tmp_db)
     etapes = {e["etape"] for e in res["etapes"]}
     assert {"LOT11_BASELINE", "LOT8C", "LOT11"} <= etapes            # les deux moteurs ont tourné
@@ -302,7 +346,7 @@ def test_21_22_lot8c_lot11_reellement_executes_reel_intact(tmp_db):
     assert res["verdict"] == attendu, (
         f"verdict {res['verdict']} incohérent avec {res['n_avant']} → {res['n_apres']}")
     assert res["reel_intact"] is True
-    assert _sha(Path(cfg.MASTER_BANQUE)) == sha_bnq and _sha(REAL_CTRL) == sha_ctrl  # réel intact
+    assert _sha(REAL_CTRL) == sha_ctrl  # le master de contrôle réel n'a pas bougé
 
 
 @moteur_requis
@@ -539,7 +583,7 @@ def test_55_app_db_reelle_non_touchee(tmp_db, el_commission):
 
 @moteur_requis
 def test_56_57_excel_reels_intacts(tmp_db, el_commission):
-    fichiers = [Path(cfg.MASTER_CTRL_COHERENCE), Path(cfg.MASTER_BANQUE),
+    fichiers = [Path(cfg.MASTER_CTRL_COHERENCE),
                 Path(cfg.MASTER_COMMISSIONS), Path(cfg.MASTER_MENAGES_EXTERNES)]
     shas = {f: _sha(f) for f in fichiers if f.exists()}
     suivi.accepter_exception(el_commission, responsable="ewan", justification="j", db_path=tmp_db)

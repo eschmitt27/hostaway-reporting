@@ -2,42 +2,29 @@
 et vue inverse depuis la fiche mouvement bancaire."""
 from __future__ import annotations
 
-import openpyxl
 import pytest
 
 import app.config as cfg
+import fixtures_banque as fx
+from app.readers import banques_reader as reader
 from app.services import banques_controle_service as ctrl
 from app.services import factures_banque_service as pont
 from app.services import factures_service as fact
 from app.services import fournisseurs_referentiel_service as frs
 from app.services import reglements_fournisseurs_service as regl
 
-NORM_HDR = [
-    "mouvement_id", "ROW_HASH", "import_id", "ligne_source", "date_operation", "date_valeur",
-    "libelle", "libelle_brut", "montant", "sens", "devise", "compte_id", "tiers_detecte",
-    "categorie", "type_flux_id", "code_impact", "source_classification", "source_economique",
-    "statut_controle", "niveau_risque", "codes_anomalie", "date_integration", "commentaire",
-]
 MID = "MVT-FAC-01"
 
 
 @pytest.fixture
 def env(tmp_db, tmp_path, monkeypatch):
-    p = tmp_path / "BANQUE_LOT8_IMPORT.xlsx"
-    wb = openpyxl.Workbook(); wb.remove(wb.active)
-    ws = wb.create_sheet("NORM_Banque")
-    ws.append(NORM_HDR)
-    d = {h: None for h in NORM_HDR}
-    d.update({"mouvement_id": MID, "ROW_HASH": "H1", "import_id": "I", "ligne_source": 2,
-              "date_operation": "2026-07-05", "date_valeur": "2026-07-05",
-              "libelle": "VIR FOURNISSEUR", "libelle_brut": "VIR FOURNISSEUR",
-              "montant": 120.0, "sens": "DEBIT", "devise": "EUR", "compte_id": "CM_T",
-              "categorie": "FACTURE_PRESTATAIRE", "statut_controle": "VALIDE",
-              "niveau_risque": "FAIBLE", "date_integration": "2026-07-31"})
-    ws.append([d[h] for h in NORM_HDR])
-    wb.save(p); wb.close()
+    fx.construire(tmp_db, mouvements=[
+        fx.mouvement(MID, "2026-07-05", "VIR FOURNISSEUR", 120.0, "DEBIT", compte="CM_T",
+                     categorie="FACTURE_PRESTATAIRE", niveau_risque="FAIBLE", type_flux=""),
+    ])
+    reader.vider_cache()
 
-    monkeypatch.setattr(cfg, "MASTER_BANQUE", p)
+    monkeypatch.setattr(cfg, "MASTER_BANQUE", tmp_path / "CLASSEUR_ABSENT.xlsx")
     monkeypatch.setattr(cfg, "RECETTE_MODE", True)
     monkeypatch.setattr(cfg, "RECETTE_ROOT", tmp_path.resolve())
     monkeypatch.setattr(cfg, "FACTURES_REAL_WRITE_ENABLED", True)

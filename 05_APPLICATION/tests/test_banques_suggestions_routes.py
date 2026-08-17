@@ -1,47 +1,41 @@
 """Couche HTTP des suggestions et de la page de contrôles Banque."""
 from __future__ import annotations
 
-import openpyxl
 import pytest
 
 import app.config as cfg
+import fixtures_banque as fx
+from app.readers import banques_reader as reader
 from app.services import banques_candidats_service as candidats
 from app.services import banques_controle_service as ctrl_svc
 from app.services import banques_rapprochement_service as rappro
 
-NORM_HDR = [
-    "mouvement_id", "ROW_HASH", "import_id", "ligne_source", "date_operation", "date_valeur",
-    "libelle", "libelle_brut", "montant", "sens", "devise", "compte_id", "tiers_detecte",
-    "categorie", "type_flux_id", "code_impact", "source_classification", "source_economique",
-    "statut_controle", "niveau_risque", "codes_anomalie", "date_integration", "commentaire",
-]
 
 MID = "MVT-CM_TEST-20260605-DEBIT-12000-ABCDEF"
 
 
 @pytest.fixture
-def ref(tmp_path, monkeypatch):
-    p = tmp_path / "BANQUE_LOT8_IMPORT.xlsx"
-    wb = openpyxl.Workbook(); wb.remove(wb.active)
-    ws = wb.create_sheet("NORM_Banque")
-    ws.append(NORM_HDR)
-    ws.append([MID, "HASH1", "IMP1", 2, "2026-06-12", "2026-06-12",
-               "VIR FOURNISSEUR CHG_TEST01", "VIR FOURNISSEUR CHG_TEST01", 120.0, "DEBIT",
-               "EUR", "CM_TEST", "FOURNISSEUR", "FACTURE_PRESTATAIRE", "TYPE_FLUX_014", "",
-               "REGLE_DETERMINISTE", "", "VALIDE", "FAIBLE", "", "2026-06-30", ""])
-    wb.save(p); wb.close()
-    monkeypatch.setattr(cfg, "MASTER_BANQUE", p)
+def ref(tmp_db, tmp_path, monkeypatch):
+    """Un paiement fournisseur, en base. Aucun classeur."""
+    monkeypatch.setattr(cfg, "MASTER_BANQUE", tmp_path / "CLASSEUR_ABSENT.xlsx")
     monkeypatch.setattr(cfg, "RECETTE_MODE", True)
     monkeypatch.setattr(cfg, "RECETTE_ROOT", tmp_path.resolve())
     monkeypatch.setattr(cfg, "BANQUE_REAL_WRITE_ENABLED", True)
     monkeypatch.setattr(cfg, "BANQUE_REAL_WRITE_CONFIRMATION_ENABLED", True)
+    fx.construire(tmp_db, mouvements=[
+        fx.mouvement(MID, "2026-06-12", "VIR FOURNISSEUR CHG_TEST01", 120.0, "DEBIT",
+                     compte="CM_TEST", tiers="FOURNISSEUR", categorie="FACTURE_PRESTATAIRE",
+                     type_flux="TYPE_FLUX_014", niveau_risque="FAIBLE"),
+    ])
     # Candidats réels simulés au niveau du service de collecte (pas de faux objet dans le modèle).
     monkeypatch.setattr(candidats, "candidats_pour", lambda m: [
         {"type_objet": "CHARGE_FOURNISSEUR", "objet_id": "CHG_TEST01", "montant": 120.0,
          "date": "2026-06-12", "reference": "CHG_TEST01", "libelle": "Charge test"},
     ])
+    reader.vider_cache()
     ctrl_svc.vider_cache()
-    yield p
+    yield tmp_db
+    reader.vider_cache()
     ctrl_svc.vider_cache()
 
 

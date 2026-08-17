@@ -3,10 +3,11 @@ vue inverse depuis le mouvement. Vérifie qu'AUCUN second moteur n'est utilisé 
 `banque_rapprochements`)."""
 from __future__ import annotations
 
-import openpyxl
 import pytest
 
 import app.config as cfg
+import fixtures_banque as fx
+from app.readers import banques_reader as reader
 from app.db.connection import apply_migrations
 from app.services import banques_controle_service as ctrl
 from app.services import banques_rapprochement_service as rappro
@@ -15,46 +16,35 @@ from app.services import factures_service as fact
 from app.services import reglements_fournisseurs_service as regl
 
 FRS = "FRS-PONT01"
-NORM_HDR = [
-    "mouvement_id", "ROW_HASH", "import_id", "ligne_source", "date_operation", "date_valeur",
-    "libelle", "libelle_brut", "montant", "sens", "devise", "compte_id", "tiers_detecte",
-    "categorie", "type_flux_id", "code_impact", "source_classification", "source_economique",
-    "statut_controle", "niveau_risque", "codes_anomalie", "date_integration", "commentaire",
-]
 
 
 def _mvt(mid, montant, sens="DEBIT", statut="VALIDE", devise="EUR", date_op="2026-07-05"):
-    d = {h: None for h in NORM_HDR}
-    d.update({"mouvement_id": mid, "ROW_HASH": mid + "H", "import_id": "IMP", "ligne_source": 2,
-              "date_operation": date_op, "date_valeur": date_op,
-              "libelle": "VIR FOURNISSEUR", "libelle_brut": "VIR FOURNISSEUR",
-              "montant": montant, "sens": sens, "devise": devise, "compte_id": "CM_TEST",
-              "categorie": "FACTURE_PRESTATAIRE", "statut_controle": statut,
-              "niveau_risque": "FAIBLE", "date_integration": "2026-07-31"})
-    return [d[h] for h in NORM_HDR]
+    """Un paiement fournisseur. `statut` et `devise` restent réglables : les contrôles de
+    rapprochement doivent refuser un mouvement bloquant ou en devise étrangère."""
+    return fx.mouvement(mid, date_op, "VIR FOURNISSEUR", montant, sens, compte="CM_TEST",
+                        categorie="FACTURE_PRESTATAIRE", statut_controle=statut,
+                        niveau_risque="FAIBLE", devise=devise, type_flux="")
 
 
 @pytest.fixture
-def env(tmp_path, monkeypatch):
-    db = tmp_path / "test.db"
-    apply_migrations(db)
-    p = tmp_path / "BANQUE_LOT8_IMPORT.xlsx"
-    wb = openpyxl.Workbook(); wb.remove(wb.active)
-    ws = wb.create_sheet("NORM_Banque")
-    ws.append(NORM_HDR)
-    ws.append(_mvt("MVT-A", 50.0))
-    ws.append(_mvt("MVT-B", 70.0))
-    ws.append(_mvt("MVT-CREDIT", 120.0, sens="CREDIT"))
-    ws.append(_mvt("MVT-BLOQ", 120.0, statut="BLOQUANT"))
-    ws.append(_mvt("MVT-USD", 120.0, devise="USD"))
-    wb.save(p); wb.close()
-    monkeypatch.setattr(cfg, "MASTER_BANQUE", p)
+def env(tmp_db, tmp_path, monkeypatch):
+    """Cinq mouvements en base, dont trois volontairement inaptes au rapprochement."""
+    monkeypatch.setattr(cfg, "MASTER_BANQUE", tmp_path / "CLASSEUR_ABSENT.xlsx")
     monkeypatch.setattr(cfg, "RECETTE_MODE", True)
     monkeypatch.setattr(cfg, "RECETTE_ROOT", tmp_path.resolve())
     monkeypatch.setattr(cfg, "FACTURES_REAL_WRITE_ENABLED", True)
     monkeypatch.setattr(cfg, "FACTURES_REAL_WRITE_CONFIRMATION_ENABLED", True)
+    fx.construire(tmp_db, mouvements=[
+        _mvt("MVT-A", 50.0),
+        _mvt("MVT-B", 70.0),
+        _mvt("MVT-CREDIT", 120.0, sens="CREDIT"),
+        _mvt("MVT-BLOQ", 120.0, statut="BLOQUANT"),
+        _mvt("MVT-USD", 120.0, devise="USD"),
+    ])
+    reader.vider_cache()
     ctrl.vider_cache()
-    yield db
+    yield tmp_db
+    reader.vider_cache()
     ctrl.vider_cache()
 
 
