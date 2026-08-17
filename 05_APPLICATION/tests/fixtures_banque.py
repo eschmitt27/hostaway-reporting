@@ -20,6 +20,7 @@ from app.services import banque_classification_service as cls
 from app.services import banque_mouvements_service as bq
 
 COMPTE = "CM_TEST_00000000001"
+SENS_CREDIT = bq.SENS_CREDIT
 IMPORT_ID = "IMP-BQ-TEST-001"
 RUN_ID = "CLS-TEST00000001"
 
@@ -151,3 +152,35 @@ def construire(db_path, *, mouvements: list[dict] = (), attentes: list[dict] = (
         conn.commit()
     finally:
         conn.close()
+
+
+def peupler_non_classes(db_path, mois: list[str] | None = None, *, par_mois: int = 2) -> list[str]:
+    """Mouvements non classés, sur les mois demandés — pour les écrans de contrôle.
+
+    Les contrôles agrégés du moteur portent un MOIS. Un mouvement fabriqué sur un autre mois n'ouvre
+    aucun agrégat, et le détail semble vide à tort : les mois doivent donc venir de ce que le moteur a
+    réellement produit, pas d'une date choisie au hasard.
+
+    Retourne les identifiants créés.
+    """
+    from app.services import banque_classification_service as cls_svc
+
+    mois = mois or ["2026-06"]
+    mouvements = []
+    for i, m in enumerate(mois, start=1):
+        for j in range(1, par_mois + 1):
+            mouvements.append(mouvement(
+                f"MVT-NC-{i:02d}{j:02d}", f"{m}-0{j}", f"VIR A RAPPROCHER {i}{j}",
+                100.0 * i + j, SENS_CREDIT, compte="CM_TEST", tiers="AIRBNB",
+                statut_classification=cls_svc.CLASS_RAPPROCHEMENT_REQUIS,
+                statut_controle=cls_svc.ST_A_CONTROLER))
+    construire(db_path, mouvements=mouvements)
+    return [m["mouvement_id"] for m in mouvements]
+
+
+def mois_des_agregats_banque() -> list[str]:
+    """Mois pour lesquels le moteur a produit un agrégat bancaire, triés."""
+    from app.services import controles_cloture_service as base
+
+    return sorted({v["mois"] for v in base._toutes_les_vues()
+                   if v.get("module") == "BANQUE" and v.get("mois")})

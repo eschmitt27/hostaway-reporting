@@ -37,27 +37,10 @@ def banque_en_base(tmp_db, monkeypatch):
     import fixtures_banque as fx
     from app.readers import banques_reader as bq_reader
     from app.readers import controles_detail_reader as detail
-    from app.services import banque_classification_service as bq_cls
     from app.services import banques_controle_service as bq_ctrl
 
     monkeypatch.setattr(cfg, "MASTER_BANQUE", Path(cfg.APP_ROOT) / "data" / "CLASSEUR_ABSENT.xlsx")
-
-    # Les mois viennent des agrégats bancaires que le moteur a réellement produits : un mouvement
-    # fabriqué sur un autre mois n'ouvrirait aucun agrégat, et le détail semblerait vide à tort.
-    mois_attendus = sorted({v["mois"] for v in base._toutes_les_vues()
-                            if v["module"] == "BANQUE" and v.get("mois")})
-    if not mois_attendus:
-        mois_attendus = ["2026-06"]
-
-    mouvements = []
-    for i, mois in enumerate(mois_attendus, start=1):
-        for j in (1, 2):
-            mouvements.append(fx.mouvement(
-                f"MVT-ACT-{i:02d}{j:02d}", f"{mois}-0{j}", f"VIR A RAPPROCHER {i}{j}",
-                100.0 * i + j, "CREDIT", compte="CM_TEST", tiers="AIRBNB",
-                statut_classification=bq_cls.CLASS_RAPPROCHEMENT_REQUIS,
-                statut_controle=bq_cls.ST_A_CONTROLER))
-    fx.construire(tmp_db, mouvements=mouvements)
+    fx.peupler_non_classes(tmp_db, fx.mois_des_agregats_banque())
     bq_reader.vider_cache()
     bq_ctrl.vider_cache()
     detail.vider_cache()

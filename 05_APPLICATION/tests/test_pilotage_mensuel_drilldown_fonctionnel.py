@@ -16,6 +16,16 @@ moteur_requis = pytest.mark.skipif(
 
 @moteur_requis
 def test_drilldown_nb_exceptions_contenu_reellement_filtre(client, tmp_db):
+    # La Banque vient de la base : sans mouvement non classé, elle n'ouvre aucun élément, et le test
+    # ne trouverait plus de second module à comparer sur le même mois.
+    import fixtures_banque as fx
+    from app.readers import banques_reader as bq_reader
+    from app.readers import controles_detail_reader as detail
+
+    fx.peupler_non_classes(tmp_db, fx.mois_des_agregats_banque())
+    bq_reader.vider_cache()
+    detail.vider_cache()
+
     tous = act._tous_les_elements(tmp_db)
     commission = next(e for e in tous if e["module"] == "COMMISSIONS")
     autre = next(e for e in tous if e["module"] != "COMMISSIONS" and e["mois"] == commission["mois"]
