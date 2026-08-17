@@ -10,12 +10,16 @@ from pathlib import Path
 import pytest
 
 import app.config as cfg
+import fixtures_banque as fx
+from app.readers import banques_reader as reader
 from app.readers.banques_reader import date_affichage, datetime_affichage
 from app.services import banques_controle_service as ctrl
 from app.services import banques_controle_writer as writer
 
-REAL_BANQUE = Path(cfg.MASTER_BANQUE)
-banque_requise = pytest.mark.skipif(not REAL_BANQUE.exists(), reason="BANQUE_LOT8_IMPORT.xlsx absent")
+REAL_DB = Path(cfg.PROJECT_ROOT) / "05_APPLICATION" / "data" / "app.db"
+
+# Ne skipe plus rien : la donnée nécessaire est fabriquée, pas empruntée au relevé réel.
+banque_requise = pytest.mark.usefixtures("banque_synthetique")
 
 
 def _sha(p: Path) -> str:
@@ -30,7 +34,22 @@ def _isoler_workspace(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def opaque():
+def banque_synthetique(tmp_db):
+    fx.construire(tmp_db, mouvements=[
+        fx.mouvement("MVT-DEMO-0001", "2026-03-02", "PRELEVEMENT A QUALIFIER", 120.0, "DEBIT",
+                     statut_controle="A_CONTROLER"),
+        fx.mouvement("MVT-DEMO-0002", "2026-03-05", "FRAIS TENUE DE COMPTE", 4.50, "DEBIT",
+                     categorie="FRAIS_BANCAIRES", type_flux="TYPE_FLUX_016"),
+    ])
+    reader.vider_cache()
+    ctrl.vider_cache()
+    yield tmp_db
+    reader.vider_cache()
+    ctrl.vider_cache()
+
+
+@pytest.fixture
+def opaque(banque_synthetique):
     ctrl.vider_cache()
     idx = ctrl.index_opaque()
     assert idx, "Aucun mouvement bancaire"
@@ -224,8 +243,10 @@ def test_19_aucun_500(opaque, client):
 # ── 20 : réel intact ──────────────────────────────────────────────────────────
 
 @banque_requise
-def test_20_reel_intact_apres_finition(opaque, tmp_db):
-    sha_avant = _sha(REAL_BANQUE)
-    ctrl.enregistrer_decision(opaque, statut_controle="EN_COURS", categorie="FRAIS_BANCAIRES", db_path=tmp_db)
-    writer.enregistrer_sur_copie(db_path=tmp_db)
-    assert _sha(REAL_BANQUE) == sha_avant
+def test_20_base_reelle_intacte_apres_finition(opaque, tmp_db):
+    sha_avant = _sha(REAL_DB) if REAL_DB.exists() else None
+    ctrl.enregistrer_decision(opaque, statut_controle="EN_COURS", categorie="FRAIS_BANCAIRES",
+                              db_path=tmp_db)
+    writer.appliquer_decisions(db_path=tmp_db)
+    if sha_avant is not None:
+        assert _sha(REAL_DB) == sha_avant

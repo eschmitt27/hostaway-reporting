@@ -12,64 +12,34 @@ import hashlib
 import re
 from pathlib import Path
 
-import openpyxl
 import pytest
 
 import app.config as cfg
+import fixtures_banque as fx
 from app.readers import banques_reader as reader
-from app.services import banques_service as svc
 from app.services import banques_controle_service as ctrl
+from app.services import banques_service as svc
 
-_NORM_COLS = ["mouvement_id", "ROW_HASH", "import_id", "date_operation", "date_valeur", "libelle",
-              "libelle_brut", "montant", "sens", "devise", "compte_id", "tiers_detecte", "categorie",
-              "type_flux_id", "statut_controle", "niveau_risque", "codes_anomalie", "regle_id_appliquee"]
-
-
-def _mvt(mid, date, lib, montant, sens, compte="CM_02211_00021321603"):
-    return {"mouvement_id": mid, "ROW_HASH": "H" + mid, "import_id": "IMP-1",
-            "date_operation": date, "date_valeur": date, "libelle": lib,
-            "libelle_brut": lib, "montant": montant, "sens": sens, "devise": "EUR",
-            "compte_id": compte, "tiers_detecte": "", "categorie": "FRAIS_BANCAIRES",
-            "type_flux_id": "TYPE_FLUX_016", "statut_controle": "VALIDE", "niveau_risque": "",
-            "codes_anomalie": "", "regle_id_appliquee": "R_001"}
-
-
-def _write(path, sheets):
-    wb = openpyxl.Workbook()
-    wb.remove(wb.active)
-    for name, (cols, rows) in sheets.items():
-        ws = wb.create_sheet(name)
-        ws.append(cols)
-        for r in rows:
-            ws.append([r.get(c) for c in cols])
-    wb.save(str(path))
-    wb.close()
+# Deux comptes distincts : c'est ce que le filtre doit savoir séparer sans exposer l'un ni l'autre.
+COMPTE_A = "CM_02211_00021321603"
+COMPTE_B = "CM_09999_00099999999"
 
 
 @pytest.fixture
-def bank_file(tmp_path, monkeypatch):
-    """Classeur banque isolé, DEUX comptes distincts, pour tester le filtre compte opaque."""
-    p = tmp_path / "BANQUE_LOT8_IMPORT.xlsx"
-    norm = [
-        _mvt("MVT-CM_02211_00021321603-20260302-CREDIT-1", "2026-03-02", "VIREMENT A", 100.0, "CREDIT",
-             compte="CM_02211_00021321603"),
-        _mvt("MVT-CM_09999_00099999999-20260303-DEBIT-1", "2026-03-03", "VIREMENT B", 50.0, "DEBIT",
-             compte="CM_09999_00099999999"),
-    ]
-    _write(p, {
-        "NORM_Banque": (_NORM_COLS, norm),
-        "CTRL_A_CONTROLER": (["mouvement_id", "code_controle", "severite", "description", "statut_controle"], []),
-        "RAPPROCH_AIRBNB_ATTENTE": (["mouvement_id", "montant_banque", "reference_airbnb",
-                                     "statut_rapprochement", "methode_rapprochement", "commentaire"], []),
-        "RAPPROCH_PROPRIETAIRES_ATTENTE": (["mouvement_id", "proprietaire_id", "nature_presumee",
-                                            "statut_rapprochement", "prerequis_rapprochement", "commentaire"], []),
-        "CTRL_RAPPROCHEMENT_8C": (["code_controle", "severite", "nb_lignes", "total_montant_eur",
-                                   "description", "action_requise"], []),
-    })
-    monkeypatch.setattr(cfg, "MASTER_BANQUE", p)
+def bank_file(tmp_db, monkeypatch):
+    """Base Banque isolée, DEUX comptes distincts, pour tester le filtre compte opaque."""
+    monkeypatch.setattr(cfg, "MASTER_BANQUE", tmp_db.parent / "CLASSEUR_ABSENT.xlsx")
+    fx.construire(tmp_db, mouvements=[
+        fx.mouvement("MVT-CM_02211_00021321603-20260302-CREDIT-1", "2026-03-02", "VIREMENT A",
+                     100.0, "CREDIT", compte=COMPTE_A, categorie="FRAIS_BANCAIRES",
+                     type_flux="TYPE_FLUX_016"),
+        fx.mouvement("MVT-CM_09999_00099999999-20260303-DEBIT-1", "2026-03-03", "VIREMENT B",
+                     50.0, "DEBIT", compte=COMPTE_B, categorie="FRAIS_BANCAIRES",
+                     type_flux="TYPE_FLUX_016"),
+    ])
     reader.vider_cache()
     ctrl.vider_cache()
-    yield p
+    yield tmp_db
     reader.vider_cache()
     ctrl.vider_cache()
 

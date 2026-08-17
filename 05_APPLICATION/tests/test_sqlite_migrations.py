@@ -89,6 +89,8 @@ EXPECTED_TABLES = {
     "banque_mouvements",                        # 0032 — mouvements bruts, immuables
     "banque_import_source",                     # 0032 — extension 1-1 de banque_imports
     "banque_classifications",                   # 0032 — résultat de classification, séparé du brut
+    "banque_controles",                         # 0033 — constats de contrôle par mouvement
+    "banque_classification_signaux",            # 0033 — extension 1-1 de banque_classifications
 }
 
 

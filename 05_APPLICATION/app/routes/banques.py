@@ -230,8 +230,9 @@ async def banque_mouvement_enregistrer(request: Request, id_opaque: str):
             "active_menu": "banques", "fiche": fiche, "options": ctrl.options_reference(),
             "erreur": str(exc), "previsualisation": decision,
         }, status_code=200)
-    # Applique les décisions actives sur une COPIE (jamais le réel), puis affiche le run.
-    resultat = writer.enregistrer_sur_copie()
+    # Journalise l'application des décisions actives, puis affiche le run. Rien n'est réécrit : les
+    # décisions vivent en base, et la vue de lecture les applique par-dessus la classification.
+    resultat = writer.appliquer_decisions()
     run_id = resultat.get("run_id")
     if run_id is None:
         return templates.TemplateResponse(request, "banques_action_run.html", {

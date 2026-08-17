@@ -1,13 +1,18 @@
-"""Reader Banques & Caisse (APP-4A) — LECTURE SEULE.
+"""Reader Banques & Caisse (APP-4A) — LECTURE SEULE, SQLITE UNIQUEMENT.
 
-Lit la sortie unique du pipeline banque `BANQUE_LOT8_IMPORT.xlsx` (lot8a → lot8b → lot8c).
-Ne transforme aucune valeur métier, n'écrit jamais, n'invente aucun rapprochement :
-les statuts (`statut_controle`, `statut_rapprochement`, `statut_classification`) viennent du moteur.
+Lit la base : `banque_mouvements`, `banque_classifications`, `banque_controles`,
+`banque_rapprochements`. Ne transforme aucune valeur métier, n'écrit jamais, n'invente aucun
+rapprochement : les statuts (`statut_controle`, `statut_rapprochement`, `statut_classification`)
+viennent du moteur de classification.
+
+AUCUNE LECTURE EXCEL
+Ce reader ouvrait `BANQUE_LOT8_IMPORT.xlsx`. Il ne l'ouvre plus, et ne s'y replie pas non plus quand
+la base est vide : après un changement de banque, un repli afficherait les mouvements de l'ancienne
+comme s'ils étaient courants. L'absence de données est un état nommé, pas un écran vide.
 
 États de source distincts — jamais confondus avec « zéro mouvement » :
-  OK · FICHIER_ABSENT · ONGLET_ABSENT · VIDE · ILLISIBLE · NON_ALIMENTE (caisse).
+  OK · NON_INITIALISEE · NON_CLASSEE · VIDE · NON_ALIMENTE (caisse).
 
-Le seul accès disque passe par openpyxl en `read_only=True` (aucun handle d'écriture).
 Les numéros de compte sont masqués à la source (jamais d'IBAN complet exposé).
 """
 from __future__ import annotations
@@ -15,14 +20,14 @@ from __future__ import annotations
 import datetime as _dt
 import hashlib
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
-import openpyxl
-
 import app.config as cfg
+from app.services import banque_vues_service as vues
 
-# ── Onglets du classeur banque ───────────────────────────────────────────────
+# ── Vues de lecture (anciennement les onglets du classeur) ───────────────────
+# Les noms d'onglet restent le vocabulaire du moteur et servent d'étiquette d'origine à l'écran :
+# c'est ce que l'utilisateur reconnaît, et ce qui permet de comparer avec l'historique.
 ONGLET_MOUVEMENTS = "NORM_Banque"
 ONGLET_CONTROLES = "CTRL_A_CONTROLER"
 ONGLET_IA = "IA_Classification"
@@ -31,22 +36,26 @@ ONGLET_RAPPRO_PROPRIO = "RAPPROCH_PROPRIETAIRES_ATTENTE"
 ONGLET_CTRL_8C = "CTRL_RAPPROCHEMENT_8C"
 ONGLET_LOG = "LOG_Traitement"
 
-# ── Libellés de source (noms de fichier uniquement, jamais de chemin absolu) ──
-SOURCE_BANQUE = "BANQUE_LOT8_IMPORT.xlsx"
+# ── Libellés de source (jamais de chemin absolu, jamais de nom de fichier) ────
+SOURCE_BANQUE = "Base de pilotage (SQLite)"
 SOURCE_CAISSE = "— (aucune source caisse)"
 
 # ── États ────────────────────────────────────────────────────────────────────
 ETAT_OK = "OK"
-ETAT_FICHIER_ABSENT = "FICHIER_ABSENT"
-ETAT_ONGLET_ABSENT = "ONGLET_ABSENT"
+ETAT_NON_INITIALISEE = vues.ETAT_NON_INITIALISEE
+ETAT_NON_CLASSEE = vues.ETAT_NON_CLASSEE
 ETAT_VIDE = "VIDE"
 ETAT_ILLISIBLE = "ILLISIBLE"
 ETAT_NON_ALIMENTE = "NON_ALIMENTE"
 
+# Conservés pour les appelants qui les nomment encore ; la lecture SQLite ne les produit plus.
+ETAT_FICHIER_ABSENT = ETAT_NON_INITIALISEE
+ETAT_ONGLET_ABSENT = ETAT_NON_INITIALISEE
+
 _ETAT_LIBELLE = {
     ETAT_OK: "Alimentée",
-    ETAT_FICHIER_ABSENT: "Fichier absent",
-    ETAT_ONGLET_ABSENT: "Onglet absent",
+    ETAT_NON_INITIALISEE: "Aucun mouvement en base",
+    ETAT_NON_CLASSEE: "Mouvements importés, non classés",
     ETAT_VIDE: "Source vide",
     ETAT_ILLISIBLE: "Source illisible",
     ETAT_NON_ALIMENTE: "Non alimentée par le moteur",
@@ -78,8 +87,10 @@ class SourceBanque:
     lignes: list[dict[str, Any]] = field(default_factory=list)
 
 
-# ── Cache (path, sheet, mtime_ns, size) ──────────────────────────────────────
-_CACHE: dict[tuple, tuple[str, list[dict[str, Any]], str | None]] = {}
+# ── Cache (invalidé par le compteur de mouvements et l'exécution de classification) ──
+# Une exécution de classification change TOUTES les vues d'un coup : la clé de cache est donc
+# l'état de la base, pas un fichier. Un import ou un reclassement suffit à la faire changer.
+_CACHE: dict[tuple, list[dict[str, Any]]] = {}
 
 
 def vider_cache() -> None:
@@ -88,46 +99,74 @@ def vider_cache() -> None:
     _CACHE_OPAQUE_COMPTES = None
 
 
-def _lire(path: Path, sheet: str) -> tuple[str, list[dict[str, Any]], str | None]:
-    """Retourne (etat, lignes, derniere_maj). Ne lève jamais : tout échec → ETAT_ILLISIBLE."""
-    p = Path(path)
-    if not p.exists():
-        return ETAT_FICHIER_ABSENT, [], None
+def _version_donnees() -> tuple:
+    """Signature de l'état courant de la base Banque."""
+    from app.services import banque_classification_service as cls
+    from app.services import banque_mouvements_service as bq
     try:
-        st = p.stat()
-        cle = (str(p), sheet, st.st_mtime_ns, st.st_size)
-        if cle in _CACHE:
-            return _CACHE[cle]
-        maj = _dt.datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M")
-        wb = openpyxl.load_workbook(str(p), read_only=True, data_only=True)
-        try:
-            if sheet not in wb.sheetnames:
-                res = (ETAT_ONGLET_ABSENT, [], maj)
-                _CACHE[cle] = res
-                return res
-            ws = wb[sheet]
-            rows = [r for r in ws.iter_rows(values_only=True) if any(c is not None for c in r)]
-        finally:
-            wb.close()
-        if len(rows) <= 1:
-            res = (ETAT_VIDE, [], maj)
-        else:
-            hdr = [str(c) if c is not None else f"col_{i}" for i, c in enumerate(rows[0])]
-            data = [dict(zip(hdr, r)) for r in rows[1:]]
-            res = (ETAT_OK, data, maj)
-        _CACHE[cle] = res
-        return res
+        return (str(cfg.DB_PATH), bq.compter(), cls.derniere_execution())
     except Exception:
-        return ETAT_ILLISIBLE, [], None
+        return (str(cfg.DB_PATH), -1, "")
 
 
-def _source(cle: str, libelle: str, sheet: str) -> SourceBanque:
-    etat, lignes, maj = _lire(cfg.MASTER_BANQUE, sheet)
+_VUES = {
+    ONGLET_MOUVEMENTS: vues.mouvements_normalises,
+    ONGLET_CONTROLES: vues.controles_a_controler,
+    ONGLET_IA: vues.a_classer_par_ia,
+    ONGLET_RAPPRO_AIRBNB: vues.attentes_plateforme,
+    ONGLET_RAPPRO_PROPRIO: vues.attentes_proprietaires,
+    ONGLET_CTRL_8C: vues.controles_rapprochement,
+    ONGLET_LOG: vues.journal_traitement,
+}
+
+
+def _source(cle: str, libelle: str, vue: str) -> SourceBanque:
+    """Construit une source à partir d'une vue SQLite. Ne lève jamais.
+
+    L'état distingue trois absences que l'affichage doit traiter différemment : pas de mouvement du
+    tout, des mouvements non classés, et une vue légitimement vide (aucun contrôle ouvert, par
+    exemple — ce qui est une bonne nouvelle, pas une panne).
+    """
+    version = _version_donnees()
+    etat_base = vues.etat()
+    if etat_base != ETAT_OK and vue != ONGLET_LOG:
+        # Le journal des imports reste lisible même sans classification : il dit justement ce qui a
+        # été importé.
+        return SourceBanque(
+            etat=EtatSource(cle=cle, libelle=libelle, fichier=SOURCE_BANQUE, onglet=vue,
+                            etat=etat_base, nb_lignes=0, derniere_maj=None))
+
+    cache_cle = (version, vue)
+    if cache_cle in _CACHE:
+        lignes = _CACHE[cache_cle]
+    else:
+        try:
+            lignes = _VUES[vue]()
+        except Exception:
+            return SourceBanque(
+                etat=EtatSource(cle=cle, libelle=libelle, fichier=SOURCE_BANQUE, onglet=vue,
+                                etat=ETAT_ILLISIBLE, nb_lignes=0, derniere_maj=None))
+        _CACHE[cache_cle] = lignes
+
     return SourceBanque(
-        etat=EtatSource(cle=cle, libelle=libelle, fichier=SOURCE_BANQUE, onglet=sheet,
-                        etat=etat, nb_lignes=len(lignes), derniere_maj=maj),
+        etat=EtatSource(cle=cle, libelle=libelle, fichier=SOURCE_BANQUE, onglet=vue,
+                        etat=ETAT_OK if lignes else ETAT_VIDE, nb_lignes=len(lignes),
+                        derniere_maj=_derniere_maj()),
         lignes=lignes,
     )
+
+
+def _derniere_maj() -> str | None:
+    """Horodatage du dernier import connu, format court."""
+    from app.services import banque_mouvements_service as bq
+    try:
+        imports = bq.imports()
+    except Exception:
+        return None
+    if not imports:
+        return None
+    dernier = max((i.get("date_import") or "") for i in imports)
+    return dernier.replace("T", " ")[:16] or None
 
 
 # ── Convertisseurs (jamais None -> 0) ────────────────────────────────────────

@@ -8,7 +8,7 @@ Sources détail :
   - VRBO sans montant            → MASTER_CALC_Reservations (onglet MASTER, source=HOSTAWAY_VRBO_A_CONTROLER)
   - Réservations sans commission → MASTER_CALC_Commissions (onglet A_CONTROLER)
   - Écarts ménages externes      → MASTER_FACT_MEN_MenagesExternes (onglet VUE_ECART_HOSTAWAY)
-  - Banque non classée           → BANQUE_LOT8_IMPORT (NORM_Banque, statut_classification=RAPPROCHEMENT_REQUIS)
+  - Banque non classée           → SQLite (classification courante, statut RAPPROCHEMENT_REQUIS)
 
 openpyxl read_only=True. Aucun chemin absolu exposé. Aucune donnée voyageur superflue.
 """
@@ -119,8 +119,15 @@ def ecarts_menages(code: str) -> list[dict[str, Any]]:
 
 
 def banque_non_classees(mois: str = "") -> list[dict[str, Any]]:
-    """Mouvements NORM_Banque à classer (statut_classification=RAPPROCHEMENT_REQUIS), option. par mois."""
-    lignes = _lire(cfg.MASTER_BANQUE, "NORM_Banque")
+    """Mouvements à classer (statut_classification=RAPPROCHEMENT_REQUIS), option. par mois.
+
+    Seul contrôle de ce module dont la source n'est plus un classeur : la Banque est en base. Les
+    colonnes rendues sont inchangées, et le filtrage reste fait ici — pas en SQL — pour que ce reader
+    continue de se lire comme les autres.
+    """
+    from app.services import banque_vues_service as vues
+
+    lignes = vues.mouvements_normalises()
     out = []
     for r in lignes:
         if _txt(r.get("statut_classification")) != "RAPPROCHEMENT_REQUIS":

@@ -212,8 +212,11 @@ _COLS = ("rapprochement_id_opaque", "mouvement_id_opaque", "type_objet", "objet_
 
 def attentes(*, motif: str = "", db_path=None) -> list[dict[str, Any]]:
     """Files d'attente courantes, éventuellement filtrées par motif."""
+    from app.services.banque_mouvements_service import _table_presente
     conn = get_db(db_path)
     try:
+        if not _table_presente(conn, "banque_rapprochements"):
+            return []
         rows = conn.execute(
             f"SELECT {', '.join(_COLS)} FROM banque_rapprochements "
             "WHERE source = ? AND statut = ? ORDER BY date_creation, rapprochement_id_opaque",

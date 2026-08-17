@@ -1,86 +1,67 @@
 """APP-4A — Banques & caisse : lecture, rapprochement (moteur), masquage, garde-fous.
 
-Tous les tests s'appuient sur une fixture Excel banque ISOLÉE (jamais la source réelle).
+Tous les tests s'appuient sur une base SQLite ISOLÉE (jamais la base réelle, jamais un classeur).
 Aucune écriture métier, aucune source réelle modifiée, aucun import du moteur, IBAN masqué.
 """
 from pathlib import Path
 
-import openpyxl
 import pytest
 
 import app.config as cfg
 from app.readers import banques_reader as reader
+from app.services import banque_attentes_service as att
+from app.services import banque_classification_service as cls
 from app.services import banques_service as svc
+import fixtures_banque as fx
 
-
-# ── Fixture : classeur banque isolé ──────────────────────────────────────────
-
-_NORM_COLS = ["mouvement_id", "ROW_HASH", "import_id", "date_operation", "date_valeur", "libelle",
-              "libelle_brut", "montant", "sens", "devise", "compte_id", "tiers_detecte", "categorie",
-              "type_flux_id", "statut_controle", "niveau_risque", "codes_anomalie", "regle_id_appliquee"]
-
-
-def _mvt(mid, date, lib, montant, sens, statut="VALIDE", type_flux="TYPE_FLUX_017",
-         compte="CM_02211_00021321603", anomalie="", tiers=""):
-    return {"mouvement_id": mid, "ROW_HASH": "H" + mid, "import_id": "IMP-BQ-CM-2026-03-001",
-            "date_operation": date, "date_valeur": date, "libelle": lib,
-            "libelle_brut": "BRUT " + lib + " SECRET-IBAN-FR7612345", "montant": montant, "sens": sens,
-            "devise": "EUR", "compte_id": compte, "tiers_detecte": tiers, "categorie": "",
-            "type_flux_id": type_flux, "statut_controle": statut, "niveau_risque": "",
-            "codes_anomalie": anomalie, "regle_id_appliquee": "R_001"}
-
-
-def _write(path, sheets: dict[str, tuple[list, list]]):
-    wb = openpyxl.Workbook()
-    wb.remove(wb.active)
-    for name, (cols, rows) in sheets.items():
-        ws = wb.create_sheet(name)
-        ws.append(cols)
-        for r in rows:
-            ws.append([r.get(c) if isinstance(r, dict) else r[i] for i, c in enumerate(cols)])
-    wb.save(str(path))
-    wb.close()
+COMPTE = fx.COMPTE
 
 
 @pytest.fixture
-def bank_file(tmp_path, monkeypatch):
-    """Construit un BANQUE_LOT8_IMPORT.xlsx isolé et pointe cfg.MASTER_BANQUE dessus."""
-    p = tmp_path / "BANQUE_LOT8_IMPORT.xlsx"
-    norm = [
-        _mvt("MVT-001", "2026-03-02", "VIREMENT AIRBNB PAYOUT", 1250.00, "CREDIT", tiers="AIRBNB"),
-        _mvt("MVT-002", "2026-03-05", "VIREMENT PROPRIETAIRE DIDIER", 800.00, "DEBIT"),
-        _mvt("MVT-003", "2026-03-06", "FRAIS TENUE DE COMPTE", 4.50, "DEBIT", statut="VALIDE",
-             type_flux="TYPE_FLUX_016"),
-        _mvt("MVT-004", "2026-03-10", "PRELEVEMENT INCONNU", 33.00, "DEBIT", statut="A_CONTROLER",
-             anomalie="CLASSIFICATION_INCERTAINE"),
-        _mvt("MVT-005", "2026-05-04", "VIREMENT AIRBNB PAYOUT", 980.00, "CREDIT", tiers="AIRBNB"),
-        _mvt("MVT-006", "2026-05-04", "VIREMENT AIRBNB PAYOUT", 980.00, "CREDIT", tiers="AIRBNB"),  # doublon
-    ]
-    ctrl = [{"mouvement_id": "MVT-004", "code_controle": "CLASSIFICATION_INCERTAINE",
-             "severite": "A_CONTROLER", "description": "Libellé non classé", "statut_controle": "A_CONTROLER"}]
-    rap_air = [{"mouvement_id": "MVT-001", "montant_banque": 1250.00, "reference_airbnb": "",
-                "statut_rapprochement": "EN_ATTENTE_EXPORT_AIRBNB", "methode_rapprochement": "",
-                "commentaire": "attente export"},
-               {"mouvement_id": "MVT-005", "montant_banque": 980.00, "reference_airbnb": "",
-                "statut_rapprochement": "EN_ATTENTE_EXPORT_AIRBNB", "methode_rapprochement": "", "commentaire": ""}]
-    rap_prop = [{"mouvement_id": "MVT-002", "proprietaire_id": "PROP_0001", "nature_presumee": "ACOMPTE",
-                 "statut_rapprochement": "EN_ATTENTE_SAISIE_ACOMPTE", "prerequis_rapprochement": "Lot5",
-                 "commentaire": ""}]
-    ctrl8c = [{"code_controle": "AIRBNB_ATTENTE", "severite": "INFO", "nb_lignes": 2,
-               "total_montant_eur": 2230.0, "description": "En attente export Airbnb", "action_requise": "Importer export"}]
-    _write(p, {
-        "NORM_Banque": (_NORM_COLS, norm),
-        "CTRL_A_CONTROLER": (["mouvement_id", "code_controle", "severite", "description", "statut_controle"], ctrl),
-        "RAPPROCH_AIRBNB_ATTENTE": (["mouvement_id", "montant_banque", "reference_airbnb",
-                                     "statut_rapprochement", "methode_rapprochement", "commentaire"], rap_air),
-        "RAPPROCH_PROPRIETAIRES_ATTENTE": (["mouvement_id", "proprietaire_id", "nature_presumee",
-                                            "statut_rapprochement", "prerequis_rapprochement", "commentaire"], rap_prop),
-        "CTRL_RAPPROCHEMENT_8C": (["code_controle", "severite", "nb_lignes", "total_montant_eur",
-                                   "description", "action_requise"], ctrl8c),
-    })
-    monkeypatch.setattr(cfg, "MASTER_BANQUE", p)
+def bank_file(tmp_db, monkeypatch):
+    """Peuple la base isolée avec un jeu Banque connu.
+
+    Le nom `bank_file` est conservé : ces tests le nomment partout, et le renommer en même temps
+    qu'on change de source rendrait illisible ce qui casse quoi.
+    """
+    monkeypatch.setattr(cfg, "MASTER_BANQUE", tmp_db.parent / "CLASSEUR_ABSENT.xlsx")
+    fx.construire(
+        tmp_db,
+        mouvements=[
+            fx.mouvement("MVT-001", "2026-03-02", "VIREMENT AIRBNB PAYOUT", 1250.00, "CREDIT",
+                         tiers="AIRBNB",
+                         statut_classification=cls.CLASS_RAPPROCHEMENT_REQUIS),
+            fx.mouvement("MVT-002", "2026-03-05", "VIREMENT PROPRIETAIRE DEMO", 800.00, "DEBIT",
+                         tiers="PROP_0001",
+                         statut_classification=cls.CLASS_RAPPROCHEMENT_REQUIS),
+            fx.mouvement("MVT-003", "2026-03-06", "FRAIS TENUE DE COMPTE", 4.50, "DEBIT",
+                         type_flux="TYPE_FLUX_016"),
+            fx.mouvement("MVT-004", "2026-03-10", "PRELEVEMENT INCONNU", 33.00, "DEBIT",
+                         statut_controle=cls.ST_A_CONTROLER,
+                         statut_classification=cls.CLASS_A_ENVOYER_IA,
+                         codes_anomalie="CLASSIFICATION_INCERTAINE",
+                         niveau_anomalie=cls.ST_A_CONTROLER),
+            fx.mouvement("MVT-005", "2026-05-04", "VIREMENT AIRBNB PAYOUT", 980.00, "CREDIT",
+                         tiers="AIRBNB",
+                         statut_classification=cls.CLASS_RAPPROCHEMENT_REQUIS),
+            # Même montant, même jour, même libellé que MVT-005 : deux vrais mouvements possibles.
+            # Ils doivent rester DEUX lignes.
+            fx.mouvement("MVT-006", "2026-05-04", "VIREMENT AIRBNB PAYOUT", 980.00, "CREDIT",
+                         tiers="AIRBNB",
+                         statut_classification=cls.CLASS_RAPPROCHEMENT_REQUIS),
+        ],
+        controles=[
+            fx.controle("MVT-004", "CLASSIFICATION_INCERTAINE", "Libelle non classe"),
+        ],
+        attentes=[
+            fx.attente("MVT-001", 1250.00, att.ATTENTE_EXPORT_PLATEFORME, tiers="AIRBNB",
+                       commentaire="attente export"),
+            fx.attente("MVT-005", 980.00, att.ATTENTE_EXPORT_PLATEFORME, tiers="AIRBNB"),
+            fx.attente("MVT-002", 800.00, att.ATTENTE_SAISIE_ACOMPTE, tiers="PROP_0001"),
+        ],
+    )
     reader.vider_cache()
-    yield p
+    yield tmp_db
     reader.vider_cache()
 
 
@@ -130,20 +111,41 @@ def test_source_absente(monkeypatch, tmp_path):
     assert svc.load_movements()["status"] == "SOURCE_INDISPONIBLE"
 
 
-def test_onglet_absent(monkeypatch, tmp_path):
-    p = tmp_path / "b.xlsx"
-    _write(p, {"AUTRE": (["x"], [{"x": 1}])})
-    monkeypatch.setattr(cfg, "MASTER_BANQUE", p)
+def test_banque_non_initialisee(tmp_db):
+    """Base migrée mais sans aucun mouvement : un état nommé, pas un écran vide."""
     reader.vider_cache()
-    assert reader.mouvements().etat.etat == reader.ETAT_ONGLET_ABSENT
+    etat = reader.mouvements().etat
+    assert etat.etat == reader.ETAT_NON_INITIALISEE
+    assert not etat.disponible
+    assert etat.nb_lignes == 0
 
 
-def test_source_vide(monkeypatch, tmp_path):
-    p = tmp_path / "b.xlsx"
-    _write(p, {"NORM_Banque": (_NORM_COLS, [])})
-    monkeypatch.setattr(cfg, "MASTER_BANQUE", p)
+def test_mouvements_importes_mais_non_classes(tmp_db):
+    """« Importé, pas classé » se distingue de « rien en base » : l'action à faire diffère."""
+    fx.construire(tmp_db, mouvements=[
+        fx.mouvement("MVT-900", "2026-03-02", "VIREMENT A CLASSER", 10.0, "CREDIT", classe=False)])
     reader.vider_cache()
-    assert reader.mouvements().etat.etat == reader.ETAT_VIDE
+    assert reader.mouvements().etat.etat == reader.ETAT_NON_CLASSEE
+
+
+def test_vue_legitimement_vide(bank_file):
+    """Aucun contrôle de rapprochement ouvert est une bonne nouvelle, pas une panne de source."""
+    from app.db.connection import get_db
+    conn = get_db(bank_file)
+    try:
+        conn.execute("DELETE FROM banque_rapprochements")
+        conn.commit()
+    finally:
+        conn.close()
+    reader.vider_cache()
+    assert reader.controles_rappro_8c().etat.etat == reader.ETAT_VIDE
+
+
+def test_aucune_lecture_du_classeur_banque(bank_file):
+    """Le classeur pointé par la configuration n'existe pas, et rien ne s'en plaint."""
+    assert not Path(cfg.MASTER_BANQUE).exists()
+    assert reader.mouvements().etat.nb_lignes == 6
+    assert "xlsx" not in reader.mouvements().etat.fichier.lower()
 
 
 def test_compte_inconnu_toujours_lu(bank_file):

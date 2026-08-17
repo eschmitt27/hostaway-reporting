@@ -1,27 +1,29 @@
-"""Import bancaire applicatif (module Banque) — prévisualisation sur copie puis confirmation
-transactionnelle, écriture gardée dans `NORM_Banque` (`BANQUE_LOT8_IMPORT.xlsx`).
+"""Import bancaire applicatif (module Banque) — prévisualisation scellée puis confirmation
+transactionnelle, écriture en base dans `banque_mouvements`.
 
-Reprend EXACTEMENT le schéma et les formules du moteur `lot8a_banque_import.py` (jamais une
-seconde norme bancaire concurrente) :
-- 26 colonnes `NORM_Banque` (23 lot8a + 3 lot8b) ;
-- `ROW_HASH` = sha256(compte_id, date_operation, date_valeur, sens, montant_centimes,
-  libellé normalisé, devise) — même formule, même ordre des champs ;
+Reprend EXACTEMENT le schéma du moteur `lot8a_banque_import.py` (jamais une seconde norme bancaire
+concurrente) :
+- 26 colonnes du schéma normalisé (23 lot8a + 3 lot8b), conservées pour la prévisualisation ;
+- `ROW_HASH` = empreinte de `banque_mouvements_service`, seule définition de l'application ;
 - `mouvement_id` = `MVT-<compte_id>-<date_operation YYYYMMDD>-<sens>-<montant_centimes>-<hash6>`.
 
 Principes :
 - lecture du fichier importé strictement en mémoire, jamais de modification du fichier source ;
 - aucune écriture avant confirmation explicite (prévisualisation = manifest scellé sous
-  `DRYRUNS_DIR`, jamais un octet dans `NORM_Banque`) ;
-- doublon CERTAIN (même `ROW_HASH` qu'une ligne déjà présente dans `NORM_Banque`, ou déjà vue dans
-  le même fichier) → ligne exclue de l'import, jamais silencieusement fusionnée ;
+  `DRYRUNS_DIR`, jamais une ligne en base) ;
+- doublon CERTAIN (même `ROW_HASH` qu'un mouvement déjà en base, ou déjà vu dans le même fichier)
+  → ligne exclue de l'import, jamais silencieusement fusionnée ;
 - doublon PROBABLE (même compte + date + montant + libellé normalisé, `ROW_HASH` différent —
   typiquement une `date_valeur` différente) → nécessite une justification explicite à la
   confirmation, sinon la ligne est exclue ;
 - réimporter le même fichier n'ajoute aucune ligne (idempotent, uniquement via les doublons
   certains) ;
 - écriture gardée par `BANQUE_REAL_WRITE_ENABLED`/`BANQUE_REAL_WRITE_CONFIRMATION_ENABLED`
-  (double verrou `RECETTE_MODE`, cf. `app/config.py`) + write-guard mode recette
-  (`recette_guard.assert_ecriture_autorisee`, via `_remplacer_fichier`).
+  (double verrou `RECETTE_MODE`, cf. `app/config.py`).
+
+Ce que le brut ne porte pas : la normalisation calcule ici les colonnes du schéma moteur, mais seuls
+les champs réellement envoyés par la banque sont écrits dans `banque_mouvements`. Statuts et
+catégories relèvent de la classification, dans sa propre table — le brut reste ce que la banque a dit.
 """
 from __future__ import annotations
 
@@ -40,6 +42,7 @@ from typing import Any
 import openpyxl
 
 import app.config as cfg
+from app.services import banque_mouvements_service as bq
 
 SHEET_NORM = "NORM_Banque"
 DEVISE_REF = "EUR"
@@ -181,30 +184,26 @@ def _lire_xlsx(contenu: bytes) -> tuple[list[str], list[list[Any]]]:
     return header, rows[1:]
 
 
-def _lignes_existantes(ref_path: Path) -> tuple[list[dict[str, Any]], set[str]]:
-    """Lignes déjà présentes dans NORM_Banque + ensemble des ROW_HASH déjà connus (réimport
-    idempotent : ne dépend jamais de l'ordre des lignes du fichier importé)."""
-    if not ref_path.exists():
-        return [], set()
-    wb = openpyxl.load_workbook(ref_path, read_only=True, data_only=True)
-    try:
-        if SHEET_NORM not in wb.sheetnames:
-            return [], set()
-        ws = wb[SHEET_NORM]
-        rows = list(ws.iter_rows(values_only=True))
-    finally:
-        wb.close()
-    if not rows:
-        return [], set()
-    hdr = list(rows[0])
-    data = [dict(zip(hdr, r)) for r in rows[1:]]
-    hashes = {str(r.get("ROW_HASH") or "") for r in data if r.get("ROW_HASH")}
-    return data, hashes
+def _lignes_existantes(ref_path: Path | None = None) -> tuple[list[dict[str, Any]], set[str]]:
+    """Mouvements déjà en base + ensemble des empreintes courtes déjà connues.
+
+    Le réimport est idempotent par les EMPREINTES, jamais par l'ordre des lignes du fichier : un même
+    relevé réenvoyé dans un autre ordre n'ajoute rien.
+
+    `ref_path` est ignoré et conservé pour les appelants existants. La source n'est plus un classeur,
+    et l'empreinte comparée est celle de `banque_mouvements_service` — désormais calculée sur les
+    mêmes champs que le ROW_HASH du moteur, ce qui évite d'entretenir deux notions de doublon qui
+    finiraient par diverger.
+    """
+    from app.services import banque_vues_service as vues
+
+    lignes = vues.mouvements_normalises()
+    return lignes, {str(l.get("ROW_HASH") or "") for l in lignes if l.get("ROW_HASH")}
 
 
 def _normaliser(header: list[str], rows: list[list[Any]], compte_id: str, import_id: str,
-                ref_path: Path) -> dict[str, Any]:
-    """Normalise les lignes brutes au schéma NORM_Banque. Retourne le détail complet (valides,
+                ref_path: Path | None = None) -> dict[str, Any]:  # noqa: C901
+    """Normalise les lignes brutes au schéma du moteur. Retourne le détail complet (valides,
     doublons certains, doublons probables, invalides) — aucune écriture."""
     cols = _detecter_colonnes(header)
     if not (("debit_brut" in cols or "credit_brut" in cols or "montant_unique" in cols)
@@ -277,8 +276,12 @@ def _normaliser(header: list[str], rows: list[list[Any]], compte_id: str, import
                               "erreurs": erreurs})
             continue
 
-        row_hash = _make_hash([compte_id, date_op, date_val, sens, montant_centimes, lib_norm,
-                               devise])
+        # UNE seule définition de l'empreinte dans l'application, celle du service de mouvements.
+        # Il en existait deux : elles portaient sur les mêmes champs mais formataient le montant
+        # différemment (centimes ici, décimal là), donc ne coïncidaient jamais — un réimport n'était
+        # plus reconnu comme doublon dès que la comparaison changeait de côté.
+        row_hash = bq.empreinte(compte_id, date_op, montant, libelle_brut,
+                                date_valeur=date_val or "", sens=sens, devise=devise)
         hash_court = row_hash[:6].upper()
         mouvement_id = f"MVT-{compte_id}-{date_op.replace('-', '')}-{sens}-{montant_centimes}-{hash_court}"
 
@@ -329,8 +332,12 @@ def _normaliser(header: list[str], rows: list[list[Any]], compte_id: str, import
 
 def previsualiser(contenu: bytes, nom_fichier: str, compte_id: str,
                   ref_path: Path | None = None, dryruns_root: Path | None = None) -> dict[str, Any]:
-    """Lit et normalise le fichier importé EN MÉMOIRE, sans jamais écrire NORM_Banque. Produit un
-    manifeste scellé (token) rejoué et revérifié à la confirmation."""
+    """Lit et normalise le fichier importé EN MÉMOIRE, sans rien écrire en base. Produit un
+    manifeste scellé (token) rejoué et revérifié à la confirmation.
+
+    `ref_path` n'a plus d'objet : les lignes déjà connues sont lues en base. Le paramètre subsiste
+    pour les appelants existants, et le manifeste n'en conserve plus la trace.
+    """
     ext = Path(nom_fichier).suffix.lower()
     if ext == ".csv":
         header, rows = _lire_csv(contenu)
@@ -342,8 +349,7 @@ def previsualiser(contenu: bytes, nom_fichier: str, compte_id: str,
     if not header or not rows:
         return {"ok": False, "code": E_FICHIER_VIDE, "message": MESSAGES[E_FICHIER_VIDE]}
 
-    p_ref = Path(ref_path or cfg.MASTER_BANQUE)
-    resultat = _normaliser(header, rows, compte_id, f"IMPORT_{uuid.uuid4().hex[:10].upper()}", p_ref)
+    resultat = _normaliser(header, rows, compte_id, f"IMPORT_{uuid.uuid4().hex[:10].upper()}", None)
     if not resultat.get("ok"):
         return {"ok": False, "code": resultat["code"], "message": MESSAGES[resultat["code"]]}
 
@@ -352,7 +358,7 @@ def previsualiser(contenu: bytes, nom_fichier: str, compte_id: str,
     root.mkdir(parents=True, exist_ok=True)
     manifest = {
         "token": token, "nom_fichier": nom_fichier, "compte_id": compte_id,
-        "ref_path": str(p_ref), "cree_le": datetime.now(timezone.utc).isoformat(),
+        "cree_le": datetime.now(timezone.utc).isoformat(),
         "compteurs": resultat["compteurs"], "valides": resultat["valides"],
         "doublons_certains": resultat["doublons_certains"],
         "doublons_probables": resultat["doublons_probables"],
@@ -376,6 +382,27 @@ def _charger_manifest(token: str, dryruns_root: Path | None = None) -> dict[str,
         return None
 
 
+def _vers_mouvement_brut(ligne: dict[str, Any]) -> dict[str, Any]:
+    """Une ligne normalisée par ce service → le contrat de `banque_mouvements`.
+
+    Seuls les champs que la BANQUE a envoyés traversent. Les colonnes de classification que la
+    normalisation avait pré-remplies (`EN_ATTENTE_CLASSIFICATION`, `NON_CLASSIFIEE`, `FAIBLE`) sont
+    volontairement écartées : ce ne sont pas des faits bancaires, et la table du brut ne doit porter
+    aucune interprétation. La classification les produira, dans sa propre table.
+    """
+    return {
+        "external_transaction_id": "",
+        "date_operation": ligne.get("date_operation"),
+        "date_valeur": ligne.get("date_valeur"),
+        "sens": ligne.get("sens"),
+        "montant": ligne.get("montant"),
+        "devise": ligne.get("devise"),
+        "libelle_brut": ligne.get("libelle_brut") or ligne.get("libelle"),
+        "contrepartie_brute": "",
+        "ligne_source": ligne.get("ligne_source"),
+    }
+
+
 def confirmer(token: str, *, justifier_doublons_probables: bool = False, acteur: str = "",
              dryruns_root: Path | None = None, db_path=None) -> dict[str, Any]:
     """Revérifie le manifeste et écrit atomiquement les lignes valides (+ doublons probables
@@ -387,43 +414,41 @@ def confirmer(token: str, *, justifier_doublons_probables: bool = False, acteur:
     if manifest is None:
         return {"ok": False, "code": E_TOKEN_INCONNU, "message": MESSAGES[E_TOKEN_INCONNU]}
 
-    p_ref = Path(manifest["ref_path"])
     lignes_a_ecrire = list(manifest["valides"])
     if justifier_doublons_probables:
         lignes_a_ecrire.extend(d["ligne_data"] for d in manifest["doublons_probables"])
 
-    if p_ref.exists():
-        wb = openpyxl.load_workbook(p_ref, keep_vba=p_ref.suffix.lower() == ".xlsm")
-        if SHEET_NORM not in wb.sheetnames:
-            ws = wb.create_sheet(SHEET_NORM)
-            ws.append(NORM_BANQUE_HDR)
-    else:
-        wb = openpyxl.Workbook()
-        wb.remove(wb.active)
-        ws = wb.create_sheet(SHEET_NORM)
-        ws.append(NORM_BANQUE_HDR)
+    # Écriture en base, dans la table du BRUT. Une seule transaction : un import échoue en entier ou
+    # réussit en entier — la moitié d'un relevé fausserait tous les soldes qui en découlent.
+    from app.recette_guard import EcritureHorsRecette, assert_ecriture_autorisee
+    from app.services import banque_mouvements_service as bq
 
-    ws = wb[SHEET_NORM]
-    hdr = [c.value for c in ws[1]]
-    for ligne in lignes_a_ecrire:
-        ws.append([ligne.get(h) for h in hdr])
-
-    from app.services.saisie_charges_transaction_service import _remplacer_fichier
-    fd, tmp = tempfile.mkstemp(suffix=p_ref.suffix or ".xlsx", dir=str(p_ref.parent) if p_ref.parent.exists() else None)
-    os.close(fd)
-    tmp_path = Path(tmp)
+    # La garde du mode recette protégeait le remplacement du classeur. La cible a changé, le besoin
+    # non : en mode recette, l'import ne doit pouvoir écrire que dans une base située sous la racine
+    # de recette. Sans ce contrôle, la migration vers SQLite aurait discrètement supprimé un garde-fou.
     try:
-        p_ref.parent.mkdir(parents=True, exist_ok=True)
-        wb.save(tmp_path)
-        _remplacer_fichier(tmp_path, p_ref)
+        assert_ecriture_autorisee(Path(db_path or cfg.DB_PATH))
+    except EcritureHorsRecette as exc:
+        return {"ok": False, "code": E_ECRITURE, "message": MESSAGES[E_ECRITURE],
+                "detail": str(exc)}
+
+    try:
+        resultat = bq.importer(
+            [_vers_mouvement_brut(l) for l in lignes_a_ecrire],
+            bank_account_id=manifest.get("compte_id", ""),
+            source_type=bq.SOURCE_MENSUEL,
+            source_filename=manifest.get("nom_fichier", ""),
+            import_id=manifest["token"],
+            db_path=db_path,
+        )
     except Exception as exc:
-        tmp_path.unlink(missing_ok=True)
-        wb.close()
         return {"ok": False, "code": E_ECRITURE, "message": MESSAGES[E_ECRITURE],
                 "detail": f"{type(exc).__name__}: {exc}"}
-    wb.close()
+    if not resultat.get("ok"):
+        return {"ok": False, "code": E_ECRITURE, "message": MESSAGES[E_ECRITURE],
+                "detail": resultat.get("message", "")}
 
-    _journaliser_import(manifest, len(lignes_a_ecrire), acteur, db_path)
+    _journaliser_import(manifest, resultat["nb_inseres"], acteur, db_path)
 
     return {
         "ok": True, "nb_ajoutees": len(lignes_a_ecrire),

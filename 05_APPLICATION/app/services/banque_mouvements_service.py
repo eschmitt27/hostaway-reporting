@@ -59,14 +59,33 @@ def _normaliser_libelle(libelle: str) -> str:
     return re.sub(r"\s+", " ", _txt(libelle)).upper()
 
 
-def empreinte(bank_account_id: str, date_operation: str, montant: float,
-              libelle: str) -> str:
-    """Empreinte déterministe d'un mouvement. Indice de doublon, jamais preuve d'identité."""
+# Nom public : la forme normalisée du libellé est aussi ce que les écrans affichent, pas seulement un
+# détail interne du calcul d'empreinte.
+normaliser_libelle = _normaliser_libelle
+
+
+def empreinte(bank_account_id: str, date_operation: str, montant: float, libelle: str, *,
+              date_valeur: str = "", sens: str = "", devise: str = "") -> str:
+    """Empreinte déterministe d'un mouvement. Indice de doublon, jamais preuve d'identité.
+
+    Les éléments retenus sont ceux du ROW_HASH de lot8a, et le choix compte. `montant` est stocké en
+    valeur absolue et `sens` à côté : sans le sens, un débit et un crédit de 120 € le même jour sous
+    le même libellé porteraient la même empreinte — l'un serait signalé comme doublon de l'autre
+    alors qu'ils s'annulent. Sans `date_valeur`, deux prélèvements identiques que la banque a
+    valorisés à des dates différentes deviennent indistinguables ; c'est précisément ce qui
+    produisait un constat de doublon de trop sur le relevé réel.
+
+    Une valeur absente reçoit un marqueur explicite plutôt que la chaîne vide, pour que « champ non
+    transmis » ne se confonde pas avec « champ vide ».
+    """
     base = "|".join([
         _txt(bank_account_id),
-        _txt(date_operation)[:10],
+        _txt(date_operation)[:10] or "NODATE",
+        _txt(date_valeur)[:10] or "NODATE",
+        _txt(sens).upper() or "NOFLOW",
         f"{round(float(montant or 0), 2):.2f}",
         _normaliser_libelle(libelle),
+        _txt(devise).upper() or "NODEV",
     ])
     return hashlib.sha256(base.encode("utf-8")).hexdigest()
 
@@ -102,7 +121,9 @@ def previsualiser(lignes: Iterable[dict[str, Any]], *, bank_account_id: str,
     for i, l in enumerate(lignes, start=1):
         ext = _txt(l.get("external_transaction_id"))
         fp = empreinte(bank_account_id, _txt(l.get("date_operation")),
-                       l.get("montant"), _txt(l.get("libelle_brut")))
+                       l.get("montant"), _txt(l.get("libelle_brut")),
+                       date_valeur=_txt(l.get("date_valeur")), sens=_txt(l.get("sens")),
+                       devise=_txt(l.get("devise")))
         if ext and (ext in externes or ext in vus_externes):
             statut = LIGNE_DOUBLON_CERTAIN
         elif not ext and (fp in empreintes or fp in vus_empreintes):
@@ -129,14 +150,18 @@ def previsualiser(lignes: Iterable[dict[str, Any]], *, bank_account_id: str,
 
 def importer(lignes: Iterable[dict[str, Any]], *, bank_account_id: str, source_type: str,
              source_filename: str = "", source_sha256: str = "", run_id: str = "",
-             db_path=None) -> dict[str, Any]:
+             import_id: str = "", db_path=None) -> dict[str, Any]:
     """Importe un lot de mouvements. Une transaction : intégral ou inexistant.
 
     Les doublons certains ne sont pas insérés. Les ambigus le sont, marqués `A_CONTROLER` — perdre
     un mouvement réel serait pire que d'en présenter un de trop.
+
+    `import_id` permet à l'appelant d'imposer l'identifiant — l'import depuis l'interface s'en sert
+    pour que la ligne en base porte le jeton de la prévisualisation que l'utilisateur a validée. Sans
+    cela, on ne pourrait plus relier ce qui a été écrit à ce qui avait été montré.
     """
     apercu = previsualiser(lignes, bank_account_id=bank_account_id, db_path=db_path)
-    import_id = "IMPBQ-" + uuid.uuid4().hex[:12].upper()
+    import_id = import_id or "IMPBQ-" + uuid.uuid4().hex[:12].upper()
     maintenant = datetime.now().isoformat(timespec="seconds")
 
     conn = get_db(db_path)
@@ -184,6 +209,17 @@ def importer(lignes: Iterable[dict[str, Any]], *, bank_account_id: str, source_t
 
 # ── Lecture ─────────────────────────────────────────────────────────────────────────────────────
 
+def _table_presente(conn, nom: str) -> bool:
+    """Les tables Banque n'existent qu'à partir de la migration 0032.
+
+    Une base antérieure est un état LÉGITIME — la base réelle en production n'est pas encore migrée.
+    La lecture y répond « rien en base », ce que l'appelant traduit en « Banque non initialisée » ;
+    laisser remonter `no such table` transformerait cet état normal en erreur 500.
+    """
+    return bool(conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (nom,)).fetchone())
+
+
 _COLONNES = ("mouvement_id_opaque", "import_id", "bank_account_id", "external_transaction_id",
              "date_operation", "date_valeur", "sens", "montant", "devise", "libelle_brut",
              "contrepartie_brute", "fingerprint", "ligne_source", "created_at")
@@ -197,6 +233,8 @@ def mouvements(*, bank_account_id: str = "", db_path=None) -> list[dict[str, Any
     """
     conn = get_db(db_path)
     try:
+        if not _table_presente(conn, "banque_mouvements"):
+            return []
         sql = f"SELECT {', '.join(_COLONNES)} FROM banque_mouvements"
         args: list = []
         if bank_account_id:
@@ -211,6 +249,8 @@ def mouvements(*, bank_account_id: str = "", db_path=None) -> list[dict[str, Any
 def compter(*, bank_account_id: str = "", db_path=None) -> int:
     conn = get_db(db_path)
     try:
+        if not _table_presente(conn, "banque_mouvements"):
+            return 0
         sql = "SELECT COUNT(*) FROM banque_mouvements"
         args: list = []
         if bank_account_id:
@@ -224,6 +264,8 @@ def compter(*, bank_account_id: str = "", db_path=None) -> int:
 def periode(*, bank_account_id: str = "", db_path=None) -> dict[str, str]:
     conn = get_db(db_path)
     try:
+        if not _table_presente(conn, "banque_mouvements"):
+            return {"date_min": "", "date_max": ""}
         sql = "SELECT MIN(date_operation), MAX(date_operation) FROM banque_mouvements"
         args: list = []
         if bank_account_id:
@@ -241,6 +283,8 @@ def imports(*, bank_account_id: str = "", db_path=None) -> list[dict[str, Any]]:
             "date_import", "run_id", "statut")
     conn = get_db(db_path)
     try:
+        if not _table_presente(conn, "banque_import_source"):
+            return []
         sql = f"SELECT {', '.join(cols)} FROM banque_import_source"
         args: list = []
         if bank_account_id:

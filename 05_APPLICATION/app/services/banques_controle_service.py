@@ -1,17 +1,18 @@
 """APP-4B — Contrôle & catégorisation des mouvements bancaires (LECTURE + journal SQLite).
 
 Principes :
-- Excel (BANQUE_LOT8_IMPORT.xlsx) reste la VÉRITÉ métier. SQLite ne fait que JOURNALISER les
-  décisions applicatives (catégorie validée, rattachements, statut) ; il ne fait jamais autorité
-  et ne masque jamais une anomalie moteur.
+- La VÉRITÉ métier est en base : mouvements bruts, classification déterministe, décisions humaines.
+  Aucun classeur n'est lu. Une décision humaine ne masque jamais la proposition du moteur — les deux
+  restent lisibles côte à côte, et c'est ce qui permet de dire qu'un humain a tranché.
 - Identifiant public OPAQUE (aucune donnée de compte) ; correspondance interne préservée.
-- Proposition moteur (NORM_Banque.categorie / type_flux) et proposition IA (IA_Classification)
+- Proposition moteur (classification déterministe) et proposition IA (mouvements à envoyer à l'IA)
   sont TOUJOURS préservées et affichées SÉPARÉMENT de la décision humaine.
 - Référentiels d'affichage lisibles (Prénom NOM, nom officiel, libellé métier) avec repli explicite ;
   jamais de rapprochement approximatif silencieux.
 
-Aucune écriture Excel ici : le service lit et journalise. L'écriture sur COPIE est faite par
-`banques_controle_writer`. Les flags `BANQUE_REAL_WRITE_ENABLED/_CONFIRMATION` restent False.
+Ce service lit et journalise. L'application des décisions — c'est-à-dire leur prise en compte dans
+la vue de lecture, et le run qui la trace — relève de `banques_controle_writer`. Les flags
+`BANQUE_REAL_WRITE_ENABLED/_CONFIRMATION` restent False.
 """
 from __future__ import annotations
 
@@ -398,8 +399,8 @@ def enregistrer_decision(opaque: str, *, categorie=None, type_flux_id=None, prop
                          db_path=None) -> dict[str, Any]:
     """Journalise une décision (nouvelle version active). Valide entités, statut, justification, conflit.
 
-    N'écrit AUCUN fichier Excel : décision applicative uniquement (SQLite). L'application sur copie
-    Excel est réalisée séparément par le writer.
+    N'écrit aucun fichier : décision applicative en base uniquement. Sa prise en compte dans la vue
+    de lecture est tracée séparément par le writer.
     """
     db_path = db_path or cfg.DB_PATH
     mid = resoudre_opaque(opaque)

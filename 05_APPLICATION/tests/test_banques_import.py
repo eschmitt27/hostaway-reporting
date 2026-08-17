@@ -9,6 +9,7 @@ import pytest
 
 import app.config as cfg
 from app.services import banques_import_service as svc
+from app.services import banque_vues_service as vues
 
 CSV_VALIDE = (
     "Date operation;Libelle;Debit;Credit\n"
@@ -18,14 +19,19 @@ CSV_VALIDE = (
 
 
 @pytest.fixture
-def ref(tmp_path, monkeypatch):
-    p = tmp_path / "BANQUE_LOT8_IMPORT.xlsx"
-    monkeypatch.setattr(cfg, "MASTER_BANQUE", p)
+def ref(tmp_db, tmp_path, monkeypatch):
+    """Base isolée + flags d'écriture. Le nom `ref` est conservé : ces tests le nomment partout.
+
+    `ref` désigne désormais la base, et non plus un classeur. Il est passé tel quel à
+    `previsualiser(ref_path=…)`, que le paramètre n'utilise plus — ce qui vérifie au passage qu'un
+    appelant qui le fournit encore n'en subit aucun effet.
+    """
+    monkeypatch.setattr(cfg, "MASTER_BANQUE", tmp_path / "CLASSEUR_ABSENT.xlsx")
     monkeypatch.setattr(cfg, "RECETTE_MODE", True)
     monkeypatch.setattr(cfg, "RECETTE_ROOT", tmp_path.resolve())
     monkeypatch.setattr(cfg, "BANQUE_REAL_WRITE_ENABLED", True)
     monkeypatch.setattr(cfg, "BANQUE_REAL_WRITE_CONFIRMATION_ENABLED", True)
-    return p
+    return tmp_db
 
 
 @pytest.fixture
@@ -35,17 +41,9 @@ def dryruns(tmp_path):
     return d
 
 
-def _lignes(p):
-    if not p.exists():
-        return []
-    wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
-    ws = wb["NORM_Banque"]
-    rows = list(ws.iter_rows(values_only=True))
-    wb.close()
-    if len(rows) <= 1:
-        return []
-    hdr = rows[0]
-    return [dict(zip(hdr, r)) for r in rows[1:]]
+def _lignes(db_path=None):
+    """Mouvements effectivement écrits, lus par la vue applicative."""
+    return vues.mouvements_normalises(db_path=db_path)
 
 
 # ── Import CSV/XLSX valides ──────────────────────────────────────────────────
@@ -72,10 +70,7 @@ def test_previsualiser_xlsx_valide(ref, dryruns, tmp_path):
 
 
 def test_confirmer_idempotent_reimport(ref, dryruns, tmp_path):
-    import sqlite3
-    db = tmp_path / "test.db"
-    from app.db.connection import apply_migrations
-    apply_migrations(db)
+    db = ref
 
     prev1 = svc.previsualiser(CSV_VALIDE, "releve.csv", "CM_TEST", ref_path=ref, dryruns_root=dryruns)
     r1 = svc.confirmer(prev1["token"], acteur="recette", dryruns_root=dryruns, db_path=db)
@@ -92,8 +87,7 @@ def test_confirmer_idempotent_reimport(ref, dryruns, tmp_path):
 
 
 def test_doublon_probable_necessite_justification(ref, dryruns, tmp_path):
-    from app.db.connection import apply_migrations
-    db = tmp_path / "test.db"; apply_migrations(db)
+    db = ref
 
     prev1 = svc.previsualiser(CSV_VALIDE, "releve.csv", "CM_TEST", ref_path=ref, dryruns_root=dryruns)
     svc.confirmer(prev1["token"], acteur="recette", dryruns_root=dryruns, db_path=db)
@@ -179,8 +173,7 @@ def test_normalisation_libelle_et_hash_stable(ref, dryruns):
 
 
 def test_montant_toujours_positif_sens_signe_separement(ref, dryruns, tmp_path):
-    from app.db.connection import apply_migrations
-    db = tmp_path / "test.db"; apply_migrations(db)
+    db = ref
     prev = svc.previsualiser(CSV_VALIDE, "releve.csv", "CM_TEST", ref_path=ref, dryruns_root=dryruns)
     svc.confirmer(prev["token"], acteur="recette", dryruns_root=dryruns, db_path=db)
     lignes = _lignes(ref)
@@ -194,17 +187,17 @@ def test_montant_toujours_positif_sens_signe_separement(ref, dryruns, tmp_path):
 def test_confirmer_refuse_si_flags_off(ref, dryruns, monkeypatch):
     monkeypatch.setattr(cfg, "BANQUE_REAL_WRITE_ENABLED", False)
     prev = svc.previsualiser(CSV_VALIDE, "releve.csv", "CM_TEST", ref_path=ref, dryruns_root=dryruns)
-    res = svc.confirmer(prev["token"], acteur="recette", dryruns_root=dryruns)
+    res = svc.confirmer(prev["token"], acteur="recette", dryruns_root=dryruns, db_path=ref)
     assert res["ok"] is False and res["code"] == svc.E_FLAGS
-    assert not ref.exists()
+    assert _lignes(ref) == [], "aucun mouvement écrit"
 
 
 def test_confirmer_refuse_hors_racine_recette(ref, dryruns, monkeypatch, tmp_path):
     prev = svc.previsualiser(CSV_VALIDE, "releve.csv", "CM_TEST", ref_path=ref, dryruns_root=dryruns)
     monkeypatch.setattr(cfg, "RECETTE_ROOT", (tmp_path / "ailleurs").resolve())
-    res = svc.confirmer(prev["token"], acteur="recette", dryruns_root=dryruns)
+    res = svc.confirmer(prev["token"], acteur="recette", dryruns_root=dryruns, db_path=ref)
     assert res["ok"] is False and res["code"] == svc.E_ECRITURE
-    assert not ref.exists()
+    assert _lignes(ref) == [], "aucun mouvement écrit hors de la racine de recette"
 
 
 def test_confirmer_token_inconnu_refuse(ref, dryruns):
@@ -216,4 +209,4 @@ def test_fichier_jamais_modifie_par_la_previsualisation(ref, dryruns):
     avant = CSV_VALIDE
     svc.previsualiser(CSV_VALIDE, "releve.csv", "CM_TEST", ref_path=ref, dryruns_root=dryruns)
     assert avant == CSV_VALIDE                  # le buffer d'entrée n'a jamais été altéré
-    assert not ref.exists()                     # aucune écriture avant confirmation
+    assert _lignes(ref) == []                    # aucune écriture avant confirmation
