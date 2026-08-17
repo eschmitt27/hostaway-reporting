@@ -79,8 +79,7 @@ PDF_DIR_REL = "01_SOURCES_BRUTES/MenagesExternes/Factures_PDF"
 # remontée en avertissement (lot11 échouerait alors explicitement, jamais en silence).
 SOURCES_LOT11 = [
     "02_TRAVAIL/Lot9_FluxUnifie/MASTER_CALC_Flux.xlsx",
-    "02_TRAVAIL/Lot4quater_SourceResolue/MASTER_CALC_Reservations_Resolues.xlsx",
-    "02_TRAVAIL/Lot1_Hostaway/MASTER_CALC_HA_Payout.xlsx",
+    # Reservations resolues et payouts : fabriques depuis SQLite dans le workspace, pas copies.
     "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Commissions.xlsx",
     "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_NetProprietaire.xlsx",
     "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Resultats.xlsx",
@@ -342,6 +341,14 @@ def _construire_workspace(run_ts: str, declarations_csv: str,
     if not gen.get("ok"):
         # Ne pas taire : sans Banque, lot11 conclurait « aucune anomalie bancaire » en code retour 0.
         warnings.append(f"Banque non fournie à lot11 : {gen.get('message', gen.get('code'))}")
+
+    # Réservations résolues et payouts : même principe, même raison.
+    from app.services import reservations_adaptateur_moteur as reservations_adaptateur
+
+    gen_res = reservations_adaptateur.ecrire_tout(workspace)
+    if not gen_res.get("ok"):
+        warnings.append(
+            f"Réservations non fournies à lot11 : {gen_res.get('message', gen_res.get('code'))}")
 
     # Copie des PDF (étape 3 de l'ordre imposé) — fichier par fichier, octets identiques.
     pdf_dst = workspace / PDF_DIR_REL

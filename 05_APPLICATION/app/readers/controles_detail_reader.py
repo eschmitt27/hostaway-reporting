@@ -5,7 +5,7 @@ seule ligne MASTER. Ce reader relit les SOURCES détaillées réelles pour rouvr
 éléments actionnables, sans jamais recréer ni reclasser une anomalie : le grain vient de la source.
 
 Sources détail :
-  - VRBO sans montant            → MASTER_CALC_Reservations (onglet MASTER, source=HOSTAWAY_VRBO_A_CONTROLER)
+  - VRBO sans montant            → SQLite, dataset RESOLUES (source=HOSTAWAY_VRBO_A_CONTROLER)
   - Réservations sans commission → MASTER_CALC_Commissions (onglet A_CONTROLER)
   - Écarts ménages externes      → MASTER_FACT_MEN_MenagesExternes (onglet VUE_ECART_HOSTAWAY)
   - Banque non classée           → SQLite (classification courante, statut RAPPROCHEMENT_REQUIS)
@@ -68,28 +68,28 @@ def _txt(v: Any) -> str:
 def reservations_vrbo() -> list[dict[str, Any]]:
     """Réservations VRBO du PÉRIMÈTRE MOTEUR (une ligne = une réservation).
 
-    Lit exactement la source utilisée par Lot11 pour ce contrôle : la source RÉSOLUE
-    `MASTER_CALC_Reservations_Resolues.xlsx` (Lot4quater), et non la table live Lot4bis. La source
-    résolue a déjà historisé les réservations des mois clôturés hors du périmètre « à contrôler » :
-    APP-5B reproduit donc exactement le compte moteur (mois ouverts uniquement).
+    Lit exactement la source utilisée par Lot11 pour ce contrôle : le dataset RÉSOLU (Lot4quater), et
+    non le dataset live (Lot4bis). La résolution a déjà sorti du périmètre « à contrôler » les
+    réservations des mois clôturés : APP-5B reproduit donc exactement le compte moteur (mois ouverts
+    uniquement). Prendre le live ferait réapparaître des anomalies déjà closes.
     """
-    lignes = _lire(cfg.MASTER_CALC_RESERVATIONS_RESOLUES, "MASTER")
-    return [r for r in lignes if _txt(r.get("source")) == "HOSTAWAY_VRBO_A_CONTROLER"]
+    from app.services import reservations_dataset_service as ds
+
+    return ds.par_source("HOSTAWAY_VRBO_A_CONTROLER", etape=ds.ETAPE_RESOLUES)
 
 
 def reservations_vrbo_hors_perimetre() -> list[dict[str, Any]]:
-    """Réservations VRBO présentes dans la table live (Lot4bis) mais HORS périmètre moteur.
+    """Réservations VRBO présentes dans le dataset live mais HORS périmètre moteur.
 
-    Ce sont les VRBO des mois clôturés, historisés hors du contrôle par la source résolue. Vue
-    TECHNIQUE séparée : jamais présentées comme anomalies de ce contrôle.
+    Ce sont les VRBO des mois clôturés, sortis du contrôle par la résolution. Vue TECHNIQUE séparée :
+    jamais présentées comme anomalies de ce contrôle.
     """
-    live = _lire(cfg.MASTER_CALC_RESERVATIONS, "MASTER")
+    from app.services import reservations_dataset_service as ds
+
     ids_perimetre = {_txt(r.get("reservation_id_hostaway")) or _txt(r.get("reservation_calc_id"))
                      for r in reservations_vrbo()}
     out = []
-    for r in live:
-        if _txt(r.get("source")) != "HOSTAWAY_VRBO_A_CONTROLER":
-            continue
+    for r in ds.par_source("HOSTAWAY_VRBO_A_CONTROLER", etape=ds.ETAPE_CALCULEES):
         rid = _txt(r.get("reservation_id_hostaway")) or _txt(r.get("reservation_calc_id"))
         if rid not in ids_perimetre:
             out.append(r)
@@ -97,9 +97,17 @@ def reservations_vrbo_hors_perimetre() -> list[dict[str, Any]]:
 
 
 def reservations_index() -> dict[str, dict[str, Any]]:
-    """{reservation_id_hostaway|hh: ligne} pour enrichir les commissions (mois, propriétaire)."""
+    """{reservation_id_hostaway|hh|source_pk: ligne} pour enrichir les commissions.
+
+    Le dataset LIVE, pas le résolu : cet index sert à retrouver le mois et le propriétaire d'une
+    réservation citée par une commission, y compris pour un mois clôturé dont la ligne résolue vient
+    de l'historique. Le live couvre tout le périmètre, ce qui est ce qu'on veut pour un simple
+    rattachement — aucun montant n'est lu ici.
+    """
+    from app.services import reservations_dataset_service as ds
+
     idx: dict[str, dict[str, Any]] = {}
-    for r in _lire(cfg.MASTER_CALC_RESERVATIONS, "MASTER"):
+    for r in ds.lignes(ds.ETAPE_CALCULEES):
         for k in ("reservation_id_hostaway", "reservation_hh_id", "source_pk"):
             v = _txt(r.get(k))
             if v:

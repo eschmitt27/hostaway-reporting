@@ -1,16 +1,24 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from urllib.parse import quote
+
 import app.config as cfg
+from app.readers.banques_reader import date_affichage, datetime_affichage
 from app.config import TEMPLATES_DIR
 from app.services import reservations_hh_service as svc
 from app.services import saisie_hh_service as saisie_svc
 from app.services import saisie_hh_dryrun_service as dryrun_svc
 from app.services import saisie_hh_real_write_service as real_write_svc
+from app.services import hostaway_actualisation_service as hostaway_svc
 from app.services import saisie_hh_orchestrator as hh_orchestrator
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+# Formatage des dates, partagé avec les autres écrans. Une date non convertible est affichée telle
+# quelle, précédée d'une mention : jamais une date inventée pour combler un champ vide.
+templates.env.filters["date_fr"] = date_affichage
+templates.env.filters["datetime_fr"] = datetime_affichage
 
 # Séparateurs typographiques possibles dans une valeur texte en entrée (espaces à retirer avant conversion)
 _SPACES = (" ", " ", " ")
@@ -233,3 +241,33 @@ def reservation_detail(request: Request, reservation_hh_id: str):
         "detail": detail,
         "reservation_hh_id": reservation_hh_id,
     })
+
+
+# ── Actualisation Hostaway (APP-6A) ──────────────────────────────────────────
+# Le bouton appelle `hostaway_actualisation_service.actualiser()`, qui est aussi le point d'entrée
+# prévu pour un déclenchement automatique : un seul chemin métier, donc un seul comportement.
+# La route ne fait qu'appeler et rendre l'état — aucune logique d'extraction ici.
+
+@router.get("/hostaway", response_class=HTMLResponse)
+def hostaway_actualisation(request: Request, message: str = "", message_type: str = ""):
+    return templates.TemplateResponse(request, "hostaway_actualisation.html", {
+        "active_menu": "reservations",
+        "etat": hostaway_svc.etat(),
+        "historique": hostaway_svc.historique(limite=10),
+        "message": message,
+        "message_type": message_type,
+    })
+
+
+@router.post("/hostaway/actualiser")
+def hostaway_actualiser(request: Request):
+    """Lance une actualisation et redirige. La requête n'attend jamais la fin de l'extraction."""
+    resultat = hostaway_svc.actualiser(declencheur=hostaway_svc.DECLENCHEUR_MANUEL)
+    if resultat.get("ok"):
+        message = "Actualisation Hostaway lancée. Rechargez la page pour suivre l'avancement."
+        type_message = "info"
+    else:
+        message = resultat.get("message", "Actualisation impossible.")
+        type_message = "error"
+    return RedirectResponse(
+        url=f"/hostaway?message={quote(message)}&message_type={type_message}", status_code=303)

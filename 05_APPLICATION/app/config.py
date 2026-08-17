@@ -41,6 +41,11 @@ SAISIE_CHARGES_IMPACTS = SOURCES_BRUTES / "Charges" / "SAISIE_Charges_Impacts.xl
 # Source de saisie durable des avantages associés (Lot7 existant, onglet SOURCE_SAISIE).
 SAISIE_IK_AVANTAGES = TRAVAIL / "Lot7_IK_Avantages" / "MASTER_FACT_MAN_IK_Avantages.xlsx"
 # Réservations résolues (APP-3b-1) — source de validation reservation_id, LECTURE SEULE
+# LEGACY_PARITE_TEMPORAIRE — plus aucun service ne lit ce classeur. Les réservations vivent en base
+# (`reservations_calculees`, `reservations_resolues`, `reservations_historique_cloture`), et le
+# classeur que Lot 11 attend est fabriqué à la demande dans le workspace du run par
+# `reservations_adaptateur_moteur`. Le chemin subsiste pour comparer avec l'historique et pour que
+# les tests puissent affirmer que les écrans fonctionnent sans lui. À retirer après la parité.
 MASTER_CALC_RESERVATIONS_RESOLUES = TRAVAIL / "Lot4quater_SourceResolue" / "MASTER_CALC_Reservations_Resolues.xlsx"
 # Réservations table commune (APP-5B) — détail VRBO/charge fixe, onglet MASTER, LECTURE SEULE
 MASTER_CALC_RESERVATIONS = TRAVAIL / "Lot4bis_TableCommune" / "MASTER_CALC_Reservations.xlsx"

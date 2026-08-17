@@ -207,33 +207,16 @@ def reservation_id_exists(
     reservation_id: str,
     resolues_path: Path | None = None,
 ) -> bool:
-    """Vérifie si reservation_id existe dans MASTER_CALC_Reservations_Resolues.
+    """La réservation est-elle connue du dataset RÉSOLU courant.
 
-    Cherche dans reservation_id_hostaway et reservation_hh_id.
-    Retourne False si le fichier est absent.
+    Cherche côté Hostaway et côté hors Hostaway, comme avant. La source est désormais SQLite : le
+    classeur pouvait dater d'un calcul précédent, et une réservation extraite depuis y aurait été
+    jugée inexistante.
+
+    `resolues_path` n'a plus d'objet ; le paramètre subsiste pour les appelants existants. Retourne
+    False si aucun dataset n'est disponible — refuser une référence qu'on ne peut pas vérifier vaut
+    mieux que l'accepter sans contrôle.
     """
-    p = Path(resolues_path or cfg.MASTER_CALC_RESERVATIONS_RESOLUES)
-    if not p.exists():
-        return False
-    wb = openpyxl.load_workbook(str(p), read_only=True, data_only=True)
-    try:
-        ws = wb["MASTER"]
-        all_rows = list(ws.iter_rows(values_only=True))
-        if not all_rows:
-            return False
-        headers = [str(h).strip() if h is not None else "" for h in all_rows[0]]
-        idx_hostaway = headers.index("reservation_id_hostaway") if "reservation_id_hostaway" in headers else None
-        idx_hh = headers.index("reservation_hh_id") if "reservation_hh_id" in headers else None
-        rid = str(reservation_id).strip()
-        for row in all_rows[1:]:
-            if idx_hostaway is not None:
-                val = row[idx_hostaway]
-                if val is not None and str(val).strip() == rid:
-                    return True
-            if idx_hh is not None:
-                val = row[idx_hh]
-                if val is not None and str(val).strip() == rid:
-                    return True
-    finally:
-        wb.close()
-    return False
+    from app.services import reservations_dataset_service as ds
+
+    return ds.existe(reservation_id, etape=ds.ETAPE_RESOLUES)

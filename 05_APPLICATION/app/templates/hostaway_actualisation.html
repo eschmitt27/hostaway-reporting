@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}Actualisation Hostaway{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Actualisation Hostaway</h1>
+  <p class="page-subtitle">
+    Interroge l'API Hostaway et écrit les réservations, payouts et logements dans la base.
+    Aucun classeur n'est nécessaire.
+  </p>
+</div>
+
+{% if message %}
+<div class="alert alert-{{ message_type or 'info' }}" data-testid="message-actualisation">
+  {{ message }}
+</div>
+{% endif %}
+
+{# ── Lancement ─────────────────────────────────────────────────────────────
+   Le bouton appelle le même service qu'un déclenchement automatique appellera :
+   un seul chemin métier, donc un seul comportement à vérifier. #}
+<div class="card mb-md">
+  <h2 class="card-title">Lancer une actualisation</h2>
+  {% if etat.en_cours %}
+    <div class="alert alert-warning" data-testid="actualisation-en-cours">
+      Une actualisation est en cours depuis {{ etat.run.started_at|datetime_fr }}.
+      Attendez qu'elle se termine avant d'en lancer une autre.
+    </div>
+  {% else %}
+    <form method="post" action="/hostaway/actualiser">
+      <button type="submit" class="btn btn-primary" data-testid="bouton-actualiser">
+        Actualiser Hostaway
+      </button>
+      <p class="section-note mt-sm">
+        L'extraction se poursuit en arrière-plan : cette page n'attend pas sa fin.
+        Rechargez-la pour suivre l'avancement.
+      </p>
+    </form>
+  {% endif %}
+</div>
+
+{# ── Dernier run ───────────────────────────────────────────────────────────
+   Un run PARTIEL est affiché comme tel, avec le détail par étape. Le résumer en
+   « à jour » laisserait croire que tout a été rafraîchi. #}
+<div class="card mb-md">
+  <h2 class="card-title">Dernière actualisation</h2>
+  {% if not etat.run %}
+    <div class="empty-state">
+      <p>Aucune actualisation enregistrée sur cette installation.</p>
+    </div>
+  {% else %}
+    <dl class="detail-grid" data-testid="dernier-run">
+      <dt>Identifiant du run</dt><dd><code>{{ etat.run.run_id }}</code></dd>
+      <dt>Démarré le</dt><dd>{{ etat.run.started_at|datetime_fr }}</dd>
+      <dt>Terminé le</dt>
+      <dd>{% if etat.run.ended_at %}{{ etat.run.ended_at|datetime_fr }}{% else %}—{% endif %}</dd>
+      <dt>Statut</dt>
+      <dd>
+        {% if etat.run.statut == "SUCCES" %}<span class="badge badge-success">Succès</span>
+        {% elif etat.run.statut == "PARTIEL" %}<span class="badge badge-warning">Partiel</span>
+        {% elif etat.run.statut == "EN_COURS" %}<span class="badge badge-neutral">En cours</span>
+        {% elif etat.run.statut == "INTERROMPU" %}<span class="badge badge-danger">Interrompu</span>
+        {% else %}<span class="badge badge-danger">Échec</span>{% endif %}
+      </dd>
+      <dt>Déclenchement</dt><dd>{{ etat.run.declencheur }}</dd>
+      <dt>Étapes</dt>
+      <dd>{{ etat.run.nb_etapes_ok }} réussie(s) / {{ etat.run.nb_etapes_ko }} en échec</dd>
+    </dl>
+
+    {% if etat.run.statut == "PARTIEL" %}
+    <div class="alert alert-warning mt-sm" data-testid="run-partiel">
+      Actualisation <strong>partielle</strong> : certaines étapes ont échoué. Les données des étapes
+      réussies sont utilisables ; celles des étapes en échec datent de l'actualisation précédente.
+    </div>
+    {% endif %}
+
+    {% if etat.etapes %}
+    <div class="table-wrapper mt-sm">
+      <table class="data-table">
+        <thead>
+          <tr><th>Étape</th><th>Statut</th><th class="num">Lus</th><th class="num">Écrits</th>
+              <th>Erreur</th></tr>
+        </thead>
+        <tbody>
+          {% for e in etat.etapes %}
+          <tr>
+            <td>{{ e.etape }}</td>
+            <td>
+              {% if e.statut == "SUCCES" %}<span class="badge badge-success">Succès</span>
+              {% elif e.statut == "IGNOREE" %}<span class="badge badge-neutral">Ignorée</span>
+              {% else %}<span class="badge badge-danger">Échec</span>{% endif %}
+            </td>
+            <td class="num">{{ e.nb_lus if e.nb_lus is not none else "—" }}</td>
+            <td class="num">{{ e.nb_ecrits if e.nb_ecrits is not none else "—" }}</td>
+            <td>{{ e.erreur or "—" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  {% endif %}
+</div>
+
+{# ── Données disponibles ───────────────────────────────────────────────────
+   La fraîcheur vient du registre des extractions et des datasets, jamais de la date
+   d'un fichier : un classeur récent ne prouve pas une extraction récente. #}
+<div class="card mb-md">
+  <h2 class="card-title">Données disponibles</h2>
+  <dl class="detail-grid" data-testid="fraicheur-donnees">
+    <dt>Extraction Hostaway</dt>
+    <dd>
+      {% if not etat.extraction.disponible %}
+        <span class="badge badge-danger">Aucune</span>
+        <span class="section-note">{{ etat.extraction.message }}</span>
+      {% else %}
+        {{ etat.extraction.nb_reservations }} réservation(s),
+        {{ etat.extraction.nb_payouts }} payout(s),
+        {{ etat.extraction.nb_listings }} logement(s)
+        — {{ etat.extraction.date_fin|datetime_fr }}
+        {% if not etat.extraction.complet %}
+          <span class="badge badge-warning">Incomplète</span>
+        {% endif %}
+        <span class="section-note">Origine : {{ etat.extraction.mode }}</span>
+      {% endif %}
+    </dd>
+
+    <dt>Réservations calculées</dt>
+    <dd>
+      {% if not etat.reservations.disponible %}
+        <span class="badge badge-danger">Aucune</span>
+        <span class="section-note">{{ etat.reservations.message }}</span>
+      {% else %}
+        {{ etat.reservations.nb_lignes }} ligne(s)
+        — {{ etat.reservations.date_calcul|datetime_fr }}
+        <span class="section-note">Jeu <code>{{ etat.reservations.dataset_id }}</code></span>
+      {% endif %}
+    </dd>
+  </dl>
+</div>
+
+{% if historique %}
+<div class="card">
+  <h2 class="card-title">Actualisations précédentes</h2>
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead>
+        <tr><th>Run</th><th>Démarré</th><th>Statut</th><th>Déclenchement</th>
+            <th class="num">Étapes OK</th><th class="num">Durée (s)</th></tr>
+      </thead>
+      <tbody>
+        {% for r in historique %}
+        <tr>
+          <td><code>{{ r.run_id }}</code></td>
+          <td>{{ r.started_at|datetime_fr }}</td>
+          <td>{{ r.statut }}</td>
+          <td>{{ r.declencheur }}</td>
+          <td class="num">{{ r.nb_etapes_ok }}</td>
+          <td class="num">{{ "%.0f"|format(r.duree_s) if r.duree_s else "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

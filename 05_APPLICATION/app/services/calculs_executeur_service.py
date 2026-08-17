@@ -51,6 +51,10 @@ class Lot:
     entrees: tuple[str, ...] = ()
     requiert_pandas: bool = True
     exige_workspace_controle: bool = False
+    # Étape de dataset SQLite produite par le lot, quand il en produit une. Elle REMPLACE le
+    # contrôle de sortie fichier : un lot migré peut très bien ne plus écrire de classeur, et
+    # exiger malgré tout son existence rendrait la migration impossible à terminer.
+    dataset: str = ""
     """Le lot ne doit JAMAIS être lancé par exécution directe du script.
 
     Certains moteurs atteignent le réseau ou des sources hors racine. `lot6b` interroge réellement
@@ -90,8 +94,9 @@ class ResultatLot:
 # Rien n'est réinventé : on reprend leurs listes et leurs sorties.
 
 CHAINE_AVAL: tuple[Lot, ...] = (
-    Lot("lot4quater", "lot4quater_resoudre_source_reservations.py",
-        sorties=("02_TRAVAIL/Lot4quater_SourceResolue/MASTER_CALC_Reservations_Resolues.xlsx",)),
+    # Lot4quater écrit désormais un DATASET. Le classeur qu'il produit encore relève de la parité
+    # legacy : l'exiger comme sortie ferait échouer la chaîne dès qu'on cesse de l'écrire.
+    Lot("lot4quater", "lot4quater_resoudre_source_reservations.py", dataset="RESOLUES"),
     Lot("lot9", "lot9_construire_flux.py",
         sorties=("02_TRAVAIL/Lot9_FluxUnifie/MASTER_CALC_Flux.xlsx",),
         depend_de=("lot4quater",)),
@@ -188,6 +193,18 @@ def _racine(racine: Path | None = None) -> Path:
     return Path(racine or cfg.PROJECT_ROOT)
 
 
+def _dataset_disponible(etape: str) -> bool:
+    """Le jeu de données d'une étape est-il présent et non vide.
+
+    Remplace le contrôle d'existence de fichier pour les lots migrés. La question posée est la même —
+    « l'amont a-t-il réellement produit quelque chose » — mais elle porte sur la donnée plutôt que sur
+    un artefact : un classeur laissé par un calcul précédent répondrait oui à tort.
+    """
+    from app.services import reservations_dataset_service as ds
+
+    return ds.disponible(etape)
+
+
 def verifier_prerequis(lots: list[str], racine: Path | None = None) -> dict[str, Any]:
     """Prérequis AVANT lancement : interpréteur, scripts présents, entrées des premiers lots.
 
@@ -216,8 +233,13 @@ def verifier_prerequis(lots: list[str], racine: Path | None = None) -> dict[str,
             if dep in demandes:
                 continue
             dep_lot = TOUS_LES_LOTS.get(dep)
-            if dep_lot and dep_lot.sorties and not all(
-                    (r / s).exists() for s in dep_lot.sorties):
+            if dep_lot is None:
+                continue
+            if dep_lot.dataset:
+                if not _dataset_disponible(dep_lot.dataset):
+                    dependances_manquantes.append(
+                        f"{nom} dépend de {dep} (jeu de données {dep_lot.dataset} absent)")
+            elif dep_lot.sorties and not all((r / s).exists() for s in dep_lot.sorties):
                 dependances_manquantes.append(f"{nom} dépend de {dep} (sortie absente)")
 
     # pandas ne bloque que si au moins un lot demandé en a réellement besoin.
@@ -367,7 +389,13 @@ def executer_lot(nom: str, *, racine: Path | None = None, timeout_s: int = TIMEO
         return ResultatLot(nom, ST_ECHEC, duree_s=round(time.monotonic() - debut, 2),
                            message=f"{type(exc).__name__}: {exc}")
 
-    sorties = {s: (r / s).exists() for s in lot.sorties}
+    # Preuve de production : un code retour 0 ne suffit pas — un script peut se terminer sans rien
+    # produire, et c'est arrivé. Pour un lot migré, la preuve est le DATASET ; pour les autres, elle
+    # reste le fichier de sortie.
+    if lot.dataset:
+        sorties = {f"dataset:{lot.dataset}": _dataset_disponible(lot.dataset)}
+    else:
+        sorties = {s: (r / s).exists() for s in lot.sorties}
     sorties_ok = all(sorties.values()) if sorties else True
 
     runner_ok, runner_message = (True, "")

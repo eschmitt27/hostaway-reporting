@@ -992,6 +992,93 @@ class AnomalyDetector:
 # ═══════════════════════════════════════════════════════════════
 # WRITER
 # ═══════════════════════════════════════════════════════════════
+def _service_raw():
+    """Charge le service applicatif d'ecriture RAW, sans embarquer l'application.
+
+    Ce service est la SEULE implementation de l'ecriture RAW : l'import evite d'en ecrire une
+    seconde ici, qui divergerait au premier changement de schema. Il ne tire ni FastAPI ni pandas —
+    verifie — donc l'importer depuis un lot moteur reste sans effet de bord.
+    """
+    import sys as _sys
+
+    racine_app = BASE_DIR / "05_APPLICATION"
+    if str(racine_app) not in _sys.path:
+        _sys.path.insert(0, str(racine_app))
+    from app.services import hostaway_raw_service as raw
+    return raw
+
+
+def ecrire_raw_sqlite(args, log, *, listings, reservations, details, finance_fields, fees,
+                      payouts, anomalies, run_id="") -> dict:
+    """Ecrit les lignes extraites dans la couche RAW SQLite. Ne leve jamais.
+
+    Le payload des details est rattache a sa reservation : le repli historique de `guestCount` en
+    depend, et le laisser dans un jeu separe obligerait chaque lecteur a refaire la jointure.
+
+    L'extraction est CLOTUREE explicitement, avec le statut correspondant. Une extraction laissee
+    EN_COURS ne serait jamais consideree comme utilisable — ce qui est le bon comportement en cas
+    d'interruption, mais serait faux apres une ecriture reussie.
+    """
+    if getattr(args, "sans_sqlite", False):
+        log.info("Ecriture SQLite RAW ignoree (--sans-sqlite).")
+        return {"ecrit": False, "raison": "desactivee"}
+
+    chemin = _chemin_db_lot1(args)
+    if chemin is None:
+        log.warning("Aucune base applicative designee (--db / PILOTAGE_DB_PATH / APP_DATA_DIR) : "
+                    "couche RAW SQLite non alimentee.")
+        return {"ecrit": False, "raison": "aucune base designee"}
+
+    try:
+        raw = _service_raw()
+        import app.config as cfg
+        cfg.DB_PATH = chemin
+
+        payload_par_reservation = {
+            str(d.get("reservation_id")): d.get("json_snapshot")
+            for d in details if d.get("reservation_id") is not None and d.get("json_snapshot")
+        }
+        reservations_enrichies = []
+        for r in reservations:
+            ligne = dict(r)
+            charge = payload_par_reservation.get(str(ligne.get("reservation_id")))
+            if charge:
+                ligne["json_snapshot"] = charge
+            reservations_enrichies.append(ligne)
+
+        extraction_id = raw.ouvrir(mode=raw.MODE_API, run_id=run_id, db_path=chemin)
+        detail = raw.enregistrer(
+            extraction_id, db_path=chemin,
+            listings=listings, reservations=reservations_enrichies, payouts=payouts,
+            fees=fees, finance_fields=finance_fields, anomalies=anomalies)
+        resultat = raw.cloturer(extraction_id, statut=raw.ST_SUCCES, db_path=chemin)
+    except Exception as exc:
+        log.error(f"Ecriture SQLite RAW echouee — {type(exc).__name__}: {exc}")
+        return {"ecrit": False, "raison": f"{type(exc).__name__}: {exc}"}
+
+    log.info(f"  SQLite RAW : extraction {extraction_id} — "
+             f"{resultat['nb_reservations']} reservations, {resultat['nb_payouts']} payouts, "
+             f"{resultat['nb_listings']} listings")
+    return {"ecrit": True, "extraction_id": extraction_id, "detail": detail, **resultat}
+
+
+def _chemin_db_lot1(args):
+    """Base applicative a alimenter. Resolue a l'appel, jamais figee.
+
+    Priorite : --db > PILOTAGE_DB_PATH > APP_DATA_DIR/app.db. Aucun defaut vers la base reelle : une
+    extraction lancee sans precision ne doit pas ecrire par accident dans la base de production.
+    """
+    if getattr(args, "db", None):
+        return Path(args.db)
+    env = os.environ.get("PILOTAGE_DB_PATH")
+    if env:
+        return Path(env)
+    data = os.environ.get("APP_DATA_DIR")
+    if data:
+        return Path(data) / "app.db"
+    return None
+
+
 def write_excel(df: "pd.DataFrame", path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with pd.ExcelWriter(path, engine="openpyxl") as w:
@@ -1469,6 +1556,14 @@ def main():
         help="Base applicative ou journaliser le run (sinon PILOTAGE_DB_PATH / APP_DATA_DIR).",
     )
     parser.add_argument(
+        "--sans-excel", action="store_true",
+        help="N'écrit pas les masters legacy. SQLite reste alimenté normalement.",
+    )
+    parser.add_argument(
+        "--sans-sqlite", action="store_true",
+        help="N'écrit pas la couche RAW SQLite (parité legacy seule).",
+    )
+    parser.add_argument(
         "--limit", type=int, default=0,
         help="Limiter à N réservations (0 = pas de limite). Pour tests.",
     )
@@ -1815,23 +1910,45 @@ def main():
             log.info(f"Reservations : {processed} traitees, {skipped} sautees, "
                      f"{nb_details} appels detail sur {processed} ({100*nb_details//max(processed,1)}%)")
 
-            # ── ÉCRITURE TABLES PRINCIPALES (avant cleaning tasks) ──
-            log.info("Ecriture tables principales Excel...")
-            OUT_DIR.mkdir(parents=True, exist_ok=True)
-            main_tables = {
-                "MASTER_REF_HA_Listings":                 pd.DataFrame(rows_listings),
-                "MASTER_FACT_HA_Reservations":             pd.DataFrame(rows_res),
-                "MASTER_FACT_HA_ReservationDetails":       pd.DataFrame(rows_details),
-                "MASTER_FACT_HA_ReservationFinanceFields": pd.DataFrame(rows_ff),
-                "MASTER_FACT_HA_ReservationFees":          pd.DataFrame(rows_fees),
-                "MASTER_CALC_HA_Payout":                   pd.DataFrame(rows_payout),
-                "MASTER_CTRL_HA_Anomalies":                detector.to_df(),
-            }
+            # ── ÉCRITURE SQLITE RAW (chemin normal) ──
+            #
+            # La base est alimentée AVANT les classeurs, et directement depuis les lignes que l'API
+            # vient de rendre. Faire transiter la donnée par un master Excel puis la relire ferait
+            # dépendre le chemin normal d'un artefact de parité : le jour où ce classeur n'est plus
+            # écrit, la base cesserait d'être alimentée sans que rien ne le signale.
+            resultat_sqlite = ecrire_raw_sqlite(
+                args, log,
+                listings=rows_listings, reservations=rows_res, details=rows_details,
+                finance_fields=rows_ff, fees=rows_fees, payouts=rows_payout,
+                anomalies=detector.to_df().to_dict("records"),
+                run_id=journal.run_id,
+            )
+            if resultat_sqlite.get("ecrit"):
+                journal.etape("SQLITE_RAW", ETAPE_SUCCES,
+                              nb_ecrits=resultat_sqlite.get("nb_reservations", 0),
+                              sorties=[{"table": k, "lignes": v}
+                                       for k, v in resultat_sqlite.get("detail", {}).items()])
+
+            # ── ÉCRITURE MASTERS LEGACY (parité, temporaire) ──
             sorties_principales = []
-            for name, df in main_tables.items():
-                write_excel(df, OUT_DIR / f"{name}.xlsx")
-                log.info(f"  {name} : {len(df)} lignes")
-                sorties_principales.append({"fichier": f"{name}.xlsx", "lignes": len(df)})
+            if args.sans_excel:
+                log.info("Masters legacy non écrits (--sans-excel).")
+            else:
+                log.info("Ecriture tables principales Excel...")
+                OUT_DIR.mkdir(parents=True, exist_ok=True)
+                main_tables = {
+                    "MASTER_REF_HA_Listings":                 pd.DataFrame(rows_listings),
+                    "MASTER_FACT_HA_Reservations":             pd.DataFrame(rows_res),
+                    "MASTER_FACT_HA_ReservationDetails":       pd.DataFrame(rows_details),
+                    "MASTER_FACT_HA_ReservationFinanceFields": pd.DataFrame(rows_ff),
+                    "MASTER_FACT_HA_ReservationFees":          pd.DataFrame(rows_fees),
+                    "MASTER_CALC_HA_Payout":                   pd.DataFrame(rows_payout),
+                    "MASTER_CTRL_HA_Anomalies":                detector.to_df(),
+                }
+                for name, df in main_tables.items():
+                    write_excel(df, OUT_DIR / f"{name}.xlsx")
+                    log.info(f"  {name} : {len(df)} lignes")
+                    sorties_principales.append({"fichier": f"{name}.xlsx", "lignes": len(df)})
 
             # Une etape par famille : le journal doit pouvoir dire « reservations OK, menages KO ».
             journal.etape("LISTINGS", ETAPE_SUCCES, nb_lus=len(rows_listings),

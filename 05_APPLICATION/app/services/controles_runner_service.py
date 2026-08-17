@@ -53,8 +53,8 @@ TIMEOUT_MOTEUR_S = 300
 # Entrées Lot11 (relatives à PROJECT_ROOT) — copiées dans le workspace, chemins confinés au workspace.
 INPUTS_LOT11 = [
     "02_TRAVAIL/Lot9_FluxUnifie/MASTER_CALC_Flux.xlsx",
-    "02_TRAVAIL/Lot4quater_SourceResolue/MASTER_CALC_Reservations_Resolues.xlsx",
-    "02_TRAVAIL/Lot1_Hostaway/MASTER_CALC_HA_Payout.xlsx",
+    # Reservations resolues et payouts : plus copies non plus, fabriques depuis SQLite dans le
+    # workspace (voir `reservations_adaptateur_moteur`).
     "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Commissions.xlsx",
     "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_NetProprietaire.xlsx",
     "02_TRAVAIL/Lot10_Resultats/MASTER_CALC_Resultats.xlsx",
@@ -177,6 +177,18 @@ def _valider_workspace_isole(ws: Path) -> tuple[bool, str]:
     if scripts == real or real in scripts.parents:
         return False, f"Scripts moteur situés dans l'arbre réel ({real}) : refusé."
     return True, ""
+
+
+def _generer_reservations(ws: Path, db_path=None) -> dict[str, Any]:
+    """Fabrique les classeurs de reservations attendus par Lot11, depuis SQLite.
+
+    Meme statut que le classeur bancaire : jetable, lie au run, jamais canonique. Lot11 lit la source
+    RESOLUE et les payouts ; les copier depuis l'arbre du projet ferait dependre le controle d'un
+    calcul anterieur, potentiellement plus ancien que le dataset courant.
+    """
+    from app.services import reservations_adaptateur_moteur as adaptateur
+
+    return adaptateur.ecrire_tout(ws, db_path=db_path)
 
 
 def _generer_banque(ws: Path, mouvement_classe: str = "", db_path=None) -> dict[str, Any]:
@@ -316,6 +328,13 @@ def recalculer_sur_copie(element: dict[str, Any], appliquer_classification: bool
         etapes.append({"etape": "BANQUE_DEPUIS_SQLITE", "nb_mouvements": gen["nb_mouvements"],
                        "nb_controles": gen["nb_controles"],
                        "nb_mois_clotures": gen["nb_mois_clotures"]})
+
+        gen_res = _generer_reservations(ws, db_path=db_path)
+        if not gen_res.get("ok"):
+            raise RuntimeError(gen_res.get("message", "Reservations indisponibles"))
+        etapes.append({"etape": "RESERVATIONS_DEPUIS_SQLITE",
+                       "nb_resolues": gen_res["resolues"]["nb_lignes"],
+                       "nb_payouts": gen_res["payouts"]["nb_lignes"]})
 
         # 1) baseline : Lot11 sur copie (avant décision)
         t0 = datetime.now()

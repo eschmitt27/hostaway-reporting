@@ -686,7 +686,7 @@ def validate_charge(
             err("V18_PERSONNALISE_REFAC_INTERDITE",
                 "Refacturable interdit pour une catégorie personnalisée.")
 
-    # V13 — reservation_id requis si CHG_021 et doit exister dans MASTER_CALC_Reservations_Resolues
+    # V13 — reservation_id requis si CHG_021, et doit exister dans le dataset RESOLU courant
     reservation_id = str(form_data.get("reservation_id", "")).strip() or None
     if categorie_id in CATEGORIE_REQUIRES_RESERVATION:
         if not reservation_id:
@@ -695,7 +695,7 @@ def validate_charge(
         else:
             if not reservation_id_exists(reservation_id, resolues_path):
                 err("V13_RESERVATION_INCONNUE",
-                    f"Réservation introuvable dans MASTER_CALC_Reservations_Resolues : "
+                    f"Réservation introuvable dans les réservations résolues : "
                     f"{reservation_id!r}.")
 
     # V14 — statut_controle injecté automatiquement (A_CONTROLER) ; contrôle défensif famille
