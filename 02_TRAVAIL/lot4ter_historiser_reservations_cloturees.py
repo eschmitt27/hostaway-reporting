@@ -100,15 +100,30 @@ CANAL_MAP = {
 
 import argparse  # noqa: E402  (place apres les constantes historiques du module)
 
+# Le dossier du lot doit etre sur le chemin d'import : ces modules sont importes aussi bien en
+# execution directe (cwd = 02_TRAVAIL) que depuis un test qui charge le fichier par son chemin. Sans
+# cela, `lib_db_moteur` reste introuvable dans le second cas.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import lib_db_moteur as dbm  # noqa: E402
 
 
-def _rapport(rows_out, existing, added, vrbo_filled):
-    """Compteurs de sortie, identiques quel que soit le support ecrit."""
+def _rapport(rows_out, existing, added, vrbo_filled, skipped=0, cmonths=()):
+    """Compteurs de sortie, identiques quel que soit le support ecrit.
+
+    Le rapport est COMPLET dans les deux chemins d'ecriture. Un compteur affiche seulement quand le
+    classeur est produit donnerait deux verites selon le mode de sortie, et c'est justement ce qu'on
+    veut pouvoir comparer.
+    """
     print(f"  lignes HIST totales        : {len(rows_out)}")
     print(f"  conservées (déjà figées)   : {len(existing)}")
     print(f"  nouvelles archivées        : {added}")
     print(f"  backfill VRBO appliqués     : {vrbo_filled}")
+    print(f"  lignes ignorées (non clôt.) : {skipped}")
+    print(f"  par canal                  : {dict(collections.Counter(r[4] for r in rows_out))}")
+    if not cmonths:
+        print("  AVERTISSEMENT : aucun mois CLOTURE dans REF_Cloture_Mensuelle -> HIST "
+              "inchangé/vide.")
 
 
 def norm(s):
@@ -460,6 +475,8 @@ def main(argv=None):
     # ── Ecriture SQLite (chemin normal) ──
     if args.sans_sqlite:
         print("\n[lot4ter] ecriture SQLite ignoree (--sans-sqlite).")
+    elif chemin_base is None:
+        print("\n[lot4ter] Aucune base applicative designee : historique non ecrit en base.")
     else:
         par_cle = {ligne[0]: dict(zip(COLS, ligne)) for ligne in rows_out}
         # La comparaison porte sur ce qui est deja EN BASE, pas sur ce que le classeur contenait.
@@ -474,7 +491,7 @@ def main(argv=None):
 
     if args.sans_excel:
         print("[lot4ter] classeur de parite non ecrit (--sans-excel).")
-        _rapport(rows_out, existing, added, vrbo_filled)
+        _rapport(rows_out, existing, added, vrbo_filled, skipped, cmonths)
         return
 
     os.makedirs(OUT_DIR, exist_ok=True)
@@ -490,11 +507,7 @@ def main(argv=None):
     wb.save(OUT_FILE)
 
     print(f"\n[lot4ter] HIST écrit : {OUT_FILE}")
-    _rapport(rows_out, existing, added, vrbo_filled)
-    print(f"  lignes ignorées (non clôt.) : {skipped}")
-    print(f"  par canal                  : {dict(by_canal)}")
-    if not cmonths:
-        print("  AVERTISSEMENT : aucun mois CLOTURE dans REF_Cloture_Mensuelle -> HIST inchangé/vide.")
+    _rapport(rows_out, existing, added, vrbo_filled, skipped, cmonths)
 
 
 if __name__ == "__main__":

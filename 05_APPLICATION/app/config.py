@@ -48,6 +48,8 @@ SAISIE_IK_AVANTAGES = TRAVAIL / "Lot7_IK_Avantages" / "MASTER_FACT_MAN_IK_Avanta
 # les tests puissent affirmer que les écrans fonctionnent sans lui. À retirer après la parité.
 MASTER_CALC_RESERVATIONS_RESOLUES = TRAVAIL / "Lot4quater_SourceResolue" / "MASTER_CALC_Reservations_Resolues.xlsx"
 # Réservations table commune (APP-5B) — détail VRBO/charge fixe, onglet MASTER, LECTURE SEULE
+# LEGACY_PARITE_TEMPORAIRE — même statut que le classeur résolu ci-dessus : plus aucun service ne le
+# lit, il ne subsiste que pour comparer avec l'historique.
 MASTER_CALC_RESERVATIONS = TRAVAIL / "Lot4bis_TableCommune" / "MASTER_CALC_Reservations.xlsx"
 # Propriétaires & règlements (APP-3c) — LECTURE SEULE
 MASTER_NET_PROPRIETAIRE = TRAVAIL / "Lot10_Resultats" / "MASTER_CALC_NetProprietaire.xlsx"

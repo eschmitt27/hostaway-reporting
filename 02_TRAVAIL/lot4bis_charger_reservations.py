@@ -86,6 +86,11 @@ SOURCE_MODULE    = "lot4bis"
 
 import argparse  # noqa: E402  (place apres les constantes historiques du module)
 
+# Le dossier du lot doit etre sur le chemin d'import : ces modules sont importes aussi bien en
+# execution directe (cwd = 02_TRAVAIL) que depuis un test qui charge le fichier par son chemin. Sans
+# cela, `lib_db_moteur` reste introuvable dans le second cas.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import lib_db_moteur as dbm  # noqa: E402
 from lib_db_moteur import SOURCE_AUTO, SOURCE_EXCEL, SOURCE_SQLITE  # noqa: E402
 
@@ -826,6 +831,10 @@ def main(argv=None):
     # ── Ecriture SQLite (chemin normal) ──
     if args.sans_sqlite:
         print("\n[6/6] Ecriture SQLite ignoree (--sans-sqlite).")
+    elif chemin_base is None:
+        # Aucune base designee : execution hors contexte applicatif. On le DIT, mais on ne refuse
+        # pas — sinon le lot deviendrait inutilisable partout ou la base n'est pas montee.
+        print("\n[6/6] Aucune base applicative designee : reservations_calculees non ecrit.")
     else:
         dataset_id, message = ecrire_sqlite(chemin_base, master_rows)
         if dataset_id is None:

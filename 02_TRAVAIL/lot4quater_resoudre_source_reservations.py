@@ -87,6 +87,11 @@ SOURCE_FROM_CANAL = {
 
 import argparse  # noqa: E402  (place apres les constantes historiques du module)
 
+# Le dossier du lot doit etre sur le chemin d'import : ces modules sont importes aussi bien en
+# execution directe (cwd = 02_TRAVAIL) que depuis un test qui charge le fichier par son chemin. Sans
+# cela, `lib_db_moteur` reste introuvable dans le second cas.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import lib_db_moteur as dbm  # noqa: E402
 
 
@@ -388,6 +393,8 @@ def main(argv=None):
     # ── Ecriture SQLite (chemin normal) ──
     if args.sans_sqlite:
         print("\n[lot4quater] ecriture SQLite ignoree (--sans-sqlite).")
+    elif chemin_base is None:
+        print("\n[lot4quater] Aucune base applicative designee : resolues non ecrit en base.")
     else:
         dataset_id, message = ecrire_sqlite(chemin_base, resolved)
         if dataset_id is None:

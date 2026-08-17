@@ -13,6 +13,7 @@ exécutant le script réel via `runpy.run_path` (aucune donnée réelle, aucune 
 from __future__ import annotations
 
 import runpy
+import sys
 import shutil
 from datetime import date
 from pathlib import Path
@@ -57,6 +58,13 @@ def _make_env(tmp_path: Path, *, live_rows, hist_rows=None, closed_months=()):
     travail.mkdir(parents=True)
     script_copy = travail / REAL_SCRIPT.name
     shutil.copy2(REAL_SCRIPT, script_copy)
+    # Les bibliotheques voisines que le script importe doivent l'accompagner : copier le seul
+    # fichier de lot laisserait un import manquant, et le test echouerait pour une raison qui n'a
+    # rien a voir avec ce qu'il verifie.
+    for lib in ("lib_db_moteur.py",):
+        source = REAL_SCRIPT.parent / lib
+        if source.exists():
+            shutil.copy2(source, travail / lib)
 
     live_dir = travail / "Lot4bis_TableCommune"
     live_dir.mkdir()
@@ -99,7 +107,15 @@ def _run(script_copy: Path):
     # `lot4quater_resoudre_source_reservations.py` protège son entrée par
     # `if __name__ == "__main__": main()` (contrairement à lot8a) : run_name doit être "__main__"
     # sinon `main()` n'est jamais appelé et le test échoue silencieusement (fichier jamais écrit).
-    return runpy.run_path(str(script_copy), run_name="__main__")
+    # `sys.argv` doit etre celui du SCRIPT, pas celui de pytest : le lot analyse desormais ses
+    # arguments (--source, --db, --sans-excel), et il recevrait sinon les options de pytest, qu'il
+    # rejetterait avec un code 2.
+    argv_pytest = sys.argv
+    sys.argv = [str(script_copy)]
+    try:
+        return runpy.run_path(str(script_copy), run_name="__main__")
+    finally:
+        sys.argv = argv_pytest
 
 
 def _read_master(tmp_path: Path):

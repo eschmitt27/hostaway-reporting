@@ -91,6 +91,18 @@ EXPECTED_TABLES = {
     "banque_classifications",                   # 0032 — résultat de classification, séparé du brut
     "banque_controles",                         # 0033 — constats de contrôle par mouvement
     "banque_classification_signaux",            # 0033 — extension 1-1 de banque_classifications
+    "hostaway_extractions",                     # 0034 — une extraction API, son statut, son run
+    "hostaway_listings",                        # 0034 — listings bruts (≠ logement métier)
+    "hostaway_reservations",                    # 0034 — réservations brutes + payload conservé
+    "hostaway_payouts",                         # 0034 — payout : fait distinct de la réservation
+    "hostaway_reservation_fees",                # 0034 — plusieurs frais par réservation
+    "hostaway_reservation_finance_fields",      # 0034 — plusieurs champs par réservation
+    "hostaway_anomalies",                       # 0034 — ce que l'extraction a vu d'anormal
+    "reservations_datasets",                    # 0034 — un calcul ou une résolution, versionné
+    "reservations_calculees",                   # 0034 — Lot4bis, table commune
+    "reservations_resolues",                    # 0034 — Lot4quater, après bascule mois clos
+    "reservations_historique_cloture",          # 0034 — valeurs figées, hors de tout dataset
+    "reservations_archives",                    # 0034 — journal des archivages
 }
 
 
