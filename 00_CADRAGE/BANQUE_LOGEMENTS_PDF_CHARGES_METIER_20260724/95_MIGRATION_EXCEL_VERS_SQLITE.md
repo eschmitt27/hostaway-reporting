@@ -369,3 +369,104 @@ une règle métier.
 - Migrer les trois autres sources de `proprietaires_extras_reader` (AirCover, imputations Airbnb,
   ajustements post-clôture), restées des classeurs.
 - Chaîne suivante : Hostaway / réservations.
+
+## 13. Mise à jour — Hostaway et réservations sont sortis d'Excel
+
+### 13.1 Classement des sources concernées
+
+| Source | Classement | Lue par le runtime |
+|---|---|---|
+| API Hostaway | `SOURCE_API` | oui — chemin normal |
+| `hostaway_extractions` / `_reservations` / `_payouts` / `_listings` / `_fees` / `_finance_fields` / `_anomalies` | `TABLE_SQLITE_SOURCE` | oui |
+| `reservations_calculees` / `reservations_resolues` / `reservations_historique_cloture` | `TABLE_SQLITE_DERIVEE` | oui |
+| `MASTER_FACT_HA_*.xlsx`, `MASTER_CALC_HA_Payout.xlsx`, `MASTER_REF_HA_Listings.xlsx` | `LEGACY_PARITE_TEMPORAIRE` / `À_RETIRER` | **non** |
+| `MASTER_CALC_Reservations.xlsx` (Lot 4bis) | `LEGACY_PARITE_TEMPORAIRE` / `À_RETIRER` | **non** |
+| `MASTER_CALC_Reservations_Resolues.xlsx` (Lot 4quater) | `LEGACY_PARITE_TEMPORAIRE` / `À_RETIRER` | **non** |
+| `HIST_Reservations_Cloturees.xlsx` (Lot 4ter) | `LEGACY_PARITE_TEMPORAIRE` / `À_RETIRER` | **non** |
+
+### 13.2 Le chemin normal
+
+    API Hostaway → hostaway_raw_service → tables RAW → Lot 4bis → reservations_calculees
+                                                     → Lot 4ter  → reservations_historique_cloture
+                                                     → Lot 4quater → reservations_resolues → application
+
+Lot 1 écrit la couche RAW **directement**, depuis les lignes que l'API vient de rendre. Il importe
+`hostaway_raw_service` plutôt que de réimplémenter l'écriture — cet import ne tire ni FastAPI ni
+pandas, donc il reste sans effet de bord sur un lot moteur.
+
+La reprise depuis les masters (`hostaway_adaptateurs.reprendre`) subsiste comme **outil de migration
+et de parité**. Elle n'est plus nécessaire après une actualisation normale, et son mode
+(`REPRISE_EXCEL`) la distingue explicitement d'une extraction API : un classeur peut dater.
+
+### 13.3 Réservation et payout sont deux faits
+
+Deux tables, à dessein. Un payout peut manquer, arriver plus tard, ou être incomplet : fondu dans la
+réservation, « payout absent » deviendrait indistinguable de « payout à zéro », et un revenu manquant
+ressemblerait à un revenu nul. Aucun payout n'est jamais reconstruit depuis la Banque — un mouvement
+bancaire ne dit pas à quelle réservation il correspond.
+
+### 13.4 Le payload brut est conservé
+
+`hostaway_reservations.payload_json` garde la réponse de la plateforme. Ce n'est pas de la
+redondance : le repli historique de `guestCount` en dépend, et c'est la seule preuve de ce que
+Hostaway a dit un jour donné.
+
+### 13.5 Ce que la migration a révélé
+
+Quatre défauts, tous antérieurs et tous **silencieux** — c'est ce qui les rendait dangereux.
+
+1. **`guestCount` perdu sur payload tronqué.** Les payloads stockés dans les masters sont coupés à
+   4 000 caractères, la limite d'une cellule Excel. `json.loads` échoue donc sur la plupart d'entre
+   eux. Un extracteur strict aurait fait disparaître tout le repli historique — 113 valeurs — sans
+   qu'aucune erreur ne le signale. Le moteur retombait déjà sur une recherche textuelle ; la même
+   stratégie est reprise, pour que les deux donnent le même nombre.
+
+2. **Identifiants textuels contre index entiers.** Les identifiants Hostaway sont stockés en texte —
+   correct pour un identifiant : le comparer numériquement n'a pas de sens et un zéro non
+   significatif serait perdu. Mais tous les index du moteur ont été construits sur les valeurs que le
+   classeur fournissait, c'est-à-dire des entiers. La jointure réservation ↔ payout échouait donc
+   sans erreur : **231 payouts paraissaient absents et 55 388,94 € disparaissaient des totaux**. Le
+   type est restitué à la frontière, une seule fois, dans `lib_db_moteur`.
+
+3. **`reservation_calc_id` positionnel.** La clé vaut `RES-<mois>-HA-<n>`, où n est un compteur
+   d'itération : elle dépend de l'ORDRE de lecture. Trier par identifiant plutôt que par ordre
+   d'arrivée renumérotait chaque ligne **sans changer un seul total** — les agrégats restaient justes
+   et toutes les clés étaient décalées d'un cran. L'ordre d'insertion est désormais respecté par le
+   moteur ET par le service applicatif. *La faiblesse du modèle de clé reste ouverte : une clé stable
+   devrait dériver de l'identifiant de la réservation, pas de sa position.*
+
+4. **Premier passage de Lot 4ter incapable de migrer l'historique.** Base vide et classeur rempli, il
+   lisait l'existant dans le classeur et traitait ses 1 269 lignes comme déjà figées. La base restait
+   vide **en donnant l'impression d'être à jour**. La comparaison porte désormais sur ce qui est en
+   base.
+
+### 13.6 Parité vérifiée
+
+| Étape | Volumes | Écart |
+|---|---|---|
+| Lot 1 | 1 542 réservations, 1 518 payouts, 17 listings, 644 frais, 892 champs financiers, 31 anomalies | 0 |
+| Lot 4bis | 1 542 lignes × 19 colonnes | 0 |
+| Lot 4ter | 1 269 lignes × 26 colonnes | 0 |
+| Lot 4quater | 1 542 lignes × 27 colonnes | 0 |
+
+Montants : `montant_retenu` 322 868,56 €, `payout_calcule` 320 525,08 €, `assiette_commission`
+257 971,08 € — écart 0,00 € partout. `guestCount` : sommes 3 557 (Lot 4bis) et 2 178 (Lot 4quater),
+répartitions identiques.
+
+### 13.7 Adaptateurs de transition
+
+Lot 8c et Lot 11 lisent encore des classeurs. Ils sont **fabriqués depuis la base** dans le workspace
+du run (`banque_adaptateur_moteur`, `reservations_adaptateur_moteur`, mécanique commune dans
+`adaptateur_workspace`). Ces fichiers sont jetables, non canoniques, jamais lus par l'application,
+jamais versionnés. Ils disparaîtront avec la migration de Lot 9/10/11.
+
+Écrire un `MASTER_TEMP.xlsx` dans un dossier permanent serait un faux progrès : on aurait déplacé le
+fichier sans supprimer la dépendance.
+
+### 13.8 Ce qui reste à faire
+
+- Retirer les classeurs `LEGACY_PARITE_TEMPORAIRE` une fois la période de parité close.
+- Corriger le modèle de clé des réservations, aujourd'hui positionnel.
+- Migrer Lot 9, Lot 10 et Lot 11, ce qui supprimera les deux adaptateurs de workspace.
+- Chaîne suivante : **ménages** (les tâches de ménage Hostaway restent hors périmètre, avec leur
+  limitation de débit connue).

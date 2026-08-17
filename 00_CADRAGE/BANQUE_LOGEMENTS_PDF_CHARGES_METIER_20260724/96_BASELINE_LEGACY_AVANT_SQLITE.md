@@ -227,3 +227,24 @@ par Lot 13 sans aucune colonne manquante signalée.
 **C'est la dernière baseline Excel légitime avant migration SQLite.** Elle est fraîche, sans
 contrôle bloquant, et financièrement cohérente. C'est elle qui servira de référence pour valider
 chaque table dérivée SQLite — et donc pour pouvoir supprimer ces masters.
+
+## Mise à jour 2026-08-18 — baseline Hostaway et réservations
+
+La baseline legacy reste la référence de comparaison, mais elle n'est plus la source de
+fonctionnement. Volumes constatés au dernier rafraîchissement, et repris à l'identique en SQLite :
+
+| Jeu | Volume |
+|---|---|
+| Réservations Hostaway | 1 542 |
+| Payouts | 1 518 |
+| Listings | 17 |
+| Frais | 644 |
+| Champs financiers | 892 |
+| Anomalies d'extraction | 31 |
+| Réservations calculées (Lot 4bis) | 1 542 |
+| Réservations historisées (Lot 4ter) | 1 269 |
+| Réservations résolues (Lot 4quater) | 1 542 |
+
+Ces nombres décrivent l'état d'un jour donné. Ils servent à comparer deux exécutions, **jamais de
+règle métier** : un export qui s'élargit ou un mois qui se clôture les fait bouger sans qu'aucune
+régression n'ait eu lieu. Les tests vérifient des relations, pas ces volumes.

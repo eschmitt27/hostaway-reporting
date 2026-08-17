@@ -181,3 +181,25 @@ contrôle divergents. Cet adaptateur disparaîtra avec eux.
 **Chaîne suivante : Hostaway / réservations.**
 
 Détail complet : documents `95` (§12) et `97` (§11).
+
+## Mise à jour 2026-08-18 — Hostaway et réservations en SQLite
+
+**Le chemin normal est API → SQLite.** Lot 1 écrit la couche RAW directement depuis la réponse de
+l'API. La reprise depuis les masters subsiste comme outil de migration et de parité, plus comme
+chemin de fonctionnement.
+
+**Lot 4bis, Lot 4ter et Lot 4quater** lisent et écrivent la base. Les règles sont inchangées : mois
+ouvert = live, mois clos = historique, l'historique prime et n'est jamais réécrit — cette dernière
+garantie est passée du code au schéma.
+
+**Cinq lecteurs applicatifs migrés** : `controles_detail_reader`, `saisie_charges_reader`,
+`charges_preview_service`, `calculs_executeur_service`, `controles_runner_service`. Aucun écran de
+réservations ne dépend d'un classeur.
+
+**Écran `/hostaway`** : bouton d'actualisation, run courant, statut, étapes, fraîcheur des données.
+Un run partiel est affiché comme tel. Le service `actualiser()` ne prend aucun objet HTTP — le bouton
+et un futur déclenchement automatique empruntent le même chemin.
+
+**Chaîne suivante : ménages.**
+
+Détail complet : document `95` (§13).

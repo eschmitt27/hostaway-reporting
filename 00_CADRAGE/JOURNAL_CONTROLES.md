@@ -3689,3 +3689,52 @@ Copie de la base réelle 0016 → HEAD : 33 versions appliquées, `integrity_che
 `foreign_key_check` **ok**, rejeu deux fois sans erreur ni changement de versions. Base réelle
 **inchangée**, toujours en 0016. Deux instances `APP_DATA_DIR` distinctes : aucune contamination, ni
 côté Banque ni côté Lot 5.
+
+## 2026-08-18 — Hostaway et réservations en SQLite
+
+### Parité, sur données réelles
+
+| Étape | Attendu (legacy) | Obtenu (SQLite) | Écart |
+|---|---|---|---|
+| Lot 1 — réservations | 1 542 | 1 542 | 0 |
+| Lot 1 — payouts | 1 518 | 1 518 | 0 |
+| Lot 1 — listings / frais / champs / anomalies | 17 / 644 / 892 / 31 | idem | 0 |
+| Lot 4bis | 1 542 × 19 colonnes | idem | 0 |
+| Lot 4ter | 1 269 × 26 colonnes | idem | 0 |
+| Lot 4quater | 1 542 × 27 colonnes | idem | 0 |
+| `montant_retenu` | 322 868,56 € | 322 868,56 € | 0,00 € |
+| `payout_calcule` | 320 525,08 € | 320 525,08 € | 0,00 € |
+| `assiette_commission` | 257 971,08 € | 257 971,08 € | 0,00 € |
+| `guestCount` (4bis / 4quater) | 3 557 / 2 178 | idem | 0 |
+| `etat_mois`, `methode`, `canal` | — | répartitions identiques | 0 |
+
+### Chemin API direct
+
+Extraction simulée : 7 groupes RAW écrits, extraction close, fraîcheur lue au journal. Rejeu de la
+même extraction : aucun doublon. Deux extractions successives restent comparables ligne à ligne. Une
+extraction échouée n'est pas retenue comme utilisable ; une extraction partielle l'est, et est
+signalée comme incomplète.
+
+### Sans masters réservations
+
+Masters rendus introuvables : couche RAW, datasets, cinq lecteurs, adaptateur de workspace et écran
+d'actualisation fonctionnent. `guestCount` conservé sur un payload de 6 131 caractères et sur un
+payload tronqué à 4 000 dont le JSON est invalide ; non inventé quand la coupure emporte
+l'information.
+
+### Mois clos
+
+Une ligne archivée n'est jamais réécrite, y compris si un appelant transmet des valeurs différentes :
+la garantie est dans le schéma (`INSERT OR IGNORE` sur `cle_historisation`). Rejeu de
+l'historisation : 1 269 déjà en base, 0 ajoutée. Deux recalculs successifs ne modifient pas
+l'historique.
+
+### Migrations et isolation
+
+Copie de la base réelle 0016 → HEAD : 34 versions, `integrity_check` **ok**, `foreign_key_check`
+**ok**, rejeu ×3 sans erreur. Base réelle **inchangée**, toujours en 0016. Deux instances
+`APP_DATA_DIR` distinctes : aucune contamination.
+
+### Tests
+
+Moteur 318 passed. Application 2 809 passed / 27 skipped. **0 failed.**

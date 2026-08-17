@@ -1261,3 +1261,55 @@ Cinq défauts, tous antérieurs à cette mission.
 
 `FAMILLE_UZON_A_CONTROLER` reste présent dans les données réelles (`REF_Setup.xlsm`, règle `R_074`).
 Retiré du code, il ne peut pas l'être des données sans modifier un référentiel réel — hors périmètre.
+
+## 2026-08-18 — Défauts trouvés en migrant Hostaway et les réservations
+
+Quatre défauts antérieurs, tous silencieux, plus trois régressions introduites puis corrigées.
+
+### Défauts antérieurs
+
+1. **`guestCount` perdu sur payload tronqué.** Les payloads stockés dans les masters sont coupés à
+   4 000 caractères — la limite d'une cellule Excel — donc `json.loads` échoue sur la plupart. Un
+   extracteur strict faisait disparaître les 113 valeurs du repli historique sans qu'aucune erreur ne
+   le signale. Le moteur retombait déjà sur une recherche textuelle ; la même stratégie est reprise.
+   *Gravité : élevée — un comptage de voyageurs faux, sans trace.*
+
+2. **Identifiants textuels contre index entiers.** Les identifiants Hostaway sont stockés en texte,
+   ce qui est correct, mais les index du moteur sont construits sur des entiers. La jointure
+   réservation ↔ payout échouait **sans erreur** : 231 payouts paraissaient absents et
+   **55 388,94 € disparaissaient des totaux**. La normalisation vit désormais dans `lib_db_moteur`,
+   une seule fois pour les trois lots.
+   *Gravité : élevée — perte de revenu invisible.*
+
+3. **`reservation_calc_id` positionnel.** La clé dépend de l'ordre de lecture. Trier par identifiant
+   plutôt que par ordre d'arrivée renumérotait chaque ligne sans changer un seul total : les agrégats
+   restaient justes et toutes les clés étaient décalées. Constaté deux fois — côté moteur puis côté
+   service applicatif, qui ordonnaient différemment la même extraction.
+   *Gravité : élevée — rattachements faux, agrégats justes. Point OUVERT : la clé devrait dériver de
+   l'identifiant de la réservation.*
+
+4. **Premier passage de Lot 4ter incapable de migrer l'historique.** Base vide et classeur rempli, il
+   traitait les 1 269 lignes du classeur comme déjà figées. La base restait vide en donnant
+   l'impression d'être à jour.
+   *Gravité : moyenne — migration silencieusement inopérante.*
+
+### Régressions introduites puis corrigées
+
+5. **Lots inutilisables sans base désignée.** Une base non désignée n'est pas une erreur : c'est un
+   lot lancé hors contexte applicatif. Refuser dans ce cas les rendait inutilisables partout où la
+   base n'est pas montée. Une base désignée mais inutilisable reste un échec.
+
+6. **Compteurs restés hors de la fonction de rapport extraite**, d'où un `NameError` après écriture.
+   Le rapport est désormais complet et identique dans les deux chemins de sortie.
+
+7. **Import de `lib_db_moteur` supposant le dossier du lot sur le chemin d'import**, vrai seulement
+   en exécution directe.
+
+### Tests corrigés
+
+Trois tests VRBO figeaient des volumes absolus (« 27 lignes = 32 live − 5 périmètre ») issus des
+masters réels ; ils vérifient maintenant la relation qui doit tenir. Un test affirmait qu'aucune
+table de réservation ne devait exister en SQLite — invariant daté de l'époque Excel, que la migration
+inverse ; il vérifie désormais que consulter un écran n'écrit rien. Un contrôle de données
+personnelles comparait des sous-chaînes et trouvait « guest » dans `guestCount`, qui est un nombre de
+personnes.
