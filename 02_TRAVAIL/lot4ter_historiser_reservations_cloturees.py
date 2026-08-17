@@ -22,14 +22,22 @@ Règles structurantes :
     Commission VRBO : assiette_commission = payout - coût ménage standard.
 
 Sources (lecture seule) :
-  - 02_TRAVAIL/Lot4bis_TableCommune/MASTER_CALC_Reservations.xlsx (onglet MASTER)
-  - 02_TRAVAIL/Lot1_Hostaway/MASTER_CALC_HA_Payout.xlsx (financiers HA)
+  - SQLite reservations_calculees (dataset courant) OU
+    02_TRAVAIL/Lot4bis_TableCommune/MASTER_CALC_Reservations.xlsx (onglet MASTER)
+  - SQLite hostaway_payouts OU 02_TRAVAIL/Lot1_Hostaway/MASTER_CALC_HA_Payout.xlsx
   - 01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm
         (REF_Cloture_Mensuelle, REF_Logements, REF_Couts_Standards_Menage)
   - 01_SOURCES_BRUTES/VRBO/IMPORT_UNIQUE_Revenus_*.csv (backfill ponctuel)
 
-Cible :
-  - 02_DONNEES_NORMALISEES/historique_reservations/HIST_Reservations_Cloturees.xlsx
+Cibles :
+  - SQLite reservations_historique_cloture (+ journal reservations_archives)  <- chemin normal
+  - 02_DONNEES_NORMALISEES/historique_reservations/HIST_Reservations_Cloturees.xlsx  <- parite
+
+L'UPSERT SANS SUPPRESSION VAUT AUSSI EN BASE
+Une ligne deja figee n'est jamais reecrite : l'insertion utilise INSERT OR IGNORE sur
+`cle_historisation`, et le journal des archivages distingue les lignes conservees des lignes
+ajoutees. Un recalcul du live ne peut donc pas modifier un mois clos, meme par accident — c'est la
+propriete que cette table existe pour garantir.
 """
 
 import sys
@@ -88,6 +96,19 @@ CANAL_MAP = {
     "MANUEL_HORS_HOSTAWAY": "HH",
     "OWNERSTAY_EXCLU": "OWNERSTAY",
 }
+
+
+import argparse  # noqa: E402  (place apres les constantes historiques du module)
+
+import lib_db_moteur as dbm  # noqa: E402
+
+
+def _rapport(rows_out, existing, added, vrbo_filled):
+    """Compteurs de sortie, identiques quel que soit le support ecrit."""
+    print(f"  lignes HIST totales        : {len(rows_out)}")
+    print(f"  conservées (déjà figées)   : {len(existing)}")
+    print(f"  nouvelles archivées        : {added}")
+    print(f"  backfill VRBO appliqués     : {vrbo_filled}")
 
 
 def norm(s):
@@ -196,12 +217,159 @@ def build_vrbo_backfill():
     return cagg
 
 
-def main():
+# Colonnes de reservations_historique_cloture, et le nom moteur correspondant. Le moteur nomme
+# `guestCount` et `ROW_HASH` ; la base nomme en snake_case.
+_COLS_HIST_SQL = (
+    "cle_historisation", "reservation_calc_id", "reservation_id_hostaway", "reservation_hh_id",
+    "canal", "logement_id", "proprietaire_id", "mois", "date_arrivee", "date_depart", "nuits",
+    "guest_count", "montant_retenu", "payout_calcule", "menage_retenu", "assiette_commission",
+    "code_impact", "impact_resultat_reel", "impact_resultat_comptable", "statut_controle",
+    "niveau_anomalie", "code_anomalie", "origine_initiale", "source_ligne", "source_montant",
+    "methode", "mois_cloture", "fige_le", "row_hash")
+_HIST_DEPUIS_MOTEUR = {"guest_count": "guestCount", "row_hash": "ROW_HASH"}
+
+# Colonnes lues dans reservations_calculees, et leur nom moteur.
+_COLS_LIVE_SQL = (
+    "reservation_calc_id", "row_hash", "source", "reservation_id_hostaway", "reservation_hh_id",
+    "mois", "logement_id", "proprietaire_id", "date_arrivee", "date_depart", "nuits",
+    "guest_count", "source_guest_count", "montant_retenu", "source_montant", "code_impact",
+    "impact_resultat_reel", "impact_resultat_comptable", "statut_controle", "niveau_anomalie",
+    "code_anomalie", "commentaire", "source_module", "source_table", "source_pk",
+    "date_integration")
+_LIVE_VERS_MOTEUR = {"row_hash": "ROW_HASH", "guest_count": "guestCount",
+                     "source_guest_count": "source_guestCount"}
+
+_COLS_PAY_SQL = (
+    "reservation_id", "statut_calcul_payout", "payout_calcule", "source_payout", "menage_retenu",
+    "assiette_commission", "menage_retenu_source", "logement_id_snapshot",
+    "type_logement_id_snapshot", "inclure_resultat_auto")
+
+
+# Traduction SQLite -> moteur, types d'identifiants compris (voir `lib_db_moteur.traduire`).
+_traduire = dbm.traduire
+
+
+def charger_live_sqlite(chemin_base):
+    """(reservations calculees, payouts) depuis le dataset courant. None si inutilisable."""
+    conn, message = dbm.verifier(
+        chemin_base, ("reservations_calculees", "reservations_datasets", "hostaway_payouts"))
+    if conn is None:
+        return None, message
+    try:
+        dataset = dbm.dataset_courant(conn, dbm.ETAPE_CALCULEES)
+        if not dataset:
+            return None, "aucun dataset de reservations calculees actif"
+        # Ordre d'insertion : l'historisation trie ses sorties, mais l'ordre de lecture influe sur
+        # l'ordre des lignes AJOUTEES a nombre egal. Le fixer rend deux executions comparables.
+        live = [_traduire(r, _LIVE_VERS_MOTEUR) for r in dbm.lignes(
+            conn, "reservations_calculees", _COLS_LIVE_SQL,
+            ou="dataset_id = ?", args=(dataset,), ordre="id")]
+        extraction = dbm.extraction_utilisable(conn)
+        pay = {}
+        if extraction:
+            for r in dbm.lignes(conn, "hostaway_payouts", _COLS_PAY_SQL,
+                                ou="extraction_id = ?", args=(extraction,), ordre="id"):
+                # Cle entiere : le live porte reservation_id_hostaway tel que le classeur le
+                # donnait, c'est-a-dire un entier. Une cle texte ne serait jamais trouvee.
+                pay[dbm.entier_si_possible(r["reservation_id"])] = r
+    finally:
+        conn.close()
+    return (live, pay), "%s (dataset %s : %d lignes, %d payouts)" % (
+        message, dataset, len(live), len(pay))
+
+
+def charger_existant_sqlite(chemin_base):
+    """Lignes deja figees, indexees par cle d'historisation. ({}, message) si base inutilisable."""
+    conn, message = dbm.verifier(chemin_base, ("reservations_historique_cloture",))
+    if conn is None:
+        return {}, message
+    try:
+        lignes = [_traduire(r, {v: k for k, v in _HIST_DEPUIS_MOTEUR.items()})
+                  for r in dbm.lignes(conn, "reservations_historique_cloture", _COLS_HIST_SQL,
+                                      ordre="id")]
+    finally:
+        conn.close()
+    return {l["cle_historisation"]: l for l in lignes}, message
+
+
+def ecrire_sqlite(chemin_base, lignes_par_cle, deja_figees, mois_traites):
+    """Archive les lignes NOUVELLES. Ne reecrit jamais une ligne deja figee.
+
+    `INSERT OR IGNORE` sur `cle_historisation` : meme si l'appelant transmettait par erreur une ligne
+    deja archivee avec des valeurs differentes, la base garderait la premiere. C'est la garantie
+    d'immutabilite, placee au niveau du schema plutot que confiee au code appelant.
+    """
+    import uuid
+
+    conn, message = dbm.verifier(
+        chemin_base, ("reservations_historique_cloture", "reservations_archives"))
+    if conn is None:
+        return None, message
+
+    archive_id = "ARC-" + uuid.uuid4().hex[:12].upper()
+    nouvelles = [l for cle, l in lignes_par_cle.items() if cle not in deja_figees]
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            if nouvelles:
+                trous = ", ".join(["?"] * (len(_COLS_HIST_SQL) + 1))
+                conn.executemany(
+                    "INSERT OR IGNORE INTO reservations_historique_cloture "
+                    "(archive_id, %s) VALUES (%s)" % (", ".join(_COLS_HIST_SQL), trous),
+                    [(archive_id, *(l.get(_HIST_DEPUIS_MOTEUR.get(c, c)) for c in _COLS_HIST_SQL))
+                     for l in nouvelles])
+            ajoutees = conn.execute(
+                "SELECT COUNT(*) FROM reservations_historique_cloture WHERE archive_id = ?",
+                (archive_id,)).fetchone()[0]
+            conn.execute(
+                "INSERT INTO reservations_archives (archive_id, mois_traites, nb_conservees, "
+                "nb_ajoutees, acteur) VALUES (?,?,?,?,?)",
+                (archive_id, ",".join(sorted(mois_traites)), len(deja_figees), ajoutees,
+                 "lot4ter"))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+    finally:
+        conn.close()
+    return archive_id, "%s (archive %s : %d deja en base, %d ajoutees)" % (
+        message, archive_id, len(deja_figees), ajoutees)
+
+
+def _analyser_arguments(argv=None):
+    parseur = argparse.ArgumentParser(
+        description="Lot 4ter — historisation des reservations des mois clotures")
+    parseur.add_argument("--source", choices=dbm.SOURCES, default=dbm.SOURCE_AUTO,
+                         help="Provenance du live et des payouts")
+    parseur.add_argument("--db", help="Base applicative (defaut : PILOTAGE_DB_PATH / APP_DATA_DIR)")
+    parseur.add_argument("--sans-excel", action="store_true",
+                         help="N'ecrit pas HIST_Reservations_Cloturees.xlsx")
+    parseur.add_argument("--sans-sqlite", action="store_true",
+                         help="N'ecrit pas reservations_historique_cloture (parite legacy seule)")
+    return parseur.parse_args(argv)
+
+
+def main(argv=None):
+    args = _analyser_arguments(argv)
+    chemin_base = dbm.chemin_db(args.db)
+
     cmonths = closed_months()
     print(f"[lot4ter] mois CLOTURE (REF_Cloture_Mensuelle) : {sorted(cmonths) or 'AUCUN'}")
 
-    res = load_sheet(PATH_RES, "MASTER")
-    pay = {r["reservation_id"]: r for r in load_sheet(PATH_PAY, "data")}
+    jeu = None
+    if args.source in (dbm.SOURCE_SQLITE, dbm.SOURCE_AUTO):
+        jeu, message = charger_live_sqlite(chemin_base)
+        if jeu is None and args.source == dbm.SOURCE_SQLITE:
+            print(f"[BLOQUANT] source SQLite demandee mais inutilisable : {message}")
+            sys.exit(1)
+        if jeu is not None:
+            print(f"      source : SQLite — {message}")
+    if jeu is None:
+        print("      source : masters Excel (parite legacy)")
+        res = load_sheet(PATH_RES, "MASTER")
+        pay = {r["reservation_id"]: r for r in load_sheet(PATH_PAY, "data")}
+    else:
+        res, pay = jeu
     cout_men = cout_menage_standard()
     vrbo = build_vrbo_backfill()
 
@@ -221,9 +389,18 @@ def main():
         if cand:
             vrbo_net[r["reservation_id_hostaway"]] = cand[0][1]
 
-    # HIST existant (upsert sans suppression)
+    # HIST existant (upsert sans suppression). La BASE fait foi quand elle est disponible : c'est
+    # elle qui porte desormais les lignes figees, et lire le classeur ferait ressusciter un etat
+    # anterieur si les deux avaient divergé.
     existing = {}
-    if os.path.exists(OUT_FILE):
+    figees_sqlite = {}
+    if not args.sans_sqlite:
+        figees_sqlite, message_existant = charger_existant_sqlite(chemin_base)
+        if figees_sqlite:
+            print(f"      deja figees en base : {len(figees_sqlite)} ({message_existant})")
+    if figees_sqlite:
+        existing = {cle: [l.get(c) for c in COLS] for cle, l in figees_sqlite.items()}
+    elif os.path.exists(OUT_FILE):
         for d in load_sheet(OUT_FILE, SHEET):
             existing[d["cle_historisation"]] = [d.get(c) for c in COLS]
     hist = dict(existing)
@@ -280,6 +457,26 @@ def main():
 
     rows_out = sorted(hist.values(), key=lambda x: (str(x[7]), str(x[8])))
 
+    # ── Ecriture SQLite (chemin normal) ──
+    if args.sans_sqlite:
+        print("\n[lot4ter] ecriture SQLite ignoree (--sans-sqlite).")
+    else:
+        par_cle = {ligne[0]: dict(zip(COLS, ligne)) for ligne in rows_out}
+        # La comparaison porte sur ce qui est deja EN BASE, pas sur ce que le classeur contenait.
+        # Confondre les deux ferait qu'un premier passage, base vide et classeur rempli, traiterait
+        # les 1 269 lignes historiques comme deja figees et n'archiverait rien : l'historique ne
+        # migrerait jamais, et la base resterait vide en donnant l'impression d'etre a jour.
+        archive_id, message = ecrire_sqlite(chemin_base, par_cle, figees_sqlite, cmonths)
+        if archive_id is None:
+            print(f"[BLOQUANT] ecriture SQLite impossible : {message}")
+            sys.exit(1)
+        print(f"\n[lot4ter] reservations_historique_cloture : {message}")
+
+    if args.sans_excel:
+        print("[lot4ter] classeur de parite non ecrit (--sans-excel).")
+        _rapport(rows_out, existing, added, vrbo_filled)
+        return
+
     os.makedirs(OUT_DIR, exist_ok=True)
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -292,12 +489,8 @@ def main():
         ws.append(r)
     wb.save(OUT_FILE)
 
-    by_canal = collections.Counter(r[4] for r in rows_out)
     print(f"\n[lot4ter] HIST écrit : {OUT_FILE}")
-    print(f"  lignes HIST totales        : {len(rows_out)}")
-    print(f"  conservées (déjà figées)   : {len(existing)}")
-    print(f"  nouvelles archivées        : {added}")
-    print(f"  backfill VRBO appliqués     : {vrbo_filled}")
+    _rapport(rows_out, existing, added, vrbo_filled)
     print(f"  lignes ignorées (non clôt.) : {skipped}")
     print(f"  par canal                  : {dict(by_canal)}")
     if not cmonths:

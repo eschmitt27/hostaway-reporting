@@ -15,8 +15,20 @@ Règle structurante :
     après clôture est conservée (réinjectée).
   - toute différence sur un mois clôturé (live vs HIST) => alerte (HIST prime, pas d'écrasement).
 
+Sources :
+  - SQLite reservations_calculees (dataset courant) + reservations_historique_cloture
+    + hostaway_payouts                                              <- chemin normal
+  - Classeurs MASTER_CALC_Reservations / HIST_Reservations_Cloturees / MASTER_CALC_HA_Payout
+                                                                    <- parite legacy
+
 Sorties :
-  - 02_TRAVAIL/Lot4quater_SourceResolue/MASTER_CALC_Reservations_Resolues.xlsx
+  - SQLite reservations_resolues, sous un dataset identifie          <- chemin normal
+  - 02_TRAVAIL/Lot4quater_SourceResolue/MASTER_CALC_Reservations_Resolues.xlsx  <- parite
+
+LA REGLE DE BASCULE N'EST PAS TOUCHEE
+Mois ouvert = live, mois cloture = historique, l'historique prime et n'est jamais ecrase. Seule la
+provenance des lignes change. C'est ce qui permet de comparer les deux chemins et de verifier que la
+migration ne deplace aucun montant.
 """
 
 import sys
@@ -73,6 +85,33 @@ SOURCE_FROM_CANAL = {
 }
 
 
+import argparse  # noqa: E402  (place apres les constantes historiques du module)
+
+import lib_db_moteur as dbm  # noqa: E402
+
+
+def _rapport(resolved, vue, n_open, n_closed, n_reinject, n_cloture_sans_hist, alertes, cmonths):
+    """Compteurs de sortie, identiques quel que soit le support ecrit.
+
+    Extrait en fonction parce que les deux chemins d'ecriture doivent afficher EXACTEMENT le meme
+    rapport : deux copies finiraient par diverger, et on ne saurait plus laquelle reflete la realite.
+    """
+    by_etat = collections.Counter(r["etat_mois"] for r in resolved)
+    print("  MASTER total           : %d" % len(resolved))
+    print("  VUE_FLUX               : %d" % len(vue))
+    print("  mois ouverts (live)    : %d" % n_open)
+    print("  mois clotures (HIST)   : %d" % n_closed)
+    print("  reinjectees (disparues live) : %d" % n_reinject)
+    print("  CLOTURE sans HIST (repli)    : %d" % n_cloture_sans_hist)
+    print("  par etat_mois          : %s" % dict(by_etat))
+    if alertes:
+        print("\n  ALERTES (%d) :" % len(alertes))
+        for a in alertes[:30]:
+            print("    %s" % (a,))
+    if not cmonths:
+        print("  NB : aucun mois CLOTURE -> Resolues = live integral (HIST non utilise).")
+
+
 def load_sheet(path, sheet):
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     ws = wb[sheet]
@@ -94,13 +133,134 @@ def closed_months():
     return out
 
 
-def main():
+# Colonnes lues dans reservations_calculees / reservations_historique_cloture, cote base, et leur
+# nom cote moteur.
+_COLS_LIVE_SQL = (
+    "reservation_calc_id", "row_hash", "source", "reservation_id_hostaway", "reservation_hh_id",
+    "mois", "logement_id", "proprietaire_id", "date_arrivee", "date_depart", "nuits",
+    "guest_count", "source_guest_count", "montant_retenu", "source_montant", "code_impact",
+    "impact_resultat_reel", "impact_resultat_comptable", "statut_controle", "niveau_anomalie",
+    "code_anomalie", "commentaire", "source_module", "source_table", "source_pk",
+    "date_integration")
+_LIVE_VERS_MOTEUR = {"row_hash": "ROW_HASH", "guest_count": "guestCount",
+                     "source_guest_count": "source_guestCount"}
+
+_COLS_HIST_SQL = (
+    "cle_historisation", "reservation_calc_id", "reservation_id_hostaway", "reservation_hh_id",
+    "canal", "logement_id", "proprietaire_id", "mois", "date_arrivee", "date_depart", "nuits",
+    "guest_count", "montant_retenu", "payout_calcule", "menage_retenu", "assiette_commission",
+    "code_impact", "impact_resultat_reel", "impact_resultat_comptable", "statut_controle",
+    "niveau_anomalie", "code_anomalie", "origine_initiale", "source_ligne", "source_montant",
+    "methode", "mois_cloture", "fige_le", "row_hash")
+_HIST_VERS_MOTEUR = {"row_hash": "ROW_HASH", "guest_count": "guestCount"}
+
+_COLS_PAY_SQL = ("reservation_id", "payout_calcule", "menage_retenu", "assiette_commission")
+
+# Colonnes de reservations_resolues, cote base, et leur nom cote moteur.
+_COLS_RESOLUES_SQL = (
+    "reservation_calc_id", "row_hash", "source", "reservation_id_hostaway", "reservation_hh_id",
+    "mois", "logement_id", "proprietaire_id", "date_arrivee", "date_depart", "nuits",
+    "guest_count", "source_guest_count", "montant_retenu", "source_montant", "code_impact",
+    "impact_resultat_reel", "impact_resultat_comptable", "statut_controle", "niveau_anomalie",
+    "code_anomalie", "commentaire", "source_module", "source_table", "source_pk",
+    "date_integration", "canal", "etat_mois", "origine_initiale", "source_ligne", "methode",
+    "payout_calcule", "menage_retenu", "assiette_commission")
+_RESOLUES_DEPUIS_MOTEUR = {"row_hash": "ROW_HASH", "guest_count": "guestCount",
+                           "source_guest_count": "source_guestCount"}
+
+
+# Traduction SQLite -> moteur, types d'identifiants compris (voir `lib_db_moteur.traduire`). Le live
+# porte `reservation_id_hostaway` et l'index des payouts est construit sur `reservation_id` : les DEUX
+# doivent etre des entiers, sinon la jointure echoue en silence et chaque payout parait absent.
+_traduire = dbm.traduire
+
+
+def charger_sqlite(chemin_base):
+    """(live, hist, payouts) depuis la base. None si inutilisable, avec la raison."""
+    conn, message = dbm.verifier(chemin_base, ("reservations_calculees", "reservations_datasets",
+                                              "reservations_historique_cloture",
+                                              "hostaway_payouts"))
+    if conn is None:
+        return None, message
+    try:
+        dataset = dbm.dataset_courant(conn, dbm.ETAPE_CALCULEES)
+        if not dataset:
+            return None, "aucun dataset de reservations calculees actif"
+        live = [_traduire(r, _LIVE_VERS_MOTEUR) for r in dbm.lignes(
+            conn, "reservations_calculees", _COLS_LIVE_SQL,
+            ou="dataset_id = ?", args=(dataset,), ordre="id")]
+        hist = [_traduire(r, _HIST_VERS_MOTEUR) for r in dbm.lignes(
+            conn, "reservations_historique_cloture", _COLS_HIST_SQL, ordre="id")]
+        extraction = dbm.extraction_utilisable(conn)
+        pay = {}
+        if extraction:
+            for r in dbm.lignes(conn, "hostaway_payouts", _COLS_PAY_SQL,
+                                ou="extraction_id = ?", args=(extraction,), ordre="id"):
+                pay[dbm.entier_si_possible(r["reservation_id"])] = r
+    finally:
+        conn.close()
+    return (live, hist, pay), "%s (dataset %s : %d live, %d hist, %d payouts)" % (
+        message, dataset, len(live), len(hist), len(pay))
+
+
+def ecrire_sqlite(chemin_base, resolved, extraction_id=""):
+    """Ecrit les lignes resolues dans un nouveau dataset. Une transaction."""
+    conn, message = dbm.verifier(chemin_base, ("reservations_datasets", "reservations_resolues"))
+    if conn is None:
+        return None, message
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            dataset_id = dbm.ouvrir_dataset(conn, dbm.ETAPE_RESOLUES, extraction_id=extraction_id)
+            dbm.ecrire_lignes(conn, "reservations_resolues", _COLS_RESOLUES_SQL, dataset_id,
+                              resolved, _RESOLUES_DEPUIS_MOTEUR)
+            nb = dbm.cloturer_dataset(conn, dataset_id, table="reservations_resolues")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+    finally:
+        conn.close()
+    return dataset_id, "%s (dataset %s : %d lignes)" % (message, dataset_id, nb)
+
+
+def _analyser_arguments(argv=None):
+    parseur = argparse.ArgumentParser(
+        description="Lot 4quater — resolution de la source des reservations")
+    parseur.add_argument("--source", choices=dbm.SOURCES, default=dbm.SOURCE_AUTO,
+                         help="Provenance du live, de l'historique et des payouts")
+    parseur.add_argument("--db", help="Base applicative (defaut : PILOTAGE_DB_PATH / APP_DATA_DIR)")
+    parseur.add_argument("--sans-excel", action="store_true",
+                         help="N'ecrit pas MASTER_CALC_Reservations_Resolues.xlsx")
+    parseur.add_argument("--sans-sqlite", action="store_true",
+                         help="N'ecrit pas reservations_resolues (parite legacy seule)")
+    return parseur.parse_args(argv)
+
+
+def main(argv=None):
     cmonths = closed_months()
     print(f"[lot4quater] mois CLOTURE : {sorted(cmonths) or 'AUCUN'}")
 
-    live = load_sheet(PATH_LIVE, "MASTER")
-    hist = load_sheet(PATH_HIST, "HIST_Reservations_Cloturees") if os.path.exists(PATH_HIST) else []
-    pay = {r["reservation_id"]: r for r in load_sheet(PATH_PAY, "data")} if os.path.exists(PATH_PAY) else {}
+    args = _analyser_arguments(argv)
+    chemin_base = dbm.chemin_db(args.db)
+
+    jeu = None
+    if args.source in (dbm.SOURCE_SQLITE, dbm.SOURCE_AUTO):
+        jeu, message = charger_sqlite(chemin_base)
+        if jeu is None and args.source == dbm.SOURCE_SQLITE:
+            print(f"[BLOQUANT] source SQLite demandee mais inutilisable : {message}")
+            sys.exit(1)
+        if jeu is not None:
+            print(f"[lot4quater] source : SQLite — {message}")
+    if jeu is None:
+        print("[lot4quater] source : classeurs legacy")
+        live = load_sheet(PATH_LIVE, "MASTER")
+        hist = (load_sheet(PATH_HIST, "HIST_Reservations_Cloturees")
+                if os.path.exists(PATH_HIST) else [])
+        pay = ({r["reservation_id"]: r for r in load_sheet(PATH_PAY, "data")}
+               if os.path.exists(PATH_PAY) else {})
+    else:
+        live, hist, pay = jeu
 
     hist_by_mois = collections.defaultdict(list)
     for h in hist:
@@ -225,6 +385,23 @@ def main():
            and r.get("impact_resultat_reel") == "OUI"
            and (r.get("montant_retenu") or 0) != 0]
 
+    # ── Ecriture SQLite (chemin normal) ──
+    if args.sans_sqlite:
+        print("\n[lot4quater] ecriture SQLite ignoree (--sans-sqlite).")
+    else:
+        dataset_id, message = ecrire_sqlite(chemin_base, resolved)
+        if dataset_id is None:
+            print("[BLOQUANT] ecriture SQLite impossible : %s" % message)
+            sys.exit(1)
+        print("\n[lot4quater] reservations_resolues : %s" % message)
+
+    # ── Ecriture Excel (parite legacy, temporaire) ──
+    if args.sans_excel:
+        print("[lot4quater] classeur de parite non ecrit (--sans-excel).")
+        _rapport(resolved, vue, n_open, n_closed, n_reinject, n_cloture_sans_hist, alertes,
+                 cmonths)
+        return
+
     os.makedirs(OUT_DIR, exist_ok=True)
     wb = openpyxl.Workbook()
     ws_m = wb.active
@@ -242,21 +419,9 @@ def main():
             c.fill = PatternFill("solid", fgColor="DDDDDD")
     wb.save(OUT_FILE)
 
-    by_etat = collections.Counter(r["etat_mois"] for r in resolved)
     print(f"\n[lot4quater] Resolues écrit : {OUT_FILE}")
-    print(f"  MASTER total           : {len(resolved)}")
-    print(f"  VUE_FLUX               : {len(vue)}")
-    print(f"  mois ouverts (live)    : {n_open}")
-    print(f"  mois clôturés (HIST)   : {n_closed}")
-    print(f"  réinjectées (disparues live) : {n_reinject}")
-    print(f"  CLOTURE sans HIST (repli)    : {n_cloture_sans_hist}")
-    print(f"  par etat_mois          : {dict(by_etat)}")
-    if alertes:
-        print(f"\n  ALERTES ({len(alertes)}) :")
-        for a in alertes[:30]:
-            print(f"    {a}")
-    if not cmonths:
-        print("  NB : aucun mois CLOTURE -> Resolues = live intégral (HIST non utilisé).")
+    _rapport(resolved, vue, n_open, n_closed, n_reinject, n_cloture_sans_hist, alertes,
+             cmonths)
 
 
 if __name__ == "__main__":

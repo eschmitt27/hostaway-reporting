@@ -189,38 +189,9 @@ _CALC_DEPUIS_MOTEUR = {"row_hash": "ROW_HASH", "guest_count": "guestCount",
                        "source_guest_count": "source_guestCount"}
 
 
-# Identifiants que le moteur manipule comme des ENTIERS.
-#
-# La couche RAW les stocke en TEXTE, et c'est correct : un identifiant externe n'est pas un nombre, le
-# comparer numeriquement n'a pas de sens et un zero non significatif serait perdu. Mais les index du
-# moteur (mapping REF_Mapping_Logements, index payout) sont construits sur des cles ENTIERES, telles
-# que le classeur les fournissait. Rendre une chaine ferait echouer chaque recherche en silence — et
-# ici pas en silence : le premier listingMapId non trouve arrete le script sur LOGEMENT_NON_MAPPE.
-#
-# On restitue donc a la frontiere le type que le moteur attend, sans changer sa logique.
-_IDS_ENTIERS = ("reservation_id", "listingMapId")
-
-
-def _entier_si_possible(valeur):
-    """Entier quand la valeur en est un, sinon la valeur telle quelle."""
-    if valeur is None or isinstance(valeur, int):
-        return valeur
-    texte = str(valeur).strip()
-    if not texte:
-        return valeur
-    try:
-        return int(texte)
-    except ValueError:
-        return valeur
-
-
-def _traduire(ligne, correspondance):
-    """Renomme les cles d'une ligne SQLite vers le vocabulaire du moteur, types compris."""
-    traduite = {correspondance.get(k, k): v for k, v in ligne.items()}
-    for cle in _IDS_ENTIERS:
-        if cle in traduite:
-            traduite[cle] = _entier_si_possible(traduite[cle])
-    return traduite
+# La traduction SQLite -> moteur, types d'identifiants compris, vit dans `lib_db_moteur` : les trois
+# lots de la chaine reservations en ont besoin, et trois copies finiraient par diverger.
+_traduire = dbm.traduire
 
 
 def charger_hostaway_sqlite(chemin_base):

@@ -63,6 +63,41 @@ def ouvrir(chemin: Path) -> sqlite3.Connection:
     return conn
 
 
+# Identifiants Hostaway : TEXTE en base, ENTIERS cote moteur.
+#
+# Stocker un identifiant externe en texte est correct — le comparer numeriquement n'a pas de sens et
+# un zero non significatif serait perdu. Mais tous les index du moteur ont ete construits sur les
+# valeurs que le classeur fournissait, c'est-a-dire des entiers : mapping des logements, index des
+# payouts, rapprochement live/historique. Une cle texte n'y est jamais trouvee, et l'echec est
+# SILENCIEUX — le payout apparait simplement absent, et un revenu disparait sans erreur.
+#
+# On restitue donc le type attendu a la frontiere, sans changer la logique du moteur.
+IDS_HOSTAWAY = ("reservation_id", "reservation_id_hostaway", "listingMapId", "listing_map_id")
+
+
+def entier_si_possible(valeur):
+    """Entier quand la valeur en est un, sinon la valeur telle quelle."""
+    if valeur is None or isinstance(valeur, int):
+        return valeur
+    texte = str(valeur).strip()
+    if not texte:
+        return valeur
+    try:
+        return int(texte)
+    except ValueError:
+        return valeur
+
+
+def traduire(ligne: dict[str, Any], correspondance: dict[str, str] | None = None) -> dict[str, Any]:
+    """Renomme les cles d'une ligne SQLite vers le vocabulaire moteur, types d'identifiants compris."""
+    correspondance = correspondance or {}
+    traduite = {correspondance.get(k, k): v for k, v in ligne.items()}
+    for cle in IDS_HOSTAWAY:
+        if cle in traduite:
+            traduite[cle] = entier_si_possible(traduite[cle])
+    return traduite
+
+
 def table_presente(conn: sqlite3.Connection, nom: str) -> bool:
     return bool(conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (nom,)).fetchone())

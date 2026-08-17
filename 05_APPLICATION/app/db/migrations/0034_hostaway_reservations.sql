@@ -295,54 +295,68 @@ CREATE INDEX IF NOT EXISTS idx_res_res_logement ON reservations_resolues(dataset
 -- plus à un recalcul, elles appartiennent au mois. Un recalcul ultérieur produit un nouveau dataset
 -- et ne touche pas cette table — c'est ce qui garantit qu'un mois clos ne change pas en silence.
 --
--- La clé est (mois, reservation_calc_id) : une réservation est archivée une fois pour son mois. Une
--- réarchivage du même mois est un remplacement EXPLICITE, tracé par `archive_id`, jamais un ajout
--- silencieux qui doublerait les montants.
+-- LA CLÉ EST `cle_historisation`, PAS `reservation_calc_id`
+-- Le moteur archive sur l'identifiant Hostaway quand il existe, et sur `reservation_calc_id`
+-- seulement à défaut (réservations hors Hostaway). La raison est solide : `reservation_calc_id` est
+-- positionnel (`RES-<mois>-HA-<n>`), donc il se déplace si l'ordre d'extraction change, alors qu'une
+-- ligne archivée doit rester retrouvable pour toujours. Prendre la clé calc comme clé d'archive
+-- aurait fait qu'un réordonnancement des sources rattache un montant figé à la mauvaise réservation.
 CREATE TABLE IF NOT EXISTS reservations_historique_cloture (
     id                        INTEGER PRIMARY KEY AUTOINCREMENT,
     archive_id                TEXT NOT NULL,   -- ARC-xxxx : quelle opération d'archivage a écrit
-    mois                      TEXT NOT NULL,
-    reservation_calc_id       TEXT NOT NULL,
-    source                    TEXT,
+    cle_historisation         TEXT NOT NULL,
+    reservation_calc_id       TEXT,
     reservation_id_hostaway   TEXT,
     reservation_hh_id         TEXT,
+    canal                     TEXT,
     logement_id               TEXT,
     proprietaire_id           TEXT,
+    mois                      TEXT NOT NULL,
     date_arrivee              TEXT,
     date_depart               TEXT,
     nuits                     INTEGER,
     guest_count               INTEGER,
     montant_retenu            REAL,
-    source_montant            TEXT,
     payout_calcule            REAL,
     menage_retenu             REAL,
     assiette_commission       REAL,
     code_impact               TEXT,
+    impact_resultat_reel      TEXT,
+    impact_resultat_comptable TEXT,
     statut_controle           TEXT,
     niveau_anomalie           TEXT,
     code_anomalie             TEXT,
-    canal                     TEXT,
-    provenance                TEXT,   -- dataset d'origine : d'où venaient ces valeurs
+    origine_initiale          TEXT,
+    source_ligne              TEXT,
+    source_montant            TEXT,
+    methode                   TEXT,
+    mois_cloture              TEXT,
+    fige_le                   TEXT,
+    row_hash                  TEXT,
     date_archivage            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
+-- Une réservation est archivée UNE FOIS, pour toujours. La contrainte porte sur la seule clé
+-- d'historisation, sans le mois : une réservation ne doit pas pouvoir être archivée deux fois sous
+-- deux mois différents, ce qui compterait son montant deux fois dans les résultats annuels.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_res_hist_unique
-    ON reservations_historique_cloture(mois, reservation_calc_id);
+    ON reservations_historique_cloture(cle_historisation);
+CREATE INDEX IF NOT EXISTS idx_res_hist_mois ON reservations_historique_cloture(mois);
 CREATE INDEX IF NOT EXISTS idx_res_hist_archive
     ON reservations_historique_cloture(archive_id);
 
 -- Journal des archivages : qui a figé quel mois, depuis quel dataset, et combien de lignes. Sans
--- cela, un remplacement d'archive serait indétectable après coup.
+-- cela, un archivage supplémentaire sur un mois déjà clos serait indétectable après coup.
 CREATE TABLE IF NOT EXISTS reservations_archives (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     archive_id      TEXT NOT NULL UNIQUE,
-    mois            TEXT NOT NULL,
+    mois_traites    TEXT,     -- mois concernés par cette opération, séparés par des virgules
     dataset_id      TEXT,
-    nb_lignes       INTEGER NOT NULL DEFAULT 0,
-    remplace        TEXT,     -- archive_id remplacée, si ce mois avait déjà été archivé
+    nb_conservees   INTEGER NOT NULL DEFAULT 0,   -- lignes déjà figées, laissées intactes
+    nb_ajoutees     INTEGER NOT NULL DEFAULT 0,
     motif           TEXT,
     acteur          TEXT,
     date_archivage  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
-CREATE INDEX IF NOT EXISTS idx_res_archives_mois ON reservations_archives(mois, date_archivage);
+CREATE INDEX IF NOT EXISTS idx_res_archives_date ON reservations_archives(date_archivage);
 
 INSERT OR IGNORE INTO schema_migrations (version) VALUES ('0034');
