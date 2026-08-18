@@ -103,6 +103,8 @@ EXPECTED_TABLES = {
     "reservations_resolues",                    # 0034 — Lot4quater, après bascule mois clos
     "reservations_historique_cloture",          # 0034 — valeurs figées, hors de tout dataset
     "reservations_archives",                    # 0034 — journal des archivages
+    "hostaway_cleaning_tasks_extractions",      # 0035 — CleaningTasks (Lot6a), registre RAW
+    "hostaway_cleaning_tasks",                  # 0035 — CleaningTasks (Lot6a), tâches brutes
 }
 
 
