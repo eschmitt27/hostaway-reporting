@@ -470,3 +470,49 @@ fichier sans supprimer la dépendance.
 - Migrer Lot 9, Lot 10 et Lot 11, ce qui supprimera les deux adaptateurs de workspace.
 - Chaîne suivante : **ménages** (les tâches de ménage Hostaway restent hors périmètre, avec leur
   limitation de débit connue).
+
+## 14. Mise à jour — Ménages (Lot6) : moteur sorti d'Excel, application pas encore
+
+### 14.1 Ce qui a été fait
+
+CleaningTasks Hostaway : couche RAW SQLite (`hostaway_cleaning_tasks`, migration 0035) — API H6 non
+relancée en réel cette mission (429 connus), RAW alimentée via reprise/fixtures.
+
+PDF facture prestataire ménage externe → SQLite direct : `facture_menage_pdf_service` adapte la
+sortie de `lib_menages_externes_pdf.extraire_pdf` (extracteur réel, non réécrit) vers
+`factures`/`facture_lignes_menage` (0037), sans passer par le module Charges (`facture_lignes`,
+0022, exige un `charge_id` résolu par un écrivain Excel encore non migré — décision explicite :
+satellite plutôt que dépendance croisée). Ventilation des frais externes sans logement, contrôle
+somme lignes = total facture, dette intervenant interne (FIFO, réutilise
+`compte_proprietaire_service.calculer_fifo`, tables séparées du compte propriétaire) : construits et
+testés (migrations 0036/0037/0039).
+
+Lot6a→6f (moteur pandas) : chaque script accepte `--source SQLITE` en plus du chemin Excel
+historique (conservé pour parité, encore nécessaire à Lot9-12 non migrés). Sorties dans
+`menages_taches_enrichies`/`menages_declarations_internes`/`menages_rapprochement`/
+`menages_gainperte`/`menages_cout_complet` (migration 0038). Formules et clé de ventilation
+inchangées. Deux bugs pré-existants trouvés et corrigés en le faisant (`proprietaire_id` inexistant
+sur `REF_Logements`, mapping intervenant en dur dans lot6f) — détail dans JOURNAL_ANOMALIES.md.
+
+### 14.2 Ce qui n'a PAS été fait
+
+Les 5 lecteurs applicatifs (`menages_reader`, `menages_chaine_service`, `menages_recalcul_service`,
+`controles_runner_service`, `controles_detail_reader`) restent sur Excel. À l'examen :
+
+- `menages_chaine_service` et `controles_runner_service` orchestrent la chaîne Excel complète
+  jusqu'à Lot9-12 (non migrés, hors périmètre explicite de cette mission) — les migrer isolément
+  aurait nécessité de commencer Lot9-12.
+- `menages_reader.py` a une réécriture SQLite complète possible et déjà rédigée, mais elle casse 34
+  tests d'un corpus existant de ~1125 lignes (`test_menages.py`, `test_menages_rapprochement.py`) ;
+  annulée (`git checkout`, non committée) faute de budget pour réécrire ce corpus correctement.
+
+Excel entre Lots6 : toujours présent (M04, MASTER_FACT_MEN_MenagesExternes, classeurs Lot6d/e/f
+legacy). Excel application Ménages : toujours présent (5 lecteurs).
+
+### 14.3 Ce qui reste à faire
+
+- Réécrire les tests `menages_reader` pour un contrat SQLite, puis basculer le lecteur.
+- Adapter `menages_chaine_service`/`controles_runner_service` à la frontière Lot9-12 (adaptateur
+  SQLite → workbook jetable, même mécanique que Lot8c/Lot11 pour Hostaway/Banque) sans commencer la
+  migration de Lot9-12 elle-même.
+- Chaîne suivante après Ménages : **Lot9 → SQLite**, puis **Lot10 → SQLite**.

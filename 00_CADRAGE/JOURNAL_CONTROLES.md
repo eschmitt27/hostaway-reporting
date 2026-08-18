@@ -3738,3 +3738,51 @@ Copie de la base réelle 0016 → HEAD : 34 versions, `integrity_check` **ok**, 
 ### Tests
 
 Moteur 318 passed. Application 2 809 passed / 27 skipped. **0 failed.**
+
+## Migration Ménages / Lot6 (2026-08-18)
+
+### Lot6a→6f — SQLite
+
+Chaque Lot accepte `--source SQLITE` en plus du chemin Excel historique (inchangé, conservé pour
+parité). Formules et clés de ventilation non réécrites : seules les entrées/sorties changent de
+support.
+
+- Lot6a : lit `hostaway_cleaning_tasks` (RAW, 0035) + référentiels déjà importés (0029) au lieu de
+  l'API/REF_Setup.xlsm. Écrit `menages_taches_enrichies` (0038).
+- Lot6b : écrit `menages_declarations_internes` (0038) en plus du classeur M04 (conservé, sert
+  encore Lot9-12 non migrés).
+- Lot6d : lit Tasks (6a SQLite), déclarations (6b SQLite), factures ménage externes
+  (`facture_lignes_menage`, 0037/0039 — bridge Lot6c). Écrit `menages_rapprochement` (0038). Mois
+  sans valeur codée en dur : `--mois` explicite, sinon dernier mois présent dans les tâches.
+- Lot6e : mêmes sources d'entrée que 6d + référentiels de coûts (0029). Écrit `menages_gainperte`
+  (0038). Formule inchangée (`ecart = cout_standard_total - cout_reel_total`).
+- Lot6f : idem, plus la mécanique de quote-parts (cave/lavage/courses/conso) inchangée. Le fetch
+  réseau Google Sheet (lavage) est remplacé par une lecture de `menages_declarations_internes`
+  (déjà calculé par 6b) — plus d'appel réseau redondant sur ce chemin. `SAISIE_Charges_Flux.xlsx`
+  (module Charges, hors périmètre) reste lu en Excel dans les deux chemins. Écrit
+  `menages_cout_complet` (0038).
+
+Vérifications ciblées par Lot : COUNT, quelques IDs, rejeu sans doublon (DELETE+INSERT par mois),
+refus propre sans base désignée. Tous verts (voir commits `e790460`..`81f7ea3`).
+
+### Pont Lot6c (PDF → SQLite)
+
+Construit lors de la mission précédente (`facture_menage_pdf_service`), non retouché ici — Lot6d/e/f
+lisent directement `facture_lignes_menage`/`facture_lignes_menage_detail` (0037/0039, `quantite`
+ajoutée cette session : absente de 0037, nécessaire pour compter des ménages plutôt que des euros).
+
+### Non couvert — 5 lecteurs applicatifs
+
+`menages_reader`/`menages_chaine_service`/`menages_recalcul_service`/`controles_runner_service`/
+`controles_detail_reader` : examinés, non migrés. `menages_chaine_service` et
+`controles_runner_service` orchestrent la chaîne Excel complète jusqu'à Lot9-12 (non migrés,
+explicitement hors périmètre) — les migrer isolément aurait exigé de commencer Lot9-12. Une
+réécriture complète de `menages_reader.py` a été testée puis annulée : elle cassait 34 tests sur un
+corpus existant de ~1125 lignes, sans budget restant pour les réécrire proprement. Cf.
+JOURNAL_ANOMALIES.md pour le détail.
+
+### Migrations et isolation
+
+Migrations 0035→0039 additives. Copie de la base réelle 0016 → HEAD (0039) : `integrity_check`
+**ok**, `foreign_key_check` **ok**, rejeu ×2 sans erreur. Base réelle **inchangée**. Deux instances
+`APP_DATA_DIR` (A/B, données ménages différentes) : aucune contamination croisée constatée.

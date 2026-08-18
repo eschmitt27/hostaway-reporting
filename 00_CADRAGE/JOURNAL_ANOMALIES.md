@@ -1313,3 +1313,52 @@ table de réservation ne devait exister en SQLite — invariant daté de l'époq
 inverse ; il vérifie désormais que consulter un écran n'écrit rien. Un contrôle de données
 personnelles comparait des sous-chaînes et trouvait « guest » dans `guestCount`, qui est un nombre de
 personnes.
+
+## Migration Ménages / Lot6 (2026-08-18)
+
+### Anomalies pré-existantes trouvées
+
+8. **`lot6a_cleaning_tasks_comptage.py` lisait un `proprietaire_id` inexistant sur
+   `REF_Logements`.** Vérifié sur le classeur réel : la colonne n'existe pas (ni dans le classeur, ni
+   dans le catalogue SQLite 0029). `load_ref_logements()` levait donc une `ValueError` dès qu'il
+   tentait de s'exécuter contre le référentiel réel — ce chemin n'avait jamais tourné en production
+   avec ce code. Corrigé : le propriétaire se résout désormais par période via
+   `REF_Gestion_Logements_Hist` (`resolve_management_period`), même mécanisme que lot4bis pour les
+   réservations. Même défaut trouvé et corrigé de la même façon dans `lot6e`/`lot6f`.
+   *Gravité : élevée — ce chemin de code était mort en production, silencieusement.*
+
+9. **`lot6f_cout_complet_menages.py` mappait les prénoms d'intervenants en dur** (`INTMAP = {"imene":
+   "INT_0001", "kira": "INT_0002", "kheira": "INT_0002"}`) — exactement le défaut que lot6b avait déjà
+   corrigé ailleurs (ANO-2026-07-28-01, mapping via `REF_Intervenants.nom_normalise`), jamais reporté
+   ici. Le chemin SQLite (source `menages_declarations_internes`, déjà résolu par lot6b) élimine ce
+   mapping en dur sans le reporter.
+   *Gravité : moyenne — fictif/jeu de test uniquement, aucun intervenant réel autre que les 3 codés.*
+
+### Régressions introduites puis corrigées
+
+10. **Deux blocs de `lot6d` relisaient encore inconditionnellement les classeurs Excel legacy**
+    (ménages externes, ménages internes) après l'ajout du branchement `--source SQLITE`, écrasant
+    silencieusement les listes déjà construites depuis la base. Invisible tant qu'aucun test ne
+    comparait le résultat à un cas construit avec des identifiants attendus précis — les totaux
+    auraient semblé plausibles (0 lignes externes) sans jamais alerter.
+    *Gravité : élevée — aurait rendu le rapprochement SQLite silencieusement incomplet.*
+
+11. **Import `lib_menage_costs` placé avant l'ajout de `02_TRAVAIL` à `sys.path`** dans `lot6f`, sous
+    `runpy`/pytest (fonctionnait par accident en exécution directe, où Python ajoute déjà le
+    répertoire du script). Réordonné : `sys.path.insert` avant tout import local.
+
+12. **`menages_recalcul_service.SCRIPTS_A_COPIER` ne copiait pas `lib_db_moteur.py`** dans le
+    workspace isolé : `lot6d`/`lot6e` l'important désormais inconditionnellement, le recalcul sur
+    copies sortait en rc=1 avant d'atteindre son propre code, même en mode Excel par défaut. Trouvé
+    et corrigé pendant la revue (non par l'exécution du travail lui-même).
+
+### Périmètre non couvert cette session — pourquoi
+
+Les 5 lecteurs applicatifs cités par la mission (`menages_reader`, `menages_chaine_service`,
+`menages_recalcul_service`, `controles_runner_service`, `controles_detail_reader`) se sont révélés,
+à l'examen, plus profondément couplés à la chaîne Lot9-12 (non migrée, explicitement hors périmètre)
+et à un corpus de tests existant (~1125 lignes rien que pour `menages_reader`) qu'une migration
+« Excel → SQLite » isolée. Une tentative de réécriture complète de `menages_reader.py` a été menée,
+testée, puis **délibérément annulée** (`git checkout` du fichier, aucun commit) après avoir constaté
+qu'elle cassait 34 tests existants sans qu'il reste de budget pour les réécrire correctement — mieux
+vaut un lecteur Excel qui fonctionne qu'un lecteur SQLite qui casse la suite de tests en place.

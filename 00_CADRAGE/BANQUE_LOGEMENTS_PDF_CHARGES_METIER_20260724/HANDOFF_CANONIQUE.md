@@ -1851,3 +1851,24 @@ et un futur déclenchement automatique empruntent le même chemin.
 **Chaîne suivante : ménages.**
 
 Détail complet : document `95` (§13).
+
+## Mise à jour 2026-08-18 (suite) — Ménages : moteur en SQLite, application pas encore
+
+**Lot6a→6f acceptent `--source SQLITE`** en plus du chemin Excel historique (conservé, sert encore
+Lot9-12 non migrés). Sorties : `menages_taches_enrichies`/`menages_declarations_internes`/
+`menages_rapprochement`/`menages_gainperte`/`menages_cout_complet` (migration 0038). Formules et clé
+de ventilation inchangées.
+
+**Facture PDF ménage externe → SQLite direct** (mission précédente, non retouché) : PDF → `factures`/
+`facture_lignes_menage` (0037/0039), sans passer par le module Charges (encore Excel). Ventilation
+des frais sans logement, contrôle facture, dette intervenant interne FIFO : construits, testés.
+
+**Cinq lecteurs applicatifs NON migrés** (`menages_reader`, `menages_chaine_service`,
+`menages_recalcul_service`, `controles_runner_service`, `controles_detail_reader`) — deux d'entre eux
+orchestrent la chaîne Excel jusqu'à Lot9-12 (hors périmètre), et `menages_reader` a une réécriture
+SQLite déjà rédigée mais annulée : elle casse 34 tests d'un corpus de ~1125 lignes, sans budget
+restant pour les réécrire. Excel entre Lots6 et Excel application Ménages : tous deux encore présents.
+
+**Chaîne suivante : terminer les 5 lecteurs Ménages, puis Lot9 → SQLite.**
+
+Détail complet : document `95` (§14).
