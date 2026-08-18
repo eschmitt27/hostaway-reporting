@@ -111,6 +111,7 @@ EXPECTED_TABLES = {
     "intervenant_menage_paiements",             # 0036 — compte intervenant interne, sources
     "intervenant_menage_allocations",           # 0036 — compte intervenant interne, FIFO
     "intervenant_menage_recalculs",             # 0036 — compte intervenant interne, journal
+    "facture_lignes_menage",                    # 0037 — lignes facture menage, sans charge_id Excel
 }
 
 

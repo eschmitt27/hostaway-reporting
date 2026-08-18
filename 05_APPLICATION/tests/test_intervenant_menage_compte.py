@@ -3,14 +3,13 @@
 Le test 36 de la mission fixe l'exemple : 3 ménages validés à 30€ = dette 90€, paiement 50€ →
 reste 40€, dette suivante 60€, paiement 80€ → ancienne dette (40) soldée + 40 sur la nouvelle,
 nouvelle dette restante 20€. Testé ici directement sur `intervenant_menage_dettes`/`recalculer`
-(le calcul du tarif lui-même — `tarif_menage` — est testé séparément, sur un référentiel REF_Setup
-fictif, pour ne pas dépendre d'un fichier réel dans ce test).
+(le calcul du tarif lui-même — `tarif_menage` — est testé séparément, sur `ref_couts_menage_interne`
+en SQLite, comme au runtime réel — plus de lecture REF_Setup.xlsm à ce niveau).
 """
 from __future__ import annotations
 
 import uuid
 
-import openpyxl
 import pytest
 
 from app.db.connection import get_db
@@ -83,53 +82,45 @@ def test_recalcul_idempotent(tmp_db):
     assert len(a["allocations"]) == len(b["allocations"]) == 1
 
 
-# ── Tarif : résolu via REF_Couts_Menage_Interne, jamais inventé ────────────────────────────────────
+# ── Tarif : résolu via ref_couts_menage_interne (SQLite), jamais inventé ────────────────────────────
 
-def _ref_setup_fictif(tmp_path):
-    chemin = tmp_path / "REF_Setup.xlsm"
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = compte.SHEET_TARIF
-    ws.append(["cout_interne_id", "intervenant_id", "logement_id", "type_logement_id", "actif",
-               "date_debut_validite", "date_fin_validite", "montant_interne_standard", "priorite"])
-    ws.append(["CIM_0001", "", "", "", "OUI", "2026-01-01", "", 30.0, None])
-    wb.save(chemin)
-    wb.close()
-    return chemin
+def _importer_referentiel(db_path, *, avec_tarif=True):
+    """Simule un import REF_Setup abouti : une ligne `ref_setup_imports` IMPORTE, et si demandé une
+    ligne de tarif interne standard (30€, valide depuis 2026-01-01, sans restriction)."""
+    conn = get_db(db_path)
+    try:
+        conn.execute(
+            "INSERT INTO ref_setup_imports (import_id, horodatage, chemin_source, "
+            "empreinte_source, statut) VALUES (?,?,?,?,?)",
+            ("IMP-TEST-0001", "2026-08-18T00:00:00Z", "REF_Setup.xlsm", "TEST", "IMPORTE"))
+        if avec_tarif:
+            conn.execute(
+                "INSERT INTO ref_couts_menage_interne (cout_menage_interne_id, actif, "
+                "date_debut_validite, montant_interne_standard, import_id) VALUES (?,?,?,?,?)",
+                ("CIM_0001", "OUI", "2026-01-01", "30.0", "IMP-TEST-0001"))
+        conn.commit()
+    finally:
+        conn.close()
 
 
-def test_tarif_menage_resolu_depuis_ref_couts_menage_interne(tmp_path, tmp_db, monkeypatch):
-    chemin = _ref_setup_fictif(tmp_path)
-    import app.config as cfg
-    monkeypatch.setattr(cfg, "REF_SETUP", chemin)
+def test_tarif_menage_resolu_depuis_ref_couts_menage_interne(tmp_db):
+    _importer_referentiel(tmp_db)
 
     resultat = compte.tarif_menage(INTERVENANT, "LOG_0001", "2026-07-01", db_path=tmp_db)
     assert resultat["statut"] == "OK"
     assert resultat["montant"] == 30.0
 
 
-def test_tarif_absent_ne_devine_rien(tmp_path, tmp_db, monkeypatch):
-    chemin = tmp_path / "REF_Setup.xlsm"
-    wb = openpyxl.Workbook()
-    wb.active.title = compte.SHEET_TARIF
-    wb.save(chemin)
-    wb.close()
-    import app.config as cfg
-    monkeypatch.setattr(cfg, "REF_SETUP", chemin)
+def test_tarif_absent_ne_devine_rien(tmp_db):
+    _importer_referentiel(tmp_db, avec_tarif=False)
 
     resultat = compte.tarif_menage(INTERVENANT, "LOG_0001", "2026-07-01", db_path=tmp_db)
     assert resultat["statut"] == "MISSING"
     assert resultat["montant"] is None
 
 
-def test_generer_dettes_marque_a_controler_sans_tarif(tmp_path, tmp_db, monkeypatch):
-    chemin = tmp_path / "REF_Setup.xlsm"
-    wb = openpyxl.Workbook()
-    wb.active.title = compte.SHEET_TARIF
-    wb.save(chemin)
-    wb.close()
-    import app.config as cfg
-    monkeypatch.setattr(cfg, "REF_SETUP", chemin)
+def test_generer_dettes_marque_a_controler_sans_tarif(tmp_db):
+    _importer_referentiel(tmp_db, avec_tarif=False)
 
     conn = get_db(tmp_db)
     try:
@@ -148,10 +139,8 @@ def test_generer_dettes_marque_a_controler_sans_tarif(tmp_path, tmp_db, monkeypa
     assert compte.dettes(INTERVENANT, db_path=tmp_db) == []
 
 
-def test_generer_dettes_idempotent_pas_de_doublon(tmp_path, tmp_db, monkeypatch):
-    chemin = _ref_setup_fictif(tmp_path)
-    import app.config as cfg
-    monkeypatch.setattr(cfg, "REF_SETUP", chemin)
+def test_generer_dettes_idempotent_pas_de_doublon(tmp_db):
+    _importer_referentiel(tmp_db)
 
     conn = get_db(tmp_db)
     try:

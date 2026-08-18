@@ -9,9 +9,9 @@ précis N'EST PAS géré ici : il passe par le module Charges existant (§15/§3
 TARIF
 Résolu via `lib_menage_costs.resolve_fixed_internal_cost` (02_TRAVAIL, déjà existant, réutilisé tel
 quel — priorité intervenant+logement > logement > intervenant+type > type > global, date-aware) sur
-le référentiel `REF_Couts_Menage_Interne` de REF_Setup.xlsm, lu en lecture seule comme le fait déjà
-Lot6f. Absent ou ambigu : la dette n'est PAS créée, le ménage reste marqué A_CONTROLER_METIER — le
-montant n'est jamais inventé.
+le référentiel `REF_Couts_Menage_Interne`, lu depuis `ref_setup_repo` (migration 0029 : REF_Setup
+importé une fois en SQLite, plus jamais lu depuis le classeur au runtime). Absent ou ambigu : la
+dette n'est PAS créée, le ménage reste marqué A_CONTROLER_METIER — le montant n'est jamais inventé.
 
 FIFO
 Réutilise `compte_proprietaire_service.calculer_fifo` (fonction PURE, générique sur les clés
@@ -22,7 +22,6 @@ objets métier restent totalement séparés (§20) — un intervenant ménage n'
 from __future__ import annotations
 
 import hashlib
-import os
 import sys
 import uuid
 from datetime import datetime
@@ -30,7 +29,7 @@ from typing import Any
 
 import app.config as cfg
 from app.db.connection import get_db
-from app.readers.excel_reader import read_sheet
+from app.services import ref_setup_repo
 from app.services.compte_proprietaire_service import calculer_fifo
 
 _TRAVAIL_DIR = str(cfg.PROJECT_ROOT / "02_TRAVAIL")
@@ -53,13 +52,10 @@ def _maintenant() -> str:
 
 # ── Tarif ────────────────────────────────────────────────────────────────────────────────────────
 
-def _tarif_rows() -> list[dict[str, Any]]:
-    if not cfg.REF_SETUP.exists():
+def _tarif_rows(db_path=None) -> list[dict[str, Any]]:
+    if not ref_setup_repo.est_disponible(db_path=db_path):
         return []
-    try:
-        return read_sheet(cfg.REF_SETUP, SHEET_TARIF, max_rows=None)
-    except Exception:
-        return []
+    return ref_setup_repo.lire_onglet(SHEET_TARIF, db_path=db_path)
 
 
 def _type_logement(logement_id: str, db_path=None) -> str:
@@ -87,7 +83,7 @@ def tarif_menage(intervenant_id: str, logement_id: str, ref_date: str, *,
 
     type_logement_id = _type_logement(logement_id, db_path=db_path)
     resolution = resolve_fixed_internal_cost(
-        _tarif_rows(), intervenant_id=intervenant_id, logement_id=logement_id,
+        _tarif_rows(db_path=db_path), intervenant_id=intervenant_id, logement_id=logement_id,
         type_logement_id=type_logement_id, ref_date=ref_date, nb_menages=1)
     return {"statut": resolution.status, "montant": resolution.total, "tarif_ref_id": resolution.ref_id,
             "message": resolution.message}

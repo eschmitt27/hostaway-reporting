@@ -3,10 +3,12 @@
 -- Additive comme 0017→0035. Aucun ALTER TABLE.
 --
 -- CE QUI N'EST PAS CRÉÉ ICI, ET POURQUOI
---   Pas de nouvelle table `facture_menage_*` : une facture prestataire ménage externe est une
---   `facture` (0017) comme une autre, ses lignes vivent dans `facture_lignes` (0022), chaque ligne
---   pointe une `charge_id` déjà créée par le module Charges existant. Dupliquer ce mécanisme
---   compterait la même opération deux fois (règle explicite de la mission).
+--   Une facture prestataire ménage externe est une `facture` (0017) comme une autre — pas d'en-tête
+--   concurrent. Ses LIGNES, en revanche, ne passent pas par `facture_lignes` (0022) : cette table
+--   exige un `charge_id` NOT NULL déjà créé par le module Charges existant, qui reste à ce jour un
+--   écrivain Excel (`saisie_charges_writer.py`) — hors périmètre de cette mission. Les lignes
+--   ménage vivent dans `facture_lignes_menage` (migration 0037), qui porte directement
+--   logement_id/montant, sans intermédiaire Charge.
 --   Pas de FIFO propriétaire réutilisé tel quel : `proprietaire_allocations` (0030) reste au
 --   propriétaire. Le compte intervenant ménage interne est un objet métier différent — même
 --   algorithme (factorisé côté Python, `compte_proprietaire_service.calculer_fifo`), tables
