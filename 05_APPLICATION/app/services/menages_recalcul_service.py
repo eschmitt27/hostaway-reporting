@@ -67,9 +67,13 @@ SOURCES_A_COPIER = [
     "02_TRAVAIL/Lot6c_MenagesExternes/MASTER_FACT_MEN_MenagesExternes.xlsx",
 ]
 # Scripts moteur copiés (exécutés dans le workspace ; ROOT y résout).
+# `lib_db_moteur` : lot6d/6e l'importent désormais (lecture SQLite optionnelle, --source EXCIPE
+# EXCEL par défaut) — sans la copie, `import lib_db_moteur` échoue (module absent du workspace) et
+# le script sort en rc=1 avant même d'atteindre son propre code, même en mode EXCEL pur.
 SCRIPTS_A_COPIER = [
     "02_TRAVAIL/lot6d_rapprochement_menages.py",
     "02_TRAVAIL/lot6e_gainperte_menages.py",
+    "02_TRAVAIL/lib_db_moteur.py",
 ]
 # Sorties réelles régénérées par le recalcul (pour comparaison avant/après).
 SORTIES_REELLES = {
