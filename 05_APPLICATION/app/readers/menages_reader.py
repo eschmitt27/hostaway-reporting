@@ -248,8 +248,27 @@ def rapprochement() -> SourceMenages:
 
 
 def controles_rapprochement() -> SourceMenages:
-    return _lire("controles_rapprochement", "Contrôles rapprochement (Lot6d)",
-                 cfg.MASTER_RAPPROCHEMENT_MENAGES, SOURCE_RAPPROCHEMENT, SHEET_CONTROLES)
+    """Résumé par code de contrôle — dérivé de `menages_rapprochement` (0038), jamais recalculé :
+    lot6d a DÉJÀ décidé `code_controle`/`statut_controle` par ligne (mission Bloc B §7), ce résumé
+    ne fait que les grouper. C'est exactement pourquoi 0038 n'a pas dupliqué l'onglet CONTROLES :
+    un agrégat dérivable de `menages_rapprochement`, pas une seconde source."""
+    base = rapprochement()
+    if base.etat.etat != ETAT_OK:
+        return SourceMenages(EtatSource("controles_rapprochement", "Contrôles rapprochement (Lot6d)",
+                                        base.etat.fichier, base.etat.onglet, base.etat.etat))
+    groupes: dict[str, list[dict]] = {}
+    for r in base.lignes:
+        code = to_texte(r.get("code_controle"))
+        if code:
+            groupes.setdefault(code, []).append(r)
+    lignes = [{
+        "code_controle": code, "niveau": to_texte(grp[0].get("statut_controle")),
+        "nb": len(grp), "exemple": to_texte(grp[0].get("logement_id")),
+    } for code, grp in sorted(groupes.items())]
+    return SourceMenages(
+        EtatSource("controles_rapprochement", "Contrôles rapprochement (Lot6d)",
+                  base.etat.fichier, base.etat.onglet, ETAT_OK, len(lignes)),
+        lignes)
 
 
 def gainperte() -> SourceMenages:
@@ -373,9 +392,10 @@ def mode_extraction_externes() -> str | None:
 
 
 def controles_lot11() -> SourceMenages:
-    """Lot11 — contrôles transverses. Filtrés sur le module ménages par le service."""
-    return _lire("lot11", "Contrôles de cohérence (Lot11)",
-                 cfg.MASTER_CTRL_COHERENCE, SOURCE_LOT11, SHEET_LOT11)
+    """Lot11 — contrôles transverses. SQLite (`controles_lot11_constats`, 0041, alimentée par
+    `controles_lot11_adapter.reprendre` depuis le classeur Lot11) — jamais lu depuis Excel ici.
+    Filtrés sur le module ménages par le service."""
+    return _lire_sqlite("lot11", "Contrôles de cohérence (Lot11)", "controles_lot11_constats")
 
 
 # --- Référentiel propriétaires (libellés d'affichage « Prénom NOM ») ----------

@@ -120,6 +120,7 @@ EXPECTED_TABLES = {
     "facture_lignes_menage_detail",              # 0039 — quantite par ligne (extension 1-1)
     "facture_lignes_menage_pdf",                 # 0040 — date_menage/precision/prestataire par ligne
     "facture_pdf_diagnostics",                   # 0040 — diagnostic d'import PDF, un par tentative
+    "controles_lot11_constats",                  # 0041 — reprise Lot11, constats transverses
 }
 
 

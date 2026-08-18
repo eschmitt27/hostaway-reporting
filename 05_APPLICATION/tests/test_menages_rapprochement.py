@@ -343,16 +343,17 @@ def sources(tmp_path, monkeypatch):
         ]),
     })
 
+    LIGNES_LOT11 = [
+        {"ctrl_pk": "MENAGES_EXT||X", "source_module": "MENAGES_EXT",
+         "code_controle": "MENAGE_EXTERNE_ECART_HOSTAWAY", "severity": "A_CONTROLER",
+         "message": "1 logement avec écart volume.", "statut_resolution": "OUVERT"},
+        {"ctrl_pk": "BANQUE||Y", "source_module": "BANQUE",
+         "code_controle": "BANQUE_NON_RAPPROCHEE", "severity": "A_CONTROLER",
+         "message": "Hors module ménages.", "statut_resolution": "OUVERT"},
+    ]
     lot11 = _ecrire(tmp_path / "Lot11" / "MASTER_CTRL_Coherence.xlsx", {
         "MASTER": (["ctrl_pk", "source_module", "source_table", "code_controle", "severity",
-                    "message", "statut_resolution", "commentaire"], [
-            {"ctrl_pk": "MENAGES_EXT||X", "source_module": "MENAGES_EXT",
-             "code_controle": "MENAGE_EXTERNE_ECART_HOSTAWAY", "severity": "A_CONTROLER",
-             "message": "1 logement avec écart volume.", "statut_resolution": "OUVERT"},
-            {"ctrl_pk": "BANQUE||Y", "source_module": "BANQUE",
-             "code_controle": "BANQUE_NON_RAPPROCHEE", "severity": "A_CONTROLER",
-             "message": "Hors module ménages.", "statut_resolution": "OUVERT"},
-        ]),
+                    "message", "statut_resolution", "commentaire"], LIGNES_LOT11),
     })
 
     monkeypatch.setattr(cfg, "MASTER_RAPPROCHEMENT_MENAGES", rapp)
@@ -376,6 +377,10 @@ def sources(tmp_path, monkeypatch):
     _seeder_sqlite_menages(db_path, rapp=LIGNES_RAPP, gainperte=LIGNES_GAINPERTE,
                           coutcomplet=LIGNES_COUTCOMPLET)
     _seeder_externes_sqlite(db_path)
+
+    from app.services import controles_lot11_adapter as lot11_adapter
+    reprise = lot11_adapter.reprendre(db_path=db_path)  # cfg.MASTER_CTRL_COHERENCE deja monkeypatche
+    assert reprise["ok"], reprise
 
     yield {
         "racine": tmp_path, "rapprochement": rapp, "hostaway": ha, "internes": internes,

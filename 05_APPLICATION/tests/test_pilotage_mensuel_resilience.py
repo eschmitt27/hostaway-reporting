@@ -42,6 +42,18 @@ def _seed_menages_minimal(tmp_db):
         conn.execute(
             "INSERT INTO menages_cout_complet (mois, logement_id, intervenant_id, statut_controle) "
             "VALUES (?,?,?,?)", ("2097-08", "LOG_SEED", "INT_SEED", "VALIDE"))
+        conn.execute(
+            "INSERT INTO factures (facture_id_opaque, fournisseur_id_opaque, facture_ref, "
+            "date_facture, montant_ttc, statut) VALUES (?,?,?,?,?,?)",
+            ("FAC-SEED-0001", "INT_SEED", "SEED-0001", "2097-08-01", 30.0, "A_CONTROLER"))
+        conn.execute(
+            "INSERT INTO facture_lignes_menage (ligne_id_opaque, facture_id_opaque, type_ligne, "
+            "logement_id, montant_ttc) VALUES (?,?,?,?,?)",
+            ("FLM-SEED-0001", "FAC-SEED-0001", "MENAGE_EXTERNE", "LOG_SEED", 30.0))
+        conn.execute(
+            "INSERT INTO controles_lot11_constats (ctrl_pk, source_module, code_controle, "
+            "severity, statut_resolution) VALUES (?,?,?,?,?)",
+            ("SEED||X", "MENAGES_EXT", "SEED_CONTROLE", "INFO", "OUVERT"))
         conn.commit()
     finally:
         conn.close()
