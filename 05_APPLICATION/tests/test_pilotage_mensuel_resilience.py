@@ -6,12 +6,45 @@ autres blocs doivent rester intacts. Complète `test_pilotage_mensuel.py`.
 """
 import pytest
 
+from app.db.connection import get_db
 from app.services import clotures_service as cs
 from app.services import pilotage_mensuel_service as svc
 
 
 def _mois_avec_donnee(tmp_db):
     return cs.creer_ou_charger("2097-08", acteur="t", db_path=tmp_db)["mois"]
+
+
+@pytest.fixture(autouse=True)
+def _seed_menages_minimal(tmp_db):
+    """Une ligne dans chaque table SQLite lue par `menages_reader` (0038) : sans elle, `etat_global`
+    de `menages_service.load_summary` vaut SOURCE_INCOMPLETE et `nb_menages_a_controler` reste None
+    même quand ce bloc ne doit PAS être en panne — ce fichier teste l'isolement des AUTRES sources,
+    pas celle-ci. `test_panne_menages_isolee`/`test_pannes_multiples_simultanees` stubbent
+    `load_summary` directement : ce seed ne les affecte pas."""
+    conn = get_db(tmp_db)
+    try:
+        conn.execute(
+            "INSERT INTO menages_taches_enrichies (task_id, mois, logement_id, status, "
+            "statut_menage, compte_comme_menage) VALUES (?,?,?,?,?,?)",
+            ("HA-SEED-001", "2097-08", "LOG_SEED", "completed", "réalisé", "OUI"))
+        conn.execute(
+            "INSERT INTO menages_declarations_internes (mois, logement_id, intervenant_id, "
+            "nb_menages, statut_controle) VALUES (?,?,?,?,?)",
+            ("2097-08", "LOG_SEED", "INT_SEED", 1, "VALIDE"))
+        conn.execute(
+            "INSERT INTO menages_rapprochement (mois, logement_id, intervenant_id, "
+            "nb_menages_tasks_hostaway_completed, statut_controle) VALUES (?,?,?,?,?)",
+            ("2097-08", "LOG_SEED", "INT_SEED", 1, "VALIDE"))
+        conn.execute(
+            "INSERT INTO menages_gainperte (mois, logement_id, intervenant_id, statut_controle) "
+            "VALUES (?,?,?,?)", ("2097-08", "LOG_SEED", "INT_SEED", "VALIDE"))
+        conn.execute(
+            "INSERT INTO menages_cout_complet (mois, logement_id, intervenant_id, statut_controle) "
+            "VALUES (?,?,?,?)", ("2097-08", "LOG_SEED", "INT_SEED", "VALIDE"))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 # ── Panne isolée de chaque source (7 sources) ─────────────────────────────────
