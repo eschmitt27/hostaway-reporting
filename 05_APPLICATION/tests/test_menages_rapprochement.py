@@ -86,18 +86,31 @@ def _ecrire(chemin: Path, onglets: dict[str, tuple[list[str], list[dict]]]) -> P
     return chemin
 
 
-def _seeder_sqlite_menages(db_path: Path) -> None:
-    """Alimente `menages_taches_enrichies`/`menages_declarations_internes` (0038) — sources SQLite
-    de `hostaway_taches`/`hostaway_comptage`/`internes`, qui ne lisent plus les classeurs `ha`/
-    `internes` ci-dessus. Chiffres alignés sur les anciens onglets VUE_COMPTAGE/MASTER_NORMALISE
-    (LOG_0001 : 10 tâches, 9 réalisées + 1 annulée — cohérent, contrairement au classeur legacy où
-    MASTER_ENRICHI (1 tâche) et VUE_COMPTAGE (10) divergeaient sans lien entre eux).
+def _inserer_lignes(conn, table: str, lignes: list[dict]) -> None:
+    """Insère des dicts tels quels : seules les clés présentes sont écrites, les colonnes absentes
+    gardent leur défaut SQLite (`run_id`/`date_calcul` notamment)."""
+    for l in lignes:
+        cols = list(l.keys())
+        conn.execute(
+            f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({', '.join(['?'] * len(cols))})",
+            [l[c] for c in cols])
+
+
+def _seeder_sqlite_menages(db_path: Path, *, rapp=(), gainperte=(), coutcomplet=()) -> None:
+    """Alimente les sorties Lot6a/6b/6d/6e/6f (0038) — sources SQLite de `hostaway_taches`/
+    `hostaway_comptage`/`internes`/`rapprochement`/`gainperte`/`cout_complet`, qui ne lisent plus les
+    classeurs Excel construits par ailleurs dans cette fixture (conservés pour les sources non
+    encore migrées : externes, controles, lot11). `rapp`/`gainperte`/`coutcomplet` sont les MÊMES
+    listes de lignes que celles écrites dans les classeurs correspondants — une seule vérité, deux
+    supports, le temps de la transition.
+
+    Comptage Hostaway : LOG_0001 → 10 tâches, 9 réalisées + 1 annulée — cohérent, contrairement au
+    classeur legacy où MASTER_ENRICHI (1 tâche) et VUE_COMPTAGE (10) divergeaient sans lien entre
+    eux (`hostaway_comptage()` dérive désormais l'agrégat des tâches, il ne peut plus diverger).
     """
     conn = get_db(db_path)
     try:
-        taches = (
-            [("réalisé", "OUI") for _ in range(9)] + [("annulé", "OUI")]
-        )
+        taches = [("réalisé", "OUI") for _ in range(9)] + [("annulé", "OUI")]
         for i, (statut_menage, ccm) in enumerate(taches, start=1):
             conn.execute(
                 "INSERT INTO menages_taches_enrichies (task_id, mois, logement_id, "
@@ -121,6 +134,10 @@ def _seeder_sqlite_menages(db_path: Path) -> None:
                 "statut_controle) VALUES (?,?,?,?,?,?,?,?,?)",
                 (mois, logement_id, intervenant_id, nom, "INTERNE", nb_menages, nb_heures, lavage,
                  "VALIDE"))
+
+        _inserer_lignes(conn, "menages_rapprochement", list(rapp))
+        _inserer_lignes(conn, "menages_gainperte", list(gainperte))
+        _inserer_lignes(conn, "menages_cout_complet", list(coutcomplet))
         conn.commit()
     finally:
         conn.close()
@@ -145,65 +162,67 @@ def sources(tmp_path, monkeypatch):
     """Jeu de sources ménages complet et isolé. Couvre les scénarios 1 à 6."""
     import app.config as cfg
 
+    LIGNES_RAPP = [
+        # 1. conforme, interne rapproché
+        _ligne_rapprochement(
+            logement_id="LOG_0001", intervenant_id="INT_0002", type_intervenant="INTERNE",
+            nb_menages_tasks_hostaway_completed=9, nb_menages_declares_interne_m04=9,
+            total_menages_declares=9, ecart=0, statut_controle="VALIDE"),
+        # 2. attendu Hostaway sans déclaration
+        _ligne_rapprochement(
+            logement_id="LOG_0005", nom_appartement="Studio 96", intervenant_id="INT_0002",
+            nb_menages_tasks_hostaway_completed=6, nb_menages_declares_interne_m04=5,
+            total_menages_declares=5, ecart=-1, statut_controle="A_CONTROLER",
+            code_controle="MENAGE_TOTAL_ECART_HOSTAWAY",
+            commentaire="1 ménage Hostaway non déclaré."),
+        # 3. déclaration sans tâche Hostaway
+        _ligne_rapprochement(
+            logement_id="LOG_0009", nom_appartement="T2 hors HA", intervenant_id="INT_0004",
+            nom_intervenant="Aissata", type_intervenant="EXTERNE",
+            nb_menages_tasks_hostaway_completed=0, nb_menages_declares_externe=2,
+            total_menages_declares=2, ecart=2, statut_controle="A_CONTROLER",
+            code_controle="MENAGE_EXTERNE_LOGEMENT_HORS_HA",
+            commentaire="Logement absent du comptage Hostaway."),
+        # 4/5. externe facturé rapproché
+        _ligne_rapprochement(
+            logement_id="LOG_0014", nom_appartement="T3 Aissata", intervenant_id="INT_0004",
+            nom_intervenant="Aissata", type_intervenant="EXTERNE",
+            nb_menages_tasks_hostaway_completed=1, nb_menages_declares_externe=1,
+            total_menages_declares=1, ecart=0, statut_controle="VALIDE"),
+        # 6. interne ET externe sur le même logement : deux lignes distinctes
+        _ligne_rapprochement(
+            logement_id="LOG_0020", nom_appartement="Mixte", intervenant_id="INT_0002",
+            nom_intervenant="Kheira", type_intervenant="INTERNE",
+            nb_menages_tasks_hostaway_completed=2, nb_menages_declares_interne_m04=2,
+            total_menages_declares=2, ecart=0, statut_controle="VALIDE"),
+        _ligne_rapprochement(
+            logement_id="LOG_0020", nom_appartement="Mixte", intervenant_id="INT_0004",
+            nom_intervenant="Aissata", type_intervenant="EXTERNE",
+            nb_menages_tasks_hostaway_completed=3, nb_menages_declares_externe=3,
+            total_menages_declares=3, ecart=0, statut_controle="VALIDE"),
+        # 13. logement inconnu / intervenant non attribué
+        _ligne_rapprochement(
+            logement_id="LOG_9999", nom_appartement="", intervenant_id="NON_ATTRIBUE",
+            nom_intervenant="NON_ATTRIBUE", type_intervenant=None,
+            nb_menages_tasks_hostaway_completed=1, total_menages_declares=0, ecart=-1,
+            statut_controle="INFO", code_controle="TASK_NON_ASSIGNEE_HISTORIQUE_IGNOREE"),
+        # 14. anomalie bloquante
+        _ligne_rapprochement(
+            logement_id="LOG_0030", nom_appartement="Bloquant", intervenant_id="INT_0009",
+            nom_intervenant="Inconnu", type_intervenant="EXTERNE",
+            nb_menages_tasks_hostaway_completed=4, nb_menages_declares_externe=0,
+            total_menages_declares=0, ecart=4, statut_controle="BLOQUANT",
+            code_controle="MENAGE_PRESTATAIRE_ECART_HOSTAWAY",
+            commentaire="Prestataire facturant sans tâche Hostaway."),
+        # 15. autre mois — sert au filtre période
+        _ligne_rapprochement(
+            mois="2026-04", logement_id="LOG_0001", intervenant_id="INT_0002",
+            nb_menages_tasks_hostaway_completed=4, nb_menages_declares_interne_m04=4,
+            total_menages_declares=4, ecart=0, statut_controle="VALIDE"),
+    ]
+
     rapp = _ecrire(tmp_path / "Lot6d" / "MASTER_CTRL_Rapprochement_Menages.xlsx", {
-        "TABLEAU_COMPARAISON": (COLONNES_RAPPROCHEMENT, [
-            # 1. conforme, interne rapproché
-            _ligne_rapprochement(
-                logement_id="LOG_0001", intervenant_id="INT_0002", type_intervenant="INTERNE",
-                nb_menages_tasks_hostaway_completed=9, nb_menages_declares_interne_m04=9,
-                total_menages_declares=9, ecart=0, statut_controle="VALIDE"),
-            # 2. attendu Hostaway sans déclaration
-            _ligne_rapprochement(
-                logement_id="LOG_0005", nom_appartement="Studio 96", intervenant_id="INT_0002",
-                nb_menages_tasks_hostaway_completed=6, nb_menages_declares_interne_m04=5,
-                total_menages_declares=5, ecart=-1, statut_controle="A_CONTROLER",
-                code_controle="MENAGE_TOTAL_ECART_HOSTAWAY",
-                commentaire="1 ménage Hostaway non déclaré."),
-            # 3. déclaration sans tâche Hostaway
-            _ligne_rapprochement(
-                logement_id="LOG_0009", nom_appartement="T2 hors HA", intervenant_id="INT_0004",
-                nom_intervenant="Aissata", type_intervenant="EXTERNE",
-                nb_menages_tasks_hostaway_completed=0, nb_menages_declares_externe=2,
-                total_menages_declares=2, ecart=2, statut_controle="A_CONTROLER",
-                code_controle="MENAGE_EXTERNE_LOGEMENT_HORS_HA",
-                commentaire="Logement absent du comptage Hostaway."),
-            # 4/5. externe facturé rapproché
-            _ligne_rapprochement(
-                logement_id="LOG_0014", nom_appartement="T3 Aissata", intervenant_id="INT_0004",
-                nom_intervenant="Aissata", type_intervenant="EXTERNE",
-                nb_menages_tasks_hostaway_completed=1, nb_menages_declares_externe=1,
-                total_menages_declares=1, ecart=0, statut_controle="VALIDE"),
-            # 6. interne ET externe sur le même logement : deux lignes distinctes
-            _ligne_rapprochement(
-                logement_id="LOG_0020", nom_appartement="Mixte", intervenant_id="INT_0002",
-                nom_intervenant="Kheira", type_intervenant="INTERNE",
-                nb_menages_tasks_hostaway_completed=2, nb_menages_declares_interne_m04=2,
-                total_menages_declares=2, ecart=0, statut_controle="VALIDE"),
-            _ligne_rapprochement(
-                logement_id="LOG_0020", nom_appartement="Mixte", intervenant_id="INT_0004",
-                nom_intervenant="Aissata", type_intervenant="EXTERNE",
-                nb_menages_tasks_hostaway_completed=3, nb_menages_declares_externe=3,
-                total_menages_declares=3, ecart=0, statut_controle="VALIDE"),
-            # 13. logement inconnu / intervenant non attribué
-            _ligne_rapprochement(
-                logement_id="LOG_9999", nom_appartement="", intervenant_id="NON_ATTRIBUE",
-                nom_intervenant="NON_ATTRIBUE", type_intervenant=None,
-                nb_menages_tasks_hostaway_completed=1, total_menages_declares=0, ecart=-1,
-                statut_controle="INFO", code_controle="TASK_NON_ASSIGNEE_HISTORIQUE_IGNOREE"),
-            # 14. anomalie bloquante
-            _ligne_rapprochement(
-                logement_id="LOG_0030", nom_appartement="Bloquant", intervenant_id="INT_0009",
-                nom_intervenant="Inconnu", type_intervenant="EXTERNE",
-                nb_menages_tasks_hostaway_completed=4, nb_menages_declares_externe=0,
-                total_menages_declares=0, ecart=4, statut_controle="BLOQUANT",
-                code_controle="MENAGE_PRESTATAIRE_ECART_HOSTAWAY",
-                commentaire="Prestataire facturant sans tâche Hostaway."),
-            # 15. autre mois — sert au filtre période
-            _ligne_rapprochement(
-                mois="2026-04", logement_id="LOG_0001", intervenant_id="INT_0002",
-                nb_menages_tasks_hostaway_completed=4, nb_menages_declares_interne_m04=4,
-                total_menages_declares=4, ecart=0, statut_controle="VALIDE"),
-        ]),
+        "TABLEAU_COMPARAISON": (COLONNES_RAPPROCHEMENT, LIGNES_RAPP),
         "CONTROLES": (["code_controle", "niveau", "nb", "exemple"], [
             {"code_controle": "MENAGE_TOTAL_ECART_HOSTAWAY", "niveau": "A_CONTROLER",
              "nb": 2, "exemple": "LOG_0005"},
@@ -271,29 +290,31 @@ def sources(tmp_path, monkeypatch):
         ]),
     })
 
+    LIGNES_GAINPERTE = [
+        {"mois": "2026-05", "logement_id": "LOG_0001", "intervenant_id": "INT_0002",
+         "nb_menages": 9, "nb_heures": 18, "cout_standard_total": 261,
+         "methode_cout_reel": "INTERNE_HEURES_M04", "cout_reel_total": 240,
+         "ecart_total": -21, "statut_ecart": "GAIN", "statut_controle": "VALIDE"},
+        {"mois": "2026-05", "logement_id": "LOG_0014", "intervenant_id": "INT_0004",
+         "nb_menages": 1, "cout_standard_total": 29,
+         "methode_cout_reel": "EXTERNE_FACTURE", "cout_reel_total": 29,
+         "ecart_total": 0, "statut_ecart": "EQUILIBRE", "statut_controle": "VALIDE"},
+    ]
     gainperte = _ecrire(tmp_path / "Lot6e" / "MASTER_CALC_GainPerte_Menages.xlsx", {
-        "DETAIL_ECART_COUT": (COLONNES_GAINPERTE, [
-            {"mois": "2026-05", "logement_id": "LOG_0001", "intervenant_id": "INT_0002",
-             "nb_menages": 9, "nb_heures": 18, "cout_standard_total": 261,
-             "methode_cout_reel": "INTERNE_HEURES_M04", "cout_reel_total": 240,
-             "ecart_total": -21, "statut_ecart": "GAIN", "statut_controle": "VALIDE"},
-            {"mois": "2026-05", "logement_id": "LOG_0014", "intervenant_id": "INT_0004",
-             "nb_menages": 1, "cout_standard_total": 29,
-             "methode_cout_reel": "EXTERNE_FACTURE", "cout_reel_total": 29,
-             "ecart_total": 0, "statut_ecart": "EQUILIBRE", "statut_controle": "VALIDE"},
-        ]),
+        "DETAIL_ECART_COUT": (COLONNES_GAINPERTE, LIGNES_GAINPERTE),
     })
 
+    LIGNES_COUTCOMPLET = [
+        {"mois": "2026-05", "logement_id": "LOG_0001", "intervenant_id": "INT_0002",
+         "nb_menages": 9, "cout_standard_total": 261, "cout_direct_total": 240,
+         "quote_part_lavage": 30, "quote_part_local": 10, "cout_complet_total": 280,
+         "cout_complet_unitaire": 31.11, "statut_controle": "VALIDE"},
+        {"mois": "2026-05", "logement_id": "LOG_0014", "intervenant_id": "INT_0004",
+         "nb_menages": 1, "cout_standard_total": 29, "cout_direct_total": 29,
+         "cout_complet_total": 35, "cout_complet_unitaire": 35, "statut_controle": "VALIDE"},
+    ]
     coutcomplet = _ecrire(tmp_path / "Lot6f" / "MASTER_CALC_CoutComplet_Menages.xlsx", {
-        "DETAIL_COUT_COMPLET": (COLONNES_COUTCOMPLET, [
-            {"mois": "2026-05", "logement_id": "LOG_0001", "intervenant_id": "INT_0002",
-             "nb_menages": 9, "cout_standard_total": 261, "cout_direct_total": 240,
-             "quote_part_lavage": 30, "quote_part_local": 10, "cout_complet_total": 280,
-             "cout_complet_unitaire": 31.11, "statut_controle": "VALIDE"},
-            {"mois": "2026-05", "logement_id": "LOG_0014", "intervenant_id": "INT_0004",
-             "nb_menages": 1, "cout_standard_total": 29, "cout_direct_total": 29,
-             "cout_complet_total": 35, "cout_complet_unitaire": 35, "statut_controle": "VALIDE"},
-        ]),
+        "DETAIL_COUT_COMPLET": (COLONNES_COUTCOMPLET, LIGNES_COUTCOMPLET),
         "POOLS_CHARGES_MENAGE": (["mois", "pool", "montant_total", "source", "cle_repartition"], [
             {"mois": "2026-05", "pool": "LAVAGE", "montant_total": 307, "source": "Google Sheet"},
         ]),
@@ -327,7 +348,8 @@ def sources(tmp_path, monkeypatch):
     # repli Excel : cfg.DB_PATH doit pointer ici pour qu'ils voient les mêmes données que les
     # classeurs `ha`/`internes` ci-dessus (conservés pour les autres sources, encore Excel).
     monkeypatch.setattr(cfg, "DB_PATH", db_path)
-    _seeder_sqlite_menages(db_path)
+    _seeder_sqlite_menages(db_path, rapp=LIGNES_RAPP, gainperte=LIGNES_GAINPERTE,
+                          coutcomplet=LIGNES_COUTCOMPLET)
 
     yield {
         "racine": tmp_path, "rapprochement": rapp, "hostaway": ha, "internes": internes,
@@ -463,15 +485,19 @@ def test_09_source_externe_vide(sources, tmp_path, monkeypatch):
     assert detail["externe"]["lignes"] == []
 
 
-def test_10_fichier_absent(sources, tmp_path, monkeypatch):
-    """Fichier absent ≠ onglet absent ≠ source vide."""
-    import app.config as cfg
-    monkeypatch.setattr(cfg, "MASTER_COUTCOMPLET_MENAGES", tmp_path / "nexiste_pas.xlsx")
+def test_10_source_sqlite_vide(sources, tmp_path, monkeypatch):
+    """Table SQLite sans ligne (0038) : état VIDE, jamais un plantage — plus de notion de
+    « fichier »/« onglet » absent depuis que `cout_complet()` lit SQLite (0038), sans repli Excel."""
+    conn = get_db(sources["db"])
+    try:
+        conn.execute("DELETE FROM menages_cout_complet")
+        conn.commit()
+    finally:
+        conn.close()
     reader.vider_cache()
 
     etat = reader.cout_complet().etat
-    assert etat.etat == reader.ETAT_FICHIER_ABSENT
-    assert etat.etat_libelle == "Fichier absent"
+    assert etat.etat == reader.ETAT_VIDE
     assert not etat.disponible
 
     resume = svc.load_summary("2026-05")
@@ -480,17 +506,18 @@ def test_10_fichier_absent(sources, tmp_path, monkeypatch):
     assert resume["etat_global"] == "SOURCE_INCOMPLETE"
 
 
-def test_11_onglet_absent(sources, tmp_path, monkeypatch):
-    """Le fichier existe mais l'onglet attendu n'y est pas."""
-    import app.config as cfg
-    bancal = _ecrire(tmp_path / "bancal" / "MASTER_CALC_GainPerte_Menages.xlsx",
-                     {"AUTRE_ONGLET": (["a"], [{"a": 1}])})
-    monkeypatch.setattr(cfg, "MASTER_GAINPERTE_MENAGES", bancal)
+def test_11_gainperte_vide_detail_sans_cout_reel(sources):
+    """Même règle pour `gainperte()` : source vide, la fiche reste utilisable, sans coût réel."""
+    conn = get_db(sources["db"])
+    try:
+        conn.execute("DELETE FROM menages_gainperte")
+        conn.commit()
+    finally:
+        conn.close()
     reader.vider_cache()
 
     etat = reader.gainperte().etat
-    assert etat.etat == reader.ETAT_ONGLET_ABSENT
-    assert etat.onglet == "DETAIL_ECART_COUT"
+    assert etat.etat == reader.ETAT_VIDE
 
     detail = svc.load_reconciliation_detail("2026-05", "LOG_0001", "INT_0002")
     assert detail["status"] == "OK"
@@ -674,6 +701,33 @@ def test_20_aucune_source_modifiee(sources):
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+#
+# `client` isole déjà l'application (tmp_db) mais ne construit aucune fixture Ménages : ces tests
+# vérifient la ROUTE (statut, libellés statiques, filtres), pas un scénario métier — un jeu minimal
+# suffit. Avant la migration SQLite, ces tests lisaient (sans le vouloir) les classeurs RÉELS du
+# projet via les chemins par défaut de `cfg.MASTER_*` : une fuite d'isolation, invisible tant que
+# `menages_reader` retombait sur Excel. `rapprochement()`/`gainperte()`/`cout_complet()` étant
+# désormais SQLite uniquement, cette fuite ne peut plus se produire — d'où ce seed explicite.
+
+@pytest.fixture(autouse=True)
+def _seed_route_minimal(request, tmp_db):
+    """Une ligne minimale dans les 3 tables SQLite lues par l'écran `/menages`, pour que les tests
+    de route (hors fixture `sources`) voient une source disponible plutôt que vide. `sources`
+    fournit son propre jeu bien plus riche : ne pas semer par-dessus."""
+    if "sources" in request.fixturenames:
+        yield
+        return
+    conn = get_db(tmp_db)
+    try:
+        conn.execute(
+            "INSERT INTO menages_rapprochement (mois, logement_id, intervenant_id, "
+            "nb_menages_tasks_hostaway_completed, statut_controle) VALUES (?,?,?,?,?)",
+            ("2026-05", "LOG_0001", "INT_0002", 1, "VALIDE"))
+        conn.commit()
+    finally:
+        conn.close()
+    yield
+
 
 def test_route_menages_200(client):
     r = client.get("/menages")

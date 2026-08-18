@@ -22,11 +22,28 @@ from app.db.connection import apply_migrations, get_db
 
 @pytest.fixture
 def db(tmp_path):
-    """Base SQLite isolée — patch get_db dans le service pour utiliser la DB de test."""
+    """Base SQLite isolée — patch get_db dans le service pour utiliser la DB de test.
+
+    Une ligne minimale dans `menages_rapprochement` (0038) : `rapprochement()` lit SQLite sans
+    repli Excel, donc plus les MASTER réels du projet comme avant cette migration (fuite
+    d'isolation désormais impossible plutôt que corrigée par accident).
+    """
+    import app.config as cfg
     db_path = tmp_path / "test.db"
     apply_migrations(db_path)
+    conn = get_db(db_path)
+    try:
+        conn.execute(
+            "INSERT INTO menages_rapprochement (mois, logement_id, intervenant_id, "
+            "nb_menages_tasks_hostaway_completed, nb_menages_declares_interne_m04, "
+            "nb_menages_declares_externe, statut_controle) VALUES (?,?,?,?,?,?,?)",
+            ("2026-05", "LOG_0001", "INT_0002", 9, 9, 0, "VALIDE"))
+        conn.commit()
+    finally:
+        conn.close()
     # Le service passe désormais cfg.DB_PATH explicitement : le double accepte l'argument.
-    with patch("app.services.menages_service.get_db", lambda *_a, **_k: get_db(db_path)):
+    with patch("app.services.menages_service.get_db", lambda *_a, **_k: get_db(db_path)), \
+         patch.object(cfg, "DB_PATH", db_path):
         yield db_path
 
 
@@ -207,6 +224,24 @@ def test_menages_outrepassage_trace_complete(db):
 # ---------------------------------------------------------------------------
 # Tests route HTTP
 # ---------------------------------------------------------------------------
+#
+# `client` isole l'application (tmp_db) mais ne seed aucune donnée Ménages : avant la migration
+# SQLite, ces routes lisaient (sans le vouloir) les classeurs réels du projet via les chemins par
+# défaut de `cfg.MASTER_*`. `rapprochement()` étant désormais SQLite uniquement, cette fuite
+# d'isolation ne peut plus se produire — d'où ce seed minimal explicite, demandé seulement par les
+# tests qui en ont besoin (ne pas passer `tmp_db` par-dessus la base isolée des tests `db` ci-dessus).
+
+def _seed_rapprochement_minimal(tmp_db) -> None:
+    conn = get_db(tmp_db)
+    try:
+        conn.execute(
+            "INSERT INTO menages_rapprochement (mois, logement_id, intervenant_id, "
+            "nb_menages_tasks_hostaway_completed, statut_controle) VALUES (?,?,?,?,?)",
+            ("2026-05", "LOG_0001", "INT_0002", 1, "VALIDE"))
+        conn.commit()
+    finally:
+        conn.close()
+
 
 def test_menages_get_liste_200(client):
     r = client.get("/menages")
@@ -229,7 +264,8 @@ def test_menages_detail_connu_200(client):
     assert resp.status_code == 200
 
 
-def test_menages_detail_inconnu_404_route(client):
+def test_menages_detail_inconnu_404_route(client, tmp_db):
+    _seed_rapprochement_minimal(tmp_db)
     r = client.get("/menages/9999-99/LOG_INCONNU/INT_INCONNU")
     assert r.status_code == 404
 

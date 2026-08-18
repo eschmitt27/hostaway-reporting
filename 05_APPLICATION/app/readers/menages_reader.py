@@ -241,9 +241,10 @@ def _lire_sqlite(cle: str, libelle: str, table: str) -> SourceMenages:
 # --- Sources ---------------------------------------------------------------
 
 def rapprochement() -> SourceMenages:
-    """Lot6d — la ligne de rapprochement (mois × logement × intervenant)."""
-    return _lire("rapprochement", "Rapprochement (Lot6d)",
-                 cfg.MASTER_RAPPROCHEMENT_MENAGES, SOURCE_RAPPROCHEMENT, SHEET_COMPARAISON)
+    """Lot6d — la ligne de rapprochement (mois × logement × intervenant). SQLite (0038), sans
+    repli Excel : `menages_rapprochement` porte exactement les mêmes colonnes que
+    TABLEAU_COMPARAISON, moteur inchangé, seule l'entrée/sortie change de support."""
+    return _lire_sqlite("rapprochement", "Rapprochement (Lot6d)", "menages_rapprochement")
 
 
 def controles_rapprochement() -> SourceMenages:
@@ -252,15 +253,13 @@ def controles_rapprochement() -> SourceMenages:
 
 
 def gainperte() -> SourceMenages:
-    """Lot6e — coût standard vs coût réel."""
-    return _lire("gainperte", "Gain / perte (Lot6e)",
-                 cfg.MASTER_GAINPERTE_MENAGES, SOURCE_GAINPERTE, SHEET_GAINPERTE)
+    """Lot6e — coût standard vs coût réel. SQLite (0038), sans repli Excel."""
+    return _lire_sqlite("gainperte", "Gain / perte (Lot6e)", "menages_gainperte")
 
 
 def cout_complet() -> SourceMenages:
-    """Lot6f — coût complet analytique (direct + quotes-parts de charges)."""
-    return _lire("coutcomplet", "Coût complet (Lot6f)",
-                 cfg.MASTER_COUTCOMPLET_MENAGES, SOURCE_COUTCOMPLET, SHEET_COUTCOMPLET)
+    """Lot6f — coût complet analytique (direct + quotes-parts de charges). SQLite (0038)."""
+    return _lire_sqlite("coutcomplet", "Coût complet (Lot6f)", "menages_cout_complet")
 
 
 def pools_charges() -> SourceMenages:
@@ -435,11 +434,11 @@ def etats_sources() -> list[EtatSource]:
 # --- Compatibilité APP-2 (tests et service d'origine) -----------------------
 
 def rapprochement_available() -> bool:
-    return cfg.MASTER_RAPPROCHEMENT_MENAGES.exists()
+    return rapprochement().etat.disponible
 
 
 def gainperte_available() -> bool:
-    return cfg.MASTER_GAINPERTE_MENAGES.exists()
+    return gainperte().etat.disponible
 
 
 def read_tableau_comparaison() -> list[dict[str, Any]]:

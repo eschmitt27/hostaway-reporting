@@ -184,8 +184,22 @@ def test_ui_trois_actions_presentes(client):
     assert "Actualiser les sources et recalculer" in r.text
 
 
-def test_ui_libelle_pdf_renomme(client):
-    """« Factures prestataires » remplacé par « Factures de ménage externes »."""
+def test_ui_libelle_pdf_renomme(client, tmp_db):
+    """« Factures prestataires » remplacé par « Factures de ménage externes ».
+
+    `rapprochement()` lit SQLite (0038) sans repli Excel : une ligne minimale est nécessaire pour
+    que l'écran dépasse l'alerte « Source indisponible » et affiche les libellés testés ici.
+    """
+    from app.db.connection import get_db
+    conn = get_db(tmp_db)
+    try:
+        conn.execute(
+            "INSERT INTO menages_rapprochement (mois, logement_id, intervenant_id, "
+            "nb_menages_tasks_hostaway_completed, statut_controle) VALUES (?,?,?,?,?)",
+            ("2026-05", "LOG_0001", "INT_0002", 1, "VALIDE"))
+        conn.commit()
+    finally:
+        conn.close()
     r = client.get("/menages")
     assert "Factures de ménage externes" in r.text
     assert "Factures prestataires" not in r.text
