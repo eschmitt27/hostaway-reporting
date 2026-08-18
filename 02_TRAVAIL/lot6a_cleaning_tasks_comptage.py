@@ -19,7 +19,7 @@ Règles irrévocables :
   QM-L6a-04 — type_ligne_menage default = TLM_001 MENAGE_STANDARD
 """
 
-import os, sys, hashlib, logging
+import argparse, os, sys, hashlib, logging
 from collections import Counter, defaultdict
 from copy import copy
 from pathlib import Path
@@ -30,6 +30,9 @@ import openpyxl as xl
 from openpyxl.styles import PatternFill, Font, Alignment
 from openpyxl.utils import get_column_letter
 from dotenv import load_dotenv
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import lib_db_moteur as dbm
 
 load_dotenv()
 logging.basicConfig(
@@ -189,25 +192,30 @@ def fetch_tasks_per_listing(token, account_id, listing_ids: list) -> tuple:
 # REF LOADING
 # ══════════════════════════════════════════════════════════════
 def load_ref_logements():
-    """Retourne {hostaway_listing_id (int): (logement_id, proprietaire_id, actif_flag)}.
+    """Retourne {hostaway_listing_id (int): (logement_id, actif_flag)}.
     Inclut logements inactifs (actif='NON') pour ne pas orpheliner les tâches historiques.
+
+    proprietaire_id n'est PAS ici : REF_Logements n'a pas de colonne proprietaire_id (vérifié sur
+    le classeur réel). Le propriétaire dépend de la PÉRIODE (un logement peut changer de gestion) —
+    il se résout via REF_Gestion_Logements_Hist, comme partout ailleurs dans le moteur (lot4bis).
+    Une version antérieure de ce fichier lisait un `proprietaire_id` inexistant sur cette feuille :
+    ce code n'a jamais pu s'exécuter contre le classeur réel (ValueError sur `h.index`).
     """
     wb = xl.load_workbook(REF_PATH, read_only=True, data_only=True)
     ws = wb["REF_Logements"]
     rows = list(ws.iter_rows(values_only=True))
     h    = list(rows[0])
-    i_lid, i_haid, i_pid, i_act = (
-        h.index("logement_id"), h.index("hostaway_listing_id"),
-        h.index("proprietaire_id"), h.index("actif"),
+    i_lid, i_haid, i_act = (
+        h.index("logement_id"), h.index("hostaway_listing_id"), h.index("actif"),
     )
     mapping = {
-        int(r[i_haid]): (r[i_lid], r[i_pid], r[i_act])
+        int(r[i_haid]): (r[i_lid], r[i_act])
         for r in rows[1:]
         if r[i_haid] is not None
     }
     wb.close()
-    n_act = sum(1 for v in mapping.values() if v[2] == "OUI")
-    n_ina = sum(1 for v in mapping.values() if v[2] != "OUI")
+    n_act = sum(1 for v in mapping.values() if v[1] == "OUI")
+    n_ina = sum(1 for v in mapping.values() if v[1] != "OUI")
     log.info(f"REF_Logements : {n_act} actifs + {n_ina} inactifs mappés")
     return mapping
 
@@ -222,6 +230,96 @@ def load_ref_tlm():
     wb.close()
     log.info(f"REF_Types_Lignes_Menage : {len(tlm)} types chargés")
     return tlm
+
+def load_ref_gestion():
+    """Retourne les lignes REF_Gestion_Logements_Hist, ou [] si l'onglet est absent (référentiel
+    non historisé — état légitime, comme pour Hostaway)."""
+    wb = xl.load_workbook(REF_PATH, read_only=True, data_only=True)
+    try:
+        if "REF_Gestion_Logements_Hist" not in wb.sheetnames:
+            return []
+        ws = wb["REF_Gestion_Logements_Hist"]
+        rows = list(ws.iter_rows(values_only=True))
+    finally:
+        wb.close()
+    if not rows:
+        return []
+    h = [str(c) for c in rows[0]]
+    return [dict(zip(h, r)) for r in rows[1:] if r[0] is not None and str(r[0]) != "gestion_id"]
+
+
+# ══════════════════════════════════════════════════════════════
+# SOURCE SQLITE — tâches RAW (0035) déjà extraites, référentiel REF_Setup déjà importé (0029)
+# ══════════════════════════════════════════════════════════════
+def charger_tasks_sqlite(conn):
+    """Tâches de la dernière extraction CleaningTasks utilisable, forme identique à l'API brute."""
+    eid = ""
+    if dbm.table_presente(conn, "hostaway_cleaning_tasks_extractions"):
+        r = conn.execute(
+            "SELECT extraction_id FROM hostaway_cleaning_tasks_extractions "
+            "WHERE statut IN ('SUCCES','PARTIEL') ORDER BY date_debut DESC, id DESC LIMIT 1"
+        ).fetchone()
+        eid = r[0] if r else ""
+    if not eid or not dbm.table_presente(conn, "hostaway_cleaning_tasks"):
+        return []
+    cols = ("task_id", "reservation_id", "listing_map_id", "title", "status", "can_start_from",
+            "assignee_user_id")
+    alias = {"id": "task_id", "reservationId": "reservation_id", "listingMapId": "listing_map_id",
+             "canStartFrom": "can_start_from", "assigneeUserId": "assignee_user_id"}
+    lignes = dbm.lignes(conn, "hostaway_cleaning_tasks", cols,
+                        ou="extraction_id = ?", args=(eid,))
+    out = []
+    for l in lignes:
+        t = {camel: l.get(snake) for camel, snake in alias.items()}
+        t["title"], t["status"] = l.get("title"), l.get("status")
+        out.append(t)
+    return out
+
+
+def charger_ref_logements_sqlite(conn):
+    """Équivalent SQLite de `load_ref_logements()` : {hostaway_listing_id: (logement_id, actif)}."""
+    if not dbm.table_presente(conn, "ref_logements"):
+        return {}
+    rows = dbm.lignes(conn, "ref_logements", ("logement_id", "hostaway_listing_id", "actif"), ordre="logement_id")
+    return {int(r["hostaway_listing_id"]): (r["logement_id"], r["actif"])
+            for r in rows if r["hostaway_listing_id"]}
+
+
+def charger_ref_tlm_sqlite(conn):
+    if not dbm.table_presente(conn, "ref_types_lignes_menage"):
+        return {}
+    rows = dbm.lignes(conn, "ref_types_lignes_menage", ("type_ligne_menage_id", "compte_comme_menage"), ordre="type_ligne_menage_id")
+    return {r["type_ligne_menage_id"]: r["compte_comme_menage"] for r in rows}
+
+
+def charger_ref_gestion_sqlite(conn):
+    if not dbm.table_presente(conn, "ref_gestion_logements_hist"):
+        return []
+    return dbm.lignes(conn, "ref_gestion_logements_hist",
+                      ("gestion_id", "logement_id", "proprietaire_id", "date_debut", "date_fin",
+                       "statut_gestion", "source", "commentaire"), ordre="gestion_id")
+
+
+_ENRICHI_COLS_SQL = ("task_id", "row_hash", "mois", "logement_id", "proprietaire_id",
+                     "listing_map_id", "reservation_id", "scheduled_date", "title", "status",
+                     "statut_menage", "type_ligne_menage_id", "type_ligne_menage_lib",
+                     "compte_comme_menage", "cost", "h6_note", "statut_controle",
+                     "niveau_anomalie", "code_anomalie", "extrait_le", "date_integration")
+_ENRICHI_ALIAS_SQL = {"row_hash": "ROW_HASH", "listing_map_id": "listingMapId"}
+
+
+def ecrire_enrichi_sqlite(conn, enrichi_rows, *, run_id=""):
+    """Remplace intégralement `menages_taches_enrichies` — cache dérivé, pas un historique."""
+    conn.execute("DELETE FROM menages_taches_enrichies")
+    if enrichi_rows:
+        trous = ", ".join(["?"] * (len(_ENRICHI_COLS_SQL) + 1))
+        conn.executemany(
+            f"INSERT INTO menages_taches_enrichies ({', '.join(_ENRICHI_COLS_SQL)}, run_id) "
+            f"VALUES ({trous})",
+            [(*(dict(zip(ENRICHI_HEADERS, r)).get(_ENRICHI_ALIAS_SQL.get(c, c)) for c in
+               _ENRICHI_COLS_SQL), run_id or None) for r in enrichi_rows])
+    conn.commit()
+    return len(enrichi_rows)
 
 # ══════════════════════════════════════════════════════════════
 # SCHÉMAS COLONNES
@@ -293,7 +391,11 @@ def build_data_rows(tasks):
     return rows
 
 
-def build_enrichi_rows(tasks, mapping, tlm):
+def build_enrichi_rows(tasks, mapping, tlm, gest_dicts=()):
+    """gest_dicts : lignes REF_Gestion_Logements_Hist, pour résoudre proprietaire_id par PÉRIODE
+    (un logement peut changer de gestion) — même mécanisme que lot4bis pour les réservations."""
+    from lib_ref_history import resolve_management_period
+
     extrait = _now()
     rows = []
     for t in tasks:
@@ -310,11 +412,19 @@ def build_enrichi_rows(tasks, mapping, tlm):
         logement_id = None
         proprietaire_id = None
         logement_inactif = False
+        gestion_introuvable = False
         if mapid is not None:
             entry = mapping.get(int(mapid))
             if entry:
-                logement_id, proprietaire_id, actif_flag = entry
+                logement_id, actif_flag = entry
                 logement_inactif = (actif_flag != "OUI")
+                if gest_dicts:
+                    gest = resolve_management_period(
+                        gest_dicts, logement_id=logement_id, date_arrivee=date_s or None)
+                    if gest.status == "OK":
+                        proprietaire_id = gest.value
+                    else:
+                        gestion_introuvable = True
 
         ccm = tlm.get(DEFAULT_TLM_ID, DEFAULT_CCM)
 
@@ -324,6 +434,8 @@ def build_enrichi_rows(tasks, mapping, tlm):
             codes.append("TASK_LOGEMENT_ABSENT")   # BLOQUANT : listingMapId inconnu
         elif logement_inactif:
             codes.append("TASK_LOGEMENT_INACTIF")  # A_CONTROLER : logement désactivé
+        elif gestion_introuvable:
+            codes.append("TASK_GESTION_INTROUVABLE")  # A_CONTROLER : proprietaire non resolu
         if resid is None:
             codes.append("TASK_SANS_RESERVATION")
         if status == "pending":
@@ -623,44 +735,106 @@ def validate(data_rows, enrichi_rows, comptage_rows, tasks_raw, extraction_repor
 # ══════════════════════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════════════════════
+def _parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument("--source", choices=("API", "SQLITE"), default="API",
+                   help="API = Hostaway reel (H6, defaut, comportement historique). "
+                        "SQLITE = derniere extraction hostaway_cleaning_tasks deja en base "
+                        "(migration 0035) — n'appelle jamais l'API.")
+    p.add_argument("--db", default=None)
+    p.add_argument("--sans-excel", action="store_true",
+                   help="N'ecrit pas MASTER_FACT_HA_CleaningTasks_Discovery.xlsx.")
+    p.add_argument("--sans-sqlite", action="store_true",
+                   help="N'ecrit pas menages_taches_enrichies.")
+    p.add_argument("--run-id", default="")
+    return p.parse_args()
+
+
 def main():
     log.info("=" * 60)
     log.info("LOT 6A — Hostaway CleaningTasks : comptage ménages")
     log.info("=" * 60)
 
-    account_id = os.getenv("HOSTAWAY_ACCOUNT_ID") or os.getenv("ACCOUNT_ID")
-    if not account_id:
-        sys.exit("ERREUR : ACCOUNT_ID absent du .env")
+    args = _parse_args()
+    chemin_base = dbm.chemin_db(args.db)
 
-    if not REF_PATH.exists():
-        sys.exit(f"ERREUR : REF_Setup introuvable → {REF_PATH}")
+    if args.source == "SQLITE":
+        if chemin_base is None:
+            sys.exit("ERREUR : --source SQLITE exige une base (--db / PILOTAGE_DB_PATH / "
+                      "APP_DATA_DIR).")
+        conn = dbm.ouvrir(chemin_base)
+        try:
+            mapping = charger_ref_logements_sqlite(conn)
+            tlm     = charger_ref_tlm_sqlite(conn)
+            gest    = charger_ref_gestion_sqlite(conn)
+            tasks   = charger_tasks_sqlite(conn)
+        finally:
+            conn.close()
+        if not tasks:
+            sys.exit("ERREUR : aucune tâche exploitable en base (aucune extraction SUCCES/PARTIEL "
+                      "dans hostaway_cleaning_tasks_extractions).")
+        log.info(f"SQLite : {len(mapping)} logements mappés, {len(tasks)} tâches lues.")
+        extraction_report = {
+            "n_requests": 0, "n_brut": len(tasks), "n_unique": len(tasks), "n_doublons": 0,
+            "plateaued": [],
+            "segment_counts": dict(Counter(t.get("listingMapId") for t in tasks)),
+        }
+    else:
+        account_id = os.getenv("HOSTAWAY_ACCOUNT_ID") or os.getenv("ACCOUNT_ID")
+        if not account_id:
+            sys.exit("ERREUR : ACCOUNT_ID absent du .env")
+        if not REF_PATH.exists():
+            sys.exit(f"ERREUR : REF_Setup introuvable → {REF_PATH}")
 
-    # 1. Référentiels
-    log.info("Chargement REF_Setup...")
-    mapping = load_ref_logements()
-    tlm     = load_ref_tlm()
+        # 1. Référentiels
+        log.info("Chargement REF_Setup...")
+        mapping = load_ref_logements()
+        tlm     = load_ref_tlm()
+        gest    = load_ref_gestion()
 
-    # Liste de tous les listing IDs connus (actifs + inactifs)
-    listing_ids = list(mapping.keys())
-    log.info(f"Listings à interroger : {len(listing_ids)} (actifs + inactifs)")
+        # Liste de tous les listing IDs connus (actifs + inactifs)
+        listing_ids = list(mapping.keys())
+        log.info(f"Listings à interroger : {len(listing_ids)} (actifs + inactifs)")
 
-    # 2. API Hostaway — extraction segmentée par listingMapId (D065)
-    log.info("Authentification Hostaway...")
-    token = _get_token()
-    log.info("Authentification OK.")
-    log.info("Extraction segmentée par listingMapId (D065 — anti-plafond)...")
-    tasks, extraction_report = fetch_tasks_per_listing(token, account_id, listing_ids)
-    if not tasks:
-        sys.exit("ERREUR : aucune tâche retournée")
+        # 2. API Hostaway — extraction segmentée par listingMapId (D065)
+        log.info("Authentification Hostaway...")
+        token = _get_token()
+        log.info("Authentification OK.")
+        log.info("Extraction segmentée par listingMapId (D065 — anti-plafond)...")
+        tasks, extraction_report = fetch_tasks_per_listing(token, account_id, listing_ids)
+        if not tasks:
+            sys.exit("ERREUR : aucune tâche retournée")
 
     # 3. Construction lignes
     log.info("Construction onglets...")
     data_rows     = build_data_rows(tasks)
-    enrichi_rows  = build_enrichi_rows(tasks, mapping, tlm)
+    enrichi_rows  = build_enrichi_rows(tasks, mapping, tlm, gest)
     comptage_rows = build_comptage_rows(enrichi_rows)
+
+    # 3bis. SQLite (chemin normal, comme lot1/lot4bis) — sauf --sans-sqlite ou base non désignée.
+    if args.sans_sqlite:
+        log.info("--sans-sqlite : menages_taches_enrichies non écrit.")
+    elif chemin_base is None:
+        log.info("Aucune base désignée : menages_taches_enrichies non écrit.")
+    else:
+        conn = dbm.ouvrir(chemin_base)
+        try:
+            n = ecrire_enrichi_sqlite(conn, enrichi_rows, run_id=args.run_id)
+        finally:
+            conn.close()
+        log.info(f"  SQLite : menages_taches_enrichies — {n} lignes")
 
     # 4. Validation (avec rapport extraction)
     fails = validate(data_rows, enrichi_rows, comptage_rows, tasks, extraction_report)
+
+    if args.sans_excel:
+        log.info("--sans-excel : masters legacy non écrits.")
+        log.info("=" * 60)
+        if fails:
+            log.warning(f"  ATTENTION : {fails} FAIL(s) — vérifier avant livraison")
+            sys.exit(1)
+        log.info("  STATUT : OK — 0 FAIL")
+        return
 
     # 5. Écriture Excel
     log.info(f"Écriture → {OUT_PATH}")

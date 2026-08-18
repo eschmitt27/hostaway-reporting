@@ -112,6 +112,11 @@ EXPECTED_TABLES = {
     "intervenant_menage_allocations",           # 0036 — compte intervenant interne, FIFO
     "intervenant_menage_recalculs",             # 0036 — compte intervenant interne, journal
     "facture_lignes_menage",                    # 0037 — lignes facture menage, sans charge_id Excel
+    "menages_taches_enrichies",                 # 0038 — Lot6a comptage (logement/mois resolus)
+    "menages_declarations_internes",            # 0038 — Lot6b declarations internes normalisees
+    "menages_rapprochement",                    # 0038 — Lot6d Tasks vs declarations/factures
+    "menages_gainperte",                        # 0038 — Lot6e ecart gain/perte vs standard
+    "menages_cout_complet",                     # 0038 — Lot6f cout complet (quote-parts)
 }
 
 
