@@ -493,17 +493,18 @@ def test_ecran_actualisation_nexpose_aucun_chemin(tmp_db, client):
         assert interdit not in texte, f"l'écran expose {interdit}"
 
 
-# ── 10. Ordre de lecture : la clé du moteur en dépend ───────────────────────────────────────────
+# ── 10. Ordre de lecture ─────────────────────────────────────────────────────────────────────────
 #
-# `reservation_calc_id` vaut `RES-<mois>-HA-<n>`, où n est un compteur d'itération : la clé dépend de
-# l'ORDRE dans lequel les réservations sont parcourues. C'est une faiblesse du modèle de clé — une
-# clé stable devrait dériver de l'identifiant de la réservation, pas de sa position — et elle reste
-# ouverte côté moteur.
+# `reservation_calc_id` dérive désormais de l'identifiant Hostaway (RES-HA-<reservation_id>) ou de
+# l'identifiant opaque HH (RES-HH-<reservation_hh_id>) : la clé ne dépend plus de la position dans
+# la liste (voir la section 11 plus bas pour les tests directs de cette stabilité). La lecture SQLite
+# reste néanmoins dans l'ordre d'insertion — pas trié par identifiant — par cohérence de parité avec
+# la baseline legacy ligne à ligne, pas par nécessité d'identité.
 #
 # Ce que la migration DOIT garantir, et que ces tests vérifient : la lecture SQLite rend toujours le
-# même ordre, donc deux exécutions produisent les mêmes clés. Sans cela, un simple recalcul
-# renumérotait chaque ligne sans changer un seul total : les agrégats restaient justes et toutes les
-# clés étaient décalées d'un cran.
+# même ordre, donc deux exécutions produisent les mêmes lignes dans le même agencement — le legacy
+# renumérotait sur simple recalcul sans changer un seul total : les agrégats restaient justes et
+# toutes les positions étaient décalées d'un cran.
 
 def test_ordre_de_lecture_stable(tmp_db):
     """Deux lectures successives rendent les réservations dans le même ordre."""

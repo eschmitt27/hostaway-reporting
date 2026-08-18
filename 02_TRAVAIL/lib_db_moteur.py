@@ -74,6 +74,27 @@ def ouvrir(chemin: Path) -> sqlite3.Connection:
 # On restitue donc le type attendu a la frontiere, sans changer la logique du moteur.
 IDS_HOSTAWAY = ("reservation_id", "reservation_id_hostaway", "listingMapId", "listing_map_id")
 
+PREFIXE_HA = "RES-HA-"
+PREFIXE_HH = "RES-HH-"
+PREFIXE_LEGACY = "RES-LEGACY-"
+
+
+def cle_reservation_ha(reservation_id) -> str | None:
+    """Identite stable d'une reservation Hostaway : derivee de son identifiant, jamais de sa
+    position dans une liste. None si aucun identifiant n'est disponible (ne devrait pas arriver
+    pour une reservation venant reellement de l'API)."""
+    if reservation_id in (None, ""):
+        return None
+    return f"{PREFIXE_HA}{reservation_id}"
+
+
+def cle_reservation_hh(reservation_hh_id) -> str | None:
+    """Identite stable d'une reservation hors Hostaway : reservation_hh_id est deja l'identifiant
+    opaque persistant attribue a la saisie (ex. RESHH-2026-05-001), on le reutilise tel quel."""
+    if reservation_hh_id in (None, ""):
+        return None
+    return f"{PREFIXE_HH}{reservation_hh_id}"
+
 
 def entier_si_possible(valeur):
     """Entier quand la valeur en est un, sinon la valeur telle quelle."""

@@ -213,16 +213,11 @@ def charger_hostaway_sqlite(chemin_base):
         extraction = dbm.extraction_utilisable(conn)
         if not extraction:
             return None, "aucune extraction Hostaway exploitable en base"
-        # ORDRE D'ARRIVEE, pas ordre d'identifiant.
-        #
-        # `reservation_calc_id` est construit plus bas comme RES-<mois>-HA-<n>, ou n est un compteur
-        # d'iteration : la cle depend donc de l'ORDRE dans lequel les reservations sont parcourues.
-        # Trier par reservation_id decalerait toutes les cles d'un cran sans changer un seul montant
-        # — les totaux resteraient justes et chaque ligne serait pourtant renumerotee. `id` preserve
-        # l'ordre d'insertion, donc celui de l'extraction, donc celui que le classeur avait.
-        #
-        # Cette dependance a l'ordre est une faiblesse du modele de cle, notee comme point ouvert :
-        # une cle stable devrait deriver de l'identifiant de la reservation, pas de sa position.
+        # ORDRE D'ARRIVEE, pas ordre d'identifiant : preserve l'ordre d'insertion (celui de
+        # l'extraction, celui que le classeur legacy avait), pour que la comparaison de parite
+        # ligne a ligne reste valable. `reservation_calc_id` est desormais derive de l'identifiant
+        # Hostaway (RES-HA-<reservation_id>) et ne depend plus de cet ordre — l'ordre de lecture ne
+        # change donc plus d'identite, seulement la position des lignes dans le fichier de sortie.
         res = [_traduire(r, _VERS_MOTEUR_RES) for r in dbm.lignes(
             conn, "hostaway_reservations", _COLS_RES_SQL,
             ou="extraction_id = ?", args=(extraction,), ordre="id")]
@@ -469,9 +464,13 @@ def main(argv=None):
         check_in = res.get("checkInDate")
         mois = str(check_in)[:7] if check_in else "0000-00"
         branch = "HA"
-        counters_by_month_ha[(mois, branch)] += 1
-        n = counters_by_month_ha[(mois, branch)]
-        reservation_calc_id = f"RES-{mois}-HA-{n:03d}"
+        reservation_calc_id = dbm.cle_reservation_ha(res.get("reservation_id"))
+        if reservation_calc_id is None:
+            # Dernier recours si l'API ne fournit pas d'identifiant (ne devrait pas arriver) :
+            # compteur positionnel, feuille reconnaissable par son prefixe LEGACY.
+            counters_by_month_ha[(mois, branch)] += 1
+            n = counters_by_month_ha[(mois, branch)]
+            reservation_calc_id = f"{dbm.PREFIXE_LEGACY}{mois}-HA-{n:03d}"
 
         impact_reel  = "A_CONTROLER" if code_impact not in ("IC", "HC", "HR") else ("NON" if code_impact == "HR" else "OUI")
         impact_compta = "A_CONTROLER" if code_impact not in ("IC", "HC", "HR") else ("OUI" if code_impact == "IC" else "NON")
@@ -547,9 +546,11 @@ def main(argv=None):
     def make_row_hh(hh, src_override=None):
         mois = str(hh.get("mois") or "0000-00")[:7]
         branch = "HH"
-        counters_by_month_hh[(mois, branch)] += 1
-        n = counters_by_month_hh[(mois, branch)]
-        reservation_calc_id = f"RES-{mois}-HH-{n:03d}"
+        reservation_calc_id = dbm.cle_reservation_hh(hh.get("reservation_hh_id"))
+        if reservation_calc_id is None:
+            counters_by_month_hh[(mois, branch)] += 1
+            n = counters_by_month_hh[(mois, branch)]
+            reservation_calc_id = f"{dbm.PREFIXE_LEGACY}{mois}-HH-{n:03d}"
         source_val = src_override or "MANUEL_HORS_HOSTAWAY"
         code_impact = hh.get("code_impact") or "HC"
         statut = hh.get("statut_controle") or "A_CONTROLER"

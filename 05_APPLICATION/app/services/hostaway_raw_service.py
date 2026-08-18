@@ -341,10 +341,10 @@ def _lire(table: str, colonnes: tuple[str, ...], extraction_id: str, *, db_path=
 # ORDRE D'ARRIVÉE PARTOUT.
 #
 # Les lignes sont rendues dans l'ordre où l'extraction les a écrites (`id`), jamais triées par
-# identifiant. La raison n'est pas esthétique : le moteur construit `reservation_calc_id` comme
-# `RES-<mois>-HA-<n>`, où n est un compteur d'itération. Deux lecteurs qui ordonnent différemment la
-# même extraction produisent donc des clés différentes — sans qu'aucun total ne change, ce qui rend
-# l'écart invisible en agrégat. Le moteur lit dans l'ordre d'insertion ; ce service fait de même.
+# identifiant — pour que la comparaison ligne à ligne avec la baseline legacy reste valable. Ceci
+# n'est plus une contrainte d'identité : `reservation_calc_id` dérive de `reservation_id` (ou
+# `reservation_hh_id`), donc stable quel que soit l'ordre de lecture. Le moteur lit dans l'ordre
+# d'insertion ; ce service fait de même, par cohérence de parité plutôt que par nécessité.
 
 
 def reservations(*, extraction_id: str = "", db_path=None) -> list[dict[str, Any]]:

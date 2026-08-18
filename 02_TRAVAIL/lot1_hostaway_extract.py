@@ -1581,13 +1581,13 @@ def main():
 
     run_id    = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_start = datetime.now(timezone.utc)
+    log       = setup_logging(run_id, silent_file=args.dry_run)
     # Journal du run : ouvert AVANT le premier appel reseau. Un run interrompu apres
     # avoir ecrit des masters doit rester visible — c'etait le defaut du 2026-08-17.
     journal = RunJournal('lot1_hostaway_extract', racine=BASE_DIR,
                          db_path=getattr(args, 'db', None), log=log,
                          fallback_dir=OUT_DIR / '_runs')
     etape_debut = journal.started_at
-    log       = setup_logging(run_id, silent_file=args.dry_run)
 
     # ── Recalcul payout sans API ─────────────────────────────────
     if getattr(args, "recalc_payout_only", False):
@@ -1960,7 +1960,7 @@ def main():
             journal.etape("FEES", ETAPE_SUCCES, nb_ecrits=len(rows_fees))
             journal.etape("PAYOUTS", ETAPE_SUCCES, nb_ecrits=len(rows_payout),
                           sorties=sorties_principales)
-            journal.etape("ANOMALIES", ETAPE_SUCCES, nb_ecrits=len(main_tables["MASTER_CTRL_HA_Anomalies"]))
+            journal.etape("ANOMALIES", ETAPE_SUCCES, nb_ecrits=len(detector.to_df()))
 
             # ── CLEANING TASKS (non-bloquant) ─────────────────
             debut_tasks = datetime.now(timezone.utc).isoformat(timespec="seconds")
