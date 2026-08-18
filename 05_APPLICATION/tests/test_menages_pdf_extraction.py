@@ -277,33 +277,30 @@ def test_20_master_reel_intact_apres_extraction(tmp_path):
         assert hashlib.sha256(db.read_bytes()).hexdigest() == sha_db_avant
 
 
-def test_21_ecran_reflete_mode(monkeypatch, tmp_path):
-    """21 : l'écran/service reflète le mode et le diagnostic depuis un MASTER produit (fixture)."""
-    import openpyxl
+def test_21_ecran_reflete_mode(monkeypatch):
+    """21 : l'écran/service reflète le mode et le diagnostic (0037/0040, SQLite — `externes()`/
+    `diagnostic_pdf()`/`mode_extraction_externes()` n'ont plus de repli Excel, stub direct comme
+    `test_menages_chaine.py::test_pdf_info_prestataires_depuis_master`)."""
     from app.readers import menages_reader as reader
     from app.services import menages_service as svc
-    p = tmp_path / "MASTER_FACT_MEN_MenagesExternes.xlsx"
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "MASTER"
-    cols = ["mois", "nom_prestataire", "nom_fichier_source", "source_document"]
-    ws.append(cols)
-    ws.append(["2026-05", "Aissata", "Facture mai Aissata.pdf",
-               "lot6c_menages_externes.py — 20260517 — PDF_AUTOMATIQUE"])
-    wd = wb.create_sheet("DIAGNOSTIC_PDF")
-    dcols = ["nom_fichier", "format_detecte", "statut_extraction", "numero_facture",
-             "date_facture", "montant_total", "somme_lignes", "ecart_reconciliation",
-             "nb_lignes", "doublon_de", "sha256_pdf", "anomalies", "mode_extraction"]
-    wd.append(dcols)
-    wd.append(["Facture mai Aissata.pdf", "AISSATA", "OK", "2026-37", "2026-05-31",
-               1439, 1439, 0, 8, "", "abc", "", "PDF_AUTOMATIQUE"])
-    wb.save(p)
-    wb.close()
-    monkeypatch.setattr(cfg, "MASTER_MENAGES_EXTERNES", p)
-    reader.vider_cache()
+
+    lignes = [{"nom_prestataire": "Aissata", "mois": "2026-05",
+              "nom_fichier_source": "Facture mai Aissata.pdf"}]
+    monkeypatch.setattr(reader, "externes", lambda: reader.SourceMenages(
+        reader.EtatSource("externes", "Externes", "facture_lignes_menage",
+                          "facture_lignes_menage", reader.ETAT_OK, len(lignes)),
+        lignes))
+    diag = [{"nom_fichier": "Facture mai Aissata.pdf", "format_detecte": "AISSATA",
+            "statut_extraction": "OK", "numero_facture": "2026-37", "montant_total": 1439,
+            "nb_lignes": 8, "ecart_reconciliation": 0, "doublon_de": "", "anomalies": ""}]
+    monkeypatch.setattr(reader, "diagnostic_pdf", lambda: reader.SourceMenages(
+        reader.EtatSource("diag", "Diag", "facture_pdf_diagnostics", "facture_pdf_diagnostics",
+                          reader.ETAT_OK, len(diag)),
+        diag))
+    monkeypatch.setattr(reader, "mode_extraction_externes", lambda: "PDF_AUTOMATIQUE")
+
     info = svc.load_pdf_externes_info()
     assert info["mode_extraction"] == "PDF_AUTOMATIQUE"
     assert info["extraction_automatique"] is True
     assert info["nb_pdf_reconnus"] == 1
     assert info["diagnostic"][0]["numero_facture"] == "2026-37"
-    reader.vider_cache()
