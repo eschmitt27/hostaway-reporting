@@ -117,6 +117,7 @@ EXPECTED_TABLES = {
     "menages_rapprochement",                    # 0038 — Lot6d Tasks vs declarations/factures
     "menages_gainperte",                        # 0038 — Lot6e ecart gain/perte vs standard
     "menages_cout_complet",                     # 0038 — Lot6f cout complet (quote-parts)
+    "facture_lignes_menage_detail",              # 0039 — quantite par ligne (extension 1-1)
 }
 
 

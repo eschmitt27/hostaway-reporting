@@ -14,13 +14,15 @@ DRY-RUN : sortie de test 02_TRAVAIL/Lot6_DryRun/DRYRUN_Rapprochement_Menages_Com
 Périmètre courant : MOIS = 2026-05.
 """
 
-import sys, os, glob, hashlib, datetime, collections, unicodedata, warnings
+import argparse, sys, os, glob, hashlib, datetime, collections, unicodedata, warnings
 warnings.filterwarnings("ignore")
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import openpyxl
 from openpyxl.styles import Font, PatternFill
 
-MONTH = "2026-05"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import lib_db_moteur as dbm
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REF  = os.path.join(ROOT, "01_SOURCES_BRUTES", "REF_Setup", "REF_Setup.xlsm")
 OUTD = os.path.join(ROOT, "02_TRAVAIL", "Lot6d_Rapprochement_Menages")
@@ -39,30 +41,135 @@ def norm(s):
 def rowhash(*v):
     return hashlib.sha256("|".join("" if x is None else str(x) for x in v).encode()).hexdigest()[:16]
 
-# ── Référentiels ────────────────────────────────────────────────────────────
-_, ref_int = sh(REF, "REF_Intervenants")
-assignee2int = {}    # assigneeUserId -> (intervenant_id, nom, type)
-int_by_id = {}
-for d in ref_int:
-    int_by_id[d["intervenant_id"]] = d
-    a = d.get("hostaway_assigneeUserId")
-    if a is not None and str(d.get("hostaway_mapping_actif")).upper() == "OUI":
-        assignee2int[a] = (d["intervenant_id"], d.get("nom_intervenant"), d.get("type_intervenant"))
-KNOWN = {norm(d["nom_normalise"]): d["intervenant_id"] for d in ref_int if d.get("nom_normalise")}
+_ap = argparse.ArgumentParser()
+_ap.add_argument("--source", choices=("EXCEL", "SQLITE"), default="EXCEL",
+                 help="EXCEL = classeurs legacy Lot6a/6b/6c (comportement historique). "
+                      "SQLITE = menages_taches_enrichies/menages_declarations_internes/"
+                      "facture_lignes_menage (0038/0039), deja alimentes par ces Lots.")
+_ap.add_argument("--db", default=None)
+_ap.add_argument("--mois", default=None,
+                 help="AAAA-MM. Absent = dernier mois present dans les Tasks CleaningTasks — "
+                      "aucun mois n'est fige dans le code (mission §12).")
+_ap.add_argument("--sans-excel", action="store_true")
+_ap.add_argument("--sans-sqlite", action="store_true")
+_ap.add_argument("--run-id", default="")
+args = _ap.parse_args()
+chemin_base = dbm.chemin_db(args.db)
 
-_, ref_clo = sh(REF, "REF_Cloture_Mensuelle")
-cloture = {str(d["mois"])[:7] for d in ref_clo if str(d.get("statut_mois")).upper() == "CLOTURE" and d.get("mois")}
-mois_historique = MONTH in cloture          # mois clôturé => non-assignés = INFO historique
+if args.source == "SQLITE":
+    if chemin_base is None:
+        sys.exit("[lot6d] ERREUR : --source SQLITE exige une base (--db / PILOTAGE_DB_PATH / "
+                 "APP_DATA_DIR).")
+    _conn = dbm.ouvrir(chemin_base)
+    from lib_ref_history import resolve_management_period
 
-_, ref_log = sh(REF, "REF_Logements")
-log_info = {d["logement_id"]: d for d in ref_log if d.get("logement_id") and str(d["logement_id"]) != "logement_id"}
+    # ── Mois par défaut : dernier mois présent dans les tâches enrichies (Lot6a SQLite) ──────────
+    if args.mois:
+        MONTH = args.mois
+    else:
+        r = _conn.execute(
+            "SELECT MAX(mois) FROM menages_taches_enrichies WHERE mois IS NOT NULL").fetchone()
+        MONTH = r[0] if r and r[0] else datetime.date.today().strftime("%Y-%m")
 
-# ── A. Hostaway Tasks réalisés (completed) du mois ───────────────────────────
-tf = glob.glob(os.path.join(ROOT, "02_TRAVAIL", "**", "MASTER_FACT_HA_CleaningTasks_Discovery.xlsx"), recursive=True)[0]
-_, t_data = sh(tf, "data")
-_, t_enr  = sh(tf, "MASTER_ENRICHI")
-assignee_by_task = {d["task_id"]: d.get("assigneeUserId") for d in t_data}
-title_by_task    = {d["task_id"]: d.get("title") for d in t_data}
+    # ── Référentiels (0029, déjà importés) ─────────────────────────────────────
+    ref_int = dbm.lignes(_conn, "ref_intervenants",
+        ("intervenant_id", "nom_intervenant", "type_intervenant", "nom_normalise",
+         "hostaway_assigneeUserId", "hostaway_mapping_actif"), ordre="intervenant_id")
+    ref_clo = dbm.lignes(_conn, "ref_cloture_mensuelle", ("mois", "statut_mois"), ordre="mois")
+    cloture = {str(d["mois"])[:7] for d in ref_clo
+              if str(d.get("statut_mois") or "").upper() == "CLOTURE" and d.get("mois")}
+    mois_historique = MONTH in cloture
+
+    assignee2int = {}    # assigneeUserId -> (intervenant_id, nom, type)
+    int_by_id = {}
+    for d in ref_int:
+        int_by_id[d["intervenant_id"]] = d
+        a = d.get("hostaway_assigneeUserId")
+        if a is not None and str(d.get("hostaway_mapping_actif") or "").upper() == "OUI":
+            assignee2int[a] = (d["intervenant_id"], d.get("nom_intervenant"), d.get("type_intervenant"))
+    KNOWN = {norm(d["nom_normalise"]): d["intervenant_id"] for d in ref_int if d.get("nom_normalise")}
+
+    ref_log = dbm.lignes(_conn, "ref_logements",
+        ("logement_id", "nom_logement_officiel"), ordre="logement_id")
+    gest_rows = dbm.lignes(_conn, "ref_gestion_logements_hist",
+        ("gestion_id", "logement_id", "proprietaire_id", "date_debut", "date_fin",
+         "statut_gestion", "source", "commentaire"), ordre="gestion_id") \
+        if dbm.table_presente(_conn, "ref_gestion_logements_hist") else []
+    # proprietaire_id resolu par periode (comme lot6a) — REF_Logements n'a pas cette colonne sur le
+    # classeur reel ; log_info["proprietaire_id"] doit donc etre calcule, jamais lu tel quel.
+    log_info = {}
+    for d in ref_log:
+        lid = d["logement_id"]
+        prop_id = None
+        if gest_rows:
+            res = resolve_management_period(gest_rows, logement_id=lid,
+                                            date_arrivee=MONTH + "-15")
+            prop_id = res.value if res.status == "OK" else None
+        log_info[lid] = {"nom_logement_officiel": d.get("nom_logement_officiel"),
+                         "proprietaire_id": prop_id}
+
+    # ── A. Hostaway Tasks réalisés (completed) du mois — menages_taches_enrichies (0038) ─────────
+    t_enr = dbm.lignes(_conn, "menages_taches_enrichies",
+        ("task_id", "mois", "logement_id", "status", "statut_menage"), ordre="id")
+    _raw_tasks = dbm.lignes(_conn, "hostaway_cleaning_tasks",
+        ("task_id", "title", "assignee_user_id"), ordre="id")
+    assignee_by_task = {r["task_id"]: r["assignee_user_id"] for r in _raw_tasks}
+    title_by_task    = {r["task_id"]: r["title"] for r in _raw_tasks}
+
+    # ── C. Ménages externes déclarés — facture_lignes_menage/detail (0037/0039) ───────────────────
+    ext = []
+    if dbm.table_presente(_conn, "facture_lignes_menage"):
+        cur = _conn.execute(
+            "SELECT l.facture_id_opaque, l.logement_id, f.fournisseur_id_opaque AS prestataire_id, "
+            "l.montant_ttc, d.quantite, f.date_facture "
+            "FROM facture_lignes_menage l "
+            "JOIN factures f ON f.facture_id_opaque = l.facture_id_opaque "
+            "LEFT JOIN facture_lignes_menage_detail d ON d.ligne_id_opaque = l.ligne_id_opaque "
+            "WHERE l.type_ligne = 'MENAGE_EXTERNE'")
+        for facture_id, logement_id, prestataire_id, montant_ttc, quantite, date_facture \
+                in cur.fetchall():
+            ext.append({
+                "mois": str(date_facture or "")[:7], "logement_id": logement_id,
+                "prestataire_id": prestataire_id,
+                "type_ligne_menage_id": "TLM_001",   # équivalent SQLite : MENAGE_EXTERNE compte
+                "nombre_menages": quantite if quantite is not None else 1,
+                "montant_ligne_ttc": montant_ttc, "facture_id": facture_id,
+            })
+
+    # ── D. Ménages internes déclarés — menages_declarations_internes (0038) ───────────────────────
+    decl = dbm.lignes(_conn, "menages_declarations_internes",
+        ("mois", "logement_id", "intervenant_id", "nb_menages"), ordre="id")
+    m04_alimente = any(str(d.get("mois"))[:7] == MONTH for d in decl)
+    src_interne = "SQLITE_menages_declarations_internes"
+    _conn.close()
+
+else:
+    MONTH = args.mois or "2026-05"
+
+    # ── Référentiels ────────────────────────────────────────────────────────────
+    _, ref_int = sh(REF, "REF_Intervenants")
+    assignee2int = {}    # assigneeUserId -> (intervenant_id, nom, type)
+    int_by_id = {}
+    for d in ref_int:
+        int_by_id[d["intervenant_id"]] = d
+        a = d.get("hostaway_assigneeUserId")
+        if a is not None and str(d.get("hostaway_mapping_actif")).upper() == "OUI":
+            assignee2int[a] = (d["intervenant_id"], d.get("nom_intervenant"), d.get("type_intervenant"))
+    KNOWN = {norm(d["nom_normalise"]): d["intervenant_id"] for d in ref_int if d.get("nom_normalise")}
+
+    _, ref_clo = sh(REF, "REF_Cloture_Mensuelle")
+    cloture = {str(d["mois"])[:7] for d in ref_clo if str(d.get("statut_mois")).upper() == "CLOTURE" and d.get("mois")}
+    mois_historique = MONTH in cloture          # mois clôturé => non-assignés = INFO historique
+
+    _, ref_log = sh(REF, "REF_Logements")
+    log_info = {d["logement_id"]: d for d in ref_log if d.get("logement_id") and str(d["logement_id"]) != "logement_id"}
+
+    # ── A. Hostaway Tasks réalisés (completed) du mois ───────────────────────────
+    tf = glob.glob(os.path.join(ROOT, "02_TRAVAIL", "**", "MASTER_FACT_HA_CleaningTasks_Discovery.xlsx"), recursive=True)[0]
+    _, t_data = sh(tf, "data")
+    _, t_enr  = sh(tf, "MASTER_ENRICHI")
+    assignee_by_task = {d["task_id"]: d.get("assigneeUserId") for d in t_data}
+    title_by_task    = {d["task_id"]: d.get("title") for d in t_data}
 
 def title_names(t):
     n = norm(str(t).split(" - ")[0])
@@ -105,8 +212,10 @@ for d in t_enr:
     tasks[(lg, iid)] += 1
 
 # ── C. Ménages externes déclarés (facturés) du mois ──────────────────────────
-fc = glob.glob(os.path.join(ROOT, "02_TRAVAIL", "**", "MASTER_FACT_MEN_MenagesExternes.xlsx"), recursive=True)[0]
-_, ext = sh(fc, "MASTER")
+# `ext` est déjà construit par la branche SQLITE plus haut ; en EXCEL, il faut encore le lire.
+if args.source != "SQLITE":
+    fc = glob.glob(os.path.join(ROOT, "02_TRAVAIL", "**", "MASTER_FACT_MEN_MenagesExternes.xlsx"), recursive=True)[0]
+    _, ext = sh(fc, "MASTER")
 ext_cnt = collections.Counter()     # (logement_id, intervenant_id) -> nb ménages
 for d in ext:
     if str(d.get("mois"))[:7] != MONTH:
@@ -122,29 +231,26 @@ for d in ext:
     ext_cnt[(d.get("logement_id"), d.get("prestataire_id"))] += q
 
 # ── D. Ménages internes déclarés du mois ─────────────────────────────────────
+# En SQLITE, `decl`/`m04_alimente`/`src_interne` sont déjà construits par la branche plus haut.
 # Priorité à la source normalisée DRY-RUN (Google Sheet) si présente, sinon M04 réel.
 # (M04 réel jamais modifié ici — lecture seule.)
 int_cnt = collections.Counter()     # (logement_id, intervenant_id) -> nb ménages
-m04_alimente = False
-src_interne = "AUCUNE"
-DRY_M04 = os.path.join(NORM_DIR, "MASTER_NORM_Declarations_Internes.xlsx")
-if os.path.exists(DRY_M04):
-    src_interne = "NORM_DECLARATIONS_INTERNES"
-    _, decl = sh(DRY_M04, "MASTER_NORMALISE")
-    for d in decl:
-        if str(d.get("mois"))[:7] != MONTH:
-            continue
-        m04_alimente = True
-        int_cnt[(d.get("logement_id"), d.get("intervenant_id"))] += (d.get("nb_menages") or 0)
-else:
-    src_interne = "M04_REEL"
-    m04f = glob.glob(os.path.join(ROOT, "02_DONNEES_NORMALISEES", "menages", "M04_MENAGES_PowerQuery.xlsx"))[0]
-    _, m04 = sh(m04f, "MASTER")
-    for d in m04:
-        if str(d.get("mois"))[:7] != MONTH:
-            continue
-        m04_alimente = True
-        int_cnt[(d.get("logement_id"), d.get("intervenant_id"))] += (d.get("nb_menages") or 0)
+if args.source != "SQLITE":
+    m04_alimente = False
+    src_interne = "AUCUNE"
+    DRY_M04 = os.path.join(NORM_DIR, "MASTER_NORM_Declarations_Internes.xlsx")
+    if os.path.exists(DRY_M04):
+        src_interne = "NORM_DECLARATIONS_INTERNES"
+        _, decl = sh(DRY_M04, "MASTER_NORMALISE")
+    else:
+        src_interne = "M04_REEL"
+        m04f = glob.glob(os.path.join(ROOT, "02_DONNEES_NORMALISEES", "menages", "M04_MENAGES_PowerQuery.xlsx"))[0]
+        _, decl = sh(m04f, "MASTER")
+for d in decl:
+    if str(d.get("mois"))[:7] != MONTH:
+        continue
+    m04_alimente = True
+    int_cnt[(d.get("logement_id"), d.get("intervenant_id"))] += (d.get("nb_menages") or 0)
 
 # ── Tableau comparaison mois × logement × intervenant ────────────────────────
 keys = set(tasks) | set(ext_cnt) | set(int_cnt)
@@ -197,6 +303,37 @@ def resume(keyf):
     return agg
 res_app = resume(lambda r: (r["logement_id"], r["nom_appartement"]))
 res_int = resume(lambda r: (r["intervenant_id"], r["nom_intervenant"], r["type_intervenant"]))
+
+# ── SQLite : menages_rapprochement (0038) — remplacement integral (cache derive) ────────────────
+if args.sans_sqlite:
+    print("[lot6d] --sans-sqlite : menages_rapprochement non ecrit.")
+elif chemin_base is None:
+    print("[lot6d] Aucune base designee : menages_rapprochement non ecrit.")
+else:
+    _sql_cols = ["mois", "nom_appartement", "logement_id", "proprietaire_id", "intervenant_id",
+                "nom_intervenant", "type_intervenant", "source_mapping_hostaway",
+                "nb_menages_tasks_hostaway_completed", "nb_menages_declares_externe",
+                "nb_menages_declares_interne_m04", "total_menages_declares", "ecart",
+                "statut_controle", "code_controle", "commentaire"]
+    _conn = dbm.ouvrir(chemin_base)
+    try:
+        _conn.execute("DELETE FROM menages_rapprochement WHERE mois = ?", (MONTH,))
+        if comp:
+            _trous = ", ".join(["?"] * (len(_sql_cols) + 1))
+            _conn.executemany(
+                f"INSERT INTO menages_rapprochement ({', '.join(_sql_cols)}, run_id) "
+                f"VALUES ({_trous})",
+                [tuple(r.get(c) for c in _sql_cols) + (args.run_id or None,) for r in comp])
+        _conn.commit()
+    finally:
+        _conn.close()
+    print(f"[lot6d] SQLite : menages_rapprochement — {len(comp)} lignes (mois={MONTH})")
+
+if args.sans_excel:
+    print("[lot6d] --sans-excel : classeur legacy non ecrit.")
+    print(f"[lot6d] mois={MONTH} (clôturé={mois_historique}) — {len(comp)} lignes, "
+         f"statuts={dict(cnt_statut)}")
+    sys.exit(0)
 
 # ── Écriture ──────────────────────────────────────────────────────────────────
 os.makedirs(OUTD, exist_ok=True)

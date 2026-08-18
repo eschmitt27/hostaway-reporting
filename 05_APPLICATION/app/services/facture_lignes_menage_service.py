@@ -42,6 +42,7 @@ def _refus(code: str, detail: str = "") -> dict[str, Any]:
 def ajouter_ligne(facture_id_opaque: str, *, type_ligne: str, montant_ttc: float,
                   logement_id: str = "", menage_id_opaque: str = "", description: str = "",
                   montant_ht: float | None = None, montant_tva: float | None = None,
+                  quantite: int | None = None, prix_unitaire: float | None = None,
                   source: str = SOURCE_PDF, commentaire: str = "", acteur: str = "",
                   db_path=None) -> dict[str, Any]:
     if type_ligne not in TYPES:
@@ -62,6 +63,10 @@ def ajouter_ligne(facture_id_opaque: str, *, type_ligne: str, montant_ttc: float
             (ligne_id, facture_id_opaque, type_ligne, logement_id or None,
              menage_id_opaque or None, description or None, montant_ht, montant_tva, montant_ttc,
              source, commentaire or None, acteur or None))
+        if quantite is not None or prix_unitaire is not None:
+            conn.execute(
+                "INSERT INTO facture_lignes_menage_detail (ligne_id_opaque, quantite, "
+                "prix_unitaire) VALUES (?,?,?)", (ligne_id, quantite, prix_unitaire))
         conn.commit()
     finally:
         conn.close()
@@ -72,8 +77,9 @@ def lignes(facture_id_opaque: str, db_path=None) -> list[dict[str, Any]]:
     conn = get_db(db_path)
     try:
         rows = conn.execute(
-            "SELECT * FROM facture_lignes_menage WHERE facture_id_opaque = ? ORDER BY id",
-            (facture_id_opaque,)).fetchall()
+            "SELECT l.*, d.quantite, d.prix_unitaire FROM facture_lignes_menage l "
+            "LEFT JOIN facture_lignes_menage_detail d ON d.ligne_id_opaque = l.ligne_id_opaque "
+            "WHERE l.facture_id_opaque = ? ORDER BY l.id", (facture_id_opaque,)).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()

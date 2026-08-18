@@ -77,11 +77,13 @@ def importer(path, *, acteur: str = "", db_path=None) -> dict[str, Any]:
             flm.ajouter_ligne(
                 facture_id, type_ligne=flm.TYPE_MENAGE_EXTERNE, logement_id=ligne.logement_id,
                 montant_ttc=ligne.montant_ligne or 0, description=ligne.logement_source,
+                quantite=ligne.quantite, prix_unitaire=ligne.prix_unitaire,
                 source=flm.SOURCE_PDF, acteur=acteur, db_path=db_path)
         else:
             flm.ajouter_ligne(
                 facture_id, type_ligne=flm.TYPE_FRAIS_NON_AFFECTE,
                 montant_ttc=ligne.montant_ligne or 0, description=ligne.logement_source,
+                quantite=ligne.quantite, prix_unitaire=ligne.prix_unitaire,
                 source=flm.SOURCE_PDF, acteur=acteur, db_path=db_path)
 
     ventilations = []
