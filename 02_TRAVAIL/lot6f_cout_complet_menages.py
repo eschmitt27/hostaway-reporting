@@ -22,22 +22,54 @@ Clé de ventilation (D103) : poids = nb_menages × cout_standard_unitaire.
 DRY-RUN : 02_TRAVAIL/Lot6_DryRun/DRYRUN_CoutComplet_Menages.xlsx — MOIS = 2026-05.
 """
 
-import sys, os, io, csv, glob, subprocess, hashlib, datetime, collections, unicodedata, warnings
+import argparse, sys, os, io, csv, glob, subprocess, hashlib, datetime, collections, unicodedata, warnings
 warnings.filterwarnings("ignore")
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import openpyxl
 from openpyxl.styles import Font, PatternFill
 from lib_menage_costs import resolve_internal_cleaning_cost
 import lot3_generateur_charges as lot3   # mois dérivé de date_charge (jamais le cache formule)
+import lib_db_moteur as dbm
+
+_ap = argparse.ArgumentParser()
+_ap.add_argument("--source", choices=("EXCEL", "SQLITE"), default="EXCEL",
+                 help="SQLITE lit les declarations internes (avec lavage) depuis "
+                      "menages_declarations_internes (Lot6b, deja alimente depuis la meme Google "
+                      "Sheet) au lieu de refaire l'appel reseau ici.")
+_ap.add_argument("--db", default=None)
+_ap.add_argument("--mois", default=None,
+                 help="AAAA-MM. Absent = dernier mois present dans menages_taches_enrichies.")
+_ap.add_argument("--sans-excel", action="store_true")
+_ap.add_argument("--sans-sqlite", action="store_true")
+_ap.add_argument("--run-id", default="")
+args = _ap.parse_args()
+chemin_base = dbm.chemin_db(args.db)
 
 # AUD-005 — mono-mois volontaire : l'extension multi-mois de l'écart analytique ménage est
 # différée jusqu'à la mise en place d'un vrai processus de clôture mensuelle métier/comptable.
 # Ne pas utiliser les clôtures techniques réservations/VRBO (REF_Cloture_Mensuelle) comme
 # déclencheur de ce calcul. Statut registre : DIFFERE / BYPASS_PROVISOIRE.
-MONTH = "2026-05"; PIVOT = "2026-06"
+PIVOT = "2026-06"
+if args.source == "SQLITE":
+    if chemin_base is None:
+        sys.exit("[lot6f] ERREUR : --source SQLITE exige une base (--db / PILOTAGE_DB_PATH / "
+                 "APP_DATA_DIR).")
+    _conn0 = dbm.ouvrir(chemin_base)
+    if args.mois:
+        MONTH = args.mois
+    else:
+        r = _conn0.execute(
+            "SELECT MAX(mois) FROM menages_taches_enrichies WHERE mois IS NOT NULL").fetchone()
+        MONTH = r[0] if r and r[0] else datetime.date.today().strftime("%Y-%m")
+    _conn0.close()
+else:
+    MONTH = args.mois or "2026-05"
 DREF = datetime.date.fromisoformat(MONTH + "-01")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REF  = os.path.join(ROOT, "01_SOURCES_BRUTES", "REF_Setup", "REF_Setup.xlsm")
+# SAISIE_Charges_Flux (module Charges) reste Excel dans les deux chemins : hors perimetre de la
+# migration Menages (le module Charges lui-meme n'est pas migre — cf mission, decision explicite).
 SAISIE = os.path.join(ROOT, "01_SOURCES_BRUTES", "Charges", "SAISIE_Charges_Flux.xlsx")
 OUTD = os.path.join(ROOT, "02_TRAVAIL", "Lot6f_CoutComplet_Menages")
 OUT  = os.path.join(OUTD, "MASTER_CALC_CoutComplet_Menages.xlsx")
@@ -52,7 +84,8 @@ def _m04_url():
             u = str(d.get("dossier_source") or "").strip()
             if u.startswith("http"): return u
     raise SystemExit("[BLOQUANT lot6f] URL GOOGLE_SHEET_M04_DECLARATIONS absente de REF_Sources_Systeme (SRC_011).")
-SHEET_URL = _m04_url()
+if args.source != "SQLITE":
+    SHEET_URL = _m04_url()
 
 def sh(p, s):
     wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
@@ -85,13 +118,60 @@ def f(x):
     except (TypeError, ValueError): return None
 
 # ── Référentiels ─────────────────────────────────────────────────────────────
-log_info = {d["logement_id"]: d for d in sh(REF, "REF_Logements") if d.get("logement_id") and str(d["logement_id"]) != "logement_id"}
-typ_lib  = {d["type_logement_id"]: d.get("type_logement") for d in sh(REF, "REF_Types_Logements")}
-int_info = {d["intervenant_id"]: d for d in sh(REF, "REF_Intervenants")}
-std_ref  = sh(REF, "REF_Couts_Standards_Menage")
-int_ref  = sh(REF, "REF_Couts_Menage_Interne")
-hourly_ref = sh(REF, "REF_Taux_Heures_Menage")
-rec_ref  = sh(REF, "REF_Charges_Recurrentes")
+def _num(v):
+    try:
+        return float(v) if v not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+if args.source == "SQLITE":
+    _conn = dbm.ouvrir(chemin_base)
+    from lib_ref_history import resolve_management_period
+    log_info_raw = {r["logement_id"]: r for r in dbm.lignes(
+        _conn, "ref_logements", ("logement_id", "type_logement_id", "nom_logement_officiel"),
+        ordre="logement_id")}
+    gest_rows = dbm.lignes(_conn, "ref_gestion_logements_hist",
+        ("gestion_id", "logement_id", "proprietaire_id", "date_debut", "date_fin",
+         "statut_gestion", "source", "commentaire"), ordre="gestion_id") \
+        if dbm.table_presente(_conn, "ref_gestion_logements_hist") else []
+    log_info = {}
+    for lid, d in log_info_raw.items():
+        prop_id = None
+        if gest_rows:
+            res = resolve_management_period(gest_rows, logement_id=lid, date_arrivee=MONTH + "-15")
+            prop_id = res.value if res.status == "OK" else None
+        log_info[lid] = {**d, "proprietaire_id": prop_id}
+    typ_lib = {r["type_logement_id"]: r["type_logement"] for r in dbm.lignes(
+        _conn, "ref_types_logements", ("type_logement_id", "type_logement"),
+        ordre="type_logement_id")}
+    int_info = {r["intervenant_id"]: r for r in dbm.lignes(
+        _conn, "ref_intervenants", ("intervenant_id", "nom_intervenant"), ordre="intervenant_id")}
+    std_ref = [{**r, "cout_standard_menage": _num(r.get("cout_standard_menage"))} for r in dbm.lignes(
+        _conn, "ref_couts_standards_menage",
+        ("type_logement_id", "cout_standard_menage", "actif", "date_debut_validite",
+         "date_fin_validite"), ordre="cout_standard_id")]
+    int_ref = [{**r, "montant_interne_standard": _num(r.get("montant_interne_standard"))}
+              for r in dbm.lignes(_conn, "ref_couts_menage_interne",
+                                  ("type_logement_id", "montant_interne_standard", "actif",
+                                   "date_debut_validite", "date_fin_validite"),
+                                  ordre="cout_menage_interne_id")] \
+        if dbm.table_presente(_conn, "ref_couts_menage_interne") else []
+    hourly_ref = [{**r, "taux_horaire": _num(r.get("taux_horaire"))} for r in dbm.lignes(
+        _conn, "ref_taux_heures_menage",
+        ("intervenant_id", "taux_horaire", "actif", "date_debut", "date_fin"),
+        ordre="taux_horaire_id")] if dbm.table_presente(_conn, "ref_taux_heures_menage") else []
+    rec_ref = [{**r, "montant_ttc": _num(r.get("montant_ttc"))} for r in dbm.lignes(
+        _conn, "ref_charges_recurrentes",
+        ("charge_recurrente_id", "montant_ttc", "actif", "date_debut_validite",
+         "date_fin_validite"), ordre="charge_recurrente_id")]
+else:
+    log_info = {d["logement_id"]: d for d in sh(REF, "REF_Logements") if d.get("logement_id") and str(d["logement_id"]) != "logement_id"}
+    typ_lib  = {d["type_logement_id"]: d.get("type_logement") for d in sh(REF, "REF_Types_Logements")}
+    int_info = {d["intervenant_id"]: d for d in sh(REF, "REF_Intervenants")}
+    std_ref  = sh(REF, "REF_Couts_Standards_Menage")
+    int_ref  = sh(REF, "REF_Couts_Menage_Interne")
+    hourly_ref = sh(REF, "REF_Taux_Heures_Menage")
+    rec_ref  = sh(REF, "REF_Charges_Recurrentes")
 
 def date_aware(rows, type_id, montant_field, type_field="type_logement_id"):
     best = None
@@ -117,56 +197,91 @@ def rec_montant(rec_id):
     return best
 local_cave_montant = rec_montant("REC_002") or 0.0
 
-# mapping libellé appart -> logement_id
-lmap = {}
-for d in sh(REF, "REF_Mapping_Logements"):
-    if d.get("valeur_source"): lmap[norm(d["valeur_source"])] = d.get("logement_id")
-
 controls = []
 
-# ── Direct EXTERNE (lot6c) ───────────────────────────────────────────────────
-fc = glob.glob(os.path.join(ROOT, "02_TRAVAIL", "**", "MASTER_FACT_MEN_MenagesExternes.xlsx"), recursive=True)[0]
-ext = collections.defaultdict(lambda: [0, 0.0])
-for d in sh(fc, "MASTER"):
-    if str(d.get("mois"))[:7] != MONTH: continue
-    if str(d.get("type_ligne_menage_id")) not in ("TLM_001", "TLM_002"): continue
-    q = d.get("nombre_menages") or 0; m = d.get("montant_ligne_ttc") or 0
-    if (q or 0) == 0 and (m or 0) == 0:
-        controls.append(("EXCLU_VOLUME", "INFO", f"facture {d.get('facture_id')} 0€/q0")); continue
-    e = ext[(d.get("logement_id"), d.get("prestataire_id"))]; e[0] += q; e[1] += m
+if args.source == "SQLITE":
+    # ── Direct EXTERNE — facture_lignes_menage (bridge 6c) ────────────────────────────────────
+    ext = collections.defaultdict(lambda: [0, 0.0])
+    if dbm.table_presente(_conn, "facture_lignes_menage"):
+        cur = _conn.execute(
+            "SELECT l.logement_id, f.fournisseur_id_opaque, l.montant_ttc, d.quantite, "
+            "f.date_facture, l.facture_id_opaque "
+            "FROM facture_lignes_menage l "
+            "JOIN factures f ON f.facture_id_opaque = l.facture_id_opaque "
+            "LEFT JOIN facture_lignes_menage_detail d ON d.ligne_id_opaque = l.ligne_id_opaque "
+            "WHERE l.type_ligne = 'MENAGE_EXTERNE'")
+        for lg, pid, mttc, qte, dfac, fid in cur.fetchall():
+            if str(dfac or "")[:7] != MONTH: continue
+            q = qte if qte is not None else 1
+            if q == 0 and (mttc or 0) == 0:
+                controls.append(("EXCLU_VOLUME", "INFO", f"facture {fid} 0€/q0")); continue
+            e = ext[(lg, pid)]; e[0] += q; e[1] += (mttc or 0)
 
-# ── Interne + LAVAGE (Google Sheet) ──────────────────────────────────────────
-INTMAP = {"imene": "INT_0001", "kira": "INT_0002", "kheira": "INT_0002"}
-MOIS = {"janvier":"01","fevrier":"02","mars":"03","avril":"04","mai":"05","juin":"06","juillet":"07","aout":"08","septembre":"09","octobre":"10","novembre":"11","decembre":"12"}
-from lib_sheet_source import fetch_sheet_csv, begin_step, commit_step
-_CACHE_DIR = os.path.join(ROOT, "02_DONNEES_NORMALISEES", "menages", "_cache_google_sheet")
-txt, _prov = fetch_sheet_csv(SHEET_URL, _CACHE_DIR, step="lot6f")   # SystemExit si indisponible
-if _prov["resolution_source"] == "CACHE":
-    print(f"[lot6f] AVERTISSEMENT SOURCE_SHEET_CACHE_UTILISE : cache du {_prov['cache_date_extraction_utc']} (age {_prov['cache_age_h']}h).")
-srows = list(csv.reader(io.StringIO(txt))); shdr = srows[0]
-i_pre = shdr.index("Prénom"); i_mois = shdr.index("Mois des ménages"); i_an = shdr.index("Année des ménages")
-appcols = [i for i, h in enumerate(shdr) if h.strip() == "Appartement"]
-# colonne lavage non-attribuable (queue)
-i_lav_na = next((i for i, h in enumerate(shdr) if h.strip().startswith("Coûts de lavage du linge (hors")), None)
+    # ── Interne + LAVAGE — menages_declarations_internes (Lot6b, deja resolu) ─────────────────
+    interne = collections.defaultdict(lambda: [0, 0.0, 0.0])
+    lav_na_by_int = collections.Counter()
+    for d in dbm.lignes(_conn, "menages_declarations_internes",
+                        ("mois", "logement_id", "intervenant_id", "nb_menages", "nb_heures",
+                         "cout_lavage_attribue", "lavage_non_attribuable_mois"), ordre="id"):
+        if str(d.get("mois"))[:7] != MONTH: continue
+        lg, iid = d.get("logement_id"), d.get("intervenant_id")
+        e = interne[(lg, iid)]
+        e[0] += d.get("nb_menages") or 0
+        e[1] += d.get("nb_heures") or 0
+        e[2] += d.get("cout_lavage_attribue") or 0
+        lav_na = d.get("lavage_non_attribuable_mois")
+        if lav_na:
+            lav_na_by_int[iid] += lav_na
+    _conn.close()
+else:
+    # mapping libellé appart -> logement_id
+    lmap = {}
+    for d in sh(REF, "REF_Mapping_Logements"):
+        if d.get("valeur_source"): lmap[norm(d["valeur_source"])] = d.get("logement_id")
 
-interne = collections.defaultdict(lambda: [0, 0.0, 0.0])   # (lg,iid) -> [nb, heures, lavage_attribuable]
-lav_na_by_int = collections.Counter()                       # iid -> lavage non-attribuable du mois
-for r in srows[1:]:
-    if not any(c.strip() for c in r): continue
-    pre = r[i_pre].strip(); mm = MOIS.get(norm(r[i_mois])); yr = r[i_an].strip()
-    miso = f"{yr}-{mm}" if (mm and yr) else None
-    if miso != MONTH: continue
-    iid = INTMAP.get(norm(pre))
-    for ci in appcols:
-        app = r[ci].strip() if ci < len(r) else ""
-        if not app: continue
-        lg = lmap.get(norm(app))
-        nb = int(f(r[ci+1]) or 0) if (ci+1 < len(r) and r[ci+1].strip()) else 0
-        h  = f(r[ci+2]) if (ci+2 < len(r) and r[ci+2].strip()) else 0
-        lav = f(r[ci+3]) if (ci+3 < len(r) and r[ci+3].strip()) else 0
-        e = interne[(lg, iid)]; e[0] += nb; e[1] += (h or 0); e[2] += (lav or 0)
-    if i_lav_na is not None and i_lav_na < len(r) and r[i_lav_na].strip():
-        lav_na_by_int[iid] += f(r[i_lav_na]) or 0
+    # ── Direct EXTERNE (lot6c) ───────────────────────────────────────────────────
+    fc = glob.glob(os.path.join(ROOT, "02_TRAVAIL", "**", "MASTER_FACT_MEN_MenagesExternes.xlsx"), recursive=True)[0]
+    ext = collections.defaultdict(lambda: [0, 0.0])
+    for d in sh(fc, "MASTER"):
+        if str(d.get("mois"))[:7] != MONTH: continue
+        if str(d.get("type_ligne_menage_id")) not in ("TLM_001", "TLM_002"): continue
+        q = d.get("nombre_menages") or 0; m = d.get("montant_ligne_ttc") or 0
+        if (q or 0) == 0 and (m or 0) == 0:
+            controls.append(("EXCLU_VOLUME", "INFO", f"facture {d.get('facture_id')} 0€/q0")); continue
+        e = ext[(d.get("logement_id"), d.get("prestataire_id"))]; e[0] += q; e[1] += m
+
+    # ── Interne + LAVAGE (Google Sheet) ──────────────────────────────────────────
+    INTMAP = {"imene": "INT_0001", "kira": "INT_0002", "kheira": "INT_0002"}
+    MOIS = {"janvier":"01","fevrier":"02","mars":"03","avril":"04","mai":"05","juin":"06","juillet":"07","aout":"08","septembre":"09","octobre":"10","novembre":"11","decembre":"12"}
+    from lib_sheet_source import fetch_sheet_csv, begin_step, commit_step
+    _CACHE_DIR = os.path.join(ROOT, "02_DONNEES_NORMALISEES", "menages", "_cache_google_sheet")
+    txt, _prov = fetch_sheet_csv(SHEET_URL, _CACHE_DIR, step="lot6f")   # SystemExit si indisponible
+    if _prov["resolution_source"] == "CACHE":
+        print(f"[lot6f] AVERTISSEMENT SOURCE_SHEET_CACHE_UTILISE : cache du {_prov['cache_date_extraction_utc']} (age {_prov['cache_age_h']}h).")
+    srows = list(csv.reader(io.StringIO(txt))); shdr = srows[0]
+    i_pre = shdr.index("Prénom"); i_mois = shdr.index("Mois des ménages"); i_an = shdr.index("Année des ménages")
+    appcols = [i for i, h in enumerate(shdr) if h.strip() == "Appartement"]
+    # colonne lavage non-attribuable (queue)
+    i_lav_na = next((i for i, h in enumerate(shdr) if h.strip().startswith("Coûts de lavage du linge (hors")), None)
+
+    interne = collections.defaultdict(lambda: [0, 0.0, 0.0])   # (lg,iid) -> [nb, heures, lavage_attribuable]
+    lav_na_by_int = collections.Counter()                       # iid -> lavage non-attribuable du mois
+    for r in srows[1:]:
+        if not any(c.strip() for c in r): continue
+        pre = r[i_pre].strip(); mm = MOIS.get(norm(r[i_mois])); yr = r[i_an].strip()
+        miso = f"{yr}-{mm}" if (mm and yr) else None
+        if miso != MONTH: continue
+        iid = INTMAP.get(norm(pre))
+        for ci in appcols:
+            app = r[ci].strip() if ci < len(r) else ""
+            if not app: continue
+            lg = lmap.get(norm(app))
+            nb = int(f(r[ci+1]) or 0) if (ci+1 < len(r) and r[ci+1].strip()) else 0
+            h  = f(r[ci+2]) if (ci+2 < len(r) and r[ci+2].strip()) else 0
+            lav = f(r[ci+3]) if (ci+3 < len(r) and r[ci+3].strip()) else 0
+            e = interne[(lg, iid)]; e[0] += nb; e[1] += (h or 0); e[2] += (lav or 0)
+        if i_lav_na is not None and i_lav_na < len(r) and r[i_lav_na].strip():
+            lav_na_by_int[iid] += f(r[i_lav_na]) or 0
 
 # ── Construction lignes de base (direct + standard) ──────────────────────────
 lines = []   # dict par (mois,lg,iid)
@@ -304,6 +419,30 @@ DET = ["mois","logement_id","nom_appartement","proprietaire_id","type_logement_i
     "quote_part_consommables","quote_part_autres_charges_menage","cout_complet_total","cout_complet_unitaire",
     "ecart_vs_standard_total","ecart_unitaire","methode","cout_interne_ref_id","cout_interne_priorite",
     "controle_cout_interne","statut_ecart","statut_controle","code_controle","commentaire"]
+
+# ── SQLite : menages_cout_complet (0038) — remplacement integral par mois ───────────────────────
+if args.sans_sqlite:
+    print("[lot6f] --sans-sqlite : menages_cout_complet non ecrit.")
+elif chemin_base is None:
+    print("[lot6f] Aucune base designee : menages_cout_complet non ecrit.")
+else:
+    _conn = dbm.ouvrir(chemin_base)
+    try:
+        _conn.execute("DELETE FROM menages_cout_complet WHERE mois = ?", (MONTH,))
+        if lines:
+            _trous = ", ".join(["?"] * (len(DET) + 1))
+            _conn.executemany(
+                f"INSERT INTO menages_cout_complet ({', '.join(DET)}, run_id) VALUES ({_trous})",
+                [tuple(l.get(c) for c in DET) + (args.run_id or None,) for l in lines])
+        _conn.commit()
+    finally:
+        _conn.close()
+    print(f"[lot6f] SQLite : menages_cout_complet — {len(lines)} lignes (mois={MONTH})")
+
+if args.sans_excel:
+    print(f"[lot6f] --sans-excel : classeur legacy non ecrit. mois={MONTH} lignes={len(lines)}")
+    sys.exit(0)
+
 wsheet("DETAIL_COUT_COMPLET", DET, lines, first=True)
 wsheet("POOLS_CHARGES_MENAGE", ["mois","pool","montant_total","source","cle_repartition"],
     [{"mois":MONTH,"pool":k,"montant_total":round(v,2),"source":("REC_002 (date-aware)" if k=="LOCAL_CAVE" else "Google Sheet" if k=="LAVAGE" else "SAISIE_Charges_Flux"),"cle_repartition":"poids=nb×cout_standard"} for k,v in {**POOLS,"LAVAGE":sum(l['lavage_attribuable'] for l in lines)+sum(lav_na_by_int.values())}.items()])
