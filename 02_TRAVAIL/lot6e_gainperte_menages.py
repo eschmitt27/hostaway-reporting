@@ -22,13 +22,15 @@ DRY-RUN : sortie 02_TRAVAIL/Lot6_DryRun/DRYRUN_GainPerte_Menages.xlsx
 Périmètre courant : MOIS = 2026-05.
 """
 
-import sys, os, glob, hashlib, datetime, collections, warnings
+import argparse, sys, os, glob, hashlib, datetime, collections, warnings
 warnings.filterwarnings("ignore")
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import openpyxl
 from openpyxl.styles import Font, PatternFill
 
-MONTH = "2026-05"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import lib_db_moteur as dbm
+
 PIVOT = "2026-06"          # >= pivot : méthode interne paramétrée
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REF  = os.path.join(ROOT, "01_SOURCES_BRUTES", "REF_Setup", "REF_Setup.xlsm")
@@ -50,12 +52,50 @@ def to_d(v):
     try: return datetime.date.fromisoformat(str(v)[:10])
     except (ValueError, TypeError): return None
 
+_ap = argparse.ArgumentParser()
+_ap.add_argument("--source", choices=("EXCEL", "SQLITE"), default="EXCEL")
+_ap.add_argument("--db", default=None)
+_ap.add_argument("--mois", default=None,
+                 help="AAAA-MM. Absent = dernier mois present dans menages_taches_enrichies "
+                      "(mission §12 : aucun mois fige dans le code).")
+_ap.add_argument("--sans-excel", action="store_true")
+_ap.add_argument("--sans-sqlite", action="store_true")
+_ap.add_argument("--run-id", default="")
+args = _ap.parse_args()
+chemin_base = dbm.chemin_db(args.db)
+
+if args.source == "SQLITE":
+    if chemin_base is None:
+        sys.exit("[lot6e] ERREUR : --source SQLITE exige une base (--db / PILOTAGE_DB_PATH / "
+                 "APP_DATA_DIR).")
+    _conn0 = dbm.ouvrir(chemin_base)
+    if args.mois:
+        MONTH = args.mois
+    else:
+        r = _conn0.execute(
+            "SELECT MAX(mois) FROM menages_taches_enrichies WHERE mois IS NOT NULL").fetchone()
+        MONTH = r[0] if r and r[0] else datetime.date.today().strftime("%Y-%m")
+    _conn0.close()
+else:
+    MONTH = args.mois or "2026-05"
+
 DREF = datetime.date.fromisoformat(MONTH + "-01")
 
 # ── Référentiels ─────────────────────────────────────────────────────────────
-log_info = {d["logement_id"]: d for d in sh(REF, "REF_Logements") if d.get("logement_id") and str(d["logement_id"]) != "logement_id"}
-typ_lib  = {d["type_logement_id"]: d.get("type_logement") for d in sh(REF, "REF_Types_Logements")}
-int_info = {d["intervenant_id"]: d for d in sh(REF, "REF_Intervenants")}
+if args.source == "SQLITE":
+    _conn = dbm.ouvrir(chemin_base)
+    log_info = {r["logement_id"]: r for r in dbm.lignes(
+        _conn, "ref_logements", ("logement_id", "type_logement_id", "nom_logement_officiel"),
+        ordre="logement_id")}
+    typ_lib = {r["type_logement_id"]: r["type_logement"] for r in dbm.lignes(
+        _conn, "ref_types_logements", ("type_logement_id", "type_logement"),
+        ordre="type_logement_id")}
+    int_info = {r["intervenant_id"]: r for r in dbm.lignes(
+        _conn, "ref_intervenants", ("intervenant_id", "nom_intervenant"), ordre="intervenant_id")}
+else:
+    log_info = {d["logement_id"]: d for d in sh(REF, "REF_Logements") if d.get("logement_id") and str(d["logement_id"]) != "logement_id"}
+    typ_lib  = {d["type_logement_id"]: d.get("type_logement") for d in sh(REF, "REF_Types_Logements")}
+    int_info = {d["intervenant_id"]: d for d in sh(REF, "REF_Intervenants")}
 
 def cout_standard_unit(type_id):
     best = None
@@ -67,7 +107,21 @@ def cout_standard_unit(type_id):
         if fin and DREF > fin: continue
         best = d.get("cout_standard_menage")
     return best
-sh_std = sh(REF, "REF_Couts_Standards_Menage")
+
+def _num(v):
+    try:
+        return float(v) if v not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+if args.source == "SQLITE":
+    sh_std = [{**r, "cout_standard_menage": _num(r.get("cout_standard_menage"))}
+             for r in dbm.lignes(_conn, "ref_couts_standards_menage",
+                                 ("type_logement_id", "cout_standard_menage", "actif",
+                                  "date_debut_validite", "date_fin_validite"),
+                                 ordre="cout_standard_id")]
+else:
+    sh_std = sh(REF, "REF_Couts_Standards_Menage")
 
 def cout_interne_unit(type_id):
     best = None
@@ -79,14 +133,30 @@ def cout_interne_unit(type_id):
         if fin and DREF > fin: continue
         best = d.get("montant_interne_standard")
     return best
-sh_int = sh(REF, "REF_Couts_Menage_Interne") if "REF_Couts_Menage_Interne" in openpyxl.load_workbook(REF, read_only=True).sheetnames else []
+
+if args.source == "SQLITE":
+    sh_int = [{**r, "montant_interne_standard": _num(r.get("montant_interne_standard"))}
+             for r in dbm.lignes(_conn, "ref_couts_menage_interne",
+                                 ("type_logement_id", "montant_interne_standard", "actif",
+                                  "date_debut_validite", "date_fin_validite"),
+                                 ordre="cout_menage_interne_id")] \
+        if dbm.table_presente(_conn, "ref_couts_menage_interne") else []
+else:
+    sh_int = sh(REF, "REF_Couts_Menage_Interne") if "REF_Couts_Menage_Interne" in openpyxl.load_workbook(REF, read_only=True).sheetnames else []
 
 # taux horaire (PARAM_004), pas en dur
 taux_horaire = None
-for d in sh(REF, "REF_Parametres_Generaux"):
-    if d.get("nom_parametre") == "TAUX_HORAIRE_MENAGE_INTERNE":
-        try: taux_horaire = float(d.get("valeur"))
-        except (TypeError, ValueError): pass
+if args.source == "SQLITE":
+    for d in dbm.lignes(_conn, "ref_parametres_generaux", ("nom_parametre", "valeur"),
+                        ordre="parametre_id"):
+        if d.get("nom_parametre") == "TAUX_HORAIRE_MENAGE_INTERNE":
+            taux_horaire = _num(d.get("valeur"))
+    _conn.close()
+else:
+    for d in sh(REF, "REF_Parametres_Generaux"):
+        if d.get("nom_parametre") == "TAUX_HORAIRE_MENAGE_INTERNE":
+            try: taux_horaire = float(d.get("valeur"))
+            except (TypeError, ValueError): pass
 
 rows_out = []
 controls = []
@@ -123,9 +193,27 @@ def add(mois, lg, iid, typ_interv, nb, nb_h, methode, reel_total, code="", comm=
     })
 
 # ── A. EXTERNE_FACTURE (lot6c) ───────────────────────────────────────────────
-fc = glob.glob(os.path.join(ROOT, "02_TRAVAIL", "**", "MASTER_FACT_MEN_MenagesExternes.xlsx"), recursive=True)[0]
 ext_agg = collections.defaultdict(lambda: [0, 0.0])   # (lg, prestataire) -> [nb, montant]
-for d in sh(fc, "MASTER"):
+if args.source == "SQLITE":
+    _conn = dbm.ouvrir(chemin_base)
+    ext_rows = []
+    if dbm.table_presente(_conn, "facture_lignes_menage"):
+        cur = _conn.execute(
+            "SELECT l.logement_id, f.fournisseur_id_opaque, l.montant_ttc, d.quantite, "
+            "f.date_facture, l.facture_id_opaque "
+            "FROM facture_lignes_menage l "
+            "JOIN factures f ON f.facture_id_opaque = l.facture_id_opaque "
+            "LEFT JOIN facture_lignes_menage_detail d ON d.ligne_id_opaque = l.ligne_id_opaque "
+            "WHERE l.type_ligne = 'MENAGE_EXTERNE'")
+        ext_rows = [{"mois": str(dfac or "")[:7], "logement_id": lg, "prestataire_id": pid,
+                    "type_ligne_menage_id": "TLM_001",
+                    "nombre_menages": qte if qte is not None else 1, "montant_ligne_ttc": mttc,
+                    "facture_id": fid}
+                   for lg, pid, mttc, qte, dfac, fid in cur.fetchall()]
+else:
+    fc = glob.glob(os.path.join(ROOT, "02_TRAVAIL", "**", "MASTER_FACT_MEN_MenagesExternes.xlsx"), recursive=True)[0]
+    ext_rows = sh(fc, "MASTER")
+for d in ext_rows:
     if str(d.get("mois"))[:7] != MONTH: continue
     if str(d.get("type_ligne_menage_id")) not in ("TLM_001", "TLM_002"): continue
     q = d.get("nombre_menages") or 0
@@ -137,11 +225,22 @@ for (lg, iid), (nb, mont) in ext_agg.items():
     add(MONTH, lg, iid, "EXTERNE", nb, None, "EXTERNE_FACTURE", round(mont, 2),
         comm="Coût réel = montant facturé TTC prestataire")
 
-# ── B/C. INTERNE (source dry-run sheet) ──────────────────────────────────────
+# ── B/C. INTERNE (source dry-run sheet, ou menages_declarations_internes en SQLITE) ─────────────
 internal_method = "INTERNE_HEURES_M04" if MONTH < PIVOT else "INTERNE_STANDARD_PARAMETRE"
-if os.path.exists(DRY_M04):
+if args.source == "SQLITE":
+    decl_rows = dbm.lignes(_conn, "menages_declarations_internes",
+        ("mois", "logement_id", "intervenant_id", "nb_menages", "nb_heures"), ordre="id")
+    _conn.close()
+    source_interne_ok = True
+elif os.path.exists(DRY_M04):
+    decl_rows = sh(DRY_M04, "MASTER_NORMALISE")
+    source_interne_ok = True
+else:
+    decl_rows = []
+    source_interne_ok = False
+if source_interne_ok:
     int_agg = collections.defaultdict(lambda: [0, 0.0, False])  # nb, heures, has_h
-    for d in sh(DRY_M04, "MASTER_NORMALISE"):
+    for d in decl_rows:
         if str(d.get("mois"))[:7] != MONTH: continue
         k = (d.get("logement_id"), d.get("intervenant_id"))
         int_agg[k][0] += d.get("nb_menages") or 0
@@ -182,6 +281,35 @@ for r in rows_out:
     if r["statut_ecart"] == "NON_CALCULABLE":
         controls.append((r["code_controle"] or "NON_CALCULABLE", "A_CONTROLER", f"{r['logement_id']}/{r['intervenant_id']}"))
 controls.append(("DOUBLE_COMPTAGE_RAPPEL", "INFO", "Vue analytique : aucun montant réinjecté dans Flux/REEL/COMPTABLE/HC"))
+
+# ── SQLite : menages_gainperte (0038) — remplacement integral par mois ──────────────────────────
+if args.sans_sqlite:
+    print("[lot6e] --sans-sqlite : menages_gainperte non ecrit.")
+elif chemin_base is None:
+    print("[lot6e] Aucune base designee : menages_gainperte non ecrit.")
+else:
+    _sql_cols = ["mois", "nom_appartement", "logement_id", "type_logement_id",
+                "type_logement_libelle", "intervenant_id", "nom_intervenant", "type_intervenant",
+                "nb_menages", "nb_heures", "cout_standard_unitaire", "cout_standard_total",
+                "methode_cout_reel", "cout_reel_unitaire", "cout_reel_total", "ecart_total",
+                "statut_ecart", "statut_controle", "code_controle", "commentaire"]
+    _conn = dbm.ouvrir(chemin_base)
+    try:
+        _conn.execute("DELETE FROM menages_gainperte WHERE mois = ?", (MONTH,))
+        if rows_out:
+            _trous = ", ".join(["?"] * (len(_sql_cols) + 1))
+            _conn.executemany(
+                f"INSERT INTO menages_gainperte ({', '.join(_sql_cols)}, run_id) "
+                f"VALUES ({_trous})",
+                [tuple(r.get(c) for c in _sql_cols) + (args.run_id or None,) for r in rows_out])
+        _conn.commit()
+    finally:
+        _conn.close()
+    print(f"[lot6e] SQLite : menages_gainperte — {len(rows_out)} lignes (mois={MONTH})")
+
+if args.sans_excel:
+    print(f"[lot6e] --sans-excel : classeur legacy non ecrit. mois={MONTH} lignes={len(rows_out)}")
+    sys.exit(0)
 
 # ── Écriture ──────────────────────────────────────────────────────────────────
 os.makedirs(OUTD, exist_ok=True)
