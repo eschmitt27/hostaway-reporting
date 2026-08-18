@@ -26,6 +26,9 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill
 from lib_menage_costs import resolve_internal_cleaning_cost
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import lib_db_moteur as dbm
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REF  = os.path.join(ROOT, "01_SOURCES_BRUTES", "REF_Setup", "REF_Setup.xlsm")
 M04  = os.path.join(ROOT, "02_DONNEES_NORMALISEES", "menages", "M04_MENAGES_PowerQuery.xlsx")
@@ -186,6 +189,28 @@ wbn = openpyxl.Workbook(); wsn = wbn.active; wsn.title = "MASTER_NORMALISE"; wsn
 for c in wsn[1]: c.font = Font(bold=True); c.fill = PatternFill("solid", fgColor="DDDDDD")
 for d in norm_rows: wsn.append([d.get(c) for c in NCOLS])
 wbn.save(NORM_OUT)
+
+# ── SQLite : menages_declarations_internes (0038) — sortie canonique pour Lot6d/6e ──────────────
+# Le classeur M04 (ci-dessous) reste écrit pour Lot9-12, pas encore migrés (parité temporaire).
+_db = dbm.chemin_db(None)
+if _db is None:
+    print("[lot6b] Aucune base designee (PILOTAGE_DB_PATH/APP_DATA_DIR) : SQLite non ecrit")
+else:
+    _sql_cols = [c for c in NCOLS if c != "ROW_HASH"]
+    _conn = dbm.ouvrir(_db)
+    try:
+        _conn.execute("DELETE FROM menages_declarations_internes")
+        if norm_rows:
+            _trous = ", ".join(["?"] * (len(_sql_cols) + 2))
+            _conn.executemany(
+                f"INSERT INTO menages_declarations_internes "
+                f"({', '.join(_sql_cols)}, row_hash, run_id) VALUES ({_trous})",
+                [tuple(d.get(c) for c in _sql_cols) + (d.get("ROW_HASH"), os.environ.get("LOT6_RUN_ID", ""))
+                 for d in norm_rows])
+        _conn.commit()
+    finally:
+        _conn.close()
+    print(f"[lot6b] SQLite : menages_declarations_internes — {len(norm_rows)} lignes")
 
 # ── 2) M04 SOURCE_RAW + MASTER + VUE_ACTIVE (autres onglets préservés) ────────
 backup = M04 + ".BAK_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
