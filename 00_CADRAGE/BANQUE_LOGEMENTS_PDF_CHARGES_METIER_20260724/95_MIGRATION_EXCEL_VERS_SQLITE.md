@@ -494,25 +494,45 @@ historique (conservé pour parité, encore nécessaire à Lot9-12 non migrés). 
 inchangées. Deux bugs pré-existants trouvés et corrigés en le faisant (`proprietaire_id` inexistant
 sur `REF_Logements`, mapping intervenant en dur dans lot6f) — détail dans JOURNAL_ANOMALIES.md.
 
-### 14.2 Ce qui n'a PAS été fait
+### 14.2 Ce qui a été fait ensuite — `menages_reader` : 6/8 sources en SQLite
 
-Les 5 lecteurs applicatifs (`menages_reader`, `menages_chaine_service`, `menages_recalcul_service`,
-`controles_runner_service`, `controles_detail_reader`) restent sur Excel. À l'examen :
+Après une première tentative de réécriture complète annulée (34 tests cassés, cf. plus haut), une
+seconde passe bascule les fonctions une par une, testée à chaque étape : `hostaway_taches()`,
+`hostaway_comptage()` (dérive désormais son agrégat des tâches, 0038, au lieu d'une seconde source
+indépendante potentiellement incohérente comme dans le classeur legacy), `internes()`,
+`rapprochement()`, `gainperte()`, `cout_complet()` — toutes lisent `menages_taches_enrichies`/
+`menages_declarations_internes`/`menages_rapprochement`/`menages_gainperte`/`menages_cout_complet`
+(0038), sans repli Excel (état VIDE/FICHIER_ABSENT affiché, jamais `FileNotFoundError`).
+`rapprochement_available()`/`gainperte_available()` basculées sur l'état de la source. 101 tests
+verts (`test_menages.py`, `test_menages_chaine.py`, `test_menages_rapprochement.py`,
+`test_menages_recalcul.py`).
 
-- `menages_chaine_service` et `controles_runner_service` orchestrent la chaîne Excel complète
-  jusqu'à Lot9-12 (non migrés, hors périmètre explicite de cette mission) — les migrer isolément
-  aurait nécessité de commencer Lot9-12.
-- `menages_reader.py` a une réécriture SQLite complète possible et déjà rédigée, mais elle casse 34
-  tests d'un corpus existant de ~1125 lignes (`test_menages.py`, `test_menages_rapprochement.py`) ;
-  annulée (`git checkout`, non committée) faute de budget pour réécrire ce corpus correctement.
+Régression pré-existante corrigée au passage : plusieurs tests de route (fixture `client` seul, sans
+le fixture `sources` qui isole `cfg.MASTER_*`) lisaient sans le vouloir les classeurs Excel RÉELS du
+projet via les chemins par défaut — invisible tant que le lecteur retombait sur Excel. Seed SQLite
+minimal ajouté.
+
+### 14.3 Ce qui n'a PAS été fait
+
+- `externes()` (Lot6c) : exigerait d'étendre `facture_lignes_menage` avec `date_menage`/
+  `precision_date_menage` (absentes de 0037/0039).
+- `controles_rapprochement()`/`controles_lot11()`/`pools_charges()` : dérivation non triviale ou
+  usage marginal (vérifié par grep), non traités.
+- `menages_chaine_service`/`menages_recalcul_service`/`controles_runner_service` orchestrent la
+  chaîne Excel complète jusqu'à Lot9-12 (non migrés, hors périmètre explicite de cette mission) —
+  les migrer isolément aurait nécessité de commencer Lot9-12.
+- `controles_detail_reader` dépend de la même limite que `externes()`
+  (`MASTER_FACT_MEN_MenagesExternes`).
 
 Excel entre Lots6 : toujours présent (M04, MASTER_FACT_MEN_MenagesExternes, classeurs Lot6d/e/f
-legacy). Excel application Ménages : toujours présent (5 lecteurs).
+legacy — consommés par les 3 services ci-dessus). Excel application Ménages : réduit (6/8 sources du
+lecteur central migrées), pas éliminé.
 
-### 14.3 Ce qui reste à faire
+### 14.4 Ce qui reste à faire
 
-- Réécrire les tests `menages_reader` pour un contrat SQLite, puis basculer le lecteur.
-- Adapter `menages_chaine_service`/`controles_runner_service` à la frontière Lot9-12 (adaptateur
-  SQLite → workbook jetable, même mécanique que Lot8c/Lot11 pour Hostaway/Banque) sans commencer la
-  migration de Lot9-12 elle-même.
+- Étendre `facture_lignes_menage` pour porter `date_menage`/`precision_date_menage`, puis basculer
+  `externes()`.
+- Adapter `menages_chaine_service`/`menages_recalcul_service`/`controles_runner_service` à la
+  frontière Lot9-12 (adaptateur SQLite → workbook jetable, même mécanique que Lot8c/Lot11 pour
+  Hostaway/Banque) sans commencer la migration de Lot9-12 elle-même.
 - Chaîne suivante après Ménages : **Lot9 → SQLite**, puis **Lot10 → SQLite**.

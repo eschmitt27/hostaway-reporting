@@ -1863,12 +1863,18 @@ de ventilation inchangées.
 `facture_lignes_menage` (0037/0039), sans passer par le module Charges (encore Excel). Ventilation
 des frais sans logement, contrôle facture, dette intervenant interne FIFO : construits, testés.
 
-**Cinq lecteurs applicatifs NON migrés** (`menages_reader`, `menages_chaine_service`,
-`menages_recalcul_service`, `controles_runner_service`, `controles_detail_reader`) — deux d'entre eux
-orchestrent la chaîne Excel jusqu'à Lot9-12 (hors périmètre), et `menages_reader` a une réécriture
-SQLite déjà rédigée mais annulée : elle casse 34 tests d'un corpus de ~1125 lignes, sans budget
-restant pour les réécrire. Excel entre Lots6 et Excel application Ménages : tous deux encore présents.
+**`menages_reader` : 6/8 sources en SQLite** (`hostaway_taches`/`hostaway_comptage`/`internes`/
+`rapprochement`/`gainperte`/`cout_complet`) — plus de repli Excel sur ces fonctions, testé (101
+tests verts sur les fichiers de test concernés). Restent Excel : `externes()` (exigerait d'étendre
+`facture_lignes_menage`), `controles_rapprochement()`/`controles_lot11()`/`pools_charges()`.
 
-**Chaîne suivante : terminer les 5 lecteurs Ménages, puis Lot9 → SQLite.**
+**Trois services NON migrés** (`menages_chaine_service`, `menages_recalcul_service`,
+`controles_runner_service`) — orchestrent la chaîne Excel jusqu'à Lot9-12 (hors périmètre) ; les
+migrer isolément aurait exigé de commencer Lot9-12. `controles_detail_reader` dépend de la même
+limite que `externes()`. Excel entre Lots6 : toujours présent (M04, ménages externes, Lot6d/e/f
+legacy, consommés par ces 3 services). Excel application Ménages : réduit, pas éliminé.
+
+**Chaîne suivante : `externes()` (étendre `facture_lignes_menage`), puis les 3 services restants,
+puis Lot9 → SQLite.**
 
 Détail complet : document `95` (§14).

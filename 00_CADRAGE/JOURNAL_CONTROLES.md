@@ -3771,15 +3771,34 @@ Construit lors de la mission précédente (`facture_menage_pdf_service`), non re
 lisent directement `facture_lignes_menage`/`facture_lignes_menage_detail` (0037/0039, `quantite`
 ajoutée cette session : absente de 0037, nécessaire pour compter des ménages plutôt que des euros).
 
-### Non couvert — 5 lecteurs applicatifs
+### Suite — `menages_reader` : 6/8 sources en SQLite
 
-`menages_reader`/`menages_chaine_service`/`menages_recalcul_service`/`controles_runner_service`/
-`controles_detail_reader` : examinés, non migrés. `menages_chaine_service` et
-`controles_runner_service` orchestrent la chaîne Excel complète jusqu'à Lot9-12 (non migrés,
-explicitement hors périmètre) — les migrer isolément aurait exigé de commencer Lot9-12. Une
-réécriture complète de `menages_reader.py` a été testée puis annulée : elle cassait 34 tests sur un
-corpus existant de ~1125 lignes, sans budget restant pour les réécrire proprement. Cf.
-JOURNAL_ANOMALIES.md pour le détail.
+Contrairement à la première tentative (réécriture complète annulée, cf. ci-dessus/JOURNAL_ANOMALIES),
+une seconde passe bascule source par source, chacune vérifiée avant la suivante :
+`hostaway_taches`/`hostaway_comptage` (0038, `menages_taches_enrichies` — `hostaway_comptage()`
+dérive désormais son agrégat des tâches au lieu d'une seconde source indépendante et potentiellement
+incohérente comme dans le classeur legacy), `internes` (`menages_declarations_internes`),
+`rapprochement`/`gainperte`/`cout_complet` (`menages_rapprochement`/`menages_gainperte`/
+`menages_cout_complet`). `rapprochement_available()`/`gainperte_available()` basculées sur l'état
+de la source plutôt que l'existence d'un fichier.
+
+Régression corrigée au passage : les tests de route basés sur le seul fixture `client` (sans le
+fixture `sources`, qui isole `cfg.MASTER_*`) lisaient sans le vouloir les classeurs Excel RÉELS du
+projet via les chemins par défaut — invisible tant que le lecteur retombait sur Excel. Seed SQLite
+minimal ajouté où nécessaire (`test_menages.py`, `test_menages_chaine.py`,
+`test_menages_rapprochement.py`).
+
+Restent Excel : `externes()` (Lot6c — exigerait d'étendre `facture_lignes_menage` avec
+`date_menage`/`precision_date_menage`, absentes de 0037/0039), `controles_rapprochement()`/
+`controles_lot11()`/`pools_charges()` (dérivation non triviale ou usage marginal, non vérifié
+comme rentable dans le temps restant).
+
+### Non couvert — 4 services/lecteurs restants
+
+`menages_chaine_service`/`menages_recalcul_service`/`controles_runner_service` orchestrent la
+chaîne Excel complète jusqu'à Lot9-12 (non migrés, explicitement hors périmètre) — les migrer
+isolément aurait exigé de commencer Lot9-12. `controles_detail_reader` lit
+`MASTER_MENAGES_EXTERNES` (même dépendance que `externes()` ci-dessus).
 
 ### Migrations et isolation
 
