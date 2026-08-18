@@ -127,6 +127,9 @@ def test_pdf_info_prestataires_depuis_master(mini_projet, monkeypatch):
         lignes_pdf))
     monkeypatch.setattr(reader, "diagnostic_pdf", lambda: reader.SourceMenages(
         reader.EtatSource("diag", "Diag", "F", "DIAGNOSTIC_PDF", reader.ETAT_FICHIER_ABSENT)))
+    # `mode_extraction_externes()` lit désormais `facture_pdf_diagnostics` (0040) directement, plus
+    # `source_document` dans les lignes `externes()` — stub indépendant, même mécanisme réel.
+    monkeypatch.setattr(reader, "mode_extraction_externes", lambda: "PDF_AUTOMATIQUE")
     info = svc.load_pdf_externes_info()
     assert "Kandia DIABATE" in info["prestataires_detectes"]
     assert "INCONNU" not in info["prestataires_detectes"]

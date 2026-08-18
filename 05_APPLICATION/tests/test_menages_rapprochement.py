@@ -143,6 +143,29 @@ def _seeder_sqlite_menages(db_path: Path, *, rapp=(), gainperte=(), coutcomplet=
         conn.close()
 
 
+def _seeder_externes_sqlite(db_path: Path) -> None:
+    """Trois lignes MENAGE_EXTERNE via les VRAIS services (`factures_service`/
+    `facture_lignes_menage_service`), mêmes valeurs que l'ancien onglet MASTER Lot6c — exerce le
+    chemin réel (`menages_reader.externes()` → `lignes_externes_pour_reader`), pas un raccourci SQL.
+    Nécessite `FACTURES_REAL_WRITE_ENABLED`/`_CONFIRMATION_ENABLED` actifs (appelant)."""
+    from app.services import facture_lignes_menage_service as flm
+    from app.services import factures_service as fact
+
+    for ref, logement_id, date_menage, precision, nb, montant in (
+        ("FAC-2026-05-001", "LOG_0014", "2026-05-10", "DATE_PRECISE", 1, 29.0),
+        ("FAC-2026-05-002", "LOG_0009", None, "MOIS_SEUL", 2, 58.0),
+        ("FAC-2026-05-003", "LOG_0020", "2026-05-12", "DATE_PRECISE", 3, 87.0),
+    ):
+        r = fact.creer(
+            {"fournisseur_id_opaque": "INT_0004", "facture_ref": ref,
+             "date_facture": "2026-05-31", "montant_ttc": montant}, db_path=db_path)
+        assert r["ok"], r
+        flm.ajouter_ligne(
+            r["facture_id_opaque"], type_ligne=flm.TYPE_MENAGE_EXTERNE, logement_id=logement_id,
+            montant_ttc=montant, quantite=nb, date_menage=date_menage or "",
+            precision_date_menage=precision, nom_prestataire="Aissata", db_path=db_path)
+
+
 def _ligne_rapprochement(**kw) -> dict:
     base = {
         "mois": "2026-05", "nom_appartement": "Studio Test", "logement_id": "LOG_0001",
@@ -348,8 +371,11 @@ def sources(tmp_path, monkeypatch):
     # repli Excel : cfg.DB_PATH doit pointer ici pour qu'ils voient les mêmes données que les
     # classeurs `ha`/`internes` ci-dessus (conservés pour les autres sources, encore Excel).
     monkeypatch.setattr(cfg, "DB_PATH", db_path)
+    monkeypatch.setattr(cfg, "FACTURES_REAL_WRITE_ENABLED", True)
+    monkeypatch.setattr(cfg, "FACTURES_REAL_WRITE_CONFIRMATION_ENABLED", True)
     _seeder_sqlite_menages(db_path, rapp=LIGNES_RAPP, gainperte=LIGNES_GAINPERTE,
                           coutcomplet=LIGNES_COUTCOMPLET)
+    _seeder_externes_sqlite(db_path)
 
     yield {
         "racine": tmp_path, "rapprochement": rapp, "hostaway": ha, "internes": internes,
@@ -472,11 +498,14 @@ def test_08_source_interne_vide(sources, tmp_path, monkeypatch):
     assert not detail["interne"]["etat"].disponible
 
 
-def test_09_source_externe_vide(sources, tmp_path, monkeypatch):
-    import app.config as cfg
-    vide = _ecrire(tmp_path / "vide2" / "MASTER_FACT_MEN_MenagesExternes.xlsx",
-                   {"MASTER": (COLONNES_EXTERNES, [])})
-    monkeypatch.setattr(cfg, "MASTER_MENAGES_EXTERNES", vide)
+def test_09_source_externe_vide(sources):
+    """Aucune ligne MENAGE_EXTERNE en base : état VIDE, jamais un plantage."""
+    conn = get_db(sources["db"])
+    try:
+        conn.execute("DELETE FROM facture_lignes_menage WHERE type_ligne = 'MENAGE_EXTERNE'")
+        conn.commit()
+    finally:
+        conn.close()
     reader.vider_cache()
 
     assert reader.externes().etat.etat == reader.ETAT_VIDE

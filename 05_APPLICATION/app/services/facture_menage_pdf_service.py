@@ -24,6 +24,7 @@ import sys
 from typing import Any
 
 import app.config as cfg
+from app.db.connection import get_db
 from app.services import facture_lignes_menage_service as flm
 from app.services import facture_ventilation_menage_service as vent
 from app.services import factures_service as fact
@@ -44,6 +45,25 @@ def _fournisseur_actif(prestataire_id: str, db_path=None) -> bool | None:
     return f.get("statut") == "ACTIF"
 
 
+def _enregistrer_diagnostic(fac, *, facture_id_opaque: str | None, db_path=None) -> None:
+    """Trace CHAQUE tentative d'import (succès ou échec) — même grain que l'onglet DIAGNOSTIC_PDF
+    legacy (0040) : mode_extraction est toujours PDF_AUTOMATIQUE ici, ce module n'a pas de secours
+    de saisie manuelle (celui-ci reste, s'il existe, un mécanisme applicatif distinct non retouché)."""
+    conn = get_db(db_path)
+    try:
+        conn.execute(
+            "INSERT INTO facture_pdf_diagnostics (nom_fichier, format_detecte, statut_extraction, "
+            "numero_facture, montant_total, somme_lignes, ecart_reconciliation, nb_lignes, "
+            "anomalies, mode_extraction, facture_id_opaque) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (fac.nom_fichier_source, fac.format_detecte, fac.statut_extraction, fac.numero_facture,
+             fac.montant_total_facture, fac.somme_lignes, fac.ecart_reconciliation,
+             len(fac.lignes), ",".join(fac.anomalies) or None, "PDF_AUTOMATIQUE",
+             facture_id_opaque))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def importer(path, *, acteur: str = "", db_path=None) -> dict[str, Any]:
     """Importe une facture PDF ménage externe : header + lignes + ventilation, aucune Charge créée.
 
@@ -54,6 +74,7 @@ def importer(path, *, acteur: str = "", db_path=None) -> dict[str, Any]:
 
     fac = pdfex.extraire_pdf(path)
     if fac.statut_extraction != "OK":
+        _enregistrer_diagnostic(fac, facture_id_opaque=None, db_path=db_path)
         return {"ok": False, "code": E_EXTRACTION_ECHOUEE, "statut_extraction": fac.statut_extraction,
                 "anomalies": fac.anomalies}
 
@@ -69,21 +90,27 @@ def importer(path, *, acteur: str = "", db_path=None) -> dict[str, Any]:
     actif = _fournisseur_actif(fac.prestataire_id, db_path=db_path) if fac.prestataire_id else None
     resultat = fact.creer(form, acteur=acteur, db_path=db_path, fournisseur_actif=actif)
     if not resultat.get("ok"):
+        _enregistrer_diagnostic(fac, facture_id_opaque=None, db_path=db_path)
         return resultat
 
     facture_id = resultat["facture_id_opaque"]
+    _enregistrer_diagnostic(fac, facture_id_opaque=facture_id, db_path=db_path)
     for ligne in fac.lignes:
         if ligne.logement_id:
             flm.ajouter_ligne(
                 facture_id, type_ligne=flm.TYPE_MENAGE_EXTERNE, logement_id=ligne.logement_id,
                 montant_ttc=ligne.montant_ligne or 0, description=ligne.logement_source,
                 quantite=ligne.quantite, prix_unitaire=ligne.prix_unitaire,
+                date_menage=ligne.date_menage or "", precision_date_menage=ligne.precision_date,
+                nom_prestataire=fac.nom_prestataire or "",
                 source=flm.SOURCE_PDF, acteur=acteur, db_path=db_path)
         else:
             flm.ajouter_ligne(
                 facture_id, type_ligne=flm.TYPE_FRAIS_NON_AFFECTE,
                 montant_ttc=ligne.montant_ligne or 0, description=ligne.logement_source,
                 quantite=ligne.quantite, prix_unitaire=ligne.prix_unitaire,
+                date_menage=ligne.date_menage or "", precision_date_menage=ligne.precision_date,
+                nom_prestataire=fac.nom_prestataire or "",
                 source=flm.SOURCE_PDF, acteur=acteur, db_path=db_path)
 
     ventilations = []

@@ -324,32 +324,52 @@ def internes() -> SourceMenages:
 
 
 def externes() -> SourceMenages:
-    """Lot6c — ménages externes facturés."""
-    return _lire("externes", "Ménages externes facturés (Lot6c)",
-                 cfg.MASTER_MENAGES_EXTERNES, SOURCE_EXTERNES, SHEET_EXTERNES)
+    """Lot6c — ménages externes facturés. SQLite (0037/0039/0040 : facture_lignes_menage +
+    compagnons), sans repli Excel. Pont : `facture_menage_pdf_service` (PDF → SQLite direct,
+    mission précédente) alimente ces tables à l'import, `facture_lignes_menage_service.
+    lignes_externes_pour_reader` rend le même grain/mêmes noms de champs que l'ancien onglet MASTER."""
+    from app.services import facture_lignes_menage_service as flm
+    lignes = flm.lignes_externes_pour_reader()
+    if not lignes:
+        return SourceMenages(EtatSource("externes", "Ménages externes facturés (Lot6c)",
+                                        "facture_lignes_menage", "facture_lignes_menage",
+                                        ETAT_VIDE))
+    return SourceMenages(
+        EtatSource("externes", "Ménages externes facturés (Lot6c)", "facture_lignes_menage",
+                  "facture_lignes_menage", ETAT_OK, len(lignes)),
+        lignes)
 
 
 SHEET_DIAGNOSTIC_PDF = "DIAGNOSTIC_PDF"
 
 
 def diagnostic_pdf() -> SourceMenages:
-    """Lot6c — onglet DIAGNOSTIC_PDF (une ligne par PDF analysé). Vide si extraction non exécutée."""
-    return _lire("diagnostic_pdf", "Diagnostic extraction PDF (Lot6c)",
-                 cfg.MASTER_MENAGES_EXTERNES, SOURCE_EXTERNES, SHEET_DIAGNOSTIC_PDF)
+    """Lot6c — diagnostic d'extraction PDF, un par tentative d'import. SQLite (0040)."""
+    source = _lire_sqlite("diagnostic_pdf", "Diagnostic extraction PDF (Lot6c)",
+                          "facture_pdf_diagnostics")
+    lignes = [{
+        "nom_fichier": r.get("nom_fichier"), "format_detecte": r.get("format_detecte"),
+        "statut_extraction": r.get("statut_extraction"), "numero_facture": r.get("numero_facture"),
+        "montant_total": r.get("montant_total"), "nb_lignes": r.get("nb_lignes"),
+        "ecart_reconciliation": r.get("ecart_reconciliation"), "doublon_de": r.get("doublon_de"),
+        "anomalies": r.get("anomalies"),
+    } for r in source.lignes]
+    return SourceMenages(source.etat, lignes)
 
 
 def mode_extraction_externes() -> str | None:
-    """Mode d'extraction du MASTER Lot6c, lu dans `source_document` (…— PDF_AUTOMATIQUE / …— SAISIE_MANUELLE_SECOURS)."""
-    src = externes()
-    for r in src.lignes:
-        sd = to_texte(r.get("source_document"))
-        if "PDF_AUTOMATIQUE" in sd:
-            return "PDF_AUTOMATIQUE"
-        if "SAISIE_MANUELLE_SECOURS" in sd:
-            return "SAISIE_MANUELLE_SECOURS"
-        if sd:
-            return "INCONNU"
-    return None
+    """Mode d'extraction de la dernière tentative d'import PDF connue (0040) — plus lu dans
+    `source_document` d'un classeur, directement la colonne dédiée `mode_extraction`."""
+    conn = get_db()
+    try:
+        if not _table_presente(conn, "facture_pdf_diagnostics"):
+            return None
+        row = conn.execute(
+            "SELECT mode_extraction FROM facture_pdf_diagnostics ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        return row["mode_extraction"] if row else None
+    finally:
+        conn.close()
 
 
 def controles_lot11() -> SourceMenages:

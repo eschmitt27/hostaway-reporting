@@ -118,6 +118,8 @@ EXPECTED_TABLES = {
     "menages_gainperte",                        # 0038 — Lot6e ecart gain/perte vs standard
     "menages_cout_complet",                     # 0038 — Lot6f cout complet (quote-parts)
     "facture_lignes_menage_detail",              # 0039 — quantite par ligne (extension 1-1)
+    "facture_lignes_menage_pdf",                 # 0040 — date_menage/precision/prestataire par ligne
+    "facture_pdf_diagnostics",                   # 0040 — diagnostic d'import PDF, un par tentative
 }
 
 
