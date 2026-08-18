@@ -86,6 +86,46 @@ def _ecrire(chemin: Path, onglets: dict[str, tuple[list[str], list[dict]]]) -> P
     return chemin
 
 
+def _seeder_sqlite_menages(db_path: Path) -> None:
+    """Alimente `menages_taches_enrichies`/`menages_declarations_internes` (0038) — sources SQLite
+    de `hostaway_taches`/`hostaway_comptage`/`internes`, qui ne lisent plus les classeurs `ha`/
+    `internes` ci-dessus. Chiffres alignés sur les anciens onglets VUE_COMPTAGE/MASTER_NORMALISE
+    (LOG_0001 : 10 tâches, 9 réalisées + 1 annulée — cohérent, contrairement au classeur legacy où
+    MASTER_ENRICHI (1 tâche) et VUE_COMPTAGE (10) divergeaient sans lien entre eux).
+    """
+    conn = get_db(db_path)
+    try:
+        taches = (
+            [("réalisé", "OUI") for _ in range(9)] + [("annulé", "OUI")]
+        )
+        for i, (statut_menage, ccm) in enumerate(taches, start=1):
+            conn.execute(
+                "INSERT INTO menages_taches_enrichies (task_id, mois, logement_id, "
+                "status, statut_menage, compte_comme_menage, statut_controle) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (f"HA-LOG1-{i:03d}", "2026-05", "LOG_0001",
+                 "completed" if statut_menage == "réalisé" else "cancelled",
+                 statut_menage, ccm, "OK"))
+        conn.execute(
+            "INSERT INTO menages_taches_enrichies (task_id, mois, logement_id, status, "
+            "statut_menage, compte_comme_menage, statut_controle) VALUES (?,?,?,?,?,?,?)",
+            ("HA-LOG5-001", "2026-05", "LOG_0005", "completed", "réalisé", "OUI", "OK"))
+
+        for mois, logement_id, intervenant_id, nom, nb_menages, nb_heures, lavage in (
+            ("2026-05", "LOG_0001", "INT_0002", "Kheira", 9, 18, 40),
+            ("2026-05", "LOG_0020", "INT_0002", "Kheira", 2, 4, None),
+        ):
+            conn.execute(
+                "INSERT INTO menages_declarations_internes (mois, logement_id, intervenant_id, "
+                "nom_intervenant, type_intervenant, nb_menages, nb_heures, cout_lavage_attribue, "
+                "statut_controle) VALUES (?,?,?,?,?,?,?,?,?)",
+                (mois, logement_id, intervenant_id, nom, "INTERNE", nb_menages, nb_heures, lavage,
+                 "VALIDE"))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _ligne_rapprochement(**kw) -> dict:
     base = {
         "mois": "2026-05", "nom_appartement": "Studio Test", "logement_id": "LOG_0001",
@@ -283,6 +323,11 @@ def sources(tmp_path, monkeypatch):
     db_path = tmp_path / "test.db"
     apply_migrations(db_path)
     monkeypatch.setattr(svc, "get_db", lambda *_a, **_k: get_db(db_path))
+    # `menages_reader.hostaway_taches`/`hostaway_comptage`/`internes` lisent SQLite (0038), sans
+    # repli Excel : cfg.DB_PATH doit pointer ici pour qu'ils voient les mêmes données que les
+    # classeurs `ha`/`internes` ci-dessus (conservés pour les autres sources, encore Excel).
+    monkeypatch.setattr(cfg, "DB_PATH", db_path)
+    _seeder_sqlite_menages(db_path)
 
     yield {
         "racine": tmp_path, "rapprochement": rapp, "hostaway": ha, "internes": internes,
@@ -389,11 +434,13 @@ def test_07b_cout_reel_et_cout_complet_ne_sont_pas_confondus(sources):
 # ---------------------------------------------------------------------------
 
 def test_08_source_interne_vide(sources, tmp_path, monkeypatch):
-    """Source interne vide (en-têtes seules) : état VIDE, jamais un plantage."""
-    import app.config as cfg
-    vide = _ecrire(tmp_path / "vide" / "MASTER_NORM_Declarations_Internes.xlsx",
-                   {"MASTER_NORMALISE": (COLONNES_INTERNES, [])})
-    monkeypatch.setattr(cfg, "MASTER_DECLARATIONS_INTERNES", vide)
+    """Source interne vide (table sans ligne) : état VIDE, jamais un plantage."""
+    conn = get_db(sources["db"])
+    try:
+        conn.execute("DELETE FROM menages_declarations_internes")
+        conn.commit()
+    finally:
+        conn.close()
     reader.vider_cache()
 
     assert reader.internes().etat.etat == reader.ETAT_VIDE
@@ -550,7 +597,7 @@ def test_19_fiche_detail_complete(sources):
 
     assert detail["attendu"]["etat"].etat == reader.ETAT_NON_ALIMENTE
     assert detail["attendu"]["comptage_hostaway"]["planifiees"] == 10
-    assert len(detail["hostaway"]["taches"]) == 1
+    assert len(detail["hostaway"]["taches"]) == 10
     assert detail["tracabilite"]["sources"]
 
     # Aucun chemin absolu : uniquement des noms de fichiers.

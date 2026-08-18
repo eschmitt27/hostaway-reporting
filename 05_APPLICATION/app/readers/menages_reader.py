@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any
 
 import app.config as cfg
+from app.db.connection import get_db
 from app.readers.excel_reader import list_sheets, read_sheet
 
 # --- Onglets ---------------------------------------------------------------
@@ -209,6 +210,34 @@ def _lire(cle: str, libelle: str, path: Path, fichier: str, onglet: str) -> Sour
     return SourceMenages(resultat.etat, resultat.lignes)
 
 
+def _table_presente(conn, table: str) -> bool:
+    return conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
+    ).fetchone() is not None
+
+
+def _lire_sqlite(cle: str, libelle: str, table: str) -> SourceMenages:
+    """Lecture SQLite d'une sortie Lot6a/6b/6d/6e/6f (migration 0038) : équivalent de `_lire`, même
+    contrat `SourceMenages`/`EtatSource`, mais SANS repli Excel — une table absente ou vide est un
+    état affiché, jamais une exception (`FileNotFoundError` interdite en amont, mission §21).
+
+    `fichier`/`onglet` de l'`EtatSource` portent le nom de la table : ce ne sont plus des chemins
+    Excel, mais l'écran qui affiche l'état de la source n'a pas besoin de le savoir.
+    """
+    conn = get_db()
+    try:
+        if not _table_presente(conn, table):
+            return SourceMenages(EtatSource(cle, libelle, table, table, ETAT_FICHIER_ABSENT))
+        lignes = [dict(r) for r in conn.execute(f"SELECT * FROM {table} ORDER BY id")]
+    finally:
+        conn.close()
+    if not lignes:
+        return SourceMenages(EtatSource(cle, libelle, table, table, ETAT_VIDE))
+    maj = max((r.get("date_calcul") or "" for r in lignes), default=None) or None
+    return SourceMenages(
+        EtatSource(cle, libelle, table, table, ETAT_OK, len(lignes), maj), lignes)
+
+
 # --- Sources ---------------------------------------------------------------
 
 def rapprochement() -> SourceMenages:
@@ -240,21 +269,59 @@ def pools_charges() -> SourceMenages:
 
 
 def hostaway_taches() -> SourceMenages:
-    """Lot6a — tâches Hostaway. Comptage opérationnel, jamais valorisation."""
-    return _lire("hostaway_taches", "Tâches Hostaway (Lot6a)",
-                 cfg.MASTER_HA_CLEANINGTASKS, SOURCE_HOSTAWAY, SHEET_HA_TASKS)
+    """Lot6a — tâches Hostaway. Comptage opérationnel, jamais valorisation. SQLite (`--source
+    SQLITE`, migration 0038) : plus de repli Excel, la table est la seule source lue ici."""
+    return _lire_sqlite("hostaway_taches", "Tâches Hostaway (Lot6a)", "menages_taches_enrichies")
 
 
 def hostaway_comptage() -> SourceMenages:
-    """Lot6a VUE_COMPTAGE — planifié / réalisé / pending / annulé par logement et mois."""
-    return _lire("hostaway_comptage", "Comptage Hostaway (Lot6a)",
-                 cfg.MASTER_HA_CLEANINGTASKS, SOURCE_HOSTAWAY, SHEET_HA_COMPTAGE)
+    """Lot6a VUE_COMPTAGE — planifié / réalisé / pending / annulé par logement et mois.
+
+    `menages_taches_enrichies` (0038) est au grain TÂCHE, pas au grain agrégé : cet agrégat n'est
+    volontairement pas dupliqué en table SQLite (il se déduit, comme tout agrégat de cette
+    migration — cf. 0038, « pas de registre de datasets »). Même règle de comptage que
+    `lot6a_cleaning_tasks_comptage.build_comptage_rows` : compte_comme_menage=OUI pour réalisé/
+    prévu/pending, les annulés comptent quel que soit compte_comme_menage.
+    """
+    source = _lire_sqlite("hostaway_comptage", "Comptage Hostaway (Lot6a)",
+                          "menages_taches_enrichies")
+    if source.etat.etat != ETAT_OK:
+        return SourceMenages(EtatSource("hostaway_comptage", "Comptage Hostaway (Lot6a)",
+                                        source.etat.fichier, source.etat.onglet,
+                                        source.etat.etat, derniere_maj=source.etat.derniere_maj))
+
+    def _cnt(groupe, statut_val, ccm_filter=True):
+        return sum(1 for r in groupe if to_texte(r.get("statut_menage")) == statut_val
+                  and (not ccm_filter or to_texte(r.get("compte_comme_menage")) == "OUI"))
+
+    groupes: dict[tuple[str, str], list[dict]] = {}
+    for r in source.lignes:
+        groupes.setdefault((to_mois(r.get("mois")), to_texte(r.get("logement_id"))), []).append(r)
+
+    lignes = []
+    for (mois, logement_id), grp in sorted(groupes.items()):
+        prop_id = next((r.get("proprietaire_id") for r in grp if r.get("proprietaire_id")), None)
+        lignes.append({
+            "mois": mois, "logement_id": logement_id, "proprietaire_id": prop_id,
+            "nb_menages_realises": _cnt(grp, "réalisé"),
+            "nb_menages_confirmes": _cnt(grp, "prévu"),
+            "nb_menages_pending": _cnt(grp, "A_CONTROLER"),
+            "nb_menages_annules": _cnt(grp, "annulé", ccm_filter=False),
+            "nb_taches_total": len(grp),
+            "statut_controle": "BLOQUANT" if not logement_id else "OK",
+            "niveau_anomalie": "BLOQUANT" if not logement_id else "",
+            "code_anomalie": "COMPTAGE_LOGEMENT_ABSENT" if not logement_id else "",
+        })
+    return SourceMenages(
+        EtatSource("hostaway_comptage", "Comptage Hostaway (Lot6a)", source.etat.fichier,
+                  source.etat.onglet, ETAT_OK, len(lignes), source.etat.derniere_maj),
+        lignes)
 
 
 def internes() -> SourceMenages:
-    """Lot6b — déclarations internes M04."""
-    return _lire("internes", "Déclarations internes M04 (Lot6b)",
-                 cfg.MASTER_DECLARATIONS_INTERNES, SOURCE_INTERNES, SHEET_INTERNES)
+    """Lot6b — déclarations internes M04. SQLite (migration 0038), plus de repli Excel."""
+    return _lire_sqlite("internes", "Déclarations internes M04 (Lot6b)",
+                        "menages_declarations_internes")
 
 
 def externes() -> SourceMenages:
