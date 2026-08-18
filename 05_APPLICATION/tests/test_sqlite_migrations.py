@@ -105,6 +105,12 @@ EXPECTED_TABLES = {
     "reservations_archives",                    # 0034 — journal des archivages
     "hostaway_cleaning_tasks_extractions",      # 0035 — CleaningTasks (Lot6a), registre RAW
     "hostaway_cleaning_tasks",                  # 0035 — CleaningTasks (Lot6a), tâches brutes
+    "facture_ventilations",                     # 0036 — ligne facture externe sans logement
+    "facture_ventilation_parts",                # 0036 — détail par logement de la ventilation
+    "intervenant_menage_dettes",                # 0036 — compte intervenant interne, créances
+    "intervenant_menage_paiements",             # 0036 — compte intervenant interne, sources
+    "intervenant_menage_allocations",           # 0036 — compte intervenant interne, FIFO
+    "intervenant_menage_recalculs",             # 0036 — compte intervenant interne, journal
 }
 
 
