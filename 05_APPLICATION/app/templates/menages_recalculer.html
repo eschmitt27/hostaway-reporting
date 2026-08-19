@@ -9,15 +9,15 @@
   <a href="/menages/diagnostic" class="back-link">← Diagnostic</a>
   <h1 class="page-title">Simuler le recalcul du rapprochement</h1>
   <p class="page-subtitle">
-    Mois moteur figé : <strong>{{ p.mois_moteur_fige }}</strong>.
-    <span class="status-badge status-valide">Aucun fichier réel ne sera modifié</span>
+    Mois : <strong>{{ p.mois or "aucun (dataset non initialisé)" }}</strong>.
+    <span class="status-badge status-valide">app.db réelle n'est jamais écrite</span>
   </p>
 </div>
 
 <div class="alert alert-info">
-  <strong>Ceci est une simulation sur copies.</strong> Le moteur tourne sur une copie isolée des
-  sources ; les MASTER réels affichés sur <code>/menages</code> <strong>ne sont pas régénérés</strong>.
-  Le recalcul réel (qui réécrirait les MASTER) reste désactivé.
+  <strong>Ceci est une simulation sur copies.</strong> Le moteur tourne sur une copie isolée de la
+  base ; les données affichées sur <code>/menages</code> <strong>ne sont pas régénérées</strong>.
+  Le recalcul réel (qui écrirait dans app.db réelle) reste désactivé.
 </div>
 
 <div class="card mb-md">
@@ -30,43 +30,32 @@
     <div><dt>Étapes</dt><dd>{% for e in p.etapes %}<span class="font-mono text-xs">{{ e }}</span>{% if not loop.last %} → {% endif %}{% endfor %}</dd></div>
   </dl>
   <p class="section-note mt-md">
-    En mode copies, le sous-arbre nécessaire est copié dans un workspace sous <code>data/</code>,
-    lot6d puis lot6e y sont exécutés, et l'état produit est comparé à l'état réel.
-    lot6f (coût complet) est exclu : il lit une source réseau (Google Sheet) non déterministe hors ligne.
+    En mode copies, une copie SQLite de la base est produite dans un workspace sous <code>data/</code>,
+    lot6d puis lot6e y sont exécutés (<code>--source SQLITE</code>), et l'état produit est comparé
+    à l'état réel. lot6f (coût complet) est exclu : il lit une source réseau (Google Sheet) non
+    déterministe hors ligne.
   </p>
 </div>
 
 <div class="grid-2 mb-md">
   <div class="card">
-    <h2 class="card-title">Sources lues (copiées)</h2>
+    <h2 class="card-title">Datasets SQLite requis</h2>
     <table class="data-table">
-      <thead><tr><th>Fichier</th><th>Présent</th></tr></thead>
+      <thead><tr><th>Table</th><th>Présent pour ce mois</th></tr></thead>
       <tbody>
-        {% for s in p.sources %}
+        {% for d in p.datasets %}
         <tr>
-          <td><span class="font-mono text-xs">{{ s.nom }}</span></td>
-          <td><span class="status-badge status-{{ 'valide' if s.present else 'bloquant' }}">
-            {{ "oui" if s.present else "ABSENT" }}</span></td>
+          <td><span class="font-mono text-xs">{{ d.table }}</span></td>
+          <td><span class="status-badge status-{{ 'valide' if d.present else 'bloquant' }}">
+            {{ "oui" if d.present else "ABSENT" }}</span></td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
   <div class="card">
-    <h2 class="card-title">Sorties régénérées (dans le workspace)</h2>
-    <table class="data-table">
-      <thead><tr><th>Sortie</th><th>Fichier réel présent</th></tr></thead>
-      <tbody>
-        {% for s in p.sorties %}
-        <tr>
-          <td>{{ s.cle }}</td>
-          <td><span class="font-mono text-xs">{{ s.nom }}</span> —
-            <span class="status-badge status-{{ 'valide' if s.present else 'a-controler' }}">
-              {{ "oui" if s.present else "à créer" }}</span></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <h2 class="card-title">Mois disponibles</h2>
+    <p class="section-note">{{ p.mois_disponibles|join(", ") if p.mois_disponibles else "Aucun" }}</p>
   </div>
 </div>
 

@@ -10,7 +10,10 @@ importe donc pas : on les **exécute** dans un arbre miroir (le *workspace* copi
 vers la copie. Le moteur lit et écrit exclusivement dans le workspace — aucun fichier réel n'est
 touché. Ce runner n'importe jamais le moteur : il le lance en sous-processus.
 
-Entrée : requete.json = {allowed_root, workspace, steps:[{name, script, produces:[...]}], timeout}.
+Entrée : requete.json = {allowed_root, workspace, steps:[{name, script, args:[...], produces:[...]}],
+                          timeout}.
+`args` (optionnel) : arguments CLI supplémentaires (ex. `--source SQLITE --db <copie> --mois AAAA-MM
+--sans-excel`) — mêmes scripts lot6d/6e/6b/6c, chemin d'entrée/sortie choisi par l'appelant.
 Sortie : reponse.json = {ok, steps:[{name, statut, returncode, stdout_tail, stderr_tail,
                           produces:[{path, exists, sha256, size}]}]}.
 
@@ -71,7 +74,7 @@ def _executer_etape(step: dict[str, Any], workspace: Path, allowed_root: Path, t
     debut = time.monotonic()
     try:
         proc = subprocess.run(
-            [sys.executable, str(script)],
+            [sys.executable, str(script), *[str(a) for a in step.get("args", [])]],
             cwd=str(cwd), capture_output=True, text=True, timeout=timeout,
         )
     except subprocess.TimeoutExpired as exc:

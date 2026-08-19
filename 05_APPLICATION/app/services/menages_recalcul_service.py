@@ -1,33 +1,43 @@
-"""APP-2b — Service de recalcul ménages (sécurisé, sur copies).
+"""APP-2b — Service de recalcul ménages (sécurisé, sur copies), SQLite-first.
 
 Ce service orchestre un cycle de recalcul CONTRÔLÉ du rapprochement ménages, sans jamais importer
-le moteur (interdiction `test_no_import_of_travail_modules`) et sans jamais toucher un fichier
-métier réel.
+le moteur (interdiction `test_no_import_of_travail_modules`) et sans jamais toucher la vraie base
+app.db ni un fichier métier réel.
 
 Deux modes (cf. `config.MENAGES_REAL_RECALC_ENABLED`) :
 
-  MODE_COPIES  — recette isolée. On copie le sous-arbre nécessaire dans un workspace sous `data/`,
-                 on y exécute lot6d puis lot6e via le runner hors paquet, et on compare l'état
-                 produit à l'état réel. **Aucun fichier réel n'est modifié.** Toujours autorisé.
+  MODE_COPIES  — recette isolée. On copie la base SQLite réelle dans un workspace sous `data/`
+                 (jamais ouverte en écriture), on y exécute lot6d puis lot6e en `--source SQLITE`
+                 sur cette copie, et on compare l'état produit à l'état réel. **Aucune écriture sur
+                 app.db réelle.** Toujours autorisé.
 
-  MODE_REEL    — régénérerait les MASTER ménages EN PLACE (via `run_menages_pipeline`, qui commence
-                 par lot6b → Google Sheet + réécriture M04/MASTER_NORM). **Bloqué** tant que le flag
-                 est False : `confirmer(MODE_REEL)` refuse et trace un run BLOQUE, sans rien exécuter.
+  MODE_REEL    — écrirait directement dans app.db réelle. **Bloqué** tant que le flag est False :
+                 `confirmer(MODE_REEL)` refuse et trace un run BLOQUE, sans rien exécuter.
 
 Garde-fous repris de la chaîne charges (APP-3b) :
   * verrou interprocessus atomique (fichier de verrou dédié), libéré dans un `finally` quoi qu'il arrive ;
-  * snapshot horodaté + manifeste sha256 des sources réelles AVANT tout ;
-  * un run n'est SUCCES que si chaque étape rend rc==0 ET produit ses sorties (jamais sur le seul code 0) ;
-  * vérification que les fichiers réels sont bits-pour-bits identiques avant/après.
+  * snapshot horodaté + manifeste sha256 de la base réelle AVANT tout (jamais un fichier Excel) ;
+  * un run n'est SUCCES que si chaque étape rend rc==0 ET produit ses lignes dans la copie ;
+  * vérification que la base RÉELLE est bits-pour-bits identique avant/après.
 
-lot6f (coût complet) est **exclu** du recalcul sur copies : il lit la Google Sheet (réseau) et n'est
-donc pas déterministe hors ligne. Le recalcul sur copies rafraîchit le rapprochement (lot6d) et la
-vue gain/perte (lot6e), tous deux hors ligne.
+PRÉCONDITION DATASET, PAS FICHIER
+Avant ce module, `preparer()`/`confirmer()` vérifiaient l'existence de classeurs Excel
+(MASTER_FACT_HA_CleaningTasks_Discovery.xlsx, etc.). lot6d/lot6e lisent désormais ces mêmes données
+depuis SQLite (`menages_taches_enrichies`/`menages_declarations_internes`/`facture_lignes_menage`,
+migrations 0038/0037/0039) via `--source SQLITE` : la précondition est donc « le dataset a des
+lignes pour ce mois », jamais « le fichier existe ». Un dataset absent rend un état explicite
+(`DATASET_NON_INITIALISE`), jamais une `FileNotFoundError`.
+
+lot6f (coût complet) reste **exclu** du recalcul sur copies : il lit encore la Google Sheet (réseau)
+via `menages_declarations_internes` en SQLite — déterministe une fois la déclaration importée — mais
+la mécanique de lavage n'est pas couverte par ce recalcul volontairement restreint à 6d/6e (portée
+inchangée depuis la version Excel de ce service).
 """
 from __future__ import annotations
 
 import json
 import shutil
+import sqlite3
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -45,40 +55,31 @@ MODE_REEL = "REEL"
 LOCK_NAME = ".menages_recalcul.lock"
 OPERATION = "menages_recalcul"
 
-# Le moteur fige le mois du rapprochement (lot6d/6e : MONTH = "2026-05").
-# Le recalcul ne peut donc porter que ce mois tant que le moteur n'est pas paramétré.
-MOIS_MOTEUR = "2026-05"
-
-# Étapes exécutées sur copies — hors ligne, déterministes. lot6f exclu (réseau, cf. docstring).
+# Étapes exécutées sur copies — hors ligne, déterministes. lot6f exclu (cf. docstring).
 STEPS_COPIES: list[dict[str, Any]] = [
-    {"name": "lot6d_rapprochement",
-     "script": "02_TRAVAIL/lot6d_rapprochement_menages.py",
-     "produces": ["02_TRAVAIL/Lot6d_Rapprochement_Menages/MASTER_CTRL_Rapprochement_Menages.xlsx"]},
-    {"name": "lot6e_gainperte",
-     "script": "02_TRAVAIL/lot6e_gainperte_menages.py",
-     "produces": ["02_TRAVAIL/Lot6e_GainPerte_Menages/MASTER_CALC_GainPerte_Menages.xlsx"]},
+    {"name": "lot6d_rapprochement", "script": "02_TRAVAIL/lot6d_rapprochement_menages.py"},
+    {"name": "lot6e_gainperte", "script": "02_TRAVAIL/lot6e_gainperte_menages.py"},
 ]
 
-# Fichiers RÉELS lus par lot6d/6e — copiés dans le workspace (chemins relatifs au projet).
-SOURCES_A_COPIER = [
-    "01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm",
-    "02_TRAVAIL/Lot1_Hostaway/MASTER_FACT_HA_CleaningTasks_Discovery.xlsx",
-    "02_TRAVAIL/Lot6b_DeclarationsInternes/MASTER_NORM_Declarations_Internes.xlsx",
-    "02_TRAVAIL/Lot6c_MenagesExternes/MASTER_FACT_MEN_MenagesExternes.xlsx",
-]
+# Tables SQLite requises en ENTRÉE de lot6d/6e en mode --source SQLITE (0029/0038/0037/0039,
+# toutes déjà migrées) — remplace les anciens SOURCES_A_COPIER (classeurs Excel).
+DATASETS_REQUIS = ("menages_taches_enrichies", "menages_declarations_internes")
+
 # Scripts moteur copiés (exécutés dans le workspace ; ROOT y résout).
-# `lib_db_moteur` : lot6d/6e l'importent désormais (lecture SQLite optionnelle, --source EXCIPE
-# EXCEL par défaut) — sans la copie, `import lib_db_moteur` échoue (module absent du workspace) et
-# le script sort en rc=1 avant même d'atteindre son propre code, même en mode EXCEL pur.
+# `lib_db_moteur`/`lib_ref_history` : lot6d/6e les importent en mode --source SQLITE (résolution
+# proprietaire_id par période, cf. lot6d) — sans la copie, l'import échoue et le script sort en
+# rc=1 avant même d'atteindre son propre code.
 SCRIPTS_A_COPIER = [
     "02_TRAVAIL/lot6d_rapprochement_menages.py",
     "02_TRAVAIL/lot6e_gainperte_menages.py",
     "02_TRAVAIL/lib_db_moteur.py",
+    "02_TRAVAIL/lib_ref_history.py",
 ]
-# Sorties réelles régénérées par le recalcul (pour comparaison avant/après).
-SORTIES_REELLES = {
-    "rapprochement": "02_TRAVAIL/Lot6d_Rapprochement_Menages/MASTER_CTRL_Rapprochement_Menages.xlsx",
-    "gainperte": "02_TRAVAIL/Lot6e_GainPerte_Menages/MASTER_CALC_GainPerte_Menages.xlsx",
+
+# Tables SQLite produites (pour comparaison avant/après) — remplace les anciens classeurs Excel.
+SORTIES_TABLES = {
+    "rapprochement": "menages_rapprochement",
+    "gainperte": "menages_gainperte",
 }
 
 STATUT_SUCCES = "SUCCES"
@@ -86,6 +87,8 @@ STATUT_ECHEC = "ECHEC"
 STATUT_PARTIEL = "PARTIEL"
 STATUT_VERROUILLE = "VERROUILLE"
 STATUT_BLOQUE = "BLOQUE"
+
+E_DATASET_NON_INITIALISE = "E_DATASET_NON_INITIALISE"
 
 
 # ── Chemins ──────────────────────────────────────────────────────────────────
@@ -113,7 +116,7 @@ def _git_head() -> str | None:
         return None
 
 
-# ── Détection Excel ouvert (fichiers de verrou Office ~$) ─────────────────────
+# ── Détection Excel ouvert (conservée : utilisée par menages_chaine_service) ──
 
 def _fichier_office_verrou(path: Path) -> Path:
     return path.parent / ("~$" + path.name)
@@ -129,61 +132,154 @@ def detecter_excel_ouvert(paths: list[Path]) -> list[str]:
     return ouverts
 
 
-def _sources_reelles() -> list[Path]:
-    root = _project_root()
-    return [root / rel for rel in SOURCES_A_COPIER]
+# ── Base réelle : copie sûre (jamais une écriture), datasets, fraîcheur ──────
+
+_TABLES_DOMAINE = ("menages_taches_enrichies", "menages_declarations_internes",
+                   "menages_rapprochement", "menages_gainperte")
 
 
-def _sorties_reelles() -> list[Path]:
-    root = _project_root()
-    return [root / rel for rel in SORTIES_REELLES.values()]
+def _empreinte_domaine(db_path: Path) -> str:
+    """Empreinte du contenu des tables DOMAINE (jamais des tables journal — `snapshots`/
+    `menages_recalcul_runs`/`audit_events` s'écrivent normalement dans la même base réelle à
+    chaque run, ce n'est pas une modification à détecter). Un sha256 du fichier entier donnerait
+    toujours un écart, y compris quand rien de métier n'a changé — cette empreinte est ciblée."""
+    import hashlib
+    conn = get_db(db_path)
+    try:
+        h = hashlib.sha256()
+        for table in _TABLES_DOMAINE:
+            if not conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
+            ).fetchone():
+                continue
+            for row in conn.execute(f"SELECT * FROM {table} ORDER BY id"):
+                h.update("|".join(str(v) for v in row).encode("utf-8", "replace"))
+                h.update(b"\n")
+        return h.hexdigest()
+    finally:
+        conn.close()
+
+
+def _copier_base(source: Path, destination: Path) -> None:
+    """Copie une base SQLite via l'API backup (sûre même si WAL/journal actifs) — jamais un
+    `shutil.copy2` brut, qui peut copier un fichier incohérent si la base est en écriture."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    src_conn = sqlite3.connect(str(source))
+    try:
+        dst_conn = sqlite3.connect(str(destination))
+        try:
+            src_conn.backup(dst_conn)
+        finally:
+            dst_conn.close()
+    finally:
+        src_conn.close()
+
+
+def _mois_disponibles(db_path: Path) -> list[str]:
+    """Mois présents dans `menages_taches_enrichies`, du plus récent au plus ancien."""
+    conn = get_db(db_path)
+    try:
+        if not conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='menages_taches_enrichies'"
+        ).fetchone():
+            return []
+        rows = conn.execute(
+            "SELECT DISTINCT mois FROM menages_taches_enrichies "
+            "WHERE mois IS NOT NULL ORDER BY mois DESC").fetchall()
+        return [r[0] for r in rows]
+    finally:
+        conn.close()
+
+
+def _dernier_mois(db_path: Path) -> str | None:
+    mois = _mois_disponibles(db_path)
+    return mois[0] if mois else None
+
+
+def _dataset_dispo(db_path: Path, table: str, mois: str) -> bool:
+    conn = get_db(db_path)
+    try:
+        if not conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
+        ).fetchone():
+            return False
+        return conn.execute(
+            f"SELECT 1 FROM {table} WHERE mois = ? LIMIT 1", (mois,)).fetchone() is not None
+    finally:
+        conn.close()
+
+
+def _lire_comparaison(db_path: Path, mois: str) -> dict[str, Any] | None:
+    """Compte lignes / statuts / écarts de `menages_rapprochement` pour un mois — équivalent SQLite
+    de l'ancienne lecture du classeur TABLEAU_COMPARAISON."""
+    if not db_path or not Path(db_path).exists():
+        return None
+    conn = get_db(db_path)
+    try:
+        if not conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='menages_rapprochement'"
+        ).fetchone():
+            return None
+        rows = conn.execute(
+            "SELECT statut_controle, ecart FROM menages_rapprochement WHERE mois = ?",
+            (mois,)).fetchall()
+    finally:
+        conn.close()
+    statuts: dict[str, int] = {}
+    nb_ecarts = 0
+    for statut_controle, ecart in rows:
+        st = str(statut_controle or "")
+        statuts[st] = statuts.get(st, 0) + 1
+        try:
+            if int(ecart or 0) != 0:
+                nb_ecarts += 1
+        except (TypeError, ValueError):
+            pass
+    return {"nb_lignes": len(rows), "statuts": statuts, "nb_ecarts": nb_ecarts}
 
 
 # ── Préparation (préflight, aucune mutation) ─────────────────────────────────
 
 def preparer(mode: str = MODE_COPIES, mois: str | None = None) -> dict[str, Any]:
     """Diagnostic préalable. Ne lance rien, n'écrit rien. Backe l'écran de préparation."""
-    mois = mois or MOIS_MOTEUR
-    root = _project_root()
-    sources = [{"nom": Path(rel).name, "chemin_relatif": rel, "present": (root / rel).exists()}
-               for rel in SOURCES_A_COPIER]
-    sorties = [{"cle": cle, "nom": Path(rel).name, "chemin_relatif": rel, "present": (root / rel).exists()}
-               for cle, rel in SORTIES_REELLES.items()]
+    db_reel = Path(cfg.DB_PATH)
+    mois_defaut = _dernier_mois(db_reel)
+    mois = mois or mois_defaut
 
-    excel_ouverts = detecter_excel_ouvert(_sources_reelles() + _sorties_reelles())
+    datasets = [{"table": t, "present": bool(mois) and _dataset_dispo(db_reel, t, mois)}
+               for t in DATASETS_REQUIS]
+    datasets_absents = [d["table"] for d in datasets if not d["present"]]
+
     etat_verrou = verrou_lib.inspecter_verrou(_lock_path())
-    sources_absentes = [s["nom"] for s in sources if not s["present"]]
 
     bloque = False
     raison = None
     if mode == MODE_REEL and not cfg.MENAGES_REAL_RECALC_ENABLED:
         bloque = True
         raison = ("Le mode RÉEL est désactivé (MENAGES_REAL_RECALC_ENABLED = False). "
-                  "Seule la recette sur copies est exécutable : elle ne modifie aucun fichier réel.")
+                  "Seule la recette sur copies est exécutable : elle n'écrit jamais dans app.db réelle.")
 
     warnings: list[str] = []
-    if excel_ouverts:
-        warnings.append("Fichier(s) probablement ouverts dans Excel : " + ", ".join(excel_ouverts)
-                        + ". Fermez-les avant de recalculer.")
-    if sources_absentes:
-        warnings.append("Source(s) absente(s) : " + ", ".join(sources_absentes) + ".")
+    if not mois:
+        warnings.append("Aucun mois disponible : le dataset Hostaway ménages (Lot6a) n'a encore "
+                        "produit aucune ligne (DATASET_NON_INITIALISE).")
+    if datasets_absents:
+        warnings.append("Dataset(s) SQLite absent(s) pour ce mois : " + ", ".join(datasets_absents) + ".")
     if etat_verrou["etat"] != verrou_lib.ETAT_ABSENT:
         warnings.append("Un verrou de recalcul est présent (" + etat_verrou["etat"] + ") : "
                         + etat_verrou["raison"])
 
-    prete = (not bloque) and (not excel_ouverts) and (not sources_absentes) \
+    prete = (not bloque) and bool(mois) and (not datasets_absents) \
         and etat_verrou["etat"] == verrou_lib.ETAT_ABSENT
 
     return {
         "mode": mode,
         "mois": mois,
-        "mois_moteur_fige": MOIS_MOTEUR,
-        "sources": sources,
-        "sorties": sorties,
+        "mois_disponibles": _mois_disponibles(db_reel),
+        "datasets": datasets,
         "etapes": [s["name"] for s in STEPS_COPIES],
-        "excel_ouverts": excel_ouverts,
         "verrou": etat_verrou,
-        "sources_absentes": sources_absentes,
+        "datasets_absents": datasets_absents,
         "reel_active": bool(cfg.MENAGES_REAL_RECALC_ENABLED),
         "bloque": bloque,
         "raison": raison,
@@ -195,23 +291,38 @@ def preparer(mode: str = MODE_COPIES, mois: str | None = None) -> dict[str, Any]
 # ── Fraîcheur : sources plus récentes que le dernier rapprochement ? ─────────
 
 def etat_fraicheur() -> dict[str, Any]:
-    """Indicateur (non comptable) : une source a-t-elle été modifiée après le dernier rapprochement ?
-
-    Comparaison de mtime uniquement — un simple signal de fraîcheur, pas une preuve comptable.
-    """
-    root = _project_root()
-    master = root / SORTIES_REELLES["rapprochement"]
-    if not master.exists():
-        return {"etat": "JAMAIS_CALCULE", "sources_recentes": [],
-                "master_maj": None, "recommander_relance": False,
-                "libelle": "Jamais calculé"}
-    master_mtime = master.stat().st_mtime
-    recentes = [Path(rel).name for rel in SOURCES_A_COPIER
-                if (root / rel).exists() and (root / rel).stat().st_mtime > master_mtime]
+    """Indicateur (non comptable) : une source a-t-elle été recalculée après le dernier
+    rapprochement ? Comparaison de `date_calcul` (colonnes 0038), jamais un mtime de fichier."""
+    db_reel = Path(cfg.DB_PATH)
+    conn = get_db(db_reel)
+    try:
+        if not conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='menages_rapprochement'"
+        ).fetchone():
+            return {"etat": "JAMAIS_CALCULE", "sources_recentes": [],
+                    "master_maj": None, "recommander_relance": False,
+                    "libelle": "Jamais calculé"}
+        rapp_maj = conn.execute(
+            "SELECT MAX(date_calcul) FROM menages_rapprochement").fetchone()[0]
+        if not rapp_maj:
+            return {"etat": "JAMAIS_CALCULE", "sources_recentes": [],
+                    "master_maj": None, "recommander_relance": False,
+                    "libelle": "Jamais calculé"}
+        recentes = []
+        for table in DATASETS_REQUIS:
+            if not conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
+            ).fetchone():
+                continue
+            maj = conn.execute(f"SELECT MAX(date_calcul) FROM {table}").fetchone()[0]
+            if maj and maj > rapp_maj:
+                recentes.append(table)
+    finally:
+        conn.close()
     return {
         "etat": "SOURCES_PLUS_RECENTES" if recentes else "A_JOUR",
         "sources_recentes": recentes,
-        "master_maj": datetime.fromtimestamp(master_mtime).strftime("%Y-%m-%d %H:%M"),
+        "master_maj": rapp_maj,
         "recommander_relance": bool(recentes),
         "libelle": "Sources modifiées depuis le dernier rapprochement" if recentes else "À jour",
     }
@@ -219,8 +330,13 @@ def etat_fraicheur() -> dict[str, Any]:
 
 # ── Construction du workspace (copies) ───────────────────────────────────────
 
-def _construire_workspace(run_ts: str) -> Path:
-    """Miroir minimal du sous-arbre projet. ROOT des scripts copiés y résout → lit/écrit ici."""
+def _construire_workspace(run_ts: str, db_reel: Path) -> tuple[Path, Path]:
+    """Miroir minimal : scripts moteur + COPIE de `db_reel` (jamais ouverte en écriture).
+
+    Retourne (workspace, chemin_base_copie). `db_reel` est explicite — jamais `cfg.DB_PATH` relu
+    ici : `confirmer()` peut recevoir un `db_path` différent (tests, isolation A/B), et une
+    résolution interne divergente copierait la mauvaise base sans qu'aucune erreur ne le signale.
+    """
     base = Path(cfg.MENAGES_RECALC_WORKSPACE)
     workspace = base / run_ts
     if workspace.exists():
@@ -228,49 +344,15 @@ def _construire_workspace(run_ts: str) -> Path:
     workspace.mkdir(parents=True, exist_ok=True)
 
     root = _project_root()
-    for rel in SOURCES_A_COPIER + SCRIPTS_A_COPIER:
+    for rel in SCRIPTS_A_COPIER:
         src = root / rel
         dst = workspace / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
-    # Crée les dossiers de sortie attendus par les scripts (ils font os.makedirs de toute façon).
-    for rel in SORTIES_REELLES.values():
-        (workspace / Path(rel).parent).mkdir(parents=True, exist_ok=True)
-    return workspace
 
-
-# ── Lecture légère d'un TABLEAU_COMPARAISON (comparaison avant/après) ─────────
-
-def _lire_comparaison(path: Path) -> dict[str, Any] | None:
-    """Compte lignes / statuts / écarts d'un MASTER rapprochement, sans dépendre du reader métier."""
-    if not Path(path).exists():
-        return None
-    import openpyxl
-    try:
-        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-        if "TABLEAU_COMPARAISON" not in wb.sheetnames:
-            wb.close()
-            return None
-        ws = wb["TABLEAU_COMPARAISON"]
-        rows = [r for r in ws.iter_rows(values_only=True) if any(c is not None for c in r)]
-        wb.close()
-    except Exception:
-        return None
-    if not rows:
-        return {"nb_lignes": 0, "statuts": {}, "nb_ecarts": 0}
-    hdr = [str(c) for c in rows[0]]
-    data = [dict(zip(hdr, r)) for r in rows[1:]]
-    statuts: dict[str, int] = {}
-    nb_ecarts = 0
-    for d in data:
-        st = str(d.get("statut_controle") or "")
-        statuts[st] = statuts.get(st, 0) + 1
-        try:
-            if int(d.get("ecart") or 0) != 0:
-                nb_ecarts += 1
-        except (TypeError, ValueError):
-            pass
-    return {"nb_lignes": len(data), "statuts": statuts, "nb_ecarts": nb_ecarts}
+    db_copie = workspace / "app_data.db"
+    _copier_base(db_reel, db_copie)
+    return workspace, db_copie
 
 
 # ── Enregistrement d'un run ──────────────────────────────────────────────────
@@ -296,7 +378,8 @@ def confirmer(mode: str = MODE_COPIES, mois: str | None = None,
               db_path: Path | None = None) -> dict[str, Any]:
     """Exécute le recalcul. MODE_COPIES seulement ; MODE_REEL refusé tant que le flag est False."""
     db_path = db_path or cfg.DB_PATH          # lu À CHAUD — jamais le défaut figé à l'import (défaut get_db)
-    mois = mois or MOIS_MOTEUR
+    db_reel = Path(db_path)
+    mois = mois or _dernier_mois(db_reel)
 
     # ── Garde mode réel ──────────────────────────────────────────────────────
     if mode == MODE_REEL and not cfg.MENAGES_REAL_RECALC_ENABLED:
@@ -308,35 +391,35 @@ def confirmer(mode: str = MODE_COPIES, mois: str | None = None,
         log_event("MENAGE_RECALC_BLOQUE", {"mode": MODE_REEL, "mois": mois}, db_path=db_path)
         return {"ok": False, "run_id": run_id, "statut": STATUT_BLOQUE,
                 "erreur_code": "E_MODE_REEL_DESACTIVE",
-                "message": "Recalcul réel désactivé. Aucun fichier réel n'a été touché."}
+                "message": "Recalcul réel désactivé. app.db réelle n'a pas été touchée."}
 
     if mode not in (MODE_COPIES, MODE_REEL):
         raise ValueError(f"Mode inconnu : {mode}")
 
-    # ── Préflight bloquant (Excel ouvert / source absente) ───────────────────
-    excel_ouverts = detecter_excel_ouvert(_sources_reelles() + _sorties_reelles())
-    if excel_ouverts:
+    # ── Préflight bloquant (dataset non initialisé) ──────────────────────────
+    if not mois:
         run_id = _enregistrer_run(
-            db_path, mode=mode, periode=mois, statut=STATUT_ECHEC, git_head=_git_head(),
-            erreur_code="E_EXCEL_OUVERT", erreur_resume="Ouverts : " + ", ".join(excel_ouverts),
+            db_path, mode=mode, periode=None, statut=STATUT_ECHEC, git_head=_git_head(),
+            erreur_code=E_DATASET_NON_INITIALISE,
+            erreur_resume="Aucun mois disponible dans menages_taches_enrichies.",
         )
         return {"ok": False, "run_id": run_id, "statut": STATUT_ECHEC,
-                "erreur_code": "E_EXCEL_OUVERT",
-                "message": "Fichier(s) ouverts dans Excel : " + ", ".join(excel_ouverts)}
+                "erreur_code": E_DATASET_NON_INITIALISE,
+                "message": "Aucune donnée Hostaway ménages disponible : le dataset n'est pas "
+                           "initialisé pour un mois quelconque."}
 
-    sources_reelles = _sources_reelles()
-    absentes = [p.name for p in sources_reelles if not p.exists()]
-    if absentes:
+    datasets_absents = [t for t in DATASETS_REQUIS if not _dataset_dispo(db_reel, t, mois)]
+    if datasets_absents:
         run_id = _enregistrer_run(
             db_path, mode=mode, periode=mois, statut=STATUT_ECHEC, git_head=_git_head(),
-            erreur_code="E_SOURCE_ABSENTE", erreur_resume="Absentes : " + ", ".join(absentes),
+            erreur_code=E_DATASET_NON_INITIALISE,
+            erreur_resume="Absents pour " + mois + " : " + ", ".join(datasets_absents),
         )
         return {"ok": False, "run_id": run_id, "statut": STATUT_ECHEC,
-                "erreur_code": "E_SOURCE_ABSENTE",
-                "message": "Source(s) absente(s) : " + ", ".join(absentes)}
+                "erreur_code": E_DATASET_NON_INITIALISE,
+                "message": "Dataset(s) SQLite absent(s) pour " + mois + " : "
+                           + ", ".join(datasets_absents)}
 
-    # Scripts moteur (lot6d/lot6e) : vérifiés AVANT le workspace (sinon shutil.copy2 lève
-    # FileNotFoundError non capturée -> 500). Cas typique d'un PROJECT_ROOT de démonstration.
     scripts_absents = [Path(rel).name for rel in SCRIPTS_A_COPIER
                        if not (_project_root() / rel).exists()]
     if scripts_absents:
@@ -347,7 +430,7 @@ def confirmer(mode: str = MODE_COPIES, mois: str | None = None,
         return {"ok": False, "run_id": run_id, "statut": STATUT_ECHEC,
                 "erreur_code": "E_SCRIPT_MOTEUR_ABSENT",
                 "message": "Script(s) moteur absent(s) du projet : " + ", ".join(scripts_absents)
-                           + ". La simulation n'a pas été lancée ; aucun fichier réel touché."}
+                           + ". La simulation n'a pas été lancée ; rien n'a été touché."}
 
     # ── Verrou interprocessus (dédié) — libéré dans finally quoi qu'il arrive ─
     try:
@@ -363,19 +446,23 @@ def confirmer(mode: str = MODE_COPIES, mois: str | None = None,
     date_debut = datetime.now(timezone.utc).isoformat()
     t0 = time.monotonic()
     try:
-        # ── Snapshot des sources réelles AVANT (traçabilité, lecture seule) ──
-        sha_sources_avant = {p.name: _sha256(p) for p in sources_reelles}
-        sha_sorties_avant = {cle: (_sha256(_project_root() / rel)
-                                   if (_project_root() / rel).exists() else None)
-                             for cle, rel in SORTIES_REELLES.items()}
+        # ── Empreinte des tables DOMAINE de la base RÉELLE avant (traçabilité, lecture seule) ───
+        sha_avant = _sha256(db_reel) if db_reel.exists() else None       # affichage/traçabilité
+        empreinte_avant = _empreinte_domaine(db_reel) if db_reel.exists() else None  # garde réelle
+        comparaison_avant = _lire_comparaison(db_reel, mois)
         snap = snapshot_service.create_snapshot(
-            "MENAGES_RECALC_AVANT", sources_reelles + _sorties_reelles(), db_path=db_path)
+            "MENAGES_RECALC_AVANT", [db_reel] if db_reel.exists() else [], db_path=db_path)
 
-        # ── Workspace copies + requête runner ───────────────────────────────
+        # ── Workspace : scripts + COPIE de la base (jamais d'écriture sur la réelle) ─
         run_ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        workspace = _construire_workspace(run_ts)
+        workspace, db_copie = _construire_workspace(run_ts, db_reel)
+        steps = [
+            {**s, "args": ["--source", "SQLITE", "--db", str(db_copie), "--mois", mois,
+                          "--sans-excel", "--run-id", run_ts]}
+            for s in STEPS_COPIES
+        ]
         requete = {"allowed_root": str(workspace.resolve()), "workspace": str(workspace.resolve()),
-                   "steps": STEPS_COPIES, "timeout": cfg.MENAGES_RECALC_TIMEOUT_SECONDS}
+                   "steps": steps, "timeout": cfg.MENAGES_RECALC_TIMEOUT_SECONDS}
         requete_path = workspace / "_requete.json"
         reponse_path = workspace / "_reponse.json"
         requete_path.write_text(json.dumps(requete, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -422,25 +509,27 @@ def confirmer(mode: str = MODE_COPIES, mois: str | None = None,
                         erreur_code = premiere.get("erreur_code") or "E_CONTROLE_ECHEC"
                         erreur_resume = premiere.get("detail")
 
-        # ── sha256 des sorties APRÈS — depuis le WORKSPACE (jamais le réel) ──
-        sha_sorties_apres = {}
-        comparaison = {}
-        for cle, rel in SORTIES_REELLES.items():
-            produit = workspace / rel
-            sha_sorties_apres[cle] = _sha256(produit) if produit.exists() else None
-            if cle == "rapprochement":
-                comparaison = {
-                    "avant": _lire_comparaison(_project_root() / rel),
-                    "apres": _lire_comparaison(produit),
-                }
+        # ── Vérification : la copie porte bien des lignes pour ce mois (0038) ────
+        comparaison_apres = _lire_comparaison(db_copie, mois)
+        if statut == STATUT_SUCCES and (comparaison_apres is None or comparaison_apres["nb_lignes"] == 0):
+            statut = STATUT_ECHEC
+            erreur_code = "E_SORTIE_INVALIDE"
+            erreur_resume = "Aucune ligne menages_rapprochement produite pour " + mois + " dans la copie."
 
-        # ── Garde : les fichiers RÉELS n'ont pas bougé ──────────────────────
-        sha_sources_apres_reel = {p.name: (_sha256(p) if p.exists() else None) for p in sources_reelles}
-        reel_intact = sha_sources_apres_reel == sha_sources_avant
+        comparaison = {"avant": comparaison_avant, "apres": comparaison_apres}
+
+        # ── Garde : les tables DOMAINE de la base RÉELLE n'ont pas bougé (jamais ouvertes en
+        # écriture) — pas une comparaison de fichier entier : le journal (snapshots,
+        # menages_recalcul_runs, audit_events) s'écrit normalement dans cette même base à chaque
+        # run, et le détecter comme une anomalie ferait échouer tout run, y compris un run correct.
+        sha_apres = _sha256(db_reel) if db_reel.exists() else None       # affichage/traçabilité
+        empreinte_apres = _empreinte_domaine(db_reel) if db_reel.exists() else None
+        reel_intact = empreinte_apres == empreinte_avant
         if not reel_intact:
             statut = STATUT_ECHEC
             erreur_code = "E_REEL_MODIFIE"
-            erreur_resume = "ANOMALIE GRAVE : une source réelle a changé pendant un recalcul sur copies."
+            erreur_resume = "ANOMALIE GRAVE : les données ménage de app.db réelle ont changé " \
+                            "pendant un recalcul sur copies."
 
         duree = round(time.monotonic() - t0, 2)
         date_fin = datetime.now(timezone.utc).isoformat()
@@ -448,9 +537,9 @@ def confirmer(mode: str = MODE_COPIES, mois: str | None = None,
             db_path, mode=mode, periode=mois, statut=statut,
             date_debut=date_debut, date_fin=date_fin, duree_secondes=duree,
             snapshot_id=snap["id"], git_head=_git_head(), workspace_path=str(workspace),
-            sha256_sources_avant=json.dumps(sha_sources_avant, ensure_ascii=False),
-            sha256_sorties_avant=json.dumps(sha_sorties_avant, ensure_ascii=False),
-            sha256_sorties_apres=json.dumps(sha_sorties_apres, ensure_ascii=False),
+            sha256_sources_avant=json.dumps({"app.db": sha_avant}, ensure_ascii=False),
+            sha256_sorties_avant=json.dumps({"app.db": sha_avant}, ensure_ascii=False),
+            sha256_sorties_apres=json.dumps({"app.db": sha_apres}, ensure_ascii=False),
             comparaison_json=json.dumps({"rapprochement": comparaison, "reel_intact": reel_intact},
                                         ensure_ascii=False),
             etapes_json=json.dumps(etapes, ensure_ascii=False, default=str),
@@ -463,7 +552,7 @@ def confirmer(mode: str = MODE_COPIES, mois: str | None = None,
             "mode": mode, "mois": mois, "duree_secondes": duree,
             "snapshot_id": snap["id"], "workspace": str(workspace),
             "etapes": etapes, "comparaison": comparaison,
-            "sha256_sorties_avant": sha_sorties_avant, "sha256_sorties_apres": sha_sorties_apres,
+            "sha256_sorties_avant": {"app.db": sha_avant}, "sha256_sorties_apres": {"app.db": sha_apres},
             "reel_intact": reel_intact,
             "erreur_code": erreur_code, "erreur_resume": erreur_resume,
         }
@@ -480,7 +569,7 @@ def confirmer(mode: str = MODE_COPIES, mois: str | None = None,
         return {"ok": False, "run_id": run_id, "statut": STATUT_ECHEC,
                 "erreur_code": "E_INATTENDU",
                 "message": "Une erreur inattendue a interrompu la simulation "
-                           f"({type(exc).__name__}). Aucun fichier réel n'a été touché."}
+                           f"({type(exc).__name__}). app.db réelle n'a pas été touchée."}
     finally:
         try:
             verrou_lib.liberer_verrou(verrou)
