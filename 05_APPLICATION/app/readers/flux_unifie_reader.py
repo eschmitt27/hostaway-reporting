@@ -1,17 +1,23 @@
-"""Lecteur read-only Lot9 — `MASTER_CALC_Flux.xlsx` (flux unifiés).
+"""Lecteur Lot9 — flux unifiés (`flux_unifies`, migration 0043).
 
 Ne recalcule rien : sert uniquement la réconciliation Lot9↔Lot10 (`comptabilite_reconciliations_
 service.lot9_vs_lot10`), qui relit le grain déjà produit par Lot9 pour vérifier que Lot10 l'a
 correctement agrégé — jamais un second moteur de flux.
+
+SQLite-first (mission Ménages/Lot9) : lit `flux_unifies`, construite par `flux_unifie_service.
+construire()`. Ne rouvre plus `MASTER_CALC_Flux.xlsx` (classeur devenu `LEGACY_PARITE_TEMPORAIRE` —
+un outil de comparaison ponctuelle, plus une source applicative).
+
+`ROW_HASH` en majuscules dans les lignes rendues : c'est le nom que le classeur legacy portait et
+que `comptabilite_reconciliations_service` continue d'attendre — la colonne SQLite est `row_hash`
+(convention minuscule des tables 0043), traduite ici à la lecture, comme `reservations_dataset_
+service` le fait déjà pour `guest_count`/`guestCount`.
 """
 from __future__ import annotations
 
 from typing import Any
 
-import app.config as cfg
-from app.readers.excel_reader import read_sheet
-
-SHEET = "MASTER"
+from app.services import flux_unifie_service as _svc
 
 VISION_COLONNE = {
     "REEL": "inclure_resultat_reel",
@@ -20,11 +26,16 @@ VISION_COLONNE = {
 }
 
 
-def disponible() -> bool:
-    return cfg.MASTER_CALC_FLUX.exists()
+def disponible(*, db_path=None) -> bool:
+    conn_rows = _svc.lire(db_path=db_path)
+    return bool(conn_rows)
 
 
-def lire_flux() -> list[dict[str, Any]]:
-    if not disponible():
-        return []
-    return read_sheet(cfg.MASTER_CALC_FLUX, SHEET, max_rows=None)
+def lire_flux(*, db_path=None) -> list[dict[str, Any]]:
+    lignes = _svc.lire(db_path=db_path)
+    out = []
+    for r in lignes:
+        d = dict(r)
+        d["ROW_HASH"] = d.pop("row_hash", None)
+        out.append(d)
+    return out

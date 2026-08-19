@@ -9,6 +9,8 @@ import openpyxl
 import pytest
 
 import app.config as cfg
+from app.db.connection import apply_migrations
+from app.db.connection import get_db as _get_db
 from app.readers import proprietaires_reglements_reader as reader
 from app.services import comptabilite_reconciliations_service as recon
 
@@ -17,6 +19,7 @@ FLUX_COLS = ["flux_id", "ROW_HASH", "source_module", "source_table", "source_pk"
             "montant", "code_impact", "inclure_resultat_reel", "inclure_resultat_comptable",
             "inclure_resultat_hors_compta", "statut_controle", "niveau_anomalie", "code_anomalie",
             "commentaire", "date_integration"]
+_FLUX_DB_COLS = [c if c != "ROW_HASH" else "row_hash" for c in FLUX_COLS]
 
 RES_LOG_COLS = ["mois", "logement_id", "proprietaire_id", "total_produits", "total_charges",
                "resultat", "nb_flux", "vision", "commentaire"]
@@ -39,6 +42,7 @@ def _wb(path, sheets):
 def _flux_row(flux_id, mois, logement_id, sens, montant, *, vision_ok=True, row_hash=None):
     return {"flux_id": flux_id, "ROW_HASH": row_hash or flux_id, "mois": mois,
            "logement_id": logement_id, "sens": sens, "montant": montant,
+           "source_module": "TEST", "source_table": "test_fixture",
            "inclure_resultat_reel": "OUI" if vision_ok else "NON",
            "inclure_resultat_comptable": "OUI" if vision_ok else "NON",
            "inclure_resultat_hors_compta": "NON"}
@@ -46,15 +50,25 @@ def _flux_row(flux_id, mois, logement_id, sens, montant, *, vision_ok=True, row_
 
 @pytest.fixture
 def sources(tmp_path, monkeypatch):
-    flux = tmp_path / "FLUX.xlsx"
+    db = tmp_path / "app.db"
+    apply_migrations(db)
     res = tmp_path / "RES.xlsx"
 
     def build(flux_rows, res_log_rows, res_global_rows=None):
-        _wb(flux, {"MASTER": (FLUX_COLS, flux_rows)})
+        conn = _get_db(db)
+        try:
+            conn.execute("DELETE FROM flux_unifies")
+            conn.executemany(
+                f"INSERT INTO flux_unifies ({', '.join(_FLUX_DB_COLS)}) "
+                f"VALUES ({', '.join(['?'] * len(_FLUX_DB_COLS))})",
+                [tuple(r.get(c) for c in FLUX_COLS) for r in flux_rows])
+            conn.commit()
+        finally:
+            conn.close()
         _wb(res, {"PAR_MOIS_LOGEMENT": (RES_LOG_COLS, res_log_rows),
                  "PAR_MOIS_PROPRIETAIRE": (RES_PROP_COLS, []),
                  "GLOBAL": (RES_GLOBAL_COLS, res_global_rows or [])})
-        monkeypatch.setattr(cfg, "MASTER_CALC_FLUX", flux)
+        monkeypatch.setattr(cfg, "DB_PATH", db)
         monkeypatch.setattr(cfg, "MASTER_RESULTATS", res)
         reader.vider_cache()
 
@@ -63,7 +77,9 @@ def sources(tmp_path, monkeypatch):
 
 
 def test_source_absente(tmp_path, monkeypatch):
-    monkeypatch.setattr(cfg, "MASTER_CALC_FLUX", tmp_path / "absent.xlsx")
+    db = tmp_path / "app.db"
+    apply_migrations(db)
+    monkeypatch.setattr(cfg, "DB_PATH", db)
     res = recon.lot9_vs_lot10()
     assert res["statut"] == recon.ST_NON_DISPONIBLE
     assert "raison" in res
@@ -135,9 +151,13 @@ def test_resultat_lot10_sans_lot9(sources):
 
 
 def test_doublon_detecte(sources):
+    # `flux_id` est désormais clé primaire (migration 0043) : deux lignes avec le même flux_id ne
+    # peuvent plus coexister en base, la duplication réelle est prévenue au stockage. Ce test garde
+    # sa raison d'être pour un ROW_HASH dupliqué sous deux flux_id distincts (deux modules qui
+    # dériveraient par erreur le même hash) — le cas que la détection applicative couvre encore.
     sources(
         [_flux_row("F1", "2026-06", "LOG_A1", "PRODUIT", 700.0, row_hash="HASH1"),
-         _flux_row("F1", "2026-06", "LOG_A1", "PRODUIT", 700.0, row_hash="HASH1")],
+         _flux_row("F2", "2026-06", "LOG_A1", "PRODUIT", 700.0, row_hash="HASH1")],
         [{"mois": "2026-06", "logement_id": "LOG_A1", "proprietaire_id": "PROP_A",
           "total_produits": 700.0, "total_charges": 0.0, "resultat": 700.0, "nb_flux": 1,
           "vision": "REEL", "commentaire": ""}],

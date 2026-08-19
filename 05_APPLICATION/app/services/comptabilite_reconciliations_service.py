@@ -57,25 +57,25 @@ def _montant(v: Any) -> float:
 
 
 def lot9_vs_lot10(*, mois: str = "", vision: str = "REEL", logement_id: str = "") -> dict[str, Any]:
-    """Compare le grain déjà produit par Lot9 (`MASTER_CALC_Flux`, flux signés par `sens`
+    """Compare le grain déjà produit par Lot9 (`flux_unifies`, flux signés par `sens`
     PRODUIT/CHARGE/NEUTRALISATION, filtrés par `inclure_resultat_<vision>`) à ce que Lot10 en a
     tiré (`PAR_MOIS_LOGEMENT`). Ne recalcule PAS Lot10 : applique la MÊME règle de filtrage que
     `lot10_calculer_resultats.build_resultats` documente elle-même (mêmes noms de colonnes, même
     sens) pour vérifier que la somme correspond — un audit de cohérence, pas un second moteur.
-    Ne modifie jamais Lot9. `NON_DISPONIBLE` uniquement si `MASTER_CALC_Flux.xlsx` n'existe pas
-    encore (Lot9 pas encore exécuté sur ce jeu)."""
+    Ne modifie jamais Lot9. `NON_DISPONIBLE` uniquement si `flux_unifies` est vide (Lot9 pas encore
+    construit sur ce jeu — cf. `flux_unifie_service.construire`)."""
     from app.readers import flux_unifie_reader as lot9
     from app.services import comptabilite_analytique_service as ana
 
     if not lot9.disponible():
-        return {"statut": ST_NON_DISPONIBLE, "libelle_gauche": "Lot9 (MASTER_CALC_Flux)",
+        return {"statut": ST_NON_DISPONIBLE, "libelle_gauche": "Lot9 (flux_unifies)",
                 "libelle_droit": "Lot10 (PAR_MOIS_LOGEMENT)", "montant_gauche": None,
                 "montant_droit": None, "ecart": None, "tolerance": TOLERANCE, "detail": [],
-                "raison": "MASTER_CALC_Flux.xlsx absent — Lot9 n'a pas encore été exécuté sur ce jeu."}
+                "raison": "flux_unifies vide — Lot9 n'a pas encore été construit sur ce jeu."}
 
     colonne_vision = lot9.VISION_COLONNE.get(vision)
     if colonne_vision is None:
-        return {"statut": ST_NON_DISPONIBLE, "libelle_gauche": "Lot9 (MASTER_CALC_Flux)",
+        return {"statut": ST_NON_DISPONIBLE, "libelle_gauche": "Lot9 (flux_unifies)",
                 "libelle_droit": "Lot10 (PAR_MOIS_LOGEMENT)", "montant_gauche": None,
                 "montant_droit": None, "ecart": None, "tolerance": TOLERANCE, "detail": [],
                 "raison": f"Vision inconnue : {vision}"}
@@ -114,7 +114,7 @@ def lot9_vs_lot10(*, mois: str = "", vision: str = "REEL", logement_id: str = ""
 
     m_log = ana.mesures_par_logement(mois=mois, vision=vision)
     if m_log["statut"] != "OK":
-        return {"statut": ST_NON_DISPONIBLE, "libelle_gauche": "Lot9 (MASTER_CALC_Flux, filtré)",
+        return {"statut": ST_NON_DISPONIBLE, "libelle_gauche": "Lot9 (flux_unifies, filtré)",
                 "libelle_droit": "Lot10 (PAR_MOIS_LOGEMENT)", "montant_gauche": gauche,
                 "montant_droit": None, "ecart": None, "tolerance": TOLERANCE, "detail": [],
                 "raison": "Lot10 (PAR_MOIS_LOGEMENT) indisponible pour ce mois/cette vision."}
@@ -131,7 +131,7 @@ def lot9_vs_lot10(*, mois: str = "", vision: str = "REEL", logement_id: str = ""
               [{"cle_sans_lot9": c} for c in sans_lot9] +
               [{"doublon_lot9": d} for d in doublons])
 
-    res = _resultat(gauche, droit, libelle_gauche="Lot9 (MASTER_CALC_Flux, filtré)",
+    res = _resultat(gauche, droit, libelle_gauche="Lot9 (flux_unifies, filtré)",
                     libelle_droit="Lot10 (PAR_MOIS_LOGEMENT)", detail=detail)
     if detail and res["statut"] == ST_OK:
         res["statut"] = ST_A_CONTROLER
