@@ -131,6 +131,7 @@ EXPECTED_TABLES = {
     "lot10_net_exploitation",                    # 0044 — grain réservation (revenu net)
     "lot10_net_reglement",                       # 0044 — les 5 composants + montant dû
     "lot10_net_vue_mois",                        # 0044 — mois × propriétaire
+    "controles_lot11_runs",                      # 0045 — traçabilité des runs Lot11 (SQLite natif)
 }
 
 

@@ -322,3 +322,11 @@ migrés en SQLite, parité réelle 0,00 € d'écart, tests bloquants verts, cam
 (moteur 345/345, application 2856/2856). Détail : document `95` (§15-16).
 
 **Chaîne suivante : Lot11 (contrôles → SQLite), puis conditionnellement Lot12.**
+
+## Mise à jour migration SQLite — Lot11 TERMINÉ (groupes couverts)
+
+`controles_lot11_service.py` (SQLite natif) couvre les groupes de contrôle dont les sources sont
+déjà migrées ; parité réelle prouvée (10/11 constats en accord exact, écart restant expliqué). Test
+bloquant vert. Détail : document `95` (§17).
+
+**Chaîne suivante : conditionnellement Lot12, gate ouvert (Lot10 fermé + Lot11 validé).**

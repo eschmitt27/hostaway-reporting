@@ -395,9 +395,10 @@ def mode_extraction_externes() -> str | None:
 
 
 def controles_lot11() -> SourceMenages:
-    """Lot11 — contrôles transverses. SQLite (`controles_lot11_constats`, 0041, alimentée par
-    `controles_lot11_adapter.reprendre` depuis le classeur Lot11) — jamais lu depuis Excel ici.
-    Filtrés sur le module ménages par le service."""
+    """Lot11 — contrôles transverses. SQLite (`controles_lot11_constats`, 0041), alimentée soit par
+    `controles_lot11_service.construire` (moteur SQLite natif, mission Lot11), soit par
+    `controles_lot11_adapter.reprendre` (reprise classeur, pour les groupes de contrôle non encore
+    portés) — jamais lu depuis Excel ici. Filtrés sur le module ménages par le service."""
     return _lire_sqlite("lot11", "Contrôles de cohérence (Lot11)", "controles_lot11_constats")
 
 

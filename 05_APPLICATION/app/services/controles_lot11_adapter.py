@@ -2,11 +2,17 @@
 `controles_lot11_constats_champs`, 0042 — mois/logement_id, nécessaires pour filtrer un constat
 par période, ex. `controles_runner_service`).
 
-Lot11 (`lot11_controles_coherence.py`, banque + réservations + ménages combinés) n'est pas migré
-cette mission. Ce module lit le classeur produit par le moteur UNE FOIS et l'écrit en base — une
-REPRISE, pas une source (même statut que `hostaway_adaptateurs.reprendre`) : le sens de lecture est
-Excel → SQLite, jamais l'inverse, et l'application ne rouvre plus ce classeur ailleurs
-(`menages_reader.controles_lot11()` lit désormais uniquement cette table).
+DEPUIS LA MISSION LOT11 : `controles_lot11_service.construire()` recalcule directement en SQLite
+(sans Excel) les groupes de contrôle dont TOUTES les sources sont déjà migrées (réservations,
+payouts/anomalies Hostaway, Lot9, Lot10, référentiel, banque) et écrit dans les MÊMES tables — voir
+son docstring pour la liste exacte des groupes couverts et non couverts. CE module (reprise
+classeur) reste nécessaire pour les groupes non portés (AirCover, ajustements post-clôture,
+Lot7C avantages, caisse théorique, etc.), et pour la simulation « recalcul sur copie »
+(`controles_runner_service`) qui exécute le moteur legacy complet — celui-ci reste inchangé et
+dépend toujours d'un classeur en sortie. Le sens de lecture ici reste Excel → SQLite, jamais
+l'inverse, et l'application ne lit ce classeur nulle part ailleurs
+(`menages_reader.controles_lot11()` lit uniquement `controles_lot11_constats`, quelle que soit la
+source qui l'a alimentée).
 
 Remplacement intégral à chaque reprise (DELETE + INSERT) — les constats sont un instantané du
 dernier run Lot11, pas un historique à cumuler.

@@ -1379,3 +1379,14 @@ vaut un lecteur Excel qui fonctionne qu'un lecteur SQLite qui casse la suite de 
   regex ancrée sur une vraie syntaxe d'import en début de ligne.
 - `lot10_commissions.reservation_calc_id` devait être `NOT NULL` (cohérent avec la stabilité des
   clés de réservation déjà en place) — corrigé dans la migration 0044.
+
+## Lot11 — écart trouvé et expliqué (pas un bug)
+
+`CLOTURE_IMPOSSIBLE_LIGNE_BANCAIRE_NON_CLASSEE` : 8 mois côté nouveau service vs 9 côté legacy. Le
+legacy lit `REF_Cloture_Mensuelle` depuis le classeur Banque (`BANQUE_LOT8_IMPORT.xlsx`), qui porte
+un mois (2026-07) absent de la copie `REF_Setup.xlsm` que lit le nouveau service via
+`ref_setup_repo` (source déjà utilisée ailleurs dans l'app). Les deux référentiels réels divergent
+sur ce point (l'un a un mois de plus, et les statuts déclarés diffèrent : OUVERT côté Banque,
+CLOTURE côté REF_Setup pour les mois communs) — une divergence de fraîcheur entre deux copies
+réelles du même référentiel, pas une erreur de port. Les comptages RAPPROCHEMENT_REQUIS par mois
+correspondent exactement sur les 8 mois communs (25/24/23/25/30/26/26/20).

@@ -1893,3 +1893,19 @@ application 2856/2856, 0 échec.
 propriétaires → SQLite).**
 
 Détail complet : document `95` (§15-16).
+
+## ✅ Mise à jour — Lot11 (contrôles transverses) TERMINÉ pour les groupes couverts
+
+Nouveau service `controles_lot11_service.py` (SQLite natif, migration 0045) : port fidèle des
+groupes de contrôle Lot11 dont les sources sont déjà SQLite (réservations, payouts/anomalies
+Hostaway, Lot9, Lot10, référentiel, banque). Parité réelle prouvée sur données réelles 2026-08-17 :
+10/11 constats en accord exact, 0 BLOQUANT des deux côtés, écart restant expliqué (divergence de
+fraîcheur entre deux copies réelles de REF_Cloture_Mensuelle). Test bloquant
+`test_lot11_sans_masters.py` vert. Groupes non couverts (AirCover, ajustements post-clôture,
+sources vides, Lot7C avantages, ménages externes 6f, caisse théorique) documentés, non fabriqués —
+servis par le moteur legacy tant que leurs sources restent Excel.
+
+**Chaîne suivante : conditionnellement Lot12 (préfacture/relevés propriétaires → SQLite), sous
+réserve — Lot10 formellement fermé ET Lot11 réellement validé (les deux le sont désormais).**
+
+Détail complet : document `95` (§17).

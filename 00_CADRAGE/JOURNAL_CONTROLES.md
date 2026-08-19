@@ -3819,3 +3819,11 @@ Tests bloquants actifs par interception `openpyxl.load_workbook` : `test_menages
 Copie de la base réelle 0016 → HEAD (0044) : `integrity_check` ok, `foreign_key_check` ok, rejeu
 ×2 sans erreur. Base réelle inchangée (hash identique). Campagne complète : moteur 345/345,
 application 2856/2856, 0 échec.
+
+## Lot11 — contrôles transverses, moteur SQLite natif
+
+`controles_lot11_service.py` (migration 0045) recalcule directement en SQLite les groupes de
+contrôle Lot11 dont les sources sont déjà migrées, écrit dans `controles_lot11_constats`/`_champs`
+(mêmes tables que la reprise classeur legacy). Parité réelle prouvée le 2026-08-17 : 10/11
+constats en accord exact avec `MASTER_CTRL_Coherence.xlsx`, 0 BLOQUANT des deux côtés. Test
+bloquant `test_lot11_sans_masters.py` (interception globale openpyxl) actif.

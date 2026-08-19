@@ -582,3 +582,45 @@ stable. `app.db` réel resté à la version 0016, hash inchangé.
 
 **Lot9 et Lot10 sont clos : 0 lecture Excel au runtime applicatif, parité financière prouvée à
 0,00 € d'écart, test bloquant actif.**
+
+## 17. Lot11 (contrôles de cohérence transverses) — TERMINÉ pour les groupes couverts
+
+Migration 0045 (`controles_lot11_runs`, traçabilité). Nouveau service
+`app/services/controles_lot11_service.py` : port fidèle des groupes de contrôle de
+`02_TRAVAIL/lot11_controles_coherence.py` dont TOUTES les sources sont déjà SQLite — réservations
+(`reservations_resolues`), payouts/anomalies Hostaway, Lot9 (`flux_unifies`), Lot10 (`lot10_*`),
+référentiel (`REF_Setup` via `ref_setup_repo`), banque (`banque_vues_service`/
+`ref_cloture_mensuelle`). Écrit dans les MÊMES tables que la reprise classeur (`controles_lot11_
+constats`/`_champs`, 0041/0042), en une transaction unique après calcul complet — un run raté ne
+remplace jamais le dernier jeu valide.
+
+**Groupes couverts** : référentiels historisés sensibles (taux commission, gestion logements), PK
+doublons/jointures transverses (FLUX/RES/PAY/COM), cohérence exploitation/règlement, cohérence
+arithmétique commissions + invariant REEL=COMPTABLE+HC, statut_parc invalide, logement sans flux,
+listing Hostaway orphelin, VRBO sans montant, réservations A_CONTROLER sans commission, mode
+facturation à définir, commission sans taux, banque (payout déjà Hostaway, clôture bancaire
+impossible), DASHBOARD_MOIS.
+
+**Groupes NON couverts** (sources non encore SQLite, documenté dans le docstring du service,
+jamais fabriqué) : AirCover, imputations Airbnb, ajustements post-clôture, sources vides
+Charges/M04/Acomptes/IK, Lot7C (suivi associé avantages), rapprochement ménages externes ↔
+Hostaway (6f), caisse théorique, provenance ménages (cache/réseau). Ces groupes restent servis par
+le moteur legacy (`controles_runner_service`/`controles_lot11_adapter`, reprise classeur), non
+retirés — la simulation « recalcul sur copie » (contrôle bancaire avant/après décision) continue
+d'exécuter le moteur legacy complet, qui a toujours besoin de ses classeurs en entrée.
+
+**Parité réelle prouvée** sur les données réelles (2026-08-17) : pour les codes de contrôle en
+périmètre, 10/11 constats en accord exact avec `MASTER_CTRL_Coherence.xlsx` (messages identiques au
+caractère près pour `VRBO_MONTANT_NON_RENSEIGNE` et `RESERVATION_A_CONTROLER_SANS_COMMISSION`), 0
+BLOQUANT des deux côtés (cohérent avec la baseline doc 96). Le seul écart (8 vs 9 mois pour
+`CLOTURE_IMPOSSIBLE_LIGNE_BANCAIRE_NON_CLASSEE`) est expliqué : une divergence de fraîcheur entre
+deux copies réelles du même référentiel `REF_Cloture_Mensuelle` (le classeur Banque legacy vs
+`REF_Setup.xlsm` via SQLite) — pas un bug du port. Les comptages RAPPROCHEMENT_REQUIS par mois
+correspondent exactement sur les 8 mois communs.
+
+Test bloquant : `test_lot11_sans_masters.py` (interception globale `openpyxl.load_workbook` —
+`controles_lot11_service` n'ouvre aucun classeur, contrairement à Lot9/Lot10 qui interceptaient une
+liste fermée de masters).
+
+**Lot11 est clos pour les groupes couverts : 0 lecture Excel sur ce chemin, parité réelle
+documentée et honnête, test bloquant actif.**
