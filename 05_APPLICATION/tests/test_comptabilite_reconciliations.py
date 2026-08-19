@@ -30,8 +30,9 @@ def db(tmp_path, monkeypatch):
 # ── A. Lot9 ↔ Lot10 : NON_DISPONIBLE si MASTER_CALC_Flux absent ──────────────
 # Implémentation complète et tests dédiés : test_comptabilite_reconciliation_lot9_lot10.py.
 
-def test_lot9_vs_lot10_non_disponible_si_source_absente(tmp_path, monkeypatch):
-    monkeypatch.setattr(cfg, "MASTER_CALC_FLUX", tmp_path / "absent.xlsx")
+def test_lot9_vs_lot10_non_disponible_si_source_absente(tmp_db):
+    # `flux_unifies` (0043) existe (migration appliquée par tmp_db) mais est vide : NON_DISPONIBLE,
+    # jamais une exception — même contrat qu'avant (MASTER_CALC_Flux absent), source SQLite.
     res = recon.lot9_vs_lot10()
     assert res["statut"] == recon.ST_NON_DISPONIBLE
     assert "raison" in res
