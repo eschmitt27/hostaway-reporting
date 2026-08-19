@@ -1,4 +1,6 @@
-"""Reprise `MASTER_CTRL_Coherence.xlsx` (Lot11) → SQLite (`controles_lot11_constats`, 0041).
+"""Reprise `MASTER_CTRL_Coherence.xlsx` (Lot11) → SQLite (`controles_lot11_constats`, 0041 +
+`controles_lot11_constats_champs`, 0042 — mois/logement_id, nécessaires pour filtrer un constat
+par période, ex. `controles_runner_service`).
 
 Lot11 (`lot11_controles_coherence.py`, banque + réservations + ménages combinés) n'est pas migré
 cette mission. Ce module lit le classeur produit par le moteur UNE FOIS et l'écrit en base — une
@@ -57,6 +59,18 @@ def reprendre(*, racine: Path | None = None, db_path=None) -> dict[str, Any]:
             f"INSERT INTO controles_lot11_constats ({', '.join(cols)}) "
             f"VALUES ({', '.join(['?'] * len(cols))})",
             [tuple(l.get(c) for c in cols) for l in lignes])
+
+        if conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name='controles_lot11_constats_champs'"
+        ).fetchone() is not None:
+            conn.execute("DELETE FROM controles_lot11_constats_champs")
+            champs_cols = ("ctrl_pk", "mois", "logement_id", "proprietaire_id", "reservation_id",
+                          "document_id", "date_detection")
+            conn.executemany(
+                f"INSERT OR IGNORE INTO controles_lot11_constats_champs "
+                f"({', '.join(champs_cols)}) VALUES ({', '.join(['?'] * len(champs_cols))})",
+                [tuple(l.get(c) for c in champs_cols) for l in lignes])
         conn.commit()
     finally:
         conn.close()

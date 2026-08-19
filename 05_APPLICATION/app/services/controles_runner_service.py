@@ -30,8 +30,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import openpyxl
-
 import app.config as cfg
 from app.db.connection import get_db
 from app.services import banques_controle_service as banque_ctrl
@@ -204,26 +202,38 @@ def _generer_banque(ws: Path, mouvement_classe: str = "", db_path=None) -> dict[
                                             db_path=db_path)
 
 
-def _compter_controle_banque(master_ctrl: Path, mois: str) -> int | None:
-    """Nombre de lignes CLOTURE_IMPOSSIBLE_LIGNE_BANCAIRE_NON_CLASSEE pour un mois dans un MASTER_CTRL."""
-    if not master_ctrl.exists():
+CODE_CTRL_BANQUE_NON_CLASSEE = "CLOTURE_IMPOSSIBLE_LIGNE_BANCAIRE_NON_CLASSEE"
+
+
+def _compter_controle_banque(ws: Path, mois: str, ws_db: Path) -> int | None:
+    """Nombre de constats CLOTURE_IMPOSSIBLE_LIGNE_BANCAIRE_NON_CLASSEE pour un mois, produits par
+    le run Lot11 courant dans `ws`.
+
+    Ne relit plus le classeur `MASTER_CTRL_Coherence.xlsx` directement (openpyxl ad hoc) : reprend
+    par `controles_lot11_adapter`, le même mécanisme que l'application (mission Ménages, Bloc B §8
+    — « L'application relit le résultat SQLite. Jamais le workbook. »), sur une base SCRATCH propre
+    au workspace du run — jamais la base réelle, jamais `controles_lot11_constats` de l'app (ce
+    comptage est une simulation baseline/après, pas l'état applicatif courant).
+    """
+    from app.db.connection import apply_migrations
+    from app.services import controles_lot11_adapter as lot11_adapter
+
+    if not lot11_adapter.master_disponible(racine=ws):
         return None
-    wb = openpyxl.load_workbook(str(master_ctrl), read_only=True, data_only=True)
+    if not ws_db.exists():
+        apply_migrations(ws_db)
+    resultat = lot11_adapter.reprendre(racine=ws, db_path=ws_db)
+    if not resultat.get("ok"):
+        return None
+    conn = get_db(ws_db)
     try:
-        if "MASTER" not in wb.sheetnames:
-            return None
-        w = wb["MASTER"]
-        rows = list(w.iter_rows(values_only=True))
-        hdr = list(rows[0]); idx = {c: i for i, c in enumerate(hdr)}
-        code_i = idx.get("code_controle"); mois_i = idx.get("mois")
-        n = 0
-        for r in rows[1:]:
-            if str(r[code_i]) == "CLOTURE_IMPOSSIBLE_LIGNE_BANCAIRE_NON_CLASSEE" \
-                    and str(r[mois_i])[:7] == mois:
-                n += 1
-        return n
+        return conn.execute(
+            "SELECT COUNT(*) FROM controles_lot11_constats c "
+            "JOIN controles_lot11_constats_champs f ON f.ctrl_pk = c.ctrl_pk "
+            "WHERE c.code_controle = ? AND f.mois = ?",
+            (CODE_CTRL_BANQUE_NON_CLASSEE, mois)).fetchone()[0]
     finally:
-        wb.close()
+        conn.close()
 
 
 def _run_script(py: str, script: str, ws: Path) -> subprocess.CompletedProcess:
@@ -320,6 +330,7 @@ def recalculer_sur_copie(element: dict[str, Any], appliquer_classification: bool
             raise RuntimeError(f"Chemins résolus hors workspace refusés : {hors[:3]}")
         mois = element.get("mois", "")
         mvt_reel = banque_ctrl.resoudre_opaque(element.get("entite_id", ""))
+        ws_db = ws / "controles_lot11_scratch.db"   # scratch, jamais la base réelle ni l'app-facing
 
         # 0) Banque du workspace, fabriquée depuis SQLite — état actuel, sans décision simulée.
         gen = _generer_banque(ws, db_path=db_path)
@@ -343,7 +354,7 @@ def recalculer_sur_copie(element: dict[str, Any], appliquer_classification: bool
                        "duree_s": round((datetime.now() - t0).total_seconds(), 1)})
         if r11a.returncode != 0:
             raise RuntimeError(f"Lot11 baseline rc={r11a.returncode} : {_sanitize(r11a.stderr[-300:])}")
-        n_avant = _compter_controle_banque(ws / OUT_REL, mois)
+        n_avant = _compter_controle_banque(ws, mois, ws_db)
 
         # 2) décision simulée : on régénère la Banque du workspace avec ce mouvement présenté comme
         #    classé. Rien n'est modifié en base — la question posée au moteur reste hypothétique.
@@ -366,7 +377,7 @@ def recalculer_sur_copie(element: dict[str, Any], appliquer_classification: bool
                        "duree_s": round((datetime.now() - t2).total_seconds(), 1)})
         if r11b.returncode != 0:
             raise RuntimeError(f"Lot11 rc={r11b.returncode} : {_sanitize(r11b.stderr[-300:])}")
-        n_apres = _compter_controle_banque(ws / OUT_REL, mois)
+        n_apres = _compter_controle_banque(ws, mois, ws_db)
 
         # 4) verdict moteur (jamais SQLite)
         if n_avant is None or n_apres is None:
