@@ -17,6 +17,7 @@ import openpyxl
 import pytest
 
 import app.config as cfg
+from app.db.connection import get_db
 from app.readers import menages_reader as reader
 from app.services import menages_service as svc
 from app.services import menages_chaine_service as chaine
@@ -227,6 +228,21 @@ def _sources_reelles_disponibles() -> bool:
 def test_chaine_e2e_reelle_sur_copies(tmp_db, tmp_path, monkeypatch):
     """Exécute la chaîne complète sur copies et prouve que les fichiers réels ne bougent pas."""
     monkeypatch.setattr(cfg, "MENAGES_CHAINE_WORKSPACE", tmp_path / "ws")
+    # Précondition dataset SQLite (§4 mission) : CleaningTasks/M04 ne sont plus des masters copiés,
+    # `preparer_chaine` exige `menages_taches_enrichies`/`menages_declarations_internes` non vides.
+    conn = get_db(tmp_db)
+    try:
+        conn.execute(
+            "INSERT INTO menages_taches_enrichies (task_id, mois, logement_id, status, "
+            "statut_menage, compte_comme_menage) VALUES (?,?,?,?,?,?)",
+            ("HA-E2E-001", "2026-05", "LOG_0001", "completed", "réalisé", "OUI"))
+        conn.execute(
+            "INSERT INTO menages_declarations_internes (mois, logement_id, intervenant_id, "
+            "nb_menages, statut_controle) VALUES (?,?,?,?,?)",
+            ("2026-05", "LOG_0001", "INT_0002", 1, "VALIDE"))
+        conn.commit()
+    finally:
+        conn.close()
     temoins = [Path(cfg.PROJECT_ROOT) / rel for rel in chaine.SOURCES_COEUR]
     avant = {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in temoins}
     res = chaine.executer_chaine(mode=chaine.MODE_COPIES, db_path=tmp_db)

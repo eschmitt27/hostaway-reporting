@@ -89,12 +89,20 @@ LOCK_NAME = ".menages_chaine.lock"
 OPERATION = "menages_chaine"
 
 # ── Sources RÉELLES copiées dans le workspace ────────────────────────────────
-# Cœur ménages : indispensables aux étapes Lot6a-Lot6e ; préflight bloquant si absentes.
+# Cœur ménages : indispensable aux étapes Lot6a-Lot6e ; préflight bloquant si absent.
+# REF_Setup reste le seul MASTER permanent requis (référentiel canonique du projet, jamais
+# ménages-spécifique). CleaningTasks et M04 ne sont plus des masters copiés : ce sont des
+# classeurs jetables fabriqués dans le workspace depuis SQLite (cf. DATASETS_COEUR ci-dessous,
+# `hostaway_cleaning_tasks_adaptateur_moteur` et le template M04 structurel — pas de donnée).
 SOURCES_COEUR = [
     "01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm",
-    "02_TRAVAIL/Lot1_Hostaway/MASTER_FACT_HA_CleaningTasks_Discovery.xlsx",
-    "02_DONNEES_NORMALISEES/menages/M04_MENAGES_PowerQuery.xlsx",
 ]
+# Datasets SQLite requis pour fabriquer les classeurs jetables CleaningTasks/M04 dans le
+# workspace — remplace la précondition « le MASTER permanent existe ». `menages_taches_enrichies`
+# (0038, déjà l'enrichissement Lot6a) et `menages_declarations_internes` (0038, Lot6b) : mêmes
+# tables que `menages_recalcul_service.DATASETS_REQUIS`, une seule vérité pour cette précondition.
+DATASETS_COEUR = ("menages_taches_enrichies", "menages_declarations_internes")
+TEMPLATE_M04_REL = "template_M04_MENAGES_PowerQuery.xlsx"
 # Sources FACULTATIVES : utilisées seulement par Lot6f (pools courses/conso — vides aujourd'hui)
 # et/ou les contrôles transverses. Leur absence n'empêche PAS Lot6a-Lot6e : elle ne rend donc
 # JAMAIS la recette Ménages « rouge » — simple avertissement.
@@ -265,7 +273,28 @@ def _sorties_reelles() -> list[Path]:
 
 # ── Préflight ────────────────────────────────────────────────────────────────
 
-def preparer_chaine(mode: str = MODE_COPIES) -> dict[str, Any]:
+def _datasets_coeur_absents(db_path=None) -> list[str]:
+    """Datasets SQLite requis pour Lot6a-Lot6e absents/vides — remplace `coeur_absents` (fichier)
+    pour CleaningTasks/M04 (§4 mission : précondition dataset, jamais fallback Excel permanent)."""
+    from app.db.connection import get_db
+
+    conn = get_db(db_path)
+    try:
+        absents = []
+        for table in DATASETS_COEUR:
+            if not conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
+            ).fetchone():
+                absents.append(table)
+                continue
+            if conn.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone() is None:
+                absents.append(table)
+        return absents
+    finally:
+        conn.close()
+
+
+def preparer_chaine(mode: str = MODE_COPIES, *, db_path=None) -> dict[str, Any]:
     """Diagnostic préalable de la chaîne complète. Ne lance rien, n'écrit rien."""
     root = _project_root()
     coeur = [{"chemin_relatif": rel, "nom": Path(rel).name, "present": (root / rel).exists()}
@@ -277,6 +306,8 @@ def preparer_chaine(mode: str = MODE_COPIES) -> dict[str, Any]:
     pdf = [p.name for p in _pdf_reels()]
 
     coeur_absents = [s["nom"] for s in coeur if not s["present"]]
+    datasets_absents = _datasets_coeur_absents(db_path)
+    coeur_absents = coeur_absents + datasets_absents
     facultatives_absentes = [s["nom"] for s in facultatives if not s["present"]]
     lot11_absents = [s["nom"] for s in lot11 if not s["present"]]
     excel_ouverts = detecter_excel_ouvert(
@@ -286,7 +317,7 @@ def preparer_chaine(mode: str = MODE_COPIES) -> dict[str, Any]:
     bloque = mode == MODE_REEL and not cfg.MENAGES_REAL_RECALC_ENABLED
     warnings: list[str] = []
     if coeur_absents:
-        warnings.append("Source(s) cœur absente(s) : " + ", ".join(coeur_absents)
+        warnings.append("Source(s)/dataset(s) cœur absent(s) : " + ", ".join(coeur_absents)
                         + " — indispensables à Lot6a-Lot6e.")
     if facultatives_absentes:
         warnings.append("Source(s) facultative(s) absente(s) : " + ", ".join(facultatives_absentes)
@@ -325,11 +356,13 @@ def preparer_chaine(mode: str = MODE_COPIES) -> dict[str, Any]:
 # ── Workspace ────────────────────────────────────────────────────────────────
 
 def _construire_workspace(run_ts: str, declarations_csv: str,
-                          injection_hostaway: dict | None) -> tuple[Path, list[str]]:
+                          injection_hostaway: dict | None, *,
+                          db_path=None) -> tuple[Path, list[str]]:
     """Miroir minimal du projet + stubs + source déclarations copiée + injection Hostaway.
 
-    Retourne (workspace, avertissements). Copies uniquement — aucun fichier réel déplacé,
-    renommé ou modifié.
+    Retourne (workspace, avertissements). Copies uniquement pour REF_Setup — aucun fichier réel
+    déplacé, renommé ou modifié. CleaningTasks/M04 sont FABRIQUÉS ici depuis SQLite (jetables, pas
+    des copies de master).
     """
     base = Path(cfg.MENAGES_CHAINE_WORKSPACE)
     workspace = base / run_ts
@@ -340,12 +373,31 @@ def _construire_workspace(run_ts: str, declarations_csv: str,
     code_root = _scripts_root()     # CODE moteur (worktree courant, correctifs inclus)
     warnings: list[str] = []
 
-    # Données réelles (sources cœur) : copiées depuis le projet ciblé.
+    # Données réelles (sources cœur restantes — REF_Setup uniquement) : copiées depuis le projet.
     for rel in SOURCES_COEUR:
         src = root / rel
         dst = workspace / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
+
+    # CleaningTasks (Lot6a) : classeur jetable fabriqué depuis `menages_taches_enrichies`, jamais
+    # une copie du MASTER permanent (cf. `hostaway_cleaning_tasks_adaptateur_moteur`).
+    from app.services import hostaway_cleaning_tasks_adaptateur_moteur as ha_adapter
+    ha_dest = workspace / "02_TRAVAIL/Lot1_Hostaway/MASTER_FACT_HA_CleaningTasks_Discovery.xlsx"
+    ha_gen = ha_adapter.ecrire_classeur_moteur(ha_dest, db_path=db_path)
+    if not ha_gen.get("ok"):
+        warnings.append(f"CleaningTasks non fournies à lot6a/6c/6d : "
+                        f"{ha_gen.get('message', ha_gen.get('code'))}")
+
+    # M04 (Lot6b) : template STRUCTUREL versionné (0 ligne de donnée) — lot6b écrase entièrement
+    # SOURCE_RAW/MASTER/VUE_ACTIVE à chaque run depuis `declarations_csv` (jamais un input lu
+    # depuis ce fichier). Le classeur permanent du projet n'est donc plus requis, seule sa forme
+    # (onglets/tables Excel) doit exister pour que `openpyxl.load_workbook` réussisse.
+    m04_template = _stubs_dir() / TEMPLATE_M04_REL
+    m04_dest = workspace / "02_DONNEES_NORMALISEES/menages/M04_MENAGES_PowerQuery.xlsx"
+    m04_dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(m04_template, m04_dest)
+
     # Sources facultatives (Lot6f pools) : copiées SI présentes, jamais bloquantes.
     for rel in SOURCES_FACULTATIVES:
         src = root / rel
@@ -475,7 +527,7 @@ def executer_chaine(mode: str = MODE_COPIES, declarations_csv: str | None = None
                 "erreur_code": "E_SOURCE_DECLARATIONS_ABSENTE",
                 "message": "Fournir la source déclarations copiée (CSV) pour la recette sur copies."}
 
-    plan = preparer_chaine(mode)
+    plan = preparer_chaine(mode, db_path=db_path)
     if plan["coeur_absents"]:
         run_id = _enregistrer_run(
             db_path, mode=MODE_RUN_DB, periode=None, statut=STATUT_ECHEC, git_head=_git_head(),
@@ -524,7 +576,8 @@ def executer_chaine(mode: str = MODE_COPIES, declarations_csv: str | None = None
             db_path=db_path)
 
         run_ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        workspace, ws_warnings = _construire_workspace(run_ts, declarations_csv, injection_hostaway)
+        workspace, ws_warnings = _construire_workspace(run_ts, declarations_csv, injection_hostaway,
+                                                       db_path=db_path)
         requete = {"allowed_root": str(workspace.resolve()), "workspace": str(workspace.resolve()),
                    "steps": STEPS_CHAINE, "timeout": cfg.MENAGES_CHAINE_TIMEOUT_SECONDS}
         requete_path = workspace / "_requete.json"
