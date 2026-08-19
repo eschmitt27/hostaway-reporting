@@ -5,6 +5,7 @@ import openpyxl
 import pytest
 
 import app.config as cfg
+import fixtures_lot10 as fx
 from app.readers import proprietaires_reglements_reader as reader
 from app.services import comptabilite_ecritures_service as compta
 from app.services import factures_service as fact
@@ -30,28 +31,23 @@ GLOBAL_COLS = ["vision", "total_produits", "total_charges", "resultat", "comment
 
 
 @pytest.fixture
-def resultats_files(tmp_path, monkeypatch):
-    res = tmp_path / "RES.xlsx"
+def resultats_files(tmp_db, monkeypatch):
+    """Lot10 est SQLite (0044) : seul le grain fin est semé, dans la base déjà isolée par `_env`.
+
+    PAR_MOIS_PROPRIETAIRE et GLOBAL sont dérivés par le reader (règle du moteur), plus des onglets
+    posés à côté du détail — ils ne peuvent donc plus le contredire.
+    """
     par_logement = [
         {"mois": "2026-06", "logement_id": "LOG_A1", "proprietaire_id": "PROP_A",
          "total_produits": 1000.0, "total_charges": 300.0, "resultat": 700.0, "nb_flux": 5,
          "vision": "REEL", "commentaire": ""},
+        {"mois": "2026-06", "logement_id": "LOG_A1", "proprietaire_id": "PROP_A",
+         "total_produits": 900.0, "total_charges": 250.0, "resultat": 650.0, "nb_flux": 4,
+         "vision": "COMPTABLE", "commentaire": ""},
     ]
-    par_prop = [
-        {"mois": "2026-06", "proprietaire_id": "PROP_A", "total_produits": 1000.0,
-         "total_charges": 300.0, "resultat": 700.0, "nb_flux": 5, "vision": "REEL"},
-    ]
-    glob = [
-        {"vision": "REEL", "total_produits": 1000.0, "total_charges": 300.0, "resultat": 700.0,
-         "commentaire_hc": "OK"},
-        {"vision": "COMPTABLE", "total_produits": 900.0, "total_charges": 250.0, "resultat": 650.0,
-         "commentaire_hc": "OK"},
-    ]
-    _wb(res, {"PAR_MOIS_LOGEMENT": (LOG_COLS, par_logement),
-             "PAR_MOIS_PROPRIETAIRE": (PROP_COLS, par_prop), "GLOBAL": (GLOBAL_COLS, glob)})
-    monkeypatch.setattr(cfg, "MASTER_RESULTATS", res)
+    fx.seeder(tmp_db, resultats=par_logement)
     reader.vider_cache()
-    yield tmp_path
+    yield tmp_db
     reader.vider_cache()
 
 
@@ -163,12 +159,16 @@ def test_reconciliation(client, resultats_files):
     assert "NON_DISPONIBLE" in r.text   # au moins Lot9<->Lot10
 
 
-def test_reconciliation_b_reste_ok_quel_que_soit_le_mois_filtre(client, tmp_path, monkeypatch):
+def test_reconciliation_b_reste_ok_quel_que_soit_le_mois_filtre(client, tmp_db, monkeypatch):
     """Bloc 7 (recette navigateur) : détecté en réel — B compare Lot10 GLOBAL (tout le jeu de
     données) à l'Analytique. GLOBAL n'a pas de grain mensuel : filtrer par mois côté route cassait
     la comparaison (grains incompatibles) dès qu'il y avait plus d'un mois de données. B doit
-    toujours comparer GLOBAL à la somme Analytique COMPLÈTE, jamais un sous-ensemble filtré."""
-    res = tmp_path / "RES.xlsx"
+    toujours comparer GLOBAL à la somme Analytique COMPLÈTE, jamais un sous-ensemble filtré.
+
+    Deux mois semés (400 + 700) : le total GLOBAL de 1100 est désormais DÉRIVÉ de ces lignes
+    (Lot10 SQLite, 0044) — le test ne peut plus poser un total qui ignorerait le détail, ce qui est
+    précisément le piège que ce cas surveille.
+    """
     par_logement = [
         {"mois": "2026-05", "logement_id": "LOG_A1", "proprietaire_id": "PROP_A",
          "total_produits": 500.0, "total_charges": 100.0, "resultat": 400.0, "nb_flux": 2,
@@ -177,11 +177,7 @@ def test_reconciliation_b_reste_ok_quel_que_soit_le_mois_filtre(client, tmp_path
          "total_produits": 1000.0, "total_charges": 300.0, "resultat": 700.0, "nb_flux": 5,
          "vision": "REEL", "commentaire": ""},
     ]
-    glob = [{"vision": "REEL", "total_produits": 1500.0, "total_charges": 400.0,
-            "resultat": 1100.0, "commentaire_hc": "OK"}]
-    _wb(res, {"PAR_MOIS_LOGEMENT": (LOG_COLS, par_logement),
-             "PAR_MOIS_PROPRIETAIRE": (PROP_COLS, []), "GLOBAL": (GLOBAL_COLS, glob)})
-    monkeypatch.setattr(cfg, "MASTER_RESULTATS", res)
+    fx.seeder(tmp_db, resultats=par_logement)
     reader.vider_cache()
 
     r = client.get("/resultats/reconciliation?mois=2026-06")

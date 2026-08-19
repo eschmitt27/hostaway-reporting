@@ -63,6 +63,21 @@ def reservations_en_base(tmp_db):
                         payouts=[fxh.payout(l["reservation_id_hostaway"])
                                  for l in perimetre + [hors_perimetre]])
     raw_svc.cloturer(eid, statut=raw_svc.ST_SUCCES, db_path=tmp_db)
+
+    # Commissions A_CONTROLER : lues en base depuis la migration Lot10 (0044,
+    # `lot10_commissions_a_controler`) et non plus dans MASTER_CALC_Commissions. Deux causes
+    # DISTINCTES sont semées — le contrôle doit classer les exclusions, pas les empiler toutes sous
+    # une même étiquette (c'est ce que vérifie `test_32_33_34`).
+    import fixtures_lot10 as fx10
+
+    fx10.seeder(tmp_db, commissions_a_controler=[
+        {"reservation_id": "60001", "source": "vrbo", "channel_type": "VRBO",
+         "statut_calcul_payout": "A_CONTROLER", "payout_calcule": None,
+         "source_payout": "AUCUN_PAYOUT"},
+        {"reservation_id": "60002", "source": "airbnbOfficial ownerStay",
+         "channel_type": "OTA", "statut_calcul_payout": "A_CONTROLER",
+         "payout_calcule": 0.0, "source_payout": "SEJOUR_PROPRIETAIRE"},
+    ])
     return tmp_db
 
 

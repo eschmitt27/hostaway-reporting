@@ -1,13 +1,24 @@
 """Reader Propriétaires & règlements (APP-3C) — LECTURE SEULE.
 
 Lit les sorties moteur du pilotage propriétaire :
-  - MASTER_CALC_NetProprietaire.xlsx : VUE_MOIS (mois × propriétaire), REGLEMENT (mois × logement × prop)
-  - MASTER_CALC_Commissions.xlsx     : COMMISSIONS (par réservation), A_CONTROLER
-  - MASTER_CALC_Resultats.xlsx       : PAR_MOIS_PROPRIETAIRE
-  - MASTER_FACT_Proprietaires.xlsx   : FACT_FACTURE_ENTETE, DASHBOARD_FACTURATION, A_CONTROLER
+  - Lot10 (SQLite, migration 0044) : `lot10_net_vue_mois`, `lot10_net_reglement`,
+    `lot10_commissions`, `lot10_resultats` — dataset du run ACTIF (`lot10_runs.actif = 1`).
+  - MASTER_FACT_Proprietaires.xlsx : FACT_FACTURE_ENTETE, DASHBOARD_FACTURATION, A_CONTROLER
+    (Lot12, non migré — reste Excel, hors périmètre de la migration Lot10).
 
 Ne recalcule aucune commission, aucun net : ces valeurs viennent du moteur. Aucune écriture.
-N'expose jamais l'adresse du propriétaire ni de chemin absolu. openpyxl read_only=True.
+N'expose jamais l'adresse du propriétaire ni de chemin absolu.
+
+SQLITE SANS REPLI EXCEL (mission Lot10 §32)
+Les trois masters Lot10 ne sont plus lus. Une base sans run actif rend `DATASET_NON_INITIALISE` —
+un état affiché, jamais une exception, et jamais un retour silencieux sur un classeur qui daterait.
+
+PAR_MOIS_PROPRIETAIRE ET GLOBAL SONT DÉRIVÉS, PAS STOCKÉS
+Le classeur legacy portait ces deux onglets ; la migration 0044 ne stocke que le grain fin
+(`lot10_resultats`, mois × logement × propriétaire × vision). Les agrégats sont recalculés ici avec
+EXACTEMENT la règle de `lot10_calculer_resultats.write_all` (somme par mois/propriétaire/vision,
+puis total par vision) — reprise telle quelle, jamais réinventée. Stocker trois copies d'une même
+vérité, c'est se garantir qu'elles finiront par diverger.
 """
 from __future__ import annotations
 
@@ -119,6 +130,49 @@ def _src(path: Path, cle: str, libelle: str, fichier: str, sheet: str) -> Source
                                   etat=etat, nb_lignes=len(lignes), derniere_maj=maj), lignes=lignes)
 
 
+# ── Lot10 en SQLite (migration 0044) ─────────────────────────────────────────
+# Le dataset servi est celui du run ACTIF. Un run en cours ou échoué n'est jamais lu : c'est la
+# contrepartie de l'écriture atomique côté moteur — un demi-calcul n'apparaît pas comme frais.
+
+SOURCE_LOT10 = "SQLite (Lot10)"
+
+
+def _run_actif(db_path=None) -> tuple[str, str | None]:
+    """(run_id, date_calcul) du dataset Lot10 actif. ("", None) si aucun — état légitime."""
+    from app.db.connection import get_db
+
+    conn = get_db(db_path)
+    try:
+        if conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='lot10_runs'"
+                        ).fetchone() is None:
+            return "", None
+        r = conn.execute("SELECT run_id, date_calcul FROM lot10_runs WHERE actif = 1").fetchone()
+        return (r[0], r[1]) if r else ("", None)
+    finally:
+        conn.close()
+
+
+def _src_sqlite(cle: str, libelle: str, table: str, colonnes: str = "*",
+                ordre: str = "id", db_path=None) -> Source:
+    """Lecture d'une table Lot10 du run actif. Aucun repli Excel : dataset absent = état affiché."""
+    from app.db.connection import get_db
+
+    run_id, maj = _run_actif(db_path)
+    if not run_id:
+        return Source(etat=EtatSource(cle=cle, libelle=libelle, fichier=SOURCE_LOT10, onglet=table,
+                                      etat=ETAT_FICHIER_ABSENT))
+    conn = get_db(db_path)
+    try:
+        lignes = [dict(r) for r in conn.execute(
+            f"SELECT {colonnes} FROM {table} WHERE run_id = ? ORDER BY {ordre}", (run_id,))]
+    finally:
+        conn.close()
+    etat = ETAT_OK if lignes else ETAT_VIDE
+    return Source(etat=EtatSource(cle=cle, libelle=libelle, fichier=SOURCE_LOT10, onglet=table,
+                                  etat=etat, nb_lignes=len(lignes), derniere_maj=maj),
+                  lignes=lignes)
+
+
 # ── Convertisseurs ───────────────────────────────────────────────────────────
 
 def to_texte(v: Any) -> str:
@@ -146,34 +200,103 @@ def to_mois(v: Any) -> str:
 
 # ── Sources ──────────────────────────────────────────────────────────────────
 
-def net_vue_mois() -> Source:
-    return _src(cfg.MASTER_NET_PROPRIETAIRE, "net_vue_mois", "Net propriétaire (mois)", SOURCE_NET, ONGLET_VUE_MOIS)
+def net_vue_mois(db_path=None) -> Source:
+    return _src_sqlite("net_vue_mois", "Net propriétaire (mois)", "lot10_net_vue_mois",
+                       db_path=db_path)
 
 
-def net_reglement() -> Source:
-    return _src(cfg.MASTER_NET_PROPRIETAIRE, "net_reglement", "Règlements (mois × logement)", SOURCE_NET, ONGLET_REGLEMENT)
+def net_reglement(db_path=None) -> Source:
+    return _src_sqlite("net_reglement", "Règlements (mois × logement)", "lot10_net_reglement",
+                       db_path=db_path)
 
 
-def commissions() -> Source:
-    return _src(cfg.MASTER_COMMISSIONS, "commissions", "Commissions (par réservation)", SOURCE_COMMISSIONS, ONGLET_COMMISSIONS)
+def commissions(db_path=None) -> Source:
+    """COMMISSIONS — grain réservation. `guest_count` est réexposé sous le nom moteur `guestCount`
+    (la base nomme en snake_case, les consommateurs applicatifs connaissent le nom du classeur)."""
+    src = _src_sqlite("commissions", "Commissions (par réservation)", "lot10_commissions",
+                      db_path=db_path)
+    for ligne in src.lignes:
+        if "guest_count" in ligne:
+            ligne["guestCount"] = ligne["guest_count"]
+    return src
 
 
-def resultats() -> Source:
-    return _src(cfg.MASTER_RESULTATS, "resultats", "Résultats par mois/propriétaire", SOURCE_RESULTATS, ONGLET_RESULTATS)
+def resultats(db_path=None) -> Source:
+    """PAR_MOIS_PROPRIETAIRE — agrégat DÉRIVÉ de `lot10_resultats`, même règle que
+    `lot10_calculer_resultats.write_all._agg_prop` : somme par (mois, propriétaire, vision).
+
+    Le legacy n'agrège que REEL et COMPTABLE dans cet onglet — HORS_COMPTA en est absent. Cette
+    restriction est reprise telle quelle : l'ajouter changerait ce que les écrans affichent.
+    """
+    base = _src_sqlite("resultats", "Résultats par mois/propriétaire", "lot10_resultats",
+                       db_path=db_path)
+    if not base.etat.disponible:
+        return base
+    cumuls: dict[tuple, dict[str, Any]] = {}
+    for r in base.lignes:
+        vision = to_texte(r.get("vision"))
+        if vision not in ("REEL", "COMPTABLE"):
+            continue
+        cle = (to_texte(r.get("mois")), to_texte(r.get("proprietaire_id")), vision)
+        cumul = cumuls.setdefault(cle, {
+            "mois": cle[0], "proprietaire_id": cle[1], "vision": vision,
+            "total_produits": 0.0, "total_charges": 0.0, "resultat": 0.0, "nb_flux": 0.0})
+        for champ in ("total_produits", "total_charges", "resultat", "nb_flux"):
+            cumul[champ] += to_nombre(r.get(champ)) or 0.0
+    lignes = [{**v, **{c: round(v[c], 2) for c in ("total_produits", "total_charges", "resultat")}}
+              for v in cumuls.values()]
+    return Source(etat=EtatSource(cle="resultats", libelle="Résultats par mois/propriétaire",
+                                  fichier=SOURCE_LOT10, onglet="lot10_resultats (agrégé)",
+                                  etat=base.etat.etat, nb_lignes=len(lignes),
+                                  derniere_maj=base.etat.derniere_maj), lignes=lignes)
 
 
-def resultats_par_logement() -> Source:
+def resultats_par_logement(db_path=None) -> Source:
     """PAR_MOIS_LOGEMENT — mois × logement × vision (REEL/COMPTABLE/HORS_COMPTA empilées),
     déjà calculé par Lot10 (`build_resultats`). Jamais recalculé ici."""
-    return _src(cfg.MASTER_RESULTATS, "resultats_logement", "Résultats par mois/logement/vision",
-               SOURCE_RESULTATS, ONGLET_RESULTATS_LOGEMENT)
+    return _src_sqlite("resultats_logement", "Résultats par mois/logement/vision",
+                       "lot10_resultats", db_path=db_path)
 
 
-def resultats_global() -> Source:
-    """GLOBAL — un total par vision (REEL/COMPTABLE/HORS_COMPTA), avec la vérification de
-    cohérence REEL=COMPTABLE+HC déjà faite par Lot10 (`commentaire_hc`)."""
-    return _src(cfg.MASTER_RESULTATS, "resultats_global", "Résultats globaux par vision",
-               SOURCE_RESULTATS, ONGLET_RESULTATS_GLOBAL)
+def resultats_global(db_path=None) -> Source:
+    """GLOBAL — un total par vision, dérivé de `lot10_resultats` comme le fait `write_all`.
+
+    `commentaire_hc` reprend la formulation et le seuil du moteur (identité REEL=COMPTABLE+HC
+    vérifiée à 1,00 € près, D035) : c'est le même contrôle, au même endroit du calcul, pas un
+    second verdict inventé par l'application.
+    """
+    base = _src_sqlite("resultats_global", "Résultats globaux par vision", "lot10_resultats",
+                       db_path=db_path)
+    if not base.etat.disponible:
+        return base
+    par_vision: dict[str, dict[str, float]] = {}
+    for r in base.lignes:
+        v = to_texte(r.get("vision"))
+        cumul = par_vision.setdefault(v, {"total_produits": 0.0, "total_charges": 0.0,
+                                          "resultat": 0.0})
+        for champ in cumul:
+            cumul[champ] += to_nombre(r.get(champ)) or 0.0
+
+    def _tot(vision: str, champ: str) -> float:
+        return round(par_vision.get(vision, {}).get(champ, 0.0), 2)
+
+    reel, compt, hc = _tot("REEL", "resultat"), _tot("COMPTABLE", "resultat"), _tot("HORS_COMPTA", "resultat")
+    ecart = abs(reel - (compt + hc))
+    commentaires = {
+        "REEL": (f"REEL=COMPTABLE+HC verifie (ecart={ecart:.2f} EUR)" if ecart <= 1.00
+                 else f"!! RUPTURE REEL != COMPTABLE+HC (ecart={ecart:.2f} EUR)"),
+        "COMPTABLE": "Vision comptable (IC)",
+        "HORS_COMPTA": ("Aucun flux HC" if hc == 0.0 and _tot("HORS_COMPTA", "total_produits") == 0.0
+                        and _tot("HORS_COMPTA", "total_charges") == 0.0 else "Flux HC presents"),
+    }
+    lignes = [{"vision": v, "total_produits": _tot(v, "total_produits"),
+               "total_charges": _tot(v, "total_charges"), "resultat": _tot(v, "resultat"),
+               "commentaire_hc": commentaires.get(v, "")}
+              for v in ("REEL", "COMPTABLE", "HORS_COMPTA") if v in par_vision]
+    return Source(etat=EtatSource(cle="resultats_global", libelle="Résultats globaux par vision",
+                                  fichier=SOURCE_LOT10, onglet="lot10_resultats (agrégé)",
+                                  etat=base.etat.etat, nb_lignes=len(lignes),
+                                  derniere_maj=base.etat.derniere_maj), lignes=lignes)
 
 
 def factures_entetes() -> Source:

@@ -21,8 +21,10 @@ from unittest.mock import patch
 import pytest
 
 import app.config as cfg
+import fixtures_lot10 as fx
 from app.db.connection import apply_migrations
 from app.readers import proprietaires_reader as reader
+from app.readers import proprietaires_reglements_reader as _reglements_reader
 from app.services import proprietaires_service as svc
 from app.services import ref_setup_import_service as imp
 from app.config import REF_SETUP, MASTER_NET_PROPRIETAIRE, MASTER_FACT_PROPRIETAIRES
@@ -54,7 +56,14 @@ def referentiel_importe(tmp_db, monkeypatch):
     apply_migrations(db)
     resultat = imp.importer(db_path=db)
     assert resultat.get("ok"), resultat
-    return db
+    # Lot10 est SQLite (0044) : les chiffres réels attendus par ces tests (PROP_0001, 2025-07…)
+    # viennent désormais des tables `lot10_*`. Reprise du VRAI classeur en lecture seule — outil de
+    # test, jamais un chemin runtime : l'application ne lit plus ce fichier.
+    if fx.reprendre_master_reel(db, cfg.MASTER_NET_PROPRIETAIRE) is None:
+        pytest.skip("MASTER_CALC_NetProprietaire.xlsx absent de cet environnement")
+    _reglements_reader.vider_cache()
+    yield db
+    _reglements_reader.vider_cache()
 
 
 # ---------------------------------------------------------------------------

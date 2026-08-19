@@ -116,8 +116,23 @@ def reservations_index() -> dict[str, dict[str, Any]]:
 
 
 def commissions_a_controler() -> list[dict[str, Any]]:
-    """Réservations A_CONTROLER exclues du calcul de commission (une ligne = une réservation)."""
-    return _lire(cfg.MASTER_COMMISSIONS, "A_CONTROLER")
+    """Réservations A_CONTROLER exclues du calcul de commission (une ligne = une réservation).
+
+    SQLite (`lot10_commissions_a_controler`, migration 0044), dataset du run Lot10 actif — plus de
+    lecture de `MASTER_CALC_Commissions.xlsx`. `listing_map_id`/`row_hash` sont réexposés sous les
+    noms du classeur (`listingMapId`/`ROW_HASH`) : la base nomme en snake_case, les consommateurs
+    connaissent le vocabulaire moteur.
+    """
+    from app.readers import proprietaires_reglements_reader as _lot10
+
+    lignes = _lot10._src_sqlite("commissions_a_controler", "Commissions à contrôler",
+                                "lot10_commissions_a_controler").lignes
+    for ligne in lignes:
+        if "listing_map_id" in ligne:
+            ligne["listingMapId"] = ligne["listing_map_id"]
+        if "row_hash" in ligne:
+            ligne["ROW_HASH"] = ligne["row_hash"]
+    return lignes
 
 
 def ecarts_menages(code: str) -> list[dict[str, Any]]:

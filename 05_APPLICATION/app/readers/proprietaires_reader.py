@@ -16,12 +16,11 @@ Règles :
   celle du référentiel. La frontière est volontairement visible dans ce module.
 """
 from typing import Any
-from app.config import MASTER_NET_PROPRIETAIRE, MASTER_FACT_PROPRIETAIRES
+from app.config import MASTER_FACT_PROPRIETAIRES
+from app.readers import proprietaires_reglements_reader as _reglements
 from app.readers.excel_reader import read_sheet
 from app.services import referentiel_service as referentiel
 
-SHEET_REGLEMENT = "REGLEMENT"
-SHEET_VUE_MOIS = "VUE_MOIS"
 SHEET_ENTETE = "FACT_FACTURE_ENTETE"
 SHEET_LIGNES = "FACT_FACTURE_LIGNES"
 
@@ -29,7 +28,7 @@ SHEET_LIGNES = "FACT_FACTURE_LIGNES"
 # « REF_Setup.xlsm introuvable » à un utilisateur qui n'a simplement pas encore
 # importé son paramétrage.
 SOURCE_REF = "Référentiel SQLite (ref_proprietaires)"
-SOURCE_CALC = "MASTER_CALC_NetProprietaire.xlsx"
+SOURCE_CALC = "SQLite (Lot10)"
 SOURCE_FACT = "MASTER_FACT_Proprietaires.xlsx"
 
 
@@ -39,7 +38,8 @@ def ref_available() -> bool:
 
 
 def calc_available() -> bool:
-    return MASTER_NET_PROPRIETAIRE.exists()
+    """Le dataset Lot10 est-il exploitable ? (run actif en base, pas « fichier présent »)"""
+    return _reglements.net_reglement().etat.disponible
 
 
 def fact_available() -> bool:
@@ -74,14 +74,14 @@ def find_proprietaire(prop_id: str) -> dict[str, Any] | None:
 
 
 def read_reglement() -> list[dict[str, Any]]:
-    """Toutes les lignes REGLEMENT (propriétaire×logement×mois)."""
-    rows = read_sheet(MASTER_NET_PROPRIETAIRE, SHEET_REGLEMENT, max_rows=None)
+    """Toutes les lignes REGLEMENT (propriétaire×logement×mois), depuis `lot10_net_reglement`."""
+    rows = _reglements.net_reglement().lignes
     return [r for r in rows if _is_real_row(r, "proprietaire_id")]
 
 
 def read_vue_mois() -> list[dict[str, Any]]:
-    """Agrégation par propriétaire×mois depuis VUE_MOIS."""
-    rows = read_sheet(MASTER_NET_PROPRIETAIRE, SHEET_VUE_MOIS, max_rows=None)
+    """Agrégation par propriétaire×mois, depuis `lot10_net_vue_mois`."""
+    rows = _reglements.net_vue_mois().lignes
     return [r for r in rows if _is_real_row(r, "proprietaire_id")]
 
 

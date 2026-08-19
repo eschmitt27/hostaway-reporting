@@ -5,6 +5,7 @@ import openpyxl
 import pytest
 
 import app.config as cfg
+import fixtures_lot10 as fx
 from app.db.connection import apply_migrations, get_db
 from app.readers import proprietaires_reglements_reader as reader
 from app.services import comptabilite_analytique_service as ana
@@ -30,7 +31,13 @@ GLOBAL_COLS = ["vision", "total_produits", "total_charges", "resultat", "comment
 
 @pytest.fixture
 def resultats_files(tmp_path, monkeypatch):
-    res = tmp_path / "RES.xlsx"
+    """Lot10 est SQLite (migration 0044) : seul le GRAIN FIN (`lot10_resultats`) est semé.
+
+    PAR_MOIS_PROPRIETAIRE et GLOBAL ne sont plus des sources distinctes — le reader les dérive de
+    ce grain avec la règle du moteur. Les totaux attendus (REEL 1100, COMPTABLE 650, HORS_COMPTA
+    450, donc identité REEL = COMPTABLE + HC vérifiée à 0,00 €) découlent des lignes semées : ils
+    ne peuvent plus contredire le détail, contrairement à trois onglets posés côte à côte.
+    """
     par_logement = [
         {"mois": "2026-06", "logement_id": "LOG_A1", "proprietaire_id": "PROP_A",
          "total_produits": 1000.0, "total_charges": 300.0, "resultat": 700.0, "nb_flux": 5,
@@ -41,25 +48,17 @@ def resultats_files(tmp_path, monkeypatch):
         {"mois": "2026-06", "logement_id": "LOG_B1", "proprietaire_id": "PROP_B",
          "total_produits": 500.0, "total_charges": 100.0, "resultat": 400.0, "nb_flux": 3,
          "vision": "REEL", "commentaire": ""},
+        # HORS_COMPTA : nécessaire pour que le total dérivé (450) existe et que l'identité
+        # REEL = COMPTABLE + HC tombe à 0,00 €. L'ancien onglet GLOBAL l'affirmait sans qu'aucune
+        # ligne de détail ne le porte.
+        {"mois": "2026-06", "logement_id": "LOG_B1", "proprietaire_id": "PROP_B",
+         "total_produits": 600.0, "total_charges": 150.0, "resultat": 450.0, "nb_flux": 2,
+         "vision": "HORS_COMPTA", "commentaire": ""},
     ]
-    par_prop = [
-        {"mois": "2026-06", "proprietaire_id": "PROP_A", "total_produits": 1000.0,
-         "total_charges": 300.0, "resultat": 700.0, "nb_flux": 5, "vision": "REEL"},
-        {"mois": "2026-06", "proprietaire_id": "PROP_B", "total_produits": 500.0,
-         "total_charges": 100.0, "resultat": 400.0, "nb_flux": 3, "vision": "REEL"},
-    ]
-    glob = [
-        {"vision": "REEL", "total_produits": 1500.0, "total_charges": 400.0, "resultat": 1100.0,
-         "commentaire_hc": "REEL=COMPTABLE+HC verifie (ecart=0.00 EUR)"},
-        {"vision": "COMPTABLE", "total_produits": 900.0, "total_charges": 250.0, "resultat": 650.0,
-         "commentaire_hc": "Vision comptable (IC)"},
-        {"vision": "HORS_COMPTA", "total_produits": 600.0, "total_charges": 150.0, "resultat": 450.0,
-         "commentaire_hc": "Flux HC presents"},
-    ]
-    _wb(res, {"PAR_MOIS_LOGEMENT": (LOG_COLS, par_logement),
-             "PAR_MOIS_PROPRIETAIRE": (PROP_COLS, par_prop),
-             "GLOBAL": (GLOBAL_COLS, glob)})
-    monkeypatch.setattr(cfg, "MASTER_RESULTATS", res)
+    db = tmp_path / "app.db"
+    apply_migrations(db)
+    fx.seeder(db, resultats=par_logement)
+    monkeypatch.setattr(cfg, "DB_PATH", db)
     reader.vider_cache()
     yield tmp_path
     reader.vider_cache()

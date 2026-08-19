@@ -9,6 +9,8 @@ import openpyxl
 import pytest
 
 import app.config as cfg
+import fixtures_lot10 as fx
+from app.db.connection import apply_migrations
 from app.readers import proprietaires_reglements_reader as reader
 from app.services import proprietaires_reglements_service as svc
 
@@ -96,15 +98,20 @@ def owners_files(tmp_path, monkeypatch):
         {"mois": "2026-02", "proprietaire_id": "PROP_B", "code_controle": "FACTURE_ABSENTE",
          "severite": "A_CONTROLER", "description": "Net calcule sans facture generee"},
     ]
-    _wb(net, {"VUE_MOIS": (VUE_COLS, vue), "REGLEMENT": (REG_COLS, reg)})
-    _wb(comm, {"COMMISSIONS": (COMM_COLS, comm_rows), "A_CONTROLER": (["x"], [])})
+    # Lot10 est SQLite (migration 0044) : VUE_MOIS/REGLEMENT/COMMISSIONS alimentent les tables
+    # `lot10_*` du run actif, plus des classeurs. Seul MASTER_FACT_Proprietaires (Lot12, non migré)
+    # reste Excel. `PAR_MOIS_PROPRIETAIRE` n'est plus une source distincte : le reader le dérive du
+    # grain fin `lot10_resultats` — ici vide, comme l'onglet legacy l'était.
+    db = tmp_path / "app.db"
+    apply_migrations(db)
+    fx.seeder(db, net_vue_mois=vue, net_reglement=reg,
+              commissions=[dict(r, reservation_calc_id=f"RES-FIXTURE-{i:03d}")
+                           for i, r in enumerate(comm_rows, start=1)])
+
     _wb(fact, {"FACT_FACTURE_ENTETE": (FACT_COLS, fact_rows), "DASHBOARD_FACTURATION": (DASH_COLS, dash_rows),
                "A_CONTROLER": (CTRL_COLS, ctrl_rows)})
-    _wb(res, {"PAR_MOIS_PROPRIETAIRE": (["mois", "proprietaire_id", "resultat"], [])})
-    monkeypatch.setattr(cfg, "MASTER_NET_PROPRIETAIRE", net)
-    monkeypatch.setattr(cfg, "MASTER_COMMISSIONS", comm)
+    monkeypatch.setattr(cfg, "DB_PATH", db)
     monkeypatch.setattr(cfg, "MASTER_FACT_PROPRIETAIRES", fact)
-    monkeypatch.setattr(cfg, "MASTER_RESULTATS", res)
     reader.vider_cache()
     yield tmp_path
     reader.vider_cache()
@@ -165,21 +172,35 @@ def test_reglement_complet_vs_partiel(owners_files):
 
 
 def test_source_absente(monkeypatch, tmp_path):
-    monkeypatch.setattr(cfg, "MASTER_NET_PROPRIETAIRE", tmp_path / "absent.xlsx")
+    """Aucun run Lot10 actif : source indisponible, jamais une exception."""
+    db = tmp_path / "app.db"
+    apply_migrations(db)
+    monkeypatch.setattr(cfg, "DB_PATH", db)
     reader.vider_cache()
     assert reader.net_vue_mois().etat.etat == reader.ETAT_FICHIER_ABSENT
     assert svc.load_owners()["status"] == "SOURCE_INDISPONIBLE"
 
 
-def test_onglet_absent(monkeypatch, tmp_path):
-    p = tmp_path / "n.xlsx"; _wb(p, {"AUTRE": (["x"], [{"x": 1}])})
-    monkeypatch.setattr(cfg, "MASTER_NET_PROPRIETAIRE", p); reader.vider_cache()
-    assert reader.net_vue_mois().etat.etat == reader.ETAT_ONGLET_ABSENT
+def test_run_non_actif_jamais_servi(monkeypatch, tmp_path):
+    """Un run existant mais NON actif n'est pas lu — contrepartie de l'écriture atomique du moteur :
+    un calcul en cours ou échoué ne doit jamais apparaître comme le dataset courant. Remplace
+    l'ancien `test_onglet_absent` (notion d'onglet disparue avec le classeur)."""
+    db = tmp_path / "app.db"
+    apply_migrations(db)
+    fx.seeder(db, net_vue_mois=[{"mois": "2026-01", "proprietaire_id": "PROP_A"}],
+              statut="EN_COURS", actif=False)
+    monkeypatch.setattr(cfg, "DB_PATH", db)
+    reader.vider_cache()
+    assert reader.net_vue_mois().etat.etat == reader.ETAT_FICHIER_ABSENT
 
 
 def test_source_vide(monkeypatch, tmp_path):
-    p = tmp_path / "n.xlsx"; _wb(p, {"VUE_MOIS": (VUE_COLS, [])})
-    monkeypatch.setattr(cfg, "MASTER_NET_PROPRIETAIRE", p); reader.vider_cache()
+    """Run actif mais table sans ligne : VIDE — distinct de « pas de dataset »."""
+    db = tmp_path / "app.db"
+    apply_migrations(db)
+    fx.seeder(db, net_vue_mois=[])
+    monkeypatch.setattr(cfg, "DB_PATH", db)
+    reader.vider_cache()
     assert reader.net_vue_mois().etat.etat == reader.ETAT_VIDE
 
 

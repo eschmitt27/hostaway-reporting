@@ -55,6 +55,11 @@ def sources(tmp_path, monkeypatch):
     res = tmp_path / "RES.xlsx"
 
     def build(flux_rows, res_log_rows, res_global_rows=None):
+        # Lot9 ET Lot10 sont désormais SQLite : `res_log_rows` alimente `lot10_resultats` (grain
+        # mois × logement × propriétaire × vision) sous un run ACTIF, plus l'onglet
+        # PAR_MOIS_LOGEMENT d'un classeur. `res_global_rows` n'a plus de table : GLOBAL est dérivé
+        # du grain fin par le reader, avec la règle du moteur — le paramètre reste accepté pour ne
+        # pas réécrire les appels, mais n'est plus une source distincte qui pourrait diverger.
         conn = _get_db(db)
         try:
             conn.execute("DELETE FROM flux_unifies")
@@ -62,14 +67,22 @@ def sources(tmp_path, monkeypatch):
                 f"INSERT INTO flux_unifies ({', '.join(_FLUX_DB_COLS)}) "
                 f"VALUES ({', '.join(['?'] * len(_FLUX_DB_COLS))})",
                 [tuple(r.get(c) for c in FLUX_COLS) for r in flux_rows])
+            conn.execute("DELETE FROM lot10_resultats")
+            conn.execute("DELETE FROM lot10_runs")
+            conn.execute("INSERT INTO lot10_runs (run_id, statut, actif) VALUES (?,?,1)",
+                         ("L10-TEST", "SUCCES"))
+            conn.executemany(
+                "INSERT INTO lot10_resultats (run_id, mois, logement_id, proprietaire_id, vision, "
+                "total_produits, total_charges, resultat, nb_flux, commentaire) "
+                "VALUES ('L10-TEST',?,?,?,?,?,?,?,?,?)",
+                [(r.get("mois"), r.get("logement_id"), r.get("proprietaire_id"),
+                  r.get("vision"), r.get("total_produits"), r.get("total_charges"),
+                  r.get("resultat"), r.get("nb_flux"), r.get("commentaire"))
+                 for r in res_log_rows])
             conn.commit()
         finally:
             conn.close()
-        _wb(res, {"PAR_MOIS_LOGEMENT": (RES_LOG_COLS, res_log_rows),
-                 "PAR_MOIS_PROPRIETAIRE": (RES_PROP_COLS, []),
-                 "GLOBAL": (RES_GLOBAL_COLS, res_global_rows or [])})
         monkeypatch.setattr(cfg, "DB_PATH", db)
-        monkeypatch.setattr(cfg, "MASTER_RESULTATS", res)
         reader.vider_cache()
 
     yield build

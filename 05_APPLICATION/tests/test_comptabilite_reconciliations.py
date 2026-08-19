@@ -54,28 +54,33 @@ def _wb(path, sheets):
 
 @pytest.fixture
 def resultats_files(tmp_path, monkeypatch):
-    res = tmp_path / "RES.xlsx"
-    log_cols = ["mois", "logement_id", "proprietaire_id", "total_produits", "total_charges",
-               "resultat", "nb_flux", "vision", "commentaire"]
-    global_cols = ["vision", "total_produits", "total_charges", "resultat", "commentaire_hc"]
-    par_logement = [
-        {"mois": "2026-06", "logement_id": "LOG_A1", "proprietaire_id": "PROP_A",
-         "total_produits": 1000.0, "total_charges": 300.0, "resultat": 700.0, "nb_flux": 5,
-         "vision": "REEL", "commentaire": ""},
-        {"mois": "2026-06", "logement_id": "LOG_B1", "proprietaire_id": "PROP_B",
-         "total_produits": 500.0, "total_charges": 100.0, "resultat": 400.0, "nb_flux": 3,
-         "vision": "REEL", "commentaire": ""},
+    """Lot10 est SQLite (migration 0044) : seul le GRAIN FIN est semé (`lot10_resultats`).
+
+    PAR_MOIS_PROPRIETAIRE et GLOBAL ne sont plus des sources distinctes — le reader les dérive de
+    ce grain avec la règle du moteur. Le total COMPTABLE (650) découle donc des lignes semées, il
+    n'est plus posé à la main à côté d'un détail qui pourrait le contredire.
+    """
+    db = tmp_path / "app.db"
+    apply_migrations(db)
+    lignes = [
+        # REEL : 700 + 400 = 1100
+        ("2026-06", "LOG_A1", "PROP_A", "REEL", 1000.0, 300.0, 700.0, 5),
+        ("2026-06", "LOG_B1", "PROP_B", "REEL", 500.0, 100.0, 400.0, 3),
+        # COMPTABLE : 400 + 250 = 650
+        ("2026-06", "LOG_A1", "PROP_A", "COMPTABLE", 600.0, 200.0, 400.0, 4),
+        ("2026-06", "LOG_B1", "PROP_B", "COMPTABLE", 300.0, 50.0, 250.0, 2),
     ]
-    glob = [
-        {"vision": "REEL", "total_produits": 1500.0, "total_charges": 400.0, "resultat": 1100.0,
-         "commentaire_hc": "OK"},
-        {"vision": "COMPTABLE", "total_produits": 900.0, "total_charges": 250.0, "resultat": 650.0,
-         "commentaire_hc": "OK"},
-    ]
-    _wb(res, {"PAR_MOIS_LOGEMENT": (log_cols, par_logement),
-             "PAR_MOIS_PROPRIETAIRE": (log_cols[:2] + log_cols[3:], []),
-             "GLOBAL": (global_cols, glob)})
-    monkeypatch.setattr(cfg, "MASTER_RESULTATS", res)
+    conn = get_db(db)
+    try:
+        conn.execute("INSERT INTO lot10_runs (run_id, statut, actif) VALUES ('L10-TEST','SUCCES',1)")
+        conn.executemany(
+            "INSERT INTO lot10_resultats (run_id, mois, logement_id, proprietaire_id, vision, "
+            "total_produits, total_charges, resultat, nb_flux) VALUES ('L10-TEST',?,?,?,?,?,?,?,?)",
+            lignes)
+        conn.commit()
+    finally:
+        conn.close()
+    monkeypatch.setattr(cfg, "DB_PATH", db)
     reader.vider_cache()
     yield tmp_path
     reader.vider_cache()
@@ -92,8 +97,8 @@ def test_total_analytique_vs_resultat_global_alias(resultats_files):
     assert res["statut"] == recon.ST_OK
 
 
-def test_lot10_vs_analytique_non_disponible_si_source_absente(tmp_path, monkeypatch):
-    monkeypatch.setattr(cfg, "MASTER_RESULTATS", tmp_path / "absent.xlsx")
+def test_lot10_vs_analytique_non_disponible_si_source_absente(tmp_db):
+    # Base migrée mais aucun run Lot10 actif : NON_DISPONIBLE, jamais une exception.
     reader.vider_cache()
     res = recon.lot10_vs_analytique()
     assert res["statut"] == recon.ST_NON_DISPONIBLE
@@ -110,8 +115,9 @@ def test_analytique_vs_comptabilite_ecart_attendu_a_controler(resultats_files, d
     assert res["montant_droit"] == 0.0
 
 
-def test_analytique_vs_comptabilite_non_disponible_si_source_absente(tmp_path, monkeypatch, db):
-    monkeypatch.setattr(cfg, "MASTER_RESULTATS", tmp_path / "absent.xlsx")
+def test_analytique_vs_comptabilite_non_disponible_si_source_absente(db, monkeypatch):
+    # `db` est migrée mais sans run Lot10 actif : la source analytique est indisponible.
+    monkeypatch.setattr(cfg, "DB_PATH", db)
     reader.vider_cache()
     res = recon.analytique_vs_comptabilite(db_path=db)
     assert res["statut"] == recon.ST_NON_DISPONIBLE
