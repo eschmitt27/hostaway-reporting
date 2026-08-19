@@ -281,6 +281,9 @@ def cout_complet() -> SourceMenages:
     return _lire_sqlite("coutcomplet", "Coût complet (Lot6f)", "menages_cout_complet")
 
 
+# LEGACY_DEAD_CODE : aucun appelant (vérifié par grep, mission Ménages §2). Non migré vers SQLite
+# volontairement — construire une persistance sans consommateur n'a pas de sens. À supprimer avec
+# la prochaine passe de nettoyage du reader.
 def pools_charges() -> SourceMenages:
     return _lire("pools", "Pools de charges ménage (Lot6f)",
                  cfg.MASTER_COUTCOMPLET_MENAGES, SOURCE_COUTCOMPLET, SHEET_POOLS)
@@ -489,11 +492,13 @@ def read_controles() -> list[dict[str, Any]]:
     return controles_rapprochement().lignes
 
 
+# LEGACY_DEAD_CODE : aucun appelant (vérifié par grep, mission Ménages §2). Idem `pools_charges`.
 def read_resume_appartement() -> list[dict[str, Any]]:
     return _lire("resume_apt", "Résumé par appartement (Lot6d)",
                  cfg.MASTER_RAPPROCHEMENT_MENAGES, SOURCE_RAPPROCHEMENT, SHEET_RESUME_APT).lignes
 
 
+# LEGACY_DEAD_CODE : aucun appelant (vérifié par grep, mission Ménages §2). Idem `pools_charges`.
 def read_resume_intervenant() -> list[dict[str, Any]]:
     return _lire("resume_int", "Résumé par intervenant (Lot6d)",
                  cfg.MASTER_RAPPROCHEMENT_MENAGES, SOURCE_RAPPROCHEMENT, SHEET_RESUME_INT).lignes

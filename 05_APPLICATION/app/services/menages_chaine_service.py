@@ -41,8 +41,46 @@ from app.services import saisie_charges_lock_service as verrou_lib
 from app.services.audit_service import log_event
 from app.services.menages_recalcul_service import (
     STATUT_BLOQUE, STATUT_ECHEC, STATUT_PARTIEL, STATUT_SUCCES, STATUT_VERROUILLE,
-    _enregistrer_run, _git_head, _lire_comparaison, _sha256, detecter_excel_ouvert,
+    _enregistrer_run, _git_head, _sha256, detecter_excel_ouvert,
 )
+
+
+def _lire_comparaison(path: Path) -> dict[str, Any] | None:
+    """Compte lignes/statuts/écarts d'un classeur TABLEAU_COMPARAISON — propre à cette recette.
+
+    `menages_recalcul_service._lire_comparaison` lit désormais SQLite (le recalcul isolé y est
+    passé, cf. mission Ménages) ; cette chaîne, elle, exécute lot6d en mode Excel par défaut (aucune
+    base n'est désignée dans son workspace — `lib_db_moteur.chemin_db()` y résout `None`, lot6d saute
+    alors l'écriture SQLite) : sa comparaison reste donc sur le classeur produit, pas sur une table.
+    """
+    if not Path(path).exists():
+        return None
+    import openpyxl
+    try:
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        if "TABLEAU_COMPARAISON" not in wb.sheetnames:
+            wb.close()
+            return None
+        ws = wb["TABLEAU_COMPARAISON"]
+        rows = [r for r in ws.iter_rows(values_only=True) if any(c is not None for c in r)]
+        wb.close()
+    except Exception:
+        return None
+    if not rows:
+        return {"nb_lignes": 0, "statuts": {}, "nb_ecarts": 0}
+    hdr = [str(c) for c in rows[0]]
+    data = [dict(zip(hdr, r)) for r in rows[1:]]
+    statuts: dict[str, int] = {}
+    nb_ecarts = 0
+    for d in data:
+        st = str(d.get("statut_controle") or "")
+        statuts[st] = statuts.get(st, 0) + 1
+        try:
+            if int(d.get("ecart") or 0) != 0:
+                nb_ecarts += 1
+        except (TypeError, ValueError):
+            pass
+    return {"nb_lignes": len(data), "statuts": statuts, "nb_ecarts": nb_ecarts}
 
 MODE_COPIES = "COPIES"
 MODE_REEL = "REEL"
