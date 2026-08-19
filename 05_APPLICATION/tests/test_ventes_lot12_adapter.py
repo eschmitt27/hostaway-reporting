@@ -6,6 +6,7 @@ import openpyxl
 import pytest
 
 import app.config as cfg
+import fixtures_lot10 as fx
 from app.db.connection import apply_migrations
 from app.readers import proprietaires_reglements_reader as reader
 from app.services import comptabilite_ecritures_service as compta
@@ -56,20 +57,19 @@ def lot12_files(tmp_path, monkeypatch):
          "nb_a_controler_mois": 0, "facturation_lot12_ok": "OUI", "mode_facturation": "MENSUEL",
          "statut_facture": "EMISE", "balises_non_resolues": ""},
     ]
-    _wb(net, {"VUE_MOIS": (VUE_COLS, vue), "REGLEMENT": (VUE_COLS, [])})
-    _wb(comm, {"COMMISSIONS": (["proprietaire_id", "logement_id", "mois", "assiette_commission",
-                                "taux_commission", "commission_conciergerie", "net_proprietaire"], []),
-              "A_CONTROLER": (["x"], [])})
+    # VUE_MOIS vient de Lot10 SQLite (migration 0044). Seul MASTER_FACT_Proprietaires (Lot12, non
+    # migré — c'est précisément ce que cet adaptateur alimente) reste un classeur.
+    db = tmp_path / "app.db"
+    apply_migrations(db)
+    fx.seeder(db, net_vue_mois=vue)
+
     _wb(fact, {"FACT_FACTURE_ENTETE": (["facture_id", "mois", "proprietaire_id", "nom_proprietaire",
                                        "adresse_proprietaire", "logement_id", "statut_facture",
                                        "statut_generation", "total_exploitation_net",
                                        "total_reglement_du", "reste_a_payer", "mode_facturation"], []),
               "DASHBOARD_FACTURATION": (DASH_COLS, dash), "A_CONTROLER": (["mois"], [])})
-    _wb(res, {"PAR_MOIS_PROPRIETAIRE": (["mois", "proprietaire_id", "resultat"], [])})
-    monkeypatch.setattr(cfg, "MASTER_NET_PROPRIETAIRE", net)
-    monkeypatch.setattr(cfg, "MASTER_COMMISSIONS", comm)
+    monkeypatch.setattr(cfg, "DB_PATH", db)
     monkeypatch.setattr(cfg, "MASTER_FACT_PROPRIETAIRES", fact)
-    monkeypatch.setattr(cfg, "MASTER_RESULTATS", res)
     reader.vider_cache()
     yield tmp_path
     reader.vider_cache()
@@ -93,7 +93,10 @@ def test_lignes_du_mois_lit_lot12(lot12_files):
 
 
 def test_source_indisponible_retourne_liste_vide(tmp_path, monkeypatch):
-    monkeypatch.setattr(cfg, "MASTER_NET_PROPRIETAIRE", tmp_path / "absent.xlsx")
+    """Aucun run Lot10 actif : liste vide, jamais une exception."""
+    db = tmp_path / "app.db"
+    apply_migrations(db)
+    monkeypatch.setattr(cfg, "DB_PATH", db)
     reader.vider_cache()
     assert adapter.lignes_du_mois("2026-06") == []
     reader.vider_cache()

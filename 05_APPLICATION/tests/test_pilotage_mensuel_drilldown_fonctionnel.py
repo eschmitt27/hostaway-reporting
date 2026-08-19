@@ -19,10 +19,17 @@ def test_drilldown_nb_exceptions_contenu_reellement_filtre(client, tmp_db):
     # La Banque vient de la base : sans mouvement non classé, elle n'ouvre aucun élément, et le test
     # ne trouverait plus de second module à comparer sur le même mois.
     import fixtures_banque as fx
+    import fixtures_lot10 as fx10
     from app.readers import banques_reader as bq_reader
     from app.readers import controles_detail_reader as detail
 
     fx.peupler_non_classes(tmp_db, fx.mois_des_agregats_banque())
+    # Commissions A_CONTROLER : lues en base depuis la migration Lot10 (0044). Sans elles, le
+    # module COMMISSIONS n'ouvre aucun élément et ce test perd le second module qu'il compare.
+    fx10.seeder(tmp_db, commissions_a_controler=[
+        {"reservation_id": "60001", "source": "vrbo", "channel_type": "VRBO",
+         "statut_calcul_payout": "A_CONTROLER", "source_payout": "AUCUN_PAYOUT"},
+    ])
     bq_reader.vider_cache()
     detail.vider_cache()
 

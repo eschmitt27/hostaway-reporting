@@ -59,11 +59,22 @@ def test_no_arithmetic_on_metier_fields():
 
 
 def test_no_import_of_travail_modules():
-    """L'app n'importe jamais directement les modules 02_TRAVAIL/."""
+    """L'app n'importe jamais directement les modules 02_TRAVAIL/.
+
+    La détection porte sur de VRAIES instructions d'import en début de ligne, pas sur une
+    sous-chaîne : depuis la migration Lot10 (0044), les tables s'appellent `lot10_*` et un
+    `SELECT ... FROM lot10_runs` contient littéralement « from lot » sans rien importer. Un test
+    qui interdit un mot dans du SQL n'interdit plus un import — il signale du bruit.
+    """
+    import re
+
+    _IMPORT_LOT = re.compile(r"^[ \t]*(?:import[ \t]+lot|from[ \t]+lot\w*[ \t]+import)",
+                             re.MULTILINE)
+
     violations = []
     for f in get_python_files():
         src = f.read_text(encoding="utf-8")
-        if "import lot" in src.lower() or "from lot" in src.lower():
+        if _IMPORT_LOT.search(src):
             violations.append(str(f))
         if "02_TRAVAIL" in src and "import" in src:
             # Toléré si c'est juste une référence de chemin (config)
