@@ -132,7 +132,15 @@ def _module_res(seen, doublons, db_path) -> list[dict[str, Any]]:
 
 def _module_men(seen, doublons, db_path) -> list[dict[str, Any]]:
     lignes = facture_lignes_menage_service.lignes_externes_pour_reader(db_path=db_path)
-    valides = [r for r in lignes if r.get("statut_controle") in _STATUTS_FACTURE_VALIDES]
+    # `montant_ligne_ttc` en (None, 0) : ligne sans donnée exploitable (ex. anomalie d'extraction
+    # PDF). Le legacy (`lot6c_menages_externes.py`) exclut ces lignes du flux (statut_controle
+    # per-ligne A_CONTROLER, jamais VALIDE) ; `facture_lignes_menage` n'a pas cette notion par ligne
+    # (seul le statut de la FACTURE existe), d'où l'exclusion explicite ici plutôt qu'un flux à 0€
+    # qui gonflerait le COUNT sans le SUM — bug de port trouvé lors de la parité Lot9 (mission
+    # Ménages/Lot9, baseline MEN 12 lignes/2 381,00€ : 13 lignes réelles, 1 à 0€ exclue en legacy).
+    valides = [r for r in lignes
+              if r.get("statut_controle") in _STATUTS_FACTURE_VALIDES
+              and r.get("montant_ligne_ttc") not in (None, 0)]
     out = []
     for r in sorted(valides, key=lambda r: r.get("menage_externe_id") or ""):
         date_flux = r.get("date_facture") or r.get("date_menage") or _mois_premier_jour(r.get("mois"))
