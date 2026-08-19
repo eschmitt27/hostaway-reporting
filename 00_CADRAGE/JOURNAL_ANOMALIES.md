@@ -1362,3 +1362,20 @@ et à un corpus de tests existant (~1125 lignes rien que pour `menages_reader`) 
 testée, puis **délibérément annulée** (`git checkout` du fichier, aucun commit) après avoir constaté
 qu'elle cassait 34 tests existants sans qu'il reste de budget pour les réécrire correctement — mieux
 vaut un lecteur Excel qui fonctionne qu'un lecteur SQLite qui casse la suite de tests en place.
+
+## Lot9/Lot10 — anomalies trouvées et corrigées pendant la fermeture
+
+- `flux_unifie_service._module_men` comptait en double une ligne à 0 € (facture ménage sans statut
+  de ligne dédié) — SUM correcte par coïncidence, COUNT faux. Corrigé par exclusion explicite
+  `montant_ligne_ttc in (None, 0)`, trouvé par le test de parité réelle MEN.
+- Doublon réel dans le classeur BNQ legacy (même `mouvement_id`, marqué
+  `DOUBLON_BANCAIRE_POTENTIEL`) cassait une contrainte `UNIQUE` à la reprise — dédupliqué par
+  `mouvement_id`, sans effet sur les 24 lignes VALIDE comparées.
+- Hypothèse de la mission elle-même fausse : baseline GPM supposée à 0 ligne — le classeur réel
+  porte 16 lignes coût standard + 8 lignes écart, 3 894,99 €. Gardé honnête (non mis à zéro),
+  vérifié en relisant le fichier réel plutôt qu'en faisant confiance à l'énoncé.
+- `test_no_metier_calc.py::test_no_import_of_travail_modules` : détection par sous-chaîne
+  `"from lot"` faux-positivait sur du SQL (`FROM lot10_runs`, migration 0044). Corrigé par une
+  regex ancrée sur une vraie syntaxe d'import en début de ligne.
+- `lot10_commissions.reservation_calc_id` devait être `NOT NULL` (cohérent avec la stabilité des
+  clés de réservation déjà en place) — corrigé dans la migration 0044.

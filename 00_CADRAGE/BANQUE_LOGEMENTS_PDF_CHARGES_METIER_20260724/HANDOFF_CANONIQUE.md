@@ -1878,3 +1878,18 @@ legacy, consommés par ces 3 services). Excel application Ménages : réduit, pa
 puis Lot9 → SQLite.**
 
 Détail complet : document `95` (§14).
+
+## ✅ Mise à jour — Ménages fermé sans master permanent, Lot9 et Lot10 TERMINÉS
+
+Depuis le paragraphe ci-dessus (obsolète) : Ménages fermé à 100% (10/10 sources du lecteur
+migrées, `externes()` inclus, plus aucun master Ménages permanent requis) — test bloquant
+`test_menages_sans_excel.py` vert. Lot9 (`flux_unifies`, migration 0043) et Lot10 (`lot10_*`,
+migration 0044) migrés en SQLite avec parité financière réelle prouvée à 0,00 € d'écart (détail
+dans le document `95`, §15-16). Tests bloquants `test_lot9_sans_master_calc_flux.py` et
+`test_lot10_sans_masters.py` verts. Campagne complète post-fermeture Lot10 : moteur 345/345,
+application 2856/2856, 0 échec.
+
+**Chaîne suivante : Lot11 (contrôles → SQLite), puis conditionnellement Lot12 (préfacture/relevés
+propriétaires → SQLite).**
+
+Détail complet : document `95` (§15-16).

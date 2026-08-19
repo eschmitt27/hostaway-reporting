@@ -536,3 +536,49 @@ lecteur central migrées), pas éliminé.
   frontière Lot9-12 (adaptateur SQLite → workbook jetable, même mécanique que Lot8c/Lot11 pour
   Hostaway/Banque) sans commencer la migration de Lot9-12 elle-même.
 - Chaîne suivante après Ménages : **Lot9 → SQLite**, puis **Lot10 → SQLite**.
+
+## 15. Lot9 (flux_unifies) — TERMINÉ
+
+Migration 0043 (`flux_unifies`, `flux_unifies_runs`). `flux_unifie_service.construire()`/`lire()`
+port fidèle de `lot9_construire_flux.py` (module par module : RES/MEN/BNQ/CHG/GPM), en SQLite
+natif dans la couche application. `flux_unifie_reader.py` bascule dessus, plus aucune lecture de
+`MASTER_CALC_Flux.xlsx` au runtime applicatif.
+
+Parité réelle prouvée sur données réelles : RES 1476/1476 lignes, 322 868,56 €/322 868,56 €,
+écart 0,00 €. 231 différences d'identifiants expliquées (legacy positionnel vs `flux_id` stable),
+0 écart de montant.
+
+Test bloquant : `test_lot9_sans_master_calc_flux.py` (interception `openpyxl.load_workbook` sur
+`MASTER_CALC_Flux.xlsx`).
+
+## 16. Lot10 (résultats économiques) — TERMINÉ
+
+Migration 0044 (`lot10_runs`, `lot10_commissions`, `lot10_commissions_a_controler`,
+`lot10_resultats`, `lot10_net_exploitation`, `lot10_net_reglement`, `lot10_net_vue_mois`).
+`02_TRAVAIL/lot10_calculer_resultats.py` étendu (`--source SQLITE/--db/--sans-excel/--sans-sqlite`),
+logique pandas inchangée, entrée = `flux_unifies` (Lot9 SQLite), sortie = tables 0044, écriture
+atomique (run actif unique).
+
+Parité réelle prouvée sur données réelles, 4053 clés comparées ligne à ligne, 0 manquante,
+0 écart : commission 285/41 602,41 €, ménage 285/62 609,00 €, préparation canapé 285/1 390,00 €,
+charge fixe 285/8 025,00 €, refacturations 285/0,00 €, montant_du_conciergerie 285/113 626,41 €,
+net propriétaire 285/209 242,15 €, résultats REEL 275/316 654,56 €, COMPTABLE 275/306 130,40 €,
+HORS_COMPTA 29/10 524,16 €, invariant REEL = COMPTABLE + HORS_COMPTA — écart 0,00 € sur tous les
+composants.
+
+Lecteurs applicatifs (`proprietaires_reglements_reader.py`, `proprietaires_reader.py`,
+`controles_detail_reader.py`) intégralement basculés sur les tables `lot10_*` du run actif, plus
+aucune lecture de `MASTER_CALC_Commissions.xlsx`/`MASTER_CALC_NetProprietaire.xlsx`/
+`MASTER_CALC_Resultats.xlsx` au runtime applicatif.
+
+Test bloquant : `test_lot10_sans_masters.py` (interception `openpyxl.load_workbook` sur les 4
+classeurs Lot9/Lot10, exerçant le service `flux_unifie_service`, les 3 lecteurs applicatifs,
+l'adaptateur de frontière Lot11/Lot12 `ventes_lot12_adapter_service`, et les routes `/resultats*`).
+
+Campagne de confirmation complète post-fermeture : moteur 345/345 (0 échec), application
+2856/2856 (0 échec, 34 skip = fixtures nécessitant un master Excel réel absent en CI). Copie de
+`app.db` réel (0016) migrée jusqu'à 0044, `integrity_check` ok, `foreign_key_check` ok, rejeu ×2
+stable. `app.db` réel resté à la version 0016, hash inchangé.
+
+**Lot9 et Lot10 sont clos : 0 lecture Excel au runtime applicatif, parité financière prouvée à
+0,00 € d'écart, test bloquant actif.**

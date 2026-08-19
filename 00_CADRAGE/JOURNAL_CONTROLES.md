@@ -3805,3 +3805,17 @@ isolément aurait exigé de commencer Lot9-12. `controles_detail_reader` lit
 Migrations 0035→0039 additives. Copie de la base réelle 0016 → HEAD (0039) : `integrity_check`
 **ok**, `foreign_key_check` **ok**, rejeu ×2 sans erreur. Base réelle **inchangée**. Deux instances
 `APP_DATA_DIR` (A/B, données ménages différentes) : aucune contamination croisée constatée.
+
+## Lot9/Lot10 — fermeture définitive
+
+Migrations 0043 (`flux_unifies`) et 0044 (`lot10_*`) additives. Ménages fermé sans master
+permanent (10/10 sources du lecteur, `externes()` inclus). Lot9 et Lot10 basculés en SQLite,
+parité réelle prouvée 0,00 € d'écart sur les 5 composants + net propriétaire + résultats +
+invariant REEL=COMPTABLE+HORS_COMPTA (4053 clés comparées ligne à ligne, 0 manquante, 0 écart).
+
+Tests bloquants actifs par interception `openpyxl.load_workbook` : `test_menages_sans_excel.py`,
+`test_lot9_sans_master_calc_flux.py`, `test_lot10_sans_masters.py`.
+
+Copie de la base réelle 0016 → HEAD (0044) : `integrity_check` ok, `foreign_key_check` ok, rejeu
+×2 sans erreur. Base réelle inchangée (hash identique). Campagne complète : moteur 345/345,
+application 2856/2856, 0 échec.

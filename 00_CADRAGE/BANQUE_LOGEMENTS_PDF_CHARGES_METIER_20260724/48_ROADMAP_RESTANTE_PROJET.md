@@ -314,3 +314,11 @@ et un futur déclenchement automatique empruntent le même chemin.
 **Chaîne suivante : ménages.**
 
 Détail complet : document `95` (§13).
+
+## Mise à jour migration SQLite — Ménages, Lot9, Lot10 TERMINÉS
+
+Ménages fermé sans master permanent (10/10 sources). Lot9 (`flux_unifies`) et Lot10 (`lot10_*`)
+migrés en SQLite, parité réelle 0,00 € d'écart, tests bloquants verts, campagne complète verte
+(moteur 345/345, application 2856/2856). Détail : document `95` (§15-16).
+
+**Chaîne suivante : Lot11 (contrôles → SQLite), puis conditionnellement Lot12.**
