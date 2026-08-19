@@ -23,8 +23,11 @@ Jointure:
     -> MASTER_CALC_Reservations.reservation_id_hostaway
     -> MASTER_CALC_HA_Payout.reservation_id
 """
+import argparse
+import os
 import sys
 import logging
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -33,6 +36,9 @@ import openpyxl
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Alignment
 from openpyxl.utils import get_column_letter
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import lib_db_moteur as dbm  # noqa: E402
 
 from lib_ref_history import REF_GESTION_LOGEMENTS_HIST_SHEET, resolve_commission_rate, resolve_management_period
 from lib_settlements import (
@@ -159,10 +165,204 @@ def _is_placeholder_id(v) -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. Load sources
 # ─────────────────────────────────────────────────────────────────────────────
-def load_sources():
+# ─────────────────────────────────────────────────────────────────────────────
+# SQLite — entrée `flux_unifies` (Lot9) et sorties dérivées (migration 0044)
+#
+# La logique pandas de ce script n'est PAS touchée : seules les entrées/sorties changent de
+# support. `flux_unifies` porte exactement les colonnes du classeur `MASTER_CALC_Flux` (voir
+# migration 0043, dérivée du `COLS` de lot9_construire_flux.py) ; la seule différence est la
+# convention de nommage `row_hash`/`ROW_HASH`, traduite ici pour que le calcul aval retrouve le
+# vocabulaire qu'il connaît.
+# ─────────────────────────────────────────────────────────────────────────────
+_FLUX_COLS_SQL = (
+    "flux_id", "row_hash", "source_module", "source_table", "source_pk", "date_flux", "mois",
+    "logement_id", "proprietaire_id", "associe_id", "type_flux_id", "sens", "montant",
+    "code_impact", "inclure_resultat_reel", "inclure_resultat_comptable",
+    "inclure_resultat_hors_compta", "statut_controle", "niveau_anomalie", "code_anomalie",
+    "commentaire", "date_integration",
+)
+
+
+def charger_flux_sqlite(chemin_base) -> pd.DataFrame:
+    """Flux unifiés depuis SQLite (Lot9), au format attendu par le calcul existant.
+
+    Aucun repli Excel : si la table est absente ou vide, le script refuse plutôt que de calculer
+    sur un flux partiel — un résultat économique construit sur une source silencieusement vide
+    serait faux sans qu'aucune erreur ne le signale.
+    """
+    conn, message = dbm.verifier(chemin_base, ("flux_unifies",))
+    if conn is None:
+        sys.exit(f"[lot10] ERREUR : --source SQLITE inutilisable — {message}")
+    try:
+        # ORDRE D'ARRIVEE : `flux_unifies` a `flux_id` pour cle primaire, pas d'`id` autoincrement.
+        # `rowid` restitue l'ordre d'insertion, donc celui du classeur d'origine — le calcul aval
+        # est insensible a l'ordre (groupby/merge), mais la comparaison de parite ligne a ligne
+        # reste lisible sans retri artificiel.
+        lignes = dbm.lignes(conn, "flux_unifies", _FLUX_COLS_SQL, ordre="rowid")
+    finally:
+        conn.close()
+    df = pd.DataFrame(lignes)
+    if len(df) == 0:
+        sys.exit("[lot10] ERREUR : `flux_unifies` est vide — lancer Lot9 avant Lot10.")
+    return df.rename(columns={"row_hash": "ROW_HASH"})
+
+
+def _flux_run_id(chemin_base) -> str:
+    """run_id du dataset Lot9 consommé — traçabilité amont, jamais une fraîcheur de fichier."""
+    conn, _ = dbm.verifier(chemin_base, ("flux_unifies",))
+    if conn is None:
+        return ""
+    try:
+        r = conn.execute("SELECT run_id FROM flux_unifies WHERE run_id IS NOT NULL "
+                         "ORDER BY rowid DESC LIMIT 1").fetchone()
+        return r[0] if r else ""
+    finally:
+        conn.close()
+
+
+# Colonnes des tables 0044, et le nom du champ moteur correspondant quand il diffère.
+_ALIAS_SQL = {"guest_count": "guestCount", "listing_map_id": "listingMapId", "row_hash": "ROW_HASH"}
+
+_T_COMMISSIONS = (
+    "flux_source_pk", "reservation_calc_id", "reservation_id_hostaway", "logement_id",
+    "proprietaire_id", "mois", "date_arrivee", "date_depart", "nuits", "guest_count",
+    "channel_type", "source_type", "statut_calcul_payout", "payout_calcule", "menage_retenu",
+    "menage_retenu_source", "cout_standard_id", "cout_standard_menage_snapshot",
+    "date_reference_cout_menage", "assiette_commission", "taux_commission",
+    "commission_conciergerie", "taux_commission_id", "taux_commission_source",
+    "controle_taux_commission", "net_proprietaire", "inclure_resultat_auto",
+    "logement_id_snapshot", "type_logement_id_snapshot", "preparation_canape_voyageurs",
+    "controle_preparation_canape", "source_preparation_canape",
+)
+_T_COMM_AC = (
+    "reservation_id", "listing_map_id", "source", "channel_type", "statut_calcul_payout",
+    "payout_calcule", "source_payout", "menage_retenu", "assiette_commission",
+    "menage_retenu_source", "cout_standard_id", "cout_standard_menage_snapshot",
+    "cout_standard_date_debut_validite", "cout_standard_date_fin_validite",
+    "logement_id_snapshot", "type_logement_id_snapshot", "date_reference_cout_menage",
+    "inclure_resultat_auto", "extrait_le", "row_hash", "code_anomalie_lot10",
+)
+_T_RESULTATS = ("mois", "logement_id", "proprietaire_id", "vision", "total_produits",
+                "total_charges", "resultat", "nb_flux", "commentaire")
+_T_EXPLOITATION = _T_COMMISSIONS + ("charge_fixe_mensuelle", "commentaire_charge_fixe",
+                                    "revenu_net_exploitation")
+_T_REGLEMENT = (
+    "mois", "logement_id", "proprietaire_id", "charge_fixe_mensuelle", "charge_fixe_source",
+    "total_payout_mois", "total_menage_mois", "total_commission_mois",
+    "total_preparation_canape_mois", "net_proprietaire_avant_charge_mois", "nb_reservations",
+    "charges_exceptionnelles_refacturees", "montant_du_conciergerie",
+    "acompte_conciergerie_recu_via_airbnb", "autres_acomptes_recus", "paiement_deja_recu",
+    "reste_a_payer_conciergerie", "credit_a_traiter", "statut_credit",
+    "net_proprietaire_apres_charge_mois", "statut_reglement",
+)
+_T_VUE_MOIS = (
+    "mois", "proprietaire_id", "total_payout_mois", "total_menage_mois", "total_commission_mois",
+    "total_preparation_canape_mois", "charge_fixe_mensuelle",
+    "charges_exceptionnelles_refacturees", "montant_du_conciergerie",
+    "acompte_conciergerie_recu_via_airbnb", "autres_acomptes_recus", "paiement_deja_recu",
+    "reste_a_payer_conciergerie", "credit_a_traiter", "net_proprietaire_avant_charge_mois",
+    "net_proprietaire_apres_charge_mois", "nb_reservations",
+)
+
+
+def _valeur_sql(v):
+    """Valeur stockable. `NaN`/`NaT` pandas -> NULL : une absence reste une absence, jamais 0."""
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return None
+    if isinstance(v, (pd.Timestamp, datetime)):
+        return str(v)[:10]
+    try:
+        if pd.isna(v):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if hasattr(v, "item"):          # numpy scalar -> type Python natif
+        return v.item()
+    return v
+
+
+def _ecrire_table(conn, table, colonnes, df, run_id):
+    if df is None or len(df) == 0:
+        return 0
+    trous = ", ".join(["?"] * (len(colonnes) + 1))
+    lignes_out = []
+    for r in df.to_dict("records"):
+        lignes_out.append((run_id, *(_valeur_sql(r.get(_ALIAS_SQL.get(c, c))) for c in colonnes)))
+    conn.executemany(
+        "INSERT OR REPLACE INTO %s (run_id, %s) VALUES (%s)"
+        % (table, ", ".join(colonnes), trous), lignes_out)
+    return len(lignes_out)
+
+
+def ecrire_sqlite(chemin_base, df_comm, df_ac, df_reel, df_compt, df_hc,
+                  df_exploit, df_reg, df_vue, *, run_id="", source_flux_run=""):
+    """Écrit le dataset Lot10 et ne l'active qu'après succès complet (mission §13).
+
+    Tout se fait dans UNE transaction : l'ancien dataset reste actif tant que le nouveau n'est pas
+    intégralement écrit. Un run interrompu laisse ses lignes en base sous un run non actif —
+    visibles pour diagnostic, jamais servies comme si elles étaient complètes.
+    """
+    conn, message = dbm.verifier(chemin_base, ("lot10_runs",))
+    if conn is None:
+        log.warning(f"  SQLite non ecrit : {message}")
+        return {"ecrit": False, "message": message}
+
+    run_id = run_id or ("L10-" + uuid.uuid4().hex[:12].upper())
+    df_res_all = pd.concat([d for d in (df_reel, df_compt, df_hc) if len(d) > 0],
+                           ignore_index=True) if any(
+        len(d) > 0 for d in (df_reel, df_compt, df_hc)) else pd.DataFrame()
+
+    mois_connus = sorted({str(m) for m in df_res_all.get("mois", pd.Series(dtype=str)).dropna()
+                          if str(m) not in ("", "N/A")}) if len(df_res_all) else []
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            "INSERT INTO lot10_runs (run_id, periode_min, periode_max, statut, actif, "
+            "source_flux_run) VALUES (?,?,?,?,0,?)",
+            (run_id, mois_connus[0] if mois_connus else None,
+             mois_connus[-1] if mois_connus else None, "EN_COURS", source_flux_run or None))
+
+        nb_comm = _ecrire_table(conn, "lot10_commissions", _T_COMMISSIONS, df_comm, run_id)
+        _ecrire_table(conn, "lot10_commissions_a_controler", _T_COMM_AC, df_ac, run_id)
+        nb_res = _ecrire_table(conn, "lot10_resultats", _T_RESULTATS, df_res_all, run_id)
+        _ecrire_table(conn, "lot10_net_exploitation", _T_EXPLOITATION, df_exploit, run_id)
+        nb_reg = _ecrire_table(conn, "lot10_net_reglement", _T_REGLEMENT, df_reg, run_id)
+        _ecrire_table(conn, "lot10_net_vue_mois", _T_VUE_MOIS, df_vue, run_id)
+
+        # Bascule atomique : l'ancien dataset n'est désactivé qu'ici, tout étant écrit.
+        conn.execute("UPDATE lot10_runs SET actif = 0 WHERE actif = 1")
+        conn.execute(
+            "UPDATE lot10_runs SET statut = 'SUCCES', actif = 1, nb_commissions = ?, "
+            "nb_resultats = ?, nb_reglements = ? WHERE run_id = ?",
+            (nb_comm, nb_res, nb_reg, run_id))
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        conn.execute("UPDATE lot10_runs SET statut = 'ECHEC', message = ? WHERE run_id = ?",
+                     (f"{type(exc).__name__}: {exc}", run_id))
+        conn.commit()
+        conn.close()
+        raise
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    log.info(f"  SQLite : run {run_id} — {nb_comm} commissions, {nb_res} resultats, "
+             f"{nb_reg} reglements")
+    return {"ecrit": True, "run_id": run_id, "nb_commissions": nb_comm,
+            "nb_resultats": nb_res, "nb_reglements": nb_reg}
+
+
+def load_sources(source="EXCEL", chemin_base=None):
     log.info("=== Chargement sources (lecture seule) ===")
 
-    df_flux   = _read_sheet(FLUX_FILE)
+    if source == "SQLITE":
+        df_flux = charger_flux_sqlite(chemin_base)
+        log.info(f"  Flux (SQLite `flux_unifies`) : {len(df_flux)} lignes")
+    else:
+        df_flux = _read_sheet(FLUX_FILE)
     df_res    = _read_sheet(RES_FILE, sheet="MASTER")
     df_payout = _read_sheet(PAYOUT_FILE, sheet="data")
     df_log    = _read_sheet(REF_FILE, sheet="REF_Logements",     keep_vba=True)
@@ -1271,6 +1471,19 @@ def print_controls(
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
 def main():
+    parser = argparse.ArgumentParser(description="Lot10 — commissions, resultats, net proprietaire")
+    parser.add_argument(
+        "--source", choices=("EXCEL", "SQLITE"), default="EXCEL",
+        help="EXCEL = MASTER_CALC_Flux.xlsx (comportement historique). "
+             "SQLITE = table `flux_unifies` (migration 0043), deja alimentee par Lot9.")
+    parser.add_argument("--db", default=None)
+    parser.add_argument("--sans-excel", action="store_true",
+                        help="N'ecrit pas les masters legacy. SQLite reste alimente.")
+    parser.add_argument("--sans-sqlite", action="store_true",
+                        help="N'ecrit pas les tables SQLite (parite legacy seule).")
+    parser.add_argument("--run-id", default="")
+    args = parser.parse_args()
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)-8s %(message)s",
@@ -1279,16 +1492,37 @@ def main():
     log.info("=" * 65)
     log.info("LOT 10 — Calcul resultats, commissions, net proprietaire")
     log.info(f"Date : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    log.info(f"Source flux : {args.source}")
     log.info("=" * 65)
 
-    df_flux, df_res, df_payout, df_hh, df_acc, df_charges, df_airbnb_imp, df_log, df_prop, df_taux, df_gest = load_sources()
+    chemin_base = dbm.chemin_db(args.db)
+    if args.source == "SQLITE" and chemin_base is None:
+        sys.exit("[lot10] ERREUR : --source SQLITE exige une base "
+                 "(--db / PILOTAGE_DB_PATH / APP_DATA_DIR).")
+
+    df_flux, df_res, df_payout, df_hh, df_acc, df_charges, df_airbnb_imp, df_log, df_prop, df_taux, df_gest = load_sources(
+        source=args.source, chemin_base=chemin_base)
 
     df_comm, df_ac, hh_controls     = build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_taux)
     df_cfix, cfix_controls          = build_charge_fixe(df_flux, df_log, df_gest)
     df_reel, df_compt, df_hc        = build_resultats(df_flux)
     df_exploit, df_reg, df_vue      = build_net_proprietaire(df_comm, df_cfix, df_acc, df_airbnb_imp, df_charges)
 
-    write_all(df_comm, df_ac, df_reel, df_compt, df_hc, df_exploit, df_reg, df_vue)
+    if args.sans_excel:
+        log.info("=== Masters legacy non ecrits (--sans-excel) ===")
+    else:
+        write_all(df_comm, df_ac, df_reel, df_compt, df_hc, df_exploit, df_reg, df_vue)
+
+    if args.sans_sqlite:
+        log.info("=== SQLite non ecrit (--sans-sqlite) ===")
+    elif chemin_base is None:
+        log.info("=== Aucune base designee : dataset SQLite non ecrit ===")
+    else:
+        log.info("=== Ecriture dataset SQLite (0044) ===")
+        ecrire_sqlite(chemin_base, df_comm, df_ac, df_reel, df_compt, df_hc,
+                      df_exploit, df_reg, df_vue, run_id=args.run_id,
+                      source_flux_run=_flux_run_id(chemin_base) if args.source == "SQLITE" else "")
+
     print_controls(
         df_flux, df_comm, df_ac, df_reel, df_compt, df_hc,
         df_exploit, df_reg, df_vue, cfix_controls, hh_controls, df_payout,

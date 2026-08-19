@@ -124,6 +124,13 @@ EXPECTED_TABLES = {
     "controles_lot11_constats_champs",           # 0042 — mois/logement_id (extension 1-1)
     "flux_unifies",                              # 0043 — Lot9, flux économique unifié
     "flux_unifies_runs",                         # 0043 — journal des constructions
+    "lot10_runs",                                # 0044 — Lot10, dataset versionné et atomique
+    "lot10_commissions",                         # 0044 — grain réservation
+    "lot10_commissions_a_controler",             # 0044 — lignes écartées, vocabulaire propre
+    "lot10_resultats",                           # 0044 — mois × logement × propriétaire × vision
+    "lot10_net_exploitation",                    # 0044 — grain réservation (revenu net)
+    "lot10_net_reglement",                       # 0044 — les 5 composants + montant dû
+    "lot10_net_vue_mois",                        # 0044 — mois × propriétaire
 }
 
 
