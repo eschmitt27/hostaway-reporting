@@ -144,12 +144,11 @@ def test_menages_recalcul_sans_excel(tmp_db, monkeypatch, tmp_path):
 # ── controles_runner_service : verdict Lot11 relu depuis SQLite ─────────────
 
 def test_controles_runner_ne_lit_pas_les_masters_menages(tmp_db):
-    """Le service ne doit tenter d'ouvrir ni CleaningTasks ni M04 pour relire un verdict Lot11 —
-    seulement `controles_lot11_constats` (0041/0042)."""
-    from app.services import controles_lot11_adapter as l11
-    # Reprise vide (pas de master Lot11 réel dans ce test) : doit refuser proprement, jamais lever.
-    resultat = l11.reprendre(db_path=tmp_db)
-    assert "ok" in resultat
+    """Le verdict Lot11 est RECALCULÉ en SQLite, sans ouvrir ni CleaningTasks ni M04 ni le
+    classeur de contrôles : il n'existe plus qu'une seule implémentation des règles Lot11."""
+    from app.services import controles_lot11_service as l11
+    resultat = l11.construire(db_path=tmp_db)
+    assert resultat["ok"], resultat
 
 
 # ── menages_chaine_service : préflight + workspace sans master permanent ────

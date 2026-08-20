@@ -123,6 +123,14 @@ def _seeder_sqlite_menages(db_path: Path, *, rapp=(), gainperte=(), coutcomplet=
             "INSERT INTO menages_taches_enrichies (task_id, mois, logement_id, status, "
             "statut_menage, compte_comme_menage, statut_controle) VALUES (?,?,?,?,?,?,?)",
             ("HA-LOG5-001", "2026-05", "LOG_0005", "completed", "réalisé", "OUI", "OK"))
+        # LOG_0020 : 1 ménage Hostaway contre 3 facturés en externe -> écart de volume réel.
+        # C'est ce cas qui fait naître `MENAGE_EXTERNE_ECART_HOSTAWAY` (Lot11, groupe 6f) ; sans
+        # lui, le rapprochement ménages externes ↔ Hostaway n'aurait aucun écart à constater et le
+        # contrôle ne serait pas exercé.
+        conn.execute(
+            "INSERT INTO menages_taches_enrichies (task_id, mois, logement_id, status, "
+            "statut_menage, compte_comme_menage, statut_controle) VALUES (?,?,?,?,?,?,?)",
+            ("HA-LOG20-001", "2026-05", "LOG_0020", "completed", "réalisé", "OUI", "OK"))
 
         for mois, logement_id, intervenant_id, nom, nb_menages, nb_heures, lavage in (
             ("2026-05", "LOG_0001", "INT_0002", "Kheira", 9, 18, 40),
@@ -378,9 +386,11 @@ def sources(tmp_path, monkeypatch):
                           coutcomplet=LIGNES_COUTCOMPLET)
     _seeder_externes_sqlite(db_path)
 
-    from app.services import controles_lot11_adapter as lot11_adapter
-    reprise = lot11_adapter.reprendre(db_path=db_path)  # cfg.MASTER_CTRL_COHERENCE deja monkeypatche
-    assert reprise["ok"], reprise
+    # Les constats Lot11 sont RECALCULÉS en SQLite (plus de reprise de classeur : Lot11 est
+    # entièrement natif depuis la fermeture du lot).
+    from app.services import controles_lot11_service as lot11_svc
+    recalcul = lot11_svc.construire(db_path=db_path)
+    assert recalcul["ok"], recalcul
 
     yield {
         "racine": tmp_path, "rapprochement": rapp, "hostaway": ha, "internes": internes,

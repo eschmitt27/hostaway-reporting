@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}Actualisation{% endblock %}
+
+{% block content %}
+<div class="page-header flex justify-between items-center">
+  <div>
+    <h1 class="page-title">Actualisation</h1>
+    <p class="page-subtitle">Pilotage du pipeline — datasets SQLite, dépendances et fraîcheur</p>
+  </div>
+  {% if verrous %}
+    <span class="badge badge-warning">Recalcul en cours</span>
+  {% endif %}
+</div>
+
+<div class="card mb-lg">
+  <div class="card-title">Lancer une actualisation</div>
+  <div class="flex items-center gap-md" style="flex-wrap: wrap;">
+    <form method="post" action="/actualisation/tout">
+      <button type="submit" class="btn btn-primary" {% if verrous %}disabled{% endif %}>
+        Actualiser toute l'activité
+      </button>
+    </form>
+    <form method="post" action="/actualisation/cible" class="flex items-center gap-sm">
+      <select name="dataset" class="input">
+        {% for c in cibles %}
+        <option value="{{ c.dataset }}">{{ c.libelle }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn" {% if verrous %}disabled{% endif %}>
+        Actualiser cette chaîne et ce qui en dépend
+      </button>
+    </form>
+  </div>
+  <p class="text-xs text-secondary mt-sm">
+    Une actualisation ciblée recalcule le dataset choisi <strong>puis tous ses descendants</strong>,
+    dans l'ordre des dépendances. Un dataset dont un amont a échoué n'est jamais recalculé sur une
+    entrée périmée : il reste marqué à recalculer.
+  </p>
+</div>
+
+<div class="card mb-lg">
+  <div class="card-title">État des datasets</div>
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>Dataset</th>
+          <th>Type</th>
+          <th>Statut</th>
+          <th>Dernier calcul</th>
+          <th>Run</th>
+          <th>Déclencheur</th>
+          <th>Volume</th>
+          <th>Dépend de</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for d in datasets %}
+        <tr>
+          <td class="font-mono text-sm">{{ d.dataset }}<div class="text-xs text-secondary">{{ d.libelle }}</div></td>
+          <td class="text-xs">{{ d.type }}</td>
+          <td>
+            {% if d.statut == "A_JOUR" %}
+              <span class="badge badge-success">À jour</span>
+            {% elif d.statut == "EN_COURS" %}
+              <span class="badge badge-warning">En cours</span>
+            {% elif d.statut == "A_RECALCULER" %}
+              <span class="badge badge-warning">À recalculer</span>
+            {% elif d.statut == "ECHEC" %}
+              <span class="badge badge-danger">Échec</span>
+            {% elif d.statut == "PARTIEL" %}
+              <span class="badge badge-warning">Partiel</span>
+            {% else %}
+              <span class="badge badge-neutral">Jamais calculé</span>
+            {% endif %}
+            {% if d.erreur_message %}
+              <div class="text-xs text-danger">{{ d.erreur_code }} — {{ d.erreur_message }}</div>
+            {% endif %}
+          </td>
+          <td class="text-xs">{{ d.calcule_le or "—" }}</td>
+          <td class="text-xs font-mono">{{ d.source_run_id or "—" }}</td>
+          <td class="text-xs">{{ d.declencheur or "—" }}</td>
+          <td class="text-xs">{{ d.nb_lignes if d.nb_lignes is not none else "—" }}</td>
+          <td class="text-xs text-secondary">{{ d.depend_de | join(", ") or "—" }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="text-xs text-secondary mt-sm">
+    La fraîcheur vient du <strong>run qui a produit le dataset</strong>, jamais de la date d'un
+    fichier. Un dataset calculé avant son amont est marqué « à recalculer ».
+  </p>
+</div>
+
+{% if dernier_run %}
+<div class="card mb-lg">
+  <div class="card-title">Dernier run — {{ dernier_run.run_id }}</div>
+  <div class="flex gap-lg text-sm mb-md" style="flex-wrap: wrap;">
+    <div>Statut :
+      {% if dernier_run.statut == "SUCCES" %}<span class="badge badge-success">Succès</span>
+      {% elif dernier_run.statut == "PARTIEL" %}<span class="badge badge-warning">Partiel</span>
+      {% elif dernier_run.statut == "EN_COURS" %}<span class="badge badge-warning">En cours</span>
+      {% elif dernier_run.statut == "INTERROMPU" %}<span class="badge badge-neutral">Interrompu</span>
+      {% else %}<span class="badge badge-danger">Échec</span>{% endif %}
+    </div>
+    <div>Début : {{ dernier_run.started_at }}</div>
+    <div>Fin : {{ dernier_run.ended_at or "—" }}</div>
+    <div>Déclencheur : {{ dernier_run.declencheur }}</div>
+    <div>Étapes : {{ dernier_run.nb_etapes_ok }} ok / {{ dernier_run.nb_etapes_ko }} ko</div>
+  </div>
+  {% if dernier_run.erreur_resume %}
+    <div class="alert alert-warning text-xs">{{ dernier_run.erreur_resume }}</div>
+  {% endif %}
+  <div class="table-container">
+    <table>
+      <thead><tr><th>#</th><th>Dataset</th><th>Statut</th><th>Début</th><th>Fin</th><th>Détail</th></tr></thead>
+      <tbody>
+      {% for e in etapes %}
+        <tr>
+          <td class="text-xs">{{ e.ordre }}</td>
+          <td class="font-mono text-sm">{{ e.etape }}</td>
+          <td>
+            {% if e.statut == "SUCCES" %}<span class="badge badge-success">Succès</span>
+            {% elif e.statut == "IGNOREE" %}<span class="badge badge-neutral">Ignorée</span>
+            {% else %}<span class="badge badge-danger">Échec</span>{% endif %}
+          </td>
+          <td class="text-xs">{{ e.started_at }}</td>
+          <td class="text-xs">{{ e.ended_at or "—" }}</td>
+          <td class="text-xs text-secondary">{{ e.erreur or "—" }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-title">Historique des actualisations</div>
+  <div class="table-container">
+    <table>
+      <thead><tr><th>Run</th><th>Statut</th><th>Début</th><th>Fin</th><th>Déclencheur</th><th>Cible</th></tr></thead>
+      <tbody>
+      {% for r in historique %}
+        <tr>
+          <td class="font-mono text-xs">{{ r.run_id }}</td>
+          <td class="text-xs">{{ r.statut }}</td>
+          <td class="text-xs">{{ r.started_at }}</td>
+          <td class="text-xs">{{ r.ended_at or "—" }}</td>
+          <td class="text-xs">{{ r.declencheur }}</td>
+          <td class="text-xs">{{ r.arguments or "—" }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

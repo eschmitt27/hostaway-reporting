@@ -27,6 +27,11 @@ EXCEPTIONS_POWERBI = {
     "config.py",
     "services/calculs_executeur_service.py",
     "routes/health.py",
+    # Lot13 ÉCRIT les exports depuis SQLite ; il ne les relit jamais. C'est leur seul producteur, et
+    # le sens de circulation reste `SQLite → CSV`. L'interdit que ce test protège porte sur la
+    # LECTURE d'un export par l'application, jamais sur sa production ; la reconstructibilité est
+    # verrouillée à part (`test_lot13_export_sqlite.py`).
+    "services/lot13_export_service.py",
 }
 
 # Modules autorisés à toucher REF_Setup : lecteurs dédiés, services d'administration qui écrivent

@@ -32,7 +32,12 @@ from app.db.connection import get_db
 from app.services import ref_setup_repo
 from app.services.compte_proprietaire_service import calculer_fifo
 
-_TRAVAIL_DIR = str(cfg.PROJECT_ROOT / "02_TRAVAIL")
+# Les bibliothèques de règles (`lib_*`) vivent dans le 02_TRAVAIL DU WORKTREE, à côté du paquet
+# `app` — c'est `APP_ROOT.parent` qui les localise, jamais `cfg.PROJECT_ROOT`. Les deux coïncident
+# en exécution normale, mais `PROJECT_ROOT` est redirigé (variable d'environnement, tests isolant
+# un faux arbre) : l'ancrer ici rendait l'import dépendant d'une valeur qui n'a rien à voir avec
+# l'emplacement du code.
+_TRAVAIL_DIR = str(cfg.APP_ROOT.parent / "02_TRAVAIL")
 if _TRAVAIL_DIR not in sys.path:
     sys.path.insert(0, _TRAVAIL_DIR)
 

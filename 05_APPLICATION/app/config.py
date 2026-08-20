@@ -121,6 +121,14 @@ def _env_flag(nom: str) -> bool:
 # variables sont positionnées (double verrou : RECETTE_MODE ET la variable dédiée).
 CHARGES_REAL_WRITE_ENABLED = RECETTE_MODE and _env_flag("CHARGES_REAL_WRITE_ENABLED")
 CHARGES_REAL_WRITE_CONFIRMATION_ENABLED = RECETTE_MODE and _env_flag("CHARGES_REAL_WRITE_CONFIRMATION_ENABLED")
+
+# Ordonnanceur (actualisation automatique Hostaway). MÊME PRINCIPE que les gardes ci-dessus : rien
+# ne démarre implicitement. Tant que ce flag est faux, `ordonnanceur_service.demarrer()` refuse et
+# AUCUNE actualisation automatique n'est déclenchée — l'ordonnanceur est construit et testable,
+# mais inerte. L'activer est une décision explicite d'exploitation, jamais un effet de bord d'un
+# déploiement.
+ORDONNANCEUR_ACTIF = _env_flag("ORDONNANCEUR_ACTIF")
+
 # Racine unique autorisée en écriture en mode recette. Par défaut, le PROJECT_ROOT courant : en
 # lançant l'instance de recette avec PROJECT_ROOT=<dossier data_recette>, TOUTES les sources et
 # sorties vivent déjà dans ce dossier isolé, et le guard interdit toute écriture en dehors.

@@ -7,10 +7,9 @@ chaînes sont déjà SQLite. Preuve active par interception globale d'`openpyxl.
 principe que `test_menages_sans_excel.py`/`test_lot9_sans_master_calc_flux.py`/
 `test_lot10_sans_masters.py`, mais sans liste de fichiers autorisés puisqu'aucun n'est légitime ici.
 
-Les groupes non portés (AirCover, ajustements post-clôture, sources vides Charges/M04/Acomptes/IK,
-Lot7C avantages, ménages externes 6f, caisse théorique) restent hors périmètre de ce service — cf.
-le docstring de `controles_lot11_service.py` — et continuent de passer par le moteur legacy
-(`controles_runner_service`/`controles_lot11_adapter`), non concerné par ce test.
+TOUS les groupes du legacy sont désormais portés (AirCover, ajustements post-clôture, sources
+vides, Lot7C, ménages externes 6f, caisse théorique, provenance) : plus aucun chemin de contrôle ne
+passe par un classeur, et `controles_runner_service` recalcule via ce même service.
 """
 from __future__ import annotations
 

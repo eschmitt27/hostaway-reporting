@@ -139,6 +139,10 @@ EXPECTED_TABLES = {
     "lot12_controle_mensuel",                    # 0047 — inclut GLOBAL_NON_AFFECTE
     "lot12_dashboard_facturation",                # 0047 — grain mois × propriétaire
     "lot12_a_controler",                         # 0047 — réservations exclues + anomalies
+    "lot12_prefactures_id_legacy",               # 0048 — identifiant stable ↔ legacy positionnel
+    "orchestrateur_datasets",                    # 0050 — état/fraîcheur par dataset du DAG
+    "orchestrateur_dataset_evenements",          # 0050 — journal append-only des transitions
+    "orchestrateur_verrous",                     # 0050 — baux d'exécution (concurrence)
 }
 
 

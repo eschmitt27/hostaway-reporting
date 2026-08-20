@@ -23,7 +23,12 @@ import app.config as cfg
 from app.db.connection import get_db
 from app.services import ref_setup_repo
 
-_TRAVAIL_DIR = str(cfg.PROJECT_ROOT / "02_TRAVAIL")
+# Les bibliothèques de règles (`lib_*`) vivent dans le 02_TRAVAIL DU WORKTREE, à côté du paquet
+# `app` — c'est `APP_ROOT.parent` qui les localise, jamais `cfg.PROJECT_ROOT`. Les deux coïncident
+# en exécution normale, mais `PROJECT_ROOT` est redirigé (variable d'environnement, tests isolant
+# un faux arbre) : l'ancrer ici rendait l'import dépendant d'une valeur qui n'a rien à voir avec
+# l'emplacement du code.
+_TRAVAIL_DIR = str(cfg.APP_ROOT.parent / "02_TRAVAIL")
 if _TRAVAIL_DIR not in sys.path:
     sys.path.insert(0, _TRAVAIL_DIR)
 
@@ -139,6 +144,7 @@ def construire(*, db_path=None, run_id: str | None = None) -> dict[str, Any]:
         log_idx = {r.get("logement_id"): r for r in df_log}
 
         entetes, lignes, controle = [], [], []
+        ids_legacy: list[dict[str, str]] = []
         compteur: dict[str, int] = {}
 
         for r in df_reg:
@@ -176,8 +182,16 @@ def construire(*, db_path=None, run_id: str | None = None) -> dict[str, Any]:
                 rec["code_anomalie"] = STATUT_PARC_INVALIDE
                 continue
 
+            # IDENTITÉ STABLE (grain canonique D-LOT12-01 : mois × propriétaire × logement).
+            # Le legacy suffixait un compteur POSITIONNEL par mois : l'identifiant désignait alors
+            # une position de parcours, pas une préfacture — un changement d'ordre ou l'ajout d'une
+            # préfacture renumérotait toutes les suivantes. Le compteur reste calculé, mais
+            # UNIQUEMENT pour conserver la correspondance vers l'ancien identifiant (0048) ; il
+            # n'entre plus dans l'identité.
             compteur[mois] = compteur.get(mois, 0) + 1
-            facture_id = f"PREF-{mois}-{prop_id}-{log_id}-{compteur[mois]:03d}"
+            facture_id = f"PREF-{mois}-{prop_id}-{log_id}"
+            ids_legacy.append({"facture_id": facture_id,
+                               "facture_id_legacy": f"{facture_id}-{compteur[mois]:03d}"})
 
             pr, lg = prop_idx.get(prop_id, {}), log_idx.get(log_id, {})
             nom_prop = f"{pr.get('prenom_proprietaire') or ''} {pr.get('nom_proprietaire') or ''}".strip()
@@ -264,6 +278,8 @@ def construire(*, db_path=None, run_id: str | None = None) -> dict[str, Any]:
             _remplacer(conn, "lot12_a_controler", rid, ac_rows,
                       ("mois", "proprietaire_id", "logement_id", "reservation", "code_anomalie",
                        "severite", "impact_facturation", "message"), run_scope=True)
+            _remplacer(conn, "lot12_prefactures_id_legacy", rid, ids_legacy,
+                      ("facture_id", "facture_id_legacy"), run_scope=True)
 
             conn.execute(
                 "INSERT INTO lot12_runs (run_id, statut, actif, nb_entetes, nb_lignes, "

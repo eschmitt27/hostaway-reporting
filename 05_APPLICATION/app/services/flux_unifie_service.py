@@ -245,7 +245,7 @@ CODE_BANQUE_INTERDITS = {"libelle", "libelle_brut", "compte_id", "iban"}
 def construire(*, db_path=None) -> dict[str, Any]:
     """Recalcule l'intégralité de `flux_unifies` depuis les sources SQLite/Excel courantes.
 
-    Remplacement intégral (DELETE + INSERT), comme `controles_lot11_adapter.reprendre` — un
+    Remplacement intégral (DELETE + INSERT), comme `controles_lot11_service.construire` — un
     instantané du dernier calcul, pas un historique.
     """
     seen: set = set()

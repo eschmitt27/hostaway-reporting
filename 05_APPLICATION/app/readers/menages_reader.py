@@ -216,15 +216,19 @@ def _table_presente(conn, table: str) -> bool:
     ).fetchone() is not None
 
 
-def _lire_sqlite(cle: str, libelle: str, table: str) -> SourceMenages:
+def _lire_sqlite(cle: str, libelle: str, table: str, db_path=None) -> SourceMenages:
     """Lecture SQLite d'une sortie Lot6a/6b/6d/6e/6f (migration 0038) : équivalent de `_lire`, même
     contrat `SourceMenages`/`EtatSource`, mais SANS repli Excel — une table absente ou vide est un
     état affiché, jamais une exception (`FileNotFoundError` interdite en amont, mission §21).
 
     `fichier`/`onglet` de l'`EtatSource` portent le nom de la table : ce ne sont plus des chemins
     Excel, mais l'écran qui affiche l'état de la source n'a pas besoin de le savoir.
+
+    `db_path` optionnel : les écrans n'en passent pas (ils lisent `cfg.DB_PATH`), mais un appelant
+    qui travaille sur une base précise — parité, recette, run isolé — doit pouvoir l'imposer.
+    Sans lui, un service appelé avec `db_path=` lirait quand même la base globale.
     """
-    conn = get_db()
+    conn = get_db(db_path)
     try:
         if not _table_presente(conn, table):
             return SourceMenages(EtatSource(cle, libelle, table, table, ETAT_FICHIER_ABSENT))
@@ -295,7 +299,7 @@ def hostaway_taches() -> SourceMenages:
     return _lire_sqlite("hostaway_taches", "Tâches Hostaway (Lot6a)", "menages_taches_enrichies")
 
 
-def hostaway_comptage() -> SourceMenages:
+def hostaway_comptage(db_path=None) -> SourceMenages:
     """Lot6a VUE_COMPTAGE — planifié / réalisé / pending / annulé par logement et mois.
 
     `menages_taches_enrichies` (0038) est au grain TÂCHE, pas au grain agrégé : cet agrégat n'est
@@ -305,7 +309,7 @@ def hostaway_comptage() -> SourceMenages:
     prévu/pending, les annulés comptent quel que soit compte_comme_menage.
     """
     source = _lire_sqlite("hostaway_comptage", "Comptage Hostaway (Lot6a)",
-                          "menages_taches_enrichies")
+                          "menages_taches_enrichies", db_path=db_path)
     if source.etat.etat != ETAT_OK:
         return SourceMenages(EtatSource("hostaway_comptage", "Comptage Hostaway (Lot6a)",
                                         source.etat.fichier, source.etat.onglet,
@@ -395,10 +399,9 @@ def mode_extraction_externes() -> str | None:
 
 
 def controles_lot11() -> SourceMenages:
-    """Lot11 — contrôles transverses. SQLite (`controles_lot11_constats`, 0041), alimentée soit par
-    `controles_lot11_service.construire` (moteur SQLite natif, mission Lot11), soit par
-    `controles_lot11_adapter.reprendre` (reprise classeur, pour les groupes de contrôle non encore
-    portés) — jamais lu depuis Excel ici. Filtrés sur le module ménages par le service."""
+    """Lot11 — contrôles transverses. SQLite (`controles_lot11_constats`, 0041), alimentée par
+    `controles_lot11_service.construire` (moteur SQLite natif — seule source depuis la fermeture
+    complète de Lot11). Jamais lu depuis Excel. Filtrés sur le module ménages par le service."""
     return _lire_sqlite("lot11", "Contrôles de cohérence (Lot11)", "controles_lot11_constats")
 
 
