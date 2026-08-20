@@ -1390,3 +1390,10 @@ sur ce point (l'un a un mois de plus, et les statuts déclarés diffèrent : OUV
 CLOTURE côté REF_Setup pour les mois communs) — une divergence de fraîcheur entre deux copies
 réelles du même référentiel, pas une erreur de port. Les comptages RAPPROCHEMENT_REQUIS par mois
 correspondent exactement sur les 8 mois communs (25/24/23/25/30/26/26/20).
+
+## Lot12 — écart positionnel trouvé et expliqué (pas un bug)
+
+`facture_id` (suffixe `NNN` de `PREF-AAAA-MM-PROP-LOG-NNN`) diffère pour 102/285 entre l'ancien
+moteur (ordre pandas groupby) et le nouveau service (ordre `SELECT ... ORDER BY id`) — même famille
+que l'écart `flux_id` de Lot9 (déjà accepté). Sur la clé métier réelle (mois, proprietaire_id,
+logement_id), 0 écart : les 285 préfactures et leurs 3481 lignes correspondent exactement.

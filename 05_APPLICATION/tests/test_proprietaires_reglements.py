@@ -95,23 +95,24 @@ def owners_files(tmp_path, monkeypatch):
          "statut_facture": "ABSENTE", "balises_non_resolues": "FACTURE_ABSENTE;RESTE_A_PAYER"},
     ]
     ctrl_rows = [
-        {"mois": "2026-02", "proprietaire_id": "PROP_B", "code_controle": "FACTURE_ABSENTE",
-         "severite": "A_CONTROLER", "description": "Net calcule sans facture generee"},
+        {"mois": "2026-02", "proprietaire_id": "PROP_B", "code_anomalie": "FACTURE_ABSENTE",
+         "severite": "A_CONTROLER", "message": "Net calcule sans facture generee"},
     ]
     # Lot10 est SQLite (migration 0044) : VUE_MOIS/REGLEMENT/COMMISSIONS alimentent les tables
-    # `lot10_*` du run actif, plus des classeurs. Seul MASTER_FACT_Proprietaires (Lot12, non migré)
-    # reste Excel. `PAR_MOIS_PROPRIETAIRE` n'est plus une source distincte : le reader le dérive du
-    # grain fin `lot10_resultats` — ici vide, comme l'onglet legacy l'était.
+    # `lot10_*` du run actif. Lot12 (FACT_FACTURE_ENTETE/DASHBOARD_FACTURATION/A_CONTROLER) est
+    # SQLite (migration 0047, fixtures_lot12) — MASTER_FACT_Proprietaires.xlsx n'est plus lu.
+    # `PAR_MOIS_PROPRIETAIRE` n'est plus une source distincte : le reader le dérive du grain fin
+    # `lot10_resultats` — ici vide, comme l'onglet legacy l'était.
+    import fixtures_lot12 as fx12
+
     db = tmp_path / "app.db"
     apply_migrations(db)
     fx.seeder(db, net_vue_mois=vue, net_reglement=reg,
               commissions=[dict(r, reservation_calc_id=f"RES-FIXTURE-{i:03d}")
                            for i, r in enumerate(comm_rows, start=1)])
+    fx12.seeder(db, entetes=fact_rows, dashboard=dash_rows, a_controler=ctrl_rows)
 
-    _wb(fact, {"FACT_FACTURE_ENTETE": (FACT_COLS, fact_rows), "DASHBOARD_FACTURATION": (DASH_COLS, dash_rows),
-               "A_CONTROLER": (CTRL_COLS, ctrl_rows)})
     monkeypatch.setattr(cfg, "DB_PATH", db)
-    monkeypatch.setattr(cfg, "MASTER_FACT_PROPRIETAIRES", fact)
     reader.vider_cache()
     yield tmp_path
     reader.vider_cache()

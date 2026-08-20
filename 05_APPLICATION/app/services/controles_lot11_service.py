@@ -575,6 +575,14 @@ def construire(*, db_path=None, run_id: str | None = None) -> dict[str, Any]:
                 f"({', '.join(champs_cols)}) VALUES ({', '.join(['?'] * len(champs_cols))})",
                 [tuple(r.get(c) for c in champs_cols) for r in ctrl.rows])
 
+            conn.execute("DELETE FROM controles_lot11_dashboard_mois")
+            dash_cols = ("run_id", "mois", "nb_bloquants_ouverts", "nb_a_controler_ouverts",
+                        "nb_info", "statut_mois_banque", "cloture_possible", "facturation_lot12_ok")
+            conn.executemany(
+                f"INSERT INTO controles_lot11_dashboard_mois ({', '.join(dash_cols)}) "
+                f"VALUES ({', '.join(['?'] * len(dash_cols))})",
+                [tuple({**d, "run_id": rid}.get(c) for c in dash_cols) for d in dashboard])
+
             conn.execute(
                 "INSERT INTO controles_lot11_runs (run_id, source, statut, nb_constats, "
                 "nb_bloquants, nb_a_controler, nb_info) VALUES (?,?,?,?,?,?,?)",

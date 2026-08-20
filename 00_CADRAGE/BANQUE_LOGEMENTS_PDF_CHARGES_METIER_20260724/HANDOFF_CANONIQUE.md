@@ -1909,3 +1909,19 @@ servis par le moteur legacy tant que leurs sources restent Excel.
 réserve — Lot10 formellement fermé ET Lot11 réellement validé (les deux le sont désormais).**
 
 Détail complet : document `95` (§17).
+
+## ✅ Mise à jour — Lot12 (préfactures propriétaires) TERMINÉ — MISSION LARGE CLOSE
+
+Nouveau service `lot12_prefactures_service.py` (SQLite natif, migration 0047 + 0046 pour le
+dashboard Lot11 persisté) : port fidèle des préfactures propriétaires. Règle fondamentale
+inchangée : préfactures uniquement, jamais une facture émise — la facturation-propriétaire réelle
+reste `ventes_lot12_adapter_service`/`comptabilite_ecritures_service`, chemin séparé, vérifié par
+test dédié. Parité réelle prouvée sur données réelles 2026-08-17 : 285/285 préfactures, 3481/3481
+lignes, tous montants identiques sur l'intégralité du jeu (pas un échantillon). Tests bloquants
+`test_lot12_sans_masters.py`/`test_lot12_pas_de_double_comptage.py` verts.
+
+**Lot9, Lot10, Lot11 (groupes couverts), Lot12 : tous clos dans cette mission.** Arrêt volontaire
+ici, conformément à la mission — Lot13/export final/orchestrateur restent hors périmètre, à traiter
+dans une mission dédiée ultérieure.
+
+Détail complet : document `95` (§18).

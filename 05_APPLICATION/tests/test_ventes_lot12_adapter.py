@@ -1,8 +1,8 @@
 """Journal VENTES — adaptateur Lot12 (SOURCE_PROVISOIRE_LOT12). Ne recalcule jamais Lot12,
-ne le modifie jamais : fixtures Excel isolées, comme `test_proprietaires_reglements.py`."""
+ne le modifie jamais : fixtures SQLite isolées (Lot10 + Lot12), comme
+`test_proprietaires_reglements.py`."""
 from __future__ import annotations
 
-import openpyxl
 import pytest
 
 import app.config as cfg
@@ -12,31 +12,9 @@ from app.readers import proprietaires_reglements_reader as reader
 from app.services import comptabilite_ecritures_service as compta
 from app.services import ventes_lot12_adapter_service as adapter
 
-VUE_COLS = ["mois", "proprietaire_id", "total_payout_mois", "total_menage_mois", "total_commission_mois",
-            "charge_fixe_mensuelle", "montant_du_conciergerie", "reste_a_payer_conciergerie",
-            "net_proprietaire_avant_charge_mois", "net_proprietaire_apres_charge_mois", "nb_reservations"]
-DASH_COLS = ["mois", "proprietaire_id", "nb_logements", "nb_bloquants_mois", "nb_a_controler_mois",
-            "facturation_lot12_ok", "mode_facturation", "statut_facture", "balises_non_resolues"]
-
-
-def _wb(path, sheets):
-    wb = openpyxl.Workbook()
-    wb.remove(wb.active)
-    for name, (cols, rows) in sheets.items():
-        ws = wb.create_sheet(name)
-        ws.append(cols)
-        for r in rows:
-            ws.append([r.get(c) for c in cols])
-    wb.save(str(path))
-    wb.close()
-
 
 @pytest.fixture
 def lot12_files(tmp_path, monkeypatch):
-    net = tmp_path / "NET.xlsx"
-    comm = tmp_path / "COMM.xlsx"
-    fact = tmp_path / "FACT.xlsx"
-    res = tmp_path / "RES.xlsx"
     vue = [
         {"mois": "2026-06", "proprietaire_id": "PROP_A", "total_payout_mois": 2000,
          "total_menage_mois": 150, "total_commission_mois": 300, "charge_fixe_mensuelle": 0,
@@ -57,19 +35,16 @@ def lot12_files(tmp_path, monkeypatch):
          "nb_a_controler_mois": 0, "facturation_lot12_ok": "OUI", "mode_facturation": "MENSUEL",
          "statut_facture": "EMISE", "balises_non_resolues": ""},
     ]
-    # VUE_MOIS vient de Lot10 SQLite (migration 0044). Seul MASTER_FACT_Proprietaires (Lot12, non
-    # migré — c'est précisément ce que cet adaptateur alimente) reste un classeur.
+    # VUE_MOIS vient de Lot10 SQLite (migration 0044). DASHBOARD_FACTURATION vient de Lot12
+    # SQLite (migration 0047, fixtures_lot12) — MASTER_FACT_Proprietaires.xlsx n'est plus lu.
+    import fixtures_lot12 as fx12
+
     db = tmp_path / "app.db"
     apply_migrations(db)
     fx.seeder(db, net_vue_mois=vue)
+    fx12.seeder(db, dashboard=dash)
 
-    _wb(fact, {"FACT_FACTURE_ENTETE": (["facture_id", "mois", "proprietaire_id", "nom_proprietaire",
-                                       "adresse_proprietaire", "logement_id", "statut_facture",
-                                       "statut_generation", "total_exploitation_net",
-                                       "total_reglement_du", "reste_a_payer", "mode_facturation"], []),
-              "DASHBOARD_FACTURATION": (DASH_COLS, dash), "A_CONTROLER": (["mois"], [])})
     monkeypatch.setattr(cfg, "DB_PATH", db)
-    monkeypatch.setattr(cfg, "MASTER_FACT_PROPRIETAIRES", fact)
     reader.vider_cache()
     yield tmp_path
     reader.vider_cache()

@@ -624,3 +624,45 @@ liste fermée de masters).
 
 **Lot11 est clos pour les groupes couverts : 0 lecture Excel sur ce chemin, parité réelle
 documentée et honnête, test bloquant actif.**
+
+## 18. Lot12 (préfactures propriétaires) — TERMINÉ
+
+Migration 0046 (`controles_lot11_dashboard_mois`, DASHBOARD_MOIS Lot11 persisté — nécessaire à
+Lot12) et 0047 (`lot12_runs`, `lot12_prefactures_entete`, `lot12_prefactures_lignes`,
+`lot12_controle_mensuel`, `lot12_dashboard_facturation`, `lot12_a_controler`). Nouveau service
+`app/services/lot12_prefactures_service.py` : port fidèle de
+`02_TRAVAIL/lot12_generer_factures.py` — lit `lot10_net_reglement`/`lot10_commissions_a_controler`/
+`lot10_resultats` (Lot10), `controles_lot11_dashboard_mois` (Lot11), `REF_Proprietaires`/
+`REF_Logements` (`ref_setup_repo`), écrit un dataset versionné (`lot12_runs.actif`, comme
+`lot10_runs`) — un run raté ne remplace jamais le dernier valide, une même donnée d'entrée produit
+toujours le même `facture_id` (idempotent, vérifié : deux `construire()` consécutifs sur le même
+Lot10 actif produisent le même identifiant).
+
+**RÈGLE FONDAMENTALE INCHANGÉE : PRÉFACTURES UNIQUEMENT.** `statut_generation` reste toujours
+`PREFACTURE_CONTROLE` — ce service ne génère, ne modifie et ne lit AUCUNE facture propriétaire
+ÉMISE. La facturation-propriétaire réelle reste `ventes_lot12_adapter_service` (lit
+`lot10_net_reglement` directement, jamais les tables 0047) → `comptabilite_ecritures_service`/
+`factures_service` — deux chemins séparés, jamais fusionnés, vérifié par
+`test_lot12_pas_de_double_comptage.py` (scan d'import + vérification en base qu'un `construire()`
+ne touche aucune table comptable/facture).
+
+Lecteurs applicatifs (`proprietaires_reglements_reader.factures_entetes`/`dashboard_facturation`/
+`controles_factures`) basculés sur les tables `lot12_*` du run actif, plus aucune lecture de
+`MASTER_FACT_Proprietaires.xlsx`. `ref_logements()`/`noms_logements()` basculés au passage sur
+`ref_setup_repo` (SQLite) au lieu de `REF_Setup.xlsm` direct — dernière dépendance Excel résiduelle
+de ce reader, éliminée.
+
+**Parité réelle prouvée** sur les données réelles (2026-08-17) : 285/285 préfactures, 3481/3481
+lignes, `contrôle_mensuel` 285/285, `dashboard_facturation` 233/233, `a_controler` 42/42 — tous
+identiques au classeur `MASTER_FACT_Proprietaires.xlsx`. `statut_generation` = `PREFACTURE_CONTROLE`
+sur les 285 des deux côtés (0 finale). Montants vérifiés à l'identique sur l'intégralité des 285
+lignes `total_reglement_du` (pas seulement un échantillon), 0 écart de lignes par facture (12 ou 13
+selon présence canapé). Seul écart : le suffixe positionnel de `facture_id` diffère pour 102/285
+(ordre d'itération pandas legacy vs `ORDER BY id` SQL — même famille que l'écart `flux_id` de Lot9,
+déjà accepté) ; sur la clé métier réelle (mois, propriétaire, logement), 0 écart.
+
+Tests bloquants : `test_lot12_sans_masters.py` (interception globale openpyxl), `test_lot12_pas_de_
+double_comptage.py` (garde structurelle + vérification en base).
+
+**Lot9, Lot10, Lot11 (groupes couverts) et Lot12 sont clos.** Arrêt volontaire ici (mission
+explicite) : Lot13/export final/orchestrateur restent hors périmètre de cette mission.

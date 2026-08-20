@@ -3827,3 +3827,11 @@ contrôle Lot11 dont les sources sont déjà migrées, écrit dans `controles_lo
 (mêmes tables que la reprise classeur legacy). Parité réelle prouvée le 2026-08-17 : 10/11
 constats en accord exact avec `MASTER_CTRL_Coherence.xlsx`, 0 BLOQUANT des deux côtés. Test
 bloquant `test_lot11_sans_masters.py` (interception globale openpyxl) actif.
+
+## Lot12 — préfactures propriétaires, moteur SQLite natif
+
+`lot12_prefactures_service.py` (migrations 0046/0047) recalcule directement en SQLite les
+préfactures propriétaires depuis Lot10/Lot11/référentiel, écrit dans `lot12_*` (dataset versionné,
+run actif). Parité réelle prouvée le 2026-08-17 : 285/285 préfactures, 3481/3481 lignes, 0 écart de
+montant sur l'intégralité du jeu comparé à `MASTER_FACT_Proprietaires.xlsx`. Tests bloquants actifs
+(sans masters + pas de double comptage).

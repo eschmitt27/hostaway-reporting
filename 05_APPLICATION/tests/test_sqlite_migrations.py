@@ -132,6 +132,13 @@ EXPECTED_TABLES = {
     "lot10_net_reglement",                       # 0044 — les 5 composants + montant dû
     "lot10_net_vue_mois",                        # 0044 — mois × propriétaire
     "controles_lot11_runs",                      # 0045 — traçabilité des runs Lot11 (SQLite natif)
+    "controles_lot11_dashboard_mois",            # 0046 — DASHBOARD_MOIS Lot11 persisté (pour Lot12)
+    "lot12_runs",                                # 0047 — Lot12, dataset versionné et atomique
+    "lot12_prefactures_entete",                  # 0047 — grain préfacture (mois×prop×logement)
+    "lot12_prefactures_lignes",                  # 0047 — 12 ou 13 lignes par préfacture
+    "lot12_controle_mensuel",                    # 0047 — inclut GLOBAL_NON_AFFECTE
+    "lot12_dashboard_facturation",                # 0047 — grain mois × propriétaire
+    "lot12_a_controler",                         # 0047 — réservations exclues + anomalies
 }
 
 

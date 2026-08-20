@@ -330,3 +330,12 @@ déjà migrées ; parité réelle prouvée (10/11 constats en accord exact, éca
 bloquant vert. Détail : document `95` (§17).
 
 **Chaîne suivante : conditionnellement Lot12, gate ouvert (Lot10 fermé + Lot11 validé).**
+
+## Mise à jour migration SQLite — Lot12 TERMINÉ, mission large close
+
+`lot12_prefactures_service.py` (SQLite natif) : préfactures propriétaires, parité réelle prouvée
+sur l'intégralité du jeu réel (285/285, 3481/3481 lignes). Règle préfactures-uniquement vérifiée
+par test dédié. Détail : document `95` (§18).
+
+**Lot9/10/11(couvert)/12 clos. Arrêt volontaire : Lot13/export final/orchestrateur = mission
+suivante, non commencée.**

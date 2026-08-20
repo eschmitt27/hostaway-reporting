@@ -299,21 +299,68 @@ def resultats_global(db_path=None) -> Source:
                                   derniere_maj=base.etat.derniere_maj), lignes=lignes)
 
 
-def factures_entetes() -> Source:
-    return _src(cfg.MASTER_FACT_PROPRIETAIRES, "factures", "Factures propriétaires (entêtes)", SOURCE_FACT, ONGLET_FACT_ENTETE)
+SOURCE_LOT12 = "SQLite (Lot12)"
 
 
-def dashboard_facturation() -> Source:
-    return _src(cfg.MASTER_FACT_PROPRIETAIRES, "dashboard", "Tableau de bord facturation", SOURCE_FACT, ONGLET_DASHBOARD)
+def _run_actif_lot12(db_path=None) -> tuple[str, str | None]:
+    """(run_id, date_calcul) du dataset Lot12 actif. ("", None) si aucun — état légitime."""
+    from app.db.connection import get_db
+
+    conn = get_db(db_path)
+    try:
+        if conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='lot12_runs'"
+                        ).fetchone() is None:
+            return "", None
+        r = conn.execute("SELECT run_id, date_calcul FROM lot12_runs WHERE actif = 1").fetchone()
+        return (r[0], r[1]) if r else ("", None)
+    finally:
+        conn.close()
 
 
-def controles_factures() -> Source:
-    return _src(cfg.MASTER_FACT_PROPRIETAIRES, "controles", "Contrôles facturation", SOURCE_FACT, ONGLET_A_CONTROLER)
+def _src_sqlite_lot12(cle: str, libelle: str, table: str, db_path=None) -> Source:
+    """Lecture d'une table Lot12 (0047) du run actif. Aucun repli Excel."""
+    from app.db.connection import get_db
+
+    run_id, maj = _run_actif_lot12(db_path)
+    if not run_id:
+        return Source(etat=EtatSource(cle=cle, libelle=libelle, fichier=SOURCE_LOT12, onglet=table,
+                                      etat=ETAT_FICHIER_ABSENT))
+    conn = get_db(db_path)
+    try:
+        lignes = [dict(r) for r in conn.execute(
+            f"SELECT * FROM {table} WHERE run_id = ? ORDER BY id", (run_id,))]
+    finally:
+        conn.close()
+    etat = ETAT_OK if lignes else ETAT_VIDE
+    return Source(etat=EtatSource(cle=cle, libelle=libelle, fichier=SOURCE_LOT12, onglet=table,
+                                  etat=etat, nb_lignes=len(lignes), derniere_maj=maj), lignes=lignes)
 
 
-def ref_logements() -> Source:
-    """REF_Setup onglet REF_Logements — noms officiels des logements (affichage)."""
-    return _src(cfg.REF_SETUP, "ref_logements", "Référentiel logements", "REF_Setup.xlsm", "REF_Logements")
+def factures_entetes(db_path=None) -> Source:
+    return _src_sqlite_lot12("factures", "Factures propriétaires (entêtes)",
+                             "lot12_prefactures_entete", db_path=db_path)
+
+
+def dashboard_facturation(db_path=None) -> Source:
+    return _src_sqlite_lot12("dashboard", "Tableau de bord facturation",
+                             "lot12_dashboard_facturation", db_path=db_path)
+
+
+def controles_factures(db_path=None) -> Source:
+    return _src_sqlite_lot12("controles", "Contrôles facturation", "lot12_a_controler",
+                             db_path=db_path)
+
+
+def ref_logements(db_path=None) -> Source:
+    """Référentiel logements — SQLite (`ref_logements`, migration 0029), noms officiels
+    (affichage). Ne lit plus `REF_Setup.xlsm`."""
+    from app.services import ref_setup_repo
+
+    lignes = ref_setup_repo.lire_onglet("REF_Logements", db_path=db_path)
+    etat = ETAT_OK if lignes else ETAT_VIDE
+    return Source(etat=EtatSource(cle="ref_logements", libelle="Référentiel logements",
+                                  fichier="SQLite (REF_Setup)", onglet="ref_logements", etat=etat,
+                                  nb_lignes=len(lignes)), lignes=lignes)
 
 
 _CACHE_NOMS_LOGEMENTS: dict[str, str] | None = None
