@@ -87,6 +87,58 @@ def semer_parc_standard(db_path) -> None:
     )
 
 
+def semer_referentiel_charges(db_path) -> None:
+    """Référentiels nécessaires à la saisie Charges (formulaire Nouvelle charge / APP-3b).
+
+    Complète `semer_parc_standard` (logements/gestion/proprietaires) avec les tables propres au
+    formulaire charges : catégories, modes de paiement, codes d'impact, types de flux, clôture,
+    assoc_mode, statuts.
+    """
+    conn = get_db(db_path)
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO ref_setup_imports (import_id, horodatage, chemin_source, "
+            "empreinte_source, statut) VALUES (?, '2026-01-01T00:00:00Z', 'fixture', 'fixture', "
+            "'IMPORTE')", (IMPORT_TEST,))
+        _inserer(conn, "ref_categories_charges", [
+            {"categorie_charge_id": "CHG_017", "categorie_niveau_1": "Charges courantes",
+             "categorie_niveau_2": "Generale", "description": "Charge generale", "actif": "OUI",
+             "famille_impact_categorie": "GLOBAL"},
+        ])
+        _inserer(conn, "ref_modes_paiement", [
+            {"mode_paiement_id": "PAY_001", "mode_paiement": "VIREMENT", "actif": "OUI"},
+        ])
+        _inserer(conn, "ref_codes_impact", [
+            {"code_impact": "IC", "libelle": "Impact comptable", "actif": "OUI"},
+        ])
+        _inserer(conn, "ref_types_flux", [
+            {"type_flux_id": "TYPE_FLUX_020", "type_flux": "Depense standard",
+             "code_impact_defaut": "IC", "actif": "OUI"},
+        ])
+        _inserer(conn, "ref_cloture_mensuelle", [
+            {"mois": "2026-06", "statut_mois": "OUVERT"},
+            {"mois": "2026-01", "statut_mois": "CLOTURE"},
+        ])
+        _inserer(conn, "ref_assoc_mode", [
+            {"assoc_mode_id": "AM_1", "mode_paiement_id": "PAY_001", "associe_id": "",
+             "assoc_mode": "CONCIERGERIE", "actif": "OUI"},
+        ])
+        _inserer(conn, "ref_statuts", [
+            {"statut_id": "STC_1", "famille_statut": "statut_controle", "statut": "A_CONTROLER",
+             "actif": "OUI"},
+        ])
+        _inserer(conn, "ref_associes", [])
+        _inserer(conn, "ref_cartes_paiement", [])
+        _inserer(conn, "ref_types_affectation", [
+            {"affectation_id": "AFF_1", "type_affectation": "GLOBAL", "actif": "OUI"},
+        ])
+        _inserer(conn, "ref_intervenants", [])
+        _inserer(conn, "ref_couts_standards_menage", [])
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def lignes(db_path, table: str) -> list[dict[str, str]]:
     """Contenu brut d'une table de référentiel — équivalent du `_lignes(p, sheet)` d'avant."""
     from app.services import ref_setup_repo as repo

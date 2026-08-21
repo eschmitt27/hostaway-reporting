@@ -5,9 +5,8 @@
 <div class="page-header flex justify-between items-center">
   <div>
     <h1 class="page-title">Prévisualisation de la saisie charge</h1>
-    <p class="page-subtitle">APP-3b-1 — Dry-run sur copie isolée</p>
+    <p class="page-subtitle">APP-3b-2 — Validation avant écriture en base</p>
   </div>
-  <span class="badge badge-warning">CHARGES_REAL_WRITE_ENABLED = False</span>
 </div>
 
 {% if not_found %}
@@ -20,7 +19,7 @@
 {% elif manifest %}
 
 <div class="alert alert-success" data-testid="app3b1-security-banner">
-  <strong>Simulation sur copie — aucune donnée réelle n'a été modifiée.</strong>
+  <strong>Aperçu — aucune charge n'a encore été enregistrée.</strong>
 </div>
 
 {% if manifest.status == "VALIDATION_REFUSEE" %}
@@ -61,10 +60,6 @@
         <tr>
           <td>Type de flux (déduit)</td>
           <td><code>{{ manifest.type_flux_id or "—" }}</code></td>
-        </tr>
-        <tr>
-          <td>Ligne cible (copie)</td>
-          <td>{{ manifest.target_row or "—" }}</td>
         </tr>
         <tr>
           <td>Date charge</td>
@@ -163,47 +158,10 @@
 </section>
 {% endif %}
 
-{% if manifest.persist_report %}
-<section class="card" data-testid="persistance-durable">
-  <h2>Persistance durable (aperçu — écrit sur copie contrôlée)</h2>
-  {% set pr = manifest.persist_report %}
-  <p>Cible : source de vérité <code>SAISIE_Charges_Impacts.xlsx</code> (liée par charge_id).
-     Aucune écriture réelle (flags désactivés).</p>
-  <ul style="margin:0; padding-left: var(--stack-lg);">
-    <li>Affectations analytiques : <strong>{{ pr.affectations_ecrites }}</strong></li>
-    <li>Impacts ménage : <strong>{{ pr.menage_ecrits }}</strong></li>
-    <li>Réserves refacturables : <strong>{{ pr.reserve_ecrites }}</strong></li>
-    <li>Avantage associé (Lot7) : <strong>{{ 'Oui' if pr.avantage_ecrit else 'Non' }}</strong></li>
-  </ul>
-</section>
-{% endif %}
-
 <section class="card">
-  <h2>Intégrité source</h2>
+  <h2>Prévisualisation</h2>
   <table class="dryrun-table">
     <tbody>
-      <tr>
-        <td>Source inchangée</td>
-        <td>
-          {% if manifest.source_inchangee %}
-          <span style="color: var(--color-success);">✓ OUI</span>
-          {% else %}
-          <span style="color: var(--color-danger);">✗ NON — ALERTE INTÉGRITÉ</span>
-          {% endif %}
-        </td>
-      </tr>
-      <tr>
-        <td>Hash source avant</td>
-        <td><code>{{ manifest.source_hash_avant[:16] }}...</code></td>
-      </tr>
-      <tr>
-        <td>Hash source après</td>
-        <td><code>{{ manifest.source_hash_apres[:16] if manifest.source_hash_apres else '—' }}...</code></td>
-      </tr>
-      <tr>
-        <td>Hash copie</td>
-        <td><code>{{ manifest.copy_hash[:16] if manifest.copy_hash else '—' }}...</code></td>
-      </tr>
       <tr>
         <td>Token</td>
         <td><code>{{ manifest.token }}</code></td>
@@ -216,14 +174,8 @@
   </table>
 </section>
 
-{% if not manifest.source_inchangee %}
-<div class="alert alert-error">
-  <strong>ALERTE INTÉGRITÉ :</strong> la source SAISIE_Charges_Flux.xlsx a été modifiée pendant la simulation. Ce résultat doit être invalidé.
-</div>
-{% endif %}
-
 {# ── Détail de ce qui sera écrit (reconstruit côté serveur, jamais renvoyé par le navigateur) ── #}
-{% set pers = manifest.persistable %}
+{% set pers = manifest.row_data %}
 {% if pers %}
 <div class="grid two-cols">
 
@@ -281,18 +233,13 @@
 </div>
 {% endif %}
 
-{# ── Effet prévu sur les fichiers ── #}
+{# ── Effet prévu ── #}
 <section class="card" data-testid="effet-fichiers">
-  <h2>Effet prévu sur les fichiers</h2>
+  <h2>Effet prévu</h2>
   <ul style="margin:0; padding-left: var(--stack-lg);">
-    <li><code>SAISIE_Charges_Flux.xlsx</code> — 1 ligne de charge ajoutée (ligne {{ manifest.target_row }})</li>
-    <li><code>SAISIE_Charges_Impacts.xlsx</code> —
-      {{ (pers.affectations | length) if pers else 0 }} affectation(s),
-      {{ (pers.menage | length) if pers else 0 }} impact(s) ménage,
-      {{ (pers.reserve | length) if pers else 0 }} réserve(s)</li>
-    <li>Puis, hors transaction : régénération de <code>MASTER_FACT_MAN_Charges</code> (Lot3){% if manifest.avantage_associe %}, de <code>MASTER_CALC_AVANTAGES</code> (Lot7){% endif %}, et contrôles Lot11.</li>
+    <li>Une charge est ajoutée à la table <code>charges</code> (statut A_CONTROLER).</li>
+    <li>Elle devra ensuite être validée (page « Charges à contrôler ») pour être ingérée par Lot9/Lot11.</li>
   </ul>
-  <p class="page-subtitle">Les deux fichiers de saisie sont écrits de façon transactionnelle : si le second échoue, le premier est restauré.</p>
 </section>
 
 {# ── Confirmation ── #}
@@ -306,21 +253,9 @@
   </div>
   <a href="/fournisseurs/nouvelle/resultat/{{ token }}" class="btn btn-primary">Voir le résultat</a>
 
-  {% elif not ecriture_activee %}
-  <div class="alert alert-warning" data-testid="ecriture-desactivee">
-    <strong>L'écriture réelle n'est pas activée sur cette installation.</strong>
-    Les indicateurs <code>CHARGES_REAL_WRITE_ENABLED</code> et
-    <code>CHARGES_REAL_WRITE_CONFIRMATION_ENABLED</code> sont à <code>False</code> :
-    la confirmation est impossible et aucune donnée réelle ne peut être modifiée.
-  </div>
-  <button type="button" class="btn btn-primary" disabled data-testid="btn-confirmer">
-    Confirmer l'enregistrement
-  </button>
-  <a href="/fournisseurs/nouvelle" class="btn btn-secondary">Revenir modifier</a>
-
   {% else %}
   <div class="alert alert-warning" data-testid="avertissement-ecriture">
-    <strong>Attention — cette action écrit réellement dans les fichiers de saisie.</strong>
+    <strong>Attention — cette action enregistre réellement la charge en base.</strong>
     Elle est tracée et ne peut pas être rejouée avec la même prévisualisation.
     Vérifiez le récapitulatif ci-dessus avant de confirmer.
   </div>

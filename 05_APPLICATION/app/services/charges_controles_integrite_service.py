@@ -4,16 +4,16 @@ Motif : Lot10 n'infère JAMAIS le propriétaire. Une charge `refacturable=OUI` +
 propriétaire déterminé ne peut donc produire ni préfacture ni montant dû : elle serait silencieusement
 perdue. Ces contrôles la rendent visible et BLOQUANTE avant tout recalcul.
 
+Source : table `charges` (migration 0052) et référentiels SQLite (migration 0029) — plus de
+MASTER_FACT_MAN_Charges.xlsx ni de REF_Setup.xlsm à relire.
+
 Lecture seule. Aucun contrôle ne modifie une donnée.
 """
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
-import openpyxl
-
-import app.config as cfg
+from app.services import referentiel_admin_service as ref_admin
 
 BLOQUANT = "BLOQUANT"
 INFO = "INFO"
@@ -33,44 +33,28 @@ MESSAGES = {
 }
 
 
-def _lire(path: Path, sheet: str) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
-    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-    if sheet not in wb.sheetnames:
-        wb.close()
-        return []
-    ws = wb[sheet]
-    data = list(ws.iter_rows(values_only=True))
-    wb.close()
-    if not data:
-        return []
-    hdr = list(data[0])
-    out = []
-    for r in data[1:]:
-        d = dict(zip(hdr, r))
-        cid = str(d.get("charge_id") or d.get("logement_id") or "").strip()
-        if cid and cid[0] in "#[<←-*":
-            continue
-        out.append(d)
-    return out
-
-
 def _txt(v) -> str:
     return str(v or "").strip()
 
 
-def controler(master_charges: Path | None = None, ref_path: Path | None = None) -> dict[str, Any]:
-    """Retourne les anomalies détectées sur les charges du MASTER (Lot3).
+def controler(*, db_path=None) -> dict[str, Any]:
+    """Retourne les anomalies détectées sur les charges actives (table `charges`).
 
     Un contrôle BLOQUANT signifie : le recalcul aval ne doit pas être considéré comme fiable tant
     que l'anomalie n'est pas corrigée.
     """
-    charges = _lire(Path(master_charges or cfg.MASTER_CHARGES), "MASTER")
-    ref = Path(ref_path or cfg.REF_SETUP)
-    proprios = {_txt(r.get("proprietaire_id")) for r in _lire(ref, "REF_Proprietaires")}
+    from app.db.connection import get_db
+
+    conn = get_db(db_path)
+    try:
+        charges = [dict(r) for r in conn.execute(
+            "SELECT * FROM charges WHERE statut = 'ACTIVE'")]
+    finally:
+        conn.close()
+    proprios = {_txt(r.get("proprietaire_id"))
+                for r in ref_admin.lignes("ref_proprietaires", db_path=db_path)}
     proprios.discard("")
-    gestion = _lire(ref, "REF_Gestion_Logements_Hist")
+    gestion = ref_admin.lignes("ref_gestion_logements_hist", db_path=db_path)
 
     def _proprio_du_logement(logement_id: str, mois: str) -> set[str]:
         out = set()

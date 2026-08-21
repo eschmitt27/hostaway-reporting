@@ -1,10 +1,9 @@
-"""Service charges fournisseurs — lecture MASTER Lot3 (APP-3a).
+"""Service charges fournisseurs — lecture table `charges` SQLite (APP-3a, migration 0052).
 
 Règles :
-- Lecture seule MASTER ; aucun recalcul d'aucune métrique.
+- Lecture seule ; aucun recalcul d'aucune métrique.
 - status=OK même si 0 lignes (liste vide normale avant toute saisie).
-- status=ERROR uniquement si MASTER absent ou illisible.
-- Aucun accès SQLite, aucune écriture Excel ou MASTER.
+- status=ERROR uniquement si la table est indisponible.
 """
 from datetime import datetime
 from typing import Any
@@ -22,10 +21,11 @@ def load_list(
     code_impact: str = "",
     statut_controle: str = "",
     associe_id: str = "",
+    db_path=None,
 ) -> dict[str, Any]:
     read_at = _now()
 
-    if not reader.master_available():
+    if not reader.master_available(db_path=db_path):
         return {
             "status": "ERROR",
             "error_message": f"Source introuvable : {reader.SOURCE_MASTER}.",
@@ -36,7 +36,7 @@ def load_list(
             "applied": {},
         }
 
-    rows = reader.read_charges()
+    rows = reader.read_charges(db_path=db_path)
 
     filters = {
         "mois": sorted({str(r.get("mois") or "").strip() for r in rows if (r.get("mois") or "").strip()}),
@@ -84,11 +84,11 @@ def load_list(
     }
 
 
-def load_detail(charge_id: str) -> dict[str, Any] | None:
+def load_detail(charge_id: str, db_path=None) -> dict[str, Any] | None:
     """Fiche détail par charge_id. None si la ligne n'existe pas (→ 404 propre)."""
     read_at = _now()
 
-    if not reader.master_available():
+    if not reader.master_available(db_path=db_path):
         return {
             "status": "ERROR",
             "error_message": f"Source introuvable : {reader.SOURCE_MASTER}.",
@@ -96,7 +96,7 @@ def load_detail(charge_id: str) -> dict[str, Any] | None:
             "read_at": read_at,
         }
 
-    charge = reader.find_charge(charge_id)
+    charge = reader.find_charge(charge_id, db_path=db_path)
     if charge is None:
         return None
 

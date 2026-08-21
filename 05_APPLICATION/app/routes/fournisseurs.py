@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-import app.config as cfg
 from app.config import TEMPLATES_DIR
 from app.services import charges_confirmation_service as confirmation
 from app.services import charges_service as svc
@@ -14,11 +13,6 @@ from app.services.charges_preview_service import (
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
-
-
-def _ecriture_activee() -> bool:
-    """Les DEUX flags sont requis. Lu à chaud : jamais figé à l'import."""
-    return bool(cfg.CHARGES_REAL_WRITE_ENABLED and cfg.CHARGES_REAL_WRITE_CONFIRMATION_ENABLED)
 
 
 @router.get("/fournisseurs", response_class=HTMLResponse)
@@ -99,7 +93,7 @@ def fournisseurs_previsualisation(request: Request, token: str):
         "token": token,
         "manifest": data["manifest"],
         "not_found": False,
-        "ecriture_activee": _ecriture_activee(),
+        "ecriture_activee": True,
         "deja_confirme": confirmation.resultat_existe(token),
     })
 

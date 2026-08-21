@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-import app.config as cfg
+import fixtures_referentiel as fx
 from app.services import charges_impact_service as impact
 from app.services.charges_preview_service import (
     load_form_refs,
@@ -18,10 +18,47 @@ from app.services.charges_preview_service import (
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
+# Référentiel SQLite seedé pour les tests d'intégration (previsualiser/validate_charge) :
+# remplace la lecture de REF_Setup.xlsm réel — plus de classeur au runtime de la saisie.
+
+def _semer_referentiel_impact(db_path) -> None:
+    fx.semer_parc_standard(db_path)
+    fx.semer_referentiel_charges(db_path)
+    from app.db.connection import get_db
+    conn = get_db(db_path)
+    try:
+        conn.execute(
+            "INSERT INTO ref_categories_charges (categorie_charge_id, famille_impact_categorie, "
+            "actif, import_id) VALUES (?,?,?,?)",
+            ("CHG_005", "GLOBAL", "OUI", fx.IMPORT_TEST))
+        conn.execute(
+            "INSERT INTO ref_categories_charges (categorie_charge_id, famille_impact_categorie, "
+            "actif, import_id) VALUES (?,?,?,?)",
+            ("CHG_004", "GLOBAL", "OUI", fx.IMPORT_TEST))
+        conn.execute(
+            "INSERT INTO ref_categories_charges (categorie_charge_id, famille_impact_categorie, "
+            "actif, import_id) VALUES (?,?,?,?)",
+            ("CHG_009", "GLOBAL", "OUI", fx.IMPORT_TEST))
+        conn.execute(
+            "INSERT INTO ref_categories_charges (categorie_charge_id, famille_impact_categorie, "
+            "actif, import_id) VALUES (?,?,?,?)",
+            ("CHG_016", "GLOBAL", "OUI", fx.IMPORT_TEST))
+        conn.execute(
+            "INSERT INTO ref_intervenants (intervenant_id, actif, import_id) VALUES (?,?,?)",
+            ("INT_0001", "OUI", fx.IMPORT_TEST))
+        conn.execute(
+            "INSERT INTO ref_associes (personne_id, nom_personne, actif, import_id) "
+            "VALUES (?,?,?,?)",
+            ("ASSOC_0001", "Associe Test", "OUI", fx.IMPORT_TEST))
+        conn.commit()
+    finally:
+        conn.close()
+
 
 @pytest.fixture()
-def refs() -> dict:
-    return load_form_refs()
+def refs(tmp_db) -> dict:
+    _semer_referentiel_impact(tmp_db)
+    return load_form_refs(db_path=tmp_db)
 
 
 GESTION = [
@@ -195,8 +232,9 @@ def _base_form() -> dict:
     }
 
 
-def test_charge_globale(tmp_path: Path):
-    r = previsualiser(_base_form(), dryruns_root=tmp_path / "d")
+def test_charge_globale(tmp_db, tmp_path: Path):
+    _semer_referentiel_impact(tmp_db)
+    r = previsualiser(_base_form(), db_path=tmp_db, dryruns_root=tmp_path / "d")
     assert r["ok"], r["manifest"].get("errors")
     m = r["manifest"]
     assert m["impact_menage"] is False
@@ -204,24 +242,13 @@ def test_charge_globale(tmp_path: Path):
     assert m["effet_saisie"]["perimetre_analytique"] == "global conciergerie"
 
 
-def _real_prop_logement():
-    """Retourne (proprietaire_id, logement_id actif) réel depuis REF_Gestion."""
-    refs = load_form_refs()
-    for g in refs["gestion_logements"]:
-        if impact.gestion_active_pour_mois(g, "2026-06"):
-            return str(g["proprietaire_id"]).strip(), str(g["logement_id"]).strip()
-    return None, None
-
-
-def test_charge_un_proprietaire_elargit_logements(tmp_path: Path):
-    prop, log = _real_prop_logement()
-    if not prop:
-        pytest.skip("Aucune gestion active 2026-06")
+def test_charge_un_proprietaire_elargit_logements(tmp_db, tmp_path: Path):
+    _semer_referentiel_impact(tmp_db)
     form = _base_form()
-    form["proprietaires"] = [prop]
-    r = previsualiser(form, dryruns_root=tmp_path / "d")
+    form["proprietaires"] = ["PROP_A"]
+    r = previsualiser(form, db_path=tmp_db, dryruns_root=tmp_path / "d")
     assert r["ok"], r["manifest"].get("errors")
-    assert log in r["manifest"]["perimetre"]["logements_finaux"]
+    assert "LOG_A1" in r["manifest"]["perimetre"]["logements_finaux"]
 
 
 def test_refacturable_sans_logement_refuse(refs):
@@ -231,36 +258,43 @@ def test_refacturable_sans_logement_refuse(refs):
     assert "V24_REFAC_SANS_LOGEMENT" in codes
 
 
-def test_refacturable_avec_logement_cree_reserve(tmp_path: Path):
-    refs = load_form_refs()
-    valid_logs = [str(l["logement_id"]).strip() for l in refs["logements"]][:2]
-    if len(valid_logs) < 2:
-        pytest.skip("Pas assez de logements")
+def test_refacturable_avec_logement_cree_reserve(tmp_db, tmp_path: Path):
+    _semer_referentiel_impact(tmp_db)
+    from app.db.connection import get_db
+    conn = get_db(tmp_db)
+    try:
+        conn.execute(
+            "INSERT INTO ref_logements (logement_id, actif, import_id) VALUES (?,?,?)",
+            ("LOG_B2", "OUI", fx.IMPORT_TEST))
+        conn.execute(
+            "INSERT INTO ref_gestion_logements_hist (gestion_id, logement_id, proprietaire_id, "
+            "date_debut, date_fin, statut_gestion, import_id) VALUES (?,?,?,?,?,?,?)",
+            ("GST_B2", "LOG_B2", "PROP_B", "2026-01-01", "", "ACTIF", fx.IMPORT_TEST))
+        conn.commit()
+    finally:
+        conn.close()
     form = _base_form()
-    form["logements"] = valid_logs
+    form["logements"] = ["LOG_A1", "LOG_B2"]
     form["refacturable"] = "OUI"
-    r = previsualiser(form, dryruns_root=tmp_path / "d")
+    r = previsualiser(form, db_path=tmp_db, dryruns_root=tmp_path / "d")
     assert r["ok"], r["manifest"].get("errors")
     res = r["manifest"]["reserve_refacturation"]
     assert res is not None
     assert res["montant_total_refacturable"] == 100.0
     assert res["nb_entrees"] == 2
     # fichier réserve écrit
-    assert (Path(r["manifest"]["paths"]["run_dir"]) / "reserve_refacturation.json").exists()
+    assert (r["run_dir"] / "reserve_refacturation.json").exists()
 
 
-def test_menage_charge_intervenant(tmp_path: Path):
-    refs = load_form_refs()
-    ints = [str(i["intervenant_id"]).strip() for i in refs["intervenants"]][:1]
-    if not ints:
-        pytest.skip("Pas d'intervenant")
+def test_menage_charge_intervenant(tmp_db, tmp_path: Path):
+    _semer_referentiel_impact(tmp_db)
     form = _base_form()
     form["categorie_charge_id"] = "CHG_004"  # Achat ménage (MENAGE_FORCE)
     form["code_impact"] = "HC"
     form["commentaire"] = "impact HC justifié"
     form["menage_mode"] = "INTERVENANT"
-    form["menage_intervenants"] = ints
-    r = previsualiser(form, dryruns_root=tmp_path / "d")
+    form["menage_intervenants"] = ["INT_0001"]
+    r = previsualiser(form, db_path=tmp_db, dryruns_root=tmp_path / "d")
     assert r["ok"], r["manifest"].get("errors")
     assert r["manifest"]["impact_menage"] is True
     assert r["manifest"]["menage"]["mode"] == "INTERVENANT"
@@ -316,20 +350,17 @@ def test_avantage_associe_interdit_categorie(refs):
     assert "V25_AVANTAGE_INTERDIT" in codes
 
 
-def test_avantage_distinct_du_paiement(tmp_path: Path):
+def test_avantage_distinct_du_paiement(tmp_db, tmp_path: Path):
     # Payé banque pro (PAY_001) mais avantage associé OUI → avantage tracé, distinct du paiement.
-    refs = load_form_refs()
-    assoc = [str(a["personne_id"]).strip() for a in refs["associes"]][:1]
-    if not assoc:
-        pytest.skip("Pas d'associé")
+    _semer_referentiel_impact(tmp_db)
     form = _base_form()
     form["categorie_charge_id"] = "CHG_009"
     form["avantage_associe"] = "OUI"
-    form["avantage_associe_id"] = assoc[0]  # distinct du mode de paiement (PAY_001)
-    r = previsualiser(form, dryruns_root=tmp_path / "d")
+    form["avantage_associe_id"] = "ASSOC_0001"  # distinct du mode de paiement (PAY_001)
+    r = previsualiser(form, db_path=tmp_db, dryruns_root=tmp_path / "d")
     assert r["ok"], r["manifest"].get("errors")
     assert r["manifest"]["avantage_associe"] is True
-    assert r["manifest"]["avantage_associe_id"] == assoc[0]
+    assert r["manifest"]["avantage_associe_id"] == "ASSOC_0001"
 
 
 def test_forfait_client_hors_formulaire(refs):
@@ -337,13 +368,3 @@ def test_forfait_client_hors_formulaire(refs):
     form["categorie_charge_id"] = "CHG_016"  # forfait client
     codes = [e["code"] for e in validate_charge(form, refs)]
     assert "V04_CATEGORIE_HORS_FORMULAIRE" in codes
-
-
-def test_source_inchangee_apres_impacts(tmp_path: Path):
-    import hashlib
-    h_av = hashlib.sha256(cfg.SAISIE_CHARGES.read_bytes()).hexdigest()
-    form = _base_form()
-    form["proprietaires"] = ["PROP_0001"]
-    previsualiser(form, dryruns_root=tmp_path / "d")
-    h_ap = hashlib.sha256(cfg.SAISIE_CHARGES.read_bytes()).hexdigest()
-    assert h_av == h_ap

@@ -272,7 +272,7 @@ def menages_vs_charges(*, mois: str = "", db_path=None) -> dict[str, Any]:
     manquants = []
     trouves = 0
     for r in rows:
-        if charges_reader.find_charge(r["charge_id"]) is not None:
+        if charges_reader.find_charge(r["charge_id"], db_path=db_path) is not None:
             trouves += 1
         else:
             manquants.append({"menage_id_opaque": r["menage_id_opaque"], "charge_id": r["charge_id"]})

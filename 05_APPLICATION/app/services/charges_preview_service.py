@@ -1,60 +1,33 @@
-"""APP-3b-1 - Prévisualisation de saisie charge sur copie.
+"""APP-3b-2 - Prévisualisation de saisie charge, entièrement SQLite.
 
-Aucune écriture dans les sources réelles.
-SAISIE_Charges_Flux.xlsx n'est jamais modifié.
-Les copies ne sont créées que sous DRYRUNS_DIR.
+Référentiels lus dans les tables `ref_*` (migration 0029). Rien n'est écrit avant la confirmation :
+la prévisualisation ne produit qu'un manifest JSON sous DRYRUNS_DIR. Aucun classeur (ni
+SAISIE_Charges_Flux.xlsx, ni REF_Setup.xlsm) n'est ouvert.
 """
 from __future__ import annotations
 
 import hashlib
 import json
-import shutil
 import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import openpyxl
-
 import app.config as cfg
-from app.readers.saisie_charges_reader import (
-    FORMULA_COL_INDICES,
-    MANUAL_COL_MAP,
-    _col_index,
-    count_charges_with_prefix,
-    find_model_row,
-    read_ref_assoc_mode,
-    read_ref_associes,
-    read_ref_cartes_paiement,
-    read_ref_categories_charges,
-    read_ref_cloture,
-    read_ref_codes_impact,
-    read_ref_couts_standards_menage,
-    read_ref_gestion_logements,
-    read_ref_intervenants,
-    read_ref_logements,
-    read_ref_modes_paiement,
-    read_ref_proprietaires,
-    read_ref_statuts,
-    read_ref_types_affectation,
-    read_ref_types_flux,
-    reservation_id_exists,
-)
+from app.readers.saisie_charges_reader import reservation_id_exists
 from app.services import charges_impact_service as impact
-from app.services import charges_impacts_persist_service as persist
+from app.services import referentiel_admin_service as ref_admin
 
 DRYRUNS_DIR = cfg.DRYRUNS_DIR
-SAISIE_COPY_NAME = "SAISIE_Charges_Flux_copie.xlsx"
 MANIFEST_NAME = "manifest.json"
-IMPACTS_COPY_NAME = "SAISIE_Charges_Impacts_copie.xlsx"
 
 # Champs du manifest qui portent la DÉCISION (ce qui sera écrit). Leur empreinte est scellée dans
 # `integrite` : la confirmation la recalcule et refuse d'écrire si elle diffère. Ce n'est pas un
 # dispositif anti-intrusion (le fichier est local et réinscriptible) mais une détection de
 # corruption / d'altération accidentelle entre la prévisualisation et la confirmation.
 CHAMPS_SCELLES: tuple[str, ...] = (
-    "token", "status", "charge_id", "mois_charge", "target_row", "type_flux_id", "profil_impact",
-    "assoc_mode", "form_data", "persistable", "source_hash_avant", "impacts_hash_avant",
+    "token", "status", "charge_id", "mois_charge", "type_flux_id", "profil_impact",
+    "assoc_mode", "form_data", "row_data",
 )
 
 
@@ -350,24 +323,24 @@ def _assert_under(path: Path, allowed_root: Path) -> Path:
     return resolved
 
 
-def load_form_refs(ref_path: Path | None = None) -> dict[str, Any]:
-    """Charge toutes les données dropdown nécessaires au formulaire."""
-    p = ref_path or cfg.REF_SETUP
-    categories = read_ref_categories_charges(p)
-    types_flux = read_ref_types_flux(p)
-    codes_impact = read_ref_codes_impact(p)
-    modes_paiement = read_ref_modes_paiement(p)
-    associes = read_ref_associes(p)
-    cartes = read_ref_cartes_paiement(p)
-    logements = read_ref_logements(p)
-    cloture = read_ref_cloture(p)
-    assoc_mode_rows = read_ref_assoc_mode(p)
-    affectation_types = read_ref_types_affectation(p)
-    statuts = read_ref_statuts(p)
-    gestion_rows = read_ref_gestion_logements(p)
-    intervenants = read_ref_intervenants(p)
-    couts_standards = read_ref_couts_standards_menage(p)
-    proprietaires = read_ref_proprietaires(p)
+def load_form_refs(db_path=None) -> dict[str, Any]:
+    """Charge toutes les données dropdown nécessaires au formulaire, depuis les référentiels SQLite
+    (migration 0029) — plus de REF_Setup.xlsm à ouvrir."""
+    categories = ref_admin.lignes("ref_categories_charges", db_path=db_path)
+    types_flux = ref_admin.lignes("ref_types_flux", db_path=db_path)
+    codes_impact = ref_admin.lignes("ref_codes_impact", db_path=db_path)
+    modes_paiement = ref_admin.lignes("ref_modes_paiement", db_path=db_path)
+    associes = ref_admin.lignes("ref_associes", db_path=db_path)
+    cartes = ref_admin.lignes("ref_cartes_paiement", db_path=db_path)
+    logements = ref_admin.lignes("ref_logements", db_path=db_path)
+    cloture = ref_admin.lignes("ref_cloture_mensuelle", db_path=db_path)
+    assoc_mode_rows = ref_admin.lignes("ref_assoc_mode", db_path=db_path)
+    affectation_types = ref_admin.lignes("ref_types_affectation", db_path=db_path)
+    statuts = ref_admin.lignes("ref_statuts", db_path=db_path)
+    gestion_rows = ref_admin.lignes("ref_gestion_logements_hist", db_path=db_path)
+    intervenants = ref_admin.lignes("ref_intervenants", db_path=db_path)
+    couts_standards = ref_admin.lignes("ref_couts_standards_menage", db_path=db_path)
+    proprietaires = ref_admin.lignes("ref_proprietaires", db_path=db_path)
 
     def is_active(row: dict[str, Any]) -> bool:
         return str(row.get("actif", "")).upper() == "OUI"
@@ -495,19 +468,6 @@ def resolve_assoc_mode(
     return None
 
 
-def generate_charge_id(
-    date_charge: date,
-    code_impact: str,
-    assoc_mode: str,
-    saisie_path: Path | None = None,
-) -> str:
-    """Génère CHG-{AAAA}-{MM}-{IMPACT}-{ASSOC_MODE}-{NNN}."""
-    aaaa = date_charge.strftime("%Y")
-    mm = date_charge.strftime("%m")
-    prefix = f"CHG-{aaaa}-{mm}-{code_impact}-{assoc_mode}"
-    count = count_charges_with_prefix(prefix, saisie_path)
-    nnn = str(count + 1).zfill(3)
-    return f"{prefix}-{nnn}"
 
 
 def validate_charge(
@@ -878,61 +838,35 @@ def _build_row_data(
     }
 
 
-def _inject_row(copy_path: Path, target_row: int, row_data: dict[str, Any]) -> None:
-    """Injecte row_data dans la copie SAISIE à target_row.
-
-    Ne touche jamais aux colonnes formule (C, I, J, AD).
-    """
-    wb = openpyxl.load_workbook(str(copy_path), data_only=False)
-    try:
-        ws = wb["SAISIE"]
-        for col_letter, field_name in MANUAL_COL_MAP.items():
-            col_idx = _col_index(col_letter)
-            if col_idx in FORMULA_COL_INDICES:
-                continue
-            value = row_data.get(field_name)
-            ws.cell(row=target_row, column=col_idx, value=value)
-        wb.calculation.fullCalcOnLoad = True
-        wb.save(str(copy_path))
-    finally:
-        wb.close()
-
-
 def previsualiser(
     form_data: dict[str, str],
     *,
-    saisie_source: Path | None = None,
-    ref_path: Path | None = None,
+    db_path=None,
     dryruns_root: Path | None = None,
     resolues_path: Path | None = None,
 ) -> dict[str, Any]:
-    """Valide et crée une copie prévisualisée.
+    """Valide la saisie et prépare le payload qui sera écrit dans `charges` (SQLite) à la
+    confirmation.
 
-    N'écrit jamais dans la source réelle SAISIE_Charges_Flux.xlsx.
-    Toutes les copies restent sous DRYRUNS_DIR.
+    Ne touche plus aucun classeur : les référentiels sont lus en SQLite (migration 0029), et rien
+    n'est écrit avant la confirmation — un simple manifest JSON sous DRYRUNS_DIR.
     """
-    source = Path(saisie_source or cfg.SAISIE_CHARGES)
     root = Path(dryruns_root or DRYRUNS_DIR)
     token = _token()
     run_dir = root / token
     run_dir.mkdir(parents=True, exist_ok=False)
 
-    source_hash_avant = _sha256(source)
-
-    refs = load_form_refs(ref_path)
-    errors = validate_charge(form_data, refs, saisie_path=source, resolues_path=resolues_path)
+    refs = load_form_refs(db_path=db_path)
+    errors = validate_charge(form_data, refs, resolues_path=resolues_path)
 
     if errors:
         manifest: dict[str, Any] = {
             "token": token,
             "created_at_utc": datetime.now(timezone.utc).isoformat(),
-            "app_version": "APP-3b-1",
-            "charges_real_write_enabled": cfg.CHARGES_REAL_WRITE_ENABLED,
+            "app_version": "APP-3b-2",
             "status": "VALIDATION_REFUSEE",
             "errors": errors,
             "form_data": form_data,
-            "source_hash_avant": source_hash_avant,
-            "source_inchangee": True,
         }
         (run_dir / MANIFEST_NAME).write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2),
@@ -940,45 +874,18 @@ def previsualiser(
         )
         return {"ok": False, "token": token, "run_dir": run_dir, "manifest": manifest}
 
-    # Résolution ASSOC_MODE
     mode_paiement_id = str(form_data.get("mode_paiement_id", "")).strip()
     associe_id = str(form_data.get("associe_id", "")).strip() or None
-    code_impact = str(form_data.get("code_impact", "")).strip()
     date_charge_raw = str(form_data.get("date_charge", "")).strip()
     date_charge = date.fromisoformat(date_charge_raw)
+    mois_charge = date_charge.strftime("%Y-%m")
 
     assoc_mode = resolve_assoc_mode(mode_paiement_id, associe_id, refs["assoc_mode"])
-    charge_id = generate_charge_id(date_charge, code_impact, assoc_mode, source)
-
-    # Copie source
-    copy_path = run_dir / SAISIE_COPY_NAME
-    shutil.copy2(source, copy_path)
-    _assert_under(copy_path, root)
-
-    target_row = find_model_row(copy_path)
-    if target_row is None:
-        manifest = {
-            "token": token,
-            "created_at_utc": datetime.now(timezone.utc).isoformat(),
-            "app_version": "APP-3b-1",
-            "charges_real_write_enabled": cfg.CHARGES_REAL_WRITE_ENABLED,
-            "status": "ERREUR_LIGNE_MODELE",
-            "errors": [{"code": "E_MODELE", "message": "Aucune ligne modèle trouvée dans SAISIE_Charges_Flux.xlsx."}],
-            "form_data": form_data,
-            "source_hash_avant": source_hash_avant,
-            "source_inchangee": True,
-        }
-        (run_dir / MANIFEST_NAME).write_text(
-            json.dumps(manifest, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        return {"ok": False, "token": token, "run_dir": run_dir, "manifest": manifest}
+    charge_id = f"CHG-{uuid.uuid4().hex[:12]}"
 
     categorie_id = str(form_data.get("categorie_charge_id", "")).strip()
     profil_impact = resolve_profil_impact(categorie_id, refs)
-    # Calculs guidés (périmètre / ménage / réserve / avantage / effet)
-    guide = compute_guidee(form_data, refs, mois_charge_pre := date_charge.strftime("%Y-%m"))
-    # type_flux_id dérivé serveur. Pour CHG_024 refacturable forcé NON (jamais TF011).
+    guide = compute_guidee(form_data, refs, mois_charge)
     refac_for_derive = None if categorie_id == CATEGORIE_PERSONNALISEE else form_data.get("refacturable")
     type_flux_id = derive_type_flux(
         categorie_id,
@@ -989,37 +896,11 @@ def previsualiser(
     row_data = _build_row_data(
         form_data, charge_id, profil_impact=profil_impact, type_flux_id=type_flux_id, guide=guide
     )
-    _inject_row(copy_path, target_row, row_data)
-
-    # ── Persistance durable (sur COPIE contrôlée, jamais le fichier réel — flags off) ──
-    try:
-        montant_pre = float(str(form_data.get("montant", "0")).strip().replace(",", "."))
-    except ValueError:
-        montant_pre = 0.0
-    persistable = persist.build_persistable(charge_id, mois_charge_pre, montant_pre, guide, form_data)
-    impacts_copy = run_dir / IMPACTS_COPY_NAME
-    persist_report = None
-    # Empreinte du fichier d'impacts RÉEL au moment de la prévisualisation : la confirmation la
-    # revérifiera pour refuser d'écrire sur une base qui a bougé entre-temps.
-    impacts_hash_avant = (
-        _sha256(cfg.SAISIE_CHARGES_IMPACTS) if cfg.SAISIE_CHARGES_IMPACTS.exists() else None
-    )
-    if cfg.SAISIE_CHARGES_IMPACTS.exists():
-        shutil.copy2(cfg.SAISIE_CHARGES_IMPACTS, impacts_copy)
-        _assert_under(impacts_copy, root)
-        # Avantage porté par la ligne charge (colonne avantage_associe_id) — pas d'écriture Lot7 ici.
-        persist_report = persist.persister_sur_copie(persistable, impacts_copy)
-
-    source_hash_apres = _sha256(source)
-    source_inchangee = source_hash_avant == source_hash_apres
-    copy_hash = _sha256(copy_path)
-    mois_charge = date_charge.strftime("%Y-%m")
 
     manifest = {
         "token": token,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
-        "app_version": "APP-3b-1",
-        "charges_real_write_enabled": cfg.CHARGES_REAL_WRITE_ENABLED,
+        "app_version": "APP-3b-2",
         "status": "OK",
         "errors": [],
         "form_data": form_data,
@@ -1028,8 +909,7 @@ def previsualiser(
         "assoc_mode": assoc_mode,
         "profil_impact": profil_impact,
         "type_flux_id": type_flux_id,
-        "target_row": target_row,
-        # Impacts guidés (prévisualisation uniquement — aucune écriture réelle)
+        "row_data": row_data,
         "impact_menage": guide["impact_menage"],
         "perimetre": guide["perimetre"],
         "menage": guide["menage"],
@@ -1038,23 +918,9 @@ def previsualiser(
         "avantage_associe": guide["avantage_associe"],
         "avantage_associe_id": guide["associe_id"],
         "effet_saisie": guide["effet"],
-        # Persistance durable (aperçu de ce qui serait écrit dans SAISIE_Charges_Impacts / Lot7)
-        "persistable": persistable,
-        "persist_report": persist_report,
-        "source_hash_avant": source_hash_avant,
-        "source_hash_apres": source_hash_apres,
-        "source_inchangee": source_inchangee,
-        "copy_hash": copy_hash,
-        # Empreinte du SAISIE_Charges_Impacts réel (vérifiée à la confirmation).
-        "impacts_hash_avant": impacts_hash_avant,
-        "paths": {
-            "run_dir": str(run_dir),
-            "saisie_copy": str(copy_path),
-        },
     }
     # Sceau des champs de décision — recalculé et comparé à la confirmation (détection d'altération).
     manifest["integrite"] = sceller_manifest(manifest)
-    # Réserve de facturation : fichier séparé (traçabilité), jamais en cellule métier concaténée.
     if guide["reserve"]:
         (run_dir / "reserve_refacturation.json").write_text(
             json.dumps(guide["reserve"], ensure_ascii=False, indent=2), encoding="utf-8"
