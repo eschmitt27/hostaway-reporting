@@ -339,3 +339,18 @@ par test dédié. Détail : document `95` (§18).
 
 **Lot9/10/11(couvert)/12 clos. Arrêt volontaire : Lot13/export final/orchestrateur = mission
 suivante, non commencée.**
+
+## Mise à jour — Lot11 clos, Lot13 export-only, orchestrateur opérationnel
+
+Lot11 100% SQLite (parité réelle 23/24, écart restant prouvé côté données). MASTER_CTRL_Coherence :
+0 lecture runtime. Lot12 : identité stable. Lot13 : export terminal, parité identique, 0,00 €.
+Orchestrateur + ordonnanceur construits (migration 0050) ; ordonnanceur inerte tant que
+`ORDONNANCEUR_ACTIF` est faux. Détail : document `95` (§19).
+
+**Chaînes encore NON migrées, et c'est explicite** : Charges (Lot3), `lot4quater` (résolution des
+réservations), `lot6b`/`lot6c` (M04 et ménages externes), saisies AirCover / ImputationsAirbnb /
+AjustementsPostCloture / Acomptes / IK. L'orchestrateur les déclare non recalculables plutôt que
+d'exécuter une moitié de chaîne.
+
+**Mission suivante : administration REF_Setup SQLite + analytique 3 niveaux + recette manuelle
+UI-only + préparation du cut-over.**

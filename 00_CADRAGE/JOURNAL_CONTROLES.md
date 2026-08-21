@@ -3835,3 +3835,16 @@ préfactures propriétaires depuis Lot10/Lot11/référentiel, écrit dans `lot12
 run actif). Parité réelle prouvée le 2026-08-17 : 285/285 préfactures, 3481/3481 lignes, 0 écart de
 montant sur l'intégralité du jeu comparé à `MASTER_FACT_Proprietaires.xlsx`. Tests bloquants actifs
 (sans masters + pas de double comptage).
+
+## Lot11 fermé à 100% — MASTER_CTRL_Coherence hors runtime
+
+Les 6 derniers groupes legacy sont portés dans `controles_lot11_service`. Parité réelle complète :
+23/24 constats identiques sur `message`, `commentaire`, `source_module`, `severity`,
+`impact_facture`, `statut_resolution` — listes de logements du groupe 6f comprises. Écart restant :
+`CLOTURE_IMPOSSIBLE_LIGNE_BANCAIRE_NON_CLASSEE` 9 vs 8, divergence de fraîcheur entre la copie de
+`REF_Cloture_Mensuelle` du classeur Banque et celle de `REF_Setup` (prouvée côté données).
+
+Deux chemins lisaient encore le classeur : le runner de recalcul (désormais SQLite sur copie de
+base, sans sous-processus) et `controles_cloture_reader` (désormais lecture des constats en base).
+Test bloquant `test_master_ctrl_coherence_zero_runtime.py` : toute ouverture du classeur permanent
+fait échouer immédiatement, écrans de contrôles/clôture verts.

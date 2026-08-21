@@ -274,3 +274,52 @@ et un futur déclenchement automatique empruntent le même chemin.
 **Chaîne suivante : ménages.**
 
 Détail complet : document `95` (§13).
+
+---
+
+## Mise à jour — le DAG existe, en datasets SQLite
+
+L'orchestration n'est plus théorique. `app/services/orchestrateur_dag.py` déclare le graphe réel et
+`orchestrateur_service.py` l'exécute (migration 0050).
+
+### Nœuds et dépendances
+
+| Dataset | Type | Dépend de | Recalculable |
+|---|---|---|---|
+| `REF_SETUP` | IMPORT_SQLITE | — | non (import utilisateur) |
+| `BANQUE` | IMPORT_SQLITE | — | non (import utilisateur) |
+| `HOSTAWAY_RAW` | IMPORT_SQLITE | — | oui, **externe** (jamais automatique) |
+| `HOSTAWAY_CLEANING_TASKS` | IMPORT_SQLITE | HOSTAWAY_RAW | cadence propre (429) |
+| `RESERVATIONS` | CALCUL_SQLITE | HOSTAWAY_RAW, REF_SETUP | non — `lot4quater` sans mode SQLite |
+| `MENAGES` | CALCUL_SQLITE | HOSTAWAY_CLEANING_TASKS, REF_SETUP | non — `lot6b`/`lot6c` sans mode SQLite |
+| `FLUX_LOT9` | CALCUL_SQLITE | RESERVATIONS, MENAGES, BANQUE | oui |
+| `LOT10` | CALCUL_SQLITE | FLUX_LOT9 | oui (moteur pandas `--source SQLITE`) |
+| `LOT11` | CALCUL_SQLITE | FLUX_LOT9, LOT10, RESERVATIONS, MENAGES, BANQUE, REF_SETUP, HOSTAWAY_RAW | oui |
+| `LOT12` | CALCUL_SQLITE | LOT10, LOT11, REF_SETUP | oui |
+| `LOT13_EXPORT` | EXPORT_OPTIONNEL | tout l'amont | oui, jamais automatique |
+
+Aucun nœud `MASTER_XLSX` : la vérité est une table, pas un fichier.
+
+### Fraîcheur et invalidation
+
+`orchestrateur_datasets` retient, par dataset, le run qui l'a produit et sa date. Un dataset dont un
+amont a été recalculé après lui devient `A_RECALCULER`. **Aucun `mtime` n'intervient** — c'est ce qui
+empêche d'afficher « à jour » un Lot10 calculé sur un ancien Lot9.
+
+Un EXPORT_OPTIONNEL n'est jamais invalidé automatiquement : il est reconstructible à la demande et
+ne conditionne aucun calcul.
+
+### Runs
+
+Réutilisation de `moteur_runs`/`moteur_run_etapes` (0031) — pas de quatrième registre.
+`pipeline_runs` (journal de scripts) et `calculs_runs` (recalcul mensuel sur copie, avec
+prévisualisation et rollback) gardent leurs responsabilités propres.
+
+Un run global peut finir `PARTIEL` sans corrompre le dernier jeu valide. Un dataset dont un amont a
+échoué n'est jamais tenté. Un run resté ouvert sans verrou actif devient `INTERROMPU`, et les
+datasets qu'il avait laissés `EN_COURS` repassent à `A_RECALCULER` — jamais « à jour ».
+
+### Concurrence
+
+`orchestrateur_verrous` : un bail, pas un verrou éternel. Un processus tué ne bloque pas le
+pipeline (le bail expire et se reprend), et deux portées différentes ne s'attendent pas.

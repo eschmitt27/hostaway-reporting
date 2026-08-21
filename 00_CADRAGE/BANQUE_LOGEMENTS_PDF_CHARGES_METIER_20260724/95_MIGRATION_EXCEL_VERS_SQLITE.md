@@ -666,3 +666,115 @@ double_comptage.py` (garde structurelle + vérification en base).
 
 **Lot9, Lot10, Lot11 (groupes couverts) et Lot12 sont clos.** Arrêt volontaire ici (mission
 explicite) : Lot13/export final/orchestrateur restent hors périmètre de cette mission.
+
+## 19. Lot11 fermé à 100%, Lot13 export-only, orchestrateur et ordonnanceur
+
+### 19.1 Lot11 — les 6 derniers groupes portés
+
+Les groupes encore servis par le moteur legacy sont désormais tous dans
+`controles_lot11_service.py` : AirCover / imputations Airbnb, ajustements post-clôture, sources
+métier non alimentées (`HC_ZERO_SOURCES_VIDES`), Lot7C (suivi associé), rapprochement ménages
+externes ↔ Hostaway (groupe 6f) et provenance de la source ménages, plus `CAISSE_THEORIQUE`.
+
+Le groupe 6f est le seul qui portait des DONNÉES : il lit maintenant `menages_taches_enrichies`
+(comptage Hostaway) et `facture_lignes_menage` (volume facturé), avec la logique de classement
+reprise telle quelle de `lot6c_menages_externes.py`. Plus aucun classeur Lot6c au runtime de ce
+contrôle.
+
+Pour les autres, la source métier n'est pas migrée ET elle est vide aujourd'hui : le contrôle porté
+produit EXACTEMENT le constat que le legacy produit dans ce cas (même code, même message), sans
+ouvrir de classeur. Les branches conditionnées à des données inexistantes (schéma incomplet,
+cross-contrôles avantages, impact AirCover automatique) seront portées AVEC la migration de ces
+saisies : les écrire à vide produirait des règles qui ne s'exécutent jamais.
+
+**Parité réelle complète** (données réelles 2026-08-17) : 23 des 24 constats sont identiques sur les
+six champs comparés (`message`, `commentaire`, `source_module`, `severity`, `impact_facture`,
+`statut_resolution`) — y compris les listes de logements à l'intérieur des messages du groupe 6f. Le
+seul écart, `CLOTURE_IMPOSSIBLE_LIGNE_BANCAIRE_NON_CLASSEE` 9 vs 8, est la divergence de fraîcheur
+déjà documentée entre deux copies réelles de `REF_Cloture_Mensuelle` (celle du classeur Banque et
+celle de `REF_Setup`) : elle est prouvée côté DONNÉES, pas côté port, et n'est pas masquée.
+
+Bugs réels trouvés à cette occasion : réservations hors Hostaway traitées à tort comme vides (faux
+`HC_ZERO_SOURCES_VIDES`), `RESERVATION_DOUBLON_HOSTAWAY_HH` qui se serait auto-intersecté,
+`db_path` ignoré dans `menages_reader.hostaway_comptage` (défaut d'isolation), et résolution du
+répertoire `02_TRAVAIL` à l'import depuis `cfg.PROJECT_ROOT` — redirigeable — au lieu de
+`APP_ROOT.parent`.
+
+### 19.2 `MASTER_CTRL_Coherence.xlsx` — 0 dépendance runtime
+
+Deux chemins le lisaient encore :
+
+1. `controles_runner_service` fabriquait un workspace, y écrivait des classeurs depuis SQLite,
+   lançait `lot8c` puis `lot11` en sous-processus et relisait le résultat. Il recalcule désormais via
+   `controles_lot11_service` sur une COPIE de la base : la boucle SQLite → XLSX → moteur → SQLite
+   disparaît, et `controles_lot11_adapter.py` est supprimé. Les gardes qui comptent sont conservées
+   (workspace hors de l'arbre réel, base réelle intacte vérifiée par empreinte, flags d'écriture
+   réelle refusés).
+2. `controles_cloture_reader` lisait les quatre onglets du classeur. Il servait donc aux écrans les
+   contrôles du DERNIER CALCUL LEGACY, pas ceux du calcul courant — un écart invisible, puisque le
+   fichier existe toujours et se lit sans erreur. Les onglets sont devenus des filtres sur
+   `controles_lot11_constats`/`_champs` et `controles_lot11_dashboard_mois`.
+
+Test bloquant : `test_master_ctrl_coherence_zero_runtime.py` — toute ouverture du classeur permanent
+fait échouer le test, et les écrans de contrôles/clôture doivent rester verts.
+
+### 19.3 Lot12 — identité stable (migration 0048)
+
+`facture_id` dérivait d'un compteur POSITIONNEL par mois : l'identifiant désignait une position de
+parcours, pas une préfacture. Un changement d'ordre de lecture, ou l'ajout d'une préfacture, en
+renumérotait d'autres — c'est ce qui produisait 102/285 identifiants différents entre le moteur
+legacy et le service SQLite, à données économiques rigoureusement identiques.
+
+Il dérive désormais du GRAIN CANONIQUE (D-LOT12-01) : `PREF-{mois}-{proprietaire}-{logement}`. La
+table `lot12_prefactures_id_legacy` conserve la correspondance vers l'ancien identifiant, pour
+retrouver une préfacture citée sous son ancien numéro ; aucun calcul n'en dépend. Parité économique
+Lot12 inchangée : 285 préfactures, 3481 lignes, 0,00 € d'écart.
+
+### 19.4 Lot13 — export terminal
+
+`lot13_export_service.py` lit SQLite et n'écrit que des exports (13 CSV Power BI + dictionnaire).
+Parité vérifiée fichier par fichier : colonnes et ordre identiques, mêmes volumes
+(1536/579/1542/1476/233/3481/16/18/14/19/17/12/19 + 140 entrées de dictionnaire), contenu identique
+ligne à ligne, **écart financier 0,00 €**. `preparation_canape` est préservée sans régression
+(61 lignes, exposée en `montant_preparation_canape`). Deux défauts corrigés au passage : rendu
+numérique (`58.0` au lieu de `58`) et confusion entre source ABSENTE et source VIDE.
+
+Un export supprimé ne casse rien et se régénère à l'octet près — vérifié par test. L'application ne
+lit aucun export : `03_EXPORTS/` n'est référencé que par la configuration, un diagnostic
+d'existence et la déclaration de sortie du pipeline.
+
+### 19.5 Orchestrateur (migration 0050)
+
+Le pipeline raisonne en DATASETS, plus en fichiers. `orchestrateur_dag.py` déclare le graphe réel
+(aucun nœud `MASTER_XLSX`) et `orchestrateur_service.py` l'exécute.
+
+La FRAÎCHEUR est fondée sur les runs : `orchestrateur_datasets` retient quel run a produit chaque
+dataset et quand. Un dataset dont un amont a été recalculé après lui passe à `A_RECALCULER` — un
+Lot10 calculé sur un ancien Lot9 ne peut donc pas s'afficher « à jour ». Aucun `mtime` n'intervient.
+
+Aucun quatrième registre de runs : `moteur_runs`/`moteur_run_etapes` (0031) est réutilisé, son
+vocabulaire prévoyait déjà ce cas (`EN_COURS`/`SUCCES`/`PARTIEL`/`ECHEC`/`INTERROMPU`, déclencheur
+`ORCHESTRATEUR`). `pipeline_runs` et `calculs_runs` gardent leurs responsabilités propres.
+
+Propriétés vérifiées par test : propagation aux descendants, invalidation des avals, run PARTIEL sans
+corrompre le dernier jeu valide, dataset dont l'amont a échoué JAMAIS recalculé sur une entrée
+périmée, verrou à bail (un processus tué ne bloque pas ; deux portées indépendantes ne s'attendent
+pas), reprise des runs `INTERROMPU`, et erreurs journalisées avec dataset + code + message + run_id.
+
+Écran `Pilotage / Actualisation` : « Actualiser toute l'activité » et actions ciblées, sans terminal.
+
+**Chaînes déclarées NON recalculables, et pourquoi** — plutôt qu'un recalcul partiel présenté comme
+complet : `lot4quater` (RESERVATIONS) et `lot6b`/`lot6c` (MENAGES) n'ont pas de mode SQLite.
+
+### 19.6 Ordonnanceur
+
+Hostaway toutes les 5 h, via le MÊME service que le bouton manuel — une seule implémentation de
+l'extraction. L'import est ATTENDU jusqu'au bout : un lancement n'est pas un succès, et marquer le
+dataset « à jour » avant la fin de l'extraction ferait recalculer tout l'aval sur les données
+précédentes. CleaningTasks (H6) garde une cadence distincte : ce point d'API a rencontré des limites
+429 sévères et les tâches de ménage ne bougent pas au rythme des réservations. Un échec récent
+impose un palier avant nouvelle tentative. `Retry-After`, backoff plafonné et `RateLimitEpuise`
+restent dans `lot1_hostaway_extract.py` — l'ordonnanceur ne les réimplémente pas.
+
+**Mode réel NON activé** : `ORDONNANCEUR_ACTIF` est faux, `demarrer()` refuse, l'horloge est
+injectable pour les tests. Un import externe n'est jamais déclenché par une actualisation interne.

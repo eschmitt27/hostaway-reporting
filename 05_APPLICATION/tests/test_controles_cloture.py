@@ -164,10 +164,21 @@ def test_anomalie_apres_cloture(ctrl_files):
 
 
 def test_source_absente(monkeypatch, tmp_path):
-    monkeypatch.setattr(cfg, "MASTER_CTRL_COHERENCE_FILE", tmp_path / "absent.xlsx")
+    """Source indisponible côté SERVICE : l'écran l'annonce, il n'invente aucun contrôle.
+
+    Le monkeypatch portait sur `MASTER_CTRL_COHERENCE_FILE`, qui ne commande plus rien depuis que
+    les constats sont en base : le test dépendait alors de la base laissée par le test précédent
+    (il passait seul, échouait en campagne). La source à rendre absente est désormais la BASE.
+    """
+    import sqlite3
+
+    base = tmp_path / "sans_constats.db"
+    sqlite3.connect(str(base)).close()
+    monkeypatch.setattr(cfg, "DB_PATH", base)
     reader.vider_cache()
     assert reader.controles().etat.etat == reader.ETAT_FICHIER_ABSENT
     assert svc.load_controls()["status"] == "SOURCE_INDISPONIBLE"
+    reader.vider_cache()
 
 
 def test_base_non_migree_source_absente(monkeypatch, tmp_path):

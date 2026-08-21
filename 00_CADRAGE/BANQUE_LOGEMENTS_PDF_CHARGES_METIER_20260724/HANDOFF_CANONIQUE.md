@@ -1925,3 +1925,28 @@ ici, conformément à la mission — Lot13/export final/orchestrateur restent ho
 dans une mission dédiée ultérieure.
 
 Détail complet : document `95` (§18).
+
+## ✅ Mise à jour — Lot11 fermé à 100%, Lot13 export-only, orchestrateur et ordonnanceur
+
+Lot11 est entièrement SQLite : les 6 derniers groupes legacy sont portés (AirCover, ajustements
+post-clôture, sources vides, Lot7C, ménages externes 6f, provenance, caisse théorique). Parité
+réelle complète : 23/24 constats identiques sur six champs, le seul écart étant une divergence de
+fraîcheur entre deux copies réelles du même référentiel, prouvée côté données.
+
+`MASTER_CTRL_Coherence.xlsx` n'est plus lu nulle part au runtime : le runner recalcule via le
+service SQLite sur une copie de la base (fin de la boucle SQLite → XLSX → moteur → SQLite,
+`controles_lot11_adapter` supprimé), et `controles_cloture_reader` lit les constats en base — il
+servait jusque-là aux écrans les contrôles du dernier calcul LEGACY.
+
+Lot12 : `facture_id` dérive du grain métier, plus d'un rang. Lot13 : export terminal, parité
+identique fichier par fichier, écart 0,00 €, exports reconstructibles.
+
+Orchestrateur (migration 0050) : DAG de datasets, fraîcheur fondée sur les runs, propagation aux
+descendants, atomicité, verrou à bail, reprise après crash, écran `Pilotage / Actualisation`.
+Ordonnanceur Hostaway 5 h prêt mais INERTE (`ORDONNANCEUR_ACTIF` faux), même service que le bouton
+manuel, H6 sur cadence distincte.
+
+**Prochaine mission : administration REF_Setup SQLite, analytique 3 niveaux, recette manuelle
+UI-only, préparation du cut-over.**
+
+Détail complet : document `95` (§19).

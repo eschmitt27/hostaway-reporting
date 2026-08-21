@@ -117,8 +117,11 @@ def test_le_master_lot5_nest_lu_par_aucun_service():
     # Les seules mentions tolérées sont documentaires : le service de contrôles explique ce qu'il
     # remplace, et les runners nomment le fichier comme ENTRÉE d'un moteur legacy, pas comme source.
     attendus = {"app/services/tresorerie_controles_service.py",
-                "app/services/controles_runner_service.py",
-                "app/services/menages_chaine_service.py"}
+                "app/services/menages_chaine_service.py",
+                # Lot11 NOMME ce fichier dans le libellé et le message d'un constat
+                # (« MASTER_FACT_MAN_AcomptesProprietaires vide »), vocabulaire repris tel quel du
+                # moteur legacy. Il ne l'ouvre jamais : la vacuité se constate en base.
+                "app/services/controles_lot11_service.py"}
     assert set(fichiers) <= attendus, f"lecture inattendue du MASTER Lot 5 : {fichiers}"
 
 

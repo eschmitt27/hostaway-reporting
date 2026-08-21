@@ -1397,3 +1397,28 @@ correspondent exactement sur les 8 mois communs (25/24/23/25/30/26/26/20).
 moteur (ordre pandas groupby) et le nouveau service (ordre `SELECT ... ORDER BY id`) — même famille
 que l'écart `flux_id` de Lot9 (déjà accepté). Sur la clé métier réelle (mois, proprietaire_id,
 logement_id), 0 écart : les 285 préfactures et leurs 3481 lignes correspondent exactement.
+
+## Anomalies trouvées lors de la fermeture de Lot11 / construction de l'orchestrateur
+
+- `controles_cloture_reader` lisait `MASTER_CTRL_Coherence.xlsx` alors que Lot11 est SQLite natif :
+  les écrans servaient les contrôles du DERNIER CALCUL LEGACY, pas du calcul courant. Invisible,
+  puisque le fichier existe et se lit sans erreur. Corrigé — lecture des constats en base.
+- Réservations hors Hostaway traitées à tort comme vides → faux `HC_ZERO_SOURCES_VIDES`. Corrigé
+  (dérivées de `reservations_resolues.reservation_hh_id`).
+- `RESERVATION_DOUBLON_HOSTAWAY_HH` : l'intersection se serait faite contre les lignes HH
+  elles-mêmes, produisant un faux BLOQUANT. Corrigé (intersection contre les lignes NON-HH).
+- `menages_reader.hostaway_comptage` ignorait `db_path` (défaut d'isolation).
+- Répertoire `02_TRAVAIL` résolu à l'import depuis `cfg.PROJECT_ROOT`, redirigeable : l'import des
+  bibliothèques de règles dépendait d'une valeur sans rapport avec l'emplacement du code. Ancré sur
+  `APP_ROOT.parent`.
+- Lot13 : rendu numérique (`58.0` au lieu de `58`) et confusion entre source ABSENTE et source VIDE.
+- Plusieurs suites de tests (contrôles, clôtures, contrôles actionnables) passaient parce qu'elles
+  lisaient les données RÉELLES du projet via le classeur Lot11 : elles n'auraient rien prouvé sur
+  une installation neuve. Constats désormais semés explicitement.
+
+### Incident d'exécution
+
+Un test de fumée de l'orchestrateur a déclenché une extraction Hostaway RÉELLE contre l'arbre du
+projet, réécrivant 9 classeurs `Lot1_Hostaway` suivis par Git. Restaurés fichier par fichier.
+Cause corrigée : un import externe n'est plus jamais déclenché par une actualisation interne
+(`inclure_imports_externes`, faux par défaut).

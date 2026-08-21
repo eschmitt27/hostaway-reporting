@@ -14,6 +14,32 @@ moteur_requis = pytest.mark.skipif(
     not Path(cfg.MASTER_CTRL_COHERENCE).exists(), reason="MASTER_CTRL_Coherence.xlsx absent")
 
 
+def _semer_constats_lot11(db_path, mois):
+    from app.db.connection import get_db
+    from app.readers import controles_cloture_reader as ctrl_reader
+
+    constats = [
+        ("DRILL-001", "lot10", "RESERVATION_A_CONTROLER_SANS_COMMISSION", "A_CONTROLER"),
+        ("DRILL-002", "lot8", "CLOTURE_IMPOSSIBLE_LIGNE_BANCAIRE_NON_CLASSEE", "A_CONTROLER"),
+    ]
+    conn = get_db(db_path)
+    try:
+        for pk, module, code, sev in constats:
+            conn.execute(
+                "INSERT INTO controles_lot11_constats (ctrl_pk, source_module, source_table, "
+                "source_pk, code_controle, severity, message, impact_facture, statut_resolution) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                (pk, module, "src", pk + "-s", code, sev, f"Constat {code}", "A_DECIDER",
+                 "OUVERT"))
+            conn.execute(
+                "INSERT OR REPLACE INTO controles_lot11_constats_champs (ctrl_pk, mois, "
+                "date_detection) VALUES (?,?,?)", (pk, mois, f"{mois}-01"))
+        conn.commit()
+    finally:
+        conn.close()
+    ctrl_reader.vider_cache()
+
+
 @moteur_requis
 def test_drilldown_nb_exceptions_contenu_reellement_filtre(client, tmp_db):
     # La Banque vient de la base : sans mouvement non classé, elle n'ouvre aucun élément, et le test
@@ -23,13 +49,29 @@ def test_drilldown_nb_exceptions_contenu_reellement_filtre(client, tmp_db):
     from app.readers import banques_reader as bq_reader
     from app.readers import controles_detail_reader as detail
 
-    fx.peupler_non_classes(tmp_db, fx.mois_des_agregats_banque())
+    import fixtures_hostaway as fxh
+
+    mois_banque = fx.mois_des_agregats_banque()
+    mois = (mois_banque or ["2026-06"])[0]
+    fx.peupler_non_classes(tmp_db, mois_banque)
+    # Le mois d'un élément COMMISSIONS vient de la RÉSERVATION, pas de la ligne de commission :
+    # sans réservation, le mois serait vide et la comparaison « même mois » entre deux modules
+    # n'aurait aucun sens.
+    # Étape CALCULEES : c'est le dataset LIVE que `reservations_index()` interroge pour rattacher
+    # une commission à son mois (il couvre tout le périmètre, mois clos compris).
+    fxh.peupler_reservations(
+        tmp_db, [fxh.ligne_reservation("RES-DRILL-001", mois=mois, reservation_id="60001")],
+        etape="CALCULEES")
     # Commissions A_CONTROLER : lues en base depuis la migration Lot10 (0044). Sans elles, le
     # module COMMISSIONS n'ouvre aucun élément et ce test perd le second module qu'il compare.
     fx10.seeder(tmp_db, commissions_a_controler=[
         {"reservation_id": "60001", "source": "vrbo", "channel_type": "VRBO",
          "statut_calcul_payout": "A_CONTROLER", "source_payout": "AUCUN_PAYOUT"},
     ])
+    # Les constats Lot11 vivent en base depuis la fermeture du lot : sans eux, aucun contrôle n'est
+    # ouvert et le drill-down n'a rien à filtrer. Deux codes DÉTAILLABLES de modules différents —
+    # c'est la comparaison entre modules que ce test exerce.
+    _semer_constats_lot11(tmp_db, mois)
     bq_reader.vider_cache()
     detail.vider_cache()
 

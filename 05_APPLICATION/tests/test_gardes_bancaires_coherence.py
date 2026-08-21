@@ -31,7 +31,7 @@ def test_les_6_tests_bancaires_portent_une_garde_active():
         tca.test_20_decision_app4b_visible,
         tca.test_21_22_lot8c_lot11_reellement_executes_reel_intact,
         tca.test_23_24_controle_maintenu_sans_classification,
-        tcrg.test_11_reel_intact_apres_gardes,
+        tcrg.test_06_reel_intact_apres_gardes,
     ]
     for f in cibles:
         assert _porte_une_garde_skipif(f), (

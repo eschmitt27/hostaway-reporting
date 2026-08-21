@@ -203,3 +203,24 @@ et un futur déclenchement automatique empruntent le même chemin.
 **Chaîne suivante : ménages.**
 
 Détail complet : document `95` (§13).
+
+---
+
+## Mise à jour — état de complétude après fermeture de Lot11/Lot13 et orchestrateur
+
+| Chaîne | Runtime applicatif | Parité réelle | Test bloquant |
+|---|---|---|---|
+| Hostaway / Réservations | SQLite | prouvée | oui |
+| Ménages (Lot6) | SQLite | prouvée | `test_menages_sans_excel` |
+| Lot9 — flux unifié | SQLite | prouvée (0,00 €) | `test_lot9_sans_master_calc_flux` |
+| Lot10 — résultats | SQLite | prouvée (0,00 €) | `test_lot10_sans_masters` |
+| Lot11 — contrôles | SQLite (100%) | 23/24, écart expliqué | `test_lot11_sans_masters`, `test_master_ctrl_coherence_zero_runtime` |
+| Lot12 — préfactures | SQLite, identité stable | prouvée (0,00 €) | `test_lot12_sans_masters`, `test_lot12_pas_de_double_comptage` |
+| Lot13 — exports | export terminal | identique, 0,00 € | `test_lot13_export_sqlite` |
+| Orchestration | DAG de datasets | — | `test_orchestrateur`, `test_actualisation_ui` |
+| Ordonnanceur | prêt, inerte | — | `test_ordonnanceur` |
+
+**Non migré, et assumé comme tel** : Charges (Lot3), `lot4quater`, `lot6b`/`lot6c`, et les saisies
+Excel (AirCover, ImputationsAirbnb, AjustementsPostCloture, Acomptes, IK, Charges, HH). Ces sources
+sont des SAISIES ou des chaînes sans mode SQLite ; l'orchestrateur les déclare non recalculables
+plutôt que d'exécuter une moitié de chaîne et de présenter le résultat comme complet.
