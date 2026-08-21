@@ -246,10 +246,19 @@ def test_27_flags_writers_false():
 
 # ── 28-30 : confidentialité runner ────────────────────────────────────────────
 
-def test_28_29_runner_stdout_stderr_sanitises():
+def test_28_29_runner_messages_sanitises():
+    """Aucun chemin absolu ne doit fuir dans un motif ou un journal de run.
+
+    Le runner ne lance plus de sous-processus : il n'y a plus de `stderr` moteur à assainir. Ce qui
+    reste à protéger, ce sont les messages d'échec et le chemin de workspace journalisés — ils
+    doivent tous passer par `path_sanitizer`.
+    """
     src = (WT_ROOT / "05_APPLICATION" / "app" / "services" / "controles_runner_service.py").read_text(encoding="utf-8")
-    assert "_sanitize(r11a.stderr" in src and "_sanitize(r8c.stderr" in src and "_sanitize(r11b.stderr" in src
     assert "path_sanitizer" in src
+    assert "_sanitize(f\"Échec : {exc}\")" in src        # message d'exception assaini
+    assert "_sanitize(str(ws))" in src                    # chemin de workspace assaini
+    # Et plus aucun sous-processus dont il faudrait assainir la sortie.
+    assert "import subprocess" not in src
 
 
 def test_30_journal_sqlite_sanitise():

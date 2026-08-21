@@ -37,6 +37,39 @@ def _c(pk, module, code, sev, mois, msg="msg", statut="OUVERT", logement="", tab
             "proprietaire_id": "", "statut_resolution": statut, "commentaire": "", "date_detection": "2026-05-01"}
 
 
+def _seeder_constats_sqlite(db_path, master, dash):
+    """Écrit les constats Lot11 et le DASHBOARD_MOIS en base, tels que `controles_lot11_service`
+    les produirait — le reader ne lit plus que ces tables."""
+    from app.db.connection import get_db
+
+    conn = get_db(db_path)
+    try:
+        for m in master:
+            conn.execute(
+                "INSERT INTO controles_lot11_constats (ctrl_pk, source_module, source_table, "
+                "source_pk, code_controle, severity, message, impact_facture, statut_resolution, "
+                "commentaire) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (m["ctrl_pk"], m["source_module"], m["source_table"], m["source_pk"],
+                 m["code_controle"], m["severity"], m["message"],
+                 "BLOQUANT_FACTURE" if m["severity"] == "BLOQUANT" else "A_DECIDER",
+                 m["statut_resolution"], m["commentaire"]))
+            conn.execute(
+                "INSERT OR REPLACE INTO controles_lot11_constats_champs (ctrl_pk, mois, "
+                "logement_id, proprietaire_id, date_detection) VALUES (?,?,?,?,?)",
+                (m["ctrl_pk"], m["mois"] or None, m["logement_id"] or None,
+                 m["proprietaire_id"] or None, m["date_detection"]))
+        for d in dash:
+            conn.execute(
+                "INSERT INTO controles_lot11_dashboard_mois (run_id, mois, nb_bloquants_ouverts, "
+                "nb_a_controler_ouverts, nb_info, statut_mois_banque, cloture_possible, "
+                "facturation_lot12_ok) VALUES ('L11-TEST',?,?,?,?,?,?,?)",
+                (d["mois"], d["nb_bloquants_ouverts"], d["nb_a_controler_ouverts"], d["nb_info"],
+                 d["statut_mois_banque"], d["cloture_possible"], d["facturation_lot12_ok"]))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 @pytest.fixture
 def ctrl_files(tmp_path, monkeypatch):
     coh = tmp_path / "COH.xlsx"; ref = tmp_path / "REF.xlsx"
@@ -77,6 +110,10 @@ def ctrl_files(tmp_path, monkeypatch):
     from test_logements import construire_referentiel
     db = construire_referentiel(tmp_path, cloture=[
         {k: str(v) for k, v in r.items()} for r in ref_rows])
+    # Lot11 est un moteur SQLite natif : les constats et le dashboard vivent en base
+    # (0041/0042/0046), plus dans le classeur. La fixture sème donc les MÊMES lignes que
+    # `master`/`dash` ci-dessus — une seule vérité, décrite une fois.
+    _seeder_constats_sqlite(db, master, dash)
     monkeypatch.setattr(cfg, "DB_PATH", db)
     reader.vider_cache()
     yield tmp_path
@@ -133,16 +170,36 @@ def test_source_absente(monkeypatch, tmp_path):
     assert svc.load_controls()["status"] == "SOURCE_INDISPONIBLE"
 
 
-def test_onglet_absent(monkeypatch, tmp_path):
-    p = tmp_path / "c.xlsx"; _wb(p, {"AUTRE": (["x"], [{"x": 1}])})
-    monkeypatch.setattr(cfg, "MASTER_CTRL_COHERENCE_FILE", p); reader.vider_cache()
-    assert reader.controles().etat.etat == reader.ETAT_ONGLET_ABSENT
+def test_base_non_migree_source_absente(monkeypatch, tmp_path):
+    """Équivalent SQLite de l'ancien « onglet absent » : la table de constats n'existe pas.
+
+    Le reader ne lit plus de classeur — il n'y a donc plus d'onglet à manquer. L'état à couvrir
+    est celui d'une base qui n'a jamais reçu la migration Lot11.
+    """
+    import sqlite3
+
+    base = tmp_path / "sans_tables.db"
+    sqlite3.connect(str(base)).close()
+    monkeypatch.setattr(cfg, "DB_PATH", base)
+    reader.vider_cache()
+    assert reader.controles().etat.etat == reader.ETAT_FICHIER_ABSENT
+    reader.vider_cache()
 
 
 def test_source_vide(monkeypatch, tmp_path):
-    p = tmp_path / "c.xlsx"; _wb(p, {"MASTER": (MASTER_COLS, [])})
-    monkeypatch.setattr(cfg, "MASTER_CTRL_COHERENCE_FILE", p); reader.vider_cache()
+    """Tables présentes mais aucun constat : VIDE, jamais « absente ».
+
+    La distinction compte : « Lot11 n'a jamais tourné » et « Lot11 a tourné et n'a rien trouvé »
+    ne se disent pas de la même façon à l'écran.
+    """
+    from app.db.connection import apply_migrations
+
+    base = tmp_path / "migree_vide.db"
+    apply_migrations(base)
+    monkeypatch.setattr(cfg, "DB_PATH", base)
+    reader.vider_cache()
     assert reader.controles().etat.etat == reader.ETAT_VIDE
+    reader.vider_cache()
 
 
 def test_code_inconnu_sans_explication(ctrl_files):

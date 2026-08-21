@@ -136,6 +136,58 @@ def el_commission(tmp_db):
     return next(e for e in _all(tmp_db) if e["module"] == "COMMISSIONS")
 
 
+@pytest.fixture(autouse=True)
+def constats_lot11_en_base(tmp_db):
+    """Constats Lot11 en base — le moteur est SQLite natif depuis la fermeture du lot.
+
+    Ces tests s'appuyaient jusqu'ici sur les constats du VRAI `MASTER_CTRL_Coherence.xlsx` : ils
+    dépendaient donc de données réelles hors du contrôle du test, et n'auraient rien prouvé sur une
+    installation neuve. Les constats sont désormais SEMÉS, exactement comme
+    `controles_lot11_service` les écrirait.
+    """
+    import fixtures_banque as fx
+    from app.db.connection import get_db
+    from app.readers import controles_cloture_reader as ctrl_reader
+
+    mois = (fx.mois_des_agregats_banque() or ["2026-06"])[0]
+    # Les codes DÉTAILLABLES s'éclatent en éléments unitaires (une réservation, un logement, un
+    # mouvement). Le constat Lot11 dit « ce contrôle est ouvert » ; le détail vient de la source
+    # métier correspondante (commissions Lot10, écarts ménages Lot6c, mouvements bancaires).
+    constats = [
+        ("SEED-CTRL-001", "lot6d", "MENAGE_TOTAL_ECART_HOSTAWAY", "A_CONTROLER", mois),
+        ("SEED-CTRL-002", "lot1", "INFO_HA", "INFO", mois),
+        ("SEED-CTRL-003", "lot10", "RESERVATION_A_CONTROLER_SANS_COMMISSION", "A_CONTROLER", mois),
+        ("SEED-CTRL-004", "lot4", "VRBO_MONTANT_NON_RENSEIGNE", "A_CONTROLER", mois),
+        ("SEED-CTRL-005", "lot8", "CLOTURE_IMPOSSIBLE_LIGNE_BANCAIRE_NON_CLASSEE", "A_CONTROLER",
+         mois),
+        ("SEED-CTRL-006", "lot6c", "MENAGE_EXTERNE_ECART_HOSTAWAY", "A_CONTROLER", mois),
+        ("SEED-CTRL-007", "lot6c", "MENAGE_EXTERNE_LOGEMENT_HORS_HA", "A_CONTROLER", mois),
+        ("SEED-CTRL-008", "lot6c", "MENAGE_HA_SANS_FACTURE_EXTERNE", "INFO", mois),
+        ("SEED-CTRL-009", "lot6c", "MENAGE_EXTERNE_RAPPROCHE_HOSTAWAY", "INFO", mois),
+    ]
+    # Les lignes que ce code détaillable développe sont déjà semées par `reservations_en_base`
+    # (`lot10_commissions_a_controler`) : ne pas les re-semer ici, un second run Lot10 actif
+    # violerait l'unicité du run et masquerait le premier.
+    conn = get_db(tmp_db)
+    try:
+        for pk, module, code, sev, m in constats:
+            conn.execute(
+                "INSERT INTO controles_lot11_constats (ctrl_pk, source_module, source_table, "
+                "source_pk, code_controle, severity, message, impact_facture, statut_resolution) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                (pk, module, "table_source", pk + "-src", code, sev, f"Constat {code}",
+                 "BLOQUANT_FACTURE" if sev == "BLOQUANT" else "A_DECIDER", "OUVERT"))
+            conn.execute(
+                "INSERT OR REPLACE INTO controles_lot11_constats_champs (ctrl_pk, mois, "
+                "date_detection) VALUES (?,?,?)", (pk, m, f"{m}-01"))
+        conn.commit()
+    finally:
+        conn.close()
+    ctrl_reader.vider_cache()
+    yield
+    ctrl_reader.vider_cache()
+
+
 def _all(db_path):
     return act._tous_les_elements(db_path)
 
@@ -347,19 +399,23 @@ def test_20_decision_app4b_visible(client, tmp_db):
     assert r.status_code == 200 and "APP-4B" in r.text
 
 
-def _engine_dispo():
-    return runner._engine_python() is not None
+# Le runner ne lance plus de sous-processus pandas : il recalcule via `controles_lot11_service`.
+# Le marqueur est conservé (les tests le référencent) mais ne saute plus jamais — il n'y a plus de
+# dépendance à un interpréteur externe.
+engine_requis = pytest.mark.skipif(False, reason="recalcul SQLite, aucun interpréteur externe requis")
 
 
-engine_requis = pytest.mark.skipif(not _engine_dispo(), reason="Aucun Python avec pandas (moteur)")
+def test_R1_R2_R3_runner_sans_script_ni_classeur():
+    """Le runner n'exécute plus aucun script et n'écrit plus de classeur.
 
-
-@moteur_requis
-def test_R1_R2_R3_scripts_injectes_et_confines():
-    """Scripts moteur du worktree, injectés (marqueur présent), répertoire hors dépôt réel."""
-    assert runner._script_injecte(runner.SCRIPT_LOT8C)
-    assert runner._script_injecte(runner.SCRIPT_LOT11)
-    assert runner._scripts_dir() == Path(cfg.APP_ROOT).parent / "02_TRAVAIL"
+    Remplace l'ancienne garde « scripts injectés et confinés » : depuis que Lot11 est SQLite natif,
+    le recalcul se fait en base sur une COPIE, sans sous-processus. Ce qui doit être verrouillé
+    n'est plus l'injection des scripts, mais leur ABSENCE du chemin de recalcul.
+    """
+    src = (Path(cfg.APP_ROOT) / "app" / "services" / "controles_runner_service.py").read_text(
+        encoding="utf-8")
+    assert "import subprocess" not in src and "import openpyxl" not in src
+    assert "controles_lot11_service" in src
 
 
 @moteur_requis
@@ -381,7 +437,8 @@ def test_21_22_lot8c_lot11_reellement_executes_reel_intact(tmp_db):
     sha_ctrl = _sha(REAL_CTRL)
     res = runner.recalculer_sur_copie(banq, appliquer_classification=True, db_path=tmp_db)
     etapes = {e["etape"] for e in res["etapes"]}
-    assert {"LOT11_BASELINE", "LOT8C", "LOT11"} <= etapes            # les deux moteurs ont tourné
+    # Les contrôles sont recalculés avant ET après la décision simulée, en base.
+    assert {"COPIE_BASE", "CONTROLES_BASELINE", "CONTROLES_APRES"} <= etapes
     assert res["n_avant"] >= 1, "un contrôle ouvert doit compter au moins une ligne avant recalcul"
     assert res["n_apres"] <= res["n_avant"], "un recalcul ne doit pas créer de lignes non classées"
     # Le verdict doit être la conséquence des comptes, jamais une affirmation indépendante.

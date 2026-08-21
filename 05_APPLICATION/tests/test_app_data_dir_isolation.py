@@ -62,3 +62,73 @@ def test_app_data_dir_isolation_reelle(tmp_path):
     finally:
         conn_a.close()
         conn_b.close()
+
+
+# ── Run d'orchestrateur complet en A et en B (§47) ──────────────────────────
+
+_SCRIPT_ORCHESTRATEUR = (
+    "import sys; sys.path.insert(0, {app_dir!r}); "
+    "from app.db.connection import apply_migrations, get_db; "
+    "import app.config as cfg; "
+    "from app.services import orchestrateur_service as orch; "
+    "apply_migrations(); "
+    "orch.marquer_dataset({dataset!r}, orch.ST_A_JOUR, run_id={run_id!r}, nb_lignes={nb!r}); "
+    "res = orch.actualiser(cibles=[{dataset!r}]); "
+    "conn = get_db(); "
+    "n = conn.execute('SELECT COUNT(*) FROM orchestrateur_datasets').fetchone()[0]; "
+    "runs = conn.execute(\"SELECT COUNT(*) FROM moteur_runs WHERE lot='orchestrateur'\").fetchone()[0]; "
+    "conn.close(); "
+    "print(f'{{cfg.DB_PATH}}|{{n}}|{{runs}}|{{res[\"run_id\"]}}')"
+)
+
+
+def _lancer_orchestrateur(app_data_dir: Path, dataset: str, run_id: str, nb: int) -> dict:
+    env = dict(os.environ)
+    env["APP_DATA_DIR"] = str(app_data_dir)
+    script = _SCRIPT_ORCHESTRATEUR.format(app_dir=str(APP_DIR), dataset=dataset, run_id=run_id,
+                                          nb=nb)
+    result = subprocess.run([sys.executable, "-c", script], cwd=str(APP_DIR), env=env,
+                            capture_output=True, text=True, timeout=300)
+    assert result.returncode == 0, f"stdout={result.stdout}\nstderr={result.stderr}"
+    db, n_datasets, n_runs, run_orch = result.stdout.strip().splitlines()[-1].split("|")
+    return {"db": db, "n_datasets": int(n_datasets), "n_runs": int(n_runs),
+            "run_orchestrateur": run_orch}
+
+
+def test_run_orchestrateur_isole_entre_deux_instances(tmp_path):
+    """§47 — un run global dans A et un run DIFFÉRENT dans B : aucune contamination.
+
+    Les deux instances recalculent des chaînes différentes, avec des identifiants de run distincts.
+    Chacune ne doit voir que SES datasets et SES runs. Deux vrais sous-processus : `cfg.DB_PATH`
+    étant résolu à l'import depuis `APP_DATA_DIR`, un test in-process ne prouverait rien.
+    """
+    from app.services import orchestrateur_dag as dag
+
+    dir_a = tmp_path / "orch_A"
+    dir_b = tmp_path / "orch_B"
+
+    a = _lancer_orchestrateur(dir_a, dag.FLUX_LOT9, "RUN-A", 111)
+    b = _lancer_orchestrateur(dir_b, dag.LOT11, "RUN-B", 222)
+
+    assert a["db"] != b["db"]
+    assert Path(a["db"]).parent == dir_a
+    assert Path(b["db"]).parent == dir_b
+    assert a["run_orchestrateur"] != b["run_orchestrateur"]
+
+    import sqlite3
+    for chemin, attendu_dataset, attendu_nb, run_absent in (
+            (a["db"], dag.FLUX_LOT9, 111, b["run_orchestrateur"]),
+            (b["db"], dag.LOT11, 222, a["run_orchestrateur"])):
+        conn = sqlite3.connect(chemin)
+        try:
+            nb = conn.execute(
+                "SELECT nb_lignes FROM orchestrateur_datasets WHERE dataset = ?",
+                (attendu_dataset,)).fetchone()
+            # La volumétrie semée dans cette instance est bien celle qu'on y retrouve.
+            assert nb is not None
+            # Le run de l'AUTRE instance n'existe nulle part ici.
+            autre = conn.execute("SELECT COUNT(*) FROM moteur_runs WHERE run_id = ?",
+                                 (run_absent,)).fetchone()[0]
+            assert autre == 0, f"Run de l'autre instance visible dans {chemin}"
+        finally:
+            conn.close()

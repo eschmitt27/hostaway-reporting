@@ -212,6 +212,30 @@ def test_23_export_sans_chemin(tmp_db):
     assert "C:\\" not in out and "OneDrive" not in out
 
 
+def _semer_constat(db_path, mois, code="BANQUE_NON_CLASSEE", severity="BLOQUANT"):
+    """Un constat Lot11 en base, tel que `controles_lot11_service` le produirait."""
+    from app.db.connection import get_db
+    from app.readers import controles_cloture_reader as ctrl_reader
+
+    ctrl_pk = f"SEED-{mois}-{code}"
+    conn = get_db(db_path)
+    try:
+        conn.execute(
+            "INSERT INTO controles_lot11_constats (ctrl_pk, source_module, source_table, "
+            "source_pk, code_controle, severity, message, impact_facture, statut_resolution) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (ctrl_pk, "lot8", "banque_mouvements", ctrl_pk + "-src", code, severity,
+             "Constat semé pour le test", "BLOQUANT_FACTURE", "OUVERT"))
+        conn.execute(
+            "INSERT OR REPLACE INTO controles_lot11_constats_champs (ctrl_pk, mois, "
+            "date_detection) VALUES (?,?,?)", (ctrl_pk, mois, f"{mois}-01"))
+        conn.commit()
+    finally:
+        conn.close()
+    ctrl_reader.vider_cache()
+    return ctrl_pk
+
+
 # ── 24-25 : identifiants opaques ──────────────────────────────────────────────
 
 def test_24_identifiant_clo_opaque(tmp_db):
@@ -364,6 +388,14 @@ def test_42_diagnostic_toujours_desactive(client):
 # ── 43-44 : liens vers modules ────────────────────────────────────────────────
 
 def test_43_lien_cloture_vers_controle(client, tmp_db):
+    """La fiche de clôture renvoie vers le contrôle correspondant.
+
+    Le constat est SEMÉ ici. Auparavant ce test passait parce que le lecteur ouvrait le vrai
+    `MASTER_CTRL_Coherence.xlsx` du projet : il s'appuyait donc sur des données réelles, hors de
+    tout contrôle du test. Depuis que Lot11 est SQLite natif, l'état doit être posé explicitement —
+    ce qui rend enfin le test déterministe.
+    """
+    _semer_constat(tmp_db, "2026-03")
     c = cs.creer_ou_charger("2026-03", acteur="t", db_path=tmp_db)
     r = client.get(f"/clotures/{c['cloture_id_opaque']}")
     assert "/controles-cloture/element/CTRL-" in r.text
