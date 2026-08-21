@@ -16,9 +16,7 @@ Règles :
   celle du référentiel. La frontière est volontairement visible dans ce module.
 """
 from typing import Any
-from app.config import MASTER_FACT_PROPRIETAIRES
 from app.readers import proprietaires_reglements_reader as _reglements
-from app.readers.excel_reader import read_sheet
 from app.services import referentiel_service as referentiel
 
 SHEET_ENTETE = "FACT_FACTURE_ENTETE"
@@ -43,7 +41,13 @@ def calc_available() -> bool:
 
 
 def fact_available() -> bool:
-    return MASTER_FACT_PROPRIETAIRES.exists()
+    """Le dataset Lot12 est-il exploitable ? (run actif en base, pas « fichier présent »)
+
+    Comme `calc_available` pour Lot10 : la disponibilité se mesure sur le DATASET, pas sur la
+    présence d'un classeur. Un fichier laissé sur le disque par un ancien calcul ne rend pas les
+    préfactures disponibles.
+    """
+    return _reglements.factures_entetes().etat.disponible
 
 
 def _is_real_row(row: dict[str, Any], key: str) -> bool:
@@ -116,7 +120,7 @@ def read_prefacture_entetes_prop_mois(prop_id: str, mois: str) -> list[dict[str,
     """En-têtes de préfacture pour un propriétaire×mois (une par logement)."""
     pid = str(prop_id).strip()
     m = str(mois).strip()
-    rows = read_sheet(MASTER_FACT_PROPRIETAIRES, SHEET_ENTETE, max_rows=None)
+    rows = _reglements.factures_entetes().lignes
     return [r for r in rows
             if str(r.get("proprietaire_id") or "").strip() == pid
             and str(r.get("mois") or "").strip() == m]
@@ -125,7 +129,7 @@ def read_prefacture_entetes_prop_mois(prop_id: str, mois: str) -> list[dict[str,
 def read_prefacture_lignes(facture_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
     """Lignes FACT_FACTURE_LIGNES groupées par facture_id."""
     fids = {str(fid).strip() for fid in facture_ids}
-    rows = read_sheet(MASTER_FACT_PROPRIETAIRES, SHEET_LIGNES, max_rows=None)
+    rows = _reglements.lignes_prefactures().lignes
     result: dict[str, list[dict[str, Any]]] = {fid: [] for fid in fids}
     for r in rows:
         fid = str(r.get("facture_id") or "").strip()

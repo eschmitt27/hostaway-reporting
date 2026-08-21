@@ -46,3 +46,67 @@ def seeder(db_path, *, entetes=(), lignes=(), controle=(), dashboard=(), a_contr
     finally:
         conn.close()
     return run_id
+
+
+def reprendre_master_reel(db_path, chemin_master, *, run_id: str = RUN_TEST) -> str | None:
+    """Charge le VRAI `MASTER_FACT_Proprietaires.xlsx` (lecture seule) dans les tables `lot12_*`.
+
+    Même statut que `fixtures_lot10.reprendre_master_reel` : réservé aux tests qui portent sur des
+    DONNÉES RÉELLES (PROP_0001, mois 2025-07, préfactures multi-logements…) — leur valeur vient
+    précisément de ce qu'ils vérifient des chiffres réels. Outil de TEST, jamais un chemin runtime :
+    l'application ne lit plus ce classeur.
+
+    Rend None si le classeur est absent (environnement sans données réelles) — l'appelant skippe.
+    """
+    from pathlib import Path
+
+    import openpyxl
+
+    chemin = Path(chemin_master)
+    if not chemin.exists():
+        return None
+
+    wb = openpyxl.load_workbook(str(chemin), read_only=True, data_only=True)
+    try:
+        def _onglet(nom: str) -> list[dict[str, Any]]:
+            if nom not in wb.sheetnames:
+                return []
+            lignes = list(wb[nom].iter_rows(values_only=True))
+            if len(lignes) <= 1:
+                return []
+            entetes = [str(c) if c is not None else "" for c in lignes[0]]
+            return [dict(zip(entetes, r)) for r in lignes[1:] if any(v is not None for v in r)]
+
+        entetes = _onglet("FACT_FACTURE_ENTETE")
+        lignes = _onglet("FACT_FACTURE_LIGNES")
+        dashboard = _onglet("DASHBOARD_FACTURATION")
+        a_controler = _onglet("A_CONTROLER")
+    finally:
+        wb.close()
+
+    # Seules les colonnes réellement portées par les tables 0047 sont reprises : une colonne du
+    # classeur qui n'existe pas en base signalerait une divergence de schéma, pas une donnée à
+    # forcer.
+    def _filtrer(rows, colonnes):
+        return [{k: v for k, v in r.items() if k in colonnes} for r in rows]
+
+    COLS_ENTETE = {"facture_id", "mois", "proprietaire_id", "nom_proprietaire",
+                   "adresse_proprietaire", "logement_id", "nom_logement", "periode_debut",
+                   "periode_fin", "nb_reservations", "total_exploitation_net",
+                   "total_reglement_du", "reste_a_payer", "credit_a_traiter", "mode_facturation",
+                   "statut_facture", "statut_generation", "balises", "date_generation"}
+    COLS_LIGNES = {"facture_id", "ligne_num", "type_ligne", "libelle", "montant", "bloc",
+                   "commentaire"}
+    COLS_DASH = {"mois", "proprietaire_id", "nb_logements", "nb_bloquants_mois",
+                 "nb_a_controler_mois", "facturation_lot12_ok", "mode_facturation",
+                 "statut_facture", "balises_non_resolues"}
+    COLS_AC = {"mois", "proprietaire_id", "logement_id", "reservation", "code_anomalie",
+               "severite", "impact_facturation", "message"}
+
+    seeder(db_path,
+           entetes=_filtrer(entetes, COLS_ENTETE),
+           lignes=_filtrer(lignes, COLS_LIGNES),
+           dashboard=_filtrer(dashboard, COLS_DASH),
+           a_controler=_filtrer(a_controler, COLS_AC),
+           run_id=run_id)
+    return run_id

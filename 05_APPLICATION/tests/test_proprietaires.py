@@ -61,6 +61,12 @@ def referentiel_importe(tmp_db, monkeypatch):
     # test, jamais un chemin runtime : l'application ne lit plus ce fichier.
     if fx.reprendre_master_reel(db, cfg.MASTER_NET_PROPRIETAIRE) is None:
         pytest.skip("MASTER_CALC_NetProprietaire.xlsx absent de cet environnement")
+    # Lot12 est SQLite (0047) : les préfactures réelles attendues plus bas viennent des tables
+    # `lot12_*`. Même reprise en lecture seule, même statut d'outil de test.
+    import fixtures_lot12 as fx12
+
+    if fx12.reprendre_master_reel(db, cfg.MASTER_FACT_PROPRIETAIRES) is None:
+        pytest.skip("MASTER_FACT_Proprietaires.xlsx absent de cet environnement")
     _reglements_reader.vider_cache()
     yield db
     _reglements_reader.vider_cache()

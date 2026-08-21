@@ -3,8 +3,9 @@
 Lit les sorties moteur du pilotage propriétaire :
   - Lot10 (SQLite, migration 0044) : `lot10_net_vue_mois`, `lot10_net_reglement`,
     `lot10_commissions`, `lot10_resultats` — dataset du run ACTIF (`lot10_runs.actif = 1`).
-  - MASTER_FACT_Proprietaires.xlsx : FACT_FACTURE_ENTETE, DASHBOARD_FACTURATION, A_CONTROLER
-    (Lot12, non migré — reste Excel, hors périmètre de la migration Lot10).
+  - Lot12 (SQLite, migration 0047) : `lot12_prefactures_entete`, `lot12_prefactures_lignes`,
+    `lot12_dashboard_facturation`, `lot12_a_controler` — dataset du run ACTIF
+    (`lot12_runs.actif = 1`). `MASTER_FACT_Proprietaires.xlsx` n'est plus lu.
 
 Ne recalcule aucune commission, aucun net : ces valeurs viennent du moteur. Aucune écriture.
 N'expose jamais l'adresse du propriétaire ni de chemin absolu.
@@ -344,6 +345,12 @@ def factures_entetes(db_path=None) -> Source:
 def dashboard_facturation(db_path=None) -> Source:
     return _src_sqlite_lot12("dashboard", "Tableau de bord facturation",
                              "lot12_dashboard_facturation", db_path=db_path)
+
+
+def lignes_prefactures(db_path=None) -> Source:
+    """FACT_FACTURE_LIGNES — les 12 (ou 13) lignes de chaque préfacture, run Lot12 actif."""
+    return _src_sqlite_lot12("lignes_prefactures", "Lignes de préfacture",
+                             "lot12_prefactures_lignes", db_path=db_path)
 
 
 def controles_factures(db_path=None) -> Source:
