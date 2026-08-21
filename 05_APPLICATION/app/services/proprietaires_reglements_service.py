@@ -46,19 +46,19 @@ def explication(code: str) -> str:
 
 # ── Index auxiliaires ────────────────────────────────────────────────────────
 
-def _index_dashboard(mois: str) -> dict[str, dict[str, Any]]:
+def _index_dashboard(mois: str, db_path=None) -> dict[str, dict[str, Any]]:
     idx = {}
-    for r in reader.dashboard_facturation().lignes:
+    for r in reader.dashboard_facturation(db_path=db_path).lignes:
         if mois and to_mois(r.get("mois")) != mois:
             continue
         idx[to_texte(r.get("proprietaire_id"))] = r
     return idx
 
 
-def _agg_reglement(mois: str) -> dict[str, dict[str, Any]]:
+def _agg_reglement(mois: str, db_path=None) -> dict[str, dict[str, Any]]:
     """Agrège REGLEMENT (mois × logement) au grain propriétaire : acomptes, paiements, reste, logements."""
     agg: dict[str, dict[str, Any]] = {}
-    for r in reader.net_reglement().lignes:
+    for r in reader.net_reglement(db_path=db_path).lignes:
         if mois and to_mois(r.get("mois")) != mois:
             continue
         pid = to_texte(r.get("proprietaire_id"))
@@ -75,9 +75,9 @@ def _agg_reglement(mois: str) -> dict[str, dict[str, Any]]:
     return agg
 
 
-def _agg_commission_assiette(mois: str) -> dict[str, float]:
+def _agg_commission_assiette(mois: str, db_path=None) -> dict[str, float]:
     agg: dict[str, float] = {}
-    for r in reader.commissions().lignes:
+    for r in reader.commissions(db_path=db_path).lignes:
         if mois and to_mois(r.get("mois")) != mois:
             continue
         pid = to_texte(r.get("proprietaire_id"))
@@ -85,18 +85,18 @@ def _agg_commission_assiette(mois: str) -> dict[str, float]:
     return agg
 
 
-def _index_noms() -> dict[str, str]:
+def _index_noms(db_path=None) -> dict[str, str]:
     idx = {}
-    for r in reader.factures_entetes().lignes:
+    for r in reader.factures_entetes(db_path=db_path).lignes:
         pid = to_texte(r.get("proprietaire_id"))
         if pid and pid not in idx:
             idx[pid] = to_texte(r.get("nom_proprietaire"))  # adresse jamais reprise
     return idx
 
 
-def _index_factures(mois: str) -> dict[str, dict[str, Any]]:
+def _index_factures(mois: str, db_path=None) -> dict[str, dict[str, Any]]:
     idx: dict[str, dict[str, Any]] = {}
-    for r in reader.factures_entetes().lignes:
+    for r in reader.factures_entetes(db_path=db_path).lignes:
         if mois and to_mois(r.get("mois")) != mois:
             continue
         pid = to_texte(r.get("proprietaire_id"))
@@ -215,12 +215,15 @@ def load_filters(mois: str = "") -> dict[str, Any]:
 
 # ── Vues (partagé liste + export) ────────────────────────────────────────────
 
-def _toutes_les_vues(mois: str) -> list[dict[str, Any]]:
-    src = reader.net_vue_mois()
+def _toutes_les_vues(mois: str, db_path=None) -> list[dict[str, Any]]:
+    src = reader.net_vue_mois(db_path=db_path)
     if not src.etat.disponible:
         return []
-    dash, regl, fact = _index_dashboard(mois), _agg_reglement(mois), _index_factures(mois)
-    assiette, noms = _agg_commission_assiette(mois), _index_noms()
+    dash = _index_dashboard(mois, db_path=db_path)
+    regl = _agg_reglement(mois, db_path=db_path)
+    fact = _index_factures(mois, db_path=db_path)
+    assiette = _agg_commission_assiette(mois, db_path=db_path)
+    noms = _index_noms(db_path=db_path)
     return [_vue(r, dash, regl, fact, assiette, noms) for r in src.lignes
             if not mois or to_mois(r.get("mois")) == mois]
 
@@ -259,9 +262,9 @@ def _tri_cle(v: dict, tri: str):
     return (ctrl, -(v["reste"] or 0), v["nom"] or v["proprietaire_id"])
 
 
-def _logement_index(mois: str) -> dict[str, set]:
+def _logement_index(mois: str, db_path=None) -> dict[str, set]:
     idx: dict[str, set] = {}
-    for r in reader.net_reglement().lignes:
+    for r in reader.net_reglement(db_path=db_path).lignes:
         if mois and to_mois(r.get("mois")) != mois:
             continue
         lg = to_texte(r.get("logement_id"))
@@ -272,13 +275,13 @@ def _logement_index(mois: str) -> dict[str, set]:
 
 def load_owners(mois: str = "", proprietaire_id: str = "", logement_id: str = "", statut: str = "",
                 avec_anomalie: bool = False, avec_reste: bool = False, facture: str = "",
-                regle: str = "", tri: str = "anomalie", page: int = 1) -> dict[str, Any]:
-    src = reader.net_vue_mois()
+                regle: str = "", tri: str = "anomalie", page: int = 1, db_path=None) -> dict[str, Any]:
+    src = reader.net_vue_mois(db_path=db_path)
     if not src.etat.disponible:
         return {"status": "SOURCE_INDISPONIBLE", "etat_source": src.etat, "rows": [],
                 "page": 1, "pages": 1, "count_total": 0, "count_filtre": 0, "read_at": _now()}
-    vues = _toutes_les_vues(mois)
-    lg_idx = _logement_index(mois)
+    vues = _toutes_les_vues(mois, db_path=db_path)
+    lg_idx = _logement_index(mois, db_path=db_path)
     filt = [v for v in vues if _match(v, proprietaire_id, logement_id, statut, avec_anomalie,
                                       avec_reste, facture, regle, lg_idx)]
     filt.sort(key=lambda v: _tri_cle(v, tri if tri in TRIS else "anomalie"))

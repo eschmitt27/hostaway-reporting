@@ -48,6 +48,17 @@ CHAMPS_SAISIE = (
     "commentaire",
 )
 
+# Table compagne `reservation_hh_overrides` (migration 0053) : dérogations menage/commission et
+# montants conditionnels au mode de paiement. Voir la migration pour la sémantique exacte des
+# champs `*_override` (NULL si absent ou égal au standard résolu — jamais forcé par ce service).
+CHAMPS_OVERRIDES = (
+    "menage", "menage_standard", "menage_standard_source", "menage_override", "motif_override_menage",
+    "confirmation_override_menage", "taux_commission_standard", "taux_commission_standard_source",
+    "taux_commission_override", "motif_override_taux_commission",
+    "confirmation_override_taux_commission", "commentaire_taux_commission", "montant_recupere",
+    "associe_id_recuperateur", "montant_reverse_proprietaire", "source_acompte_facture",
+)
+
 OBLIGATOIRES = ("mois", "logement_id", "date_arrivee", "date_depart")
 
 
@@ -122,6 +133,33 @@ def _ligne(conn, rid: str) -> dict[str, Any] | None:
     return dict(r) if r else None
 
 
+def _overrides(conn, rid: str) -> dict[str, Any] | None:
+    r = conn.execute("SELECT * FROM reservation_hh_overrides WHERE reservation_hh_id = ?",
+                     (rid,)).fetchone()
+    return dict(r) if r else None
+
+
+def _upsert_overrides(conn, rid: str, donnees: dict[str, Any]) -> dict[str, Any]:
+    """Insère ou met à jour la ligne compagne (1-1, migration 0053). Jamais de calcul métier ici :
+    les valeurs sont celles déjà résolues par `saisie_hh_service.valider` (standard/override)."""
+    valeurs = {c: donnees.get(c) for c in CHAMPS_OVERRIDES}
+    for champ in ("menage", "menage_standard", "menage_override", "taux_commission_standard",
+                  "taux_commission_override", "montant_recupere", "montant_reverse_proprietaire"):
+        valeurs[champ] = _nombre(valeurs.get(champ))
+    if _overrides(conn, rid) is None:
+        colonnes = ["reservation_hh_id", *CHAMPS_OVERRIDES]
+        conn.execute(
+            f"INSERT INTO reservation_hh_overrides ({', '.join(colonnes)}) "
+            f"VALUES ({', '.join(['?'] * len(colonnes))})",
+            [rid, *(valeurs[c] for c in CHAMPS_OVERRIDES)])
+    else:
+        conn.execute(
+            f"UPDATE reservation_hh_overrides SET "
+            f"{', '.join(f'{c} = ?' for c in CHAMPS_OVERRIDES)} WHERE reservation_hh_id = ?",
+            [*(valeurs[c] for c in CHAMPS_OVERRIDES), rid])
+    return valeurs
+
+
 def creer(donnees: dict[str, Any], *, acteur: str = "", db_path=None) -> dict[str, Any]:
     validation = valider(donnees)
     if not validation["ok"]:
@@ -144,7 +182,9 @@ def creer(donnees: dict[str, Any], *, acteur: str = "", db_path=None) -> dict[st
         conn.execute(
             f"INSERT INTO reservations_hors_hostaway ({', '.join(colonnes)}) "
             f"VALUES ({', '.join(['?'] * len(colonnes))})", params)
-        _journaliser(conn, rid, EVT_CREATION, acteur, "", apres=valeurs)
+        valeurs_overrides = _upsert_overrides(conn, rid, donnees)
+        _journaliser(conn, rid, EVT_CREATION, acteur, "",
+                     apres={**valeurs, **valeurs_overrides})
         conn.commit()
     finally:
         conn.close()
@@ -164,6 +204,7 @@ def modifier(rid: str, donnees: dict[str, Any], *, acteur: str = "", motif: str 
             return _refus(E_INTROUVABLE, f"Réservation inconnue : {rid}.")
         if avant["statut"] == STATUT_ANNULEE:
             return _refus(E_DEJA_ANNULEE, "Une réservation annulée ne se corrige pas.")
+        avant_overrides = _overrides(conn, rid) or {}
         valeurs = {c: donnees.get(c) for c in CHAMPS_SAISIE}
         valeurs["mois"] = validation["mois"]
         for champ in ("montant_percu", "montant_retenu"):
@@ -173,8 +214,10 @@ def modifier(rid: str, donnees: dict[str, Any], *, acteur: str = "", motif: str 
             f"{', '.join(f'{c} = ?' for c in CHAMPS_SAISIE)}, date_modification = ? "
             "WHERE reservation_hh_id = ?",
             [*(valeurs[c] for c in CHAMPS_SAISIE), _maintenant(), rid])
+        valeurs_overrides = _upsert_overrides(conn, rid, donnees)
         _journaliser(conn, rid, EVT_MODIFICATION, acteur, motif,
-                     avant={c: avant.get(c) for c in CHAMPS_SAISIE}, apres=valeurs)
+                     avant={**{c: avant.get(c) for c in CHAMPS_SAISIE}, **avant_overrides},
+                     apres={**valeurs, **valeurs_overrides})
         conn.commit()
     finally:
         conn.close()

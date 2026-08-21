@@ -3,15 +3,12 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from urllib.parse import quote
 
-import app.config as cfg
 from app.readers.banques_reader import date_affichage, datetime_affichage
 from app.config import TEMPLATES_DIR
 from app.services import reservations_hh_service as svc
 from app.services import saisie_hh_service as saisie_svc
-from app.services import saisie_hh_dryrun_service as dryrun_svc
-from app.services import saisie_hh_real_write_service as real_write_svc
+from app.services import reservations_hh_confirmation_service as confirmation
 from app.services import hostaway_actualisation_service as hostaway_svc
-from app.services import saisie_hh_orchestrator as hh_orchestrator
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -116,57 +113,11 @@ async def reservation_nouvelle_verifier(request: Request):
     })
 
 
-@router.post("/reservations/nouvelle/confirmer", response_class=HTMLResponse)
-async def reservation_nouvelle_confirmer(request: Request):
-    form_data = await request.form()
-    data = dict(form_data)
-    if not cfg.HH_REAL_WRITE_ENABLED:
-        write_result = hh_orchestrator.confirm_write(
-            row_data={},
-            pk=str(data.get("reservation_hh_id", "")),
-            mois=str(data.get("mois", "")),
-        )
-        return templates.TemplateResponse(request, "reservation_nouvelle_verif.html", {
-            "active_menu": "reservations",
-            "preview": {},
-            "pk": str(data.get("reservation_hh_id", "")),
-            "form_data": data,
-            "resultat_ecriture": write_result,
-        })
-    result = saisie_svc.valider(data)
-    if not result["ok"]:
-        refs = saisie_svc.load_form_refs()
-        return templates.TemplateResponse(
-            request,
-            "reservation_nouvelle_form.html",
-            {
-                "active_menu": "reservations",
-                "refs": refs,
-                "form": data,
-                "erreurs": result["erreurs"],
-            },
-            status_code=422,
-        )
-    row_data = saisie_svc.build_row_data(result["preview"])
-    write_result = hh_orchestrator.confirm_write(
-        row_data=row_data,
-        pk=result["pk"],
-        mois=result["preview"].get("mois", ""),
-    )
-    return templates.TemplateResponse(request, "reservation_nouvelle_verif.html", {
-        "active_menu": "reservations",
-        "preview": result["preview"],
-        "pk": result["pk"],
-        "form_data": data,
-        "resultat_ecriture": write_result,
-    })
-
-
 @router.post("/reservations/nouvelle/previsualiser", response_class=HTMLResponse)
 async def reservation_nouvelle_previsualiser(request: Request):
     form_data = await request.form()
     data = dict(form_data)
-    result = dryrun_svc.run_previsualisation(data)
+    result = confirmation.previsualiser(data)
     if not result["ok"] and result["manifest"].get("status") == "VALIDATION_REFUSEE":
         refs = saisie_svc.load_form_refs()
         return templates.TemplateResponse(
@@ -189,40 +140,40 @@ async def reservation_nouvelle_previsualiser(request: Request):
 @router.get("/reservations/nouvelle/previsualisation/{token}", response_class=HTMLResponse)
 def reservation_nouvelle_previsualisation(request: Request, token: str):
     try:
-        dryrun = dryrun_svc.load_previsualisation(token)
-    except dryrun_svc.DryRunError:
+        data = confirmation.load_previsualisation(token)
+    except confirmation.DryRunError:
         return templates.TemplateResponse(
             request,
             "reservation_nouvelle_previsualisation.html",
-            {"active_menu": "reservations", "dryrun": None, "token": token},
+            {"active_menu": "reservations", "manifest": None, "token": token},
             status_code=404,
         )
-    real_write_state = real_write_svc.evaluate_real_write_prerequisites(token)
     return templates.TemplateResponse(request, "reservation_nouvelle_previsualisation.html", {
         "active_menu": "reservations",
-        "dryrun": dryrun,
+        "manifest": data["manifest"],
         "token": token,
-        "real_write_state": real_write_state,
-        "real_write_result": None,
+        "deja_confirme": confirmation.resultat_existe(token),
+        "resultat": None,
     })
 
 
 @router.post("/reservations/nouvelle/previsualisation/{token}/enregistrer", response_class=HTMLResponse)
 async def reservation_nouvelle_ecriture_reelle(request: Request, token: str):
-    form_data = await request.form()
-    confirmation = str(form_data.get("confirmation_texte", ""))
-    result = real_write_svc.enregistrer_reservation_hh_reelle(token, confirmation)
+    if confirmation.resultat_existe(token):
+        return RedirectResponse(
+            url=f"/reservations/nouvelle/previsualisation/{token}", status_code=303)
+    resultat = confirmation.confirmer(token, acteur="local")
     try:
-        dryrun = dryrun_svc.load_previsualisation(token)
-    except dryrun_svc.DryRunError:
-        dryrun = None
-    real_write_state = real_write_svc.evaluate_real_write_prerequisites(token) if dryrun else None
+        data = confirmation.load_previsualisation(token)
+        manifest = data["manifest"]
+    except confirmation.DryRunError:
+        manifest = None
     return templates.TemplateResponse(request, "reservation_nouvelle_previsualisation.html", {
         "active_menu": "reservations",
-        "dryrun": dryrun,
+        "manifest": manifest,
         "token": token,
-        "real_write_state": real_write_state,
-        "real_write_result": result,
+        "deja_confirme": False,
+        "resultat": resultat.as_dict(),
     })
 
 

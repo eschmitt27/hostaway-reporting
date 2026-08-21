@@ -1,190 +1,123 @@
 {% extends "base.html" %}
-{% block title %}Simulation enregistrement HH{% endblock %}
+{% block title %}Prévisualisation réservation HH{% endblock %}
 
 {% block content %}
-<div class="page-header flex justify-between items-center">
-  <div>
-    <h1 class="page-title">Prévisualisation de l'enregistrement</h1>
-    <p class="page-subtitle">Dry-run APP-2c sur copies isolées</p>
-  </div>
-  <span class="badge badge-warning">HH_REAL_WRITE_ENABLED = False</span>
+<div class="page-header">
+  <h1 class="page-title">Prévisualisation de la réservation</h1>
+  <p class="page-subtitle">Validation avant écriture en base</p>
 </div>
 
-{% if not dryrun %}
+{% if not manifest %}
 <div class="alert alert-error">
   <strong>Prévisualisation introuvable.</strong>
+  Identifiant <code>{{ token }}</code> inconnu ou expiré.
 </div>
 <p><a href="/reservations/nouvelle" class="btn btn-primary">Nouvelle saisie</a></p>
-{% else %}
-{% set manifest = dryrun.manifest %}
-{% set lot4a = dryrun.resultat_lot4a %}
-{% set row = dryrun.simulated_master_row or {} %}
-{% set payload = manifest.payload_summary or {} %}
 
-<div class="alert alert-success" data-testid="app2c-security-banner">
-  <strong>Simulation sur copie — aucune donnée réelle n’a été modifiée.</strong>
-</div>
-
-{% if manifest.status != "OK" %}
-<div class="alert alert-error" data-status="{{ manifest.status }}">
-  <strong>Simulation non validée :</strong> {{ manifest.status }}
-  {% if manifest.errors %}
-  <ul>
-    {% for err in manifest.errors %}
-    <li>{{ err }}</li>
+{% elif manifest.status == "VALIDATION_REFUSEE" %}
+<div class="alert alert-error" data-status="VALIDATION_REFUSEE">
+  <strong>Validation refusée :</strong>
+  <ul style="margin: var(--stack-sm) 0 0 var(--stack-lg);">
+    {% for e in manifest.errors %}
+    <li><code>{{ e.code }}</code> — {{ e.message }}</li>
     {% endfor %}
   </ul>
-  {% endif %}
 </div>
-{% endif %}
+<p><a href="/reservations/nouvelle" class="btn btn-primary">Retour à la saisie</a></p>
+
+{% else %}
+{% set p = manifest.preview or {} %}
+
+<div class="alert alert-success" data-testid="app2c-security-banner">
+  <strong>Aperçu — aucune réservation n'a encore été enregistrée.</strong>
+</div>
 
 <div class="grid two-cols">
   <section class="card">
     <h2>Réservation</h2>
     <table class="dryrun-table">
       <tbody>
-        <tr><td>Logement</td><td>{{ payload.logement_id or "—" }}</td></tr>
-        <tr><td>Propriétaire</td><td>{{ payload.proprietaire_id or "—" }}</td></tr>
-        <tr><td>Canal</td><td>{{ payload.canal_id or "—" }}</td></tr>
-        <tr><td>Dates</td><td>{{ payload.date_arrivee or "—" }} → {{ payload.date_depart or "—" }}</td></tr>
-        <tr><td>Nuits</td><td>{{ row.nuits if row.nuits is not none and row.nuits != "" else "—" }}</td></tr>
-        <tr><td>Total perçu</td><td>{{ payload.total_percu or "—" }}</td></tr>
-        <tr><td>Mode de paiement</td><td>{{ payload.mode_paiement_id or "—" }}</td></tr>
-        <tr><td>Code impact</td><td>{{ payload.code_impact or "—" }}</td></tr>
-        <tr><td>Comptabilisation dérivée</td><td>{{ payload.comptabilisation or "—" }}</td></tr>
+        <tr><td>reservation_hh_id</td><td><code>{{ manifest.pk or "—" }}</code></td></tr>
+        <tr><td>Logement</td><td>{{ p.logement_id or "—" }}</td></tr>
+        <tr><td>Propriétaire</td><td>{{ p.proprietaire_id or "—" }}</td></tr>
+        <tr><td>Canal</td><td>{{ p.canal_id or "—" }}</td></tr>
+        <tr><td>Dates</td><td>{{ p.date_arrivee or "—" }} → {{ p.date_depart or "—" }}</td></tr>
+        <tr><td>Total perçu</td><td>{{ p.total_percu or "—" }}</td></tr>
+        <tr><td>Mode de paiement</td><td>{{ p.mode_paiement_id or "—" }}</td></tr>
+        <tr><td>Code impact</td><td>{{ p.code_impact or "—" }}</td></tr>
+        <tr><td>Comptabilisation dérivée</td><td>{{ p.comptabilisation or "—" }}</td></tr>
       </tbody>
     </table>
   </section>
 
   <section class="card">
-    <h2>Calculs applicables</h2>
+    <h2>Dérogations</h2>
     <table class="dryrun-table">
       <tbody>
-        <tr><td>Taux historique</td><td>{{ row.taux_commission if row.taux_commission is not none else "—" }}</td></tr>
-        <tr><td>Dérogation taux</td><td>{{ payload.taux_commission_override or "Aucune" }}</td></tr>
-        <tr><td>Source taux</td><td>{{ row.taux_commission_source or "—" }}</td></tr>
-        <tr><td>Prix ménage standard / effectif</td><td>{{ row.menage if row.menage is not none else "—" }}</td></tr>
-        <tr><td>Dérogation ménage</td><td>{{ payload.menage_override or "Aucune" }}</td></tr>
-        <tr><td>Commission</td><td>{{ row.commission if row.commission is not none else "—" }}</td></tr>
-        <tr><td>Acompte facture propriétaire</td><td>{{ row.acompte_facture if row.acompte_facture is not none else "—" }}</td></tr>
-        <tr><td>Source acompte</td><td>{{ row.source_acompte_facture or "—" }}</td></tr>
-        <tr><td>Mois d'acompte</td><td>{{ row.mois or payload.mois or "—" }}</td></tr>
-        <tr><td>Impact réel / comptable</td><td>{{ row.impact_resultat_reel or "—" }} / {{ row.impact_resultat_comptable or "—" }}</td></tr>
+        <tr><td>Ménage standard</td><td>{{ p.menage_standard if p.menage_standard is not none else "—" }}</td></tr>
+        <tr><td>Ménage dérogatoire</td><td>{{ p.menage_override if p.menage_override is not none else "Aucune" }}</td></tr>
+        <tr><td>Taux commission standard</td><td>{{ p.taux_commission_standard if p.taux_commission_standard is not none else "—" }}</td></tr>
+        <tr><td>Taux commission dérogatoire</td><td>{{ p.taux_commission_override if p.taux_commission_override is not none else "Aucune" }}</td></tr>
+        <tr><td>Montant récupéré (associé)</td><td>{{ p.montant_recupere if p.montant_recupere is not none else "—" }}</td></tr>
+        <tr><td>Montant reversé (espèces)</td><td>{{ p.montant_reverse_proprietaire if p.montant_reverse_proprietaire is not none else "—" }}</td></tr>
       </tbody>
     </table>
   </section>
 </div>
 
 <section class="card">
-  <h2>Effets simulés</h2>
+  <h2>Prévisualisation</h2>
   <table class="dryrun-table">
     <tbody>
-      <tr><td>Identifiant HH créé</td><td><code>{{ payload.reservation_hh_id or "—" }}</code></td></tr>
-      <tr><td>Ligne SAISIE ajoutée</td><td>{{ manifest.target_row or "—" }}</td></tr>
-      <tr><td>Colonnes ajoutées par migration cible</td><td>{{ (manifest.migration.saisie_fields_added or []) | join(", ") if manifest.migration else "—" }}</td></tr>
-      <tr><td>Résultat Lot4A</td><td>{{ manifest.lot4a_status or "—" }}</td></tr>
-      <tr><td>Interpréteur moteur</td><td><code>{{ manifest.engine.python if manifest.engine else "—" }}</code></td></tr>
-      <tr><td>NumPy / pandas</td><td>{{ manifest.engine.numpy if manifest.engine else "—" }} / {{ manifest.engine.pandas if manifest.engine else "—" }}</td></tr>
-      <tr><td>Formules Excel</td><td>{{ manifest.formula_cache.status if manifest.formula_cache else "—" }}</td></tr>
-      <tr><td>Anomalies</td><td>{{ manifest.errors | join("; ") if manifest.errors else "Aucune" }}</td></tr>
-      <tr><td>Statut final simulé</td><td>{{ manifest.status }}</td></tr>
-      <tr><td>Dossier dry-run</td><td><code>{{ manifest.paths.run_dir }}</code></td></tr>
+      <tr><td>Token</td><td><code>{{ manifest.token }}</code></td></tr>
+      <tr><td>Créé le</td><td>{{ manifest.created_at_utc }}</td></tr>
     </tbody>
   </table>
 </section>
 
-<section class="card">
-  <h2>Avant / après</h2>
-  <table class="dryrun-table">
-    <thead>
-      <tr><th>Élément</th><th>Avant simulation</th><th>Après simulation</th></tr>
-    </thead>
-    <tbody>
-      {% for item in dryrun.comparatif %}
-      <tr><td>{{ item.element }}</td><td>{{ item.avant }}</td><td>{{ item.apres }}</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</section>
-
-{% set rw = real_write_state or {} %}
-{% set failed_checks = [] %}
-{% if rw.checks %}
-  {% for check in rw.checks %}
-    {% if not check.ok %}
-      {% set _ = failed_checks.append(check) %}
-    {% endif %}
-  {% endfor %}
-{% endif %}
-<section class="card real-write-card" data-testid="real-write-panel">
-  <h2>Écriture réelle</h2>
-  {% if real_write_result %}
-    {% if real_write_result.statut == "OK" %}
-    <div class="alert alert-success" data-real-write-result="OK">
-      Réservation enregistrée réellement : <code>{{ real_write_result.pk }}</code>
-    </div>
-    {% elif real_write_result.statut == "ECRITURE_REELLE_ANNULEE_ET_RESTAUREE" %}
-    <div class="alert alert-warning" data-real-write-result="ROLLBACK">
-      Écriture réelle annulée et restaurée. Rollback : {{ real_write_result.rollback_status }}.
-    </div>
-    {% else %}
-    <div class="alert alert-error" data-real-write-result="{{ real_write_result.statut }}">
-      Écriture réelle refusée : {{ real_write_result.details }}
-    </div>
-    {% endif %}
-  {% endif %}
-
-  {% if not rw.eligible %}
-  <div class="alert alert-warning" data-testid="real-write-disabled">
-    <strong>Écriture réelle désactivée.</strong><br>
-    La simulation est valide, mais aucune réservation ne peut être enregistrée dans le fichier source.
-  </div>
-  {% if failed_checks %}
-  <p class="text-sm text-secondary">Prérequis invalides :</p>
-  <ul class="real-write-checks">
-    {% for check in failed_checks %}
-    <li data-check-code="{{ check.code }}">
-      <strong>{{ check.code }}</strong> — {{ check.label }}{% if check.details %} : {{ check.details }}{% endif %}
-    </li>
-    {% endfor %}
+<section class="card" data-testid="effet-fichiers">
+  <h2>Effet prévu</h2>
+  <ul style="margin:0; padding-left: var(--stack-lg);">
+    <li>Une réservation est ajoutée aux tables <code>reservations_hors_hostaway</code> et <code>reservation_hh_overrides</code>.</li>
   </ul>
-  {% endif %}
-  {% if rw.schema and not rw.schema.ok %}
-  <div class="schema-diagnostic" data-testid="schema-real-diagnostic">
-    <strong>Schéma réel non préparé :</strong>
-    <ul>
-      <li>Colonnes SAISIE manquantes : {{ (rw.schema.missing_saisie_fields or []) | join(", ") if rw.schema.missing_saisie_fields else "aucune" }}</li>
-      <li>Mode de paiement REF manquant : {{ (rw.schema.missing_ref_modes or []) | join(", ") if rw.schema.missing_ref_modes else "aucun" }}</li>
-      <li>Aucune écriture réelle ne sera possible avant migration contrôlée.</li>
-    </ul>
+</section>
+
+<section class="card" data-testid="bloc-confirmation">
+  <h2>Confirmation</h2>
+  {% if deja_confirme %}
+  <div class="alert alert-success">
+    <strong>Cette prévisualisation a déjà été confirmée.</strong>
+    Aucune seconde écriture n'est possible.
   </div>
-  {% endif %}
+  <a href="/reservations/nouvelle/previsualisation/{{ token }}/resultat" class="btn btn-primary">Voir le résultat</a>
   {% else %}
-  <div class="alert alert-warning">
-    Tous les prérequis techniques sont valides. Une confirmation humaine exacte reste obligatoire.
+  <div class="alert alert-warning" data-testid="avertissement-ecriture">
+    <strong>Attention — cette action enregistre réellement la réservation en base.</strong>
+    Elle est tracée et ne peut pas être rejouée avec la même prévisualisation.
   </div>
-  <button type="button" id="real_write_open" class="btn btn-danger">Enregistrer réellement</button>
-  <div id="real_write_modal" class="real-write-modal-backdrop" hidden>
-    <div class="real-write-modal-panel" role="dialog" aria-modal="true" aria-labelledby="real_write_modal_title">
-      <h3 id="real_write_modal_title">Confirmation d'écriture réelle</h3>
-      <p>Vous allez enregistrer réellement la réservation <strong>{{ rw.pk }}</strong>.</p>
-      <p>Cette action modifiera <code>SAISIE_ReservationsHorsHostaway.xlsx</code>. Une sauvegarde sera créée avant écriture.</p>
-      <p>Pour confirmer, saisissez exactement :</p>
-      <p><code id="real_write_expected">{{ rw.expected_confirmation }}</code></p>
-      <form method="post" action="/reservations/nouvelle/previsualisation/{{ token }}/enregistrer">
-        <label for="confirmation_texte">Texte de confirmation</label>
-        <input id="confirmation_texte" name="confirmation_texte" type="text" autocomplete="off">
-        <div class="flex gap-md real-write-actions">
-          <button type="button" id="real_write_cancel" class="btn btn-secondary">Annuler</button>
-          <button type="submit" id="real_write_submit" class="btn btn-danger" disabled>Confirmer l'écriture réelle</button>
-        </div>
-      </form>
-    </div>
+  <form method="post" action="/reservations/nouvelle/previsualisation/{{ token }}/enregistrer">
+    <button type="submit" class="btn btn-primary" data-testid="btn-confirmer">Confirmer l'enregistrement</button>
+  </form>
+  {% endif %}
+</section>
+
+{% if resultat %}
+<section class="card" data-testid="resultat">
+  <h2>Résultat</h2>
+  {% if resultat.statut == "SUCCES" %}
+  <div class="alert alert-success" data-statut="SUCCES">
+    <strong>Réservation enregistrée.</strong> {{ resultat.message }}
+  </div>
+  {% else %}
+  <div class="alert alert-warning" data-statut="REFUSE">
+    <strong>Écriture refusée.</strong> {{ resultat.message }}
   </div>
   {% endif %}
 </section>
-<div class="flex gap-md">
-  <a href="/reservations/nouvelle" class="btn btn-primary">Nouvelle saisie</a>
+{% endif %}
+
+<div class="flex gap-md" style="margin-top:var(--stack-xl);">
+  <a href="/reservations/nouvelle" class="btn btn-secondary">Nouvelle saisie</a>
   <a href="/reservations" class="btn btn-secondary">Retour à la liste</a>
 </div>
 {% endif %}
@@ -196,80 +129,12 @@
   gap: var(--stack-lg);
   margin-bottom: var(--stack-lg);
 }
-.dryrun-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-.dryrun-table th,
-.dryrun-table td {
-  padding: 7px 10px;
-  border-bottom: 1px solid var(--color-border);
-  text-align: left;
-  vertical-align: top;
-}
-.dryrun-table td:first-child {
-  width: 38%;
-  color: var(--color-text-secondary);
-  font-size: 0.82rem;
-}
-.card {
-  margin-bottom: var(--stack-lg);
-}
-.real-write-checks { margin: var(--stack-sm) 0 0 var(--stack-lg); }
-.schema-diagnostic { margin-top: var(--stack-md); padding: 12px; border: 1px solid var(--color-border); background: var(--color-bg-subtle); }
-.schema-diagnostic ul { margin: var(--stack-sm) 0 0 var(--stack-lg); }
-.real-write-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 2147483647;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: rgba(0, 0, 0, 0.45);
-}
-.real-write-modal-panel {
-  width: min(560px, 100%);
-  max-height: calc(100vh - 48px);
-  overflow-y: auto;
-  box-sizing: border-box;
-  background: #ffffff;
-  padding: 24px;
-  border-radius: 8px;
-}
-.real-write-modal-panel input { display: block; width: 100%; box-sizing: border-box; margin: 8px 0 16px; }
-.real-write-actions { justify-content: flex-end; }
+.dryrun-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.dryrun-table td { padding: 7px 10px; border-bottom: 1px solid var(--color-border); text-align: left; vertical-align: top; }
+.dryrun-table td:first-child { width: 45%; color: var(--color-text-secondary); font-size: 0.82rem; }
+.card { margin-bottom: var(--stack-lg); }
 .flex { display: flex; }
 .flex.gap-md { gap: var(--stack-md); }
-.items-center { align-items: center; }
-.justify-between { justify-content: space-between; }
-@media (max-width: 820px) {
-  .grid.two-cols { grid-template-columns: 1fr; }
-}
+@media (max-width: 820px) { .grid.two-cols { grid-template-columns: 1fr; } }
 </style>
-<script>
-  (() => {
-    const openButton = document.getElementById("real_write_open");
-    const modal = document.getElementById("real_write_modal");
-    if (!openButton || !modal) return;
-    const cancelButton = document.getElementById("real_write_cancel");
-    const input = document.getElementById("confirmation_texte");
-    const submit = document.getElementById("real_write_submit");
-    const expected = document.getElementById("real_write_expected").textContent;
-    function refresh() {
-      submit.disabled = input.value !== expected;
-    }
-    openButton.addEventListener("click", () => {
-      modal.hidden = false;
-      input.value = "";
-      refresh();
-      cancelButton.focus();
-    });
-    cancelButton.addEventListener("click", () => {
-      modal.hidden = true;
-    });
-    input.addEventListener("input", refresh);
-  })();
-</script>
 {% endblock %}

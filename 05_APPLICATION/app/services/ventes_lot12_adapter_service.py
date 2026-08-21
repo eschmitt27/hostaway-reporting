@@ -13,13 +13,13 @@ from typing import Any
 from app.services import proprietaires_reglements_service as lot12
 
 
-def lignes_du_mois(mois: str) -> list[dict[str, Any]]:
+def lignes_du_mois(mois: str, *, db_path=None) -> list[dict[str, Any]]:
     """Une ligne par propriétaire ayant une vue Lot12 ce mois-ci. Liste vide si la source Lot12
     est indisponible (ne lève jamais)."""
     page = 1
     out: list[dict[str, Any]] = []
     while True:
-        res = lot12.load_owners(mois=mois, page=page)
+        res = lot12.load_owners(mois=mois, page=page, db_path=db_path)
         if res.get("status") != "OK":
             return []
         out.extend(res["rows"])
@@ -38,7 +38,7 @@ def generer_ecritures_du_mois(mois: str, *, acteur: str = "", db_path=None) -> d
     rien pour un montant nul ou absent — reflète §4 : « rien à constater » n'est pas une anomalie."""
     from app.services import comptabilite_ecritures_service as compta
 
-    lignes = lignes_du_mois(mois)
+    lignes = lignes_du_mois(mois, db_path=db_path)
     resultats = []
     for l in lignes:
         montant = l.get("montant_du_conciergerie")

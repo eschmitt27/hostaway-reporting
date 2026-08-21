@@ -148,6 +148,7 @@ EXPECTED_TABLES = {
     "charge_evenements",                         # 0052 — journal append-only des charges
     "reservations_hors_hostaway",                # 0052 — réservations hors Hostaway (Lot4 HH)
     "reservation_hh_evenements",                 # 0052 — journal append-only des réservations HH
+    "reservation_hh_overrides",                  # 0053 — dérogations menage/commission HH (1-1)
 }
 
 

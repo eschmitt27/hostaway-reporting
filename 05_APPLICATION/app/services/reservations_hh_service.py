@@ -1,19 +1,15 @@
 """Service réservations hors Hostaway — LECTURE SEULE (Lot APP-2a), AUCUN CALCUL.
 
-- Liste + détail depuis MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx (onglet MASTER).
-- MASTER absent/vide/illisible → état d'erreur clair.
+- Liste + détail depuis la table SQLite `reservations_hors_hostaway` (migration 0052).
+- Table absente/vide → état d'erreur clair (fail-closed, jamais un repli Excel).
 - Aucune écriture, aucun brouillon, aucune génération de PK, aucun appel writer.
-- Les champs commission / acompte / taux / net / impacts sont AFFICHÉS TELS QUELS,
-  signalés comme issus du fichier généré par le moteur (Power Query), jamais recalculés ici.
 """
 from datetime import datetime
 from typing import Any
-from app.config import MASTER_RESERVATIONS_HH, SAISIE_RESERVATIONS_HH
 from app.readers import reservations_hh_reader as reader
 
-MASTER_SOURCE_NAME = "MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx"
+MASTER_SOURCE_NAME = "reservations_hors_hostaway (SQLite)"
 MASTER_SHEET = "MASTER"
-SAISIE_SOURCE_NAME = "SAISIE_ReservationsHorsHostaway.xlsx"
 
 # Champs produits par le moteur (formules Excel / Power Query) — affichés, jamais calculés par l'app
 CHAMPS_MOTEUR = {
@@ -35,13 +31,6 @@ def _read_at() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _file_mtime(path) -> str:
-    try:
-        return datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
-    except OSError:
-        return "—"
-
-
 def _error(msg: str, read_at: str) -> dict[str, Any]:
     return {
         "status": "ERROR",
@@ -49,7 +38,7 @@ def _error(msg: str, read_at: str) -> dict[str, Any]:
         "source": MASTER_SOURCE_NAME,
         "sheet": MASTER_SHEET,
         "read_at": read_at,
-        "master_mtime": _file_mtime(MASTER_RESERVATIONS_HH),
+        "master_mtime": "—",
         "rows": [],
         "count_total": 0,
         "count_affiches": 0,
@@ -58,26 +47,25 @@ def _error(msg: str, read_at: str) -> dict[str, Any]:
     }
 
 
-def load_list(q: str = "", **filters: str) -> dict[str, Any]:
+def load_list(q: str = "", db_path=None, **filters: str) -> dict[str, Any]:
     read_at = _read_at()
 
-    if not MASTER_RESERVATIONS_HH.exists():
+    if not reader.master_available(db_path=db_path):
         return _error(
             f"Source introuvable : {MASTER_SOURCE_NAME}. "
             "La liste des réservations hors Hostaway ne peut pas être affichée.",
             read_at,
         )
 
-    rows = reader.read_reservations()
+    rows = reader.read_reservations(db_path=db_path)
     if not rows:
-        # Fichier présent mais aucune réservation en cache (ex. Power Query non rafraîchie)
         return {
             "status": "EMPTY",
             "error_message": None,
             "source": MASTER_SOURCE_NAME,
             "sheet": MASTER_SHEET,
             "read_at": read_at,
-            "master_mtime": _file_mtime(MASTER_RESERVATIONS_HH),
+            "master_mtime": "—",
             "rows": [],
             "count_total": 0,
             "count_affiches": 0,
@@ -113,9 +101,9 @@ def load_list(q: str = "", **filters: str) -> dict[str, Any]:
         "error_message": None,
         "source": MASTER_SOURCE_NAME,
         "sheet": MASTER_SHEET,
-        "saisie_amont": SAISIE_SOURCE_NAME,
+        "saisie_amont": MASTER_SOURCE_NAME,
         "read_at": read_at,
-        "master_mtime": _file_mtime(MASTER_RESERVATIONS_HH),
+        "master_mtime": "—",
         "rows": filtered,
         "count_total": len(rows),
         "count_affiches": len(filtered),
@@ -124,10 +112,10 @@ def load_list(q: str = "", **filters: str) -> dict[str, Any]:
     }
 
 
-def load_detail(reservation_hh_id: str) -> dict[str, Any] | None:
+def load_detail(reservation_hh_id: str, db_path=None) -> dict[str, Any] | None:
     read_at = _read_at()
 
-    if not MASTER_RESERVATIONS_HH.exists():
+    if not reader.master_available(db_path=db_path):
         return {
             "status": "ERROR",
             "error_message": f"Source introuvable : {MASTER_SOURCE_NAME}.",
@@ -135,21 +123,21 @@ def load_detail(reservation_hh_id: str) -> dict[str, Any] | None:
             "read_at": read_at,
         }
 
-    row = reader.find_reservation(reservation_hh_id)
+    row = reader.find_reservation(reservation_hh_id, db_path=db_path)
     if row is None:
         return None  # 404 propre géré par la route
 
     origine = {
         "source": MASTER_SOURCE_NAME,
         "sheet": MASTER_SHEET,
-        "saisie_amont": SAISIE_SOURCE_NAME,
+        "saisie_amont": MASTER_SOURCE_NAME,
         "read_at": read_at,
-        "master_mtime": _file_mtime(MASTER_RESERVATIONS_HH),
+        "master_mtime": "—",
         "note_moteur": (
-            "Les montants dérivés (taux, commission, acompte, impacts) proviennent du fichier "
-            "généré par le moteur (formules Excel / Power Query). L'application ne les recalcule pas."
+            "Les montants dérivés (taux, commission, acompte, impacts) sont saisis ou calculés "
+            "en amont (Lot4A/Lot9) ; cet écran ne les recalcule pas."
         ),
-        "note_refresh": "Actualisation Power Query manuelle requise après toute future saisie.",
+        "note_refresh": "",
     }
 
     return {

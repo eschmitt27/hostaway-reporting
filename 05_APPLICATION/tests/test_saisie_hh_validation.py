@@ -76,6 +76,7 @@ def _valider_no_refs(form_data: dict, taux_standard: str = "0.15") -> dict:
             "lst_Proprietaires": ["PROP_0001"],
         }),
         patch("app.services.saisie_hh_service.read_existing_pks", return_value=[]),
+        patch("app.readers.reservations_hh_reader.read_reservations", return_value=[]),
         patch("app.services.saisie_hh_service._openpyxl_ha_check", side_effect=lambda *a, **kw: None,
               create=True),
     ):
@@ -118,6 +119,7 @@ def _valider_with_gestion(form_data: dict, gestion_rows: list[dict]) -> dict:
             "lst_Proprietaires": ["PROP_0001", "PROP_0002"],
         }),
         patch("app.services.saisie_hh_service.read_existing_pks", return_value=[]),
+        patch("app.readers.reservations_hh_reader.read_reservations", return_value=[]),
     ):
         import openpyxl as opx
         with patch.object(opx, "load_workbook", side_effect=Exception("no real file")):
@@ -225,19 +227,20 @@ def test_load_form_refs_prepare_libelles_et_proprietaire_du_logement():
     assert refs["menage_standard_history"][0]["cout_standard_menage"] == "60.00"
 
 
-def test_cloture_ui_state_liste_uniquement_mois_ouverts(tmp_path):
-    ref = tmp_path / "REF_Setup_test.xlsm"
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "REF_Cloture_Mensuelle"
-    ws.append(["mois", "statut_mois"])
-    ws.append(["2026-05", "CLOTURE"])
-    ws.append(["2026-06", "OUVERT"])
-    ws.append(["2026-07", "OUVERT"])
-    wb.save(ref)
-    wb.close()
+def test_cloture_ui_state_liste_uniquement_mois_ouverts(tmp_db):
+    from app.db.connection import get_db
 
-    state = _cloture_ui_state(ref)
+    conn = get_db(tmp_db)
+    try:
+        for mois, statut in (("2026-05", "CLOTURE"), ("2026-06", "OUVERT"), ("2026-07", "OUVERT")):
+            conn.execute(
+                "INSERT INTO ref_cloture_mensuelle (mois, statut_mois, import_id) VALUES (?,?,?)",
+                (mois, statut, "IMP-TEST"))
+        conn.commit()
+    finally:
+        conn.close()
+
+    state = _cloture_ui_state(db_path=tmp_db)
 
     assert state["mois_ouverts"] == ["2026-06", "2026-07"]
     assert state["mois_ouverts_labels"] == ["juin 2026", "juillet 2026"]
@@ -985,6 +988,7 @@ def test_generate_pk_date_invalide():
 
 
 def test_pk_saisie_indisponible_bloque():
+    """PK non générée si la lecture des réservations existantes (SQLite) échoue."""
     with (
         patch("app.services.saisie_hh_service.get_cloture_mois", return_value={"statut_mois": "OUVERT"}),
         patch("app.services.saisie_hh_service.get_all_logements", return_value=[
@@ -997,15 +1001,21 @@ def test_pk_saisie_indisponible_bloque():
         patch("app.services.saisie_hh_service.get_all_proprietaires",
               return_value=[{"proprietaire_id": "PROP_0001"}]),
         patch("app.services.saisie_hh_service.get_all_associes", return_value=[]),
-        patch("app.services.saisie_hh_service.read_ref_locale", return_value={
-            "lst_Logements": ["LOG_0001"], "lst_Proprietaires": ["PROP_0001"],
-        }),
-        patch("app.services.saisie_hh_service.read_existing_pks",
-              side_effect=SaisieHHReadError("lecture impossible")),
+        patch("app.services.saisie_hh_service.get_modes_paiement", return_value=(
+            "REF_Modes_Paiement", [{"mode_paiement_id": "PAY_001", "mode_paiement": "BANQUE_PRO"}]
+        )),
+        patch("app.services.saisie_hh_service.get_codes_impact", return_value=(
+            "REF_Codes_Impact", [{"code_impact": "HC", "impact_resultat_comptable": "OUI"}]
+        )),
+        patch("app.services.saisie_hh_service.get_taux_commission", return_value=[
+            {"proprietaire_id": "PROP_0001", "logement_id": "", "taux_commission": "0.15",
+             "date_debut": "2026-01-01", "date_fin": "", "actif": "OUI"}
+        ]),
+        patch("app.services.saisie_hh_service.get_couts_standards_menage", return_value=[]),
+        patch("app.readers.reservations_hh_reader.read_reservations",
+              side_effect=RuntimeError("lecture impossible")),
     ):
-        import openpyxl as opx
-        with patch.object(opx, "load_workbook", side_effect=Exception("no real file")):
-            result = valider(_base_form(), saisie_path=None, ref_setup_path=None)
+        result = valider(_base_form())
     codes = {e["code"] for e in result["erreurs"]}
     assert "SAISIE_INDISPONIBLE_PK" in codes
 
@@ -1114,96 +1124,10 @@ def test_d7_d8_ref_setup_indisponible_bloque():
     assert result["ok"] is False
 
 
-def test_d9_ref_setup_indisponible_bloque():
-    with (
-        patch("app.services.saisie_hh_service.get_cloture_mois",
-              return_value={"statut_mois": "OUVERT"}),
-        patch("app.services.saisie_hh_service.get_all_logements", return_value=[
-            {"logement_id": "LOG_0001", "actif": "OUI", "statut_parc": "GERE"}
-        ]),
-        patch("app.services.saisie_hh_service.get_gestion_hist", return_value=[
-            {"logement_id": "LOG_0001", "proprietaire_id": "PROP_0001",
-             "statut_gestion": "ACTIF", "date_debut": "2026-01-01", "date_fin": None}
-        ]),
-        patch("app.services.saisie_hh_service.get_all_proprietaires",
-              side_effect=Exception("REF_Setup verrouillé")),
-        patch("app.services.saisie_hh_service.get_all_associes", return_value=[]),
-        patch("app.services.saisie_hh_service.read_ref_locale", return_value={
-            "lst_Logements": ["LOG_0001"], "lst_Proprietaires": ["PROP_0001"],
-        }),
-        patch("app.services.saisie_hh_service.read_existing_pks", return_value=[]),
-    ):
-        import openpyxl as opx
-        with patch.object(opx, "load_workbook", side_effect=Exception("no real file")):
-            result = valider(_base_form(), saisie_path=None, ref_setup_path=None)
-    codes = {e["code"] for e in result["erreurs"]}
-    assert "REF_SETUP_INDISPONIBLE" in codes
-    assert result["ok"] is False
-
-
-def test_d9_ref_locale_indisponible_bloque():
-    with (
-        patch("app.services.saisie_hh_service.get_cloture_mois",
-              return_value={"statut_mois": "OUVERT"}),
-        patch("app.services.saisie_hh_service.get_all_logements", return_value=[
-            {"logement_id": "LOG_0001", "actif": "OUI", "statut_parc": "GERE"}
-        ]),
-        patch("app.services.saisie_hh_service.get_gestion_hist", return_value=[
-            {"logement_id": "LOG_0001", "proprietaire_id": "PROP_0001",
-             "statut_gestion": "ACTIF", "date_debut": "2026-01-01", "date_fin": None}
-        ]),
-        patch("app.services.saisie_hh_service.get_all_proprietaires",
-              return_value=[{"proprietaire_id": "PROP_0001"}]),
-        patch("app.services.saisie_hh_service.get_all_associes", return_value=[]),
-        patch("app.services.saisie_hh_service.read_ref_locale",
-              side_effect=SaisieHHReadError("REF_LOCALE illisible")),
-        patch("app.services.saisie_hh_service.read_existing_pks", return_value=[]),
-    ):
-        import openpyxl as opx
-        with patch.object(opx, "load_workbook", side_effect=Exception("no real file")):
-            result = valider(_base_form(), saisie_path=None, ref_setup_path=None)
-    codes = {e["code"] for e in result["erreurs"]}
-    assert "REF_LOCALE_INDISPONIBLE" in codes
-    assert result["ok"] is False
-
-
-# ── D9 — divergence REF_LOCALE / REF_Setup ───────────────────────────────────
-
-def test_d9_logement_locale_absent_setup_bloque():
-    with (
-        patch("app.services.saisie_hh_service.get_cloture_mois",
-              return_value={"statut_mois": "OUVERT"}),
-        patch("app.services.saisie_hh_service.get_all_logements", return_value=[
-            {"logement_id": "LOG_0001", "actif": "OUI", "statut_parc": "GERE"}
-        ]),
-        patch("app.services.saisie_hh_service.get_gestion_hist", return_value=[
-            {"logement_id": "LOG_0001", "proprietaire_id": "PROP_0001",
-             "statut_gestion": "ACTIF", "date_debut": "2026-01-01", "date_fin": None}
-        ]),
-        patch("app.services.saisie_hh_service.get_all_proprietaires",
-              return_value=[{"proprietaire_id": "PROP_0001"}]),
-        patch("app.services.saisie_hh_service.get_all_associes", return_value=[]),
-        patch("app.services.saisie_hh_service.read_ref_locale", return_value={
-            "lst_Logements": ["LOG_0001"],      # LOG_0001 dans REF_LOCALE
-            "lst_Proprietaires": ["PROP_0001"],
-        }),
-        # get_all_logements retourne LOG_0001 (cohérent), mais get_all_proprietaires
-        # retourne PROP_0001 → pas de divergence sur l'exemple de base.
-        # Pour tester la divergence, on met LOG_9999 dans REF_LOCALE mais pas dans Setup.
-        patch("app.services.saisie_hh_service.read_existing_pks", return_value=[]),
-    ):
-        # Utiliser logement_id=LOG_9999 : présent REF_LOCALE mais absent REF_Setup
-        form = _base_form(logement_id="LOG_9999")
-        import openpyxl as opx
-        with patch.object(opx, "load_workbook", side_effect=Exception("no real file")):
-            with patch("app.services.saisie_hh_service.read_ref_locale", return_value={
-                "lst_Logements": ["LOG_9999"],   # LOG_9999 dans locale
-                "lst_Proprietaires": ["PROP_0001"],
-            }):
-                # get_all_logements retourne LOG_0001 seulement (pas LOG_9999)
-                result = valider(form, saisie_path=None, ref_setup_path=None)
-    codes = {e["code"] for e in result["erreurs"]}
-    assert "DIVERGENCE_REF_LOCALE_REF_SETUP" in codes
+# D9 (divergence REF_LOCALE / REF_Setup) supprimée avec la migration SQLite : les deux sources
+# étaient devenues la même table lue deux fois, un contrôle qui comparait un ensemble à lui-même.
+# `test_d9_ref_setup_indisponible_bloque`, `test_d9_ref_locale_indisponible_bloque` et
+# `test_d9_logement_locale_absent_setup_bloque` testaient ce comportement — supprimés avec lui.
 
 
 # ── Constante REF_CLOTURE obsolète non utilisée par APP-2b ───────────────────

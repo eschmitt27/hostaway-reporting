@@ -70,6 +70,15 @@ _COMPTABILISATION_ID_FIELDS = (
     "comptabilisation", "comptabilisation_id", "code_comptabilisation",
 ) + _REF_ID_FIELDS
 _TECHNICAL_LOGEMENTS = {"APPARTEMENT_DIVERS", "LOGEMENT_DIVERS"}
+
+# Vocabulaires fixes (pas des référentiels administrables — mêmes valeurs que l'ancien onglet
+# REF_LOCALE de SAISIE_ReservationsHorsHostaway.xlsx, lues une seule fois avant migration).
+LST_SOURCE_FINANCIERE = ["SAISIE_MANUELLE", "HOSTAWAY_REFERENCE", "VRBO_UNKNOWN",
+                        "DIRECT_HA_PAYANT", "A_CONTROLER"]
+LST_TAUX_COMMISSION_SOURCE = ["REF_PROPRIETAIRE", "REF_LOGEMENT", "SAISIE_MANUELLE", "A_CONTROLER"]
+LST_COMPTABILISATION = ["OUI", "NON"]
+LST_STATUTS_CONTROLE = ["VALIDE", "A_CONTROLER", "EXCLU_RESULTAT", "A_VENTILER"]
+LST_NIVEAU_ANOMALIE = ["INFO", "A_CONTROLER", "BLOQUANT"]
 _MONTH_LABELS = {
     "01": "janvier",
     "02": "février",
@@ -121,31 +130,21 @@ def _month_label(mois: str) -> str:
     return raw
 
 
-def _cloture_ui_state(ref_setup_path: Path) -> dict[str, Any]:
-    """Expose les mois ouverts/indisponibles pour l'ergonomie du formulaire."""
+def _cloture_ui_state(ref_setup_path: Path | None = None, *, db_path=None) -> dict[str, Any]:
+    """Expose les mois ouverts/indisponibles pour l'ergonomie du formulaire.
+
+    `ref_setup_path` conservé pour compatibilité d'appel ; ignoré — la source est la table SQLite
+    `ref_cloture_mensuelle` (migration 0029), déjà lue en SQLite par `get_cloture_mois` ailleurs dans
+    ce module. Cette fonction en était la seule ouverture directe de classeur restante.
+    """
+    from app.services import referentiel_admin_service as ref_admin
+
     rows: list[dict[str, Any]] = []
     try:
-        wb = openpyxl.load_workbook(str(ref_setup_path), read_only=True, data_only=True, keep_vba=True)
-        try:
-            ws = wb["REF_Cloture_Mensuelle"]
-            data = list(ws.iter_rows(values_only=True))
-        finally:
-            wb.close()
+        cloture_rows = ref_admin.lignes("ref_cloture_mensuelle", db_path=db_path)
     except Exception:
-        return {
-            "mois_ouverts": [],
-            "mois_ouverts_labels": [],
-            "cloture_mois_status": {},
-        }
-    if not data:
-        return {
-            "mois_ouverts": [],
-            "mois_ouverts_labels": [],
-            "cloture_mois_status": {},
-        }
-    headers = [_text(h) for h in data[0]]
-    for values in data[1:]:
-        rec = {headers[i]: values[i] if i < len(values) else None for i in range(len(headers))}
+        cloture_rows = []
+    for rec in cloture_rows:
         mois = _text(rec.get("mois"))
         if not mois:
             continue
@@ -437,12 +436,13 @@ def _gestion_history_for_ui(
 def load_form_refs(
     saisie_path: Path | None = None,
     ref_setup_path: Path | None = None,
+    *,
+    db_path=None,
 ) -> dict[str, Any]:
-    p_saisie = saisie_path or cfg.SAISIE_RESERVATIONS_HH
-    # `None` = référentiel SQLite (cas normal). Un chemin n'est transmis que par les flux
-    # de simulation sur COPIE, qui doivent lire leur propre fichier de travail.
-    p_ref = ref_setup_path
-    refs = read_ref_locale(p_saisie)
+    # `saisie_path`/`ref_setup_path` conservés pour compatibilité d'appel ; ignorés — les listes
+    # lst_* sont désormais construites depuis les MÊMES lignes SQLite typées que le reste de cette
+    # fonction (pas une seconde lecture de REF_LOCALE) ; `read_ref_locale` reste importé (inerte)
+    # pour ne pas casser les mocks existants qui le ciblent encore.
 
     logements_rows: list[dict[str, Any]] = []
     proprietaires_rows: list[dict[str, Any]] = []
@@ -455,10 +455,10 @@ def load_form_refs(
     taux_commission_rows: list[dict[str, Any]] = []
     couts_menage_rows: list[dict[str, Any]] = []
     try:
-        logements_rows = get_all_logements(ref_setup_path=p_ref)
-        proprietaires_rows = get_all_proprietaires(ref_setup_path=p_ref)
-        associes_rows = get_all_associes(ref_setup_path=p_ref)
-        gestion_rows = get_gestion_hist(ref_setup_path=p_ref)
+        logements_rows = get_all_logements(db_path=db_path)
+        proprietaires_rows = get_all_proprietaires(db_path=db_path)
+        associes_rows = get_all_associes(db_path=db_path)
+        gestion_rows = get_gestion_hist(db_path=db_path)
     except Exception:
         # Les libelles enrichis sont une aide UI ; les controles backend restent fail-closed.
         pass
@@ -467,26 +467,46 @@ def load_form_refs(
     proprietaire_labels = _proprietaire_labels(proprietaires_rows)
     associe_labels = _label_map(associes_rows, "associe_id", _LABEL_FIELDS)
     try:
-        canaux_sheet, canaux_rows = get_canaux(ref_setup_path=p_ref)
+        canaux_sheet, canaux_rows = get_canaux(db_path=db_path)
     except Exception:
         pass
     try:
-        modes_sheet, modes_rows = get_modes_paiement(ref_setup_path=p_ref)
+        modes_sheet, modes_rows = get_modes_paiement(db_path=db_path)
     except Exception:
         pass
     try:
-        impacts_sheet, impacts_rows = get_codes_impact(ref_setup_path=p_ref)
+        impacts_sheet, impacts_rows = get_codes_impact(db_path=db_path)
     except Exception:
         pass
     try:
-        taux_commission_rows = get_taux_commission(ref_setup_path=p_ref)
+        taux_commission_rows = get_taux_commission(db_path=db_path)
     except Exception:
         pass
     try:
-        couts_menage_rows = get_couts_standards_menage(ref_setup_path=p_ref)
+        couts_menage_rows = get_couts_standards_menage(db_path=db_path)
     except Exception:
         pass
-    cloture_ui = _cloture_ui_state(p_ref)
+    cloture_ui = _cloture_ui_state(db_path=db_path)
+
+    refs: dict[str, list[str]] = {
+        "lst_Logements": [str(r.get("logement_id", "")).strip() for r in logements_rows
+                         if str(r.get("logement_id", "")).strip()],
+        "lst_Proprietaires": [str(r.get("proprietaire_id", "")).strip() for r in proprietaires_rows
+                             if str(r.get("proprietaire_id", "")).strip()],
+        "lst_Canaux": [str(r.get("canal_id", "")).strip() for r in canaux_rows
+                      if str(r.get("canal_id", "")).strip()],
+        "lst_Associes": [str(r.get("associe_id", "")).strip() for r in associes_rows
+                        if str(r.get("associe_id", "")).strip()],
+        "lst_ModesPaiement": [str(r.get("mode_paiement_id", "")).strip() for r in modes_rows
+                             if str(r.get("mode_paiement_id", "")).strip()],
+        "lst_Codes_Impact": [str(r.get("code_impact", "")).strip() for r in impacts_rows
+                            if str(r.get("code_impact", "")).strip()],
+        "lst_Source_Financiere": list(LST_SOURCE_FINANCIERE),
+        "lst_TauxCommissionSource": list(LST_TAUX_COMMISSION_SOURCE),
+        "lst_Comptabilisation": list(LST_COMPTABILISATION),
+        "lst_Statuts_Controle": list(LST_STATUTS_CONTROLE),
+        "lst_Niveau_Anomalie": list(LST_NIVEAU_ANOMALIE),
+    }
 
     canal_labels = _label_map(canaux_rows, "canal_id", ("canal",))
     mode_labels = _label_map(modes_rows, "mode_paiement_id", ("mode_paiement",))
@@ -604,12 +624,11 @@ def valider(
     form_data: dict[str, str],
     saisie_path: Path | None = None,
     ref_setup_path: Path | None = None,
+    *,
+    db_path=None,
 ) -> dict[str, Any]:
     """Valide D1–D11. Retourne {ok, erreurs, preview, pk}."""
-    p_saisie = saisie_path or cfg.SAISIE_RESERVATIONS_HH
-    # `None` = référentiel SQLite (cas normal). Un chemin n'est transmis que par les flux
-    # de simulation sur COPIE, qui doivent lire leur propre fichier de travail.
-    p_ref = ref_setup_path
+    # `saisie_path`/`ref_setup_path` conservés pour compatibilité d'appel ; ignorés — SQLite (`db_path`).
 
     erreurs: list[dict[str, str]] = []
 
@@ -700,7 +719,7 @@ def valider(
     # Le proprietaire est derive cote backend depuis logement + date d'arrivee.
     if logement_id and date_arrivee:
         try:
-            gestion = get_gestion_hist(ref_setup_path=p_ref)
+            gestion = get_gestion_hist(db_path=db_path)
             owners = _owners_for_logement_at_date(gestion, logement_id, date_arrivee)
             if len(owners) == 0:
                 proprietaire_id = ""
@@ -729,7 +748,7 @@ def valider(
     if date_arrivee:
         mois = _mois_from_date(date_arrivee)
         try:
-            cloture_row = get_cloture_mois(mois, ref_setup_path=p_ref)
+            cloture_row = get_cloture_mois(mois, db_path=db_path)
             if cloture_row is None:
                 err("date_arrivee", "MOIS_HORS_REFERENTIEL_CLOTURE",
                     "Le mois sélectionné n'est pas ouvert dans le référentiel de clôture. "
@@ -744,7 +763,7 @@ def valider(
     # ── D8/D7 — éligibilité logement — fail-closed sur REF_Setup ──────────
     if logement_id and date_arrivee:
         try:
-            logements = get_all_logements(ref_setup_path=p_ref)
+            logements = get_all_logements(db_path=db_path)
             log_row = next(
                 (r for r in logements
                  if str(r.get("logement_id", "")).strip() == logement_id),
@@ -761,7 +780,7 @@ def valider(
                     err("logement_id", "LOGEMENT_HORS_PARC_TECHNIQUE",
                         f"Logement {logement_id} hors parc géré (statut_parc ≠ GERE)")
 
-            gestion = get_gestion_hist(ref_setup_path=p_ref)
+            gestion = get_gestion_hist(db_path=db_path)
             gestion_active = False
             for g in gestion:
                 if (str(g.get("logement_id", "")).strip() != logement_id
@@ -790,62 +809,15 @@ def valider(
             err("logement_id", "REF_SETUP_INDISPONIBLE",
                 f"REF_Setup inaccessible pour vérification logement/gestion (D7/D8) : {exc}")
 
-    # ── D9 — divergence REF_LOCALE vs REF_Setup — fail-closed ────────────
-    if logement_id or proprietaire_id:
-        try:
-            refs_locale = read_ref_locale(p_saisie)
-            locale_logs = set(refs_locale.get("lst_Logements", []))
-            locale_props = set(refs_locale.get("lst_Proprietaires", []))
-
-            setup_logs = {
-                str(r.get("logement_id", "")).strip()
-                for r in get_all_logements(ref_setup_path=p_ref)
-                if r.get("logement_id")
-            }
-            setup_props = {
-                str(r.get("proprietaire_id", "")).strip()
-                for r in get_all_proprietaires(ref_setup_path=p_ref)
-                if r.get("proprietaire_id")
-            }
-
-            if logement_id and logement_id not in locale_logs:
-                err("logement_id", "DIVERGENCE_REF_LOCALE_REF_SETUP",
-                    f"Logement {logement_id} absent de REF_LOCALE")
-            if logement_id and logement_id not in setup_logs:
-                err("logement_id", "DIVERGENCE_REF_LOCALE_REF_SETUP",
-                    f"Logement {logement_id} absent de REF_Setup")
-            if proprietaire_id and proprietaire_id not in locale_props:
-                err("proprietaire_id", "DIVERGENCE_REF_LOCALE_REF_SETUP",
-                    f"Proprietaire {proprietaire_id} absent de REF_LOCALE")
-            if proprietaire_id and proprietaire_id not in setup_props:
-                err("proprietaire_id", "DIVERGENCE_REF_LOCALE_REF_SETUP",
-                    f"Proprietaire {proprietaire_id} absent de REF_Setup")
-
-            if logement_id and logement_id in locale_logs and logement_id not in setup_logs:
-                err("logement_id", "DIVERGENCE_REF_LOCALE_REF_SETUP",
-                    f"Logement {logement_id} présent dans REF_LOCALE mais absent de REF_Setup")
-            if logement_id and logement_id in setup_logs and logement_id not in locale_logs:
-                err("logement_id", "DIVERGENCE_REF_LOCALE_REF_SETUP",
-                    f"Logement {logement_id} présent dans REF_Setup mais absent de REF_LOCALE")
-            if proprietaire_id and proprietaire_id in locale_props and proprietaire_id not in setup_props:
-                err("proprietaire_id", "DIVERGENCE_REF_LOCALE_REF_SETUP",
-                    f"Propriétaire {proprietaire_id} présent dans REF_LOCALE mais absent de REF_Setup")
-            if proprietaire_id and proprietaire_id in setup_props and proprietaire_id not in locale_props:
-                err("proprietaire_id", "DIVERGENCE_REF_LOCALE_REF_SETUP",
-                    f"Propriétaire {proprietaire_id} présent dans REF_Setup mais absent de REF_LOCALE")
-
-        except SaisieHHReadError as exc:
-            err("logement_id", "REF_LOCALE_INDISPONIBLE",
-                f"REF_LOCALE inaccessible pour verification divergence (D9) : {exc}")
-        except Exception as exc:
-            err("logement_id", "REF_SETUP_INDISPONIBLE",
-                f"REF_Setup inaccessible pour verification divergence (D9) : {exc}")
+    # D9 (divergence REF_LOCALE vs REF_Setup) supprimée : les deux étaient déjà, depuis la
+    # migration des référentiels, la MÊME table SQLite lue deux fois — un contrôle qui comparait
+    # un ensemble à lui-même. Source unique désormais, la divergence est structurellement impossible.
 
     # ── D11 — associé récupérateur ────────────────────────────────────────
     # Comptabilisation derivee du referentiel des codes impact.
     impact_map: dict[str, str] = {}
     try:
-        _, impact_rows = get_codes_impact(ref_setup_path=p_ref)
+        _, impact_rows = get_codes_impact(db_path=db_path)
         impact_map = _impact_comptabilisation_map(impact_rows)
         if code_impact:
             comptabilisation = impact_map.get(code_impact, "")
@@ -866,7 +838,7 @@ def valider(
     if logement_id and proprietaire_id and date_arrivee:
         try:
             taux_result = resolve_taux_commission(
-                get_taux_commission(ref_setup_path=p_ref),
+                get_taux_commission(db_path=db_path),
                 logement_id,
                 proprietaire_id,
                 date_arrivee_str,
@@ -916,8 +888,8 @@ def valider(
     if logement_id and date_arrivee:
         try:
             menage_result = resolve_prix_menage_standard(
-                get_couts_standards_menage(ref_setup_path=p_ref),
-                get_all_logements(ref_setup_path=p_ref),
+                get_couts_standards_menage(db_path=db_path),
+                get_all_logements(db_path=db_path),
                 logement_id,
                 date_arrivee_str,
             )
@@ -957,7 +929,7 @@ def valider(
     menage = menage_override if menage_override is not None else menage_standard
 
     try:
-        _, mode_rows = get_modes_paiement(ref_setup_path=p_ref)
+        _, mode_rows = get_modes_paiement(db_path=db_path)
         mode_code = _mode_code_map(mode_rows).get(mode_paiement_id, mode_paiement_id)
     except Exception as exc:
         mode_code = ""
@@ -981,7 +953,7 @@ def valider(
         try:
             associes = {
                 str(r.get("associe_id", "") or r.get("personne_id", "") or "").strip()
-                for r in get_all_associes(ref_setup_path=p_ref)
+                for r in get_all_associes(db_path=db_path)
             }
             if associe_id_recuperateur not in associes:
                 err("associe_id_recuperateur", "ASSOCIE_INCONNU",
@@ -997,14 +969,19 @@ def valider(
         "MOIS_HORS_REFERENTIEL_CLOTURE", "REF_SETUP_INDISPONIBLE",
     ) for e in erreurs):
         try:
-            existing_pks = read_existing_pks(p_saisie)
+            from app.readers import reservations_hh_reader
+            existing_pks = [
+                str(r.get("reservation_hh_id", "")).strip()
+                for r in reservations_hh_reader.read_reservations(db_path=db_path)
+                if str(r.get("reservation_hh_id", "")).strip()
+            ]
             pk, pk_err = generate_pk(date_arrivee_str, existing_pks)
             if pk_err:
                 err("date_arrivee", pk_err, f"Cle primaire impossible : {pk_err}")
                 pk = ""
-        except SaisieHHReadError as exc:
+        except Exception as exc:
             err("date_arrivee", "SAISIE_INDISPONIBLE_PK",
-                f"Lecture SAISIE impossible pour generation PK : {exc}")
+                f"Lecture des reservations existantes impossible pour generation PK : {exc}")
 
     # ── Preview ───────────────────────────────────────────────────────────
     preview: dict[str, Any] = {

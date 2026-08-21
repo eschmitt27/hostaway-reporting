@@ -289,7 +289,7 @@ def commissions_vs_ventes(mois: str, *, db_path=None) -> dict[str, Any]:
     from app.services import ventes_lot12_adapter_service as adapter
     from app.services import comptabilite_ecritures_service as compta
 
-    lignes = adapter.lignes_du_mois(mois)
+    lignes = adapter.lignes_du_mois(mois, db_path=db_path)
     if not lignes:
         return {"statut": ST_NON_DISPONIBLE, "libelle_gauche": "Lot12 (montant_du_conciergerie)",
                 "libelle_droit": "Journal VENTES", "montant_gauche": None, "montant_droit": None,

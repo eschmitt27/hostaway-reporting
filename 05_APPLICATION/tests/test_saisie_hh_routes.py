@@ -500,53 +500,10 @@ def test_post_verifier_preview_contient_champs_forces(client):
     assert "A_CONTROLER" in resp.text  # statut_controle + niveau_anomalie
 
 
-# ── Route POST /reservations/nouvelle/confirmer ───────────────────────────────
-
-def test_post_confirmer_guard_securite(client):
-    """Confirmer doit renvoyer GARDE_SECURITE quand HH_REAL_WRITE_ENABLED=False."""
-    garde_result = {
-        "statut": "GARDE_SECURITE",
-        "pk": "RESHH-2026-08-001",
-        "mois": "2026-08",
-        "ligne_cible": None,
-        "details": "HH_REAL_WRITE_ENABLED = False",
-    }
-    with (
-        _patch_refs(),
-        patch("app.routes.reservations.saisie_svc.valider") as valider,
-        patch("app.routes.reservations.saisie_svc.build_row_data", return_value={}),
-        patch("app.routes.reservations.hh_orchestrator.confirm_write",
-              return_value=garde_result),
-    ):
-        resp = client.post("/reservations/nouvelle/confirmer", data={
-            "canal_id": "CANAL_001",
-            "total_percu": "450.00",
-        })
-    assert resp.status_code == 200
-    assert 'data-statut="GARDE_SECURITE"' in resp.text
-    assert "Écriture désactivée" in resp.text
-    valider.assert_not_called()
-
-
-def test_post_confirmer_revalide_avant_ecriture(client):
-    """Si la revalidation échoue lors du confirmer, on n'appelle pas le writer."""
-    write_called = []
-
-    def fake_write(**kwargs):
-        write_called.append(True)
-        return {"statut": "OK"}
-
-    with (
-        _patch_refs(),
-        _patch_valider_erreurs(),
-        patch("app.routes.reservations.cfg.HH_REAL_WRITE_ENABLED", True),
-        patch("app.routes.reservations.hh_orchestrator.confirm_write", side_effect=fake_write),
-    ):
-        resp = client.post("/reservations/nouvelle/confirmer", data={})
-
-    assert resp.status_code == 422
-    assert len(write_called) == 0, "Le writer ne doit pas être appelé si validation échoue"
-
+# La route POST /reservations/nouvelle/confirmer a été retirée : aucun template n'y postait (le
+# parcours réel passe par previsualiser → previsualisation/{token} → enregistrer), et elle écrivait
+# encore réellement via `hh_orchestrator.confirm_write` (Excel). `test_post_confirmer_guard_securite`
+# et `test_post_confirmer_revalide_avant_ecriture` testaient cette route — retirés avec elle.
 
 # ── Vérification que /reservations/nouvelle précède {reservation_hh_id} ──────
 

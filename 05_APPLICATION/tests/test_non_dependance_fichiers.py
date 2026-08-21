@@ -114,12 +114,7 @@ CONSOMMATEURS_SETUP_RESIDUELS = {
     "services/menages_chaine_service.py",
     "services/menages_recalcul_service.py",
     "services/ref_assoc_mode_prepare_service.py",
-    "services/saisie_hh_dryrun_service.py",
-    "services/saisie_hh_real_write_service.py",
-    "services/saisie_hh_schema_real_prepare_service.py",
     "services/saisie_hh_service.py",
-    "services/charges_preview_service.py",
-    "services/charges_controles_integrite_service.py",
 }
 
 

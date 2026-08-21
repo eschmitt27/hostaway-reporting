@@ -126,12 +126,10 @@ def test_saisie_hh_writer_no_db_access():
     assert not violations, f"Writer SAISIE HH ne doit pas acceder SQLite : {violations}"
 
 
-def test_saisie_hh_orchestrator_no_excel_write_api():
-    orchestrator = APP_DIR / "services" / "saisie_hh_orchestrator.py"
-    src = orchestrator.read_text(encoding="utf-8")
-    forbidden = ("import openpyxl", "load_workbook", ".save(")
-    violations = [p for p in forbidden if p in src]
-    assert not violations, f"Orchestrateur ne doit pas ecrire Excel directement : {violations}"
+# `saisie_hh_orchestrator.py` (avec son unique appelant, la route POST /nouvelle/confirmer) a été
+# retiré : le circuit HH passe désormais par previsualiser -> previsualisation/{token} -> enregistrer
+# -> reservations_hh_saisie_service.creer (SQLite). `test_saisie_hh_orchestrator_no_excel_write_api`
+# testait ce module - retiré avec lui.
 
 
 def test_no_sqlite_to_row_data_flow():

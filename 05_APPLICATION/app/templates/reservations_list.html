@@ -50,8 +50,8 @@
     {% if data.status == 'EMPTY' %}
     <div class="empty-state">
       <div class="empty-icon">∅</div>
-      <p>Aucune réservation hors Hostaway dans le fichier généré.</p>
-      <p class="text-sm">Le cache Power Query peut être vide tant qu'aucune actualisation n'a été faite dans Excel.</p>
+      <p>Aucune réservation hors Hostaway saisie pour l'instant.</p>
+      <p class="text-sm"><a href="/reservations/nouvelle">Saisir une réservation</a>.</p>
     </div>
     {% elif data.rows %}
     <div class="table-container">
@@ -110,9 +110,6 @@
 {% endif %}
 
 <div class="origine-block">
-  Source : <code>{{ data.source }}</code> · onglet <code>{{ data.sheet }}</code>
-  · dernière modification du fichier : {{ data.master_mtime }}
-  · lu le {{ data.read_at }}<br>
-  <strong>Actualisation Power Query manuelle requise après toute future saisie.</strong>
+  Source : <code>{{ data.source }}</code> · lu le {{ data.read_at }}
 </div>
 {% endblock %}

@@ -69,6 +69,9 @@ def read_reservations(db_path=None) -> list[dict[str, Any]]:
         # `ROW_HASH` et `guestCount` : noms attendus par les consommateurs, hérités du moteur.
         l["ROW_HASH"] = l.pop("row_hash", None)
         l["guestCount"] = l.get("guest_count")
+        # `total_percu` : nom d'écran hérité (colonne L du classeur legacy) — même valeur que
+        # `montant_percu`, la colonne SQLite.
+        l["total_percu"] = l.get("montant_percu")
     return lignes
 
 
@@ -78,3 +81,19 @@ def find_reservation(reservation_hh_id: str, db_path=None) -> dict[str, Any] | N
         if str(r.get("reservation_hh_id") or "").strip() == target:
             return r
     return None
+
+
+def read_overrides(reservation_hh_id: str, db_path=None) -> dict[str, Any] | None:
+    """Dérogations menage/commission d'une réservation (table compagne, migration 0053).
+
+    None si la réservation n'a jamais eu de saisie override — distinct d'une ligne dont tous les
+    champs sont vides (une réservation créée avant 0053, par exemple).
+    """
+    conn = get_db(db_path)
+    try:
+        r = conn.execute(
+            "SELECT * FROM reservation_hh_overrides WHERE reservation_hh_id = ?",
+            (str(reservation_hh_id).strip(),)).fetchone()
+    finally:
+        conn.close()
+    return dict(r) if r else None
