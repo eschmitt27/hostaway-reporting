@@ -603,50 +603,12 @@ def _groupe6f_menages_externes(ctrl: _Ctrl, db_path) -> None:
     par opposition aux frais) correspond en SQLite à `type_ligne = MENAGE_EXTERNE`, déjà filtré par
     `lignes_externes_pour_reader()` : les frais non affectés y sont d'un autre type_ligne.
     """
-    from app.readers import menages_reader
-    from app.services import facture_lignes_menage_service as flm
+    from app.services import menages_ecarts_service
 
-    comptage = menages_reader.hostaway_comptage(db_path=db_path)
-    vue_cpt: dict[tuple, dict] = {}
-    if comptage.etat.etat == "OK":
-        for r in comptage.lignes:
-            m0, lid0 = r.get("mois"), r.get("logement_id")
-            if m0 and lid0:
-                vue_cpt[(m0, lid0)] = {"nb_ha": r.get("nb_menages_realises") or 0,
-                                      "prop": r.get("proprietaire_id")}
-
-    ext_cpt: dict[tuple, float] = {}
-    ext_prop: dict[tuple, Any] = {}
-    ext_prest: dict[tuple, set] = {}
-    for r in flm.lignes_externes_pour_reader(db_path=db_path):
-        if r.get("statut_controle") == "BLOQUANT":
-            continue
-        lid2, m2 = r.get("logement_id"), r.get("mois")
-        if not lid2 or lid2 == "A_CONTROLER" or not m2:
-            continue
-        cle = (m2, lid2)
-        ext_cpt[cle] = ext_cpt.get(cle, 0) + (r.get("nombre_menages") or 0)
-        ext_prop[cle] = r.get("proprietaire_id")
-        if r.get("nom_prestataire"):
-            ext_prest.setdefault(cle, set()).add(str(r["nom_prestataire"]))
-
-    par_code: dict[str, list[str]] = {}
-    for cle in sorted(set(vue_cpt) | set(ext_cpt)):
-        nb_ha = vue_cpt.get(cle, {}).get("nb_ha", 0) or 0
-        nb_ext = ext_cpt.get(cle, 0)
-        ecart = nb_ext - nb_ha
-        if nb_ext == 0 and nb_ha == 0:
-            code = ""
-        elif nb_ext > 0 and nb_ha == 0:
-            code = "MENAGE_EXTERNE_LOGEMENT_HORS_HA"
-        elif nb_ext == 0 and nb_ha > 0:
-            code = "MENAGE_HA_SANS_FACTURE_EXTERNE"
-        elif ecart == 0:
-            code = "MENAGE_EXTERNE_RAPPROCHE_HOSTAWAY"
-        else:
-            code = "MENAGE_EXTERNE_ECART_HOSTAWAY"
-        if code:
-            par_code.setdefault(code, []).append(cle[1])
+    # Le calcul de l'écart vit dans `menages_ecarts_service` : le DÉTAIL affiché à l'écran et les
+    # CONSTATS ci-dessous doivent répondre la même chose. Le dupliquer ici garantirait qu'ils
+    # divergent un jour.
+    par_code = menages_ecarts_service.logements_par_code(db_path=db_path)
 
     def _emettre(code: str, severity: str, gabarit: str, commentaire: str) -> None:
         logements = par_code.get(code, [])

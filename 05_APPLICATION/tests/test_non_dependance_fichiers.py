@@ -34,12 +34,12 @@ EXCEPTIONS_POWERBI = {
     "services/lot13_export_service.py",
 }
 
-# Modules autorisés à toucher REF_Setup : lecteurs dédiés, services d'administration qui écrivent
-# encore dans le classeur, et import du référentiel. Ils sont la frontière, pas des écrans.
+# Modules autorisés à nommer REF_Setup : les lecteurs dédiés et l'import initial. Ils sont la
+# FRONTIÈRE avec le classeur. Plus aucun service d'administration n'y écrit : le CRUD du parc passe
+# par `referentiel_admin_service` et les tables `ref_*`.
 EXCEPTIONS_REF_SETUP = {
     "config.py",
     "routes/health.py",
-    "readers/ref_setup_reader.py",
     "readers/ref_setup_hh_reader.py",
     "readers/saisie_charges_reader.py",
     "services/ref_setup_import_service.py",
@@ -118,8 +118,6 @@ CONSOMMATEURS_SETUP_RESIDUELS = {
     "services/saisie_hh_real_write_service.py",
     "services/saisie_hh_schema_real_prepare_service.py",
     "services/saisie_hh_service.py",
-    "services/logements_creation_service.py",
-    "services/logements_gestion_service.py",
     "services/charges_preview_service.py",
     "services/charges_controles_integrite_service.py",
 }
@@ -150,6 +148,21 @@ def test_logements_n_est_plus_un_consommateur_du_classeur():
     chemin = APP_DIR / "services" / "logements_service.py"
     assert not _importe(chemin, "ref_setup_reader")
     assert all("REF_Setup" not in v for v in _litteraux_hors_docstring(chemin))
+
+
+def test_crud_parc_n_ecrit_plus_dans_le_classeur():
+    """Le CRUD du parc a quitté la liste résiduelle : il écrit en base, plus dans REF_Setup.
+
+    C'est la bascule qui rend SQLite canonique. Si l'un de ces modules réimporte un lecteur de
+    classeur ou renomme le fichier dans du code exécutable, ce test le rattrape.
+    """
+    for module in ("services/logements_creation_service.py",
+                   "services/logements_gestion_service.py"):
+        assert module not in CONSOMMATEURS_SETUP_RESIDUELS
+        chemin = APP_DIR / module
+        assert not _importe(chemin, "ref_setup_reader")
+        assert not _importe(chemin, "ref_setup_hh_reader")
+        assert all("REF_Setup" not in v for v in _litteraux_hors_docstring(chemin)), module
 
 
 def test_logements_ne_depend_d_aucun_fichier():

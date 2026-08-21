@@ -10,6 +10,10 @@ if str(APP_ROOT) not in sys.path:
 
 def pytest_configure(config):
     """Refuse --basetemp sous APP_ROOT : déclencherait les gardes chemin APP-2c/APP-2e."""
+    import garde_sources_reelles
+
+    garde_sources_reelles.initialiser()
+
     basetemp_str = getattr(config.option, "basetemp", None)
     if not basetemp_str:
         return
@@ -23,6 +27,19 @@ def pytest_configure(config):
             f"Utiliser un chemin externe, ex : --basetemp=\"$env:TEMP\\pytest_app\"\n",
             returncode=3,
         )
+
+
+@pytest.fixture(autouse=True)
+def _garde_sources_reelles(monkeypatch):
+    """Aucun test n'écrit dans l'arbre réel du projet (mission « zéro Excel », §21-24).
+
+    Autouse à dessein : une protection optionnelle serait exactement absente là où on en a besoin.
+    Un incident réel — neuf classeurs Hostaway réécrits par un test de fumée — l'a démontré. Voir
+    `garde_sources_reelles` pour le périmètre exact : écriture interdite, lecture permise.
+    """
+    import garde_sources_reelles
+
+    garde_sources_reelles.armer(monkeypatch)
 
 
 @pytest.fixture

@@ -143,6 +143,11 @@ EXPECTED_TABLES = {
     "orchestrateur_datasets",                    # 0050 — état/fraîcheur par dataset du DAG
     "orchestrateur_dataset_evenements",          # 0050 — journal append-only des transitions
     "orchestrateur_verrous",                     # 0050 — baux d'exécution (concurrence)
+    "ref_admin_evenements",                      # 0051 — journal des saisies de référentiel
+    "charges",                                   # 0052 — charges (Lot3), saisie SQLite
+    "charge_evenements",                         # 0052 — journal append-only des charges
+    "reservations_hors_hostaway",                # 0052 — réservations hors Hostaway (Lot4 HH)
+    "reservation_hh_evenements",                 # 0052 — journal append-only des réservations HH
 }
 
 

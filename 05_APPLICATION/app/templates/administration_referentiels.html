@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Administration — Référentiels{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Administration — Référentiels</h1>
+  <p class="page-subtitle">Les données de paramétrage, administrées en base. REF_Setup n'est plus qu'un import initial.</p>
+</div>
+
+{% if message %}<div class="alert alert-success mb-md">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-danger mb-md">{{ erreur }}</div>{% endif %}
+
+{% if not disponible %}
+<div class="alert alert-warning mb-lg">
+  Référentiel non initialisé : aucune donnée de paramétrage n'a encore été importée.
+  Ouvrez <a href="/referentiel-setup">Référentiel Setup</a> pour l'import initial.
+</div>
+{% endif %}
+
+{% for categorie in categories %}
+<div class="card mb-lg">
+  <div class="card-title">{{ categorie.titre }}</div>
+  <p class="text-sm text-secondary mb-md">{{ categorie.description }}</p>
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr><th>Référentiel</th><th>Clé</th><th>Lignes</th><th>Modification</th><th></th></tr>
+      </thead>
+      <tbody>
+      {% for t in categorie.tables %}
+        <tr>
+          <td>{{ t.libelle }}<div class="text-xs text-secondary font-mono">{{ t.table }}</div></td>
+          <td class="text-xs font-mono">{{ t.cle }}</td>
+          <td class="text-sm">{{ t.nb_lignes }}</td>
+          <td class="text-xs">
+            {% if t.lecture_seule %}
+              <span class="badge badge-neutral">Parcours dédié</span>
+              <div class="text-xs text-secondary">{{ t.motif_lecture_seule }}</div>
+            {% else %}
+              <span class="badge badge-success">Administrable</span>
+            {% endif %}
+          </td>
+          <td><a href="/administration/referentiels/{{ t.table }}" class="btn btn-sm">Ouvrir</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endfor %}
+
+<div class="alert alert-info">
+  Les référentiels <strong>historisés</strong> (rattachement de gestion, taux de commission) ne
+  s'éditent pas directement : ils se modifient depuis la fiche du logement, qui clôture la période
+  en cours et en ouvre une nouvelle. Une période passée n'est jamais réécrite.
+</div>
+{% endblock %}

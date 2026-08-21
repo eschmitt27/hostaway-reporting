@@ -7,9 +7,8 @@ mais lu directement depuis les sources SQLite déjà migrées, sans détour par 
     MEN → `facture_lignes_menage_service.lignes_externes_pour_reader` (0037/0040)
     BNQ → `banque_vues_service.mouvements_normalises` (0032/0033)
     GPM → `menages_cout_complet` (0038), lu directement (table de résultat, pas de logique à réécrire)
-    CHG → `charges_reader.read_charges` (MASTER Lot3 — AUCUNE source SQLite, cf. `charges_reader`
-          docstring D026 ; frontière minimale Excel volontaire, réutilise le lecteur existant sans
-          réimplémenter sa logique)
+    CHG → `charges_reader.read_charges` (table `charges`, migration 0052 — plus aucun classeur ;
+          le lecteur existant est réutilisé tel quel, sa logique n'est pas réimplémentée ici)
 
 Chaque module a déjà sa logique métier ailleurs (adaptateur/service) : ce module ne fait QUE la
 fusion au format `flux_unifies`, il ne réimplémente aucun calcul de classification/résolution.
@@ -176,8 +175,10 @@ def _module_bnq(seen, doublons, db_path) -> list[dict[str, Any]]:
     return out
 
 
-def _module_chg(seen, doublons) -> list[dict[str, Any]]:
-    rows = charges_reader.read_charges()
+def _module_chg(seen, doublons, db_path) -> list[dict[str, Any]]:
+    # `db_path` est propagé : les charges viennent désormais de SQLite (0052), et un module qui
+    # lirait la base par défaut ferait entrer les données d'une AUTRE instance dans ce calcul.
+    rows = charges_reader.read_charges(db_path=db_path)
     valides = [r for r in rows if r.get("statut_controle") == "VALIDE"]
     out = []
     for r in sorted(valides, key=lambda r: str(r.get("charge_id") or "")):
@@ -254,7 +255,7 @@ def construire(*, db_path=None) -> dict[str, Any]:
     res_rows = _module_res(seen, doublons, db_path)
     men_rows = _module_men(seen, doublons, db_path)
     bnq_rows = _module_bnq(seen, doublons, db_path)
-    chg_rows = _module_chg(seen, doublons)
+    chg_rows = _module_chg(seen, doublons, db_path)
     gpm_rows = _module_gpm(seen, doublons, db_path)
 
     flux_rows = res_rows + men_rows + bnq_rows + chg_rows + gpm_rows

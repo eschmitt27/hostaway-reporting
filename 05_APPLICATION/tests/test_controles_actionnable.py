@@ -137,6 +137,60 @@ def el_commission(tmp_db):
 
 
 @pytest.fixture(autouse=True)
+def ecarts_menages_en_base(tmp_db, monkeypatch):
+    """Jeu ménages déterministe : 4 écarts de volume + 2 logements facturés hors Hostaway.
+
+    Le DÉTAIL des écarts est désormais CALCULÉ en SQLite (`menages_ecarts_service`) et non plus lu
+    dans l'onglet `VUE_ECART_HOSTAWAY` du classeur Lot6c. Ces tests s'appuyaient donc sur les
+    données réelles du projet — 4 et 2 étaient les volumes du classeur. On sème ici le même
+    scénario, ce qui rend enfin ces comptes indépendants de l'état du disque.
+
+      · LOG_E1..E4 : facturé ≠ Hostaway            → MENAGE_EXTERNE_ECART_HOSTAWAY (4)
+      · LOG_H1, LOG_H2 : facturé, aucun Hostaway    → MENAGE_EXTERNE_LOGEMENT_HORS_HA (2)
+      · LOG_S1 : Hostaway sans facture              → MENAGE_HA_SANS_FACTURE_EXTERNE
+      · LOG_R1 : volumes égaux                      → MENAGE_EXTERNE_RAPPROCHE_HOSTAWAY
+    """
+    from app.db.connection import get_db
+    from app.readers import menages_reader
+    from app.services import facture_lignes_menage_service as flm
+    from app.services import factures_service as fact
+
+    # Les factures de ce jeu sont écrites dans la base ISOLÉE du test ; les flags d'écriture réelle
+    # restent, eux, désactivés pour tout ce qui touche au disque.
+    monkeypatch.setattr(cfg, "FACTURES_REAL_WRITE_ENABLED", True)
+    monkeypatch.setattr(cfg, "FACTURES_REAL_WRITE_CONFIRMATION_ENABLED", True)
+
+    mois = "2026-06"
+    hostaway = {"LOG_E1": 3, "LOG_E2": 5, "LOG_E3": 2, "LOG_E4": 7, "LOG_S1": 4, "LOG_R1": 2}
+    factures = {"LOG_E1": 1, "LOG_E2": 2, "LOG_E3": 4, "LOG_E4": 1,
+                "LOG_H1": 2, "LOG_H2": 1, "LOG_R1": 2}
+
+    conn = get_db(tmp_db)
+    try:
+        for logement, nb in hostaway.items():
+            for i in range(nb):
+                conn.execute(
+                    "INSERT INTO menages_taches_enrichies (task_id, mois, logement_id, status, "
+                    "statut_menage, compte_comme_menage, statut_controle) VALUES (?,?,?,?,?,?,?)",
+                    (f"HA-{logement}-{i:03d}", mois, logement, "completed", "réalisé", "OUI", "OK"))
+        conn.commit()
+    finally:
+        conn.close()
+
+    for logement, nb in factures.items():
+        r = fact.creer({"fournisseur_id_opaque": "INT_TEST", "facture_ref": f"FAC-{logement}",
+                        "date_facture": f"{mois}-28", "montant_ttc": 29.0 * nb}, db_path=tmp_db)
+        assert r["ok"], r
+        flm.ajouter_ligne(r["facture_id_opaque"], type_ligne=flm.TYPE_MENAGE_EXTERNE,
+                          logement_id=logement, montant_ttc=29.0 * nb, quantite=nb,
+                          date_menage=f"{mois}-15", precision_date_menage="DATE_PRECISE",
+                          nom_prestataire="Prestataire Test", db_path=tmp_db)
+    menages_reader.vider_cache()
+    yield
+    menages_reader.vider_cache()
+
+
+@pytest.fixture(autouse=True)
 def constats_lot11_en_base(tmp_db):
     """Constats Lot11 en base — le moteur est SQLite natif depuis la fermeture du lot.
 

@@ -1,9 +1,9 @@
 """Cycle de vie d'un logement existant : modification, archivage, réactivation, changement de
-propriétaire, changement de taux de commission — écriture gardée et validée.
+propriétaire, changement de taux de commission — écriture SQLite, validée et journalisée.
 
 Complète `logements_creation_service.py` (qui ne fait que la création). Périmètre fixé par
 `AUDIT_CIBLE_FORFAITS_ET_TAUX_LOGEMENTS.md` :
-- `changer_proprietaire()` clôt le rattachement `REF_Gestion_Logements_Hist` actif (date_fin =
+- `changer_proprietaire()` clôt le rattachement `ref_gestion_logements_hist` actif (date_fin =
   veille de la nouvelle date) et ouvre une nouvelle ligne — jamais de modification d'une ligne
   historique déjà close (règle « ne jamais modifier les mois passés »).
 - `changer_taux_commission()` fonctionne au grain **logement** (`logement_id` obligatoire),
@@ -13,25 +13,25 @@ Complète `logements_creation_service.py` (qui ne fait que la création). Périm
   seuls les champs descriptifs (nom, adresse, type, forfait...).
 - `archiver()` / `reactiver()` basculent `actif`/`statut_parc` et closent/ouvrent le rattachement
   de gestion en cours, sans jamais supprimer de ligne.
+
+MIGRATION EXCEL → SQLITE
+Ce service écrivait dans `REF_Setup.xlsm`. Il écrit désormais dans les tables `ref_*` (0029) via
+`referentiel_admin_service`. Les règles ci-dessus sont INCHANGÉES — c'est la destination qui
+change. L'invariant « au plus une période ouverte par logement », qu'un classeur ne savait pas
+défendre, est désormais porté par un index partiel (migration 0051) EN PLUS de la validation.
 """
 from __future__ import annotations
 
-import os
-import tempfile
-from datetime import date, timedelta
-from pathlib import Path
 from typing import Any
 
-import openpyxl
+from app.services import referentiel_admin_service as adm
 
-import app.config as cfg
+SH_LOG = adm.TABLE_LOGEMENTS
+SH_GEST = adm.TABLE_GESTION
+SH_PROP = adm.TABLE_PROPRIETAIRES
+SH_TAUX = adm.TABLE_TAUX
 
-SH_LOG = "REF_Logements"
-SH_GEST = "REF_Gestion_Logements_Hist"
-SH_PROP = "REF_Proprietaires"
-SH_TAUX = "REF_Taux_Commission"
-
-E_FLAGS = "E_FLAGS_DESACTIVES"
+E_REFERENTIEL_ABSENT = adm.E_REFERENTIEL_ABSENT
 E_LOGEMENT_INCONNU = "V01_LOGEMENT_INCONNU"
 E_PROP_MANQUANT = "V02_PROPRIETAIRE_MANQUANT"
 E_PROP_INCONNU = "V03_PROPRIETAIRE_INCONNU"
@@ -39,10 +39,12 @@ E_DATE_INVALIDE = "V04_DATE_INVALIDE"
 E_TAUX_INVALIDE = "V05_TAUX_INVALIDE"
 E_DEJA_ACTIF = "V06_DEJA_ACTIF"
 E_DEJA_ARCHIVE = "V07_DEJA_ARCHIVE"
-E_ECRITURE = "E_ECRITURE_REFUSEE"
+E_TYPE_INCONNU = "V08_TYPE_INCONNU"
+E_PERIODE_INCOHERENTE = adm.E_PERIODE_INCOHERENTE
+E_ECRITURE = adm.E_ECRITURE
 
 MESSAGES = {
-    E_FLAGS: "Écriture désactivée sur cette installation : la modification est impossible.",
+    E_REFERENTIEL_ABSENT: adm.MESSAGES[adm.E_REFERENTIEL_ABSENT],
     E_LOGEMENT_INCONNU: "Ce logement n'existe pas dans le référentiel.",
     E_PROP_MANQUANT: "Le nouveau propriétaire est obligatoire.",
     E_PROP_INCONNU: "Ce propriétaire n'existe pas dans le référentiel.",
@@ -50,285 +52,215 @@ MESSAGES = {
     E_TAUX_INVALIDE: "Le taux de commission doit être un nombre entre 0 et 1 (ex. 0.15 pour 15 %).",
     E_DEJA_ACTIF: "Ce logement est déjà actif.",
     E_DEJA_ARCHIVE: "Ce logement est déjà archivé.",
-    E_ECRITURE: "Écriture refusée : la cible n'est pas autorisée.",
+    E_TYPE_INCONNU: "Ce type de logement n'existe pas dans le référentiel.",
+    E_PERIODE_INCOHERENTE: adm.MESSAGES[adm.E_PERIODE_INCOHERENTE],
+    E_ECRITURE: "Écriture refusée.",
 }
 
-
-def _flags_actifs() -> bool:
-    return bool(cfg.CHARGES_REAL_WRITE_ENABLED and cfg.CHARGES_REAL_WRITE_CONFIRMATION_ENABLED)
+CHAMPS_MODIFIABLES = ("nom_logement_officiel", "nom_court", "adresse", "ville",
+                      "type_logement_id", "hostaway_listing_id", "sur_hostaway",
+                      "commentaire", "forfait_logiciel_consommables_mensuel")
 
 
 def _txt(v) -> str:
-    return str(v or "").strip()
+    return adm.txt(v)
 
 
 def _date_valide(d: str) -> bool:
-    try:
-        date.fromisoformat(d)
-        return True
-    except ValueError:
-        return False
+    return adm.date_valide(d)
 
 
 def _veille(d: str) -> str:
-    return (date.fromisoformat(d) - timedelta(days=1)).isoformat()
-
-
-def _lire(wb, sheet: str) -> tuple[list[str], list[dict[str, Any]]]:
-    if sheet not in wb.sheetnames:
-        return [], []
-    ws = wb[sheet]
-    data = list(ws.iter_rows(values_only=True))
-    if not data:
-        return [], []
-    hdr = [c for c in data[0]]
-    return hdr, [dict(zip(hdr, r)) for r in data[1:]]
-
-
-def _proprietaires_actifs(wb) -> set[str]:
-    _, props = _lire(wb, SH_PROP)
-    return {_txt(r.get("proprietaire_id")) for r in props
-            if _txt(r.get("proprietaire_id")) and _txt(r.get("actif")).upper() == "OUI"}
-
-
-def _ecrire(p: Path, wb, cb_erreur) -> dict[str, Any] | None:
-    """Sauvegarde `wb` dans un temporaire puis remplacement atomique gardé. Retourne un dict
-    d'erreur si le remplacement échoue, sinon None."""
-    from app.services.saisie_charges_transaction_service import _remplacer_fichier
-    fd, tmp = tempfile.mkstemp(suffix=p.suffix, dir=str(p.parent))
-    os.close(fd)
-    tmp_path = Path(tmp)
-    try:
-        wb.save(tmp_path)
-        _remplacer_fichier(tmp_path, p)
-        return None
-    except Exception as exc:
-        tmp_path.unlink(missing_ok=True)
-        return cb_erreur(f"{type(exc).__name__}: {exc}")
+    return adm.veille(d)
 
 
 def _refus(code: str, detail: str = "") -> dict[str, Any]:
     return {"ok": False, "code": code, "message": MESSAGES.get(code, code), "detail": detail}
 
 
-def _logement_ligne(wb, logement_id: str):
-    ws = wb[SH_LOG]
-    hdr = [c.value for c in ws[1]]
-    if "logement_id" not in hdr:
-        return None, None
-    ci = hdr.index("logement_id")
-    for row in ws.iter_rows(min_row=2):
-        if str(row[ci].value or "").strip() == logement_id:
-            return hdr, row
-    return hdr, None
+def _proprietaires_actifs(*, db_path=None) -> set[str]:
+    return {_txt(r.get("proprietaire_id"))
+            for r in adm.lignes(SH_PROP, db_path=db_path)
+            if _txt(r.get("proprietaire_id")) and _txt(r.get("actif")).upper() == "OUI"}
 
 
-def _gestion_active(wb, logement_id: str):
-    """Dernière ligne de rattachement sans date_fin (ou la plus récente) pour ce logement."""
-    ws = wb[SH_GEST]
-    hdr = [c.value for c in ws[1]]
-    ci = hdr.index("logement_id")
-    fi = hdr.index("date_fin")
-    candidates = [row for row in ws.iter_rows(min_row=2)
-                  if str(row[ci].value or "").strip() == logement_id
-                  and not str(row[fi].value or "").strip()]
-    if not candidates:
-        return hdr, None
-    return hdr, candidates[-1]
+def _fiche(logement_id: str, *, db_path=None) -> dict[str, str] | None:
+    return adm.ligne(SH_LOG, logement_id, db_path=db_path)
 
 
-def modifier(logement_id: str, form: dict[str, Any], ref_path: Path | None = None) -> dict[str, Any]:
+def _nombre(v: Any) -> float | None:
+    """Convertit une valeur du référentiel en nombre, ou None si elle n'en est pas un.
+
+    Le référentiel SQLite rend des CHAÎNES (choix de `ref_setup_repo` : les appelants convertissent
+    au moment de l'usage). Les écrans, eux, calculent avec ces valeurs — `taux * 100`. Sans cette
+    conversion, un taux stocké « 0.19 » arriverait au template en texte et le rendu échouerait.
+    """
+    if v is None or str(v).strip() == "":
+        return None
+    try:
+        return float(str(v).replace(",", "."))
+    except (TypeError, ValueError):
+        return None
+
+
+def _typer_taux(ligne_taux: dict[str, str] | None) -> dict[str, Any] | None:
+    """Rend la ligne de taux avec un `taux_commission` NUMÉRIQUE, comme l'attendent les écrans."""
+    if ligne_taux is None:
+        return None
+    return {**ligne_taux, "taux_commission": _nombre(ligne_taux.get("taux_commission"))}
+
+
+def modifier(logement_id: str, form: dict[str, Any], *, acteur: str = "",
+             db_path=None) -> dict[str, Any]:
     """Met à jour les champs descriptifs d'un logement. Ne modifie jamais `logement_id`,
     `proprietaire_id` ni le taux de commission (routes dédiées `changer_proprietaire`/
     `changer_taux_commission`)."""
-    if not _flags_actifs():
-        return _refus(E_FLAGS)
+    if not adm.disponible(db_path=db_path):
+        return _refus(E_REFERENTIEL_ABSENT)
 
-    p = Path(ref_path or cfg.REF_SETUP)
-    if not p.exists():
+    logement_id = _txt(logement_id)
+    if _fiche(logement_id, db_path=db_path) is None:
         return _refus(E_LOGEMENT_INCONNU, logement_id)
 
-    wb = openpyxl.load_workbook(p, keep_vba=p.suffix.lower() == ".xlsm")
-    try:
-        hdr, row = _logement_ligne(wb, logement_id)
-        if row is None:
-            return _refus(E_LOGEMENT_INCONNU, logement_id)
+    t = _txt(form.get("type_logement_id"))
+    if t:
+        types_connus = {_txt(x.get("type_logement_id"))
+                        for x in adm.lignes(adm.TABLE_TYPES, db_path=db_path)}
+        if types_connus and t not in types_connus:
+            return _refus(E_TYPE_INCONNU, t)
 
-        t = _txt(form.get("type_logement_id"))
-        if t:
-            _, types = _lire(wb, "REF_Types_Logements")
-            types_connus = {_txt(x.get("type_logement_id")) for x in types}
-            if types_connus and t not in types_connus:
-                return _refus("V08_TYPE_INCONNU", t)
+    champs = {c: form.get(c) for c in CHAMPS_MODIFIABLES if c in form}
+    if not champs:
+        return {"ok": True, "logement_id": logement_id}
 
-        champs_modifiables = ("nom_logement_officiel", "nom_court", "adresse", "ville",
-                              "type_logement_id", "hostaway_listing_id", "sur_hostaway",
-                              "commentaire", "forfait_logiciel_consommables_mensuel")
-        for champ in champs_modifiables:
-            if champ in form and champ in hdr:
-                row[hdr.index(champ)].value = form.get(champ) or None
-
-        err = _ecrire(p, wb, lambda d: _refus(E_ECRITURE, d))
-        if err:
-            return err
-    finally:
-        wb.close()
-
+    res = adm.mettre_a_jour(SH_LOG, logement_id, champs, action="MODIFICATION",
+                            acteur=acteur, db_path=db_path)
+    if not res.get("ok"):
+        return res
     return {"ok": True, "logement_id": logement_id}
 
 
-def archiver(logement_id: str, date_fin: str, ref_path: Path | None = None) -> dict[str, Any]:
+def archiver(logement_id: str, date_fin: str, *, acteur: str = "",
+             db_path=None) -> dict[str, Any]:
     """Archive un logement : `actif=NON`, `statut_parc=RETIRE`, clôture le rattachement de
     gestion en cours à `date_fin`. Ne supprime aucune ligne."""
-    if not _flags_actifs():
-        return _refus(E_FLAGS)
+    if not adm.disponible(db_path=db_path):
+        return _refus(E_REFERENTIEL_ABSENT)
     if not _date_valide(date_fin):
         return _refus(E_DATE_INVALIDE, date_fin)
 
-    p = Path(ref_path or cfg.REF_SETUP)
-    if not p.exists():
+    logement_id = _txt(logement_id)
+    fiche = _fiche(logement_id, db_path=db_path)
+    if fiche is None:
         return _refus(E_LOGEMENT_INCONNU, logement_id)
+    if _txt(fiche.get("actif")).upper() == "NON":
+        return _refus(E_DEJA_ARCHIVE, logement_id)
 
-    wb = openpyxl.load_workbook(p, keep_vba=p.suffix.lower() == ".xlsm")
-    try:
-        hdr, row = _logement_ligne(wb, logement_id)
-        if row is None:
-            return _refus(E_LOGEMENT_INCONNU, logement_id)
-        if _txt(row[hdr.index("actif")].value).upper() == "NON":
-            return _refus(E_DEJA_ARCHIVE, logement_id)
+    cloture = adm.clore_periode(SH_GEST, logement_id, date_fin, statut="RETIRE",
+                                acteur=acteur, db_path=db_path)
+    if not cloture.get("ok"):
+        return cloture
 
-        row[hdr.index("actif")].value = "NON"
-        if "statut_parc" in hdr:
-            row[hdr.index("statut_parc")].value = "RETIRE"
-
-        hdrg, ligne_gest = _gestion_active(wb, logement_id)
-        if ligne_gest is not None:
-            ligne_gest[hdrg.index("date_fin")].value = date_fin
-            ligne_gest[hdrg.index("statut_gestion")].value = "RETIRE"
-
-        err = _ecrire(p, wb, lambda d: _refus(E_ECRITURE, d))
-        if err:
-            return err
-    finally:
-        wb.close()
-
-    return {"ok": True, "logement_id": logement_id, "date_fin": date_fin}
+    res = adm.mettre_a_jour(SH_LOG, logement_id, {"actif": "NON", "statut_parc": "RETIRE"},
+                            action="ARCHIVAGE", acteur=acteur, db_path=db_path)
+    if not res.get("ok"):
+        return res
+    return {"ok": True, "logement_id": logement_id, "date_fin": _txt(date_fin)}
 
 
-def reactiver(logement_id: str, date_debut: str, proprietaire_id: str,
-             ref_path: Path | None = None) -> dict[str, Any]:
+def reactiver(logement_id: str, date_debut: str, proprietaire_id: str, *, acteur: str = "",
+              db_path=None) -> dict[str, Any]:
     """Réactive un logement archivé : `actif=OUI`, `statut_parc=GERE`, ouvre un nouveau
     rattachement de gestion daté (jamais de réouverture d'une ligne close)."""
-    if not _flags_actifs():
-        return _refus(E_FLAGS)
+    if not adm.disponible(db_path=db_path):
+        return _refus(E_REFERENTIEL_ABSENT)
     if not _date_valide(date_debut):
         return _refus(E_DATE_INVALIDE, date_debut)
 
     prop = _txt(proprietaire_id)
     if not prop:
         return _refus(E_PROP_MANQUANT)
+    if prop not in _proprietaires_actifs(db_path=db_path):
+        return _refus(E_PROP_INCONNU, prop)
 
-    p = Path(ref_path or cfg.REF_SETUP)
-    if not p.exists():
+    logement_id = _txt(logement_id)
+    fiche = _fiche(logement_id, db_path=db_path)
+    if fiche is None:
         return _refus(E_LOGEMENT_INCONNU, logement_id)
+    if _txt(fiche.get("actif")).upper() == "OUI":
+        return _refus(E_DEJA_ACTIF, logement_id)
 
-    wb = openpyxl.load_workbook(p, keep_vba=p.suffix.lower() == ".xlsm")
-    try:
-        if prop not in _proprietaires_actifs(wb):
-            return _refus(E_PROP_INCONNU, prop)
+    res_gest = adm.inserer(SH_GEST, {
+        "gestion_id": f"GST_{logement_id}_{prop}_{_txt(date_debut)}",
+        "logement_id": logement_id,
+        "proprietaire_id": prop,
+        "date_debut": _txt(date_debut),
+        "date_fin": "",
+        "statut_gestion": "ACTIF",
+        "source": adm.SOURCE_APPLICATION,
+        "commentaire": "Réactivation",
+    }, action="REACTIVATION", acteur=acteur, db_path=db_path)
+    if not res_gest.get("ok"):
+        return res_gest
 
-        hdr, row = _logement_ligne(wb, logement_id)
-        if row is None:
-            return _refus(E_LOGEMENT_INCONNU, logement_id)
-        if _txt(row[hdr.index("actif")].value).upper() == "OUI":
-            return _refus(E_DEJA_ACTIF, logement_id)
-
-        row[hdr.index("actif")].value = "OUI"
-        if "statut_parc" in hdr:
-            row[hdr.index("statut_parc")].value = "GERE"
-
-        wsg = wb[SH_GEST]
-        hdrg = [c.value for c in wsg[1]]
-        wsg.append([{
-            "gestion_id": f"GST_{logement_id}_{prop}_{date_debut}",
-            "logement_id": logement_id,
-            "proprietaire_id": prop,
-            "date_debut": date_debut,
-            "date_fin": None,
-            "statut_gestion": "ACTIF",
-            "source": "SAISIE_APPLICATION",
-            "commentaire": "Réactivation",
-        }.get(h) for h in hdrg])
-
-        err = _ecrire(p, wb, lambda d: _refus(E_ECRITURE, d))
-        if err:
-            return err
-    finally:
-        wb.close()
-
-    return {"ok": True, "logement_id": logement_id, "proprietaire_id": prop, "date_debut": date_debut}
+    res = adm.mettre_a_jour(SH_LOG, logement_id, {"actif": "OUI", "statut_parc": "GERE"},
+                            action="REACTIVATION", acteur=acteur, db_path=db_path)
+    if not res.get("ok"):
+        return res
+    return {"ok": True, "logement_id": logement_id, "proprietaire_id": prop,
+            "date_debut": _txt(date_debut)}
 
 
-def changer_proprietaire(logement_id: str, proprietaire_id: str, date_debut: str,
-                         ref_path: Path | None = None) -> dict[str, Any]:
+def changer_proprietaire(logement_id: str, proprietaire_id: str, date_debut: str, *,
+                         acteur: str = "", db_path=None) -> dict[str, Any]:
     """Change le propriétaire d'un logement à `date_debut` : clôture le rattachement en cours
     (date_fin = veille) et ouvre une nouvelle ligne. Jamais de modification d'une ligne close."""
-    if not _flags_actifs():
-        return _refus(E_FLAGS)
+    if not adm.disponible(db_path=db_path):
+        return _refus(E_REFERENTIEL_ABSENT)
     if not _date_valide(date_debut):
         return _refus(E_DATE_INVALIDE, date_debut)
 
     prop = _txt(proprietaire_id)
     if not prop:
         return _refus(E_PROP_MANQUANT)
+    if prop not in _proprietaires_actifs(db_path=db_path):
+        return _refus(E_PROP_INCONNU, prop)
 
-    p = Path(ref_path or cfg.REF_SETUP)
-    if not p.exists():
+    logement_id = _txt(logement_id)
+    if _fiche(logement_id, db_path=db_path) is None:
         return _refus(E_LOGEMENT_INCONNU, logement_id)
 
-    wb = openpyxl.load_workbook(p, keep_vba=p.suffix.lower() == ".xlsm")
-    try:
-        if prop not in _proprietaires_actifs(wb):
-            return _refus(E_PROP_INCONNU, prop)
+    # Clôture d'abord : l'index partiel (0051) interdit deux périodes ouvertes simultanées.
+    cloture = adm.clore_periode(SH_GEST, logement_id, _veille(date_debut), statut="RETIRE",
+                                acteur=acteur, db_path=db_path)
+    if not cloture.get("ok"):
+        return cloture
 
-        hdr, row = _logement_ligne(wb, logement_id)
-        if row is None:
-            return _refus(E_LOGEMENT_INCONNU, logement_id)
-
-        hdrg, ligne_gest = _gestion_active(wb, logement_id)
-        if ligne_gest is not None:
-            ligne_gest[hdrg.index("date_fin")].value = _veille(date_debut)
-            ligne_gest[hdrg.index("statut_gestion")].value = "RETIRE"
-
-        wsg = wb[SH_GEST]
-        wsg.append([{
-            "gestion_id": f"GST_{logement_id}_{prop}_{date_debut}",
-            "logement_id": logement_id,
-            "proprietaire_id": prop,
-            "date_debut": date_debut,
-            "date_fin": None,
-            "statut_gestion": "ACTIF",
-            "source": "SAISIE_APPLICATION",
-            "commentaire": "Changement de propriétaire",
-        }.get(h) for h in hdrg])
-
-        err = _ecrire(p, wb, lambda d: _refus(E_ECRITURE, d))
-        if err:
-            return err
-    finally:
-        wb.close()
-
-    return {"ok": True, "logement_id": logement_id, "proprietaire_id": prop, "date_debut": date_debut}
+    res = adm.inserer(SH_GEST, {
+        "gestion_id": f"GST_{logement_id}_{prop}_{_txt(date_debut)}",
+        "logement_id": logement_id,
+        "proprietaire_id": prop,
+        "date_debut": _txt(date_debut),
+        "date_fin": "",
+        "statut_gestion": "ACTIF",
+        "source": adm.SOURCE_APPLICATION,
+        "commentaire": "Changement de propriétaire",
+    }, action="CHANGEMENT_PROPRIETAIRE", acteur=acteur, db_path=db_path)
+    if not res.get("ok"):
+        return res
+    return {"ok": True, "logement_id": logement_id, "proprietaire_id": prop,
+            "date_debut": _txt(date_debut)}
 
 
 def changer_taux_commission(logement_id: str, taux: float, date_debut: str,
-                            proprietaire_id: str = "", ref_path: Path | None = None) -> dict[str, Any]:
+                            proprietaire_id: str = "", *, acteur: str = "",
+                            db_path=None) -> dict[str, Any]:
     """Change le taux de commission d'un logement, au grain **logement** (`logement_id`
     obligatoire) — cohérent avec `resolve_commission_rate()` qui priorise déjà ce grain sur le
     grain propriétaire. Clôture la ligne courante active à `date_debut` (veille) et ouvre une
     nouvelle ligne : aucune ligne historique déjà close n'est jamais modifiée."""
-    if not _flags_actifs():
-        return _refus(E_FLAGS)
+    if not adm.disponible(db_path=db_path):
+        return _refus(E_REFERENTIEL_ABSENT)
     if not _date_valide(date_debut):
         return _refus(E_DATE_INVALIDE, date_debut)
     try:
@@ -338,112 +270,73 @@ def changer_taux_commission(logement_id: str, taux: float, date_debut: str,
     if not (0 <= taux_f <= 1):
         return _refus(E_TAUX_INVALIDE, str(taux))
 
-    p = Path(ref_path or cfg.REF_SETUP)
-    if not p.exists():
+    logement_id = _txt(logement_id)
+    if _fiche(logement_id, db_path=db_path) is None:
         return _refus(E_LOGEMENT_INCONNU, logement_id)
 
-    wb = openpyxl.load_workbook(p, keep_vba=p.suffix.lower() == ".xlsm")
-    try:
-        hdr, row = _logement_ligne(wb, logement_id)
-        if row is None:
-            return _refus(E_LOGEMENT_INCONNU, logement_id)
+    cloture = adm.clore_periode(SH_TAUX, logement_id, _veille(date_debut),
+                                acteur=acteur, db_path=db_path)
+    if not cloture.get("ok"):
+        return cloture
 
-        if SH_TAUX not in wb.sheetnames:
-            return _refus(E_LOGEMENT_INCONNU, "REF_Taux_Commission absente")
-        ws = wb[SH_TAUX]
-        hdrt = [c.value for c in ws[1]]
-        li, fi = hdrt.index("logement_id"), hdrt.index("date_fin")
-        for line in ws.iter_rows(min_row=2):
-            if (str(line[li].value or "").strip() == logement_id
-                    and not str(line[fi].value or "").strip()):
-                line[fi].value = _veille(date_debut)
+    prop = _txt(proprietaire_id)
+    if not prop:
+        active = adm.periode_ouverte(SH_GEST, logement_id, db_path=db_path)
+        prop = _txt(active.get("proprietaire_id")) if active else ""
 
-        prop = _txt(proprietaire_id)
-        if not prop:
-            _, gest_rows = _lire(wb, SH_GEST)
-            actives = [g for g in gest_rows if _txt(g.get("logement_id")) == logement_id
-                      and not _txt(g.get("date_fin"))]
-            prop = _txt(actives[-1].get("proprietaire_id")) if actives else ""
-
-        ws.append([{
-            "taux_commission_id": f"TX_{logement_id}_{date_debut}",
-            "proprietaire_id": prop or None,
-            "logement_id": logement_id,
-            "taux_commission": taux_f,
-            "date_debut": date_debut,
-            "date_fin": None,
-            "actif": "OUI",
-            "justification": "SAISIE_APPLICATION",
-            "commentaire": "",
-        }.get(h) for h in hdrt])
-
-        err = _ecrire(p, wb, lambda d: _refus(E_ECRITURE, d))
-        if err:
-            return err
-    finally:
-        wb.close()
-
+    res = adm.inserer(SH_TAUX, {
+        "taux_commission_id": f"TX_{logement_id}_{_txt(date_debut)}",
+        "proprietaire_id": prop,
+        "logement_id": logement_id,
+        "taux_commission": taux_f,
+        "date_debut": _txt(date_debut),
+        "date_fin": "",
+        "actif": "OUI",
+        "justification": adm.SOURCE_APPLICATION,
+        "commentaire": "",
+    }, action="CHANGEMENT_TAUX", acteur=acteur, db_path=db_path)
+    if not res.get("ok"):
+        return res
     return {"ok": True, "logement_id": logement_id, "taux_commission": taux_f,
-            "date_debut": date_debut}
+            "date_debut": _txt(date_debut)}
 
 
-# ── Lecture directe REF_Setup (état actuel + historique complet) ────────────
+# ── Lecture directe du référentiel (état actuel + historique complet) ───────────────────────────
 #
-# Distincte de `app/services/logements_service.py` (qui respecte l'arbitrage APP-1 : résolution
-# propriétaire/gestion EXCLUSIVEMENT via le CSV PBI, jamais via REF_Gestion_Logements_Hist). Ici,
-# c'est le module qui ÉCRIT ces feuilles : il peut légitimement les relire pour donner un état
-# immédiat après une action, sans attendre un cycle de pipeline (Lot13). Résolution simple :
-# la ligne sans `date_fin` est la ligne active (invariant maintenu par ce module lui-même).
+# Distincte de `app/services/logements_service.py`. Ici, c'est le module qui ÉCRIT ces tables : il
+# peut légitimement les relire pour donner un état immédiat après une action, sans attendre un
+# cycle de pipeline. Résolution simple : la ligne sans `date_fin` est la ligne active (invariant
+# maintenu par ce module ET par l'index partiel 0051).
 
 
-def etat_actuel(logement_id: str, ref_path: Path | None = None) -> dict[str, Any]:
-    """État courant d'un logement lu directement dans REF_Setup : fiche + rattachement de gestion
-    actif + taux de commission actif (grain logement). Toujours à jour, y compris juste après une
-    action de ce service — contrairement à la vue PBI qui attend un cycle Lot13."""
-    p = Path(ref_path or cfg.REF_SETUP)
-    if not p.exists():
+def etat_actuel(logement_id: str, *, db_path=None) -> dict[str, Any]:
+    """État courant d'un logement : fiche + rattachement de gestion actif + taux actif."""
+    if not adm.disponible(db_path=db_path):
         return {"status": "SOURCE_ABSENTE"}
 
-    wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
-    try:
-        _, logs = _lire(wb, SH_LOG)
-        fiche = next((r for r in logs if _txt(r.get("logement_id")) == logement_id), None)
-        if fiche is None:
-            return {"status": "INTROUVABLE"}
+    logement_id = _txt(logement_id)
+    fiche = _fiche(logement_id, db_path=db_path)
+    if fiche is None:
+        return {"status": "INTROUVABLE"}
 
-        _, gest = _lire(wb, SH_GEST)
-        actives_gest = [g for g in gest if _txt(g.get("logement_id")) == logement_id
-                        and not _txt(g.get("date_fin"))]
-        gestion_active = actives_gest[-1] if actives_gest else None
-
-        _, taux = _lire(wb, SH_TAUX)
-        actifs_taux = [t for t in taux if _txt(t.get("logement_id")) == logement_id
-                       and not _txt(t.get("date_fin"))]
-        taux_actif = actifs_taux[-1] if actifs_taux else None
-
-        return {"status": "OK", "fiche": fiche, "gestion_active": gestion_active,
-                "taux_actif": taux_actif}
-    finally:
-        wb.close()
+    return {"status": "OK", "fiche": fiche,
+            "gestion_active": adm.periode_ouverte(SH_GEST, logement_id, db_path=db_path),
+            "taux_actif": _typer_taux(adm.periode_ouverte(SH_TAUX, logement_id, db_path=db_path))}
 
 
-def historique(logement_id: str, ref_path: Path | None = None) -> dict[str, Any]:
+def historique(logement_id: str, *, db_path=None) -> dict[str, Any]:
     """Historique complet (toutes les lignes, closes ou non) des rattachements de gestion et des
     taux de commission d'un logement, triées par date de début décroissante."""
-    p = Path(ref_path or cfg.REF_SETUP)
-    if not p.exists():
+    if not adm.disponible(db_path=db_path):
         return {"status": "SOURCE_ABSENTE", "gestion": [], "taux": []}
 
-    wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
-    try:
-        _, gest = _lire(wb, SH_GEST)
-        gestion = [g for g in gest if _txt(g.get("logement_id")) == logement_id]
-        gestion.sort(key=lambda g: _txt(g.get("date_debut")), reverse=True)
+    logement_id = _txt(logement_id)
+    gestion = [g for g in adm.lignes(SH_GEST, db_path=db_path)
+               if _txt(g.get("logement_id")) == logement_id]
+    gestion.sort(key=lambda g: _txt(g.get("date_debut")), reverse=True)
 
-        _, taux = _lire(wb, SH_TAUX)
-        taux_rows = [t for t in taux if _txt(t.get("logement_id")) == logement_id]
-        taux_rows.sort(key=lambda t: _txt(t.get("date_debut")), reverse=True)
+    taux_rows = [_typer_taux(t) for t in adm.lignes(SH_TAUX, db_path=db_path)
+                 if _txt(t.get("logement_id")) == logement_id]
+    taux_rows.sort(key=lambda t: _txt(t.get("date_debut")), reverse=True)
 
-        return {"status": "OK", "gestion": gestion, "taux": taux_rows}
-    finally:
-        wb.close()
+    return {"status": "OK", "gestion": gestion, "taux": taux_rows}

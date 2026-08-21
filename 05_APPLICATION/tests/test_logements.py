@@ -236,7 +236,13 @@ def test_gestion_close_reste_attribuee(tmp_path, monkeypatch):
 
 
 def test_rattachement_ambigu_jamais_devine(tmp_path, monkeypatch):
-    """Deux rattachements actifs : aucun propriétaire n'est choisi arbitrairement."""
+    """Deux rattachements ouverts : aucun propriétaire n'est choisi arbitrairement.
+
+    Cet état est ANORMAL et l'application ne le crée jamais (voir le test suivant). Il peut
+    néanmoins arriver par un classeur importé ou une correction faite en base. La lecture doit
+    alors le SIGNALER, pas le trancher : c'est pourquoi il n'y a pas d'index unique en base — le
+    rendre impossible rendrait cette garde intestable. Voir la note de la migration 0051.
+    """
     db = construire_referentiel(tmp_path, gestion=[
         {"gestion_id": "GST_A", "logement_id": "LOG_9001", "proprietaire_id": "PROP_9001",
          "date_debut": "2025-01-01", "statut_gestion": "ACTIF"},
@@ -246,6 +252,38 @@ def test_rattachement_ambigu_jamais_devine(tmp_path, monkeypatch):
     ligne = next(r for r in svc.load_list()["rows"] if r["logement_id"] == "LOG_9001")
     assert ligne["proprietaire_id"] == ""
     assert ligne["gestion_statut"] == svc.GESTION_A_CONTROLER
+
+
+def test_application_refuse_de_creer_un_rattachement_ambigu(tmp_path, monkeypatch):
+    """Pendant en ÉCRITURE du test précédent : l'invariant est tenu par le service.
+
+    Ouvrir une période sans clore la précédente est refusé explicitement, avec un code métier —
+    pas par une `IntegrityError` brute remontée depuis SQLite.
+    """
+    from app.services import referentiel_admin_service as adm
+
+    db = construire_referentiel(tmp_path, gestion=[
+        {"gestion_id": "GST_A", "logement_id": "LOG_9001", "proprietaire_id": "PROP_9001",
+         "date_debut": "2025-01-01", "statut_gestion": "ACTIF"}])
+    monkeypatch.setattr(cfg, "DB_PATH", db)
+
+    res = adm.inserer("ref_gestion_logements_hist",
+                      {"gestion_id": "GST_B", "logement_id": "LOG_9001",
+                       "proprietaire_id": "PROP_9002", "date_debut": "2026-01-01",
+                       "statut_gestion": "ACTIF"},
+                      action="CHANGEMENT_PROPRIETAIRE", db_path=db)
+    assert res["ok"] is False
+    assert res["code"] == adm.E_PERIODE_INCOHERENTE
+    assert len(adm.periodes_ouvertes("ref_gestion_logements_hist", "LOG_9001", db_path=db)) == 1
+
+    # Une fois la période close, l'ouverture passe.
+    assert adm.clore_periode("ref_gestion_logements_hist", "LOG_9001", "2025-12-31",
+                             db_path=db)["ok"]
+    assert adm.inserer("ref_gestion_logements_hist",
+                       {"gestion_id": "GST_B", "logement_id": "LOG_9001",
+                        "proprietaire_id": "PROP_9002", "date_debut": "2026-01-01",
+                        "statut_gestion": "ACTIF"},
+                       action="CHANGEMENT_PROPRIETAIRE", db_path=db)["ok"]
 
 
 def test_homonymes_jamais_fusionnes(tmp_path, monkeypatch):

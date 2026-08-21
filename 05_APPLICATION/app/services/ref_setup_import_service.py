@@ -35,6 +35,8 @@ from __future__ import annotations
 import hashlib
 import sqlite3
 import uuid
+
+from app.services.referentiel_admin_service import SOURCE_APPLICATION
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -356,8 +358,24 @@ def importer(*, chemin: Path | None = None, db_path=None) -> dict[str, Any]:
         try:
             for f in cat.FEUILLES:
                 lignes = contenu.get(f.onglet, [])
-                # Remplacement intégral : le classeur est la source, pas un complément.
-                conn.execute(f"DELETE FROM {f.table}")
+                # Remplacement du contenu IMPORTÉ — mais jamais de ce qui a été saisi dans
+                # l'application. Depuis que le référentiel est administrable (0051), une ligne
+                # peut naître ou être modifiée dans l'interface : la supprimer au prochain import
+                # du classeur ferait de SQLite une simple copie, et perdrait la saisie sans
+                # prévenir.
+                conn.execute(f"DELETE FROM {f.table} WHERE import_id IS NOT ? ", (SOURCE_APPLICATION,))
+                deja = {r[0] for r in conn.execute(
+                    f"SELECT {f.cle} FROM {f.table} WHERE import_id IS ?", (SOURCE_APPLICATION,))}
+                if deja:
+                    conflits = [l for l in lignes if str(l.get(f.cle, "")).strip() in deja]
+                    if conflits:
+                        # Signalé, jamais silencieux : c'est une divergence entre le classeur et
+                        # une saisie applicative, et c'est la saisie qui fait foi.
+                        avertissements.append(
+                            f"{f.onglet} : {len(conflits)} ligne(s) du classeur ignorée(s), déjà "
+                            f"administrée(s) dans l'application "
+                            f"({', '.join(sorted(str(l.get(f.cle)) for l in conflits)[:5])})")
+                    lignes = [l for l in lignes if str(l.get(f.cle, "")).strip() not in deja]
                 if lignes:
                     cols = ", ".join((*f.colonnes, "import_id"))
                     trous = ", ".join(["?"] * (len(f.colonnes) + 1))

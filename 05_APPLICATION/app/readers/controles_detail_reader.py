@@ -10,7 +10,7 @@ Sources détail :
   - Écarts ménages externes      → MASTER_FACT_MEN_MenagesExternes (onglet VUE_ECART_HOSTAWAY)
   - Banque non classée           → SQLite (classification courante, statut RAPPROCHEMENT_REQUIS)
 
-openpyxl read_only=True. Aucun chemin absolu exposé. Aucune donnée voyageur superflue.
+Aucune lecture de classeur. Aucun chemin absolu exposé. Aucune donnée voyageur superflue.
 """
 from __future__ import annotations
 
@@ -18,7 +18,6 @@ import datetime as _dt
 from pathlib import Path
 from typing import Any
 
-import openpyxl
 
 import app.config as cfg
 
@@ -28,35 +27,6 @@ _CACHE: dict[tuple, list[dict[str, Any]]] = {}
 
 def vider_cache() -> None:
     _CACHE.clear()
-
-
-def _lire(path: Path, sheet: str) -> list[dict[str, Any]]:
-    p = Path(path)
-    if not p.exists():
-        return []
-    try:
-        st = p.stat()
-        cle = (str(p), sheet, st.st_mtime_ns, st.st_size)
-        if cle in _CACHE:
-            return _CACHE[cle]
-        wb = openpyxl.load_workbook(str(p), read_only=True, data_only=True)
-        try:
-            if sheet not in wb.sheetnames:
-                _CACHE[cle] = []
-                return []
-            ws = wb[sheet]
-            rows = [r for r in ws.iter_rows(values_only=True) if any(c is not None for c in r)]
-        finally:
-            wb.close()
-        if len(rows) <= 1:
-            _CACHE[cle] = []
-            return []
-        hdr = [str(c) if c is not None else f"col_{i}" for i, c in enumerate(rows[0])]
-        data = [dict(zip(hdr, r)) for r in rows[1:]]
-        _CACHE[cle] = data
-        return data
-    except Exception:
-        return []
 
 
 def _txt(v: Any) -> str:
@@ -135,10 +105,17 @@ def commissions_a_controler() -> list[dict[str, Any]]:
     return lignes
 
 
-def ecarts_menages(code: str) -> list[dict[str, Any]]:
-    """Lignes VUE_ECART_HOSTAWAY d'un code donné (une ligne = un logement × mois)."""
-    lignes = _lire(cfg.MASTER_MENAGES_EXTERNES, "VUE_ECART_HOSTAWAY")
-    return [r for r in lignes if _txt(r.get("code_controle")) == code]
+def ecarts_menages(code: str, db_path=None) -> list[dict[str, Any]]:
+    """Écarts ménages d'un code donné (une ligne = un logement × mois), CALCULÉS en SQLite.
+
+    Lisait auparavant l'onglet `VUE_ECART_HOSTAWAY` du classeur Lot6c. Or Lot11 calculait déjà
+    exactement la même comparaison en SQLite : l'écran affichait donc le dernier calcul legacy
+    pendant que le contrôle, lui, était à jour. Les deux passent maintenant par
+    `menages_ecarts_service`, seul endroit où la règle existe.
+    """
+    from app.services import menages_ecarts_service
+
+    return menages_ecarts_service.par_code(code, db_path=db_path)
 
 
 def banque_non_classees(mois: str = "") -> list[dict[str, Any]]:

@@ -7,54 +7,20 @@ fichiers Excel directement. Complète les tests de service (`test_logements_crea
 """
 from __future__ import annotations
 
-import openpyxl
 import pytest
 
 import app.config as cfg
-from app.readers import ref_setup_reader
 from test_logements import construire_referentiel
-
-
-def _ref(tmp_path):
-    p = tmp_path / "REF_Setup.xlsx"
-    wb = openpyxl.Workbook(); wb.remove(wb.active)
-    ws = wb.create_sheet("REF_Logements")
-    ws.append(["logement_id", "hostaway_listing_id", "nom_logement_officiel", "nom_court", "adresse",
-               "ville", "type_logement_id", "sur_hostaway", "actif", "statut_parc", "commentaire",
-               "forfait_logiciel_consommables_mensuel"])
-    ws.append(["LOG_A1", 900001, "Fictif A1", "A1", "1 rue", "RECETTE", "TYPE_001", "OUI", "OUI",
-               "GERE", None, 0])
-    ws = wb.create_sheet("REF_Gestion_Logements_Hist")
-    ws.append(["gestion_id", "logement_id", "proprietaire_id", "date_debut", "date_fin",
-               "statut_gestion", "source", "commentaire"])
-    ws.append(["GST_1", "LOG_A1", "PROP_A", "2026-01-01", None, "ACTIF", "FICTIF", None])
-    ws = wb.create_sheet("REF_Proprietaires")
-    ws.append(["proprietaire_id", "nom_proprietaire", "actif"])
-    for pid in ("PROP_A", "PROP_B"):
-        ws.append([pid, f"Nom {pid}", "OUI"])
-    ws = wb.create_sheet("REF_Types_Logements")
-    ws.append(["type_logement_id", "libelle"]); ws.append(["TYPE_001", "STUDIO"])
-    ws = wb.create_sheet("REF_Taux_Commission")
-    ws.append(["taux_commission_id", "proprietaire_id", "logement_id", "taux_commission",
-               "date_debut", "date_fin", "actif", "justification", "commentaire"])
-    ws.append(["TX_A1", "PROP_A", "LOG_A1", 0.19, "2026-01-01", None, "OUI", "FICTIF", ""])
-    wb.save(p); wb.close()
-    return p
 
 
 @pytest.fixture
 def ref(tmp_path, monkeypatch):
-    """Classeur pour les ÉCRITURES, référentiel SQLite pour les LECTURES.
+    """Référentiel SQLite pour les lectures ET les écritures.
 
-    Les actions d'administration (créer, changer de propriétaire, changer de taux) écrivent encore
-    dans REF_Setup.xlsm — c'est le périmètre de la mission « administration du référentiel ». Les
-    lectures d'écran, elles, passent désormais par la base. Les deux fixtures décrivent le même
-    logement, ce qui permet de vérifier que l'écran reste cohérent pendant la transition.
+    Les actions d'administration (créer, changer de propriétaire, changer de taux) écrivaient dans
+    `REF_Setup.xlsm` ; depuis la migration 0051 elles écrivent dans les tables `ref_*`. La fixture
+    n'a donc plus qu'une seule source à décrire.
     """
-    p = _ref(tmp_path)
-    monkeypatch.setattr(cfg, "REF_SETUP", p)
-    monkeypatch.setattr(ref_setup_reader, "REF_SETUP", p)
-
     db = construire_referentiel(
         tmp_path,
         logements=[{"logement_id": "LOG_A1", "nom_logement_officiel": "Fictif A1",
@@ -75,10 +41,7 @@ def ref(tmp_path, monkeypatch):
                         "actif": "OUI"}])
     monkeypatch.setattr(cfg, "DB_PATH", db)
     monkeypatch.setattr(cfg, "RECETTE_MODE", True)
-    monkeypatch.setattr(cfg, "RECETTE_ROOT", tmp_path.resolve())
-    monkeypatch.setattr(cfg, "CHARGES_REAL_WRITE_ENABLED", True)
-    monkeypatch.setattr(cfg, "CHARGES_REAL_WRITE_CONFIRMATION_ENABLED", True)
-    return p
+    return db
 
 
 # ── Fiche logement = écran central ───────────────────────────────────────────
@@ -130,17 +93,23 @@ def test_creer_puis_consulter_la_fiche(client, ref):
     r2 = client.get(r.headers["location"])
     assert r2.status_code == 200
     assert "Logement créé" in r2.text
-    # PBI (Lot13) n'a pas encore tourné : fiche minimale construite depuis REF_Setup en direct,
-    # jamais un 404 pour un logement qui existe réellement.
-    assert "en attente de l'export PBI" in r2.text
+    # Le logement est immédiatement COMPLET : il est écrit dans le référentiel SQLite, que la fiche
+    # lit directement. Il n'y a plus de fiche « minimale en attente de l'export PBI » — c'était la
+    # conséquence d'une création qui n'atterrissait que dans le classeur.
     assert "PROP_B" in r2.text
+    assert "LOG_NEW" in r2.text
 
 
-def test_creer_refuse_si_flags_off_reste_sur_le_formulaire(client, ref, monkeypatch):
-    monkeypatch.setattr(cfg, "CHARGES_REAL_WRITE_ENABLED", False)
+def test_creer_refuse_une_saisie_invalide_et_reste_sur_le_formulaire(client, ref):
+    """Une saisie invalide ramène au formulaire avec l'erreur, sans rien écrire.
+
+    Remplace l'ancien test des flags `CHARGES_REAL_WRITE_*`, qui protégeaient l'écriture du
+    CLASSEUR. L'écriture allant désormais en base, ce qui doit être vérifié est le refus d'une
+    saisie invalide — ici un propriétaire inconnu du référentiel.
+    """
     r = client.post("/logements", data={
         "logement_id": "LOG_NEW", "nom_court": "NEW",
-        "proprietaire_id": "PROP_B", "date_debut": "2026-06-01",
+        "proprietaire_id": "PROP_INCONNU", "date_debut": "2026-06-01",
     }, follow_redirects=False)
     assert r.status_code == 303
     assert r.headers["location"].startswith("/logements/nouveau?erreur=")

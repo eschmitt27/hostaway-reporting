@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Référentiel — {{ meta.onglet }}{% endblock %}
+
+{% block content %}
+<div class="page-header flex justify-between items-center">
+  <div>
+    <h1 class="page-title">{{ meta.onglet }}</h1>
+    <p class="page-subtitle font-mono text-xs">{{ meta.table }} — clé : {{ meta.cle }}</p>
+  </div>
+  <a href="/administration/referentiels" class="btn">Retour</a>
+</div>
+
+{% if message %}<div class="alert alert-success mb-md">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-danger mb-md">{{ erreur }}</div>{% endif %}
+
+{% if meta.lecture_seule %}
+<div class="alert alert-info mb-lg">
+  Référentiel <strong>historisé</strong> — consultable ici, modifiable par : {{ meta.motif_lecture_seule }}.
+  L'éditer directement permettrait de réécrire une période passée.
+</div>
+{% endif %}
+
+{% if not disponible %}
+<div class="alert alert-warning mb-lg">
+  Référentiel non initialisé. <a href="/referentiel-setup">Import initial</a> requis avant toute saisie.
+</div>
+{% endif %}
+
+<div class="card mb-lg">
+  <div class="card-title">Contenu ({{ lignes|length }} ligne{{ 's' if lignes|length > 1 else '' }})</div>
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          {% for c in meta.colonnes %}<th class="text-xs">{{ c }}</th>{% endfor %}
+          {% if not meta.lecture_seule %}<th></th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+      {% for l in lignes %}
+        <tr>
+          {% if meta.lecture_seule %}
+            {% for c in meta.colonnes %}<td class="text-xs">{{ l.get(c, '') }}</td>{% endfor %}
+          {% else %}
+            <form method="post" action="/administration/referentiels/{{ meta.table }}/modifier">
+            {% for c in meta.colonnes %}
+              <td class="text-xs">
+                {% if c == meta.cle %}
+                  <span class="font-mono">{{ l.get(c, '') }}</span>
+                  <input type="hidden" name="{{ c }}" value="{{ l.get(c, '') }}">
+                {% else %}
+                  <input class="input input-sm" name="{{ c }}" value="{{ l.get(c, '') }}">
+                {% endif %}
+              </td>
+            {% endfor %}
+              <td class="flex gap-sm">
+                <button type="submit" class="btn btn-sm btn-primary" {% if not disponible %}disabled{% endif %}>Enregistrer</button>
+            </form>
+            {% if meta.a_colonne_actif %}
+              <form method="post" action="/administration/referentiels/{{ meta.table }}/activation">
+                <input type="hidden" name="cle" value="{{ l.get(meta.cle, '') }}">
+                <input type="hidden" name="actif" value="{{ 'NON' if l.get('actif', '')|upper == 'OUI' else 'OUI' }}">
+                <button type="submit" class="btn btn-sm" {% if not disponible %}disabled{% endif %}>
+                  {{ 'Désactiver' if l.get('actif', '')|upper == 'OUI' else 'Activer' }}
+                </button>
+              </form>
+            {% endif %}
+              </td>
+          {% endif %}
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="text-xs text-secondary mt-sm">
+    Aucune suppression : une donnée déjà référencée ailleurs reste lisible, elle se désactive.
+  </p>
+</div>
+
+{% if not meta.lecture_seule %}
+<div class="card mb-lg">
+  <div class="card-title">Ajouter une ligne</div>
+  <form method="post" action="/administration/referentiels/{{ meta.table }}/creer">
+    <div class="grid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:var(--space-sm);">
+      {% for c in meta.colonnes %}
+      <label class="text-xs">
+        {{ c }}{% if c == meta.cle %} <span class="text-danger">*</span>{% endif %}
+        <input class="input" name="{{ c }}" {% if c == meta.cle %}required{% endif %}>
+      </label>
+      {% endfor %}
+    </div>
+    <button type="submit" class="btn btn-primary mt-md" {% if not disponible %}disabled{% endif %}>Créer</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-title">Dernières modifications</div>
+  {% if evenements %}
+  <div class="table-container">
+    <table>
+      <thead><tr><th>Date</th><th>Action</th><th>Clé</th><th>Acteur</th></tr></thead>
+      <tbody>
+      {% for e in evenements %}
+        <tr>
+          <td class="text-xs">{{ e.horodatage }}</td>
+          <td class="text-xs">{{ e.action }}</td>
+          <td class="text-xs font-mono">{{ e.cle }}</td>
+          <td class="text-xs">{{ e.acteur or '—' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="text-sm text-secondary">Aucune modification enregistrée depuis l'application.</p>
+  {% endif %}
+</div>
+{% endblock %}

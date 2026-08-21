@@ -170,44 +170,9 @@ def vider_cache() -> None:
     _CACHE_PROPRIETAIRES = None
 
 
-def _lire(cle: str, libelle: str, path: Path, fichier: str, onglet: str) -> SourceMenages:
-    """Lecture d'un onglet avec diagnostic explicite : fichier / onglet / vide.
-
-    Le résultat est mémorisé tant que le fichier n'a pas bougé (mtime + taille).
-    Un MASTER régénéré par le moteur invalide donc l'entrée automatiquement.
-    """
-    if not path.exists():
-        return SourceMenages(EtatSource(cle, libelle, fichier, onglet, ETAT_FICHIER_ABSENT))
-
-    stat = path.stat()
-    empreinte = (str(path), onglet, stat.st_mtime_ns, stat.st_size)
-    memo = _CACHE.get(empreinte)
-    if memo is not None:
-        return SourceMenages(memo.etat, memo.lignes)
-
-    maj = _mtime(path)
-    feuilles = list_sheets(path)
-    if not feuilles:
-        resultat = SourceMenages(
-            EtatSource(cle, libelle, fichier, onglet, ETAT_ILLISIBLE, derniere_maj=maj)
-        )
-    elif onglet not in feuilles:
-        resultat = SourceMenages(
-            EtatSource(cle, libelle, fichier, onglet, ETAT_ONGLET_ABSENT, derniere_maj=maj)
-        )
-    else:
-        lignes = read_sheet(path, onglet, max_rows=None)
-        if not lignes:
-            resultat = SourceMenages(
-                EtatSource(cle, libelle, fichier, onglet, ETAT_VIDE, derniere_maj=maj)
-            )
-        else:
-            resultat = SourceMenages(
-                EtatSource(cle, libelle, fichier, onglet, ETAT_OK, len(lignes), maj), lignes
-            )
-
-    _CACHE[empreinte] = resultat
-    return SourceMenages(resultat.etat, resultat.lignes)
+# `_lire` (lecture de classeur) a été RETIRÉ : plus aucune source ménages ne vient d'Excel. Les
+# trois dernières fonctions qui l'utilisaient (`pools_charges`, `read_resume_appartement`,
+# `read_resume_intervenant`) n'avaient aucun appelant et sont supprimées avec lui.
 
 
 def _table_presente(conn, table: str) -> bool:
@@ -283,14 +248,6 @@ def gainperte() -> SourceMenages:
 def cout_complet() -> SourceMenages:
     """Lot6f — coût complet analytique (direct + quotes-parts de charges). SQLite (0038)."""
     return _lire_sqlite("coutcomplet", "Coût complet (Lot6f)", "menages_cout_complet")
-
-
-# LEGACY_DEAD_CODE : aucun appelant (vérifié par grep, mission Ménages §2). Non migré vers SQLite
-# volontairement — construire une persistance sans consommateur n'a pas de sens. À supprimer avec
-# la prochaine passe de nettoyage du reader.
-def pools_charges() -> SourceMenages:
-    return _lire("pools", "Pools de charges ménage (Lot6f)",
-                 cfg.MASTER_COUTCOMPLET_MENAGES, SOURCE_COUTCOMPLET, SHEET_POOLS)
 
 
 def hostaway_taches() -> SourceMenages:
@@ -412,29 +369,31 @@ _CACHE_PROPRIETAIRES: dict[str, str] | None = None
 
 
 def noms_proprietaires() -> dict[str, str]:
-    """{proprietaire_id: "Prénom NOM"} depuis REF_Setup (référentiel officiel).
+    """{proprietaire_id: "Prénom NOM"} depuis le référentiel SQLite (`ref_proprietaires`, 0029).
 
     Sert à afficher un nom lisible partout où le moteur ne porte que l'identifiant
     technique. Lecture seule, mémorisée pour la durée du process ; `vider_cache`
-    la réinitialise. En cas de source absente/illisible, rend un dict vide (l'appelant
-    retombe alors sur un libellé de repli, jamais une invention).
+    la réinitialise. Si le référentiel n'est pas importé, rend un dict vide (l'appelant
+    retombe alors sur un libellé de repli, jamais une invention) — `REF_Setup.xlsm` n'est
+    plus ouvert ici.
     """
     global _CACHE_PROPRIETAIRES
     if _CACHE_PROPRIETAIRES is not None:
         return _CACHE_PROPRIETAIRES
+    from app.services import ref_setup_repo as repo
+
     resultat: dict[str, str] = {}
-    if cfg.REF_SETUP.exists():
-        try:
-            for r in read_sheet(cfg.REF_SETUP, SHEET_REF_PROPRIETAIRES, max_rows=None):
-                pid = str(r.get("proprietaire_id") or "").strip()
-                if not pid or pid.startswith("["):
-                    continue
-                prenom = str(r.get("prenom_proprietaire") or "").strip()
-                nom = str(r.get("nom_proprietaire") or "").strip()
-                libelle = " ".join(x for x in (prenom, nom) if x).strip()
-                resultat[pid] = libelle or pid
-        except Exception:
-            resultat = {}
+    try:
+        for r in repo.lire_onglet(SHEET_REF_PROPRIETAIRES):
+            pid = str(r.get("proprietaire_id") or "").strip()
+            if not pid or pid.startswith("["):
+                continue
+            prenom = str(r.get("prenom_proprietaire") or "").strip()
+            nom = str(r.get("nom_proprietaire") or "").strip()
+            libelle = " ".join(x for x in (prenom, nom) if x).strip()
+            resultat[pid] = libelle or pid
+    except Exception:
+        resultat = {}
     _CACHE_PROPRIETAIRES = resultat
     return resultat
 
@@ -494,18 +453,6 @@ def read_tableau_comparaison() -> list[dict[str, Any]]:
 
 def read_controles() -> list[dict[str, Any]]:
     return controles_rapprochement().lignes
-
-
-# LEGACY_DEAD_CODE : aucun appelant (vérifié par grep, mission Ménages §2). Idem `pools_charges`.
-def read_resume_appartement() -> list[dict[str, Any]]:
-    return _lire("resume_apt", "Résumé par appartement (Lot6d)",
-                 cfg.MASTER_RAPPROCHEMENT_MENAGES, SOURCE_RAPPROCHEMENT, SHEET_RESUME_APT).lignes
-
-
-# LEGACY_DEAD_CODE : aucun appelant (vérifié par grep, mission Ménages §2). Idem `pools_charges`.
-def read_resume_intervenant() -> list[dict[str, Any]]:
-    return _lire("resume_int", "Résumé par intervenant (Lot6d)",
-                 cfg.MASTER_RAPPROCHEMENT_MENAGES, SOURCE_RAPPROCHEMENT, SHEET_RESUME_INT).lignes
 
 
 def read_gainperte_detail() -> list[dict[str, Any]]:

@@ -21,7 +21,8 @@ from app.readers.banques_reader import to_texte, to_nombre, to_date
 
 
 def _charges() -> list[dict[str, Any]]:
-    """Charges Lot3 disponibles → candidats CHARGE_FOURNISSEUR / REGLEMENT_CHARGE."""
+    """Charges disponibles (table `charges`, 0052) → candidats CHARGE_FOURNISSEUR /
+    REGLEMENT_CHARGE."""
     try:
         if not charges_reader.master_available():
             return []

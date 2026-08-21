@@ -25,7 +25,7 @@ from app.db.connection import get_db
 NON_DISPONIBLE = "NON_DISPONIBLE"
 
 
-# ── Catégorie (source : MASTER Lot3, lecture seule) ──────────────────────────
+# ── Catégorie (source : table `charges`, migration 0052, lecture seule) ──────
 
 def categories() -> dict[str, Any]:
     from app.readers import charges_reader

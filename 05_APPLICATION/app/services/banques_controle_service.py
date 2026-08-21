@@ -24,7 +24,7 @@ import app.config as cfg
 from app.db.connection import get_db
 from app.readers import banques_reader as reader
 from app.readers.banques_reader import to_texte, to_nombre, to_date, to_mois, masquer_compte
-from app.readers.excel_reader import read_sheet
+from app.services import ref_setup_repo as repo
 
 # ── Workflow de statuts ──────────────────────────────────────────────────────
 ST_A_CONTROLER = "A_CONTROLER"
@@ -102,11 +102,18 @@ _REF_CACHE: dict[str, dict[str, str]] = {}
 
 
 def _ref(sheet: str, cle: str, val_fn) -> dict[str, str]:
+    """Index d'affichage {clé → libellé} lu en SQLite, jamais dans le classeur.
+
+    Le référentiel vit dans les tables `ref_*` (0029) ; `ref_setup_repo` les lit par nom d'onglet,
+    ce qui permet de garder ici le vocabulaire métier (« REF_Proprietaires ») sans rouvrir
+    `REF_Setup.xlsm`. Un référentiel non importé rend un index vide : ces libellés sont du confort
+    d'affichage, leur absence ne doit jamais empêcher un écran de s'afficher.
+    """
     if sheet in _REF_CACHE:
         return _REF_CACHE[sheet]
     out: dict[str, str] = {}
     try:
-        for r in read_sheet(cfg.REF_SETUP, sheet, max_rows=None):
+        for r in repo.lire_onglet(sheet):
             k = to_texte(r.get(cle))
             if k and k != cle:
                 out[k] = val_fn(r)

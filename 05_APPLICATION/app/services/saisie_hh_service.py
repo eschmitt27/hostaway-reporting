@@ -439,7 +439,9 @@ def load_form_refs(
     ref_setup_path: Path | None = None,
 ) -> dict[str, Any]:
     p_saisie = saisie_path or cfg.SAISIE_RESERVATIONS_HH
-    p_ref = ref_setup_path or cfg.REF_SETUP
+    # `None` = référentiel SQLite (cas normal). Un chemin n'est transmis que par les flux
+    # de simulation sur COPIE, qui doivent lire leur propre fichier de travail.
+    p_ref = ref_setup_path
     refs = read_ref_locale(p_saisie)
 
     logements_rows: list[dict[str, Any]] = []
@@ -605,7 +607,9 @@ def valider(
 ) -> dict[str, Any]:
     """Valide D1–D11. Retourne {ok, erreurs, preview, pk}."""
     p_saisie = saisie_path or cfg.SAISIE_RESERVATIONS_HH
-    p_ref = ref_setup_path or cfg.REF_SETUP
+    # `None` = référentiel SQLite (cas normal). Un chemin n'est transmis que par les flux
+    # de simulation sur COPIE, qui doivent lire leur propre fichier de travail.
+    p_ref = ref_setup_path
 
     erreurs: list[dict[str, str]] = []
 

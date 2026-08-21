@@ -1,64 +1,34 @@
 """Cycle de vie d'un logement existant : modifier / archiver / réactiver / changer_proprietaire /
-changer_taux_commission — validations + écriture gardée."""
-from datetime import date
+changer_taux_commission — validations + historisation.
 
-import openpyxl
+Le référentiel est SEMÉ EN SQLITE : depuis la migration 0051, ces services écrivent dans les tables
+`ref_*` et n'ouvrent plus `REF_Setup.xlsm`. Les règles métier vérifiées ici sont inchangées — seule
+la destination de l'écriture a changé.
+"""
 import pytest
 
 import app.config as cfg
+import fixtures_referentiel as fx
 from app.services import logements_gestion_service as svc
 
-
-def _ref(tmp_path):
-    p = tmp_path / "REF_Setup.xlsx"
-    wb = openpyxl.Workbook(); wb.remove(wb.active)
-    ws = wb.create_sheet("REF_Logements")
-    ws.append(["logement_id", "hostaway_listing_id", "nom_logement_officiel", "nom_court", "adresse",
-               "ville", "type_logement_id", "sur_hostaway", "actif", "statut_parc", "commentaire",
-               "forfait_logiciel_consommables_mensuel"])
-    ws.append(["LOG_A1", 900001, "Fictif A1", "A1", "1 rue", "RECETTE", "TYPE_001", "OUI", "OUI",
-               "GERE", None, 0])
-    ws.append(["LOG_INACTIF", 900005, "Fictif Inactif", "INACTIF", "9 rue", "RECETTE", "TYPE_001",
-               "NON", "NON", "RETIRE", None, 0])
-    ws = wb.create_sheet("REF_Gestion_Logements_Hist")
-    ws.append(["gestion_id", "logement_id", "proprietaire_id", "date_debut", "date_fin",
-               "statut_gestion", "source", "commentaire"])
-    ws.append(["GST_1", "LOG_A1", "PROP_A", "2026-01-01", None, "ACTIF", "FICTIF", None])
-    ws.append(["GST_2", "LOG_INACTIF", "PROP_C", "2026-01-01", "2026-05-31", "RETIRE", "FICTIF", None])
-    ws = wb.create_sheet("REF_Proprietaires")
-    ws.append(["proprietaire_id", "nom_proprietaire", "actif"])
-    for pid in ("PROP_A", "PROP_B", "PROP_C"):
-        ws.append([pid, f"Nom {pid}", "OUI"])
-    ws = wb.create_sheet("REF_Types_Logements")
-    ws.append(["type_logement_id", "libelle"]); ws.append(["TYPE_001", "STUDIO"])
-    ws = wb.create_sheet("REF_Taux_Commission")
-    ws.append(["taux_commission_id", "proprietaire_id", "logement_id", "taux_commission",
-               "date_debut", "date_fin", "actif", "justification", "commentaire"])
-    ws.append(["TX_A1", "PROP_A", "LOG_A1", 0.19, "2026-01-01", None, "OUI", "FICTIF", ""])
-    wb.save(p); wb.close()
-    return p
+# Correspondance onglet historique → table, pour que les tests se lisent comme avant.
+TABLES = {
+    "REF_Logements": "ref_logements",
+    "REF_Gestion_Logements_Hist": "ref_gestion_logements_hist",
+    "REF_Taux_Commission": "ref_taux_commission",
+}
 
 
 @pytest.fixture
-def ref(tmp_path, monkeypatch):
-    p = _ref(tmp_path)
-    monkeypatch.setattr(cfg, "REF_SETUP", p)
+def ref(tmp_db, monkeypatch):
+    fx.semer_parc_standard(tmp_db)
     monkeypatch.setattr(cfg, "RECETTE_MODE", True)
-    monkeypatch.setattr(cfg, "RECETTE_ROOT", tmp_path.resolve())
-    monkeypatch.setattr(cfg, "CHARGES_REAL_WRITE_ENABLED", True)
-    monkeypatch.setattr(cfg, "CHARGES_REAL_WRITE_CONFIRMATION_ENABLED", True)
-    return p
+    return tmp_db
 
 
-def _lignes(p, sheet):
-    wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
-    hdr = [c for c in next(wb[sheet].iter_rows(max_row=1, values_only=True))]
-    rows = [dict(zip(hdr, r)) for r in wb[sheet].iter_rows(min_row=2, values_only=True)]
-    wb.close()
-    return rows
+def _lignes(db_path, sheet):
+    return fx.lignes(db_path, TABLES[sheet])
 
-
-# ── modifier ──────────────────────────────────────────────────────────────
 
 def test_modifier_met_a_jour_les_champs_descriptifs(ref):
     res = svc.modifier("LOG_A1", {"nom_court": "A1-bis", "ville": "NOUVELLE_VILLE"})
@@ -79,10 +49,16 @@ def test_modifier_type_inconnu_refuse(ref):
     assert res["ok"] is False
 
 
-def test_modifier_refuse_si_flags_desactives(ref, monkeypatch):
-    monkeypatch.setattr(cfg, "CHARGES_REAL_WRITE_ENABLED", False)
-    res = svc.modifier("LOG_A1", {"nom_court": "X"})
-    assert res["ok"] is False and res["code"] == svc.E_FLAGS
+def test_modifier_refuse_si_referentiel_non_initialise(tmp_db):
+    """Fail-closed : sans référentiel importé, le service REFUSE — il ne se rabat pas sur le
+    classeur et n'écrit pas dans une base vide.
+
+    Remplace l'ancien test des flags `CHARGES_REAL_WRITE_*` : ces flags protégeaient l'écriture
+    dans un CLASSEUR SOURCE réel. L'écriture va désormais dans `app.db`, la base de l'application ;
+    la garde qui compte est celle-ci.
+    """
+    res = svc.modifier("LOG_A1", {"nom_court": "X"}, db_path=tmp_db)
+    assert res["ok"] is False and res["code"] == svc.E_REFERENTIEL_ABSENT
 
 
 # ── archiver / reactiver ──────────────────────────────────────────────────
@@ -169,9 +145,9 @@ def test_changer_taux_cloture_ancien_et_ouvre_nouveau(ref):
     taux = [r for r in _lignes(ref, "REF_Taux_Commission") if r["logement_id"] == "LOG_A1"]
     assert len(taux) == 2
     ancien = [t for t in taux if t["date_fin"]][0]
-    assert ancien["taux_commission"] == 0.19 and ancien["date_fin"] == "2026-06-30"
+    assert float(ancien["taux_commission"]) == 0.19 and ancien["date_fin"] == "2026-06-30"
     nouveau = [t for t in taux if not t["date_fin"]][0]
-    assert nouveau["taux_commission"] == 0.15 and nouveau["date_debut"] == "2026-07-01"
+    assert float(nouveau["taux_commission"]) == 0.15 and nouveau["date_debut"] == "2026-07-01"
     assert nouveau["proprietaire_id"] == "PROP_A"     # hérité du rattachement actif
 
 
@@ -182,7 +158,7 @@ def test_changer_taux_grain_logement_pas_de_regression_sur_taux_historique(ref):
     svc.changer_taux_commission("LOG_A1", 0.12, "2026-08-01")
     taux = [r for r in _lignes(ref, "REF_Taux_Commission") if r["logement_id"] == "LOG_A1"]
     assert len(taux) == 3
-    initial = [t for t in taux if t["taux_commission"] == 0.19][0]
+    initial = [t for t in taux if float(t["taux_commission"]) == 0.19][0]
     assert initial["date_fin"] == "2026-06-30"        # jamais retouché par le 2e changement
 
 
@@ -196,9 +172,15 @@ def test_changer_taux_logement_inconnu_refuse(ref):
     assert res["ok"] is False and res["code"] == svc.E_LOGEMENT_INCONNU
 
 
-def test_changer_taux_refuse_hors_racine_recette(ref, monkeypatch, tmp_path):
-    monkeypatch.setattr(cfg, "RECETTE_ROOT", (tmp_path / "ailleurs").resolve())
-    res = svc.changer_taux_commission("LOG_A1", 0.15, "2026-07-01")
-    assert res["ok"] is False and res["code"] == svc.E_ECRITURE
+def test_changer_taux_refuse_une_periode_incoherente(ref):
+    """Une clôture antérieure au début de la période courante est refusée : elle produirait une
+    période négative, que la résolution datée ne saurait pas interpréter.
+
+    Remplace l'ancien test du write-guard « hors racine recette », qui protégeait l'écriture d'un
+    FICHIER. L'écriture étant désormais en base, l'invariant à défendre est la cohérence des
+    périodes historisées.
+    """
+    res = svc.changer_taux_commission("LOG_A1", 0.15, "2025-01-01", db_path=ref)
+    assert res["ok"] is False and res["code"] == svc.E_PERIODE_INCOHERENTE
     taux = [r for r in _lignes(ref, "REF_Taux_Commission") if r["logement_id"] == "LOG_A1"]
-    assert len(taux) == 1                             # write-guard : aucune écriture
+    assert len(taux) == 1                             # aucune écriture
