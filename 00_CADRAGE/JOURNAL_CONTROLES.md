@@ -3879,3 +3879,18 @@ rapport avec Excel : `test_banque_controle.py::test_07_08_rattacher_proprietaire
 `test_ventes_lot12_adapter.py::test_generer_ecritures_du_mois(_idempotent)`.
 
 **VERDICT : ZERO EXCEL OPÉRATIONNEL = OUI.**
+
+## 2026-08-22 (suite) — nettoyage contrôlé du legacy Excel devenu mort
+
+Après le verdict ci-dessus, nettoyage ciblé (pas un audit général) des writers/readers/services
+Excel devenus 0-appelant par la migration HH/Charges/extras : `saisie_hh_writer.py`,
+`saisie_charges_writer.py`, `saisie_charges_transaction_service.py` (sauf `_remplacer_fichier`,
+déplacée vers son seul appelant réel `calculs_pipeline_service.restaurer`),
+`saisie_charges_journal_service.py`, l'essentiel de `saisie_hh_schema_migration.py` (constante
+`NEW_SAISIE_FIELDS` conservée) et 15 fonctions mortes de `saisie_charges_reader.py`. 6 fichiers de
+test devenus obsolètes supprimés avec eux. Détail complet, tableau d'inventaire et preuve
+0-appelant : `NETTOYAGE_LEGACY_POST_SQLITE.md`.
+
+Campagne complète rejouée après nettoyage : moteur 345/345 passed (inchangé), application
+~2593 passed, 0 nouvelle régression — les 4 échecs pré-existants documentés ci-dessus reviennent
+identiques (confirmés par `git stash` comme antérieurs à ce nettoyage).

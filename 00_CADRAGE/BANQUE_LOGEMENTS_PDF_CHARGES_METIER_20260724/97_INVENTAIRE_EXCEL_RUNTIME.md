@@ -151,3 +151,8 @@ appelant réel donc sans risque fonctionnel) : `saisie_charges_transaction_servi
 réutilisés), `services/saisie_hh_schema_migration.py` (hors `NEW_SAISIE_FIELDS`), et plusieurs
 fonctions 0-appelant de `readers/saisie_charges_reader.py`/`readers/saisie_hh_reader.py` — code
 mort issu des orchestrateurs Excel supprimés, candidat à suppression dans un futur chantier dédié.
+
+**Mis à jour 2026-08-22** : cette dette a été traitée dans un chantier de nettoyage contrôlé dédié
+(preuve 0-appelant par grep avant chaque suppression, tests ciblés puis campagne complète après
+coup, 0 nouvelle régression). Détail complet, tableau d'inventaire par fichier, legacy conservé
+et pourquoi : `NETTOYAGE_LEGACY_POST_SQLITE.md`.

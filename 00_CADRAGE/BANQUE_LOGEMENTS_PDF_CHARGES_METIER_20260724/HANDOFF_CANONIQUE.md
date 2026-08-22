@@ -1963,9 +1963,13 @@ fichiers `app/`, appelants vérifiés par grep) : les 5 critères mission sont �
 ~2900 tests, 0 échec hors 4 défauts pré-existants confirmés sans rapport avec Excel). Détail
 complet : documents `95` (§20) et `97` (§4).
 
-**Prochaine mission** (celle citée ci-dessus reste valable, inchangée par cette clôture) :
-administration REF_Setup SQLite, analytique 3 niveaux, recette manuelle UI-only, préparation du
-cut-over — plus, en dette technique non bloquante identifiée pendant l'audit BLOC D : suppression
-du code mort issu des anciens orchestrateurs Excel (`saisie_charges_transaction_service.py`,
-`writers/saisie_charges_writer.py`, `writers/saisie_hh_writer.py` hors utilitaires génériques,
-`services/saisie_hh_schema_migration.py` hors `NEW_SAISIE_FIELDS`).
+**Prochaine mission** : administration REF_Setup SQLite, analytique 3 niveaux, recette manuelle
+UI-only, préparation du cut-over.
+
+**Mis à jour 2026-08-22** : la dette technique listée ci-dessus (code mort des anciens
+orchestrateurs Excel) a été traitée — `saisie_charges_transaction_service.py`,
+`writers/saisie_charges_writer.py`, `writers/saisie_hh_writer.py`, l'essentiel de
+`services/saisie_hh_schema_migration.py` et 15 fonctions mortes de
+`readers/saisie_charges_reader.py` supprimés, 6 fichiers de test obsolètes retirés avec eux. 0
+nouvelle régression (campagne complète rejouée : moteur 345/345, application ~2593 passed).
+Détail : `NETTOYAGE_LEGACY_POST_SQLITE.md`.
