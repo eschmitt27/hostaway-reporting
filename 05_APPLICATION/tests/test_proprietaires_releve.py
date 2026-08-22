@@ -116,7 +116,7 @@ def test_10_ajustement_sans_motif_bloque(tmp_db, monkeypatch):
     monkeypatch.setattr(regl_svc, "load_owner_detail", lambda pid, mois="": {
         "status": "OK", "vue": {"ca_retenu": 1, "net": 1}, "taux_historiques": [("L", 0.2)],
         "logements": [], "factures": [], "anomalies": []})
-    monkeypatch.setattr(extras, "ajustements_prop_mois", lambda pid, mois: [{"motif": ""}])
+    monkeypatch.setattr(extras, "ajustements_prop_mois", lambda pid, mois, *a, **k: [{"motif": ""}])
     r = blocages.evaluer(PROP_TEST, "2027-01", db_path=tmp_db)
     assert "AJUSTEMENT_SANS_MOTIF" in r["bloquants"]
 
@@ -149,38 +149,38 @@ def test_13_extras_reader_acomptes_filtre_prop_mois(tmp_db):
 
 def test_14_extras_reader_ajustements_filtre_sur_mois_effet(tmp_db, monkeypatch):
     from app.readers import proprietaires_extras_reader as extras
-    monkeypatch.setattr(extras, "ajustements_post_cloture", lambda: type("S", (), {
+    monkeypatch.setattr(extras, "ajustements_post_cloture", lambda *a, **k: type("S", (), {
         "lignes": [{"proprietaire_id": PROP_TEST, "mois_effet": MOIS_TEST, "motif": "x"},
                   {"proprietaire_id": PROP_TEST, "mois_effet": MOIS_TEST2, "motif": "y"}]})())
     rows = extras.ajustements_prop_mois(PROP_TEST, MOIS_TEST)
     assert len(rows) == 1 and rows[0]["mois_effet"] == MOIS_TEST
 
 
-# ── 15-18 : AirCover, acompte, reversement, ajustement (readers existent) ────
+# ── 15-18 : AirCover, acompte, reversement, ajustement (readers existent, désormais en base) ─
 
-def test_15_aircover_reader_disponible():
+def test_15_aircover_reader_disponible(tmp_db):
     from app.readers import proprietaires_extras_reader as extras
-    s = extras.aircover()
-    assert s.etat.etat in (extras.ETAT_OK, extras.ETAT_VIDE, extras.ETAT_FICHIER_ABSENT)
+    s = extras.aircover(tmp_db)
+    assert s.etat.etat in (extras.ETAT_OK, extras.ETAT_VIDE, extras.ETAT_NON_INITIALISE)
 
 
-def test_16_acompte_reader_disponible():
+def test_16_acompte_reader_disponible(tmp_db):
     """Les acomptes viennent de la base : l'état possible inclut « non initialisée »."""
     from app.readers import proprietaires_extras_reader as extras
     s = extras.acomptes()
     assert s.etat.etat in (extras.ETAT_OK, extras.ETAT_VIDE, extras.ETAT_NON_INITIALISE)
 
 
-def test_17_imputations_reader_disponible():
+def test_17_imputations_reader_disponible(tmp_db):
     from app.readers import proprietaires_extras_reader as extras
-    s = extras.imputations_airbnb()
-    assert s.etat.etat in (extras.ETAT_OK, extras.ETAT_VIDE, extras.ETAT_FICHIER_ABSENT)
+    s = extras.imputations_airbnb(tmp_db)
+    assert s.etat.etat in (extras.ETAT_OK, extras.ETAT_VIDE, extras.ETAT_NON_INITIALISE)
 
 
-def test_18_ajustements_reader_disponible():
+def test_18_ajustements_reader_disponible(tmp_db):
     from app.readers import proprietaires_extras_reader as extras
-    s = extras.ajustements_post_cloture()
-    assert s.etat.etat in (extras.ETAT_OK, extras.ETAT_VIDE, extras.ETAT_FICHIER_ABSENT)
+    s = extras.ajustements_post_cloture(tmp_db)
+    assert s.etat.etat in (extras.ETAT_OK, extras.ETAT_VIDE, extras.ETAT_NON_INITIALISE)
 
 
 # ── 19-20 : séparation prouvée, acompte ne modifie jamais le net ──────────────
@@ -344,7 +344,7 @@ def test_36_moteur_indisponible_route_ne_500_pas(client, tmp_db, monkeypatch):
 def test_37_resilience_partielle_extras_en_panne(tmp_db, monkeypatch):
     from app.readers import proprietaires_extras_reader as extras
     monkeypatch.setattr(extras, "ajustements_prop_mois",
-                        lambda pid, mois: (_ for _ in ()).throw(RuntimeError("panne")))
+                        lambda pid, mois, *a, **k: (_ for _ in ()).throw(RuntimeError("panne")))
     monkeypatch.setattr(regl_svc, "load_owner_detail", lambda pid, mois="": {
         "status": "OK", "vue": {"ca_retenu": 1, "net": 1}, "taux_historiques": [("L", 0.2)],
         "logements": [], "factures": [], "anomalies": []})

@@ -77,7 +77,7 @@ def evaluer(proprietaire_id: str, mois: str, db_path=None) -> dict:
     if statut_moteur != "CLOTURE":
         codes.append("CLOTURE_MOTEUR_INCOMPATIBLE")
 
-    for aj in extras.ajustements_prop_mois(proprietaire_id, mois):
+    for aj in extras.ajustements_prop_mois(proprietaire_id, mois, db_path):
         if not extras.to_texte(aj.get("motif")):
             codes.append("AJUSTEMENT_SANS_MOTIF")
             break
@@ -93,7 +93,8 @@ def evaluer(proprietaire_id: str, mois: str, db_path=None) -> dict:
         codes.append("PREFACTURE_DEJA_PREPAREE")
 
     if any(s.etat.etat == extras.ETAT_ILLISIBLE for s in (
-        extras.acomptes(), extras.aircover(), extras.imputations_airbnb(), extras.ajustements_post_cloture())):
+        extras.acomptes(), extras.aircover(db_path), extras.imputations_airbnb(db_path),
+        extras.ajustements_post_cloture(db_path))):
         codes.append("SOURCE_SCHEMA_INVALIDE")
 
     bloquants = [c for c in dict.fromkeys(codes) if c not in _INFO_CODES]

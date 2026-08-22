@@ -3,9 +3,12 @@ SEULE.
 
 Ne recalcule rien, n'écrit jamais. Aucun chemin absolu exposé, aucun IBAN.
 
-Les ACOMPTES viennent de la base : ce sont les mouvements de trésorerie propriétaires validés, saisis
-dans l'application. Les trois autres sources restent des classeurs, et seront migrées séparément —
-mélanger leur migration à celle des acomptes rendrait une régression difficile à situer.
+Les quatre sources viennent désormais de la base : les Acomptes via les mouvements de trésorerie
+propriétaires (déjà migré), AirCover/Imputations Airbnb/Ajustements post-clôture via les tables
+dédiées de la migration 0054. `SAISIE_AirCover.xlsx` / `SAISIE_ImputationsAirbnb.xlsx` /
+`SAISIE_Ajustements_PostCloture.xlsx` ne sont plus lus au runtime : les trois ne contenaient de
+toute façon aucune ligne de donnée réelle (header seul, colonnes reprises verbatim dans les tables
+SQLite), donc aucune reprise historique n'était nécessaire.
 """
 from __future__ import annotations
 
@@ -14,24 +17,23 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import openpyxl
-
-import app.config as cfg
+from app.db.connection import get_db
 
 ONGLET_ACOMPTES = "SAISIE"
 ONGLET_AIRCOVER = "MASTER"
 ONGLET_IMPUTATIONS = "MASTER"
 ONGLET_AJUSTEMENTS = "MASTER"
 
-# Libellé d'origine de la source acomptes. Elle vient désormais de la base ; le nom est conservé le
-# temps de la parité, puis à retirer.
+# Libellés d'origine des sources acomptes/AirCover/imputations/ajustements. Elles viennent désormais
+# toutes de la base ; les noms sont conservés à l'affichage (diagnostics, écrans) le temps de la
+# parité visuelle avec l'historique.
 SOURCE_ACOMPTES = "Mouvements de trésorerie propriétaires (base)"
 
 # Nature d'un mouvement de trésorerie qui EST un acompte propriétaire.
 NATURE_ACOMPTE = "ACOMPTE_PROPRIETAIRE"
-SOURCE_AIRCOVER = "SAISIE_AirCover.xlsx"
-SOURCE_IMPUTATIONS = "SAISIE_ImputationsAirbnb.xlsx"
-SOURCE_AJUSTEMENTS = "SAISIE_Ajustements_PostCloture.xlsx"
+SOURCE_AIRCOVER = "aircover (base)"
+SOURCE_IMPUTATIONS = "imputations_airbnb (base)"
+SOURCE_AJUSTEMENTS = "ajustements_post_cloture (base)"
 
 ETAT_OK = "OK"
 ETAT_FICHIER_ABSENT = "FICHIER_ABSENT"
@@ -81,39 +83,37 @@ def vider_cache() -> None:
     _CACHE.clear()
 
 
-def _lire(path: Path, sheet: str) -> tuple[str, list[dict[str, Any]], str | None]:
-    p = Path(path)
-    if not p.exists():
-        return ETAT_FICHIER_ABSENT, [], None
+def _table_presente(nom_table: str, db_path=None) -> bool:
+    conn = get_db(db_path)
     try:
-        st = p.stat()
-        cle = (str(p), sheet, st.st_mtime_ns, st.st_size)
-        if cle in _CACHE:
-            return _CACHE[cle]
-        maj = _dt.datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M")
-        wb = openpyxl.load_workbook(str(p), read_only=True, data_only=True)
-        try:
-            if sheet not in wb.sheetnames:
-                res = (ETAT_ONGLET_ABSENT, [], maj); _CACHE[cle] = res; return res
-            ws = wb[sheet]
-            rows = [r for r in ws.iter_rows(values_only=True) if any(c is not None for c in r)]
-        finally:
-            wb.close()
-        if len(rows) <= 1:
-            res = (ETAT_VIDE, [], maj)
-        else:
-            hdr = [str(c) if c is not None else f"col_{i}" for i, c in enumerate(rows[0])]
-            res = (ETAT_OK, [dict(zip(hdr, r)) for r in rows[1:]], maj)
-        _CACHE[cle] = res
-        return res
-    except Exception:
-        return ETAT_ILLISIBLE, [], None
+        return conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (nom_table,)
+        ).fetchone() is not None
+    finally:
+        conn.close()
 
 
-def _src(path: Path, cle: str, libelle: str, fichier: str, sheet: str) -> Source:
-    etat, lignes, maj = _lire(path, sheet)
-    return Source(etat=EtatSource(cle=cle, libelle=libelle, fichier=fichier, onglet=sheet,
-                                  etat=etat, nb_lignes=len(lignes), derniere_maj=maj), lignes=lignes)
+def _src_sqlite(nom_table: str, colonnes: tuple[str, ...], cle: str, libelle: str, fichier: str,
+                 db_path=None) -> Source:
+    """Lit une table extras (aircover / imputations_airbnb / ajustements_post_cloture) en base.
+
+    `ETAT_NON_INITIALISE` si la table n'existe pas encore (migration non jouée) — distinct de
+    `ETAT_VIDE` qui signifie que la table existe mais ne contient aucune ligne saisie.
+    """
+    if not _table_presente(nom_table, db_path):
+        return Source(etat=EtatSource(cle=cle, libelle=libelle, fichier=fichier, onglet="—",
+                                      etat=ETAT_NON_INITIALISE))
+    conn = get_db(db_path)
+    try:
+        rows = conn.execute(f"SELECT {', '.join(colonnes)} FROM {nom_table}").fetchall()
+    finally:
+        conn.close()
+    lignes = [dict(zip(colonnes, r)) for r in rows]
+    return Source(
+        etat=EtatSource(cle=cle, libelle=libelle, fichier=fichier, onglet="—",
+                        etat=ETAT_OK if lignes else ETAT_VIDE, nb_lignes=len(lignes)),
+        lignes=lignes,
+    )
 
 
 def to_texte(v: Any) -> str:
@@ -203,18 +203,38 @@ def acomptes() -> Source:
     )
 
 
-def aircover() -> Source:
-    return _src(cfg.SAISIE_AIRCOVER, "aircover", "AirCover", SOURCE_AIRCOVER, ONGLET_AIRCOVER)
+_COLONNES_AIRCOVER = ("aircover_id", "date_aircover", "montant", "beneficiaire_reel",
+                     "proprietaire_id", "logement_id", "reservation_id", "mois", "justificatif",
+                     "traitement", "statut_controle", "commentaire")
+_COLONNES_IMPUTATIONS = ("imputation_airbnb_id", "transaction_banque_id", "reference_airbnb",
+                        "proprietaire_id", "logement_id", "mois", "document_id", "montant_impute",
+                        "date_imputation", "justificatif", "statut", "commentaire")
+_COLONNES_AJUSTEMENTS = ("ajustement_id", "mois_origine", "mois_effet", "source_module",
+                        "source_pk", "logement_id", "proprietaire_id", "type_ajustement", "montant",
+                        "sens", "impact_reel", "impact_comptable", "motif", "justificatif", "auteur",
+                        "date_saisie", "statut_validation")
 
 
-def imputations_airbnb() -> Source:
-    return _src(cfg.SAISIE_IMPUTATIONS_AIRBNB, "imputations", "Imputations Airbnb",
-               SOURCE_IMPUTATIONS, ONGLET_IMPUTATIONS)
+def _renomme_date(lignes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """`date_aircover` (nom de colonne SQL) redevient `date` (nom de champ métier/contrat)."""
+    for r in lignes:
+        r["date"] = r.pop("date_aircover")
+    return lignes
 
 
-def ajustements_post_cloture() -> Source:
-    return _src(cfg.SAISIE_AJUSTEMENTS_POST_CLOTURE, "ajustements", "Ajustements post-clôture",
-               SOURCE_AJUSTEMENTS, ONGLET_AJUSTEMENTS)
+def aircover(db_path=None) -> Source:
+    src = _src_sqlite("aircover", _COLONNES_AIRCOVER, "aircover", "AirCover", SOURCE_AIRCOVER, db_path)
+    return Source(etat=src.etat, lignes=_renomme_date(src.lignes))
+
+
+def imputations_airbnb(db_path=None) -> Source:
+    return _src_sqlite("imputations_airbnb", _COLONNES_IMPUTATIONS, "imputations",
+                       "Imputations Airbnb", SOURCE_IMPUTATIONS, db_path)
+
+
+def ajustements_post_cloture(db_path=None) -> Source:
+    return _src_sqlite("ajustements_post_cloture", _COLONNES_AJUSTEMENTS, "ajustements",
+                       "Ajustements post-clôture", SOURCE_AJUSTEMENTS, db_path)
 
 
 def acomptes_prop_mois(proprietaire_id: str, mois: str) -> list[dict[str, Any]]:
@@ -223,25 +243,26 @@ def acomptes_prop_mois(proprietaire_id: str, mois: str) -> list[dict[str, Any]]:
            and to_mois(r.get("mois")) == mois]
 
 
-def aircover_prop_mois(proprietaire_id: str, mois: str) -> list[dict[str, Any]]:
-    src = aircover()
+def aircover_prop_mois(proprietaire_id: str, mois: str, db_path=None) -> list[dict[str, Any]]:
+    src = aircover(db_path)
     return [r for r in src.lignes if to_texte(r.get("proprietaire_id")) == proprietaire_id
            and to_mois(r.get("mois")) == mois]
 
 
-def imputations_prop_mois(proprietaire_id: str, mois: str) -> list[dict[str, Any]]:
-    src = imputations_airbnb()
+def imputations_prop_mois(proprietaire_id: str, mois: str, db_path=None) -> list[dict[str, Any]]:
+    src = imputations_airbnb(db_path)
     return [r for r in src.lignes if to_texte(r.get("proprietaire_id")) == proprietaire_id
            and to_mois(r.get("mois")) == mois]
 
 
-def ajustements_prop_mois(proprietaire_id: str, mois: str) -> list[dict[str, Any]]:
+def ajustements_prop_mois(proprietaire_id: str, mois: str, db_path=None) -> list[dict[str, Any]]:
     """Filtre sur `mois_effet` — un ajustement post-clôture s'applique au mois où il produit son
     effet, pas nécessairement au mois d'origine de l'anomalie qu'il corrige."""
-    src = ajustements_post_cloture()
+    src = ajustements_post_cloture(db_path)
     return [r for r in src.lignes if to_texte(r.get("proprietaire_id")) == proprietaire_id
            and to_mois(r.get("mois_effet")) == mois]
 
 
-def etats_sources() -> list[EtatSource]:
-    return [acomptes().etat, aircover().etat, imputations_airbnb().etat, ajustements_post_cloture().etat]
+def etats_sources(db_path=None) -> list[EtatSource]:
+    return [acomptes().etat, aircover(db_path).etat, imputations_airbnb(db_path).etat,
+            ajustements_post_cloture(db_path).etat]

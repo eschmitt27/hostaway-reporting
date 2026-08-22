@@ -83,7 +83,10 @@ MASTER_CAISSE = None
 # Propriétaires & règlements (APP-3C) — complète MASTER_NET_PROPRIETAIRE / MASTER_FACT_PROPRIETAIRES.
 MASTER_COMMISSIONS = TRAVAIL / "Lot10_Resultats" / "MASTER_CALC_Commissions.xlsx"
 MASTER_RESULTATS = TRAVAIL / "Lot10_Resultats" / "MASTER_CALC_Resultats.xlsx"
-# Relevés propriétaires (APP-3D) — sources brutes non encore lues par aucun module applicatif.
+# Relevés propriétaires (APP-3D). AirCover/Imputations Airbnb/Ajustements post-clôture sont
+# désormais lus en base (migration 0054, app/readers/proprietaires_extras_reader.py) — ces trois
+# chemins ne sont plus lus au runtime, conservés seulement pour l'inventaire Excel (BLOC D) et le
+# test zéro-Excel qui vérifie qu'ils ne sont jamais ouverts.
 SAISIE_ACOMPTES_PROPRIETAIRES = SOURCES_BRUTES / "AcomptesProprietaires" / "SAISIE_AcomptesProprietaires.xlsx"
 SAISIE_AIRCOVER = SOURCES_BRUTES / "AirCover" / "SAISIE_AirCover.xlsx"
 SAISIE_IMPUTATIONS_AIRBNB = SOURCES_BRUTES / "ImputationsAirbnb" / "SAISIE_ImputationsAirbnb.xlsx"
