@@ -94,14 +94,15 @@ def vider_cache() -> None:
     global _INDEX_OPAQUE
     _INDEX_OPAQUE = None
     reader.vider_cache()
+    _REF_CACHE.clear()
 
 
 # ── Référentiels d'affichage (lisibles, repli explicite) ─────────────────────
 
-_REF_CACHE: dict[str, dict[str, str]] = {}
+_REF_CACHE: dict[tuple[str, str], dict[str, str]] = {}
 
 
-def _ref(sheet: str, cle: str, val_fn) -> dict[str, str]:
+def _ref(sheet: str, cle: str, val_fn, db_path=None) -> dict[str, str]:
     """Index d'affichage {clé → libellé} lu en SQLite, jamais dans le classeur.
 
     Le référentiel vit dans les tables `ref_*` (0029) ; `ref_setup_repo` les lit par nom d'onglet,
@@ -109,17 +110,18 @@ def _ref(sheet: str, cle: str, val_fn) -> dict[str, str]:
     `REF_Setup.xlsm`. Un référentiel non importé rend un index vide : ces libellés sont du confort
     d'affichage, leur absence ne doit jamais empêcher un écran de s'afficher.
     """
-    if sheet in _REF_CACHE:
-        return _REF_CACHE[sheet]
+    cle_cache = (sheet, str(db_path))
+    if cle_cache in _REF_CACHE:
+        return _REF_CACHE[cle_cache]
     out: dict[str, str] = {}
     try:
-        for r in repo.lire_onglet(sheet):
+        for r in repo.lire_onglet(sheet, db_path=db_path):
             k = to_texte(r.get(cle))
             if k and k != cle:
                 out[k] = val_fn(r)
     except Exception:
         out = {}
-    _REF_CACHE[sheet] = out
+    _REF_CACHE[cle_cache] = out
     return out
 
 
@@ -229,16 +231,19 @@ def libelle_categorie(code: str) -> str:
     return c.replace("_", " ").capitalize()
 
 
-def options_reference() -> dict[str, list[dict[str, str]]]:
+def options_reference(db_path=None) -> dict[str, list[dict[str, str]]]:
     """Listes pour les sélecteurs (valeur technique + libellé lisible)."""
     props = _ref("REF_Proprietaires", "proprietaire_id",
                  lambda r: " ".join(x for x in (to_texte(r.get("prenom_proprietaire")),
-                                                to_texte(r.get("nom_proprietaire"))) if x).strip())
+                                                to_texte(r.get("nom_proprietaire"))) if x).strip(),
+                 db_path)
     logs = _ref("REF_Logements", "logement_id",
-                lambda r: to_texte(r.get("nom_logement_officiel")) or to_texte(r.get("nom_court")))
+                lambda r: to_texte(r.get("nom_logement_officiel")) or to_texte(r.get("nom_court")),
+                db_path)
     # REF_Types_Flux ne fournit qu'un CODE (type_flux) et une phrase longue (description) : les ids
     # valides viennent du référentiel, le libellé métier vient du mapping curé (jamais le code brut).
-    flux_ids = set(_ref("REF_Types_Flux", "type_flux_id", lambda r: to_texte(r.get("type_flux"))))
+    flux_ids = set(_ref("REF_Types_Flux", "type_flux_id", lambda r: to_texte(r.get("type_flux")),
+                        db_path))
     cats = sorted({to_texte(r.get("categorie")) for r in reader.mouvements().lignes
                    if to_texte(r.get("categorie"))})
     return {
@@ -433,7 +438,7 @@ def enregistrer_decision(opaque: str, *, categorie=None, type_flux_id=None, prop
     if cible == ST_IGNORE and not to_texte(justification):
         raise DecisionRefusee("Une justification est obligatoire pour « Ignoré ».")
 
-    opts = options_reference()
+    opts = options_reference(db_path)
     _valider_entite(proprietaire_id, {o["id"] for o in opts["proprietaires"]}, "Propriétaire")
     _valider_entite(logement_id, {o["id"] for o in opts["logements"]}, "Logement")
     _valider_entite(type_flux_id, {o["id"] for o in opts["types_flux"]}, "Type de flux")
@@ -527,7 +532,7 @@ def load_liste(db_path=None, statut: str = "", categorie: str = "", proprietaire
         rows.append(v)
     rows.sort(key=lambda x: (x["date_operation"], x["id_opaque"]))
     return {"status": "OK", "etat": src.etat, "rows": rows, "count": len(rows),
-            "options": options_reference(), "read_at": _now()}
+            "options": options_reference(db_path), "read_at": _now()}
 
 
 def compter_a_controler(db_path=None) -> int:

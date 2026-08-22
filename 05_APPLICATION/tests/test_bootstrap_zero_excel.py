@@ -31,6 +31,7 @@ def _aucun_classeur_interne(monkeypatch):
     import openpyxl
 
     original = openpyxl.load_workbook
+    original_save = openpyxl.Workbook.save
 
     def garde(chemin, *a, **kw):
         nom = Path(str(chemin)).name
@@ -39,6 +40,18 @@ def _aucun_classeur_interne(monkeypatch):
                 f"Bootstrap sans Excel : ouverture d'un classeur interne ({nom}). "
                 "Le système doit démarrer sans aucun fichier Excel préexistant.")
         return original(chemin, *a, **kw)
+
+    def garde_save(self, chemin, *a, **kw):
+        # Un classeur intermédiaire CRÉÉ pendant « Actualiser toute l'activité » est aussi
+        # incompatible avec ZERO EXCEL OPÉRATIONNEL que son ouverture (mission nettoyage 2026-08-22).
+        nom = Path(str(chemin)).name
+        if any(marqueur in nom for marqueur in _INTERDITS):
+            raise AssertionError(
+                f"Bootstrap sans Excel : écriture d'un classeur interne ({nom}). "
+                "L'orchestrateur ne doit créer aucun intermédiaire Excel pendant un run normal.")
+        return original_save(self, chemin, *a, **kw)
+
+    monkeypatch.setattr(openpyxl.Workbook, "save", garde_save)
 
     monkeypatch.setattr(openpyxl, "load_workbook", garde)
 

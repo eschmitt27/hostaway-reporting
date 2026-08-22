@@ -145,7 +145,23 @@ def test_10b_type_flux_inconnu_repli_explicite():
 
 
 @banque_requise
-def test_11_type_flux_valeur_technique_conservee(opaque, client):
+def test_11_type_flux_valeur_technique_conservee(opaque, client, tmp_db):
+    from app.db.connection import get_db
+
+    conn = get_db(tmp_db)
+    try:
+        conn.execute(
+            "INSERT INTO ref_setup_imports (import_id, horodatage, chemin_source, "
+            "empreinte_source, statut, nb_feuilles, nb_lignes) "
+            "VALUES ('IMP-TEST','2026-01-01T00:00:00','fixture','x','IMPORTE',28,1)")
+        conn.execute(
+            "INSERT INTO ref_types_flux (type_flux_id, type_flux, import_id) "
+            "VALUES ('TYPE_FLUX_001','VIREMENT_ASSOCIE','IMP-TEST')")
+        conn.commit()
+    finally:
+        conn.close()
+    ctrl.vider_cache()
+
     r = client.get(f"/banques-caisse/mouvements/{opaque}/modifier")
     assert 'value="TYPE_FLUX_001"' in r.text or "TYPE_FLUX_0" in r.text  # au moins un <option value=CODE>
 

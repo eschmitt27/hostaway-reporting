@@ -103,7 +103,26 @@ def test_06_modifier_categorie(opaque, tmp_db):
 
 
 def test_07_08_rattacher_proprietaire_logement(opaque, tmp_db):
-    opts = ctrl.options_reference()
+    from app.db.connection import get_db
+
+    conn = get_db(tmp_db)
+    try:
+        conn.execute(
+            "INSERT INTO ref_setup_imports (import_id, horodatage, chemin_source, "
+            "empreinte_source, statut, nb_feuilles, nb_lignes) "
+            "VALUES ('IMP-TEST','2026-01-01T00:00:00','fixture','x','IMPORTE',28,1)")
+        conn.execute(
+            "INSERT INTO ref_proprietaires (proprietaire_id, nom_proprietaire, prenom_proprietaire, "
+            "import_id) VALUES ('PROP_TEST_0001','DEMO','',  'IMP-TEST')")
+        conn.execute(
+            "INSERT INTO ref_logements (logement_id, nom_logement_officiel, import_id) "
+            "VALUES ('LOG_TEST_0001','Logement Demo','IMP-TEST')")
+        conn.commit()
+    finally:
+        conn.close()
+    ctrl.vider_cache()
+
+    opts = ctrl.options_reference(tmp_db)
     pid = opts["proprietaires"][0]["id"]
     lid = opts["logements"][0]["id"]
     ctrl.enregistrer_decision(opaque, proprietaire_id=pid, logement_id=lid,

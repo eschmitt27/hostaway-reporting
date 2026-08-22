@@ -228,6 +228,9 @@ def _sources_reelles_disponibles() -> bool:
 def test_chaine_e2e_reelle_sur_copies(tmp_db, tmp_path, monkeypatch):
     """Exécute la chaîne complète sur copies et prouve que les fichiers réels ne bougent pas."""
     monkeypatch.setattr(cfg, "MENAGES_CHAINE_WORKSPACE", tmp_path / "ws")
+    # `create_snapshot` écrit sous `cfg.SNAPSHOTS_DIR` — sans isolation, il écrivait dans le vrai
+    # `data/snapshots/` du projet et le garde-fou refusait la copie (COPIE INTERDITE).
+    monkeypatch.setattr(cfg, "SNAPSHOTS_DIR", tmp_path / "snapshots")
     # Précondition dataset SQLite (§4 mission) : CleaningTasks/M04 ne sont plus des masters copiés,
     # `preparer_chaine` exige `menages_taches_enrichies`/`menages_declarations_internes` non vides.
     conn = get_db(tmp_db)

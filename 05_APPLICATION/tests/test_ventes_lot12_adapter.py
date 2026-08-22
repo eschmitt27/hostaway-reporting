@@ -51,9 +51,10 @@ def lot12_files(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def db(tmp_path, monkeypatch):
-    p = tmp_path / "test.db"
-    apply_migrations(p)
+def db(lot12_files, monkeypatch):
+    """Même base que `lot12_files` (Lot10/Lot12 seedés) — une base séparée laisserait
+    `generer_ecritures_du_mois` interroger une base vide (PROP_A/PROP_B introuvables)."""
+    p = lot12_files / "app.db"
     monkeypatch.setattr(cfg, "RECETTE_MODE", True)
     monkeypatch.setattr(cfg, "COMPTABILITE_REAL_WRITE_ENABLED", True)
     monkeypatch.setattr(cfg, "COMPTABILITE_REAL_WRITE_CONFIRMATION_ENABLED", True)
