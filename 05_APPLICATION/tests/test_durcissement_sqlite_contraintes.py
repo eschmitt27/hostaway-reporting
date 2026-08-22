@@ -68,16 +68,27 @@ def test_ligne_facture_rattachee_a_une_facture_reelle_acceptee(db):
 
 
 # ── CHECK réels ajoutés par la migration 0055 ────────────────────────────────
+#
+# Le CHECK(sens IN ('DEBIT','CREDIT')) initialement ajouté en 0055 a été retiré par la migration
+# 0056 : `test_banques_controles_catalogue.py::test_sens_incoherent_detecte` insère volontairement
+# un `sens` hors domaine ("INCONNU") pour prouver qu'un mouvement bancaire brut corrompu est
+# CONTRÔLÉ (détecté, signalé à l'écran), jamais rejeté à l'insertion — le CHECK cassait ce mécanisme
+# existant. Voir 0056 pour le détail. Aucun test négatif sur `sens` ici en conséquence.
 
-def test_sens_mouvement_bancaire_invalide_refuse(db):
+
+def test_sens_mouvement_bancaire_hors_domaine_toujours_accepte(db):
+    """Non-régression du correctif 0056 : un `sens` hors domaine reste insérable (anomalie
+    contrôlée en aval, pas un rejet SQL)."""
     conn = get_db(db)
     try:
-        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
-            conn.execute(
-                "INSERT INTO banque_mouvements (mouvement_id_opaque, import_id, bank_account_id, "
-                "date_operation, sens, montant, libelle_brut, fingerprint) "
-                "VALUES ('MVT-0001', 'IMP-0001', 'CPT-0001', '2026-06-01', 'AUTRE', 10.0, 'x', 'fp1')")
-            conn.commit()
+        conn.execute(
+            "INSERT INTO banque_mouvements (mouvement_id_opaque, import_id, bank_account_id, "
+            "date_operation, sens, montant, libelle_brut, fingerprint) "
+            "VALUES ('MVT-0001', 'IMP-0001', 'CPT-0001', '2026-06-01', 'INCONNU', 10.0, 'x', 'fp1')")
+        conn.commit()
+        assert conn.execute(
+            "SELECT sens FROM banque_mouvements WHERE mouvement_id_opaque='MVT-0001'"
+        ).fetchone()[0] == "INCONNU"
     finally:
         conn.close()
 
