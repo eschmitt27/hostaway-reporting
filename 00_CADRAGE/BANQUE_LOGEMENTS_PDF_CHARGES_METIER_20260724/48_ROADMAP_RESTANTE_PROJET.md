@@ -347,10 +347,15 @@ Lot11 100% SQLite (parité réelle 23/24, écart restant prouvé côté données
 Orchestrateur + ordonnanceur construits (migration 0050) ; ordonnanceur inerte tant que
 `ORDONNANCEUR_ACTIF` est faux. Détail : document `95` (§19).
 
-**Chaînes encore NON migrées, et c'est explicite** : Charges (Lot3), `lot4quater` (résolution des
-réservations), `lot6b`/`lot6c` (M04 et ménages externes), saisies AirCover / ImputationsAirbnb /
-AjustementsPostCloture / Acomptes / IK. L'orchestrateur les déclare non recalculables plutôt que
-d'exécuter une moitié de chaîne.
+**Chaînes encore NON migrées, et c'est explicite** : `lot4quater` (résolution des réservations),
+`lot6b`/`lot6c` (M04 et ménages externes) — chaînes du moteur pandas sans mode SQLite.
+L'orchestrateur les déclare non recalculables plutôt que d'exécuter une moitié de chaîne.
 
-**Mission suivante : administration REF_Setup SQLite + analytique 3 niveaux + recette manuelle
-UI-only + préparation du cut-over.**
+**Mis à jour 2026-08-22** : Charges (Lot3) et les saisies HH / AirCover / ImputationsAirbnb /
+AjustementsPostCloture / Acomptes, citées ci-dessus dans une version antérieure comme non
+migrées, sont désormais SQLite. IK reste non traité. `ZERO EXCEL OPÉRATIONNEL = OUI` (5 critères
+mission à 0, détail `95` §20 et `97` §4).
+
+**Mission suivante** (inchangée par cette clôture) : administration REF_Setup SQLite + analytique
+3 niveaux + recette manuelle UI-only + préparation du cut-over — plus, en dette technique non
+bloquante : suppression du code mort des anciens orchestrateurs Excel HH/Charges (détail `97` §4).

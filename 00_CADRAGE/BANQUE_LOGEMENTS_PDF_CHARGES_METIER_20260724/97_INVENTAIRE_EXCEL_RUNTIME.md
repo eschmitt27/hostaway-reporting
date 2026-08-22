@@ -122,3 +122,32 @@ La formule exacte qui décrit l'état réel est :
 > **Zéro master calculé lu par l'application. Zéro intermédiaire Excel obligatoire dans le cœur
 > économique migré. Excel subsiste comme source externe (saisies, référentiel) et pour les lots
 > non encore migrés.**
+
+---
+
+## 4. Mise à jour 2026-08-22 — clôture HH + dernières saisies extras
+
+Depuis la version ci-dessus, les SAISIES qui manquaient au verdict précédent sont passées en
+SQLite : réservations hors Hostaway (HH, migrations 0052/0053), Charges (migration antérieure),
+Acomptes/AirCover/Imputations Airbnb/Ajustements post-clôture (migration 0054). Audit exhaustif
+refait (58 fichiers `app/` scannés, classification fichier par fichier, appelants vérifiés par
+grep avant toute conclusion) :
+
+| Critère | Résultat | Détail |
+|---|---|---|
+| SAISIE_EXCEL_OBLIGATOIRE | **0** | Aucune saisie utilisateur (HH, Charges, Acomptes, AirCover, Imputations, Ajustements) ne requiert un fichier Excel. `banques_import_service.py` reste un import de relevé bancaire externe (SOURCE_EXTERNE), pas une saisie interne. |
+| REF_SETUP_RUNTIME | **0** | `REF_Setup.xlsm` lu uniquement en import ponctuel (`ref_setup_import_service`, bootstrap) et dans un outil archivé 0-appelant (`ref_assoc_mode_prepare_service`). Aucun chemin de requête ne le rouvre. |
+| EXCEL_ENTRE_MOTEURS | **0** | Aucun Excel ne sert de bus entre deux modules SQLite de l'application. Les ponts Excel restants relient l'app au moteur pandas legacy (hors périmètre de cette migration). |
+| MASTER_CALCULE_REQUIS | **0** | Les `MASTER_CALC_*.xlsx` encore lus (`proprietaires_reader`, `proprietaires_reglements_reader`, `comptabilite_analytique_service`) sont des sorties du moteur pandas (Lot10/12, non migré) sans équivalent SQLite : légitimes, pas un défaut. |
+| BUG_RUNTIME_EXCEL | **0** | Le seul candidat plausible (`saisie_charges_transaction_service`/écriture réelle Charges, gated par `CHARGES_REAL_WRITE_*`) est confirmé 0-appelant : machinerie orpheline, jamais exécutée en pratique. |
+
+**Verdict révisé : ZERO EXCEL OPÉRATIONNEL = OUI.** La formule de la section 3 ci-dessus (« Pas
+encore ») est obsolète — elle datait d'avant la migration des saisies HH/Charges/extras. Elle est
+conservée telle quelle au-dessus pour l'historique ; c'est cette section 4 qui fait foi.
+
+Dette technique identifiée pendant l'audit, non traitée ici (hors mandat de cette clôture, aucun
+appelant réel donc sans risque fonctionnel) : `saisie_charges_transaction_service.py`,
+`writers/saisie_charges_writer.py`, `writers/saisie_hh_writer.py` (hors `_same_volume`/`_sha256`
+réutilisés), `services/saisie_hh_schema_migration.py` (hors `NEW_SAISIE_FIELDS`), et plusieurs
+fonctions 0-appelant de `readers/saisie_charges_reader.py`/`readers/saisie_hh_reader.py` — code
+mort issu des orchestrateurs Excel supprimés, candidat à suppression dans un futur chantier dédié.

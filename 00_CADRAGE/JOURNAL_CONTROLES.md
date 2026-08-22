@@ -3848,3 +3848,34 @@ Deux chemins lisaient encore le classeur : le runner de recalcul (désormais SQL
 base, sans sous-processus) et `controles_cloture_reader` (désormais lecture des constats en base).
 Test bloquant `test_master_ctrl_coherence_zero_runtime.py` : toute ouverture du classeur permanent
 fait échouer immédiatement, écrans de contrôles/clôture verts.
+
+## 2026-08-22 — Clôture HH + extras propriétaires, ZERO EXCEL OPÉRATIONNEL = OUI
+
+HH (réservations hors Hostaway) : parité OLD/NEW formelle prouvée par test dédié
+(`test_reservations_hh_confirmation.py::test_parite_decision_persistance_tous_champs_economiques`)
+comparant, champ par champ, la décision de prévisualisation à la ligne persistée en base
+(réservation, logement, propriétaire, arrivée, départ, montant, ménage standard/override,
+commission standard/override, montant récupéré, associé récupérateur, montant reversé
+propriétaire, statut) — 0 différence économique inexpliquée. Le service Lot4A de comparaison
+legacy (`lot4a_dryrun_runner.py`) confirmé 0-appelant, supprimé.
+
+AirCover / Imputations Airbnb / Ajustements post-clôture (APP-3D) : migration 0054, 3 tables
+créées avec les colonnes reprises verbatim des en-têtes réels observés. Les 3 fichiers Excel
+réels ne contenaient qu'une ligne d'en-tête (0 donnée) — aucune reprise historique nécessaire.
+Acomptes déjà SQLite (mouvement de trésorerie propriétaires + FIFO), aucun changement requis.
+
+Bug trouvé et corrigé pendant la campagne de contrôle finale : migration 0054 n'inscrivait pas
+sa propre version dans `schema_migrations` (contrairement à toutes les migrations précédentes),
+révélé par `test_clotures.py::test_31_idempotence`. Corrigé par l'ajout de la ligne `INSERT OR
+IGNORE INTO schema_migrations (version) VALUES ('0054')`.
+
+Inventaire Excel runtime refait de zéro sur les 58 fichiers `app/` référençant Excel — 5 critères
+mission tous à 0 (`SAISIE_EXCEL_OBLIGATOIRE`, `REF_SETUP_RUNTIME`, `EXCEL_ENTRE_MOTEURS`,
+`MASTER_CALCULE_REQUIS`, `BUG_RUNTIME_EXCEL`). Campagne complète rejouée : moteur 345/345 passed,
+application ~2900 tests passed hors 4 défauts pré-existants confirmés (par `git stash`) sans
+rapport avec Excel : `test_banque_controle.py::test_07_08_rattacher_proprietaire_logement`,
+`test_banque_controle_finition.py::test_11_type_flux_valeur_technique_conservee`,
+`test_menages_chaine.py::test_chaine_e2e_reelle_sur_copies`,
+`test_ventes_lot12_adapter.py::test_generer_ecritures_du_mois(_idempotent)`.
+
+**VERDICT : ZERO EXCEL OPÉRATIONNEL = OUI.**

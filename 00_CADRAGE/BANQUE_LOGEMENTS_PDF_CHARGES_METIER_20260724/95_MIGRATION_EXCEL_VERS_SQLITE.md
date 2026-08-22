@@ -778,3 +778,31 @@ restent dans `lot1_hostaway_extract.py` — l'ordonnanceur ne les réimplémente
 
 **Mode réel NON activé** : `ORDONNANCEUR_ACTIF` est faux, `demarrer()` refuse, l'horloge est
 injectable pour les tests. Un import externe n'est jamais déclenché par une actualisation interne.
+
+---
+
+## 20. Clôture 2026-08-22 — HH formalisé, Acomptes/AirCover/Imputations/Ajustements migrés
+
+Les deux derniers manques identifiés dans ce document (saisies HH encore partiellement Excel,
+Acomptes/AirCover/Imputations Airbnb/Ajustements post-clôture non migrés) sont clos :
+
+- **Réservations hors Hostaway (HH)** : migrations 0052/0053, services Excel morts supprimés
+  (`saisie_hh_dryrun_service`, `saisie_hh_real_write_service`, `saisie_hh_orchestrator`,
+  `saisie_hh_schema_real_prepare_service`). Parité OLD/NEW prouvée champ par champ (réservation,
+  logement, propriétaire, dates, montants, ménage standard/override, commission standard/override,
+  montant récupéré, associé récupérateur, montant reversé propriétaire, statut) entre la décision
+  de prévisualisation et la ligne persistée — la règle de résolution elle-même n'a pas changé
+  (code identique), seule la destination a changé Excel → SQLite. Lot4A (glue de comparaison
+  legacy) confirmé 0-appelant et supprimé. 120 tests HH verts (routes + validation + confirmation).
+- **Acomptes propriétaires** : déjà SQLite (mouvements de trésorerie propriétaires + FIFO),
+  aucun travail nécessaire.
+- **AirCover / Imputations Airbnb / Ajustements post-clôture** : migration 0054. Les 3 fichiers
+  Excel réels ne contenaient qu'un en-tête (0 ligne de donnée), donc aucune reprise historique
+  n'était nécessaire. Aucune saisie UI n'existait pour ces 3 familles (lecture seule, consommées
+  uniquement par `proprietaires_blocages_service`) — pas de service de saisie à construire.
+
+**Verdict : ZERO EXCEL OPÉRATIONNEL = OUI** (voir `97_INVENTAIRE_EXCEL_RUNTIME.md` section 4 pour
+le détail des 5 critères). Campagne complète rejouée après clôture : moteur 345 passed / 0 failed,
+application ~2900 tests / 0 failed hors 4 défauts pré-existants confirmés sans rapport avec Excel
+(`test_banque_controle*`, `test_menages_chaine::test_chaine_e2e_reelle_sur_copies`,
+`test_ventes_lot12_adapter`).

@@ -1422,3 +1422,28 @@ Un test de fumée de l'orchestrateur a déclenché une extraction Hostaway RÉEL
 projet, réécrivant 9 classeurs `Lot1_Hostaway` suivis par Git. Restaurés fichier par fichier.
 Cause corrigée : un import externe n'est plus jamais déclenché par une actualisation interne
 (`inclure_imports_externes`, faux par défaut).
+
+### 2026-08-22 — clôture HH + extras, campagne de contrôle finale
+
+- **Introduit et corrigé dans la même session** : migration `0054` (AirCover/Imputations
+  Airbnb/Ajustements post-clôture) n'inscrivait pas sa propre version dans `schema_migrations`,
+  contrairement à toutes les migrations précédentes — révélé par
+  `test_clotures.py::test_31_idempotence` (52 versions enregistrées pour 53 fichiers). Corrigé.
+- **Défaut de garde corrigé** (pas une anomalie métier) : `garde_sources_reelles.py::connect_garde`
+  bloquait TOUTE connexion `sqlite3.connect` vers la base réelle, y compris en lecture, alors que
+  la docstring du module dit explicitement que la lecture reste permise. Corrigé au minimum : la
+  connexion vers une base protégée s'ouvre désormais en lecture seule via le mode URI SQLite natif
+  `mode=ro` — SQLite lui-même fait respecter l'interdiction d'écriture.
+- **Test-only, corrigé** : `test_flux_unifie_service.py::_sans_charges` mockait
+  `charges_reader.read_charges` avec un lambda sans paramètre, incompatible avec la signature
+  réelle (`db_path=...`) — 6 tests en échec (`TypeError`).
+- **Confirmés PRÉ-EXISTANTS par `git stash`, NON corrigés (sans rapport avec Excel, hors mandat
+  de cette clôture)** :
+  - `test_banque_controle.py::test_07_08_rattacher_proprietaire_logement` — `IndexError` sur une
+    liste de propriétaires vide (fixture référentiel incomplète).
+  - `test_banque_controle_finition.py::test_11_type_flux_valeur_technique_conservee` — assertion
+    sur une valeur de type de flux absente du rendu HTML de l'écran.
+  - `test_menages_chaine.py::test_chaine_e2e_reelle_sur_copies` — `executer_chaine()` ne renvoie
+    plus la clé `reel_intact` attendue par le test.
+  - `test_ventes_lot12_adapter.py::test_generer_ecritures_du_mois` (et son pendant idempotent) —
+    `PROP_A` absent du résultat de génération d'écritures.

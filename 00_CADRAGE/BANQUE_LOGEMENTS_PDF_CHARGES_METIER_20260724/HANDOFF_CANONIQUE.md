@@ -1950,3 +1950,22 @@ manuel, H6 sur cadence distincte.
 UI-only, préparation du cut-over.**
 
 Détail complet : document `95` (§19).
+
+---
+
+## Clôture 2026-08-22 — ZERO EXCEL OPÉRATIONNEL = OUI
+
+Les saisies HH et les 4 familles extras propriétaires (Acomptes, AirCover, Imputations Airbnb,
+Ajustements post-clôture) sont désormais SQLite. Inventaire Excel runtime refait de zéro (58
+fichiers `app/`, appelants vérifiés par grep) : les 5 critères mission sont à 0
+(`SAISIE_EXCEL_OBLIGATOIRE`, `REF_SETUP_RUNTIME`, `EXCEL_ENTRE_MOTEURS`, `MASTER_CALCULE_REQUIS`,
+`BUG_RUNTIME_EXCEL`). Campagne complète rejouée après clôture (moteur 345/345, application
+~2900 tests, 0 échec hors 4 défauts pré-existants confirmés sans rapport avec Excel). Détail
+complet : documents `95` (§20) et `97` (§4).
+
+**Prochaine mission** (celle citée ci-dessus reste valable, inchangée par cette clôture) :
+administration REF_Setup SQLite, analytique 3 niveaux, recette manuelle UI-only, préparation du
+cut-over — plus, en dette technique non bloquante identifiée pendant l'audit BLOC D : suppression
+du code mort issu des anciens orchestrateurs Excel (`saisie_charges_transaction_service.py`,
+`writers/saisie_charges_writer.py`, `writers/saisie_hh_writer.py` hors utilitaires génériques,
+`services/saisie_hh_schema_migration.py` hors `NEW_SAISIE_FIELDS`).

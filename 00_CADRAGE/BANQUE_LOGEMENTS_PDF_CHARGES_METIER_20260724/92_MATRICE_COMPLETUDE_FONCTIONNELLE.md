@@ -220,7 +220,11 @@ Détail complet : document `95` (§13).
 | Orchestration | DAG de datasets | — | `test_orchestrateur`, `test_actualisation_ui` |
 | Ordonnanceur | prêt, inerte | — | `test_ordonnanceur` |
 
-**Non migré, et assumé comme tel** : Charges (Lot3), `lot4quater`, `lot6b`/`lot6c`, et les saisies
-Excel (AirCover, ImputationsAirbnb, AjustementsPostCloture, Acomptes, IK, Charges, HH). Ces sources
-sont des SAISIES ou des chaînes sans mode SQLite ; l'orchestrateur les déclare non recalculables
-plutôt que d'exécuter une moitié de chaîne et de présenter le résultat comme complet.
+**Non migré, et assumé comme tel** : `lot4quater`, `lot6b`/`lot6c` — chaînes du moteur pandas sans
+mode SQLite. L'orchestrateur les déclare non recalculables plutôt que d'exécuter une moitié de
+chaîne et de présenter le résultat comme complet.
+
+**Mis à jour 2026-08-22** : Charges (Lot3) et les saisies HH/AirCover/ImputationsAirbnb/
+AjustementsPostCloture/Acomptes, listées ci-dessus dans une version antérieure comme « non
+migré », sont désormais SQLite (migrations 0052/0053/0054 pour HH+extras, migration antérieure
+pour Charges). IK reste effectivement non traité. Détail : `95` (§20), `97` (§4).
