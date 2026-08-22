@@ -81,3 +81,40 @@ DAG de l'orchestrateur ne raisonne jamais en fichiers (`MASTER`/`XLSX` absents d
 `openpyxl.load_workbook` interne pendant un run complet de l'orchestrateur — garde dynamique plus
 forte qu'un grep statique, jugée suffisante ; aucune garde statique supplémentaire ajoutée pour
 éviter une redondance sans valeur ajoutée.
+
+## 7. Mise à jour 2026-08-22 — clarification des adaptateurs SQLite→Excel + baseline 0 failed
+
+Mission de fermeture technique post-legacy. Audit exhaustif des adaptateurs Lot1/4quater/6b/6c/8/10 :
+
+| Adaptateur | Appelant réel | Runtime normal ? | Crée XLSX ? | Pourquoi | Action |
+|---|---|---|---|---|---|
+| `orchestrateur_moteur.py::executer_lot10` | `orchestrateur_dag.NOEUDS` (Lot10) | **OUI** | NON — `--source SQLITE --db <base>` | Lot10 rendu SQLite-natif | CONSERVÉ, conforme |
+| `reservations_adaptateur_moteur.py` (`ecrire_resolues`/`ecrire_payouts`/`ecrire_tout`) | `menages_chaine_service.py` uniquement | NON (absent du DAG ; route recette `/menages/chaine/executer`, `MODE_COPIES` forcé, mode réel refusé en dur) | OUI, dans cette chaîne isolée uniquement | Reproduit Lot6b→Lot6c→Lot11 sur copies pour preuve de parité | LEGACY_PARITE (0 appelant runtime normal, prouvé) |
+| `reservations_adaptateur_moteur._vue_flux` | `flux_unifie_service.py` (Lot9, DAG) | OUI mais fonction pure, 0 I/O | NON | Filtre réutilisé, pas dupliqué | CONSERVÉ |
+| `banque_adaptateur_moteur.py` | `menages_chaine_service.py` uniquement | NON (même chaîne isolée) | OUI, isolé | idem | LEGACY_PARITE |
+| `hostaway_cleaning_tasks_adaptateur_moteur.py` | `menages_chaine_service.py` uniquement | NON (même chaîne isolée) | OUI, isolé | idem | LEGACY_PARITE |
+| `adaptateur_workspace.py` | les 3 adaptateurs ci-dessus | NON | Mécanique commune | idem | LEGACY_PARITE |
+| `hostaway_adaptateurs.py`/`hostaway_cleaning_tasks_adaptateur.py` | 0 dans `app/` hors leur propre test | NON | NON (sens Excel→SQLite) | Reprise ponctuelle H6 | IMPORT_PONCTUEL, conservé |
+
+**Verdict : ADAPTATEURS_XLSX_RUNTIME = 0/9. EXCEL_ENTRE_MOTEURS = 0/9. ZERO EXCEL OPÉRATIONNEL
+reste OUI**, précisé : les classeurs que produit la chaîne `menages_chaine_service` existent
+réellement mais ne sont jamais atteints par « Actualiser toute l'activité ».
+
+Test bloquant renforcé (`test_bootstrap_zero_excel.py`) : interceptait seulement la lecture
+(`openpyxl.load_workbook`) ; ajout de l'écriture (`openpyxl.Workbook.save`) sur les mêmes motifs
+interdits — toujours vert.
+
+**4 défauts pré-existants corrigés** (causes réelles, aucune règle économique touchée) :
+1. `test_07_08_rattacher_proprietaire_logement` — `options_reference()`/`_ref()` ignoraient
+   `db_path` (deux call-sites internes non filtrés) et `_REF_CACHE` n'était jamais vidé par
+   `vider_cache()` — corrigés dans `banques_controle_service.py` ; référentiel manquant seedé
+   dans le test.
+2. `test_11_type_flux_valeur_technique_conservee` — même cause (référentiel non seedé), corrigé
+   dans le test.
+3. `test_chaine_e2e_reelle_sur_copies` — `cfg.SNAPSHOTS_DIR` non isolé (écrivait dans le vrai
+   `data/snapshots/`), corrigé dans le test.
+4. `test_generer_ecritures_du_mois(_idempotent)` — fixture `db` pointant vers une base différente
+   de celle seedée, corrigé dans le test.
+
+Campagne complète rejouée : moteur **345/345 passed**, application **~2599 passed** (8 shards).
+**0 failed.** Détail : `JOURNAL_CONTROLES.md`, `JOURNAL_ANOMALIES.md`.

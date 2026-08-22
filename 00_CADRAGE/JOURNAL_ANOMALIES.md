@@ -1447,3 +1447,29 @@ Cause corrigée : un import externe n'est plus jamais déclenché par une actual
     plus la clé `reel_intact` attendue par le test.
   - `test_ventes_lot12_adapter.py::test_generer_ecritures_du_mois` (et son pendant idempotent) —
     `PROP_A` absent du résultat de génération d'écritures.
+
+### 2026-08-22 (suite) — les 4 défauts ci-dessus corrigés, baseline 0 failed
+
+Chaque défaut reproduit seul, cause réelle identifiée (jamais une règle économique en cause) :
+
+1. `test_07_08_rattacher_proprietaire_logement` — **deux bugs réels** dans
+   `banques_controle_service.py` : `options_reference()`/`_ref()` ignoraient totalement `db_path`
+   (jamais transmis à `ref_setup_repo.lire_onglet`, lisait donc `cfg.DB_PATH` par défaut au lieu de
+   la base isolée du test dans les deux call-sites internes) et `_REF_CACHE` était un cache
+   module-level partagé entre tous les tests du process, jamais vidé par `vider_cache()`. Les deux
+   corrigés (db_path filtré partout jusqu'à `lire_onglet`, cache keyé par `(sheet, db_path)`,
+   `vider_cache()` vide désormais `_REF_CACHE`). Le test ne seedait par ailleurs aucun
+   `ref_proprietaire`/`ref_logement` — ajouté.
+2. `test_11_type_flux_valeur_technique_conservee` — même cause racine (référentiel non seedé dans
+   la base isolée du test) : une ligne `ref_types_flux` ajoutée dans le test.
+3. `test_chaine_e2e_reelle_sur_copies` — le test n'isolait pas `cfg.SNAPSHOTS_DIR` : `snapshot_
+   service.create_snapshot` écrivait dans le vrai `data/snapshots/` du projet, le garde-fou
+   anti-écriture-réelle (légitime) refusait la copie, l'exception tombait dans le bloc générique
+   `except Exception` d'`executer_chaine` qui ne renvoie pas `reel_intact`. `SNAPSHOTS_DIR` isolé
+   sur `tmp_path` (même pattern que les tests banque).
+4. `test_generer_ecritures_du_mois(_idempotent)` — la fixture `db` créait une SECONDE base
+   (`tmp_path/test.db`) distincte de celle seedée par `lot12_files` (`tmp_path/app.db`) : le test
+   interrogeait une base vide. `db` dépend désormais de `lot12_files` et réutilise la même base.
+
+Campagne complète rejouée après correction : moteur 345/345 passed, application ~2599 passed
+(8 shards + `test_recette_scenarios.py` vérifié séparément). **0 failed, 0 régression.**

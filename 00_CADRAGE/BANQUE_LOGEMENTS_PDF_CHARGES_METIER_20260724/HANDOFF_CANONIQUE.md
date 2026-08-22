@@ -1973,3 +1973,14 @@ orchestrateurs Excel) a été traitée — `saisie_charges_transaction_service.p
 `readers/saisie_charges_reader.py` supprimés, 6 fichiers de test obsolètes retirés avec eux. 0
 nouvelle régression (campagne complète rejouée : moteur 345/345, application ~2593 passed).
 Détail : `NETTOYAGE_LEGACY_POST_SQLITE.md`.
+
+**Mis à jour 2026-08-22 (fermeture technique)** : les adaptateurs SQLite→Excel restants
+(Lot1/4quater/6b/6c/8/10) audités un par un — 0 appelé par « Actualiser toute l'activité »
+(`orchestrateur_dag.NOEUDS` inspecté directement) ; ceux qui produisent réellement un XLSX
+(`reservations_adaptateur_moteur`, `banque_adaptateur_moteur`,
+`hostaway_cleaning_tasks_adaptateur_moteur`) ne sont atteignables que via la route recette
+isolée `menages_chaine_service` (copies, mode réel refusé) — `LEGACY_PARITE` confirmé, pas un
+défaut runtime. Test bloquant renforcé pour intercepter aussi l'ÉCRITURE (`Workbook.save`), pas
+seulement la lecture. Les 4 défauts pré-existants ont été corrigés (causes réelles isolées, aucune
+règle économique modifiée). **Baseline désormais 0 failed** : moteur 345/345, application
+~2599 passed. Détail : `JOURNAL_CONTROLES.md` et `JOURNAL_ANOMALIES.md`.

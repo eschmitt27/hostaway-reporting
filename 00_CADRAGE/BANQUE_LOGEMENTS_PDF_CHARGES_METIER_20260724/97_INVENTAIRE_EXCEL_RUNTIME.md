@@ -156,3 +156,26 @@ mort issu des orchestrateurs Excel supprimés, candidat à suppression dans un f
 (preuve 0-appelant par grep avant chaque suppression, tests ciblés puis campagne complète après
 coup, 0 nouvelle régression). Détail complet, tableau d'inventaire par fichier, legacy conservé
 et pourquoi : `NETTOYAGE_LEGACY_POST_SQLITE.md`.
+
+## 5. Mise à jour 2026-08-22 — adaptateurs SQLite→Excel restants, clarifiés
+
+Question posée directement : « pandas n'implique pas Excel, donc un adaptateur SQLite→XLSX→moteur
+pendant le runtime normal serait incompatible avec le verdict — en reste-t-il un ? »
+
+Réponse, vérifiée en lisant `orchestrateur_dag.NOEUDS` (les services réellement appelés par
+« Actualiser toute l'activité ») plutôt que déduite des docstrings :
+
+- **Lot10** (`orchestrateur_moteur.py::executer_lot10`, dans le DAG) : SQLite→DataFrame→SQLite via
+  `--source SQLITE --db <base>`. Aucun classeur. Conforme au principe « pandas ≠ Excel ».
+- **Lot4quater/Lot6b/Lot6c/Lot8** (`reservations_adaptateur_moteur`, `banque_adaptateur_moteur`,
+  `hostaway_cleaning_tasks_adaptateur_moteur`) : produisent réellement un XLSX (`ws.ecrire_classeur`),
+  mais leur seul appelant réel est `menages_chaine_service.py` — **absent du DAG**, atteignable
+  uniquement par la route recette `POST /menages/chaine/executer` (`MODE_COPIES` forcé, mode réel
+  explicitement refusé en dur dans le code de la route). 0 appelant en runtime normal, prouvé par
+  lecture exhaustive des services que le DAG appelle.
+- **Lot1** (`hostaway_adaptateurs.py`) : sens inverse (Excel→SQLite), reprise ponctuelle H6, 0
+  appelant hors son propre test.
+
+**Verdict : ADAPTATEURS_XLSX_RUNTIME = 0/9. EXCEL_ENTRE_MOTEURS = 0/9.** Test bloquant renforcé
+(`test_bootstrap_zero_excel.py`) pour intercepter aussi l'écriture (`openpyxl.Workbook.save`), pas
+seulement la lecture — toujours vert.

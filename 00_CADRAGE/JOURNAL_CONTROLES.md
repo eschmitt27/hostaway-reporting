@@ -3894,3 +3894,40 @@ test devenus obsolètes supprimés avec eux. Détail complet, tableau d'inventai
 Campagne complète rejouée après nettoyage : moteur 345/345 passed (inchangé), application
 ~2593 passed, 0 nouvelle régression — les 4 échecs pré-existants documentés ci-dessus reviennent
 identiques (confirmés par `git stash` comme antérieurs à ce nettoyage).
+
+## 2026-08-22 (suite) — clarification des adaptateurs SQLite→Excel restants, baseline 0 failed
+
+**Audit des adaptateurs Lot1/Lot4quater/Lot6b/Lot6c/Lot8/Lot10** (mission de fermeture technique
+post-legacy). Distinction retenue : pandas n'implique pas Excel — seul un adaptateur qui produit
+réellement un classeur intermédiaire, ET que « Actualiser toute l'activité » atteint réellement,
+viole `ZERO EXCEL OPÉRATIONNEL`.
+
+- `orchestrateur_moteur.py::executer_lot10` (Lot10, dans `orchestrateur_dag.NOEUDS`) : appelle le
+  script pandas legacy avec `--source SQLITE --db <base>` — SQLite→DataFrame→SQLite, aucun
+  classeur. **CONSERVÉ, conforme.**
+- `reservations_adaptateur_moteur.py` (Lot4quater→Lot11) : `ecrire_resolues`/`ecrire_payouts`/
+  `ecrire_tout` produisent bien un XLSX, mais leur seul appelant réel est
+  `menages_chaine_service.py` — non présent dans `orchestrateur_dag.NOEUDS`, atteignable
+  uniquement via la route recette `POST /menages/chaine/executer` (`MODE_COPIES` forcé, mode réel
+  explicitement refusé). Seule `_vue_flux` (fonction pure, 0 I/O) est réutilisée par
+  `flux_unifie_service.py` (Lot9, DAG réel). **LEGACY_PARITE, 0 appelant runtime normal — prouvé.**
+- `banque_adaptateur_moteur.py`, `hostaway_cleaning_tasks_adaptateur_moteur.py`,
+  `adaptateur_workspace.py` : même chaîne isolée que ci-dessus, mêmes conclusions.
+  **LEGACY_PARITE.**
+- `hostaway_adaptateurs.py`/`hostaway_cleaning_tasks_adaptateur.py` (sens Excel→SQLite, reprise
+  H6) : 0 appelant dans `app/` en dehors de leur propre test. **IMPORT_PONCTUEL, conservé.**
+
+**Verdict : ADAPTATEURS XLSX RUNTIME = 0/9. EXCEL ENTRE MOTEURS = 0/9. ZERO EXCEL OPÉRATIONNEL
+reste OUI**, formulation précisée : les classeurs produits par la chaîne `menages_chaine_service`
+existent mais ne sont jamais atteints par le run automatique.
+
+Test bloquant renforcé (`test_bootstrap_zero_excel.py`) : le garde n'interceptait que
+`openpyxl.load_workbook` (lecture) ; `openpyxl.Workbook.save` (écriture) ajouté sur les mêmes
+motifs interdits — toujours vert, confirme qu'aucun classeur interne n'est ni ouvert ni créé
+pendant un run complet de l'orchestrateur.
+
+**Les 4 défauts pré-existants ont été corrigés** (causes réelles : `db_path` non transmis et
+cache non invalidé dans `banques_controle_service.py`, `SNAPSHOTS_DIR` non isolé dans
+`test_menages_chaine.py`, fixture `db` pointant vers une base différente dans
+`test_ventes_lot12_adapter.py` — détail `JOURNAL_ANOMALIES.md`). Campagne complète rejouée :
+moteur 345/345 passed, application ~2599 passed. **0 failed.**
