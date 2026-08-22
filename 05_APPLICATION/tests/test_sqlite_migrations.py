@@ -152,6 +152,8 @@ EXPECTED_TABLES = {
     "aircover",                                  # 0054 — extras AirCover
     "imputations_airbnb",                        # 0054 — extras Imputations Airbnb
     "ajustements_post_cloture",                  # 0054 — extras Ajustements post-clôture
+    "sauvegardes_base",                          # 0057 — sauvegardes app.db (industrialisation)
+    "run_history",                               # 0057 — historique centralisé des runs
 }
 
 

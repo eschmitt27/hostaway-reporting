@@ -3958,3 +3958,29 @@ unique en fin de fonction, pas de commit sur exception). Aucun changement néces
 Campagne finale : moteur 345/345 passed, application ~2621 passed (8 shards). **0 failed.**
 Aucune règle métier modifiée, aucun écart financier. Détail complet :
 `DURCISSEMENT_SQLITE_CONTRATS_DONNEES.md`.
+
+## 2026-08-22 (suite) — industrialisation socle technique : sauvegarde/rollback/observabilité
+
+Audit initial : l'essentiel du socle demandé existait déjà (`snapshot_service.py`,
+`calculs_pipeline_service.py`/`calculs_runs`/`calculs_sauvegardes`, pattern CURRENT/CANDIDATE déjà
+en place sur `lot10_runs`/`lot12_runs` via index UNIQUE PARTIEL `WHERE actif=1`). Deux manques
+réels identifiés et comblés : (1) aucune sauvegarde de `app.db` elle-même n'existait avant une
+migration de schéma ; (2) aucune vue centralisée des runs tous types confondus.
+
+Migration 0057 : `sauvegardes_base` (git_commit, database_hash, validation_status) et
+`run_history` (STARTED/VALIDATING/SUCCESS/FAILED/ROLLED_BACK). Services `backup_service.py`
+(sauvegarder/vérifier/lister/restaurer/purger — purge jamais automatique, vérifié par test),
+`run_history_service.py`, `migration_service.migrer_avec_sauvegarde()` (sauvegarde → migration →
+`integrity_check` → validation, restauration automatique sinon).
+
+Point technique trouvé en testant le rollback : `restaurer()` remplace tout le fichier cible, y
+compris la ligne `run_history` du run en échec écrite juste avant — elle disparaît avec le fichier
+remplacé. Corrigé : l'issue est rejournalisée sur le fichier restauré, dans une entrée fraîche,
+après la restauration.
+
+`apply_migrations()` (appelée par le fixture `tmp_db` de centaines de tests) volontairement NON
+modifiée — `migrer_avec_sauvegarde()` est le nouveau point d'entrée pour une vraie migration.
+
+Écran `/observabilite/runs` (lecture seule) ajouté. Tests : 18 (backup + run_history + migration
+protégée) + 2 (route). Campagne ciblée verte. Détail complet :
+`INDUSTRIALISATION_SOCLE_TECHNIQUE.md`.

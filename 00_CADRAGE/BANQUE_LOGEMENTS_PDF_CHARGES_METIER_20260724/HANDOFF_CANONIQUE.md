@@ -1998,3 +1998,15 @@ correction (0056), 0055 non modifiée. 4 contrats de données typés (dataclasse
 de saisie existants (risque de régression identifié, câblage différé). Aucune règle métier
 modifiée, aucun écart financier. Baseline confirmée 0 failed après correctifs. Détail complet :
 `DURCISSEMENT_SQLITE_CONTRATS_DONNEES.md`.
+
+**Mis à jour 2026-08-22 (industrialisation socle technique)** : migration 0057 —
+`sauvegardes_base` (sauvegarde de `app.db` elle-même : checkpoint WAL, copie, sha256,
+`git_commit`, `integrity_check`) et `run_history` (historique centralisé, statuts STARTED/
+VALIDATING/SUCCESS/FAILED/ROLLED_BACK). Nouveaux services `backup_service.py`,
+`run_history_service.py`, `migration_service.py` (point d'entrée protégé
+`migrer_avec_sauvegarde()` : sauvegarde → migration → contrôle d'intégrité → validation, ou
+restauration automatique en cas d'échec). `apply_migrations()` elle-même non modifiée (appelée
+par des centaines de tests, y ajouter une sauvegarde automatique aurait ralenti toute la suite
+sans bénéfice sur une base jetable). Écran observabilité `/observabilite/runs` (lecture seule).
+Le mécanisme CURRENT/CANDIDATE (dataset actif) existait déjà (`lot10_runs`/`lot12_runs`), non
+reconstruit. Détail complet : `INDUSTRIALISATION_SOCLE_TECHNIQUE.md`.

@@ -11,7 +11,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.config import STATIC_DIR, DATA_DIR, SNAPSHOTS_DIR
 from app.db.connection import apply_migrations
 from app.services.logging_config import log_erreur
-from app.routes import home, actualisation, administration_referentiels, sources_calculs, health, logements, reservations, menages, fournisseurs, proprietaires, proprietaires_tresorerie, banques, proprietaires_reglements, controles_cloture, clotures, pilotage_mensuel, fournisseurs_referentiel, charges_controle, factures, factures_proprietaires, creances_dettes, calculs, comptabilite, resultats, referentiel_setup, comptes_proprietaires
+from app.routes import home, actualisation, administration_referentiels, sources_calculs, health, logements, reservations, menages, fournisseurs, proprietaires, proprietaires_tresorerie, banques, proprietaires_reglements, controles_cloture, clotures, pilotage_mensuel, fournisseurs_referentiel, charges_controle, factures, factures_proprietaires, creances_dettes, calculs, comptabilite, resultats, referentiel_setup, comptes_proprietaires, observabilite
 
 
 @asynccontextmanager
@@ -95,6 +95,7 @@ app.include_router(referentiel_setup.router)
 app.include_router(administration_referentiels.router)
 app.include_router(comptes_proprietaires.router)
 app.include_router(health.router)
+app.include_router(observabilite.router)
 
 # ── Bandeau MODE RECETTE : exposé à tous les templates (globals Jinja centralisés) ──
 # APP-SEC : jamais de chemin absolu ni de nom d'utilisateur dans une page rendue — seul le nom

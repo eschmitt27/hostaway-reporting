@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Observabilité{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Observabilité</h1>
+    <p class="page-subtitle">Derniers runs et sauvegardes de la base — vue d'ensemble, lecture seule</p>
+  </div>
+</div>
+
+<div class="card mb-lg">
+  <div class="card-title">Derniers runs</div>
+  {% if runs %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Run</th><th>Opération</th><th>Statut</th><th>Durée</th><th>Sauvegarde</th>
+        <th>Erreur</th><th>Début</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in runs %}
+      <tr>
+        <td>{{ r.run_id_opaque }}</td>
+        <td>{{ r.operation }}</td>
+        <td>
+          {% if r.statut == 'SUCCESS' %}<span class="badge badge-success">SUCCESS</span>
+          {% elif r.statut == 'FAILED' %}<span class="badge badge-danger">FAILED</span>
+          {% elif r.statut == 'ROLLED_BACK' %}<span class="badge badge-warning">ROLLED_BACK</span>
+          {% else %}<span class="badge">{{ r.statut }}</span>{% endif %}
+        </td>
+        <td>{{ "%.1f"|format(r.duree_s) + " s" if r.duree_s is not none else "—" }}</td>
+        <td>{{ r.sauvegarde_id_opaque or "—" }}</td>
+        <td>{{ r.erreur or "—" }}</td>
+        <td>{{ r.date_debut }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="text-secondary">Aucun run enregistré.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-title">Sauvegardes de la base</div>
+  {% if sauvegardes %}
+  <table class="table">
+    <thead>
+      <tr><th>Sauvegarde</th><th>Opération</th><th>Statut</th><th>Taille</th><th>Commit</th><th>Date</th></tr>
+    </thead>
+    <tbody>
+      {% for s in sauvegardes %}
+      <tr>
+        <td>{{ s.sauvegarde_id_opaque }}</td>
+        <td>{{ s.operation }}</td>
+        <td>
+          {% if s.validation_status == 'VALIDE' %}<span class="badge badge-success">VALIDE</span>
+          {% elif s.validation_status == 'CORROMPU' %}<span class="badge badge-danger">CORROMPU</span>
+          {% else %}<span class="badge">{{ s.validation_status }}</span>{% endif %}
+        </td>
+        <td>{{ (s.taille_octets / 1024) | round(1) }} Ko</td>
+        <td>{{ (s.git_commit or "")[:8] or "—" }}</td>
+        <td>{{ s.date_creation }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="text-secondary">Aucune sauvegarde enregistrée.</p>
+  {% endif %}
+</div>
+{% endblock %}

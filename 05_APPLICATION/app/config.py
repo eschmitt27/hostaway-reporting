@@ -167,6 +167,9 @@ FACTURES_PROPRIETAIRES_DIR = (Path(_FACTURES_PROPRIETAIRES_DIR_ENV)
 SNAPSHOTS_DIR = DATA_DIR / "snapshots"
 RESTORE_DIR = DATA_DIR / "restore_workspace"
 DRYRUNS_DIR = DATA_DIR / "dryruns"
+# Sauvegardes dédiées de app.db elle-même (distinct de SNAPSHOTS_DIR, qui sert aux fichiers Excel/
+# masters moteur) — mission industrialisation socle technique, 2026-08-22.
+BACKUPS_DIR = DATA_DIR / "backups"
 LOT4A_ENGINE_PYTHON = Path(os.environ.get("LOT4A_ENGINE_PYTHON", r"C:\Program Files\Python312\python.exe"))
 LOT4A_ENGINE_TIMEOUT_SECONDS = int(os.environ.get("LOT4A_ENGINE_TIMEOUT_SECONDS", "60"))
 
