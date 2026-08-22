@@ -1984,3 +1984,17 @@ défaut runtime. Test bloquant renforcé pour intercepter aussi l'ÉCRITURE (`Wo
 seulement la lecture. Les 4 défauts pré-existants ont été corrigés (causes réelles isolées, aucune
 règle économique modifiée). **Baseline désormais 0 failed** : moteur 345/345, application
 ~2599 passed. Détail : `JOURNAL_CONTROLES.md` et `JOURNAL_ANOMALIES.md`.
+
+**Mis à jour 2026-08-22 (fiabilisation phase 1)** : tag local `ZERO_EXCEL_SQLITE_BASELINE_2026-08-22`
+posé sur `4dfd3db` (non poussé). Migrations 0055/0056 : FK réelles (`banque_classifications`→
+`banque_mouvements`, `factures_proprietaires_lignes`→`factures_proprietaires`) et CHECK de domaine
+fermé sur `factures_proprietaires`/`factures_proprietaires_lignes`, ajoutés via recréation de
+table (SQLite n'autorise pas `ALTER TABLE ADD CONSTRAINT`). Une erreur d'audit initiale (CHECK sur
+`banque_mouvements.sens` cassant la détection volontaire d'anomalie
+`test_sens_incoherent_detecte`) trouvée par la campagne complète et corrigée par une migration de
+correction (0056), 0055 non modifiée. 4 contrats de données typés (dataclasses)
+`app/contrats_donnees.py` : `Charge`, `ReservationHH`, `MouvementBanque`,
+`MouvementTresorerieProprietaire` — définis et testés, délibérément non câblés dans les services
+de saisie existants (risque de régression identifié, câblage différé). Aucune règle métier
+modifiée, aucun écart financier. Baseline confirmée 0 failed après correctifs. Détail complet :
+`DURCISSEMENT_SQLITE_CONTRATS_DONNEES.md`.

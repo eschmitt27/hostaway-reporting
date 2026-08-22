@@ -2031,3 +2031,15 @@ payout_calcule ; menage_retenu ; assiette_commission ; taux_commission ;
 commission_conciergerie ; montant_preparation_canape ; controle_preparation_canape ;
 net_proprietaire
 ```
+
+---
+
+## Mise à jour 2026-08-22 — durcissement SQLite Phase 1
+
+Migrations 0055/0056 (additives) ajoutent des FK réelles (`banque_classifications` →
+`banque_mouvements`, `factures_proprietaires_lignes` → `factures_proprietaires`) et des CHECK de
+domaine fermé (`factures_proprietaires.statut`/`type_document`, `factures_proprietaires_lignes.
+type_ligne`) sur des tables déjà créées — nécessite une recréation de table sous SQLite (pas
+d'`ALTER TABLE ADD CONSTRAINT`). Détail complet, tableau des contraintes ajoutées/refusées et
+raisons : `DURCISSEMENT_SQLITE_CONTRATS_DONNEES.md` (dans le sous-dossier de mission
+`BANQUE_LOGEMENTS_PDF_CHARGES_METIER_20260724/`).

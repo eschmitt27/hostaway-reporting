@@ -1473,3 +1473,17 @@ Chaque défaut reproduit seul, cause réelle identifiée (jamais une règle éco
 
 Campagne complète rejouée après correction : moteur 345/345 passed, application ~2599 passed
 (8 shards + `test_recette_scenarios.py` vérifié séparément). **0 failed, 0 régression.**
+
+### 2026-08-22 (suite) — durcissement SQLite Phase 1 : erreur trouvée et corrigée dans la mission
+
+**Introduite et corrigée dans la même mission** : migration 0055 ajoutait
+`CHECK(sens IN ('DEBIT','CREDIT'))` sur `banque_mouvements`, en n'auditant que le chemin de saisie
+(`banques_import_service.py`, qui n'utilise en effet que DEBIT/CREDIT). La campagne complète a
+révélé que `banques_controles_catalogue.py::test_sens_incoherent_detecte` insère volontairement un
+`sens` hors domaine ("INCONNU") pour prouver qu'un mouvement bancaire brut corrompu est détecté et
+signalé à l'écran de contrôle (`C_SENS_INCOHERENT`) — jamais rejeté à l'insertion. Le CHECK
+empêchait cette insertion et cassait le mécanisme de détection. Leçon retenue : avant de fermer un
+domaine par CHECK, vérifier aussi les tests de DÉTECTION D'ANOMALIE, pas seulement les chemins de
+saisie normale — un domaine « fermé » à l'écriture peut être délibérément ouvert pour permettre la
+détection d'une donnée corrompue en aval. Corrigé par une migration 0056 (0055 non modifiée,
+immuable) qui retire uniquement ce CHECK, colonnes/index/FK par ailleurs identiques.

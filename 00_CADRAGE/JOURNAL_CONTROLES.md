@@ -3931,3 +3931,30 @@ cache non invalidé dans `banques_controle_service.py`, `SNAPSHOTS_DIR` non isol
 `test_menages_chaine.py`, fixture `db` pointant vers une base différente dans
 `test_ventes_lot12_adapter.py` — détail `JOURNAL_ANOMALIES.md`). Campagne complète rejouée :
 moteur 345/345 passed, application ~2599 passed. **0 failed.**
+
+## 2026-08-22 (suite) — durcissement SQLite Phase 1 (fiabilisation)
+
+Migrations 0055/0056 : FK réelles ajoutées (`banque_classifications.mouvement_id_opaque` →
+`banque_mouvements`, `factures_proprietaires_lignes.facture_id_opaque` → `factures_proprietaires`)
+et CHECK de domaine fermé (`factures_proprietaires.statut`/`type_document`,
+`factures_proprietaires_lignes.type_ligne`) — toutes vérifiées exhaustives dans le code avant
+fermeture, et vérifiées sans ligne orpheline sur une copie de la vraie app.db (0016) migrée
+jusqu'à HEAD. Mécanismes déjà en place non dupliqués : dataset actif en double (Lot10/Lot12),
+doublon facture, doublon classification — tous confirmés toujours actifs par test négatif.
+
+**Erreur trouvée par la campagne complète, corrigée dans la même mission** : le CHECK initial sur
+`banque_mouvements.sens` (migration 0055) cassait `test_sens_incoherent_detecte` —
+`banques_controles_catalogue.py` détecte volontairement un `sens` hors domaine comme anomalie
+CONTRÔLABLE, pas un rejet SQL. Migration 0055 non modifiée (immuable) ; correction par 0056.
+
+4 contrats de données typés (`app/contrats_donnees.py`, dataclasses) créés et testés : `Charge`,
+`ReservationHH`, `MouvementBanque`, `MouvementTresorerieProprietaire`. Délibérément non câblés
+dans les services de saisie (risque de régression identifié sur le format de date accepté par
+`charges_saisie_service.valider()` — câblage différé après audit).
+
+Transactions multi-table (facture + lignes) auditées : déjà atomiques (connexion unique, commit
+unique en fin de fonction, pas de commit sur exception). Aucun changement nécessaire.
+
+Campagne finale : moteur 345/345 passed, application ~2621 passed (8 shards). **0 failed.**
+Aucune règle métier modifiée, aucun écart financier. Détail complet :
+`DURCISSEMENT_SQLITE_CONTRATS_DONNEES.md`.

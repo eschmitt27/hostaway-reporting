@@ -359,3 +359,12 @@ mission à 0, détail `95` §20 et `97` §4).
 **Mission suivante** (inchangée par cette clôture) : administration REF_Setup SQLite + analytique
 3 niveaux + recette manuelle UI-only + préparation du cut-over — plus, en dette technique non
 bloquante : suppression du code mort des anciens orchestrateurs Excel HH/Charges (détail `97` §4).
+
+**Mis à jour 2026-08-22 (fiabilisation phase 1)** : durcissement SQLite (FK/CHECK sur 4 tables via
+migrations 0055/0056, tests négatifs) + 4 contrats de données typés (dataclasses, non câblés dans
+les services). Détail : `DURCISSEMENT_SQLITE_CONTRATS_DONNEES.md`. Reste à faire (§8 de ce
+document) : FK charges/reservations_hors_hostaway → référentiel (si la décision « non FK SQL » est
+révisée), UNIQUE sur `menages_taches_enrichies.task_id` (après audit du moteur Lot6a), contrats
+Facture/LigneFacture/Reglement/Menage/FluxUnifie/DatasetRun, câblage des contrats existants dans
+les services de saisie. Mission suivante annoncée par le porteur : moteurs métier purs +
+observabilité + backups/restauration.
