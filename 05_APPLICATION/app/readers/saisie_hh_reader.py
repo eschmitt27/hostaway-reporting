@@ -1,9 +1,9 @@
 """Lecteur dédié SAISIE HH — lecture strictement read-only (APP-2b).
 
-Fournit :
-- listes REF_LOCALE pour alimenter le formulaire de saisie,
-- PKs existants pour génération RESHH-AAAA-MM-NNN,
-- détection première ligne vide pour ciblage écriture.
+`read_ref_locale`/`read_existing_pks`/`SaisieHHReadError` ne sont plus appelées par
+`saisie_hh_service.py` (dépôt SQLite, migration 0052/0053) — importées mais inertes, conservées
+uniquement parce que `tests/test_saisie_hh_validation.py` les monkeypatche encore (80 tests actifs).
+`generate_pk`/`MANUAL_COL_MAP`/`FORCED_VALUES` restent réellement utilisées.
 """
 from pathlib import Path
 import re
@@ -16,7 +16,6 @@ SHEET_REF_LOCALE = "REF_LOCALE"
 class SaisieHHReadError(RuntimeError):
     """Erreur bloquante de lecture du classeur SAISIE HH."""
 
-FORMULA_COLS = {"B", "C", "K", "N", "O", "Q", "V", "Y", "Z"}
 
 # Colonnes manuelles : lettre → nom de champ (confirmé sur SAISIE réelle)
 MANUAL_COL_MAP: dict[str, str] = {
@@ -48,23 +47,6 @@ FORCED_VALUES = {
     "statut_controle": "A_CONTROLER",
     "niveau_anomalie": "A_CONTROLER",
 }
-
-
-def _col_index(letter: str) -> int:
-    """Lettre(s) de colonne → index 1-based."""
-    result = 0
-    for c in letter.upper():
-        result = result * 26 + (ord(c) - 64)
-    return result
-
-
-def _col_letter(n: int) -> str:
-    """Index 1-based → lettre(s) de colonne."""
-    col = ""
-    while n > 0:
-        n, r = divmod(n - 1, 26)
-        col = chr(65 + r) + col
-    return col
 
 
 def read_ref_locale(saisie_path: Path) -> dict[str, list[str]]:
@@ -117,29 +99,6 @@ def read_existing_pks(saisie_path: Path) -> list[str]:
         raise SaisieHHReadError(f"Lecture PK existantes impossible : {exc}") from exc
 
     return [str(r[0]).strip() for r in rows if r[0] is not None and str(r[0]).strip()]
-
-
-def find_first_empty_data_row(saisie_path: Path, max_scan: int = 502) -> int | None:
-    """Retourne le numéro 1-based de la première ligne où col A est vide (>= ligne 2)."""
-    p = Path(saisie_path)
-    if not p.exists():
-        return None
-    try:
-        wb = openpyxl.load_workbook(str(p), read_only=True, data_only=True)
-        ws = wb[SHEET_SAISIE]
-        rows = list(ws.iter_rows(min_row=2, max_row=max_scan, min_col=1, max_col=1, values_only=True))
-        wb.close()
-    except Exception:
-        return None
-
-    if not rows:
-        # Aucune ligne de données : le sheet n'a que l'en-tête → ligne 2 disponible
-        return 2
-
-    for i, r in enumerate(rows):
-        if r[0] is None or str(r[0]).strip() == "":
-            return i + 2  # +2 : 1-indexed + saut de l'en-tête
-    return None
 
 
 def generate_pk(date_arrivee_str: str, existing_pks: list[str]) -> tuple[str, str | None]:

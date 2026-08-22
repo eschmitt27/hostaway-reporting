@@ -263,6 +263,16 @@ def _sauvegarder_sorties(run_id: str, lots: list[str], racine: Path,
     return faits
 
 
+def _remplacer_fichier(temp: Path, cible: Path) -> None:
+    """Remplacement atomique sous garde d'écriture (repris de l'ex-orchestrateur Charges Excel,
+    seul appelant réel restant — le reste de cette machinerie transactionnelle a été supprimé,
+    0-appelant, cf. mission nettoyage legacy 2026-08-22)."""
+    from app.recette_guard import assert_ecriture_autorisee
+    import os
+    assert_ecriture_autorisee(cible)
+    os.replace(str(temp), str(cible))
+
+
 def restaurer(run_id: str, *, racine: Path | None = None, db_path=None) -> dict[str, Any]:
     """Restaure les sorties sauvegardées avant ce run. Marque le run RESTAURE."""
     r = _racine(racine)
@@ -280,7 +290,6 @@ def restaurer(run_id: str, *, racine: Path | None = None, db_path=None) -> dict[
         if not src.exists():
             continue
         dst.parent.mkdir(parents=True, exist_ok=True)
-        from app.services.saisie_charges_transaction_service import _remplacer_fichier
         tmp = dst.parent / (dst.name + ".restore.tmp")
         shutil.copy2(src, tmp)
         try:

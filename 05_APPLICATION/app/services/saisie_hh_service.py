@@ -11,8 +11,6 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-import openpyxl
-
 import app.config as cfg
 from app.readers.saisie_hh_reader import (
     MANUAL_COL_MAP,

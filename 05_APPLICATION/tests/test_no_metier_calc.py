@@ -118,18 +118,13 @@ def test_no_bidirectional_sync():
     assert not violations, "Sync bidirectionnelle DB→Excel interdite :\n" + "\n".join(violations)
 
 
-def test_saisie_hh_writer_no_db_access():
-    writer = APP_DIR / "writers" / "saisie_hh_writer.py"
-    src = writer.read_text(encoding="utf-8")
-    forbidden = ("from app.db", "import sqlite3", "get_db(", "SELECT ", "INSERT INTO")
-    violations = [p for p in forbidden if p in src]
-    assert not violations, f"Writer SAISIE HH ne doit pas acceder SQLite : {violations}"
-
-
 # `saisie_hh_orchestrator.py` (avec son unique appelant, la route POST /nouvelle/confirmer) a été
 # retiré : le circuit HH passe désormais par previsualiser -> previsualisation/{token} -> enregistrer
 # -> reservations_hh_saisie_service.creer (SQLite). `test_saisie_hh_orchestrator_no_excel_write_api`
 # testait ce module - retiré avec lui.
+
+# `writers/saisie_hh_writer.py` (0 appelant réel — cf. mission nettoyage legacy 2026-08-22) a été
+# supprimé. `test_saisie_hh_writer_no_db_access` testait ce module - retiré avec lui.
 
 
 def test_no_sqlite_to_row_data_flow():
