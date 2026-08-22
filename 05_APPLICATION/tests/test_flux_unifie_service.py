@@ -70,7 +70,7 @@ def _menage_cout_complet(db_path, *, mois="2026-07", logement_id="LOG_0001",
 
 
 def _sans_charges(monkeypatch, rows=()):
-    monkeypatch.setattr(svc.charges_reader, "read_charges", lambda: list(rows))
+    monkeypatch.setattr(svc.charges_reader, "read_charges", lambda *a, **k: list(rows))
 
 
 def test_construire_sans_donnees_ne_plante_pas(tmp_path, monkeypatch):

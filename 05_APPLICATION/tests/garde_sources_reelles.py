@@ -120,7 +120,12 @@ def armer(monkeypatch) -> None:
         # `:memory:` et les URI ne désignent pas un fichier du projet.
         if isinstance(database, (str, Path)) and str(database) != ":memory:" \
                 and est_protege(database):
-            _refuser("OUVERTURE BASE", database)
+            # La lecture reste permise (voir docstring du module) : on ouvre en lecture seule via
+            # le mode URI `mode=ro`, que SQLite fait respecter lui-même — toute écriture ultérieure
+            # sur cette connexion lève `sqlite3.OperationalError: attempt to write a readonly
+            # database`. On ne bloque donc plus la connexion elle-même, seulement l'écriture.
+            uri = f"file:{Path(database).resolve().as_posix()}?mode=ro"
+            return connect_original(uri, *args, uri=True, **kwargs)
         return connect_original(database, *args, **kwargs)
 
     monkeypatch.setattr(sqlite3, "connect", connect_garde)

@@ -72,11 +72,20 @@ def test_shutil_copy_vers_source_reelle_refuse(tmp_path):
         shutil.copy(source, _chemin_reel("02_TRAVAIL", "copie_interdite.txt"))
 
 
-def test_sqlite_connect_sur_base_reelle_refuse():
+def test_sqlite_connect_sur_base_reelle_lecture_seule():
+    """La connexion à la base réelle est permise (lecture) ; toute écriture y échoue."""
     import sqlite3
 
-    with pytest.raises(AssertionError, match="BASE"):
-        sqlite3.connect(str(Path(cfg.APP_ROOT) / "data" / "app.db"))
+    reel = Path(cfg.APP_ROOT) / "data" / "app.db"
+    if not reel.exists():
+        pytest.skip("app.db réelle absente de cet environnement")
+    conn = sqlite3.connect(str(reel))
+    try:
+        conn.execute("SELECT 1").fetchone()  # la lecture réussit
+        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+            conn.execute("CREATE TABLE IF NOT EXISTS garde_essai_ecriture (v TEXT)")
+    finally:
+        conn.close()
 
 
 # ── La garde ne gêne pas un test correctement isolé ─────────────────────────

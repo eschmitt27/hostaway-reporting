@@ -64,3 +64,5 @@ CREATE TABLE IF NOT EXISTS ajustements_post_cloture (
 );
 
 CREATE INDEX IF NOT EXISTS idx_ajustements_prop_mois_effet ON ajustements_post_cloture(proprietaire_id, mois_effet);
+
+INSERT OR IGNORE INTO schema_migrations (version) VALUES ('0054');
