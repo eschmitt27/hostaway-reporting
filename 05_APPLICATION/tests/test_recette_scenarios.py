@@ -39,12 +39,16 @@ def test_scenarios_charges_recette():
         "LOT4A_ENGINE_PYTHON": str(ENGINE),
         "PYTHONUTF8": "1",
     })
+    # `reset()` reconstruit intégralement data_recette/ (classeurs fictifs + import référentiel)
+    # à chaque scénario, six fois. Mesuré à ~180 s par reconstruction sur ce poste (E/S synchronisées
+    # OneDrive) : 600 s suffisaient quand la reconstruction ne prenait que quelques secondes, plus
+    # aujourd'hui. Marge large plutôt qu'un chiffre ajusté au plus juste.
     proc = subprocess.run([sys.executable, str(RUNNER)], env=env, cwd=str(APP_DIR),
-                          capture_output=True, text=True, timeout=600)
+                          capture_output=True, text=True, timeout=1800)
     out = proc.stdout + proc.stderr
     assert "ALL SCENARIOS OK" in out, out[-2000:]
     assert proc.returncode == 0, out[-2000:]
     # Différenciation métier explicitement présente dans la sortie :
-    assert "B: impact=IC compta=OUI" in out and "reserve=100.0" in out   # refacturable → préfacture
-    assert "D: impact=HC compta=NON" in out                              # HC hors comptabilité
-    assert "H: impact=IC compta=OUI quotes={'LOG_A1': 50.0, 'LOG_A2': 50.0}" in out  # répartition 50/50
+    assert "B: impact=IC compta=OUI" in out and "logement=LOG_A1" in out  # refacturable, 1 logement
+    assert "D: impact=HC compta=NON" in out                               # HC hors comptabilité
+    assert "H: impact=IC compta=OUI affectation=GLOBAL" in out            # 2 logements → GLOBAL

@@ -209,3 +209,69 @@ def test_confirmation_persiste_derogation_commission(tmp_db, dryruns):
     assert row["taux_commission_standard"] == 0.19
     assert row["taux_commission_override"] == 0.20
     assert row["motif_override_taux_commission"] == "negociation"
+
+
+def test_parite_decision_persistance_tous_champs_economiques(tmp_db, dryruns):
+    """Preuve de parité formelle (mission RESERVATIONS HH §2), sans reconstruire le circuit Excel
+    supprimé : la RÈGLE DE DÉCISION (`saisie_hh_service.valider` — dérivation propriétaire, taux et
+    ménage standard/override, montant récupéré/reversé) est un code INCHANGÉ par la migration ; seule
+    la destination d'écriture a changé (Excel -> SQLite). La preuve pertinente n'est donc pas de
+    rejouer un moteur disparu, mais de vérifier qu'AUCUN champ décidé par cette règle n'est perdu,
+    tronqué ou altéré entre la décision (manifest de prévisualisation) et la ligne persistée.
+
+    Couvre chaque champ économique cité par la mission : réservation, logement, propriétaire,
+    arrivée, départ, montant, ménage standard/override, commission standard/override, montant
+    récupéré, associé récupérateur, montant reversé propriétaire, statut.
+    """
+    conn = get_db(tmp_db)
+    try:
+        conn.execute(
+            "INSERT INTO ref_modes_paiement (mode_paiement_id, mode_paiement, actif, import_id) "
+            "VALUES (?,?,?,?)", ("PAY_004", "COMPTE_PERSO_ASSOCIEE", "OUI", fx.IMPORT_TEST))
+        conn.execute(
+            "INSERT INTO ref_associes (personne_id, nom_personne, actif, import_id) "
+            "VALUES (?,?,?,?)", ("PERS_X", "Associe X", "OUI", fx.IMPORT_TEST))
+        conn.commit()
+    finally:
+        conn.close()
+
+    token = _previsualiser(
+        tmp_db, dryruns,
+        mode_paiement_id="PAY_004", montant_recupere="120.00", associe_id_recuperateur="PERS_X",
+        menage_override="0", motif_override_menage="menage offert", confirmation_override_menage="oui")
+    data = confirmation.load_previsualisation(token, dryruns_root=dryruns)
+    decision = data["manifest"]["preview"]
+    assert decision  # la décision existe avant toute écriture
+
+    res = confirmation.confirmer(token, db_path=tmp_db, dryruns_root=dryruns, acteur="parite")
+    assert res.statut == confirmation.SUCCES, res.message
+
+    conn = get_db(tmp_db)
+    try:
+        row = conn.execute(
+            "SELECT * FROM reservations_hors_hostaway WHERE reservation_hh_id = ?",
+            (res.reservation_hh_id,)).fetchone()
+        overrides = conn.execute(
+            "SELECT * FROM reservation_hh_overrides WHERE reservation_hh_id = ?",
+            (res.reservation_hh_id,)).fetchone()
+    finally:
+        conn.close()
+
+    # Table principale (identité + montants de base) — même valeur que la décision, jamais recalculée.
+    assert row["reservation_hh_id"] == decision["reservation_hh_id"]
+    assert row["logement_id"] == decision["logement_id"]
+    assert row["proprietaire_id"] == decision["proprietaire_id"]
+    assert row["date_arrivee"] == decision["date_arrivee"]
+    assert row["date_depart"] == decision["date_depart"]
+    assert row["montant_percu"] == float(decision["total_percu"])
+    assert row["statut"] == "ACTIVE"
+
+    # Table compagne (dérogations) — override à ZÉRO explicite préservé, jamais confondu avec NULL :
+    # menage_override vaut ici 0.0 (dérogation réelle, motif fourni), et non None (aucune dérogation).
+    assert overrides["menage_override"] == 0.0
+    assert overrides["menage_standard"] == float(decision["menage_standard"])
+    assert overrides["taux_commission_standard"] == float(decision["taux_commission_standard"])
+    assert overrides["taux_commission_override"] is None  # aucune dérogation de taux ici
+    assert overrides["montant_recupere"] == 120.0
+    assert overrides["associe_id_recuperateur"] == "PERS_X"
+    assert overrides["montant_reverse_proprietaire"] is None  # mode associé, pas espèces

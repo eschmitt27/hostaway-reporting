@@ -1,13 +1,22 @@
 #!/usr/bin/env python3
-"""Exécute les scénarios de charges en RECETTE : reset → prévisualisation → confirmation réelle →
-lecture des chiffres écrits (charge, affectations, réserve). Valeurs attendues codées explicitement.
+"""Exécute les scénarios de charges en RECETTE : reset → prévisualisation → confirmation →
+lecture de la charge écrite en SQLite. Valeurs attendues codées explicitement.
 
 Doit être lancé avec l'environnement recette :
   PYTHONPATH=<...>/05_APPLICATION PROJECT_ROOT=<data_recette> APP_DATA_DIR=<data_recette>/data
-  RECETTE_MODE=1 RECETTE_ROOT=<data_recette> CHARGES_REAL_WRITE_ENABLED=1
-  CHARGES_REAL_WRITE_CONFIRMATION_ENABLED=1 LOT4A_ENGINE_PYTHON=<python-pandas>  WT=<worktree>
+  RECETTE_MODE=1 RECETTE_ROOT=<data_recette> WT=<worktree>
 
 Sortie : une ligne par scénario + « ALL SCENARIOS OK » et sortie 0 si tout est conforme.
+
+MIGRATION SQLITE (charges) — ce runner écrivait et relisait `SAISIE_Charges_Flux.xlsx` /
+`SAISIE_Charges_Impacts.xlsx`, et déclenchait un recalcul Lot3/Lot7/Lot11 en sous-processus
+(`python_moteur`) après confirmation. La charge vit maintenant dans la table SQLite `charges`
+(migration 0052) : `charges_confirmation_service.confirmer` n'accepte plus `python_moteur` et
+n'écrit plus aucun classeur. Les affectations multi-logements et la réserve de refacturation
+n'étaient déjà consommées par aucun calcul aval (Lot10/Lot12/comptabilité) — seulement affichées en
+prévisualisation puis notées dans le classeur Impacts à titre de bookkeeping — leur disparition ne
+change donc aucun résultat économique réel ; les scénarios ci-dessous vérifient désormais
+`affectation_type`/`logement_id` sur la charge elle-même plutôt qu'un classeur de ventilation.
 """
 import contextlib
 import importlib.util
@@ -16,14 +25,20 @@ import os
 import sys
 from pathlib import Path
 
-import openpyxl
-
 WT = Path(os.environ["WT"]).resolve()
 REC = WT / "data_recette"
-ENGINE = Path(os.environ.get("LOT4A_ENGINE_PYTHON", r"C:\Program Files\Python312\python.exe"))
 
 
 def reset():
+    """Reconstruit data_recette/ (classeurs fictifs) PUIS initialise le référentiel SQLite.
+
+    `build_data_recette.main()` ne produit encore que des classeurs (REF_Setup.xlsm fictif compris) :
+    aucune table `ref_*` n'était peuplée avant ce runner, ce qui faisait échouer toute
+    prévisualisation dès la première règle métier lue en base (catégorie, mode de paiement,
+    référentiel de clôture...). Le classeur REF_Setup fictif reste un IMPORT_PONCTUEL légitime — on
+    réutilise le service d'import existant (`ref_setup_import_service`, migration 0051) plutôt que de
+    réécrire un second chemin de seeding.
+    """
     spec = importlib.util.spec_from_file_location("bdr", WT / "recette" / "build_data_recette.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -32,32 +47,22 @@ def reset():
     from app.db.connection import apply_migrations
     apply_migrations()
 
-
-def read_charge():
-    """Charge écrite par le scénario courant = la DERNIÈRE ligne de la SAISIE.
-
-    Lisait `rows[0]` : juste tant que la SAISIE de recette était vide, faux dès qu'elle porte des
-    charges de départ — le writer ajoute à la suite. Les vérifications portaient alors sur la
-    première charge du jeu de recette et passaient par coïncidence quand elle avait les mêmes
-    valeurs attendues. `reset()` précède chaque scénario : la dernière ligne est bien la sienne.
-    """
-    wb = openpyxl.load_workbook(REC / "01_SOURCES_BRUTES" / "Charges" / "SAISIE_Charges_Flux.xlsx",
-                               read_only=True, data_only=True)
-    ws = wb["SAISIE"]; hdr = [c.value for c in next(ws.iter_rows(max_row=1))]
-    rows = [dict(zip(hdr, r)) for r in ws.iter_rows(min_row=2, values_only=True) if r[0]]
-    wb.close(); return rows[-1] if rows else {}
+    from app.services import ref_setup_import_service as ref_import
+    ref_setup_path = REC / "01_SOURCES_BRUTES" / "REF_Setup" / "REF_Setup.xlsm"
+    res = ref_import.importer(chemin=ref_setup_path)
+    if not res.get("ok"):
+        raise RuntimeError(f"Import référentiel recette refusé : {res.get('code')} {res.get('message')}")
 
 
-def read_impacts():
-    wb = openpyxl.load_workbook(REC / "01_SOURCES_BRUTES" / "Charges" / "SAISIE_Charges_Impacts.xlsx",
-                               read_only=True, data_only=True)
-    out = {}
-    for sh in ("AFFECTATIONS", "RESERVE_REFACTURATION"):
-        if sh in wb.sheetnames:
-            ws = wb[sh]; hdr = [c.value for c in next(ws.iter_rows(max_row=1))]
-            out[sh] = [dict(zip(hdr, r)) for r in ws.iter_rows(min_row=2, values_only=True)
-                       if any(v is not None for v in r)]
-    wb.close(); return out
+def read_charge(charge_id: str) -> dict:
+    """Relit la charge confirmée directement dans la table SQLite `charges`."""
+    from app.db.connection import get_db
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT * FROM charges WHERE charge_id = ?", (charge_id,)).fetchone()
+    finally:
+        conn.close()
+    return dict(row) if row else {}
 
 
 SC = {
@@ -69,21 +74,26 @@ SC = {
  "I": {"date_charge": "2026-06-15", "montant": "100", "categorie_charge_id": "CHG_008", "code_impact": "IC", "logements": ["LOG_A1", "LOG_B1"], "mode_paiement_id": "PAY_001", "refacturable": "NON"},
 }
 
+# affectation_type/logement_id : LOGEMENT+id pour une charge à un seul logement final, GLOBAL+None
+# dès que le périmètre en compte 0 ou plusieurs (cf. `charges_preview_service._build_row_data`).
+# proprietaire_id : matérialisé seulement si un propriétaire unique se dégage du périmètre.
 EXPECT = {
- "A": {"prise_en_compta": "OUI", "nb_affect": 1, "quotes": {"LOG_A1": 100}, "reserve_total": 0},
- "B": {"prise_en_compta": "OUI", "nb_affect": 1, "quotes": {"LOG_A1": 100}, "reserve_total": 100},
- "C": {"prise_en_compta": "OUI", "nb_affect": 1, "quotes": {"LOG_A1": 100}, "reserve_total": 0},
- "D": {"prise_en_compta": "NON", "nb_affect": 1, "quotes": {"LOG_A1": 100}, "reserve_total": 0},
- "H": {"prise_en_compta": "OUI", "nb_affect": 2, "quotes": {"LOG_A1": 50, "LOG_A2": 50}, "reserve_total": 0},
- "I": {"prise_en_compta": "OUI", "nb_affect": 2, "quotes": {"LOG_A1": 50, "LOG_B1": 50}, "reserve_total": 0},
+ "A": {"prise_en_compta": "OUI", "affectation_type": "LOGEMENT", "logement_id": "LOG_A1",
+       "proprietaire_id": "PROP_A"},
+ "B": {"prise_en_compta": "OUI", "affectation_type": "LOGEMENT", "logement_id": "LOG_A1",
+       "proprietaire_id": "PROP_A"},
+ "C": {"prise_en_compta": "OUI", "affectation_type": "LOGEMENT", "logement_id": "LOG_A1",
+       "proprietaire_id": "PROP_A"},
+ "D": {"prise_en_compta": "NON", "affectation_type": "LOGEMENT", "logement_id": "LOG_A1",
+       "proprietaire_id": "PROP_A"},
+ # LOG_A1 + LOG_A2 partagent le même propriétaire (PROP_A) dans le jeu fictif : matérialisé même
+ # si le périmètre final compte deux logements.
+ "H": {"prise_en_compta": "OUI", "affectation_type": "GLOBAL", "logement_id": None,
+       "proprietaire_id": "PROP_A"},
+ # LOG_A1 (PROP_A) + LOG_B1 (PROP_B) : propriétaires distincts → aucune attribution arbitraire.
+ "I": {"prise_en_compta": "OUI", "affectation_type": "GLOBAL", "logement_id": None,
+       "proprietaire_id": None},
 }
-
-
-def _num(v):
-    try:
-        return round(float(v), 2)
-    except (TypeError, ValueError):
-        return None
 
 
 def main():
@@ -95,36 +105,37 @@ def main():
         reset()
         r = previsualiser(dict(form))
         assert r["ok"], f"{name}: preview refusé {[e['code'] for e in r['manifest']['errors']]}"
-        res = conf.confirmer(r["token"], python_moteur=ENGINE)
+        res = conf.confirmer(r["token"], acteur="recette")
         d = res.as_dict()
         assert d.get("statut") == "SUCCES", f"{name}: confirm {d.get('statut')} {d.get('code')}"
-        post = d.get("post_ecriture") or {}
-        assert (post.get("lot3") or {}).get("statut") == "OK", f"{name}: lot3 KO"
-        assert (post.get("lot11") or {}).get("statut") == "OK", f"{name}: lot11 KO"
 
-        charge = read_charge()
-        imp = read_impacts()
-        aff = imp.get("AFFECTATIONS", [])
-        quotes = {a.get("logement_id"): _num(a.get("quote_part") or a.get("montant")) for a in aff}
-        reserve_total = round(sum(_num(x.get("montant_refacturable") or x.get("montant")) or 0
-                                  for x in imp.get("RESERVE_REFACTURATION", [])), 2)
+        charge = read_charge(d["charge_id"])
+        assert charge, f"{name}: charge {d['charge_id']} introuvable en SQLite"
 
         exp = EXPECT[name]
         checks = {
+            "montant": _round(charge.get("montant")) == 100.0,
             "prise_en_compta": charge.get("prise_en_compta") == exp["prise_en_compta"],
-            "nb_affect": len(aff) == exp["nb_affect"],
-            "quotes": quotes == {k: float(v) for k, v in exp["quotes"].items()},
-            "somme=montant": round(sum(v or 0 for v in quotes.values()), 2) == 100.0,
-            "reserve_total": reserve_total == float(exp["reserve_total"]),
+            "affectation_type": charge.get("affectation_type") == exp["affectation_type"],
+            "logement_id": charge.get("logement_id") == exp["logement_id"],
+            "proprietaire_id": charge.get("proprietaire_id") == exp["proprietaire_id"],
         }
         ok = all(checks.values())
         all_ok = all_ok and ok
         print(f"[{'PASS' if ok else 'FAIL'}] {name}: impact={charge.get('code_impact')} "
-              f"compta={charge.get('prise_en_compta')} quotes={quotes} reserve={reserve_total}"
+              f"compta={charge.get('prise_en_compta')} affectation={charge.get('affectation_type')} "
+              f"logement={charge.get('logement_id')} proprietaire={charge.get('proprietaire_id')}"
               f"{'' if ok else ' ECHECS=' + str([k for k, v in checks.items() if not v])}")
 
     print("ALL SCENARIOS OK" if all_ok else "SOME SCENARIOS FAILED")
     return 0 if all_ok else 1
+
+
+def _round(v):
+    try:
+        return round(float(v), 2)
+    except (TypeError, ValueError):
+        return None
 
 
 if __name__ == "__main__":
