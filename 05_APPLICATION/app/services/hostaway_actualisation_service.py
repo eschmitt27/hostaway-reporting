@@ -34,6 +34,7 @@ from typing import Any
 
 import app.config as cfg
 from app.db.connection import get_db
+from app.services import run_history_service as history
 
 SCRIPT = "lot1_hostaway_extract.py"
 
@@ -165,6 +166,13 @@ def actualiser(*, declencheur: str = DECLENCHEUR_MANUEL, arguments: tuple[str, .
     env["PYTHONIOENCODING"] = "utf-8"
 
     debut = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # `run_history` (mission scheduler Hostaway) : uniquement sur le chemin SYNCHRONE
+    # (`attendre=True`, celui qu'empruntent l'orchestrateur et l'ordonnanceur) — c'est le seul où
+    # l'issue réelle (code_retour) est connue avant de répondre. Le bouton "fire-and-forget" reste
+    # suivi par `moteur_runs`/`hostaway_extractions`, écrits par le sous-processus lui-même.
+    history_run_id = history.demarrer("HOSTAWAY", acteur=declencheur, db_path=db_path) \
+        if attendre else None
+
     try:
         if attendre:
             proc = subprocess.run(commande, cwd=str(cfg.PROJECT_ROOT), env=env,
@@ -175,11 +183,21 @@ def actualiser(*, declencheur: str = DECLENCHEUR_MANUEL, arguments: tuple[str, .
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             code = None
     except Exception as exc:
+        if history_run_id is not None:
+            history.marquer_echec(history_run_id, erreur=f"{type(exc).__name__}: {exc}",
+                                  db_path=db_path)
         return {"ok": False, "code": E_LANCEMENT,
                 "message": f"{MESSAGES[E_LANCEMENT]} ({type(exc).__name__})"}
 
+    if history_run_id is not None:
+        if code == 0:
+            history.marquer_succes(history_run_id, db_path=db_path)
+        else:
+            history.marquer_echec(history_run_id, erreur=f"code_retour={code}", db_path=db_path)
+
     return {"ok": True, "lance_le": debut, "declencheur": declencheur, "pid": proc.pid,
-            "code_retour": code, "attendu": attendre, "etat": etat(db_path=db_path)}
+            "code_retour": code, "attendu": attendre, "etat": etat(db_path=db_path),
+            "history_run_id": history_run_id}
 
 
 # ── État ────────────────────────────────────────────────────────────────────────────────────────
