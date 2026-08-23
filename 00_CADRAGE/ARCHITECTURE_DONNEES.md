@@ -2063,3 +2063,16 @@ Câblé cette session : démarrage/arrêt avec `app/main.py`, `run_history` pour
 synchrone), cadences configurables par variable d'environnement. Aucune sauvegarde `app.db` avant
 un tick Hostaway de routine (panne API → non-activation du dataset, jamais une restauration
 complète). Détail : `SCHEDULER_HOSTAWAY.md` (même sous-dossier de mission).
+
+## Mise à jour 2026-08-23 — référentiels administrables (existant, non reconstruit)
+
+`referentiel_admin_service.py`/`logements_gestion_service.py`/`fournisseurs_referentiel_service.py`
+et l'écran `/administration/referentiels` existaient déjà (historisation, journal
+`ref_admin_evenements`, garde no-delete). Ajouté cette session : `referentiel_admin_service.
+transaction()` (clôture+ouverture atomiques, un seul commit) ; `ref_couts_standards_menage` promue
+au rang de table historisée via un dict déclaratif `PERIODES` (grain/colonnes de période par
+table — généralise l'ancien `TABLES_HISTORISEES` figé sur `logement_id`/`date_debut`/`date_fin`) et
+son propre module `couts_menage_gestion_service.py` ; refus de chevauchement avec une période close ;
+garde de désactivation propriétaire↔logement actif ; lien de navigation vers
+`/referentiel-fournisseurs`. Aucune nouvelle table, aucune migration, aucune règle de calcul
+modifiée — détail complet : `REFERENTIELS_ADMIN_SQLITE.md` (même sous-dossier de mission).

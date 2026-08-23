@@ -2036,3 +2036,18 @@ avec `app/main.py::lifespan` (le service n'était jamais lancé), `run_history` 
 (déjà le comportement de l'orchestrateur pour une cible unique — panne API = non-activation du
 dataset, jamais une restauration complète). Scheduler réel toujours INACTIF
 (`ORDONNANCEUR_ACTIF=False` par défaut, non modifié). Détail complet : `SCHEDULER_HOSTAWAY.md`.
+
+**Mis à jour 2026-08-23 (référentiels administrables)** : l'administration des référentiels
+(`referentiel_admin_service.py`, `logements_gestion_service.py`, `fournisseurs_referentiel_
+service.py`, écran `/administration/referentiels`) **existait déjà**, historisée et journalisée
+(`ref_admin_evenements`). Cinq manques comblés, sans deuxième système créé : (1) `referentiel_
+admin_service.transaction()` rend atomiques les séquences clôture+ouverture (`archiver`/
+`reactiver`/`changer_proprietaire`/`changer_taux_commission`) — un échec de l'ouverture annule
+désormais la clôture déjà faite ; (2) `ref_couts_standards_menage` a rejoint les tables historisées
+(nouveau `couts_menage_gestion_service.py`, grain `type_logement_id`, colonnes `*_validite` — le
+moteur `lot6f_cout_complet_menages.py` les consommait déjà de façon historisée en lecture, seule
+l'écriture manquait de discipline) ; (3) refus d'une nouvelle période dont le début chevauche une
+période déjà close du même grain ; (4) désactiver un propriétaire encore rattaché à un logement
+actif est refusé (`V10_PROPRIETAIRE_LOGEMENT_ACTIF`) ; (5) lien de navigation ajouté vers
+`/referentiel-fournisseurs`, jusque-là sans accès menu. Aucune migration, aucune règle de calcul
+modifiée. Détail complet : `REFERENTIELS_ADMIN_SQLITE.md`.

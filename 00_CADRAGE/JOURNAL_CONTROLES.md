@@ -4046,3 +4046,34 @@ Tests : 10 nouveaux (`test_scheduler_hostaway_industrialisation.py`) + 1 (écran
 `test_ordonnanceur.py` adapté (`cadences()` fonction au lieu de dict figé, 16 tests existants
 toujours verts). Campagne complète : moteur 345/345 passed, application ~2660 passed (8 shards).
 **0 failed.** Détail complet : `SCHEDULER_HOSTAWAY.md`.
+
+## 2026-08-23 — référentiels SQLite administrables (audit : déjà largement construit, non reconstruit)
+
+Audit initial de la mission « référentiels administrables » : `referentiel_admin_service.py`
+(historisation, journal `ref_admin_evenements`, garde no-delete, 28 tables catégorisées),
+`logements_gestion_service.py` (cycle de vie logement historisé) et `fournisseurs_referentiel_
+service.py` (CRUD fournisseurs versionné) existaient déjà, avec l'écran `/administration/
+referentiels`. Rien reconstruit.
+
+Cinq manques réels comblés :
+- `referentiel_admin_service.transaction()` (nouveau context manager) rend atomiques les séquences
+  clôture+ouverture (`archiver`/`reactiver`/`changer_proprietaire`/`changer_taux_commission`) —
+  auparavant deux connexions/commits séparés, un échec de la seconde écriture après la première
+  déjà committée aurait laissé un logement sans période ouverte. Testé par collision de clé
+  primaire volontaire sur la ligne à ouvrir : l'ancienne période reste ouverte après l'échec.
+- `ref_couts_standards_menage` promue table historisée (nouveau `couts_menage_gestion_service.py`,
+  grain `type_logement_id`) — le moteur (`lot6f_cout_complet_menages.py::date_aware`) la consommait
+  déjà de façon historisée en lecture, seule l'écriture manquait de discipline clôture/ouverture ;
+  l'écran générique ne peut plus la modifier librement.
+- Refus d'une nouvelle période historisée dont le début chevauche une période déjà **close** du
+  même grain (au-delà du refus déjà existant sur une période déjà ouverte).
+- Désactiver un propriétaire encore rattaché à un logement actif est refusé
+  (`V10_PROPRIETAIRE_LOGEMENT_ACTIF`) — réactiver reste toujours libre.
+- Lien de navigation ajouté vers `/referentiel-fournisseurs`, jusque-là sans accès menu (collision
+  avec l'écran charges `/fournisseurs`).
+
+Aucune migration, aucune règle de calcul métier modifiée. Tests : 17 nouveaux
+(`test_referentiels_administration_industrialisation.py`) + `fixtures_referentiel.py` complété
+d'un paramètre `couts=`. Campagne complète : moteur 345/345 passed, application 2678 passed
+(9 lots, quelques `skipped` pré-existants). **0 failed.** Détail complet :
+`REFERENTIELS_ADMIN_SQLITE.md`.

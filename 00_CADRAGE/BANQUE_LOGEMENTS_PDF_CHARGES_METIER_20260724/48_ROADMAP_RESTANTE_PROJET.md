@@ -387,3 +387,12 @@ réel toujours INACTIF par défaut. `run_history` pour Hostaway/Banque via les i
 reste partiellement fait (Hostaway oui via cette mission, Banque toujours non). Détail :
 `SCHEDULER_HOSTAWAY.md`. Prochaine étape annoncée par le porteur : référentiels SQLite
 administrables depuis l'application.
+
+**Mis à jour 2026-08-23 (référentiels administrables)** : l'administration existait déjà
+(`referentiel_admin_service.py`, `logements_gestion_service.py`, `fournisseurs_referentiel_
+service.py`, écran `/administration/referentiels`) — 5 manques réels comblés : transactions
+atomiques clôture+ouverture, historisation de `ref_couts_standards_menage` (nouveau
+`couts_menage_gestion_service.py`), refus de chevauchement avec une période close, garde
+propriétaire↔logement actif à la désactivation, lien de navigation fournisseurs. Aucune migration.
+Détail : `REFERENTIELS_ADMIN_SQLITE.md`. Prochaine étape annoncée (hors mandat) : simplification
+architecture Python + séparation moteurs métier purs + finalisation observabilité/backups.
