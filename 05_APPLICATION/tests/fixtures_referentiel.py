@@ -26,7 +26,7 @@ def _inserer(conn, table: str, lignes: Iterable[dict[str, Any]]) -> None:
 
 
 def semer(db_path, *, logements=(), gestion=(), proprietaires=(), types=(), taux=(), couts=(),
-          import_id: str = IMPORT_TEST) -> None:
+          canape=(), import_id: str = IMPORT_TEST) -> None:
     """Sème un référentiel minimal et marque l'import comme abouti.
 
     `ref_setup_repo.est_disponible()` exige un import au statut IMPORTE : sans cette ligne, le
@@ -45,6 +45,7 @@ def semer(db_path, *, logements=(), gestion=(), proprietaires=(), types=(), taux
         _inserer(conn, "ref_types_logements", types)
         _inserer(conn, "ref_taux_commission", taux)
         _inserer(conn, "ref_couts_standards_menage", couts)
+        _inserer(conn, "ref_canape_parametres", canape)
         conn.commit()
     finally:
         conn.close()

@@ -48,6 +48,8 @@
                 {% if c == meta.cle %}
                   <span class="font-mono">{{ l.get(c, '') }}</span>
                   <input type="hidden" name="{{ c }}" value="{{ l.get(c, '') }}">
+                {% elif c in meta.colonnes_lecture_seule %}
+                  <span class="text-secondary" title="Historisé — voir l'écran dédié">{{ l.get(c, '') }}</span>
                 {% else %}
                   <input class="input input-sm" name="{{ c }}" value="{{ l.get(c, '') }}">
                 {% endif %}
@@ -101,18 +103,54 @@
 </div>
 {% endif %}
 
+{% if meta.table == table_canape %}
+<div class="card mb-lg">
+  <div class="card-title">Changer le seuil/montant canapé d'un logement</div>
+  <p class="text-xs text-secondary mb-md">
+    Clôture la période active à la veille de la date choisie et ouvre une nouvelle ligne — la ligne
+    précédente reste consultable, jamais modifiée. Un recalcul futur d'une réservation passée
+    continue d'utiliser le paramètre en vigueur à sa date, jamais celui-ci.
+  </p>
+  <form method="post" action="/administration/referentiels/ref_canape_parametres/changer-parametres">
+    <div class="grid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:var(--space-sm);">
+      <label class="text-xs">Logement <span class="text-danger">*</span>
+        <input class="input" name="logement_id" required>
+      </label>
+      <label class="text-xs">Seuil de voyageurs <span class="text-danger">*</span>
+        <input class="input" name="seuil_voyageurs_preparation_canape" required>
+      </label>
+      <label class="text-xs">Montant <span class="text-danger">*</span>
+        <input class="input" name="montant_preparation_canape" required>
+      </label>
+      <label class="text-xs">Date de début <span class="text-danger">*</span>
+        <input class="input" type="date" name="date_debut" required>
+      </label>
+    </div>
+    <button type="submit" class="btn btn-primary mt-md" {% if not disponible %}disabled{% endif %}>Changer les paramètres</button>
+  </form>
+</div>
+{% endif %}
+
 {% if not meta.lecture_seule %}
 <div class="card mb-lg">
   <div class="card-title">Ajouter une ligne</div>
   <form method="post" action="/administration/referentiels/{{ meta.table }}/creer">
     <div class="grid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:var(--space-sm);">
       {% for c in meta.colonnes %}
+      {% if c not in meta.colonnes_lecture_seule %}
       <label class="text-xs">
         {{ c }}{% if c == meta.cle %} <span class="text-danger">*</span>{% endif %}
         <input class="input" name="{{ c }}" {% if c == meta.cle %}required{% endif %}>
       </label>
+      {% endif %}
       {% endfor %}
     </div>
+    {% if meta.colonnes_lecture_seule %}
+    <p class="text-xs text-secondary mt-sm">
+      Champs historisés ({{ meta.colonnes_lecture_seule|join(', ') }}) : non saisissables ici, voir
+      l'écran dédié une fois le logement créé.
+    </p>
+    {% endif %}
     <button type="submit" class="btn btn-primary mt-md" {% if not disponible %}disabled{% endif %}>Créer</button>
   </form>
 </div>

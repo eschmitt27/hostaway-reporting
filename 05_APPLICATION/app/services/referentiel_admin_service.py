@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
 
@@ -34,6 +35,28 @@ from app.db.connection import get_db
 from app.services import ref_setup_repo as repo
 
 SOURCE_APPLICATION = "SAISIE_APPLICATION"
+
+
+@dataclass(frozen=True)
+class TableNative:
+    onglet: str
+    cle: str
+    colonnes: tuple[str, ...]
+
+
+#: Tables SQLite natives, historisées, qui réutilisent le CRUD/historisation générique de ce
+#: module mais n'existent PAS dans le classeur REF_Setup — jamais dans `ref_setup_catalogue.
+#: FEUILLES`, sinon `ref_setup_import_service._lire_classeur` échouerait en cherchant un onglet
+#: Excel qui n'existe pas (`E_ONGLET_MANQUANT`). Mission 6 : premier exemple, paramètres canapé.
+TABLES_NATIVES: dict[str, TableNative] = {
+    "ref_canape_parametres": TableNative(
+        onglet="REF_Canape_Parametres",
+        cle="canape_parametre_id",
+        colonnes=("canape_parametre_id", "logement_id",
+                  "seuil_voyageurs_preparation_canape", "montant_preparation_canape",
+                  "date_debut", "date_fin", "actif", "commentaire"),
+    ),
+}
 
 TABLE_LOGEMENTS = "ref_logements"
 TABLE_GESTION = "ref_gestion_logements_hist"
@@ -125,11 +148,34 @@ def disponible(*, db_path=None) -> bool:
 
 # ── Lecture (pour valider avant d'écrire) ───────────────────────────────────────────────────────
 
+def _lire_table_native(table: str, native: TableNative, *, conn=None,
+                       db_path=None) -> list[dict[str, str]]:
+    """Équivalent de `ref_setup_repo.lire_table`, mais sans passer par le catalogue Excel — cette
+    table n'a pas d'onglet, donc pas de `Feuille` dans `ref_setup_catalogue`."""
+    c = conn if conn is not None else get_db(db_path)
+    try:
+        cols = ", ".join(native.colonnes)
+        rows = c.execute(f"SELECT {cols} FROM {table}").fetchall()
+        return [dict(zip(native.colonnes, [("" if v is None else str(v)) for v in r]))
+                for r in rows]
+    finally:
+        if conn is None:
+            c.close()
+
+
 def lignes(table: str, *, conn=None, db_path=None) -> list[dict[str, str]]:
+    native = TABLES_NATIVES.get(table)
+    if native is not None:
+        return _lire_table_native(table, native, conn=conn, db_path=db_path)
     return repo.lire_table(table, conn=conn, db_path=db_path)
 
 
 def ligne(table: str, cle_valeur: str, *, conn=None, db_path=None) -> dict[str, str] | None:
+    native = TABLES_NATIVES.get(table)
+    if native is not None:
+        cv = txt(cle_valeur)
+        return next((r for r in _lire_table_native(table, native, conn=conn, db_path=db_path)
+                    if txt(r.get(native.cle)) == cv), None)
     return repo.lire_par_cle(table, txt(cle_valeur), conn=conn, db_path=db_path)
 
 
@@ -144,6 +190,8 @@ PERIODES: dict[str, dict[str, str]] = {
         "grain": "logement_id", "debut": "date_debut", "fin": "date_fin"},
     "ref_couts_standards_menage": {
         "grain": "type_logement_id", "debut": "date_debut_validite", "fin": "date_fin_validite"},
+    "ref_canape_parametres": {
+        "grain": "logement_id", "debut": "date_debut", "fin": "date_fin"},
 }
 
 #: Tout le moteur (`lib_ref_history.resolve_management_period`, `resolve_commission_rate`,
@@ -180,6 +228,9 @@ def periode_ouverte(table: str, grain_valeur: str, *, conn=None, db_path=None) -
 # ── Écriture ────────────────────────────────────────────────────────────────────────────────────
 
 def _colonnes(table: str) -> tuple[str, ...]:
+    native = TABLES_NATIVES.get(table)
+    if native is not None:
+        return native.colonnes
     from app.services import ref_setup_catalogue as cat
     feuille = cat.PAR_TABLE.get(table)
     if feuille is None:
@@ -324,6 +375,9 @@ def clore_periode(table: str, grain_valeur: str, date_fin: str, *, statut: str =
 
 
 def _cle(table: str) -> str:
+    native = TABLES_NATIVES.get(table)
+    if native is not None:
+        return native.cle
     from app.services import ref_setup_catalogue as cat
     feuille = cat.PAR_TABLE.get(table)
     if feuille is None:
@@ -376,7 +430,8 @@ CATEGORIES: tuple[dict[str, Any], ...] = (
         "description": "Taux de commission et coûts de ménage, avec leurs périodes de validité.",
         "tables": ("ref_taux_commission", "ref_couts_standards_menage",
                    "ref_couts_menage_interne", "ref_taux_heures_menage",
-                   "ref_charges_recurrentes", "ref_abonnements_logiciels"),
+                   "ref_charges_recurrentes", "ref_abonnements_logiciels",
+                   "ref_canape_parametres"),
     },
     {
         "cle": "menages",
@@ -407,30 +462,55 @@ LECTURE_SEULE = {
     "ref_gestion_logements_hist": "Fiche logement → changement de propriétaire / archivage",
     "ref_taux_commission": "Fiche logement → changement de taux de commission",
     "ref_couts_standards_menage": "Écran coûts ménage → changement de coût standard",
+    "ref_canape_parametres": "Écran paramètres canapé → changement de seuil/montant",
+}
+
+# Colonnes exclues de l'édition libre bien que leur TABLE reste administrable — la donnée vit
+# aussi (et fait foi pour le calcul) dans une table historisée dédiée. `ref_logements` reste
+# éditable pour ses champs descriptifs ; seules ces deux colonnes, désormais vestigiales, passent
+# par `canape_gestion_service.changer_parametres` (Mission 6).
+COLONNES_LECTURE_SEULE: dict[str, set[str]] = {
+    "ref_logements": {"seuil_voyageurs_preparation_canape", "montant_preparation_canape"},
 }
 
 # Colonne portant l'activation, quand la table en a une.
 COLONNE_ACTIF = "actif"
 
 
+def _compter_native(table: str, *, db_path=None) -> int:
+    conn = get_db(db_path)
+    try:
+        return conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+    finally:
+        conn.close()
+
+
 def categories(*, db_path=None) -> list[dict[str, Any]]:
     """Les catégories, enrichies du libellé et de la volumétrie de chaque table."""
     from app.services import ref_setup_catalogue as cat
 
-    compte = repo.compter(db_path=db_path) if disponible(db_path=db_path) else {}
+    dispo = disponible(db_path=db_path)
+    compte = repo.compter(db_path=db_path) if dispo else {}
     out = []
     for c in CATEGORIES:
         tables = []
         for t in c["tables"]:
-            feuille = cat.PAR_TABLE.get(t)
-            if feuille is None:
-                continue
+            native = TABLES_NATIVES.get(t)
+            if native is not None:
+                onglet, cle_t = native.onglet, native.cle
+                nb_lignes = _compter_native(t, db_path=db_path) if dispo else 0
+            else:
+                feuille = cat.PAR_TABLE.get(t)
+                if feuille is None:
+                    continue
+                onglet, cle_t = feuille.onglet, feuille.cle
+                nb_lignes = compte.get(t, 0)
             tables.append({
                 "table": t,
-                "onglet": feuille.onglet,
-                "libelle": feuille.onglet.replace("REF_", "").replace("_", " "),
-                "cle": feuille.cle,
-                "nb_lignes": compte.get(t, 0),
+                "onglet": onglet,
+                "libelle": onglet.replace("REF_", "").replace("_", " "),
+                "cle": cle_t,
+                "nb_lignes": nb_lignes,
                 "lecture_seule": t in LECTURE_SEULE,
                 "motif_lecture_seule": LECTURE_SEULE.get(t, ""),
             })
@@ -440,6 +520,20 @@ def categories(*, db_path=None) -> list[dict[str, Any]]:
 
 def decrire_table(table: str, *, db_path=None) -> dict[str, Any]:
     """Métadonnées d'une table pour l'écran de liste/édition."""
+    native = TABLES_NATIVES.get(table)
+    if native is not None:
+        return {
+            "ok": True,
+            "table": table,
+            "onglet": native.onglet,
+            "cle": native.cle,
+            "colonnes": list(native.colonnes),
+            "lecture_seule": table in LECTURE_SEULE,
+            "motif_lecture_seule": LECTURE_SEULE.get(table, ""),
+            "a_colonne_actif": COLONNE_ACTIF in native.colonnes,
+            "colonnes_lecture_seule": sorted(COLONNES_LECTURE_SEULE.get(table, set())),
+        }
+
     from app.services import ref_setup_catalogue as cat
 
     feuille = cat.PAR_TABLE.get(table)
@@ -454,6 +548,7 @@ def decrire_table(table: str, *, db_path=None) -> dict[str, Any]:
         "lecture_seule": table in LECTURE_SEULE,
         "motif_lecture_seule": LECTURE_SEULE.get(table, ""),
         "a_colonne_actif": COLONNE_ACTIF in feuille.colonnes,
+        "colonnes_lecture_seule": sorted(COLONNES_LECTURE_SEULE.get(table, set())),
     }
 
 
@@ -474,6 +569,9 @@ def creer_ligne(table: str, valeurs: dict[str, Any], *, acteur: str = "",
     if ligne(table, cle_valeur, db_path=db_path) is not None:
         return refus(E_CLE_EXISTANTE, cle_valeur)
 
+    verrouillees = COLONNES_LECTURE_SEULE.get(table, set())
+    if verrouillees:
+        valeurs = {c: v for c, v in valeurs.items() if c not in verrouillees}
     return inserer(table, valeurs, action="CREATION", acteur=acteur, db_path=db_path)
 
 
@@ -487,7 +585,9 @@ def modifier_ligne(table: str, cle_valeur: str, valeurs: dict[str, Any], *, acte
     if meta["lecture_seule"]:
         return refus(E_ECRITURE, meta["motif_lecture_seule"])
 
-    champs = {c: v for c, v in valeurs.items() if c in meta["colonnes"] and c != meta["cle"]}
+    verrouillees = COLONNES_LECTURE_SEULE.get(table, set())
+    champs = {c: v for c, v in valeurs.items()
+             if c in meta["colonnes"] and c != meta["cle"] and c not in verrouillees}
     if not champs:
         return {"ok": True, "inchange": True}
     return mettre_a_jour(table, cle_valeur, champs, action="MODIFICATION", acteur=acteur,

@@ -17,6 +17,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.config import TEMPLATES_DIR
+from app.services import canape_gestion_service as canape
 from app.services import couts_menage_gestion_service as cm
 from app.services import referentiel_admin_service as adm
 
@@ -25,6 +26,7 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 _MENU = "administration_referentiels"
 TABLE_COUTS_MENAGE = cm.TABLE
+TABLE_CANAPE = canape.TABLE
 
 
 @router.get("/administration/referentiels", response_class=HTMLResponse)
@@ -51,6 +53,7 @@ def detail(request: Request, table: str, message: str = "", erreur: str = ""):
         "lignes": adm.lignes(table) if adm.disponible() else [],
         "evenements": adm.historique_evenements(table, limite=20),
         "table_couts_menage": TABLE_COUTS_MENAGE,
+        "table_canape": TABLE_CANAPE,
         "message": message,
         "erreur": erreur,
     })
@@ -63,6 +66,18 @@ def changer_cout_menage(type_logement_id: str = Form(...), cout_standard_menage:
     jamais de modification d'une ligne close (voir `couts_menage_gestion_service`)."""
     res = cm.changer_cout(type_logement_id, cout_standard_menage, date_debut, acteur="ui")
     return _retour(TABLE_COUTS_MENAGE, res, "Coût standard mis à jour.")
+
+
+@router.post("/administration/referentiels/ref_canape_parametres/changer-parametres")
+def changer_parametres_canape(logement_id: str = Form(...),
+                              seuil_voyageurs_preparation_canape: str = Form(...),
+                              montant_preparation_canape: str = Form(...),
+                              date_debut: str = Form(...)):
+    """Change le seuil/montant canapé d'un logement — clôture + ouverture atomiques, jamais de
+    modification d'une ligne close (voir `canape_gestion_service`)."""
+    res = canape.changer_parametres(logement_id, seuil_voyageurs_preparation_canape,
+                                    montant_preparation_canape, date_debut, acteur="ui")
+    return _retour(TABLE_CANAPE, res, "Paramètres canapé mis à jour.")
 
 
 @router.post("/administration/referentiels/{table}/creer")

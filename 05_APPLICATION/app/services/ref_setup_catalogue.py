@@ -478,6 +478,11 @@ FEUILLES: tuple[Feuille, ...] = (
     ),
 )
 
+# `ref_canape_parametres` (Mission 6) n'est PAS enregistrée ici : ce n'est pas un onglet du
+# classeur REF_Setup (`_lire_classeur`/`importer` de `ref_setup_import_service` échoueraient en
+# cherchant un onglet Excel qui n'existe pas). Elle réutilise le CRUD générique de
+# `referentiel_admin_service` via son propre petit catalogue natif (`TABLES_NATIVES`), pas celui-ci.
+
 PAR_ONGLET: dict[str, Feuille] = {f.onglet: f for f in FEUILLES}
 PAR_TABLE: dict[str, Feuille] = {f.table: f for f in FEUILLES}
 

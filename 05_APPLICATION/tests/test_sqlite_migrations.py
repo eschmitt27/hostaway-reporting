@@ -154,6 +154,7 @@ EXPECTED_TABLES = {
     "ajustements_post_cloture",                  # 0054 — extras Ajustements post-clôture
     "sauvegardes_base",                          # 0057 — sauvegardes app.db (industrialisation)
     "run_history",                               # 0057 — historique centralisé des runs
+    "ref_canape_parametres",                     # 0058 — paramètres canapé historisés (Mission 6)
 }
 
 

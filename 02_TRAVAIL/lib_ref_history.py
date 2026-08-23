@@ -127,6 +127,40 @@ def resolve_commission_rate(
     return Resolution("OK", value=rate, row=row, message="")
 
 
+def resolve_canape_parametres(
+    rows: Iterable[dict[str, Any]],
+    *,
+    logement_id: Any,
+    ref_date: Any,
+) -> Resolution:
+    """Resolve dated sofa-bed ("canape") preparation parameters (seuil/montant) for a logement.
+
+    No configured rule for a logement is a legitimate, common case — a logement simply doesn't
+    charge for sofa-bed preparation. This resolver only distinguishes "no row applies at this
+    date" (MISSING) from "exactly one row applies" (OK, `res.row` carries seuil/montant) from
+    "several simultaneous rows" (AMBIGUOUS, a data error the admin layer should already prevent).
+    Never falls back to whatever row happens to be "current" — a MISSING/AMBIGUOUS result must
+    never be silently replaced by today's value.
+    """
+    log = norm_text(logement_id)
+    candidates = []
+    for row in rows:
+        if norm_text(row.get("logement_id")) != log:
+            continue
+        if not is_active(row.get("actif")):
+            continue
+        if not applies_on(row, ref_date, "date_debut", "date_fin"):
+            continue
+        candidates.append(row)
+
+    if not candidates:
+        return Resolution("MISSING", message="Aucun parametre canape configure pour cette date")
+    if len(candidates) > 1:
+        ids = ", ".join(norm_text(r.get("canape_parametre_id")) for r in candidates)
+        return Resolution("AMBIGUOUS", message=f"Parametres canape simultanes: {ids}")
+    return Resolution("OK", row=candidates[0])
+
+
 def resolve_management_period(
     rows: Iterable[dict[str, Any]],
     *,

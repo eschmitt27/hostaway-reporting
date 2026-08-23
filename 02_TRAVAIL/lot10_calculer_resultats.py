@@ -40,7 +40,12 @@ from openpyxl.utils import get_column_letter
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lib_db_moteur as dbm  # noqa: E402
 
-from lib_ref_history import REF_GESTION_LOGEMENTS_HIST_SHEET, resolve_commission_rate, resolve_management_period
+from lib_ref_history import (
+    REF_GESTION_LOGEMENTS_HIST_SHEET,
+    resolve_canape_parametres,
+    resolve_commission_rate,
+    resolve_management_period,
+)
 from lib_settlements import (
     aggregate_refacturable_charges,
     settle_invoice,
@@ -370,6 +375,25 @@ def load_sources(source="EXCEL", chemin_base=None):
     df_taux   = _read_optional_sheet(REF_FILE, "REF_Taux_Commission", keep_vba=True)
     df_gest   = _read_optional_sheet(REF_FILE, REF_GESTION_LOGEMENTS_HIST_SHEET, keep_vba=True)
 
+    # Paramètres canapé (seuil/montant) — Mission 6 : n'existent QUE dans SQLite (migration 0058),
+    # jamais eu d'onglet Excel équivalent (les colonnes REF_Logements.seuil_voyageurs_preparation_
+    # canape/montant_preparation_canape restaient COURANTES, sans période). `chemin_base` est
+    # calculé plus haut (--db / PILOTAGE_DB_PATH / APP_DATA_DIR), indépendamment de `--source` : ce
+    # nouveau paramètre est disponible même en mode EXCEL. Absence de base ou table non migrée →
+    # DataFrame vide, `build_commissions` retombe alors sur la colonne courante (comportement
+    # historique inchangé), jamais une exception.
+    df_canape = pd.DataFrame()
+    conn_canape, _msg_canape = dbm.verifier(chemin_base, ("ref_canape_parametres",))
+    if conn_canape is not None:
+        try:
+            df_canape = pd.DataFrame(dbm.lignes(
+                conn_canape, "ref_canape_parametres",
+                ("canape_parametre_id", "logement_id", "seuil_voyageurs_preparation_canape",
+                 "montant_preparation_canape", "date_debut", "date_fin", "actif"),
+                ordre="canape_parametre_id"))
+        finally:
+            conn_canape.close()
+
     # Sources HH + Acomptes (lecture seule, hors placeholder Power Query)
     df_hh  = _read_sheet(HH_FILE,  sheet="MASTER") if HH_FILE.exists()  else pd.DataFrame()
     df_acc = _read_sheet(ACC_FILE, sheet="MASTER") if ACC_FILE.exists() else pd.DataFrame()
@@ -406,13 +430,14 @@ def load_sources(source="EXCEL", chemin_base=None):
     log.info(f"  REF_Logements : {len(df_log)} logements")
     log.info(f"  REF_Prop      : {len(df_prop)} proprietaires")
     log.info(f"  REF_Taux_Comm : {len(df_taux)} lignes historisees")
-    return df_flux, df_res, df_payout, df_hh, df_acc, df_charges, df_airbnb_imp, df_log, df_prop, df_taux, df_gest
+    return (df_flux, df_res, df_payout, df_hh, df_acc, df_charges, df_airbnb_imp, df_log, df_prop,
+            df_taux, df_gest, df_canape)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Build commissions
 # ─────────────────────────────────────────────────────────────────────────────
-def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_taux):
+def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_taux, df_canape=None):
     log.info("=== Construction commissions (routage HA / HH) ===")
     hh_controls = []
     taux_controls = []
@@ -708,6 +733,21 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
         df_vrbo_norm = df_vrbo
 
     # ── 2h. Sortie COMMISSIONS (NORMAL HA + VRBO + HH) ──
+    #
+    # Paramètre canapé — Mission 6 (historisation) : `canape_history` (ref_canape_parametres,
+    # SQLite) fait foi quand disponible, résolu à LA DATE DE LA RÉSERVATION (`date_arrivee`), pas
+    # à la date du recalcul. Absent (base non fournie ou table non migrée) : repli sur l'ancienne
+    # colonne courante `REF_Logements` (comportement historique inchangé, aucune régression pour
+    # les appels — tests notamment — qui ne fournissent aucune base).
+    canape_history = (df_canape.to_dict("records")
+                      if df_canape is not None and len(df_canape) > 0 else [])
+
+    def _canape_ref_row(log_id, ref_date):
+        if not canape_history:
+            return log_ref.get(log_id)
+        res = resolve_canape_parametres(canape_history, logement_id=log_id, ref_date=ref_date)
+        return res.row if res.status == "OK" else None
+
     def _apply_preparation_canape(df: pd.DataFrame) -> pd.DataFrame:
         if len(df) == 0:
             return df
@@ -717,7 +757,7 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
         sources = []
         for _, row in out.iterrows():
             log_id = row.get("logement_id_eff") or row.get("logement_id")
-            ref_row = log_ref.get(log_id)
+            ref_row = _canape_ref_row(log_id, row.get("date_arrivee"))
             res = calculate_canape_amount(log_id, row.get("guestCount"), ref_row)
             amounts.append(res.amount)
             statuses.append(res.status)
@@ -1500,10 +1540,10 @@ def main():
         sys.exit("[lot10] ERREUR : --source SQLITE exige une base "
                  "(--db / PILOTAGE_DB_PATH / APP_DATA_DIR).")
 
-    df_flux, df_res, df_payout, df_hh, df_acc, df_charges, df_airbnb_imp, df_log, df_prop, df_taux, df_gest = load_sources(
-        source=args.source, chemin_base=chemin_base)
+    (df_flux, df_res, df_payout, df_hh, df_acc, df_charges, df_airbnb_imp, df_log, df_prop,
+     df_taux, df_gest, df_canape) = load_sources(source=args.source, chemin_base=chemin_base)
 
-    df_comm, df_ac, hh_controls     = build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_taux)
+    df_comm, df_ac, hh_controls     = build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_taux, df_canape)
     df_cfix, cfix_controls          = build_charge_fixe(df_flux, df_log, df_gest)
     df_reel, df_compt, df_hc        = build_resultats(df_flux)
     df_exploit, df_reg, df_vue      = build_net_proprietaire(df_comm, df_cfix, df_acc, df_airbnb_imp, df_charges)
