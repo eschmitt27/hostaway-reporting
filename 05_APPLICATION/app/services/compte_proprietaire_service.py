@@ -45,9 +45,7 @@ from datetime import datetime
 from typing import Any
 
 from app.db.connection import get_db
-
-# Comparaison monétaire : au-delà de ce seuil, un écart est réel et non un artefact d'arrondi.
-TOLERANCE = 0.005
+from app.moteurs.fifo_engine import TOLERANCE, calculer_fifo  # noqa: F401 — ré-export, voir §Moteur FIFO
 
 SRC_PAIEMENT = "PAIEMENT"
 SRC_REVERSEMENT = "REVERSEMENT"
@@ -124,40 +122,12 @@ def _empreinte(factures: list[dict], sources: list[dict]) -> str:
 
 
 # ── Moteur FIFO ─────────────────────────────────────────────────────────────────────────────────
-
-def calculer_fifo(factures: list[dict[str, Any]],
-                  sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Fonction PURE : (factures triées, sources triées) → allocations. Aucun accès base.
-
-    Isolée volontairement — c'est le cœur de la règle métier, et il doit être testable sans base,
-    sans facture réelle et sans propriétaire.
-    """
-    restant_facture = {f["facture_id_opaque"]: f["montant_total"] for f in factures}
-    allocations: list[dict[str, Any]] = []
-    rang = 0
-
-    for source in sources:
-        disponible = source["montant"]
-        for facture in factures:
-            if disponible <= TOLERANCE:
-                break
-            du = restant_facture[facture["facture_id_opaque"]]
-            if du <= TOLERANCE:
-                continue
-            montant = _round(min(disponible, du))
-            if montant <= 0:
-                continue
-            rang += 1
-            allocations.append({
-                "source_type": source["source_type"], "source_ref": source["source_ref"],
-                "source_date": source["source_date"],
-                "facture_id_opaque": facture["facture_id_opaque"],
-                "montant_alloue": montant, "rang_fifo": rang,
-            })
-            restant_facture[facture["facture_id_opaque"]] = _round(du - montant)
-            disponible = _round(disponible - montant)
-        # Le reliquat éventuel n'est pas perdu : il devient du crédit, calculé par différence.
-    return allocations
+#
+# `calculer_fifo` et `TOLERANCE` vivent désormais dans `app.moteurs.fifo_engine` (Mission 5,
+# extraction du moteur pilote) — importés ci-dessus, ré-exportés ici sans changement de
+# comportement pour que ce module et ses appelants existants (`intervenant_menage_compte_service`
+# pointe maintenant directement vers `app.moteurs.fifo_engine`, plus vers ce service) continuent de
+# fonctionner à l'identique.
 
 
 # ── Recalcul ────────────────────────────────────────────────────────────────────────────────────

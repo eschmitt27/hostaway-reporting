@@ -14,10 +14,12 @@ importé une fois en SQLite, plus jamais lu depuis le classeur au runtime). Abse
 dette n'est PAS créée, le ménage reste marqué A_CONTROLER_METIER — le montant n'est jamais inventé.
 
 FIFO
-Réutilise `compte_proprietaire_service.calculer_fifo` (fonction PURE, générique sur les clés
+Réutilise `app.moteurs.fifo_engine.calculer_fifo` (moteur pur, générique sur les clés
 `facture_id_opaque`/`montant_total` pour les créances et `source_type`/`source_ref`/`source_date`/
 `montant` pour les sources) : même algorithme que le compte propriétaire (0030), mais les tables et
 objets métier restent totalement séparés (§20) — un intervenant ménage n'est pas un propriétaire.
+Importé depuis le moteur neutre, pas depuis `compte_proprietaire_service` : ce domaine ne dépend
+plus du service d'un AUTRE domaine métier pour un algorithme générique (Mission 5).
 """
 from __future__ import annotations
 
@@ -29,8 +31,8 @@ from typing import Any
 
 import app.config as cfg
 from app.db.connection import get_db
+from app.moteurs.fifo_engine import calculer_fifo
 from app.services import ref_setup_repo
-from app.services.compte_proprietaire_service import calculer_fifo
 
 # Les bibliothèques de règles (`lib_*`) vivent dans le 02_TRAVAIL DU WORKTREE, à côté du paquet
 # `app` — c'est `APP_ROOT.parent` qui les localise, jamais `cfg.PROJECT_ROOT`. Les deux coïncident
