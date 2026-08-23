@@ -1548,3 +1548,28 @@ Décision : `MASTER_CALC_AVANTAGES` (clé `associe_id` + `mois`) EST le **suivi 
 - Un avantage associé n'est jamais transformé en charge ni en produit ; un remboursement associé n'a
   jamais d'impact résultat (HR/neutralise).
 Contrôles : `02_TRAVAIL/lib_controles_avantages.py` (Lot11). Voir CTR-CHG-SUIVI-ASSOCIE-01.
+
+### D-REF-HIST-01 — Groupes de logements historisés : concept absent, non inventé
+Date : 2026-08-23 | Statut : VALIDÉ (scope explicitement écarté) | Lot : Mission 6 (règles/variables temporelles)
+
+Décision : la mission « règles et variables métier historisées » demandait de prouver l'historisation
+de la composition de « groupes de logements » (exemple donné : GROUPE A passant de 3 à 4 appartements
+entre 2026 et 2027, une charge devant toujours utiliser la composition en vigueur à sa date). L'audit
+n'a trouvé **aucune trace** de ce concept dans le code actuel — ni table `ref_groupes*`, ni notion de
+« groupe nommé à membership persistant » dans `02_TRAVAIL/` ni `05_APPLICATION/`. Le mécanisme le plus
+proche (`lot6f_cout_complet_menages.py`, POOLS `LOCAL_CAVE`/`COURSES`/`CONSOMMABLES`) n'est PAS un
+groupe à composition versionnée : il ventile sur les ménages RÉELLEMENT effectués le mois calculé —
+déjà daté par construction, sans risque de réécriture du passé, mais ce n'est pas la même chose qu'un
+groupe nommé dont la liste de membres change dans le temps.
+
+**Décision : ne pas inventer ce concept.** Construire un schéma « groupes de logements historisés »
+sans qu'aucune règle métier réelle ne l'utilise aujourd'hui créerait une structure spéculative — exactement
+ce que la mission interdit (§15/§25 : ne pas deviner une réponse, ne pas construire de framework
+abstrait sans besoin réel identifié). Si un vrai besoin métier de « groupe de logements » existe
+(quelle charge, quelle règle de répartition, quel périmètre exact), il doit être cadré explicitement
+avant tout développement — cette décision documente l'absence, pas un refus définitif.
+
+Ce qui A été traité dans la même mission (référentiels réellement présents avec le même défaut
+générique — valeur courante sans période) : le paramètre canapé (`ref_canape_parametres`, migration
+0058) et l'audit confirme que taux de commission / gestion logement↔propriétaire / coût ménage
+standard étaient déjà historisés (missions précédentes). Voir `REGLES_METIER_TEMPORELLES.md`.

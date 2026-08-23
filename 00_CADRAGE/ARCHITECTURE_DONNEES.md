@@ -2087,3 +2087,19 @@ un import direct depuis le service d'un AUTRE domaine — couplage cross-domaine
 les deux consommateurs vers le module neutre. `compte_proprietaire_service.py` ré-exporte pour
 compatibilité (0 régression). Lot10/Lot11 (pandas+SQL+calcul fortement imbriqués) volontairement
 non touchés — détail complet : `MOTEURS_METIER_PURS_PHASE1.md` (même sous-dossier de mission).
+
+## Mise à jour 2026-08-23 — paramètre canapé historisé (manque réel comblé)
+
+Nouvelle table `ref_canape_parametres` (migration 0058, grain `logement_id`, `date_debut`/
+`date_fin`, fin incluse — même convention que le reste) : seuil/montant de préparation canapé,
+jusqu'ici deux colonnes COURANTES sur `ref_logements`, jamais historisées. Résolution par date via
+`lib_ref_history.resolve_canape_parametres` (fail-closed, même forme que `resolve_commission_
+rate`). Écriture via `canape_gestion_service.py` (clôture+ouverture atomique). **Particularité** :
+cette table n'est pas dans `ref_setup_catalogue.FEUILLES` (elle n'a pas d'onglet Excel — l'y
+ajouter casse l'import réel) ; elle utilise un petit catalogue séparé,
+`referentiel_admin_service.TABLES_NATIVES`, pour rester administrable par le même CRUD générique.
+`lot10_calculer_resultats.py` résout désormais ce paramètre à la date de la réservation (repli sur
+la colonne courante si aucune base SQLite fournie). Taux commission / gestion logement↔propriétaire
+/ coût ménage standard confirmés déjà historisés et résolus par date (missions précédentes).
+Groupes de logements historisés : concept absent, non inventé (`DECISIONS_METIER.md`
+D-REF-HIST-01). Détail complet : `REGLES_METIER_TEMPORELLES.md` (même sous-dossier de mission).

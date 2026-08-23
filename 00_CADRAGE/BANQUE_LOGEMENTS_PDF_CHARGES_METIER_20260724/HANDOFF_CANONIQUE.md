@@ -2064,3 +2064,17 @@ service.py` importe désormais depuis le moteur neutre, plus depuis le service d
 existants (`test_compte_proprietaire_fifo.py`, inchangés, verts via le ré-export). Aucune règle
 métier modifiée, aucune migration. Lot10/Lot11 (candidats C, trop couplés pandas+SQL+calcul) non
 touchés. Détail complet : `MOTEURS_METIER_PURS_PHASE1.md`.
+
+**Mis à jour 2026-08-23 (règles métier temporelles)** : audit confirme taux commission/gestion
+logement↔propriétaire/coût ménage standard déjà historisés et résolus par date (`lib_ref_history.
+resolve_commission_rate`/`resolve_management_period`, `lot6f::date_aware`), fail-closed. Manque
+réel comblé : le paramètre canapé (seuil/montant), jusque-là valeur COURANTE sur `ref_logements`
+sans période, lu sans filtre de date par `lot10_calculer_resultats.py`. Nouvelle table historisée
+`ref_canape_parametres` (migration 0058, backfill préservant le comportement actuel), résolveur
+`lib_ref_history.resolve_canape_parametres` (fail-closed), service `canape_gestion_service.py`
+(clôture+ouverture atomique), écran dédié sur `/administration/referentiels` existant. `Lot10`
+résout désormais le paramètre canapé à la date de la réservation (repli sur la colonne courante
+si aucune base fournie — zéro régression pour les appels existants). Groupes de logements
+historisés : concept absent du code, explicitement non inventé (`DECISIONS_METIER.md`
+D-REF-HIST-01). Assiette de commission et formule canapé : non versionnées (une seule
+implémentation a toujours existé). Détail complet : `REGLES_METIER_TEMPORELLES.md`.

@@ -4107,3 +4107,42 @@ général ». Aucune règle métier modifiée, aucune migration.
 Campagne complète : moteur 345/345 passed, application 2661 passed (9 lots, quelques `skipped`
 pré-existants). **0 failed.** app.db réelle inchangée (`8e299b935ef1e0d4`). Détail complet :
 `MOTEURS_METIER_PURS_PHASE1.md`.
+
+## 2026-08-23 — règles et variables métier historisées (paramètre canapé)
+
+Audit ciblé (commission, assiette, canapé, coûts ménage, groupes de logements, paramètres
+généraux) : taux de commission, gestion logement↔propriétaire et coût ménage standard confirmés
+déjà historisés et résolus par date, fail-closed (missions précédentes, rien reconstruit). Manque
+réel identifié et comblé : le paramètre canapé (seuil de voyageurs / montant) vivait comme deux
+colonnes COURANTES sur `ref_logements`, sans période — `lot10_calculer_resultats.py` lisait la
+ligne courante sans aucun filtre de date, violation directe du principe « changer le futur sans
+réécrire le passé ».
+
+Corrigé : nouvelle table historisée `ref_canape_parametres` (migration additive 0058, grain
+`logement_id`, backfill préservant exactement le comportement actuel — écart 0,00€ garanti par
+construction), résolveur `lib_ref_history.resolve_canape_parametres` (même forme que les
+résolveurs existants, fail-closed), service `canape_gestion_service.py` (clôture+ouverture
+atomique, même transaction que les référentiels existants), écran dédié sur l'administration
+générique existante. `lot10_calculer_resultats.py` résout désormais le paramètre à la date
+économique de la réservation, avec repli explicite sur l'ancien comportement si aucune base SQLite
+n'est fournie (zéro régression pour les appelants existants, notamment les tests).
+
+**Piège rencontré et corrigé** : la nouvelle table a d'abord été enregistrée dans
+`ref_setup_catalogue.FEUILLES` (comme les autres référentiels historisés) — elle a aussitôt cassé
+deux tests d'import réel (`@reel_requis`), car cette table n'a jamais eu d'onglet dans
+`REF_Setup.xlsm` et `ref_setup_import_service._lire_classeur` refuse tout onglet déclaré-mais-
+absent. Corrigé en la retirant du catalogue Excel et en créant un petit catalogue séparé
+(`referentiel_admin_service.TABLES_NATIVES`) pour les tables SQLite natives qui réutilisent le
+même CRUD générique sans prétendre venir du classeur.
+
+Groupes de logements historisés (composition versionnée) : concept **absent** de tout le code —
+non inventé, décision documentée (`DECISIONS_METIER.md` D-REF-HIST-01) plutôt qu'une supposition.
+Assiette de commission et formule canapé : non versionnées (RULE_ID/VERSION) — une seule
+implémentation a toujours existé par canal, versionner maintenant aurait été spéculatif.
+
+Tests : 6 nouveaux (`tests/test_ref_history.py`, résolveur pur), 4 nouveaux (`tests/test_canape_
+historise.py`, intégration Lot10 — preuve que la résolution datée s'applique réellement, pas
+seulement le résolveur isolé), 15 nouveaux (`test_canape_parametres_historises.py`, cycle de vie
+admin + verrou colonnes). Campagne complète : moteur 355/355 passed, application 2702 passed
+(10 lots). **0 failed.** app.db réelle inchangée (`8e299b935ef1e0d4`). Détail complet :
+`REGLES_METIER_TEMPORELLES.md`.

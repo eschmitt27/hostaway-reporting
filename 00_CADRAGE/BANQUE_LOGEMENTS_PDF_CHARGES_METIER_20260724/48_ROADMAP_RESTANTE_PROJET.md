@@ -405,3 +405,12 @@ désormais le moteur neutre au lieu du service propriétaire. Lot10/Lot11 resten
 couplés pour cette phase). Détail : `MOTEURS_METIER_PURS_PHASE1.md`. Prochaine étape : la mission
 suivante décide, à partir de ce résultat, si le pattern s'applique à un autre moteur (candidats B :
 module Charges, `lib_menage_costs.py`/`lib_ref_history.py`).
+
+**Mis à jour 2026-08-23 (règles métier temporelles)** : taux commission/gestion logement↔
+propriétaire/coût ménage standard confirmés déjà historisés (missions précédentes). Manque réel
+comblé : paramètre canapé (seuil/montant), jusque-là valeur courante non datée — nouvelle table
+`ref_canape_parametres` (migration 0058), résolveur `resolve_canape_parametres`, service
+`canape_gestion_service.py`, Lot10 résout désormais par date de réservation (repli sur colonne
+courante si aucune base fournie). Groupes de logements historisés : concept absent, non inventé
+(`DECISIONS_METIER.md` D-REF-HIST-01). Détail : `REGLES_METIER_TEMPORELLES.md`. Prochaine étape
+annoncée par la mission : extraction d'un moteur temporel pilote, probablement commission.
