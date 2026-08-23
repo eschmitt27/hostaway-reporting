@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.config import TEMPLATES_DIR
+from app.services import ordonnanceur_service as ordo
 from app.services import orchestrateur_dag as dag
 from app.services import orchestrateur_service as orch
 
@@ -42,6 +43,7 @@ def actualisation(request: Request):
         "verrous": etat["verrous"],
         "cibles": _cibles_proposees(),
         "historique": orch.historique(limite=10),
+        "ordonnanceur": ordo.etat(),
     })
 
 
@@ -63,6 +65,7 @@ def actualiser_tout_dry_run(request: Request):
         "cibles": _cibles_proposees(),
         "historique": orch.historique(limite=10),
         "dry_run_resultat": resultat,
+        "ordonnanceur": ordo.etat(),
     })
 
 

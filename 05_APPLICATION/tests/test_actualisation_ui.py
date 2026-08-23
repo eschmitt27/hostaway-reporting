@@ -19,6 +19,15 @@ def test_ecran_repond_sur_base_neuve(client, tmp_db):
     assert "Actualiser toute l'activité" in r.text
 
 
+def test_ecran_affiche_le_statut_scheduler_hostaway(client, tmp_db):
+    """Mission scheduler Hostaway : statut DÉSACTIVÉ par défaut, cadences visibles."""
+    r = client.get("/actualisation")
+    assert "Scheduler Hostaway" in r.text
+    assert "DÉSACTIVÉ" in r.text
+    assert "5 h" in r.text  # cadence réservations/payouts par défaut
+    assert "24 h" in r.text  # cadence CleaningTasks par défaut
+
+
 def test_ecran_liste_tous_les_datasets_du_dag(client, tmp_db):
     r = client.get("/actualisation")
     for nom in dag.NOEUDS:

@@ -173,4 +173,39 @@
     </table>
   </div>
 </div>
+
+{% if ordonnanceur %}
+<div class="card mt-lg">
+  <div class="card-title">Scheduler Hostaway</div>
+  <div class="flex gap-lg text-sm mb-md" style="flex-wrap: wrap;">
+    <div>Statut :
+      {% if ordonnanceur.actif %}<span class="badge badge-success">ACTIF</span>
+      {% else %}<span class="badge badge-neutral">DÉSACTIVÉ</span>{% endif %}
+    </div>
+    <div>Fréquence réservations/payouts : {{ ordonnanceur.cadences_h.HOSTAWAY_RAW }} h</div>
+    <div>Fréquence CleaningTasks : {{ ordonnanceur.cadences_h.HOSTAWAY_CLEANING_TASKS }} h</div>
+  </div>
+  <div class="table-container">
+    <table>
+      <thead><tr><th>Source</th><th>Dernier run</th><th>Statut</th><th>Prochaine décision</th></tr></thead>
+      <tbody>
+      {% for t in ordonnanceur.taches %}
+        {% set decision = ordonnanceur.prochaines_decisions[loop.index0] %}
+        <tr>
+          <td class="font-mono text-xs">{{ t.dataset }}</td>
+          <td class="text-xs">{{ t.calcule_le or "—" }}</td>
+          <td class="text-xs">{{ t.statut }}</td>
+          <td class="text-xs text-secondary">{{ decision.motif }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="text-xs text-secondary mt-sm">
+    Le scheduler appelle exactement le même service que le bouton manuel — seul le déclencheur
+    change (AUTOMATIQUE au lieu de MANUEL). Désactivé par défaut ; l'activer est une décision
+    d'exploitation explicite (variable d'environnement <code>ORDONNANCEUR_ACTIF</code>).
+  </p>
+</div>
+{% endif %}
 {% endblock %}
