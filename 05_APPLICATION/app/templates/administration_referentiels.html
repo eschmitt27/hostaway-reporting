@@ -49,9 +49,19 @@
 </div>
 {% endfor %}
 
+<div class="card mb-lg">
+  <div class="card-title">Fournisseurs &amp; prestataires</div>
+  <p class="text-sm text-secondary mb-md">
+    Référentiel dédié (hors catalogue REF_Setup) : création, modification, désactivation/
+    réactivation, rattachement daté à un logement — jamais de suppression physique.
+  </p>
+  <a href="/referentiel-fournisseurs" class="btn btn-sm">Ouvrir</a>
+</div>
+
 <div class="alert alert-info">
-  Les référentiels <strong>historisés</strong> (rattachement de gestion, taux de commission) ne
-  s'éditent pas directement : ils se modifient depuis la fiche du logement, qui clôture la période
-  en cours et en ouvre une nouvelle. Une période passée n'est jamais réécrite.
+  Les référentiels <strong>historisés</strong> (rattachement de gestion, taux de commission, coûts
+  standards ménage) ne s'éditent pas directement : ils se modifient depuis leur parcours dédié
+  (fiche logement, ou écran ci-dessus pour les coûts ménage), qui clôture la période en cours et en
+  ouvre une nouvelle. Une période passée n'est jamais réécrite.
 </div>
 {% endblock %}

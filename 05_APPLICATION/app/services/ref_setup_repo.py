@@ -33,19 +33,25 @@ def est_disponible(*, db_path=None) -> bool:
         conn.close()
 
 
-def lire_table(table: str, *, db_path=None) -> list[dict[str, str]]:
-    """Toutes les lignes d'une table du catalogue, colonnes dans l'ordre du classeur."""
+def lire_table(table: str, *, conn=None, db_path=None) -> list[dict[str, str]]:
+    """Toutes les lignes d'une table du catalogue, colonnes dans l'ordre du classeur.
+
+    `conn`, si fourni, est réutilisé tel quel (ni ouvert ni fermé ici) — c'est ce qui permet à
+    `referentiel_admin_service.transaction()` de lire des écritures pas encore committées dans la
+    même transaction (une autre connexion ne les verrait pas).
+    """
     feuille = cat.PAR_TABLE.get(table)
     if feuille is None:
         raise KeyError(f"Table hors catalogue : {table}")
-    conn = get_db(db_path)
+    c = conn if conn is not None else get_db(db_path)
     try:
         cols = ", ".join(feuille.colonnes)
-        rows = conn.execute(f"SELECT {cols} FROM {feuille.table}").fetchall()
+        rows = c.execute(f"SELECT {cols} FROM {feuille.table}").fetchall()
         return [dict(zip(feuille.colonnes, [("" if v is None else str(v)) for v in r]))
                 for r in rows]
     finally:
-        conn.close()
+        if conn is None:
+            c.close()
 
 
 def lire_onglet(onglet: str, *, db_path=None) -> list[dict[str, str]]:
@@ -56,20 +62,21 @@ def lire_onglet(onglet: str, *, db_path=None) -> list[dict[str, str]]:
     return lire_table(feuille.table, db_path=db_path)
 
 
-def lire_par_cle(table: str, cle: str, *, db_path=None) -> dict[str, str] | None:
+def lire_par_cle(table: str, cle: str, *, conn=None, db_path=None) -> dict[str, str] | None:
     feuille = cat.PAR_TABLE.get(table)
     if feuille is None:
         raise KeyError(f"Table hors catalogue : {table}")
-    conn = get_db(db_path)
+    c = conn if conn is not None else get_db(db_path)
     try:
         cols = ", ".join(feuille.colonnes)
-        r = conn.execute(
+        r = c.execute(
             f"SELECT {cols} FROM {feuille.table} WHERE {feuille.cle} = ?", (cle,)).fetchone()
         if r is None:
             return None
         return dict(zip(feuille.colonnes, [("" if v is None else str(v)) for v in r]))
     finally:
-        conn.close()
+        if conn is None:
+            c.close()
 
 
 def compter(*, db_path=None) -> dict[str, int]:

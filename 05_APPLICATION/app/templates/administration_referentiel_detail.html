@@ -77,6 +77,30 @@
   </p>
 </div>
 
+{% if meta.table == table_couts_menage %}
+<div class="card mb-lg">
+  <div class="card-title">Changer le coût standard d'un type de logement</div>
+  <p class="text-xs text-secondary mb-md">
+    Clôture la période active à la veille de la date choisie et ouvre une nouvelle ligne — la ligne
+    précédente reste consultable, jamais modifiée.
+  </p>
+  <form method="post" action="/administration/referentiels/ref_couts_standards_menage/changer-cout">
+    <div class="grid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:var(--space-sm);">
+      <label class="text-xs">Type de logement <span class="text-danger">*</span>
+        <input class="input" name="type_logement_id" required>
+      </label>
+      <label class="text-xs">Coût standard ménage <span class="text-danger">*</span>
+        <input class="input" name="cout_standard_menage" required>
+      </label>
+      <label class="text-xs">Date de début <span class="text-danger">*</span>
+        <input class="input" type="date" name="date_debut" required>
+      </label>
+    </div>
+    <button type="submit" class="btn btn-primary mt-md" {% if not disponible %}disabled{% endif %}>Changer le coût</button>
+  </form>
+</div>
+{% endif %}
+
 {% if not meta.lecture_seule %}
 <div class="card mb-lg">
   <div class="card-title">Ajouter une ligne</div>

@@ -26,6 +26,7 @@ l'invariant dont dépend `lib_ref_history.resolve_management_period` / `resolve_
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from datetime import date, timedelta
 from typing import Any
 
@@ -85,6 +86,38 @@ def refus(code: str, detail: str = "") -> dict[str, Any]:
     return {"ok": False, "code": code, "message": MESSAGES.get(code, code), "detail": detail}
 
 
+class RefusTransaction(Exception):
+    """Lève l'échec d'une étape à l'intérieur d'une `transaction()` pour déclencher son rollback.
+
+    Porte le dict `refus(...)` original : l'appelant le récupère via `exc.refus` après le `with`,
+    au lieu de traduire une exception générique en un nouveau code d'erreur.
+    """
+
+    def __init__(self, refus: dict[str, Any]) -> None:
+        super().__init__(refus.get("message", refus.get("code", "refus")))
+        self.refus = refus
+
+
+@contextmanager
+def transaction(*, db_path=None):
+    """Une connexion SQLite partagée par plusieurs écritures de ce module, committée en un seul bloc.
+
+    Sert exactement le cas visé par la mission : « clôturer une période + en ouvrir une nouvelle +
+    journaliser » doit être atomique — si l'ouverture échoue, la clôture déjà faite ne doit jamais
+    rester seule committée. `inserer`/`mettre_a_jour`/`clore_periode` acceptent un `conn=` : passé,
+    ils écrivent dessus sans committer ni fermer — c'est CE bloc qui décide du commit final.
+    """
+    conn = get_db(db_path)
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def disponible(*, db_path=None) -> bool:
     """Le référentiel est-il exploitable ? Aucun repli sur le classeur (§18)."""
     return repo.est_disponible(db_path=db_path)
@@ -92,40 +125,55 @@ def disponible(*, db_path=None) -> bool:
 
 # ── Lecture (pour valider avant d'écrire) ───────────────────────────────────────────────────────
 
-def lignes(table: str, *, db_path=None) -> list[dict[str, str]]:
-    return repo.lire_table(table, db_path=db_path)
+def lignes(table: str, *, conn=None, db_path=None) -> list[dict[str, str]]:
+    return repo.lire_table(table, conn=conn, db_path=db_path)
 
 
-def ligne(table: str, cle_valeur: str, *, db_path=None) -> dict[str, str] | None:
-    return repo.lire_par_cle(table, txt(cle_valeur), db_path=db_path)
+def ligne(table: str, cle_valeur: str, *, conn=None, db_path=None) -> dict[str, str] | None:
+    return repo.lire_par_cle(table, txt(cle_valeur), conn=conn, db_path=db_path)
 
 
-#: Référentiels à périodes : une ligne sans `date_fin` est la ligne COURANTE. Tout le moteur
-#: (`lib_ref_history.resolve_management_period`, `resolve_commission_rate`) repose là-dessus.
-TABLES_HISTORISEES = ("ref_gestion_logements_hist", "ref_taux_commission")
+#: Référentiels à périodes : une ligne sans colonne de fin est la ligne COURANTE. Le grain diffère
+#: selon la table (logement pour la gestion/le taux, TYPE de logement pour le coût ménage — c'est
+#: `lot6f_cout_complet_menages.py::date_aware` qui résout déjà par type + date, inchangé ici) ; les
+#: noms de colonnes de période diffèrent aussi (`date_debut`/`date_fin` vs `*_validite`).
+PERIODES: dict[str, dict[str, str]] = {
+    "ref_gestion_logements_hist": {
+        "grain": "logement_id", "debut": "date_debut", "fin": "date_fin"},
+    "ref_taux_commission": {
+        "grain": "logement_id", "debut": "date_debut", "fin": "date_fin"},
+    "ref_couts_standards_menage": {
+        "grain": "type_logement_id", "debut": "date_debut_validite", "fin": "date_fin_validite"},
+}
+
+#: Tout le moteur (`lib_ref_history.resolve_management_period`, `resolve_commission_rate`,
+#: `lot6f_cout_complet_menages.date_aware`) repose sur cet invariant : une ligne sans date de fin
+#: est la ligne courante.
+TABLES_HISTORISEES = tuple(PERIODES)
 
 
-def periodes_ouvertes(table: str, logement_id: str, *, db_path=None) -> list[dict[str, str]]:
-    """Toutes les lignes historisées encore ouvertes (`date_fin` vide) pour ce logement.
+def periodes_ouvertes(table: str, grain_valeur: str, *, conn=None, db_path=None) -> list[dict[str, str]]:
+    """Toutes les lignes historisées encore ouvertes (colonne de fin vide) pour ce grain.
 
     Renvoie une liste, et non une ligne, parce qu'un référentiel PEUT être ambigu : l'application
     s'interdit de créer ce cas (voir `inserer`), mais un classeur importé ou une correction faite
     directement en base peuvent l'introduire. Le rendre irreprésentable en base a été essayé puis
     écarté — voir la note de la migration 0051.
     """
-    lid = txt(logement_id)
-    return [r for r in lignes(table, db_path=db_path)
-            if txt(r.get("logement_id")) == lid and not txt(r.get("date_fin"))]
+    spec = PERIODES[table]
+    gv = txt(grain_valeur)
+    return [r for r in lignes(table, conn=conn, db_path=db_path)
+            if txt(r.get(spec["grain"])) == gv and not txt(r.get(spec["fin"]))]
 
 
-def periode_ouverte(table: str, logement_id: str, *, db_path=None) -> dict[str, str] | None:
-    """Période courante de ce logement, ou None s'il n'y en a pas.
+def periode_ouverte(table: str, grain_valeur: str, *, conn=None, db_path=None) -> dict[str, str] | None:
+    """Période courante de ce grain, ou None s'il n'y en a pas.
 
     En cas d'ambiguïté, renvoie la dernière : les APPELANTS EN ÉCRITURE veulent alors clore ce qui
     traîne. Les appelants en LECTURE qui doivent refuser de deviner (`logements_service`, qui rend
     `A_CONTROLER`) passent par `periodes_ouvertes` et comptent eux-mêmes.
     """
-    ouvertes = periodes_ouvertes(table, logement_id, db_path=db_path)
+    ouvertes = periodes_ouvertes(table, grain_valeur, conn=conn, db_path=db_path)
     return ouvertes[-1] if ouvertes else None
 
 
@@ -151,44 +199,70 @@ def journaliser(conn, table: str, cle: str, action: str, avant: Any, apres: Any,
 
 
 def inserer(table: str, valeurs: dict[str, Any], *, action: str, acteur: str = "",
-            commentaire: str = "", db_path=None) -> dict[str, Any]:
-    """Insère une ligne de référentiel saisie dans l'application, et la journalise."""
+            commentaire: str = "", conn=None, db_path=None) -> dict[str, Any]:
+    """Insère une ligne de référentiel saisie dans l'application, et la journalise.
+
+    `conn`, si fourni, est réutilisé sans commit ni fermeture (voir `transaction()`) : l'appelant
+    décide seul du commit final, pour que « clôturer puis ouvrir » ne puisse pas laisser la base à
+    mi-chemin. Sans `conn`, le comportement autonome d'origine (ouvre/committe/ferme) est inchangé.
+    """
     colonnes = _colonnes(table)
     ligne_complete = {c: txt(valeurs.get(c)) for c in colonnes}
 
-    # Deux périodes ouvertes pour un même logement rendent la période courante indécidable : le
-    # moteur choisirait un propriétaire ou un taux au hasard. On ouvre donc UNIQUEMENT après avoir
-    # clos ce qui précède (`clore_periode`), jamais en parallèle.
-    if table in TABLES_HISTORISEES and not txt(ligne_complete.get("date_fin")):
-        lid = txt(ligne_complete.get("logement_id"))
-        if lid and periodes_ouvertes(table, lid, db_path=db_path):
+    if table in TABLES_HISTORISEES and not txt(ligne_complete.get(PERIODES[table]["fin"])):
+        spec = PERIODES[table]
+        gv = txt(ligne_complete.get(spec["grain"]))
+        # Deux périodes ouvertes pour un même grain rendent la période courante indécidable : le
+        # moteur choisirait une ligne au hasard. On ouvre donc UNIQUEMENT après avoir clos ce qui
+        # précède (`clore_periode`), jamais en parallèle.
+        if gv and periodes_ouvertes(table, gv, conn=conn, db_path=db_path):
             return refus(E_PERIODE_INCOHERENTE,
-                         f"{lid} a déjà une période ouverte dans {table} ; il faut la clore avant "
+                         f"{gv} a déjà une période ouverte dans {table} ; il faut la clore avant "
                          "d'en ouvrir une nouvelle")
+        # Chevauchement avec une période déjà CLOSE : une saisie manuelle d'une date antérieure à
+        # la fin d'une période passée rendrait deux lignes actives sur le même intervalle. Les
+        # clôtures normales (`clore_periode` puis `inserer` à la date suivante) sont toujours
+        # strictement croissantes et ne déclenchent jamais ce refus.
+        debut = txt(ligne_complete.get(spec["debut"]))
+        if gv and debut and date_valide(debut):
+            closes = [r for r in lignes(table, conn=conn, db_path=db_path)
+                      if txt(r.get(spec["grain"])) == gv and txt(r.get(spec["fin"]))]
+            for c in closes:
+                fin_close = txt(c.get(spec["fin"]))
+                if date_valide(fin_close) \
+                        and date.fromisoformat(debut) <= date.fromisoformat(fin_close):
+                    return refus(E_PERIODE_INCOHERENTE,
+                                 f"{gv} : la période à ouvrir ({debut}) chevauche une période "
+                                 f"déjà close se terminant le {fin_close}")
 
-    conn = get_db(db_path)
+    proprio = conn is None
+    c = conn if conn is not None else get_db(db_path)
     try:
         cols = ", ".join((*colonnes, "import_id"))
         trous = ", ".join(["?"] * (len(colonnes) + 1))
-        conn.execute(f"INSERT INTO {table} ({cols}) VALUES ({trous})",
-                     tuple(ligne_complete[c] for c in colonnes) + (SOURCE_APPLICATION,))
-        journaliser(conn, table, ligne_complete.get(_cle(table), ""), action, None,
+        c.execute(f"INSERT INTO {table} ({cols}) VALUES ({trous})",
+                  tuple(ligne_complete[c2] for c2 in colonnes) + (SOURCE_APPLICATION,))
+        journaliser(c, table, ligne_complete.get(_cle(table), ""), action, None,
                     ligne_complete, acteur, commentaire)
-        conn.commit()
-    except Exception as exc:   # noqa: BLE001 — toute panne devient un refus lisible
-        conn.rollback()
-        return refus(E_ECRITURE, f"{type(exc).__name__}: {exc}")
+        if proprio:
+            c.commit()
+    except Exception as exc:   # noqa: BLE001
+        if proprio:
+            c.rollback()
+            return refus(E_ECRITURE, f"{type(exc).__name__}: {exc}")
+        raise
     finally:
-        conn.close()
+        if proprio:
+            c.close()
     return {"ok": True, "ligne": ligne_complete}
 
 
 def mettre_a_jour(table: str, cle_valeur: str, champs: dict[str, Any], *, action: str,
-                  acteur: str = "", commentaire: str = "", db_path=None) -> dict[str, Any]:
+                  acteur: str = "", commentaire: str = "", conn=None, db_path=None) -> dict[str, Any]:
     """Met à jour des champs d'une ligne identifiée par sa clé métier, et journalise l'avant/après.
 
     Une ligne modifiée dans l'application devient une ligne applicative (`import_id`) : un réimport
-    du classeur ne doit pas la réécraser silencieusement.
+    du classeur ne doit pas la réécraser silencieusement. `conn` : voir `inserer`.
     """
     cle = _cle(table)
     colonnes = set(_colonnes(table))
@@ -196,48 +270,54 @@ def mettre_a_jour(table: str, cle_valeur: str, champs: dict[str, Any], *, action
     if inconnues:
         return refus(E_ECRITURE, f"colonnes inconnues : {inconnues}")
 
-    avant = ligne(table, cle_valeur, db_path=db_path)
+    avant = ligne(table, cle_valeur, conn=conn, db_path=db_path)
     if avant is None:
         return refus(E_INTROUVABLE, txt(cle_valeur))
 
     apres = {**avant, **{c: txt(v) for c, v in champs.items()}}
-    conn = get_db(db_path)
+    proprio = conn is None
+    c = conn if conn is not None else get_db(db_path)
     try:
-        assignations = ", ".join(f"{c} = ?" for c in champs) + ", import_id = ?"
-        conn.execute(f"UPDATE {table} SET {assignations} WHERE {cle} = ?",
-                     tuple(txt(v) for v in champs.values()) + (SOURCE_APPLICATION, txt(cle_valeur)))
-        journaliser(conn, table, cle_valeur, action, avant, apres, acteur, commentaire)
-        conn.commit()
+        assignations = ", ".join(f"{c2} = ?" for c2 in champs) + ", import_id = ?"
+        c.execute(f"UPDATE {table} SET {assignations} WHERE {cle} = ?",
+                  tuple(txt(v) for v in champs.values()) + (SOURCE_APPLICATION, txt(cle_valeur)))
+        journaliser(c, table, cle_valeur, action, avant, apres, acteur, commentaire)
+        if proprio:
+            c.commit()
     except Exception as exc:   # noqa: BLE001
-        conn.rollback()
-        return refus(E_ECRITURE, f"{type(exc).__name__}: {exc}")
+        if proprio:
+            c.rollback()
+            return refus(E_ECRITURE, f"{type(exc).__name__}: {exc}")
+        raise
     finally:
-        conn.close()
+        if proprio:
+            c.close()
     return {"ok": True, "avant": avant, "apres": apres}
 
 
-def clore_periode(table: str, logement_id: str, date_fin: str, *, statut: str = "",
-                  acteur: str = "", db_path=None) -> dict[str, Any]:
-    """Clôt la période ouverte d'un logement. Ne touche JAMAIS une période déjà close.
+def clore_periode(table: str, grain_valeur: str, date_fin: str, *, statut: str = "",
+                  acteur: str = "", conn=None, db_path=None) -> dict[str, Any]:
+    """Clôt la période ouverte de ce grain. Ne touche JAMAIS une période déjà close.
 
-    Refuse une `date_fin` antérieure au `date_debut` de la période courante : une période négative
-    rendrait la résolution datée incohérente au lieu de la corriger.
+    Refuse une `date_fin` antérieure au début de la période courante : une période négative
+    rendrait la résolution datée incohérente au lieu de la corriger. `conn` : voir `inserer`.
     """
-    ouverte = periode_ouverte(table, logement_id, db_path=db_path)
+    spec = PERIODES[table]
+    ouverte = periode_ouverte(table, grain_valeur, conn=conn, db_path=db_path)
     if ouverte is None:
         return {"ok": True, "cloturee": False}
 
-    debut = txt(ouverte.get("date_debut"))
+    debut = txt(ouverte.get(spec["debut"]))
     if debut and date_valide(debut) and date_valide(date_fin) \
             and date.fromisoformat(txt(date_fin)) < date.fromisoformat(debut):
         return refus(E_PERIODE_INCOHERENTE, f"{debut} → {date_fin}")
 
     cle = _cle(table)
-    champs: dict[str, Any] = {"date_fin": txt(date_fin)}
+    champs: dict[str, Any] = {spec["fin"]: txt(date_fin)}
     if statut and "statut_gestion" in _colonnes(table):
         champs["statut_gestion"] = statut
     res = mettre_a_jour(table, ouverte.get(cle, ""), champs, action="CLOTURE_PERIODE",
-                        acteur=acteur, db_path=db_path)
+                        acteur=acteur, conn=conn, db_path=db_path)
     if not res.get("ok"):
         return res
     return {"ok": True, "cloturee": True, "ligne": res["apres"]}
@@ -326,6 +406,7 @@ CATEGORIES: tuple[dict[str, Any], ...] = (
 LECTURE_SEULE = {
     "ref_gestion_logements_hist": "Fiche logement → changement de propriétaire / archivage",
     "ref_taux_commission": "Fiche logement → changement de taux de commission",
+    "ref_couts_standards_menage": "Écran coûts ménage → changement de coût standard",
 }
 
 # Colonne portant l'activation, quand la table en a une.
@@ -413,15 +494,35 @@ def modifier_ligne(table: str, cle_valeur: str, valeurs: dict[str, Any], *, acte
                          db_path=db_path)
 
 
+E_PROPRIETAIRE_REFERENCE = "V10_PROPRIETAIRE_LOGEMENT_ACTIF"
+MESSAGES[E_PROPRIETAIRE_REFERENCE] = (
+    "Ce propriétaire gère encore au moins un logement actif : changez son propriétaire ou "
+    "archivez le logement avant de désactiver ce propriétaire.")
+
+
 def basculer_activation(table: str, cle_valeur: str, actif: bool, *, acteur: str = "",
                         db_path=None) -> dict[str, Any]:
     """Active/désactive une ligne. JAMAIS de suppression physique : une donnée déjà référencée
-    ailleurs doit rester lisible, sinon les objets qui la citent deviennent orphelins."""
+    ailleurs doit rester lisible, sinon les objets qui la citent deviennent orphelins.
+
+    Désactiver un propriétaire encore rattaché à un logement actif laisserait ce logement sans
+    propriétaire exploitable par le moteur (`resolve_management_period` continuerait de le
+    résoudre vers un propriétaire désactivé) : refusé tant que le rattachement n'a pas été fermé.
+    """
     meta = decrire_table(table, db_path=db_path)
     if not meta.get("ok"):
         return refus("TABLE_INCONNUE", table)
     if not meta["a_colonne_actif"]:
         return refus(E_ECRITURE, f"{table} n'a pas de colonne d'activation")
+
+    if table == TABLE_PROPRIETAIRES and not actif:
+        pid = txt(cle_valeur)
+        rattaches = [r for r in lignes(TABLE_GESTION, db_path=db_path)
+                     if txt(r.get("proprietaire_id")) == pid and not txt(r.get("date_fin"))]
+        if rattaches:
+            logs = ", ".join(sorted({txt(r.get("logement_id")) for r in rattaches}))
+            return refus(E_PROPRIETAIRE_REFERENCE, logs)
+
     return mettre_a_jour(table, cle_valeur, {COLONNE_ACTIF: "OUI" if actif else "NON"},
                          action="ACTIVATION" if actif else "DESACTIVATION",
                          acteur=acteur, db_path=db_path)

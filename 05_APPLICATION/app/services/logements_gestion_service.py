@@ -156,15 +156,23 @@ def archiver(logement_id: str, date_fin: str, *, acteur: str = "",
     if _txt(fiche.get("actif")).upper() == "NON":
         return _refus(E_DEJA_ARCHIVE, logement_id)
 
-    cloture = adm.clore_periode(SH_GEST, logement_id, date_fin, statut="RETIRE",
-                                acteur=acteur, db_path=db_path)
-    if not cloture.get("ok"):
-        return cloture
-
-    res = adm.mettre_a_jour(SH_LOG, logement_id, {"actif": "NON", "statut_parc": "RETIRE"},
-                            action="ARCHIVAGE", acteur=acteur, db_path=db_path)
-    if not res.get("ok"):
-        return res
+    # Clôture + désactivation en une seule transaction : si la désactivation échouait après une
+    # clôture déjà committée, le logement resterait sans période de gestion ouverte alors qu'il
+    # est toujours marqué actif — un état incohérent que rien ne permettrait de corriger seul.
+    try:
+        with adm.transaction(db_path=db_path) as conn:
+            cloture = adm.clore_periode(SH_GEST, logement_id, date_fin, statut="RETIRE",
+                                        acteur=acteur, conn=conn, db_path=db_path)
+            if not cloture.get("ok"):
+                raise adm.RefusTransaction(cloture)
+            res = adm.mettre_a_jour(SH_LOG, logement_id, {"actif": "NON", "statut_parc": "RETIRE"},
+                                    action="ARCHIVAGE", acteur=acteur, conn=conn, db_path=db_path)
+            if not res.get("ok"):
+                raise adm.RefusTransaction(res)
+    except adm.RefusTransaction as exc:
+        return exc.refus
+    except Exception as exc:   # noqa: BLE001 — panne DB imprévue : rollback déjà fait, refus lisible
+        return _refus(E_ECRITURE, f"{type(exc).__name__}: {exc}")
     return {"ok": True, "logement_id": logement_id, "date_fin": _txt(date_fin)}
 
 
@@ -190,23 +198,29 @@ def reactiver(logement_id: str, date_debut: str, proprietaire_id: str, *, acteur
     if _txt(fiche.get("actif")).upper() == "OUI":
         return _refus(E_DEJA_ACTIF, logement_id)
 
-    res_gest = adm.inserer(SH_GEST, {
-        "gestion_id": f"GST_{logement_id}_{prop}_{_txt(date_debut)}",
-        "logement_id": logement_id,
-        "proprietaire_id": prop,
-        "date_debut": _txt(date_debut),
-        "date_fin": "",
-        "statut_gestion": "ACTIF",
-        "source": adm.SOURCE_APPLICATION,
-        "commentaire": "Réactivation",
-    }, action="REACTIVATION", acteur=acteur, db_path=db_path)
-    if not res_gest.get("ok"):
-        return res_gest
+    try:
+        with adm.transaction(db_path=db_path) as conn:
+            res_gest = adm.inserer(SH_GEST, {
+                "gestion_id": f"GST_{logement_id}_{prop}_{_txt(date_debut)}",
+                "logement_id": logement_id,
+                "proprietaire_id": prop,
+                "date_debut": _txt(date_debut),
+                "date_fin": "",
+                "statut_gestion": "ACTIF",
+                "source": adm.SOURCE_APPLICATION,
+                "commentaire": "Réactivation",
+            }, action="REACTIVATION", acteur=acteur, conn=conn, db_path=db_path)
+            if not res_gest.get("ok"):
+                raise adm.RefusTransaction(res_gest)
 
-    res = adm.mettre_a_jour(SH_LOG, logement_id, {"actif": "OUI", "statut_parc": "GERE"},
-                            action="REACTIVATION", acteur=acteur, db_path=db_path)
-    if not res.get("ok"):
-        return res
+            res = adm.mettre_a_jour(SH_LOG, logement_id, {"actif": "OUI", "statut_parc": "GERE"},
+                                    action="REACTIVATION", acteur=acteur, conn=conn, db_path=db_path)
+            if not res.get("ok"):
+                raise adm.RefusTransaction(res)
+    except adm.RefusTransaction as exc:
+        return exc.refus
+    except Exception as exc:   # noqa: BLE001
+        return _refus(E_ECRITURE, f"{type(exc).__name__}: {exc}")
     return {"ok": True, "logement_id": logement_id, "proprietaire_id": prop,
             "date_debut": _txt(date_debut)}
 
@@ -230,24 +244,32 @@ def changer_proprietaire(logement_id: str, proprietaire_id: str, date_debut: str
     if _fiche(logement_id, db_path=db_path) is None:
         return _refus(E_LOGEMENT_INCONNU, logement_id)
 
-    # Clôture d'abord : l'index partiel (0051) interdit deux périodes ouvertes simultanées.
-    cloture = adm.clore_periode(SH_GEST, logement_id, _veille(date_debut), statut="RETIRE",
-                                acteur=acteur, db_path=db_path)
-    if not cloture.get("ok"):
-        return cloture
+    # Clôture puis ouverture dans UNE transaction : l'index partiel (0051) interdit deux périodes
+    # ouvertes simultanées, mais seul un commit unique empêche un logement de rester sans
+    # rattachement ouvert si l'insertion échouait après une clôture déjà committée.
+    try:
+        with adm.transaction(db_path=db_path) as conn:
+            cloture = adm.clore_periode(SH_GEST, logement_id, _veille(date_debut), statut="RETIRE",
+                                        acteur=acteur, conn=conn, db_path=db_path)
+            if not cloture.get("ok"):
+                raise adm.RefusTransaction(cloture)
 
-    res = adm.inserer(SH_GEST, {
-        "gestion_id": f"GST_{logement_id}_{prop}_{_txt(date_debut)}",
-        "logement_id": logement_id,
-        "proprietaire_id": prop,
-        "date_debut": _txt(date_debut),
-        "date_fin": "",
-        "statut_gestion": "ACTIF",
-        "source": adm.SOURCE_APPLICATION,
-        "commentaire": "Changement de propriétaire",
-    }, action="CHANGEMENT_PROPRIETAIRE", acteur=acteur, db_path=db_path)
-    if not res.get("ok"):
-        return res
+            res = adm.inserer(SH_GEST, {
+                "gestion_id": f"GST_{logement_id}_{prop}_{_txt(date_debut)}",
+                "logement_id": logement_id,
+                "proprietaire_id": prop,
+                "date_debut": _txt(date_debut),
+                "date_fin": "",
+                "statut_gestion": "ACTIF",
+                "source": adm.SOURCE_APPLICATION,
+                "commentaire": "Changement de propriétaire",
+            }, action="CHANGEMENT_PROPRIETAIRE", acteur=acteur, conn=conn, db_path=db_path)
+            if not res.get("ok"):
+                raise adm.RefusTransaction(res)
+    except adm.RefusTransaction as exc:
+        return exc.refus
+    except Exception as exc:   # noqa: BLE001
+        return _refus(E_ECRITURE, f"{type(exc).__name__}: {exc}")
     return {"ok": True, "logement_id": logement_id, "proprietaire_id": prop,
             "date_debut": _txt(date_debut)}
 
@@ -274,29 +296,35 @@ def changer_taux_commission(logement_id: str, taux: float, date_debut: str,
     if _fiche(logement_id, db_path=db_path) is None:
         return _refus(E_LOGEMENT_INCONNU, logement_id)
 
-    cloture = adm.clore_periode(SH_TAUX, logement_id, _veille(date_debut),
-                                acteur=acteur, db_path=db_path)
-    if not cloture.get("ok"):
-        return cloture
-
     prop = _txt(proprietaire_id)
     if not prop:
         active = adm.periode_ouverte(SH_GEST, logement_id, db_path=db_path)
         prop = _txt(active.get("proprietaire_id")) if active else ""
 
-    res = adm.inserer(SH_TAUX, {
-        "taux_commission_id": f"TX_{logement_id}_{_txt(date_debut)}",
-        "proprietaire_id": prop,
-        "logement_id": logement_id,
-        "taux_commission": taux_f,
-        "date_debut": _txt(date_debut),
-        "date_fin": "",
-        "actif": "OUI",
-        "justification": adm.SOURCE_APPLICATION,
-        "commentaire": "",
-    }, action="CHANGEMENT_TAUX", acteur=acteur, db_path=db_path)
-    if not res.get("ok"):
-        return res
+    try:
+        with adm.transaction(db_path=db_path) as conn:
+            cloture = adm.clore_periode(SH_TAUX, logement_id, _veille(date_debut),
+                                        acteur=acteur, conn=conn, db_path=db_path)
+            if not cloture.get("ok"):
+                raise adm.RefusTransaction(cloture)
+
+            res = adm.inserer(SH_TAUX, {
+                "taux_commission_id": f"TX_{logement_id}_{_txt(date_debut)}",
+                "proprietaire_id": prop,
+                "logement_id": logement_id,
+                "taux_commission": taux_f,
+                "date_debut": _txt(date_debut),
+                "date_fin": "",
+                "actif": "OUI",
+                "justification": adm.SOURCE_APPLICATION,
+                "commentaire": "",
+            }, action="CHANGEMENT_TAUX", acteur=acteur, conn=conn, db_path=db_path)
+            if not res.get("ok"):
+                raise adm.RefusTransaction(res)
+    except adm.RefusTransaction as exc:
+        return exc.refus
+    except Exception as exc:   # noqa: BLE001
+        return _refus(E_ECRITURE, f"{type(exc).__name__}: {exc}")
     return {"ok": True, "logement_id": logement_id, "taux_commission": taux_f,
             "date_debut": _txt(date_debut)}
 

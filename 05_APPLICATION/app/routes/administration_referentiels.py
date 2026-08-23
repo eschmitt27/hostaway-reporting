@@ -17,12 +17,14 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.config import TEMPLATES_DIR
+from app.services import couts_menage_gestion_service as cm
 from app.services import referentiel_admin_service as adm
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 _MENU = "administration_referentiels"
+TABLE_COUTS_MENAGE = cm.TABLE
 
 
 @router.get("/administration/referentiels", response_class=HTMLResponse)
@@ -48,9 +50,19 @@ def detail(request: Request, table: str, message: str = "", erreur: str = ""):
         "meta": meta,
         "lignes": adm.lignes(table) if adm.disponible() else [],
         "evenements": adm.historique_evenements(table, limite=20),
+        "table_couts_menage": TABLE_COUTS_MENAGE,
         "message": message,
         "erreur": erreur,
     })
+
+
+@router.post("/administration/referentiels/ref_couts_standards_menage/changer-cout")
+def changer_cout_menage(type_logement_id: str = Form(...), cout_standard_menage: str = Form(...),
+                        date_debut: str = Form(...)):
+    """Change le coût standard ménage d'un type de logement — clôture + ouverture atomiques,
+    jamais de modification d'une ligne close (voir `couts_menage_gestion_service`)."""
+    res = cm.changer_cout(type_logement_id, cout_standard_menage, date_debut, acteur="ui")
+    return _retour(TABLE_COUTS_MENAGE, res, "Coût standard mis à jour.")
 
 
 @router.post("/administration/referentiels/{table}/creer")
