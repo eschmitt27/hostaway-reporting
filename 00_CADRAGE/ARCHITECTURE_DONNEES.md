@@ -2076,3 +2076,14 @@ son propre module `couts_menage_gestion_service.py` ; refus de chevauchement ave
 garde de désactivation propriétaire↔logement actif ; lien de navigation vers
 `/referentiel-fournisseurs`. Aucune nouvelle table, aucune migration, aucune règle de calcul
 modifiée — détail complet : `REFERENTIELS_ADMIN_SQLITE.md` (même sous-dossier de mission).
+
+## Mise à jour 2026-08-23 — moteurs métier purs, phase 1 (un seul moteur pilote)
+
+Nouveau package `app/moteurs/` (0 dépendance applicative). Premier module :
+`app/moteurs/fifo_engine.py` — `calculer_fifo`/`TOLERANCE`, déplacés tels quels depuis
+`compte_proprietaire_service.py` (aucune ligne de logique modifiée). Motif : cette fonction pure
+était déjà réutilisée par un domaine métier distinct (`intervenant_menage_compte_service.py`) via
+un import direct depuis le service d'un AUTRE domaine — couplage cross-domaine corrigé en pointant
+les deux consommateurs vers le module neutre. `compte_proprietaire_service.py` ré-exporte pour
+compatibilité (0 régression). Lot10/Lot11 (pandas+SQL+calcul fortement imbriqués) volontairement
+non touchés — détail complet : `MOTEURS_METIER_PURS_PHASE1.md` (même sous-dossier de mission).

@@ -2051,3 +2051,16 @@ période déjà close du même grain ; (4) désactiver un propriétaire encore r
 actif est refusé (`V10_PROPRIETAIRE_LOGEMENT_ACTIF`) ; (5) lien de navigation ajouté vers
 `/referentiel-fournisseurs`, jusque-là sans accès menu. Aucune migration, aucune règle de calcul
 modifiée. Détail complet : `REFERENTIELS_ADMIN_SQLITE.md`.
+
+**Mis à jour 2026-08-23 (moteurs métier purs, phase 1)** : expérience contrôlée sur UN SEUL moteur
+pilote, `compte_proprietaire_service.calculer_fifo` — déjà pure, déjà testée, mais réutilisée par
+un AUTRE domaine (`intervenant_menage_compte_service.py`) via un import direct depuis le service
+propriétaire (couplage cross-domaine réel). Déplacée telle quelle (0 ligne de logique modifiée)
+vers `app/moteurs/fifo_engine.py`, module sans aucune dépendance applicative (pas de SQLite, pas
+de FastAPI, pas de filesystem, pas d'environnement) ; `compte_proprietaire_service.py` ré-exporte
+`calculer_fifo`/`TOLERANCE` pour compatibilité (0 régression) ; `intervenant_menage_compte_
+service.py` importe désormais depuis le moteur neutre, plus depuis le service d'un autre domaine.
+9 nouveaux tests unitaires purs (`test_fifo_engine.py`, sans DB ni fixture) en plus des 24 tests
+existants (`test_compte_proprietaire_fifo.py`, inchangés, verts via le ré-export). Aucune règle
+métier modifiée, aucune migration. Lot10/Lot11 (candidats C, trop couplés pandas+SQL+calcul) non
+touchés. Détail complet : `MOTEURS_METIER_PURS_PHASE1.md`.

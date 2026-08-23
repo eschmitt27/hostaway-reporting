@@ -396,3 +396,12 @@ atomiques clôture+ouverture, historisation de `ref_couts_standards_menage` (nou
 propriétaire↔logement actif à la désactivation, lien de navigation fournisseurs. Aucune migration.
 Détail : `REFERENTIELS_ADMIN_SQLITE.md`. Prochaine étape annoncée (hors mandat) : simplification
 architecture Python + séparation moteurs métier purs + finalisation observabilité/backups.
+
+**Mis à jour 2026-08-23 (moteurs métier purs, phase 1)** : expérience contrôlée, UN SEUL moteur
+pilote extrait — `calculer_fifo` (déjà pure, déjà réutilisée par un domaine distinct via un import
+cross-domaine problématique) déplacée vers `app/moteurs/fifo_engine.py` (0 dépendance
+applicative), sans changer une ligne de logique. `intervenant_menage_compte_service.py` importe
+désormais le moteur neutre au lieu du service propriétaire. Lot10/Lot11 restent candidats C (trop
+couplés pour cette phase). Détail : `MOTEURS_METIER_PURS_PHASE1.md`. Prochaine étape : la mission
+suivante décide, à partir de ce résultat, si le pattern s'applique à un autre moteur (candidats B :
+module Charges, `lib_menage_costs.py`/`lib_ref_history.py`).

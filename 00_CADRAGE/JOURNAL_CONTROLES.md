@@ -4077,3 +4077,33 @@ Aucune migration, aucune règle de calcul métier modifiée. Tests : 17 nouveaux
 d'un paramètre `couts=`. Campagne complète : moteur 345/345 passed, application 2678 passed
 (9 lots, quelques `skipped` pré-existants). **0 failed.** Détail complet :
 `REFERENTIELS_ADMIN_SQLITE.md`.
+
+## 2026-08-23 — moteurs métier purs, phase 1 (expérience contrôlée, un seul moteur pilote)
+
+Audit ciblé (commissions, ménages, charges, facturation, trésorerie propriétaires, flux_unifié,
+Lot10, Lot11, Lot12) : classement A/B/C, pilote choisi `compte_proprietaire_service.calculer_fifo`
+— déjà 100 % pure (aucun accès base), déjà documentée comme telle, déjà couverte par 4 tests
+unitaires sans DB, et surtout déjà réutilisée par un domaine métier distinct
+(`intervenant_menage_compte_service.py`) via un import direct depuis le service d'un AUTRE domaine
+— couplage cross-domaine réel et mesurable.
+
+Extraction : nouveau package `app/moteurs/` (0 dépendance applicative). `calculer_fifo`/
+`TOLERANCE` déplacés tels quels vers `app/moteurs/fifo_engine.py` — **0 ligne de logique
+modifiée**, parité par construction (même objet Python importé depuis deux points d'entrée).
+`compte_proprietaire_service.py` ré-exporte pour compatibilité (les 24 tests existants,
+`test_compte_proprietaire_fifo.py`, restent verts sans modification). `intervenant_menage_compte_
+service.py` importe désormais depuis le moteur neutre, plus depuis le service propriétaire.
+
+9 nouveaux tests unitaires purs (`test_fifo_engine.py`) : reprennent les scénarios existants +
+4 nouveaux cas limites (aucune source, montant exactement égal au dû, source infra-tolérance,
+ordre de consommation des sources) + un test structurel vérifiant l'absence de toute dépendance
+applicative (`sqlite3`/`fastapi`/`app.config`/`app.db`/`Path(`/`os.environ`) dans le fichier source
+du moteur.
+
+Lot10 (1533 lignes) et Lot11 (1461 lignes) classés C — pandas+SQL+calcul massivement imbriqués,
+non touchés cette mission, conformément à la règle « expérience contrôlée, pas un chantier
+général ». Aucune règle métier modifiée, aucune migration.
+
+Campagne complète : moteur 345/345 passed, application 2661 passed (9 lots, quelques `skipped`
+pré-existants). **0 failed.** app.db réelle inchangée (`8e299b935ef1e0d4`). Détail complet :
+`MOTEURS_METIER_PURS_PHASE1.md`.
