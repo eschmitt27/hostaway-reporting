@@ -50,10 +50,16 @@ def tmp_db(tmp_path):
     # Patch DATA_DIR pour l'isolation
     import app.config as cfg
     orig_db = cfg.DB_PATH
+    orig_backups = cfg.BACKUPS_DIR
     cfg.DB_PATH = db_path
+    # `orchestrateur_service.actualiser(cibles=None)` sauvegarde app.db via `backup_service`
+    # (mission industrialisation orchestrateur) — sans cette isolation, un test appelant une
+    # actualisation globale écrirait une vraie copie sous le `BACKUPS_DIR` réel du projet.
+    cfg.BACKUPS_DIR = tmp_path / "backups"
     apply_migrations(db_path)
     yield db_path
     cfg.DB_PATH = orig_db
+    cfg.BACKUPS_DIR = orig_backups
 
 
 @pytest.fixture

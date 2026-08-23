@@ -2010,3 +2010,18 @@ par des centaines de tests, y ajouter une sauvegarde automatique aurait ralenti 
 sans bénéfice sur une base jetable). Écran observabilité `/observabilite/runs` (lecture seule).
 Le mécanisme CURRENT/CANDIDATE (dataset actif) existait déjà (`lot10_runs`/`lot12_runs`), non
 reconstruit. Détail complet : `INDUSTRIALISATION_SOCLE_TECHNIQUE.md`.
+
+**Mis à jour 2026-08-23 (orchestrateur global)** : `orchestrateur_service.actualiser()` (déjà
+existant — DAG, propagation de fraîcheur, `moteur_runs`/`moteur_run_etapes`) câblé au socle de la
+mission précédente. Sur une actualisation GLOBALE réelle (`cibles=None`, jamais sur une cible
+unique) : `backup_service.sauvegarder()` avant le premier dataset, run journalisé en parallèle
+dans `run_history` (registres existants non remplacés). Après le run, `PRAGMA integrity_check` —
+seule panne qu'aucun état de dataset ne représente honnêtement ; si elle échoue, restauration
+automatique de la sauvegarde prise au départ et `ROLLED_BACK`. Un échec PARTIEL normal (un dataset
+en erreur, les autres réussissent) ne déclenche jamais de restauration — les données précédentes
+restent en place par construction, aucun dataset n'étant écrasé avant son propre succès. Mode
+`dry_run=True` ajouté : calcule le même plan, n'exécute et n'active rien, aucune sauvegarde
+prise — nouvelle route `/actualisation/tout/dry-run` + bouton « Simuler (dry-run) ». Isolation de
+test : `cfg.BACKUPS_DIR` désormais patché par le fixture `tmp_db` partagé (comme `cfg.DB_PATH`) —
+tout test appelant une actualisation globale est protégé sans configuration supplémentaire.
+Détail complet : `ORCHESTRATEUR_GLOBAL_ACTUALISATION.md`.

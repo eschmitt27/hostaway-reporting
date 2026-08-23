@@ -45,6 +45,27 @@ def actualisation(request: Request):
     })
 
 
+@router.post("/actualisation/tout/dry-run")
+def actualiser_tout_dry_run(request: Request):
+    """Plan d'exécution sans rien exécuter ni activer (mission industrialisation, Phase 8).
+
+    Synchrone (aucun service n'est réellement appelé, donc rapide) : le résultat s'affiche
+    immédiatement, contrairement à une vraie actualisation qui tourne en tâche de fond.
+    """
+    resultat = orch.actualiser(cibles=None, declencheur=orch.DECLENCHEUR_MANUEL, dry_run=True)
+    etat = orch.etat_global()
+    return templates.TemplateResponse(request, "actualisation.html", {
+        "active_menu": "actualisation",
+        "datasets": etat["datasets"],
+        "dernier_run": etat["dernier_run"],
+        "etapes": etat["etapes"],
+        "verrous": etat["verrous"],
+        "cibles": _cibles_proposees(),
+        "historique": orch.historique(limite=10),
+        "dry_run_resultat": resultat,
+    })
+
+
 @router.post("/actualisation/tout")
 def actualiser_tout(background: BackgroundTasks):
     """« Actualiser toute l'activité » — tout le DAG, dans l'ordre des dépendances."""

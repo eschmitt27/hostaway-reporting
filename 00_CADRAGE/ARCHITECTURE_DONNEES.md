@@ -2043,3 +2043,14 @@ type_ligne`) sur des tables déjà créées — nécessite une recréation de ta
 d'`ALTER TABLE ADD CONSTRAINT`). Détail complet, tableau des contraintes ajoutées/refusées et
 raisons : `DURCISSEMENT_SQLITE_CONTRATS_DONNEES.md` (dans le sous-dossier de mission
 `BANQUE_LOGEMENTS_PDF_CHARGES_METIER_20260724/`).
+
+## Mise à jour 2026-08-23 — orchestrateur global câblé au socle sauvegarde/rollback
+
+`orchestrateur_service.actualiser(cibles=None)` (« Actualiser toute l'activité ») prend désormais
+une sauvegarde de `app.db` via `backup_service` avant de démarrer, journalise un run dans
+`run_history` en parallèle de `moteur_runs`/`moteur_run_etapes` (registres existants, inchangés),
+et restaure automatiquement la sauvegarde si `PRAGMA integrity_check` échoue après le run (jamais
+sur un simple échec `PARTIEL`, qui reste géré sans perte de données par construction). Mode
+`dry_run=True` ajouté : calcule le plan de dépendances sans rien exécuter ni activer. Aucune
+nouvelle table, aucun nouveau registre — détail complet :
+`ORCHESTRATEUR_GLOBAL_ACTUALISATION.md` (même sous-dossier de mission).

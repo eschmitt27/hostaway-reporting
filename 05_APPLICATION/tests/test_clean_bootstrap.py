@@ -27,14 +27,19 @@ def base_neuve(tmp_path):
 
 
 @pytest.fixture(autouse=True)
-def _aucun_classeur(monkeypatch):
+def _aucun_classeur(monkeypatch, tmp_path):
     import openpyxl
+
+    import app.config as cfg
 
     def garde(chemin, *a, **kw):
         raise AssertionError(
             f"Amorçage sur base neuve : aucun classeur ne doit être ouvert ({chemin}).")
 
     monkeypatch.setattr(openpyxl, "load_workbook", garde)
+    # `orch.actualiser(cibles=None)` sauvegarde app.db via `backup_service` avant de démarrer
+    # (mission industrialisation orchestrateur) — isolé ici comme `db_path`/`SNAPSHOTS_DIR` ailleurs.
+    monkeypatch.setattr(cfg, "BACKUPS_DIR", tmp_path / "backups")
 
 
 def test_migrations_suffisent_a_creer_le_socle(base_neuve):

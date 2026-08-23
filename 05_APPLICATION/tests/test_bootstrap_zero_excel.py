@@ -65,6 +65,7 @@ def env_neuf(tmp_path, monkeypatch):
     base.parent.mkdir(parents=True, exist_ok=True)
     apply_migrations(base)
     monkeypatch.setattr(cfg, "DB_PATH", base)
+    monkeypatch.setattr(cfg, "BACKUPS_DIR", tmp_path / "backups")
     return base
 
 

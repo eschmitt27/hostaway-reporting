@@ -368,3 +368,14 @@ révisée), UNIQUE sur `menages_taches_enrichies.task_id` (après audit du moteu
 Facture/LigneFacture/Reglement/Menage/FluxUnifie/DatasetRun, câblage des contrats existants dans
 les services de saisie. Mission suivante annoncée par le porteur : moteurs métier purs +
 observabilité + backups/restauration.
+
+**Mis à jour 2026-08-22/23 (industrialisation socle + orchestrateur global)** : socle sauvegarde/
+rollback/observabilité livré (`backup_service.py`, `run_history_service.py`,
+`migration_service.py`, écran `/observabilite/runs`) — détail `INDUSTRIALISATION_SOCLE_TECHNIQUE.
+md`. Puis câblé dans l'orchestrateur global (`orchestrateur_service.actualiser`) : sauvegarde
+avant actualisation complète, restauration automatique si l'intégrité échoue après coup, mode
+dry-run — détail `ORCHESTRATEUR_GLOBAL_ACTUALISATION.md`. Reste à faire : câbler `run_history`
+dans les imports Hostaway/Banque eux-mêmes (non fait, retrofit différé deux fois de suite),
+politique de rétention des sauvegardes (`purger()` existe, jamais appelé automatiquement).
+Prochaine étape explicitement écartée de ces deux missions (hors mandat) : scheduler Hostaway,
+administration référentiels, refonte métier.

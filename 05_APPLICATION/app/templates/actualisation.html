@@ -20,6 +20,11 @@
         Actualiser toute l'activité
       </button>
     </form>
+    <form method="post" action="/actualisation/tout/dry-run">
+      <button type="submit" class="btn" {% if verrous %}disabled{% endif %}>
+        Simuler (dry-run)
+      </button>
+    </form>
     <form method="post" action="/actualisation/cible" class="flex items-center gap-sm">
       <select name="dataset" class="input">
         {% for c in cibles %}
@@ -34,8 +39,20 @@
   <p class="text-xs text-secondary mt-sm">
     Une actualisation ciblée recalcule le dataset choisi <strong>puis tous ses descendants</strong>,
     dans l'ordre des dépendances. Un dataset dont un amont a échoué n'est jamais recalculé sur une
-    entrée périmée : il reste marqué à recalculer.
+    entrée périmée : il reste marqué à recalculer. « Actualiser toute l'activité » sauvegarde
+    d'abord la base entière (restauration automatique si l'intégrité échoue après coup) ; « Simuler
+    (dry-run) » calcule le même plan sans rien exécuter ni activer.
   </p>
+  {% if dry_run_resultat %}
+  <div class="alert alert-info text-xs mt-sm">
+    <strong>Plan dry-run</strong> — aucune donnée modifiée.
+    <ul>
+      {% for e in dry_run_resultat.etapes %}
+      <li>{{ e.dataset }} — {{ e.motif }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
 </div>
 
 <div class="card mb-lg">

@@ -3984,3 +3984,32 @@ modifiée — `migrer_avec_sauvegarde()` est le nouveau point d'entrée pour une
 Écran `/observabilite/runs` (lecture seule) ajouté. Tests : 18 (backup + run_history + migration
 protégée) + 2 (route). Campagne ciblée verte. Détail complet :
 `INDUSTRIALISATION_SOCLE_TECHNIQUE.md`.
+
+## 2026-08-23 — orchestrateur global câblé au socle sauvegarde/rollback
+
+Audit initial : `orchestrateur_dag.py`/`orchestrateur_service.py` couvraient déjà presque tout ce
+que la mission « orchestrateur global » demandait (DAG déclaratif, propagation d'invalidation en
+cascade, `moteur_runs`/`moteur_run_etapes`, écran `/actualisation` avec tâche de fond et reprise
+après crash). Deux vrais manques comblés, sans rien reconstruire :
+
+- `backup_service.sauvegarder()` appelé avant une actualisation GLOBALE réelle (`cibles=None`,
+  jamais sur une cible unique) ; run journalisé en parallèle dans `run_history` (registres
+  existants non remplacés) ; `PRAGMA integrity_check` après le run — restauration automatique
+  + `ROLLED_BACK` UNIQUEMENT si elle échoue (un simple `PARTIEL` reste géré sans rollback, les
+  données déjà recalculées restant valides par construction).
+- Mode `dry_run=True` : calcule le plan de dépendances sans exécuter ni activer, route
+  `POST /actualisation/tout/dry-run` + bouton dédié.
+
+**Même défaut technique que la mission précédente, reproduit puis corrigé de la même façon** :
+`backup_service.restaurer()` remplace tout le fichier cible, y compris la ligne `run_history` du
+run en écriture — l'issue `ROLLED_BACK` est donc rejournalisée dans une entrée fraîche après
+restauration, référençant le run d'origine.
+
+**Défaut de test découvert et corrigé** : câbler `backup_service` a révélé que plusieurs fixtures
+isolaient `cfg.DB_PATH` sans isoler `cfg.BACKUPS_DIR` — une actualisation globale dans un test
+aurait écrit une vraie sauvegarde sous le `BACKUPS_DIR` réel. Corrigé à la source (fixture partagé
+`tmp_db` + 2 fixtures locales), vérifié après coup (`data/backups` absent).
+
+Tests : 7 nouveaux (`test_actualisation_backup_rollback.py`) + 1 (route dry-run). Campagne
+complète rejouée : moteur 345/345 passed, application ~2653 passed (8 shards). **0 failed.**
+Détail complet : `ORCHESTRATEUR_GLOBAL_ACTUALISATION.md`.

@@ -27,9 +27,13 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import sqlite3
+
 import app.config as cfg
 from app.db.connection import get_db
+from app.services import backup_service
 from app.services import orchestrateur_dag as dag
+from app.services import run_history_service as history
 
 # Statuts de dataset
 ST_JAMAIS = "JAMAIS_CALCULE"
@@ -344,9 +348,18 @@ def _amonts_en_echec(dataset: str, etats: dict[str, str]) -> list[str]:
 
 # ── Parcours principal ──────────────────────────────────────────────────────────────────────────
 
+def _integrity_ok(db_path) -> bool:
+    cible = cfg.DB_PATH if db_path is None else db_path
+    conn = sqlite3.connect(str(cible))
+    try:
+        return conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    finally:
+        conn.close()
+
+
 def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEUR_MANUEL,
                inclure_exports: bool = False, inclure_imports_externes: bool = False,
-               db_path=None) -> dict[str, Any]:
+               dry_run: bool = False, db_path=None) -> dict[str, Any]:
     """Actualise le pipeline : tout par défaut, ou les descendants des `cibles` demandées.
 
     `cibles=None` → « Actualiser toute l'activité » (§30).
@@ -356,6 +369,18 @@ def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEU
     Un échec n'interrompt pas ce qui est réellement indépendant : les datasets dont aucun amont n'a
     échoué continuent d'être calculés, et le run se termine en PARTIEL (§30.5). Les datasets bloqués
     par un amont en échec sont explicitement rendus comme tels, jamais silencieusement ignorés.
+
+    `dry_run=True` (mission industrialisation, Phase 8) : calcule le même plan d'exécution
+    (dépendances, blocages, exclusions) mais n'appelle AUCUN service et n'active rien — chaque
+    étape est rendue "IGNOREE (dry-run)". Sert à vérifier un DAG avant de l'exécuter pour de vrai.
+    Aucune sauvegarde ni entrée `run_history` n'est créée : rien n'est risqué.
+
+    Sur une actualisation GLOBALE réelle (`cibles=None`, `dry_run=False`), une sauvegarde de
+    `app.db` est prise avant le premier dataset (Phase 4) et le run est journalisé dans
+    `run_history` en parallèle de `moteur_runs`/`moteur_run_etapes` (registres existants, non
+    remplacés). Si `PRAGMA integrity_check` échoue après le run — la seule panne qu'aucun état de
+    dataset ne peut représenter honnêtement — la sauvegarde prise au départ est restaurée
+    automatiquement et le run est marqué ROLLED_BACK dans `run_history`.
     """
     if cibles:
         inconnues = [c for c in cibles if c not in dag.NOEUDS]
@@ -380,6 +405,27 @@ def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEU
         _cloturer_run(run_id, RUN_ECHEC, 0, 0, verrou["message"], db_path)
         return {"ok": False, "run_id": run_id, **verrou}
 
+    # Phase 4 (industrialisation) : sauvegarde obligatoire avant une actualisation GLOBALE réelle —
+    # jamais sur une cible unique (coût disproportionné pour un recalcul ciblé) ni en dry-run (rien
+    # n'est risqué). Le run centralisé `run_history` est ouvert en parallèle de `moteur_runs` :
+    # celui-ci reste la source de vérité détaillée, `run_history` sert la vue d'ensemble (§32).
+    sauvegarde_id: str | None = None
+    history_run_id: str | None = None
+    if cibles is None and not dry_run:
+        sauvegarde = backup_service.sauvegarder("ACTUALISATION_GLOBALE", db_path=db_path)
+        if not sauvegarde["ok"]:
+            liberer_verrou(PORTEE_GLOBALE, run_id, db_path=db_path)
+            _cloturer_run(run_id, RUN_ECHEC, 0, 0,
+                         "Sauvegarde préalable impossible ou corrompue — actualisation refusée.",
+                         db_path)
+            return {"ok": False, "run_id": run_id, "code": "E_SAUVEGARDE_ECHOUEE",
+                    "message": "Sauvegarde préalable impossible ou corrompue — actualisation "
+                               "refusée."}
+        sauvegarde_id = sauvegarde["sauvegarde_id"]
+        history_run_id = history.demarrer("ACTUALISATION_GLOBALE", acteur=declencheur,
+                                          sauvegarde_id=sauvegarde_id, db_path=db_path)
+        history.marquer_validating(history_run_id, db_path=db_path)
+
     etats: dict[str, str] = {d["dataset"]: d["statut"] for d in etat_datasets(db_path)}
     etapes: list[dict[str, Any]] = []
     nb_ok = nb_ko = 0
@@ -387,6 +433,23 @@ def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEU
         for ordre, dataset in enumerate(a_traiter, start=1):
             noeud = dag.NOEUDS[dataset]
             debut = _maintenant()
+
+            if dry_run:
+                # Plan uniquement : ni marquage de dataset, ni appel de service. Les blocages
+                # (amont en échec, dataset sans service, import externe) restent visibles dans le
+                # plan pour que l'utilisateur voie exactement ce qui SERAIT ignoré en réel.
+                bloquants_dry = _amonts_en_echec(dataset, etats)
+                if bloquants_dry:
+                    motif = f"DRY-RUN : serait ignoré (amont en échec : {bloquants_dry})."
+                elif not noeud.service:
+                    motif = f"DRY-RUN : {noeud.libelle} — non recalculable ici."
+                elif noeud.externe and not inclure_imports_externes:
+                    motif = f"DRY-RUN : {noeud.libelle} — import externe non déclenché."
+                else:
+                    motif = f"DRY-RUN : {noeud.libelle} — serait exécuté."
+                _etape(run_id, dataset, ordre, "IGNOREE", debut, motif, None, db_path)
+                etapes.append({"dataset": dataset, "statut": "IGNOREE", "motif": motif})
+                continue
 
             bloquants = _amonts_en_echec(dataset, etats)
             if bloquants:
@@ -437,7 +500,9 @@ def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEU
                 etapes.append({"dataset": dataset, "statut": "ECHEC",
                                "code": resultat.get("code"), "motif": message})
 
-        if nb_ko == 0:
+        if dry_run:
+            statut = "DRY_RUN"
+        elif nb_ko == 0:
             statut = RUN_SUCCES
         elif nb_ok == 0:
             statut = RUN_ECHEC
@@ -446,9 +511,36 @@ def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEU
         resume = "; ".join(f"{e['dataset']}: {e.get('motif', '')}" for e in etapes
                            if e["statut"] in ("ECHEC", "IGNOREE"))
         _cloturer_run(run_id, statut, nb_ok, nb_ko, resume, db_path)
-        return {"ok": statut in (RUN_SUCCES, RUN_PARTIEL), "run_id": run_id, "statut": statut,
-                "nb_succes": nb_ok, "nb_echecs": nb_ko, "etapes": etapes,
-                "datasets": etat_datasets(db_path)}
+
+        rollback: dict[str, Any] | None = None
+        if history_run_id is not None:
+            # Un dataset en échec (PARTIEL) n'est PAS une panne critique : les données précédentes
+            # valides restent en place par construction (aucun dataset n'est jamais écrasé avant
+            # que son propre calcul n'ait réussi). Seule une base réellement corrompue après le run
+            # justifie une restauration — vérifiée explicitement, jamais devinée depuis `statut`.
+            if not _integrity_ok(db_path):
+                rollback = backup_service.restaurer(sauvegarde_id, confirmer=True, cible=db_path,
+                                                    db_path=db_path)
+                # `restaurer()` remplace tout le fichier cible — y compris la ligne `run_history`
+                # de CE run, écrite avant la restauration. On rejournalise l'issue APRÈS coup, sur
+                # le fichier qui subsiste réellement (même correctif que `migration_service.py`).
+                if rollback["ok"]:
+                    history_run_id = history.demarrer(
+                        "ACTUALISATION_GLOBALE", sauvegarde_id=sauvegarde_id, db_path=db_path)
+                history.marquer_rollback(
+                    history_run_id,
+                    erreur=f"integrity_check en échec après le run {run_id} — base restaurée "
+                           f"depuis {sauvegarde_id}.",
+                    db_path=db_path)
+            elif statut == RUN_ECHEC:
+                history.marquer_echec(history_run_id, erreur=resume, db_path=db_path)
+            else:
+                history.marquer_succes(history_run_id, db_path=db_path)
+
+        return {"ok": statut in (RUN_SUCCES, RUN_PARTIEL, "DRY_RUN"), "run_id": run_id,
+                "statut": statut, "nb_succes": nb_ok, "nb_echecs": nb_ko, "etapes": etapes,
+                "datasets": etat_datasets(db_path), "sauvegarde_id": sauvegarde_id,
+                "history_run_id": history_run_id, "rollback": rollback}
     finally:
         liberer_verrou(PORTEE_GLOBALE, run_id, db_path=db_path)
 

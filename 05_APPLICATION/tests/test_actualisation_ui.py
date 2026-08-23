@@ -55,6 +55,20 @@ def test_bouton_tout_actualiser_lance_sans_bloquer(client, tmp_db, monkeypatch):
     assert appels and appels[0]["cibles"] is None
 
 
+def test_dry_run_repond_directement_sans_tache_de_fond(client, tmp_db, monkeypatch):
+    """Le dry-run est synchrone (aucun service réel appelé) : la page se recharge directement."""
+    appels: list[dict] = []
+
+    def dry_run_espion(**kw):
+        appels.append(kw)
+        return {"ok": True, "run_id": "R", "statut": "DRY_RUN", "etapes": []}
+
+    monkeypatch.setattr(orch, "actualiser", dry_run_espion)
+    r = client.post("/actualisation/tout/dry-run", follow_redirects=False)
+    assert r.status_code == 200
+    assert appels and appels[0]["dry_run"] is True and appels[0]["cibles"] is None
+
+
 def test_action_ciblee_transmet_la_cible(client, tmp_db, monkeypatch):
     appels: list[dict] = []
     monkeypatch.setattr(orch, "actualiser",
