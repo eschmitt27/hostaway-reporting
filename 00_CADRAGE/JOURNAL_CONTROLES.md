@@ -4013,3 +4013,36 @@ aurait écrit une vraie sauvegarde sous le `BACKUPS_DIR` réel. Corrigé à la s
 Tests : 7 nouveaux (`test_actualisation_backup_rollback.py`) + 1 (route dry-run). Campagne
 complète rejouée : moteur 345/345 passed, application ~2653 passed (8 shards). **0 failed.**
 Détail complet : `ORCHESTRATEUR_GLOBAL_ACTUALISATION.md`.
+
+## 2026-08-23 — scheduler Hostaway câblé (audit : déjà largement construit, non reconstruit)
+
+Audit initial de la mission « scheduler Hostaway 5h » : `ordonnanceur_service.py` (cadence 5h
+réservations/payouts, 24h CleaningTasks, `doit_declencher()` pur/testable, `demarrer()`/`arreter()`
+avec minuteur singleton, `tick()` appelant `orchestrateur_service.actualiser()`) et
+`hostaway_actualisation_service.py::actualiser()` (point d'entrée unique, manuel et auto)
+existaient déjà, avec 16 tests couvrant déjà la quasi-totalité des exigences (cadence, propagation,
+concurrence via l'état du dataset, échec récent imposant un palier, H6 séparé, désactivé par
+défaut). Rien reconstruit.
+
+Trois manques réels comblés :
+- `app/main.py::lifespan` appelle désormais `ordonnanceur_service.demarrer()`/`arreter()` — le
+  service existait mais n'était jamais démarré avec l'application.
+- `run_history_service` câblé dans `hostaway_actualisation_service.actualiser()`, uniquement sur
+  le chemin synchrone (`attendre=True`, celui de l'orchestrateur/ordonnanceur) — seul chemin où
+  l'issue réelle est connue avant la réponse.
+- Cadences rendues configurables (`cfg.HOSTAWAY_REFRESH_INTERVAL_HOURS`/
+  `cfg.HOSTAWAY_CLEANING_TASKS_INTERVAL_HOURS`) au lieu de constantes codées en dur.
+
+Aucune sauvegarde `app.db` avant un tick Hostaway de routine — décision explicite alignée sur la
+mission (« backup ≠ restauration systématique ») : l'ordonnanceur appelle déjà
+`actualiser(cibles=[...])`, qui (mission précédente) ne prend une sauvegarde que sur une
+actualisation GLOBALE. Une panne API se traduit par une non-activation du dataset (l'ancien reste
+actif), jamais une restauration de base.
+
+Écran `/actualisation` étendu d'un bloc « Scheduler Hostaway » (statut, cadences, dernier état,
+prochaine décision) — aucune deuxième page créée.
+
+Tests : 10 nouveaux (`test_scheduler_hostaway_industrialisation.py`) + 1 (écran) +
+`test_ordonnanceur.py` adapté (`cadences()` fonction au lieu de dict figé, 16 tests existants
+toujours verts). Campagne complète : moteur 345/345 passed, application ~2660 passed (8 shards).
+**0 failed.** Détail complet : `SCHEDULER_HOSTAWAY.md`.

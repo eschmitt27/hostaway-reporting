@@ -2054,3 +2054,12 @@ sur un simple échec `PARTIEL`, qui reste géré sans perte de données par cons
 `dry_run=True` ajouté : calcule le plan de dépendances sans rien exécuter ni activer. Aucune
 nouvelle table, aucun nouveau registre — détail complet :
 `ORCHESTRATEUR_GLOBAL_ACTUALISATION.md` (même sous-dossier de mission).
+
+## Mise à jour 2026-08-23 — scheduler Hostaway câblé (existant, non reconstruit)
+
+`ordonnanceur_service.py` (cadence 5h Hostaway / 24h CleaningTasks, verrou partagé avec
+l'orchestrateur, même service que le bouton manuel) existait déjà d'une session antérieure.
+Câblé cette session : démarrage/arrêt avec `app/main.py`, `run_history` pour Hostaway (chemin
+synchrone), cadences configurables par variable d'environnement. Aucune sauvegarde `app.db` avant
+un tick Hostaway de routine (panne API → non-activation du dataset, jamais une restauration
+complète). Détail : `SCHEDULER_HOSTAWAY.md` (même sous-dossier de mission).

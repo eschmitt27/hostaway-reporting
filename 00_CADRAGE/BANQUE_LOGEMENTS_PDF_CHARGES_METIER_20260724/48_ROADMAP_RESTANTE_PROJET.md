@@ -379,3 +379,11 @@ dans les imports Hostaway/Banque eux-mêmes (non fait, retrofit différé deux f
 politique de rétention des sauvegardes (`purger()` existe, jamais appelé automatiquement).
 Prochaine étape explicitement écartée de ces deux missions (hors mandat) : scheduler Hostaway,
 administration référentiels, refonte métier.
+
+**Mis à jour 2026-08-23 (scheduler Hostaway)** : le scheduler (`ordonnanceur_service.py`, cadence
+5h/24h, même service que le manuel) existait déjà — câblé au démarrage de l'application, à
+`run_history` (chemin synchrone) et rendu configurable par variable d'environnement. Scheduler
+réel toujours INACTIF par défaut. `run_history` pour Hostaway/Banque via les imports eux-mêmes
+reste partiellement fait (Hostaway oui via cette mission, Banque toujours non). Détail :
+`SCHEDULER_HOSTAWAY.md`. Prochaine étape annoncée par le porteur : référentiels SQLite
+administrables depuis l'application.

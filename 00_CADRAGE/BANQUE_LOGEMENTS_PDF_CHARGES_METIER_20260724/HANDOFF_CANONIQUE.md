@@ -2025,3 +2025,14 @@ prise — nouvelle route `/actualisation/tout/dry-run` + bouton « Simuler (dry-
 test : `cfg.BACKUPS_DIR` désormais patché par le fixture `tmp_db` partagé (comme `cfg.DB_PATH`) —
 tout test appelant une actualisation globale est protégé sans configuration supplémentaire.
 Détail complet : `ORCHESTRATEUR_GLOBAL_ACTUALISATION.md`.
+
+**Mis à jour 2026-08-23 (scheduler Hostaway)** : `ordonnanceur_service.py` (cadence 5h Hostaway /
+24h CleaningTasks, verrou/état partagés avec l'orchestrateur, appelle le MÊME service que le
+bouton manuel) **existait déjà**, tout comme `hostaway_actualisation_service.py::actualiser()`
+(point d'entrée unique). Trois manques comblés, sans rien reconstruire : câblage démarrage/arrêt
+avec `app/main.py::lifespan` (le service n'était jamais lancé), `run_history` pour Hostaway
+(chemin synchrone uniquement), cadence rendue configurable (`cfg.HOSTAWAY_REFRESH_INTERVAL_HOURS`/
+`cfg.HOSTAWAY_CLEANING_TASKS_INTERVAL_HOURS`). Aucune sauvegarde `app.db` avant un tick de routine
+(déjà le comportement de l'orchestrateur pour une cible unique — panne API = non-activation du
+dataset, jamais une restauration complète). Scheduler réel toujours INACTIF
+(`ORDONNANCEUR_ACTIF=False` par défaut, non modifié). Détail complet : `SCHEDULER_HOSTAWAY.md`.
