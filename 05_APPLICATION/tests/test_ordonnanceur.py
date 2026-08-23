@@ -101,8 +101,9 @@ def test_gestion_429_reste_dans_le_lot_dextraction():
 # ── H6 : cadence distincte (§41) ────────────────────────────────────────────
 
 def test_cleaning_tasks_pas_a_la_meme_cadence():
-    assert ordo.CADENCES[ordo.TACHE_CLEANING_TASKS] > ordo.CADENCES[ordo.TACHE_HOSTAWAY]
-    assert ordo.CADENCES[ordo.TACHE_HOSTAWAY] == 5
+    cad = ordo.cadences()
+    assert cad[ordo.TACHE_CLEANING_TASKS] > cad[ordo.TACHE_HOSTAWAY]
+    assert cad[ordo.TACHE_HOSTAWAY] == 5
 
 
 def test_cleaning_tasks_non_declenche_toutes_les_5h(tmp_db):
@@ -169,4 +170,4 @@ def test_etat_lisible_sans_demarrer(tmp_db):
     etat = ordo.etat(db_path=tmp_db)
     assert etat["actif"] is False
     assert etat["cadences_h"][ordo.TACHE_HOSTAWAY] == 5
-    assert len(etat["prochaines_decisions"]) == len(ordo.CADENCES)
+    assert len(etat["prochaines_decisions"]) == len(ordo.cadences())

@@ -36,11 +36,6 @@ from app.db.connection import get_db
 from app.services import orchestrateur_dag as dag
 from app.services import orchestrateur_service as orch
 
-# Cadences (heures). Valeurs métier, pas des constantes techniques : elles sont ici pour être
-# discutées et modifiées explicitement.
-CADENCE_HOSTAWAY_H = 5
-CADENCE_CLEANING_TASKS_H = 24
-
 # Délai minimal après un run terminé en PARTIEL/ÉCHEC (typiquement une limite d'API atteinte) :
 # relancer tout de suite retomberait dans le même mur et consommerait le budget pour rien.
 REPRISE_APRES_ECHEC_H = 1
@@ -48,10 +43,15 @@ REPRISE_APRES_ECHEC_H = 1
 TACHE_HOSTAWAY = "HOSTAWAY_RAW"
 TACHE_CLEANING_TASKS = "HOSTAWAY_CLEANING_TASKS"
 
-CADENCES = {
-    TACHE_HOSTAWAY: CADENCE_HOSTAWAY_H,
-    TACHE_CLEANING_TASKS: CADENCE_CLEANING_TASKS_H,
-}
+
+def cadences() -> dict[str, int]:
+    """Lues à chaud depuis `cfg` (jamais figées à l'import) — configurables par variable
+    d'environnement (`HOSTAWAY_REFRESH_INTERVAL_HOURS`/`HOSTAWAY_CLEANING_TASKS_INTERVAL_HOURS`),
+    jamais un second 5 codé en dur ailleurs."""
+    return {
+        TACHE_HOSTAWAY: cfg.HOSTAWAY_REFRESH_INTERVAL_HOURS,
+        TACHE_CLEANING_TASKS: cfg.HOSTAWAY_CLEANING_TASKS_INTERVAL_HOURS,
+    }
 
 E_INACTIF = "ORDONNANCEUR_INACTIF"
 
@@ -93,7 +93,8 @@ def doit_declencher(tache: str, *, maintenant: datetime | None = None,
     dépendre de l'heure réelle de la machine.
     """
     maintenant = maintenant or _maintenant()
-    cadence = timedelta(hours=CADENCES[tache])
+    cadence_h = cadences()[tache]
+    cadence = timedelta(hours=cadence_h)
     etat = dernier_declenchement(tache, db_path=db_path)
 
     if etat is None or not etat.get("calcule_le"):
@@ -117,9 +118,9 @@ def doit_declencher(tache: str, *, maintenant: datetime | None = None,
     ecoule = maintenant - dernier
     if ecoule >= cadence:
         return {"declencher": True, "tache": tache,
-                "motif": f"Dernière actualisation il y a {ecoule}. Cadence : {CADENCES[tache]}h."}
+                "motif": f"Dernière actualisation il y a {ecoule}. Cadence : {cadence_h}h."}
     return {"declencher": False, "tache": tache,
-            "motif": f"Actualisé il y a {ecoule} (cadence {CADENCES[tache]}h)."}
+            "motif": f"Actualisé il y a {ecoule} (cadence {cadence_h}h)."}
 
 
 def tick(*, maintenant: datetime | None = None, db_path=None) -> dict[str, Any]:
@@ -163,7 +164,7 @@ def demarrer(*, intervalle_s: int = 900, db_path=None) -> dict[str, Any]:
     """Démarre le battement périodique. REFUSE tant que l'ordonnanceur n'est pas activé.
 
     L'intervalle de battement (15 min) n'est pas la cadence métier : c'est la fréquence à laquelle
-    on se demande « est-ce dû ? ». La cadence réelle reste celle de `CADENCES`.
+    on se demande « est-ce dû ? ». La cadence réelle reste celle de `cadences()`.
     """
     global _minuteur
     if not actif():
@@ -187,7 +188,7 @@ def demarrer(*, intervalle_s: int = 900, db_path=None) -> dict[str, Any]:
     _minuteur = threading.Timer(intervalle_s, _battement)
     _minuteur.daemon = True
     _minuteur.start()
-    return {"ok": True, "intervalle_s": intervalle_s, "cadences": dict(CADENCES)}
+    return {"ok": True, "intervalle_s": intervalle_s, "cadences": cadences()}
 
 
 def arreter() -> None:
@@ -199,10 +200,11 @@ def arreter() -> None:
 
 def etat(*, db_path=None) -> dict[str, Any]:
     """Ce que l'écran doit pouvoir dire de l'ordonnanceur, sans le démarrer."""
+    cad = cadences()
     return {
         "actif": actif(),
-        "cadences_h": dict(CADENCES),
+        "cadences_h": cad,
         "taches": [dernier_declenchement(t, db_path=db_path) or {"dataset": t, "statut": "JAMAIS_CALCULE"}
-                   for t in CADENCES],
-        "prochaines_decisions": [doit_declencher(t, db_path=db_path) for t in CADENCES],
+                   for t in cad],
+        "prochaines_decisions": [doit_declencher(t, db_path=db_path) for t in cad],
     }

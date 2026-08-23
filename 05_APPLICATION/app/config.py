@@ -132,6 +132,14 @@ CHARGES_REAL_WRITE_CONFIRMATION_ENABLED = RECETTE_MODE and _env_flag("CHARGES_RE
 # déploiement.
 ORDONNANCEUR_ACTIF = _env_flag("ORDONNANCEUR_ACTIF")
 
+# Cadences (heures) — valeurs métier, configurables sans toucher au code (mission scheduler
+# Hostaway 2026-08-23). CleaningTasks (H6) reste à une cadence bien plus lente par défaut : ce
+# point d'API a rencontré des limites 429 sévères, et les tâches de ménage ne bougent pas au même
+# rythme que les réservations (cf. `ordonnanceur_service.py`).
+HOSTAWAY_REFRESH_INTERVAL_HOURS = int(os.environ.get("HOSTAWAY_REFRESH_INTERVAL_HOURS", "5"))
+HOSTAWAY_CLEANING_TASKS_INTERVAL_HOURS = int(
+    os.environ.get("HOSTAWAY_CLEANING_TASKS_INTERVAL_HOURS", "24"))
+
 # Racine unique autorisée en écriture en mode recette. Par défaut, le PROJECT_ROOT courant : en
 # lançant l'instance de recette avec PROJECT_ROOT=<dossier data_recette>, TOUTES les sources et
 # sorties vivent déjà dans ce dossier isolé, et le guard interdit toute écriture en dehors.

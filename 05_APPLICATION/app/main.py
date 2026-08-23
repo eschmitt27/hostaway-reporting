@@ -10,6 +10,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import STATIC_DIR, DATA_DIR, SNAPSHOTS_DIR
 from app.db.connection import apply_migrations
+from app.services import ordonnanceur_service
 from app.services.logging_config import log_erreur
 from app.routes import home, actualisation, administration_referentiels, sources_calculs, health, logements, reservations, menages, fournisseurs, proprietaires, proprietaires_tresorerie, banques, proprietaires_reglements, controles_cloture, clotures, pilotage_mensuel, fournisseurs_referentiel, charges_controle, factures, factures_proprietaires, creances_dettes, calculs, comptabilite, resultats, referentiel_setup, comptes_proprietaires, observabilite
 
@@ -19,7 +20,12 @@ async def lifespan(app: FastAPI):
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
     apply_migrations()
+    # `demarrer()` refuse tant que `cfg.ORDONNANCEUR_ACTIF` est faux (défaut) — appel
+    # inconditionnel : c'est le garde-fou lui-même qui décide, jamais un `if` dupliqué ici
+    # (mission scheduler Hostaway 2026-08-23).
+    ordonnanceur_service.demarrer()
     yield
+    ordonnanceur_service.arreter()
 
 
 # Application locale mono-utilisateur, sans exposition Internet : documentation API désactivée par
