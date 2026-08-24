@@ -425,3 +425,14 @@ idempotent trouvé et corrigé pendant la campagne (`INSERT` → `INSERT OR IGNO
 moteur 362/362, application 2717/0 failed (10 lots). Détail : `REGLES_METIER_TEMPORELLES.md` §9.
 Prochaine étape annoncée par la mission : extraction d'un moteur temporel pilote, probablement
 commission — non commencée, mission 6 bis stoppe ici explicitement.
+
+**Mis à jour 2026-08-24 (règles métier temporelles, mission 6 ter)** : les 3 règles versionnées
+étaient déclarées mais jamais consommées — câblées maintenant dans Lot10 (assiette, canapé, fail-
+closed) et `charges_preview_service` (répartition, résolue au mois de la charge). Vérifié
+strictement que le mode « propriétaire » du formulaire Nouvelle charge est un raccourci de
+sélection intentionnel, pas une fuite de périmètre. Invalidation DAG enfin câblée et testée
+(`invalider_dag_referentiel` → `invalider_descendants(REF_SETUP)`, 4 services d'écriture, jamais de
+recalcul auto). Non construits, déclarés honnêtement : impact preview, bandeau correction
+rétroactive dédié. Campagne : moteur 369/369, application 2725/0 failed. Détail :
+`REGLES_METIER_TEMPORELLES.md` §10. Mission 6 ter stoppe ici explicitement — pas de moteur
+Commission pur commencé.

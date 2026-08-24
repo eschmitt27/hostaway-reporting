@@ -2125,3 +2125,21 @@ implémentation toujours dans le code. Résolveur `lib_ref_history.resolve_regle
 `lot6e_gainperte_menages.py`) résolu désormais par date via `resolve_parametre_general`.
 
 Détail complet : `REGLES_METIER_TEMPORELLES.md` §9 (même sous-dossier de mission).
+
+## Mise à jour 2026-08-24 — Mission 6 ter : règles versionnées branchées en production + DAG invalidé
+
+Les 3 règles versionnées étaient déclarées (`ref_regles_versions`) mais jamais consultées. Câblé :
+`lot10_calculer_resultats.py` résout ASSIETTE_COMMISSION/CANAPE_FORMULE par date de réservation
+avant calcul (formule V1 inchangée, fail-closed) ; `charges_preview_service.compute_guidee` résout
+REGLE_REPARTITION_CHARGE_COMMUNE au mois de la charge avant `repartir_egal`. Vérifié strictement :
+le mode « propriétaire » du formulaire Nouvelle charge est un raccourci de sélection intentionnel
+(même formulaire que la sélection directe de logements), pas une fuite de périmètre.
+
+Invalidation DAG câblée : `referentiel_admin_service.invalider_dag_referentiel()` (nouveau) appelle
+`orchestrateur_service.invalider_descendants(orchestrateur_dag.REF_SETUP)` — le nœud DAG existant,
+aucune deuxième carte — appelé par les 4 services d'écriture temporelle (logements, coûts ménage,
+canapé, règles versionnées) après commit réussi. Prouvé par test : marque les descendants non-export
+`A_RECALCULER`, ne recalcule jamais rien elle-même.
+
+Non construits (déclaré honnêtement) : impact preview, bandeau de correction rétroactive dédié.
+Détail complet : `REGLES_METIER_TEMPORELLES.md` §10 (même sous-dossier de mission).

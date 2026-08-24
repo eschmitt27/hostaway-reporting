@@ -4190,3 +4190,40 @@ choisir entre versions réelles (une seule existe) ; invalidation DAG non revali
 référentiel ; pas d'impact preview dédié ; pas de bandeau "MODIFICATION RÉTROACTIVE" dédié (le
 mécanisme générique clôture/ouverture + refus de chevauchement + journal protège déjà contre
 l'écrasement silencieux). Détail complet : `REGLES_METIER_TEMPORELLES.md` §9.
+
+## 2026-08-24 — Mission 6 ter : règles versionnées réellement consommées, DAG invalidé
+
+Audit ciblé confirme que les 3 règles versionnées (Mission 6 bis) n'étaient jamais consultées par
+aucun code de production — juste déclarées. Câblage réel : `lot10_calculer_resultats.py` résout
+`ASSIETTE_COMMISSION`/`CANAPE_FORMULE` à la date économique de chaque réservation avant calcul
+(garde-fou `_verifier_version_regle`, BLOQUANT si version résolue non implémentée — jamais un repli
+silencieux) ; `charges_preview_service.compute_guidee` résout `REGLE_REPARTITION_CHARGE_COMMUNE` au
+mois de la charge avant `repartir_egal` (refus `V27_REGLE_REPARTITION_INDISPONIBLE` sinon). Formules
+métier strictement inchangées ; base absente/référentiel non initialisé → comportement historique
+identique (zéro régression pour les tests/environnements existants).
+
+Vérification critique demandée par la mission (§9/§10) : un logement peut-il entrer dans le
+périmètre de répartition via « actif du propriétaire » sans être réellement sur la facture ? Lecture
+complète confirme NON dans le sens d'un défaut — `logements` et `proprietaires` sont deux champs du
+MÊME formulaire « Nouvelle charge » (`fournisseurs_nouvelle.html`), le mode propriétaire étant un
+raccourci de sélection prévu par le formulaire lui-même, pas une fuite vers un périmètre externe.
+Comportement voulu, documenté comme tel, aucune correction.
+
+Invalidation DAG : `orchestrateur_service.invalider_descendants()` existait, correctement
+implémenté, mais zéro appelant dans tout le repo. Câblé via nouveau `referentiel_admin_service.
+invalider_dag_referentiel()` (réutilise le nœud DAG existant `REF_SETUP`, aucune deuxième carte),
+appelé par les 4 services d'écriture temporelle (logements, coûts ménage, canapé, règles
+versionnées) après commit réussi. Prouvé par 6 tests (`test_invalidation_dag_referentiels.py`) :
+descendants non-export marqués `A_RECALCULER`, `LOT13_EXPORT` jamais touché, aucun recalcul réel
+déclenché (`lot10_runs` inchangé).
+
+Déclaré honnêtement comme non fait : impact preview (aucun service `previsualiser_impacts_regle`),
+bandeau de correction rétroactive dédié avec justification obligatoire (le mécanisme générique
+clôture/ouverture + refus de chevauchement + journal protège déjà contre l'écrasement silencieux,
+mais aucun écran ne l'affiche explicitement) — tenté puis écarté par risque de régression sur des
+tests existants utilisant des dates de fixture passées sans justification.
+
+Tests : 7 nouveaux (`tests/test_regles_versionnees_production.py`), 6 nouveaux
+(`test_invalidation_dag_referentiels.py`), 2 nouveaux (`test_charges_impact.py`). Campagne complète :
+moteur **369/369 passed**, application **2725 passed** (10 lots, 184 fichiers). **0 failed.** app.db
+réelle inchangée (`8e299b935ef1e0d4`). Détail complet : `REGLES_METIER_TEMPORELLES.md` §10.

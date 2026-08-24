@@ -282,10 +282,95 @@ Application (`05_APPLICATION/tests/`, 183 fichiers, 10 lots) : **2717 passed**, 
 - `ref_parametres_generaux` : seul `TAUX_HORAIRE_MENAGE_INTERNE` traité (seul consommateur réel
   trouvé) ; le reste du catalogue non audité paramètre par paramètre.
 
-## 10. Prochaine étape recommandée
+## 10. Mission 6 ter — fermer le socle temporel en production (2026-08-24)
+
+HEAD départ `f63c6f2`. Ferme les écarts entre « infrastructure versionnable » (Mission 6 bis) et
+« moteurs de production qui consomment réellement les versions ».
+
+### 10.1 Branchement réel des 3 chaînes versionnées
+
+Avant cette mission, `ref_regles_versions` (3 lignes V1 backfillées) était **déclarée mais jamais
+consultée** par aucun code de production :
+
+| Règle | Consommateur avant | Après |
+|---|---|---|
+| ASSIETTE_COMMISSION | `lot10_calculer_resultats.py` appliquait sa formule par canal (HA/HH/VRBO) sans jamais résoudre de version | Un garde-fou (`_verifier_version_regle`) résout la version à la date de CHAQUE réservation avant le calcul — BLOQUANT (`sys.exit(1)`) si la version résolue n'est pas implémentée. Formule inchangée. |
+| CANAPE_FORMULE | `lib_canape.calculate_canape_amount` appelé directement | Résolution de version avant l'appel — `A_CONTROLER` (pas bloquant, cohérent avec le statut existant du canapé) si version indisponible, formule V1 inchangée sinon. |
+| REGLE_REPARTITION_CHARGE_COMMUNE | `charges_impact_service.repartir_egal` appelé directement par `charges_preview_service.compute_guidee` | `compute_guidee` résout la version à `{mois}-01` (convention déjà établie ailleurs pour ce type de date, pas inventée) avant d'appeler `repartir_egal` ; refus `V27_REGLE_REPARTITION_INDISPONIBLE` sinon. `charges_impact_service.py` reste un module de calcul pur SANS accès DB — le dispatch se fait côté appelant, qui a déjà accès à la base (choix architectural délibéré, pas un défaut). |
+
+Dans les trois cas : **aucune formule métier modifiée**, `regles_history`/`df_regles` vide (base
+absente, tests existants sans DB) → comportement historique inchangé à l'identique, zéro
+régression. Tests (`tests/test_regles_versionnees_production.py`, nouveau, 7 tests) prouvent : V1
+seule couvre toute date, fail-closed si version absente/non implémentée, et surtout qu'une V2 de
+fixture à partir de 2027 ne change **jamais** un recalcul 2026 rejoué après coup.
+
+### 10.2 Vérification stricte du périmètre de répartition (§9/§10 de la mission)
+
+Point critique explicitement soulevé : un logement peut-il être inclus dans le périmètre de
+répartition d'une charge via « actif du propriétaire » SANS être réellement concerné par CETTE
+facture ? Lecture complète de `charges_preview_service.py` : le formulaire réel « Nouvelle charge »
+(`app/templates/fournisseurs_nouvelle.html`) expose **deux champs multi-select sur le MÊME
+formulaire** — `logements` et `proprietaires` — tous deux transmis ensemble à
+`compute_perimetre_logements`. Le mode « propriétaire » est un **raccourci de sélection
+intentionnel** : il permet à l'utilisateur de désigner « tous les logements gérés de ce
+propriétaire ce mois-ci » sans les cocher un par un — c'est une façon légitime et prévue par le
+formulaire lui-même de définir le périmètre de LA facture en cours de saisie, jamais une fuite vers
+un périmètre externe. **Confirmé comme comportement voulu, pas un défaut — aucune correction
+apportée.**
+
+### 10.3 Invalidation DAG — enfin câblée et testée
+
+Avant cette mission : `orchestrateur_service.invalider_descendants()` existait, correctement
+implémenté, mais **zéro appelant dans tout le repo** (vérifié par grep). Câblé maintenant : nouveau
+`referentiel_admin_service.invalider_dag_referentiel()` (appelle `invalider_descendants(REF_SETUP)`
+— le nœud DAG EXISTANT qui porte déjà tous les référentiels, aucune deuxième carte créée), appelé en
+fin de transaction réussie par les 4 services d'écriture temporelle : `logements_gestion_service`
+(archiver/reactiver/changer_proprietaire/changer_taux_commission), `couts_menage_gestion_service`,
+`canape_gestion_service`, `regle_version_gestion_service`. Le nœud `REF_SETUP` (`orchestrateur_dag.
+py`) a vu sa liste `tables` complétée (`ref_couts_standards_menage`/`ref_canape_parametres`/
+`ref_regles_versions` — donnée documentaire, la logique d'invalidation elle-même est déjà indexée
+par NOM de dataset, pas par cette liste).
+
+Prouvé par `tests/test_invalidation_dag_referentiels.py` (nouveau, 6 tests) : une modification de
+taux/coût ménage/canapé/version de règle marque bien `A_RECALCULER` tous les descendants non-export
+de `REF_SETUP` (RESERVATIONS, MENAGES, FLUX_LOT9, LOT10, LOT11, LOT12), jamais `LOT13_EXPORT`
+(export optionnel, jamais invalidé automatiquement), et **aucun recalcul réel n'est déclenché**
+(aucune nouvelle ligne dans `lot10_runs`). Verdict : **RÉUTILISÉE ET TESTÉE**.
+
+### 10.4 Ce qui n'a PAS été construit (déclaré honnêtement, pas gonflé)
+
+- **Impact preview** (`previsualiser_impacts_regle()`) : **NON construit**. Aucun écran n'affiche
+  « N réservations/factures potentiellement concernées » avant de confirmer une modification.
+- **Correction rétroactive avec bandeau dédié + justification obligatoire** : **PARTIEL, non
+  amélioré cette mission**. Le mécanisme générique (clôture/ouverture atomique, refus de
+  chevauchement, journal `ref_admin_evenements`) protège déjà contre l'écrasement silencieux d'une
+  période passée, mais aucune alerte visuelle "MODIFICATION RÉTROACTIVE" ni justification
+  obligatoire dédiée n'existe. Tenté puis délibérément écarté cette mission : une règle « justifi-
+  cation obligatoire si date_debut < aujourd'hui » aurait cassé un grand nombre de tests existants
+  qui utilisent des dates de fixture antérieures à la date système réelle sans jamais fournir de
+  justification — corriger ce risque de régression dépasse le périmètre temps/risque de cette
+  mission. Documenté ici plutôt que bâclé.
+
+### 10.5 Tests et campagne
+
+- `tests/test_regles_versionnees_production.py` (racine, nouveau, 7 tests).
+- `tests/test_invalidation_dag_referentiels.py` (05_APPLICATION, nouveau, 6 tests).
+- `05_APPLICATION/tests/test_charges_impact.py` (+2 tests : cas nominal V1, refus fail-closed).
+- Aucune migration nouvelle (0059 suffisait — les 3 lignes V1 existaient déjà).
+
+Campagne finale : moteur **369 passed**, application **2725 passed** (10 lots, 184 fichiers).
+**0 failed.**
+
+### 10.6 Intégrité réelle
+
+`app.db` réelle : hash inchangé (`8e299b935ef1e0d4`). `REF_Setup.xlsm` : non touché. Mode réel :
+`OFF`. Scheduler Hostaway réel : `INACTIF`. Aucune formule métier actuelle modifiée.
+
+## 11. Prochaine étape recommandée
 
 Annoncée par la mission : extraction d'un moteur temporel pilote, probablement **commission**
-(déjà historisée et résolue par date — le candidat le plus proche d'être un moteur pur complet).
-Le socle de résolution centralisée (`lib_ref_history.py`, déjà pur, déjà réutilisé par plusieurs
-domaines) est prêt à servir de base à ce prochain moteur, sans reconstruction. Mission 6 bis
-STOP explicite ici — ne pas commencer ce moteur maintenant.
+(déjà historisée, résolue par date, et désormais réellement branchée en production — le candidat
+le plus mûr). Le socle de résolution centralisée (`lib_ref_history.py`) et l'invalidation DAG sont
+prêts à servir de base, sans reconstruction. Restent à construire, si arbitrés utiles avant ce
+moteur : impact preview, bandeau de correction rétroactive avec justification obligatoire. Mission
+6 ter STOP explicite ici — ne pas commencer le moteur Commission maintenant.

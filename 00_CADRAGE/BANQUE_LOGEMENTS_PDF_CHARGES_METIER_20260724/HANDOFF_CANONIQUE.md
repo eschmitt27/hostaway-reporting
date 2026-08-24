@@ -2099,3 +2099,21 @@ application 2717/0 failed (10 lots). Limites : invalidation DAG non revalidée p
 impact preview non construit, bandeau correction-rétroactive dédié non construit (mécanisme
 générique existant suffit pour empêcher l'écrasement silencieux). Détail complet :
 `REGLES_METIER_TEMPORELLES.md` §9.
+
+**Mis à jour 2026-08-24 (Mission 6 ter — fermeture socle temporel en production)** : les 3 règles
+versionnées (Mission 6 bis) étaient déclarées mais jamais consommées. Câblé maintenant : `lot10_
+calculer_resultats.py` résout `ASSIETTE_COMMISSION`/`CANAPE_FORMULE` à la date de chaque réservation
+avant calcul (BLOQUANT/`A_CONTROLER` si version indisponible, formule V1 strictement inchangée) ;
+`charges_preview_service.compute_guidee` résout `REGLE_REPARTITION_CHARGE_COMMUNE` au mois de la
+charge avant `repartir_egal` (refus `V27` sinon). Vérification stricte du périmètre facture (§9/§10
+de la mission) : confirmé que le mode « propriétaire » du formulaire « Nouvelle charge » est un
+raccourci de sélection intentionnel (deux champs multi-select sur le même formulaire), pas une
+fuite de périmètre — aucune correction nécessaire. Invalidation DAG enfin câblée :
+`orchestrateur_service.invalider_descendants()` existait sans aucun appelant ; nouveau
+`referentiel_admin_service.invalider_dag_referentiel()` appelé par les 4 services d'écriture
+temporelle, prouvé par test (modification → descendants `A_RECALCULER`, `LOT13_EXPORT` jamais
+touché, aucun recalcul réel déclenché). Non construits, déclarés honnêtement : impact preview,
+bandeau de correction rétroactive avec justification obligatoire (tenté puis écarté — risque de
+régression sur des tests existants utilisant des dates de fixture passées sans justification).
+Campagne : moteur 369/369, application 2725/0 failed. app.db réelle inchangée. Détail complet :
+`REGLES_METIER_TEMPORELLES.md` §10.
