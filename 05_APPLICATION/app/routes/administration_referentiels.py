@@ -20,6 +20,7 @@ from app.config import TEMPLATES_DIR
 from app.services import canape_gestion_service as canape
 from app.services import couts_menage_gestion_service as cm
 from app.services import referentiel_admin_service as adm
+from app.services import regle_version_gestion_service as regv
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -27,6 +28,7 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 _MENU = "administration_referentiels"
 TABLE_COUTS_MENAGE = cm.TABLE
 TABLE_CANAPE = canape.TABLE
+TABLE_REGLES_VERSIONS = regv.TABLE
 
 
 @router.get("/administration/referentiels", response_class=HTMLResponse)
@@ -54,6 +56,7 @@ def detail(request: Request, table: str, message: str = "", erreur: str = ""):
         "evenements": adm.historique_evenements(table, limite=20),
         "table_couts_menage": TABLE_COUTS_MENAGE,
         "table_canape": TABLE_CANAPE,
+        "table_regles_versions": TABLE_REGLES_VERSIONS,
         "message": message,
         "erreur": erreur,
     })
@@ -78,6 +81,15 @@ def changer_parametres_canape(logement_id: str = Form(...),
     res = canape.changer_parametres(logement_id, seuil_voyageurs_preparation_canape,
                                     montant_preparation_canape, date_debut, acteur="ui")
     return _retour(TABLE_CANAPE, res, "Paramètres canapé mis à jour.")
+
+
+@router.post("/administration/referentiels/ref_regles_versions/changer-version")
+def changer_version_regle(rule_code: str = Form(...), version: str = Form(...),
+                          date_debut: str = Form(...), commentaire: str = Form("")):
+    """Introduit une nouvelle version d'une règle algorithmique — clôture + ouverture atomiques,
+    jamais de modification d'une version close (voir `regle_version_gestion_service`)."""
+    res = regv.changer_version(rule_code, version, date_debut, commentaire=commentaire, acteur="ui")
+    return _retour(TABLE_REGLES_VERSIONS, res, "Version de règle enregistrée.")
 
 
 @router.post("/administration/referentiels/{table}/creer")

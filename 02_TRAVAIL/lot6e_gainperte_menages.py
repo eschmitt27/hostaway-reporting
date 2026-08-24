@@ -30,6 +30,7 @@ from openpyxl.styles import Font, PatternFill
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lib_db_moteur as dbm
+from lib_ref_history import resolve_parametre_general
 
 PIVOT = "2026-06"          # >= pivot : méthode interne paramétrée
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -144,14 +145,19 @@ if args.source == "SQLITE":
 else:
     sh_int = sh(REF, "REF_Couts_Menage_Interne") if "REF_Couts_Menage_Interne" in openpyxl.load_workbook(REF, read_only=True).sheetnames else []
 
-# taux horaire (PARAM_004), pas en dur
+# taux horaire (PARAM_004), pas en dur — resolu par date economique (Mission 6 bis) : ce
+# parametre peut evoluer, un recalcul historique ne doit pas utiliser le taux courant.
 taux_horaire = None
 if args.source == "SQLITE":
-    for d in dbm.lignes(_conn, "ref_parametres_generaux", ("nom_parametre", "valeur"),
-                        ordre="parametre_id"):
-        if d.get("nom_parametre") == "TAUX_HORAIRE_MENAGE_INTERNE":
-            taux_horaire = _num(d.get("valeur"))
+    param_rows = dbm.lignes(_conn, "ref_parametres_generaux",
+                            ("nom_parametre", "valeur", "date_debut_validite",
+                             "date_fin_validite", "actif"),
+                            ordre="parametre_id")
     _conn.close()
+    res_taux = resolve_parametre_general(param_rows, nom_parametre="TAUX_HORAIRE_MENAGE_INTERNE",
+                                         ref_date=DREF)
+    if res_taux.status == "OK":
+        taux_horaire = res_taux.value
 else:
     for d in sh(REF, "REF_Parametres_Generaux"):
         if d.get("nom_parametre") == "TAUX_HORAIRE_MENAGE_INTERNE":

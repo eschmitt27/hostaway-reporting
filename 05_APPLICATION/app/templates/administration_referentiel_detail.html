@@ -103,6 +103,35 @@
 </div>
 {% endif %}
 
+{% if meta.table == table_regles_versions %}
+<div class="card mb-lg">
+  <div class="card-title">Introduire une nouvelle version d'une règle</div>
+  <p class="text-xs text-secondary mb-md">
+    Règle ALGORITHMIQUE (pas une simple variable) : l'implémentation reste dans le code, ceci
+    n'enregistre que la date à partir de laquelle une version devient applicable. Clôture la
+    version active à la veille de la date choisie — la version précédente reste consultable,
+    jamais modifiée.
+  </p>
+  <form method="post" action="/administration/referentiels/ref_regles_versions/changer-version">
+    <div class="grid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:var(--space-sm);">
+      <label class="text-xs">Règle (rule_code) <span class="text-danger">*</span>
+        <input class="input" name="rule_code" required>
+      </label>
+      <label class="text-xs">Version <span class="text-danger">*</span>
+        <input class="input" name="version" required>
+      </label>
+      <label class="text-xs">Date de début <span class="text-danger">*</span>
+        <input class="input" type="date" name="date_debut" required>
+      </label>
+      <label class="text-xs">Commentaire
+        <input class="input" name="commentaire">
+      </label>
+    </div>
+    <button type="submit" class="btn btn-primary mt-md" {% if not disponible %}disabled{% endif %}>Enregistrer la version</button>
+  </form>
+</div>
+{% endif %}
+
 {% if meta.table == table_canape %}
 <div class="card mb-lg">
   <div class="card-title">Changer le seuil/montant canapé d'un logement</div>

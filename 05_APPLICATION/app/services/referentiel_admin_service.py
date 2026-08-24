@@ -56,6 +56,12 @@ TABLES_NATIVES: dict[str, TableNative] = {
                   "seuil_voyageurs_preparation_canape", "montant_preparation_canape",
                   "date_debut", "date_fin", "actif", "commentaire"),
     ),
+    "ref_regles_versions": TableNative(
+        onglet="REF_Regles_Versions",
+        cle="regle_version_id",
+        colonnes=("regle_version_id", "rule_code", "version",
+                  "date_debut", "date_fin", "actif", "parametres", "commentaire"),
+    ),
 }
 
 TABLE_LOGEMENTS = "ref_logements"
@@ -192,6 +198,8 @@ PERIODES: dict[str, dict[str, str]] = {
         "grain": "type_logement_id", "debut": "date_debut_validite", "fin": "date_fin_validite"},
     "ref_canape_parametres": {
         "grain": "logement_id", "debut": "date_debut", "fin": "date_fin"},
+    "ref_regles_versions": {
+        "grain": "rule_code", "debut": "date_debut", "fin": "date_fin"},
 }
 
 #: Tout le moteur (`lib_ref_history.resolve_management_period`, `resolve_commission_rate`,
@@ -455,6 +463,16 @@ CATEGORIES: tuple[dict[str, Any], ...] = (
                    "ref_sources_systeme", "ref_parametres_generaux", "ref_associes",
                    "ref_assoc_mode"),
     },
+    {
+        "cle": "regles_versionnees",
+        "titre": "Règles versionnées",
+        "description": (
+            "Règles ALGORITHMIQUES (pas de simples variables) — assiette de commission, "
+            "répartition des charges communes de facture — versionnées par date. "
+            "L'implémentation reste dans le code ; ceci dit seulement quelle version s'applique "
+            "à quelle date."),
+        "tables": ("ref_regles_versions",),
+    },
 )
 
 # Tables dont la modification passe par un parcours métier dédié (voir ci-dessus).
@@ -463,6 +481,7 @@ LECTURE_SEULE = {
     "ref_taux_commission": "Fiche logement → changement de taux de commission",
     "ref_couts_standards_menage": "Écran coûts ménage → changement de coût standard",
     "ref_canape_parametres": "Écran paramètres canapé → changement de seuil/montant",
+    "ref_regles_versions": "Écran règles versionnées → nouvelle version d'une règle",
 }
 
 # Colonnes exclues de l'édition libre bien que leur TABLE reste administrable — la donnée vit

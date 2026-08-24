@@ -161,6 +161,78 @@ def resolve_canape_parametres(
     return Resolution("OK", row=candidates[0])
 
 
+def resolve_regle_version(
+    rows: Iterable[dict[str, Any]],
+    *,
+    rule_code: Any,
+    ref_date: Any,
+) -> Resolution:
+    """Resolve which VERSION of an algorithmic rule (assiette de commission, répartition d'une
+    charge commune de facture, ...) applies at a given economic date.
+
+    Distinct from a simple historized VARIABLE (taux, montant) : a rule is identified by a stable
+    `rule_code` (e.g. "ASSIETTE_COMMISSION") and resolves to a stable `version` string (e.g. "V1")
+    — the actual implementation for that version lives in code, never in the database. `res.value`
+    carries the version string, `res.row` the full row (parametres/commentaire included).
+
+    Mission 6 bis: today only V1 exists for each rule_code — this resolver proves the SELECTION
+    mechanism works (tested with a fixture-only "V2"), it does not itself introduce any V2.
+    """
+    code = norm_text(rule_code)
+    candidates = []
+    for row in rows:
+        if norm_text(row.get("rule_code")) != code:
+            continue
+        if not is_active(row.get("actif")):
+            continue
+        if not applies_on(row, ref_date, "date_debut", "date_fin"):
+            continue
+        candidates.append(row)
+
+    if not candidates:
+        return Resolution("MISSING", message=f"Aucune version de regle applicable pour {code!r} a cette date")
+    if len(candidates) > 1:
+        versions = ", ".join(norm_text(r.get("version")) for r in candidates)
+        return Resolution("AMBIGUOUS", message=f"Versions simultanees pour {code!r}: {versions}")
+    row = candidates[0]
+    return Resolution("OK", value=norm_text(row.get("version")), row=row)
+
+
+def resolve_parametre_general(
+    rows: Iterable[dict[str, Any]],
+    *,
+    nom_parametre: Any,
+    ref_date: Any,
+) -> Resolution:
+    """Resolve a dated value from `ref_parametres_generaux` (grain `nom_parametre`, columns
+    `date_debut_validite`/`date_fin_validite`) — same fail-closed shape as the other resolvers,
+    generalized so any economically-evolving general parameter can be resolved by date instead of
+    "whichever row happens to match the name" (the gap found in `lot6e_gainperte_menages.py`'s
+    `TAUX_HORAIRE_MENAGE_INTERNE` lookup).
+    """
+    nom = norm_text(nom_parametre)
+    candidates = []
+    for row in rows:
+        if norm_text(row.get("nom_parametre")) != nom:
+            continue
+        if not is_active(row.get("actif")):
+            continue
+        if not applies_on(row, ref_date, "date_debut_validite", "date_fin_validite"):
+            continue
+        candidates.append(row)
+
+    if not candidates:
+        return Resolution("MISSING", message=f"Aucun parametre {nom!r} applicable a cette date")
+    if len(candidates) > 1:
+        return Resolution("AMBIGUOUS", message=f"Valeurs simultanees pour le parametre {nom!r}")
+    row = candidates[0]
+    try:
+        valeur = float(str(row.get("valeur")).replace(",", "."))
+    except (TypeError, ValueError):
+        return Resolution("MISSING", row=row, message=f"Valeur invalide pour {nom!r}: {row.get('valeur')!r}")
+    return Resolution("OK", value=valeur, row=row)
+
+
 def resolve_management_period(
     rows: Iterable[dict[str, Any]],
     *,

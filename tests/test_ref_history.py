@@ -11,6 +11,8 @@ from lib_ref_history import (
     resolve_canape_parametres,
     resolve_commission_rate,
     resolve_management_period,
+    resolve_parametre_general,
+    resolve_regle_version,
 )
 
 
@@ -319,6 +321,89 @@ class CanapeParametresHistoryTests(unittest.TestCase):
              "date_debut": "", "date_fin": "", "actif": "NON"},
         ]
         res = resolve_canape_parametres(rows, logement_id="LOG_1", ref_date="2026-06-01")
+        self.assertEqual(res.status, "MISSING")
+
+
+class RegleVersionHistoryTests(unittest.TestCase):
+    """Mission 6 bis — versionnement des règles ALGORITHMIQUES (assiette de commission,
+    répartition des charges communes de facture), pas seulement des variables simples.
+
+    Aujourd'hui seule V1 existe pour chaque rule_code (formule actuelle, backfillée migration
+    0059). Ces tests prouvent le MÉCANISME de sélection par date avec une V2 de fixture — ils
+    n'introduisent aucune vraie V2 (§24/§25 de la mission : ne pas inventer une nouvelle formule
+    réelle, seulement prouver que la sélection temporelle fonctionnerait si elle existait)."""
+
+    def test_v1_seule_couvre_toute_periode_ouverte(self):
+        rows = [{"regle_version_id": "RGV_1", "rule_code": "ASSIETTE_COMMISSION", "version": "V1",
+                 "date_debut": "", "date_fin": "", "actif": "OUI"}]
+        res_2026 = resolve_regle_version(rows, rule_code="ASSIETTE_COMMISSION", ref_date="2026-06-15")
+        res_2028 = resolve_regle_version(rows, rule_code="ASSIETTE_COMMISSION", ref_date="2028-01-01")
+        self.assertEqual(res_2026.status, "OK")
+        self.assertEqual(res_2026.value, "V1")
+        self.assertEqual(res_2028.value, "V1")
+
+    def test_v2_de_fixture_ne_reecrit_pas_le_passe(self):
+        """Preuve du mécanisme (§24) : une V2 hypothétique à partir de 2027 ne change jamais la
+        résolution d'une date de 2026, même rejouée après l'introduction de V2."""
+        rows = [
+            {"regle_version_id": "RGV_1", "rule_code": "REGLE_REPARTITION_CHARGE_COMMUNE",
+             "version": "V1", "date_debut": "", "date_fin": "2026-12-31", "actif": "OUI"},
+            {"regle_version_id": "RGV_2", "rule_code": "REGLE_REPARTITION_CHARGE_COMMUNE",
+             "version": "V2_TEST", "date_debut": "2027-01-01", "date_fin": "", "actif": "OUI"},
+        ]
+        calcul_2026 = resolve_regle_version(rows, rule_code="REGLE_REPARTITION_CHARGE_COMMUNE",
+                                            ref_date="2026-06-15")
+        calcul_2027 = resolve_regle_version(rows, rule_code="REGLE_REPARTITION_CHARGE_COMMUNE",
+                                            ref_date="2027-03-01")
+        rejoue_2026_apres_v2 = resolve_regle_version(
+            rows, rule_code="REGLE_REPARTITION_CHARGE_COMMUNE", ref_date="2026-06-15")
+
+        self.assertEqual(calcul_2026.value, "V1")
+        self.assertEqual(calcul_2027.value, "V2_TEST")
+        self.assertEqual(rejoue_2026_apres_v2.value, "V1")
+
+    def test_rule_code_inconnu_est_missing(self):
+        res = resolve_regle_version([], rule_code="REGLE_INEXISTANTE", ref_date="2026-06-01")
+        self.assertEqual(res.status, "MISSING")
+
+    def test_chevauchement_de_versions_est_ambigu(self):
+        rows = [
+            {"regle_version_id": "RGV_1", "rule_code": "ASSIETTE_COMMISSION", "version": "V1",
+             "date_debut": "2026-01-01", "date_fin": "2026-06-30", "actif": "OUI"},
+            {"regle_version_id": "RGV_2", "rule_code": "ASSIETTE_COMMISSION", "version": "V2",
+             "date_debut": "2026-05-01", "date_fin": "2026-12-31", "actif": "OUI"},
+        ]
+        res = resolve_regle_version(rows, rule_code="ASSIETTE_COMMISSION", ref_date="2026-05-15")
+        self.assertEqual(res.status, "AMBIGUOUS")
+
+    def test_rule_code_different_nest_jamais_confondu(self):
+        rows = [{"regle_version_id": "RGV_1", "rule_code": "ASSIETTE_COMMISSION", "version": "V1",
+                 "date_debut": "", "date_fin": "", "actif": "OUI"}]
+        res = resolve_regle_version(rows, rule_code="REGLE_REPARTITION_CHARGE_COMMUNE",
+                                    ref_date="2026-06-01")
+        self.assertEqual(res.status, "MISSING")
+
+
+class ParametreGeneralHistoryTests(unittest.TestCase):
+    """Mission 6 bis — TAUX_HORAIRE_MENAGE_INTERNE (`ref_parametres_generaux`) devient résolu par
+    date au lieu d'être pris sans filtre (gap trouvé dans `lot6e_gainperte_menages.py`)."""
+
+    def test_ancien_taux_reste_utilise_pour_une_date_ancienne(self):
+        rows = [
+            {"nom_parametre": "TAUX_HORAIRE_MENAGE_INTERNE", "valeur": "12.5",
+             "date_debut_validite": "", "date_fin_validite": "2026-05-31", "actif": "OUI"},
+            {"nom_parametre": "TAUX_HORAIRE_MENAGE_INTERNE", "valeur": "15.0",
+             "date_debut_validite": "2026-06-01", "date_fin_validite": "", "actif": "OUI"},
+        ]
+        ancien = resolve_parametre_general(rows, nom_parametre="TAUX_HORAIRE_MENAGE_INTERNE",
+                                           ref_date="2026-03-01")
+        recent = resolve_parametre_general(rows, nom_parametre="TAUX_HORAIRE_MENAGE_INTERNE",
+                                           ref_date="2026-06-15")
+        self.assertEqual(ancien.value, 12.5)
+        self.assertEqual(recent.value, 15.0)
+
+    def test_parametre_absent_est_missing(self):
+        res = resolve_parametre_general([], nom_parametre="INEXISTANT", ref_date="2026-06-01")
         self.assertEqual(res.status, "MISSING")
 
 

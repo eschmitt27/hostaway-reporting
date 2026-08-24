@@ -155,6 +155,7 @@ EXPECTED_TABLES = {
     "sauvegardes_base",                          # 0057 — sauvegardes app.db (industrialisation)
     "run_history",                               # 0057 — historique centralisé des runs
     "ref_canape_parametres",                     # 0058 — paramètres canapé historisés (Mission 6)
+    "ref_regles_versions",                       # 0059 — versionnement règles algorithmiques (Mission 6 bis)
 }
 
 
