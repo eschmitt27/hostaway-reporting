@@ -22,7 +22,7 @@ de règles historiques).
 | **Paramètre canapé** (seuil/montant) | **Non** — valeur courante sur `ref_logements` | **Non** — `lot10_calculer_resultats.py` lisait la ligne courante sans filtre de date | **C — le manque le plus critique** |
 | Assiette de commission (formule) | N/A (formule) | N/A | **D formel, non versionné** — une seule implémentation a toujours existé par canal ; versionner maintenant serait spéculatif (§25) |
 | Règle canapé (formule seuil→montant) | N/A (formule) | N/A | **D formel, non versionné** — même raison |
-| Groupes de logements (composition) | **Concept absent** | — | Voir `DECISIONS_METIER.md` D-REF-HIST-01 — non inventé |
+| ~~Groupes de logements (composition)~~ | **Formulation corrigée en Mission 6 bis, voir §9.1** | Le périmètre vient de LA CHARGE/FACTURE (`charges_impact_service.compute_perimetre_logements`), pas d'un groupe permanent | Voir §9.1 et `DECISIONS_METIER.md` D-REF-HIST-01 (complétée) |
 | Paramètres métier généraux (`ref_parametres_generaux`) | Colonnes prêtes, jamais exploitées | Non | **B/C mélangé**, non traité cette mission (seul consommateur connu, `TAUX_HORAIRE_MENAGE_INTERNE`, probablement obsolète depuis le pivot coût fixe 2026-06-01) |
 
 Conclusion : **aucun système d'historisation parallèle créé**. Le manque réel et concret comblé cette
@@ -147,9 +147,145 @@ Hostaway réel : `INACTIF` (non concerné par cette mission).
 - Lot10 (application réelle) lit toujours les référentiels historisés (taux, gestion) depuis
   `REF_Setup.xlsm`, pas depuis SQLite — découverte documentée en §5, non corrigée (hors mandat).
 
-## 9. Prochaine étape recommandée
+## 9. Mission 6 bis — finaliser le socle temporel (2026-08-24)
+
+HEAD départ `d68ec48`. Poursuit directement la mission ci-dessus : versionnement des RÈGLES
+algorithmiques (pas seulement des variables), correction de cadrage sur la répartition de charges,
+ménage interne, `ref_parametres_generaux`.
+
+### 9.1 Correction de cadrage — il n'existe PAS de « groupes de logements »
+
+La mention « Groupes de logements (composition) : Concept absent » au §2 ci-dessus reste exacte
+au sens strict (aucun groupe PERMANENT n'existe), mais formulée de façon trompeuse : elle laissait
+supposer qu'un tel concept manquait et devrait peut-être être construit. **Ce n'est pas le cas.**
+La vraie règle métier, retrouvée dans `charges_impact_service.py` (préexistant, jamais modifié
+cette mission) :
+
+- **Périmètre** — `compute_perimetre_logements(logements_directs, proprietaires, mois,
+  gestion_rows)` : le périmètre d'une charge vient des logements directement sélectionnés à sa
+  création, PLUS les logements ACTIFS d'un propriétaire sélectionné — résolu au mois de la charge
+  via `gestion_active_pour_mois` (déjà daté, réutilise `ref_gestion_logements_hist`). Il n'y a
+  aucune table de « groupe » persistant : chaque charge/facture porte son propre périmètre.
+- **Formule de répartition retrouvée et prouvée** : `repartir_egal(montant, logements)` — parts
+  strictement égales, arrondi au centime, le reliquat de centimes va aux premiers logements dans
+  l'ordre trié (déterministe, jamais le montant entier répliqué). Un seul appelant réel :
+  `charges_preview_service.py` (prévisualisation de la charge à la saisie) ; `lot3_generateur_
+  charges.py` ne rappelle jamais cette fonction — il relit les quotes-parts déjà persistées à la
+  création de la charge, jamais recalculées depuis une composition « actuelle ».
+- **Date de référence retenue** : le MOIS DE LA CHARGE (`mois`, déjà un paramètre explicite de
+  `compute_perimetre_logements`), pas une date système. Aucune ambiguïté trouvée sur ce point —
+  c'est la seule date économique manipulée par cette fonction.
+
+Formulation correcte à retenir partout dans la documentation (remplace toute mention de
+« groupes ») : *« Une facture fournisseur peut concerner plusieurs logements. Une charge non
+directement attribuable est répartie entre les logements réellement concernés PAR CETTE FACTURE
+(sélection directe + logements actifs d'un propriétaire sélectionné, au mois de la charge), selon
+`repartir_egal` — jamais sur un groupe permanent mémorisé ailleurs. »*
+
+Voir `DECISIONS_METIER.md` D-REF-HIST-01, complétée cette mission (la décision initiale documentait
+l'absence de groupe ; elle est maintenant complétée par la logique réelle retrouvée).
+
+### 9.2 Versionnement des règles algorithmiques
+
+Nouvelle table `ref_regles_versions` (migration 0059, additive) : distingue une RÈGLE DE CALCUL
+(assiette de commission, répartition des charges communes) d'une simple VARIABLE — `rule_code`
+stable + `version` stable + période de validité (même convention fin-incluse). L'implémentation de
+chaque version reste dans le code (jamais de formule/Python en base) ; la table dit seulement QUELLE
+version s'applique à quelle date.
+
+Résolveur `lib_ref_history.resolve_regle_version(rows, rule_code, ref_date)` — même forme fail-closed
+que les autres résolveurs. Service `regle_version_gestion_service.py::changer_version(rule_code,
+version, date_debut)` — clôture+ouverture atomique, même transaction que les autres référentiels.
+Écran dédié, nouvelle catégorie « Règles versionnées » sur `/administration/referentiels` (pas une
+deuxième page).
+
+Backfill : 3 lignes V1, période ouverte depuis l'origine, **aucune V2 introduite** —
+`ASSIETTE_COMMISSION` (formule actuelle par canal HA/VRBO/HH, `lot10_calculer_resultats.py`),
+`REGLE_REPARTITION_CHARGE_COMMUNE` (`repartir_egal`), `CANAPE_FORMULE` (seuil→montant fixe,
+`lib_canape.py`). Ces trois éléments sont désormais VERSIONNABLES (capacité prouvée par des tests
+avec une V2 de fixture, §9.5) sans qu'aucune vraie V2 existe ni qu'aucune formule actuelle n'ait
+changé — conforme à la mission (§6/§24/§25 : ne jamais inventer une V2 réelle).
+
+**Portée exacte** : cette table dit QUELLE version s'applique. Aucun code de production (Lot10,
+`charges_impact_service.py`, `lib_canape.py`) ne consulte encore `ref_regles_versions` pour choisir
+entre plusieurs implémentations réelles — normal, puisqu'une seule implémentation existe pour
+chacune. Le jour où une V2 réelle est développée, elle devra être branchée à ce résolveur au moment
+de son intégration (hors mandat de cette mission, qui construit la capacité, pas l'usage futur).
+
+### 9.3 Ménage interne / `ref_parametres_generaux`
+
+`TAUX_HORAIRE_MENAGE_INTERNE` (seul paramètre de `ref_parametres_generaux` avec un consommateur réel
+identifié, `lot6e_gainperte_menages.py`) résout désormais par date économique via
+`lib_ref_history.resolve_parametre_general(rows, nom_parametre, ref_date)`, au lieu de prendre la
+première ligne correspondant au nom sans filtre. `DREF` (date de référence du mois calculé) était
+déjà la date économique établie de ce script pour d'autres filtres — réutilisée telle quelle, pas
+devinée.
+
+Le reste de `ref_parametres_generaux` (autres paramètres du catalogue) n'a pas de consommateur réel
+identifié lors de cet audit — non traité, pas de faux positif introduit.
+
+Coût ménage interne (`ref_couts_menage_interne`/`ref_taux_heures_menage`, `lib_menage_costs.py`) :
+confirmé toujours historisé et résolu en lecture (inchangé depuis la mission précédente) ; son
+écriture reste librement modifiable via l'écran générique — non corrigé cette mission (limite
+documentée, cohérente avec le périmètre restreint annoncé).
+
+### 9.4 Fichiers modifiés/créés
+
+- `05_APPLICATION/app/db/migrations/0059_regles_versions.sql` (nouvelle, additive)
+- `02_TRAVAIL/lib_ref_history.py` — `resolve_regle_version`, `resolve_parametre_general`
+- `02_TRAVAIL/lot6e_gainperte_menages.py` — `TAUX_HORAIRE_MENAGE_INTERNE` résolu par date
+- `05_APPLICATION/app/services/regle_version_gestion_service.py` (nouveau)
+- `05_APPLICATION/app/services/referentiel_admin_service.py` — `ref_regles_versions` dans
+  `TABLES_NATIVES`/`PERIODES`/`LECTURE_SEULE`, nouvelle catégorie « Règles versionnées »
+- `05_APPLICATION/app/routes/administration_referentiels.py` +
+  `app/templates/administration_referentiel_detail.html` — écran dédié règles versionnées
+- Tests : `tests/test_ref_history.py` (+7 : `RegleVersionHistoryTests`, `ParametreGeneralHistoryTests`),
+  `05_APPLICATION/tests/test_regles_versions_historisees.py` (nouveau, 12 tests — cycle de vie
+  admin, verrou chevauchement, écran), `05_APPLICATION/tests/test_repartition_charge_commune_
+  facture.py` (nouveau, 4 tests de caractérisation — périmètre par facture, jamais par groupe
+  permanent, déterminisme, résolution datée via propriétaire), `test_sqlite_migrations.py`
+  (`EXPECTED_TABLES` complété).
+
+### 9.5 Bug trouvé et corrigé pendant la campagne
+
+Migration 0059 : le backfill des 3 lignes V1 utilisait `INSERT INTO` (littéral, pas conditionné par
+un `SELECT`, contrairement au backfill de `ref_canape_parametres` en 0058 qui dépend de `ref_
+logements`) — un rejeu brut du fichier SQL (test `test_migrations_app3e_validation.py::test_double_
+application_concurrente_legere`, qui exécute chaque fichier de migration une seconde fois sur une
+connexion séparée) violait la contrainte `PRIMARY KEY`. Corrigé en `INSERT OR IGNORE` (même
+traitement que l'insertion dans `schema_migrations`) — migration non encore committée à ce stade,
+donc éditée directement plutôt que fixée par une nouvelle migration. Revérifié : fresh db + copie de
+l'app.db réelle, replay ×2, `integrity_check`/`foreign_key_check` propres.
+
+### 9.6 Campagne finale (après correction)
+
+Moteur (`tests/` racine) : **362 passed**, 0 failed.
+Application (`05_APPLICATION/tests/`, 183 fichiers, 10 lots) : **2717 passed**, 0 failed (quelques
+`skipped` pré-existants, non liés à cette mission).
+
+### 9.7 Limites restantes (mission 6 bis)
+
+- Aucun consommateur de production ne lit encore `ref_regles_versions` pour choisir entre versions
+  réelles (une seule version existe pour chacune) — câblage différé à l'introduction d'une vraie V2.
+- Invalidation DAG : NON revalidée par un test de cette mission (aucun test ne prouve
+  "modification d'une règle versionnée → dataset aval marqué obsolète") — le mécanisme DAG existant
+  (missions précédentes) n'a pas été modifié ni retesté spécifiquement pour `ref_regles_versions`.
+  État réel : **EXISTANTE MAIS NON REVALIDÉE** pour ce référentiel précis.
+- Impact preview dédié (service `prévisualiser_impacts_modification_regle()`) : **NON construit**
+  cette mission — aucun écran ne montre "N factures potentiellement concernées" avant une
+  modification de règle versionnée.
+- Correction rétroactive avec alerte visuelle rouge renforcée + justification obligatoire dédiée :
+  **NON construite** spécifiquement pour `ref_regles_versions`/`ref_canape_parametres` — le mécanisme
+  générique existant (clôture/ouverture, refus de chevauchement, journal) protège déjà contre
+  l'écrasement silencieux, mais aucun écran n'affiche encore le bandeau "MODIFICATION RÉTROACTIVE"
+  demandé par la mission avec preview d'impact chiffré.
+- `ref_parametres_generaux` : seul `TAUX_HORAIRE_MENAGE_INTERNE` traité (seul consommateur réel
+  trouvé) ; le reste du catalogue non audité paramètre par paramètre.
+
+## 10. Prochaine étape recommandée
 
 Annoncée par la mission : extraction d'un moteur temporel pilote, probablement **commission**
 (déjà historisée et résolue par date — le candidat le plus proche d'être un moteur pur complet).
-Le socle de résolution centralisée (`lib_ref_history.py`, déjà pur, déjà réutilisé par deux
-domaines) est prêt à servir de base à ce prochain moteur, sans reconstruction.
+Le socle de résolution centralisée (`lib_ref_history.py`, déjà pur, déjà réutilisé par plusieurs
+domaines) est prêt à servir de base à ce prochain moteur, sans reconstruction. Mission 6 bis
+STOP explicite ici — ne pas commencer ce moteur maintenant.

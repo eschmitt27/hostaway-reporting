@@ -411,6 +411,17 @@ propriétaire/coût ménage standard confirmés déjà historisés (missions pr�
 comblé : paramètre canapé (seuil/montant), jusque-là valeur courante non datée — nouvelle table
 `ref_canape_parametres` (migration 0058), résolveur `resolve_canape_parametres`, service
 `canape_gestion_service.py`, Lot10 résout désormais par date de réservation (repli sur colonne
-courante si aucune base fournie). Groupes de logements historisés : concept absent, non inventé
-(`DECISIONS_METIER.md` D-REF-HIST-01). Détail : `REGLES_METIER_TEMPORELLES.md`. Prochaine étape
-annoncée par la mission : extraction d'un moteur temporel pilote, probablement commission.
+courante si aucune base fournie). **Correction de cadrage** : « groupes de logements » n'existe
+pas — voir mise à jour Mission 6 bis ci-dessous pour la vraie règle. Détail :
+`REGLES_METIER_TEMPORELLES.md`.
+
+**Mis à jour 2026-08-24 (règles métier temporelles, mission 6 bis)** : correction de cadrage
+majeure — pas de groupe de logements permanent ; le périmètre d'une charge non attribuable vient de
+LA FACTURE (`charges_impact_service.compute_perimetre_logements`, préexistant), répartie à parts
+égales (`repartir_egal`). Nouveau : versionnement des règles algorithmiques (`ref_regles_versions`,
+migration 0059) pour assiette de commission / répartition charge commune / formule canapé —
+backfill V1, aucune V2 réelle. `TAUX_HORAIRE_MENAGE_INTERNE` résolu par date. Bug de backfill non
+idempotent trouvé et corrigé pendant la campagne (`INSERT` → `INSERT OR IGNORE`). Campagne finale :
+moteur 362/362, application 2717/0 failed (10 lots). Détail : `REGLES_METIER_TEMPORELLES.md` §9.
+Prochaine étape annoncée par la mission : extraction d'un moteur temporel pilote, probablement
+commission — non commencée, mission 6 bis stoppe ici explicitement.

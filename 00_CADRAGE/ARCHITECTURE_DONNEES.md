@@ -2101,5 +2101,27 @@ ajouter casse l'import réel) ; elle utilise un petit catalogue séparé,
 `lot10_calculer_resultats.py` résout désormais ce paramètre à la date de la réservation (repli sur
 la colonne courante si aucune base SQLite fournie). Taux commission / gestion logement↔propriétaire
 / coût ménage standard confirmés déjà historisés et résolus par date (missions précédentes).
-Groupes de logements historisés : concept absent, non inventé (`DECISIONS_METIER.md`
-D-REF-HIST-01). Détail complet : `REGLES_METIER_TEMPORELLES.md` (même sous-dossier de mission).
+**Correction de cadrage (Mission 6 bis)** : il n'existe pas de « groupe de logements » permanent —
+voir la mise à jour ci-dessous pour la vraie règle (répartition par périmètre de facture). Détail
+complet : `REGLES_METIER_TEMPORELLES.md` (même sous-dossier de mission).
+
+## Mise à jour 2026-08-24 — Mission 6 bis : versionnement des règles + répartition de charges
+
+**Périmètre de répartition d'une charge commune de facture** — pas de groupe permanent :
+`charges_impact_service.compute_perimetre_logements(logements_directs, proprietaires, mois,
+gestion_rows)` (préexistant, non modifié) dérive le périmètre à la création de la charge —
+sélection directe et/ou logements ACTIFS d'un propriétaire au mois de la charge (déjà daté,
+réutilise `ref_gestion_logements_hist`). Répartition `repartir_egal` : parts égales, arrondi
+centime déterministe. Prouvé par `test_repartition_charge_commune_facture.py` (périmètre d'une
+facture jamais partagé avec une autre, résolution datée via propriétaire).
+
+Nouvelle table `ref_regles_versions` (migration 0059) : versionnement des RÈGLES algorithmiques
+(`rule_code`+`version`+période), distinct des variables déjà historisées. Backfill V1 pour
+`ASSIETTE_COMMISSION`, `REGLE_REPARTITION_CHARGE_COMMUNE`, `CANAPE_FORMULE` — aucune V2 réelle,
+implémentation toujours dans le code. Résolveur `lib_ref_history.resolve_regle_version`, service
+`regle_version_gestion_service.py`, écran dédié (nouvelle catégorie « Règles versionnées »).
+
+`ref_parametres_generaux.TAUX_HORAIRE_MENAGE_INTERNE` (seul consommateur réel trouvé,
+`lot6e_gainperte_menages.py`) résolu désormais par date via `resolve_parametre_general`.
+
+Détail complet : `REGLES_METIER_TEMPORELLES.md` §9 (même sous-dossier de mission).

@@ -4135,10 +4135,11 @@ absent. Corrigé en la retirant du catalogue Excel et en créant un petit catalo
 (`referentiel_admin_service.TABLES_NATIVES`) pour les tables SQLite natives qui réutilisent le
 même CRUD générique sans prétendre venir du classeur.
 
-Groupes de logements historisés (composition versionnée) : concept **absent** de tout le code —
-non inventé, décision documentée (`DECISIONS_METIER.md` D-REF-HIST-01) plutôt qu'une supposition.
-Assiette de commission et formule canapé : non versionnées (RULE_ID/VERSION) — une seule
-implémentation a toujours existé par canal, versionner maintenant aurait été spéculatif.
+**Correction de cadrage (Mission 6 bis, 2026-08-24)** : « groupes de logements » n'existe pas — la
+vraie règle (périmètre venant de la facture, répartition `repartir_egal`) est documentée dans
+l'entrée Mission 6 bis ci-dessous. Assiette de commission et formule canapé : non versionnées
+(RULE_ID/VERSION) au moment de cette mission — une seule implémentation existait par canal ;
+rendues versionnables en Mission 6 bis (voir plus bas).
 
 Tests : 6 nouveaux (`tests/test_ref_history.py`, résolveur pur), 4 nouveaux (`tests/test_canape_
 historise.py`, intégration Lot10 — preuve que la résolution datée s'applique réellement, pas
@@ -4146,3 +4147,46 @@ seulement le résolveur isolé), 15 nouveaux (`test_canape_parametres_historises
 admin + verrou colonnes). Campagne complète : moteur 355/355 passed, application 2702 passed
 (10 lots). **0 failed.** app.db réelle inchangée (`8e299b935ef1e0d4`). Détail complet :
 `REGLES_METIER_TEMPORELLES.md`.
+
+## 2026-08-24 — Mission 6 bis : versionnement des règles, répartition de charges, ménage interne
+
+Correction de cadrage majeure : « groupes de logements » n'existe pas et n'a jamais été un concept
+à construire. Retrouvé et prouvé (`charges_impact_service.py`, préexistant, non modifié) : le
+périmètre d'une charge non directement attribuable vient des logements sélectionnés à SA création
+(directs et/ou logements actifs d'un propriétaire, résolus au mois de la charge via
+`gestion_active_pour_mois`, déjà daté via `ref_gestion_logements_hist`) — répartis à parts égales
+(`repartir_egal`, arrondi centime déterministe). Aucun groupe mémorisé nulle part ; chaque
+charge/facture porte son propre périmètre. Preuve : `test_repartition_charge_commune_facture.py`
+(4 tests — une seconde facture A+D ne touche jamais B/C d'une première facture A+B+C ; recalcul
+déterministe ; périmètre via propriétaire reste daté sur la gestion historique).
+
+Versionnement des règles ALGORITHMIQUES (distinct d'une simple variable) : nouvelle table
+`ref_regles_versions` (migration additive 0059, `rule_code`+`version`+période) — backfill V1 pour
+`ASSIETTE_COMMISSION` (formule Lot10 actuelle par canal), `REGLE_REPARTITION_CHARGE_COMMUNE`
+(`repartir_egal`), `CANAPE_FORMULE` (seuil→montant fixe, `lib_canape.py`). Aucune V2 réelle
+introduite — capacité prouvée par une V2 de fixture dans les tests, jamais une vraie nouvelle
+formule. Résolveur `lib_ref_history.resolve_regle_version` (fail-closed, même forme que les
+résolveurs existants). Service `regle_version_gestion_service.py` (clôture+ouverture atomique).
+
+`TAUX_HORAIRE_MENAGE_INTERNE` (`ref_parametres_generaux`, seul paramètre avec un consommateur réel
+identifié — `lot6e_gainperte_menages.py`) résolu désormais par date via nouveau
+`lib_ref_history.resolve_parametre_general`, réutilisant `DREF` (date de référence déjà établie
+dans ce script pour d'autres filtres — pas devinée).
+
+**Bug trouvé et corrigé pendant la campagne** : le backfill de la migration 0059 utilisait
+`INSERT INTO` littéral (contrairement au backfill 0058, conditionné par un `SELECT` sur
+`ref_logements` qui produit 0 ligne sur base vide) — un rejeu brut de tous les fichiers de migration
+sur une connexion séparée (`test_migrations_app3e_validation.py::test_double_application_
+concurrente_legere`) violait la contrainte `PRIMARY KEY`. Corrigé en `INSERT OR IGNORE` (migration
+non encore committée à ce stade, éditée directement). Revérifié : fresh db + copie de l'app.db
+réelle, replay ×2, `integrity_check`/`foreign_key_check` propres.
+
+Campagne complète après correction : moteur **362/362 passed**, application **2717 passed**
+(10 lots, `05_APPLICATION/tests/`, 183 fichiers). **0 failed.** app.db réelle inchangée
+(`8e299b935ef1e0d4`), REF_Setup inchangé, mode réel OFF, scheduler INACTIF.
+
+Limites assumées : aucun consommateur de production ne lit encore `ref_regles_versions` pour
+choisir entre versions réelles (une seule existe) ; invalidation DAG non revalidée pour ce
+référentiel ; pas d'impact preview dédié ; pas de bandeau "MODIFICATION RÉTROACTIVE" dédié (le
+mécanisme générique clôture/ouverture + refus de chevauchement + journal protège déjà contre
+l'écrasement silencieux). Détail complet : `REGLES_METIER_TEMPORELLES.md` §9.

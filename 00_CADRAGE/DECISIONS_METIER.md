@@ -1549,8 +1549,20 @@ Décision : `MASTER_CALC_AVANTAGES` (clé `associe_id` + `mois`) EST le **suivi 
   jamais d'impact résultat (HR/neutralise).
 Contrôles : `02_TRAVAIL/lib_controles_avantages.py` (Lot11). Voir CTR-CHG-SUIVI-ASSOCIE-01.
 
-### D-REF-HIST-01 — Groupes de logements historisés : concept absent, non inventé
-Date : 2026-08-23 | Statut : VALIDÉ (scope explicitement écarté) | Lot : Mission 6 (règles/variables temporelles)
+### D-REF-HIST-01 — Groupes de logements historisés : concept absent ; corrigé par la vraie règle (répartition par facture)
+Date : 2026-08-23, complétée 2026-08-24 | Statut : VALIDÉ | Lot : Mission 6 / Mission 6 bis (règles/variables temporelles)
+
+**Complément 2026-08-24 (Mission 6 bis)** : la formulation initiale ci-dessous documentait
+correctement l'absence de groupe PERMANENT, mais laissait à tort penser qu'un mécanisme de
+répartition manquait. Un mécanisme réel existe et a été retrouvé et prouvé par des tests
+(`charges_impact_service.py`, préexistant, non modifié) : le périmètre d'une charge non
+directement attribuable vient des logements sélectionnés à SA création — sélection directe et/ou
+logements ACTIFS d'un propriétaire sélectionné, résolus au MOIS de la charge via `gestion_active_
+pour_mois` (déjà daté, réutilise `ref_gestion_logements_hist`). La répartition elle-même est
+`repartir_egal` : parts strictement égales entre les logements du périmètre, arrondi au centime,
+reliquat aux premiers logements triés. Aucun groupe mémorisé nulle part — chaque charge porte son
+propre périmètre. Voir `REGLES_METIER_TEMPORELLES.md` §9.1 pour le détail complet et les tests
+(`test_repartition_charge_commune_facture.py`).
 
 Décision : la mission « règles et variables métier historisées » demandait de prouver l'historisation
 de la composition de « groupes de logements » (exemple donné : GROUPE A passant de 3 à 4 appartements

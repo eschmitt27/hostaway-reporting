@@ -2074,7 +2074,28 @@ sans période, lu sans filtre de date par `lot10_calculer_resultats.py`. Nouvell
 `lib_ref_history.resolve_canape_parametres` (fail-closed), service `canape_gestion_service.py`
 (clôture+ouverture atomique), écran dédié sur `/administration/referentiels` existant. `Lot10`
 résout désormais le paramètre canapé à la date de la réservation (repli sur la colonne courante
-si aucune base fournie — zéro régression pour les appels existants). Groupes de logements
-historisés : concept absent du code, explicitement non inventé (`DECISIONS_METIER.md`
-D-REF-HIST-01). Assiette de commission et formule canapé : non versionnées (une seule
-implémentation a toujours existé). Détail complet : `REGLES_METIER_TEMPORELLES.md`.
+si aucune base fournie — zéro régression pour les appels existants). **Correction de cadrage
+(voir mise à jour Mission 6 bis ci-dessous)** : il n'existe pas de « groupe de logements »
+permanent — la vraie règle (répartition de charge par périmètre de facture) est documentée plus
+bas. Assiette de commission et formule canapé : non versionnées (une seule implémentation a
+toujours existé). Détail complet : `REGLES_METIER_TEMPORELLES.md`.
+
+**Mis à jour 2026-08-24 (Mission 6 bis — finalisation socle temporel)** : **correction de cadrage
+importante** — la mention « groupes de logements historisés » des entrées précédentes était
+trompeuse. Il n'existe AUCUN groupe permanent de logements. La vraie règle, retrouvée dans
+`charges_impact_service.py` (préexistant, non modifié) : le périmètre d'une charge non directement
+attribuable vient des logements sélectionnés à SA création (sélection directe et/ou logements actifs
+d'un propriétaire, résolus au mois de la charge via `gestion_active_pour_mois`, déjà daté) ;
+répartition `repartir_egal` (parts égales, arrondi centime déterministe). Nouveau : versionnement des
+RÈGLES algorithmiques (`ref_regles_versions`, migration 0059) — distinct d'une simple variable :
+`rule_code`+`version`+période, backfill V1 pour `ASSIETTE_COMMISSION`/`REGLE_REPARTITION_CHARGE_
+COMMUNE`/`CANAPE_FORMULE`, aucune V2 réelle introduite. `resolve_regle_version`/`resolve_parametre_
+general` ajoutés à `lib_ref_history.py`. `TAUX_HORAIRE_MENAGE_INTERNE` (`ref_parametres_generaux`,
+seul consommateur réel trouvé, `lot6e_gainperte_menages.py`) résout désormais par date au lieu du
+premier match par nom. Bug trouvé et corrigé pendant la campagne : backfill 0059 utilisait `INSERT`
+littéral (pas conditionné par `SELECT` comme 0058) — rejeu brut de la migration violait la contrainte
+PRIMARY KEY ; corrigé en `INSERT OR IGNORE` avant tout commit. Campagne finale : moteur 362/362,
+application 2717/0 failed (10 lots). Limites : invalidation DAG non revalidée pour ce référentiel,
+impact preview non construit, bandeau correction-rétroactive dédié non construit (mécanisme
+générique existant suffit pour empêcher l'écrasement silencieux). Détail complet :
+`REGLES_METIER_TEMPORELLES.md` §9.
