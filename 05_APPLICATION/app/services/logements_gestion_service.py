@@ -173,6 +173,7 @@ def archiver(logement_id: str, date_fin: str, *, acteur: str = "",
         return exc.refus
     except Exception as exc:   # noqa: BLE001 — panne DB imprévue : rollback déjà fait, refus lisible
         return _refus(E_ECRITURE, f"{type(exc).__name__}: {exc}")
+    adm.invalider_dag_referentiel(db_path=db_path)
     return {"ok": True, "logement_id": logement_id, "date_fin": _txt(date_fin)}
 
 
@@ -221,6 +222,7 @@ def reactiver(logement_id: str, date_debut: str, proprietaire_id: str, *, acteur
         return exc.refus
     except Exception as exc:   # noqa: BLE001
         return _refus(E_ECRITURE, f"{type(exc).__name__}: {exc}")
+    adm.invalider_dag_referentiel(db_path=db_path)
     return {"ok": True, "logement_id": logement_id, "proprietaire_id": prop,
             "date_debut": _txt(date_debut)}
 
@@ -270,6 +272,7 @@ def changer_proprietaire(logement_id: str, proprietaire_id: str, date_debut: str
         return exc.refus
     except Exception as exc:   # noqa: BLE001
         return _refus(E_ECRITURE, f"{type(exc).__name__}: {exc}")
+    adm.invalider_dag_referentiel(db_path=db_path)
     return {"ok": True, "logement_id": logement_id, "proprietaire_id": prop,
             "date_debut": _txt(date_debut)}
 
@@ -325,6 +328,7 @@ def changer_taux_commission(logement_id: str, taux: float, date_debut: str,
         return exc.refus
     except Exception as exc:   # noqa: BLE001
         return _refus(E_ECRITURE, f"{type(exc).__name__}: {exc}")
+    adm.invalider_dag_referentiel(db_path=db_path)
     return {"ok": True, "logement_id": logement_id, "taux_commission": taux_f,
             "date_debut": _txt(date_debut)}
 

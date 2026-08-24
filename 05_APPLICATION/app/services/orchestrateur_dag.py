@@ -88,10 +88,14 @@ NOEUDS: dict[str, Noeud] = {n.nom: n for n in (
 
     Noeud(REF_SETUP, TYPE_IMPORT, "Référentiel Setup (logements, propriétaires, taux, clôture)",
           tables=("ref_logements", "ref_proprietaires", "ref_taux_commission",
-                  "ref_gestion_logements_hist", "ref_cloture_mensuelle"),
+                  "ref_gestion_logements_hist", "ref_cloture_mensuelle",
+                  "ref_couts_standards_menage", "ref_canape_parametres", "ref_regles_versions"),
           commentaire="Import du référentiel déclenché par l'utilisateur : l'orchestrateur "
                       "constate sa fraîcheur, il ne réimporte jamais de lui-même un fichier que "
-                      "personne ne lui a désigné."),
+                      "personne ne lui a désigné. `ref_couts_standards_menage`/`ref_canape_"
+                      "parametres`/`ref_regles_versions` (Mission 6/6bis/6ter) partagent ce même "
+                      "nœud : ce sont des référentiels historisés au même titre, jamais un import "
+                      "Excel, mais leur modification doit invalider les mêmes descendants."),
 
     Noeud(BANQUE, TYPE_IMPORT, "Banque — mouvements normalisés et classification",
           tables=("banque_mouvements", "banque_classifications", "banque_controles"),

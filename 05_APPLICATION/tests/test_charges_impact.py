@@ -368,3 +368,58 @@ def test_forfait_client_hors_formulaire(refs):
     form["categorie_charge_id"] = "CHG_016"  # forfait client
     codes = [e["code"] for e in validate_charge(form, refs)]
     assert "V04_CATEGORIE_HORS_FORMULAIRE" in codes
+
+
+# ── Règle de répartition versionnée (Mission 6 ter) ──────────────────────────
+#
+# `ref_regles_versions` (migration 0059) porte déjà une V1 ouverte depuis l'origine pour
+# REGLE_REPARTITION_CHARGE_COMMUNE, backfillée par la migration elle-même (aucun seed de test
+# nécessaire pour le cas nominal). Ces tests prouvent que `compute_guidee` résout réellement cette
+# version avant d'appeler `repartir_egal`, et refuse (V27) si aucune version ne couvre le mois.
+
+def test_reserve_refacturation_utilise_la_regle_v1_resolue(tmp_db, tmp_path: Path):
+    """Cas nominal (migration 0059 backfill) : la réserve se construit normalement, la V1
+    permanente couvre n'importe quel mois."""
+    _semer_referentiel_impact(tmp_db)
+    from app.db.connection import get_db
+    conn = get_db(tmp_db)
+    try:
+        conn.execute(
+            "INSERT INTO ref_logements (logement_id, actif, import_id) VALUES (?,?,?)",
+            ("LOG_B2", "OUI", fx.IMPORT_TEST))
+        conn.execute(
+            "INSERT INTO ref_gestion_logements_hist (gestion_id, logement_id, proprietaire_id, "
+            "date_debut, date_fin, statut_gestion, import_id) VALUES (?,?,?,?,?,?,?)",
+            ("GST_B2", "LOG_B2", "PROP_B", "2026-01-01", "", "ACTIF", fx.IMPORT_TEST))
+        conn.commit()
+    finally:
+        conn.close()
+    form = _base_form()
+    form["logements"] = ["LOG_A1", "LOG_B2"]
+    form["refacturable"] = "OUI"
+    r = previsualiser(form, db_path=tmp_db, dryruns_root=tmp_path / "d")
+    assert r["ok"], r["manifest"].get("errors")
+    assert r["manifest"]["reserve_refacturation"]["nb_entrees"] == 2
+
+
+def test_reserve_refacturation_refusee_si_aucune_version_ne_couvre_le_mois(tmp_db, tmp_path: Path):
+    """Fail-closed : si la version V1 de REGLE_REPARTITION_CHARGE_COMMUNE ne couvre plus le mois
+    de la charge (période fermée manuellement), aucune répartition silencieuse — refus V27, jamais
+    un repli implicite vers `repartir_egal`."""
+    _semer_referentiel_impact(tmp_db)
+    from app.db.connection import get_db
+    conn = get_db(tmp_db)
+    try:
+        conn.execute(
+            "UPDATE ref_regles_versions SET date_fin = '2020-12-31' "
+            "WHERE rule_code = 'REGLE_REPARTITION_CHARGE_COMMUNE'")
+        conn.commit()
+    finally:
+        conn.close()
+    form = _base_form()
+    form["logements"] = ["LOG_A1"]
+    form["refacturable"] = "OUI"
+    r = previsualiser(form, db_path=tmp_db, dryruns_root=tmp_path / "d")
+    assert r["ok"] is False
+    codes = [e["code"] for e in r["manifest"]["errors"]]
+    assert "V27_REGLE_REPARTITION_INDISPONIBLE" in codes

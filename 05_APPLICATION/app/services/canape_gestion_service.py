@@ -107,5 +107,6 @@ def changer_parametres(logement_id: str, seuil_voyageurs: Any, montant: Any, dat
         return exc.refus
     except Exception as exc:   # noqa: BLE001 — panne DB imprévue : rollback déjà fait
         return _refus(E_ECRITURE, f"{type(exc).__name__}: {exc}")
+    adm.invalider_dag_referentiel(db_path=db_path)
     return {"ok": True, "logement_id": lid, "seuil_voyageurs_preparation_canape": seuil_i,
             "montant_preparation_canape": montant_f, "date_debut": adm.txt(date_debut)}

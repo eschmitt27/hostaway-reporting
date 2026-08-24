@@ -89,4 +89,5 @@ def changer_version(rule_code: str, version: str, date_debut: str, *, parametres
         return exc.refus
     except Exception as exc:   # noqa: BLE001 — panne DB imprévue : rollback déjà fait
         return _refus(E_ECRITURE, f"{type(exc).__name__}: {exc}")
+    adm.invalider_dag_referentiel(db_path=db_path)
     return {"ok": True, "rule_code": code, "version": ver, "date_debut": adm.txt(date_debut)}

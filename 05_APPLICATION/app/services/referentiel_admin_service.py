@@ -115,6 +115,18 @@ def refus(code: str, detail: str = "") -> dict[str, Any]:
     return {"ok": False, "code": code, "message": MESSAGES.get(code, code), "detail": detail}
 
 
+def invalider_dag_referentiel(*, db_path=None) -> list[str]:
+    """Marque obsolètes (`A_RECALCULER`) les datasets aval du référentiel via le DAG EXISTANT
+    (`orchestrateur_dag`/`orchestrateur_service`, aucune deuxième carte de dépendances) — Mission
+    6 ter §24/§25. Ne recalcule jamais rien elle-même : seule une actualisation explicite (bouton
+    « Actualiser maintenant » ou ciblée) via l'orchestrateur relance un vrai calcul. Appelée APRÈS
+    le commit de la transaction référentielle (écrit dans une autre table, `orchestrateur_datasets`
+    — un échec ici ne remet jamais en cause l'écriture référentielle déjà actée)."""
+    from app.services import orchestrateur_dag as dag
+    from app.services import orchestrateur_service as orch
+    return orch.invalider_descendants(dag.REF_SETUP, db_path=db_path)
+
+
 class RefusTransaction(Exception):
     """Lève l'échec d'une étape à l'intérieur d'une `transaction()` pour déclencher son rollback.
 

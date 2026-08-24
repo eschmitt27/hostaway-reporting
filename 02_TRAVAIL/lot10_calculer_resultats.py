@@ -45,6 +45,7 @@ from lib_ref_history import (
     resolve_canape_parametres,
     resolve_commission_rate,
     resolve_management_period,
+    resolve_regle_version,
 )
 from lib_settlements import (
     aggregate_refacturable_charges,
@@ -394,6 +395,21 @@ def load_sources(source="EXCEL", chemin_base=None):
         finally:
             conn_canape.close()
 
+    # Versions de règles algorithmiques (assiette de commission, canapé, répartition) — Mission
+    # 6 ter : mêmes garanties que le paramètre canapé (n'existe qu'en SQLite, migration 0059,
+    # disponible même en mode EXCEL, base absente/table non migrée → DataFrame vide, repli sur le
+    # comportement historique par la fonction appelante, jamais une exception).
+    df_regles = pd.DataFrame()
+    conn_regles, _msg_regles = dbm.verifier(chemin_base, ("ref_regles_versions",))
+    if conn_regles is not None:
+        try:
+            df_regles = pd.DataFrame(dbm.lignes(
+                conn_regles, "ref_regles_versions",
+                ("regle_version_id", "rule_code", "version", "date_debut", "date_fin", "actif"),
+                ordre="regle_version_id"))
+        finally:
+            conn_regles.close()
+
     # Sources HH + Acomptes (lecture seule, hors placeholder Power Query)
     df_hh  = _read_sheet(HH_FILE,  sheet="MASTER") if HH_FILE.exists()  else pd.DataFrame()
     df_acc = _read_sheet(ACC_FILE, sheet="MASTER") if ACC_FILE.exists() else pd.DataFrame()
@@ -431,16 +447,47 @@ def load_sources(source="EXCEL", chemin_base=None):
     log.info(f"  REF_Prop      : {len(df_prop)} proprietaires")
     log.info(f"  REF_Taux_Comm : {len(df_taux)} lignes historisees")
     return (df_flux, df_res, df_payout, df_hh, df_acc, df_charges, df_airbnb_imp, df_log, df_prop,
-            df_taux, df_gest, df_canape)
+            df_taux, df_gest, df_canape, df_regles)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Résolution des versions de règles algorithmiques (Mission 6 ter) — un recalcul historique doit
+# toujours utiliser la version en vigueur à SA date économique, jamais la version courante. Tant
+# qu'une seule version existe pour chaque règle (le cas aujourd'hui, backfill migration 0059), ce
+# garde-fou ne change jamais le résultat — il prouve que la sélection est réellement câblée, prête
+# pour une vraie V2 future sans qu'aucun code économique n'ait à être retouché à ce moment-là.
+# ─────────────────────────────────────────────────────────────────────────────
+def _verifier_version_regle(df: pd.DataFrame, rule_code: str, regles_history: list,
+                            date_col: str, branch: str, implementations: tuple) -> None:
+    """BLOQUANT si une ligne résout une version absente/ambiguë/non implémentée. Ne fait rien
+    (repli legacy) si `regles_history` est vide — cohérent avec le repli déjà appliqué au
+    paramètre canapé quand la base n'est pas fournie (tests existants, environnements sans DB)."""
+    if not regles_history or len(df) == 0:
+        return
+    blockers = []
+    for _, row in df.iterrows():
+        res = resolve_regle_version(regles_history, rule_code=rule_code, ref_date=row.get(date_col))
+        if res.status != "OK":
+            blockers.append(f"{branch} {row.get('reservation_calc_id')}: {rule_code} - {res.message}")
+        elif res.value not in implementations:
+            blockers.append(
+                f"{branch} {row.get('reservation_calc_id')}: {rule_code} version "
+                f"{res.value!r} resolue mais aucune implementation enregistree ({implementations})")
+    if blockers:
+        for b in blockers:
+            log.error(f"BLOQUANT REGLE_VERSION_INDISPONIBLE - {b}")
+        sys.exit(1)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Build commissions
 # ─────────────────────────────────────────────────────────────────────────────
-def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_taux, df_canape=None):
+def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_taux, df_canape=None,
+                      df_regles=None):
     log.info("=== Construction commissions (routage HA / HH) ===")
     hh_controls = []
     taux_controls = []
+    regles_history = df_regles.to_dict("records") if df_regles is not None and len(df_regles) > 0 else []
 
     # ── 2a. Filter TYPE_FLUX_017 ──
     df_017 = df_flux[df_flux["type_flux_id"] == "TYPE_FLUX_017"].copy()
@@ -623,6 +670,11 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
     if (normal_ha & (df_ha["assiette_commission"].fillna(0) < 0)).any():
         log.error("BLOQUANT ASSIETTE_NEGATIVE — HA")
         sys.exit(1)
+    # Assiette HA fournie par le payout amont (Lot1/lot4quater) — la "V1" de ASSIETTE_COMMISSION
+    # pour ce canal est précisément "accepter cette valeur amont sans la recalculer ici". Le
+    # garde-fou vérifie que la version résolue à la date de la réservation reste implémentée.
+    _verifier_version_regle(df_ha[normal_ha], "ASSIETTE_COMMISSION", regles_history,
+                            "date_arrivee", "HOSTAWAY", ("V1",))
     df_ha["commission_conciergerie"] = None
     df_ha["net_proprietaire"]        = None
     df_ha.loc[normal_ha, "commission_conciergerie"] = (
@@ -667,6 +719,8 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
             if (df_hh_ok["assiette_commission"] < 0).any():
                 log.error("BLOQUANT ASSIETTE_NEGATIVE — HH")
                 sys.exit(1)
+            _verifier_version_regle(df_hh_ok, "ASSIETTE_COMMISSION", regles_history,
+                                    "date_arrivee", "HH", ("V1",))
             df_hh_ok["commission_conciergerie"] = (
                 df_hh_ok["assiette_commission"] * df_hh_ok["taux_commission"]
             ).round(2)
@@ -716,6 +770,8 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
         if (df_vrbo["assiette_commission"].fillna(0) < 0).any():
             log.error("BLOQUANT ASSIETTE_NEGATIVE — VRBO")
             sys.exit(1)
+        _verifier_version_regle(df_vrbo, "ASSIETTE_COMMISSION", regles_history,
+                                "date_arrivee", "VRBO", ("V1",))
         if df_vrbo["taux_commission"].isna().any():
             log.error("BLOQUANT COMMISSION_SANS_TAUX — VRBO")
             sys.exit(1)
@@ -748,6 +804,20 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
         res = resolve_canape_parametres(canape_history, logement_id=log_id, ref_date=ref_date)
         return res.row if res.status == "OK" else None
 
+    # Formule canapé versionnée (Mission 6 ter) — `lib_canape.calculate_canape_amount` reste la
+    # formule V1, inchangée ; ce garde-fou prouve que la sélection par date est réellement câblée
+    # avant de l'appeler. Repli identique au paramètre : `regles_history` vide → appel direct,
+    # comportement historique inchangé (tests/environnements sans base).
+    IMPLEMENTATIONS_CANAPE = ("V1",)
+
+    def _canape_formule_ok(ref_date) -> tuple[bool, str]:
+        if not regles_history:
+            return True, ""
+        res = resolve_regle_version(regles_history, rule_code="CANAPE_FORMULE", ref_date=ref_date)
+        if res.status == "OK" and res.value in IMPLEMENTATIONS_CANAPE:
+            return True, ""
+        return False, f"CANAPE_FORMULE {res.status} pour {ref_date!r} : {res.message}"
+
     def _apply_preparation_canape(df: pd.DataFrame) -> pd.DataFrame:
         if len(df) == 0:
             return df
@@ -757,7 +827,14 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
         sources = []
         for _, row in out.iterrows():
             log_id = row.get("logement_id_eff") or row.get("logement_id")
-            ref_row = _canape_ref_row(log_id, row.get("date_arrivee"))
+            ref_date = row.get("date_arrivee")
+            ok, motif = _canape_formule_ok(ref_date)
+            if not ok:
+                amounts.append(0.0)
+                statuses.append("A_CONTROLER")
+                sources.append(motif)
+                continue
+            ref_row = _canape_ref_row(log_id, ref_date)
             res = calculate_canape_amount(log_id, row.get("guestCount"), ref_row)
             amounts.append(res.amount)
             statuses.append(res.status)
@@ -1541,9 +1618,9 @@ def main():
                  "(--db / PILOTAGE_DB_PATH / APP_DATA_DIR).")
 
     (df_flux, df_res, df_payout, df_hh, df_acc, df_charges, df_airbnb_imp, df_log, df_prop,
-     df_taux, df_gest, df_canape) = load_sources(source=args.source, chemin_base=chemin_base)
+     df_taux, df_gest, df_canape, df_regles) = load_sources(source=args.source, chemin_base=chemin_base)
 
-    df_comm, df_ac, hh_controls     = build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_taux, df_canape)
+    df_comm, df_ac, hh_controls     = build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_taux, df_canape, df_regles)
     df_cfix, cfix_controls          = build_charge_fixe(df_flux, df_log, df_gest)
     df_reel, df_compt, df_hc        = build_resultats(df_flux)
     df_exploit, df_reg, df_vue      = build_net_proprietaire(df_comm, df_cfix, df_acc, df_airbnb_imp, df_charges)

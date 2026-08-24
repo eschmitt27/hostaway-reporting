@@ -95,5 +95,6 @@ def changer_cout(type_logement_id: str, cout: Any, date_debut: str, *, acteur: s
         return exc.refus
     except Exception as exc:   # noqa: BLE001 — panne DB imprévue : rollback déjà fait
         return _refus(E_ECRITURE, f"{type(exc).__name__}: {exc}")
+    adm.invalider_dag_referentiel(db_path=db_path)
     return {"ok": True, "type_logement_id": tid, "cout_standard_menage": cout_f,
             "date_debut": adm.txt(date_debut)}

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -17,6 +18,14 @@ import app.config as cfg
 from app.readers.saisie_charges_reader import reservation_id_exists
 from app.services import charges_impact_service as impact
 from app.services import referentiel_admin_service as ref_admin
+
+# `lib_ref_history` vit dans 02_TRAVAIL, à côté du paquet `app` — même convention que
+# `intervenant_menage_compte_service.py`/`controles_lot11_service.py` (ancrée sur `APP_ROOT.parent`,
+# jamais `cfg.PROJECT_ROOT`, qui peut être redirigé en test/recette).
+_TRAVAIL_DIR = str(cfg.APP_ROOT.parent / "02_TRAVAIL")
+if _TRAVAIL_DIR not in sys.path:
+    sys.path.insert(0, _TRAVAIL_DIR)
+from lib_ref_history import resolve_regle_version  # noqa: E402
 
 DRYRUNS_DIR = cfg.DRYRUNS_DIR
 MANIFEST_NAME = "manifest.json"
@@ -248,7 +257,22 @@ def compute_guidee(
 
     # ── Réserve de facturation (si refacturable effectif, non ménage) ──
     if refacturable_effectif and perimetre:
-        quotes = impact.repartir_egal(montant, perimetre["logements_finaux"])
+        # Règle de répartition versionnée (Mission 6 ter) — `repartir_egal` reste la formule V1,
+        # inchangée ; la date économique retenue est le mois de LA CHARGE (déjà le seul paramètre
+        # temporel de `compute_perimetre_logements`/`gestion_active_pour_mois` — pas une date
+        # inventée pour l'occasion). `regles_versions` vide (référentiel non initialisé) → repli
+        # direct, comportement historique inchangé.
+        regles_history = refs.get("regles_versions") or []
+        regle_repartition_ok = True
+        if regles_history:
+            res_regle = resolve_regle_version(
+                regles_history, rule_code="REGLE_REPARTITION_CHARGE_COMMUNE",
+                ref_date=f"{mois}-01")
+            if res_regle.status != "OK" or res_regle.value != "V1":
+                regle_repartition_ok = False
+                err("V27_REGLE_REPARTITION_INDISPONIBLE",
+                    f"Règle de répartition indisponible pour {mois} : {res_regle.message or res_regle.value}")
+        quotes = impact.repartir_egal(montant, perimetre["logements_finaux"]) if regle_repartition_ok else []
         prop_par_log = {}
         for r in gestion_rows:
             if impact.gestion_active_pour_mois(r, mois):
@@ -341,6 +365,7 @@ def load_form_refs(db_path=None) -> dict[str, Any]:
     intervenants = ref_admin.lignes("ref_intervenants", db_path=db_path)
     couts_standards = ref_admin.lignes("ref_couts_standards_menage", db_path=db_path)
     proprietaires = ref_admin.lignes("ref_proprietaires", db_path=db_path)
+    regles_versions = ref_admin.lignes("ref_regles_versions", db_path=db_path)
 
     def is_active(row: dict[str, Any]) -> bool:
         return str(row.get("actif", "")).upper() == "OUI"
@@ -410,6 +435,7 @@ def load_form_refs(db_path=None) -> dict[str, Any]:
         "statuts_controle": statuts_controle,
         "mois_ouverts": mois_ouverts,
         "cloture": cloture,
+        "regles_versions": regles_versions,
     }
 
 
