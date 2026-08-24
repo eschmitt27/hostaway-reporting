@@ -139,7 +139,8 @@ def test_route_changer_parametres_canape_ecrit_et_redirige(client, tmp_db):
     fx.semer_parc_standard(tmp_db)
     resp = client.post("/administration/referentiels/ref_canape_parametres/changer-parametres",
                        data={"logement_id": "LOG_A1", "seuil_voyageurs_preparation_canape": "5",
-                             "montant_preparation_canape": "30", "date_debut": "2026-07-01"},
+                             "montant_preparation_canape": "30", "date_debut": "2026-07-01",
+                             "justification": "Test"},
                        follow_redirects=False)
     assert resp.status_code == 303
     lignes = canape.historique("LOG_A1", db_path=tmp_db)

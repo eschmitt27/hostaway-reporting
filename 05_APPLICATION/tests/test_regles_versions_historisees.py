@@ -98,7 +98,7 @@ def test_route_changer_version_ecrit_et_redirige(client, tmp_db):
     fx.semer_parc_standard(tmp_db)
     resp = client.post("/administration/referentiels/ref_regles_versions/changer-version",
                        data={"rule_code": "REGLE_TEST", "version": "V1",
-                             "date_debut": "2026-07-01", "commentaire": ""},
+                             "date_debut": "2026-07-01", "commentaire": "Test"},
                        follow_redirects=False)
     assert resp.status_code == 303
     lignes = regv.historique("REGLE_TEST", db_path=tmp_db)

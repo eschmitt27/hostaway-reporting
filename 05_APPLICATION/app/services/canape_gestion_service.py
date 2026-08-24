@@ -58,7 +58,7 @@ def historique(logement_id: str, *, db_path=None) -> list[dict[str, Any]]:
 
 
 def changer_parametres(logement_id: str, seuil_voyageurs: Any, montant: Any, date_debut: str, *,
-                       acteur: str = "", db_path=None) -> dict[str, Any]:
+                       acteur: str = "", justification: str = "", db_path=None) -> dict[str, Any]:
     """Change le seuil/montant canapé d'un logement à `date_debut` : clôture la période active à
     la veille et ouvre une nouvelle ligne. Aucune ligne close n'est jamais modifiée."""
     if not adm.disponible(db_path=db_path):
@@ -84,9 +84,12 @@ def changer_parametres(logement_id: str, seuil_voyageurs: Any, montant: Any, dat
     if adm.ligne("ref_logements", lid, db_path=db_path) is None:
         return _refus(E_LOGEMENT_INCONNU, lid)
 
+    action_ouverture = "CORRECTION_RETROACTIVE" if adm.est_retroactif(date_debut) \
+        else "CHANGEMENT_PARAMETRES_CANAPE"
     try:
         with adm.transaction(db_path=db_path) as conn:
             cloture = adm.clore_periode(TABLE, lid, adm.veille(date_debut), acteur=acteur,
+                                        commentaire=justification, action=action_ouverture,
                                         conn=conn, db_path=db_path)
             if not cloture.get("ok"):
                 raise adm.RefusTransaction(cloture)
@@ -99,8 +102,9 @@ def changer_parametres(logement_id: str, seuil_voyageurs: Any, montant: Any, dat
                 "date_debut": adm.txt(date_debut),
                 "date_fin": "",
                 "actif": "OUI",
-                "commentaire": "",
-            }, action="CHANGEMENT_PARAMETRES_CANAPE", acteur=acteur, conn=conn, db_path=db_path)
+                "commentaire": justification,
+            }, action=action_ouverture, acteur=acteur, commentaire=justification, conn=conn,
+               db_path=db_path)
             if not res.get("ok"):
                 raise adm.RefusTransaction(res)
     except adm.RefusTransaction as exc:

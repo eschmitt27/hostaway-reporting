@@ -4,9 +4,11 @@ from fastapi.templating import Jinja2Templates
 
 import app.config as cfg
 from app.config import TEMPLATES_DIR
+from app.services import impact_preview_service as preview_svc
 from app.services import logements_service as svc
 from app.services import logements_creation_service as creation_svc
 from app.services import logements_gestion_service as gestion_svc
+from app.services import referentiel_admin_service as adm
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -131,7 +133,12 @@ async def logement_modifier(request: Request, logement_id: str):
 @router.post("/logements/{logement_id}/archiver")
 async def logement_archiver(request: Request, logement_id: str):
     form = await request.form()
-    res = gestion_svc.archiver(logement_id, str(form.get("date_fin", "") or ""))
+    date_fin = str(form.get("date_fin", "") or "")
+    justification = str(form.get("justification", "") or "")
+    blocage = adm.verifier_justification_retroactive(date_fin, justification)
+    if blocage:
+        return _retour(logement_id, blocage, "")
+    res = gestion_svc.archiver(logement_id, date_fin, justification=justification)
     return _retour(logement_id, res,
                    "Logement archivé — il n'apparaîtra plus dans les nouvelles réservations/charges, "
                    "mais reste visible dans l'historique.")
@@ -140,16 +147,26 @@ async def logement_archiver(request: Request, logement_id: str):
 @router.post("/logements/{logement_id}/reactiver")
 async def logement_reactiver(request: Request, logement_id: str):
     form = await request.form()
-    res = gestion_svc.reactiver(logement_id, str(form.get("date_debut", "") or ""),
-                                str(form.get("proprietaire_id", "") or ""))
+    date_debut = str(form.get("date_debut", "") or "")
+    justification = str(form.get("justification", "") or "")
+    blocage = adm.verifier_justification_retroactive(date_debut, justification)
+    if blocage:
+        return _retour(logement_id, blocage, "")
+    res = gestion_svc.reactiver(logement_id, date_debut, str(form.get("proprietaire_id", "") or ""),
+                                justification=justification)
     return _retour(logement_id, res, "Logement réactivé.")
 
 
 @router.post("/logements/{logement_id}/changer-proprietaire")
 async def logement_changer_proprietaire(request: Request, logement_id: str):
     form = await request.form()
+    date_debut = str(form.get("date_debut", "") or "")
+    justification = str(form.get("justification", "") or "")
+    blocage = adm.verifier_justification_retroactive(date_debut, justification)
+    if blocage:
+        return _retour(logement_id, blocage, "")
     res = gestion_svc.changer_proprietaire(logement_id, str(form.get("proprietaire_id", "") or ""),
-                                           str(form.get("date_debut", "") or ""))
+                                           date_debut, justification=justification)
     return _retour(logement_id, res,
                    "Propriétaire changé — pensez à relancer les calculs (Lot9/Lot10) pour la "
                    "période concernée.")
@@ -158,8 +175,24 @@ async def logement_changer_proprietaire(request: Request, logement_id: str):
 @router.post("/logements/{logement_id}/changer-taux-commission")
 async def logement_changer_taux(request: Request, logement_id: str):
     form = await request.form()
+    date_debut = str(form.get("date_debut", "") or "")
+    justification = str(form.get("justification", "") or "")
+    blocage = adm.verifier_justification_retroactive(date_debut, justification)
+    if blocage:
+        return _retour(logement_id, blocage, "")
     res = gestion_svc.changer_taux_commission(
-        logement_id, str(form.get("taux_commission", "") or ""),
-        str(form.get("date_debut", "") or ""))
+        logement_id, str(form.get("taux_commission", "") or ""), date_debut,
+        justification=justification)
     return _retour(logement_id, res,
                    "Taux de commission changé — pensez à relancer Lot10 pour la période concernée.")
+
+
+@router.get("/logements/{logement_id}/impacts-taux", response_class=HTMLResponse)
+def logement_impacts_taux(request: Request, logement_id: str, date_debut: str = ""):
+    """Aperçu structurel (Mission 6 quater §10) avant confirmation d'un changement de taux —
+    aucun montant recalculé, seulement des comptages."""
+    aperçu = preview_svc.previsualiser_taux_commission(logement_id, date_debut) if date_debut else None
+    return templates.TemplateResponse(request, "logements_impacts.html", {
+        "active_menu": "logements", "logement_id": logement_id, "date_debut": date_debut,
+        "apercu": aperçu,
+    })

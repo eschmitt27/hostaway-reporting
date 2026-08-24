@@ -19,6 +19,7 @@ from fastapi.templating import Jinja2Templates
 from app.config import TEMPLATES_DIR
 from app.services import canape_gestion_service as canape
 from app.services import couts_menage_gestion_service as cm
+from app.services import impact_preview_service as preview_svc
 from app.services import referentiel_admin_service as adm
 from app.services import regle_version_gestion_service as regv
 
@@ -64,32 +65,76 @@ def detail(request: Request, table: str, message: str = "", erreur: str = ""):
 
 @router.post("/administration/referentiels/ref_couts_standards_menage/changer-cout")
 def changer_cout_menage(type_logement_id: str = Form(...), cout_standard_menage: str = Form(...),
-                        date_debut: str = Form(...)):
+                        date_debut: str = Form(...), justification: str = Form("")):
     """Change le coût standard ménage d'un type de logement — clôture + ouverture atomiques,
-    jamais de modification d'une ligne close (voir `couts_menage_gestion_service`)."""
-    res = cm.changer_cout(type_logement_id, cout_standard_menage, date_debut, acteur="ui")
+    jamais de modification d'une ligne close (voir `couts_menage_gestion_service`). Justification
+    obligatoire (contrôlée ici, backend) si `date_debut` est rétroactive (Mission 6 quater)."""
+    blocage = adm.verifier_justification_retroactive(date_debut, justification)
+    if blocage:
+        return _retour(TABLE_COUTS_MENAGE, blocage, "")
+    res = cm.changer_cout(type_logement_id, cout_standard_menage, date_debut, acteur="ui",
+                          justification=justification)
     return _retour(TABLE_COUTS_MENAGE, res, "Coût standard mis à jour.")
+
+
+@router.get("/administration/referentiels/ref_couts_standards_menage/impacts", response_class=HTMLResponse)
+def impacts_cout_menage(request: Request, type_logement_id: str = "", date_debut: str = ""):
+    apercu = preview_svc.previsualiser_cout_menage(type_logement_id, date_debut) \
+        if type_logement_id and date_debut else None
+    return templates.TemplateResponse(request, "administration_referentiel_impacts.html", {
+        "active_menu": _MENU, "titre": "Coût standard ménage", "apercu": apercu,
+        "retour": f"/administration/referentiels/{TABLE_COUTS_MENAGE}",
+    })
 
 
 @router.post("/administration/referentiels/ref_canape_parametres/changer-parametres")
 def changer_parametres_canape(logement_id: str = Form(...),
                               seuil_voyageurs_preparation_canape: str = Form(...),
                               montant_preparation_canape: str = Form(...),
-                              date_debut: str = Form(...)):
+                              date_debut: str = Form(...), justification: str = Form("")):
     """Change le seuil/montant canapé d'un logement — clôture + ouverture atomiques, jamais de
-    modification d'une ligne close (voir `canape_gestion_service`)."""
+    modification d'une ligne close (voir `canape_gestion_service`). Justification obligatoire si
+    `date_debut` est rétroactive."""
+    blocage = adm.verifier_justification_retroactive(date_debut, justification)
+    if blocage:
+        return _retour(TABLE_CANAPE, blocage, "")
     res = canape.changer_parametres(logement_id, seuil_voyageurs_preparation_canape,
-                                    montant_preparation_canape, date_debut, acteur="ui")
+                                    montant_preparation_canape, date_debut, acteur="ui",
+                                    justification=justification)
     return _retour(TABLE_CANAPE, res, "Paramètres canapé mis à jour.")
+
+
+@router.get("/administration/referentiels/ref_canape_parametres/impacts", response_class=HTMLResponse)
+def impacts_canape(request: Request, logement_id: str = "", date_debut: str = ""):
+    apercu = preview_svc.previsualiser_canape(logement_id, date_debut) \
+        if logement_id and date_debut else None
+    return templates.TemplateResponse(request, "administration_referentiel_impacts.html", {
+        "active_menu": _MENU, "titre": "Paramètres canapé", "apercu": apercu,
+        "retour": f"/administration/referentiels/{TABLE_CANAPE}",
+    })
 
 
 @router.post("/administration/referentiels/ref_regles_versions/changer-version")
 def changer_version_regle(rule_code: str = Form(...), version: str = Form(...),
                           date_debut: str = Form(...), commentaire: str = Form("")):
     """Introduit une nouvelle version d'une règle algorithmique — clôture + ouverture atomiques,
-    jamais de modification d'une version close (voir `regle_version_gestion_service`)."""
+    jamais de modification d'une version close (voir `regle_version_gestion_service`).
+    Justification (`commentaire`) obligatoire si `date_debut` est rétroactive."""
+    blocage = adm.verifier_justification_retroactive(date_debut, commentaire)
+    if blocage:
+        return _retour(TABLE_REGLES_VERSIONS, blocage, "")
     res = regv.changer_version(rule_code, version, date_debut, commentaire=commentaire, acteur="ui")
     return _retour(TABLE_REGLES_VERSIONS, res, "Version de règle enregistrée.")
+
+
+@router.get("/administration/referentiels/ref_regles_versions/impacts", response_class=HTMLResponse)
+def impacts_regle_version(request: Request, rule_code: str = "", date_debut: str = ""):
+    apercu = preview_svc.previsualiser_impacts_regle(rule_code, date_debut=date_debut) \
+        if rule_code and date_debut else None
+    return templates.TemplateResponse(request, "administration_referentiel_impacts.html", {
+        "active_menu": _MENU, "titre": "Règle versionnée", "apercu": apercu,
+        "retour": f"/administration/referentiels/{TABLE_REGLES_VERSIONS}",
+    })
 
 
 @router.post("/administration/referentiels/{table}/creer")

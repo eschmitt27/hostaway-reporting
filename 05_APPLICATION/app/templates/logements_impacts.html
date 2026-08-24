@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Impacts potentiels — {{ logement_id }}{% endblock %}
+
+{% block content %}
+<div class="page-header flex justify-between items-center">
+  <div>
+    <h1 class="page-title">Aperçu des impacts potentiels</h1>
+    <p class="page-subtitle font-mono text-xs">{{ logement_id }}{% if date_debut %} — à partir du {{ date_debut }}{% endif %}</p>
+  </div>
+  <a href="/logements/{{ logement_id }}" class="btn">Retour à la fiche</a>
+</div>
+
+<div class="alert alert-info mb-lg">
+  Cet aperçu est <strong>structurel</strong> : il compte des objets potentiellement concernés,
+  il ne recalcule aucun montant économique. Le recalcul réel se fait ensuite via
+  « Actualiser toute l'activité ».
+</div>
+
+{% if not date_debut %}
+<div class="card">
+  <p class="text-sm text-secondary">Saisissez une date d'effet dans le formulaire de la fiche pour
+  voir l'aperçu correspondant.</p>
+</div>
+{% elif apercu %}
+<div class="card">
+  <div class="card-title">{{ apercu.type_regle }}</div>
+  <dl class="detail-grid">
+    {% if apercu.reservations_potentielles is defined %}
+    <div><dt>Réservations potentiellement concernées</dt><dd>{{ apercu.reservations_potentielles }}</dd></div>
+    {% endif %}
+    {% if apercu.factures_proprietaires_potentielles is defined %}
+    <div><dt>Factures propriétaires potentiellement concernées</dt><dd>{{ apercu.factures_proprietaires_potentielles }}</dd></div>
+    {% endif %}
+  </dl>
+  <p class="text-sm text-secondary" style="margin-top: var(--stack-sm);">
+    Datasets aval à invalider si la modification est confirmée :
+    {{ apercu.datasets_aval | join(', ') }}.
+  </p>
+</div>
+{% endif %}
+{% endblock %}

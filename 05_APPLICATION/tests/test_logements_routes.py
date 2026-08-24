@@ -131,7 +131,7 @@ def test_modifier_depuis_la_fiche(client, ref):
 
 def test_changer_proprietaire_historise_et_message_recalcul(client, ref):
     r = client.post("/logements/LOG_A1/changer-proprietaire",
-                    data={"proprietaire_id": "PROP_B", "date_debut": "2026-07-01"},
+                    data={"proprietaire_id": "PROP_B", "date_debut": "2026-07-01", "justification": "Test"},
                     follow_redirects=False)
     assert r.status_code == 303
     html = client.get(r.headers["location"]).text
@@ -145,7 +145,7 @@ def test_changer_proprietaire_historise_et_message_recalcul(client, ref):
 
 def test_changer_proprietaire_inconnu_affiche_erreur(client, ref):
     r = client.post("/logements/LOG_A1/changer-proprietaire",
-                    data={"proprietaire_id": "PROP_ZZ", "date_debut": "2026-07-01"},
+                    data={"proprietaire_id": "PROP_ZZ", "date_debut": "2026-07-01", "justification": "Test"},
                     follow_redirects=False)
     html = client.get(r.headers["location"]).text
     assert "existe pas dans le référentiel" in html
@@ -155,7 +155,7 @@ def test_changer_proprietaire_inconnu_affiche_erreur(client, ref):
 
 def test_changer_taux_historise_et_message_recalcul(client, ref):
     r = client.post("/logements/LOG_A1/changer-taux-commission",
-                    data={"taux_commission": "0.12", "date_debut": "2026-07-01"},
+                    data={"taux_commission": "0.12", "date_debut": "2026-07-01", "justification": "Test"},
                     follow_redirects=False)
     assert r.status_code == 303
     html = client.get(r.headers["location"]).text
@@ -169,7 +169,7 @@ def test_changer_taux_historise_et_message_recalcul(client, ref):
 
 def test_changer_taux_invalide_affiche_erreur(client, ref):
     r = client.post("/logements/LOG_A1/changer-taux-commission",
-                    data={"taux_commission": "3", "date_debut": "2026-07-01"},
+                    data={"taux_commission": "3", "date_debut": "2026-07-01", "justification": "Test"},
                     follow_redirects=False)
     html = client.get(r.headers["location"]).text
     assert "entre 0 et 1" in html
@@ -178,7 +178,7 @@ def test_changer_taux_invalide_affiche_erreur(client, ref):
 # ── Archivage / réactivation ─────────────────────────────────────────────────
 
 def test_archiver_puis_reactiver(client, ref):
-    r = client.post("/logements/LOG_A1/archiver", data={"date_fin": "2026-06-30"},
+    r = client.post("/logements/LOG_A1/archiver", data={"date_fin": "2026-06-30", "justification": "Test"},
                     follow_redirects=False)
     assert r.status_code == 303
     html = client.get(r.headers["location"]).text
@@ -189,7 +189,7 @@ def test_archiver_puis_reactiver(client, ref):
     assert "Archiver ce logement" not in fiche
 
     r2 = client.post("/logements/LOG_A1/reactiver",
-                     data={"date_debut": "2026-07-01", "proprietaire_id": "PROP_A"},
+                     data={"date_debut": "2026-07-01", "proprietaire_id": "PROP_A", "justification": "Test"},
                      follow_redirects=False)
     assert r2.status_code == 303
     html2 = client.get(r2.headers["location"]).text

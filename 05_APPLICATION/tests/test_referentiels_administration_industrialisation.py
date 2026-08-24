@@ -210,7 +210,7 @@ def test_route_changer_cout_menage_ecrit_et_redirige(client, tmp_db):
     fx.semer_parc_standard(tmp_db)
     resp = client.post("/administration/referentiels/ref_couts_standards_menage/changer-cout",
                        data={"type_logement_id": "TYPE_001", "cout_standard_menage": "55",
-                             "date_debut": "2026-07-01"}, follow_redirects=False)
+                             "date_debut": "2026-07-01", "justification": "Test"}, follow_redirects=False)
     assert resp.status_code == 303
     lignes = cm.historique("TYPE_001", db_path=tmp_db)
     assert len(lignes) == 1 and float(lignes[0]["cout_standard_menage"]) == 55

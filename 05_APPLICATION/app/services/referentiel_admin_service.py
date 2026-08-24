@@ -79,6 +79,7 @@ E_INTROUVABLE = "V01_LOGEMENT_INCONNU"
 E_DATE_INVALIDE = "V04_DATE_INVALIDE"
 E_PERIODE_INCOHERENTE = "V09_PERIODE_INCOHERENTE"
 E_ECRITURE = "E_ECRITURE_REFUSEE"
+E_JUSTIFICATION_REQUISE = "V11_JUSTIFICATION_REQUISE"
 
 MESSAGES = {
     E_REFERENTIEL_ABSENT: (
@@ -92,7 +93,20 @@ MESSAGES = {
         "La date demandée est antérieure au début de la période en cours : la clôturer ainsi "
         "produirait une période négative."),
     E_ECRITURE: "Écriture refusée.",
+    E_JUSTIFICATION_REQUISE: (
+        "Cette modification concerne une période passée (correction rétroactive) : une "
+        "justification est obligatoire."),
 }
+
+
+def est_retroactif(date_reference: str, *, aujourdhui: date | None = None) -> bool:
+    """Une date d'effet est rétroactive si elle n'est pas dans le futur (Mission 6 quater §4) —
+    « aujourd'hui » compris comme rétroactif : la période concernée a déjà commencé ou commence
+    aujourd'hui, jamais purement à venir. `aujourdhui` est injectable pour les tests, jamais figé
+    par défaut (résolu à l'appel, comme partout ailleurs dans ce module)."""
+    if not date_valide(date_reference):
+        return False
+    return date.fromisoformat(txt(date_reference)) <= (aujourdhui or date.today())
 
 
 def txt(v: Any) -> str:
@@ -113,6 +127,16 @@ def veille(d: str) -> str:
 
 def refus(code: str, detail: str = "") -> dict[str, Any]:
     return {"ok": False, "code": code, "message": MESSAGES.get(code, code), "detail": detail}
+
+
+def verifier_justification_retroactive(date_reference: str, justification: str) -> dict[str, Any] | None:
+    """Contrôle BACKEND (pas seulement HTML) de la justification obligatoire pour une correction
+    rétroactive (Mission 6 quater §5) : `None` si le changement est futur, ou rétroactif avec une
+    justification non vide ; un `refus(E_JUSTIFICATION_REQUISE)` sinon. À appeler dans la route,
+    AVANT tout appel au service d'écriture — un champ vide ne doit jamais atteindre la base."""
+    if est_retroactif(date_reference) and not txt(justification):
+        return refus(E_JUSTIFICATION_REQUISE)
+    return None
 
 
 def invalider_dag_referentiel(*, db_path=None) -> list[str]:
@@ -367,11 +391,16 @@ def mettre_a_jour(table: str, cle_valeur: str, champs: dict[str, Any], *, action
 
 
 def clore_periode(table: str, grain_valeur: str, date_fin: str, *, statut: str = "",
-                  acteur: str = "", conn=None, db_path=None) -> dict[str, Any]:
+                  acteur: str = "", commentaire: str = "", action: str = "CLOTURE_PERIODE",
+                  conn=None, db_path=None) -> dict[str, Any]:
     """Clôt la période ouverte de ce grain. Ne touche JAMAIS une période déjà close.
 
     Refuse une `date_fin` antérieure au début de la période courante : une période négative
     rendrait la résolution datée incohérente au lieu de la corriger. `conn` : voir `inserer`.
+    `commentaire` porte la justification d'une correction rétroactive (Mission 6 quater) ; `action`
+    permet à l'appelant de journaliser `CORRECTION_RETROACTIVE` au lieu du `CLOTURE_PERIODE`
+    générique quand c'en est une — la décision reste celle de l'appelant, qui connaît la date
+    réellement demandée par l'utilisateur.
     """
     spec = PERIODES[table]
     ouverte = periode_ouverte(table, grain_valeur, conn=conn, db_path=db_path)
@@ -387,8 +416,8 @@ def clore_periode(table: str, grain_valeur: str, date_fin: str, *, statut: str =
     champs: dict[str, Any] = {spec["fin"]: txt(date_fin)}
     if statut and "statut_gestion" in _colonnes(table):
         champs["statut_gestion"] = statut
-    res = mettre_a_jour(table, ouverte.get(cle, ""), champs, action="CLOTURE_PERIODE",
-                        acteur=acteur, conn=conn, db_path=db_path)
+    res = mettre_a_jour(table, ouverte.get(cle, ""), champs, action=action, acteur=acteur,
+                        commentaire=commentaire, conn=conn, db_path=db_path)
     if not res.get("ok"):
         return res
     return {"ok": True, "cloturee": True, "ligne": res["apres"]}

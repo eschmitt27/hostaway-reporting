@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Impacts potentiels — {{ titre }}{% endblock %}
+
+{% block content %}
+<div class="page-header flex justify-between items-center">
+  <div>
+    <h1 class="page-title">Aperçu des impacts potentiels</h1>
+    <p class="page-subtitle">{{ titre }}</p>
+  </div>
+  <a href="{{ retour }}" class="btn">Retour</a>
+</div>
+
+<div class="alert alert-info mb-lg">
+  Cet aperçu est <strong>structurel</strong> : il compte des objets potentiellement concernés,
+  il ne recalcule aucun montant économique. Le recalcul réel se fait ensuite via
+  « Actualiser toute l'activité ».
+</div>
+
+{% if not apercu %}
+<div class="card">
+  <p class="text-sm text-secondary">
+    Utilisez le lien « Voir les impacts » depuis l'écran de modification, avec une date d'effet
+    renseignée, pour obtenir cet aperçu.
+  </p>
+</div>
+{% else %}
+<div class="card">
+  <div class="card-title">{{ apercu.type_regle }}</div>
+  <dl class="detail-grid">
+    {% if apercu.reservations_potentielles is defined %}
+    <div><dt>Réservations potentiellement concernées</dt><dd>{{ apercu.reservations_potentielles }}</dd></div>
+    {% endif %}
+    {% if apercu.factures_proprietaires_potentielles is defined %}
+    <div><dt>Factures propriétaires potentiellement concernées</dt><dd>{{ apercu.factures_proprietaires_potentielles }}</dd></div>
+    {% endif %}
+    {% if apercu.factures_potentielles is defined %}
+    <div><dt>Factures fournisseur potentiellement concernées</dt><dd>{{ apercu.factures_potentielles }}</dd></div>
+    {% endif %}
+    {% if apercu.nb_logements_concernes is defined %}
+    <div><dt>Logements concernés (par type)</dt><dd>{{ apercu.nb_logements_concernes }}</dd></div>
+    {% endif %}
+  </dl>
+  {% if apercu.datasets_aval %}
+  <p class="text-sm text-secondary" style="margin-top: var(--stack-sm);">
+    Datasets aval à invalider si la modification est confirmée : {{ apercu.datasets_aval | join(', ') }}.
+  </p>
+  {% endif %}
+  {% if apercu.message %}
+  <p class="text-sm text-secondary">{{ apercu.message }}</p>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

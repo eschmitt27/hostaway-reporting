@@ -66,9 +66,12 @@ def changer_version(rule_code: str, version: str, date_debut: str, *, parametres
     if not ver:
         return _refus(E_VERSION_MANQUANTE)
 
+    action_ouverture = "CORRECTION_RETROACTIVE" if adm.est_retroactif(date_debut) \
+        else "CHANGEMENT_VERSION_REGLE"
     try:
         with adm.transaction(db_path=db_path) as conn:
             cloture = adm.clore_periode(TABLE, code, adm.veille(date_debut), acteur=acteur,
+                                        commentaire=commentaire, action=action_ouverture,
                                         conn=conn, db_path=db_path)
             if not cloture.get("ok"):
                 raise adm.RefusTransaction(cloture)
@@ -82,7 +85,8 @@ def changer_version(rule_code: str, version: str, date_debut: str, *, parametres
                 "actif": "OUI",
                 "parametres": parametres,
                 "commentaire": commentaire,
-            }, action="CHANGEMENT_VERSION_REGLE", acteur=acteur, conn=conn, db_path=db_path)
+            }, action=action_ouverture, acteur=acteur, commentaire=commentaire, conn=conn,
+               db_path=db_path)
             if not res.get("ok"):
                 raise adm.RefusTransaction(res)
     except adm.RefusTransaction as exc:

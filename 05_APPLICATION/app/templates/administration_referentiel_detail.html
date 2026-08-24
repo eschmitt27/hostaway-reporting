@@ -95,10 +95,20 @@
         <input class="input" name="cout_standard_menage" required>
       </label>
       <label class="text-xs">Date de début <span class="text-danger">*</span>
-        <input class="input" type="date" name="date_debut" required>
+        <input class="input js-date-retro" type="date" name="date_debut" required>
       </label>
     </div>
+    <div class="alert alert-warning js-bandeau-retro mt-sm" style="display:none;">
+      ⚠ Modification rétroactive — cette date concerne une période déjà passée. Une justification
+      est obligatoire.
+    </div>
+    <label class="text-xs js-justification-retro mt-sm" style="display:none;">
+      Justification (obligatoire pour une correction rétroactive)
+      <textarea class="input" name="justification" rows="2"></textarea>
+    </label>
     <button type="submit" class="btn btn-primary mt-md" {% if not disponible %}disabled{% endif %}>Changer le coût</button>
+    <a class="btn btn-ghost btn-sm js-lien-impacts" data-champ="type_logement_id"
+       href="/administration/referentiels/ref_couts_standards_menage/impacts">Voir les impacts</a>
   </form>
 </div>
 {% endif %}
@@ -121,13 +131,19 @@
         <input class="input" name="version" required>
       </label>
       <label class="text-xs">Date de début <span class="text-danger">*</span>
-        <input class="input" type="date" name="date_debut" required>
+        <input class="input js-date-retro" type="date" name="date_debut" required>
       </label>
-      <label class="text-xs">Commentaire
-        <input class="input" name="commentaire">
+      <label class="text-xs">Commentaire / justification
+        <input class="input js-justification-retro" name="commentaire">
       </label>
     </div>
+    <div class="alert alert-warning js-bandeau-retro mt-sm" style="display:none;">
+      ⚠ Modification rétroactive — cette date concerne une période déjà passée. Une justification
+      (commentaire) est obligatoire.
+    </div>
     <button type="submit" class="btn btn-primary mt-md" {% if not disponible %}disabled{% endif %}>Enregistrer la version</button>
+    <a class="btn btn-ghost btn-sm js-lien-impacts" data-champ="rule_code"
+       href="/administration/referentiels/ref_regles_versions/impacts">Voir les impacts</a>
   </form>
 </div>
 {% endif %}
@@ -152,10 +168,20 @@
         <input class="input" name="montant_preparation_canape" required>
       </label>
       <label class="text-xs">Date de début <span class="text-danger">*</span>
-        <input class="input" type="date" name="date_debut" required>
+        <input class="input js-date-retro" type="date" name="date_debut" required>
       </label>
     </div>
+    <div class="alert alert-warning js-bandeau-retro mt-sm" style="display:none;">
+      ⚠ Modification rétroactive — cette date concerne une période déjà passée. Une justification
+      est obligatoire.
+    </div>
+    <label class="text-xs js-justification-retro mt-sm" style="display:none;">
+      Justification (obligatoire pour une correction rétroactive)
+      <textarea class="input" name="justification" rows="2"></textarea>
+    </label>
     <button type="submit" class="btn btn-primary mt-md" {% if not disponible %}disabled{% endif %}>Changer les paramètres</button>
+    <a class="btn btn-ghost btn-sm js-lien-impacts" data-champ="logement_id"
+       href="/administration/referentiels/ref_canape_parametres/impacts">Voir les impacts</a>
   </form>
 </div>
 {% endif %}
@@ -207,4 +233,36 @@
   <p class="text-sm text-secondary">Aucune modification enregistrée depuis l'application.</p>
   {% endif %}
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('.js-date-retro').forEach(function (input) {
+    var form = input.closest('form');
+    if (!form) return;
+    var bandeau = form.querySelector('.js-bandeau-retro');
+    var justif = form.querySelector('.js-justification-retro');
+    function maj() {
+      var today = new Date().toISOString().slice(0, 10);
+      var retro = !!input.value && input.value <= today;
+      if (bandeau) bandeau.style.display = retro ? '' : 'none';
+      if (justif) justif.style.display = retro ? '' : 'none';
+    }
+    input.addEventListener('change', maj);
+    maj();
+  });
+  document.querySelectorAll('.js-lien-impacts').forEach(function (lien) {
+    lien.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      var form = lien.closest('form');
+      var champ = lien.getAttribute('data-champ');
+      var champInput = form ? form.querySelector('[name="' + champ + '"]') : null;
+      var dateInput = form ? form.querySelector('input[name="date_debut"]') : null;
+      var params = [];
+      if (champInput && champInput.value) { params.push(champ + '=' + encodeURIComponent(champInput.value)); }
+      if (dateInput && dateInput.value) { params.push('date_debut=' + encodeURIComponent(dateInput.value)); }
+      window.location.href = lien.getAttribute('href') + '?' + params.join('&');
+    });
+  });
+});
+</script>
 {% endblock %}

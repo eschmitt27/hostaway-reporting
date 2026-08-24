@@ -140,7 +140,7 @@ def modifier(logement_id: str, form: dict[str, Any], *, acteur: str = "",
     return {"ok": True, "logement_id": logement_id}
 
 
-def archiver(logement_id: str, date_fin: str, *, acteur: str = "",
+def archiver(logement_id: str, date_fin: str, *, acteur: str = "", justification: str = "",
              db_path=None) -> dict[str, Any]:
     """Archive un logement : `actif=NON`, `statut_parc=RETIRE`, clôture le rattachement de
     gestion en cours à `date_fin`. Ne supprime aucune ligne."""
@@ -159,10 +159,12 @@ def archiver(logement_id: str, date_fin: str, *, acteur: str = "",
     # Clôture + désactivation en une seule transaction : si la désactivation échouait après une
     # clôture déjà committée, le logement resterait sans période de gestion ouverte alors qu'il
     # est toujours marqué actif — un état incohérent que rien ne permettrait de corriger seul.
+    action_cloture = "CORRECTION_RETROACTIVE" if adm.est_retroactif(date_fin) else "CLOTURE_PERIODE"
     try:
         with adm.transaction(db_path=db_path) as conn:
             cloture = adm.clore_periode(SH_GEST, logement_id, date_fin, statut="RETIRE",
-                                        acteur=acteur, conn=conn, db_path=db_path)
+                                        acteur=acteur, commentaire=justification,
+                                        action=action_cloture, conn=conn, db_path=db_path)
             if not cloture.get("ok"):
                 raise adm.RefusTransaction(cloture)
             res = adm.mettre_a_jour(SH_LOG, logement_id, {"actif": "NON", "statut_parc": "RETIRE"},
@@ -178,7 +180,7 @@ def archiver(logement_id: str, date_fin: str, *, acteur: str = "",
 
 
 def reactiver(logement_id: str, date_debut: str, proprietaire_id: str, *, acteur: str = "",
-              db_path=None) -> dict[str, Any]:
+              justification: str = "", db_path=None) -> dict[str, Any]:
     """Réactive un logement archivé : `actif=OUI`, `statut_parc=GERE`, ouvre un nouveau
     rattachement de gestion daté (jamais de réouverture d'une ligne close)."""
     if not adm.disponible(db_path=db_path):
@@ -199,6 +201,7 @@ def reactiver(logement_id: str, date_debut: str, proprietaire_id: str, *, acteur
     if _txt(fiche.get("actif")).upper() == "OUI":
         return _refus(E_DEJA_ACTIF, logement_id)
 
+    action_ouverture = "CORRECTION_RETROACTIVE" if adm.est_retroactif(date_debut) else "REACTIVATION"
     try:
         with adm.transaction(db_path=db_path) as conn:
             res_gest = adm.inserer(SH_GEST, {
@@ -209,8 +212,9 @@ def reactiver(logement_id: str, date_debut: str, proprietaire_id: str, *, acteur
                 "date_fin": "",
                 "statut_gestion": "ACTIF",
                 "source": adm.SOURCE_APPLICATION,
-                "commentaire": "Réactivation",
-            }, action="REACTIVATION", acteur=acteur, conn=conn, db_path=db_path)
+                "commentaire": justification or "Réactivation",
+            }, action=action_ouverture, acteur=acteur, commentaire=justification, conn=conn,
+               db_path=db_path)
             if not res_gest.get("ok"):
                 raise adm.RefusTransaction(res_gest)
 
@@ -228,7 +232,7 @@ def reactiver(logement_id: str, date_debut: str, proprietaire_id: str, *, acteur
 
 
 def changer_proprietaire(logement_id: str, proprietaire_id: str, date_debut: str, *,
-                         acteur: str = "", db_path=None) -> dict[str, Any]:
+                         acteur: str = "", justification: str = "", db_path=None) -> dict[str, Any]:
     """Change le propriétaire d'un logement à `date_debut` : clôture le rattachement en cours
     (date_fin = veille) et ouvre une nouvelle ligne. Jamais de modification d'une ligne close."""
     if not adm.disponible(db_path=db_path):
@@ -249,10 +253,13 @@ def changer_proprietaire(logement_id: str, proprietaire_id: str, date_debut: str
     # Clôture puis ouverture dans UNE transaction : l'index partiel (0051) interdit deux périodes
     # ouvertes simultanées, mais seul un commit unique empêche un logement de rester sans
     # rattachement ouvert si l'insertion échouait après une clôture déjà committée.
+    retroactif = adm.est_retroactif(date_debut)
+    action_ouverture = "CORRECTION_RETROACTIVE" if retroactif else "CHANGEMENT_PROPRIETAIRE"
     try:
         with adm.transaction(db_path=db_path) as conn:
             cloture = adm.clore_periode(SH_GEST, logement_id, _veille(date_debut), statut="RETIRE",
-                                        acteur=acteur, conn=conn, db_path=db_path)
+                                        acteur=acteur, commentaire=justification,
+                                        action=action_ouverture, conn=conn, db_path=db_path)
             if not cloture.get("ok"):
                 raise adm.RefusTransaction(cloture)
 
@@ -264,8 +271,9 @@ def changer_proprietaire(logement_id: str, proprietaire_id: str, date_debut: str
                 "date_fin": "",
                 "statut_gestion": "ACTIF",
                 "source": adm.SOURCE_APPLICATION,
-                "commentaire": "Changement de propriétaire",
-            }, action="CHANGEMENT_PROPRIETAIRE", acteur=acteur, conn=conn, db_path=db_path)
+                "commentaire": justification or "Changement de propriétaire",
+            }, action=action_ouverture, acteur=acteur, commentaire=justification, conn=conn,
+               db_path=db_path)
             if not res.get("ok"):
                 raise adm.RefusTransaction(res)
     except adm.RefusTransaction as exc:
@@ -279,7 +287,7 @@ def changer_proprietaire(logement_id: str, proprietaire_id: str, date_debut: str
 
 def changer_taux_commission(logement_id: str, taux: float, date_debut: str,
                             proprietaire_id: str = "", *, acteur: str = "",
-                            db_path=None) -> dict[str, Any]:
+                            justification: str = "", db_path=None) -> dict[str, Any]:
     """Change le taux de commission d'un logement, au grain **logement** (`logement_id`
     obligatoire) — cohérent avec `resolve_commission_rate()` qui priorise déjà ce grain sur le
     grain propriétaire. Clôture la ligne courante active à `date_debut` (veille) et ouvre une
@@ -304,10 +312,13 @@ def changer_taux_commission(logement_id: str, taux: float, date_debut: str,
         active = adm.periode_ouverte(SH_GEST, logement_id, db_path=db_path)
         prop = _txt(active.get("proprietaire_id")) if active else ""
 
+    retroactif = adm.est_retroactif(date_debut)
+    action_ouverture = "CORRECTION_RETROACTIVE" if retroactif else "CHANGEMENT_TAUX"
     try:
         with adm.transaction(db_path=db_path) as conn:
             cloture = adm.clore_periode(SH_TAUX, logement_id, _veille(date_debut),
-                                        acteur=acteur, conn=conn, db_path=db_path)
+                                        acteur=acteur, commentaire=justification,
+                                        action=action_ouverture, conn=conn, db_path=db_path)
             if not cloture.get("ok"):
                 raise adm.RefusTransaction(cloture)
 
@@ -320,8 +331,9 @@ def changer_taux_commission(logement_id: str, taux: float, date_debut: str,
                 "date_fin": "",
                 "actif": "OUI",
                 "justification": adm.SOURCE_APPLICATION,
-                "commentaire": "",
-            }, action="CHANGEMENT_TAUX", acteur=acteur, conn=conn, db_path=db_path)
+                "commentaire": justification,
+            }, action=action_ouverture, acteur=acteur, commentaire=justification, conn=conn,
+               db_path=db_path)
             if not res.get("ok"):
                 raise adm.RefusTransaction(res)
     except adm.RefusTransaction as exc:
