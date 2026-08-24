@@ -366,11 +366,104 @@ Campagne finale : moteur **369 passed**, application **2725 passed** (10 lots, 1
 `app.db` réelle : hash inchangé (`8e299b935ef1e0d4`). `REF_Setup.xlsm` : non touché. Mode réel :
 `OFF`. Scheduler Hostaway réel : `INACTIF`. Aucune formule métier actuelle modifiée.
 
-## 11. Prochaine étape recommandée
+## 11. Mission 6 quater — finaliser l'administration temporelle (2026-08-25)
+
+HEAD départ `30daae7`. Ferme les deux manques laissés ouverts par la mission 6 ter (impact preview,
+bandeau de correction rétroactive avec justification obligatoire) — UI/administration uniquement,
+aucun moteur économique touché.
+
+### 11.1 Deux parcours distincts, désormais réellement séparés
+
+**A. Changement normal** (date future) : aucune justification exigée, action journalisée normale
+(`CHANGEMENT_TAUX`/`CHANGEMENT_COUT_MENAGE`/`CHANGEMENT_PARAMETRES_CANAPE`/`CHANGEMENT_VERSION_
+REGLE`).
+
+**B. Correction rétroactive** (date passée OU aujourd'hui — §4 : une période déjà commencée n'est
+jamais purement à venir) : justification obligatoire, contrôlée **côté backend** (la route Python
+refuse AVANT tout appel au service d'écriture si le champ est vide — pas seulement un `required`
+HTML contournable), journalisée sous l'action `CORRECTION_RETROACTIVE`.
+
+Nouveau `referentiel_admin_service.est_retroactif(date, aujourdhui=None)` (résolu à l'appel, jamais
+figé — comme tout le reste du module) et `verifier_justification_retroactive(date, justification)`
+(refus `E_JUSTIFICATION_REQUISE` si rétroactif et vide, `None` sinon). Les 4 services de gestion
+(`logements_gestion_service`, `couts_menage_gestion_service`, `canape_gestion_service`,
+`regle_version_gestion_service`) reçoivent un paramètre `justification`/`commentaire` optionnel,
+choisissent l'action `CORRECTION_RETROACTIVE` vs l'action normale selon `est_retroactif`, et la
+propagent au **journal** (`ref_admin_evenements.commentaire`) — pas seulement à la colonne
+`commentaire` de la ligne elle-même (bug trouvé et corrigé pendant les tests : `inserer()` a un
+paramètre `commentaire=` distinct de `valeurs["commentaire"]`, les deux doivent être renseignés).
+
+Enforcement câblé dans les routes : `app/routes/logements.py` (changer-proprietaire,
+changer-taux-commission, archiver, reactiver) et `app/routes/administration_referentiels.py`
+(changer-cout, changer-parametres canapé, changer-version règle).
+
+### 11.2 Impact preview — nouveau service structurel
+
+`app/services/impact_preview_service.py` (nouveau) : `previsualiser_taux_commission`,
+`previsualiser_canape`, `previsualiser_cout_menage`, `previsualiser_regle_repartition`, et un point
+d'entrée générique `previsualiser_impacts_regle(rule_code, ...)`. **Ne recalcule aucun montant** —
+compte des objets potentiellement concernés (`reservations_resolues`, `factures_proprietaires`,
+`factures` fournisseur) à partir de la date d'effet, et liste les datasets aval du DAG existant
+(`orchestrateur_dag.descendants(REF_SETUP)`, aucune deuxième carte). Base absente/table manquante →
+0, jamais une exception (`try/except` large autour de chaque comptage).
+
+Exposé via 3 routes GET dédiées (`/logements/{id}/impacts-taux`,
+`/administration/referentiels/ref_couts_standards_menage|ref_canape_parametres|ref_regles_versions
+/impacts`) et un lien « Voir les impacts » sur chaque écran de modification concerné (JS vanilla,
+construit l'URL depuis les champs déjà remplis du formulaire — aucune dépendance externe).
+
+### 11.3 Bandeau visuel + JS de confort (jamais la seule protection)
+
+`logements_detail.html` et `administration_referentiel_detail.html` : un `<script>` vanilla
+(`DOMContentLoaded`) compare la date saisie à aujourd'hui et bascule l'affichage d'un bandeau
+`⚠ MODIFICATION RÉTROACTIVE` (orange) + un champ justification, AVANT soumission — confort de
+saisie uniquement. Le contrôle réel reste dans la route (§11.1) : désactiver JavaScript ne
+contourne jamais le refus backend.
+
+### 11.4 Ce qui reste structurellement impossible (pas une détection à construire)
+
+Trous de période : les 4 services ferment systématiquement à `veille(date_debut)` de la nouvelle
+période — un trou ne peut être créé par le parcours normal. Prouvé par test
+(`test_aucun_trou_possible_par_construction`), pas besoin d'une politique de détection séparée.
+
+### 11.5 Tests
+
+- `tests/test_correction_retroactive_administration.py` (nouveau, 15 tests) : `est_retroactif`,
+  `verifier_justification_retroactive`, changement futur sans justification, correction rétroactive
+  refusée sans justification / acceptée avec, justification conservée dans le journal pour les 4
+  services, action normale préservée pour un changement futur, chevauchement toujours refusé,
+  absence structurelle de trou.
+- `tests/test_impact_preview_service.py` (nouveau, 8 tests) : comptages par date, aucun montant
+  financier dans le résultat (`assert "montant" not in cle`), point d'entrée générique, base absente
+  sans exception.
+- `tests/test_ui_correction_retroactive.py` (nouveau, 9 tests) : bandeau/justification/lien impacts
+  effectivement présents dans le HTML rendu (4 écrans), écrans impacts répondent 200, aucune erreur
+  technique brute (`IntegrityError`/`Traceback`/`sqlite3.`) visible sur un refus.
+- 5 tests existants (`test_logements_routes.py`) et 3 tests existants (référentiels admin)
+  corrigés : utilisaient des dates de fixture désormais rétroactives par rapport à la date système
+  réelle — `justification="Test"` ajoutée, comportement testé reste inchangé.
+
+Campagne finale : moteur **369 passed**, application **2757 passed** (10 lots, 187 fichiers).
+**0 failed.**
+
+### 11.6 Limites restantes
+
+- L'aperçu d'impact reste structurel et approximatif par construction (comptages simples sur des
+  tables existantes) — pas une reconstruction fine de chaque ligne économique concernée.
+- Pas d'alerte dédiée « règle déjà utilisée dans des calculs » distincte du bandeau rétroactif — la
+  mission autorisait explicitement cette simplification (§9 : « un indicateur structurel suffit »).
+- Le seuil « rétroactif » est un simple `date <= aujourd'hui` : aucune notion plus fine (ex. « déjà
+  effectivement utilisée par un calcul réel ») n'a été construite, faute de traçabilité par ligne
+  économique suffisante pour la distinguer proprement.
+
+### 11.7 Intégrité réelle
+
+`app.db` réelle : hash inchangé (`8e299b935ef1e0d4`). `REF_Setup.xlsm` : non touché. Mode réel :
+`OFF`. Scheduler Hostaway réel : `INACTIF`. Aucune migration créée. Aucune formule métier modifiée.
+
+## 12. Prochaine étape recommandée
 
 Annoncée par la mission : extraction d'un moteur temporel pilote, probablement **commission**
-(déjà historisée, résolue par date, et désormais réellement branchée en production — le candidat
-le plus mûr). Le socle de résolution centralisée (`lib_ref_history.py`) et l'invalidation DAG sont
-prêts à servir de base, sans reconstruction. Restent à construire, si arbitrés utiles avant ce
-moteur : impact preview, bandeau de correction rétroactive avec justification obligatoire. Mission
-6 ter STOP explicite ici — ne pas commencer le moteur Commission maintenant.
+(déjà historisée, résolue par date, réellement branchée en production, et désormais administrable
+avec protection rétroactive complète). Mission 6 quater STOP explicite ici — ne pas commencer le
+moteur Commission maintenant.

@@ -436,3 +436,13 @@ recalcul auto). Non construits, déclarés honnêtement : impact preview, bandea
 rétroactive dédié. Campagne : moteur 369/369, application 2725/0 failed. Détail :
 `REGLES_METIER_TEMPORELLES.md` §10. Mission 6 ter stoppe ici explicitement — pas de moteur
 Commission pur commencé.
+
+**Mis à jour 2026-08-25 (règles métier temporelles, mission 6 quater)** : les deux manques de la
+mission 6 ter comblés — correction rétroactive (date passée/aujourd'hui) distinguée du changement
+normal, justification obligatoire contrôlée côté route, action `CORRECTION_RETROACTIVE` journalisée
+(bug de journal `commentaire=` trouvé et corrigé au passage) ; nouveau `impact_preview_service.py`
+(comptages structurels uniquement, jamais un montant financier inventé) exposé par 4 écrans « Voir
+les impacts ». Aucune migration, aucune formule métier touchée. Campagne : moteur 369/369,
+application 2757/0 failed. Détail : `REGLES_METIER_TEMPORELLES.md` §11. Mission 6 quater stoppe ici
+explicitement — pas de moteur Commission pur commencé, décision réservée à une mission future à
+partir de ce verdict.

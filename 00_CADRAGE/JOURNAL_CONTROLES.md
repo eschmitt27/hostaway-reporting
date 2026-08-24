@@ -4227,3 +4227,35 @@ Tests : 7 nouveaux (`tests/test_regles_versionnees_production.py`), 6 nouveaux
 (`test_invalidation_dag_referentiels.py`), 2 nouveaux (`test_charges_impact.py`). Campagne complète :
 moteur **369/369 passed**, application **2725 passed** (10 lots, 184 fichiers). **0 failed.** app.db
 réelle inchangée (`8e299b935ef1e0d4`). Détail complet : `REGLES_METIER_TEMPORELLES.md` §10.
+
+## Contrôle 2026-08-25 — Mission 6 quater : administration temporelle finalisée
+
+Comble les deux manques déclarés ouverts par la mission 6 ter. Correction rétroactive (date passée/
+aujourd'hui) désormais distinguée du changement normal (date future) : `referentiel_admin_service.
+est_retroactif`/`verifier_justification_retroactive` (nouveau), justification obligatoire contrôlée
+côté route (backend, avant tout appel au service d'écriture) pour toute date rétroactive, action
+journalisée `CORRECTION_RETROACTIVE` (vs action normale sinon).
+
+Bug trouvé et corrigé pendant les tests (pas une régression pré-existante, propre à cette mission) :
+`inserer(table, valeurs, action=..., commentaire=..., ...)` a un paramètre `commentaire=` KEYWORD
+distinct de la clé `valeurs["commentaire"]` — seule la clé était renseignée initialement, la
+justification n'atteignait jamais le journal `ref_admin_evenements` (colonne restait `NULL`). Corrigé
+en renseignant explicitement les deux, sur les 5 sites d'appel concernés (4 services de gestion).
+
+Nouveau `impact_preview_service.py` : comptages structurels uniquement (réservations/factures
+potentiellement concernées, datasets aval du DAG existant réutilisé sans deuxième carte) — jamais un
+montant financier recalculé ou inventé, vérifié par test explicite (`"montant" not in cle`).
+
+Bandeau `⚠ MODIFICATION RÉTROACTIVE` + lien « Voir les impacts » ajoutés en JS vanilla (confort de
+saisie, précédent déjà établi dans ce codebase) sur `logements_detail.html` et
+`administration_referentiel_detail.html` — le contrôle réel reste le refus backend, pas ce JS.
+
+Régression : 8 tests existants (5 `test_logements_routes.py`, 3 référentiels admin) corrigés — POST
+directs de fixture utilisant des dates désormais rétroactives par rapport à la date système réelle,
+sans justification ; `justification="Test"` ajoutée, comportement testé inchangé.
+
+Tests : 15 nouveaux (`test_correction_retroactive_administration.py`), 8 nouveaux
+(`test_impact_preview_service.py`), 9 nouveaux (`test_ui_correction_retroactive.py`). Aucune
+migration nouvelle. Campagne complète : moteur **369/369 passed**, application **2757 passed**
+(10 lots, 187 fichiers). **0 failed.** app.db réelle inchangée (`8e299b935ef1e0d4`). Détail complet :
+`REGLES_METIER_TEMPORELLES.md` §11.

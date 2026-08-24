@@ -2117,3 +2117,15 @@ bandeau de correction rétroactive avec justification obligatoire (tenté puis �
 régression sur des tests existants utilisant des dates de fixture passées sans justification).
 Campagne : moteur 369/369, application 2725/0 failed. app.db réelle inchangée. Détail complet :
 `REGLES_METIER_TEMPORELLES.md` §10.
+
+**Mis à jour 2026-08-25 (Mission 6 quater — administration temporelle finalisée)** : les deux
+manques de la mission 6 ter comblés. Correction rétroactive (date passée/aujourd'hui) distinguée du
+changement normal (date future) : justification obligatoire, contrôlée côté route (backend),
+journalisée sous l'action `CORRECTION_RETROACTIVE` — bandeau `⚠ MODIFICATION RÉTROACTIVE` en JS de
+confort uniquement. Nouveau `impact_preview_service.py` : comptages structurels (réservations/
+factures concernées + datasets aval du DAG existant), jamais un montant financier inventé. Bug
+journal trouvé et corrigé : `inserer()` a un paramètre `commentaire=` distinct de la clé
+`valeurs["commentaire"]`, les deux doivent être renseignés pour que la justification apparaisse dans
+`ref_admin_evenements`. Aucune migration nouvelle. Campagne : moteur 369/369, application 2757/0
+failed. app.db réelle inchangée. Détail complet : `REGLES_METIER_TEMPORELLES.md` §11. Mission 6
+quater stoppe ici explicitement — pas de moteur Commission pur commencé.

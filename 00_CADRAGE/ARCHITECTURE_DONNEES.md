@@ -2143,3 +2143,13 @@ canapé, règles versionnées) après commit réussi. Prouvé par test : marque 
 
 Non construits (déclaré honnêtement) : impact preview, bandeau de correction rétroactive dédié.
 Détail complet : `REGLES_METIER_TEMPORELLES.md` §10 (même sous-dossier de mission).
+
+## Mise à jour 2026-08-25 — Mission 6 quater : administration temporelle finalisée
+
+Comble les deux manques ci-dessus. `referentiel_admin_service.est_retroactif`/
+`verifier_justification_retroactive` (nouveau) : justification obligatoire côté route pour toute
+date passée/aujourd'hui, action journalisée `CORRECTION_RETROACTIVE` distincte du changement normal.
+Nouveau `impact_preview_service.py` : comptages structurels (`reservations_resolues`,
+`factures_proprietaires`, `factures`) + datasets aval du DAG existant, jamais de montant financier
+recalculé/inventé. Aucune nouvelle table, aucune migration. Détail complet :
+`REGLES_METIER_TEMPORELLES.md` §11 (même sous-dossier de mission).
