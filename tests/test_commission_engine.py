@@ -8,7 +8,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "02_TRAVAIL"))
 
-from lib_commission_engine import calculer_commission_conciergerie, calculer_net_proprietaire
+from lib_commission_engine import (
+    assiette_v1_paiement_direct,
+    calculer_commission_conciergerie,
+    calculer_net_proprietaire,
+)
 
 
 class MoteurPurTests(unittest.TestCase):
@@ -60,6 +64,28 @@ class NetProprietaireTests(unittest.TestCase):
         commission = pd.Series([85.5, 57.0])
         out = calculer_net_proprietaire(payout, menage, commission)
         self.assertEqual(list(out), [364.5, 243.0])
+
+
+class AssietteV1PaiementDirectTests(unittest.TestCase):
+    """Mission 7 bis : formule extraite de HH/VRBO après audit — décision économique réelle
+    (assiette = payout - ménage pour un canal de paiement direct), pas une normalisation
+    technique. Figé sur les valeurs exactes déjà produites avant extraction."""
+
+    def test_formule_nominale(self):
+        self.assertEqual(assiette_v1_paiement_direct(150.0, 25.0), 125.0)
+
+    def test_arrondi_centime(self):
+        self.assertEqual(assiette_v1_paiement_direct(100.336, 10.111), 90.22)
+
+    def test_menage_nul(self):
+        self.assertEqual(assiette_v1_paiement_direct(200.0, 0.0), 200.0)
+
+    def test_fonctionne_sur_pandas_series(self):
+        import pandas as pd
+        payout = pd.Series([150.0, 200.0])
+        menage = pd.Series([25.0, 30.0])
+        out = assiette_v1_paiement_direct(payout, menage)
+        self.assertEqual(list(out), [125.0, 170.0])
 
 
 if __name__ == "__main__":

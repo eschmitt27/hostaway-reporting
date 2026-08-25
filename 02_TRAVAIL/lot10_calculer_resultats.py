@@ -53,7 +53,11 @@ from lib_settlements import (
     validated_airbnb_imputation,
 )
 from lib_canape import calculate_canape_amount
-from lib_commission_engine import calculer_commission_conciergerie, calculer_net_proprietaire
+from lib_commission_engine import (
+    assiette_v1_paiement_direct,
+    calculer_commission_conciergerie,
+    calculer_net_proprietaire,
+)
 from lib_parc import (
     A_CONTROLER,
     HORS_PARC_TECHNIQUE,
@@ -672,7 +676,10 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
         log.error("BLOQUANT ASSIETTE_NEGATIVE — HA")
         sys.exit(1)
     # Assiette HA fournie par le payout amont (Lot1/lot4quater) — la "V1" de ASSIETTE_COMMISSION
-    # pour ce canal est précisément "accepter cette valeur amont sans la recalculer ici". Le
+    # pour ce canal est précisément "accepter cette valeur amont sans la recalculer ici". Audité
+    # Mission 7 bis : pur pass-through technique (aucune décision économique prise ici), donc
+    # volontairement PAS extrait dans le moteur — contrairement à HH/VRBO (`lib_commission_engine.
+    # assiette_v1_paiement_direct`), qui appliquent une vraie formule (payout - ménage). Le
     # garde-fou vérifie que la version résolue à la date de la réservation reste implémentée.
     _verifier_version_regle(df_ha[normal_ha], "ASSIETTE_COMMISSION", regles_history,
                             "date_arrivee", "HOSTAWAY", ("V1",))
@@ -714,7 +721,8 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
         if len(df_hh_ok) > 0:
             df_hh_ok["payout_calcule"]      = df_hh_ok["total_percu"].round(2)
             df_hh_ok["menage_retenu"]       = df_hh_ok["menage"].round(2)
-            df_hh_ok["assiette_commission"] = (df_hh_ok["total_percu"] - df_hh_ok["menage"]).round(2)
+            df_hh_ok["assiette_commission"] = assiette_v1_paiement_direct(
+                df_hh_ok["total_percu"], df_hh_ok["menage"])
             if (df_hh_ok["assiette_commission"] < 0).any():
                 log.error("BLOQUANT ASSIETTE_NEGATIVE — HH")
                 sys.exit(1)
@@ -762,7 +770,7 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
         df_vrbo["payout_calcule"] = df_vrbo["payout_resolu"].round(2)
         df_vrbo["menage_retenu"]  = df_vrbo["menage_resolu"].fillna(0.0).round(2)
         df_vrbo["assiette_commission"] = df_vrbo["assiette_resolu"].combine_first(
-            df_vrbo["payout_resolu"] - df_vrbo["menage_resolu"].fillna(0.0)
+            assiette_v1_paiement_direct(df_vrbo["payout_resolu"], df_vrbo["menage_resolu"].fillna(0.0))
         ).round(2)
         if (df_vrbo["assiette_commission"].fillna(0) < 0).any():
             log.error("BLOQUANT ASSIETTE_NEGATIVE — VRBO")

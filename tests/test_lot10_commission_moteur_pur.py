@@ -18,7 +18,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "02_TRAVAIL"))
 
 from lot10_calculer_resultats import build_commissions
-from lib_commission_engine import calculer_commission_conciergerie, calculer_net_proprietaire
+from lib_commission_engine import (
+    assiette_v1_paiement_direct,
+    calculer_commission_conciergerie,
+    calculer_net_proprietaire,
+)
 
 HH_COLS = ["reservation_hh_id", "total_percu", "menage", "commission", "taux_commission"]
 
@@ -112,7 +116,7 @@ class PariteHHTests(unittest.TestCase):
             df_flux, df_res, df_payout, df_hh, _log_frame(), pd.DataFrame(), _taux_frame())
         ligne = df_comm.iloc[0]
 
-        assiette_attendue = round(150.0 - 25.0, 2)
+        assiette_attendue = assiette_v1_paiement_direct(150.0, 25.0)
         commission_attendue = calculer_commission_conciergerie(assiette_attendue, 0.2)
         net_attendu = calculer_net_proprietaire(150.0, 25.0, commission_attendue)
         self.assertEqual(ligne["assiette_commission"], assiette_attendue)
@@ -151,7 +155,7 @@ class PariteVRBOTests(unittest.TestCase):
             pd.DataFrame(), _taux_frame())
         ligne = df_comm.iloc[0]
 
-        assiette_attendue = round(200.0 - 30.0, 2)
+        assiette_attendue = assiette_v1_paiement_direct(200.0, 30.0)
         commission_attendue = calculer_commission_conciergerie(assiette_attendue, 0.2)
         net_attendu = calculer_net_proprietaire(200.0, 30.0, commission_attendue)
         self.assertEqual(ligne["assiette_commission"], assiette_attendue)
@@ -169,6 +173,7 @@ class UneSeuleSourceDeCalculTests(unittest.TestCase):
         self.assertIn("from lib_commission_engine import", source)
         self.assertIn("calculer_commission_conciergerie", source)
         self.assertIn("calculer_net_proprietaire", source)
+        self.assertIn("assiette_v1_paiement_direct", source)
         # aucune formule inline "assiette_commission ... * ... taux_commission ... .round(2)"
         # ré-écrite localement (l'ancien pattern utilisait ".round(2)" juste après la
         # multiplication assiette*taux sur les 3 branches — supprimé par cette extraction).
@@ -178,6 +183,13 @@ class UneSeuleSourceDeCalculTests(unittest.TestCase):
             'df_hh_ok["assiette_commission"] * df_hh_ok["taux_commission"]', source)
         self.assertNotIn(
             'df_vrbo["assiette_commission"] * df_vrbo["taux_commission"]', source)
+        # Mission 7 bis : l'ancienne formule inline "payout - menage" (HH/VRBO) ne doit plus
+        # apparaitre litteralement, remplacee par l'appel a assiette_v1_paiement_direct.
+        self.assertNotIn(
+            '(df_hh_ok["total_percu"] - df_hh_ok["menage"]).round(2)', source)
+        self.assertNotIn(
+            'df_vrbo["payout_resolu"] - df_vrbo["menage_resolu"].fillna(0.0)\n        ).round(2)',
+            source)
 
 
 if __name__ == "__main__":
