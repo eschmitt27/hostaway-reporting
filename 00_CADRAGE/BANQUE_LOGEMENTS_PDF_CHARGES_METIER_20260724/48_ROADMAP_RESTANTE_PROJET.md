@@ -446,3 +446,11 @@ les impacts ». Aucune migration, aucune formule métier touchée. Campagne : mo
 application 2757/0 failed. Détail : `REGLES_METIER_TEMPORELLES.md` §11. Mission 6 quater stoppe ici
 explicitement — pas de moteur Commission pur commencé, décision réservée à une mission future à
 partir de ce verdict.
+
+**Mis à jour 2026-08-25 (mission 7 — moteur Commission pur)** : calcul commission/net propriétaire
+extrait de `lot10_calculer_resultats.py` (dupliqué 3x inline avant) vers nouveau
+`02_TRAVAIL/lib_commission_engine.py` — 2 fonctions pures, aucune dépendance pandas/sqlite3/
+fastapi. Résolution taux/assiette/version par date économique reste dans Lot10, inchangée (Mission
+6 ter). Parité prouvée par construction + tests ciblés, écart économique 0,00€. Campagne : moteur
+383/0 failed, application 2758/0 failed. Détail : `MOTEUR_COMMISSION.md`. Mission 7 stoppe ici
+explicitement — pas de moteur Charges commencé.

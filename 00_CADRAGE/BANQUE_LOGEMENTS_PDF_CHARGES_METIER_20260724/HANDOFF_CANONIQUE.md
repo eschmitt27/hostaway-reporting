@@ -2129,3 +2129,15 @@ journal trouvé et corrigé : `inserer()` a un paramètre `commentaire=` distinc
 `ref_admin_evenements`. Aucune migration nouvelle. Campagne : moteur 369/369, application 2757/0
 failed. app.db réelle inchangée. Détail complet : `REGLES_METIER_TEMPORELLES.md` §11. Mission 6
 quater stoppe ici explicitement — pas de moteur Commission pur commencé.
+
+**Mis à jour 2026-08-25 (Mission 7 — moteur Commission pur)** : extraction réussie. Nouveau
+`02_TRAVAIL/lib_commission_engine.py` (2 fonctions pures, aucun import pandas/sqlite3/fastapi) :
+`calculer_commission_conciergerie(assiette, taux)` et `calculer_net_proprietaire(payout, menage,
+commission)` — formule inchangée, dupliquée 3 fois avant (HOSTAWAY/HH/VRBO), maintenant une seule
+source appelée 3 fois. Résolution taux/assiette/version par date économique reste dans Lot10
+(inchangée, Mission 6 ter). Parité prouvée par construction + tests ciblés (14 nouveaux :
+`test_commission_engine.py`, `test_lot10_commission_moteur_pur.py`) — pas rejouée sur copie
+complète du pipeline réel, jugé non nécessaire (extraction strictement mécanique). Écart
+économique 0,00€. Campagne : moteur 383/383, application 2758/0 failed. app.db réelle inchangée.
+Détail complet : `MOTEUR_COMMISSION.md`. Mission 7 stoppe ici explicitement — pas de moteur Charges
+commencé.

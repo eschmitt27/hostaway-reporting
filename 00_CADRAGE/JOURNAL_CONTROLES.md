@@ -4259,3 +4259,34 @@ Tests : 15 nouveaux (`test_correction_retroactive_administration.py`), 8 nouveau
 migration nouvelle. Campagne complète : moteur **369/369 passed**, application **2757 passed**
 (10 lots, 187 fichiers). **0 failed.** app.db réelle inchangée (`8e299b935ef1e0d4`). Détail complet :
 `REGLES_METIER_TEMPORELLES.md` §11.
+
+## Contrôle 2026-08-25 — Mission 7 : moteur Commission pur extrait
+
+Le calcul commission/net propriétaire vivait inline dans `lot10_calculer_resultats.py::
+build_commissions`, littéralement dupliqué 3 fois (branches HOSTAWAY/HH/VRBO) : `(assiette *
+taux).round(2)` puis `(payout - menage - commission).round(2)`. Extrait vers nouveau
+`02_TRAVAIL/lib_commission_engine.py` — 2 fonctions pures (`calculer_commission_conciergerie`,
+`calculer_net_proprietaire`), aucun import pandas/sqlite3/fastapi, génériques par duck-typing
+(fonctionnent sur scalaires et `pandas.Series` sans changement de code, `round()` délègue à
+`Series.__round__`). Les 3 branches appellent désormais la même paire de fonctions au lieu de
+réécrire la formule — vérifié par test qu'aucune formule dupliquée ne subsiste (recherche
+littérale de l'ancien pattern inline dans le fichier).
+
+Résolution du taux et de la version ASSIETTE_COMMISSION par date économique reste intégralement
+dans Lot10 (mécanisme Mission 6 ter, non touché) — le moteur pur ne reçoit que des valeurs déjà
+résolues, jamais ne cherche lui-même une règle en base. La dérivation de l'assiette par branche
+(HOSTAWAY = valeur amont acceptée telle quelle, HH = total_percu - menage, VRBO = assiette_resolu
+ou payout - menage) reste également dans Lot10, car ce sont des étapes de préparation de données
+hétérogènes par source, pas la formule de commission elle-même — documenté comme limite assumée
+plutôt qu'un registry d'implémentations fabriqué sans second cas d'usage réel.
+
+Parité : preuve par construction (formule identique, relocalisée) + tests ciblés reproduisant la
+chaîne de production réelle (`build_commissions`) pour les 3 branches, comparés à un appel direct
+du moteur pur avec les mêmes valeurs — écart 0. Pas de rejeu sur copie complète du pipeline réel
+(Lot9→Lot13), jugé non nécessaire vu la nature strictement mécanique de l'extraction.
+
+Tests : 10 nouveaux (`tests/test_commission_engine.py`), 4 nouveaux
+(`tests/test_lot10_commission_moteur_pur.py`). Aucune migration. Campagne complète : moteur
+**383 passed / 0 failed** (369 + 14), application **2758 passed / 0 failed** (10 lots, 187
+fichiers, inchangé — Lot10 invoqué via subprocess par plusieurs tests applicatifs, tous verts).
+app.db réelle inchangée (`8e299b935ef1e0d4`). Détail complet : `MOTEUR_COMMISSION.md`.

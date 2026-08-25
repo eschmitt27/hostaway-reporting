@@ -2153,3 +2153,12 @@ Nouveau `impact_preview_service.py` : comptages structurels (`reservations_resol
 `factures_proprietaires`, `factures`) + datasets aval du DAG existant, jamais de montant financier
 recalculé/inventé. Aucune nouvelle table, aucune migration. Détail complet :
 `REGLES_METIER_TEMPORELLES.md` §11 (même sous-dossier de mission).
+
+## Mise à jour 2026-08-25 — Mission 7 : moteur Commission pur extrait
+
+`02_TRAVAIL/lib_commission_engine.py` (nouveau) : calcul commission/net propriétaire, jusque-là
+dupliqué 3 fois inline dans `lot10_calculer_resultats.py` (branches HOSTAWAY/HH/VRBO), centralisé
+en 2 fonctions pures (aucun import pandas/sqlite3/fastapi, génériques scalaire/`pandas.Series`).
+Résolution taux/assiette par date économique reste dans Lot10 (inchangée, Mission 6 ter) — le
+moteur reçoit des valeurs déjà résolues. Aucune formule métier modifiée, aucune migration. Détail
+complet : `MOTEUR_COMMISSION.md` (même sous-dossier de mission).
