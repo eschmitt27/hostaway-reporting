@@ -53,6 +53,7 @@ from lib_settlements import (
     validated_airbnb_imputation,
 )
 from lib_canape import calculate_canape_amount
+from lib_commission_engine import calculer_commission_conciergerie, calculer_net_proprietaire
 from lib_parc import (
     A_CONTROLER,
     HORS_PARC_TECHNIQUE,
@@ -677,13 +678,11 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
                             "date_arrivee", "HOSTAWAY", ("V1",))
     df_ha["commission_conciergerie"] = None
     df_ha["net_proprietaire"]        = None
-    df_ha.loc[normal_ha, "commission_conciergerie"] = (
-        df_ha.loc[normal_ha, "assiette_commission"] * df_ha.loc[normal_ha, "taux_commission"]
-    ).round(2)
-    df_ha.loc[normal_ha, "net_proprietaire"] = (
-        df_ha.loc[normal_ha, "payout_calcule"] - df_ha.loc[normal_ha, "menage_retenu"]
-        - df_ha.loc[normal_ha, "commission_conciergerie"]
-    ).round(2)
+    df_ha.loc[normal_ha, "commission_conciergerie"] = calculer_commission_conciergerie(
+        df_ha.loc[normal_ha, "assiette_commission"], df_ha.loc[normal_ha, "taux_commission"])
+    df_ha.loc[normal_ha, "net_proprietaire"] = calculer_net_proprietaire(
+        df_ha.loc[normal_ha, "payout_calcule"], df_ha.loc[normal_ha, "menage_retenu"],
+        df_ha.loc[normal_ha, "commission_conciergerie"])
     df_ha["source_type"] = "HOSTAWAY"
     df_ha_norm = df_ha[normal_ha].copy()
 
@@ -721,12 +720,10 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
                 sys.exit(1)
             _verifier_version_regle(df_hh_ok, "ASSIETTE_COMMISSION", regles_history,
                                     "date_arrivee", "HH", ("V1",))
-            df_hh_ok["commission_conciergerie"] = (
-                df_hh_ok["assiette_commission"] * df_hh_ok["taux_commission"]
-            ).round(2)
-            df_hh_ok["net_proprietaire"] = (
-                df_hh_ok["total_percu"] - df_hh_ok["menage"] - df_hh_ok["commission_conciergerie"]
-            ).round(2)
+            df_hh_ok["commission_conciergerie"] = calculer_commission_conciergerie(
+                df_hh_ok["assiette_commission"], df_hh_ok["taux_commission"])
+            df_hh_ok["net_proprietaire"] = calculer_net_proprietaire(
+                df_hh_ok["total_percu"], df_hh_ok["menage"], df_hh_ok["commission_conciergerie"])
             df_hh_ok["statut_calcul_payout"] = "NORMAL"
             df_hh_ok["channel_type"]         = df_hh_ok["source"]
             df_hh_ok["source_type"]          = "HH"
@@ -775,13 +772,11 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
         if df_vrbo["taux_commission"].isna().any():
             log.error("BLOQUANT COMMISSION_SANS_TAUX — VRBO")
             sys.exit(1)
-        df_vrbo["commission_conciergerie"] = (
-            df_vrbo["assiette_commission"] * df_vrbo["taux_commission"]
-        ).round(2)
-        df_vrbo["net_proprietaire"] = (
-            df_vrbo["payout_calcule"] - df_vrbo["menage_retenu"]
-            - df_vrbo["commission_conciergerie"]
-        ).round(2)
+        df_vrbo["commission_conciergerie"] = calculer_commission_conciergerie(
+            df_vrbo["assiette_commission"], df_vrbo["taux_commission"])
+        df_vrbo["net_proprietaire"] = calculer_net_proprietaire(
+            df_vrbo["payout_calcule"], df_vrbo["menage_retenu"],
+            df_vrbo["commission_conciergerie"])
         df_vrbo["statut_calcul_payout"] = "NORMAL"
         df_vrbo["channel_type"]         = "VRBO"
         df_vrbo["source_type"]          = "VRBO"
