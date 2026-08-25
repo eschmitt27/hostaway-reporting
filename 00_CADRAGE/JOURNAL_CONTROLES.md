@@ -4290,3 +4290,36 @@ Tests : 10 nouveaux (`tests/test_commission_engine.py`), 4 nouveaux
 **383 passed / 0 failed** (369 + 14), application **2758 passed / 0 failed** (10 lots, 187
 fichiers, inchangé — Lot10 invoqué via subprocess par plusieurs tests applicatifs, tous verts).
 app.db réelle inchangée (`8e299b935ef1e0d4`). Détail complet : `MOTEUR_COMMISSION.md`.
+
+## Contrôle 2026-08-25 — Mission 7 bis : audit assiette restante + preuve A/B réelle
+
+Audit ciblé de la dérivation d'assiette laissée dans Lot10 après Mission 7 : verdict **MIXTE**.
+HOSTAWAY accepte l'assiette du payout amont telle quelle (0 décision économique, pur pass-through
+technique, reste dans Lot10 à raison). HH calcule `total_percu - menage` : vraie décision
+économique, extraite. VRBO calcule `assiette_resolu` (historique clôturé) si présent, sinon
+`payout_resolu - menage_resolu` (même formule que HH) : la formule de repli est extraite et
+partagée avec HH (`lib_commission_engine.assiette_v1_paiement_direct`), le CHOIX de préférer la
+valeur historique déjà résolue reste une décision de réconciliation de source (laquelle des deux
+fait foi), documentée comme technique et laissée dans Lot10 — pas de registry
+`ASSIETTE_IMPLEMENTATIONS` fabriqué pour une seule implémentation réelle.
+
+Preuve A/B réelle (mission 7 avait fait une parité par construction + tests ciblés, jugée
+insuffisante par cette mission) : fixture représentative de 15 réservations (5 HOSTAWAY/5 HH/
+5 VRBO, 3 logements, 2 propriétaires, 2 taux) comparant l'ANCIEN calcul (reconstitué à l'identique,
+isolé dans le test, jamais réactivé en production) au NOUVEAU (`build_commissions` réel). Résultat :
+0 ligne manquante/supplémentaire, 0 diff assiette/taux/commission/net propriétaire, agrégats
+identiques (assiette 2 598,46€, commission 502,11€, net 2 096,35€ sur ce jeu de données précis),
+écart max 0,00€.
+
+Découverte pendant l'écriture du test (pas un bug de production) : `round()` builtin Python et
+`pandas.Series.round()` peuvent diverger sur une valeur pile à la limite d'arrondi (ex.
+205,5 × 0,19 : builtin → 39,05, `Series.round()` → 39,04, écart de représentation flottante au
+bit près). Lot10 opère toujours de façon vectorisée (jamais de scalaire Python nu en production) —
+le test reconstitue donc l'ancien calcul via `Series.round()` pour comparer au comportement
+réellement exécuté, pas à un chemin scalaire jamais emprunté.
+
+Tests : 4 nouveaux (`AssietteV1PaiementDirectTests`, `test_commission_engine.py`), 5 nouveaux
+(`test_ab_moteur_commission.py`), plus 2 tests existants étendus (parité HH/VRBO,
+`test_lot10_commission_moteur_pur.py`). Aucune migration. Campagne complète : moteur
+**392 passed / 0 failed** (369 + 23), application **2758 passed / 0 failed** (10 lots, 187
+fichiers). app.db réelle inchangée (`8e299b935ef1e0d4`). Détail complet : `MOTEUR_COMMISSION.md`.

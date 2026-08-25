@@ -2141,3 +2141,15 @@ complète du pipeline réel, jugé non nécessaire (extraction strictement méca
 économique 0,00€. Campagne : moteur 383/383, application 2758/0 failed. app.db réelle inchangée.
 Détail complet : `MOTEUR_COMMISSION.md`. Mission 7 stoppe ici explicitement — pas de moteur Charges
 commencé.
+
+**Mis à jour 2026-08-25 (Mission 7 bis — fermeture moteur Commission)** : audit de l'assiette
+restante dans Lot10 → verdict **MIXTE**. HOSTAWAY = pur pass-through technique (0 décision, reste
+dans Lot10). HH/VRBO = vraie formule métier (`payout - menage`), désormais extraite dans
+`lib_commission_engine.assiette_v1_paiement_direct` (partagée par les deux canaux, même règle
+économique). Préférence de source VRBO (historique résolu vs calculé) reste une décision technique
+de réconciliation dans Lot10, documentée comme telle. Preuve A/B réelle ajoutée (15 réservations,
+3 canaux, 2 taux, `test_ab_moteur_commission.py`) : 0 diff ligne à ligne, 0 diff agrégat, écart
+0,00€. Piège de rounding `round()` vs `pandas.Series.round()` découvert et documenté (comportement
+préexistant, pas un bug introduit). Campagne : moteur 392/0 failed, application 2758/0 failed.
+Détail complet : `MOTEUR_COMMISSION.md`. Mission 7 bis stoppe ici explicitement — pas de moteur
+Charges commencé.

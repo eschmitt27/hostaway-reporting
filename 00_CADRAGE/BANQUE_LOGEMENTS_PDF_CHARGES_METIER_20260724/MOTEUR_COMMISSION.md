@@ -1,4 +1,4 @@
-# Moteur Commission pur — Mission 7 (2026-08-25)
+# Moteur Commission pur — Mission 7 (2026-08-25) + Mission 7 bis (2026-08-25)
 
 ## Ancienne chaîne
 
@@ -41,13 +41,42 @@ de les appeler de façon vectorisée, sans boucle Python ni changement de perfor
 - résolution du taux par date économique (`resolve_commission_rate`, inchangé) ;
 - résolution/vérification de la version ASSIETTE_COMMISSION (`resolve_regle_version` +
   `_verifier_version_regle`, fail-closed, inchangé) ;
-- **dérivation de l'assiette par branche** : HOSTAWAY accepte l'assiette fournie par le payout
-  amont (Lot1/lot4quater) telle quelle ; HH calcule `total_percu - menage` ; VRBO calcule
-  `assiette_resolu` ou, à défaut, `payout_resolu - menage_resolu`. Ce sont des étapes de
-  **préparation de données** hétérogènes par nature de source (colonnes différentes selon le
-  canal), pas la formule de commission elle-même — laissées dans Lot10 (étape « construction des
-  inputs », pas le moteur), pour ne pas fabriquer un contrat artificiel unique qui masquerait ces
-  différences réelles de source. Documenté ici plutôt qu'inventé silencieusement.
+- **dérivation de l'assiette HOSTAWAY** : accepte telle quelle la valeur fournie par le payout
+  amont (Lot1/lot4quater), aucun calcul ici — pur pass-through technique (audité Mission 7 bis,
+  voir section suivante).
+
+## Mission 7 bis — audit de l'assiette restante : TECHNIQUE / MÉTIER / MIXTE
+
+Verdict : **MIXTE**.
+
+| Branche | Calcul actuel de l'assiette | Technique ou métier | Où il vit maintenant |
+|---|---|---|---|
+| HOSTAWAY | accepte la valeur du payout amont (Lot1/lot4quater) telle quelle, aucun calcul | **TECHNIQUE** (pass-through, 0 décision économique prise dans Lot10) | Lot10 (inchangé) |
+| HH | `total_percu - menage` | **MÉTIER** (vraie décision : ce qui entre dans l'assiette de commission pour un paiement direct) | `lib_commission_engine.assiette_v1_paiement_direct` (extrait) |
+| VRBO | `assiette_resolu` (historique clôturé, lot4quater) si présent, sinon `payout_resolu - menage_resolu` | **MIXTE** : la formule de repli est la même règle métier que HH (extraite, partagée) ; le CHOIX de préférer la valeur historique déjà résolue reste une décision technique de réconciliation de source (laquelle des deux sources fait foi), pas une formule économique distincte | formule dans le moteur ; préférence source dans Lot10 |
+
+`lib_commission_engine.py` gagne une 3e fonction pure :
+
+```python
+def assiette_v1_paiement_direct(payout, menage):
+    return round(payout - menage, 2)
+```
+
+Utilisée à l'identique par HH et par le repli VRBO — c'est la même règle économique réelle
+(« assiette = montant perçu directement moins le ménage »), pas une coïncidence de code : elle ne
+s'applique qu'aux canaux de PAIEMENT DIRECT (par opposition à HOSTAWAY, où le payout amont a déjà
+sa propre logique, hors mandat de cette mission).
+
+Le choix VRBO « valeur historique résolue si présente, sinon calculée » (`combine_first`, NaN-aware
+par ligne) reste dans Lot10 : c'est une décision de **quelle source de données fait foi**
+(réconciliation technique), pas une deuxième formule économique — la formule elle-même, une fois
+choisie, est identique à celle de HH. Pas de registry `ASSIETTE_IMPLEMENTATIONS = {...}` créé pour
+une seule vraie implémentation (§6 de la mission) : `assiette_v1_paiement_direct` EST la V1
+canonique, appelable directement, sans indirection inutile tant qu'aucune V2 réelle n'existe.
+
+**ASSIETTE_COMMISSION_V1 : CANONIQUE** pour les canaux de paiement direct (HH/VRBO) — la seule
+partie de l'assiette qui était une vraie règle économique est maintenant dans le moteur.
+HOSTAWAY reste, à raison, hors du moteur (rien à y déplacer : 0 décision).
 
 ## Pourquoi deux formules de `net_proprietaire` produisent des valeurs différentes selon la branche
 
@@ -90,15 +119,43 @@ ciblés :
   déjà le scénario temporel V1/V2 et la non-régression du passé.
 
 Écart économique : **0,00 €** (formule identique, pas de recalcul sur données réelles jugé
-nécessaire — extraction strictement mécanique, prouvée par construction plutôt que rejouée sur
-une copie complète du pipeline réel).
+nécessaire pour Mission 7 — extraction strictement mécanique). Mission 7 bis ajoute une preuve A/B
+réelle (section suivante), qui confirme ce 0,00 € sur un jeu de données représentatif.
+
+## Mission 7 bis — preuve A/B réelle
+
+`tests/test_ab_moteur_commission.py` (nouveau, 5 tests) : recette **représentative** (fixture, pas
+une copie du pipeline réel complet Lot9→Lot13 — §9 de la mission autorise explicitement une
+« fixture représentative » comme alternative) — 15 réservations, 3 canaux (5 HOSTAWAY + 5 HH +
+5 VRBO), 3 logements, 2 propriétaires, 2 taux de commission différents, montants variés incluant
+des cas limites (ménage nul, montants non ronds).
+
+**ANCIEN CALCUL** reconstitué à l'identique dans le test (isolé, jamais réactivé en production —
+§9/§15 de la mission), comparé au résultat réel de `build_commissions` (chaîne de production,
+moteur pur inclus) :
+
+- lignes ancien : 15 — lignes nouveau : 15 — manquantes : 0 — supplémentaires : 0 ;
+- diff assiette : 0 — diff taux : 0 — diff commission : 0 — diff net propriétaire : 0 ;
+- agrégats (ce jeu de données précis, pas l'ancien chiffre historique 285/41 602,41 € qui portait
+  sur un dataset différent) : assiette totale 2 598,46 €, commission totale 502,11 €, net total
+  2 096,35 € — identiques ancien/nouveau ;
+- **écart monétaire max : 0,00 €**.
+
+Piège de rounding découvert en écrivant ce test (pas un bug de production) : `round()` builtin
+Python et `pandas.Series.round()` peuvent diverger sur une valeur pile à la limite (ex.
+`205.5 * 0.19` : builtin → 39.05, `Series.round()` → 39.04, écart de représentation flottante).
+Lot10 a TOUJOURS opéré de façon vectorisée (jamais un scalaire nu) — le test reconstitue donc
+l'« ancien calcul » via `Series.round()` explicitement, pour comparer au comportement réellement
+exécuté historiquement, pas à un chemin scalaire qui n'a jamais tourné en production.
 
 ## Tests
 
-Nouveaux : 10 (`test_commission_engine.py`) + 4 (`test_lot10_commission_moteur_pur.py`) = 14.
-Aucun test existant modifié. Campagne finale : moteur **383 passed / 0 failed** (369 + 14),
-application **2758 passed / 0 failed** (10 shards, 187 fichiers, inchangé — Lot10 appelé via
-subprocess par certains tests applicatifs, tous verts).
+Mission 7 : 10 (`test_commission_engine.py`) + 4 (`test_lot10_commission_moteur_pur.py`) = 14.
+Mission 7 bis : +4 (`AssietteV1PaiementDirectTests`, mêmes fichiers `test_commission_engine.py`/
+`test_lot10_commission_moteur_pur.py` étendus) + 5 (`test_ab_moteur_commission.py`) = 9. Total
+nouveaux : 23. Aucun test existant supprimé. Campagne finale : moteur **392 passed / 0 failed**
+(369 + 23), application **2758 passed / 0 failed** (10 shards, 187 fichiers, inchangé — Lot10
+appelé via subprocess par certains tests applicatifs, tous verts).
 
 ## Migration
 
@@ -106,15 +163,14 @@ Aucune — aucun besoin de stockage nouveau, aucune colonne changée.
 
 ## Limites
 
-- Dérivation de l'assiette par branche (HOSTAWAY/HH/VRBO) reste dans Lot10, pas dans un registry
-  d'implémentations formel type `ASSIETTE_IMPLEMENTATIONS = {...}` — jugé prématuré : les 3
-  branches ont des sources de données réellement différentes (colonnes différentes), pas 3
-  variantes interchangeables d'une même formule paramétrée. Si une vraie V2 d'ASSIETTE_COMMISSION
-  apparaît un jour, cette dérivation devra être revisitée à ce moment (pas avant, pour ne pas
-  inventer une abstraction sans second cas d'usage réel).
-- Parité prouvée par construction et tests ciblés, pas rejouée sur une copie complète du pipeline
-  réel (Lot9→Lot13) — non jugé nécessaire vu la nature strictement mécanique de l'extraction
-  (même formule, mêmes valeurs, relocalisée).
+- Registry `ASSIETTE_IMPLEMENTATIONS = {...}` non créé — une seule vraie implémentation
+  (`assiette_v1_paiement_direct`) ne justifie pas une indirection supplémentaire (§6 de la
+  mission) ; à revisiter si une vraie V2 apparaît.
+- Préférence de source VRBO (historique résolu vs calculé) reste dans Lot10, décision de
+  réconciliation technique documentée comme telle, pas une deuxième formule économique.
+- Preuve A/B sur fixture représentative (15 lignes, 3 canaux, 2 taux) — pas sur une copie complète
+  du pipeline réel Lot9→Lot13 (~1391 réservations réelles) : autorisé explicitement par la mission
+  (§9), jugé suffisant pour une extraction strictement mécanique déjà prouvée par construction.
 
 ## Prochaine action
 

@@ -454,3 +454,10 @@ fastapi. Résolution taux/assiette/version par date économique reste dans Lot10
 6 ter). Parité prouvée par construction + tests ciblés, écart économique 0,00€. Campagne : moteur
 383/0 failed, application 2758/0 failed. Détail : `MOTEUR_COMMISSION.md`. Mission 7 stoppe ici
 explicitement — pas de moteur Charges commencé.
+
+**Mis à jour 2026-08-25 (mission 7 bis — fermeture moteur Commission)** : audit assiette restante
+→ MIXTE (HOSTAWAY technique, reste dans Lot10 ; HH/VRBO métier réel, formule `payout-menage`
+extraite et partagée : `assiette_v1_paiement_direct`). Preuve A/B réelle sur fixture représentative
+(15 lignes, 3 canaux) : 0 diff ligne à ligne, 0 diff agrégat, écart 0,00€. Campagne : moteur
+392/0 failed, application 2758/0 failed. Détail : `MOTEUR_COMMISSION.md`. Mission 7 bis stoppe ici
+explicitement — pas de moteur Charges commencé.
