@@ -2182,3 +2182,18 @@ partagée correctement par `lot6f_cout_complet_menages.py` (pandas) et
 relocalisation faite (aurait inversé une dépendance interdite). Ménages externes : montant =
 `montant_ligne_ttc` facturé, aucune formule, aucun moteur créé. Détail complet :
 `MOTEUR_MENAGES.md` (même sous-dossier de mission).
+
+## Mise à jour 2026-08-26 — Mission 10 (audit-only) : phase d'extraction des moteurs terminée
+
+Contrôle rapide Lot9/10/11/12 : aucune règle économique importante encore mélangée avec SQLite/
+FastAPI/orchestration. Aucun code modifié.
+
+## Mise à jour 2026-08-26 — Mission 11 : contrats de données branchés en production
+
+Les 4 contrats de `app/contrats_donnees.py` (jamais branchés depuis le hardening initial) sont
+désormais actifs à leurs frontières respectives : `Charge`, `ReservationHH` (ajusté :
+`montant_retenu` optionnel), `MouvementBanque` (auto-contrôle interne de `banques_import_service.
+py` uniquement — jamais sur les lignes déjà en base), `MouvementTresorerieProprietaire`. Aucun
+nouveau contrat Facture créé ; un gap réel corrigé directement dans `factures_service.valider()`
+(date invalide auparavant silencieusement ignorée). Détail complet : `CONTRATS_DONNEES.md` (même
+sous-dossier de mission).

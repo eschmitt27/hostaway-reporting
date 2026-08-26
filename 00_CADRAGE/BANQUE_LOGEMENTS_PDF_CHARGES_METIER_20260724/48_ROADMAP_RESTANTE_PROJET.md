@@ -478,3 +478,18 @@ standard, une dette par ménage). Externe : montant = ligne facturée, aucun mot
 Preuve A/B (7 tests nouveaux) : 0 diff. Aucun code de production modifié. Détail :
 `MOTEUR_MENAGES.md`. Mission 9 stoppe ici explicitement — pas d'autre extraction de moteur
 commencée.
+
+**Mis à jour 2026-08-26 (mission 10 — audit final moteurs, audit-only)** : contrôle rapide Lot9/10/
+11/12 → aucune règle économique importante encore cachée, risque résiduel FAIBLE. « PHASE
+D'EXTRACTION DES MOTEURS TERMINÉE. » Améliorations à plus forte valeur visible identifiées :
+recette navigateur réelle bout-en-bout, décision plan de comptes détaillé, activation progressive
+du mode réel.
+
+**Mis à jour 2026-08-26 (mission 11 — contrats de données branchés)** : les 4 contrats existants
+(Charge, ReservationHH, MouvementBanque, MouvementTresorerieProprietaire) audités puis branchés à
+leurs frontières (ReservationHH ajusté : montant_retenu optionnel ; MouvementBanque branché en
+auto-contrôle interne de l'import uniquement, jamais sur les lignes déjà en base, pour ne pas
+répéter l'erreur du CHECK SQLite retiré). Factures : gap réel corrigé (date invalide
+silencieusement ignorée) sans nouveau contrat. 10 tests nouveaux. Campagne : moteur 397/0 failed,
+application 2778/0 failed. Détail : `CONTRATS_DONNEES.md`. Mission 11 stoppe ici explicitement —
+pas de durcissement SQLite commencé.

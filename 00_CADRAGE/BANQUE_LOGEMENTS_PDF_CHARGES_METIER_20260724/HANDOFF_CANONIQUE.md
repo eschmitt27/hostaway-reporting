@@ -2178,3 +2178,24 @@ A/B (7 tests nouveaux) : production = moteur direct, 0 diff, temporalité 2026/2
 Aucun code de production modifié — audit honnête d'un moteur déjà correctement isolé. Campagne :
 voir totaux dans ce même document. Détail complet : `MOTEUR_MENAGES.md`. Mission 9 stoppe ici
 explicitement — pas d'autre extraction de moteur commencée.
+
+**Mis à jour 2026-08-26 (Mission 10 — audit final moteurs, audit-only)** : contrôle rapide Lot9/10/
+11/12 → aucune règle économique importante encore cachée, risque résiduel FAIBLE, aucune nouvelle
+extraction utile. Un cas de duplication réelle mais faible risque noté (répartition pondérée
+centimes déterministes, `lib_charges_menage.ventiler_charge_menage` vs
+`facture_ventilation_menage_service.ventiler`, deux mondes séparés) — pas de mission dédiée
+justifiée. « PHASE D'EXTRACTION DES MOTEURS TERMINÉE. »
+
+**Mis à jour 2026-08-26 (Mission 11 — contrats de données branchés)** : les 4 contrats existants
+(`app/contrats_donnees.py`, jamais branchés depuis le hardening initial) audités puis branchés :
+`Charge` (`charges_saisie_service.creer/modifier`), `ReservationHH` (ajusté — `montant_retenu`
+rendu optionnel, un placeholder réel sans montant existe, `reservations_hh_saisie_service.creer/
+modifier`), `MouvementBanque` (branché en auto-contrôle interne de `banques_import_service.py`
+UNIQUEMENT — jamais sur les lignes déjà en base, pour ne pas répéter l'erreur du CHECK SQLite
+retiré en migration 0056 : `sens="INCONNU"` reste détectable par `banques_controles_catalogue_
+service.py`), `MouvementTresorerieProprietaire` (`proprietaires_tresorerie_service.creer`).
+Factures : pas de nouveau contrat créé, mais un gap réel trouvé et corrigé (`except ValueError:
+pass` muet sur date_facture/date_echeance invalides dans `factures_service.valider`). 10 tests
+nouveaux (refus canonique avant écriture + stop-gate RAW banque non bloqué). Campagne : moteur
+397/0 failed (inchangé), application 2778/0 failed. app.db réelle inchangée. Détail complet :
+`CONTRATS_DONNEES.md`. Mission 11 stoppe ici explicitement — pas de durcissement SQLite commencé.

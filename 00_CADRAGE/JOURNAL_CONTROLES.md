@@ -4389,6 +4389,83 @@ correction rétroactive volontaire) et `tests/test_menages_engine_moteur_pur.py`
 production = moteur direct, 0 diff, temporalité re-confirmée au niveau réel).
 
 Tests : 5 nouveaux + 2 nouveaux = 7. Aucun code de production modifié — audit honnête d'un moteur
-déjà correctement isolé. Aucune migration. Campagne complète : moteur **X passed / 0 failed**,
-application **X passed / 0 failed** (voir HANDOFF_CANONIQUE.md pour les totaux exacts). app.db
+déjà correctement isolé. Aucune migration. Campagne complète : moteur **397 passed / 0 failed**,
+application **2768 passed / 0 failed** (10 lots, 189 fichiers). app.db
 réelle inchangée (`8e299b935ef1e0d4`). Détail complet : `MOTEUR_MENAGES.md`.
+
+## Contrôle 2026-08-26 — Mission 10 : dernier audit rapide des moteurs métier (audit-only)
+
+Contrôle ciblé Lot9/Lot10/Lot11/Lot12 pour détecter une éventuelle règle économique importante
+encore mélangée avec SQLite/fichiers/orchestration/FastAPI, après fermeture des moteurs FIFO,
+Commission, Charges, Ménages. 9 zones auditées : Lot9 (flux, technique pur), `build_charge_fixe`/
+`build_resultats`/`build_net_proprietaire` de Lot10 (pass-through/agrégations triviales, le vrai
+calcul de règlement est déjà dans `lib_settlements.py`, pur), contrôle de cohérence Lot11 +
+service app associé (ré-écriture inline de `assiette*taux` à des fins de CONTRÔLE indépendant,
+pas une deuxième production — faible risque), ventilation ménage externe (déjà pure, déjà
+documentée comme telle), répartition pondérée centimes dupliquée entre `lib_charges_menage.
+ventiler_charge_menage` (Lot6f) et `facture_ventilation_menage_service.ventiler` (app) — même
+algorithme, deux mondes séparés, duplication réelle mais faible risque (maths simples, rarement
+touchées) —, TVA (formule standard dupliquée 2x, risque quasi nul), Lot12 (formatage d'affichage
+uniquement).
+
+Classement : A=3, B=4, C=3, D=0. Aucune règle métier importante encore cachée. Risque économique
+résiduel FAIBLE. Aucune nouvelle extraction de moteur jugée utile.
+
+**« PHASE D'EXTRACTION DES MOTEURS TERMINÉE. »**
+
+Améliorations à plus forte valeur visible identifiées (non commencées) : recette navigateur
+réelle bout-en-bout, décision produit sur le plan de comptes détaillé, activation progressive du
+mode réel. Aucun fichier modifié, aucun commit — audit-only. app.db réelle inchangée.
+
+## Contrôle 2026-08-26 — Mission 11 : contrats de données branchés en production
+
+Les 4 contrats de `app/contrats_donnees.py` (créés lors du hardening initial, jamais branchés —
+leur strictness pouvait être incompatible avec les données réelles) sont audités puis branchés
+progressivement, un domaine à la fois, avec tests ciblés et campagne complète entre chaque étape.
+
+**Charges** (`charges_saisie_service.py::creer()`/`modifier()`) : `Charge` branché tel quel après
+`valider()` — le formulaire réel (`type="date"`) n'a jamais produit de date non-ISO. Avant :
+`date_charge` non calendaire silencieusement acceptée, mois dérivé (`str(...)[:7]`) potentiellement
+invalide propagé jusqu'à Lot9/Lot10 sans détection. Après : refusée (`CHARGE_CONTRAT_INVALIDE`),
+0 ligne écrite.
+
+**Réservations HH** (`reservations_hh_saisie_service.py::creer()`/`modifier()`) : conflit trouvé
+et résolu AVANT branchement — `ReservationHH.montant_retenu` était obligatoire dans le contrat,
+mais `valider()` ne l'exige jamais (`OBLIGATOIRES` ne le liste pas) : un placeholder réel sans
+montant existe (réservation directe en attente de saisie complète). Contrat ajusté
+(`montant_retenu: float | None`) plutôt que forcer les données à respecter un contrat trop strict
+(§26/§37 de la mission). Après ajustement : dates calendairement invalides refusées
+(`RESHH_CONTRAT_INVALIDE`), placeholders sans montant toujours acceptés.
+
+**Banque** (`banques_import_service.py`, fonction `_normaliser`) : audit crucial avant tout
+branchement — `MouvementBanque.sens` restreint à DEBIT/CREDIT répète EXACTEMENT le CHECK SQLite
+retiré en migration 0056 (`test_sens_incoherent_detecte` insère volontairement `sens="INCONNU"`
+pour prouver la détection d'anomalie). Résolu en lisant le code de `_normaliser` ligne par ligne :
+`sens` y est TOUJOURS calculé en DEBIT/CREDIT par construction (jamais copié brut d'une colonne
+source), jamais une autre valeur possible à cet endroit précis. Le contrat est donc branché
+UNIQUEMENT en auto-contrôle de cette ligne déjà normalisée, juste avant qu'elle rejoigne `valides`
+— il ne s'applique JAMAIS aux lignes déjà en base par un autre chemin (import legacy, correction
+manuelle), que `banques_controles_catalogue_service.py` doit continuer à détecter. Prouvé par test
+explicite (§20, stop-gate) : une ligne insérée directement avec `sens="INCONNU"` (bypass complet
+du service d'import) reste détectée par le catalogue de contrôles.
+
+**Trésorerie propriétaire** (`proprietaires_tresorerie_service.py::creer()`) : `MouvementTresorerie
+Proprietaire` branché après `previsualiser()` — `sens`/`nature` déjà vérifiés à l'identique
+(redondant mais inoffensif), l'apport réel est le contrôle calendaire de `date_mouvement` (avant :
+non-vide seulement, jamais validée comme date réelle).
+
+**Factures** : pas de nouveau contrat dataclass créé — `factures_service.py::valider()` couvre
+déjà fournisseur/référence/montant/cohérence HT+TVA+TTC/doublon. Gap réel trouvé en auditant le
+code : `date_facture`/`date_echeance` présentes mais calendairement invalides étaient absorbées
+par un `except ValueError: pass` muet, ni signalées ni bloquées. Corrigé directement dans
+`valider()` (nouveau code `V10_DATE_CALENDAIRE_INVALIDE`), sans créer de classe séparée — les deux
+dates restent optionnelles (formulaire réel sans `required`).
+
+Tests : 10 nouveaux (`tests/test_contrats_donnees_branches.py`) — refus canonique avant écriture
+sur les 5 domaines (0 ligne écrite à chaque fois), anomalie RAW banque non bloquée (stop-gate),
+import réel ne déclenche jamais le contrat, données optionnelles toujours acceptées. Régression
+ciblée : 207 tests existants (contrats, charges, réservations HH, banque, trésorerie, factures)
+tous verts, 0 régression. Aucune migration. Campagne complète : moteur **397 passed / 0 failed**
+(inchangé, mission hors `02_TRAVAIL`), application **2778 passed / 0 failed** (10 lots,
+190 fichiers). app.db réelle inchangée (`8e299b935ef1e0d4`). Détail complet :
+`CONTRATS_DONNEES.md`.
