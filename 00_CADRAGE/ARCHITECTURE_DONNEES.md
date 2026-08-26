@@ -2162,3 +2162,13 @@ en 2 fonctions pures (aucun import pandas/sqlite3/fastapi, génériques scalaire
 Résolution taux/assiette par date économique reste dans Lot10 (inchangée, Mission 6 ter) — le
 moteur reçoit des valeurs déjà résolues. Aucune formule métier modifiée, aucune migration. Détail
 complet : `MOTEUR_COMMISSION.md` (même sous-dossier de mission).
+
+## Mise à jour 2026-08-26 — Mission 8 : moteur Charges pur extrait
+
+`app/services/charges_impact_service.py` (périmètre facture `compute_perimetre_logements`,
+répartition égale `repartir_egal`) était déjà pur (0 sqlite3/FastAPI/pandas) — relocalisé vers
+`app/moteurs/charges_engine.py` sans modifier une ligne de logique (même pattern que
+`fifo_engine.py`, Mission 5). `charges_impact_service.py` devient un ré-export ; seul appelant en
+production (`charges_preview_service.py`) et tests existants inchangés. Règle métier inchangée :
+pas de groupe permanent, périmètre = la charge/facture. Détail complet : `MOTEUR_CHARGES.md` (même
+sous-dossier de mission).

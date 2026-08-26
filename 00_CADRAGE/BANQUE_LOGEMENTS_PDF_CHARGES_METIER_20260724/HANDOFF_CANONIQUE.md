@@ -2153,3 +2153,14 @@ de réconciliation dans Lot10, documentée comme telle. Preuve A/B réelle ajout
 préexistant, pas un bug introduit). Campagne : moteur 392/0 failed, application 2758/0 failed.
 Détail complet : `MOTEUR_COMMISSION.md`. Mission 7 bis stoppe ici explicitement — pas de moteur
 Charges commencé.
+
+**Mis à jour 2026-08-26 (Mission 8 — moteur Charges pur)** : audit de la chaîne Charges →
+`app/services/charges_impact_service.py` était DÉJÀ un moteur pur (0 sqlite3/FastAPI/pandas/
+fichier, un seul appelant en production, déjà validé Mission 6 bis/6 ter). Relocalisé vers
+`app/moteurs/charges_engine.py` (même pattern que `fifo_engine.py`, Mission 5) — aucune ligne de
+logique modifiée, `charges_impact_service.py` devient un ré-export. Règle métier confirmée
+inchangée : pas de groupe permanent, périmètre = la charge, affectation directe = cas n=1 de
+`repartir_egal` (pas un second mécanisme). Preuve A/B (fixtures représentatives, 8 tests) : 0 diff
+production vs moteur direct. Temporalité V1/V2 testée. Campagne : moteur 392/0 failed (inchangé,
+mission hors 02_TRAVAIL), application 2766/0 failed. Détail complet : `MOTEUR_CHARGES.md`. Mission
+8 stoppe ici explicitement — pas d'autre extraction de moteur commencée.

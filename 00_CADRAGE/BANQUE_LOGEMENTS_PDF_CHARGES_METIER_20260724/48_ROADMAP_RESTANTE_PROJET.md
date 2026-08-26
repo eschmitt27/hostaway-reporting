@@ -461,3 +461,11 @@ extraite et partagée : `assiette_v1_paiement_direct`). Preuve A/B réelle sur f
 (15 lignes, 3 canaux) : 0 diff ligne à ligne, 0 diff agrégat, écart 0,00€. Campagne : moteur
 392/0 failed, application 2758/0 failed. Détail : `MOTEUR_COMMISSION.md`. Mission 7 bis stoppe ici
 explicitement — pas de moteur Charges commencé.
+
+**Mis à jour 2026-08-26 (mission 8 — moteur Charges pur)** : audit → la chaîne Charges
+(`charges_impact_service.py`) était déjà pure et déjà unique source de calcul (Mission 6 bis/6 ter).
+Relocalisée vers `app/moteurs/charges_engine.py` sans changer une ligne de logique (ré-export
+conservé). Confirmé : pas de groupe permanent, affectation directe = cas n=1 de `repartir_egal`.
+Preuve A/B (fixtures représentatives, 8 tests) : 0 diff. Campagne : moteur 392/0 failed, application
+2766/0 failed. Détail : `MOTEUR_CHARGES.md`. Mission 8 stoppe ici explicitement — pas d'autre
+extraction de moteur commencée.

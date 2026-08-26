@@ -4323,3 +4323,34 @@ Tests : 4 nouveaux (`AssietteV1PaiementDirectTests`, `test_commission_engine.py`
 `test_lot10_commission_moteur_pur.py`). Aucune migration. Campagne complète : moteur
 **392 passed / 0 failed** (369 + 23), application **2758 passed / 0 failed** (10 lots, 187
 fichiers). app.db réelle inchangée (`8e299b935ef1e0d4`). Détail complet : `MOTEUR_COMMISSION.md`.
+
+## Contrôle 2026-08-26 — Mission 8 : moteur Charges pur (extraction sans changement de logique)
+
+Audit ciblé de la chaîne Charges : contrairement au moteur Commission (Mission 7, formules
+dupliquées 3x à supprimer), `app/services/charges_impact_service.py` était DÉJÀ un moteur pur — 0
+import sqlite3/FastAPI/pandas/fichier, un seul appelant en production
+(`charges_preview_service.compute_guidee`, recherche exhaustive dans tout le repo), déjà audité et
+validé Mission 6 bis/6 ter (périmètre = la charge, pas de groupe permanent, `repartir_egal` = V1).
+
+Relocalisé vers `app/moteurs/charges_engine.py`, aucune ligne de logique modifiée —
+`charges_impact_service.py` devient un ré-export (`from app.moteurs.charges_engine import (...)`),
+même pattern que `fifo_engine.py`/`compte_proprietaire_service.py` (Mission 5). Tous les appelants
+existants continuent de fonctionner sans modification.
+
+Confirmé : affectation directe (charge à un seul logement) n'est PAS un second mécanisme —
+`repartir_egal(montant, [UN_SEUL_LOGEMENT])` retourne mathématiquement 100 % à ce logement, cas
+particulier n=1 de la même formule de répartition. Périmètre facture re-testé : deux factures
+indépendantes ne se contaminent jamais (`test_deux_factures_jamais_de_contamination`). Fail-closed
+et temporalité V1/V2 re-testés au niveau `charges_preview_service.compute_guidee` (V2 de fixture
+2027 ne modifie jamais 2026, même rejoué après coup ; version résolue mais non implémentée →
+refus V27, jamais un repli silencieux).
+
+Preuve A/B : chaîne de production (`compute_guidee`) comparée à un appel direct du moteur, sur 5
+scénarios (affectation directe, charge commune, deux factures, résidu de centime, recalcul
+historique déterministe) — 0 diff. Sur fixtures représentatives, pas une copie complète du
+pipeline réel (mêmes raisons que Mission 7 bis : relocalisation pure, aucune formule modifiée).
+
+Tests : 8 nouveaux (`tests/test_charges_engine_moteur_pur.py`). Aucune migration. Campagne
+complète : moteur **392 passed / 0 failed** (inchangé, mission hors `02_TRAVAIL`), application
+**2766 passed / 0 failed** (10 lots, 188 fichiers). app.db réelle inchangée
+(`8e299b935ef1e0d4`). Détail complet : `MOTEUR_CHARGES.md`.
