@@ -27,6 +27,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from app.contrats_donnees import Charge, ContratInvalideError
 from app.db.connection import get_db
 
 STATUT_ACTIVE = "ACTIVE"
@@ -42,6 +43,7 @@ E_MOIS_INVALIDE = "CHARGE_MOIS_INVALIDE"
 E_INTROUVABLE = "CHARGE_INTROUVABLE"
 E_DEJA_ANNULEE = "CHARGE_DEJA_ANNULEE"
 E_DOUBLON = "CHARGE_ID_DEJA_UTILISE"
+E_CONTRAT_INVALIDE = "CHARGE_CONTRAT_INVALIDE"
 
 # Champs modifiables par la saisie. `charge_id`, `statut` et les horodatages n'en font pas partie :
 # l'identité et le cycle de vie ne se corrigent pas comme une valeur métier.
@@ -101,6 +103,20 @@ def valider(donnees: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "montant": montant, "mois": mois}
 
 
+def _verifier_contrat(donnees: dict[str, Any]) -> dict[str, Any] | None:
+    """Mission 11 : `valider()` reste la seule source de vérité métier ; ce contrat structurel
+    (`app.contrats_donnees.Charge`) rejette en plus une date_charge non calendaire ou un montant
+    non numérique qui, avant cette mission, auraient été acceptés tels quels (ex. `date_charge=
+    "12/06/2026"`, silencieusement tronqué en mois via `str(...)[:7]` — un mois `"12/06"` invalide
+    aurait alors circulé jusqu'à Lot9/Lot10 sans jamais être détecté ici). Appelé APRÈS `valider()`,
+    jamais à sa place (§docstring `contrats_donnees.py`)."""
+    try:
+        Charge.from_dict(donnees)
+    except ContratInvalideError as exc:
+        return _refus(E_CONTRAT_INVALIDE, str(exc))
+    return None
+
+
 def _journaliser(conn, charge_id: str, evenement: str, acteur: str, motif: str,
                  avant: Any = None, apres: Any = None) -> None:
     conn.execute(
@@ -121,6 +137,9 @@ def creer(donnees: dict[str, Any], *, acteur: str = "", db_path=None) -> dict[st
     validation = valider(donnees)
     if not validation["ok"]:
         return validation
+    contrat_refus = _verifier_contrat(donnees)
+    if contrat_refus is not None:
+        return contrat_refus
 
     charge_id = str(donnees.get("charge_id") or "").strip() or f"CHG-{uuid.uuid4().hex[:12]}"
     valeurs = {c: donnees.get(c) for c in CHAMPS_SAISIE}
@@ -150,6 +169,9 @@ def modifier(charge_id: str, donnees: dict[str, Any], *, acteur: str = "", motif
     validation = valider(donnees)
     if not validation["ok"]:
         return validation
+    contrat_refus = _verifier_contrat(donnees)
+    if contrat_refus is not None:
+        return contrat_refus
 
     conn = get_db(db_path)
     try:

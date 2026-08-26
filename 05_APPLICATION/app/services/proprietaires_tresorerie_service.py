@@ -16,6 +16,7 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import Any
 
+from app.contrats_donnees import ContratInvalideError, MouvementTresorerieProprietaire
 from app.db.connection import get_db
 # Import du MODULE : lier le nom fige la fonction au chargement et rend toute
 # redirection du référentiel sans effet.
@@ -42,6 +43,7 @@ E_DATE_MANQUANTE = "V05_DATE_MANQUANTE"
 E_INTROUVABLE = "E01_MOUVEMENT_INTROUVABLE"
 E_STATUT = "E02_TRANSITION_INTERDITE"
 E_SUPPRESSION_INTERDITE = "E03_SUPPRESSION_MOUVEMENT_VALIDE_INTERDITE"
+E_CONTRAT_INVALIDE = "V06_CONTRAT_INVALIDE"
 
 MESSAGES = {
     E_PROPRIETAIRE_INCONNU: "Propriétaire inconnu ou inactif.",
@@ -52,6 +54,7 @@ MESSAGES = {
     E_INTROUVABLE: "Mouvement de trésorerie propriétaire introuvable.",
     E_STATUT: "Transition de statut interdite.",
     E_SUPPRESSION_INTERDITE: "Un mouvement validé ne peut jamais être supprimé, seulement annulé.",
+    E_CONTRAT_INVALIDE: "Données du mouvement invalides.",
 }
 
 
@@ -127,6 +130,18 @@ def creer(proprietaire_id: str, sens: str, nature: str, montant: Any, date_mouve
                           reference_metier=reference_metier, justification=justification)
     if not verif["ok"]:
         return verif
+
+    # Mission 11 : `previsualiser` ne vérifie `date_mouvement` que non-vide, jamais sa validité
+    # calendaire (ex. "2026-13-40" passerait tel quel jusqu'à SQLite et fausserait tout tri/
+    # rapprochement daté en aval). `sens`/`nature` déjà vérifiés à l'identique ci-dessus
+    # (redondant mais inoffensif) ; seul l'apport réel est le contrôle de date/montant structurels.
+    try:
+        MouvementTresorerieProprietaire.from_dict({
+            "proprietaire_id": proprietaire_id, "sens": sens, "nature": nature,
+            "montant": montant, "date_mouvement": date_mouvement,
+        })
+    except ContratInvalideError as exc:
+        return _refus(E_CONTRAT_INVALIDE, str(exc))
 
     opaque = "MTP-" + uuid.uuid4().hex[:12].upper()
     montant_f = _nombre(montant)

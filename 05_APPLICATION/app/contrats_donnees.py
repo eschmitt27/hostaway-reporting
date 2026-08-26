@@ -54,6 +54,16 @@ def _montant(d: dict[str, Any], champ: str) -> float:
     return f
 
 
+def _montant_optionnel(d: dict[str, Any], champ: str) -> float | None:
+    """Comme `_montant`, mais absent/vide = None accepté — certains montants ne sont connus
+    qu'après une saisie ultérieure (cf. `ReservationHH`, réservation placeholder sans montant
+    retenu tant que la saisie HH n'est pas complétée)."""
+    v = d.get(champ)
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return None
+    return _montant(d, champ)
+
+
 def _date_iso(d: dict[str, Any], champ: str) -> str:
     v = d.get(champ)
     s = str(v).strip() if v is not None else ""
@@ -95,13 +105,19 @@ class Charge:
 
 @dataclass(frozen=True)
 class ReservationHH:
-    """Structure d'une réservation hors Hostaway saisie."""
+    """Structure d'une réservation hors Hostaway saisie.
+
+    `montant_retenu` optionnel (audité Mission 11) : `reservations_hh_saisie_service.valider()`
+    ne l'exige jamais (`OBLIGATOIRES` ne le liste pas) — une réservation peut être saisie en
+    placeholder (montant connu plus tard, ex. `DIRECT_SANS_SAISIE_HH`) avant d'être complétée.
+    Un contrat qui l'exigerait rejetterait cet état réel valide (§26/§37 de la mission :
+    assouplir le contrat, jamais forcer les données)."""
 
     mois: str
     logement_id: str
     date_arrivee: str
     date_depart: str
-    montant_retenu: float
+    montant_retenu: float | None
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "ReservationHH":
@@ -115,7 +131,7 @@ class ReservationHH:
             logement_id=_texte_obligatoire(d, "logement_id"),
             date_arrivee=arrivee,
             date_depart=depart,
-            montant_retenu=_montant(d, "montant_retenu"),
+            montant_retenu=_montant_optionnel(d, "montant_retenu"),
         )
 
 

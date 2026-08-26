@@ -41,6 +41,7 @@ E_MONTANT_INVALIDE = "V04_MONTANT_INVALIDE"
 E_DOUBLON_CERTAIN = "V05_DOUBLON_CERTAIN"
 E_TVA_INCOHERENTE = "V06_HT_PLUS_TVA_DIFFERENT_TTC"
 E_DATE_INCOHERENTE = "V07_ECHEANCE_ANTERIEURE_FACTURE"
+E_DATE_INVALIDE = "V10_DATE_CALENDAIRE_INVALIDE"
 E_INTROUVABLE = "E01_FACTURE_INTROUVABLE"
 E_STATUT = "E02_TRANSITION_INTERDITE"
 E_CHARGE_DEJA_LIEE = "E03_CHARGE_DEJA_LIEE"
@@ -57,6 +58,7 @@ MESSAGES = {
     E_DOUBLON_CERTAIN: "Une facture avec cette référence existe déjà pour ce fournisseur.",
     E_TVA_INCOHERENTE: "Montant HT + TVA ne correspond pas au montant TTC.",
     E_DATE_INCOHERENTE: "La date d'échéance est antérieure à la date de facture.",
+    E_DATE_INVALIDE: "Date de facture ou d'échéance invalide (calendaire impossible).",
     E_INTROUVABLE: "Facture introuvable.",
     E_STATUT: "Transition de statut interdite.",
     E_CHARGE_DEJA_LIEE: "Cette charge est déjà rattachée à une autre facture.",
@@ -134,13 +136,28 @@ def valider(form: dict[str, Any], db_path=None, fournisseur_actif: bool | None =
         if abs((ht + tva) - ttc) > 0.02:
             err(E_TVA_INCOHERENTE, f"{ht} + {tva} != {ttc}")
 
+    # Mission 11 : une date_facture/date_echeance présente mais calendairement impossible
+    # (ex. "2026-02-30") était auparavant silencieusement ignorée (`except ValueError: pass`) —
+    # ni signalée, ni bloquée — et aurait circulé telle quelle jusqu'à SQLite/Lot9/Lot10. Les deux
+    # champs restent optionnels (formulaire réel : `type="date"` sans `required`) ; seule une
+    # valeur PRÉSENTE mais invalide est désormais rejetée.
     d_fac, d_ech = _txt(form.get("date_facture")), _txt(form.get("date_echeance"))
-    if d_fac and d_ech:
+    fac_ok = ech_ok = True
+    if d_fac:
         try:
-            if date.fromisoformat(d_ech) < date.fromisoformat(d_fac):
-                err(E_DATE_INCOHERENTE, f"{d_ech} < {d_fac}")
+            date.fromisoformat(d_fac)
         except ValueError:
-            pass
+            err(E_DATE_INVALIDE, f"date_facture={d_fac!r}")
+            fac_ok = False
+    if d_ech:
+        try:
+            date.fromisoformat(d_ech)
+        except ValueError:
+            err(E_DATE_INVALIDE, f"date_echeance={d_ech!r}")
+            ech_ok = False
+    if d_fac and d_ech and fac_ok and ech_ok:
+        if date.fromisoformat(d_ech) < date.fromisoformat(d_fac):
+            err(E_DATE_INCOHERENTE, f"{d_ech} < {d_fac}")
 
     if frs and ref and _doublon_certain(frs, ref, db_path):
         err(E_DOUBLON_CERTAIN, ref)

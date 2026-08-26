@@ -24,6 +24,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
+from app.contrats_donnees import ContratInvalideError, ReservationHH
 from app.db.connection import get_db
 
 STATUT_ACTIVE = "ACTIVE"
@@ -39,6 +40,7 @@ E_DATES_INCOHERENTES = "RESHH_DATES_INCOHERENTES"
 E_MONTANT_INVALIDE = "RESHH_MONTANT_INVALIDE"
 E_INTROUVABLE = "RESHH_INTROUVABLE"
 E_DEJA_ANNULEE = "RESHH_DEJA_ANNULEE"
+E_CONTRAT_INVALIDE = "RESHH_CONTRAT_INVALIDE"
 
 CHAMPS_SAISIE = (
     "mois", "canal_id", "source_financiere", "proprietaire_id", "logement_id",
@@ -103,6 +105,19 @@ def valider(donnees: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "mois": mois}
 
 
+def _verifier_contrat(donnees: dict[str, Any]) -> dict[str, Any] | None:
+    """Mission 11 : rejette une date_arrivee/date_depart non calendaire ou incohérente, un mois
+    mal formé, un logement_id vide — avant `valider()`, seule la cohérence `depart >= arrivee` en
+    tant que chaînes était vérifiée, jamais leur validité calendaire réelle (ex. "2026-02-30" aurait
+    circulé jusqu'à Lot9/Lot10 sans être détecté). `montant_retenu` reste optionnel (contrat ajusté,
+    cf. `ReservationHH` — un placeholder sans montant est un état réel valide)."""
+    try:
+        ReservationHH.from_dict(donnees)
+    except ContratInvalideError as exc:
+        return _refus(E_CONTRAT_INVALIDE, str(exc))
+    return None
+
+
 def _prochain_id(conn, mois: str) -> str:
     """`RESHH-{mois}-{NNN}` — le rang ne dépend que des réservations DÉJÀ enregistrées ce mois-là."""
     prefixe = f"RESHH-{mois}-"
@@ -164,6 +179,9 @@ def creer(donnees: dict[str, Any], *, acteur: str = "", db_path=None) -> dict[st
     validation = valider(donnees)
     if not validation["ok"]:
         return validation
+    contrat_refus = _verifier_contrat(donnees)
+    if contrat_refus is not None:
+        return contrat_refus
 
     valeurs = {c: donnees.get(c) for c in CHAMPS_SAISIE}
     valeurs["mois"] = validation["mois"]
@@ -196,6 +214,9 @@ def modifier(rid: str, donnees: dict[str, Any], *, acteur: str = "", motif: str 
     validation = valider(donnees)
     if not validation["ok"]:
         return validation
+    contrat_refus = _verifier_contrat(donnees)
+    if contrat_refus is not None:
+        return contrat_refus
 
     conn = get_db(db_path)
     try:

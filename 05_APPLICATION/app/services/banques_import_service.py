@@ -42,6 +42,7 @@ from typing import Any
 import openpyxl
 
 import app.config as cfg
+from app.contrats_donnees import ContratInvalideError, MouvementBanque
 from app.services import banque_mouvements_service as bq
 
 SHEET_NORM = "NORM_Banque"
@@ -297,6 +298,19 @@ def _normaliser(header: list[str], rows: list[list[Any]], compte_id: str, import
             "statut_classification": "NON_CLASSIFIEE", "niveau_anomalie": "FAIBLE",
             "regle_id_appliquee": "",
         }
+
+        # Mission 11 : auto-contrôle structurel de CETTE ligne, juste avant écriture — `sens` est
+        # calculé ci-dessus (lignes 244-272) et ne peut valoir que DEBIT/CREDIT par construction ;
+        # ce contrat ne s'applique jamais aux lignes déjà en base (import concurrent, correction
+        # manuelle) que `banques_controles_catalogue.py` doit pouvoir détecter avec un `sens`
+        # anormal — celles-ci ne passent jamais par cette fonction. Si ce contrat échouait ici, ce
+        # serait un bug de CE service, jamais une anomalie source légitime à conserver.
+        try:
+            MouvementBanque.from_dict({**ligne, "bank_account_id": ligne["compte_id"]})
+        except ContratInvalideError as exc:  # pragma: no cover — ne peut arriver, garde-fou
+            invalides.append({"ligne": idx, "libelle": str(libelle_brut or "")[:80],
+                              "erreurs": [f"Anomalie interne import : {exc}"]})
+            continue
 
         if row_hash[:16] in hashes_connus or row_hash[:16] in vues_dans_fichier:
             doublons_certains.append({"ligne": idx, "mouvement_id": mouvement_id,
