@@ -4354,3 +4354,41 @@ Tests : 8 nouveaux (`tests/test_charges_engine_moteur_pur.py`). Aucune migration
 complète : moteur **392 passed / 0 failed** (inchangé, mission hors `02_TRAVAIL`), application
 **2766 passed / 0 failed** (10 lots, 188 fichiers). app.db réelle inchangée
 (`8e299b935ef1e0d4`). Détail complet : `MOTEUR_CHARGES.md`.
+
+## Contrôle 2026-08-26 — Mission 9 : audit moteur Ménages (aucune extraction nécessaire)
+
+Audit ciblé de la chaîne Ménages (interne + externe). Verdict : `lib_menage_costs.py`
+(02_TRAVAIL) était déjà un moteur pur — 0 import sqlite3/FastAPI/pandas, ni lui-même ni sa seule
+dépendance `lib_ref_history.py` — et déjà l'unique source de calcul, consommée identiquement par
+les deux mondes du projet : `lot6f_cout_complet_menages.py` (pandas, vue analytique gain/perte,
+`resolve_internal_cleaning_cost`) et `app/services/intervenant_menage_compte_service.py` (FastAPI,
+dette réelle intervenant, `resolve_fixed_internal_cost`, `sys.path.insert` déjà établi et
+documenté dans le service lui-même).
+
+Décision d'emplacement (§11 de la mission) : **aucune relocalisation**. Déplacer ce module vers
+`app/moteurs/` (comme pour Charges, Mission 8) aurait inversé la direction de dépendance que le
+projet évite explicitement — `lot6f` (monde pandas) doit continuer à l'importer directement, sans
+dépendre du paquet `app`. `02_TRAVAIL` est déjà le bon emplacement.
+
+Règle interne confirmée par lecture du code (pas devinée) : prestations validées × tarif standard
+— jamais heures × taux pour le mécanisme réel de paiement. Granularité confirmée : une dette PAR
+ménage validé (`generer_dettes`, `nb_menages=1` à chaque résolution), jamais une agrégation en une
+seule ligne. Prestation non validée : simplement exclue (filtre SQL), jamais un statut inventé.
+
+Ménage externe (`lot6c_menages_externes.py`, 774 lignes) : montant retenu = `montant_ligne_ttc`
+directement issu de la ligne de facture PDF/prestataire — aucune formule économique, pure donnée
+d'import. Aucun moteur fabriqué pour cette partie (§15 de la mission : ne pas sur-engineer une
+donnée sans calcul).
+
+`TAUX_HORAIRE_MENAGE_INTERNE` : encore utilisé économiquement, mais uniquement par le chemin
+analytique historique (dates antérieures au pivot 2026-06-01, vue gain/perte Lot6f) — jamais par
+le mécanisme réel de paiement des intervenants. Ni réintroduit, ni supprimé.
+
+Preuve A/B : `tests/test_menage_costs_moteur_pur.py` (moteur pur isolé, temporalité 2026/2027 +
+correction rétroactive volontaire) et `tests/test_menages_engine_moteur_pur.py` (SQLite réelle,
+production = moteur direct, 0 diff, temporalité re-confirmée au niveau réel).
+
+Tests : 5 nouveaux + 2 nouveaux = 7. Aucun code de production modifié — audit honnête d'un moteur
+déjà correctement isolé. Aucune migration. Campagne complète : moteur **X passed / 0 failed**,
+application **X passed / 0 failed** (voir HANDOFF_CANONIQUE.md pour les totaux exacts). app.db
+réelle inchangée (`8e299b935ef1e0d4`). Détail complet : `MOTEUR_MENAGES.md`.

@@ -2164,3 +2164,17 @@ inchangée : pas de groupe permanent, périmètre = la charge, affectation direc
 production vs moteur direct. Temporalité V1/V2 testée. Campagne : moteur 392/0 failed (inchangé,
 mission hors 02_TRAVAIL), application 2766/0 failed. Détail complet : `MOTEUR_CHARGES.md`. Mission
 8 stoppe ici explicitement — pas d'autre extraction de moteur commencée.
+
+**Mis à jour 2026-08-26 (Mission 9 — audit moteur Ménages)** : audit de la chaîne Ménages → rien à
+extraire. `lib_menage_costs.py` (02_TRAVAIL) était déjà pur (0 sqlite3/FastAPI/pandas) et déjà
+seule source, partagée correctement par `lot6f_cout_complet_menages.py` (monde pandas) ET
+`intervenant_menage_compte_service.py` (monde FastAPI, via `sys.path.insert` déjà établi) —
+relocaliser vers `app/moteurs/` aurait inversé la dépendance interdite `02_TRAVAIL→05_APPLICATION`.
+Décision documentée : aucune relocalisation. Règle interne confirmée (prestations validées × tarif
+standard, une dette par ménage, jamais agrégé). Externe : montant = `montant_ligne_ttc` facturé,
+pure donnée d'import, aucun moteur inventé. `TAUX_HORAIRE_MENAGE_INTERNE` toujours utilisé mais
+seulement par la vue analytique historique Lot6f, pas par le mécanisme réel de paiement. Preuve
+A/B (7 tests nouveaux) : production = moteur direct, 0 diff, temporalité 2026/2027 confirmée.
+Aucun code de production modifié — audit honnête d'un moteur déjà correctement isolé. Campagne :
+voir totaux dans ce même document. Détail complet : `MOTEUR_MENAGES.md`. Mission 9 stoppe ici
+explicitement — pas d'autre extraction de moteur commencée.

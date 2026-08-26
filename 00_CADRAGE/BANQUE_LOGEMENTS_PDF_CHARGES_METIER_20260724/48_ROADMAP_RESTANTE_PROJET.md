@@ -469,3 +469,12 @@ conservé). Confirmé : pas de groupe permanent, affectation directe = cas n=1 d
 Preuve A/B (fixtures représentatives, 8 tests) : 0 diff. Campagne : moteur 392/0 failed, application
 2766/0 failed. Détail : `MOTEUR_CHARGES.md`. Mission 8 stoppe ici explicitement — pas d'autre
 extraction de moteur commencée.
+
+**Mis à jour 2026-08-26 (mission 9 — audit moteur Ménages)** : audit → rien à extraire.
+`lib_menage_costs.py` déjà pur, déjà seule source, partagé correctement par le monde pandas
+(Lot6f) et le monde FastAPI (`intervenant_menage_compte_service.py`) — relocalisation refusée
+(inverserait une dépendance interdite). Règle interne confirmée (prestations validées × tarif
+standard, une dette par ménage). Externe : montant = ligne facturée, aucun moteur inventé.
+Preuve A/B (7 tests nouveaux) : 0 diff. Aucun code de production modifié. Détail :
+`MOTEUR_MENAGES.md`. Mission 9 stoppe ici explicitement — pas d'autre extraction de moteur
+commencée.

@@ -2172,3 +2172,13 @@ répartition égale `repartir_egal`) était déjà pur (0 sqlite3/FastAPI/pandas
 production (`charges_preview_service.py`) et tests existants inchangés. Règle métier inchangée :
 pas de groupe permanent, périmètre = la charge/facture. Détail complet : `MOTEUR_CHARGES.md` (même
 sous-dossier de mission).
+
+## Mise à jour 2026-08-26 — Mission 9 : audit moteur Ménages (rien à extraire)
+
+`lib_menage_costs.py` (02_TRAVAIL) était déjà pur et déjà seule source de calcul pour les ménages
+internes (`resolve_fixed_internal_cost`/`resolve_hourly_rate`/`resolve_internal_cleaning_cost`),
+partagée correctement par `lot6f_cout_complet_menages.py` (pandas) et
+`intervenant_menage_compte_service.py` (FastAPI, `sys.path.insert` déjà établi) — aucune
+relocalisation faite (aurait inversé une dépendance interdite). Ménages externes : montant =
+`montant_ligne_ttc` facturé, aucune formule, aucun moteur créé. Détail complet :
+`MOTEUR_MENAGES.md` (même sous-dossier de mission).
