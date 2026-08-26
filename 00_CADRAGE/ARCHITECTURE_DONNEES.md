@@ -2197,3 +2197,11 @@ py` uniquement — jamais sur les lignes déjà en base), `MouvementTresoreriePr
 nouveau contrat Facture créé ; un gap réel corrigé directement dans `factures_service.valider()`
 (date invalide auparavant silencieusement ignorée). Détail complet : `CONTRATS_DONNEES.md` (même
 sous-dossier de mission).
+
+## Mise à jour 2026-08-27 — Mission 12 : dernier durcissement SQLite ciblé
+
+Migration 0060 : CHECK ajoutés sur `charges.statut`, `reservations_hors_hostaway.statut`,
+`mouvements_tresorerie_proprietaires.sens/nature/statut`, `factures.statut` — domaines exhaustifs
+vérifiés en code, tables 100% application-générées (aucune ne reçoit un import brut externe,
+contrairement à `banque_mouvements`). Aucune FK/NOT NULL ajoutée (décisions historiques
+maintenues). Détail complet : `DURCISSEMENT_SQLITE_FINAL.md` (même sous-dossier de mission).

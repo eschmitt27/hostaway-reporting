@@ -493,3 +493,14 @@ répéter l'erreur du CHECK SQLite retiré). Factures : gap réel corrigé (date
 silencieusement ignorée) sans nouveau contrat. 10 tests nouveaux. Campagne : moteur 397/0 failed,
 application 2778/0 failed. Détail : `CONTRATS_DONNEES.md`. Mission 11 stoppe ici explicitement —
 pas de durcissement SQLite commencé.
+
+**Mis à jour 2026-08-27 (mission 12 — dernier durcissement SQLite ciblé)** : migration 0060, CHECK
+ajoutés sur 4 tables 100% application-générées (`charges.statut`, `reservations_hors_hostaway.
+statut`, `mouvements_tresorerie_proprietaires.sens/nature/statut`, `factures.statut`) — domaines
+exhaustifs vérifiés en code. Aucune FK/NOT NULL ajoutée (décisions historiques maintenues). Leçon
+0056 respectée : aucun CHECK réintroduit sur `banque_mouvements.sens`. Régression trouvée et
+corrigée avant commit (trigger `trg_facture_classification_defaut` supprimé par la reconstruction
+de `factures`, recréé dans la même migration). Fresh DB + copie réelle 0016→HEAD + replay ×2 : OK.
+13 tests nouveaux. Campagne : moteur 397/0 failed, application 2791/0 failed. Détail :
+`DURCISSEMENT_SQLITE_FINAL.md`. Mission 12 stoppe ici explicitement — pas de recette navigateur
+commencée.

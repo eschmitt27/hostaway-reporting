@@ -4469,3 +4469,48 @@ tous verts, 0 régression. Aucune migration. Campagne complète : moteur **397 p
 (inchangé, mission hors `02_TRAVAIL`), application **2778 passed / 0 failed** (10 lots,
 190 fichiers). app.db réelle inchangée (`8e299b935ef1e0d4`). Détail complet :
 `CONTRATS_DONNEES.md`.
+
+## Contrôle 2026-08-27 — Mission 12 : dernier durcissement SQLite ciblé (migration 0060)
+
+Audit de l'existant avant tout code : migration 0055 avait déjà fermé `banque_mouvements.sens`,
+`factures_proprietaires.statut/type_document`, `factures_proprietaires_lignes.type_ligne` (CHECK)
+et ajouté 2 FK (`banque_classifications`, `factures_proprietaires_lignes`) — puis 0056 a dû retirer
+le CHECK sur `sens` car les contrôles doivent voir une valeur anormale importée. Cette leçon a
+structuré tout l'audit de cette mission : pour chaque table candidate, vérifier d'abord si elle
+reçoit un import brut externe (auquel cas ne jamais fermer un domaine) ou si elle est entièrement
+générée par l'application (auquel cas un CHECK exhaustif est sûr).
+
+4 tables identifiées comme application-générées avec un domaine `statut`/`sens`/`nature` non fermé
+mais exhaustif en code : `charges` (`STATUT_ACTIVE`/`STATUT_ANNULEE`), `reservations_hors_
+hostaway` (idem), `mouvements_tresorerie_proprietaires` (`SENS`, `NATURES` — 7 valeurs incluant le
+catch-all déclaré `AUTRE_A_CONTROLER`, `STATUTS` — 4 valeurs), `factures` fournisseurs (7 valeurs,
+`TRANSITIONS` n'en utilise jamais d'autre). Chaque domaine vérifié par lecture directe des
+constantes Python, jamais deviné.
+
+FK/NOT NULL explicitement refusées : décisions historiques sur `proprietaire_id`/`logement_id`
+(référentiel Excel, migrations 0025/0027/0052) maintenues sans élément nouveau les remettant en
+cause ; `charges.logement_id` et `reservations_hors_hostaway.montant_retenu` restent nullable
+(charge commune sans logement direct, placeholder réel — Missions 8 et 11). Index sur les
+référentiels temporels jugés sans bénéfice (résolveurs Python en mémoire, pas de requête SQL
+filtrée). Aucun CHECK réintroduit sur `banque_mouvements.sens`.
+
+**Régression trouvée et corrigée avant tout commit** (pas un bug pré-existant, introduit par le
+premier jet de cette mission) : recréer la table `factures` pour ajouter `CHECK(statut)` supprime
+son trigger `trg_facture_classification_defaut` (migration 0020, `AFTER INSERT ON factures`) —
+SQLite ne rattache jamais un trigger à une table recréée par `DROP`/`RENAME`. La campagne complète
+a immédiatement révélé 3 échecs (`test_facture_classification.py` : une facture créée après la
+migration ne recevait plus sa classification par défaut). Corrigé en recréant le trigger à
+l'identique dans la même migration, avant tout commit.
+
+Tests sur copie de la vraie `app.db` (jamais modifiée) : migrations 0016→HEAD appliquées,
+`integrity_check` OK, `foreign_key_check` vide, 0 ligne perdue/modifiée sur les tables existantes.
+Replay ×2 : identique, aucune collision. Les 4 tables durcies n'existent pas encore dans la vraie
+`app.db` (toujours 0016) — l'exhaustivité des domaines repose sur la lecture du code, seule preuve
+disponible pour des tables sans données réelles.
+
+Tests : 13 nouveaux (`tests/test_durcissement_sqlite_final.py`) — 4 CHECK négatifs, 3 cas valides
+acceptés, 2 stop-gates métier (§32/§33 : réservation sans montant, charge sans logement, toujours
+valides), 1 stop-gate banque (§31, non-régression 0056), 1 PRAGMA foreign_keys. Régression ciblée
+141 tests existants tous verts. Campagne complète : moteur **397 passed / 0 failed** (inchangé,
+mission hors `02_TRAVAIL`), application **2791 passed / 0 failed** (10 lots, 191 fichiers). app.db
+réelle inchangée (`8e299b935ef1e0d4`). Détail complet : `DURCISSEMENT_SQLITE_FINAL.md`.

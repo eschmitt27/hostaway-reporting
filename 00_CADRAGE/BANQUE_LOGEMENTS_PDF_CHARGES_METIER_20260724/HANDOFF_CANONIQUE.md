@@ -2199,3 +2199,16 @@ pass` muet sur date_facture/date_echeance invalides dans `factures_service.valid
 nouveaux (refus canonique avant écriture + stop-gate RAW banque non bloqué). Campagne : moteur
 397/0 failed (inchangé), application 2778/0 failed. app.db réelle inchangée. Détail complet :
 `CONTRATS_DONNEES.md`. Mission 11 stoppe ici explicitement — pas de durcissement SQLite commencé.
+
+**Mis à jour 2026-08-27 (Mission 12 — dernier durcissement SQLite ciblé)** : migration 0060,
+4 tables durcies (`charges`, `reservations_hors_hostaway`, `mouvements_tresorerie_proprietaires`,
+`factures` fournisseurs) — CHECK sur `statut`/`sens`/`nature`, domaines vérifiés exhaustifs par
+lecture du code, jamais devinés. Aucune FK/NOT NULL ajoutée (décisions historiques maintenues :
+charge sans logement direct, réservation HH sans montant restent valides). Aucun CHECK réintroduit
+sur `banque_mouvements.sens` (leçon 0056 respectée, stop-gate re-testé). Régression trouvée et
+corrigée AVANT commit : recréer `factures` sans recréer le trigger `trg_facture_classification_
+defaut` (migration 0020) cassait la classification automatique — corrigé dans la même migration.
+Fresh DB + copie réelle 0016→HEAD + replay ×2 : `integrity_check`/`foreign_key_check` OK, 0 donnée
+perdue. Campagne : moteur 397/0 failed (inchangé), application 2791/0 failed. app.db réelle
+inchangée. Détail complet : `DURCISSEMENT_SQLITE_FINAL.md`. Mission 12 stoppe ici explicitement —
+pas de recette navigateur commencée.
