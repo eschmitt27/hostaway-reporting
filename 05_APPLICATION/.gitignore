@@ -5,6 +5,7 @@ data/app.db-wal
 data/app.db-shm
 data/snapshots/
 data/restore_workspace/
+data/backups/
 .env
 __pycache__/
 **/__pycache__/
