@@ -124,6 +124,83 @@ def test_purger_conserve_les_n_plus_recentes(db):
     assert len(backup_service.lister(db_path=db)) == 2
 
 
+@pytest.fixture
+def db_pre_migration_tracabilite(tmp_path):
+    """Base SANS `sauvegardes_base`/`sauvegardes_base_tracabilite` — simule la vraie app.db AVANT
+    sa migration (schéma 0016, ces tables n'existent qu'à partir de 0057/0061). Un backup pris à
+    ce stade doit fonctionner sans dépendre d'aucune de ces deux tables (mission 14 §1)."""
+    p = tmp_path / "app_pre_migration.db"
+    conn = sqlite3.connect(str(p))
+    try:
+        conn.execute(
+            "CREATE TABLE schema_migrations (version TEXT PRIMARY KEY, "
+            "applied_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')))")
+        conn.execute("INSERT INTO schema_migrations (version) VALUES ('0016')")
+        conn.execute("CREATE TABLE audit_events (id INTEGER PRIMARY KEY, evenement TEXT)")
+        conn.execute("INSERT INTO audit_events (evenement) VALUES ('SEED')")
+        conn.commit()
+    finally:
+        conn.close()
+    return p
+
+
+def test_sauvegarder_fonctionne_sans_les_tables_de_tracabilite(db_pre_migration_tracabilite):
+    """Mission 14 §1 — le backup PRE_REAL_CUTOVER doit fonctionner sur le schéma SOURCE actuel,
+    jamais nécessiter de migrer la base d'abord pour pouvoir la sauvegarder."""
+    source = db_pre_migration_tracabilite
+    avant = backup_service._sha256(source)
+
+    res = backup_service.sauvegarder("PRE_REAL_CUTOVER", db_path=source)
+
+    assert res["ok"] is True
+    assert res["schema_version"] == "0016"
+    assert backup_service._sha256(source) == avant, "la source ne doit jamais être modifiée"
+
+    backup = Path(res["chemin"])
+    conn = sqlite3.connect(str(backup))
+    try:
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        conn.execute("PRAGMA foreign_keys=ON")
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+        assert conn.execute(
+            "SELECT version FROM schema_migrations").fetchall() == [("0016",)]
+        assert conn.execute("SELECT evenement FROM audit_events").fetchall() == [("SEED",)]
+        # La copie n'a pas non plus les tables de traçabilité : elle ne les invente pas.
+        has_table = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sauvegardes_base'"
+        ).fetchone()
+        assert has_table is None
+    finally:
+        conn.close()
+
+    # Métadonnées disponibles quand même, via le sidecar — jamais perdues faute de tables.
+    sidecar = backup.with_suffix(backup.suffix + ".meta.json")
+    assert sidecar.exists()
+
+
+def test_verifier_et_restaurer_fonctionnent_sans_les_tables_de_tracabilite(
+        db_pre_migration_tracabilite, tmp_path):
+    source = db_pre_migration_tracabilite
+    res = backup_service.sauvegarder("PRE_REAL_CUTOVER", db_path=source)
+
+    # Incident post-bascule : la source est détruite APRÈS la sauvegarde.
+    source.write_bytes(b"SOURCE DETRUITE")
+
+    verif = backup_service.verifier(res["sauvegarde_id"], db_path=source)
+    assert verif["ok"] is True, verif
+
+    cible = tmp_path / "restauree.db"
+    r = backup_service.restaurer(res["sauvegarde_id"], cible=cible, confirmer=True, db_path=source)
+    assert r["ok"] is True, r
+
+    conn = sqlite3.connect(str(cible))
+    try:
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert conn.execute("SELECT evenement FROM audit_events").fetchall() == [("SEED",)]
+    finally:
+        conn.close()
+
+
 def test_sauvegarder_utilise_l_api_sqlite_backup_pas_shutil_copy(db, monkeypatch):
     """Non-régression mission 14 : la sauvegarde de bascule ne doit pas dépendre de
     `wal_checkpoint` + `shutil.copy2` (fenêtre de course entre checkpoint et copie)."""
