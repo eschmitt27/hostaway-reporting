@@ -2212,3 +2212,26 @@ Fresh DB + copie réelle 0016→HEAD + replay ×2 : `integrity_check`/`foreign_k
 perdue. Campagne : moteur 397/0 failed (inchangé), application 2791/0 failed. app.db réelle
 inchangée. Détail complet : `DURCISSEMENT_SQLITE_FINAL.md`. Mission 12 stoppe ici explicitement —
 pas de recette navigateur commencée.
+
+**Mis à jour 2026-08-27 (Mission 13 — recette navigateur bout-en-bout, environnement isolé)** :
+recette manuelle complète par navigateur réel (Chrome), serveur isolé port 8013, `APP_DATA_DIR`
+scratchpad, `app.db` isolée auto-créée à HEAD (migration 0060). Jeu de données de recette
+(1 propriétaire, 3 logements, fournisseur, facture fournisseur multi-lignes, 3 charges,
+1 réservation HH, 1 compte bancaire) créé via l'UI et confirmé écrit en SQLite (jamais Excel).
+25 parcours exercés : tous OK sauf l'exécution réelle du pipeline Lot9→Lot13 (§19, délibérément
+non déclenchée — écrirait hors du périmètre isolé, dans `02_TRAVAIL`/`03_EXPORTS` partagés).
+Stop-gates reconfirmés en conditions réelles de navigateur : `TAUX_COMMISSION_ABSENT` fail-closed,
+chronologie de périodes de taux, justification obligatoire en correction rétroactive, périmètre de
+charge commune strictement limité aux éléments cochés, résidu de répartition centimes déterministe,
+anomalie RAW banque (`sens=INCONNU`) visible et non bloquante. Aucun bug fonctionnel (C/D) trouvé.
+3 textes d'écran obsolètes (référence à Excel/Power Query alors que le chemin réel est SQLite)
+classés A/B, **non corrigés** — modifier le message lié au garde `HH_REAL_WRITE_ENABLED` sans revue
+dédiée du contexte historique du flag comportait un risque non nul pour un gain cosmétique ;
+documentés pour correction future ciblée. Aucun code de production modifié ce tour. Campagne :
+moteur 397/0 failed (inchangé), application 2790 passés/30 ignorés/0 échec (191 fichiers, 20 shards
+— écart de 1 passé vs baseline Mission 12 sans impact, 0 échec dans les deux cas, non traité comme
+régression). Vraie `app.db` inchangée (hash `8e299b935ef1e0d4...`), `REF_Setup.xlsm` réel inchangé
+(mtime 2026-08-12), mode réel OFF, scheduler Hostaway inactif, port 8000 jamais touché. Détail
+complet : `98_RECETTE_NAVIGATEUR_BOUT_EN_BOUT.md`. Verdict : **RECETTE NAVIGATEUR VALIDÉE.**
+Mission 13 stoppe ici explicitement — mode réel et scheduler NON activés, activation réelle hors
+scope, mission séparée à venir.

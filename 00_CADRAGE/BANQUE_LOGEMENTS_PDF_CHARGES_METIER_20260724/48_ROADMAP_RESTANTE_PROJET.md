@@ -504,3 +504,16 @@ de `factures`, recréé dans la même migration). Fresh DB + copie réelle 0016�
 13 tests nouveaux. Campagne : moteur 397/0 failed, application 2791/0 failed. Détail :
 `DURCISSEMENT_SQLITE_FINAL.md`. Mission 12 stoppe ici explicitement — pas de recette navigateur
 commencée.
+
+**Mis à jour 2026-08-27 (mission 13 — recette navigateur bout-en-bout, environnement isolé)** :
+25 parcours exercés par navigateur réel sur environnement isolé (port 8013, app.db isolée, HEAD
+0060). Tous OK sauf l'exécution réelle du pipeline (délibérément non déclenchée, hors périmètre
+isolé). Stop-gates reconfirmés en conditions réelles : taux fail-closed, chronologie de périodes,
+justification obligatoire, périmètre de charge commune, résidu de centimes déterministe, anomalie
+RAW banque visible et non bloquante. Aucun bug fonctionnel (C/D). 3 textes d'écran obsolètes
+(Excel/Power Query alors que le chemin réel est SQLite) classés A/B, non corrigés (risque non nul
+sur un garde-fou de sécurité pour un gain cosmétique) — documentés pour correction ciblée future.
+Aucun code de production modifié. Campagne : moteur 397/0 failed (inchangé). Vraie app.db et
+REF_Setup.xlsm réels inchangés, mode réel OFF, scheduler inactif, port 8000 jamais touché. Détail :
+`98_RECETTE_NAVIGATEUR_BOUT_EN_BOUT.md`. Verdict : RECETTE NAVIGATEUR VALIDÉE. Mission 13 stoppe
+ici explicitement — activation réelle non démarrée, mission séparée à venir.
