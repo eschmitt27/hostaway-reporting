@@ -64,7 +64,14 @@ MESSAGES = {
 # Les tâches de ménage sont extraites par la même commande mais relèvent d'une autre chaîne, et leur
 # endpoint limite le débit bien plus tôt. Les inclure ferait échouer une actualisation de
 # réservations pour une raison qui ne la concerne pas.
-ARGUMENTS_DEFAUT = ("--skip-cleaning-tasks",)
+#
+# --sans-excel (mission 14 — activation réelle contrôlée) : la base SQLite est alimentée AVANT les
+# classeurs legacy (cf. lot1_hostaway_extract.py, commentaire « ÉCRITURE SQLITE RAW (chemin normal)
+# ») — rien en aval de l'application ne relit plus ces MASTER_*.xlsx (RESERVATIONS/MENAGES n'ont
+# aucun `service` dans le DAG tant que lot4quater/lot6b/lot6c ne savent pas lire SQLITE, cf.
+# `orchestrateur_dag.py`). Un run réel ou schedulé ne doit donc plus les écrire, même en parité :
+# aligné sur le même flag déjà utilisé par `orchestrateur_moteur.executer_lot10`.
+ARGUMENTS_DEFAUT = ("--skip-cleaning-tasks", "--sans-excel")
 
 _COLS_RUN = ("run_id", "lot", "started_at", "ended_at", "statut", "declencheur", "pid",
              "nb_etapes", "nb_etapes_ok", "nb_etapes_ko", "duree_s", "erreur_resume")

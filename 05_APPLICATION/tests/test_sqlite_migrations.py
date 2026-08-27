@@ -156,6 +156,7 @@ EXPECTED_TABLES = {
     "run_history",                               # 0057 — historique centralisé des runs
     "ref_canape_parametres",                     # 0058 — paramètres canapé historisés (Mission 6)
     "ref_regles_versions",                       # 0059 — versionnement règles algorithmiques (Mission 6 bis)
+    "sauvegardes_base_tracabilite",               # 0061 — hash source + version schema (mission 14)
 }
 
 

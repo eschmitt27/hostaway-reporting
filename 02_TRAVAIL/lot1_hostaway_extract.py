@@ -1978,12 +1978,16 @@ def main():
                 if tasks_statut != "OK":
                     log.warning("Taches menage incompletes — voir anomalie CLEANING_TASKS_EXTRACTION_INCOMPLETE.")
 
-            write_excel(pd.DataFrame(rows_tasks),
-                        OUT_DIR / "MASTER_FACT_HA_CleaningTasks_Discovery.xlsx")
-            log.info(f"  MASTER_FACT_HA_CleaningTasks_Discovery : {len(rows_tasks)} lignes [{tasks_statut}]")
+            if args.sans_excel:
+                log.info("MASTER_FACT_HA_CleaningTasks_Discovery / MASTER_CTRL_HA_Anomalies "
+                        "non réécrits (--sans-excel).")
+            else:
+                write_excel(pd.DataFrame(rows_tasks),
+                            OUT_DIR / "MASTER_FACT_HA_CleaningTasks_Discovery.xlsx")
+                log.info(f"  MASTER_FACT_HA_CleaningTasks_Discovery : {len(rows_tasks)} lignes [{tasks_statut}]")
 
-            # Réécrire anomalies avec éventuelles anomalies cleaning
-            write_excel(detector.to_df(), OUT_DIR / "MASTER_CTRL_HA_Anomalies.xlsx")
+                # Réécrire anomalies avec éventuelles anomalies cleaning
+                write_excel(detector.to_df(), OUT_DIR / "MASTER_CTRL_HA_Anomalies.xlsx")
 
             nb_bloq = detector.bloquants()
             if nb_bloq > 0 or tasks_statut not in ("OK", "SKIPPED"):

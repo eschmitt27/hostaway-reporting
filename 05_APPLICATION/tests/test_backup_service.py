@@ -4,6 +4,7 @@ Aucune écriture réelle : `db_path`/`cfg.BACKUPS_DIR` toujours isolés sous `tm
 """
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -121,6 +122,102 @@ def test_purger_conserve_les_n_plus_recentes(db):
     res = backup_service.purger(garder_n=2, db_path=db)
     assert res["conservees"] == 2
     assert len(backup_service.lister(db_path=db)) == 2
+
+
+def test_sauvegarder_utilise_l_api_sqlite_backup_pas_shutil_copy(db, monkeypatch):
+    """Non-régression mission 14 : la sauvegarde de bascule ne doit pas dépendre de
+    `wal_checkpoint` + `shutil.copy2` (fenêtre de course entre checkpoint et copie)."""
+    import shutil as shutil_mod
+    appele = {"copy2": False}
+    original = shutil_mod.copy2
+
+    def _espion(*a, **k):
+        appele["copy2"] = True
+        return original(*a, **k)
+
+    monkeypatch.setattr(shutil_mod, "copy2", _espion)
+    res = backup_service.sauvegarder("TEST", db_path=db)
+    assert res["ok"] is True
+    assert appele["copy2"] is False, "sauvegarder() ne doit plus utiliser shutil.copy2"
+
+
+def test_sauvegarder_journalise_metadonnees_completes(db):
+    res = backup_service.sauvegarder("TEST", db_path=db)
+    assert res["source_hash"]
+    assert res["database_hash"]
+    assert res["schema_version"] == "0061"
+
+    entree = backup_service.lister(db_path=db)[0]
+    assert entree["source_hash"] == res["source_hash"]
+    assert entree["schema_version"] == "0061"
+    assert entree["database_hash"]
+    assert entree["date_creation"]
+
+
+def test_source_hash_distinct_de_database_hash_apres_ecriture_dans_source(db):
+    """Une écriture dans la source APRÈS la sauvegarde ne doit jamais faire dériver la copie."""
+    res = backup_service.sauvegarder("TEST", db_path=db)
+    conn = get_db(db)
+    try:
+        conn.execute(
+            "INSERT INTO ref_setup_imports (import_id, horodatage, chemin_source, "
+            "empreinte_source, statut, nb_feuilles, nb_lignes) "
+            "VALUES ('IMP-DERIVE','2026-01-01T00:00:00','x','x','IMPORTE',1,1)")
+        conn.commit()
+    finally:
+        conn.close()
+    from app.services.backup_service import _sha256
+    assert _sha256(db) != res["source_hash"], "la source a bien changé après la sauvegarde"
+    assert _sha256(Path(res["chemin"])) == res["database_hash"], "la copie ne doit jamais changer"
+
+
+def test_backup_survit_a_destruction_de_la_source(db, tmp_path):
+    """CAS 2/3 du plan de rollback (mission 14 §10) : le FICHIER de sauvegarde doit rester
+    intact, autonome et restaurable même si la base source est ensuite corrompue ou détruite.
+
+    Limite structurelle documentée, pas une régression à corriger ici : le catalogue
+    `sauvegardes_base` vit dans la base qu'il protège. Si la source est détruite, ce catalogue
+    l'est aussi — `verifier()`/`restaurer()` (qui interrogent ce catalogue) ne sont donc plus
+    utilisables SUR LA SOURCE détruite. Le fichier physique de sauvegarde, lui, est un `.db`
+    SQLite autonome : restaurable par simple copie de fichier à partir du chemin déjà renvoyé
+    par `sauvegarder()` (`res['chemin']`), sans dépendre d'aucun catalogue.
+    """
+    donnees_avant = [tuple(r) for r in get_db(db).execute(
+        "SELECT * FROM schema_migrations ORDER BY version")]
+    res = backup_service.sauvegarder("TEST", db_path=db)
+
+    # Source détruite après la sauvegarde — simule un incident post-bascule (écrasement du fichier).
+    db.write_bytes(b"SOURCE DETRUITE")
+
+    fichier_backup = Path(res["chemin"])
+    assert fichier_backup.exists(), "le fichier de sauvegarde doit survivre à la destruction de la source"
+
+    conn = sqlite3.connect(str(fichier_backup))
+    try:
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    finally:
+        conn.close()
+    assert backup_service._sha256(fichier_backup) == res["database_hash"], \
+        "le hash de la copie ne doit pas avoir bougé"
+
+    # Restauration contrôlée : copie directe du fichier de sauvegarde vers une cible propre.
+    cible = tmp_path / "restauree_apres_destruction.db"
+    import shutil as shutil_mod
+    shutil_mod.copy2(fichier_backup, cible)
+
+    conn = sqlite3.connect(str(cible))
+    try:
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        conn.execute("PRAGMA foreign_keys=ON")
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+        version = conn.execute(
+            "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1").fetchone()[0]
+        assert version == res["schema_version"]
+        donnees_apres = [tuple(r) for r in conn.execute(
+            "SELECT * FROM schema_migrations ORDER BY version")]
+        assert donnees_apres == donnees_avant, "les données restaurées doivent être identiques"
+    finally:
+        conn.close()
 
 
 def test_purger_ne_supprime_jamais_automatiquement():

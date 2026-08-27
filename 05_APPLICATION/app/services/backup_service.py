@@ -53,30 +53,51 @@ def _integrity_ok(path: Path) -> bool:
         conn.close()
 
 
-def sauvegarder(operation: str, *, db_path: Path | None = None) -> dict[str, Any]:
-    """Copie `app.db` (ou `db_path`) sous `BACKUPS_DIR`, vérifie son intégrité, journalise.
+def _schema_version(source: Path) -> str | None:
+    conn = sqlite3.connect(str(source))
+    try:
+        row = conn.execute(
+            "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1").fetchone()
+        return row[0] if row else None
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        conn.close()
 
-    `PRAGMA journal_mode=WAL` (actif partout dans ce projet, cf. `get_db`) implique un fichier
-    `-wal` séparé pour les écritures non encore répercutées dans le fichier principal : un simple
-    `shutil.copy2` du seul `.db` risquerait de figer un état incohérent. On force un checkpoint
-    complet avant la copie pour que le fichier `.db` seul soit une image fidèle et autonome.
+
+def sauvegarder(operation: str, *, db_path: Path | None = None) -> dict[str, Any]:
+    """Copie `app.db` (ou `db_path`) sous `BACKUPS_DIR` via l'API officielle SQLite, vérifie son
+    intégrité, journalise (mission 14 — activation réelle contrôlée).
+
+    Utilise `sqlite3.Connection.backup()` (déjà le patron employé ailleurs dans ce projet, cf.
+    `menages_recalcul_service.py`, `controles_runner_service.py`) plutôt qu'un `PRAGMA
+    wal_checkpoint(FULL)` + `shutil.copy2` : l'API de backup lit un état cohérent directement
+    depuis la connexion source, y compris les écritures encore uniquement dans le fichier `-wal`
+    (actif partout dans ce projet, cf. `get_db`), sans fenêtre de course entre un checkpoint et une
+    copie de fichier séparée.
     """
     source = Path(db_path) if db_path is not None else Path(cfg.DB_PATH)
     if not source.exists():
         return {"ok": False, "code": "E_SOURCE_ABSENTE", "message": f"Base absente : {source}."}
 
-    conn = sqlite3.connect(str(source))
-    try:
-        conn.execute("PRAGMA wal_checkpoint(FULL)")
-    finally:
-        conn.close()
+    source_hash = _sha256(source)
+    schema_version = _schema_version(source)
 
     dossier = Path(cfg.BACKUPS_DIR)
     dossier.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     sid = "BCK-" + uuid.uuid4().hex[:12].upper()
     dest = dossier / f"{ts}_{operation}_{sid}.db"
-    shutil.copy2(source, dest)
+
+    src_conn = sqlite3.connect(str(source))
+    try:
+        dst_conn = sqlite3.connect(str(dest))
+        try:
+            src_conn.backup(dst_conn)
+        finally:
+            dst_conn.close()
+    finally:
+        src_conn.close()
 
     ok = _integrity_ok(dest)
     statut = "VALIDE" if ok else "CORROMPU"
@@ -88,11 +109,17 @@ def sauvegarder(operation: str, *, db_path: Path | None = None) -> dict[str, Any
             "git_commit, database_hash, taille_octets, validation_status) "
             "VALUES (?,?,?,?,?,?,?)",
             (sid, operation, str(dest), _git_commit(), _sha256(dest), dest.stat().st_size, statut))
+        conn.execute(
+            "INSERT INTO sauvegardes_base_tracabilite (sauvegarde_id_opaque, source_hash, "
+            "schema_version) VALUES (?,?,?)",
+            (sid, source_hash, schema_version))
         conn.commit()
     finally:
         conn.close()
 
-    return {"ok": ok, "sauvegarde_id": sid, "chemin": str(dest), "validation_status": statut}
+    return {"ok": ok, "sauvegarde_id": sid, "chemin": str(dest), "validation_status": statut,
+            "source_hash": source_hash, "database_hash": _sha256(dest),
+            "schema_version": schema_version}
 
 
 def verifier(sauvegarde_id: str, *, db_path: Path | None = None) -> dict[str, Any]:
@@ -137,7 +164,10 @@ def lister(*, db_path: Path | None = None) -> list[dict[str, Any]]:
     conn = get_db(db_path)
     try:
         rows = conn.execute(
-            "SELECT * FROM sauvegardes_base ORDER BY date_creation DESC").fetchall()
+            "SELECT b.*, t.source_hash, t.schema_version FROM sauvegardes_base b "
+            "LEFT JOIN sauvegardes_base_tracabilite t "
+            "ON t.sauvegarde_id_opaque = b.sauvegarde_id_opaque "
+            "ORDER BY b.date_creation DESC").fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
@@ -197,6 +227,8 @@ def purger(*, garder_n: int = 10, db_path: Path | None = None) -> dict[str, Any]
             p = Path(r["chemin_fichier"])
             if p.exists():
                 p.unlink()
+            conn.execute("DELETE FROM sauvegardes_base_tracabilite WHERE sauvegarde_id_opaque=?",
+                        (r["sauvegarde_id_opaque"],))
             conn.execute("DELETE FROM sauvegardes_base WHERE id=?", (r["id"],))
             supprimes.append(r["sauvegarde_id_opaque"])
         conn.commit()
