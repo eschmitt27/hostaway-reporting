@@ -108,17 +108,22 @@ NOEUDS: dict[str, Noeud] = {n.nom: n for n in (
           commentaire="Mission 14e — chaîne SQLite directe : lot4bis (moteur S1-S7 inchangé, "
                       "entrées hostaway_reservations/payouts + référentiels SQLite + "
                       "reservations_hors_hostaway) puis lot4quater (ref_cloture_mensuelle "
-                      "SQLite, fail-closed) — plus aucune lecture REF_Setup.xlsm/Excel HH au "
-                      "runtime. Preuve A/B : `tests/test_lot4bis_ref_hh_sqlite.py`."),
+                      "SQLite, fail-closed) — plus aucune lecture du classeur Setup ni HH Excel "
+                      "au runtime. Preuve A/B : `tests/test_lot4bis_ref_hh_sqlite.py`."),
 
     Noeud(MENAGES, TYPE_CALCUL, "Ménages — comptage, déclarations, rapprochement, coût complet",
           depend_de=(HOSTAWAY_CLEANING_TASKS, REF_SETUP),
+          service="app.services.orchestrateur_moteur:executer_menages",
           tables=("menages_taches_enrichies", "menages_declarations_internes",
                   "menages_rapprochement", "menages_gainperte", "menages_cout_complet"),
-          commentaire="CHAÎNE PARTIELLEMENT MIGRÉE : lot6a/6d/6e/6f acceptent --source SQLITE, mais "
-                      "lot6b (M04) et lot6c (ménages externes) n'ont pas de mode SQLite. Même "
-                      "raison que RESERVATIONS : pas de service, plutôt qu'un recalcul partiel "
-                      "présenté comme complet. Le recalcul ménages reste `menages_recalcul_service`."),
+          commentaire="Mission 14e — lot6d puis lot6e puis lot6f, tout SQLite (`--source SQLITE "
+                      "--sans-excel`), fail-closed si `ref_intervenants` n'a jamais été importé. "
+                      "lot6a (import Hostaway cleaning tasks) et lot6b (M04, Google Sheet) restent "
+                      "des imports externes optionnels, jamais rendus obligatoires — HOSTAWAY_"
+                      "CLEANING_TASKS peut rester ST_JAMAIS sans bloquer, exactement comme BANQUE. "
+                      "lot6c (ménages externes) est hors chaîne : son rôle économique est déjà "
+                      "couvert en SQLite pur par `facture_menage_pdf_service` → "
+                      "`facture_lignes_menage`, lu directement par lot6d."),
 
     Noeud(FLUX_LOT9, TYPE_CALCUL, "Flux économique unifié (Lot9)",
           depend_de=(RESERVATIONS, MENAGES, BANQUE),

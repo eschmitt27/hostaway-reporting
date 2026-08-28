@@ -150,6 +150,46 @@ def executer_reservations(*, db_path=None) -> dict[str, Any]:
     return {"ok": True}
 
 
+def _referentiel_intervenants_importe(chemin_base: Path) -> bool:
+    """`ref_intervenants` non vide — connexion nue, jamais `get_db()` (ne force pas WAL)."""
+    import sqlite3
+    try:
+        conn = sqlite3.connect(str(chemin_base))
+        try:
+            n = conn.execute("SELECT COUNT(*) FROM ref_intervenants").fetchone()[0]
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return False
+    return n > 0
+
+
+def executer_menages(*, db_path=None) -> dict[str, Any]:
+    """MENAGES — lot6d puis lot6e puis lot6f, chaîne interne SQLite (mission 14e).
+
+    lot6a (import Hostaway cleaning tasks) et lot6b (M04, Google Sheet) restent des imports
+    externes optionnels — jamais rendus obligatoires ici, exactement comme BANQUE : une déclaration
+    interne de ménage n'a pas besoin d'une tâche Hostaway pour exister économiquement. lot6c
+    (ménages externes) reste hors chaîne : son rôle économique est déjà couvert en SQLite pur par
+    `facture_menage_pdf_service` → `facture_lignes_menage`, que lot6d lit directement.
+
+    Fail-closed uniquement sur ce qui est réellement obligatoire : le référentiel intervenants
+    (`ref_intervenants`) doit avoir été importé, sinon lot6d tourne silencieusement sans aucune
+    correspondance déclaration/intervenant — un recalcul « réussi » à zéro sens n'est pas un succès.
+    """
+    base = Path(db_path or cfg.DB_PATH)
+    if not _referentiel_intervenants_importe(base):
+        return {"ok": False, "code": "MENAGES_REFERENTIEL_ABSENT",
+                "message": "ref_intervenants vide : référentiel jamais importé."}
+    for script in ("lot6d_rapprochement_menages.py", "lot6e_gainperte_menages.py",
+                   "lot6f_cout_complet_menages.py"):
+        resultat = executer(script, db_path=db_path, arguments=("--source", "SQLITE", "--sans-excel"))
+        if not resultat.get("ok"):
+            return {"ok": False, "code": resultat.get("code", E_CODE_RETOUR),
+                    "message": f"{script} : {resultat.get('message', '')}"}
+    return {"ok": True}
+
+
 def importer_hostaway(*, db_path=None) -> dict[str, Any]:
     """Import Hostaway pour l'orchestrateur — MÊME service que le bouton manuel et l'ordonnanceur.
 
