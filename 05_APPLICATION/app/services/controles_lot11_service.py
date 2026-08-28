@@ -286,7 +286,10 @@ def _groupe4_commissions(ctrl: _Ctrl, df_com: list[dict], rslt_global: dict[str,
         menage = _num(r.get("menage_retenu"))
         commission = _num(r.get("commission_conciergerie"))
         if taux > 0:
-            com_calcule = round(assiette * taux, 2)
+            # Mission 14f-bis : la commission decoule de l'assiette RETENUE (plafonnee a 0 si
+            # l'assiette brute est negative), jamais de l'assiette brute stockee telle quelle.
+            assiette_retenue = assiette if assiette > 0 else 0.0
+            com_calcule = round(assiette_retenue * taux, 2)
             if abs(commission - com_calcule) > TOLERANCE:
                 ctrl.add("COMMISSIONS", "lot10_commissions", r.get("flux_source_pk"),
                          "COMMISSION_INCOHERENTE", "BLOQUANT",
@@ -302,6 +305,23 @@ def _groupe4_commissions(ctrl: _Ctrl, df_com: list[dict], rslt_global: dict[str,
                      f"{assiette_calcule}",
                      mois=r.get("mois"), logement_id=r.get("logement_id"),
                      proprietaire_id=r.get("proprietaire_id"))
+        # Mission 14f-bis : assiette BRUTE negative (menage retenu > payout — sejour tres court a
+        # faible payout, cas reel audite reservation_id=65060946) -> Lot10 plafonne la commission
+        # a 0 mais conserve l'assiette brute inchangee dans `assiette_commission` (colonne stockee
+        # ici = la brute, jamais reecrite : c'est elle qui prouve le cas). Ce controle rend le cas
+        # visible, non bloquant (A_CONTROLER) — il ne doit jamais disparaitre silencieusement.
+        if assiette < 0:
+            ecart = round(menage - payout, 2)
+            ctrl.add("COMMISSIONS", "lot10_commissions", r.get("reservation_calc_id"),
+                     "ASSIETTE_NEGATIVE_RAMENEE_ZERO", "A_CONTROLER",
+                     f"assiette brute={assiette} (payout={payout}, menage={menage}, "
+                     f"ecart={ecart}) ramenee a 0 pour le calcul de commission ; "
+                     f"commission={commission}",
+                     mois=r.get("mois"), logement_id=r.get("logement_id"),
+                     proprietaire_id=r.get("proprietaire_id"),
+                     reservation_id=r.get("reservation_id_hostaway") or r.get("reservation_calc_id"),
+                     commentaire="Assiette brute conservee dans lot10_commissions.assiette_"
+                                 "commission ; commission plafonnee a 0, jamais negative.")
 
     reel_val, comp_val, hc_val = (rslt_global.get(v) for v in ("REEL", "COMPTABLE", "HORS_COMPTA"))
     if reel_val is not None and comp_val is not None and hc_val is not None:

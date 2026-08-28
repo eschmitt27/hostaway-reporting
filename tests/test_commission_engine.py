@@ -12,6 +12,7 @@ from lib_commission_engine import (
     assiette_v1_paiement_direct,
     calculer_commission_conciergerie,
     calculer_net_proprietaire,
+    plafonner_assiette_pour_commission,
 )
 
 
@@ -86,6 +87,60 @@ class AssietteV1PaiementDirectTests(unittest.TestCase):
         menage = pd.Series([25.0, 30.0])
         out = assiette_v1_paiement_direct(payout, menage)
         self.assertEqual(list(out), [125.0, 170.0])
+
+
+class PlafonnerAssiettePourCommissionTests(unittest.TestCase):
+    """Mission 14f-bis : assiette negative (menage > payout) -> commission plafonnee a 0, jamais
+    l'assiette BRUTE elle-meme (conservee ailleurs pour preuve/controle Lot11). Cas reel audite :
+    reservation_id=65060946, payout=11.86, menage=29.00, assiette brute=-17.14."""
+
+    def test_cas1_assiette_positive_inchangee(self):
+        # CAS 1 : payout 100, menage 20 -> assiette 80 -> comportement inchange.
+        assiette = assiette_v1_paiement_direct(100.0, 20.0)
+        self.assertEqual(assiette, 80.0)
+        self.assertEqual(plafonner_assiette_pour_commission(assiette), 80.0)
+
+    def test_cas2_assiette_nulle_pas_de_faux_negatif(self):
+        # CAS 2 : payout 20, menage 20 -> assiette 0 -> commission 0, pas de faux negatif.
+        assiette = assiette_v1_paiement_direct(20.0, 20.0)
+        self.assertEqual(assiette, 0.0)
+        self.assertEqual(plafonner_assiette_pour_commission(assiette), 0.0)
+        self.assertEqual(calculer_commission_conciergerie(
+            plafonner_assiette_pour_commission(assiette), 0.20), 0.0)
+
+    def test_cas3_reservation_reelle_65060946(self):
+        # CAS 3 : payout 11.86, menage 29.00 -> assiette brute -17.14 -> assiette retenue 0 ->
+        # commission 0 (l'assiette brute elle-meme n'est JAMAIS modifiee par cette fonction).
+        assiette_brute = assiette_v1_paiement_direct(11.86, 29.00)
+        self.assertAlmostEqual(assiette_brute, -17.14, places=2)
+        assiette_retenue = plafonner_assiette_pour_commission(assiette_brute)
+        self.assertEqual(assiette_retenue, 0.0)
+        self.assertEqual(calculer_commission_conciergerie(assiette_retenue, 0.20), 0.0)
+        # net_proprietaire continue de refleter le vrai resultat economique negatif du sejour :
+        # seule la commission de la conciergerie est plafonnee, jamais le resultat proprietaire.
+        net = calculer_net_proprietaire(11.86, 29.00, 0.0)
+        self.assertAlmostEqual(net, -17.14, places=2)
+
+    def test_cas4_seule_la_ligne_negative_est_ramenee_a_zero(self):
+        import pandas as pd
+        # CAS 4 : plusieurs reservations, une seule negative -> seule celle-ci est ramenee a 0.
+        assiette = pd.Series([80.0, -17.14, 200.0])
+        out = plafonner_assiette_pour_commission(assiette)
+        self.assertEqual(list(out), [80.0, 0.0, 200.0])
+
+    def test_cas5_recalcul_identique_idempotent(self):
+        # CAS 5 : recalcul identique -> meme resultat (fonction pure, aucun etat).
+        assiette_brute = assiette_v1_paiement_direct(11.86, 29.00)
+        r1 = plafonner_assiette_pour_commission(assiette_brute)
+        r2 = plafonner_assiette_pour_commission(assiette_brute)
+        self.assertEqual(r1, r2)
+        self.assertEqual(plafonner_assiette_pour_commission(r1), r1)  # deja plafonnee : stable
+
+    def test_fonctionne_sur_pandas_series(self):
+        import pandas as pd
+        assiette = pd.Series([80.0, -17.14, 0.0])
+        out = plafonner_assiette_pour_commission(assiette)
+        self.assertEqual(list(out), [80.0, 0.0, 0.0])
 
 
 if __name__ == "__main__":

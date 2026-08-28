@@ -57,6 +57,7 @@ from lib_commission_engine import (
     assiette_v1_paiement_direct,
     calculer_commission_conciergerie,
     calculer_net_proprietaire,
+    plafonner_assiette_pour_commission,
 )
 from lib_parc import (
     A_CONTROLER,
@@ -819,9 +820,12 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
         sys.exit(1)
     for col in ["payout_calcule", "menage_retenu", "assiette_commission", "taux_commission"]:
         df_ha[col] = pd.to_numeric(df_ha[col], errors="coerce")
-    if (normal_ha & (df_ha["assiette_commission"].fillna(0) < 0)).any():
-        log.error("BLOQUANT ASSIETTE_NEGATIVE — HA")
-        sys.exit(1)
+    n_assiette_neg_ha = int((normal_ha & (df_ha["assiette_commission"].fillna(0) < 0)).sum())
+    # Mission 14f-bis : une assiette negative (menage retenu > payout, sejour tres court a faible
+    # payout — cas reel audite : reservation_id=65060946) ne bloque plus Lot10. L'assiette BRUTE
+    # reste inchangee dans `assiette_commission` (preuve + controle Lot11
+    # ASSIETTE_NEGATIVE_RAMENEE_ZERO) ; seule la commission qui en decoule est plafonnee a 0 via
+    # `plafonner_assiette_pour_commission` — jamais une commission negative.
     # Assiette HA fournie par le payout amont (Lot1/lot4quater) — la "V1" de ASSIETTE_COMMISSION
     # pour ce canal est précisément "accepter cette valeur amont sans la recalculer ici". Audité
     # Mission 7 bis : pur pass-through technique (aucune décision économique prise ici), donc
@@ -833,10 +837,14 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
     df_ha["commission_conciergerie"] = None
     df_ha["net_proprietaire"]        = None
     df_ha.loc[normal_ha, "commission_conciergerie"] = calculer_commission_conciergerie(
-        df_ha.loc[normal_ha, "assiette_commission"], df_ha.loc[normal_ha, "taux_commission"])
+        plafonner_assiette_pour_commission(df_ha.loc[normal_ha, "assiette_commission"]),
+        df_ha.loc[normal_ha, "taux_commission"])
     df_ha.loc[normal_ha, "net_proprietaire"] = calculer_net_proprietaire(
         df_ha.loc[normal_ha, "payout_calcule"], df_ha.loc[normal_ha, "menage_retenu"],
         df_ha.loc[normal_ha, "commission_conciergerie"])
+    if n_assiette_neg_ha > 0:
+        log.info(f"  ASSIETTE_NEGATIVE_RAMENEE_ZERO — HA : {n_assiette_neg_ha} lignes "
+                 f"(commission plafonnee a 0, assiette brute conservee)")
     df_ha["source_type"] = "HOSTAWAY"
     df_ha_norm = df_ha[normal_ha].copy()
 
@@ -870,13 +878,15 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
             df_hh_ok["menage_retenu"]       = df_hh_ok["menage"].round(2)
             df_hh_ok["assiette_commission"] = assiette_v1_paiement_direct(
                 df_hh_ok["total_percu"], df_hh_ok["menage"])
-            if (df_hh_ok["assiette_commission"] < 0).any():
-                log.error("BLOQUANT ASSIETTE_NEGATIVE — HH")
-                sys.exit(1)
+            n_assiette_neg_hh = int((df_hh_ok["assiette_commission"] < 0).sum())
+            if n_assiette_neg_hh > 0:
+                log.info(f"  ASSIETTE_NEGATIVE_RAMENEE_ZERO — HH : {n_assiette_neg_hh} lignes "
+                         f"(commission plafonnee a 0, assiette brute conservee)")
             _verifier_version_regle(df_hh_ok, "ASSIETTE_COMMISSION", regles_history,
                                     "date_arrivee", "HH", ("V1",))
             df_hh_ok["commission_conciergerie"] = calculer_commission_conciergerie(
-                df_hh_ok["assiette_commission"], df_hh_ok["taux_commission"])
+                plafonner_assiette_pour_commission(df_hh_ok["assiette_commission"]),
+                df_hh_ok["taux_commission"])
             df_hh_ok["net_proprietaire"] = calculer_net_proprietaire(
                 df_hh_ok["total_percu"], df_hh_ok["menage"], df_hh_ok["commission_conciergerie"])
             df_hh_ok["statut_calcul_payout"] = "NORMAL"
@@ -919,16 +929,18 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
         df_vrbo["assiette_commission"] = df_vrbo["assiette_resolu"].combine_first(
             assiette_v1_paiement_direct(df_vrbo["payout_resolu"], df_vrbo["menage_resolu"].fillna(0.0))
         ).round(2)
-        if (df_vrbo["assiette_commission"].fillna(0) < 0).any():
-            log.error("BLOQUANT ASSIETTE_NEGATIVE — VRBO")
-            sys.exit(1)
+        n_assiette_neg_vrbo = int((df_vrbo["assiette_commission"].fillna(0) < 0).sum())
+        if n_assiette_neg_vrbo > 0:
+            log.info(f"  ASSIETTE_NEGATIVE_RAMENEE_ZERO — VRBO : {n_assiette_neg_vrbo} lignes "
+                     f"(commission plafonnee a 0, assiette brute conservee)")
         _verifier_version_regle(df_vrbo, "ASSIETTE_COMMISSION", regles_history,
                                 "date_arrivee", "VRBO", ("V1",))
         if df_vrbo["taux_commission"].isna().any():
             log.error("BLOQUANT COMMISSION_SANS_TAUX — VRBO")
             sys.exit(1)
         df_vrbo["commission_conciergerie"] = calculer_commission_conciergerie(
-            df_vrbo["assiette_commission"], df_vrbo["taux_commission"])
+            plafonner_assiette_pour_commission(df_vrbo["assiette_commission"]),
+            df_vrbo["taux_commission"])
         df_vrbo["net_proprietaire"] = calculer_net_proprietaire(
             df_vrbo["payout_calcule"], df_vrbo["menage_retenu"],
             df_vrbo["commission_conciergerie"])

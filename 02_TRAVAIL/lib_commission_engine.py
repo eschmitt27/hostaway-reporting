@@ -44,6 +44,24 @@ def calculer_net_proprietaire(payout, menage, commission):
     return round(payout - menage - commission, 2)
 
 
+def plafonner_assiette_pour_commission(assiette):
+    """Assiette RETENUE pour le calcul de commission = max(0, assiette brute) — mission 14f-bis.
+
+    Une assiette negative (menage retenu superieur au payout, cas reel observe sur des sejours
+    tres courts a faible payout) ne doit jamais produire une commission negative : la
+    conciergerie ne peut pas etre "payee en negatif". L'assiette BRUTE (potentiellement negative)
+    reste inchangee dans `assiette_commission` — c'est elle qui sert de PREUVE et qui alimente le
+    controle Lot11 `ASSIETTE_NEGATIVE_RAMENEE_ZERO` ; seule la commission qui EN DECOULE utilise
+    l'assiette plafonnee. `net_proprietaire` (payout - menage - commission) continue de refleter
+    le vrai resultat economique negatif du sejour : seule la commission de la conciergerie est
+    plafonnee, jamais le resultat du proprietaire.
+    """
+    # `(a + abs(a)) / 2` plutot que `max(0, a)` : elementwise sur un scalaire COMME sur une
+    # `pandas.Series` (builtin `max()` compare les deux arguments — ambigu sur une Series de
+    # plusieurs elements), meme logique de delegation que `round()` plus haut, sans import pandas.
+    return (assiette + abs(assiette)) / 2
+
+
 def assiette_v1_paiement_direct(payout, menage):
     """assiette = payout - menage, arrondie au centime — formule V1 ASSIETTE_COMMISSION pour un
     canal de PAIEMENT DIRECT (HH, et VRBO en repli quand aucune assiette historique n'est deja
