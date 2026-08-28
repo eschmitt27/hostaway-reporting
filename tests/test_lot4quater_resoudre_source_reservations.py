@@ -267,3 +267,34 @@ def test_closed_months_sqlite_none_si_table_absente(tmp_path):
     spec.loader.exec_module(mod)
     cmonths, message = mod.closed_months_sqlite(db_path)
     assert cmonths is None
+
+
+def test_source_sqlite_explicite_fail_closed_sans_ref_cloture(tmp_path):
+    """Mission 14e — chemin CANONIQUE (--source SQLITE) : `ref_cloture_mensuelle` indisponible
+    doit arrêter le script (SystemExit), jamais retomber en silence sur REF_Setup.xlsm. C'est
+    exactement le chemin qu'emprunte l'orchestrateur/« Actualiser toute l'activité »."""
+    import sqlite3
+    db_path = tmp_path / "app_sans_cloture.db"
+    sqlite3.connect(str(db_path)).close()
+    live = [_live_row(1, "2025-01")]
+    # REF_Setup.xlsm déclare bien 2025-01 clôturé : la preuve que le fail-closed ne dépend QUE de
+    # l'absence SQLite, pas d'un classeur par ailleurs inutilisable.
+    script = _make_env(tmp_path, live_rows=live, hist_rows=[], closed_months=["2025-01"])
+    with pytest.raises(SystemExit):
+        _run(script, extra_argv=["--db", str(db_path), "--source", "SQLITE"])
+
+
+def test_source_auto_replie_encore_sur_excel_sans_ref_cloture(tmp_path):
+    """--source AUTO (jamais celui de l'orchestrateur) garde le repli tolérant, journalisé."""
+    import sqlite3
+    db_path = tmp_path / "app_sans_cloture2.db"
+    sqlite3.connect(str(db_path)).close()
+    live = [_live_row(1, "2025-01"), _live_row(2, "2026-06")]
+    hist = [_hist_row(1, "2025-01", montant=999.0)]
+    script = _make_env(tmp_path, live_rows=live, hist_rows=hist, closed_months=["2025-01"])
+    # AUTO retombe sur classeurs pour tout (clôtures ET live/hist, car reservations_calculees
+    # est aussi absente de cette base) : comportement inchangé, non cassant.
+    _run(script, extra_argv=["--db", str(db_path), "--source", "AUTO", "--sans-sqlite"])
+    master, vue = _read_master(tmp_path)
+    assert len(master) == 2
+    assert next(r for r in master if r["reservation_calc_id"] == "RES-1")["etat_mois"] == "CLOTURE"

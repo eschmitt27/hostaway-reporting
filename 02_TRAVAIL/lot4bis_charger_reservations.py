@@ -6,9 +6,16 @@ Sources Hostaway (réservations, payouts, payloads) :
   - SQLite : hostaway_reservations / hostaway_payouts, extraction courante  ← chemin normal
   - Excel  : MASTER_FACT_HA_*.xlsx                                          ← parité legacy
 
-Sources non encore migrées :
-  - MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx (02_TRAVAIL/Lot4_ReservationsHH/)
-  - REF_Setup.xlsm                     (01_SOURCES_BRUTES/REF_Setup/)
+Référentiels et réservations hors Hostaway (mission 14e — même patron que Hostaway ci-dessus) :
+  - SQLite : ref_mapping_logements / ref_logements / ref_gestion_logements_hist
+             (migration 0029, alimentées une fois par `ref_setup_import_service.py`) et
+             reservations_hors_hostaway (écrite par l'application, `/reservations/nouvelle`)
+                                                                            ← chemin normal
+  - Excel  : REF_Setup.xlsm + MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx
+                                                                            ← parité legacy
+  Le moteur S1-S7 ci-dessous reste RIGOUREUSEMENT INCHANGÉ : les fonctions `charger_*_sqlite()`
+  rendent exactement la même forme (liste de dict, mêmes clés) que `load_sheet()`/`rows_to_dicts()`
+  côté Excel — seule la provenance des lignes change, jamais leur vocabulaire ni leur traitement.
 
 Cibles :
   - SQLite : reservations_calculees, sous un dataset identifié          ← chemin normal
@@ -283,6 +290,142 @@ def charger_hostaway(source, chemin_base):
     return charger_hostaway_excel()
 
 
+# ── Référentiels et réservations hors Hostaway — SQLite (mission 14e) ──────────────────────────
+#
+# Colonnes lues telles quelles depuis les tables du référentiel (migration 0029) : les noms de
+# colonnes SQLite correspondent déjà au vocabulaire attendu par le moteur (`source`,
+# `champ_source`, `valeur_source`, `logement_id`, `actif` pour le mapping ; `logement_id`,
+# `proprietaire_id`, `date_debut`, `date_fin`, `statut_gestion` pour la gestion historisée ;
+# `statut_parc` pour les logements) — aucune traduction n'est nécessaire pour ces trois-là.
+_COLS_MAP_SQL = ("source", "champ_source", "valeur_source", "logement_id", "actif")
+_COLS_LOG_SQL = ("logement_id", "statut_parc", "actif")
+_COLS_GEST_SQL = ("gestion_id", "logement_id", "proprietaire_id", "date_debut", "date_fin",
+                 "statut_gestion")
+
+# `reservations_hors_hostaway` a été conçue avec le même vocabulaire que le classeur HH legacy
+# (mission Ménages/HH antérieure) — seules `guest_count`/`montant_percu` diffèrent du nom moteur
+# (`guestCount`/`total_percu`), comme pour Hostaway ci-dessus.
+_COLS_HH_SQL = (
+    "reservation_hh_id", "mois", "canal_id", "proprietaire_id", "logement_id",
+    "reservation_id_hostaway", "date_arrivee", "date_depart", "nuits", "guest_count",
+    "montant_percu", "montant_retenu", "code_impact", "impact_resultat_reel",
+    "impact_resultat_comptable", "statut_controle", "niveau_anomalie", "code_anomalie",
+    "commentaire", "statut")
+_VERS_MOTEUR_HH = {"guest_count": "guestCount", "montant_percu": "total_percu"}
+
+
+def charger_ref_sqlite(chemin_base):
+    """(map_dicts, log_dicts, gest_dicts) depuis les référentiels SQLite (migration 0029).
+
+    None si la base est inutilisable ou si le référentiel n'a jamais été importé (tables absentes
+    ou vides) — ces trois tables sont indissociables pour `resolve_logement()`, donc vérifiées et
+    rendues ensemble. Un référentiel jamais importé est un état LÉGITIME avant bootstrap (base 0016
+    par exemple) : ce n'est pas une erreur de lecture, juste une source pas encore disponible.
+    """
+    conn, message = dbm.verifier(
+        chemin_base, ("ref_mapping_logements", "ref_logements", "ref_gestion_logements_hist"))
+    if conn is None:
+        return None, message
+    try:
+        n_map = conn.execute("SELECT COUNT(*) FROM ref_mapping_logements").fetchone()[0]
+        if n_map == 0:
+            return None, "ref_mapping_logements vide — référentiel jamais importé (bootstrap requis)"
+        map_dicts = dbm.lignes(conn, "ref_mapping_logements", _COLS_MAP_SQL,
+                               ordre="mapping_logement_id")
+        # `valeur_source` porte un listingMapId Hostaway quand source=Hostaway — même
+        # normalisation de type que `_traduire()` applique à `res["listingMapId"]`
+        # (`IDS_HOSTAWAY`) : sans elle, une valeur numérique stockée en TEXT ('480136') ne
+        # correspondrait jamais à l'entier obtenu côté Hostaway, et RESOUDRE_LOGEMENT échouerait
+        # à tort avec LOGEMENT_NON_MAPPE — trouvé par la preuve A/B (mission 14e).
+        for r in map_dicts:
+            r["valeur_source"] = dbm.entier_si_possible(r["valeur_source"])
+        log_dicts = dbm.lignes(conn, "ref_logements", _COLS_LOG_SQL, ordre="logement_id")
+        gest_dicts = dbm.lignes(conn, "ref_gestion_logements_hist", _COLS_GEST_SQL,
+                                ordre="gestion_id")
+    finally:
+        conn.close()
+    return (map_dicts, log_dicts, gest_dicts), (
+        "%s (%d mappings, %d logements, %d gestions historisées)"
+        % (message, len(map_dicts), len(log_dicts), len(gest_dicts)))
+
+
+def charger_ref_excel():
+    h_map, d_map = load_sheet(PATH_REF, "REF_Mapping_Logements")
+    h_log, d_log = load_sheet(PATH_REF, "REF_Logements")
+    h_gest, d_gest = load_optional_sheet(PATH_REF, REF_GESTION_LOGEMENTS_HIST_SHEET)
+    map_dicts = rows_to_dicts(h_map, d_map)
+    log_dicts = rows_to_dicts(h_log, d_log)
+    gest_dicts = rows_to_dicts(h_gest, d_gest) if h_gest else []
+    gest_dicts = [r for r in gest_dicts
+                 if r.get("gestion_id") is not None and str(r.get("gestion_id")) != "gestion_id"]
+    return map_dicts, log_dicts, gest_dicts
+
+
+def charger_ref(source, chemin_base):
+    """Référentiels (mapping/logements/gestion) selon la source demandée — même contrat que
+    `charger_hostaway()` : SQLITE explicite refuse plutôt que de se rabattre silencieusement."""
+    if source == SOURCE_SQLITE:
+        jeu, message = charger_ref_sqlite(chemin_base)
+        if jeu is None:
+            abort("référentiel SQLite demandé mais inutilisable : %s" % message)
+        print("      référentiels : SQLite — %s" % message)
+        return jeu
+    if source == SOURCE_EXCEL:
+        print("      référentiels : REF_Setup.xlsm (parité legacy)")
+        return charger_ref_excel()
+
+    jeu, message = charger_ref_sqlite(chemin_base)
+    if jeu is not None:
+        print("      référentiels : SQLite — %s" % message)
+        return jeu
+    print("      référentiels : REF_Setup.xlsm — SQLite indisponible (%s)" % message)
+    return charger_ref_excel()
+
+
+def charger_hh_sqlite(chemin_base):
+    """Lignes hors Hostaway depuis `reservations_hors_hostaway` (écrite par l'application).
+
+    None si la table est absente. Contrairement au référentiel, une table VIDE reste utilisable
+    (aucune réservation HH saisie n'est un état normal, pas un défaut de bootstrap) — `main()`
+    applique de toute façon son propre filtre `statut_controle == VALIDE` ensuite.
+    """
+    conn, message = dbm.verifier(chemin_base, ("reservations_hors_hostaway",))
+    if conn is None:
+        return None, message
+    try:
+        lignes = [_traduire(r, _VERS_MOTEUR_HH) for r in dbm.lignes(
+            conn, "reservations_hors_hostaway", _COLS_HH_SQL,
+            ou="statut = 'ACTIVE'", ordre="id")]
+    finally:
+        conn.close()
+    return lignes, "%s (%d lignes ACTIVE)" % (message, len(lignes))
+
+
+def charger_hh_excel():
+    h_hh, d_hh = load_sheet(PATH_HH_FACT, "MASTER")
+    return rows_to_dicts(h_hh, d_hh)
+
+
+def charger_hh(source, chemin_base):
+    """Réservations hors Hostaway selon la source demandée — même contrat que `charger_hostaway()`."""
+    if source == SOURCE_SQLITE:
+        jeu, message = charger_hh_sqlite(chemin_base)
+        if jeu is None:
+            abort("réservations HH SQLite demandées mais indisponibles : %s" % message)
+        print("      HH : SQLite — %s" % message)
+        return jeu
+    if source == SOURCE_EXCEL:
+        print("      HH : MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx (parité legacy)")
+        return charger_hh_excel()
+
+    jeu, message = charger_hh_sqlite(chemin_base)
+    if jeu is not None:
+        print("      HH : SQLite — %s" % message)
+        return jeu
+    print("      HH : classeur legacy — SQLite indisponible (%s)" % message)
+    return charger_hh_excel()
+
+
 def ecrire_sqlite(chemin_base, master_rows, extraction_id=""):
     """Ecrit les lignes calculees dans un nouveau dataset. Une transaction.
 
@@ -338,9 +481,8 @@ def main(argv=None):
     print(f"      {len(res_dicts)} reservations, {len(pay_dicts)} payouts")
     print(f"      {len(guest_by_reservation_id)} guestCount disponibles depuis les payloads")
 
-    print("[3/5] Lecture MASTER_FACT_MAN_ReservationsHorsHostaway...")
-    h_hh, d_hh = load_sheet(PATH_HH_FACT, "MASTER")
-    hh_dicts_raw = rows_to_dicts(h_hh, d_hh)
+    print("[3/5] Lecture des réservations hors Hostaway...")
+    hh_dicts_raw = charger_hh(args.source_hostaway, chemin_base)
     # Filtre : uniquement les lignes VALIDE (D053 — RESERVATION_HH_NON_VALIDE)
     hh_valides = [r for r in hh_dicts_raw
                   if r.get("statut_controle") == "VALIDE"
@@ -349,17 +491,8 @@ def main(argv=None):
     hh_non_valides = len(hh_dicts_raw) - len(hh_valides)
     print(f"      {len(hh_dicts_raw)} lignes brutes, {len(hh_valides)} VALIDE retenues")
 
-    print("[4/5] Lecture REF_Setup (Mapping + Logements)...")
-    h_map, d_map = load_sheet(PATH_REF, "REF_Mapping_Logements")
-    h_log, d_log = load_sheet(PATH_REF, "REF_Logements")
-    h_gest, d_gest = load_optional_sheet(PATH_REF, REF_GESTION_LOGEMENTS_HIST_SHEET)
-    map_dicts = rows_to_dicts(h_map, d_map)
-    log_dicts  = rows_to_dicts(h_log, d_log)
-    gest_dicts = rows_to_dicts(h_gest, d_gest) if h_gest else []
-    gest_dicts = [
-        r for r in gest_dicts
-        if r.get("gestion_id") is not None and str(r.get("gestion_id")) != "gestion_id"
-    ]
+    print("[4/5] Lecture des référentiels (mapping + logements + gestion historisée)...")
+    map_dicts, log_dicts, gest_dicts = charger_ref(args.source_hostaway, chemin_base)
     print(f"      {len(map_dicts)} mappings, {len(log_dicts)} logements, {len(gest_dicts)} gestions historisees")
 
     # Index mapping : listingMapId → logement_id (Hostaway, actif=OUI)

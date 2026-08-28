@@ -265,15 +265,21 @@ def main(argv=None):
     args = _analyser_arguments(argv)
     chemin_base = dbm.chemin_db(args.db)
 
-    # Mission 14d : REF_Setup.xlsm ne doit plus être lu au runtime une fois le référentiel
-    # importé en SQLite. `ref_cloture_mensuelle` prime dès qu'elle est utilisable ; le classeur
-    # ne reste un repli que pour la parité legacy explicite (--source EXCEL) ou une base pas
-    # encore bootstrappée (jamais un silence : la raison est toujours affichée).
+    # Mission 14d/14e : REF_Setup.xlsm ne doit plus être lu au runtime une fois le référentiel
+    # importé en SQLite. `ref_cloture_mensuelle` prime dès qu'elle est utilisable. Chemin
+    # CANONIQUE (--source SQLITE, celui de "Actualiser toute l'activité") : plus de repli
+    # silencieux — table absente/vide = échec explicite, jamais une lecture Excel surprise.
+    # Le classeur ne reste un repli TOLÉRÉ que pour --source AUTO (compatibilité d'appel en
+    # ligne de commande, jamais le chemin emprunté par l'orchestrateur) ou --source EXCEL
+    # (parité legacy assumée).
     cmonths = None
     if args.source in (dbm.SOURCE_SQLITE, dbm.SOURCE_AUTO):
         cmonths, message_cmonths = closed_months_sqlite(chemin_base)
         if cmonths is not None:
             print(f"[lot4quater] clôtures : SQLite — {message_cmonths}")
+        elif args.source == dbm.SOURCE_SQLITE:
+            print(f"[BLOQUANT] clôtures SQLite demandées mais indisponibles : {message_cmonths}")
+            sys.exit(1)
     if cmonths is None:
         cmonths = closed_months()
         print("[lot4quater] clôtures : REF_Setup.xlsm (repli — table ref_cloture_mensuelle "
