@@ -209,6 +209,74 @@ def cout_menage_standard():
     return lookup
 
 
+def closed_months_sqlite(chemin_base):
+    """Mois CLOTURE depuis SQLite `ref_cloture_mensuelle` — mission 14g : `closed_months()`
+    (Excel) restait lue INCONDITIONNELLEMENT, y compris avec `--source SQLITE --sans-excel` (seule
+    la donnée VIVANTE des réservations basculait réellement). Découvert en auditant l'historique
+    avant tout run réel — même classe de gap que le Lot10 SQLite direct (mission 14f).
+    None si la base est inutilisable (jamais une exception ni un mois inventé)."""
+    conn, message = dbm.verifier(chemin_base, ("ref_cloture_mensuelle",))
+    if conn is None:
+        return None, message
+    try:
+        rows = dbm.lignes(conn, "ref_cloture_mensuelle", ("mois", "statut_mois"), ordre="mois")
+    finally:
+        conn.close()
+    out = {str(r["mois"])[:7] for r in rows
+          if str(r.get("statut_mois") or "").strip().upper() == "CLOTURE" and r.get("mois")}
+    return out, f"{len(out)} mois clôturés ({message})"
+
+
+def cout_menage_standard_sqlite(chemin_base):
+    """Équivalent SQLite de `cout_menage_standard()` — même logique de validité par date
+    (`date_ref` de la réservation, jamais la date du jour), lue depuis `ref_logements` +
+    `ref_couts_standards_menage` au lieu de `REF_Setup.xlsm`. Utilisée uniquement par le backfill
+    VRBO ponctuel (`build_vrbo_backfill`), lui-même conditionné à la présence d'un CSV
+    `IMPORT_UNIQUE_Revenus_*.csv` — narrow, mais doit rester cohérente avec le reste du run."""
+    conn, message = dbm.verifier(chemin_base, ("ref_logements", "ref_couts_standards_menage"))
+    if conn is None:
+        return None, message
+    try:
+        logs = {r["logement_id"]: r for r in dbm.lignes(
+            conn, "ref_logements", ("logement_id", "type_logement_id"), ordre="logement_id")}
+        couts = [r for r in dbm.lignes(
+            conn, "ref_couts_standards_menage",
+            ("type_logement_id", "cout_standard_menage", "date_debut_validite",
+             "date_fin_validite", "actif"), ordre="cout_standard_id")
+            if r.get("type_logement_id")]
+    finally:
+        conn.close()
+
+    def to_d(v):
+        if isinstance(v, (datetime.date, datetime.datetime)):
+            return v.date() if isinstance(v, datetime.datetime) else v
+        try:
+            return datetime.date.fromisoformat(str(v)[:10])
+        except (ValueError, TypeError):
+            return None
+
+    def lookup(logement_id, date_ref):
+        lg = logs.get(logement_id)
+        if not lg:
+            return None
+        type_id = lg.get("type_logement_id")
+        dref = to_d(date_ref) or datetime.date.today()
+        best = None
+        for c in couts:
+            if c.get("type_logement_id") != type_id or str(c.get("actif")) != "OUI":
+                continue
+            deb = to_d(c.get("date_debut_validite"))
+            fin = to_d(c.get("date_fin_validite"))
+            if deb and dref < deb:
+                continue
+            if fin and dref > fin:
+                continue
+            valeur = c.get("cout_standard_menage")
+            best = float(valeur) if valeur is not None else None
+        return best
+    return lookup, message
+
+
 def build_vrbo_backfill():
     """reservation_id Hostaway -> net VRBO (csv), via logement + check-in + prénom.
     Réconcilie contre les lignes VRBO de lot4bis MASTER."""
@@ -294,10 +362,17 @@ def charger_live_sqlite(chemin_base):
 
 
 def charger_existant_sqlite(chemin_base):
-    """Lignes deja figees, indexees par cle d'historisation. ({}, message) si base inutilisable."""
+    """Lignes deja figees, indexees par cle d'historisation.
+
+    Distingue explicitement (None, message) — base/table INUTILISABLE, seul cas legitime de repli
+    classeur — de ({}, message) — table presente mais VIDE (premier archivage, un etat reel tres
+    frequent). Confondre les deux (mission 14g : bug trouve en auditant lot4ter avant tout run
+    reel) faisait qu'un premier archivage sur SQLite tombait dans le repli `os.path.exists(OUT_FILE)`
+    et fusionnait silencieusement un classeur de parite legacy partage, meme avec --sans-excel.
+    """
     conn, message = dbm.verifier(chemin_base, ("reservations_historique_cloture",))
     if conn is None:
-        return {}, message
+        return None, message
     try:
         lignes = [_traduire(r, {v: k for k, v in _HIST_DEPUIS_MOTEUR.items()})
                   for r in dbm.lignes(conn, "reservations_historique_cloture", _COLS_HIST_SQL,
@@ -368,8 +443,22 @@ def main(argv=None):
     args = _analyser_arguments(argv)
     chemin_base = dbm.chemin_db(args.db)
 
-    cmonths = closed_months()
-    print(f"[lot4ter] mois CLOTURE (REF_Cloture_Mensuelle) : {sorted(cmonths) or 'AUCUN'}")
+    # Mission 14g : `closed_months()`/`cout_menage_standard()` (Excel) restaient lues
+    # inconditionnellement — le comportement cible canonique est le même que lot4quater : SQLite
+    # disponible et valide -> SQLite ; sinon, fail-closed si `--source SQLITE` explicite, repli
+    # Excel silencieux uniquement en mode AUTO/legacy.
+    cmonths = None
+    if args.source in (dbm.SOURCE_SQLITE, dbm.SOURCE_AUTO):
+        cmonths, message_cm = closed_months_sqlite(chemin_base)
+        if cmonths is not None:
+            print(f"[lot4ter] mois CLOTURE (SQLite ref_cloture_mensuelle) : "
+                  f"{sorted(cmonths) or 'AUCUN'} — {message_cm}")
+        elif args.source == dbm.SOURCE_SQLITE:
+            print(f"[BLOQUANT] clotures SQLite demandees mais indisponibles : {message_cm}")
+            sys.exit(1)
+    if cmonths is None:
+        cmonths = closed_months()
+        print(f"[lot4ter] mois CLOTURE (REF_Setup.xlsm — repli) : {sorted(cmonths) or 'AUCUN'}")
 
     jeu = None
     if args.source in (dbm.SOURCE_SQLITE, dbm.SOURCE_AUTO):
@@ -385,7 +474,19 @@ def main(argv=None):
         pay = {r["reservation_id"]: r for r in load_sheet(PATH_PAY, "data")}
     else:
         res, pay = jeu
-    cout_men = cout_menage_standard()
+
+    cout_men = None
+    if args.source in (dbm.SOURCE_SQLITE, dbm.SOURCE_AUTO):
+        cout_men, message_cm2 = cout_menage_standard_sqlite(chemin_base)
+        if cout_men is not None:
+            print(f"      couts standards menage : SQLite — {message_cm2}")
+        elif args.source == dbm.SOURCE_SQLITE:
+            print(f"[BLOQUANT] couts standards menage SQLite demandes mais indisponibles : "
+                  f"{message_cm2}")
+            sys.exit(1)
+    if cout_men is None:
+        cout_men = cout_menage_standard()
+        print("      couts standards menage : REF_Setup.xlsm (repli)")
     vrbo = build_vrbo_backfill()
 
     # Réconciliation backfill VRBO -> reservation_id : par (logement_id + check-in).
@@ -408,12 +509,16 @@ def main(argv=None):
     # elle qui porte desormais les lignes figees, et lire le classeur ferait ressusciter un etat
     # anterieur si les deux avaient divergé.
     existing = {}
-    figees_sqlite = {}
+    figees_sqlite = None
     if not args.sans_sqlite:
         figees_sqlite, message_existant = charger_existant_sqlite(chemin_base)
         if figees_sqlite:
             print(f"      deja figees en base : {len(figees_sqlite)} ({message_existant})")
-    if figees_sqlite:
+        elif figees_sqlite is not None:
+            print(f"      deja figees en base : 0 (premier archivage — {message_existant})")
+    if figees_sqlite is not None:
+        # Table SQLite utilisable (meme vide) : elle fait foi, jamais de repli classeur —
+        # confondre "vide" et "inutilisable" ressuscitait un classeur legacy partage (mission 14g).
         existing = {cle: [l.get(c) for c in COLS] for cle, l in figees_sqlite.items()}
     elif os.path.exists(OUT_FILE):
         for d in load_sheet(OUT_FILE, SHEET):
@@ -483,7 +588,7 @@ def main(argv=None):
         # Confondre les deux ferait qu'un premier passage, base vide et classeur rempli, traiterait
         # les 1 269 lignes historiques comme deja figees et n'archiverait rien : l'historique ne
         # migrerait jamais, et la base resterait vide en donnant l'impression d'etre a jour.
-        archive_id, message = ecrire_sqlite(chemin_base, par_cle, figees_sqlite, cmonths)
+        archive_id, message = ecrire_sqlite(chemin_base, par_cle, figees_sqlite or {}, cmonths)
         if archive_id is None:
             print(f"[BLOQUANT] ecriture SQLite impossible : {message}")
             sys.exit(1)

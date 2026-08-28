@@ -308,6 +308,27 @@ def charger_taux_commission_sqlite(chemin_base) -> pd.DataFrame:
     return _charger_table_sqlite(chemin_base, "ref_taux_commission", _TAUX_COLS_SQL, vide_ok=True)
 
 
+_CHARGES_COLS_SQL = (
+    "charge_id", "date_charge", "mois", "montant", "sens_flux", "sens", "categorie_charge_id",
+    "filtre_vue_menage", "type_flux_id", "code_impact", "impact_resultat_reel",
+    "impact_resultat_comptable", "prise_en_compta", "associe_id", "mode_paiement_id", "carte_id",
+    "affectation_type", "logement_id", "proprietaire_id", "reservation_id", "refacturable",
+    "source_flux", "methode_traitement", "paye_avec_montant_recupere", "lien_virement_banque",
+    "statut_controle", "niveau_anomalie", "code_anomalie", "statut_rapprochement", "justificatif",
+    "commentaire",
+)
+
+
+def charger_charges_sqlite(chemin_base) -> pd.DataFrame:
+    """`charges` (migration 0052) — mission 14g : `df_charges` restait lu inconditionnellement
+    depuis `MASTER_FACT_MAN_Charges.xlsx`, y compris en mode SQLITE, alors que la table `charges`
+    est déjà la source canonique de Lot9 (`app.readers.charges_reader`, jamais un classeur). Mêmes
+    noms de colonnes que le MASTER historique (le reader applicatif ne les a pas changés), donc
+    aucune adaptation en aval (`aggregate_refacturable_charges`, `build_net_proprietaire`). Vide
+    accepté : aucune charge sur la période est un état réel."""
+    return _charger_table_sqlite(chemin_base, "charges", _CHARGES_COLS_SQL, vide_ok=True)
+
+
 def charger_gestion_sqlite(chemin_base) -> pd.DataFrame:
     """`REF_Gestion_Logements_Hist` depuis SQLite — vide accepté (mêmes garanties que la version
     Excel via `_read_optional_sheet`)."""
@@ -560,13 +581,15 @@ def load_sources(source="EXCEL", chemin_base=None):
             conn_regles.close()
 
     # Sources HH + Acomptes (lecture seule, hors placeholder Power Query)
-    # CHARGES (Lot3)/Acomptes (Lot5)/Imputations Airbnb restent une frontière Excel minimale à ce
-    # jour (même limite documentée que FLUX_LOT9 dans le DAG) — seule la HH est reconnectée ici,
-    # elle seule est dans le périmètre RESERVATIONS/MENAGES de cette mission.
+    # Acomptes (Lot5)/Imputations Airbnb restent une frontière Excel minimale à ce jour — hors
+    # périmètre RESERVATIONS/MENAGES/CHARGES de cette mission. CHARGES a sa propre table SQLite
+    # (0052, déjà canonique pour Lot9) : reconnectée ici mission 14g (voir charger_charges_sqlite).
     df_hh = (charger_hh_sqlite(chemin_base) if source == "SQLITE"
             else (_read_sheet(HH_FILE, sheet="MASTER") if HH_FILE.exists() else pd.DataFrame()))
     df_acc = _read_sheet(ACC_FILE, sheet="MASTER") if ACC_FILE.exists() else pd.DataFrame()
-    df_charges = _read_sheet(CHARGES_FILE, sheet="MASTER") if CHARGES_FILE.exists() else pd.DataFrame()
+    df_charges = (charger_charges_sqlite(chemin_base) if source == "SQLITE"
+                 else (_read_sheet(CHARGES_FILE, sheet="MASTER") if CHARGES_FILE.exists()
+                       else pd.DataFrame()))
     df_airbnb_imp = _read_sheet(AIRBNB_IMPUT_FILE, sheet="MASTER") if AIRBNB_IMPUT_FILE.exists() else pd.DataFrame()
     if len(df_hh) > 0 and "reservation_hh_id" in df_hh.columns:
         df_hh = df_hh[~df_hh["reservation_hh_id"].map(_is_placeholder_id)].reset_index(drop=True)
