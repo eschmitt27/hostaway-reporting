@@ -89,6 +89,12 @@ def test_actualisation_globale_sur_base_neuve_ne_plante_pas(base_neuve, monkeypa
         return vrai_appel(chemin, db_path)
 
     monkeypatch.setattr(orch, "_appeler_service", appel)
+    # Mission 14b : `_amonts_en_echec` bloque désormais tout `CALCUL_SQLITE` jamais produit —
+    # RESERVATIONS/MENAGES n'ont encore aucun service branché (cf. orchestrateur_dag.py). Ce test
+    # prouve l'amorçage de FLUX_LOT9 et de l'aval, pas le pont RESERVATIONS/MENAGES (hors périmètre
+    # ici) : on les marque à jour explicitement pour isoler ce que ce test vérifie réellement.
+    orch.marquer_dataset(dag.RESERVATIONS, orch.ST_A_JOUR, run_id="SEED-TEST", db_path=base_neuve)
+    orch.marquer_dataset(dag.MENAGES, orch.ST_A_JOUR, run_id="SEED-TEST", db_path=base_neuve)
     res = orch.actualiser(db_path=base_neuve)
     assert res["statut"] in (orch.RUN_SUCCES, orch.RUN_PARTIEL), res
     etats = {d["dataset"]: d["statut"] for d in res["datasets"]}

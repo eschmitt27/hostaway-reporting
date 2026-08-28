@@ -38,15 +38,13 @@ def test_commande_construite_porte_sans_excel(monkeypatch, tmp_path):
     le garder."""
     captes = {}
 
-    class FauxProcCompleted:
-        returncode = 0
-        stdout = ""
-        stderr = ""
-        pid = 4242
-
     def faux_run(commande, **kwargs):
         captes["commande"] = commande
-        return FauxProcCompleted()
+        # Un vrai `subprocess.CompletedProcess` — mission 14b : la stub précédente avait un `.pid`
+        # que `CompletedProcess` n'a jamais réellement, ce qui masquait le bug `.pid` trouvé lors
+        # du premier run réel (AttributeError APRÈS le succès de l'extraction).
+        import subprocess as _sp
+        return _sp.CompletedProcess(args=commande, returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(svc, "actualisation_en_cours", lambda **k: None)
     monkeypatch.setattr(svc, "_interpreteur", lambda: "python")
@@ -85,3 +83,16 @@ def test_lot1_cleaning_tasks_et_anomalies_sous_le_meme_garde_sans_excel():
     avant_garde = bloc[:garde_idx]
     assert "write_excel(" not in avant_garde, (
         "un write_excel() apparaît avant le garde --sans-excel dans le bloc CleaningTasks/Anomalies")
+
+
+def test_master_run_log_nest_plus_ecrit_automatiquement():
+    """Mission 14b — le premier run réel a modifié `MASTER_RUN_Log.xlsx` malgré `--sans-excel`
+    (il n'était protégé par aucun garde). `RunJournal` (lib_run_journal.py) écrit déjà
+    `_runs/RUN-*.json` de façon incrémentale à chaque étape — cette trace survit un run interrompu
+    tout autant que le faisait MASTER_RUN_Log, et `moteur_runs`/`hostaway_extractions` (SQLite)
+    couvrent l'historique. Le classeur est donc retiré du chemin canonique."""
+    racine = Path(__file__).resolve().parent.parent.parent
+    lot1 = racine / "02_TRAVAIL" / "lot1_hostaway_extract.py"
+    source = lot1.read_text(encoding="utf-8")
+    assert 'write_excel(df_log, OUT_DIR / "MASTER_RUN_Log.xlsx")' not in source, (
+        "MASTER_RUN_Log.xlsx ne doit plus être écrit par lot1_hostaway_extract.py")

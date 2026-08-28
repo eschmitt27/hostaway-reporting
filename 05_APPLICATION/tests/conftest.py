@@ -63,6 +63,21 @@ def tmp_db(tmp_path):
 
 
 @pytest.fixture
+def amonts_calcul_ok(tmp_db):
+    """Marque RESERVATIONS/MENAGES comme `ST_A_JOUR` sur `tmp_db` (mission 14b —
+    `_amonts_en_echec` bloque désormais tout `CALCUL_SQLITE` jamais produit, cf.
+    `orchestrateur_service.py`). À demander dans les tests qui exercent le comportement de
+    l'orchestrateur EN AVAL de `FLUX_LOT9` (rollback, verrous, reprise, propagation d'erreur) sans
+    vouloir tester la fraîcheur amont elle-même — sinon ils seraient tous bloqués par un amont
+    jamais calculé, ce qui n'est pas leur sujet."""
+    from app.services import orchestrateur_dag as dag
+    from app.services import orchestrateur_service as orch
+    for dataset in (dag.RESERVATIONS, dag.MENAGES):
+        orch.marquer_dataset(dataset, orch.ST_A_JOUR, run_id="SEED-TEST", db_path=tmp_db)
+    return tmp_db
+
+
+@pytest.fixture
 def tmp_snapshot_dir(tmp_path):
     """Répertoire snapshots temporaire."""
     d = tmp_path / "snapshots"

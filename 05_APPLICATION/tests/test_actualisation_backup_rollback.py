@@ -38,7 +38,8 @@ def test_actualisation_ciblee_ne_prend_pas_de_sauvegarde(tmp_db, monkeypatch):
     assert res["history_run_id"] is None
 
 
-def test_actualisation_globale_journalise_dans_run_history(tmp_db, monkeypatch):
+def test_actualisation_globale_journalise_dans_run_history(amonts_calcul_ok, monkeypatch):
+    tmp_db = amonts_calcul_ok
     monkeypatch.setattr(orch, "_appeler_service", _appeler_service_ok)
     res = orch.actualiser(db_path=tmp_db)
     entree = next(r for r in history.derniers(db_path=tmp_db)
@@ -72,11 +73,18 @@ def test_integrite_echouee_apres_run_declenche_rollback_automatique(tmp_db, monk
     assert entree["statut"] == "ROLLED_BACK"
 
 
-def test_echec_partiel_ne_declenche_pas_de_rollback(tmp_db, monkeypatch):
+def test_echec_partiel_ne_declenche_pas_de_rollback(amonts_calcul_ok, monkeypatch):
     """Un dataset en échec (PARTIEL) n'est pas une panne critique : pas de restauration, les
-    données précédentes valides restent en place par construction."""
+    données précédentes valides restent en place par construction.
+
+    Échec placé sur `lot10` plutôt que `flux_unifie` (mission 14b) : `FLUX_LOT9` doit RÉUSSIR
+    pour que le run compte un succès réel — sinon rien ne réussit jamais dans un `cibles=None`
+    et le run est ECHEC (total), pas PARTIEL (mixte), ce qui n'est plus le scénario testé ici.
+    """
+    tmp_db = amonts_calcul_ok
+
     def service_mixte(chemin, db_path):
-        if "flux_unifie" in chemin:
+        if "lot10" in chemin:
             return {"ok": False, "code": "E_TEST", "message": "échec simulé"}
         return {"ok": True}
 
@@ -105,8 +113,9 @@ def test_dry_run_ne_modifie_aucun_dataset(tmp_db, monkeypatch):
     assert all(e["statut"] == "IGNOREE" for e in res["etapes"])
 
 
-def test_dry_run_montre_le_plan_reel(tmp_db, monkeypatch):
+def test_dry_run_montre_le_plan_reel(amonts_calcul_ok, monkeypatch):
     """Le dry-run doit distinguer ce qui SERAIT exécuté de ce qui SERAIT ignoré."""
+    tmp_db = amonts_calcul_ok
     monkeypatch.setattr(orch, "_appeler_service", _appeler_service_ok)
     res = orch.actualiser(db_path=tmp_db, dry_run=True)
     flux = next(e for e in res["etapes"] if e["dataset"] == dag.FLUX_LOT9)

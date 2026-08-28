@@ -89,7 +89,8 @@ def test_exports_jamais_invalides_automatiquement(tmp_db):
 
 # ── Exécution ciblée (§29) ──────────────────────────────────────────────────
 
-def test_actualisation_ciblee_traite_la_cible_et_ses_descendants(tmp_db, monkeypatch):
+def test_actualisation_ciblee_traite_la_cible_et_ses_descendants(amonts_calcul_ok, monkeypatch):
+    tmp_db = amonts_calcul_ok
     appels: list[str] = []
 
     def faux_service(chemin, db_path):
@@ -110,7 +111,10 @@ def test_actualisation_ciblee_dataset_inconnu_refuse(tmp_db):
 
 # ── Atomicité et PARTIEL (§30.5/§35) ────────────────────────────────────────
 
-def test_echec_intermediaire_rend_le_run_partiel_sans_corrompre_lamont(tmp_db, monkeypatch):
+def test_echec_intermediaire_rend_le_run_partiel_sans_corrompre_lamont(amonts_calcul_ok,
+                                                                       monkeypatch):
+    tmp_db = amonts_calcul_ok
+
     def faux_service(chemin, db_path):
         if "lot12" in chemin:
             return {"ok": False, "code": "PANNE", "message": "panne simulée"}
@@ -124,8 +128,10 @@ def test_echec_intermediaire_rend_le_run_partiel_sans_corrompre_lamont(tmp_db, m
     assert etats[dag.LOT12] == orch.ST_ECHEC
 
 
-def test_dataset_dont_lamont_a_echoue_nest_pas_calcule(tmp_db, monkeypatch):
+def test_dataset_dont_lamont_a_echoue_nest_pas_calcule(amonts_calcul_ok, monkeypatch):
     """§35 — jamais de calcul sur une entrée périmée présentée comme fraîche."""
+    tmp_db = amonts_calcul_ok
+
     def faux_service(chemin, db_path):
         if "lot10" in chemin or "orchestrateur_moteur" in chemin:
             return {"ok": False, "code": "PANNE", "message": "Lot10 en panne"}
@@ -139,8 +145,9 @@ def test_dataset_dont_lamont_a_echoue_nest_pas_calcule(tmp_db, monkeypatch):
     assert "Amont" in par_dataset[dag.LOT11]["motif"]
 
 
-def test_erreur_journalisee_avec_dataset_code_et_message(tmp_db, monkeypatch):
+def test_erreur_journalisee_avec_dataset_code_et_message(amonts_calcul_ok, monkeypatch):
     """§38 — jamais un simple « erreur de calcul »."""
+    tmp_db = amonts_calcul_ok
     monkeypatch.setattr(orch, "_appeler_service",
                         lambda chemin, db_path: {"ok": False, "code": "E_TEST",
                                                  "message": "cause précise"})
@@ -152,7 +159,9 @@ def test_erreur_journalisee_avec_dataset_code_et_message(tmp_db, monkeypatch):
     assert any(e["erreur"] and "cause précise" in e["erreur"] for e in etapes)
 
 
-def test_exception_devient_un_etat_lisible(tmp_db, monkeypatch):
+def test_exception_devient_un_etat_lisible(amonts_calcul_ok, monkeypatch):
+    tmp_db = amonts_calcul_ok
+
     def service_qui_leve(chemin, db_path):
         raise RuntimeError("boum")
 
@@ -222,7 +231,8 @@ def test_run_sans_verrou_actif_devient_interrompu(tmp_db):
     assert etats[dag.LOT10] == orch.ST_A_RECALCULER
 
 
-def test_un_nouveau_run_repart_apres_interruption(tmp_db, monkeypatch):
+def test_un_nouveau_run_repart_apres_interruption(amonts_calcul_ok, monkeypatch):
+    tmp_db = amonts_calcul_ok
     monkeypatch.setattr(orch, "_appeler_service", lambda chemin, db_path: {"ok": True})
     orch.actualiser(cibles=[dag.FLUX_LOT9], db_path=tmp_db)
     orch.marquer_runs_interrompus(db_path=tmp_db)

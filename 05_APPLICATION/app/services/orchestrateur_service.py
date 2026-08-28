@@ -341,9 +341,26 @@ def _cloturer_run(run_id: str, statut: str, nb_ok: int, nb_ko: int, resume: str,
 
 
 def _amonts_en_echec(dataset: str, etats: dict[str, str]) -> list[str]:
-    """Amonts qui empêchent de calculer `dataset` sans produire un résultat faux."""
-    return [a for a in dag.NOEUDS[dataset].depend_de
-            if etats.get(a) in (ST_ECHEC,)]
+    """Amonts qui empêchent de calculer `dataset` sans produire un résultat trompeur.
+
+    Mission 14b — le premier run réel a montré `FLUX_LOT9` déclaré `SUCCES` avec 0 ligne alors que
+    `RESERVATIONS` était bloqué par l'échec de `HOSTAWAY_RAW` : seul `ST_ECHEC` était bloquant ici,
+    pas `ST_A_RECALCULER` (l'état que prend justement un amont invalidé en cascade) ni `ST_JAMAIS`
+    pour un `CALCUL_SQLITE` qui n'a encore aucun service branché (`RESERVATIONS`/`MENAGES`
+    aujourd'hui). Un `IMPORT_SQLITE` jamais alimenté (ex. `BANQUE` sans relevé importé) reste un état
+    normal — l'orchestrateur ne fabrique jamais une donnée que personne ne lui a fournie — mais un
+    `CALCUL_SQLITE` jamais produit signifie que la couche économique elle-même n'existe pas encore :
+    le traiter comme un apport vide légitime serait exactement le résultat faux que ce garde-fou
+    doit empêcher.
+    """
+    bloquants = []
+    for a in dag.NOEUDS[dataset].depend_de:
+        statut = etats.get(a)
+        if statut in (ST_ECHEC, ST_A_RECALCULER):
+            bloquants.append(a)
+        elif statut == ST_JAMAIS and dag.NOEUDS[a].type_noeud == dag.TYPE_CALCUL:
+            bloquants.append(a)
+    return bloquants
 
 
 # ── Parcours principal ──────────────────────────────────────────────────────────────────────────

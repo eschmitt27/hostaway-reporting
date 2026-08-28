@@ -182,13 +182,19 @@ def actualiser(*, declencheur: str = DECLENCHEUR_MANUEL, arguments: tuple[str, .
 
     try:
         if attendre:
+            # `subprocess.run()` rend un `CompletedProcess` : contrairement à `Popen`, il n'expose
+            # aucun `.pid` (mission 14b — le lire ici a fait planter le tout premier run réel,
+            # APRÈS le succès effectif de l'extraction, en construisant seulement la valeur de
+            # retour). `pid` reste donc `None` sur ce chemin — jamais un PID inventé.
             proc = subprocess.run(commande, cwd=str(cfg.PROJECT_ROOT), env=env,
                                   capture_output=True, text=True, timeout=timeout_s)
             code = proc.returncode
+            pid = None
         else:
             proc = subprocess.Popen(commande, cwd=str(cfg.PROJECT_ROOT), env=env,
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             code = None
+            pid = proc.pid
     except Exception as exc:
         if history_run_id is not None:
             history.marquer_echec(history_run_id, erreur=f"{type(exc).__name__}: {exc}",
@@ -202,7 +208,7 @@ def actualiser(*, declencheur: str = DECLENCHEUR_MANUEL, arguments: tuple[str, .
         else:
             history.marquer_echec(history_run_id, erreur=f"code_retour={code}", db_path=db_path)
 
-    return {"ok": True, "lance_le": debut, "declencheur": declencheur, "pid": proc.pid,
+    return {"ok": True, "lance_le": debut, "declencheur": declencheur, "pid": pid,
             "code_retour": code, "attendu": attendre, "etat": etat(db_path=db_path),
             "history_run_id": history_run_id}
 

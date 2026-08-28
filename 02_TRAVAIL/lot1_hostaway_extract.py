@@ -7,7 +7,11 @@ Usage:
   python lot1_hostaway_extract.py --dry-run      # Auth + comptage, aucune écriture
   python lot1_hostaway_extract.py                # Extraction complète depuis 2026-01-01
 
-Sorties dans 02_TRAVAIL/Lot1_Hostaway/ :
+Sortie canonique : couche RAW SQLite (`hostaway_extractions`/`hostaway_reservations`/
+`hostaway_payouts`/`hostaway_listings`/`hostaway_anomalies`), toujours écrite. Journal de run
+incrémental : 02_TRAVAIL/Lot1_Hostaway/_runs/RUN-*.json (survit à un run interrompu).
+
+Sorties Excel LEGACY (parité, uniquement sans --sans-excel) dans 02_TRAVAIL/Lot1_Hostaway/ :
   MASTER_REF_HA_Listings.xlsx
   MASTER_FACT_HA_Reservations.xlsx
   MASTER_FACT_HA_ReservationDetails.xlsx
@@ -16,7 +20,8 @@ Sorties dans 02_TRAVAIL/Lot1_Hostaway/ :
   MASTER_CALC_HA_Payout.xlsx
   MASTER_CTRL_HA_Anomalies.xlsx
   MASTER_FACT_HA_CleaningTasks_Discovery.xlsx
-  MASTER_RUN_Log.xlsx
+(mission 14b : MASTER_RUN_Log.xlsx retiré du chemin canonique — redondant avec le journal JSON
+incrémental et les tables SQLite ci-dessus.)
 
 Sécurité : CLIENT_SECRET, access_token, Authorization header jamais loggés ni affichés.
 """
@@ -2000,53 +2005,17 @@ def main():
         statut_run = "FAILED"
 
     finally:
-        # ── MASTER_RUN_LOG — toujours écrit ──────────────────
-        run_end  = datetime.now(timezone.utc)
-        duree    = round((run_end - run_start).total_seconds(), 1)
-        anom_df  = detector.to_df()
-        nb_bloq  = detector.bloquants()
-        nb_actrl = detector.a_controler()
-        OUT_DIR.mkdir(parents=True, exist_ok=True)
-
-        df_log = pd.DataFrame([{
-            "run_id":                   run_id,
-            "date_extraction":          run_start.isoformat(),
-            "date_fin":                 run_end.isoformat(),
-            "duree_secondes":           duree,
-            "date_from":                DATE_FROM,
-            "details_mode":             details_mode,
-            "skip_cleaning_tasks":      str(skip_tasks),
-            "limit":                    limit or "none",
-            "nb_listings":              len(rows_listings),
-            "nb_reservations_total_api":total if not only_tasks else 0,
-            "nb_reservations_traitees": processed,
-            "nb_reservations_sautees":  skipped,
-            "nb_details_calls":         nb_details,
-            "pct_details":              f"{100*nb_details//max(processed,1)}%",
-            "nb_finance_fields":        len(rows_ff),
-            "nb_fees":                  len(rows_fees),
-            "nb_payout_calcules":       len(rows_payout),
-            "nb_payout_NORMAL":         len([r for r in rows_payout if r.get("statut_calcul_payout") == "NORMAL"]),
-            "nb_payout_INCOMPLET":      len([r for r in rows_payout if r.get("statut_calcul_payout") == "PAYOUT_INCOMPLET"]),
-            "nb_payout_ABSENT":         len([r for r in rows_payout if r.get("statut_calcul_payout") == "PAYOUT_ABSENT"]),
-            "nb_cleaning_tasks":        len(rows_tasks),
-            "tasks_statut":             tasks_statut,
-            "nb_anomalies_total":       len(anom_df),
-            "nb_anomalies_BLOQUANT":    nb_bloq,
-            "nb_anomalies_A_CONTROLER": nb_actrl,
-            "statut_run":               statut_run,
-            "lot1_validable":           "NON" if nb_bloq > 0 or statut_run == "FAILED"
-                                        else "OUI_sous_reserve_controle",
-            "commentaire":              f"Lot1 {details_mode} depuis {DATE_FROM}",
-        }])
-        try:
-            write_excel(df_log, OUT_DIR / "MASTER_RUN_Log.xlsx")
-        except Exception as e:
-            log.error(f"Impossible d'ecrire MASTER_RUN_Log : {e}")
+        # ── MASTER_RUN_LOG legacy — retiré du chemin canonique (mission 14b) ──
+        # Écrit inconditionnellement jusqu'ici, même avec --sans-excel — le premier run réel l'a
+        # modifié alors que la mission exige 0 écriture Excel automatique. Sa seule raison d'être
+        # documentée était de survivre à un run interrompu avant la dernière étape du journal
+        # SQLite/JSON — mais `RunJournal.etape()`/`_ecrire_json()` (lib_run_journal.py) écrivent
+        # déjà le fichier `_runs/RUN-*.json` de façon incrémentale, à CHAQUE étape, pas seulement à
+        # la fermeture : un run interrompu laisse donc déjà une trace non vide. `moteur_runs` et
+        # `hostaway_extractions` (SQLite) couvrent le reste (historique, statut, comptages).
+        # MASTER_RUN_Log.xlsx n'est donc plus nécessaire et n'est plus écrit automatiquement.
 
         # Cloture du journal : le statut global est DEDUIT des etapes, jamais affirme.
-        # MASTER_RUN_Log reste ecrit pour compatibilite, mais il n'est plus la seule trace :
-        # lui seul manquait totalement quand le run etait interrompu avant sa derniere etape.
         try:
             statut_journal = journal.fermer()
             log.info(f"Journal de run : {statut_journal}")
