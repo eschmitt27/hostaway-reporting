@@ -138,6 +138,25 @@ def closed_months():
     return out
 
 
+def closed_months_sqlite(chemin_base):
+    """Équivalent SQLite de `closed_months()` — mission 14d : REF_Setup.xlsm ne doit plus être lu
+    au runtime une fois le référentiel importé. `ref_cloture_mensuelle` (migration 0029, alimentée
+    par `ref_setup_import_service.py`) porte les mêmes colonnes `mois`/`statut_mois`. None si la
+    table n'existe pas encore (base non bootstrappée) — l'appelant retombe alors sur `closed_months()`
+    (classeur), jamais un ensemble vide silencieux qui ferait passer un mois clôturé pour ouvert.
+    """
+    conn, message = dbm.verifier(chemin_base, ("ref_cloture_mensuelle",))
+    if conn is None:
+        return None, message
+    try:
+        lignes = dbm.lignes(conn, "ref_cloture_mensuelle", ("mois", "statut_mois"), ordre="mois")
+    finally:
+        conn.close()
+    out = {str(r["mois"])[:7] for r in lignes
+           if str(r.get("statut_mois") or "").strip().upper() == "CLOTURE" and r.get("mois")}
+    return out, f"{message} ({len(lignes)} lignes, {len(out)} mois clôturés)"
+
+
 # Colonnes lues dans reservations_calculees / reservations_historique_cloture, cote base, et leur
 # nom cote moteur.
 _COLS_LIVE_SQL = (
@@ -243,11 +262,23 @@ def _analyser_arguments(argv=None):
 
 
 def main(argv=None):
-    cmonths = closed_months()
-    print(f"[lot4quater] mois CLOTURE : {sorted(cmonths) or 'AUCUN'}")
-
     args = _analyser_arguments(argv)
     chemin_base = dbm.chemin_db(args.db)
+
+    # Mission 14d : REF_Setup.xlsm ne doit plus être lu au runtime une fois le référentiel
+    # importé en SQLite. `ref_cloture_mensuelle` prime dès qu'elle est utilisable ; le classeur
+    # ne reste un repli que pour la parité legacy explicite (--source EXCEL) ou une base pas
+    # encore bootstrappée (jamais un silence : la raison est toujours affichée).
+    cmonths = None
+    if args.source in (dbm.SOURCE_SQLITE, dbm.SOURCE_AUTO):
+        cmonths, message_cmonths = closed_months_sqlite(chemin_base)
+        if cmonths is not None:
+            print(f"[lot4quater] clôtures : SQLite — {message_cmonths}")
+    if cmonths is None:
+        cmonths = closed_months()
+        print("[lot4quater] clôtures : REF_Setup.xlsm (repli — table ref_cloture_mensuelle "
+              "absente ou base non bootstrappée)")
+    print(f"[lot4quater] mois CLOTURE : {sorted(cmonths) or 'AUCUN'}")
 
     jeu = None
     if args.source in (dbm.SOURCE_SQLITE, dbm.SOURCE_AUTO):

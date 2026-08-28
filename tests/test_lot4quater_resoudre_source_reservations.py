@@ -103,7 +103,7 @@ def _make_env(tmp_path: Path, *, live_rows, hist_rows=None, closed_months=()):
     return script_copy
 
 
-def _run(script_copy: Path):
+def _run(script_copy: Path, extra_argv: list[str] | None = None):
     # `lot4quater_resoudre_source_reservations.py` protège son entrée par
     # `if __name__ == "__main__": main()` (contrairement à lot8a) : run_name doit être "__main__"
     # sinon `main()` n'est jamais appelé et le test échoue silencieusement (fichier jamais écrit).
@@ -111,7 +111,7 @@ def _run(script_copy: Path):
     # arguments (--source, --db, --sans-excel), et il recevrait sinon les options de pytest, qu'il
     # rejetterait avec un code 2.
     argv_pytest = sys.argv
-    sys.argv = [str(script_copy)]
+    sys.argv = [str(script_copy)] + (extra_argv or [])
     try:
         return runpy.run_path(str(script_copy), run_name="__main__")
     finally:
@@ -209,3 +209,61 @@ def test_vue_flux_exclut_statut_non_valide_et_montant_nul(tmp_path):
     assert len(master) == 3
     assert len(vue) == 1
     assert vue[0]["reservation_calc_id"] == "RES-1"
+
+
+# ── Mission 14d : ref_cloture_mensuelle (SQLite) prime sur REF_Setup.xlsm ────
+
+def _sqlite_db_avec_clotures(tmp_path: Path, mois_clotures: list[str]) -> Path:
+    """Base minimale portant uniquement `ref_cloture_mensuelle`, schéma identique à la migration
+    0029 — suffisant pour prouver que `closed_months_sqlite()` la lit réellement, sans dépendre du
+    paquet `app` (tests moteur autonomes du paquet applicatif)."""
+    import sqlite3
+    db_path = tmp_path / "app.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        "CREATE TABLE ref_cloture_mensuelle (mois TEXT NOT NULL, statut_mois TEXT, "
+        "date_passage_controle TEXT, date_cloture TEXT, nb_lignes_bancaires_non_classees TEXT, "
+        "nb_controles_bloquants_ouverts TEXT, commentaire TEXT, import_id TEXT NOT NULL, "
+        "PRIMARY KEY (mois))")
+    for m in mois_clotures:
+        conn.execute("INSERT INTO ref_cloture_mensuelle (mois, statut_mois, import_id) "
+                     "VALUES (?, 'CLOTURE', 'IMP-TEST')", (m,))
+    conn.commit()
+    conn.close()
+    return db_path
+
+
+def test_ref_cloture_mensuelle_sqlite_prime_sur_ref_setup_xlsm(tmp_path):
+    """Le classeur REF_Setup.xlsm déclare 2025-01 clôturé ; la base SQLite déclare 2026-06
+    clôturé (l'INVERSE). Si le résultat suit la base SQLite, la priorité est réelle — pas
+    seulement un repli qui coïncide avec l'Excel."""
+    live = [_live_row(1, "2025-01", montant=100.0), _live_row(2, "2026-06", montant=200.0)]
+    hist = [_hist_row(1, "2025-01", montant=999.0), _hist_row(2, "2026-06", montant=888.0)]
+    script = _make_env(tmp_path, live_rows=live, hist_rows=hist, closed_months=["2025-01"])
+    db_path = _sqlite_db_avec_clotures(tmp_path, ["2026-06"])
+
+    # On vérifie la fonction directement (pas `_run()` complet : `--source SQLITE` exigerait
+    # aussi `reservations_calculees`, hors sujet de ce test ciblé sur les clôtures).
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("lot4quater_test", script)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    cmonths, message = mod.closed_months_sqlite(db_path)
+    assert cmonths == {"2026-06"}, "la base SQLite doit primer, pas le classeur (2025-01)"
+    assert "1 mois clôturés" in message
+
+
+def test_closed_months_sqlite_none_si_table_absente(tmp_path):
+    """Base sans `ref_cloture_mensuelle` (jamais bootstrappée) : None, jamais un ensemble vide
+    silencieux qui ferait passer un mois clôturé pour ouvert."""
+    import sqlite3
+    db_path = tmp_path / "app_vide.db"
+    sqlite3.connect(str(db_path)).close()
+    live = [_live_row(1, "2025-01")]
+    script = _make_env(tmp_path, live_rows=live, hist_rows=[], closed_months=["2025-01"])
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("lot4quater_test2", script)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    cmonths, message = mod.closed_months_sqlite(db_path)
+    assert cmonths is None
