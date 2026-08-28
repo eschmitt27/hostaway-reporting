@@ -115,6 +115,41 @@ def executer_lot10(*, db_path=None) -> dict[str, Any]:
                     arguments=("--sans-excel",))
 
 
+def executer_lot4bis(*, db_path=None) -> dict[str, Any]:
+    """Lot4bis — table commune des réservations (moteur S1-S7 inchangé, mission 14e).
+
+    `--source-hostaway SQLITE` couvre aussi les référentiels et les réservations hors Hostaway
+    (même argument, cf. `lot4bis_charger_reservations.py::main`) : explicite, refuse plutôt que
+    de se rabattre sur un classeur si l'une des trois sources SQLite est indisponible.
+    """
+    return executer("lot4bis_charger_reservations.py", db_path=db_path,
+                    arguments=("--source-hostaway", "SQLITE", "--sans-excel"))
+
+
+def executer_lot4quater(*, db_path=None) -> dict[str, Any]:
+    """Lot4quater — résolution mois ouvert/clos, sortie `reservations_resolues`."""
+    return executer("lot4quater_resoudre_source_reservations.py", db_path=db_path,
+                    arguments=("--source", "SQLITE", "--sans-excel"))
+
+
+def executer_reservations(*, db_path=None) -> dict[str, Any]:
+    """RESERVATIONS — chaîne complète lot4bis puis lot4quater (mission 14e).
+
+    Séquentiel et fail-closed : lot4quater lit `reservations_calculees` (sortie de lot4bis), donc
+    un échec de lot4bis ne doit jamais laisser croire que la résolution qui suit reflète des
+    données fraîches.
+    """
+    resultat_bis = executer_lot4bis(db_path=db_path)
+    if not resultat_bis.get("ok"):
+        return {"ok": False, "code": resultat_bis.get("code", E_CODE_RETOUR),
+                "message": f"lot4bis : {resultat_bis.get('message', '')}"}
+    resultat_quater = executer_lot4quater(db_path=db_path)
+    if not resultat_quater.get("ok"):
+        return {"ok": False, "code": resultat_quater.get("code", E_CODE_RETOUR),
+                "message": f"lot4quater : {resultat_quater.get('message', '')}"}
+    return {"ok": True}
+
+
 def importer_hostaway(*, db_path=None) -> dict[str, Any]:
     """Import Hostaway pour l'orchestrateur — MÊME service que le bouton manuel et l'ordonnanceur.
 

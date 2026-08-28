@@ -103,12 +103,13 @@ NOEUDS: dict[str, Noeud] = {n.nom: n for n in (
 
     Noeud(RESERVATIONS, TYPE_CALCUL, "Réservations calculées puis résolues (Lot4bis/4quater)",
           depend_de=(HOSTAWAY_RAW, REF_SETUP),
+          service="app.services.orchestrateur_moteur:executer_reservations",
           tables=("reservations_calculees", "reservations_resolues"),
-          commentaire="CHAÎNE PARTIELLEMENT MIGRÉE : `lot4bis_charger_reservations.py` sait lire et "
-                      "écrire SQLite (--source SQLITE), mais `lot4quater_source_resolue.py` n'a pas "
-                      "encore de mode SQLite. La chaîne ne peut donc pas être rejouée de bout en "
-                      "bout par l'orchestrateur : elle est déclarée sans service plutôt que "
-                      "d'exécuter une moitié de calcul et de présenter le résultat comme complet."),
+          commentaire="Mission 14e — chaîne SQLite directe : lot4bis (moteur S1-S7 inchangé, "
+                      "entrées hostaway_reservations/payouts + référentiels SQLite + "
+                      "reservations_hors_hostaway) puis lot4quater (ref_cloture_mensuelle "
+                      "SQLite, fail-closed) — plus aucune lecture REF_Setup.xlsm/Excel HH au "
+                      "runtime. Preuve A/B : `tests/test_lot4bis_ref_hh_sqlite.py`."),
 
     Noeud(MENAGES, TYPE_CALCUL, "Ménages — comptage, déclarations, rapprochement, coût complet",
           depend_de=(HOSTAWAY_CLEANING_TASKS, REF_SETUP),
