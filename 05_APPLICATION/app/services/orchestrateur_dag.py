@@ -138,7 +138,13 @@ NOEUDS: dict[str, Noeud] = {n.nom: n for n in (
           tables=("lot10_runs", "lot10_commissions", "lot10_resultats", "lot10_net_exploitation",
                   "lot10_net_reglement", "lot10_net_vue_mois"),
           commentaire="Moteur pandas exécuté avec --source SQLITE : entrée `flux_unifies`, sorties "
-                      "0044. Le calcul lui-même n'a pas été réécrit."),
+                      "0044. Le calcul lui-même n'a pas été réécrit. Mission 14f : réservations "
+                      "résolues/payouts/référentiels logements-propriétaires-taux/saisie HH "
+                      "chargés depuis SQLite (plus de lecture des classeurs MASTER même en mode "
+                      "SQLITE — trouvé via la recette HH -> Lot12 : une base isolée relisait "
+                      "silencieusement les classeurs de production encore présents sur disque). "
+                      "CHARGES (Lot3)/Acomptes (Lot5)/Imputations Airbnb restent une frontière "
+                      "Excel minimale documentée, hors périmètre RESERVATIONS/MENAGES."),
 
     Noeud(LOT11, TYPE_CALCUL, "Contrôles de cohérence transverses (Lot11)",
           depend_de=(FLUX_LOT9, LOT10, RESERVATIONS, MENAGES, BANQUE, REF_SETUP, HOSTAWAY_RAW),

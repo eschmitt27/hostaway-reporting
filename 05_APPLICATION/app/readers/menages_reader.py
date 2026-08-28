@@ -1,24 +1,24 @@
 """Lecteur read-only ménages — Lot APP-2a.
 
-Quatre blocs métier, quatre fichiers, jamais fusionnés :
+Quatre blocs métier, tous SQLite (migration 0038), plus aucun classeur Excel lu au runtime :
 
   A. ATTENDU            — non alimenté par le moteur (voir plus bas).
-  B. HOSTAWAY RÉALISÉ   — MASTER_FACT_HA_CleaningTasks_Discovery.xlsx (Lot6a).
+  B. HOSTAWAY RÉALISÉ   — `menages_taches_enrichies` (Lot6a).
                           Comptage opérationnel UNIQUEMENT. La colonne `cost`
                           d'Hostaway n'est jamais lue ni exposée : elle n'est pas
                           autoritaire et ne vaut aucun coût réel.
-  C. INTERNE DÉCLARÉ    — MASTER_NORM_Declarations_Internes.xlsx (Lot6b).
+  C. INTERNE DÉCLARÉ    — `menages_declarations_internes` (Lot6b).
                           Heures + taux internes.
-  D. EXTERNE FACTURÉ    — MASTER_FACT_MEN_MenagesExternes.xlsx (Lot6c).
+  D. EXTERNE FACTURÉ    — `facture_lignes_menage` (Lot6c, via `facture_menage_pdf_service`).
                           Le montant vient de la facture.
 
 Sorties moteur consommées telles quelles :
-  - MASTER_CTRL_Rapprochement_Menages.xlsx (Lot6d) — LA ligne de rapprochement,
-    au grain (mois × logement × intervenant). C'est le moteur qui produit `ecart`,
-    `statut_controle` et `code_controle` ; l'application ne les recalcule jamais.
-  - MASTER_CALC_GainPerte_Menages.xlsx  (Lot6e) — coût standard vs coût réel.
-  - MASTER_CALC_CoutComplet_Menages.xlsx (Lot6f) — coût complet analytique.
-  - MASTER_CTRL_Coherence.xlsx (Lot11) — contrôles transverses du module ménages.
+  - `menages_rapprochement` (Lot6d) — LA ligne de rapprochement, au grain (mois ×
+    logement × intervenant). C'est le moteur qui produit `ecart`, `statut_controle`
+    et `code_controle` ; l'application ne les recalcule jamais.
+  - `menages_gainperte`  (Lot6e) — coût standard vs coût réel.
+  - `menages_cout_complet` (Lot6f) — coût complet analytique.
+  - `controles_lot11_constats` (Lot11) — contrôles transverses du module ménages.
 
 BLOC A — « ménages attendus » : le moteur ne produit AUCUN flux « attendu »
 indépendant. D090 fixe la règle (« 1 réservation validée = 1 ménage attendu »)
@@ -28,8 +28,8 @@ expose donc le comptage Hostaway planifié produit par Lot6a (VUE_COMPTAGE :
 nb_taches_total / réalisées / pending / annulées), explicitement nommé pour ce
 qu'il est, et signale l'attendu métier comme NON_ALIMENTE.
 
-Toutes les lectures passent par openpyxl read_only=True. Aucun handle d'écriture,
-aucune normalisation métier : uniquement des conversions techniques d'affichage.
+Aucune lecture de classeur ici : uniquement des conversions techniques d'affichage
+sur des lignes déjà lues en SQLite par `_lire_sqlite`.
 """
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -38,7 +38,6 @@ from typing import Any
 
 import app.config as cfg
 from app.db.connection import get_db
-from app.readers.excel_reader import list_sheets, read_sheet
 
 # --- Onglets ---------------------------------------------------------------
 SHEET_COMPARAISON = "TABLEAU_COMPARAISON"

@@ -218,6 +218,139 @@ def charger_flux_sqlite(chemin_base) -> pd.DataFrame:
     return df.rename(columns={"row_hash": "ROW_HASH"})
 
 
+_RES_COLS_SQL = (
+    "reservation_calc_id", "reservation_id_hostaway", "reservation_hh_id", "source",
+    "source_montant", "montant_retenu", "logement_id", "proprietaire_id", "date_arrivee",
+    "date_depart", "nuits", "guest_count", "canal", "payout_calcule", "menage_retenu",
+    "assiette_commission",
+)
+_PAYOUT_COLS_SQL = (
+    "reservation_id", "channel_type", "statut_calcul_payout", "payout_calcule",
+    "source_payout", "menage_retenu", "assiette_commission", "inclure_resultat_auto",
+    "menage_retenu_source", "cout_standard_id", "cout_standard_menage_snapshot",
+    "cout_standard_date_debut_validite", "cout_standard_date_fin_validite",
+    "logement_id_snapshot", "type_logement_id_snapshot", "date_reference_cout_menage",
+)
+_LOG_COLS_SQL = (
+    "logement_id", "hostaway_listing_id", "nom_logement_officiel", "nom_court", "adresse",
+    "ville", "type_logement_id", "sur_hostaway", "dynamic_pricing", "actif", "statut_parc",
+    "commentaire", "forfait_logiciel_consommables_mensuel",
+    "seuil_voyageurs_preparation_canape", "montant_preparation_canape",
+)
+_PROP_COLS_SQL = (
+    "proprietaire_id", "nom_proprietaire", "prenom_proprietaire", "email", "telephone",
+    "adresse_facturation", "mode_facturation", "actif", "commentaire",
+)
+_TAUX_COLS_SQL = (
+    "taux_commission_id", "proprietaire_id", "logement_id", "taux_commission",
+    "date_debut", "date_fin", "actif", "justification", "commentaire",
+)
+_GEST_COLS_SQL = (
+    "gestion_id", "logement_id", "proprietaire_id", "date_debut", "date_fin",
+    "statut_gestion", "source", "commentaire",
+)
+
+
+def _charger_table_sqlite(chemin_base, table, colonnes, *, rename=None, vide_ok=False,
+                          ordre="rowid"):
+    """Charge une table référentielle/résolue SQLite au format DataFrame attendu par le calcul
+    existant — même contrat fail-closed que `charger_flux_sqlite` : une table absente est une
+    erreur bloquante (mission 14f : plus aucun repli Excel silencieux en mode SQLITE). Une table
+    présente mais vide n'est bloquante que si `vide_ok` est False (les référentiels doivent avoir
+    été importés ; `reservations_resolues` peut légitimement être vide si aucune réservation ne
+    porte sur la période)."""
+    conn, message = dbm.verifier(chemin_base, (table,))
+    if conn is None:
+        sys.exit(f"[lot10] ERREUR : --source SQLITE inutilisable — {table} — {message}")
+    try:
+        lignes = dbm.lignes(conn, table, colonnes, ordre=ordre)
+    finally:
+        conn.close()
+    if not lignes and not vide_ok:
+        sys.exit(f"[lot10] ERREUR : `{table}` est vide — référentiel jamais importé ?")
+    df = pd.DataFrame(lignes, columns=list(colonnes))
+    if rename:
+        df = df.rename(columns=rename)
+    return df
+
+
+def charger_reservations_sqlite(chemin_base) -> pd.DataFrame:
+    """Réservations résolues (Lot4quater) depuis SQLite — mission 14f : plus de lecture du
+    classeur `MASTER_CALC_Reservations_Resolues.xlsx`, même en mode SQLITE (jusqu'ici encore lu
+    inconditionnellement, y compris pour une base isolée : découvert via la recette HH -> Lot12).
+    Vide accepté : aucune réservation VALIDE sur la période résolue n'est un état réel possible."""
+    return _charger_table_sqlite(chemin_base, "reservations_resolues", _RES_COLS_SQL,
+                                 rename={"guest_count": "guestCount"}, vide_ok=True,
+                                 ordre="rowid")
+
+
+def charger_payout_sqlite(chemin_base) -> pd.DataFrame:
+    """Payouts Hostaway (Lot1) depuis SQLite — vide accepté (aucune réservation Hostaway sur la
+    période, par ex. un mois entièrement hors Hostaway, est un état réel)."""
+    return _charger_table_sqlite(chemin_base, "hostaway_payouts", _PAYOUT_COLS_SQL,
+                                 vide_ok=True, ordre="rowid")
+
+
+def charger_logements_sqlite(chemin_base) -> pd.DataFrame:
+    """`REF_Logements` depuis SQLite — référentiel obligatoire (fail-closed si jamais importé)."""
+    return _charger_table_sqlite(chemin_base, "ref_logements", _LOG_COLS_SQL)
+
+
+def charger_proprietaires_sqlite(chemin_base) -> pd.DataFrame:
+    """`REF_Proprietaires` depuis SQLite — référentiel obligatoire."""
+    return _charger_table_sqlite(chemin_base, "ref_proprietaires", _PROP_COLS_SQL)
+
+
+def charger_taux_commission_sqlite(chemin_base) -> pd.DataFrame:
+    """`REF_Taux_Commission` depuis SQLite — vide accepté (une table optionnelle en Excel, cf.
+    `_read_optional_sheet` : tous les logements n'ont pas forcément une dérogation de taux)."""
+    return _charger_table_sqlite(chemin_base, "ref_taux_commission", _TAUX_COLS_SQL, vide_ok=True)
+
+
+def charger_gestion_sqlite(chemin_base) -> pd.DataFrame:
+    """`REF_Gestion_Logements_Hist` depuis SQLite — vide accepté (mêmes garanties que la version
+    Excel via `_read_optional_sheet`)."""
+    return _charger_table_sqlite(chemin_base, "ref_gestion_logements_hist", _GEST_COLS_SQL,
+                                 vide_ok=True)
+
+
+def charger_hh_sqlite(chemin_base) -> pd.DataFrame:
+    """Saisie HH (`reservations_hors_hostaway` + `reservation_hh_overrides`, migration 0052/0053)
+    au format attendu par la branche HH — mission 14f : jusqu'ici lue inconditionnellement depuis
+    `MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx`, y compris en mode SQLITE.
+
+    Seules deux colonnes de ce chargement comptent réellement en aval : `total_percu` (assiette de
+    départ) et `menage` (coût de ménage retenu). `commission`/`taux_commission` ne sont que
+    reportées ici pour mémoire — `_attach_commission_rate` recalcule ensuite `taux_commission`
+    depuis `REF_Taux_Commission`, écrasant systématiquement toute valeur saisie (vérifié : aucun
+    autre usage de `commission`/`taux_hh_saisie` en aval). Vide accepté (aucune HH sur la
+    période est un état réel).
+    """
+    conn, message = dbm.verifier(chemin_base, ("reservations_hors_hostaway",))
+    if conn is None:
+        sys.exit(f"[lot10] ERREUR : --source SQLITE inutilisable — reservations_hors_hostaway — "
+                 f"{message}")
+    try:
+        base_rows = dbm.lignes(conn, "reservations_hors_hostaway",
+                               ("reservation_hh_id", "montant_percu"), ordre="rowid")
+        overrides_par_id = {}
+        if dbm.table_presente(conn, "reservation_hh_overrides"):
+            for r in dbm.lignes(conn, "reservation_hh_overrides",
+                                ("reservation_hh_id", "menage"), ordre="rowid"):
+                overrides_par_id[r["reservation_hh_id"]] = r.get("menage")
+    finally:
+        conn.close()
+    lignes = [{
+        "reservation_hh_id": r["reservation_hh_id"],
+        "total_percu": r.get("montant_percu"),
+        "menage": overrides_par_id.get(r["reservation_hh_id"]) or 0.0,
+        "commission": None,
+        "taux_commission": None,
+    } for r in base_rows]
+    return pd.DataFrame(lignes, columns=["reservation_hh_id", "total_percu", "menage",
+                                         "commission", "taux_commission"])
+
+
 def _flux_run_id(chemin_base) -> str:
     """run_id du dataset Lot9 consommé — traçabilité amont, jamais une fraîcheur de fichier."""
     conn, _ = dbm.verifier(chemin_base, ("flux_unifies",))
@@ -372,14 +505,24 @@ def load_sources(source="EXCEL", chemin_base=None):
     if source == "SQLITE":
         df_flux = charger_flux_sqlite(chemin_base)
         log.info(f"  Flux (SQLite `flux_unifies`) : {len(df_flux)} lignes")
+        # Mission 14f : jusqu'ici seul `df_flux` basculait réellement sur SQLite — les six lignes
+        # suivantes lisaient encore inconditionnellement les classeurs Excel, y compris pour une
+        # base isolée (découvert via la recette HH -> Lot12 : une base fraîche relisait les
+        # MASTER Excel de PRODUCTION encore présents sur disque, silencieusement, sans erreur).
+        df_res    = charger_reservations_sqlite(chemin_base)
+        df_payout = charger_payout_sqlite(chemin_base)
+        df_log    = charger_logements_sqlite(chemin_base)
+        df_prop   = charger_proprietaires_sqlite(chemin_base)
+        df_taux   = charger_taux_commission_sqlite(chemin_base)
+        df_gest   = charger_gestion_sqlite(chemin_base)
     else:
         df_flux = _read_sheet(FLUX_FILE)
-    df_res    = _read_sheet(RES_FILE, sheet="MASTER")
-    df_payout = _read_sheet(PAYOUT_FILE, sheet="data")
-    df_log    = _read_sheet(REF_FILE, sheet="REF_Logements",     keep_vba=True)
-    df_prop   = _read_sheet(REF_FILE, sheet="REF_Proprietaires", keep_vba=True)
-    df_taux   = _read_optional_sheet(REF_FILE, "REF_Taux_Commission", keep_vba=True)
-    df_gest   = _read_optional_sheet(REF_FILE, REF_GESTION_LOGEMENTS_HIST_SHEET, keep_vba=True)
+        df_res    = _read_sheet(RES_FILE, sheet="MASTER")
+        df_payout = _read_sheet(PAYOUT_FILE, sheet="data")
+        df_log    = _read_sheet(REF_FILE, sheet="REF_Logements",     keep_vba=True)
+        df_prop   = _read_sheet(REF_FILE, sheet="REF_Proprietaires", keep_vba=True)
+        df_taux   = _read_optional_sheet(REF_FILE, "REF_Taux_Commission", keep_vba=True)
+        df_gest   = _read_optional_sheet(REF_FILE, REF_GESTION_LOGEMENTS_HIST_SHEET, keep_vba=True)
 
     # Paramètres canapé (seuil/montant) — Mission 6 : n'existent QUE dans SQLite (migration 0058),
     # jamais eu d'onglet Excel équivalent (les colonnes REF_Logements.seuil_voyageurs_preparation_
@@ -416,7 +559,11 @@ def load_sources(source="EXCEL", chemin_base=None):
             conn_regles.close()
 
     # Sources HH + Acomptes (lecture seule, hors placeholder Power Query)
-    df_hh  = _read_sheet(HH_FILE,  sheet="MASTER") if HH_FILE.exists()  else pd.DataFrame()
+    # CHARGES (Lot3)/Acomptes (Lot5)/Imputations Airbnb restent une frontière Excel minimale à ce
+    # jour (même limite documentée que FLUX_LOT9 dans le DAG) — seule la HH est reconnectée ici,
+    # elle seule est dans le périmètre RESERVATIONS/MENAGES de cette mission.
+    df_hh = (charger_hh_sqlite(chemin_base) if source == "SQLITE"
+            else (_read_sheet(HH_FILE, sheet="MASTER") if HH_FILE.exists() else pd.DataFrame()))
     df_acc = _read_sheet(ACC_FILE, sheet="MASTER") if ACC_FILE.exists() else pd.DataFrame()
     df_charges = _read_sheet(CHARGES_FILE, sheet="MASTER") if CHARGES_FILE.exists() else pd.DataFrame()
     df_airbnb_imp = _read_sheet(AIRBNB_IMPUT_FILE, sheet="MASTER") if AIRBNB_IMPUT_FILE.exists() else pd.DataFrame()
