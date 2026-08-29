@@ -2235,3 +2235,60 @@ régression). Vraie `app.db` inchangée (hash `8e299b935ef1e0d4...`), `REF_Setup
 complet : `98_RECETTE_NAVIGATEUR_BOUT_EN_BOUT.md`. Verdict : **RECETTE NAVIGATEUR VALIDÉE.**
 Mission 13 stoppe ici explicitement — mode réel et scheduler NON activés, activation réelle hors
 scope, mission séparée à venir.
+
+**Mis à jour 2026-08-29 (Missions 14 à 17 — activation réelle contrôlée, cutover SQLite complet)** :
+séquence de missions 14a→14g/15/16/17 (hors de ce document jusqu'ici, rattrapé maintenant) ayant
+mené le pipeline RESERVATIONS→MENAGES→FLUX_LOT9→LOT10→LOT11→LOT12 d'un état 100% Excel legacy à un
+état SQLite direct prouvé, puis activé sur la vraie base.
+
+Découvertes/corrections majeures (14e-14g) : Lot4bis/Lot4quater/Lot6d-e-f/Lot10/Lot4ter lisaient
+encore Excel inconditionnellement même en `--source SQLITE` (référentiels, réservations, charges,
+clôtures, coûts ménage) — corrigés un par un avec des chargeurs SQLite natifs fail-closed. Bug
+`.pid` sur `subprocess.run()` corrigé (faux-négatif après extraction Hostaway réellement réussie).
+DAG fail-closed renforcé. `MASTER_RUN_Log.xlsx` retiré du runtime. Bootstrap REF_Setup et cutover
+bancaire prouvés sur clone avant tout réel. Règle assiette de commission négative validée : gel
+à 0 pour la commission (jamais la donnée brute), contrôle `ASSIETTE_NEGATIVE_RAMENEE_ZERO` non
+bloquant (mission 14f-bis, cas réel `reservation_id=65060946`). Bug de contamination trouvé et
+corrigé : `lot4ter` retombait sur un classeur Excel `HIST_Reservations_Cloturees.xlsx` partagé
+(artefact d'une mission antérieure, pas une vraie archive d'origine) dès que la table SQLite cible
+était vide — corrigé (mission 14g).
+
+Mission 15 : refonte du système de charges à refacturer (`charges_refacturation_positions` +
+évènements, migrations 0062/0063) — une charge `refacturable='OUI'` crée automatiquement une
+position disponible (jamais une facturation automatique), consommée uniquement à la validation
+effective d'une facture propriétaire (jamais à l'aperçu). Archivage économique à la clôture
+(migration 0064, `cloture_archivage_service`) : `VALIDEE→ARCHIVEE` fige l'état économique du mois
+puis seulement marque `CLOTURE`, atomique. `LEGACY_SANS_ARCHIVE_ORIGINE` : classification explicite
+(jamais déduite) des mois clos sans archive d'origine authentique, pour ne pas les reconstruire
+depuis Hostaway ni polluer la file opérationnelle.
+
+**Mission 16 (cutover réel, sections 1-4)** : backup réel `PRE_FINAL_CUTOVER` (`BCK-4F4C200E0552`),
+migration vraie base `0061→0064` (0062+0063 demandées ; 0064 aussi appliquée — `apply_migrations`
+est monolithique, signalé explicitement, schéma seul/aucune donnée touchée), bootstrap réel des
+référentiels (19/12/86/17/18/19/10, 17/17 listings résolus, `REF_Setup.xlsm` jamais modifié), et
+classification des 17 mois legacy (2025-01→2026-05) en `LEGACY_SANS_ARCHIVE_ORIGINE`. Section 4
+mesurait l'effet réel : `reservations_resolues` encore vide à ce stade (aucun calcul encore lancé).
+
+**Mission 17 (premier run réel surveillé, complet)** : backup `PRE_FIRST_REAL_RUN`
+(`BCK-35F568D545F6`). UN SEUL appel Hostaway réel : nouvelle extraction `HAX-97F6E34A7D92`
+(SUCCES, 17 listings, 1577 réservations, 1552 payouts — 2 réservations disparues/2 nouvelles vs
+l'extraction précédente `HAX-44B3AA50E576`, churn réel expliqué, 0 doublon technique, ancienne
+extraction préservée intacte). RESERVATIONS calculé pour la première fois sur données réelles :
+1577 résolues, 0 doublon, 265 VALIDE, 16 EXCLU_RESULTAT, **1269 réservations sur exactement les 17
+mois legacy requalifiées `LEGACY_SANS_ARCHIVE_ORIGINE`/INFO (mesuré, jamais forcé) — 0 ligne
+restante `MOIS_CLOTURE_SANS_HISTORIQUE`/A_CONTROLER**, 27 anomalies réelles distinctes préservées
+(23 `DIRECT_SANS_SAISIE_HH`, 4 `VRBO_MONTANT_NON_RENSEIGNE`). Lot9 (265 lignes) → Lot10 (265
+commissions, 8998,50€ commission totale, 41463,28€ net propriétaire, 1 assiette négative plafonnée
+à 0 sans bloquer — première confirmation réelle du fix mission 14f-bis) → Lot11 (16 constats, 0
+bloquant, dont `ASSIETTE_NEGATIVE_RAMENEE_ZERO` visible) → Lot12 (72 préfactures, 883 lignes,
+**0 facture réelle émise** — préfactures uniquement). `integrity_check`/`foreign_key_check` OK à
+chaque étape. `REF_Setup.xlsm` inchangé (hash identique avant/après). Scheduler resté INACTIF, port
+8000 jamais touché. SHA256 final `app.db` : `4a9840e0...472`.
+
+Prochaine action : décider (a) le traitement des 27 anomalies réelles restantes (saisie HH
+manquante/VRBO iCal — décision métier humaine, pas un bug) ; (b) l'activation du scheduler Hostaway
+si le run surveillé est jugé concluant ; (c) le sort du backlog UI "Éléments à refacturer"/validation
+facture détaillée (mission 15, écran minimal livré, parcours complet de décision par position à
+enrichir si besoin produit). Aucun code modifié durant les missions 16/17 — uniquement des
+opérations réelles sur `app.db` (backup/migration/bootstrap/classification/calcul), déjà couvertes
+par les tests des missions 14-15.
