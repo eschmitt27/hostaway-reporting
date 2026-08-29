@@ -55,6 +55,8 @@
     {% for p in o.niveaux %}<option value="{{ p.id }}" {{ 'selected' if p.id == a.niveau }}>{{ p.libelle }}</option>{% endfor %}</select></label>
   <label>Code <select name="code"><option value="">Tous</option>
     {% for p in o.codes %}<option value="{{ p.id }}" {{ 'selected' if p.id == a.code }}>{{ p.libelle }}</option>{% endfor %}</select></label>
+  <label>Classification <select name="classification"><option value="">Toutes</option>
+    {% for p in o.classifications %}<option value="{{ p.id }}" {{ 'selected' if p.id == a.classification }}>{{ p.libelle }}</option>{% endfor %}</select></label>
   <label>Statut suivi <select name="statut_suivi"><option value="">Tous</option>
     {% for p in o.statuts_suivi %}<option value="{{ p.id }}" {{ 'selected' if p.id == a.statut_suivi }}>{{ p.libelle }}</option>{% endfor %}</select></label>
   <label>Responsable <select name="responsable"><option value="">Tous</option>
@@ -101,7 +103,12 @@
             {% elif e.etat.anomalie_moteur_presente %}<span class="text-warn">Bloque</span>
             {% else %}—{% endif %}
           </td>
-          <td><a href="/controles-cloture/element/{{ e.ctrl_opaque }}">Voir</a></td>
+          <td>
+            <a href="/controles-cloture/element/{{ e.ctrl_opaque }}">Voir</a>
+            {% if e.lien_module %}
+            · <a href="{{ e.lien_module }}" class="text-primary">{{ e.lien_libelle }}</a>
+            {% endif %}
+          </td>
         </tr>
         {% else %}<tr><td colspan="9" class="section-note">Aucun élément pour cette vue.</td></tr>{% endfor %}
       </tbody>

@@ -9,6 +9,7 @@ from app.services import reservations_hh_service as svc
 from app.services import saisie_hh_service as saisie_svc
 from app.services import reservations_hh_confirmation_service as confirmation
 from app.services import hostaway_actualisation_service as hostaway_svc
+from app.services import regularisation_hh_service as regul_svc
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -191,6 +192,79 @@ def reservation_detail(request: Request, reservation_hh_id: str):
         "active_menu": "reservations",
         "detail": detail,
         "reservation_hh_id": reservation_hh_id,
+    })
+
+
+# ── Régularisation DIRECT_SANS_SAISIE_HH / VRBO_MONTANT_NON_RENSEIGNE (Mission 18b) ──────────────
+# Réutilise reservations_hh_saisie_service (aucun second moteur de saisie). Voir
+# regularisation_hh_service pour la RÈGLE ABSOLUE (jamais total_price copié dans montant_percu).
+
+@router.get("/reservations/regulariser/{ctrl_opaque}", response_class=HTMLResponse)
+def reservation_regulariser_form(request: Request, ctrl_opaque: str):
+    prep = regul_svc.preparer_formulaire(ctrl_opaque)
+    if prep is None:
+        return templates.TemplateResponse(request, "reservation_regulariser_form.html", {
+            "active_menu": "controles", "prep": None, "ctrl_opaque": ctrl_opaque,
+        }, status_code=404)
+    return templates.TemplateResponse(request, "reservation_regulariser_form.html", {
+        "active_menu": "controles", "prep": prep, "ctrl_opaque": ctrl_opaque,
+        "recap": None, "erreur": "",
+    })
+
+
+@router.post("/reservations/regulariser/{ctrl_opaque}/previsualiser", response_class=HTMLResponse)
+async def reservation_regulariser_previsualiser(request: Request, ctrl_opaque: str):
+    form = await request.form()
+    recap = regul_svc.recap(
+        ctrl_opaque,
+        montant_percu=(form.get("montant_percu") or "").strip(),
+        menage=(form.get("menage") or "").strip(),
+        code_impact=(form.get("code_impact") or "").strip(),
+        commentaire=(form.get("commentaire") or "").strip(),
+        canal_id=(form.get("canal_id") or "").strip(),
+        source_financiere=(form.get("source_financiere") or "").strip(),
+    )
+    if recap is None:
+        return templates.TemplateResponse(request, "reservation_regulariser_form.html", {
+            "active_menu": "controles", "prep": None, "ctrl_opaque": ctrl_opaque,
+        }, status_code=404)
+    return templates.TemplateResponse(request, "reservation_regulariser_form.html", {
+        "active_menu": "controles", "prep": recap, "ctrl_opaque": ctrl_opaque,
+        "recap": recap, "erreur": "",
+    })
+
+
+@router.post("/reservations/regulariser/{ctrl_opaque}/confirmer", response_class=HTMLResponse)
+async def reservation_regulariser_confirmer(request: Request, ctrl_opaque: str):
+    form = await request.form()
+    resultat = regul_svc.regulariser(
+        ctrl_opaque,
+        montant_percu=(form.get("montant_percu") or "").strip(),
+        menage=(form.get("menage") or "").strip(),
+        code_impact=(form.get("code_impact") or "").strip(),
+        commentaire=(form.get("commentaire") or "").strip(),
+        canal_id=(form.get("canal_id") or "").strip(),
+        source_financiere=(form.get("source_financiere") or "").strip(),
+        acteur="local",
+    )
+    if not resultat.get("ok"):
+        prep = regul_svc.preparer_formulaire(ctrl_opaque)
+        return templates.TemplateResponse(request, "reservation_regulariser_form.html", {
+            "active_menu": "controles", "prep": prep, "ctrl_opaque": ctrl_opaque,
+            "recap": None, "erreur": resultat.get("message", "Régularisation refusée."),
+        }, status_code=422)
+    return templates.TemplateResponse(request, "reservation_regulariser_confirmation.html", {
+        "active_menu": "controles", "ctrl_opaque": ctrl_opaque, "resultat": resultat,
+        "recalcul": None,
+    })
+
+
+@router.post("/reservations/regulariser/{ctrl_opaque}/recalculer", response_class=HTMLResponse)
+def reservation_regulariser_recalculer(request: Request, ctrl_opaque: str):
+    recalcul = regul_svc.recalculer()
+    return templates.TemplateResponse(request, "reservation_regulariser_confirmation.html", {
+        "active_menu": "controles", "ctrl_opaque": ctrl_opaque, "resultat": {"ok": True},
+        "recalcul": recalcul,
     })
 
 

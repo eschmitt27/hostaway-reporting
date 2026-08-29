@@ -55,6 +55,11 @@ def id_opaque(code: str, entite: str, mois: str = "", index: str = "") -> str:
 
 # ── Expansion par code ───────────────────────────────────────────────────────
 
+CLASSIFICATIONS_REGULARISABLES = {"DIRECT_HORS_HOSTAWAY", "VRBO_SANS_MONTANT"}
+# Sentinelle résolue en URL réelle par `expand()`, une fois le ctrl_opaque de l'élément connu.
+_LIEN_REGULARISER = "__REGULARISER__"
+
+
 def _classer_commission(row: dict[str, Any]) -> tuple[str, str]:
     """(classification, libellé). Distingue les cas légitimement sans commission."""
     src = _txt(row.get("source")).lower()
@@ -84,6 +89,7 @@ def _expand_commissions(vue: dict[str, Any]) -> list[dict[str, Any]]:
         logement = _txt(res.get("logement_id")) or _txt(row.get("logement_id_snapshot"))
         prop = _txt(res.get("proprietaire_id"))
         classe, classe_lib = _classer_commission(row)
+        regularisable = classe in CLASSIFICATIONS_REGULARISABLES
         out.append({
             "code": vue["code"], "module": "COMMISSIONS", "niveau": vue["niveau"], "mois": mois,
             "entite_id": rid,
@@ -92,12 +98,15 @@ def _expand_commissions(vue: dict[str, Any]) -> list[dict[str, Any]]:
             "donnees": {
                 "reservation_id": rid, "logement": logement, "proprietaire": prop,
                 "mois": mois, "canal": _txt(row.get("channel_type")) or _txt(row.get("source")),
+                "date_arrivee": _txt(res.get("date_arrivee")), "date_depart": _txt(res.get("date_depart")),
                 "montant_retenu": _nombre(res.get("montant_retenu")),
                 "commission_attendue": _nombre(row.get("payout_calcule")),
                 "assiette": _nombre(row.get("assiette_commission")),
                 "cause": _txt(row.get("code_anomalie_lot10")) or _txt(row.get("source_payout")),
             },
-            "lien_module": None, "lien_libelle": "Aucun écran de correction disponible pour ce contrôle",
+            "lien_module": _LIEN_REGULARISER if regularisable else None,
+            "lien_libelle": ("Régulariser (saisie HH)" if regularisable
+                            else "Aucun écran de correction disponible pour ce contrôle"),
         })
     return out
 
@@ -257,6 +266,8 @@ def expand(vue: dict[str, Any]) -> list[dict[str, Any]]:
         el["ctrl_opaque"] = id_opaque(el["code"], el["entite_id"], el["mois"], str(i))
         el["ctrl_pk_moteur"] = vue.get("stable_id", "")
         el["parent_stable_id"] = vue.get("stable_id", "")
+        if el.get("lien_module") == _LIEN_REGULARISER:
+            el["lien_module"] = f"/reservations/regulariser/{el['ctrl_opaque']}"
     return elements
 
 

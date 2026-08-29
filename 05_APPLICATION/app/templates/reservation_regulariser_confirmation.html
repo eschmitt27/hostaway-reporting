@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Régularisation enregistrée{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <h1 class="page-title">Régularisation enregistrée</h1>
+</div>
+
+{% if resultat.ok %}
+<div class="alert alert-info">Saisie HH enregistrée
+  {% if resultat.reservation_hh_id %}(<span class="font-mono text-xs">{{ resultat.reservation_hh_id }}</span>){% endif %}.
+  Le contrôle moteur ne disparaîtra qu'après recalcul — jamais masqué artificiellement.</div>
+{% endif %}
+
+{% if recalcul is none %}
+<div class="card">
+  <h2 class="card-title">Recalculer cette réservation</h2>
+  <p class="section-note">Enchaîne RESERVATIONS → Lot9 (flux unifié) → Lot10 → Lot11 → Lot12, sur la
+    même base — aucun nouveau pipeline, les mêmes étapes déjà utilisées par le moteur.</p>
+  <form method="post" action="/reservations/regulariser/{{ ctrl_opaque }}/recalculer">
+    <button type="submit" class="btn btn-primary">Recalculer</button>
+  </form>
+</div>
+{% else %}
+<div class="card">
+  <h2 class="card-title">Résultat du recalcul</h2>
+  <table class="data-table">
+    <thead><tr><th>Étape</th><th>Résultat</th></tr></thead>
+    <tbody>
+      {% for e in recalcul.etapes %}
+      <tr><td class="font-mono text-xs">{{ e.etape }}</td>
+        <td class="text-xs">{{ "OK" if e.resultat.ok is not defined or e.resultat.ok else "ÉCHEC" }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="section-note mt-sm">{{ "Recalcul terminé." if recalcul.ok else "Recalcul interrompu — voir l'étape en échec ci-dessus." }}</p>
+</div>
+{% endif %}
+
+<a href="/controles-cloture/element/{{ ctrl_opaque }}" class="btn btn-secondary mt-md">← Retour au contrôle</a>
+
+{% endblock %}

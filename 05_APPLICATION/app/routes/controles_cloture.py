@@ -39,11 +39,13 @@ def controles_dashboard(
     actionnables_seul: bool = False,
     cloture_bloquee: bool = False,
     page: int = 1,
+    classification: str = "",
 ):
     data = act.load_dashboard(
         vue=vue, mois=mois, module=module, niveau=niveau, code=code, statut_suivi=statut_suivi,
         responsable=responsable, proprietaire=proprietaire, logement=logement, recherche=recherche,
         actionnables_seul=actionnables_seul, cloture_bloquee=cloture_bloquee, page=page,
+        classification=classification,
     )
     return templates.TemplateResponse(request, "controles_actionnable_list.html", {
         "active_menu": "controles", "data": data,
@@ -81,11 +83,12 @@ def controles_export_csv(
     recherche: str = "",
     actionnables_seul: bool = False,
     cloture_bloquee: bool = False,
+    classification: str = "",
 ):
     contenu = act.export_csv(
         vue=vue, mois=mois, module=module, niveau=niveau, code=code, statut_suivi=statut_suivi,
         responsable=responsable, proprietaire=proprietaire, logement=logement, recherche=recherche,
-        actionnables_seul=actionnables_seul, cloture_bloquee=cloture_bloquee,
+        actionnables_seul=actionnables_seul, cloture_bloquee=cloture_bloquee, classification=classification,
     )
     nom = f"controles_{vue}_{mois or 'tous'}.csv"
     return Response(content=contenu, media_type="text/csv; charset=utf-8",

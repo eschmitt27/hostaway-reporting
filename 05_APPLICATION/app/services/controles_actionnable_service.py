@@ -106,7 +106,7 @@ def _dans_vue(el: dict[str, Any], vue: str) -> bool:
 
 
 def _match_filtres(el, mois, module, niveau, code, statut_suivi, responsable, proprietaire,
-                   logement, recherche, actionnables_seul, cloture_bloquee) -> bool:
+                   logement, recherche, actionnables_seul, cloture_bloquee, classification="") -> bool:
     if mois and el["mois"] != mois:
         return False
     if module and el["module"] != module:
@@ -114,6 +114,8 @@ def _match_filtres(el, mois, module, niveau, code, statut_suivi, responsable, pr
     if niveau and el["niveau"].upper() != niveau.upper():
         return False
     if code and el["code"] != code:
+        return False
+    if classification and el.get("classification", "") != classification:
         return False
     if statut_suivi and el["etat"]["statut_suivi"] != statut_suivi:
         return False
@@ -163,14 +165,15 @@ TAILLE_PAGE = 25
 def load_dashboard(vue: str = "tous", mois: str = "", module: str = "", niveau: str = "", code: str = "",
                    statut_suivi: str = "", responsable: str = "", proprietaire: str = "", logement: str = "",
                    recherche: str = "", actionnables_seul: bool = False, cloture_bloquee: bool = False,
-                   page: int = 1, db_path=None) -> dict[str, Any]:
+                   page: int = 1, classification: str = "", db_path=None) -> dict[str, Any]:
     if vue not in VUES:
         vue = "tous"
     elements = _tous_les_elements(db_path)
     cartes = _cartes(elements)
     filtres = [e for e in elements if _dans_vue(e, vue)
                and _match_filtres(e, mois, module, niveau, code, statut_suivi, responsable,
-                                   proprietaire, logement, recherche, actionnables_seul, cloture_bloquee)]
+                                   proprietaire, logement, recherche, actionnables_seul, cloture_bloquee,
+                                   classification)]
     filtres.sort(key=lambda e: (0 if not e["est_info"] else 1, e["module"], e["code"], e["entite_id"]))
     pages = max(1, (len(filtres) + TAILLE_PAGE - 1) // TAILLE_PAGE)
     page = min(max(1, page), pages)
@@ -184,7 +187,7 @@ def load_dashboard(vue: str = "tous", mois: str = "", module: str = "", niveau: 
         "applied": {"vue": vue, "mois": mois, "module": module, "niveau": niveau, "code": code,
                     "statut_suivi": statut_suivi, "responsable": responsable, "proprietaire": proprietaire,
                     "logement": logement, "recherche": recherche, "actionnables_seul": actionnables_seul,
-                    "cloture_bloquee": cloture_bloquee, "page": page},
+                    "cloture_bloquee": cloture_bloquee, "page": page, "classification": classification},
         "read_at": _now(),
     }
 
@@ -195,6 +198,7 @@ def _options(elements: list[dict[str, Any]]) -> dict[str, list[dict[str, str]]]:
     mois = uniq("mois")
     modules = uniq("module")
     codes = uniq("code")
+    classifications = sorted({e.get("classification", "") for e in elements if e.get("classification")})
     props = sorted({e["donnees"].get("proprietaire", "") for e in elements if e["donnees"].get("proprietaire")})
     logs = sorted({e["donnees"].get("logement", e["donnees"].get("logement_id", "")) for e in elements
                    if e["donnees"].get("logement") or e["donnees"].get("logement_id")})
@@ -205,6 +209,7 @@ def _options(elements: list[dict[str, Any]]) -> dict[str, list[dict[str, str]]]:
         "modules": [{"id": m, "libelle": m} for m in modules],
         "niveaux": [{"id": n, "libelle": n} for n in ("BLOQUANT", "A_CONTROLER", "INFO")],
         "codes": [{"id": c, "libelle": c} for c in codes],
+        "classifications": [{"id": c, "libelle": c} for c in classifications],
         "statuts_suivi": [{"id": s, "libelle": suivi.STATUTS_LIBELLES[s]} for s in
                           (suivi.ST_OUVERT, suivi.ST_EN_COURS, suivi.ST_RESOLU, suivi.ST_ACCEPTE, suivi.ST_ROUVERT)],
         "responsables": [{"id": r, "libelle": r} for r in resp],
@@ -315,7 +320,7 @@ def export_csv(vue: str = "tous", db_path=None, **filtres) -> str:
                                filtres.get("statut_suivi", ""), filtres.get("responsable", ""),
                                filtres.get("proprietaire", ""), filtres.get("logement", ""),
                                filtres.get("recherche", ""), filtres.get("actionnables_seul", False),
-                               filtres.get("cloture_bloquee", False))]
+                               filtres.get("cloture_bloquee", False), filtres.get("classification", ""))]
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";", lineterminator="\n")
     w.writerow([lab for _, lab in _CSV_COLS])
