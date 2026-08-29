@@ -28,8 +28,10 @@ import pytest
 
 from app.db.connection import apply_migrations, get_db
 from app.services import (
+    charges_refacturation_service as refac,
     charges_saisie_service as chs,
     controles_lot11_service,
+    factures_proprietaires_service as fps,
     flux_unifie_service,
     lot12_prefactures_service,
     orchestrateur_moteur as om,
@@ -212,30 +214,59 @@ def test_e2e_synthetique_centime_par_centime(db_e2e):
 
     r_lot12 = lot12_prefactures_service.construire(db_path=db)
     assert r_lot12["ok"] is True, r_lot12
-    assert r_lot12["nb_entetes"] == 3
 
     entetes = {r["logement_id"]: dict(r) for r in conn.execute(
         "SELECT logement_id, proprietaire_id, total_exploitation_net, total_reglement_du, "
         "reste_a_payer FROM lot12_prefactures_entete")}
-    assert set(entetes) == {"LOG_E1", "LOG_E2", "LOG_E3"}
-
-    # LOG_E1 : montant_du_conciergerie = menage(40) + commission(52) + canape(30) + refac(3.34)
-    # = 125.34 (avance conciergerie + commission + canape encaisse pour compte + refacturation).
+    # Mission 15 : une charge refacturable='OUI' n'est plus automatiquement facturee — sans
+    # decision d'imputation, LOG_E1/LOG_E2 ne portent PAS encore le montant des charges (seulement
+    # menage+commission+canape), et LOG_E3 (aucune reservation, seulement la charge JAMAIS
+    # imputee) n'apparait meme plus dans le reglement.
+    assert "LOG_E3" not in entetes
     assert entetes["LOG_E1"]["total_exploitation_net"] == 178.0
-    assert entetes["LOG_E1"]["reste_a_payer"] == pytest.approx(125.34, abs=0.005)
-
-    # LOG_E2 : montant_du = commission(100) + refac(3.33) = 103.33.
+    assert entetes["LOG_E1"]["reste_a_payer"] == pytest.approx(122.00, abs=0.005)  # 40+52+30
     assert entetes["LOG_E2"]["total_exploitation_net"] == 400.0
-    assert entetes["LOG_E2"]["reste_a_payer"] == pytest.approx(103.33, abs=0.005)
+    assert entetes["LOG_E2"]["reste_a_payer"] == pytest.approx(100.00, abs=0.005)  # commission seule
 
-    # LOG_E3 : AUCUNE reservation, uniquement la charge refacturable -> montant_du = 3.33.
-    assert entetes["LOG_E3"]["total_exploitation_net"] == 0.0
-    assert entetes["LOG_E3"]["reste_a_payer"] == pytest.approx(3.33, abs=0.005)
+    # Les 3 charges refacturables restent visibles comme POSITIONS disponibles (jamais perdues).
+    positions_e1 = refac.proposer_pour_facture("PROP_E1", "LOG_E1", db_path=db)
+    positions_e2 = refac.proposer_pour_facture("PROP_E2", "LOG_E2", db_path=db)
+    positions_e3 = refac.proposer_pour_facture("PROP_E2", "LOG_E3", db_path=db)
+    assert [p["montant_restant"] for p in positions_e1] == [3.34]
+    assert [p["montant_restant"] for p in positions_e2] == [3.33]
+    assert [p["montant_restant"] for p in positions_e3] == [3.33]
 
-    lignes_e1 = [dict(r) for r in conn.execute(
-        "SELECT type_ligne, montant FROM lot12_prefactures_lignes WHERE facture_id="
-        "'PREF-2026-06-PROP_E1-LOG_E1' ORDER BY ligne_num")]
-    types = {l["type_ligne"] for l in lignes_e1}
-    assert {"TOTAL_PAYOUT", "MENAGE_FACTURE", "COMMISSION_CONCIERGERIE", "PREPARATION_CANAPE",
-           "CHARGES_EXCEPT_REFAC", "MONTANT_DU", "RESTE_A_PAYER"} <= types
+    # Decision humaine : imputation complete des 3 positions sur la facture du mois.
+    for prop, log, positions, montant_du in (
+        ("PROP_E1", "LOG_E1", positions_e1, 122.00 + 3.34),
+        ("PROP_E2", "LOG_E2", positions_e2, 100.00 + 3.33),
+    ):
+        decisions = [{"position_id": positions[0]["position_id"],
+                     "montant": positions[0]["montant_restant"], "libelle": "Charge refacturee"}]
+        source = {"proprietaire_id": prop, "logement_id": log, "mois": MOIS,
+                  "source_calcul": "TEST", "COMMISSION_CONCIERGERIE": 0, "MENAGE_FACTURE": 0,
+                  "PREPARATION_CANAPE": 0, "CHARGE_FIXE": 0, "CHARGES_EXCEPT_REFAC": 0,
+                  "montant_du_conciergerie": 0.0}
+        f = fps.creer(source, acteur="TEST", db_path=db, decisions_charges=decisions)
+        fv = fps.valider(f["facture_id_opaque"],
+                        emetteur={"nom": "Conciergerie", "adresse": "1 rue X", "siret": "123"},
+                        destinataire={"nom": prop}, acteur="TEST", decisions_charges=decisions,
+                        db_path=db)
+        assert fv["statut"] == fps.ST_VALIDE
+
+    # LOG_E3 : jamais imputee (aucune facture ne la couvre dans ce scenario) -> reste disponible.
+    assert refac.proposer_pour_facture("PROP_E2", "LOG_E3", db_path=db)[0]["montant_restant"] == 3.33
+
+    # Rejouer Lot10 : les charges REALISEES (imputees) apparaissent desormais.
+    assert om.executer_lot10(db_path=db)["ok"] is True
+    conn2 = sqlite3.connect(str(db))
+    conn2.row_factory = sqlite3.Row
+    reg = {r["logement_id"]: dict(r) for r in conn2.execute(
+        "SELECT logement_id, charges_exceptionnelles_refacturees, montant_du_conciergerie "
+        "FROM lot10_net_reglement")}
+    assert reg["LOG_E1"]["charges_exceptionnelles_refacturees"] == pytest.approx(3.34, abs=0.005)
+    assert reg["LOG_E1"]["montant_du_conciergerie"] == pytest.approx(125.34, abs=0.005)
+    assert reg["LOG_E2"]["charges_exceptionnelles_refacturees"] == pytest.approx(3.33, abs=0.005)
+    assert reg["LOG_E2"]["montant_du_conciergerie"] == pytest.approx(103.33, abs=0.005)
+    conn2.close()
     conn.close()

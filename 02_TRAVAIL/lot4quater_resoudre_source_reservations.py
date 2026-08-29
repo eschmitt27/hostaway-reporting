@@ -157,6 +157,23 @@ def closed_months_sqlite(chemin_base):
     return out, f"{message} ({len(lignes)} lignes, {len(out)} mois clôturés)"
 
 
+def mois_legacy_sqlite(chemin_base) -> set:
+    """Mois classés LEGACY_SANS_ARCHIVE_ORIGINE (mission 15, `mois_classification_legacy`) — un
+    mois CLOTURE sans HIST qui appartient à ce cutover legacy identifié ne doit plus produire une
+    anomalie A_CONTROLER par réservation (1269 lignes inutiles) : c'est un état accepté, pas une
+    anomalie opérationnelle à corriger réservation par réservation. Vide (jamais bloquant) si la
+    table n'existe pas encore."""
+    conn, _ = dbm.verifier(chemin_base, ("mois_classification_legacy",))
+    if conn is None:
+        return set()
+    try:
+        return {r["mois"] for r in dbm.lignes(
+            conn, "mois_classification_legacy", ("mois", "classification"), ordre="mois")
+            if r.get("classification") == "LEGACY_SANS_ARCHIVE_ORIGINE"}
+    finally:
+        conn.close()
+
+
 # Colonnes lues dans reservations_calculees / reservations_historique_cloture, cote base, et leur
 # nom cote moteur.
 _COLS_LIVE_SQL = (
@@ -285,6 +302,10 @@ def main(argv=None):
         print("[lot4quater] clôtures : REF_Setup.xlsm (repli — table ref_cloture_mensuelle "
               "absente ou base non bootstrappée)")
     print(f"[lot4quater] mois CLOTURE : {sorted(cmonths) or 'AUCUN'}")
+    legacy_mois = mois_legacy_sqlite(chemin_base) if args.source in (
+        dbm.SOURCE_SQLITE, dbm.SOURCE_AUTO) else set()
+    if legacy_mois:
+        print(f"[lot4quater] mois LEGACY_SANS_ARCHIVE_ORIGINE : {sorted(legacy_mois)}")
 
     jeu = None
     if args.source in (dbm.SOURCE_SQLITE, dbm.SOURCE_AUTO):
@@ -345,22 +366,42 @@ def main(argv=None):
         hrows = hist_by_mois.get(mois, [])
         if not hrows:
             # mois déclaré CLOTURE mais aucune ligne en HIST -> alerte + repli live (non bloquant)
+            est_legacy = mois in legacy_mois
             for r in live_by_mois.get(mois, {}).values():
                 canal = CANAL_MAP.get(r.get("source"), "INCONNU")
                 row = {c: r.get(c) for c in BASE_COLS}
-                row.update({
-                    "canal": canal, "etat_mois": "CLOTURE_SANS_HIST",
-                    "origine_initiale": "API_HOSTAWAY" if r.get("reservation_id_hostaway") else "SAISIE_HH",
-                    "source_ligne": r.get("source"), "methode": "REPLI_LIVE",
-                    "payout_calcule": None, "menage_retenu": None, "assiette_commission": None,
-                    "statut_controle": "A_CONTROLER",
-                    "niveau_anomalie": "A_CONTROLER",
-                    "code_anomalie": "MOIS_CLOTURE_SANS_HISTORIQUE",
-                    "commentaire": f"Mois {mois} CLOTURE mais absent de HIST — repli live",
-                })
+                if est_legacy:
+                    # Mission 15, partie E : cutover legacy identifié — état ACCEPTE, jamais une
+                    # anomalie operationnelle a corriger reservation par reservation (niveau INFO,
+                    # pas A_CONTROLER : ne doit pas encombrer la file "a traiter"). Reste EXCLU du
+                    # calcul economique courant (statut != VALIDE, donc jamais lu par Lot9) :
+                    # aucune reconstruction depuis Hostaway live ne remplace l'archive absente.
+                    row.update({
+                        "canal": canal, "etat_mois": "LEGACY_SANS_ARCHIVE_ORIGINE",
+                        "origine_initiale": "API_HOSTAWAY" if r.get("reservation_id_hostaway")
+                                            else "SAISIE_HH",
+                        "source_ligne": r.get("source"), "methode": "LEGACY_SANS_ARCHIVE_ORIGINE",
+                        "payout_calcule": None, "menage_retenu": None, "assiette_commission": None,
+                        "statut_controle": "EXCLU_LEGACY", "niveau_anomalie": "INFO",
+                        "code_anomalie": "LEGACY_SANS_ARCHIVE_ORIGINE",
+                        "commentaire": f"Mois {mois} : cutover legacy, aucune archive economique "
+                                       "d'origine — non reconstruit depuis Hostaway.",
+                    })
+                else:
+                    row.update({
+                        "canal": canal, "etat_mois": "CLOTURE_SANS_HIST",
+                        "origine_initiale": "API_HOSTAWAY" if r.get("reservation_id_hostaway") else "SAISIE_HH",
+                        "source_ligne": r.get("source"), "methode": "REPLI_LIVE",
+                        "payout_calcule": None, "menage_retenu": None, "assiette_commission": None,
+                        "statut_controle": "A_CONTROLER",
+                        "niveau_anomalie": "A_CONTROLER",
+                        "code_anomalie": "MOIS_CLOTURE_SANS_HISTORIQUE",
+                        "commentaire": f"Mois {mois} CLOTURE mais absent de HIST — repli live",
+                    })
                 resolved.append(row)
                 n_cloture_sans_hist += 1
-            alertes.append(("MOIS_CLOTURE_SANS_HISTORIQUE", mois, len(live_by_mois.get(mois, {}))))
+            code_alerte = "LEGACY_SANS_ARCHIVE_ORIGINE" if est_legacy else "MOIS_CLOTURE_SANS_HISTORIQUE"
+            alertes.append((code_alerte, mois, len(live_by_mois.get(mois, {}))))
             continue
 
         live_keys_mois = set(live_by_mois.get(mois, {}).keys())

@@ -157,6 +157,10 @@ def creer(donnees: dict[str, Any], *, acteur: str = "", db_path=None) -> dict[st
             f"INSERT INTO charges ({', '.join(colonnes)}) "
             f"VALUES ({', '.join(['?'] * len(colonnes))})", params)
         _journaliser(conn, charge_id, EVT_CREATION, acteur, "", apres=valeurs)
+        # Mission 15 : point d'entrée unique de la file de refacturation — une charge
+        # refacturable='OUI' alimente automatiquement une position, jamais un second flux.
+        from app.services import charges_refacturation_service as refac
+        refac.synchroniser_depuis_charge(charge_id, acteur=acteur, conn=conn)
         conn.commit()
     finally:
         conn.close()
@@ -190,6 +194,8 @@ def modifier(charge_id: str, donnees: dict[str, Any], *, acteur: str = "", motif
             [*(valeurs[c] for c in CHAMPS_SAISIE), _maintenant(), charge_id])
         _journaliser(conn, charge_id, EVT_MODIFICATION, acteur, motif,
                      avant={c: avant.get(c) for c in CHAMPS_SAISIE}, apres=valeurs)
+        from app.services import charges_refacturation_service as refac
+        refac.synchroniser_depuis_charge(charge_id, acteur=acteur, conn=conn)
         conn.commit()
     finally:
         conn.close()

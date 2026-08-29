@@ -157,6 +157,11 @@ EXPECTED_TABLES = {
     "ref_canape_parametres",                     # 0058 — paramètres canapé historisés (Mission 6)
     "ref_regles_versions",                       # 0059 — versionnement règles algorithmiques (Mission 6 bis)
     "sauvegardes_base_tracabilite",               # 0061 — hash source + version schema (mission 14)
+    "charges_refacturation_positions",           # 0062 — positions de refacturation (mission 15)
+    "charges_refacturation_evenements",          # 0062 — audit positions de refacturation (mission 15)
+    "mois_archive_reglement",                    # 0064 — archive Lot10 reglement a la cloture (mission 15)
+    "mois_classification_legacy",                 # 0064 — classification LEGACY_SANS_ARCHIVE_ORIGINE (mission 15)
+    "reservations_historique_corrections",        # 0064 — CORRECTION_HISTORIQUE explicite (mission 15)
 }
 
 

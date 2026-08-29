@@ -222,11 +222,11 @@ def test_sauvegarder_journalise_metadonnees_completes(db):
     res = backup_service.sauvegarder("TEST", db_path=db)
     assert res["source_hash"]
     assert res["database_hash"]
-    assert res["schema_version"] == "0061"
+    assert res["schema_version"] == "0064"
 
     entree = backup_service.lister(db_path=db)[0]
     assert entree["source_hash"] == res["source_hash"]
-    assert entree["schema_version"] == "0061"
+    assert entree["schema_version"] == "0064"
     assert entree["database_hash"]
     assert entree["date_creation"]
 

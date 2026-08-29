@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Éléments à refacturer{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Éléments à refacturer</h1>
+  <p class="page-subtitle">Positions créées automatiquement dès qu'une charge est saisie
+    refacturable — aucune création manuelle ici, seulement la décision.</p>
+</div>
+
+{% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+
+<div class="kpi-grid kpi-grid--6 mt-md">
+  <div class="kpi-card"><div class="kpi-label">À traiter</div><div class="kpi-value">{{ compteurs.A_TRAITER or 0 }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Disponibles</div><div class="kpi-value">{{ compteurs.DISPONIBLE or 0 }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Reportées</div><div class="kpi-value">{{ compteurs.REPORTEE or 0 }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Partiellement imputées</div><div class="kpi-value">{{ compteurs.PARTIELLEMENT_IMPUTEE or 0 }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Imputées</div><div class="kpi-value">{{ compteurs.IMPUTEE or 0 }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Non refacturées</div><div class="kpi-value">{{ compteurs.NON_REFACTUREE or 0 }}</div></div>
+</div>
+
+<form method="get" class="filter-bar mt-md">
+  <select name="statut">
+    <option value="">Tous statuts</option>
+    <option value="PROPOSABLES" {% if applied.statut == 'PROPOSABLES' %}selected{% endif %}>Proposables</option>
+    <option value="A_TRAITER" {% if applied.statut == 'A_TRAITER' %}selected{% endif %}>À traiter</option>
+    <option value="DISPONIBLE" {% if applied.statut == 'DISPONIBLE' %}selected{% endif %}>Disponible</option>
+    <option value="REPORTEE" {% if applied.statut == 'REPORTEE' %}selected{% endif %}>Reportée</option>
+    <option value="PARTIELLEMENT_IMPUTEE" {% if applied.statut == 'PARTIELLEMENT_IMPUTEE' %}selected{% endif %}>Partiellement imputée</option>
+    <option value="IMPUTEE" {% if applied.statut == 'IMPUTEE' %}selected{% endif %}>Imputée</option>
+    <option value="NON_REFACTUREE" {% if applied.statut == 'NON_REFACTUREE' %}selected{% endif %}>Non refacturée</option>
+  </select>
+  <input type="text" name="proprietaire_id" placeholder="Propriétaire" value="{{ applied.proprietaire_id }}">
+  <input type="text" name="logement_id" placeholder="Logement" value="{{ applied.logement_id }}">
+  <button type="submit" class="btn btn-secondary">Filtrer</button>
+</form>
+
+<table class="data-table mt-md">
+  <thead>
+    <tr>
+      <th>Date</th><th>Charge</th><th>Description</th><th>Propriétaire</th><th>Logement</th>
+      <th>Montant origine</th><th>Déjà imputé</th><th>Reste</th><th>Statut</th><th>Facture liée</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for p in positions %}
+    <tr>
+      <td>{{ p.date_charge or '' }}</td>
+      <td><code>{{ p.charge_id }}</code></td>
+      <td>{{ p.description or '' }}</td>
+      <td>{{ p.proprietaire_id or '—' }}</td>
+      <td>{{ p.logement_id or '—' }}</td>
+      <td>{{ '%.2f'|format(p.montant_origine) }} €</td>
+      <td>{{ '%.2f'|format(p.montant_impute_total) }} €</td>
+      <td>{{ '%.2f'|format(p.montant_restant) }} €</td>
+      <td><span class="status-badge">{{ p.statut }}</span></td>
+      <td>{{ p.derniere_decision or '—' }}</td>
+      <td>
+        {% if p.statut in ('DISPONIBLE', 'REPORTEE', 'PARTIELLEMENT_IMPUTEE', 'A_TRAITER') %}
+        <form method="post" action="/charges-refacturation/{{ p.position_id }}/reporter" style="display:inline">
+          <button type="submit" class="btn btn-sm">Reporter</button>
+        </form>
+        <form method="post" action="/charges-refacturation/{{ p.position_id }}/ne-pas-refacturer" style="display:inline">
+          <input type="text" name="justification" placeholder="Justification" required>
+          <button type="submit" class="btn btn-sm btn-warning">Ne pas refacturer</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    {% if not positions %}
+    <tr><td colspan="11" class="text-muted">Aucune position.</td></tr>
+    {% endif %}
+  </tbody>
+</table>
+{% endblock %}

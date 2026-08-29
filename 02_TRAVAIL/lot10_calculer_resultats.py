@@ -329,6 +329,48 @@ def charger_charges_sqlite(chemin_base) -> pd.DataFrame:
     return _charger_table_sqlite(chemin_base, "charges", _CHARGES_COLS_SQL, vide_ok=True)
 
 
+def charger_refacturations_realisees_sqlite(chemin_base):
+    """Refacturations RÉALISÉES (mission 15) — remplace `aggregate_refacturable_charges()` en mode
+    SQLite : une charge `refacturable='OUI'` n'est plus automatiquement un produit de refacturation
+    réalisé. Seules les IMPUTATIONS effectivement décidées (`charges_refacturation_evenements`,
+    évènement IMPUTATION/IMPUTATION_PARTIELLE, liées à une facture VALIDE/EMISE du mois) comptent
+    ici — la charge économique elle-même (impact sur `total_charges`/`resultat`) reste inchangée
+    par ailleurs (`_module_chg`/`charges_reader`), cette fonction ne construit QUE le bloc
+    RÉGLEMENT (`montant_du_conciergerie`). Tables absentes (mission pas encore migrée) -> vide,
+    jamais bloquant : aucune refacturation réalisée n'est un état réel légitime.
+    """
+    refac_by_log: dict[tuple, tuple[float, Any]] = {}
+    refac_by_prop: dict[tuple, float] = {}
+    conn, message = dbm.verifier(
+        chemin_base, ("charges_refacturation_evenements", "charges_refacturation_positions",
+                      "factures_proprietaires"))
+    if conn is None:
+        return refac_by_log, refac_by_prop, [], message
+    try:
+        rows = conn.execute(
+            "SELECT f.mois AS mois, p.logement_id AS logement_id, "
+            "p.proprietaire_id AS proprietaire_id, SUM(e.montant) AS montant "
+            "FROM charges_refacturation_evenements e "
+            "JOIN charges_refacturation_positions p ON p.position_id = e.position_id "
+            "JOIN factures_proprietaires f ON f.facture_id_opaque = e.facture_id "
+            "WHERE e.evenement IN ('IMPUTATION', 'IMPUTATION_PARTIELLE') "
+            "AND f.statut IN ('VALIDE', 'EMIS') "
+            "GROUP BY f.mois, p.logement_id, p.proprietaire_id"
+        ).fetchall()
+    finally:
+        conn.close()
+    for mois, logement_id, proprietaire_id, montant in rows:
+        montant = round(float(montant or 0), 2)
+        if logement_id:
+            key = (mois, logement_id)
+            cur = refac_by_log.get(key, (0.0, proprietaire_id))
+            refac_by_log[key] = (round(cur[0] + montant, 2), cur[1])
+        elif proprietaire_id:
+            key = (mois, proprietaire_id)
+            refac_by_prop[key] = round(refac_by_prop.get(key, 0.0) + montant, 2)
+    return refac_by_log, refac_by_prop, [], message
+
+
 def charger_gestion_sqlite(chemin_base) -> pd.DataFrame:
     """`REF_Gestion_Logements_Hist` depuis SQLite — vide accepté (mêmes garanties que la version
     Excel via `_read_optional_sheet`)."""
@@ -1265,14 +1307,25 @@ def build_resultats(df_flux):
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. Build net proprietaire
 # ─────────────────────────────────────────────────────────────────────────────
-def build_net_proprietaire(df_comm, df_cfix, df_acc, df_airbnb_imp, df_charges=None):
+def build_net_proprietaire(df_comm, df_cfix, df_acc, df_airbnb_imp, df_charges=None, *,
+                          source="EXCEL", chemin_base=None):
     log.info("=== Construction net proprietaire ===")
 
     # ── 5-refac. Charges exceptionnelles refacturees (D033/D034) ──
     # Bloc REGLEMENT uniquement : alimente montant_du_conciergerie, jamais revenu_net_exploitation.
-    # Eligibilite : refacturable=OUI ET statut_controle=VALIDE ET proprietaire exploitable (jamais infere).
+    # Mission 15 : en mode SQLite, seules les IMPUTATIONS RÉELLEMENT DÉCIDÉES comptent désormais
+    # (`charges_refacturation_service`, via facture VALIDE/EMISE) — `refacturable=OUI` ne signifie
+    # plus a lui seul "sera facture". Le mode EXCEL legacy garde l'ancien comportement (agregation
+    # directe des charges eligibles), inchange.
     refac_by_log, refac_by_prop, refac_controls = {}, {}, []
-    if df_charges is not None and len(df_charges) > 0:
+    if source == "SQLITE":
+        refac_by_log, refac_by_prop, refac_controls, message_refac = \
+            charger_refacturations_realisees_sqlite(chemin_base)
+        log.info(
+            f"  Charges refac. REALISEES (SQLite) : {len(refac_by_log)} (mois x logement) / "
+            f"{len(refac_by_prop)} (mois x prop seul) — {message_refac}"
+        )
+    elif df_charges is not None and len(df_charges) > 0:
         refac_by_log, refac_by_prop, refac_controls = aggregate_refacturable_charges(
             df_charges.to_dict("records")
         )
@@ -1808,7 +1861,9 @@ def main():
     df_comm, df_ac, hh_controls     = build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_taux, df_canape, df_regles)
     df_cfix, cfix_controls          = build_charge_fixe(df_flux, df_log, df_gest)
     df_reel, df_compt, df_hc        = build_resultats(df_flux)
-    df_exploit, df_reg, df_vue      = build_net_proprietaire(df_comm, df_cfix, df_acc, df_airbnb_imp, df_charges)
+    df_exploit, df_reg, df_vue      = build_net_proprietaire(
+        df_comm, df_cfix, df_acc, df_airbnb_imp, df_charges,
+        source=args.source, chemin_base=chemin_base)
 
     if args.sans_excel:
         log.info("=== Masters legacy non ecrits (--sans-excel) ===")

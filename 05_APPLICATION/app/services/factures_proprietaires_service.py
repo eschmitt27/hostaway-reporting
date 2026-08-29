@@ -98,14 +98,23 @@ def _journal(conn, facture_id, type_evt, ancien=None, nouveau=None, commentaire=
 
 # ── Prévisualisation ────────────────────────────────────────────────────────────────────────────
 
-def previsualiser(source: dict[str, Any]) -> dict[str, Any]:
+def previsualiser(source: dict[str, Any],
+                  decisions_charges: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Construit la facture proposée SANS rien écrire.
 
     `source` est un enregistrement de calcul propriétaire (Lot 10 / Lot 12) pour un couple
     mois x propriétaire x logement. Les montants ne sont ni recalculés ni corrigés ici.
+
+    `decisions_charges` (mission 15) : décisions humaines d'imputation de positions individuelles
+    de `charges_refacturation_service` (chacune {position_id, montant, libelle, justification}).
+    Quand fourni, remplace la ligne agrégée `CHARGES_EXCEPT_REFAC` par UNE LIGNE PAR POSITION — le
+    propriétaire doit voir exactement ce qu'il paie, pas un total masqué. Aucune consommation ici :
+    ce sont des lignes de BROUILLON, la position n'est réellement imputée qu'à `valider()`.
     """
+    types = (TYPES_FACTURABLES if decisions_charges is None
+            else tuple(t for t in TYPES_FACTURABLES if t != "CHARGES_EXCEPT_REFAC"))
     lignes = []
-    for i, type_ligne in enumerate(TYPES_FACTURABLES, start=1):
+    for i, type_ligne in enumerate(types, start=1):
         montant = _round(source.get(type_ligne))
         if montant == 0:
             continue  # une ligne à zéro n'est pas facturée — elle n'apparaît pas
@@ -118,6 +127,19 @@ def previsualiser(source: dict[str, Any]) -> dict[str, Any]:
             "objet_source_ref": str(source.get("source_calcul") or ""),
         })
 
+    for d in (decisions_charges or []):
+        montant = _round(d.get("montant"))
+        if montant == 0:
+            continue
+        lignes.append({
+            "numero_ligne": len(lignes) + 1,
+            "type_ligne": "CHARGE_REFACTUREE",
+            "libelle": d.get("libelle") or "Charge refacturée",
+            "montant": montant,
+            "objet_source_type": "CHARGES_REFACTURATION_POSITION",
+            "objet_source_ref": str(d["position_id"]),
+        })
+
     total = _round(sum(l["montant"] for l in lignes))
     controles = []
 
@@ -127,13 +149,22 @@ def previsualiser(source: dict[str, Any]) -> dict[str, Any]:
 
     # Le total facturé doit réconcilier le montant dû calculé par le moteur. On ne corrige pas
     # l'écart : on le signale. Un écart signifie que la facture ne représente pas le calcul.
+    # Mission 15 : `montant_du_conciergerie` (Lot10) ne porte plus que les charges refacturables
+    # DÉJÀ réalisées (montant_realise) — le montant attendu doit donc être ajusté du delta apporté
+    # par les décisions humaines de CETTE facture (jamais recalculé, juste réconcilié).
     montant_du = source.get("montant_du_conciergerie")
-    if montant_du is not None and abs(_round(montant_du) - total) > TOLERANCE:
-        controles.append({
-            "code": C_TOTAL_INCOHERENT,
-            "message": (f"total facturé {total:.2f} != montant dû calculé "
-                        f"{_round(montant_du):.2f}"),
-        })
+    if montant_du is not None:
+        montant_du_attendu = _round(montant_du)
+        if decisions_charges is not None:
+            montant_du_attendu = _round(
+                montant_du_attendu - _round(source.get("CHARGES_EXCEPT_REFAC"))
+                + sum(_round(d.get("montant")) for d in decisions_charges))
+        if abs(montant_du_attendu - total) > TOLERANCE:
+            controles.append({
+                "code": C_TOTAL_INCOHERENT,
+                "message": (f"total facturé {total:.2f} != montant dû calculé "
+                            f"{montant_du_attendu:.2f}"),
+            })
 
     if not lignes:
         controles.append({"code": C_SOURCE_INCOMPLETE, "message": "aucune ligne facturable"})
@@ -155,9 +186,14 @@ def previsualiser(source: dict[str, Any]) -> dict[str, Any]:
 # ── Création ────────────────────────────────────────────────────────────────────────────────────
 
 def creer(source: dict[str, Any], *, acteur: str = "", db_path=None,
-          type_document: str = TYPE_FACTURE, facture_origine: str | None = None) -> dict[str, Any]:
-    """Crée une facture BROUILLON. Anti-doublon garanti par l'index unique du schéma."""
-    apercu = previsualiser(source)
+          type_document: str = TYPE_FACTURE, facture_origine: str | None = None,
+          decisions_charges: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Crée une facture BROUILLON. Anti-doublon garanti par l'index unique du schéma.
+
+    `decisions_charges` : voir `previsualiser()`. Purement représentatif à ce stade — aucune
+    position de refacturation n'est consommée avant `valider()`.
+    """
+    apercu = previsualiser(source, decisions_charges=decisions_charges)
     if not apercu["lignes"]:
         raise FactureProprietaireError(f"{C_SOURCE_INCOMPLETE}: aucune ligne facturable")
 
@@ -241,8 +277,18 @@ def lister(*, mois=None, proprietaire_id=None, statut=None, db_path=None) -> lis
 # ── Validation ──────────────────────────────────────────────────────────────────────────────────
 
 def valider(facture_id: str, *, emetteur: dict[str, Any], destinataire: dict[str, Any],
-            acteur: str = "", db_path=None) -> dict[str, Any]:
-    """BROUILLON -> VALIDE. Aucune validation silencieuse : chaque refus porte un code."""
+            acteur: str = "", decisions_charges: list[dict[str, Any]] | None = None,
+            db_path=None) -> dict[str, Any]:
+    """BROUILLON -> VALIDE. Aucune validation silencieuse : chaque refus porte un code.
+
+    Mission 15 — SEUL point de consommation des positions de refacturation : chaque ligne
+    `CHARGE_REFACTUREE` de la facture est imputée ICI, dans LA MÊME transaction que le passage
+    VALIDE (`charges_refacturation_service.imputer(..., conn=conn)`). Si une imputation échoue
+    (position déjà consommée par ailleurs, montant dépassé), tout est annulé : la facture reste
+    BROUILLON et aucune position n'est touchée. `decisions_charges` reporte la justification
+    éventuelle par position (non persistée sur la ligne elle-même) — fournie par l'appelant au
+    moment de la validation, pas dérivée des lignes déjà écrites.
+    """
     f = lire(facture_id, db_path=db_path)
     if f["statut"] != ST_BROUILLON:
         raise FactureProprietaireError(f"statut {f['statut']}: seul un BROUILLON peut etre valide")
@@ -260,8 +306,21 @@ def valider(facture_id: str, *, emetteur: dict[str, Any], destinataire: dict[str
         raise FactureProprietaireError(
             f"{C_TOTAL_INCOHERENT}: entete {f['montant_total']} != lignes {total}")
 
+    justifications = {d["position_id"]: d.get("justification")
+                      for d in (decisions_charges or [])}
+    lignes_charges = [l for l in f["lignes"] if l["type_ligne"] == "CHARGE_REFACTUREE"]
+
+    from app.services import charges_refacturation_service as refac
+
     conn = get_db(db_path)
     try:
+        for l in lignes_charges:
+            resultat = refac.imputer(
+                l["objet_source_ref"], l["montant"], facture_id=facture_id, acteur=acteur,
+                justification=justifications.get(l["objet_source_ref"]), conn=conn)
+            if not resultat.get("ok"):
+                raise FactureProprietaireError(
+                    f"IMPUTATION_REFUSEE {l['objet_source_ref']}: {resultat.get('message')}")
         conn.execute(
             "UPDATE factures_proprietaires SET statut=?, date_validation="
             "strftime('%Y-%m-%dT%H:%M:%SZ','now'), version=version+1 WHERE facture_id_opaque=?",
@@ -269,6 +328,9 @@ def valider(facture_id: str, *, emetteur: dict[str, Any], destinataire: dict[str
         _journal(conn, facture_id, "VALIDATION", ST_BROUILLON, ST_VALIDE,
                  f"total {total:.2f}", acteur)
         conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
     return lire(facture_id, db_path=db_path)

@@ -295,8 +295,29 @@ def rouvrir(cloture: dict, *, acteur: str = "", justification: str = "", version
 
 
 def archiver(cloture: dict, *, acteur: str = "", version_attendue=None, db_path=None):
-    return _transition(cloture, ST_ARCHIVEE, acteur=acteur, version_attendue=version_attendue,
-                       db_path=db_path)
+    """VALIDEE -> ARCHIVEE — mission 15 : DÉCLENCHE l'archivage économique du mois, ATOMIQUEMENT
+    avec la transition. Si l'archivage échoue (`ArchivageRefuse`), tout est annulé : ni ARCHIVEE,
+    ni mois marqué CLOTURE, ni archive partielle. Jamais `mois=CLOTURE` sans archive complète.
+    """
+    from app.services import cloture_archivage_service as arch
+
+    mois = cloture["mois"]
+    conn = get_db(db_path)
+    try:
+        arch.archiver_mois(mois, acteur=acteur, conn=conn)
+        conn.execute(
+            "INSERT INTO ref_cloture_mensuelle (mois, statut_mois, import_id) VALUES (?,?,?) "
+            "ON CONFLICT(mois) DO UPDATE SET statut_mois='CLOTURE'",
+            (mois, "CLOTURE", f"CLOTURE_APP-{acteur or 'SYSTEME'}"))
+        resultat = _transition(cloture, ST_ARCHIVEE, acteur=acteur,
+                               version_attendue=version_attendue, conn=conn)
+        conn.commit()
+        return resultat
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 # ── Snapshot ──────────────────────────────────────────────────────────────────
