@@ -5,11 +5,11 @@
 <p><strong>{{ resultat.creees|length }}</strong> brouillon(s) créé(s).</p>
 {% if resultat.ignorees %}
 <h3>Ignorées ({{ resultat.ignorees|length }})</h3>
-<ul>{% for i in resultat.ignorees %}<li>{{ i.proprietaire_id }} / {{ i.logement_id }} — {{ i.statut }} : {{ i.detail }}</li>{% endfor %}</ul>
+<ul>{% for i in resultat.ignorees %}<li>{{ i.proprietaire_id | nom_proprietaire }} / {{ i.logement_id | nom_logement }} — {{ i.statut }} : {{ i.detail }}</li>{% endfor %}</ul>
 {% endif %}
 {% if resultat.erreurs %}
 <h3>Erreurs ({{ resultat.erreurs|length }})</h3>
-<ul>{% for e in resultat.erreurs %}<li>{{ e.proprietaire_id }} / {{ e.logement_id }} — {{ e.erreur }}</li>{% endfor %}</ul>
+<ul>{% for e in resultat.erreurs %}<li>{{ e.proprietaire_id | nom_proprietaire }} / {{ e.logement_id | nom_logement }} — {{ e.erreur }}</li>{% endfor %}</ul>
 {% endif %}
 <p><a href="/factures-proprietaires?mois={{ mois }}">Voir les factures</a></p>
 {% endblock %}

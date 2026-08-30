@@ -20,9 +20,15 @@ from app.services import factures_proprietaires_conformite_service as conformite
 from app.services import factures_proprietaires_pdf as pdf
 from app.services import factures_proprietaires_service as svc
 from app.services import factures_proprietaires_source as source_svc
+from app.services import referentiel_service as ref_svc
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+# Vrais noms partout où un proprietaire_id/logement_id est affiché (mission « vrais noms dans les
+# factures ») : l'ID reste la clé technique, jamais le libellé présenté à l'utilisateur. Fallback
+# explicite si le référentiel n'a pas encore résolu l'identifiant — jamais un ID brut silencieux.
+templates.env.filters["nom_proprietaire"] = lambda pid: ref_svc.libelle_proprietaire(pid)
+templates.env.filters["nom_logement"] = lambda lid: ref_svc.libelle_logement(lid)
 
 
 def _repertoire_documents() -> Path:

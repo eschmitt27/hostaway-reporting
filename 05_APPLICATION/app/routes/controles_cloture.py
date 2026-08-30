@@ -16,6 +16,7 @@ from app.services import controles_actionnable_service as act
 from app.services import controles_suivi_service as suivi
 from app.services import controles_runner_service as runner
 from app.services import banques_controle_service as banque_ctrl
+from app.services import assiette_correction_service as assiette_svc
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -173,6 +174,78 @@ async def controle_element_recalcul(request: Request, ctrl_opaque: str):
     resultat = runner.recalculer_sur_copie(el, appliquer_classification=classifie)
     return templates.TemplateResponse(request, "controles_recalcul_run.html", {
         "active_menu": "controles", "resultat": resultat, "ctrl_opaque": ctrl_opaque,
+    })
+
+
+# ── ASSIETTE_NEGATIVE_RAMENEE_ZERO — modification manuelle de l'assiette ─────────────────────────
+# Deux actions seulement (commenter / modifier l'assiette). Jamais total_price ni aucune valeur
+# préemplie pour la nouvelle assiette — l'humain la saisit. Assiette brute/automatique JAMAIS
+# réécrites (voir assiette_correction_service). Recalcul RÉEL Lot10→Lot11→Lot12, pas une copie.
+
+@router.get("/controles-cloture/element/{ctrl_opaque}/modifier-assiette", response_class=HTMLResponse)
+def assiette_modifier_form(request: Request, ctrl_opaque: str):
+    prep = assiette_svc.preparer_formulaire(ctrl_opaque)
+    if prep is None:
+        return templates.TemplateResponse(request, "assiette_modifier_form.html", {
+            "active_menu": "controles", "prep": None, "ctrl_opaque": ctrl_opaque,
+        }, status_code=404)
+    return templates.TemplateResponse(request, "assiette_modifier_form.html", {
+        "active_menu": "controles", "prep": prep, "ctrl_opaque": ctrl_opaque,
+        "recap": None, "erreur": "",
+    })
+
+
+@router.post("/controles-cloture/element/{ctrl_opaque}/modifier-assiette/previsualiser",
+            response_class=HTMLResponse)
+async def assiette_modifier_previsualiser(request: Request, ctrl_opaque: str):
+    form = await request.form()
+    recap = assiette_svc.recap(
+        ctrl_opaque,
+        nouvelle_assiette=(form.get("nouvelle_assiette") or "").strip(),
+        justification=(form.get("justification") or "").strip(),
+    )
+    if recap is None:
+        return templates.TemplateResponse(request, "assiette_modifier_form.html", {
+            "active_menu": "controles", "prep": None, "ctrl_opaque": ctrl_opaque,
+        }, status_code=404)
+    erreur = ""
+    if not recap["justification_saisie"]:
+        erreur = "Justification obligatoire."
+    return templates.TemplateResponse(request, "assiette_modifier_form.html", {
+        "active_menu": "controles", "prep": recap, "ctrl_opaque": ctrl_opaque,
+        "recap": None if erreur else recap, "erreur": erreur,
+    })
+
+
+@router.post("/controles-cloture/element/{ctrl_opaque}/modifier-assiette/confirmer",
+            response_class=HTMLResponse)
+async def assiette_modifier_confirmer(request: Request, ctrl_opaque: str):
+    form = await request.form()
+    resultat = assiette_svc.corriger(
+        ctrl_opaque,
+        nouvelle_assiette=(form.get("nouvelle_assiette") or "").strip(),
+        justification=(form.get("justification") or "").strip(),
+        acteur="local",
+    )
+    if not resultat.get("ok"):
+        prep = assiette_svc.preparer_formulaire(ctrl_opaque)
+        return templates.TemplateResponse(request, "assiette_modifier_form.html", {
+            "active_menu": "controles", "prep": prep, "ctrl_opaque": ctrl_opaque,
+            "recap": None, "erreur": resultat.get("message", "Correction refusée."),
+        }, status_code=422)
+    return templates.TemplateResponse(request, "assiette_modifier_confirmation.html", {
+        "active_menu": "controles", "ctrl_opaque": ctrl_opaque, "resultat": resultat,
+        "recalcul": None,
+    })
+
+
+@router.post("/controles-cloture/element/{ctrl_opaque}/modifier-assiette/recalculer",
+            response_class=HTMLResponse)
+def assiette_modifier_recalculer(request: Request, ctrl_opaque: str):
+    recalcul = assiette_svc.recalculer()
+    return templates.TemplateResponse(request, "assiette_modifier_confirmation.html", {
+        "active_menu": "controles", "ctrl_opaque": ctrl_opaque, "resultat": {"ok": True},
+        "recalcul": recalcul,
     })
 
 

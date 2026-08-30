@@ -792,6 +792,24 @@ def main(argv=None):
             master_rows.append(row)
             continue
 
+        # Périmètre économique Hostaway : seuls Status ∈ {new, modified} entrent en résultat.
+        # ownerStay a déjà sa propre exclusion ci-dessus (règle métier distincte, inchangée) ; tout
+        # AUTRE statut (ex. cancelled) est structurellement hors périmètre — jamais compté comme une
+        # réservation valide, quel que soit le canal.
+        if status.strip().lower() not in ("new", "modified"):
+            logement_id, proprietaire_id, ano_code, ano_msg = resolve_logement(
+                res["listingMapId"],
+                date_arrivee_str=date_to_str(res.get("checkInDate")),
+                date_depart_str=date_to_str(res.get("checkOutDate")),
+            )
+            stats["STATUT_HOSTAWAY_HORS_PERIMETRE"] += 1
+            commentaire = f"Statut Hostaway hors périmètre économique (status={status!r})"
+            row = make_row_ha(res, payout, "STATUT_HOSTAWAY_HORS_PERIMETRE", "NON_CONCERNE", 0,
+                              "HR", "EXCLU_RESULTAT", "INFO", "STATUT_HOSTAWAY_HORS_PERIMETRE",
+                              commentaire, logement_id, proprietaire_id)
+            master_rows.append(row)
+            continue
+
         # Ligne HA déjà couverte par HH (S3/S4) → exclure
         if rid in ha_ids_linked_to_hh:
             stats["HA_EXCLU_PAR_HH"] += 1

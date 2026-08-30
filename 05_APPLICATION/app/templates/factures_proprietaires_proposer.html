@@ -20,7 +20,7 @@
 
 {% for p in propositions %}
 <div class="card" style="margin-bottom:1rem">
-  <h3>{{ p.proprietaire_id }} — {{ p.logement_id }} <span class="badge">{{ p.statut_proposition }}</span></h3>
+  <h3>{{ p.proprietaire_id | nom_proprietaire }} — {{ p.logement_id | nom_logement }} <span class="badge">{{ p.statut_proposition }}</span></h3>
   {% if p.detail %}<p class="text-muted">{{ p.detail }}</p>{% endif %}
   <table class="table">
     <thead><tr><th>N°</th><th>Prestation facturée</th><th class="text-right">Montant</th></tr></thead>

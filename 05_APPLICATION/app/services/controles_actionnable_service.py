@@ -240,7 +240,16 @@ def load_fiche(ctrl_opaque: str, db_path=None) -> dict[str, Any] | None:
     }
 
 
+_CODES_ASSIETTE_MANUELLE = ("ASSIETTE_NEGATIVE_RAMENEE_ZERO", "ASSIETTE_CORRIGEE_MANUELLEMENT")
+
+
 def _actions_possibles(el: dict[str, Any]) -> list[str]:
+    if el.get("code") in _CODES_ASSIETTE_MANUELLE:
+        # « Prendre en charge »/« Accepter l'exception » n'apportent rien ici : la seule décision
+        # utile est humaine sur l'assiette elle-même (bouton dédié via lien_module), jamais un
+        # statut de suivi générique. `recalcul_copie` non plus : le recalcul ciblé après correction
+        # a son propre bouton (Lot10 → Lot11 → Lot12 réel, pas une copie).
+        return ["commenter"]
     if el["est_info"]:
         return ["commenter", "masquer_info"]   # un INFO n'a pas de résolution métier par défaut
     st = el["etat"]["statut_suivi"]

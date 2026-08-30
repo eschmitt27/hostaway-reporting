@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Modifier l'assiette{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <a href="/controles-cloture/element/{{ ctrl_opaque }}" class="back-link">← Retour au contrôle</a>
+  <h1 class="page-title">Modifier l'assiette de commission</h1>
+</div>
+
+{% if prep is none %}
+<div class="alert alert-warning">Contrôle introuvable, ou non éligible à la correction d'assiette
+  (seuls ASSIETTE_NEGATIVE_RAMENEE_ZERO / ASSIETTE_CORRIGEE_MANUELLEMENT le sont).</div>
+<a href="/controles-cloture" class="btn btn-secondary">← Retour aux contrôles</a>
+{% else %}
+
+{% if erreur %}<div class="alert alert-error">{{ erreur }}</div>{% endif %}
+
+<div class="card mb-md">
+  <h2 class="card-title">État actuel</h2>
+  <dl class="detail-grid">
+    <div><dt>Réservation</dt><dd class="font-mono text-xs">{{ prep.reservation_id }}</dd></div>
+    <div><dt>Logement</dt><dd class="font-mono text-xs">{{ prep.logement_id }}</dd></div>
+    <div><dt>Propriétaire</dt><dd class="font-mono text-xs">{{ prep.proprietaire_id }}</dd></div>
+    <div><dt>Mois</dt><dd class="font-mono text-xs">{{ prep.mois }}</dd></div>
+    <div><dt>Assiette brute calculée</dt><dd><strong>{{ "%.2f"|format(prep.assiette_brute) }} €</strong></dd></div>
+    <div><dt>Assiette retenue automatiquement</dt><dd>{{ "%.2f"|format(prep.assiette_automatique) }} €</dd></div>
+    <div><dt>Commission actuelle</dt><dd>{{ "%.2f"|format(prep.commission_actuelle) }} €</dd></div>
+    <div><dt>Taux de commission</dt><dd>{{ "%.1f"|format(prep.taux_commission * 100) }} %</dd></div>
+  </dl>
+  {% if prep.correction_existante %}
+  <p class="section-note mt-sm">Une correction existe déjà (assiette manuelle
+    {{ "%.2f"|format(prep.correction_existante.assiette_manuelle) }} €, par
+    {{ prep.correction_existante.acteur or "—" }} le {{ prep.correction_existante.date_correction }}) —
+    valider ici la remplacera (l'ancienne reste conservée pour audit).</p>
+  {% endif %}
+</div>
+
+{% if recap %}
+<div class="card mb-md">
+  <h2 class="card-title">Impact — à valider</h2>
+  <dl class="detail-grid">
+    <div><dt>Ancienne assiette retenue</dt><dd>{{ "%.2f"|format(recap.assiette_automatique) }} €</dd></div>
+    <div><dt>Nouvelle assiette</dt><dd><strong>{{ recap.nouvelle_assiette_saisie }} €</strong></dd></div>
+    <div><dt>Taux de commission</dt><dd>{{ "%.1f"|format(recap.taux_commission * 100) }} %</dd></div>
+    <div><dt>Ancienne commission</dt><dd>{{ "%.2f"|format(recap.ancienne_commission_affichee) }} €</dd></div>
+    <div><dt>Nouvelle commission</dt><dd><strong>{{ "%.2f"|format(recap.nouvelle_commission_calculee) }} €</strong></dd></div>
+    <div class="form-field-full"><dt>Justification</dt><dd>{{ recap.justification_saisie }}</dd></div>
+  </dl>
+  <form method="post" action="/controles-cloture/element/{{ ctrl_opaque }}/modifier-assiette/confirmer" class="mt-md">
+    <input type="hidden" name="nouvelle_assiette" value="{{ recap.nouvelle_assiette_saisie }}">
+    <input type="hidden" name="justification" value="{{ recap.justification_saisie }}">
+    <button type="submit" class="btn btn-primary">Confirmer la correction</button>
+    <a href="/controles-cloture/element/{{ ctrl_opaque }}/modifier-assiette" class="btn btn-ghost">Modifier</a>
+  </form>
+</div>
+{% else %}
+<div class="card">
+  <h2 class="card-title">Nouvelle assiette retenue</h2>
+  <form method="post" action="/controles-cloture/element/{{ ctrl_opaque }}/modifier-assiette/previsualiser">
+    <div class="form-grid-3">
+      <div class="form-field">
+        <label>Nouvelle assiette retenue (obligatoire) *</label>
+        <input type="text" name="nouvelle_assiette" class="filter-input" required placeholder="ex. 12.00">
+      </div>
+      <div class="form-field form-field-full">
+        <label>Justification (obligatoire) *</label>
+        <textarea name="justification" class="filter-input" required></textarea>
+      </div>
+    </div>
+    <button type="submit" class="btn btn-primary mt-md">Prévisualiser l'impact</button>
+  </form>
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}

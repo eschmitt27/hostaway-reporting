@@ -253,18 +253,23 @@ _GEST_COLS_SQL = (
 
 
 def _charger_table_sqlite(chemin_base, table, colonnes, *, rename=None, vide_ok=False,
-                          ordre="rowid"):
+                          ordre="rowid", ou="", args=()):
     """Charge une table référentielle/résolue SQLite au format DataFrame attendu par le calcul
     existant — même contrat fail-closed que `charger_flux_sqlite` : une table absente est une
     erreur bloquante (mission 14f : plus aucun repli Excel silencieux en mode SQLITE). Une table
     présente mais vide n'est bloquante que si `vide_ok` est False (les référentiels doivent avoir
     été importés ; `reservations_resolues` peut légitimement être vide si aucune réservation ne
-    porte sur la période)."""
+    porte sur la période).
+
+    `ou`/`args` restreignent aux lignes du dataset/extraction ACTIF quand la table en porte
+    plusieurs générations (voir `charger_reservations_sqlite`/`charger_payout_sqlite` : lire sans
+    ce filtre agrège silencieusement toutes les générations passées, multipliant chaque montant par
+    autant de générations existantes)."""
     conn, message = dbm.verifier(chemin_base, (table,))
     if conn is None:
         sys.exit(f"[lot10] ERREUR : --source SQLITE inutilisable — {table} — {message}")
     try:
-        lignes = dbm.lignes(conn, table, colonnes, ordre=ordre)
+        lignes = dbm.lignes(conn, table, colonnes, ou=ou, args=args, ordre=ordre)
     finally:
         conn.close()
     if not lignes and not vide_ok:
@@ -279,17 +284,41 @@ def charger_reservations_sqlite(chemin_base) -> pd.DataFrame:
     """Réservations résolues (Lot4quater) depuis SQLite — mission 14f : plus de lecture du
     classeur `MASTER_CALC_Reservations_Resolues.xlsx`, même en mode SQLITE (jusqu'ici encore lu
     inconditionnellement, y compris pour une base isolée : découvert via la recette HH -> Lot12).
-    Vide accepté : aucune réservation VALIDE sur la période résolue n'est un état réel possible."""
+    Vide accepté : aucune réservation VALIDE sur la période résolue n'est un état réel possible.
+
+    RESTREINT au dataset RESOLUES ACTIF (mission facturation Cerdine/juillet — cause racine du ×4) :
+    `reservations_resolues` conserve les générations précédentes (inactives) pour audit, à côté de
+    la génération active — lire sans filtre additionne les deux, doublant chaque montant par
+    génération présente."""
+    conn, message = dbm.verifier(chemin_base, ("reservations_datasets",))
+    dataset_actif = dbm.dataset_courant(conn, "RESOLUES") if conn is not None else ""
+    if conn is not None:
+        conn.close()
     return _charger_table_sqlite(chemin_base, "reservations_resolues", _RES_COLS_SQL,
                                  rename={"guest_count": "guestCount"}, vide_ok=True,
+                                 ou="dataset_id = ?" if dataset_actif else "1=0",
+                                 args=(dataset_actif,) if dataset_actif else (),
                                  ordre="rowid")
 
 
 def charger_payout_sqlite(chemin_base) -> pd.DataFrame:
     """Payouts Hostaway (Lot1) depuis SQLite — vide accepté (aucune réservation Hostaway sur la
-    période, par ex. un mois entièrement hors Hostaway, est un état réel)."""
+    période, par ex. un mois entièrement hors Hostaway, est un état réel).
+
+    RESTREINT à la dernière extraction EXPLOITABLE (`dbm.extraction_utilisable`, même règle que
+    `lot4bis_charger_reservations.charger_hostaway_sqlite`) : `hostaway_payouts` est append-only
+    par extraction (plusieurs extractions Hostaway réelles coexistent, ex. HAX-44B3AA50E576 et
+    HAX-97F6E34A7D92) — lire sans filtre additionne les payouts de TOUTES les extractions passées
+    pour une même réservation, cause racine du ×4 constaté en facturation propriétaire."""
+    conn, message = dbm.verifier(chemin_base, ("hostaway_payouts",))
+    extraction = dbm.extraction_utilisable(conn) if conn is not None else ""
+    if conn is not None:
+        conn.close()
     return _charger_table_sqlite(chemin_base, "hostaway_payouts", _PAYOUT_COLS_SQL,
-                                 vide_ok=True, ordre="rowid")
+                                 vide_ok=True,
+                                 ou="extraction_id = ?" if extraction else "1=0",
+                                 args=(extraction,) if extraction else (),
+                                 ordre="rowid")
 
 
 def charger_logements_sqlite(chemin_base) -> pd.DataFrame:
@@ -306,6 +335,34 @@ def charger_taux_commission_sqlite(chemin_base) -> pd.DataFrame:
     """`REF_Taux_Commission` depuis SQLite — vide accepté (une table optionnelle en Excel, cf.
     `_read_optional_sheet` : tous les logements n'ont pas forcément une dérogation de taux)."""
     return _charger_table_sqlite(chemin_base, "ref_taux_commission", _TAUX_COLS_SQL, vide_ok=True)
+
+
+def charger_corrections_assiette_sqlite(chemin_base) -> dict:
+    """{reservation_calc_id: assiette_manuelle} — corrections humaines actives de l'assiette de
+    commission (migration 0065, écran ASSIETTE_NEGATIVE_RAMENEE_ZERO). Absence de table = aucune
+    correction (état normal avant la première utilisation de l'écran)."""
+    conn, message = dbm.verifier(chemin_base, ("assiette_corrections_manuelles",))
+    if conn is None:
+        return {}
+    try:
+        lignes = dbm.lignes(
+            conn, "assiette_corrections_manuelles",
+            ("reservation_calc_id", "assiette_manuelle"), ou="actif = 1")
+    finally:
+        conn.close()
+    return {l["reservation_calc_id"]: l["assiette_manuelle"] for l in lignes}
+
+
+def assiette_retenue_pour_commission(df, corrections: dict):
+    """Assiette utilisée pour LA COMMISSION uniquement (jamais `assiette_commission`, la brute,
+    conservée telle quelle pour preuve). Une correction humaine active (0065) prime sur le
+    plafonnement automatique `plafonner_assiette_pour_commission` — traçabilité et justification
+    vivent dans `assiette_corrections_manuelles`, jamais ici."""
+    auto = plafonner_assiette_pour_commission(df["assiette_commission"])
+    if not corrections:
+        return auto
+    manuelle = df["reservation_calc_id"].map(corrections)
+    return manuelle.combine_first(auto) if hasattr(manuelle, "combine_first") else auto
 
 
 _CHARGES_COLS_SQL = (
@@ -701,7 +758,8 @@ def _verifier_version_regle(df: pd.DataFrame, rule_code: str, regles_history: li
 # 2. Build commissions
 # ─────────────────────────────────────────────────────────────────────────────
 def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_taux, df_canape=None,
-                      df_regles=None):
+                      df_regles=None, corrections_assiette=None):
+    corrections_assiette = corrections_assiette or {}
     log.info("=== Construction commissions (routage HA / HH) ===")
     hh_controls = []
     taux_controls = []
@@ -902,7 +960,7 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
     df_ha["commission_conciergerie"] = None
     df_ha["net_proprietaire"]        = None
     df_ha.loc[normal_ha, "commission_conciergerie"] = calculer_commission_conciergerie(
-        plafonner_assiette_pour_commission(df_ha.loc[normal_ha, "assiette_commission"]),
+        assiette_retenue_pour_commission(df_ha.loc[normal_ha], corrections_assiette),
         df_ha.loc[normal_ha, "taux_commission"])
     df_ha.loc[normal_ha, "net_proprietaire"] = calculer_net_proprietaire(
         df_ha.loc[normal_ha, "payout_calcule"], df_ha.loc[normal_ha, "menage_retenu"],
@@ -950,7 +1008,7 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
             _verifier_version_regle(df_hh_ok, "ASSIETTE_COMMISSION", regles_history,
                                     "date_arrivee", "HH", ("V1",))
             df_hh_ok["commission_conciergerie"] = calculer_commission_conciergerie(
-                plafonner_assiette_pour_commission(df_hh_ok["assiette_commission"]),
+                assiette_retenue_pour_commission(df_hh_ok, corrections_assiette),
                 df_hh_ok["taux_commission"])
             df_hh_ok["net_proprietaire"] = calculer_net_proprietaire(
                 df_hh_ok["total_percu"], df_hh_ok["menage"], df_hh_ok["commission_conciergerie"])
@@ -1004,7 +1062,7 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
             log.error("BLOQUANT COMMISSION_SANS_TAUX — VRBO")
             sys.exit(1)
         df_vrbo["commission_conciergerie"] = calculer_commission_conciergerie(
-            plafonner_assiette_pour_commission(df_vrbo["assiette_commission"]),
+            assiette_retenue_pour_commission(df_vrbo, corrections_assiette),
             df_vrbo["taux_commission"])
         df_vrbo["net_proprietaire"] = calculer_net_proprietaire(
             df_vrbo["payout_calcule"], df_vrbo["menage_retenu"],
@@ -1858,7 +1916,11 @@ def main():
     (df_flux, df_res, df_payout, df_hh, df_acc, df_charges, df_airbnb_imp, df_log, df_prop,
      df_taux, df_gest, df_canape, df_regles) = load_sources(source=args.source, chemin_base=chemin_base)
 
-    df_comm, df_ac, hh_controls     = build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_taux, df_canape, df_regles)
+    corrections_assiette = (charger_corrections_assiette_sqlite(chemin_base)
+                            if args.source == "SQLITE" else {})
+    df_comm, df_ac, hh_controls     = build_commissions(
+        df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_taux, df_canape, df_regles,
+        corrections_assiette=corrections_assiette)
     df_cfix, cfix_controls          = build_charge_fixe(df_flux, df_log, df_gest)
     df_reel, df_compt, df_hc        = build_resultats(df_flux)
     df_exploit, df_reg, df_vue      = build_net_proprietaire(

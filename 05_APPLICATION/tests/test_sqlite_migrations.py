@@ -162,6 +162,7 @@ EXPECTED_TABLES = {
     "mois_archive_reglement",                    # 0064 — archive Lot10 reglement a la cloture (mission 15)
     "mois_classification_legacy",                 # 0064 — classification LEGACY_SANS_ARCHIVE_ORIGINE (mission 15)
     "reservations_historique_corrections",        # 0064 — CORRECTION_HISTORIQUE explicite (mission 15)
+    "assiette_corrections_manuelles",             # 0065 — correction manuelle assiette de commission
 }
 
 

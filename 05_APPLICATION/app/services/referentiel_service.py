@@ -85,6 +85,36 @@ def nom_proprietaire(proprietaire_id: str, *, db_path=None) -> str:
     return _txt(p.get("nom_proprietaire")) if p else ""
 
 
+def nom_complet_proprietaire(proprietaire_id: str, *, db_path=None) -> str:
+    """« Prénom Nom ». Chaîne vide si inconnu — jamais un identifiant maquillé en nom."""
+    p = proprietaire(proprietaire_id, db_path=db_path)
+    if not p:
+        return ""
+    return " ".join(x for x in (_txt(p.get("prenom_proprietaire")), _txt(p.get("nom_proprietaire"))) if x)
+
+
+def nom_logement(logement_id: str, *, db_path=None) -> str:
+    """Nom court d'affichage du logement. Chaîne vide si inconnu."""
+    l = logement(logement_id, db_path=db_path)
+    if not l:
+        return ""
+    return _txt(l.get("nom_court")) or _txt(l.get("nom_logement_officiel"))
+
+
+def libelle_proprietaire(proprietaire_id: str, *, db_path=None) -> str:
+    """Libellé sûr pour l'UI : vrai nom si résolu, sinon un texte explicite — jamais un ID brut
+    silencieux (mission « vrais noms dans les factures »)."""
+    nom = nom_complet_proprietaire(proprietaire_id, db_path=db_path)
+    return nom if nom else f"Propriétaire non résolu ({proprietaire_id})"
+
+
+def libelle_logement(logement_id: str, *, db_path=None) -> str:
+    """Libellé sûr pour l'UI : vrai nom si résolu, sinon un texte explicite — jamais un ID brut
+    silencieux (mission « vrais noms dans les factures »)."""
+    nom = nom_logement(logement_id, db_path=db_path)
+    return nom if nom else f"Logement non résolu ({logement_id})"
+
+
 # ── Types de logement ───────────────────────────────────────────────────────────────────────────
 
 def type_label(type_logement_id: str, *, db_path=None) -> str | None:

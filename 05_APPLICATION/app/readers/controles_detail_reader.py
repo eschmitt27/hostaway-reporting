@@ -105,6 +105,19 @@ def commissions_a_controler() -> list[dict[str, Any]]:
     return lignes
 
 
+def assiette_negative_ramenee_zero() -> list[dict[str, Any]]:
+    """Réservations à assiette brute négative (une ligne = une réservation), dataset Lot10 actif.
+
+    Même source que le constat Lot11 `ASSIETTE_NEGATIVE_RAMENEE_ZERO`
+    (`controles_lot11_service._groupe4_commissions`) : `assiette_commission < 0` dans
+    `lot10_commissions`. Jamais recalculé ici — uniquement relu.
+    """
+    from app.readers import proprietaires_reglements_reader as _lot10
+
+    lignes = _lot10.commissions().lignes
+    return [l for l in lignes if (l.get("assiette_commission") or 0) < 0]
+
+
 def ecarts_menages(code: str, db_path=None) -> list[dict[str, Any]]:
     """Écarts ménages d'un code donné (une ligne = un logement × mois), CALCULÉS en SQLite.
 

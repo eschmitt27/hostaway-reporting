@@ -176,6 +176,42 @@ def _expand_vrbo(vue: dict[str, Any]) -> list[dict[str, Any]]:
             for row in dreader.reservations_vrbo()]
 
 
+_LIEN_MODIFIER_ASSIETTE = "__MODIFIER_ASSIETTE__"
+
+
+def _expand_assiette_negative(vue: dict[str, Any]) -> list[dict[str, Any]]:
+    """Grain = une ligne par réservation à assiette brute négative (source : `lot10_commissions`,
+    même périmètre que le constat Lot11 ASSIETTE_NEGATIVE_RAMENEE_ZERO/ASSIETTE_CORRIGEE_
+    MANUELLEMENT). Seules deux actions ont un sens ici : commenter, modifier l'assiette — jamais
+    « prendre en charge »/« accepter l'exception », qui n'apportent rien sur ce type de contrôle."""
+    out = []
+    for row in dreader.assiette_negative_ramenee_zero():
+        rid = _txt(row.get("reservation_calc_id"))
+        assiette_brute = _nombre(row.get("assiette_commission"))
+        payout = _nombre(row.get("payout_calcule"))
+        menage = _nombre(row.get("menage_retenu"))
+        taux = _nombre(row.get("taux_commission"))
+        commission = _nombre(row.get("commission_conciergerie"))
+        assiette_automatique = max(0.0, assiette_brute) if assiette_brute is not None else None
+        out.append({
+            "code": vue["code"], "module": "COMMISSIONS", "niveau": vue["niveau"],
+            "mois": _txt(row.get("mois")), "entite_id": rid,
+            "resume": f"Réservation {rid} — assiette brute négative",
+            "classification": "ASSIETTE_NEGATIVE", "classification_libelle": "Assiette brute négative",
+            "donnees": {
+                "reservation_id": _txt(row.get("reservation_id_hostaway")) or rid,
+                "reservation_calc_id": rid,
+                "logement": _txt(row.get("logement_id")), "proprietaire": _txt(row.get("proprietaire_id")),
+                "mois": _txt(row.get("mois")), "payout": payout, "menage": menage,
+                "assiette_brute": assiette_brute, "assiette_automatique": assiette_automatique,
+                "taux_commission": taux, "commission_actuelle": commission,
+            },
+            "lien_module": _LIEN_MODIFIER_ASSIETTE,
+            "lien_libelle": "Modifier l'assiette",
+        })
+    return out
+
+
 def vrbo_hors_perimetre(vue: dict[str, Any]) -> list[dict[str, Any]]:
     """Vue TECHNIQUE : VRBO live hors périmètre moteur (mois clôturés), jamais des anomalies actives."""
     return [_vrbo_element(vue, row, VRBO_HORS_PERIMETRE, hors_perimetre=True)
@@ -249,6 +285,8 @@ _EXPANDERS = {
     "MENAGE_HA_SANS_FACTURE_EXTERNE": _expand_menages,
     "MENAGE_EXTERNE_RAPPROCHE_HOSTAWAY": _expand_menages,
     "CLOTURE_IMPOSSIBLE_LIGNE_BANCAIRE_NON_CLASSEE": _expand_banque,
+    "ASSIETTE_NEGATIVE_RAMENEE_ZERO": _expand_assiette_negative,
+    "ASSIETTE_CORRIGEE_MANUELLEMENT": _expand_assiette_negative,
 }
 
 
@@ -268,6 +306,8 @@ def expand(vue: dict[str, Any]) -> list[dict[str, Any]]:
         el["parent_stable_id"] = vue.get("stable_id", "")
         if el.get("lien_module") == _LIEN_REGULARISER:
             el["lien_module"] = f"/reservations/regulariser/{el['ctrl_opaque']}"
+        elif el.get("lien_module") == _LIEN_MODIFIER_ASSIETTE:
+            el["lien_module"] = f"/controles-cloture/element/{el['ctrl_opaque']}/modifier-assiette"
     return elements
 
 

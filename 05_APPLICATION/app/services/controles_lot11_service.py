@@ -278,17 +278,41 @@ def _groupe3_exploitation_reglement(ctrl: _Ctrl, exploit_rows: list[dict],
                      proprietaire_id=r.get("proprietaire_id"))
 
 
-def _groupe4_commissions(ctrl: _Ctrl, df_com: list[dict], rslt_global: dict[str, float]) -> None:
+def _corrections_assiette_actives(db_path=None) -> dict[str, dict]:
+    """{reservation_calc_id: ligne de correction active} — migration 0065. Table absente = aucune
+    correction (état normal avant première utilisation de l'écran)."""
+    conn = get_db(db_path)
+    try:
+        if conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='assiette_corrections_manuelles'"
+        ).fetchone() is None:
+            return {}
+        return {
+            r["reservation_calc_id"]: dict(r)
+            for r in conn.execute(
+                "SELECT * FROM assiette_corrections_manuelles WHERE actif = 1")
+        }
+    finally:
+        conn.close()
+
+
+def _groupe4_commissions(ctrl: _Ctrl, df_com: list[dict], rslt_global: dict[str, float],
+                         db_path=None) -> None:
+    corrections = _corrections_assiette_actives(db_path)
     for r in df_com:
         taux = _num(r.get("taux_commission"))
         assiette = _num(r.get("assiette_commission"))
         payout = _num(r.get("payout_calcule"))
         menage = _num(r.get("menage_retenu"))
         commission = _num(r.get("commission_conciergerie"))
+        correction = corrections.get(r.get("reservation_calc_id"))
         if taux > 0:
             # Mission 14f-bis : la commission decoule de l'assiette RETENUE (plafonnee a 0 si
             # l'assiette brute est negative), jamais de l'assiette brute stockee telle quelle.
-            assiette_retenue = assiette if assiette > 0 else 0.0
+            # Une correction manuelle active (0065) prime sur le plafonnement automatique.
+            assiette_retenue = (
+                _num(correction.get("assiette_manuelle")) if correction
+                else (assiette if assiette > 0 else 0.0))
             com_calcule = round(assiette_retenue * taux, 2)
             if abs(commission - com_calcule) > TOLERANCE:
                 ctrl.add("COMMISSIONS", "lot10_commissions", r.get("flux_source_pk"),
@@ -312,16 +336,29 @@ def _groupe4_commissions(ctrl: _Ctrl, df_com: list[dict], rslt_global: dict[str,
         # visible, non bloquant (A_CONTROLER) — il ne doit jamais disparaitre silencieusement.
         if assiette < 0:
             ecart = round(menage - payout, 2)
-            ctrl.add("COMMISSIONS", "lot10_commissions", r.get("reservation_calc_id"),
-                     "ASSIETTE_NEGATIVE_RAMENEE_ZERO", "A_CONTROLER",
-                     f"assiette brute={assiette} (payout={payout}, menage={menage}, "
-                     f"ecart={ecart}) ramenee a 0 pour le calcul de commission ; "
-                     f"commission={commission}",
-                     mois=r.get("mois"), logement_id=r.get("logement_id"),
-                     proprietaire_id=r.get("proprietaire_id"),
-                     reservation_id=r.get("reservation_id_hostaway") or r.get("reservation_calc_id"),
-                     commentaire="Assiette brute conservee dans lot10_commissions.assiette_"
-                                 "commission ; commission plafonnee a 0, jamais negative.")
+            if correction:
+                ctrl.add("COMMISSIONS", "lot10_commissions", r.get("reservation_calc_id"),
+                         "ASSIETTE_CORRIGEE_MANUELLEMENT", "INFO",
+                         f"assiette brute={assiette} (payout={payout}, menage={menage}, "
+                         f"ecart={ecart}) ; assiette retenue corrigee manuellement a "
+                         f"{correction.get('assiette_manuelle')} ; commission={commission}",
+                         mois=r.get("mois"), logement_id=r.get("logement_id"),
+                         proprietaire_id=r.get("proprietaire_id"),
+                         reservation_id=r.get("reservation_id_hostaway") or r.get("reservation_calc_id"),
+                         commentaire=f"Correction manuelle : {correction.get('justification')} "
+                                     f"(acteur={correction.get('acteur')}, "
+                                     f"date={correction.get('date_correction')}).")
+            else:
+                ctrl.add("COMMISSIONS", "lot10_commissions", r.get("reservation_calc_id"),
+                         "ASSIETTE_NEGATIVE_RAMENEE_ZERO", "A_CONTROLER",
+                         f"assiette brute={assiette} (payout={payout}, menage={menage}, "
+                         f"ecart={ecart}) ramenee a 0 pour le calcul de commission ; "
+                         f"commission={commission}",
+                         mois=r.get("mois"), logement_id=r.get("logement_id"),
+                         proprietaire_id=r.get("proprietaire_id"),
+                         reservation_id=r.get("reservation_id_hostaway") or r.get("reservation_calc_id"),
+                         commentaire="Assiette brute conservee dans lot10_commissions.assiette_"
+                                     "commission ; commission plafonnee a 0, jamais negative.")
 
     reel_val, comp_val, hc_val = (rslt_global.get(v) for v in ("REEL", "COMPTABLE", "HORS_COMPTA"))
     if reel_val is not None and comp_val is not None and hc_val is not None:
@@ -904,7 +941,7 @@ def construire(*, db_path=None, run_id: str | None = None) -> dict[str, Any]:
         _groupe1_pk_doublons(ctrl, df_flux, df_res, df_pay, df_com)
         _groupe2_jointures(ctrl, df_flux, df_res, df_pay, df_hh)
         _groupe3_exploitation_reglement(ctrl, exploit_rows, reglement_rows)
-        _groupe4_commissions(ctrl, df_com, rslt_global)
+        _groupe4_commissions(ctrl, df_com, rslt_global, db_path)
         _groupe5_sources_vides(ctrl, db_path, rslt_global)
         _groupe_lot7c_suivi_associe(ctrl, db_path)
         _groupe6_referentiel_hostaway(ctrl, ref_log, ref_map, df_flux, df_res, df_ha_ano, df_com_ac)

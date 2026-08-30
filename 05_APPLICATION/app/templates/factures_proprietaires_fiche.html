@@ -8,7 +8,7 @@
     <span class="badge">{{ facture.statut }}</span>
   </h1>
   <p class="page-subtitle">
-    {{ facture.proprietaire_id }} · {{ facture.logement_id }} · période {{ facture.mois }}
+    {{ facture.proprietaire_id | nom_proprietaire }} · {{ facture.logement_id | nom_logement }} · période {{ facture.mois }}
     {% if facture.facture_origine %}· avoir sur {{ facture.facture_origine }}{% endif %}
   </p>
 </div>

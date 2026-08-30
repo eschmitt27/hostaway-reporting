@@ -50,8 +50,8 @@
       <td>{{ p.date_charge or '' }}</td>
       <td><code>{{ p.charge_id }}</code></td>
       <td>{{ p.description or '' }}</td>
-      <td>{{ p.proprietaire_id or '—' }}</td>
-      <td>{{ p.logement_id or '—' }}</td>
+      <td>{{ p.proprietaire_id | nom_proprietaire if p.proprietaire_id else '—' }}</td>
+      <td>{{ p.logement_id | nom_logement if p.logement_id else '—' }}</td>
       <td>{{ '%.2f'|format(p.montant_origine) }} €</td>
       <td>{{ '%.2f'|format(p.montant_impute_total) }} €</td>
       <td>{{ '%.2f'|format(p.montant_restant) }} €</td>

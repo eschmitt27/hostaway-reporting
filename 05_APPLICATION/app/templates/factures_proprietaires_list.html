@@ -34,8 +34,8 @@
       <td>{{ f.numero_facture or "—" }}</td>
       <td>{{ f.type_document }}</td>
       <td>{{ f.mois }}</td>
-      <td>{{ f.proprietaire_id }}</td>
-      <td>{{ f.logement_id }}</td>
+      <td>{{ f.proprietaire_id | nom_proprietaire }}</td>
+      <td>{{ f.logement_id | nom_logement }}</td>
       <td class="text-right">{{ "%.2f"|format(f.montant_total) }} €</td>
       <td class="text-right">{{ "%.2f"|format(f.solde) }} €</td>
       <td>{{ f.statut }}</td>
