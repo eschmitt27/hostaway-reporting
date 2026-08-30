@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+import app.config as cfg
 from app.db.connection import apply_migrations, get_db
 from app.services import cloture_archivage_service as arch
 from app.services import clotures_service as cs
@@ -17,8 +18,14 @@ from app.services import orchestrateur_moteur as om
 
 
 @pytest.fixture
-def db_avec_reservation(tmp_path) -> Path:
+def db_avec_reservation(tmp_path, monkeypatch) -> Path:
     db_path = tmp_path / "app.db"
+    # `clotures_service.calcul_progression()` -> `controles_actionnable_service._tous_les_elements()`
+    # -> `controles_cloture_service._toutes_les_vues()` -> `controles_cloture_reader.controles()`
+    # lit `cfg.DB_PATH` À CHAUD (`get_db(None)`) sans jamais recevoir le `db_path=` explicite passé
+    # à `cs.valider(..., db_path=db_path)` : sans ce monkeypatch, la validation de clôture compte les
+    # VRAIES anomalies de la vraie app.db (isolation cassée), pas celles de cette base de test.
+    monkeypatch.setattr(cfg, "DB_PATH", db_path)
     apply_migrations(db_path)
     conn = get_db(db_path)
     try:

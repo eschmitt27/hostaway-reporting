@@ -72,7 +72,12 @@ def db(tmp_path):
 
 
 def test_source_indisponible(tmp_path, monkeypatch):
-    monkeypatch.setattr(cfg, "MASTER_RESULTATS", tmp_path / "absent.xlsx")
+    # Source réelle = SQLite (`lot10_resultats`, run actif), plus le classeur `MASTER_RESULTATS`
+    # (migration 0044, cf. docstring du service) : pointer ce dernier vers un fichier absent ne
+    # simule donc plus rien. "Source indisponible" = aucun run Lot10 actif dans `cfg.DB_PATH`.
+    db = tmp_path / "app.db"
+    apply_migrations(db)
+    monkeypatch.setattr(cfg, "DB_PATH", db)
     reader.vider_cache()
     assert ana.source_disponible() is False
     assert ana.mesures_globales()["statut"] == ana.NON_DISPONIBLE
@@ -140,7 +145,9 @@ def test_mois_disponibles(resultats_files):
 
 
 def test_mois_disponibles_source_absente(tmp_path, monkeypatch):
-    monkeypatch.setattr(cfg, "MASTER_RESULTATS", tmp_path / "absent.xlsx")
+    db = tmp_path / "app.db"
+    apply_migrations(db)
+    monkeypatch.setattr(cfg, "DB_PATH", db)
     reader.vider_cache()
     assert ana.mois_disponibles() == []
     reader.vider_cache()
@@ -155,7 +162,9 @@ def test_mesures_cumulees(resultats_files):
 
 
 def test_mesures_cumulees_source_absente(tmp_path, monkeypatch):
-    monkeypatch.setattr(cfg, "MASTER_RESULTATS", tmp_path / "absent.xlsx")
+    db = tmp_path / "app.db"
+    apply_migrations(db)
+    monkeypatch.setattr(cfg, "DB_PATH", db)
     reader.vider_cache()
     m = ana.mesures_cumulees()
     assert m["statut"] == ana.NON_DISPONIBLE
