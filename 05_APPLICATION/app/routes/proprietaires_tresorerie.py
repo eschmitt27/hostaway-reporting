@@ -9,9 +9,8 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from app.template_env import get_templates
 
-from app.config import TEMPLATES_DIR
 # Import du MODULE, pas du nom : `from ... import find_proprietaire` fige la
 # fonction au chargement de la route, et toute redirection ultérieure du
 # référentiel reste sans effet. Même raison que les chemins lus à l'appel.
@@ -20,7 +19,7 @@ from app.services import proprietaires_tresorerie_service as svc
 from app.services import tresorerie_controles_service as ctrl
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = get_templates()
 
 PAGE_SIZE = 20
 

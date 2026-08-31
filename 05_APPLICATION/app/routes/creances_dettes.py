@@ -5,13 +5,12 @@ questions du quotidien — qui me doit quoi, à qui dois-je quoi, et à quelle �
 """
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
+from app.template_env import get_templates
 
-from app.config import TEMPLATES_DIR
 from app.services import creances_dettes_service as svc
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = get_templates()
 
 
 @router.get("/creances", response_class=HTMLResponse)

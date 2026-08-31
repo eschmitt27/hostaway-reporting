@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
-from app.config import TEMPLATES_DIR
+from app.template_env import get_templates
 from app.services import charges_confirmation_service as confirmation
 from app.services import charges_service as svc
 from app.services.charges_preview_service import (
@@ -12,7 +11,7 @@ from app.services.charges_preview_service import (
 )
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = get_templates()
 
 
 @router.get("/fournisseurs", response_class=HTMLResponse)

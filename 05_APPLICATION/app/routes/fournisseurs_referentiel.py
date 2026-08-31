@@ -7,14 +7,13 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from app.template_env import get_templates
 
-from app.config import TEMPLATES_DIR
 from app.services import fournisseur_rattachements_service as fl
 from app.services import fournisseurs_referentiel_service as frs
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = get_templates()
 
 
 @router.get("/referentiel-fournisseurs", response_class=HTMLResponse)

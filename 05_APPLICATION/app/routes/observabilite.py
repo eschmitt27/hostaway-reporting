@@ -8,13 +8,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
+from app.template_env import get_templates
 
-from app.config import TEMPLATES_DIR
 from app.services import backup_service, run_history_service as history
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = get_templates()
 
 
 @router.get("/observabilite/runs", response_class=HTMLResponse)

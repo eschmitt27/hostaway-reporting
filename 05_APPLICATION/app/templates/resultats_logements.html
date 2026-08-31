@@ -30,8 +30,8 @@
     <tbody>
       {% for l in resultats.lignes %}
       <tr>
-        <td><a href="/resultats/logements/{{ l.logement_id }}?mois={{ mois }}">{{ l.logement_id }}</a></td>
-        <td>{{ l.proprietaire_id }}</td>
+        <td><a href="/resultats/logements/{{ l.logement_id }}?mois={{ mois }}">{{ l.logement_id | nom_logement }}</a></td>
+        <td>{{ l.proprietaire_id | nom_proprietaire }}</td>
         <td class="num">{{ "%.2f"|format(l.total_produits) }}</td>
         <td class="num">{{ "%.2f"|format(l.total_charges) }}</td>
         <td class="num">{{ "%.2f"|format(l.resultat) }}</td>

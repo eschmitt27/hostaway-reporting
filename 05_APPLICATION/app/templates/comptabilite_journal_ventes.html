@@ -31,7 +31,7 @@
       <tbody>
         {% for r in resultats.resultats %}
         <tr>
-          <td>{{ r.proprietaire_id }}</td>
+          <td>{{ r.proprietaire_id | nom_proprietaire }}</td>
           <td>{{ "OUI" if r.genere else "NON" }}</td>
           <td>{% if r.ecriture_id_opaque %}<a href="/comptabilite/ecritures/{{ r.ecriture_id_opaque }}">{{ r.ecriture_id_opaque }}</a>{% else %}—{% endif %}</td>
           <td>{{ r.erreur or r.raison or "—" }}</td>

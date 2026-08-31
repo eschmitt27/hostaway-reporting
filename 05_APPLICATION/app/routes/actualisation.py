@@ -12,15 +12,14 @@ from __future__ import annotations
 
 from fastapi import APIRouter, BackgroundTasks, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from app.template_env import get_templates
 
-from app.config import TEMPLATES_DIR
 from app.services import ordonnanceur_service as ordo
 from app.services import orchestrateur_dag as dag
 from app.services import orchestrateur_service as orch
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = get_templates()
 
 # Actions ciblées proposées à l'écran : les datasets que l'orchestrateur sait réellement recalculer.
 # Construite depuis le DAG, jamais recopiée à la main — une chaîne ajoutée au DAG apparaît ici.

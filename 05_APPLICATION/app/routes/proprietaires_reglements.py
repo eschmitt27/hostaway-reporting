@@ -13,9 +13,8 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from fastapi.templating import Jinja2Templates
+from app.template_env import get_templates
 
-from app.config import TEMPLATES_DIR
 from app.readers import controles_cloture_reader as ref_reader
 from app.readers import rapprochement_bancaire_reader as banque_contrat
 from app.services import charges_affectations_service as charges_aff
@@ -32,7 +31,7 @@ from app.services import rapprochement_candidats_service as rap_cand
 from app.services import rapprochement_reglements_service as rap
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = get_templates()
 
 
 def _statut_moteur_mois(mois: str) -> str:

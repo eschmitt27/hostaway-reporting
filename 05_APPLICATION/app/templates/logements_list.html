@@ -30,14 +30,14 @@
       <select name="type_logement_id" class="filter-input">
         <option value="">Tous types</option>
         {% for t in data.filters.types %}
-        <option value="{{ t }}" {% if data.applied.type_logement_id == t %}selected{% endif %}>{{ t }}</option>
+        <option value="{{ t }}" {% if data.applied.type_logement_id == t %}selected{% endif %}>{{ t | nom_type_logement }}</option>
         {% endfor %}
       </select>
 
       <select name="proprietaire_id" class="filter-input">
         <option value="">Tous propriétaires</option>
         {% for p in data.filters.proprietaires %}
-        <option value="{{ p }}" {% if data.applied.proprietaire_id == p %}selected{% endif %}>{{ p }}</option>
+        <option value="{{ p }}" {% if data.applied.proprietaire_id == p %}selected{% endif %}>{{ p | nom_proprietaire }}</option>
         {% endfor %}
       </select>
 
@@ -89,11 +89,10 @@
           {% for r in data.rows %}
           <tr onclick="window.location='/logements/{{ r.logement_id }}'" style="cursor:pointer">
             <td>
-              <strong>{{ r.nom_court or r.nom_logement_officiel or r.logement_id }}</strong>
-              <div class="text-sm text-secondary">{{ r.logement_id }}</div>
+              <strong>{{ r.nom_court or r.nom_logement_officiel or (r.logement_id | nom_logement) }}</strong>
             </td>
             <td>
-              {% if r.proprietaire_id %}{{ r.proprietaire_id }}
+              {% if r.proprietaire_id %}{{ r.proprietaire_id | nom_proprietaire }}
                 {% if r.gestion_statut == 'CLOS' %}<div class="text-sm text-secondary">gestion terminée</div>{% endif %}
               {% elif r.gestion_statut == 'A_CONTROLER' %}
                 <span class="badge badge-warning">À contrôler</span>
@@ -102,8 +101,7 @@
                 <span class="text-secondary">—</span>
               {% else %}Aucun rattachement{% endif %}
             </td>
-            <td>{{ r.ville or "Non renseigné" }}</td>
-            <td>{{ r.type_logement_id or "Non renseigné" }}</td>
+            <td>{{ (r.type_logement_id | nom_type_logement) if r.type_logement_id else "Non renseigné" }}</td>
             <td>
               {% if r._technique %}
                 <span class="badge badge-warning">HORS_PARC_TECHNIQUE</span>

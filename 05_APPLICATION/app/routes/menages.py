@@ -6,9 +6,8 @@ est une page de diagnostic, sans exécution.
 """
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from fastapi.templating import Jinja2Templates
+from app.template_env import get_templates
 
-from app.config import TEMPLATES_DIR
 from app.services import menages_service as svc
 from app.services import menages_recalcul_service as recalc
 from app.services import menages_chaine_service as chaine
@@ -18,7 +17,7 @@ from app.services import menages_controles_service as cycle_controles
 from app.services import fournisseurs_referentiel_service as frs_svc
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = get_templates()
 
 
 def _filtres(mois: str, logement_id: str, proprietaire_id: str, intervenant_id: str,

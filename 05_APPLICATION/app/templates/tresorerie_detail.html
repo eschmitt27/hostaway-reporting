@@ -7,7 +7,7 @@
 <div class="alert alert-error">Ce mouvement de trésorerie n'existe pas.</div>
 {% else %}
 <div class="page-header">
-  <a href="/proprietaires/{{ mouvement.proprietaire_id }}/tresorerie" class="back-link">← Trésorerie {{ mouvement.proprietaire_id }}</a>
+  <a href="/proprietaires/{{ mouvement.proprietaire_id }}/tresorerie" class="back-link">← Trésorerie {{ mouvement.proprietaire_id | nom_proprietaire }}</a>
   <h1 class="page-title">Mouvement {{ mouvement.mouvement_opaque }}</h1>
 </div>
 
@@ -15,8 +15,8 @@
 
 <div class="card mb-md">
   <div class="detail-grid">
-    <div><strong>Propriétaire</strong><br>{{ mouvement.proprietaire_id }}</div>
-    <div><strong>Logement</strong><br>{{ mouvement.logement_id or "—" }}</div>
+    <div><strong>Propriétaire</strong><br>{{ mouvement.proprietaire_id | nom_proprietaire }}</div>
+    <div><strong>Logement</strong><br>{{ mouvement.logement_id | nom_logement if mouvement.logement_id else "—" }}</div>
     <div><strong>Date</strong><br>{{ mouvement.date_mouvement }}</div>
     <div><strong>Montant</strong><br>{{ "%.2f"|format(mouvement.montant) }} €</div>
     <div><strong>Sens</strong><br>{{ mouvement.sens }}</div>

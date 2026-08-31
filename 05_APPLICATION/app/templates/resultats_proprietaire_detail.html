@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Résultat propriétaire {{ proprietaire_id }}{% endblock %}
+{% block title %}Résultat propriétaire {{ proprietaire_id | nom_proprietaire }}{% endblock %}
 
 {% block content %}
 <div class="page-header">
   <a href="/resultats/proprietaires?mois={{ mois }}" class="back-link">← Propriétaires</a>
-  <h1 class="page-title">{{ proprietaire_id }}</h1>
+  <h1 class="page-title">{{ proprietaire_id | nom_proprietaire }}</h1>
   <p class="page-subtitle">{{ mois or "aucun mois" }}</p>
 </div>
 

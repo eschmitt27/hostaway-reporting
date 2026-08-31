@@ -1,10 +1,9 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from app.template_env import get_templates
 from urllib.parse import quote
 
 from app.readers.banques_reader import date_affichage, datetime_affichage
-from app.config import TEMPLATES_DIR
 from app.services import reservations_hh_service as svc
 from app.services import saisie_hh_service as saisie_svc
 from app.services import reservations_hh_confirmation_service as confirmation
@@ -12,7 +11,7 @@ from app.services import hostaway_actualisation_service as hostaway_svc
 from app.services import regularisation_hh_service as regul_svc
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = get_templates()
 # Formatage des dates, partagé avec les autres écrans. Une date non convertible est affichée telle
 # quelle, précédée d'une mention : jamais une date inventée pour combler un champ vide.
 templates.env.filters["date_fr"] = date_affichage

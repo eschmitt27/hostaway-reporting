@@ -9,13 +9,12 @@ décision d'écran, c'est le résultat de la règle FIFO.
 """
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from app.template_env import get_templates
 
-from app.config import TEMPLATES_DIR
 from app.services import compte_proprietaire_service as cpt
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = get_templates()
 
 _MENU = "comptes_proprietaires"
 

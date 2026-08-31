@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Résultat {{ logement_id }}{% endblock %}
+{% block title %}Résultat {{ logement_id | nom_logement }}{% endblock %}
 
 {% block content %}
 <div class="page-header">
   <a href="/resultats/logements?mois={{ mois }}" class="back-link">← Logements</a>
-  <h1 class="page-title">{{ logement_id }}</h1>
+  <h1 class="page-title">{{ logement_id | nom_logement }}</h1>
   <p class="page-subtitle">{{ mois or "aucun mois" }}</p>
 </div>
 

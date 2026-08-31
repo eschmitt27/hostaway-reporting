@@ -21,7 +21,6 @@
   <table class="data-table">
     <thead>
       <tr>
-        <th>ID</th>
         <th>Nom</th>
         <th>Prénom</th>
         <th>Mode facturation</th>
@@ -32,7 +31,6 @@
     <tbody>
       {% for row in data.rows %}
       <tr>
-        <td><span class="code-id">{{ row.proprietaire_id or "—" }}</span></td>
         <td>{{ row.nom_proprietaire or "—" }}</td>
         <td>{{ row.prenom_proprietaire or "—" }}</td>
         <td>{{ row.mode_facturation or "—" }}</td>

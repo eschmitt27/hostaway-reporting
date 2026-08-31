@@ -6,14 +6,13 @@ navigateur ; les écritures passent par `charges_validation_service` (write-guar
 """
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from app.template_env import get_templates
 
-from app.config import TEMPLATES_DIR
 from app.services import charges_controles_integrite_service as ctrl
 from app.services import charges_validation_service as svc
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = get_templates()
 
 
 def _contexte(statut: str = "", refacturable: str = "", sans_proprietaire: bool = False,

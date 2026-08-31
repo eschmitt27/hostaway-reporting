@@ -6,14 +6,13 @@ renvoie vers l'écran source filtré existant (pas de liste recréée ici).
 """
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, Response
-from fastapi.templating import Jinja2Templates
+from app.template_env import get_templates
 
-from app.config import TEMPLATES_DIR
 from app.services import pilotage_mensuel_export_service as export_svc
 from app.services import pilotage_mensuel_service as svc
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = get_templates()
 
 
 @router.get("/pilotage-mensuel", response_class=HTMLResponse)

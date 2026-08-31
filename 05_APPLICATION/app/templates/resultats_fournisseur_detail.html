@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Résultats — Fournisseur {{ fournisseur_id_opaque }}{% endblock %}
+{% block title %}Résultats — Fournisseur {{ fournisseur_id_opaque | nom_fournisseur }}{% endblock %}
 
 {% block content %}
 <div class="page-header">
   <a href="/resultats/fournisseurs" class="back-link">← Fournisseurs</a>
-  <h1 class="page-title">{{ fournisseur_id_opaque }}</h1>
+  <h1 class="page-title">{{ fournisseur_id_opaque | nom_fournisseur }}</h1>
 </div>
 
 {% if resultat.statut != "OK" %}

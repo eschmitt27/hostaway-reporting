@@ -8,9 +8,7 @@ Flags réels False.
 """
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from fastapi.templating import Jinja2Templates
-
-from app.config import TEMPLATES_DIR
+from app.template_env import get_templates
 from app.services import controles_cloture_service as svc
 from app.services import controles_actionnable_service as act
 from app.services import controles_suivi_service as suivi
@@ -19,7 +17,7 @@ from app.services import banques_controle_service as banque_ctrl
 from app.services import assiette_correction_service as assiette_svc
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = get_templates()
 
 
 # ── APP-5B — Écran principal actionnable ─────────────────────────────────────

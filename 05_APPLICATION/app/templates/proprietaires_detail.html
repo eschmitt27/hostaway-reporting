@@ -6,15 +6,15 @@
   <a href="/proprietaires" class="btn btn-secondary btn-sm" style="margin-bottom:0.5rem">← Propriétaires</a>
   <h1 class="page-title">
     {% if detail and detail.status == "OK" %}
-      {{ detail.prop.nom_proprietaire or prop_id }} {{ detail.prop.prenom_proprietaire or "" }}
+      {{ detail.prop.nom_proprietaire or (prop_id | nom_proprietaire) }} {{ detail.prop.prenom_proprietaire or "" }}
     {% else %}
-      Propriétaire {{ prop_id }}
+      {{ prop_id | nom_proprietaire }}
     {% endif %}
   </h1>
 </div>
 
 {% if detail is none %}
-<div class="alert alert-error">Propriétaire <strong>{{ prop_id }}</strong> introuvable.</div>
+<div class="alert alert-error">Propriétaire <strong>{{ prop_id | nom_proprietaire }}</strong> introuvable.</div>
 
 {% elif detail.status == "ERROR" %}
 <div class="alert alert-error"><strong>Source indisponible</strong> — {{ detail.error_message }}</div>
@@ -22,7 +22,6 @@
 {% else %}
 
 <div class="detail-grid">
-  <div class="detail-field"><span class="detail-label">ID</span><span class="code-id">{{ detail.prop.proprietaire_id }}</span></div>
   <div class="detail-field"><span class="detail-label">Nom</span>{{ detail.prop.nom_proprietaire or "—" }}</div>
   <div class="detail-field"><span class="detail-label">Prénom</span>{{ detail.prop.prenom_proprietaire or "—" }}</div>
   <div class="detail-field"><span class="detail-label">Email</span>{{ detail.prop.email or "—" }}</div>

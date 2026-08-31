@@ -8,9 +8,8 @@ connexion bancaire, jamais de virement, jamais d'écriture hors `data_recette`.
 import app.config as cfg
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from fastapi.templating import Jinja2Templates
+from app.template_env import get_templates
 
-from app.config import TEMPLATES_DIR
 from app.services import banques_service as svc
 from app.services import banques_controle_service as ctrl
 from app.services import banques_controle_writer as writer
@@ -23,7 +22,7 @@ from app.services import banques_classement_service as classement
 from app.readers.banques_reader import date_affichage, datetime_affichage
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = get_templates()
 templates.env.filters["date_fr"] = date_affichage
 templates.env.filters["datetime_fr"] = datetime_affichage
 # Identifiant mouvement opaque pour tout lien généré (jamais le mouvement_id brut, qui contient le

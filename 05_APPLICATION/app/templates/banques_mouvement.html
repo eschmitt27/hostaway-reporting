@@ -134,7 +134,7 @@
           {% for f in c.factures %}
           <tr>
             <td class="font-mono text-xs">{{ f.facture_ref }}</td>
-            <td class="font-mono text-xs">{{ c.fournisseur_id_opaque }}</td>
+            <td class="text-xs">{{ c.fournisseur_id_opaque | nom_fournisseur }}</td>
             <td class="num">{{ "%.2f"|format(f.montant_ttc) }}</td>
             <td class="num">{{ "%.2f"|format(f.montant_impute) }}</td>
             <td class="num">{{ "%.2f"|format(f.solde_avant) }}</td>

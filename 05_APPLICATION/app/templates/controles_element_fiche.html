@@ -42,7 +42,15 @@
     <h2 class="card-title">Données détaillées</h2>
     <dl class="detail-grid">
       {% for k, v in e.donnees.items() %}
-      <div><dt>{{ k|replace('_',' ') }}</dt><dd class="text-xs">{{ v if v not in [none, ''] else "—" }}</dd></div>
+      <div><dt>{{ k|replace('_',' ') }}</dt><dd class="text-xs">
+        {%- if v in [none, ''] -%}—
+        {%- elif k in ('logement', 'logement_id') -%}{{ v | nom_logement }}
+        {%- elif k in ('proprietaire', 'proprietaire_id') -%}{{ v | nom_proprietaire }}
+        {%- elif k in ('fournisseur', 'fournisseur_id', 'prestataire', 'prestataire_id') -%}{{ v | nom_prestataire }}
+        {%- elif k in ('intervenant', 'intervenant_id') -%}{{ v | nom_intervenant }}
+        {%- else -%}{{ v }}
+        {%- endif -%}
+      </dd></div>
       {% endfor %}
     </dl>
     {% if e.lien_module %}

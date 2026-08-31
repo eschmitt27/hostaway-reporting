@@ -20,7 +20,7 @@
           <td class="num">{{ "%.2f"|format(r.montant_rapproche) }}</td>
           <td>{% if r.reglement_id_opaque %}<a href="/reglements/{{ r.reglement_id_opaque }}">{{ r.reglement_id_opaque }}</a>{% else %}—{% endif %}</td>
           <td>{% if r.facture_id_opaque %}<a href="/factures/{{ r.facture_id_opaque }}">{{ r.facture_id_opaque }}</a>{% else %}—{% endif %}</td>
-          <td>{{ r.fournisseur_id_opaque or "—" }}</td>
+          <td>{{ r.fournisseur_id_opaque | nom_fournisseur if r.fournisseur_id_opaque else "—" }}</td>
           <td>{% if r.ecriture_id_opaque %}<a href="/comptabilite/ecritures/{{ r.ecriture_id_opaque }}">{{ r.ecriture_id_opaque }}</a>{% else %}<span class="status-badge status-bloquant">absente</span>{% endif %}</td>
         </tr>
         {% else %}

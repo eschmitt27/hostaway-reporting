@@ -7,9 +7,8 @@ réimplémenté ici : il réutilise `banques_rapprochement_service` (service uni
 import app.config as cfg
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from app.template_env import get_templates
 
-from app.config import TEMPLATES_DIR
 from app.services import factures_service as svc
 from app.services import reglements_fournisseurs_service as reg
 from app.services import fournisseurs_referentiel_service as frs
@@ -18,7 +17,7 @@ from app.services import factures_controles_service as controles
 from app.services import factures_import_service as imp
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = get_templates()
 
 
 def _ecriture_active() -> bool:

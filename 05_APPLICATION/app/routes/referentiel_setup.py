@@ -9,14 +9,13 @@ Deux temps imposés par l'interface, comme dans le service : on prévisualise, o
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from fastapi.templating import Jinja2Templates
+from app.template_env import get_templates
 
-from app.config import TEMPLATES_DIR
 from app.services import ref_setup_import_service as imp
 from app.services import ref_setup_repo as repo
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = get_templates()
 
 _MENU = "referentiel_setup"
 

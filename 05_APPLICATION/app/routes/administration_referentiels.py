@@ -14,9 +14,8 @@ une nouvelle. Les éditer librement permettrait de réécrire une période pass�
 """
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from app.template_env import get_templates
 
-from app.config import TEMPLATES_DIR
 from app.services import canape_gestion_service as canape
 from app.services import couts_menage_gestion_service as cm
 from app.services import impact_preview_service as preview_svc
@@ -24,7 +23,7 @@ from app.services import referentiel_admin_service as adm
 from app.services import regle_version_gestion_service as regv
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = get_templates()
 
 _MENU = "administration_referentiels"
 TABLE_COUTS_MENAGE = cm.TABLE

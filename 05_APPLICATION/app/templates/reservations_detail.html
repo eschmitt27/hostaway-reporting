@@ -43,8 +43,8 @@
       <div><dt>Date d'arrivée</dt><dd>{{ r.date_arrivee if r.date_arrivee not in (None,'') else "Non renseigné" }}</dd></div>
       <div><dt>Date de départ</dt><dd>{{ r.date_depart if r.date_depart not in (None,'') else "Non renseigné" }}</dd></div>
       <div><dt>Nuits <span class="badge badge-info">moteur</span></dt><dd>{{ r.nuits if r.nuits not in (None,'') else "Non renseigné" }}</dd></div>
-      <div><dt>Logement</dt><dd>{{ r.logement_id if r.logement_id not in (None,'') else "Non renseigné" }}</dd></div>
-      <div><dt>Propriétaire (résolu moteur)</dt><dd>{{ r.proprietaire_id if r.proprietaire_id not in (None,'') else "Non renseigné" }}</dd></div>
+      <div><dt>Logement</dt><dd>{{ (r.logement_id | nom_logement) if r.logement_id not in (None,'') else "Non renseigné" }}</dd></div>
+      <div><dt>Propriétaire (résolu moteur)</dt><dd>{{ (r.proprietaire_id | nom_proprietaire) if r.proprietaire_id not in (None,'') else "Non renseigné" }}</dd></div>
       <div><dt>Canal</dt><dd>{{ r.canal_id if r.canal_id not in (None,'') else "Non renseigné" }}</dd></div>
       <div><dt>Source financière</dt><dd>{{ r.source_financiere if r.source_financiere not in (None,'') else "Non renseigné" }}</dd></div>
     </dl>

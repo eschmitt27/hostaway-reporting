@@ -46,7 +46,7 @@
       <tbody>
         {% for p in positions %}
         <tr onclick="window.location='/comptes-proprietaires/{{ p.proprietaire_id }}'" style="cursor:pointer">
-          <td><strong>{{ p.proprietaire_id }}</strong>
+          <td><strong>{{ p.proprietaire_id | nom_proprietaire }}</strong>
               <div class="text-sm text-secondary">{{ p.factures|length }} facture(s) émise(s)</div></td>
           <td class="text-right">{{ "%.2f"|format(p.factures_a_recevoir) }} €</td>
           <td class="text-right">{{ "%.2f"|format(p.creance_restante) }} €</td>

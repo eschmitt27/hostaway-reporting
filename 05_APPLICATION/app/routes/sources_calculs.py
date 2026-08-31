@@ -1,14 +1,13 @@
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
-from app.config import TEMPLATES_DIR
+from app.template_env import get_templates
 from app.adapters.pipeline_registry import list_scripts
 from app.adapters.pipeline_runner import run_pipeline
 from app.db.connection import get_db
 from app.readers.run_log_reader import get_last_runs
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = get_templates()
 
 
 @router.get("/sources-calculs", response_class=HTMLResponse)

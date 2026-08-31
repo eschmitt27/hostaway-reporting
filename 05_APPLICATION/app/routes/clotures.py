@@ -5,16 +5,15 @@ Identifiants opaques CLO-/DOC-, jamais un id SQLite brut dans l'URL. Flags réel
 """
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from fastapi.templating import Jinja2Templates
+from app.template_env import get_templates
 
-from app.config import TEMPLATES_DIR
 from app.readers.banques_reader import date_affichage, datetime_affichage
 from app.services import clotures_service as cs
 from app.services import clotures_export_service as ces
 from app.services import controles_cloture_service as ctrl_cloture
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = get_templates()
 templates.env.filters["date_fr"] = date_affichage
 templates.env.filters["datetime_fr"] = datetime_affichage
 

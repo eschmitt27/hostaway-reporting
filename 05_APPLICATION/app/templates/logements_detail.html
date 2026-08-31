@@ -52,10 +52,9 @@
   <div class="flex justify-between items-center" style="margin-bottom: var(--stack-lg);">
     <div>
       <h1 class="page-title">
-        {% if fiche %}{{ fiche.nom_logement_officiel or fiche.nom_court or logement_id }}
-        {% else %}{{ logement_id }}{% endif %}
+        {% if fiche %}{{ fiche.nom_logement_officiel or fiche.nom_court or (logement_id | nom_logement) }}
+        {% else %}{{ logement_id | nom_logement }}{% endif %}
       </h1>
-      <p class="page-subtitle">{{ logement_id }}</p>
     </div>
     <div>
       {% if fiche %}
@@ -77,7 +76,7 @@
       <div><dt>Adresse</dt><dd>{{ fiche.adresse or "Non renseigné" }}</dd></div>
       <div><dt>Ville</dt><dd>{{ fiche.ville or "Non renseigné" }}</dd></div>
       <div><dt>Propriétaire en gestion</dt>
-        <dd>{{ etat.gestion_active.proprietaire_id if etat.gestion_active else "Aucun rattachement actif" }}</dd></div>
+        <dd>{{ (etat.gestion_active.proprietaire_id | nom_proprietaire) if etat.gestion_active else "Aucun rattachement actif" }}</dd></div>
       <div><dt>Depuis le</dt><dd>{{ etat.gestion_active.date_debut if etat.gestion_active else "—" }}</dd></div>
     </dl>
   </div>
@@ -91,7 +90,7 @@
         <thead><tr><th>Propriétaire</th><th>Date début</th><th>Date fin</th><th>Statut</th></tr></thead>
         <tbody>
           {% for g in histo.gestion %}
-          <tr><td>{{ g.proprietaire_id }}</td><td>{{ g.date_debut }}</td>
+          <tr><td>{{ g.proprietaire_id | nom_proprietaire }}</td><td>{{ g.date_debut }}</td>
               <td>{{ g.date_fin or "En cours" }}</td><td>{{ g.statut_gestion }}</td></tr>
           {% endfor %}
         </tbody>
@@ -134,7 +133,7 @@
           <select name="proprietaire_id" required>
             <option value="">—</option>
             {% for p in refs.proprietaires %}
-            <option value="{{ p.proprietaire_id }}">{{ p.nom or p.proprietaire_id }}</option>
+            <option value="{{ p.proprietaire_id }}">{{ p.nom or (p.proprietaire_id | nom_proprietaire) }}</option>
             {% endfor %}
           </select>
         </label>
@@ -174,7 +173,7 @@
           <select name="proprietaire_id" required>
             <option value="">—</option>
             {% for p in refs.proprietaires %}
-            <option value="{{ p.proprietaire_id }}">{{ p.nom or p.proprietaire_id }}</option>
+            <option value="{{ p.proprietaire_id }}">{{ p.nom or (p.proprietaire_id | nom_proprietaire) }}</option>
             {% endfor %}
           </select>
         </label>
@@ -196,8 +195,7 @@
 
   <div class="flex justify-between items-center" style="margin-bottom: var(--stack-lg);">
     <div>
-      <h1 class="page-title">{{ base.nom_logement_officiel or base.nom_court or detail.logement_id }}</h1>
-      <p class="page-subtitle">{{ detail.logement_id }}</p>
+      <h1 class="page-title">{{ base.nom_logement_officiel or base.nom_court or (detail.logement_id | nom_logement) }}</h1>
     </div>
     <div>
       {% if detail.is_technique %}
@@ -230,7 +228,7 @@
         <div><dt>Actif</dt><dd>{{ fiche_sure.actif or "Non renseigné" }}</dd></div>
         <div><dt>Statut parc</dt><dd>{{ fiche_sure.statut_parc or "Non renseigné" }}</dd></div>
         <div><dt>Propriétaire en gestion (ligne active)</dt>
-          <dd>{{ etat.gestion_active.proprietaire_id if etat.gestion_active else "Aucun rattachement actif" }}</dd></div>
+          <dd>{{ (etat.gestion_active.proprietaire_id | nom_proprietaire) if etat.gestion_active else "Aucun rattachement actif" }}</dd></div>
         <div><dt>Depuis le</dt>
           <dd>{{ etat.gestion_active.date_debut if etat.gestion_active else "—" }}</dd></div>
         <div><dt>Taux de commission actif (grain logement)</dt>
@@ -266,7 +264,7 @@
             <select name="type_logement_id">
               <option value="">—</option>
               {% for t in refs.types %}
-              <option value="{{ t.type_logement_id }}" {{ 'selected' if t.type_logement_id == detail.type_logement_id }}>{{ t.libelle or t.type_logement_id }}</option>
+              <option value="{{ t.type_logement_id }}" {{ 'selected' if t.type_logement_id == detail.type_logement_id }}>{{ t.libelle or (t.type_logement_id | nom_type_logement) }}</option>
               {% endfor %}
             </select>
           </label>
@@ -285,7 +283,7 @@
           <select name="proprietaire_id" required>
             <option value="">—</option>
             {% for p in refs.proprietaires %}
-            <option value="{{ p.proprietaire_id }}">{{ p.nom or p.proprietaire_id }}</option>
+            <option value="{{ p.proprietaire_id }}">{{ p.nom or (p.proprietaire_id | nom_proprietaire) }}</option>
             {% endfor %}
           </select>
         </label>
@@ -325,7 +323,7 @@
           <select name="proprietaire_id" required>
             <option value="">—</option>
             {% for p in refs.proprietaires %}
-            <option value="{{ p.proprietaire_id }}">{{ p.nom or p.proprietaire_id }}</option>
+            <option value="{{ p.proprietaire_id }}">{{ p.nom or (p.proprietaire_id | nom_proprietaire) }}</option>
             {% endfor %}
           </select>
         </label>
@@ -341,8 +339,8 @@
   <div class="card" style="margin-bottom: var(--stack-lg);">
     <div class="card-title">Informations principales</div>
     <dl class="detail-grid">
-      <div><dt>Propriétaire (résolu)</dt><dd>{{ base.proprietaire_id if base.proprietaire_id not in (None,'') else "Non renseigné" }}</dd></div>
-      <div><dt>Type</dt><dd>{{ detail.type_label or detail.type_logement_id or "Non renseigné" }}</dd></div>
+      <div><dt>Propriétaire (résolu)</dt><dd>{{ (base.proprietaire_id | nom_proprietaire) if base.proprietaire_id not in (None,'') else "Non renseigné" }}</dd></div>
+      <div><dt>Type</dt><dd>{{ detail.type_label or (detail.type_logement_id | nom_type_logement) or "Non renseigné" }}</dd></div>
       <div><dt>Ville</dt><dd>{{ base.ville if base.ville not in (None,'') else "Non renseigné" }}</dd></div>
       <div><dt>Adresse</dt><dd>{{ ref.adresse if (ref and ref.adresse not in (None,'')) else "Non renseigné" }}</dd></div>
       <div><dt>Entrée en gestion</dt><dd>{{ base.date_entree_gestion if base.date_entree_gestion not in (None,'') else "Non renseigné" }}</dd></div>

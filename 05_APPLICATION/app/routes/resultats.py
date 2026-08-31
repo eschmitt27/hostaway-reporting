@@ -12,9 +12,8 @@ import io
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
-from fastapi.templating import Jinja2Templates
+from app.template_env import get_templates
 
-from app.config import TEMPLATES_DIR
 from app.services import comptabilite_analytique_service as ana
 from app.services import comptabilite_auxiliaires_service as aux
 from app.services import comptabilite_axes_service as axes
@@ -23,7 +22,7 @@ from app.services import comptabilite_periodes_service as per
 from app.services import comptabilite_reconciliations_service as recon
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = get_templates()
 
 
 def _mois_defaut(mois: str) -> str:

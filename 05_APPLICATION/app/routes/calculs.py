@@ -7,14 +7,13 @@ sont pas actifs.
 import app.config as cfg
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from app.template_env import get_templates
 
-from app.config import TEMPLATES_DIR
 from app.services import calculs_executeur_service as ex
 from app.services import calculs_pipeline_service as pipe
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = get_templates()
 
 # La chaîne ménages n'est PAS proposée ici : elle démarre par lot6b, qui interroge réellement la
 # feuille Google des déclarations internes. Elle se lance depuis /menages/chaine, qui copie les

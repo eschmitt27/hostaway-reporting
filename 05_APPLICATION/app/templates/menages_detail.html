@@ -1,13 +1,13 @@
 {% extends "base.html" %}
-{% block title %}Ménage — {{ logement_id }} / {{ mois }}{% endblock %}
+{% block title %}Ménage — {{ logement_id | nom_logement }} / {{ mois }}{% endblock %}
 
 {% block content %}
 
 {% if detail is none %}
 <div class="page-header"><h1 class="page-title">Rapprochement introuvable</h1></div>
 <div class="alert alert-error">
-  Aucune ligne de rapprochement pour la période {{ mois }}, le logement {{ logement_id }}
-  et l'intervenant {{ intervenant_id }}.
+  Aucune ligne de rapprochement pour la période {{ mois }}, le logement {{ logement_id | nom_logement }}
+  et l'intervenant {{ intervenant_id | nom_intervenant }}.
 </div>
 <a href="/menages" class="btn btn-secondary">← Retour aux ménages</a>
 
@@ -26,16 +26,16 @@
   <a href="/menages?mois={{ mois }}" class="back-link">← Ménages</a>
   <div class="flex justify-between items-center">
     <div>
-      <h1 class="page-title">{{ v.nom_appartement or v.logement_id }}</h1>
+      <h1 class="page-title">{{ v.nom_appartement or (v.logement_id | nom_logement) }}</h1>
       <p class="page-subtitle">
         Période <span class="periode-active">{{ v.mois }}</span> ·
-        Intervenant <strong>{{ v.nom_intervenant or v.intervenant_id }}</strong>
+        Intervenant <strong>{{ v.nom_intervenant or (v.intervenant_id | nom_intervenant) }}</strong>
         {% if v.type_intervenant %}
           <span class="badge badge-{{ 'info' if v.type_intervenant == 'INTERNE' else 'neutral' }}">{{ v.type_intervenant }}</span>
         {% else %}
           <span class="badge badge-warning">Intervenant non identifié</span>
         {% endif %}
-        {% if v.proprietaire_id %} · Propriétaire {{ v.proprietaire_libelle or v.proprietaire_id }}{% endif %}
+        {% if v.proprietaire_id %} · Propriétaire {{ v.proprietaire_libelle or (v.proprietaire_id | nom_proprietaire) }}{% endif %}
       </p>
     </div>
     <span class="status-badge status-{{ (v.statut_effectif or 'inconnu') | lower | replace('_','-') }}">

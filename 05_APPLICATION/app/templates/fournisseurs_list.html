@@ -35,7 +35,7 @@
     <select id="logement_id" name="logement_id" onchange="this.form.submit()">
       <option value="">Tous</option>
       {% for l in data.filters.logements %}
-        <option value="{{ l }}" {% if data.applied.logement_id == l %}selected{% endif %}>{{ l }}</option>
+        <option value="{{ l }}" {% if data.applied.logement_id == l %}selected{% endif %}>{{ l | nom_logement }}</option>
       {% endfor %}
     </select>
   </div>
@@ -111,9 +111,9 @@
         <td>{{ row.date_charge or "—" }}</td>
         <td>{{ row.categorie_charge_id or "—" }}</td>
         <td>
-          {% if row.logement_id %}<span class="code-id">{{ row.logement_id }}</span>{% else %}—{% endif %}
+          {{ row.logement_id | nom_logement if row.logement_id else "—" }}
         </td>
-        <td>{{ row.associe_id or "—" }}</td>
+        <td>{{ row.associe_id | nom_associe if row.associe_id else "—" }}</td>
         <td class="num">
           {% if row.montant is not none %}
             {{ row.montant | round(2) }} €

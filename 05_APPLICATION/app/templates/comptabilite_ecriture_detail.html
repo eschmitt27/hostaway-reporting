@@ -48,8 +48,8 @@
         <td>{{ l.ligne_num }}</td>
         <td>{{ l.compte }}</td>
         <td>{{ l.auxiliaire or "—" }}</td>
-        <td>{{ l.logement_id or "—" }}</td>
-        <td>{{ l.proprietaire_id or "—" }}</td>
+        <td>{{ l.logement_id | nom_logement if l.logement_id else "—" }}</td>
+        <td>{{ l.proprietaire_id | nom_proprietaire if l.proprietaire_id else "—" }}</td>
         <td>{{ "%.2f"|format(l.debit) if l.debit else "" }}</td>
         <td>{{ "%.2f"|format(l.credit) if l.credit else "" }}</td>
         <td>{{ l.libelle or "" }}</td>

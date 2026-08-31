@@ -4,8 +4,8 @@
 {% block content %}
 <div class="page-header">
   {% if proprietaire_filtre %}
-  <a href="/proprietaires/{{ proprietaire_id }}" class="back-link">← Propriétaire {{ proprietaire_id }}</a>
-  <h1 class="page-title">Trésorerie — {{ proprietaire_id }}</h1>
+  <a href="/proprietaires/{{ proprietaire_id }}" class="back-link">← Propriétaire {{ proprietaire_id | nom_proprietaire }}</a>
+  <h1 class="page-title">Trésorerie — {{ proprietaire_id | nom_proprietaire }}</h1>
   {% if solde %}
   <p class="page-subtitle">
     Reçu du propriétaire : {{ "%.2f"|format(solde.total_recu_de_proprietaire) }} € ·
@@ -85,7 +85,7 @@
           </td>
           <td><code>{{ c.code_controle }}</code></td>
           <td><a href="/proprietaires/tresorerie/{{ c.mouvement_opaque }}">{{ c.mouvement_opaque }}</a></td>
-          <td>{{ c.proprietaire_id or "—" }}</td>
+          <td>{{ c.proprietaire_id | nom_proprietaire if c.proprietaire_id else "—" }}</td>
           <td class="num">{{ "%.2f"|format(c.montant) if c.montant is not none else "—" }}</td>
           <td>{{ c.detail }}</td>
         </tr>
@@ -115,8 +115,8 @@
       {% for m in lignes %}
       <tr>
         <td><span class="code-id">{{ m.mouvement_opaque }}</span></td>
-        <td>{{ m.proprietaire_id }}</td>
-        <td>{{ m.logement_id or "—" }}</td>
+        <td>{{ m.proprietaire_id | nom_proprietaire }}</td>
+        <td>{{ m.logement_id | nom_logement if m.logement_id else "—" }}</td>
         <td>{{ m.date_mouvement }}</td>
         <td class="num">{{ "%.2f"|format(m.montant) }} €</td>
         <td>{{ m.sens }}</td>

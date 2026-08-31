@@ -25,8 +25,8 @@
   <dl class="detail-grid">
     <div><dt>Catégorie</dt><dd>{{ pv.categorie or "—" }}</dd></div>
     <div><dt>Statut</dt><dd>{{ pv.statut_controle or "—" }}</dd></div>
-    <div><dt>Propriétaire</dt><dd>{{ pv.proprietaire_id or "—" }}</dd></div>
-    <div><dt>Logement</dt><dd>{{ pv.logement_id or "—" }}</dd></div>
+    <div><dt>Propriétaire</dt><dd>{{ pv.proprietaire_id | nom_proprietaire if pv.proprietaire_id else "—" }}</dd></div>
+    <div><dt>Logement</dt><dd>{{ pv.logement_id | nom_logement if pv.logement_id else "—" }}</dd></div>
   </dl>
 </div>
 {% endif %}

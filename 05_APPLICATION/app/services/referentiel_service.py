@@ -125,6 +125,63 @@ def type_label(type_logement_id: str, *, db_path=None) -> str | None:
     return row.get("type_logement") if row else None
 
 
+def libelle_type_logement(type_logement_id: str, *, db_path=None) -> str:
+    """Libellé sûr pour l'UI (« Studio », « T2»…) : jamais un ID brut silencieux."""
+    if not _txt(type_logement_id):
+        return ""
+    nom = type_label(type_logement_id, db_path=db_path)
+    return nom if nom else f"Type non résolu ({type_logement_id})"
+
+
+# ── Intervenants (ménage) ───────────────────────────────────────────────────────────────────────
+
+def intervenant(intervenant_id: str, *, db_path=None) -> dict[str, str] | None:
+    if not intervenant_id:
+        return None
+    return repo.lire_par_cle("ref_intervenants", _txt(intervenant_id), db_path=db_path)
+
+
+def libelle_intervenant(intervenant_id: str, *, db_path=None) -> str:
+    """Libellé sûr pour l'UI : vrai nom si résolu, sinon un texte explicite."""
+    if not _txt(intervenant_id):
+        return ""
+    i = intervenant(intervenant_id, db_path=db_path)
+    nom = _txt(i.get("nom_intervenant")) if i else ""
+    return nom if nom else f"Intervenant non résolu ({intervenant_id})"
+
+
+# ── Associés ────────────────────────────────────────────────────────────────────────────────────
+
+def associe(personne_id: str, *, db_path=None) -> dict[str, str] | None:
+    if not personne_id:
+        return None
+    return repo.lire_par_cle("ref_associes", _txt(personne_id), db_path=db_path)
+
+
+def libelle_associe(personne_id: str, *, db_path=None) -> str:
+    if not _txt(personne_id):
+        return ""
+    a = associe(personne_id, db_path=db_path)
+    nom = _txt(a.get("nom_personne")) if a else ""
+    return nom if nom else f"Associé non résolu ({personne_id})"
+
+
+# ── Fournisseurs / prestataires (table `fournisseurs`, hors catalogue REF_Setup) ─────────────────
+
+def libelle_fournisseur(fournisseur_id: str, *, db_path=None) -> str:
+    """Libellé sûr pour l'UI. `fournisseurs` couvre aussi les prestataires (même table, `type`
+    distingue) — un seul resolver pour éviter deux jointures différentes du même concept."""
+    if not _txt(fournisseur_id):
+        return ""
+    from app.services import fournisseurs_referentiel_service as fourn_svc
+    f = fourn_svc.charger_par_opaque(_txt(fournisseur_id), db_path=db_path)
+    nom = _txt(f.get("nom")) if f else ""
+    return nom if nom else f"Fournisseur non résolu ({fournisseur_id})"
+
+
+libelle_prestataire = libelle_fournisseur
+
+
 # ── Taux de commission ──────────────────────────────────────────────────────────────────────────
 
 def taux_commission(proprietaire_id: str, *, db_path=None) -> list[dict[str, Any]]:

@@ -11,16 +11,15 @@ lui-même écrira en SQLite. Aucun ne dépend plus d'un export.
 """
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
+from app.template_env import get_templates
 
-from app.config import TEMPLATES_DIR
 from app.readers import controles_cloture_reader as controles
 from app.readers import flux_unifie_reader as flux
 from app.readers.run_log_reader import get_run_log_status
 from app.services import referentiel_service as referentiel
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = get_templates()
 
 INDISPONIBLE = "—"
 

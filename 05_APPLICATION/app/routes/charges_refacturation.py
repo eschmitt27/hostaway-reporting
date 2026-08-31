@@ -4,16 +4,11 @@ création ici : cette page ne fait qu'afficher/décider sur des positions déjà
 """
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
-
-from app.config import TEMPLATES_DIR
+from app.template_env import get_templates
 from app.services import charges_refacturation_service as refac
-from app.services import referentiel_service as ref_svc
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
-templates.env.filters["nom_proprietaire"] = lambda pid: ref_svc.libelle_proprietaire(pid)
-templates.env.filters["nom_logement"] = lambda lid: ref_svc.libelle_logement(lid)
+templates = get_templates()
 
 
 @router.get("/charges-refacturation", response_class=HTMLResponse)

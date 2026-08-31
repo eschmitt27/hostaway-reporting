@@ -1,9 +1,8 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from app.template_env import get_templates
 
 import app.config as cfg
-from app.config import TEMPLATES_DIR
 from app.services import impact_preview_service as preview_svc
 from app.services import logements_service as svc
 from app.services import logements_creation_service as creation_svc
@@ -11,7 +10,7 @@ from app.services import logements_gestion_service as gestion_svc
 from app.services import referentiel_admin_service as adm
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = get_templates()
 
 
 def _truthy(v: str | None) -> bool:

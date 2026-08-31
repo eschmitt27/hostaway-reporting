@@ -17,6 +17,7 @@ from typing import Any
 from app.services import controles_cloture_service as base
 from app.services import controles_detail_service as det
 from app.services import controles_suivi_service as suivi
+from app.services import referentiel_service as ref_svc
 
 # Vues de l'écran principal.
 VUES = {
@@ -213,8 +214,8 @@ def _options(elements: list[dict[str, Any]]) -> dict[str, list[dict[str, str]]]:
         "statuts_suivi": [{"id": s, "libelle": suivi.STATUTS_LIBELLES[s]} for s in
                           (suivi.ST_OUVERT, suivi.ST_EN_COURS, suivi.ST_RESOLU, suivi.ST_ACCEPTE, suivi.ST_ROUVERT)],
         "responsables": [{"id": r, "libelle": r} for r in resp],
-        "proprietaires": [{"id": p, "libelle": p} for p in props],
-        "logements": [{"id": l, "libelle": l} for l in logs],
+        "proprietaires": [{"id": p, "libelle": ref_svc.libelle_proprietaire(p)} for p in props],
+        "logements": [{"id": l, "libelle": ref_svc.libelle_logement(l)} for l in logs],
     }
 
 

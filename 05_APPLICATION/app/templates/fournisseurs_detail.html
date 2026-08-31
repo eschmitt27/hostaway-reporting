@@ -82,16 +82,16 @@
   <div class="detail-row">
     <span class="detail-label">Logement</span>
     <span class="detail-value">
-      {% if c.logement_id %}<span class="code-id">{{ c.logement_id }}</span>{% else %}—{% endif %}
+      {{ c.logement_id | nom_logement if c.logement_id else "—" }}
     </span>
   </div>
   <div class="detail-row">
     <span class="detail-label">Propriétaire</span>
-    <span class="detail-value">{{ c.proprietaire_id or "—" }}</span>
+    <span class="detail-value">{{ c.proprietaire_id | nom_proprietaire if c.proprietaire_id else "—" }}</span>
   </div>
   <div class="detail-row">
     <span class="detail-label">Associé</span>
-    <span class="detail-value">{{ c.associe_id or "—" }}</span>
+    <span class="detail-value">{{ c.associe_id | nom_associe if c.associe_id else "—" }}</span>
   </div>
   {% if c.reservation_id %}
   <div class="detail-row">

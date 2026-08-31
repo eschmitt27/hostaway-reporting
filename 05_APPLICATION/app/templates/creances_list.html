@@ -39,10 +39,10 @@
   <tbody>
   {% for l in lignes %}
     <tr>
-      <td>{{ l.tiers_id }}</td>
+      <td>{{ l.tiers_id | nom_proprietaire }}</td>
       <td><a href="/factures-proprietaires/{{ l.facture_id_opaque }}">{{ l.numero or "—" }}</a>
           {% if l.type_document == "AVOIR" %}<span class="badge">AVOIR</span>{% endif %}</td>
-      <td>{{ l.logement_id }}</td>
+      <td>{{ l.logement_id | nom_logement }}</td>
       <td>{{ l.mois }}</td>
       <td>{{ l.date_facture or "—" }}</td>
       <td>{{ l.date_echeance or "—" }}</td>

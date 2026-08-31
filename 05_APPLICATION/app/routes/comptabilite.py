@@ -6,10 +6,9 @@ Résultats ni tableau analytique — hors périmètre de cette mission (cadrage 
 """
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from app.template_env import get_templates
 
 import app.config as cfg
-from app.config import TEMPLATES_DIR
 from app.services import comptabilite_auxiliaires_service as aux
 from app.services import comptabilite_controles_service as ctrl
 from app.services import comptabilite_ecritures_service as compta
@@ -21,7 +20,7 @@ from app.services import reglements_fournisseurs_service as regl
 from app.services import ventes_lot12_adapter_service as ventes_adapter
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = get_templates()
 
 
 def _ecriture_active() -> bool:

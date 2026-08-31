@@ -41,7 +41,7 @@
         <select name="type_logement_id">
           <option value="">—</option>
           {% for t in refs.types %}
-          <option value="{{ t.type_logement_id }}">{{ t.libelle or t.type_logement_id }}</option>
+          <option value="{{ t.type_logement_id }}">{{ t.libelle or (t.type_logement_id | nom_type_logement) }}</option>
           {% endfor %}
         </select>
       </label>
@@ -49,7 +49,7 @@
         <select name="proprietaire_id" required>
           <option value="">—</option>
           {% for p in refs.proprietaires %}
-          <option value="{{ p.proprietaire_id }}">{{ p.nom or p.proprietaire_id }}</option>
+          <option value="{{ p.proprietaire_id }}">{{ p.nom or (p.proprietaire_id | nom_proprietaire) }}</option>
           {% endfor %}
         </select>
       </label>

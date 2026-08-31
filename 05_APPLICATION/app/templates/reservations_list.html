@@ -78,8 +78,8 @@
             <td><strong>{{ r.reservation_hh_id }}</strong></td>
             <td>{{ r.mois or "—" }}</td>
             <td class="text-sm">{{ r.date_arrivee or "?" }} → {{ r.date_depart or "?" }}</td>
-            <td>{{ r.logement_id or "Non renseigné" }}</td>
-            <td>{{ r.proprietaire_id or "Non renseigné" }}</td>
+            <td>{{ (r.logement_id | nom_logement) if r.logement_id else "Non renseigné" }}</td>
+            <td>{{ (r.proprietaire_id | nom_proprietaire) if r.proprietaire_id else "Non renseigné" }}</td>
             <td>{{ r.canal_id or "—" }}</td>
             <td>{{ r.source_financiere or "—" }}</td>
             <td style="text-align:right; white-space:nowrap">{{ r.total_percu | eur }}</td>
