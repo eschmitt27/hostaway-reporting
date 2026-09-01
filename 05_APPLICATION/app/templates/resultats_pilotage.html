@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}Pilotage — Résultats{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <h1 class="page-title">Pilotage — vue d'ensemble</h1>
+  <p class="page-subtitle">
+    Source : run Lot10 actif uniquement (aucune génération mélangée). Le moteur calcule, cet écran
+    ne fait que sommer ses résultats déjà calculés.
+  </p>
+</div>
+
+<form method="get" action="/resultats/pilotage" class="filter-bar mb-md">
+  <label>Mois <select name="mois">
+    <option value="">Tous</option>
+    {% for m in mois_disponibles %}<option value="{{ m }}" {{ 'selected' if m == mois }}>{{ m }}</option>{% endfor %}
+  </select></label>
+  <label>Propriétaire <select name="proprietaire_id" onchange="this.form.submit()">
+    <option value="">Tous</option>
+    {% for p in filtres.proprietaires %}<option value="{{ p.id }}" {{ 'selected' if p.id == proprietaire_id }}>{{ p.libelle }}</option>{% endfor %}
+  </select></label>
+  <label>Logement <select name="logement_id">
+    <option value="">Tous</option>
+    {% for l in logements_dispo %}<option value="{{ l.id }}" {{ 'selected' if l.id == logement_id }}>{{ l.libelle }}</option>{% endfor %}
+  </select></label>
+  <label>Plateforme <select name="canal">
+    <option value="">Toutes</option>
+    {% for c in filtres.canaux %}<option value="{{ c.id }}" {{ 'selected' if c.id == canal }}>{{ c.libelle }}</option>{% endfor %}
+  </select></label>
+  <button type="submit" class="btn btn-primary">Filtrer</button>
+  <a href="/resultats/pilotage" class="btn btn-ghost">Réinitialiser</a>
+</form>
+
+{% if vue.statut == "NON_DISPONIBLE" %}
+<div class="alert alert-warning">Calcul non encore disponible — Lot10 n'a jamais été exécuté sur cette base.</div>
+
+{% elif vue.statut == "VIDE" %}
+<div class="alert alert-info">Aucune donnée disponible pour cette période / ce filtre.</div>
+
+{% else %}
+{% set k = vue.kpi %}
+<div class="kpi-grid kpi-grid--6 mb-md">
+  <div class="kpi-card"><div class="kpi-label">Total payout</div><div class="kpi-value">{{ "%.2f"|format(k.total_payout) }} €</div></div>
+  <div class="kpi-card kpi-card--warn"><div class="kpi-label">CA conciergerie</div>
+    <div class="kpi-value">{{ "%.2f"|format(k.ca_conciergerie) if k.ca_conciergerie is not none else "—" }}{% if k.ca_conciergerie is not none %} €{% endif %}</div>
+    {% if vue.ventilation_limitee %}<div class="kpi-sub">non ventilé par plateforme</div>{% endif %}
+  </div>
+  <div class="kpi-card"><div class="kpi-label">Commission conciergerie</div><div class="kpi-value">{{ "%.2f"|format(k.commission) }} €</div></div>
+  <div class="kpi-card"><div class="kpi-label">Ménage</div><div class="kpi-value">{{ "%.2f"|format(k.menage) }} €</div></div>
+  <div class="kpi-card"><div class="kpi-label">Réservations</div><div class="kpi-value">{{ k.nb_reservations }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Net propriétaire</div>
+    <div class="kpi-value">{{ "%.2f"|format(k.net_proprietaire) if k.net_proprietaire is not none else "—" }}{% if k.net_proprietaire is not none %} €{% endif %}</div>
+  </div>
+</div>
+<div class="kpi-grid mb-md">
+  <div class="kpi-card"><div class="kpi-label">Préparation canapé</div><div class="kpi-value">{{ "%.2f"|format(k.canape) if k.canape is not none else "—" }}{% if k.canape is not none %} €{% endif %}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Charge fixe</div><div class="kpi-value">{{ "%.2f"|format(k.charge_fixe) if k.charge_fixe is not none else "—" }}{% if k.charge_fixe is not none %} €{% endif %}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Charges refacturées réalisées</div><div class="kpi-value">{{ "%.2f"|format(k.refacturations) if k.refacturations is not none else "—" }}{% if k.refacturations is not none %} €{% endif %}</div></div>
+</div>
+{% endif %}
+
+<div class="card mt-md">
+  <div class="card-title">Évolution mensuelle</div>
+  {% if serie.statut != "OK" %}
+  <p class="section-note">Aucune donnée disponible pour cette période.</p>
+  {% else %}
+  <div class="flex gap-md mb-sm">
+    <label><input type="checkbox" class="serie-toggle" data-serie="total_payout" checked> Total payout</label>
+    <label><input type="checkbox" class="serie-toggle" data-serie="ca_conciergerie" checked> CA conciergerie</label>
+    <label><input type="checkbox" class="serie-toggle" data-serie="commission" checked> Commission conciergerie</label>
+  </div>
+  <canvas id="chart-pilotage" style="width:100%; max-width:100%; height:320px;"></canvas>
+  <script id="pilotage-data" type="application/json">{{ serie.points | tojson }}</script>
+  <script>
+  (function() {
+    const points = JSON.parse(document.getElementById('pilotage-data').textContent);
+    const canvas = document.getElementById('chart-pilotage');
+    const ctx = canvas.getContext('2d');
+    const series = {
+      total_payout: {label: 'Total payout', color: '#2563eb'},
+      ca_conciergerie: {label: 'CA conciergerie', color: '#d97706'},
+      commission: {label: 'Commission conciergerie', color: '#16a34a'},
+    };
+    const actives = new Set(Object.keys(series));
+
+    function resize() {
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * devicePixelRatio;
+      canvas.height = rect.height * devicePixelRatio;
+      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+      draw();
+    }
+
+    function draw() {
+      const w = canvas.clientWidth, h = canvas.clientHeight;
+      ctx.clearRect(0, 0, w, h);
+      if (!points.length) return;
+      const padL = 60, padB = 30, padT = 10, padR = 10;
+      const plotW = w - padL - padR, plotH = h - padT - padB;
+      let maxV = 0;
+      for (const p of points) {
+        for (const k of actives) { if (typeof p[k] === 'number' && p[k] > maxV) maxV = p[k]; }
+      }
+      if (maxV === 0) maxV = 1;
+      // Axes
+      ctx.strokeStyle = '#ccc'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(padL, padT); ctx.lineTo(padL, padT + plotH); ctx.lineTo(padL + plotW, padT + plotH); ctx.stroke();
+      // Y labels
+      ctx.fillStyle = '#666'; ctx.font = '11px sans-serif'; ctx.textAlign = 'right';
+      for (let i = 0; i <= 4; i++) {
+        const v = maxV * i / 4;
+        const y = padT + plotH - (plotH * i / 4);
+        ctx.fillText(v.toFixed(0) + ' €', padL - 6, y + 4);
+      }
+      // X labels + series
+      ctx.textAlign = 'center';
+      const stepX = points.length > 1 ? plotW / (points.length - 1) : 0;
+      points.forEach((p, i) => {
+        const x = padL + stepX * i;
+        ctx.fillText(p.mois, x, padT + plotH + 18);
+      });
+      for (const key of actives) {
+        const s = series[key];
+        ctx.strokeStyle = s.color; ctx.lineWidth = 2; ctx.beginPath();
+        let started = false;
+        points.forEach((p, i) => {
+          const v = p[key];
+          if (typeof v !== 'number') return;
+          const x = padL + stepX * i;
+          const y = padT + plotH - (v / maxV) * plotH;
+          if (!started) { ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); }
+        });
+        ctx.stroke();
+      }
+    }
+
+    document.querySelectorAll('.serie-toggle').forEach(cb => {
+      cb.addEventListener('change', () => {
+        if (cb.checked) actives.add(cb.dataset.serie); else actives.delete(cb.dataset.serie);
+        draw();
+      });
+    });
+    window.addEventListener('resize', resize);
+    resize();
+  })();
+  </script>
+  {% endif %}
+</div>
+
+{% endblock %}

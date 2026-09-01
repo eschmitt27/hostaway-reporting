@@ -36,6 +36,47 @@ def _plan_comptable(db_path=None):
         conn.close()
 
 
+def _etat_alimentation(nb_ecritures: int) -> dict:
+    """Explique EXACTEMENT pourquoi l'écran est vide — jamais un silence, jamais un zéro présenté
+    comme un résultat comptable réel (mission « comptabilité + résultats »)."""
+    from app.db.connection import get_db
+    from app.services import resultats_pilotage_service as pilot
+
+    conn = get_db(None)
+    try:
+        nb_factures_prop = conn.execute("SELECT COUNT(*) FROM factures_proprietaires").fetchone()[0]
+        nb_factures_fourn = conn.execute("SELECT COUNT(*) FROM factures").fetchone()[0]
+        nb_mappings = len(maps.lister_regles())
+        nb_periodes = len(per.lister())
+    finally:
+        conn.close()
+    mois_dispo = pilot.mois_disponibles()
+    dernier_mois_eco = mois_dispo[-1] if mois_dispo else None
+
+    if nb_ecritures > 0:
+        return {"etat": "DISPONIBLE", "cause": "", "nb_factures_prop": nb_factures_prop,
+               "nb_factures_fourn": nb_factures_fourn, "nb_mappings": nb_mappings,
+               "nb_periodes": nb_periodes, "dernier_mois_eco": dernier_mois_eco}
+
+    causes = []
+    if nb_factures_prop == 0 and nb_factures_fourn == 0:
+        causes.append("aucune facture (propriétaire ou fournisseur) n'a encore été validée/émise "
+                      "dans le cycle réel — une écriture ne peut être générée qu'à partir d'une "
+                      "facture existante, jamais inventée")
+    if not _ecriture_active():
+        causes.append("l'écriture réelle est désactivée sur cette installation "
+                      "(COMPTABILITE_REAL_WRITE_ENABLED nécessite le mode recette)")
+    if nb_mappings == 0:
+        causes.append("aucune règle de mapping catégorie → compte n'a encore été configurée")
+    if not causes:
+        causes.append("cause à déterminer — vérifier le mapping et l'activation des journaux")
+    return {
+        "etat": "NON_DISPONIBLE", "cause": " ; ".join(causes),
+        "nb_factures_prop": nb_factures_prop, "nb_factures_fourn": nb_factures_fourn,
+        "nb_mappings": nb_mappings, "nb_periodes": nb_periodes, "dernier_mois_eco": dernier_mois_eco,
+    }
+
+
 @router.get("/comptabilite", response_class=HTMLResponse)
 def comptabilite_accueil(request: Request):
     ecritures = compta.lister()
@@ -44,6 +85,7 @@ def comptabilite_accueil(request: Request):
         "nb_ecritures": len(ecritures),
         "nb_proposees": sum(1 for e in ecritures if e["statut"] == compta.ST_PROPOSEE),
         "ecriture_active": _ecriture_active(),
+        "etat_alimentation": _etat_alimentation(len(ecritures)),
     })
 
 

@@ -10,13 +10,28 @@
   </p>
 </div>
 
-{% if not ecriture_active %}
-<div class="alert alert-warning">Écriture comptable désactivée sur cette installation.</div>
+{% if etat_alimentation.etat == "NON_DISPONIBLE" %}
+<div class="alert alert-warning">
+  <strong>Comptabilité non encore alimentée.</strong> {{ etat_alimentation.cause }}.
+  <ul class="mt-sm">
+    <li>Factures propriétaires réelles : {{ etat_alimentation.nb_factures_prop }}</li>
+    <li>Factures fournisseurs réelles : {{ etat_alimentation.nb_factures_fourn }}</li>
+    <li>Règles de mapping catégorie → compte : {{ etat_alimentation.nb_mappings }}</li>
+    <li>Périodes comptables ouvertes : {{ etat_alimentation.nb_periodes }}</li>
+    {% if etat_alimentation.dernier_mois_eco %}
+    <li>Dernière période économique disponible (Lot10) : {{ etat_alimentation.dernier_mois_eco }}</li>
+    {% endif %}
+  </ul>
+  <p class="section-note mt-sm">Prochaine étape : émettre une facture réelle (propriétaire ou
+    fournisseur) pour que le journal correspondant génère sa première écriture, et configurer les
+    mappings catégorie → compte si ce n'est pas déjà fait.</p>
+</div>
 {% endif %}
 
 <div class="kpi-grid">
-  <div class="kpi-card"><div class="kpi-label">Écritures</div><div class="kpi-value">{{ nb_ecritures }}</div></div>
-  <div class="kpi-card"><div class="kpi-label">À contrôler (proposées)</div><div class="kpi-value">{{ nb_proposees }}</div></div>
+  <div class="kpi-card"><div class="kpi-label">Écritures</div><div class="kpi-value">{{ nb_ecritures if nb_ecritures > 0 else "—" }}</div>
+    {% if nb_ecritures == 0 %}<div class="kpi-sub">non alimentée, pas « zéro » comptable</div>{% endif %}</div>
+  <div class="kpi-card"><div class="kpi-label">À contrôler (proposées)</div><div class="kpi-value">{{ nb_proposees if nb_ecritures > 0 else "—" }}</div></div>
 </div>
 
 <div class="card mt-md">

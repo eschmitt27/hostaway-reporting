@@ -20,9 +20,28 @@ from app.services import comptabilite_axes_service as axes
 from app.services import comptabilite_ecritures_service as compta
 from app.services import comptabilite_periodes_service as per
 from app.services import comptabilite_reconciliations_service as recon
+from app.services import resultats_pilotage_service as pilot
 
 router = APIRouter()
 templates = get_templates()
+
+
+@router.get("/resultats/pilotage", response_class=HTMLResponse)
+def resultats_pilotage(request: Request, mois: str = "", proprietaire_id: str = "",
+                       logement_id: str = "", canal: str = ""):
+    """Vue globale/propriétaire/logement/plateforme + série mensuelle (mission « comptabilité +
+    résultats + graphiques »). Lit exclusivement `resultats_pilotage_service`, lui-même une somme
+    de lignes Lot10 déjà calculées (run actif) — aucun second calcul économique ici."""
+    filtres = pilot.filtres_reference()
+    logements_dispo = pilot.logements_du_proprietaire(proprietaire_id)
+    mois_dispo = pilot.mois_disponibles()
+    v = pilot.vue(mois=mois, proprietaire_id=proprietaire_id, logement_id=logement_id, canal=canal)
+    serie = pilot.serie_mensuelle(proprietaire_id=proprietaire_id, logement_id=logement_id, canal=canal)
+    return templates.TemplateResponse(request, "resultats_pilotage.html", {
+        "active_menu": "resultats", "mois": mois, "proprietaire_id": proprietaire_id,
+        "logement_id": logement_id, "canal": canal, "mois_disponibles": mois_dispo,
+        "filtres": filtres, "logements_dispo": logements_dispo, "vue": v, "serie": serie,
+    })
 
 
 def _mois_defaut(mois: str) -> str:
