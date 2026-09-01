@@ -210,3 +210,15 @@ def importer_hostaway(*, db_path=None) -> dict[str, Any]:
         return {"ok": False, "code": E_CODE_RETOUR,
                 "message": f"lot1_hostaway_extract rc={code}"}
     return {"ok": True, **{k: v for k, v in resultat.items() if k != "ok"}}
+
+
+def importer_hostaway_cleaning_tasks(*, db_path=None) -> dict[str, Any]:
+    """Import Hostaway CleaningTasks pour l'orchestrateur — nœud `externe=True`, jamais entraîné par
+    « Actualiser toute l'activité ». Déclenché uniquement par une demande explicite
+    (`inclure_imports_externes=True`, ex. le bouton « Actualiser les ménages »)."""
+    from app.services import hostaway_cleaning_tasks_actualisation_service as cleaning_tasks
+
+    resultat = cleaning_tasks.actualiser(declencheur=cleaning_tasks.DECLENCHEUR_AUTO, db_path=db_path)
+    if not resultat.get("ok"):
+        return resultat
+    return {"ok": True, **{k: v for k, v in resultat.items() if k != "ok"}}

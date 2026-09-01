@@ -41,6 +41,8 @@
 {% elif request.query_params.get("actualisation") == "lancee" %}
 <div class="alert alert-info">Actualisation des ménages lancée en tâche de fond. Cette page peut
   être rafraîchie pour suivre l'avancement.</div>
+{% elif request.query_params.get("actualisation") == "declaration" %}
+<div class="alert alert-info">Déclaration enregistrée.</div>
 {% endif %}
 
 <!-- ===== Actualisation réelle — parcours normal utilisateur ===== -->
@@ -104,6 +106,13 @@
         N'importe que les factures PDF du dossier surveillé — sans relancer le rapprochement.
       </div>
     </form>
+
+    <div>
+      <a href="/menages/declarations/nouvelle" class="btn btn-secondary">Déclarer / saisir un ménage interne</a>
+      <div class="text-xs text-secondary" style="max-width:22rem">
+        Saisie directe en base — sans passer par un fichier externe.
+      </div>
+    </div>
 
     <form method="post" action="/menages/actualiser-affichage">
       <input type="hidden" name="mois" value="{{ data.mois }}">

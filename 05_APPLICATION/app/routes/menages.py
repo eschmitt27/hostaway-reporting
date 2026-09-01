@@ -12,6 +12,7 @@ from app.services import menages_service as svc
 from app.services import menages_recalcul_service as recalc
 from app.services import menages_chaine_service as chaine
 from app.services import menages_pdf_import_service as pdf_import
+from app.services import menages_declarations_service as declarations
 from app.services import orchestrateur_service as orch
 import app.config as cfg
 from app.services import menages_cycle_service as cycle
@@ -141,6 +142,41 @@ def menages_actualiser(background: BackgroundTasks):
                         declencheur=orch.DECLENCHEUR_MANUEL,
                         inclure_imports_externes=True)
     return RedirectResponse(url="/menages?actualisation=lancee", status_code=303)
+
+
+# ── Déclaration d'un ménage interne — saisie directe, zéro Google Sheet ──────
+
+@router.get("/menages/declarations/nouvelle", response_class=HTMLResponse)
+def menages_declaration_nouvelle(request: Request):
+    return templates.TemplateResponse(request, "menages_declaration_nouvelle.html", {
+        "active_menu": "menages",
+        "logements": declarations.logements_actifs(),
+        "intervenants": declarations.intervenants_actifs(),
+    })
+
+
+@router.post("/menages/declarations")
+async def menages_declaration_creer(request: Request):
+    form = await request.form()
+    mois = str(form.get("mois", "")).strip()
+    logement_id = str(form.get("logement_id", "")).strip()
+    intervenant_id = str(form.get("intervenant_id", "")).strip()
+    nb_menages = int(form.get("nb_menages") or 0)
+    nb_heures_raw = str(form.get("nb_heures", "")).strip()
+    nb_heures = float(nb_heures_raw) if nb_heures_raw else None
+
+    resultat = declarations.creer(
+        mois=mois, logement_id=logement_id, intervenant_id=intervenant_id,
+        nb_menages=nb_menages, nb_heures=nb_heures, acteur="ui:menages",
+    )
+    if not resultat.get("ok"):
+        return templates.TemplateResponse(request, "menages_declaration_nouvelle.html", {
+            "active_menu": "menages",
+            "logements": declarations.logements_actifs(),
+            "intervenants": declarations.intervenants_actifs(),
+            "erreur": resultat.get("message"),
+        })
+    return RedirectResponse(url="/menages?actualisation=declaration", status_code=303)
 
 
 # ── Recalcul du rapprochement (APP-2b) — sur copies, mode réel gardé ─────────

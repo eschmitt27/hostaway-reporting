@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Déclarer un ménage interne{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Déclarer un ménage interne</h1>
+  <p class="page-subtitle">Saisie directe, sans passer par un fichier externe — enregistrée immédiatement.</p>
+</div>
+
+{% if erreur %}
+<div class="alert alert-warning">{{ erreur }}</div>
+{% endif %}
+
+<div class="card">
+  <form method="post" action="/menages/declarations">
+    <div class="form-grid-3">
+      <label>Mois
+        <input type="month" name="mois" required>
+      </label>
+      <label>Logement
+        <select name="logement_id" required>
+          <option value="">Choisir…</option>
+          {% for l in logements %}
+          <option value="{{ l.logement_id }}">{{ l.libelle }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Intervenant
+        <select name="intervenant_id" required>
+          <option value="">Choisir…</option>
+          {% for i in intervenants %}
+          <option value="{{ i.intervenant_id }}">{{ i.libelle }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Nombre de ménages
+        <input type="number" name="nb_menages" min="1" required>
+      </label>
+      <label>Nombre d'heures <span class="text-secondary">(si applicable avant juin 2026)</span>
+        <input type="number" name="nb_heures" min="0" step="0.25">
+      </label>
+    </div>
+    <p class="section-note mt-sm">Le coût est calculé automatiquement selon le tarif standard
+      historisé — jamais saisi à la main.</p>
+    <button type="submit" class="btn btn-primary mt-sm">Enregistrer la déclaration</button>
+    <a href="/menages" class="btn btn-ghost mt-sm">Annuler</a>
+  </form>
+</div>
+{% endblock %}

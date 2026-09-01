@@ -81,10 +81,14 @@ NOEUDS: dict[str, Noeud] = {n.nom: n for n in (
 
     Noeud(HOSTAWAY_CLEANING_TASKS, TYPE_IMPORT, "Hostaway — tâches de ménage (H6)",
           depend_de=(HOSTAWAY_RAW,),
+          service="app.services.orchestrateur_moteur:importer_hostaway_cleaning_tasks",
+          externe=True,
           tables=("hostaway_cleaning_tasks_extractions", "hostaway_cleaning_tasks"),
           commentaire="Cadence PROPRE, volontairement séparée de HOSTAWAY_RAW : H6 a rencontré des "
                       "limites 429 sévères, et le rafraîchir aussi souvent que les réservations "
-                      "n'apporte rien. Jamais entraîné par la propagation automatique."),
+                      "n'apporte rien. `externe=True` (comme HOSTAWAY_RAW) : jamais entraîné par "
+                      "« Actualiser toute l'activité », uniquement par une demande explicite "
+                      "(`inclure_imports_externes=True`, ex. « Actualiser les ménages »)."),
 
     Noeud(REF_SETUP, TYPE_IMPORT, "Référentiel Setup (logements, propriétaires, taux, clôture)",
           tables=("ref_logements", "ref_proprietaires", "ref_taux_commission",
