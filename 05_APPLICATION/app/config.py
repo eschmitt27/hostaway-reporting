@@ -211,8 +211,10 @@ MENAGES_CHAINE_TIMEOUT_SECONDS = int(os.environ.get("MENAGES_CHAINE_TIMEOUT_SECO
 # Stubs contrôlés (réseau/API remplacés dans le workspace uniquement — jamais dans le dépôt).
 MENAGES_STUBS_DIR = APP_ROOT / "runners" / "stubs_menages"
 # Dossier RÉEL des factures de ménage externes (PDF), lecture seule — source documentaire.
-MENAGES_PDF_DIR = PROJECT_ROOT / "01_SOURCES_BRUTES" / "MenagesExternes" / "Factures_PDF"
-MENAGES_PDF_DIR_REL = r"01_SOURCES_BRUTES\MenagesExternes\Factures_PDF"
+# Emplacement constaté réel (audit) : PDF déposés directement sous MenagesExternes/, sans
+# sous-dossier Factures_PDF (celui-ci n'existe pas sur le terrain).
+MENAGES_PDF_DIR = PROJECT_ROOT / "01_SOURCES_BRUTES" / "MenagesExternes"
+MENAGES_PDF_DIR_REL = r"01_SOURCES_BRUTES\MenagesExternes"
 
 # ── APP-4B — Contrôle & catégorisation bancaire. Garde de sécurité. ──
 # Aucune écriture bancaire réelle possible tant que ces flags sont False. Jamais activés par défaut.

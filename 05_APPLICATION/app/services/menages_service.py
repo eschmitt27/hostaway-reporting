@@ -131,6 +131,51 @@ def load_pdf_externes_info() -> dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------------------
+# Actualisation réelle — statut affiché sur l'écran principal (mission Ménages, bouton unique)
+# ---------------------------------------------------------------------------
+
+def _nb_factures_menage_a_controler(db_path=None) -> int:
+    """Factures ménage externe (issues d'un import PDF) encore au statut A_CONTROLER."""
+    conn = get_db(db_path)
+    try:
+        if not conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='facture_pdf_diagnostics'"
+        ).fetchone():
+            return 0
+        return conn.execute(
+            "SELECT COUNT(*) FROM factures WHERE statut = 'A_CONTROLER' AND facture_id_opaque IN "
+            "(SELECT DISTINCT facture_id_opaque FROM facture_pdf_diagnostics "
+            "WHERE facture_id_opaque IS NOT NULL)"
+        ).fetchone()[0]
+    finally:
+        conn.close()
+
+
+def charger_etat_actualisation(db_path=None) -> dict[str, Any]:
+    """Tout ce que l'écran Ménages doit afficher pour le bouton « Actualiser les ménages » —
+    une seule lecture, jamais une exécution. Combine : l'état RÉEL du dataset MENAGES tel que
+    l'orchestrateur le voit (`orchestrateur_service.etat_datasets`), l'aperçu du dossier PDF
+    (`menages_pdf_import_service.apercu`, lecture seule), et les mois réellement disponibles."""
+    from app.services import orchestrateur_service as orch
+    from app.services import menages_pdf_import_service as pdf_svc
+    from app.services.menages_recalcul_service import _mois_disponibles
+
+    dataset = next((d for d in orch.etat_datasets(db_path=db_path) if d["dataset"] == "MENAGES"), None)
+    pdf = pdf_svc.apercu(db_path=db_path)
+    mois = _mois_disponibles(Path(db_path) if db_path else Path(cfg.DB_PATH))
+    verrous = orch._verrous_actifs(db_path)
+    return {
+        "dataset": dataset,
+        "derniere_actualisation": dataset.get("calcule_le") if dataset else None,
+        "statut_dataset": dataset.get("statut") if dataset else None,
+        "pdf": pdf,
+        "nb_a_controler": _nb_factures_menage_a_controler(db_path=db_path),
+        "mois_disponibles": mois,
+        "en_cours": bool(verrous),
+    }
+
+
 def _note_mode(mode: str | None) -> str:
     if mode == "PDF_AUTOMATIQUE":
         return ("Extraction AUTOMATIQUE : les factures sont lues directement depuis les PDF déposés "

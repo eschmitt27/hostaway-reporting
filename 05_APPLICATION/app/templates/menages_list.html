@@ -36,40 +36,105 @@
 {% if a.affichage == "actualise" %}
 <div class="alert alert-info">Affichage actualisé — cache vidé, MASTER relus depuis le disque.</div>
 {% endif %}
+{% if request.query_params.get("actualisation") == "pdf" %}
+<div class="alert alert-info">Import des factures PDF exécuté — voir le détail ci-dessous.</div>
+{% elif request.query_params.get("actualisation") == "lancee" %}
+<div class="alert alert-info">Actualisation des ménages lancée en tâche de fond. Cette page peut
+  être rafraîchie pour suivre l'avancement.</div>
+{% endif %}
 
-<!-- ===== Trois actions DISTINCTES (jamais ambiguës) ===== -->
+<!-- ===== Actualisation réelle — parcours normal utilisateur ===== -->
+{% set act = actualisation %}
 <div class="card mb-md">
-  <h2 class="card-title">Actions</h2>
+  <h2 class="card-title">Actualisation</h2>
+  <div class="kpi-grid mb-md">
+    <div class="kpi-card">
+      <div class="kpi-label">Dernière actualisation</div>
+      <div class="kpi-value" style="font-size:1rem">{{ act.derniere_actualisation or "Jamais" }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">PDF détectés</div>
+      <div class="kpi-value">{{ act.pdf.nb_detectes }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Nouveaux PDF</div>
+      <div class="kpi-value">{{ act.pdf.nb_nouveaux }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">PDF déjà importés</div>
+      <div class="kpi-value">{{ act.pdf.nb_deja_importes }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">À contrôler</div>
+      <div class="kpi-value">{{ act.nb_a_controler }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Mois disponibles</div>
+      <div class="kpi-value" style="font-size:1rem">
+        {{ act.mois_disponibles|join(", ") if act.mois_disponibles else "Aucun" }}
+      </div>
+    </div>
+  </div>
+
+  {% if not act.pdf.ecriture_active %}
+  <div class="alert alert-warning">
+    L'écriture réelle des factures est désactivée sur cette installation
+    (<code>FACTURES_REAL_WRITE_ENABLED</code>). Les PDF sont détectés et classés ci-dessus, mais
+    aucune facture n'est créée tant que ce réglage reste inactif.
+  </div>
+  {% endif %}
+  {% if act.en_cours %}
+  <div class="alert alert-info">Une actualisation est déjà en cours.</div>
+  {% endif %}
+
   <div class="flex gap-md items-start" style="flex-wrap:wrap">
+    <form method="post" action="/menages/actualiser">
+      <button type="submit" class="btn btn-primary" {{ "disabled" if act.en_cours }}>
+        Actualiser les ménages
+      </button>
+      <div class="text-xs text-secondary" style="max-width:24rem">
+        Importe les nouvelles factures PDF puis relance le rapprochement réel (lot6d/6e/6f, SQLite
+        uniquement — aucun Excel, aucune écriture sur un fichier réel).
+      </div>
+    </form>
+
+    <form method="post" action="/menages/pdf/importer">
+      <button type="submit" class="btn btn-secondary">Importer les nouvelles factures</button>
+      <div class="text-xs text-secondary" style="max-width:22rem">
+        N'importe que les factures PDF du dossier surveillé — sans relancer le rapprochement.
+      </div>
+    </form>
+
     <form method="post" action="/menages/actualiser-affichage">
       <input type="hidden" name="mois" value="{{ data.mois }}">
       <button type="submit" class="btn btn-secondary">Actualiser l'affichage</button>
       <div class="text-xs text-secondary" style="max-width:22rem">
-        Relit les MASTER existants et vide le cache. Aucun script, aucun réseau, aucune écriture.
+        Relit les sources existantes et vide le cache. Aucun script, aucun réseau, aucune écriture.
       </div>
     </form>
-
-    <div>
-      <a href="/menages/recalculer" class="btn btn-primary">Simuler avec les derniers exports</a>
-      <div class="text-xs text-secondary" style="max-width:22rem">
-        Cette simulation utilise les derniers fichiers déjà générés. Elle ne recharge pas Hostaway,
-        les déclarations internes ni les factures PDF.
-      </div>
-    </div>
-
-    <div>
-      <button type="button" class="btn btn-secondary" disabled
-              title="Non activé — nécessite une recette contrôlée sur les données réelles">
-        Actualiser les sources et recalculer
-      </button>
-      <div class="text-xs text-secondary" style="max-width:24rem">
-        <strong>Non activé</strong> — nécessite une recette contrôlée sur les données réelles.
-        Régénérerait Hostaway, les déclarations internes, les factures externes (Lot6c), puis
-        6d/6e/6f/11. Garde <code>MENAGES_REAL_RECALC_ENABLED = False</code>.
-        <a href="/menages/chaine">Tester cette chaîne complète sur copies…</a>
-      </div>
-    </div>
   </div>
+
+  <details class="mt-md">
+    <summary class="text-secondary">Diagnostic technique / recette sur copies</summary>
+    <div class="flex gap-md items-start mt-sm" style="flex-wrap:wrap">
+      <div>
+        <a href="/menages/recalculer" class="btn btn-secondary">Simuler le recalcul sur copies</a>
+        <div class="text-xs text-secondary" style="max-width:22rem">
+          Recette isolée sur une copie de la base — n'écrit jamais dans les données réelles.
+        </div>
+      </div>
+      <div>
+        <a href="/menages/chaine" class="btn btn-secondary">Tester la chaîne complète sur copies</a>
+        <div class="text-xs text-secondary" style="max-width:22rem">
+          Régénère Hostaway, déclarations internes et factures PDF dans un atelier isolé, à titre
+          de diagnostic uniquement.
+        </div>
+      </div>
+      <div>
+        <a href="/menages/diagnostic" class="btn btn-secondary">Diagnostic du pipeline</a>
+      </div>
+    </div>
+  </details>
 </div>
 
 {% set fr = data.fraicheur %}

@@ -70,6 +70,13 @@ MAPPING_LOGEMENTS: dict[str, str] = {
     normaliser_libelle("T.4-90 Blagnac (Cedrine)"): "LOG_0002",
     normaliser_libelle("T.3 Sept Deniers (Francois)"): "LOG_0013",
     normaliser_libelle("T.2-65 (Gabriel)"): "LOG_0003",
+    # Variantes de formatage réellement rencontrées sur les factures Aissata/Mounir (ponctuation
+    # différente pour le même logement — mapping explicite, jamais une normalisation générique qui
+    # risquerait un faux rapprochement).
+    normaliser_libelle("T3 18 rue de Cugnaux (David)"): "LOG_0008",
+    normaliser_libelle("T4 90 Blagnac (Cedrine)"): "LOG_0002",
+    normaliser_libelle("T.3 310 Muret (David)"): "LOG_0011",
+    normaliser_libelle("T3 sept deniers (Francois)"): "LOG_0013",
 }
 
 
@@ -207,7 +214,7 @@ def _extraire_aissata(doc, nom: str) -> FactureExtraite:
             used.add(best[1])
             pu, qte = best[2], best[3]
         lib_clean = _RE_MONTANT.sub("", lib)
-        lib_clean = re.split(r"\bx\s*\d+\s*passages|\ble\s+\d", lib_clean, 1, flags=re.IGNORECASE)[0]
+        lib_clean = re.split(r"\bx\s*\d+(?:\s*passages?)?|\ble\s+\d", lib_clean, 1, flags=re.IGNORECASE)[0]
         # Description wrappee sur 2 lignes -> fragment de parenthese non fermee / << x >> isole a nettoyer.
         lib_clean = re.sub(r"\([^)]*$", "", lib_clean)          # parenthese-adresse ouverte non fermee
         lib_clean = re.sub(r"\(\s*\d[^)]*\)", "", lib_clean)    # parenthese-ADRESSE fermee (commence par chiffre)

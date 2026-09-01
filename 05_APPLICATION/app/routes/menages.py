@@ -4,13 +4,15 @@ Aucune route n'écrit dans une source métier. La seule écriture est l'outrepas
 tracé en SQLite. Le recalcul réel du pipeline n'est pas exposé : /menages/diagnostic
 est une page de diagnostic, sans exécution.
 """
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from app.template_env import get_templates
 
 from app.services import menages_service as svc
 from app.services import menages_recalcul_service as recalc
 from app.services import menages_chaine_service as chaine
+from app.services import menages_pdf_import_service as pdf_import
+from app.services import orchestrateur_service as orch
 import app.config as cfg
 from app.services import menages_cycle_service as cycle
 from app.services import menages_controles_service as cycle_controles
@@ -58,6 +60,7 @@ def menages_dashboard(
     return templates.TemplateResponse(request, "menages_list.html", {
         "active_menu": "menages",
         "data": data,
+        "actualisation": svc.charger_etat_actualisation(),
     })
 
 
@@ -106,6 +109,38 @@ def menages_diagnostic(request: Request):
         "active_menu": "menages",
         "dernier_calcul": svc.load_dernier_calcul(),
     })
+
+
+# ── Actualisation RÉELLE (parcours normal utilisateur) ───────────────────────
+# Deux actions, réelles (SQLite, zéro Excel), distinctes de la recette sur copies ci-dessous :
+#   - « Importer les nouvelles factures » : PDF du dossier surveillé → factures + lignes réelles
+#     (facture_menage_pdf_service, déjà idempotent — un PDF déjà importé ne duplique jamais).
+#   - « Actualiser les ménages » : la même action, puis déclenche le nœud MENAGES de l'orchestrateur
+#     RÉEL (`orchestrateur_service.actualiser`, exactement le service utilisé par /actualisation —
+#     aucun second chemin d'exécution), qui exécute lot6d/6e/6f en SQLite pur (--sans-excel).
+
+@router.post("/menages/pdf/importer")
+async def menages_pdf_importer(request: Request):
+    """Importe les PDF du dossier surveillé en factures réelles (idempotent, zéro Excel)."""
+    pdf_import.importer_nouveaux(acteur="ui:menages")
+    return RedirectResponse(url="/menages?actualisation=pdf", status_code=303)
+
+
+@router.post("/menages/actualiser")
+def menages_actualiser(background: BackgroundTasks):
+    """« Actualiser les ménages » — bouton principal du module.
+
+    1) Importe les nouvelles factures PDF (synchrone, rapide : quelques fichiers, aucune requête
+       réseau) — pour que lot6d lise des lignes à jour dès le lancement de l'étape 2.
+    2) Déclenche le nœud MENAGES de l'orchestrateur réel en tâche de fond (un recalcul peut durer :
+       la requête HTTP ne doit jamais rester bloquée dessus, exactement comme /actualisation/cible).
+    """
+    pdf_import.importer_nouveaux(acteur="ui:menages")
+    orch.marquer_runs_interrompus()
+    background.add_task(orch.actualiser, cibles=["MENAGES"],
+                        declencheur=orch.DECLENCHEUR_MANUEL,
+                        inclure_imports_externes=True)
+    return RedirectResponse(url="/menages?actualisation=lancee", status_code=303)
 
 
 # ── Recalcul du rapprochement (APP-2b) — sur copies, mode réel gardé ─────────
