@@ -5,9 +5,12 @@ déjà testé, déjà idempotent (`factures_service.creer` refuse un doublon fou
 `E_DOUBLON_CERTAIN`). Ce module se contente de scanner `cfg.MENAGES_PDF_DIR`, d'appeler l'import
 PDF par PDF, et de CLASSER ce qui s'est réellement passé pour chacun — jamais une invention.
 
-Si l'écriture réelle des factures est désactivée (`FACTURES_REAL_WRITE_ENABLED=False`, gardé par
-`RECETTE_MODE` — jamais retouché ici), chaque PDF ressort en `ECRITURE_DESACTIVEE` : détecté, mais
-non importé, sans qu'aucune facture ne soit fabriquée pour faire illusion.
+Créer une facture au statut À CONTRÔLER est une écriture OPÉRATIONNELLE (niveau A,
+`cfg.ECRITURE_OPERATIONNELLE_ENABLED`) : elle fonctionne en production normale, sans `RECETTE_MODE`.
+Un PDF déposé est un document reçu, pas une dette comptabilisée — la comptabilité ne commence
+qu'après validation humaine explicite, qui reste gardée au niveau B (`FACTURES_REAL_WRITE_*`).
+Si ce niveau A était désactivé, chaque PDF ressortirait en `ECRITURE_DESACTIVEE` : détecté, mais non
+importé, sans qu'aucune facture ne soit fabriquée pour faire illusion.
 """
 from __future__ import annotations
 
@@ -125,8 +128,11 @@ def apercu(*, dossier: Path | None = None, db_path=None) -> dict[str, Any]:
         "nb_nouveaux": nb_nouveaux,
         "nb_deja_importes": len(pdfs) - nb_nouveaux,
         "details": details,
-        "ecriture_active": bool(cfg.FACTURES_REAL_WRITE_ENABLED
-                                and cfg.FACTURES_REAL_WRITE_CONFIRMATION_ENABLED),
+        # Niveau A : c'est ce qui gouverne réellement l'import d'un PDF en facture À CONTRÔLER.
+        "ecriture_active": bool(getattr(cfg, "ECRITURE_OPERATIONNELLE_ENABLED", False)),
+        # Niveau B, indicatif : la comptabilisation reste gardée, bien après cet import.
+        "comptabilisation_active": bool(cfg.FACTURES_REAL_WRITE_ENABLED
+                                        and cfg.FACTURES_REAL_WRITE_CONFIRMATION_ENABLED),
     }
 
 

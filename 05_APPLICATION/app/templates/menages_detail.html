@@ -289,10 +289,15 @@
   {% if declaration_error %}
     <div class="alert alert-error">{{ declaration_error }}</div>
   {% endif %}
-  {% if not declaration_modifiable %}
+  {# `detail.declaration_modifiable` et non une variable de premier niveau : la valeur est calculée
+     par `menages_service.load_reconciliation_detail` et vit DANS `detail`. Lue au premier niveau,
+     elle était toujours indéfinie — donc toujours fausse — et le formulaire d'édition n'était
+     jamais rendu, y compris sur un mois ouvert. #}
+  {% if not detail.declaration_modifiable %}
     <div class="alert alert-warning">
       Mois clôturé ou aucune déclaration existante : passer par la correction rétroactive existante
-      pour un mois clos.
+      pour un mois clos. Les déclarations restent visibles ci-dessus — elles sont conservées comme
+      information historique, sans recalcul ni écriture comptable.
     </div>
   {% else %}
   <form method="post" action="/menages/{{ mois }}/{{ logement_id }}/{{ intervenant_id }}/modifier-declaration">

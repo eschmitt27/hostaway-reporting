@@ -80,8 +80,31 @@ TRANSITIONS: dict[str, set[str]] = {
 }
 
 
+# ── Niveau d'écriture exigé, par STATUT VISÉ (cf. `config.ECRITURE_OPERATIONNELLE_ENABLED`) ────
+# Le niveau ne dépend pas de la FONCTION appelée mais du statut VISÉ : recevoir, annuler ou mettre
+# en litige une facture reste la gestion d'un document ; la valider ou la marquer réglée l'engage
+# en comptabilité. Découper par fonction aurait laissé passer `creer(statut="VALIDEE")` — une
+# facture validée d'emblée, sans aucun contrôle humain, par le simple dépôt d'un PDF.
+STATUTS_OPERATIONNELS: set[str] = {ST_BROUILLON, ST_A_CONTROLER, ST_LITIGE, ST_ANNULEE}
+STATUTS_COMPTABLES: set[str] = {ST_VALIDEE, ST_PARTIELLEMENT_REGLEE, ST_REGLEE}
+
+
 def _flags_actifs() -> bool:
+    """NIVEAU B — écriture comptable / financière validée (double verrou conservé)."""
     return bool(cfg.FACTURES_REAL_WRITE_ENABLED and cfg.FACTURES_REAL_WRITE_CONFIRMATION_ENABLED)
+
+
+def _niveau_operationnel_actif() -> bool:
+    """NIVEAU A — enregistrement d'un document de travail, hors comptabilité."""
+    return bool(getattr(cfg, "ECRITURE_OPERATIONNELLE_ENABLED", False))
+
+
+def _niveau_requis_ok(statut: str) -> bool:
+    """Niveau exigé pour amener une facture à `statut`. Un statut inconnu est traité comme
+    comptable : à défaut de certitude, c'est le verrou le plus strict qui s'applique."""
+    if statut in STATUTS_OPERATIONNELS:
+        return _niveau_operationnel_actif()
+    return _flags_actifs()
 
 
 def _txt(v: Any) -> str:
@@ -215,7 +238,13 @@ def _evenement(conn, opaque: str, type_evt: str, ancien: str | None, nouveau: st
 
 def creer(form: dict[str, Any], *, acteur: str = "", db_path=None,
           fournisseur_actif: bool | None = None) -> dict[str, Any]:
-    if not _flags_actifs():
+    # Le statut visé est résolu AVANT le contrôle de niveau : créer une facture À CONTRÔLER est une
+    # écriture opérationnelle (niveau A, production normale), la créer déjà VALIDEE engage la
+    # comptabilité (niveau B, double verrou).
+    statut = _txt(form.get("statut")) or ST_A_CONTROLER
+    if statut not in STATUTS:
+        statut = ST_A_CONTROLER
+    if not _niveau_requis_ok(statut):
         return _refus(E_FLAGS)
 
     erreurs = valider(form, db_path, fournisseur_actif)
@@ -223,9 +252,6 @@ def creer(form: dict[str, Any], *, acteur: str = "", db_path=None,
         return {"ok": False, "code": "V_INVALIDE", "message": "Saisie invalide.", "erreurs": erreurs}
 
     opaque = "FAC-" + uuid.uuid4().hex[:12].upper()
-    statut = _txt(form.get("statut")) or ST_A_CONTROLER
-    if statut not in STATUTS:
-        statut = ST_A_CONTROLER
     frs = _txt(form.get("fournisseur_id_opaque"))
     ref = _txt(form.get("facture_ref"))
     ttc = _nombre(form.get("montant_ttc"))
@@ -310,7 +336,10 @@ def lister(*, statut: str = "", fournisseur: str = "", echues_seulement: bool = 
 
 def changer_statut(opaque: str, nouveau: str, *, commentaire: str = "", acteur: str = "",
                    db_path=None) -> dict[str, Any]:
-    if not _flags_actifs():
+    # Niveau exigé par le statut VISÉ : annuler une facture remplacée (V1->V2) ou la mettre en
+    # litige reste opérationnel ; la VALIDER — seul acte qui ouvre le workflow comptable — exige le
+    # niveau B, donc une décision humaine explicite sur une installation habilitée.
+    if not _niveau_requis_ok(nouveau):
         return _refus(E_FLAGS)
     conn = get_db(db_path)
     try:

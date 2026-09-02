@@ -80,11 +80,46 @@ def test_doublon_probable_detecte(db):
     assert len(probables) == 1                    # même montant, date proche, référence différente
 
 
-def test_creer_refuse_si_flags_off(db, monkeypatch):
+def test_creer_a_controler_ne_depend_pas_du_niveau_comptable(db, monkeypatch):
+    """Enregistrer une facture À CONTRÔLER est une écriture OPÉRATIONNELLE (niveau A) : elle doit
+    fonctionner en production normale, sans `RECETTE_MODE` ni les flags comptables. Un document
+    reçu n'est pas une dette comptabilisée."""
     monkeypatch.setattr(cfg, "FACTURES_REAL_WRITE_ENABLED", False)
+    monkeypatch.setattr(cfg, "FACTURES_REAL_WRITE_CONFIRMATION_ENABLED", False)
+    res = svc.creer(dict(FORM), acteur="recette", db_path=db)
+    assert res["ok"] is True
+    assert res["statut"] == svc.ST_A_CONTROLER
+
+
+def test_creer_refuse_si_niveau_operationnel_off(db, monkeypatch):
+    """Le niveau A reste un interrupteur : coupé, plus aucune facture n'est enregistrée."""
+    monkeypatch.setattr(cfg, "ECRITURE_OPERATIONNELLE_ENABLED", False)
     res = svc.creer(dict(FORM), acteur="recette", db_path=db)
     assert res["ok"] is False and res["code"] == svc.E_FLAGS
     assert svc.lister(db_path=db) == []
+
+
+def test_creer_directement_validee_exige_le_niveau_comptable(db, monkeypatch):
+    """Garde-fou central du découpage : le niveau est choisi par le STATUT VISÉ. Créer une facture
+    déjà VALIDEE engage la comptabilité — interdit sans le niveau B, sinon le simple dépôt d'un PDF
+    pourrait fabriquer une facture validée sans aucun contrôle humain."""
+    monkeypatch.setattr(cfg, "FACTURES_REAL_WRITE_ENABLED", False)
+    monkeypatch.setattr(cfg, "FACTURES_REAL_WRITE_CONFIRMATION_ENABLED", False)
+    res = svc.creer(dict(FORM, statut=svc.ST_VALIDEE), acteur="recette", db_path=db)
+    assert res["ok"] is False and res["code"] == svc.E_FLAGS
+    assert svc.lister(db_path=db) == []
+
+
+def test_validation_exige_le_niveau_comptable(db, monkeypatch):
+    """La VALIDATION — seul acte qui ouvre le workflow comptable — reste gardée, alors que
+    l'annulation (remplacement V1->V2) reste opérationnelle."""
+    cree = svc.creer(dict(FORM), acteur="recette", db_path=db)
+    monkeypatch.setattr(cfg, "FACTURES_REAL_WRITE_ENABLED", False)
+    monkeypatch.setattr(cfg, "FACTURES_REAL_WRITE_CONFIRMATION_ENABLED", False)
+    refus = svc.changer_statut(cree["facture_id_opaque"], svc.ST_VALIDEE, db_path=db)
+    assert refus["ok"] is False and refus["code"] == svc.E_FLAGS
+    annule = svc.changer_statut(cree["facture_id_opaque"], svc.ST_ANNULEE, db_path=db)
+    assert annule["ok"] is True
 
 
 # ── Statuts ───────────────────────────────────────────────────────────────────

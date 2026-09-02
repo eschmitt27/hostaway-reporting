@@ -48,9 +48,11 @@ def test_menages_dashboard_affiche_etat_actualisation(client, tmp_db):
 
 
 @pdf_reels
-def test_importer_pdf_route_ecriture_desactivee(client, tmp_db, dossier_pdf):
-    """Écriture désactivée par défaut (RECETTE_MODE=0 en test) : la route répond, aucune facture
-    n'est créée en douce — comportement structurel, pas une erreur 500."""
+def test_importer_pdf_route_cree_des_factures_a_controler_sans_comptabilite(client, tmp_db,
+                                                                            dossier_pdf):
+    """Sans aucun flag comptable ni RECETTE_MODE (cas du test), la route importe réellement : un
+    PDF déposé est un document reçu, enregistré À CONTRÔLER (niveau A). Ce qui doit rester à zéro
+    est la comptabilité, pas la facture elle-même."""
     r = client.post("/menages/pdf/importer", follow_redirects=False)
     assert r.status_code == 303
     assert r.headers["location"].startswith("/menages")
@@ -58,10 +60,16 @@ def test_importer_pdf_route_ecriture_desactivee(client, tmp_db, dossier_pdf):
     from app.db.connection import get_db
     conn = get_db(tmp_db)
     try:
-        nb = conn.execute("SELECT COUNT(*) FROM factures").fetchone()[0]
+        statuts = [x[0] for x in conn.execute("SELECT statut FROM factures")]
+        assert statuts and set(statuts) == {"A_CONTROLER"}, statuts
+        for table in ("ecritures", "charges", "banque_mouvements"):
+            existe = conn.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?",
+                (table,)).fetchone()[0]
+            if existe:
+                assert conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0, table
     finally:
         conn.close()
-    assert nb == 0
 
 
 @pdf_reels

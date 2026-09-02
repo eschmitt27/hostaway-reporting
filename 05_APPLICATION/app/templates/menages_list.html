@@ -81,9 +81,16 @@
 
   {% if not act.pdf.ecriture_active %}
   <div class="alert alert-warning">
-    L'écriture réelle des factures est désactivée sur cette installation
-    (<code>FACTURES_REAL_WRITE_ENABLED</code>). Les PDF sont détectés et classés ci-dessus, mais
+    L'enregistrement des factures est désactivé sur cette installation
+    (<code>ECRITURE_OPERATIONNELLE_ENABLED</code>). Les PDF sont détectés et classés ci-dessus, mais
     aucune facture n'est créée tant que ce réglage reste inactif.
+  </div>
+  {% else %}
+  <div class="alert alert-info">
+    Une facture importée depuis un PDF arrive au statut <strong>À CONTRÔLER</strong> : c'est un
+    document reçu, pas une dette comptabilisée. Aucune écriture comptable, aucun règlement et aucun
+    mouvement bancaire n'est créé par l'import — la comptabilité ne démarre qu'après validation
+    humaine explicite de la facture.
   </div>
   {% endif %}
   {% if act.en_cours %}

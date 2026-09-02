@@ -118,6 +118,31 @@ def _env_flag(nom: str) -> bool:
     return os.environ.get(nom, "0").strip() in ("1", "true", "True")
 
 
+# ── DEUX NIVEAUX D'ÉCRITURE (décision produit, mission « alimenter le module Ménages ») ──────
+# Jusqu'ici TOUTES les gardes étaient bâties sur `RECETTE_MODE and _env_flag(...)`. Conséquence
+# constatée sur le terrain : importer une VRAIE facture fournisseur depuis un PDF exigeait de
+# lancer la vraie application en « MODE RECETTE — DONNÉES FICTIVES ». Un contournement, pas une
+# architecture. Le verrou confondait deux choses de nature différente :
+#
+#   NIVEAU A — ÉCRITURE OPÉRATIONNELLE NORMALE
+#     Enregistrer un document ou une donnée de travail : déclaration de ménage, facture
+#     fournisseur au statut À CONTRÔLER issue d'un PDF, commentaire, correction de saisie.
+#     Ce n'est PAS de la comptabilité : rien n'est validé, rien n'est dû, rien n'est payé, aucune
+#     écriture comptable n'existe. Ces écritures doivent fonctionner en production normale.
+#     Ce n'est pas un assouplissement inventé ici : `menages_declarations_service` et
+#     `facture_lignes_menage_service` écrivent DÉJÀ sans aucun flag. Le niveau A ne fait que
+#     nommer cette règle et y rattacher explicitement la création d'une facture À CONTRÔLER.
+#
+#   NIVEAU B — ÉCRITURE COMPTABLE / FINANCIÈRE VALIDÉE
+#     Faire entrer un document dans la comptabilité, ou déplacer de l'argent : validation d'une
+#     facture, écriture comptable, règlement fournisseur, mouvement bancaire. Double verrou
+#     CONSERVÉ tel quel (RECETTE_MODE ET variable dédiée) — jamais activable par effet de bord.
+#
+# `RECETTE_MODE` garde son rôle réel : isoler une recette (write-guard sur les chemins). Il cesse
+# seulement d'être un PRÉREQUIS pour utiliser normalement l'application réelle.
+ECRITURE_OPERATIONNELLE_ENABLED = True
+
+
 # Écriture SAISIE Charges — garde de sécurité (APP-3b-1).
 # Ne jamais activer implicitement ni par défaut. Activables par variable d'environnement
 # UNIQUEMENT en mode recette : une instance NON recette ne peut jamais écrire, même si les
@@ -233,10 +258,15 @@ BANQUE_OVERRIDE_SHEET = "OVERRIDE_APP4B"
 # Sel de l'empreinte opaque des mouvements (aucune donnée de compte dans l'identifiant public).
 BANQUE_OPAQUE_SALT = "APP4B_BANQUE_v1"
 
-# ── Factures fournisseurs & règlements — garde de sécurité ───────────────────
-# Même double verrou que Charges / Banque / Logements : activables UNIQUEMENT en mode recette
-# (RECETTE_MODE ET variable d'environnement dédiée). Une instance NON recette ne peut jamais
-# enregistrer une facture ni un règlement, même si les variables sont positionnées.
+# ── Factures fournisseurs & règlements — garde de sécurité — NIVEAU B ────────
+# Double verrou conservé (RECETTE_MODE ET variable dédiée). Ce flag gouverne désormais le seul
+# NIVEAU B du cycle facture, c'est-à-dire ce qui engage réellement :
+#   - validation d'une facture (passage à VALIDEE / PARTIELLEMENT_REGLEE / REGLEE) ;
+#   - rattachement à une charge, ventilation comptable manuelle ;
+#   - règlements fournisseurs (`reglements_fournisseurs_service` — de l'argent qui sort).
+# Il NE gouverne PLUS la simple création d'une facture au statut À CONTRÔLER depuis un PDF : c'est
+# une écriture opérationnelle (niveau A), cf. `ECRITURE_OPERATIONNELLE_ENABLED` plus haut. Un
+# document reçu n'est pas une dette comptabilisée ; le contrôle humain reste entre les deux.
 FACTURES_REAL_WRITE_ENABLED = RECETTE_MODE and _env_flag("FACTURES_REAL_WRITE_ENABLED")
 FACTURES_REAL_WRITE_CONFIRMATION_ENABLED = RECETTE_MODE and _env_flag("FACTURES_REAL_WRITE_CONFIRMATION_ENABLED")
 

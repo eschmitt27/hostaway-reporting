@@ -38,6 +38,16 @@ NOW = datetime.datetime.now().isoformat(timespec="seconds")
 
 SOURCE_GOOGLE_SHEET_LOT6B = "GOOGLE_SHEET"  # défaut si menages_declarations_extra n'existe pas encore
 
+# `--sans-excel` : parcours OPÉRATIONNEL cible (GOOGLE SHEET -> normalisation Python -> SQLite),
+# sans aucune écriture de classeur. Même convention que lot6d/6e/6f.
+# ATTENTION — ce n'est PAS encore le défaut, et ce n'est pas un oubli : lot9 (`SRC_M04`, onglet
+# MASTER) et lot11 (`M04_FILE`) lisent ENCORE le classeur M04 pour alimenter le flux économique
+# (TYPE_FLUX_013) et leurs contrôles. Aucun des deux n'a de lecture SQLite des déclarations. Passer
+# `--sans-excel` par défaut ferait donc disparaître silencieusement les ménages internes du flux
+# Lot9->Lot10->Lot12. La migration de lot9/lot11 vers `menages_declarations_internes` est un
+# chantier à part entière, à décider explicitement (cf. commentaire « parité temporaire » plus bas).
+SANS_EXCEL = "--sans-excel" in sys.argv
+
 MOIS = {"janvier":"01","fevrier":"02","mars":"03","avril":"04","mai":"05","juin":"06","juillet":"07","aout":"08","septembre":"09","octobre":"10","novembre":"11","decembre":"12"}
 REQUIRED_COLS = ["Prénom", "Mois des ménages", "Année des ménages", "Appartement"]
 
@@ -75,13 +85,30 @@ def sh_opt(p, s):
         return []
     return [dict(zip([str(c) for c in rows[0]], r)) for r in rows[1:]]
 
-# ── URL depuis REF (bloquant) ────────────────────────────────────────────────
+# ── URL depuis REF (bloquant) — SQLite d'abord, classeur en repli ────────────
+# Le référentiel `ref_sources_systeme` (SRC_011) est déjà en base : le lire là évite d'ouvrir
+# REF_Setup.xlsm au runtime, dernière LECTURE Excel du parcours d'import. Le repli sur le classeur
+# reste pour une base pas encore alimentée par l'import du référentiel — jamais pour la contredire.
 url = None
-for d in sh(REF, "REF_Sources_Systeme"):
-    if str(d.get("nom_source")) == "GOOGLE_SHEET_M04_DECLARATIONS" and str(d.get("actif")) == "OUI":
-        url = str(d.get("dossier_source") or "").strip()
+try:
+    _c = dbm.ouvrir(dbm.chemin_db(None))
+    try:
+        for d in dbm.lignes(_c, "ref_sources_systeme", ("nom_source", "dossier_source", "actif")):
+            if str(d.get("nom_source")) == "GOOGLE_SHEET_M04_DECLARATIONS" and str(d.get("actif")) == "OUI":
+                url = str(d.get("dossier_source") or "").strip()
+    finally:
+        _c.close()
+except Exception:
+    url = None
+_origine_url = "SQLITE"
+if not url or not url.startswith("http"):
+    _origine_url = "EXCEL_REPLI"
+    for d in sh(REF, "REF_Sources_Systeme"):
+        if str(d.get("nom_source")) == "GOOGLE_SHEET_M04_DECLARATIONS" and str(d.get("actif")) == "OUI":
+            url = str(d.get("dossier_source") or "").strip()
 if not url or not url.startswith("http"):
     abort("URL GOOGLE_SHEET_M04_DECLARATIONS absente/invalide dans REF_Sources_Systeme (SRC_011).")
+print(f"[lot6b] URL SRC_011 lue depuis {_origine_url}")
 
 # ── Fetch CSV via lib fiabilisée (retry + cache 72h traçable, DEF-1) ──────────
 from lib_sheet_source import fetch_sheet_csv, begin_step, commit_step
@@ -190,7 +217,10 @@ NCOLS = ["mois","annee","mois_saisie","appartement_source","nom_appartement","lo
 wbn = openpyxl.Workbook(); wsn = wbn.active; wsn.title = "MASTER_NORMALISE"; wsn.append(NCOLS)
 for c in wsn[1]: c.font = Font(bold=True); c.fill = PatternFill("solid", fgColor="DDDDDD")
 for d in norm_rows: wsn.append([d.get(c) for c in NCOLS])
-wbn.save(NORM_OUT)
+if SANS_EXCEL:
+    print("[lot6b] --sans-excel : MASTER_NORM non écrit.")
+else:
+    wbn.save(NORM_OUT)
 
 # ── SQLite : menages_declarations_internes (0038) — sortie canonique pour Lot6d/6e ──────────────
 # Le classeur M04 (ci-dessous) reste écrit pour Lot9-12, pas encore migrés (parité temporaire).
@@ -300,6 +330,16 @@ else:
     print(f"[lot6b] MOIS_IMPACTES: {','.join(sorted(_mois_impactes)) or 'AUCUN'}")
 
 # ── 2) M04 SOURCE_RAW + MASTER + VUE_ACTIVE (autres onglets préservés) ────────
+# EXPORT LEGACY. La sortie canonique est SQLite (ci-dessus) ; ce classeur n'existe plus que parce
+# que lot9 (flux économique TYPE_FLUX_013) et lot11 (contrôles) le lisent encore. `--sans-excel`
+# saute entièrement ce bloc : le classeur reste alors bit-à-bit identique, aucun .BAK n'est créé.
+if SANS_EXCEL:
+    print("[lot6b] --sans-excel : classeur M04 NON modifié (aucun .BAK créé). "
+          "Sortie canonique = menages_declarations_internes (SQLite).")
+    print(f"[lot6b] URL REF OK (SRC_011) | CSV {len(rows)-1} lignes | normalisées {len(norm_rows)} | SQLite uniquement")
+    commit_step(CACHE_DIR, "lot6b", prov)
+    sys.exit(0)
+
 backup = M04 + ".BAK_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 shutil.copy(M04, backup)
 wb = openpyxl.load_workbook(M04)
