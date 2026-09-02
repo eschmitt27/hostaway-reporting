@@ -28,9 +28,11 @@ ROOT    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_RES = os.path.join(ROOT, '02_TRAVAIL', 'Lot4quater_SourceResolue', 'MASTER_CALC_Reservations_Resolues.xlsx')  # source résolue open/closed (lot4quater)
 SRC_MEN = os.path.join(ROOT, '02_TRAVAIL', 'Lot6c_MenagesExternes', 'MASTER_FACT_MEN_MenagesExternes.xlsx')
 SRC_BNQ = os.path.join(ROOT, '02_TRAVAIL', 'Lot8_Banque',           'BANQUE_LOT8_IMPORT.xlsx')
-# Lot 9 correctif (2026-06-14) : ingestion charges (Lot 3) + ménages internes M04 (Lot 6b)
+# Lot 9 correctif (2026-06-14) : ingestion charges (Lot 3)
 SRC_CHG = os.path.join(ROOT, '02_TRAVAIL', 'Lot3_Charges',          'MASTER_FACT_MAN_Charges.xlsx')
-SRC_M04 = os.path.join(ROOT, '02_DONNEES_NORMALISEES', 'menages',   'M04_MENAGES_PowerQuery.xlsx')
+# Pas de SRC_M04 : les ménages internes ne sont PAS injectés économiquement (D105 révisée, cf.
+# module MEN_INT plus bas). Le classeur M04 était encore ouvert ici, filtré, compté... puis jamais
+# utilisé — une dépendance Excel morte qui laissait croire à une alimentation inexistante.
 OUT_DIR = os.path.join(ROOT, '02_TRAVAIL', 'Lot9_FluxUnifie')
 OUT_FILE = os.path.join(OUT_DIR, 'MASTER_CALC_Flux.xlsx')
 
@@ -143,13 +145,8 @@ chg_valide = [r for r in chg_all
               and not _is_placeholder_id(r.get('charge_id'))]
 print(f'  {len(chg_valide)} VALIDE / {len(chg_all)} total')
 
-# Ménages internes M04 (Lot 6b) — VALIDE seulement, HC obligatoire, hors placeholder
-print('Chargement M04_MENAGES_PowerQuery MASTER...')
-m04_all = load_sheet(SRC_M04, 'MASTER') if os.path.exists(SRC_M04) else []
-m04_valide = [r for r in m04_all
-              if r.get('statut_controle') == 'VALIDE'
-              and not _is_placeholder_id(r.get('menage_calc_id'))]
-print(f'  {len(m04_valide)} VALIDE / {len(m04_all)} total')
+# Ménages internes M04 : AUCUN chargement. Le classeur n'est plus ouvert du tout — voir le module
+# MEN_INT (TYPE_FLUX_013 analytique seul, D105 révisée) : rien n'en était injecté.
 
 # ── CTR-9-002 : VUE_FLUX non vide ────────────────────────────────────────────
 if not vue_flux:

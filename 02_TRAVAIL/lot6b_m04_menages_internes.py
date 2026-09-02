@@ -6,8 +6,10 @@ par ce script à chaque run, depuis la Google Sheet "Suivi ménage".
 
 D027 (M04 = MO interne HC, TYPE_FLUX_013) conservée. D106 (refonte ménages).
 
-URL CSV : lue depuis REF_Setup.xlsm > REF_Sources_Systeme
-          (nom_source = GOOGLE_SHEET_M04_DECLARATIONS, actif=OUI). PAS d'URL en dur.
+URL CSV : lue depuis SQLite `ref_sources_systeme` (SRC_011, nom_source =
+          GOOGLE_SHEET_M04_DECLARATIONS, actif=OUI). PAS d'URL en dur, PAS de lecture Excel au
+          runtime : fail-closed si la configuration SQLite manque. Repli classeur uniquement sur
+          `--url-depuis-excel` (reprise legacy explicite).
 
 Sorties écrites automatiquement :
   - 02_TRAVAIL/Lot6b_DeclarationsInternes/MASTER_NORM_Declarations_Internes.xlsx
@@ -40,12 +42,13 @@ SOURCE_GOOGLE_SHEET_LOT6B = "GOOGLE_SHEET"  # défaut si menages_declarations_ex
 
 # `--sans-excel` : parcours OPÉRATIONNEL cible (GOOGLE SHEET -> normalisation Python -> SQLite),
 # sans aucune écriture de classeur. Même convention que lot6d/6e/6f.
-# ATTENTION — ce n'est PAS encore le défaut, et ce n'est pas un oubli : lot9 (`SRC_M04`, onglet
-# MASTER) et lot11 (`M04_FILE`) lisent ENCORE le classeur M04 pour alimenter le flux économique
-# (TYPE_FLUX_013) et leurs contrôles. Aucun des deux n'a de lecture SQLite des déclarations. Passer
-# `--sans-excel` par défaut ferait donc disparaître silencieusement les ménages internes du flux
-# Lot9->Lot10->Lot12. La migration de lot9/lot11 vers `menages_declarations_internes` est un
-# chantier à part entière, à décider explicitement (cf. commentaire « parité temporaire » plus bas).
+# ATTENTION — ce n'est PAS encore le défaut, et ce n'est pas un oubli.
+# lot9 ne lit PLUS le classeur M04 : son chargement était du code mort (chargé, filtré, compté, puis
+# jamais injecté — D105 révisée, TYPE_FLUX_013 analytique seul), il a été supprimé. En revanche
+# lot11 (`M04_FILE`) le lit ENCORE pour ses contrôles, et n'a aucune lecture SQLite des
+# déclarations : passer `--sans-excel` par défaut rendrait ses contrôles M04 non représentatifs
+# sans le dire. La migration de lot11 vers `menages_declarations_internes` est un chantier à part,
+# à décider explicitement (cf. commentaire « parité temporaire » plus bas).
 SANS_EXCEL = "--sans-excel" in sys.argv
 
 MOIS = {"janvier":"01","fevrier":"02","mars":"03","avril":"04","mai":"05","juin":"06","juillet":"07","aout":"08","septembre":"09","octobre":"10","novembre":"11","decembre":"12"}
@@ -85,29 +88,60 @@ def sh_opt(p, s):
         return []
     return [dict(zip([str(c) for c in rows[0]], r)) for r in rows[1:]]
 
-# ── URL depuis REF (bloquant) — SQLite d'abord, classeur en repli ────────────
-# Le référentiel `ref_sources_systeme` (SRC_011) est déjà en base : le lire là évite d'ouvrir
-# REF_Setup.xlsm au runtime, dernière LECTURE Excel du parcours d'import. Le repli sur le classeur
-# reste pour une base pas encore alimentée par l'import du référentiel — jamais pour la contredire.
-url = None
-try:
-    _c = dbm.ouvrir(dbm.chemin_db(None))
+# ── URL SRC_011 — configuration canonique SQLite, FAIL-CLOSED ────────────────
+# `ref_sources_systeme` (SRC_011) est LA source de configuration runtime : la lire en base supprime
+# la dernière LECTURE Excel du parcours d'import quotidien.
+#
+# Pourquoi plus AUCUN repli automatique sur REF_Setup.xlsm : le repli précédent a masqué une vraie
+# panne. `dbm.lignes()` trie par défaut sur `ORDER BY id` — colonne inexistante ici, la clé est
+# `source_id` — l'`OperationalError` était avalé par un `except Exception` nu, et le parcours
+# retombait sur le classeur en affichant « EXCEL_REPLI » comme si c'était le fonctionnement normal.
+# SRC_011 était pourtant bien en base. Un repli qui masque la panne qu'il est censé compenser ne
+# protège personne : il transforme un bug réparable en dépendance Excel permanente et invisible.
+#
+# `--url-depuis-excel` reste disponible pour une reprise legacy/diagnostic explicite (base pas
+# encore alimentée par l'import du référentiel), jamais pour le parcours quotidien.
+URL_DEPUIS_EXCEL = "--url-depuis-excel" in sys.argv
+
+
+def _url_src011_depuis_sqlite():
+    """URL SRC_011 lue dans `ref_sources_systeme`. Rend (url, erreur) — aucune exception avalée."""
+    chemin = dbm.chemin_db(None)
+    if chemin is None:
+        return None, "aucune base applicative designee (--db / PILOTAGE_DB_PATH / APP_DATA_DIR)"
+    if not chemin.exists():
+        return None, "base applicative introuvable : %s" % chemin
+    conn = dbm.ouvrir(chemin)
     try:
-        for d in dbm.lignes(_c, "ref_sources_systeme", ("nom_source", "dossier_source", "actif")):
-            if str(d.get("nom_source")) == "GOOGLE_SHEET_M04_DECLARATIONS" and str(d.get("actif")) == "OUI":
-                url = str(d.get("dossier_source") or "").strip()
+        if not dbm.table_presente(conn, "ref_sources_systeme"):
+            return None, "table `ref_sources_systeme` absente (referentiel jamais importe)"
+        # `ordre="source_id"` : clé de cette table, `dbm.lignes()` trierait sinon sur `id` inexistant.
+        sources = dbm.lignes(conn, "ref_sources_systeme",
+                             ("nom_source", "dossier_source", "actif"), ordre="source_id")
     finally:
-        _c.close()
-except Exception:
-    url = None
+        conn.close()
+    for d in sources:
+        if str(d.get("nom_source")) == "GOOGLE_SHEET_M04_DECLARATIONS" and str(d.get("actif")) == "OUI":
+            valeur = str(d.get("dossier_source") or "").strip()
+            if not valeur.startswith("http"):
+                return None, "SRC_011 present mais `dossier_source` n'est pas une URL : %r" % valeur
+            return valeur, ""
+    return None, "SRC_011 (GOOGLE_SHEET_M04_DECLARATIONS, actif=OUI) absent de `ref_sources_systeme`"
+
+
+url, _err_url = _url_src011_depuis_sqlite()
 _origine_url = "SQLITE"
-if not url or not url.startswith("http"):
-    _origine_url = "EXCEL_REPLI"
+if url is None and URL_DEPUIS_EXCEL:
+    _origine_url = "EXCEL_LEGACY_EXPLICITE"
     for d in sh(REF, "REF_Sources_Systeme"):
         if str(d.get("nom_source")) == "GOOGLE_SHEET_M04_DECLARATIONS" and str(d.get("actif")) == "OUI":
             url = str(d.get("dossier_source") or "").strip()
 if not url or not url.startswith("http"):
-    abort("URL GOOGLE_SHEET_M04_DECLARATIONS absente/invalide dans REF_Sources_Systeme (SRC_011).")
+    abort("URL GOOGLE_SHEET_M04_DECLARATIONS non resolue depuis SQLite : %s.\n"
+          "  Source canonique attendue : table `ref_sources_systeme`, SRC_011, actif=OUI.\n"
+          "  Aucun repli Excel automatique (fail-closed) : corriger le referentiel SQLite.\n"
+          "  Reprise legacy explicite si necessaire : --url-depuis-excel."
+          % (_err_url or "URL vide/invalide"))
 print(f"[lot6b] URL SRC_011 lue depuis {_origine_url}")
 
 # ── Fetch CSV via lib fiabilisée (retry + cache 72h traçable, DEF-1) ──────────

@@ -38,11 +38,27 @@ def _hash_ou_absent(path: Path) -> str | None:
 # ── Niveau STRUCTUREL ────────────────────────────────────────────────────────
 
 def test_url_de_la_sheet_est_lue_depuis_sqlite():
-    """L'URL SRC_011 vient de `ref_sources_systeme` (SQLite), plus de REF_Setup.xlsm au runtime.
-    Le classeur ne reste qu'en REPLI explicite pour une base pas encore alimentée."""
+    """L'URL SRC_011 vient de `ref_sources_systeme` (SQLite), plus de REF_Setup.xlsm au runtime."""
     assert "ref_sources_systeme" in SOURCE
-    # La lecture SQLite doit précéder le repli Excel, sinon le repli redeviendrait le chemin normal.
-    assert SOURCE.index("ref_sources_systeme") < SOURCE.index("EXCEL_REPLI")
+    # La lecture SQLite doit précéder le repli, sinon le repli redeviendrait le chemin normal.
+    assert SOURCE.index("ref_sources_systeme") < SOURCE.index("EXCEL_LEGACY_EXPLICITE")
+
+
+def test_le_repli_excel_de_l_url_est_opt_in_jamais_automatique():
+    """Le classeur ne peut servir l'URL que sur `--url-depuis-excel` explicite.
+
+    Régression gardée : le repli automatique précédent masquait une vraie panne (tri SQL sur une
+    colonne `id` inexistante, avalée par un `except Exception` nu) et transformait un bug réparable
+    en dépendance Excel permanente et invisible."""
+    assert 'URL_DEPUIS_EXCEL = "--url-depuis-excel" in sys.argv' in SOURCE
+    assert "if url is None and URL_DEPUIS_EXCEL:" in SOURCE
+    assert "except Exception:\n    url = None" not in SOURCE
+
+
+def test_le_tri_sql_utilise_la_vraie_cle_de_la_table():
+    """`ref_sources_systeme` a pour clé `source_id` ; `dbm.lignes()` trierait sinon sur un `id`
+    inexistant — c'est exactement ce qui déclenchait le repli Excel silencieux."""
+    assert 'ordre="source_id"' in SOURCE
 
 
 def test_sans_excel_court_circuite_avant_toute_ecriture_de_classeur():
@@ -106,3 +122,58 @@ def test_run_sans_excel_alimente_sqlite_et_laisse_le_classeur_intact(tmp_path, m
     # le classeur n'est ni modifié ni sauvegardé.
     assert _hash_ou_absent(M04) == avant_m04, "le classeur M04 a été modifié malgré --sans-excel"
     assert set(M04.parent.glob("*.BAK_*")) == baks_avant, "un .BAK a été créé malgré --sans-excel"
+
+
+def _run_lot6b(db, tmp_path, *args):
+    """Lance lot6b en sous-processus sur `db`. Rend le CompletedProcess."""
+    import os
+    import subprocess
+
+    env = dict(os.environ)
+    env["PILOTAGE_DB_PATH"] = str(db)
+    env["PYTHONIOENCODING"] = "utf-8"
+    return subprocess.run(
+        [str(cfg.LOT4A_ENGINE_PYTHON), str(LOT6B), *args],
+        cwd=str(_TRAVAIL), env=env, capture_output=True, text=True, timeout=300)
+
+
+def test_url_resolue_depuis_sqlite_sans_ouvrir_le_classeur(tmp_path):
+    """COMPORTEMENTAL — avec SRC_011 en base, le run annonce la source SQLITE.
+
+    Preuve que la résolution ne retombe plus sur REF_Setup.xlsm : c'est précisément ce que le
+    tri SQL cassé faisait, en silence."""
+    import sqlite3
+
+    from app.db.connection import apply_migrations
+
+    db = tmp_path / "app.db"
+    apply_migrations(db)
+    conn = sqlite3.connect(str(db))
+    conn.execute(
+        "INSERT INTO ref_sources_systeme (source_id, nom_source, dossier_source, actif, import_id) "
+        "VALUES ('SRC_011','GOOGLE_SHEET_M04_DECLARATIONS','https://exemple.test/pub?output=csv',"
+        "'OUI','TEST')")
+    conn.commit()
+    conn.close()
+
+    res = _run_lot6b(db, tmp_path, "--sans-excel")
+    sortie = res.stdout + res.stderr
+    assert "URL SRC_011 lue depuis SQLITE" in sortie, sortie[-2000:]
+    assert "EXCEL_LEGACY_EXPLICITE" not in sortie
+
+
+def test_configuration_sqlite_absente_echoue_clairement_sans_repli(tmp_path):
+    """FAIL-CLOSED — sans SRC_011 en base et sans `--url-depuis-excel`, le run s'arrête en
+    nommant la source attendue, au lieu de retomber silencieusement sur le classeur."""
+    from app.db.connection import apply_migrations
+
+    db = tmp_path / "app.db"
+    apply_migrations(db)  # base migrée mais SANS SRC_011
+
+    res = _run_lot6b(db, tmp_path, "--sans-excel")
+    sortie = res.stdout + res.stderr
+    assert res.returncode != 0, "un défaut de configuration doit être bloquant"
+    assert "SRC_011" in sortie and "ref_sources_systeme" in sortie, sortie[-2000:]
+    # Le message doit orienter vers la correction SQLite, pas vers un contournement implicite.
+    assert "fail-closed" in sortie.lower()
+    assert "EXCEL_LEGACY_EXPLICITE" not in sortie
