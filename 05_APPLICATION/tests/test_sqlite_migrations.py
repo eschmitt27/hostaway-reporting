@@ -168,6 +168,7 @@ EXPECTED_TABLES = {
     "menages_declarations_conflits",              # 0066 — conflits Google Sheet / Application
     "menages_pdf_fichiers_hash",                  # 0066 — hash des PDF surveilles (detection remplacement)
     "menages_runs_cibles",                        # 0067 — trace mois_demande/mois_traite du recalcul cible
+    "menages_cout_complet_provenance",            # 0068 — origine des lignes : historique fige vs calcul courant
 }
 
 

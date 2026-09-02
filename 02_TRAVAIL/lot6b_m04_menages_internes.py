@@ -21,7 +21,7 @@ Contrôles BLOQUANTS : URL absente / inaccessible / structure Google Sheet inatt
 Ne touche pas : banque, Hostaway, factures, résultats aval (lot9-12).
 """
 
-import sys, os, io, csv, subprocess, shutil, hashlib, datetime, collections, unicodedata, warnings
+import sys, os, io, csv, sqlite3, subprocess, shutil, hashlib, datetime, collections, unicodedata, warnings
 warnings.filterwarnings("ignore")
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import openpyxl
@@ -159,18 +159,56 @@ hdr = rows[0]
 missing = [c for c in REQUIRED_COLS if c not in hdr]
 if missing: abort(f"Structure Google Sheet inattendue, colonnes manquantes : {missing}")
 
-# ── Référentiels ─────────────────────────────────────────────────────────────
-lmap, lognom, logtype, logprop, loghaid = {}, {}, {}, {}, {}
-for d in sh(REF, "REF_Mapping_Logements"):
-    if d.get("valeur_source"): lmap[norm(d["valeur_source"])] = d.get("logement_id")
-for d in sh(REF, "REF_Logements"):
-    lid = d.get("logement_id")
-    if lid and str(lid) != "logement_id":
-        lognom[lid] = d.get("nom_logement_officiel"); logtype[lid] = d.get("type_logement_id")
-        logprop[lid] = d.get("proprietaire_id"); loghaid[lid] = d.get("hostaway_listing_id")
-std_ref = sh(REF, "REF_Couts_Standards_Menage")
-hourly_ref = sh_opt(REF, "REF_Taux_Heures_Menage")
-fixed_ref = sh_opt(REF, "REF_Couts_Menage_Interne")
+# ── Référentiels — SQLite canonique, FAIL-CLOSED ─────────────────────────────
+# Le parcours opérationnel (`--sans-excel`) ne lit plus AUCUN classeur : `ref_mapping_logements`,
+# `ref_logements` et `ref_intervenants` sont les référentiels canoniques, et ce sont les trois
+# seuls dont ce parcours a besoin (le bloc M04 legacy, qui consomme `logtype`/`logprop`/`loghaid`
+# et les barèmes, s'arrête plus bas derrière `sys.exit(0)` — il charge donc ce qu'il lui faut
+# lui-même, à ce moment-là seulement).
+#
+# NORMALISATION EXPLICITE (§10) : le classeur rend `hostaway_listing_id` en int (482204) et une
+# cellule vide en None ; SQLite rend '482204' et ''. Comparés bruts, ces deux référentiels
+# paraissent divergents alors que la donnée est la même. Tout passe donc par `_txt()` : un écart
+# de TYPE ne doit jamais casser silencieusement un rattachement Hostaway.
+def _txt(v):
+    return "" if v is None else str(v).strip()
+
+
+def _refs_sqlite():
+    """Référentiels du parcours opérationnel, lus en SQLite. Fail-closed, jamais de repli Excel."""
+    chemin = dbm.chemin_db(None)
+    if chemin is None:
+        abort("Aucune base SQLite designee (PILOTAGE_DB_PATH / APP_DATA_DIR) : "
+              "referentiels illisibles. Aucun repli classeur (§12).")
+    if not os.path.exists(str(chemin)):
+        abort(f"Base SQLite introuvable : {chemin}. Aucun repli classeur (§12).")
+    conn = dbm.ouvrir(chemin)
+    try:
+        for table in ("ref_mapping_logements", "ref_logements", "ref_intervenants"):
+            if not dbm.table_presente(conn, table):
+                abort(f"Referentiel SQLite absent : {table}. Importer le referentiel avant "
+                      "de lancer lot6b. Aucun repli classeur (§12).")
+        _lmap = {}
+        for vs, lid in conn.execute(
+                "SELECT valeur_source, logement_id FROM ref_mapping_logements"):
+            if _txt(vs):
+                _lmap[norm(vs)] = lid
+        _lognom = {}
+        for lid, nom in conn.execute(
+                "SELECT logement_id, nom_logement_officiel FROM ref_logements"):
+            if _txt(lid):
+                _lognom[lid] = nom
+        _intmap = {}
+        for iid, nom, normalise in conn.execute(
+                "SELECT intervenant_id, nom_intervenant, nom_normalise FROM ref_intervenants"):
+            if _txt(iid) and _txt(normalise):
+                _intmap[norm(normalise)] = (iid, nom or iid)
+        return _lmap, _lognom, _intmap
+    finally:
+        conn.close()
+
+
+lmap, lognom, intmap_sqlite = _refs_sqlite()
 
 # ── Mapping prénom Google Sheet -> intervenant ────────────────────────────────
 # Construit DEPUIS REF_Intervenants.nom_normalise (D104) : ni prénom réel ni identifiant ne sont
@@ -179,14 +217,9 @@ fixed_ref = sh_opt(REF, "REF_Couts_Menage_Interne")
 # fictif n'y était jamais reconnu, et l'agrégation aval (lot6d) plantait sur un intervenant_id nul
 # mêlé à des chaînes lors d'un tri. Un référentiel fictif définit ses propres nom_normalise et le
 # mapping fonctionne alors identiquement, sans aucune donnée réelle requise.
-intmap = {}
-for d in sh(REF, "REF_Intervenants"):
-    iid = d.get("intervenant_id")
-    if not iid or str(iid) == "intervenant_id":
-        continue
-    cle = d.get("nom_normalise")
-    if cle:
-        intmap[norm(cle)] = (iid, d.get("nom_intervenant") or iid)
+# Lu en SQLite (`_refs_sqlite`) : même construction, même clé `norm(nom_normalise)`, aucune donnée
+# réelle codée en dur. Parité vérifiée avec l'ancienne lecture classeur (5 entrées identiques).
+intmap = dict(intmap_sqlite)
 
 # Alias orthographiques Google Sheet (ex. D104 : « Kira » = Kheira). Exception nominative et
 # documentée, PAS un mécanisme général : chargée depuis un module optionnel, absent du jeu de
@@ -271,6 +304,15 @@ if _db is None:
 else:
     _sql_cols = [c for c in NCOLS if c != "ROW_HASH"]
     _conn = dbm.ouvrir(_db)
+    # `row_factory` OBLIGATOIRE ici : les blocs de réconciliation ci-dessous indexent les lignes par
+    # NOM (`r["mois"]`, `dict(r)`). Sans lui, `dbm.ouvrir` rend des tuples et l'accès lève
+    # `TypeError: tuple indices must be integers`.
+    # Ce défaut était latent et invisible : les compréhensions concernées itèrent sur les lignes
+    # DÉJÀ en base, donc leur corps ne s'exécutait pas tant que `menages_declarations_internes`
+    # était vide — exactement l'état du tout premier import réel. Toute RÉIMPORTATION (donc toute
+    # synchronisation Google Sheet ultérieure, et avec elle toute la détection de conflits
+    # Sheet/Application) plantait dès la deuxième exécution.
+    _conn.row_factory = sqlite3.Row
     _run_id = os.environ.get("LOT6_RUN_ID", "")
     _nb_ecrites = _nb_conflits = _nb_inchangees = 0
     _mois_impactes = set()   # mission "recalcul mensuel cible" §7 : mois reellement changes/en
@@ -374,6 +416,54 @@ if SANS_EXCEL:
     commit_step(CACHE_DIR, "lot6b", prov)
     sys.exit(0)
 
+# ── Référentiels du SEUL export legacy ───────────────────────────────────────
+# Chargés ICI, après le `sys.exit(0)` de `--sans-excel` : le parcours opérationnel n'ouvre donc
+# jamais REF_Setup.xlsm, et ces lectures ne subsistent que pour reproduire à l'identique le
+# classeur M04 legacy (barèmes historisés + colonnes purement descriptives du MASTER).
+logtype, logprop, loghaid = {}, {}, {}
+for d in sh(REF, "REF_Logements"):
+    lid = d.get("logement_id")
+    if lid and str(lid) != "logement_id":
+        logtype[lid] = d.get("type_logement_id")
+        loghaid[lid] = _txt(d.get("hostaway_listing_id"))
+std_ref = sh(REF, "REF_Couts_Standards_Menage")
+hourly_ref = sh_opt(REF, "REF_Taux_Heures_Menage")
+fixed_ref = sh_opt(REF, "REF_Couts_Menage_Interne")
+
+# PROPRIÉTAIRE HISTORISÉ (§9). `ref_logements.proprietaire_id` ne porte AUCUNE valeur exploitable
+# (colonne vide dans le classeur, inexistante en SQLite) : l'ancien `logprop` était donc vide, et
+# le MASTER legacy sortait un `proprietaire_id` systématiquement nul. Le rattachement réel vit dans
+# `ref_gestion_logements_hist`, qui est daté — un logement change de propriétaire, et une
+# prestation doit être rattachée au propriétaire EN VIGUEUR à sa date, jamais au propriétaire
+# courant appliqué rétroactivement.
+# Résolution par `lib_ref_history.resolve_management_period`, le résolveur canonique déjà utilisé
+# par lot4bis/lot6a/lot10/lot11 — avec la même convention mensuelle que lot10 (`{mois}-01`).
+# Cas réel protégé : LOG_0003, gestion close au 2026-04-26. Une déclaration de mars 2026 rend
+# PROP_0003 ; une déclaration de juillet 2026 ne rend AUCUN propriétaire (période terminée) plutôt
+# qu'un rattachement faux.
+from lib_ref_history import resolve_management_period as _resolve_gestion
+
+_gest_rows = []
+_chemin_db_gest = dbm.chemin_db(None)
+if _chemin_db_gest is not None and os.path.exists(str(_chemin_db_gest)):
+    _cg = dbm.ouvrir(_chemin_db_gest)
+    try:
+        if dbm.table_presente(_cg, "ref_gestion_logements_hist"):
+            _cols = [r[1] for r in _cg.execute("PRAGMA table_info(ref_gestion_logements_hist)")]
+            _gest_rows = [dict(zip(_cols, r)) for r in _cg.execute(
+                f"SELECT {', '.join(_cols)} FROM ref_gestion_logements_hist")]
+    finally:
+        _cg.close()
+
+
+def proprietaire_historise(logement_id, mois):
+    """Propriétaire en vigueur pour ce logement à ce mois. None si aucune période applicable."""
+    if not logement_id or not mois or not _gest_rows:
+        return None
+    res = _resolve_gestion(_gest_rows, logement_id=logement_id, date_arrivee=f"{mois}-01")
+    return res.value if res.status == "OK" else None
+
+
 backup = M04 + ".BAK_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 shutil.copy(M04, backup)
 wb = openpyxl.load_workbook(M04)
@@ -420,7 +510,8 @@ for d in norm_rows:
     cnt[miso] += 1
     mid = f"MEN-{miso or '0000-00'}-{cnt[miso]:03d}"
     master_rows.append({"menage_calc_id": mid, "ROW_HASH": d["ROW_HASH"], "mois": miso, "annee": d["annee"],
-        "mois_num": (miso[5:7] if miso else None), "logement_id": lid, "proprietaire_id": logprop.get(lid),
+        "mois_num": (miso[5:7] if miso else None), "logement_id": lid,
+        "proprietaire_id": proprietaire_historise(lid, miso),
         "hostaway_listing_id": loghaid.get(lid), "appartement_source": d["appartement_source"],
         "intervenant_id": d["intervenant_id"], "nom_intervenant": d["nom_intervenant"], "type_intervenant": "INTERNE",
         "type_menage": "MENAGE_STANDARD", "nb_menages": nb, "nb_heures": nh, "taux_horaire_intervenant": cost.rate,

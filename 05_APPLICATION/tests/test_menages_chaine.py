@@ -98,14 +98,32 @@ def test_chaine_source_coeur_absente_echec(tmp_path, monkeypatch, tmp_db):
 
 # ── Infos PDF : extraction manuelle, aucun faux compteur ─────────────────────
 
-def test_pdf_info_source_absente_mode_inconnu(mini_projet, monkeypatch):
-    """Source absente : mode inconnu, aucun faux compteur, dossier relatif exposé."""
+def test_pdf_info_source_absente_mode_inconnu(mini_projet, monkeypatch, tmp_path):
+    """Source absente : mode inconnu, aucun faux compteur, dossier relatif exposé.
+
+    ISOLATION : ce test lisait deux états RÉELS de l'installation — le dossier de dépôt PDF de
+    l'utilisateur (`cfg.MENAGES_PDF_DIR`) et `facture_pdf_diagnostics` via
+    `reader.mode_extraction_externes()`. Il ne passait que tant que ces deux sources étaient vides,
+    et a commencé à échouer dès que de vraies factures ont été déposées puis importées : le mode
+    remontait alors PDF_AUTOMATIQUE au lieu de rester inconnu. Le scénario testé (« source
+    absente ») est désormais construit de bout en bout, sans dépendre du contenu de l'installation.
+    """
+    dossier = tmp_path / "MenagesExternes"
+    dossier.mkdir()
+    # Deux fichiers déposés mais AUCUN reconnu : c'est exactement le cas limite visé — des PDF
+    # présents sur le disque alors que le moteur n'a produit aucun diagnostic.
+    (dossier / "facture_a.pdf").write_bytes(b"")
+    (dossier / "facture_b.pdf").write_bytes(b"")
+    monkeypatch.setattr(cfg, "MENAGES_PDF_DIR", dossier)
+
     monkeypatch.setattr(reader, "externes", lambda: reader.SourceMenages(
         reader.EtatSource("externes", "Externes", "MASTER_FACT_MEN_MenagesExternes.xlsx",
                           "MASTER", reader.ETAT_FICHIER_ABSENT)))
     monkeypatch.setattr(reader, "diagnostic_pdf", lambda: reader.SourceMenages(
         reader.EtatSource("diag", "Diag", "MASTER_FACT_MEN_MenagesExternes.xlsx",
                           "DIAGNOSTIC_PDF", reader.ETAT_FICHIER_ABSENT)))
+    monkeypatch.setattr(reader, "mode_extraction_externes", lambda: None)
+
     info = svc.load_pdf_externes_info()
     assert info["extraction_automatique"] is False
     assert info["mode_extraction"] is None
@@ -181,11 +199,25 @@ def test_ui_chaine_page_200(client):
     assert "MENAGES_REAL_RECALC_ENABLED" in r.text
 
 
-def test_ui_trois_actions_presentes(client):
+def test_ui_actions_operationnelles_presentes(client):
+    """Les actions réellement offertes par l'écran Ménages sont présentes.
+
+    Ce test asseyait deux libellés qui n'existent plus sur cette page :
+      - « Simuler avec les derniers exports » vit dans `menages_diagnostic.html` ; sur la liste,
+        l'action équivalente s'appelle « Simuler le recalcul sur copies » ;
+      - « Actualiser les sources et recalculer » a été scindé en deux actions distinctes —
+        l'actualisation CIBLÉE du mois affiché et l'actualisation GLOBALE — précisément pour que le
+        périmètre recalculé ne soit plus ambigu.
+    On vérifie donc l'UI telle qu'elle est, sans réintroduire une action supprimée.
+    """
     r = client.get("/menages")
     assert "Actualiser l'affichage" in r.text
-    assert "Simuler avec les derniers exports" in r.text
-    assert "Actualiser les sources et recalculer" in r.text
+    assert "Actualiser toute l'activité" in r.text
+    assert "Importer les nouvelles factures" in r.text
+    assert "Simuler le recalcul sur copies" in r.text
+    # Le bouton principal est ciblé sur le mois affiché : son libellé porte le mois, jamais un
+    # « recalculer » générique.
+    assert "Actualiser " in r.text
 
 
 def test_ui_libelle_pdf_renomme(client, tmp_db):

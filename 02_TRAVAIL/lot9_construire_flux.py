@@ -6,6 +6,8 @@ Sources :
   - MASTER_CALC_Reservations VUE_FLUX   → TYPE_FLUX_017 PRODUIT IC
   - MASTER_FACT_MEN_MenagesExternes     → TYPE_FLUX_014 CHARGE IC  (VALIDE seulement)
   - BANQUE_LOT8_IMPORT NORM_Banque      → TYPE_FLUX_016 CHARGE IC  (TYPE_FLUX_016 + VALIDE seulement)
+  - SQLite menages_cout_complet         → TYPE_FLUX_019 CHARGE HC + TYPE_FLUX_018 PRODUIT/CHARGE HC
+    (source unique : historique fige des mois clotures ET calcul courant, meme interface)
 
 Sécurité bancaire : aucune donnée brute (libellé, compte, IBAN) dans la sortie.
 
@@ -20,8 +22,12 @@ sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 import os
 import datetime
 import hashlib
+import sqlite3
 import openpyxl
 from openpyxl.styles import PatternFill, Font
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import lib_db_moteur as dbm
 
 # ── CHEMINS ───────────────────────────────────────────────────────────────────
 ROOT    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -101,6 +107,56 @@ def load_sheet(path, sheet_name):
         return []
     h = list(rows[0])
     return [dict(zip(h, r)) for r in rows[1:]]
+
+
+def charger_cout_complet_menages():
+    """Coûts complets ménage (Lot6f) — SOURCE UNIQUE SQLite `menages_cout_complet`.
+
+    Remplace la lecture du classeur `MASTER_CALC_CoutComplet_Menages.xlsx`, qui était la dernière
+    dépendance Excel du calcul économique ménage. Une seule interface sert les deux origines de
+    lignes, indistinctement (mission §3/§6) :
+
+      - `source_type = 'LEGACY_IMPORT_FIGE'` : historique gelé, importé verbatim depuis le classeur
+        pour les mois clôturés (2026-05) — jamais recalculé, cf.
+        `menages_backfill_historique_service` ;
+      - `source_type IS NULL` : résultat courant produit par lot6f (2026-06, 2026-07...).
+
+    La provenance ne change RIEN au flux produit : elle n'est ni lue ni filtrée ici. Un mois figé
+    et un mois calculé donnent exactement les mêmes TYPE_FLUX_018/019, aux mêmes montants.
+
+    FAIL-CLOSED : aucune base désignée => on refuse. Retomber silencieusement sur le classeur
+    reproduirait exactement le défaut corrigé dans lot6b (un repli invisible qui fait croire à une
+    source canonique alors qu'on lit un artefact legacy).
+    """
+    chemin = dbm.chemin_db(None)
+    if chemin is None:
+        print('BLOQUANT [CTR-9-GPM] Aucune base SQLite designee '
+              '(PILOTAGE_DB_PATH / APP_DATA_DIR) : couts complets menage illisibles.')
+        sys.exit(1)
+    if not os.path.exists(str(chemin)):
+        print(f'BLOQUANT [CTR-9-GPM] Base SQLite introuvable : {chemin}')
+        sys.exit(1)
+    conn = dbm.ouvrir(chemin)
+    try:
+        cols = [r[1] for r in conn.execute('PRAGMA table_info(menages_cout_complet)')]
+        if not cols:
+            print('BLOQUANT [CTR-9-GPM] Table menages_cout_complet absente : '
+                  'migrations non appliquees.')
+            sys.exit(1)
+        conn.row_factory = sqlite3.Row
+        rows = [dict(r) for r in conn.execute('SELECT * FROM menages_cout_complet')]
+        # Comptage purement INFORMATIF (trace d'exécution). La provenance ne filtre jamais le flux :
+        # figé et calculé produisent exactement les mêmes TYPE_FLUX_018/019.
+        n_fige = 0
+        if dbm.table_presente(conn, 'menages_cout_complet_provenance'):
+            n_fige = conn.execute(
+                'SELECT COUNT(*) FROM menages_cout_complet_provenance '
+                "WHERE source_type = 'LEGACY_IMPORT_FIGE'").fetchone()[0]
+    finally:
+        conn.close()
+    print(f'  {len(rows)} lignes cout complet SQLite '
+          f'({n_fige} historique fige, {len(rows) - n_fige} calcul courant)')
+    return rows
 
 
 # ── CTR-9-001 : fichiers sources existent ────────────────────────────────────
@@ -341,8 +397,7 @@ men_int_count = 0
 #    Seul l'ÉCART (standard − coût complet) est injecté, jamais le coût complet entier.
 #    gain (écart>0) -> PRODUIT HC (augmente HC) ; perte (écart<0) -> CHARGE HC (diminue HC).
 print('\nModule GPM — Écart analytique gain/perte ménage (TYPE_FLUX_018 HC)...')
-SRC_GPM = os.path.join(ROOT, '02_TRAVAIL', 'Lot6f_CoutComplet_Menages', 'MASTER_CALC_CoutComplet_Menages.xlsx')
-gpm_rows = load_sheet(SRC_GPM, 'DETAIL_COUT_COMPLET') if os.path.exists(SRC_GPM) else []
+gpm_rows = charger_cout_complet_menages()
 for r in sorted(gpm_rows, key=lambda x: (str(x.get('mois')), str(x.get('logement_id')), str(x.get('intervenant_id')))):
     mois = r.get('mois')
     pk   = f"{mois}|{r.get('logement_id')}|{r.get('intervenant_id')}"

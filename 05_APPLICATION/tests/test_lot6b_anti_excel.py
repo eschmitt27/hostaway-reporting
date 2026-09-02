@@ -177,3 +177,120 @@ def test_configuration_sqlite_absente_echoue_clairement_sans_repli(tmp_path):
     # Le message doit orienter vers la correction SQLite, pas vers un contournement implicite.
     assert "fail-closed" in sortie.lower()
     assert "EXCEL_LEGACY_EXPLICITE" not in sortie
+
+
+# ── Mission « backfill historique figé + zéro Excel runtime » ────────────────
+# Le parcours opérationnel ne doit plus ouvrir AUCUN classeur : ni pour l'URL de la Sheet (déjà
+# couvert plus haut), ni pour les référentiels. Et Lot9 ne doit plus dépendre du classeur Lot6f
+# pour construire TYPE_FLUX_018/019.
+
+LOT9 = _TRAVAIL / "lot9_construire_flux.py"
+COUT_COMPLET_WB = (_TRAVAIL / "Lot6f_CoutComplet_Menages"
+                   / "MASTER_CALC_CoutComplet_Menages.xlsx")
+REF_SETUP = (Path(cfg.PROJECT_ROOT) / "01_SOURCES_BRUTES" / "REF_Setup" / "REF_Setup.xlsm")
+
+
+def test_referentiels_du_parcours_operationnel_sont_lus_en_sqlite():
+    """STRUCTUREL (A/B) — mapping, logements et intervenants viennent de SQLite.
+
+    Les trois référentiels dont le parcours SQLite a besoin sont lus par `_refs_sqlite()`. Les
+    lectures `sh(REF, ...)` restantes appartiennent au seul bloc legacy, après le `sys.exit(0)`
+    de `--sans-excel`."""
+    assert "def _refs_sqlite()" in SOURCE
+    for table in ("ref_mapping_logements", "ref_logements", "ref_intervenants"):
+        assert table in SOURCE, f"{table} devrait être lu en SQLite"
+
+    avant_sortie = SOURCE.split("sys.exit(0)")[0]
+    for feuille in ("REF_Mapping_Logements", "REF_Logements", "REF_Intervenants",
+                    "REF_Couts_Standards_Menage"):
+        assert f'sh(REF, "{feuille}")' not in avant_sortie, (
+            f"{feuille} est encore lu dans le parcours opérationnel")
+
+
+def test_referentiel_sqlite_manquant_est_bloquant_sans_repli_classeur():
+    """FAIL-CLOSED (§12) — un référentiel absent nomme la table et refuse, il ne replie pas."""
+    assert "Referentiel SQLite absent" in SOURCE
+    assert "Aucun repli classeur" in SOURCE
+
+
+def test_lot9_ne_lit_plus_le_classeur_cout_complet():
+    """STRUCTUREL (C) — TYPE_FLUX_018/019 se construisent depuis `menages_cout_complet`.
+
+    Le nom du classeur Lot6f ne doit plus apparaître comme SOURCE lue : seule la table SQLite
+    alimente le module GPM."""
+    src9 = LOT9.read_text(encoding="utf-8", errors="replace")
+    assert "charger_cout_complet_menages" in src9
+    assert "menages_cout_complet" in src9
+    assert "SRC_GPM" not in src9, "la constante de chemin du classeur Lot6f devrait avoir disparu"
+    assert "DETAIL_COUT_COMPLET" not in src9, "la feuille Lot6f ne doit plus être lue"
+
+
+def test_lot9_expose_les_deux_origines_par_une_interface_unique():
+    """Une ligne figée et une ligne calculée traversent le MÊME chemin (§3/§6).
+
+    La provenance ne doit jamais filtrer le flux : sinon un mois clôturé importé disparaîtrait de
+    l'économie, ce que le backfill existe justement pour éviter."""
+    src9 = LOT9.read_text(encoding="utf-8", errors="replace")
+    bloc = src9.split("def charger_cout_complet_menages")[1].split("\ndef ")[0]
+    assert "SELECT * FROM menages_cout_complet" in bloc
+    assert "WHERE source_type" not in bloc, "le flux ne doit pas être filtré par provenance"
+
+
+def test_hash_des_classeurs_legacy_inchange_par_un_run_operationnel(tmp_path):
+    """COMPORTEMENTAL (D) — un run `--sans-excel` ne touche aucun classeur legacy."""
+    import sqlite3
+
+    from app.db.connection import apply_migrations
+
+    avant = {p: _hash_ou_absent(p) for p in (M04, COUT_COMPLET_WB, REF_SETUP)}
+
+    db = tmp_path / "app.db"
+    apply_migrations(db)
+    conn = sqlite3.connect(str(db))
+    conn.execute(
+        "INSERT INTO ref_sources_systeme (source_id, nom_source, dossier_source, actif, import_id) "
+        "VALUES ('SRC_011','GOOGLE_SHEET_M04_DECLARATIONS','https://exemple.test/pub?output=csv',"
+        "'OUI','TEST')")
+    conn.commit()
+    conn.close()
+
+    _run_lot6b(db, tmp_path, "--sans-excel")
+
+    for chemin, empreinte in avant.items():
+        assert _hash_ou_absent(chemin) == empreinte, f"{chemin.name} a été modifié"
+
+
+def test_proprietaire_historise_respecte_la_fin_de_gestion():
+    """§9 (F) — le propriétaire est celui EN VIGUEUR au mois, jamais le courant rétroactif.
+
+    Cas réel : LOG_0003 est géré par PROP_0003 jusqu'au 2026-04-26. Une prestation d'avril lui est
+    rattachée ; une prestation postérieure ne doit être rattachée à PERSONNE plutôt qu'à un
+    propriétaire faux."""
+    sys.path.insert(0, str(_TRAVAIL))
+    from lib_ref_history import resolve_management_period
+
+    rows = [{"gestion_id": "GST_LOG_0003_PROP_0003", "logement_id": "LOG_0003",
+             "proprietaire_id": "PROP_0003", "date_debut": "2025-01-01",
+             "date_fin": "2026-04-26", "statut_gestion": "INACTIF"}]
+
+    avant = resolve_management_period(rows, logement_id="LOG_0003", date_arrivee="2026-04-01")
+    assert avant.status == "OK" and avant.value == "PROP_0003"
+
+    apres = resolve_management_period(rows, logement_id="LOG_0003", date_arrivee="2026-07-01")
+    assert apres.status != "OK", "gestion terminée : aucun propriétaire ne doit être rendu"
+    assert apres.value is None
+
+
+def test_loghaid_int_et_str_se_resolvent_identiquement():
+    """§10 (G) — le classeur rend un int, SQLite une chaîne : la normalisation doit les aligner.
+
+    Sans elle, un rattachement Hostaway échouerait silencieusement sur une simple différence de
+    type."""
+    assert "def _txt(v):" in SOURCE, "l'aide de normalisation doit exister"
+
+    def _txt(v):
+        return "" if v is None else str(v).strip()
+
+    assert _txt(482204) == _txt("482204") == "482204"
+    assert _txt(" 482204 ") == "482204"
+    assert _txt(None) == _txt("") == ""
