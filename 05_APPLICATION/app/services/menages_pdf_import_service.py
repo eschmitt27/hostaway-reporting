@@ -165,6 +165,12 @@ def importer_nouveaux(*, acteur: str = "", dossier: Path | None = None,
             statut = STATUT_ERREUR
             nb_echecs += 1
         details.append({"nom_fichier": p.name, "statut": statut, "resultat": res})
+    # Mois impactés = mission "recalcul mensuel ciblé" §8 : seuls les PDF réellement
+    # importés/remplacés produisent un mois à recalculer, jamais les déjà-importés/échecs.
+    mois_impactes = sorted({
+        d["resultat"].get("mois_impacte") for d in details
+        if d["statut"] in (STATUT_IMPORTEE, STATUT_REMPLACEE) and d["resultat"].get("mois_impacte")
+    })
     return {
         "ok": nb_echecs == 0,
         "nb_detectes": len(pdfs),
@@ -173,5 +179,6 @@ def importer_nouveaux(*, acteur: str = "", dossier: Path | None = None,
         "nb_remplacees": nb_remplacees,
         "nb_extraction_echouee": nb_echecs,
         "nb_ecriture_desactivee": nb_desactive,
+        "mois_impactes": mois_impactes,
         "details": details,
     }

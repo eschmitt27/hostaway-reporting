@@ -14,6 +14,7 @@ from app.services import menages_chaine_service as chaine
 from app.services import menages_pdf_import_service as pdf_import
 from app.services import menages_declarations_service as declarations
 from app.services import orchestrateur_service as orch
+from app.services import orchestrateur_moteur as moteur
 import app.config as cfg
 from app.services import menages_cycle_service as cycle
 from app.services import menages_controles_service as cycle_controles
@@ -127,33 +128,63 @@ async def menages_pdf_importer(request: Request):
     return RedirectResponse(url="/menages?actualisation=pdf", status_code=303)
 
 
-def _relancer_menages(declencheur: str) -> None:
-    """Tâche de fond de « Actualiser les ménages ».
+def _relancer_menages_cible(mois: str, declencheur: str) -> None:
+    """Tâche de fond de « Actualiser <mois affiché> » — RECALCUL CIBLÉ sur un seul mois explicite.
 
-    `orch.actualiser(cibles=["MENAGES"])` ne parcourt que MENAGES et ses DESCENDANTS (Lot9/10/11/12) —
-    jamais ses AMONTS. Si HOSTAWAY_CLEANING_TASKS restait sur un statut périmé, MENAGES serait ignoré
-    à chaque relance (« amont en échec ») sans qu'aucun nouveau tâches Hostaway ne soit jamais allé
-    les chercher : le bouton semblerait fonctionner (aucune erreur HTTP) sans jamais rien recalculer.
-    On rafraîchit donc explicitement HOSTAWAY_CLEANING_TASKS d'abord, avant la cascade MENAGES.
+    Distinct de `/actualisation/tout` (cascade GLOBALE générique `cibles=None`) : ici le mois est
+    TOUJOURS celui affiché à l'écran, jamais déduit implicitement (lot6d/6e/6f défaut sinon sur le
+    DERNIER mois présent dans les Cleaning Tasks, qui peut être un mois épars sans rapport avec ce
+    que l'utilisateur regarde).
+
+    `orch.actualiser(cibles=["MENAGES"])` (utilisé par la cascade générique) ne parcourt que les
+    DESCENDANTS de MENAGES, jamais ses AMONTS. Si HOSTAWAY_CLEANING_TASKS restait sur un statut
+    périmé, MENAGES serait ignoré à chaque relance (« amont en échec »). On rafraîchit donc
+    explicitement HOSTAWAY_CLEANING_TASKS d'abord, puis on appelle `executer_menages_cible` (mois
+    explicite, jamais le générique `executer_menages(mois=None)`), on met à jour l'état MENAGES pour
+    que le reste du DAG le voie à jour, puis on cascade Lot9→10→11→12 pour ce même contexte.
     """
     orch.recalculer_dataset("HOSTAWAY_CLEANING_TASKS", declencheur=declencheur)
-    orch.actualiser(cibles=["MENAGES"], declencheur=declencheur, inclure_imports_externes=True)
+    resultat = moteur.executer_menages_cible(mois=mois, declencheur=declencheur)
+    if resultat.get("ok"):
+        orch.marquer_dataset("MENAGES", orch.ST_A_JOUR, declencheur=declencheur, detail=resultat,
+                             motif=f"RECALCUL_CIBLE mois={mois}")
+        orch.actualiser(cibles=["FLUX_LOT9"], declencheur=declencheur,
+                        inclure_imports_externes=True)
+    else:
+        orch.marquer_dataset("MENAGES", orch.ST_ECHEC, declencheur=declencheur,
+                             erreur_code=resultat.get("code", "ECHEC"),
+                             erreur_message=resultat.get("message", ""),
+                             motif=f"RECALCUL_CIBLE mois={mois}")
 
 
 @router.post("/menages/actualiser")
-def menages_actualiser(background: BackgroundTasks):
-    """« Actualiser les ménages » — bouton principal du module.
+async def menages_actualiser(request: Request, background: BackgroundTasks):
+    """« Actualiser <mois affiché> » — bouton principal du module, TOUJOURS ciblé sur un mois.
+
+    `mois` doit être le mois actuellement filtré sur /menages (transmis par un champ caché du
+    formulaire — lu via `request.form()`, PAS un paramètre de fonction FastAPI : ce champ arrive en
+    corps `application/x-www-form-urlencoded`, jamais en query string, exactement comme
+    `/menages/actualiser-affichage` un peu plus bas). Si absent (appel direct/legacy), on retombe sur
+    le mois par défaut de l'écran plutôt que sur le comportement implicite de lot6d/6e/6f, pour ne
+    jamais recalculer un mois sans savoir lequel.
 
     1) Importe les nouvelles factures PDF (synchrone, rapide : quelques fichiers, aucune requête
        réseau) — pour que lot6d lise des lignes à jour dès le lancement de l'étape 2.
-    2) Rafraîchit Hostaway Cleaning Tasks puis déclenche le nœud MENAGES de l'orchestrateur réel en
-       tâche de fond (un recalcul peut durer : la requête HTTP ne doit jamais rester bloquée dessus,
-       exactement comme /actualisation/cible).
+    2) Rafraîchit Hostaway Cleaning Tasks puis recalcule MENAGES pour CE mois en tâche de fond (un
+       recalcul peut durer : la requête HTTP ne doit jamais rester bloquée dessus).
     """
+    form = await request.form()
+    mois_cible = str(form.get("mois", "") or "").strip() or svc.periode_par_defaut()
     pdf_import.importer_nouveaux(acteur="ui:menages")
     orch.marquer_runs_interrompus()
-    background.add_task(_relancer_menages, orch.DECLENCHEUR_MANUEL)
-    return RedirectResponse(url="/menages?actualisation=lancee", status_code=303)
+    background.add_task(_relancer_menages_cible, mois_cible, orch.DECLENCHEUR_MANUEL)
+    return RedirectResponse(url=f"/menages?mois={mois_cible}&actualisation=lancee",
+                            status_code=303)
+
+
+# « Actualiser toute l'activité » (mode GLOBAL, mission §10) existe déjà : /actualisation/tout
+# (app/routes/actualisation.py, `orch.actualiser(cibles=None, ...)`). Pas de second chemin ici —
+# l'écran /menages y renvoie un lien distinct plutôt que de dupliquer l'implémentation.
 
 
 # ── Déclaration d'un ménage interne — saisie directe, zéro Google Sheet ──────
@@ -437,12 +468,15 @@ def menage_detail(request: Request, mois: str, logement_id: str, intervenant_id:
 
 @router.post("/menages/{mois}/{logement_id}/{intervenant_id}/modifier-declaration",
              response_class=HTMLResponse)
-async def menage_modifier_declaration(request: Request, mois: str, logement_id: str,
-                                      intervenant_id: str):
+async def menage_modifier_declaration(request: Request, background: BackgroundTasks, mois: str,
+                                      logement_id: str, intervenant_id: str):
     """Modifie nb_menages/supplément d'une déclaration interne existante (§A/A1/A2).
 
     Justification obligatoire dès que le supplément final est != 0 (refus sinon, code
-    E_JUSTIFICATION_REQUISE) ; jamais de facture/charge/écriture créée ici (§A3)."""
+    E_JUSTIFICATION_REQUISE) ; jamais de facture/charge/écriture créée ici (§A3). Le mois impacté
+    est TOUJOURS celui de la déclaration modifiée (`mois`, dans l'URL) — le recalcul ciblé déclenché
+    en tâche de fond porte sur ce seul mois, jamais sur le dernier mois disponible ni sur tout
+    l'historique (mission « recalcul ménages réellement mensuel et ciblé », §5/§14)."""
     form = await request.form()
     nb_menages_raw = str(form.get("nb_menages", "")).strip()
     supplement_raw = str(form.get("supplement", "")).strip()
@@ -461,6 +495,7 @@ async def menage_modifier_declaration(request: Request, mois: str, logement_id: 
             "mois": mois, "logement_id": logement_id, "intervenant_id": intervenant_id,
             "outrepassage_error": None, "declaration_error": resultat.get("message"),
         }, status_code=422)
+    background.add_task(_relancer_menages_cible, mois, orch.DECLENCHEUR_MANUEL)
     return RedirectResponse(
         url=f"/menages/{mois}/{logement_id}/{intervenant_id}?declaration=modifiee", status_code=303)
 

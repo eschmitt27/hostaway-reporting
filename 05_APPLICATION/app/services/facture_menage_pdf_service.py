@@ -171,4 +171,7 @@ def importer(path, *, acteur: str = "", db_path=None) -> dict[str, Any]:
 
     return {"ok": True, "facture_id_opaque": facture_id, "statut": resultat["statut"],
             "nb_lignes": len(fac.lignes), "controle_total": controle, "ventilations": ventilations,
-            "anomalies_extraction": fac.anomalies}
+            "anomalies_extraction": fac.anomalies,
+            # Mois impacté = EXACTEMENT ce que lot6d lira (`str(date_facture or "")[:7]`, cf. son
+            # bloc `ext`) — mission "recalcul mensuel ciblé" §8 : jamais un mois recalculé au hasard.
+            "mois_impacte": str(fac.date_facture or "")[:7] or None}

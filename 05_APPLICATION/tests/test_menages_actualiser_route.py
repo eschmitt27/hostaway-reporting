@@ -41,7 +41,9 @@ def test_menages_dashboard_affiche_etat_actualisation(client, tmp_db):
     r = client.get("/menages")
     assert r.status_code == 200
     assert "Actualisation" in r.text
-    assert "Actualiser les ménages" in r.text
+    # Le bouton cible désormais explicitement le mois affiché (mission « recalcul mensuel ciblé »)
+    # — jamais un libellé générique "Actualiser les ménages" qui masquerait le mois recalculé.
+    assert "Actualiser " in r.text
     assert "Importer les nouvelles factures" in r.text
 
 

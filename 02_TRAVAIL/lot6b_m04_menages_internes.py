@@ -209,6 +209,9 @@ else:
     _conn = dbm.ouvrir(_db)
     _run_id = os.environ.get("LOT6_RUN_ID", "")
     _nb_ecrites = _nb_conflits = _nb_inchangees = 0
+    _mois_impactes = set()   # mission "recalcul mensuel cible" §7 : mois reellement changes/en
+                              # conflit durant CETTE synchro, pour un recalcul cible optionnel —
+                              # jamais tout l'historique.
     try:
         _conn.execute(
             "CREATE TABLE IF NOT EXISTS menages_declarations_extra ("
@@ -254,6 +257,7 @@ else:
                         (cle[0], cle[1], cle[2], "nb_menages",
                          str(existante.get("nb_menages")), str(d["nb_menages"])))
                     _nb_conflits += 1
+                    _mois_impactes.add(cle[0])
                 else:
                     _nb_inchangees += 1
                 _conn.execute(
@@ -265,6 +269,7 @@ else:
                     "derniere_synchro_sheet=excluded.derniere_synchro_sheet",
                     (cle[0], cle[1], cle[2], d["nb_menages"], NOW))
                 continue
+            _change = existante is None or int(existante.get("nb_menages") or 0) != int(d["nb_menages"] or 0)
             _conn.execute(
                 "DELETE FROM menages_declarations_internes WHERE mois=? AND logement_id=? "
                 "AND intervenant_id=?", cle)
@@ -281,13 +286,18 @@ else:
                 "source='GOOGLE_SHEET', derniere_valeur_sheet_nb_menages=excluded.derniere_valeur_sheet_nb_menages, "
                 "derniere_synchro_sheet=excluded.derniere_synchro_sheet",
                 (cle[0], cle[1], cle[2], d["nb_menages"], NOW))
-            _nb_ecrites += 1
+            if _change:
+                _nb_ecrites += 1
+                _mois_impactes.add(cle[0])
+            else:
+                _nb_inchangees += 1
         _conn.commit()
     finally:
         _conn.close()
     print(f"[lot6b] SQLite : menages_declarations_internes — {_nb_ecrites} lignes ecrites/mises a jour, "
           f"{_nb_inchangees} inchangees (deja alignees), {_nb_conflits} conflits GOOGLE_SHEET/APPLICATION "
           f"detectes (menages_declarations_conflits, non ecrases)")
+    print(f"[lot6b] MOIS_IMPACTES: {','.join(sorted(_mois_impactes)) or 'AUCUN'}")
 
 # ── 2) M04 SOURCE_RAW + MASTER + VUE_ACTIVE (autres onglets préservés) ────────
 backup = M04 + ".BAK_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")

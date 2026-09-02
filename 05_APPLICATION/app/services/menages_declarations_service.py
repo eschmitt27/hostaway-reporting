@@ -298,7 +298,7 @@ def modifier(*, mois: str, logement_id: str, intervenant_id: str, nb_menages: in
              justification_supplement or None, cout_standard_calcule, cout_final,
              SOURCE_APPLICATION, _now(), _now()))
         conn.commit()
-        return {"ok": True, "nb_menages": nouveau_nb, "supplement": nouveau_supplement,
+        return {"ok": True, "mois": mois, "nb_menages": nouveau_nb, "supplement": nouveau_supplement,
                 "cout_standard_calcule": cout_standard_calcule, "cout_final": cout_final,
                 "champs_modifies": champs_modifies}
     finally:

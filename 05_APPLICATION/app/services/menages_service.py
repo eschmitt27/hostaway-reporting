@@ -248,6 +248,23 @@ def periode_par_defaut() -> str:
     return periodes[0] if periodes else ""
 
 
+_MOIS_LIBELLES = {
+    "01": "janvier", "02": "février", "03": "mars", "04": "avril", "05": "mai", "06": "juin",
+    "07": "juillet", "08": "août", "09": "septembre", "10": "octobre", "11": "novembre",
+    "12": "décembre",
+}
+
+
+def libelle_mois(mois: str) -> str:
+    """"2026-07" -> "juillet 2026" — pour le bouton "Actualiser <mois affiché>"."""
+    brut = str(mois or "").strip()
+    if len(brut) >= 7 and brut[4] == "-":
+        libelle = _MOIS_LIBELLES.get(brut[5:7])
+        if libelle:
+            return f"{libelle} {brut[:4]}"
+    return brut
+
+
 def load_filter_options(mois: str = "") -> dict[str, list[dict[str, str]]]:
     """Options de filtre, restreintes au mois actif quand il est fourni."""
     lignes = [r for r in reader.rapprochement().lignes
@@ -570,6 +587,7 @@ def load_dashboard(mois: str = "", **filtres: Any) -> dict[str, Any]:
     from app.services import menages_recalcul_service as recalc
     return {
         "mois": mois,
+        "mois_libelle": libelle_mois(mois),
         "summary": load_summary(mois),
         "liste": liste,
         "options": load_filter_options(mois),

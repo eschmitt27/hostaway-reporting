@@ -163,6 +163,11 @@ EXPECTED_TABLES = {
     "mois_classification_legacy",                 # 0064 — classification LEGACY_SANS_ARCHIVE_ORIGINE (mission 15)
     "reservations_historique_corrections",        # 0064 — CORRECTION_HISTORIQUE explicite (mission 15)
     "assiette_corrections_manuelles",             # 0065 — correction manuelle assiette de commission
+    "menages_declarations_extra",                 # 0066 — supplement/justification/source declaration
+    "menages_declarations_historique",            # 0066 — audit trail par champ modifie
+    "menages_declarations_conflits",              # 0066 — conflits Google Sheet / Application
+    "menages_pdf_fichiers_hash",                  # 0066 — hash des PDF surveilles (detection remplacement)
+    "menages_runs_cibles",                        # 0067 — trace mois_demande/mois_traite du recalcul cible
 }
 
 

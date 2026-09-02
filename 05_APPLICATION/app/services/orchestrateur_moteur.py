@@ -164,7 +164,27 @@ def _referentiel_intervenants_importe(chemin_base: Path) -> bool:
     return n > 0
 
 
-def executer_menages(*, db_path=None) -> dict[str, Any]:
+def _mois_effectif_menages(base: Path, mois: str | None) -> str:
+    """Mois que lot6d/6e/6f vont réellement traiter — MÊME requête que leur propre défaut
+    (`SELECT MAX(mois) FROM menages_taches_enrichies`), pour pouvoir l'annoncer AVANT de lancer les
+    sous-processus, sans avoir à parser leur stdout."""
+    import datetime
+    import sqlite3
+    if mois:
+        return mois
+    try:
+        conn = sqlite3.connect(str(base))
+        try:
+            r = conn.execute(
+                "SELECT MAX(mois) FROM menages_taches_enrichies WHERE mois IS NOT NULL").fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        r = None
+    return (r[0] if r and r[0] else None) or datetime.date.today().strftime("%Y-%m")
+
+
+def executer_menages(*, db_path=None, mois: str | None = None) -> dict[str, Any]:
     """MENAGES — lot6d puis lot6e puis lot6f, chaîne interne SQLite (mission 14e).
 
     lot6a (import Hostaway cleaning tasks) et lot6b (M04, Google Sheet) restent des imports
@@ -176,18 +196,53 @@ def executer_menages(*, db_path=None) -> dict[str, Any]:
     Fail-closed uniquement sur ce qui est réellement obligatoire : le référentiel intervenants
     (`ref_intervenants`) doit avoir été importé, sinon lot6d tourne silencieusement sans aucune
     correspondance déclaration/intervenant — un recalcul « réussi » à zéro sens n'est pas un succès.
-    """
+
+    `mois=None` (comportement historique, chemin de la cascade DAG générique `cibles=["MENAGES"]`) :
+    chaque script choisit lui-même le dernier mois présent dans `menages_taches_enrichies` — jamais
+    forcément le mois affiché à l'écran. `mois="YYYY-MM"` (chemin UI ciblé, voir
+    `executer_menages_cible`) : transmis en `--mois` aux trois scripts, qui l'utilisent tel quel
+    (déjà supporté par lot6d/6e/6f — vérifié, aucune modification nécessaire côté moteur SQLite)."""
     base = Path(db_path or cfg.DB_PATH)
     if not _referentiel_intervenants_importe(base):
         return {"ok": False, "code": "MENAGES_REFERENTIEL_ABSENT",
                 "message": "ref_intervenants vide : référentiel jamais importé."}
+    arguments = ("--source", "SQLITE", "--sans-excel", *(("--mois", mois) if mois else ()))
     for script in ("lot6d_rapprochement_menages.py", "lot6e_gainperte_menages.py",
                    "lot6f_cout_complet_menages.py"):
-        resultat = executer(script, db_path=db_path, arguments=("--source", "SQLITE", "--sans-excel"))
+        resultat = executer(script, db_path=db_path, arguments=arguments)
         if not resultat.get("ok"):
             return {"ok": False, "code": resultat.get("code", E_CODE_RETOUR),
                     "message": f"{script} : {resultat.get('message', '')}"}
-    return {"ok": True}
+    return {"ok": True, "mois_traite": _mois_effectif_menages(base, mois)}
+
+
+def executer_menages_cible(*, db_path=None, mois: str, declencheur: str = "MANUEL") -> dict[str, Any]:
+    """« Actualiser <mois affiché> » — recalcul MENAGES ciblé sur UN mois explicite (mission
+    « rendre le recalcul ménages réellement mensuel et ciblé »).
+
+    Distinct de `executer_menages(mois=None)` (chemin DAG générique, dernier mois présent) : ici le
+    mois est TOUJOURS celui choisi par l'utilisateur dans l'écran /menages, jamais déduit. Un mois
+    CLOTURE est refusé (jamais réécrit silencieusement — même principe que
+    `menages_declarations_service.modifier` / `E_MOIS_CLOTURE`), l'utilisateur doit passer par le
+    workflow de correction rétroactive existant (réouverture de clôture, `clotures_service.rouvrir`)
+    avant de pouvoir redemander ce mois.
+    """
+    from app.services import menages_declarations_service as decl
+    from app.services import menages_runs_service as runs
+
+    base = Path(db_path or cfg.DB_PATH)
+    if decl.mois_cloture(mois, db_path=db_path):
+        runs.enregistrer(mois_demande=mois, mois_traite=None, declencheur=declencheur,
+                         statut="REFUSE_MOIS_CLOTURE", db_path=db_path)
+        return {"ok": False, "code": "MENAGES_MOIS_CLOTURE", "mois_demande": mois,
+                "message": f"{mois} est clôturé : recalcul refusé. Rouvrir la clôture "
+                           "(correction rétroactive) avant de redemander ce mois."}
+
+    resultat = executer_menages(db_path=db_path, mois=mois)
+    mois_traite = resultat.get("mois_traite") if resultat.get("ok") else None
+    runs.enregistrer(mois_demande=mois, mois_traite=mois_traite, declencheur=declencheur,
+                     statut="SUCCES" if resultat.get("ok") else "ECHEC", db_path=db_path)
+    return {**resultat, "mois_demande": mois}
 
 
 def importer_hostaway(*, db_path=None) -> dict[str, Any]:
