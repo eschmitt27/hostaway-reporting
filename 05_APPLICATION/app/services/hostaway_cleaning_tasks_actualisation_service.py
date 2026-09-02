@@ -1,20 +1,19 @@
 """Actualisation Hostaway CleaningTasks — point d'entrée unique, réel.
 
-    actualiser() → lot1_hostaway_extract.py --only-cleaning-tasks → Excel Discovery → SQLite
+    actualiser() → HostawayClient.get_tasks() (API) → normalisation Python → SQLite versionné
 
-MÊME CLIENT, MÊME SCRIPT QUE HOSTAWAY_RAW
-`--only-cleaning-tasks` est une branche dédiée de `lot1_hostaway_extract.py` (le MÊME script que
-`hostaway_actualisation_service`) : elle saute listings/réservations/payouts, ne fait qu'appeler
-`/v1/tasks` par logement (segmentation D065, déjà sûre), et écrit toujours
-`MASTER_FACT_HA_CleaningTasks_Discovery.xlsx`. Aucun second client Hostaway n'est créé ici.
+ZÉRO EXCEL. L'ancienne version passait par un pont `lot1_hostaway_extract.py --only-cleaning-tasks`
+(sous-processus) qui écrivait `MASTER_FACT_HA_CleaningTasks_Discovery.xlsx`, puis relisait ce
+fichier pour l'enregistrer en SQLite — un effet de bord sur un fichier réel du dépôt à chaque
+actualisation (mission « supprimer le dernier effet de bord Excel »). Ce module appelle
+`HostawayAuth`/`HostawayClient`/`_extract_cleaning_tasks` (02_TRAVAIL/lot1_hostaway_extract.py,
+MÊME client, MÊME transformation de champs, MÊME correctif de pagination — rien réimplémenté) EN
+PROCESS, sans sous-processus ni fichier intermédiaire, et transmet directement le résultat à
+`hostaway_cleaning_tasks_raw_service` (versioning déjà existant, réutilisé tel quel).
 
-POURQUOI UN PONT EXCEL INTERMÉDIAIRE
-`lot1_hostaway_extract.py` n'écrit jamais directement `hostaway_cleaning_tasks` en SQLite (seul
-`hostaway_cleaning_tasks_adaptateur.py::depuis_master_excel` sait lire ce fichier). Cette fonction
-appelle donc le script en sous-processus (mêmes garde-fous que `hostaway_actualisation_service` :
-jamais de `.pid` sur le chemin synchrone), puis relit le fichier Excel qu'il vient de produire et
-l'enregistre en SQLite versionné via `hostaway_cleaning_tasks_raw_service` — avec `mode=MODE_API`
-(donnée réellement fraîche, pas une reprise legacy).
+Un export Excel explicite reste possible via `exporter_cleaning_tasks_excel()` (§3 mission) — jamais
+appelé par ce module ni par aucun parcours automatique (Actualiser Hostaway/les ménages/toute
+l'activité, scheduler).
 
 CADENCE SÉPARÉE, JAMAIS AUTOMATIQUE
 Ce service est appelé UNIQUEMENT par une demande explicite (`inclure_imports_externes=True`,
@@ -25,113 +24,84 @@ erreur.
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import app.config as cfg
-from app.services import hostaway_cleaning_tasks_adaptateur as adaptateur
 from app.services import hostaway_cleaning_tasks_raw_service as raw
 from app.services import run_history_service as history
 
-SCRIPT = "lot1_hostaway_extract.py"
+_TRAVAIL_DIR = str(Path(cfg.PROJECT_ROOT) / "02_TRAVAIL")
+if _TRAVAIL_DIR not in sys.path:
+    sys.path.insert(0, _TRAVAIL_DIR)
 
 DECLENCHEUR_MANUEL = "MANUEL"
 DECLENCHEUR_AUTO = "AUTO"
 
-E_SCRIPT_ABSENT = "HOSTAWAY_CLEANING_TASKS_SCRIPT_ABSENT"
-E_INTERPRETEUR = "HOSTAWAY_CLEANING_TASKS_INTERPRETEUR_ABSENT"
-E_LANCEMENT = "HOSTAWAY_CLEANING_TASKS_LANCEMENT_IMPOSSIBLE"
-E_CODE_RETOUR = "HOSTAWAY_CLEANING_TASKS_CODE_RETOUR"
-E_MASTER_ABSENT_APRES_RUN = "HOSTAWAY_CLEANING_TASKS_MASTER_ABSENT_APRES_RUN"
+E_CREDENTIALS_ABSENTES = "HOSTAWAY_CLEANING_TASKS_CREDENTIALS_ABSENTES"
+E_API_ECHOUEE = "HOSTAWAY_CLEANING_TASKS_API_ECHOUEE"
+E_MIGRATION_ABSENTE = "MIGRATION_ABSENTE"
 
 MESSAGES = {
-    E_SCRIPT_ABSENT: "Le moteur d'extraction Hostaway est introuvable sur cette installation.",
-    E_INTERPRETEUR: ("Aucun interpréteur Python avec pandas n'est disponible : le moteur ne peut "
-                     "pas être lancé."),
-    E_LANCEMENT: "Le moteur n'a pas pu être lancé.",
+    E_CREDENTIALS_ABSENTES: ("Identifiants Hostaway absents (HOSTAWAY_CLIENT_ID/"
+                              "HOSTAWAY_CLIENT_SECRET/HOSTAWAY_ACCOUNT_ID) : appel API impossible."),
 }
 
 
-def _racine_moteur() -> Path:
-    return Path(cfg.PROJECT_ROOT) / "02_TRAVAIL"
+def _credentials() -> tuple[str, str, str, str] | None:
+    from dotenv import load_dotenv
+
+    load_dotenv(Path(cfg.PROJECT_ROOT) / ".env")
+    client_id = os.getenv("HOSTAWAY_CLIENT_ID", "")
+    client_secret = os.getenv("HOSTAWAY_CLIENT_SECRET", "")
+    account_id = os.getenv("HOSTAWAY_ACCOUNT_ID", "")
+    base_url = os.getenv("HOSTAWAY_BASE_URL", "https://api.hostaway.com")
+    if not (client_id and client_secret and account_id):
+        return None
+    return base_url, client_id, client_secret, account_id
 
 
-def _interpreteur() -> str | None:
-    candidats = []
-    if os.environ.get("PILOTAGE_ENGINE_PYTHON"):
-        candidats.append(os.environ["PILOTAGE_ENGINE_PYTHON"])
-    candidats += [sys.executable, r"C:\Program Files\Python312\python.exe"]
-    for chemin in candidats:
-        if not chemin or not Path(chemin).exists():
-            continue
-        try:
-            r = subprocess.run([chemin, "-c", "import pandas"], capture_output=True, timeout=30)
-        except Exception:
-            continue
-        if r.returncode == 0:
-            return chemin
-    return None
+def actualiser(*, declencheur: str = DECLENCHEUR_MANUEL, date_from: str = "2026-01-01",
+               db_path=None) -> dict[str, Any]:
+    """Récupère les tâches ménage Hostaway (H6) et les enregistre en SQLite versionné.
 
-
-def actualiser(*, declencheur: str = DECLENCHEUR_MANUEL, db_path=None,
-               timeout_s: int = 1800) -> dict[str, Any]:
-    """Lance une extraction RÉELLE des tâches ménage Hostaway, jusqu'à son terme.
-
-    Toujours synchrone (`--only-cleaning-tasks` est rapide : un appel par logement, pas par
-    réservation) — appelable directement par l'orchestrateur, comme `importer_hostaway`.
+    Aucun fichier Excel créé ni lu — API → SQLite direct. `date_from` : mêmes tâches que
+    `lot1_hostaway_extract.py --only-cleaning-tasks` (défaut identique).
     """
-    script = _racine_moteur() / SCRIPT
-    if not script.exists():
-        return {"ok": False, "code": E_SCRIPT_ABSENT, "message": MESSAGES[E_SCRIPT_ABSENT]}
+    creds = _credentials()
+    if creds is None:
+        return {"ok": False, "code": E_CREDENTIALS_ABSENTES,
+                "message": MESSAGES[E_CREDENTIALS_ABSENTES]}
+    base_url, client_id, client_secret, account_id = creds
 
-    interpreteur = _interpreteur()
-    if interpreteur is None:
-        return {"ok": False, "code": E_INTERPRETEUR, "message": MESSAGES[E_INTERPRETEUR]}
-
-    base = Path(db_path or cfg.DB_PATH)
-    commande = [interpreteur, str(script), "--db", str(base), "--only-cleaning-tasks"]
-
-    env = dict(os.environ)
-    env["PROJECT_ROOT"] = str(cfg.PROJECT_ROOT)
-    env["PILOTAGE_DB_PATH"] = str(base)
-    env["PYTHONIOENCODING"] = "utf-8"
+    import lot1_hostaway_extract as lot1
 
     debut = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     history_run_id = history.demarrer("HOSTAWAY_CLEANING_TASKS", acteur=declencheur, db_path=db_path)
 
+    log = _LogRelais()
+    auth = lot1.HostawayAuth(base_url, client_id, client_secret)
+    client = lot1.HostawayClient(auth, account_id, log)
+    detector = lot1.AnomalyDetector(set())
+
     try:
-        # Même garde que `hostaway_actualisation_service.actualiser` : `subprocess.run()` rend un
-        # `CompletedProcess`, jamais de `.pid` lu ici (mission 14b).
-        proc = subprocess.run(commande, cwd=str(cfg.PROJECT_ROOT), env=env,
-                              capture_output=True, text=True, timeout=timeout_s)
-        code = proc.returncode
+        lignes, statut_extraction = lot1._extract_cleaning_tasks(client, date_from, detector, log)
     except Exception as exc:
         history.marquer_echec(history_run_id, erreur=f"{type(exc).__name__}: {exc}", db_path=db_path)
-        return {"ok": False, "code": E_LANCEMENT,
-                "message": f"{MESSAGES[E_LANCEMENT]} ({type(exc).__name__})"}
+        return {"ok": False, "code": E_API_ECHOUEE,
+                "message": f"{MESSAGES.get(E_API_ECHOUEE, 'Appel API échoué')} ({type(exc).__name__})"}
 
-    if code != 0:
-        history.marquer_echec(history_run_id, erreur=f"code_retour={code}", db_path=db_path)
-        return {"ok": False, "code": E_CODE_RETOUR,
-                "message": f"lot1_hostaway_extract.py --only-cleaning-tasks rc={code}"}
+    if statut_extraction == "FAILED":
+        history.marquer_echec(history_run_id, erreur="extraction FAILED", db_path=db_path)
+        return {"ok": False, "code": E_API_ECHOUEE,
+                "message": "L'extraction des tâches ménage a échoué (voir logs)."}
 
-    # Le script a réussi et a écrit MASTER_FACT_HA_CleaningTasks_Discovery.xlsx : le relire et
-    # l'enregistrer en SQLite versionné — même mécanisme que la reprise legacy, mode API car la
-    # donnée est réellement fraîche.
-    if not adaptateur.master_disponible():
-        history.marquer_echec(history_run_id, erreur=MESSAGES.get(E_MASTER_ABSENT_APRES_RUN, ""),
-                              db_path=db_path)
-        return {"ok": False, "code": E_MASTER_ABSENT_APRES_RUN,
-                "message": "Le script a réussi mais n'a produit aucun fichier Discovery."}
-
-    lignes = adaptateur.depuis_master_excel()
     extraction_id = raw.ouvrir(mode=raw.MODE_API, run_id=history_run_id or "", db_path=db_path)
     if not extraction_id:
         history.marquer_echec(history_run_id, erreur="migration 0035 absente", db_path=db_path)
-        return {"ok": False, "code": "MIGRATION_ABSENTE",
+        return {"ok": False, "code": E_MIGRATION_ABSENTE,
                 "message": "Table hostaway_cleaning_tasks_extractions absente (migration 0035 non "
                            "appliquée)."}
     try:
@@ -142,8 +112,61 @@ def actualiser(*, declencheur: str = DECLENCHEUR_MANUEL, db_path=None,
         history.marquer_echec(history_run_id, erreur=f"{type(exc).__name__}: {exc}", db_path=db_path)
         raise
 
-    resultat_cloture = raw.cloturer(extraction_id, statut=raw.ST_SUCCES, db_path=db_path)
+    statut_cloture = raw.ST_SUCCES if statut_extraction == "OK" else raw.ST_PARTIEL
+    resultat_cloture = raw.cloturer(extraction_id, statut=statut_cloture, db_path=db_path)
     history.marquer_succes(history_run_id, db_path=db_path)
 
-    return {"ok": True, "lance_le": debut, "declencheur": declencheur, "code_retour": code,
-            "history_run_id": history_run_id, **resultat_cloture}
+    return {"ok": True, "lance_le": debut, "declencheur": declencheur, "code_retour": 0,
+            "history_run_id": history_run_id, "extraction_id": extraction_id,
+            "statut": statut_cloture, "nb_taches": len(lignes), **resultat_cloture}
+
+
+class _LogRelais:
+    """`_extract_cleaning_tasks` attend un logger (`.info`/`.warning`) — relais minimal vers le
+    logger applicatif standard, jamais un `print` silencieux ni un logger inventé."""
+
+    def __init__(self) -> None:
+        import logging
+        self._log = logging.getLogger("hostaway_cleaning_tasks_actualisation")
+
+    def info(self, msg: str) -> None:
+        self._log.info(msg)
+
+    def warning(self, msg: str) -> None:
+        self._log.warning(msg)
+
+    def error(self, msg: str) -> None:
+        self._log.error(msg)
+
+
+def exporter_cleaning_tasks_excel(*, db_path=None, racine: Path | None = None) -> dict[str, Any]:
+    """Export EXPLICITE (diagnostic/comparaison legacy uniquement) — jamais appelé par
+    `actualiser()` ni par aucun parcours automatique (§3 mission). Réutilise l'extraction active
+    déjà en SQLite ; n'appelle pas l'API."""
+    import pandas as pd
+
+    from app.db.connection import get_db
+
+    extraction_id = raw.derniere_extraction_utilisable(db_path=db_path)
+    if not extraction_id:
+        return {"ok": False, "code": "AUCUNE_EXTRACTION_UTILISABLE",
+                "message": "Aucune extraction Cleaning Tasks disponible à exporter."}
+
+    conn = get_db(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT task_id, reservation_id, listing_map_id, title, status, can_start_from, "
+            "assignee_user_id, extrait_le, row_hash FROM hostaway_cleaning_tasks "
+            "WHERE extraction_id = ?", (extraction_id,)
+        ).fetchall()
+    finally:
+        conn.close()
+
+    chemin = (Path(racine) if racine else Path(cfg.PROJECT_ROOT)).joinpath(
+        "02_TRAVAIL", "Lot1_Hostaway", "MASTER_FACT_HA_CleaningTasks_Discovery.xlsx")
+    df = pd.DataFrame([dict(r) for r in rows])
+    chemin.parent.mkdir(parents=True, exist_ok=True)
+    with pd.ExcelWriter(chemin, engine="openpyxl") as w:
+        df.to_excel(w, sheet_name="data", index=False)
+    return {"ok": True, "extraction_id": extraction_id, "nb_lignes": len(rows),
+            "chemin": str(chemin)}
