@@ -36,6 +36,8 @@ NORM_DIR = os.path.join(ROOT, "02_TRAVAIL", "Lot6b_DeclarationsInternes")
 NORM_OUT = os.path.join(NORM_DIR, "MASTER_NORM_Declarations_Internes.xlsx")
 NOW = datetime.datetime.now().isoformat(timespec="seconds")
 
+SOURCE_GOOGLE_SHEET_LOT6B = "GOOGLE_SHEET"  # défaut si menages_declarations_extra n'existe pas encore
+
 MOIS = {"janvier":"01","fevrier":"02","mars":"03","avril":"04","mai":"05","juin":"06","juillet":"07","aout":"08","septembre":"09","octobre":"10","novembre":"11","decembre":"12"}
 REQUIRED_COLS = ["Prénom", "Mois des ménages", "Année des ménages", "Appartement"]
 
@@ -192,25 +194,100 @@ wbn.save(NORM_OUT)
 
 # ── SQLite : menages_declarations_internes (0038) — sortie canonique pour Lot6d/6e ──────────────
 # Le classeur M04 (ci-dessous) reste écrit pour Lot9-12, pas encore migrés (parité temporaire).
+#
+# RECONCILIATION SHEET <-> APPLICATION (migration 0066, mission "FINALISER LE VRAI WORKFLOW")
+# Un DELETE FROM complet écraserait silencieusement toute déclaration créée/modifiée depuis
+# l'application (menages_declarations_extra.source == 'APPLICATION') : remplacé par un upsert
+# clé par clé (mois, logement_id, intervenant_id). Une ligne APPLICATION dont la valeur Sheet
+# diverge n'est JAMAIS réécrite : un conflit est enregistré (menages_declarations_conflits),
+# résolu uniquement par un humain via menages_declarations_service.resoudre_conflit().
 _db = dbm.chemin_db(None)
 if _db is None:
     print("[lot6b] Aucune base designee (PILOTAGE_DB_PATH/APP_DATA_DIR) : SQLite non ecrit")
 else:
     _sql_cols = [c for c in NCOLS if c != "ROW_HASH"]
     _conn = dbm.ouvrir(_db)
+    _run_id = os.environ.get("LOT6_RUN_ID", "")
+    _nb_ecrites = _nb_conflits = _nb_inchangees = 0
     try:
-        _conn.execute("DELETE FROM menages_declarations_internes")
-        if norm_rows:
-            _trous = ", ".join(["?"] * (len(_sql_cols) + 2))
-            _conn.executemany(
+        _conn.execute(
+            "CREATE TABLE IF NOT EXISTS menages_declarations_extra ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, mois TEXT NOT NULL, logement_id TEXT NOT NULL, "
+            "intervenant_id TEXT NOT NULL, supplement REAL NOT NULL DEFAULT 0, "
+            "justification_supplement TEXT, cout_standard_calcule REAL, cout_final REAL, "
+            "source TEXT NOT NULL DEFAULT 'APPLICATION', derniere_valeur_sheet_nb_menages INTEGER, "
+            "derniere_synchro_sheet TEXT, derniere_modification_app TEXT, "
+            "date_creation TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')), "
+            "date_modification TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')))"
+        )
+        _conn.execute(
+            "CREATE TABLE IF NOT EXISTS menages_declarations_conflits ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, mois TEXT NOT NULL, logement_id TEXT NOT NULL, "
+            "intervenant_id TEXT NOT NULL, champ TEXT NOT NULL DEFAULT 'nb_menages', "
+            "valeur_application TEXT, valeur_sheet TEXT, statut TEXT NOT NULL DEFAULT 'OUVERT', "
+            "resolu_par TEXT, resolu_le TEXT, "
+            "date_detection TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')))"
+        )
+        # Lignes déjà en base, indexées par clé métier (nb_menages seul suffit au conflit §B2 —
+        # les autres champs restent alignés sur la même source).
+        _existantes = {
+            (r["mois"], r["logement_id"], r["intervenant_id"]): dict(r)
+            for r in _conn.execute(
+                "SELECT mois, logement_id, intervenant_id, nb_menages FROM menages_declarations_internes"
+            ).fetchall()
+        }
+        _extras = {
+            (r["mois"], r["logement_id"], r["intervenant_id"]): dict(r)
+            for r in _conn.execute("SELECT * FROM menages_declarations_extra").fetchall()
+        }
+        for d in norm_rows:
+            cle = (d["mois"], d["logement_id"], d["intervenant_id"])
+            extra = _extras.get(cle)
+            existante = _existantes.get(cle)
+            source_actuelle = (extra or {}).get("source") or SOURCE_GOOGLE_SHEET_LOT6B
+            if existante is not None and source_actuelle == "APPLICATION":
+                if int(existante.get("nb_menages") or 0) != int(d["nb_menages"] or 0):
+                    _conn.execute(
+                        "INSERT INTO menages_declarations_conflits "
+                        "(mois, logement_id, intervenant_id, champ, valeur_application, "
+                        "valeur_sheet, statut) VALUES (?,?,?,?,?,?,'OUVERT')",
+                        (cle[0], cle[1], cle[2], "nb_menages",
+                         str(existante.get("nb_menages")), str(d["nb_menages"])))
+                    _nb_conflits += 1
+                else:
+                    _nb_inchangees += 1
+                _conn.execute(
+                    "INSERT INTO menages_declarations_extra (mois, logement_id, intervenant_id, "
+                    "source, derniere_valeur_sheet_nb_menages, derniere_synchro_sheet) "
+                    "VALUES (?,?,?,'APPLICATION',?,?) "
+                    "ON CONFLICT(mois, logement_id, intervenant_id) DO UPDATE SET "
+                    "derniere_valeur_sheet_nb_menages=excluded.derniere_valeur_sheet_nb_menages, "
+                    "derniere_synchro_sheet=excluded.derniere_synchro_sheet",
+                    (cle[0], cle[1], cle[2], d["nb_menages"], NOW))
+                continue
+            _conn.execute(
+                "DELETE FROM menages_declarations_internes WHERE mois=? AND logement_id=? "
+                "AND intervenant_id=?", cle)
+            _conn.execute(
                 f"INSERT INTO menages_declarations_internes "
-                f"({', '.join(_sql_cols)}, row_hash, run_id) VALUES ({_trous})",
-                [tuple(d.get(c) for c in _sql_cols) + (d.get("ROW_HASH"), os.environ.get("LOT6_RUN_ID", ""))
-                 for d in norm_rows])
+                f"({', '.join(_sql_cols)}, row_hash, run_id) VALUES "
+                f"({', '.join(['?'] * (len(_sql_cols) + 2))})",
+                tuple(d.get(c) for c in _sql_cols) + (d.get("ROW_HASH"), _run_id))
+            _conn.execute(
+                "INSERT INTO menages_declarations_extra (mois, logement_id, intervenant_id, "
+                "source, derniere_valeur_sheet_nb_menages, derniere_synchro_sheet) "
+                "VALUES (?,?,?,'GOOGLE_SHEET',?,?) "
+                "ON CONFLICT(mois, logement_id, intervenant_id) DO UPDATE SET "
+                "source='GOOGLE_SHEET', derniere_valeur_sheet_nb_menages=excluded.derniere_valeur_sheet_nb_menages, "
+                "derniere_synchro_sheet=excluded.derniere_synchro_sheet",
+                (cle[0], cle[1], cle[2], d["nb_menages"], NOW))
+            _nb_ecrites += 1
         _conn.commit()
     finally:
         _conn.close()
-    print(f"[lot6b] SQLite : menages_declarations_internes — {len(norm_rows)} lignes")
+    print(f"[lot6b] SQLite : menages_declarations_internes — {_nb_ecrites} lignes ecrites/mises a jour, "
+          f"{_nb_inchangees} inchangees (deja alignees), {_nb_conflits} conflits GOOGLE_SHEET/APPLICATION "
+          f"detectes (menages_declarations_conflits, non ecrases)")
 
 # ── 2) M04 SOURCE_RAW + MASTER + VUE_ACTIVE (autres onglets préservés) ────────
 backup = M04 + ".BAK_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")

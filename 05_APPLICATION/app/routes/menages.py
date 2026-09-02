@@ -127,20 +127,32 @@ async def menages_pdf_importer(request: Request):
     return RedirectResponse(url="/menages?actualisation=pdf", status_code=303)
 
 
+def _relancer_menages(declencheur: str) -> None:
+    """Tâche de fond de « Actualiser les ménages ».
+
+    `orch.actualiser(cibles=["MENAGES"])` ne parcourt que MENAGES et ses DESCENDANTS (Lot9/10/11/12) —
+    jamais ses AMONTS. Si HOSTAWAY_CLEANING_TASKS restait sur un statut périmé, MENAGES serait ignoré
+    à chaque relance (« amont en échec ») sans qu'aucun nouveau tâches Hostaway ne soit jamais allé
+    les chercher : le bouton semblerait fonctionner (aucune erreur HTTP) sans jamais rien recalculer.
+    On rafraîchit donc explicitement HOSTAWAY_CLEANING_TASKS d'abord, avant la cascade MENAGES.
+    """
+    orch.recalculer_dataset("HOSTAWAY_CLEANING_TASKS", declencheur=declencheur)
+    orch.actualiser(cibles=["MENAGES"], declencheur=declencheur, inclure_imports_externes=True)
+
+
 @router.post("/menages/actualiser")
 def menages_actualiser(background: BackgroundTasks):
     """« Actualiser les ménages » — bouton principal du module.
 
     1) Importe les nouvelles factures PDF (synchrone, rapide : quelques fichiers, aucune requête
        réseau) — pour que lot6d lise des lignes à jour dès le lancement de l'étape 2.
-    2) Déclenche le nœud MENAGES de l'orchestrateur réel en tâche de fond (un recalcul peut durer :
-       la requête HTTP ne doit jamais rester bloquée dessus, exactement comme /actualisation/cible).
+    2) Rafraîchit Hostaway Cleaning Tasks puis déclenche le nœud MENAGES de l'orchestrateur réel en
+       tâche de fond (un recalcul peut durer : la requête HTTP ne doit jamais rester bloquée dessus,
+       exactement comme /actualisation/cible).
     """
     pdf_import.importer_nouveaux(acteur="ui:menages")
     orch.marquer_runs_interrompus()
-    background.add_task(orch.actualiser, cibles=["MENAGES"],
-                        declencheur=orch.DECLENCHEUR_MANUEL,
-                        inclure_imports_externes=True)
+    background.add_task(_relancer_menages, orch.DECLENCHEUR_MANUEL)
     return RedirectResponse(url="/menages?actualisation=lancee", status_code=303)
 
 
@@ -421,6 +433,53 @@ def menage_detail(request: Request, mois: str, logement_id: str, intervenant_id:
         "mois": mois, "logement_id": logement_id, "intervenant_id": intervenant_id,
         "outrepassage_error": None,
     })
+
+
+@router.post("/menages/{mois}/{logement_id}/{intervenant_id}/modifier-declaration",
+             response_class=HTMLResponse)
+async def menage_modifier_declaration(request: Request, mois: str, logement_id: str,
+                                      intervenant_id: str):
+    """Modifie nb_menages/supplément d'une déclaration interne existante (§A/A1/A2).
+
+    Justification obligatoire dès que le supplément final est != 0 (refus sinon, code
+    E_JUSTIFICATION_REQUISE) ; jamais de facture/charge/écriture créée ici (§A3)."""
+    form = await request.form()
+    nb_menages_raw = str(form.get("nb_menages", "")).strip()
+    supplement_raw = str(form.get("supplement", "")).strip()
+    justification = str(form.get("justification_supplement", "")).strip()
+
+    resultat = declarations.modifier(
+        mois=mois, logement_id=logement_id, intervenant_id=intervenant_id,
+        nb_menages=int(nb_menages_raw) if nb_menages_raw else None,
+        supplement=float(supplement_raw) if supplement_raw else None,
+        justification_supplement=justification, acteur="ui:menages",
+    )
+    if not resultat.get("ok"):
+        detail = svc.load_reconciliation_detail(mois, logement_id, intervenant_id)
+        return templates.TemplateResponse(request, "menages_detail.html", {
+            "active_menu": "menages", "detail": detail,
+            "mois": mois, "logement_id": logement_id, "intervenant_id": intervenant_id,
+            "outrepassage_error": None, "declaration_error": resultat.get("message"),
+        }, status_code=422)
+    return RedirectResponse(
+        url=f"/menages/{mois}/{logement_id}/{intervenant_id}?declaration=modifiee", status_code=303)
+
+
+@router.get("/menages/conflits", response_class=HTMLResponse)
+def menages_conflits_liste(request: Request, statut: str = "OUVERT"):
+    return templates.TemplateResponse(request, "menages_conflits.html", {
+        "active_menu": "menages", "conflits": declarations.lister_conflits(statut=statut),
+        "statut": statut,
+    })
+
+
+@router.post("/menages/conflits/{conflit_id}/resoudre")
+async def menages_conflit_resoudre(request: Request, conflit_id: int):
+    form = await request.form()
+    choix = str(form.get("choix", "")).strip()
+    res = declarations.resoudre_conflit(conflit_id, choix=choix, acteur="ui:menages")
+    suffixe = "" if res.get("ok") else f"&erreur={res.get('message')}"
+    return RedirectResponse(url=f"/menages/conflits?statut=OUVERT{suffixe}", status_code=303)
 
 
 @router.post("/menages/{mois}/{logement_id}/{intervenant_id}/outrepasser",

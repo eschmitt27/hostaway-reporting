@@ -27,7 +27,9 @@ CREATE TABLE IF NOT EXISTS ref_canape_parametres (
 CREATE INDEX IF NOT EXISTS idx_ref_canape_parametres_import ON ref_canape_parametres(import_id);
 CREATE INDEX IF NOT EXISTS idx_ref_canape_parametres_logement ON ref_canape_parametres(logement_id);
 
-INSERT INTO ref_canape_parametres
+-- OR IGNORE : un rejeu complet de apply_migrations() réexécute ce fichier même après application ;
+-- sans OR IGNORE, la contrainte PRIMARY KEY casse le redémarrage dès qu'une migration postérieure est ajoutée.
+INSERT OR IGNORE INTO ref_canape_parametres
     (canape_parametre_id, logement_id, seuil_voyageurs_preparation_canape,
      montant_preparation_canape, date_debut, date_fin, actif, commentaire, import_id)
 SELECT

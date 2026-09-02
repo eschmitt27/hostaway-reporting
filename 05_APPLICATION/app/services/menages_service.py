@@ -673,6 +673,8 @@ def load_reconciliation_detail(mois: str, logement_id: str,
     couts = {_cle(r): r for r in reader.cout_complet().lignes}
     vue = _vue_ligne(brute, overrides, couts, gains)
 
+    from app.services import menages_declarations_service as declarations
+
     return {
         "status": "OK",
         "mois": cle[0], "logement_id": cle[1], "intervenant_id": cle[2],
@@ -685,6 +687,9 @@ def load_reconciliation_detail(mois: str, logement_id: str,
         "anomalies": _bloc_anomalies(vue),
         "tracabilite": _bloc_tracabilite(),
         "override": vue["override"],
+        "declaration_extra": declarations.declaration_extra(*cle),
+        "declaration_historique": declarations.historique(*cle),
+        "declaration_modifiable": bool(_bloc_interne(cle)["lignes"]) and not declarations.mois_cloture(cle[0]),
         "read_at": _now(),
     }
 

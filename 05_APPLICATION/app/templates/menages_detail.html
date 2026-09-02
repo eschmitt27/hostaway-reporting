@@ -279,6 +279,74 @@
   {% endif %}
 </div>
 
+<!-- ===== Déclaration interne — modifier (nb_menages / supplément) ===== -->
+{% if detail.interne.lignes %}
+<div class="card mb-md">
+  <h2 class="card-title">Modifier la déclaration interne</h2>
+  {% if request.query_params.get('declaration') == 'modifiee' %}
+    <div class="alert alert-success">Déclaration mise à jour. Aucune facture/charge/écriture n'est créée par cette action.</div>
+  {% endif %}
+  {% if declaration_error %}
+    <div class="alert alert-error">{{ declaration_error }}</div>
+  {% endif %}
+  {% if not declaration_modifiable %}
+    <div class="alert alert-warning">
+      Mois clôturé ou aucune déclaration existante : passer par la correction rétroactive existante
+      pour un mois clos.
+    </div>
+  {% else %}
+  <form method="post" action="/menages/{{ mois }}/{{ logement_id }}/{{ intervenant_id }}/modifier-declaration">
+    <div class="detail-grid">
+      <div>
+        <label for="nb_menages" class="text-sm">Nombre de ménages</label>
+        <input type="number" id="nb_menages" name="nb_menages" min="0" class="filter-input"
+               value="{{ detail.interne.lignes[0].nb_menages }}">
+      </div>
+      <div>
+        <label for="supplement" class="text-sm">Supplément (€)</label>
+        <input type="number" step="0.01" id="supplement" name="supplement" class="filter-input"
+               value="{{ (declaration_extra.supplement if declaration_extra else 0) or 0 }}">
+      </div>
+    </div>
+    <div class="mt-sm">
+      <label for="justification_supplement" class="text-sm">Justification (obligatoire si supplément ≠ 0)</label>
+      <textarea id="justification_supplement" name="justification_supplement" rows="2"
+                class="filter-input" style="width:100%;">{{ (declaration_extra.justification_supplement if declaration_extra else "") or "" }}</textarea>
+    </div>
+    {% if declaration_extra %}
+    <p class="section-note mt-sm">
+      Coût standard calculé : {% if declaration_extra.cout_standard_calcule is not none %}{{ "%.2f"|format(declaration_extra.cout_standard_calcule) }} €{% else %}—{% endif %}
+      · Coût final (standard + supplément) : {% if declaration_extra.cout_final is not none %}{{ "%.2f"|format(declaration_extra.cout_final) }} €{% else %}—{% endif %}
+      · Source actuelle : {{ declaration_extra.source }}
+    </p>
+    {% endif %}
+    <div class="mt-sm">
+      <button type="submit" class="btn btn-primary">Enregistrer la déclaration</button>
+    </div>
+  </form>
+  {% endif %}
+  {% if declaration_historique %}
+  <h3 class="mt-md text-sm">Historique des modifications</h3>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Date</th><th>Champ</th><th>Ancienne valeur</th><th>Nouvelle valeur</th>
+                 <th>Justification</th><th>Auteur</th><th>Source</th></tr></thead>
+      <tbody>
+        {% for h in declaration_historique %}
+        <tr>
+          <td>{{ h.date_heure }}</td><td>{{ h.champ }}</td>
+          <td>{{ h.ancienne_valeur if h.ancienne_valeur is not none else "—" }}</td>
+          <td>{{ h.nouvelle_valeur if h.nouvelle_valeur is not none else "—" }}</td>
+          <td>{{ h.justification or "—" }}</td><td>{{ h.auteur or "—" }}</td><td>{{ h.source }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
 <!-- ===== Outrepassage ===== -->
 {% if v.statut_effectif in ('A_CONTROLER', 'BLOQUANT', 'JUSTIFIE') %}
 <div class="card mb-md">

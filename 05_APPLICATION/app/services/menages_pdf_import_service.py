@@ -11,6 +11,7 @@ non importé, sans qu'aucune facture ne soit fabriquée pour faire illusion.
 """
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,7 @@ STATUT_EXTRACTION_ECHOUEE = "EXTRACTION_ECHOUEE"
 STATUT_ECRITURE_DESACTIVEE = "ECRITURE_DESACTIVEE"
 STATUT_ERREUR = "ERREUR"
 STATUT_NOUVEAU = "NOUVEAU"
+STATUT_REMPLACEE = "REMPLACEE"  # même nom de fichier, contenu changé -> V1 ANNULEE, V2 créée
 
 _CODES_DOUBLON = (fact.E_DOUBLON_CERTAIN, "E_DOUBLON_CERTAIN")
 
@@ -44,24 +46,67 @@ def lister_pdf(*, dossier: Path | None = None) -> list[Path]:
     return sorted(d.glob("*.pdf")) if d.exists() else []
 
 
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _hash_connu(nom_fichier: str, *, db_path=None) -> str | None:
+    conn = get_db(db_path)
+    try:
+        row = conn.execute(
+            "SELECT sha256 FROM menages_pdf_fichiers_hash WHERE nom_fichier = ?", (nom_fichier,),
+        ).fetchone()
+        return row["sha256"] if row else None
+    finally:
+        conn.close()
+
+
+def _enregistrer_hash(nom_fichier: str, sha256: str, *, db_path=None) -> None:
+    conn = get_db(db_path)
+    try:
+        conn.execute(
+            "INSERT INTO menages_pdf_fichiers_hash (nom_fichier, sha256, date_maj) "
+            "VALUES (?,?,strftime('%Y-%m-%dT%H:%M:%SZ','now')) "
+            "ON CONFLICT(nom_fichier) DO UPDATE SET sha256=excluded.sha256, date_maj=excluded.date_maj",
+            (nom_fichier, sha256))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _deja_traite(nom_fichier: str, *, db_path=None) -> bool:
-    """Un PDF est « déjà traité » si une tentative d'import a produit une facture pour ce fichier
-    (`facture_pdf_diagnostics.facture_id_opaque IS NOT NULL`) — jamais un simple sha256 de fichier,
-    qui confondrait un PDF renommé avec un PDF réellement nouveau (l'extracteur, lui, dédoublonne
-    sur fournisseur+référence, pas sur le nom du fichier)."""
+    """Un PDF est « déjà traité, sans changement » si une tentative d'import a déjà produit une
+    facture pour ce fichier ET que son contenu (sha256) n'a pas changé depuis. Un même nom de
+    fichier dont le CONTENU a changé (PDF remplacé sur place, §E3) n'est PAS considéré déjà traité :
+    il redevient éligible à un import, qui déclenchera alors le remplacement V1->V2 côté
+    `facture_menage_pdf_service` si le montant diffère, ou sera refusé comme doublon sinon."""
     conn = get_db(db_path)
     try:
         if not conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='facture_pdf_diagnostics'"
         ).fetchone():
             return False
-        return conn.execute(
+        deja = conn.execute(
             "SELECT 1 FROM facture_pdf_diagnostics "
             "WHERE nom_fichier = ? AND facture_id_opaque IS NOT NULL LIMIT 1",
             (nom_fichier,),
         ).fetchone() is not None
     finally:
         conn.close()
+    if not deja:
+        return False
+    return True  # la distinction contenu-changé se fait dans apercu()/importer_nouveaux() (hash)
+
+
+def _contenu_change(p: Path, *, db_path=None) -> bool:
+    connu = _hash_connu(p.name, db_path=db_path)
+    return connu is not None and connu != _sha256(p)
+
+
+def _statut_apercu(p: Path, *, db_path=None) -> str:
+    if not _deja_traite(p.name, db_path=db_path):
+        return STATUT_NOUVEAU
+    return STATUT_NOUVEAU if _contenu_change(p, db_path=db_path) else STATUT_DEJA_IMPORTEE
 
 
 def apercu(*, dossier: Path | None = None, db_path=None) -> dict[str, Any]:
@@ -69,8 +114,7 @@ def apercu(*, dossier: Path | None = None, db_path=None) -> dict[str, Any]:
     d = Path(dossier) if dossier else cfg.MENAGES_PDF_DIR
     pdfs = lister_pdf(dossier=d)
     details = [
-        {"nom_fichier": p.name,
-         "statut": STATUT_DEJA_IMPORTEE if _deja_traite(p.name, db_path=db_path) else STATUT_NOUVEAU}
+        {"nom_fichier": p.name, "statut": _statut_apercu(p, db_path=db_path)}
         for p in pdfs
     ]
     nb_nouveaux = sum(1 for d_ in details if d_["statut"] == STATUT_NOUVEAU)
@@ -92,16 +136,25 @@ def importer_nouveaux(*, acteur: str = "", dossier: Path | None = None,
     (dédoublonnage délégué à `factures_service.creer`, pas réimplémenté ici)."""
     pdfs = lister_pdf(dossier=dossier)
     details: list[dict[str, Any]] = []
-    nb_importees = nb_deja = nb_echecs = nb_desactive = 0
+    nb_importees = nb_deja = nb_echecs = nb_desactive = nb_remplacees = 0
     for p in pdfs:
+        if _deja_traite(p.name, db_path=db_path) and not _contenu_change(p, db_path=db_path):
+            details.append({"nom_fichier": p.name, "statut": STATUT_DEJA_IMPORTEE, "resultat": {"ok": True}})
+            nb_deja += 1
+            continue
         res = pdf_import.importer(p, acteur=acteur, db_path=db_path)
         code = res.get("code")
         if res.get("ok"):
-            statut = STATUT_IMPORTEE
-            nb_importees += 1
+            statut = STATUT_REMPLACEE if res.get("remplacement_de") else STATUT_IMPORTEE
+            if statut == STATUT_REMPLACEE:
+                nb_remplacees += 1
+            else:
+                nb_importees += 1
+            _enregistrer_hash(p.name, _sha256(p), db_path=db_path)
         elif _est_doublon(res):
             statut = STATUT_DEJA_IMPORTEE
             nb_deja += 1
+            _enregistrer_hash(p.name, _sha256(p), db_path=db_path)
         elif code == pdf_import.E_EXTRACTION_ECHOUEE:
             statut = STATUT_EXTRACTION_ECHOUEE
             nb_echecs += 1
@@ -117,6 +170,7 @@ def importer_nouveaux(*, acteur: str = "", dossier: Path | None = None,
         "nb_detectes": len(pdfs),
         "nb_importees": nb_importees,
         "nb_deja_importees": nb_deja,
+        "nb_remplacees": nb_remplacees,
         "nb_extraction_echouee": nb_echecs,
         "nb_ecriture_desactivee": nb_desactive,
         "details": details,

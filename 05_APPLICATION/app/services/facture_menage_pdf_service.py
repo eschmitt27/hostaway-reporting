@@ -37,6 +37,46 @@ if _TRAVAIL_DIR not in sys.path:
 E_EXTRACTION_ECHOUEE = "EXTRACTION_ECHOUEE"
 
 
+def _facture_active(fournisseur_id_opaque: str, facture_ref: str, db_path=None) -> dict[str, Any] | None:
+    conn = get_db(db_path)
+    try:
+        row = conn.execute(
+            "SELECT * FROM factures WHERE fournisseur_id_opaque = ? AND facture_ref = ? "
+            "AND statut <> ? ORDER BY id DESC LIMIT 1",
+            (fournisseur_id_opaque, facture_ref, fact.ST_ANNULEE),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def _tenter_remplacement_v1_v2(fac, form: dict[str, Any], *, acteur: str,
+                               db_path=None) -> dict[str, Any] | None:
+    """Réémission d'un PDF déjà connu (même fournisseur+référence) avec un CONTENU différent
+    (montant TTC différent) : V1 est ANNULÉE (jamais supprimée, reste tracée via facture_evenements
+    et facture_pdf_diagnostics), V2 devient la seule facture active et comptabilisable (§E3/test 14).
+    Un même contenu (montant identique) reste un doublon CERTAIN, refusé comme avant."""
+    active = _facture_active(fac.prestataire_id, fac.numero_facture, db_path=db_path)
+    if active is None:
+        return None
+    ancien_montant = active.get("montant_ttc")
+    nouveau_montant = fac.montant_total_facture
+    if ancien_montant is not None and nouveau_montant is not None and round(float(ancien_montant), 2) == round(float(nouveau_montant), 2):
+        return None  # contenu identique : vrai doublon, pas une nouvelle version
+    annulation = fact.changer_statut(
+        active["facture_id_opaque"], fact.ST_ANNULEE, acteur=acteur,
+        commentaire=f"Remplacée automatiquement par une nouvelle version du PDF "
+                   f"({fac.nom_fichier_source}) — montant {ancien_montant} -> {nouveau_montant}",
+        db_path=db_path)
+    if not annulation.get("ok"):
+        return None
+    resultat = fact.creer(form, acteur=acteur, db_path=db_path,
+                          fournisseur_actif=_fournisseur_actif(fac.prestataire_id, db_path=db_path))
+    if resultat.get("ok"):
+        resultat["remplacement_de"] = active["facture_id_opaque"]
+    return resultat
+
+
 def _fournisseur_actif(prestataire_id: str, db_path=None) -> bool | None:
     """Statut du fournisseur si le référentiel le connaît, None sinon — jamais deviné."""
     f = frs.charger_par_opaque(prestataire_id, db_path=db_path)
@@ -90,8 +130,14 @@ def importer(path, *, acteur: str = "", db_path=None) -> dict[str, Any]:
     actif = _fournisseur_actif(fac.prestataire_id, db_path=db_path) if fac.prestataire_id else None
     resultat = fact.creer(form, acteur=acteur, db_path=db_path, fournisseur_actif=actif)
     if not resultat.get("ok"):
-        _enregistrer_diagnostic(fac, facture_id_opaque=None, db_path=db_path)
-        return resultat
+        codes = [resultat.get("code")] + [e.get("code") for e in (resultat.get("erreurs") or [])]
+        if fact.E_DOUBLON_CERTAIN in codes and fac.prestataire_id and fac.numero_facture:
+            remplacement = _tenter_remplacement_v1_v2(fac, form, acteur=acteur, db_path=db_path)
+            if remplacement is not None:
+                resultat = remplacement
+        if not resultat.get("ok"):
+            _enregistrer_diagnostic(fac, facture_id_opaque=None, db_path=db_path)
+            return resultat
 
     facture_id = resultat["facture_id_opaque"]
     _enregistrer_diagnostic(fac, facture_id_opaque=facture_id, db_path=db_path)

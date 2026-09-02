@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Ménages — Conflits Google Sheet / Application{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Conflits Google Sheet / Application</h1>
+  <p class="page-subtitle">
+    Une déclaration modifiée depuis l'application diverge de la valeur réimportée depuis la Google
+    Sheet — aucune fusion automatique n'a lieu, un choix explicite est requis.
+  </p>
+</div>
+
+{% if request.query_params.get('erreur') %}
+<div class="alert alert-error">{{ request.query_params.get('erreur') }}</div>
+{% endif %}
+
+{% if conflits %}
+<div class="table-container">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Mois</th><th>Logement</th><th>Intervenant</th><th>Champ</th>
+        <th>Valeur Application</th><th>Valeur Google Sheet</th><th>Détecté le</th><th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in conflits %}
+      <tr>
+        <td>{{ c.mois }}</td>
+        <td>{{ c.logement_id | nom_logement }}</td>
+        <td>{{ c.intervenant_id | nom_intervenant }}</td>
+        <td>{{ c.champ }}</td>
+        <td><strong>{{ c.valeur_application }}</strong></td>
+        <td><strong>{{ c.valeur_sheet }}</strong></td>
+        <td>{{ c.date_detection }}</td>
+        <td>
+          {% if c.statut == 'OUVERT' %}
+          <form method="post" action="/menages/conflits/{{ c.id }}/resoudre" style="display:inline;">
+            <input type="hidden" name="choix" value="GARDER_APPLICATION">
+            <button type="submit" class="btn btn-secondary btn-sm">Garder la valeur application</button>
+          </form>
+          <form method="post" action="/menages/conflits/{{ c.id }}/resoudre" style="display:inline;">
+            <input type="hidden" name="choix" value="REPRENDRE_SHEET">
+            <button type="submit" class="btn btn-secondary btn-sm">Reprendre la valeur Google Sheet</button>
+          </form>
+          {% else %}
+          <span class="badge badge-info">{{ c.statut }}</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty-state"><p>Aucun conflit {{ statut | lower }} à ce jour.</p></div>
+{% endif %}
+{% endblock %}
