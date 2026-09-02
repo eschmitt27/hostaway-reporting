@@ -669,6 +669,12 @@ class HostawayClient:
         return data.get("result", {})
 
     def get_tasks(self, date_from: str) -> list:
+        """`/v1/tasks` ignore `limit`/`offset` : chaque appel rend la totalité du résultat
+        (constaté : `count`=727, `result` de longueur 727 quel que soit `offset`). Le test
+        `len(batch) < PAGE_SIZE` ne s'arrête donc jamais — boucle infinie observée en
+        production (diagnostic mission cleaning-tasks). Arrêt dès que `count` (fourni par
+        l'API) est atteint, avec dédoublonnage défensif par `id` au cas où un futur
+        comportement de l'API redevienne partiellement paginé."""
         results, offset = [], 0
         while True:
             data  = self._get("/v1/tasks", {
@@ -676,11 +682,20 @@ class HostawayClient:
             })
             batch = data.get("result", [])
             results.extend(batch)
-            if len(batch) < PAGE_SIZE:
+            total = data.get("count")
+            if not batch or len(batch) < PAGE_SIZE or (total is not None and len(results) >= total):
                 break
             offset += PAGE_SIZE
             time.sleep(0.2)
-        return results
+        seen: set = set()
+        deduped = []
+        for t in results:
+            tid = t.get("id")
+            if tid in seen:
+                continue
+            seen.add(tid)
+            deduped.append(t)
+        return deduped
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -1280,14 +1295,30 @@ def _extract_cleaning_tasks(client, date_from: str, detector, log) -> tuple:
     try:
         tasks_raw = client.get_tasks(date_from)
         for t in tasks_raw:
+            # `scheduledDate`/`date` n'existent plus dans le schema /v1/tasks constate (diagnostic
+            # mission cleaning-tasks) : la tache expose desormais `canStartFrom`
+            # ("2026-02-22 10:00:00", date-heure a laquelle le menage peut demarrer, juste apres le
+            # depart) — c'est le champ le plus proche d'une date de menage planifiee. Sans lui,
+            # `shouldEndBy` (echeance) en repli. Avant ce correctif, l'absence totale de ces deux
+            # champs laissait `scheduled_date` toujours vide (727/727 taches A_CONTROLER).
+            date_brute = t.get("canStartFrom") or t.get("shouldEndBy")
+            scheduled_date = date_brute.split(" ")[0] if date_brute else None
             rows_tasks.append({
                 "task_id":        t.get("id"),
                 "reservation_id": t.get("reservationId"),
                 "listingMapId":   t.get("listingMapId"),
                 "task_type":      t.get("taskType") or t.get("type"),
                 "status":         t.get("status"),
-                "scheduled_date": t.get("scheduledDate") or t.get("date"),
+                "scheduled_date": scheduled_date,
                 "assignee":       t.get("assigneeName") or t.get("assignee"),
+                # Champs bruts additionnels — requis par le pont SQLite
+                # (`hostaway_cleaning_tasks_raw_service`, colonnes `title`/`can_start_from`/
+                # `assignee_user_id`, alias sur les noms API ci-dessous). Sans eux, la reprise via
+                # Excel/`depuis_master_excel` les laissait toujours NULL en SQLite (diagnostic
+                # mission cleaning-tasks) — jamais lus par ce dict avant ce correctif.
+                "title":          t.get("title"),
+                "canStartFrom":   t.get("canStartFrom"),
+                "assigneeUserId": t.get("assigneeUserId"),
                 "cost":           None,  # H6 : jamais valorise
                 "h6_note":        "cost=NULL_H6_comptage_uniquement",
                 "extrait_le":     now_utc(),
