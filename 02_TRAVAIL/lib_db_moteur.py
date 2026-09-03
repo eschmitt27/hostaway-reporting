@@ -35,6 +35,35 @@ ST_SUCCES = "SUCCES"
 ST_PARTIEL = "PARTIEL"
 ST_ECHEC = "ECHEC"
 
+# ── Statuts de facture qui engagent l'economie ──────────────────────────────────────────────────
+# Une facture fournisseur RECUE n'est pas une charge economique : tant qu'un humain ne l'a pas
+# validee, son montant ne doit alimenter ni le cout reel (lot6e) ni le cout complet (lot6f), donc ni
+# TYPE_FLUX_014/018/019 dans lot9. Le defaut inverse a reellement existe : les requetes
+# `facture_lignes_menage JOIN factures` ne filtraient que `type_ligne`, si bien qu'une ligne d'une
+# facture A_CONTROLER traversait toute la chaine economique.
+#
+# SOURCE DE VERITE : `05_APPLICATION/app/services/factures_service.STATUTS_COMPTABLES`.
+# Recopie ici et non importee : cette lib documente plus haut qu'un lot moteur n'importe jamais
+# l'application (interpreteurs distincts). La copie est verrouillee par un test de synchronisation
+# qui echoue si les deux ensembles divergent.
+#
+# VALIDEE seule ne suffirait pas : une facture PARTIELLEMENT_REGLEE ou REGLEE a ete validee puis
+# payee, elle est economiquement reelle. Ne garder que VALIDEE ferait disparaitre du resultat une
+# charge pourtant reglee.
+STATUTS_FACTURE_COMPTABLES = ("VALIDEE", "PARTIELLEMENT_REGLEE", "REGLEE")
+
+
+def filtre_sql_factures_comptables(alias: str = "f") -> str:
+    """Fragment SQL restreignant une jointure `factures` aux statuts qui engagent l'economie.
+
+    Rendu en litteraux plutot qu'en parametres : les appelants concatenent ce fragment dans des
+    requetes qui portent deja leurs propres parametres positionnels, et melanger les deux est la
+    meilleure facon d'introduire un decalage silencieux. Les valeurs sont des constantes internes,
+    jamais une entree utilisateur.
+    """
+    valeurs = ", ".join(f"'{s}'" for s in STATUTS_FACTURE_COMPTABLES)
+    return f"{alias}.statut IN ({valeurs})"
+
 
 def maintenant() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

@@ -119,14 +119,20 @@ if args.source == "SQLITE":
     # ── C. Ménages externes déclarés — facture_lignes_menage/detail (0037/0039) ───────────────────
     ext = []
     if dbm.table_presente(_conn, "facture_lignes_menage"):
+        # Lot6d est l'ecran de CONTROLE : il COMPTE des menages, il n'additionne aucun montant.
+        # Les factures A_CONTROLER sont donc volontairement chargees ici — les masquer ferait
+        # disparaitre du rapprochement la facture meme qu'un humain doit examiner. Le filtre par
+        # statut s'applique la ou des MONTANTS sont agreges (lot6e, lot6f), pas ici.
+        # `statut_facture`/`economique` sont remontes pour que l'aval affiche explicitement
+        # « impact economique retenu = 0 » sans redemander la base.
         cur = _conn.execute(
             "SELECT l.facture_id_opaque, l.logement_id, f.fournisseur_id_opaque AS prestataire_id, "
-            "l.montant_ttc, d.quantite, f.date_facture "
+            "l.montant_ttc, d.quantite, f.date_facture, f.statut "
             "FROM facture_lignes_menage l "
             "JOIN factures f ON f.facture_id_opaque = l.facture_id_opaque "
             "LEFT JOIN facture_lignes_menage_detail d ON d.ligne_id_opaque = l.ligne_id_opaque "
             "WHERE l.type_ligne = 'MENAGE_EXTERNE'")
-        for facture_id, logement_id, prestataire_id, montant_ttc, quantite, date_facture \
+        for facture_id, logement_id, prestataire_id, montant_ttc, quantite, date_facture, statut \
                 in cur.fetchall():
             ext.append({
                 "mois": str(date_facture or "")[:7], "logement_id": logement_id,
@@ -134,6 +140,8 @@ if args.source == "SQLITE":
                 "type_ligne_menage_id": "TLM_001",   # équivalent SQLite : MENAGE_EXTERNE compte
                 "nombre_menages": quantite if quantite is not None else 1,
                 "montant_ligne_ttc": montant_ttc, "facture_id": facture_id,
+                "statut_facture": statut,
+                "economique": statut in dbm.STATUTS_FACTURE_COMPTABLES,
             })
 
     # ── D. Ménages internes déclarés — menages_declarations_internes (0038) ───────────────────────
@@ -228,6 +236,13 @@ for d in ext:
         controls.append({"type": "EXCLU_VOLUME", "niveau": "INFO",
             "detail": f"facture {d.get('facture_id')} ligne 0€/q0 exclue du comptage"})
         continue
+    # Comptee dans le rapprochement (elle existe, un humain doit la voir), mais signalee comme
+    # sans effet economique tant que la facture n'est pas validee : lot6e/lot6f l'ignorent.
+    if d.get("statut_facture") is not None and not d.get("economique"):
+        controls.append({"type": "FACTURE_NON_VALIDEE_HORS_ECONOMIQUE", "niveau": "A_CONTROLER",
+            "detail": f"facture {d.get('facture_id')} statut={d.get('statut_facture')} — "
+                      f"comptee au rapprochement, impact economique retenu 0 "
+                      f"(montant presente {m})"})
     ext_cnt[(d.get("logement_id"), d.get("prestataire_id"))] += q
 
 # ── D. Ménages internes déclarés du mois ─────────────────────────────────────

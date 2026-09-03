@@ -232,8 +232,51 @@ def test_lot9_expose_les_deux_origines_par_une_interface_unique():
     l'économie, ce que le backfill existe justement pour éviter."""
     src9 = LOT9.read_text(encoding="utf-8", errors="replace")
     bloc = src9.split("def charger_cout_complet_menages")[1].split("\ndef ")[0]
+    # Le flux lui-même : un SELECT non filtré, figé et calculé confondus.
     assert "SELECT * FROM menages_cout_complet" in bloc
-    assert "WHERE source_type" not in bloc, "le flux ne doit pas être filtré par provenance"
+    # La garantie porte sur la requête QUI CONSTRUIT LE FLUX, pas sur la simple présence du mot
+    # `source_type` dans la fonction : le comptage informatif des lignes figées interroge
+    # légitimement `menages_cout_complet_provenance` pour tracer l'origine dans le log, sans jamais
+    # restreindre `rows`. Viser la chaîne brute rendait cette assertion fausse — elle échouait déjà
+    # avant que TYPE_FLUX_014 ne bascule à son tour vers SQLite.
+    ligne_du_flux = next(l for l in bloc.splitlines() if "SELECT * FROM menages_cout_complet" in l)
+    assert "source_type" not in ligne_du_flux, "le flux ne doit pas être filtré par provenance"
+    assert "menages_cout_complet_provenance" not in ligne_du_flux
+
+
+def test_lot9_ne_lit_plus_le_classeur_menages_externes():
+    """STRUCTUREL — TYPE_FLUX_014 se construit depuis SQLite, plus depuis le classeur Lot6c.
+
+    Le classeur `MASTER_FACT_MEN_MenagesExternes.xlsx` (SRC_MEN) était la dernière source Excel
+    économique du module Ménages dans lot9."""
+    src9 = LOT9.read_text(encoding="utf-8", errors="replace")
+    assert "charger_menages_externes" in src9
+    assert "menages_externes_historique" in src9
+    # On vise le CODE, pas les commentaires : le fichier explique justement pourquoi SRC_MEN a
+    # disparu, et cette explication doit pouvoir mentionner le nom sans faire échouer le garde-fou.
+    code = [l for l in src9.splitlines() if not l.lstrip().startswith("#")]
+    assert not [l for l in code if "SRC_MEN =" in l], "la constante SRC_MEN ne doit plus exister"
+    assert not [l for l in code if "SRC_MEN" in l and "load_sheet" in l], \
+        "le classeur Lot6c ne doit plus être lu au runtime"
+    # Aucun chemin vers le dossier Lot6c ne doit plus être CONSTRUIT (les docstrings peuvent encore
+    # nommer le classeur pour expliquer la bascule — c'est de la documentation, pas une lecture).
+    assert not [l for l in code if "Lot6c_MenagesExternes" in l], \
+        "plus aucun chemin runtime vers le classeur Lot6c"
+
+
+def test_lot9_ne_retient_que_les_factures_comptables_pour_type_flux_014():
+    """Une facture A_CONTROLER n'alimente jamais TYPE_FLUX_014.
+
+    Le filtre passe par le fragment partagé `filtre_sql_factures_comptables`, pas par une liste de
+    statuts recopiée à la main dans lot9 — sinon les deux divergeraient au premier ajout de statut.
+    """
+    src9 = LOT9.read_text(encoding="utf-8", errors="replace")
+    bloc = src9.split("def charger_menages_externes")[1].split("\ndef ")[0]
+    assert "filtre_sql_factures_comptables" in bloc
+    assert "'A_CONTROLER'" not in bloc
+    # L'historique figé garde son propre vocabulaire legacy ('VALIDE'), distinct de l'énumération
+    # applicative : c'est voulu, et c'est exactement ce que filtrait l'ancien `men_valide`.
+    assert "statut_source" in bloc
 
 
 def test_hash_des_classeurs_legacy_inchange_par_un_run_operationnel(tmp_path):

@@ -28,6 +28,11 @@ from typing import Any
 SOURCE_TYPE_FIGE = "LEGACY_IMPORT_FIGE"
 FEUILLE = "DETAIL_COUT_COMPLET"
 
+# Statut de contrôle du classeur legacy Lot6c — vocabulaire DISTINCT de l'énumération applicative
+# `factures_service.ST_VALIDEE` ("VALIDEE"). Ici c'est la valeur historique "VALIDE", telle que lot9
+# la filtrait (`men_valide`). Ne pas confondre les deux : ce sont deux référentiels différents.
+STATUT_LEGACY_VALIDE = "VALIDE"
+
 # Clé métier d'une ligne de coût complet (cf. index partiel unique, migration 0068).
 CLE = ("mois", "logement_id", "intervenant_id")
 
@@ -162,6 +167,177 @@ def importer_historique_fige(*, chemin_classeur, db_path, mois_autorises=None) -
     return {"ok": True, "nb_lignes": nb, "mois": cibles, "source_fichier": path.name,
             "source_hash": empreinte, "date_import": horodatage,
             "colonnes_reprises": communes}
+
+
+# ── Ménages externes facturés (SRC_MEN / TYPE_FLUX_014) ─────────────────────────────────────────
+# Même décision, même garde-fous que ci-dessus, sur l'autre classeur legacy que lot9 lisait encore.
+# La différence tient à la cible : il n'existe AUCUNE table canonique capable d'accueillir ces
+# lignes sans inventer de fausses `factures` (cf. migration 0069), elles vont donc dans leur propre
+# table d'historique.
+
+FEUILLE_EXTERNES = "MASTER"
+
+# Colonnes reprises verbatim du classeur legacy vers `menages_externes_historique`.
+# `source_pk` alimente le ROW_HASH de lot9 : il doit être repris tel quel, jamais régénéré.
+_COLONNES_EXTERNES = (
+    "source_pk", "mois", "logement_id", "proprietaire_id", "prestataire_id",
+    "date_facture", "date_menage", "montant_ligne_ttc", "type_flux_id", "sens", "code_impact",
+)
+
+
+def _date_iso(valeur):
+    """Date de classeur -> 'AAAA-MM-JJ'. Laisse passer None et les chaînes déjà normalisées."""
+    if valeur is None or isinstance(valeur, str):
+        return valeur
+    iso = getattr(valeur, "isoformat", None)
+    return iso()[:10] if callable(iso) else str(valeur)
+
+
+def lire_classeur_externes(chemin) -> list[dict[str, Any]]:
+    """Lignes brutes de la feuille MASTER du classeur Lot6c, sans transformation (lecture seule)."""
+    import openpyxl
+
+    path = Path(chemin)
+    if not path.exists():
+        raise FileNotFoundError(f"{E_CLASSEUR_ABSENT}: {path}")
+    wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
+    try:
+        if FEUILLE_EXTERNES not in wb.sheetnames:
+            raise KeyError(f"{E_FEUILLE_ABSENTE}: {FEUILLE_EXTERNES}")
+        ws = wb[FEUILLE_EXTERNES]
+        rows = [r for r in ws.iter_rows(values_only=True) if any(c is not None for c in r)]
+    finally:
+        wb.close()
+    if not rows:
+        return []
+    entetes = [str(c) for c in rows[0]]
+    return [dict(zip(entetes, r)) for r in rows[1:]]
+
+
+def importer_externes_historique(*, chemin_classeur, db_path, mois_autorises=None,
+                                 statut_cloture: str | None = None) -> dict[str, Any]:
+    """Importe VERBATIM les ménages externes figés du classeur Lot6c.
+
+    Toutes les lignes sont importées, y compris celles dont le `statut_controle` legacy n'est pas
+    VALIDE : l'historique n'est jamais amputé. C'est le LECTEUR qui écarte ensuite les non-VALIDE du
+    calcul économique, exactement comme le faisait lot9 (`men_valide`).
+
+    Idempotent : la clé est `source_pk`, un rejeu remplace la ligne au lieu d'en ajouter une seconde.
+    """
+    path = Path(chemin_classeur)
+    lignes = lire_classeur_externes(path)
+    empreinte = _sha256(path)
+    horodatage = _now()
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        existe = conn.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?",
+            ("menages_externes_historique",)).fetchone()[0]
+        if not existe:
+            return {"ok": False, "code": E_TABLE_ABSENTE,
+                    "message": "menages_externes_historique absente : migrations non appliquées."}
+
+        mois_classeur = sorted({str(l.get("mois")) for l in lignes if l.get("mois")})
+        cibles = [m for m in mois_classeur if mois_autorises is None or m in set(mois_autorises)]
+        insertions = [l for l in lignes if str(l.get("mois")) in set(cibles)]
+
+        nb = nb_valide = 0
+        for l in insertions:
+            statut_src = str(l.get("statut_controle") or "")
+            # openpyxl rend les cellules de date en `datetime` ; sqlite3 3.12 déprécie leur
+            # adaptation implicite. On stocke la forme ISO courte, celle que lot9 relit.
+            valeurs = [_date_iso(l.get(c)) if c in ("date_facture", "date_menage")
+                       else l.get(c) for c in _COLONNES_EXTERNES]
+            conn.execute(
+                f"INSERT OR REPLACE INTO menages_externes_historique "
+                f"({', '.join(_COLONNES_EXTERNES)}, statut_source, source_type, source_fichier, "
+                f" source_hash, statut_cloture, date_import) "
+                f"VALUES ({', '.join('?' for _ in _COLONNES_EXTERNES)},?,?,?,?,?,?)",
+                valeurs + [statut_src, SOURCE_TYPE_FIGE, path.name, empreinte,
+                           statut_cloture, horodatage])
+            nb += 1
+            if statut_src == STATUT_LEGACY_VALIDE:
+                nb_valide += 1
+        conn.commit()
+    finally:
+        conn.close()
+
+    return {"ok": True, "nb_lignes": nb, "nb_valide": nb_valide,
+            "nb_non_valide": nb - nb_valide, "mois": cibles,
+            "source_fichier": path.name, "source_hash": empreinte, "date_import": horodatage}
+
+
+def menages_externes_economiques(*, db_path) -> list[dict[str, Any]]:
+    """INTERFACE UNIQUE de lot9 pour TYPE_FLUX_014 (§C) — historique figé + factures courantes.
+
+    Deux origines, un seul contrat de sortie ; lot9 ne sait pas laquelle il consomme :
+
+      - historique figé (`menages_externes_historique`) : mois déjà arrêtés, repris tels quels du
+        classeur legacy. Filtré sur le statut legacy VALIDE — c'est exactement ce que faisait
+        `men_valide` dans lot9, le comportement économique est donc inchangé.
+
+      - factures courantes (`facture_lignes_menage` × `factures`) : restreintes aux statuts qui
+        engagent l'économie. Une facture A_CONTROLER n'apparaît jamais ici — elle reste visible dans
+        le rapprochement (lot6d), avec un impact économique nul.
+
+    `source_pk` est rendu tel quel pour l'historique (clé legacy conservée, ROW_HASH stable) et
+    dérivé de l'identifiant de ligne pour le courant.
+    """
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    try:
+        lignes: list[dict[str, Any]] = []
+
+        def _table(nom: str) -> bool:
+            return bool(conn.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?",
+                (nom,)).fetchone()[0])
+
+        if _table("menages_externes_historique"):
+            for r in conn.execute(
+                    "SELECT * FROM menages_externes_historique WHERE statut_source = ? "
+                    "ORDER BY source_pk", (STATUT_LEGACY_VALIDE,)):
+                d = dict(r)
+                lignes.append({
+                    "source_pk": d["source_pk"], "mois": d["mois"],
+                    "logement_id": d["logement_id"], "proprietaire_id": d["proprietaire_id"],
+                    "prestataire_id": d["prestataire_id"], "date_facture": d["date_facture"],
+                    "date_menage": d["date_menage"],
+                    "montant_ligne_ttc": d["montant_ligne_ttc"],
+                    "type_flux_id": d["type_flux_id"], "sens": d["sens"],
+                    "code_impact": d["code_impact"], "origine": "HISTORIQUE_FIGE",
+                })
+
+        if _table("facture_lignes_menage") and _table("factures"):
+            # Source de vérité applicative des statuts qui engagent l'économie (le miroir moteur
+            # vit dans `lib_db_moteur.STATUTS_FACTURE_COMPTABLES`, verrouillé par un test de sync).
+            from app.services.factures_service import STATUTS_COMPTABLES
+
+            statuts_comptables = tuple(sorted(STATUTS_COMPTABLES))
+            statuts = ", ".join("?" for _ in statuts_comptables)
+            sql = (
+                "SELECT l.ligne_id_opaque, l.logement_id, l.montant_ttc, "
+                "       f.fournisseur_id_opaque, f.date_facture, f.statut "
+                "FROM facture_lignes_menage l "
+                "JOIN factures f ON f.facture_id_opaque = l.facture_id_opaque "
+                f"WHERE l.type_ligne = 'MENAGE_EXTERNE' AND f.statut IN ({statuts}) "
+                "ORDER BY l.ligne_id_opaque")
+            for r in conn.execute(sql, statuts_comptables):
+                d = dict(r)
+                lignes.append({
+                    "source_pk": d["ligne_id_opaque"],
+                    "mois": str(d["date_facture"] or "")[:7],
+                    "logement_id": d["logement_id"], "proprietaire_id": None,
+                    "prestataire_id": d["fournisseur_id_opaque"],
+                    "date_facture": d["date_facture"], "date_menage": None,
+                    "montant_ligne_ttc": d["montant_ttc"],
+                    "type_flux_id": "TYPE_FLUX_014", "sens": "CHARGE",
+                    "code_impact": "IC", "origine": "FACTURE_VALIDEE",
+                })
+        return lignes
+    finally:
+        conn.close()
 
 
 def lignes_figees(*, db_path, mois=None) -> list[dict[str, Any]]:

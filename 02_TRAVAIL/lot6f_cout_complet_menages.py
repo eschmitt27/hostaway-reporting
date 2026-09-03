@@ -209,7 +209,11 @@ if args.source == "SQLITE":
             "FROM facture_lignes_menage l "
             "JOIN factures f ON f.facture_id_opaque = l.facture_id_opaque "
             "LEFT JOIN facture_lignes_menage_detail d ON d.ligne_id_opaque = l.ligne_id_opaque "
-            "WHERE l.type_ligne = 'MENAGE_EXTERNE'")
+            # Seules les factures VALIDEES entrent dans le cout complet : une facture A_CONTROLER
+            # est un document recu, pas une charge acceptee. Sans ce filtre, son montant remontait
+            # jusqu'a menages_cout_complet puis TYPE_FLUX_018/019 dans lot9.
+            "WHERE l.type_ligne = 'MENAGE_EXTERNE' "
+            f"AND {dbm.filtre_sql_factures_comptables('f')}")
         for lg, pid, mttc, qte, dfac, fid in cur.fetchall():
             if str(dfac or "")[:7] != MONTH: continue
             q = qte if qte is not None else 1

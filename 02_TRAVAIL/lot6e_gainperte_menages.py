@@ -210,7 +210,11 @@ if args.source == "SQLITE":
             "FROM facture_lignes_menage l "
             "JOIN factures f ON f.facture_id_opaque = l.facture_id_opaque "
             "LEFT JOIN facture_lignes_menage_detail d ON d.ligne_id_opaque = l.ligne_id_opaque "
-            "WHERE l.type_ligne = 'MENAGE_EXTERNE'")
+            # Seules les factures VALIDEES engagent l'economie : le cout reel d'un menage externe
+            # est un montant facture ACCEPTE, pas un montant simplement recu. Une facture
+            # A_CONTROLER reste visible dans le rapprochement (lot6d) mais pese 0 ici.
+            "WHERE l.type_ligne = 'MENAGE_EXTERNE' "
+            f"AND {dbm.filtre_sql_factures_comptables('f')}")
         ext_rows = [{"mois": str(dfac or "")[:7], "logement_id": lg, "prestataire_id": pid,
                     "type_ligne_menage_id": "TLM_001",
                     "nombre_menages": qte if qte is not None else 1, "montant_ligne_ttc": mttc,

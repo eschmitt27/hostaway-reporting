@@ -169,6 +169,7 @@ EXPECTED_TABLES = {
     "menages_pdf_fichiers_hash",                  # 0066 — hash des PDF surveilles (detection remplacement)
     "menages_runs_cibles",                        # 0067 — trace mois_demande/mois_traite du recalcul cible
     "menages_cout_complet_provenance",            # 0068 — origine des lignes : historique fige vs calcul courant
+    "menages_externes_historique",                # 0069 — menages externes figes (TYPE_FLUX_014), sans fausse facture
 }
 
 

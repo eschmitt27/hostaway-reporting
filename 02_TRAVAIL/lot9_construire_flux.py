@@ -32,7 +32,9 @@ import lib_db_moteur as dbm
 # ── CHEMINS ───────────────────────────────────────────────────────────────────
 ROOT    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_RES = os.path.join(ROOT, '02_TRAVAIL', 'Lot4quater_SourceResolue', 'MASTER_CALC_Reservations_Resolues.xlsx')  # source résolue open/closed (lot4quater)
-SRC_MEN = os.path.join(ROOT, '02_TRAVAIL', 'Lot6c_MenagesExternes', 'MASTER_FACT_MEN_MenagesExternes.xlsx')
+# Pas de SRC_MEN : les menages externes viennent desormais de SQLite (historique fige
+# `menages_externes_historique` + factures reellement validees), cf. `charger_menages_externes()`.
+# Le classeur Lot6c reste une archive de migration, plus une source runtime.
 SRC_BNQ = os.path.join(ROOT, '02_TRAVAIL', 'Lot8_Banque',           'BANQUE_LOT8_IMPORT.xlsx')
 # Lot 9 correctif (2026-06-14) : ingestion charges (Lot 3)
 SRC_CHG = os.path.join(ROOT, '02_TRAVAIL', 'Lot3_Charges',          'MASTER_FACT_MAN_Charges.xlsx')
@@ -159,9 +161,69 @@ def charger_cout_complet_menages():
     return rows
 
 
+def charger_menages_externes():
+    """Ménages externes facturés (TYPE_FLUX_014) — SOURCE UNIQUE SQLite.
+
+    Remplace la lecture du classeur `MASTER_FACT_MEN_MenagesExternes.xlsx` (SRC_MEN). Une seule
+    interface sert les deux origines, indistinctement (mission §C) :
+
+      - `menages_externes_historique` : mois déjà arrêtés (2026-05), importés VERBATIM du classeur
+        legacy et filtrés sur le statut legacy VALIDE — soit exactement l'ancien `men_valide` ;
+      - `facture_lignes_menage × factures` : factures courantes, restreintes aux statuts qui
+        engagent l'économie. Une facture A_CONTROLER n'entre JAMAIS ici : elle reste visible dans le
+        rapprochement (lot6d) avec un impact économique nul.
+
+    `source_pk` est repris tel quel côté historique : il alimente le ROW_HASH anti-doublon, le
+    régénérer casserait à la fois la parité et le dédoublonnage.
+
+    FAIL-CLOSED : aucune base désignée => refus, jamais de repli silencieux sur le classeur.
+    """
+    chemin = dbm.chemin_db(None)
+    if chemin is None:
+        print('BLOQUANT [CTR-9-MEN] Aucune base SQLite designee '
+              '(PILOTAGE_DB_PATH / APP_DATA_DIR) : menages externes illisibles.')
+        sys.exit(1)
+    if not os.path.exists(str(chemin)):
+        print(f'BLOQUANT [CTR-9-MEN] Base SQLite introuvable : {chemin}')
+        sys.exit(1)
+    conn = dbm.ouvrir(chemin)
+    try:
+        conn.row_factory = sqlite3.Row
+        rows = []
+        n_fige = 0
+        if dbm.table_presente(conn, 'menages_externes_historique'):
+            rows = [dict(r) for r in conn.execute(
+                'SELECT * FROM menages_externes_historique WHERE statut_source = ? '
+                'ORDER BY source_pk', ('VALIDE',))]
+            n_fige = len(rows)
+        if dbm.table_presente(conn, 'facture_lignes_menage') and dbm.table_presente(conn, 'factures'):
+            sql = (
+                'SELECT l.ligne_id_opaque AS source_pk, l.logement_id, l.montant_ttc, '
+                '       f.fournisseur_id_opaque AS prestataire_id, f.date_facture '
+                'FROM facture_lignes_menage l '
+                'JOIN factures f ON f.facture_id_opaque = l.facture_id_opaque '
+                "WHERE l.type_ligne = 'MENAGE_EXTERNE' "
+                f'AND {dbm.filtre_sql_factures_comptables("f")} '
+                'ORDER BY l.ligne_id_opaque')
+            for r in conn.execute(sql):
+                d = dict(r)
+                rows.append({
+                    'source_pk': d['source_pk'], 'mois': str(d['date_facture'] or '')[:7],
+                    'logement_id': d['logement_id'], 'proprietaire_id': None,
+                    'prestataire_id': d['prestataire_id'], 'date_facture': d['date_facture'],
+                    'date_menage': None, 'montant_ligne_ttc': d['montant_ttc'],
+                    'type_flux_id': 'TYPE_FLUX_014', 'sens': 'CHARGE', 'code_impact': 'IC',
+                })
+    finally:
+        conn.close()
+    print(f'  {len(rows)} lignes menages externes SQLite '
+          f'({n_fige} historique fige, {len(rows) - n_fige} facture validee)')
+    return rows
+
+
 # ── CTR-9-001 : fichiers sources existent ────────────────────────────────────
 missing = []
-for p, n in [(SRC_RES, 'MASTER_CALC_Reservations'), (SRC_MEN, 'MASTER_FACT_MEN_MenagesExternes'), (SRC_BNQ, 'BANQUE_LOT8_IMPORT')]:
+for p, n in [(SRC_RES, 'MASTER_CALC_Reservations'), (SRC_BNQ, 'BANQUE_LOT8_IMPORT')]:
     if not os.path.exists(p):
         missing.append(f'{n} ({p})')
 if missing:
@@ -174,10 +236,10 @@ print('Chargement VUE_FLUX...')
 vue_flux = load_sheet(SRC_RES, 'VUE_FLUX')
 print(f'  {len(vue_flux)} lignes')
 
-print('Chargement MenagesExternes MASTER...')
-men_all    = load_sheet(SRC_MEN, 'MASTER')
-men_valide = [r for r in men_all if r.get('statut_controle') == 'VALIDE']
-print(f'  {len(men_valide)} VALIDE / {len(men_all)} total')
+print('Chargement Menages externes (SQLite)...')
+# `men_valide` ne vient plus du classeur Lot6c : le filtre "VALIDE" est desormais applique par
+# `charger_menages_externes()`, qui reunit l'historique fige et les factures reellement validees.
+men_valide = charger_menages_externes()
 
 print('Chargement NORM_Banque...')
 bnq_all    = load_sheet(SRC_BNQ, 'NORM_Banque')
