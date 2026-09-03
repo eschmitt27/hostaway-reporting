@@ -386,6 +386,25 @@ def charger_charges_sqlite(chemin_base) -> pd.DataFrame:
     return _charger_table_sqlite(chemin_base, "charges", _CHARGES_COLS_SQL, vide_ok=True)
 
 
+_AIRBNB_IMP_COLS_SQL = (
+    "imputation_airbnb_id", "transaction_banque_id", "reference_airbnb", "proprietaire_id",
+    "logement_id", "mois", "document_id", "montant_impute", "date_imputation", "justificatif",
+    "statut", "commentaire",
+)
+
+
+def charger_imputations_airbnb_sqlite(chemin_base) -> pd.DataFrame:
+    """`imputations_airbnb` — mission « zéro Excel opérationnel Lot9/10/11 » : `df_airbnb_imp`
+    restait lu inconditionnellement depuis `SAISIE_ImputationsAirbnb.xlsx`, y compris en mode
+    SQLITE. Mêmes noms de colonnes que le classeur historique (`validated_airbnb_imputation`,
+    lib_settlements.py, exige `transaction_banque_id`/`proprietaire_id`/`logement_id`/`mois`/
+    `document_id`/`justificatif`/`statut`/`montant_impute` — tous présents tels quels dans la
+    table). Vide accepté : aucune imputation Airbnb sur la période est un état réel (les deux
+    sources sont d'ailleurs vides aujourd'hui)."""
+    return _charger_table_sqlite(chemin_base, "imputations_airbnb", _AIRBNB_IMP_COLS_SQL,
+                                 vide_ok=True)
+
+
 def charger_refacturations_realisees_sqlite(chemin_base):
     """Refacturations RÉALISÉES (mission 15) — remplace `aggregate_refacturable_charges()` en mode
     SQLite : une charge `refacturable='OUI'` n'est plus automatiquement un produit de refacturation
@@ -680,16 +699,20 @@ def load_sources(source="EXCEL", chemin_base=None):
             conn_regles.close()
 
     # Sources HH + Acomptes (lecture seule, hors placeholder Power Query)
-    # Acomptes (Lot5)/Imputations Airbnb restent une frontière Excel minimale à ce jour — hors
-    # périmètre RESERVATIONS/MENAGES/CHARGES de cette mission. CHARGES a sa propre table SQLite
-    # (0052, déjà canonique pour Lot9) : reconnectée ici mission 14g (voir charger_charges_sqlite).
+    # Acomptes (Lot5) reste une frontière Excel — AUCUNE table SQLite canonique n'existe pour les
+    # acomptes propriétaires à ce jour (mission « zéro Excel opérationnel Lot9/10/11 » : vérifié,
+    # aucune table ne porte cette donnée ; en fabriquer une hors mandat produit explicite serait
+    # inventer un référentiel). CHARGES (0052, mission 14g) et IMPUTATIONS AIRBNB (cette mission)
+    # ont chacune leur table SQLite canonique et basculent sous `--source SQLITE`.
     df_hh = (charger_hh_sqlite(chemin_base) if source == "SQLITE"
             else (_read_sheet(HH_FILE, sheet="MASTER") if HH_FILE.exists() else pd.DataFrame()))
     df_acc = _read_sheet(ACC_FILE, sheet="MASTER") if ACC_FILE.exists() else pd.DataFrame()
     df_charges = (charger_charges_sqlite(chemin_base) if source == "SQLITE"
                  else (_read_sheet(CHARGES_FILE, sheet="MASTER") if CHARGES_FILE.exists()
                        else pd.DataFrame()))
-    df_airbnb_imp = _read_sheet(AIRBNB_IMPUT_FILE, sheet="MASTER") if AIRBNB_IMPUT_FILE.exists() else pd.DataFrame()
+    df_airbnb_imp = (charger_imputations_airbnb_sqlite(chemin_base) if source == "SQLITE"
+                     else (_read_sheet(AIRBNB_IMPUT_FILE, sheet="MASTER")
+                           if AIRBNB_IMPUT_FILE.exists() else pd.DataFrame()))
     if len(df_hh) > 0 and "reservation_hh_id" in df_hh.columns:
         df_hh = df_hh[~df_hh["reservation_hh_id"].map(_is_placeholder_id)].reset_index(drop=True)
     if len(df_acc) > 0 and "acompte_id" in df_acc.columns:

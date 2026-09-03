@@ -248,12 +248,13 @@ def main():
     df_exploit = _read_sheet(NET_FILE,  sheet="EXPLOITATION")
     df_regl    = _read_sheet(NET_FILE,  sheet="REGLEMENT")
     df_rslt_g  = _read_sheet(RSLT_FILE, sheet="GLOBAL")
-    df_rslt_m  = _read_sheet(RSLT_FILE, sheet="PAR_MOIS_LOGEMENT")
+    # `PAR_MOIS_LOGEMENT` (df_rslt_m) et `MEX_FILE` (df_mex) : lus, jamais consommés ensuite (aucune
+    # autre occurrence dans tout le fichier — même schéma que M04 dans une mission précédente).
+    # Lectures mortes, supprimées.
     df_ha_ano  = _read_sheet(HA_ANO_FILE)
     df_chg     = _read_sheet(CHG_FILE,  sheet="MASTER")
     df_hh      = _read_sheet(HH_FILE,   sheet="MASTER")
     df_acc     = _read_sheet(ACC_FILE,  sheet="MASTER")
-    df_mex     = _read_sheet(MEX_FILE,  sheet="MASTER")
     df_ik      = _read_sheet(IK_FILE,   sheet="MASTER_CALC_AVANTAGES")
 
     df_log  = _read_ref_sheet(REF_FILE, "REF_Logements",     "logement_id")
