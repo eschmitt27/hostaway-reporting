@@ -93,7 +93,10 @@ SAISIE_CHG_FILE = BASE / "01_SOURCES_BRUTES/Charges/SAISIE_Charges_Flux.xlsx"  #
 HH_FILE     = BASE / "02_TRAVAIL/Lot4_ReservationsHH/MASTER_FACT_MAN_ReservationsHorsHostaway.xlsx"
 ACC_FILE    = BASE / "02_TRAVAIL/Lot5_AcomptesProprietaires/MASTER_FACT_MAN_AcomptesProprietaires.xlsx"
 MEX_FILE    = BASE / "02_TRAVAIL/Lot6c_MenagesExternes/MASTER_FACT_MEN_MenagesExternes.xlsx"
-M04_FILE    = BASE / "02_DONNEES_NORMALISEES/menages/M04_MENAGES_PowerQuery.xlsx"
+# M04 : plus de classeur au runtime. Lot11 n'en tirait qu'un signal de VACUITE (la cle
+# `menage_calc_id` est-elle presente ?) pour dire « controles M04 non representatifs » — aucune
+# donnee economique, aucun montant. La source canonique des declarations internes est desormais
+# `menages_declarations_internes` (SQLite), alimentee par lot6b. Le classeur reste une archive.
 IK_FILE     = BASE / "02_TRAVAIL/Lot7_IK_Avantages/MASTER_FACT_MAN_IK_Avantages.xlsx"
 REF_FILE    = BASE / "01_SOURCES_BRUTES/REF_Setup/REF_Setup.xlsm"
 BNQ_FILE    = BASE / "02_TRAVAIL/Lot8_Banque/BANQUE_LOT8_IMPORT.xlsx"
@@ -251,7 +254,6 @@ def main():
     df_hh      = _read_sheet(HH_FILE,   sheet="MASTER")
     df_acc     = _read_sheet(ACC_FILE,  sheet="MASTER")
     df_mex     = _read_sheet(MEX_FILE,  sheet="MASTER")
-    df_m04     = _read_sheet(M04_FILE,  sheet="MASTER")
     df_ik      = _read_sheet(IK_FILE,   sheet="MASTER_CALC_AVANTAGES")
 
     df_log  = _read_ref_sheet(REF_FILE, "REF_Logements",     "logement_id")
@@ -284,6 +286,37 @@ def main():
             return True
         return False
 
+    def _declarations_internes_vides():
+        """Y a-t-il au moins une déclaration de ménage interne ? — SQLite, plus le classeur M04.
+
+        Remplace `_is_empty(df_m04, "menage_calc_id")`. Lot11 ne tirait du classeur que ce signal
+        booléen de vacuité : aucun montant, aucun logement, aucune donnée économique. Poser la même
+        question à `menages_declarations_internes` (sortie canonique de lot6b) donne la réponse sans
+        aucune lecture Excel.
+
+        FAIL-CLOSED côté vacuité, pas côté exécution : si la base est absente ou la table pas encore
+        créée, la source est déclarée VIDE — ce qui déclenche précisément le contrôle INFO
+        « contrôles M04 non représentatifs ». Un incident de lecture ne doit jamais être présenté
+        comme une source alimentée.
+        """
+        try:
+            import lib_db_moteur as _dbm
+            chemin = _dbm.chemin_db(None)
+            if chemin is None or not os.path.exists(str(chemin)):
+                return True
+            conn = _dbm.ouvrir(chemin)
+            try:
+                if not _dbm.table_presente(conn, "menages_declarations_internes"):
+                    return True
+                n = conn.execute(
+                    "SELECT COUNT(*) FROM menages_declarations_internes "
+                    "WHERE logement_id IS NOT NULL AND TRIM(logement_id) != ''").fetchone()[0]
+            finally:
+                conn.close()
+        except Exception:
+            return True
+        return n == 0
+
     def _is_empty(df, id_col):
         """Vide métier : 0 ligne, ou la colonne clé est absente, ou toutes les
         lignes ont une clé placeholder (header dupliqué, instruction PQ, formule)."""
@@ -306,7 +339,9 @@ def main():
         "CHARGES": _is_empty(df_chg, "charge_id"),
         "HH":      _is_empty(df_hh,  "reservation_hh_id"),
         "ACOMPTES":_is_empty(df_acc, "acompte_id"),
-        "M04":     _is_empty(df_m04, "menage_calc_id"),
+        # Lu en SQLite, plus dans le classeur : meme question posee a la source canonique
+        # (« y a-t-il au moins une declaration interne ? »), zero lecture Excel.
+        "M04":     _declarations_internes_vides(),
         "IK":      _is_empty(df_ik,  "pk_id"),
     }
 
