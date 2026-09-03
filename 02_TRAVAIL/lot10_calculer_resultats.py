@@ -405,6 +405,44 @@ def charger_imputations_airbnb_sqlite(chemin_base) -> pd.DataFrame:
                                  vide_ok=True)
 
 
+_ACOMPTES_COLS_SQL = (
+    "mouvement_opaque", "proprietaire_id", "logement_id", "montant", "date_mouvement",
+    "statut",
+)
+
+
+def charger_acomptes_proprietaires_sqlite(chemin_base) -> pd.DataFrame:
+    """`mouvements_tresorerie_proprietaires` (migration 0025) — mission « zéro Excel opérationnel
+    Lot9/10/11 » : `df_acc` restait lu inconditionnellement depuis
+    `Lot5_AcomptesProprietaires/MASTER_FACT_MAN_AcomptesProprietaires.xlsx`, y compris en mode
+    SQLITE. Ce n'est PAS un nouvel objet : la migration 0025 documente déjà cette table comme « un
+    mouvement financier société <-> propriétaire (acompte, remboursement, régularisation,
+    compensation, avance, restitution) », distinct de Lot5 (non modifié, non renommé) et « ne crée
+    jamais automatiquement une écriture comptable » — exactement le rôle que jouait le classeur ici
+    (bloc RÈGLEMENT uniquement, D031/D033 : jamais `revenu_net_exploitation`).
+
+    RESTREINT à `nature='ACOMPTE_PROPRIETAIRE'` ET `sens='PROPRIETAIRE_VERS_SOCIETE'` (le
+    propriétaire paie la société — direction exacte d'un acompte reçu) ET `statut='VALIDE'` ET
+    `actif=1` : un mouvement d'une autre nature (remboursement, compensation…) ou de sens inverse
+    n'est pas un acompte et ne doit jamais être compté comme tel. Renommage vers le vocabulaire
+    historique attendu par `build_net_proprietaire` (`acompte_id`/`montant_acompte`/`mois`/
+    `statut_controle`) fait après lecture, pas de colonne SQL calculée — même convention que les
+    autres `charger_*_sqlite` de ce fichier. Vide accepté : aucun acompte sur la période est un état
+    réel (les deux sources sont d'ailleurs vides aujourd'hui)."""
+    df = _charger_table_sqlite(
+        chemin_base, "mouvements_tresorerie_proprietaires", _ACOMPTES_COLS_SQL, vide_ok=True,
+        ou="nature = ? AND sens = ? AND statut = ? AND actif = 1",
+        args=("ACOMPTE_PROPRIETAIRE", "PROPRIETAIRE_VERS_SOCIETE", "VALIDE"))
+    if len(df) == 0:
+        return pd.DataFrame(columns=["acompte_id", "proprietaire_id", "logement_id",
+                                     "montant_acompte", "mois", "statut_controle"])
+    df = df.rename(columns={"mouvement_opaque": "acompte_id", "montant": "montant_acompte"})
+    df["mois"] = df["date_mouvement"].astype(str).str.slice(0, 7)
+    df["statut_controle"] = "VALIDE"
+    return df[["acompte_id", "proprietaire_id", "logement_id", "montant_acompte", "mois",
+              "statut_controle"]]
+
+
 def charger_refacturations_realisees_sqlite(chemin_base):
     """Refacturations RÉALISÉES (mission 15) — remplace `aggregate_refacturable_charges()` en mode
     SQLite : une charge `refacturable='OUI'` n'est plus automatiquement un produit de refacturation
@@ -699,14 +737,16 @@ def load_sources(source="EXCEL", chemin_base=None):
             conn_regles.close()
 
     # Sources HH + Acomptes (lecture seule, hors placeholder Power Query)
-    # Acomptes (Lot5) reste une frontière Excel — AUCUNE table SQLite canonique n'existe pour les
-    # acomptes propriétaires à ce jour (mission « zéro Excel opérationnel Lot9/10/11 » : vérifié,
-    # aucune table ne porte cette donnée ; en fabriquer une hors mandat produit explicite serait
-    # inventer un référentiel). CHARGES (0052, mission 14g) et IMPUTATIONS AIRBNB (cette mission)
-    # ont chacune leur table SQLite canonique et basculent sous `--source SQLITE`.
+    # Acomptes (Lot5) : AUCUNE table SQLite ne porte le classeur Lot5 lui-même — mais l'objet
+    # métier qu'il représente ici (mouvement financier acompte société<->propriétaire, bloc
+    # RÈGLEMENT uniquement) est déjà porté par `mouvements_tresorerie_proprietaires` (0025), un
+    # objet distinct et antérieur à cette mission, pas fabriqué pour l'occasion (voir
+    # `charger_acomptes_proprietaires_sqlite`). CHARGES (0052, mission 14g) et IMPUTATIONS AIRBNB
+    # (mission précédente) basculent de la même façon sous `--source SQLITE`.
     df_hh = (charger_hh_sqlite(chemin_base) if source == "SQLITE"
             else (_read_sheet(HH_FILE, sheet="MASTER") if HH_FILE.exists() else pd.DataFrame()))
-    df_acc = _read_sheet(ACC_FILE, sheet="MASTER") if ACC_FILE.exists() else pd.DataFrame()
+    df_acc = (charger_acomptes_proprietaires_sqlite(chemin_base) if source == "SQLITE"
+             else (_read_sheet(ACC_FILE, sheet="MASTER") if ACC_FILE.exists() else pd.DataFrame()))
     df_charges = (charger_charges_sqlite(chemin_base) if source == "SQLITE"
                  else (_read_sheet(CHARGES_FILE, sheet="MASTER") if CHARGES_FILE.exists()
                        else pd.DataFrame()))
