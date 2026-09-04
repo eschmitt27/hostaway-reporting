@@ -170,6 +170,7 @@ EXPECTED_TABLES = {
     "menages_runs_cibles",                        # 0067 — trace mois_demande/mois_traite du recalcul cible
     "menages_cout_complet_provenance",            # 0068 — origine des lignes : historique fige vs calcul courant
     "menages_externes_historique",                # 0069 — menages externes figes (TYPE_FLUX_014), sans fausse facture
+    "lot10_run_mois_provenance",                  # 0070 — mode de traitement par mois d'un run Lot10 (RECALCULE/ARCHIVE_AUTHENTIQUE/LEGACY_FIGE)
 }
 
 

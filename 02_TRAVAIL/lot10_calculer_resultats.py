@@ -587,6 +587,205 @@ _T_VUE_MOIS = (
 )
 
 
+# ── Lot10 mixte : mois clôturés préservés, mois ouverts recalculés ──────────────────────────────
+# (mission « Lot10 mixte : préserver les mois clôturés et recalculer uniquement les mois ouverts »)
+#
+# `ref_cloture_mensuelle`/`mois_classification_legacy`/`mois_archive_reglement` existaient déjà
+# (migration 0064) mais restaient write-only : aucun service ne les relisait. Lot10 recalculait
+# donc silencieusement tous les mois présents dans le flux, y compris ceux déjà CLOTURE — un mois
+# arrêté ne se recalcule pas, il se conserve. Ce bloc les fait lire pour la première fois.
+
+MODE_RECALCULE = "RECALCULE"
+MODE_ARCHIVE_AUTHENTIQUE = "ARCHIVE_AUTHENTIQUE"
+MODE_LEGACY_FIGE = "LEGACY_FIGE"
+
+CLASS_OUVERT = "OUVERT"
+CLASS_ARCHIVE = "CLOTURE_ARCHIVE_AUTHENTIQUE"
+CLASS_LEGACY = "LEGACY_SANS_ARCHIVE_ORIGINE"
+CLASS_SANS_SOURCE = "CLOTURE_SANS_SOURCE_FIGEE"
+
+E_CLOTURE_SANS_SOURCE_FIGEE = "LOT10_CLOTURE_SANS_SOURCE_FIGEE"
+
+
+def classifier_mois_lot10(conn, mois_list):
+    """Classe chaque mois du run en construction (§3).
+
+    JAMAIS déduite d'une absence — c'est le sens explicite du commentaire de la migration 0064
+    (« un mois tout juste clos, pas encore archivé, n'est PAS un mois legacy ») : un mois CLOTURE
+    sans classification explicite en base ET sans archive est un cas non résolu, pas un cas legacy
+    par défaut (§7 fail-closed).
+    """
+    resultat = {}
+    for mois in mois_list:
+        r = conn.execute(
+            "SELECT statut_mois FROM ref_cloture_mensuelle WHERE mois = ?", (mois,)).fetchone()
+        if not r or r[0] != "CLOTURE":
+            resultat[mois] = {"classification": CLASS_OUVERT, "mode": MODE_RECALCULE}
+            continue
+
+        nb_archive = conn.execute(
+            "SELECT COUNT(*) FROM mois_archive_reglement WHERE mois = ?", (mois,)).fetchone()[0]
+        if nb_archive > 0:
+            resultat[mois] = {"classification": CLASS_ARCHIVE, "mode": MODE_ARCHIVE_AUTHENTIQUE}
+            continue
+
+        legacy = conn.execute(
+            "SELECT classification FROM mois_classification_legacy WHERE mois = ?",
+            (mois,)).fetchone()
+        if legacy and legacy[0] == "LEGACY_SANS_ARCHIVE_ORIGINE":
+            resultat[mois] = {"classification": CLASS_LEGACY, "mode": MODE_LEGACY_FIGE}
+            continue
+
+        resultat[mois] = {"classification": CLASS_SANS_SOURCE, "mode": None}
+    return resultat
+
+
+def _lire_baseline(conn, table, colonnes, run_id, mois, *, extra_where="", extra_args=()):
+    where = "run_id = ? AND mois = ?"
+    args = [run_id, mois]
+    if extra_where:
+        where += " AND " + extra_where
+        args.extend(extra_args)
+    sql = "SELECT %s FROM %s WHERE %s" % (", ".join(colonnes), table, where)
+    return [dict(zip(colonnes, r)) for r in conn.execute(sql, tuple(args)).fetchall()]
+
+
+def substituer_mois_figes(chemin_base, classifications, baseline_run_id,
+                          df_comm, df_reel, df_compt, df_hc, df_exploit, df_reg, df_vue):
+    """Remplace, pour chaque mois figé, les lignes fraîchement calculées par une copie exacte de
+    la source figée — jamais un recalcul (§4/§B1). Rend (frames substituées…, provenance_rows,
+    ok, code, message). `ok=False` signifie : n'activer AUCUN run (§7/§8, tout ou rien).
+    """
+    mois_legacy = {m for m, c in classifications.items() if c["mode"] == MODE_LEGACY_FIGE}
+    mois_archive = {m for m, c in classifications.items() if c["mode"] == MODE_ARCHIVE_AUTHENTIQUE}
+    mois_bloquants = sorted(m for m, c in classifications.items() if c["mode"] is None)
+
+    provenance_rows = [{
+        "mois": mois, "classification": c["classification"],
+        "mode_traitement": c["mode"] or "BLOQUANT",
+        "source_run_id": baseline_run_id if c["mode"] in (MODE_LEGACY_FIGE, MODE_ARCHIVE_AUTHENTIQUE)
+                        else None,
+        "source_archive_id": f"mois_archive_reglement:{mois}" if c["mode"] == MODE_ARCHIVE_AUTHENTIQUE
+                             else None,
+    } for mois, c in classifications.items()]
+
+    if mois_bloquants:
+        return (df_comm, df_reel, df_compt, df_hc, df_exploit, df_reg, df_vue, provenance_rows,
+                False, E_CLOTURE_SANS_SOURCE_FIGEE,
+                "Mois clôturé(s) sans source figée exploitable (ni archive authentique, ni "
+                "classification legacy explicite) : " + ", ".join(mois_bloquants))
+
+    mois_a_substituer = mois_legacy | mois_archive
+    if not mois_a_substituer:
+        return (df_comm, df_reel, df_compt, df_hc, df_exploit, df_reg, df_vue, provenance_rows,
+                True, None, None)
+
+    if not baseline_run_id:
+        return (df_comm, df_reel, df_compt, df_hc, df_exploit, df_reg, df_vue, provenance_rows,
+                False, E_CLOTURE_SANS_SOURCE_FIGEE,
+                "Mois figé(s) détecté(s) (" + ", ".join(sorted(mois_a_substituer)) + ") mais "
+                "aucun run de référence (--source-run-id-legacy) fourni pour les recopier.")
+
+    conn, message = dbm.verifier(chemin_base, (
+        "lot10_commissions", "lot10_resultats", "lot10_net_exploitation",
+        "lot10_net_reglement", "lot10_net_vue_mois", "mois_archive_reglement"))
+    if conn is None:
+        return (df_comm, df_reel, df_compt, df_hc, df_exploit, df_reg, df_vue, provenance_rows,
+                False, E_CLOTURE_SANS_SOURCE_FIGEE, f"Base de référence illisible : {message}")
+
+    try:
+        # Le run de référence doit réellement porter chaque mois figé — sinon fail-closed plutôt
+        # que d'activer un mois silencieusement vide (§7 : jamais de recalcul de repli).
+        manquants = sorted(
+            mois for mois in mois_a_substituer
+            if conn.execute("SELECT COUNT(*) FROM lot10_resultats WHERE run_id = ? AND mois = ?",
+                            (baseline_run_id, mois)).fetchone()[0] == 0)
+        if manquants:
+            return (df_comm, df_reel, df_compt, df_hc, df_exploit, df_reg, df_vue,
+                    provenance_rows, False, E_CLOTURE_SANS_SOURCE_FIGEE,
+                    f"Run de référence {baseline_run_id} ne porte aucune ligne pour : "
+                    + ", ".join(manquants))
+
+        def _retirer(df, mois_set):
+            if df is None or len(df) == 0 or "mois" not in df.columns:
+                return df
+            return df[~df["mois"].astype(str).isin(mois_set)].reset_index(drop=True)
+
+        def _copier(table, colonnes, mois_set, **kw):
+            lignes = []
+            for mois in sorted(mois_set):
+                lignes.extend(_lire_baseline(conn, table, colonnes, baseline_run_id, mois, **kw))
+            return pd.DataFrame(lignes, columns=list(colonnes))
+
+        df_comm = pd.concat([_retirer(df_comm, mois_a_substituer),
+                             _copier("lot10_commissions", _T_COMMISSIONS, mois_a_substituer)],
+                            ignore_index=True)
+        df_reel = pd.concat([_retirer(df_reel, mois_a_substituer),
+                             _copier("lot10_resultats", _T_RESULTATS, mois_a_substituer,
+                                     extra_where="vision = ?", extra_args=("REEL",))],
+                            ignore_index=True)
+        df_compt = pd.concat([_retirer(df_compt, mois_a_substituer),
+                              _copier("lot10_resultats", _T_RESULTATS, mois_a_substituer,
+                                      extra_where="vision = ?", extra_args=("COMPTABLE",))],
+                             ignore_index=True)
+        df_hc = pd.concat([_retirer(df_hc, mois_a_substituer),
+                           _copier("lot10_resultats", _T_RESULTATS, mois_a_substituer,
+                                   extra_where="vision = ?", extra_args=("HORS_COMPTA",))],
+                          ignore_index=True)
+        df_exploit = pd.concat([_retirer(df_exploit, mois_a_substituer),
+                                _copier("lot10_net_exploitation", _T_EXPLOITATION, mois_a_substituer)],
+                               ignore_index=True)
+        df_vue = pd.concat([_retirer(df_vue, mois_a_substituer),
+                            _copier("lot10_net_vue_mois", _T_VUE_MOIS, mois_a_substituer)],
+                           ignore_index=True)
+
+        # REGLEMENT : ARCHIVE_AUTHENTIQUE utilise `mois_archive_reglement` (préféré, §3-B) ;
+        # LEGACY_FIGE recopie le run de référence. Un mois n'appartient jamais aux deux ensembles.
+        # LIMITE CONNUE, documentée et non résolue par cette mission : `mois_archive_reglement` ne
+        # porte que les champs agrégés du bloc RÈGLEMENT (mois, logement_id, proprietaire_id +
+        # quelques montants) — ni charge_fixe_mensuelle, ni acomptes, ni statut détaillé. Les champs
+        # absents sont explicitement laissés NULL/0 avec `statut_reglement` marqué
+        # ARCHIVE_AUTHENTIQUE_CHAMPS_LIMITES : ne jamais présenter cette ligne comme un règlement
+        # complet recalculé. Aucun mois réel n'emprunte ce chemin aujourd'hui (0 ligne dans
+        # `mois_archive_reglement`) : chemin défensif, pas exercé par la preuve clone de cette
+        # mission.
+        df_reg = _retirer(df_reg, mois_a_substituer)
+        if mois_legacy:
+            df_reg = pd.concat([df_reg, _copier("lot10_net_reglement", _T_REGLEMENT, mois_legacy)],
+                               ignore_index=True)
+        for mois in sorted(mois_archive):
+            lignes_archive = dbm.lignes(
+                conn, "mois_archive_reglement",
+                ("mois", "logement_id", "proprietaire_id", "total_commission_mois",
+                 "total_menage_mois", "total_preparation_canape_mois",
+                 "charges_exceptionnelles_refacturees", "montant_du_conciergerie",
+                 "reste_a_payer_conciergerie"),
+                ou="mois = ?", args=(mois,), ordre="id")
+            if not lignes_archive:
+                # Classifié ARCHIVE_AUTHENTIQUE par un COUNT(*) > 0 juste au-dessus : ne devrait
+                # jamais arriver. Fail-closed plutôt qu'un règlement à 0 si une incohérence
+                # apparaît malgré tout entre les deux lectures.
+                return (df_comm, df_reel, df_compt, df_hc, df_exploit, df_reg, df_vue,
+                        provenance_rows, False, E_CLOTURE_SANS_SOURCE_FIGEE,
+                        f"{mois} classé ARCHIVE_AUTHENTIQUE mais mois_archive_reglement relit 0 "
+                        f"ligne — incohérence, run refusé.")
+            lignes_reg = []
+            for a in lignes_archive:
+                ligne = dict.fromkeys(_T_REGLEMENT)
+                ligne.update(a)
+                ligne["charge_fixe_mensuelle"] = 0.0
+                ligne["charge_fixe_source"] = "ARCHIVE_AUTHENTIQUE_CHAMPS_LIMITES"
+                ligne["statut_reglement"] = "ARCHIVE_AUTHENTIQUE_CHAMPS_LIMITES"
+                lignes_reg.append(ligne)
+            df_reg = pd.concat([df_reg, pd.DataFrame(lignes_reg, columns=list(_T_REGLEMENT))],
+                               ignore_index=True)
+    finally:
+        conn.close()
+
+    return (df_comm, df_reel, df_compt, df_hc, df_exploit, df_reg, df_vue, provenance_rows,
+            True, None, None)
+
+
 def _valeur_sql(v):
     """Valeur stockable. `NaN`/`NaT` pandas -> NULL : une absence reste une absence, jamais 0."""
     if v is None or (isinstance(v, float) and pd.isna(v)):
@@ -617,12 +816,18 @@ def _ecrire_table(conn, table, colonnes, df, run_id):
 
 
 def ecrire_sqlite(chemin_base, df_comm, df_ac, df_reel, df_compt, df_hc,
-                  df_exploit, df_reg, df_vue, *, run_id="", source_flux_run=""):
+                  df_exploit, df_reg, df_vue, *, run_id="", source_flux_run="",
+                  provenance_rows=None):
     """Écrit le dataset Lot10 et ne l'active qu'après succès complet (mission §13).
 
     Tout se fait dans UNE transaction : l'ancien dataset reste actif tant que le nouveau n'est pas
     intégralement écrit. Un run interrompu laisse ses lignes en base sous un run non actif —
     visibles pour diagnostic, jamais servies comme si elles étaient complètes.
+
+    `provenance_rows` (mission « Lot10 mixte ») : une ligne par mois du run (mode_traitement,
+    source_run_id/source_archive_id — voir `substituer_mois_figes`), écrite dans la MÊME
+    transaction, avant la bascule atomique : un run activé sans sa provenance complète serait aussi
+    incorrect qu'un run activé avec des tables économiques incomplètes.
     """
     conn, message = dbm.verifier(chemin_base, ("lot10_runs",))
     if conn is None:
@@ -650,6 +855,15 @@ def ecrire_sqlite(chemin_base, df_comm, df_ac, df_reel, df_compt, df_hc,
         _ecrire_table(conn, "lot10_net_exploitation", _T_EXPLOITATION, df_exploit, run_id)
         nb_reg = _ecrire_table(conn, "lot10_net_reglement", _T_REGLEMENT, df_reg, run_id)
         _ecrire_table(conn, "lot10_net_vue_mois", _T_VUE_MOIS, df_vue, run_id)
+
+        if provenance_rows and dbm.table_presente(conn, "lot10_run_mois_provenance"):
+            conn.executemany(
+                "INSERT INTO lot10_run_mois_provenance "
+                "(run_id, mois, classification, mode_traitement, source_run_id, source_archive_id) "
+                "VALUES (?,?,?,?,?,?)",
+                [(run_id, r["mois"], r["classification"], r["mode_traitement"],
+                  r.get("source_run_id"), r.get("source_archive_id"))
+                 for r in provenance_rows])
 
         # Bascule atomique : l'ancien dataset n'est désactivé qu'ici, tout étant écrit.
         conn.execute("UPDATE lot10_runs SET actif = 0 WHERE actif = 1")
@@ -1958,6 +2172,12 @@ def main():
     parser.add_argument("--sans-sqlite", action="store_true",
                         help="N'ecrit pas les tables SQLite (parite legacy seule).")
     parser.add_argument("--run-id", default="")
+    parser.add_argument(
+        "--source-run-id-legacy", default="",
+        help="Run Lot10 de référence (`lot10_runs.run_id`) à recopier verbatim pour tout mois "
+             "CLOTURE classé LEGACY_SANS_ARCHIVE_ORIGINE ou ARCHIVE_AUTHENTIQUE — jamais recalculé "
+             "(mission « Lot10 mixte »). Ignoré hors --source SQLITE. Absent alors qu'un tel mois "
+             "existe dans le run courant : refus fail-closed (LOT10_CLOTURE_SANS_SOURCE_FIGEE).")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -2000,10 +2220,33 @@ def main():
     elif chemin_base is None:
         log.info("=== Aucune base designee : dataset SQLite non ecrit ===")
     else:
+        provenance_rows = None
+        if args.source == "SQLITE":
+            mois_run = sorted({str(m) for d in (df_reel, df_compt, df_hc)
+                              for m in d.get("mois", pd.Series(dtype=str)).dropna()
+                              if str(m) not in ("", "N/A")})
+            conn_cls, msg_cls = dbm.verifier(chemin_base, ("ref_cloture_mensuelle",))
+            if conn_cls is None:
+                sys.exit(f"[lot10] ERREUR : classification des mois impossible — {msg_cls}")
+            try:
+                classifications = classifier_mois_lot10(conn_cls, mois_run)
+            finally:
+                conn_cls.close()
+            for mois, c in sorted(classifications.items()):
+                log.info(f"  Mois {mois} : {c['classification']} -> "
+                        f"{c['mode'] or 'REFUS (aucune source figee)'}")
+            (df_comm, df_reel, df_compt, df_hc, df_exploit, df_reg, df_vue, provenance_rows,
+             ok_subst, code_subst, message_subst) = substituer_mois_figes(
+                chemin_base, classifications, args.source_run_id_legacy or None,
+                df_comm, df_reel, df_compt, df_hc, df_exploit, df_reg, df_vue)
+            if not ok_subst:
+                sys.exit(f"[lot10] ERREUR [{code_subst}] : {message_subst}")
+
         log.info("=== Ecriture dataset SQLite (0044) ===")
         ecrire_sqlite(chemin_base, df_comm, df_ac, df_reel, df_compt, df_hc,
                       df_exploit, df_reg, df_vue, run_id=args.run_id,
-                      source_flux_run=_flux_run_id(chemin_base) if args.source == "SQLITE" else "")
+                      source_flux_run=_flux_run_id(chemin_base) if args.source == "SQLITE" else "",
+                      provenance_rows=provenance_rows)
 
     print_controls(
         df_flux, df_comm, df_ac, df_reel, df_compt, df_hc,
