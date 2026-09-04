@@ -587,45 +587,55 @@ _T_VUE_MOIS = (
 )
 
 
-# ── Lot10 : mois ouverts uniquement (mission « arrêter le backfill historique ménages ») ────────
+# ── Lot10 : ne calcule que les mois entièrement terminés ────────────────────────────────────────
 # Décision produit : on ne cherche plus à reconstruire/préserver l'historique ménage des mois déjà
-# clôturés — la structure métier va évoluer, ce temps n'est plus à investir. Remplace le mécanisme
-# mixte (substitution/archive/legacy) d'une mission précédente : un run Lot10 ne couvre plus
-# « toute l'histoire ». Un mois CLOTURE est simplement HORS PÉRIMÈTRE du recalcul courant — jamais
-# réécrit, jamais recalculé, jamais fabriqué à partir d'une source figée quelconque. Un mois OUVERT
-# est recalculé normalement. Aucun run Lot10 réel n'a d'ailleurs jamais porté mai 2026 ou antérieur
-# (vérifié : periode_min='2026-06' sur les 3 runs historiques) — cette absence était donc déjà
-# l'état réel, ce changement se contente de ne plus la traiter comme un blocage à lever.
+# clôturés (mission précédente) — et un mois EN COURS ou FUTUR n'est jamais économiquement définitif
+# non plus : factures et déclarations arrivent en fin de mois, un recalcul avant cette échéance
+# produirait un résultat provisoire présenté comme définitif. Seul un mois strictement antérieur au
+# mois courant ET non clôturé est recalculé.
 
 MODE_RECALCULE = "RECALCULE"
-MODE_EXCLU_PERIMETRE = "EXCLU_PERIMETRE"
+MODE_EXCLU_CLOTURE = "EXCLU_PERIMETRE_CLOTURE"
+MODE_EXCLU_EN_COURS = "EXCLU_PERIMETRE_MOIS_EN_COURS"
+MODE_EXCLU_FUTUR = "EXCLU_PERIMETRE_FUTUR"
 
-CLASS_OUVERT = "OUVERT"
 CLASS_CLOTURE = "CLOTURE"
+CLASS_MOIS_TERMINE_OUVERT = "MOIS_TERMINE_OUVERT"
+CLASS_MOIS_EN_COURS = "MOIS_EN_COURS"
+CLASS_FUTUR = "FUTUR"
+
+_MODES_EXCLUSION = (MODE_EXCLU_CLOTURE, MODE_EXCLU_EN_COURS, MODE_EXCLU_FUTUR)
 
 
-def classifier_mois_lot10(conn, mois_list):
-    """OUVERT -> recalculé ; CLOTURE -> hors périmètre, sans exception ni condition — la politique
-    ne distingue plus archive authentique / legacy sans archive : les deux sont désormais traitées
-    de la même façon (exclusion), aucun recalcul économique n'est jamais tenté."""
+def classifier_mois_lot10(conn, mois_list, *, date_reference=None):
+    """CLOTURE -> hors périmètre (mission précédente, inchangé). Sinon, comparé au mois courant
+    (`date_reference`, `datetime.now()` par défaut — jamais figé en dur, pour rester testable) :
+    strictement antérieur -> MOIS_TERMINE_OUVERT (recalculé) ; égal -> MOIS_EN_COURS (exclu, les
+    factures/déclarations du mois ne sont pas encore toutes arrivées) ; postérieur -> FUTUR (exclu,
+    rien à calculer)."""
+    mois_courant = (date_reference or datetime.now()).strftime("%Y-%m")
     resultat = {}
     for mois in mois_list:
         r = conn.execute(
             "SELECT statut_mois FROM ref_cloture_mensuelle WHERE mois = ?", (mois,)).fetchone()
         if r and r[0] == "CLOTURE":
-            resultat[mois] = {"classification": CLASS_CLOTURE, "mode": MODE_EXCLU_PERIMETRE}
+            resultat[mois] = {"classification": CLASS_CLOTURE, "mode": MODE_EXCLU_CLOTURE}
+        elif mois < mois_courant:
+            resultat[mois] = {"classification": CLASS_MOIS_TERMINE_OUVERT, "mode": MODE_RECALCULE}
+        elif mois == mois_courant:
+            resultat[mois] = {"classification": CLASS_MOIS_EN_COURS, "mode": MODE_EXCLU_EN_COURS}
         else:
-            resultat[mois] = {"classification": CLASS_OUVERT, "mode": MODE_RECALCULE}
+            resultat[mois] = {"classification": CLASS_FUTUR, "mode": MODE_EXCLU_FUTUR}
     return resultat
 
 
 def exclure_mois_clotures(classifications, df_comm, df_reel, df_compt, df_hc, df_exploit, df_reg,
                           df_vue):
-    """Retire des 7 dataframes tout mois CLOTURE — jamais un recalcul, jamais une fabrication de
-    donnée historique, juste une absence assumée du périmètre du run courant. Rend aussi les
-    lignes de provenance (une par mois du run, y compris les mois exclus) pour pouvoir prouver
-    après coup quel périmètre a réellement été traité."""
-    mois_exclus = {m for m, c in classifications.items() if c["mode"] == MODE_EXCLU_PERIMETRE}
+    """Retire des 7 dataframes tout mois hors périmètre (CLOTURE, EN_COURS ou FUTUR) — jamais un
+    recalcul, jamais une fabrication de donnée, juste une absence assumée. Rend aussi les lignes de
+    provenance (une par mois du run, y compris les mois exclus) pour pouvoir prouver après coup
+    quel périmètre a réellement été traité."""
+    mois_exclus = {m for m, c in classifications.items() if c["mode"] in _MODES_EXCLUSION}
 
     provenance_rows = [{
         "mois": mois, "classification": c["classification"], "mode_traitement": c["mode"],
@@ -2029,6 +2039,11 @@ def main():
     parser.add_argument("--sans-sqlite", action="store_true",
                         help="N'ecrit pas les tables SQLite (parite legacy seule).")
     parser.add_argument("--run-id", default="")
+    parser.add_argument(
+        "--date-reference", default="",
+        help="AAAA-MM-JJ — date utilisée pour distinguer mois terminé/en cours/futur (défaut : "
+             "date réelle du jour). Utile pour rejouer un run comme s'il avait tourné à une date "
+             "passée, jamais pour forcer un mois en cours à être recalculé.")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -2073,14 +2088,21 @@ def main():
     else:
         provenance_rows = None
         if args.source == "SQLITE":
-            mois_run = sorted({str(m) for d in (df_reel, df_compt, df_hc)
+            # Union sur les 7 dataframes, pas seulement les 3 visions RESULTATS : REGLEMENT peut
+            # porter un mois absent des autres (report d'un crédit à traiter vers une échéance
+            # future, `acc_by_prop`) — bug réel trouvé en clone : ce mois ne recevait alors AUCUNE
+            # classification et traversait l'exclusion sans jamais être filtré.
+            mois_run = sorted({str(m) for d in (df_comm, df_reel, df_compt, df_hc, df_exploit,
+                                                df_reg, df_vue)
                               for m in d.get("mois", pd.Series(dtype=str)).dropna()
                               if str(m) not in ("", "N/A")})
+            date_ref = (datetime.strptime(args.date_reference, "%Y-%m-%d")
+                       if args.date_reference else None)
             conn_cls, msg_cls = dbm.verifier(chemin_base, ("ref_cloture_mensuelle",))
             if conn_cls is None:
                 sys.exit(f"[lot10] ERREUR : classification des mois impossible — {msg_cls}")
             try:
-                classifications = classifier_mois_lot10(conn_cls, mois_run)
+                classifications = classifier_mois_lot10(conn_cls, mois_run, date_reference=date_ref)
             finally:
                 conn_cls.close()
             for mois, c in sorted(classifications.items()):
