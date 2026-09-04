@@ -4,7 +4,8 @@ Reconstruit ce que `02_TRAVAIL/lot9_construire_flux.py` produisait dans `MASTER_
 mais lu directement depuis les sources SQLite déjà migrées, sans détour par un classeur :
 
     RES → `reservations_adaptateur_moteur._vue_flux` + `reservations_dataset_service` (0034)
-    MEN → `facture_lignes_menage_service.lignes_externes_pour_reader` (0037/0040)
+    MEN → `menages_backfill_historique_service.menages_externes_economiques` (historique figé
+          0069 + `facture_lignes_menage_service.lignes_externes_pour_reader`, 0037/0040)
     BNQ → `banque_vues_service.mouvements_normalises` (0032/0033)
     GPM → `menages_cout_complet` (0038), lu directement (table de résultat, pas de logique à réécrire)
     CHG → `charges_reader.read_charges` (table `charges`, migration 0052 — plus aucun classeur ;
@@ -30,7 +31,7 @@ from typing import Any
 
 from app.db.connection import get_db
 from app.readers import charges_reader
-from app.services import banque_vues_service, facture_lignes_menage_service
+from app.services import banque_vues_service
 from app.services import reservations_adaptateur_moteur as res_moteur
 from app.services import reservations_dataset_service as res_ds
 
@@ -47,11 +48,6 @@ _IMPACT_FLAGS = {
     "HC": ("OUI", "NON", "OUI"),
     "HR": ("NON", "NON", "NON"),
 }
-
-# Statuts facture (`factures_service.STATUTS`) considérés « validés » pour l'injection en flux —
-# équivalent du filtre legacy `statut_controle == 'VALIDE'` sur le MASTER Excel, transposé aux
-# statuts réels du workflow facture (une facture BROUILLON/A_CONTROLER/LITIGE/ANNULEE n'entre pas).
-_STATUTS_FACTURE_VALIDES = {"VALIDEE", "PARTIELLEMENT_REGLEE", "REGLEE"}
 
 
 def _impact_flags(code_impact: str) -> tuple[str, str, str]:
@@ -130,23 +126,37 @@ def _module_res(seen, doublons, db_path) -> list[dict[str, Any]]:
 
 
 def _module_men(seen, doublons, db_path) -> list[dict[str, Any]]:
-    lignes = facture_lignes_menage_service.lignes_externes_pour_reader(db_path=db_path)
+    # INTERFACE UNIQUE (mission « Lot9 MEX historique ») : `menages_backfill_historique_service.
+    # menages_externes_economiques()` fusionne déjà l'historique figé (mois clôturés au moment du
+    # backfill, ex. 2026-05) et les factures courantes réellement comptables — avec autorité par
+    # mois (un mois déjà couvert par l'historique figé ne peut plus être complété/écrasé par une
+    # facture courante, cf. le commentaire de cette fonction). Lot9 ne sait pas laquelle des deux
+    # origines il consomme, et ne réimplémente aucun filtre de statut ici.
+    #
+    # AVANT cette correction, `_module_men` lisait directement `facture_lignes_menage_service.
+    # lignes_externes_pour_reader()`, qui ignore totalement `menages_externes_historique` : le
+    # backfill figé (migration 0069) restait invisible du vrai chemin opérationnel Lot9, alors que
+    # le script legacy de comparaison le consommait déjà — trouvé lors de la bascule réelle
+    # (TYPE_FLUX_014 = 0 alors que 12 lignes/2 381,00 € étaient attendues pour 2026-05).
+    from app.services import menages_backfill_historique_service as menages_backfill
+
+    lignes = menages_backfill.menages_externes_economiques(db_path=db_path)
     # `montant_ligne_ttc` en (None, 0) : ligne sans donnée exploitable (ex. anomalie d'extraction
-    # PDF). Le legacy (`lot6c_menages_externes.py`) exclut ces lignes du flux (statut_controle
-    # per-ligne A_CONTROLER, jamais VALIDE) ; `facture_lignes_menage` n'a pas cette notion par ligne
-    # (seul le statut de la FACTURE existe), d'où l'exclusion explicite ici plutôt qu'un flux à 0€
-    # qui gonflerait le COUNT sans le SUM — bug de port trouvé lors de la parité Lot9 (mission
-    # Ménages/Lot9, baseline MEN 12 lignes/2 381,00€ : 13 lignes réelles, 1 à 0€ exclue en legacy).
-    valides = [r for r in lignes
-              if r.get("statut_controle") in _STATUTS_FACTURE_VALIDES
-              and r.get("montant_ligne_ttc") not in (None, 0)]
+    # PDF). Le legacy (`lot6c_menages_externes.py`) exclut ces lignes du flux — baseline mission
+    # Ménages/Lot9 : 13 lignes réelles pour 2026-05, 1 à 0€ exclue (non VALIDE, déjà filtrée en
+    # amont par `menages_externes_economiques`, mais un futur import courant pourrait produire la
+    # même anomalie : exclusion conservée ici par défense en profondeur, pas dupliquée en logique).
+    valides = [r for r in lignes if r.get("montant_ligne_ttc") not in (None, 0)]
     out = []
-    for r in sorted(valides, key=lambda r: r.get("menage_externe_id") or ""):
+    for r in sorted(valides, key=lambda r: r.get("source_pk") or ""):
         date_flux = r.get("date_facture") or r.get("date_menage") or _mois_premier_jour(r.get("mois"))
+        source_table = ("menages_externes_historique" if r.get("origine") == "HISTORIQUE_FIGE"
+                       else "facture_lignes_menage")
         f = _construire_flux(
-            module_code="MEN", source_table="facture_lignes_menage",
-            source_pk=r.get("menage_externe_id"), date_flux=date_flux, mois=r.get("mois"),
-            logement_id=r.get("logement_id"), proprietaire_id=None, associe_id=None,
+            module_code="MEN", source_table=source_table,
+            source_pk=r.get("source_pk"), date_flux=date_flux, mois=r.get("mois"),
+            logement_id=r.get("logement_id"), proprietaire_id=r.get("proprietaire_id"),
+            associe_id=None,
             type_flux_id=TYPE_FLUX_MEN, sens="CHARGE", montant=r.get("montant_ligne_ttc"),
             code_impact="IC", statut_controle="VALIDE",
             commentaire="Ménage externe validé (facture)", seen=seen, doublons=doublons)

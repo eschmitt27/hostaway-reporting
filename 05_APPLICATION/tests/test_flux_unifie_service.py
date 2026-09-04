@@ -174,3 +174,138 @@ def test_lire_filtre_par_mois(tmp_path, monkeypatch):
 
     assert len(svc.lire(mois="2026-07", db_path=db)) == 1
     assert svc.lire(mois="2026-08", db_path=db) == []
+
+
+# ── MEX historique figé : mission « Lot9 MEX historique + protection Lot10 » ────────────────────
+# Avant cette mission, `_module_men` lisait uniquement `facture_lignes_menage_service.
+# lignes_externes_pour_reader()` — le backfill figé (migration 0069, mois clôturés) restait
+# invisible du vrai Lot9. Corrigé via l'interface unique `menages_backfill_historique_service.
+# menages_externes_economiques()`, déjà conçue pour ce rôle mais jamais câblée jusqu'ici.
+
+def _ligne_historique(db_path, *, source_pk="MENEXT-2026-05-TEST-001", mois="2026-05",
+                      logement_id="LOG_0001", proprietaire_id="PROP_0001",
+                      montant_ligne_ttc=100.0, statut_source="VALIDE"):
+    conn = get_db(db_path)
+    try:
+        conn.execute(
+            "INSERT INTO menages_externes_historique (source_pk, mois, logement_id, "
+            "proprietaire_id, prestataire_id, date_facture, montant_ligne_ttc, statut_source, "
+            "source_fichier, source_hash) VALUES (?,?,?,?, 'INT_TEST', ?, ?, ?, 'TEST.xlsx', "
+            "'0'*64)",
+            (source_pk, mois, logement_id, proprietaire_id, f"{mois}-28", montant_ligne_ttc,
+             statut_source))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_lot9_lit_le_backfill_mex_historique(tmp_path, monkeypatch):
+    """Cause du bug réel : `_module_men` ignorait `menages_externes_historique`. Une ligne figée
+    VALIDE doit désormais produire un flux TYPE_FLUX_014."""
+    db = tmp_path / "app.db"
+    apply_migrations(db)
+    _ligne_historique(db, montant_ligne_ttc=2381.0)
+    _sans_charges(monkeypatch)
+
+    resultat = svc.construire(db_path=db)
+
+    assert resultat["nb_men"] == 1
+    lignes = svc.lire(mois="2026-05", db_path=db)
+    men = [l for l in lignes if l["type_flux_id"] == "TYPE_FLUX_014"]
+    assert len(men) == 1
+    assert men[0]["montant"] == 2381.0
+
+
+def test_lot9_mai_2026_douze_lignes_2381_euros(tmp_path, monkeypatch):
+    """Preuve chiffrée exacte de la mission (§A4) : 12 lignes historiques VALIDE, total 2381,00€."""
+    db = tmp_path / "app.db"
+    apply_migrations(db)
+    montants = [29.0, 145.0, 290.0, 440.0, 58.0, 312.0, 55.0, 55.0, 55.0, 390.0, 520.0, 32.0]
+    for i, m in enumerate(montants):
+        _ligne_historique(db, source_pk=f"MENEXT-2026-05-TEST-{i:03d}", montant_ligne_ttc=m)
+    _sans_charges(monkeypatch)
+
+    resultat = svc.construire(db_path=db)
+
+    assert resultat["nb_men"] == 12
+    men = [l for l in svc.lire(mois="2026-05", db_path=db) if l["type_flux_id"] == "TYPE_FLUX_014"]
+    assert len(men) == 12
+    assert round(sum(l["montant"] for l in men), 2) == 2381.00
+
+
+def test_lot9_ligne_historique_non_validee_zero_impact(tmp_path, monkeypatch):
+    """Une ligne historique figée non VALIDE reste hors calcul économique (§A2/A4)."""
+    db = tmp_path / "app.db"
+    apply_migrations(db)
+    _ligne_historique(db, source_pk="MENEXT-2026-05-NONVALIDE",
+                      montant_ligne_ttc=36.0, statut_source="A_CONTROLER")
+    _sans_charges(monkeypatch)
+
+    resultat = svc.construire(db_path=db)
+
+    assert resultat["nb_men"] == 0
+
+
+def test_lot9_facture_a_controler_zero_type_flux_014(tmp_path, monkeypatch):
+    """Une facture courante A_CONTROLER (ex. Aissata/Mounir) n'entre jamais dans TYPE_FLUX_014,
+    historique ou pas (§A5)."""
+    db = tmp_path / "app.db"
+    apply_migrations(db)
+    _facture_menage(db, facture_id="FAC-ACONTROLER", statut="A_CONTROLER")
+    _sans_charges(monkeypatch)
+
+    resultat = svc.construire(db_path=db)
+
+    assert resultat["nb_men"] == 0
+
+
+def test_lot9_aucun_doublon_entre_historique_et_courant(tmp_path, monkeypatch):
+    """Un mois figé et un mois courant distincts ne se chevauchent jamais (§A3/§C5)."""
+    db = tmp_path / "app.db"
+    apply_migrations(db)
+    _ligne_historique(db, mois="2026-05", montant_ligne_ttc=100.0)
+    _facture_menage(db, facture_id="FAC-JUILLET", date_facture="2026-07-20", montant_ttc=90.0)
+    _sans_charges(monkeypatch)
+
+    resultat = svc.construire(db_path=db)
+
+    assert resultat["nb_men"] == 2
+    assert resultat["nb_doublons"] == 0
+
+
+def test_lot9_mois_cloture_avec_backfill_historique_prioritaire(tmp_path, monkeypatch):
+    """Autorité par période (§A3, §C6) : une facture courante déposée sur un mois DÉJÀ couvert
+    par l'historique figé ne doit jamais s'additionner ni l'écraser — l'historique reste seul
+    autoritaire pour ce mois tant qu'aucune correction rétroactive explicite n'a lieu."""
+    db = tmp_path / "app.db"
+    apply_migrations(db)
+    _ligne_historique(db, mois="2026-05", montant_ligne_ttc=2381.0)
+    _facture_menage(db, facture_id="FAC-MAI-TARDIVE", date_facture="2026-05-15", montant_ttc=999.0)
+    _sans_charges(monkeypatch)
+
+    resultat = svc.construire(db_path=db)
+
+    men = [l for l in svc.lire(mois="2026-05", db_path=db) if l["type_flux_id"] == "TYPE_FLUX_014"]
+    assert resultat["nb_men"] == 1
+    assert len(men) == 1
+    assert men[0]["montant"] == 2381.0
+    assert resultat["nb_doublons"] == 0
+
+
+def test_lot9_db_path_none_resout_vers_cfg_db_path(tmp_path, monkeypatch):
+    """Régression du bug réel : `menages_externes_economiques(db_path=None)` se connectait
+    littéralement au fichier "None" (`sqlite3.connect(str(None))`), jamais à la vraie base — un
+    fichier vide sans table, donc TYPE_FLUX_014 retombait silencieusement à 0. C'est exactement
+    l'appel que fait l'orchestrateur en production (`construire()` sans `db_path` explicite).
+    `cfg.DB_PATH` est monkeypatché pour que ce test n'ouvre jamais la vraie base."""
+    import app.config as cfg
+
+    db = tmp_path / "app.db"
+    apply_migrations(db)
+    _ligne_historique(db, montant_ligne_ttc=2381.0)
+    _sans_charges(monkeypatch)
+    monkeypatch.setattr(cfg, "DB_PATH", db)
+
+    resultat = svc.construire()
+
+    assert resultat["nb_men"] == 1

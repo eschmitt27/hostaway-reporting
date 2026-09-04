@@ -283,9 +283,17 @@ def menages_externes_economiques(*, db_path) -> list[dict[str, Any]]:
 
     `source_pk` est rendu tel quel pour l'historique (clé legacy conservée, ROW_HASH stable) et
     dérivé de l'identifiant de ligne pour le courant.
+
+    `db_path=None` DOIT résoudre vers la vraie base (`cfg.DB_PATH`), pas se connecter au fichier
+    littéral « None » : c'est exactement l'appel que fait `flux_unifie_service.construire()` en
+    production (l'orchestrateur ne passe jamais de `db_path` explicite). `sqlite3.connect(str(None))`
+    crée silencieusement un fichier vide sans table — TYPE_FLUX_014 retombait à 0 sans la moindre
+    erreur, bug trouvé lors de la bascule réelle. `get_db()` fait la même résolution « à chaud » que
+    tout le reste de l'application.
     """
-    conn = sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
+    from app.db.connection import get_db
+
+    conn = get_db(db_path)
     try:
         lignes: list[dict[str, Any]] = []
 
@@ -294,11 +302,14 @@ def menages_externes_economiques(*, db_path) -> list[dict[str, Any]]:
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?",
                 (nom,)).fetchone()[0])
 
+        mois_figes: set[str] = set()
+
         if _table("menages_externes_historique"):
             for r in conn.execute(
                     "SELECT * FROM menages_externes_historique WHERE statut_source = ? "
                     "ORDER BY source_pk", (STATUT_LEGACY_VALIDE,)):
                 d = dict(r)
+                mois_figes.add(d["mois"])
                 lignes.append({
                     "source_pk": d["source_pk"], "mois": d["mois"],
                     "logement_id": d["logement_id"], "proprietaire_id": d["proprietaire_id"],
@@ -325,9 +336,20 @@ def menages_externes_economiques(*, db_path) -> list[dict[str, Any]]:
                 "ORDER BY l.ligne_id_opaque")
             for r in conn.execute(sql, statuts_comptables):
                 d = dict(r)
+                mois = str(d["date_facture"] or "")[:7]
+                if mois in mois_figes:
+                    # Autorité par période (§A3) : un mois déjà couvert par l'historique figé
+                    # (mois clôturé au moment du backfill) ne doit JAMAIS être complété/écrasé par
+                    # une facture courante apparue depuis — même statut comptable, même mois. Faire
+                    # entrer cette ligne ici recréerait en silence exactement le risque que le
+                    # backfill figé existe pour éviter : une donnée d'un mois clôturé qui bouge sans
+                    # passer par le workflow explicite de correction rétroactive. Cette ligne reste
+                    # visible ailleurs (rapprochement, écran facture) ; elle est seulement exclue de
+                    # CETTE agrégation économique.
+                    continue
                 lignes.append({
                     "source_pk": d["ligne_id_opaque"],
-                    "mois": str(d["date_facture"] or "")[:7],
+                    "mois": mois,
                     "logement_id": d["logement_id"], "proprietaire_id": None,
                     "prestataire_id": d["fournisseur_id_opaque"],
                     "date_facture": d["date_facture"], "date_menage": None,
