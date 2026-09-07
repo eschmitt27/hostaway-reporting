@@ -98,45 +98,18 @@
   {% endif %}
 
   <div class="flex gap-md items-start" style="flex-wrap:wrap">
-    <form method="post" action="/menages/actualiser">
+    <form method="post" action="/menages/actualiser" id="form-actualiser-menages"
+          onsubmit="const b=document.getElementById('btn-actualiser-menages');
+                    b.disabled=true; b.textContent='Actualisation en cours…';">
       <input type="hidden" name="mois" value="{{ data.mois }}">
-      <button type="submit" class="btn btn-primary" {{ "disabled" if act.en_cours }}>
-        Actualiser {{ data.mois_libelle }}
+      <button type="submit" class="btn btn-primary" id="btn-actualiser-menages"
+              {{ "disabled" if act.en_cours }}>
+        {{ "Actualisation en cours…" if act.en_cours else "Actualiser le rapprochement des ménages" }}
       </button>
       <div class="text-xs text-secondary" style="max-width:24rem">
-        Importe les nouvelles factures PDF puis relance le rapprochement réel pour
-        {{ data.mois_libelle }} uniquement (lot6d/6e/6f, SQLite — aucun Excel, aucune écriture sur
-        un fichier réel). Les autres mois ne sont pas recalculés.
-      </div>
-    </form>
-
-    <div>
-      <a href="/actualisation" class="btn btn-secondary">Actualiser toute l'activité</a>
-      <div class="text-xs text-secondary" style="max-width:22rem">
-        Recalcul global (tous les mois impactés) — distinct du bouton ci-contre, qui ne cible que
-        {{ data.mois_libelle }}.
-      </div>
-    </div>
-
-    <form method="post" action="/menages/pdf/importer">
-      <button type="submit" class="btn btn-secondary">Importer les nouvelles factures</button>
-      <div class="text-xs text-secondary" style="max-width:22rem">
-        N'importe que les factures PDF du dossier surveillé — sans relancer le rapprochement.
-      </div>
-    </form>
-
-    <div>
-      <a href="/menages/declarations/nouvelle" class="btn btn-secondary">Déclarer / saisir un ménage interne</a>
-      <div class="text-xs text-secondary" style="max-width:22rem">
-        Saisie directe en base — sans passer par un fichier externe.
-      </div>
-    </div>
-
-    <form method="post" action="/menages/actualiser-affichage">
-      <input type="hidden" name="mois" value="{{ data.mois }}">
-      <button type="submit" class="btn btn-secondary">Actualiser l'affichage</button>
-      <div class="text-xs text-secondary" style="max-width:22rem">
-        Relit les sources existantes et vide le cache. Aucun script, aucun réseau, aucune écriture.
+        Vérifie les factures PDF (nouvelles/inchangées/modifiées), puis relance Hostaway et le
+        rapprochement réel pour {{ data.mois_libelle }} uniquement (SQLite — aucun Excel, aucune
+        écriture sur un fichier réel). Les mois clôturés ne sont jamais recalculés.
       </div>
     </form>
   </div>

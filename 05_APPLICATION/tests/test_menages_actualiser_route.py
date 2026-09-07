@@ -41,10 +41,12 @@ def test_menages_dashboard_affiche_etat_actualisation(client, tmp_db):
     r = client.get("/menages")
     assert r.status_code == 200
     assert "Actualisation" in r.text
-    # Le bouton cible désormais explicitement le mois affiché (mission « recalcul mensuel ciblé »)
-    # — jamais un libellé générique "Actualiser les ménages" qui masquerait le mois recalculé.
-    assert "Actualiser " in r.text
-    assert "Importer les nouvelles factures" in r.text
+    # Mission « simplifier complètement ménages » : un seul bouton, qui fait tout (PDF + Hostaway
+    # + rapprochement ciblé sur le mois affiché) — plus de boutons séparés à comprendre.
+    assert "Actualiser le rapprochement des ménages" in r.text
+    assert "Importer les nouvelles factures" not in r.text
+    assert "Déclarer / saisir un ménage interne" not in r.text
+    assert "Actualiser l'affichage" not in r.text
 
 
 @pdf_reels

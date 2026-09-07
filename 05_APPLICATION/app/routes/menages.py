@@ -187,39 +187,9 @@ async def menages_actualiser(request: Request, background: BackgroundTasks):
 # l'écran /menages y renvoie un lien distinct plutôt que de dupliquer l'implémentation.
 
 
-# ── Déclaration d'un ménage interne — saisie directe, zéro Google Sheet ──────
-
-@router.get("/menages/declarations/nouvelle", response_class=HTMLResponse)
-def menages_declaration_nouvelle(request: Request):
-    return templates.TemplateResponse(request, "menages_declaration_nouvelle.html", {
-        "active_menu": "menages",
-        "logements": declarations.logements_actifs(),
-        "intervenants": declarations.intervenants_actifs(),
-    })
-
-
-@router.post("/menages/declarations")
-async def menages_declaration_creer(request: Request):
-    form = await request.form()
-    mois = str(form.get("mois", "")).strip()
-    logement_id = str(form.get("logement_id", "")).strip()
-    intervenant_id = str(form.get("intervenant_id", "")).strip()
-    nb_menages = int(form.get("nb_menages") or 0)
-    nb_heures_raw = str(form.get("nb_heures", "")).strip()
-    nb_heures = float(nb_heures_raw) if nb_heures_raw else None
-
-    resultat = declarations.creer(
-        mois=mois, logement_id=logement_id, intervenant_id=intervenant_id,
-        nb_menages=nb_menages, nb_heures=nb_heures, acteur="ui:menages",
-    )
-    if not resultat.get("ok"):
-        return templates.TemplateResponse(request, "menages_declaration_nouvelle.html", {
-            "active_menu": "menages",
-            "logements": declarations.logements_actifs(),
-            "intervenants": declarations.intervenants_actifs(),
-            "erreur": resultat.get("message"),
-        })
-    return RedirectResponse(url="/menages?actualisation=declaration", status_code=303)
+# Saisie manuelle des déclarations internes retirée de l'UI (mission « simplifier ménages ») :
+# le Google Sheet reste la seule source de déclaration. `declarations.modifier()` reste utilisé
+# par /menages/{mois}/{logement}/{intervenant}/modifier-declaration (correction, pas création).
 
 
 # ── Recalcul du rapprochement (APP-2b) — sur copies, mode réel gardé ─────────

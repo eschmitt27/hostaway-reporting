@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Facture {{ facture.numero_facture or facture.facture_id_opaque }}{% endblock %}
 {% block content %}
+<p><a href="/factures-proprietaires">← Retour aux factures</a></p>
+{% if erreur_validation %}
+<div class="card" style="border-color:#c0392b">
+  <p><strong>{{ erreur_validation }}</strong></p>
+</div>
+{% endif %}
 <div class="page-header">
   <h1 class="page-title">
     {{ "AVOIR" if facture.type_document == "AVOIR" else "Facture" }}
@@ -54,7 +60,11 @@
   <p><strong>ÉMISSION BLOQUÉE</strong> — {{ conformite.manques|length }} point(s) à régler :</p>
   <ul>
     {% for m in conformite.manques %}
-    <li><span class="badge">{{ m.code }}</span> {{ m.message }}</li>
+    <li><span class="badge">{{ m.code }}</span> {{ m.message }}
+      {% if m.code in ("C_TYPE_CLIENT", "C_IDENTITE_CLIENT") %}
+      · <a href="/proprietaires/{{ facture.proprietaire_id }}">compléter la fiche propriétaire</a>
+      {% endif %}
+    </li>
     {% endfor %}
   </ul>
   {% endif %}

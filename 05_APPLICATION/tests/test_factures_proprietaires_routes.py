@@ -129,10 +129,12 @@ def test_documents_ecrits_sous_data_dir_redirige(client):
 
 
 def test_identite_emetteur_incomplete_bloque_la_validation(client, monkeypatch):
+    """Le refus métier (Part 1) rend une page HTML lisible, jamais une exception brute."""
     c, db, _ = client
     monkeypatch.setattr(cfg, "SOCIETE_SIRET", "", raising=False)
     f = svc.creer(_source(), db_path=db)
     fid = f["facture_id_opaque"]
-    with pytest.raises(svc.FactureProprietaireError, match=svc.C_IDENTITE):
-        c.post(f"/factures-proprietaires/{fid}/valider", follow_redirects=False)
+    r = c.post(f"/factures-proprietaires/{fid}/valider", follow_redirects=False)
+    assert r.status_code == 422
+    assert "Impossible de valider cette facture" in r.text
     assert svc.lire(fid, db_path=db)["statut"] == svc.ST_BROUILLON

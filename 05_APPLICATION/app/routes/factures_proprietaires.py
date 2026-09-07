@@ -121,10 +121,9 @@ def generer(request: Request, mois: str = Form(...)):
     })
 
 
-@router.get("/factures-proprietaires/{facture_id}", response_class=HTMLResponse)
-def fiche(request: Request, facture_id: str):
+def _contexte_fiche(facture_id: str, erreur: str | None = None) -> dict:
     facture = svc.lire(facture_id)
-    return templates.TemplateResponse(request, "factures_proprietaires_fiche.html", {
+    return {
         "active_menu": "factures", "facture": facture,
         "solde": svc.solde(facture_id),
         "emetteur": _emetteur(),
@@ -136,28 +135,50 @@ def fiche(request: Request, facture_id: str):
         "comptabilite": _comptabilite(facture),
         "conformite": conformite.verifier(facture, db_path=None),
         "conformite_figee": conformite.charger(facture["facture_id_opaque"]),
-    })
+        "erreur_validation": erreur,
+    }
+
+
+@router.get("/factures-proprietaires/{facture_id}", response_class=HTMLResponse)
+def fiche(request: Request, facture_id: str):
+    return templates.TemplateResponse(request, "factures_proprietaires_fiche.html",
+                                       _contexte_fiche(facture_id))
 
 
 @router.post("/factures-proprietaires/{facture_id}/valider")
-def valider(facture_id: str):
+def valider(request: Request, facture_id: str):
     facture = svc.lire(facture_id)
-    svc.valider(facture_id, emetteur=_emetteur(),
-                destinataire=_destinataire(facture["proprietaire_id"]), acteur="interface")
+    try:
+        svc.valider(facture_id, emetteur=_emetteur(),
+                    destinataire=_destinataire(facture["proprietaire_id"]), acteur="interface")
+    except svc.FactureProprietaireError as exc:
+        return templates.TemplateResponse(
+            request, "factures_proprietaires_fiche.html",
+            _contexte_fiche(facture_id,
+                            erreur="Impossible de valider cette facture : des informations "
+                                   f"obligatoires restent à compléter ({exc})."),
+            status_code=422)
     return RedirectResponse(f"/factures-proprietaires/{facture_id}", status_code=303)
 
 
 @router.post("/factures-proprietaires/{facture_id}/emettre")
-def emettre(facture_id: str, date_facture: str = Form(...)):
+def emettre(request: Request, facture_id: str, date_facture: str = Form(...)):
     facture = svc.lire(facture_id)
     # Série laissée à la configuration : F-AAAA-NNNNNN pour les factures, A-AAAA-NNNNNN pour les
     # avoirs. La conformité est exigée dès que l'émission réelle est ouverte ; en recette elle est
     # seulement affichée, pour pouvoir exercer le parcours avec une configuration incomplète.
-    emise = svc.emettre(facture_id, emetteur=_emetteur(),
-                        destinataire=_destinataire(facture["proprietaire_id"]),
-                        date_facture=date_facture,
-                        generer_pdf=pdf.fabrique(_repertoire_documents()), acteur="interface",
-                        exiger_conformite=fconf.emission_reelle_autorisee())
+    try:
+        emise = svc.emettre(facture_id, emetteur=_emetteur(),
+                            destinataire=_destinataire(facture["proprietaire_id"]),
+                            date_facture=date_facture,
+                            generer_pdf=pdf.fabrique(_repertoire_documents()), acteur="interface",
+                            exiger_conformite=fconf.emission_reelle_autorisee())
+    except svc.FactureProprietaireError as exc:
+        return templates.TemplateResponse(
+            request, "factures_proprietaires_fiche.html",
+            _contexte_fiche(facture_id,
+                            erreur=f"Impossible d'émettre cette facture : {exc}."),
+            status_code=422)
     # L'émission constate la vente : c'est ici, et nulle part ailleurs, que naît l'écriture VENTES.
     # Un refus (flags désactivés, mapping, double source) n'annule pas l'émission — la facture est
     # émise et le conflit reste visible sur la fiche, jamais résolu en silence.

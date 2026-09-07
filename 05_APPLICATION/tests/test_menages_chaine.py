@@ -202,22 +202,20 @@ def test_ui_chaine_page_200(client):
 def test_ui_actions_operationnelles_presentes(client):
     """Les actions réellement offertes par l'écran Ménages sont présentes.
 
-    Ce test asseyait deux libellés qui n'existent plus sur cette page :
-      - « Simuler avec les derniers exports » vit dans `menages_diagnostic.html` ; sur la liste,
-        l'action équivalente s'appelle « Simuler le recalcul sur copies » ;
-      - « Actualiser les sources et recalculer » a été scindé en deux actions distinctes —
-        l'actualisation CIBLÉE du mois affiché et l'actualisation GLOBALE — précisément pour que le
-        périmètre recalculé ne soit plus ambigu.
-    On vérifie donc l'UI telle qu'elle est, sans réintroduire une action supprimée.
+    Mission « simplifier complètement ménages » : les anciens boutons séparés (« Actualiser
+    l'affichage », « Actualiser toute l'activité », « Importer les nouvelles factures »,
+    « Déclarer / saisir un ménage interne ») ont été retirés de cet écran au profit d'un bouton
+    unique « Actualiser le rapprochement des ménages » qui fait tout (PDF + Hostaway +
+    rapprochement ciblé). Le diagnostic technique (« Simuler le recalcul sur copies ») reste
+    disponible, replié sous <details>, pour la recette — jamais mis en avant à l'utilisateur.
     """
     r = client.get("/menages")
-    assert "Actualiser l'affichage" in r.text
-    assert "Actualiser toute l'activité" in r.text
-    assert "Importer les nouvelles factures" in r.text
+    assert "Actualiser l'affichage" not in r.text
+    assert "Actualiser toute l'activité" not in r.text
+    assert "Importer les nouvelles factures" not in r.text
+    assert "Déclarer / saisir un ménage interne" not in r.text
     assert "Simuler le recalcul sur copies" in r.text
-    # Le bouton principal est ciblé sur le mois affiché : son libellé porte le mois, jamais un
-    # « recalculer » générique.
-    assert "Actualiser " in r.text
+    assert "Actualiser le rapprochement des ménages" in r.text
 
 
 def test_ui_libelle_pdf_renomme(client, tmp_db):
