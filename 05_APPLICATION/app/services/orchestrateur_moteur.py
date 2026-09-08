@@ -216,6 +216,20 @@ def executer_menages(*, db_path=None, mois: str | None = None) -> dict[str, Any]
     return {"ok": True, "mois_traite": _mois_effectif_menages(base, mois)}
 
 
+def executer_declarations_internes(*, db_path=None) -> dict[str, Any]:
+    """lot6b — déclarations internes : Google Sheet -> normalisation Python -> SQLite.
+
+    `--sans-excel` est le parcours OPÉRATIONNEL du lot (cf. sa propre documentation) : l'URL CSV est
+    lue dans `ref_sources_systeme` (SRC_011), la Google Sheet est normalisée en Python, et le
+    résultat est écrit dans SQLite. Aucun classeur n'est lu ni écrit, et une configuration manquante
+    fait ÉCHOUER le lot au lieu de le laisser produire un résultat vide (fail-closed).
+
+    C'était jusqu'ici le seul maillon de la chaîne ménages qu'aucun parcours applicatif ne
+    déclenchait : depuis l'écran /menages, la Google Sheet ne se synchronisait donc jamais.
+    """
+    return executer("lot6b_m04_menages_internes.py", db_path=db_path, arguments=("--sans-excel",))
+
+
 def executer_menages_cible(*, db_path=None, mois: str, declencheur: str = "MANUEL") -> dict[str, Any]:
     """« Actualiser <mois affiché> » — recalcul MENAGES ciblé sur UN mois explicite (mission
     « rendre le recalcul ménages réellement mensuel et ciblé »).

@@ -16,6 +16,7 @@ from app.services import comptabilite_ecritures_service as compta
 from app.services import facturation_config_service as fconf
 from app.services import factures_proprietaires_conformite_service as conformite
 from app.services import factures_proprietaires_pdf as pdf
+from app.services import factures_proprietaires_edition_service as edition
 from app.services import factures_proprietaires_service as svc
 from app.services import factures_proprietaires_source as source_svc
 
@@ -126,6 +127,16 @@ def _contexte_fiche(facture_id: str, erreur: str | None = None) -> dict:
     return {
         "active_menu": "factures", "facture": facture,
         "solde": svc.solde(facture_id),
+        # Édition du BROUILLON : tout est calculé ICI. Le gabarit n'effectue aucune arithmétique
+        # et ne dérive aucun droit — il affiche.
+        "editable": facture["statut"] == svc.ST_BROUILLON,
+        "types_ligne": svc.TYPES_LIGNE_SAISISSABLES,
+        "choix_ligne_charge": svc.CHOIX_LIGNE_CHARGE,
+        "avertissement_ligne_calculee": svc.AVERTISSEMENT_LIGNE_CALCULEE,
+        "avertissement_charge": edition.AVERTISSEMENT_CHARGE,
+        "modes_charge": edition.modes_charge(),
+        "categories_charges": edition.categories_charges(),
+        "reservations": svc.reservations(facture_id),
         "emetteur": _emetteur(),
         "destinataire": _destinataire(facture["proprietaire_id"]),
         "peut_valider": facture["statut"] == svc.ST_BROUILLON,
@@ -187,9 +198,116 @@ def emettre(request: Request, facture_id: str, date_facture: str = Form(...)):
 
 
 @router.post("/factures-proprietaires/{facture_id}/avoir")
-def avoir(facture_id: str, motif: str = Form(...)):
-    a = svc.creer_avoir(facture_id, motif=motif, acteur="interface")
+def avoir(request: Request, facture_id: str, motif: str = Form(...)):
+    """Un avoir est un NOUVEAU document : la redirection vers l'avoir est délibérée.
+
+    C'est la seule action de cette fiche qui n'y ramène pas — parce qu'elle ne modifie pas cette
+    facture, elle en crée une autre, et c'est celle-là que l'utilisateur doit voir. Un refus, lui,
+    ramène bien sur la facture d'origine, jamais sur une page morte.
+    """
+    try:
+        a = svc.creer_avoir(facture_id, motif=motif, acteur="interface")
+    except svc.FactureProprietaireError as exc:
+        return _refus_fiche(request, facture_id, f"Impossible de créer un avoir : {exc}.")
     return RedirectResponse(f"/factures-proprietaires/{a['facture_id_opaque']}", status_code=303)
+
+
+# ── Édition d'un BROUILLON ──────────────────────────────────────────────────────────────────────
+# Contrat commun à TOUTES les actions ci-dessous : quel que soit le résultat, l'utilisateur revient
+# sur CETTE facture — succès par redirection ancrée, refus par re-rendu 422 de la même fiche.
+# Jamais un JSON brut, jamais une page générique, jamais un 500.
+
+ANCRE_LIGNES = "#lignes-facturees"
+ANCRE_REGLEMENT = "#reglement"
+
+
+def _refus_fiche(request: Request, facture_id: str, message: str):
+    return templates.TemplateResponse(request, "factures_proprietaires_fiche.html",
+                                      _contexte_fiche(facture_id, erreur=message),
+                                      status_code=422)
+
+
+def _retour(facture_id: str, ancre: str = ANCRE_LIGNES):
+    return RedirectResponse(f"/factures-proprietaires/{facture_id}{ancre}", status_code=303)
+
+
+@router.post("/factures-proprietaires/{facture_id}/lignes/ajouter")
+async def ligne_ajouter(request: Request, facture_id: str):
+    """Ajoute une ligne. Si le type est une CHARGE, la charge réelle est créée par le service
+    canonique (`charges_saisie_service.creer`) — jamais par un INSERT depuis cette route."""
+    form = await request.form()
+    type_ligne = str(form.get("type_ligne", "") or "").strip()
+    try:
+        if type_ligne == svc.CHOIX_LIGNE_CHARGE:
+            edition.ajouter_ligne_charge(
+                facture_id, libelle=str(form.get("libelle", "") or ""),
+                montant=form.get("montant"),
+                code_impact=str(form.get("code_impact", "") or ""),
+                categorie_charge_id=str(form.get("categorie_charge_id", "") or ""),
+                date_charge=str(form.get("date_charge", "") or ""),
+                refacturable=str(form.get("refacturable", "NON") or "NON"),
+                commentaire=str(form.get("commentaire", "") or ""), acteur="interface")
+        else:
+            svc.ajouter_ligne(facture_id, type_ligne=type_ligne,
+                              libelle=str(form.get("libelle", "") or ""),
+                              montant=form.get("montant"), acteur="interface",
+                              commentaire=str(form.get("commentaire", "") or ""))
+    except svc.FactureProprietaireError as exc:
+        return _refus_fiche(request, facture_id, f"Ligne non ajoutée : {exc}")
+    return _retour(facture_id)
+
+
+@router.post("/factures-proprietaires/{facture_id}/lignes/{ligne_id}/modifier")
+async def ligne_modifier(request: Request, facture_id: str, ligne_id: str):
+    form = await request.form()
+    try:
+        svc.modifier_ligne(facture_id, ligne_id,
+                           libelle=str(form.get("libelle", "") or ""),
+                           montant=form.get("montant"), acteur="interface",
+                           commentaire=str(form.get("commentaire", "") or ""))
+    except svc.FactureProprietaireError as exc:
+        return _refus_fiche(request, facture_id, f"Ligne non modifiée : {exc}")
+    return _retour(facture_id)
+
+
+@router.post("/factures-proprietaires/{facture_id}/lignes/{ligne_id}/supprimer")
+async def ligne_supprimer(request: Request, facture_id: str, ligne_id: str):
+    """Retire la ligne du DOCUMENT. La source de calcul Lot12 n'est jamais touchée."""
+    form = await request.form()
+    try:
+        edition.supprimer_ligne_charge(facture_id, ligne_id, acteur="interface")
+    except svc.FactureProprietaireError as exc:
+        return _refus_fiche(request, facture_id, f"Ligne non supprimée : {exc}")
+    _ = form
+    return _retour(facture_id)
+
+
+@router.post("/factures-proprietaires/{facture_id}/reversement-airbnb")
+async def reversement_airbnb(request: Request, facture_id: str):
+    form = await request.form()
+    try:
+        edition.ajouter_reversement_airbnb(
+            facture_id, montant=form.get("montant"),
+            date_imputation=str(form.get("date_imputation", "") or ""),
+            reference_airbnb=str(form.get("reference_airbnb", "") or ""),
+            commentaire=str(form.get("commentaire", "") or ""), acteur="interface")
+    except svc.FactureProprietaireError as exc:
+        return _refus_fiche(request, facture_id, f"Reversement non enregistré : {exc}")
+    return _retour(facture_id, ANCRE_REGLEMENT)
+
+
+@router.post("/factures-proprietaires/{facture_id}/acompte")
+async def acompte(request: Request, facture_id: str):
+    form = await request.form()
+    try:
+        edition.ajouter_acompte(
+            facture_id, montant=form.get("montant"),
+            date_mouvement=str(form.get("date_mouvement", "") or ""),
+            mode_reglement=str(form.get("mode_reglement", "") or ""),
+            commentaire=str(form.get("commentaire", "") or ""), acteur="interface")
+    except svc.FactureProprietaireError as exc:
+        return _refus_fiche(request, facture_id, f"Acompte non enregistré : {exc}")
+    return _retour(facture_id, ANCRE_REGLEMENT)
 
 
 @router.get("/factures-proprietaires/{facture_id}/document")

@@ -96,6 +96,26 @@
   {% if act.en_cours %}
   <div class="alert alert-info">Une actualisation est déjà en cours.</div>
   {% endif %}
+  {% if actualisation_terminee %}
+  {# Message affiché APRÈS un traitement réellement terminé — le workflow est synchrone, donc
+     l'écran ci-dessous reflète déjà son résultat. Les lignes viennent du service, jamais d'ici. #}
+  <div class="alert alert-success">
+    <strong>Rapprochement actualisé.</strong>
+    <ul>{% for ligne in resume_actualisation %}<li>{{ ligne }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+  {% if changements_clotures %}
+  <div class="alert alert-warning">
+    <strong>Changement détecté sur un mois clôturé — aucun recalcul effectué.</strong>
+    <ul>
+      {% for c in changements_clotures[:5] %}
+      <li>{{ c.mois }} · {{ c.origine }} · {{ c.date_detection }}</li>
+      {% endfor %}
+    </ul>
+    Rouvrir la clôture reste une décision explicite : les chiffres économiques de ces mois sont
+    inchangés.
+  </div>
+  {% endif %}
 
   <div class="flex gap-md items-start" style="flex-wrap:wrap">
     <form method="post" action="/menages/actualiser" id="form-actualiser-menages"

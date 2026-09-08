@@ -58,6 +58,44 @@ LIBELLES = {
 ST_BROUILLON, ST_VALIDE, ST_EMIS, ST_ANNULE = "BROUILLON", "VALIDE", "EMIS", "ANNULE"
 STATUTS = (ST_BROUILLON, ST_VALIDE, ST_EMIS, ST_ANNULE)
 
+# ── Édition d'un BROUILLON (migration 0071) ─────────────────────────────────────────────────────
+# Un BROUILLON est un DOCUMENT éditable, pas le miroir figé d'un calcul. Trois montants coexistent
+# et ne doivent jamais être confondus :
+#   TOTAL_SOURCE_CALCULE  Lot10/Lot12 au moment de la création — gelé, jamais recalculé ;
+#   TOTAL_FACTURE         somme VIVE des lignes ;
+#   AJUSTEMENT_MANUEL     la différence, dérivée et jamais stockée.
+# Éditer une facture ne touche JAMAIS Lot9/Lot10/Lot12 : le calcul reste la source de vérité du
+# calcul, la facture est la source de vérité du document.
+ORIGINE_CALCULEE = "CALCULEE"
+ORIGINE_MANUELLE = "MANUELLE"
+
+# Parcours « charge métier » (partie B) : l'utilisateur choisit CHOIX_LIGNE_CHARGE dans le
+# formulaire, et la ligne est STOCKÉE en 'CHARGES_EXCEPT_REFAC'.
+#
+# Pourquoi ne pas créer une valeur `type_ligne` dédiée : `factures_proprietaires_lignes` porte un
+# CHECK(type_ligne IN (...)) posé par 0055 et élargi par 0063. Élargir ce CHECK impose de
+# RECONSTRUIRE la table (SQLite n'a pas d'ALTER CONSTRAINT) — une opération destructive rejouée à
+# chaque démarrage, pour une distinction que le schéma sait déjà exprimer autrement : la table
+# compagne `factures_proprietaires_lignes_charge` identifie sans ambiguïté les lignes issues de ce
+# parcours, et l'origine MANUELLE les sépare des lignes CHARGES_EXCEPT_REFAC calculées par Lot10.
+# Un discriminant redondant ne valait pas une reconstruction de table.
+CHOIX_LIGNE_CHARGE = "CHARGE"
+TYPE_LIGNE_CHARGE = "CHARGES_EXCEPT_REFAC"
+TYPES_LIGNE_SAISISSABLES = TYPES_FACTURABLES
+
+# Vocabulaire d'événements ÉTENDU (colonne libre, aucune contrainte CHECK — vérifié sur 0027).
+EVT_AJOUT_LIGNE = "AJOUT_LIGNE"
+EVT_MODIFICATION_LIGNE = "MODIFICATION_LIGNE"
+EVT_SUPPRESSION_LIGNE = "SUPPRESSION_LIGNE"
+EVT_AJOUT_CHARGE = "AJOUT_CHARGE"
+EVT_AJOUT_REVERSEMENT_AIRBNB = "AJOUT_REVERSEMENT_AIRBNB"
+EVT_AJOUT_ACOMPTE = "AJOUT_ACOMPTE"
+
+AVERTISSEMENT_LIGNE_CALCULEE = (
+    "Cette ligne provient du calcul automatique. La modification changera uniquement la facture, "
+    "pas le calcul source."
+)
+
 TYPE_FACTURE, TYPE_AVOIR = "FACTURE", "AVOIR"
 
 # Codes de contrôle stables (catalogue facturation).
@@ -230,12 +268,105 @@ def creer(source: dict[str, Any], *, acteur: str = "", db_path=None,
                 (_opaque("FPRL"), fid, l["numero_ligne"], l["type_ligne"], l["libelle"],
                  l["montant"], l["objet_source_type"], l["objet_source_ref"]),
             )
+        # Le total source est gelé ICI, une fois pour toutes. C'est le seul instant où il est
+        # écrit : aucune régénération Lot10/Lot12 ne peut plus le déplacer.
+        conn.execute(
+            "INSERT OR IGNORE INTO factures_proprietaires_meta "
+            "(facture_id_opaque, total_source_calcule) VALUES (?,?)",
+            (fid, apercu["montant_total"]))
+        _figer_reservations(conn, fid, source["mois"], source["proprietaire_id"],
+                            source["logement_id"])
         _journal(conn, fid, "CREATION", None, ST_BROUILLON,
                  f"{len(apercu['lignes'])} lignes, total {apercu['montant_total']:.2f}", acteur)
         conn.commit()
     finally:
         conn.close()
     return lire(fid, db_path=db_path)
+
+
+# ── Réservations de la période : instantané, jamais une jointure ────────────────────────────────
+
+def _figer_reservations(conn, facture_id: str, mois: str, proprietaire_id: str,
+                        logement_id: str) -> int:
+    """Fige, à la création du BROUILLON, les réservations de la période. Purement informatif.
+
+    POURQUOI UN INSTANTANÉ ET PAS UNE JOINTURE — audit exécuté sur une copie de la base réelle :
+    `factures_proprietaires.source_calcul` porte le `facture_id` Lot12 (ex.
+    'PREF-2026-08-PROP_0001-LOG_0001'), qui n'est PAS scopé par run — la même valeur existe dans
+    quatre runs Lot12, avec des `nb_reservations` différents (18/36/9/9). `lot12_runs` ne référence
+    aucun run Lot10, et `reservations_resolues` est régénérée par dataset. Aucune jointure ne
+    reproduit donc l'état vu par le calcul source ; seul un gel le garantit.
+
+    Une panne de lecture ne fait JAMAIS échouer la création de la facture : la section réservations
+    est informative, son absence est visible à l'écran et ne dégrade aucun montant.
+    """
+    try:
+        actif = conn.execute(
+            "SELECT run_id FROM lot10_runs WHERE actif=1 ORDER BY id DESC LIMIT 1").fetchone()
+        run_id = actif["run_id"] if actif else None
+        if run_id is None:
+            return 0
+        lignes = conn.execute(
+            "SELECT reservation_id_hostaway, date_arrivee, date_depart, nuits, guest_count, "
+            "       payout_calcule, channel_type "
+            "FROM lot10_commissions WHERE run_id=? AND mois=? AND proprietaire_id=? "
+            "AND logement_id=? ORDER BY date_arrivee, reservation_id_hostaway",
+            (run_id, mois, proprietaire_id, logement_id)).fetchall()
+    except sqlite3.Error:
+        return 0
+
+    noms = _noms_voyageurs(conn, [str(l["reservation_id_hostaway"] or "") for l in lignes])
+    for l in lignes:
+        rid = str(l["reservation_id_hostaway"] or "")
+        if not rid:
+            continue
+        conn.execute(
+            "INSERT OR IGNORE INTO factures_proprietaires_reservations "
+            "(facture_id_opaque, reservation_id, guest_name, check_in, check_out, nights, "
+            " guest_count, payout, plateforme, source_run_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (facture_id, rid, noms.get(rid), l["date_arrivee"], l["date_depart"], l["nuits"],
+             l["guest_count"], _round(l["payout_calcule"]), l["channel_type"], run_id))
+    return len(lignes)
+
+
+def _noms_voyageurs(conn, reservation_ids: list[str]) -> dict[str, str]:
+    """Nom du voyageur, extrait du payload Hostaway conservé.
+
+    Aucune colonne `guest_name` n'existe dans `reservations_resolues`, `lot10_commissions` ni
+    `hostaway_reservations` (vérifié) : la seule source est `payload_json`, tronqué à 4000
+    caractères. `guestName` s'y trouve tôt dans la charge utile, donc présent en pratique — mais le
+    JSON tronqué n'est pas parsable, d'où l'extraction par motif plutôt que `json.loads`.
+    Un nom absent reste absent : jamais de valeur inventée.
+    """
+    import re
+
+    if not reservation_ids:
+        return {}
+    out: dict[str, str] = {}
+    marques = ",".join("?" * len(reservation_ids))
+    try:
+        rows = conn.execute(
+            f"SELECT reservation_id, payload_json FROM hostaway_reservations "
+            f"WHERE reservation_id IN ({marques})", reservation_ids).fetchall()
+    except sqlite3.Error:
+        return {}
+    for r in rows:
+        charge = r["payload_json"] or ""
+        m = re.search(r'"guestName"\s*:\s*"([^"]*)"', charge)
+        if m and m.group(1).strip():
+            out[str(r["reservation_id"])] = m.group(1).strip()
+    return out
+
+
+def reservations(facture_id: str, *, db_path=None) -> list[dict[str, Any]]:
+    """Réservations figées de la période. Zéro effet sur le total : lecture pure."""
+    conn = get_db(db_path)
+    try:
+        return [dict(r) for r in conn.execute(
+            "SELECT * FROM factures_proprietaires_reservations WHERE facture_id_opaque=? "
+            "ORDER BY check_in, reservation_id", (facture_id,)).fetchall()]
+    finally:
+        conn.close()
 
 
 def lire(facture_id: str, *, db_path=None) -> dict[str, Any]:
@@ -251,12 +382,50 @@ def lire(facture_id: str, *, db_path=None) -> dict[str, Any]:
         evts = conn.execute(
             "SELECT * FROM factures_proprietaires_evenements WHERE facture_id_opaque=? "
             "ORDER BY id", (facture_id,)).fetchall()
+        provenance = {r["ligne_id_opaque"]: dict(r) for r in conn.execute(
+            "SELECT * FROM factures_proprietaires_lignes_provenance WHERE facture_id_opaque=?",
+            (facture_id,)).fetchall()}
+        charges = {r["ligne_id_opaque"]: dict(r) for r in conn.execute(
+            "SELECT * FROM factures_proprietaires_lignes_charge WHERE facture_id_opaque=?",
+            (facture_id,)).fetchall()}
+        meta = conn.execute(
+            "SELECT total_source_calcule FROM factures_proprietaires_meta "
+            "WHERE facture_id_opaque=?", (facture_id,)).fetchone()
     finally:
         conn.close()
     d = dict(row)
-    d["lignes"] = [dict(l) for l in lignes]
+    d["lignes"] = []
+    for l in lignes:
+        ligne = dict(l)
+        # ORIGINE DÉRIVÉE, jamais stockée en double : une ligne née du calcul porte un
+        # `objet_source_type`, une ligne saisie à la main n'en a pas. Ajouter une colonne
+        # « origine » créerait une seconde vérité qu'il faudrait maintenir cohérente.
+        ligne["origine"] = (ORIGINE_CALCULEE if str(l["objet_source_type"] or "").strip()
+                            else ORIGINE_MANUELLE)
+        prov = provenance.get(l["ligne_id_opaque"])
+        ligne["montant_source_initial"] = prov["montant_source_initial"] if prov else None
+        ligne["montant_modifie"] = bool(
+            prov and abs(_round(prov["montant_source_initial"]) - _round(l["montant"])) > TOLERANCE)
+        ligne["charge"] = charges.get(l["ligne_id_opaque"])
+        d["lignes"].append(ligne)
     d["evenements"] = [dict(e) for e in evts]
+    # Une facture antérieure à 0071 n'a pas de méta : son total source est son total, puisque
+    # aucun ajustement manuel ne pouvait exister avant l'édition des brouillons.
+    d["total_source_calcule"] = _round(meta["total_source_calcule"] if meta
+                                       else row["montant_total"])
+    d["total_facture"] = _round(sum(_round(l["montant"]) for l in d["lignes"]))
+    d["ajustement_manuel"] = _round(d["total_facture"] - d["total_source_calcule"])
+    # L'écran ne montre la décomposition en trois montants QUE si un ajustement existe :
+    # afficher « ajustements 0,00 € » sur toutes les factures apprendrait à ne plus le lire.
+    d["ajustement_present"] = abs(d["ajustement_manuel"]) > TOLERANCE
     return d
+
+
+def montants(facture_id: str, *, db_path=None) -> dict[str, Any]:
+    """Les trois montants d'une facture, calculés côté serveur — zéro arithmétique en gabarit."""
+    f = lire(facture_id, db_path=db_path)
+    return {k: f[k] for k in ("total_source_calcule", "total_facture", "ajustement_manuel",
+                              "ajustement_present")}
 
 
 def lister(*, mois=None, proprietaire_id=None, statut=None, db_path=None) -> list[dict[str, Any]]:
@@ -272,6 +441,173 @@ def lister(*, mois=None, proprietaire_id=None, statut=None, db_path=None) -> lis
         return [dict(r) for r in conn.execute(sql, params).fetchall()]
     finally:
         conn.close()
+
+
+# ── Édition des lignes d'un BROUILLON ───────────────────────────────────────────────────────────
+# INVARIANT ABSOLU DE TOUTE CETTE SECTION : aucune écriture, jamais, dans une table Lot9/Lot10/
+# Lot12. Modifier une facture modifie le DOCUMENT ; le CALCUL reste intact et reste consultable via
+# `total_source_calcule`. Supprimer une ligne CALCULEE retire la ligne du document — la ligne Lot12
+# d'origine n'est ni touchée ni supprimée.
+
+def _exiger_brouillon(f: dict[str, Any], action: str) -> None:
+    """Une facture qui a quitté le BROUILLON n'est plus éditable — jamais en silence.
+
+    Le refus est une exception métier, remontée par la route en 422 HTML lisible (pas un JSON brut,
+    pas un 500) : l'utilisateur doit comprendre POURQUOI l'action est refusée.
+    """
+    if f["statut"] != ST_BROUILLON:
+        raise FactureProprietaireError(
+            f"statut {f['statut']} : {action} impossible. Seul un BROUILLON est modifiable ; "
+            "une facture validée ou émise se corrige par un avoir.")
+
+
+def _resynchroniser_total(conn, facture_id: str) -> float:
+    """`montant_total` redevient la somme EXACTE des lignes. Jamais une saisie, toujours un calcul."""
+    total = _round(conn.execute(
+        "SELECT COALESCE(SUM(montant), 0) FROM factures_proprietaires_lignes "
+        "WHERE facture_id_opaque=?", (facture_id,)).fetchone()[0])
+    conn.execute(
+        "UPDATE factures_proprietaires SET montant_total=?, version=version+1 "
+        "WHERE facture_id_opaque=?", (total, facture_id))
+    return total
+
+
+def _prochain_numero_ligne(conn, facture_id: str) -> int:
+    return int(conn.execute(
+        "SELECT COALESCE(MAX(numero_ligne), 0) + 1 FROM factures_proprietaires_lignes "
+        "WHERE facture_id_opaque=?", (facture_id,)).fetchone()[0])
+
+
+def ajouter_ligne(facture_id: str, *, type_ligne: str, libelle: str, montant: Any,
+                  objet_source_type: str | None = None, objet_source_ref: str | None = None,
+                  acteur: str = "", commentaire: str = "", db_path=None,
+                  _conn=None) -> dict[str, Any]:
+    """Ajoute une ligne MANUELLE (ou reliée à une source, si `objet_source_type` est fourni).
+
+    `_conn` permet à `ajouter_ligne_charge` d'insérer dans SA transaction — usage interne
+    exclusivement, jamais exposé à une route.
+    """
+    f = lire(facture_id, db_path=db_path)
+    _exiger_brouillon(f, "ajout de ligne")
+    type_ligne = str(type_ligne or "").strip()
+    if not type_ligne:
+        raise FactureProprietaireError("type de ligne obligatoire")
+    libelle = str(libelle or "").strip()
+    if not libelle:
+        raise FactureProprietaireError("libelle obligatoire")
+    valeur = _round(montant)
+    if valeur == 0:
+        raise FactureProprietaireError("une ligne a 0 n'a pas d'effet : montant attendu different de 0")
+
+    interne = _conn is not None
+    conn = _conn if interne else get_db(db_path)
+    try:
+        lid = _opaque("FPRL")
+        conn.execute(
+            "INSERT INTO factures_proprietaires_lignes "
+            "(ligne_id_opaque, facture_id_opaque, numero_ligne, type_ligne, libelle, montant, "
+            " objet_source_type, objet_source_ref) VALUES (?,?,?,?,?,?,?,?)",
+            (lid, facture_id, _prochain_numero_ligne(conn, facture_id), type_ligne, libelle,
+             valeur, objet_source_type, objet_source_ref))
+        total = _resynchroniser_total(conn, facture_id)
+        _journal(conn, facture_id, EVT_AJOUT_LIGNE, ST_BROUILLON, ST_BROUILLON,
+                 _commentaire_ligne(type_ligne, libelle, valeur, total, commentaire), acteur)
+        if not interne:
+            conn.commit()
+    finally:
+        if not interne:
+            conn.close()
+    return {"ok": True, "ligne_id_opaque": lid}
+
+
+def _commentaire_ligne(type_ligne: str, libelle: str, montant: float, total: float,
+                       extra: str = "") -> str:
+    """Format aligné sur l'existant (`CREATION` : « N lignes, total X.XX ») : montant, objet, total."""
+    base = f"{type_ligne} « {libelle} » {montant:.2f}, total {total:.2f}"
+    return f"{base} — {extra}" if str(extra or "").strip() else base
+
+
+def modifier_ligne(facture_id: str, ligne_id: str, *, libelle: str | None = None,
+                   montant: Any = None, acteur: str = "", commentaire: str = "",
+                   db_path=None) -> dict[str, Any]:
+    """Modifie une ligne d'un BROUILLON.
+
+    Si la ligne est CALCULEE, son montant d'origine est conservé AVANT la première modification
+    (`factures_proprietaires_lignes_provenance`, écrit une seule fois) : l'écart au calcul reste
+    reconstituable pour toujours, même après plusieurs corrections successives. Le calcul source
+    lui-même n'est jamais touché.
+    """
+    f = lire(facture_id, db_path=db_path)
+    _exiger_brouillon(f, "modification de ligne")
+    ligne = next((l for l in f["lignes"] if l["ligne_id_opaque"] == ligne_id), None)
+    if ligne is None:
+        raise FactureProprietaireError(f"ligne inconnue sur cette facture : {ligne_id}")
+
+    nouveau_libelle = str(libelle).strip() if libelle is not None else ligne["libelle"]
+    if not nouveau_libelle:
+        raise FactureProprietaireError("libelle obligatoire")
+    nouveau_montant = _round(montant) if montant is not None else _round(ligne["montant"])
+    if nouveau_montant == 0:
+        raise FactureProprietaireError("une ligne a 0 n'a pas d'effet : montant attendu different de 0")
+
+    conn = get_db(db_path)
+    try:
+        if ligne["origine"] == ORIGINE_CALCULEE:
+            conn.execute(
+                "INSERT OR IGNORE INTO factures_proprietaires_lignes_provenance "
+                "(ligne_id_opaque, facture_id_opaque, montant_source_initial, objet_source_type, "
+                " objet_source_ref) VALUES (?,?,?,?,?)",
+                (ligne_id, facture_id, _round(ligne["montant"]), ligne["objet_source_type"],
+                 ligne["objet_source_ref"]))
+        conn.execute(
+            "UPDATE factures_proprietaires_lignes SET libelle=?, montant=? WHERE ligne_id_opaque=?",
+            (nouveau_libelle, nouveau_montant, ligne_id))
+        total = _resynchroniser_total(conn, facture_id)
+        detail = (f"{ligne['origine']} {_round(ligne['montant']):.2f} -> {nouveau_montant:.2f}"
+                  + (f" ; {AVERTISSEMENT_LIGNE_CALCULEE}"
+                     if ligne["origine"] == ORIGINE_CALCULEE else ""))
+        _journal(conn, facture_id, EVT_MODIFICATION_LIGNE, ST_BROUILLON, ST_BROUILLON,
+                 _commentaire_ligne(ligne["type_ligne"], nouveau_libelle, nouveau_montant, total,
+                                    f"{detail}{(' ; ' + commentaire) if commentaire else ''}"),
+                 acteur)
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "ligne_id_opaque": ligne_id}
+
+
+def supprimer_ligne(facture_id: str, ligne_id: str, *, acteur: str = "", commentaire: str = "",
+                    db_path=None) -> dict[str, Any]:
+    """Retire une ligne du DOCUMENT. La source de calcul correspondante n'est jamais supprimée.
+
+    Une ligne CALCULEE peut être retirée tant que la facture est un BROUILLON : c'est une décision
+    de facturation (« je ne facture pas cet élément ce mois-ci »), pas une correction de calcul.
+    L'événement conserve la trace qu'une ligne CALCULEE a été retirée, avec son montant.
+    """
+    f = lire(facture_id, db_path=db_path)
+    _exiger_brouillon(f, "suppression de ligne")
+    ligne = next((l for l in f["lignes"] if l["ligne_id_opaque"] == ligne_id), None)
+    if ligne is None:
+        raise FactureProprietaireError(f"ligne inconnue sur cette facture : {ligne_id}")
+
+    conn = get_db(db_path)
+    try:
+        conn.execute("DELETE FROM factures_proprietaires_lignes WHERE ligne_id_opaque=?",
+                     (ligne_id,))
+        total = _resynchroniser_total(conn, facture_id)
+        detail = f"origine {ligne['origine']}"
+        if ligne["origine"] == ORIGINE_CALCULEE:
+            detail += (f" ; ligne calculee retiree du document — source {ligne['objet_source_type']}"
+                       f"/{ligne['objet_source_ref']} INCHANGEE")
+        _journal(conn, facture_id, EVT_SUPPRESSION_LIGNE, ST_BROUILLON, ST_BROUILLON,
+                 _commentaire_ligne(ligne["type_ligne"], ligne["libelle"],
+                                    _round(ligne["montant"]), total,
+                                    f"{detail}{(' ; ' + commentaire) if commentaire else ''}"),
+                 acteur)
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "ligne_id_opaque": ligne_id, "charge_liee": ligne.get("charge")}
 
 
 # ── Validation ──────────────────────────────────────────────────────────────────────────────────
@@ -538,12 +874,60 @@ def creer_avoir(facture_id: str, *, motif: str, acteur: str = "", db_path=None) 
 
 # ── Solde ───────────────────────────────────────────────────────────────────────────────────────
 
+def reversements_airbnb(facture_id: str, *, db_path=None) -> list[dict[str, Any]]:
+    """Reversements Airbnb rattachés à cette facture (`imputations_airbnb.document_id`).
+
+    Objet canonique inchangé : un reversement Airbnb reste un PAYOUT_PLATEFORME. Il ne crée ni
+    réservation, ni charge, ni mouvement bancaire, ni écriture comptable.
+    """
+    conn = get_db(db_path)
+    try:
+        return [dict(r) for r in conn.execute(
+            "SELECT * FROM imputations_airbnb WHERE document_id=? ORDER BY date_imputation, "
+            "imputation_airbnb_id", (facture_id,)).fetchall()]
+    except sqlite3.Error:
+        return []
+    finally:
+        conn.close()
+
+
+def acomptes_proprietaire(facture_id: str, *, db_path=None) -> list[dict[str, Any]]:
+    """Acomptes propriétaire rattachés à cette facture (`reference_metier`).
+
+    Seuls les mouvements VALIDE et actifs déduisent réellement — même règle que Lot10
+    (`charger_acomptes_proprietaires_sqlite` filtre `statut='VALIDE' AND actif=1`). Les autres sont
+    rendus pour affichage, avec leur statut, jamais silencieusement ignorés.
+    """
+    conn = get_db(db_path)
+    try:
+        return [dict(r) for r in conn.execute(
+            "SELECT * FROM mouvements_tresorerie_proprietaires WHERE reference_metier=? "
+            "AND nature='ACOMPTE_PROPRIETAIRE' AND statut <> 'ANNULE' "
+            "ORDER BY date_mouvement, id", (facture_id,)).fetchall()]
+    except sqlite3.Error:
+        return []
+    finally:
+        conn.close()
+
+
 def solde(facture_id: str, *, paiements_imputes: float = 0.0, db_path=None) -> dict[str, Any]:
     """Solde dérivé, jamais stocké. Le règlement ne recrée aucun objet économique : il impute un
-    montant sur une créance qui existe déjà."""
+    montant sur une créance qui existe déjà.
+
+    Deux déductions supplémentaires sont pliées ici, jamais dans le gabarit (§ « zéro arithmétique
+    en Jinja ») : les REVERSEMENTS AIRBNB (`imputations_airbnb`) et les ACOMPTES PROPRIÉTAIRE
+    (`mouvements_tresorerie_proprietaires`). Ce sont des paiements DÉJÀ REÇUS que l'on impute sur
+    une créance existante — pas des lignes de facture, et donc jamais un composant du total.
+    """
     f = lire(facture_id, db_path=db_path)
     total = _round(f["montant_total"])
-    impute = _round(paiements_imputes)
+    reversements = reversements_airbnb(facture_id, db_path=db_path)
+    acomptes = acomptes_proprietaire(facture_id, db_path=db_path)
+    total_reversements = _round(sum(_round(r["montant_impute"]) for r in reversements))
+    # Seul un acompte VALIDE et actif déduit : un brouillon d'acompte ne règle rien.
+    total_acomptes = _round(sum(_round(a["montant"]) for a in acomptes
+                                if a["statut"] == "VALIDE" and int(a["actif"] or 0) == 1))
+    impute = _round(_round(paiements_imputes) + total_reversements + total_acomptes)
     reste = _round(total - impute)
     if impute == 0:
         statut = "NON_REGLEE"
@@ -554,4 +938,8 @@ def solde(facture_id: str, *, paiements_imputes: float = 0.0, db_path=None) -> d
     else:
         statut = "TROP_PERCU_A_CONTROLER"
     return {"facture_id_opaque": facture_id, "montant_total": total,
-            "paiements_imputes": impute, "solde": reste, "statut_reglement": statut}
+            "paiements_imputes": impute, "solde": reste, "statut_reglement": statut,
+            "reversements_airbnb": reversements, "acomptes_proprietaire": acomptes,
+            "total_reversements_airbnb": total_reversements,
+            "total_acomptes_proprietaire": total_acomptes,
+            "autres_paiements": _round(paiements_imputes)}

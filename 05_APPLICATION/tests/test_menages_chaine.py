@@ -184,12 +184,20 @@ def test_invalidate_menages_cache_vide_tout(monkeypatch):
     assert reader._CACHE_PROPRIETAIRES is None
 
 
-# ── UI : 3 actions distinctes ────────────────────────────────────────────────
+# ── UI ───────────────────────────────────────────────────────────────────────
 
-def test_ui_actualiser_affichage_redirige(client):
-    r = client.post("/menages/actualiser-affichage", data={"mois": "2026-05"}, follow_redirects=False)
-    assert r.status_code == 303
-    assert "affichage=actualise" in r.headers["location"]
+def test_ui_actualiser_affichage_supprimee(client):
+    """« Actualiser l'affichage » a disparu, bouton ET route.
+
+    Ce test affirmait l'inverse tant que le recalcul ménages tournait en tâche de fond : l'écran
+    revenait avant la fin du traitement, et il fallait un second bouton pour le rafraîchir. Le
+    workflow étant devenu SYNCHRONE, l'écran affiché après « Actualiser le rapprochement des
+    ménages » est déjà à jour — laisser ce bouton suggérerait que l'écran peut être périmé alors
+    qu'il ne l'est plus.
+    """
+    r = client.post("/menages/actualiser-affichage", data={"mois": "2026-05"},
+                    follow_redirects=False)
+    assert r.status_code == 404
 
 
 def test_ui_chaine_page_200(client):

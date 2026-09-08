@@ -59,8 +59,10 @@
           {% if r.override %}<span class="badge badge-info" title="Motif enregistré">Outrepassé</span>{% endif %}
         </td>
         <td>
+          {# `retour` transporte le mois ET les filtres courants : après une correction de ligne,
+             l'utilisateur revient exactement ici, jamais sur un rapprochement non filtré. #}
           <a class="btn btn-secondary btn-sm"
-             href="/menages/{{ r.mois }}/{{ r.logement_id }}/{{ r.intervenant_id }}">Voir</a>
+             href="/menages/{{ r.mois }}/{{ r.logement_id }}/{{ r.intervenant_id }}{% if retour_contexte %}?retour={{ retour_contexte | urlencode }}{% endif %}">Voir</a>
         </td>
       </tr>
       {% endfor %}

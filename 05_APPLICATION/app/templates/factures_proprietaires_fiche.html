@@ -28,28 +28,232 @@
   <p><strong>Destinataire :</strong> {{ destinataire.nom }}</p>
 </div>
 
-<div class="card">
+<div class="card" id="lignes-facturees">
   <h3>Lignes facturées</h3>
   <table class="table">
-    <thead><tr><th>N°</th><th>Type</th><th>Libellé</th><th class="text-right">Montant</th></tr></thead>
+    <thead><tr><th>N°</th><th>Type</th><th>Libellé</th><th>Origine</th>
+               <th class="text-right">Montant</th>
+               {% if editable %}<th>Actions</th>{% endif %}</tr></thead>
     <tbody>
       {% for l in facture.lignes %}
       <tr><td>{{ l.numero_ligne }}</td><td>{{ l.type_ligne }}</td><td>{{ l.libelle }}</td>
-          <td class="text-right">{{ "%.2f"|format(l.montant) }} €</td></tr>
+          <td><span class="badge">{{ l.origine }}</span>
+              {% if l.montant_modifie %}
+              <br><span class="text-xs text-secondary">calcul d'origine
+                {{ "%.2f"|format(l.montant_source_initial) }} €</span>
+              {% endif %}
+              {% if l.charge %}
+              <br><span class="text-xs text-secondary">charge {{ l.charge.charge_id }}
+                ({{ l.charge.code_impact }})</span>
+              {% endif %}
+          </td>
+          <td class="text-right">{{ "%.2f"|format(l.montant) }} €</td>
+          {% if editable %}
+          <td>
+            <details>
+              <summary>Modifier</summary>
+              {% if l.origine == "CALCULEE" %}
+              <p class="text-xs" style="color:#c0392b">{{ avertissement_ligne_calculee }}</p>
+              {% endif %}
+              <form method="post"
+                    action="/factures-proprietaires/{{ facture.facture_id_opaque }}/lignes/{{ l.ligne_id_opaque }}/modifier">
+                <label>Libellé <input type="text" name="libelle" value="{{ l.libelle }}" required></label>
+                <label>Montant <input type="text" name="montant" value="{{ "%.2f"|format(l.montant) }}" required></label>
+                <label>Commentaire <input type="text" name="commentaire"></label>
+                <button type="submit">Enregistrer</button>
+              </form>
+            </details>
+            <form method="post"
+                  action="/factures-proprietaires/{{ facture.facture_id_opaque }}/lignes/{{ l.ligne_id_opaque }}/supprimer">
+              <button type="submit">Supprimer</button>
+            </form>
+          </td>
+          {% endif %}
+      </tr>
       {% endfor %}
-      <tr><th colspan="3" class="text-right">TOTAL</th>
-          <th class="text-right">{{ "%.2f"|format(facture.montant_total) }} €</th></tr>
+      {% if facture.ajustement_present %}
+      {# Décomposition affichée UNIQUEMENT quand un ajustement existe : la montrer partout
+         apprendrait à ne plus la lire. Tous les montants viennent du service. #}
+      <tr><th colspan="{{ 5 if editable else 4 }}" class="text-right">TOTAL CALCULÉ</th>
+          <th class="text-right">{{ "%.2f"|format(facture.total_source_calcule) }} €</th></tr>
+      <tr><th colspan="{{ 5 if editable else 4 }}" class="text-right">AJUSTEMENTS MANUELS</th>
+          <th class="text-right">{{ "%.2f"|format(facture.ajustement_manuel) }} €</th></tr>
+      <tr><th colspan="{{ 5 if editable else 4 }}" class="text-right">TOTAL FACTURE</th>
+          <th class="text-right">{{ "%.2f"|format(facture.total_facture) }} €</th></tr>
+      {% else %}
+      <tr><th colspan="{{ 5 if editable else 4 }}" class="text-right">TOTAL</th>
+          <th class="text-right">{{ "%.2f"|format(facture.total_facture) }} €</th></tr>
+      {% endif %}
     </tbody>
   </table>
+
+  {% if editable %}
+  <details>
+    <summary><strong>+ Ajouter une ligne</strong></summary>
+    <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/lignes/ajouter">
+      <label>Type
+        <select name="type_ligne" id="type_ligne" required>
+          {% for t in types_ligne %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+          <option value="{{ choix_ligne_charge }}">CHARGE (crée aussi une charge réelle)</option>
+        </select>
+      </label>
+      <label>Libellé <input type="text" name="libelle" required></label>
+      <label>Montant <input type="text" name="montant" required></label>
+      <label>Commentaire <input type="text" name="commentaire"></label>
+
+      {# Champs propres au parcours CHARGE, masqués tant que le type n'est pas une charge. #}
+      <div id="bloc_charge" style="display:none">
+        <p style="color:#c0392b"><strong>{{ avertissement_charge }}</strong></p>
+        <label>Mode d'impact
+          <select name="code_impact" id="code_impact">
+            {% for m in modes_charge %}
+            <option value="{{ m.code_impact }}">{{ m.libelle }} — {{ m.description }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Catégorie de charge
+          <select name="categorie_charge_id">
+            {% for c in categories_charges %}
+            <option value="{{ c.categorie_charge_id }}">{{ c.categorie_niveau_1 }} · {{ c.categorie_niveau_2 or c.categorie_charge_id }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Date de la charge <input type="text" name="date_charge" placeholder="AAAA-MM-JJ"></label>
+        <label>Refacturable au propriétaire
+          <select name="refacturable"><option value="NON">Non</option><option value="OUI">Oui</option></select>
+        </label>
+        <ul>
+          <li>Impact résultat : <strong id="ef_reel">—</strong></li>
+          <li>Impact comptabilité : <strong id="ef_compta">—</strong></li>
+        </ul>
+        <p class="text-xs text-secondary">Créer une charge ici n'écrit AUCUNE écriture comptable :
+           la comptabilisation reste un workflow distinct et postérieur.</p>
+      </div>
+      <button type="submit">Ajouter</button>
+    </form>
+  </details>
+  <script>
+  (function () {
+    // Mêmes libellés et même mécanique que fournisseurs_nouvelle.html : l'utilisateur voit
+    // l'impact AVANT de valider, jamais après.
+    var IMPACT = {{ modes_charge | tojson }};
+    var TYPE_CHARGE = {{ choix_ligne_charge | tojson }};
+    function el(id) { return document.getElementById(id); }
+    function refresh() {
+      var estCharge = el("type_ligne").value === TYPE_CHARGE;
+      el("bloc_charge").style.display = estCharge ? "" : "none";
+      var code = el("code_impact").value;
+      var mode = IMPACT.filter(function (m) { return m.code_impact === code; })[0];
+      el("ef_reel").textContent = mode ? (mode.impact_resultat_reel === "OUI" ? "Oui" : "Non") : "—";
+      el("ef_compta").textContent = mode ? (mode.impact_resultat_comptable === "OUI" ? "Oui" : "Non") : "—";
+    }
+    el("type_ligne").addEventListener("change", refresh);
+    el("code_impact").addEventListener("change", refresh);
+    refresh();
+  })();
+  </script>
+  {% else %}
+  <p class="text-muted">Facture {{ facture.statut }} : les lignes ne sont plus modifiables.
+     Une correction passe par un avoir.</p>
+  {% endif %}
 </div>
 
-<div class="card">
+<div class="card" id="reglement">
   <h3>Règlement</h3>
-  <p>Total {{ "%.2f"|format(solde.montant_total) }} € · imputé
-     {{ "%.2f"|format(solde.paiements_imputes) }} € · <strong>solde
-     {{ "%.2f"|format(solde.solde) }} €</strong> — {{ solde.statut_reglement }}</p>
+  {# Zéro arithmétique ici : tous les montants sont calculés par `svc.solde()`. #}
+  <table class="table">
+    <tbody>
+      <tr><td>TOTAL FACTURE</td><td class="text-right">{{ "%.2f"|format(solde.montant_total) }} €</td></tr>
+      <tr><td>− REVERSEMENTS AIRBNB</td><td class="text-right">{{ "%.2f"|format(solde.total_reversements_airbnb) }} €</td></tr>
+      <tr><td>− ACOMPTES PROPRIÉTAIRE</td><td class="text-right">{{ "%.2f"|format(solde.total_acomptes_proprietaire) }} €</td></tr>
+      {% if solde.autres_paiements %}
+      <tr><td>− AUTRES PAIEMENTS IMPUTÉS</td><td class="text-right">{{ "%.2f"|format(solde.autres_paiements) }} €</td></tr>
+      {% endif %}
+      <tr><th>= SOLDE RESTANT</th><th class="text-right">{{ "%.2f"|format(solde.solde) }} €</th></tr>
+      <tr><td>STATUT</td><td class="text-right"><span class="badge">{{ solde.statut_reglement }}</span></td></tr>
+    </tbody>
+  </table>
+
+  {% if solde.reversements_airbnb %}
+  <h4>Reversements Airbnb</h4>
+  <table class="table">
+    <thead><tr><th>Date</th><th>Référence</th><th class="text-right">Montant</th></tr></thead>
+    <tbody>
+      {% for r in solde.reversements_airbnb %}
+      <tr><td>{{ r.date_imputation }}</td><td>{{ r.reference_airbnb or r.commentaire or "—" }}</td>
+          <td class="text-right">{{ "%.2f"|format(r.montant_impute) }} €</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if solde.acomptes_proprietaire %}
+  <h4>Acomptes propriétaire</h4>
+  <table class="table">
+    <thead><tr><th>Date</th><th>Mode</th><th>Statut</th><th class="text-right">Montant</th></tr></thead>
+    <tbody>
+      {% for a in solde.acomptes_proprietaire %}
+      <tr><td>{{ a.date_mouvement }}</td><td>{{ a.mode_reglement or "—" }}</td>
+          <td><span class="badge">{{ a.statut }}</span></td>
+          <td class="text-right">{{ "%.2f"|format(a.montant) }} €</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  <details>
+    <summary><strong>+ Ajouter un reversement Airbnb</strong></summary>
+    <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/reversement-airbnb">
+      <label>Montant <input type="text" name="montant" required></label>
+      <label>Date <input type="text" name="date_imputation" placeholder="AAAA-MM-JJ" required></label>
+      <label>Référence Airbnb <input type="text" name="reference_airbnb"></label>
+      <label>Commentaire <input type="text" name="commentaire"></label>
+      <button type="submit">Enregistrer le reversement</button>
+    </form>
+    <p class="text-xs text-secondary">Un reversement Airbnb reste un payout plateforme : il ne crée
+       ni réservation, ni charge, ni mouvement bancaire, ni écriture comptable.</p>
+  </details>
+
+  <details>
+    <summary><strong>+ Ajouter un acompte propriétaire</strong></summary>
+    <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/acompte">
+      <label>Montant <input type="text" name="montant" required></label>
+      <label>Date <input type="text" name="date_mouvement" placeholder="AAAA-MM-JJ" required></label>
+      <label>Mode de règlement <input type="text" name="mode_reglement"></label>
+      <label>Commentaire <input type="text" name="commentaire"></label>
+      <button type="submit">Enregistrer l'acompte</button>
+    </form>
+    <p class="text-xs text-secondary">L'acompte est enregistré puis validé : seul un mouvement
+       VALIDE déduit réellement du solde. Il ne touche ni payout, ni commission, ni ménage, ni
+       résultat économique.</p>
+  </details>
+
   <p class="text-muted">Un règlement impute une créance existante : il ne recrée ni commission,
      ni charge, ni facture.</p>
+</div>
+
+<div class="card" id="reservations">
+  <h3>Réservations de la période</h3>
+  {% if reservations %}
+  <table class="table">
+    <thead><tr><th>Voyageur</th><th>Check-in</th><th>Check-out</th>
+               <th class="text-right">Nuits</th><th class="text-right">Voyageurs</th>
+               <th>Plateforme</th><th class="text-right">Total payout</th></tr></thead>
+    <tbody>
+      {% for r in reservations %}
+      <tr><td>{{ r.guest_name or r.reservation_id }}</td><td>{{ r.check_in }}</td>
+          <td>{{ r.check_out }}</td><td class="text-right">{{ r.nights }}</td>
+          <td class="text-right">{{ r.guest_count }}</td><td>{{ r.plateforme or "—" }}</td>
+          <td class="text-right">{{ "%.2f"|format(r.payout or 0) }} €</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="text-muted">Aucune réservation figée pour cette facture.</p>
+  {% endif %}
+  <p class="text-xs text-secondary">Instantané figé à la création du brouillon, et jamais
+     re-dérivé : une extraction Hostaway ultérieure ne peut plus modifier ce tableau. Purement
+     informatif — n'entre dans aucun total de la facture.</p>
 </div>
 
 <div class="card">

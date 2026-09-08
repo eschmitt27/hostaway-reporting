@@ -4,17 +4,19 @@ Aucune route n'écrit dans une source métier. La seule écriture est l'outrepas
 tracé en SQLite. Le recalcul réel du pipeline n'est pas exposé : /menages/diagnostic
 est une page de diagnostic, sans exécution.
 """
-from fastapi import APIRouter, BackgroundTasks, Request
+from urllib.parse import quote, urlencode
+
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from app.template_env import get_templates
 
+from app.services import menages_actualisation_service as actualisation
 from app.services import menages_service as svc
 from app.services import menages_recalcul_service as recalc
 from app.services import menages_chaine_service as chaine
 from app.services import menages_pdf_import_service as pdf_import
 from app.services import menages_declarations_service as declarations
 from app.services import orchestrateur_service as orch
-from app.services import orchestrateur_moteur as moteur
 import app.config as cfg
 from app.services import menages_cycle_service as cycle
 from app.services import menages_controles_service as cycle_controles
@@ -40,6 +42,21 @@ def _filtres(mois: str, logement_id: str, proprietaire_id: str, intervenant_id: 
     }
 
 
+def _url_contexte(mois: str, filtres: dict) -> str:
+    """URL /menages reconstruite avec le mois et les filtres réellement appliqués.
+
+    Les valeurs vides/fausses sont omises : une URL de retour lisible vaut mieux qu'une URL exacte
+    mais illisible, et un filtre absent est exactement équivalent à un filtre vide.
+    """
+    parametres = [("mois", mois)] + [
+        (cle, ("true" if valeur is True else str(valeur)))
+        for cle, valeur in filtres.items()
+        if valeur not in (None, "", False) and not (cle == "page" and valeur == 1)
+    ]
+    utiles = [(c, v) for c, v in parametres if v not in ("", "None")]
+    return "/menages" + (("?" + urlencode(utiles)) if utiles else "")
+
+
 @router.get("/menages", response_class=HTMLResponse)
 def menages_dashboard(
     request: Request,
@@ -53,6 +70,8 @@ def menages_dashboard(
     identification_incomplete: bool = False,
     tri: str = "anomalie",
     page: int = 1,
+    actualisation_statut: str = "",
+    resume: str = "",
 ):
     data = svc.load_dashboard(
         mois=mois,
@@ -63,6 +82,16 @@ def menages_dashboard(
         "active_menu": "menages",
         "data": data,
         "actualisation": svc.charger_etat_actualisation(),
+        # Compte rendu de la dernière actualisation : lignes courtes, calculées par le workflow
+        # à partir de ce qu'il a réellement fait. Jamais un compteur écrit en dur dans le gabarit.
+        # Contexte de retour, calculé UNE FOIS ici : chaque lien de ligne l'emporte avec lui, si
+        # bien qu'après une correction l'utilisateur retrouve son mois ET ses filtres.
+        "retour_contexte": _url_contexte(mois, _filtres(
+            mois, logement_id, proprietaire_id, intervenant_id, type_intervenant, statut,
+            ecart_seul, identification_incomplete, tri, page)),
+        "actualisation_terminee": request.query_params.get("actualisation") == "terminee",
+        "resume_actualisation": [p for p in resume.split(" · ") if p],
+        "changements_clotures": actualisation.changements_mois_clotures(statut="SIGNALE"),
     })
 
 
@@ -128,58 +157,47 @@ async def menages_pdf_importer(request: Request):
     return RedirectResponse(url="/menages?actualisation=pdf", status_code=303)
 
 
-def _relancer_menages_cible(mois: str, declencheur: str) -> None:
-    """Tâche de fond de « Actualiser <mois affiché> » — RECALCUL CIBLÉ sur un seul mois explicite.
+def _retour_contexte(form, defaut: str) -> str:
+    """URL de retour après une action de ligne — TOUJOURS le contexte d'où l'utilisateur venait.
 
-    Distinct de `/actualisation/tout` (cascade GLOBALE générique `cibles=None`) : ici le mois est
-    TOUJOURS celui affiché à l'écran, jamais déduit implicitement (lot6d/6e/6f défaut sinon sur le
-    DERNIER mois présent dans les Cleaning Tasks, qui peut être un mois épars sans rapport avec ce
-    que l'utilisateur regarde).
-
-    `orch.actualiser(cibles=["MENAGES"])` (utilisé par la cascade générique) ne parcourt que les
-    DESCENDANTS de MENAGES, jamais ses AMONTS. Si HOSTAWAY_CLEANING_TASKS restait sur un statut
-    périmé, MENAGES serait ignoré à chaque relance (« amont en échec »). On rafraîchit donc
-    explicitement HOSTAWAY_CLEANING_TASKS d'abord, puis on appelle `executer_menages_cible` (mois
-    explicite, jamais le générique `executer_menages(mois=None)`), on met à jour l'état MENAGES pour
-    que le reste du DAG le voie à jour, puis on cascade Lot9→10→11→12 pour ce même contexte.
+    Le formulaire transporte son propre contexte (`retour`, champ caché contenant le mois et les
+    filtres de l'écran d'origine). Sans lui, une correction faite depuis un rapprochement filtré
+    renverrait sur un écran non filtré : l'utilisateur perdrait sa place et devrait refaire ses
+    filtres à chaque ligne traitée. Seul un chemin interne est accepté : une valeur externe serait
+    une redirection ouverte.
     """
-    orch.recalculer_dataset("HOSTAWAY_CLEANING_TASKS", declencheur=declencheur)
-    resultat = moteur.executer_menages_cible(mois=mois, declencheur=declencheur)
-    if resultat.get("ok"):
-        orch.marquer_dataset("MENAGES", orch.ST_A_JOUR, declencheur=declencheur, detail=resultat,
-                             motif=f"RECALCUL_CIBLE mois={mois}")
-        orch.actualiser(cibles=["FLUX_LOT9"], declencheur=declencheur,
-                        inclure_imports_externes=True)
-    else:
-        orch.marquer_dataset("MENAGES", orch.ST_ECHEC, declencheur=declencheur,
-                             erreur_code=resultat.get("code", "ECHEC"),
-                             erreur_message=resultat.get("message", ""),
-                             motif=f"RECALCUL_CIBLE mois={mois}")
+    brut = str(form.get("retour", "") or "").strip()
+    if brut.startswith("/") and not brut.startswith("//"):
+        return brut
+    return defaut
 
 
 @router.post("/menages/actualiser")
-async def menages_actualiser(request: Request, background: BackgroundTasks):
-    """« Actualiser <mois affiché> » — bouton principal du module, TOUJOURS ciblé sur un mois.
+async def menages_actualiser(request: Request):
+    """« Actualiser le rapprochement des ménages » — L'UNIQUE action de l'écran, SYNCHRONE.
 
-    `mois` doit être le mois actuellement filtré sur /menages (transmis par un champ caché du
-    formulaire — lu via `request.form()`, PAS un paramètre de fonction FastAPI : ce champ arrive en
-    corps `application/x-www-form-urlencoded`, jamais en query string, exactement comme
-    `/menages/actualiser-affichage` un peu plus bas). Si absent (appel direct/legacy), on retombe sur
-    le mois par défaut de l'écran plutôt que sur le comportement implicite de lot6d/6e/6f, pour ne
-    jamais recalculer un mois sans savoir lequel.
+    Le workflow complet (PDF → Google Sheet → Hostaway → ciblage → recalcul des mois OUVERTS →
+    rapprochement) s'exécute EN LIGNE : la redirection n'a lieu qu'une fois tout terminé, si bien
+    que l'écran affiche l'état réel dès son affichage. C'est le changement de contrat par rapport à
+    la version en `BackgroundTasks`, qui redirigeait vers un écran encore périmé et rendait
+    nécessaire un second bouton « Actualiser l'affichage » — supprimé depuis.
 
-    1) Importe les nouvelles factures PDF (synchrone, rapide : quelques fichiers, aucune requête
-       réseau) — pour que lot6d lise des lignes à jour dès le lancement de l'étape 2.
-    2) Rafraîchit Hostaway Cleaning Tasks puis recalcule MENAGES pour CE mois en tâche de fond (un
-       recalcul peut durer : la requête HTTP ne doit jamais rester bloquée dessus).
+    `mois` est le mois filtré à l'écran, transmis par un champ caché : il arrive en corps
+    `application/x-www-form-urlencoded`, jamais en query string, d'où la lecture via
+    `request.form()` plutôt qu'un paramètre de fonction FastAPI. Absent, on retombe sur le mois par
+    défaut de l'écran — jamais sur le comportement implicite de lot6d/6e/6f.
     """
     form = await request.form()
     mois_cible = str(form.get("mois", "") or "").strip() or svc.periode_par_defaut()
-    pdf_import.importer_nouveaux(acteur="ui:menages")
     orch.marquer_runs_interrompus()
-    background.add_task(_relancer_menages_cible, mois_cible, orch.DECLENCHEUR_MANUEL)
-    return RedirectResponse(url=f"/menages?mois={mois_cible}&actualisation=lancee",
-                            status_code=303)
+    resultat = actualisation.actualiser(mois_affiche=mois_cible, acteur="ui:menages",
+                                        declencheur=orch.DECLENCHEUR_MANUEL)
+    # Le résumé est passé en query string parce qu'il est COURT et calculé à partir de ce qui a
+    # réellement été fait — jamais un compteur figé dans le gabarit.
+    resume = " · ".join(resultat["statistiques"])
+    return RedirectResponse(
+        url=f"/menages?mois={mois_cible}&actualisation=terminee&resume={quote(resume)}",
+        status_code=303)
 
 
 # « Actualiser toute l'activité » (mode GLOBAL, mission §10) existe déjà : /actualisation/tout
@@ -245,23 +263,11 @@ def menages_recalculer_run(request: Request, run_id: int):
     })
 
 
-# ── Action A — Actualiser l'affichage (invalide le cache, aucun script, aucun réseau) ─
-@router.post("/menages/actualiser-affichage")
-async def menages_actualiser_affichage(request: Request):
-    """Vide le cache de lecture puis renvoie sur le tableau (POST-Redirect-GET).
-
-    Aucune exécution de script, aucune requête réseau, aucune écriture : la prochaine
-    lecture rouvre les MASTER et reflète l'état du disque.
-    """
-    svc.invalidate_menages_cache()
-    mois = ""
-    try:
-        form = await request.form()
-        mois = str(form.get("mois", "")).strip()
-    except Exception:
-        mois = ""
-    cible = f"/menages?mois={mois}&affichage=actualise" if mois else "/menages?affichage=actualise"
-    return RedirectResponse(url=cible, status_code=303)
+# « Actualiser l'affichage » a été SUPPRIMÉ, bouton et route. Il n'existait que pour compenser un
+# recalcul en tâche de fond : l'écran revenait avant la fin du traitement, et l'utilisateur devait
+# rafraîchir lui-même pour voir le résultat. Le workflow étant désormais synchrone, l'écran affiché
+# après « Actualiser le rapprochement des ménages » est déjà à jour — un bouton pour actualiser
+# l'affichage n'aurait plus rien à actualiser. Le cache est invalidé par le workflow lui-même.
 
 
 # ── Action C — Chaîne COMPLÈTE : recette sur copies (mode réel gardé, flag False) ────
@@ -419,18 +425,22 @@ async def menages_cycle_statut(request: Request, opaque: str):
 
 
 @router.get("/menages/{mois}/{logement_id}/{intervenant_id}", response_class=HTMLResponse)
-def menage_detail(request: Request, mois: str, logement_id: str, intervenant_id: str):
+def menage_detail(request: Request, mois: str, logement_id: str, intervenant_id: str,
+                  retour: str = ""):
     detail = svc.load_reconciliation_detail(mois, logement_id, intervenant_id)
+    # `retour` est reçu du tableau et RENVOYÉ dans les formulaires : le contexte de l'utilisateur
+    # traverse l'aller-retour au lieu d'être perdu à la première action.
+    retour = retour if retour.startswith("/") and not retour.startswith("//") else ""
     if detail is None:
         return templates.TemplateResponse(request, "menages_detail.html", {
             "active_menu": "menages",
-            "detail": None,
+            "detail": None, "retour": retour,
             "mois": mois, "logement_id": logement_id, "intervenant_id": intervenant_id,
         }, status_code=404)
 
     return templates.TemplateResponse(request, "menages_detail.html", {
         "active_menu": "menages",
-        "detail": detail,
+        "detail": detail, "retour": retour,
         "mois": mois, "logement_id": logement_id, "intervenant_id": intervenant_id,
         "outrepassage_error": None,
     })
@@ -438,7 +448,7 @@ def menage_detail(request: Request, mois: str, logement_id: str, intervenant_id:
 
 @router.post("/menages/{mois}/{logement_id}/{intervenant_id}/modifier-declaration",
              response_class=HTMLResponse)
-async def menage_modifier_declaration(request: Request, background: BackgroundTasks, mois: str,
+async def menage_modifier_declaration(request: Request, mois: str,
                                       logement_id: str, intervenant_id: str):
     """Modifie nb_menages/supplément d'une déclaration interne existante (§A/A1/A2).
 
@@ -465,9 +475,13 @@ async def menage_modifier_declaration(request: Request, background: BackgroundTa
             "mois": mois, "logement_id": logement_id, "intervenant_id": intervenant_id,
             "outrepassage_error": None, "declaration_error": resultat.get("message"),
         }, status_code=422)
-    background.add_task(_relancer_menages_cible, mois, orch.DECLENCHEUR_MANUEL)
-    return RedirectResponse(
-        url=f"/menages/{mois}/{logement_id}/{intervenant_id}?declaration=modifiee", status_code=303)
+    # Recalcul SYNCHRONE, comme le bouton unique : l'écran suivant montre l'état réel, jamais un
+    # état intermédiaire que l'utilisateur devrait rafraîchir lui-même.
+    actualisation.actualiser(mois_affiche=mois, acteur="ui:menages",
+                             declencheur=orch.DECLENCHEUR_MANUEL)
+    retour = _retour_contexte(form, f"/menages/{mois}/{logement_id}/{intervenant_id}")
+    separateur = "&" if "?" in retour else "?"
+    return RedirectResponse(url=f"{retour}{separateur}declaration=modifiee", status_code=303)
 
 
 @router.get("/menages/conflits", response_class=HTMLResponse)
@@ -518,7 +532,6 @@ async def menage_outrepasser(request: Request, mois: str, logement_id: str,
             "outrepassage_error": result.get("error"),
         }, status_code=422)
 
-    return RedirectResponse(
-        url=f"/menages/{mois}/{logement_id}/{intervenant_id}?outrepassage=ok",
-        status_code=303,
-    )
+    retour = _retour_contexte(form_data, f"/menages/{mois}/{logement_id}/{intervenant_id}")
+    separateur = "&" if "?" in retour else "?"
+    return RedirectResponse(url=f"{retour}{separateur}outrepassage=ok", status_code=303)

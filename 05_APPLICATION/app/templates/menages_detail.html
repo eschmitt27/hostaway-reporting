@@ -301,6 +301,8 @@
     </div>
   {% else %}
   <form method="post" action="/menages/{{ mois }}/{{ logement_id }}/{{ intervenant_id }}/modifier-declaration">
+    {# Contexte d'origine (mois + filtres) renvoyé tel quel : on revient d'où l'on vient. #}
+    <input type="hidden" name="retour" value="{{ retour }}">
     <div class="detail-grid">
       <div>
         <label for="nb_menages" class="text-sm">Nombre de ménages</label>
@@ -367,6 +369,8 @@
     Corriger la source ou relancer le calcul reste l'action à privilégier.
   </p>
   <form method="post" action="/menages/{{ mois }}/{{ logement_id }}/{{ intervenant_id }}/outrepasser">
+    {# Contexte d'origine (mois + filtres) renvoyé tel quel : on revient d'où l'on vient. #}
+    <input type="hidden" name="retour" value="{{ retour }}">
     <label for="motif" class="text-sm">Motif <span class="text-error">*</span></label>
     <textarea id="motif" name="motif" rows="3" class="filter-input" style="width:100%;"
               required>{% if detail.override %}{{ detail.override.motif }}{% endif %}</textarea>
