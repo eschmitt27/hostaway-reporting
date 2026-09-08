@@ -473,3 +473,222 @@ def test_reservations_sans_effet_sur_le_total(db):
     assert f["montant_total"] == 500.0
     assert f["total_facture"] == 500.0
     assert svc.reservations(fid, db_path=db), "les réservations existent bien, sans peser au total"
+
+
+# ── Atomicité — transaction SQLite unique (injection de panne) ────────────────────────────────────
+#
+# `ajouter_ligne_charge` partage désormais UNE connexion pour charge + refacturation + ligne + lien +
+# historique, avec un seul commit final. Chaque test force une panne à une étape différente et
+# vérifie qu'un ROLLBACT total a eu lieu : zéro trace nulle part, jamais une charge « annulée » —
+# l'opération entière doit n'avoir jamais existé du point de vue de la base.
+
+class _ConnexionEspion:
+    """Enveloppe une connexion réelle et lève au premier `execute()` dont le SQL contient
+    `declencheur` — permet de simuler une panne à un point précis de la transaction partagée sans
+    dépendre de l'implémentation interne des services appelés."""
+
+    def __init__(self, reelle, declencheur):
+        self._reelle = reelle
+        self._declencheur = declencheur
+
+    def execute(self, sql, params=()):
+        if self._declencheur in sql:
+            raise RuntimeError(f"panne simulee : {self._declencheur}")
+        return self._reelle.execute(sql, params)
+
+    def __getattr__(self, nom):
+        return getattr(self._reelle, nom)
+
+
+def _tables_liees_a_une_charge(db):
+    """Photo des quatre tables que l'opération peut toucher — comptes bruts car la fixture `db`
+    n'a, avant tout ajout de charge, aucune ligne dans aucune d'entre elles."""
+    return {
+        "charges": _compte(db, "charges"),
+        "lignes_charge": _compte(db, "factures_proprietaires_lignes_charge"),
+        "positions_refacturation": _compte(db, "charges_refacturation_positions"),
+    }
+
+
+def _compte_evenements_ajout_charge(db, fid):
+    conn = get_db(db)
+    try:
+        return conn.execute(
+            "SELECT COUNT(*) FROM factures_proprietaires_evenements "
+            "WHERE facture_id_opaque=? AND type_evenement=?",
+            (fid, svc.EVT_AJOUT_CHARGE)).fetchone()[0]
+    finally:
+        conn.close()
+
+
+def _compte_lignes_charge_facture(db, fid):
+    conn = get_db(db)
+    try:
+        return conn.execute(
+            "SELECT COUNT(*) FROM factures_proprietaires_lignes "
+            "WHERE facture_id_opaque=? AND type_ligne=?",
+            (fid, svc.TYPE_LIGNE_CHARGE)).fetchone()[0]
+    finally:
+        conn.close()
+
+
+def test_fault_A_echec_insertion_lien_ligne_charge_rollback_total(db, monkeypatch):
+    """A. Panne APRÈS création de la charge, au moment du lien `factures_proprietaires_lignes_charge`
+    — la charge déjà insérée dans CETTE transaction doit disparaître avec le rollback (pas
+    d'annulation compensatoire, une disparition pure)."""
+    fid = _facture(db)
+    cat = _categorie(db)
+    avant = _tables_liees_a_une_charge(db)
+    reelle = get_db(db)
+
+    def _get_db_espion(chemin=None):
+        return _ConnexionEspion(reelle, "INSERT INTO factures_proprietaires_lignes_charge")
+
+    monkeypatch.setattr(
+        "app.services.factures_proprietaires_edition_service.get_db", _get_db_espion)
+    with pytest.raises(RuntimeError, match="panne simulee"):
+        edition.ajouter_ligne_charge(fid, libelle="X", montant=30.0, code_impact="IC",
+                                     categorie_charge_id=cat, db_path=db)
+    reelle.close()
+    apres = _tables_liees_a_une_charge(db)
+    assert apres == avant, "rollback attendu : rien ne doit subsister"
+    assert _compte_lignes_charge_facture(db, fid) == 0
+    assert _compte_evenements_ajout_charge(db, fid) == 0
+
+
+def test_fault_B_echec_synchronisation_refacturation_rollback_total(db, monkeypatch):
+    """B. Panne pendant `synchroniser_depuis_charge` (affectation de la position de refacturation),
+    appelée depuis `charges_saisie_service.creer()` avec la connexion partagée."""
+    from app.services import charges_refacturation_service as refac
+
+    fid = _facture(db)
+    cat = _categorie(db)
+    avant = _tables_liees_a_une_charge(db)
+
+    def _synchro_qui_casse(charge_id, *, acteur="", conn=None, db_path=None):
+        raise RuntimeError("panne simulee : synchroniser_depuis_charge")
+
+    monkeypatch.setattr(refac, "synchroniser_depuis_charge", _synchro_qui_casse)
+    with pytest.raises(RuntimeError, match="panne simulee"):
+        edition.ajouter_ligne_charge(fid, libelle="X", montant=30.0, code_impact="IC",
+                                     categorie_charge_id=cat, refacturable="OUI", db_path=db)
+    apres = _tables_liees_a_une_charge(db)
+    assert apres == avant, "rollback attendu : la charge elle-meme doit disparaitre"
+    assert _compte_lignes_charge_facture(db, fid) == 0
+    assert _compte_evenements_ajout_charge(db, fid) == 0
+
+
+def test_fault_C_echec_creation_ligne_facture_rollback_total(db, monkeypatch):
+    """C. Panne dans `svc.ajouter_ligne` : la charge, déjà insérée dans la transaction partagée,
+    doit disparaître avec elle — pas d'annulation compensatoire résiduelle."""
+    fid = _facture(db)
+    cat = _categorie(db)
+    avant = _tables_liees_a_une_charge(db)
+
+    def _ajouter_ligne_qui_casse(*a, **k):
+        raise RuntimeError("panne simulee : ajouter_ligne")
+
+    monkeypatch.setattr(svc, "ajouter_ligne", _ajouter_ligne_qui_casse)
+    with pytest.raises(RuntimeError, match="panne simulee"):
+        edition.ajouter_ligne_charge(fid, libelle="X", montant=30.0, code_impact="IC",
+                                     categorie_charge_id=cat, db_path=db)
+    apres = _tables_liees_a_une_charge(db)
+    assert apres == avant
+    assert _compte_lignes_charge_facture(db, fid) == 0
+    assert _compte_evenements_ajout_charge(db, fid) == 0
+
+
+def test_fault_D_echec_historique_rollback_total(db, monkeypatch):
+    """D. Panne dans `svc._journal` (écriture de l'historique) : dernier maillon de la transaction
+    partagée — doit encore tout défaire, y compris la charge et la ligne déjà insérées."""
+    fid = _facture(db)
+    cat = _categorie(db)
+    avant = _tables_liees_a_une_charge(db)
+
+    reel_journal = svc._journal
+    appels = []
+
+    def _journal_qui_casse(conn, facture_id, type_evt, *a, **k):
+        if type_evt == svc.EVT_AJOUT_CHARGE:
+            raise RuntimeError("panne simulee : _journal")
+        return reel_journal(conn, facture_id, type_evt, *a, **k)
+
+    monkeypatch.setattr(svc, "_journal", _journal_qui_casse)
+    with pytest.raises(RuntimeError, match="panne simulee"):
+        edition.ajouter_ligne_charge(fid, libelle="X", montant=30.0, code_impact="IC",
+                                     categorie_charge_id=cat, db_path=db)
+    apres = _tables_liees_a_une_charge(db)
+    assert apres == avant
+    assert _compte_lignes_charge_facture(db, fid) == 0
+    assert _compte_evenements_ajout_charge(db, fid) == 0
+
+
+@pytest.mark.parametrize("refacturable,positions_attendues", [("NON", 0), ("OUI", 1)])
+def test_fault_E_succes_exactement_les_lignes_attendues(db, refacturable, positions_attendues):
+    """E. Chemin nominal : exactement une ligne par table concernée, rien de plus."""
+    fid = _facture(db)
+    cat = _categorie(db)
+    resultat = edition.ajouter_ligne_charge(fid, libelle="X", montant=30.0, code_impact="IC",
+                                            categorie_charge_id=cat, refacturable=refacturable,
+                                            db_path=db)
+    assert resultat["ok"] is True
+    conn = get_db(db)
+    try:
+        charges_rows = conn.execute(
+            "SELECT statut FROM charges WHERE charge_id=?", (resultat["charge_id"],)).fetchall()
+        lignes_rows = conn.execute(
+            "SELECT * FROM factures_proprietaires_lignes WHERE facture_id_opaque=? "
+            "AND type_ligne=?", (fid, svc.TYPE_LIGNE_CHARGE)).fetchall()
+        liens_rows = conn.execute(
+            "SELECT * FROM factures_proprietaires_lignes_charge WHERE charge_id=?",
+            (resultat["charge_id"],)).fetchall()
+        positions_rows = conn.execute(
+            "SELECT * FROM charges_refacturation_positions WHERE charge_id=?",
+            (resultat["charge_id"],)).fetchall()
+        evenements_rows = conn.execute(
+            "SELECT * FROM factures_proprietaires_evenements WHERE facture_id_opaque=? "
+            "AND type_evenement=?", (fid, svc.EVT_AJOUT_CHARGE)).fetchall()
+    finally:
+        conn.close()
+    assert len(charges_rows) == 1 and charges_rows[0]["statut"] == charges.STATUT_ACTIVE
+    assert len(lignes_rows) == 1
+    assert len(liens_rows) == 1
+    assert len(positions_rows) == positions_attendues
+    assert len(evenements_rows) == 1
+
+
+def test_anti_double_facturation_regeneration_ne_duplique_pas_la_position(db):
+    """Une charge déjà liée à une ligne de facture, avec sa position de refacturation, ne doit
+    jamais en gagner une seconde si la synchronisation est rejouée (ex. régénération de préfacture
+    qui rappelle `charges_saisie_service.modifier()` sur la même charge)."""
+    from app.services import charges_refacturation_service as refac
+
+    fid = _facture(db)
+    cat = _categorie(db)
+    resultat = edition.ajouter_ligne_charge(fid, libelle="Refacturable", montant=45.0,
+                                            code_impact="IC", categorie_charge_id=cat,
+                                            refacturable="OUI", db_path=db)
+    charge_id = resultat["charge_id"]
+
+    # Rejoue la synchronisation comme le ferait une régénération de préfacture : la charge reste
+    # inchangée (même modifier() re-soumet les mêmes valeurs), sans jamais spawn une 2e position.
+    conn = get_db(db)
+    try:
+        charge = dict(conn.execute("SELECT * FROM charges WHERE charge_id=?",
+                                   (charge_id,)).fetchone())
+    finally:
+        conn.close()
+    donnees = {c: charge.get(c) for c in charges.CHAMPS_SAISIE}
+    for _ in range(3):
+        modif = charges.modifier(charge_id, donnees, acteur="regen", db_path=db)
+        assert modif["ok"] is True
+        refac.synchroniser_depuis_charge(charge_id, acteur="regen", db_path=db)
+
+    conn = get_db(db)
+    try:
+        n = conn.execute(
+            "SELECT COUNT(*) FROM charges_refacturation_positions WHERE charge_id=?",
+            (charge_id,)).fetchone()[0]
+    finally:
+        conn.close()
+    assert n == 1, "une régénération répétée ne doit jamais dupliquer la position"

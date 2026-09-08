@@ -132,8 +132,17 @@ def _charge(conn, charge_id: str) -> dict[str, Any] | None:
     return dict(r) if r else None
 
 
-def creer(donnees: dict[str, Any], *, acteur: str = "", db_path=None) -> dict[str, Any]:
-    """Crée une charge. `charge_id` fourni, ou dérivé d'un identifiant opaque — jamais un rang."""
+def creer(donnees: dict[str, Any], *, acteur: str = "", conn=None,
+          db_path=None) -> dict[str, Any]:
+    """Crée une charge. `charge_id` fourni, ou dérivé d'un identifiant opaque — jamais un rang.
+
+    `conn` : même idiome que `charges_refacturation_service.synchroniser_depuis_charge` — si
+    fourni, la charge s'écrit DANS la transaction de l'appelant (pas de commit/close ici, c'est à
+    l'appelant de gérer la transaction en entier). Si `None` (défaut, tous les appelants
+    existants), comportement inchangé : connexion propre ouverte/validée/fermée ici.
+    Validation métier (`valider()`, `_verifier_contrat()`) reste PURE et s'exécute AVANT toute
+    ouverture de connexion — un refus métier ne touche jamais la base, conn fourni ou non.
+    """
     validation = valider(donnees)
     if not validation["ok"]:
         return validation
@@ -146,7 +155,9 @@ def creer(donnees: dict[str, Any], *, acteur: str = "", db_path=None) -> dict[st
     valeurs["montant"] = validation["montant"]
     valeurs["mois"] = validation["mois"]
 
-    conn = get_db(db_path)
+    connexion_locale = conn is None
+    if connexion_locale:
+        conn = get_db(db_path)
     try:
         if _charge(conn, charge_id) is not None:
             return _refus(E_DOUBLON, f"Une charge porte déjà l'identifiant {charge_id}.")
@@ -161,9 +172,11 @@ def creer(donnees: dict[str, Any], *, acteur: str = "", db_path=None) -> dict[st
         # refacturable='OUI' alimente automatiquement une position, jamais un second flux.
         from app.services import charges_refacturation_service as refac
         refac.synchroniser_depuis_charge(charge_id, acteur=acteur, conn=conn)
-        conn.commit()
+        if connexion_locale:
+            conn.commit()
     finally:
-        conn.close()
+        if connexion_locale:
+            conn.close()
     return {"ok": True, "charge_id": charge_id}
 
 

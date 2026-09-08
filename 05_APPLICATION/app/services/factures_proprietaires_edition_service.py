@@ -17,18 +17,24 @@ l'événement et synchronise la position de refacturation ; la comptabilisation 
 POSTÉRIEUR et SÉPARÉ (`comptabilite_ecritures_service`), déclenché ailleurs et jamais d'ici.
 « Impact comptabilité = Oui » décrit une DESTINATION future, pas un effet immédiat.
 
-ATOMICITÉ — LIMITE ASSUMÉE, PAS MASQUÉE
-`charges_saisie_service.creer()` ouvre et valide SA PROPRE connexion : il n'accepte aucun `conn`
-externe. Une transaction unique couvrant « création de la charge » + « insertion de la ligne de
-facture » est donc IMPOSSIBLE par composition directe. Le schéma retenu est une transaction
-COMPENSATOIRE explicite :
-    1. créer la charge ; si elle est refusée, rien n'est écrit et on s'arrête AVANT la facture ;
-    2. insérer la ligne de facture ; si cela échoue, ANNULER la charge
-       (`charges_saisie_service.annuler`, qui annule sans jamais supprimer physiquement).
-Ce n'est pas de l'atomicité : c'est une compensation. Une panne process entre 1 et 2 laisserait une
-charge orpheline ACTIVE. Le choix est délibéré — l'alternative (réécrire un INSERT `charges` direct
-pour partager la transaction) contournerait le service canonique, sa validation et sa file de
-refacturation, ce qui serait bien plus grave.
+ATOMICITÉ — TRANSACTION SQLITE UNIQUE
+`charges_saisie_service.creer()` accepte désormais un `conn` externe optionnel (même idiome que
+`charges_refacturation_service.synchroniser_depuis_charge` : `conn=None` défaut → connexion propre
+ouverte/validée/fermée par le service ; `conn` fourni → écrit DANS la transaction de l'appelant,
+sans commit ni close, laissés à l'appelant). `ajouter_ligne_charge` ouvre UNE connexion pour toute
+l'opération et la partage :
+    1. `charges.creer(..., conn=conn)` — insère la charge et synchronise sa position de
+       refacturation (`synchroniser_depuis_charge` déjà appelée depuis `creer()`, avec le même
+       `conn` — jamais un second appel ici) ;
+    2. `svc.ajouter_ligne(..., _conn=conn)` — insère la ligne de facture ;
+    3. `INSERT INTO factures_proprietaires_lignes_charge` — le lien ligne↔charge ;
+    4. `svc._journal(conn, ...)` — l'événement d'historique.
+Un seul `conn.commit()` à la fin. Toute exception à n'importe quelle étape déclenche
+`conn.rollback()` puis `raise` : SQLite annule TOUT ce qui a été écrit dans cette transaction,
+y compris l'INSERT de la charge lui-même — il n'y a donc plus rien à compenser, et aucun appel à
+`charges_saisie_service.annuler()` n'a lieu sur ce chemin. Une panne process en cours de transaction
+ne laisse aucune charge orpheline : soit la transaction est validée en entier, soit elle n'a jamais
+existé du point de vue de la base.
 """
 from __future__ import annotations
 
@@ -103,8 +109,12 @@ def ajouter_ligne_charge(facture_id: str, *, libelle: str, montant: Any, code_im
                          acteur: str = "", db_path=None) -> dict[str, Any]:
     """Ajoute une ligne CHARGE à un BROUILLON **et** crée la charge réelle correspondante.
 
-    Ordre imposé par la transaction compensatoire documentée en tête de module : la charge d'abord
-    (un refus métier arrête tout AVANT la moindre écriture sur la facture), la ligne ensuite.
+    Transaction SQLite unique documentée en tête de module : la validation pure (mode d'impact,
+    catégorie, libellé) s'exécute AVANT toute connexion ; toute l'écriture (charge, refacturation,
+    ligne, lien, historique) partage UNE connexion et UN commit final. Un refus métier de
+    `charges.creer()` (ex. contrat invalide) survient avant tout commit et n'a rien écrit : on
+    ferme simplement la connexion et on refuse proprement, sans rollback nécessaire (rien à
+    défaire). Toute exception après ce point déclenche un rollback total.
     """
     facture = svc.lire(facture_id, db_path=db_path)
     svc._exiger_brouillon(facture, "ajout d'une charge")
@@ -124,36 +134,40 @@ def ajouter_ligne_charge(facture_id: str, *, libelle: str, montant: Any, code_im
     # « aujourd'hui », qui rattacherait la charge à un mois sans rapport avec la facture.
     date_charge = str(date_charge or "").strip() or f"{facture['mois']}-01"
 
-    # ── 1. Charge canonique ─────────────────────────────────────────────────────────────────
-    resultat = charges.creer({
-        "date_charge": date_charge,
-        "mois": facture["mois"],
-        "montant": svc._round(montant),
-        "sens_flux": "DEPENSE",
-        "categorie_charge_id": str(categorie_charge_id).strip(),
-        "code_impact": code_impact,
-        "impact_resultat_reel": mode["impact_resultat_reel"],
-        "impact_resultat_comptable": mode["impact_resultat_comptable"],
-        "prise_en_compta": mode["prise_en_compta"],
-        "affectation_type": "LOGEMENT",
-        "logement_id": facture["logement_id"],
-        "proprietaire_id": facture["proprietaire_id"],
-        # `refacturable` est transmis TEL QUEL au service canonique : c'est lui, et lui seul, qui
-        # alimente la file de refacturation (`synchroniser_depuis_charge`). Aucune seconde
-        # alimentation ici — c'est ce qui empêche la double refacturation.
-        "refacturable": "OUI" if str(refacturable).strip().upper() == "OUI" else "NON",
-        "source_flux": "FACTURE_PROPRIETAIRE",
-        "commentaire": commentaire or f"Saisie depuis la facture {facture_id}",
-    }, acteur=acteur or "interface", db_path=db_path)
-
-    if not resultat.get("ok"):
-        raise svc.FactureProprietaireError(
-            f"charge refusee ({resultat.get('code')}) : {resultat.get('message')}")
-    charge_id = resultat["charge_id"]
-
-    # ── 2. Ligne de facture — en cas d'échec, la charge est COMPENSÉE ────────────────────────
     conn = get_db(db_path)
     try:
+        # ── 1. Charge canonique + refacturation, DANS la transaction partagée ────────────────
+        resultat = charges.creer({
+            "date_charge": date_charge,
+            "mois": facture["mois"],
+            "montant": svc._round(montant),
+            "sens_flux": "DEPENSE",
+            "categorie_charge_id": str(categorie_charge_id).strip(),
+            "code_impact": code_impact,
+            "impact_resultat_reel": mode["impact_resultat_reel"],
+            "impact_resultat_comptable": mode["impact_resultat_comptable"],
+            "prise_en_compta": mode["prise_en_compta"],
+            "affectation_type": "LOGEMENT",
+            "logement_id": facture["logement_id"],
+            "proprietaire_id": facture["proprietaire_id"],
+            # `refacturable` est transmis TEL QUEL au service canonique : c'est lui, et lui seul,
+            # qui alimente la file de refacturation (`synchroniser_depuis_charge`). Aucune seconde
+            # alimentation ici — c'est ce qui empêche la double refacturation.
+            "refacturable": "OUI" if str(refacturable).strip().upper() == "OUI" else "NON",
+            "source_flux": "FACTURE_PROPRIETAIRE",
+            "commentaire": commentaire or f"Saisie depuis la facture {facture_id}",
+        }, acteur=acteur or "interface", conn=conn)
+
+        if not resultat.get("ok"):
+            # Refus métier pur (ex. contrat invalide) : rien n'a été écrit sur CETTE connexion
+            # avant ce point (`valider()`/`_verifier_contrat()` s'exécutent avant toute requête).
+            # Levée dans ce même `try` : le `except` ci-dessous fait le rollback (no-op ici, sans
+            # écriture à défaire) et la fermeture, un seul chemin de sortie pour toute erreur.
+            raise svc.FactureProprietaireError(
+                f"charge refusee ({resultat.get('code')}) : {resultat.get('message')}")
+        charge_id = resultat["charge_id"]
+
+        # ── 2. Ligne de facture, lien, historique — MÊME connexion ───────────────────────────
         ligne = svc.ajouter_ligne(
             facture_id, type_ligne=svc.TYPE_LIGNE_CHARGE, libelle=libelle, montant=montant,
             acteur=acteur, commentaire=f"charge {charge_id} ({code_impact})", _conn=conn)
@@ -170,11 +184,8 @@ def ajouter_ligne_charge(facture_id: str, *, libelle: str, montant: Any, code_im
         conn.commit()
     except Exception:
         conn.rollback()
-        conn.close()
-        charges.annuler(charge_id, acteur=acteur or "interface",
-                        motif="rollback: échec insertion ligne facture", db_path=db_path)
         raise
-    else:
+    finally:
         conn.close()
     return {"ok": True, "charge_id": charge_id, "ligne_id_opaque": ligne["ligne_id_opaque"],
             "code_impact": code_impact}
