@@ -2205,3 +2205,19 @@ Migration 0060 : CHECK ajoutés sur `charges.statut`, `reservations_hors_hostawa
 vérifiés en code, tables 100% application-générées (aucune ne reçoit un import brut externe,
 contrairement à `banque_mouvements`). Aucune FK/NOT NULL ajoutée (décisions historiques
 maintenues). Détail complet : `DURCISSEMENT_SQLITE_FINAL.md` (même sous-dossier de mission).
+
+## Mise à jour 2026-09-10 — Mission 18e : scheduler Hostaway vérifié, aucun changement de structure
+
+Passe de vérification du scheduler Hostaway 5 h : **aucune table, aucune migration, aucun registre
+nouveau**. Architecture confirmée telle quelle — `ordonnanceur_service.py` (déclencheur pur) →
+`orchestrateur_moteur.importer_hostaway` → `hostaway_actualisation_service.actualiser(attendre=True)`
+(couche canonique unique, partagée avec le bouton manuel) → couche RAW SQLite versionnée
+(`extraction_id`) → activation atomique du dataset `HOSTAWAY_RAW` → `orchestrateur_dag` pour les
+descendants → `moteur_runs`/`moteur_run_etapes` + `run_history` (observabilité). Concurrence :
+verrou existant `moteur_runs` (statut `EN_COURS`, via `hostaway_actualisation_service.
+actualisation_en_cours()`), aucun second système. Config : `ORDONNANCEUR_ACTIF` (faux par défaut),
+`HOSTAWAY_REFRESH_INTERVAL_HOURS` (5), `HOSTAWAY_CLEANING_TASKS_INTERVAL_HOURS` (24). Seul ajout :
+un bloc UI **lecture seule** sur `/hostaway` (aucune donnée nouvelle, lit `ordonnanceur_service.
+etat()`). Deux points d'arbitrage laissés ouverts et documentés (cadence H6 ; optimisation du
+recalcul aval sur hash RAW dataset-level). Détail : `SCHEDULER_HOSTAWAY.md` §12 (même sous-dossier
+de mission `BANQUE_LOGEMENTS_PDF_CHARGES_METIER_20260724/`).

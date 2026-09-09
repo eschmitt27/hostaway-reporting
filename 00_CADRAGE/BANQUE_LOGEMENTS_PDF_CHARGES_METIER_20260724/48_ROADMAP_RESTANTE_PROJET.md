@@ -517,3 +517,22 @@ Aucun code de production modifié. Campagne : moteur 397/0 failed (inchangé). V
 REF_Setup.xlsm réels inchangés, mode réel OFF, scheduler inactif, port 8000 jamais touché. Détail :
 `98_RECETTE_NAVIGATEUR_BOUT_EN_BOUT.md`. Verdict : RECETTE NAVIGATEUR VALIDÉE. Mission 13 stoppe
 ici explicitement — activation réelle non démarrée, mission séparée à venir.
+
+**Mis à jour 2026-09-09/10 (missions 18c → 18e — VRBO, stabilisation, scheduler)** :
+- 18c/18d : 2 payouts VRBO de mois clos estimés (`56388919` 185,99 € / `57780060` 371,97 €,
+  figés) ; tests schéma/migration corrigés (0071) ; dépendance `app/` → `02_TRAVAIL` supprimée
+  (`app/adapters/hostaway_client.py` canonique) ; `requirements.txt` complété ; `backup_service`
+  audité (conservé). Détail : `HANDOFF_CANONIQUE.md` missions 18c/18d.
+- **18e (scheduler Hostaway sécurisé 5 h)** : passe de **vérification**, pas de construction. Le
+  scheduler (`ordonnanceur_service.py`, déclencheur pur → orchestrateur → service Hostaway
+  canonique → DAG aval → `run_history`) était **déjà construit et testé** (2026-08-23 + 18d) ;
+  rien reconstruit. Les 27 exigences de contrôle sont couvertes par des tests nommés (tableau
+  `SCHEDULER_HOSTAWAY.md` §12.1). Seul ajout : bloc UI **lecture seule** sur `/hostaway`
+  (commit `25c97aa`). Scheduler réel **toujours INACTIF** (`ORDONNANCEUR_ACTIF` faux). Mode réel
+  OFF. Vraie `app.db` non modifiée.
+- **Requalification** : « obtenir l'export VRBO » n'est plus une mission de développement mais une
+  **dépendance externe non bloquante** (`VRBO_REAL_PAYOUT_PENDING_EXTERNAL_SOURCE`).
+- **Points d'arbitrage ouverts** (non bloquants) : `CADENCE_H6_A_ARBITRER` (fréquence CleaningTasks
+  et existence d'un service d'import automatisé H6) ; `OPT_RECALCUL_AVAL_HASH_RAW_A_ARBITRER`.
+- **Prochaine action** : trancher la cadence H6. Puis reprendre la roadmap ordonnée (§133) —
+  activation réelle / cut-over restant la grande étape séparée non démarrée.

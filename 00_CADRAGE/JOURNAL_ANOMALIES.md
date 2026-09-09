@@ -1535,3 +1535,24 @@ générale à retenir : toute régularisation HH doit renseigner le ménage, sin
 commission est surévaluée du montant du ménage.**
 
 Les 23 `DIRECT_SANS_SAISIE_HH` sont **inchangées** — résolution humaine, jamais automatique.
+
+## 2026-09-10 — Mission 18e : scheduler Hostaway 5 h vérifié — aucune anomalie nouvelle
+
+Passe de vérification et de renforcement du scheduler Hostaway. **Aucune anomalie de code
+détectée** : le scheduler était déjà construit et testé (missions 2026-08-23 + 18d), les
+27 exigences de contrôle de la mission sont couvertes par des tests nommés (tableau dans
+`SCHEDULER_HOSTAWAY.md` §12.1). Aucune régression introduite (un seul renforcement UI en lecture
+seule, commit `25c97aa`, +1 test ; suites moteur et ciblées inchangées vs baseline).
+
+Deux **points d'arbitrage** (pas des anomalies — des décisions métier non prises), consignés ici
+pour ne pas les perdre :
+
+| Point | État | Décision attendue |
+|---|---|---|
+| `CADENCE_H6_A_ARBITRER` | CleaningTasks (H6) reste à 24 h par défaut et **sans service d'import automatisé** ; `ordonnanceur_service.tick()` le signale explicitement. Non embarqué dans le job 5 h (conforme à la consigne : l'API CleaningTasks a des limites 429 sévères historiquement documentées). | Créer ou non un service d'import H6 automatisé, et à quelle fréquence — mission dédiée. |
+| `OPT_RECALCUL_AVAL_HASH_RAW_A_ARBITRER` | Après un import Hostaway réussi, `orchestrateur_service.actualiser` recalcule les descendants sur la cadence, sans comparer le contenu RAW nouveau/ancien. Un `row_hash`/`ROW_HASH` existe **par ligne** mais aucun mécanisme dataset-level « contenu inchangé → ne pas propager ». | À câbler seulement si un mécanisme de fraîcheur dataset-level est introduit ailleurs (la consigne interdit d'en créer un troisième). |
+
+**Rappel dépendance externe (pas une anomalie)** : `VRBO_REAL_PAYOUT_PENDING_EXTERNAL_SOURCE` —
+les réservations `56388919` (2026-06) et `57780060` (2026-08) portent des payouts **estimés**
+(185,99 € / 371,97 €), figés jusqu'à réception d'un export VRBO couvrant juin → août 2026. Ne pas
+les modifier d'ici là. Détail : entrée du 2026-09-09 ci-dessus.

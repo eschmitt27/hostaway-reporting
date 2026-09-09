@@ -2748,3 +2748,117 @@ moteur **non corrigés** (hors scope).
 **Obtenir un export VRBO couvrant juin → août 2026** (inchangé depuis la mission 18c — c'est
 toujours la seule action qui reste fonctionnellement bloquante ; cette mission 18d était un tour de
 stabilisation technique, pas une avancée sur ce point).
+
+> **Corrigé le 2026-09-10 (voir Mission 18e ci-dessous).** Cette « prochaine action unique » n'est
+> **plus** la prochaine mission de développement. L'obtention de l'export VRBO est requalifiée en
+> **dépendance externe** — `VRBO_REAL_PAYOUT_PENDING_EXTERNAL_SOURCE` — qui **ne bloque pas** le
+> développement. Les réservations `56388919` et `57780060` restent **figées** sur leurs estimations
+> actuelles (185,99 € / 371,97 €) tant qu'une source VRBO réelle n'est pas fournie ; ne plus les
+> modifier d'ici là. Voir la nouvelle prochaine action à la fin de la Mission 18e.
+
+## Mission 18e (2026-09-10) — scheduler Hostaway sécurisé 5 h : vérification, renforcement, requalification VRBO
+
+Mission de **vérification et de consolidation**, pas de construction. HEAD départ `b753cf1`,
+worktree `…/resume-pilotage-conciergerie-20260909`, branche `resume/pilotage-conciergerie-20260909`.
+**Aucune donnée réelle touchée** : vraie `app.db` jamais ouverte en écriture, mode réel OFF,
+scheduler réel OFF (`ORDONNANCEUR_ACTIF` faux, non modifié), les 2 estimations VRBO / 23 DIRECT /
+3 VRBO futures **inchangées**.
+
+### A. Correction du handoff (dépendance VRBO requalifiée)
+
+La ligne « Prochaine action unique — obtenir l'export VRBO » ne compte plus comme mission de
+développement. Elle devient `VRBO_REAL_PAYOUT_PENDING_EXTERNAL_SOURCE` : une dépendance externe,
+suivie mais **non bloquante**. Règle métier maintenue : `56388919` et `57780060` portent des
+**montants provisoires estimés** (jamais des payouts plateforme réels) ; toute arrivée d'une donnée
+VRBO fiable pour 2026-06/2026-08 déclenche leur remplacement contrôlé, en conservant la trace de
+l'estimation (`reservations_hh_saisie_service.modifier()` journalise l'avant/après). D'ici là :
+figées, ne pas y toucher.
+
+### B. Audit : le scheduler était déjà construit — rien reconstruit
+
+`ordonnanceur_service.py` (cadence 5 h réservations/payouts, 24 h CleaningTasks, `doit_declencher()`
+pur/testable, `demarrer()`/`arreter()` avec minuteur singleton, `tick()` → `orchestrateur_service.
+actualiser(cibles=[TACHE_HOSTAWAY], declencheur=AUTO)`), le câblage `app/main.py::lifespan`, la
+configuration (`cfg.ORDONNANCEUR_ACTIF`, `cfg.HOSTAWAY_REFRESH_INTERVAL_HOURS = 5`,
+`cfg.HOSTAWAY_CLEANING_TASKS_INTERVAL_HOURS = 24`), l'intégration `run_history`, le bloc UI sur
+`/actualisation` et `SCHEDULER_HOSTAWAY.md` **existaient déjà** (missions du 2026-08-23 puis
+stabilisation 18d). Tableau de conformité point par point : `SCHEDULER_HOSTAWAY.md` §12.1. Chaque
+exigence de la mission (déclencheur seul, même service manuel/auto, désactivé par défaut, fréquence
+configurable, un seul job, concurrence dans les deux sens via le verrou `moteur_runs` existant,
+rate limit borné dans `hostaway_client.py`, reprise crash via `marquer_runs_interrompus()`,
+activation atomique, DAG aval, H6 hors cadence 5 h, `run_history` pour l'automatique) est couverte
+par un test nommé, listé dans ce tableau.
+
+### C. Seul renforcement apporté
+
+Écran manuel `/hostaway` : bloc **lecture seule** « Actualisation automatique » (état
+`ACTIVÉE`/`DÉSACTIVÉE`, fréquence configurée, dernier run, prochaine décision), alimenté par
+`ordonnanceur_service.etat()` — même contenu que le bloc déjà présent sur `/actualisation`, rendu
+visible là où l'utilisateur lance une actualisation manuelle. Aucun contrôle d'activation dans
+l'UI. `app/routes/reservations.py` + `app/templates/hostaway_actualisation.html` +
+`tests/test_hostaway_sqlite.py` (+1 test). Commit `25c97aa`.
+
+### D. Points d'arbitrage documentés (non tranchés, non bloquants)
+
+- **CADENCE H6 À ARBITRER** — CleaningTasks reste à 24 h et sans service d'import automatisé ;
+  aucune règle métier validée ne fixe sa fréquence. Non embarqué dans le job 5 h, conformément à la
+  consigne. À trancher dans une mission dédiée.
+- **OPTIMISATION RECALCUL AVAL SUR HASH RAW À ARBITRER** — `doit_declencher()` décide sur la
+  cadence, pas sur le contenu. Il existe un `row_hash` **par ligne** dans la couche RAW mais aucun
+  mécanisme dataset-level « contenu inchangé → ne pas propager ». La consigne interdit d'en créer un
+  troisième : à câbler seulement si un mécanisme de fraîcheur dataset-level est introduit ailleurs.
+
+### E. Tests
+
+| Périmètre | Résultat |
+|---|---|
+| Compilation (`py_compile` routes/tests modifiés) | OK |
+| Ciblés scheduler (`test_ordonnanceur` + `test_scheduler_hostaway_industrialisation` + `test_hostaway_actualisation_service` + `test_orchestrateur`) | **54 passed** |
+| Régression scheduler-adjacente (`-k reservation|hostaway|ordonnanceur|scheduler|actualisation`) | **209 passed / 1 skipped / 1 failed** — l'échec `test_regularisation_hh::test_regularisation_ne_touche_pas_hostaway` est pré-existant (clone de la vraie `app.db`, absente du worktree) |
+| Suite moteur complète (`tests/` racine) | **407 passed / 5 failed pré-existants / 1 skipped** — identique baseline, sans rapport avec Hostaway |
+| Suite application complète (`05_APPLICATION/tests/`) | **2996 passed / 13 failed / 66 skipped** (20 min 22 s) |
+
+Baseline attendue (missions 18c/18d) : application **2997 passed / 12 failed / 66 skipped**,
+moteur **407 passed / 5 failed / 1 skipped**. Aucun nouvel échec accepté.
+
+**Les 13 échecs sont tous pré-existants et environnementaux — aucun n'est attribuable à cette
+mission** (aucun des 13 n'exerce l'un des 3 fichiers modifiés `app/routes/reservations.py`,
+`app/templates/hostaway_actualisation.html`, `tests/test_hostaway_sqlite.py`) :
+
+- **7 exigent un clone de la vraie `app.db`**, absente de ce worktree : `test_regularisation_hh.py`
+  ×5, `test_banques.py::test_source_absente` + `::test_categorisation_airbnb_source_absente_ne_
+  casse_pas` (×2). Identiques mission 18d.
+- **4 exigent `LOT4A_ENGINE_PYTHON`** pointant vers un Python absent de cette machine :
+  `test_lot6b_anti_excel.py` ×4. Identiques mission 18d.
+- **1 exige la source bancaire réelle** absente du dépôt :
+  `test_gardes_bancaires_coherence.py::test_banque_lot8_present_les_tests_gardes_s_executent`.
+  Identique mission 18d.
+- **1 est l'échec connu `test_appsec1_diagnostic.py::test_07_diagnostic_local_avec_flag_explicite`**
+  (documenté dans `TEST_SHARDS_RECETTE_GLOBALE.txt` : « chemin temporaire pytest contenant le nom
+  d'utilisateur Windows »). Il tombe dès que le `--basetemp` de pytest est sous `C:\Users\<nom>` —
+  c'est le cas ici (scratchpad sous `C:\Users\Ewans\AppData\…`) : `/health/diagnostic` renvoie le
+  chemin de la base de test, qui contient littéralement `Users`. Le test et la route testée
+  (`health.py`) n'ont pas été modifiés depuis des mois (dernier changement `99a8959` / `078e3c1`,
+  bien avant `b753cf1`). C'est le +1 vs la baseline 18d, expliqué par l'emplacement du `basetemp`
+  de cette campagne, pas par du code.
+
+Preuve complémentaire d'absence de régression : régression scheduler-adjacente ciblée
+(`-k reservation|hostaway|ordonnanceur|scheduler|actualisation`) **209 passed / 1 skipped /
+1 failed pré-existant** (`test_regularisation_hh`), suite moteur **407/5/1 identique**.
+
+### F. Ce qui n'a pas été fait (volontairement)
+
+Scheduler réel **non activé**. Mode réel **non activé**. Aucune donnée VRBO recalculée. Aucun
+second moteur / verrou / mécanisme de comparaison créé. `backup_service` **non refactorisé** (audit
+antérieur maintenu : journalise volontairement dans la base source). CleaningTasks **non embarqué**
+dans la cadence 5 h. Les 12 + 5 échecs pré-existants **non corrigés** (hors scope). Aucune brique
+de « la suite » commencée (référentiels administrables, Banque, VRBO, comptabilité, analytique,
+PostgreSQL, multi-utilisateur).
+
+### Prochaine action unique
+
+**Trancher la CADENCE H6 (CleaningTasks)** : décider si un service d'import automatisé H6 est
+créé et à quelle fréquence (l'API CleaningTasks a des limites 429 sévères historiquement
+documentées), ou si H6 reste une action manuelle assumée. C'est le seul point du périmètre
+scheduler resté ouvert. La dépendance externe `VRBO_REAL_PAYOUT_PENDING_EXTERNAL_SOURCE` reste
+suivie en parallèle mais ne conditionne aucun développement.

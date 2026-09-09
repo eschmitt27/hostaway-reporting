@@ -4655,3 +4655,62 @@ dans le rapport 18c par la copie qu'il avait laissée en place au moment de sa p
 `LOT4A_ENGINE_PYTHON` introuvable sur cette machine ×4). Aucune écriture sur la vraie `app.db`.
 `PRAGMA integrity_check`/`foreign_key_check` non ré-exécutés sur la vraie base — non nécessaire,
 elle n'a pas été ouverte en écriture ce tour (seule une copie l'a été, pour lecture).
+
+## Contrôle 2026-09-10 — Mission 18e : scheduler Hostaway sécurisé 5 h (vérification + renforcement)
+
+```
+Date       : 2026-09-10
+Lot        : Scheduler Hostaway automatique 5 h — passe de vérification et de consolidation
+Code       : SCHEDULER_HOSTAWAY_VERIF_5H
+Sévérité   : INFO
+Fichier    : ordonnanceur_service.py, hostaway_actualisation_service.py, orchestrateur_service.py,
+             app/main.py, app/config.py, app/routes/reservations.py,
+             app/templates/hostaway_actualisation.html
+Résultat   : Conforme. Scheduler déjà construit (missions 2026-08-23 + 18d) ; rien reconstruit.
+Statut     : CORRIGÉ (renforcement mineur appliqué)
+Commentaire: voir ci-dessous
+```
+
+**Audit ciblé** (durée limitée, conforme §2 de la mission) : le scheduler, son câblage
+`lifespan`, sa configuration (`ORDONNANCEUR_ACTIF` faux par défaut, `HOSTAWAY_REFRESH_INTERVAL_
+HOURS = 5`, `HOSTAWAY_CLEANING_TASKS_INTERVAL_HOURS = 24`), l'intégration `run_history`, le bloc
+UI `/actualisation` et `SCHEDULER_HOSTAWAY.md` **existaient déjà**. Aucun second moteur, verrou ou
+mécanisme de comparaison créé. Tableau de conformité exigence→test dans `SCHEDULER_HOSTAWAY.md`
+§12.1 : déclencheur seul (aucune règle métier / aucun Lot dans le scheduler), même service
+manuel/automatique (`hostaway_actualisation_service.actualiser`, seul le `declencheur` change),
+désactivé par défaut, fréquence 5 h configurable non dupliquée, un seul job (minuteur singleton,
+pas de doublon après reload), concurrence bloquée **dans les deux sens** par le verrou existant
+`moteur_runs`/`EN_COURS`, rate limit borné dans `app/adapters/hostaway_client.py` (`Retry-After`,
+backoff plafonné, budget, `RateLimitEpuise`) + palier `REPRISE_APRES_ECHEC_H = 1` côté
+ordonnanceur, reprise crash via `marquer_runs_interrompus()` (appelé à chaque `tick()`), activation
+atomique (`recalculer_dataset` ne marque `A_JOUR` qu'après succès réel ; RAW versionnée), panne API
+→ dataset non activé / ancien conservé (**jamais** une restauration `app.db` : réservée à un
+`integrity_check` en échec, vérifié explicitement), DAG aval via `orchestrateur_dag`, H6 hors
+cadence 5 h, `run_history` pour l'automatique (`acteur = AUTO`, statuts canoniques
+`STARTED → SUCCESS/FAILED`).
+
+**Renforcement appliqué** : bloc **lecture seule** « Actualisation automatique » sur l'écran manuel
+`/hostaway` (état `ACTIVÉE`/`DÉSACTIVÉE`, fréquence, dernier run, prochaine décision), alimenté par
+`ordonnanceur_service.etat()` — même contenu que le bloc `/actualisation`. Aucun contrôle
+d'activation dans l'UI. Commit `25c97aa`, +1 test.
+
+**Points d'arbitrage laissés ouverts** (non bloquants pour le scheduler 5 h, documentés) :
+CADENCE H6 (aucune règle métier ne fixe la fréquence CleaningTasks → non embarqué dans le job
+5 h) ; optimisation du recalcul aval sur hash RAW dataset-level (n'existe pas dans l'architecture ;
+la consigne interdit d'en créer un troisième).
+
+**Tests** : ciblés scheduler 54 passed ; régression scheduler-adjacente 209 passed / 1 skipped /
+1 failed **pré-existant** (`test_regularisation_hh::test_regularisation_ne_touche_pas_hostaway`,
+exige la vraie `app.db` absente du worktree) ; suite moteur complète **407 passed / 5 failed
+pré-existants / 1 skipped** (identique baseline) ; suite application complète **2996 passed /
+13 failed / 66 skipped** — les 13 échecs pré-existants et environnementaux (7 clone `app.db`
+réelle absent, 4 `LOT4A_ENGINE_PYTHON` absent, 1 source bancaire réelle absente, 1
+`test_appsec1_diagnostic` : `basetemp` pytest sous `C:\Users\<nom>`), aucun n'exerce l'un des
+3 fichiers modifiés ce tour ; ventilation : `HANDOFF_CANONIQUE.md` Mission 18e §E. Scheduler réel
+non activé, mode réel OFF, vraie `app.db` non ouverte en écriture (absente du worktree),
+2 estimations VRBO / 23 DIRECT / 3 VRBO futures inchangées.
+
+**Requalification VRBO** : la « prochaine action unique — obtenir l'export VRBO » devient une
+dépendance externe non bloquante `VRBO_REAL_PAYOUT_PENDING_EXTERNAL_SOURCE`. Réservations
+`56388919` / `57780060` figées sur leurs estimations (185,99 € / 371,97 €), à ne plus modifier
+sans source VRBO réelle.
