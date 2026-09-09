@@ -2292,3 +2292,260 @@ facture détaillée (mission 15, écran minimal livré, parcours complet de déc
 enrichir si besoin produit). Aucun code modifié durant les missions 16/17 — uniquement des
 opérations réelles sur `app.db` (backup/migration/bootstrap/classification/calcul), déjà couvertes
 par les tests des missions 14-15.
+
+## Mission 18c (2026-09-09) — estimation des payouts VRBO des mois clos
+
+### Où vit réellement la base
+
+La vraie `app.db` n'est **pas** dans le worktree DevSwarm de reprise
+(`.devswarm/repos/1/9537f8ef/resume-pilotage-conciergerie-20260909`, qui n'a pas de `data/app.db`),
+ni dans `OneDrive\Documents\Conciergerie\Pilotage_Conciergerie` (checkout `master` = `8b47807`,
+310 commits derrière ; sa `app.db` est un vestige du 2026-07-15, 4 migrations, toutes tables métier
+vides — **inutilisable**, à ne pas confondre avec la vraie base).
+
+Elle est dans `OneDrive\Documents\Conciergerie\Pilotage_Worktrees\BANQUE_LOGEMENTS_PDF_CHARGES_METIER`
+— worktree du même dépôt, branche `feature/banque-logements-pdf-charges-metier`, **HEAD `204b7b4`,
+soit exactement le HEAD du handoff** : la continuité est propre. `git worktree list` l'affiche
+`prunable` uniquement parce que son fichier `.git` pointe encore vers `C:/Users/Ewan/...` alors que
+le profil s'appelle désormais `C:/Users/Ewans/...` (renommage du compte). Défaut cosmétique de
+chemin, **pas** une divergence de contenu ; non réparé ce tour (aucun `git worktree repair`).
+
+### État réel des anomalies, ré-agrégé depuis `app.db` (et non repris de l'historique)
+
+Dataset `RESOLUES` actif `RDS-18304523CEB2` (1585 lignes) :
+
+| Code | Nombre réel distinct |
+|---|---|
+| `DIRECT_SANS_SAISIE_HH` | 23 |
+| `VRBO_MONTANT_NON_RENSEIGNE` | **5** |
+| **TOTAL actionnable (`niveau_anomalie=A_CONTROLER`)** | **28** |
+| `LEGACY_SANS_ARCHIVE_ORIGINE` (INFO, non actionnable) | 1269 |
+
+**Correction du chiffre historique** : la mission 17 annonçait *27* anomalies (23 + 4). Le compte
+réel est **28** (23 + **5**) : il y a **deux** réservations VRBO en 2026-10, pas une. Le nombre 27
+ne doit plus être repris.
+
+**Correction de la ventilation Direct** : la ventilation `11+11+8+3+2+1+1+1` (= 38 lignes) qui
+circulait est **obsolète et fausse** pour ces 23 anomalies. Ventilation réelle, qui somme
+exactement à 23 :
+
+| Logement | Propriétaire | Nb | Mois concernés |
+|---|---|---|---|
+| `LOG_0015` | `PROP_0011` | 9 | 2026-06 → 2027-02 |
+| `LOG_0012` | `PROP_0009` | 8 | 2026-08, 09, 11, 12, 2027-01, 02 |
+| `LOG_0014` | `PROP_0010` | 3 | 2026-06, 2026-07 |
+| `LOG_0004` | `PROP_0004` | 2 | 2026-07, 2026-10 |
+| `LOG_0001` | `PROP_0001` | 1 | 2026-06 |
+
+Les 23 Direct sont **inchangées** : elles restent en attente de saisie humaine (10 seulement
+concernent des mois clos ; 13 sont sur le mois courant ou à venir).
+
+### Les 5 VRBO, et pourquoi 2 seulement ont été traitées
+
+Toutes sur `PROP_0008`, `montant_retenu = 0`, `source_montant = A_CONTROLER` :
+
+| Réservation | Mois | Logement | Séjour | Nuits | Traitement |
+|---|---|---|---|---|---|
+| `56388919` | 2026-06 | `LOG_0008` | 22→24/06 | 2 | **estimée** (mois clos) |
+| `57780060` | 2026-08 | `LOG_0008` | 11→15/08 | 4 | **estimée** (mois clos) |
+| `59855296` | 2026-10 | `LOG_0008` | 05→07/10 | 2 | **non estimée — MOIS NON CLOS** |
+| `65587354` | 2026-10 | `LOG_0008` | 24→26/10 | 2 | **non estimée — MOIS NON CLOS** |
+| `62163639` | 2026-11 | `LOG_0017` | 20→23/11 | 3 | **non estimée — MOIS NON CLOS** |
+
+Comportement moteur constaté sur les mois futurs (documenté, **non corrigé**) : les 3 réservations
+d'octobre/novembre restent `A_CONTROLER` et sont comptées par le constat Lot11
+`VRBO_MONTANT_NON_RENSEIGNE`, mais avec `severity = A_CONTROLER` et `nb_bloquants = 0` — elles ne
+bloquent donc aucune clôture.
+
+### La méthode prescrite était inapplicable telle quelle
+
+La consigne initiale était : moyenne arithmétique simple des payouts VRBO fiables du même logement,
+**sans** normalisation par nuit. Mesure faite sur la vraie base : **la population de payouts VRBO
+fiables de `LOG_0008` dans `app.db` est vide (n = 0)** — les 16 lignes VRBO du logement ont toutes
+`montant_retenu = 0` / `source_montant = A_CONTROLER`. La moyenne était donc indéfinie, et non
+simplement petite.
+
+Le seul gisement de payouts VRBO réels est l'export `01_SOURCES_BRUTES/VRBO/IMPORT_UNIQUE_...csv`
+(12 réservations `LOG_0008`, avril 2025 → mai 2026 ; il **ne couvre pas** juin/août 2026). Or, sur
+cette population, la moyenne simple sans pondération vaut **542,13 €** — dominée par deux séjours
+longs (35 nuits / 1875 €, 20 nuits / 1328 €) — et aurait été écrite telle quelle sur un séjour de
+**2 nuits** dont les comparables réels valent 218–351 €.
+
+Ce point a été remonté avant toute écriture ; **le métier a explicitement autorisé la normalisation
+par nuit** (décision du 2026-09-09), qui remplace la règle « pas de payout par nuit ».
+
+### Méthode réellement appliquée
+
+1. Population : réservations VRBO **réelles** du **même logement** `LOG_0008` (jamais `LOG_0017`,
+   jamais un autre logement, jamais un autre canal).
+2. Durée comparable : séjours **≤ 7 nuits** — écarte les deux séjours longs (20 et 35 nuits),
+   structurellement différents.
+3. Période la plus proche : les **3 comparables 2026**, tous à ≤ 4 mois des séjours cibles —
+   `HA-1LH1V9` (3 n, 305,00 €), `HA-L48JXH` (7 n, 558,69 €), `HA-L4DM3B` (4 n, 390,00 €).
+4. `PAYOUT_MOYEN_PAR_NUIT` = moyenne des €/nuit de ces 3 comparables = **92,9932 €/nuit**.
+5. Estimation = payout moyen par nuit × nombre de nuits du séjour.
+
+Montants bruts, **même convention que l'unique précédent en base** (`RESHH-2025-02-001`, dont
+`montant_percu = 280,00 €` correspond au brut de `HA-WGZ5GM`, pas au paiement net 252,55 €).
+
+Contrôles de cohérence de la moyenne : 90,38 €/nuit (les 10 séjours ≤ 7 nuits) et 95,02 €/nuit
+(les 6 plus récents) — écart < 3 % avec la valeur retenue.
+
+| Réservation | Logement | Mois | Nuits | Comparables | Moyenne | **Estimation** |
+|---|---|---|---|---|---|---|
+| `56388919` | `LOG_0008` | 2026-06 | 2 | 3 | 92,9932 €/nuit | **185,99 €** |
+| `57780060` | `LOG_0008` | 2026-08 | 4 | 3 | 92,9932 €/nuit | **371,97 €** |
+
+### Traçabilité — aucun mécanisme nouveau
+
+Écriture par le service **existant** `regularisation_hh_service.regulariser()` (celui de l'écran
+« Régulariser (saisie HH) »), puis réenchaînement du **DAG existant** `recalculer()`
+(RESERVATIONS → FLUX_UNIFIE → LOT10 → LOT11 → LOT12). **Aucune table, aucun champ, aucun pipeline
+créé.** Les estimations sont identifiables par :
+
+- `reservations_hors_hostaway` : `RESHH-2026-06-001` / `RESHH-2026-08-001`, `acteur =
+  ESTIMATION_VRBO`, `source_financiere = VRBO_UNKNOWN`, et un `commentaire` qui porte la méthode
+  complète, la population, la moyenne et la date — préfixé **« PAYOUT VRBO ESTIME (ESTIMATION
+  METIER — PAS un payout plateforme reel, PAS un montant Hostaway/VRBO recupere) »** ;
+- `reservations_resolues` : `source_montant = MANUEL_HH` (jamais `HOSTAWAY_PAYOUT`).
+
+Limite héritée du mécanisme, **identique au précédent de 2026-08-30** et non introduite ici : après
+régularisation, la ligne résolue porte `canal = DIRECT` et `source = HOSTAWAY_DIRECT_HH` (la saisie
+HH est un objet hors-Hostaway), alors que la réservation reste commercialement VRBO. À arbitrer si
+la ventilation par canal doit rester fidèle.
+
+Le script exécuté est versionné : `05_APPLICATION/tools/appliquer_estimations_vrbo_20260909.py`
+(idempotent — un second passage modifie la saisie existante au lieu d'en créer une seconde).
+
+### Piège trouvé et corrigé dans le tour : le ménage n'est pas repris automatiquement
+
+Après la première écriture, le contrôle de la chaîne a montré que les deux lignes estimées
+portaient `menage_retenu = 0` avec `menage_retenu_source = SAISIE_HH`, **alors que les 12 autres
+réservations du même logement sur ces deux mois portent toutes 55 € via
+`REF_COUT_STANDARD_MENAGE`**. Cause : une réservation arrivée par la saisie HH prend son ménage dans
+la saisie, et non dans le référentiel de coûts standards ; le champ laissé vide vaut donc 0.
+
+Conséquence si on n'y touche pas : l'assiette de commission est surévaluée du montant du ménage, la
+commission l'est de 19 % de ce montant, et le net propriétaire est faux. Sur un mois qu'on prétend
+clôturer, c'est un résultat faux, pas une approximation.
+
+Corrigé dans le même tour (`--corriger-menage`) en réappliquant **la valeur du référentiel** :
+`LOG_0008` est de type `TYPE_003` (T3) → `COUT_MEN_003` = **55 €**, valide depuis le 2026-01-01.
+Ce n'est pas un montant décidé ici : c'est la règle existante restaurée, exactement celle que le
+moteur applique de lui-même aux réservations Hostaway. Passage par le service de saisie existant
+`reservations_hh_saisie_service.modifier()` — `regulariser()` n'était plus atteignable puisque le
+contrôle d'origine était déjà résolu.
+
+**À retenir pour toute régularisation HH future** : renseigner le ménage, sinon l'assiette de
+commission est fausse.
+
+### Avant / après (mesuré sur la vraie base)
+
+| Code | Avant | Après | Écart |
+|---|---|---|---|
+| `DIRECT_SANS_SAISIE_HH` | 23 | 23 | **0 — non touchées** |
+| `VRBO_MONTANT_NON_RENSEIGNE` mois clos | 2 | **0** | −2 |
+| `VRBO_MONTANT_NON_RENSEIGNE` mois futurs | 3 | 3 | 0 — aucune estimation écrite |
+| Total anomalies actionnables | 28 | **26** | −2 |
+| Lignes du dataset résolu | 1585 | 1585 | 0 |
+| Constat Lot11 VRBO | 31 réservations | 29 réservations | −2 |
+
+Impact financier **final** (ménage corrigé inclus) — **strictement borné à 2026-06 et 2026-08,
+propriétaire `PROP_0008`** ; 10 champs modifiés au total, aucun autre mois ni propriétaire :
+
+| Mois | Payout | Ménage | Commission | Net propriétaire | Nb réservations |
+|---|---|---|---|---|---|
+| 2026-06 | 3605,46 → 3791,45 (+185,99) | 605,00 → 660,00 (+55,00) | 570,09 → 594,98 (+24,89) | 2330,37 → 2436,47 (+106,10) | 11 → 12 |
+| 2026-08 | 4062,97 → 4434,94 (+371,97) | 825,00 → 880,00 (+55,00) | 615,21 → 675,43 (+60,22) | 2482,76 → 2739,51 (+256,75) | 14 → 15 |
+
+Contrôle arithmétique : `payout − ménage = assiette`, `assiette × 19 % = commission`,
+`assiette − commission = net` — vérifiés aux deux mois (130,99 / 24,89 / 106,10 et 316,97 / 60,22 /
+256,75). `nb_reservations` +1 par mois — **aucun double comptage**. Les deux lignes estimées
+s'alignent désormais sur leurs comparables du même logement (toutes à 55 € de ménage et 19 %).
+
+**Diff ligne à ligne** sur les 1585 réservations résolues, contre la sauvegarde `PRE_VRBO_ESTIM` :
+0 clé ajoutée, 0 supprimée, **exactement 2 lignes modifiées** — les deux attendues. Aucune autre
+réservation, aucun autre mois.
+
+Réserve de lecture : le run Lot11 « avant » datait du 2026-09-04 (5 jours), donc les totaux de
+constats (18 → 20) ne sont pas imputables au seul geste de ce tour ; seul le compteur VRBO
+(31 → 29) est directement comparable.
+
+### Base, sauvegarde, contrôles
+
+| Élément | Valeur |
+|---|---|
+| `app.db` avant | 17 416 192 o · SHA256 `F1F090EF…52D3` · 69 migrations (`0070`) |
+| Sauvegarde 1 (avant estimations) | `PRE_VRBO_ESTIM` — `BCK-DDC853108373`, `20260909_205838_PRE_VRBO_ESTIM_BCK-DDC853108373.db`, `VALIDE`, `source_hash = f1f090ef…52d3`, présente **dans les deux** dossiers `backups` (workspace et à côté de la vraie base). **C'est le point de rollback complet de la mission.** |
+| Sauvegarde 2 (avant correction ménage) | `PRE_VRBO_MENAGE` — `BCK-0A2E3C3469B7`, `20260909_212957_PRE_VRBO_MENAGE_BCK-0A2E3C3469B7.db`, `VALIDE`, `source_hash = 669302bc…2daf` |
+| `app.db` après | 21 676 032 o · SHA256 `F4F024FF52F4A6D235F8E33D6EFB44185FAD37F163BB313BD9C08D39FDCEF5A3` |
+| `PRAGMA integrity_check` | `ok` (avant et après) |
+| `PRAGMA foreign_key_check` | aucune anomalie (avant et après) |
+
+À savoir : `backup_service.sauvegarder()` **écrit dans la base source** (une ligne dans
+`sauvegardes_base` + `sauvegardes_base_tracabilite`). C'est le comportement normal du service, mais
+cela signifie qu'un backup change le SHA256 de `app.db` — vérifié ce tour : la sauvegarde n'a
+modifié *que* ces deux tables (diff table à table contre l'empreinte pristine).
+
+Piège opérationnel rencontré, à connaître pour toute opération sur une base hors du worktree
+courant : `ctrl_opaque` n'est **pas** portable d'une base à l'autre et n'est résolvable qu'après une
+lecture du tableau des contrôles sur la base ciblée ; et il faut exporter `APP_DATA_DIR` vers le
+dossier `data/` réel, sinon une partie de la chaîne lit la base par défaut du workspace pendant que
+l'écriture vise la base passée en paramètre.
+
+### Environnement d'exécution
+
+Aucun runtime Python du projet n'existait sur cette machine (seuls le stub Microsoft Store et le
+Python embarqué de Codex). Un `.venv` dédié a été créé **dans le workspace de reprise**
+(`.venv/`, déjà couvert par `.gitignore`), Python 3.12.14, dépendances issues de
+`05_APPLICATION/requirements.txt`. Le runtime Codex n'a **pas** été modifié (utilisé seulement comme
+interpréteur de base pour `python -m venv`).
+
+**`requirements.txt` est incomplet** — deux dépendances importées par le code n'y figurent pas et
+ont dû être installées à la main : `fpdf2` (`app/services/factures_proprietaires_pdf.py`) et
+`beautifulsoup4` (`tests/test_ui_aucun_id_technique_visible.py`). Sans elles, la collecte pytest
+échoue. À corriger dans un tour dédié.
+
+### Tests
+
+Aucun code de production modifié ce tour → aucun test nouveau. Tests ciblés (régularisation HH,
+saisie HH, contrôles actionnables, orchestrateur réservations, Lot10, Lot12, clôture) :
+**252 passed / 2 skipped**. Suite complète : **2973 passed / 15 failed / 33 skipped / 1 error**
+(19 min).
+
+Les 15 échecs ont été **rejoués à l'identique sur la base pré-changement** (`F1F090EF…52D3`) et
+tombent exactement de la même façon : ils sont **pré-existants au HEAD `204b7b4`**, aucun n'est
+imputable à cette mission. Causes constatées :
+
+- `test_sqlite_migrations` (×2) — `EXPECTED_TABLES` figé n'a pas suivi les migrations récentes
+  (5 tables `factures_proprietaires_*` / `menages_changements_mois_clotures` manquantes de la liste) ;
+- `test_backup_service::test_sauvegarder_journalise_metadonnees_completes` — attend
+  `schema_version == "0065"`, la valeur réelle est `0071` ;
+- `test_no_metier_calc::test_no_import_of_travail_modules` — **vraie violation de règle
+  d'architecture dans le code de production** : `app/services/hostaway_cleaning_tasks_actualisation_service.py`
+  importe directement un module `02_TRAVAIL`. À traiter ;
+- `test_factures_proprietaires_conformite` (×4, PDF) — `fpdf2` installé sans version épinglée
+  (2.8.8), la dépendance n'étant pas dans `requirements.txt` ;
+- `test_lot6b_anti_excel` (×4), `test_hostaway_cleaning_tasks_anti_excel`,
+  `test_gardes_bancaires_coherence`, `test_menages_actualisation_robustesse` (1 failed + 1 error) —
+  dépendent de sources/Excel/réseau absents de cet environnement.
+
+À noter : 6 tests (`test_regularisation_hh.py`, `test_orchestrateur_moteur_reservations.py`)
+**clonent la vraie `app.db`** comme fixture et échouent dans un workspace qui n'en a pas. Ils
+passent dès qu'une copie est fournie. Ce n'est pas une régression, mais ces tests ne sont pas
+exécutables dans un worktree nu.
+
+### Ce qui n'a pas été fait (volontairement)
+
+Scheduler Hostaway **non démarré**. Aucune règle Banque modifiée. Aucun versement plateforme
+rapproché. Aucune Direct résolue automatiquement. Aucune estimation sur octobre/novembre. Aucun
+retour aux MASTER Excel comme source des anomalies (la source des anomalies est bien `app.db` ;
+l'export VRBO n'a servi qu'à fournir les payouts réels comparables, qui n'existent nulle part
+ailleurs). Aucun `git worktree repair`.
+
+### Prochaine action unique
+
+**Obtenir un export VRBO couvrant juin → août 2026** et remplacer les deux estimations par les
+payouts réels. C'est la seule action qui supprime l'approximation : les montants écrits sont des
+estimations assumées, pas des données plateforme. Le même export fournira aussi les montants réels
+d'octobre/novembre quand ces mois seront clos.

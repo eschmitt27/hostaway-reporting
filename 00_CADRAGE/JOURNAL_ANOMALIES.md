@@ -1487,3 +1487,51 @@ domaine par CHECK, vérifier aussi les tests de DÉTECTION D'ANOMALIE, pas seule
 saisie normale — un domaine « fermé » à l'écriture peut être délibérément ouvert pour permettre la
 détection d'une donnée corrompue en aval. Corrigé par une migration 0056 (0055 non modifiée,
 immuable) qui retire uniquement ce CHECK, colonnes/index/FK par ailleurs identiques.
+
+### 2026-09-09 — VRBO_MONTANT_NON_RENSEIGNE : 2 anomalies de mois clos estimées, 3 laissées ouvertes
+
+Ré-agrégation depuis la vraie `app.db` (dataset résolu actif `RDS-18304523CEB2`) : **28** anomalies
+actionnables, et non 27 comme annoncé en mission 17 — **23** `DIRECT_SANS_SAISIE_HH` + **5**
+`VRBO_MONTANT_NON_RENSEIGNE` (il y a **deux** réservations VRBO en 2026-10, pas une). La ventilation
+Direct `11+11+8+3+2+1+1+1` (38 lignes) qui circulait est **obsolète** : la ventilation réelle compte
+5 groupes qui somment exactement à 23 (cf. `HANDOFF_CANONIQUE.md`, mission 18c).
+
+| Réservation | Mois | Logement | Nuits | Statut |
+|---|---|---|---|---|
+| `56388919` | 2026-06 | `LOG_0008` | 2 | **CORRIGÉ** — estimation 185,99 € (`RESHH-2026-06-001`) |
+| `57780060` | 2026-08 | `LOG_0008` | 4 | **CORRIGÉ** — estimation 371,97 € (`RESHH-2026-08-001`) |
+| `59855296` | 2026-10 | `LOG_0008` | 2 | **OUVERT** — mois non clos, aucune estimation |
+| `65587354` | 2026-10 | `LOG_0008` | 2 | **OUVERT** — mois non clos, aucune estimation |
+| `62163639` | 2026-11 | `LOG_0017` | 3 | **OUVERT** — mois non clos, aucune estimation |
+
+**Cause racine** : les payouts VRBO ne remontent pas par l'API Hostaway ; l'unique source réelle est
+un export manuel (`01_SOURCES_BRUTES/VRBO/IMPORT_UNIQUE_...csv`) qui s'arrête en mai 2026. Ce n'est
+pas un bug moteur.
+
+**Point de méthode à retenir** : la population de payouts VRBO *fiables* de `LOG_0008` dans `app.db`
+est **vide** (n = 0 — les 16 lignes VRBO du logement ont `montant_retenu = 0` /
+`source_montant = A_CONTROLER`). Toute méthode d'estimation qui prétend lire une moyenne « depuis la
+base » pour ce logement est donc indéfinie, et non simplement imprécise. Les comparables réels ne
+peuvent venir que de l'export VRBO.
+
+**Résolution** : payout moyen **par nuit** des réservations VRBO réelles du même logement, à durée
+comparable (≤ 7 nuits, ce qui écarte deux séjours de 20 et 35 nuits) et sur la période la plus
+proche (3 comparables 2026) = 92,9932 €/nuit, × nombre de nuits. Normalisation par nuit autorisée
+explicitement par le métier le 2026-09-09 ; sans elle, la moyenne simple valait 542,13 € et aurait
+été appliquée à un séjour de 2 nuits dont les comparables réels valent 218–351 €.
+
+Les montants sont tracés comme **ESTIMATION MÉTIER** (`acteur = ESTIMATION_VRBO`,
+`source_montant = MANUEL_HH`, commentaire préfixé « PAYOUT VRBO ESTIME … PAS un payout plateforme
+reel ») et **ne doivent pas être lus comme des données VRBO**. Ils sont à remplacer dès qu'un export
+VRBO couvrant juin → août 2026 sera disponible.
+
+**Anomalie induite, détectée et corrigée dans le même tour** : les deux lignes régularisées sont
+d'abord ressorties avec `menage_retenu = 0` (`menage_retenu_source = SAISIE_HH`), alors que les
+12 autres réservations du même logement sur ces mois portent 55 € via `REF_COUT_STANDARD_MENAGE` —
+une réservation arrivée par la saisie HH prend son ménage dans la saisie, jamais dans le référentiel
+de coûts standards. Assiette de commission, commission et net propriétaire étaient donc faux.
+Corrigé en réappliquant la valeur du référentiel (`COUT_MEN_003`, `TYPE_003`/T3, 55 €). **Règle
+générale à retenir : toute régularisation HH doit renseigner le ménage, sinon l'assiette de
+commission est surévaluée du montant du ménage.**
+
+Les 23 `DIRECT_SANS_SAISIE_HH` sont **inchangées** — résolution humaine, jamais automatique.

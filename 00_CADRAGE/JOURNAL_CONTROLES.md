@@ -4514,3 +4514,79 @@ valides), 1 stop-gate banque (§31, non-régression 0056), 1 PRAGMA foreign_keys
 141 tests existants tous verts. Campagne complète : moteur **397 passed / 0 failed** (inchangé,
 mission hors `02_TRAVAIL`), application **2791 passed / 0 failed** (10 lots, 191 fichiers). app.db
 réelle inchangée (`8e299b935ef1e0d4`). Détail complet : `DURCISSEMENT_SQLITE_FINAL.md`.
+
+## Contrôle 2026-09-09 — Mission 18c : estimation des payouts VRBO des mois clos
+
+Opération réelle sur `app.db` (aucun code de production modifié). Base ciblée :
+`OneDrive\Documents\Conciergerie\Pilotage_Worktrees\BANQUE_LOGEMENTS_PDF_CHARGES_METIER\05_APPLICATION\data\app.db`
+— worktree du même dépôt, branche `feature/banque-logements-pdf-charges-metier`, HEAD `204b7b4`
+(= HEAD du handoff, continuité vérifiée). Les deux autres `app.db` de la machine ont été écartées
+après mesure : celle du checkout `master` (`Pilotage_Conciergerie`) date du 2026-07-15, n'a que
+4 migrations et **toutes ses tables métier sont vides** ; celles de `_RECETTES_GLOBALES` sont des
+copies de recette.
+
+**Sauvegarde préalable** : `PRE_VRBO_ESTIM` / `BCK-DDC853108373`, `validation_status = VALIDE`,
+`source_hash = f1f090ef…52d3`, vérifiée par `backup_service.verifier()` puis relue (integrity OK,
+état pré-changement confirmé : 23 Direct + 5 VRBO). Déposée dans les deux dossiers `backups`.
+
+**Constaté et à retenir** : `backup_service.sauvegarder()` écrit dans la base *source* (1 ligne dans
+`sauvegardes_base` et `sauvegardes_base_tracabilite`). Un backup change donc le SHA256 de `app.db`.
+Vérifié par diff table à table contre l'empreinte pristine : **seules ces deux tables** ont bougé,
+aucune donnée métier.
+
+**Répétition avant écriture réelle** : la chaîne complète (2 régularisations + DAG
+RESERVATIONS→FLUX_UNIFIE→LOT10→LOT11→LOT12) a d'abord été jouée **deux fois sur une copie** de la
+vraie base. La première répétition a révélé deux défauts d'exécution corrigés avant toute écriture
+réelle : (1) un `db_path` relatif fait échouer le sous-processus `lot4bis` (`base applicative
+introuvable : data\app.db`) — chemin absolu obligatoire ; (2) `ctrl_opaque` n'est pas portable d'une
+base à l'autre et n'est résolvable qu'après une lecture du tableau des contrôles **sur la base
+ciblée**, sinon la régularisation est refusée (`ELEMENT_INTROUVABLE_OU_HORS_PERIMETRE`). Il faut en
+outre exporter `APP_DATA_DIR` vers le `data/` réel, sinon une partie de la chaîne lit la base par
+défaut du workspace pendant que l'écriture vise la base passée en paramètre.
+
+**Résultat mesuré, avant → après** : `DIRECT_SANS_SAISIE_HH` 23 → 23 (non touchées) ;
+`VRBO_MONTANT_NON_RENSEIGNE` 5 → 3 (les 2 de mois clos résolues, les 3 de mois futurs intactes) ;
+lignes du dataset résolu 1585 → 1585 ; constat Lot11 VRBO 31 → 29 réservations, `nb_bloquants = 0`
+avant comme après. **Diff ligne à ligne contre la sauvegarde `PRE_VRBO_ESTIM` : exactement 2 des
+1585 réservations modifiées**, 0 clé ajoutée ou supprimée. Impact financier borné à 2026-06 et
+2026-08 / `PROP_0008` : 10 champs modifiés au total, aucun autre mois ni propriétaire. Contrôles
+arithmétiques `payout − ménage = assiette`, `assiette × 19 % = commission`,
+`assiette − commission = net` vérifiés aux deux mois ; `nb_reservations` +1 par mois — **aucun
+double comptage**. Comparaison faite contre la sauvegarde, pas contre un état supposé.
+
+**Défaut trouvé par ce contrôle, et corrigé dans le tour** : après la première écriture, les deux
+lignes estimées portaient `menage_retenu = 0` (`menage_retenu_source = SAISIE_HH`) alors que les
+12 autres réservations du même logement sur ces mois portent 55 € via `REF_COUT_STANDARD_MENAGE` —
+une saisie HH ne reprend pas le référentiel de coûts standards. L'assiette de commission, la
+commission et le net propriétaire étaient donc faux. Corrigé en réappliquant la valeur du
+référentiel (`COUT_MEN_003`, `TYPE_003`/T3, 55 €, valide depuis 2026-01-01) via
+`reservations_hh_saisie_service.modifier()`, seconde sauvegarde `PRE_VRBO_MENAGE`
+(`BCK-0A2E3C3469B7`) prise avant. Après correction, les deux lignes estimées s'alignent exactement
+sur leurs comparables. **Règle à retenir : toute régularisation HH doit renseigner le ménage.**
+
+Réserve de lecture : le run Lot11 « avant » datait du 2026-09-04 ; les totaux de constats (18 → 20)
+mélangent donc 5 jours de dérive et le geste de ce tour. Seul le compteur VRBO est directement
+comparable.
+
+`PRAGMA integrity_check` = `ok` et `PRAGMA foreign_key_check` vide, avant et après. SHA256 final :
+`F4F024FF52F4A6D235F8E33D6EFB44185FAD37F163BB313BD9C08D39FDCEF5A3` (21 676 032 o).
+
+**Tests** : aucun code de production modifié, donc aucun test nouveau. Environnement d'exécution
+reconstruit (`.venv` dédié dans le workspace de reprise, Python 3.12.14) et validé : ciblés
+(régularisation HH, saisie HH, contrôles actionnables, orchestrateur réservations, Lot10, Lot12,
+clôture) **252 passed / 2 skipped** ; suite complète **2973 passed / 15 failed / 33 skipped /
+1 error** (19 min). Les 15 échecs ont été **rejoués à l'identique sur la base pré-changement** et
+tombent de la même façon : **pré-existants au HEAD `204b7b4`**, aucun imputable à cette mission
+(listes de tables/`schema_version` figées et périmées dans les tests, `fpdf2` non épinglé, tests
+dépendant de sources Excel/réseau absentes). Un seul mérite une action : `test_no_metier_calc`
+signale une **vraie violation d'architecture dans le code de production** —
+`app/services/hostaway_cleaning_tasks_actualisation_service.py` importe directement un module
+`02_TRAVAIL`. À noter : 6 tests échouaient d'abord faute de `data/app.db` dans le workspace — ils
+**clonent la vraie base** comme fixture ; ils passent une fois une copie fournie. Ce n'est pas une
+régression, mais cela signifie que ces tests ne sont exécutables que dans un workspace disposant
+d'une `app.db`.
+
+**Défaut d'environnement trouvé** : `05_APPLICATION/requirements.txt` est incomplet — `fpdf2`
+(importé par `app/services/factures_proprietaires_pdf.py`) et `beautifulsoup4` (importé par
+`tests/test_ui_aucun_id_technique_visible.py`) manquent ; sans eux la collecte pytest échoue à
+l'import. Installés à la main ce tour, **à corriger dans un tour dédié**.
