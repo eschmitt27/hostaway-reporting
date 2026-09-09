@@ -160,8 +160,15 @@ def test_budget_d_attente_borne(monkeypatch):
 
 
 def test_aucun_retour_vide_apres_epuisement():
-    """Garde-fou textuel : `return {}` en fin de `_get` était la faute d'origine."""
-    source = LOT1.read_text(encoding="utf-8")
+    """Garde-fou textuel : `return {}` en fin de `_get` était la faute d'origine.
+
+    `HostawayClient._get` vit désormais dans `app/adapters/hostaway_client.py` (moteur Hostaway
+    canonique — mission stabilisation 2026-09-09, déplacé depuis ce script pour ne plus faire
+    dépendre `app/` d'un module `02_TRAVAIL`) ; `lot1_hostaway_extract.py` n'en porte plus qu'un
+    import. Le garde-fou textuel suit donc le code, pas l'ancien emplacement.
+    """
+    canonique = RACINE / "05_APPLICATION" / "app" / "adapters" / "hostaway_client.py"
+    source = canonique.read_text(encoding="utf-8")
     corps = source[source.index("def _get(self"):]
     corps = corps[:corps.index("\n    # ── Endpoints")]
     lignes = [l.strip() for l in corps.splitlines()

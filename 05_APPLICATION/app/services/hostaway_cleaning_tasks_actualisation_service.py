@@ -6,10 +6,13 @@ ZÉRO EXCEL. L'ancienne version passait par un pont `lot1_hostaway_extract.py --
 (sous-processus) qui écrivait `MASTER_FACT_HA_CleaningTasks_Discovery.xlsx`, puis relisait ce
 fichier pour l'enregistrer en SQLite — un effet de bord sur un fichier réel du dépôt à chaque
 actualisation (mission « supprimer le dernier effet de bord Excel »). Ce module appelle
-`HostawayAuth`/`HostawayClient`/`_extract_cleaning_tasks` (02_TRAVAIL/lot1_hostaway_extract.py,
-MÊME client, MÊME transformation de champs, MÊME correctif de pagination — rien réimplémenté) EN
-PROCESS, sans sous-processus ni fichier intermédiaire, et transmet directement le résultat à
-`hostaway_cleaning_tasks_raw_service` (versioning déjà existant, réutilisé tel quel).
+`HostawayAuth`/`HostawayClient`/`extraire_cleaning_tasks` (`app/adapters/hostaway_client.py` — le
+moteur Hostaway canonique, MÊME client, MÊME transformation de champs, MÊME correctif de
+pagination — rien réimplémenté ; déplacé depuis `02_TRAVAIL/lot1_hostaway_extract.py` mission
+stabilisation 2026-09-09 pour ne plus dépendre d'un module `02_TRAVAIL` depuis `app/`, cf.
+`tests/test_no_metier_calc.py::test_no_import_of_travail_modules`) EN PROCESS, sans sous-processus
+ni fichier intermédiaire, et transmet directement le résultat à `hostaway_cleaning_tasks_raw_service`
+(versioning déjà existant, réutilisé tel quel).
 
 Un export Excel explicite reste possible via `exporter_cleaning_tasks_excel()` (§3 mission) — jamais
 appelé par ce module ni par aucun parcours automatique (Actualiser Hostaway/les ménages/toute
@@ -24,18 +27,15 @@ erreur.
 from __future__ import annotations
 
 import os
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import app.config as cfg
+from app.adapters.hostaway_client import AnomalyDetector, HostawayAuth, HostawayClient
+from app.adapters.hostaway_client import extraire_cleaning_tasks
 from app.services import hostaway_cleaning_tasks_raw_service as raw
 from app.services import run_history_service as history
-
-_TRAVAIL_DIR = str(Path(cfg.PROJECT_ROOT) / "02_TRAVAIL")
-if _TRAVAIL_DIR not in sys.path:
-    sys.path.insert(0, _TRAVAIL_DIR)
 
 DECLENCHEUR_MANUEL = "MANUEL"
 DECLENCHEUR_AUTO = "AUTO"
@@ -86,18 +86,16 @@ def actualiser(*, declencheur: str = DECLENCHEUR_MANUEL, date_from: str = "2026-
                 "message": MESSAGES[E_CREDENTIALS_ABSENTES]}
     base_url, client_id, client_secret, account_id = creds
 
-    import lot1_hostaway_extract as lot1
-
     debut = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     history_run_id = history.demarrer("HOSTAWAY_CLEANING_TASKS", acteur=declencheur, db_path=db_path)
 
     log = _LogRelais()
-    auth = lot1.HostawayAuth(base_url, client_id, client_secret)
-    client = lot1.HostawayClient(auth, account_id, log)
-    detector = lot1.AnomalyDetector(set())
+    auth = HostawayAuth(base_url, client_id, client_secret)
+    client = HostawayClient(auth, account_id, log)
+    detector = AnomalyDetector(set())
 
     try:
-        lignes, statut_extraction = lot1._extract_cleaning_tasks(client, date_from, detector, log)
+        lignes, statut_extraction = extraire_cleaning_tasks(client, date_from, detector, log)
     except Exception as exc:
         history.marquer_echec(history_run_id, erreur=f"{type(exc).__name__}: {exc}", db_path=db_path)
         return {"ok": False, "code": E_API_ECHOUEE,
@@ -132,7 +130,7 @@ def actualiser(*, declencheur: str = DECLENCHEUR_MANUEL, date_from: str = "2026-
 
 
 class _LogRelais:
-    """`_extract_cleaning_tasks` attend un logger (`.info`/`.warning`) — relais minimal vers le
+    """`extraire_cleaning_tasks` attend un logger (`.info`/`.warning`) — relais minimal vers le
     logger applicatif standard, jamais un `print` silencieux ni un logger inventé."""
 
     def __init__(self) -> None:

@@ -2,26 +2,17 @@
 API → SQLite direct, jamais API → Excel → SQLite (mission « supprimer le dernier effet de bord
 Excel »). Un `.xlsx` créé/modifié par ce chemin serait une régression vers l'ancien pont.
 
-Aucun appel réseau : `_extract_cleaning_tasks` (lot1_hostaway_extract) est remplacé par un double.
+Aucun appel réseau : `extraire_cleaning_tasks` (`app.adapters.hostaway_client`, moteur Hostaway
+canonique — mission stabilisation 2026-09-09, déplacé depuis `lot1_hostaway_extract.py` pour ne
+plus faire dépendre `app/` d'un module `02_TRAVAIL`) est remplacé par un double.
 """
 from __future__ import annotations
 
 import hashlib
-import sys
 from pathlib import Path
 
-import pytest
-
 import app.config as cfg
-
-_TRAVAIL = Path(cfg.PROJECT_ROOT) / "02_TRAVAIL"
-if str(_TRAVAIL) not in sys.path:
-    sys.path.insert(0, str(_TRAVAIL))
-
-LOT1 = _TRAVAIL / "lot1_hostaway_extract.py"
-pytestmark = pytest.mark.skipif(not LOT1.exists(), reason="lot1 absent")
-
-from app.services import hostaway_cleaning_tasks_actualisation_service as svc  # noqa: E402
+from app.services import hostaway_cleaning_tasks_actualisation_service as svc
 
 
 def _hash_ou_absent(path: Path) -> str | None:
@@ -33,9 +24,6 @@ def _hash_ou_absent(path: Path) -> str | None:
 def test_actualiser_ne_cree_ni_ne_modifie_aucun_xlsx(tmp_db, monkeypatch, tmp_path):
     """Le cas central : après un `actualiser()` réussi, tout `.xlsx` déjà présent sous
     02_TRAVAIL/Lot1_Hostaway reste hash-identique, et aucun nouveau `.xlsx` n'apparaît."""
-    pytest.importorskip("pandas")
-    import lot1_hostaway_extract as lot1
-
     monkeypatch.setattr(svc, "_credentials",
                         lambda: ("https://exemple.test", "cid", "csec", "aid"))
 
@@ -48,7 +36,7 @@ def test_actualiser_ne_cree_ni_ne_modifie_aucun_xlsx(tmp_db, monkeypatch, tmp_pa
              "extrait_le": "2026-03-15T00:00:00Z", "ROW_HASH": "abc123"},
         ], "OK")
 
-    monkeypatch.setattr(lot1, "_extract_cleaning_tasks", faux_extract)
+    monkeypatch.setattr(svc, "extraire_cleaning_tasks", faux_extract)
 
     dossier_lot1 = Path(cfg.PROJECT_ROOT) / "02_TRAVAIL" / "Lot1_Hostaway"
     xlsx_avant = {p: _hash_ou_absent(p) for p in dossier_lot1.glob("*.xlsx")} if dossier_lot1.exists() else {}

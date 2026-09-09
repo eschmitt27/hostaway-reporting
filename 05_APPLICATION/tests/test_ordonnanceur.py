@@ -87,10 +87,18 @@ def test_apres_le_palier_reessaie(tmp_db):
 
 
 def test_gestion_429_reste_dans_le_lot_dextraction():
-    """§42 — l'ordonnanceur ne réimplémente NI Retry-After NI backoff : ils vivent dans le lot."""
+    """§42 — l'ordonnanceur ne réimplémente NI Retry-After NI backoff : ils vivent dans le moteur
+    Hostaway canonique.
+
+    `HostawayClient`/`RateLimitEpuise` vivent désormais dans `app/adapters/hostaway_client.py`
+    (mission stabilisation 2026-09-09, déplacé depuis `lot1_hostaway_extract.py` pour ne plus
+    faire dépendre `app/` d'un module `02_TRAVAIL` — cf. `tests/test_no_metier_calc.py`) ; le
+    script legacy en reste un consommateur (`_extract_cleaning_tasks` importé sous son ancien
+    nom), donc la garantie tenue par ce test — retry/backoff définis UNE SEULE fois, jamais dans
+    l'ordonnanceur — porte maintenant sur cet emplacement canonique."""
     from pathlib import Path
 
-    source = Path(cfg.APP_ROOT).parent / "02_TRAVAIL" / "lot1_hostaway_extract.py"
+    source = (Path(cfg.APP_ROOT) / "app" / "adapters" / "hostaway_client.py")
     contenu = source.read_text(encoding="utf-8", errors="ignore")
     assert "Retry-After" in contenu and "RateLimitEpuise" in contenu
 
