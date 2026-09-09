@@ -9,3 +9,12 @@ openpyxl==3.1.5
 pandas==3.0.5
 pytest==9.1.1
 httpx==0.28.1
+
+# Ajoutées mission stabilisation 2026-09-09 — réellement importées (production sauf mention
+# contraire) mais absentes du fichier ci-dessus ; une installation propre échouait donc à la
+# collecte pytest ou à l'exécution réelle. Versions figées = celles résolues lors de l'ajout.
+fpdf2==2.8.8              # app/services/factures_proprietaires_pdf.py — génération PDF facture
+PyMuPDF==1.28.2           # app/services/factures_import_service.py,
+                          # app/services/facture_menage_pdf_service.py — extraction texte PDF (import fitz)
+requests==2.34.2          # app/adapters/hostaway_client.py (HostawayAuth/HostawayClient — appels API réels)
+beautifulsoup4==4.15.0    # test seul — tests/test_ui_aucun_id_technique_visible.py, assertion HTML

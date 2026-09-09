@@ -4590,3 +4590,68 @@ d'une `app.db`.
 (importé par `app/services/factures_proprietaires_pdf.py`) et `beautifulsoup4` (importé par
 `tests/test_ui_aucun_id_technique_visible.py`) manquent ; sans eux la collecte pytest échoue à
 l'import. Installés à la main ce tour, **à corriger dans un tour dédié**.
+
+## Contrôle 2026-09-09 — Mission 18d : stabilisation technique post-VRBO
+
+Mission de socle (aucune donnée réelle touchée, aucune nouvelle brique métier) pour corriger ce
+que la mission 18c avait trouvé sans corriger. Vraie `app.db` vérifiée inchangée du début à la fin
+(SHA256 `F4F024FF…F5A3`, identique).
+
+**Version de migration réellement déterminée** (pas supposée) : rejeu d'`apply_migrations()` sur
+une base vierge + lecture du même mécanisme que le code de production
+(`sorted(MIGRATIONS_DIR.glob("*.sql"))[-1]`, `app/db/connection.py`) → **`0071`**, 70 fichiers,
+197 tables, idempotent au second passage. Corrige deux tests qui vérifiaient un contrat périmé :
+`test_sqlite_migrations.py::EXPECTED_TABLES` (5 tables de la migration `0071` ajoutées avec leur
+provenance — liste manuelle volontairement conservée, pas basculée en dérivation automatique, pour
+garder sa valeur de non-régression) et `test_backup_service.py` (constante `"0065"` remplacée par
+une fonction qui dérive la version courante depuis le même mécanisme qu'`apply_migrations()` — ici
+la dérivation est correcte : le test vérifie que le service restitue la version réelle, pas une
+valeur figée). 21 tests passés.
+
+**Violation d'architecture réellement corrigée** : `test_no_metier_calc.py::
+test_no_import_of_travail_modules` échouait pour de vrai —
+`app/services/hostaway_cleaning_tasks_actualisation_service.py` faisait `import
+lot1_hostaway_extract as lot1`. Audit ciblé du flux avant toute extraction (import exact, fonction
+consommée, autres consommateurs, dépendances, tests concernés). `HostawayAuth`/`HostawayClient`/
+`RateLimitEpuise`/`AnomalyDetector`/`row_hash`/`now_utc`/`_extract_cleaning_tasks` déplacés à
+l'identique vers `app/adapters/hostaway_client.py` (nouveau, seule définition désormais) ; le
+script legacy en devient un consommateur (bootstrap `sys.path` + import, même schéma que sa propre
+fonction `_service_raw()` qui importait déjà l'app en sens inverse — précédent existant, pas une
+nouveauté). Trois tests structurels adaptés pour suivre le code à son nouvel emplacement, sans
+changer la garantie qu'ils portent — dont un, `test_ordonnanceur.py::
+test_gestion_429_reste_dans_le_lot_dextraction`, est une **régression réellement introduite par ce
+déplacement et trouvée par la campagne complète avant tout commit**, puis corrigée. Preuve :
+`test_no_metier_calc.py` 5/5, suite ciblée Hostaway/CleaningTasks/ordonnanceur/ménages 88 passed,
+suite moteur complète (`tests/` racine) **inchangée** avant/après le déplacement (407 passed /
+5 failed pré-existants sans rapport avec Hostaway / 1 skipped).
+
+**`requirements.txt` complété**, avec vérification de l'usage réel avant ajout (pas d'ajout
+spéculatif) : `requests` (production — `app/adapters/hostaway_client.py`, appels API réels),
+`PyMuPDF` (production — `app/services/factures_import_service.py` et
+`facture_menage_pdf_service.py`, `import fitz`), `fpdf2` (production, identifié mission 18c non
+encore ajouté), `beautifulsoup4` (test seul). `python-dotenv` vérifié **non manquant** : déjà
+transitif via `uvicorn[standard]`. Correction du diagnostic de la mission 18c sur 6 tests : ce
+n'était **pas** des sources/réseau absents comme supposé, mais deux dépendances de production
+réellement manquantes (`requests`, `PyMuPDF`) — une fois installées, les 6 tests passent
+réellement (`test_menages_actualisation_robustesse.py` ×2, `test_hostaway_cleaning_tasks_
+anti_excel.py` ×1, `test_factures_proprietaires_conformite.py` ×4 moins celles déjà comptées
+ailleurs — cf. `HANDOFF_CANONIQUE.md` mission 18d §D pour la ventilation exacte).
+
+**`backup_service.sauvegarder()` audité** (pas refactorisé — hors scope de cette mission) :
+l'écriture dans la source lors d'un backup est un choix d'architecture délibéré et déjà documenté
+dans le code (sidecar JSON toujours écrit, indépendant du schéma ; journal en base optionnel et
+non bloquant, écrit après la copie pour ne pas forcer WAL avant sauvegarde). Verdict : comportement
+accepté, aucune dette à traiter dans une mission dédiée — seul point d'attention opérationnel déjà
+documenté (le premier backup change le hash avant toute écriture métier).
+
+Tests : compilation OK, migrations/schéma 21 passed, architecture 5 passed, ciblés app 88 passed,
+VRBO non-régression sur copie isolée (lecture seule, jamais la vraie base) tous contrôles OK, suite
+moteur complète 407/5/1 inchangée, suite application complète **2997 passed / 12 failed / 66
+skipped**. Les 12 échecs vérifiés pré-existants (worktree isolé au commit de fin de mission 18c,
+même résultat) : 7 exigent la vraie `app.db` (absente de ce workspace, jamais restaurée —
+`test_regularisation_hh.py` ×5 déjà connus + `test_banques.py` ×2 nouvellement identifiés, masqués
+dans le rapport 18c par la copie qu'il avait laissée en place au moment de sa propre campagne) ;
+5 restent les gaps d'environnement 18c (source bancaire réelle absente ×1,
+`LOT4A_ENGINE_PYTHON` introuvable sur cette machine ×4). Aucune écriture sur la vraie `app.db`.
+`PRAGMA integrity_check`/`foreign_key_check` non ré-exécutés sur la vraie base — non nécessaire,
+elle n'a pas été ouverte en écriture ce tour (seule une copie l'a été, pour lecture).

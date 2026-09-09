@@ -2549,3 +2549,202 @@ ailleurs). Aucun `git worktree repair`.
 payouts réels. C'est la seule action qui supprime l'approximation : les montants écrits sont des
 estimations assumées, pas des données plateforme. Le même export fournira aussi les montants réels
 d'octobre/novembre quand ces mois seront clos.
+
+## Mission 18d (2026-09-09, suite) — stabilisation technique après la mission VRBO
+
+Mission de socle, sans nouvelle brique métier : corriger les défauts d'environnement et
+d'architecture trouvés par la mission 18c avant de repartir sur du fonctionnel. **Aucune donnée
+réelle touchée** — la vraie `app.db` reste inchangée du début à la fin de cette mission
+(SHA256 `F4F024FF52F4A6D235F8E33D6EFB44185FAD37F163BB313BD9C08D39FDCEF5A3`, identique avant/après,
+vérifié).
+
+### A. VRBO — gelé, estimations provisoires confirmées
+
+Aucune modification. Vérifié sur une **copie isolée** de la vraie base (jamais la vraie base elle-
+même, jamais un backup restauré) : les deux estimations (`56388919` → 185,99 €, `57780060` →
+371,97 €) portent toujours `menage = 55 €`, `acteur = ESTIMATION_VRBO`, `source_montant =
+MANUEL_HH`, la même assiette/commission/net que la mission 18c (130,99/24,89/106,10 et
+316,97/60,22/256,75) ; les 3 VRBO de mois non clos restent à `montant = 0` /
+`VRBO_MONTANT_NON_RENSEIGNE` ; les 23 `DIRECT_SANS_SAISIE_HH` sont intactes ; les 1585 réservations
+résolues sont toutes présentes ; aucune nouvelle anomalie VRBO sur un mois clos. **Règle à ajouter
+au contrat métier** : les réservations `56388919` et `57780060` portent des montants **provisoires
+estimés** — jamais des payouts plateforme réels. Toute arrivée d'une donnée VRBO fiable pour
+2026-06/2026-08 doit déclencher leur remplacement contrôlé, en conservant la trace de l'estimation
+précédente (l'écriture existante dans `reservations_hors_hostaway`/`reservation_hh_overrides` n'est
+jamais supprimée par un remplacement — `reservations_hh_saisie_service.modifier()` journalise
+l'avant/après, cf. `_journaliser`).
+
+### B. Tests de schéma/migration — corrigés
+
+Deux tests vérifiaient un contrat périmé, pas le comportement réel de l'app. **Version de
+migration** déterminée par la **seule source fiable** : le mécanisme réel d'`apply_migrations()`
+(`app/db/connection.py`) — `sorted(MIGRATIONS_DIR.glob("*.sql"))[-1]`, vérifié en rejouant sur une
+base vierge (70 fichiers, `0001` → `0071`, gap volontaire `0049`, 197 tables créées, idempotent sur
+un second passage). Résultat : **`0071`** — ni `0065` (l'ancienne constante du test), ni `0070`
+(le compte de migrations *appliquées à la vraie app.db avant* la mission 18c, cf. section
+précédente ; ce sont deux mesures différentes qui ne doivent pas être confondues).
+
+- `test_sqlite_migrations.py::EXPECTED_TABLES` : 5 tables de la migration `0071`
+  (`factures_proprietaires_meta`, `factures_proprietaires_lignes_provenance`,
+  `factures_proprietaires_lignes_charge`, `factures_proprietaires_reservations`,
+  `menages_changements_mois_clotures`) ajoutées avec leur provenance, comme le reste du contrat
+  déjà maintenu ligne par ligne — **pas** de bascule vers une dérivation automatique : cette liste
+  reste un contrat de non-régression volontairement manuel (détecte une table oubliée, une
+  migration qui échoue silencieusement).
+- `test_backup_service.py::test_sauvegarder_journalise_metadonnees_completes` : la constante
+  `"0065"` remplacée par une fonction `_derniere_version_migration()` qui lit le même mécanisme que
+  `apply_migrations()` — ici la dérivation est correcte, parce que le test vérifie que
+  `backup_service` restitue fidèlement *la version réelle du schéma*, pas une valeur figée qui doit
+  suivre chaque migration.
+
+Commit `2e26b76`. 21 tests passés.
+
+### C. Architecture `app/` → `02_TRAVAIL` — corrigée
+
+`test_no_metier_calc.py::test_no_import_of_travail_modules` échouait réellement :
+`app/services/hostaway_cleaning_tasks_actualisation_service.py` faisait
+`import lot1_hostaway_extract as lot1` pour réutiliser `HostawayAuth`/`HostawayClient`/
+`AnomalyDetector`/`_extract_cleaning_tasks` — interdit, `app/` ne référence jamais un script
+`02_TRAVAIL`.
+
+**Audit ciblé du flux** avant toute extraction : import exact (`HostawayAuth`, `HostawayClient`,
+`AnomalyDetector`, `_extract_cleaning_tasks`, transitivement `RateLimitEpuise` + 5 constantes retry
++ `row_hash`/`now_utc`) ; fonction réellement consommée (client HTTP OAuth2 + retry/rate-limit +
+détection d'anomalie + extraction CleaningTasks) ; autres consommateurs (`lot1_hostaway_extract.py`
+lui-même, pour sa propre extraction complète réservations/listings/payout — utilise les MÊMES
+classes) ; dépendances (`requests`, `pandas` pour `AnomalyDetector.to_df()`) ; tests (legacy
+`tests/test_lot1_rate_limit.py`/`test_lot1_cleaning_tasks_pagination.py`, app
+`tests/test_hostaway_cleaning_tasks_anti_excel.py`, `tests/test_ordonnanceur.py`).
+
+**Extraction, pas copie** : ces classes/fonctions déplacées à l'identique vers
+`app/adapters/hostaway_client.py` (nouveau, dans la couche `app/adapters` déjà dédiée au pont vers
+`02_TRAVAIL` — `pipeline_registry.py`/`pipeline_runner.py` y vivent déjà). C'est maintenant la
+**seule** définition. `02_TRAVAIL/lot1_hostaway_extract.py` en devient un **consommateur** : bloc
+d'import avec bootstrap `sys.path` vers `05_APPLICATION`, exactement le même schéma que sa propre
+fonction `_service_raw()` (qui importe déjà `app.services.hostaway_raw_service` en sens inverse —
+précédent déjà existant dans ce fichier, pas une nouveauté architecturale). `_extract_cleaning_tasks`
+réimporté sous son ancien nom (`extraire_cleaning_tasks as _extract_cleaning_tasks`) pour ne rien
+changer côté script legacy. Le service applicatif importe directement le module canonique — plus
+aucun bootstrap `sys.path`, plus aucun `import lot1_hostaway_extract`.
+
+**Trois tests structurels adaptés** pour suivre le code à son nouvel emplacement (la garantie
+qu'ils portent est inchangée, seul son ancrage textuel change) :
+- `test_hostaway_cleaning_tasks_anti_excel.py` : le double patche `svc.extraire_cleaning_tasks` au
+  lieu de `lot1._extract_cleaning_tasks` (même schéma que le `svc._credentials` déjà patché deux
+  lignes plus haut).
+- `test_lot1_rate_limit.py::test_aucun_retour_vide_apres_epuisement` : lit
+  `app/adapters/hostaway_client.py` au lieu de `lot1_hostaway_extract.py`.
+- `test_ordonnanceur.py::test_gestion_429_reste_dans_le_lot_dextraction` : vérifie que
+  `Retry-After`/`RateLimitEpuise` vivent dans le moteur canonique (pas dans l'ordonnanceur) —
+  **régression réellement trouvée par ce tour** (le premier passage de la campagne complète
+  l'a fait échouer, corrigé avant tout commit).
+
+Preuve qu'`app/` n'importe plus `02_TRAVAIL` : `test_no_metier_calc.py` 5/5 (`grep` du dépôt : plus
+aucun `import lot1_hostaway_extract` sous `app/`, seules des invocations en sous-processus
+préexistantes et non concernées — `hostaway_actualisation_service.py`, inchangé). `lot1_hostaway_
+extract.py` compile et s'importe toujours seul (`HostawayClient`/`HostawayAuth`/`AnomalyDetector`/
+`_extract_cleaning_tasks`/`RateLimitEpuise`/`PAGE_SIZE` résolus depuis le module canonique, vérifié
+par introspection). Commit `f93421c`. 88 tests ciblés passés (Hostaway/CleaningTasks/
+ordonnanceur/ménages), suite moteur complète (`tests/` racine) inchangée : **407 passed / 5 failed
+(pré-existants, sans rapport avec Hostaway) / 1 skipped**, identique avant et après le déplacement.
+
+### D. `requirements.txt` — complété
+
+Trois dépendances **réellement importées en production**, absentes du fichier, provoquaient
+l'échec de la collecte pytest ou auraient fait échouer un run réel :
+- `requests==2.34.2` — `app/adapters/hostaway_client.py` (`HostawayAuth`/`HostawayClient`, appels
+  API réels).
+- `PyMuPDF==1.28.2` — `app/services/factures_import_service.py` et
+  `app/services/facture_menage_pdf_service.py` (`import fitz`, extraction de texte PDF).
+- `fpdf2==2.8.8` — `app/services/factures_proprietaires_pdf.py` (déjà identifié mission 18c, non
+  encore ajouté au fichier).
+
+Une quatrième, **test seul** : `beautifulsoup4==4.15.0` (`tests/test_ui_aucun_id_technique_
+visible.py`, déjà identifié mission 18c). `python-dotenv` n'est **pas** manquant : déjà présent en
+transitif via `uvicorn[standard]==0.49.0` (son extra `standard`), vérifié (`Required-by` vide mais
+résolu par une installation propre de `requirements.txt` sans autre ajout).
+
+Effet mesuré sur la suite (base pré-changement, pour isoler la cause) : `requests` manquant faisait
+échouer 3 tests réels de la campagne précédente (`test_menages_actualisation_robustesse.py` ×2 +
+`test_hostaway_cleaning_tasks_anti_excel.py` ×1, qui `sys.exit(1)` à l'import de
+`lot1_hostaway_extract.py` faute de dépendance) — **pas** « sources/réseau absentes de
+l'environnement » comme la mission 18c l'avait supposé sans vérifier la cause exacte.
+`PyMuPDF`/`fitz` manquant faisait échouer les 4 tests `test_factures_proprietaires_conformite.py`
+— **pas** une histoire de version `fpdf2` non épinglée comme supposé, la cause réelle est un module
+différent (`fitz`, utilisé par le *test* pour relire le PDF généré, mais aussi par du code de
+production ailleurs). Une fois les deux installés : ces 6 tests passent réellement (pas contournés).
+
+`requirements.txt` installé proprement (`pip install -r requirements.txt`) sans conflit après ajout.
+
+### E. `backup_service.sauvegarder()` — audité, comportement conservé
+
+Pourquoi un backup modifie le SHA256 de la base source (trouvé mission 18c) : le design est
+**délibéré**, documenté dans le code lui-même (`backup_service.py`, docstring de `sauvegarder()` et
+commentaires autour de l'`INSERT` dans `sauvegardes_base`/`sauvegardes_base_tracabilite`) — pas un
+oubli.
+- Le sidecar JSON (`.meta.json`), **toujours** écrit, indépendant du schéma de la source : c'est la
+  trace durable et garantie, y compris sur une base pré-migration sans les tables de traçabilité
+  (cas `PRE_REAL_CUTOVER`, mission 14, encore testé aujourd'hui).
+- L'`INSERT` dans les tables `sauvegardes_base`/`sauvegardes_base_tracabilite` **de la base
+  source elle-même** est un second journal, opportuniste et non bloquant (`si le schéma le
+  supporte déjà`), pour donner à l'écran applicatif un historique des sauvegardes interrogeable
+  sans scanner le système de fichiers. Fait *après* la copie (jamais avant) précisément pour ne pas
+  forcer `PRAGMA journal_mode=WAL` sur la source avant qu'elle soit sauvegardée.
+
+Trade-off accepté : la source n'est donc plus jamais bit-à-bit identique juste après un
+`sauvegarder()`, y compris quand aucune donnée métier n'a changé. C'est exactement ce que la
+mission 18c a mesuré et neutralisé correctement (diff table par table contre l'empreinte pristine,
+seules `sauvegardes_base*` avaient bougé). **Verdict : A — comportement acceptable à conserver.**
+Aucune dette à traiter dans une mission dédiée ; le seul point d'attention (déjà écrit ici) est
+opérationnel, pas un bug : toute procédure de diff avant/après doit s'attendre à ce que le premier
+backup change déjà le hash, avant toute écriture métier.
+
+### F. Tests — récapitulatif
+
+| Étape | Résultat |
+|---|---|
+| Compilation (`py_compile`) | `hostaway_client.py`, `hostaway_cleaning_tasks_actualisation_service.py`, `lot1_hostaway_extract.py` — OK |
+| Migrations/schéma ciblés | 21 passed |
+| Architecture (`test_no_metier_calc.py`) | 5 passed |
+| Hostaway/CleaningTasks/ordonnanceur/ménages ciblés | 88 passed |
+| VRBO non-régression (copie isolée, lecture seule) | tous les contrôles OK (cf. §A) |
+| Suite moteur complète (`tests/` racine) | 407 passed / 5 failed (pré-existants) / 1 skipped — identique avant/après |
+| Suite application complète (`05_APPLICATION/tests/`) | **2997 passed / 12 failed / 66 skipped** (20 min), relancée après le commit d'architecture |
+
+Les 5 échecs pré-existants de la suite moteur (`test_lot10_reservation_exclue_dedup.py`,
+`test_lot6e_sqlite.py` ×2, `test_lot6f_sqlite.py` ×2) sont sans rapport avec Hostaway/CleaningTasks
+et n'ont pas été investigués (hors scope de cette mission de stabilisation).
+
+**Les 12 échecs de la suite application complète, tous vérifiés pré-existants** (aucun imputable à
+cette mission) — vérification faite en rejouant `tests/test_banques.py` sur un **worktree isolé**
+au commit `00c7bb3` (état exact de fin de mission 18c, avant toute modification de cette mission),
+même résultat :
+- **7 exigent un clone de la vraie `app.db`, absente de ce workspace** (jamais restaurée, par
+  choix — cf. §16 du prompt de reprise) : `test_regularisation_hh.py` ×5 (déjà identifiés
+  mission 18c) et `test_banques.py::test_source_absente` /
+  `test_categorisation_airbnb_source_absente_ne_casse_pas` (×2, **pas** identifiés par la mission
+  18c — son rapport avait une copie de `app.db` en place au moment de sa propre campagne complète,
+  ce qui masquait ces deux tests). Le garde `tests/garde_sources_reelles.py` intercepte tout
+  `sqlite3.connect()` vers un chemin protégé et le rouvre en `mode=ro`, ce qui échoue net si le
+  fichier n'existe pas — plutôt qu'une simple absence de données.
+- **5 restent les gaps d'environnement déjà documentés mission 18c**, inchangés :
+  `test_gardes_bancaires_coherence.py` ×1 (source bancaire réelle absente de ce dépôt),
+  `test_lot6b_anti_excel.py` ×4 (`LOT4A_ENGINE_PYTHON` pointe par défaut vers
+  `C:\Program Files\Python312\python.exe`, absent de cette machine).
+
+Aucun de ces 12 tests n'est exécutable dans ce workspace sans, respectivement, une copie de la
+vraie `app.db` ou l'environnement de référence complet (Python à ce chemin précis, classeur
+bancaire réel) — ni l'un ni l'autre n'a été fourni ni recréé par cette mission de stabilisation.
+
+### Ce qui n'a pas été fait (volontairement)
+
+Aucune nouvelle brique métier. Scheduler Hostaway **non démarré**. Mode réel **non activé**.
+Aucune règle Banque modifiée. Aucun backup restauré. Aucune donnée VRBO recalculée. `backup_
+service.py` **non refactorisé** (audité seulement, cf. §E). Les 5 échecs pré-existants de la suite
+moteur **non corrigés** (hors scope).
+
+### Prochaine action unique
+
+**Obtenir un export VRBO couvrant juin → août 2026** (inchangé depuis la mission 18c — c'est
+toujours la seule action qui reste fonctionnellement bloquante ; cette mission 18d était un tour de
+stabilisation technique, pas une avancée sur ce point).
