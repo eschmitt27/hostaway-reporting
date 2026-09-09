@@ -221,6 +221,15 @@ MENAGES_REAL_RECALC_ENABLED = RECETTE_MODE and _env_flag("MENAGES_REAL_RECALC_EN
 # Interpréteur moteur du recalcul (porte openpyxl ; réutilise l'interpréteur pandas du moteur).
 MENAGES_ENGINE_PYTHON = Path(os.environ.get("MENAGES_ENGINE_PYTHON", str(LOT4A_ENGINE_PYTHON)))
 MENAGES_RECALC_TIMEOUT_SECONDS = int(os.environ.get("MENAGES_RECALC_TIMEOUT_SECONDS", "300"))
+# Plafond du bouton RÉEL « Actualiser le rapprochement des ménages » (PDF -> Sheet -> Hostaway ->
+# recalcul ciblé, `menages_actualisation_service.actualiser()`). Le workflow tourne désormais hors
+# boucle événementielle (`asyncio.to_thread`) : ce plafond ne protège plus le SERVEUR (déjà protégé
+# par l'offload), il protège cette REQUÊTE précise d'un spinner infini côté utilisateur. Le thread
+# Python sous-jacent NE PEUT PAS être tué de force au dépassement (limitation CPython) — il continue
+# jusqu'à sa propre fin ; c'est le verrou DB (`orchestrateur_service.prendre_verrou`, portée
+# MENAGES_ACTUALISATION_BOUTON) qui empêche un second clic de lancer une chaîne concurrente pendant
+# ce temps, pas ce timeout.
+MENAGES_ACTUALISER_TIMEOUT_SECONDS = int(os.environ.get("MENAGES_ACTUALISER_TIMEOUT_SECONDS", "300"))
 # Workspace isolé des recalculs sur copies (sous data/, jamais dans l'arbre métier).
 MENAGES_RECALC_WORKSPACE = DATA_DIR / "menages_recalc"
 # Runner hors paquet app/ (sous-processus, interpréteur moteur — jamais importé par FastAPI).

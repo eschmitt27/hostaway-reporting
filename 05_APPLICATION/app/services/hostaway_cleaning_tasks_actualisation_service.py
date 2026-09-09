@@ -63,6 +63,16 @@ def _credentials() -> tuple[str, str, str, str] | None:
     return base_url, client_id, client_secret, account_id
 
 
+def credentials_disponibles() -> bool:
+    """Préflight SANS appel réseau — vrai si les 3 identifiants requis sont configurés.
+
+    Réutilisé par `menages_actualisation_service.actualiser()` pour arrêter la chaîne AVANT le
+    PDF/Sheet si Hostaway n'est de toute façon pas configuré (mission « Hostaway non configuré ->
+    arrêt immédiat »), sans dupliquer `_credentials()`.
+    """
+    return _credentials() is not None
+
+
 def actualiser(*, declencheur: str = DECLENCHEUR_MANUEL, date_from: str = "2026-01-01",
                db_path=None) -> dict[str, Any]:
     """Récupère les tâches ménage Hostaway (H6) et les enregistre en SQLite versionné.

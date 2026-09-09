@@ -30,6 +30,8 @@ def db(tmp_path, monkeypatch):
 @pytest.fixture()
 def espions(monkeypatch, db):
     """Remplace les frontières externes et enregistre l'ordre exact des appels."""
+    from app.services import hostaway_cleaning_tasks_actualisation_service as hostaway_ct
+    from app.services import menages_actualisation_service as workflow_svc
     from app.services import menages_declarations_service as decl
     from app.services import menages_pdf_import_service as pdf_import
     from app.services import menages_service as svc
@@ -40,6 +42,11 @@ def espions(monkeypatch, db):
     etat = {"pdf": {"ok": True, "nb_detectes": 0, "nb_importees": 0, "nb_remplacees": 0,
                     "nb_deja_importees": 0, "mois_impactes": [], "details": []},
             "clotures": set(), "menages_ok": True}
+
+    # Préflights (mission « spinner infini ») : réputés OK par défaut dans ce fixture, testés
+    # explicitement KO dans les tests dédiés A/B ci-dessous (override du monkeypatch au cas par cas).
+    monkeypatch.setattr(hostaway_ct, "credentials_disponibles", lambda: True)
+    monkeypatch.setattr(workflow_svc, "_google_sheet_config_ok", lambda **k: True)
 
     def _pdf(**kw):
         journal.append("PDF")

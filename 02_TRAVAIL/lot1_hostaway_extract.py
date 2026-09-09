@@ -676,7 +676,14 @@ class HostawayClient:
         l'API) est atteint, avec dédoublonnage défensif par `id` au cas où un futur
         comportement de l'API redevienne partiellement paginé."""
         results, offset = [], 0
-        while True:
+        # Défense en profondeur (mission cleaning-tasks) : la boucle est DÉJÀ bornée par le test
+        # count/len(batch) ci-dessus — ce plafond ne fait rien tant que l'API se comporte comme
+        # constaté. Il existe pour qu'une régression future de l'API (retour à une pagination
+        # partielle incohérente, `count` toujours nul, etc.) ne puisse plus jamais reproduire la
+        # boucle infinie historique : 200 pages à PAGE_SIZE=100 couvre large le volume réel observé
+        # (count≈727, soit ~8 pages).
+        MAX_PAGES = 200
+        for _ in range(MAX_PAGES):
             data  = self._get("/v1/tasks", {
                 "dateFrom": date_from, "limit": PAGE_SIZE, "offset": offset,
             })
@@ -687,6 +694,10 @@ class HostawayClient:
                 break
             offset += PAGE_SIZE
             time.sleep(0.2)
+        else:
+            raise RuntimeError(
+                f"HostawayClient.get_tasks : plafond de {MAX_PAGES} pages atteint sans fin de "
+                "pagination détectée — arrêt (garde-fou anti-boucle infinie).")
         seen: set = set()
         deduped = []
         for t in results:

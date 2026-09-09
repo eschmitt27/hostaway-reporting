@@ -4,6 +4,7 @@ Aucune route n'écrit dans une source métier. La seule écriture est l'outrepas
 tracé en SQLite. Le recalcul réel du pipeline n'est pas exposé : /menages/diagnostic
 est une page de diagnostic, sans exécution.
 """
+import asyncio
 from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Request
@@ -90,6 +91,8 @@ def menages_dashboard(
             mois, logement_id, proprietaire_id, intervenant_id, type_intervenant, statut,
             ecart_seul, identification_incomplete, tri, page)),
         "actualisation_terminee": request.query_params.get("actualisation") == "terminee",
+        "actualisation_partielle": request.query_params.get("actualisation") == "partielle",
+        "actualisation_echec": request.query_params.get("actualisation") == "echec",
         "resume_actualisation": [p for p in resume.split(" · ") if p],
         "changements_clotures": actualisation.changements_mois_clotures(statut="SIGNALE"),
     })
@@ -174,13 +177,20 @@ def _retour_contexte(form, defaut: str) -> str:
 
 @router.post("/menages/actualiser")
 async def menages_actualiser(request: Request):
-    """« Actualiser le rapprochement des ménages » — L'UNIQUE action de l'écran, SYNCHRONE.
+    """« Actualiser le rapprochement des ménages » — L'UNIQUE action de l'écran, SYNCHRONE pour
+    l'utilisateur, MAIS HORS BOUCLE ÉVÉNEMENTIELLE pour le serveur.
 
     Le workflow complet (PDF → Google Sheet → Hostaway → ciblage → recalcul des mois OUVERTS →
-    rapprochement) s'exécute EN LIGNE : la redirection n'a lieu qu'une fois tout terminé, si bien
-    que l'écran affiche l'état réel dès son affichage. C'est le changement de contrat par rapport à
-    la version en `BackgroundTasks`, qui redirigeait vers un écran encore périmé et rendait
-    nécessaire un second bouton « Actualiser l'affichage » — supprimé depuis.
+    rapprochement) s'exécute avant que la redirection n'ait lieu : l'écran affiche l'état réel dès
+    son affichage, comme avant. La différence : `actualisation.actualiser(...)` est une fonction
+    SYNCHRONE BLOQUANTE (sous-processus PDF/Sheet, appel API Hostaway) — l'appeler directement dans une
+    route `async def` bloquerait l'UNIQUE boucle événementielle d'uvicorn pendant toute sa durée,
+    empêchant même un `GET /` sans rapport d'être servi (constaté en recette : le serveur entier
+    cessait de répondre). `asyncio.to_thread` déporte l'appel bloquant sur un thread du pool ; le
+    reste du serveur continue de répondre pendant ce temps. `asyncio.wait_for` borne la durée que
+    CETTE requête attend avant de rendre un message d'échec propre — le thread sous-jacent n'est PAS
+    tué au dépassement (impossible en CPython) : il continue jusqu'à sa fin naturelle, protégé
+    contre un second déclenchement concurrent par le verrou DB pris dans le service lui-même.
 
     `mois` est le mois filtré à l'écran, transmis par un champ caché : il arrive en corps
     `application/x-www-form-urlencoded`, jamais en query string, d'où la lecture via
@@ -190,13 +200,30 @@ async def menages_actualiser(request: Request):
     form = await request.form()
     mois_cible = str(form.get("mois", "") or "").strip() or svc.periode_par_defaut()
     orch.marquer_runs_interrompus()
-    resultat = actualisation.actualiser(mois_affiche=mois_cible, acteur="ui:menages",
-                                        declencheur=orch.DECLENCHEUR_MANUEL)
+    try:
+        resultat = await asyncio.wait_for(
+            asyncio.to_thread(actualisation.actualiser, mois_affiche=mois_cible,
+                              acteur="ui:menages", declencheur=orch.DECLENCHEUR_MANUEL),
+            timeout=cfg.MENAGES_ACTUALISER_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        # Le thread continue en tâche de fond (non tuable) — le verrou DB (§36, pris dans le
+        # service) empêche un nouveau clic de lancer une seconde chaîne tant qu'il tourne encore.
+        message = (f"Délai dépassé ({cfg.MENAGES_ACTUALISER_TIMEOUT_SECONDS}s) : l'actualisation "
+                   "n'a pas répondu à temps. Réessayez dans quelques instants.")
+        return RedirectResponse(
+            url=f"/menages?mois={mois_cible}&actualisation=echec&resume={quote(message)}",
+            status_code=303)
+
     # Le résumé est passé en query string parce qu'il est COURT et calculé à partir de ce qui a
     # réellement été fait — jamais un compteur figé dans le gabarit.
     resume = " · ".join(resultat["statistiques"])
+    # « terminee » (succès plein) n'est utilisé QUE si les trois sources et tous les mois ciblés ont
+    # réellement réussi (mission §8) : un statut PARTIEL/ECHEC ne doit JAMAIS afficher le message de
+    # succès, même si des statistiques partielles existent.
+    statut = resultat.get("statut", "SUCCES" if resultat.get("ok") else "ECHEC")
+    marqueur = {"SUCCES": "terminee", "PARTIEL": "partielle", "ECHEC": "echec"}.get(statut, "echec")
     return RedirectResponse(
-        url=f"/menages?mois={mois_cible}&actualisation=terminee&resume={quote(resume)}",
+        url=f"/menages?mois={mois_cible}&actualisation={marqueur}&resume={quote(resume)}",
         status_code=303)
 
 
@@ -476,9 +503,16 @@ async def menage_modifier_declaration(request: Request, mois: str,
             "outrepassage_error": None, "declaration_error": resultat.get("message"),
         }, status_code=422)
     # Recalcul SYNCHRONE, comme le bouton unique : l'écran suivant montre l'état réel, jamais un
-    # état intermédiaire que l'utilisateur devrait rafraîchir lui-même.
-    actualisation.actualiser(mois_affiche=mois, acteur="ui:menages",
-                             declencheur=orch.DECLENCHEUR_MANUEL)
+    # état intermédiaire que l'utilisateur devrait rafraîchir lui-même. Même chemin bloquant que
+    # /menages/actualiser : déporté hors boucle événementielle (`asyncio.to_thread`), même plafond
+    # de requête (§1/§2 mission spinner infini) — cette route appelle la MÊME fonction bloquante.
+    try:
+        await asyncio.wait_for(
+            asyncio.to_thread(actualisation.actualiser, mois_affiche=mois, acteur="ui:menages",
+                              declencheur=orch.DECLENCHEUR_MANUEL),
+            timeout=cfg.MENAGES_ACTUALISER_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        pass  # Le thread continue ; le verrou DB protège contre une seconde chaîne concurrente.
     retour = _retour_contexte(form, f"/menages/{mois}/{logement_id}/{intervenant_id}")
     separateur = "&" if "?" in retour else "?"
     return RedirectResponse(url=f"{retour}{separateur}declaration=modifiee", status_code=303)

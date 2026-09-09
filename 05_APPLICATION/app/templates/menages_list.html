@@ -98,9 +98,21 @@
   {% endif %}
   {% if actualisation_terminee %}
   {# Message affiché APRÈS un traitement réellement terminé — le workflow est synchrone, donc
-     l'écran ci-dessous reflète déjà son résultat. Les lignes viennent du service, jamais d'ici. #}
+     l'écran ci-dessous reflète déjà son résultat. Les lignes viennent du service, jamais d'ici.
+     UNIQUEMENT si les trois sources ET tous les mois ciblés ont réellement réussi (mission §8) :
+     un statut PARTIEL/ECHEC n'emprunte jamais ce message. #}
   <div class="alert alert-success">
     <strong>Rapprochement actualisé.</strong>
+    <ul>{% for ligne in resume_actualisation %}<li>{{ ligne }}</li>{% endfor %}</ul>
+  </div>
+  {% elif actualisation_partielle %}
+  <div class="alert alert-warning">
+    <strong>Actualisation partielle.</strong> Une source a échoué, le reste a été actualisé.
+    <ul>{% for ligne in resume_actualisation %}<li>{{ ligne }}</li>{% endfor %}</ul>
+  </div>
+  {% elif actualisation_echec %}
+  <div class="alert alert-danger">
+    <strong>L'actualisation n'a pas abouti.</strong>
     <ul>{% for ligne in resume_actualisation %}<li>{{ ligne }}</li>{% endfor %}</ul>
   </div>
   {% endif %}
