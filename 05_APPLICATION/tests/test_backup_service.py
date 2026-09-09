@@ -10,8 +10,17 @@ from pathlib import Path
 import pytest
 
 import app.config as cfg
-from app.db.connection import apply_migrations, get_db
+from app.db.connection import MIGRATIONS_DIR, apply_migrations, get_db
 from app.services import backup_service
+
+
+def _derniere_version_migration() -> str:
+    """Dernière version de migration réellement présente sur disque — même règle que
+    `apply_migrations` (dernier fichier `*.sql` trié). Dérivée, jamais une constante recopiée : une
+    constante recopiée devient fausse dès la migration suivante (vécu — `0065` était périmée alors
+    que le schéma courant est en `0071`)."""
+    fichiers = sorted(MIGRATIONS_DIR.glob("*.sql"))
+    return fichiers[-1].stem.split("_", 1)[0]
 
 
 @pytest.fixture(autouse=True)
@@ -222,11 +231,11 @@ def test_sauvegarder_journalise_metadonnees_completes(db):
     res = backup_service.sauvegarder("TEST", db_path=db)
     assert res["source_hash"]
     assert res["database_hash"]
-    assert res["schema_version"] == "0065"
+    assert res["schema_version"] == _derniere_version_migration()
 
     entree = backup_service.lister(db_path=db)[0]
     assert entree["source_hash"] == res["source_hash"]
-    assert entree["schema_version"] == "0065"
+    assert entree["schema_version"] == _derniere_version_migration()
     assert entree["database_hash"]
     assert entree["date_creation"]
 

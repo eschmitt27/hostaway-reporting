@@ -171,6 +171,11 @@ EXPECTED_TABLES = {
     "menages_cout_complet_provenance",            # 0068 — origine des lignes : historique fige vs calcul courant
     "menages_externes_historique",                # 0069 — menages externes figes (TYPE_FLUX_014), sans fausse facture
     "lot10_run_mois_provenance",                  # 0070 — mode de traitement par mois d'un run Lot10 (RECALCULE/ARCHIVE_AUTHENTIQUE/LEGACY_FIGE)
+    "factures_proprietaires_meta",                # 0071 — total source Lot10/Lot12 figé à la création du brouillon
+    "factures_proprietaires_lignes_provenance",   # 0071 — montant/origine initiaux d'une ligne CALCULEE modifiée
+    "factures_proprietaires_lignes_charge",       # 0071 — lien ligne BROUILLON -> charge réelle créée (jamais un second mécanisme)
+    "factures_proprietaires_reservations",        # 0071 — instantané des réservations de la période, figé à la création
+    "menages_changements_mois_clotures",          # 0071 — signalement (jamais un recalcul) d'un changement source sur un mois clôturé
 }
 
 
