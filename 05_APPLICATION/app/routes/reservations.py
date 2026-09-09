@@ -8,6 +8,7 @@ from app.services import reservations_hh_service as svc
 from app.services import saisie_hh_service as saisie_svc
 from app.services import reservations_hh_confirmation_service as confirmation
 from app.services import hostaway_actualisation_service as hostaway_svc
+from app.services import ordonnanceur_service as ordo
 from app.services import regularisation_hh_service as regul_svc
 
 router = APIRouter()
@@ -278,6 +279,10 @@ def hostaway_actualisation(request: Request, message: str = "", message_type: st
         "active_menu": "reservations",
         "etat": hostaway_svc.etat(),
         "historique": hostaway_svc.historique(limite=10),
+        # État du scheduler, en LECTURE SEULE : l'utilisateur voit si l'actualisation automatique
+        # est active et quand elle repartira, sans quitter l'écran manuel. Aucune action ici — le
+        # scheduler s'active par variable d'environnement, jamais depuis l'interface.
+        "ordonnanceur": ordo.etat(),
         "message": message,
         "message_type": message_type,
     })

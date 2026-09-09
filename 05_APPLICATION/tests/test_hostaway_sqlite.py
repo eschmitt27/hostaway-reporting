@@ -493,6 +493,16 @@ def test_ecran_actualisation_nexpose_aucun_chemin(tmp_db, client):
         assert interdit not in texte, f"l'écran expose {interdit}"
 
 
+def test_ecran_hostaway_affiche_le_statut_du_scheduler(tmp_db, client):
+    """Le scheduler est visible en lecture seule sur l'écran manuel : DÉSACTIVÉ par défaut,
+    fréquence 5 h. Aucun contrôle d'activation sur cette page."""
+    texte = client.get("/hostaway").text
+    assert "scheduler-hostaway" in texte
+    assert "Actualisation automatique" in texte
+    assert "DÉSACTIVÉE" in texte
+    assert "5 heures" in texte
+
+
 # ── 10. Ordre de lecture ─────────────────────────────────────────────────────────────────────────
 #
 # `reservation_calc_id` dérive désormais de l'identifiant Hostaway (RES-HA-<reservation_id>) ou de

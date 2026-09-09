@@ -39,6 +39,35 @@
   {% endif %}
 </div>
 
+{# ── Actualisation automatique (scheduler) ────────────────────────────────
+   LECTURE SEULE. Le même service que le bouton ci-dessus, seul le déclencheur
+   change. Le scheduler s'active par variable d'environnement, jamais ici. #}
+{% if ordonnanceur %}
+{% set auto_hostaway = ordonnanceur.taches[0] %}
+{% set auto_decision = ordonnanceur.prochaines_decisions[0] %}
+<div class="card mb-md">
+  <h2 class="card-title">Actualisation automatique</h2>
+  <dl class="detail-grid" data-testid="scheduler-hostaway">
+    <dt>État</dt>
+    <dd>
+      {% if ordonnanceur.actif %}<span class="badge badge-success">ACTIVÉE</span>
+      {% else %}<span class="badge badge-neutral">DÉSACTIVÉE</span>{% endif %}
+    </dd>
+    <dt>Fréquence configurée</dt>
+    <dd>{{ ordonnanceur.cadences_h.HOSTAWAY_RAW }} heures</dd>
+    <dt>Dernier run</dt>
+    <dd>{{ auto_hostaway.calcule_le|datetime_fr if auto_hostaway.calcule_le else "—" }}</dd>
+    <dt>Prochain run</dt>
+    <dd>{{ auto_decision.motif }}</dd>
+  </dl>
+  <p class="section-note mt-sm">
+    Même service que le bouton manuel — seul le déclencheur diffère (AUTOMATIQUE au lieu de
+    MANUEL). L'activation est une décision d'exploitation
+    (<code>ORDONNANCEUR_ACTIF</code>), jamais un réglage de cette page.
+  </p>
+</div>
+{% endif %}
+
 {# ── Dernier run ───────────────────────────────────────────────────────────
    Un run PARTIEL est affiché comme tel, avec le détail par étape. Le résumer en
    « à jour » laisserait croire que tout a été rafraîchi. #}
