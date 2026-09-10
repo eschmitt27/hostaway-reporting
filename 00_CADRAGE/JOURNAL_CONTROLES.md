@@ -4778,3 +4778,29 @@ par conception.
 **Banque** : aucune donnée bancaire supplémentaire n'était attendue (décision de mission).
 `banque_mouvements = 0` accepté ; aucune donnée fictive créée. Le writer est actif pour ne pas
 brider artificiellement l'écran.
+
+**Deux fuites APP-SEC réelles trouvées et corrigées** en balayant les 102 écrans de l'instance :
+`/calculs` publiait `cfg.PROJECT_ROOT` et le chemin absolu de l'interpréteur des lots ;
+`/sources-calculs` publiait le chemin absolu de chaque moteur — donc le nom d'utilisateur Windows
+en clair, contrairement à la règle APP-SEC-1 déjà appliquée ailleurs. Correction par réutilisation
+du sanitiseur canonique `app/services/path_sanitizer.py` (aucun second mécanisme). Commit
+`83619fc`, +2 tests de régression. **Vérification finale : 0 fuite sur 102 écrans** (avant : 2).
+
+**Bug mission 14b confirmé corrigé.** Le registre de datasets portait encore
+`HOSTAWAY_RAW = ECHEC / AttributeError: 'CompletedProcess' object has no attribute 'pid'`, hérité du
+snapshot. Une tentative réelle relancée pendant la mise en service rend désormais une erreur
+véritable et sanitisée (`MOTEUR_CODE_RETOUR / lot1_hostaway_extract rc=1`, identifiants absents) :
+le bug ne se reproduit plus, et l'écran dit maintenant la vraie cause du blocage.
+
+**Tests.** APP-SEC 37 passed / 1 failed pré-existant · calculs+navigation 76 passed ·
+`test_flags_inventaire` 70 passed · régression ciblée writers 1332 passed / 2 failed pré-existants ·
+**suite moteur 407 passed / 5 failed pré-existants / 1 skipped (identique baseline)** ·
+**suite application 3052 passed / 6 failed / 52 skipped** (baseline 2996/13/66).
+**Aucun nouvel échec.** Les 7 échecs baseline disparus ne l'ont pas été par une correction de test :
+`test_regularisation_hh` ×5 et `test_banques` ×2 clonent la vraie `app.db`, absente du worktree
+jusqu'ici et restaurée par cette mission — ils s'exécutent enfin réellement.
+
+**Intégrité finale** : `PRAGMA integrity_check` **ok**, `PRAGMA foreign_key_check` **aucune
+anomalie**, schéma **0071**, 18 sauvegardes enregistrées. Copie de sécurité du code
+(`..._SAUVEGARDE_AVANT_MODE_REEL_20260910`) vérifiée **intacte** : HEAD `1042195`, git propre,
+absente de `git worktree list`.

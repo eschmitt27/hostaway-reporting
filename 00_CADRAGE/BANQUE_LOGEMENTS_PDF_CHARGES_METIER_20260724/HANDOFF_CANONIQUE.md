@@ -2957,8 +2957,24 @@ uniquement** — aucune valeur lue, aucun secret exposé. Conséquence en cascad
 |---|---|
 | `test_flags_inventaire.py` | **70 passed** (28 → 70 : invariants du second contexte ajoutés) |
 | Régression ciblée charges/factures/calculs/ménages/comptabilité/banque/config/health | **1332 passed / 2 failed pré-existants / 42 skipped** |
+| APP-SEC (`test_appsec1_diagnostic.py`) | **37 passed / 1 failed pré-existant** (+2 régressions de fuite ajoutées) |
+| Calculs / navigation (non-régression du correctif APP-SEC) | **76 passed** |
 | **Suite moteur complète** | **407 passed / 5 failed pré-existants / 1 skipped** — **identique baseline** |
-| Suite application complète | voir §J |
+| **Suite application complète** | **3052 passed / 6 failed / 52 skipped** (19 min 31 s) |
+
+Baseline application : 2996 passed / 13 failed / 66 skipped → **+56 passed, −7 failed, −14 skipped**.
+
+**Aucun nouvel échec.** Les 6 restants sont les mêmes échecs environnementaux pré-existants :
+`test_appsec1_diagnostic::test_07` (basetemp pytest sous `C:\Users`),
+`test_gardes_bancaires_coherence` (source bancaire réelle absente du dépôt),
+`test_lot6b_anti_excel` ×4 (`LOT4A_ENGINE_PYTHON` : le défaut codé pointe un chemin absent de la
+machine — la variable est posée pour l'instance, pas pour pytest).
+
+**Les 7 échecs baseline disparus ne l'ont PAS été par une correction de test** : `test_regularisation_hh`
+×5 et `test_banques` ×2 clonent la vraie `app.db` (`REAL_DB = Path(cfg.DB_PATH)`, `_cloner()`), qui
+était absente du worktree. Cette mission l'a restaurée — ces tests s'exécutent donc réellement, au
+lieu d'échouer faute de fichier. Même cause pour les 14 `skipped` de moins. Le gain de `passed`
+s'explique par ces 7 tests + les 44 tests ajoutés (`test_flags_inventaire` 28 → 70, APP-SEC +2).
 
 ### I. Limitations restantes
 
