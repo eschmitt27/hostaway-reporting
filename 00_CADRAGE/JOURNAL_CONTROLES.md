@@ -4714,3 +4714,67 @@ non activé, mode réel OFF, vraie `app.db` non ouverte en écriture (absente du
 dépendance externe non bloquante `VRBO_REAL_PAYOUT_PENDING_EXTERNAL_SOURCE`. Réservations
 `56388919` / `57780060` figées sur leurs estimations (185,99 € / 371,97 €), à ne plus modifier
 sans source VRBO réelle.
+
+## Contrôle 2026-09-10 — Mission 19 : mise en service réelle, activation des writers NIVEAU B
+
+Mission d'activation (pas d'audit) : rendre l'application réellement testable de bout en bout.
+HEAD départ `1042195`. Sauvegardes préalables `BCK-F59FB3D90764`
+(`PRE_ACTIVATION_COMPLETE_RECETTE_20260910_1437`, VALIDE, schéma 0071) puis `BCK-FA840A6A5752`
+(`PRE_VRBO_RATTRAPAGE_20260910`, VALIDE) — toutes deux copiées hors dépôt.
+
+**Impasse d'architecture trouvée et levée.** Les 13 verrous NIVEAU B étaient
+`RECETTE_MODE and _env_flag(...)` : une instance de PRODUCTION ne pouvait jamais écrire, même sa
+variable dédiée posée. `GUIDE_ACTIVATION_MODE_REEL.md` §4 en tirait la conclusion — « passer en
+réel exige d'abord une modification de config.py » —, faisant de l'édition du code l'unique chemin
+d'activation. Corrigé par `_verrou_ecriture(nom)` =
+`(RECETTE_MODE or MODE_REEL_ECRITURES) and _env_flag(nom)` : un second contexte d'activation, à
+côté de la recette. **Deux leviers simultanés conservés, défaut faux partout conservé** — figé par
+4 invariants nouveaux dans `test_flags_inventaire.py` (70 passed). Commit `27386ba`.
+
+**Gardes gelées auditées, toutes maintenues gelées** — et pour la première fois, avec leur raison
+mesurée : `HH_REAL_WRITE_*` n'est plus lu par aucun service (flag mort depuis que la saisie HH vit
+en SQLite/NIVEAU A — seul `health.py` l'affiche) ; `REF_ASSOC_MODE_REAL_WRITE_ENABLED` gouverne une
+migration one-shot qui écrirait dans `REF_Setup.xlsm` (source brute) ; `CONTROLES_REAL_WRITE_*` est
+un interlock **inverse** (`controles_runner_service._preflight` REFUSE le recalcul sur copie si le
+flag est actif) — l'« activer » dégraderait la sûreté.
+
+**`charges = 0` : cause établie, définitivement.** Ce n'est ni un artefact du snapshot ni un bug.
+Mesuré sur les fichiers réels : `SAISIE_Charges_Flux.xlsx` onglet SAISIE contient **0 ligne de
+données** (500 lignes de gabarit vides), `MASTER_FACT_MAN_Charges.xlsx` onglet MASTER contient
+**1 placeholder Power Query**. C'est exactement ce que l'en-tête de la migration 0052 avait mesuré
+et écrit (« la chaîne Charges n'a jamais été alimentée ; il n'y a rien à reprendre »). **Rien à
+reconstruire** — la bonne action était de rendre la CRÉATION testable, faite via l'activation du
+writer.
+
+**Recette réelle contrôlée et réversible (Charges + Factures propriétaires)** : via la route HTTP
+réelle `/factures-proprietaires/{id}/lignes/ajouter` (type CHARGE), charge `CHG-a1db33663116` créée
+par le service canonique `charges_saisie_service.creer()` — `mois`, `logement_id`, `proprietaire_id`
+correctement dérivés, lien `factures_proprietaires_lignes_charge` écrit. Suppression de la ligne →
+charge **ANNULEE** (jamais supprimée physiquement), `charge_evenements` portant CREATION puis
+ANNULATION avec le motif et l'état avant. `integrity_check` ok, `foreign_key_check` ok.
+
+**Rattrapage VRBO du snapshot** par le service canonique `regularisation_hh_service` (jamais un
+INSERT direct), puis DAG moteur existant : RESERVATIONS → FLUX_UNIFIE → LOT10 → LOT11 → LOT12,
+toutes étapes `ok=True`. `VRBO_MONTANT_NON_RENSEIGNE` **5 → 3** (les 2 mois clos résolus, les 3 mois
+ouverts intacts), 23 `DIRECT_SANS_SAISIE_HH` intactes, 1585 lignes / 1585 clés distinctes (aucun
+doublon). Économie vérifiée conforme au chiffrage 18c : assiettes 130,99 / 316,97, commissions
+24,89 / 60,22, ménage 55 € pris en compte par Lot10.
+
+**Configuration moteur corrigée** : `LOT4A_ENGINE_PYTHON` pointait par défaut vers
+`C:\Program Files\Python312\python.exe`, absent de cette machine — tout lot moteur répondait
+« Interpréteur des lots introuvable ». Pointé sur le venv du projet (variable d'environnement
+existante, aucun code modifié) : `verifier_interpreteur()` rend désormais `ok=True, pandas=True`.
+
+**Restés OFF volontairement** : `CALCULS_REAL_RUN_*` et `MENAGES_REAL_RECALC_*` (tous deux
+réécrivent des Excel/CSV **réels suivis par Git**), les 5 gardes gelées, et le scheduler Hostaway
+(`ORDONNANCEUR_ACTIF`, demandé pour la recette).
+
+**Hostaway** : `HOSTAWAY_LIVE_BLOQUE_PAR_IDENTIFIANTS` — aucun `.env` dans les emplacements
+configurés du projet (worktree, `02_TRAVAIL`, `05_APPLICATION`, dépôt principal). Vérifié par
+présence de fichier uniquement ; aucune valeur lue, aucun secret exposé. Conséquence en cascade :
+le bouton unique « Actualiser le rapprochement des ménages » s'arrête à son préflight Hostaway,
+par conception.
+
+**Banque** : aucune donnée bancaire supplémentaire n'était attendue (décision de mission).
+`banque_mouvements = 0` accepté ; aucune donnée fictive créée. Le writer est actif pour ne pas
+brider artificiellement l'écran.

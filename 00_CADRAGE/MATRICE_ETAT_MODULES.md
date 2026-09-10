@@ -33,16 +33,24 @@ complets du parcours ; **Contrôles** = catalogue d'anomalies exposé ; **Mode r
 | **Ménages** | cycle de vie construit et prouvé en recette ; restent : pools de courses alimentés en recette, rattachement de charge exercé en réel, formulaire UI de rattachement facture (fait par script dans la recette de ce tour) |
 | Contrôles | suivi humain livré ; l'écriture réelle est **gelée volontairement** (le moteur reste la vérité de l'anomalie) |
 
-## Mode réel : aucun module activé
+## Mode réel : aucun module activé *(état 2026-07-27 — voir mise à jour ci-dessous)*
 
-La colonne « Mode réel » est ⛔ partout. C'est l'état voulu — voir `GUIDE_ACTIVATION_MODE_REEL.md`.
+La colonne « Mode réel » est ⛔ partout. C'était l'état voulu — voir `GUIDE_ACTIVATION_MODE_REEL.md`.
+
+> **Mise à jour 2026-09-10.** Le mode réel est désormais **activable par configuration**, sans
+> modification de `config.py` : `_verrou_ecriture(nom)` =
+> `(RECETTE_MODE or MODE_REEL_ECRITURES) and _env_flag(nom)`. Une instance de recette réelle tourne
+> avec Charges, Factures, Cycle Ménages, Comptabilité et Banque activés (tous SQLite-seuls).
+> `CALCULS_REAL_RUN_*` et `MENAGES_REAL_RECALC_*` restent OFF volontairement : ils réécrivent des
+> Excel/CSV réels suivis par Git. **Le défaut d'installation est inchangé — tout faux sans variable
+> d'environnement.** Détail : `RECETTE_MODE_REEL_20260910.md`.
 
 ## Verrous d'écriture — deux catégories délibérées
 
 | Catégorie | Flags | Comportement |
 |---|---|---|
-| **Double verrou** | `CHARGES_*`, `BANQUE_*`, `FACTURES_*`, `CALCULS_*`, `MENAGES_REAL_RECALC_ENABLED` | `RECETTE_MODE and _env_flag(…)` — activables en recette, **jamais seuls** |
-| **Gelés** | `HH_REAL_WRITE_*`, `REF_ASSOC_MODE_REAL_WRITE_ENABLED`, `CONTROLES_REAL_WRITE_*` | littéralement `False`, **aucun** chemin d'activation |
+| **Double verrou** | `CHARGES_*`, `BANQUE_*`, `FACTURES_*`, `CALCULS_*`, `MENAGES_REAL_RECALC_ENABLED`, `MENAGES_CYCLE_*`, `COMPTABILITE_*` | `_verrou_ecriture(…)` — deux leviers simultanés : un contexte (`RECETTE_MODE` ou `MODE_REEL_ECRITURES`) **et** la variable dédiée. **Jamais l'un des deux seul.** |
+| **Gelés** | `HH_REAL_WRITE_*`, `REF_ASSOC_MODE_REAL_WRITE_ENABLED`, `CONTROLES_REAL_WRITE_*` | littéralement `False`, **aucun** chemin d'activation. Audité 2026-09-10 : `HH_*` n'est plus lu par aucun service (flag mort, la saisie HH vit en SQLite/NIVEAU A) ; `REF_ASSOC_*` gouverne une migration one-shot vers `REF_Setup.xlsm` ; `CONTROLES_*` est un interlock **inverse** — actif, il ferait REFUSER le recalcul des contrôles sur copie. |
 
 Un rapport précédent affirmait que `MENAGES_REAL_RECALC_ENABLED` était « la dernière garde codée en
 dur ». **C'était faux** : cinq gardes gelées subsistent. Elles ne sont pas une dérive — les geler est

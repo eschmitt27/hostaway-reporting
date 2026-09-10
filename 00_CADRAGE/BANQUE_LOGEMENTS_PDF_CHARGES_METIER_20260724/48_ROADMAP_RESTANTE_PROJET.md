@@ -536,3 +536,28 @@ ici explicitement — activation réelle non démarrée, mission séparée à ve
   et existence d'un service d'import automatisé H6) ; `OPT_RECALCUL_AVAL_HASH_RAW_A_ARBITRER`.
 - **Prochaine action** : trancher la cadence H6. Puis reprendre la roadmap ordonnée (§133) —
   activation réelle / cut-over restant la grande étape séparée non démarrée.
+
+**Mis à jour 2026-09-10 (mission 19 — MISE EN SERVICE RÉELLE)** : l'activation réelle, annoncée
+depuis des mois comme « la grande étape séparée non démarrée », **est faite**. Une instance réelle
+tourne sur les vraies données, writers métier activés.
+- **Impasse levée** : les 13 verrous NIVEAU B étaient `RECETTE_MODE and _env_flag(...)` — une
+  instance de production ne pouvait jamais écrire, et l'unique chemin d'activation était d'éditer
+  `config.py` (ce que `GUIDE_ACTIVATION_MODE_REEL.md` §4 documentait comme une contrainte assumée).
+  Remplacé par `_verrou_ecriture` = `(RECETTE_MODE or MODE_REEL_ECRITURES) and _env_flag(...)` :
+  deux leviers simultanés conservés, **défaut faux partout conservé**. Commit `27386ba`.
+- **Activés** (SQLite seul) : Charges, Factures, Cycle Ménages, Comptabilité, Banque.
+- **OFF volontairement** : `CALCULS_REAL_RUN_*` et `MENAGES_REAL_RECALC_*` (réécrivent des Excel/CSV
+  réels suivis par Git), 3 gardes gelées, scheduler Hostaway.
+- **`charges = 0` : clos.** Mesuré sur les fichiers réels — la SAISIE contient 0 ligne de données et
+  le MASTER 1 placeholder Power Query. La chaîne Charges n'a jamais été alimentée (constat déjà
+  écrit dans l'en-tête de la migration 0052). Rien à reconstruire ; la CRÉATION est désormais
+  testable.
+- **Rattrapage VRBO** par le service canonique + DAG complet : `VRBO_MONTANT_NON_RENSEIGNE` 5 → 3,
+  aucun doublon, économie conforme au chiffrage 18c.
+- **2 fuites APP-SEC corrigées** (`/calculs`, `/sources-calculs` publiaient des chemins absolus avec
+  le nom d'utilisateur) — commit `83619fc`, 0 fuite sur les 102 écrans.
+- **Bloqué par source externe** : Hostaway (aucun `.env` configuré) → live + bouton unique Ménages.
+- **Banque** : aucune donnée bancaire supplémentaire n'était attendue ; `banque_mouvements = 0`
+  accepté, aucune donnée fictive créée.
+- **Prochaine action** : la **recette utilisateur** elle-même (`RECETTE_MODE_REEL_20260910.md`).
+  Les corrections seront priorisées à partir de ses résultats réels.

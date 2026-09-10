@@ -2221,3 +2221,28 @@ un bloc UI **lecture seule** sur `/hostaway` (aucune donnée nouvelle, lit `ordo
 etat()`). Deux points d'arbitrage laissés ouverts et documentés (cadence H6 ; optimisation du
 recalcul aval sur hash RAW dataset-level). Détail : `SCHEDULER_HOSTAWAY.md` §12 (même sous-dossier
 de mission `BANQUE_LOGEMENTS_PDF_CHARGES_METIER_20260724/`).
+
+## Mise à jour 2026-09-10 — Mission 19 : activation du mode réel par configuration
+
+**Aucune table, aucune migration, aucun contrat de données modifié.** Le changement est un
+mécanisme de **configuration** :
+
+`_verrou_ecriture(nom)` = `(RECETTE_MODE or MODE_REEL_ECRITURES) and _env_flag(nom)` remplace
+`RECETTE_MODE and _env_flag(nom)` pour les 13 verrous NIVEAU B. Un second **contexte** d'activation
+(production réelle) est ajouté à côté de la recette isolée ; le principe des deux leviers
+simultanés et le défaut faux partout sont conservés. Sans cela, une instance de production ne
+pouvait jamais écrire — l'unique chemin était d'éditer `config.py`.
+
+Conséquence sur les flux de données, mesurée : la chaîne économique tourne bout en bout sur les
+vraies données (RESERVATIONS → FLUX_UNIFIE → LOT10 → LOT11 → LOT12, toutes étapes `ok`), et la
+création d'une charge par ligne de facture propriétaire écrit bien dans `charges` via
+`charges_saisie_service.creer()` avec son lien `factures_proprietaires_lignes_charge` (migration
+0071) et son journal `charge_evenements` — annulation, jamais suppression.
+
+Rappel de contrat confirmé à cette occasion : `reservations_resolues.menage_retenu` est alimenté
+depuis l'enrichissement payout Lot10 (jointure par `reservation_id` Hostaway). Une ligne issue
+d'une **saisie HH** n'a pas de payout Hostaway correspondant : la colonne y reste vide, alors que
+`lot10_commissions` porte bien le ménage. Écart d'affichage documenté dans `JOURNAL_ANOMALIES.md`,
+sans effet sur l'assiette, la commission ni le net propriétaire.
+
+Détail complet : `RECETTE_MODE_REEL_20260910.md` et `HANDOFF_CANONIQUE.md` mission 19.

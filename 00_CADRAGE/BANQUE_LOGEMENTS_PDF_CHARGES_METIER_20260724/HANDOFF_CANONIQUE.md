@@ -2862,3 +2862,116 @@ créé et à quelle fréquence (l'API CleaningTasks a des limites 429 sévères 
 documentées), ou si H6 reste une action manuelle assumée. C'est le seul point du périmètre
 scheduler resté ouvert. La dépendance externe `VRBO_REAL_PAYOUT_PENDING_EXTERNAL_SOURCE` reste
 suivie en parallèle mais ne conditionne aucun développement.
+
+## Mission 19 (2026-09-10) — mise en service réelle : activation des writers, application testable
+
+Mission d'**activation**, pas d'audit. Objectif : une instance réelle sur laquelle l'utilisateur
+peut exercer le maximum de fonctions.
+
+### A. Continuité
+
+| | |
+|---|---|
+| Worktree | `C:\Users\Ewans\.devswarm\repos\1\9537f8ef\resume-pilotage-conciergerie-20260909` |
+| Branche | `resume/pilotage-conciergerie-20260909` |
+| HEAD initial | `1042195` · HEAD final : voir §J |
+| Copie de sécurité | `..\resume-pilotage-conciergerie-20260909_SAUVEGARDE_AVANT_MODE_REEL_20260910\` — **jamais touchée**, git propre, HEAD `1042195` |
+
+### B. Sauvegardes
+
+| Sauvegarde | Opération | Statut | Empreinte source |
+|---|---|---|---|
+| `BCK-F59FB3D90764` | `PRE_ACTIVATION_COMPLETE_RECETTE_20260910_1437` | VALIDE, schéma 0071 | `a918ad37…` |
+| `BCK-FA840A6A5752` | `PRE_VRBO_RATTRAPAGE_20260910` | VALIDE, schéma 0071 | — |
+
+Copies hors dépôt dans `..\REAL_DATA_BACKUP_AVANT_RECETTE_20260910\`, avec manifeste SHA256 des
+37 sources réelles. `integrity_check` **ok** et `foreign_key_check` **ok** après chaque opération.
+
+### C. Impasse d'architecture levée — activation du mode réel par configuration
+
+Les 13 verrous NIVEAU B étaient `RECETTE_MODE and _env_flag(...)`. Une instance de **production**
+ne pouvait donc jamais écrire, même sa variable dédiée posée : seule une instance affichant « MODE
+RECETTE — DONNÉES FICTIVES » le pouvait. `GUIDE_ACTIVATION_MODE_REEL.md` §4 documentait la
+conséquence comme une contrainte assumée — « passer en réel exige d'abord une modification de
+config.py ». C'était une impasse : éditer le code était l'unique chemin d'activation.
+
+Corrigé par `_verrou_ecriture(nom)` = `(RECETTE_MODE or MODE_REEL_ECRITURES) and _env_flag(nom)`.
+**Deux leviers simultanés conservés. Défaut faux partout conservé.** Commit `27386ba`,
+`test_flags_inventaire.py` étendu de 4 invariants (70 passed).
+
+### D. Writers — avant / après
+
+| Writer | Avant | Après | Portée |
+|---|---|---|---|
+| NIVEAU A (opérationnel) | ACTIF | ACTIF | inchangé |
+| `CHARGES_REAL_WRITE_*` | inactivable en prod | **ACTIF** | SQLite seul |
+| `FACTURES_REAL_WRITE_*` | inactivable en prod | **ACTIF** | SQLite seul |
+| `MENAGES_CYCLE_REAL_WRITE_*` | inactivable en prod | **ACTIF** | SQLite seul |
+| `COMPTABILITE_REAL_WRITE_*` | inactivable en prod | **ACTIF** | SQLite seul |
+| `BANQUE_REAL_WRITE_*` | inactivable en prod | **ACTIF** | SQLite seul (0 mouvement) |
+| `CALCULS_REAL_RUN_*` | inactivable | **OFF volontaire** | réécrirait 8 Excel/CSV **suivis par Git** |
+| `MENAGES_REAL_RECALC_*` | inactivable | **OFF volontaire** | réécrirait `M04_MENAGES` / `MASTER_NORM` réels |
+| `HH_REAL_WRITE_*` | gelé | **gelé** | flag mort — plus lu par aucun service |
+| `REF_ASSOC_MODE_REAL_WRITE_*` | gelé | **gelé** | migration one-shot vers `REF_Setup.xlsm` |
+| `CONTROLES_REAL_WRITE_*` | gelé | **gelé** | interlock **inverse** (l'activer ferait refuser le recalcul sur copie) |
+| `ORDONNANCEUR_ACTIF` | OFF | **OFF** | demandé pour la recette |
+
+### E. Données — rattrapé / constaté
+
+| Dataset | Avant | Après | Source | Méthode |
+|---|---|---|---|---|
+| VRBO mois clos | 5 `VRBO_MONTANT_NON_RENSEIGNE` | **3** | estimation métier validée 2026-09-09 | `regularisation_hh_service` (canonique) + DAG complet |
+| `charges` | 0 | 1 (test annulé) | — | writer activé ; création prouvée réversible |
+| `reservations_hors_hostaway` | 1 | **3** | rattrapage VRBO | service canonique |
+| `banque_mouvements` | 0 | **0** | — | **aucune donnée bancaire supplémentaire n'était attendue** (décision de mission) |
+
+**`charges = 0` : cause établie par mesure, pas par supposition.** `SAISIE_Charges_Flux.xlsx`
+onglet SAISIE = 0 ligne de données (500 lignes de gabarit vides) ; `MASTER_FACT_MAN_Charges.xlsx`
+= 1 placeholder Power Query. Identique au constat écrit dans l'en-tête de la migration 0052 :
+la chaîne Charges n'a **jamais** été alimentée. **Rien à reconstruire.**
+
+Rattrapage VRBO : DAG RESERVATIONS → FLUX_UNIFIE → LOT10 → LOT11 → LOT12 toutes étapes `ok=True`,
+1585 lignes / 1585 clés distinctes (aucun doublon), 23 `DIRECT_SANS_SAISIE_HH` intactes, 3 VRBO de
+mois ouverts intactes. Économie conforme au chiffrage 18c : assiettes 130,99 / 316,97, commissions
+24,89 / 60,22.
+
+### F. Hostaway
+
+`HOSTAWAY_LIVE_BLOQUE_PAR_IDENTIFIANTS`. Aucun `.env` dans les emplacements configurés du projet
+(worktree, `02_TRAVAIL`, `05_APPLICATION`, dépôt principal). Vérification par **présence de fichier
+uniquement** — aucune valeur lue, aucun secret exposé. Conséquence en cascade : le bouton unique
+« Actualiser le rapprochement des ménages » s'arrête à son préflight Hostaway, **par conception**.
+
+### G. Bugs corrigés / configuration
+
+1. **Message d'écran faux** (`comptabilite.py`) : « COMPTABILITE_REAL_WRITE_ENABLED nécessite le
+   mode recette » — devenu faux après le refactor. Corrigé.
+2. **Interpréteur des lots introuvable** : `LOT4A_ENGINE_PYTHON` pointait par défaut vers
+   `C:\Program Files\Python312\python.exe`, absent de cette machine. Résolu **par configuration**
+   (variable existante pointée sur le venv) : `verifier_interpreteur()` rend `ok=True, pandas=True`.
+   Le défaut codé reste inadapté — arbitrage ouvert (cf. `JOURNAL_ANOMALIES.md`).
+
+### H. Tests
+
+| Périmètre | Résultat |
+|---|---|
+| `test_flags_inventaire.py` | **70 passed** (28 → 70 : invariants du second contexte ajoutés) |
+| Régression ciblée charges/factures/calculs/ménages/comptabilité/banque/config/health | **1332 passed / 2 failed pré-existants / 42 skipped** |
+| **Suite moteur complète** | **407 passed / 5 failed pré-existants / 1 skipped** — **identique baseline** |
+| Suite application complète | voir §J |
+
+### I. Limitations restantes
+
+| Classe | Élément |
+|---|---|
+| `SOURCE_EXTERNE` | Hostaway (identifiants absents) → live + bouton unique Ménages |
+| `ABSENCE_DE_DONNEES` | Banque (0 mouvement, **décision connue**) · Fournisseurs (0) · Charges (0 réelle) · Écritures comptables (0) |
+| `VOLONTAIREMENT_DESACTIVE` | `CALCULS_REAL_RUN_*`, `MENAGES_REAL_RECALC_*` (réécrivent des Excel réels suivis par Git) · scheduler Hostaway · 3 gardes gelées |
+| `IMPLEMENTATION` | pas d'écran de saisie de charge autonome · `reservations_resolues.menage_retenu` non alimenté sur lignes HH (économie juste, affichage vide) |
+| `ARBITRAGE_METIER` | cadence H6 (hérité mission 18e) · défaut codé de `LOT4A_ENGINE_PYTHON` |
+
+### Prochaine action unique
+
+**La recette utilisateur elle-même** : parcourir `00_CADRAGE\RECETTE_MODE_REEL_20260910.md` et
+remplir la colonne « Résultat ». Les corrections seront priorisées à partir des anomalies réelles
+qu'elle remontera — pas avant.

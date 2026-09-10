@@ -1556,3 +1556,56 @@ pour ne pas les perdre :
 les réservations `56388919` (2026-06) et `57780060` (2026-08) portent des payouts **estimés**
 (185,99 € / 371,97 €), figés jusqu'à réception d'un export VRBO couvrant juin → août 2026. Ne pas
 les modifier d'ici là. Détail : entrée du 2026-09-09 ci-dessus.
+
+## 2026-09-10 — Mission 19 : mise en service réelle
+
+### Anomalie de conception corrigée — impasse d'activation du mode réel
+
+Les 13 verrous d'écriture NIVEAU B étaient définis `RECETTE_MODE and _env_flag(...)`. Une instance
+de **production** ne pouvait donc jamais écrire, même sa variable dédiée posée : seule une instance
+affichant « MODE RECETTE — DONNÉES FICTIVES » le pouvait. `GUIDE_ACTIVATION_MODE_REEL.md` §4 en
+avait tiré la conséquence logique et l'avait documentée comme une contrainte assumée (« passer en
+réel exige d'abord une modification de config.py »). C'était en réalité une **impasse** : l'unique
+chemin d'activation réelle passait par une édition de code à refaire à chaque déploiement.
+
+**Résolution** : `_verrou_ecriture(nom)` = `(RECETTE_MODE or MODE_REEL_ECRITURES) and
+_env_flag(nom)`. Deux leviers simultanés conservés, défaut faux partout conservé. Commit `27386ba`,
+figé par 4 invariants nouveaux dans `test_flags_inventaire.py`. **Statut : CORRIGÉ.**
+
+### Constat fermé — `charges = 0` n'est pas une anomalie
+
+Mesuré sur les fichiers réels (et non supposé) : `SAISIE_Charges_Flux.xlsx` onglet SAISIE = **0
+ligne de données** (500 lignes de gabarit vides) ; `MASTER_FACT_MAN_Charges.xlsx` onglet MASTER =
+**1 placeholder Power Query**. Identique à ce que l'en-tête de la migration 0052 avait mesuré. La
+chaîne Charges n'a jamais été alimentée : il n'y a **rien à reconstruire**, et le contrôle Lot11
+`HC_ZERO_SOURCES_VIDES` le dit correctement depuis toujours. **Statut : IGNORE_JUSTIFIE** (état
+métier réel, pas un défaut). L'action utile — rendre la création de charge testable — est faite.
+
+### Anomalie ouverte — `menage_retenu` non alimenté sur les lignes issues d'une saisie HH
+
+| | |
+|---|---|
+| Sévérité | **FAIBLE** — affichage uniquement, économie juste |
+| Source | `reservations_resolues.menage_retenu` |
+| PK | `RES-HH-RESHH-2026-06-001`, `RES-HH-RESHH-2026-08-001`, et déjà `RES-HH-RESHH-2025-02-001` (hérité) |
+| Description | `reservation_hh_overrides.menage = 55` est bien écrit, mais `reservations_resolues.menage_retenu` reste `0`/`NULL` pour toute ligne dont la source est une saisie HH. La colonne est alimentée depuis l'enrichissement payout Lot10 (`_COLS_PAY_SQL`, jointure par `reservation_id` Hostaway) ; une ligne HH n'a pas de payout Hostaway correspondant. |
+| Preuve que l'économie est juste | `lot10_commissions` porte bien `menage_retenu = 55.0` pour les deux : assiettes 130,99 / 316,97 et commissions 24,89 / 60,22 — arithmétique vérifiée (185,99−55 = 130,99 ; ×19 % = 24,89 · 371,97−55 = 316,97 ; ×19 % = 60,22). |
+| Statut | **OUVERT** — non corrigé dans cette mission (l'assiette, la commission et le net propriétaire sont exacts ; seul le champ intermédiaire affiché est vide). Pré-existant à la mission, visible aussi sur la ligne HH héritée de 2025-02. |
+
+### Constat d'ergonomie — pas d'écran de saisie de charge autonome
+
+Une charge ne peut être créée que comme **ligne CHARGE d'une facture propriétaire BROUILLON**
+(`charges_saisie_service` n'est appelé que par `app/routes/factures_proprietaires.py`). L'ancienne
+voie (classeur `SAISIE_Charges_Flux.xlsx`) est morte depuis la migration 0052 et n'a pas été
+remplacée par un écran dédié. **Sévérité MOYENNE, statut OUVERT** — non construit ici (hors
+périmètre : la mission interdit d'ajouter des fonctionnalités nouvelles).
+
+### Configuration — interpréteur des lots introuvable par défaut
+
+`cfg.LOT4A_ENGINE_PYTHON` vaut par défaut `C:\Program Files\Python312\python.exe`, absent de cette
+machine : tout lot moteur répondait « Interpréteur des lots introuvable » (c'est aussi la cause des
+4 échecs pré-existants `test_lot6b_anti_excel`). Résolu **par configuration** pour l'instance de
+recette (variable d'environnement existante pointée sur le venv du projet, aucun code modifié) :
+`verifier_interpreteur()` rend `ok=True, pandas=True`. **Statut : CONTOURNÉ** — le défaut codé
+reste inadapté à toute machine sans ce chemin exact ; à arbitrer si le projet doit dériver
+l'interpréteur plutôt que le coder en dur.

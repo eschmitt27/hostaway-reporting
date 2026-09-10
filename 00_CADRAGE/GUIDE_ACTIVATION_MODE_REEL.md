@@ -1,10 +1,18 @@
 # Guide d'activation du mode réel
 
-⚠️ **Le mode réel n'a jamais été activé, et ne doit pas l'être sans décision explicite.** Ce guide
-décrit la procédure ; il ne l'exécute pas.
+⚠️ **Le mode réel ne doit pas être activé sans décision explicite.** Ce guide décrit la procédure ;
+il ne l'exécute pas.
 
-État actuel : **tous les verrous d'écriture réelle sont faux**, y compris `RECETTE_MODE`. Prouvé par
-`tests/test_flags_inventaire.py` (28 tests).
+État par défaut d'une installation : **tous les verrous d'écriture réelle sont faux**, y compris
+`RECETTE_MODE` et `MODE_REEL_ECRITURES`. Prouvé par `tests/test_flags_inventaire.py`.
+
+> **2026-09-10 — une instance de recette réelle a été mise en service** (mission « application
+> réelle testable de bout en bout »), avec `MODE_REEL_ECRITURES=1` et les writers SQLite-seuls
+> activés : Charges, Factures, Cycle Ménages, Comptabilité, Banque. Restent volontairement OFF :
+> `CALCULS_REAL_RUN_*` et `MENAGES_REAL_RECALC_*` (tous deux réécrivent des fichiers Excel/CSV
+> **réels suivis par Git**), et le scheduler Hostaway. Détail et procédure de relance :
+> `RECETTE_MODE_REEL_20260910.md`. **Cela ne change pas le défaut d'installation** : sans variable
+> d'environnement, tout reste faux.
 
 ## 1. Prérequis — checklist GO / NO GO
 
@@ -55,17 +63,29 @@ Ordre recommandé, du moins au plus engageant :
 
 1. Rejouer la checklist GO / NO GO. Une seule NO GO : arrêter.
 2. Prendre la sauvegarde (§1 ligne 3) et **vérifier son sha256**.
-3. Poser les deux variables du module visé, jamais plus :
+3. Poser les variables du module visé, jamais plus :
 
    ```
    RECETTE_MODE=0
+   MODE_REEL_ECRITURES=1
    <MODULE>_REAL_WRITE_ENABLED=1
    <MODULE>_REAL_WRITE_CONFIRMATION_ENABLED=1
    ```
 
-   ⚠️ Les flags actuels sont conditionnés par `RECETTE_MODE`. **Passer en réel exige donc d'abord
-   une modification de `config.py`** — ce n'est volontairement pas une simple variable
-   d'environnement. Cette modification est elle-même une décision tracée.
+   ✅ **Mis à jour le 2026-09-10.** L'avertissement précédent (« passer en réel exige d'abord une
+   modification de `config.py` ») **n'est plus vrai**. Les verrous NIVEAU B passent désormais par
+   `_verrou_ecriture(nom)` = `(RECETTE_MODE or MODE_REEL_ECRITURES) and _env_flag(nom)` : un
+   SECOND contexte d'activation existe à côté de la recette, et l'activation réelle est une simple
+   configuration d'environnement.
+
+   Le principe des **deux leviers simultanés** est conservé, ainsi que le **défaut faux partout** :
+   ni `MODE_REEL_ECRITURES` seul, ni la variable du module seule n'activent quoi que ce soit
+   (figé par `tests/test_flags_inventaire.py`).
+
+   Les cinq gardes **gelées** (`HH_REAL_WRITE_*`, `REF_ASSOC_MODE_REAL_WRITE_ENABLED`,
+   `CONTROLES_REAL_WRITE_*`) ne sont **pas** concernées : elles restent littéralement `False`, sans
+   aucun chemin d'activation. `CONTROLES_REAL_WRITE_*` est même un interlock **inverse** — l'activer
+   ferait REFUSER le recalcul des contrôles sur copie.
 4. Redémarrer l'application. Vérifier le bandeau : il ne doit **plus** afficher « MODE RECETTE ».
 5. **Prévisualiser** l'opération. Aucune écriture ne doit avoir eu lieu à ce stade.
 6. Vérifier l'empreinte des entrées affichée par la prévisualisation.
