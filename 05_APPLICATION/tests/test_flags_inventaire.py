@@ -2,9 +2,15 @@
 
 Deux catégories coexistent, et c'est **délibéré** :
 
-1. **Double verrou** — `RECETTE_MODE and _env_flag("…")`. Activables en recette, sur deux leviers
-   simultanés. Concernent les modules dont l'écriture a été exercée : Charges, Banque, Factures,
-   Calculs, Ménages.
+1. **Double verrou** — `_verrou_ecriture("…")`, soit
+   `(RECETTE_MODE or MODE_REEL_ECRITURES) and _env_flag("…")`. Deux leviers SIMULTANÉS, dans l'un
+   de deux contextes : recette isolée (`RECETTE_MODE`) ou production réelle
+   (`MODE_REEL_ECRITURES`, mission activation recette 2026-09-10). Concernent les modules dont
+   l'écriture a été exercée : Charges, Banque, Factures, Calculs, Ménages, Comptabilité.
+   Avant cette mission le contexte était `RECETTE_MODE` SEUL : une instance de production ne
+   pouvait jamais écrire, même variable posée — le seul chemin d'activation réelle était d'éditer
+   `config.py`. Le second contexte lève cette impasse **sans** toucher au défaut : sans variable
+   d'environnement, les deux leviers restent faux.
 2. **Gelés** — littéralement `False`, sans aucun chemin d'activation par variable d'environnement.
    « Ne jamais activer implicitement ni par défaut. » Concernent HH, REF_Assoc_Mode et Contrôles.
 
@@ -89,13 +95,19 @@ def test_recette_mode_est_faux_par_defaut():
     assert cfg.RECETTE_MODE is False
 
 
+def test_mode_reel_ecritures_est_faux_par_defaut():
+    """Le second contexte d'activation ne s'allume jamais tout seul."""
+    assert cfg.MODE_REEL_ECRITURES is False
+
+
 # ── Invariant 2 : aucun flag activable seul ──────────────────────────────────
 
 @pytest.mark.parametrize("flag", sorted(DOUBLE_VERROU))
 def test_la_variable_seule_ne_suffit_pas(flag, monkeypatch):
-    """Poser la variable d'environnement sans RECETTE_MODE ne doit rien activer."""
+    """Poser la variable d'environnement sans AUCUN contexte d'écriture ne doit rien activer."""
     monkeypatch.setenv(flag, "1")
     monkeypatch.delenv("RECETTE_MODE", raising=False)
+    monkeypatch.delenv("MODE_REEL_ECRITURES", raising=False)
     import importlib
     recharge = importlib.reload(cfg)
     try:
@@ -111,8 +123,52 @@ def test_le_flag_est_bien_a_double_verrou_dans_le_source(flag):
     m = re.search(rf"^{flag}\s*=\s*(.+)$", src, re.M)
     assert m, f"{flag} introuvable."
     expression = m.group(1)
-    assert "RECETTE_MODE and _env_flag(" in expression, (
+    assert expression.strip() == f'_verrou_ecriture("{flag}")', (
         f"{flag} n'est pas à double verrou : {expression}")
+
+
+def test_le_verrou_exige_deux_leviers_simultanes():
+    """La définition même du verrou : un contexte ET la variable dédiée, jamais l'un des deux."""
+    src = _source()
+    m = re.search(r"def _verrou_ecriture\(nom: str\) -> bool:.*?\n    return ([^\n]+)\n",
+                  src, re.S)
+    assert m, "_verrou_ecriture introuvable dans config.py."
+    assert m.group(1).strip() == "(RECETTE_MODE or MODE_REEL_ECRITURES) and _env_flag(nom)"
+
+
+@pytest.mark.parametrize("flag", sorted(DOUBLE_VERROU))
+def test_mode_reel_ecritures_seul_ne_suffit_pas(flag, monkeypatch):
+    """Le contexte production seul n'active rien : la variable dédiée reste obligatoire."""
+    monkeypatch.setenv("MODE_REEL_ECRITURES", "1")
+    monkeypatch.delenv("RECETTE_MODE", raising=False)
+    monkeypatch.delenv(flag, raising=False)
+    import importlib
+    recharge = importlib.reload(cfg)
+    try:
+        assert getattr(recharge, flag) is False
+    finally:
+        monkeypatch.undo()
+        importlib.reload(cfg)
+
+
+@pytest.mark.parametrize("flag", sorted(DOUBLE_VERROU))
+def test_les_deux_contextes_ouvrent_le_meme_verrou(flag, monkeypatch):
+    """Recette isolée ET production réelle activent le writer — c'est le but du second contexte.
+
+    Sans cela, une instance de production ne pouvait écrire qu'en se déguisant en recette.
+    """
+    import importlib
+    for contexte in ("RECETTE_MODE", "MODE_REEL_ECRITURES"):
+        monkeypatch.setenv(contexte, "1")
+        monkeypatch.setenv(flag, "1")
+        autre = "MODE_REEL_ECRITURES" if contexte == "RECETTE_MODE" else "RECETTE_MODE"
+        monkeypatch.delenv(autre, raising=False)
+        recharge = importlib.reload(cfg)
+        try:
+            assert getattr(recharge, flag) is True, f"{flag} inactif avec {contexte}=1"
+        finally:
+            monkeypatch.undo()
+    importlib.reload(cfg)
 
 
 @pytest.mark.parametrize("flag", sorted(GELES))
@@ -145,6 +201,35 @@ def test_recette_mode_seul_n_active_aucune_ecriture(monkeypatch):
     try:
         actifs = [n for n in DOUBLE_VERROU if getattr(recharge, n)]
         assert not actifs, f"RECETTE_MODE seul a activé : {actifs}"
+    finally:
+        monkeypatch.undo()
+        importlib.reload(cfg)
+
+
+def test_mode_reel_ecritures_seul_n_active_aucune_ecriture(monkeypatch):
+    """Symétrique du précédent pour le contexte production."""
+    monkeypatch.setenv("MODE_REEL_ECRITURES", "1")
+    for flag in DOUBLE_VERROU | GELES:
+        monkeypatch.delenv(flag, raising=False)
+    import importlib
+    recharge = importlib.reload(cfg)
+    try:
+        actifs = [n for n in (DOUBLE_VERROU | GELES) if getattr(recharge, n)]
+        assert not actifs, f"MODE_REEL_ECRITURES seul a activé : {actifs}"
+    finally:
+        monkeypatch.undo()
+        importlib.reload(cfg)
+
+
+@pytest.mark.parametrize("flag", sorted(GELES))
+def test_le_flag_gele_reste_faux_meme_en_mode_reel(flag, monkeypatch):
+    """Le second contexte n'ouvre AUCUNE des gardes gelées — il ne les concerne pas."""
+    monkeypatch.setenv("MODE_REEL_ECRITURES", "1")
+    monkeypatch.setenv(flag, "1")
+    import importlib
+    recharge = importlib.reload(cfg)
+    try:
+        assert getattr(recharge, flag) is False
     finally:
         monkeypatch.undo()
         importlib.reload(cfg)

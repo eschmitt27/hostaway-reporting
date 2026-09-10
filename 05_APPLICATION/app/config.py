@@ -136,19 +136,47 @@ def _env_flag(nom: str) -> bool:
 #   NIVEAU B — ÉCRITURE COMPTABLE / FINANCIÈRE VALIDÉE
 #     Faire entrer un document dans la comptabilité, ou déplacer de l'argent : validation d'une
 #     facture, écriture comptable, règlement fournisseur, mouvement bancaire. Double verrou
-#     CONSERVÉ tel quel (RECETTE_MODE ET variable dédiée) — jamais activable par effet de bord.
+#     CONSERVÉ (deux leviers simultanés) — jamais activable par effet de bord.
 #
 # `RECETTE_MODE` garde son rôle réel : isoler une recette (write-guard sur les chemins). Il cesse
 # seulement d'être un PRÉREQUIS pour utiliser normalement l'application réelle.
 ECRITURE_OPERATIONNELLE_ENABLED = True
 
 
+# ── SECOND LEVIER D'ACTIVATION DU NIVEAU B (mission activation recette réelle, 2026-09-10) ────
+# Le NIVEAU B était bâti sur `RECETTE_MODE and _env_flag(...)`. Conséquence : une instance de
+# PRODUCTION ne pouvait JAMAIS écrire, même en posant sa variable dédiée — seule une instance
+# affichant « MODE RECETTE — DONNÉES FICTIVES » le pouvait. `GUIDE_ACTIVATION_MODE_REEL.md` §4 en
+# tirait la conséquence logique : « passer en réel exige d'abord une modification de config.py ».
+# Autrement dit, l'unique chemin d'activation réelle était d'éditer le code — ce qui n'est pas une
+# configuration, mais un correctif à refaire à chaque déploiement.
+#
+# CE QUI CHANGE : un SECOND contexte d'activation, explicite et distinct, à côté de la recette.
+# CE QUI NE CHANGE PAS : le principe des DEUX LEVIERS SIMULTANÉS, et le défaut FAUX partout.
+#
+#   · recette isolée    : RECETTE_MODE=1         + <FLAG>=1   (inchangé, write-guard chemins actif)
+#   · production réelle  : MODE_REEL_ECRITURES=1  + <FLAG>=1   (nouveau, aucun write-guard chemin)
+#
+# Aucune installation ne devient écrivante par défaut : sans variable d'environnement, les deux
+# leviers sont faux et tous les verrous NIVEAU B restent faux, exactement comme avant.
+MODE_REEL_ECRITURES = _env_flag("MODE_REEL_ECRITURES")
+
+
+def _verrou_ecriture(nom: str) -> bool:
+    """Verrou NIVEAU B : vrai seulement si un contexte d'écriture ET la variable dédiée sont posés.
+
+    Ni le contexte seul, ni la variable seule ne suffisent — c'est la propriété que
+    `tests/test_flags_inventaire.py` fige et qui interdit toute activation par effet de bord.
+    """
+    return (RECETTE_MODE or MODE_REEL_ECRITURES) and _env_flag(nom)
+
+
 # Écriture SAISIE Charges — garde de sécurité (APP-3b-1).
-# Ne jamais activer implicitement ni par défaut. Activables par variable d'environnement
-# UNIQUEMENT en mode recette : une instance NON recette ne peut jamais écrire, même si les
-# variables sont positionnées (double verrou : RECETTE_MODE ET la variable dédiée).
-CHARGES_REAL_WRITE_ENABLED = RECETTE_MODE and _env_flag("CHARGES_REAL_WRITE_ENABLED")
-CHARGES_REAL_WRITE_CONFIRMATION_ENABLED = RECETTE_MODE and _env_flag("CHARGES_REAL_WRITE_CONFIRMATION_ENABLED")
+# Ne jamais activer implicitement ni par défaut. Deux leviers simultanés obligatoires
+# (`_verrou_ecriture`) : contexte d'écriture (RECETTE_MODE ou MODE_REEL_ECRITURES) ET variable
+# dédiée. Une instance sans variable d'environnement ne peut jamais écrire.
+CHARGES_REAL_WRITE_ENABLED = _verrou_ecriture("CHARGES_REAL_WRITE_ENABLED")
+CHARGES_REAL_WRITE_CONFIRMATION_ENABLED = _verrou_ecriture("CHARGES_REAL_WRITE_CONFIRMATION_ENABLED")
 
 # Ordonnanceur (actualisation automatique Hostaway). MÊME PRINCIPE que les gardes ci-dessus : rien
 # ne démarre implicitement. Tant que ce flag est faux, `ordonnanceur_service.demarrer()` refuse et
@@ -217,7 +245,7 @@ LOT4A_ENGINE_TIMEOUT_SECONDS = int(os.environ.get("LOT4A_ENGINE_TIMEOUT_SECONDS"
 # Aligné sur le double verrou commun à tous les writers (RECETTE_MODE + variable dédiée) : c'était
 # la dernière garde codée en dur, ce qui faisait mentir la règle « double verrou partout » et
 # empêchait de l'activer comme les autres. Reste False par défaut ; mode réel jamais activé.
-MENAGES_REAL_RECALC_ENABLED = RECETTE_MODE and _env_flag("MENAGES_REAL_RECALC_ENABLED")
+MENAGES_REAL_RECALC_ENABLED = _verrou_ecriture("MENAGES_REAL_RECALC_ENABLED")
 # Interpréteur moteur du recalcul (porte openpyxl ; réutilise l'interpréteur pandas du moteur).
 MENAGES_ENGINE_PYTHON = Path(os.environ.get("MENAGES_ENGINE_PYTHON", str(LOT4A_ENGINE_PYTHON)))
 MENAGES_RECALC_TIMEOUT_SECONDS = int(os.environ.get("MENAGES_RECALC_TIMEOUT_SECONDS", "300"))
@@ -255,11 +283,11 @@ MENAGES_PDF_DIR_REL = r"01_SOURCES_BRUTES\MenagesExternes"
 #   La vérité bancaire est en base : mouvements bruts, classification, décisions humaines. Une
 #   décision est enregistrée puis appliquée à la lecture ; rien n'est réécrit, donc il n'y a plus de
 #   copie de classeur à protéger.
-#   Import bancaire (APP-3F+) : mêmes flags, même double verrou que Charges — activables
-#   UNIQUEMENT en mode recette (RECETTE_MODE ET variable d'environnement dédiée). Une instance NON
-#   recette ne peut jamais écrire de mouvement, même si les variables sont positionnées.
-BANQUE_REAL_WRITE_ENABLED = RECETTE_MODE and _env_flag("BANQUE_REAL_WRITE_ENABLED")
-BANQUE_REAL_WRITE_CONFIRMATION_ENABLED = RECETTE_MODE and _env_flag("BANQUE_REAL_WRITE_CONFIRMATION_ENABLED")
+#   Import bancaire (APP-3F+) : mêmes flags, même double verrou que Charges — deux leviers
+#   simultanés (`_verrou_ecriture`) : un contexte d'écriture (RECETTE_MODE ou MODE_REEL_ECRITURES)
+#   ET la variable dédiée. Sans variable d'environnement, aucune écriture de mouvement possible.
+BANQUE_REAL_WRITE_ENABLED = _verrou_ecriture("BANQUE_REAL_WRITE_ENABLED")
+BANQUE_REAL_WRITE_CONFIRMATION_ENABLED = _verrou_ecriture("BANQUE_REAL_WRITE_CONFIRMATION_ENABLED")
 # Workspace isolé des overrides bancaires sur copies (jamais dans l'arbre métier).
 BANQUE_CONTROLE_WORKSPACE = DATA_DIR / "banque_controle"
 # Onglet d'override écrit dans la COPIE (jamais dans les onglets moteur BRUT/NORM/CTRL).
@@ -276,27 +304,27 @@ BANQUE_OPAQUE_SALT = "APP4B_BANQUE_v1"
 # Il NE gouverne PLUS la simple création d'une facture au statut À CONTRÔLER depuis un PDF : c'est
 # une écriture opérationnelle (niveau A), cf. `ECRITURE_OPERATIONNELLE_ENABLED` plus haut. Un
 # document reçu n'est pas une dette comptabilisée ; le contrôle humain reste entre les deux.
-FACTURES_REAL_WRITE_ENABLED = RECETTE_MODE and _env_flag("FACTURES_REAL_WRITE_ENABLED")
-FACTURES_REAL_WRITE_CONFIRMATION_ENABLED = RECETTE_MODE and _env_flag("FACTURES_REAL_WRITE_CONFIRMATION_ENABLED")
+FACTURES_REAL_WRITE_ENABLED = _verrou_ecriture("FACTURES_REAL_WRITE_ENABLED")
+FACTURES_REAL_WRITE_CONFIRMATION_ENABLED = _verrou_ecriture("FACTURES_REAL_WRITE_CONFIRMATION_ENABLED")
 
 # ── Pilotage des calculs (runs de pipeline) — garde de sécurité ──────────────
 # Le mode RÉEL (exécution des lots sur l'arborescence métier réelle) reste DÉSACTIVÉ par défaut.
 # En recette, les lots tournent sous PROJECT_ROOT=<data_recette>, donc sans jamais toucher le réel.
-CALCULS_REAL_RUN_ENABLED = RECETTE_MODE and _env_flag("CALCULS_REAL_RUN_ENABLED")
-CALCULS_REAL_RUN_CONFIRMATION_ENABLED = RECETTE_MODE and _env_flag("CALCULS_REAL_RUN_CONFIRMATION_ENABLED")
+CALCULS_REAL_RUN_ENABLED = _verrou_ecriture("CALCULS_REAL_RUN_ENABLED")
+CALCULS_REAL_RUN_CONFIRMATION_ENABLED = _verrou_ecriture("CALCULS_REAL_RUN_CONFIRMATION_ENABLED")
 
 # ── Cycle de vie Ménages (migration 0019) — garde de sécurité ────────────────
 # Même double verrou que Factures/Banque/Charges : ces écritures ne touchent aucun fichier réel
 # (SQLite applicatif uniquement, distinct de MENAGES_REAL_RECALC_ENABLED qui gouverne le recalcul
 # des sources Excel), mais suivent la même politique — jamais activable hors recette.
-MENAGES_CYCLE_REAL_WRITE_ENABLED = RECETTE_MODE and _env_flag("MENAGES_CYCLE_REAL_WRITE_ENABLED")
-MENAGES_CYCLE_REAL_WRITE_CONFIRMATION_ENABLED = RECETTE_MODE and _env_flag("MENAGES_CYCLE_REAL_WRITE_CONFIRMATION_ENABLED")
+MENAGES_CYCLE_REAL_WRITE_ENABLED = _verrou_ecriture("MENAGES_CYCLE_REAL_WRITE_ENABLED")
+MENAGES_CYCLE_REAL_WRITE_CONFIRMATION_ENABLED = _verrou_ecriture("MENAGES_CYCLE_REAL_WRITE_CONFIRMATION_ENABLED")
 
 # ── Premier socle Comptabilité (migration 0021) — garde de sécurité ──────────
 # Même double verrou que le reste : ces écritures sont purement SQLite (aucun fichier réel touché,
 # aucun recalcul de résultat de gestion — Lot10 reste seul maître), mais suivent la même politique.
-COMPTABILITE_REAL_WRITE_ENABLED = RECETTE_MODE and _env_flag("COMPTABILITE_REAL_WRITE_ENABLED")
-COMPTABILITE_REAL_WRITE_CONFIRMATION_ENABLED = RECETTE_MODE and _env_flag("COMPTABILITE_REAL_WRITE_CONFIRMATION_ENABLED")
+COMPTABILITE_REAL_WRITE_ENABLED = _verrou_ecriture("COMPTABILITE_REAL_WRITE_ENABLED")
+COMPTABILITE_REAL_WRITE_CONFIRMATION_ENABLED = _verrou_ecriture("COMPTABILITE_REAL_WRITE_CONFIRMATION_ENABLED")
 
 # ── APP-5B — Contrôles détaillés & suivi humain ──────────────────────────────
 #   Le moteur (Lot11) reste la vérité de l'anomalie. SQLite JOURNALISE uniquement le suivi humain

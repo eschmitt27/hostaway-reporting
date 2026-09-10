@@ -65,7 +65,8 @@ def _etat_alimentation(nb_ecritures: int) -> dict:
                       "facture existante, jamais inventée")
     if not _ecriture_active():
         causes.append("l'écriture réelle est désactivée sur cette installation "
-                      "(COMPTABILITE_REAL_WRITE_ENABLED nécessite le mode recette)")
+                      "(COMPTABILITE_REAL_WRITE_ENABLED et sa confirmation doivent être posées, "
+                      "avec RECETTE_MODE ou MODE_REEL_ECRITURES)")
     if nb_mappings == 0:
         causes.append("aucune règle de mapping catégorie → compte n'a encore été configurée")
     if not causes:
