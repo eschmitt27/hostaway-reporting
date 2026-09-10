@@ -33,7 +33,7 @@
      {% endif %}</p>
   {% if emetteur.adresse %}<p class="text-xs">{{ emetteur.adresse }}</p>{% endif %}
   <p class="text-xs">
-    {%- if emetteur.siren %}{{ emetteur.siren }}{% if emetteur.rcs %} {{ emetteur.rcs }}{% endif %}{% endif -%}
+    {%- if emetteur.siren %}{{ emetteur.siren_lisible or emetteur.siren }}{% if emetteur.rcs %} {{ emetteur.rcs }}{% endif %}{% endif -%}
     {%- if emetteur.siret %} · SIRET {{ emetteur.siret }}{% endif -%}
     {%- if emetteur.tva_intra %} · TVA {{ emetteur.tva_intra }}{% endif -%}
   </p>

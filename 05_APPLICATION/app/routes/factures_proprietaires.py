@@ -48,6 +48,9 @@ def _emetteur() -> dict:
         "adresse": getattr(cfg, "SOCIETE_ADRESSE", ""),
         "siret": getattr(cfg, "SOCIETE_SIRET", ""),
         "siren": getattr(cfg, "SOCIETE_SIREN", ""),
+        # Même règle de présentation que le document : le numéro est stocké brut et formaté à
+        # l'affichage. Deux formatages différents à l'écran et sur le PDF feraient douter du numéro.
+        "siren_lisible": pdf._siren_lisible(getattr(cfg, "SOCIETE_SIREN", "")),
         "forme_juridique": getattr(cfg, "SOCIETE_FORME_JURIDIQUE", ""),
         "capital": getattr(cfg, "SOCIETE_CAPITAL", ""),
         "rcs": getattr(cfg, "SOCIETE_RCS", ""),
