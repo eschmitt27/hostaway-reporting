@@ -358,13 +358,52 @@ def _noms_voyageurs(conn, reservation_ids: list[str]) -> dict[str, str]:
     return out
 
 
+def _decomposition_figee(facture_id: str, *, db_path=None) -> dict[str, Any]:
+    """Décomposition du montant dû, sans les objets `lignes` (déjà présents dans le snapshot).
+
+    Import local : `factures_proprietaires_composition_service` importe ce module, un import de
+    niveau fichier créerait un cycle.
+    """
+    from app.services import factures_proprietaires_composition_service as compo
+
+    d = compo.decomposition(facture_id, db_path=db_path)
+    return {**d, "postes": [{k: v for k, v in p.items() if k != "lignes"} for p in d["postes"]]}
+
+
 def reservations(facture_id: str, *, db_path=None) -> list[dict[str, Any]]:
-    """Réservations figées de la période. Zéro effet sur le total : lecture pure."""
+    """Réservations figées de la période, enrichies de leur commission. Lecture pure.
+
+    ASSIETTE, TAUX et COMMISSION viennent de `lot10_commissions`, jamais d'un calcul refait ici :
+    il n'existe qu'une seule formule de commission dans ce projet, et elle appartient à Lot10. La
+    jointure est faite sur le `source_run_id` FIGÉ dans l'instantané — pas sur le run actif du
+    moment — sinon la facture d'août afficherait les chiffres d'un run de novembre.
+
+    L'enrichissement est facultatif par construction : si le run a été purgé, les colonnes de
+    commission restent vides et la section reste lisible. Une facture ne doit pas devenir
+    inaffichable parce qu'un run d'historique a disparu.
+    """
     conn = get_db(db_path)
     try:
-        return [dict(r) for r in conn.execute(
+        lignes = [dict(r) for r in conn.execute(
             "SELECT * FROM factures_proprietaires_reservations WHERE facture_id_opaque=? "
             "ORDER BY check_in, reservation_id", (facture_id,)).fetchall()]
+        for l in lignes:
+            run, rid = l.get("source_run_id"), l.get("reservation_id")
+            if not (run and rid):
+                continue
+            try:
+                c = conn.execute(
+                    "SELECT assiette_commission, taux_commission, commission_conciergerie, "
+                    "       menage_retenu FROM lot10_commissions "
+                    "WHERE run_id=? AND reservation_id_hostaway=? LIMIT 1", (run, rid)).fetchone()
+            except sqlite3.Error:
+                c = None
+            if c is not None:
+                l.update({"assiette_commission": _round(c["assiette_commission"]),
+                          "taux_commission": c["taux_commission"],
+                          "commission": _round(c["commission_conciergerie"]),
+                          "menage_retenu": _round(c["menage_retenu"])})
+        return lignes
     finally:
         conn.close()
 
@@ -629,7 +668,14 @@ def valider(facture_id: str, *, emetteur: dict[str, Any], destinataire: dict[str
     if f["statut"] != ST_BROUILLON:
         raise FactureProprietaireError(f"statut {f['statut']}: seul un BROUILLON peut etre valide")
 
-    manques = [c for c in ("nom", "adresse", "siret") if not str(emetteur.get(c) or "").strip()]
+    # Identifiant d'entreprise : SIRET (établissement, 14 chiffres) OU SIREN (entreprise, 9).
+    # Exiger le SIRET seul bloquait une société qui ne dispose que de son SIREN — et la seule issue
+    # aurait été d'en fabriquer un en complétant 5 chiffres, c'est-à-dire d'inventer un
+    # établissement sur un document légal. Les deux identifiants restent stockés séparément et
+    # imprimés sous leur propre étiquette : un SIREN n'est jamais présenté comme un SIRET.
+    manques = [c for c in ("nom", "adresse") if not str(emetteur.get(c) or "").strip()]
+    if not (str(emetteur.get("siret") or "").strip() or str(emetteur.get("siren") or "").strip()):
+        manques.append("siret ou siren")
     if manques:
         raise FactureProprietaireError(f"{C_IDENTITE}: emetteur incomplet ({', '.join(manques)})")
     if not str(destinataire.get("nom") or "").strip():
@@ -745,6 +791,11 @@ def emettre(facture_id: str, *, emetteur: dict[str, Any], destinataire: dict[str
                        for l in f["lignes"]],
             "montant_total": _round(f["montant_total"]),
             "source_calcul": f["source_calcul"],
+            # Séjours et décomposition FIGÉS avec le reste : le PDF d'une facture émise doit rester
+            # reproductible même si les datasets de réservations sont régénérés ensuite. Les figer
+            # ici est la seule façon d'y parvenir — les relire plus tard donnerait un autre document.
+            "reservations": reservations(facture_id, db_path=db_path),
+            "decomposition": _decomposition_figee(facture_id, db_path=db_path),
             # Bloc réglementaire figé : identités complètes, type de client, régime de TVA et son
             # fondement, période de prestation, conditions de règlement. C'est lui qui rend le
             # document reproductible à l'identique, et non un recalcul depuis les référentiels.

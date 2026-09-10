@@ -215,6 +215,23 @@ DB_PATH = DATA_DIR / "app.db"
 SOCIETE_NOM = os.environ.get("SOCIETE_NOM", "")
 SOCIETE_ADRESSE = os.environ.get("SOCIETE_ADRESSE", "")
 SOCIETE_SIRET = os.environ.get("SOCIETE_SIRET", "")
+# SIREN (9 chiffres) — identifiant de l'ENTREPRISE. Le SIRET (14 chiffres) identifie un
+# ÉTABLISSEMENT et vaut SIREN + NIC. Les deux sont donc portés SÉPARÉMENT : afficher un SIREN sous
+# l'étiquette « SIRET » produirait un numéro faux sur un document légal, et compléter un SIREN par
+# 5 chiffres pour « faire » un SIRET reviendrait à inventer un établissement.
+# L'identité de l'émetteur est complète dès que le nom, l'adresse et AU MOINS L'UN des deux
+# identifiants sont renseignés (cf. `factures_proprietaires_service.valider`).
+SOCIETE_SIREN = os.environ.get("SOCIETE_SIREN", "")
+# Mentions légales additionnelles. NOMS REPRIS TELS QUELS de `facturation_config_service.emetteur()`
+# (mission Conformité), qui les lisait déjà directement dans l'environnement : les redéclarer ici
+# sous d'autres noms aurait créé deux jeux de variables pour la même information. Vides par défaut
+# et JAMAIS déduites — elles ne sont imprimées que si elles sont fournies.
+SOCIETE_FORME_JURIDIQUE = os.environ.get("SOCIETE_FORME_JURIDIQUE", "")
+SOCIETE_CAPITAL = os.environ.get("SOCIETE_CAPITAL", "")
+SOCIETE_RCS = os.environ.get("SOCIETE_RCS", "")
+SOCIETE_TVA_INTRA = os.environ.get("SOCIETE_TVA_INTRA", "")
+SOCIETE_CONTACT = os.environ.get("SOCIETE_CONTACT", "")
+SOCIETE_COORDONNEES_PAIEMENT = os.environ.get("SOCIETE_COORDONNEES_PAIEMENT", "")
 
 # Emplacement des PDF émis. Surcharge explicite uniquement : `None` par défaut, et le répertoire
 # est alors dérivé de DATA_DIR *au moment de l'appel* (cf. routes). Figer ici un défaut calculé

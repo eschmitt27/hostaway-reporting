@@ -36,11 +36,23 @@ def _repertoire_documents() -> Path:
 
 
 def _emetteur() -> dict:
-    """Identité de la société émettrice. Absente en recette : la facture reste alors BROUILLON."""
+    """Identité de la société émettrice. Absente en recette : la facture reste alors BROUILLON.
+
+    `siren` et `siret` sont DEUX champs distincts, jamais interchangeables : le SIREN identifie
+    l'entreprise (9 chiffres), le SIRET un établissement (14 = SIREN + NIC). Chacun n'est imprimé
+    que sous sa propre étiquette, et aucun n'est déduit de l'autre.
+    """
     return {
         "nom": getattr(cfg, "SOCIETE_NOM", ""),
         "adresse": getattr(cfg, "SOCIETE_ADRESSE", ""),
         "siret": getattr(cfg, "SOCIETE_SIRET", ""),
+        "siren": getattr(cfg, "SOCIETE_SIREN", ""),
+        "forme_juridique": getattr(cfg, "SOCIETE_FORME_JURIDIQUE", ""),
+        "capital": getattr(cfg, "SOCIETE_CAPITAL", ""),
+        "rcs": getattr(cfg, "SOCIETE_RCS", ""),
+        "tva_intra": getattr(cfg, "SOCIETE_TVA_INTRA", ""),
+        "contact": getattr(cfg, "SOCIETE_CONTACT", ""),
+        "coordonnees_paiement": getattr(cfg, "SOCIETE_COORDONNEES_PAIEMENT", ""),
     }
 
 

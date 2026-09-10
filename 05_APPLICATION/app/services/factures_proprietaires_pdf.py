@@ -37,6 +37,19 @@ def _montant(v: Any) -> str:
     return f"{float(v or 0):,.2f}".replace(",", " ").replace(".", ",") + " EUR"
 
 
+def _taux(v: Any) -> str:
+    """`0.19` → `19,00 %`. Les taux sont stockés en fraction par Lot10 ; les afficher tels quels
+    ferait lire « 0,19 % » sur la facture."""
+    if v in (None, ""):
+        return ""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return str(v)
+    pourcent = f * 100 if abs(f) <= 1 else f
+    return f"{pourcent:.2f}".replace(".", ",") + " %"
+
+
 def _date_fr(v: Any) -> str:
     """`2026-07-31` → `31/07/2026`. Renvoie la valeur telle quelle si le format est inattendu."""
     s = "" if v is None else str(v)[:10]
@@ -44,136 +57,394 @@ def _date_fr(v: Any) -> str:
     return f"{parties[2]}/{parties[1]}/{parties[0]}" if len(parties) == 3 else s
 
 
+# ── Direction artistique Chouette Patrimoine ────────────────────────────────────────────────────
+# Valeurs reprises TELLES QUELLES du site (`src/app/globals.css`, bloc `@theme inline`) : ce sont
+# les jetons de marque en production, pas une interprétation. Les redéfinir « à peu près » ferait
+# diverger la facture du reste de la marque au premier changement de charte.
+BRIQUE = (0x8C, 0x43, 0x36)      # --color-brick     : accent profond, titres et bandeau du total
+TERRACOTTA = (0xB6, 0x5E, 0x4B)  # --color-terracotta : accent, en-têtes de tableau
+CREME = (0xF7, 0xF1, 0xEB)       # --color-cream      : fond des blocs et lignes alternées
+SABLE = (0xE8, 0xDD, 0xD2)       # --color-sand       : filets et séparateurs
+ESPRESSO = (0x2E, 0x21, 0x1D)    # --color-espresso   : texte principal
+PIERRE = (0x6F, 0x64, 0x5E)      # --color-stone      : texte secondaire
+BLANC = (0xFF, 0xFF, 0xFF)
+
+# Le logo officiel du site, copié dans les assets de l'application (`static/img/brand/`). Aucun
+# logo n'est redessiné : si le fichier manque, le document porte le nom en toutes lettres plutôt
+# qu'un substitut graphique inventé.
+LOGO = Path(__file__).resolve().parent.parent / "static" / "img" / "brand" / "chouette-logo.png"
+
+MARGE = 15.0
+LARGEUR_UTILE = 210.0 - 2 * MARGE
+
+# Regroupement des types de ligne, identique à celui du service de composition. Redéfini ici plutôt
+# qu'importé pour garder ce module SANS dépendance applicative : il ne reçoit qu'un snapshot et doit
+# rester capable de rendre un document archivé, même si les services évoluent. Le test
+# `test_pdf_groupes_alignes_sur_le_service` verrouille l'égalité des deux tables.
+_GROUPES_PDF: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("commissions", "Commissions", ("COMMISSION_CONCIERGERIE",)),
+    ("menages", "Menages", ("MENAGE_FACTURE",)),
+    ("canape", "Canape", ("PREPARATION_CANAPE",)),
+    ("forfait", "Forfait", ("CHARGE_FIXE",)),
+    ("refacturations", "Refacturation", ("CHARGES_EXCEPT_REFAC", "CHARGE_REFACTUREE")),
+    ("extras", "Extra", ("EXTRA",)),
+    ("reductions", "Reduction", ("REDUCTION",)),
+)
+
+
 class _Facture(FPDF):
     def __init__(self, snapshot: dict[str, Any]):
         super().__init__(orientation="P", unit="mm", format="A4")
         self.snapshot = snapshot
-        self.set_auto_page_break(auto=True, margin=20)
+        self.set_margins(MARGE, MARGE, MARGE)
+        # 26 mm : la hauteur réelle du pied de page de marque, mesurée. Une marge plus courte
+        # laisserait une ligne de tableau chevaucher les mentions légales sur les documents longs.
+        self.set_auto_page_break(auto=True, margin=26)
         self.set_compression(False)   # sortie stable, indépendante de la version de zlib
+        self._entete_tableau: tuple | None = None
+
+    # ── En-tête de marque ───────────────────────────────────────────────────────────────────────
 
     def header(self):
         snap = self.snapshot
-        emetteur = snap.get("emetteur", {})
         est_avoir = snap.get("type_document") == "AVOIR"
+        premiere = self.page_no() == 1
 
-        self.set_font("Helvetica", "B", 16)
-        self.cell(0, 10, _t("AVOIR" if est_avoir else "FACTURE"), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        if premiere:
+            self._bandeau_marque(est_avoir)
+        else:
+            # Pages suivantes : rappel discret, pas une seconde page de garde.
+            self.set_y(8)
+            self.set_font("Helvetica", "", 8)
+            self.set_text_color(*PIERRE)
+            self.cell(0, 5, _t(f"{'Avoir' if est_avoir else 'Facture'} "
+                               f"{snap.get('numero_facture') or ''} — suite"),
+                      0, new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R")
+            self.set_text_color(*ESPRESSO)
+            self.ln(2)
+            if self._entete_tableau:
+                self._ligne_entete(*self._entete_tableau)
+
+    def _bandeau_marque(self, est_avoir: bool):
+        snap = self.snapshot
+        haut = 12.0
+        if LOGO.exists():
+            # Le logo est plus haut que large (256x384) : on borne la HAUTEUR et laissons fpdf
+            # déduire la largeur, sinon il serait étiré.
+            try:
+                self.image(str(LOGO), x=MARGE, y=haut, h=22)
+            except Exception:      # noqa: BLE001 — un logo illisible ne doit pas empêcher la facture
+                pass
+        self.set_xy(MARGE + 20, haut + 1)
+        self.set_font("Helvetica", "B", 17)
+        self.set_text_color(*BRIQUE)
+        self.cell(70, 8, _t(snap.get("emetteur", {}).get("nom") or "Chouette Patrimoine"),
+                  0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        self.set_x(MARGE + 20)
+        self.set_font("Helvetica", "", 8.5)
+        self.set_text_color(*PIERRE)
+        self.cell(70, 4, _t("Conciergerie de location courte duree"),
+                  0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+
+        # Pavé titre, aligné à droite
+        self.set_xy(120, haut)
+        self.set_font("Helvetica", "B", 22)
+        self.set_text_color(*ESPRESSO)
+        self.cell(LARGEUR_UTILE - 105, 11, _t("AVOIR" if est_avoir else "FACTURE"),
+                  0, new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R")
         self.set_font("Helvetica", "", 9)
-        self.cell(0, 5, _t(f"Numero : {snap.get('numero_facture', '')}"), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        self.cell(0, 5, _t(f"Date : {snap.get('date_facture', '')}"), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        if est_avoir and snap.get("facture_origine"):
-            self.cell(0, 5, _t(f"Avoir sur la facture : {snap['facture_origine']}"), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        self.ln(3)
+        self.set_text_color(*PIERRE)
+        for texte in self._references():
+            self.set_x(120)
+            self.cell(LARGEUR_UTILE - 105, 4.5, _t(texte), 0,
+                      new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R")
 
-        self.set_font("Helvetica", "B", 10)
-        self.cell(95, 5, _t("Emetteur"), 0, new_x=XPos.RIGHT, new_y=YPos.TOP)
-        self.cell(0, 5, _t("Destinataire"), 0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        self.set_font("Helvetica", "", 9)
-        dest = snap.get("destinataire", {})
-        conf = snap.get("conformite") or {}
-        em = conf.get("emetteur") or {}
-        cl = conf.get("client") or {}
-
-        # Seules les informations réellement renseignées sont imprimées : aucune ligne d'identité
-        # n'est fabriquée pour « remplir » le document.
-        gauche = [em.get("denomination") or emetteur.get("nom"),
-                  em.get("forme_juridique"),
-                  f"Capital : {em['capital']}" if em.get("capital") else None,
-                  em.get("adresse_siege") or emetteur.get("adresse"),
-                  f"SIREN {em['siren']}" if em.get("siren") else None,
-                  f"RCS {em['rcs']}" if em.get("rcs") else None,
-                  f"TVA {em['tva_intra']}" if em.get("tva_intra") else None,
-                  em.get("contact") or None]
-        droite = [cl.get("denomination") or dest.get("nom"),
-                  cl.get("adresse_facturation") or cl.get("adresse") or dest.get("adresse"),
-                  f"SIREN {cl['siren']}" if cl.get("siren") else None,
-                  f"TVA {cl['tva_intra']}" if cl.get("tva_intra") else None,
-                  f"Reference proprietaire : {snap.get('proprietaire_id', '')}"]
-        gauche = [x for x in gauche if x]
-        droite = [x for x in droite if x]
-        while len(gauche) < len(droite):
-            gauche.append("")
-        while len(droite) < len(gauche):
-            droite.append("")
-        for g, d in zip(gauche, droite):
-            self.cell(95, 5, _t(g or ""), 0, new_x=XPos.RIGHT, new_y=YPos.TOP)
-            self.cell(0, 5, _t(d or ""), 0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        self.set_y(max(self.get_y(), haut + 24))
+        self.set_draw_color(*TERRACOTTA)
+        self.set_line_width(0.8)
+        self.line(MARGE, self.get_y(), 210 - MARGE, self.get_y())
+        self.set_line_width(0.2)
+        self.set_text_color(*ESPRESSO)
         self.ln(4)
 
+    def _references(self) -> list[str]:
+        snap = self.snapshot
+        conf = snap.get("conformite") or {}
+        out = []
+        if snap.get("numero_facture"):
+            out.append(f"N° {snap['numero_facture']}")
+        if snap.get("date_facture"):
+            out.append(f"Emise le {_date_fr(snap['date_facture'])}")
+        debut, fin = conf.get("periode_debut"), conf.get("periode_fin")
+        out.append(f"Periode : du {_date_fr(debut)} au {_date_fr(fin)}" if debut and fin
+                   else f"Periode : {snap.get('mois', '')}")
+        statut = snap.get("statut")
+        if statut and statut != "EMIS":
+            out.append(f"Statut : {statut}")
+        if snap.get("type_document") == "AVOIR" and snap.get("facture_origine"):
+            out.append(f"Avoir sur : {snap['facture_origine']}")
+        return out
+
+    # ── Pied de page ────────────────────────────────────────────────────────────────────────────
+
     def footer(self):
-        self.set_y(-18)
-        self.set_font("Helvetica", "I", 7)
-        mention = ("TVA non applicable — regime declare par l'emetteur."
-                   if self.snapshot.get("regime_tva", "").startswith("NON_ASSUJETTI")
-                   else "")
-        self.cell(0, 4, _t(mention), 0, new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="C")
-        self.cell(0, 4, _t(f"Document genere par Pilotage Conciergerie — "
-                           f"reference interne {self.snapshot.get('facture_id_opaque', '')}"),
-                  0, new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="C")
+        self.set_y(-24)
+        self.set_draw_color(*SABLE)
+        self.line(MARGE, self.get_y(), 210 - MARGE, self.get_y())
+        self.ln(1.5)
+        self.set_font("Helvetica", "", 6.8)
+        self.set_text_color(*PIERRE)
+        for ligne in self._mentions_pied():
+            self.cell(0, 3.2, _t(ligne), 0, new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="C")
+        self.set_font("Helvetica", "", 6.5)
+        self.cell(0, 3.2, _t(f"Page {self.page_no()}/{{nb}}"), 0,
+                  new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="C")
+        self.set_text_color(*ESPRESSO)
+
+    def _mentions_pied(self) -> list[str]:
+        """Uniquement les mentions RÉELLEMENT renseignées. Rien n'est complété par défaut : une
+        mention légale absente doit se voir, pas être remplacée par une formule plausible."""
+        snap = self.snapshot
+        em = (snap.get("conformite") or {}).get("emetteur") or {}
+        base = snap.get("emetteur", {})
+        identite = [em.get("denomination") or base.get("nom"),
+                    em.get("forme_juridique"),
+                    f"capital {em['capital']}" if em.get("capital") else None,
+                    em.get("adresse_siege") or base.get("adresse")]
+        # SIREN et SIRET portent chacun leur propre étiquette. Un SIREN affiché « SIRET » serait un
+        # numéro faux sur un document légal ; les 5 chiffres du NIC ne sont jamais fabriqués.
+        ids = [f"SIREN {em.get('siren') or base.get('siren')}"
+               if (em.get("siren") or base.get("siren")) else None,
+               f"SIRET {em.get('siret') or base.get('siret')}"
+               if (em.get("siret") or base.get("siret")) else None,
+               f"RCS {em['rcs']}" if em.get("rcs") else None,
+               f"TVA {em['tva_intra']}" if em.get("tva_intra") else None]
+        lignes = [" — ".join(x for x in identite if x), " · ".join(x for x in ids if x)]
+        mention = (snap.get("conformite") or {}).get("mention_tva")
+        if mention:
+            lignes.append(mention)
+        return [l for l in lignes if l]
+
+    # ── Briques de mise en page ─────────────────────────────────────────────────────────────────
+
+    def _titre_section(self, texte: str):
+        """Un titre ne doit jamais rester seul en bas de page : on force la coupe s'il ne reste pas
+        de quoi afficher au moins l'en-tête du tableau et une ligne."""
+        if self.get_y() > 297 - 26 - 22:
+            self.add_page()
+        self.ln(2)
+        self.set_font("Helvetica", "B", 10)
+        self.set_text_color(*BRIQUE)
+        self.cell(0, 6, _t(texte), 0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        self.set_text_color(*ESPRESSO)
+        self.set_draw_color(*SABLE)
+        self.line(MARGE, self.get_y(), 210 - MARGE, self.get_y())
+        self.ln(2)
+
+    def _ligne_entete(self, colonnes: tuple, hauteur: float = 7.0):
+        """En-tête de tableau. Mémorisé pour être RÉPÉTÉ automatiquement en haut de chaque page
+        suivante (cf. `header`) — sans quoi un tableau long deviendrait illisible dès la page 2."""
+        self.set_font("Helvetica", "B", 8)
+        self.set_fill_color(*TERRACOTTA)
+        self.set_text_color(*BLANC)
+        self.set_draw_color(*TERRACOTTA)
+        for i, (largeur, titre, align) in enumerate(colonnes):
+            dernier = i == len(colonnes) - 1
+            self.cell(largeur, hauteur, _t(titre), 0,
+                      new_x=XPos.LMARGIN if dernier else XPos.RIGHT,
+                      new_y=YPos.NEXT if dernier else YPos.TOP, align=align, fill=True)
+        self.set_text_color(*ESPRESSO)
+        self.set_draw_color(*SABLE)
+
+    def _note(self, texte: str):
+        """Note explicative sous un tableau. Coupe la page AVANT d'écrire si la place manque —
+        une note tronquée par le saut automatique perdrait justement l'explication qu'elle porte
+        (constaté sur le premier rendu : la phrase distinguant acompte et réduction était coupée)."""
+        lignes_estimees = max(1, len(texte) // 110 + 1)
+        if self.get_y() + lignes_estimees * 3.6 + 4 > 297 - 26:
+            self.add_page()
+        self.ln(1)
+        self.set_font("Helvetica", "I", 7.5)
+        self.set_text_color(*PIERRE)
+        self.multi_cell(0, 3.6, _t(texte))
+        self.set_text_color(*ESPRESSO)
+
+    def _ligne_tableau(self, colonnes: tuple, valeurs: tuple, pair: bool, hauteur: float = 6.2):
+        self.set_font("Helvetica", "", 8)
+        self.set_fill_color(*(CREME if pair else BLANC))
+        for i, ((largeur, _, align), valeur) in enumerate(zip(colonnes, valeurs)):
+            dernier = i == len(colonnes) - 1
+            self.cell(largeur, hauteur, _t(valeur), "B",
+                      new_x=XPos.LMARGIN if dernier else XPos.RIGHT,
+                      new_y=YPos.NEXT if dernier else YPos.TOP, align=align, fill=True)
+
+    def _bloc_parties(self):
+        snap = self.snapshot
+        conf = snap.get("conformite") or {}
+        em, cl = conf.get("emetteur") or {}, conf.get("client") or {}
+        base, dest = snap.get("emetteur", {}), snap.get("destinataire", {})
+
+        gauche = [x for x in (em.get("adresse_siege") or base.get("adresse"),
+                              em.get("contact") or base.get("contact")) if x]
+        droite = [x for x in (cl.get("denomination") or dest.get("nom"),
+                              cl.get("adresse_facturation") or cl.get("adresse")
+                              or dest.get("adresse"),
+                              f"Reference : {snap.get('proprietaire_id', '')}",
+                              f"Logement : {snap.get('logement_id', '')}") if x]
+        depart = self.get_y()
+        self.set_font("Helvetica", "B", 8)
+        self.set_text_color(*PIERRE)
+        self.cell(88, 4.5, _t("EMETTEUR"), 0, new_x=XPos.RIGHT, new_y=YPos.TOP)
+        self.cell(0, 4.5, _t("FACTURE A"), 0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        self.set_text_color(*ESPRESSO)
+        self.set_font("Helvetica", "", 8.5)
+        for i in range(max(len(gauche), len(droite))):
+            self.cell(88, 4.4, _t(gauche[i] if i < len(gauche) else ""), 0,
+                      new_x=XPos.RIGHT, new_y=YPos.TOP)
+            self.cell(0, 4.4, _t(droite[i] if i < len(droite) else ""), 0,
+                      new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        self.set_y(max(self.get_y(), depart + 4.5))
+        self.ln(1)
+
+    def _tableau_sejours(self):
+        """Séjours de la période et commission de chacun.
+
+        AUCUNE donnée personnelle du voyageur n'est imprimée : ni nom, ni e-mail, ni téléphone. La
+        facture doit pouvoir circuler (comptable, propriétaire, archivage) sans emporter de PII.
+        La référence de réservation suffit à retrouver le séjour dans l'application.
+        """
+        reservations = self.snapshot.get("reservations") or []
+        if not reservations:
+            return
+        self._titre_section("Sejours de la periode et commission")
+        # Assiette x Taux = Commission, colonne par colonne : le propriétaire doit pouvoir refaire
+        # l'operation de tete pour chaque sejour, sans avoir a nous croire sur parole.
+        colonnes = ((21, "Arrivee", "C"), (21, "Depart", "C"), (11, "Nuits", "C"),
+                    (22, "Canal", "L"), (28, "Reference", "L"), (24, "Assiette", "R"),
+                    (15, "Taux", "R"), (23, "Commission", "R"))
+        self._entete_tableau = (colonnes,)
+        self._ligne_entete(colonnes)
+        total_commission = 0.0
+        for i, r in enumerate(reservations):
+            taux = r.get("taux_commission")
+            commission = r.get("commission")
+            total_commission += float(commission or 0)
+            self._ligne_tableau(colonnes, (
+                _date_fr(r.get("check_in")), _date_fr(r.get("check_out")),
+                r.get("nights") if r.get("nights") is not None else "",
+                r.get("plateforme") or "", r.get("reservation_id") or "",
+                _montant(r.get("assiette_commission")) if r.get("assiette_commission") is not None
+                else (_montant(r.get("payout")) if r.get("payout") is not None else ""),
+                _taux(taux), _montant(commission) if commission is not None else "",
+            ), pair=(i % 2 == 0))
+        self._entete_tableau = None
+        if total_commission:
+            self.set_font("Helvetica", "B", 8)
+            self.cell(sum(c[0] for c in colonnes[:-1]), 6, _t("Total commissions"), 0,
+                      new_x=XPos.RIGHT, new_y=YPos.TOP, align="R")
+            self.cell(colonnes[-1][0], 6, _t(_montant(total_commission)), 0,
+                      new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R")
+        self._note(f"{len(reservations)} sejour(s). Assiette = payout de la plateforme diminue du "
+                   "menage ; commission = assiette x taux. Ces montants proviennent du calcul "
+                   "mensuel, ils ne sont pas recalcules sur la facture.")
+
+    def _tableau_prestations(self):
+        """Détail facturé, groupé par poste. C'est la lecture « d'où vient le montant »."""
+        snap = self.snapshot
+        deco = snap.get("decomposition") or {}
+        self._titre_section("Detail des frais")
+        colonnes = ((12, "N", "C"), (108, "Designation", "L"), (30, "Poste", "L"),
+                    (30, "Montant", "R"))
+        self._entete_tableau = (colonnes,)
+        self._ligne_entete(colonnes)
+        libelles = {c: lib for c, lib, _ in _GROUPES_PDF}
+        appartenance = {t: c for c, _, types in _GROUPES_PDF for t in types}
+        for i, l in enumerate(snap.get("lignes", [])):
+            poste = libelles.get(appartenance.get(l.get("type_ligne"), ""), "Autre")
+            self._ligne_tableau(colonnes, (
+                l.get("numero_ligne"), l.get("libelle"), poste,
+                _montant(l.get("montant")),
+            ), pair=(i % 2 == 0))
+        self._entete_tableau = None
+        if deco:
+            self._recapitulatif(deco)
+
+    def _recapitulatif(self, deco: dict[str, Any]):
+        """Le récapitulatif EST la formule. Chaque poste apparaît même à zéro dès qu'il porte une
+        ligne, pour qu'on puisse suivre l'addition sans deviner ce qui a été omis."""
+        self.ln(3)
+        if self.get_y() > 297 - 26 - 46:
+            self.add_page()
+        gauche, largeur = 105.0, 75.0
+
+        def ligne(libelle: str, valeur: Any, gras: bool = False, couleur=None):
+            self.set_x(gauche)
+            self.set_font("Helvetica", "B" if gras else "", 9 if gras else 8.5)
+            if couleur:
+                self.set_text_color(*couleur)
+            self.cell(largeur * 0.6, 5.2, _t(libelle), 0, new_x=XPos.RIGHT, new_y=YPos.TOP)
+            self.cell(largeur * 0.4, 5.2, _t(_montant(valeur)), 0,
+                      new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R")
+            self.set_text_color(*ESPRESSO)
+
+        for poste in deco.get("postes", []):
+            if poste.get("cle") == "reductions" or not poste.get("nb"):
+                continue
+            ligne(poste["libelle"], poste["montant"])
+        self.set_draw_color(*SABLE)
+        self.line(gauche, self.get_y() + 0.5, gauche + largeur, self.get_y() + 0.5)
+        self.ln(1.5)
+        ligne("Sous-total", deco.get("sous_total"))
+        if deco.get("total_reductions"):
+            ligne("Reductions", -float(deco["total_reductions"]))
+        if deco.get("total_acomptes"):
+            ligne("Acomptes deja verses", -float(deco["total_acomptes"]))
+
+        # Bandeau du montant dû : le seul élément coloré plein du document, pour qu'il soit le
+        # premier chiffre que l'oeil trouve.
+        self.ln(1)
+        self.set_x(gauche)
+        self.set_fill_color(*BRIQUE)
+        self.set_text_color(*BLANC)
+        self.set_font("Helvetica", "B", 11)
+        self.cell(largeur * 0.6, 9, _t("  MONTANT DU"), 0, new_x=XPos.RIGHT, new_y=YPos.TOP,
+                  fill=True)
+        self.cell(largeur * 0.4, 9, _t(_montant(deco.get("montant_du")) + "  "), 0,
+                  new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R", fill=True)
+        self.set_text_color(*ESPRESSO)
+        self.ln(2)
+
+    # ── Corps ───────────────────────────────────────────────────────────────────────────────────
 
     def corps(self):
         snap = self.snapshot
         conf = snap.get("conformite") or {}
 
-        self.set_font("Helvetica", "B", 10)
-        debut, fin = conf.get("periode_debut"), conf.get("periode_fin")
-        periode = (f"Periode des prestations : du {_date_fr(debut)} au {_date_fr(fin)}"
-                   if debut and fin else f"Periode : {snap.get('mois', '')}")
-        self.cell(0, 6, _t(periode), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        self.set_font("Helvetica", "", 9)
-        self.cell(0, 5, _t(f"Reference prestation : logement {snap.get('logement_id', '')}"),
-                  new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        if conf.get("nature_operation"):
-            self.cell(0, 5, _t(f"Nature de l'operation : {conf['nature_operation']}"),
-                      new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        if conf.get("numero_bon_commande"):
-            self.cell(0, 5, _t(f"Bon de commande : {conf['numero_bon_commande']}"),
-                      new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        self.ln(3)
+        self._bloc_parties()
+        self._tableau_sejours()
+        self._tableau_prestations()
 
-        # ── Tableau des prestations ──────────────────────────────────────────────────────────
-        self.set_font("Helvetica", "B", 9)
-        self.set_fill_color(235, 235, 235)
-        for largeur, titre, align in ((10, "N", "C"), (78, "Designation", "L"),
-                                      (16, "Qte", "R"), (26, "PU HT", "R"),
-                                      (28, "Total HT", "R"), (22, "TVA", "R")):
-            dernier = titre == "TVA"
-            self.cell(largeur, 7, _t(titre), 1,
-                      new_x=XPos.LMARGIN if dernier else XPos.RIGHT,
-                      new_y=YPos.NEXT if dernier else YPos.TOP, align=align, fill=True)
-
-        self.set_font("Helvetica", "", 9)
-        taux = float(conf.get("taux_tva") or 0)
-        for l in snap.get("lignes", []):
-            montant = float(l.get("montant") or 0)
-            qte = float(l.get("quantite") or 1)
-            pu = float(l.get("prix_unitaire_ht") if l.get("prix_unitaire_ht") is not None
-                       else (montant / qte if qte else montant))
-            tva_ligne = round(montant * taux / 100.0, 2) if taux else 0.0
-            for largeur, valeur, align in (
-                    (10, l.get("numero_ligne"), "C"), (78, l.get("libelle"), "L"),
-                    (16, f"{qte:g}", "R"), (26, _montant(pu), "R"),
-                    (28, _montant(montant), "R"), (22, _montant(tva_ligne), "R")):
-                dernier = largeur == 22
-                self.cell(largeur, 7, _t(valeur), 1,
-                          new_x=XPos.LMARGIN if dernier else XPos.RIGHT,
-                          new_y=YPos.NEXT if dernier else YPos.TOP, align=align)
-
-        # ── Totaux ───────────────────────────────────────────────────────────────────────────
-        self.ln(2)
-        total_ht = conf.get("total_ht", snap.get("montant_total"))
-        total_tva = conf.get("total_tva", 0.0)
-        total_ttc = conf.get("total_ttc", snap.get("montant_total"))
-        for libelle, valeur, gras in (("TOTAL HT", total_ht, False), ("TVA", total_tva, False),
-                                      ("TOTAL TTC", total_ttc, True)):
-            self.set_font("Helvetica", "B" if gras else "", 10 if gras else 9)
-            self.cell(130, 7, _t(libelle), 0, new_x=XPos.RIGHT, new_y=YPos.TOP, align="R")
-            self.cell(50, 7, _t(_montant(valeur)), 1, new_x=XPos.LMARGIN, new_y=YPos.NEXT,
-                      align="R")
-        self.ln(4)
+        acomptes = (snap.get("decomposition") or {}).get("acomptes") or []
+        if acomptes:
+            self._titre_section("Acomptes deja verses")
+            colonnes = ((34, "Date", "C"), (36, "Mode", "L"), (80, "Reference", "L"),
+                        (30, "Montant", "R"))
+            self._entete_tableau = (colonnes,)
+            self._ligne_entete(colonnes)
+            for i, a in enumerate(acomptes):
+                self._ligne_tableau(colonnes, (
+                    _date_fr(a.get("date_mouvement")), a.get("mode_reglement") or "",
+                    a.get("mouvement_opaque") or a.get("reference_metier") or "",
+                    _montant(a.get("montant")),
+                ), pair=(i % 2 == 0))
+            self._entete_tableau = None
+            self._note("Un acompte est un paiement deja recu : il reduit ce qui reste a payer, pas "
+                       "le montant facture. Une reduction commerciale, elle, diminue le montant "
+                       "facture et figure dans le detail des frais.")
 
         # ── Conditions de règlement et mentions ──────────────────────────────────────────────
-        self.set_font("Helvetica", "", 9)
+        self.ln(2)
+        self.set_font("Helvetica", "", 8.5)
         conditions = [
             ("Echeance de paiement", _date_fr(conf.get("date_echeance"))),
             ("Delai de paiement", (f"{conf['delai_paiement_jours']} jours"
@@ -223,8 +494,10 @@ def _neutraliser_metadonnees(pdf: FPDF) -> None:
 
 
 def rendre(snapshot: dict[str, Any]) -> bytes:
-    """Octets du PDF pour un snapshot donné. Déterministe."""
+    """Octets du PDF pour un snapshot donné. Déterministe : même snapshot → mêmes octets."""
     pdf = _Facture(snapshot)
+    # « Page 1/3 » exige de connaître le nombre total de pages, donc un alias résolu à la fin.
+    pdf.alias_nb_pages()
     _neutraliser_metadonnees(pdf)
     pdf.add_page()
     pdf.corps()
