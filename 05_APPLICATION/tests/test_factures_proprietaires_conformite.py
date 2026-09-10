@@ -357,7 +357,11 @@ def test_pdf_particulier(db, config, client_particulier, tmp_path):
     assert "FACTURE" in texte
     assert "F-2026-000001" in texte
     assert "SAS DEMO CONCIERGERIE" in texte
-    assert "SIREN 000000000" in texte
+    # Mention d'immatriculation normalisée : le SIREN est écrit en trois groupes de trois, suivi du
+    # greffe, sans étiquette « SIREN : » — c'est sous cette forme qu'elle est opposable
+    # (« 000 000 000 RCS … »). L'étiquette explicite reste réservée au SIRET et à la TVA.
+    assert "000 000 000" in texte
+    assert "RCS DEMO 000 000 000" in texte
     assert "Periode des prestations : du 01/07/2026 au 31/07/2026" in texte
     assert "TOTAL HT" in texte and "TOTAL TTC" in texte
     assert "Echeance de paiement : 31/08/2026" in texte

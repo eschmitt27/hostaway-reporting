@@ -15,8 +15,11 @@ from app.services import factures_proprietaires_composition_service as compo
 from app.services import factures_proprietaires_pdf as pdfsvc
 from app.services import factures_proprietaires_service as svc
 
-EMETTEUR = {"nom": "Chouette Patrimoine", "adresse": "1 rue de Test, 31000 Toulouse",
-            "siren": "109 624 767", "siret": ""}
+# Identité RÉELLE, reprise du Kbis (2026-09-10). Ni SIRET ni TVA intracommunautaire n'y figurent :
+# les deux restent volontairement vides ici, et les tests vérifient qu'ils ne sont JAMAIS imprimés.
+EMETTEUR = {"nom": "CHOUETTE PATRIMOINE", "forme_juridique": "SAS", "capital": "200,00 €",
+            "adresse": "48E Route de Larnavey, 33650 Saint-Selve",
+            "siren": "109624767", "rcs": "R.C.S. Bordeaux", "siret": "", "tva_intra": ""}
 DESTINATAIRE = {"nom": "Proprietaire Fixture", "adresse": "2 rue de Test, 31000 Toulouse"}
 
 
@@ -278,19 +281,76 @@ def test_pdf_porte_le_logo_officiel():
     assert pdfsvc.LOGO.name.endswith(".png")
 
 
-def test_pdf_affiche_le_siren_jamais_comme_siret(db, facture):
-    doc = compo.document(facture, emetteur=EMETTEUR, destinataire=DESTINATAIRE, db_path=db)
-    pdf = _Sonde(doc)
-    assert any("SIREN 109 624 767" in l for l in pdf.mentions)
-    assert not any("SIRET" in l for l in pdf.mentions), \
-        "aucun SIRET ne doit apparaitre : seul un SIREN est connu"
-
-
 class _Sonde:
     """Lit les mentions de pied de page sans rendre le PDF entier."""
     def __init__(self, snapshot):
         objet = pdfsvc._Facture(snapshot)
         self.mentions = objet._mentions_pied()
+
+
+# ── Identité légale issue du Kbis ───────────────────────────────────────────────────────────────
+
+def test_pied_de_page_reprend_la_presentation_legale_du_kbis(db, facture):
+    """Les trois lignes légales, dans la présentation usuelle d'une facture française."""
+    doc = compo.document(facture, emetteur=EMETTEUR, destinataire=DESTINATAIRE, db_path=db)
+    mentions = _Sonde(doc).mentions
+    assert "CHOUETTE PATRIMOINE — SAS au capital de 200,00 €" in mentions
+    assert "48E Route de Larnavey — 33650 Saint-Selve" in mentions
+    assert "109 624 767 R.C.S. Bordeaux" in mentions
+
+
+def test_siren_formate_mais_jamais_presente_comme_siret(db, facture):
+    doc = compo.document(facture, emetteur=EMETTEUR, destinataire=DESTINATAIRE, db_path=db)
+    texte = " | ".join(_Sonde(doc).mentions)
+    assert "109 624 767" in texte, "le SIREN doit etre lisible, en trois groupes de trois"
+    assert "SIRET" not in texte, "aucun SIRET n'est connu : il ne doit jamais apparaitre"
+    assert "TVA" not in texte, "aucune TVA intracommunautaire n'est connue"
+
+
+def test_siret_et_tva_s_affichent_des_qu_ils_sont_connus(db, facture):
+    """L'omission est CONDITIONNELLE, pas codée en dur : le jour où les numéros existent, ils
+    s'impriment — chacun sous sa propre étiquette."""
+    emetteur = {**EMETTEUR, "siret": "10962476700012", "tva_intra": "FR00109624767"}
+    doc = compo.document(facture, emetteur=emetteur, destinataire=DESTINATAIRE, db_path=db)
+    texte = " | ".join(_Sonde(doc).mentions)
+    assert "SIRET 10962476700012" in texte
+    assert "TVA FR00109624767" in texte
+
+
+def test_siren_lisible():
+    assert pdfsvc._siren_lisible("109624767") == "109 624 767"
+    assert pdfsvc._siren_lisible("109 624 767") == "109 624 767"
+    # Un numéro inattendu est rendu tel quel plutôt que regroupé au hasard.
+    assert pdfsvc._siren_lisible("12345") == "12345"
+    assert pdfsvc._siren_lisible("") == ""
+
+
+def test_forme_et_capital_forment_une_seule_mention(db, facture):
+    """« SAS — 200,00 € » ne veut rien dire : la mention légale est « SAS au capital de … »."""
+    doc = compo.document(facture, emetteur=EMETTEUR, destinataire=DESTINATAIRE, db_path=db)
+    ligne = _Sonde(doc).mentions[0]
+    assert "au capital de" in ligne
+    assert "SAS — 200,00" not in ligne
+
+
+def test_aucune_mention_fabriquee_quand_tout_manque(db, facture):
+    """Un émetteur vide ne produit ni ligne vide, ni formule plausible inventée."""
+    doc = compo.document(facture, emetteur={"nom": "X"}, destinataire=DESTINATAIRE, db_path=db)
+    mentions = _Sonde(doc).mentions
+    assert mentions == ["X"], mentions
+
+
+def test_pdf_reel_porte_les_mentions_du_kbis(db, facture):
+    """Bout en bout : les mentions doivent réellement atteindre les octets du PDF."""
+    doc = compo.document(facture, emetteur=EMETTEUR, destinataire=DESTINATAIRE, db_path=db)
+    octets = pdfsvc.rendre(doc)
+    assert octets[:4] == b"%PDF"
+    # Le rendu translittère vers latin-1 : « — » devient « - » et « € » devient « EUR ».
+    for attendu in (b"CHOUETTE PATRIMOINE", b"SAS au capital de 200,00 EUR",
+                    b"48E Route de Larnavey", b"33650 Saint-Selve", b"109 624 767",
+                    b"R.C.S. Bordeaux"):
+        assert attendu in octets, f"{attendu!r} absent du PDF"
+    assert b"SIRET" not in octets
 
 
 def test_pdf_multi_pages_repete_les_entetes(db, facture):

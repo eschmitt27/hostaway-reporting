@@ -25,14 +25,30 @@
      distincts : l'un ne remplace pas l'autre à l'affichage, et aucun n'est déduit de l'autre.
      L'identité est complète dès que l'un des deux est renseigné. #}
   <p><strong>Émetteur :</strong> {{ emetteur.nom or "— non renseigné —" }}
-     {% if emetteur.siren %}· SIREN {{ emetteur.siren }}{% endif %}
-     {% if emetteur.siret %}· SIRET {{ emetteur.siret }}{% endif %}
+     {%- if emetteur.forme_juridique %} — {{ emetteur.forme_juridique }}
+       {%- if emetteur.capital %} au capital de {{ emetteur.capital }}{% endif %}
+     {%- endif %}
      {% if not emetteur.nom or not emetteur.adresse or not (emetteur.siret or emetteur.siren) %}
      <span class="badge">FACTURE_PROPRIETAIRE_IDENTITE_INCOMPLETE</span>
      {% endif %}</p>
+  {% if emetteur.adresse %}<p class="text-xs">{{ emetteur.adresse }}</p>{% endif %}
+  <p class="text-xs">
+    {%- if emetteur.siren %}{{ emetteur.siren }}{% if emetteur.rcs %} {{ emetteur.rcs }}{% endif %}{% endif -%}
+    {%- if emetteur.siret %} · SIRET {{ emetteur.siret }}{% endif -%}
+    {%- if emetteur.tva_intra %} · TVA {{ emetteur.tva_intra }}{% endif -%}
+  </p>
+  {# Ce qui MANQUE est nommé, jamais comblé. SIRET et TVA intracommunautaire sont facultatifs :
+     ils ne bloquent pas l'émission et ne s'affichent que s'ils sont réellement connus. #}
   {% if not emetteur.adresse %}
   <p class="text-xs text-secondary">Adresse du siège non renseignée (<code>SOCIETE_ADRESSE</code>) —
      mention légale obligatoire, à fournir avant toute émission réelle. Rien n'est inventé ici.</p>
+  {% endif %}
+  {% if not emetteur.siret or not emetteur.tva_intra %}
+  <p class="text-xs text-secondary">Non fourni, donc non imprimé :
+    {% if not emetteur.siret %}<strong>SIRET</strong> (14 chiffres — non déductible du SIREN,
+    il faut le NIC de l'établissement){% endif %}{% if not emetteur.siret and not emetteur.tva_intra %} ·
+    {% endif %}{% if not emetteur.tva_intra %}<strong>TVA intracommunautaire</strong>{% endif %}.
+    Facultatifs : leur absence ne bloque pas l'émission.</p>
   {% endif %}
   <p><strong>Destinataire :</strong> {{ destinataire.nom }}</p>
 </div>

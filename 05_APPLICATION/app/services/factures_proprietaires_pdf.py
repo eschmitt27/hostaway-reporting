@@ -37,6 +37,20 @@ def _montant(v: Any) -> str:
     return f"{float(v or 0):,.2f}".replace(",", " ").replace(".", ",") + " EUR"
 
 
+def _siren_lisible(v: Any) -> str:
+    """`109624767` → `109 624 767`. Présentation usuelle d'un SIREN, en trois groupes de trois.
+
+    Le numéro est STOCKÉ brut (c'est l'identifiant) et formaté seulement à l'affichage : une valeur
+    déjà espacée en configuration est donc rendue à l'identique, et rien n'est ajouté ni retiré au
+    numéro lui-même. Une valeur qui n'a pas 9 chiffres est rendue telle quelle — mieux vaut afficher
+    ce qui a été saisi qu'un regroupement inventé sur un numéro inattendu.
+    """
+    brut = "".join(str(v or "").split())
+    if len(brut) == 9 and brut.isdigit():
+        return f"{brut[:3]} {brut[3:6]} {brut[6:]}"
+    return str(v or "").strip()
+
+
 def _taux(v: Any) -> str:
     """`0.19` → `19,00 %`. Les taux sont stockés en fraction par Lot10 ; les afficher tels quels
     ferait lire « 0,19 % » sur la facture."""
@@ -204,24 +218,61 @@ class _Facture(FPDF):
         self.set_text_color(*ESPRESSO)
 
     def _mentions_pied(self) -> list[str]:
-        """Uniquement les mentions RÉELLEMENT renseignées. Rien n'est complété par défaut : une
-        mention légale absente doit se voir, pas être remplacée par une formule plausible."""
+        """Bloc légal du pied de page, dans la présentation usuelle d'une facture française.
+
+        Trois lignes, chacune omise si elle serait vide — rien n'est complété par défaut : une
+        mention légale absente doit se voir, pas être remplacée par une formule plausible.
+
+            CHOUETTE PATRIMOINE — SAS au capital de 200,00 EUR
+            48E Route de Larnavey — 33650 Saint-Selve
+            109 624 767 R.C.S. Bordeaux
+
+        La 3ᵉ ligne est la mention d'immatriculation normalisée : le SIREN est suivi du greffe,
+        sans étiquette « SIREN : », parce que c'est sous cette forme qu'elle est opposable.
+        SIRET et TVA intracommunautaire ne s'ajoutent que s'ils sont RÉELLEMENT connus, chacun sous
+        sa propre étiquette — un SIREN présenté comme un SIRET serait un numéro faux, et les
+        5 chiffres du NIC ne sont jamais fabriqués.
+        """
         snap = self.snapshot
         em = (snap.get("conformite") or {}).get("emetteur") or {}
         base = snap.get("emetteur", {})
-        identite = [em.get("denomination") or base.get("nom"),
-                    em.get("forme_juridique"),
-                    f"capital {em['capital']}" if em.get("capital") else None,
-                    em.get("adresse_siege") or base.get("adresse")]
-        # SIREN et SIRET portent chacun leur propre étiquette. Un SIREN affiché « SIRET » serait un
-        # numéro faux sur un document légal ; les 5 chiffres du NIC ne sont jamais fabriqués.
-        ids = [f"SIREN {em.get('siren') or base.get('siren')}"
-               if (em.get("siren") or base.get("siren")) else None,
-               f"SIRET {em.get('siret') or base.get('siret')}"
-               if (em.get("siret") or base.get("siret")) else None,
-               f"RCS {em['rcs']}" if em.get("rcs") else None,
-               f"TVA {em['tva_intra']}" if em.get("tva_intra") else None]
-        lignes = [" — ".join(x for x in identite if x), " · ".join(x for x in ids if x)]
+
+        def champ(*noms: str) -> str:
+            for source in (em, base):
+                for nom in noms:
+                    valeur = str(source.get(nom) or "").strip()
+                    if valeur:
+                        return valeur
+            return ""
+
+        denomination = champ("denomination", "nom")
+        forme = champ("forme_juridique")
+        capital = champ("capital")
+        adresse = champ("adresse_siege", "adresse")
+        siren = champ("siren")
+        siret = champ("siret")
+        rcs = champ("rcs")
+        tva = champ("tva_intra")
+
+        # « SAS au capital de 200,00 EUR » : la forme et le capital forment une seule mention.
+        # Séparés, on lirait « SAS — 200,00 EUR », qui ne veut rien dire.
+        if forme and capital:
+            entite = f"{denomination} — {forme} au capital de {capital}"
+        elif forme:
+            entite = f"{denomination} — {forme}"
+        elif capital:
+            entite = f"{denomination} — capital de {capital}"
+        else:
+            entite = denomination
+
+        immatriculation = " ".join(x for x in (_siren_lisible(siren), rcs) if x)
+        complements = [f"SIRET {siret}" if siret else None,
+                       f"TVA {tva}" if tva else None]
+        complement = " · ".join(x for x in complements if x)
+        if complement:
+            immatriculation = f"{immatriculation} · {complement}".strip(" ·")
+
+        lignes = [entite, adresse.replace(", ", " — "), immatriculation]
         mention = (snap.get("conformite") or {}).get("mention_tva")
         if mention:
             lignes.append(mention)
