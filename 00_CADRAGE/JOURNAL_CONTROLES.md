@@ -4804,3 +4804,78 @@ jusqu'ici et restaurée par cette mission — ils s'exécutent enfin réellement
 anomalie**, schéma **0071**, 18 sauvegardes enregistrées. Copie de sécurité du code
 (`..._SAUVEGARDE_AVANT_MODE_REEL_20260910`) vérifiée **intacte** : HEAD `1042195`, git propre,
 absente de `git worktree list`.
+
+---
+
+### CTR-FACTPROP-TVA-PAIEMENT-2026-09-10
+
+```
+Date       : 2026-09-10
+Lot        : Factures propriétaires — régime TVA, règlement, type de client
+Code       : FACTURE_REGIME_TVA_NON_CONFIRME / FACTURE_ECHEANCE_NON_CONFIGUREE
+             / FACTURE_TYPE_CLIENT_NON_DETERMINE
+Sévérité   : BLOQUANT (les trois)
+Fichier    : copie isolée de la vraie app.db (schéma 0072 → 0073)
+Résultat   : les TROIS blocages sont levés. Recette isolée complète, deux factures
+             (une PARTICULIER, une PROFESSIONNEL) menées de bout en bout :
+             conformité PRETE_A_EMETTRE, manques = [] dans les deux cas.
+Statut     : CORRIGÉ
+Commentaire: voir ci-dessous
+```
+
+**Décisions enregistrées.** Régime **franchise en base** (`FRANCHISE_TVA`, mention art. 293 B du
+CGI) ; **paiement à réception** (`FACTURATION_DELAI_PAIEMENT_JOURS=0`, échéance = date d'émission).
+Aucune des deux n'est écrite dans le gabarit PDF : toutes deux viennent du service canonique.
+
+**HT = TTC vérifié structurellement**, pas seulement sur des montants ronds : 543,78 / 0,00 /
+543,78 et 844,55 / 0,00 / 844,55 en recette, plus un test sur montants non ronds.
+
+**Défaut réel trouvé et corrigé — mécanisme parallèle de refacturation.** Le rattachement d'une
+charge refacturable, ajouté à la mission précédente, référençait la **charge** (`objet_source_type
+= "CHARGE"`) alors que `factures_proprietaires_service.valider()` impute une **position de
+refacturation** (`charges_refacturation_service.imputer(objet_source_ref, …)`). Toute facture
+composée depuis l'interface était donc **invalidable**, et l'échec n'apparaissait qu'au dernier
+clic sous la forme trompeuse `IMPUTATION_REFUSEE … Position introuvable` — un message qui accuse
+la position alors que le défaut est dans la ligne.
+
+Cause de fond : **deux sélecteurs pour une même question**. `charges_eligibles()` interrogeait
+`charges` avec ses propres filtres, en concurrence avec le sélecteur canonique
+`charges_refacturation_service.proposer_pour_facture()`. Corrections :
+
+- `charges_eligibles()` **délègue** désormais au sélecteur canonique (positions, pas charges) ;
+- `rattacher_charge()` consomme un `position_id` et écrit le contrat attendu ; le montant par
+  défaut est le **solde restant** de la position, pas le montant d'origine — une position
+  partiellement imputée ne peut plus être refacturée deux fois en entier ;
+- constante unique `svc.SOURCE_POSITION_REFAC`, partagée par le producteur et le consommateur ;
+- garde de contrat dans `valider()` : une ligne `CHARGE_REFACTUREE` de mauvaise source est refusée
+  avec un message qui **désigne la ligne**, plus « Position introuvable ».
+
+Vérifié en recette : position imputée 42,90 / statut `IMPUTEE`, une seule fois, pour les deux
+factures. Deux tests de non-régression ajoutés, dont un qui valide réellement une facture composée
+par le parcours d'interface — le chemin qui manquait et laissait passer le défaut.
+
+**Type de client — jamais deviné.** Table compagne `proprietaires_facturation` (migration 0073),
+et non une colonne de `ref_proprietaires`, qui est reconstruite à chaque import de `REF_Setup.xlsm`.
+Champ fermé (`CHECK` SQL + service), `A_CONTROLER` non stockable (c'est l'absence de ligne).
+Message actionnable à l'écran, pas le code technique seul. 18 tests dédiés, dont un jeu de cas
+« SARL_MARTIN », « SCI_LES_TILLEULS », « PROP_SAS_DEMO » qui vérifient qu'un identifiant à
+consonance de société **ne classe personne**.
+
+**Clauses B2B — aucune valeur métier inventée.** Audit préalable : aucun taux contractuel n'existe
+dans le projet. `FACTURATION_TAUX_PENALITES_RETARD` et `FACTURATION_INDEMNITE_RECOUVREMENT` restent
+**sans défaut dans le code** ; l'émission professionnelle est bloquée tant qu'ils ne sont pas
+renseignés. Vérifié sur les PDF : le particulier n'affiche **ni** pénalités **ni** indemnité de
+40 € ; le professionnel affiche les deux.
+
+**Comptabilité** — moteur existant réutilisé, aucune règle concurrente : `411000` débit /
+`706000` crédit, **0 ligne 4457*** (TVA collectée), débit = crédit, génération idempotente
+(deux appels → une écriture). La vente est constatée pour le **total facturé** (543,78) et non
+pour le montant restant dû (443,78) : l'acompte est un règlement déjà reçu, il ne diminue pas le
+chiffre d'affaires.
+
+**Limite assumée** : les glyphes `€` et `—` sont absents des polices de base latin-1 de fpdf2 et
+sont translittérés en `EUR` et `-`. Contenu légal identique, typographie dégradée. Corriger
+suppose d'embarquer une police Unicode redistribuable — décision non prise.
+
+**Vraie `app.db` : aucune facture définitive créée.** Toute la recette s'est déroulée sur une copie
+isolée. Scheduler resté OFF.

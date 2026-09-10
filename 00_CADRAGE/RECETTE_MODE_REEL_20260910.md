@@ -32,6 +32,20 @@ set FACTURES_REAL_WRITE_ENABLED=1& set FACTURES_REAL_WRITE_CONFIRMATION_ENABLED=
 set MENAGES_CYCLE_REAL_WRITE_ENABLED=1& set MENAGES_CYCLE_REAL_WRITE_CONFIRMATION_ENABLED=1
 set COMPTABILITE_REAL_WRITE_ENABLED=1&  set COMPTABILITE_REAL_WRITE_CONFIRMATION_ENABLED=1
 set BANQUE_REAL_WRITE_ENABLED=1&  set BANQUE_REAL_WRITE_CONFIRMATION_ENABLED=1
+rem --- Identite legale (Kbis du 2026-09-10). SIRET et TVA intra volontairement absents. ---
+set SOCIETE_NOM=CHOUETTE PATRIMOINE
+set SOCIETE_FORME_JURIDIQUE=SAS
+set SOCIETE_CAPITAL=200,00 EUR
+set SOCIETE_ADRESSE=48E Route de Larnavey, 33650 Saint-Selve
+set SOCIETE_SIREN=109624767
+set SOCIETE_RCS=R.C.S. Bordeaux
+rem --- Regime de TVA et conditions de reglement (confirmes le 2026-09-10) ---
+set FACTURATION_REGIME_TVA=FRANCHISE_TVA
+set FACTURATION_MENTION_FRANCHISE_TVA=TVA non applicable, art. 293 B du CGI
+set FACTURATION_DELAI_PAIEMENT_JOURS=0
+rem --- Clauses B2B : exigees uniquement face a un client PROFESSIONNEL ---
+set FACTURATION_TAUX_PENALITES_RETARD=3 fois le taux d'interet legal (art. L441-10 du code de commerce)
+set FACTURATION_INDEMNITE_RECOUVREMENT=40,00 EUR (art. D441-5 du code de commerce)
 %LOT4A_ENGINE_PYTHON% run_app.py
 ```
 
@@ -157,11 +171,30 @@ CHOUETTE PATRIMOINE — SAS au capital de 200,00 EUR
 109 624 767 R.C.S. Bordeaux
 ```
 
-**Reste à trancher avant émission** : le **régime de TVA** (`FACTURATION_REGIME_TVA` — franchise
-en base, exonération, ou assujetti) et sa mention légale. C'est une **décision métier**, pas une
-information du Kbis : l'absence de numéro de TVA intracommunautaire ne suffit pas à la déduire.
-Tant qu'il vaut `A_CONTROLER`, la conformité signale `FACTURE_REGIME_TVA` — le parcours reste
-complet et prévisualisable.
+### Régime de TVA et conditions de règlement — tranchés le 2026-09-10
+
+| Décision | Valeur | Variable |
+|---|---|---|
+| Régime de TVA | **franchise en base** | `FACTURATION_REGIME_TVA=FRANCHISE_TVA` |
+| Mention légale | « TVA non applicable, art. 293 B du CGI » | `FACTURATION_MENTION_FRANCHISE_TVA` |
+| Conditions de règlement | **paiement à réception** — échéance = date d'émission | `FACTURATION_DELAI_PAIEMENT_JOURS=0` |
+| Escompte | « Escompte pour paiement anticipé : néant » | `FACTURATION_CONDITIONS_ESCOMPTE` (défaut) |
+| Pénalités de retard (B2B) | à renseigner — **aucun défaut dans le code** | `FACTURATION_TAUX_PENALITES_RETARD` |
+| Indemnité de recouvrement (B2B) | à renseigner — **aucun défaut dans le code** | `FACTURATION_INDEMNITE_RECOUVREMENT` |
+
+Les factures sont émises **sans TVA**, et **HT = TTC est garanti par construction** : hors
+assujettissement, `taux_tva_applicable()` renvoie `0.0`, donc aucun arrondi ne peut faire diverger
+les deux totaux. Ni la mention ni l'échéance ne sont écrites dans le gabarit PDF — toutes deux
+viennent du service canonique, sans quoi un changement de régime laisserait la facture affirmer un
+fondement juridique devenu faux.
+
+`FACTURE_REGIME_TVA_NON_CONFIRME` et `FACTURE_ECHEANCE_NON_CONFIGUREE` sont **levés**.
+
+**Reste à faire avant la première émission réelle** : **classer chaque propriétaire**
+(particulier ou professionnel). L'application ne le devine pas — ni depuis le nom, ni depuis
+l'adresse, ni depuis la présence d'un SIREN — et bloque l'émission tant que le type n'est pas
+saisi, avec un message explicite sur la fiche. Les mentions légales obligatoires diffèrent entre
+les deux, et l'indemnité forfaitaire de 40 € n'a pas à figurer sur la facture d'un particulier.
 
 ## Anomalies relevées pendant la recette
 

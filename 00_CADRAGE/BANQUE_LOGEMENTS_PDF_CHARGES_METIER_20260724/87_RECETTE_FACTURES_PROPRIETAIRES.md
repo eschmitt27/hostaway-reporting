@@ -175,3 +175,67 @@ Instance sur copie migree **0028**, port 8044 (jamais 8000), configuration ficti
 s'imprimaient des qu'elles etaient configurees, sans regarder le type de client — visible en E2E
 sur une facture dont le client etait `A_CONTROLER`. Corrige (impression conditionnee a
 `PROFESSIONNEL`) et test du profil particulier renforce pour qu'il puisse attraper ce cas.
+
+## 10. Recette régime TVA / règlement / type de client (2026-09-10)
+
+Exécutée sur une **copie isolée de la vraie base** (schéma 0072 → 0073), configuration **réelle**
+(Kbis + franchise en base + paiement à réception). La vraie `app.db` n'a jamais été écrite :
+**aucune facture définitive, aucun numéro consommé**.
+
+### 10.1 Deux profils menés de bout en bout
+
+| Étape | PARTICULIER | PROFESSIONNEL |
+|---|---|---|
+| Conformité **avant** classement | `BLOQUEE` — `FACTURE_TYPE_CLIENT_NON_DETERMINE` | idem |
+| Classement saisi | `PARTICULIER` | `PROFESSIONNEL` (SIREN client renseigné) |
+| Position de refacturation proposée | solde 42,90 € | solde 42,90 € |
+| Postes | commissions 169,88 · ménages 261,00 · forfait 35,00 · refacturations 42,90 · extras 60,00 · réductions −25,00 | commissions 243,65 · ménages 483,00 · forfait 40,00 · refacturations 42,90 · extras 60,00 · réductions −25,00 |
+| Sous-total | 568,78 € | 869,55 € |
+| **TOTAL FACTURE** | **543,78 €** | **844,55 €** |
+| Acomptes | 100,00 € | 100,00 € |
+| **MONTANT DÛ** | **443,78 €** | **744,55 €** |
+| TOTAL HT / TVA / TTC | 543,78 / 0,00 / 543,78 — **HT = TTC** | 844,55 / 0,00 / 844,55 — **HT = TTC** |
+| Régime | `FRANCHISE_TVA` — « TVA non applicable, art. 293 B du CGI » | idem |
+| Conditions / échéance | « Paiement à réception » / **10/09/2026 = date d'émission** | idem |
+| Escompte | « Escompte pour paiement anticipé : néant » | idem |
+| Conformité **après** classement | `PRETE_A_EMETTRE`, manques `[]` | `PRETE_A_EMETTRE`, manques `[]` |
+| Numéro émis | `F-2026-000001` | `F-2026-000002` |
+| Position après validation | **imputée 42,90 € — `IMPUTEE`**, une seule fois | idem |
+| Écriture comptable | `411000` D 543,78 / `706000` C 543,78 | `411000` D 844,55 / `706000` C 844,55 |
+| Idempotence | 2 appels → **1 écriture** | 2 appels → **1 écriture** |
+
+`TOTAL FACTURE ≠ MONTANT DÛ` dans les deux cas : l'acompte est un règlement déjà reçu et **ne
+diminue pas** le chiffre d'affaires — le produit comptabilisé reste le total facturé.
+
+### 10.2 Contenu réel des deux PDF (extraction texte)
+
+| Mention | PARTICULIER | PROFESSIONNEL |
+|---|---|---|
+| « TVA non applicable, art. 293 B du CGI » | ✅ | ✅ |
+| « Conditions de règlement : Paiement à réception » | ✅ | ✅ |
+| « Échéance de paiement : 10/09/2026 » | ✅ | ✅ |
+| « Escompte pour paiement anticipé : néant » | ✅ | ✅ |
+| « Pénalités de retard : … » | **absent** | ✅ |
+| « Indemnité forfaitaire de recouvrement : 40,00 EUR … » | **absent** | ✅ |
+| SIREN `109 624 767` + `R.C.S. Bordeaux` + capital 200,00 | ✅ | ✅ |
+| Étiquette « SIRET : » | **absent** (non fourni) | **absent** |
+| Étiquette « TVA intracommunautaire : » | **absent** (non fournie) | **absent** |
+
+L'indemnité de 40 € n'est **pas** ajoutée indistinctement : elle n'apparaît que face à un client
+explicitement professionnel.
+
+### 10.3 Défaut trouvé et corrigé pendant cette recette
+
+`IMPUTATION_REFUSEE CHG-… : Position introuvable` au moment de la validation. Le rattachement
+d'une charge refacturable référençait la **charge**, alors que `valider()` impute une **position de
+refacturation**. Toute facture composée depuis l'interface était donc invalidable, et l'échec
+n'apparaissait qu'au dernier clic — avec un message qui accusait la position au lieu de la ligne.
+Corrigé à la racine (sélecteur canonique unique, contrat partagé, garde explicite) ; voir
+`JOURNAL_CONTROLES.md`, entrée `CTR-FACTPROP-TVA-PAIEMENT-2026-09-10`.
+
+### 10.4 Deux défauts de présentation corrigés
+
+- « Escompte : Escompte pour paiement anticipé : néant » — le libellé était préfixé à une mention
+  qui est déjà une phrase complète. Le libellé n'est plus ajouté quand la valeur le porte déjà ;
+- étiquettes du PDF sans accents (« Reglement », « Echeance », « Penalites ») alors que les
+  valeurs, elles, étaient accentuées. Le latin-1 les supporte : elles sont désormais accentuées.

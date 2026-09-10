@@ -3117,8 +3117,73 @@ comptage. Aucune fuite de chemin, aucune PII, SIREN présent, SIRET absent.
 
 ### Prochaine action unique
 
-**Renseigner l'identité légale complète** (`SOCIETE_ADRESSE`, `SOCIETE_SIRET`,
-`SOCIETE_FORME_JURIDIQUE`, `SOCIETE_CAPITAL`, `SOCIETE_RCS`, `SOCIETE_TVA_INTRA`) puis émettre la
-**première facture propriétaire réelle**. Tant que l'adresse du siège manque, le parcours est
-complet et prévisualisable mais l'émission réelle reste bloquée — par conception, rien n'étant
-inventé.
+> **Traitée le 2026-09-10** (missions 21 et 22 ci-dessous) : identité légale renseignée depuis le
+> Kbis, régime de TVA et conditions de règlement confirmés. Voir la prochaine action de la
+> mission 22.
+
+---
+
+## Mission 22 (2026-09-10) — régime TVA, conditions de règlement, type de client : facturation propriétaire émissible
+
+**Les trois blocages d'émission sont levés.** `FACTURE_REGIME_TVA_NON_CONFIRME`,
+`FACTURE_ECHEANCE_NON_CONFIGUREE` et `FACTURE_TYPE_CLIENT_NON_DETERMINE` ne sont plus des impasses.
+Détail complet : `88_CONFORMITE_FACTURES_PROPRIETAIRES.md` §4.1, §4.2, §5.1, §7.1, §7.2, §15 ;
+journal : `00_CADRAGE/JOURNAL_CONTROLES.md` entrée `CTR-FACTPROP-TVA-PAIEMENT-2026-09-10`.
+
+| Décision | Valeur | Où elle vit |
+|---|---|---|
+| Régime de TVA | **franchise en base**, mention art. 293 B du CGI | `FACTURATION_REGIME_TVA`, `FACTURATION_MENTION_FRANCHISE_TVA` |
+| Conditions de règlement | **paiement à réception**, échéance = date d'émission | `FACTURATION_DELAI_PAIEMENT_JOURS=0` |
+| Escompte | « Escompte pour paiement anticipé : néant » | `FACTURATION_CONDITIONS_ESCOMPTE` |
+| Pénalités / indemnité B2B | **sans défaut dans le code**, saisie exigée | `FACTURATION_TAUX_PENALITES_RETARD`, `FACTURATION_INDEMNITE_RECOUVREMENT` |
+| Type de client | **saisi, jamais déduit** | table `proprietaires_facturation` (migration **0073**) |
+
+Rien de tout cela n'est écrit dans le gabarit PDF : la mention de TVA hardcodée survivrait à un
+changement de régime et transformerait la facture en fausse déclaration fiscale. **HT = TTC est
+garanti par construction** (`taux_tva_applicable()` renvoie `0.0` hors assujettissement), vérifié
+aussi sur montants non ronds.
+
+**Défaut réel corrigé — mécanisme parallèle de refacturation.** Le rattachement d'une charge
+référençait la **charge** là où `valider()` impute une **position de refacturation** : toute
+facture composée depuis l'interface était **invalidable**, et l'échec n'apparaissait qu'au dernier
+clic sous la forme trompeuse `IMPUTATION_REFUSEE … Position introuvable`. Cause de fond : deux
+sélecteurs concurrents pour une même question. `charges_eligibles()` délègue désormais au sélecteur
+canonique `charges_refacturation_service.proposer_pour_facture()`, `rattacher_charge()` consomme un
+`position_id` et prend le **solde restant** comme montant, une constante unique
+(`svc.SOURCE_POSITION_REFAC`) lie producteur et consommateur, et `valider()` refuse une ligne de
+mauvaise source avec un message qui désigne la ligne.
+
+**Recette isolée, deux factures menées de bout en bout** (copie de la vraie base, jamais la vraie) :
+
+| | PARTICULIER | PROFESSIONNEL |
+|---|---|---|
+| Conformité | `PRETE_A_EMETTRE`, manques `[]` | `PRETE_A_EMETTRE`, manques `[]` |
+| TOTAL FACTURE | 543,78 € | 844,55 € |
+| Acomptes | 100,00 € | 100,00 € |
+| MONTANT DÛ | 443,78 € | 744,55 € |
+| HT / TVA / TTC | 543,78 / 0,00 / 543,78 | 844,55 / 0,00 / 844,55 |
+| Position refacturée | 42,90 € — `IMPUTEE`, une fois | 42,90 € — `IMPUTEE`, une fois |
+| Écriture | `411000` D = `706000` C = 543,78 | `411000` D = `706000` C = 844,55 |
+| Pénalités / indemnité 40 € | **absentes du PDF** | **présentes** |
+
+**Comptabilité** : moteur existant réutilisé, **0 ligne 4457\*** (TVA collectée), débit = crédit,
+génération **idempotente**. La vente est constatée pour le **total facturé**, jamais pour le
+montant restant dû — un acompte est un règlement déjà reçu, pas une remise.
+
+**Tests** : +35 (18 sur le classement du type de client, 6 sur TVA/échéance, 3 sur la
+comptabilisation en franchise, 8 sur le contrat de refacturation dont deux de non-régression qui
+valident réellement une facture composée par le parcours d'interface — le chemin qui manquait).
+
+**Limite assumée** : `€` et `—` sont absents des polices latin-1 de fpdf2 et sont translittérés en
+`EUR` et `-`. Contenu légal identique, typographie dégradée ; corriger suppose d'embarquer une
+police Unicode redistribuable — décision non prise.
+
+**Vraie `app.db` : aucune facture définitive créée, aucun numéro consommé.** Scheduler resté OFF.
+
+### Prochaine action unique
+
+**Classer les propriétaires historiques** (particulier ou professionnel) depuis la fiche facture,
+puis émettre la **première facture propriétaire réelle**. L'application ne devine pas ce type :
+c'est le dernier geste humain requis, et il est bloquant par conception — les mentions légales
+obligatoires diffèrent, et une déduction automatique imprimerait des pénalités de retard chez un
+particulier.
