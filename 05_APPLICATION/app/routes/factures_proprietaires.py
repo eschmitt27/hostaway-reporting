@@ -9,11 +9,12 @@ from pathlib import Path
 
 import app.config as cfg
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from app.template_env import get_templates
 from app.readers import proprietaires_reader as prop_reader
 from app.services import comptabilite_ecritures_service as compta
 from app.services import facturation_config_service as fconf
+from app.services import factures_proprietaires_composition_service as compo
 from app.services import factures_proprietaires_conformite_service as conformite
 from app.services import factures_proprietaires_pdf as pdf
 from app.services import factures_proprietaires_edition_service as edition
@@ -149,6 +150,13 @@ def _contexte_fiche(facture_id: str, erreur: str | None = None) -> dict:
         "modes_charge": edition.modes_charge(),
         "categories_charges": edition.categories_charges(),
         "reservations": svc.reservations(facture_id),
+        # Décomposition et charges éligibles : calculées CÔTÉ SERVEUR, à chaque affichage. Le total
+        # affiché ne peut donc pas diverger du total réel — il n'existe pas de seconde addition,
+        # ni en JavaScript ni dans le gabarit.
+        "decomposition": compo.decomposition(facture_id),
+        "periode": compo.periode(facture["mois"]),
+        "charges_eligibles": (compo.charges_eligibles(facture_id)
+                              if facture["statut"] == svc.ST_BROUILLON else []),
         "emetteur": _emetteur(),
         "destinataire": _destinataire(facture["proprietaire_id"]),
         "peut_valider": facture["statut"] == svc.ST_BROUILLON,
@@ -292,6 +300,81 @@ async def ligne_supprimer(request: Request, facture_id: str, ligne_id: str):
         return _refus_fiche(request, facture_id, f"Ligne non supprimée : {exc}")
     _ = form
     return _retour(facture_id)
+
+
+@router.post("/factures-proprietaires/{facture_id}/extra")
+async def ajouter_extra(request: Request, facture_id: str):
+    """Ajoute un EXTRA (prestation ponctuelle). Montant strictement positif."""
+    form = await request.form()
+    try:
+        compo.ajouter_extra(facture_id,
+                            libelle=str(form.get("libelle", "") or ""),
+                            montant=form.get("montant"),
+                            commentaire=str(form.get("commentaire", "") or ""),
+                            acteur="interface")
+    except svc.FactureProprietaireError as exc:
+        return _refus_fiche(request, facture_id, f"Extra non ajouté : {exc}")
+    return _retour(facture_id)
+
+
+@router.post("/factures-proprietaires/{facture_id}/reduction")
+async def ajouter_reduction(request: Request, facture_id: str):
+    """Ajoute une RÉDUCTION commerciale. Saisie en positif, stockée en négatif.
+
+    Distincte d'un acompte : elle diminue ce qui est FACTURÉ, pas ce qui reste à payer.
+    """
+    form = await request.form()
+    try:
+        compo.ajouter_reduction(facture_id,
+                                libelle=str(form.get("libelle", "") or "Remise commerciale"),
+                                montant=form.get("montant"),
+                                motif=str(form.get("motif", "") or ""),
+                                acteur="interface")
+    except svc.FactureProprietaireError as exc:
+        return _refus_fiche(request, facture_id, f"Réduction non ajoutée : {exc}")
+    return _retour(facture_id)
+
+
+@router.post("/factures-proprietaires/{facture_id}/charge-existante")
+async def rattacher_charge(request: Request, facture_id: str):
+    """Rattache une charge DÉJÀ SAISIE. Le montant vient de la charge, jamais d'une saisie ici."""
+    form = await request.form()
+    try:
+        compo.rattacher_charge(facture_id, str(form.get("charge_id", "") or "").strip(),
+                               libelle=str(form.get("libelle", "") or ""), acteur="interface")
+    except svc.FactureProprietaireError as exc:
+        return _refus_fiche(request, facture_id, f"Charge non rattachée : {exc}")
+    return _retour(facture_id)
+
+
+@router.post("/factures-proprietaires/{facture_id}/lignes/{ligne_id}/detacher-charge")
+def detacher_charge(request: Request, facture_id: str, ligne_id: str):
+    """Retire une charge RATTACHÉE. La charge redevient immédiatement sélectionnable."""
+    try:
+        compo.detacher_charge(facture_id, ligne_id, acteur="interface")
+    except svc.FactureProprietaireError as exc:
+        return _refus_fiche(request, facture_id, f"Charge non détachée : {exc}")
+    return _retour(facture_id)
+
+
+@router.get("/factures-proprietaires/{facture_id}/previsualiser")
+def previsualiser_pdf(facture_id: str):
+    """Prévisualisation : le PDF RÉEL, rendu par le même moteur que le document final.
+
+    Volontairement pas un second gabarit HTML « qui ressemble » : deux rendus divergeraient, et
+    l'utilisateur validerait un aperçu différent de ce que recevra le propriétaire. Un BROUILLON
+    est rendu à chaud (il change à chaque modification) ; une facture ÉMISE rend son snapshot figé.
+    """
+    document = compo.document(facture_id, emetteur=_emetteur(),
+                              destinataire=_destinataire(svc.lire(facture_id)["proprietaire_id"]))
+    if not document.get("conformite"):
+        document["conformite"] = conformite.construire(
+            svc.lire(facture_id),
+            date_facture=document.get("date_facture") or f"{document.get('mois')}-01")
+    octets = pdf.rendre(document)
+    entetes = {"Content-Disposition":
+               f'inline; filename="apercu-{facture_id}.pdf"'}
+    return Response(content=octets, media_type="application/pdf", headers=entetes)
 
 
 @router.post("/factures-proprietaires/{facture_id}/reversement-airbnb")

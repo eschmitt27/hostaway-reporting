@@ -21,12 +21,123 @@
 
 <div class="card">
   <h3>Identités</h3>
+  {# SIREN (entreprise, 9 chiffres) et SIRET (établissement, 14) sont deux identifiants
+     distincts : l'un ne remplace pas l'autre à l'affichage, et aucun n'est déduit de l'autre.
+     L'identité est complète dès que l'un des deux est renseigné. #}
   <p><strong>Émetteur :</strong> {{ emetteur.nom or "— non renseigné —" }}
-     {% if not emetteur.nom or not emetteur.siret %}
+     {% if emetteur.siren %}· SIREN {{ emetteur.siren }}{% endif %}
+     {% if emetteur.siret %}· SIRET {{ emetteur.siret }}{% endif %}
+     {% if not emetteur.nom or not emetteur.adresse or not (emetteur.siret or emetteur.siren) %}
      <span class="badge">FACTURE_PROPRIETAIRE_IDENTITE_INCOMPLETE</span>
      {% endif %}</p>
+  {% if not emetteur.adresse %}
+  <p class="text-xs text-secondary">Adresse du siège non renseignée (<code>SOCIETE_ADRESSE</code>) —
+     mention légale obligatoire, à fournir avant toute émission réelle. Rien n'est inventé ici.</p>
+  {% endif %}
   <p><strong>Destinataire :</strong> {{ destinataire.nom }}</p>
 </div>
+
+{# ── LE MONTANT DÛ, ET COMMENT ON Y ARRIVE ────────────────────────────────────
+   Tous les chiffres viennent de `decomposition()`, calculée côté serveur à
+   chaque affichage. Le gabarit n'additionne rien : il ne peut donc pas afficher
+   un total différent de celui qui sera facturé. Aucun JavaScript n'intervient. #}
+<div class="card" id="montant-du">
+  <h3>Montant dû</h3>
+  <table class="table" style="max-width:520px">
+    <tbody>
+      {% for p in decomposition.postes %}{% if p.nb and p.cle != "reductions" %}
+      <tr><td>{{ p.libelle }} <span class="text-xs text-secondary">({{ p.nb }})</span></td>
+          <td class="text-right">{{ "%.2f"|format(p.montant) }} €</td></tr>
+      {% endif %}{% endfor %}
+      <tr><td><strong>Sous-total</strong></td>
+          <td class="text-right"><strong>{{ "%.2f"|format(decomposition.sous_total) }} €</strong></td></tr>
+      {% if decomposition.total_reductions %}
+      <tr><td>Réductions</td>
+          <td class="text-right">− {{ "%.2f"|format(decomposition.total_reductions) }} €</td></tr>
+      {% endif %}
+      {% if decomposition.total_acomptes %}
+      <tr><td>Acomptes déjà versés</td>
+          <td class="text-right">− {{ "%.2f"|format(decomposition.total_acomptes) }} €</td></tr>
+      {% endif %}
+      <tr style="border-top:2px solid #8C4336">
+          <td><strong>MONTANT DÛ</strong></td>
+          <td class="text-right"><strong>{{ "%.2f"|format(decomposition.montant_du) }} €</strong></td></tr>
+    </tbody>
+  </table>
+  <p class="text-xs text-secondary">
+    Total facturé {{ "%.2f"|format(decomposition.total_facture) }} € − acomptes
+    {{ "%.2f"|format(decomposition.total_acomptes) }} €. Une <strong>réduction</strong> diminue ce
+    qui est facturé et figure dans les lignes ; un <strong>acompte</strong> est un paiement déjà
+    reçu, il diminue seulement ce qui reste à payer. Les deux ne sont jamais confondus.
+  </p>
+  <p><a class="btn" href="/factures-proprietaires/{{ facture.facture_id_opaque }}/previsualiser"
+        target="_blank" rel="noopener">Prévisualiser la facture (PDF)</a></p>
+  <p class="text-xs text-secondary">La prévisualisation est le PDF réel, produit par le même
+     moteur de rendu que le document final — il n'existe pas de second modèle.</p>
+</div>
+
+{% if editable %}
+{# ── Actions d'édition du BROUILLON ────────────────────────────────────────── #}
+<div class="card" id="ajustements">
+  <h3>Ajouter au brouillon</h3>
+
+  <h4>Charge refacturable déjà saisie</h4>
+  {% if charges_eligibles %}
+  <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/charge-existante">
+    <div class="table-container">
+    <table class="table">
+      <thead><tr><th></th><th>Date</th><th>Catégorie</th><th>Logement</th>
+                 <th>Justificatif</th><th class="text-right">Montant</th></tr></thead>
+      <tbody>
+        {% for c in charges_eligibles %}
+        <tr><td><input type="radio" name="charge_id" value="{{ c.charge_id }}" required></td>
+            <td>{{ c.date_charge or "—" }}</td><td>{{ c.categorie_charge_id or "—" }}</td>
+            <td>{{ c.logement_id or "(commune)" }}</td>
+            <td class="text-xs">{{ c.justificatif or c.commentaire or "—" }}</td>
+            <td class="text-right">{{ "%.2f"|format(c.montant) }} €</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <button type="submit" class="btn btn-primary">Rattacher la charge sélectionnée</button>
+  </form>
+  <p class="text-xs text-secondary">Seules les charges ACTIVE, marquées refacturables, du bon
+     propriétaire/logement et <strong>non encore facturées</strong> apparaissent ici. Le montant
+     vient de la charge : il n'est pas ressaisi, et la charge n'est jamais recréée.</p>
+  {% else %}
+  <p class="text-muted">Aucune charge refacturable disponible pour ce propriétaire.
+     Une charge déjà rattachée à une autre facture n'est plus proposée.</p>
+  {% endif %}
+
+  <h4>Extra</h4>
+  <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/extra">
+    <label for="extra_libelle">Libellé</label>
+    <input type="text" id="extra_libelle" name="libelle" required maxlength="160"
+           placeholder="Intervention ponctuelle, prestation supplémentaire…">
+    <label for="extra_montant">Montant (€)</label>
+    <input type="number" id="extra_montant" name="montant" step="0.01" min="0.01" required>
+    <label for="extra_commentaire">Note (facultatif)</label>
+    <input type="text" id="extra_commentaire" name="commentaire" maxlength="240">
+    <button type="submit" class="btn">Ajouter l'extra</button>
+  </form>
+  <p class="text-xs text-secondary">Un extra augmente la facture. Pour la diminuer, utiliser une
+     réduction — un extra négatif est refusé.</p>
+
+  <h4>Réduction</h4>
+  <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/reduction">
+    <label for="red_libelle">Libellé</label>
+    <input type="text" id="red_libelle" name="libelle" value="Remise commerciale" required
+           maxlength="160">
+    <label for="red_montant">Montant à déduire (€)</label>
+    <input type="number" id="red_montant" name="montant" step="0.01" min="0.01" required>
+    <label for="red_motif">Motif</label>
+    <input type="text" id="red_motif" name="motif" maxlength="240">
+    <button type="submit" class="btn">Ajouter la réduction</button>
+  </form>
+  <p class="text-xs text-secondary">Saisir un montant positif : il sera déduit. Une réduction ne
+     peut pas rendre la facture négative.</p>
+</div>
+{% endif %}
 
 <div class="card" id="lignes-facturees">
   <h3>Lignes facturées</h3>
@@ -232,28 +343,50 @@
      ni charge, ni facture.</p>
 </div>
 
+{# ── Séjours de la période et commission ──────────────────────────────────────
+   AUCUNE donnée personnelle du voyageur n'est affichée (ni nom, ni e-mail, ni
+   téléphone) : la référence de réservation suffit à retrouver le séjour, et
+   l'écran comme le PDF doivent pouvoir circuler sans emporter de PII. #}
 <div class="card" id="reservations">
-  <h3>Réservations de la période</h3>
+  <h3>Séjours de la période et commission</h3>
+  <p class="text-xs text-secondary">
+    Période facturée : {{ periode.mois }}
+    {% if periode.debut %}(du {{ periode.debut }} au {{ periode.fin }}){% endif %}
+  </p>
   {% if reservations %}
+  <div class="table-container">
   <table class="table">
-    <thead><tr><th>Voyageur</th><th>Check-in</th><th>Check-out</th>
-               <th class="text-right">Nuits</th><th class="text-right">Voyageurs</th>
-               <th>Plateforme</th><th class="text-right">Total payout</th></tr></thead>
+    <thead><tr><th>Arrivée</th><th>Départ</th><th class="text-right">Nuits</th>
+               <th>Canal</th><th>Référence</th>
+               <th class="text-right">Assiette</th><th class="text-right">Taux</th>
+               <th class="text-right">Commission</th></tr></thead>
     <tbody>
       {% for r in reservations %}
-      <tr><td>{{ r.guest_name or r.reservation_id }}</td><td>{{ r.check_in }}</td>
-          <td>{{ r.check_out }}</td><td class="text-right">{{ r.nights }}</td>
-          <td class="text-right">{{ r.guest_count }}</td><td>{{ r.plateforme or "—" }}</td>
-          <td class="text-right">{{ "%.2f"|format(r.payout or 0) }} €</td></tr>
+      <tr><td>{{ r.check_in }}</td><td>{{ r.check_out }}</td>
+          <td class="text-right">{{ r.nights }}</td>
+          <td>{{ r.plateforme or "—" }}</td>
+          <td class="font-mono text-xs">{{ r.reservation_id }}</td>
+          <td class="text-right">
+            {%- if r.assiette_commission is not none %}{{ "%.2f"|format(r.assiette_commission) }} €
+            {%- else %}{{ "%.2f"|format(r.payout or 0) }} €{% endif -%}
+          </td>
+          <td class="text-right">
+            {%- if r.taux_commission is not none %}{{ "%.2f"|format((r.taux_commission|float) * 100 if (r.taux_commission|float) <= 1 else (r.taux_commission|float)) }} %{% else %}—{% endif -%}
+          </td>
+          <td class="text-right">
+            {%- if r.commission is not none %}{{ "%.2f"|format(r.commission) }} €{% else %}—{% endif -%}
+          </td></tr>
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
   <p class="text-muted">Aucune réservation figée pour cette facture.</p>
   {% endif %}
   <p class="text-xs text-secondary">Instantané figé à la création du brouillon, et jamais
-     re-dérivé : une extraction Hostaway ultérieure ne peut plus modifier ce tableau. Purement
-     informatif — n'entre dans aucun total de la facture.</p>
+     re-dérivé : une extraction Hostaway ultérieure ne peut plus modifier ce tableau.
+     Assiette, taux et commission proviennent du calcul mensuel (Lot10) et ne sont jamais
+     recalculés ici — seule la ligne « Commission » du détail des frais entre dans le total.</p>
 </div>
 
 <div class="card">
