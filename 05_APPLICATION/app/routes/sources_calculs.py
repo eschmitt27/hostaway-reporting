@@ -5,14 +5,28 @@ from app.adapters.pipeline_registry import list_scripts
 from app.adapters.pipeline_runner import run_pipeline
 from app.db.connection import get_db
 from app.readers.run_log_reader import get_last_runs
+from app.services import path_sanitizer as ps
 
 router = APIRouter()
 templates = get_templates()
 
 
+def _scripts_affichables() -> dict:
+    """`list_scripts()` porte le chemin ABSOLU de chaque moteur — utile au runner, jamais affichable
+    (APP-SEC-1 : aucun chemin réel ni nom d'utilisateur côté client). Le worktree vivant sous le
+    profil Windows, l'écran publiait le nom d'utilisateur en clair sur chaque ligne."""
+    sanitises = {}
+    for nom, info in list_scripts().items():
+        copie = dict(info)
+        if copie.get("path"):
+            copie["path"] = ps.sanitize_text(copie["path"])
+        sanitises[nom] = copie
+    return sanitises
+
+
 @router.get("/sources-calculs", response_class=HTMLResponse)
 def sources_calculs(request: Request):
-    scripts = list_scripts()
+    scripts = _scripts_affichables()
     runs = _get_recent_pipeline_runs()
     run_log = get_last_runs(max_rows=20)
     return templates.TemplateResponse(request, "sources_calculs.html", {

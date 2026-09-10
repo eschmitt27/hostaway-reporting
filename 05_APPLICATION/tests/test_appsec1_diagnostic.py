@@ -38,6 +38,32 @@ def test_04_health_pas_nom_profil(client):
     assert "Ewan" not in client.get("/health").text
 
 
+# ── 4c-4d : écrans de pilotage — aucun chemin réel rendu (mission 19, fuites réelles) ─────────
+#
+# Trouvées en balayant les 102 écrans de l'instance de recette réelle : `/calculs` publiait
+# `cfg.PROJECT_ROOT` ET le chemin absolu de l'interpréteur des lots ; `/sources-calculs` publiait le
+# chemin absolu de CHAQUE moteur. Le worktree vivant sous le profil Windows, le nom d'utilisateur
+# était donc en clair. Le défaut historique de `LOT4A_ENGINE_PYTHON`
+# (`C:\Program Files\Python312\python.exe`) ne contenait pas de nom d'utilisateur, ce qui masquait
+# la fuite tant que l'interpréteur n'était pas reconfiguré.
+
+def test_04c_calculs_ne_publie_aucun_chemin_reel(client, tmp_db, monkeypatch):
+    """L'écran de pilotage des calculs affiche des jetons logiques, jamais un chemin réel."""
+    monkeypatch.setattr(cfg, "LOT4A_ENGINE_PYTHON",
+                        Path(cfg.PROJECT_ROOT) / ".venv" / "Scripts" / "python.exe")
+    texte = client.get("/calculs").text
+    for interdit in ("C:\\Users", "OneDrive", str(cfg.PROJECT_ROOT)):
+        assert interdit not in texte, f"/calculs publie {interdit}"
+    assert "&lt;PROJECT_ROOT&gt;" in texte or "<PROJECT_ROOT>" in texte
+
+
+def test_04d_sources_calculs_ne_publie_aucun_chemin_reel(client, tmp_db):
+    """Le chemin absolu de chaque moteur ne doit jamais atteindre le client."""
+    texte = client.get("/sources-calculs").text
+    for interdit in ("C:\\Users", "OneDrive", str(cfg.PROJECT_ROOT)):
+        assert interdit not in texte, f"/sources-calculs publie {interdit}"
+
+
 def test_04b_health_contrat_exact(client):
     body = client.get("/health").json()
     assert set(body.keys()) == {"status", "application", "database", "sources", "writers_enabled"}

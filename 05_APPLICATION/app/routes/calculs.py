@@ -11,9 +11,25 @@ from app.template_env import get_templates
 
 from app.services import calculs_executeur_service as ex
 from app.services import calculs_pipeline_service as pipe
+from app.services import path_sanitizer as ps
 
 router = APIRouter()
 templates = get_templates()
+
+
+def _interpreteur_affichable() -> dict:
+    """`verifier_interpreteur()` rend le chemin ABSOLU de l'interpréteur des lots — nécessaire au
+    service, jamais affichable (APP-SEC-1 : aucun chemin réel ni nom d'utilisateur côté client).
+
+    Le défaut historique (`C:\\Program Files\\Python312\\python.exe`) ne contenait pas de nom
+    d'utilisateur, ce qui masquait le problème ; dès que l'installation pointe un interpréteur sous
+    le profil utilisateur (venv du projet, par exemple), l'écran le publiait en clair.
+    """
+    etat = dict(ex.verifier_interpreteur())
+    for cle in ("chemin", "message"):
+        if etat.get(cle):
+            etat[cle] = ps.sanitize_text(etat[cle])
+    return etat
 
 # La chaîne ménages n'est PAS proposée ici : elle démarre par lot6b, qui interroge réellement la
 # feuille Google des déclarations internes. Elle se lance depuis /menages/chaine, qui copie les
@@ -39,9 +55,9 @@ def calculs_accueil(request: Request, mois: str = "", chaine: str = "aval",
         "active_menu": "calculs", "mois": mois, "chaine": chaine, "chaines": CHAINES,
         "lots": [ex.TOUS_LES_LOTS[n] for n in lots if n in ex.TOUS_LES_LOTS],
         "prerequis": ex.verifier_prerequis(lots),
-        "interpreteur": ex.verifier_interpreteur(),
+        "interpreteur": _interpreteur_affichable(),
         "mode": pipe.MODE_RECETTE if cfg.RECETTE_MODE else pipe.MODE_REEL,
-        "racine": str(cfg.PROJECT_ROOT),
+        "racine": ps.sanitize_text(cfg.PROJECT_ROOT),
         "runs": pipe.lister_runs(mois, limit=10),
         "cloture": pipe.statut_cloture(mois),
         "conditions": pipe.conditions_cloture(mois),
