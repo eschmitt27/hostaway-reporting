@@ -201,6 +201,38 @@ def test_echeance_non_configuree_bloque(db, config, client_particulier):
     assert any(m["code"] == conformite.C_ECHEANCE for m in res["manques"])
 
 
+def test_echeance_non_configuree_donne_un_message_actionnable(db, config, client_particulier):
+    """Un code technique seul (« FACTURE_ECHEANCE_NON_CONFIGUREE ») ne dit pas quoi faire."""
+    config(FACTURATION_DELAI_PAIEMENT_JOURS=None)
+    f = svc.creer(source(), db_path=db)
+    res = conformite.verifier(f, date_facture="2026-08-01", db_path=db)
+    message = next(m["message"] for m in res["manques"] if m["code"] == conformite.C_ECHEANCE)
+    assert "FACTURATION_DELAI_PAIEMENT_JOURS" in message and "0" in message
+
+
+def test_paiement_a_reception_echeance_egale_date_emission(db, config, client_particulier):
+    """Régime retenu : paiement à réception. `0` n'est pas « pas de délai » mais « échéance le
+    jour de l'émission » — la nuance décide si la facture est exigible immédiatement."""
+    config(FACTURATION_DELAI_PAIEMENT_JOURS="0")
+    f = svc.creer(source(), db_path=db)
+    bloc = conformite.construire(f, date_facture="2026-08-01", db_path=db)
+    assert bloc["date_echeance"] == "2026-08-01"
+    assert bloc["conditions_paiement"] == "Paiement à réception"
+    res = conformite.verifier(f, date_facture="2026-08-01", db_path=db)
+    assert conformite.C_ECHEANCE not in [m["code"] for m in res["manques"]]
+
+
+def test_delai_zero_nest_pas_confondu_avec_absence(db, config):
+    """`0` et « non configuré » se ressemblent en Python (`not 0` est vrai) : la distinction doit
+    tenir sur le type, pas sur la véracité."""
+    config(FACTURATION_DELAI_PAIEMENT_JOURS="0")
+    assert fconf.delai_paiement_jours() == 0
+    config(FACTURATION_DELAI_PAIEMENT_JOURS=None)
+    assert fconf.delai_paiement_jours() is None
+    assert conformite.date_echeance("2026-08-01", 0) == "2026-08-01"
+    assert conformite.date_echeance("2026-08-01", None) is None
+
+
 # ── Particulier vs professionnel ────────────────────────────────────────────────────────────────
 
 def test_particulier_sans_clause_b2b(db, config, client_particulier):
@@ -243,6 +275,31 @@ def test_franchise_ht_egale_ttc(db, config, client_particulier):
     assert bloc["total_tva"] == 0.0
     assert bloc["total_ht"] == bloc["total_ttc"] == 500.0
     assert bloc["mention_tva"]
+
+
+def test_franchise_ht_egale_ttc_sur_montants_non_ronds(db, config, client_particulier):
+    """L'égalité HT = TTC doit être structurelle, pas un heureux hasard des montants ronds :
+    en franchise, le taux vaut 0 et aucun arrondi ne peut faire diverger les deux totaux."""
+    f = svc.creer(source(COMMISSION_CONCIERGERIE=169.88, MENAGE_FACTURE=261.03,
+                         CHARGE_FIXE=35.07, montant_du_conciergerie=465.98), db_path=db)
+    config()
+    bloc = conformite.construire(f, date_facture="2026-08-01", db_path=db)
+    assert bloc["total_tva"] == 0.0
+    assert bloc["total_ht"] == bloc["total_ttc"] == 465.98
+    assert fconf.taux_tva_applicable() == 0.0
+
+
+def test_franchise_mention_vient_de_la_configuration_pas_du_gabarit(db, config,
+                                                                    client_particulier, tmp_path):
+    """La mention de l'article 293 B est un PARAMÈTRE. Écrite en dur dans le PDF, elle survivrait
+    à un changement de régime et transformerait la facture en fausse déclaration."""
+    config(FACTURATION_MENTION_FRANCHISE_TVA="Mention pilotee par la configuration")
+    f = svc.creer(source(), db_path=db)
+    bloc = conformite.construire(f, date_facture="2026-08-01", db_path=db)
+    assert bloc["mention_tva"] == "Mention pilotee par la configuration"
+    emise = _emettre(db, f["facture_id_opaque"], repertoire=tmp_path / "pdf")
+    texte = _texte_pdf(tmp_path / "pdf" / "2026" / "07" / emise["document_nom"])
+    assert "Mention pilotee par la configuration" in texte
 
 
 def test_assujetti_calcule_la_tva(db, config, client_particulier):
@@ -362,13 +419,13 @@ def test_pdf_particulier(db, config, client_particulier, tmp_path):
     # (« 000 000 000 RCS … »). L'étiquette explicite reste réservée au SIRET et à la TVA.
     assert "000 000 000" in texte
     assert "RCS DEMO 000 000 000" in texte
-    assert "Periode des prestations : du 01/07/2026 au 31/07/2026" in texte
+    assert "Période des prestations : du 01/07/2026 au 31/07/2026" in texte
     assert "TOTAL HT" in texte and "TOTAL TTC" in texte
-    assert "Echeance de paiement : 31/08/2026" in texte
+    assert "Échéance de paiement : 31/08/2026" in texte
     assert "Mention de franchise" in texte
     # Aucune clause professionnelle sur une facture adressée à un particulier.
-    assert "Penalites de retard" not in texte
-    assert "Indemnite forfaitaire" not in texte
+    assert "Pénalités de retard" not in texte
+    assert "Indemnité forfaitaire" not in texte
 
 
 def test_pdf_professionnel(db, config, client_professionnel, tmp_path):
@@ -380,8 +437,8 @@ def test_pdf_professionnel(db, config, client_professionnel, tmp_path):
 
     assert "SARL CLIENT DEMO" in texte
     assert "SIREN 111111111" in texte
-    assert "Penalites de retard : Taux fixture" in texte
-    assert "Indemnite forfaitaire de recouvrement : Indemnite fixture" in texte
+    assert "Pénalités de retard : Taux fixture" in texte
+    assert "Indemnité forfaitaire de recouvrement : Indemnite fixture" in texte
     assert "PRESTATION_DE_SERVICES" in texte
 
 
@@ -393,8 +450,8 @@ def test_pdf_type_client_non_tranche_sans_clause_b2b(db, config, monkeypatch, tm
     f = svc.creer(source(), db_path=db)
     emise = _emettre(db, f["facture_id_opaque"], repertoire=tmp_path / "pdf")
     texte = _texte_pdf(tmp_path / "pdf" / "2026" / "07" / emise["document_nom"])
-    assert "Penalites de retard" not in texte
-    assert "Indemnite forfaitaire" not in texte
+    assert "Pénalités de retard" not in texte
+    assert "Indemnité forfaitaire" not in texte
 
 
 def test_pdf_avoir_reference_la_facture(db, config, client_particulier, tmp_path):

@@ -192,8 +192,8 @@ class _Facture(FPDF):
         # Libellé RÉGLEMENTAIRE, à conserver tel quel : « période des prestations » est la mention
         # attendue sur une facture de services, pas un simple intitulé de mise en page.
         debut, fin = conf.get("periode_debut"), conf.get("periode_fin")
-        out.append(f"Periode des prestations : du {_date_fr(debut)} au {_date_fr(fin)}"
-                   if debut and fin else f"Periode des prestations : {snap.get('mois', '')}")
+        out.append(f"Période des prestations : du {_date_fr(debut)} au {_date_fr(fin)}"
+                   if debut and fin else f"Période des prestations : {snap.get('mois', '')}")
         statut = snap.get("statut")
         if statut and statut != "EMIS":
             out.append(f"Statut : {statut}")
@@ -349,12 +349,12 @@ class _Facture(FPDF):
                               f"SIREN {cl['siren']}" if cl.get("siren") else None,
                               f"SIRET {cl['siret']}" if cl.get("siret") else None,
                               f"TVA {cl['tva_intra']}" if cl.get("tva_intra") else None,
-                              f"Reference : {snap.get('proprietaire_id', '')}",
+                              f"Référence : {snap.get('proprietaire_id', '')}",
                               f"Logement : {snap.get('logement_id', '')}") if x]
         depart = self.get_y()
         self.set_font("Helvetica", "B", 8)
         self.set_text_color(*PIERRE)
-        self.cell(88, 4.5, _t("EMETTEUR"), 0, new_x=XPos.RIGHT, new_y=YPos.TOP)
+        self.cell(88, 4.5, _t("ÉMETTEUR"), 0, new_x=XPos.RIGHT, new_y=YPos.TOP)
         self.cell(0, 4.5, _t("FACTURE A"), 0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         self.set_text_color(*ESPRESSO)
         self.set_font("Helvetica", "", 8.5)
@@ -376,11 +376,11 @@ class _Facture(FPDF):
         reservations = self.snapshot.get("reservations") or []
         if not reservations:
             return
-        self._titre_section("Sejours de la periode et commission")
+        self._titre_section("Séjours de la période et commission")
         # Assiette x Taux = Commission, colonne par colonne : le propriétaire doit pouvoir refaire
         # l'operation de tete pour chaque sejour, sans avoir a nous croire sur parole.
         colonnes = ((21, "Arrivee", "C"), (21, "Depart", "C"), (11, "Nuits", "C"),
-                    (22, "Canal", "L"), (28, "Reference", "L"), (24, "Assiette", "R"),
+                    (22, "Canal", "L"), (28, "Référence", "L"), (24, "Assiette", "R"),
                     (15, "Taux", "R"), (23, "Commission", "R"))
         self._entete_tableau = (colonnes,)
         self._ligne_entete(colonnes)
@@ -495,7 +495,7 @@ class _Facture(FPDF):
         # Nature de l'opération et bon de commande : mentions réglementaires quand elles sont
         # renseignées. Elles étaient rendues avant la refonte et doivent le rester.
         self.set_font("Helvetica", "", 8.5)
-        for libelle, valeur in (("Nature de l'operation", conf.get("nature_operation")),
+        for libelle, valeur in (("Nature de l'opération", conf.get("nature_operation")),
                                 ("Bon de commande", conf.get("numero_bon_commande"))):
             if valeur:
                 self.cell(0, 4.6, _t(f"{libelle} : {valeur}"), 0,
@@ -506,7 +506,7 @@ class _Facture(FPDF):
         acomptes = (snap.get("decomposition") or {}).get("acomptes") or []
         if acomptes:
             self._titre_section("Acomptes deja verses")
-            colonnes = ((34, "Date", "C"), (36, "Mode", "L"), (80, "Reference", "L"),
+            colonnes = ((34, "Date", "C"), (36, "Mode", "L"), (80, "Référence", "L"),
                         (30, "Montant", "R"))
             self._entete_tableau = (colonnes,)
             self._ligne_entete(colonnes)
@@ -523,26 +523,34 @@ class _Facture(FPDF):
 
         # ── Conditions de règlement et mentions ──────────────────────────────────────────────
         self.ln(2)
+        self._titre_section("Règlement")
         self.set_font("Helvetica", "", 8.5)
+        # Le libellé des conditions est DÉRIVÉ du délai (« Paiement à réception » quand il vaut 0),
+        # jamais saisi en parallèle : un libellé indépendant finirait par contredire l'échéance
+        # imprimée juste au-dessus.
         conditions = [
-            ("Echeance de paiement", _date_fr(conf.get("date_echeance"))),
-            ("Delai de paiement", (f"{conf['delai_paiement_jours']} jours"
-                                   if conf.get("delai_paiement_jours") else "")),
-            ("Conditions d'escompte", conf.get("conditions_escompte")),
+            ("Conditions de règlement", conf.get("conditions_paiement")),
+            ("Échéance de paiement", _date_fr(conf.get("date_echeance"))),
+            ("Escompte", conf.get("conditions_escompte")),
         ]
         # Les clauses B2B ne s'impriment que face à un client explicitement PROFESSIONNEL. Les
         # afficher parce qu'elles sont configurées globalement mettrait une mention inadaptée sur
-        # la facture d'un particulier — ou pire, sur celle d'un client dont le type n'est pas
-        # encore tranché.
+        # la facture d'un particulier — ou pire, une menace de recouvrement sans fondement sur
+        # celle d'un client dont le type n'est même pas tranché.
         if (conf.get("client") or {}).get("type_client") == "PROFESSIONNEL":
             conditions += [
-                ("Penalites de retard", conf.get("taux_penalites_retard")),
-                ("Indemnite forfaitaire de recouvrement", conf.get("indemnite_recouvrement")),
+                ("Pénalités de retard", conf.get("taux_penalites_retard")),
+                ("Indemnité forfaitaire de recouvrement", conf.get("indemnite_recouvrement")),
             ]
         for libelle, valeur in conditions:
-            if valeur:
-                self.cell(0, 5, _t(f"{libelle} : {valeur}"), new_x=XPos.LMARGIN,
-                          new_y=YPos.NEXT)
+            if not valeur:
+                continue
+            # La mention légale d'escompte est une PHRASE COMPLÈTE (« Escompte pour paiement
+            # anticipé : néant »). La préfixer de son propre libellé donnerait « Escompte :
+            # Escompte pour… ». On n'ajoute donc le libellé que si la valeur ne le porte pas déjà.
+            texte = (str(valeur) if str(valeur).lower().startswith(libelle.lower())
+                     else f"{libelle} : {valeur}")
+            self.cell(0, 5, _t(texte), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         self.ln(2)
 
         self.set_font("Helvetica", "I", 8)

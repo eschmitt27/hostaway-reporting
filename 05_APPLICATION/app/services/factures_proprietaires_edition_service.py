@@ -168,9 +168,14 @@ def ajouter_ligne_charge(facture_id: str, *, libelle: str, montant: Any, code_im
         charge_id = resultat["charge_id"]
 
         # ── 2. Ligne de facture, lien, historique — MÊME connexion ───────────────────────────
+        # `db_path` propagé même avec `_conn` : `ajouter_ligne` relit la facture avant d'écrire, et
+        # sans lui cette relecture vise la base par DÉFAUT au lieu de celle qu'on écrit. Invisible
+        # tant que `cfg.DB_PATH` est monkeypatché (tests), fatal dès qu'une base explicite est
+        # passée — comme lors d'une recette sur copie isolée.
         ligne = svc.ajouter_ligne(
             facture_id, type_ligne=svc.TYPE_LIGNE_CHARGE, libelle=libelle, montant=montant,
-            acteur=acteur, commentaire=f"charge {charge_id} ({code_impact})", _conn=conn)
+            acteur=acteur, commentaire=f"charge {charge_id} ({code_impact})",
+            db_path=db_path, _conn=conn)
         conn.execute(
             "INSERT INTO factures_proprietaires_lignes_charge "
             "(ligne_id_opaque, facture_id_opaque, charge_id, code_impact) VALUES (?,?,?,?)",

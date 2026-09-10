@@ -58,6 +58,12 @@ LIBELLES = {
 ST_BROUILLON, ST_VALIDE, ST_EMIS, ST_ANNULE = "BROUILLON", "VALIDE", "EMIS", "ANNULE"
 STATUTS = (ST_BROUILLON, ST_VALIDE, ST_EMIS, ST_ANNULE)
 
+# `objet_source_ref` d'une ligne CHARGE_REFACTUREE désigne une POSITION de refacturation, jamais la
+# charge elle-même : `valider()` la passe telle quelle à `charges_refacturation_service.imputer()`.
+# Constante partagée pour que producteur (composition) et consommateur (validation) ne puissent pas
+# diverger — une ligne qui référencerait une charge produirait une facture invalidable.
+SOURCE_POSITION_REFAC = "CHARGES_REFACTURATION_POSITION"
+
 # ── Édition d'un BROUILLON (migration 0071) ─────────────────────────────────────────────────────
 # Un BROUILLON est un DOCUMENT éditable, pas le miroir figé d'un calcul. Trois montants coexistent
 # et ne doivent jamais être confondus :
@@ -174,7 +180,7 @@ def previsualiser(source: dict[str, Any],
             "type_ligne": "CHARGE_REFACTUREE",
             "libelle": d.get("libelle") or "Charge refacturée",
             "montant": montant,
-            "objet_source_type": "CHARGES_REFACTURATION_POSITION",
+            "objet_source_type": SOURCE_POSITION_REFAC,
             "objet_source_ref": str(d["position_id"]),
         })
 
@@ -697,6 +703,14 @@ def valider(facture_id: str, *, emetteur: dict[str, Any], destinataire: dict[str
     conn = get_db(db_path)
     try:
         for l in lignes_charges:
+            # Contrôle du contrat AVANT l'appel : sans lui, une ligne qui référencerait la charge
+            # au lieu de sa position ressortirait en « Position introuvable », un message qui
+            # désigne la position comme coupable alors que le défaut est dans la ligne.
+            if str(l.get("objet_source_type") or "") != SOURCE_POSITION_REFAC:
+                raise FactureProprietaireError(
+                    f"{C_SOURCE_INCOMPLETE}: ligne {l['numero_ligne']} CHARGE_REFACTUREE de source "
+                    f"{l.get('objet_source_type')!r} — une charge refacturee doit referencer sa "
+                    f"position de refacturation ({SOURCE_POSITION_REFAC})")
             resultat = refac.imputer(
                 l["objet_source_ref"], l["montant"], facture_id=facture_id, acteur=acteur,
                 justification=justifications.get(l["objet_source_ref"]), conn=conn)

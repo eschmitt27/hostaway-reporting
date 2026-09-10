@@ -83,6 +83,27 @@ def _charge(db, **kw):
     return charges.creer(donnees, acteur="test", db_path=db)["charge_id"]
 
 
+def _position(db, charge_id):
+    """La position de refacturation créée par `charges_saisie_service.creer()`.
+
+    C'est elle, et non la charge, qu'une facture référence : passer par ce détour dans les tests
+    reproduit exactement ce que fait l'interface. `None` si la charge n'est pas refacturable.
+    """
+    conn = get_db(db)
+    try:
+        r = conn.execute("SELECT position_id FROM charges_refacturation_positions "
+                         "WHERE charge_id = ? AND actif = 1", (charge_id,)).fetchone()
+    finally:
+        conn.close()
+    return r[0] if r else None
+
+
+def _charge_rattachee(db, facture_id, **kw):
+    """Crée une charge refacturable et la rattache à la facture. Renvoie (charge_id, résultat)."""
+    cid = _charge(db, **kw)
+    return cid, compo.rattacher_charge(facture_id, _position(db, cid), acteur="t", db_path=db)
+
+
 # ── 1-9 : brouillon, période, formule de base ───────────────────────────────────────────────────
 
 def test_brouillon_cree_avec_ses_postes(db, facture):
@@ -173,7 +194,7 @@ def test_reduction_et_acompte_ne_sont_pas_la_meme_chose(db, facture, monkeypatch
 
 def test_formule_totale_exacte(db, facture, ecritures_actives):
     from app.services import factures_proprietaires_edition_service as edition
-    compo.rattacher_charge(facture, _charge(db), acteur="t", db_path=db)      # +42.90
+    _charge_rattachee(db, facture)                                           # +42.90
     compo.ajouter_extra(facture, libelle="Extra", montant=60, acteur="t", db_path=db)   # +60
     compo.ajouter_reduction(facture, libelle="Remise", montant=25, acteur="t", db_path=db)  # -25
     edition.ajouter_acompte(facture, montant=100, date_mouvement="2026-06-05", acteur="t",
@@ -190,18 +211,30 @@ def test_formule_totale_exacte(db, facture, ecritures_actives):
 def test_charge_eligible_proposee_puis_retiree_de_la_liste(db, facture, ecritures_actives):
     cid = _charge(db)
     assert [c["charge_id"] for c in compo.charges_eligibles(facture, db_path=db)] == [cid]
-    compo.rattacher_charge(facture, cid, acteur="t", db_path=db)
+    compo.rattacher_charge(facture, _position(db, cid), acteur="t", db_path=db)
     assert compo.charges_eligibles(facture, db_path=db) == []
 
 
-def test_rattachement_reference_la_charge_sans_la_recreer(db, facture, ecritures_actives):
+def test_selection_deleguee_au_selecteur_canonique(db, facture, ecritures_actives):
+    """`charges_eligibles` doit proposer des POSITIONS, pas des charges : c'est ce que la
+    validation impute. Deux sélecteurs concurrents produiraient des factures invalidables."""
+    from app.services import charges_refacturation_service as refac
     cid = _charge(db)
-    r = compo.rattacher_charge(facture, cid, acteur="t", db_path=db)
+    proposees = compo.charges_eligibles(facture, db_path=db)
+    canoniques = refac.proposer_pour_facture("PROP_FIXT_1", logement_id="LOG_FIXT_1", db_path=db)
+    assert [p["position_id"] for p in proposees] == [p["position_id"] for p in canoniques]
+    assert proposees[0]["position_id"] == _position(db, cid)
+    assert proposees[0]["montant_restant"] == 42.90
+
+
+def test_rattachement_reference_la_position_sans_recreer_la_charge(db, facture, ecritures_actives):
+    cid, r = _charge_rattachee(db, facture)
     ligne = next(l for l in svc.lire(facture, db_path=db)["lignes"]
                  if l["ligne_id_opaque"] == r["ligne_id_opaque"])
-    assert ligne["objet_source_type"] == compo.SOURCE_CHARGE
-    assert ligne["objet_source_ref"] == cid
-    assert ligne["montant"] == 42.90, "le montant vient de la charge, jamais d'une ressaisie"
+    assert ligne["objet_source_type"] == compo.SOURCE_POSITION == svc.SOURCE_POSITION_REFAC
+    assert ligne["objet_source_ref"] == _position(db, cid), \
+        "la ligne reference la POSITION : c'est elle que valider() impute"
+    assert ligne["montant"] == 42.90, "le montant vient du solde de la position, jamais ressaisi"
     conn = get_db(db)
     try:
         assert conn.execute("SELECT COUNT(*) FROM charges WHERE charge_id=?", (cid,)).fetchone()[0] == 1
@@ -209,46 +242,84 @@ def test_rattachement_reference_la_charge_sans_la_recreer(db, facture, ecritures
         conn.close()
 
 
+def test_charge_rattachee_est_validable_et_impute_sa_position(db, facture, ecritures_actives):
+    """LE test de non-régression : une facture composée par l'interface doit pouvoir être validée.
+    Référencer la charge au lieu de sa position produisait « IMPUTATION_REFUSEE ... Position
+    introuvable » — un brouillon impossible à émettre, découvert seulement au dernier clic."""
+    cid, _ = _charge_rattachee(db, facture)
+    svc.valider(facture, emetteur=EMETTEUR, destinataire=DESTINATAIRE, acteur="t", db_path=db)
+    assert svc.lire(facture, db_path=db)["statut"] == svc.ST_VALIDE
+    conn = get_db(db)
+    try:
+        impute, statut = conn.execute(
+            "SELECT montant_impute_total, statut FROM charges_refacturation_positions "
+            "WHERE charge_id=?", (cid,)).fetchone()
+    finally:
+        conn.close()
+    assert impute == 42.90 and statut == "IMPUTEE", "la validation consomme la position, une fois"
+
+
+def test_ligne_refacturee_de_mauvaise_source_refusee_a_la_validation(db, facture,
+                                                                     ecritures_actives):
+    """Garde de contrat : une ligne CHARGE_REFACTUREE qui ne référence pas une position est
+    refusée avec un message qui désigne la ligne, pas la position."""
+    cid, r = _charge_rattachee(db, facture)
+    conn = get_db(db)
+    try:
+        conn.execute("UPDATE factures_proprietaires_lignes SET objet_source_type='CHARGE', "
+                     "objet_source_ref=? WHERE ligne_id_opaque=?", (cid, r["ligne_id_opaque"]))
+        conn.commit()
+    finally:
+        conn.close()
+    with pytest.raises(svc.FactureProprietaireError, match="doit referencer sa position"):
+        svc.valider(facture, emetteur=EMETTEUR, destinataire=DESTINATAIRE, acteur="t", db_path=db)
+    assert svc.lire(facture, db_path=db)["statut"] == svc.ST_BROUILLON
+
+
 def test_charge_deja_facturee_refusee(db, facture, ecritures_actives):
-    cid = _charge(db)
-    compo.rattacher_charge(facture, cid, acteur="t", db_path=db)
+    cid, _ = _charge_rattachee(db, facture)
     with pytest.raises(svc.FactureProprietaireError, match="deja facturee"):
-        compo.rattacher_charge(facture, cid, acteur="t", db_path=db)
+        compo.rattacher_charge(facture, _position(db, cid), acteur="t", db_path=db)
 
 
 def test_charge_mauvais_proprietaire_refusee(db, facture, ecritures_actives):
     cid = _charge(db, proprietaire_id="PROP_AUTRE", logement_id="LOG_AUTRE")
     assert cid not in [c["charge_id"] for c in compo.charges_eligibles(facture, db_path=db)]
     with pytest.raises(svc.FactureProprietaireError, match="proprietaire"):
-        compo.rattacher_charge(facture, cid, acteur="t", db_path=db)
+        compo.rattacher_charge(facture, _position(db, cid), acteur="t", db_path=db)
 
 
-def test_charge_non_refacturable_refusee(db, facture, ecritures_actives):
+def test_charge_non_refacturable_na_pas_de_position(db, facture, ecritures_actives):
+    """Une charge non refacturable ne produit AUCUNE position : elle est donc inatteignable, et
+    pas seulement filtrée à l'affichage."""
     cid = _charge(db, refacturable="NON")
+    assert _position(db, cid) is None
     assert cid not in [c["charge_id"] for c in compo.charges_eligibles(facture, db_path=db)]
-    with pytest.raises(svc.FactureProprietaireError, match="non refacturable"):
-        compo.rattacher_charge(facture, cid, acteur="t", db_path=db)
+    with pytest.raises(svc.FactureProprietaireError, match="non proposable"):
+        compo.rattacher_charge(facture, "POSREF-INEXISTANTE", acteur="t", db_path=db)
 
 
 def test_detachement_libere_la_charge_sans_l_annuler(db, facture, ecritures_actives):
-    cid = _charge(db)
-    r = compo.rattacher_charge(facture, cid, acteur="t", db_path=db)
+    cid, r = _charge_rattachee(db, facture)
     compo.detacher_charge(facture, r["ligne_id_opaque"], acteur="t", db_path=db)
     assert [c["charge_id"] for c in compo.charges_eligibles(facture, db_path=db)] == [cid]
     conn = get_db(db)
     try:
         statut = conn.execute("SELECT statut FROM charges WHERE charge_id=?", (cid,)).fetchone()[0]
+        impute = conn.execute("SELECT montant_impute_total FROM "
+                              "charges_refacturation_positions WHERE charge_id=?",
+                              (cid,)).fetchone()[0]
     finally:
         conn.close()
     assert statut == "ACTIVE", "une charge preexistante n'est jamais annulee par le document"
+    assert impute == 0.0, "un brouillon n'a rien consomme : il n'y a rien a desimputer"
 
 
 def test_index_unique_interdit_structurellement_le_double_rattachement(db, facture,
                                                                        ecritures_actives):
     """Ceinture ET bretelles : même en contournant la garde applicative, SQLite refuse."""
     import sqlite3
-    cid = _charge(db)
-    compo.rattacher_charge(facture, cid, acteur="t", db_path=db)
+    cid, _ = _charge_rattachee(db, facture)
     conn = get_db(db)
     try:
         with pytest.raises(sqlite3.IntegrityError):

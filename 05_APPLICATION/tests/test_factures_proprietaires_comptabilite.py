@@ -104,6 +104,76 @@ def test_total_ecriture_egale_total_facture(db):
     assert round(produits - total_lignes_facture, 2) == 0.0
 
 
+# ── Franchise en base de TVA ────────────────────────────────────────────────────────────────────
+
+def test_franchise_aucune_tva_collectee(db):
+    """Régime retenu : franchise en base (art. 293 B du CGI). Aucune TVA n'est collectée, donc
+    aucun compte 4457* ne doit apparaître. Une ligne de TVA collectée ici créerait une dette
+    fiscale imaginaire, et la déclarer serait une erreur au préjudice de l'entreprise."""
+    emise = _emettre(db)
+    compta.generer_ecriture_vente_facture(emise, db_path=db)
+    ecr = compta.charger_par_origine(compta.ORIGINE_FACTURE, emise["facture_id_opaque"], db)
+    comptes = [l["compte"] for l in compta.lignes(ecr["ecriture_id_opaque"], db)]
+    assert not [c for c in comptes if str(c).startswith("4457")], comptes
+    assert sorted(comptes) == sorted([compta.COMPTE_PROPRIETAIRES,
+                                      compta.COMPTE_VENTE_GENERIQUE])
+
+
+def test_vente_enregistree_pour_le_montant_total_hors_taxe(db):
+    """En franchise, HT = TTC : le produit constaté est le montant de la facture, sans ventilation
+    de taxe. L'écriture doit donc porter exactement deux lignes et rester équilibrée."""
+    emise = _emettre(db)
+    compta.generer_ecriture_vente_facture(emise, db_path=db)
+    ecr = compta.charger_par_origine(compta.ORIGINE_FACTURE, emise["facture_id_opaque"], db)
+    lignes = compta.lignes(ecr["ecriture_id_opaque"], db)
+    assert len(lignes) == 2
+    assert round(sum(l["debit"] for l in lignes), 2) == \
+           round(sum(l["credit"] for l in lignes), 2) == 500.0
+
+
+def test_acompte_ne_diminue_pas_le_chiffre_d_affaires(db, monkeypatch):
+    """Un acompte est un RÈGLEMENT DÉJÀ REÇU, pas une remise. Le produit comptabilisé reste le
+    total facturé (500) et non le montant restant dû (400) : constater 400 minorerait le chiffre
+    d'affaires d'un encaissement qui a bien eu lieu."""
+    from app.services import factures_proprietaires_edition_service as edition
+    for flag in ("FACTURES_REAL_WRITE_ENABLED", "FACTURES_REAL_WRITE_CONFIRMATION_ENABLED"):
+        monkeypatch.setattr(cfg, flag, True, raising=False)
+    _referentiel_proprietaire(db)
+
+    f = svc.creer(source(), db_path=db)
+    fid = f["facture_id_opaque"]
+    edition.ajouter_acompte(fid, montant=100, date_mouvement="2026-06-05", acteur="t", db_path=db)
+    svc.valider(fid, emetteur=EMETTEUR, destinataire=DESTINATAIRE, db_path=db)
+    emise = svc.emettre(fid, emetteur=EMETTEUR, destinataire=DESTINATAIRE, serie="RECETTE-2026",
+                        date_facture="2026-07-01", db_path=db)
+
+    assert emise["montant_total"] == 500.0, "l'acompte ne touche pas le total facture"
+    compta.generer_ecriture_vente_facture(emise, db_path=db)
+    ecr = compta.charger_par_origine(compta.ORIGINE_FACTURE, fid, db)
+    assert ecr["total_credit"] == 500.0
+    lignes = compta.lignes(ecr["ecriture_id_opaque"], db)
+    produits = round(sum(l["credit"] for l in lignes
+                         if l["compte"] == compta.COMPTE_VENTE_GENERIQUE), 2)
+    assert produits == 500.0, "le produit constate est le total facture, jamais le reste a payer"
+
+
+def _referentiel_proprietaire(db):
+    """Un acompte passe par `proprietaires_tresorerie_service`, qui refuse un propriétaire absent
+    du référentiel. On l'alimente plutôt que de contourner la règle."""
+    conn = get_db(db)
+    try:
+        conn.execute("INSERT OR IGNORE INTO ref_setup_imports "
+                     "(import_id, horodatage, chemin_source, empreinte_source, statut, "
+                     " nb_feuilles, nb_lignes) "
+                     "VALUES ('IMP-TEST','2026-06-01T00:00:00Z','fixture','0'*64,'IMPORTE',1,1)")
+        conn.execute("INSERT OR IGNORE INTO ref_proprietaires (proprietaire_id, nom_proprietaire, "
+                     "prenom_proprietaire, adresse_facturation, actif, import_id) "
+                     "VALUES ('PROP_FIXT_1','Nom','Prenom','2 rue de Test','OUI','IMP-TEST')")
+        conn.commit()
+    finally:
+        conn.close()
+
+
 # ── Idempotence et double comptage ──────────────────────────────────────────────────────────────
 
 def test_idempotence_generateur(db):

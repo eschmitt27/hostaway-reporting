@@ -45,7 +45,8 @@ EVT_AJOUT_REDUCTION = "AJOUT_REDUCTION"
 EVT_RATTACHEMENT_CHARGE = "RATTACHEMENT_CHARGE"
 EVT_DETACHEMENT_CHARGE = "DETACHEMENT_CHARGE"
 
-SOURCE_CHARGE = "CHARGE"
+# Réexporté depuis le service canonique : la valeur est le contrat que `valider()` applique.
+SOURCE_POSITION = svc.SOURCE_POSITION_REFAC
 
 # Regroupement des `type_ligne` pour la décomposition affichée. L'ordre est celui de la facture.
 # `MENAGE_FACTURE` et `PREPARATION_CANAPE` restent des postes distincts : ce sont des prestations
@@ -114,44 +115,33 @@ def ajouter_reduction(facture_id: str, *, libelle: str, montant: Any, motif: str
 
 # ── CHARGES REFACTURABLES : rattacher une charge QUI EXISTE DÉJÀ ────────────────────────────────
 
-def _colonnes_charges(conn) -> set[str]:
-    return {r[1] for r in conn.execute("PRAGMA table_info(charges)")}
-
-
 def charges_eligibles(facture_id: str, *, db_path=None) -> list[dict[str, Any]]:
-    """Charges réellement refacturables à CE propriétaire pour CETTE facture, non encore facturées.
+    """Charges refacturables proposables à CETTE facture.
 
-    Quatre filtres, tous métier — aucun n'est décoratif :
-      1. `statut = ACTIVE`      : une charge annulée n'est pas refacturable ;
-      2. `refacturable = OUI`   : la décision vient de la saisie/du référentiel, pas d'ici ;
-      3. périmètre              : même propriétaire, et même logement quand la charge en porte un
-                                  (une charge commune sans logement reste éligible au propriétaire) ;
-      4. non déjà rattachée     : ni à cette facture, ni à une autre.
-    Le mois n'est PAS un filtre : une dépense engagée en juin peut légitimement être refacturée sur
-    la facture de juillet. C'est l'utilisateur qui décide, la liste montre la date pour qu'il puisse.
+    DÉLÈGUE au sélecteur canonique `charges_refacturation_service.proposer_pour_facture()`, qui
+    raisonne en POSITIONS DE REFACTURATION — l'objet que le reste de la chaîne connaît. Une
+    première version interrogeait directement `charges` avec ses propres filtres : elle produisait
+    des lignes que `factures_proprietaires_service.valider()` ne savait pas imputer, puisque celle-ci
+    attend un `position_id` en `objet_source_ref`. Deux sélecteurs pour une même question, c'était
+    déjà un de trop.
+
+    Le mois n'est pas un filtre : une dépense engagée en juin peut légitimement être refacturée sur
+    la facture de juillet. La date est affichée pour que l'utilisateur décide.
     """
+    from app.services import charges_refacturation_service as refac
+
     facture = svc.lire(facture_id, db_path=db_path)
+    positions = refac.proposer_pour_facture(facture["proprietaire_id"],
+                                            logement_id=facture["logement_id"], db_path=db_path)
+    # Une position déjà portée par une ligne de facture n'est plus proposable, même si son solde
+    # est resté positif : le lien `factures_proprietaires_lignes_charge` fait foi (index unique).
     conn = get_db(db_path)
     try:
-        cols = _colonnes_charges(conn)
-        if not {"charge_id", "statut", "refacturable"} <= cols:
-            return []
-        select = [c for c in ("charge_id", "date_charge", "mois", "montant", "categorie_charge_id",
-                              "logement_id", "proprietaire_id", "code_impact", "justificatif",
-                              "commentaire", "statut", "refacturable") if c in cols]
-        sql = (f"SELECT {', '.join(select)} FROM charges "
-               "WHERE statut = 'ACTIVE' AND UPPER(COALESCE(refacturable,'')) IN ('OUI','1','TRUE') "
-               "  AND COALESCE(proprietaire_id,'') = ? "
-               "  AND (COALESCE(logement_id,'') = '' OR COALESCE(logement_id,'') = ?) "
-               "  AND charge_id NOT IN (SELECT charge_id FROM factures_proprietaires_lignes_charge) "
-               "ORDER BY date_charge DESC, charge_id")
-        lignes = [dict(zip(select, r)) for r in conn.execute(
-            sql, (facture["proprietaire_id"], facture["logement_id"]))]
+        deja = {r[0] for r in conn.execute(
+            "SELECT charge_id FROM factures_proprietaires_lignes_charge")}
     finally:
         conn.close()
-    for l in lignes:
-        l["montant"] = svc._round(l.get("montant"))
-    return lignes
+    return [p for p in positions if p.get("charge_id") not in deja]
 
 
 def charge_deja_facturee(charge_id: str, *, db_path=None) -> dict[str, Any]:
@@ -171,67 +161,70 @@ def charge_deja_facturee(charge_id: str, *, db_path=None) -> dict[str, Any]:
             "statut": r[2] or ""}
 
 
-def rattacher_charge(facture_id: str, charge_id: str, *, libelle: str = "", acteur: str = "",
-                     db_path=None) -> dict[str, Any]:
-    """Rattache une charge EXISTANTE à un BROUILLON — sans jamais la recréer ni la recalculer.
+def rattacher_charge(facture_id: str, position_id: str, *, libelle: str = "", montant: Any = None,
+                     acteur: str = "", db_path=None) -> dict[str, Any]:
+    """Porte sur un BROUILLON une charge refacturable EXISTANTE, via sa POSITION de refacturation.
+
+    La ligne référence le `position_id`, jamais le `charge_id` : c'est le contrat que
+    `factures_proprietaires_service.valider()` applique quand elle impute chaque ligne
+    `CHARGE_REFACTUREE` (`refac.imputer(objet_source_ref, ...)`). Référencer la charge produirait
+    une facture qu'on ne pourrait pas valider — « Position introuvable ».
 
     Différence avec `factures_proprietaires_edition_service.ajouter_ligne_charge`, qui CRÉE une
-    charge neuve depuis le brouillon : ici la charge préexiste (saisie ailleurs, importée d'une
-    facture fournisseur…) et on ne fait que la porter sur le document. Aucun montant n'est saisi :
-    il vient de la charge, sinon le document et la comptabilité diraient deux chiffres différents.
+    charge neuve depuis le brouillon : ici la dépense préexiste (saisie ailleurs, importée d'une
+    facture fournisseur…) et on ne fait que la porter sur le document. Le montant par défaut est
+    le SOLDE RESTANT de la position — pas le montant d'origine : une position déjà partiellement
+    imputée ne doit pas être refacturée deux fois en entier.
 
     Transaction unique : la ligne, le lien et l'événement sont écrits ensemble ou pas du tout.
+    L'imputation, elle, n'a lieu qu'à la VALIDATION — un brouillon ne consomme rien.
     """
+    from app.services import charges_refacturation_service as refac
+
     facture = svc.lire(facture_id, db_path=db_path)
     svc._exiger_brouillon(facture, "rattachement d'une charge")
 
+    proposables = {p["position_id"]: p for p in refac.proposer_pour_facture(
+        facture["proprietaire_id"], logement_id=facture["logement_id"], db_path=db_path)}
+    position = proposables.get(str(position_id or "").strip())
+    if position is None:
+        _err(f"position {position_id} non proposable pour cette facture : elle n'est pas "
+             f"refacturable au proprietaire {facture['proprietaire_id']} / logement "
+             f"{facture['logement_id']}, ou son solde est epuise")
+
+    restant = svc._round(position.get("montant_restant"))
+    valeur = restant if montant is None else svc._round(montant)
+    if valeur <= 0:
+        _err(f"position {position_id} sans solde refacturable ({restant:.2f})")
+    if valeur - restant > 0.001:
+        _err(f"montant {valeur:.2f} superieur au solde disponible {restant:.2f}")
+
+    charge_id = position.get("charge_id")
     conn = get_db(db_path)
     try:
-        cols = _colonnes_charges(conn)
-        champs = [c for c in ("charge_id", "montant", "date_charge", "proprietaire_id",
-                              "logement_id", "statut", "refacturable", "categorie_charge_id",
-                              "code_impact", "commentaire") if c in cols]
-        row = conn.execute(
-            f"SELECT {', '.join(champs)} FROM charges WHERE charge_id = ?", (charge_id,)).fetchone()
-        if row is None:
-            _err(f"charge introuvable : {charge_id}")
-        charge = dict(zip(champs, row))
-
-        if str(charge.get("statut") or "").upper() != "ACTIVE":
-            _err(f"charge {charge_id} non ACTIVE (statut {charge.get('statut')}) : non refacturable")
-        if str(charge.get("refacturable") or "").upper() not in ("OUI", "1", "TRUE"):
-            _err(f"charge {charge_id} non refacturable (refacturable="
-                 f"{charge.get('refacturable')!r})")
-        if str(charge.get("proprietaire_id") or "") != facture["proprietaire_id"]:
-            _err(f"charge {charge_id} rattachee au proprietaire "
-                 f"{charge.get('proprietaire_id')!r}, la facture concerne "
-                 f"{facture['proprietaire_id']!r}")
-        logement_charge = str(charge.get("logement_id") or "")
-        if logement_charge and logement_charge != facture["logement_id"]:
-            _err(f"charge {charge_id} rattachee au logement {logement_charge!r}, la facture "
-                 f"concerne {facture['logement_id']!r}")
         deja = conn.execute(
             "SELECT facture_id_opaque FROM factures_proprietaires_lignes_charge WHERE charge_id=?",
             (charge_id,)).fetchone()
         if deja is not None:
             _err(f"charge {charge_id} deja facturee (facture {deja[0]})")
 
-        montant = svc._round(charge.get("montant"))
-        if montant <= 0:
-            _err(f"charge {charge_id} sans montant refacturable ({montant:.2f})")
-
-        texte = str(libelle or "").strip() or _libelle_charge(charge)
+        texte = str(libelle or "").strip() or _libelle_position(position)
+        # `db_path` DOIT être propagé même quand `_conn` est fourni : `ajouter_ligne` relit la
+        # facture avant d'écrire, et sans lui cette relecture viserait la base par défaut au lieu
+        # de celle qu'on est en train d'écrire. Le défaut ne se voyait pas tant que `cfg.DB_PATH`
+        # était monkeypatché (cas des tests) ; il apparaît dès qu'on passe une base explicite.
         ligne = svc.ajouter_ligne(
-            facture_id, type_ligne=TYPE_CHARGE_REFACTUREE, libelle=texte, montant=montant,
-            objet_source_type=SOURCE_CHARGE, objet_source_ref=charge_id, acteur=acteur,
-            commentaire=f"charge existante {charge_id} rattachee", _conn=conn)
+            facture_id, type_ligne=TYPE_CHARGE_REFACTUREE, libelle=texte, montant=valeur,
+            objet_source_type=SOURCE_POSITION, objet_source_ref=position["position_id"],
+            acteur=acteur, commentaire=f"position {position['position_id']} rattachee",
+            db_path=db_path, _conn=conn)
         conn.execute(
             "INSERT INTO factures_proprietaires_lignes_charge "
             "(ligne_id_opaque, facture_id_opaque, charge_id, code_impact) VALUES (?,?,?,?)",
-            (ligne["ligne_id_opaque"], facture_id, charge_id,
-             str(charge.get("code_impact") or "IC")))
+            (ligne["ligne_id_opaque"], facture_id, charge_id, "IC"))
         svc._journal(conn, facture_id, EVT_RATTACHEMENT_CHARGE, svc.ST_BROUILLON,
-                     svc.ST_BROUILLON, f"charge {charge_id} ({montant:.2f}) rattachee", acteur)
+                     svc.ST_BROUILLON,
+                     f"position {position['position_id']} ({valeur:.2f}) rattachee", acteur)
         conn.commit()
     except Exception:
         conn.rollback()
@@ -239,13 +232,14 @@ def rattacher_charge(facture_id: str, charge_id: str, *, libelle: str = "", acte
     finally:
         conn.close()
     return {"ok": True, "ligne_id_opaque": ligne["ligne_id_opaque"], "charge_id": charge_id,
-            "montant": montant}
+            "position_id": position["position_id"], "montant": valeur}
 
 
-def _libelle_charge(charge: dict[str, Any]) -> str:
-    base = str(charge.get("commentaire") or "").strip() or \
-        str(charge.get("categorie_charge_id") or "").strip() or "Charge refacturée"
-    date = str(charge.get("date_charge") or "").strip()
+def _libelle_position(position: dict[str, Any]) -> str:
+    """Le libellé imprimé sur la facture. `justificatif` est volontairement écarté : c'est une
+    référence de pièce (souvent un chemin de fichier), pas un texte destiné au propriétaire."""
+    base = str(position.get("description") or "").strip() or "Charge refacturée"
+    date = str(position.get("date_charge") or "").strip()
     return f"{base} ({date})" if date else base
 
 
@@ -257,6 +251,9 @@ def detacher_charge(facture_id: str, ligne_id: str, *, acteur: str = "",
     brouillon, donc annulable avec lui) : une charge préexistante appartient au métier des charges,
     pas au document. On la libère seulement — elle redevient immédiatement sélectionnable, ce qui
     est exactement ce que demande le parcours de correction.
+
+    Aucune position n'est à désimputer : le rattachement n'en consomme aucune (l'imputation a lieu
+    à `valider()`) et `_exiger_brouillon` garantit qu'on est encore en amont de cette étape.
     """
     facture = svc.lire(facture_id, db_path=db_path)
     svc._exiger_brouillon(facture, "detachement d'une charge")

@@ -20,6 +20,7 @@ from app.services import factures_proprietaires_pdf as pdf
 from app.services import factures_proprietaires_edition_service as edition
 from app.services import factures_proprietaires_service as svc
 from app.services import factures_proprietaires_source as source_svc
+from app.services import proprietaires_facturation_service as classement
 
 router = APIRouter()
 templates = get_templates()
@@ -168,6 +169,8 @@ def _contexte_fiche(facture_id: str, erreur: str | None = None) -> dict:
                               if facture["statut"] == svc.ST_BROUILLON else []),
         "emetteur": _emetteur(),
         "destinataire": _destinataire(facture["proprietaire_id"]),
+        # Classement du propriétaire : `A_CONTROLER` tant qu'il n'a pas été saisi. Jamais déduit.
+        "type_client_actuel": classement.type_client(facture["proprietaire_id"]),
         "peut_valider": facture["statut"] == svc.ST_BROUILLON,
         "peut_emettre": facture["statut"] == svc.ST_VALIDE,
         "peut_avoir": facture["statut"] == svc.ST_EMIS
@@ -346,10 +349,11 @@ async def ajouter_reduction(request: Request, facture_id: str):
 
 @router.post("/factures-proprietaires/{facture_id}/charge-existante")
 async def rattacher_charge(request: Request, facture_id: str):
-    """Rattache une charge DÉJÀ SAISIE. Le montant vient de la charge, jamais d'une saisie ici."""
+    """Rattache une charge DÉJÀ SAISIE, désignée par sa position de refacturation. Le montant vient
+    du solde de la position, jamais d'une saisie ici."""
     form = await request.form()
     try:
-        compo.rattacher_charge(facture_id, str(form.get("charge_id", "") or "").strip(),
+        compo.rattacher_charge(facture_id, str(form.get("position_id", "") or "").strip(),
                                libelle=str(form.get("libelle", "") or ""), acteur="interface")
     except svc.FactureProprietaireError as exc:
         return _refus_fiche(request, facture_id, f"Charge non rattachée : {exc}")
@@ -363,6 +367,28 @@ def detacher_charge(request: Request, facture_id: str, ligne_id: str):
         compo.detacher_charge(facture_id, ligne_id, acteur="interface")
     except svc.FactureProprietaireError as exc:
         return _refus_fiche(request, facture_id, f"Charge non détachée : {exc}")
+    return _retour(facture_id)
+
+
+@router.post("/factures-proprietaires/{facture_id}/type-client")
+async def definir_type_client(request: Request, facture_id: str):
+    """Classe le PROPRIÉTAIRE (pas la facture) en particulier ou professionnel.
+
+    Le classement est porté par le propriétaire parce qu'il ne change pas d'une facture à l'autre :
+    le saisir sur chaque facture inviterait à des réponses divergentes pour un même client, et donc
+    à des mentions légales incohérentes d'un mois sur l'autre. Les factures DÉJÀ ÉMISES ne sont pas
+    affectées — leur bloc de conformité est figé dans leur snapshot.
+    """
+    form = await request.form()
+    facture = svc.lire(facture_id)
+    try:
+        classement.definir(
+            facture["proprietaire_id"], str(form.get("type_client", "") or ""),
+            siren_client=str(form.get("siren_client", "") or ""),
+            tva_intra_client=str(form.get("tva_intra_client", "") or ""),
+            motif=str(form.get("motif", "") or ""), acteur="interface")
+    except classement.TypeClientError as exc:
+        return _refus_fiche(request, facture_id, f"Type de client non enregistré : {exc}")
     return _retour(facture_id)
 
 

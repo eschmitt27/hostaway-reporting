@@ -176,6 +176,11 @@ EXPECTED_TABLES = {
     "factures_proprietaires_lignes_charge",       # 0071 — lien ligne BROUILLON -> charge réelle créée (jamais un second mécanisme)
     "factures_proprietaires_reservations",        # 0071 — instantané des réservations de la période, figé à la création
     "menages_changements_mois_clotures",          # 0071 — signalement (jamais un recalcul) d'un changement source sur un mois clôturé
+    # 0073 — type de client de facturation d'un propriétaire (PARTICULIER / PROFESSIONNEL).
+    # Table COMPAGNE et non une colonne de `ref_proprietaires` : cette dernière est reconstruite à
+    # chaque import de `REF_Setup.xlsm`, un classement rangé là disparaîtrait au prochain import.
+    "proprietaires_facturation",
+    "proprietaires_facturation_evenements",       # 0073 — journal des changements, avec valeur précédente
 }
 
 

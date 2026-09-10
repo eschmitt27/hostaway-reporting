@@ -123,15 +123,39 @@ def taux_tva_applicable(regime: str | None = None) -> float:
 # ── Conditions de règlement ─────────────────────────────────────────────────────────────────────
 
 def delai_paiement_jours() -> int | None:
+    """Délai en jours. `0` signifie **paiement à réception**, `None` que rien n'est configuré.
+
+    `if valeur else None` traitait « 0 » comme une absence : la chaîne « 0 » est vraie, mais un
+    délai de 0 jour devenait ensuite indistinguable d'un délai manquant plus bas dans la chaîne.
+    Le test porte donc sur la présence de la valeur, pas sur sa vérité.
+    """
     valeur = _env("FACTURATION_DELAI_PAIEMENT_JOURS")
+    if valeur == "":
+        return None
     try:
-        return int(valeur) if valeur else None
+        return int(valeur)
     except ValueError:
         return None
 
 
+def conditions_paiement(delai: int | None = None) -> str:
+    """Libellé des conditions de règlement, dérivé du délai — jamais saisi deux fois.
+
+    Un libellé indépendant du délai finirait par le contredire : « 30 jours » écrit à la main
+    au-dessus d'une échéance calculée à réception.
+    """
+    delai = delai_paiement_jours() if delai is None else delai
+    if delai is None:
+        return ""
+    if delai == 0:
+        return "Paiement à réception"
+    return f"Paiement à {delai} jours"
+
+
 def conditions_escompte() -> str:
-    return _env("FACTURATION_CONDITIONS_ESCOMPTE")
+    """Escompte pour paiement anticipé. Mention obligatoire : quand aucun escompte n'est consenti,
+    la facture doit le dire — d'où un défaut explicite plutôt qu'un silence."""
+    return _env("FACTURATION_CONDITIONS_ESCOMPTE") or "Escompte pour paiement anticipé : néant"
 
 
 def taux_penalites_retard() -> str:

@@ -102,24 +102,28 @@
   <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/charge-existante">
     <div class="table-container">
     <table class="table">
-      <thead><tr><th></th><th>Date</th><th>Catégorie</th><th>Logement</th>
-                 <th>Justificatif</th><th class="text-right">Montant</th></tr></thead>
+      <thead><tr><th></th><th>Date</th><th>Description</th><th>Logement</th>
+                 <th class="text-right">Montant d'origine</th>
+                 <th class="text-right">Reste à refacturer</th></tr></thead>
       <tbody>
         {% for c in charges_eligibles %}
-        <tr><td><input type="radio" name="charge_id" value="{{ c.charge_id }}" required></td>
-            <td>{{ c.date_charge or "—" }}</td><td>{{ c.categorie_charge_id or "—" }}</td>
+        <tr><td><input type="radio" name="position_id" value="{{ c.position_id }}" required></td>
+            <td>{{ c.date_charge or "—" }}</td>
+            <td class="text-xs">{{ c.description or "—" }}</td>
             <td>{{ c.logement_id or "(commune)" }}</td>
-            <td class="text-xs">{{ c.justificatif or c.commentaire or "—" }}</td>
-            <td class="text-right">{{ "%.2f"|format(c.montant) }} €</td></tr>
+            <td class="text-right">{{ "%.2f"|format(c.montant_origine) }} €</td>
+            <td class="text-right"><strong>{{ "%.2f"|format(c.montant_restant) }} €</strong></td></tr>
         {% endfor %}
       </tbody>
     </table>
     </div>
     <button type="submit" class="btn btn-primary">Rattacher la charge sélectionnée</button>
   </form>
-  <p class="text-xs text-secondary">Seules les charges ACTIVE, marquées refacturables, du bon
-     propriétaire/logement et <strong>non encore facturées</strong> apparaissent ici. Le montant
-     vient de la charge : il n'est pas ressaisi, et la charge n'est jamais recréée.</p>
+  <p class="text-xs text-secondary">Cette liste est celle des <strong>positions de
+     refacturation</strong> — l'objet que la validation impute. N'y figurent que les charges
+     refacturables du bon propriétaire/logement dont le solde est encore disponible et qui ne sont
+     <strong>pas déjà portées par une facture</strong>. Le montant rattaché est le reste à
+     refacturer : il n'est pas ressaisi, et la charge n'est jamais recréée.</p>
   {% else %}
   <p class="text-muted">Aucune charge refacturable disponible pour ce propriétaire.
      Une charge déjà rattachée à une autre facture n'est plus proposée.</p>
@@ -413,13 +417,50 @@
   <p><strong>ÉMISSION BLOQUÉE</strong> — {{ conformite.manques|length }} point(s) à régler :</p>
   <ul>
     {% for m in conformite.manques %}
-    <li><span class="badge">{{ m.code }}</span> {{ m.message }}
-      {% if m.code in ("C_TYPE_CLIENT", "C_IDENTITE_CLIENT") %}
-      · <a href="/proprietaires/{{ facture.proprietaire_id }}">compléter la fiche propriétaire</a>
+    {# Le message d'abord — c'est lui qui dit quoi faire. Le code technique reste visible, mais en
+       second : il sert aux journaux et aux tests, pas à l'utilisateur.
+       Les valeurs testées sont les CODES REELS ; l'ancienne condition comparait les noms des
+       constantes Python ("C_TYPE_CLIENT"), donc le lien ne s'affichait jamais. #}
+    <li>{{ m.message }} <span class="badge">{{ m.code }}</span>
+      {% if m.code == "FACTURE_IDENTITE_CLIENT_INCOMPLETE" %}
+      · <a href="/proprietaires-reglements/{{ facture.proprietaire_id }}">compléter la fiche propriétaire</a>
       {% endif %}
     </li>
     {% endfor %}
   </ul>
+  {% endif %}
+
+  {# ── Classement du propriétaire ────────────────────────────────────────────
+     Saisi, jamais déduit : ni le nom, ni l'adresse, ni la présence d'un SIREN
+     ne permettent de conclure. Les mentions légales obligatoires en dépendent. #}
+  {% if type_client_actuel == "A_CONTROLER" %}
+  <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/type-client"
+        class="card" style="border-color:#B65E4B">
+    <h4>Ce propriétaire est-il un particulier ou un professionnel ?</h4>
+    <p class="text-xs text-secondary">Les mentions obligatoires diffèrent : pénalités de retard et
+      indemnité forfaitaire de recouvrement de 40 € sont dues entre professionnels, et n'ont pas à
+      figurer sur la facture d'un particulier. Ce choix est enregistré sur le propriétaire et
+      réutilisé pour ses factures suivantes.</p>
+    <label><input type="radio" name="type_client" value="PARTICULIER" required> Particulier</label>
+    <label><input type="radio" name="type_client" value="PROFESSIONNEL"> Professionnel</label>
+    <label for="tc_siren">SIREN du client (facultatif, professionnel)</label>
+    <input type="text" id="tc_siren" name="siren_client" maxlength="20">
+    <label for="tc_tva">TVA intracommunautaire du client (facultatif)</label>
+    <input type="text" id="tc_tva" name="tva_intra_client" maxlength="20">
+    <button type="submit" class="btn btn-primary">Enregistrer le type de client</button>
+  </form>
+  {% else %}
+  <p>Type de client : <strong>{{ type_client_actuel }}</strong>
+    {% if editable %}
+    <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/type-client"
+          style="display:inline">
+      <input type="hidden" name="type_client"
+             value="{{ 'PROFESSIONNEL' if type_client_actuel == 'PARTICULIER' else 'PARTICULIER' }}">
+      <button type="submit" class="btn">Reclasser en
+        {{ 'professionnel' if type_client_actuel == 'PARTICULIER' else 'particulier' }}</button>
+    </form>
+    {% endif %}
+  </p>
   {% endif %}
   {% set c = conformite.conformite %}
   <table class="table">

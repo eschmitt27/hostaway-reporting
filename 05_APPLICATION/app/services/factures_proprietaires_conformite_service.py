@@ -42,7 +42,14 @@ def periode_prestation(mois: str) -> tuple[str, str]:
 
 
 def date_echeance(date_facture: str, delai_jours: int | None) -> str | None:
-    if not delai_jours or not date_facture:
+    """Échéance de règlement.
+
+    `0` et `None` ne veulent PAS dire la même chose, et les confondre était le défaut de la version
+    précédente (`if not delai_jours` traitait 0 comme une absence) :
+      · `None` → délai non configuré : aucune échéance calculable, le contrôle le signale ;
+      · `0`    → **paiement à réception** : l'échéance EST la date d'émission.
+    """
+    if delai_jours is None or not date_facture:
         return None
     try:
         d = date.fromisoformat(str(date_facture)[:10])
@@ -59,17 +66,26 @@ def client(proprietaire_id: str, *, db_path=None) -> dict[str, Any]:
         p = reader.find_proprietaire(proprietaire_id) or {}
     except Exception:
         p = {}
+    from app.services import proprietaires_facturation_service as classement
+
     nom = " ".join(x for x in (p.get("prenom_proprietaire"), p.get("nom_proprietaire")) if x)
-    type_client = str(p.get("type_client") or "").upper() or conf.CLIENT_A_CONTROLER
+    # Le classement SAISI (table compagne 0073) fait foi. On retombe sur une éventuelle colonne
+    # `type_client` du référentiel si un import venait à en fournir une — sans jamais rien déduire.
+    type_client = classement.type_client(proprietaire_id, db_path=db_path)
+    if type_client == conf.CLIENT_A_CONTROLER:
+        type_client = str(p.get("type_client") or "").upper() or conf.CLIENT_A_CONTROLER
     if type_client not in conf.TYPES_CLIENT:
         type_client = conf.CLIENT_A_CONTROLER
+    enregistre = classement.lire(proprietaire_id, db_path=db_path) or {}
     return {
         "type_client": type_client,
         "denomination": nom or proprietaire_id,
         "adresse": p.get("adresse_facturation") or "",
         "adresse_facturation": p.get("adresse_facturation") or "",
-        "siren": p.get("siren") or "",
-        "tva_intra": p.get("tva_intra") or "",
+        # Identifiants du client professionnel : le classement les porte s'ils ont été saisis, sinon
+        # on retombe sur le référentiel. Aucun n'est fabriqué, et un particulier n'en a pas.
+        "siren": enregistre.get("siren_client") or p.get("siren") or "",
+        "tva_intra": enregistre.get("tva_intra_client") or p.get("tva_intra") or "",
         "numero_bon_commande": p.get("numero_bon_commande") or "",
     }
 
@@ -100,6 +116,9 @@ def construire(facture: dict[str, Any], *, date_facture: str, db_path=None) -> d
         "total_ttc": round(total_ht + total_tva, 2),
         "date_echeance": date_echeance(date_facture, delai),
         "delai_paiement_jours": delai,
+        # Libellé DÉRIVÉ du délai (« Paiement à réception » quand il vaut 0) : il ne peut donc pas
+        # contredire l'échéance imprimée juste à côté.
+        "conditions_paiement": conf.conditions_paiement(delai),
         "conditions_escompte": conf.conditions_escompte(),
         "taux_penalites_retard": conf.taux_penalites_retard(),
         "indemnite_recouvrement": conf.indemnite_recouvrement(),
@@ -121,8 +140,12 @@ def verifier(facture: dict[str, Any], *, date_facture: str = "", db_path=None) -
 
     cl = bloc["client"]
     if cl["type_client"] == conf.CLIENT_A_CONTROLER:
+        # Message ACTIONNABLE : l'utilisateur doit savoir quoi faire, pas seulement qu'il manque
+        # quelque chose. Le code technique reste à côté, pour les journaux et les tests.
         manques.append({"code": C_TYPE_CLIENT,
-                        "message": "type de client non déterminé (particulier ou professionnel)"})
+                        "message": "Indiquez si le propriétaire est un particulier ou un "
+                                   "professionnel avant d'émettre la facture. Les mentions "
+                                   "légales obligatoires ne sont pas les mêmes."})
     if not cl["denomination"] or not cl["adresse"]:
         manques.append({"code": C_IDENTITE_CLIENT,
                         "message": "identité client incomplète (dénomination ou adresse)"})
@@ -150,7 +173,9 @@ def verifier(facture: dict[str, Any], *, date_facture: str = "", db_path=None) -
         manques.append({"code": C_PERIODE, "message": "période de prestation indéterminée"})
     if not bloc["date_echeance"]:
         manques.append({"code": C_ECHEANCE,
-                        "message": "délai de paiement non configuré : échéance incalculable"})
+                        "message": "Délai de paiement non configuré : l'échéance ne peut pas être "
+                                   "calculée. Renseignez FACTURATION_DELAI_PAIEMENT_JOURS "
+                                   "(0 = paiement à réception)."})
 
     lignes = facture.get("lignes") or []
     if not lignes:
