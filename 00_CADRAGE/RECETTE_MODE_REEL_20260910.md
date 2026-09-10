@@ -75,7 +75,7 @@ Remplacez `À TESTER` par **OK** · **BUG** · **INCOMPLET** · **NON TESTÉ**.
 | Ménages `/menages` | OUI | cycle NIVEAU B **ACTIF** | 33 rapprochements, 29 coûts complets, 727 tâches | **BLOQUE PAR SOURCE EXTERNE** (bouton unique) | À TESTER | « Actualiser le rapprochement » s'arrête au préflight Hostaway (par conception). Les écrans et le cycle de vie restent testables |
 | Fournisseurs `/fournisseurs` | OUI | NIVEAU A | **0 fournisseur** | NON TESTABLE SANS DONNEES | À TESTER | à créer par l'utilisateur |
 | Factures fournisseurs `/factures` | OUI | **ACTIF** | 2 factures | PARTIELLEMENT TESTABLE | À TESTER | import PDF possible ; aucun PDF source déposé |
-| Factures propriétaires `/factures-proprietaires` | OUI | **ACTIF** | **13 BROUILLON** (2026-08, montants réels) | COMPLETEMENT TESTABLE | À TESTER | émission = geste définitif, à faire en connaissance de cause |
+| Factures propriétaires `/factures-proprietaires` | OUI | **ACTIF** | **13 BROUILLON** (2026-08, montants réels) | **COMPLETEMENT TESTABLE** | À TESTER | parcours complet livré le 2026-09-10 (voir §Factures propriétaires ci-dessous). Émission = geste définitif, à faire en connaissance de cause |
 | Charges | OUI | **ACTIF** (prouvé) | 1 charge (test annulé) | PARTIELLEMENT TESTABLE | À TESTER | **pas d'écran de saisie dédié** : une charge se crée par une ligne CHARGE sur un BROUILLON propriétaire |
 | Créances `/creances` | OUI | dérivé | dérivé | COMPLETEMENT TESTABLE | À TESTER | — |
 | Calculs `/calculs` | OUI | OFF volontaire | runs historisés | PARTIELLEMENT TESTABLE | À TESTER | dry-run OK ; run réel volontairement désactivé (réécrit des Excel réels) |
@@ -104,6 +104,46 @@ Remplacez `À TESTER` par **OK** · **BUG** · **INCOMPLET** · **NON TESTÉ**.
    `regularisation_hh_service`, puis DAG RESERVATIONS → FLUX_UNIFIE → LOT10 → LOT11 → LOT12,
    toutes étapes `ok=True`, 1585 lignes / 1585 clés distinctes (aucun doublon).
 3. **Intégrité** — `integrity_check` ok et `foreign_key_check` ok après chaque opération.
+
+## Factures propriétaires — parcours complet (livré le 2026-09-10)
+
+Depuis la fiche d'un BROUILLON (`/factures-proprietaires/{id}`) :
+
+| Étape | Où | À vérifier |
+|---|---|---|
+| Voir les séjours de la période | bloc « Séjours de la période et commission » | dates, canal, référence, **Assiette × Taux = Commission**. Aucune donnée personnelle du voyageur. |
+| Voir la formule | bloc « Montant dû » | commissions + ménages + canapé + forfait + refacturations + extras − réductions − acomptes |
+| Ajouter une **charge refacturable** | « Ajouter au brouillon » | seules les charges ACTIVE, refacturables, du bon propriétaire/logement et **non déjà facturées** sont proposées. Le montant vient de la charge. |
+| Retirer une charge | bouton sur la ligne | la charge **redevient sélectionnable** et n'est **pas** annulée |
+| Ajouter un **extra** | formulaire | montant strictement positif (un extra négatif est refusé) |
+| Ajouter une **réduction** | formulaire | saisie en positif, déduite ; ne peut pas rendre la facture négative |
+| Ajouter un **acompte** | bloc Règlement | diminue le **reste à payer**, jamais le montant facturé |
+| **Prévisualiser** | bouton « Prévisualiser la facture (PDF) » | c'est le **PDF réel**, même moteur que le document final |
+| Valider puis **émettre** | boutons de la fiche | numéro définitif, PDF figé, écriture comptable |
+| Retrouver en **comptabilité** | bloc Comptabilité de la fiche + `/comptabilite/ecritures` | 411000 débit / 706000 crédit, liée à la facture |
+
+**Forfait logiciel et consommables : UNE seule ligne.** Le référentiel
+(`REF_Charges_Recurrentes.REC_001`) porte « Forfait client logiciel et consommables » d'un seul
+tenant, calculé par Lot10 depuis `REF_Logements.forfait_logiciel_consommables_mensuel`. Les
+scinder en deux postes inventerait une répartition que le référentiel ne porte pas.
+
+**Acompte ≠ réduction.** Une réduction diminue ce qui est **facturé** (elle est une ligne de la
+facture) ; un acompte est un **paiement déjà reçu** (mouvement de trésorerie, hors total facturé).
+Les deux sont affichés séparément et comptabilisés différemment.
+
+### Identité légale — à compléter avant toute émission réelle
+
+| Information | État |
+|---|---|
+| Dénomination | **Chouette Patrimoine** |
+| **SIREN** | **109 624 767** — affiché comme SIREN, **jamais** comme SIRET |
+| SIRET (14 chiffres) | **MANQUANT** — un SIRET n'est pas déductible d'un SIREN (il faut le NIC de l'établissement). `SOCIETE_SIRET` à renseigner. |
+| Adresse du siège | **MANQUANTE** — `SOCIETE_ADRESSE`. Mention obligatoire : l'écran et le PDF la laissent vide plutôt que de l'inventer. |
+| Forme juridique, capital, RCS, TVA intra | **MANQUANTS** — `SOCIETE_FORME_JURIDIQUE`, `SOCIETE_CAPITAL`, `SOCIETE_RCS`, `SOCIETE_TVA_INTRA`. Les mentions légales du site sont elles-mêmes des textes d'attente : **rien n'a été inventé**. |
+
+La validation d'une facture accepte **SIRET *ou* SIREN** (plus nom + adresse). Avec le seul SIREN
+et sans adresse, la facture reste utilisable en BROUILLON et prévisualisable, mais l'émission
+réelle attend l'adresse.
 
 ## Anomalies relevées pendant la recette
 

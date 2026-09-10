@@ -2991,3 +2991,91 @@ s'explique par ces 7 tests + les 44 tests ajoutés (`test_flags_inventaire` 28 �
 **La recette utilisateur elle-même** : parcourir `00_CADRAGE\RECETTE_MODE_REEL_20260910.md` et
 remplir la colonne « Résultat ». Les corrections seront priorisées à partir des anomalies réelles
 qu'elle remontera — pas avant.
+
+## Mission 20 (2026-09-10) — factures propriétaires de bout en bout
+
+HEAD départ `231b308`. Objectif : rendre le module Factures propriétaires réellement utilisable —
+période → séjours → commissions → frais → charges refacturables → extras → acompte → réduction →
+montant dû → prévisualisation → PDF → confirmation → comptabilité.
+
+### A. Migration 0072 (additive, idempotente)
+
+`type_ligne` ouvert à `EXTRA` et `REDUCTION` (reconstruction, idiome de 0055 §4) ; index **unique**
+sur `factures_proprietaires_lignes_charge.charge_id` (anti-double-facturation au niveau SQLite, la
+garde applicative n'est plus la seule protection) ; index `(origine_type, origine_id_opaque)` sur
+`ecritures` (base de l'idempotence comptable). Testée sur base vierge, sur rejeu, et sur copie de
+la vraie base : **13 factures / 40 lignes / 5 797,35 € inchangés**, `integrity_check` ok.
+
+### B. Les quatre natures, jamais confondues
+
+| Nature | Signe | Dans `montant_total` ? | Objet |
+|---|---|---|---|
+| EXTRA | + | oui | ligne de facture |
+| REDUCTION | − | oui | ligne de facture |
+| CHARGE refacturée | + | oui | **référence** une charge existante, jamais recréée |
+| ACOMPTE | − | **non** | `mouvements_tresorerie_proprietaires` (0025), déduit du MONTANT DÛ |
+
+`montant_total = commissions + ménages + canapé + forfait + refacturations + extras − réductions`
+`montant dû = montant_total − acomptes` (dérivé, jamais stocké).
+
+Un acompte n'a pas été transformé en ligne de facture : il aurait été compté deux fois (une fois
+dans le total facturé, une fois dans le solde de règlement), et
+`TYPES_NON_FACTURABLES` le listait comme non facturable depuis l'origine.
+
+### C. Décisions prises sur le référentiel existant
+
+- **Forfait logiciel + consommables = UNE ligne** (`CHARGE_FIXE`). `REF_Charges_Recurrentes.REC_001`
+  s'appelle « Forfait client logiciel et consommables » et Lot10 le calcule d'un tenant depuis
+  `REF_Logements.forfait_logiciel_consommables_mensuel`. Les scinder aurait inventé une répartition.
+- **Période = le mois.** Lot10/Lot12 sont à grain mensuel ; exposer des bornes libres laisserait
+  croire qu'on peut facturer du 12 au 27. Les bornes réelles du mois sont rendues explicites.
+- **Commissions non recalculées.** Assiette, taux et commission viennent de `lot10_commissions`,
+  jointes sur le `source_run_id` **figé** dans l'instantané (pas le run actif).
+
+### D. Identité légale — SIREN ≠ SIRET
+
+`SOCIETE_SIREN` ajouté ; `valider()` exige nom + adresse + (SIRET **ou** SIREN). Les deux
+identifiants restent séparés et imprimés sous leur propre étiquette : compléter un SIREN par
+5 chiffres pour « faire » un SIRET aurait inventé un établissement sur un document légal.
+Noms de variables repris de `facturation_config_service.emetteur()` — pas de second jeu.
+**Manquants et signalés, jamais inventés** : SIRET complet, adresse du siège, forme juridique,
+capital, RCS, TVA intra (les mentions légales du site sont elles-mêmes des textes d'attente).
+
+### E. PDF
+
+Direction artistique **officielle** du site (jetons `@theme` de `globals.css` : brique `#8C4336`,
+terracotta `#B65E4B`, crème `#F7F1EB`, espresso `#2E211D`) et **logo de production**
+(`public/brand/logo-main.png`, copié dans `static/img/brand/`). Séjours avec Assiette × Taux =
+Commission, détail des frais par poste, récapitulatif = la formule, bandeau MONTANT DÛ, acomptes,
+mentions légales réellement connues uniquement. Multi-pages : en-têtes de tableau répétés, notes
+jamais coupées, `Page n/N`. **Aucune PII voyageur.** Rendu déterministe.
+
+**Prévisualisation = le PDF réel**, même moteur que le document final — pas un second gabarit qui
+divergerait.
+
+### F. Comptabilité
+
+`comptabilite_ecritures_service.generer_ecriture_vente_facture` existait déjà et était wiré à
+l'émission ; vérifié **idempotent** (`_deja_generee` sur `origine_type`+`origine_id_opaque`) :
+deux émissions → **une seule** écriture. 411000 débit / 706000 crédit, équilibrée, liée à la
+facture. Un BROUILLON ne produit aucune écriture.
+
+### G. Bug corrigé
+
+**Fuite PII** : la table des réservations de la fiche affichait `guest_name` (nom du voyageur).
+Remplacée par Arrivée/Départ/Nuits/Canal/Référence/Assiette/Taux/Commission.
+
+### H. Tests
+
+`tests/test_factures_proprietaires_composition.py` — **36 tests**, tous verts. Couvrent les
+42 points demandés (brouillon, période, forfait unique, extras et refus du négatif, réductions et
+refus si la facture deviendrait négative, acompte ≠ réduction, formule exacte, charges éligibles /
+rattachement / refus multiples / détachement sans annulation, index unique SQLite, document
+brouillon vs snapshot figé, PDF logo/SIREN sans SIRET/multi-pages/déterminisme/zéro PII, émission
+avec SIREN seul, refus sans identifiant, comptabilisation idempotente, écriture équilibrée et liée,
+brouillon sans écriture, facture émise non éditable, numéros uniques).
+
+Parcours destructif (émission + comptabilité) exercé sur une **copie isolée** de la vraie base
+(`BCK-C4ADF9DCF4EE`), jamais sur la vraie : facture émise `F-2026-000001`, écriture
+`ECR-D192C2CA9EE5`, idempotence prouvée. Sur la vraie base : **smoke-test non destructif
+uniquement** — aucune facture réelle émise.
