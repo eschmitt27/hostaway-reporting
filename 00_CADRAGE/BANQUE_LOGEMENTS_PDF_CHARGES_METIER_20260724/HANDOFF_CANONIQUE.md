@@ -3079,3 +3079,46 @@ Parcours destructif (émission + comptabilité) exercé sur une **copie isolée*
 (`BCK-C4ADF9DCF4EE`), jamais sur la vraie : facture émise `F-2026-000001`, écriture
 `ECR-D192C2CA9EE5`, idempotence prouvée. Sur la vraie base : **smoke-test non destructif
 uniquement** — aucune facture réelle émise.
+
+### I. Trois régressions légales trouvées par la régression, et corrigées dans le contenu
+
+La refonte du PDF avait fait disparaître des mentions **obligatoires**, que la suite de conformité
+a rattrapées. Corrigées dans le document, jamais en ajustant les tests :
+
+1. « **Periode des prestations** : du X au Y » était devenu « Periode : … » — libellé réglementaire,
+   pas un intitulé de mise en page.
+2. Les **identifiants du client** (SIREN / SIRET / TVA intra) avaient disparu du bloc des parties.
+   Obligatoires dès que le client est professionnel.
+3. **TOTAL HT / TVA / TOTAL TTC** avaient été remplacés par le seul récapitulatif. Obligatoires même
+   sous franchise (TVA = 0). Réinsérés entre les réductions et les acomptes, la lecture restant
+   continue : Sous-total → Réductions → TOTAL HT / TVA / TOTAL TTC → Acomptes → **MONTANT DÛ**.
+
+Également rétablies : « Nature de l'opération » et « Bon de commande ».
+
+**Leçon** : un PDF refait à neuf perd silencieusement les mentions légales que personne ne relit.
+C'est la suite `test_factures_proprietaires_conformite` qui les a toutes retrouvées — elle vaut
+mieux qu'une relecture visuelle.
+
+### J. Liste des factures
+
+Colonne **« Comptabilisée »** + filtre oui/non. L'état est **lu dans les écritures**
+(`origine_type` + `origine_id_opaque`), jamais dans un drapeau porté par la facture : un drapeau se
+désynchroniserait de la comptabilité au premier incident, et c'est précisément l'écart qu'on veut
+rendre visible.
+
+### K. Vérification finale sur la vraie base
+
+Migration `0072` appliquée : **13 factures / 40 lignes intactes**, `integrity_check` ok,
+`foreign_key_check` sans anomalie. **Base non polluée par les tests** : 13 BROUILLON, 0 ligne
+EXTRA/REDUCTION, **0 écriture comptable**, **aucun numéro de facture consommé**. Prévisualisation
+exercée sur une facture réelle : 9 séjours, commissions vérifiables à la main
+(142,75 × 18 % = 25,70), total commissions 169,88 € **égal** à la ligne de facture — aucun double
+comptage. Aucune fuite de chemin, aucune PII, SIREN présent, SIRET absent.
+
+### Prochaine action unique
+
+**Renseigner l'identité légale complète** (`SOCIETE_ADRESSE`, `SOCIETE_SIRET`,
+`SOCIETE_FORME_JURIDIQUE`, `SOCIETE_CAPITAL`, `SOCIETE_RCS`, `SOCIETE_TVA_INTRA`) puis émettre la
+**première facture propriétaire réelle**. Tant que l'adresse du siège manque, le parcours est
+complet et prévisualisable mais l'émission réelle reste bloquée — par conception, rien n'étant
+inventé.
