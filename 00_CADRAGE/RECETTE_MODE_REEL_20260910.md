@@ -131,19 +131,37 @@ scinder en deux postes inventerait une répartition que le référentiel ne port
 facture) ; un acompte est un **paiement déjà reçu** (mouvement de trésorerie, hors total facturé).
 Les deux sont affichés séparément et comptabilisés différemment.
 
-### Identité légale — à compléter avant toute émission réelle
+### Identité légale — renseignée depuis le Kbis (2026-09-10)
 
-| Information | État |
-|---|---|
-| Dénomination | **Chouette Patrimoine** |
-| **SIREN** | **109 624 767** — affiché comme SIREN, **jamais** comme SIRET |
-| SIRET (14 chiffres) | **MANQUANT** — un SIRET n'est pas déductible d'un SIREN (il faut le NIC de l'établissement). `SOCIETE_SIRET` à renseigner. |
-| Adresse du siège | **MANQUANTE** — `SOCIETE_ADRESSE`. Mention obligatoire : l'écran et le PDF la laissent vide plutôt que de l'inventer. |
-| Forme juridique, capital, RCS, TVA intra | **MANQUANTS** — `SOCIETE_FORME_JURIDIQUE`, `SOCIETE_CAPITAL`, `SOCIETE_RCS`, `SOCIETE_TVA_INTRA`. Les mentions légales du site sont elles-mêmes des textes d'attente : **rien n'a été inventé**. |
+| Information | État | Variable |
+|---|---|---|
+| Dénomination | **CHOUETTE PATRIMOINE** | `SOCIETE_NOM` |
+| Forme juridique | **SAS** (société par actions simplifiée) | `SOCIETE_FORME_JURIDIQUE` |
+| Capital social | **200,00 €** | `SOCIETE_CAPITAL` |
+| Siège social | **48E Route de Larnavey, 33650 Saint-Selve** | `SOCIETE_ADRESSE` |
+| **SIREN** | **109 624 767** — affiché en trois groupes, **jamais** comme SIRET | `SOCIETE_SIREN` |
+| Immatriculation | **R.C.S. Bordeaux** (immatriculée le 08/09/2026, activité depuis le 01/09/2026) | `SOCIETE_RCS` |
+| **SIRET (14 chiffres)** | **NON FOURNI** — absent du Kbis, et **non déductible** du SIREN (il faut le NIC de l'établissement). **Jamais fabriqué.** | `SOCIETE_SIRET` (vide) |
+| **TVA intracommunautaire** | **NON FOURNIE** — absente du Kbis. **Jamais inventée.** | `SOCIETE_TVA_INTRA` (vide) |
 
-La validation d'une facture accepte **SIRET *ou* SIREN** (plus nom + adresse). Avec le seul SIREN
-et sans adresse, la facture reste utilisable en BROUILLON et prévisualisable, mais l'émission
-réelle attend l'adresse.
+**SIRET et TVA intracommunautaire sont facultatifs** : leur absence ne bloque pas l'émission.
+`EMETTEUR_REQUIS` porte sur dénomination + adresse du siège + SIREN — les trois sont renseignés,
+l'identité de l'émetteur est donc **complète**. L'omission est conditionnelle, pas codée en dur :
+le jour où ces numéros existent, ils s'impriment automatiquement, chacun sous sa propre étiquette.
+
+Pied de page imprimé sur chaque facture :
+
+```
+CHOUETTE PATRIMOINE — SAS au capital de 200,00 EUR
+48E Route de Larnavey — 33650 Saint-Selve
+109 624 767 R.C.S. Bordeaux
+```
+
+**Reste à trancher avant émission** : le **régime de TVA** (`FACTURATION_REGIME_TVA` — franchise
+en base, exonération, ou assujetti) et sa mention légale. C'est une **décision métier**, pas une
+information du Kbis : l'absence de numéro de TVA intracommunautaire ne suffit pas à la déduire.
+Tant qu'il vaut `A_CONTROLER`, la conformité signale `FACTURE_REGIME_TVA` — le parcours reste
+complet et prévisualisable.
 
 ## Anomalies relevées pendant la recette
 
