@@ -102,13 +102,19 @@ def _ids_proprietaires() -> list[str]:
 
 
 @router.get("/factures-proprietaires", response_class=HTMLResponse)
-def liste(request: Request, mois: str = "", statut: str = ""):
+def liste(request: Request, mois: str = "", statut: str = "", comptabilisee: str = ""):
     factures = svc.lister(mois=mois or None, statut=statut or None)
     for f in factures:
         f["solde"] = svc.solde(f["facture_id_opaque"])["solde"]
+        # « Comptabilisée » se LIT dans les écritures, jamais dans un drapeau porté par la facture :
+        # un drapeau se désynchroniserait de la comptabilité au premier incident, et c'est
+        # précisément l'écart qu'on veut rendre visible.
+        f["comptabilisee"] = _comptabilite(f)["statut"] == "PRESENTE"
+    if comptabilisee in ("oui", "non"):
+        factures = [f for f in factures if f["comptabilisee"] == (comptabilisee == "oui")]
     return templates.TemplateResponse(request, "factures_proprietaires_list.html", {
         "active_menu": "factures", "factures": factures, "mois": mois, "statut": statut,
-        "statuts": svc.STATUTS,
+        "statuts": svc.STATUTS, "comptabilisee": comptabilisee,
     })
 
 

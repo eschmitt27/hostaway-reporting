@@ -17,6 +17,13 @@
       {% for s in statuts %}<option value="{{ s }}" {% if s == statut %}selected{% endif %}>{{ s }}</option>{% endfor %}
     </select>
   </label>
+  <label>Comptabilisée
+    <select name="comptabilisee">
+      <option value="">toutes</option>
+      <option value="oui" {% if comptabilisee == "oui" %}selected{% endif %}>oui</option>
+      <option value="non" {% if comptabilisee == "non" %}selected{% endif %}>non</option>
+    </select>
+  </label>
   <button type="submit">Filtrer</button>
   <a href="/factures-proprietaires/proposer?mois={{ mois }}" class="btn">Générer les factures</a>
 </form>
@@ -25,7 +32,8 @@
   <thead>
     <tr>
       <th>Numéro</th><th>Type</th><th>Période</th><th>Propriétaire</th><th>Logement</th>
-      <th class="text-right">Total</th><th class="text-right">Solde</th><th>Statut</th><th>Émise le</th><th></th>
+      <th class="text-right">Total</th><th class="text-right">Solde</th><th>Statut</th>
+      <th>Comptabilisée</th><th>Émise le</th><th></th>
     </tr>
   </thead>
   <tbody>
@@ -39,6 +47,9 @@
       <td class="text-right">{{ "%.2f"|format(f.montant_total) }} €</td>
       <td class="text-right">{{ "%.2f"|format(f.solde) }} €</td>
       <td>{{ f.statut }}</td>
+      {# Lu dans les écritures, jamais dans un drapeau porté par la facture : un drapeau se
+         désynchroniserait de la comptabilité au premier incident. #}
+      <td>{% if f.comptabilisee %}oui{% elif f.statut == "EMIS" %}<strong>non</strong>{% else %}—{% endif %}</td>
       <td>{{ f.date_emission or "—" }}</td>
       <td><a href="/factures-proprietaires/{{ f.facture_id_opaque }}">ouvrir</a></td>
     </tr>

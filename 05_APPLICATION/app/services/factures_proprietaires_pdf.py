@@ -175,9 +175,11 @@ class _Facture(FPDF):
             out.append(f"N° {snap['numero_facture']}")
         if snap.get("date_facture"):
             out.append(f"Emise le {_date_fr(snap['date_facture'])}")
+        # Libellé RÉGLEMENTAIRE, à conserver tel quel : « période des prestations » est la mention
+        # attendue sur une facture de services, pas un simple intitulé de mise en page.
         debut, fin = conf.get("periode_debut"), conf.get("periode_fin")
-        out.append(f"Periode : du {_date_fr(debut)} au {_date_fr(fin)}" if debut and fin
-                   else f"Periode : {snap.get('mois', '')}")
+        out.append(f"Periode des prestations : du {_date_fr(debut)} au {_date_fr(fin)}"
+                   if debut and fin else f"Periode des prestations : {snap.get('mois', '')}")
         statut = snap.get("statut")
         if statut and statut != "EMIS":
             out.append(f"Statut : {statut}")
@@ -286,9 +288,16 @@ class _Facture(FPDF):
 
         gauche = [x for x in (em.get("adresse_siege") or base.get("adresse"),
                               em.get("contact") or base.get("contact")) if x]
+        # Les identifiants du CLIENT sont obligatoires dès qu'il est professionnel — les omettre
+        # rendrait la facture non conforme. Ils ne s'impriment que s'ils sont renseignés, et sous
+        # leur propre étiquette (un SIREN client n'est pas davantage un SIRET que celui de
+        # l'émetteur).
         droite = [x for x in (cl.get("denomination") or dest.get("nom"),
                               cl.get("adresse_facturation") or cl.get("adresse")
                               or dest.get("adresse"),
+                              f"SIREN {cl['siren']}" if cl.get("siren") else None,
+                              f"SIRET {cl['siret']}" if cl.get("siret") else None,
+                              f"TVA {cl['tva_intra']}" if cl.get("tva_intra") else None,
                               f"Reference : {snap.get('proprietaire_id', '')}",
                               f"Logement : {snap.get('logement_id', '')}") if x]
         depart = self.get_y()
@@ -397,6 +406,17 @@ class _Facture(FPDF):
         ligne("Sous-total", deco.get("sous_total"))
         if deco.get("total_reductions"):
             ligne("Reductions", -float(deco["total_reductions"]))
+
+        # TOTAL HT / TVA / TOTAL TTC : mentions OBLIGATOIRES sur une facture de services, même
+        # sous un régime de franchise où la TVA vaut zéro. Elles viennent du bloc de conformité
+        # figé, pas d'un calcul refait ici. `montant_total` sert de repli quand ce bloc est absent
+        # (prévisualisation d'un brouillon dont la conformité n'a pas encore été construite).
+        conf = self.snapshot.get("conformite") or {}
+        total_ttc = conf.get("total_ttc", deco.get("total_facture"))
+        ligne("TOTAL HT", conf.get("total_ht", deco.get("total_facture")))
+        ligne("TVA", conf.get("total_tva", 0.0))
+        ligne("TOTAL TTC", total_ttc, gras=True)
+
         if deco.get("total_acomptes"):
             ligne("Acomptes deja verses", -float(deco["total_acomptes"]))
 
@@ -421,6 +441,14 @@ class _Facture(FPDF):
         conf = snap.get("conformite") or {}
 
         self._bloc_parties()
+        # Nature de l'opération et bon de commande : mentions réglementaires quand elles sont
+        # renseignées. Elles étaient rendues avant la refonte et doivent le rester.
+        self.set_font("Helvetica", "", 8.5)
+        for libelle, valeur in (("Nature de l'operation", conf.get("nature_operation")),
+                                ("Bon de commande", conf.get("numero_bon_commande"))):
+            if valeur:
+                self.cell(0, 4.6, _t(f"{libelle} : {valeur}"), 0,
+                          new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         self._tableau_sejours()
         self._tableau_prestations()
 
