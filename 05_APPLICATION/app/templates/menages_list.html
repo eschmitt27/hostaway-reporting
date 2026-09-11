@@ -192,17 +192,49 @@
 </div>
 {% else %}
 
-<!-- ===== Cartes de synthèse — 4 flux jamais fusionnés ===== -->
-<div class="kpi-grid kpi-grid--6">
-  <div class="kpi-card kpi-card--muted">
-    <div class="kpi-label">Ménages attendus</div>
-    <div class="kpi-value">—</div>
-    <div class="kpi-sub">Non alimenté par le moteur</div>
+{% if origines %}
+<!-- ===== Ménages attendus, par ORIGINE (§38) ===== -->
+<div class="card mb-md">
+  <h2 class="card-title">Ménages attendus — {{ origines.total_attendus }}</h2>
+  <p class="text-xs text-secondary">
+    L'<strong>origine</strong> dit d'où vient le ménage attendu ; l'<strong>état</strong> dit où en
+    est son exécution. Ce sont deux questions différentes : une tâche Hostaway réalisée n'est pas
+    un autre ménage que le ménage attendu, c'est le même, plus tard. Une réservation a une seule
+    origine — aucun ménage n'est compté deux fois.
+  </p>
+  <div class="kpi-grid kpi-grid--2" style="margin-top:var(--stack-md)">
+    <div class="kpi-card">
+      <div class="kpi-label">{{ origines.hostaway.libelle }}</div>
+      <div class="kpi-value">{{ origines.hostaway.attendus }}</div>
+      <div class="kpi-sub">{{ origines.hostaway.source }}</div>
+      {% if origines.hostaway.etats %}
+      <div class="text-xs text-secondary" style="margin-top:var(--stack-sm)">
+        {% for e in origines.hostaway.etats %}
+          {{ e.libelle }} : <strong>{{ e.nb }}</strong>{% if not loop.last %} · {% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">{{ origines.hors_hostaway.libelle }}</div>
+      <div class="kpi-value">{{ origines.hors_hostaway.attendus }}</div>
+      <div class="kpi-sub">{{ origines.hors_hostaway.source }}</div>
+      {% if origines.hors_hostaway.etat_indisponible %}
+      <div class="text-xs text-secondary" style="margin-top:var(--stack-sm)">
+        Pas d'état d'exécution : ces ménages n'ont pas de tâche Hostaway pour en porter un.
+      </div>
+      {% endif %}
+    </div>
   </div>
+</div>
+{% endif %}
+
+<!-- ===== Cartes de synthèse — 4 flux jamais fusionnés ===== -->
+<div class="kpi-grid kpi-grid--5">
   <div class="kpi-card">
     <div class="kpi-label">Hostaway réalisés</div>
     <div class="kpi-value">{{ s.hostaway_realise if s.hostaway_realise is not none else "—" }}</div>
-    <div class="kpi-sub">Comptage opérationnel</div>
+    <div class="kpi-sub">État d'exécution, pas une origine</div>
   </div>
   <div class="kpi-card">
     <div class="kpi-label">Internes déclarés</div>

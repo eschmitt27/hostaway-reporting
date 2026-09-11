@@ -45,9 +45,44 @@ E_API_ECHOUEE = "HOSTAWAY_CLEANING_TASKS_API_ECHOUEE"
 E_MIGRATION_ABSENTE = "MIGRATION_ABSENTE"
 
 MESSAGES = {
-    E_CREDENTIALS_ABSENTES: ("Identifiants Hostaway absents (HOSTAWAY_CLIENT_ID/"
-                              "HOSTAWAY_CLIENT_SECRET/HOSTAWAY_ACCOUNT_ID) : appel API impossible."),
+    # Message ACTIONNABLE : il dit quoi faire et OÙ, pas seulement ce qui manque. Sans le chemin,
+    # l'utilisateur sait qu'il manque des identifiants mais pas où les déposer — et le fichier
+    # `.env` étant ignoré par Git, il est normalement absent d'un worktree neuf.
+    E_CREDENTIALS_ABSENTES: (
+        "Identifiants Hostaway absents : l'appel à l'API est impossible. "
+        "Renseignez HOSTAWAY_CLIENT_ID, HOSTAWAY_CLIENT_SECRET et HOSTAWAY_ACCOUNT_ID dans le "
+        "fichier « .env » à la racine du projet (modèle fourni : « .env.example » — copiez-le en "
+        "« .env » et complétez-le), puis redémarrez l'application."),
 }
+
+
+def diagnostic_configuration() -> dict[str, Any]:
+    """État de la configuration Hostaway, SANS jamais exposer une valeur NI un chemin absolu.
+
+    Deux exigences se rencontrent ici et sont toutes deux tenues :
+      · dire à l'utilisateur OÙ déposer ses identifiants, sinon le message « identifiants absents »
+        ne lui apprend rien d'actionnable ;
+      · ne jamais publier de chemin absolu dans un écran (règle APP-SEC-1) — il porterait le nom de
+        l'utilisateur Windows.
+    D'où un chemin SANITISÉ (`<PROJECT_ROOT>/.env`) : l'emplacement est parfaitement désigné, la
+    machine reste anonyme. Les valeurs, elles, ne sortent jamais : uniquement des booléens.
+    """
+    from dotenv import load_dotenv
+
+    from app.services import path_sanitizer
+
+    chemin = Path(cfg.PROJECT_ROOT) / ".env"
+    load_dotenv(chemin)
+    requis = ("HOSTAWAY_CLIENT_ID", "HOSTAWAY_CLIENT_SECRET", "HOSTAWAY_ACCOUNT_ID")
+    presents = {nom: bool(os.getenv(nom, "").strip()) for nom in requis}
+    return {
+        "chemin_env": path_sanitizer.sanitize_path(chemin),
+        "fichier_present": chemin.exists(),
+        "variables": presents,
+        "manquantes": [nom for nom, ok in presents.items() if not ok],
+        "complet": all(presents.values()),
+        "modele": path_sanitizer.sanitize_path(Path(cfg.PROJECT_ROOT) / ".env.example"),
+    }
 
 
 def _credentials() -> tuple[str, str, str, str] | None:

@@ -8,6 +8,7 @@ from app.services import reservations_hh_service as svc
 from app.services import saisie_hh_service as saisie_svc
 from app.services import reservations_hh_confirmation_service as confirmation
 from app.services import hostaway_actualisation_service as hostaway_svc
+from app.services import hostaway_cleaning_tasks_actualisation_service as cleaning_svc
 from app.services import ordonnanceur_service as ordo
 from app.services import regularisation_hh_service as regul_svc
 
@@ -283,6 +284,10 @@ def hostaway_actualisation(request: Request, message: str = "", message_type: st
         # est active et quand elle repartira, sans quitter l'écran manuel. Aucune action ici — le
         # scheduler s'active par variable d'environnement, jamais depuis l'interface.
         "ordonnanceur": ordo.etat(),
+        # Diagnostic de configuration : présence du fichier et des variables, JAMAIS leurs valeurs.
+        # Sans lui, l'écran annonce « identifiants absents » sans dire où les déposer — et le
+        # fichier `.env` étant ignoré par Git, il manque par construction dans un worktree neuf.
+        "config_hostaway": cleaning_svc.diagnostic_configuration(),
         "message": message,
         "message_type": message_type,
     })

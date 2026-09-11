@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from app.template_env import get_templates
 
 from app.services import menages_actualisation_service as actualisation
+from app.services import menages_origine_service as origines_svc
 from app.services import menages_service as svc
 from app.services import menages_recalcul_service as recalc
 from app.services import menages_chaine_service as chaine
@@ -95,6 +96,10 @@ def menages_dashboard(
         "actualisation_echec": request.query_params.get("actualisation") == "echec",
         "resume_actualisation": [p for p in resume.split(" · ") if p],
         "changements_clotures": actualisation.changements_mois_clotures(statut="SIGNALE"),
+        # Origine des ménages attendus (§38) : Hostaway / hors Hostaway, avec l'état d'exécution
+        # tenu à part (§39). Remplace l'opposition « attendu » vs « Hostaway réalisé », qui
+        # présentait comme deux sources concurrentes ce qui est un même ménage à deux moments.
+        "origines": origines_svc.origines(mois, logement_id),
     })
 
 

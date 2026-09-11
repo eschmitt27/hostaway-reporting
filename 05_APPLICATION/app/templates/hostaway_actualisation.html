@@ -10,6 +10,33 @@
   </p>
 </div>
 
+{% if config_hostaway and not config_hostaway.complet %}
+{# Diagnostic de configuration. N'affiche QUE des présences et un chemin — jamais une valeur :
+   un identifiant ne doit pouvoir fuir ni dans l'écran, ni dans une capture, ni dans un journal. #}
+<div class="alert alert-warning" data-testid="config-hostaway-incomplete">
+  <strong>Hostaway n'est pas configuré : aucun appel à l'API n'est possible.</strong>
+  <p style="margin-top:var(--stack-sm)">
+    Renseignez les identifiants dans le fichier
+    <code>{{ config_hostaway.chemin_env }}</code>
+    {% if not config_hostaway.fichier_present %}
+      — <strong>ce fichier n'existe pas encore</strong>. Un modèle complet est fourni :
+      copiez <code>.env.example</code> en <code>.env</code> dans ce dossier, puis complétez-le.
+    {% else %}
+      — le fichier existe mais il manque des valeurs.
+    {% endif %}
+  </p>
+  <p>Variable(s) à renseigner :
+    {% for v in config_hostaway.manquantes %}<code>{{ v }}</code>{% if not loop.last %}, {% endif %}{% endfor %}
+  </p>
+  <p class="text-xs text-secondary">
+    Ce fichier est volontairement exclu de Git : il n'est donc jamais copié lors de la création
+    d'un nouvel espace de travail, et doit être renseigné une fois par installation.
+    L'application ne journalise ni n'affiche jamais ces valeurs. Redémarrez l'application après
+    l'avoir complété.
+  </p>
+</div>
+{% endif %}
+
 {% if message %}
 <div class="alert alert-{{ message_type or 'info' }}" data-testid="message-actualisation">
   {{ message }}
