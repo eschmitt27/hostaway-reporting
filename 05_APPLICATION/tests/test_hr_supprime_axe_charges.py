@@ -148,3 +148,86 @@ def test_le_vocabulaire_n_est_defini_qu_une_fois():
     from app.services import charges_preview_service as preview
 
     assert preview.STANDARD_CODES_IMPACT is CODES_IMPACT_CHARGE
+
+
+# ── DÉCISION 3 : les colonnes d'impact dérivées (migration 0078) ─────────────
+
+def _colonnes_charges(tmp_path: Path) -> set[str]:
+    from app.db.connection import apply_migrations
+
+    db = tmp_path / "app.db"
+    apply_migrations(db)
+    conn = sqlite3.connect(str(db))
+    try:
+        return {r[1] for r in conn.execute("PRAGMA table_info(charges)")}
+    finally:
+        conn.close()
+
+
+def test_les_colonnes_d_impact_derivees_ont_disparu(tmp_path):
+    """`charges` ne porte plus de copie dénormalisée de `code_impact`.
+
+    Les deux colonnes ne portaient aucune information propre — elles se déduisaient de
+    `code_impact` par une table fixe. Deux représentations du même fait, donc deux occasions de
+    diverger : elles divergeaient déjà (4 charges réelles sur 5 avaient un `code_impact` renseigné
+    et ces colonnes à NULL)."""
+    colonnes = _colonnes_charges(tmp_path)
+    assert "impact_resultat_reel" not in colonnes
+    assert "impact_resultat_comptable" not in colonnes
+    assert "code_impact" in colonnes, "la source de vérité, elle, doit rester"
+
+
+def test_la_saisie_n_ecrit_plus_ces_colonnes(tmp_path):
+    """Elles ne doivent pas non plus revenir par la liste des champs modifiables."""
+    assert "impact_resultat_reel" not in saisie.CHAMPS_SAISIE
+    assert "impact_resultat_comptable" not in saisie.CHAMPS_SAISIE
+    assert "code_impact" in saisie.CHAMPS_SAISIE
+
+
+def test_les_projections_de_lecture_ne_les_demandent_plus(tmp_path):
+    """Une colonne supprimée qu'un SELECT demande encore casse la lecture entière.
+
+    Deux listes de projection les nommaient : le lecteur applicatif et lot10."""
+    from app.readers import charges_reader
+
+    assert "impact_resultat_reel" not in charges_reader._COLONNES
+    assert "impact_resultat_comptable" not in charges_reader._COLONNES
+
+    lot10 = (_TRAVAIL / "lot10_calculer_resultats.py").read_text(encoding="utf-8",
+                                                                 errors="replace")
+    bloc = lot10.split("_CHARGES_COLS_SQL = (")[1].split(")")[0]
+    assert "impact_resultat_reel" not in bloc
+    assert "impact_resultat_comptable" not in bloc
+
+
+def test_les_tables_de_reservations_gardent_leurs_colonnes(tmp_path):
+    """0078 ne touche QUE `charges`.
+
+    Les colonnes de même nom sur les réservations sont LUES pour décider de l'inclusion au
+    résultat (`reservations_adaptateur_moteur`, lot4bis, lot4quater) : les supprimer casserait le
+    calcul économique. Même nom, rôle opposé."""
+    from app.db.connection import apply_migrations
+
+    db = tmp_path / "app.db"
+    apply_migrations(db)
+    conn = sqlite3.connect(str(db))
+    try:
+        for table in ("reservations_resolues", "reservations_hh"):
+            presente = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                (table,)).fetchone()
+            if not presente:
+                continue
+            colonnes = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+            assert "impact_resultat_reel" in colonnes, table
+            assert "impact_resultat_comptable" in colonnes, table
+    finally:
+        conn.close()
+
+
+def test_l_impact_reste_derivable_pour_chaque_code():
+    """Rien n'est perdu : c'est ce qui rend la suppression sûre."""
+    assert impact_charge("IC")["impact_resultat_reel"] == "OUI"
+    assert impact_charge("IC")["impact_resultat_comptable"] == "OUI"
+    assert impact_charge("HC")["impact_resultat_reel"] == "OUI"
+    assert impact_charge("HC")["impact_resultat_comptable"] == "NON"
