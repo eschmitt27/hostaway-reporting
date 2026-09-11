@@ -442,11 +442,31 @@ def load_form_refs(db_path=None) -> dict[str, Any]:
 
 
 def _type_flux_impact_defaut(type_flux_id: str, refs: dict[str, Any]) -> str:
-    """code_impact_defaut d'un type_flux (ou '' si inconnu)."""
+    """code_impact_defaut d'un type_flux (ou '' si inconnu OU non applicable).
+
+    `''` (chaîne vide) recouvre DEUX cas que ce lookup ne distingue pas — et n'a pas besoin de
+    distinguer, parce que V19 (ci-dessous) les traite de la même façon : pas de défaut, donc rien
+    à comparer.
+      · le type est inconnu du référentiel ;
+      · le type EST connu mais son `code_impact_defaut` est NULL en base — cas délibéré de
+        TYPE_FLUX_005 (REMBOURSEMENT_ASSOCIE, audit « arbitrages du banc » §16-19) : ce type n'a
+        pas d'impact par défaut parce qu'il n'a pas d'impact du tout. Son effet économique vient de
+        `sens_flux = REMBOURSEMENT`, que `lot3_generateur_charges.SENS_BY_SENS_FLUX` traduit en
+        `sens = NEUTRALISATION` — AVANT toute lecture de `code_impact`. Lui attribuer IC ou HC par
+        défaut inventerait un impact que rien ne justifie et que personne n'a demandé ; NULL est la
+        réponse structurellement correcte, pas une case restée vide.
+    """
     tid = str(type_flux_id or "").strip()
     for t in refs.get("types_flux", []):
         if str(t.get("type_flux_id", "")).strip() == tid:
-            return str(t.get("code_impact_defaut", "")).strip().upper()
+            # `t.get(..., "")` ne protège QUE l'absence de la clé — pas une valeur NULL présente
+            # (`t.get("code_impact_defaut", "") is None` quand la clé existe avec la valeur SQL
+            # NULL). `str(None)` vaut la chaîne "None", et `.upper()` en aurait fait "NONE" : une
+            # valeur qui SEMBLE renseignée alors qu'elle dit l'inverse. Trouvé en auditant
+            # TYPE_FLUX_005, dont le défaut NULL ne restait sans effet que parce que l'unique
+            # appelant réel normalise déjà en amont (`referentiel_admin_service.lignes`) — un
+            # appelant futur lisant `ref_types_flux` autrement aurait hérité du bug en silence.
+            return str(t.get("code_impact_defaut") or "").strip().upper()
     return ""
 
 
