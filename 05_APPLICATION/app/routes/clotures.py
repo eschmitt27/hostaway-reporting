@@ -90,7 +90,29 @@ def _fiche_ctx(cloture_opaque: str):
             snap_derive = snap_bloquants != live_bloquants
     return {"cloture": c, "progression": prog, "elements": elements_affiches,
             "snapshot_derive": snap_derive, "a_snapshot": c["statut"] in _STATUTS_AVEC_SNAPSHOT,
-            "documents": cs.documents(cloture_opaque), "actions": _actions_possibles(c)}
+            "documents": cs.documents(cloture_opaque), "actions": _actions_possibles(c),
+            # Sections du mois, TOUTES pré-filtrées sur CE mois (§44-46). Les modules Pilotage
+            # mensuel et Contrôles & clôture gardent leurs moteurs et leurs routes ; ce qui change,
+            # c'est qu'on y entre depuis le mois qu'on regarde, au lieu de re-choisir une période
+            # dans un troisième écran. C'était la redondance signalée en recette : trois entrées de
+            # menu pour un seul objet — le mois.
+            "sections_du_mois": [
+                {"cle": "synthese", "libelle": "Synthèse / Pilotage",
+                 "url": f"/pilotage-mensuel?mois={c['mois']}",
+                 "detail": "Indicateurs économiques du mois"},
+                {"cle": "controles", "libelle": "Contrôles",
+                 "url": f"/controles-cloture/mois/{c['mois']}",
+                 "detail": "Points de contrôle et anomalies à traiter"},
+                {"cle": "menages", "libelle": "Ménages du mois",
+                 "url": f"/menages?mois={c['mois']}",
+                 "detail": "Rapprochement des ménages"},
+                {"cle": "factures", "libelle": "Factures propriétaires",
+                 "url": f"/factures-proprietaires?mois={c['mois']}",
+                 "detail": "Documents émis pour ce mois"},
+                {"cle": "historique", "libelle": "Historique / preuves",
+                 "url": f"/clotures/{cloture_opaque}/historique",
+                 "detail": "Journal des décisions de clôture"},
+            ]}
 
 
 def _actions_possibles(c: dict) -> list[str]:

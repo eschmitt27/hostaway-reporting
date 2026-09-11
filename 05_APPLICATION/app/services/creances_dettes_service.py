@@ -52,6 +52,22 @@ BADGES_STATUT = {
 }
 
 
+def _statut_reglement(total: float, impute: float, reste: float) -> str:
+    """Même règle que `factures_proprietaires_service.solde()`, appliquée au tally unique.
+
+    Reproduite ici plutôt qu'importée parce que l'entrée diffère : là-bas le service recompose
+    lui-même les imputations, ici elles sont déjà réunies sans doublon. Les quatre états, eux,
+    sont identiques — c'est le vocabulaire canonique des créances.
+    """
+    if abs(impute) <= 0.005:
+        return ST_NON_REGLEE
+    if abs(reste) <= 0.005:
+        return ST_REGLEE
+    if (reste > 0) == (total > 0):
+        return ST_PARTIELLE
+    return ST_TROP_PERCU
+
+
 def libelle_statut(statut: str, solde: float = 0.0, jours_retard: int | None = None) -> str:
     """Statut lisible. « En retard » prime sur « À régler » : c'est l'information qui appelle une
     action, et elle disparaîtrait si l'on se contentait de traduire le code."""
@@ -102,13 +118,15 @@ def creances(*, proprietaire_id: str = "", logement_id: str = "", mois: str = ""
         if logement_id and f["logement_id"] != logement_id:
             continue
 
+        # UNE SEULE addition, ici. `imputations_detail` a déjà réuni les deux mécanismes
+        # d'imputation sans doublon (FIFO + reversements Airbnb) ; le solde en découle
+        # directement. Repasser par `fpr.solde()`, qui refait ses propres déductions, rajouterait
+        # une seconde addition des mêmes montants — c'est exactement le double comptage qu'on évite.
         imput = _imputations_detail(f["facture_id_opaque"], db_path=db_path)
-        # `solde()` déduit LUI-MÊME les reversements Airbnb et les acomptes : on ne lui repasse que
-        # la part allouée par le moteur FIFO, sinon ces montants compteraient deux fois. Le détail
-        # complet (`regle`/`compense`) sert à l'affichage, pas au calcul du solde.
-        fifo_seul = round(imput["total"] - imput.get("acomptes", 0.0)
-                          - imput.get("reversements_airbnb", 0.0), 2)
-        s = fpr.solde(f["facture_id_opaque"], paiements_imputes=fifo_seul, db_path=db_path)
+        total = round(float(f["montant_total"] or 0), 2)
+        reste = round(total - imput["total"], 2)
+        s = {"montant_total": total, "solde": reste,
+             "statut_reglement": _statut_reglement(total, imput["total"], reste)}
         conf = conformite.charger(f["facture_id_opaque"], db_path=db_path) or {}
         echeance = conf.get("date_echeance")
         jours = _anciennete(echeance)

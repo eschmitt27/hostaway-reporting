@@ -23,7 +23,10 @@
   <label>Statut
     <select name="statut">
       <option value="">tous</option>
-      {% for s in statuts %}<option value="{{ s }}" {% if s == filtres.statut %}selected{% endif %}>{{ s }}</option>{% endfor %}
+      {# La `value` reste le code canonique (c'est le filtre envoyé au serveur) ; seul le texte lu
+         est humanisé. Un menu déroulant listant « PARTIELLEMENT_REGLEE » demande à l'utilisateur
+         de connaître notre vocabulaire interne pour filtrer. #}
+      {% for s in statuts %}<option value="{{ s }}" {% if s == filtres.statut %}selected{% endif %}>{{ s | libelle_statut }}</option>{% endfor %}
     </select>
   </label>
   <label><input type="checkbox" name="echues" value="1" {% if filtres.echues %}checked{% endif %}> échues seulement</label>

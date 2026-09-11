@@ -269,6 +269,20 @@ def annuler(charge_id: str, *, acteur: str = "", motif: str = "", db_path=None) 
     return {"ok": True, "charge_id": charge_id, "statut": STATUT_ANNULEE}
 
 
+def statut_controle(charge: dict[str, Any] | None) -> str:
+    """État de contrôle NORMALISÉ d'une charge. `NULL` vaut `A_CONTROLER`.
+
+    Toutes les charges ne reçoivent pas cette colonne à la création : le parcours de saisie la
+    pose, une création directe par le service la laisse à `NULL`, et la vraie base porte les deux
+    cas. « Pas encore contrôlé » et « colonne vide » décrivent pourtant la même situation — les
+    distinguer à l'écran ferait apparaître des charges dans aucun filtre, ni « à contrôler », ni
+    « conforme ». On normalise donc à la LECTURE plutôt que d'imposer un défaut en base, qui
+    entrerait en conflit avec la valeur calculée par le moteur.
+    """
+    valeur = str((charge or {}).get("statut_controle") or "").strip().upper()
+    return valeur if valeur in CONTROLES else CONTROLE_A_CONTROLER
+
+
 def valider_controle(charge_id: str, *, acteur: str = "", motif: str = "",
                      db_path=None) -> dict[str, Any]:
     """`A_CONTROLER` → `CONFORME`. Le geste « Valider la charge » de la fiche.

@@ -13,6 +13,26 @@
 
 {% if erreur %}<div class="alert alert-error">{{ erreur }}</div>{% endif %}
 
+{% if sections_du_mois %}
+{# Point d'entrée unique du mois (§44-46) : toutes les vues de CE mois sont atteignables d'ici,
+   déjà filtrées. Les modules « Pilotage mensuel » et « Contrôles & clôture » gardent leurs
+   moteurs et leurs routes — ils ne sont plus trois entrées de menu pour un seul objet. #}
+<div class="card mb-md">
+  <h2 class="card-title">Le mois de {{ cloture.mois }}</h2>
+  <p class="text-xs text-secondary">
+    Tout ce qui concerne ce mois, déjà filtré : aucune période à re-sélectionner ailleurs.
+  </p>
+  <div class="flex gap-md" style="flex-wrap:wrap; margin-top:var(--stack-md)">
+    {% for s in sections_du_mois %}
+    <a href="{{ s.url }}" class="btn btn-secondary" style="text-align:left">
+      <strong>{{ s.libelle }}</strong>
+      <br><span class="text-xs text-secondary">{{ s.detail }}</span>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 <div class="alert alert-info">
   Suivi humain uniquement — la clôture réelle reste pilotée par le moteur (REF_Cloture_Mensuelle).
 </div>

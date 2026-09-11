@@ -291,15 +291,21 @@ def imputations_detail(facture_id: str, *, db_path=None) -> dict[str, float]:
                     Des sommes déjà détenues pour le compte du propriétaire : elles éteignent la
                     créance sans encaissement supplémentaire.
 
-    POURQUOI TROIS SOURCES ET NON UNE
-    Cette fonction ne lisait que `proprietaire_allocations` (le moteur FIFO), alors que
-    `factures_proprietaires_service.solde()` déduit EN PLUS, directement, les reversements Airbnb
-    (`imputations_airbnb`) et les acomptes (`mouvements_tresorerie_proprietaires`). L'écran
-    Créances affichait donc « Total 465,88 · Réglé 0 · Compensé 0 · Solde 40,88 » : 425 € de
-    reversement disparaissaient de l'explication, tout en agissant sur le solde. Un montant qui
-    modifie un solde sans apparaître nulle part est un défaut de lisibilité, pas une subtilité.
-    On lit désormais les mêmes sources que le solde, et l'égalité
-    `total − réglé − compensé = solde` est vraie par construction.
+    CHAQUE EURO N'A QU'UN SEUL CHEMIN
+    Deux mécanismes imputent sur une facture, et ils ne couvrent pas les mêmes sources :
+      · le moteur FIFO (`proprietaire_allocations`) alloue les mouvements de trésorerie
+        propriétaire — acomptes compris, puisqu'il lit `mouvements_tresorerie_proprietaires` ;
+      · les reversements Airbnb (`imputations_airbnb`) sont imputés DIRECTEMENT sur le document
+        et ne passent PAS par le FIFO.
+    On additionne donc le FIFO et les seuls reversements. Ajouter aussi les acomptes lus en direct
+    les compterait DEUX FOIS — défaut constaté en test : un acompte de 100 € affiché 200 €.
+
+    C'est le manque du second terme qui produisait « Total 465,88 · Réglé 0 · Compensé 0 ·
+    Solde 40,88 » : 425 € agissaient sur le solde sans apparaître nulle part. Un montant qui
+    modifie un solde sans être affiché est un défaut de lisibilité, pas une subtilité.
+
+    `acomptes` est renvoyé pour l'AFFICHAGE seulement (« dont acompte … ») : il est déjà compris
+    dans `regle` et ne doit jamais être additionné par l'appelant.
     """
     from app.services import factures_proprietaires_service as fpr
 
@@ -311,20 +317,19 @@ def imputations_detail(facture_id: str, *, db_path=None) -> dict[str, float]:
     finally:
         conn.close()
     par_type = {r[0]: _round(r[1]) for r in rows}
-    compense = par_type.get(SRC_REVERSEMENT, 0.0)
     regle = par_type.get(SRC_PAIEMENT, 0.0)
 
-    # Imputations portées DIRECTEMENT sur le document, hors moteur FIFO.
     reversements = _round(sum(_round(r["montant_impute"])
                               for r in fpr.reversements_airbnb(facture_id, db_path=db_path)))
+    compense = _round(par_type.get(SRC_REVERSEMENT, 0.0) + reversements)
+
+    # Part des acomptes DANS `regle` — pour l'expliquer à l'écran, jamais pour l'additionner.
     acomptes = _round(sum(_round(a["montant"])
                           for a in fpr.acomptes_proprietaire(facture_id, db_path=db_path)
                           if a["statut"] == "VALIDE" and int(a["actif"] or 0) == 1))
 
-    compense = _round(compense + reversements)
-    regle = _round(regle + acomptes)
     return {"regle": regle, "compense": compense, "total": _round(regle + compense),
-            "acomptes": acomptes, "reversements_airbnb": reversements}
+            "acomptes": min(acomptes, regle), "reversements_airbnb": reversements}
 
 
 def recalculer_tous(*, declencheur: str = "AUTO", db_path=None) -> int:

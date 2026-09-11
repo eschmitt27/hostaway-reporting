@@ -194,7 +194,8 @@ def fournisseur_detail(request: Request, charge_id: str, erreur: str = ""):
     # Le cycle de vie (`statut`) vient du service de saisie : le lecteur moteur ne le projette pas.
     ligne = saisie.lire(charge_id) or {}
     active = str(ligne.get("statut") or "") == saisie.STATUT_ACTIVE
-    controle = str(ligne.get("statut_controle") or charge.get("statut_controle") or "").upper()
+    # Normalisé : une colonne vide signifie « pas encore contrôlé », pas « état inconnu ».
+    controle = saisie.statut_controle(ligne or charge)
     return templates.TemplateResponse(request, "fournisseurs_detail.html", {
         "active_menu": "fournisseurs",
         "detail": detail,
