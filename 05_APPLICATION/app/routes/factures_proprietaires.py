@@ -251,9 +251,14 @@ def valider(request: Request, facture_id: str):
 @router.post("/factures-proprietaires/{facture_id}/emettre")
 def emettre(request: Request, facture_id: str, date_facture: str = Form(...)):
     facture = svc.lire(facture_id)
-    # Série laissée à la configuration : F-AAAA-NNNNNN pour les factures, A-AAAA-NNNNNN pour les
-    # avoirs. La conformité est exigée dès que l'émission réelle est ouverte ; en recette elle est
-    # seulement affichée, pour pouvoir exercer le parcours avec une configuration incomplète.
+    # Série dérivée du MOIS DE PRESTATION : `2026-08-001` pour une facture, `A-2026-08-001` pour un
+    # avoir (§22). La conformité est exigée dès que l'émission réelle est ouverte ; en recette elle
+    # est seulement affichée, pour pouvoir exercer le parcours avec une configuration incomplète.
+    #
+    # CE QUE FAIT « ÉMETTRE », EXHAUSTIVEMENT : attribuer le numéro, figer le snapshot, générer le
+    # PDF sur le disque local et le hacher. AUCUN e-mail n'est envoyé, AUCUNE API externe n'est
+    # appelée — le projet ne contient aucun module d'envoi (vérifié : pas de `smtplib`, pas de
+    # client HTTP sortant dans cette chaîne). La comptabilisation reste une action distincte.
     try:
         emise = svc.emettre(facture_id, emetteur=_emetteur(),
                             destinataire=_destinataire(facture["proprietaire_id"]),

@@ -3187,3 +3187,82 @@ puis émettre la **première facture propriétaire réelle**. L'application ne d
 c'est le dernier geste humain requis, et il est bloquant par conception — les mentions légales
 obligatoires diffèrent, et une déduction automatique imprimerait des pénalités de retard chez un
 particulier.
+
+---
+
+## Mission 23 (2026-09-11) — recette utilisateur n°2 : charges, refacturation, créances, navigation
+
+Corrections issues d'un parcours RÉEL de l'utilisateur. Détail complet :
+`00_CADRAGE/JOURNAL_CONTROLES.md`, entrée `CTR-RECETTE-UTILISATEUR-02-2026-09-11`.
+
+### A. Les deux axes d'une charge — à ne jamais confondre
+
+| | VENTILATION ANALYTIQUE | REFACTURATION COMMERCIALE |
+|---|---|---|
+| Question | Combien cette dépense coûte-t-elle à ce logement ? | Combien je récupère, et sur quelle facture ? |
+| Montant | montant / nombre de logements (700 / 2 = **350**) | le montant **TOTAL** (700) |
+| Porté par | `charges_perimetre_analytique` (migration **0074**) | `charges_refacturation_positions` |
+| Sert à | résultat par logement | factures propriétaires |
+| Contrainte | somme des quotes-parts = montant exact | cumul imputé ≤ montant source |
+
+Une charge de 700 € commune à deux logements pèse 350 € sur le résultat de chacun **et** peut être
+refacturée 700 € sur une seule facture, ou 350/350, ou 500/200. L'analytique n'impose rien au
+commercial.
+
+### B. Formule d'une créance
+
+```
+TOTAL FACTURE  =  commissions + ménages + forfait + charges refacturées + extras − réductions
+RÉGLÉ          =  acomptes et paiements reçus du propriétaire        (argent encaissé)
+COMPENSÉ       =  reversements Airbnb imputés                        (somme déjà détenue)
+SOLDE          =  TOTAL − RÉGLÉ − COMPENSÉ                           (vrai par construction)
+```
+
+Ni l'acompte ni le reversement ne diminuent le chiffre d'affaires facturé ou le produit
+comptabilisé : ils apparaissent **après** le total, jamais dedans. Un solde négatif n'est pas une
+facture négative — c'est un **montant à reverser au propriétaire**.
+
+### C. Numérotation (§22)
+
+`AAAA-MM-NNN`, indexée sur le **mois de prestation** : `2026-08-001`, `2026-08-002`… La séquence
+repart à 001 chaque mois ; les avoirs gardent leur série (`A-2026-08-001`). Le numéro est attribué
+à l'émission définitive, jamais avant.
+
+**Facture `F-11/0-000001` (déjà émise, à traiter par l'utilisateur).** Elle porte l'ancien format,
+corrompu par une date saisie « 11/09/2026 » dans un champ non validé. Elle **n'a pas été
+renumérotée** : un numéro attribué est définitif, et sa créance comme son écriture comptable
+existent. Pour la régulariser proprement, si l'utilisateur le souhaite : émettre un **avoir** qui
+l'annule (série `A-…`), puis réémettre la facture, qui prendra alors `2026-08-001`. Rien de tout
+cela n'a été fait automatiquement.
+
+### D. Hostaway — où mettre les identifiants
+
+Fichier **`.env` à la racine du projet** (le même que lit le moteur). Modèle complet fourni :
+copier `.env.example` en `.env` et renseigner `HOSTAWAY_CLIENT_ID`, `HOSTAWAY_CLIENT_SECRET`,
+`HOSTAWAY_ACCOUNT_ID`. Le fichier est gitignoré : il n'est jamais copié dans un nouveau worktree,
+d'où sa disparition. L'écran `/hostaway` affiche désormais les variables manquantes et le chemin
+attendu, sans jamais exposer une valeur.
+
+### E. Origine des ménages (§38-§39)
+
+`ATTENDU HOSTAWAY` (les Cleaning Tasks) et `ATTENDU HORS HOSTAWAY` (les réservations saisies) sont
+deux ORIGINES disjointes — aucun ménage n'est compté deux fois. L'ÉTAT d'exécution (prévu, réalisé,
+annulé) est un axe séparé, affiché à part.
+
+### F. Navigation cible
+
+Logements · Réservations · Ménages · **Charges** · Factures fournisseurs · Factures propriétaires ·
+Créances & dettes · Relevés propriétaires · Comptes propriétaires · Banques & caisse · Comptabilité ·
+Résultats · **Clôture mensuelle** — puis, séparés : Administration · Observabilité & outils.
+
+`/` mène directement à Logements. Calculs, Sources & calculs et Référentiel Setup quittent le menu
+métier pour Administration : **aucun moteur n'a été supprimé**, toutes les routes répondent.
+« Relevés propriétaires » (ex-« Propriétaires & règlements ») est **conservé** : l'audit montre 36
+routes de cycle relevé/paiement/rapprochement, sans recouvrement avec Comptes propriétaires (3
+routes). L'utilisateur le pensait redondant ; il ne l'est pas.
+
+### Prochaine action unique
+
+**Classer les propriétaires** (particulier / professionnel) puis reprendre la recette sur les
+écrans corrigés. Si la facture `F-11/0-000001` doit être régularisée, décider entre la conserver
+telle quelle et la remplacer par un avoir + réémission (voir §C).

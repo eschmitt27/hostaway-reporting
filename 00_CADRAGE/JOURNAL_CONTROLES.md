@@ -4879,3 +4879,96 @@ suppose d'embarquer une police Unicode redistribuable — décision non prise.
 
 **Vraie `app.db` : aucune facture définitive créée.** Toute la recette s'est déroulée sur une copie
 isolée. Scheduler resté OFF.
+
+---
+
+### CTR-RECETTE-UTILISATEUR-02-2026-09-11
+
+```
+Date       : 2026-09-11
+Lot        : Recette utilisateur n°2 — charges, refacturation, factures, créances, navigation
+Code       : CHARGE_PERIMETRE_NON_PERSISTE / CHARGE_CONTROLE_SANS_TRANSITION
+             / FACTURE_SERIE_DERIVEE_D_UNE_DATE / CREANCE_MONTANT_INVISIBLE
+             / MIGRATIONS_REJOUEES_INTEGRALEMENT
+Sévérité   : BLOQUANT (les cinq)
+Fichier    : vraie app.db (lecture), copies isolées (écriture)
+Statut     : CORRIGÉ
+```
+
+**Origine.** Parcours réel de l'utilisateur dans l'application. Ses observations ont servi de
+point de départ ; chaque cause a été cherchée jusqu'à la racine plutôt que masquée par un libellé.
+
+**1. Le périmètre analytique d'une charge était calculé puis jeté.** Cas réel
+`CHG-FC93F74A63D1` (700 €, 2 logements) : la fiche affichait « logement : vide / refacturable :
+non ». `charges_preview_service` résolvait pourtant correctement les deux logements, leur
+propriétaire historisé et la répartition 350/350 — mais `charges_confirmation_service.confirmer()`
+ne conservait que `row_data`, et le périmètre mourait avec le manifest de prévisualisation.
+Conséquence en chaîne : charge écrite en `GLOBAL` sans logement ni propriétaire → position de
+refacturation née `A_TRAITER` → **proposable sur aucune facture**. La dépense était refacturable
+en théorie et irrécupérable en pratique. Migration **0074** (`charges_perimetre_analytique`).
+
+**2. Deux axes confondus.** La ventilation ANALYTIQUE (700 / 2 = 350 par logement, pour le
+résultat) n'a plus aucun effet sur la ventilation COMMERCIALE (un élément de 700 € au total,
+récupérable 700/0, 350/350 ou 500/200 au choix). Migration **0075** : l'index unique sur
+`charge_id` (0072) interdisait le partage entre deux factures — donc le cas métier normal en même
+temps que le double comptage. L'invariant est désormais porté par le MONTANT :
+`imputé (validé) + réservé (brouillons) <= montant éligible`. Un brouillon réserve sans imputer et
+libère en se détachant. Matrice §55 vérifiée : 700/0 ok, 350/350 ok, 500/200 ok, 500+300 refusé,
+zéro/négatif/dépassement refusés, double-clic refusé, détachement rend le montant.
+
+**3. Une charge ne pouvait pas être validée.** Le modèle existait (0011 :
+`A_CONTROLER|CONFORME|ANOMALIE`) mais aucune TRANSITION n'était codée : une charge naissait
+« à contrôler » et rien ne l'en sortait. Ajout de `valider_controle` / `signaler_anomalie`,
+idempotents et journalisés. Un `statut_controle` NULL (présent dans la vraie base) est lu comme
+`A_CONTROLER` : « pas encore contrôlé » et « colonne vide » décrivent la même situation.
+
+**4. `F-11/0-000001` — un numéro de facture légalement inexploitable, réellement émis.**
+La série venait de `str(date_facture)[:4]`. L'utilisateur a saisi « 11/09/2026 » dans un champ
+texte qui demandait « AAAA-MM-JJ » sans rien vérifier : `[:4]` a donné `11/0`. La numérotation est
+désormais indexée sur le **mois de prestation** (`2026-08-001`), lu du champ canonique `mois` —
+aucune saisie ne peut plus la corrompre. La date d'émission est normalisée (format français
+accepté, illisible refusé) et le champ est devenu un sélecteur de date. **La facture déjà émise
+n'est pas renumérotée** : voir le traitement proposé plus bas.
+
+**5. « 425 € qui disparaissent » dans Créances.** L'écran montrait « Total 465,88 · Réglé 0 ·
+Compensé 0 · Solde 40,88 ». `imputations_detail()` ne lisait que le moteur FIFO (vide) alors que
+`solde()` déduisait en plus, directement, les reversements Airbnb. Un montant modifiait donc un
+solde sans apparaître nulle part. Corrigé : `RÉGLÉ` = paiements et acomptes reçus, `COMPENSÉ` =
+reversements Airbnb, et `total − réglé − compensé = solde` est vrai par construction (testé comme
+propriété sur plusieurs jeux, pas sur un exemple). Résultat sur la facture réelle, inchangé :
+**465,88 − 0 − 425,00 = 40,88**.
+
+**Défaut supplémentaire trouvé par les tests ajoutés — double comptage des acomptes.** Le moteur
+FIFO et `solde()` lisent la MÊME table `mouvements_tresorerie_proprietaires` : un acompte de 100 €
+ressortait à 200 €. Pré-existant et invisible sur la vraie base (allocations FIFO vides), il
+serait apparu au premier acompte alloué. Chaque euro n'a plus qu'un seul chemin.
+
+**6. `apply_migrations` rejouait TOUTES les migrations depuis 0001** (défaut latent, bloquant).
+Le suivi reposait sur le seul `MAX(version)` : soit tout court-circuiter, soit tout rejouer. La
+seconde branche est devenue destructrice depuis qu'une migration de RECONSTRUCTION est entrée dans
+l'historique — `0071` recrée `factures_proprietaires_lignes` avec la contrainte `CHECK` de
+l'époque, que `0072` élargit ensuite à `EXTRA`/`REDUCTION`. **Ajouter un simple fichier 0074
+empêchait donc l'application de démarrer**, dès lors qu'une ligne `EXTRA` existait — elle existe
+depuis la recette. Chaque fichier est désormais suivi individuellement.
+
+**Hostaway — pourquoi les identifiants ont « disparu ».** Variables attendues :
+`HOSTAWAY_CLIENT_ID`, `HOSTAWAY_CLIENT_SECRET`, `HOSTAWAY_ACCOUNT_ID` (+ `HOSTAWAY_BASE_URL`),
+chargées par `load_dotenv(<PROJECT_ROOT>/.env)` — même fichier pour l'application et pour le
+moteur. Ce fichier est **gitignoré** : il n'a jamais été copié lors de la création de ce worktree,
+et n'existe pas davantage dans le dépôt d'origine (vérifié par présence seule, **aucune valeur
+lue**). Rien n'a été perdu par l'application : c'est un fichier local qui n'a pas suivi. Un
+`.env.example` complet a été créé À LA RACINE (l'ancien vivait dans `05_APPLICATION/`, que le
+chargeur ne lit pas, et ne mentionnait aucune variable Hostaway), et l'écran affiche désormais les
+variables manquantes avec le chemin **sanitisé** — un test APP-SEC a correctement rattrapé une
+première version qui publiait le chemin absolu, donc le nom de l'utilisateur Windows.
+
+**Ménages.** « Attendu » et « Hostaway réalisé » étaient présentés comme deux sources
+concurrentes, la première toujours vide. Ce sont deux questions : l'ORIGINE (Hostaway / hors
+Hostaway) et l'ÉTAT d'exécution. Une tâche réalisée n'est pas un autre ménage que le ménage
+attendu — c'est le même, plus tard. Sur 2026-08 : 365 attendus Hostaway (351 réalisés, 13 prévus,
+1 en cours, 110 annulées écartées) + 1 attendu hors Hostaway.
+
+**Intégrité.** `integrity_check` **ok**, `foreign_key_check` **0 anomalie**, schéma **0075**.
+Sauvegarde `BCK-736C3F25F83E` (schéma 0073) prise avant toute modification. Toutes les opérations
+destructives se sont déroulées sur des **copies isolées** ; la vraie base n'a reçu aucune écriture
+de test.

@@ -225,3 +225,50 @@ contrepasser · restaurer / rollback · « Actualiser toute l'activité » en r�
   `..\REAL_DATA_BACKUP_AVANT_RECETTE_20260910\`.
 - Rollback code : copie propre `..\resume-pilotage-conciergerie-20260909_SAUVEGARDE_AVANT_MODE_REEL_20260910\`
   (intacte, jamais utilisée).
+
+---
+
+## Mise à jour du 2026-09-11 — après la recette utilisateur n°2
+
+### Schéma et configuration
+
+| Élément | Valeur |
+|---|---|
+| Schéma | **0075** (0074 périmètre analytique, 0075 refacturation partagée) |
+| Numérotation des factures | `AAAA-MM-NNN` sur le **mois de prestation** (`2026-08-001`) |
+| Accueil | supprimé — `/` redirige vers `/logements` |
+| Module « Fournisseurs » | renommé **Charges** (l'entité fournisseur est conservée) |
+
+### Nouvelles variables
+
+```
+SOCIETE_REPRESENTANTS=Wafa Souci et Ewan Schmitt
+```
+Imprimée « Représentée par … » sur les factures, **sans aucun titre juridique** : le Kbis n'en
+documente pas, et en inventer un engagerait la société sur une qualité non vérifiée.
+
+### Hostaway — emplacement exact des identifiants
+
+Fichier **`.env` à la racine du projet**, modèle `.env.example` (également à la racine, créé par
+cette mission). Variables : `HOSTAWAY_CLIENT_ID`, `HOSTAWAY_CLIENT_SECRET`, `HOSTAWAY_ACCOUNT_ID`,
+`HOSTAWAY_BASE_URL`. Le fichier est gitignoré — il n'est donc jamais copié dans un nouveau
+worktree, ce qui explique l'absence constatée en recette. L'écran `/hostaway` indique désormais
+quelles variables manquent et où les déposer, sans jamais afficher de valeur.
+
+### Ce que la recette a réellement corrigé
+
+1. le périmètre analytique d'une charge est **persisté** (il était calculé puis jeté) ;
+2. une charge multi-logements est **refacturable** (sa position naissait `A_TRAITER`, invisible) ;
+3. une charge **peut être validée** (`A_CONTROLER` → `CONFORME`) ;
+4. la numérotation ne dépend plus d'une date saisie (`F-11/0-000001` ne peut plus se reproduire) ;
+5. Créances : `Total − Réglé − Compensé = Solde`, plus aucun montant invisible ;
+6. une facture **VALIDE** peut repasser en brouillon ; une facture **ÉMISE** ne le peut pas ;
+7. `apply_migrations` ne rejoue plus tout l'historique — il empêchait le démarrage dès l'ajout
+   d'une migration.
+
+### Ce qui reste à la main de l'utilisateur
+
+- **classer chaque propriétaire** (particulier / professionnel) avant émission définitive ;
+- décider du sort de la facture `F-11/0-000001`, émise sous l'ancien format (avoir + réémission,
+  ou conservation en l'état) — aucune modification automatique n'a été faite ;
+- renseigner le `.env` Hostaway pour réactiver l'actualisation.

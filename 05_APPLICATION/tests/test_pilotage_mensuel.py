@@ -189,9 +189,22 @@ def test_19_route_enregistree_200(client):
     assert client.get("/pilotage-mensuel").status_code == 200
 
 
-def test_20_lien_sidebar_present(client):
-    r = client.get("/")
-    assert 'href="/pilotage-mensuel"' in r.text
+def test_20_pilotage_atteignable_depuis_le_mois(client):
+    """Recette utilisateur n°2 (§45) : « Pilotage mensuel » n'est plus une entrée de menu
+    autonome — on y entre depuis le mois qu'on regarde, dans « Clôture mensuelle », déjà filtré.
+    Trois entrées pour un seul objet (le mois) obligeaient à re-choisir la période partout.
+
+    Le module, ses données et sa route restent intacts : seul le chemin d'accès change.
+    """
+    assert client.get("/pilotage-mensuel").status_code == 200
+    assert 'href="/pilotage-mensuel"' not in client.get("/logements").text
+
+    # Depuis la page d'un mois, le lien existe et porte déjà le mois.
+    from app.services import clotures_service as cs
+    clotures = cs.lister()
+    if clotures:
+        fiche = client.get(f"/clotures/{clotures[0]['cloture_opaque']}")
+        assert f"/pilotage-mensuel?mois={clotures[0]['mois']}" in fiche.text
 
 
 def test_21_aucun_calendrier(client):
