@@ -13,6 +13,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Iterable
 
+import lib_repartition as rp
+
 MODE_INTERVENANT = "INTERVENANT"
 MODE_LOGEMENT = "LOGEMENT"
 
@@ -84,18 +86,15 @@ def ventiler_charge_menage(
         return {"statut": "A_CONTROLER", "quote_parts": [], "somme": 0.0,
                 "message": "Aucun ménage éligible sur le périmètre et le mois."}
 
-    # Répartition proportionnelle au poids, centimes déterministes (résidu au premier trié).
-    total_cents = int(round(float(montant) * 100))
-    quotes: list[dict[str, Any]] = []
-    cumul = 0
-    ordered = [c for c in cles if poids[c] > 0]
-    for i, c in enumerate(ordered):
-        if i < len(ordered) - 1:
-            cents = int(round(total_cents * poids[c] / total_poids))
-            cumul += cents
-        else:
-            cents = total_cents - cumul  # dernier absorbe le résidu → somme exacte
-        quotes.append({"cle": c, "mode": mode, "quote_part": round(cents / 100.0, 2)})
+    # Répartition proportionnelle au poids, par la règle canonique du dépôt (`lib_repartition`).
+    #
+    # Ce bloc faisait absorber TOUT le résidu par la dernière clé triée. La somme était exacte,
+    # mais cette dernière ligne pouvait s'écarter de sa part réelle de plusieurs centimes dès que
+    # le périmètre s'élargissait — un écart qui grandit avec le nombre de lignes, toujours sur la
+    # même. La règle canonique ne s'écarte jamais de plus d'un centime, sur aucune ligne.
+    parts = rp.repartir(montant, poids)
+    quotes: list[dict[str, Any]] = [
+        {"cle": c, "mode": mode, "quote_part": round(parts[c], 2)} for c in sorted(parts)]
     somme = round(sum(q["quote_part"] for q in quotes), 2)
     return {"statut": "VALIDE", "mode": mode, "quote_parts": quotes, "somme": somme,
             "message": f"Ventilé sur {len(quotes)} {mode.lower()}(s) par COUT_STANDARD_MENAGES_MOIS."}

@@ -690,6 +690,48 @@ def _groupe6f_menages_externes(ctrl: _Ctrl, db_path) -> None:
              "Volume mensuel coherent ; date jour non requise.")
 
 
+def _groupe_charges_non_validees(ctrl: _Ctrl, db_path) -> None:
+    """Une charge non validée n'entre dans aucun calcul — mais elle ne doit pas s'évaporer.
+
+    Depuis la mission « arbitrages du banc » (§8), seule une charge `VALIDE` alimente le coût
+    complet ménage, le résultat analytique et les flux. C'est la bonne règle : tant qu'un humain
+    n'a pas dit oui, la dépense existe comme SAISIE, pas comme COÛT.
+
+    Elle serait dangereuse sans son pendant (§9) : une charge oubliée en `A_CONTROLER` sortirait
+    des calculs SANS RIEN DIRE, et un mois se clôturerait en ignorant une dépense réelle. Ce
+    contrôle est ce qui rend l'exclusion acceptable — la charge est absente du résultat, et
+    présente, bloquante, dans les contrôles du mois.
+
+    BLOQUANT, donc empêche la clôture : le mécanisme de clôture refuse un mois portant un contrôle
+    bloquant non résolu. Aucun circuit parallèle n'est créé.
+    """
+    conn = get_db(db_path)
+    try:
+        if conn.execute("SELECT name FROM sqlite_master WHERE type='table' "
+                        "AND name='charges'").fetchone() is None:
+            return
+        lignes = conn.execute(
+            "SELECT charge_id, mois, date_charge, montant, logement_id, proprietaire_id, "
+            "       COALESCE(statut_controle, 'A_CONTROLER') AS controle "
+            "FROM charges "
+            "WHERE statut = 'ACTIVE' "
+            "  AND COALESCE(statut_controle, 'A_CONTROLER') <> 'VALIDE' "
+            "ORDER BY mois, charge_id").fetchall()
+    finally:
+        conn.close()
+
+    for r in lignes:
+        # Le mois vient de `date_charge` quand la colonne dérivée est vide : même règle que les
+        # moteurs, pour que le contrôle se rattache au mois où la dépense a réellement eu lieu.
+        mois = (r["mois"] or str(r["date_charge"] or "")[:7]) or None
+        ctrl.add("CHARGES", "charges", r["charge_id"], "CHARGE_NON_VALIDEE_HORS_CALCULS",
+                 "BLOQUANT",
+                 f"Charge {r['charge_id']} ({r['montant']}€) en {r['controle']} : exclue de tous "
+                 "les calculs tant qu'elle n'est pas validée. Valider ou rejeter avant clôture.",
+                 mois=mois, logement_id=r["logement_id"], proprietaire_id=r["proprietaire_id"],
+                 commentaire="Écran « Charges à contrôler ».")
+
+
 def _groupe_menages_provenance(ctrl: _Ctrl, db_path) -> None:
     """Provenance de la source ménage (cache vs réseau Google Sheet), DEF-1.
 
@@ -955,6 +997,7 @@ def construire(*, db_path=None, run_id: str | None = None) -> dict[str, Any]:
         _groupe6f_menages_externes(ctrl, db_path)
         _groupe7_referentiel_proprietaires(ctrl, ref_prop)
         banque_dispo = _groupe8_banque(ctrl, mouvements, cloture_rows, df_flux)
+        _groupe_charges_non_validees(ctrl, db_path)
         _groupe_menages_provenance(ctrl, db_path)
 
         dashboard = _dashboard_mois(ctrl.rows, cloture_rows, banque_dispo)

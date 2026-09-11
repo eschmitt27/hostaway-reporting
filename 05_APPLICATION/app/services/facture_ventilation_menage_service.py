@@ -18,11 +18,21 @@ facture (persistance + statut).
 """
 from __future__ import annotations
 
+import sys
 import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from app import config as cfg
 from app.db.connection import get_db
+
+# `lib_repartition` vit dans 02_TRAVAIL, a cote du paquet `app` — meme convention que
+# `charges_preview_service.py` pour `lib_ref_history` (ancree sur `APP_ROOT.parent`, jamais
+# `cfg.PROJECT_ROOT`, qui peut etre redirige en test/recette).
+_TRAVAIL_DIR = str(cfg.APP_ROOT.parent / "02_TRAVAIL")
+if _TRAVAIL_DIR not in sys.path:
+    sys.path.insert(0, _TRAVAIL_DIR)
+import lib_repartition as rp  # noqa: E402
 
 BASE_COUT_MENAGES_FACTURE = "COUT_MENAGES_FACTURE"
 
@@ -54,20 +64,19 @@ def ventiler(montant_non_affecte: float, cout_menages_par_logement: dict[str, fl
     if not base:
         return {"statut": ST_NON_EFFECTUEE, "parts": [], "somme": 0.0, "message": MOTIF_AUCUNE_BASE}
 
+    # Répartition par la règle canonique du dépôt (`lib_repartition`) : centimes entiers, part
+    # entière, puis résidu aux parts que l'arrondi a le plus lésées, départagé par clé triée.
+    #
+    # Ce bloc faisait absorber TOUT le résidu par le dernier logement trié. La somme était exacte,
+    # mais ce logement pouvait s'écarter de sa part réelle de plusieurs centimes dès que la facture
+    # portait beaucoup de logements — toujours le même, et toujours dans le même sens.
     total_base = sum(base.values())
-    cles = sorted(base.keys())
-    total_cents = int(round(montant * 100))
-    cumul = 0
-    parts: list[dict[str, Any]] = []
-    for i, logement_id in enumerate(cles):
-        poids = base[logement_id] / total_base
-        if i < len(cles) - 1:
-            cents = int(round(total_cents * poids))
-            cumul += cents
-        else:
-            cents = total_cents - cumul  # dernier logement (trié) absorbe le résidu de centimes
-        parts.append({"logement_id": logement_id, "cout_menages": round(base[logement_id], 2),
-                      "poids": round(poids, 6), "part_montant": round(cents / 100.0, 2)})
+    montants = rp.repartir(montant, base)
+    parts: list[dict[str, Any]] = [
+        {"logement_id": logement_id, "cout_menages": round(base[logement_id], 2),
+         "poids": round(base[logement_id] / total_base, 6),
+         "part_montant": round(montants.get(logement_id, 0.0), 2)}
+        for logement_id in sorted(base)]
 
     somme = round(sum(p["part_montant"] for p in parts), 2)
     return {"statut": ST_APPLIQUEE, "parts": parts, "somme": somme,

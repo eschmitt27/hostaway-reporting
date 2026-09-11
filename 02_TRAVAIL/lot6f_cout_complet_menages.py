@@ -43,6 +43,7 @@ from openpyxl.styles import Font, PatternFill
 from lib_menage_costs import resolve_internal_cleaning_cost
 import lot3_generateur_charges as lot3   # mois dérivé de date_charge (jamais le cache formule)
 import lib_db_moteur as dbm
+import lib_repartition as rp   # répartition monétaire canonique : aucun centime perdu
 
 _ap = argparse.ArgumentParser()
 # SQLITE est desormais le SEUL moteur de lecture (cf. en-tete « SOURCE UNIQUE »). Le drapeau est
@@ -284,24 +285,35 @@ for l in lines:
 # Deux filtres n'avaient pas d'équivalent dans le classeur, et c'est délibéré :
 #   · `statut = 'ACTIVE'`  — une charge ANNULÉE n'est pas un coût. Le classeur ne portait pas de
 #     charge annulée ; la base, si.
-#   · aucun filtre sur `statut_controle` — pour rester STRICTEMENT équivalent au classeur, qui
-#     n'en posait aucun. Exclure les charges « à contrôler » serait cohérent avec le traitement
-#     des factures externes, mais c'est un changement de règle métier : il est signalé dans
-#     ARBRE_CHARGES_CONSEQUENCES.md plutôt que décidé ici.
+#   · `statut_controle = VALIDE` — une charge NON VALIDEE n'alimente aucun calcul. Le classeur
+#     n'en posait aucun, et cette parité a été maintenue un temps ; c'est désormais tranché
+#     (mission « arbitrages du banc », §8). L'asymétrie précédente était difficile à défendre :
+#     une FACTURE externe non validée était déjà exclue du coût complet, alors qu'une CHARGE non
+#     contrôlée y entrait. Une colonne vide vaut A_CONTROLER, donc exclue : l'absence d'avis ne
+#     vaut pas accord.
 _c = dbm.ouvrir(chemin_base)
 try:
     # `dbm.lignes` est l'accès canonique du moteur (il renvoie des dictionnaires) : le
     # réutiliser évite d'écrire un second idiome d'accès qui finirait par diverger.
     saisie_rows = dbm.lignes(
         _c, "charges",
-        ("date_charge", "mois", "montant", "categorie_charge_id", "affectable_menage"),
+        ("charge_id", "date_charge", "mois", "montant", "categorie_charge_id",
+         "affectable_menage", "statut", "statut_controle"),
         ou="statut = 'ACTIVE'", ordre="id") if dbm.table_presente(_c, "charges") else []
 finally:
     _c.close()
 pool_courses = pool_conso = pool_autres = 0.0
 nb_affectables = nb_date_invalide = 0
+# Charges ménage écartées faute de validation : comptées pour être SIGNALÉES. Une charge exclue
+# d'un calcul ne doit jamais disparaître sans laisser de trace — c'est exactement ce qui rendrait
+# l'exclusion dangereuse (§9).
+non_validees = []
 for d in saisie_rows:
     if str(d.get("affectable_menage")) != "OUI": continue
+    if not dbm.charge_entre_dans_les_calculs(d):
+        if mois_charge(d) == MONTH:
+            non_validees.append(d)
+        continue
     nb_affectables += 1
     m_charge = mois_charge(d)
     if not m_charge:
@@ -312,6 +324,12 @@ for d in saisie_rows:
     if cat == "CHG_004": pool_conso += m
     elif cat in ("CHG_018",): pool_autres += m
     else: pool_courses += m
+if non_validees:
+    _ids = ", ".join(str(d.get("charge_id")) for d in non_validees[:5])
+    _montant = round(sum(f(d.get("montant")) or 0 for d in non_validees), 2)
+    controls.append(("CHARGE_MENAGE_NON_VALIDEE", "A_CONTROLER",
+                     f"{len(non_validees)} charge(s) ménage de {MONTH} exclue(s) du coût complet "
+                     f"faute de validation ({_montant}€) : {_ids}. Valider puis relancer le calcul."))
 if nb_date_invalide:
     controls.append(("CHARGE_MENAGE_DATE_INVALIDE", "A_CONTROLER",
                      f"{nb_date_invalide} charge(s) ménage affectable(s) sans date_charge exploitable — mois non dérivable, exclues des pools"))
@@ -324,7 +342,11 @@ if pool_courses == 0 and pool_conso == 0 and pool_autres == 0:
                          "Aucune charge ménage affectable dans la base (charges) (pools courses/conso=0)"))
 
 # contrôle double source lavage
-lav_saisie = [d for d in saisie_rows if str(d.get("categorie_charge_id")) == "CHG_003" and str(d.get("affectable_menage")) == "OUI" and mois_charge(d) == MONTH]
+lav_saisie = [d for d in saisie_rows
+              if str(d.get("categorie_charge_id")) == "CHG_003"
+              and str(d.get("affectable_menage")) == "OUI"
+              and dbm.charge_entre_dans_les_calculs(d)
+              and mois_charge(d) == MONTH]
 if lav_saisie and sum(l["lavage_attribuable"] for l in lines) > 0:
     controls.append(("DOUBLE_SOURCE_LAVAGE_A_CONTROLER", "A_CONTROLER", f"{len(lav_saisie)} charge(s) lavage affectable=OUI en base + lavage Google Sheet présent"))
 
@@ -334,20 +356,53 @@ controls.append(("REC_002_LOCAL_CAVE_INTERNE_ONLY", "INFO",
     f"Cave {local_cave_montant}€ ventilée sur poids internes ({round(sum_poids_interne,2)}) — externes exclus"))
 
 # ── Quote-parts + coût complet par ligne ─────────────────────────────────────
+#
+# AUCUN CENTIME NE DISPARAIT. Chaque pool est reparti EN UNE FOIS sur l'ensemble de ses lignes
+# eligibles, par `lib_repartition` — la regle canonique du depot : centimes entiers, part entiere,
+# puis residu aux parts que l'arrondi a le plus lesees, departage par cle triee.
+#
+# Ce que cela remplace : `round(pool * poids_ligne / total_poids, 2)`, calcule ligne par ligne et
+# sans rattrapage. Chaque arrondi etait juste isolement, mais la SOMME ne valait plus le pool :
+# 100,00 EUR sur trois poids egaux ventilaient 99,99 EUR. Un centime n'allait a personne, et rien
+# ne le signalait.
+#
+# La cle de repartition est le couple (logement, intervenant) : c'est l'identite d'une ligne
+# DETAIL. Elle est triee par `lib_repartition`, donc l'attribution du residu ne depend jamais de
+# l'ordre de lecture SQL.
+def _cle_ligne(ligne):
+    return f'{ligne["logement_id"]}|{ligne["intervenant_id"]}'
+
+_poids_tous = {_cle_ligne(l): l["poids"] for l in lines}
+_poids_internes = {_cle_ligne(l): l["poids"] for l in lines if l["type_intervenant"] == "INTERNE"}
+
+_part_local = rp.repartir(local_cave_montant, _poids_internes) if local_cave_montant else {}
+_part_courses = rp.repartir(pool_courses, _poids_tous) if pool_courses else {}
+_part_conso = rp.repartir(pool_conso, _poids_tous) if pool_conso else {}
+_part_autres = rp.repartir(pool_autres, _poids_tous) if pool_autres else {}
+
+# Lavage non attribuable : un pool PAR INTERVENANT, reparti sur les seules lignes internes de cet
+# intervenant. Ce sont des pools distincts, jamais un seul : melanger les intervenants deplacerait
+# le cout de lavage de l'un vers l'autre.
+_part_lavage_na = {}
+for _iid, _montant_na in lav_na_by_int.items():
+    if not _montant_na:
+        continue
+    _poids_iid = {_cle_ligne(l): l["poids"] for l in lines
+                  if l["type_intervenant"] == "INTERNE" and l["intervenant_id"] == _iid}
+    _part_lavage_na.update(rp.repartir(_montant_na, _poids_iid))
+
 ventil = []
 for l in lines:
     w = l["poids"]
+    _cle = _cle_ligne(l)
     # cave = ménages internes uniquement
-    qp_local = round(local_cave_montant * w / sum_poids_interne, 2) if (local_cave_montant and l["type_intervenant"] == "INTERNE") else 0.0
-    # lavage = attribuable (direct sheet) + non-attribuable ventilé (interne seulement, par poids intervenant)
-    qp_lav_na = 0.0
-    if l["type_intervenant"] == "INTERNE" and lav_na_by_int.get(l["intervenant_id"]):
-        sp = sum_poids_int.get(l["intervenant_id"]) or 1
-        qp_lav_na = round(lav_na_by_int[l["intervenant_id"]] * w / sp, 2)
+    qp_local = round(_part_local.get(_cle, 0.0), 2)
+    # lavage = attribuable (déclaré par ligne) + non-attribuable ventilé par intervenant
+    qp_lav_na = round(_part_lavage_na.get(_cle, 0.0), 2)
     qp_lavage = round(l["lavage_attribuable"] + qp_lav_na, 2)
-    qp_courses = round(pool_courses * w / sum_poids_all, 2) if pool_courses else 0.0
-    qp_conso = round(pool_conso * w / sum_poids_all, 2) if pool_conso else 0.0
-    qp_autres = round(pool_autres * w / sum_poids_all, 2) if pool_autres else 0.0
+    qp_courses = round(_part_courses.get(_cle, 0.0), 2)
+    qp_conso = round(_part_conso.get(_cle, 0.0), 2)
+    qp_autres = round(_part_autres.get(_cle, 0.0), 2)
     cc = None if l["cout_direct_total"] is None else round(l["cout_direct_total"] + qp_local + qp_lavage + qp_courses + qp_conso + qp_autres, 2)
     st = l["cout_standard_total"]
     ecart = round(st - cc, 2) if (st is not None and cc is not None) else None
@@ -400,8 +455,26 @@ else:
         _conn.close()
     print(f"[lot6f] SQLite : menages_cout_complet — {len(lines)} lignes (mois={MONTH})")
 
+# Les CONTROLES sont un resultat metier, pas un artefact de classeur : ils doivent etre restitues
+# quel que soit le mode de sortie. Ils etaient construits APRES le court-circuit `--sans-excel`, si
+# bien qu'un run sans classeur n'en disait rien — une charge ecartee du calcul disparaissait alors
+# en silence, exactement ce que le controle existe pour empecher (§9).
+cc_ctrl = collections.Counter((c[0], c[1]) for c in controls)
+# Rappel permanent : le menage externe (TYPE_FLUX_014) est deja compte dans Flux ; le cout complet
+# est analytique et n'y est jamais reinjecte.
+cc_ctrl[("CHARGE_EXTERNE_DEJA_EN_FLUX_NON_REINJECTEE", "INFO")] += 1
+
+
+def _afficher_controles():
+    for (code, niveau), n in cc_ctrl.most_common():
+        exemple = next((c[2] for c in controls if (c[0], c[1]) == (code, niveau)), "")
+        print(f"  [{niveau}] {code} x{n}" + (f" — {exemple}" if exemple else ""))
+
+
 if args.sans_excel:
     print(f"[lot6f] --sans-excel : classeur legacy non ecrit. mois={MONTH} lignes={len(lines)}")
+    print("  CONTROLES:")
+    _afficher_controles()
     sys.exit(0)
 
 wsheet("DETAIL_COUT_COMPLET", DET, lines, first=True)
@@ -419,9 +492,6 @@ wsheet("RESUME_INTERVENANT", ["mois","intervenant_id","nom_intervenant","type_in
     [{"mois":MONTH,"intervenant_id":k[0],"nom_intervenant":k[1],"type_intervenant":k[2],"nb_menages":v[0],"cout_standard_total":round(v[1],2),"cout_complet_total":round(v[2],2),"ecart_total":round(v[3],2)} for k,v in sorted(resume(lambda l:(l["intervenant_id"],l["nom_intervenant"],l["type_intervenant"])).items())])
 wsheet("RESUME_PRESTATAIRE", ["mois","intervenant_id","nom_intervenant","nb_menages","cout_complet_total","ecart_total"],
     [{"mois":MONTH,"intervenant_id":k[0],"nom_intervenant":k[1],"nb_menages":v[0],"cout_complet_total":round(v[2],2),"ecart_total":round(v[3],2)} for k,v in sorted(resume(lambda l:(l["intervenant_id"],l["nom_intervenant"],l["type_intervenant"])).items()) if k[2]=="EXTERNE"])
-cc_ctrl = collections.Counter((c[0],c[1]) for c in controls)
-# rappel charges déjà en Flux
-cc_ctrl[("CHARGE_EXTERNE_DEJA_EN_FLUX_NON_REINJECTEE","INFO")] += 1
 wsheet("CONTROLES_DOUBLE_COMPTAGE", ["code_controle","niveau","nb","exemple"],
     [{"code_controle":k[0],"niveau":k[1],"nb":n,"exemple":next((c[2] for c in controls if (c[0],c[1])==k),"ménage externe (TYPE_FLUX_014) déjà compté dans Flux ; coût complet = analytique, non réinjecté")} for k,n in cc_ctrl.most_common()])
 # Aucune transaction de provenance DEF-1 ici : elle traçait l'appel de lot6f à la Google Sheet

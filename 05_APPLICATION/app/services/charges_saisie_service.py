@@ -47,9 +47,17 @@ EVT_ANOMALIE_CONTROLE = "ANOMALIE_CONTROLE"
 # confondre avec `statut` (ACTIVE/ANNULEE), qui est le cycle de VIE : une charge peut être active
 # et non contrôlée, ou contrôlée puis annulée. Deux axes, deux colonnes.
 CONTROLE_A_CONTROLER = "A_CONTROLER"
-CONTROLE_CONFORME = "CONFORME"
+#: « Contrôlée et acceptée ». Le mot était `CONFORME` ici et `VALIDE` sur l'écran « Charges à
+#: contrôler » — deux mots pour le même acte, dans la MÊME colonne. Seul `VALIDE` était lu par la
+#: chaîne économique : une charge validée depuis la fiche restait donc sans effet, en silence.
+#: Unifié sur `VALIDE` par la migration 0080.
+CONTROLE_VALIDE = "VALIDE"
 CONTROLE_ANOMALIE = "ANOMALIE"
-CONTROLES = (CONTROLE_A_CONTROLER, CONTROLE_CONFORME, CONTROLE_ANOMALIE)
+CONTROLE_REJETE = "REJETE"
+CONTROLES = (CONTROLE_A_CONTROLER, CONTROLE_VALIDE, CONTROLE_ANOMALIE, CONTROLE_REJETE)
+#: Le SEUL statut qui fait entrer une charge dans un calcul (miroir applicatif de
+#: `lib_db_moteur.STATUTS_CHARGE_CALCULEE` — verrouillé par un test de synchronisation).
+CONTROLES_CALCULES = (CONTROLE_VALIDE,)
 
 E_CHAMP_MANQUANT = "CHARGE_CHAMP_MANQUANT"
 E_MONTANT_INVALIDE = "CHARGE_MONTANT_INVALIDE"
@@ -315,13 +323,13 @@ def statut_controle(charge: dict[str, Any] | None) -> str:
 
 def valider_controle(charge_id: str, *, acteur: str = "", motif: str = "",
                      db_path=None) -> dict[str, Any]:
-    """`A_CONTROLER` → `CONFORME`. Le geste « Valider la charge » de la fiche.
+    """`A_CONTROLER` → `VALIDE`. Le geste « Valider la charge » de la fiche.
 
-    Le vocabulaire est celui déjà posé par la migration 0011 (`A_CONTROLER|CONFORME|ANOMALIE`) :
+    Le vocabulaire est unifié sur celui que la chaîne économique lit (migration 0080) :
     aucun statut n'est inventé pour l'occasion. Ce qui manquait n'était pas le modèle mais la
     TRANSITION — une charge naissait `A_CONTROLER` et rien, nulle part, ne pouvait l'en sortir.
 
-    Idempotent : valider une charge déjà `CONFORME` renvoie un succès sans réécrire ni rejournaliser
+    Idempotent : valider une charge déjà `VALIDE` renvoie un succès sans réécrire ni rejournaliser
     (double-clic, rafraîchissement, double soumission). Une charge annulée n'est pas validable :
     son cycle de vie est clos.
     """
@@ -334,25 +342,25 @@ def valider_controle(charge_id: str, *, acteur: str = "", motif: str = "",
             return _refus(E_DEJA_ANNULEE,
                           f"La charge {charge_id} est annulée : son contrôle ne peut plus changer.")
         actuel = str(avant["statut_controle"] or "").strip().upper()
-        if actuel == CONTROLE_CONFORME:
-            return {"ok": True, "charge_id": charge_id, "statut_controle": CONTROLE_CONFORME,
+        if actuel == CONTROLE_VALIDE:
+            return {"ok": True, "charge_id": charge_id, "statut_controle": CONTROLE_VALIDE,
                     "inchange": True}
         conn.execute(
             "UPDATE charges SET statut_controle = ?, date_modification = ? WHERE charge_id = ?",
-            (CONTROLE_CONFORME, _maintenant(), charge_id))
+            (CONTROLE_VALIDE, _maintenant(), charge_id))
         _journaliser(conn, charge_id, EVT_VALIDATION_CONTROLE, acteur, motif,
                      avant={"statut_controle": actuel or None},
-                     apres={"statut_controle": CONTROLE_CONFORME})
+                     apres={"statut_controle": CONTROLE_VALIDE})
         conn.commit()
     finally:
         conn.close()
-    return {"ok": True, "charge_id": charge_id, "statut_controle": CONTROLE_CONFORME,
+    return {"ok": True, "charge_id": charge_id, "statut_controle": CONTROLE_VALIDE,
             "inchange": False}
 
 
 def signaler_anomalie(charge_id: str, *, acteur: str = "", motif: str = "",
                       db_path=None) -> dict[str, Any]:
-    """`A_CONTROLER`/`CONFORME` → `ANOMALIE`. Contrepartie de `valider_controle` : un contrôle qui
+    """`A_CONTROLER`/`VALIDE` → `ANOMALIE`. Contrepartie de `valider_controle` : un contrôle qui
     ne peut que dire « oui » n'est pas un contrôle."""
     conn = get_db(db_path)
     try:

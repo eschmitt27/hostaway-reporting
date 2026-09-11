@@ -88,14 +88,17 @@ def _base(tmp_path: Path) -> Path:
 
 
 def _charge(db: Path, charge_id: str, montant: float, *, affectable="OUI", statut="ACTIVE",
-            date_charge=f"{MOIS}-15", categorie=CAT_COURSES) -> None:
+            date_charge=f"{MOIS}-15", categorie=CAT_COURSES, controle="VALIDE") -> None:
+    """Insère une charge. `controle="VALIDE"` par défaut : depuis la mission « arbitrages du banc »,
+    une charge NON VALIDÉE n'alimente aucun calcul — un décor non validé ne ventilerait rien."""
     conn = sqlite3.connect(str(db))
     try:
         conn.execute(
             "INSERT INTO charges (charge_id, date_charge, mois, montant, categorie_charge_id,"
-            " affectable_menage, statut, date_creation)"
-            " VALUES (?,?,?,?,?,?,?,'2026-09-01T00:00:00Z')",
-            (charge_id, date_charge, str(date_charge)[:7], montant, categorie, affectable, statut))
+            " affectable_menage, statut, statut_controle, date_creation)"
+            " VALUES (?,?,?,?,?,?,?,?,'2026-09-01T00:00:00Z')",
+            (charge_id, date_charge, str(date_charge)[:7], montant, categorie, affectable,
+             statut, controle))
         conn.commit()
     finally:
         conn.close()
@@ -179,26 +182,36 @@ def test_chaque_categorie_alimente_son_pool(racine_isolee, tmp_path, categorie, 
 
 # ── §6 — les centimes ────────────────────────────────────────────────────────
 
-def test_100_euros_sur_3_donnent_des_centimes_deterministes(racine_isolee, tmp_path):
-    """100 / 3 ne tombe pas juste : le résultat doit être STABLE et le résidu VISIBLE.
+def test_100_euros_sur_3_ne_perdent_aucun_centime(racine_isolee, tmp_path):
+    """100 / 3 ne tombe pas juste : le centime résiduel doit être ATTRIBUÉ, pas perdu.
 
-    Le moteur arrondit chaque quote-part à 2 décimales (`round(pool × poids / Σ poids, 2)`), donc
-    33.33 trois fois, soit 99.99 ventilés pour 100.00 de pool : **un centime n'est attribué à
-    personne**.
+    Le moteur arrondissait auparavant chaque quote-part isolément
+    (`round(pool × poids / Σ poids, 2)`) : 33,33 trois fois, soit 99,99 € ventilés pour 100,00 € de
+    pool. Chaque arrondi était juste, mais la somme ne valait plus le montant — et rien ne le
+    signalait.
 
-    C'est constaté ici, pas corrigé : ajouter un rattrapage changerait la règle de répartition
-    (quel logement reçoit le centime ?) — un arbitrage métier, signalé dans
-    ARBRE_CHARGES_CONSEQUENCES.md. Ce que le test garantit, c'est qu'il n'y a ni instabilité, ni
-    dérive silencieuse : le résidu est d'un centime, jamais davantage."""
+    `lib_repartition` applique désormais la règle canonique : centimes entiers, part entière, puis
+    résidu aux parts que l'arrondi a le plus lésées, départagé par clé triée. À poids égaux, tous
+    les restes sont égaux : le premier logement de l'ordre trié reçoit le centime."""
     db = _base(tmp_path)
     _charge(db, "CHG-100", 100.0)
     _lancer(racine_isolee, db)
 
     parts = _quotes_parts(db)
-    assert parts == {"LOG_T1": 33.33, "LOG_T2": 33.33, "LOG_T3": 33.33}, parts
+    assert parts == {"LOG_T1": 33.34, "LOG_T2": 33.33, "LOG_T3": 33.33}, parts
+    assert round(sum(parts.values()), 2) == 100.00, "aucun centime ne doit disparaître"
 
-    residu = round(100.0 - sum(parts.values()), 2)
-    assert residu == 0.01, f"résidu attendu d'un centime, obtenu {residu}"
+
+@pytest.mark.parametrize("montant", [0.01, 0.10, 1.00, 100.00, 100.01, 700.00, 12345.67])
+def test_la_somme_ventilee_vaut_toujours_le_pool(racine_isolee, tmp_path, montant):
+    """L'invariant, quel que soit le montant : somme(quotes-parts) == montant source.
+
+    Ce test vaut plus que le cas 100/3 : il vérifie la propriété, pas un exemple."""
+    db = _base(tmp_path)
+    _charge(db, f"CHG-{montant}", montant)
+    _lancer(racine_isolee, db)
+
+    assert round(sum(_quotes_parts(db).values()), 2) == round(montant, 2)
 
 
 def test_la_ventilation_est_reproductible(racine_isolee, tmp_path):
@@ -231,6 +244,59 @@ def test_une_charge_non_affectable_reste_hors_des_pools(racine_isolee, tmp_path)
     parts = _quotes_parts(db)
     assert round(sum(parts.values()), 2) == 300.0, \
         f"seule la charge affectable doit être ventilée ; obtenu {parts}"
+
+
+@pytest.mark.parametrize("controle", ["A_CONTROLER", "ANOMALIE", "REJETE", None, ""])
+def test_une_charge_non_validee_n_alimente_aucun_pool(racine_isolee, tmp_path, controle):
+    """§8 — seule `VALIDE` entre dans les calculs. Tout le reste est exclu.
+
+    Une colonne VIDE vaut « pas encore contrôlée », jamais « implicitement bonne » : l'absence
+    d'avis ne vaut pas accord. Cette lecture fail-closed est ce qui empêche une dépense de peser
+    sur un résultat avant que quiconque l'ait regardée."""
+    db = _base(tmp_path)
+    _charge(db, "CHG-NV", 300.0, controle=controle)
+    _lancer(racine_isolee, db)
+
+    assert round(sum(_quotes_parts(db).values()), 2) == 0.0
+
+
+def test_la_charge_exclue_est_signalee_jamais_silencieuse(racine_isolee, tmp_path):
+    """§9 — une charge écartée du calcul doit LAISSER UNE TRACE.
+
+    C'est ce qui rend l'exclusion acceptable : la dépense ne pèse pas, mais elle n'a pas disparu.
+    Sans ce contrôle, une charge oubliée en A_CONTROLER serait indiscernable d'une charge qui
+    n'existe pas."""
+    db = _base(tmp_path)
+    _charge(db, "CHG-OUBLIEE", 300.0, controle="A_CONTROLER")
+    proc = _lancer(racine_isolee, db)
+
+    sortie = proc.stdout + proc.stderr
+    assert "CHARGE_MENAGE_NON_VALIDEE" in sortie, sortie[-2000:]
+
+
+def test_valider_une_charge_la_fait_entrer_une_seule_fois(racine_isolee, tmp_path):
+    """§9 — le cycle complet : A_CONTROLER → absente → validation → présente, UNE fois.
+
+    Le risque symétrique de l'exclusion est le double comptage au moment de la validation :
+    lot6f remplace intégralement le mois, mais rien ne le garantissait ici."""
+    db = _base(tmp_path)
+    _charge(db, "CHG-CYCLE", 300.0, controle="A_CONTROLER")
+
+    _lancer(racine_isolee, db)
+    assert round(sum(_quotes_parts(db).values()), 2) == 0.0, "non validée : aucun impact"
+
+    conn = sqlite3.connect(str(db))
+    try:
+        conn.execute("UPDATE charges SET statut_controle='VALIDE' WHERE charge_id='CHG-CYCLE'")
+        conn.commit()
+    finally:
+        conn.close()
+
+    _lancer(racine_isolee, db)
+    assert round(sum(_quotes_parts(db).values()), 2) == 300.0, "validée : elle entre"
+
+    _lancer(racine_isolee, db)
+    assert round(sum(_quotes_parts(db).values()), 2) == 300.0, "recalcul : jamais deux fois"
 
 
 def test_une_charge_annulee_n_est_pas_un_cout(racine_isolee, tmp_path):
@@ -267,8 +333,8 @@ def test_le_mois_derive_de_la_date_pas_de_la_colonne(racine_isolee, tmp_path):
     try:
         conn.execute(
             "INSERT INTO charges (charge_id, date_charge, mois, montant, categorie_charge_id,"
-            " affectable_menage, statut, date_creation)"
-            " VALUES ('CHG-INCOH','2026-07-15','2026-06',300.0,?,'OUI','ACTIVE',"
+            " affectable_menage, statut, statut_controle, date_creation)"
+            " VALUES ('CHG-INCOH','2026-07-15','2026-06',300.0,?,'OUI','ACTIVE','VALIDE',"
             "'2026-09-01T00:00:00Z')", (CAT_COURSES,))
         conn.commit()
     finally:

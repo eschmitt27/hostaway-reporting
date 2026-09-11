@@ -147,7 +147,7 @@ def fournisseurs_resultat(request: Request, token: str):
 
 @router.post("/fournisseurs/{charge_id}/valider")
 async def charge_valider(request: Request, charge_id: str):
-    """« Valider la charge » : `A_CONTROLER` → `CONFORME` (vocabulaire de la migration 0011).
+    """« Valider la charge » : `A_CONTROLER` → `VALIDE` (vocabulaire unifié, migration 0080).
 
     Réponse en REDIRECTION (POST-Redirect-Get) : rafraîchir la fiche ne rejoue jamais la
     validation, et le service est de toute façon idempotent.
@@ -236,7 +236,7 @@ def fournisseur_detail(request: Request, charge_id: str, erreur: str = ""):
         "perimetre": perimetre,
         "position_refac": position,
         "statut_cycle": ligne.get("statut"),
-        "peut_valider": active and controle != saisie.CONTROLE_CONFORME,
+        "peut_valider": active and controle != saisie.CONTROLE_VALIDE,
         "peut_signaler": active and controle != saisie.CONTROLE_ANOMALIE,
         # Périmètre à compléter : charge active, sans aucun logement, dont la position de
         # refacturation attend un périmètre pour devenir proposable (cas des charges antérieures

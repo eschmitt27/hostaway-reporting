@@ -40,34 +40,46 @@ def test_le_montant_de_cave_n_est_pas_code_en_dur():
     assert not interdits, f"Montant de cave codé en dur : {interdits}"
 
 
+def _assiette_cave(src: str) -> str:
+    """L'assiette sur laquelle la cave est ventilée, telle que le moteur la construit.
+
+    Le moteur ne calcule plus la quote-part ligne à ligne : il répartit le forfait EN UNE FOIS sur
+    une assiette de poids, via `lib_repartition` (aucun centime perdu). Ce qui doit être vérifié
+    est donc la construction de cette assiette, pas une formule inline disparue."""
+    m = re.search(r"_poids_internes\s*=\s*(.+)", src)
+    assert m, "L'assiette des poids internes a disparu."
+    return m.group(1)
+
+
 def test_la_cave_est_reservee_aux_menages_internes():
     """Règle figée : jamais ventilée sur les ménages externes."""
     src = _source()
     assert 'REC_002_LOCAL_CAVE_INTERNE_ONLY' in src
-    m = re.search(r"qp_local\s*=\s*(.+)", src)
-    assert m, "Le calcul de quote-part de cave a disparu."
-    assert 'type_intervenant"] == "INTERNE"' in m.group(1), (
-        "La quote-part de cave doit être conditionnée au type INTERNE.")
+    assert 'type_intervenant"] == "INTERNE"' in _assiette_cave(src), (
+        "L'assiette de la cave doit être restreinte aux lignes INTERNE.")
+    assert re.search(r"_part_local\s*=\s*rp\.repartir\(local_cave_montant,\s*_poids_internes\)",
+                     src), "La cave doit être répartie sur l'assiette interne, et sur elle seule."
 
 
 def test_la_cle_de_repartition_est_le_cout_standard_pas_le_nombre():
     """D103 révise D045 : la clé est COUT_STANDARD_MENAGES_MOIS, pas NOMBRE_MENAGES."""
-    src = _source()
-    m = re.search(r"qp_local\s*=\s*(.+)", src)
-    formule = m.group(1)
-    assert "poids" in formule, "La ventilation doit se faire au prorata du poids (coût standard)."
-    assert "nb_menages" not in formule, "La clé NOMBRE_MENAGES a été révisée par D103."
+    assiette = _assiette_cave(_source())
+    assert '"poids"' in assiette, "La ventilation se fait au prorata du poids (coût standard)."
+    assert "nb_menages" not in assiette, "La clé NOMBRE_MENAGES a été révisée par D103."
 
 
-def test_la_cave_est_ventilee_une_seule_fois():
-    """Somme des quotes-parts = montant du forfait : ni oublié, ni compté deux fois."""
+def test_la_cave_est_ventilee_une_seule_fois_et_en_entier():
+    """Somme des quotes-parts = montant du forfait : ni oublié, ni compté deux fois, ni rogné.
+
+    La garantie ne vient plus d'un dénominateur écrit à la main mais de `lib_repartition`, dont
+    l'invariant est que la somme des parts vaut exactement le montant source. C'est plus fort que
+    l'ancienne écriture, qui arrondissait chaque ligne isolément et perdait un centime."""
     src = _source()
-    m = re.search(r"qp_local\s*=\s*(.+)", src)
-    formule = m.group(1)
-    # Ventilation proportionnelle : montant × poids_ligne / somme_des_poids_internes.
-    assert "sum_poids_interne" in formule, (
-        "Le dénominateur doit être la somme des poids internes, sinon le total ventilé "
-        "ne vaut plus le forfait.")
+    assert "import lib_repartition as rp" in src
+    assert "rp.repartir(local_cave_montant" in src
+    # Plus aucun arrondi ligne à ligne sur un quotient : c'est ce qui perdait les centimes.
+    assert not re.search(r"round\(local_cave_montant\s*\*", src), (
+        "La cave ne doit plus être arrondie ligne à ligne.")
 
 
 def test_les_pools_sont_declares_explicitement():
