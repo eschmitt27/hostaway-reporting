@@ -551,12 +551,17 @@ def _prochain_numero_ligne(conn, facture_id: str) -> int:
 
 def ajouter_ligne(facture_id: str, *, type_ligne: str, libelle: str, montant: Any,
                   objet_source_type: str | None = None, objet_source_ref: str | None = None,
-                  acteur: str = "", commentaire: str = "", db_path=None,
+                  acteur: str = "", commentaire: str = "",
+                  justification_imputation: str = "", db_path=None,
                   _conn=None) -> dict[str, Any]:
     """Ajoute une ligne MANUELLE (ou reliée à une source, si `objet_source_type` est fourni).
 
     `_conn` permet à `ajouter_ligne_charge` d'insérer dans SA transaction — usage interne
     exclusivement, jamais exposé à une route.
+
+    `justification_imputation` (migration 0077) : motif d'une refacturation PARTIELLE. `commentaire`
+    alimente le JOURNAL d'événements, pas la ligne — ranger la justification là l'aurait rendue
+    introuvable au moment de valider, et indistinguable d'une note quelconque.
     """
     f = lire(facture_id, db_path=db_path)
     _exiger_brouillon(f, "ajout de ligne")
@@ -577,9 +582,11 @@ def ajouter_ligne(facture_id: str, *, type_ligne: str, libelle: str, montant: An
         conn.execute(
             "INSERT INTO factures_proprietaires_lignes "
             "(ligne_id_opaque, facture_id_opaque, numero_ligne, type_ligne, libelle, montant, "
-            " objet_source_type, objet_source_ref) VALUES (?,?,?,?,?,?,?,?)",
+            " objet_source_type, objet_source_ref, justification_imputation) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
             (lid, facture_id, _prochain_numero_ligne(conn, facture_id), type_ligne, libelle,
-             valeur, objet_source_type, objet_source_ref))
+             valeur, objet_source_type, objet_source_ref,
+             str(justification_imputation or "").strip() or None))
         total = _resynchroniser_total(conn, facture_id)
         _journal(conn, facture_id, EVT_AJOUT_LIGNE, ST_BROUILLON, ST_BROUILLON,
                  _commentaire_ligne(type_ligne, libelle, valeur, total, commentaire), acteur)
@@ -723,6 +730,16 @@ def valider(facture_id: str, *, emetteur: dict[str, Any], destinataire: dict[str
     justifications = {d["position_id"]: d.get("justification")
                       for d in (decisions_charges or [])}
     lignes_charges = [l for l in f["lignes"] if l["type_ligne"] == "CHARGE_REFACTUREE"]
+
+    # Justification d'une refacturation PARTIELLE, portée par la ligne elle-même. `imputer()` en
+    # exige une dès que le montant diffère du solde ; sans cette relecture, une facture composée
+    # avec un montant partiel se validait... jamais : le motif était demandé à un moment où plus
+    # personne ne pouvait le fournir. Il est désormais saisi au moment de la décision (voir
+    # `composition_service.rattacher_charge`) et retrouvé ici.
+    for l in lignes_charges:
+        ref = l.get("objet_source_ref")
+        if not justifications.get(ref) and l.get("justification_imputation"):
+            justifications[ref] = str(l["justification_imputation"]).strip()
 
     from app.services import charges_refacturation_service as refac
 

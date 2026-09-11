@@ -134,12 +134,19 @@
           {# Un formulaire PAR LIGNE : le montant saisi appartient sans ambiguïté à cet élément.
              Un formulaire unique avec un champ montant partagé aurait laissé l'utilisateur croire
              qu'il s'applique à la ligne qu'il vient de cocher. #}
+          {# Le motif n'est exigé QUE si le montant saisi est inférieur au solde : ne récupérer
+             qu'une partie d'une dépense est une décision, et la validation refuse une imputation
+             partielle sans justification. La demander ici, au moment du choix, évite une facture
+             qu'on ne pourrait plus valider ensuite. #}
           <form method="post"
                 action="/factures-proprietaires/{{ facture.facture_id_opaque }}/charge-existante"
-                style="display:flex; gap:6px; align-items:center;">
+                style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
             <input type="hidden" name="position_id" value="{{ c.position_id }}">
             <input type="text" name="montant" value="{{ "%.2f"|format(c.montant_restant) }}"
                    size="8" aria-label="Montant à refacturer">
+            <input type="text" name="justification" size="22"
+                   placeholder="Motif si montant partiel"
+                   aria-label="Motif de la refacturation partielle">
             <button type="submit" class="btn btn-primary">Ajouter à la facture</button>
           </form>
         </td>

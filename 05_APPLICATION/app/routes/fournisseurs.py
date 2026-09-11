@@ -172,6 +172,31 @@ async def charge_anomalie(request: Request, charge_id: str):
     return RedirectResponse(url=cible, status_code=303)
 
 
+def _logements_disponibles() -> list[dict]:
+    """Parc actif, pour proposer un périmètre. Liste vide si le référentiel n'est pas disponible —
+    l'écran affiche alors l'explication plutôt qu'un menu vide inexplicable."""
+    try:
+        return [l for l in load_form_refs().get("logements", []) if l.get("logement_id")]
+    except Exception:      # noqa: BLE001
+        return []
+
+
+@router.post("/fournisseurs/{charge_id}/perimetre")
+async def charge_perimetre(request: Request, charge_id: str):
+    """Renseigne le périmètre d'une charge qui n'en a pas (créée avant la migration 0074).
+
+    Aucune déduction automatique : les logements viennent de la saisie. L'application ne peut pas
+    les retrouver — ils n'ont jamais été écrits.
+    """
+    form = await request.form()
+    res = saisie.definir_perimetre(charge_id, form.getlist("logements"), acteur="interface",
+                                   motif=str(form.get("motif", "") or ""))
+    cible = f"/fournisseurs/{charge_id}"
+    if not res.get("ok"):
+        return RedirectResponse(url=f"{cible}?erreur={res.get('code', 'REFUS')}", status_code=303)
+    return RedirectResponse(url=cible, status_code=303)
+
+
 @router.get("/fournisseurs/{charge_id}", response_class=HTMLResponse)
 def fournisseur_detail(request: Request, charge_id: str, erreur: str = ""):
     detail = svc.load_detail(charge_id)
@@ -205,5 +230,13 @@ def fournisseur_detail(request: Request, charge_id: str, erreur: str = ""):
         "statut_cycle": ligne.get("statut"),
         "peut_valider": active and controle != saisie.CONTROLE_CONFORME,
         "peut_signaler": active and controle != saisie.CONTROLE_ANOMALIE,
+        # Périmètre à compléter : charge active, sans aucun logement, dont la position de
+        # refacturation attend un périmètre pour devenir proposable (cas des charges antérieures
+        # à la migration 0074). On offre la saisie ; on ne devine rien.
+        "perimetre_a_completer": (
+            active and not perimetre["nb_logements"] and not ligne.get("logement_id")
+            and ((position or {}).get("statut") == refac.STATUT_A_TRAITER
+                 or str(ligne.get("refacturable") or "").upper() == "OUI")),
+        "logements_disponibles": _logements_disponibles(),
         "erreur": erreur,
     })

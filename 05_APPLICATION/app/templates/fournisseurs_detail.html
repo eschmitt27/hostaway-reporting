@@ -195,6 +195,49 @@
 </div>
 {% endif %}
 
+{% if perimetre_a_completer %}
+<!-- Charge sans périmètre : créée avant que l'application ne persiste les logements concernés.
+     Sa position de refacturation reste « à traiter » et n'est proposée sur aucune facture. On
+     permet de renseigner le périmètre ; on ne le devine pas : il n'a jamais été écrit, ni dans la
+     charge, ni dans son journal. -->
+<div class="detail-section">
+  <h2 class="section-title">Périmètre à compléter</h2>
+  <div class="alert alert-warning">
+    Cette charge ne désigne aucun logement.
+    {% if position_refac and position_refac.statut == 'A_TRAITER' %}
+      Elle est marquée refacturable, mais tant que son périmètre est inconnu elle n'apparaît
+      sur <strong>aucune facture propriétaire</strong>.
+    {% endif %}
+    Indiquez les logements concernés : le montant sera réparti également entre eux, et la charge
+    redeviendra refacturable auprès de leurs propriétaires.
+  </div>
+  {% if logements_disponibles %}
+  <form method="post" action="/fournisseurs/{{ charge_id }}/perimetre">
+    <div class="form-group">
+      <label>Logements concernés</label><br>
+      {% for l in logements_disponibles %}
+      <label style="display:inline-flex; align-items:center; gap:6px; margin:4px 12px 4px 0;">
+        <input type="checkbox" name="logements" value="{{ l.logement_id }}">
+        {{ l.logement_id | nom_logement }}
+      </label>
+      {% endfor %}
+    </div>
+    <label>Motif (facultatif)
+      <input type="text" name="motif" size="44" placeholder="Régularisation d'une charge ancienne">
+    </label>
+    <button type="submit" class="btn btn-primary">Enregistrer le périmètre</button>
+    <p class="text-xs text-secondary">
+      Le propriétaire de chaque logement est résolu à la <strong>date de la charge</strong>, pas à
+      aujourd'hui : une dépense d'août reste rattachée au propriétaire d'août.
+    </p>
+  </form>
+  {% else %}
+  <p class="text-muted">Le référentiel des logements n'est pas disponible : le périmètre ne peut
+     pas être saisi pour l'instant.</p>
+  {% endif %}
+</div>
+{% endif %}
+
 {% if peut_valider or peut_signaler %}
 <!-- Contrôle de la charge : A_CONTROLER → CONFORME (ou ANOMALIE). Vocabulaire canonique, aucun
      statut inventé. Le geste manquait : une charge naissait « à contrôler » et rien ne l'en

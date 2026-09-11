@@ -70,6 +70,74 @@ def enregistrer(charge_id: str, entrees: list[dict[str, Any]], *, mois: str = ""
             conn.close()
 
 
+def enregistrer_menage(charge_id: str, mode: str, entrees: list[dict[str, Any]], *,
+                       mois: str = "", acteur: str = "", conn=None, db_path=None) -> int:
+    """Écrit le périmètre MÉNAGE d'une charge (migration 0076).
+
+    Le parcours ménage ventile soit sur des INTERVENANTS, soit sur des LOGEMENTS — jamais les deux.
+    Comme pour le périmètre analytique, ce calcul était fait à la prévisualisation puis jeté ;
+    `lot6f_cout_complet_menages` en a besoin pour constituer ses pools de coût.
+    """
+    charge_id = str(charge_id or "").strip()
+    mode = str(mode or "").strip().upper()
+    if not charge_id or mode not in ("INTERVENANT", "LOGEMENT"):
+        return 0
+    locale = conn is None
+    if locale:
+        conn = get_db(db_path)
+    try:
+        conn.execute("DELETE FROM charges_perimetre_menage WHERE charge_id = ?", (charge_id,))
+        n = 0
+        for e in entrees:
+            intervenant = str(e.get("intervenant_id") or "").strip() or None
+            logement = str(e.get("logement_id") or "").strip() or None
+            # La contrainte SQL exige exactement une dimension : on écarte ici ce qui n'en porte
+            # aucune plutôt que de laisser la base refuser une transaction entière.
+            if mode == "INTERVENANT":
+                logement = None
+                if not intervenant:
+                    continue
+            else:
+                intervenant = None
+                if not logement:
+                    continue
+            conn.execute(
+                "INSERT OR REPLACE INTO charges_perimetre_menage "
+                "(charge_id, mode, intervenant_id, logement_id, proprietaire_id, mois, "
+                " quote_part_montant, acteur) VALUES (?,?,?,?,?,?,?,?)",
+                (charge_id, mode, intervenant, logement,
+                 str(e.get("proprietaire_id") or "").strip() or None,
+                 str(e.get("mois") or mois or "").strip() or None,
+                 _round(e.get("quote_part_montant")), acteur or None))
+            n += 1
+        if locale:
+            conn.commit()
+        return n
+    except Exception:
+        if locale:
+            conn.rollback()
+        raise
+    finally:
+        if locale:
+            conn.close()
+
+
+def lire_menage(charge_id: str, *, db_path=None) -> list[dict[str, Any]]:
+    """Périmètre ménage d'une charge. Liste vide si la charge n'emprunte pas ce parcours."""
+    charge_id = str(charge_id or "").strip()
+    if not charge_id:
+        return []
+    conn = get_db(db_path)
+    try:
+        return [dict(r) for r in conn.execute(
+            "SELECT * FROM charges_perimetre_menage WHERE charge_id = ? ORDER BY id",
+            (charge_id,))]
+    except Exception:      # noqa: BLE001 — base antérieure à 0076
+        return []
+    finally:
+        conn.close()
+
+
 def lire(charge_id: str, *, db_path=None) -> list[dict[str, Any]]:
     """Le périmètre d'une charge, ordonné. Liste vide si la charge n'en a pas (charge globale)."""
     charge_id = str(charge_id or "").strip()

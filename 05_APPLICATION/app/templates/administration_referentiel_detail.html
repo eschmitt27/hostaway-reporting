@@ -79,6 +79,59 @@
   </p>
 </div>
 
+{% if meta.table == table_proprietaires %}
+<div class="card mb-lg">
+  <div class="card-title">Type de client de facturation</div>
+  <p class="text-xs text-secondary mb-md">
+    Les mentions légales obligatoires d'une facture diffèrent selon que le propriétaire est un
+    <strong>particulier</strong> ou un <strong>professionnel</strong> : pénalités de retard et
+    indemnité forfaitaire de 40 € sont dues entre professionnels, et n'ont rien à faire sur la
+    facture d'un particulier. L'application ne le devine pas — ni d'après un nom, ni d'après une
+    adresse, ni d'après la présence d'un SIREN. Tant qu'un propriétaire n'est pas classé, l'émission
+    de ses factures reste bloquée. Classez-les ici, en une passe, plutôt qu'une facture à la fois.
+  </p>
+  <div class="table-container">
+    <table class="table">
+      <thead><tr><th>Propriétaire</th><th>Type actuel</th><th>Classer</th></tr></thead>
+      <tbody>
+        {% for l in lignes %}
+        {% set actuel = classements.get(l.proprietaire_id, 'A_CONTROLER') %}
+        <tr>
+          <td>{{ l.proprietaire_id | nom_proprietaire }}</td>
+          <td>
+            {% if actuel == 'A_CONTROLER' %}
+              <span class="status-badge status-a-controler">À classer</span>
+            {% else %}
+              <span class="status-badge status-conforme">{{ actuel | libelle_statut }}</span>
+            {% endif %}
+          </td>
+          <td>
+            <form method="post"
+                  action="/administration/referentiels/ref_proprietaires/type-client"
+                  style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+              <input type="hidden" name="proprietaire_id" value="{{ l.proprietaire_id }}">
+              <select name="type_client_facturation" required>
+                <option value="">— Choisir —</option>
+                <option value="PARTICULIER" {% if actuel == 'PARTICULIER' %}selected{% endif %}>Particulier</option>
+                <option value="PROFESSIONNEL" {% if actuel == 'PROFESSIONNEL' %}selected{% endif %}>Professionnel</option>
+              </select>
+              <input type="text" name="motif" size="18" placeholder="Motif (facultatif)">
+              <button type="submit" class="btn btn-secondary">Enregistrer</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="text-xs text-secondary">
+    Un reclassement reste possible : une société peut cesser, un particulier peut en créer une.
+    Chaque changement est journalisé avec sa valeur précédente. Les factures déjà émises ne bougent
+    pas — leur bloc de conformité est figé dans leur document.
+  </p>
+</div>
+{% endif %}
+
 {% if meta.table == table_couts_menage %}
 <div class="card mb-lg">
   <div class="card-title">Changer le coût standard d'un type de logement</div>

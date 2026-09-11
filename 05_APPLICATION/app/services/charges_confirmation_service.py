@@ -227,6 +227,44 @@ def _perimetre_a_persister(guide: dict[str, Any], mois: str,
     } for lid in finaux]
 
 
+def _perimetre_menage_a_persister(guide: dict[str, Any], mois: str,
+                                  montant: Any) -> dict[str, Any] | None:
+    """Périmètre MÉNAGE calculé par le moteur, traduit en lignes à écrire (migration 0076).
+
+    Le parcours ménage ventile sur des INTERVENANTS ou sur des LOGEMENTS, jamais les deux. La
+    quote-part suit la même règle de répartition égale que l'analytique : la somme des parts vaut
+    exactement le montant, centimes compris.
+
+    Renvoie `None` hors parcours ménage — la grande majorité des charges.
+    """
+    menage = (guide or {}).get("menage") or {}
+    mode = str(menage.get("mode") or "").strip().upper()
+    cles = menage.get("intervenants") if mode == "INTERVENANT" else menage.get("logements")
+    cles = [c for c in (cles or []) if c]
+    if not mode or not cles:
+        return None
+    try:
+        valeur = float(montant)
+    except (TypeError, ValueError):
+        valeur = 0.0
+    # `repartir_egal` raisonne sur des « logements » mais n'est qu'une répartition de centimes sur
+    # une liste de clés : on la réutilise telle quelle plutôt que d'écrire une seconde arithmétique
+    # qui finirait par diverger de la première.
+    parts = {q["logement_id"]: q["quote_part"] for q in impact.repartir_egal(valeur, cles)}
+    perimetre = (guide or {}).get("perimetre") or {}
+    prop_par_log = perimetre.get("proprietaire_par_logement") or {}
+    entrees = []
+    for cle in cles:
+        entree = {"mois": mois, "quote_part_montant": parts.get(cle, 0.0)}
+        if mode == "INTERVENANT":
+            entree["intervenant_id"] = cle
+        else:
+            entree["logement_id"] = cle
+            entree["proprietaire_id"] = (prop_par_log.get(cle) or "").strip() or None
+        entrees.append(entree)
+    return {"mode": mode, "entrees": entrees}
+
+
 # ── Confirmation ─────────────────────────────────────────────────────────────
 
 def confirmer(
@@ -307,7 +345,9 @@ def confirmer(
     # invisible de toute facture. On persiste désormais ce que le moteur a déjà calculé.
     row_data = manifest["row_data"]
     perimetre = _perimetre_a_persister(guide, mois, row_data.get("montant"))
-    res = saisie.creer(row_data, acteur=acteur, perimetre=perimetre, db_path=db_path)
+    perimetre_menage = _perimetre_menage_a_persister(guide, mois, row_data.get("montant"))
+    res = saisie.creer(row_data, acteur=acteur, perimetre=perimetre,
+                       perimetre_menage=perimetre_menage, db_path=db_path)
 
     if not res.get("ok"):
         resultat = ResultatConfirmation(

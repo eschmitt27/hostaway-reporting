@@ -297,9 +297,10 @@ def test_refacturation_partielle_sur_deux_factures(db, facture, ecritures_active
     autre = svc.creer(_source(mois="2026-07", source_calcul="PREF-2026-07"),
                       acteur="t", db_path=db)["facture_id_opaque"]
 
-    compo.rattacher_charge(facture, pos, montant=60, acteur="t", db_path=db)
+    compo.rattacher_charge(facture, pos, montant=60, justification="solde reporte",
+                           acteur="t", db_path=db)
     assert refac.montant_disponible(pos, db_path=db) == 40.0, "un brouillon RÉSERVE le montant"
-    compo.rattacher_charge(autre, pos, montant=40, acteur="t", db_path=db)
+    compo.rattacher_charge(autre, pos, montant=40, acteur="t", db_path=db)  # solde exact
     assert refac.montant_disponible(pos, db_path=db) == 0.0
 
     # Solde épuisé : une TROISIÈME facture ne peut plus rien en tirer. (Sur les deux premières, le
@@ -317,9 +318,11 @@ def test_le_cumul_ne_peut_pas_depasser_le_montant_source(db, facture, ecritures_
     pos = _position(db, cid)
     autre = svc.creer(_source(mois="2026-07", source_calcul="PREF-2026-07"),
                       acteur="t", db_path=db)["facture_id_opaque"]
-    compo.rattacher_charge(facture, pos, montant=500, acteur="t", db_path=db)
+    compo.rattacher_charge(facture, pos, montant=500, justification="reste a repartir",
+                           acteur="t", db_path=db)
     with pytest.raises(svc.FactureProprietaireError, match="superieur au solde disponible"):
-        compo.rattacher_charge(autre, pos, montant=300, acteur="t", db_path=db)
+        compo.rattacher_charge(autre, pos, montant=300, justification="depassement",
+                               acteur="t", db_path=db)
 
 
 @pytest.mark.parametrize("montant", [0, -50, 700.01])

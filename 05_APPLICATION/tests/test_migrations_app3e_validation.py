@@ -124,15 +124,45 @@ def test_historique_conserve_apres_remigration(tmp_path):
 
 
 def test_double_application_concurrente_legere(tmp_path):
-    """Deux connexions appliquent les migrations : aucune erreur, tables présentes."""
+    """Deux applications successives des migrations : aucune erreur, tables présentes.
+
+    La version d'origine rejouait les fichiers `.sql` BRUTS sur une base déjà migrée. Cette
+    prémisse — « rejouer tout l'historique est sans effet » — a cessé d'être vraie le jour où des
+    migrations de RECONSTRUCTION y sont entrées : `0060` recrée `charges` avec une liste de colonnes
+    figée et un `INSERT … SELECT *`, qui casse dès que la table gagne une colonne (ce qu'a fait la
+    migration 0076). C'est d'ailleurs exactement pour cette raison qu'`apply_migrations` ne rejoue
+    plus que les fichiers MANQUANTS.
+
+    Le test exerce donc désormais le point d'entrée réel, qui est aussi le seul que l'application
+    utilise — et vérifie que le rejouer est sans effet, ce qui est la vraie garantie attendue.
+    """
     db = tmp_path / "conc.db"
     apply_migrations(db)
-    # 2e application via une connexion distincte ouverte en parallèle
+    avant = _tables(db)
+    apply_migrations(db)          # seconde application : doit être un no-op silencieux
+    apply_migrations(db)
+    assert TABLES_APP3E <= _tables(db)
+    assert _tables(db) == avant, "une réapplication ne doit ni créer ni supprimer de table"
+
+
+def test_rejouer_les_fichiers_bruts_n_est_pas_un_contrat_supporte(tmp_path):
+    """Documente la limite : les fichiers de migration ne sont PAS tous rejouables isolément.
+
+    Ce test ne dénonce pas un défaut — il fige une frontière. Une migration de reconstruction est
+    légitime ; ce qui ne l'est pas, c'est de la rejouer sur une base déjà transformée. Passer par
+    `apply_migrations` est le contrat ; lire ce test évite de croire l'inverse.
+    """
+    db = tmp_path / "brut.db"
+    apply_migrations(db)
     conn = sqlite3.connect(str(db))
     try:
-        for m in sorted(MIGRATIONS_DIR.glob("*.sql")):
-            conn.executescript(m.read_text(encoding="utf-8"))
-        conn.commit()
+        colonnes = {r[1] for r in conn.execute("PRAGMA table_info(charges)")}
+        assert "affectable_menage" in colonnes, "0076 doit avoir ajouté la colonne"
+        contenu = (MIGRATIONS_DIR / "0060_durcissement_sqlite_final.sql").read_text(
+            encoding="utf-8")
+        # `INSERT INTO charges_new SELECT *` vers une liste de colonnes figée : le rejeu échoue,
+        # et c'est cohérent — ce n'est pas une opération que l'application effectue.
+        with pytest.raises(sqlite3.OperationalError):
+            conn.executescript(contenu)
     finally:
         conn.close()
-    assert TABLES_APP3E <= _tables(db)

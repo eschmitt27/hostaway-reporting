@@ -48,6 +48,7 @@ EVT_DETACHEMENT_CHARGE = "DETACHEMENT_CHARGE"
 # Réexporté depuis le service canonique : la valeur est le contrat que `valider()` applique.
 SOURCE_POSITION = svc.SOURCE_POSITION_REFAC
 
+
 # Regroupement des `type_ligne` pour la décomposition affichée. L'ordre est celui de la facture.
 # `MENAGE_FACTURE` et `PREPARATION_CANAPE` restent des postes distincts : ce sont des prestations
 # réellement rendues, pas des variantes de commission.
@@ -166,7 +167,8 @@ def charge_deja_facturee(charge_id: str, *, db_path=None) -> dict[str, Any]:
 
 
 def rattacher_charge(facture_id: str, position_id: str, *, libelle: str = "", montant: Any = None,
-                     acteur: str = "", db_path=None) -> dict[str, Any]:
+                     justification: str = "", acteur: str = "",
+                     db_path=None) -> dict[str, Any]:
     """Porte sur un BROUILLON une charge refacturable EXISTANTE, via sa POSITION de refacturation.
 
     La ligne référence le `position_id`, jamais le `charge_id` : c'est le contrat que
@@ -229,6 +231,18 @@ def rattacher_charge(facture_id: str, position_id: str, *, libelle: str = "", mo
     if valeur - restant > 0.001:
         _err(f"montant {valeur:.2f} superieur au solde disponible {restant:.2f}")
 
+    # REFACTURATION PARTIELLE : `charges_refacturation_service.imputer()` exige une justification
+    # dès que le montant imputé diffère du solde proposé. La règle est bonne — ne récupérer qu'une
+    # partie d'une dépense est une décision, pas un défaut de saisie — mais elle était contrôlée
+    # SEULEMENT à la validation, où plus personne ne pouvait la fournir : la facture se composait
+    # puis refusait de se valider. On la demande donc AU MOMENT DE LA DÉCISION, et on la conserve
+    # sur la ligne pour que `valider()` la retrouve.
+    justification = str(justification or "").strip()
+    partielle = abs(valeur - restant) > 0.001
+    if partielle and not justification:
+        _err(f"refacturation partielle ({valeur:.2f} sur {restant:.2f} disponibles) : un motif "
+             f"est obligatoire — precisez pourquoi le reste n'est pas refacture ici")
+
     charge_id = position.get("charge_id")
     conn = get_db(db_path)
     try:
@@ -237,11 +251,13 @@ def rattacher_charge(facture_id: str, position_id: str, *, libelle: str = "", mo
         # facture avant d'écrire, et sans lui cette relecture viserait la base par défaut au lieu
         # de celle qu'on est en train d'écrire. Le défaut ne se voyait pas tant que `cfg.DB_PATH`
         # était monkeypatché (cas des tests) ; il apparaît dès qu'on passe une base explicite.
+        # Le motif est stocké SUR LA LIGNE (colonne dédiée, migration 0077) : c'est la trace de
+        # la décision, et c'est là que `valider()` viendra la chercher au moment d'imputer.
         ligne = svc.ajouter_ligne(
             facture_id, type_ligne=TYPE_CHARGE_REFACTUREE, libelle=texte, montant=valeur,
             objet_source_type=SOURCE_POSITION, objet_source_ref=position["position_id"],
             acteur=acteur, commentaire=f"position {position['position_id']} rattachee",
-            db_path=db_path, _conn=conn)
+            justification_imputation=justification, db_path=db_path, _conn=conn)
         conn.execute(
             "INSERT INTO factures_proprietaires_lignes_charge "
             "(ligne_id_opaque, facture_id_opaque, charge_id, code_impact) VALUES (?,?,?,?)",

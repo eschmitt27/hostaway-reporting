@@ -185,6 +185,10 @@ EXPECTED_TABLES = {
     # quote-part (montant / N). À ne pas confondre avec la REFACTURATION, qui porte sur le montant
     # total et se ventile commercialement à part (`charges_refacturation_positions`).
     "charges_perimetre_analytique",
+    # 0076 — branche MÉNAGE : le drapeau `affectable_menage` et la ventilation (intervenants
+    # OU logements) étaient calculés puis jetés, comme l'était le périmètre analytique avant
+    # 0074. `lot6f_cout_complet_menages` filtre pourtant sur ce drapeau.
+    "charges_perimetre_menage",
 }
 
 

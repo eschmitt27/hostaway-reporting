@@ -65,6 +65,11 @@ CHAMPS_SAISIE = (
     "source_flux", "methode_traitement", "paye_avec_montant_recupere", "lien_virement_banque",
     "statut_controle", "niveau_anomalie", "code_anomalie", "statut_rapprochement", "justificatif",
     "commentaire",
+    # `affectable_menage` était CALCULÉ par la prévisualisation puis perdu à l'INSERT : la colonne
+    # n'existait pas et ce champ ne figurait pas ici. `lot6f_cout_complet_menages` filtre pourtant
+    # dessus pour constituer ses pools — une charge ménage saisie dans l'application ne pouvait donc
+    # jamais rejoindre le coût complet ménage (migration 0076).
+    "affectable_menage",
 )
 
 OBLIGATOIRES = ("date_charge", "montant", "categorie_charge_id")
@@ -157,7 +162,7 @@ def lire(charge_id: str, *, db_path=None) -> dict[str, Any] | None:
 
 
 def creer(donnees: dict[str, Any], *, acteur: str = "", conn=None, perimetre=None,
-          db_path=None) -> dict[str, Any]:
+          perimetre_menage=None, db_path=None) -> dict[str, Any]:
     """Crée une charge. `charge_id` fourni, ou dérivé d'un identifiant opaque — jamais un rang.
 
     `conn` : même idiome que `charges_refacturation_service.synchroniser_depuis_charge` — si
@@ -203,6 +208,12 @@ def creer(donnees: dict[str, Any], *, acteur: str = "", conn=None, perimetre=Non
         if perimetre:
             from app.services import charges_perimetre_service as perim
             perim.enregistrer(charge_id, perimetre, mois=valeurs["mois"], acteur=acteur, conn=conn)
+        # Périmètre MÉNAGE (0076) : même principe, autre dimension — intervenants ou logements.
+        if perimetre_menage and perimetre_menage.get("entrees"):
+            from app.services import charges_perimetre_service as perim
+            perim.enregistrer_menage(charge_id, perimetre_menage.get("mode", ""),
+                                     perimetre_menage["entrees"], mois=valeurs["mois"],
+                                     acteur=acteur, conn=conn)
         # Mission 15 : point d'entrée unique de la file de refacturation — une charge
         # refacturable='OUI' alimente automatiquement une position, jamais un second flux.
         from app.services import charges_refacturation_service as refac
@@ -347,6 +358,72 @@ def signaler_anomalie(charge_id: str, *, acteur: str = "", motif: str = "",
         conn.close()
     return {"ok": True, "charge_id": charge_id, "statut_controle": CONTROLE_ANOMALIE,
             "inchange": False}
+
+
+EVT_PERIMETRE_COMPLETE = "PERIMETRE_COMPLETE"
+
+
+def definir_perimetre(charge_id: str, logements: list[str], *, acteur: str = "", motif: str = "",
+                      db_path=None) -> dict[str, Any]:
+    """Renseigne APRÈS COUP le périmètre analytique d'une charge qui n'en a pas.
+
+    À quoi cela sert : les charges créées AVANT la migration 0074 n'ont pas de périmètre — il était
+    calculé puis jeté. Une charge refacturable dans ce cas porte une position `A_TRAITER`, que
+    l'application ne propose sur aucune facture : la dépense est refacturable en théorie et
+    irrécupérable en pratique. Plutôt que de deviner ses logements à sa place (ni l'événement de
+    création ni la position ne les contiennent : ils n'ont jamais été écrits), on rend la saisie
+    possible.
+
+    Le montant est réparti également, comme à la création — même règle, même arithmétique. La
+    position est resynchronisée dans la MÊME transaction : sans cela, le périmètre existerait sans
+    que la position redevienne proposable, et rien ne le signalerait.
+    """
+    from app.services import charges_impact_service as impact
+    from app.services import charges_perimetre_service as perim
+    from app.services import charges_refacturation_service as refac
+
+    logements = [str(l).strip() for l in (logements or []) if str(l).strip()]
+    conn = get_db(db_path)
+    try:
+        charge = _charge(conn, str(charge_id or "").strip())
+        if charge is None:
+            return _refus(E_INTROUVABLE, f"Charge inconnue : {charge_id}.")
+        if charge["statut"] == STATUT_ANNULEE:
+            return _refus(E_DEJA_ANNULEE,
+                          f"La charge {charge_id} est annulée : son périmètre ne change plus.")
+        if not logements:
+            return _refus(E_CHAMP_MANQUANT,
+                          "Sélectionnez au moins un logement pour définir le périmètre.")
+
+        # Propriétaire de chaque logement à la DATE DE LA CHARGE : c'est la règle déjà appliquée à
+        # la création. Le recalculer à aujourd'hui ferait glisser une charge d'août vers un
+        # propriétaire entré en septembre.
+        gestion = [dict(r) for r in conn.execute(
+            "SELECT gestion_id, logement_id, proprietaire_id, date_debut, date_fin, statut_gestion "
+            "FROM ref_gestion_logements_hist")]
+        mois = str(charge["mois"] or "")
+        prop_par_log = {}
+        for r in gestion:
+            if impact.gestion_active_pour_mois(r, mois):
+                prop_par_log.setdefault(str(r.get("logement_id") or "").strip(),
+                                        str(r.get("proprietaire_id") or "").strip())
+
+        parts = impact.repartir_egal(float(charge["montant"] or 0), logements)
+        entrees = [{"logement_id": p["logement_id"],
+                    "proprietaire_id": prop_par_log.get(p["logement_id"]) or None,
+                    "mois": mois, "quote_part_montant": p["quote_part"]} for p in parts]
+        perim.enregistrer(charge_id, entrees, mois=mois, acteur=acteur, conn=conn)
+        refac.synchroniser_depuis_charge(charge_id, acteur=acteur, conn=conn)
+        _journaliser(conn, charge_id, EVT_PERIMETRE_COMPLETE, acteur, motif,
+                     avant={"perimetre": "absent"},
+                     apres={"logements": logements, "nb": len(logements)})
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return {"ok": True, "charge_id": charge_id, "nb_logements": len(logements)}
 
 
 def historique(charge_id: str, *, db_path=None) -> list[dict[str, Any]]:

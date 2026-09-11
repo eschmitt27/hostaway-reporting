@@ -12,6 +12,8 @@ Les tables HISTORISÉES (rattachement de gestion, taux de commission) sont consu
 éditables ici : elles se modifient par la fiche logement, qui clôt la période courante et en ouvre
 une nouvelle. Les éditer librement permettrait de réécrire une période passée.
 """
+from urllib.parse import quote
+
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from app.template_env import get_templates
@@ -29,6 +31,9 @@ _MENU = "administration_referentiels"
 TABLE_COUTS_MENAGE = cm.TABLE
 TABLE_CANAPE = canape.TABLE
 TABLE_REGLES_VERSIONS = regv.TABLE
+# Propriétaires : seule table du référentiel dont l'écran porte aussi le CLASSEMENT
+# de facturation (particulier / professionnel), stocké à part (migration 0073).
+TABLE_PROPRIETAIRES = "ref_proprietaires"
 
 
 @router.get("/administration/referentiels", response_class=HTMLResponse)
@@ -48,18 +53,50 @@ def detail(request: Request, table: str, message: str = "", erreur: str = ""):
     if not meta.get("ok"):
         return RedirectResponse("/administration/referentiels?erreur=Référentiel inconnu",
                                 status_code=303)
+    lignes = adm.lignes(table) if adm.disponible() else []
+    # Type de client de facturation : classable ICI, en une passe sur tout le parc, plutôt qu'une
+    # facture à la fois (§25). Une émission reste bloquée tant qu'un propriétaire n'est pas classé :
+    # autant pouvoir le faire au calme, avant d'en avoir besoin.
+    classements = {}
+    if table == TABLE_PROPRIETAIRES:
+        from app.services import proprietaires_facturation_service as classement
+        classements = {str(l.get("proprietaire_id")): classement.type_client(
+            str(l.get("proprietaire_id"))) for l in lignes if l.get("proprietaire_id")}
     return templates.TemplateResponse(request, "administration_referentiel_detail.html", {
         "active_menu": _MENU,
         "disponible": adm.disponible(),
         "meta": meta,
-        "lignes": adm.lignes(table) if adm.disponible() else [],
+        "lignes": lignes,
         "evenements": adm.historique_evenements(table, limite=20),
         "table_couts_menage": TABLE_COUTS_MENAGE,
         "table_canape": TABLE_CANAPE,
         "table_regles_versions": TABLE_REGLES_VERSIONS,
+        "table_proprietaires": TABLE_PROPRIETAIRES,
+        "classements": classements,
         "message": message,
         "erreur": erreur,
     })
+
+
+@router.post("/administration/referentiels/ref_proprietaires/type-client")
+async def changer_type_client(request: Request):
+    """Classe un propriétaire en PARTICULIER ou PROFESSIONNEL (§25).
+
+    Jamais déduit d'un nom, d'une adresse ou de la présence d'un SIREN : c'est une saisie. Les
+    mentions légales obligatoires diffèrent entre les deux, et une déduction automatique
+    imprimerait des pénalités de retard chez un particulier.
+    """
+    from app.services import proprietaires_facturation_service as classement
+    form = await request.form()
+    cible = f"/administration/referentiels/{TABLE_PROPRIETAIRES}"
+    try:
+        r = classement.definir(str(form.get("proprietaire_id", "") or ""),
+                               str(form.get("type_client_facturation", "") or ""),
+                               motif=str(form.get("motif", "") or ""), acteur="administration")
+    except classement.TypeClientError as exc:
+        return RedirectResponse(f"{cible}?erreur={quote(str(exc))}", status_code=303)
+    message = f"Propriétaire classé : {r['type_client_facturation'].lower()}"
+    return RedirectResponse(f"{cible}?message={quote(message)}", status_code=303)
 
 
 @router.post("/administration/referentiels/ref_couts_standards_menage/changer-cout")

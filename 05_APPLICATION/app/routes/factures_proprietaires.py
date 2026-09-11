@@ -409,7 +409,11 @@ async def rattacher_charge(request: Request, facture_id: str):
     try:
         compo.rattacher_charge(facture_id, str(form.get("position_id", "") or "").strip(),
                                libelle=str(form.get("libelle", "") or ""),
-                               montant=montant_saisi or None, acteur="interface")
+                               montant=montant_saisi or None,
+                               # Obligatoire seulement si le montant est partiel — le service
+                               # tranche, la route se contente de transmettre ce qui a été saisi.
+                               justification=str(form.get("justification", "") or ""),
+                               acteur="interface")
     except svc.FactureProprietaireError as exc:
         return _refus_fiche(request, facture_id, f"Charge non rattachée : {exc}")
     return _retour(facture_id)
