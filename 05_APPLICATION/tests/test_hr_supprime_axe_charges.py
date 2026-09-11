@@ -1,12 +1,22 @@
-"""DÉCISION 2 — HR retiré du vocabulaire des CHARGES, intact sur l'axe RÉSERVATIONS.
+"""HR retiré du vocabulaire des CHARGES (migration 0078).
 
 « HORS COMPTA + HORS RÉSULTAT n'a PAS de pertinence métier » est vrai pour une DÉPENSE : une charge
-qui ne pèse ni sur le résultat ni sur la comptabilité n'est pas une charge. Ce n'est pas vrai pour
-une OCCUPATION SANS VENTE : un séjour propriétaire est un fait réel qu'il faut enregistrer et
-exclure du résultat — 125 réservations réelles en dépendent (80 séjours propriétaire).
+qui ne pèse ni sur le résultat ni sur la comptabilité n'est pas une charge.
 
-Ces tests figent les deux moitiés de ce constat. Détail et arbitrage ouvert :
-`00_CADRAGE/HR_SUPPRESSION_AUDIT.md`.
+CE FICHIER A CHANGÉ DE CAMP SUR L'AXE RÉSERVATIONS, ET C'EST VOLONTAIRE.
+Il défendait auparavant le maintien de `HR` sur les réservations, pour une raison qui reste juste :
+un séjour propriétaire ne doit pas devenir du chiffre d'affaires. Son propre commentaire prévoyait
+la suite — « le jour où l'arbitrage tranche autrement, ce test doit être modifié EN MÊME TEMPS que
+la règle, pas contourné ». L'arbitrage a été rendu le 2026-09-11 : `HR` disparaît aussi des
+réservations, mais l'exclusion est CONSERVÉE — portée par `statut_controle` et un
+`motif_exclusion` requêtable, et non plus par un code d'impact détourné de son rôle.
+
+Les 125 réservations restent donc exclues, à 0,00 € d'écart sur le résultat. La couverture
+détaillée de cet axe vit dans `test_hr_exclu_reservations.py` ; ce fichier ne garde ici que les
+garde-fous croisés.
+
+Détail et preuves : `00_CADRAGE/HR_SUPPRESSION_AUDIT.md`,
+`00_CADRAGE/RAPPORT_ARBITRAGES_HR_ARRONDIS_LOT6B.md`.
 """
 from __future__ import annotations
 
@@ -97,48 +107,58 @@ def test_lot3_ne_traduit_plus_hr_en_neutre():
     assert 'IMPACT_COMPTA: dict[str, str] = {"IC": "OUI", "HC": "NON"}' in code
 
 
-# ── Axe RÉSERVATIONS : HR intact, et c'est délibéré ──────────────────────────
+# ── Axe RÉSERVATIONS : HR supprimé, exclusion conservée ──────────────────────
 
-def test_le_referentiel_conserve_hr_car_les_reservations_en_dependent():
-    """`ref_codes_impact` garde sa ligne HR : 125 réservations réelles la référencent.
+def test_le_referentiel_ne_porte_plus_hr():
+    """La ligne `HR` de `ref_codes_impact` a été supprimée (migration 0079).
 
-    La supprimer les orphelinerait. Le retrait de HR est un retrait de VOCABULAIRE CHARGE, pas
-    une purge du référentiel partagé."""
+    Elle était conservée tant que 125 réservations la référençaient. Ces réservations ne la
+    référencent plus : leur exclusion est dite par leur statut et leur motif."""
+    import tempfile
+
     from app.db.connection import apply_migrations
 
-    import tempfile
     db = Path(tempfile.mkdtemp()) / "app.db"
     apply_migrations(db)
     conn = sqlite3.connect(str(db))
     try:
         colonnes = {r[1] for r in conn.execute("PRAGMA table_info(ref_codes_impact)")}
+        n = conn.execute("SELECT COUNT(*) FROM ref_codes_impact WHERE code_impact='HR'").fetchone()
     finally:
         conn.close()
-    assert "code_impact" in colonnes, "le référentiel partagé doit subsister"
+    assert "code_impact" in colonnes, "le référentiel partagé subsiste"
+    assert n[0] == 0, "HR ne doit plus y figurer"
 
 
-def test_les_moteurs_reservations_gardent_hr():
-    """lot4bis et lib_lot4a doivent continuer de produire HR pour les séjours propriétaire.
+def test_les_moteurs_reservations_ne_produisent_plus_hr_mais_excluent_toujours():
+    """L'inverse exact de ce que ce test exigeait — et pour la MÊME raison métier.
 
-    Ce test ne défend pas HR par principe : il défend le fait que 80 séjours propriétaire ne
-    doivent PAS devenir du chiffre d'affaires. Le jour où l'arbitrage tranche autrement, ce test
-    doit être modifié EN MÊME TEMPS que la règle — pas contourné."""
+    Ce qu'il défendait n'était pas `HR` : c'était que les séjours propriétaire ne deviennent pas du
+    chiffre d'affaires. Cette garantie est intacte, exprimée autrement : `lot4bis` produit
+    désormais une ligne SANS code d'impact, avec `statut_controle = EXCLU_RESULTAT` — le statut qui
+    décidait déjà, puisqu'il forçait l'impact à NON/NON quel que soit le code."""
     lib = (_TRAVAIL / "lib_lot4a_reservations_hh.py").read_text(encoding="utf-8",
                                                                 errors="replace")
-    assert 'VALID_CODE_IMPACT = {"IC", "HC", "HR"}' in lib
+    assert 'VALID_CODE_IMPACT = {"IC", "HC"}' in lib
+
     lot4bis = (_TRAVAIL / "lot4bis_charger_reservations.py").read_text(encoding="utf-8",
                                                                        errors="replace")
-    assert "ownerStay" in lot4bis and '"HR", "EXCLU_RESULTAT"' in lot4bis
+    assert "ownerStay" in lot4bis, "le cas métier doit toujours être traité"
+    assert '"HR", "EXCLU_RESULTAT"' not in lot4bis, "plus aucun code HR produit"
+    assert 'None, "EXCLU_RESULTAT"' in lot4bis, "l'exclusion doit rester posée, sans code d'impact"
+    assert "motif_exclusion" in lot4bis, "le motif doit être écrit"
 
 
-def test_l_axe_reservations_est_documente_comme_arbitrage_ouvert():
-    """La divergence entre la consigne et la réalité métier doit rester ÉCRITE.
+def test_l_arbitrage_de_l_axe_reservations_est_documente_comme_rendu():
+    """La décision doit rester ÉCRITE, comme l'était l'arbitrage ouvert avant elle.
 
-    Un écart non documenté finit par être relu comme un oubli, puis « corrigé » à tort."""
+    Une décision non documentée se relit plus tard comme un accident, et se « corrige » à tort —
+    c'est exactement le risque que courait `HR`, dont le blocage documenté avait survécu à sa
+    propre levée ailleurs dans le dépôt."""
     doc = (Path(cfg.PROJECT_ROOT) / "00_CADRAGE" / "HR_SUPPRESSION_AUDIT.md").read_text(
         encoding="utf-8")
-    assert "ARBITRAGE_METIER_REQUIS" in doc
-    assert "séjours propriétaire" in doc
+    assert "ARBITRAGE RENDU" in doc
+    assert "séjours propriétaire" in doc, "le fait métier protégé doit rester nommé"
 
 
 # ── Source unique ────────────────────────────────────────────────────────────

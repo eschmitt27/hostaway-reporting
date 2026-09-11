@@ -9,10 +9,16 @@
 
 Système de pilotage financier et opérationnel d'une conciergerie courte durée (~16 logements, Toulouse / Blagnac). Concilie Hostaway, réservations hors Hostaway, banque, ménages internes / externes, charges perso / liquide, IK / avantages associés. Produit trois lectures : **réel / comptable / hors compta** via filtre sur `code_impact`.
 
-**Vocabulaire de `code_impact` — il dépend de l'AXE, depuis la mission « FIN DU LEGACY » :**
+**`HR` N'EXISTE PLUS. Le vocabulaire de `code_impact` est `IC` / `HC`, sur tous les axes.**
 
-- **CHARGES → `IC` / `HC` uniquement.** `HR` en a été supprimé : une dépense qui n'impacte ni le résultat réel ni la comptabilité n'est pas une charge. Source unique : `app/moteurs/charges_engine.py::CODES_IMPACT_CHARGE`. Le service de saisie REFUSE toute autre valeur.
-- **RÉSERVATIONS → `IC` / `HC` / `HR`.** `HR` y marque une occupation sans vente (séjour propriétaire, réservation annulée, logement hors parc) : 125 lignes réelles en dépendent. **Ne pas l'y supprimer** — un arbitrage métier reste ouvert, voir `HR_SUPPRESSION_AUDIT.md`.
+- **CHARGES → `IC` / `HC`.** Une dépense qui n'impacte ni le résultat réel ni la comptabilité n'est pas une charge. Source unique : `app/moteurs/charges_engine.py::CODES_IMPACT_CHARGE`. Le service de saisie REFUSE toute autre valeur.
+- **RÉSERVATIONS → `IC` / `HC`, ou AUCUN code.** Une réservation hors du calcul économique (séjour propriétaire, annulation, logement hors parc) porte `code_impact = NULL` : elle n'a pas un impact neutre, elle n'a pas d'impact. Son EXCLUSION est dite par `statut_controle` (`EXCLU_RESULTAT` / `EXCLU_LEGACY`) et par `motif_exclusion` (`OWNERSTAY`, `LEGACY_SANS_ARCHIVE_ORIGINE`, …). Vocabulaire canonique : `02_TRAVAIL/lib_db_moteur.py`.
+- Un code d'impact décrit **comment** une somme pèse sur l'économie. Il ne peut pas dire qu'une ligne en est **absente** — c'est le rôle d'un statut. Confondre les deux est ce qui avait produit `HR`.
+- Réimporter `REF_Setup.xlsm` ne ressuscite pas `HR` : la ligne est écartée et signalée à l'import (`ref_setup_import_service.LIGNES_RETIREES`).
+
+**Contrôle d'une charge : `A_CONTROLER` → `VALIDE` / `ANOMALIE` / `REJETE`.** Seule `VALIDE` entre dans les calculs (coût complet ménage, résultat, flux). Une colonne vide vaut `A_CONTROLER` : l'absence d'avis ne vaut pas accord. Une charge non validée reste VISIBLE via un contrôle **bloquant** de clôture (`CHARGE_NON_VALIDEE_HORS_CALCULS`) — elle ne pèse pas, mais elle ne disparaît pas.
+
+**Aucun centime ne disparaît.** Toute répartition monétaire passe par `02_TRAVAIL/lib_repartition.py` : centimes entiers, part entière, résidu aux parts les plus lésées, départage par clé triée. `somme(parts) == montant`, toujours. 100,00 € sur 3 logements = 33,34 / 33,33 / 33,33.
 
 La **SAS porteuse est nouvelle** : pas d'historique comptable à reconstituer. Le système prépare les flux futurs.
 

@@ -134,9 +134,9 @@ def test_une_charge_naît_a_controler(db, ecritures_actives):
 def test_validation_rend_la_charge_conforme_et_persiste(db, ecritures_actives):
     cid = _charge(db)
     r = saisie.valider_controle(cid, acteur="t", db_path=db)
-    assert r["ok"] and r["statut_controle"] == saisie.CONTROLE_CONFORME
+    assert r["ok"] and r["statut_controle"] == saisie.CONTROLE_VALIDE
     # Relecture par une NOUVELLE connexion : c'est la persistance qui est testée, pas un cache.
-    assert saisie.statut_controle(saisie.lire(cid, db_path=db)) == saisie.CONTROLE_CONFORME
+    assert saisie.statut_controle(saisie.lire(cid, db_path=db)) == saisie.CONTROLE_VALIDE
 
 
 def test_double_validation_est_idempotente(db, ecritures_actives):
@@ -156,7 +156,7 @@ def test_anomalie_est_la_contrepartie_de_la_validation(db, ecritures_actives):
     assert saisie.statut_controle(saisie.lire(cid, db_path=db)) == saisie.CONTROLE_ANOMALIE
     # Réversible : une anomalie levée se valide.
     saisie.valider_controle(cid, acteur="t", db_path=db)
-    assert saisie.statut_controle(saisie.lire(cid, db_path=db)) == saisie.CONTROLE_CONFORME
+    assert saisie.statut_controle(saisie.lire(cid, db_path=db)) == saisie.CONTROLE_VALIDE
 
 
 def test_charge_annulee_nest_plus_controlable(db, ecritures_actives):
@@ -173,14 +173,14 @@ def test_charge_inconnue_refusee(db, ecritures_actives):
 
 
 def test_statut_controle_et_statut_de_vie_sont_deux_colonnes(db, ecritures_actives):
-    """Une charge peut être ACTIVE et non contrôlée, ou CONFORME puis annulée. Les confondre
+    """Une charge peut être ACTIVE et non contrôlée, ou VALIDE puis annulée. Les confondre
     ferait disparaître l'un des deux états."""
     cid = _charge(db)
     saisie.valider_controle(cid, acteur="t", db_path=db)
     saisie.annuler(cid, acteur="t", motif="erreur", db_path=db)
     ligne = saisie.lire(cid, db_path=db)
     assert ligne["statut"] == saisie.STATUT_ANNULEE
-    assert saisie.statut_controle(ligne) == saisie.CONTROLE_CONFORME
+    assert saisie.statut_controle(ligne) == saisie.CONTROLE_VALIDE
 
 
 # ── Migration 0074 ──────────────────────────────────────────────────────────────────────────────

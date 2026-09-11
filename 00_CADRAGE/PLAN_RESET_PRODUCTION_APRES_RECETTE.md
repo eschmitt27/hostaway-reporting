@@ -50,16 +50,27 @@ Trois points, tous **favorables** — le reset est plus simple qu'avant, pas plu
 | Changement | Effet sur le reset |
 |---|---|
 | **Migration 0078** appliquée (suppression de `charges.impact_resultat_reel` / `impact_resultat_comptable`) | Le schéma a changé depuis la rédaction de ce plan. Toute requête de reset visant ces colonnes échouerait : **ne pas les nommer**. L'impact d'une charge se lit par `code_impact`. |
+| **Migration 0079** — `HR` supprimé, `motif_exclusion` ajouté sur `reservations_calculees` / `reservations_resolues` | Aucune requête de reset ne doit filtrer sur `code_impact='HR'` : la valeur n'existe plus. Une réservation exclue se reconnaît à `statut_controle IN ('EXCLU_RESULTAT','EXCLU_LEGACY')`. |
+| **Migration 0080** — `CONFORME` unifié en `VALIDE` sur `charges.statut_controle` | Le vocabulaire de contrôle d'une charge est `A_CONTROLER` / `VALIDE` / `ANOMALIE` / `REJETE`. Ne plus écrire `CONFORME`. |
+| **Charges non validées = contrôle BLOQUANT** (`CHARGE_NON_VALIDEE_HORS_CALCULS`) | Les 4 charges d'essai actives sont `A_CONTROLER` : elles bloquent la clôture tant qu'elles existent. Le reset les retire, ce qui lève le contrôle — l'ordre §5 reste valable. |
 | **`lot6f` ne lit plus aucun classeur** | Le recalcul post-reset du coût complet ménage n'exige plus ni accès réseau, ni `SAISIE_Charges_Flux`, ni `REF_Setup`. Il devient déterministe et rejouable hors ligne — donc vérifiable dans la foulée du reset. |
 | **`HR` retiré du vocabulaire des charges** | Une charge d'essai portant `HR` ressortirait `A_CONTROLER` au lieu d'être silencieusement neutre. Sans objet ici : aucune des 5 charges d'essai ne porte ce code (4 `IC`, 1 `HC`). |
 
-**Un point de vigilance nouveau, à ne pas manquer :** la table `menages_declarations_internes` de
-la base réelle porte encore la photographie du **2026-09-02** de la Google Sheet M04, alors que la
-feuille a changé depuis (une déclaration de juillet, `LOG_0005`/`INT_0001`, est passée de 1 à 0).
-Le coût complet ménage de 2026-07 calculé aujourd'hui reflète donc l'ancienne valeur. **Relancer
-`lot6b` avant le reset** pour repartir d'une base synchronisée — et non après, où l'écart serait
-attribué à tort au reset lui-même. Cette resynchronisation n'a PAS été effectuée : elle modifie de
-la donnée réelle, ce que la mission interdisait.
+**~~Point de vigilance sur la fraîcheur~~ — RÉSOLU le 2026-09-11.** `menages_declarations_internes`
+portait la photographie du **2026-09-02** de la Google Sheet M04, alors que la feuille avait changé
+depuis. La cause n'était pas un oubli : l'actualisation depuis `/menages` échouait en 0,0 s sur un
+**préflight Hostaway**, trois fois de suite, et gelait au passage deux sources qui n'ont aucune
+dépendance à Hostaway (PDF et Google Sheet). Le préflight ne gate plus que sa propre étape ; le
+résultat devient PARTIEL au lieu d'ÉCHEC total.
+
+`lot6b` a été relancé pour de vrai, après sauvegarde : **31 → 39 déclarations**, extraction
+2026-09-11, le mois 2026-08 apparaît (25 ménages) et 2026-07 passe de 42 à 41 (la correction de la
+feuille identifiée lors de la mission précédente). Aucun classeur écrit : SQLite est le défaut.
+
+**Ce qu'il reste à faire avant le reset :** recalculer `menages_cout_complet`, qui reflète encore
+les déclarations d'avant (29 lignes, mois 2026-03..2026-07). Un recalcul ciblé par mois depuis
+`/menages` suffit ; il n'a pas été déclenché ici pour ne pas modifier de résultat économique hors
+du périmètre de la mission.
 
 ---
 
@@ -162,8 +173,9 @@ Avant / après, dans `JOURNAL_CONTROLES.md` :
 À l'issue du reset :
 
 - la plus ancienne facture, charge et écriture datent de **2026-09 au plus tôt** ;
-- `lot6b` a été relancé AVANT le reset, et `menages_declarations_internes` reflète la feuille
-  courante (cf. §2bis) ;
+- `menages_cout_complet` a été recalculé après l'actualisation de `lot6b` du 2026-09-11
+  (cf. §2bis) — sinon le coût complet décrit un mois que les déclarations ne décrivent plus ;
+- aucun contrôle `CHARGE_NON_VALIDEE_HORS_CALCULS` ne reste ouvert ;
 - les référentiels sont **inchangés** ;
 - l'historique Hostaway est **inchangé** ;
 - `integrity_check` **ok**, `foreign_key_check` **0** ;

@@ -228,10 +228,10 @@ def test_toute_charge_nait_a_controler_et_se_valide(db, code_impact, refacturabl
     cid = _charge(db, code_impact=code_impact, refacturable=refacturable)
     assert saisie.statut_controle(saisie.lire(cid, db_path=db)) == saisie.CONTROLE_A_CONTROLER
     saisie.valider_controle(cid, acteur="t", db_path=db)
-    assert saisie.statut_controle(saisie.lire(cid, db_path=db)) == saisie.CONTROLE_CONFORME
+    assert saisie.statut_controle(saisie.lire(cid, db_path=db)) == saisie.CONTROLE_VALIDE
     # Une charge validée reste validée : aucune relecture ni resynchronisation ne la dégrade.
     refac.synchroniser_depuis_charge(cid, acteur="t", db_path=db)
-    assert saisie.statut_controle(saisie.lire(cid, db_path=db)) == saisie.CONTROLE_CONFORME
+    assert saisie.statut_controle(saisie.lire(cid, db_path=db)) == saisie.CONTROLE_VALIDE
 
 
 # ── INVARIANT 8 : la branche MÉNAGE est persistée (migration 0076) ──────────────────────────────

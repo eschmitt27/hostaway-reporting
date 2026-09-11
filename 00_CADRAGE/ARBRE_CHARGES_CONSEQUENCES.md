@@ -58,7 +58,7 @@ réelles de `flux_unifies` :
 |---|---|---|---|---|---|
 | **IC** | Intra-comptable | OUI | **OUI** | NON | via la facture |
 | **HC** | Hors compta / extra-comptable | **OUI** | NON | **OUI** | non |
-| ~~`HR`~~ | ~~Hors résultat~~ | — | — | — | **retiré du vocabulaire des charges** |
+| ~~`HR`~~ | ~~Hors résultat~~ | — | — | — | **supprimé des DEUX axes** (0078 puis 0079) |
 
 **Constaté sur les 336 flux réels** : 284 en `IC` (OUI/OUI/NON), 52 en `HC` (OUI/NON/OUI). Aucune
 divergence entre le référentiel, le moteur et les données.
@@ -66,10 +66,11 @@ divergence entre le référentiel, le moteur et les données.
 À retenir : **`HC` n'est pas « sans effet »** — la dépense pèse bien sur le résultat économique
 réel, elle n'entre simplement pas dans la comptabilité générale.
 
-> **`HR` a été SUPPRIMÉ de l'axe charges** (mission « FIN DU LEGACY », DÉCISION 2). Aucune charge
-> réelle ne l'a jamais porté (0 charge, 0 récurrente, 0 flux). Une charge qui le porterait encore
-> ressort désormais `A_CONTROLER` — visible, jamais neutralisée en silence. `HR` reste vivant sur
-> l'axe RÉSERVATIONS, où 125 lignes réelles en dépendent : voir `HR_SUPPRESSION_AUDIT.md`.
+> **`HR` N'EXISTE PLUS**, ni sur les charges (0078) ni sur les réservations (0079). Aucune charge
+> réelle ne l'a jamais porté. Une charge qui le porterait encore ressort `A_CONTROLER` — visible,
+> jamais neutralisée en silence. Sur les réservations, les 125 lignes qui le portaient restent
+> exclues par `statut_controle` + `motif_exclusion`, à 0,00 € d'écart. Un réimport de `REF_Setup`
+> ne le ressuscite pas : la ligne est écartée et signalée.
 
 > **Colonnes `charges.impact_resultat_reel` / `impact_resultat_comptable` : SUPPRIMÉES**
 > (migration 0078). Elles recopiaient ce que `code_impact` dit déjà, et divergeaient en pratique :
@@ -209,25 +210,38 @@ bonne valeur pour toutes les charges. Une seule source de vérité, comme demand
 
 ---
 
-## 8bis. Arbitrages métier RESTANTS
+## 8bis. Arbitrages métier — tous tranchés le 2026-09-11
 
-### B1 — `HR` sur l'axe RÉSERVATIONS *(bloquant, décision utilisateur requise)*
-125 réservations réelles portent `HR` : 80 séjours propriétaire (`EXCLU_RESULTAT`) et 45
-`EXCLU_LEGACY`. Les supprimer les ferait entrer dans le résultat économique. Les trois options
-ouvertes, leur coût et la recommandation sont détaillés dans **`HR_SUPPRESSION_AUDIT.md`**.
+### B1 — `HR` sur l'axe RÉSERVATIONS → **TRANCHÉ : supprimé, exclusion conservée**
+`HR` a disparu des réservations (migration 0079). Les 125 lignes — toutes des séjours propriétaire —
+restent exclues, mais par ce qui l'exprimait déjà : `statut_controle = EXCLU_RESULTAT`, complété
+d'un `motif_exclusion` désormais requêtable (`OWNERSTAY`). Aucun code de remplacement n'a été
+inventé : un code d'impact dit COMMENT une somme pèse, pas qu'une ligne est absente de l'économie.
+**Équivalence prouvée à 0,00 €** sur CA, commissions, résultat, net propriétaire et flux
+reconstruits. Le filtre économique était d'ailleurs déjà triple (`VALIDE` + `impact_reel=OUI` +
+`montant≠0`) : les 125 lignes y échouaient aux trois, ce qui rendait `HR` redondant.
 
-### B2 — le centime résiduel d'une ventilation *(mineur, mais réel)*
-`quote_part = round(pool × poids / Σ poids, 2)` pour chaque ligne. Sur 100 € répartis entre 3
-logements de poids égal : 33,33 × 3 = **99,99 €**. Un centime n'est attribué à personne. Le
-comportement est déterministe et reproductible (test dédié), mais la somme ventilée n'égale pas
-toujours le pool. À trancher : laisser le résidu, ou l'attribuer — et si oui, à quelle ligne
-(la plus lourde ? la première dans l'ordre des `logement_id` ?). Ce choix est une règle métier,
-pas un détail d'implémentation : il doit être décidé, pas deviné.
+### B2 — le centime résiduel → **TRANCHÉ : aucun centime ne disparaît**
+`lib_repartition.py` est désormais la seule répartition monétaire du dépôt : centimes entiers, part
+entière, résidu aux parts que l'arrondi a le plus lésées, départage par clé triée. `somme(parts)`
+vaut toujours le montant source. **100,00 € sur 3 logements = 33,34 / 33,33 / 33,33.**
+Trois implémentations concurrentes ont été unifiées : `lot6f` (qui perdait le centime),
+`lib_charges_menage` et `facture_ventilation_menage_service` (où le DERNIER absorbait tout le
+résidu — une ligne pouvait s'écarter de plusieurs centimes de sa part réelle).
 
-### B3 — charges `A_CONTROLER` dans les pools ménage *(cohérence)*
-Une facture externe non validée est exclue du coût complet ; une CHARGE non contrôlée y entre.
-L'asymétrie vient d'une reprise à l'identique du classeur, qui ne posait aucun filtre. L'aligner
-sur le traitement des factures serait cohérent, mais c'est un changement de règle.
+### B3 — charges `A_CONTROLER` dans les pools ménage → **TRANCHÉ : exclues, et signalées**
+Seule une charge `VALIDE` entre dans les calculs. Une colonne vide vaut `A_CONTROLER` : l'absence
+d'avis ne vaut pas accord. L'asymétrie avec les factures externes est levée.
+
+La règle serait dangereuse sans son pendant : une charge écartée ne doit pas s'évaporer. Deux
+traces l'en empêchent — le contrôle `CHARGE_MENAGE_NON_VALIDEE` émis par lot6f à chaque run, et le
+contrôle **BLOQUANT** `CHARGE_NON_VALIDEE_HORS_CALCULS` qui empêche la clôture du mois. Sur la base
+réelle, 4 charges (988 €) sont ainsi passées d'« intégrées en silence » à « exclues et bloquantes ».
+
+Vocabulaire unifié au passage : le bouton « Valider la charge » de la fiche écrivait `CONFORME`
+tandis que l'écran « Charges à contrôler » écrivait `VALIDE`, **dans la même colonne**. Or lot9
+n'ingère que `VALIDE` : une charge validée depuis la fiche restait invisible à l'économie, sans
+message. Un seul mot désormais, `VALIDE` (migration 0080).
 
 ---
 

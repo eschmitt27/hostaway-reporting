@@ -33,8 +33,8 @@ archive ; source d'import d'un autre module. »
 | `lot4a_compare_reservations_hh` | RIEN ✅ | — | outil de comparaison, déjà sans classeur |
 | `lot7_pq_avantages` | RIEN ✅ | — | générateur de M-code, n'ouvre rien |
 | `lot3_generateur_charges` | `SAISIE_Charges_Flux`, `REF_Setup` | **moyen** | La table `charges` EST déjà canonique pour l'application (un seul `INSERT INTO charges`, dans `charges_saisie_service`). lot3 travaille sur le circuit classeur historique, en parallèle. |
-| `lot6b_m04_menages_internes` | `M04` (+ Google Sheet) | faible | déjà `--sans-excel` ; l'URL vient de SQLite ; il ÉCRIT M04 pour lot9-12 |
-| `lot6c_menages_externes` | `LOT6A`, `REF_SRC` | moyen | `menages_externes_historique` existe déjà côté SQLite |
+| **`lot6b_m04_menages_internes`** | **RIEN au runtime** ✅ | *fait* | Lit la Google Sheet (source externe légitime) et écrit `menages_declarations_internes`. **SQLite est le DÉFAUT** : aucun run ne peut plus produire un classeur sans le demander. `--export-legacy` subsiste pour un seul appelant (cf. §3bis). Équivalence prouvée : 39 lignes, 188 ménages, bit-à-bit identique. |
+| **`lot6c_menages_externes`** | `LOT6A`, `REF_SRC` | **moyen — PROCHAIN SUR LA LISTE** | **Aucun mode SQLite, aucune écriture SQLite.** C'est lui, et lui seul, qui impose encore un workspace Excel à la recette de chaîne — donc l'export legacy de lot6b. Le migrer libère les deux. |
 | `lot6a`, `lot6d`, `lot6e` | classeurs amont | moyen | chaîne ménages, migrable après lot6c |
 | `lot1_hostaway_extract` | `REF_Setup` | faible | seulement le référentiel, déjà en SQLite (`ref_*`) |
 | `lot4bis`, `lot4ter`, `lot4quater` | classeurs réservations | **élevé** | cœur du résultat économique ; 7 909 lignes réelles |
@@ -56,6 +56,29 @@ Un seul lecteur de classeur subsiste au runtime :
   n'ouvre un classeur que si un appelant lui passe EXPLICITEMENT le chemin d'une copie de travail
   (flux « écriture réelle sur COPIE »). Ce n'est pas le repli interdit — un référentiel vide se
   voit, il n'est jamais compensé en douce par un fichier.
+
+---
+
+## 3bis. La dernière dépendance de lot6b, nommée
+
+`lot6b` n'écrit plus de classeur par défaut. Son export legacy (`--export-legacy`) subsiste pour
+**un seul appelant**, et un test vérifie qu'il reste seul :
+
+> `menages_chaine_service` — la **recette de chaîne complète** de l'écran `/menages/chaine`, qui
+> rejoue lot6b → lot6c → lot6d → lot6e → lot6f → lot11 dans un workspace isolé.
+
+Pourquoi elle reste Excel : elle exécute **`lot6c`**, qui n'a ni `--source SQLITE` ni la moindre
+écriture SQLite. Tant que lot6c lit et écrit des classeurs, le workspace de recette doit en
+contenir — donc lot6b doit pouvoir en produire.
+
+La chaîne de dépendance est courte et nommée : **migrer lot6c libère la recette, qui libère
+l'export de lot6b.** Aucune autre raison ne maintient ce code en vie.
+
+Ce qui est déjà acquis sans attendre : **le parcours opérationnel ne peut plus produire de classeur
+par inadvertance.** Il fallait auparavant penser à passer `--sans-excel` ; il faut désormais
+demander explicitement le contraire. Le commentaire qui justifiait l'ancien défaut invoquait un
+blocage — « lot11 lit encore le classeur M04 » — **déjà levé depuis** : les deux implémentations de
+lot11 lisent `menages_declarations_internes`. Le blocage avait survécu à sa propre disparition.
 
 ---
 
@@ -120,7 +143,9 @@ C'est la procédure suivie pour lot6f, et elle est reproductible telle quelle :
 
 ## 6. Ordre suggéré pour la suite
 
-`lot1` et `lot8b` (référentiel seul, déjà en SQLite) → `lot6c` puis `lot6a/6d/6e` (chaîne ménages,
-sources SQLite déjà existantes) → `lot3` (charges ; la table est déjà canonique côté application)
-→ `lot5`, `lot7` → `lot4bis/ter/quater` **en dernier** : c'est le cœur du résultat économique, et
-c'est là que le coût d'une erreur est maximal.
+**`lot6c` d'abord** — c'est le seul verrou qui maintienne encore un workspace Excel dans la recette
+ménages, et donc l'export legacy de `lot6b` (cf. §3bis). Ensuite `lot1`/`lot8b` (référentiel seul,
+déjà en SQLite) → `lot6a/6d/6e` (leurs modes EXCEL deviennent alors du code mort) → `lot3`
+(charges ; la table est déjà canonique côté application) → `lot5`, `lot7` →
+`lot4bis/ter/quater` **en dernier** : c'est le cœur du résultat économique, et c'est là que le coût
+d'une erreur est maximal.
