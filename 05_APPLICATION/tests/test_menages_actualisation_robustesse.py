@@ -124,31 +124,47 @@ def test_a_google_config_absente_fail_fast_sans_sous_processus(monkeypatch, db, 
 
 # ── B. Hostaway config absente ──────────────────────────────────────────────────────────────────
 
-def test_b_hostaway_config_absente_arret_avant_pdf_et_sheet(monkeypatch, db, espions_ok):
-    """Identifiants Hostaway absents : arrêt AVANT PDF/Sheet (préflight placé au tout début)."""
-    from app.services import menages_pdf_import_service as pdf_import
-    from app.services import orchestrateur_moteur as moteur
+def test_b_hostaway_config_absente_n_empeche_pas_pdf_et_sheet(monkeypatch, db, espions_ok):
+    """Hostaway non configuré : son ÉTAPE échoue, les deux autres sources s'actualisent quand même.
 
-    journal, _ = espions_ok
+    LA RÈGLE A CHANGÉ, et il faut dire pourquoi. Ce test exigeait auparavant un arrêt total avant
+    PDF et Sheet. L'intention était bonne — ne pas lancer un sous-processus Hostaway voué à
+    échouer — mais l'effet observé sur la base réelle ne l'était pas : trois actualisations en
+    ÉCHEC, chacune en 0,0 s, et les déclarations Google Sheet figées sur une photographie vieille
+    de plusieurs jours alors que la feuille avait changé. Une source indisponible en gelait deux
+    autres qui n'en dépendent pas.
+
+    Le sous-processus Hostaway n'est toujours PAS lancé (l'intention d'origine est préservée) :
+    c'est son étape qui est marquée en échec, ce qui alimente le statut PARTIEL déjà prévu. Un
+    résultat partiel n'est jamais présenté comme un succès.
+    """
     monkeypatch.setattr(hostaway_ct, "credentials_disponibles", lambda: False)
-
-    def _piege_pdf(**kw):
-        raise AssertionError("PDF importé alors que Hostaway n'est pas configuré (préflight KO)")
-
-    def _piege_sheet(**kw):
-        raise AssertionError("Sheet appelé alors que Hostaway n'est pas configuré (préflight KO)")
-
-    monkeypatch.setattr(pdf_import, "importer_nouveaux", _piege_pdf)
-    monkeypatch.setattr(moteur, "executer_declarations_internes", _piege_sheet)
 
     resultat = workflow.actualiser(mois_affiche="2026-06", db_path=db)
 
-    assert journal == [], "aucune étape ne doit avoir démarré"
+    etapes = {e["etape"]: e for e in resultat["etapes"]}
+    assert etapes["PDF"]["ok"] is True, "le PDF ne dépend pas de Hostaway"
+    assert etapes["GOOGLE_SHEET"]["ok"] is True, "la Sheet ne dépend pas de Hostaway"
+    assert etapes["HOSTAWAY"]["ok"] is False
+    assert etapes["HOSTAWAY"]["code"] == hostaway_ct.E_CREDENTIALS_ABSENTES
+    # Jamais un succès : une source manquante reste visible dans le statut global.
+    assert resultat["statut"] == workflow.STATUT_PARTIEL
     assert resultat["ok"] is False
-    assert resultat["statut"] == "ECHEC"
-    assert resultat["code"] == hostaway_ct.E_CREDENTIALS_ABSENTES
-    assert "Hostaway" in resultat["message"] or "identifiants" in resultat["message"].lower()
-    assert resultat["etapes"] == []
+
+
+def test_b_bis_le_sous_processus_hostaway_n_est_pas_lance_pour_rien(monkeypatch, db, espions_ok):
+    """L'intention d'origine du préflight est conservée : aucun appel Hostaway inutile."""
+    from app.services import orchestrateur_moteur as orch_moteur
+
+    monkeypatch.setattr(hostaway_ct, "credentials_disponibles", lambda: False)
+    appels = []
+    if hasattr(orch_moteur, "recalculer_dataset"):
+        monkeypatch.setattr(orch_moteur, "recalculer_dataset",
+                            lambda *a, **k: appels.append(a) or {"ok": True})
+
+    workflow.actualiser(mois_affiche="2026-06", db_path=db)
+    assert not [a for a in appels if a and "HOSTAWAY" in str(a[0])], (
+        "le dataset Hostaway ne doit pas être recalculé sans identifiants")
 
 
 # ── C. Google timeout ───────────────────────────────────────────────────────────────────────────
@@ -253,10 +269,11 @@ def test_h_succes_complet_message_de_succes_exact(db, espions_ok):
 # ── G. Un échec ne laisse jamais le verrou bloqué ───────────────────────────────────────────────
 
 def test_g_apres_un_echec_un_nouveau_clic_est_accepte(monkeypatch, db, espions_ok):
+    """Le verrou est bien relâché, y compris après un résultat non-succès."""
     monkeypatch.setattr(hostaway_ct, "credentials_disponibles", lambda: False)
     premier = workflow.actualiser(mois_affiche="2026-06", db_path=db)
     assert premier["ok"] is False
-    assert premier["code"] != workflow.E_DEJA_EN_COURS
+    assert premier.get("code") != workflow.E_DEJA_EN_COURS
 
     # Un second appel, même juste après un échec, ne doit JAMAIS être rejeté comme "déjà en cours" :
     # le verrou a bien été libéré dans le `finally` du premier appel.

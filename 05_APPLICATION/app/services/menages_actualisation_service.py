@@ -208,19 +208,20 @@ def actualiser(*, mois_affiche: str = "", acteur: str = "ui:menages",
     try:
         history_run_id = history.demarrer("MENAGES_ACTUALISATION", acteur=acteur, db_path=db_path)
 
-        # ── Préflight Hostaway — ARRÊT IMMÉDIAT avant même le PDF/Sheet si les identifiants sont
-        # absents (mission §3 : « Hostaway non configuré -> arrêt immédiat », pas un échec tardif
-        # après un PDF+Sheet inutile). Défense en profondeur gardée : `hostaway_ct.actualiser()`
-        # revérifie la même chose en interne, à l'étape 3 ci-dessous.
-        if not hostaway_ct.credentials_disponibles():
-            message = ("Actualisation impossible : " + hostaway_ct.MESSAGES[
-                hostaway_ct.E_CREDENTIALS_ABSENTES])
-            if history_run_id:
-                history.marquer_echec(
-                    history_run_id,
-                    erreur=f"{STATUT_ECHEC}: préflight HOSTAWAY credentials absentes", db_path=db_path)
-            return _resultat_refus(mois_affiche, code=hostaway_ct.E_CREDENTIALS_ABSENTES,
-                                   message=message)
+        # ── Préflight Hostaway — il GATE L'ÉTAPE HOSTAWAY, PAS TOUTE L'ACTUALISATION.
+        #
+        # L'intention d'origine était juste : ne pas lancer un sous-processus Hostaway voué à
+        # échouer. Mais elle était appliquée par un `return` AVANT le PDF et la Google Sheet, deux
+        # sources qui n'ont AUCUNE dépendance à Hostaway. Conséquence observée sur la base réelle :
+        # trois `MENAGES_ACTUALISATION` en ÉCHEC, chacune en 0,0 s, et les déclarations internes
+        # figées sur la photographie du 2026-09-02 alors que la feuille avait changé depuis. Une
+        # source indisponible en gelait deux autres, sans que rien ne le dise.
+        #
+        # Le mécanisme de résultat PARTIEL existe déjà juste en dessous (`_statut_global` :
+        # « Sheet OK, PDF OK, Hostaway KO -> PAS SUCCÈS », mais pas ÉCHEC non plus). Le préflight
+        # l'alimente désormais au lieu de le court-circuiter : le sous-processus Hostaway n'est
+        # toujours pas lancé pour rien, et les deux autres sources s'actualisent.
+        hostaway_configure = hostaway_ct.credentials_disponibles()
 
         etapes: list[dict[str, Any]] = []
 
@@ -252,13 +253,23 @@ def actualiser(*, mois_affiche: str = "", acteur: str = "ui:menages",
                            "message": sheet.get("message", ""), "mois_impactes": mois_sheet})
 
         # ── 3. Hostaway Cleaning Tasks (lecture seule) ─────────────────────────────────────────
-        hostaway_avant = empreintes(ORIGINE_HOSTAWAY, db_path=db_path)
-        hostaway = orch.recalculer_dataset("HOSTAWAY_CLEANING_TASKS", declencheur=declencheur,
-                                           db_path=db_path)
-        hostaway_apres = empreintes(ORIGINE_HOSTAWAY, db_path=db_path)
-        mois_hostaway = _mois_modifies(hostaway_avant, hostaway_apres)
-        etapes.append({"etape": "HOSTAWAY", "ok": bool((hostaway or {}).get("ok", True)),
-                       "mois_impactes": mois_hostaway})
+        if not hostaway_configure:
+            # Étape marquée en échec, explicitement : le statut global devient PARTIEL et l'écran
+            # le dit. Jamais présenté comme un succès — c'est la règle du §8 d'origine, intacte.
+            mois_hostaway: list[str] = []
+            etapes.append({
+                "etape": "HOSTAWAY", "ok": False, "mois_impactes": [],
+                "code": hostaway_ct.E_CREDENTIALS_ABSENTES,
+                "message": hostaway_ct.MESSAGES[hostaway_ct.E_CREDENTIALS_ABSENTES]
+                           + " — sous-processus non lancé. PDF et Google Sheet actualisés."})
+        else:
+            hostaway_avant = empreintes(ORIGINE_HOSTAWAY, db_path=db_path)
+            hostaway = orch.recalculer_dataset("HOSTAWAY_CLEANING_TASKS", declencheur=declencheur,
+                                               db_path=db_path)
+            hostaway_apres = empreintes(ORIGINE_HOSTAWAY, db_path=db_path)
+            mois_hostaway = _mois_modifies(hostaway_avant, hostaway_apres)
+            etapes.append({"etape": "HOSTAWAY", "ok": bool((hostaway or {}).get("ok", True)),
+                           "mois_impactes": mois_hostaway})
 
         # ── 4. Ciblage ──────────────────────────────────────────────────────────────────────
         # Le mois affiché est TOUJOURS retenu : l'utilisateur qui clique sur cet écran demande

@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import sys
 
 # Racine du dossier applicatif (05_APPLICATION/)
 APP_ROOT = Path(__file__).resolve().parent.parent
@@ -251,7 +252,18 @@ DRYRUNS_DIR = DATA_DIR / "dryruns"
 # Sauvegardes dédiées de app.db elle-même (distinct de SNAPSHOTS_DIR, qui sert aux fichiers Excel/
 # masters moteur) — mission industrialisation socle technique, 2026-08-22.
 BACKUPS_DIR = DATA_DIR / "backups"
-LOT4A_ENGINE_PYTHON = Path(os.environ.get("LOT4A_ENGINE_PYTHON", r"C:\Program Files\Python312\python.exe"))
+# Interpréteur des scripts moteur lancés en sous-processus.
+#
+# Le défaut était `C:\Program Files\Python312\python.exe`, un chemin d'installation personnel codé
+# en dur. Sur tout poste qui ne l'a pas — celui-ci compris — les sous-processus échouaient sur
+# `FileNotFoundError [WinError 2]`, AVANT d'exécuter la moindre ligne de logique métier. Quatre
+# garde-fous anti-Excel de `test_lot6b_anti_excel` ne se sont ainsi jamais exécutés : ils étaient
+# comptés parmi les échecs « connus » de l'environnement, alors qu'ils ne testaient rien.
+#
+# Le défaut est désormais l'interpréteur qui exécute l'application : il existe toujours, et il
+# porte les mêmes dépendances (openpyxl, pandas) puisque c'est le même environnement virtuel.
+# La variable d'environnement reste prioritaire, pour les postes qui séparent réellement les deux.
+LOT4A_ENGINE_PYTHON = Path(os.environ.get("LOT4A_ENGINE_PYTHON") or sys.executable)
 LOT4A_ENGINE_TIMEOUT_SECONDS = int(os.environ.get("LOT4A_ENGINE_TIMEOUT_SECONDS", "60"))
 
 # ── Recalcul ménages (APP-2b) — garde de sécurité. Jamais activé implicitement. ──

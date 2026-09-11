@@ -26,11 +26,12 @@ M04 = (Path(cfg.PROJECT_ROOT) / "02_DONNEES_NORMALISEES" / "menages"
 
 pytestmark = pytest.mark.skipif(not LOT6B.exists(), reason="lot6b absent")
 
-#: L'interpréteur qui exécute les tests. `cfg.LOT4A_ENGINE_PYTHON` a pour défaut un chemin Windows
-#: codé en dur (`C:\Program Files\Python312\python.exe`) : absent de ce poste, il faisait
-#: échouer les quatre garde-fous comportementaux ci-dessous sur un `FileNotFoundError [WinError 2]`
-#: — quatre preuves anti-Excel qui ne s'exécutaient donc jamais. `sys.executable` existe toujours et
-#: porte les dépendances des moteurs.
+#: L'interpréteur qui exécute les tests. Son défaut de configuration a été corrigé à la source :
+#: `cfg.LOT4A_ENGINE_PYTHON` valait `C:\Program Files\Python312\python.exe`, absent de ce poste,
+#: ce qui faisait échouer les quatre garde-fous ci-dessous sur `FileNotFoundError [WinError 2]` —
+#: quatre preuves anti-Excel qui ne s'exécutaient donc jamais. Le défaut est désormais
+#: `sys.executable` ; on garde la forme explicite ici pour qu'un test ne dépende pas d'une
+#: variable d'environnement pour s'exécuter du tout.
 PYTHON = sys.executable
 
 SOURCE = LOT6B.read_text(encoding="utf-8", errors="replace")
@@ -344,3 +345,102 @@ def test_loghaid_int_et_str_se_resolvent_identiquement():
     assert _txt(482204) == _txt("482204") == "482204"
     assert _txt(" 482204 ") == "482204"
     assert _txt(None) == _txt("") == ""
+
+
+# ── §17/§18 — SQLite est le DÉFAUT, l'export de classeurs est l'exception ────────────────────────
+#
+# L'inversion compte plus qu'elle n'en a l'air : tant que l'export était le défaut, il suffisait
+# d'oublier `--sans-excel` pour qu'un run opérationnel réécrive deux classeurs. Désormais il faut
+# le DEMANDER, et un seul appelant le fait.
+
+from tests._espion_ouvertures import classeurs as _classeurs_ouverts, executer as _espionner
+
+
+def _run_espionne(db, atelier, *args):
+    """Lance lot6b sous audit hook. Rend (process, ouvertures)."""
+    return _espionner([PYTHON, str(LOT6B), *args], cwd=_TRAVAIL, atelier=Path(atelier),
+                      env_supplementaire={"PILOTAGE_DB_PATH": str(db)})
+
+
+def _classeurs_touches(ouvertures):
+    """Toute ouverture d'un classeur, lecture OU écriture."""
+    return _classeurs_ouverts(ouvertures)
+
+
+def _db_avec_src011(tmp_path):
+    import sqlite3
+
+    from app.db.connection import apply_migrations
+
+    db = tmp_path / "app.db"
+    apply_migrations(db)
+    conn = sqlite3.connect(str(db))
+    conn.execute(
+        "INSERT INTO ref_sources_systeme (source_id, nom_source, dossier_source, actif, import_id) "
+        "VALUES ('SRC_011','GOOGLE_SHEET_M04_DECLARATIONS','https://exemple.test/pub?output=csv',"
+        "'OUI','TEST')")
+    conn.commit()
+    conn.close()
+    return db
+
+
+def test_le_parcours_par_defaut_est_sqlite_sans_aucun_classeur(tmp_path):
+    """PREUVE CENTRALE — sans aucun drapeau, lot6b ne touche AUCUN classeur.
+
+    L'audit hook voit les ouvertures faites en C par `zipfile` sous `openpyxl` : ni lecture ni
+    écriture de classeur ne peut lui échapper. Le run échoue (l'URL de test ne répond pas), et
+    c'est sans importance : ce qui est vérifié est ce qu'il a OUVERT avant d'échouer."""
+    db = _db_avec_src011(tmp_path)
+    _, ouvertures = _run_espionne(db, tmp_path)
+
+    assert ouvertures, "l'espion n'a rien enregistré — le hook n'a pas été installé"
+    touches = _classeurs_touches(ouvertures)
+    assert not touches, f"lot6b a touché un classeur sans qu'on le lui demande : {touches}"
+
+
+def test_l_export_legacy_doit_etre_demande_explicitement():
+    """STRUCTUREL — le défaut est SQLite ; `--export-legacy` est la seule porte vers les classeurs."""
+    assert 'EXPORT_LEGACY = "--export-legacy" in sys.argv' in SOURCE
+    assert "SANS_EXCEL = not EXPORT_LEGACY" in SOURCE
+    # L'ancien défaut (export systématique, désactivable) ne doit pas revenir.
+    assert 'SANS_EXCEL = "--sans-excel" in sys.argv' not in SOURCE
+
+
+def test_sans_excel_reste_accepte_sans_rien_changer(tmp_path):
+    """`--sans-excel` est devenu le défaut : le passer encore ne doit ni échouer ni tout changer.
+
+    Des appelants le passent explicitement (`orchestrateur_moteur.executer_declarations_internes`,
+    tests existants). Le retirer les casserait sans rien gagner."""
+    db = _db_avec_src011(tmp_path)
+    _, sans = _run_espionne(db, tmp_path / "a", "--sans-excel")
+    _, defaut = _run_espionne(db, tmp_path / "b")
+
+    assert _classeurs_touches(sans) == _classeurs_touches(defaut) == []
+
+
+def test_le_seul_appelant_de_l_export_legacy_est_la_recette_de_chaine():
+    """Un seul demandeur, et il est nommé : la recette /menages/chaine (lot6c n'a pas de mode SQLite).
+
+    Si un second appelait `--export-legacy`, l'export cesserait d'être une exception documentée."""
+    import app.config as cfg
+
+    racine = Path(cfg.PROJECT_ROOT)
+    demandeurs = []
+    for chemin in list((racine / "05_APPLICATION" / "app").rglob("*.py")) +             list((racine / "02_TRAVAIL").glob("*.py")):
+        texte = chemin.read_text(encoding="utf-8", errors="replace")
+        if "--export-legacy" in texte and chemin.name != "lot6b_m04_menages_internes.py":
+            demandeurs.append(chemin.name)
+    assert demandeurs == ["menages_chaine_service.py"], demandeurs
+
+
+def test_l_interpreteur_moteur_existe_reellement():
+    """§15 — plus aucun chemin Python codé en dur : les sous-processus doivent pouvoir démarrer.
+
+    Le défaut était un chemin d'installation personnel absent de ce poste : les sous-processus
+    échouaient sur `FileNotFoundError` avant toute logique métier, et les garde-fous de ce fichier
+    ne testaient rien tout en passant pour des échecs « connus »."""
+    import app.config as cfg
+
+    assert Path(cfg.LOT4A_ENGINE_PYTHON).exists(), cfg.LOT4A_ENGINE_PYTHON
+    assert Path(cfg.MENAGES_ENGINE_PYTHON).exists(), cfg.MENAGES_ENGINE_PYTHON
+    assert "Program Files" not in str(cfg.LOT4A_ENGINE_PYTHON)

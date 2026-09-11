@@ -11,11 +11,15 @@ URL CSV : lue depuis SQLite `ref_sources_systeme` (SRC_011, nom_source =
           runtime : fail-closed si la configuration SQLite manque. Repli classeur uniquement sur
           `--url-depuis-excel` (reprise legacy explicite).
 
-Sorties écrites automatiquement :
+SORTIE CANONIQUE : `menages_declarations_internes` (SQLite). C'est la seule sortie du parcours
+opérationnel, et c'est le comportement PAR DÉFAUT — aucun classeur n'est écrit.
+
+EXPORT LEGACY (`--export-legacy` uniquement) :
   - 02_TRAVAIL/Lot6b_DeclarationsInternes/MASTER_NORM_Declarations_Internes.xlsx
   - 02_DONNEES_NORMALISEES/menages/M04_MENAGES_PowerQuery.xlsx :
         SOURCE_RAW (traçabilité), MASTER (calculé), VUE_ACTIVE (VALIDE)
-  POWER_QUERY_CODE conservé en documentation/archive, non utilisé.
+  Un seul appelant le demande : la recette de chaîne complète (/menages/chaine), qui exécute lot6c
+  — dépourvu de mode SQLite. POWER_QUERY_CODE conservé en documentation/archive, non utilisé.
 
 Contrôles BLOQUANTS : URL absente / inaccessible / structure Google Sheet inattendue.
 Ne touche pas : banque, Hostaway, factures, résultats aval (lot9-12).
@@ -40,16 +44,26 @@ NOW = datetime.datetime.now().isoformat(timespec="seconds")
 
 SOURCE_GOOGLE_SHEET_LOT6B = "GOOGLE_SHEET"  # défaut si menages_declarations_extra n'existe pas encore
 
-# `--sans-excel` : parcours OPÉRATIONNEL cible (GOOGLE SHEET -> normalisation Python -> SQLite),
-# sans aucune écriture de classeur. Même convention que lot6d/6e/6f.
-# ATTENTION — ce n'est PAS encore le défaut, et ce n'est pas un oubli.
-# lot9 ne lit PLUS le classeur M04 : son chargement était du code mort (chargé, filtré, compté, puis
-# jamais injecté — D105 révisée, TYPE_FLUX_013 analytique seul), il a été supprimé. En revanche
-# lot11 (`M04_FILE`) le lit ENCORE pour ses contrôles, et n'a aucune lecture SQLite des
-# déclarations : passer `--sans-excel` par défaut rendrait ses contrôles M04 non représentatifs
-# sans le dire. La migration de lot11 vers `menages_declarations_internes` est un chantier à part,
-# à décider explicitement (cf. commentaire « parité temporaire » plus bas).
-SANS_EXCEL = "--sans-excel" in sys.argv
+# ── SORTIE : SQLite par DÉFAUT. L'export de classeurs est devenu l'exception explicite. ──────────
+#
+# Le parcours opérationnel est GOOGLE SHEET -> normalisation Python -> SQLite, sans aucune écriture
+# de classeur. C'est désormais le COMPORTEMENT PAR DÉFAUT : aucun run ne peut produire un classeur
+# par inadvertance.
+#
+# Le commentaire précédent justifiait l'inverse par le fait que « lot11 lit ENCORE le classeur M04
+# pour ses contrôles ». Ce n'est PLUS vrai : les deux implémentations de lot11 (moteur et
+# applicative) lisent `menages_declarations_internes` en SQLite — le moteur le dit lui-même
+# (« M04 : plus de classeur au runtime »). Le blocage documenté avait survécu à sa propre levée.
+#
+# `--export-legacy` régénère les deux classeurs. Un SEUL appelant le passe : la recette de chaîne
+# complète (`menages_chaine_service`, écran /menages/chaine), qui exécute lot6c — lequel n'a
+# aucun mode SQLite ni aucune écriture SQLite, et impose donc encore un workspace Excel. C'est la
+# dernière raison d'être de cet export, et elle est nommée dans RESTANT_EXCEL_OPERATIONNEL.md.
+#
+# `--sans-excel` reste accepté, sans effet : c'est devenu le défaut, et des appelants le passent
+# encore explicitement (orchestrateur_moteur, tests). Le retirer les casserait sans rien gagner.
+EXPORT_LEGACY = "--export-legacy" in sys.argv
+SANS_EXCEL = not EXPORT_LEGACY
 
 MOIS = {"janvier":"01","fevrier":"02","mars":"03","avril":"04","mai":"05","juin":"06","juillet":"07","aout":"08","septembre":"09","octobre":"10","novembre":"11","decembre":"12"}
 REQUIRED_COLS = ["Prénom", "Mois des ménages", "Année des ménages", "Appartement"]

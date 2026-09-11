@@ -58,9 +58,9 @@ CODE_TXT = _code_seul(SOURCE)
 
 EXTENSIONS = (".xlsx", ".xlsm", ".xls")
 
-#: L'interpréteur qui exécute les tests : il a les dépendances des moteurs et il existe, ce que
-#: `cfg.LOT4A_ENGINE_PYTHON` (chemin Windows codé en dur, surchargeable par variable
-#: d'environnement) ne garantit sur aucun poste.
+#: L'interpréteur qui exécute les tests. `cfg.LOT4A_ENGINE_PYTHON` a le même défaut depuis que
+#: son chemin Windows codé en dur a été remplacé par `sys.executable` ; on garde la forme explicite
+#: ici pour qu'un test ne dépende pas d'une variable d'environnement pour s'exécuter du tout.
 PYTHON = sys.executable
 
 
@@ -117,38 +117,13 @@ def test_pas_de_provenance_sheet_posee_par_lot6f():
 
 # ── Niveau COMPORTEMENTAL ────────────────────────────────────────────────────
 
-_SITECUSTOMIZE = '''\
-"""Espion d'ouvertures de fichiers, chargé automatiquement par CPython au démarrage."""
-import atexit, os, sys
-
-_LOG = os.environ.get("AUDIT_OPEN_LOG")
-if _LOG:
-    _vus = []
-    _reentrant = False
-
-    def _hook(evenement, args):
-        # Le hook ouvre lui-même un fichier pour écrire son journal : sans garde, il se
-        # rappellerait indéfiniment.
-        global _reentrant
-        if evenement != "open" or _reentrant:
-            return
-        _reentrant = True
-        try:
-            _vus.append("%s\\t%s" % (args[0], args[1]))
-        except Exception:
-            pass
-        finally:
-            _reentrant = False
-
-    def _vider():
-        global _reentrant
-        _reentrant = True
-        with open(_LOG, "w", encoding="utf-8", errors="replace") as fh:
-            fh.write("\\n".join(str(x) for x in _vus))
-
-    atexit.register(_vider)
-    sys.addaudithook(_hook)
-'''
+# L'espion d'ouvertures vit dans un module partage : un seul exemplaire du script d'audit dans
+# tout le depot. Une copie divergente rendrait « aucune lecture detectee », indiscernable d'un
+# succes — c'est exactement le genre de test qui passe en ne verifiant rien.
+from tests._espion_ouvertures import (  # noqa: E402
+    classeurs as _classeurs_ouverts,
+    executer as _espionner,
+)
 
 
 @pytest.fixture(scope="module")
@@ -182,42 +157,16 @@ def _base_migree(tmp_path: Path) -> Path:
 def _run_lot6f_espionne(racine: Path, tmp_path: Path, db: Path, *args: str):
     """Lance lot6f en sous-processus sous audit hook, depuis la racine isolée.
 
-    Rend (process, ouvertures)."""
-    espion = tmp_path / "espion"
-    espion.mkdir(exist_ok=True)
-    (espion / "sitecustomize.py").write_text(_SITECUSTOMIZE, encoding="utf-8")
-    journal = tmp_path / "ouvertures.txt"
-
+    L'espion vient du module partagé : un seul exemplaire du script d'audit dans tout le dépôt.
+    Une copie divergente rendrait « aucune lecture détectée » — indiscernable d'un succès."""
     travail = racine / "02_TRAVAIL"
-    env = dict(os.environ)
-    env["PYTHONPATH"] = str(espion)
-    env["AUDIT_OPEN_LOG"] = str(journal)
-    env["PYTHONIOENCODING"] = "utf-8"
-    env.pop("PILOTAGE_DB_PATH", None)
-    env.pop("APP_DATA_DIR", None)
-
-    proc = subprocess.run(
-        [PYTHON, str(travail / LOT6F.name), "--db", str(db), *args],
-        cwd=str(travail), env=env, capture_output=True, text=True, timeout=600)
-
-    lignes = journal.read_text(encoding="utf-8", errors="replace").splitlines() \
-        if journal.exists() else []
-    ouvertures = []
-    for ligne in lignes:
-        chemin, _, mode = ligne.partition("\t")
-        ouvertures.append((chemin, mode))
-    return proc, ouvertures
+    return _espionner([PYTHON, str(travail / LOT6F.name), "--db", str(db), *args],
+                      cwd=travail, atelier=Path(tmp_path),
+                      env_retire=("PILOTAGE_DB_PATH", "APP_DATA_DIR"))
 
 
 def _classeurs(ouvertures, *, en_lecture: bool):
-    resultat = []
-    for chemin, mode in ouvertures:
-        if not chemin.lower().endswith(EXTENSIONS):
-            continue
-        lecture = ("r" in mode and "+" not in mode) if mode and mode != "None" else True
-        if lecture is en_lecture:
-            resultat.append((chemin, mode))
-    return resultat
+    return _classeurs_ouverts(ouvertures, en_lecture=en_lecture)
 
 
 def test_un_run_reel_n_ouvre_aucun_classeur_en_lecture(racine_isolee, tmp_path):

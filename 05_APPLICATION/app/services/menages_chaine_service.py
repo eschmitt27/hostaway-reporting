@@ -202,6 +202,10 @@ STEPS_CHAINE: list[dict[str, Any]] = [
      "produces": ["02_TRAVAIL/Lot1_Hostaway/MASTER_FACT_HA_CleaningTasks_Discovery.xlsx"]},
     {"name": "lot6b_declarations_internes",
      "script": "02_TRAVAIL/lot6b_m04_menages_internes.py",
+     # lot6b n'écrit plus de classeur par défaut : sa sortie canonique est SQLite. Cette recette
+     # est le SEUL appelant qui en demande encore l'export, parce qu'elle exécute ensuite lot6c,
+     # dépourvu de mode SQLite. Le jour où lot6c sera migré, cet argument et l'export disparaissent.
+     "args": ["--export-legacy"],
      "produces": ["02_TRAVAIL/Lot6b_DeclarationsInternes/MASTER_NORM_Declarations_Internes.xlsx",
                   "02_DONNEES_NORMALISEES/menages/M04_MENAGES_PowerQuery.xlsx"]},
     {"name": "lot6c_menages_externes",
