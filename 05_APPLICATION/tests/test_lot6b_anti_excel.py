@@ -26,6 +26,13 @@ M04 = (Path(cfg.PROJECT_ROOT) / "02_DONNEES_NORMALISEES" / "menages"
 
 pytestmark = pytest.mark.skipif(not LOT6B.exists(), reason="lot6b absent")
 
+#: L'interpréteur qui exécute les tests. `cfg.LOT4A_ENGINE_PYTHON` a pour défaut un chemin Windows
+#: codé en dur (`C:\Program Files\Python312\python.exe`) : absent de ce poste, il faisait
+#: échouer les quatre garde-fous comportementaux ci-dessous sur un `FileNotFoundError [WinError 2]`
+#: — quatre preuves anti-Excel qui ne s'exécutaient donc jamais. `sys.executable` existe toujours et
+#: porte les dépendances des moteurs.
+PYTHON = sys.executable
+
 SOURCE = LOT6B.read_text(encoding="utf-8", errors="replace")
 
 
@@ -115,7 +122,7 @@ def test_run_sans_excel_alimente_sqlite_et_laisse_le_classeur_intact(tmp_path, m
     env["PYTHONIOENCODING"] = "utf-8"
 
     subprocess.run(
-        [str(cfg.LOT4A_ENGINE_PYTHON), str(LOT6B), "--sans-excel"],
+        [PYTHON, str(LOT6B), "--sans-excel"],
         cwd=str(_TRAVAIL), env=env, capture_output=True, text=True, timeout=300)
 
     # Quel que soit le sort du run (le réseau peut être coupé en CI), l'invariant tient :
@@ -133,7 +140,7 @@ def _run_lot6b(db, tmp_path, *args):
     env["PILOTAGE_DB_PATH"] = str(db)
     env["PYTHONIOENCODING"] = "utf-8"
     return subprocess.run(
-        [str(cfg.LOT4A_ENGINE_PYTHON), str(LOT6B), *args],
+        [PYTHON, str(LOT6B), *args],
         cwd=str(_TRAVAIL), env=env, capture_output=True, text=True, timeout=300)
 
 

@@ -1385,7 +1385,10 @@ def main():
 
     # 6d - Provenance source ménages PAR ÉTAPE (DEF-1), pilotée par les SORTIES RÉELLES.
     # Une étape n'est évaluée que si elle a effectivement produit une sortie dépendante du sheet :
-    #   lot6b -> MASTER_NORM_Declarations_Internes.xlsx ; lot6f -> MASTER_CALC_CoutComplet_Menages.xlsx
+    #   lot6b -> MASTER_NORM_Declarations_Internes.xlsx
+    # lot6f n'y figure plus : il ne lit plus la feuille (ses declarations viennent de
+    # menages_declarations_internes), donc sa provenance EST celle de lot6b. Lui demander de
+    # prouver une lecture reseau qu'il n'effectue plus laisserait le controle rouge en permanence.
     # Règles :
     #  - sortie présente + provenance CACHE              -> SOURCE_SHEET_CACHE_UTILISE
     #  - sortie présente + provenance absente/illisible/invalide (manifeste absent inclus)
@@ -1394,7 +1397,6 @@ def main():
     # Jamais d'assimilation silencieuse à RESEAU. Déterministe (1 ligne par type max).
     _EXPECTED = {
         "lot6b": BASE / "02_TRAVAIL" / "Lot6b_DeclarationsInternes" / "MASTER_NORM_Declarations_Internes.xlsx",
-        "lot6f": BASE / "02_TRAVAIL" / "Lot6f_CoutComplet_Menages" / "MASTER_CALC_CoutComplet_Menages.xlsx",
     }
     _produced = {s: p.exists() for s, p in _EXPECTED.items()}
     _res = BASE / "02_DONNEES_NORMALISEES" / "menages" / "_cache_google_sheet" / "last_resolution.json"
@@ -1434,7 +1436,7 @@ def main():
               f"Sortie(s) ménage encore issue(s) du CACHE Google Sheet : {_det}. "
               f"Disparaît seulement quand TOUTES les étapes produites sont régénérées en RESEAU. "
               f"NE PAS clôturer le mois tant que ce contrôle est ouvert.",
-              commentaire="Rafraîchir la Google Sheet (réseau) puis relancer lot6b ET lot6f, puis lot11.")
+              commentaire="Rafraîchir la Google Sheet (réseau) puis relancer lot6b, puis lot6f (qui en dérive), puis lot11.")
     if _unproven or _pending:
         _msg = ""
         if _unproven:
@@ -1446,7 +1448,7 @@ def main():
               "SOURCE_SHEET_PROVENANCE_INCOMPLETE", "A_CONTROLER",
               f"Sortie(s) ménage présente(s) sans provenance prouvable : {_msg}"
               f"Aucune assimilation silencieuse à RESEAU. NE PAS clôturer tant que ce contrôle est ouvert.",
-              commentaire="Relancer l'étape concernée avec le réseau (lot6b/lot6f) pour régénérer la provenance ; "
+              commentaire="Relancer lot6b avec le réseau pour régénérer la provenance ; "
                           "un marqueur PENDING résiduel se résout par une exécution complète réussie.")
 
     # ==========================================================================

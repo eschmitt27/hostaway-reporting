@@ -693,21 +693,28 @@ def _groupe6f_menages_externes(ctrl: _Ctrl, db_path) -> None:
 def _groupe_menages_provenance(ctrl: _Ctrl, db_path) -> None:
     """Provenance de la source ménage (cache vs réseau Google Sheet), DEF-1.
 
-    Ce contrôle ne lit AUCUN classeur : il lit le manifeste de provenance déposé par lot6b/lot6f
+    Ce contrôle ne lit AUCUN classeur : il lit le manifeste de provenance déposé par lot6b
     (`_cache_google_sheet/last_resolution.json`) et l'existence des sorties. La règle est reprise
     telle quelle : sortie présente + provenance CACHE → `SOURCE_SHEET_CACHE_UTILISE` ; sortie
     présente + provenance absente/illisible/PENDING → `SOURCE_SHEET_PROVENANCE_INCOMPLETE` ;
     aucune sortie → aucun contrôle. Jamais d'assimilation silencieuse à RESEAU.
 
-    Les « sorties » sont désormais les DATASETS SQLite (`menages_declarations_internes` pour lot6b,
-    `menages_cout_complet` pour lot6f), plus les classeurs qu'ils remplacent.
+    La « sortie » est désormais le DATASET SQLite `menages_declarations_internes`, plus le
+    classeur qu'il remplace.
+
+    lot6f N'EST PLUS évalué ici. Il ne lit plus la Google Sheet : ses déclarations internes
+    viennent de `menages_declarations_internes`, donc sa provenance EST celle de lot6b, par
+    construction. Lui demander de prouver séparément une lecture réseau qu'il n'effectue plus
+    laisserait `SOURCE_SHEET_PROVENANCE_INCOMPLETE` ouvert en permanence — un contrôle
+    toujours rouge cesse d'être un contrôle. Le risque couvert (feuille périmée) reste
+    intégralement porté par lot6b, seule étape qui parle encore à la feuille.
     """
     import json
 
     base = cfg.PROJECT_ROOT
     cache_dir = base / "02_DONNEES_NORMALISEES" / "menages" / "_cache_google_sheet"
     manifeste = cache_dir / "last_resolution.json"
-    etapes = {"lot6b": "menages_declarations_internes", "lot6f": "menages_cout_complet"}
+    etapes = {"lot6b": "menages_declarations_internes"}
 
     produced = {}
     conn = get_db(db_path)
@@ -753,8 +760,8 @@ def _groupe_menages_provenance(ctrl: _Ctrl, db_path) -> None:
                  f"Sortie(s) ménage encore issue(s) du CACHE Google Sheet : {detail}. "
                  "Disparaît seulement quand TOUTES les étapes produites sont régénérées en RESEAU. "
                  "NE PAS clôturer le mois tant que ce contrôle est ouvert.",
-                 commentaire="Rafraîchir la Google Sheet (réseau) puis relancer lot6b ET lot6f, "
-                            "puis lot11.")
+                 commentaire="Rafraîchir la Google Sheet (réseau) puis relancer lot6b, "
+                            "puis lot6f (qui en dérive), puis lot11.")
     if unproven or pending:
         msg = ""
         if unproven:
@@ -767,7 +774,7 @@ def _groupe_menages_provenance(ctrl: _Ctrl, db_path) -> None:
                  f"Sortie(s) ménage présente(s) sans provenance prouvable : {msg}"
                  "Aucune assimilation silencieuse à RESEAU. NE PAS clôturer tant que ce contrôle "
                  "est ouvert.",
-                 commentaire="Relancer l'étape concernée avec le réseau (lot6b/lot6f) pour "
+                 commentaire="Relancer lot6b avec le réseau pour "
                             "régénérer la provenance ; un marqueur PENDING résiduel se résout par "
                             "une exécution complète réussie.")
 
