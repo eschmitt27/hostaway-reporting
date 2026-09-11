@@ -4972,3 +4972,81 @@ attendu — c'est le même, plus tard. Sur 2026-08 : 365 attendus Hostaway (351 
 Sauvegarde `BCK-736C3F25F83E` (schéma 0073) prise avant toute modification. Toutes les opérations
 destructives se sont déroulées sur des **copies isolées** ; la vraie base n'a reçu aucune écriture
 de test.
+
+---
+
+### CTR-BANC-ESSAI-ARBORESCENCE-CHARGES-2026-09-11
+
+```
+Date       : 2026-09-11
+Lot        : Banc d'essai exhaustif de l'arborescence des charges
+Code       : CHARGE_MENAGE_DRAPEAU_PERDU / CHARGE_MENAGE_VENTILATION_NON_PERSISTEE
+             / REFACTURATION_PARTIELLE_NON_VALIDABLE
+Sévérité   : BLOQUANT (les trois)
+Fichier    : copie isolée issue de backup_service (BCK-AD1444744D63, schéma 0075)
+Statut     : CORRIGÉ
+```
+
+**Méthode.** Au lieu d'attendre qu'un cas métier se présente, chaque branche du modèle de charge a
+été construite volontairement et suivie jusqu'au bout de la chaîne. **36 scénarios exécutés** :
+18 feuilles valides, 18 branches invalides. Les axes ont été dérivés du CODE
+(`CATEGORY_CATALOG`, `charges_preview_service`, `ref_codes_impact`), jamais supposés.
+
+**Résultat : 18/18 conformes, 18/18 refusées avec le code de refus attendu.** Après les 36
+opérations : `integrity_check` **ok**, `foreign_key_check` **0**, **0 ligne partielle**,
+**0 périmètre orphelin**, **0 position orpheline**, **0 événement orphelin** — la transaction est
+bien tout-ou-rien, y compris sur les refus.
+
+**Trois défauts trouvés, tous invisibles jusqu'ici :**
+
+1. **`affectable_menage` calculé puis perdu** (migration 0076). Le drapeau est calculé
+   explicitement pour les charges ménage et renvoyé dans `row_data`, mais la colonne n'existait pas
+   et `CHAMPS_SAISIE` ne la listait pas : la valeur disparaissait à l'INSERT. Or
+   `lot6f_cout_complet_menages` **filtre précisément dessus**. Une charge ménage saisie dans
+   l'application ne pouvait donc structurellement jamais rejoindre le coût complet ménage.
+
+2. **Ventilation ménage jamais persistée** (migration 0076). Le périmètre ménage était résolu à la
+   prévisualisation puis jeté — **exactement le défaut corrigé en 0074** pour les charges non
+   ménage, qui survivait sur cette branche. Nouvelle table `charges_perimetre_menage`, contrainte
+   SQL : un intervenant **ou** un logement, jamais les deux, jamais aucun.
+
+3. **Refacturation partielle impossible à valider** (migration 0077). `imputer()` exige une
+   justification dès que le montant diffère du solde ; la règle est juste, mais elle n'était
+   contrôlée qu'à la **validation**, où plus personne ne pouvait la fournir. Une facture portant
+   500 € sur 700 se composait normalement puis **refusait indéfiniment de se valider**. Le motif est
+   désormais recueilli au moment de la décision et porté par une colonne dédiée.
+
+**Question extra-comptable tranchée par les données** (§12). Trois sources concordent —
+`ref_codes_impact`, `flux_unifie_service._IMPACT_FLAGS`, et les **336 flux réels** (284 `IC`,
+52 `HC`) :
+
+| Code | Résultat réel | Résultat comptable | Résultat extra |
+|---|---|---|---|
+| `IC` | OUI | **OUI** | NON |
+| `HC` | **OUI** | NON | **OUI** |
+| `HR` | NON | NON | NON |
+
+**« Hors compta » ne signifie donc pas « sans effet »** : la dépense pèse bien sur le résultat
+économique réel. Seul `HR` est neutre — et il est volontairement exclu du formulaire de saisie.
+
+Les colonnes `charges.impact_resultat_reel` / `impact_resultat_comptable` restent NULL et **ne sont
+lues par personne** : le calcul passe par `flux_unifies`, dont lot9 dérive les drapeaux depuis
+`code_impact`. Colonnes héritées, sans consommateur — consigné pour que leur vacuité ne soit pas
+prise pour une anomalie.
+
+**Chaîne aval vérifiée de bout en bout** : charge 700 € / 2 logements → analytique **350/350** →
+refacturation **500 + 200** (la ventilation analytique n'impose rien) → deux factures émises
+(`2026-06-001`, `2026-06-002`) → écritures `411000` D = `706000` C, équilibrées et idempotentes →
+position **IMPUTEE 700/700**. Et : **aucune charge ne produit d'écriture comptable** — la
+comptabilité naît de la facture.
+
+**§26 — `CHG-f755790fd169`** : diagnostiquée, **non modifiée**. Son périmètre n'est pas retrouvable
+avec certitude — l'événement journalise la ligne écrite, pas le calcul, et un manifest survivant
+suggère `PROP_0001`+`PROP_0002` sans porter aucun `charge_id`. Une présomption n'est pas une
+preuve : la donnée réelle reste intacte, et la fiche offre désormais un bloc « Périmètre à
+compléter » pour la saisir. Parcours vérifié **sur copie** : `A_TRAITER` → `DISPONIBLE`, 100 € →
+50/50, propriétaires résolus à la date de la charge.
+
+**Vraie base : aucune écriture de ce banc.** Facture `F-11/0-000001` conservée intacte (§1), aucune
+charge de test créée, aucun reset. Sauvegardes `BCK-736C3F25F83E`, `BCK-E908D1446F90` et
+`BCK-AD1444744D63`.

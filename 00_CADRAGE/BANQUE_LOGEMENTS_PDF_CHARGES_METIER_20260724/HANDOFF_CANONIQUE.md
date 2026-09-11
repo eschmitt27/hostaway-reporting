@@ -3266,3 +3266,73 @@ routes). L'utilisateur le pensait redondant ; il ne l'est pas.
 **Classer les propriétaires** (particulier / professionnel) puis reprendre la recette sur les
 écrans corrigés. Si la facture `F-11/0-000001` doit être régularisée, décider entre la conserver
 telle quelle et la remplacer par un avoir + réémission (voir §C).
+
+---
+
+## Mission 24 (2026-09-11) — banc d'essai exhaustif des charges, avant reset
+
+**But** : prouver que CHAQUE branche du modèle de charge a les conséquences métier attendues, au
+lieu d'attendre qu'un cas se présente. 36 scénarios exécutés sur **copie isolée**.
+Résultats complets : [`ARBRE_CHARGES_CONSEQUENCES.md`](../ARBRE_CHARGES_CONSEQUENCES.md) ·
+version métier : [`ARBRE_CHARGES_LISIBLE.md`](../ARBRE_CHARGES_LISIBLE.md) ·
+journal : `CTR-BANC-ESSAI-ARBORESCENCE-CHARGES-2026-09-11`.
+
+**18 feuilles valides conformes, 18 branches invalides refusées** avec le code attendu. Aucune
+ligne partielle ni orpheline après les 36 opérations.
+
+### Les deux règles à retenir
+
+```
+ANALYTIQUE     700 € sur 2 logements  →  350 € sur le résultat de CHACUN
+REFACTURATION  700 € sur 2 logements  →  700 € à récupérer, répartis LIBREMENT
+```
+
+Et, vrai sur **toutes** les branches : une charge ne produit **jamais** d'écriture comptable (elle
+naît de la facture), et **aucune** charge n'arrive conforme (toutes sont `A_CONTROLER`).
+
+### Extra-comptable — réponse définitive
+
+| Code | Résultat réel | Comptabilité | Exposé à la saisie ? |
+|---|---|---|---|
+| `IC` | oui | **oui** | oui |
+| `HC` | **oui** | non | oui |
+| `HR` | non | non | **non** (neutralisation) |
+
+Trois sources concordent : référentiel, moteur, et 336 flux réels. **`HC` n'est pas « sans
+effet »** — la dépense pèse sur le résultat économique.
+
+### Trois défauts corrigés
+
+| # | Défaut | Migration |
+|---|---|---|
+| 1 | `affectable_menage` calculé puis perdu — `lot6f` filtre pourtant dessus | **0076** |
+| 2 | ventilation ménage jamais persistée (même défaut que 0074, autre branche) | **0076** |
+| 3 | refacturation partielle impossible à valider (motif exigé trop tard) | **0077** |
+
+### Arbitrages métier restants
+
+- **`lot6f` lit le classeur, pas SQLite** : les charges ménage saisies dans l'application
+  n'alimentent aucun pool de coût ménage. L'information est désormais enregistrée ; le branchement
+  est une décision.
+- **`HR` inaccessible depuis l'interface** : une charge à neutraliser ne peut pas être créée.
+- **colonnes d'impact héritées** (`charges.impact_resultat_*`) : NULL, sans consommateur.
+
+### Facilité ajoutée
+
+- **Administration → Référentiels → Propriétaires** : classement particulier / professionnel de
+  tout le parc en une passe, au lieu d'une facture à la fois.
+- **Fiche charge → « Périmètre à compléter »** : une charge ancienne sans logement (donc
+  irrécupérable) peut recevoir son périmètre. Rien n'est deviné.
+
+### État de la base réelle — INCHANGÉ, volontairement
+
+La facture `F-11/0-000001`, ses lignes, sa créance et son écriture sont **conservées** : la recette
+utilisateur continue. Aucune charge de test, aucun reset.
+
+### Prochaine action unique
+
+**Poursuivre la recette utilisateur** sur l'application en fonctionnement. Le reset opérationnel
+(départ au 01/09/2026) est **planifié mais non exécuté** :
+[`PLAN_RESET_PRODUCTION_APRES_RECETTE.md`](../PLAN_RESET_PRODUCTION_APRES_RECETTE.md). Il attend un
+ordre explicite, et deux décisions : le sort de `F-11/0-000001` (avoir + contrepassation, ou retrait
+pur) et les trois arbitrages ci-dessus.
