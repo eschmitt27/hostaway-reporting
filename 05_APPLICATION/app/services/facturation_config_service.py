@@ -16,6 +16,7 @@ cette configuration est donc conçue pour fonctionner à vide en recette et refu
 from __future__ import annotations
 
 import os
+import re
 from typing import Any
 
 import app.config as cfg
@@ -34,7 +35,11 @@ CLIENT_PROFESSIONNEL = "PROFESSIONNEL"
 CLIENT_A_CONTROLER = "A_CONTROLER"
 TYPES_CLIENT = (CLIENT_PARTICULIER, CLIENT_PROFESSIONNEL, CLIENT_A_CONTROLER)
 
+# Code STOCKÉ (stable, machine) et libellé IMPRIMÉ (lisible, métier) : deux choses distinctes.
+# Le code sert aux contrôles et aux archives ; « PRESTATION_DE_SERVICES » sur un document adressé à
+# un propriétaire ne décrit rien de ce qu'il a réellement acheté.
 NATURE_PRESTATION = "PRESTATION_DE_SERVICES"
+NATURE_PRESTATION_LIBELLE = "Gestion de location courte durée"
 ADRESSE_LIVRAISON_NA = "NON_APPLICABLE"
 
 # ── Numérotation ────────────────────────────────────────────────────────────────────────────────
@@ -43,7 +48,12 @@ ADRESSE_LIVRAISON_NA = "NON_APPLICABLE"
 # et le passage à 2027 ouvre une nouvelle série sans jamais réécrire l'ancienne.
 SERIE_FACTURE_PREFIXE = "F"
 SERIE_AVOIR_PREFIXE = "A"
-PADDING_NUMERO = 6
+PADDING_NUMERO = 6          # séries annuelles historiques : F-2026-000001
+PADDING_NUMERO_MENSUEL = 3  # séries mensuelles (§22)     : 2026-08-001
+
+# `2026-08` ou `A-2026-08` — sert à reconnaître une série mensuelle pour choisir son padding.
+_EST_SERIE_MENSUELLE = re.compile(r"^(?:A-)?\d{4}-(?:0[1-9]|1[0-2])$")
+_MOIS_VALIDE = re.compile(r"^\d{4}-(?:0[1-9]|1[0-2])$")
 
 
 def _env(nom: str, defaut: str = "") -> str:
@@ -51,17 +61,45 @@ def _env(nom: str, defaut: str = "") -> str:
 
 
 def serie(type_document: str, annee: int | str) -> str:
-    """Série de numérotation pour un type de document et une année.
+    """Série ANNUELLE historique (`F-2026`, `A-2026`).
 
-    Une série par année et par type : la continuité chronologique est garantie à l'intérieur d'une
-    série, et l'année reste lisible dans le numéro (`F-2026-000001`).
+    Conservée pour les documents déjà émis sous ce format : leur numéro est définitif et ne se
+    réécrit pas. Les nouvelles émissions passent par `serie_mois()` (recette utilisateur n°2, §22).
     """
     prefixe = SERIE_AVOIR_PREFIXE if str(type_document).upper() == "AVOIR" else SERIE_FACTURE_PREFIXE
     return f"{prefixe}-{annee}"
 
 
+def serie_mois(type_document: str, mois: str) -> str:
+    """Série MENSUELLE, indexée sur le mois de PRESTATION : `2026-08`, `A-2026-08` pour un avoir.
+
+    Pourquoi le mois de prestation et non celui d'émission (§22) : une facture d'août émise début
+    septembre appartient au mois d'août pour le propriétaire comme pour le rapprochement. Numéroter
+    sur la date d'émission mélangerait deux mois de prestation dans une même série.
+
+    Le mois est lu sur la facture (`AAAA-MM`, champ canonique), jamais dérivé d'une date
+    d'affichage. La version précédente faisait `str(date_facture)[:4]` : une date saisie
+    « 11/09/2026 » au lieu de « 2026-09-11 » produisait silencieusement la série « F-11/0 » et le
+    numéro « F-11/0-000001 » — un numéro légalement inexploitable, obtenu sans le moindre refus.
+    Partir du mois supprime la classe entière de ce défaut.
+
+    Les avoirs gardent un préfixe distinct : deux séries séparées sont une exigence de forme.
+    """
+    mois = str(mois or "").strip()
+    if not _MOIS_VALIDE.match(mois):
+        raise ValueError(f"mois de prestation invalide pour la numérotation : {mois!r} "
+                         f"(attendu AAAA-MM)")
+    return f"{SERIE_AVOIR_PREFIXE}-{mois}" if str(type_document).upper() == "AVOIR" else mois
+
+
 def formater_numero(serie_nom: str, sequence: int) -> str:
-    return f"{serie_nom}-{int(sequence):0{PADDING_NUMERO}d}"
+    """`2026-08` + 1 → `2026-08-001`. Les séries annuelles historiques gardent leur padding à 6.
+
+    Le padding dépend de la série pour ne pas réécrire l'apparence des numéros déjà émis : une
+    facture porte son numéro à vie, y compris quand la règle change après elle.
+    """
+    padding = PADDING_NUMERO_MENSUEL if _EST_SERIE_MENSUELLE.match(str(serie_nom)) else PADDING_NUMERO
+    return f"{serie_nom}-{int(sequence):0{padding}d}"
 
 
 # ── Identité de l'émetteur ──────────────────────────────────────────────────────────────────────
@@ -150,6 +188,16 @@ def conditions_paiement(delai: int | None = None) -> str:
     if delai == 0:
         return "Paiement à réception"
     return f"Paiement à {delai} jours"
+
+
+def representants() -> str:
+    """Personnes représentant la société sur le document (« Représentée par … »).
+
+    Paramètre pur, sans défaut : aucun nom n'est déduit du référentiel des associés, et AUCUN titre
+    juridique n'est ajouté. Le Kbis fourni n'en documente pas, et en imprimer un engagerait la
+    société sur une qualité non vérifiée.
+    """
+    return _env("SOCIETE_REPRESENTANTS")
 
 
 def conditions_escompte() -> str:

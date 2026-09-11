@@ -284,7 +284,25 @@ def imputations_detail(facture_id: str, *, db_path=None) -> dict[str, float]:
 
     Les additionner dans un seul chiffre ferait disparaître une différence économique réelle :
     un règlement est de l'argent reçu, une compensation ne l'est pas.
+
+        RÉGLÉ     = paiements alloués (FIFO) + acomptes versés par le propriétaire.
+                    De l'argent réellement encaissé, qui diminue le compte client.
+        COMPENSÉ  = reversements Airbnb imputés + compensations allouées (FIFO).
+                    Des sommes déjà détenues pour le compte du propriétaire : elles éteignent la
+                    créance sans encaissement supplémentaire.
+
+    POURQUOI TROIS SOURCES ET NON UNE
+    Cette fonction ne lisait que `proprietaire_allocations` (le moteur FIFO), alors que
+    `factures_proprietaires_service.solde()` déduit EN PLUS, directement, les reversements Airbnb
+    (`imputations_airbnb`) et les acomptes (`mouvements_tresorerie_proprietaires`). L'écran
+    Créances affichait donc « Total 465,88 · Réglé 0 · Compensé 0 · Solde 40,88 » : 425 € de
+    reversement disparaissaient de l'explication, tout en agissant sur le solde. Un montant qui
+    modifie un solde sans apparaître nulle part est un défaut de lisibilité, pas une subtilité.
+    On lit désormais les mêmes sources que le solde, et l'égalité
+    `total − réglé − compensé = solde` est vraie par construction.
     """
+    from app.services import factures_proprietaires_service as fpr
+
     conn = get_db(db_path)
     try:
         rows = conn.execute(
@@ -295,7 +313,18 @@ def imputations_detail(facture_id: str, *, db_path=None) -> dict[str, float]:
     par_type = {r[0]: _round(r[1]) for r in rows}
     compense = par_type.get(SRC_REVERSEMENT, 0.0)
     regle = par_type.get(SRC_PAIEMENT, 0.0)
-    return {"regle": regle, "compense": compense, "total": _round(regle + compense)}
+
+    # Imputations portées DIRECTEMENT sur le document, hors moteur FIFO.
+    reversements = _round(sum(_round(r["montant_impute"])
+                              for r in fpr.reversements_airbnb(facture_id, db_path=db_path)))
+    acomptes = _round(sum(_round(a["montant"])
+                          for a in fpr.acomptes_proprietaire(facture_id, db_path=db_path)
+                          if a["statut"] == "VALIDE" and int(a["actif"] or 0) == 1))
+
+    compense = _round(compense + reversements)
+    regle = _round(regle + acomptes)
+    return {"regle": regle, "compense": compense, "total": _round(regle + compense),
+            "acomptes": acomptes, "reversements_airbnb": reversements}
 
 
 def recalculer_tous(*, declencheur: str = "AUTO", db_path=None) -> int:

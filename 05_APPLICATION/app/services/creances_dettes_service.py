@@ -33,6 +33,40 @@ def _aujourdhui() -> str:
     return date.today().isoformat()
 
 
+# Libellés d'affichage des statuts de règlement. Le statut STOCKÉ reste le code canonique
+# (`PARTIELLEMENT_REGLEE`…) : seule sa présentation change. Un code à soulignés sur un écran
+# utilisateur n'est pas une information, c'est une fuite de vocabulaire interne.
+LIBELLES_STATUT = {
+    ST_NON_REGLEE: "À régler",
+    ST_PARTIELLE: "Partiellement réglée",
+    ST_REGLEE: "Soldée",
+    ST_TROP_PERCU: "À reverser au propriétaire",
+}
+
+# Badge CSS associé, réutilisant les classes de statut déjà en place dans les gabarits.
+BADGES_STATUT = {
+    ST_NON_REGLEE: "a-regler",
+    ST_PARTIELLE: "partielle",
+    ST_REGLEE: "soldee",
+    ST_TROP_PERCU: "a-reverser",
+}
+
+
+def libelle_statut(statut: str, solde: float = 0.0, jours_retard: int | None = None) -> str:
+    """Statut lisible. « En retard » prime sur « À régler » : c'est l'information qui appelle une
+    action, et elle disparaîtrait si l'on se contentait de traduire le code."""
+    base = LIBELLES_STATUT.get(statut, statut)
+    if statut in (ST_NON_REGLEE, ST_PARTIELLE) and jours_retard is not None and jours_retard > 0:
+        return f"En retard ({jours_retard} j)"
+    return base
+
+
+def badge_statut(statut: str, jours_retard: int | None = None) -> str:
+    if statut in (ST_NON_REGLEE, ST_PARTIELLE) and jours_retard is not None and jours_retard > 0:
+        return "en-retard"
+    return BADGES_STATUT.get(statut, "neutre")
+
+
 def _anciennete(echeance: str | None, reference: str | None = None) -> int | None:
     """Nombre de jours depuis l'échéance. Négatif si l'échéance est à venir."""
     if not echeance:
@@ -69,7 +103,12 @@ def creances(*, proprietaire_id: str = "", logement_id: str = "", mois: str = ""
             continue
 
         imput = _imputations_detail(f["facture_id_opaque"], db_path=db_path)
-        s = fpr.solde(f["facture_id_opaque"], paiements_imputes=imput["total"], db_path=db_path)
+        # `solde()` déduit LUI-MÊME les reversements Airbnb et les acomptes : on ne lui repasse que
+        # la part allouée par le moteur FIFO, sinon ces montants compteraient deux fois. Le détail
+        # complet (`regle`/`compense`) sert à l'affichage, pas au calcul du solde.
+        fifo_seul = round(imput["total"] - imput.get("acomptes", 0.0)
+                          - imput.get("reversements_airbnb", 0.0), 2)
+        s = fpr.solde(f["facture_id_opaque"], paiements_imputes=fifo_seul, db_path=db_path)
         conf = conformite.charger(f["facture_id_opaque"], db_path=db_path) or {}
         echeance = conf.get("date_echeance")
         jours = _anciennete(echeance)
@@ -89,8 +128,17 @@ def creances(*, proprietaire_id: str = "", logement_id: str = "", mois: str = ""
             "compense": imput["compense"],
             "solde": s["solde"],
             "statut_reglement": s["statut_reglement"],
+            "acomptes": imput.get("acomptes", 0.0),
+            "reversements_airbnb": imput.get("reversements_airbnb", 0.0),
             "jours_retard": jours,
             "echue": bool(jours is not None and jours > 0 and abs(s["solde"]) > 0.005),
+            # Sens du solde, formulé en métier. Un solde négatif n'est pas une facture négative :
+            # c'est de l'argent détenu en trop pour le compte du propriétaire, donc à lui reverser.
+            "sens": ("A_RECEVOIR" if s["solde"] > 0.005
+                     else "A_REVERSER" if s["solde"] < -0.005 else "SOLDEE"),
+            "montant_a_reverser": round(-s["solde"], 2) if s["solde"] < -0.005 else 0.0,
+            "libelle_statut": libelle_statut(s["statut_reglement"], s["solde"], jours),
+            "badge_statut": badge_statut(s["statut_reglement"], jours),
         }
         if statut and ligne["statut_reglement"] != statut:
             continue

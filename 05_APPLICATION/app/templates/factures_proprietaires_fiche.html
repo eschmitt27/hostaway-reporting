@@ -379,14 +379,19 @@
     <summary><strong>+ Ajouter un acompte propriétaire</strong></summary>
     <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/acompte">
       <label>Montant <input type="text" name="montant" required></label>
-      <label>Date <input type="text" name="date_mouvement" placeholder="AAAA-MM-JJ" required></label>
+      {# Saisie au MOIS et non au jour : ces montants se raisonnent par période (§19). La date
+         technique exigée par le schéma est dérivée du dernier jour du mois, côté serveur — on ne
+         demande pas à l'utilisateur d'inventer un jour qui n'a pas de sens métier. #}
+      <label>Mois de référence
+        <input type="month" name="mois_reference" value="{{ facture.mois }}" required>
+      </label>
       <label>Mode de règlement <input type="text" name="mode_reglement"></label>
       <label>Commentaire <input type="text" name="commentaire"></label>
       <button type="submit">Enregistrer l'acompte</button>
     </form>
     <p class="text-xs text-secondary">L'acompte est enregistré puis validé : seul un mouvement
        VALIDE déduit réellement du solde. Il ne touche ni payout, ni commission, ni ménage, ni
-       résultat économique.</p>
+       résultat économique. Il apparaît en <strong>Réglé</strong> dans Créances &amp; dettes.</p>
   </details>
 
   <p class="text-muted">Un règlement impute une créance existante : il ne recrée ni commission,
@@ -552,9 +557,34 @@
     <button type="submit">Valider</button>
   </form>
   {% endif %}
+  {% if peut_repasser_en_brouillon %}
+  {# VALIDE ≠ ÉMIS : tant qu'aucun numéro n'est consommé et qu'aucune écriture n'existe, rouvrir
+     ne trompe personne. Une facture ÉMISE ne propose jamais ce bouton. #}
+  <form method="post"
+        action="/factures-proprietaires/{{ facture.facture_id_opaque }}/repasser-en-brouillon">
+    <label>Motif (facultatif) <input type="text" name="motif" size="40"></label>
+    <button type="submit" class="btn btn-secondary">Repasser en brouillon</button>
+    <p class="text-xs text-secondary">
+      La facture redevient modifiable. Les montants refacturés qu'elle réservait sont rendus
+      à leurs éléments d'origine. Aucun numéro n'a encore été consommé.
+    </p>
+  </form>
+  {% endif %}
+
   {% if peut_emettre %}
   <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/emettre">
-    <label>Date de facture <input type="text" name="date_facture" placeholder="AAAA-MM-JJ" required></label>
+    {# Champ de type `date` prérempli à aujourd'hui : le navigateur garantit le format ISO. Le champ
+       texte précédent invitait à écrire « AAAA-MM-JJ » mais acceptait tout, et une saisie
+       « 11/09/2026 » a produit le numéro « F-11/0-000001 » sur une facture réellement émise. #}
+    <label>Date d'émission
+      <input type="date" name="date_facture" value="{{ aujourdhui }}" required>
+    </label>
+    <p class="text-xs text-secondary">
+      Le numéro est attribué sur le <strong>mois de prestation</strong>
+      ({{ facture.mois }}) et non sur cette date : <code>{{ facture.mois }}-001</code>,
+      <code>{{ facture.mois }}-002</code>… Paiement à réception : l'échéance sera cette date
+      d'émission.
+    </p>
     <button type="submit">Émettre (fige le contenu et génère le PDF)</button>
   </form>
   {% endif %}

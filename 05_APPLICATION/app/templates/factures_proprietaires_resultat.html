@@ -1,7 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Factures créées{% endblock %}
 {% block content %}
-<div class="page-header"><h1 class="page-title">Génération — {{ mois }}</h1></div>
+<div class="page-header">
+  {# Le parcours se terminait ici sans retour : une impasse après l'action la plus engageante de
+     l'écran. Le lien de retour canonique est posé en tête, comme sur les autres fiches. #}
+  <a href="/factures-proprietaires?mois={{ mois }}" class="back-link">← Factures propriétaires</a>
+  <h1 class="page-title">Génération — {{ mois }}</h1>
+</div>
 <p><strong>{{ resultat.creees|length }}</strong> brouillon(s) créé(s).</p>
 {% if resultat.ignorees %}
 <h3>Ignorées ({{ resultat.ignorees|length }})</h3>
@@ -11,5 +16,12 @@
 <h3>Erreurs ({{ resultat.erreurs|length }})</h3>
 <ul>{% for e in resultat.erreurs %}<li>{{ e.proprietaire_id | nom_proprietaire }} / {{ e.logement_id | nom_logement }} — {{ e.erreur }}</li>{% endfor %}</ul>
 {% endif %}
-<p><a href="/factures-proprietaires?mois={{ mois }}">Voir les factures</a></p>
+<div style="display:flex; gap:var(--stack-md); flex-wrap:wrap; margin-top:var(--stack-lg);">
+  <a href="/factures-proprietaires?mois={{ mois }}" class="btn btn-primary">
+    Voir les factures du mois
+  </a>
+  <a href="/factures-proprietaires/proposer?mois={{ mois }}" class="btn btn-secondary">
+    Revenir à la proposition
+  </a>
+</div>
 {% endblock %}

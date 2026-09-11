@@ -5,6 +5,9 @@ objets différents (l'une est créée par nous, l'autre nous est envoyée).
 
 Aucune écriture avant confirmation explicite : la prévisualisation est une lecture pure.
 """
+import calendar
+import re
+from datetime import date
 from pathlib import Path
 
 import app.config as cfg
@@ -59,6 +62,20 @@ def _emetteur() -> dict:
         "contact": getattr(cfg, "SOCIETE_CONTACT", ""),
         "coordonnees_paiement": getattr(cfg, "SOCIETE_COORDONNEES_PAIEMENT", ""),
     }
+
+
+def _fin_de_mois(mois: str) -> str:
+    """`2026-08` → `2026-08-31`. Date technique DÉRIVÉE, jamais demandée à l'utilisateur (§19).
+
+    Les acomptes et reversements se raisonnent au mois : plusieurs encaissements Airbnb d'un même
+    mois sont agrégés, et aucun jour précis ne les représente. Le dernier jour du mois place le
+    mouvement dans la bonne période sans prétendre à une précision qu'on n'a pas.
+    """
+    mois = str(mois or "").strip()
+    if not re.fullmatch(r"\d{4}-(?:0[1-9]|1[0-2])", mois):
+        return ""
+    annee, m = int(mois[:4]), int(mois[5:7])
+    return f"{mois}-{calendar.monthrange(annee, m)[1]:02d}"
 
 
 def _destinataire(proprietaire_id: str) -> dict:
@@ -117,7 +134,7 @@ def liste(request: Request, mois: str = "", statut: str = "", comptabilisee: str
     if comptabilisee in ("oui", "non"):
         factures = [f for f in factures if f["comptabilisee"] == (comptabilisee == "oui")]
     return templates.TemplateResponse(request, "factures_proprietaires_list.html", {
-        "active_menu": "factures", "factures": factures, "mois": mois, "statut": statut,
+        "active_menu": "factures_proprietaires", "factures": factures, "mois": mois, "statut": statut,
         "statuts": svc.STATUTS, "comptabilisee": comptabilisee,
     })
 
@@ -129,7 +146,7 @@ def proposer(request: Request, mois: str = ""):
     resume = {s: sum(1 for p in propositions if p["statut_proposition"] == s)
               for s in ("PRETE", "A_CONTROLER", "NON_CONCERNE")}
     return templates.TemplateResponse(request, "factures_proprietaires_proposer.html", {
-        "active_menu": "factures", "mois": mois, "propositions": propositions, "resume": resume,
+        "active_menu": "factures_proprietaires", "mois": mois, "propositions": propositions, "resume": resume,
         "total_pret": round(sum(p["montant_total"] for p in propositions
                                 if p["statut_proposition"] == "PRETE"), 2),
     })
@@ -141,14 +158,18 @@ def generer(request: Request, mois: str = Form(...)):
     propositions = source_svc.propositions_du_mois(mois, _ids_proprietaires())
     resultat = source_svc.creer_lot(propositions, acteur="interface")
     return templates.TemplateResponse(request, "factures_proprietaires_resultat.html", {
-        "active_menu": "factures", "mois": mois, "resultat": resultat,
+        "active_menu": "factures_proprietaires", "mois": mois, "resultat": resultat,
     })
 
 
 def _contexte_fiche(facture_id: str, erreur: str | None = None) -> dict:
     facture = svc.lire(facture_id)
     return {
-        "active_menu": "factures", "facture": facture,
+        # `factures_proprietaires`, PAS `factures` : c'est l'onglet « Factures fournisseurs » qui
+        # s'allumait alors qu'on éditait une facture PROPRIÉTAIRE. La liste posait déjà la bonne
+        # clé ; seules les pages enfants héritaient de la mauvaise.
+        "active_menu": "factures_proprietaires", "facture": facture,
+        "aujourdhui": date.today().isoformat(),
         "solde": svc.solde(facture_id),
         # Édition du BROUILLON : tout est calculé ICI. Le gabarit n'effectue aucune arithmétique
         # et ne dérive aucun droit — il affiche.
@@ -173,6 +194,10 @@ def _contexte_fiche(facture_id: str, erreur: str | None = None) -> dict:
         "type_client_actuel": classement.type_client(facture["proprietaire_id"]),
         "peut_valider": facture["statut"] == svc.ST_BROUILLON,
         "peut_emettre": facture["statut"] == svc.ST_VALIDE,
+        # Rouvrir n'est offert que sur une facture VALIDE et non numérotée : une facture ÉMISE se
+        # corrige par annulation ou avoir, jamais par un retour discret à l'état modifiable.
+        "peut_repasser_en_brouillon": (facture["statut"] == svc.ST_VALIDE
+                                       and not facture.get("numero_facture")),
         "peut_avoir": facture["statut"] == svc.ST_EMIS
                       and facture["type_document"] == svc.TYPE_FACTURE,
         "comptabilite": _comptabilite(facture),
@@ -186,6 +211,25 @@ def _contexte_fiche(facture_id: str, erreur: str | None = None) -> dict:
 def fiche(request: Request, facture_id: str):
     return templates.TemplateResponse(request, "factures_proprietaires_fiche.html",
                                        _contexte_fiche(facture_id))
+
+
+@router.post("/factures-proprietaires/{facture_id}/repasser-en-brouillon")
+async def repasser_en_brouillon(request: Request, facture_id: str):
+    """Rouvre une facture VALIDE pour correction (§21).
+
+    Refusé sur une facture ÉMISE : elle porte un numéro de la série légale et a constaté une vente.
+    Le service pose ce refus ; la route se contente de le rendre lisible.
+    """
+    form = await request.form()
+    try:
+        svc.repasser_en_brouillon(facture_id, acteur="interface",
+                                  motif=str(form.get("motif", "") or ""))
+    except svc.FactureProprietaireError as exc:
+        return templates.TemplateResponse(
+            request, "factures_proprietaires_fiche.html",
+            _contexte_fiche(facture_id, erreur=f"Retour en brouillon impossible : {exc}"),
+            status_code=422)
+    return _retour(facture_id)
 
 
 @router.post("/factures-proprietaires/{facture_id}/valider")
@@ -434,11 +478,20 @@ async def reversement_airbnb(request: Request, facture_id: str):
 
 @router.post("/factures-proprietaires/{facture_id}/acompte")
 async def acompte(request: Request, facture_id: str):
+    """Acompte propriétaire, saisi au MOIS (§19).
+
+    Le schéma de trésorerie exige une date ; on la dérive du dernier jour du mois de référence
+    plutôt que de la demander. Un acompte se raisonne par période — exiger un jour précis obligeait
+    l'utilisateur à en inventer un, et plusieurs encaissements d'un même mois n'en ont de toute
+    façon pas un seul.
+    """
     form = await request.form()
+    mois = str(form.get("mois_reference", "") or "").strip()
+    date_mouvement = str(form.get("date_mouvement", "") or "").strip()
     try:
         edition.ajouter_acompte(
             facture_id, montant=form.get("montant"),
-            date_mouvement=str(form.get("date_mouvement", "") or ""),
+            date_mouvement=date_mouvement or _fin_de_mois(mois),
             mode_reglement=str(form.get("mode_reglement", "") or ""),
             commentaire=str(form.get("commentaire", "") or ""), acteur="interface")
     except svc.FactureProprietaireError as exc:

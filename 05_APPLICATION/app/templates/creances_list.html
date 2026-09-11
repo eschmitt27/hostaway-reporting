@@ -47,10 +47,25 @@
       <td>{{ l.date_facture or "—" }}</td>
       <td>{{ l.date_echeance or "—" }}</td>
       <td class="text-right">{{ "%.2f"|format(l.total) }} €</td>
-      <td class="text-right">{{ "%.2f"|format(l.regle) }} €</td>
-      <td class="text-right">{{ "%.2f"|format(l.compense) }} €</td>
-      <td class="text-right"><strong>{{ "%.2f"|format(l.solde) }} €</strong></td>
-      <td>{{ l.statut_reglement }}</td>
+      <td class="text-right">
+        {{ "%.2f"|format(l.regle) }} €
+        {% if l.acomptes %}<br><span class="text-xs text-secondary">dont acompte {{ "%.2f"|format(l.acomptes) }} €</span>{% endif %}
+      </td>
+      <td class="text-right">
+        {{ "%.2f"|format(l.compense) }} €
+        {% if l.reversements_airbnb %}<br><span class="text-xs text-secondary">reversement Airbnb</span>{% endif %}
+      </td>
+      <td class="text-right">
+        {% if l.sens == "A_REVERSER" %}
+          {# Solde négatif : ce n'est pas une facture négative, c'est un trop-perçu détenu pour le
+             compte du propriétaire. On le nomme, plutôt que d'afficher un « -134,12 » muet. #}
+          <strong>{{ "%.2f"|format(l.montant_a_reverser) }} €</strong>
+          <br><span class="text-xs text-secondary">à reverser</span>
+        {% else %}
+          <strong>{{ "%.2f"|format(l.solde) }} €</strong>
+        {% endif %}
+      </td>
+      <td><span class="status-badge status-{{ l.badge_statut }}">{{ l.libelle_statut }}</span></td>
       <td>{% if l.echue %}<span class="badge">{{ l.jours_retard }} j</span>{% else %}—{% endif %}</td>
     </tr>
   {% else %}
@@ -58,6 +73,13 @@
   {% endfor %}
   </tbody>
 </table>
+<p class="text-xs text-secondary">
+  <strong>Total − Réglé − Compensé = Solde.</strong>
+  « Réglé » est l'argent reçu du propriétaire (acomptes, paiements) ; « Compensé » est ce qui est
+  déjà détenu pour son compte (reversements Airbnb du mois) et qui éteint la créance sans
+  encaissement supplémentaire. Un solde négatif signifie que la somme détenue dépasse la facture :
+  la différence lui est due.
+</p>
 
 {% if par_tiers %}
 <div class="card">
@@ -66,7 +88,7 @@
     <thead><tr><th>Propriétaire</th><th class="text-right">Factures</th><th class="text-right">Solde</th><th class="text-right">dont échu</th></tr></thead>
     <tbody>
       {% for t in par_tiers %}
-      <tr><td>{{ t.tiers_id }}</td><td class="text-right">{{ t.nombre }}</td>
+      <tr><td>{{ t.tiers_id | nom_proprietaire }}</td><td class="text-right">{{ t.nombre }}</td>
           <td class="text-right">{{ "%.2f"|format(t.total) }} €</td>
           <td class="text-right">{{ "%.2f"|format(t.echu) }} €</td></tr>
       {% endfor %}

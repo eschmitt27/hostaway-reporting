@@ -332,11 +332,20 @@ def decomposition(facture_id: str, *, db_path=None) -> dict[str, Any]:
     total_facture = svc._round(sum(l["montant"] for l in lignes))
     acomptes = svc.acomptes_proprietaire(facture_id, db_path=db_path)
     total_acomptes = svc._round(sum(float(a.get("montant") or 0) for a in acomptes))
+    # Reversements Airbnb : sommes DÉJÀ DÉTENUES pour le compte du propriétaire, qui éteignent la
+    # créance sans encaissement. Ils ne sont ni une ligne de facture ni un acompte — d'où un poste
+    # distinct jusque sur le document (§17, §20).
+    reversements = svc.reversements_airbnb(facture_id, db_path=db_path)
+    total_reversements = svc._round(sum(float(r.get("montant_impute") or 0) for r in reversements))
 
     par_cle = {p["cle"]: p["montant"] for p in postes}
     # Sous-total = tout ce qui augmente la facture, avant les déductions consenties.
     sous_total = svc._round(sum(v for k, v in par_cle.items() if k != "reductions"))
     reductions = svc._round(-par_cle.get("reductions", 0.0))   # affiché en valeur positive
+
+    # NET = ce qui reste à payer une fois déduits les règlements reçus et les compensations.
+    # Négatif, il ne devient pas une « facture négative » : c'est un montant dû AU propriétaire.
+    net = svc._round(total_facture - total_acomptes - total_reversements)
 
     return {
         "facture_id_opaque": facture_id,
@@ -347,12 +356,36 @@ def decomposition(facture_id: str, *, db_path=None) -> dict[str, Any]:
         "total_facture": total_facture,
         "acomptes": acomptes,
         "total_acomptes": total_acomptes,
-        "montant_du": svc._round(total_facture - total_acomptes),
+        "reversements_airbnb": reversements,
+        "total_reversements_airbnb": total_reversements,
+        "total_reglements": svc._round(total_acomptes + total_reversements),
+        "net": net,
+        "sens_net": "A_PAYER" if net > 0.005 else "A_REVERSER" if net < -0.005 else "SOLDE",
+        "montant_a_reverser": svc._round(-net) if net < -0.005 else 0.0,
+        # `montant_du` conservé pour compatibilité : c'est le NET quand il est positif.
+        "montant_du": net,
         "devise": facture.get("devise") or "EUR",
     }
 
 
 # ── DOCUMENT : une seule structure pour la prévisualisation ET le PDF ───────────────────────────
+
+def _conformite_provisoire(facture: dict[str, Any], *, db_path=None) -> dict[str, Any]:
+    """Bloc réglementaire d'un BROUILLON, recalculé à chaque aperçu.
+
+    Provisoire par nature : il reflète la configuration et le référentiel de MAINTENANT, et changera
+    si l'un des deux change avant l'émission. C'est exactement le contraire du bloc figé d'une
+    facture émise, et c'est voulu — l'aperçu doit montrer ce que produirait une émission immédiate.
+
+    Ne lève jamais : un référentiel incomplet doit dégrader l'aperçu, pas l'empêcher.
+    """
+    try:
+        from app.services import factures_proprietaires_conformite_service as conformite
+        return conformite.construire(
+            facture, date_facture=facture.get("date_facture") or f"{facture.get('mois')}-01",
+            db_path=db_path)
+    except Exception:      # noqa: BLE001
+        return {}
 
 def document(facture_id: str, *, emetteur: dict[str, Any] | None = None,
              destinataire: dict[str, Any] | None = None, db_path=None) -> dict[str, Any]:
@@ -395,6 +428,12 @@ def document(facture_id: str, *, emetteur: dict[str, Any] | None = None,
         "decomposition": {**deco,
                           "postes": [{k: v for k, v in p.items() if k != "lignes"}
                                      for p in deco["postes"]]},
+        # Bloc réglementaire, CALCULÉ À CHAUD pour un brouillon — la facture émise, elle, porte le
+        # sien figé dans son snapshot. Sans lui, la prévisualisation omettait silencieusement les
+        # mentions de TVA, les conditions de règlement, les représentants et le nom du logement :
+        # elle affichait donc MOINS que le document final, alors qu'elle est censée le montrer tel
+        # qu'il sera. Un aperçu qui ment par omission ne sert à rien.
+        "conformite": _conformite_provisoire(facture, db_path=db_path),
         "fige": False,
     }
 

@@ -231,6 +231,9 @@ SOCIETE_CAPITAL = os.environ.get("SOCIETE_CAPITAL", "")
 SOCIETE_RCS = os.environ.get("SOCIETE_RCS", "")
 SOCIETE_TVA_INTRA = os.environ.get("SOCIETE_TVA_INTRA", "")
 SOCIETE_CONTACT = os.environ.get("SOCIETE_CONTACT", "")
+# « Représentée par … » sur les factures. Aucun titre juridique n'y est ajouté : le Kbis n'en
+# documente pas, et en imprimer un engagerait la société sur une qualité non vérifiée.
+SOCIETE_REPRESENTANTS = os.environ.get("SOCIETE_REPRESENTANTS", "")
 SOCIETE_COORDONNEES_PAIEMENT = os.environ.get("SOCIETE_COORDONNEES_PAIEMENT", "")
 
 # Emplacement des PDF émis. Surcharge explicite uniquement : `None` par défaut, et le répertoire

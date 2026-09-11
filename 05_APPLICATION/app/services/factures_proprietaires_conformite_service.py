@@ -58,6 +58,23 @@ def date_echeance(date_facture: str, delai_jours: int | None) -> str | None:
     return (d + timedelta(days=int(delai_jours))).isoformat()
 
 
+def _noms_logements(facture: dict[str, Any], *, db_path=None) -> list[str]:
+    """Noms réels des logements de la facture, dans l'ordre. Repli sur l'identifiant seulement si
+    le référentiel ne le connaît pas — auquel cas mieux vaut un code qu'une ligne vide."""
+    from app.services import referentiel_service as ref
+
+    ids = [i for i in dict.fromkeys(
+        [facture.get("logement_id")] + list(facture.get("logements") or [])) if i]
+    noms = []
+    for lid in ids:
+        try:
+            nom = ref.nom_logement(lid, db_path=db_path)
+        except Exception:      # noqa: BLE001 — référentiel absent : on n'empêche pas la facture
+            nom = ""
+        noms.append(nom or str(lid))
+    return noms
+
+
 def client(proprietaire_id: str, *, db_path=None) -> dict[str, Any]:
     """Identité du client telle qu'elle sera figée. Le type n'est pas deviné : sans information
     explicite, il reste `A_CONTROLER` et l'émission est bloquée."""
@@ -87,6 +104,10 @@ def client(proprietaire_id: str, *, db_path=None) -> dict[str, Any]:
         "siren": enregistre.get("siren_client") or p.get("siren") or "",
         "tva_intra": enregistre.get("tva_intra_client") or p.get("tva_intra") or "",
         "numero_bon_commande": p.get("numero_bon_commande") or "",
+        # Point de contact du client, s'il en existe un au référentiel. Téléphone prioritaire sur
+        # l'e-mail (§24). Rien n'est inventé : un propriétaire sans contact n'en affiche aucun.
+        "telephone": str(p.get("telephone") or "").strip(),
+        "email": str(p.get("email") or "").strip(),
     }
 
 
@@ -108,7 +129,10 @@ def construire(facture: dict[str, Any], *, date_facture: str, db_path=None) -> d
         "periode_debut": debut,
         "periode_fin": fin,
         "emetteur": conf.emetteur(),
+        "representants": conf.representants(),
         "client": cl,
+        # Nom RÉEL du ou des logements facturés : `LOG_0001` n'apprend rien au destinataire.
+        "logements": _noms_logements(facture, db_path=db_path),
         "regime_tva": regime,
         "mention_tva": conf.mention_tva(regime),
         "total_ht": total_ht,

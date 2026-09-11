@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sqlite3
 import uuid
 from typing import Any
@@ -57,6 +58,31 @@ LIBELLES = {
 
 ST_BROUILLON, ST_VALIDE, ST_EMIS, ST_ANNULE = "BROUILLON", "VALIDE", "EMIS", "ANNULE"
 STATUTS = (ST_BROUILLON, ST_VALIDE, ST_EMIS, ST_ANNULE)
+
+_DATE_ISO = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
+_DATE_FR = re.compile(r"^(\d{1,2})[/.](\d{1,2})[/.](\d{4})$")
+
+
+def _normaliser_date(valeur: Any) -> str:
+    """Ramène une date à `AAAA-MM-JJ`. Accepte le format français, refuse le reste.
+
+    Une date de facture est imprimée, sert d'échéance ET servait de source à la série de
+    numérotation : la laisser passer telle quelle a produit le numéro « F-11/0-000001 » sur une
+    facture réellement émise. On convertit donc ce que l'on sait lire, et on refuse explicitement
+    ce que l'on ne sait pas — jamais de troncature silencieuse.
+    """
+    texte = str(valeur or "").strip()
+    if not texte:
+        return texte
+    if _DATE_ISO.match(texte):
+        return texte
+    fr = _DATE_FR.match(texte)
+    if fr:
+        jour, mois, annee = fr.groups()
+        return f"{annee}-{int(mois):02d}-{int(jour):02d}"
+    raise FactureProprietaireError(
+        f"date de facture illisible : {texte!r} — format attendu AAAA-MM-JJ (ou JJ/MM/AAAA)")
+
 
 # `objet_source_ref` d'une ligne CHARGE_REFACTUREE désigne une POSITION de refacturation, jamais la
 # charge elle-même : `valider()` la passe telle quelle à `charges_refacturation_service.imputer()`.
@@ -732,6 +758,73 @@ def valider(facture_id: str, *, emetteur: dict[str, Any], destinataire: dict[str
     return lire(facture_id, db_path=db_path)
 
 
+def repasser_en_brouillon(facture_id: str, *, acteur: str = "", motif: str = "",
+                          db_path=None) -> dict[str, Any]:
+    """VALIDE -> BROUILLON. Corrige une facture validée trop tôt, sans passer par un avoir.
+
+    VALIDE ≠ ÉMIS, et c'est toute la raison d'être de cette fonction. Une facture VALIDE n'a ni
+    numéro définitif, ni PDF figé, ni écriture comptable : rien d'irréversible n'a encore été
+    produit, la rouvrir ne trompe personne. Une facture ÉMISE, elle, a consommé un numéro de la
+    série légale et constaté une vente : elle se corrige par annulation ou avoir, jamais par un
+    retour discret à l'état modifiable. Les deux cas sont donc traités différemment — ce refus est
+    la garantie que la séquence de numérotation reste continue et opposable.
+
+    Les imputations faites à la validation sont RENDUES aux positions : sans cela le montant
+    resterait consommé alors que la ligne redevient modifiable, et serait compté deux fois.
+    Tout se fait dans une seule transaction.
+    """
+    from app.services import charges_refacturation_service as refac
+
+    f = lire(facture_id, db_path=db_path)
+    if f["statut"] == ST_BROUILLON:
+        return f                      # déjà brouillon : rien à faire, pas une erreur
+    if f["statut"] != ST_VALIDE:
+        raise FactureProprietaireError(
+            f"statut {f['statut']}: seule une facture VALIDE peut repasser en brouillon. "
+            f"Une facture emise est numerotee et comptabilisee : utilisez l'annulation ou l'avoir.")
+    if f.get("numero_facture"):
+        raise FactureProprietaireError(
+            f"{C_SOURCE_INCOMPLETE}: la facture porte deja le numero {f['numero_facture']} — "
+            f"un numero attribue ne se libere pas")
+
+    conn = get_db(db_path)
+    try:
+        ecr = conn.execute(
+            "SELECT ecriture_id_opaque FROM ecritures WHERE origine_type = ? "
+            "AND origine_id_opaque = ? AND statut <> 'CONTREPASSEE'",
+            ("FACTURE_PROPRIETAIRE", facture_id)).fetchone()
+        if ecr is not None:
+            raise FactureProprietaireError(
+                f"une ecriture comptable existe deja pour cette facture ({ecr[0]}) : "
+                f"elle ne peut pas repasser en brouillon")
+
+        liberees = []
+        for l in f["lignes"]:
+            if l["type_ligne"] != "CHARGE_REFACTUREE":
+                continue
+            if str(l.get("objet_source_type") or "") != SOURCE_POSITION_REFAC:
+                continue
+            r = refac.desimputer(l["objet_source_ref"], l["montant"], facture_id=facture_id,
+                                 acteur=acteur, motif=motif or "retour en brouillon", conn=conn)
+            if not r.get("ok"):
+                raise FactureProprietaireError(
+                    f"LIBERATION_REFUSEE {l['objet_source_ref']}: {r.get('message')}")
+            liberees.append(l["objet_source_ref"])
+
+        conn.execute(
+            "UPDATE factures_proprietaires SET statut=?, date_validation=NULL, "
+            "version=version+1 WHERE facture_id_opaque=?", (ST_BROUILLON, facture_id))
+        _journal(conn, facture_id, "RETOUR_BROUILLON", ST_VALIDE, ST_BROUILLON,
+                 motif or f"{len(liberees)} position(s) liberee(s)", acteur)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return lire(facture_id, db_path=db_path)
+
+
 # ── Numérotation ────────────────────────────────────────────────────────────────────────────────
 
 def _attribuer_numero(conn, serie: str) -> str:
@@ -779,10 +872,16 @@ def emettre(facture_id: str, *, emetteur: dict[str, Any], destinataire: dict[str
         raise FactureProprietaireError(f"emission refusee — conformite incomplete: {codes}")
     bloc = controle["conformite"]
 
-    # Série dérivée du type de document et de l'année de facturation : factures et avoirs ont
-    # chacun leur compteur, et chaque année ouvre sa propre série.
+    # La date d'émission est NORMALISÉE avant tout usage : saisie « 11/09/2026 », elle produisait
+    # auparavant la série « F-11/0 » par simple découpage `[:4]`. Un format inattendu doit être
+    # converti ou refusé, jamais tronqué en silence.
+    date_facture = _normaliser_date(date_facture)
+
+    # Série MENSUELLE indexée sur le mois de PRESTATION (§22) : `2026-08-001`. Elle ne dépend plus
+    # d'une date d'affichage, donc aucune saisie ne peut plus la corrompre. Factures et avoirs
+    # gardent des compteurs distincts, et chaque mois rouvre sa propre séquence à 001.
     if serie is None:
-        serie = fconf.serie(f["type_document"], str(date_facture)[:4])
+        serie = fconf.serie_mois(f["type_document"], f["mois"])
 
     conn = get_db(db_path)
     try:

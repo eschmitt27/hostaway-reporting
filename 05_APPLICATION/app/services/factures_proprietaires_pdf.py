@@ -64,6 +64,24 @@ def _taux(v: Any) -> str:
     return f"{pourcent:.2f}".replace(".", ",") + " %"
 
 
+_LIBELLES_NATURE = {
+    "PRESTATION_DE_SERVICES": "Gestion de location courte durée",
+    "NON_APPLICABLE": "Non applicable",
+}
+
+
+def _libelle_nature(code: Any) -> str:
+    """Code technique → libellé imprimable. `PRESTATION_DE_SERVICES` décrit une catégorie fiscale,
+    pas ce que le propriétaire a acheté. Le code reste stocké ; seul l'affichage change.
+
+    Un code inconnu est rendu lisible (soulignés retirés) plutôt que masqué : mieux vaut un libellé
+    approximatif qu'une mention obligatoire absente."""
+    texte = str(code or "").strip()
+    if not texte:
+        return ""
+    return _LIBELLES_NATURE.get(texte.upper(), texte.replace("_", " ").capitalize())
+
+
 def _date_fr(v: Any) -> str:
     """`2026-07-31` → `31/07/2026`. Renvoie la valeur telle quelle si le format est inattendu."""
     s = "" if v is None else str(v)[:10]
@@ -81,6 +99,7 @@ CREME = (0xF7, 0xF1, 0xEB)       # --color-cream      : fond des blocs et lignes
 SABLE = (0xE8, 0xDD, 0xD2)       # --color-sand       : filets et séparateurs
 ESPRESSO = (0x2E, 0x21, 0x1D)    # --color-espresso   : texte principal
 PIERRE = (0x6F, 0x64, 0x5E)      # --color-stone      : texte secondaire
+SAGE = (0x6D, 0x76, 0x62)        # --color-sage       : bandeau d'un net EN FAVEUR du propriétaire
 BLANC = (0xFF, 0xFF, 0xFF)
 
 # Le logo officiel du site, copié dans les assets de l'application (`static/img/brand/`). Aucun
@@ -280,19 +299,43 @@ class _Facture(FPDF):
 
     # ── Briques de mise en page ─────────────────────────────────────────────────────────────────
 
-    def _titre_section(self, texte: str):
-        """Un titre ne doit jamais rester seul en bas de page : on force la coupe s'il ne reste pas
-        de quoi afficher au moins l'en-tête du tableau et une ligne."""
-        if self.get_y() > 297 - 26 - 22:
+    # Hauteur utile d'une page : 297 mm moins la marge basse réservée au pied de marque.
+    BAS_UTILE = 297 - 26
+
+    def _place_restante(self) -> float:
+        """Millimètres encore disponibles avant le pied de page."""
+        return self.BAS_UTILE - self.get_y()
+
+    def _reserver(self, hauteur: float) -> None:
+        """Garantit `hauteur` mm d'un seul tenant : coupe la page AVANT d'écrire si besoin.
+
+        Sans cette réservation, le saut automatique de fpdf coupe là où il se trouve et laisse des
+        blocs orphelins — la facture de recette finissait avec une page 2 portant trois lignes et
+        un pied de page. Un bloc se déplace ENTIER, il ne se scinde pas (§30).
+        """
+        if hauteur > 0 and self._place_restante() < hauteur:
             self.add_page()
-        self.ln(2)
+
+    def _titre_section(self, texte: str, hauteur_bloc: float = 22.0):
+        """Un titre ne doit jamais rester seul en bas de page : on force la coupe s'il ne reste pas
+        de quoi afficher le bloc qu'il annonce.
+
+        `hauteur_bloc` est la place nécessaire au titre ET à son contenu. La valeur par défaut
+        couvre un en-tête de tableau plus une ligne ; les appelants qui connaissent leur hauteur
+        réelle la passent, pour que le bloc migre en entier plutôt qu'à moitié.
+        """
+        self._reserver(hauteur_bloc)
+        # Interlignes resserrés (2 mm → 1,4 mm avant, 2 → 1,6 après) : quatre sections par document,
+        # donc ~4 mm regagnés sans que les titres se collent au contenu. Compaction mesurée, pas un
+        # rétrécissement de police — la lisibilité ne se négocie pas pour gagner une page (§30 A).
+        self.ln(1.4)
         self.set_font("Helvetica", "B", 10)
         self.set_text_color(*BRIQUE)
-        self.cell(0, 6, _t(texte), 0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        self.cell(0, 5.6, _t(texte), 0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         self.set_text_color(*ESPRESSO)
         self.set_draw_color(*SABLE)
         self.line(MARGE, self.get_y(), 210 - MARGE, self.get_y())
-        self.ln(2)
+        self.ln(1.6)
 
     def _ligne_entete(self, colonnes: tuple, hauteur: float = 7.0):
         """En-tête de tableau. Mémorisé pour être RÉPÉTÉ automatiquement en haut de chaque page
@@ -309,13 +352,17 @@ class _Facture(FPDF):
         self.set_text_color(*ESPRESSO)
         self.set_draw_color(*SABLE)
 
+    @staticmethod
+    def _hauteur_note(texte: str) -> float:
+        """Hauteur qu'occupera `_note`. Calculée, pas devinée : une marge de sécurité arbitraire
+        pousse des blocs à la page suivante alors qu'ils tenaient (constaté à 0,2 mm près)."""
+        return max(1, len(texte) // 110 + 1) * 3.6 + 4
+
     def _note(self, texte: str):
         """Note explicative sous un tableau. Coupe la page AVANT d'écrire si la place manque —
         une note tronquée par le saut automatique perdrait justement l'explication qu'elle porte
         (constaté sur le premier rendu : la phrase distinguant acompte et réduction était coupée)."""
-        lignes_estimees = max(1, len(texte) // 110 + 1)
-        if self.get_y() + lignes_estimees * 3.6 + 4 > 297 - 26:
-            self.add_page()
+        self._reserver(self._hauteur_note(texte))
         self.ln(1)
         self.set_font("Helvetica", "I", 7.5)
         self.set_text_color(*PIERRE)
@@ -337,20 +384,44 @@ class _Facture(FPDF):
         em, cl = conf.get("emetteur") or {}, conf.get("client") or {}
         base, dest = snap.get("emetteur", {}), snap.get("destinataire", {})
 
-        gauche = [x for x in (em.get("adresse_siege") or base.get("adresse"),
-                              em.get("contact") or base.get("contact")) if x]
+        # « Représentée par … » : mention demandée explicitement, sans aucun titre juridique ajouté
+        # (ni « gérant », ni « président ») — le Kbis n'en documente pas, et en inventer un sur une
+        # facture engagerait la société sur une qualité non vérifiée.
+        representants = str(conf.get("representants") or base.get("representants") or "").strip()
+        gauche = [x for x in (
+            f"Représentée par {representants}" if representants else None,
+            em.get("adresse_siege") or base.get("adresse"),
+            # Aucun contact tant qu'il n'est pas renseigné : jamais de courriel d'exemple.
+            em.get("contact") or base.get("contact") or None,
+        ) if x]
+
         # Les identifiants du CLIENT sont obligatoires dès qu'il est professionnel — les omettre
         # rendrait la facture non conforme. Ils ne s'impriment que s'ils sont renseignés, et sous
         # leur propre étiquette (un SIREN client n'est pas davantage un SIRET que celui de
         # l'émetteur).
+        #
+        # `Référence : PROP_0001` a été RETIRÉE : un identifiant interne n'apprend rien au
+        # destinataire et n'a pas sa place sur un document qui sort de l'application. Le logement
+        # est désigné par son NOM ; plusieurs logements sont listés quand il y en a plusieurs.
+        logements = conf.get("logements") or snap.get("logements") or []
+        if not logements and snap.get("logement_id"):
+            logements = [snap.get("logement_nom") or snap.get("logement_id")]
+        lignes_logement: list[str] = []
+        if len(logements) == 1:
+            lignes_logement = [f"Logement : {logements[0]}"]
+        elif logements:
+            lignes_logement = ["Logements concernés :"] + [f"  {l}" for l in logements]
+
         droite = [x for x in (cl.get("denomination") or dest.get("nom"),
                               cl.get("adresse_facturation") or cl.get("adresse")
                               or dest.get("adresse"),
+                              # Contact du client : téléphone d'abord, courriel à défaut. Rien si
+                              # le référentiel n'en connaît aucun — on n'invente pas un contact.
+                              cl.get("telephone") or cl.get("email") or None,
                               f"SIREN {cl['siren']}" if cl.get("siren") else None,
                               f"SIRET {cl['siret']}" if cl.get("siret") else None,
                               f"TVA {cl['tva_intra']}" if cl.get("tva_intra") else None,
-                              f"Référence : {snap.get('proprietaire_id', '')}",
-                              f"Logement : {snap.get('logement_id', '')}") if x]
+                              *lignes_logement) if x]
         depart = self.get_y()
         self.set_font("Helvetica", "B", 8)
         self.set_text_color(*PIERRE)
@@ -380,7 +451,7 @@ class _Facture(FPDF):
         # Assiette x Taux = Commission, colonne par colonne : le propriétaire doit pouvoir refaire
         # l'operation de tete pour chaque sejour, sans avoir a nous croire sur parole.
         colonnes = ((21, "Arrivee", "C"), (21, "Depart", "C"), (11, "Nuits", "C"),
-                    (22, "Canal", "L"), (28, "Référence", "L"), (24, "Assiette", "R"),
+                    (22, "Canal", "L"), (28, "Référence", "L"), (24, "Total perçu", "R"),
                     (15, "Taux", "R"), (23, "Commission", "R"))
         self._entete_tableau = (colonnes,)
         self._ligne_entete(colonnes)
@@ -404,9 +475,11 @@ class _Facture(FPDF):
                       new_x=XPos.RIGHT, new_y=YPos.TOP, align="R")
             self.cell(colonnes[-1][0], 6, _t(_montant(total_commission)), 0,
                       new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R")
-        self._note(f"{len(reservations)} sejour(s). Assiette = payout de la plateforme diminue du "
-                   "menage ; commission = assiette x taux. Ces montants proviennent du calcul "
-                   "mensuel, ils ne sont pas recalcules sur la facture.")
+        # L'explication du calcul est CONSERVÉE : c'est elle qui rend la colonne vérifiable à la
+        # main. Seul son vocabulaire suit le nouveau libellé de colonne.
+        self._note(f"{len(reservations)} séjour(s). Total perçu = versement de la plateforme "
+                   "diminué du ménage ; commission = total perçu x taux. Ces montants proviennent "
+                   "du calcul mensuel, ils ne sont pas recalculés sur la facture.")
 
     def _tableau_prestations(self):
         """Détail facturé, groupé par poste. C'est la lecture « d'où vient le montant »."""
@@ -433,8 +506,17 @@ class _Facture(FPDF):
         """Le récapitulatif EST la formule. Chaque poste apparaît même à zéro dès qu'il porte une
         ligne, pour qu'on puisse suivre l'addition sans deviner ce qui a été omis."""
         self.ln(3)
-        if self.get_y() > 297 - 26 - 46:
-            self.add_page()
+        # Le récapitulatif EST la conclusion du document : le scinder entre deux pages séparerait
+        # le total facturé de son net. On mesure donc le bloc réel avant de l'écrire.
+        nb_postes = len([p for p in deco.get("postes", [])
+                         if p.get("cle") != "reductions" and p.get("nb")])
+        nb_reglements = sum(1 for v in (deco.get("total_acomptes"),
+                                        deco.get("total_reversements_airbnb")) if v)
+        self._reserver(5.2 * nb_postes                       # postes
+                       + 5.2 * (2 if deco.get("total_reductions") else 1)  # sous-total, réductions
+                       + 5.2 * 3                             # TOTAL HT / TVA / TOTAL FACTURE
+                       + (5 + 5.2 * nb_reglements if nb_reglements else 0)
+                       + 14)                                 # bandeau du net + marges
         gauche, largeur = 105.0, 75.0
 
         def ligne(libelle: str, valeur: Any, gras: bool = False, couleur=None):
@@ -466,21 +548,49 @@ class _Facture(FPDF):
         total_ttc = conf.get("total_ttc", deco.get("total_facture"))
         ligne("TOTAL HT", conf.get("total_ht", deco.get("total_facture")))
         ligne("TVA", conf.get("total_tva", 0.0))
-        ligne("TOTAL TTC", total_ttc, gras=True)
+        # « TOTAL TTC » est une mention OBLIGATOIRE : elle reste, même en franchise où elle égale le
+        # HT. On lui adjoint « TOTAL FACTURE » plutôt que de la remplacer (§27) — c'est la même
+        # somme, nommée dans les deux vocabulaires : celui de la loi et celui du propriétaire, qui
+        # doit voir d'un coup d'œil ce qui sépare le montant facturé de ce qu'il lui reste à payer.
+        ligne("TOTAL FACTURE (TTC)", total_ttc, gras=True)
 
-        if deco.get("total_acomptes"):
-            ligne("Acomptes deja verses", -float(deco["total_acomptes"]))
+        # ── Règlements et compensations (§20) ────────────────────────────────────────────────
+        # Ces lignes viennent APRÈS le total facturé et ne le modifient jamais : un acompte est un
+        # règlement déjà reçu, un reversement Airbnb une somme déjà détenue. Ni l'un ni l'autre ne
+        # diminue le chiffre d'affaires facturé, ni le produit comptabilisé. C'est précisément
+        # pourquoi ils sont présentés en dessous, et non fondus dans le total.
+        acomptes = float(deco.get("total_acomptes") or 0)
+        reversements = float(deco.get("total_reversements_airbnb") or 0)
+        if acomptes or reversements:
+            self.ln(1)
+            self.set_x(gauche)
+            self.set_font("Helvetica", "B", 8)
+            self.set_text_color(*PIERRE)
+            self.cell(largeur, 4.5, _t("Règlements et compensations"), 0,
+                      new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            self.set_text_color(*ESPRESSO)
+            if acomptes:
+                ligne("Acompte(s) déjà versé(s)", -acomptes)
+            if reversements:
+                ligne("Reversement Airbnb du mois", -reversements)
 
-        # Bandeau du montant dû : le seul élément coloré plein du document, pour qu'il soit le
-        # premier chiffre que l'oeil trouve.
+        # Bandeau du net : le seul élément coloré plein du document, pour qu'il soit le premier
+        # chiffre que l'oeil trouve. Un net négatif n'est PAS une facture négative : il se nomme,
+        # « à reverser au propriétaire », plutôt que de s'afficher en montant dû négatif.
+        a_reverser = str(deco.get("sens_net")) == "A_REVERSER"
+        if a_reverser:
+            titre, valeur = "  NET A REVERSER AU PROPRIETAIRE", deco.get("montant_a_reverser")
+        elif str(deco.get("sens_net")) == "SOLDE":
+            titre, valeur = "  SOLDE", 0.0
+        else:
+            titre, valeur = "  NET A PAYER", deco.get("net", deco.get("montant_du"))
         self.ln(1)
         self.set_x(gauche)
-        self.set_fill_color(*BRIQUE)
+        self.set_fill_color(*(SAGE if a_reverser else BRIQUE))
         self.set_text_color(*BLANC)
         self.set_font("Helvetica", "B", 11)
-        self.cell(largeur * 0.6, 9, _t("  MONTANT DU"), 0, new_x=XPos.RIGHT, new_y=YPos.TOP,
-                  fill=True)
-        self.cell(largeur * 0.4, 9, _t(_montant(deco.get("montant_du")) + "  "), 0,
+        self.cell(largeur * 0.55, 9, _t(titre), 0, new_x=XPos.RIGHT, new_y=YPos.TOP, fill=True)
+        self.cell(largeur * 0.45, 9, _t(_montant(valeur) + "  "), 0,
                   new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R", fill=True)
         self.set_text_color(*ESPRESSO)
         self.ln(2)
@@ -495,7 +605,7 @@ class _Facture(FPDF):
         # Nature de l'opération et bon de commande : mentions réglementaires quand elles sont
         # renseignées. Elles étaient rendues avant la refonte et doivent le rester.
         self.set_font("Helvetica", "", 8.5)
-        for libelle, valeur in (("Nature de l'opération", conf.get("nature_operation")),
+        for libelle, valeur in (("Nature de l'opération", _libelle_nature(conf.get("nature_operation"))),
                                 ("Bon de commande", conf.get("numero_bon_commande"))):
             if valeur:
                 self.cell(0, 4.6, _t(f"{libelle} : {valeur}"), 0,
@@ -505,7 +615,15 @@ class _Facture(FPDF):
 
         acomptes = (snap.get("decomposition") or {}).get("acomptes") or []
         if acomptes:
-            self._titre_section("Acomptes deja verses")
+            note_acomptes = ("Un acompte est un paiement déjà reçu : il réduit ce qui reste à "
+                             "payer, pas le montant facturé. Une réduction commerciale, elle, "
+                             "diminue le montant facturé et figure dans le détail des frais.")
+            # Hauteur du bloc ENTIER : titre + en-tête + lignes + note, mesurés et non estimés.
+            # Le réserver d'un seul tenant évite qu'un tableau de deux lignes soit coupé en deux
+            # pages, ce que le saut automatique faisait volontiers.
+            self._titre_section("Acomptes déjà versés",
+                                hauteur_bloc=10 + 6 + 5.2 * len(acomptes)
+                                + self._hauteur_note(note_acomptes))
             colonnes = ((34, "Date", "C"), (36, "Mode", "L"), (80, "Référence", "L"),
                         (30, "Montant", "R"))
             self._entete_tableau = (colonnes,)
@@ -517,34 +635,40 @@ class _Facture(FPDF):
                     _montant(a.get("montant")),
                 ), pair=(i % 2 == 0))
             self._entete_tableau = None
-            self._note("Un acompte est un paiement deja recu : il reduit ce qui reste a payer, pas "
-                       "le montant facture. Une reduction commerciale, elle, diminue le montant "
-                       "facture et figure dans le detail des frais.")
+            self._note(note_acomptes)
 
         # ── Conditions de règlement et mentions ──────────────────────────────────────────────
-        self.ln(2)
-        self._titre_section("Règlement")
-        self.set_font("Helvetica", "", 8.5)
         # Le libellé des conditions est DÉRIVÉ du délai (« Paiement à réception » quand il vaut 0),
         # jamais saisi en parallèle : un libellé indépendant finirait par contredire l'échéance
         # imprimée juste au-dessus.
         conditions = [
             ("Conditions de règlement", conf.get("conditions_paiement")),
             ("Échéance de paiement", _date_fr(conf.get("date_echeance"))),
-            ("Escompte", conf.get("conditions_escompte")),
         ]
         # Les clauses B2B ne s'impriment que face à un client explicitement PROFESSIONNEL. Les
         # afficher parce qu'elles sont configurées globalement mettrait une mention inadaptée sur
         # la facture d'un particulier — ou pire, une menace de recouvrement sans fondement sur
         # celle d'un client dont le type n'est même pas tranché.
+        #
+        # L'ESCOMPTE suit la même règle (§29) : la mention « escompte : néant » est une obligation
+        # d'information ENTRE PROFESSIONNELS (art. L441-9 du code de commerce). Sur la facture d'un
+        # particulier elle n'informe de rien et alourdit le document. On ne la supprime donc pas —
+        # on la réserve au cas où elle est due.
         if (conf.get("client") or {}).get("type_client") == "PROFESSIONNEL":
             conditions += [
+                ("Escompte", conf.get("conditions_escompte")),
                 ("Pénalités de retard", conf.get("taux_penalites_retard")),
                 ("Indemnité forfaitaire de recouvrement", conf.get("indemnite_recouvrement")),
             ]
-        for libelle, valeur in conditions:
-            if not valeur:
-                continue
+        # Le bloc Règlement se déplace ENTIER : titre + conditions + mentions légales + renvoi au
+        # relevé. Le couper laissait une page 2 ne portant que deux lignes et le pied de page.
+        retenues = [(l, v) for l, v in conditions if v]
+        hauteur_mentions = 4 * (2 if conf.get("mention_tva") else 0) + 14
+        self.ln(2)
+        self._titre_section("Règlement",
+                            hauteur_bloc=10 + 5 * len(retenues) + hauteur_mentions)
+        self.set_font("Helvetica", "", 8.5)
+        for libelle, valeur in retenues:
             # La mention légale d'escompte est une PHRASE COMPLÈTE (« Escompte pour paiement
             # anticipé : néant »). La préfixer de son propre libellé donnerait « Escompte :
             # Escompte pour… ». On n'ajoute donc le libellé que si la valeur ne le porte pas déjà.

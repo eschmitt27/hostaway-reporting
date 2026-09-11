@@ -112,11 +112,12 @@ def test_series_facture_et_avoir_independantes(db, config, client_particulier):
     for i in range(3):
         f = svc.creer(source(logement_id=f"LOG_{i}"), db_path=db)
         numeros.append(_emettre(db, f["facture_id_opaque"])["numero_facture"])
-    assert numeros == ["F-2026-000001", "F-2026-000002", "F-2026-000003"]
+    # Série MENSUELLE (recette utilisateur n°2, §22) : le mois de PRESTATION porte la séquence.
+    assert numeros == ["2026-07-001", "2026-07-002", "2026-07-003"]
 
     avoir = svc.creer_avoir(svc.lister(db_path=db)[0]["facture_id_opaque"], motif="x", db_path=db)
     num_avoir = _emettre(db, avoir["facture_id_opaque"])["numero_facture"]
-    assert num_avoir == "A-2026-000001"        # série indépendante, repart à 1
+    assert num_avoir == "A-2026-07-001"        # série indépendante, repart à 1
 
 
 def test_brouillon_abandonne_ne_consomme_pas_de_numero(db, config, client_particulier):
@@ -131,17 +132,30 @@ def test_brouillon_abandonne_ne_consomme_pas_de_numero(db, config, client_partic
 
     f2 = svc.creer(source(logement_id="LOG_B"), db_path=db)
     n2 = _emettre(db, f2["facture_id_opaque"])["numero_facture"]
-    assert (n1, n2) == ("F-2026-000001", "F-2026-000002")
+    assert (n1, n2) == ("2026-07-001", "2026-07-002")
 
 
-def test_changement_annee_ouvre_une_nouvelle_serie(db, config, client_particulier):
+def test_changement_de_mois_ouvre_une_nouvelle_serie(db, config, client_particulier):
+    """La séquence repart à 001 à chaque mois de PRESTATION, y compris d'une année sur l'autre."""
     config()
     f1 = svc.creer(source(mois="2026-12", logement_id="LOG_X"), db_path=db)
     n2026 = _emettre(db, f1["facture_id_opaque"], date_facture="2026-12-31")["numero_facture"]
     f2 = svc.creer(source(mois="2027-01", logement_id="LOG_X"), db_path=db)
     n2027 = _emettre(db, f2["facture_id_opaque"], date_facture="2027-01-01")["numero_facture"]
-    assert n2026 == "F-2026-000001"
-    assert n2027 == "F-2027-000001"       # compteur propre à l'année, série lisible dans le numéro
+    assert n2026 == "2026-12-001"
+    assert n2027 == "2027-01-001"
+
+
+def test_numero_ne_depend_pas_de_la_date_d_emission(db, config, client_particulier):
+    """LE test de non-régression de « F-11/0-000001 » : la série venait de `date_facture[:4]`, si
+    bien qu'une date saisie au format français produisait un numéro légalement inexploitable.
+    Elle vient désormais du mois de prestation, que la date d'émission ne peut plus corrompre."""
+    config()
+    f = svc.creer(source(mois="2026-07"), db_path=db)
+    # Date d'émission au format français : normalisée, et sans effet sur la série.
+    numero = _emettre(db, f["facture_id_opaque"], date_facture="11/09/2026")["numero_facture"]
+    assert numero == "2026-07-001"
+    assert "/" not in numero
 
 
 def test_numero_fige_et_jamais_reecrit(db, config, client_particulier):
@@ -412,7 +426,7 @@ def test_pdf_particulier(db, config, client_particulier, tmp_path):
     texte = _texte_pdf(tmp_path / "pdf" / "2026" / "07" / emise["document_nom"])
 
     assert "FACTURE" in texte
-    assert "F-2026-000001" in texte
+    assert "2026-07-001" in texte
     assert "SAS DEMO CONCIERGERIE" in texte
     # Mention d'immatriculation normalisée : le SIREN est écrit en trois groupes de trois, suivi du
     # greffe, sans étiquette « SIREN : » — c'est sous cette forme qu'elle est opposable
@@ -420,7 +434,9 @@ def test_pdf_particulier(db, config, client_particulier, tmp_path):
     assert "000 000 000" in texte
     assert "RCS DEMO 000 000 000" in texte
     assert "Période des prestations : du 01/07/2026 au 31/07/2026" in texte
-    assert "TOTAL HT" in texte and "TOTAL TTC" in texte
+    # Mentions légales obligatoires. « TOTAL FACTURE (TTC) » porte les deux vocabulaires :
+    # celui de la loi (TTC) et celui du propriétaire (ce qui est facturé, avant règlements).
+    assert "TOTAL HT" in texte and "TOTAL FACTURE (TTC)" in texte
     assert "Échéance de paiement : 31/08/2026" in texte
     assert "Mention de franchise" in texte
     # Aucune clause professionnelle sur une facture adressée à un particulier.
@@ -439,7 +455,9 @@ def test_pdf_professionnel(db, config, client_professionnel, tmp_path):
     assert "SIREN 111111111" in texte
     assert "Pénalités de retard : Taux fixture" in texte
     assert "Indemnité forfaitaire de recouvrement : Indemnite fixture" in texte
-    assert "PRESTATION_DE_SERVICES" in texte
+    # §25 : le PDF affiche un libellé métier, le code technique reste en base.
+    assert "Gestion de location courte durée" in texte
+    assert "PRESTATION_DE_SERVICES" not in texte
 
 
 def test_pdf_type_client_non_tranche_sans_clause_b2b(db, config, monkeypatch, tmp_path):

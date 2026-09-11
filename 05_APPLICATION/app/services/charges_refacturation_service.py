@@ -351,6 +351,58 @@ def proposer_pour_facture(proprietaire_id: str, logement_id: str | None = None,
     return [p for p in positions if p["montant_restant"] > TOLERANCE]
 
 
+def desimputer(position_id: str, montant: float, *, facture_id: str, acteur: str = "",
+               motif: str = "", conn=None, db_path=None) -> dict[str, Any]:
+    """Rend à la position un montant précédemment imputé. Opération INVERSE de `imputer()`.
+
+    Appelée quand une facture VALIDE repasse en BROUILLON : sans elle, la position resterait
+    consommée alors que la ligne redevient modifiable — le montant serait compté deux fois, une
+    fois dans la position et une fois dans le brouillon rouvert.
+
+    La position retrouve un statut ouvert cohérent avec ce qu'il lui reste d'imputé : `IMPUTEE`
+    redevient `PARTIELLEMENT_IMPUTEE`, et `DISPONIBLE` si plus rien n'est imputé. Le journal
+    conserve la trace : une désimputation est un événement, pas un effacement.
+    """
+    connexion_locale = conn is None
+    if connexion_locale:
+        conn = get_db(db_path)
+    try:
+        pos = _position(conn, position_id)
+        if pos is None:
+            return _refus(E_INTROUVABLE, f"Position introuvable : {position_id}.")
+        montant = _round(montant)
+        if montant <= 0:
+            return _refus(E_MONTANT_INVALIDE, "Le montant desimpute doit etre positif.")
+        if montant - _round(pos["montant_impute_total"]) > TOLERANCE:
+            return _refus(E_MONTANT_DEPASSE,
+                          f"Montant {montant} superieur a l'impute {pos['montant_impute_total']}.")
+        nouveau_total = _round(pos["montant_impute_total"] - montant)
+        nouveau_statut = (STATUT_PARTIELLEMENT_IMPUTEE if nouveau_total > TOLERANCE
+                          else STATUT_DISPONIBLE)
+        conn.execute(
+            "UPDATE charges_refacturation_positions SET montant_impute_total=?, statut=?, "
+            "derniere_decision=?, date_derniere_decision=?, acteur_derniere_decision=? "
+            "WHERE position_id=?",
+            (nouveau_total, nouveau_statut, EVT_LIBERATION, _maintenant(), acteur or None,
+             position_id))
+        _journaliser(conn, position_id, EVT_LIBERATION, montant=montant, facture_id=facture_id,
+                     acteur=acteur, motif=motif or "retour de la facture en brouillon",
+                     avant={"montant_impute_total": pos["montant_impute_total"],
+                            "statut": pos["statut"]},
+                     apres={"montant_impute_total": nouveau_total, "statut": nouveau_statut})
+        if connexion_locale:
+            conn.commit()
+        return {"ok": True, "position_id": position_id, "montant_libere": montant,
+                "montant_impute_total": nouveau_total, "statut": nouveau_statut}
+    except Exception:
+        if connexion_locale:
+            conn.rollback()
+        raise
+    finally:
+        if connexion_locale:
+            conn.close()
+
+
 def imputer(position_id: str, montant: float, *, facture_id: str, acteur: str = "",
            justification: str | None = None, conn=None, db_path=None) -> dict[str, Any]:
     """Consomme un montant sur la position. N'est appelée QUE par la validation effective d'une
