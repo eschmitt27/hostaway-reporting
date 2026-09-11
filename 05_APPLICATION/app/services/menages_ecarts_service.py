@@ -14,20 +14,35 @@ Le calcul vivait donc en double : une version SQLite et un classeur produit par 
 Deux sources pour une même question, c'est la garantie qu'elles finiront par diverger — et pendant
 ce temps l'écran affichait le dernier calcul legacy pendant que le contrôle, lui, était à jour.
 
-La logique de classement (les quatre codes, les mêmes seuils, les mêmes libellés) est reprise TELLE
-QUELLE de `lot6c_menages_externes.py` : elle n'est pas réinventée ici, seulement déplacée à l'unique
-endroit d'où les deux consommateurs la lisent désormais.
+La logique de classement (les quatre codes, les mêmes seuils, les mêmes libellés) n'est plus
+dupliquée ici : elle vit dans `lib_db_moteur.classer_ecart_menage_externe` (02_TRAVAIL), qui la
+définit une seule fois pour les DEUX environnements — ce module applicatif ET le script moteur
+`lot6c_menages_externes.py` (mode SQLite). Ce fichier importe cette règle plutôt que de la
+recopier ; c'est la garantie qu'un classement ne peut plus diverger entre l'écran et le moteur.
 """
 from __future__ import annotations
 
+import sys
 from typing import Any
 
-CODE_ECART = "MENAGE_EXTERNE_ECART_HOSTAWAY"
-CODE_HORS_HA = "MENAGE_EXTERNE_LOGEMENT_HORS_HA"
-CODE_HA_SANS_FACTURE = "MENAGE_HA_SANS_FACTURE_EXTERNE"
-CODE_RAPPROCHE = "MENAGE_EXTERNE_RAPPROCHE_HOSTAWAY"
+import app.config as cfg
 
-# Niveau et commentaire attachés à chaque code — vocabulaire du moteur, non réécrit.
+# `lib_db_moteur` vit dans 02_TRAVAIL, à côté du paquet `app` — même convention que
+# `charges_preview_service.py` pour `lib_ref_history` (ancrée sur `APP_ROOT.parent`, jamais
+# `cfg.PROJECT_ROOT`, qui peut être redirigé en test/recette).
+_TRAVAIL_DIR = str(cfg.APP_ROOT.parent / "02_TRAVAIL")
+if _TRAVAIL_DIR not in sys.path:
+    sys.path.insert(0, _TRAVAIL_DIR)
+import lib_db_moteur as dbm  # noqa: E402
+
+CODE_ECART = dbm.CODE_ECART_VOLUME
+CODE_HORS_HA = dbm.CODE_ECART_HORS_HA
+CODE_HA_SANS_FACTURE = dbm.CODE_ECART_HA_SANS_FACTURE
+CODE_RAPPROCHE = dbm.CODE_ECART_RAPPROCHE
+
+# Niveau et commentaire attachés à chaque code — vocabulaire du moteur, non réécrit. Ce n'est PAS
+# de la logique de classement (elle est dans `lib_db_moteur`) : seulement l'habillage pour
+# l'affichage, propre à ce lecteur applicatif.
 _QUALIFICATION = {
     CODE_HORS_HA: ("A_CONTROLER",
                    "Logement facture absent du comptage Hostaway (archive/hors HA/mapping). "
@@ -44,18 +59,8 @@ _QUALIFICATION = {
 
 
 def _classer(nb_ext: float, nb_ha: float) -> str:
-    """Règle de classement de `lot6c_menages_externes.py`, reprise à l'identique.
-
-    Rend `""` quand il n'y a aucune activité ménage sur le mois : ce n'est pas un écart, il n'y a
-    simplement rien à comparer.
-    """
-    if nb_ext == 0 and nb_ha == 0:
-        return ""
-    if nb_ext > 0 and nb_ha == 0:
-        return CODE_HORS_HA
-    if nb_ext == 0 and nb_ha > 0:
-        return CODE_HA_SANS_FACTURE
-    return CODE_RAPPROCHE if (nb_ext - nb_ha) == 0 else CODE_ECART
+    """Alias vers la règle canonique — conservé pour ne pas casser un import existant."""
+    return dbm.classer_ecart_menage_externe(nb_ext, nb_ha)
 
 
 def calculer(db_path=None) -> list[dict[str, Any]]:

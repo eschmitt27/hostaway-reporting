@@ -64,6 +64,10 @@ def _parse_injection():
     p.add_argument("--project-root")
     p.add_argument("--no-real-write", action="store_true")
     p.add_argument("--run-id")
+    # Base SQLite explicite (mission « lot6c vers SQLite ») : sans elle, `_dbm.chemin_db(None)`
+    # retombe sur PILOTAGE_DB_PATH/APP_DATA_DIR — suffisant en production, insuffisant pour la
+    # recette sur copies, qui doit pointer une base JETABLE précise, jamais la vraie par défaut.
+    p.add_argument("--db")
     args, _ = p.parse_known_args()
     return args
 
@@ -302,7 +306,7 @@ def main():
         """
         try:
             import lib_db_moteur as _dbm
-            chemin = _dbm.chemin_db(None)
+            chemin = _dbm.chemin_db(_ARGS.db)
             if chemin is None or not os.path.exists(str(chemin)):
                 return True
             conn = _dbm.ouvrir(chemin)
@@ -1007,14 +1011,36 @@ def main():
               f"(VRBO + Direct). Net proprietaire incomplet pour ces {n_ac} reservations.",
               commentaire="Requiert saisie manuelle ou decision par reservation. Lots 4/4bis.")
 
-    # 6f - Rapprochement menages externes <-> Hostaway (depuis Lot 6c VUE_ECART_HOSTAWAY)
+    # 6f - Rapprochement menages externes <-> Hostaway
     #      Remplace l'ancien controle bloquant "DATE_ABSENTE" : la date jour absente sur
     #      facture mensuelle ne bloque plus seule. Le controle reel = ecart de volume
     #      mensuel (mois x logement). Codes NEUTRES (jamais accusatoires).
+    #
+    #      SQLite d'abord (mission « lot6c vers SQLite ») : `lib_db_moteur.
+    #      calculer_ecarts_menages_externes` est LA MEME fonction que lot6c --source SQLITE et
+    #      que le service applicatif `menages_ecarts_service` — jamais une troisieme version de
+    #      la regle. Le classeur MEX_FILE (VUE_ECART_HOSTAWAY, lot6c legacy) reste un repli pour
+    #      les invocations sans base designee (compatibilite ascendante), pas le chemin normal.
+    df_ecart = pd.DataFrame()
+    _sqlite_ecart_ok = False
     try:
-        df_ecart = _read_sheet(MEX_FILE, sheet="VUE_ECART_HOSTAWAY")
+        import lib_db_moteur as _dbm_ecart
+        _chemin_ecart = _dbm_ecart.chemin_db(_ARGS.db)
+        if _chemin_ecart is not None and os.path.exists(str(_chemin_ecart)):
+            _conn_ecart = _dbm_ecart.ouvrir(_chemin_ecart)
+            try:
+                _lignes_ecart = _dbm_ecart.calculer_ecarts_menages_externes(_conn_ecart)
+            finally:
+                _conn_ecart.close()
+            df_ecart = pd.DataFrame(_lignes_ecart)
+            _sqlite_ecart_ok = True   # succes SQLite, meme si 0 ligne : ne PAS retomber sur le classeur
     except Exception:
-        df_ecart = pd.DataFrame()
+        _sqlite_ecart_ok = False
+    if not _sqlite_ecart_ok:
+        try:
+            df_ecart = _read_sheet(MEX_FILE, sheet="VUE_ECART_HOSTAWAY")
+        except Exception:
+            df_ecart = pd.DataFrame()
 
     if "code_controle" in df_ecart.columns:
         def _ecart_logs(code):

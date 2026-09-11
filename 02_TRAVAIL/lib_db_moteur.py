@@ -387,3 +387,99 @@ def ecrire_lignes(conn: sqlite3.Connection, table: str, colonnes: Sequence[str],
         % (table, ", ".join(colonnes), trous),
         [(dataset_id, *(l.get(alias.get(c, c)) for c in colonnes)) for l in lignes_a_ecrire])
     return len(lignes_a_ecrire)
+
+
+# ── Rapprochement ménages externes <-> Hostaway (VUE_ECART_HOSTAWAY, ex-Lot6c) ───────────────────
+#
+# CE QUE CECI REMPLACE : l'onglet `VUE_ECART_HOSTAWAY` de `MASTER_FACT_MEN_MenagesExternes.xlsx`,
+# calcule par `lot6c_menages_externes.py` a partir d'un classeur Hostaway (LOT6A) et d'un MASTER
+# construit depuis des PDF relus a chaque run.
+#
+# Les deux sources sont deja en SQLite, alimentees par des services DEJA live :
+#   · `menages_taches_enrichies` (0038)   — comptage Hostaway ("realise" x compte_comme_menage=OUI),
+#     la MEME table que lit deja lot6d pour son propre rapprochement ;
+#   · `facture_lignes_menage` (0037)      — lignes de ménage externe, alimentees par
+#     `facture_menage_pdf_service.importer()` (deja en production, PDF -> SQLite direct, sans
+#     passer par lot6c).
+#
+# La regle de classement (4 codes, memes seuils, memes libelles) est reprise TELLE QUELLE de
+# `lot6c_menages_externes.py`. Elle vivait AUSSI, en double, dans le service applicatif
+# `menages_ecarts_service._classer` : cette fonction est desormais la SEULE definition — le service
+# applicatif l'importe (cf. sa propre fin de fichier) plutot que de la reecrire.
+CODE_ECART_RAPPROCHE = "MENAGE_EXTERNE_RAPPROCHE_HOSTAWAY"
+CODE_ECART_HORS_HA = "MENAGE_EXTERNE_LOGEMENT_HORS_HA"
+CODE_ECART_HA_SANS_FACTURE = "MENAGE_HA_SANS_FACTURE_EXTERNE"
+CODE_ECART_VOLUME = "MENAGE_EXTERNE_ECART_HOSTAWAY"
+
+
+def classer_ecart_menage_externe(nb_ext: float, nb_ha: float) -> str:
+    """Code de rapprochement pour un couple (mois, logement). `""` = rien a comparer.
+
+    Codes NEUTRES : un ecart signale une verification, jamais une accusation prestataire.
+    """
+    if nb_ext == 0 and nb_ha == 0:
+        return ""
+    if nb_ext > 0 and nb_ha == 0:
+        return CODE_ECART_HORS_HA
+    if nb_ext == 0 and nb_ha > 0:
+        return CODE_ECART_HA_SANS_FACTURE
+    return CODE_ECART_RAPPROCHE if (nb_ext - nb_ha) == 0 else CODE_ECART_VOLUME
+
+
+def calculer_ecarts_menages_externes(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Rapprochement mois x logement : ménages EXTERNES facturés vs ménages Hostaway REALISES.
+
+    Rend une ligne par couple portant une activite (aucune ligne "rien a comparer"), avec les
+    memes noms de colonnes que l'ancien onglet VUE_ECART_HOSTAWAY — aucun consommateur n'a besoin
+    de changer de vocabulaire pour lire cette sortie.
+    """
+    ha: dict[tuple[str, str], dict[str, Any]] = {}
+    if table_presente(conn, "menages_taches_enrichies"):
+        cur = conn.execute(
+            "SELECT mois, logement_id, proprietaire_id "
+            "FROM menages_taches_enrichies "
+            "WHERE statut_menage = 'réalisé' AND compte_comme_menage = 'OUI' "
+            "AND logement_id IS NOT NULL AND logement_id <> ''")
+        for mois, logement_id, proprietaire_id in cur.fetchall():
+            cle = (str(mois)[:7], logement_id)
+            e = ha.setdefault(cle, {"nb_ha": 0, "prop": None})
+            e["nb_ha"] += 1
+            if proprietaire_id and not e["prop"]:
+                e["prop"] = proprietaire_id
+
+    ext: dict[tuple[str, str], dict[str, Any]] = {}
+    if table_presente(conn, "facture_lignes_menage"):
+        cur = conn.execute(
+            "SELECT f.date_facture, l.logement_id, f.fournisseur_id_opaque, "
+            "COALESCE(d.quantite, 1) "
+            "FROM facture_lignes_menage l "
+            "JOIN factures f ON f.facture_id_opaque = l.facture_id_opaque "
+            "LEFT JOIN facture_lignes_menage_detail d ON d.ligne_id_opaque = l.ligne_id_opaque "
+            "WHERE l.type_ligne = 'MENAGE_EXTERNE' "
+            "AND l.logement_id IS NOT NULL AND l.logement_id <> ''")
+        for date_facture, logement_id, prestataire_id, quantite in cur.fetchall():
+            mois = str(date_facture or "")[:7]
+            if not mois:
+                continue
+            cle = (mois, logement_id)
+            e = ext.setdefault(cle, {"nb_ext": 0.0, "prestataires": set()})
+            e["nb_ext"] += quantite or 0
+            if prestataire_id:
+                e["prestataires"].add(str(prestataire_id))
+
+    lignes: list[dict[str, Any]] = []
+    for cle in sorted(set(ha) | set(ext)):
+        mois, logement_id = cle
+        nb_ha = ha.get(cle, {}).get("nb_ha", 0) or 0
+        nb_ext = ext.get(cle, {}).get("nb_ext", 0) or 0
+        code = classer_ecart_menage_externe(nb_ext, nb_ha)
+        if not code:
+            continue
+        prop = (ext.get(cle) or {}).get("prop") or ha.get(cle, {}).get("prop")
+        lignes.append({
+            "mois": mois, "logement_id": logement_id, "proprietaire_id": prop,
+            "prestataires_factures": ",".join(sorted(ext.get(cle, {}).get("prestataires", ()))),
+            "nombre_menages_facture": nb_ext, "nombre_menages_hostaway": nb_ha,
+            "ecart": nb_ext - nb_ha, "code_controle": code,
+        })
+    return lignes

@@ -57,7 +57,13 @@ def test_ncols_moins_row_hash_accepte_par_la_table(tmp_path):
 
 
 def test_bloc_sqlite_present_et_conditionne_par_chemin_db():
+    """`dbm.chemin_db(ARG_DB)`, pas `dbm.chemin_db(None)` : un `--db` explicite doit être LU, pas
+    ignoré. `dbm.chemin_db(None)` était un bug de production (trouvé en testant la chaîne ménages
+    sans classeur intermédiaire, mission « lot6c vers SQLite ») — `orchestrateur_moteur.executer()`
+    passe pourtant `--db <chemin>` à chaque appel de ce script, silencieusement ignoré tant que
+    l'argument n'était jamais parsé (`ARG_DB` a remplacé les quatre occurrences de `None` en dur)."""
     texte = SCRIPT.read_text(encoding="utf-8")
-    assert "dbm.chemin_db(None)" in texte
+    assert "dbm.chemin_db(None)" not in texte
+    assert "dbm.chemin_db(ARG_DB)" in texte
     assert "menages_declarations_internes" in texte
     assert "DELETE FROM menages_declarations_internes" in texte

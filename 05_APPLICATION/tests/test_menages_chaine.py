@@ -49,7 +49,10 @@ def mini_projet(tmp_path, monkeypatch):
 
 def test_chaine_ordre_impose_hostaway_avant_lot6c(mini_projet):
     """L'extraction Hostaway précède lot6c (qui lit VUE_COMPTAGE) ; 6d après les 3 sources."""
-    noms = [s["name"] for s in chaine.STEPS_CHAINE]
+    # `STEPS_CHAINE` est devenu `_steps_chaine(base_sqlite_abs)` (mission « lot6c vers SQLite ») :
+    # les étapes dépendent désormais du chemin de la base jetable, passé par l'appelant. L'ordre
+    # testé ici en est indépendant — un chemin factice suffit.
+    noms = [s["name"] for s in chaine._steps_chaine("<base>")]
     assert noms.index("hostaway_stub") < noms.index("lot6c_menages_externes")
     assert noms.index("lot6b_declarations_internes") < noms.index("lot6d_rapprochement")
     assert noms.index("lot6c_menages_externes") < noms.index("lot6d_rapprochement")
@@ -62,7 +65,7 @@ def test_chaine_preparer_liste_sources_et_pdf(mini_projet):
     assert plan["pdf_dossier_relatif"] == cfg.MENAGES_PDF_DIR_REL
     assert plan["reel_active"] is False
     # etapes = liste de dicts {name, libelle} (libellés utilisateur).
-    assert [s["name"] for s in chaine.STEPS_CHAINE] == [e["name"] for e in plan["etapes"]]
+    assert [s["name"] for s in chaine._steps_chaine("<base>")] == [e["name"] for e in plan["etapes"]]
     assert all(e["libelle"] for e in plan["etapes"])
 
 

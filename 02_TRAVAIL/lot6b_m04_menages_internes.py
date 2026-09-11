@@ -11,59 +11,70 @@ URL CSV : lue depuis SQLite `ref_sources_systeme` (SRC_011, nom_source =
           runtime : fail-closed si la configuration SQLite manque. Repli classeur uniquement sur
           `--url-depuis-excel` (reprise legacy explicite).
 
-SORTIE CANONIQUE : `menages_declarations_internes` (SQLite). C'est la seule sortie du parcours
-opérationnel, et c'est le comportement PAR DÉFAUT — aucun classeur n'est écrit.
+SORTIE CANONIQUE : `menages_declarations_internes` (SQLite). C'est la SEULE sortie de ce script —
+aucun classeur n'est écrit, en aucune circonstance.
 
-EXPORT LEGACY (`--export-legacy` uniquement) :
+EXPORT LEGACY SUPPRIMÉ (mission « lot6c vers SQLite » §9, une fois lot6c doté d'un mode SQLite et
+la chaîne bout-en-bout prouvée sans classeur intermédiaire) : ce script écrivait auparavant, sous
+`--export-legacy`,
   - 02_TRAVAIL/Lot6b_DeclarationsInternes/MASTER_NORM_Declarations_Internes.xlsx
-  - 02_DONNEES_NORMALISEES/menages/M04_MENAGES_PowerQuery.xlsx :
-        SOURCE_RAW (traçabilité), MASTER (calculé), VUE_ACTIVE (VALIDE)
-  Un seul appelant le demande : la recette de chaîne complète (/menages/chaine), qui exécute lot6c
-  — dépourvu de mode SQLite. POWER_QUERY_CODE conservé en documentation/archive, non utilisé.
+  - 02_DONNEES_NORMALISEES/menages/M04_MENAGES_PowerQuery.xlsx
+      (SOURCE_RAW/MASTER/VUE_ACTIVE) — POWER_QUERY_CODE conservé en documentation/archive, jamais lu.
+Seul appelant : la recette de chaîne complète (/menages/chaine), tant que lot6c n'avait aucun mode
+SQLite. Ce chemin a disparu avec le code qui l'exécutait — pas seulement désactivé par un flag.
+Ces deux classeurs restent lus, gelés à leur dernier contenu, par certains chemins EXCEL non
+encore migrés (lot6d/6e en `--source EXCEL`, deux contrôles lot11) — cf. RESTANT_EXCEL_OPERATIONNEL.md.
 
 Contrôles BLOQUANTS : URL absente / inaccessible / structure Google Sheet inattendue.
 Ne touche pas : banque, Hostaway, factures, résultats aval (lot9-12).
 """
 
-import sys, os, io, csv, sqlite3, subprocess, shutil, hashlib, datetime, collections, unicodedata, warnings
+import sys, os, io, csv, sqlite3, subprocess, hashlib, datetime, unicodedata, warnings
 warnings.filterwarnings("ignore")
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import openpyxl
-from openpyxl.styles import Font, PatternFill
-from lib_menage_costs import resolve_internal_cleaning_cost
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lib_db_moteur as dbm
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REF  = os.path.join(ROOT, "01_SOURCES_BRUTES", "REF_Setup", "REF_Setup.xlsm")
-M04  = os.path.join(ROOT, "02_DONNEES_NORMALISEES", "menages", "M04_MENAGES_PowerQuery.xlsx")
-NORM_DIR = os.path.join(ROOT, "02_TRAVAIL", "Lot6b_DeclarationsInternes")
-NORM_OUT = os.path.join(NORM_DIR, "MASTER_NORM_Declarations_Internes.xlsx")
 NOW = datetime.datetime.now().isoformat(timespec="seconds")
 
 SOURCE_GOOGLE_SHEET_LOT6B = "GOOGLE_SHEET"  # défaut si menages_declarations_extra n'existe pas encore
 
-# ── SORTIE : SQLite par DÉFAUT. L'export de classeurs est devenu l'exception explicite. ──────────
+# ── SORTIE : SQLite, sans exception. ──────────────────────────────────────────────────────────
 #
-# Le parcours opérationnel est GOOGLE SHEET -> normalisation Python -> SQLite, sans aucune écriture
-# de classeur. C'est désormais le COMPORTEMENT PAR DÉFAUT : aucun run ne peut produire un classeur
-# par inadvertance.
-#
-# Le commentaire précédent justifiait l'inverse par le fait que « lot11 lit ENCORE le classeur M04
-# pour ses contrôles ». Ce n'est PLUS vrai : les deux implémentations de lot11 (moteur et
-# applicative) lisent `menages_declarations_internes` en SQLite — le moteur le dit lui-même
-# (« M04 : plus de classeur au runtime »). Le blocage documenté avait survécu à sa propre levée.
-#
-# `--export-legacy` régénère les deux classeurs. Un SEUL appelant le passe : la recette de chaîne
-# complète (`menages_chaine_service`, écran /menages/chaine), qui exécute lot6c — lequel n'a
-# aucun mode SQLite ni aucune écriture SQLite, et impose donc encore un workspace Excel. C'est la
-# dernière raison d'être de cet export, et elle est nommée dans RESTANT_EXCEL_OPERATIONNEL.md.
-#
-# `--sans-excel` reste accepté, sans effet : c'est devenu le défaut, et des appelants le passent
-# encore explicitement (orchestrateur_moteur, tests). Le retirer les casserait sans rien gagner.
-EXPORT_LEGACY = "--export-legacy" in sys.argv
-SANS_EXCEL = not EXPORT_LEGACY
+# Le parcours est GOOGLE SHEET -> normalisation Python -> SQLite, sans AUCUNE écriture de classeur
+# — plus d'exception `--export-legacy` : lot6c a désormais son propre mode SQLite (mission « lot6c
+# vers SQLite »), donc plus aucun appelant n'a besoin que lot6b produise un classeur pour que la
+# suite de la chaîne ait quelque chose à lire. `--sans-excel` reste accepté, sans effet : c'est
+# devenu le seul comportement possible, et des appelants le passent encore explicitement
+# (orchestrateur_moteur, tests). Le retirer les casserait sans rien gagner.
+SANS_EXCEL = True
+
+
+def _arg_valeur(nom):
+    """Valeur d'un argument `--nom VALEUR` sur la ligne de commande, ou None si absent."""
+    if nom in sys.argv:
+        i = sys.argv.index(nom)
+        if i + 1 < len(sys.argv):
+            return sys.argv[i + 1]
+    return None
+
+
+# `--db <chemin>` — base applicative explicite. MANQUAIT ENTIÈREMENT : les quatre appels à
+# `dbm.chemin_db(...)` du script passaient `None` en dur, jamais un argument reçu (ce script
+# n'utilise pas `argparse`, contrairement à lot6d/6e/6f — l'option n'avait simplement jamais été
+# câblée). Conséquence en production : `orchestrateur_moteur.executer()` passe pourtant `--db
+# <chemin>` à CHAQUE appel de ce script, silencieusement ignoré — lot6b ne résolvait sa base QUE
+# par variable d'environnement (`PILOTAGE_DB_PATH`/`APP_DATA_DIR`), et ne s'en sortait que parce
+# que l'environnement du process héritait la bonne valeur. Un `--db` explicite pointant une base
+# différente de l'environnement aurait silencieusement écrit au mauvais endroit ; l'absence des
+# deux (cas d'une recette sur copies, sans variable d'environnement positionnée) faisait échouer
+# le script avec un message qui semblait dire « aucune base désignée » alors qu'une l'était bel et
+# bien, juste jamais lue. Trouvé en testant la chaîne ménages sans classeur intermédiaire.
+ARG_DB = _arg_valeur("--db")
 
 MOIS = {"janvier":"01","fevrier":"02","mars":"03","avril":"04","mai":"05","juin":"06","juillet":"07","aout":"08","septembre":"09","octobre":"10","novembre":"11","decembre":"12"}
 REQUIRED_COLS = ["Prénom", "Mois des ménages", "Année des ménages", "Appartement"]
@@ -89,19 +100,6 @@ def sh(p, s):
     rows = [r for r in ws.iter_rows(values_only=True) if any(c is not None for c in r)]; wb.close()
     return [dict(zip([str(c) for c in rows[0]], r)) for r in rows[1:]]
 
-def sh_opt(p, s):
-    wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
-    try:
-        if s not in wb.sheetnames:
-            return []
-        ws = wb[s]
-        rows = [r for r in ws.iter_rows(values_only=True) if any(c is not None for c in r)]
-    finally:
-        wb.close()
-    if not rows:
-        return []
-    return [dict(zip([str(c) for c in rows[0]], r)) for r in rows[1:]]
-
 # ── URL SRC_011 — configuration canonique SQLite, FAIL-CLOSED ────────────────
 # `ref_sources_systeme` (SRC_011) est LA source de configuration runtime : la lire en base supprime
 # la dernière LECTURE Excel du parcours d'import quotidien.
@@ -120,7 +118,7 @@ URL_DEPUIS_EXCEL = "--url-depuis-excel" in sys.argv
 
 def _url_src011_depuis_sqlite():
     """URL SRC_011 lue dans `ref_sources_systeme`. Rend (url, erreur) — aucune exception avalée."""
-    chemin = dbm.chemin_db(None)
+    chemin = dbm.chemin_db(ARG_DB)
     if chemin is None:
         return None, "aucune base applicative designee (--db / PILOTAGE_DB_PATH / APP_DATA_DIR)"
     if not chemin.exists():
@@ -174,11 +172,10 @@ missing = [c for c in REQUIRED_COLS if c not in hdr]
 if missing: abort(f"Structure Google Sheet inattendue, colonnes manquantes : {missing}")
 
 # ── Référentiels — SQLite canonique, FAIL-CLOSED ─────────────────────────────
-# Le parcours opérationnel (`--sans-excel`) ne lit plus AUCUN classeur : `ref_mapping_logements`,
+# Ce script ne lit plus AUCUN classeur pour son fonctionnement normal : `ref_mapping_logements`,
 # `ref_logements` et `ref_intervenants` sont les référentiels canoniques, et ce sont les trois
-# seuls dont ce parcours a besoin (le bloc M04 legacy, qui consomme `logtype`/`logprop`/`loghaid`
-# et les barèmes, s'arrête plus bas derrière `sys.exit(0)` — il charge donc ce qu'il lui faut
-# lui-même, à ce moment-là seulement).
+# seuls dont il a besoin — le bloc M04 legacy qui consommait `logtype`/`logprop`/`loghaid` et les
+# barèmes a disparu (mission « lot6c vers SQLite » §9, cf. tête de fichier).
 #
 # NORMALISATION EXPLICITE (§10) : le classeur rend `hostaway_listing_id` en int (482204) et une
 # cellule vide en None ; SQLite rend '482204' et ''. Comparés bruts, ces deux référentiels
@@ -190,7 +187,7 @@ def _txt(v):
 
 def _refs_sqlite():
     """Référentiels du parcours opérationnel, lus en SQLite. Fail-closed, jamais de repli Excel."""
-    chemin = dbm.chemin_db(None)
+    chemin = dbm.chemin_db(ARG_DB)
     if chemin is None:
         abort("Aucune base SQLite designee (PILOTAGE_DB_PATH / APP_DATA_DIR) : "
               "referentiels illisibles. Aucun repli classeur (§12).")
@@ -247,15 +244,6 @@ for _brut, _canonique in _alias.items():
     _cible = intmap.get(norm(_canonique))
     if _cible:
         intmap[norm(_brut)] = _cible
-def std_unit(type_id, dref):
-    best = None
-    for d in std_ref:
-        if d.get("type_logement_id") != type_id or str(d.get("actif")) != "OUI": continue
-        deb, fin = to_d(d.get("date_debut_validite")), to_d(d.get("date_fin_validite"))
-        if deb and dref < deb: continue
-        if fin and dref > fin: continue
-        best = fnum(d.get("cout_standard_menage"))
-    return best
 
 i_pre = hdr.index("Prénom"); i_mois = hdr.index("Mois des ménages"); i_an = hdr.index("Année des ménages")
 appcols = [i for i, h in enumerate(hdr) if h.strip() == "Appartement"]
@@ -290,21 +278,14 @@ for r in rows[1:]:
 # Tant que ce marqueur existe (et qu'une sortie existe), lot11 refuse de croire RESEAU.
 begin_step(CACHE_DIR, "lot6b")
 
-# ── 1) MASTER_NORM ───────────────────────────────────────────────────────────
-os.makedirs(NORM_DIR, exist_ok=True)
+# NCOLS : colonnes de la ligne normalisée — sert de base aux colonnes SQL ci-dessous (`_sql_cols`).
+# Ce nom (« 1) MASTER_NORM ») date de l'export classeur du même nom, supprimé (mission « lot6c
+# vers SQLite » §9) : plus aucun classeur MASTER_NORM n'est écrit, ici ni ailleurs.
 NCOLS = ["mois","annee","mois_saisie","appartement_source","nom_appartement","logement_id",
     "intervenant_source","intervenant_id","nom_intervenant","type_intervenant","nb_menages","nb_heures",
     "cout_lavage_attribue","lavage_non_attribuable_mois","statut_controle","code_controle","source_url","date_extraction","ROW_HASH"]
-wbn = openpyxl.Workbook(); wsn = wbn.active; wsn.title = "MASTER_NORMALISE"; wsn.append(NCOLS)
-for c in wsn[1]: c.font = Font(bold=True); c.fill = PatternFill("solid", fgColor="DDDDDD")
-for d in norm_rows: wsn.append([d.get(c) for c in NCOLS])
-if SANS_EXCEL:
-    print("[lot6b] --sans-excel : MASTER_NORM non écrit.")
-else:
-    wbn.save(NORM_OUT)
 
-# ── SQLite : menages_declarations_internes (0038) — sortie canonique pour Lot6d/6e ──────────────
-# Le classeur M04 (ci-dessous) reste écrit pour Lot9-12, pas encore migrés (parité temporaire).
+# ── SQLite : menages_declarations_internes (0038) — SEULE sortie de ce script ────────────────────
 #
 # RECONCILIATION SHEET <-> APPLICATION (migration 0066, mission "FINALISER LE VRAI WORKFLOW")
 # Un DELETE FROM complet écraserait silencieusement toute déclaration créée/modifiée depuis
@@ -312,7 +293,7 @@ else:
 # clé par clé (mois, logement_id, intervenant_id). Une ligne APPLICATION dont la valeur Sheet
 # diverge n'est JAMAIS réécrite : un conflit est enregistré (menages_declarations_conflits),
 # résolu uniquement par un humain via menages_declarations_service.resoudre_conflit().
-_db = dbm.chemin_db(None)
+_db = dbm.chemin_db(ARG_DB)
 if _db is None:
     print("[lot6b] Aucune base designee (PILOTAGE_DB_PATH/APP_DATA_DIR) : SQLite non ecrit")
 else:
@@ -328,7 +309,7 @@ else:
     # Sheet/Application) plantait dès la deuxième exécution.
     _conn.row_factory = sqlite3.Row
     _run_id = os.environ.get("LOT6_RUN_ID", "")
-    _nb_ecrites = _nb_conflits = _nb_inchangees = 0
+    _nb_ecrites = _nb_conflits = _nb_inchangees = _nb_non_mappees = 0
     _mois_impactes = set()   # mission "recalcul mensuel cible" §7 : mois reellement changes/en
                               # conflit durant CETTE synchro, pour un recalcul cible optionnel —
                               # jamais tout l'historique.
@@ -364,6 +345,23 @@ else:
             for r in _conn.execute("SELECT * FROM menages_declarations_extra").fetchall()
         }
         for d in norm_rows:
+            # `logement_id`/`intervenant_id` non résolus (LOGEMENT_NON_MAPPE / INTERVENANT_NON_MAPPE,
+            # cf. `statut_controle`/`code_controle` ci-dessus) : la ligne NE PEUT PAS entrer dans les
+            # tables SQLite structurées — `menages_declarations_extra`/`menages_declarations_conflits`
+            # portent ces deux colonnes en NOT NULL (ce sont des clés métier, pas des attributs
+            # optionnels). Avant cette garde, une ligne non mappée provoquait un `IntegrityError` qui
+            # faisait échouer TOUTE la synchronisation SQLite (y compris les lignes valides) : un
+            # ÉLÉMENT À TRAITER ne doit jamais bloquer le reste.
+            # Visibilité actuelle, LIMITÉE : uniquement le compte agrégé `_nb_non_mappees` ci-dessous
+            # (stdout, capturé dans `stdout_tail` par le runner) — plus aucune trace ligne-à-ligne
+            # depuis la suppression de MASTER_NORM (mission « lot6c vers SQLite » §9). C'était déjà le
+            # cas en production avant cette mission (`--sans-excel` y était déjà le seul mode réel :
+            # MASTER_NORM n'y était jamais écrit) ; ce n'est donc pas une régression introduite ici,
+            # mais une lacune préexistante qui reste à combler par une vraie file À_TRAITER durable
+            # (cf. RESTANT_EXCEL_OPERATIONNEL.md) si des Sheets réelles produisent un jour ce cas.
+            if not d.get("logement_id") or not d.get("intervenant_id"):
+                _nb_non_mappees += 1
+                continue
             cle = (d["mois"], d["logement_id"], d["intervenant_id"])
             extra = _extras.get(cle)
             existante = _existantes.get(cle)
@@ -416,146 +414,19 @@ else:
         _conn.close()
     print(f"[lot6b] SQLite : menages_declarations_internes — {_nb_ecrites} lignes ecrites/mises a jour, "
           f"{_nb_inchangees} inchangees (deja alignees), {_nb_conflits} conflits GOOGLE_SHEET/APPLICATION "
-          f"detectes (menages_declarations_conflits, non ecrases)")
+          f"detectes (menages_declarations_conflits, non ecrases), {_nb_non_mappees} ligne(s) non mappee(s) "
+          f"(LOGEMENT_NON_MAPPE/INTERVENANT_NON_MAPPE, non ecrites, non tracees au-dela de ce compte)")
     print(f"[lot6b] MOIS_IMPACTES: {','.join(sorted(_mois_impactes)) or 'AUCUN'}")
 
-# ── 2) M04 SOURCE_RAW + MASTER + VUE_ACTIVE (autres onglets préservés) ────────
-# EXPORT LEGACY. La sortie canonique est SQLite (ci-dessus) ; ce classeur n'existe plus que parce
-# que lot9 (flux économique TYPE_FLUX_013) et lot11 (contrôles) le lisent encore. `--sans-excel`
-# saute entièrement ce bloc : le classeur reste alors bit-à-bit identique, aucun .BAK n'est créé.
-if SANS_EXCEL:
-    print("[lot6b] --sans-excel : classeur M04 NON modifié (aucun .BAK créé). "
-          "Sortie canonique = menages_declarations_internes (SQLite).")
-    print(f"[lot6b] URL REF OK (SRC_011) | CSV {len(rows)-1} lignes | normalisées {len(norm_rows)} | SQLite uniquement")
-    commit_step(CACHE_DIR, "lot6b", prov)
-    sys.exit(0)
-
-# ── Référentiels du SEUL export legacy ───────────────────────────────────────
-# Chargés ICI, après le `sys.exit(0)` de `--sans-excel` : le parcours opérationnel n'ouvre donc
-# jamais REF_Setup.xlsm, et ces lectures ne subsistent que pour reproduire à l'identique le
-# classeur M04 legacy (barèmes historisés + colonnes purement descriptives du MASTER).
-logtype, logprop, loghaid = {}, {}, {}
-for d in sh(REF, "REF_Logements"):
-    lid = d.get("logement_id")
-    if lid and str(lid) != "logement_id":
-        logtype[lid] = d.get("type_logement_id")
-        loghaid[lid] = _txt(d.get("hostaway_listing_id"))
-std_ref = sh(REF, "REF_Couts_Standards_Menage")
-hourly_ref = sh_opt(REF, "REF_Taux_Heures_Menage")
-fixed_ref = sh_opt(REF, "REF_Couts_Menage_Interne")
-
-# PROPRIÉTAIRE HISTORISÉ (§9). `ref_logements.proprietaire_id` ne porte AUCUNE valeur exploitable
-# (colonne vide dans le classeur, inexistante en SQLite) : l'ancien `logprop` était donc vide, et
-# le MASTER legacy sortait un `proprietaire_id` systématiquement nul. Le rattachement réel vit dans
-# `ref_gestion_logements_hist`, qui est daté — un logement change de propriétaire, et une
-# prestation doit être rattachée au propriétaire EN VIGUEUR à sa date, jamais au propriétaire
-# courant appliqué rétroactivement.
-# Résolution par `lib_ref_history.resolve_management_period`, le résolveur canonique déjà utilisé
-# par lot4bis/lot6a/lot10/lot11 — avec la même convention mensuelle que lot10 (`{mois}-01`).
-# Cas réel protégé : LOG_0003, gestion close au 2026-04-26. Une déclaration de mars 2026 rend
-# PROP_0003 ; une déclaration de juillet 2026 ne rend AUCUN propriétaire (période terminée) plutôt
-# qu'un rattachement faux.
-from lib_ref_history import resolve_management_period as _resolve_gestion
-
-_gest_rows = []
-_chemin_db_gest = dbm.chemin_db(None)
-if _chemin_db_gest is not None and os.path.exists(str(_chemin_db_gest)):
-    _cg = dbm.ouvrir(_chemin_db_gest)
-    try:
-        if dbm.table_presente(_cg, "ref_gestion_logements_hist"):
-            _cols = [r[1] for r in _cg.execute("PRAGMA table_info(ref_gestion_logements_hist)")]
-            _gest_rows = [dict(zip(_cols, r)) for r in _cg.execute(
-                f"SELECT {', '.join(_cols)} FROM ref_gestion_logements_hist")]
-    finally:
-        _cg.close()
-
-
-def proprietaire_historise(logement_id, mois):
-    """Propriétaire en vigueur pour ce logement à ce mois. None si aucune période applicable."""
-    if not logement_id or not mois or not _gest_rows:
-        return None
-    res = _resolve_gestion(_gest_rows, logement_id=logement_id, date_arrivee=f"{mois}-01")
-    return res.value if res.status == "OK" else None
-
-
-backup = M04 + ".BAK_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-shutil.copy(M04, backup)
-wb = openpyxl.load_workbook(M04)
-ws = wb["SOURCE_RAW"]
-if ws.max_row > 1: ws.delete_rows(2, ws.max_row - 1)
-for d in norm_rows:
-    ws.append([d["mois"], d["appartement_source"], d["intervenant_source"], "MENAGE_STANDARD",
-               d["nb_menages"], d["nb_heures"], f'lavage={d["cout_lavage_attribue"] or 0}; import lot6b'])
-if "tbl_SOURCE_RAW" in ws.tables:
-    ws.tables["tbl_SOURCE_RAW"].ref = f"A1:G{1+len(norm_rows)}"
-
-MASTER_HEADERS = [c.value for c in wb["MASTER"][1]]
-for extra_col in [
-    "methode_cout_interne", "cout_interne_ref_id", "cout_interne_priorite",
-    "controle_cout_interne",
-]:
-    if extra_col not in MASTER_HEADERS:
-        MASTER_HEADERS.append(extra_col)
-master_rows = []; cnt = collections.Counter()
-for d in norm_rows:
-    miso = d["mois"]; lid = d["logement_id"]; type_id = logtype.get(lid)
-    dref = to_d((miso + "-01")) if miso else datetime.date.today()
-    nb = d["nb_menages"]; nh = d["nb_heures"]
-    su = std_unit(type_id, dref or datetime.date.today())
-    cost = resolve_internal_cleaning_cost(
-        ref_date=dref,
-        intervenant_id=d["intervenant_id"],
-        logement_id=lid,
-        type_logement_id=type_id,
-        nb_menages=nb,
-        nb_heures=nh,
-        hourly_rows=hourly_ref,
-        fixed_rows=fixed_ref,
-    )
-    cet = cost.total if cost.status == "OK" else None
-    ceu = round(cet / nb, 2) if (cet is not None and nb) else None
-    cst = round((su or 0) * nb, 2) if su is not None else None
-    ec = round(cst - cet, 2) if (cst is not None and cet is not None) else None
-    statut_controle = d["statut_controle"]
-    code_controle = d["code_controle"] or None
-    if cost.status != "OK":
-        statut_controle = "A_CONTROLER"
-        code_controle = f"COUT_INTERNE_{cost.status}"
-    cnt[miso] += 1
-    mid = f"MEN-{miso or '0000-00'}-{cnt[miso]:03d}"
-    master_rows.append({"menage_calc_id": mid, "ROW_HASH": d["ROW_HASH"], "mois": miso, "annee": d["annee"],
-        "mois_num": (miso[5:7] if miso else None), "logement_id": lid,
-        "proprietaire_id": proprietaire_historise(lid, miso),
-        "hostaway_listing_id": loghaid.get(lid), "appartement_source": d["appartement_source"],
-        "intervenant_id": d["intervenant_id"], "nom_intervenant": d["nom_intervenant"], "type_intervenant": "INTERNE",
-        "type_menage": "MENAGE_STANDARD", "nb_menages": nb, "nb_heures": nh, "taux_horaire_intervenant": cost.rate,
-        "cout_execution_total": cet, "cout_execution_unitaire": ceu, "cout_standard": su,
-        "cout_standard_total_ligne": cst, "ecart_main_oeuvre_vs_standard": ec, "total_execution": cet,
-        "methode_cout_interne": cost.method, "cout_interne_ref_id": cost.ref_id,
-        "cout_interne_priorite": cost.priority, "controle_cout_interne": "OK" if cost.status == "OK" else cost.message,
-        "type_flux_id": "TYPE_FLUX_013", "sens": "CHARGE", "code_impact": "HC",
-        "impact_resultat_reel": "OUI", "impact_resultat_comptable": "NON",
-        "statut_controle": statut_controle, "niveau_anomalie": ("INFO" if statut_controle == "VALIDE" else "A_CONTROLER"),
-        "code_anomalie": code_controle, "source_module": "lot6b", "source_table": "SOURCE_RAW",
-        "source_pk": mid, "date_integration": NOW})
-for sheetname, only_valide in [("MASTER", False), ("VUE_ACTIVE", True)]:
-    wsm = wb[sheetname]
-    if wsm.max_row > 1: wsm.delete_rows(2, wsm.max_row - 1)
-    for r in master_rows:
-        if only_valide and r["statut_controle"] != "VALIDE": continue
-        wsm.append([r.get(h) for h in MASTER_HEADERS])
-wb.save(M04); wb.close()
-
-# ── Sorties metier ecrites OK -> provenance officielle PUIS suppression PENDING ─
-commit_step(CACHE_DIR, "lot6b", prov)
-
-# ── Rapport ──────────────────────────────────────────────────────────────────
-mai = [d for d in norm_rows if d["mois"] == "2026-05"]
-ag = collections.Counter()
-for d in mai: ag[(d["intervenant_id"], d["nom_intervenant"])] += d["nb_menages"]
+# ── Fin de run — plus aucun classeur écrit (mission « lot6c vers SQLite » §9) ────────────────────
+# Supprimait auparavant, sous `--export-legacy` : le classeur M04 (SOURCE_RAW/MASTER/VUE_ACTIVE,
+# avec un `.BAK` avant chaque écriture) et les référentiels historisés (barèmes, propriétaire
+# historisé via `ref_gestion_logements_hist`) chargés pour cette seule reconstruction. Ce chemin a
+# disparu avec le code qui l'exécutait, pas seulement désactivé par un flag — voir le git log de
+# ce fichier pour le code supprimé si une régression legacy devait un jour être investiguée.
 nmap = sum(1 for d in norm_rows if d["code_controle"])
-print(f"[lot6b] URL REF OK (SRC_011) | CSV {len(rows)-1} lignes | normalisées {len(norm_rows)} | M04 MASTER {len(master_rows)} lignes")
-print(f"[lot6b] MASTER_NORM -> {NORM_OUT}")
-print(f"[lot6b] M04 SOURCE_RAW+MASTER+VUE_ACTIVE reconstruit SANS Power Query | backup {os.path.basename(backup)}")
-print(f"[lot6b] mai 2026 par intervenant : {dict(ag)}")
+print("[lot6b] --sans-excel : classeur M04 NON modifié (aucun .BAK créé). "
+      "Sortie canonique = menages_declarations_internes (SQLite).")
+print(f"[lot6b] URL REF OK (SRC_011) | CSV {len(rows)-1} lignes | normalisées {len(norm_rows)} | SQLite uniquement")
 print(f"[lot6b] lignes A_CONTROLER (mapping) : {nmap}")
+commit_step(CACHE_DIR, "lot6b", prov)

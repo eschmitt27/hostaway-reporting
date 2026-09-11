@@ -1,13 +1,26 @@
 """
 lot6c_menages_externes.py
-Lot 6c — Ménages externes — Peuplement MASTER depuis factures PDF
-Sources : Facture mai Aissata.pdf (Kandia DIABATE / INT_0004)
+Lot 6c — Ménages externes
+
+SOURCE UNIQUE EN COURS DE BASCULE (mission « lot6c vers SQLite »)
+Le rôle historique de ce script — peupler un MASTER depuis des factures PDF relues à chaque run —
+est désormais tenu, EN PRODUCTION, par un chemin SQLite direct qui ne passe plus par lui :
+`facture_menage_pdf_service.importer()` (PDF -> `factures` + `facture_lignes_menage`, déjà en
+production) et `lot6d`/`lot6e`/`lot6f` (déjà `--source SQLITE`, lisent `facture_lignes_menage`
+directement). Ce que ce script calculait et qu'AUCUN autre chemin SQLite ne calculait encore était
+le rapprochement `VUE_ECART_HOSTAWAY` (factures externes vs ménages Hostaway réalisés) : c'est la
+seule chose que `--source SQLITE` recalcule ici, via `lib_db_moteur.calculer_ecarts_menages_externes`
+— LA MÊME fonction que le service applicatif `menages_ecarts_service` appelle, pas une seconde
+implémentation.
+
+Mode legacy (PDF/Excel, ci-dessous) conservé le temps de la preuve d'équivalence (§7 de la
+mission) ; sources historiques :
+          Facture mai Aissata.pdf (Kandia DIABATE / INT_0004)
           Facture mai Mounir.pdf  (MH Entreprise     / INT_0003)
-Période : mai 2026
 Décisions : D079-D088 (D-6c-01 à D-6c-10)
 """
 
-import os, hashlib
+import argparse, os, sys, hashlib
 from pathlib import Path
 from datetime import datetime, date
 import openpyxl
@@ -18,7 +31,67 @@ from openpyxl.utils import get_column_letter
 from lib_parc import HORS_PARC_TECHNIQUE, is_hors_parc_technique
 from lib_ref_history import REF_GESTION_LOGEMENTS_HIST_SHEET, resolve_management_period
 
-# ─── PATHS ────────────────────────────────────────────────────────────────────
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import lib_db_moteur as dbm
+
+_ap = argparse.ArgumentParser()
+_ap.add_argument("--source", choices=("EXCEL", "SQLITE"), default="EXCEL",
+                 help="SQLITE : ne lit plus aucun classeur ni PDF — recalcule uniquement le "
+                      "rapprochement VUE_ECART_HOSTAWAY depuis facture_lignes_menage (déjà "
+                      "alimentée en production par facture_menage_pdf_service) et "
+                      "menages_taches_enrichies. C'est la même règle que menages_ecarts_service.")
+_ap.add_argument("--db", default=None)
+# `_ap.parse_args()` n'est PAS appelé ici : un simple `import` de ce module (test
+# `test_imports_in_temp_copy_do_not_read_write_or_create_business_files`) ne doit dépendre ni
+# lire `sys.argv` — celui du process hôte (ex. pytest) ne correspond à aucun de ces flags et
+# ferait sortir l'import en erreur (`SystemExit(2)`). Le parsing est différé dans le bloc
+# `if __name__ == "__main__":`, comme `main()` juste en dessous ; `_main_sqlite()` lit `args` en
+# global au moment de l'appel, pas à la définition.
+
+
+def _main_sqlite() -> int:
+    """Rapprochement ménages externes <-> Hostaway, depuis SQLite uniquement.
+
+    N'ouvre aucun classeur, aucun PDF. La ventilation, la réconciliation facture et l'enrichissement
+    logement/propriétaire des lignes de ménage externe sont déjà faits, en amont, par
+    `facture_menage_pdf_service`/`facture_lignes_menage_service` au moment de l'import réel — les
+    reproduire ici recréerait une seconde vérité. Ce mode se limite au SEUL calcul qui n'avait pas
+    encore d'équivalent SQLite.
+    """
+    chemin_base = dbm.chemin_db(args.db)
+    if chemin_base is None:
+        sys.exit("[lot6c] ERREUR : --source SQLITE exige une base (--db / PILOTAGE_DB_PATH / "
+                 "APP_DATA_DIR).")
+    conn = dbm.ouvrir(chemin_base)
+    try:
+        nb_factures_externes = 0
+        nb_lignes_externes = 0
+        montant_total = 0.0
+        if dbm.table_presente(conn, "facture_lignes_menage"):
+            cur = conn.execute(
+                "SELECT COUNT(DISTINCT l.facture_id_opaque), COUNT(*), "
+                "COALESCE(SUM(l.montant_ttc), 0) "
+                "FROM facture_lignes_menage l WHERE l.type_ligne = 'MENAGE_EXTERNE'")
+            nb_factures_externes, nb_lignes_externes, montant_total = cur.fetchone()
+
+        ecarts = dbm.calculer_ecarts_menages_externes(conn)
+    finally:
+        conn.close()
+
+    par_code: dict[str, int] = {}
+    for e in ecarts:
+        par_code[e["code_controle"]] = par_code.get(e["code_controle"], 0) + 1
+
+    print(f"[lot6c] SOURCE SQLITE : facture_lignes_menage — {nb_factures_externes} facture(s), "
+          f"{nb_lignes_externes} ligne(s) MENAGE_EXTERNE, {round(montant_total, 2)}€")
+    print(f"[lot6c] VUE_ECART_HOSTAWAY (recalculée) : {len(ecarts)} couple(s) mois×logement")
+    for code, n in sorted(par_code.items()):
+        print(f"    {code:38} {n}")
+    print("[lot6c] --source SQLITE : aucun classeur lu ni écrit.")
+    return 0
+
+
+# ─── PATHS (mode EXCEL/legacy) ─────────────────────────────────────────────────
 # Racine dérivée du fichier (jamais de chemin Windows fixe) : confine le script à sa propre instance.
 BASE    = str(Path(__file__).resolve().parent.parent)
 L6C_DIR = os.path.join(BASE, "02_TRAVAIL", "Lot6c_MenagesExternes")
@@ -771,4 +844,7 @@ def main():
 
 
 if __name__ == "__main__":
+    args = _ap.parse_args()
+    if args.source == "SQLITE":
+        sys.exit(_main_sqlite())
     main()

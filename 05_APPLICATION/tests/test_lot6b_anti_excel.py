@@ -2,10 +2,15 @@
 SHEET → normalisation Python → SQLite, jamais SHEET → Excel → SQLite (mission « alimenter le
 module Ménages », §8/§19).
 
+Depuis la mission « lot6c vers SQLite » (§9), l'export legacy (`--export-legacy`, classeur M04 +
+MASTER_NORM) a disparu du CODE — pas seulement désactivé par un flag : plus aucune ligne de lot6b
+n'écrit de classeur, quels que soient les arguments passés.
+
 Deux niveaux de preuve, comme pour `test_hostaway_cleaning_tasks_anti_excel` :
-  - STRUCTUREL : le classeur M04 et le MASTER_NORM ne sont écrits que dans le bloc legacy, après le
-    court-circuit `--sans-excel` ; l'URL de la Sheet se lit depuis SQLite (`ref_sources_systeme`).
-  - COMPORTEMENTAL : un run `--sans-excel` alimente SQLite et laisse le classeur M04 hash-identique.
+  - STRUCTUREL : le code d'écriture de classeur (M04, MASTER_NORM) n'existe plus du tout dans le
+    fichier ; l'URL de la Sheet se lit depuis SQLite (`ref_sources_systeme`).
+  - COMPORTEMENTAL : un run alimente SQLite et laisse tous les classeurs legacy hash-identiques,
+    avec ou sans `--sans-excel` (accepté sans effet, pour compatibilité des appelants existants).
 
 Aucun appel réseau : le CSV de la Sheet est servi par un double.
 """
@@ -69,21 +74,19 @@ def test_le_tri_sql_utilise_la_vraie_cle_de_la_table():
     assert 'ordre="source_id"' in SOURCE
 
 
-def test_sans_excel_court_circuite_avant_toute_ecriture_de_classeur():
-    """`--sans-excel` doit sortir AVANT le bloc legacy : ni `.BAK`, ni `wb.save(M04)`."""
-    assert "SANS_EXCEL" in SOURCE
-    court_circuit = SOURCE.index("if SANS_EXCEL:\n    print(\"[lot6b] --sans-excel : classeur M04")
-    # Toute écriture du classeur (copie de sauvegarde incluse) vient APRÈS le court-circuit.
-    for marqueur in ("shutil.copy(M04, backup)", "wb.save(M04)"):
-        assert SOURCE.index(marqueur) > court_circuit, marqueur
+def test_aucune_ecriture_de_classeur_ne_subsiste_dans_le_code():
+    """Le bloc legacy (M04 + MASTER_NORM) a disparu du CODE (mission « lot6c vers SQLite » §9) —
+    pas seulement derrière un flag désactivé. Aucun de ces marqueurs d'écriture ne doit plus
+    exister, même dans une branche morte."""
+    for marqueur in ("shutil.copy(M04", "wb.save(M04)", "wbn.save(NORM_OUT)", ".BAK_",
+                      "EXPORT_LEGACY"):
+        assert marqueur not in SOURCE, f"code d'écriture de classeur encore présent : {marqueur}"
 
 
-def test_ecriture_du_classeur_reste_conditionnee():
-    """Aucune écriture Excel inconditionnelle : MASTER_NORM et M04 sont tous deux sous garde."""
-    assert "if SANS_EXCEL:\n    print(\"[lot6b] --sans-excel : MASTER_NORM non écrit.\")" in SOURCE
-    # `wbn.save(NORM_OUT)` ne doit exister que dans la branche `else`.
-    assert SOURCE.count("wbn.save(NORM_OUT)") == 1
-    assert "else:\n    wbn.save(NORM_OUT)" in SOURCE
+def test_sans_excel_est_desormais_inconditionnel():
+    """`SANS_EXCEL` reste défini (compatibilité du nom/log) mais vaut désormais toujours True :
+    il n'existe plus de branche où sa valeur changerait le comportement."""
+    assert "SANS_EXCEL = True" in SOURCE
 
 
 # ── Niveau COMPORTEMENTAL ────────────────────────────────────────────────────
@@ -201,18 +204,21 @@ REF_SETUP = (Path(cfg.PROJECT_ROOT) / "01_SOURCES_BRUTES" / "REF_Setup" / "REF_S
 def test_referentiels_du_parcours_operationnel_sont_lus_en_sqlite():
     """STRUCTUREL (A/B) — mapping, logements et intervenants viennent de SQLite.
 
-    Les trois référentiels dont le parcours SQLite a besoin sont lus par `_refs_sqlite()`. Les
-    lectures `sh(REF, ...)` restantes appartiennent au seul bloc legacy, après le `sys.exit(0)`
-    de `--sans-excel`."""
+    Les trois référentiels dont le parcours SQLite a besoin sont lus par `_refs_sqlite()`. Depuis
+    la suppression du bloc legacy (mission « lot6c vers SQLite » §9), plus AUCUNE feuille de
+    référentiel « barèmes/descriptif » (REF_Logements, REF_Couts_Standards_Menage, ...) n'est plus
+    lue nulle part dans le fichier — il ne reste que `sh(REF, "REF_Sources_Systeme")`, pour le
+    seul repli `--url-depuis-excel`, sans rapport avec l'export supprimé."""
     assert "def _refs_sqlite()" in SOURCE
     for table in ("ref_mapping_logements", "ref_logements", "ref_intervenants"):
         assert table in SOURCE, f"{table} devrait être lu en SQLite"
 
-    avant_sortie = SOURCE.split("sys.exit(0)")[0]
     for feuille in ("REF_Mapping_Logements", "REF_Logements", "REF_Intervenants",
-                    "REF_Couts_Standards_Menage"):
-        assert f'sh(REF, "{feuille}")' not in avant_sortie, (
-            f"{feuille} est encore lu dans le parcours opérationnel")
+                    "REF_Couts_Standards_Menage", "REF_Taux_Heures_Menage",
+                    "REF_Couts_Menage_Interne"):
+        assert f'sh(REF, "{feuille}")' not in SOURCE, (
+            f"{feuille} est encore lu dans le fichier")
+    assert 'sh(REF, "REF_Sources_Systeme")' in SOURCE, "seul repli --url-depuis-excel attendu"
 
 
 def test_referentiel_sqlite_manquant_est_bloquant_sans_repli_classeur():
@@ -398,12 +404,15 @@ def test_le_parcours_par_defaut_est_sqlite_sans_aucun_classeur(tmp_path):
     assert not touches, f"lot6b a touché un classeur sans qu'on le lui demande : {touches}"
 
 
-def test_l_export_legacy_doit_etre_demande_explicitement():
-    """STRUCTUREL — le défaut est SQLite ; `--export-legacy` est la seule porte vers les classeurs."""
-    assert 'EXPORT_LEGACY = "--export-legacy" in sys.argv' in SOURCE
-    assert "SANS_EXCEL = not EXPORT_LEGACY" in SOURCE
-    # L'ancien défaut (export systématique, désactivable) ne doit pas revenir.
+def test_l_export_legacy_a_disparu_sans_porte_de_retour():
+    """STRUCTUREL — plus aucune porte vers un classeur, ni via un flag ni via le défaut.
+
+    Avant la mission « lot6c vers SQLite » (§9), `--export-legacy` était LA porte explicite vers
+    les classeurs. Elle a été retirée avec le code qu'elle gardait — ni elle, ni l'ancien défaut
+    (export systématique, désactivable par `--sans-excel`) ne doivent réapparaître."""
+    assert "EXPORT_LEGACY" not in SOURCE
     assert 'SANS_EXCEL = "--sans-excel" in sys.argv' not in SOURCE
+    assert "SANS_EXCEL = not EXPORT_LEGACY" not in SOURCE
 
 
 def test_sans_excel_reste_accepte_sans_rien_changer(tmp_path):
@@ -418,19 +427,24 @@ def test_sans_excel_reste_accepte_sans_rien_changer(tmp_path):
     assert _classeurs_touches(sans) == _classeurs_touches(defaut) == []
 
 
-def test_le_seul_appelant_de_l_export_legacy_est_la_recette_de_chaine():
-    """Un seul demandeur, et il est nommé : la recette /menages/chaine (lot6c n'a pas de mode SQLite).
-
-    Si un second appelait `--export-legacy`, l'export cesserait d'être une exception documentée."""
+def test_plus_aucun_appelant_ne_demande_l_export_legacy():
+    """Plus aucun code n'invoque `--export-legacy` (lot6c a son propre mode SQLite depuis la
+    mission « lot6c vers SQLite » §9 : la recette de chaîne, dernière demandeuse, ne le passe
+    plus). `lot6b_m04_menages_internes.py` lui-même est exclu : sa docstring nomme encore le flag
+    supprimé pour expliquer POURQUOI il a disparu — c'est de la documentation, pas un appel."""
     import app.config as cfg
 
     racine = Path(cfg.PROJECT_ROOT)
     demandeurs = []
-    for chemin in list((racine / "05_APPLICATION" / "app").rglob("*.py")) +             list((racine / "02_TRAVAIL").glob("*.py")):
+    for chemin in list((racine / "05_APPLICATION" / "app").rglob("*.py")) + \
+            list((racine / "02_TRAVAIL").glob("*.py")):
+        if chemin.name == "lot6b_m04_menages_internes.py":
+            continue
         texte = chemin.read_text(encoding="utf-8", errors="replace")
-        if "--export-legacy" in texte and chemin.name != "lot6b_m04_menages_internes.py":
+        code = [l for l in texte.splitlines() if not l.lstrip().startswith("#")]
+        if any("--export-legacy" in l for l in code):
             demandeurs.append(chemin.name)
-    assert demandeurs == ["menages_chaine_service.py"], demandeurs
+    assert demandeurs == [], demandeurs
 
 
 def test_l_interpreteur_moteur_existe_reellement():

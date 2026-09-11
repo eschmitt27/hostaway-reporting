@@ -49,6 +49,13 @@ def parse_date(value: Any) -> _dt.date | None:
         return value.date()
     if isinstance(value, _dt.date):
         return value
+    if isinstance(value, float) and value != value:
+        # NaN : cellule vide relue via pandas (ex. `to_dict("records")` sur une colonne date avec
+        # des trous — pandas rend `NaN`, pas `None`). C'est une absence de valeur, pas un serial
+        # Excel : `int(nan)` levait `ValueError: cannot convert float NaN to integer` et faisait
+        # planter TOUT lot11 des qu'une periode de gestion avait une date_fin non renseignee
+        # (periode encore active), au lieu de traiter cette borne comme ouverte (cf. `applies_on`).
+        return None
     if isinstance(value, (int, float)):
         # Excel serial date, 1899-12-30 convention used by openpyxl.
         return (_dt.date(1899, 12, 30) + _dt.timedelta(days=int(value)))

@@ -26,15 +26,20 @@ workspace, capture stdout/stderr et vérifie chaque sortie.
 """
 from __future__ import annotations
 
+import csv
+import io
 import json
 import shutil
+import sqlite3
 import subprocess
 import time
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import app.config as cfg
+from app.db.connection import apply_migrations
 from app.services import menages_recalcul_service as recalc
 from app.services import snapshot_service
 from app.services import saisie_charges_lock_service as verrou_lib
@@ -102,7 +107,6 @@ SOURCES_COEUR = [
 # (0038, déjà l'enrichissement Lot6a) et `menages_declarations_internes` (0038, Lot6b) : mêmes
 # tables que `menages_recalcul_service.DATASETS_REQUIS`, une seule vérité pour cette précondition.
 DATASETS_COEUR = ("menages_taches_enrichies", "menages_declarations_internes")
-TEMPLATE_M04_REL = "template_M04_MENAGES_PowerQuery.xlsx"
 # Sources FACULTATIVES : utilisées seulement par Lot6f (pools courses/conso — vides aujourd'hui)
 # et/ou les contrôles transverses. Leur absence n'empêche PAS Lot6a-Lot6e : elle ne rend donc
 # JAMAIS la recette Ménages « rouge » — simple avertissement.
@@ -154,6 +158,12 @@ SCRIPTS_MOTEUR = [
     "02_TRAVAIL/lot6e_gainperte_menages.py",
     "02_TRAVAIL/lot6f_cout_complet_menages.py",
     "02_TRAVAIL/lot11_controles_coherence.py",
+    # `lib_db_moteur`/`lib_repartition` : imports directs de lot6b/6c/6d/6e/6f/11 en mode SQLite
+    # (résolution --db, lecture des tables, répartition monétaire canonique). Leur absence du
+    # workspace faisait échouer lot6b dès son premier import, en `ModuleNotFoundError` — trouvé en
+    # testant la chaîne sans classeur (mission « lot6c vers SQLite »).
+    "02_TRAVAIL/lib_db_moteur.py",
+    "02_TRAVAIL/lib_repartition.py",
     "02_TRAVAIL/lib_parc.py",
     "02_TRAVAIL/lib_ref_history.py",
     "02_TRAVAIL/lib_menage_costs.py",
@@ -176,15 +186,22 @@ DECLARATIONS_COPIEES_REL = "02_DONNEES_NORMALISEES/menages/source_sheet_copiee.c
 INJECTION_HOSTAWAY_REL = "_stub_hostaway_injection.json"
 
 # Sorties régénérées dans le workspace (fichier -> [(onglet, nb_lignes_minimum)]).
+#
+# lot6b et lot6c n'écrivent PLUS de classeur (SQLite est leur sortie canonique, mission « lot6c
+# vers SQLite ») : leurs 3 entrées historiques (M04, MASTER_NORM, MASTER_FACT_MEN_MenagesExternes)
+# ont disparu d'ici. Leur preuve d'exécution passe désormais par le code retour du sous-processus
+# et par le contenu de la base jetable (`SQLITE_JETABLE_REL`), pas par un onglet Excel.
+#
+# Découvert pendant la mission « lot6c vers SQLite » (§8, workflow bout-en-bout) : l'onglet
+# "data" attendu ci-dessous pour le classeur Hostaway ne l'était plus depuis une migration
+# ANTÉRIEURE — `hostaway_cleaning_tasks_adaptateur_moteur.ecrire_classeur_moteur()` (déjà en
+# place avant cette mission) régénère ce classeur DEPUIS `menages_taches_enrichies` (SQLite) et
+# n'écrit délibérément que MASTER_ENRICHI + VUE_COMPTAGE — jamais de "data" (l'onglet brut
+# pré-migration). Cette attente était donc structurellement invalide (le workflow ne pouvait
+# plus jamais atteindre STATUT_SUCCES), sans rapport avec lot6b/6c : retirée ici.
 SORTIES_CHAINE: dict[str, list[tuple[str, int]]] = {
     "02_TRAVAIL/Lot1_Hostaway/MASTER_FACT_HA_CleaningTasks_Discovery.xlsx":
-        [("data", 1), ("MASTER_ENRICHI", 1), ("VUE_COMPTAGE", 1)],
-    "02_TRAVAIL/Lot6b_DeclarationsInternes/MASTER_NORM_Declarations_Internes.xlsx":
-        [("MASTER_NORMALISE", 1)],
-    "02_DONNEES_NORMALISEES/menages/M04_MENAGES_PowerQuery.xlsx":
-        [("SOURCE_RAW", 1), ("MASTER", 1)],
-    "02_TRAVAIL/Lot6c_MenagesExternes/MASTER_FACT_MEN_MenagesExternes.xlsx":
-        [("SOURCE_RAW", 1), ("MASTER", 1), ("VUE_ACTIVE", 1), ("VUE_ECART_HOSTAWAY", 1)],
+        [("MASTER_ENRICHI", 1), ("VUE_COMPTAGE", 1)],
     "02_TRAVAIL/Lot6d_Rapprochement_Menages/MASTER_CTRL_Rapprochement_Menages.xlsx":
         [("TABLEAU_COMPARAISON", 1)],
     "02_TRAVAIL/Lot6e_GainPerte_Menages/MASTER_CALC_GainPerte_Menages.xlsx":
@@ -195,33 +212,50 @@ SORTIES_CHAINE: dict[str, list[tuple[str, int]]] = {
         [("MASTER", 1)],
 }
 
-# Étapes exécutées par le runner générique, DANS CET ORDRE (voir audit en tête de module).
-STEPS_CHAINE: list[dict[str, Any]] = [
+
+def _steps_chaine(base_sqlite_abs: str, mois_cible: str | None = None) -> list[dict[str, Any]]:
+    """Étapes exécutées par le runner générique, DANS CET ORDRE (voir audit en tête de module).
+
+    `base_sqlite_abs` est un chemin ABSOLU (résolu par l'appelant) : les scripts tournent avec
+    pour `cwd` `<workspace>/02_TRAVAIL`, un chemin relatif s'y résoudrait donc au mauvais endroit.
+
+    `mois_cible` (AAAA-MM, optionnel) : cible explicitement lot6d/6e/6f sur le mois des
+    déclarations traitées par CETTE synchronisation — cf. `_mois_cible_declarations`. Absent
+    (None), lot6d/6e/6f gardent leur propre défaut (dernier mois Hostaway).
+    """
+    _mois_args = ["--mois", mois_cible] if mois_cible else []
+    return [
     {"name": "hostaway_stub",
      "script": "02_TRAVAIL/stub_lot6a_hostaway.py",
      "produces": ["02_TRAVAIL/Lot1_Hostaway/MASTER_FACT_HA_CleaningTasks_Discovery.xlsx"]},
     {"name": "lot6b_declarations_internes",
      "script": "02_TRAVAIL/lot6b_m04_menages_internes.py",
-     # lot6b n'écrit plus de classeur par défaut : sa sortie canonique est SQLite. Cette recette
-     # est le SEUL appelant qui en demande encore l'export, parce qu'elle exécute ensuite lot6c,
-     # dépourvu de mode SQLite. Le jour où lot6c sera migré, cet argument et l'export disparaissent.
-     "args": ["--export-legacy"],
-     "produces": ["02_TRAVAIL/Lot6b_DeclarationsInternes/MASTER_NORM_Declarations_Internes.xlsx",
-                  "02_DONNEES_NORMALISEES/menages/M04_MENAGES_PowerQuery.xlsx"]},
+     # Sortie canonique SQLite (défaut depuis la mission « lot6b vers SQLite ») : la base jetable,
+     # pas un classeur. Aucun `produces` à vérifier ici.
+     "args": ["--db", base_sqlite_abs],
+     "produces": []},
     {"name": "lot6c_menages_externes",
      "script": "02_TRAVAIL/lot6c_menages_externes.py",
-     "produces": ["02_TRAVAIL/Lot6c_MenagesExternes/MASTER_FACT_MEN_MenagesExternes.xlsx"]},
+     # Ne lit plus aucun PDF ni classeur : recalcule VUE_ECART_HOSTAWAY depuis
+     # `facture_lignes_menage` (alimentée juste avant par le VRAI service d'import PDF) et
+     # `menages_taches_enrichies`, sur la base jetable. Rien à vérifier en sortie fichier.
+     "args": ["--source", "SQLITE", "--db", base_sqlite_abs],
+     "produces": []},
     {"name": "lot6d_rapprochement",
      "script": "02_TRAVAIL/lot6d_rapprochement_menages.py",
+     "args": ["--source", "SQLITE", "--db", base_sqlite_abs] + _mois_args,
      "produces": ["02_TRAVAIL/Lot6d_Rapprochement_Menages/MASTER_CTRL_Rapprochement_Menages.xlsx"]},
     {"name": "lot6e_gainperte",
      "script": "02_TRAVAIL/lot6e_gainperte_menages.py",
+     "args": ["--source", "SQLITE", "--db", base_sqlite_abs] + _mois_args,
      "produces": ["02_TRAVAIL/Lot6e_GainPerte_Menages/MASTER_CALC_GainPerte_Menages.xlsx"]},
     {"name": "lot6f_cout_complet",
      "script": "02_TRAVAIL/lot6f_cout_complet_menages.py",
+     "args": ["--db", base_sqlite_abs] + _mois_args,
      "produces": ["02_TRAVAIL/Lot6f_CoutComplet_Menages/MASTER_CALC_CoutComplet_Menages.xlsx"]},
     {"name": "lot11_controles",
      "script": "02_TRAVAIL/lot11_controles_coherence.py",
+     "args": ["--db", base_sqlite_abs],
      "produces": ["02_TRAVAIL/Lot11_Controles/MASTER_CTRL_Coherence.xlsx"]},
 ]
 
@@ -244,6 +278,57 @@ def _scripts_root() -> Path:
 
 def _stubs_dir() -> Path:
     return Path(cfg.MENAGES_STUBS_DIR)
+
+
+# Table de mois français MINIMALE, dupliquée délibérément (même convention que
+# `lot6b_m04_menages_internes.MOIS`/`lib_menages_externes_pdf.MOIS_FR`) : ce module n'importe
+# JAMAIS le moteur (cf. docstring de tête, `test_no_import_of_travail_modules`), donc aucune des
+# libs du dossier moteur n'est utilisable ici.
+_MOIS_FR = {"janvier": "01", "fevrier": "02", "mars": "03", "avril": "04", "mai": "05",
+            "juin": "06", "juillet": "07", "aout": "08", "septembre": "09", "octobre": "10",
+            "novembre": "11", "decembre": "12"}
+
+
+def _norm_mois(s: Any) -> str:
+    s = str(s or "").strip().lower()
+    return "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
+
+
+def _mois_cible_declarations(declarations_csv: str | None) -> str | None:
+    """Mois AAAA-MM réellement couvert par CE CSV de déclarations (celui que lot6b va écrire).
+
+    lot6d/6e/6f défaut à « dernier mois présent dans `menages_taches_enrichies` » (Hostaway) —
+    correct en production, où les tâches Hostaway ET les déclarations avancent ensemble, mais
+    Hostaway peut légitimement contenir des tâches déjà planifiées pour des mois FUTURS sans
+    aucune déclaration correspondante. Sur cette recette, où le CSV de déclarations est un stub
+    fixe (mois figé) copié à côté d'un `menages_taches_enrichies` réel qui, lui, avance avec le
+    temps, ce défaut dérive lot6d/6e/6f vers un mois où 0 déclaration n'existe : 0 ligne partout
+    en aval, sans que lot6d/6e/6f eux-mêmes soient en cause. On cible donc explicitement lot6d/
+    6e/6f sur le mois EFFECTIVEMENT déclaré — jamais un mois figé en dur : dérivé du CSV reçu.
+    """
+    if not declarations_csv:
+        return None
+    try:
+        lignes = list(csv.reader(io.StringIO(declarations_csv)))
+    except Exception:
+        return None
+    if len(lignes) < 2:
+        return None
+    hdr = lignes[0]
+    try:
+        i_mois = hdr.index("Mois des ménages")
+        i_an = hdr.index("Année des ménages")
+    except ValueError:
+        return None
+    mois_vus = set()
+    for r in lignes[1:]:
+        if len(r) <= max(i_mois, i_an):
+            continue
+        mm = _MOIS_FR.get(_norm_mois(r[i_mois]))
+        yr = str(r[i_an] or "").strip()
+        if mm and yr:
+            mois_vus.add(f"{yr}-{mm}")
+    return max(mois_vus) if mois_vus else None
 
 
 def _source_recette_defaut() -> str | None:
@@ -342,8 +427,10 @@ def preparer_chaine(mode: str = MODE_COPIES, *, db_path=None) -> dict[str, Any]:
         and etat_verrou["etat"] == verrou_lib.ETAT_ABSENT
     return {
         "mode": mode,
+        # Aperçu des étapes : seul `name` importe ici, le chemin de base jetable réel n'existe
+        # qu'au moment de l'exécution (workspace pas encore créé).
         "etapes": [{"name": s["name"], "libelle": LIBELLES_ETAPES.get(s["name"], s["name"])}
-                   for s in STEPS_CHAINE],
+                   for s in _steps_chaine("<base-sqlite-jetable>")],
         "sources_coeur": coeur, "sources_facultatives": facultatives, "sources_lot11": lot11,
         "facultatives_absentes": facultatives_absentes,
         "pdf_dossier_relatif": cfg.MENAGES_PDF_DIR_REL, "pdf_presents": pdf, "nb_pdf": len(pdf),
@@ -357,16 +444,110 @@ def preparer_chaine(mode: str = MODE_COPIES, *, db_path=None) -> dict[str, Any]:
     }
 
 
+# ── Base SQLite jetable (lot6b→lot6c→lot6d→lot6e→lot6f→lot11, sans classeur intermédiaire) ───────
+#
+# CE QUE CECI REMPLACE : jusqu'ici, lot6c (et, en mode EXCEL, lot6d/6e) lisaient un classeur
+# construit à partir de sources copiées (REF_Setup.xlsm, PDF, classeur Hostaway jetable). lot6b
+# écrivait M04/MASTER_NORM (`--export-legacy`) UNIQUEMENT pour que lot6c ait quelque chose à lire —
+# lot6c a désormais son propre mode SQLite, et `--export-legacy` a disparu de lot6b avec le code
+# qui l'exécutait (mission « lot6c vers SQLite » §9) : ce commentaire ne décrit plus que l'HISTOIRE
+# de cette base jetable, pas un mécanisme encore actif.
+#
+# Le circuit cible est : sources réelles en LECTURE SEULE (référentiels, Hostaway déjà résolu,
+# PDF copiés) → une base SQLite JETABLE, propre à ce run → lot6b/6c/6d/6e/6f/lot11 en
+# `--source SQLITE`. Rien n'est réutilisé de la vraie base au-delà de tables de référence : les
+# déclarations internes et les factures ménage sont reconstruites PAR LA CHAÎNE ELLE-MÊME, sur
+# cette base jetable, exactement comme le fait la vraie recette (Google Sheet stubbée, PDF copiés).
+#
+# `menages_taches_enrichies` : seule table "de fait" copiée telle quelle, pour la MÊME raison que
+# le classeur Hostaway jetable existant (`hostaway_cleaning_tasks_adaptateur_moteur`) — la mission
+# interdit explicitement de dépendre d'un appel Hostaway live pour tester lot6c : les données déjà
+# résolues, réelles, servent de donnée d'entrée fixe.
+REF_TABLES_JETABLES = (
+    "ref_logements", "ref_types_logements", "ref_intervenants", "ref_gestion_logements_hist",
+    "ref_couts_standards_menage", "ref_couts_menage_interne", "ref_taux_heures_menage",
+    "ref_charges_recurrentes", "ref_sources_systeme", "ref_mapping_logements",
+)
+SQLITE_JETABLE_REL = "_sqlite/app.db"
+
+
+def _construire_base_sqlite(workspace: Path, db_path) -> Path:
+    """Base SQLite jetable du workspace : migrée, référentiels copiés en lecture seule.
+
+    Ne copie NI `menages_declarations_internes` NI `facture_lignes_menage`/`factures` : ces
+    tables sont reconstruites par la chaîne elle-même (lot6b depuis la Sheet stubbée,
+    `facture_menage_pdf_service` depuis les PDF copiés) — copier leur contenu réel testerait la
+    lecture, pas la CONSTRUCTION, qui est justement ce que cette recette existe pour vérifier.
+    """
+    cible = workspace / SQLITE_JETABLE_REL
+    cible.parent.mkdir(parents=True, exist_ok=True)
+    apply_migrations(cible)
+
+    src = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    dst = sqlite3.connect(str(cible))
+    try:
+        for table in REF_TABLES_JETABLES:
+            existe = src.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
+            ).fetchone()
+            if not existe:
+                continue
+            colonnes = [r[1] for r in dst.execute(f"PRAGMA table_info({table})")]
+            if not colonnes:
+                continue
+            noms = ", ".join(colonnes)
+            trous = ", ".join(["?"] * len(colonnes))
+            lignes = src.execute(f"SELECT {noms} FROM {table}").fetchall()
+            if lignes:
+                dst.executemany(f"INSERT INTO {table} ({noms}) VALUES ({trous})", lignes)
+
+        if src.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='menages_taches_enrichies'"
+        ).fetchone():
+            colonnes = [r[1] for r in dst.execute("PRAGMA table_info(menages_taches_enrichies)")]
+            noms = ", ".join(colonnes)
+            trous = ", ".join(["?"] * len(colonnes))
+            lignes = src.execute(f"SELECT {noms} FROM menages_taches_enrichies").fetchall()
+            if lignes:
+                dst.executemany(
+                    f"INSERT INTO menages_taches_enrichies ({noms}) VALUES ({trous})", lignes)
+        dst.commit()
+    finally:
+        src.close()
+        dst.close()
+    return cible
+
+
+def _importer_pdf_dans_base_jetable(workspace: Path, base_sqlite: Path, pdf_dir: Path) -> dict[str, Any]:
+    """Exerce le VRAI chemin d'ingestion (`facture_menage_pdf_service`), pas une simulation.
+
+    C'est le même service que celui utilisé en production quand un PDF est déposé dans
+    l'application — l'exécuter ici, sur la base jetable, est ce qui rend cette recette une preuve
+    du pipeline réel plutôt qu'une reproduction séparée de sa logique.
+    """
+    from app.services import facture_menage_pdf_service as flm_import
+
+    resultats = []
+    if pdf_dir.exists():
+        for p in sorted(pdf_dir.glob("*.pdf")):
+            resultats.append({"fichier": p.name,
+                              **flm_import.importer(str(p), acteur="menages_chaine",
+                                                    db_path=base_sqlite)})
+    return {"nb_pdf": len(resultats), "resultats": resultats}
+
+
 # ── Workspace ────────────────────────────────────────────────────────────────
 
 def _construire_workspace(run_ts: str, declarations_csv: str,
                           injection_hostaway: dict | None, *,
-                          db_path=None) -> tuple[Path, list[str]]:
+                          db_path=None) -> tuple[Path, list[str], Path]:
     """Miroir minimal du projet + stubs + source déclarations copiée + injection Hostaway.
 
-    Retourne (workspace, avertissements). Copies uniquement pour REF_Setup — aucun fichier réel
-    déplacé, renommé ou modifié. CleaningTasks/M04 sont FABRIQUÉS ici depuis SQLite (jetables, pas
-    des copies de master).
+    Retourne (workspace, avertissements, base_sqlite). Copies uniquement pour REF_Setup — aucun
+    fichier réel déplacé, renommé ou modifié. CleaningTasks/M04 sont FABRIQUÉS ici depuis SQLite
+    (jetables, pas des copies de master). `base_sqlite` est la base jetable que lot6b/6c/6d/6e/6f/
+    lot11 utilisent en `--source SQLITE` — construite APRÈS la copie des PDF, pour que
+    `facture_menage_pdf_service` les importe depuis le dossier du workspace, jamais le vrai.
     """
     base = Path(cfg.MENAGES_CHAINE_WORKSPACE)
     workspace = base / run_ts
@@ -393,14 +574,9 @@ def _construire_workspace(run_ts: str, declarations_csv: str,
         warnings.append(f"CleaningTasks non fournies à lot6a/6c/6d : "
                         f"{ha_gen.get('message', ha_gen.get('code'))}")
 
-    # M04 (Lot6b) : template STRUCTUREL versionné (0 ligne de donnée) — lot6b écrase entièrement
-    # SOURCE_RAW/MASTER/VUE_ACTIVE à chaque run depuis `declarations_csv` (jamais un input lu
-    # depuis ce fichier). Le classeur permanent du projet n'est donc plus requis, seule sa forme
-    # (onglets/tables Excel) doit exister pour que `openpyxl.load_workbook` réussisse.
-    m04_template = _stubs_dir() / TEMPLATE_M04_REL
-    m04_dest = workspace / "02_DONNEES_NORMALISEES/menages/M04_MENAGES_PowerQuery.xlsx"
-    m04_dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(m04_template, m04_dest)
+    # M04 : plus de classeur à fournir. lot6b (`--db <base jetable>`) écrit sa sortie canonique
+    # directement dans `menages_declarations_internes` — le template structurel `M04_MENAGES_
+    # PowerQuery.xlsx` n'a plus de lecteur dans cette chaîne (mission « lot6c vers SQLite »).
 
     # Sources facultatives (Lot6f pools) : copiées SI présentes, jamais bloquantes.
     for rel in SOURCES_FACULTATIVES:
@@ -450,6 +626,20 @@ def _construire_workspace(run_ts: str, declarations_csv: str,
     for p in _pdf_reels():
         shutil.copy2(p, pdf_dst / p.name)
 
+    # Base SQLite jetable : référentiels + Hostaway déjà résolu copiés en lecture seule, PUIS les
+    # PDF copiés ci-dessus importés via le VRAI service d'ingestion — jamais une reconstruction
+    # séparée de sa logique. lot6b/6c/6d/6e/6f/lot11 la lisent ensuite en `--source SQLITE`.
+    base_sqlite = _construire_base_sqlite(workspace, db_path or cfg.DB_PATH)
+    import_pdf = _importer_pdf_dans_base_jetable(workspace, base_sqlite, pdf_dst)
+    if import_pdf["nb_pdf"] == 0:
+        warnings.append("Aucun PDF ménage externe copié : facture_lignes_menage restera vide "
+                        "sur la base jetable (lot6c n'aura rien à rapprocher).")
+    else:
+        echecs = [r for r in import_pdf["resultats"] if not r.get("ok")]
+        if echecs:
+            warnings.append(f"{len(echecs)}/{import_pdf['nb_pdf']} PDF non importés dans la base "
+                            f"jetable : {[r['fichier'] for r in echecs]}")
+
     # Stubs contrôlés : lib_sheet_source (remplace le réseau) + extraction Hostaway simulée.
     for nom_stub, rel_dst in (STUB_SHEET_SOURCE, STUB_HOSTAWAY):
         shutil.copy2(_stubs_dir() / nom_stub, workspace / rel_dst)
@@ -465,7 +655,7 @@ def _construire_workspace(run_ts: str, declarations_csv: str,
 
     for rel in SORTIES_CHAINE:
         (workspace / Path(rel).parent).mkdir(parents=True, exist_ok=True)
-    return workspace, warnings
+    return workspace, warnings, base_sqlite
 
 
 # ── Vérification des sorties (onglets + lignes + lisibilité) ─────────────────
@@ -580,10 +770,12 @@ def executer_chaine(mode: str = MODE_COPIES, declarations_csv: str | None = None
             db_path=db_path)
 
         run_ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        workspace, ws_warnings = _construire_workspace(run_ts, declarations_csv, injection_hostaway,
-                                                       db_path=db_path)
+        workspace, ws_warnings, base_sqlite = _construire_workspace(
+            run_ts, declarations_csv, injection_hostaway, db_path=db_path)
+        mois_cible = _mois_cible_declarations(declarations_csv)
+        steps_chaine = _steps_chaine(str(base_sqlite.resolve()), mois_cible=mois_cible)
         requete = {"allowed_root": str(workspace.resolve()), "workspace": str(workspace.resolve()),
-                   "steps": STEPS_CHAINE, "timeout": cfg.MENAGES_CHAINE_TIMEOUT_SECONDS}
+                   "steps": steps_chaine, "timeout": cfg.MENAGES_CHAINE_TIMEOUT_SECONDS}
         requete_path = workspace / "_requete.json"
         reponse_path = workspace / "_reponse.json"
         requete_path.write_text(json.dumps(requete, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -614,7 +806,7 @@ def executer_chaine(mode: str = MODE_COPIES, declarations_csv: str | None = None
                     reponse = json.loads(reponse_path.read_text(encoding="utf-8"))
                     etapes = reponse.get("steps", [])
                     nb_ok = sum(1 for e in etapes if e.get("statut") == "OK")
-                    if reponse.get("ok") and nb_ok == len(STEPS_CHAINE):
+                    if reponse.get("ok") and nb_ok == len(steps_chaine):
                         statut = STATUT_SUCCES
                     elif nb_ok == 0:
                         statut = STATUT_ECHEC

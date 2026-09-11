@@ -180,14 +180,18 @@ def test_chaine_aval_respecte_l_ordre_du_runner_existant():
 
 
 def test_chaine_menages_respecte_l_ordre_du_runner_existant():
-    """L'ordre vient de `menages_chaine_service.STEPS_CHAINE`, seule cartographie auditée.
+    """L'ordre vient de `menages_chaine_service._steps_chaine()`, seule cartographie auditée.
 
     Comparé à cette source plutôt qu'à une liste recopiée : une divergence entre le pilotage et
     l'orchestrateur existant doit casser ce test au lieu de passer inaperçue. `lot6c` manquait —
     c'est pourtant une étape du runner, et il produit les ménages externes que lot6d consomme.
+
+    `STEPS_CHAINE` est devenu `_steps_chaine(base_sqlite_abs)` (mission « lot6c vers SQLite ») :
+    les étapes dépendent désormais du chemin de la base jetable, passé par l'appelant — l'ordre
+    testé ici en est indépendant, un chemin factice suffit.
     """
     from app.services import menages_chaine_service as chaine
-    attendu = [e["name"].split("_")[0] for e in chaine.STEPS_CHAINE
+    attendu = [e["name"].split("_")[0] for e in chaine._steps_chaine("<base>")
                if e["name"].startswith("lot6")]
     assert [l.nom for l in ex.CHAINE_MENAGES] == attendu
 
