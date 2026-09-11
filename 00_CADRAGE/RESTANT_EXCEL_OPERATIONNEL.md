@@ -1,10 +1,14 @@
-# Excel opérationnel restant — inventaire au 2026-09-11
+# Excel opérationnel restant — inventaire au 2026-09-11 (mis à jour, mission « lot6c vers SQLite »)
 
 > Mission « FIN DU LEGACY CHARGES / MÉNAGES », **DÉCISION 1** : « ZÉRO EXCEL OPÉRATIONNEL. »
 >
 > Cet inventaire dit **où en est réellement** cet objectif, moteur par moteur. Il ne promet rien :
-> il constate. `lot6f` vient de basculer ; le reste est listé avec son coût et son risque, pour que
-> l'ordre des prochaines bascules soit un choix et non une surprise.
+> il constate. `lot6f` avait basculé en premier ; **`lot6c` vient de le rejoindre** (mission « lot6c
+> vers SQLite ») — avec lui, l'export legacy de `lot6b` a disparu du CODE (pas d'un flag), et la
+> recette de chaîne ménages (`/menages/chaine`) tourne désormais **lot6b → lot6c → lot6d → lot6e →
+> lot6f → lot11 en SQLite pur, sans aucun classeur intermédiaire** — vérifié par un run réel sur les
+> données du projet (`STATUT_SUCCES`, `reel_intact=True`). Le reste est listé avec son coût et son
+> risque, pour que l'ordre des prochaines bascules soit un choix et non une surprise.
 
 ---
 
@@ -33,9 +37,10 @@ archive ; source d'import d'un autre module. »
 | `lot4a_compare_reservations_hh` | RIEN ✅ | — | outil de comparaison, déjà sans classeur |
 | `lot7_pq_avantages` | RIEN ✅ | — | générateur de M-code, n'ouvre rien |
 | `lot3_generateur_charges` | `SAISIE_Charges_Flux`, `REF_Setup` | **moyen** | La table `charges` EST déjà canonique pour l'application (un seul `INSERT INTO charges`, dans `charges_saisie_service`). lot3 travaille sur le circuit classeur historique, en parallèle. |
-| **`lot6b_m04_menages_internes`** | **RIEN au runtime** ✅ | *fait* | Lit la Google Sheet (source externe légitime) et écrit `menages_declarations_internes`. **SQLite est le DÉFAUT** : aucun run ne peut plus produire un classeur sans le demander. `--export-legacy` subsiste pour un seul appelant (cf. §3bis). Équivalence prouvée : 39 lignes, 188 ménages, bit-à-bit identique. |
-| **`lot6c_menages_externes`** | `LOT6A`, `REF_SRC` | **moyen — PROCHAIN SUR LA LISTE** | **Aucun mode SQLite, aucune écriture SQLite.** C'est lui, et lui seul, qui impose encore un workspace Excel à la recette de chaîne — donc l'export legacy de lot6b. Le migrer libère les deux. |
-| `lot6a`, `lot6d`, `lot6e` | classeurs amont | moyen | chaîne ménages, migrable après lot6c |
+| **`lot6b_m04_menages_internes`** | **RIEN** ✅ | *fait* | Lit la Google Sheet (source externe légitime) et écrit `menages_declarations_internes`. **Écrit UNIQUEMENT du SQLite** : le bloc d'export legacy (`--export-legacy`, classeurs M04 + MASTER_NORM) a été **supprimé du code**, mission « lot6c vers SQLite » §9 — plus un flag qui le désactive, plus de code du tout. Équivalence prouvée avant suppression : 39 lignes, 188 ménages, bit-à-bit identique. |
+| **`lot6c_menages_externes`** | RIEN en `--source SQLITE` ✅ | *fait* | **Mode SQLite ajouté** (mission « lot6c vers SQLite ») : recalcule `VUE_ECART_HOSTAWAY` depuis `facture_lignes_menage` (alimentée par `facture_menage_pdf_service`, déjà canonique) et `menages_taches_enrichies` — aucun classeur lu ni écrit. Règle de classification partagée avec `menages_ecarts_service` (applicatif) via `lib_db_moteur.classer_ecart_menage_externe`. Le mode `EXCEL` par défaut (sans `--source`) reste le code legacy, pour tout appelant qui ne serait pas encore migré ; la recette de chaîne, elle, n'y passe plus jamais. |
+| `lot6d`, `lot6e` | RIEN en `--source SQLITE` ✅ (déjà présent avant cette mission) | *fait, désormais RÉELLEMENT exercé* | Leur mode SQLite existait déjà mais n'était jamais emprunté par la recette de chaîne (bloquée par lot6c ci-dessus, en Excel par défaut). Il l'est maintenant : `menages_chaine_service` leur passe `--source SQLITE --db <base jetable> --mois <mois déclaré>`. Leur mode `EXCEL` par défaut reste du code legacy non supprimé (out of scope de cette mission — aucun appelant restant identifié, cf. §3bis). |
+| `lot6a` | classeur Hostaway déjà régénéré depuis SQLite par `hostaway_cleaning_tasks_adaptateur_moteur` en recette | fait côté recette | Le vrai `lot6a_cleaning_tasks_comptage.py` (API Hostaway) reste hors périmètre Claude (appel réseau) ; la recette le remplace par un stub qui ré-écrit le classeur jetable depuis `menages_taches_enrichies` (SQLite), sans jamais appeler l'API. |
 | `lot1_hostaway_extract` | `REF_Setup` | faible | seulement le référentiel, déjà en SQLite (`ref_*`) |
 | `lot4bis`, `lot4ter`, `lot4quater` | classeurs réservations | **élevé** | cœur du résultat économique ; 7 909 lignes réelles |
 | `lot5_master_acomptes_proprietaires` | `REF_Setup`, masters | moyen | acomptes déjà en SQLite (`mouvements_tresorerie_proprietaires`) |
@@ -59,26 +64,45 @@ Un seul lecteur de classeur subsiste au runtime :
 
 ---
 
-## 3bis. La dernière dépendance de lot6b, nommée
+## 3bis. La dernière dépendance de lot6b — résolue
 
-`lot6b` n'écrit plus de classeur par défaut. Son export legacy (`--export-legacy`) subsiste pour
-**un seul appelant**, et un test vérifie qu'il reste seul :
+**Fait, mission « lot6c vers SQLite » (§9).** `lot6b` n'écrivait déjà plus de classeur par défaut ;
+son export legacy (`--export-legacy`, classeurs M04 + MASTER_NORM) survivait pour **un seul
+appelant** :
 
 > `menages_chaine_service` — la **recette de chaîne complète** de l'écran `/menages/chaine`, qui
 > rejoue lot6b → lot6c → lot6d → lot6e → lot6f → lot11 dans un workspace isolé.
 
-Pourquoi elle reste Excel : elle exécute **`lot6c`**, qui n'a ni `--source SQLITE` ni la moindre
-écriture SQLite. Tant que lot6c lit et écrit des classeurs, le workspace de recette doit en
-contenir — donc lot6b doit pouvoir en produire.
+La raison était nommée : elle exécutait **`lot6c`**, qui n'avait ni `--source SQLITE` ni la moindre
+écriture SQLite — le workspace de recette devait donc contenir des classeurs, et lot6b devait
+pouvoir en produire un.
 
-La chaîne de dépendance est courte et nommée : **migrer lot6c libère la recette, qui libère
-l'export de lot6b.** Aucune autre raison ne maintient ce code en vie.
+**lot6c a désormais un mode `--source SQLITE`** (recalcule `VUE_ECART_HOSTAWAY` depuis
+`facture_lignes_menage`/`menages_taches_enrichies`, sans classeur). La recette de chaîne construit
+maintenant une **base SQLite jetable** (référentiels en lecture seule copiés depuis la vraie base +
+PDF factures ménage importés par le vrai `facture_menage_pdf_service`) et fait tourner **lot6b →
+lot6c → lot6d → lot6e → lot6f → lot11 exclusivement en `--source SQLITE`**, `--db <base jetable>`.
+Preuve : `menages_chaine_service.executer_chaine(mode=MODE_COPIES)` rend `statut="SUCCES"`,
+`ok=True`, `reel_intact=True`, et toutes les vérifications de sortie (`verif_sorties`) passent —
+run réel contre les données du projet, aucun fichier réel modifié.
 
-Ce qui est déjà acquis sans attendre : **le parcours opérationnel ne peut plus produire de classeur
-par inadvertance.** Il fallait auparavant penser à passer `--sans-excel` ; il faut désormais
-demander explicitement le contraire. Le commentaire qui justifiait l'ancien défaut invoquait un
+**L'export legacy de lot6b a donc été supprimé du CODE** (`EXPORT_LEGACY`/`--export-legacy` et le
+bloc M04/MASTER_NORM entier n'existent plus dans `lot6b_m04_menages_internes.py`) — pas désactivé
+par un flag qui pourrait être réactivé. `--sans-excel` reste accepté en argument, sans effet : c'est
+devenu l'unique comportement possible.
+
+Ce qui reste, hors périmètre de cette mission : les modes `EXCEL` par défaut de `lot6d`/`lot6e`
+(inutilisés par la recette désormais, et sans appelant identifié ailleurs) et deux lectures
+résiduelles du classeur M04 dans `lot11_controles_coherence` (un contrôle de fraîcheur, une entrée
+de dépendance) — classeurs gelés à leur dernier contenu, plus jamais régénérés. Ce sont des lectures
+mortes, pas des risques de divergence : rien ne les réécrit plus.
+
+Ce qui était déjà acquis avant cette mission : **le parcours opérationnel ne pouvait déjà plus
+produire de classeur par inadvertance.** Le commentaire qui justifiait l'ancien défaut invoquait un
 blocage — « lot11 lit encore le classeur M04 » — **déjà levé depuis** : les deux implémentations de
-lot11 lisent `menages_declarations_internes`. Le blocage avait survécu à sa propre disparition.
+lot11 lisent `menages_declarations_internes`. Le blocage avait survécu à sa propre disparition (et,
+vérification faite pendant cette mission, `lot9` ne lisait déjà plus M04 non plus — TYPE_FLUX_013
+est « analytique seul, non injecté » depuis D105 révisée).
 
 ---
 
@@ -143,9 +167,14 @@ C'est la procédure suivie pour lot6f, et elle est reproductible telle quelle :
 
 ## 6. Ordre suggéré pour la suite
 
-**`lot6c` d'abord** — c'est le seul verrou qui maintienne encore un workspace Excel dans la recette
-ménages, et donc l'export legacy de `lot6b` (cf. §3bis). Ensuite `lot1`/`lot8b` (référentiel seul,
-déjà en SQLite) → `lot6a/6d/6e` (leurs modes EXCEL deviennent alors du code mort) → `lot3`
-(charges ; la table est déjà canonique côté application) → `lot5`, `lot7` →
+**`lot6c` est fait** (mission « lot6c vers SQLite ») — c'était le seul verrou qui maintenait encore
+un workspace Excel dans la recette ménages, et donc l'export legacy de `lot6b` ; les deux sont
+résolus (cf. §3bis). La recette tourne désormais lot6b→lot6c→lot6d→lot6e→lot6f→lot11 en SQLite pur.
+
+Prochaines étapes suggérées : `lot1`/`lot8b` (référentiel seul, déjà en SQLite) → nettoyage des
+modes `EXCEL` par défaut de `lot6d`/`lot6e`/`lot6a` (désormais du code mort côté recette : plus
+aucun appelant connu ne les emprunte, mais le code lui-même n'a pas été supprimé — seule leur
+invocation a changé) → les deux lectures résiduelles du classeur M04 dans `lot11_controles_coherence`
+→ `lot3` (charges ; la table est déjà canonique côté application) → `lot5`, `lot7` →
 `lot4bis/ter/quater` **en dernier** : c'est le cœur du résultat économique, et c'est là que le coût
 d'une erreur est maximal.

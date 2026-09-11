@@ -1208,6 +1208,39 @@ Decisions validees :
 - D-M5 : Outrepassage = écriture SQLite uniquement (`menage_overrides` migration 0003 + `audit_events`). Jamais d'écriture dans un fichier Excel ou MASTER. Motif obligatoire. Contrainte UNIQUE(mois, logement_id, intervenant_id) — 2e outrepassage = mise à jour, pas doublon.
 - D-M6 : Statut effectif = `JUSTIFIE` si override enregistré, sinon `statut_controle` du MASTER. L'affichage reflète l'override sans modifier la source.
 
+---
+
+### D-MEN-SQLITE-01 — lot6c passe en SQLite ; l'export legacy de lot6b disparaît
+
+- **Date** : 2026-09-11
+- **Lot** : mission « lot6c vers SQLite » (détail complet : `HANDOFF_CANONIQUE.md`, Mission 25)
+- **Statut** : ACTÉ (partiel — voir « Non fait » ci-dessous)
+
+**Décisions :**
+- D-MSQ-1 : `lot6c_menages_externes.py --source SQLITE` remplace le rôle historique du script pour
+  la seule chose qu'aucun autre chemin SQLite ne calculait encore : `VUE_ECART_HOSTAWAY`. La
+  ventilation/réconciliation facture qu'il faisait auparavant (D079-D088 ci-dessus) est désormais
+  tenue par `facture_menage_pdf_service`/`facture_lignes_menage_service`, déjà en production —
+  aucune seconde implémentation n'a été recréée pour ce rôle.
+- D-MSQ-2 : la règle de classification de l'écart facture-externe/Hostaway (auparavant dupliquée
+  entre `lot6c` et le service applicatif `menages_ecarts_service`) est désormais UNIQUE :
+  `lib_db_moteur.classer_ecart_menage_externe()`, appelée par les deux côtés.
+- D-MSQ-3 : l'export legacy de `lot6b` (`--export-legacy`, classeurs M04/MASTER_NORM) est
+  **supprimé du code**, pas seulement désactivé. `MASTER_FACT_MEN_MenagesExternes.xlsx` et
+  `M04_MENAGES_PowerQuery.xlsx` (catégorie A de `RESTANT_EXCEL_OPERATIONNEL.md`, sources de
+  lecture historiques de D083/D-APP-2-MENAGES) cessent d'être régénérés par ces deux scripts —
+  ils restent lisibles en l'état par ce qui ne les a pas encore lâchés (deux contrôles `lot11`,
+  modes `EXCEL` par défaut non supprimés de `lot6d`/`lot6e`), gelés à leur dernier contenu réel.
+- D-MSQ-4 : une ligne de déclaration `lot6b` non mappée (logement ou intervenant) n'entre plus
+  dans les tables SQLite structurées (elle violait une contrainte NOT NULL et faisait échouer
+  toute la synchronisation) ; elle est comptée et ignorée, sans encore de file À_TRAITER durable —
+  lacune connue, non comblée ce tour.
+
+**Non fait ce tour (scope explicite)** : recalcul de `menages_cout_complet` dans la vraie base
+(comparaison legacy/SQLite sur copie isolée non menée — condition posée avant tout recalcul réel,
+cf. mission §11-13) ; nettoyage des modes `EXCEL` par défaut de `lot6d`/`lot6e`/`lot6a` (laissés en
+place, non exercés par la recette) ; garde anti-régression dédiée à `lot6c` (audit hook).
+
 
 ## D-APP-3A-FOURNISSEURS — Décisions APP-3a : charges fournisseurs lecture seule
 

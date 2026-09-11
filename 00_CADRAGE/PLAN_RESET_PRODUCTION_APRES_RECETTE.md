@@ -72,6 +72,17 @@ les déclarations d'avant (29 lignes, mois 2026-03..2026-07). Un recalcul ciblé
 `/menages` suffit ; il n'a pas été déclenché ici pour ne pas modifier de résultat économique hors
 du périmètre de la mission.
 
+### 2ter. Ce que la mission « lot6c vers SQLite » (2026-09-11, Mission 25) change pour ce plan
+
+Aucun impact sur les objets à retirer ni sur l'ordre §5 — l'impact porte sur **comment** le
+recalcul de `menages_cout_complet` mentionné juste au-dessus devra être mené, une fois décidé :
+
+| Changement | Effet sur ce plan |
+|---|---|
+| `lot6b` n'écrit plus AUCUN classeur (export legacy `--export-legacy` supprimé du code) | Rien à surveiller côté `M04_MENAGES_PowerQuery.xlsx`/`MASTER_NORM_Declarations_Internes.xlsx` avant un recalcul futur : ils ne bougent plus jamais, quelle que soit la commande lancée. |
+| `lot6c` a désormais un mode `--source SQLITE` | Le recalcul de `menages_cout_complet` (§8 « Critère de réussite ») peut être mené par la chaîne `lot6b → lot6c → lot6d → lot6e → lot6f` entièrement en SQLite, sans plus jamais dépendre de `MASTER_FACT_MEN_MenagesExternes.xlsx`. |
+| Recalcul réel **toujours pas effectué** | La mission « lot6c vers SQLite » a **prouvé** que la chaîne SQLite fonctionne bout en bout sur une base **jetable** (recette), mais n'a **pas** mené la comparaison legacy/SQLite sur copie isolée qui conditionne un recalcul de la VRAIE table (§11-13 de cette mission) — donc `menages_cout_complet` réel reste, à ce stade, dans le même état qu'avant : non recalculé. Le critère §8 ci-dessous reste donc ouvert, inchangé. |
+
 ---
 
 ## 3. Ce qui doit être conservé, sans discussion

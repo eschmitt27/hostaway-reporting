@@ -2246,3 +2246,33 @@ d'une **saisie HH** n'a pas de payout Hostaway correspondant : la colonne y rest
 sans effet sur l'assiette, la commission ni le net propriétaire.
 
 Détail complet : `RECETTE_MODE_REEL_20260910.md` et `HANDOFF_CANONIQUE.md` mission 19.
+
+## Mise à jour 2026-09-11 — Mission 25 : lot6c passe en SQLite, export legacy lot6b supprimé
+
+**Aucune table, aucune migration.** Le changement porte sur le CIRCUIT D'ALIMENTATION de la
+section 11 (§11.3-11.5 ci-dessus, dont le contenu texte reste juste — les classeurs qu'elles
+décrivent existent toujours, ils cessent seulement d'être RÉGÉNÉRÉS par ces deux scripts) :
+
+- `lot6c_menages_externes.py --source SQLITE` recalcule `VUE_ECART_HOSTAWAY` (le seul rapprochement
+  qui n'avait pas encore d'équivalent SQLite) depuis `facture_lignes_menage`/
+  `menages_taches_enrichies`, via `lib_db_moteur.calculer_ecarts_menages_externes()` — la MÊME
+  fonction que `app/services/menages_ecarts_service.py` appelle désormais (`_classer()` y délègue
+  entièrement) : une seule implémentation de la règle, plus deux.
+- `lot6b_m04_menages_internes.py` a perdu son export legacy (`--export-legacy`) : plus aucun code
+  n'écrit `M04_MENAGES_PowerQuery.xlsx` ni `MASTER_NORM_Declarations_Internes.xlsx`. Sortie
+  canonique inchangée par ailleurs : `menages_declarations_internes` (SQLite, migration 0038).
+- `app/services/menages_chaine_service.py` (recette `/menages/chaine`) construit une base SQLite
+  jetable par run (référentiels en lecture seule + PDF importés par le vrai
+  `facture_menage_pdf_service`) et enchaîne `lot6b → lot6c → lot6d → lot6e → lot6f → lot11`
+  exclusivement en `--source SQLITE`, sans classeur intermédiaire — vérifié contre les données
+  réelles du projet (`STATUT_SUCCES`, aucun fichier réel modifié).
+
+Deux bugs de production réels trouvés en construisant cette preuve, corrigés dans le même
+mouvement : `lot6b` ignorait `--db` (quatre `dbm.chemin_db(None)` en dur, aucun `argparse`) alors
+qu'`orchestrateur_moteur.executer()` le lui passe déjà à chaque appel ; `lib_ref_history.
+parse_date()` levait `ValueError` sur une date de fin de gestion vide relue en `NaN` (pandas) plutôt
+que `None`, faisant planter `lot11` dès qu'une période de gestion restait active.
+
+Détail complet, y compris ce qui reste non fait (recalcul réel de `menages_cout_complet`, modes
+`EXCEL` de `lot6d`/`lot6e` non nettoyés) : `HANDOFF_CANONIQUE.md` mission 25,
+`RESTANT_EXCEL_OPERATIONNEL.md`.

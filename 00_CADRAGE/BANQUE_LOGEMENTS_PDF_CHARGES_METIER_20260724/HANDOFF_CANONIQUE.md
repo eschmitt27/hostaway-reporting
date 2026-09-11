@@ -3336,3 +3336,100 @@ utilisateur continue. Aucune charge de test, aucun reset.
 [`PLAN_RESET_PRODUCTION_APRES_RECETTE.md`](../PLAN_RESET_PRODUCTION_APRES_RECETTE.md). Il attend un
 ordre explicite, et deux décisions : le sort de `F-11/0-000001` (avoir + contrepassation, ou retrait
 pur) et les trois arbitrages ci-dessus.
+
+---
+
+## Mission 25 (2026-09-11) — lot6c vers SQLite : dernier classeur intermédiaire de la chaîne ménages supprimé
+
+**But** : donner à `lot6c` un mode SQLite (il n'en avait aucun), pour que la chaîne complète
+`lot6b → lot6c → lot6d → lot6e → lot6f → lot11` puisse tourner sans AUCUN classeur intermédiaire —
+condition posée pour pouvoir enfin supprimer l'export legacy de `lot6b` (`--export-legacy`), la
+seule raison encore vivante d'un mode Excel dans la recette de chaîne ménages.
+
+### Ce qui a réellement bougé
+
+1. **`lot6c_menages_externes.py` a un mode `--source SQLITE`.** Il ne recalcule plus qu'une seule
+   chose (le reste — MASTER, ventilation, réconciliation facture — est déjà tenu, en production,
+   par `facture_menage_pdf_service`/`facture_lignes_menage_service`) : `VUE_ECART_HOSTAWAY`, via
+   `lib_db_moteur.calculer_ecarts_menages_externes()` — LA MÊME fonction que le service applicatif
+   `menages_ecarts_service` appelle (règle de classification unifiée, plus de seconde vérité).
+   Équivalence prouvée avant bascule sur une photographie identique (fixture reconstruite depuis
+   `_data_lot6c_secours_reel.py`) : 11/11 couples mois×logement identiques legacy vs SQLite.
+2. **L'export legacy de `lot6b` a disparu du CODE**, pas d'un flag : `EXPORT_LEGACY`/
+   `--export-legacy` et tout le bloc M04 (SOURCE_RAW/MASTER/VUE_ACTIVE, `.BAK`, référentiels
+   historisés associés) sont retirés de `lot6b_m04_menages_internes.py`. Plus aucun run, avec
+   quelque argument que ce soit, ne peut écrire un classeur.
+3. **La recette de chaîne (`menages_chaine_service.py`) construit désormais une base SQLite
+   jetable** (référentiels copiés en lecture seule depuis la vraie base + factures PDF importées
+   par le vrai `facture_menage_pdf_service`, `menages_declarations_internes`/
+   `facture_lignes_menage` volontairement vides pour être reconstruites PAR la chaîne elle-même) et
+   fait tourner les six étapes exclusivement en `--source SQLITE --db <base jetable>`.
+   **Preuve, contre les données réelles du projet** : `executer_chaine(mode=MODE_COPIES)` rend
+   `ok=True`, `statut="SUCCES"`, `reel_intact=True`, `verif_sorties` entièrement `ok` — deux runs
+   consécutifs, résultat identique.
+4. **Deux bugs de production réels trouvés en construisant cette preuve** (invisibles tant que la
+   recette ne passait jamais par ce chemin) :
+   - `lot6b` ignorait totalement `--db` (aucun `argparse`, quatre appels à `dbm.chemin_db(None)` en
+     dur) — `orchestrateur_moteur.executer()` le lui passe pourtant à chaque appel en production,
+     silencieusement ignoré, ne fonctionnant que par héritage accidentel de variable
+     d'environnement. Corrigé.
+   - `lib_ref_history.parse_date()` levait `ValueError: cannot convert float NaN to integer` sur
+     une date de fin de gestion vide relue via pandas (`NaN`, pas `None`) — faisait planter TOUT
+     `lot11` dès qu'une période de gestion était encore active. Corrigé (`NaN` traité comme
+     absence de borne, pas comme un serial Excel).
+   - Une ligne de déclaration non mappée (`LOGEMENT_NON_MAPPE`/`INTERVENANT_NON_MAPPE`) faisait
+     échouer toute la synchronisation SQLite de `lot6b` (`IntegrityError` sur une colonne NOT
+     NULL) au lieu de rester un simple élément signalé — désormais comptée et ignorée pour
+     l'écriture SQL, le reste de la synchro continue. **Visibilité encore limitée** (un compte
+     agrégé en stdout, aucune file À_TRAITER durable) — noté comme lacune restante, pas comme
+     résolu.
+5. **Correctif latent trouvé côté application** : `_type_flux_impact_defaut()`
+   (`charges_preview_service.py`) rendait la CHAÎNE `"NONE"` (pas `None`) quand
+   `code_impact_defaut` valait `None` en base — `.get(clé, défaut)` ne protège que contre une clé
+   ABSENTE, pas contre une valeur `None` présente. `"NONE"` étant une chaîne non vide, cela aurait
+   déclenché à tort la règle « justification requise » de V19 pour TYPE_FLUX_005 (ménages internes,
+   dont le `code_impact_defaut` est intentionnellement `NULL` en base). Masqué en production car le
+   seul appelant réel normalise déjà `None → ''` en amont. Corrigé, verrouillé par
+   `tests/test_type_flux_005_contract.py` (8 tests).
+6. **Documentation mise à jour** : `RESTANT_EXCEL_OPERATIONNEL.md` reflète la bascule (lot6b/lot6c
+   passés en catégorie « fait », §3bis réécrite, ordre suggéré actualisé).
+
+### Non fait ce tour, scope explicite
+
+- **§11-13 de la mission (recalcul réel de `menages_cout_complet`)** : la comparaison legacy vs
+  SQLite sur copie isolée, préalable obligatoire à tout recalcul de la vraie table, **n'a pas été
+  menée dans ce tour** — budget de session déjà substantiel sur la preuve bout-en-bout ci-dessus.
+  **La vraie base n'a donc PAS été recalculée.**
+- Nettoyage des modes `EXCEL` par défaut de `lot6d`/`lot6e`/`lot6a` (code mort côté recette,
+  laissé en l'état) et des deux lectures résiduelles du classeur M04 dans `lot11`.
+- Garde anti-régression dédiée à `lot6c` (audit hook façon `test_lot6b_anti_excel`/
+  `test_lot6f_anti_excel`) — le test générique `test_import_side_effects.py` couvre déjà
+  l'absence d'effet de bord à l'import, mais aucun test ne verrouille spécifiquement
+  « `lot6c --source SQLITE` n'ouvre aucun classeur en exécution ».
+- File À_TRAITER durable pour les déclarations non mappées (point 4 ci-dessus).
+
+### État de la base réelle — INCHANGÉ
+
+Aucune écriture dans `app.db` réel ce tour : toute la preuve tourne sur une base SQLite **jetable**,
+construite dans le workspace de recette et détruite avec lui. `F-11/0-000001` non touchée. Reset
+opérationnel toujours **non exécuté**.
+
+### Suites de tests
+
+- MOTEUR (`tests/`, racine du dépôt) : **407 passés / 5 échoués / 1 ignoré**, identique bit à bit à
+  la baseline `e654ae6` (mêmes 5 noms d'échec — `test_lot10_reservation_exclue_dedup`,
+  `test_lot6e_sqlite` ×2, `test_lot6f_sqlite` ×2 —, tous pré-existants, aucun lien avec ce tour).
+- APPLICATION (`05_APPLICATION/tests/`) : régression complète relancée ; le seul échec restant
+  attendu est `test_gardes_bancaires_coherence.py::test_banque_lot8_present_les_tests_gardes_s_executent`
+  (classeur `MASTER_BANQUE` absent de ce worktree — pré-existant, sans rapport). Deux tests
+  cassés par ce tour (référence à l'ancien `STEPS_CHAINE`, devenu `_steps_chaine()`) et un faux
+  positif du garde-fou `test_no_import_of_travail_modules` (un commentaire contenant à la fois
+  « 02_TRAVAIL » et « import ») ont été corrigés dans le même mouvement.
+
+### Prochaine action unique
+
+**Mener la comparaison legacy vs SQLite de `menages_cout_complet` sur copie isolée** (§11-13 de la
+mission « lot6c vers SQLite ») : condition explicite avant tout recalcul de la vraie table. Si
+l'écart n'est pas entièrement expliqué, ne pas recalculer la vraie base — rapporter
+`ARBITRAGE_REQUIS_AVANT_RECALCUL_REEL` et s'arrêter là. Le reset opérationnel reste **non exécuté**,
+en attente des mêmes décisions que la mission précédente.
