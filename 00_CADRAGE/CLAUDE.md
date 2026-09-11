@@ -7,7 +7,12 @@
 
 ## 1. Rôle du projet
 
-Système de pilotage financier et opérationnel d'une conciergerie courte durée (~16 logements, Toulouse / Blagnac). Concilie Hostaway, réservations hors Hostaway, banque, ménages internes / externes, charges perso / liquide, IK / avantages associés. Produit trois lectures : **réel / comptable / hors compta** via filtre sur `code_impact` (IC / HC / HR).
+Système de pilotage financier et opérationnel d'une conciergerie courte durée (~16 logements, Toulouse / Blagnac). Concilie Hostaway, réservations hors Hostaway, banque, ménages internes / externes, charges perso / liquide, IK / avantages associés. Produit trois lectures : **réel / comptable / hors compta** via filtre sur `code_impact`.
+
+**Vocabulaire de `code_impact` — il dépend de l'AXE, depuis la mission « FIN DU LEGACY » :**
+
+- **CHARGES → `IC` / `HC` uniquement.** `HR` en a été supprimé : une dépense qui n'impacte ni le résultat réel ni la comptabilité n'est pas une charge. Source unique : `app/moteurs/charges_engine.py::CODES_IMPACT_CHARGE`. Le service de saisie REFUSE toute autre valeur.
+- **RÉSERVATIONS → `IC` / `HC` / `HR`.** `HR` y marque une occupation sans vente (séjour propriétaire, réservation annulée, logement hors parc) : 125 lignes réelles en dépendent. **Ne pas l'y supprimer** — un arbitrage métier reste ouvert, voir `HR_SUPPRESSION_AUDIT.md`.
 
 La **SAS porteuse est nouvelle** : pas d'historique comptable à reconstituer. Le système prépare les flux futurs.
 

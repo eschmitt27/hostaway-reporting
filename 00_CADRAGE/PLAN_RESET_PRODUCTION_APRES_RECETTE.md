@@ -43,6 +43,24 @@ Septembre 2026 devient donc éligible à la clôture à partir d'octobre 2026 �
 > pas des essais. Les supprimer ferait perdre l'historique d'exploitation. Le reset porte sur ce que
 > la recette a **créé**, pas sur ce qu'elle a **lu**.
 
+### 2bis. Ce que la mission « FIN DU LEGACY » a changé pour ce plan
+
+Trois points, tous **favorables** — le reset est plus simple qu'avant, pas plus compliqué :
+
+| Changement | Effet sur le reset |
+|---|---|
+| **Migration 0078** appliquée (suppression de `charges.impact_resultat_reel` / `impact_resultat_comptable`) | Le schéma a changé depuis la rédaction de ce plan. Toute requête de reset visant ces colonnes échouerait : **ne pas les nommer**. L'impact d'une charge se lit par `code_impact`. |
+| **`lot6f` ne lit plus aucun classeur** | Le recalcul post-reset du coût complet ménage n'exige plus ni accès réseau, ni `SAISIE_Charges_Flux`, ni `REF_Setup`. Il devient déterministe et rejouable hors ligne — donc vérifiable dans la foulée du reset. |
+| **`HR` retiré du vocabulaire des charges** | Une charge d'essai portant `HR` ressortirait `A_CONTROLER` au lieu d'être silencieusement neutre. Sans objet ici : aucune des 5 charges d'essai ne porte ce code (4 `IC`, 1 `HC`). |
+
+**Un point de vigilance nouveau, à ne pas manquer :** la table `menages_declarations_internes` de
+la base réelle porte encore la photographie du **2026-09-02** de la Google Sheet M04, alors que la
+feuille a changé depuis (une déclaration de juillet, `LOG_0005`/`INT_0001`, est passée de 1 à 0).
+Le coût complet ménage de 2026-07 calculé aujourd'hui reflète donc l'ancienne valeur. **Relancer
+`lot6b` avant le reset** pour repartir d'une base synchronisée — et non après, où l'écart serait
+attribué à tort au reset lui-même. Cette resynchronisation n'a PAS été effectuée : elle modifie de
+la donnée réelle, ce que la mission interdisait.
+
 ---
 
 ## 3. Ce qui doit être conservé, sans discussion
@@ -110,8 +128,8 @@ La série `F-11/0` disparaît de toute façon du futur : la numérotation est d�
 9. redémarrer l'instance et vérifier les écrans principaux.
 
 **Aucune migration n'est nécessaire** : le reset est une opération de données. Si l'exécution en
-révélait le besoin, elle serait numérotée à la suite (`0078…`) — jamais en modifiant une migration
-existante.
+révélait le besoin, elle serait numérotée à la suite (`0079…`, la `0078` étant prise) — jamais en
+modifiant une migration existante.
 
 ---
 
@@ -144,6 +162,8 @@ Avant / après, dans `JOURNAL_CONTROLES.md` :
 À l'issue du reset :
 
 - la plus ancienne facture, charge et écriture datent de **2026-09 au plus tôt** ;
+- `lot6b` a été relancé AVANT le reset, et `menages_declarations_internes` reflète la feuille
+  courante (cf. §2bis) ;
 - les référentiels sont **inchangés** ;
 - l'historique Hostaway est **inchangé** ;
 - `integrity_check` **ok**, `foreign_key_check` **0** ;

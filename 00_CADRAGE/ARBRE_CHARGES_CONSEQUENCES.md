@@ -58,18 +58,25 @@ réelles de `flux_unifies` :
 |---|---|---|---|---|---|
 | **IC** | Intra-comptable | OUI | **OUI** | NON | via la facture |
 | **HC** | Hors compta / extra-comptable | **OUI** | NON | **OUI** | non |
-| `HR` | Hors résultat | NON | NON | NON | non |
+| ~~`HR`~~ | ~~Hors résultat~~ | — | — | — | **retiré du vocabulaire des charges** |
 
 **Constaté sur les 336 flux réels** : 284 en `IC` (OUI/OUI/NON), 52 en `HC` (OUI/NON/OUI). Aucune
 divergence entre le référentiel, le moteur et les données.
 
 À retenir : **`HC` n'est pas « sans effet »** — la dépense pèse bien sur le résultat économique
-réel, elle n'entre simplement pas dans la comptabilité générale. Seul `HR` est neutre partout.
+réel, elle n'entre simplement pas dans la comptabilité générale.
 
-> **Colonnes `charges.impact_resultat_reel` / `impact_resultat_comptable` : toujours NULL.**
-> Elles ne sont lues par personne. Le calcul de résultat passe par `flux_unifies`, dont lot9 dérive
-> les trois drapeaux depuis `code_impact`. Ce sont des colonnes héritées, sans consommateur —
-> documenté ici pour que leur vacuité ne soit pas prise pour une anomalie.
+> **`HR` a été SUPPRIMÉ de l'axe charges** (mission « FIN DU LEGACY », DÉCISION 2). Aucune charge
+> réelle ne l'a jamais porté (0 charge, 0 récurrente, 0 flux). Une charge qui le porterait encore
+> ressort désormais `A_CONTROLER` — visible, jamais neutralisée en silence. `HR` reste vivant sur
+> l'axe RÉSERVATIONS, où 125 lignes réelles en dépendent : voir `HR_SUPPRESSION_AUDIT.md`.
+
+> **Colonnes `charges.impact_resultat_reel` / `impact_resultat_comptable` : SUPPRIMÉES**
+> (migration 0078). Elles recopiaient ce que `code_impact` dit déjà, et divergeaient en pratique :
+> 4 charges réelles sur 5 avaient un `code_impact` renseigné et ces colonnes à NULL — l'écran de
+> détail affichait « — » pour un impact parfaitement connu. L'impact se lit désormais par
+> `charges_engine.impact_charge(code_impact)`, source unique. Rien n'est perdu : la valeur reste
+> recalculable, c'est même ce qui rend la suppression sûre.
 
 ---
 
@@ -177,25 +184,50 @@ valider**. Le motif est désormais recueilli au moment de la décision et porté
 
 ---
 
-## 8. Arbitrages métier restants (§22)
+## 8. Arbitrages métier — état après la mission « FIN DU LEGACY »
 
-### A1 — `lot6f` lit le classeur, pas SQLite
-`lot6f_cout_complet_menages` lit `SAISIE_Charges_Flux.xlsx`, feuille SAISIE. Les charges saisies
-dans l'application vivent, elles, dans SQLite. Persister `affectable_menage` (D1) **rend la bascule
-possible** ; la décider est un arbitrage : soit le moteur ménage lit SQLite, soit les deux sources
-coexistent avec une règle de priorité explicite. **Comportement actuel** : les charges ménage
-saisies dans l'application n'alimentent aucun pool de coût ménage.
+### A1 — `lot6f` lit le classeur, pas SQLite → **TRANCHÉ : SQLite, chemin Excel supprimé**
+Le moteur ménage lit désormais `charges` (drapeau `affectable_menage`, persisté par 0076), les
+référentiels `ref_*`, `facture_lignes_menage` et `menages_declarations_internes`. Le chemin Excel
+n'est pas désactivé, il est **supprimé** — équivalence prouvée sur 2026-06, 2026-07 et 2026-08, à
+photographie de données identique, tous indicateurs monétaires et de volume à l'écart 0. Les
+charges ménage saisies dans l'application alimentent maintenant les pools de coût. Voir
+`RESTANT_EXCEL_OPERATIONNEL.md`.
 
-### A2 — `HR` inaccessible depuis l'interface
-Le référentiel définit `HR` (neutre partout, « pour neutralisation ou suivi uniquement ») et le
-moteur le gère. La saisie ne le propose pas. **Comportement actuel** : une charge à neutraliser ne
-peut pas être créée depuis l'application. À trancher : l'exposer avec une justification obligatoire,
-ou assumer qu'il reste réservé aux imports.
+### A2 — `HR` inaccessible depuis l'interface → **TRANCHÉ : supprimé, pas exposé**
+La question « l'exposer ou l'assumer réservé aux imports » est close par une troisième réponse :
+une charge neutre partout n'est pas une charge. `HR` est retiré du vocabulaire des charges, refusé
+à l'écriture par `charges_saisie_service`, et absent des deux écrans qui l'offraient encore.
+**Reste ouvert sur l'axe réservations** — voir §8bis.
 
-### A3 — colonnes d'impact héritées
-`charges.impact_resultat_reel` / `impact_resultat_comptable` sont dans le schéma, dans
-`CHAMPS_SAISIE`, et restent NULL. Aucun consommateur. À trancher : les remplir par cohérence, ou
-les retirer pour supprimer une source d'ambiguïté.
+### A3 — colonnes d'impact héritées → **TRANCHÉ : supprimées (migration 0078)**
+L'audit a nuancé le constat « aucun consommateur » : il y en avait un, l'écran de détail d'une
+charge, qui les AFFICHAIT — et affichait « — » sur 4 charges réelles sur 5, faute de valeur. Aucune
+DÉCISION ne s'y appuyait en revanche (les seules comparaisons `impact_resultat_reel == "OUI"` du
+dépôt portent sur les réservations). L'affichage dérive maintenant de `code_impact` et montre la
+bonne valeur pour toutes les charges. Une seule source de vérité, comme demandé.
+
+---
+
+## 8bis. Arbitrages métier RESTANTS
+
+### B1 — `HR` sur l'axe RÉSERVATIONS *(bloquant, décision utilisateur requise)*
+125 réservations réelles portent `HR` : 80 séjours propriétaire (`EXCLU_RESULTAT`) et 45
+`EXCLU_LEGACY`. Les supprimer les ferait entrer dans le résultat économique. Les trois options
+ouvertes, leur coût et la recommandation sont détaillés dans **`HR_SUPPRESSION_AUDIT.md`**.
+
+### B2 — le centime résiduel d'une ventilation *(mineur, mais réel)*
+`quote_part = round(pool × poids / Σ poids, 2)` pour chaque ligne. Sur 100 € répartis entre 3
+logements de poids égal : 33,33 × 3 = **99,99 €**. Un centime n'est attribué à personne. Le
+comportement est déterministe et reproductible (test dédié), mais la somme ventilée n'égale pas
+toujours le pool. À trancher : laisser le résidu, ou l'attribuer — et si oui, à quelle ligne
+(la plus lourde ? la première dans l'ordre des `logement_id` ?). Ce choix est une règle métier,
+pas un détail d'implémentation : il doit être décidé, pas deviné.
+
+### B3 — charges `A_CONTROLER` dans les pools ménage *(cohérence)*
+Une facture externe non validée est exclue du coût complet ; une CHARGE non contrôlée y entre.
+L'asymétrie vient d'une reprise à l'identique du classeur, qui ne posait aucun filtre. L'aligner
+sur le traitement des factures serait cohérent, mais c'est un changement de règle.
 
 ---
 
