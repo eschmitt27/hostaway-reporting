@@ -51,8 +51,10 @@ MODES_REQUIRES_ASSOCIE: frozenset[str] = frozenset({"PAY_003", "PAY_004"})
 MODE_CARTE = "PAY_003"
 
 # ── Alignement référentiels Excel (Commit 1 — APP aligne saisie charges) ──
-# Formulaire standard : IC et HC seulement ; HR hors parcours Nouvelle charge.
-STANDARD_CODES_IMPACT: frozenset[str] = frozenset({"IC", "HC"})
+# Alias historique de la constante canonique : IC et HC, jamais HR. Le jeu de codes est défini une
+# seule fois, dans le moteur Charges — le dupliquer ici, c'était accepter qu'un des deux
+# exemplaires oublie un jour de retirer un code.
+STANDARD_CODES_IMPACT: frozenset[str] = impact.CODES_IMPACT_CHARGE
 # Valeurs canoniques SAISIE Excel (REF_LOCALE) — jamais CHARGE/PRODUIT ni AFF_*.
 CANONICAL_SENS_FLUX: frozenset[str] = frozenset(
     {"DEPENSE", "RECUPERATION", "REMBOURSEMENT", "REFACTURATION", "NEUTRE"}

@@ -59,11 +59,11 @@
     </div>
     <div class="kpi-card">
       <div class="kpi-label">Impact résultat réel</div>
-      <div class="kpi-value">{{ c.impact_resultat_reel or "—" }}</div>
+      <div class="kpi-value">{{ impact.impact_resultat_reel if impact else "—" }}</div>
     </div>
     <div class="kpi-card">
       <div class="kpi-label">Impact résultat comptable</div>
-      <div class="kpi-value">{{ c.impact_resultat_comptable or "—" }}</div>
+      <div class="kpi-value">{{ impact.impact_resultat_comptable if impact else "—" }}</div>
     </div>
   </div>
 </div>

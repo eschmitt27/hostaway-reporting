@@ -35,8 +35,8 @@ _EXCLUDED_TYPE_FLUX = {"IK", "VIREMENT_ASSOCIE"}
 # `ROW_HASH` : c'est sous ce nom que les consommateurs le connaissent.
 _COLONNES = (
     "charge_id", "date_charge", "mois", "montant", "sens_flux", "sens", "categorie_charge_id",
-    "filtre_vue_menage", "type_flux_id", "code_impact", "impact_resultat_reel",
-    "impact_resultat_comptable", "prise_en_compta", "associe_id", "mode_paiement_id", "carte_id",
+    "filtre_vue_menage", "type_flux_id", "code_impact", "prise_en_compta",
+    "associe_id", "mode_paiement_id", "carte_id",
     "affectation_type", "logement_id", "proprietaire_id", "reservation_id", "refacturable",
     "source_flux", "methode_traitement", "paye_avec_montant_recupere", "lien_virement_banque",
     "statut_controle", "niveau_anomalie", "code_anomalie", "statut_rapprochement", "justificatif",

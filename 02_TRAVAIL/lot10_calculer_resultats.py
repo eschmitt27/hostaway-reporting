@@ -367,8 +367,10 @@ def assiette_retenue_pour_commission(df, corrections: dict):
 
 _CHARGES_COLS_SQL = (
     "charge_id", "date_charge", "mois", "montant", "sens_flux", "sens", "categorie_charge_id",
-    "filtre_vue_menage", "type_flux_id", "code_impact", "impact_resultat_reel",
-    "impact_resultat_comptable", "prise_en_compta", "associe_id", "mode_paiement_id", "carte_id",
+    # Les colonnes d'impact dérivées ont été supprimées de `charges` (migration 0078) : elles
+    # recopiaient `code_impact`. Rien en aval ici ne les lisait.
+    "filtre_vue_menage", "type_flux_id", "code_impact", "prise_en_compta",
+    "associe_id", "mode_paiement_id", "carte_id",
     "affectation_type", "logement_id", "proprietaire_id", "reservation_id", "refacturable",
     "source_flux", "methode_traitement", "paye_avec_montant_recupere", "lien_virement_banque",
     "statut_controle", "niveau_anomalie", "code_anomalie", "statut_rapprochement", "justificatif",

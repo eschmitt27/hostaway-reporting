@@ -8,6 +8,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from app.template_env import get_templates
 
+from app.moteurs.charges_engine import CODES_IMPACT_CHARGE
 from app.services import charges_controles_integrite_service as ctrl
 from app.services import charges_validation_service as svc
 
@@ -29,6 +30,9 @@ def _contexte(statut: str = "", refacturable: str = "", sans_proprietaire: bool 
     return {"active_menu": "charges_controle", "data": data, "controles": controles,
             "bloquantes": bloquantes, "message": message, "erreur": erreur,
             "avertissement": svc.AVERTISSEMENT_NON_VALIDEE,
+            # Le filtre propose exactement les codes qu'une charge peut porter — la liste était
+            # écrite en dur dans le gabarit et continuait d'offrir HR, retiré du vocabulaire.
+            "codes_impact": sorted(CODES_IMPACT_CHARGE),
             "applied": {"statut": statut, "refacturable": refacturable,
                         "sans_proprietaire": sans_proprietaire, "code_impact": code_impact}}
 

@@ -11,9 +11,12 @@ circuit `UI → SQLite → Excel → moteur`, qui recréerait le problème sous 
 
 CE QUI N'EST PAS RECALCULÉ ICI
 Rien. Ce service ENREGISTRE une saisie ; il ne dérive ni le flux, ni le résultat, ni un statut de
-contrôle. `code_impact`, `impact_resultat_*` et `statut_controle` sont saisis ou laissés vides, puis
-lus tels quels par le reste de la chaîne (D044). Le calcul économique reste à Lot9/Lot10, les
-contrôles à Lot11.
+contrôle. `code_impact` et `statut_controle` sont saisis ou laissés vides, puis lus tels quels par
+le reste de la chaîne (D044). Le calcul économique reste à Lot9/Lot10, les contrôles à Lot11.
+
+La seule exception est un REFUS, pas un calcul : un `code_impact` hors vocabulaire des charges est
+rejeté (`valider()`). Enregistrer tel quel une valeur que personne en aval ne sait lire, ce n'est
+pas de la neutralité, c'est un silence.
 
 CORRECTION, PAS SUPPRESSION
 Une charge peut être référencée par une écriture comptable, un rapprochement bancaire ou un flux
@@ -29,6 +32,7 @@ from typing import Any
 
 from app.contrats_donnees import Charge, ContratInvalideError
 from app.db.connection import get_db
+from app.moteurs.charges_engine import CODES_IMPACT_CHARGE
 
 STATUT_ACTIVE = "ACTIVE"
 STATUT_ANNULEE = "ANNULEE"
@@ -54,13 +58,17 @@ E_INTROUVABLE = "CHARGE_INTROUVABLE"
 E_DEJA_ANNULEE = "CHARGE_DEJA_ANNULEE"
 E_DOUBLON = "CHARGE_ID_DEJA_UTILISE"
 E_CONTRAT_INVALIDE = "CHARGE_CONTRAT_INVALIDE"
+E_IMPACT_INVALIDE = "CHARGE_CODE_IMPACT_INVALIDE"
 
 # Champs modifiables par la saisie. `charge_id`, `statut` et les horodatages n'en font pas partie :
 # l'identité et le cycle de vie ne se corrigent pas comme une valeur métier.
 CHAMPS_SAISIE = (
     "date_charge", "mois", "montant", "sens_flux", "sens", "categorie_charge_id",
-    "filtre_vue_menage", "type_flux_id", "code_impact", "impact_resultat_reel",
-    "impact_resultat_comptable", "prise_en_compta", "associe_id", "mode_paiement_id", "carte_id",
+    # `impact_resultat_reel` / `impact_resultat_comptable` ont disparu (migration 0078) : elles
+    # recopiaient ce que `code_impact` dit déjà. L'impact se lit par
+    # `charges_engine.impact_charge(code_impact)`, jamais dans une colonne à maintenir à jour.
+    "filtre_vue_menage", "type_flux_id", "code_impact",
+    "prise_en_compta", "associe_id", "mode_paiement_id", "carte_id",
     "affectation_type", "logement_id", "proprietaire_id", "reservation_id", "refacturable",
     "source_flux", "methode_traitement", "paye_avec_montant_recupere", "lien_virement_banque",
     "statut_controle", "niveau_anomalie", "code_anomalie", "statut_rapprochement", "justificatif",
@@ -114,6 +122,17 @@ def valider(donnees: dict[str, Any]) -> dict[str, Any]:
     mois = str(donnees.get("mois") or "").strip() or _mois_depuis_date(donnees["date_charge"])
     if len(mois) != 7 or mois[4] != "-":
         return _refus(E_MOIS_INVALIDE, f"Mois attendu au format AAAA-MM, reçu : {mois!r}.")
+
+    # `code_impact` reste FACULTATIF (D044 : ce service enregistre, il ne dérive pas). Mais s'il
+    # est fourni, il doit appartenir au vocabulaire des charges. HR y a été retiré (DÉCISION 2) :
+    # une dépense sans effet sur le résultat ni sur la comptabilité n'est pas une charge. Le refus
+    # est ici parce que c'est la SEULE porte d'écriture : retirer HR des formulaires sans fermer
+    # le service l'aurait laissé atteignable par l'API et par tout appelant interne.
+    code_impact = str(donnees.get("code_impact") or "").strip()
+    if code_impact and code_impact not in CODES_IMPACT_CHARGE:
+        admis = ", ".join(sorted(CODES_IMPACT_CHARGE))
+        return _refus(E_IMPACT_INVALIDE,
+                      f"Code d'impact {code_impact!r} inconnu pour une charge : {admis} attendus.")
 
     return {"ok": True, "montant": montant, "mois": mois}
 

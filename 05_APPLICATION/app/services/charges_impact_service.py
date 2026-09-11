@@ -15,6 +15,7 @@ from __future__ import annotations
 from app.moteurs.charges_engine import (  # noqa: F401 — ré-export, voir MOTEUR_CHARGES.md
     CATEGORIES_HORS_FORMULAIRE_EXPLICITE,
     CATEGORY_CATALOG,
+    CODES_IMPACT_CHARGE,
     MENAGE_CHOIX,
     MENAGE_FORCE,
     MENAGE_INTERDIT,

@@ -12,6 +12,7 @@ import pytest
 
 import app.config as cfg
 from app.db.connection import apply_migrations, get_db
+from app.moteurs.charges_engine import impact_charge
 from app.services import charges_saisie_service as charges
 from app.services import factures_proprietaires_edition_service as edition
 from app.services import factures_proprietaires_service as svc
@@ -235,11 +236,16 @@ def test_route_ajout_redirige_vers_la_meme_facture(db, monkeypatch, tmp_path):
     assert r.headers["location"] == f"/factures-proprietaires/{fid}#lignes-facturees"
 
 
-# ── B — Charges : trois modes, service canonique, zéro écriture ─────────────────────────────────
+# ── B — Charges : deux modes, service canonique, zéro écriture ──────────────────────────────────
 
-@pytest.mark.parametrize("code,reel,compta", [("IC", "OUI", "OUI"), ("HC", "OUI", "NON"),
-                                              ("HR", "NON", "NON")])
-def test_trois_modes_produisent_les_flags_documentes(db, code, reel, compta):
+@pytest.mark.parametrize("code,reel,compta", [("IC", "OUI", "OUI"), ("HC", "OUI", "NON")])
+def test_les_deux_modes_produisent_les_flags_documentes(db, code, reel, compta):
+    """L'impact est LU depuis `code_impact`, plus relu dans deux colonnes dérivées.
+
+    `charges.impact_resultat_reel` / `impact_resultat_comptable` ont été supprimées (migration
+    0078) : elles recopiaient ce que `code_impact` dit déjà, et divergeaient en pratique. Ce test
+    vérifie donc ce qui compte vraiment — que la charge porte le bon code, et que ce code se
+    traduit par les bons drapeaux."""
     fid = _facture(db)
     cat = _categorie(db)
     resultat = edition.ajouter_ligne_charge(fid, libelle=f"Charge {code}", montant=30.0,
@@ -252,14 +258,29 @@ def test_trois_modes_produisent_les_flags_documentes(db, code, reel, compta):
     finally:
         conn.close()
     assert charge["code_impact"] == code
-    assert charge["impact_resultat_reel"] == reel
-    assert charge["impact_resultat_comptable"] == compta
+    assert "impact_resultat_reel" not in charge, "colonne dérivée supprimée par 0078"
+    assert impact_charge(code) == {**impact_charge(code), "impact_resultat_reel": reel,
+                                   "impact_resultat_comptable": compta}
     # Marqueur posé par `charges_saisie_service.creer()` : preuve que la charge est passée par le
     # service canonique et non par un INSERT direct depuis la facture.
     assert charge["source_module"] == "SAISIE_APP"
 
 
-@pytest.mark.parametrize("code", ["IC", "HC", "HR"])
+def test_le_mode_hors_resultat_est_refuse(db):
+    """HR a été retiré du vocabulaire des charges (DÉCISION 2, `HR_SUPPRESSION_AUDIT.md`).
+
+    Une charge qui n'impacte ni le résultat réel ni la comptabilité produisait une ligne de
+    facture dont le montant n'apparaissait ensuite nulle part. Le refus doit être EXPLICITE et
+    nommer les modes admis, pas échouer plus loin sur une clé manquante."""
+    fid = _facture(db)
+    avant = svc.lire(fid, db_path=db)["lignes"]
+    with pytest.raises(svc.FactureProprietaireError, match="mode d'impact inconnu"):
+        edition.ajouter_ligne_charge(fid, libelle="X", montant=30.0, code_impact="HR",
+                                     categorie_charge_id=_categorie(db), db_path=db)
+    assert svc.lire(fid, db_path=db)["lignes"] == avant, "un refus n'ajoute aucune ligne"
+
+
+@pytest.mark.parametrize("code", ["IC", "HC"])
 def test_aucune_ecriture_comptable_sur_un_brouillon(db, code):
     fid = _facture(db)
     cat = _categorie(db)
@@ -323,7 +344,7 @@ def test_anti_double_refacturation_une_seule_position_par_charge(db):
 def test_supprimer_ligne_charge_annule_la_charge_non_consommee(db):
     fid = _facture(db)
     cat = _categorie(db)
-    ajout = edition.ajouter_ligne_charge(fid, libelle="X", montant=30.0, code_impact="HR",
+    ajout = edition.ajouter_ligne_charge(fid, libelle="X", montant=30.0, code_impact="HC",
                                          categorie_charge_id=cat, db_path=db)
     suppression = edition.supprimer_ligne_charge(fid, ajout["ligne_id_opaque"], db_path=db)
     assert suppression["charge_annulee"] is True

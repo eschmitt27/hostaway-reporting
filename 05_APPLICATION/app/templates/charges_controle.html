@@ -51,7 +51,8 @@
   <label>Impact
     <select name="code_impact">
       <option value="">Tous</option>
-      {% for i in ['IC','HC','HR'] %}
+      {# Vocabulaire des charges : IC et HC. HR a été retiré (aucune charge ne l'a porté). #}
+      {% for i in codes_impact %}
         <option value="{{ i }}" {{ 'selected' if applied.code_impact == i }}>{{ i }}</option>
       {% endfor %}
     </select>

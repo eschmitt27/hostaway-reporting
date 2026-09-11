@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from app.template_env import get_templates
+from app.moteurs.charges_engine import impact_charge
 from app.services import charges_confirmation_service as confirmation
 from app.services import charges_perimetre_service as perim
 from app.services import charges_refacturation_service as refac
@@ -221,10 +222,17 @@ def fournisseur_detail(request: Request, charge_id: str, erreur: str = ""):
     active = str(ligne.get("statut") or "") == saisie.STATUT_ACTIVE
     # Normalisé : une colonne vide signifie « pas encore contrôlé », pas « état inconnu ».
     controle = saisie.statut_controle(ligne or charge)
+    # L'impact affiché DÉCOULE de `code_impact` (source unique) au lieu d'être relu dans deux
+    # colonnes dérivées, supprimées par la migration 0078. Concrètement l'écran s'améliore : ces
+    # colonnes étaient vides sur 4 charges réelles sur 5, qui affichaient « — » alors que leur
+    # code d'impact était parfaitement renseigné. `None` reste possible — une charge sans
+    # `code_impact` est un état réel — et se lit « non renseigné ».
+    impact = impact_charge(charge.get("code_impact"))
     return templates.TemplateResponse(request, "fournisseurs_detail.html", {
         "active_menu": "fournisseurs",
         "detail": detail,
         "charge_id": charge_id,
+        "impact": impact,
         "perimetre": perimetre,
         "position_refac": position,
         "statut_cycle": ligne.get("statut"),

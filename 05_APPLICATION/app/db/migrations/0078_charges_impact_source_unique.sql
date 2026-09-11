@@ -1,0 +1,33 @@
+-- 0078 — `charges` : suppression des colonnes d'impact dérivées.
+--
+-- POURQUOI
+-- `charges.impact_resultat_reel` et `charges.impact_resultat_comptable` ne portaient aucune
+-- information propre : elles étaient DÉRIVÉES de `code_impact` par une table de correspondance
+-- fixe (IC -> OUI/OUI, HC -> OUI/NON). Deux représentations du même fait, donc deux occasions de
+-- diverger — et elles divergeaient déjà : sur la base réelle, 4 charges sur 5 portaient un
+-- `code_impact` renseigné avec ces deux colonnes à NULL. L'écran de détail affichait « — » pour
+-- un impact pourtant parfaitement connu.
+--
+-- AUDIT AVANT SUPPRESSION (exhaustif, sur le code ET sur la donnée)
+--   · Aucune DÉCISION ne s'appuie sur ces colonnes pour une CHARGE : les seules comparaisons
+--     `impact_resultat_reel == "OUI"` du dépôt portent sur les RÉSERVATIONS
+--     (reservations_adaptateur_moteur, lot4bis, lot4quater) — un autre axe, une autre table,
+--     NON touchée ici.
+--   · Un seul écrivain de la table `charges` : `charges_saisie_service`.
+--   · Un seul lecteur qui en faisait quelque chose : l'écran de détail d'une charge, qui les
+--     AFFICHAIT. Il lit désormais `charges_engine.impact_charge(code_impact)` et affiche donc la
+--     bonne valeur pour toutes les charges, y compris les 4 qui montraient « — ».
+--   · Les autres occurrences étaient des listes de projection (charges_reader, lot10), mises à
+--     jour dans le même commit.
+--
+-- CE QUI N'EST PAS TOUCHÉ
+-- Les colonnes de MÊME NOM sur les tables de réservations (`reservations_resolues`,
+-- `reservations_hh`, `reservations_historique`, `ref_types_flux`) restent intactes : elles y sont
+-- LUES pour décider de l'inclusion au résultat, et 125 lignes réelles en dépendent.
+--
+-- RÉVERSIBILITÉ
+-- Aucune donnée n'est perdue : la valeur reste recalculable depuis `code_impact`, qui subsiste.
+-- C'est précisément ce qui rend cette suppression sûre.
+
+ALTER TABLE charges DROP COLUMN impact_resultat_reel;
+ALTER TABLE charges DROP COLUMN impact_resultat_comptable;

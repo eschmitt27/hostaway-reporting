@@ -33,6 +33,56 @@ from __future__ import annotations
 
 from typing import Any
 
+# ── Codes d'impact admis pour une CHARGE ──────────────────────────────────────
+# Deux codes, et deux seulement :
+#   IC — intra-comptable   : compte dans le résultat réel ET dans la comptabilité ;
+#   HC — extra-comptable   : compte dans le résultat réel, pas dans la comptabilité.
+#
+# HR (« hors résultat ») a été RETIRÉ du vocabulaire des charges (mission « FIN DU LEGACY »,
+# DÉCISION 2). Une dépense qui n'impacte ni le résultat ni la comptabilité n'est pas une charge :
+# c'est soit une erreur de saisie, soit un mouvement qui relève d'un autre objet métier. Le code
+# restait offert par le formulaire de facture et par le filtre de l'écran de contrôle ; aucune
+# charge ne l'a jamais porté (audit : 0 sur la base réelle, 0 dans `ref_charges_recurrentes`,
+# 0 dans `flux_unifies`).
+#
+# ATTENTION — HR reste VIVANT sur l'axe RÉSERVATIONS, qui est un autre axe : 125 réservations
+# réelles le portent (80 séjours propriétaire `EXCLU_RESULTAT`, 45 `EXCLU_LEGACY`). Il ne peut pas
+# en être retiré sans les faire entrer dans le résultat économique. Voir
+# HR_SUPPRESSION_AUDIT.md : arbitrage métier, distinct de cette constante.
+#
+# SOURCE UNIQUE DE L'IMPACT D'UNE CHARGE. `code_impact` porte l'information ; tout le reste en
+# DÉCOULE. Les colonnes `charges.impact_resultat_reel` / `impact_resultat_comptable` étaient une
+# copie dénormalisée de cette table, recalculable à tout instant — et déjà incohérente en base
+# réelle (4 charges sur 5 avaient un `code_impact` renseigné et ces colonnes à NULL). Elles ont été
+# supprimées par la migration 0078 ; l'affichage et les services lisent désormais ceci.
+IMPACT_CHARGE: dict[str, dict[str, str]] = {
+    "IC": {
+        "libelle": "Charge normale",
+        "description": "Impacte le résultat réel et comptable",
+        "impact_resultat_reel": "OUI",
+        "impact_resultat_comptable": "OUI",
+        "prise_en_compta": "OUI",
+    },
+    "HC": {
+        "libelle": "Charge hors comptabilité",
+        "description": "Impacte le résultat réel, hors compta",
+        "impact_resultat_reel": "OUI",
+        "impact_resultat_comptable": "NON",
+        "prise_en_compta": "NON",
+    },
+}
+
+CODES_IMPACT_CHARGE: frozenset[str] = frozenset(IMPACT_CHARGE)
+
+
+def impact_charge(code_impact: Any) -> dict[str, str] | None:
+    """L'effet d'un code d'impact, ou `None` s'il est absent ou hors vocabulaire.
+
+    `None` se lit « non renseigné / inconnu » : l'appelant affiche un tiret plutôt que d'inventer
+    un effet. Une charge sans `code_impact` est un état réel — le service de saisie ne l'exige
+    pas (D044 : il enregistre, il ne dérive pas)."""
+    return IMPACT_CHARGE.get(str(code_impact or "").strip().upper())
+
 # ── Catalogue métier des catégories visibles dans « Nouvelle charge » ─────────
 # menage : FORCE  (impact ménage forcé), CHOIX (Oui/Non proposé), INTERDIT.
 # avantage : True si le choix « avantage associé ? » est proposé.

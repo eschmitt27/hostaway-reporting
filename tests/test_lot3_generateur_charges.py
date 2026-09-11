@@ -126,11 +126,28 @@ class Lot3GenerateurCharges(unittest.TestCase):
         self.assertEqual((r["impact_resultat_reel"], r["impact_resultat_comptable"]), ("OUI", "NON"))
 
     # 5. Charge HR → hors résultat réel ET comptable.
-    def test_5_impact_hr(self):
+    def test_5_impact_hr_devient_a_controler(self):
+        """HR n'appartient plus au vocabulaire des CHARGES — il ressort A_CONTROLER.
+
+        Ce test affirmait l'inverse : que `HR` se traduisait par NON/NON, c'est-à-dire une charge
+        neutre partout. La mission « FIN DU LEGACY » a retiré ce code du vocabulaire des charges
+        (DÉCISION 2) : une dépense sans effet ni sur le résultat ni sur la comptabilité n'est pas
+        une charge.
+
+        Le comportement attendu n'est PAS « traiter HR comme avant en silence », ni « le convertir
+        en IC ou HC » (explicitement interdit) : c'est de le rendre VISIBLE. Une charge portant
+        encore ce code tombe donc sur `IMPACT_INCONNU`, exactement comme un code inventé.
+
+        `HR` reste valide sur l'axe RÉSERVATIONS — autre axe, autre vocabulaire. Voir
+        `00_CADRAGE/HR_SUPPRESSION_AUDIT.md`.
+        """
         _make_saisie(self.saisie, [_charge(code_impact="HR")])
         self._run()
         r = _lire(self.master)[0]
-        self.assertEqual((r["impact_resultat_reel"], r["impact_resultat_comptable"]), ("NON", "NON"))
+        self.assertEqual((r["impact_resultat_reel"], r["impact_resultat_comptable"]),
+                         (gen.IMPACT_INCONNU, gen.IMPACT_INCONNU))
+        self.assertNotIn("HR", gen.IMPACT_REEL)
+        self.assertNotIn("HR", gen.IMPACT_COMPTA)
 
     # 6. Charge ménage : le mois vu par Lot6f vient de date_charge, jamais de la formule C.
     def test_6_charge_menage_mois_derive_pour_lot6f(self):

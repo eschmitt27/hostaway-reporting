@@ -41,47 +41,27 @@ from __future__ import annotations
 from typing import Any
 
 from app.db.connection import get_db
+from app.moteurs.charges_engine import IMPACT_CHARGE
 from app.services import charges_saisie_service as charges
 from app.services import factures_proprietaires_service as svc
 from app.services import proprietaires_tresorerie_service as tresorerie
 
-# ── Les TROIS modes d'impact, et rien d'autre ───────────────────────────────────────────────────
-# Vocabulaire EXISTANT, repris tel quel (`flux_unifie_service._IMPACT_FLAGS` pour la consommation
-# aval, `charges_preview_service.PRISE_EN_COMPTA_BY_IMPACT` pour la saisie). Aucun quatrième mode
-# n'est inventé ici : un mode de plus serait un mode que le reste de la chaîne ne saurait pas lire.
+# ── Les DEUX modes d'impact, et rien d'autre ────────────────────────────────────────────────────
+# Ce module ne définit plus le vocabulaire : il le RÉUTILISE. La table vit dans le moteur Charges,
+# source unique. Ce tableau y était recopié — trois exemplaires du même fait (ici, dans
+# `charges_preview_service`, dans la colonne `charges.impact_resultat_*`), donc trois occasions
+# d'oublier une modification.
 #
-# Attention : le 3ᵉ élément de `_IMPACT_FLAGS` n'est PAS `prise_en_compta` mais
-# `inclure_resultat_hors_compta` (vérifié dans `_construire_flux`) — d'où le tableau explicite
-# ci-dessous plutôt qu'une réutilisation trompeuse.
-MODES_CHARGE: dict[str, dict[str, str]] = {
-    "IC": {
-        "libelle": "Charge normale",
-        "description": "Impacte le résultat réel et comptable",
-        "impact_resultat_reel": "OUI",
-        "impact_resultat_comptable": "OUI",
-        "prise_en_compta": "OUI",
-    },
-    "HC": {
-        "libelle": "Charge hors comptabilité",
-        "description": "Impacte le résultat réel, hors compta",
-        "impact_resultat_reel": "OUI",
-        "impact_resultat_comptable": "NON",
-        "prise_en_compta": "NON",
-    },
-    "HR": {
-        "libelle": "Charge hors résultat et hors comptabilité",
-        "description": "Hors résultat et hors comptabilité",
-        "impact_resultat_reel": "NON",
-        "impact_resultat_comptable": "NON",
-        "prise_en_compta": "NON",
-    },
-}
+# HR (« hors résultat et hors comptabilité ») en a été retiré : une charge sans effet ni sur le
+# résultat réel ni sur la comptabilité ne décrit aucune réalité économique — elle produisait une
+# ligne de facture dont le montant n'apparaissait nulle part ensuite.
+MODES_CHARGE: dict[str, dict[str, str]] = IMPACT_CHARGE
 
 AVERTISSEMENT_CHARGE = "⚠ Cette ligne créera également une charge."
 
 
 def modes_charge() -> list[dict[str, str]]:
-    """Les trois modes, prêts à afficher — l'ordre est stable (normale, hors compta, hors tout)."""
+    """Les deux modes, prêts à afficher — l'ordre est stable (normale, puis hors comptabilité)."""
     return [{"code_impact": code, **valeurs} for code, valeurs in MODES_CHARGE.items()]
 
 
@@ -122,7 +102,8 @@ def ajouter_ligne_charge(facture_id: str, *, libelle: str, montant: Any, code_im
     code_impact = str(code_impact or "").strip().upper()
     if code_impact not in MODES_CHARGE:
         raise svc.FactureProprietaireError(
-            f"mode d'impact inconnu : {code_impact!r}. Attendu IC, HC ou HR.")
+            f"mode d'impact inconnu : {code_impact!r}. "
+            f"Attendu {' ou '.join(sorted(MODES_CHARGE))}.")
     if not str(categorie_charge_id or "").strip():
         raise svc.FactureProprietaireError("categorie de charge obligatoire")
     libelle = str(libelle or "").strip()
@@ -143,9 +124,10 @@ def ajouter_ligne_charge(facture_id: str, *, libelle: str, montant: Any, code_im
             "montant": svc._round(montant),
             "sens_flux": "DEPENSE",
             "categorie_charge_id": str(categorie_charge_id).strip(),
+            # `code_impact` suffit : l'impact réel et comptable en découle (migration 0078, qui a
+            # supprimé les deux colonnes dérivées). `prise_en_compta` reste stockée — c'est une
+            # DESTINATION comptable, pas une relecture de l'impact.
             "code_impact": code_impact,
-            "impact_resultat_reel": mode["impact_resultat_reel"],
-            "impact_resultat_comptable": mode["impact_resultat_comptable"],
             "prise_en_compta": mode["prise_en_compta"],
             "affectation_type": "LOGEMENT",
             "logement_id": facture["logement_id"],

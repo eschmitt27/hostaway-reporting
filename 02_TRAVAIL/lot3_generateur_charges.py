@@ -70,10 +70,19 @@ MASTER_HEADERS: list[str] = [
     "source_module", "source_table", "source_pk", "date_integration",
 ]
 
-# D012 — codes d'impact. IC : résultat réel ET comptable. HC : réel seul. HR : ni l'un ni l'autre.
-# Même mapping que lib_lot4a_reservations_hh (IMPACT_REEL / IMPACT_COMPTA), appliqué aux charges.
-IMPACT_REEL: dict[str, str] = {"IC": "OUI", "HC": "OUI", "HR": "NON"}
-IMPACT_COMPTA: dict[str, str] = {"IC": "OUI", "HC": "NON", "HR": "NON"}
+# D012 — codes d'impact d'une CHARGE. IC : résultat réel ET comptable. HC : réel seul.
+#
+# HR (« hors résultat ») a été RETIRÉ de ce mapping (mission « FIN DU LEGACY », DÉCISION 2) : une
+# dépense sans effet ni sur le résultat ni sur la comptabilité n'est pas une charge. Conséquence
+# VOULUE : une charge qui porterait encore HR ne devient pas « neutre » en silence, elle tombe sur
+# `IMPACT_INCONNU` et ressort en A_CONTROLER — visible, corrigeable. Aucune charge réelle n'est
+# concernée (audit : 0 charge HR, 0 récurrente HR, 0 flux HR).
+#
+# Le mapping de lib_lot4a_reservations_hh, lui, GARDE HR : c'est l'axe RÉSERVATIONS, où 125 lignes
+# réelles en dépendent (80 séjours propriétaire). Les deux axes ne partagent plus le même
+# vocabulaire, et c'est délibéré — cf. HR_SUPPRESSION_AUDIT.md.
+IMPACT_REEL: dict[str, str] = {"IC": "OUI", "HC": "OUI"}
+IMPACT_COMPTA: dict[str, str] = {"IC": "OUI", "HC": "NON"}
 IMPACT_INCONNU = "A_CONTROLER"
 
 # `sens` dérivé de `sens_flux` (M-code documentaire, requête 3).
