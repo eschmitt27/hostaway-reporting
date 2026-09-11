@@ -98,16 +98,28 @@ def test_sidebar_contient_href_proprietaires(client):
 
 
 def test_sidebar_contient_liens_modules_integres(client):
-    """Intégration : les liens des quatre modules sont présents ; plus aucun badge « futur »
-    pour Banques et Contrôles (désormais disponibles)."""
-    r = client.get("/")
+    """Intégration : les modules métier sont joignables depuis la barre latérale.
+
+    Recette utilisateur n°2 (§44-46) : « Contrôles & clôture » n'y figure plus comme entrée
+    autonome — son contenu est devenu une section de la page mensuelle de « Clôture mensuelle ».
+    """
+    r = client.get("/logements")
     assert r.status_code == 200
     for href in ('href="/menages"', 'href="/banques-caisse"',
-                 'href="/proprietaires-reglements"', 'href="/controles-cloture"'):
+                 'href="/proprietaires-reglements"', 'href="/clotures"'):
         assert href in r.text, f"Lien de module manquant dans la sidebar : {href}"
     # Banques et Contrôles ne sont plus « à venir » ; aucun badge futur ne doit subsister.
     assert "nav-badge-future" not in r.text
     assert "nav-item--future" not in r.text
+
+
+def test_racine_redirige_vers_logements(client):
+    """Recette utilisateur n°2 (§40) : l'accueil n'apportait plus de valeur — `/` mène directement
+    au premier écran de travail. La vue d'accueil reste joignable sur `/accueil`."""
+    r = client.get("/", follow_redirects=False)
+    assert r.status_code in (302, 303, 307, 308)
+    assert r.headers["location"] == "/logements"
+    assert client.get("/accueil").status_code == 200
 
 
 def test_header_global_sans_periode_sur_toutes_les_pages(client):

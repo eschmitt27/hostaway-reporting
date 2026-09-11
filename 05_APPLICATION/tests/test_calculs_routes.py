@@ -54,8 +54,13 @@ def test_page_affiche_environnement_et_mode(client, env):
     assert "RECETTE" in html
 
 
-def test_nav_expose_calculs(client, env):
-    assert 'href="/calculs"' in client.get("/calculs").text
+def test_calculs_hors_navigation_metier_mais_route_vivante(client, env):
+    """Recette utilisateur n°2 (§41) : « Calculs » quitte la barre latérale métier — c'est un outil
+    d'exploitation, pas une étape du travail quotidien. Le MOTEUR et la ROUTE restent intacts :
+    seul le raccourci de menu disparaît."""
+    r = client.get("/calculs")
+    assert r.status_code == 200, "la route doit rester accessible"
+    assert 'href="/calculs"' not in r.text, "plus de lien Calculs dans la navigation métier"
 
 
 def test_page_affiche_les_lots_de_la_chaine(client, env):

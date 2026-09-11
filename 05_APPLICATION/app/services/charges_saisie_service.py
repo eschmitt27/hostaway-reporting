@@ -36,6 +36,16 @@ STATUT_ANNULEE = "ANNULEE"
 EVT_CREATION = "CREATION"
 EVT_MODIFICATION = "MODIFICATION"
 EVT_ANNULATION = "ANNULATION"
+EVT_VALIDATION_CONTROLE = "VALIDATION_CONTROLE"
+EVT_ANOMALIE_CONTROLE = "ANOMALIE_CONTROLE"
+
+# Vocabulaire du CONTRÔLE d'une charge — celui de la migration 0011, repris tel quel. À ne pas
+# confondre avec `statut` (ACTIVE/ANNULEE), qui est le cycle de VIE : une charge peut être active
+# et non contrôlée, ou contrôlée puis annulée. Deux axes, deux colonnes.
+CONTROLE_A_CONTROLER = "A_CONTROLER"
+CONTROLE_CONFORME = "CONFORME"
+CONTROLE_ANOMALIE = "ANOMALIE"
+CONTROLES = (CONTROLE_A_CONTROLER, CONTROLE_CONFORME, CONTROLE_ANOMALIE)
 
 E_CHAMP_MANQUANT = "CHARGE_CHAMP_MANQUANT"
 E_MONTANT_INVALIDE = "CHARGE_MONTANT_INVALIDE"
@@ -132,7 +142,21 @@ def _charge(conn, charge_id: str) -> dict[str, Any] | None:
     return dict(r) if r else None
 
 
-def creer(donnees: dict[str, Any], *, acteur: str = "", conn=None,
+def lire(charge_id: str, *, db_path=None) -> dict[str, Any] | None:
+    """La ligne complète, cycle de vie compris. `None` si la charge n'existe pas.
+
+    `charges_service.load_detail` reproduit la projection du lecteur moteur et n'expose donc pas
+    `statut` (ACTIVE/ANNULEE) : un écran qui doit décider si une action est encore possible a
+    besoin de cette colonne, et la lui ajouter là-bas romprait la parité de ce lecteur.
+    """
+    conn = get_db(db_path)
+    try:
+        return _charge(conn, str(charge_id or "").strip())
+    finally:
+        conn.close()
+
+
+def creer(donnees: dict[str, Any], *, acteur: str = "", conn=None, perimetre=None,
           db_path=None) -> dict[str, Any]:
     """Crée une charge. `charge_id` fourni, ou dérivé d'un identifiant opaque — jamais un rang.
 
@@ -142,6 +166,12 @@ def creer(donnees: dict[str, Any], *, acteur: str = "", conn=None,
     existants), comportement inchangé : connexion propre ouverte/validée/fermée ici.
     Validation métier (`valider()`, `_verifier_contrat()`) reste PURE et s'exécute AVANT toute
     ouverture de connexion — un refus métier ne touche jamais la base, conn fourni ou non.
+
+    `perimetre` : les N logements concernés, déjà calculés par `charges_impact_service`
+    (`{logement_id, proprietaire_id, quote_part_montant}`). Écrit AVANT la synchronisation de
+    refacturation, parce que celle-ci en a besoin pour savoir à quels propriétaires la charge peut
+    être refacturée. Sans lui, une charge multi-logements perdait son périmètre à l'écriture et sa
+    position naissait `A_TRAITER`, donc invisible de toute facture.
     """
     validation = valider(donnees)
     if not validation["ok"]:
@@ -168,6 +198,11 @@ def creer(donnees: dict[str, Any], *, acteur: str = "", conn=None,
             f"INSERT INTO charges ({', '.join(colonnes)}) "
             f"VALUES ({', '.join(['?'] * len(colonnes))})", params)
         _journaliser(conn, charge_id, EVT_CREATION, acteur, "", apres=valeurs)
+        # Le périmètre analytique s'écrit AVANT la synchronisation de refacturation : celle-ci en
+        # dérive les propriétaires éligibles quand la charge est commune à plusieurs logements.
+        if perimetre:
+            from app.services import charges_perimetre_service as perim
+            perim.enregistrer(charge_id, perimetre, mois=valeurs["mois"], acteur=acteur, conn=conn)
         # Mission 15 : point d'entrée unique de la file de refacturation — une charge
         # refacturable='OUI' alimente automatiquement une position, jamais un second flux.
         from app.services import charges_refacturation_service as refac
@@ -232,6 +267,72 @@ def annuler(charge_id: str, *, acteur: str = "", motif: str = "", db_path=None) 
     finally:
         conn.close()
     return {"ok": True, "charge_id": charge_id, "statut": STATUT_ANNULEE}
+
+
+def valider_controle(charge_id: str, *, acteur: str = "", motif: str = "",
+                     db_path=None) -> dict[str, Any]:
+    """`A_CONTROLER` → `CONFORME`. Le geste « Valider la charge » de la fiche.
+
+    Le vocabulaire est celui déjà posé par la migration 0011 (`A_CONTROLER|CONFORME|ANOMALIE`) :
+    aucun statut n'est inventé pour l'occasion. Ce qui manquait n'était pas le modèle mais la
+    TRANSITION — une charge naissait `A_CONTROLER` et rien, nulle part, ne pouvait l'en sortir.
+
+    Idempotent : valider une charge déjà `CONFORME` renvoie un succès sans réécrire ni rejournaliser
+    (double-clic, rafraîchissement, double soumission). Une charge annulée n'est pas validable :
+    son cycle de vie est clos.
+    """
+    conn = get_db(db_path)
+    try:
+        avant = _charge(conn, charge_id)
+        if avant is None:
+            return _refus(E_INTROUVABLE, f"Charge inconnue : {charge_id}.")
+        if avant["statut"] == STATUT_ANNULEE:
+            return _refus(E_DEJA_ANNULEE,
+                          f"La charge {charge_id} est annulée : son contrôle ne peut plus changer.")
+        actuel = str(avant["statut_controle"] or "").strip().upper()
+        if actuel == CONTROLE_CONFORME:
+            return {"ok": True, "charge_id": charge_id, "statut_controle": CONTROLE_CONFORME,
+                    "inchange": True}
+        conn.execute(
+            "UPDATE charges SET statut_controle = ?, date_modification = ? WHERE charge_id = ?",
+            (CONTROLE_CONFORME, _maintenant(), charge_id))
+        _journaliser(conn, charge_id, EVT_VALIDATION_CONTROLE, acteur, motif,
+                     avant={"statut_controle": actuel or None},
+                     apres={"statut_controle": CONTROLE_CONFORME})
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "charge_id": charge_id, "statut_controle": CONTROLE_CONFORME,
+            "inchange": False}
+
+
+def signaler_anomalie(charge_id: str, *, acteur: str = "", motif: str = "",
+                      db_path=None) -> dict[str, Any]:
+    """`A_CONTROLER`/`CONFORME` → `ANOMALIE`. Contrepartie de `valider_controle` : un contrôle qui
+    ne peut que dire « oui » n'est pas un contrôle."""
+    conn = get_db(db_path)
+    try:
+        avant = _charge(conn, charge_id)
+        if avant is None:
+            return _refus(E_INTROUVABLE, f"Charge inconnue : {charge_id}.")
+        if avant["statut"] == STATUT_ANNULEE:
+            return _refus(E_DEJA_ANNULEE,
+                          f"La charge {charge_id} est annulée : son contrôle ne peut plus changer.")
+        actuel = str(avant["statut_controle"] or "").strip().upper()
+        if actuel == CONTROLE_ANOMALIE:
+            return {"ok": True, "charge_id": charge_id, "statut_controle": CONTROLE_ANOMALIE,
+                    "inchange": True}
+        conn.execute(
+            "UPDATE charges SET statut_controle = ?, date_modification = ? WHERE charge_id = ?",
+            (CONTROLE_ANOMALIE, _maintenant(), charge_id))
+        _journaliser(conn, charge_id, EVT_ANOMALIE_CONTROLE, acteur, motif,
+                     avant={"statut_controle": actuel or None},
+                     apres={"statut_controle": CONTROLE_ANOMALIE})
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "charge_id": charge_id, "statut_controle": CONTROLE_ANOMALIE,
+            "inchange": False}
 
 
 def historique(charge_id: str, *, db_path=None) -> list[dict[str, Any]]:

@@ -142,7 +142,7 @@
         <div style="margin-top: var(--stack-sm);"><em class="text-secondary">Filtre propriétaires (sélection indirecte de logements)</em></div>
         {% for pr in refs.get('proprietaires', []) %}
         <label style="display:inline-flex; align-items:center; gap:6px; margin:4px 12px 4px 0;">
-          <input type="checkbox" name="menage_proprietaires" value="{{ pr.proprietaire_id }}"> {{ pr.proprietaire_id }}
+          <input type="checkbox" name="menage_proprietaires" value="{{ pr.proprietaire_id }}"> {{ pr.proprietaire_id | nom_proprietaire }}
         </label>
         {% endfor %}
       </div>
@@ -156,7 +156,9 @@
         <label>Propriétaires concernés</label><br>
         {% for pr in refs.get('proprietaires', []) %}
         <label style="display:inline-flex; align-items:center; gap:6px; margin:4px 12px 4px 0;">
-          <input type="checkbox" name="proprietaires" value="{{ pr.proprietaire_id }}"> {{ pr.proprietaire_id }}
+          {# L'identifiant reste dans `value` (il est nécessaire au traitement) mais n'est jamais
+             le libellé : l'utilisateur choisit un propriétaire par son nom. #}
+          <input type="checkbox" name="proprietaires" value="{{ pr.proprietaire_id }}"> {{ pr.proprietaire_id | nom_proprietaire }}
         </label>
         {% endfor %}
       </div>
@@ -179,7 +181,7 @@
           <select id="mode_paiement_id" name="mode_paiement_id" required>
             <option value="">— Sélectionner —</option>
             {% for m in refs.get('modes_paiement', []) %}
-            <option value="{{ m.mode_paiement_id }}" {% if form.get('mode_paiement_id') == m.mode_paiement_id %}selected{% endif %}>{{ m.mode_paiement }}</option>
+            <option value="{{ m.mode_paiement_id }}" {% if form.get('mode_paiement_id') == m.mode_paiement_id %}selected{% endif %}>{{ m.mode_paiement_id | nom_mode_paiement }}</option>
             {% endfor %}
           </select>
         </div>

@@ -31,6 +31,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from app.services import charges_impact_service as impact
 from app.services import charges_preview_service as prev
 from app.services import charges_saisie_service as saisie
 
@@ -197,6 +198,35 @@ def _enregistrer_si_previsualisation_existe(
                  encoding="utf-8")
 
 
+def _perimetre_a_persister(guide: dict[str, Any], mois: str,
+                           montant: Any) -> list[dict[str, Any]]:
+    """Traduit le périmètre calculé par le moteur en lignes à écrire (migration 0074).
+
+    La quote-part ANALYTIQUE vient de `repartir_egal` (centimes déterministes, somme exactement
+    égale au montant) : 700 € sur 2 logements donnent 350/350. Elle ne dit rien de la
+    refacturation, qui porte sur le montant TOTAL et se ventile commercialement à part.
+
+    Le montant vient de `row_data` — la valeur réellement écrite sur la charge — et non du guide :
+    deux sources pour un même chiffre finiraient par diverger.
+    """
+    perimetre = (guide or {}).get("perimetre") or {}
+    finaux = perimetre.get("logements_finaux") or []
+    if not finaux:
+        return []
+    try:
+        valeur = float(montant)
+    except (TypeError, ValueError):
+        valeur = 0.0
+    prop_par_log = perimetre.get("proprietaire_par_logement") or {}
+    quotes = {q["logement_id"]: q["quote_part"] for q in impact.repartir_egal(valeur, finaux)}
+    return [{
+        "logement_id": lid,
+        "proprietaire_id": (prop_par_log.get(lid) or "").strip() or None,
+        "mois": mois,
+        "quote_part_montant": quotes.get(lid, 0.0),
+    } for lid in finaux]
+
+
 # ── Confirmation ─────────────────────────────────────────────────────────────
 
 def confirmer(
@@ -271,8 +301,13 @@ def confirmer(
         )
 
     # ── 5. Écriture SQLite (transaction atomique, aucun fichier à remplacer) ──
+    # Le périmètre analytique était jusqu'ici CALCULÉ puis JETÉ : `guide` ne servait qu'à détecter
+    # des erreurs, et seul `row_data` était écrit. Une charge commune à deux logements arrivait donc
+    # en base sans logement ni propriétaire, et sa position de refacturation naissait `A_TRAITER`,
+    # invisible de toute facture. On persiste désormais ce que le moteur a déjà calculé.
     row_data = manifest["row_data"]
-    res = saisie.creer(row_data, acteur=acteur, db_path=db_path)
+    perimetre = _perimetre_a_persister(guide, mois, row_data.get("montant"))
+    res = saisie.creer(row_data, acteur=acteur, perimetre=perimetre, db_path=db_path)
 
     if not res.get("ok"):
         resultat = ResultatConfirmation(

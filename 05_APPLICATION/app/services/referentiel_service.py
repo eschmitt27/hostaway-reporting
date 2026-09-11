@@ -182,6 +182,76 @@ def libelle_fournisseur(fournisseur_id: str, *, db_path=None) -> str:
 libelle_prestataire = libelle_fournisseur
 
 
+# ── Modes de paiement et catégories de charge ───────────────────────────────────────────────────
+# Ces deux référentiels stockent des codes ENUM (`BANQUE_PRO`, `MENAGE`…) : lisibles par une
+# machine, pas par un utilisateur. `humaniser_code` les rend présentables sans inventer de
+# traduction — il ne fait que retirer les soulignés et poser une majuscule.
+
+def humaniser_code(code: str) -> str:
+    """`BANQUE_PRO` → `Banque pro`. Transformation purement typographique, jamais un dictionnaire
+    de traductions : un code inconnu reste donc lisible plutôt que d'être remplacé par un libellé
+    inventé."""
+    texte = _txt(code).replace("_", " ").strip()
+    if not texte:
+        return ""
+    return texte[:1].upper() + texte[1:].lower() if texte.isupper() else texte
+
+
+def mode_paiement(mode_paiement_id: str, *, db_path=None) -> dict[str, str] | None:
+    if not mode_paiement_id:
+        return None
+    return repo.lire_par_cle("ref_modes_paiement", _txt(mode_paiement_id), db_path=db_path)
+
+
+def libelle_mode_paiement(mode_paiement_id: str, *, db_path=None) -> str:
+    """« Banque pro » plutôt que « PAY_001 ». Vide si l'identifiant l'est."""
+    if not _txt(mode_paiement_id):
+        return ""
+    m = mode_paiement(mode_paiement_id, db_path=db_path)
+    nom = humaniser_code(m.get("mode_paiement")) if m else ""
+    return nom if nom else f"Mode de paiement non résolu ({mode_paiement_id})"
+
+
+def categorie_charge(categorie_charge_id: str, *, db_path=None) -> dict[str, str] | None:
+    if not categorie_charge_id:
+        return None
+    return repo.lire_par_cle("ref_categories_charges", _txt(categorie_charge_id), db_path=db_path)
+
+
+def libelle_categorie_charge(categorie_charge_id: str, *, db_path=None) -> str:
+    """« Maintenance · Réparation logement » plutôt que « CHG_008 ».
+
+    Les deux niveaux sont joints parce qu'aucun des deux ne suffit : le niveau 1 seul regroupe des
+    dépenses très différentes, le niveau 2 seul est ambigu d'une famille à l'autre.
+    """
+    if not _txt(categorie_charge_id):
+        return ""
+    c = categorie_charge(categorie_charge_id, db_path=db_path)
+    if not c:
+        return f"Catégorie non résolue ({categorie_charge_id})"
+    n1, n2 = _txt(c.get("categorie_niveau_1")), _txt(c.get("categorie_niveau_2"))
+    return " · ".join(x for x in (n1, n2) if x) or f"Catégorie non résolue ({categorie_charge_id})"
+
+
+def refacturable_par_defaut(categorie_charge_id: str, *, db_path=None) -> bool:
+    """Valeur PROPOSÉE par le référentiel pour une catégorie (`refacturable_defaut`).
+
+    C'est une proposition, jamais une décision : la saisie reste maîtresse. Sans elle, l'utilisateur
+    devait deviner que « Réparation logement » est refacturable par défaut — et le formulaire, qui
+    partait systématiquement de « Non », lui faisait perdre l'information du référentiel.
+    """
+    c = categorie_charge(categorie_charge_id, db_path=db_path)
+    return bool(c) and _txt(c.get("refacturable_defaut")).upper() == "OUI"
+
+
+def libelle_type_flux(type_flux_id: str, *, db_path=None) -> str:
+    if not _txt(type_flux_id):
+        return ""
+    t = repo.lire_par_cle("ref_types_flux", _txt(type_flux_id), db_path=db_path)
+    nom = humaniser_code(t.get("type_flux")) if t else ""
+    return nom if nom else f"Type de flux non résolu ({type_flux_id})"
+
+
 # ── Taux de commission ──────────────────────────────────────────────────────────────────────────
 
 def taux_commission(proprietaire_id: str, *, db_path=None) -> list[dict[str, Any]]:

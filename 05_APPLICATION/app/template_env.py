@@ -45,6 +45,25 @@ def _nom_associe(pid: str) -> str:
     return ref_svc.libelle_associe(pid) if pid else ""
 
 
+def _nom_mode_paiement(mid: str) -> str:
+    return ref_svc.libelle_mode_paiement(mid) if mid else ""
+
+
+def _nom_categorie_charge(cid: str) -> str:
+    return ref_svc.libelle_categorie_charge(cid) if cid else ""
+
+
+def _nom_type_flux(tid: str) -> str:
+    return ref_svc.libelle_type_flux(tid) if tid else ""
+
+
+def _libelle_statut(code: str) -> str:
+    """`PARTIELLEMENT_REGLEE` → `Partiellement réglée`. Purement typographique : le statut STOCKÉ
+    reste le code canonique, seul son affichage change (mission « plus de codes à soulignés
+    dans l'UI »)."""
+    return ref_svc.humaniser_code(code) if code else ""
+
+
 def get_templates() -> Jinja2Templates:
     """Instance Jinja2Templates unique, partagée par toutes les routes."""
     global _templates
@@ -57,5 +76,9 @@ def get_templates() -> Jinja2Templates:
         t.env.filters["nom_prestataire"] = _nom_fournisseur
         t.env.filters["nom_intervenant"] = _nom_intervenant
         t.env.filters["nom_associe"] = _nom_associe
+        t.env.filters["nom_mode_paiement"] = _nom_mode_paiement
+        t.env.filters["nom_categorie_charge"] = _nom_categorie_charge
+        t.env.filters["nom_type_flux"] = _nom_type_flux
+        t.env.filters["libelle_statut"] = _libelle_statut
         _templates = t
     return _templates

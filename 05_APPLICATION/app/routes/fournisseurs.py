@@ -2,6 +2,9 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from app.template_env import get_templates
 from app.services import charges_confirmation_service as confirmation
+from app.services import charges_perimetre_service as perim
+from app.services import charges_refacturation_service as refac
+from app.services import charges_saisie_service as saisie
 from app.services import charges_service as svc
 from app.services.charges_preview_service import (
     ChargesPreviewError,
@@ -141,8 +144,36 @@ def fournisseurs_resultat(request: Request, token: str):
     })
 
 
+@router.post("/fournisseurs/{charge_id}/valider")
+async def charge_valider(request: Request, charge_id: str):
+    """« Valider la charge » : `A_CONTROLER` → `CONFORME` (vocabulaire de la migration 0011).
+
+    Réponse en REDIRECTION (POST-Redirect-Get) : rafraîchir la fiche ne rejoue jamais la
+    validation, et le service est de toute façon idempotent.
+    """
+    form = await request.form()
+    res = saisie.valider_controle(charge_id, acteur="interface",
+                                  motif=str(form.get("motif", "") or ""))
+    cible = f"/fournisseurs/{charge_id}"
+    if not res.get("ok"):
+        return RedirectResponse(url=f"{cible}?erreur={res.get('code', 'REFUS')}", status_code=303)
+    return RedirectResponse(url=cible, status_code=303)
+
+
+@router.post("/fournisseurs/{charge_id}/anomalie")
+async def charge_anomalie(request: Request, charge_id: str):
+    """Contrepartie de la validation : signaler une anomalie sur la charge."""
+    form = await request.form()
+    res = saisie.signaler_anomalie(charge_id, acteur="interface",
+                                   motif=str(form.get("motif", "") or ""))
+    cible = f"/fournisseurs/{charge_id}"
+    if not res.get("ok"):
+        return RedirectResponse(url=f"{cible}?erreur={res.get('code', 'REFUS')}", status_code=303)
+    return RedirectResponse(url=cible, status_code=303)
+
+
 @router.get("/fournisseurs/{charge_id}", response_class=HTMLResponse)
-def fournisseur_detail(request: Request, charge_id: str):
+def fournisseur_detail(request: Request, charge_id: str, erreur: str = ""):
     detail = svc.load_detail(charge_id)
     if detail is None:
         return templates.TemplateResponse(
@@ -155,8 +186,23 @@ def fournisseur_detail(request: Request, charge_id: str):
             },
             status_code=404,
         )
+    charge = detail.get("charge") or {}
+    # Périmètre analytique (0074) : les N logements réellement concernés et leur quote-part. Sans
+    # lui, une charge commune affichait « logement : — » alors que la saisie en désignait deux.
+    perimetre = perim.resume(charge_id, charge.get("montant"))
+    position = refac.position_de_charge(charge_id)
+    # Le cycle de vie (`statut`) vient du service de saisie : le lecteur moteur ne le projette pas.
+    ligne = saisie.lire(charge_id) or {}
+    active = str(ligne.get("statut") or "") == saisie.STATUT_ACTIVE
+    controle = str(ligne.get("statut_controle") or charge.get("statut_controle") or "").upper()
     return templates.TemplateResponse(request, "fournisseurs_detail.html", {
         "active_menu": "fournisseurs",
         "detail": detail,
         "charge_id": charge_id,
+        "perimetre": perimetre,
+        "position_refac": position,
+        "statut_cycle": ligne.get("statut"),
+        "peut_valider": active and controle != saisie.CONTROLE_CONFORME,
+        "peut_signaler": active and controle != saisie.CONTROLE_ANOMALIE,
+        "erreur": erreur,
     })

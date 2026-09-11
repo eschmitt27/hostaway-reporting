@@ -181,6 +181,10 @@ EXPECTED_TABLES = {
     # chaque import de `REF_Setup.xlsm`, un classement rangé là disparaîtrait au prochain import.
     "proprietaires_facturation",
     "proprietaires_facturation_evenements",       # 0073 — journal des changements, avec valeur précédente
+    # 0074 — périmètre ANALYTIQUE d'une charge : les N logements qu'elle concerne et leur
+    # quote-part (montant / N). À ne pas confondre avec la REFACTURATION, qui porte sur le montant
+    # total et se ventile commercialement à part (`charges_refacturation_positions`).
+    "charges_perimetre_analytique",
 }
 
 

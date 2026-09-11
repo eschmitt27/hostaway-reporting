@@ -23,30 +23,52 @@ def get_db(db_path: Path | None = None) -> sqlite3.Connection:
     return conn
 
 
-def apply_migrations(db_path: Path | None = None) -> None:
-    """Applique les migrations. `db_path` non fourni → `cfg.DB_PATH` lu à chaud (cf. get_db).
+def _versions_appliquees(conn) -> set[str]:
+    """Versions déjà enregistrées dans `schema_migrations`. Ensemble vide si la table n'existe pas
+    encore (base neuve) — c'est alors l'intégralité des migrations qui doit être jouée."""
+    try:
+        return {str(r[0]) for r in conn.execute("SELECT version FROM schema_migrations")}
+    except sqlite3.OperationalError:
+        return set()
 
-    Court-circuit : si `schema_migrations` porte déjà la version du dernier fichier, on ne relit ni
-    ne réexécute aucun des ~50 fichiers de migration. Sans cela, chaque démarrage de l'application
-    (et chaque test utilisant le fixture `client`, dont le lifespan rappelle `apply_migrations` après
-    que `tmp_db` l'a déjà fait) rejoue l'intégralité des migrations pour un résultat inchangé — un
-    coût mesuré comme dominant la lenteur de la suite de tests HH sur ce poste.
+
+def apply_migrations(db_path: Path | None = None) -> None:
+    """Applique les migrations MANQUANTES, une par une. `db_path` non fourni → `cfg.DB_PATH` lu à
+    chaud (cf. get_db).
+
+    CHAQUE FICHIER EST SUIVI INDIVIDUELLEMENT. Une version antérieure fondée sur le seul
+    `MAX(version)` n'avait que deux comportements : tout court-circuiter, ou **tout rejouer depuis
+    0001**. Cette seconde branche est devenue destructrice dès qu'une migration de RECONSTRUCTION
+    est entrée dans l'historique : `0071` recrée `factures_proprietaires_lignes` avec la contrainte
+    `CHECK` de l'époque, et `0072` l'élargit ensuite à `EXTRA`/`REDUCTION`. Rejouer 0071 sur une
+    base contenant déjà une ligne `EXTRA` échoue — autrement dit, ajouter un simple fichier 0074
+    empêchait l'application de démarrer. Le défaut ne se voyait pas tant qu'aucune donnée ne violait
+    une contrainte ancienne ; il attendait la première.
+
+    On ne joue donc que ce qui manque, et on enregistre chaque version appliquée, y compris quand
+    le fichier lui-même a oublié son `INSERT INTO schema_migrations` (les plus anciens ne le font
+    pas). Les fichiers restent idempotents par construction (`CREATE TABLE IF NOT EXISTS`…) : ce
+    suivi est une seconde garantie, pas un remplacement.
     """
     fichiers = sorted(MIGRATIONS_DIR.glob("*.sql"))
-    derniere_version = fichiers[-1].stem.split("_", 1)[0] if fichiers else None
+    if not fichiers:
+        return
 
     conn = get_db(db_path)
     try:
-        if derniere_version is not None:
-            try:
-                row = conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()
-            except sqlite3.OperationalError:
-                row = None
-            if row and row[0] is not None and str(row[0]) >= derniere_version:
-                return
-        for migration_file in fichiers:
-            sql = migration_file.read_text(encoding="utf-8")
-            conn.executescript(sql)
+        deja = _versions_appliquees(conn)
+        # Base neuve (aucune version connue) : tout est à jouer, dans l'ordre.
+        a_jouer = [f for f in fichiers if f.stem.split("_", 1)[0] not in deja] if deja else fichiers
+        if not a_jouer:
+            return
+        for migration_file in a_jouer:
+            version = migration_file.stem.split("_", 1)[0]
+            conn.executescript(migration_file.read_text(encoding="utf-8"))
+            # Filet : certains fichiers anciens n'enregistrent pas leur propre version. Sans cette
+            # ligne ils seraient rejoués à chaque démarrage — exactement le défaut corrigé ici.
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY)")
+            conn.execute("INSERT OR IGNORE INTO schema_migrations (version) VALUES (?)", (version,))
         conn.commit()
     finally:
         conn.close()

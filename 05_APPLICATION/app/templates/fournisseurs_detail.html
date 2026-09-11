@@ -24,9 +24,9 @@
 {% set c = detail.charge %}
 
 <div class="page-header">
-  <a href="/fournisseurs" class="back-link">← Fournisseurs</a>
+  <a href="/fournisseurs" class="back-link">← Charges</a>
   <h1 class="page-title">
-    {{ c.categorie_charge_id or charge_id }}
+    {{ c.categorie_charge_id | nom_categorie_charge if c.categorie_charge_id else charge_id }}
     <span class="page-title-sub">{{ c.mois or "—" }}</span>
   </h1>
   <p class="page-subtitle">
@@ -36,6 +36,10 @@
     {% endif %}
   </p>
 </div>
+
+{% if erreur %}
+<div class="alert alert-danger">Action refusée : <code>{{ erreur }}</code></div>
+{% endif %}
 
 <!-- Montant et statut -->
 <div class="detail-section">
@@ -49,7 +53,7 @@
       <div class="kpi-label">Statut contrôle</div>
       <div class="kpi-value">
         <span class="status-badge status-{{ (c.statut_controle or 'inconnu') | lower | replace('_','-') }}">
-          {{ c.statut_controle or "—" }}
+          {{ c.statut_controle | libelle_statut if c.statut_controle else "—" }}
         </span>
       </div>
     </div>
@@ -77,18 +81,39 @@
   </div>
   <div class="detail-row">
     <span class="detail-label">Catégorie</span>
-    <span class="detail-value">{{ c.categorie_charge_id or "—" }}</span>
+    <span class="detail-value">{{ c.categorie_charge_id | nom_categorie_charge if c.categorie_charge_id else "—" }}</span>
   </div>
+  {% if perimetre and perimetre.nb_logements %}
+  {# Charge affectée à un ou plusieurs logements : le périmètre (migration 0074) fait foi. La
+     colonne `logement_id` de la charge reste vide quand ils sont plusieurs — il n'y en a pas UN. #}
+  <div class="detail-row">
+    <span class="detail-label">{{ "Logements concernés" if perimetre.multi else "Logement" }}</span>
+    <span class="detail-value">
+      {% for l in perimetre.lignes %}
+        {{ l.logement_id | nom_logement }}{% if not loop.last %}<br>{% endif %}
+      {% endfor %}
+    </span>
+  </div>
+  <div class="detail-row">
+    <span class="detail-label">{{ "Propriétaires concernés" if perimetre.multi else "Propriétaire" }}</span>
+    <span class="detail-value">
+      {% for l in perimetre.lignes %}
+        {{ l.proprietaire_id | nom_proprietaire if l.proprietaire_id else "—" }}{% if not loop.last %}<br>{% endif %}
+      {% endfor %}
+    </span>
+  </div>
+  {% else %}
   <div class="detail-row">
     <span class="detail-label">Logement</span>
     <span class="detail-value">
-      {{ c.logement_id | nom_logement if c.logement_id else "—" }}
+      {{ c.logement_id | nom_logement if c.logement_id else "Charge globale (aucun logement ciblé)" }}
     </span>
   </div>
   <div class="detail-row">
     <span class="detail-label">Propriétaire</span>
     <span class="detail-value">{{ c.proprietaire_id | nom_proprietaire if c.proprietaire_id else "—" }}</span>
   </div>
+  {% endif %}
   <div class="detail-row">
     <span class="detail-label">Associé</span>
     <span class="detail-value">{{ c.associe_id | nom_associe if c.associe_id else "—" }}</span>
@@ -101,12 +126,108 @@
   {% endif %}
 </div>
 
+{% if (perimetre and perimetre.multi) or position_refac %}
+<!-- Deux axes à ne jamais confondre : ce que la charge COÛTE par logement (analytique) et ce
+     qu'on en RÉCUPÈRE auprès des propriétaires (refacturation). -->
+<div class="detail-section">
+  <h2 class="section-title">Impact de cette charge</h2>
+
+  {% if perimetre and perimetre.nb_logements %}
+  <h3 class="text-sm" style="margin-bottom:var(--stack-sm)">Ventilation analytique</h3>
+  <p class="text-xs text-secondary">
+    Le montant est réparti <strong>également</strong> entre les logements concernés : il pèse sur
+    le résultat de chacun à hauteur de sa quote-part. Cette répartition n'impose rien à la
+    refacturation.
+  </p>
+  <div class="table-container">
+    <table class="table">
+      <thead><tr><th>Logement</th><th>Propriétaire</th>
+                 <th class="text-right">Quote-part analytique</th></tr></thead>
+      <tbody>
+        {% for l in perimetre.lignes %}
+        <tr>
+          <td>{{ l.logement_id | nom_logement }}</td>
+          <td>{{ l.proprietaire_id | nom_proprietaire if l.proprietaire_id else "—" }}</td>
+          <td class="text-right">{{ "%.2f"|format(l.quote_part_montant) }} €</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr><th colspan="2">Total réparti</th>
+            <th class="text-right">{{ "%.2f"|format(perimetre.total_reparti) }} €</th></tr>
+      </tfoot>
+    </table>
+  </div>
+  {% if perimetre.multi %}
+  <p class="text-xs text-secondary">
+    {{ "%.2f"|format(c.montant) }} € ÷ {{ perimetre.nb_logements }} logements
+    = <strong>{{ "%.2f"|format(perimetre.quote_part_theorique) }} € par logement</strong>.
+  </p>
+  {% endif %}
+  {% endif %}
+
+  {% if position_refac %}
+  <h3 class="text-sm" style="margin-top:var(--stack-lg); margin-bottom:var(--stack-sm)">
+    Élément à refacturer
+  </h3>
+  <p class="text-xs text-secondary">
+    Le montant refacturable est le montant <strong>total</strong> de la charge, pas la quote-part
+    analytique. Vous choisissez librement comment le récupérer : en une fois sur une seule facture,
+    ou réparti sur plusieurs.
+  </p>
+  <div class="detail-row">
+    <span class="detail-label">Montant initial</span>
+    <span class="detail-value">{{ "%.2f"|format(position_refac.montant_origine) }} €</span>
+  </div>
+  <div class="detail-row">
+    <span class="detail-label">Déjà refacturé</span>
+    <span class="detail-value">{{ "%.2f"|format(position_refac.montant_deja_refacture) }} €</span>
+  </div>
+  <div class="detail-row">
+    <span class="detail-label">Reste à refacturer</span>
+    <span class="detail-value"><strong>{{ "%.2f"|format(position_refac.montant_restant) }} €</strong></span>
+  </div>
+  <div class="detail-row">
+    <span class="detail-label">État</span>
+    <span class="detail-value">{{ position_refac.statut | libelle_statut }}</span>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if peut_valider or peut_signaler %}
+<!-- Contrôle de la charge : A_CONTROLER → CONFORME (ou ANOMALIE). Vocabulaire canonique, aucun
+     statut inventé. Le geste manquait : une charge naissait « à contrôler » et rien ne l'en
+     sortait. -->
+<div class="detail-section">
+  <h2 class="section-title">Contrôle de la charge</h2>
+  <p class="text-xs text-secondary">
+    Cette charge est actuellement
+    <strong>{{ c.statut_controle | libelle_statut if c.statut_controle else "à contrôler" }}</strong>.
+    La valider confirme que la saisie a été vérifiée ; l'état est conservé et reste visible après
+    redémarrage.
+  </p>
+  <div style="display:flex; gap:var(--stack-md); flex-wrap:wrap; margin-top:var(--stack-md);">
+    {% if peut_valider %}
+    <form method="post" action="/fournisseurs/{{ charge_id }}/valider">
+      <button type="submit" class="btn btn-primary">Valider la charge</button>
+    </form>
+    {% endif %}
+    {% if peut_signaler %}
+    <form method="post" action="/fournisseurs/{{ charge_id }}/anomalie">
+      <button type="submit" class="btn btn-secondary">Signaler une anomalie</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
 <!-- Paiement -->
 <div class="detail-section">
   <h2 class="section-title">Paiement</h2>
   <div class="detail-row">
     <span class="detail-label">Mode paiement</span>
-    <span class="detail-value">{{ c.mode_paiement_id or "—" }}</span>
+    <span class="detail-value">{{ c.mode_paiement_id | nom_mode_paiement if c.mode_paiement_id else "—" }}</span>
   </div>
   <div class="detail-row">
     <span class="detail-label">Carte</span>
@@ -116,9 +237,9 @@
     <span class="detail-label">Refacturable</span>
     <span class="detail-value">
       {% if c.refacturable == 'OUI' %}
-        <span class="badge badge-info">OUI</span>
+        <span class="badge badge-info">Oui</span>
       {% else %}
-        {{ c.refacturable or "—" }}
+        Non
       {% endif %}
     </span>
   </div>

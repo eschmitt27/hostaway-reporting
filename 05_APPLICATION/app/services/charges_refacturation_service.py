@@ -90,6 +90,61 @@ def _position(conn, position_id: str) -> dict[str, Any] | None:
     return dict(r) if r else None
 
 
+def _reserve_brouillons(conn, position_id: str, sauf_facture: str = "") -> float:
+    """Montant de cette position déjà posé sur des BROUILLONS, donc réservé mais pas encore imputé.
+
+    Un brouillon ne consomme rien (`imputer()` n'a lieu qu'à la validation) : sans cette réserve,
+    deux brouillons pourraient chacun porter l'intégralité des 700 €, et le second échouerait
+    seulement au moment de valider — un refus tardif, après que l'utilisateur a tout préparé.
+    En la comptant, le solde proposé est honnête dès la composition.
+
+    La réserve se libère d'elle-même : détacher la ligne ou annuler la facture la fait disparaître,
+    aucune écriture de libération n'est nécessaire. `sauf_facture` exclut la facture en cours, pour
+    ne pas se réserver contre soi-même lors d'une modification.
+    """
+    args = [position_id]
+    clause = ""
+    if sauf_facture:
+        clause = " AND l.facture_id_opaque <> ?"
+        args.append(sauf_facture)
+    r = conn.execute(
+        "SELECT COALESCE(SUM(l.montant), 0) FROM factures_proprietaires_lignes l "
+        "JOIN factures_proprietaires f ON f.facture_id_opaque = l.facture_id_opaque "
+        "WHERE l.type_ligne = 'CHARGE_REFACTUREE' AND l.objet_source_ref = ? "
+        f"AND f.statut = 'BROUILLON'{clause}", args).fetchone()
+    return _round(r[0] if r else 0)
+
+
+def montant_disponible(position_id: str, *, sauf_facture: str = "",
+                       db_path=None) -> float:
+    """Ce qu'il reste RÉELLEMENT à refacturer : éligible − imputé (validé) − réservé (brouillons)."""
+    conn = get_db(db_path)
+    try:
+        pos = _position(conn, str(position_id or "").strip())
+        if pos is None:
+            return 0.0
+        return _round(pos["montant_eligible"] - pos["montant_impute_total"]
+                      - _reserve_brouillons(conn, pos["position_id"], sauf_facture))
+    finally:
+        conn.close()
+
+
+def _perimetre(conn, charge_id: str) -> list[dict[str, Any]]:
+    """Périmètre analytique de la charge (migration 0074) : les logements qu'elle concerne.
+
+    Sert ici d'ÉLIGIBILITÉ à la refacturation, pas de ventilation : le montant refacturable reste
+    le montant total de la charge, quel que soit le nombre de logements. Renvoie une liste vide sur
+    une base antérieure à 0074 — l'ancien comportement, jamais une erreur.
+    """
+    try:
+        return [dict(r) for r in conn.execute(
+            "SELECT logement_id, proprietaire_id, quote_part_montant "
+            "FROM charges_perimetre_analytique WHERE charge_id = ? ORDER BY logement_id",
+            (charge_id,))]
+    except Exception:      # noqa: BLE001 — table absente : pas de périmètre
+        return []
+
+
 def _journaliser(conn, position_id: str, evenement: str, *, montant=None, facture_id=None,
                  acteur: str = "", motif: str = "", avant=None, apres=None) -> None:
     import json
@@ -150,8 +205,24 @@ def synchroniser_depuis_charge(charge_id: str, *, acteur: str = "", conn=None,
         if not proprietaire_id and logement_id:
             proprietaire_id = _resoudre_proprietaire(conn, logement_id, charge.get("date_charge"))
 
+        # Charge COMMUNE à plusieurs logements : la ligne `charges` ne porte ni logement ni
+        # propriétaire (il n'y en a pas UN seul), mais le périmètre analytique (0074) dit qui est
+        # concerné. Sans cette lecture, une charge multi-logements naissait `A_TRAITER` et n'était
+        # proposable sur AUCUNE facture — la dépense restait refacturable en théorie et
+        # irrécupérable en pratique.
+        perimetre = _perimetre(conn, charge_id)
+        if not logement_id and not proprietaire_id and perimetre:
+            proprietaires_perimetre = [p for p in
+                                       dict.fromkeys(r["proprietaire_id"] for r in perimetre) if p]
+            # Un seul propriétaire concerné : la position lui est directement rattachée. Plusieurs :
+            # on ne choisit pas à sa place — la position reste ouverte et son périmètre, lu depuis
+            # 0074, la rend proposable sur la facture de CHACUN d'eux.
+            if len(proprietaires_perimetre) == 1:
+                proprietaire_id = proprietaires_perimetre[0]
+
         if existante is None:
-            statut = STATUT_DISPONIBLE if (proprietaire_id or logement_id) else STATUT_A_TRAITER
+            statut = (STATUT_DISPONIBLE if (proprietaire_id or logement_id or perimetre)
+                      else STATUT_A_TRAITER)
             position_id = "POSREF-" + uuid.uuid4().hex[:12].upper()
             montant = _round(charge.get("montant"))
             conn.execute(
@@ -170,7 +241,8 @@ def synchroniser_depuis_charge(charge_id: str, *, acteur: str = "", conn=None,
             if _round(existante["montant_impute_total"]) == 0:
                 montant = _round(charge.get("montant"))
                 nouveau_statut = existante["statut"]
-                if existante["statut"] == STATUT_A_TRAITER and (proprietaire_id or logement_id):
+                if existante["statut"] == STATUT_A_TRAITER and (proprietaire_id or logement_id
+                                                                or perimetre):
                     nouveau_statut = STATUT_DISPONIBLE
                 conn.execute(
                     "UPDATE charges_refacturation_positions SET montant_origine=?, "
@@ -191,20 +263,38 @@ def synchroniser_depuis_charge(charge_id: str, *, acteur: str = "", conn=None,
 
 def _enrichir(conn, pos: dict[str, Any]) -> dict[str, Any]:
     charge = conn.execute(
-        "SELECT date_charge, categorie_charge_id, associe_id, commentaire, justificatif "
+        "SELECT date_charge, categorie_charge_id, associe_id, commentaire, justificatif, montant "
         "FROM charges WHERE charge_id = ?", (pos["charge_id"],)).fetchone()
     charge = dict(charge) if charge else {}
-    restant = _round(pos["montant_eligible"] - pos["montant_impute_total"])
+    # `montant_restant` est ce que la position peut ENCORE recevoir : le solde comptable moins ce
+    # que des brouillons en cours ont déjà réservé. Proposer le solde brut donnerait un montant
+    # que la validation refuserait ensuite.
+    reserve = _reserve_brouillons(conn, pos["position_id"])
+    restant = _round(pos["montant_eligible"] - pos["montant_impute_total"] - reserve)
+    perimetre = _perimetre(conn, pos["charge_id"])
+    # Propriétaires réellement concernés : celui porté par la position, sinon ceux du périmètre.
+    # Une charge commune à deux logements de deux propriétaires est proposable à CHACUN d'eux.
+    proprietaires = [p for p in dict.fromkeys(
+        [pos.get("proprietaire_id")] + [r["proprietaire_id"] for r in perimetre]) if p]
+    logements = [l for l in dict.fromkeys(
+        [pos.get("logement_id")] + [r["logement_id"] for r in perimetre]) if l]
     return {
         **pos,
         "date_charge": charge.get("date_charge"),
         "fournisseur": charge.get("associe_id"),
         "description": charge.get("commentaire"),
         "justificatif": charge.get("justificatif"),
+        "categorie_charge_id": charge.get("categorie_charge_id"),
+        "montant_charge": _round(charge.get("montant")),
+        "montant_deja_refacture": _round(pos["montant_impute_total"]),
+        "montant_reserve_brouillons": reserve,
         "montant_restant": restant,
+        "perimetre": perimetre,
+        "proprietaires_eligibles": proprietaires,
+        "logements_eligibles": logements,
         "proposable": (pos["statut"] in (STATUT_DISPONIBLE, STATUT_REPORTEE,
                                         STATUT_PARTIELLEMENT_IMPUTEE)
-                      and pos["proprietaire_id"] is not None and restant > TOLERANCE),
+                      and bool(proprietaires) and restant > TOLERANCE),
     }
 
 
@@ -219,16 +309,35 @@ def lister(*, statut: str | None = None, proprietaire_id: str | None = None,
         elif statut:
             clauses.append("statut = ?")
             args.append(statut)
-        if proprietaire_id:
-            clauses.append("proprietaire_id = ?")
-            args.append(proprietaire_id)
-        if logement_id:
-            clauses.append("logement_id = ?")
-            args.append(logement_id)
+        # Le filtre propriétaire/logement N'EST PAS fait en SQL : pour une charge commune, ces
+        # colonnes sont vides et l'éligibilité vit dans le périmètre analytique (0074). Filtrer en
+        # SQL éliminerait précisément les positions que cette mission cherche à rendre visibles.
         rows = [dict(r) for r in conn.execute(
             f"SELECT * FROM charges_refacturation_positions WHERE {' AND '.join(clauses)} "
             "ORDER BY date_creation", args)]
-        return [_enrichir(conn, r) for r in rows]
+        enrichies = [_enrichir(conn, r) for r in rows]
+        if proprietaire_id:
+            enrichies = [p for p in enrichies
+                         if proprietaire_id in p["proprietaires_eligibles"]]
+        if logement_id:
+            # Une charge sans logement identifié (globale, rattachée au seul propriétaire) reste
+            # proposable : restreindre au logement exclurait une dépense légitimement refacturable.
+            enrichies = [p for p in enrichies
+                         if not p["logements_eligibles"] or logement_id in p["logements_eligibles"]]
+        return enrichies
+    finally:
+        conn.close()
+
+
+def position_de_charge(charge_id: str, *, db_path=None) -> dict[str, Any] | None:
+    """La position de refacturation d'une charge, enrichie — ou `None` si la charge n'est pas
+    refacturable. Lecture seule, destinée à la fiche charge."""
+    conn = get_db(db_path)
+    try:
+        pos = _position_par_charge(conn, str(charge_id or "").strip())
+        return _enrichir(conn, pos) if pos else None
+    except Exception:      # noqa: BLE001 — base sans la table : pas de position
+        return None
     finally:
         conn.close()
 

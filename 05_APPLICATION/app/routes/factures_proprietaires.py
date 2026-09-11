@@ -349,12 +349,18 @@ async def ajouter_reduction(request: Request, facture_id: str):
 
 @router.post("/factures-proprietaires/{facture_id}/charge-existante")
 async def rattacher_charge(request: Request, facture_id: str):
-    """Rattache une charge DÉJÀ SAISIE, désignée par sa position de refacturation. Le montant vient
-    du solde de la position, jamais d'une saisie ici."""
+    """Ajoute un ÉLÉMENT À REFACTURER à la facture, désigné par sa position de refacturation.
+
+    Le montant est LIBRE dans la limite du solde restant : c'est la décision commerciale de
+    l'utilisateur (700 d'un coup, ou 350 ici et 350 sur une autre facture). Vide = tout le solde.
+    La ventilation analytique de la charge n'impose rien ici — ce sont deux axes distincts.
+    """
     form = await request.form()
+    montant_saisi = str(form.get("montant", "") or "").strip().replace(",", ".")
     try:
         compo.rattacher_charge(facture_id, str(form.get("position_id", "") or "").strip(),
-                               libelle=str(form.get("libelle", "") or ""), acteur="interface")
+                               libelle=str(form.get("libelle", "") or ""),
+                               montant=montant_saisi or None, acteur="interface")
     except svc.FactureProprietaireError as exc:
         return _refus_fiche(request, facture_id, f"Charge non rattachée : {exc}")
     return _retour(facture_id)

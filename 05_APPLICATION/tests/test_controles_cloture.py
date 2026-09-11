@@ -333,5 +333,10 @@ def test_aucune_route_post_cloture(client, ctrl_files):
 
 
 def test_sidebar_nav(client, ctrl_files):
+    """Recette utilisateur n°2 (§44-46) : « Contrôles & clôture » n'est plus une entrée autonome —
+    les contrôles d'un mois se lisent depuis la page de CE mois, dans « Clôture mensuelle ». La
+    route reste vivante et l'onglet Clôture reste allumé quand on s'y trouve."""
     r = client.get("/controles-cloture")
-    assert 'href="/controles-cloture"' in r.text
+    assert r.status_code == 200
+    assert 'href="/controles-cloture"' not in r.text, "plus d'entrée de menu autonome"
+    assert 'href="/clotures"' in r.text, "le point d'entrée unique du mois reste offert"

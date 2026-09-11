@@ -133,15 +133,19 @@ def charges_eligibles(facture_id: str, *, db_path=None) -> list[dict[str, Any]]:
     facture = svc.lire(facture_id, db_path=db_path)
     positions = refac.proposer_pour_facture(facture["proprietaire_id"],
                                             logement_id=facture["logement_id"], db_path=db_path)
-    # Une position déjà portée par une ligne de facture n'est plus proposable, même si son solde
-    # est resté positif : le lien `factures_proprietaires_lignes_charge` fait foi (index unique).
     conn = get_db(db_path)
     try:
-        deja = {r[0] for r in conn.execute(
-            "SELECT charge_id FROM factures_proprietaires_lignes_charge")}
+        # Déjà portée PAR CETTE FACTURE : on ne la propose plus (une seconde ligne identique
+        # serait un double-clic). Portée par une AUTRE facture : elle reste proposable tant qu'il
+        # lui reste du solde — c'est précisément la refacturation partagée 350/350.
+        sur_cette_facture = {r[0] for r in conn.execute(
+            "SELECT objet_source_ref FROM factures_proprietaires_lignes "
+            "WHERE facture_id_opaque = ? AND type_ligne = ?",
+            (facture_id, TYPE_CHARGE_REFACTUREE))}
     finally:
         conn.close()
-    return [p for p in positions if p.get("charge_id") not in deja]
+    return [p for p in positions
+            if p["position_id"] not in sur_cette_facture and p["montant_restant"] > 0.001]
 
 
 def charge_deja_facturee(charge_id: str, *, db_path=None) -> dict[str, Any]:
@@ -172,42 +176,62 @@ def rattacher_charge(facture_id: str, position_id: str, *, libelle: str = "", mo
 
     Différence avec `factures_proprietaires_edition_service.ajouter_ligne_charge`, qui CRÉE une
     charge neuve depuis le brouillon : ici la dépense préexiste (saisie ailleurs, importée d'une
-    facture fournisseur…) et on ne fait que la porter sur le document. Le montant par défaut est
-    le SOLDE RESTANT de la position — pas le montant d'origine : une position déjà partiellement
-    imputée ne doit pas être refacturée deux fois en entier.
+    facture fournisseur…) et on ne fait que la porter sur le document.
+
+    LE MONTANT EST UNE DÉCISION COMMERCIALE, pas une conséquence de l'analytique. Une charge de
+    700 € commune à deux logements pèse 350 € sur le résultat de chacun, mais peut être refacturée
+    700 € sur une seule facture, ou 350/350, ou 500/200. Par défaut on propose le solde restant ;
+    l'utilisateur peut saisir moins et reporter le reste sur une autre facture. Le cumul, lui, ne
+    peut jamais dépasser le montant d'origine.
 
     Transaction unique : la ligne, le lien et l'événement sont écrits ensemble ou pas du tout.
-    L'imputation, elle, n'a lieu qu'à la VALIDATION — un brouillon ne consomme rien.
+    L'imputation, elle, n'a lieu qu'à la VALIDATION — un brouillon ne consomme rien, il RÉSERVE
+    (cf. `charges_refacturation_service.montant_disponible`).
     """
     from app.services import charges_refacturation_service as refac
 
     facture = svc.lire(facture_id, db_path=db_path)
     svc._exiger_brouillon(facture, "rattachement d'une charge")
+    position_id = str(position_id or "").strip()
+
+    # Doublon sur CETTE facture : contrôlé EN PREMIER. Une fois l'élément porté, son solde tombe à
+    # zéro et il cesse d'être proposable ; si l'on testait la proposabilité d'abord, un double-clic
+    # répondrait « solde épuisé » — un message qui décrit la conséquence au lieu de la cause.
+    conn_verif = get_db(db_path)
+    try:
+        double = conn_verif.execute(
+            "SELECT 1 FROM factures_proprietaires_lignes WHERE facture_id_opaque = ? "
+            "AND type_ligne = ? AND objet_source_ref = ?",
+            (facture_id, TYPE_CHARGE_REFACTUREE, position_id)).fetchone()
+    finally:
+        conn_verif.close()
+    if double is not None:
+        _err(f"element deja porte par cette facture (position {position_id}) : "
+             f"modifiez la ligne existante plutot que d'en ajouter une seconde")
 
     proposables = {p["position_id"]: p for p in refac.proposer_pour_facture(
         facture["proprietaire_id"], logement_id=facture["logement_id"], db_path=db_path)}
-    position = proposables.get(str(position_id or "").strip())
+    position = proposables.get(position_id)
     if position is None:
         _err(f"position {position_id} non proposable pour cette facture : elle n'est pas "
              f"refacturable au proprietaire {facture['proprietaire_id']} / logement "
              f"{facture['logement_id']}, ou son solde est epuise")
 
-    restant = svc._round(position.get("montant_restant"))
+    # Disponible = éligible − déjà imputé − déjà réservé par d'AUTRES brouillons. On exclut la
+    # facture courante pour qu'une correction sur place ne se bloque pas elle-même.
+    restant = svc._round(refac.montant_disponible(position["position_id"],
+                                                  sauf_facture=facture_id, db_path=db_path))
     valeur = restant if montant is None else svc._round(montant)
     if valeur <= 0:
-        _err(f"position {position_id} sans solde refacturable ({restant:.2f})")
+        _err(f"montant a refacturer invalide ({valeur:.2f}) : il doit etre strictement positif")
+    if restant <= 0:
+        _err(f"position {position_id} sans solde refacturable disponible ({restant:.2f})")
     if valeur - restant > 0.001:
         _err(f"montant {valeur:.2f} superieur au solde disponible {restant:.2f}")
 
     charge_id = position.get("charge_id")
     conn = get_db(db_path)
     try:
-        deja = conn.execute(
-            "SELECT facture_id_opaque FROM factures_proprietaires_lignes_charge WHERE charge_id=?",
-            (charge_id,)).fetchone()
-        if deja is not None:
-            _err(f"charge {charge_id} deja facturee (facture {deja[0]})")
-
         texte = str(libelle or "").strip() or _libelle_position(position)
         # `db_path` DOIT être propagé même quand `_conn` est fourni : `ajouter_ligne` relit la
         # facture avant d'écrire, et sans lui cette relecture viserait la base par défaut au lieu

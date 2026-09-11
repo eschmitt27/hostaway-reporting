@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Fournisseurs{% endblock %}
+{% block title %}Charges{% endblock %}
 
 {% block content %}
 <div class="page-header flex justify-between items-center">
   <div>
-    <h1 class="page-title">Fournisseurs — Charges</h1>
+    <h1 class="page-title">Charges</h1>
     <p class="page-subtitle">
       Source : {{ data.source }} — lu le {{ data.read_at }}
     </p>
@@ -44,7 +44,7 @@
     <select id="categorie_charge_id" name="categorie_charge_id" onchange="this.form.submit()">
       <option value="">Toutes</option>
       {% for c in data.filters.categories %}
-        <option value="{{ c }}" {% if data.applied.categorie_charge_id == c %}selected{% endif %}>{{ c }}</option>
+        <option value="{{ c }}" {% if data.applied.categorie_charge_id == c %}selected{% endif %}>{{ c | nom_categorie_charge }}</option>
       {% endfor %}
     </select>
   </div>
@@ -62,7 +62,7 @@
     <select id="statut_controle" name="statut_controle" onchange="this.form.submit()">
       <option value="">Tous</option>
       {% for s in data.filters.statuts %}
-        <option value="{{ s }}" {% if data.applied.statut_controle == s %}selected{% endif %}>{{ s }}</option>
+        <option value="{{ s }}" {% if data.applied.statut_controle == s %}selected{% endif %}>{{ s | libelle_statut }}</option>
       {% endfor %}
     </select>
   </div>
@@ -109,7 +109,7 @@
         <td><span class="code-id">{{ row.charge_id or "—" }}</span></td>
         <td>{{ row.mois or "—" }}</td>
         <td>{{ row.date_charge or "—" }}</td>
-        <td>{{ row.categorie_charge_id or "—" }}</td>
+        <td>{{ row.categorie_charge_id | nom_categorie_charge if row.categorie_charge_id else "—" }}</td>
         <td>
           {{ row.logement_id | nom_logement if row.logement_id else "—" }}
         </td>
@@ -133,7 +133,7 @@
         </td>
         <td>
           <span class="status-badge status-{{ (row.statut_controle or 'inconnu') | lower | replace('_','-') }}">
-            {{ row.statut_controle or "—" }}
+            {{ row.statut_controle | libelle_statut if row.statut_controle else "—" }}
           </span>
         </td>
         <td>

@@ -97,36 +97,66 @@
 <div class="card" id="ajustements">
   <h3>Ajouter au brouillon</h3>
 
-  <h4>Charge refacturable déjà saisie</h4>
+  <h4>Éléments à refacturer disponibles</h4>
   {% if charges_eligibles %}
-  <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/charge-existante">
-    <div class="table-container">
-    <table class="table">
-      <thead><tr><th></th><th>Date</th><th>Description</th><th>Logement</th>
-                 <th class="text-right">Montant d'origine</th>
-                 <th class="text-right">Reste à refacturer</th></tr></thead>
-      <tbody>
-        {% for c in charges_eligibles %}
-        <tr><td><input type="radio" name="position_id" value="{{ c.position_id }}" required></td>
-            <td>{{ c.date_charge or "—" }}</td>
-            <td class="text-xs">{{ c.description or "—" }}</td>
-            <td>{{ c.logement_id or "(commune)" }}</td>
-            <td class="text-right">{{ "%.2f"|format(c.montant_origine) }} €</td>
-            <td class="text-right"><strong>{{ "%.2f"|format(c.montant_restant) }} €</strong></td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    </div>
-    <button type="submit" class="btn btn-primary">Rattacher la charge sélectionnée</button>
-  </form>
-  <p class="text-xs text-secondary">Cette liste est celle des <strong>positions de
-     refacturation</strong> — l'objet que la validation impute. N'y figurent que les charges
-     refacturables du bon propriétaire/logement dont le solde est encore disponible et qui ne sont
-     <strong>pas déjà portées par une facture</strong>. Le montant rattaché est le reste à
-     refacturer : il n'est pas ressaisi, et la charge n'est jamais recréée.</p>
+  <p class="text-xs text-secondary">
+    Dépenses déjà saisies, refacturables à ce propriétaire et <strong>pas encore entièrement
+    récupérées</strong>. Le montant proposé est le solde restant : vous pouvez le modifier pour
+    n'en refacturer qu'une partie et reporter le reste sur une autre facture.
+  </p>
+  <div class="table-container">
+  <table class="table">
+    <thead><tr><th>Élément</th><th>Logement(s)</th>
+               <th class="text-right">Montant initial</th>
+               <th class="text-right">Déjà refacturé</th>
+               <th class="text-right">Reste</th>
+               <th>Montant à refacturer</th></tr></thead>
+    <tbody>
+      {% for c in charges_eligibles %}
+      <tr>
+        <td>
+          <strong>{{ c.description or "Charge refacturée" }}</strong>
+          <br><span class="text-xs text-secondary">
+            {{ c.categorie_charge_id | nom_categorie_charge if c.categorie_charge_id else "" }}
+            {% if c.date_charge %} · {{ c.date_charge }}{% endif %}
+            {% if c.justificatif %} · {{ c.justificatif }}{% endif %}
+          </span>
+        </td>
+        <td class="text-xs">
+          {% if c.logements_eligibles %}
+            {% for l in c.logements_eligibles %}{{ l | nom_logement }}{% if not loop.last %}<br>{% endif %}{% endfor %}
+          {% else %}<span class="text-secondary">Charge commune</span>{% endif %}
+        </td>
+        <td class="text-right">{{ "%.2f"|format(c.montant_origine) }} €</td>
+        <td class="text-right">{{ "%.2f"|format(c.montant_deja_refacture) }} €</td>
+        <td class="text-right"><strong>{{ "%.2f"|format(c.montant_restant) }} €</strong></td>
+        <td>
+          {# Un formulaire PAR LIGNE : le montant saisi appartient sans ambiguïté à cet élément.
+             Un formulaire unique avec un champ montant partagé aurait laissé l'utilisateur croire
+             qu'il s'applique à la ligne qu'il vient de cocher. #}
+          <form method="post"
+                action="/factures-proprietaires/{{ facture.facture_id_opaque }}/charge-existante"
+                style="display:flex; gap:6px; align-items:center;">
+            <input type="hidden" name="position_id" value="{{ c.position_id }}">
+            <input type="text" name="montant" value="{{ "%.2f"|format(c.montant_restant) }}"
+                   size="8" aria-label="Montant à refacturer">
+            <button type="submit" class="btn btn-primary">Ajouter à la facture</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="text-xs text-secondary">
+    Le montant refacturé est <strong>indépendant de la ventilation analytique</strong> de la
+    charge : une dépense de 700 € répartie sur deux logements (350 € chacun au résultat) peut être
+    refacturée 700 € sur une seule facture, ou 350/350, ou 500/200. Le cumul ne peut jamais
+    dépasser le montant d'origine.
+  </p>
   {% else %}
-  <p class="text-muted">Aucune charge refacturable disponible pour ce propriétaire.
-     Une charge déjà rattachée à une autre facture n'est plus proposée.</p>
+  <p class="text-muted">Aucun élément à refacturer disponible pour ce propriétaire.
+     Une dépense entièrement refacturée n'apparaît plus ici.</p>
   {% endif %}
 
   <h4>Extra</h4>

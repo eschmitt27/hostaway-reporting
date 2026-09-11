@@ -10,6 +10,7 @@ définitifs, ceux de RÉSULTAT restent adossés à des masters Excel et basculer
 lui-même écrira en SQLite. Aucun ne dépend plus d'un export.
 """
 from fastapi import APIRouter, Request
+from fastapi.responses import RedirectResponse
 from fastapi.responses import HTMLResponse
 from app.template_env import get_templates
 
@@ -54,7 +55,19 @@ def _logements_du_parc() -> list:
     return [l for l in referentiel.logements() if not _is_technique(l.get("logement_id"))]
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get("/")
+def racine():
+    """`/` mène directement au premier écran de travail.
+
+    L'ancien accueil listait des modules dont plusieurs étaient annoncés « à venir » alors qu'ils
+    existent depuis longtemps, et n'apportait rien que la barre latérale ne dise déjà : un écran
+    de plus à traverser avant de commencer. La vue elle-même reste joignable sur `/accueil` — elle
+    n'est pas supprimée, elle n'est simplement plus imposée.
+    """
+    return RedirectResponse(url="/logements", status_code=307)
+
+
+@router.get("/accueil", response_class=HTMLResponse)
 def home(request: Request):
     kpis = {
         "reservations": _compteur_moteur(flux.lire_flux),

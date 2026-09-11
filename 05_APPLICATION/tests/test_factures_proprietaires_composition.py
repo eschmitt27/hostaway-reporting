@@ -276,10 +276,57 @@ def test_ligne_refacturee_de_mauvaise_source_refusee_a_la_validation(db, facture
     assert svc.lire(facture, db_path=db)["statut"] == svc.ST_BROUILLON
 
 
-def test_charge_deja_facturee_refusee(db, facture, ecritures_actives):
+def test_meme_element_refuse_deux_fois_sur_la_meme_facture(db, facture, ecritures_actives):
+    """Deux fois le même élément sur LA MÊME facture, c'est un double-clic — jamais une intention.
+    (Sur deux factures différentes, c'est au contraire le partage légitime : test suivant.)"""
     cid, _ = _charge_rattachee(db, facture)
-    with pytest.raises(svc.FactureProprietaireError, match="deja facturee"):
+    with pytest.raises(svc.FactureProprietaireError, match="deja porte par cette facture"):
         compo.rattacher_charge(facture, _position(db, cid), acteur="t", db_path=db)
+
+
+def test_refacturation_partielle_sur_deux_factures(db, facture, ecritures_actives):
+    """Recette utilisateur n°2 (§8, §11) : une dépense se récupère comme l'utilisateur le décide.
+
+    L'ancienne garde « une charge = une seule ligne de facture » interdisait ce cas métier normal
+    en même temps que le double comptage. C'est le MONTANT CUMULÉ qui est plafonné, pas le nombre
+    de factures.
+    """
+    from app.services import charges_refacturation_service as refac
+    cid = _charge(db, montant=100.0)
+    pos = _position(db, cid)
+    autre = svc.creer(_source(mois="2026-07", source_calcul="PREF-2026-07"),
+                      acteur="t", db_path=db)["facture_id_opaque"]
+
+    compo.rattacher_charge(facture, pos, montant=60, acteur="t", db_path=db)
+    assert refac.montant_disponible(pos, db_path=db) == 40.0, "un brouillon RÉSERVE le montant"
+    compo.rattacher_charge(autre, pos, montant=40, acteur="t", db_path=db)
+    assert refac.montant_disponible(pos, db_path=db) == 0.0
+
+    # Solde épuisé : une TROISIÈME facture ne peut plus rien en tirer. (Sur les deux premières, le
+    # refus porterait un autre nom — « déjà porté par cette facture » — et ne prouverait pas
+    # l'épuisement du montant.)
+    troisieme = svc.creer(_source(mois="2026-08", source_calcul="PREF-2026-08"),
+                          acteur="t", db_path=db)["facture_id_opaque"]
+    with pytest.raises(svc.FactureProprietaireError, match="non proposable|solde"):
+        compo.rattacher_charge(troisieme, pos, montant=1, acteur="t", db_path=db)
+
+
+def test_le_cumul_ne_peut_pas_depasser_le_montant_source(db, facture, ecritures_actives):
+    """700 réparti 500 + 300 = 800 : le second ajout doit être refusé, pas « arrondi »."""
+    cid = _charge(db, montant=700.0)
+    pos = _position(db, cid)
+    autre = svc.creer(_source(mois="2026-07", source_calcul="PREF-2026-07"),
+                      acteur="t", db_path=db)["facture_id_opaque"]
+    compo.rattacher_charge(facture, pos, montant=500, acteur="t", db_path=db)
+    with pytest.raises(svc.FactureProprietaireError, match="superieur au solde disponible"):
+        compo.rattacher_charge(autre, pos, montant=300, acteur="t", db_path=db)
+
+
+@pytest.mark.parametrize("montant", [0, -50, 700.01])
+def test_montants_invalides_refuses(db, facture, ecritures_actives, montant):
+    cid = _charge(db, montant=700.0)
+    with pytest.raises(svc.FactureProprietaireError):
+        compo.rattacher_charge(facture, _position(db, cid), montant=montant, acteur="t", db_path=db)
 
 
 def test_charge_mauvais_proprietaire_refusee(db, facture, ecritures_actives):
@@ -317,18 +364,57 @@ def test_detachement_libere_la_charge_sans_l_annuler(db, facture, ecritures_acti
 
 def test_index_unique_interdit_structurellement_le_double_rattachement(db, facture,
                                                                        ecritures_actives):
-    """Ceinture ET bretelles : même en contournant la garde applicative, SQLite refuse."""
+    """Ceinture ET bretelles : même en contournant la garde applicative, SQLite refuse d'inscrire
+    DEUX FOIS la même position sur LA MÊME facture (index partiel, migration 0075).
+
+    L'index d'origine (0072) portait sur `charge_id` seul : il interdisait aussi le partage entre
+    deux factures, donc le cas métier normal. Il a été remplacé, pas supprimé.
+    """
     import sqlite3
-    cid, _ = _charge_rattachee(db, facture)
+    cid, r = _charge_rattachee(db, facture)
+    pos = _position(db, cid)
     conn = get_db(db)
     try:
         with pytest.raises(sqlite3.IntegrityError):
-            conn.execute("INSERT INTO factures_proprietaires_lignes_charge "
-                         "(ligne_id_opaque, facture_id_opaque, charge_id, code_impact) "
-                         "VALUES ('FPRL-FAKE', ?, ?, 'IC')", (facture, cid))
+            conn.execute(
+                "INSERT INTO factures_proprietaires_lignes "
+                "(ligne_id_opaque, facture_id_opaque, numero_ligne, type_ligne, libelle, montant, "
+                " objet_source_type, objet_source_ref) "
+                "VALUES ('FPRL-DOUBLON', ?, 99, 'CHARGE_REFACTUREE', 'doublon', 10, ?, ?)",
+                (facture, svc.SOURCE_POSITION_REFAC, pos))
             conn.commit()
     finally:
         conn.close()
+
+
+def test_ancienne_contrainte_trop_large_retiree(db, facture, ecritures_actives):
+    """L'index unique sur `charge_id` (0072) ne doit plus exister : il interdisait la
+    refacturation partagée entre deux factures, que la migration 0075 rend possible."""
+    conn = get_db(db)
+    try:
+        noms = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index'")}
+    finally:
+        conn.close()
+    assert "idx_fprlc_charge_unique" not in noms
+    assert "idx_fprl_position_par_facture" in noms
+
+
+def test_lien_charge_accepte_deux_lignes_pour_une_meme_charge(db, facture, ecritures_actives):
+    """La table de lien (0071) doit désormais accepter plusieurs lignes pour une même charge :
+    c'est ce que produit une refacturation partagée entre deux factures."""
+    cid, _ = _charge_rattachee(db, facture)
+    conn = get_db(db)
+    try:
+        conn.execute("INSERT INTO factures_proprietaires_lignes_charge "
+                     "(ligne_id_opaque, facture_id_opaque, charge_id, code_impact) "
+                     "VALUES ('FPRL-SECONDE-LIGNE', ?, ?, 'IC')", (facture, cid))
+        conn.commit()
+        n = conn.execute("SELECT COUNT(*) FROM factures_proprietaires_lignes_charge "
+                         "WHERE charge_id = ?", (cid,)).fetchone()[0]
+    finally:
+        conn.close()
+    assert n == 2
 
 
 # ── 27-30 : document, prévisualisation, PDF ─────────────────────────────────────────────────────
