@@ -18,7 +18,7 @@ def _charge(cid, montant, tf="TYPE_FLUX_020", associe="", avantage="", mois="202
 
 
 def _calc(associe, mois="2026-06", bruts=0.0, ik=0.0, dp=0.0, ch=0.0, ravs=0.0, rsva=0.0,
-          nets=None, code_impact="HR"):
+          nets=None, code_impact=None):
     nets = (bruts - ch - ravs + rsva) if nets is None else nets
     return {"associe_id": associe, "mois": mois, "avantage_brut_ik": ik,
             "avantage_brut_depenses_perso": dp, "avantages_bruts_total": bruts,
@@ -45,10 +45,19 @@ class ControlesAvantagesUnitaires(unittest.TestCase):
         anos = ctl.ctrl_source_saisie_lien_deja_lot3(res, ["C1"])
         self.assertEqual(anos[0]["code"], "SOURCE_SAISIE_LIEN_DEJA_LOT3")
 
-    def test_code_impact_hr(self):
-        self.assertEqual(ctl.ctrl_code_impact_hr([_calc("PERS_EWAN", code_impact="HR")]), [])
-        anos = ctl.ctrl_code_impact_hr([_calc("PERS_EWAN", code_impact="IC")])
-        self.assertEqual(anos[0]["code"], "AVANTAGE_CODE_IMPACT_NON_HR")
+    def test_suivi_associe_hors_economie(self):
+        """Une ligne de suivi associe ne porte AUCUN code d'impact.
+
+        Le controle exigeait auparavant `code_impact == "HR"`. Il disait la bonne chose de la
+        mauvaise facon : ces lignes ne pesent ni sur le resultat conciergerie ni sur le net
+        proprietaire (D011/D012), donc elles n'ont pas un impact neutre — elles n'ont pas
+        d'impact. `HR` a ete retire du vocabulaire (migration 0079)."""
+        self.assertEqual(ctl.ctrl_suivi_associe_hors_economie([_calc("PERS_EWAN")]), [])
+        anos = ctl.ctrl_suivi_associe_hors_economie([_calc("PERS_EWAN", code_impact="IC")])
+        self.assertEqual(anos[0]["code"], "AVANTAGE_CODE_IMPACT_INATTENDU")
+        # `HR` n'est plus une valeur admise : il doit etre signale comme n'importe quel autre code.
+        anos_hr = ctl.ctrl_suivi_associe_hors_economie([_calc("PERS_EWAN", code_impact="HR")])
+        self.assertEqual(anos_hr[0]["code"], "AVANTAGE_CODE_IMPACT_INATTENDU")
 
     def test_pas_impact_proprietaire(self):
         self.assertEqual(ctl.ctrl_pas_impact_proprietaire(["mois", "associe_id", "avantages_nets"]), [])

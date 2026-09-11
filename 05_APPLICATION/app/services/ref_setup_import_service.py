@@ -54,6 +54,55 @@ E_CLE_VIDE = "REF_SETUP_CLE_VIDE"
 E_CLE_DUPLIQUEE = "REF_SETUP_CLE_DUPLIQUEE"
 E_SCHEMA_ABSENT = "REF_SETUP_SCHEMA_ABSENT"
 
+# ── Valeurs RETIREES du modele metier ────────────────────────────────────────────────────────────
+#
+# Le classeur REF_Setup est une piece d'origine : il conserve des valeurs que le modele n'accepte
+# plus. Le reimporter tel quel les ressusciterait, et une suppression durement acquise repasserait
+# en base sans que personne ne s'en apercoive. `HR` en est le cas : retire des charges (0078) puis
+# des reservations (0079).
+#
+# Ces lignes ne sont pas « corrigees » en silence : elles sont ECARTEES et SIGNALEES. Corriger
+# reviendrait a decider a la place de l'utilisateur ce que `HR` devient — precisement ce que les
+# migrations ont refuse de faire.
+LIGNES_RETIREES: dict[str, frozenset[str]] = {
+    "ref_codes_impact": frozenset({"HR"}),
+}
+
+#: Valeurs retirees apparaissant non comme CLE mais dans une colonne. Neutralisees (vidées), la
+#: ligne elle-meme restant importee : c'est le code qui est retire, pas le type de flux.
+VALEURS_COLONNE_RETIREES: dict[tuple[str, str], frozenset[str]] = {
+    ("ref_types_flux", "code_impact_defaut"): frozenset({"HR"}),
+}
+
+
+def _ecarter_valeurs_retirees(feuille, lignes: list[dict[str, Any]],
+                              avertissements: list[str]) -> list[dict[str, Any]]:
+    """Retire les lignes et neutralise les valeurs que le modele n'accepte plus."""
+    retirees = LIGNES_RETIREES.get(feuille.table)
+    if retirees:
+        gardees, ecartees = [], []
+        for l in lignes:
+            (ecartees if str(l.get(feuille.cle, "")).strip().upper() in retirees
+             else gardees).append(l)
+        if ecartees:
+            avertissements.append(
+                f"{feuille.onglet} : {len(ecartees)} ligne(s) ecartee(s), valeur retiree du "
+                f"modele ({', '.join(sorted(str(l.get(feuille.cle)) for l in ecartees))})")
+        lignes = gardees
+
+    for colonne in feuille.colonnes:
+        interdites = VALEURS_COLONNE_RETIREES.get((feuille.table, colonne))
+        if not interdites:
+            continue
+        touchees = [l for l in lignes if str(l.get(colonne, "")).strip().upper() in interdites]
+        for l in touchees:
+            l[colonne] = ""
+        if touchees:
+            avertissements.append(
+                f"{feuille.onglet} : {len(touchees)} valeur(s) de « {colonne} » neutralisee(s), "
+                f"code retire du modele ({', '.join(sorted(interdites))})")
+    return lignes
+
 MESSAGES = {
     E_SOURCE_ABSENTE: "Le classeur REF_Setup est introuvable.",
     E_SOURCE_ILLISIBLE: "Le classeur REF_Setup n'a pas pu être ouvert.",
@@ -357,7 +406,8 @@ def importer(*, chemin: Path | None = None, db_path=None) -> dict[str, Any]:
         conn.execute("BEGIN IMMEDIATE")
         try:
             for f in cat.FEUILLES:
-                lignes = contenu.get(f.onglet, [])
+                lignes = _ecarter_valeurs_retirees(f, list(contenu.get(f.onglet, [])),
+                                                   avertissements)
                 # Remplacement du contenu IMPORTÉ — mais jamais de ce qui a été saisi dans
                 # l'application. Depuis que le référentiel est administrable (0051), une ligne
                 # peut naître ou être modifiée dans l'interface : la supprimer au prochain import

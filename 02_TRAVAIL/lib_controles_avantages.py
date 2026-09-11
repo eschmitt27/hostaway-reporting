@@ -87,15 +87,24 @@ def ctrl_source_saisie_lien_deja_lot3(
     return out
 
 
-def ctrl_code_impact_hr(calc: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Toute ligne de suivi associé doit être HR (hors résultat réel ET comptable)."""
+def ctrl_suivi_associe_hors_economie(calc: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Aucune ligne de suivi associé ne doit porter de code d'impact.
+
+    Le contrôle exigeait auparavant `code_impact == "HR"`. Il disait la bonne chose de la mauvaise
+    façon : ces lignes ne pèsent ni sur le résultat conciergerie ni sur le net propriétaire
+    (D011/D012), donc elles n'ont pas un impact neutre — elles n'ont pas d'impact. `HR` a été
+    retiré du vocabulaire (migration 0079) ; le contrôle vérifie désormais l'absence de code, ce
+    qui est la formulation exacte de la règle métier.
+    """
     out: list[dict[str, Any]] = []
     for r in calc:
         ci = _txt(r.get("code_impact"))
-        if ci and ci != "HR":
-            out.append(_ano("AVANTAGE_CODE_IMPACT_NON_HR", "BLOQUANT",
-                            f"{_txt(r.get('associe_id'))}/{_txt(r.get('mois'))} code_impact={ci} (attendu HR)"))
+        if ci:
+            out.append(_ano("AVANTAGE_CODE_IMPACT_INATTENDU", "BLOQUANT",
+                            f"{_txt(r.get('associe_id'))}/{_txt(r.get('mois'))} "
+                            f"code_impact={ci} (aucun code attendu : ligne de suivi)"))
     return out
+
 
 
 def ctrl_pas_impact_proprietaire(entetes: Iterable[str]) -> list[dict[str, Any]]:
@@ -180,7 +189,7 @@ def controler_suivi_associes(
     anomalies += ctrl_avantage_absent_du_suivi(charges, calc)
     anomalies += ctrl_charge_id_double(charges)
     anomalies += ctrl_source_saisie_lien_deja_lot3(residuels, lot3)
-    anomalies += ctrl_code_impact_hr(calc)
+    anomalies += ctrl_suivi_associe_hors_economie(calc)
     anomalies += ctrl_pas_impact_proprietaire(entetes)
     anomalies += ctrl_cle_suivi_presente(calc)
     anomalies += ctrl_ik_hors_charges_lot3(charges)

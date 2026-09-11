@@ -60,7 +60,8 @@ class Lot7BSuiviAssociesTests(unittest.TestCase):
                      "resultat_comptable", "revenu_net_exploitation_proprietaire"}
         self.assertEqual(interdits & set(headers), set())
         for d in calc.values():
-            self.assertEqual(d["code_impact"], "HR")       # hors résultat réel ET comptable
+            self.assertIsNone(d["code_impact"])            # hors economie : aucun code, pas un code neutre
+            self.assertEqual(d["motif_exclusion"], "SUIVI_ASSOCIE")
             self.assertEqual(d["source_calcul"], "LOT7")
 
     # ── Cas A — Avantage banque pro (PAY_001) + avantage explicite ───────────
@@ -75,7 +76,8 @@ class Lot7BSuiviAssociesTests(unittest.TestCase):
         d = calc[("PERS_EWAN", "2026-06")]
         self.assertEqual(d["avantages_bruts_total"], 100.0)
         self.assertEqual(d["avantages_nets"], 100.0)
-        self.assertEqual(d["code_impact"], "HR")
+        self.assertIsNone(d["code_impact"])
+        self.assertEqual(d["motif_exclusion"], "SUIVI_ASSOCIE")
         self.assertEqual(d["sens_suivi"], "A_CONTROLER_POSITIF")
         self.assertEqual(d["associe_nom"], "Ewan")
         self._assert_hr_et_sans_proprietaire(headers, calc)
@@ -111,7 +113,8 @@ class Lot7BSuiviAssociesTests(unittest.TestCase):
         self.assertEqual(d["avantage_brut_depenses_perso"], 0.0)   # pas doublée en avantage brut
         self.assertEqual(d["avantages_nets"], -40.0)               # net = 0 - 40
         self.assertEqual(d["sens_suivi"], "A_CONTROLER_NEGATIF")
-        self.assertEqual(d["code_impact"], "HR")
+        self.assertIsNone(d["code_impact"])
+        self.assertEqual(d["motif_exclusion"], "SUIVI_ASSOCIE")
 
     # ── Cas D — IK (circuit Lot7 SOURCE_SAISIE), jamais dans Lot3 ─────────────
     def test_casD_ik_dans_suivi_jamais_dans_charges(self):
@@ -125,7 +128,8 @@ class Lot7BSuiviAssociesTests(unittest.TestCase):
         self.assertEqual(d["avantage_brut_ik"], 75.0)
         self.assertEqual(d["avantages_bruts_total"], 75.0)
         self.assertEqual(d["avantage_brut_depenses_perso"], 0.0)   # aucune charge Lot3 impliquée
-        self.assertEqual(d["code_impact"], "HR")
+        self.assertIsNone(d["code_impact"])
+        self.assertEqual(d["motif_exclusion"], "SUIVI_ASSOCIE")
 
     # ── Cas E — SOURCE_SAISIE résiduelle autonome, sans doublon Lot3 ─────────
     def test_casE_source_saisie_residuelle(self):

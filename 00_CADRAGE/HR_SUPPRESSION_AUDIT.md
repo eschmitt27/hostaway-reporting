@@ -3,10 +3,18 @@
 > Mission « FIN DU LEGACY CHARGES / MÉNAGES », **DÉCISION 2** : « HORS COMPTA + HORS RÉSULTAT n'a
 > PAS de pertinence métier. HR doit être SUPPRIMÉ COMPLÈTEMENT. »
 >
-> **Ce document dit ce qui a été fait, et ce qui ne peut pas l'être sans votre arbitrage.**
-> La décision est appliquée intégralement sur l'axe **CHARGES**. Elle est **BLOQUÉE** sur l'axe
-> **RÉSERVATIONS**, où l'appliquer ferait entrer 125 réservations réelles — dont 80 séjours
-> propriétaire — dans le résultat économique.
+> **ARBITRAGE RENDU LE 2026-09-11 — ce document est désormais un historique.**
+>
+> La décision a été appliquée sur l'axe CHARGES (migration 0078), puis sur l'axe RÉSERVATIONS
+> (migration 0079) une fois l'arbitrage tranché : **`HR` disparaît des deux axes, et l'effet
+> d'exclusion est conservé explicitement** sous `statut_controle` + `motif_exclusion`.
+>
+> L'option retenue est la n°2 du §4 (« renommer / déplacer le concept »), dans sa forme la plus
+> sobre : aucun nouveau code n'a été inventé. L'exclusion était DÉJÀ portée par
+> `statut_controle = EXCLU_RESULTAT` ; il ne manquait que le MOTIF, jusque-là noyé dans un
+> commentaire en texte libre. Les 125 réservations n'ont perdu ni leur exclusion, ni un euro :
+> équivalence économique prouvée à **0,00 €** sur CA, commissions, résultat, net propriétaire et
+> flux reconstruits. Voir `RAPPORT_ARBITRAGES_HR_ARRONDIS_LOT6B.md`, §C.
 
 ---
 

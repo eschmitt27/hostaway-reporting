@@ -63,10 +63,12 @@ BANK_FORBIDDEN = {'libelle', 'libelle_brut', 'compte_id', 'iban'}
 
 # ── HELPERS ───────────────────────────────────────────────────────────────────
 def impact_flags(code_impact):
+    # `HR` a disparu du vocabulaire (migration 0079). Le defaut rend deja NON/NON/NON : une ligne
+    # sans code d'impact connu ne pese sur rien. C'est exactement ce que `HR` faisait ici, ce qui
+    # montre a quel point ce code etait redondant.
     return {
         'IC': ('OUI', 'OUI', 'NON'),
         'HC': ('OUI', 'NON', 'OUI'),
-        'HR': ('NON', 'NON', 'NON'),
     }.get(code_impact, ('NON', 'NON', 'NON'))
 
 
@@ -528,7 +530,7 @@ if bad_sens:
 print(f'  CTR-9-005 OK — tous sens valides')
 
 # CTR-9-006 : code_impact valides
-bad_impact = [r for r in flux_rows if r.get('code_impact') not in ('IC', 'HC', 'HR')]
+bad_impact = [r for r in flux_rows if r.get('code_impact') not in ('IC', 'HC')]
 if bad_impact:
     print(f'BLOQUANT [CTR-9-006] {len(bad_impact)} code_impact invalides')
     for x in bad_impact[:5]:

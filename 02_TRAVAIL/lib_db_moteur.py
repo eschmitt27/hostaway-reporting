@@ -53,6 +53,139 @@ ST_ECHEC = "ECHEC"
 STATUTS_FACTURE_COMPTABLES = ("VALIDEE", "PARTIELLEMENT_REGLEE", "REGLEE")
 
 
+# ── EXCLUSION DU CALCUL ECONOMIQUE — vocabulaire canonique ────────────────────────────────────────
+#
+# CE QUE CECI REMPLACE : le code d'impact `HR` (« hors resultat »).
+#
+# `HR` disait « cette ligne ne compte ni au resultat reel ni en comptabilite ». Mais un CODE
+# D'IMPACT decrit COMMENT une somme pese sur l'economie ; il ne peut pas dire qu'une ligne est
+# HORS de cette economie. Les deux idees se confondaient dans un meme champ, et `HR` a fini par
+# recouvrir TROIS realites sans rapport :
+#   · une depense sans effet nulle part          -> ce n'etait pas une charge ; code supprime ;
+#   · une reservation sans vente (sejour proprietaire, annulation, logement hors parc) ;
+#   · une ligne de SUIVI associe (lot7), qui trace sans jamais rien produire.
+#
+# Les deux dernieres ne sont pas des impacts : ce sont des EXCLUSIONS. Elles sont donc dites par
+# un statut et un motif, pas par un code d'impact. Une ligne exclue porte `code_impact = NULL` :
+# elle n'a pas d'impact « neutre », elle n'a pas d'impact du tout.
+#
+# L'exclusion etait DEJA portee par `statut_controle` (`EXCLU_RESULTAT` depuis l'origine, partage
+# par lot4bis, lot5, lot7 et la saisie HH) : `HR` n'en etait qu'une seconde ecriture, redondante.
+# `lot4bis` le montrait sans le dire — il forcait deja l'impact a NON/NON des que le statut valait
+# `EXCLU_RESULTAT`, quel que soit le code. Ce qui manquait etait le MOTIF, jusqu'ici noye dans un
+# commentaire libre et donc non requetable.
+STATUT_EXCLU_RESULTAT = "EXCLU_RESULTAT"
+STATUT_EXCLU_LEGACY = "EXCLU_LEGACY"
+#: Statuts qui SORTENT une ligne du calcul economique. Ils ne disent pas « a verifier » : la
+#: decision est prise, elle est justifiee, et elle est definitive pour la periode.
+STATUTS_EXCLUSION = (STATUT_EXCLU_RESULTAT, STATUT_EXCLU_LEGACY)
+
+MOTIF_OWNERSTAY = "OWNERSTAY"
+MOTIF_STATUT_HORS_PERIMETRE = "STATUT_HOSTAWAY_HORS_PERIMETRE"
+MOTIF_HORS_PARC_TECHNIQUE = "HORS_PARC_TECHNIQUE"
+MOTIF_STATUT_PARC_INVALIDE = "STATUT_PARC_INVALIDE"
+MOTIF_LEGACY_SANS_ARCHIVE = "LEGACY_SANS_ARCHIVE_ORIGINE"
+MOTIF_SUIVI_ASSOCIE = "SUIVI_ASSOCIE"
+MOTIFS_EXCLUSION = (
+    MOTIF_OWNERSTAY,               # sejour du proprietaire : occupation reelle, aucune vente
+    MOTIF_STATUT_HORS_PERIMETRE,   # statut Hostaway hors {new, modified} (annulee, etc.)
+    MOTIF_HORS_PARC_TECHNIQUE,     # logement marque hors parc
+    MOTIF_STATUT_PARC_INVALIDE,    # statut de parc vide ou invalide
+    MOTIF_LEGACY_SANS_ARCHIVE,     # mois de bascule sans archive economique d'origine
+    MOTIF_SUIVI_ASSOCIE,           # ligne de suivi associe (lot7) : trace, ne produit rien
+)
+
+
+def est_exclue(ligne) -> bool:
+    """La ligne est-elle hors du calcul economique ?
+
+    Lit le STATUT, pas le code d'impact : c'est le statut qui porte la decision. Une ligne peut
+    etre exclue sans motif renseigne (donnee anterieure a la migration 0079) — elle reste exclue.
+    """
+    statut = ligne.get("statut_controle") if hasattr(ligne, "get") else None
+    return str(statut or "").strip().upper() in STATUTS_EXCLUSION
+
+
+def motif_exclusion_pour(source, statut_controle=None, code_anomalie=None):
+    """Motif canonique deduit de ce que les moteurs savent deja d'une ligne exclue.
+
+    Rend `None` quand la ligne n'est pas exclue — l'appelant ecrit alors NULL, ce qui se lit
+    « cette ligne participe au calcul ». Ne devine jamais un motif pour une ligne incluse.
+    """
+    src = str(source or "").strip().upper()
+    ano = str(code_anomalie or "").strip().upper()
+    if src.startswith("OWNERSTAY"):
+        return MOTIF_OWNERSTAY
+    if src == MOTIF_STATUT_HORS_PERIMETRE or ano == MOTIF_STATUT_HORS_PERIMETRE:
+        return MOTIF_STATUT_HORS_PERIMETRE
+    if src == MOTIF_HORS_PARC_TECHNIQUE or ano == MOTIF_HORS_PARC_TECHNIQUE:
+        return MOTIF_HORS_PARC_TECHNIQUE
+    if ano == MOTIF_STATUT_PARC_INVALIDE:
+        return MOTIF_STATUT_PARC_INVALIDE
+    if ano == MOTIF_LEGACY_SANS_ARCHIVE:
+        return MOTIF_LEGACY_SANS_ARCHIVE
+    if str(statut_controle or "").strip().upper() in STATUTS_EXCLUSION:
+        # Exclue pour une raison que les champs ne nomment pas : on le dit plutot que d'inventer.
+        return MOTIF_LEGACY_SANS_ARCHIVE if statut_controle == STATUT_EXCLU_LEGACY else None
+    return None
+
+
+# ── CONTROLE D'UNE CHARGE — ce qui entre dans les calculs ────────────────────────────────────────
+#
+# Une charge NON VALIDEE n'alimente aucun calcul operationnel. C'est la regle par defaut, et elle
+# vaut pour le cout complet menage, le resultat analytique, les flux unifies et les calculs
+# mensuels : tant qu'un humain n'a pas dit oui, la depense existe comme SAISIE, pas comme COUT.
+#
+# Le depot portait DEUX mots pour le meme etat, ecrits dans la MEME colonne :
+#   · `VALIDE`   — pose par l'ecran « Charges a controler » (`charges_validation_service`) ;
+#                  c'est le seul que lot9 ingere, et le seul present dans `flux_unifies` ;
+#   · `CONFORME` — pose par le bouton « Valider la charge » de la fiche charge.
+# Une charge validee depuis la fiche devenait donc `CONFORME`, que lot9 ignorait : l'ecran disait
+# « conforme » et la depense restait invisible a l'economie, sans erreur ni avertissement. Le mot
+# retenu est `VALIDE`, parce que c'est celui que la chaine economique lit deja (migration 0080).
+STATUT_CHARGE_A_CONTROLER = "A_CONTROLER"
+STATUT_CHARGE_VALIDE = "VALIDE"
+STATUT_CHARGE_ANOMALIE = "ANOMALIE"
+STATUT_CHARGE_REJETE = "REJETE"
+#: Le SEUL statut qui fait entrer une charge dans un calcul.
+STATUTS_CHARGE_CALCULEE = (STATUT_CHARGE_VALIDE,)
+
+
+def charge_entre_dans_les_calculs(charge) -> bool:
+    """La charge alimente-t-elle les calculs ? `statut_controle = VALIDE`, et rien d'autre.
+
+    Une colonne vide vaut A_CONTROLER — « pas encore controlee », jamais « implicitement bonne ».
+    C'est la lecture fail-closed : l'absence d'avis ne vaut pas accord.
+    """
+    if charge is None:
+        return False
+    lire = charge.get if hasattr(charge, "get") else (lambda k, d=None: d)
+    if str(lire("statut", "ACTIVE") or "ACTIVE").strip().upper() == "ANNULEE":
+        return False
+    return str(lire("statut_controle") or "").strip().upper() in STATUTS_CHARGE_CALCULEE
+
+
+def impacts_reservation(code_impact, *, motif_exclusion=None, statut_controle=None):
+    """(impact_resultat_reel, impact_resultat_comptable) d'une ligne de reservation.
+
+    UNE seule derivation, partagee par les deux branches de lot4bis (Hostaway et hors Hostaway),
+    qui en portaient chacune leur version. Elles disaient deja la meme chose, mais rien ne le
+    garantissait : la branche HA forcait NON/NON sur `EXCLU_RESULTAT`, la branche HH ne le faisait
+    pas et s'en remettait entierement au code `HR`.
+
+    Une ligne EXCLUE rend NON/NON — elle ne pese sur rien, et c'est le motif qui le dit, plus un
+    code d'impact. Un code inconnu rend A_CONTROLER/A_CONTROLER : il est vu, pas neutralise.
+    """
+    if motif_exclusion or str(statut_controle or "").strip().upper() in STATUTS_EXCLUSION:
+        return "NON", "NON"
+    code = str(code_impact or "").strip().upper()
+    if code == "IC":
+        return "OUI", "OUI"
+    if code == "HC":
+        return "OUI", "NON"
+    return "A_CONTROLER", "A_CONTROLER"
+
+
 def filtre_sql_factures_comptables(alias: str = "f") -> str:
     """Fragment SQL restreignant une jointure `factures` aux statuts qui engagent l'economie.
 

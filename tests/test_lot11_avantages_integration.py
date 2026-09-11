@@ -41,7 +41,7 @@ def _make_lot7(path, source_rows=()):
 
 
 def _calc_row(associe="PERS_WAFA", mois="2026-06", bruts=0.0, ik=0.0, dp=0.0, ch=0.0,
-              ravs=0.0, rsva=0.0, nets=None, code_impact="HR"):
+              ravs=0.0, rsva=0.0, nets=None, code_impact=None):
     nets = (bruts - ch - ravs + rsva) if nets is None else nets
     return {"pk_id": f"{associe}-{mois}", "mois": mois, "associe_id": associe,
             "avantage_brut_ik": ik, "avantage_brut_depenses_perso": dp,
@@ -94,11 +94,11 @@ class Lot11AvantagesIntegration(unittest.TestCase):
         self.assertIn("SOURCE_SAISIE_LIEN_DEJA_LOT3", self._codes(df_ik))
 
     # 4. MASTER_CALC_AVANTAGES avec code_impact ≠ HR → anomalie.
-    def test_4_code_impact_non_hr(self):
+    def test_4_code_impact_inattendu_sur_une_ligne_de_suivi(self):
         _make_saisie(self.saisie, [])
         _make_lot7(self.lot7)
         df_ik = pd.DataFrame([_calc_row(associe="PERS_EWAN", bruts=100, dp=100, code_impact="IC")])
-        self.assertIn("AVANTAGE_CODE_IMPACT_NON_HR", self._codes(df_ik))
+        self.assertIn("AVANTAGE_CODE_IMPACT_INATTENDU", self._codes(df_ik))
 
     # 5. avantage_net incohérent → anomalie.
     def test_5_net_incoherent(self):

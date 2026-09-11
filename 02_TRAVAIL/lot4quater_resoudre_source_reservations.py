@@ -57,7 +57,7 @@ BASE_COLS = [
     "reservation_calc_id", "ROW_HASH", "source", "reservation_id_hostaway",
     "reservation_hh_id", "mois", "logement_id", "proprietaire_id",
     "date_arrivee", "date_depart", "nuits", "guestCount", "source_guestCount", "montant_retenu", "source_montant",
-    "code_impact", "impact_resultat_reel", "impact_resultat_comptable",
+    "code_impact", "motif_exclusion", "impact_resultat_reel", "impact_resultat_comptable",
     "statut_controle", "niveau_anomalie", "code_anomalie", "commentaire",
     "source_module", "source_table", "source_pk", "date_integration",
 ]
@@ -180,9 +180,9 @@ _COLS_LIVE_SQL = (
     "reservation_calc_id", "row_hash", "source", "reservation_id_hostaway", "reservation_hh_id",
     "mois", "logement_id", "proprietaire_id", "date_arrivee", "date_depart", "nuits",
     "guest_count", "source_guest_count", "montant_retenu", "source_montant", "code_impact",
-    "impact_resultat_reel", "impact_resultat_comptable", "statut_controle", "niveau_anomalie",
-    "code_anomalie", "commentaire", "source_module", "source_table", "source_pk",
-    "date_integration")
+    "motif_exclusion", "impact_resultat_reel", "impact_resultat_comptable", "statut_controle",
+    "niveau_anomalie", "code_anomalie", "commentaire", "source_module", "source_table",
+    "source_pk", "date_integration")
 _LIVE_VERS_MOTEUR = {"row_hash": "ROW_HASH", "guest_count": "guestCount",
                      "source_guest_count": "source_guestCount"}
 
@@ -202,10 +202,10 @@ _COLS_RESOLUES_SQL = (
     "reservation_calc_id", "row_hash", "source", "reservation_id_hostaway", "reservation_hh_id",
     "mois", "logement_id", "proprietaire_id", "date_arrivee", "date_depart", "nuits",
     "guest_count", "source_guest_count", "montant_retenu", "source_montant", "code_impact",
-    "impact_resultat_reel", "impact_resultat_comptable", "statut_controle", "niveau_anomalie",
-    "code_anomalie", "commentaire", "source_module", "source_table", "source_pk",
-    "date_integration", "canal", "etat_mois", "origine_initiale", "source_ligne", "methode",
-    "payout_calcule", "menage_retenu", "assiette_commission")
+    "motif_exclusion", "impact_resultat_reel", "impact_resultat_comptable", "statut_controle",
+    "niveau_anomalie", "code_anomalie", "commentaire", "source_module", "source_table",
+    "source_pk", "date_integration", "canal", "etat_mois", "origine_initiale", "source_ligne",
+    "methode", "payout_calcule", "menage_retenu", "assiette_commission")
 _RESOLUES_DEPUIS_MOTEUR = {"row_hash": "ROW_HASH", "guest_count": "guestCount",
                            "source_guest_count": "source_guestCount"}
 
@@ -384,6 +384,10 @@ def main(argv=None):
                         "payout_calcule": None, "menage_retenu": None, "assiette_commission": None,
                         "statut_controle": "EXCLU_LEGACY", "niveau_anomalie": "INFO",
                         "code_anomalie": "LEGACY_SANS_ARCHIVE_ORIGINE",
+                        # Motif requetable (0079) : un mois de bascule sans archive d'origine.
+                        # Le sejour proprietaire garde SON motif, plus specifique.
+                        "motif_exclusion": dbm.motif_exclusion_pour(
+                            r.get("source"), "EXCLU_LEGACY", "LEGACY_SANS_ARCHIVE_ORIGINE"),
                         "commentaire": f"Mois {mois} : cutover legacy, aucune archive economique "
                                        "d'origine — non reconstruit depuis Hostaway.",
                     })
@@ -440,6 +444,7 @@ def main(argv=None):
                 "montant_retenu": h.get("montant_retenu"),
                 "source_montant": SRC_HIST,
                 "code_impact": h.get("code_impact"),
+                "motif_exclusion": h.get("motif_exclusion"),
                 "impact_resultat_reel": h.get("impact_resultat_reel"),
                 "impact_resultat_comptable": h.get("impact_resultat_comptable"),
                 "statut_controle": h.get("statut_controle"),

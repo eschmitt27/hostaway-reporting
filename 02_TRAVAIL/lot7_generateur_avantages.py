@@ -51,7 +51,12 @@ REMB_SOC_VERS_ASSOC = "SOCIETE_VERS_ASSOCIE"
 # Suivi associé (Lot7B) — dimension ASSOCIÉ uniquement, HR STRICT.
 # Le suivi associé n'impacte JAMAIS le résultat conciergerie ni le net propriétaire (D011/D012).
 # Ce n'est PAS un règlement : aucun virement, aucun solde de trésorerie n'est produit ici.
-CODE_IMPACT_SUIVI = "HR"      # hors résultat réel ET comptable (D012)
+# Une ligne de suivi associé ne porte AUCUN code d'impact : elle ne pèse ni sur le résultat
+# conciergerie ni sur le net propriétaire (D011/D012). Elle portait `HR`, retiré du vocabulaire
+# (migration 0079) — « hors résultat » n'est pas une façon de peser sur l'économie, c'est en être
+# absent. L'exclusion est désormais dite par son motif.
+CODE_IMPACT_SUIVI = None
+MOTIF_EXCLUSION_SUIVI = "SUIVI_ASSOCIE"
 SOURCE_CALCUL = "LOT7"
 # Convention de signe PRUDENTE : le sens de règlement (« à payer » / « à rembourser ») n'est PAS
 # tranché ici — il dépendra d'un futur circuit de solde associé. On se limite à signaler le signe.
@@ -59,7 +64,7 @@ SENS_POSITIF = "A_CONTROLER_POSITIF"   # avantage_net > 0
 SENS_NEGATIF = "A_CONTROLER_NEGATIF"   # avantage_net < 0
 SENS_NUL = "SOLDE_NUL"                 # avantage_net = 0
 
-# En-tête MASTER_CALC_AVANTAGES : 15 colonnes analytiques historiques + 4 colonnes suivi associé
+# En-tête MASTER_CALC_AVANTAGES : 15 colonnes analytiques historiques + 5 colonnes suivi associé
 # (Lot7B) ajoutées EN FIN pour préserver le contrat existant (lecture par en-tête, Lot11 non cassé).
 # La table reste par (associe_id, mois) : elle EST le suivi associé, sans nouvelle table.
 MC_HEADERS: list[str] = [
@@ -70,7 +75,9 @@ MC_HEADERS: list[str] = [
     "remboursements_associe_vers_societe", "remboursements_societe_vers_associe",
     "avantages_nets", "detail_sources", "statut_controle", "code_anomalie",
     # ── Suivi associé (Lot7B) ──
-    "code_impact", "source_calcul", "sens_suivi", "associe_nom",
+    # `code_impact` reste dans le contrat (Lot11 lit par en-tête) mais vaut désormais None :
+    # une ligne de suivi n'a pas d'impact. `motif_exclusion` dit pourquoi, de façon requêtable.
+    "code_impact", "motif_exclusion", "source_calcul", "sens_suivi", "associe_nom",
 ]
 
 
@@ -282,7 +289,8 @@ def agreger(
         rows.append([
             f"{associe}-{mois}", mois, associe,
             v, k, dp, hh, bruts, ch, ravs, rsva, nets, detail, statut, code,
-            CODE_IMPACT_SUIVI, SOURCE_CALCUL, sens, noms.get(associe, ""),
+            CODE_IMPACT_SUIVI, MOTIF_EXCLUSION_SUIVI, SOURCE_CALCUL, sens,
+            noms.get(associe, ""),
         ])
 
     return {"rows": rows, "anomalies": anomalies, "doublons_charge_id": doublons}

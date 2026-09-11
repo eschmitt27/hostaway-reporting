@@ -346,7 +346,7 @@ in
     WithCI = Table.AddColumn(Exp, "code_impact", each
         [code_impact_defaut] ?? "A_CONTROLER"),
     WithIR = Table.AddColumn(WithCI, "impact_resultat_reel", each
-        if ([code_impact_defaut] ?? "") = "HR" then "NON" else "OUI"),
+        if ([code_impact_defaut] ?? "") = "" then "NON" else "OUI"),
     WithIC = Table.AddColumn(WithIR, "impact_resultat_comptable", each
         if ([code_impact_defaut] ?? "") = "IC" then "OUI" else "NON")
 in

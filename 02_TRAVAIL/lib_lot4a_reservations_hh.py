@@ -66,11 +66,15 @@ REQUIRED_MANUAL = ["reservation_hh_id", "canal_id", "source_financiere",
                    "proprietaire_id", "logement_id", "date_arrivee", "date_depart",
                    "total_percu", "code_impact", "comptabilisation", "statut_controle"]
 NUMERIC_FIELDS = ["total_percu", "menage", "montant_recupere", "montant_reverse_proprietaire"]
-VALID_CODE_IMPACT = {"IC", "HC", "HR"}
+# `HR` a ete retire du vocabulaire (migration 0079). Il disait « ni resultat, ni comptabilite »,
+# ce qu'un code d'impact ne peut pas dire : une ligne hors de l'economie n'a pas un impact neutre,
+# elle n'a pas d'impact. C'est `statut_controle = EXCLU_RESULTAT` qui l'exprime — il existait deja
+# et reste la seule source. Une ligne exclue porte `code_impact` vide.
+VALID_CODE_IMPACT = {"IC", "HC"}
 VALID_STATUT_CONTROLE = {"VALIDE", "A_CONTROLER", "EXCLU_RESULTAT", "A_VENTILER"}
 
-IMPACT_REEL = {"IC": "OUI", "HC": "OUI", "HR": "NON"}
-IMPACT_COMPTA = {"IC": "OUI", "HC": "NON", "HR": "NON"}
+IMPACT_REEL = {"IC": "OUI", "HC": "OUI"}
+IMPACT_COMPTA = {"IC": "OUI", "HC": "NON"}
 
 MODE_BANQUE_PRO = {"PAY_001", "BANQUE_PRO"}
 MODE_ESPECES = {"PAY_002", "ESPECES_CAISSE", "ESPECES"}

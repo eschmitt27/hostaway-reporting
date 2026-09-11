@@ -77,7 +77,8 @@ def _base_avec_hostaway_et_dataset_tables(db_path: Path):
             reservation_hh_id TEXT, mois TEXT, logement_id TEXT, proprietaire_id TEXT,
             date_arrivee TEXT, date_depart TEXT, nuits INTEGER, guest_count TEXT,
             source_guest_count TEXT, montant_retenu REAL, source_montant TEXT,
-            code_impact TEXT, impact_resultat_reel TEXT, impact_resultat_comptable TEXT,
+            code_impact TEXT, motif_exclusion TEXT,
+            impact_resultat_reel TEXT, impact_resultat_comptable TEXT,
             statut_controle TEXT, niveau_anomalie TEXT, code_anomalie TEXT, commentaire TEXT,
             source_module TEXT, source_table TEXT, source_pk TEXT, date_integration TEXT
         );
@@ -122,7 +123,8 @@ def _ajouter_referentiels_sqlite(db_path: Path):
             canal_id TEXT, source_financiere TEXT, proprietaire_id TEXT, logement_id TEXT,
             reservation_id_hostaway TEXT, date_arrivee TEXT, date_depart TEXT, nuits INTEGER,
             guest_count INTEGER, montant_percu REAL, montant_retenu REAL, mode_paiement_id TEXT,
-            code_impact TEXT, impact_resultat_reel TEXT, impact_resultat_comptable TEXT,
+            code_impact TEXT, motif_exclusion TEXT,
+            impact_resultat_reel TEXT, impact_resultat_comptable TEXT,
             statut_controle TEXT, niveau_anomalie TEXT, code_anomalie TEXT, commentaire TEXT,
             date_saisie TEXT, source_module TEXT, source_table TEXT, source_pk TEXT,
             date_integration TEXT, statut TEXT, acteur TEXT, date_creation TEXT,
@@ -207,7 +209,8 @@ def test_ab_sqlite_vs_excel_meme_resultat_moteur(tmp_path):
             reservation_hh_id TEXT, mois TEXT, logement_id TEXT, proprietaire_id TEXT,
             date_arrivee TEXT, date_depart TEXT, nuits INTEGER, guest_count TEXT,
             source_guest_count TEXT, montant_retenu REAL, source_montant TEXT,
-            code_impact TEXT, impact_resultat_reel TEXT, impact_resultat_comptable TEXT,
+            code_impact TEXT, motif_exclusion TEXT,
+            impact_resultat_reel TEXT, impact_resultat_comptable TEXT,
             statut_controle TEXT, niveau_anomalie TEXT, code_anomalie TEXT, commentaire TEXT,
             source_module TEXT, source_table TEXT, source_pk TEXT, date_integration TEXT
         );
@@ -347,7 +350,8 @@ def _base_s1_a_s7(db_path: Path):
             reservation_hh_id TEXT, mois TEXT, logement_id TEXT, proprietaire_id TEXT,
             date_arrivee TEXT, date_depart TEXT, nuits INTEGER, guest_count TEXT,
             source_guest_count TEXT, montant_retenu REAL, source_montant TEXT,
-            code_impact TEXT, impact_resultat_reel TEXT, impact_resultat_comptable TEXT,
+            code_impact TEXT, motif_exclusion TEXT,
+            impact_resultat_reel TEXT, impact_resultat_comptable TEXT,
             statut_controle TEXT, niveau_anomalie TEXT, code_anomalie TEXT, commentaire TEXT,
             source_module TEXT, source_table TEXT, source_pk TEXT, date_integration TEXT
         );
@@ -395,7 +399,8 @@ def _referentiels_s1_a_s7(db_path: Path):
             canal_id TEXT, source_financiere TEXT, proprietaire_id TEXT, logement_id TEXT,
             reservation_id_hostaway TEXT, date_arrivee TEXT, date_depart TEXT, nuits INTEGER,
             guest_count INTEGER, montant_percu REAL, montant_retenu REAL, mode_paiement_id TEXT,
-            code_impact TEXT, impact_resultat_reel TEXT, impact_resultat_comptable TEXT,
+            code_impact TEXT, motif_exclusion TEXT,
+            impact_resultat_reel TEXT, impact_resultat_comptable TEXT,
             statut_controle TEXT, niveau_anomalie TEXT, code_anomalie TEXT, commentaire TEXT,
             date_saisie TEXT, source_module TEXT, source_table TEXT, source_pk TEXT,
             date_integration TEXT, statut TEXT, acteur TEXT, date_creation TEXT,
@@ -520,7 +525,8 @@ def test_ab_couverture_s1_a_s7(tmp_path):
             reservation_hh_id TEXT, mois TEXT, logement_id TEXT, proprietaire_id TEXT,
             date_arrivee TEXT, date_depart TEXT, nuits INTEGER, guest_count TEXT,
             source_guest_count TEXT, montant_retenu REAL, source_montant TEXT,
-            code_impact TEXT, impact_resultat_reel TEXT, impact_resultat_comptable TEXT,
+            code_impact TEXT, motif_exclusion TEXT,
+            impact_resultat_reel TEXT, impact_resultat_comptable TEXT,
             statut_controle TEXT, niveau_anomalie TEXT, code_anomalie TEXT, commentaire TEXT,
             source_module TEXT, source_table TEXT, source_pk TEXT, date_integration TEXT
         );

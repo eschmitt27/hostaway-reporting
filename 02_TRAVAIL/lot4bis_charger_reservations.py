@@ -34,7 +34,9 @@ Règles métier :
   S4  VRBO HA + HH renseignée    → HOSTAWAY_VRBO_HH,          MANUEL_VRBO,     HC, du HH (ligne HA exclue)
   S5  VRBO HA sans HH            → HOSTAWAY_VRBO_A_CONTROLER, A_CONTROLER,     HC, A_CONTROLER
   S6  HH pure                    → MANUEL_HORS_HOSTAWAY,      MANUEL_HH,       du HH
-  S7  ownerStay                  → OWNERSTAY_EXCLU,           NON_CONCERNE,    HR, EXCLU_RESULTAT
+  S7  ownerStay                  → OWNERSTAY_EXCLU,           NON_CONCERNE,    (aucun code), EXCLU_RESULTAT
+      motif_exclusion=OWNERSTAY — un sejour du proprietaire est une occupation reelle sans vente :
+      il n'a pas un impact neutre, il n'a pas d'impact. Le code `HR` qui le disait a ete supprime.
 
 Cas non couvert par D054 (proposition validée) :
   DIRECT HA sans HH              → HOSTAWAY_DIRECT_HH, A_CONTROLER, HC, A_CONTROLER,
@@ -196,7 +198,10 @@ _COLS_CALC_SQL = (
     "guest_count", "source_guest_count", "montant_retenu", "source_montant", "code_impact",
     "impact_resultat_reel", "impact_resultat_comptable", "statut_controle", "niveau_anomalie",
     "code_anomalie", "commentaire", "source_module", "source_table", "source_pk",
-    "date_integration")
+    "date_integration",
+    # Migration 0079 : la RAISON de l'exclusion, requetable. Elle vivait dans `commentaire`,
+    # en texte libre, donc invisible a toute agregation.
+    "motif_exclusion")
 _CALC_DEPUIS_MOTEUR = {"row_hash": "ROW_HASH", "guest_count": "guestCount",
                        "source_guest_count": "source_guestCount"}
 
@@ -605,11 +610,9 @@ def main(argv=None):
             n = counters_by_month_ha[(mois, branch)]
             reservation_calc_id = f"{dbm.PREFIXE_LEGACY}{mois}-HA-{n:03d}"
 
-        impact_reel  = "A_CONTROLER" if code_impact not in ("IC", "HC", "HR") else ("NON" if code_impact == "HR" else "OUI")
-        impact_compta = "A_CONTROLER" if code_impact not in ("IC", "HC", "HR") else ("OUI" if code_impact == "IC" else "NON")
-        if statut_controle == "EXCLU_RESULTAT":
-            impact_reel   = "NON"
-            impact_compta = "NON"
+        motif_exclusion = dbm.motif_exclusion_pour(source_val, statut_controle, code_anomalie)
+        impact_reel, impact_compta = dbm.impacts_reservation(
+            code_impact, motif_exclusion=motif_exclusion, statut_controle=statut_controle)
 
         source_guest = res.get("source_guestCount")
         raw_guest = res.get("guestCount")
@@ -663,6 +666,7 @@ def main(argv=None):
             "montant_retenu":          montant_retenu,
             "source_montant":          source_montant,
             "code_impact":             code_impact,
+            "motif_exclusion":         motif_exclusion,
             "impact_resultat_reel":    impact_reel,
             "impact_resultat_comptable": impact_compta,
             "statut_controle":         statut_controle,
@@ -693,7 +697,7 @@ def main(argv=None):
         log_row = log_index.get(hh.get("logement_id"), {})
         if is_hors_parc_technique(log_row):
             source_val = HORS_PARC_TECHNIQUE
-            code_impact = "HR"
+            code_impact = None          # exclue : aucun impact, pas un impact neutre
             statut = "EXCLU_RESULTAT"
             niveau = "INFO"
             montant = 0
@@ -701,7 +705,7 @@ def main(argv=None):
             hh["commentaire"] = (hh.get("commentaire") or "") + " | statut_parc=HORS_PARC_TECHNIQUE - exclu des traitements metier"
         elif is_statut_parc_a_controler(log_row):
             source_val = A_CONTROLER
-            code_impact = "HR"
+            code_impact = None          # le parc est invalide : aucun impact calculable
             statut = A_CONTROLER
             niveau = A_CONTROLER
             montant = 0
@@ -727,8 +731,9 @@ def main(argv=None):
             hh["code_anomalie"] = hh.get("code_anomalie") or "GESTION_LOGEMENT_MISSING"
             hh["commentaire"] = (hh.get("commentaire") or "") + " | Historique de gestion absent"
 
-        impact_reel  = "NON" if code_impact == "HR" else "OUI"
-        impact_compta = "OUI" if code_impact == "IC" else "NON"
+        motif_exclusion = dbm.motif_exclusion_pour(source_val, statut, hh.get("code_anomalie"))
+        impact_reel, impact_compta = dbm.impacts_reservation(
+            code_impact, motif_exclusion=motif_exclusion, statut_controle=statut)
 
         hash_keys = [reservation_calc_id, source_val, hh.get("reservation_hh_id"), mois,
                      hh.get("logement_id"), montant, code_impact]
@@ -752,6 +757,7 @@ def main(argv=None):
             "montant_retenu":          montant,
             "source_montant":          source_montant,
             "code_impact":             code_impact,
+            "motif_exclusion":         motif_exclusion,
             "impact_resultat_reel":    impact_reel,
             "impact_resultat_comptable": impact_compta,
             "statut_controle":         statut,
@@ -787,7 +793,7 @@ def main(argv=None):
             if status == "modified":
                 commentaire += " | Hostaway status=modified"
             row = make_row_ha(res, payout, "OWNERSTAY_EXCLU", "NON_CONCERNE", 0,
-                              "HR", "EXCLU_RESULTAT", "INFO", None, commentaire,
+                              None, "EXCLU_RESULTAT", "INFO", None, commentaire,
                               logement_id, proprietaire_id)
             master_rows.append(row)
             continue
@@ -805,7 +811,7 @@ def main(argv=None):
             stats["STATUT_HOSTAWAY_HORS_PERIMETRE"] += 1
             commentaire = f"Statut Hostaway hors périmètre économique (status={status!r})"
             row = make_row_ha(res, payout, "STATUT_HOSTAWAY_HORS_PERIMETRE", "NON_CONCERNE", 0,
-                              "HR", "EXCLU_RESULTAT", "INFO", "STATUT_HOSTAWAY_HORS_PERIMETRE",
+                              None, "EXCLU_RESULTAT", "INFO", "STATUT_HOSTAWAY_HORS_PERIMETRE",
                               commentaire, logement_id, proprietaire_id)
             master_rows.append(row)
             continue
@@ -827,7 +833,7 @@ def main(argv=None):
             niveau = "INFO" if ano_code == HORS_PARC_TECHNIQUE else A_CONTROLER
             row = make_row_ha(
                 res, payout, source_val, "NON_CONCERNE",
-                0, "HR", statut, niveau, ano_code,
+                0, None, statut, niveau, ano_code,
                 ano_msg, logement_id, None,
             )
             master_rows.append(row)
@@ -974,11 +980,11 @@ def main(argv=None):
         "reservation_calc_id", "ROW_HASH", "source", "reservation_id_hostaway",
         "reservation_hh_id", "mois", "logement_id", "proprietaire_id",
         "date_arrivee", "date_depart", "nuits", "guestCount", "source_guestCount", "montant_retenu", "source_montant",
-        "code_impact", "impact_resultat_reel", "impact_resultat_comptable",
+        "code_impact", "motif_exclusion", "impact_resultat_reel", "impact_resultat_comptable",
         "statut_controle", "niveau_anomalie", "code_anomalie", "commentaire",
         "source_module", "source_table", "source_pk", "date_integration",
     ]
-    assert len(HEADERS) == 26, f"Attendu 26 colonnes, trouvé {len(HEADERS)}"
+    assert len(HEADERS) == 27, f"Attendu 27 colonnes, trouvé {len(HEADERS)}"
 
     # ── Ecriture SQLite (chemin normal) ──
     if args.sans_sqlite:
@@ -1044,17 +1050,25 @@ def main(argv=None):
 
     print("\nRépartition par statut_controle :")
     statut_count = Counter(r["statut_controle"] for r in master_rows)
-    for s, c in sorted(statut_count.items()):
-        print(f"  {s:<20} {c}")
+    for s, c in sorted(statut_count.items(), key=lambda kv: str(kv[0])):
+        print(f"  {str(s):<20} {c}")
 
+    # `code_impact` vaut None sur les lignes EXCLUES (migration 0079) : elles n'ont pas un impact
+    # neutre, elles n'ont pas d'impact. Trier sur la valeur brute levait alors un TypeError
+    # (`None < str`) et faisait échouer tout le lot APRÈS l'écriture — sur son propre rapport.
     print("\nRépartition par code_impact :")
     ci_count = Counter(r["code_impact"] for r in master_rows)
-    for s, c in sorted(ci_count.items()):
-        print(f"  {s:<10} {c}")
+    for s, c in sorted(ci_count.items(), key=lambda kv: str(kv[0])):
+        print(f"  {(str(s) if s else '(exclue)'):<10} {c}")
+
+    print("\nRépartition par motif_exclusion :")
+    motif_count = Counter(r.get("motif_exclusion") for r in master_rows if r.get("motif_exclusion"))
+    for s, c in sorted(motif_count.items(), key=lambda kv: str(kv[0])):
+        print(f"  {str(s):<34} {c}")
 
     print("\nAnomalies A_CONTROLER :")
     ano_count = Counter(r["code_anomalie"] for r in master_rows if r["code_anomalie"])
-    for s, c in sorted(ano_count.items()):
+    for s, c in sorted(ano_count.items(), key=lambda kv: str(kv[0])):
         print(f"  {s:<40} {c}")
 
     print(f"\nDIRECT_SANS_SAISIE_HH              : {stats['DIRECT_SANS_SAISIE_HH']}")

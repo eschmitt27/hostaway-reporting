@@ -211,7 +211,7 @@ def controles_suivi_associe(df_ik, saisie_charges_path, ik_path):
     charge_ids_av = [c.get("charge_id") for c in charges_av]
 
     anos = []
-    anos += ctl_av.ctrl_code_impact_hr(calc_av)
+    anos += ctl_av.ctrl_suivi_associe_hors_economie(calc_av)
     anos += ctl_av.ctrl_pas_impact_proprietaire(headers_av)
     anos += ctl_av.ctrl_cle_suivi_presente(calc_av)
     anos += ctl_av.ctrl_avantage_net_coherent(calc_av)

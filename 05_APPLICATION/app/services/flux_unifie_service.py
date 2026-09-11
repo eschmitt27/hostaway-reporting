@@ -43,10 +43,15 @@ TYPE_FLUX_BNQ = "TYPE_FLUX_016"
 TYPE_FLUX_GPM_STD = "TYPE_FLUX_019"
 TYPE_FLUX_GPM_ECART = "TYPE_FLUX_018"
 
+# `HR` a ete retire du vocabulaire (migration 0079) : un code d'impact dit COMMENT une somme pese
+# sur l'economie, il ne sait pas dire qu'une ligne en est absente. Cette absence se dit par
+# l'exclusion (`statut_controle`, `motif_exclusion`), jamais par un code.
+#
+# Le retrait ne change rien au calcul : le defaut rendait DEJA ("NON","NON","NON"), exactement ce
+# que `HR` produisait. C'est ce qui rendait ce code redondant.
 _IMPACT_FLAGS = {
     "IC": ("OUI", "OUI", "NON"),
     "HC": ("OUI", "NON", "OUI"),
-    "HR": ("NON", "NON", "NON"),
 }
 
 
