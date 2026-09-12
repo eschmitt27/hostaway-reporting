@@ -26,7 +26,14 @@
   {% elif t.classe == "DEDICATED_WORKFLOW" %}<span class="badge badge-neutral">{{ t.libelle_classe }}</span>
   {% elif t.classe == "READ_ONLY" %}<span class="badge badge-warning">{{ t.libelle_classe }}</span>
   {% else %}<span class="badge badge-neutral">{{ t.libelle_classe }}</span>{% endif %}
-  {% if t.motif_classe %}<div class="text-xs text-secondary">{{ t.motif_classe }}</div>{% endif %}
+  {% if t.motif_classe %}
+    <div class="text-xs text-secondary">
+      {% if t.url_parcours %}
+        {# Nommer le parcours sans y conduire laisse chercher. Quand il a une adresse, on y va. #}
+        <a href="{{ t.url_parcours }}">{{ t.motif_classe }}</a>
+      {% else %}{{ t.motif_classe }}{% endif %}
+    </div>
+  {% endif %}
 {% endmacro %}
 
 {% for categorie in categories %}

@@ -21,6 +21,21 @@ class Feuille:
     colonnes: tuple[str, ...]
 
 
+#: Colonnes qui existent en BASE sans exister dans le classeur, parce qu'elles sont DÉRIVÉES d'une
+#: colonne du classeur par un déclencheur SQL.
+#:
+#: Le catalogue décrit le classeur ; une table peut légitimement porter davantage, à condition que
+#: ce « davantage » soit déclaré ici. Sans cette déclaration, le contrôle d'alignement
+#: catalogue ↔ schéma n'aurait plus que deux issues : interdire toute colonne dérivée, ou ne plus
+#: rien détecter du tout.
+#:
+#: `ref_logements.dynamic_pricing_enabled` / `_provider` (migration 0087) : la colonne du classeur
+#: `dynamic_pricing` mélangeait « activé ? » et « quel moteur ? ». Les deux réponses en dérivent.
+COLONNES_DERIVEES: dict[str, tuple[str, ...]] = {
+    "ref_logements": ("dynamic_pricing_enabled", "dynamic_pricing_provider"),
+}
+
+
 FEUILLES: tuple[Feuille, ...] = (
     Feuille(
         onglet="REF_Logements",

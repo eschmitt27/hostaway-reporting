@@ -111,13 +111,18 @@ def test_les_tables_techniques_sortent_de_la_liste_courante_sans_disparaitre():
         assert adm.est_editable(table) is False
 
 
-def test_le_mapping_logement_reste_editable():
+def test_le_mapping_logement_se_corrige_par_un_parcours_pas_en_table():
     """Une correspondance FAUSSE impute l'argent au mauvais propriétaire : elle doit se corriger.
 
-    Le chemin d'apprentissage (confirmer le logement sur une ligne de facture) ne fait qu'AJOUTER.
-    Sans édition possible ici, une correspondance erronée serait définitive.
+    Ce test affirmait auparavant que la table devait rester ÉDITABLE — c'était confondre le besoin
+    (pouvoir corriger) avec un moyen (éditer la ligne brute). Décision §18 : une correspondance est
+    une décision prise sur un libellé venu de l'extérieur, pas une donnée qu'on saisit. Le besoin
+    est donc satisfait — et mieux, puisque le choix est tracé — par un parcours dédié, auquel
+    l'écran d'administration conduit.
     """
-    assert adm.classe("ref_mapping_logements") == adm.EDITABLE
+    assert adm.classe("ref_mapping_logements") == adm.DEDICATED_WORKFLOW
+    assert adm.est_visible("ref_mapping_logements") is True, "l'état reste consultable"
+    assert adm.url_parcours("ref_mapping_logements") == "/correspondances-logement"
 
 
 @pytest.mark.parametrize("table", ["ref_logements", "ref_proprietaires", "ref_intervenants"])

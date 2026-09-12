@@ -32,6 +32,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from app.db.connection import get_db
+from app.services import ref_setup_catalogue as _cat
 from app.services import ref_setup_repo as repo
 
 SOURCE_APPLICATION = "SAISIE_APPLICATION"
@@ -627,6 +628,23 @@ def motif_classe(table: str) -> str:
     return CLASSIFICATION.get(table, (EDITABLE, ""))[1]
 
 
+#: Table → adresse du parcours qui la modifie, quand ce parcours est UN écran identifiable.
+#
+# Dire « allez dans la fiche logement » sans y conduire laisse l'utilisateur chercher. Les tables
+# absentes de cette table le sont à dessein : leur parcours n'a pas d'adresse unique (le taux de
+# commission se change depuis LA fiche du logement concerné, pas depuis un écran général).
+URLS_PARCOURS: dict[str, str] = {
+    "ref_mapping_logements": "/correspondances-logement",
+    "ref_cloture_mensuelle": "/clotures",
+    "ref_couts_standards_menage": "/referentiel/couts-menage",
+}
+
+
+def url_parcours(table: str) -> str:
+    """Adresse du parcours dédié, ou chaîne vide s'il n'en existe pas une seule."""
+    return URLS_PARCOURS.get(table, "") if classe(table) == DEDICATED_WORKFLOW else ""
+
+
 def est_editable(table: str) -> bool:
     return DROITS_CLASSE[classe(table)]["editable"]
 
@@ -645,8 +663,42 @@ LECTURE_SEULE = {t: motif for t, (c, motif) in CLASSIFICATION.items()
 # éditable pour ses champs descriptifs ; seules ces deux colonnes, désormais vestigiales, passent
 # par `canape_gestion_service.changer_parametres` (Mission 6).
 COLONNES_LECTURE_SEULE: dict[str, set[str]] = {
-    "ref_logements": {"seuil_voyageurs_preparation_canape", "montant_preparation_canape"},
+    # `dynamic_pricing` (valeur brute de la source) et les deux colonnes qui en DÉRIVENT par
+    # déclencheur (migration 0087). L'écran modifie la paire lisible — « Pricing dynamique :
+    # Oui/Non » et « Moteur » — et le service recompose la valeur brute. Laisser éditer les trois
+    # séparément permettrait de les rendre contradictoires en trois clics.
+    "ref_logements": {"seuil_voyageurs_preparation_canape", "montant_preparation_canape",
+                      "dynamic_pricing"},
 }
+
+# Colonnes DÉRIVÉES : affichées, jamais écrites directement — une écriture les recalculerait
+# aussitôt, donc l'utilisateur verrait sa saisie disparaître sans explication.
+#
+# La liste n'est pas réécrite ici : elle est LUE du catalogue, qui la déclare déjà pour le contrôle
+# d'alignement catalogue ↔ schéma. Deux listes finiraient par diverger, et c'est exactement l'écart
+# qu'aucun des deux contrôles ne verrait.
+COLONNES_DERIVEES: dict[str, set[str]] = {
+    table: set(colonnes) for table, colonnes in _cat.COLONNES_DERIVEES.items()
+}
+
+#: Libellés de la question posée à l'écran, là où le nom de colonne ne la pose pas.
+PRICING_DESACTIVE = "non"
+
+
+def composer_dynamic_pricing(active: Any, fournisseur: Any) -> str:
+    """Recompose la valeur brute `dynamic_pricing` à partir de la paire lisible (§19).
+
+    Bijection stricte avec la dérivation du déclencheur 0087 :
+        (NON, quoi que ce soit) → « non »
+        (OUI, « hostdynamic »)  → « hostdynamic »
+    Un « oui » sans moteur nommé reste « oui » : c'est une information incomplète, pas une
+    invention. Lui attribuer d'office « hostdynamic » affirmerait un fournisseur que personne n'a
+    désigné — et ferait passer pour constaté ce qui n'est que le cas le plus fréquent.
+    """
+    actif = txt(active).upper() in ("OUI", "1", "TRUE", "ON")
+    if not actif:
+        return PRICING_DESACTIVE
+    return txt(fournisseur) or "oui"
 
 # Colonne portant l'activation, quand la table en a une.
 COLONNE_ACTIF = "actif"
@@ -669,11 +721,13 @@ CHAMPS_ENUM: dict[str, dict[str, tuple[str, ...]]] = {
         "sur_hostaway": OUI_NON,
         "actif": OUI_NON,
         "statut_parc": ("GERE", "RETIRE", "HORS_PARC_TECHNIQUE"),
-        # `dynamic_pricing` n'est PAS un booléen : la base porte « hostdynamic », c'est-à-dire le
-        # nom de l'outil, et « non ». Le réduire à OUI/NON effacerait quel outil est employé —
-        # information qu'aucun calcul ne lit aujourd'hui, mais que personne ne nous a autorisés à
-        # perdre. La liste s'ouvre donc sur ce qui existe, sans le contraindre.
+        # `dynamic_pricing` est la valeur BRUTE de la source : « hostdynamic » ou « non ». Elle
+        # mélangeait deux questions — activé ou non, et par quel moteur. La migration 0087 les
+        # sépare en `dynamic_pricing_enabled` / `dynamic_pricing_provider`, dérivées par
+        # déclencheur. La liste reste ouverte sur ce qui existe, pour qu'une valeur en base ne
+        # soit jamais remplacée en silence.
         "dynamic_pricing": ("non",),
+        "dynamic_pricing_enabled": OUI_NON,
     },
     "ref_proprietaires": {"actif": OUI_NON, "mode_facturation": ("PAR_LOGEMENT",)},
     "ref_intervenants": {"actif": OUI_NON, "type_intervenant": ("INTERNE", "EXTERNE")},
@@ -858,6 +912,7 @@ def categories(*, db_path=None) -> list[dict[str, Any]]:
                 "classe": classe(t),
                 "libelle_classe": LIBELLES_CLASSE[classe(t)],
                 "motif_classe": motif_classe(t),
+                "url_parcours": url_parcours(t),
                 "editable": est_editable(t),
                 "technique": classe(t) == HIDDEN_TECHNICAL,
                 "lecture_seule": t in LECTURE_SEULE,
@@ -884,11 +939,13 @@ def decrire_table(table: str, *, db_path=None) -> dict[str, Any]:
             "classe": classe(table),
             "libelle_classe": LIBELLES_CLASSE[classe(table)],
             "motif_classe": motif_classe(table),
+            "url_parcours": url_parcours(table),
             "editable": est_editable(table),
             "lecture_seule": table in LECTURE_SEULE,
             "motif_lecture_seule": LECTURE_SEULE.get(table, ""),
             "a_colonne_actif": COLONNE_ACTIF in native.colonnes,
-            "colonnes_lecture_seule": sorted(COLONNES_LECTURE_SEULE.get(table, set())),
+            "colonnes_lecture_seule": sorted(COLONNES_LECTURE_SEULE.get(table, set())
+                                             | COLONNES_DERIVEES.get(table, set())),
         }
 
     from app.services import ref_setup_catalogue as cat
@@ -896,20 +953,28 @@ def decrire_table(table: str, *, db_path=None) -> dict[str, Any]:
     feuille = cat.PAR_TABLE.get(table)
     if feuille is None:
         return {"ok": False, "code": "TABLE_INCONNUE", "table": table}
+    # Le catalogue décrit le CLASSEUR ; les colonnes dérivées n'existent qu'en base (migration
+    # 0087). Les ajouter au catalogue ferait attendre à l'import des colonnes absentes de la
+    # feuille ; les taire ici les rendrait invisibles à l'écran alors qu'elles portent la réponse
+    # lisible. Elles sont donc jointes à l'affichage, et déclarées non modifiables.
+    colonnes = list(feuille.colonnes) + [c for c in sorted(COLONNES_DERIVEES.get(table, set()))
+                                         if c not in feuille.colonnes]
     return {
         "ok": True,
         "table": table,
         "onglet": feuille.onglet,
         "cle": feuille.cle,
-        "colonnes": list(feuille.colonnes),
+        "colonnes": colonnes,
         "classe": classe(table),
         "libelle_classe": LIBELLES_CLASSE[classe(table)],
         "motif_classe": motif_classe(table),
+        "url_parcours": url_parcours(table),
         "editable": est_editable(table),
         "lecture_seule": table in LECTURE_SEULE,
         "motif_lecture_seule": LECTURE_SEULE.get(table, ""),
         "a_colonne_actif": COLONNE_ACTIF in feuille.colonnes,
-        "colonnes_lecture_seule": sorted(COLONNES_LECTURE_SEULE.get(table, set())),
+        "colonnes_lecture_seule": sorted(COLONNES_LECTURE_SEULE.get(table, set())
+                                             | COLONNES_DERIVEES.get(table, set())),
     }
 
 
@@ -946,9 +1011,17 @@ def modifier_ligne(table: str, cle_valeur: str, valeurs: dict[str, Any], *, acte
     if meta["lecture_seule"]:
         return refus(E_ECRITURE, meta["motif_lecture_seule"])
 
-    verrouillees = COLONNES_LECTURE_SEULE.get(table, set())
+    verrouillees = COLONNES_LECTURE_SEULE.get(table, set()) | COLONNES_DERIVEES.get(table, set())
     champs = {c: v for c, v in valeurs.items()
              if c in meta["colonnes"] and c != meta["cle"] and c not in verrouillees}
+
+    # §19 — la paire lisible est ce que l'écran modifie ; la valeur brute en est recomposée, puis
+    # le déclencheur 0087 redérive la paire. La boucle est fermée : les trois colonnes ne peuvent
+    # pas se contredire, quel que soit le chemin d'écriture.
+    if table == TABLE_LOGEMENTS and "dynamic_pricing_enabled" in valeurs:
+        champs["dynamic_pricing"] = composer_dynamic_pricing(
+            valeurs.get("dynamic_pricing_enabled"), valeurs.get("dynamic_pricing_provider"))
+
     if not champs:
         return {"ok": True, "inchange": True}
     return mettre_a_jour(table, cle_valeur, champs, action="MODIFICATION", acteur=acteur,

@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}Correspondances logement{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Correspondances logement</h1>
+  <p class="page-subtitle">
+    À quel logement du parc correspond un libellé venu d'une source extérieure — annonce Hostaway,
+    facture de ménage. Chaque décision est tracée.
+  </p>
+</div>
+
+{% if message %}<div class="alert alert-info">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-error">{{ erreur }}</div>{% endif %}
+
+{# ── Ce qui attend une décision ────────────────────────────────────────────────────────────
+   Un libellé non rattaché ne se voyait nulle part : il n'apparaissait qu'au moment où un
+   moteur s'arrêtait dessus, en langage de moteur. Ici, il se règle. #}
+<div class="card" style="margin-bottom: var(--stack-lg);">
+  <h2 class="card-title">À rattacher — {{ a_traiter|length }}</h2>
+
+  {% if not a_traiter %}
+    <p class="text-secondary">Tout ce que les sources ont produit est rattaché à un logement.</p>
+  {% else %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Valeur de la source</th>
+        <th>Origine</th>
+        <th>Volume</th>
+        <th>Proposition du moteur</th>
+        <th>Logement à retenir</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for e in a_traiter %}
+      <tr>
+        <td>
+          <strong>{{ e.libelle or e.valeur_source }}</strong>
+          {% if e.libelle and e.libelle != e.valeur_source %}
+            <div class="text-xs text-secondary">{{ e.champ_source }} = {{ e.valeur_source }}</div>
+          {% endif %}
+          <div class="text-xs text-secondary">{{ e.consequence }}</div>
+        </td>
+        <td>{{ e.source }}</td>
+        <td>
+          {% if e.origine == "HOSTAWAY_LISTING" %}
+            {{ e.nb_reservations }} réservation{{ "s" if e.nb_reservations > 1 else "" }}
+            {% if e.premiere_arrivee %}
+              <div class="text-xs text-secondary">{{ e.premiere_arrivee }} → {{ e.derniere_arrivee }}</div>
+            {% endif %}
+          {% else %}
+            {{ e.nb_lignes }} ligne{{ "s" if e.nb_lignes > 1 else "" }}
+          {% endif %}
+        </td>
+        <td>
+          {% if e.propose_logement_id %}
+            {{ e.propose_libelle }}
+            <div class="text-xs text-secondary">certitude : {{ e.confiance|lower }}</div>
+          {% else %}
+            <span class="text-secondary">aucune —
+              {# Le moteur propose, il ne décide jamais. Une absence de proposition se dit. #}
+              choix entièrement manuel</span>
+          {% endif %}
+        </td>
+        <td colspan="2">
+          <form method="post"
+                action="{% if e.origine == 'HOSTAWAY_LISTING' %}/correspondances-logement/rattacher-annonce{% else %}/correspondances-logement/enregistrer{% endif %}"
+                class="flex items-center" style="gap: var(--inline-sm);">
+            {% if e.origine == "HOSTAWAY_LISTING" %}
+              <input type="hidden" name="listing_map_id" value="{{ e.valeur_source }}">
+            {% else %}
+              <input type="hidden" name="source" value="{{ e.source }}">
+              <input type="hidden" name="champ_source" value="{{ e.champ_source }}">
+              <input type="hidden" name="valeur_source" value="{{ e.valeur_source }}">
+            {% endif %}
+            <select name="logement_id" class="filter-input" required>
+              <option value="">— choisir un logement —</option>
+              {% for l in logements %}
+              <option value="{{ l.logement_id }}"
+                      {% if l.logement_id == e.propose_logement_id %}selected{% endif %}>
+                {{ l.nom_court or l.nom_officiel }}{% if l.ville %} — {{ l.ville }}{% endif %}
+                {% if l.statut_parc != "GERE" %} ({{ l.statut_parc|lower }}){% endif %}
+              </option>
+              {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-primary">Rattacher</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+
+{# ── Correspondances déjà déclarées ──────────────────────────────────────────────────────── #}
+<div class="card" style="margin-bottom: var(--stack-lg);">
+  <h2 class="card-title">Correspondances déclarées — {{ declarees|length }}</h2>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Source</th><th>Champ</th><th>Valeur</th><th>Logement</th>
+        <th>Confiance</th><th>Active</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for c in declarees %}
+      <tr{% if c.actif != "OUI" %} class="text-secondary"{% endif %}>
+        <td>{{ c.source }}</td>
+        <td class="text-xs">{{ c.champ_source }}</td>
+        <td>{{ c.valeur_source }}</td>
+        <td>{{ c.logement_libelle }}</td>
+        <td>{{ c.niveau_confiance }}</td>
+        <td>{{ c.actif }}</td>
+        <td>
+          {% if c.actif == "OUI" %}
+          <form method="post" action="/correspondances-logement/{{ c.mapping_logement_id }}/desactiver">
+            <button type="submit" class="btn btn-sm">Retirer</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="text-xs text-secondary">
+    Une correspondance retirée n'est jamais effacée : les calculs passés ont été faits sous elle,
+    et doivent rester explicables.
+  </p>
+</div>
+
+{# ── Trace des décisions ─────────────────────────────────────────────────────────────────── #}
+{% if historique %}
+<div class="card">
+  <h2 class="card-title">Décisions récentes</h2>
+  <table class="table">
+    <thead><tr><th>Date</th><th>Action</th><th>Valeur</th><th>Avant</th><th>Après</th><th>Par</th></tr></thead>
+    <tbody>
+    {% for h in historique %}
+      <tr>
+        <td class="text-xs">{{ h.horodatage|datetime_fr }}</td>
+        <td>{{ h.action|libelle_statut }}</td>
+        <td>{{ h.valeur_source }}</td>
+        <td class="text-secondary">{{ h.logement_avant or "—" }}</td>
+        <td>{{ h.logement_apres or "—" }}</td>
+        <td class="text-xs">{{ h.acteur }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

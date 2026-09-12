@@ -93,14 +93,30 @@ def test_migration_cree_les_28_tables_du_catalogue(db):
 
 def test_chaque_table_porte_exactement_les_colonnes_du_catalogue(db):
     """Le catalogue est un contrat : une dérive silencieuse entre lui et la migration rendrait
-    l'import faux sans le faire échouer."""
+    l'import faux sans le faire échouer.
+
+    Une table peut porter EN PLUS des colonnes dérivées — calculées en base à partir d'une colonne
+    du classeur, jamais importées. Elles doivent alors être déclarées dans `cat.COLONNES_DERIVEES` :
+    c'est ce qui distingue un ajout assumé d'une dérive, que ce test doit continuer d'attraper.
+    """
     conn = get_db(db)
     try:
         for f in cat.FEUILLES:
             cols = [r[1] for r in conn.execute(f"PRAGMA table_info({f.table})")]
-            assert cols == list(f.colonnes) + ["import_id"], f.table
+            attendues = list(f.colonnes) + ["import_id"] \
+                + list(cat.COLONNES_DERIVEES.get(f.table, ()))
+            assert cols == attendues, f.table
     finally:
         conn.close()
+
+
+def test_les_colonnes_derivees_ne_sont_jamais_importees():
+    """Une colonne dérivée n'a pas de colonne correspondante dans le classeur : l'importateur ne
+    doit donc jamais chercher à l'écrire — il recopierait une valeur que le déclencheur recalcule
+    aussitôt, et l'écart ne se verrait nulle part."""
+    for table, derivees in cat.COLONNES_DERIVEES.items():
+        feuille = cat.PAR_TABLE[table]
+        assert not (set(derivees) & set(feuille.colonnes)), table
 
 
 # ── Prévisualisation ────────────────────────────────────────────────────────────────────────────
