@@ -166,59 +166,25 @@ def test_csv_exporte_porte_le_nouveau_nom():
     assert ANCIEN_NOM not in entetes
 
 
-def test_csv_exporte_valeur_numerique_et_identique_a_la_source():
-    """La valeur et le type sont conservés : le renommage ne touche qu'un libellé de colonne.
-
-    LA SOURCE COMPARÉE A CHANGÉ, ET IL LE FALLAIT.
-    Ce test confrontait l'export au classeur `MASTER_CALC_Commissions.xlsx`. Cette comparaison est
-    devenue **impossible**, et l'était déjà avant cette mission sans que personne le voie : le
-    classeur est un artefact figé au 2026-09-09 dont les clés suivent l'ANCIEN schéma
-    (`RES-2025-01-HA-001`), tandis que `reservation_calc_id` dérive désormais de l'identifiant de
-    réservation (`RES-HA-53441757`). Les deux ensembles de clés sont **entièrement disjoints** :
-    1 476 lignes d'un côté, 217 de l'autre, zéro en commun.
-
-    Le test ne le signalait pas parce qu'il était **ignoré** — il exige un export sur la racine, et
-    `03_EXPORTS/PowerBI/` était vide. Il s'est réveillé le jour où l'écran « Exporter les données »
-    a produit les fichiers, et a alors révélé sa propre obsolescence plutôt qu'un défaut d'export.
-
-    La propriété à protéger n'a pas changé : **renommer une colonne ne doit modifier ni la valeur
-    ni son type**. Elle se vérifie désormais entre les deux artefacts qui existent réellement
-    aujourd'hui — la table SQLite `lot10_commissions`, qui porte le nom historique, et le CSV
-    exporté, qui porte le nom de frontière.
-    """
-    from app.db.connection import get_db
-
-    p = _csv_commissions()
-    if not p.exists():
-        pytest.skip("Aucun export lot13 sur cette racine.")
-
-    conn = get_db()
-    try:
-        colonnes = {r[1] for r in conn.execute("PRAGMA table_info(lot10_commissions)")}
-        if ANCIEN_NOM not in colonnes:
-            pytest.skip(f"`lot10_commissions.{ANCIEN_NOM}` absent de ce schéma.")
-        run = conn.execute("SELECT run_id FROM lot10_runs WHERE actif = 1").fetchone()
-        if run is None:
-            pytest.skip("Aucun run lot10 actif : rien à comparer.")
-        attendu = {str(r[0]): r[1] for r in conn.execute(
-            f"SELECT reservation_calc_id, {ANCIEN_NOM} FROM lot10_commissions WHERE run_id = ?",
-            (run[0],))}
-    finally:
-        conn.close()
-
-    entetes, lignes = _lire_csv(p)
-    j_cle, j_val = entetes.index("reservation_calc_id"), entetes.index(NOUVEAU_NOM)
-    assert lignes, "Export vide : le renommage aurait fait perdre la donnée."
-    compares = 0
-    for ligne in lignes:
-        brut = ligne[j_val]
-        reference = attendu.get(ligne[j_cle])
-        if brut == "" or reference in (None, ""):
-            continue
-        valeur = float(brut)                       # type numérique conservé
-        assert valeur == pytest.approx(float(reference)), ligne[j_cle]
-        compares += 1
-    assert compares > 0, (
-        "Aucune valeur non vide comparée — preuve insuffisante. L'export et la table source ne "
-        "partagent aucune réservation valorisée : vérifier que l'export a été régénéré depuis le "
-        "run lot10 actif.")
+# LA PREUVE DE VALEUR A DÉMÉNAGÉ — voir `test_export_snapshot_canonique.py`.
+#
+# Un test comparait ici l'export au classeur `MASTER_CALC_Commissions.xlsx`. Cette comparaison
+# était devenue IMPOSSIBLE, et l'était déjà avant qu'on s'en aperçoive : le classeur est figé au
+# 2026-09-09 et ses clés suivent l'ANCIEN schéma (`RES-2025-01-HA-001`), quand
+# `reservation_calc_id` dérive désormais de l'identifiant de réservation (`RES-HA-53441757`). Les
+# deux ensembles sont entièrement disjoints — 1 476 lignes d'un côté, 217 de l'autre, zéro en
+# commun. Le test ne le disait pas parce qu'il était IGNORÉ : il exige un export présent sur la
+# racine, et le dossier était vide. Il s'est réveillé le jour où l'écran « Exporter les données »
+# a produit les fichiers, et a révélé sa propre obsolescence.
+#
+# Il aurait été facile de le faire passer en comparant l'export à la table SQLite dont il est
+# issu. Ç'aurait été une preuve TAUTOLOGIQUE : elle vérifie que SQLite ressemble à SQLite, et
+# reste verte devant n'importe quelle erreur de sémantique.
+#
+# La propriété à protéger — renommer une colonne ne modifie ni la valeur ni son type — est
+# désormais prouvée sur un SNAPSHOT CANONIQUE : un jeu minimal écrit à la main, dont les valeurs
+# attendues sont énoncées dans le fichier de test. La référence est lisible, déterministe, et
+# indépendante de la base.
+#
+# Ce fichier conserve ce qu'il sait prouver seul : que le moteur d'export DÉCLARE le bon
+# renommage et que son filet anti-sensible refuse les colonnes d'identité.

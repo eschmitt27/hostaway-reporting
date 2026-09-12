@@ -1,13 +1,31 @@
 """Mission 18b — régularisation DIRECT_SANS_SAISIE_HH / VRBO_MONTANT_NON_RENSEIGNE depuis l'app.
 
-Utilise un CLONE de l'app.db réelle (via `sqlite3.Connection.backup()`, jamais une copie de fichier
-brute, jamais le fichier réel lui-même) : l'état réel post-Mission-17/18 contient déjà les 27
-anomalies réelles avec leurs contrôles Lot11 authentiques — un fixture synthétique redéfinirait
-artificiellement ce que le moteur produit réellement. Le clone est jetable, jamais réutilisé comme
-vérité, et la base réelle n'est jamais ouverte en écriture par ce fichier.
+CE FICHIER EST UN CONTRÔLE DE RECETTE RÉELLE, PAS UN TEST AUTOMATISÉ.
+Il travaille sur un CLONE de l'`app.db` réelle (via `sqlite3.Connection.backup()`, jamais une copie
+de fichier brute, jamais le fichier réel lui-même) : l'état réel contient les anomalies
+authentiques avec leurs contrôles Lot11, qu'un jeu synthétique redéfinirait artificiellement.
+
+C'est sa valeur — et c'est aussi pourquoi il ne peut pas faire partie de la suite automatisée.
+
+CE QUI L'A DÉMONTRÉ
+Le parc réel a reçu une annonce Hostaway non rattachée (`590757`). Le moteur a refusé, à juste
+titre, de calculer les réservations. Ce refus — un état MÉTIER du parc, du jour, corrigeable par
+l'utilisateur en deux clics — est alors devenu un ÉCHEC DE LA SUITE. Une suite dont le résultat
+dépend du contenu du parc au moment où on la lance ne dit plus rien sur le code : elle mélange
+« le logiciel a une régression » et « il manque une donnée à saisir ».
+
+LA SÉPARATION
+  A. suite automatisée — bases temporaires, fixtures déterministes, résultat reproductible ;
+  B. contrôle de recette (CE FICHIER) — vraie base, exécuté à la demande, et dont un échec est une
+     information sur les DONNÉES.
+
+Ce fichier ne s'exécute donc que si on le demande : `RECETTE_REELLE=1`. Sans cela, il est ignoré,
+en disant pourquoi. L'anomalie qu'il détectait n'est pas perdue pour autant : elle est visible dans
+l'application, écran « Correspondances logement », qui est sa place.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import sqlite3
 from pathlib import Path
@@ -20,6 +38,14 @@ from app.services import regularisation_hh_service as regul
 
 
 REAL_DB = Path(cfg.DB_PATH)
+
+#: Interrupteur de la recette réelle. Absent = suite automatisée : ce fichier est ignoré.
+RECETTE_REELLE = str(os.environ.get("RECETTE_REELLE", "")).strip().lower() in ("1", "true", "oui")
+
+pytestmark = pytest.mark.skipif(
+    not RECETTE_REELLE,
+    reason="Contrôle de recette RÉELLE (clone de la base de production) : son résultat dépend de "
+           "l'état du parc du jour, pas du code. Lancer avec RECETTE_REELLE=1.")
 
 
 def _cloner(tmp_path: Path) -> Path:

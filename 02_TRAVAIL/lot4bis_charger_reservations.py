@@ -553,7 +553,24 @@ def main(argv=None):
         """
         matches = ha_map_index.get(listing_map_id, [])
         if not matches:
-            abort(f"LOGEMENT_NON_MAPPE — listingMapId={listing_map_id} absent de REF_Mapping_Logements.")
+            # UNE ANNONCE INCONNUE N'ARRETE PLUS TOUT LE CALCUL.
+            #
+            # C'etait un abort : une seule annonce apparue chez Hostaway et non encore rattachee
+            # (constate : 590757 « 4 rue engaliere », 4 sejours) suffisait a empecher le calcul des
+            # 1 600 autres reservations, parfaitement mappees. Le remede etait pire que le mal :
+            # tout le pilotage s'arretait pour une donnee manquante sur un seul logement.
+            #
+            # Desormais : la reservation est CONSERVEE et TRACEE, exclue de l'economie, et signalee
+            # comme correspondance a etablir (ecran « Correspondances logement »). Elle n'est ni
+            # rangee dans un logement fourre-tout, ni rattachee a un logement invente — les deux
+            # feraient disparaitre l'anomalie en fabriquant une reponse.
+            return (
+                None,
+                None,
+                dbm.MOTIF_LOGEMENT_NON_MAPPE,
+                f"listingMapId={listing_map_id} absent de REF_Mapping_Logements — "
+                "correspondance a etablir. Sejour conserve, hors economie.",
+            )
         if len(matches) > 1:
             abort(f"LOGEMENT_MAPPING_MULTIPLE — listingMapId={listing_map_id} → {matches}.")
         logement_id = matches[0]
@@ -827,10 +844,15 @@ def main(argv=None):
             date_depart_str=date_to_str(res.get("checkOutDate")),
         )
 
-        if ano_code in (HORS_PARC_TECHNIQUE, STATUT_PARC_INVALIDE):
-            source_val = HORS_PARC_TECHNIQUE if ano_code == HORS_PARC_TECHNIQUE else A_CONTROLER
-            statut = "EXCLU_RESULTAT" if ano_code == HORS_PARC_TECHNIQUE else A_CONTROLER
-            niveau = "INFO" if ano_code == HORS_PARC_TECHNIQUE else A_CONTROLER
+        if ano_code in (HORS_PARC_TECHNIQUE, STATUT_PARC_INVALIDE, dbm.MOTIF_LOGEMENT_NON_MAPPE):
+            if ano_code == HORS_PARC_TECHNIQUE:
+                source_val, statut, niveau = HORS_PARC_TECHNIQUE, "EXCLU_RESULTAT", "INFO"
+            else:
+                # Annonce non rattachee : A_CONTROLER, pas EXCLU_RESULTAT. « Exclu » dirait que la
+                # decision est prise et definitive ; ici elle ne l'est pas — il manque une
+                # correspondance que quelqu'un doit etablir. Le sejour reste visible et reclame
+                # une action.
+                source_val, statut, niveau = A_CONTROLER, A_CONTROLER, A_CONTROLER
             row = make_row_ha(
                 res, payout, source_val, "NON_CONCERNE",
                 0, None, statut, niveau, ano_code,
@@ -842,7 +864,20 @@ def main(argv=None):
 
         statut_logement  = None
         niveau_logement  = None
-        if ano_code in ("LOGEMENT_INACTIF", "SEJOUR_CHEVAUCHE_SORTIE_GESTION", "PROPRIETAIRE_ABSENT"):
+        # UNE ANOMALIE DE GESTION NE DOIT PAS POUVOIR ETRE EFFACEE PAR UN PAYOUT NORMAL.
+        #
+        # Les branches S1/S2 ci-dessous construisent une ligne « VALIDE / INFO / aucune anomalie »
+        # des que le payout est NORMAL et que `statut_logement` vaut None — et ce faisant, elles
+        # JETTENT `ano_code`. Les codes `GESTION_LOGEMENT_*` n'etant pas listes ici, une
+        # reservation hors de toute periode de gestion ressortait VALIDE, sans anomalie, et pesait
+        # sur le CA gere et la commission.
+        #
+        # Constate sur LOG_0002 : gestion close au 2026-01-01, et pourtant 7 sejours d'aout 2026
+        # valorises, 2 107,33 € de recettes et 243,65 € de commission attribues a un propietaire
+        # qui n'a plus de mandat. Les nommer ici suffit : la ligne part alors dans la branche
+        # A_CONTROLER, `ano_code` la suit, et `motif_exclusion_pour` la sort de l'economie.
+        if ano_code in ("LOGEMENT_INACTIF", "SEJOUR_CHEVAUCHE_SORTIE_GESTION", "PROPRIETAIRE_ABSENT") \
+                or ano_code in dbm.ANOMALIES_GESTION_EXCLUANTES:
             statut_logement = "A_CONTROLER"
             niveau_logement = "A_CONTROLER"
 

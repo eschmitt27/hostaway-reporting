@@ -5518,3 +5518,98 @@ formules KPI 7, réouverture facture 2.
 
 *(Le total dépasse 167 car plusieurs fichiers recouvrent des sections voisines ; le décompte par
 fichier est celui donné dans le rapport de couverture.)*
+
+
+---
+
+## CTR-PERIMETRE-GESTION-2026-09-12 — deux règles rétablies dans le périmètre économique
+
+**Contexte.** La restauration de l'ingestion Hostaway a fait entrer en base une annonce inconnue du
+parc (`590757`) et a permis de recalculer la chaîne complète. Deux défauts se sont révélés.
+
+**Défaut 1 — une annonce non rattachée arrêtait tout.** `lot4bis.resolve_logement` faisait
+`abort()` sur `LOGEMENT_NON_MAPPE`. Une donnée manquante sur un seul logement empêchait le calcul
+des 1 600 autres réservations.
+*Correction* : la réservation est conservée, tracée, exclue de l'économie, signalée comme
+correspondance à établir. Jamais de fourre-tout, jamais de logement inventé.
+
+**Défaut 2 — une réservation hors période de gestion était valorisée.** Deux causes :
+`lib_parc` ignorait le statut `RETIRE` (retombée sur `STATUT_PARC_INVALIDE`, motif faux qui
+masquait le vrai) ; et les branches S1/S2 de `lot4bis` construisaient une ligne « VALIDE / INFO /
+aucune anomalie » dès que le payout était NORMAL, jetant `ano_code` au passage.
+*Correction* : `RETIRE` reconnu ; les codes `GESTION_LOGEMENT_*` forcent la branche A_CONTROLER ;
+`motif_exclusion_pour` rend `HORS_PERIODE_GESTION` ; `impacts_reservation` rend NON/NON.
+
+**Mesure sur la base réelle** (sauvegarde `BCK-FBA7D2A27203` avant recalcul) :
+
+| Run Lot10 actif | Lignes | Perçu | Commission | Net propriétaire |
+|---|---|---|---|---|
+| Avant | 39 | 48 252,15 € | 6 859,81 € | 31 863,34 € |
+| Après | 37 | 41 751,24 € | 6 070,97 € | 27 393,27 € |
+
+Écart entièrement imputable à `LOG_0002` (gestion close au 2026-01-01) : **6 500,91 €** de recettes
+et **788,84 €** de commission attribués à un propriétaire sans mandat. La donnée source est
+conservée mois par mois ; seule sa contribution économique est retirée.
+
+**Invariants après recalcul** : `integrity_check` ok · `foreign_key_check` 0 ·
+`F-11/0-000001` EMIS 465,88 € intacte · `0005` et `2026-40` toujours `A_CONTROLER` ·
+`menages_cout_complet` 39 / 7 655,00 € inchangé.
+
+**Répartition du dataset RESOLUES actif** (1 613 lignes) : 293 inclus · 1 260
+`LEGACY_SANS_ARCHIVE_ORIGINE` · 31 `HORS_PERIODE_GESTION` · 25 `OWNERSTAY` · 4 `LOGEMENT_NON_MAPPE`.
+
+---
+
+## CTR-TESTS-DETERMINISTES-2026-09-12 — la suite ne dépend plus du parc du jour
+
+**Ce qui n'allait pas.** Deux preuves étaient faibles, et l'une d'elles a bien failli le rester.
+
+1. **Export Power BI comparé au classeur `MASTER_CALC_Commissions.xlsx`** — comparaison devenue
+   impossible : classeur figé au 2026-09-09, clés à l'ancien schéma (`RES-2025-01-HA-001`) contre
+   `RES-HA-53441757` aujourd'hui. 1 476 lignes / 217 lignes / **0 en commun**. Le test ne le disait
+   pas : il était *ignoré* faute d'export sur la racine, et ne s'est réveillé qu'à la création de
+   l'écran « Exporter les données ».
+   Le réparer en comparant l'export à la table SQLite dont il est issu aurait produit une preuve
+   **tautologique** — SQLite ressemble à SQLite.
+   *Correction* : `test_export_snapshot_canonique.py` — jeu minimal écrit à la main (1 propriétaire,
+   2 logements, 3 réservations) et **valeurs exportées attendues énoncées dans le fichier de test**.
+   10 contrôles, dont la forme des nombres, le séparateur, le BOM, l'absence de coordonnées, et le
+   fait qu'un run inactif n'est jamais exporté.
+
+2. **`test_regularisation_hh.py` clonait l'`app.db` réelle.** Le jour où le parc a reçu une annonce
+   non rattachée, la suite est devenue rouge pour une raison qui ne concernait pas le code.
+   *Correction* : le fichier devient un **contrôle de recette réelle**, exécuté sur demande
+   (`RECETTE_REELLE=1`). C'est le seul fichier de la suite dans ce cas — vérifié.
+   En remplacement, `test_perimetre_gestion_et_mapping.py` prouve les mêmes règles sans aucune
+   donnée réelle : 22 contrôles déterministes.
+
+**Trois assertions corrigées**, toutes des littéraux que les changements étendent légitimement
+(colonnes verrouillées de `ref_logements`, nom d'un maillon de la chaîne d'ingestion). Elles disent
+désormais l'intention. Aucune ne masque d'anomalie.
+
+---
+
+## CTR-RUNS-ORPHELINS-2026-09-12 — le contrat d'un run abandonné
+
+**Le défaut.** Un run `lot1_hostaway_extract` lancé le 2026-09-10 à 13h21 est resté `EN_COURS` :
+son sous-processus s'est arrêté sans écrire de statut. `actualisation_en_cours()` refusant tout
+lancement tant qu'un run est ouvert, l'actualisation Hostaway était **définitivement impossible**
+depuis deux jours — en répondant « une actualisation est déjà en cours ».
+
+**Le contrat retenu.** Trois issues — `SUCCES`/`PARTIEL`/`ECHEC` (le processus a conclu),
+`INTERROMPU` (on a **établi** qu'il ne tourne plus), `EN_COURS` (il tourne, ou on ne peut pas
+prouver le contraire). **Aucune présomption de mort.**
+
+Deux preuves, dans cet ordre :
+1. **le PID**, quand le run a démarré sur cette machine — conclusion immédiate, sans attendre le
+   bail ; et inversement, un PID vivant protège le run même au-delà du bail ;
+2. **le temps écoulé**, en dernier recours, quand le PID ne répond pas de la question (absent,
+   illisible, ou enregistré sur une autre machine).
+
+Sous Windows l'existence se teste par `tasklist` et jamais par `os.kill(pid, 0)`, qui sur cette
+plateforme termine le processus au lieu de le tester.
+
+Le run est marqué `INTERROMPU` avec la preuve retenue, jamais effacé.
+
+**7 contrôles déterministes**, dont les deux cas les plus faciles à rater : un processus vivant
+au-delà du bail (jamais tué) et un run venu d'une autre machine (jamais jugé sur son PID).

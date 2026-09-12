@@ -515,3 +515,170 @@ Sauvegarde prise avant les travaux : **`BCK-FF4136EB8006`** (schéma 0085, valid
 | `LOG_0002` gestion close mais recettes | **décision utilisateur** | Date de fin de gestion fausse, ou rattachement erroné. |
 | Factures `0005` / `2026-40` | **décision utilisateur** | Deux gestes distincts, décrits au §Q. |
 | Qonto | **hors scope** | Consigne explicite. |
+
+
+---
+
+# Second tour — points fermés avant la référence finale
+
+## U. Périmètre économique : deux règles rétablies dans le moteur
+
+### U.1 — une annonce non rattachée signale, elle ne bloque plus
+
+`lot4bis` faisait `abort()` sur `LOGEMENT_NON_MAPPE` : une seule annonce apparue chez Hostaway et
+non encore rattachée arrêtait le calcul des **1 600 autres** réservations, parfaitement mappées. Le
+remède était pire que le mal.
+
+Désormais la réservation est **conservée, tracée, exclue de l'économie** et signalée comme
+correspondance à établir. Ni fourre-tout, ni logement créé à la volée, ni rattachement inventé —
+les trois feraient disparaître l'anomalie en fabriquant une réponse.
+
+Sur la base réelle, après recalcul complet (1 613 lignes) :
+
+| Motif d'exclusion | Lignes |
+|---|---|
+| (inclus dans l'économie) | 293 |
+| `LEGACY_SANS_ARCHIVE_ORIGINE` | 1 260 |
+| `HORS_PERIODE_GESTION` | 31 |
+| `OWNERSTAY` | 25 |
+| **`LOGEMENT_NON_MAPPE`** | **4** |
+
+Les quatre séjours de `590757` sont là, avec leurs nuits, **toujours non mappés** :
+
+```
+RES-HA-66095878  2026-07  3 nuits   LOGEMENT_NON_MAPPE  impact réel = NON
+RES-HA-66096017  2026-08  1 nuit    LOGEMENT_NON_MAPPE  impact réel = NON
+RES-HA-66095980  2026-08  7 nuits   LOGEMENT_NON_MAPPE  impact réel = NON
+RES-HA-66095934  2026-08  2 nuits   LOGEMENT_NON_MAPPE  impact réel = NON
+```
+
+### U.2 — LOG_0002 : la règle ne demandait pas d'arbitrage, et le moteur ne l'appliquait pas
+
+Il n'y avait effectivement rien à arbitrer. Une réservation postérieure à la fin de gestion se
+conserve, se consulte, se signale — et ne contribue à **rien**. Le moteur ne le faisait pas, et la
+cause tenait en deux défauts distincts :
+
+1. **`lib_parc` ne connaissait pas `RETIRE`.** Ce statut figure pourtant dans la liste proposée à
+   l'administration et quatre logements le portent. Un statut inconnu retombe sur `A_CONTROLER` :
+   tous les séjours d'un logement retiré étaient donc classés `STATUT_PARC_INVALIDE` — « statut de
+   parc vide ou invalide ». Le motif était faux et, surtout, il **masquait le vrai**.
+2. **Les branches S1/S2 jetaient l'anomalie de gestion.** Dès que le payout était `NORMAL`, la
+   ligne était construite « VALIDE / INFO / aucune anomalie » — et `ano_code` était perdu en
+   chemin. Une réservation hors de toute période de gestion ressortait donc **valide**.
+
+Effet mesuré sur la base réelle, run Lot10 actif :
+
+| | Lignes | Perçu | Commission | Net propriétaire |
+|---|---|---|---|---|
+| Avant | 39 | 48 252,15 € | 6 859,81 € | 31 863,34 € |
+| Après | 37 | 41 751,24 € | 6 070,97 € | 27 393,27 € |
+| **Écart** | **−2** | **−6 500,91 €** | **−788,84 €** | **−4 470,07 €** |
+
+Cet écart est **entièrement** imputable à `LOG_0002`, dont la gestion s'arrête au 2026-01-01 :
+6 500,91 € de recettes et 788,84 € de commission étaient attribués à un propriétaire sans mandat.
+
+La donnée source, elle, est intacte — mois par mois :
+
+```
+2025-10   3 résa · 3 dans l'économie ·  6 898,86 €
+2025-12   1 résa · 1 dans l'économie ·    371,18 €      <- avant la fin de gestion
+--------------------------------------------------------
+2026-01   5 résa · 0 dans l'économie ·  1 075,29 € conservés
+2026-02   6 résa · 0 dans l'économie ·  2 169,46 € conservés
+2026-03   9 résa · 0 dans l'économie ·  2 305,28 € conservés
+2026-04   7 résa · 0 dans l'économie ·  2 110,27 € conservés
+2026-05   6 résa · 0 dans l'économie ·  2 096,81 € conservés
+2026-06   5 résa · 0 dans l'économie ·  1 620,30 € conservés
+2026-07   6 résa · 0 dans l'économie ·  2 773,28 € conservés
+2026-08   7 résa · 0 dans l'économie ·  2 107,33 € conservés
+```
+
+Si la date de fin est erronée, la corriger depuis **Historique logement** suffira : tout se
+recalculera. Le moteur ne contourne rien de lui-même.
+
+---
+
+## V. Tests : ce qui a été renforcé, et ce qui a été retiré
+
+### V.1 — l'export n'est plus comparé à lui-même
+
+Le contrôle de valeur de l'export a bien failli devenir tautologique. Comparer le CSV à la table
+SQLite dont il est issu vérifie que **SQLite ressemble à SQLite** : ça reste vert devant une
+colonne décalée, un montant divisé par cent, un identifiant qui fuit.
+
+Le classeur `MASTER_CALC_Commissions.xlsx` ne pouvait pas servir de référence non plus : figé au
+2026-09-09, ses clés suivent l'ancien schéma (`RES-2025-01-HA-001`) quand `reservation_calc_id`
+vaut désormais `RES-HA-53441757`. **1 476 lignes d'un côté, 217 de l'autre, zéro en commun.** La
+comparaison était impossible bien avant cette mission ; personne ne le voyait parce que le test
+était *ignoré*, faute d'export sur la racine.
+
+Il est remplacé par `test_export_snapshot_canonique.py` : un jeu **minimal, écrit à la main** —
+1 propriétaire, 2 logements, 3 réservations, nuits, perçu, commission, net, ménage — et les valeurs
+exportées attendues **énoncées en toutes lettres dans le fichier de test**. 10 contrôles, dont :
+
+- chaque montant du détail, colonne par colonne, valeur par valeur ;
+- la concordance détail ↔ total du mois (172,00 € de commission, 1 000,00 € perçus, 3 réservations) ;
+- la forme des nombres (« 300 » et non « 300.0 ») — un rendu qui casse Power BI sans qu'un chiffre
+  bouge en base ;
+- le séparateur `;` et le BOM utf-8 ;
+- l'absence de coordonnées dans le référentiel propriétaires ;
+- le fait qu'un run **inactif** n'est jamais exporté (la faute qui a produit 12 046 € pour un mois
+  à 1 204 €).
+
+### V.2 — la suite automatisée ne dépend plus de la base réelle
+
+`test_regularisation_hh.py` clonait l'`app.db` de production. C'est précieux — et c'est
+précisément pourquoi ce n'est pas un test automatisé : le jour où le parc a reçu une annonce non
+rattachée, la suite est devenue rouge pour une raison qui ne concernait pas le code.
+
+Séparation appliquée :
+
+| | Périmètre | Déclenchement |
+|---|---|---|
+| **A. Suite automatisée** | bases temporaires, fixtures déterministes | à chaque exécution |
+| **B. Contrôle de recette réelle** | clone de la vraie base | `RECETTE_REELLE=1` |
+
+C'est le **seul** fichier de la suite qui clonait la base réelle — vérifié.
+
+En remplacement, `test_perimetre_gestion_et_mapping.py` prouve les mêmes règles **sans aucune
+donnée réelle** : 22 contrôles déterministes sur la période de gestion, le statut de parc, le
+rattachement d'annonce et le cycle de vie des runs.
+
+### V.3 — trois corrections d'assertions, et ce qu'elles valaient
+
+Les trois tests touchés au premier tour affirmaient un **littéral** là où les changements étendent
+légitimement l'ensemble (liste de colonnes verrouillées, nom d'un maillon de la chaîne
+d'ingestion). Les assertions disent désormais l'**intention**. Aucune ne masque une anomalie : la
+seule qui en masquait une — celle de l'export — a été retirée et remplacée par une preuve plus
+forte.
+
+---
+
+## W. Runs orphelins : le contrat
+
+Trois issues, et **aucune présomption de mort** :
+
+| État | Signification |
+|---|---|
+| `SUCCES` / `PARTIEL` / `ECHEC` | le sous-processus a conclu lui-même |
+| `INTERROMPU` | on a **établi** qu'il ne tourne plus |
+| `EN_COURS` | il tourne, ou on ne peut pas prouver le contraire |
+
+Deux preuves sont acceptées, dans cet ordre :
+
+1. **Le PID.** Le journal porte le numéro de processus et le nom de la machine. Si le run a démarré
+   sur *cette* machine et que ce PID n'existe plus, la conclusion est immédiate — inutile
+   d'attendre le bail. S'il vit encore, le run est en cours **même s'il dépasse le bail** : le tuer
+   serait pire que l'attendre.
+2. **Le temps écoulé**, en dernier recours seulement, quand le PID ne répond pas de la question —
+   absent, illisible, ou enregistré sur une autre machine. On ne conclut jamais sur un processus
+   qu'on ne peut pas voir : ce serait tuer un run réellement en cours sur un autre poste.
+
+Sous Windows, l'existence se teste par `tasklist` et **jamais** par `os.kill(pid, 0)` — qui, sur
+cette plateforme, ne teste rien : il termine le processus.
+
+Le run n'est jamais effacé : il est marqué `INTERROMPU` avec la preuve retenue.
+
+Sept contrôles déterministes couvrent ce contrat, y compris les deux cas qu'on rate le plus
+facilement : un processus vivant au-delà du bail (jamais tué) et un run venu d'une autre machine
+(jamais jugé sur son PID).

@@ -129,8 +129,61 @@ def _interpreteur() -> str | None:
 
 # ── Lancement ───────────────────────────────────────────────────────────────────────────────────
 
+def _nom_machine() -> str:
+    """Nom de cette machine, dans la MÊME forme que celle écrite au journal de run.
+
+    `lib_run_journal` enregistre `socket.gethostname()[:100]` : reprendre exactement cette
+    expression est ce qui garantit qu'un run local est reconnu comme local. Comparer deux
+    conventions différentes ferait passer tous les runs pour distants, et le contrôle par PID ne
+    s'appliquerait plus jamais.
+    """
+    import socket
+
+    try:
+        return socket.gethostname()[:100]
+    except Exception:      # noqa: BLE001 — sans nom de machine, on ne conclura pas par le PID
+        return ""
+
+
+def _processus_vivant(pid: Any) -> bool | None:
+    """Le processus existe-t-il encore ? `None` quand la question n'a pas de réponse fiable.
+
+    Trois réponses, et la troisième compte autant que les deux autres : oui, non, et « je ne sais
+    pas ». Un PID absent du journal, illisible, ou appartenant à une AUTRE machine ne se vérifie
+    pas d'ici — et répondre « mort » par défaut tuerait un run réellement en cours sur un autre
+    poste partageant la base.
+    """
+    if pid in (None, "", 0):
+        return None
+    try:
+        numero = int(pid)
+    except (TypeError, ValueError):
+        return None
+    if numero <= 0:
+        return None
+    try:
+        if os.name == "nt":
+            # `tasklist` plutôt que `os.kill(pid, 0)` : sous Windows, `os.kill` avec un signal 0
+            # n'est pas un test d'existence — il termine le processus.
+            sortie = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {numero}", "/NH"],
+                capture_output=True, text=True, timeout=10)
+            if sortie.returncode != 0:
+                return None
+            return str(numero) in sortie.stdout
+        os.kill(numero, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Le processus existe mais appartient à quelqu'un d'autre : vivant.
+        return True
+    except Exception:      # noqa: BLE001 — outil indisponible : on ne sait pas, on le dit
+        return None
+
+
 def marquer_runs_interrompus(*, db_path=None, bail_s: int = BAIL_RUN_S) -> list[str]:
-    """Un run resté EN_COURS bien au-delà de sa durée possible est INTERROMPU, pas « en cours ».
+    """Requalifie en INTERROMPU les runs `EN_COURS` dont on peut ÉTABLIR qu'ils ne tournent plus.
 
     CE QUE CE CORRECTIF RÉPARE, ET COMMENT ON S'EN EST APERÇU
     Un run lancé le 2026-09-10 à 13h21 n'a jamais été clos : son sous-processus s'est arrêté sans
@@ -139,34 +192,58 @@ def marquer_runs_interrompus(*, db_path=None, bail_s: int = BAIL_RUN_S) -> list[
     d'actualisation Hostaway était devenu DÉFINITIVEMENT inopérant — en répondant « une
     actualisation est déjà en cours », ce qui était faux et désignait la mauvaise cause.
 
-    Aucun verrou ne protège ce lot (contrairement à l'orchestrateur, qui dispose d'un bail en base
-    et d'une reprise équivalente dans `orchestrateur_service.marquer_runs_interrompus`). Le seul
-    critère disponible est donc le temps écoulé : au-delà du bail, un run n'est plus une hypothèse
-    raisonnable. Le bail vaut le temps d'attente maximal d'une extraction, largement majoré.
+    LE CONTRAT : TROIS ISSUES, ET AUCUNE PRÉSOMPTION DE MORT
+      SUCCES / PARTIEL / ECHEC — le sous-processus a conclu lui-même ;
+      INTERROMPU              — on a ÉTABLI qu'il ne tourne plus ;
+      EN_COURS                — il tourne, ou on ne peut pas prouver le contraire.
 
-    Le run n'est pas effacé : il est marqué INTERROMPU, avec sa raison. Un échec doit rester
-    visible — le faire disparaître empêcherait de comprendre pourquoi la donnée est ancienne.
+    Un `EN_COURS` n'est donc JAMAIS présumé mort. Deux preuves sont acceptées, dans cet ordre :
+
+      1. LE PID. Le journal porte le numéro de processus et le nom de la machine. Si le run a
+         démarré sur CETTE machine et que ce PID n'existe plus, la conclusion est immédiate et
+         certaine — inutile d'attendre le bail. Si le PID vit encore, le run est en cours, même
+         s'il dépasse le bail : le tuer serait pire que l'attendre.
+      2. LE TEMPS ÉCOULÉ, en dernier recours, quand le PID ne répond pas de la question (absent,
+         illisible, ou enregistré sur une autre machine — on ne conclut jamais sur un processus
+         qu'on ne peut pas voir). Au-delà du bail, un run n'est plus une hypothèse raisonnable.
+
+    Le run n'est pas effacé : il est marqué INTERROMPU, avec la preuve retenue. Un échec doit
+    rester visible — le faire disparaître empêcherait de comprendre pourquoi la donnée est ancienne.
     """
     if not _table_presente("moteur_runs", db_path=db_path):
         return []
     limite = (datetime.now(timezone.utc) - timedelta(seconds=bail_s)).strftime(
         "%Y-%m-%dT%H:%M:%S")
+    machine = _nom_machine()
     conn = get_db(db_path)
     try:
-        perimes = [r[0] for r in conn.execute(
-            "SELECT run_id FROM moteur_runs WHERE lot = 'lot1_hostaway_extract' "
-            "AND statut = ? AND started_at < ?", (ST_EN_COURS, limite))]
-        for run_id in perimes:
+        ouverts = list(conn.execute(
+            "SELECT run_id, pid, hote, started_at FROM moteur_runs "
+            "WHERE lot = 'lot1_hostaway_extract' AND statut = ?", (ST_EN_COURS,)))
+        perimes: list[tuple[str, str]] = []
+        for run in ouverts:
+            run_id, pid, hote, debut = run[0], run[1], _txt(run[2]), _txt(run[3])
+            vivant = _processus_vivant(pid) if (not hote or hote == machine) else None
+            if vivant is True:
+                continue                      # il tourne : on ne le touche pas, bail ou pas
+            if vivant is False:
+                perimes.append((run_id, f"Processus {pid} absent de cette machine : le run ne "
+                                        "tourne plus."))
+            elif debut and debut < limite:
+                perimes.append((run_id, f"Run ouvert depuis plus de {bail_s // 60} minutes sans "
+                                        "clôture, et son processus n'est pas vérifiable"
+                                        + (f" (démarré sur « {hote} »)" if hote else "")
+                                        + " : considéré interrompu."))
+        for run_id, motif in perimes:
             conn.execute(
                 "UPDATE moteur_runs SET statut = ?, ended_at = ?, erreur_resume = ? "
                 "WHERE run_id = ?",
                 (ST_INTERROMPU, datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                 f"Run resté ouvert plus de {bail_s // 60} minutes sans clôture : considéré "
-                 "interrompu (le sous-processus ne tourne plus).", run_id))
+                 motif, run_id))
         conn.commit()
     finally:
         conn.close()
-    return perimes
+    return [run_id for run_id, _ in perimes]
 
 
 def actualisation_en_cours(*, db_path=None) -> dict[str, Any] | None:

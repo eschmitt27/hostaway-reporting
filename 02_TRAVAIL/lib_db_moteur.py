@@ -86,6 +86,20 @@ MOTIF_HORS_PARC_TECHNIQUE = "HORS_PARC_TECHNIQUE"
 MOTIF_STATUT_PARC_INVALIDE = "STATUT_PARC_INVALIDE"
 MOTIF_LEGACY_SANS_ARCHIVE = "LEGACY_SANS_ARCHIVE_ORIGINE"
 MOTIF_SUIVI_ASSOCIE = "SUIVI_ASSOCIE"
+#: Le sejour tombe HORS de toute periode de gestion du logement.
+#
+# La reservation existe chez Hostaway et reste consultable : on ne la supprime pas, on ne la
+# reecrit pas. Mais elle ne releve d'aucun mandat de gestion a cette date, donc elle ne produit ni
+# CA gere, ni commission, ni net proprietaire, ni nuit geree. La compter reviendrait a facturer une
+# commission sur un logement qu'on ne gere plus — constate sur LOG_0002, dont la gestion s'arrete
+# au 2026-01-01 et qui portait pourtant 2 107 € de commission calculee en aout 2026.
+MOTIF_HORS_PERIODE_GESTION = "HORS_PERIODE_GESTION"
+#: L'annonce Hostaway n'est rattachee a AUCUN logement du parc.
+#
+# Ni fourre-tout, ni logement cree a la volee : la reservation est conservee, tracee, exclue de
+# l'economie, et signalee comme correspondance a etablir. C'est une donnee manquante, pas une
+# reservation fausse — et surtout, ce n'est pas une raison d'arreter le calcul des AUTRES.
+MOTIF_LOGEMENT_NON_MAPPE = "LOGEMENT_NON_MAPPE"
 MOTIFS_EXCLUSION = (
     MOTIF_OWNERSTAY,               # sejour du proprietaire : occupation reelle, aucune vente
     MOTIF_STATUT_HORS_PERIMETRE,   # statut Hostaway hors {new, modified} (annulee, etc.)
@@ -93,6 +107,21 @@ MOTIFS_EXCLUSION = (
     MOTIF_STATUT_PARC_INVALIDE,    # statut de parc vide ou invalide
     MOTIF_LEGACY_SANS_ARCHIVE,     # mois de bascule sans archive economique d'origine
     MOTIF_SUIVI_ASSOCIE,           # ligne de suivi associe (lot7) : trace, ne produit rien
+    MOTIF_HORS_PERIODE_GESTION,    # sejour hors de tout mandat de gestion a cette date
+    MOTIF_LOGEMENT_NON_MAPPE,      # annonce Hostaway sans logement rattache
+)
+
+#: Codes d'anomalie de resolution de la periode de gestion qui EXCLUENT la ligne de l'economie.
+#
+# `resolve_management_period` distingue « aucune periode applicable » (MISSING), « le sejour
+# chevauche la fin de gestion » (OUT_OF_PERIOD), « periodes simultanees » (AMBIGUOUS) et « periode
+# sans proprietaire » (MISSING_OWNER). Dans les quatre cas, aucun proprietaire n'est etabli pour
+# cette date : valoriser la ligne reviendrait a attribuer un revenu et une commission a personne.
+ANOMALIES_GESTION_EXCLUANTES = (
+    "GESTION_LOGEMENT_MISSING",
+    "GESTION_LOGEMENT_OUT_OF_PERIOD",
+    "GESTION_LOGEMENT_AMBIGUOUS",
+    "GESTION_LOGEMENT_MISSING_OWNER",
 )
 
 
@@ -122,6 +151,10 @@ def motif_exclusion_pour(source, statut_controle=None, code_anomalie=None):
         return MOTIF_HORS_PARC_TECHNIQUE
     if ano == MOTIF_STATUT_PARC_INVALIDE:
         return MOTIF_STATUT_PARC_INVALIDE
+    if ano == MOTIF_LOGEMENT_NON_MAPPE:
+        return MOTIF_LOGEMENT_NON_MAPPE
+    if ano in ANOMALIES_GESTION_EXCLUANTES:
+        return MOTIF_HORS_PERIODE_GESTION
     if ano == MOTIF_LEGACY_SANS_ARCHIVE:
         return MOTIF_LEGACY_SANS_ARCHIVE
     if str(statut_controle or "").strip().upper() in STATUTS_EXCLUSION:

@@ -1,9 +1,22 @@
 HORS_PARC_TECHNIQUE = "HORS_PARC_TECHNIQUE"
 GERE = "GERE"
+#: Logement SORTI du parc. Statut canonique — il figure dans la liste proposee a l'administration
+#: (`referentiel_admin_service.CHAMPS_ENUM`) et quatre logements le portent en base.
+#:
+#: Il manquait pourtant ici, et un statut inconnu retombe sur A_CONTROLER : toute reservation d'un
+#: logement retire etait donc classee STATUT_PARC_INVALIDE — « statut de parc vide ou invalide ».
+#: Le motif etait faux et, pire, il MASQUAIT le vrai : ces sejours ne posent pas un probleme de
+#: statut, ils tombent hors de toute periode de gestion. Constate sur LOG_0002, retire du parc et
+#: dont la gestion s'arrete au 2026-01-01.
+#:
+#: RETIRE n'est ni « gere » ni « hors parc technique » : c'est un logement reel, dont le mandat a
+#: pris fin. Ses mois PASSES restent pleinement valorises — c'est la periode de gestion, et elle
+#: seule, qui dit jusqu'a quand.
+RETIRE = "RETIRE"
 A_CONTROLER = "A_CONTROLER"
 STATUT_PARC_INVALIDE = "STATUT_PARC_INVALIDE"
 
-VALID_STATUTS_PARC = {GERE, HORS_PARC_TECHNIQUE}
+VALID_STATUTS_PARC = {GERE, RETIRE, HORS_PARC_TECHNIQUE}
 
 
 def normalise_statut_parc(value):

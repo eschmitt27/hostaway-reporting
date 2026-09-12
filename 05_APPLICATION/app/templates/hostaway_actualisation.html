@@ -42,25 +42,23 @@
 </div>
 
 {% if config_hostaway and not config_hostaway.complet %}
-{# Les TÂCHES DE MÉNAGE, elles, ne sont pas publiées par le pipeline : elles passent encore par
-   l'API. Ce diagnostic ne concerne donc plus que cette chaîne-là, et il le dit — sinon il
-   ferait croire que toute l'actualisation est bloquée alors que les réservations fonctionnent.
-   N'affiche QUE des présences et un chemin, jamais une valeur. #}
+{# CET ÉCRAN NE PROPOSE PLUS DE CONFIGURER DES IDENTIFIANTS HOSTAWAY LOCAUX.
+   Il décrivait auparavant quelles variables renseigner et où : une invitation à créer une SECONDE
+   chaîne d'ingestion, celle-là même qu'on a supprimée. Un utilisateur à qui l'on réclame un secret
+   dont le logiciel n'a pas besoin finit par en déposer un.
+
+   Reste un fait à énoncer, sans rien demander : les tâches de ménage ne sont pas encore publiées
+   par le pipeline, donc leur comptage s'appuie sur la dernière extraction obtenue. #}
 <div class="alert alert-warning" data-testid="config-hostaway-incomplete">
-  <strong>Tâches de ménage : non configurées sur cette installation.</strong>
+  <strong>Tâches de ménage : pas encore publiées par le pipeline.</strong>
   <p style="margin-top:var(--stack-sm)">
-    Les réservations ne sont pas concernées — elles arrivent par le dépôt ci-dessus. Seules les
-    <em>tâches de ménage</em> (<code>/v1/tasks</code>) ne sont pas publiées par le pipeline et
-    passent encore par un appel direct, qui demande des identifiants dans
-    <code>{{ config_hostaway.chemin_env }}</code>.
-  </p>
-  <p>Variable(s) attendue(s) par cette chaîne :
-    {% for v in config_hostaway.manquantes %}<code>{{ v }}</code>{% if not loop.last %}, {% endif %}{% endfor %}
+    Les <em>réservations</em> ne sont pas concernées : elles arrivent par le dépôt ci-dessus et
+    sont à jour. Seul le comptage des <em>tâches de ménage</em> (<code>/v1/tasks</code>) s'appuie
+    sur la dernière extraction obtenue, faute d'être publié.
   </p>
   <p class="text-xs text-secondary">
-    La bonne correction n'est pas de recopier ces secrets ici : c'est d'ajouter l'extraction des
-    tâches au pipeline GitHub, qui détient déjà le jeton. En attendant, le comptage des ménages
-    s'appuie sur la dernière extraction obtenue.
+    La correction relève du pipeline GitHub, qui détient déjà le jeton — pas de cette installation.
+    Rien n'est à configurer ici.
   </p>
 </div>
 {% endif %}
