@@ -107,14 +107,38 @@ def test_repartir_egal_centimes_impairs():
 # ── Périmètre déterministe ───────────────────────────────────────────────────
 
 def test_gestion_active_pour_mois():
+    """§3/§57 — une période CLOSE couvre ses propres mois ; une période sans fin connue, aucun.
+
+    L'attente a changé en recette utilisateur n°3. Elle était « INACTIF même si dans les dates →
+    False », ce qui effaçait le passé d'un logement archivé : une charge saisie rétroactivement sur
+    un mois réellement géré excluait le logement de son périmètre. Or `logements_gestion_service.
+    archiver()` écrit précisément `statut=RETIRE` AVEC une `date_fin` — la période est close, pas
+    nulle, et elle reste valide avant cette date.
+    """
     assert impact.gestion_active_pour_mois(GESTION[0], "2026-06") is True
-    assert impact.gestion_active_pour_mois(GESTION[3], "2026-06") is False  # INACTIF
-    assert impact.gestion_active_pour_mois(GESTION[3], "2026-02") is False  # INACTIF même si dans dates
+    # LOG_D : géré du 2026-01-01 au 2026-03-31, puis plus.
+    assert impact.gestion_active_pour_mois(GESTION[3], "2026-02") is True   # dans la période close
+    assert impact.gestion_active_pour_mois(GESTION[3], "2026-03") is True   # mois de la fin, inclus
+    assert impact.gestion_active_pour_mois(GESTION[3], "2026-04") is False  # après la fin
+    assert impact.gestion_active_pour_mois(GESTION[3], "2025-12") is False  # avant le début
+
+
+def test_gestion_close_sans_date_de_fin_ne_couvre_rien():
+    """Fin inconnue : ni « court toujours » ni une date inventée. Défaut de référentiel à corriger."""
+    orpheline = {"logement_id": "LOG_X", "proprietaire_id": "PROP_1", "statut_gestion": "RETIRE",
+                 "date_debut": "2026-01-01", "date_fin": None}
+    assert impact.gestion_active_pour_mois(orpheline, "2026-02") is False
 
 
 def test_logements_actifs_proprietaire():
     logs = impact.logements_actifs_proprietaire("PROP_1", "2026-06", GESTION)
-    assert logs == ["LOG_A", "LOG_B"]  # LOG_D inactif exclu
+    assert logs == ["LOG_A", "LOG_B"]  # LOG_D : gestion terminée le 2026-03-31
+
+
+def test_logements_actifs_proprietaire_sur_un_mois_passe():
+    """Le périmètre d'un mois passé inclut les logements gérés ALORS, archivés depuis."""
+    assert impact.logements_actifs_proprietaire("PROP_1", "2026-02", GESTION) == \
+        ["LOG_A", "LOG_B", "LOG_D"]
 
 
 def test_perimetre_proprietaire_elargit_aux_logements():

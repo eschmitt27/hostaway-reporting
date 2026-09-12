@@ -55,11 +55,13 @@ def mounir(tmp_path):
 
 @pdf_reels
 def test_cas1_facture_totalement_affectee_total_ok(aissata, tmp_db):
-    fac = pdfex.extraire_pdf(aissata)
-    assert all(l.logement_id for l in fac.lignes), "cette facture doit être 100% affectée"
-
     r = svc.importer(aissata, db_path=tmp_db)
     assert r["ok"] is True
+    # §23 : c'est l'IMPORT qui rapproche, sur le référentiel — l'extracteur ne le fait plus.
+    from app.services import facture_lignes_menage_service as flm
+    lignes = flm.lignes(r["facture_id_opaque"], db_path=tmp_db)
+    assert lignes and all(l["logement_id"] for l in lignes), \
+        "cette facture doit être 100% affectée après rapprochement"
     assert r["controle_total"]["coherent"] is True
     assert r["controle_total"]["ecart"] == 0.0
     assert r["ventilations"] == []

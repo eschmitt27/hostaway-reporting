@@ -13,10 +13,17 @@ Réutilise le mécanisme DÉJÀ existant de `factures_service.creer()` : une fac
 contenu, même nom ou non) redonne la même paire (fournisseur, référence) et se fait donc refuser par
 le mécanisme existant, sans détection ad hoc ici.
 
+RAPPROCHEMENT DU LOGEMENT (§23-25)
+L'extracteur ne devine plus de logement : il rend le libellé brut du document. C'est ce module qui
+appelle `logement_matching_service` sur le RÉFÉRENTIEL VIVANT, ligne par ligne, et conserve avec la
+ligne la confiance obtenue et la voie empruntée. Un libellé reconnu avec certitude affecte la
+ligne ; un libellé probable l'affecte aussi, mais marqué à confirmer ; un libellé inconnu ne
+l'affecte pas — il n'est jamais rattaché « au plus proche ».
+
 VENTILATION
-Chaque ligne EXTRAITE SANS logement (`ligne.logement_id is None`) devient une ligne
-FRAIS_NON_AFFECTE, conservée telle quelle (§32 : la ligne originale reste visible) ; sa répartition
-sur les autres logements de la facture est déléguée à `facture_ventilation_menage_service`.
+Chaque ligne SANS logement reconnu devient une ligne FRAIS_NON_AFFECTE, conservée telle quelle
+(§32 : la ligne originale reste visible) ; sa répartition sur les autres logements de la facture
+est déléguée à `facture_ventilation_menage_service`.
 """
 from __future__ import annotations
 
@@ -29,6 +36,7 @@ from app.services import facture_lignes_menage_service as flm
 from app.services import facture_ventilation_menage_service as vent
 from app.services import factures_service as fact
 from app.services import fournisseurs_referentiel_service as frs
+from app.services import logement_matching_service as lms
 
 _TRAVAIL_DIR = str(cfg.PROJECT_ROOT / "02_TRAVAIL")
 if _TRAVAIL_DIR not in sys.path:
@@ -141,23 +149,28 @@ def importer(path, *, acteur: str = "", db_path=None) -> dict[str, Any]:
 
     facture_id = resultat["facture_id_opaque"]
     _enregistrer_diagnostic(fac, facture_id_opaque=facture_id, db_path=db_path)
+
+    # §23 — le rapprochement du logement se fait ICI, sur le référentiel vivant, et non plus dans
+    # l'extracteur. `proposition` porte toujours sa confiance et sa raison : une ligne préremplie
+    # « à confirmer » n'est pas une ligne certaine, et l'écran doit pouvoir le dire.
+    referentiel = lms.charger_referentiel(db_path)
     for ligne in fac.lignes:
-        if ligne.logement_id:
-            flm.ajouter_ligne(
-                facture_id, type_ligne=flm.TYPE_MENAGE_EXTERNE, logement_id=ligne.logement_id,
-                montant_ttc=ligne.montant_ligne or 0, description=ligne.logement_source,
-                quantite=ligne.quantite, prix_unitaire=ligne.prix_unitaire,
-                date_menage=ligne.date_menage or "", precision_date_menage=ligne.precision_date,
-                nom_prestataire=fac.nom_prestataire or "",
-                source=flm.SOURCE_PDF, acteur=acteur, db_path=db_path)
-        else:
-            flm.ajouter_ligne(
-                facture_id, type_ligne=flm.TYPE_FRAIS_NON_AFFECTE,
-                montant_ttc=ligne.montant_ligne or 0, description=ligne.logement_source,
-                quantite=ligne.quantite, prix_unitaire=ligne.prix_unitaire,
-                date_menage=ligne.date_menage or "", precision_date_menage=ligne.precision_date,
-                nom_prestataire=fac.nom_prestataire or "",
-                source=flm.SOURCE_PDF, acteur=acteur, db_path=db_path)
+        proposition = lms.proposer(ligne.logement_source, referentiel)
+        ligne.logement_id = proposition["logement_id"] if proposition["preremplir"] else None
+        if not ligne.logement_id:
+            ligne.code_anomalie = (
+                (ligne.code_anomalie or "") + " | LOGEMENT_FACTURE_EXTERNE_NON_RECONNU"
+            ).strip(" |")
+        flm.ajouter_ligne(
+            facture_id,
+            type_ligne=flm.TYPE_MENAGE_EXTERNE if ligne.logement_id else flm.TYPE_FRAIS_NON_AFFECTE,
+            logement_id=ligne.logement_id or "",
+            montant_ttc=ligne.montant_ligne or 0, description=ligne.logement_source,
+            quantite=ligne.quantite, prix_unitaire=ligne.prix_unitaire,
+            date_menage=ligne.date_menage or "", precision_date_menage=ligne.precision_date,
+            nom_prestataire=fac.nom_prestataire or "",
+            source=flm.SOURCE_PDF, acteur=acteur, db_path=db_path,
+            logement_confiance=proposition["confiance"], logement_methode=proposition["methode"])
 
     ventilations = []
     non_affectees = [l for l in fac.lignes if not l.logement_id and (l.montant_ligne or 0) != 0]

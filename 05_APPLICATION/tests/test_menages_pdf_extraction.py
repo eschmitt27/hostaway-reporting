@@ -1,7 +1,7 @@
 """Extraction PDF des factures de ménage externes (Lot6c) — tests sur COPIES.
 
 Couvre les 24 points de la recette : extraction Aissata/Mounir, detection fournisseur,
-numero/date/montant, lignes/quantite, mapping logement (reconnu/inconnu), dedoublonnage
+numero/date/montant, lignes/quantite, normalisation des libelles, dedoublonnage
 (PDF duplique, meme facture sous autre nom), formats non supporte/vide/corrompu, champ
 absent, reconciliation (coherent / ecart), integration lot6c + chaine, et intangibilite
 du reel (PDF, MASTER, app.db).
@@ -119,36 +119,47 @@ def test_06_montant_total(aissata, mounir):
 
 
 @pdf_reels
-def test_07_lignes_logement(aissata):
+def test_07_lignes_libelle_logement(aissata):
+    """L'extracteur rend le LIBELLÉ du document, pas un identifiant de notre parc (§23).
+
+    Contrat modifié en recette utilisateur n°3 : décider quel logement un libellé désigne dépend du
+    référentiel, qui vit ; l'extraction, elle, doit rester une lecture hors-ligne du document. Le
+    rapprochement est vérifié à sa place, dans `test_logement_matching`.
+    """
     fac = pdfex.extraire_pdf(aissata)
-    ids = {l.logement_id for l in fac.lignes if l.logement_id}
-    assert {"LOG_0014", "LOG_0012", "LOG_0006", "LOG_0011", "LOG_0010",
-            "LOG_0007", "LOG_0009", "LOG_0016"} <= ids
+    libelles = {pdfex.normaliser_libelle(l.logement_source) for l in fac.lignes}
+    assert {"studio 76", "t3 4 rue engalieres"} <= libelles
+    assert all(l.logement_id is None for l in fac.lignes), \
+        "l'extracteur ne doit plus rapprocher de logement lui-même"
 
 
 @pdf_reels
 def test_08_quantite(mounir):
     fac = pdfex.extraire_pdf(mounir)
-    q = {l.logement_id: l.quantite for l in fac.lignes}
-    assert q["LOG_0002"] == 6 and q["LOG_0013"] == 10 and q["LOG_0003"] == 0 and q["LOG_0006"] == 1
+    q = {pdfex.normaliser_libelle(l.logement_source): l.quantite for l in fac.lignes}
+    assert q["t4 90 blagnac"] == 6 and q["t3 sept deniers"] == 10
+    assert q["t2 65"] == 0 and q["studio puits vert"] == 1
 
 
-# ── 9-10 : mapping logement ──────────────────────────────────────────────────
+# ── 9-10 : l'extraction ne rapproche plus, elle normalise ────────────────────
 
-def test_09_logement_reconnu():
-    lid, cle = pdfex.mapper_logement("studio 76 (Dureuil)")
-    assert lid == "LOG_0014"
+def test_09_libelle_normalise_stable():
+    """La normalisation reste ici : c'est une propriété du TEXTE, pas du référentiel."""
+    assert pdfex.normaliser_libelle("studio 76 (Dureuil)") == \
+        pdfex.normaliser_libelle("Studio  76  (DUREUIL)")
 
 
-def test_10_logement_inconnu():
-    lid, cle = pdfex.mapper_logement("appartement fantome XYZ")
-    assert lid is None
-    # une ligne non reconnue porte le code de controle dedie
-    l = pdfex.LigneFacture("appartement fantome XYZ", 1, 10.0, 10.0)
-    l.logement_id, l.libelle_normalise = pdfex.mapper_logement("appartement fantome XYZ")
-    if l.logement_id is None:
-        l.code_anomalie = "LOGEMENT_FACTURE_EXTERNE_NON_RECONNU"
-    assert l.code_anomalie == "LOGEMENT_FACTURE_EXTERNE_NON_RECONNU"
+def test_10_extracteur_sans_table_de_correspondance():
+    """Garde : plus aucun identifiant de logement codé en dur dans l'extracteur.
+
+    C'est la régression à empêcher — réintroduire seize libellés recopiés à la main condamnerait à
+    nouveau le rapprochement à ignorer tout logement entré depuis.
+    """
+    assert not hasattr(pdfex, "MAPPING_LOGEMENTS")
+    assert not hasattr(pdfex, "mapper_logement")
+    source = Path(pdfex.__file__).read_text(encoding="utf-8")
+    code = "\n".join(l for l in source.splitlines() if not l.lstrip().startswith("#"))
+    assert "LOG_00" not in code
 
 
 # ── 11-12 : dedoublonnage ────────────────────────────────────────────────────

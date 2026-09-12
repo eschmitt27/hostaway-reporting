@@ -33,10 +33,21 @@ SOURCE_SAISIE = "SAISIE"
 #: distincte de SOURCE_SAISIE : ce n'est pas une saisie ordinaire, c'est une CORRECTION d'un
 #: document reçu, et elle doit rester identifiable comme telle pour toujours.
 SOURCE_CORRECTIVE = "SAISIE_MANUELLE_CORRECTIVE"
+#: §27 — part d'une ligne du document éclatée sur plusieurs logements. Ce n'est ni une ligne du
+#: document (elle n'y figure pas telle quelle) ni une correction (rien n'était faux) : c'est une
+#: lecture plus fine de la même dépense, et elle doit rester reconnaissable comme telle.
+SOURCE_REPARTITION = "REPARTITION_MULTI_LOGEMENTS"
 
 STATUT_LIGNE_ACTIVE = "ACTIVE"
 #: §30 — ligne du document mal extraite : neutralisée, jamais supprimée.
 STATUT_LIGNE_EXTRACTION_INCORRECTE = "EXTRACTION_INCORRECTE"
+#: §27 — ligne remplacée par ses parts. Neutralisée pour ne pas compter deux fois, conservée pour
+#: qu'on puisse toujours lire ce que le document portait avant qu'on l'éclate.
+STATUT_LIGNE_REPARTIE = "REPARTIE"
+
+#: §23 — d'où vient le logement porté par la ligne. `CONFIRME_MANUELLEMENT` n'est pas un niveau de
+#: confiance du rapprochement : c'est la fin du rapprochement, un humain a tranché.
+CONFIANCE_CONFIRMEE = "CONFIRME_MANUELLEMENT"
 
 
 def _maintenant() -> str:
@@ -54,6 +65,7 @@ def ajouter_ligne(facture_id_opaque: str, *, type_ligne: str, montant_ttc: float
                   date_menage: str = "", precision_date_menage: str = "",
                   nom_prestataire: str = "",
                   source: str = SOURCE_PDF, commentaire: str = "", acteur: str = "",
+                  logement_confiance: str = "", logement_methode: str = "",
                   db_path=None) -> dict[str, Any]:
     if type_ligne not in TYPES:
         return _refus("TYPE_LIGNE_INVALIDE", type_ligne)
@@ -69,14 +81,19 @@ def ajouter_ligne(facture_id_opaque: str, *, type_ligne: str, montant_ttc: float
         conn.execute(
             "INSERT INTO facture_lignes_menage (ligne_id_opaque, facture_id_opaque, type_ligne, "
             "logement_id, menage_id_opaque, description, montant_ht, montant_tva, montant_ttc, "
-            "source, commentaire, acteur) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            "source, commentaire, acteur, montant_ttc_source, logement_id_source, "
+            "logement_confiance, logement_methode) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (ligne_id, facture_id_opaque, type_ligne, logement_id or None,
              menage_id_opaque or None, description or None, montant_ht, montant_tva, montant_ttc,
-             source, commentaire or None, acteur or None))
+             source, commentaire or None, acteur or None,
+             # §27 — photographie de ce que le document portait, jamais réécrite ensuite.
+             montant_ttc, logement_id or None, logement_confiance or None,
+             logement_methode or None))
         if quantite is not None or prix_unitaire is not None:
             conn.execute(
                 "INSERT INTO facture_lignes_menage_detail (ligne_id_opaque, quantite, "
-                "prix_unitaire) VALUES (?,?,?)", (ligne_id, quantite, prix_unitaire))
+                "prix_unitaire, quantite_source, prix_unitaire_source) VALUES (?,?,?,?,?)",
+                (ligne_id, quantite, prix_unitaire, quantite, prix_unitaire))
         if date_menage or precision_date_menage or nom_prestataire:
             conn.execute(
                 "INSERT INTO facture_lignes_menage_pdf (ligne_id_opaque, date_menage, "
@@ -165,6 +182,354 @@ def marquer_extraction_incorrecte(ligne_id_opaque: str, *, motif: str, acteur: s
             "statut_ligne": STATUT_LIGNE_EXTRACTION_INCORRECTE, "motif": motif}
 
 
+# ── §26 — cette ligne est-elle un ménage ? ──────────────────────────────────────────────────────
+
+#: Les deux types qui alimentent la chaîne de coût ménage. Tous les autres sont des frais.
+TYPES_MENAGE = (TYPE_MENAGE_INTERNE, TYPE_MENAGE_EXTERNE)
+
+
+def est_menage(ligne: dict[str, Any]) -> bool:
+    return str(ligne.get("type_ligne") or "") in TYPES_MENAGE
+
+
+def marquer_menage(ligne_id_opaque: str, *, menage: bool, motif: str, acteur: str = "",
+                   db_path=None) -> dict[str, Any]:
+    """§26 — déclarer qu'une ligne EST (ou n'est pas) un ménage, avec motif obligatoire.
+
+    Ce n'est pas un détail de présentation : le type de ligne décide si le montant entre dans le
+    coût ménage du logement, donc dans ce qui sera refacturé au propriétaire. Une ligne « frais de
+    déplacement » typée ménage gonfle le coût d'un logement ; une ligne de ménage typée frais l'en
+    prive. Le parseur se trompe forcément un jour — l'utilisateur doit pouvoir le dire, et la
+    raison doit rester lisible.
+
+    Passer une ligne EN ménage exige un logement : un coût ménage sans logement ne veut rien dire.
+    """
+    motif = str(motif or "").strip()
+    if not motif:
+        return _refus("MOTIF_OBLIGATOIRE",
+                      "Changer la nature d'une ligne extraite exige d'en donner la raison.")
+    conn = get_db(db_path)
+    try:
+        row = conn.execute(
+            "SELECT type_ligne, logement_id FROM facture_lignes_menage WHERE ligne_id_opaque=?",
+            (ligne_id_opaque,)).fetchone()
+        if row is None:
+            return _refus("LIGNE_INTROUVABLE", ligne_id_opaque)
+        if menage and not (row["logement_id"] or ""):
+            return _refus("LOGEMENT_MANQUANT",
+                          "Une ligne de ménage doit désigner le logement nettoyé.")
+        nouveau = TYPE_MENAGE_EXTERNE if menage else TYPE_FRAIS_NON_AFFECTE
+        if nouveau == row["type_ligne"]:
+            return {"ok": True, "inchange": True, "type_ligne": nouveau}
+        conn.execute(
+            "UPDATE facture_lignes_menage SET type_ligne=?, "
+            "commentaire=COALESCE(commentaire,'') || ? WHERE ligne_id_opaque=?",
+            (nouveau, f" · Nature corrigée {row['type_ligne']}→{nouveau} "
+                      f"({acteur or 'local'}) : {motif}", ligne_id_opaque))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "ligne_id_opaque": ligne_id_opaque, "type_ligne": nouveau,
+            "ancien_type": row["type_ligne"], "motif": motif}
+
+
+# ── §27 — la quantité extraite est une donnée source ────────────────────────────────────────────
+
+def coherence_ligne(ligne: dict[str, Any]) -> dict[str, Any]:
+    """Une ligne est cohérente quand quantité × prix unitaire redonne son montant. FONCTION PURE.
+
+    C'EST CE CONTRÔLE QUI A RÉVÉLÉ LE +36,00 € DE LA FACTURE 0005
+    Cette facture porte une ligne « T.2-65 (Gabriel) » avec quantité 0, prix unitaire 32,00 € et
+    montant 36,00 €. Trois valeurs qui ne peuvent pas être vraies ensemble. En écartant ce seul
+    montant, la somme des lignes tombe sur 520,00 € — exactement le total du document. L'écart
+    n'était donc pas une ligne absente : c'était une valeur mal lue, et l'arithmétique le dit sans
+    qu'on ait besoin de rouvrir le PDF.
+
+    Quand la quantité ou le prix unitaire manquent, il n'y a rien à vérifier : l'absence d'un
+    élément n'est pas une incohérence, et la signaler comme telle serait un faux positif.
+    """
+    q, pu = ligne.get("quantite"), ligne.get("prix_unitaire")
+    montant = round(float(ligne.get("montant_ttc") or 0), 2)
+    if q is None or pu is None:
+        return {"verifiable": False, "coherente": True, "attendu": None, "ecart": 0.0,
+                "message": "Quantité ou prix unitaire absents du document : rien à recalculer."}
+    attendu = round(float(q) * float(pu), 2)
+    ecart = round(montant - attendu, 2)
+    return {
+        "verifiable": True, "coherente": abs(ecart) <= TOLERANCE,
+        "attendu": attendu, "ecart": ecart,
+        "message": ("" if abs(ecart) <= TOLERANCE else
+                    f"{q} × {pu:.2f} € = {attendu:.2f} €, or la ligne porte {montant:.2f} € "
+                    f"(écart {ecart:+.2f} €)."),
+    }
+
+
+#: Les trois natures d'écart que `diagnostic_ecart` sait distinguer.
+D_COHERENT = "COHERENT"
+D_LIGNES_INCOHERENTES = "LIGNES_INCOHERENTES"
+D_LIGNE_MANQUANTE = "LIGNE_MANQUANTE"
+D_TROP_PERCU = "LIGNES_EN_TROP"
+
+
+def diagnostic_ecart(facture_id_opaque: str, db_path=None) -> dict[str, Any]:
+    """Qualifie l'écart lignes/total au lieu de se contenter de l'annoncer.
+
+    « Écart de 89,00 € » ne dit pas quoi faire. Les deux factures réelles avaient un écart, et
+    pourtant deux problèmes opposés : sur l'une, une ligne mal lue ; sur l'autre, une ligne
+    absente. Le geste de correction n'est pas le même (§30 neutraliser / §29 ajouter), donc
+    l'écran doit nommer le problème, pas seulement le chiffrer.
+
+    La règle de départage est arithmétique, pas heuristique : si la somme des quantités × prix
+    unitaires tombe juste alors que la somme des montants ne tombe pas, ce sont les montants qui
+    sont faux, et les lignes fautives sont exactement celles que `coherence_ligne` désigne.
+    """
+    controle = controler_total(facture_id_opaque, db_path=db_path)
+    if not controle.get("ok"):
+        return controle
+
+    lignes_actives = [l for l in lignes(facture_id_opaque, db_path=db_path)
+                      if str(l.get("statut_ligne") or STATUT_LIGNE_ACTIVE) == STATUT_LIGNE_ACTIVE]
+    coherences = [(l, coherence_ligne(l)) for l in lignes_actives]
+    incoherentes = [{**l, "coherence": c} for l, c in coherences
+                    if c["verifiable"] and not c["coherente"]]
+    somme_recalculee = round(sum(
+        c["attendu"] if c["verifiable"] else round(float(l.get("montant_ttc") or 0), 2)
+        for l, c in coherences), 2)
+
+    ecart = controle["ecart"]
+    if controle["coherent"]:
+        return {**controle, "diagnostic": D_COHERENT, "lignes_incoherentes": [],
+                "message": "La somme des lignes reconstitue exactement le total du document."}
+
+    if incoherentes and abs(round(controle["montant_facture"] - somme_recalculee, 2)) <= TOLERANCE:
+        noms = ", ".join(f"« {l.get('description') or l['ligne_id_opaque']} »"
+                         for l in incoherentes)
+        return {
+            **controle, "diagnostic": D_LIGNES_INCOHERENTES,
+            "lignes_incoherentes": incoherentes, "somme_recalculee": somme_recalculee,
+            "message": (
+                f"{len(incoherentes)} ligne(s) portent un montant qui ne correspond pas à leur "
+                f"quantité × prix unitaire ({noms}). En retenant le calcul de chaque ligne, la "
+                f"facture tombe exactement sur {somme_recalculee:.2f} €, le total du document. "
+                f"Il s'agit d'une extraction incorrecte, pas d'une ligne manquante."),
+        }
+
+    if ecart > 0:
+        return {
+            **controle, "diagnostic": D_LIGNE_MANQUANTE, "lignes_incoherentes": incoherentes,
+            "message": (
+                f"Chaque ligne extraite est cohérente avec sa quantité et son prix unitaire, mais "
+                f"il manque {ecart:.2f} € pour atteindre le total du document. Une ou plusieurs "
+                f"lignes n'ont pas été extraites."),
+        }
+    return {
+        **controle, "diagnostic": D_TROP_PERCU, "lignes_incoherentes": incoherentes,
+        "message": (
+            f"Les lignes extraites dépassent le total du document de {abs(ecart):.2f} €. Une ligne "
+            f"a été lue deux fois, ou un montant a été mal lu."),
+    }
+
+
+def corriger_quantite(ligne_id_opaque: str, *, quantite: int, motif: str, acteur: str = "",
+                      db_path=None) -> dict[str, Any]:
+    """§27 — corriger une quantité extraite : possible, mais jamais discret.
+
+    La quantité vient du document ; la modifier revient à dire que le prestataire s'est trompé ou
+    que le parseur a mal lu. Les deux arrivent, aucun des deux ne se devine plus tard : motif
+    obligatoire, et la valeur lue reste conservée dans `quantite_source`, définitivement.
+    """
+    motif = str(motif or "").strip()
+    if not motif:
+        return _refus("MOTIF_OBLIGATOIRE",
+                      "La quantité vient du document : la corriger exige d'en donner la raison.")
+    try:
+        q = int(quantite)
+    except (TypeError, ValueError):
+        return _refus("QUANTITE_INVALIDE", str(quantite))
+    if q < 0:
+        return _refus("QUANTITE_INVALIDE", "Une quantité négative n'a pas de sens sur un ménage.")
+
+    conn = get_db(db_path)
+    try:
+        row = conn.execute(
+            "SELECT d.quantite, d.quantite_source, d.prix_unitaire FROM facture_lignes_menage l "
+            "LEFT JOIN facture_lignes_menage_detail d ON d.ligne_id_opaque = l.ligne_id_opaque "
+            "WHERE l.ligne_id_opaque=?", (ligne_id_opaque,)).fetchone()
+        if row is None:
+            return _refus("LIGNE_INTROUVABLE", ligne_id_opaque)
+        conn.execute(
+            "INSERT INTO facture_lignes_menage_detail (ligne_id_opaque, quantite, quantite_source) "
+            "VALUES (?,?,?) ON CONFLICT(ligne_id_opaque) DO UPDATE SET quantite=excluded.quantite",
+            (ligne_id_opaque, q, row["quantite_source"] if row["quantite"] is not None else q))
+        conn.execute(
+            "UPDATE facture_lignes_menage SET motif_correction=?, "
+            "commentaire=COALESCE(commentaire,'') || ? WHERE ligne_id_opaque=?",
+            (motif, f" · Quantité corrigée {row['quantite']}→{q} ({acteur or 'local'}) : {motif}",
+             ligne_id_opaque))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "ligne_id_opaque": ligne_id_opaque, "quantite": q,
+            "quantite_source": row["quantite_source"], "motif": motif}
+
+
+# ── §23 — affecter le logement proposé, et apprendre du geste ───────────────────────────────────
+
+def affecter_logement(ligne_id_opaque: str, *, logement_id: str, acteur: str = "",
+                      memoriser: bool = True, db_path=None) -> dict[str, Any]:
+    """Rattache une ligne au logement choisi, et enregistre la correspondance pour la suite.
+
+    LE POINT IMPORTANT EST `memoriser`. Confirmer « T.2-65 (Gabriel) → LOG_0003 » une fois doit
+    suffire : la fois d'après, le rapprochement doit être CERTAIN par le référentiel, pas
+    re-déduit. Sans cela l'utilisateur reconfirmerait éternellement les mêmes libellés, et le
+    logiciel n'apprendrait jamais rien de ce qu'on lui dit.
+
+    Aucun motif n'est exigé ici, à la différence de la quantité ou de la nature : affecter un
+    logement ne contredit pas le document, cela complète une lecture que le parseur n'a pas su
+    faire. Le libellé source, lui, reste intact.
+    """
+    lid = str(logement_id or "").strip()
+    if not lid:
+        return _refus("LOGEMENT_MANQUANT", "Aucun logement choisi.")
+    conn = get_db(db_path)
+    try:
+        row = conn.execute(
+            "SELECT description, logement_id, logement_id_source FROM facture_lignes_menage "
+            "WHERE ligne_id_opaque=?", (ligne_id_opaque,)).fetchone()
+        if row is None:
+            return _refus("LIGNE_INTROUVABLE", ligne_id_opaque)
+        if conn.execute("SELECT 1 FROM ref_logements WHERE logement_id=?", (lid,)).fetchone() \
+                is None:
+            return _refus("LOGEMENT_INCONNU", lid)
+        conn.execute(
+            "UPDATE facture_lignes_menage SET logement_id=?, logement_confiance=?, "
+            "logement_methode=?, commentaire=COALESCE(commentaire,'') || ? "
+            "WHERE ligne_id_opaque=?",
+            (lid, CONFIANCE_CONFIRMEE, "CHOIX_UTILISATEUR",
+             f" · Logement confirmé {row['logement_id'] or '—'}→{lid} ({acteur or 'local'})",
+             ligne_id_opaque))
+        conn.commit()
+    finally:
+        conn.close()
+
+    appris = None
+    if memoriser and (row["description"] or "").strip():
+        from app.services import logement_matching_service as lms
+        appris = lms.enregistrer_correspondance(
+            row["description"], lid, acteur=acteur, db_path=db_path)
+    return {"ok": True, "ligne_id_opaque": ligne_id_opaque, "logement_id": lid,
+            "ancien_logement_id": row["logement_id"], "correspondance_apprise": appris}
+
+
+# ── §27 — une ligne qui couvre plusieurs logements se répartit EXPLICITEMENT ─────────────────────
+
+def repartir_ligne(ligne_id_opaque: str, repartition: list[dict[str, Any]], *, motif: str,
+                   acteur: str = "", db_path=None) -> dict[str, Any]:
+    """Éclate une ligne du document en une part par logement, selon des quantités DONNÉES.
+
+    POURQUOI LE LOGICIEL NE LE FAIT PAS TOUT SEUL
+    Une ligne « 4 ménages — 260,00 € » qui couvre deux logements est ambiguë : 2+2 ? 3+1 ? Le
+    document ne le dit pas, et le deviner produirait un coût faux pour deux propriétaires à la
+    fois, sans que personne ne s'en aperçoive. §27 l'interdit explicitement. La répartition est
+    donc TOUJOURS fournie par l'utilisateur, et la somme des quantités doit retomber sur la
+    quantité du document — sinon la répartition est refusée, pas ajustée.
+
+    LE MONTANT SUIT LA MÊME RÈGLE QUE PARTOUT AILLEURS
+    `lib_repartition.repartir` (centimes entiers, résidu au dernier) — la fonction canonique du
+    dépôt, celle des charges et de la ventilation ménage. La somme des parts égale donc le montant
+    de la ligne AU CENTIME, jamais 259,99 € pour 260,00 €.
+
+    La ligne d'origine n'est pas supprimée : elle est neutralisée, et chaque part garde son
+    `ligne_parente_id_opaque` pour qu'on puisse toujours remonter à ce que le document portait.
+    """
+    motif = str(motif or "").strip()
+    if not motif:
+        return _refus("MOTIF_OBLIGATOIRE",
+                      "Répartir une ligne sur plusieurs logements exige d'en donner la raison.")
+    parts = [{"logement_id": str(p.get("logement_id") or "").strip(),
+              "quantite": int(p.get("quantite") or 0)} for p in (repartition or [])]
+    parts = [p for p in parts if p["logement_id"] and p["quantite"] > 0]
+    if len(parts) < 2:
+        return _refus("REPARTITION_INSUFFISANTE",
+                      "Une répartition désigne au moins deux logements avec une quantité positive.")
+    if len({p["logement_id"] for p in parts}) != len(parts):
+        return _refus("LOGEMENT_EN_DOUBLE", "Un même logement ne peut pas figurer deux fois.")
+
+    conn = get_db(db_path)
+    try:
+        row = conn.execute(
+            "SELECT l.facture_id_opaque, l.type_ligne, l.description, l.montant_ttc, "
+            "l.statut_ligne, d.quantite, d.prix_unitaire FROM facture_lignes_menage l "
+            "LEFT JOIN facture_lignes_menage_detail d ON d.ligne_id_opaque = l.ligne_id_opaque "
+            "WHERE l.ligne_id_opaque=?", (ligne_id_opaque,)).fetchone()
+        if row is None:
+            return _refus("LIGNE_INTROUVABLE", ligne_id_opaque)
+        if str(row["statut_ligne"] or STATUT_LIGNE_ACTIVE) != STATUT_LIGNE_ACTIVE:
+            return _refus("LIGNE_NON_ACTIVE", "Cette ligne est déjà écartée du total.")
+        quantite_doc = row["quantite"]
+        total_parts = sum(p["quantite"] for p in parts)
+        if quantite_doc is not None and total_parts != int(quantite_doc):
+            return _refus("QUANTITE_NON_CONSERVEE", (
+                f"Le document porte {quantite_doc} ménage(s) sur cette ligne ; la répartition en "
+                f"totalise {total_parts}. Le logiciel n'ajuste pas tout seul : corrigez la "
+                f"répartition, ou corrigez d'abord la quantité (§27)."))
+        inconnus = [p["logement_id"] for p in parts if conn.execute(
+            "SELECT 1 FROM ref_logements WHERE logement_id=?", (p["logement_id"],)).fetchone()
+            is None]
+        if inconnus:
+            return _refus("LOGEMENT_INCONNU", ", ".join(inconnus))
+    finally:
+        conn.close()
+
+    montant = round(float(row["montant_ttc"] or 0), 2)
+    poids = {p["logement_id"]: float(p["quantite"]) for p in parts}
+    montants = _repartition_canonique(montant, poids)
+
+    creees = []
+    for p in parts:
+        res = ajouter_ligne(
+            row["facture_id_opaque"], type_ligne=row["type_ligne"],
+            montant_ttc=montants[p["logement_id"]], logement_id=p["logement_id"],
+            description=f"{row['description'] or ''} — part {p['logement_id']}".strip(" —"),
+            quantite=p["quantite"], prix_unitaire=row["prix_unitaire"],
+            source=SOURCE_REPARTITION, acteur=acteur,
+            commentaire=f"Part issue de la ligne {ligne_id_opaque} — {motif}", db_path=db_path)
+        if not res.get("ok"):
+            return res
+        creees.append({**res, "logement_id": p["logement_id"], "quantite": p["quantite"],
+                       "montant_ttc": montants[p["logement_id"]]})
+
+    conn = get_db(db_path)
+    try:
+        for c in creees:
+            conn.execute("UPDATE facture_lignes_menage SET ligne_parente_id_opaque=? "
+                         "WHERE ligne_id_opaque=?", (ligne_id_opaque, c["ligne_id_opaque"]))
+        conn.execute(
+            "UPDATE facture_lignes_menage SET statut_ligne=?, motif_correction=?, "
+            "commentaire=COALESCE(commentaire,'') || ? WHERE ligne_id_opaque=?",
+            (STATUT_LIGNE_REPARTIE, motif,
+             f" · Répartie sur {len(parts)} logements ({acteur or 'local'}) : {motif}",
+             ligne_id_opaque))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "ligne_id_opaque": ligne_id_opaque, "parts": creees,
+            "montant_reparti": montant, "somme_parts": round(sum(montants.values()), 2),
+            "motif": motif}
+
+
+def _repartition_canonique(montant: float, poids: dict[str, float]) -> dict[str, float]:
+    """Le seul chemin de répartition monétaire du module — `lib_repartition`, comme partout."""
+    import sys
+
+    from app import config as cfg
+    travail = str(cfg.APP_ROOT.parent / "02_TRAVAIL")
+    if travail not in sys.path:
+        sys.path.insert(0, travail)
+    import lib_repartition as rp
+    return rp.repartir(montant, poids)
+
+
 def cout_menages_par_logement(facture_id_opaque: str, db_path=None) -> dict[str, float]:
     """Coût des ménages de chaque logement DANS cette facture — la base de pondération de la
     ventilation (§11) : uniquement les lignes MENAGE_EXTERNE, jamais les autres factures du même
@@ -174,7 +539,8 @@ def cout_menages_par_logement(facture_id_opaque: str, db_path=None) -> dict[str,
         rows = conn.execute(
             "SELECT logement_id, SUM(montant_ttc) AS total FROM facture_lignes_menage "
             "WHERE facture_id_opaque = ? AND type_ligne = ? AND logement_id IS NOT NULL "
-            "GROUP BY logement_id", (facture_id_opaque, TYPE_MENAGE_EXTERNE)).fetchall()
+            "AND statut_ligne = ? GROUP BY logement_id",
+            (facture_id_opaque, TYPE_MENAGE_EXTERNE, STATUT_LIGNE_ACTIVE)).fetchall()
         return {r["logement_id"]: round(r["total"], 2) for r in rows}
     finally:
         conn.close()
@@ -202,7 +568,8 @@ def lignes_externes_pour_reader(db_path=None) -> list[dict[str, Any]]:
             "JOIN factures f ON f.facture_id_opaque = l.facture_id_opaque "
             "LEFT JOIN facture_lignes_menage_detail d ON d.ligne_id_opaque = l.ligne_id_opaque "
             "LEFT JOIN facture_lignes_menage_pdf p ON p.ligne_id_opaque = l.ligne_id_opaque "
-            "WHERE l.type_ligne = ? ORDER BY l.id", (TYPE_MENAGE_EXTERNE,)).fetchall()
+            "WHERE l.type_ligne = ? AND l.statut_ligne = ? ORDER BY l.id",
+            (TYPE_MENAGE_EXTERNE, STATUT_LIGNE_ACTIVE)).fetchall()
     finally:
         conn.close()
 
@@ -242,9 +609,12 @@ def controler_total(facture_id_opaque: str, db_path=None) -> dict[str, Any]:
                          (facture_id_opaque,)).fetchone()
         if f is None:
             return _refus("FACTURE_INTROUVABLE", facture_id_opaque)
+        # Les lignes neutralisées (§30 extraction incorrecte, §27 remplacée par ses parts) ne
+        # comptent plus : c'est tout le sens de les avoir neutralisées plutôt que supprimées.
         total_lignes = conn.execute(
             "SELECT COALESCE(SUM(montant_ttc), 0) FROM facture_lignes_menage "
-            "WHERE facture_id_opaque = ?", (facture_id_opaque,)).fetchone()[0]
+            "WHERE facture_id_opaque = ? AND statut_ligne = ?",
+            (facture_id_opaque, STATUT_LIGNE_ACTIVE)).fetchone()[0]
     finally:
         conn.close()
     montant_facture = round(f["montant_ttc"] or 0, 2)

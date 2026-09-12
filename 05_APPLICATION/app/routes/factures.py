@@ -59,17 +59,31 @@ def _libelles_fournisseurs() -> dict[str, str]:
 
 
 def _logements_options() -> list[dict[str, str]]:
-    """Logements du parc, en libellés humains — §23 : on propose, on n'invente jamais."""
+    """Logements du parc, en libellés humains — §23 : on propose, on n'invente jamais.
+
+    LES LOGEMENTS SORTIS DU PARC RESTENT PROPOSÉS, marqués comme tels.
+    Ils étaient exclus, et c'était un défaut : une facture de juillet désigne légitimement un
+    logement retiré depuis — trois des onze lignes réelles sont dans ce cas. Absent de la liste, le
+    logement de la ligne n'apparaissait pas comme sélectionné, et confirmer le champ l'aurait
+    silencieusement remplacé par un autre. On ne peut pas corriger le passé avec la liste du présent.
+    """
     try:
         from app.services import referentiel_service as ref
         from app.services import referentiel_admin_service as ref_admin
         options = []
         for r in ref_admin.lignes("ref_logements"):
             ident = str(r.get("logement_id") or "").strip()
-            if not ident or str(r.get("actif", "OUI")).strip().upper() == "NON":
+            if not ident:
                 continue
-            options.append({"id": ident, "libelle": ref.libelle_logement(ident)})
-        return sorted(options, key=lambda o: o["libelle"])
+            hors_parc = str(r.get("actif", "OUI")).strip().upper() == "NON"
+            libelle = ref.libelle_logement(ident)
+            options.append({
+                "id": ident, "logement_id": ident, "hors_parc": hors_parc,
+                "libelle": f"{libelle} (sorti du parc)" if hors_parc else libelle,
+            })
+        # Les logements encore gérés d'abord : ce sont eux qu'on choisit dans la quasi-totalité des
+        # cas, et un libellé « sorti du parc » au milieu de la liste se choisirait par mégarde.
+        return sorted(options, key=lambda o: (o["hors_parc"], o["libelle"]))
     except Exception:      # noqa: BLE001 — référentiel absent : liste vide, le champ reste saisissable
         return []
 
@@ -192,6 +206,7 @@ def facture_detail(request: Request, opaque: str, message: str = "", erreur: str
         return templates.TemplateResponse(request, "factures_detail.html", {
             "active_menu": "factures", "facture": None, "opaque": opaque,
         }, status_code=404)
+    from app.services import facture_lignes_menage_service as flm
     return templates.TemplateResponse(request, "factures_detail.html", {
         "active_menu": "factures", "facture": facture,
         "libelles": _libelles_fournisseurs(),
@@ -199,6 +214,9 @@ def facture_detail(request: Request, opaque: str, message: str = "", erreur: str
         "reglements": reg.reglements_de_facture(opaque),
         "historique": svc.historique(opaque),
         "statuts": svc.STATUTS, "moyens": reg.MOYENS,
+        # §27 — l'écran nomme la CAUSE de l'écart, pas seulement son montant : « une ligne mal
+        # lue » et « une ligne absente » n'appellent pas le même geste de correction.
+        "diagnostic": flm.diagnostic_ecart(opaque),
         "ecriture_active": _ecriture_active(), "message": message, "erreur": erreur,
     })
 
@@ -278,6 +296,92 @@ async def facture_ligne_extraction_incorrecte(request: Request, opaque: str, lig
         acteur=str(form.get("acteur", "") or "local"))
     msg = ("message=Ligne écartée : extraction incorrecte." if res.get("ok")
            else f"erreur={res.get('detail') or res.get('message')}")
+    return RedirectResponse(url=f"/factures/{opaque}?{msg}", status_code=303)
+
+
+@router.post("/factures/{opaque}/lignes/{ligne_id}/logement")
+async def facture_ligne_logement(request: Request, opaque: str, ligne_id: str):
+    """§23 — confirmer le logement d'une ligne. La correspondance est apprise pour la suite."""
+    from app.services import facture_lignes_menage_service as flm
+
+    form = await request.form()
+    res = flm.affecter_logement(
+        ligne_id, logement_id=str(form.get("logement_id", "") or ""),
+        acteur=str(form.get("acteur", "") or "local"))
+    if not res.get("ok"):
+        return RedirectResponse(
+            url=f"/factures/{opaque}?erreur={quote(res.get('detail') or res.get('code', ''))}",
+            status_code=303)
+    appris = (res.get("correspondance_apprise") or {})
+    suite = ("+Ce+libelle+sera+reconnu+automatiquement+la+prochaine+fois."
+             if appris.get("ok") and not appris.get("deja_connue") else "")
+    return RedirectResponse(url=f"/factures/{opaque}?message=Logement+confirme.{suite}",
+                            status_code=303)
+
+
+@router.post("/factures/{opaque}/lignes/{ligne_id}/quantite")
+async def facture_ligne_quantite(request: Request, opaque: str, ligne_id: str):
+    """§27 — corriger une quantité extraite. Motif obligatoire, valeur du document conservée."""
+    from app.services import facture_lignes_menage_service as flm
+
+    form = await request.form()
+    brut = str(form.get("quantite", "") or "").strip()
+    try:
+        quantite = int(float(brut.replace(",", ".")))
+    except ValueError:
+        return RedirectResponse(
+            url=f"/factures/{opaque}?erreur={quote('Quantité illisible : ' + brut)}",
+            status_code=303)
+    res = flm.corriger_quantite(ligne_id, quantite=quantite,
+                                motif=str(form.get("motif", "") or ""),
+                                acteur=str(form.get("acteur", "") or "local"))
+    msg = ("message=Quantité corrigée." if res.get("ok")
+           else f"erreur={quote(res.get('detail') or res.get('code', ''))}")
+    return RedirectResponse(url=f"/factures/{opaque}?{msg}", status_code=303)
+
+
+@router.post("/factures/{opaque}/lignes/{ligne_id}/nature")
+async def facture_ligne_nature(request: Request, opaque: str, ligne_id: str):
+    """§26 — déclarer qu'une ligne est, ou n'est pas, un ménage. Motif obligatoire."""
+    from app.services import facture_lignes_menage_service as flm
+
+    form = await request.form()
+    res = flm.marquer_menage(
+        ligne_id, menage=str(form.get("menage", "") or "").lower().startswith("o"),
+        motif=str(form.get("motif", "") or ""),
+        acteur=str(form.get("acteur", "") or "local"))
+    msg = ("message=Nature de la ligne corrigée." if res.get("ok")
+           else f"erreur={quote(res.get('detail') or res.get('code', ''))}")
+    return RedirectResponse(url=f"/factures/{opaque}?{msg}", status_code=303)
+
+
+@router.post("/factures/{opaque}/lignes/{ligne_id}/repartir")
+async def facture_ligne_repartir(request: Request, opaque: str, ligne_id: str):
+    """§27 — répartir une ligne sur plusieurs logements. Quantités DONNÉES, jamais devinées.
+
+    Le formulaire envoie des paires `logement_id`/`quantite` parallèles ; la somme des quantités
+    doit retomber sur celle du document, sinon le service refuse sans rien ajuster.
+    """
+    from app.services import facture_lignes_menage_service as flm
+
+    form = await request.form()
+    logements = form.getlist("repartition_logement")
+    quantites = form.getlist("repartition_quantite")
+    repartition = []
+    for lid, q in zip(logements, quantites):
+        brut = str(q or "").strip()
+        if not str(lid or "").strip() or not brut:
+            continue
+        try:
+            repartition.append({"logement_id": str(lid), "quantite": int(float(brut))})
+        except ValueError:
+            return RedirectResponse(
+                url=f"/factures/{opaque}?erreur={quote('Quantité illisible : ' + brut)}",
+                status_code=303)
+    res = flm.repartir_ligne(ligne_id, repartition, motif=str(form.get("motif", "") or ""),
+                             acteur=str(form.get("acteur", "") or "local"))
+    msg = ("message=Ligne répartie sur plusieurs logements." if res.get("ok")
+           else f"erreur={quote(res.get('detail') or res.get('code', ''))}")
     return RedirectResponse(url=f"/factures/{opaque}?{msg}", status_code=303)
 
 

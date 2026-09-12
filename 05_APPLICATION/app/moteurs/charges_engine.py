@@ -143,11 +143,29 @@ def _mois_prefixe(valeur: Any) -> str:
 
 
 def gestion_active_pour_mois(row: dict[str, Any], mois: str) -> bool:
-    """Une ligne de gestion couvre `mois` (YYYY-MM) si statut ACTIF et dates englobantes."""
-    if str(row.get("statut_gestion", "")).strip().upper() != "ACTIF":
-        return False
+    """Une ligne de gestion couvre `mois` (YYYY-MM) si ses DATES l'englobent.
+
+    UNE PÉRIODE CLOSE N'EST PAS UNE PÉRIODE NULLE (§3/§57)
+    Cette fonction exigeait `statut_gestion = ACTIF`, ce qui effaçait aussi le PASSÉ d'un logement
+    archivé : LOG_0002, géré de 2025-01 à 2026-01, ressortait « non géré » y compris pour juin 2025.
+    Une charge saisie rétroactivement sur ce mois excluait donc le logement de son périmètre, sans
+    que rien ne le signale — le propriétaire d'alors n'en voyait jamais la quote-part.
+
+    C'est le workflow d'archivage lui-même qui tranche la sémantique : `logements_gestion_service.
+    archiver()` appelle `clore_periode(..., date_fin, statut="RETIRE")`. `RETIRE` signifie donc
+    « cette période s'est terminée à cette date », et la période reste pleinement valide avant elle.
+    `lib_ref_history.resolve_management_period` (le résolveur du moteur, qui alimente
+    `menages_cout_complet`) raisonnait déjà sur les dates seules : les deux lectures de la même
+    table divergeaient.
+
+    LE SEUL CAS OÙ L'ON NE CONCLUT PAS : une ligne non ACTIF SANS `date_fin`. Sa fin est inconnue ;
+    supposer qu'elle court toujours serait une invention, et lui inventer une date n'en est pas une
+    meilleure. Elle ne couvre donc aucun mois, et c'est un défaut de référentiel à corriger.
+    """
     debut = _mois_prefixe(row.get("date_debut"))
     fin = _mois_prefixe(row.get("date_fin"))
+    if str(row.get("statut_gestion", "")).strip().upper() != "ACTIF" and not fin:
+        return False
     if debut and debut > mois:
         return False
     if fin and fin < mois:

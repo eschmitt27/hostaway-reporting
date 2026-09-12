@@ -57,32 +57,26 @@ def normaliser_libelle(libelle: str) -> str:
     return s
 
 
-MAPPING_LOGEMENTS: dict[str, str] = {
-    normaliser_libelle("studio 76 (Dureuil)"): "LOG_0014",
-    normaliser_libelle("studio - cote pave (Francois)"): "LOG_0012",
-    normaliser_libelle("studio Puits verts (Caroline)"): "LOG_0006",
-    normaliser_libelle("studio Puits vert (Caroline)"): "LOG_0006",
-    normaliser_libelle("T3 310 muret (David)"): "LOG_0011",
-    normaliser_libelle("studio st Pierre (Florane)"): "LOG_0010",
-    normaliser_libelle("T2 9 rue du Toul"): "LOG_0007",
-    normaliser_libelle("T3 4 rue engalieres"): "LOG_0009",
-    normaliser_libelle("T3 20 rue l'Amiral Galache"): "LOG_0016",
-    normaliser_libelle("T.4-90 Blagnac (Cedrine)"): "LOG_0002",
-    normaliser_libelle("T.3 Sept Deniers (Francois)"): "LOG_0013",
-    normaliser_libelle("T.2-65 (Gabriel)"): "LOG_0003",
-    # Variantes de formatage réellement rencontrées sur les factures Aissata/Mounir (ponctuation
-    # différente pour le même logement — mapping explicite, jamais une normalisation générique qui
-    # risquerait un faux rapprochement).
-    normaliser_libelle("T3 18 rue de Cugnaux (David)"): "LOG_0008",
-    normaliser_libelle("T4 90 Blagnac (Cedrine)"): "LOG_0002",
-    normaliser_libelle("T.3 310 Muret (David)"): "LOG_0011",
-    normaliser_libelle("T3 sept deniers (Francois)"): "LOG_0013",
-}
-
-
-def mapper_logement(libelle_source: str) -> tuple[str | None, str]:
-    cle = normaliser_libelle(libelle_source)
-    return MAPPING_LOGEMENTS.get(cle), cle
+# CE MODULE NE RAPPROCHE PLUS LES LOGEMENTS (recette utilisateur n°3, §23-25)
+#
+# Il portait ici un dictionnaire de seize libelles ecrits a la main, chacun etant la transcription
+# d'une facture vue un jour. Deux raisons de l'avoir retire :
+#
+#  1. CE N'EST PAS LE ROLE D'UN EXTRACTEUR. Lire un PDF est une operation hors-ligne et stable.
+#     Decider quel logement du parc un libelle designe depend du REFERENTIEL, qui vit, change de
+#     noms et gagne des logements. Figer ce lien dans un module d'extraction le condamnait a etre
+#     perime le jour ou un logement entrait dans le parc.
+#  2. LE REFERENTIEL SAVAIT DEJA. `ref_mapping_logements` porte 86 correspondances declarees et
+#     `ref_logements` nom officiel, nom court et adresse. Les seize entrees recopiees ici etaient
+#     un doublon appauvri de cette table : elles ne couvraient que 12 logements sur 17.
+#
+# Le rapprochement se fait desormais dans `app/services/logement_matching_service.py`, sur le
+# referentiel vivant, avec un niveau de confiance et une raison explicable. `lot6c` n'est pas
+# concerne : il a toujours consomme `logement_source` (le libelle brut), jamais `logement_id`.
+#
+# `logement_id` reste un champ de `LigneFacture`, renseigne PAR L'APPELANT apres rapprochement.
+# L'extracteur, lui, ne rend que ce que le document porte : `logement_source` et sa forme
+# normalisee.
 
 
 @dataclass
@@ -232,10 +226,7 @@ def _extraire_aissata(doc, nom: str) -> FactureExtraite:
                 if mo:
                     ligne.date_menage = f"{int(pr.group(3)):04d}-{mo:02d}-{int(pr.group(1)):02d}"
                     ligne.precision_date = "DATE_PRECISE"
-        lid, cle = mapper_logement(lib_clean)
-        ligne.logement_id, ligne.libelle_normalise = lid, cle
-        if lid is None:
-            ligne.code_anomalie = "LOGEMENT_FACTURE_EXTERNE_NON_RECONNU"
+        ligne.libelle_normalise = normaliser_libelle(lib_clean)
         if pu is None or qte is None:
             ligne.code_anomalie = (ligne.code_anomalie + " | MONTANT_ABSENT").strip(" |")
         fac.lignes.append(ligne)
@@ -299,10 +290,7 @@ def _extraire_mounir(doc, nom: str) -> FactureExtraite:
         pu = float(max(restants)) if restants else None
         nb = min(restants) if restants else None
         ligne = LigneFacture(lib, nb, pu, total, precision_date="MOIS_FACTURE")
-        lid, cle = mapper_logement(lib)
-        ligne.logement_id, ligne.libelle_normalise = lid, cle
-        if lid is None:
-            ligne.code_anomalie = "LOGEMENT_FACTURE_EXTERNE_NON_RECONNU"
+        ligne.libelle_normalise = normaliser_libelle(lib)
         if total is None:
             ligne.code_anomalie = (ligne.code_anomalie + " | MONTANT_ABSENT").strip(" |")
         # controle interne : total == nb x pu (tolerance 1 EUR)

@@ -19,6 +19,7 @@ from typing import Any
 
 import app.config as cfg
 from app.db.connection import get_db
+from app.services import facture_lignes_menage_service as flm
 
 ST_BROUILLON = "BROUILLON"
 ST_A_CONTROLER = "A_CONTROLER"
@@ -533,19 +534,28 @@ def lignes(opaque: str, db_path=None) -> list[dict[str, Any]]:
     try:
         resultat: list[dict[str, Any]] = []
         for r in conn.execute(
-                "SELECT l.*, d.quantite, d.prix_unitaire, p.nom_prestataire, p.date_menage "
+                "SELECT l.*, d.quantite, d.prix_unitaire, d.quantite_source, "
+                "d.prix_unitaire_source, p.nom_prestataire, p.date_menage "
                 "FROM facture_lignes_menage l "
                 "LEFT JOIN facture_lignes_menage_detail d ON d.ligne_id_opaque = l.ligne_id_opaque "
                 "LEFT JOIN facture_lignes_menage_pdf p ON p.ligne_id_opaque = l.ligne_id_opaque "
                 "WHERE l.facture_id_opaque=? ORDER BY l.id", (opaque,)).fetchall():
             d = dict(r)
-            d["origine_ligne"] = ("CORRECTIVE"
-                                  if str(d.get("source") or "") == "SAISIE_MANUELLE_CORRECTIVE"
+            source = str(d.get("source") or "")
+            d["origine_ligne"] = ("CORRECTIVE" if source == "SAISIE_MANUELLE_CORRECTIVE"
+                                  else "REPARTITION" if source == "REPARTITION_MULTI_LOGEMENTS"
                                   else "PDF")
-            d["est_menage"] = str(d.get("type_ligne") or "") == "MENAGE_EXTERNE"
-            # Une ligne marquée EXTRACTION_INCORRECTE reste VISIBLE (la donnée brute ne disparaît
-            # jamais) mais ne compte plus dans le total — c'est tout l'objet du marquage.
+            d["est_menage"] = str(d.get("type_ligne") or "") in ("MENAGE_EXTERNE",
+                                                                 "MENAGE_INTERNE")
+            # Une ligne marquée EXTRACTION_INCORRECTE (ou remplacée par ses parts) reste VISIBLE —
+            # la donnée brute ne disparaît jamais — mais ne compte plus dans le total.
             d["neutralisee"] = str(d.get("statut_ligne") or "ACTIVE") != "ACTIVE"
+            # §27 — quantité × prix unitaire redonne-t-il le montant ? C'est ce contrôle qui
+            # distingue une ligne mal lue d'une ligne absente.
+            d["coherence"] = flm.coherence_ligne(d)
+            # §27 — la quantité a-t-elle été corrigée depuis l'extraction ?
+            d["quantite_corrigee"] = (d.get("quantite_source") is not None
+                                      and d.get("quantite") != d.get("quantite_source"))
             resultat.append(d)
         for r in conn.execute(
                 "SELECT * FROM facture_lignes WHERE facture_id_opaque=? ORDER BY id",
@@ -559,8 +569,14 @@ def lignes(opaque: str, db_path=None) -> list[dict[str, Any]]:
             d.setdefault("description", d.get("commentaire"))
             d.setdefault("quantite", None)
             d.setdefault("prix_unitaire", None)
+            d.setdefault("quantite_source", None)
             d.setdefault("statut_ligne", "ACTIVE")
             d.setdefault("motif_correction", None)
+            d.setdefault("logement_confiance", None)
+            d.setdefault("logement_methode", None)
+            d.setdefault("ligne_parente_id_opaque", None)
+            d["quantite_corrigee"] = False
+            d["coherence"] = flm.coherence_ligne(d)
             resultat.append(d)
         return resultat
     finally:

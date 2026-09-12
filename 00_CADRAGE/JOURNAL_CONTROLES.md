@@ -5147,3 +5147,76 @@ sortent). Total `menages_cout_complet` : 9 178,00 € → **7 655,00 €** sur *
 une facture validée à tort l'était pour toujours. Elle est ajoutée, avec le garde-fou
 correspondant : `rouvrir_controle()` REFUSE dès qu'une écriture ou un règlement existe, et renvoie
 alors vers la contrepassation. Le motif est obligatoire et journalisé.
+
+---
+
+## CTR-RAPPROCHEMENT-LOGEMENT-2026-09-12 — le référentiel contre le dictionnaire en dur
+
+**Objet du contrôle** : prouver que le rapprochement piloté par le référentiel (§23-25) fait au
+moins aussi bien que les seize libellés qui étaient codés en dur dans l'extracteur, et qu'il ne
+rapproche rien quand le référentiel ne dit rien.
+
+**Méthode** : rejeu des 16 libellés du dictionnaire supprimé + des 5 logements qu'il ne couvrait
+pas, puis 12 libellés qui ne désignent aucun logement. Référentiel réel (19 logements, 86
+correspondances déclarées), en LECTURE SEULE.
+
+| Série | Attendu | Obtenu |
+|---|---|---|
+| 16 libellés du dictionnaire en dur | tous rapprochés à l'identique | **16 / 16** |
+| 5 logements jamais couverts (LOG_0001/0004/0005/0015/0017) | rapprochés | **5 / 5** |
+| 12 libellés ne désignant aucun logement | aucun rapprochement | **12 / 12 refusés** |
+
+**Voies empruntées** : 13 par correspondance déclarée au référentiel (`CERTAIN`), 3 par adresse
+(`PROBABLE`), 2 par mots distinctifs (`PROBABLE`), 3 par nom. Aucun `CERTAIN` obtenu par déduction
+de mots — conforme à D-FL-3.
+
+**Deux faux rapprochements trouvés par les tests et corrigés** (cf. D-FL-5, D-FL-6) :
+
+1. `T3 Toulouse` → un logement, parce que dans un parc de quatre un seul était un T3 toulousain.
+   Mathématiquement unique, métier faux. Corrigé : un type et une ville ne désignent pas un logement.
+2. `T5 - 200 avenue de Paris (Inconnu)` → un logement de Blagnac, sur le seul mot « avenue », les
+   quatre mots qui disaient le contraire étant ignorés du calcul. Corrigé : un mot inconnu du
+   référentiel compte contre le rapprochement, au poids maximal.
+
+Après correction : **21 / 21** rapprochés, **12 / 12** refusés. Le resserrement n'a coûté aucun
+rapprochement réel.
+
+**Tests** : `test_logement_matching.py` (29), dont l'ambiguïté non tranchée, le bac technique jamais
+proposé, le logement sorti du parc resté rapprochable, et l'apprentissage d'une correspondance
+confirmée.
+
+---
+
+## CTR-COHERENCE-LIGNES-FOURNISSEUR-2026-09-12 — qualifier l'écart au lieu de l'annoncer
+
+**Objet** : §27. Les deux factures réelles présentaient un écart lignes/total ; l'écran disait
+« écart » sans dire pourquoi, donc sans indiquer quoi corriger.
+
+**Contrôle arithmétique ligne par ligne** (quantité × prix unitaire vs montant extrait), sur copie
+isolée de la base réelle :
+
+| Facture | Σ montants | Σ (qté × P.U.) | Total document | Lignes incohérentes |
+|---|---|---|---|---|
+| `0005` | 556,00 € | **520,00 €** | **520,00 €** | **1** — `T.2-65 (Gabriel)` : qté 0 × 32,00 € ≠ 36,00 € |
+| `2026-40` | 967,00 € | 967,00 € | 1 056,00 € | **0** |
+
+**Conclusion, prononcée par le logiciel et non par moi** :
+
+- `0005` → `LIGNES_INCOHERENTES`. Le recalcul tombe **exactement** sur le total du document : c'est
+  une valeur mal lue, pas une ligne absente. Geste attendu : §30 écarter la ligne.
+- `2026-40` → `LIGNE_MANQUANTE`. Toutes les lignes sont cohérentes, il manque 89,00 €. Geste
+  attendu : §29 déclarer la ligne omise.
+
+Deux écarts, deux causes **opposées**. Aucune donnée réelle modifiée par ce contrôle : les deux
+factures restent `A_CONTROLER` avec leurs 11 lignes intactes, et c'est l'utilisateur qui tranchera
+depuis l'écran, désormais outillé pour le faire.
+
+**Défaut collatéral corrigé** : la migration 0081 avait introduit la neutralisation de ligne sans
+l'appliquer partout. `cout_menages_par_logement`, `lignes_externes_pour_reader` et
+`controler_total` sommaient encore les lignes neutralisées — une ligne écartée comme mal extraite
+aurait donc continué d'alimenter le coût ménage du logement, et la refacturation du propriétaire.
+Les trois requêtes filtrent maintenant sur `statut_ligne = 'ACTIVE'`.
+
+**Tests** : `test_facture_ligne_quantite_et_nature.py` (23), dont les deux factures réelles
+reproduites à l'identique, la somme au centime d'une répartition 100,00 € sur 3, et le refus d'une
+répartition qui ne conserve pas la quantité du document.

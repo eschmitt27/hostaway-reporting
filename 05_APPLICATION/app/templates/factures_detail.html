@@ -150,35 +150,133 @@
       </tr></thead>
       <tbody>
         {% for l in facture.lignes %}
+        {% set corrigeable = not l.neutralisee and facture.statut == "A_CONTROLER"
+                             and l.origine_ligne in ("PDF", "REPARTITION") %}
         <tr {% if l.neutralisee %}style="opacity:.55"{% endif %}>
           <td>
             {{ l.description or l.commentaire or "—" }}
-            {% if l.neutralisee %}<br><span class="badge badge-warning">Extraction incorrecte</span>
-              <span class="text-xs text-secondary">{{ l.motif_correction }}</span>{% endif %}
+            {% if l.statut_ligne == "EXTRACTION_INCORRECTE" %}
+              <br><span class="badge badge-warning">Extraction incorrecte</span>
+              <span class="text-xs text-secondary">{{ l.motif_correction }}</span>
+            {% elif l.statut_ligne == "REPARTIE" %}
+              <br><span class="badge badge-neutral">Répartie sur plusieurs logements</span>
+              <span class="text-xs text-secondary">{{ l.motif_correction }}</span>
+            {% endif %}
             {% if l.origine_ligne == "CORRECTIVE" and l.motif_correction %}
               <br><span class="text-xs text-secondary">Motif : {{ l.motif_correction }}</span>{% endif %}
+            {% if l.coherence and l.coherence.verifiable and not l.coherence.coherente and not l.neutralisee %}
+              <br><span class="badge badge-danger">Ligne incohérente</span>
+              <span class="text-xs text-secondary">{{ l.coherence.message }}</span>
+            {% endif %}
           </td>
-          <td class="num">{{ l.quantite|entier if l.quantite is not none else "—" }}</td>
+          <td class="num">
+            {{ l.quantite|entier if l.quantite is not none else "—" }}
+            {% if l.quantite_corrigee %}
+              <br><span class="text-xs text-secondary" title="Quantité lue sur le document">
+                document : {{ l.quantite_source|entier }}</span>
+            {% endif %}
+          </td>
           <td class="num">{{ "%.2f"|format(l.prix_unitaire) if l.prix_unitaire is not none else "—" }}</td>
           <td class="num">{{ "%.2f"|format(l.montant_ttc) }}</td>
           <td>{% if l.est_menage %}<span class="badge badge-success">Oui</span>{% else %}<span class="badge badge-neutral">Non</span>{% endif %}</td>
-          <td>{{ l.logement_id|nom_logement if l.logement_id else "À confirmer" }}</td>
+          <td>
+            {% if l.logement_id %}{{ l.logement_id|nom_logement }}
+              {# §23 — un rapprochement probable est prérempli, mais il le dit. #}
+              {% if l.logement_confiance == "PROBABLE" %}
+                <br><span class="badge badge-warning">À confirmer</span>
+              {% endif %}
+            {% else %}<span class="badge badge-warning">À déterminer</span>{% endif %}
+          </td>
           <td class="text-xs">
             {% if l.origine_ligne == "PDF" %}Document
             {% elif l.origine_ligne == "CORRECTIVE" %}Ajoutée à la main
+            {% elif l.origine_ligne == "REPARTITION" %}Part d'une ligne répartie
             {% else %}Charge rattachée{% endif %}
           </td>
           <td>
-            {% if l.origine_ligne == "PDF" and not l.neutralisee and facture.statut == "A_CONTROLER" %}
+            {% if corrigeable %}
+            {% set base = "/factures/" ~ facture.facture_id_opaque ~ "/lignes/" ~ l.ligne_id_opaque %}
             <details>
-              <summary class="text-xs">Extraction incorrecte</summary>
-              <form method="post"
-                    action="/factures/{{ facture.facture_id_opaque }}/lignes/{{ l.ligne_id_opaque }}/extraction-incorrecte">
-                <input type="text" name="motif" required placeholder="Motif obligatoire"
-                       class="filter-input" style="min-width:14rem">
-                <button type="submit" class="btn btn-secondary"
-                        {% if not ecriture_active %}disabled{% endif %}>Écarter</button>
-              </form>
+              <summary class="text-xs">Corriger cette ligne</summary>
+              <div class="text-xs" style="display:grid;gap:.5rem;margin-top:.5rem">
+
+                {# §23 — confirmer ou changer le logement. Le choix est mémorisé. #}
+                <form method="post" action="{{ base }}/logement">
+                  <label>Logement
+                    <select name="logement_id" required>
+                      <option value="">— choisir —</option>
+                      {% for o in logements_options %}
+                      <option value="{{ o.logement_id }}"
+                              {% if o.logement_id == l.logement_id %}selected{% endif %}>{{ o.libelle }}</option>
+                      {% endfor %}
+                    </select>
+                  </label>
+                  <button type="submit" class="btn btn-secondary"
+                          {% if not ecriture_active %}disabled{% endif %}>Confirmer le logement</button>
+                </form>
+
+                {# §26 — ménage oui/non : décide si le montant entre dans le coût du logement. #}
+                <form method="post" action="{{ base }}/nature">
+                  <label>Ménage
+                    <select name="menage">
+                      <option value="oui" {% if l.est_menage %}selected{% endif %}>Oui</option>
+                      <option value="non" {% if not l.est_menage %}selected{% endif %}>Non</option>
+                    </select>
+                  </label>
+                  <input type="text" name="motif" required placeholder="Motif obligatoire"
+                         class="filter-input" style="min-width:12rem">
+                  <button type="submit" class="btn btn-secondary"
+                          {% if not ecriture_active %}disabled{% endif %}>Changer la nature</button>
+                </form>
+
+                {# §27 — la quantité vient du document : motif obligatoire, valeur lue conservée. #}
+                <form method="post" action="{{ base }}/quantite">
+                  <label>Quantité
+                    <input type="number" step="1" min="0" name="quantite" required
+                           value="{{ l.quantite if l.quantite is not none else '' }}"
+                           style="width:5rem">
+                  </label>
+                  <input type="text" name="motif" required placeholder="Motif obligatoire"
+                         class="filter-input" style="min-width:12rem">
+                  <button type="submit" class="btn btn-secondary"
+                          {% if not ecriture_active %}disabled{% endif %}>Corriger la quantité</button>
+                </form>
+
+                {# §27 — répartir sur plusieurs logements. Les quantités sont DONNÉES, jamais
+                   devinées : leur somme doit retomber sur celle du document. #}
+                {% if l.quantite and l.quantite > 1 %}
+                <form method="post" action="{{ base }}/repartir">
+                  <p class="text-secondary" style="margin:0">
+                    Répartir les {{ l.quantite|entier }} ménages de cette ligne. La somme des
+                    quantités doit faire {{ l.quantite|entier }} — le logiciel n'ajuste pas.
+                  </p>
+                  {% for i in range(2) %}
+                  <label>Logement {{ i + 1 }}
+                    <select name="repartition_logement">
+                      <option value="">—</option>
+                      {% for o in logements_options %}
+                      <option value="{{ o.logement_id }}">{{ o.libelle }}</option>
+                      {% endfor %}
+                    </select>
+                    <input type="number" step="1" min="0" name="repartition_quantite"
+                           placeholder="qté" style="width:4rem">
+                  </label>
+                  {% endfor %}
+                  <input type="text" name="motif" required placeholder="Motif obligatoire"
+                         class="filter-input" style="min-width:12rem">
+                  <button type="submit" class="btn btn-secondary"
+                          {% if not ecriture_active %}disabled{% endif %}>Répartir</button>
+                </form>
+                {% endif %}
+
+                {# §30 — écarter une ligne mal extraite, sans jamais la supprimer. #}
+                <form method="post" action="{{ base }}/extraction-incorrecte">
+                  <input type="text" name="motif" required placeholder="Motif obligatoire"
+                         class="filter-input" style="min-width:12rem">
+                  <button type="submit" class="btn btn-secondary"
+                          {% if not ecriture_active %}disabled{% endif %}>Écarter : extraction incorrecte</button>
+                </form>
+              </div>
             </details>
             {% endif %}
           </td>
@@ -189,13 +287,30 @@
         <th class="num">{{ "%.2f"|format(facture.montant_lignes_ttc) }}</th><th colspan="4"></th></tr></tfoot>
     </table>
   </div>
-  {% set ecart_lignes = (facture.montant_lignes_ttc - facture.montant_ttc)|round(2) %}
-  {% if ecart_lignes|abs > 0.005 %}
+  {# §27 — l'écart est NOMMÉ, pas seulement chiffré : « une ligne mal lue » et « une ligne
+     absente » n'appellent pas le même geste, et l'utilisateur ne doit pas avoir à le deviner. #}
+  {% if diagnostic and diagnostic.diagnostic and diagnostic.diagnostic != "COHERENT" %}
   <div class="alert alert-warning mt-sm">
-    <strong>Écart de {{ "%.2f"|format(ecart_lignes) }} € entre les lignes et le total du document.</strong>
-    Total des lignes {{ "%.2f"|format(facture.montant_lignes_ttc) }} € · total facture
-    {{ "%.2f"|format(facture.montant_ttc) }} €. Tant que cet écart n'est pas résolu, la facture
-    ne peut pas être validée : une ligne manque, ou une ligne a été mal extraite.
+    <strong>
+      {% if diagnostic.diagnostic == "LIGNES_INCOHERENTES" %}
+        Une ligne au moins a été mal extraite.
+      {% elif diagnostic.diagnostic == "LIGNE_MANQUANTE" %}
+        Il manque {{ "%.2f"|format(diagnostic.ecart) }} € de lignes.
+      {% else %}
+        Les lignes dépassent le total du document de {{ "%.2f"|format(diagnostic.ecart|abs) }} €.
+      {% endif %}
+    </strong>
+    {{ diagnostic.message }}
+    <br>Total des lignes retenues {{ "%.2f"|format(diagnostic.montant_lignes) }} € · total du
+    document {{ "%.2f"|format(diagnostic.montant_facture) }} €. Tant que cet écart n'est pas
+    résolu, la facture ne peut pas être validée.
+    {% if diagnostic.diagnostic == "LIGNES_INCOHERENTES" %}
+      <br><em>Geste attendu : écarter la ou les lignes incohérentes signalées ci-dessus
+      (« Corriger cette ligne » → « Écarter : extraction incorrecte »).</em>
+    {% elif diagnostic.diagnostic == "LIGNE_MANQUANTE" %}
+      <br><em>Geste attendu : déclarer la ligne absente du texte extrait
+      (« Ajouter une ligne manquante » ci-dessus).</em>
+    {% endif %}
   </div>
   {% endif %}
   {% else %}

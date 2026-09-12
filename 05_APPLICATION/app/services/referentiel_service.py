@@ -94,11 +94,23 @@ def nom_complet_proprietaire(proprietaire_id: str, *, db_path=None) -> str:
 
 
 def nom_logement(logement_id: str, *, db_path=None) -> str:
-    """Nom court d'affichage du logement. Chaîne vide si inconnu."""
+    """Nom court d'affichage du logement. Chaîne vide si inconnu.
+
+    Le nom court est préféré — c'est celui que l'exploitant emploie (« T3 - 18 Cugnaux »). Mais les
+    deux bacs techniques hors parc ont pour nom court leur propre identifiant
+    (`LOGEMENT_DIVERS`, `APPARTEMENT_DIVERS`) : l'afficher reviendrait à montrer un code à
+    l'utilisateur, alors que leur nom officiel (« Logement divers (hors parc) ») se lit très bien.
+    Le départage ne cite aucun identifiant en dur : si le nom court EST l'identifiant, ce n'est pas
+    un nom.
+    """
     l = logement(logement_id, db_path=db_path)
     if not l:
         return ""
-    return _txt(l.get("nom_court")) or _txt(l.get("nom_logement_officiel"))
+    court = _txt(l.get("nom_court"))
+    officiel = _txt(l.get("nom_logement_officiel"))
+    if court and court == _txt(logement_id):
+        return officiel or court
+    return court or officiel
 
 
 def libelle_proprietaire(proprietaire_id: str, *, db_path=None) -> str:

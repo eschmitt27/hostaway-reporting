@@ -1699,3 +1699,88 @@ côté code : il aurait fallu avancer le référentiel à la main chaque mois.
 
 **Conséquence** : le mois courant est saisissable sans intervention, et affiché « provisoire ». Le
 moteur ne le clôture toujours pas.
+
+---
+
+### D-FOURN-LOGEMENT-01 — le rapprochement du logement lit le référentiel, et ne devine jamais
+
+- **Date** : 2026-09-12
+- **Lot** : recette utilisateur n°3 (§23, §24, §25)
+- **Statut** : ACTÉ
+
+**Décisions :**
+
+- **D-FL-1** : le logement d'une ligne de facture fournisseur est proposé par
+  `logement_matching_service`, qui lit `ref_mapping_logements` + `ref_logements`. **Aucune table de
+  correspondance en dur** n'est admise dans le code — la garde
+  `test_10_extracteur_sans_table_de_correspondance` interdit la régression.
+- **D-FL-2** : cinq voies, par fiabilité décroissante — correspondance déclarée au référentiel,
+  nom officiel, nom court, adresse lue dans le libellé, mots distinctifs. La première qui conclut
+  s'arrête là : une décision humaine enregistrée n'a pas à être confirmée par un calcul.
+- **D-FL-3** : trois niveaux seulement. `CERTAIN` → prérempli ; `PROBABLE` → prérempli **et**
+  marqué « à confirmer » ; `AUCUN` → rien. Un quasi-match n'est **jamais** promu en certitude.
+- **D-FL-4** : une **ambiguïté reste une ambiguïté**. Deux logements également plausibles → aucun
+  n'est choisi, les deux sont nommés à l'écran.
+- **D-FL-5** : **un type et une ville ne désignent pas un logement.** « T3 Toulouse » ne rapproche
+  rien, même si un seul T3 toulousain existe au parc : une ligne de facture qui ne dit pas *quel*
+  T3 ne permet pas d'imputer un ménage. Villes et types sont reconnus structurellement (champ
+  `ville` du référentiel, motif de forme `t\d|studio|…`), jamais par une liste écrite à la main.
+- **D-FL-6** : **un mot inconnu compte contre le rapprochement.** Un mot que le référentiel n'a
+  jamais vu est aussi distinctif qu'un mot propre à un seul logement, et le candidat n'en explique
+  rien. Sans cette règle, « T5 - 200 avenue de Paris (Inconnu) » marquait 100 % sur un logement de
+  Blagnac au seul motif du mot « avenue ».
+- **D-FL-7** : **le logiciel apprend du geste.** Confirmer un logement enregistre la
+  correspondance dans `ref_mapping_logements` (`import_id = SAISIE_APPLICATION`) : le même libellé
+  est ensuite reconnu avec certitude, sans redéduction. Une correspondance contradictoire est
+  refusée, jamais écrasée.
+- **D-FL-8** : un logement **sorti du parc reste rapprochable et sélectionnable**, marqué « sorti
+  du parc ». Une facture d'un mois passé désigne légitimement un logement retiré depuis ; on ne
+  corrige pas le passé avec la liste du présent.
+
+**Pourquoi.** L'extracteur PDF portait seize libellés recopiés à la main, couvrant 12 logements sur
+17. Tout logement entré depuis, tout prestataire nouveau, toute ponctuation différente ressortait
+« non affecté » — alors que le référentiel, avec ses 86 correspondances déclarées, contenait la
+réponse. Le rapprochement est désormais sur le référentiel vivant : **21 libellés réels sur 21**
+rapprochés, dont les 5 logements que le dictionnaire ignorait, et **12 refus sur 12** sur des
+libellés qui ne désignent aucun logement.
+
+---
+
+### D-FOURN-QUANTITE-01 — la quantité est une donnée source, la répartition est un choix humain
+
+- **Date** : 2026-09-12
+- **Lot** : recette utilisateur n°3 (§26, §27)
+- **Statut** : ACTÉ
+
+**Décisions :**
+
+- **D-FQ-1** : les valeurs extraites sont **photographiées à l'import** (`quantite_source`,
+  `prix_unitaire_source`, `montant_ttc_source`, `logement_id_source`, migration 0082) et ne sont
+  **jamais réécrites**. Corriger une quantité reste possible — motif obligatoire — mais la valeur
+  lue sur la pièce reste lisible pour toujours. Une facture n'est plus opposable quand on ne sait
+  plus distinguer ce qu'elle portait de ce qu'on en a fait.
+- **D-FQ-2** : une ligne est **cohérente** quand quantité × prix unitaire redonne son montant.
+  Quantité ou prix absents → rien à vérifier : une absence n'est pas une incohérence.
+- **D-FQ-3** : l'écart lignes/total est **QUALIFIÉ**, pas seulement chiffré. `LIGNES_INCOHERENTES`
+  (des montants faux, que le recalcul quantité × prix fait tomber juste), `LIGNE_MANQUANTE` (toutes
+  les lignes justes, il en manque), `LIGNES_EN_TROP`. Le départage est arithmétique, pas
+  heuristique, et l'écran nomme le geste attendu (§30 écarter / §29 ajouter).
+- **D-FQ-4** : une ligne couvrant plusieurs logements **ne se répartit jamais toute seule**. Les
+  quantités sont fournies par l'utilisateur et leur somme doit retomber sur celle du document —
+  sinon la répartition est refusée, **pas ajustée**. Deviner « 4 ménages sur 2 logements » produit
+  un coût faux pour deux propriétaires sans que personne ne s'en aperçoive.
+- **D-FQ-5** : la répartition monétaire passe par `lib_repartition.repartir` — la fonction
+  canonique du dépôt. Somme des parts exacte au centime, toujours.
+- **D-FQ-6** : la ligne répartie est **neutralisée, jamais supprimée** (`statut_ligne=REPARTIE`),
+  et chaque part porte `ligne_parente_id_opaque`. Ce que le document disait reste lisible.
+- **D-FQ-7** : **ménage O/N est modifiable, avec motif.** Le type de ligne décide si le montant
+  entre dans le coût ménage d'un logement, donc dans ce qui sera refacturé à son propriétaire.
+  Passer une ligne EN ménage exige un logement : un coût ménage sans logement ne veut rien dire.
+
+**Ce que ces règles ont révélé sur les données réelles.** La facture 0005 portait une ligne
+« T.2-65 (Gabriel) » à **quantité 0, prix unitaire 32,00 €, montant 36,00 €** — trois valeurs
+incompatibles. En retenant le calcul de chaque ligne, la facture tombe sur **520,00 €**, exactement
+son total : l'écart de +36,00 € n'était pas une ligne absente mais une valeur mal lue, et
+l'arithmétique le dit sans rouvrir le PDF. La facture 2026-40, à l'inverse, a **toutes ses lignes
+cohérentes** et il lui manque simplement 89,00 €. Deux écarts, deux causes opposées, deux gestes de
+correction différents — que l'écran annonçait jusqu'ici de façon identique.
