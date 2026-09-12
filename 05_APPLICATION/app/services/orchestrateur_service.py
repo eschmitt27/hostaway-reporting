@@ -365,6 +365,39 @@ def _amonts_en_echec(dataset: str, etats: dict[str, str]) -> list[str]:
 
 # ── Parcours principal ──────────────────────────────────────────────────────────────────────────
 
+def _import_externe_demande(dataset: str, cibles: list[str] | None,
+                            inclure_imports_externes: bool) -> bool:
+    """Un import externe ne part que s'il est DEMANDÉ : autorisé pour ce run ET désigné lui-même.
+
+    Être le descendant d'une cible ne suffit pas. HOSTAWAY_CLEANING_TASKS dépend de HOSTAWAY_RAW :
+    sans cette règle, chaque actualisation des réservations — donc chaque battement du scheduler —
+    relançait aussi l'import des tâches de ménage, dont la cadence n'est pas arbitrée, et son échec
+    bloquait ensuite Ménages et toute la chaîne économique en aval.
+    """
+    return inclure_imports_externes and (cibles is None or dataset in cibles)
+
+
+def _perimetre(cibles: list[str]) -> list[str]:
+    """Cibles et descendants nécessaires, en ordre topologique — sans traverser un import externe
+    atteint par propagation.
+
+    Un tel import reste dans le périmètre (son étape « non déclenché » est visible), mais rien ne se
+    propage à travers lui : il n'est pas exécuté, donc ses descendants ne reçoivent aucune donnée
+    nouvelle de ce run. Un descendant atteignable par un autre chemin reste traité.
+    """
+    retenus: set[str] = set()
+    a_voir = list(cibles)
+    while a_voir:
+        nom = a_voir.pop()
+        if nom in retenus:
+            continue
+        retenus.add(nom)
+        if nom not in cibles and dag.NOEUDS[nom].externe:
+            continue
+        a_voir.extend(dag.enfants(nom))
+    return [n for n in dag.ordre_topologique() if n in retenus]
+
+
 def _integrity_ok(db_path) -> bool:
     cible = cfg.DB_PATH if db_path is None else db_path
     conn = sqlite3.connect(str(cible))
@@ -404,12 +437,7 @@ def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEU
         if inconnues:
             return {"ok": False, "code": E_DATASET_INCONNU, "datasets": inconnues,
                     "message": f"Dataset(s) inconnu(s) du DAG : {inconnues}"}
-        a_traiter: list[str] = []
-        for cible in cibles:
-            for nom in [cible, *dag.descendants(cible)]:
-                if nom not in a_traiter:
-                    a_traiter.append(nom)
-        a_traiter = [n for n in dag.ordre_topologique() if n in a_traiter]
+        a_traiter = _perimetre(cibles)
     else:
         a_traiter = dag.ordre_topologique()
 
@@ -460,7 +488,8 @@ def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEU
                     motif = f"DRY-RUN : serait ignoré (amont en échec : {bloquants_dry})."
                 elif not noeud.service:
                     motif = f"DRY-RUN : {noeud.libelle} — non recalculable ici."
-                elif noeud.externe and not inclure_imports_externes:
+                elif noeud.externe and not _import_externe_demande(dataset, cibles,
+                                                                   inclure_imports_externes):
                     motif = f"DRY-RUN : {noeud.libelle} — import externe non déclenché."
                 else:
                     motif = f"DRY-RUN : {noeud.libelle} — serait exécuté."
@@ -489,7 +518,8 @@ def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEU
                 etapes.append({"dataset": dataset, "statut": "IGNOREE", "motif": motif})
                 continue
 
-            if noeud.externe and not inclure_imports_externes:
+            if noeud.externe and not _import_externe_demande(dataset, cibles,
+                                                                   inclure_imports_externes):
                 # Un import externe consomme un quota d'API et peut être limité (429) : il ne part
                 # pas à chaque recalcul interne. L'ordonnanceur et le bouton dédié le demandent
                 # explicitement.

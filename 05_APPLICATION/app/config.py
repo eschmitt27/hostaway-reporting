@@ -190,9 +190,22 @@ ORDONNANCEUR_ACTIF = _env_flag("ORDONNANCEUR_ACTIF")
 # Hostaway 2026-08-23). CleaningTasks (H6) reste à une cadence bien plus lente par défaut : ce
 # point d'API a rencontré des limites 429 sévères, et les tâches de ménage ne bougent pas au même
 # rythme que les réservations (cf. `ordonnanceur_service.py`).
-HOSTAWAY_REFRESH_INTERVAL_HOURS = int(os.environ.get("HOSTAWAY_REFRESH_INTERVAL_HOURS", "5"))
-HOSTAWAY_CLEANING_TASKS_INTERVAL_HOURS = int(
-    os.environ.get("HOSTAWAY_CLEANING_TASKS_INTERVAL_HOURS", "24"))
+def _env_heures(nom: str, defaut: int) -> int:
+    """Cadence en heures entières ≥ 1. Valeur absente, illisible ou nulle → `defaut`.
+
+    Une cadence de 0 ne voudrait pas dire « jamais » mais « à chaque battement » : la source serait
+    retentée toutes les quinze minutes. Une coquille dans un fichier d'environnement ne doit pas
+    produire cela, ni empêcher l'application de démarrer.
+    """
+    try:
+        valeur = int(os.environ.get(nom, "").strip())
+    except ValueError:
+        return defaut
+    return valeur if valeur >= 1 else defaut
+
+
+HOSTAWAY_REFRESH_INTERVAL_HOURS = _env_heures("HOSTAWAY_REFRESH_INTERVAL_HOURS", 5)
+HOSTAWAY_CLEANING_TASKS_INTERVAL_HOURS = _env_heures("HOSTAWAY_CLEANING_TASKS_INTERVAL_HOURS", 24)
 
 # Racine unique autorisée en écriture en mode recette. Par défaut, le PROJECT_ROOT courant : en
 # lançant l'instance de recette avec PROJECT_ROOT=<dossier data_recette>, TOUTES les sources et

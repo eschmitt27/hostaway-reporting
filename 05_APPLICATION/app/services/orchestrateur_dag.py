@@ -87,8 +87,10 @@ NOEUDS: dict[str, Noeud] = {n.nom: n for n in (
           commentaire="Cadence PROPRE, volontairement séparée de HOSTAWAY_RAW : H6 a rencontré des "
                       "limites 429 sévères, et le rafraîchir aussi souvent que les réservations "
                       "n'apporte rien. `externe=True` (comme HOSTAWAY_RAW) : jamais entraîné par "
-                      "« Actualiser toute l'activité », uniquement par une demande explicite "
-                      "(`inclure_imports_externes=True`, ex. « Actualiser les ménages »)."),
+                      "« Actualiser toute l'activité », ni par la propagation d'une actualisation "
+                      "des réservations (donc jamais par le scheduler 5 h) ; uniquement quand il "
+                      "est lui-même demandé (ex. « Actualiser les ménages »). Cadence automatique "
+                      "à arbitrer."),
 
     Noeud(REF_SETUP, TYPE_IMPORT, "Référentiel Setup (logements, propriétaires, taux, clôture)",
           tables=("ref_logements", "ref_proprietaires", "ref_taux_commission",
@@ -173,6 +175,15 @@ NOEUDS: dict[str, Noeud] = {n.nom: n for n in (
           commentaire="Terminal : personne ne lit ses sorties en amont. Reconstructible à tout "
                       "moment depuis SQLite, donc jamais entraîné par la propagation automatique."),
 )}
+
+
+def enfants(dataset: str) -> list[str]:
+    """Datasets qui dépendent DIRECTEMENT de `dataset`, en ordre topologique.
+
+    La propagation d'une actualisation ciblée avance d'enfant en enfant : c'est ce qui lui permet de
+    s'arrêter sur un import externe qu'on n'a pas demandé, au lieu de le traverser.
+    """
+    return [n for n in ordre_topologique() if dataset in NOEUDS[n].depend_de]
 
 
 def descendants(dataset: str) -> list[str]:
