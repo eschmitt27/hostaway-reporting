@@ -18,9 +18,11 @@
   <p class="section-note">Deux lignes minimum, débit = crédit. Reste BROUILLON tant qu'elle n'est pas validée.</p>
   <form method="post" action="/comptabilite/journaux/od">
     <div class="detail-grid">
+      {# §77 — un menu d'énumération se lit en français. La `value` reste le code canonique :
+         c'est lui qui part au serveur et qui est stocké. #}
       <label>Type *
         <select name="type_operation" required>
-          {% for t in types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+          {% for t in types %}<option value="{{ t }}">{{ t | libelle_statut }}</option>{% endfor %}
         </select></label>
       <label>Date <input type="date" name="date_operation"></label>
       <label>Libellé * <input type="text" name="libelle" required></label>
@@ -29,8 +31,22 @@
     <fieldset class="mt-sm">
       <legend>Ligne 1</legend>
       <div class="detail-grid">
-        <label>Compte * <input type="text" name="compte_1" required placeholder="606000"></label>
-        <label>Auxiliaire <input type="text" name="auxiliaire_1"></label>
+        <label>Compte *
+          <select name="compte_1" required>
+            <option value="">— choisir —</option>
+            {% for c in comptes %}
+            <option value="{{ c.compte }}" {% if c.compte == "606000" %}selected{% endif %}>{{ c.compte }} — {{ c.libelle }}</option>
+            {% endfor %}
+          </select></label>
+        <label>Auxiliaire
+          <select name="auxiliaire_1">
+            <option value="">— aucun —</option>
+            {% for famille, lignes in auxiliaires.items() %}{% if lignes %}
+            <optgroup label="{{ libelles_famille.get(famille, famille) }}">
+              {% for a in lignes %}<option value="{{ a.auxiliaire }}">{{ a.libelle }}</option>{% endfor %}
+            </optgroup>
+            {% endif %}{% endfor %}
+          </select></label>
         <label>Débit <input type="number" step="0.01" name="debit_1"></label>
         <label>Crédit <input type="number" step="0.01" name="credit_1"></label>
       </div>
@@ -38,8 +54,22 @@
     <fieldset class="mt-sm">
       <legend>Ligne 2</legend>
       <div class="detail-grid">
-        <label>Compte * <input type="text" name="compte_2" required placeholder="401000"></label>
-        <label>Auxiliaire <input type="text" name="auxiliaire_2"></label>
+        <label>Compte *
+          <select name="compte_2" required>
+            <option value="">— choisir —</option>
+            {% for c in comptes %}
+            <option value="{{ c.compte }}" {% if c.compte == "401000" %}selected{% endif %}>{{ c.compte }} — {{ c.libelle }}</option>
+            {% endfor %}
+          </select></label>
+        <label>Auxiliaire
+          <select name="auxiliaire_2">
+            <option value="">— aucun —</option>
+            {% for famille, lignes in auxiliaires.items() %}{% if lignes %}
+            <optgroup label="{{ libelles_famille.get(famille, famille) }}">
+              {% for a in lignes %}<option value="{{ a.auxiliaire }}">{{ a.libelle }}</option>{% endfor %}
+            </optgroup>
+            {% endif %}{% endfor %}
+          </select></label>
         <label>Débit <input type="number" step="0.01" name="debit_2"></label>
         <label>Crédit <input type="number" step="0.01" name="credit_2"></label>
       </div>
@@ -56,8 +86,9 @@
       <tbody>
         {% for o in ods %}
         <tr>
-          <td>{{ o.od_id_opaque }}</td><td>{{ o.type_operation }}</td><td>{{ o.libelle }}</td>
-          <td><span class="badge">{{ o.statut }}</span></td>
+          <td title="{{ o.od_id_opaque }}">{{ o.justification or "—" }}</td>
+          <td>{{ o.type_operation | libelle_statut }}</td><td>{{ o.libelle }}</td>
+          <td><span class="badge">{{ o.statut | libelle_statut }}</span></td>
           <td>
             {% if o.statut == "BROUILLON" %}
             <form method="post" action="/comptabilite/journaux/od/{{ o.od_id_opaque }}/valider" style="display:inline">

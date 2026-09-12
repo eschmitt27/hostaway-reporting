@@ -316,6 +316,10 @@ def comptabilite_journal_od(request: Request, message: str = "", erreur: str = "
     return templates.TemplateResponse(request, "comptabilite_journal_od.html", {
         "active_menu": "comptabilite", "ecritures": compta.lister(journal="ODIVERSES"),
         "ods": od.lister(), "types": od.TYPES,
+        # §77 — comptes et auxiliaires se CHOISISSENT. Saisis à la main, ils étaient refusés plus
+        # tard par le contrôle de validité, après que l'utilisateur avait tout ressaisi.
+        "comptes": _plan_comptable(),
+        "auxiliaires": aux.synthese(), "libelles_famille": aux.LIBELLES_FAMILLE,
         "ecriture_active": _ecriture_active(), "message": message, "erreur": erreur,
     })
 
@@ -333,7 +337,8 @@ async def comptabilite_od_creer(request: Request):
                    lignes, date_operation=str(form.get("date_operation", "") or ""),
                    justification=str(form.get("justification", "") or ""),
                    acteur=str(form.get("acteur", "") or "local"))
-    msg = "message=OD créée (BROUILLON)." if res.get("ok") else f"erreur={res.get('message')}"
+    msg = ("message=OD créée (BROUILLON)." if res.get("ok")
+           else "erreur=" + quote(" — ".join(x for x in (res.get("message"), res.get("detail")) if x)))
     return RedirectResponse(url=f"/comptabilite/journaux/od?{msg}", status_code=303)
 
 
@@ -341,7 +346,8 @@ async def comptabilite_od_creer(request: Request):
 async def comptabilite_od_valider(request: Request, opaque: str):
     form = await request.form()
     res = od.valider(opaque, acteur=str(form.get("acteur", "") or "local"))
-    msg = "message=OD validée, écriture ODIVERSES générée." if res.get("ok") else f"erreur={res.get('message')}"
+    msg = ("message=OD validée, écriture ODIVERSES générée." if res.get("ok")
+           else "erreur=" + quote(" — ".join(x for x in (res.get("message"), res.get("detail")) if x)))
     return RedirectResponse(url=f"/comptabilite/journaux/od?{msg}", status_code=303)
 
 
