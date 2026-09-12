@@ -608,7 +608,17 @@ def test_15_filtre_periode(sources):
     assert {r["mois"] for r in mai["rows"]} == {"2026-05"}
     assert {r["mois"] for r in avril["rows"]} == {"2026-04"}
     assert avril["count_filtre"] == 1
-    assert svc.load_available_periods() == ["2026-05", "2026-04"]
+    # Les mois porteurs de données restent proposés, du plus récent au plus ancien. Le mois
+    # COURANT s'y ajoute toujours (§56 : on suit le mois en cours, sans le clôturer), et aucun
+    # mois futur n'apparaît — Hostaway porte des tâches jusqu'en 2027, qui ne sont pas des
+    # périodes de pilotage.
+    from datetime import date
+    periodes = svc.load_available_periods()
+    assert "2026-05" in periodes and "2026-04" in periodes
+    courant = date.today().strftime("%Y-%m")
+    assert courant in periodes
+    assert all(m <= courant for m in periodes)
+    assert periodes == sorted(periodes, reverse=True)
 
 
 def test_16_filtre_logement(sources):

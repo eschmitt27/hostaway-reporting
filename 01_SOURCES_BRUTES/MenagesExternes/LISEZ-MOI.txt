@@ -1,0 +1,17 @@
+Dossier de depot des factures PDF des prestataires de menage.
+
+NOMENCLATURE CANONIQUE (recette utilisateur n°3, §18) :
+
+    MM-YY-Prestataire.pdf                      ex. 08-26-Aissata.pdf
+    MM-YY-Prestataire_<NumeroFacture>.pdf      si plusieurs factures du meme
+                                               prestataire le meme mois
+
+L'annee est TOUJOURS sur 2 chiffres.
+
+Le nom de fichier est une INDICATION, pas la verite : le logiciel controle
+aussi le contenu du PDF. Si le nom et le document se contredisent, la facture
+part en A CONTROLER plutot que d'etre validee sur la foi du nom.
+
+Deposez les fichiers ici, puis utilisez « Actualiser le rapprochement » sur
+l'ecran Menages. Les fichiers ajoutes apres un premier passage sont detectes
+au passage suivant.

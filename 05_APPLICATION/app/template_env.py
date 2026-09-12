@@ -75,27 +75,29 @@ def _nom_canal(cid: str) -> str:
 # `22h32 · 11/09/2026`. Et `15.0` réservations là où une quantité discrète s'écrit `15`.
 
 def _datetime_fr(valeur) -> str:
-    """`2026-09-11T22:32:26Z` → `22h32 · 11/09/2026`. Rend la valeur telle quelle si illisible."""
-    from datetime import datetime, timezone
+    """`2026-09-11T22:32:26Z` → `22h32 · 11/09/2026`. Rend la valeur telle quelle si illisible.
+
+    AUCUNE conversion de fuseau : l'heure affichée est celle qui est écrite dans la donnée. Ces
+    horodatages sont produits et relus sur le même poste, et l'utilisateur les rapproche de ses
+    propres actions (« j'ai actualisé à 22h32 »). Les décaler de deux heures au nom d'un `Z`
+    rendrait chaque trace fausse à ses yeux, pour une exactitude dont personne n'a l'usage ici.
+    """
+    from datetime import datetime
 
     texte = str(valeur or "").strip()
     if not texte:
         return ""
-    brut = texte.replace("Z", "+00:00")
-    try:
-        dt = datetime.fromisoformat(brut)
-    except ValueError:
-        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
-            try:
-                dt = datetime.strptime(texte[:19], fmt)
-                break
-            except ValueError:
-                continue
-        else:
-            return texte
-    if dt.tzinfo is not None:
-        dt = dt.astimezone()          # UTC stocké → heure locale affichée
-        dt = dt.replace(tzinfo=None)
+    nu = texte.replace("Z", "").replace("T", " ").strip()
+    if len(nu) <= 10:          # une date seule reste une date : pas de « 00h00 » inventé
+        return _date_fr(nu)
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            dt = datetime.strptime(nu[:len(fmt) + 2].strip()[:19], fmt)
+            break
+        except ValueError:
+            continue
+    else:
+        return texte
     return f"{dt:%Hh%M} · {dt:%d/%m/%Y}"
 
 

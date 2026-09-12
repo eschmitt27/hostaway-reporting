@@ -14,8 +14,6 @@ from app.services import controles_cloture_service as ctrl_cloture
 
 router = APIRouter()
 templates = get_templates()
-templates.env.filters["date_fr"] = date_affichage
-templates.env.filters["datetime_fr"] = datetime_affichage
 
 
 def _mois_disponibles() -> list[str]:

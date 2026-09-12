@@ -23,8 +23,6 @@ from app.readers.banques_reader import date_affichage, datetime_affichage
 
 router = APIRouter()
 templates = get_templates()
-templates.env.filters["date_fr"] = date_affichage
-templates.env.filters["datetime_fr"] = datetime_affichage
 # Identifiant mouvement opaque pour tout lien généré (jamais le mouvement_id brut, qui contient le
 # compte, dans un href/option/HTML visible). Les nouvelles pages ne génèrent que des MVT-<hash>.
 templates.env.filters["mvt_opaque"] = ctrl.id_opaque

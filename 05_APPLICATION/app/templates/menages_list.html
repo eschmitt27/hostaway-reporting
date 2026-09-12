@@ -12,8 +12,8 @@
     <h1 class="page-title">Ménages</h1>
     <p class="page-subtitle">
       Rapprochement des flux — période
-      <span class="periode-active">{{ data.mois or "aucune" }}</span>
-      · sources lues le {{ s.read_at }}
+      <span class="periode-active">{{ data.mois_libelle or data.mois or "aucune" }}</span>
+      {% if data.mois_provisoire %}<span class="badge badge-warning">Provisoire — mois en cours</span>{% endif %}
     </p>
   </div>
   <div class="flex gap-sm items-center">
@@ -46,36 +46,48 @@
 <div class="alert alert-info">Déclaration enregistrée.</div>
 {% endif %}
 
+<!-- ===== Période — en tête d'écran (§6) : tout ce qui suit s'y rapporte ===== -->
+<div class="card mb-md">
+  <form method="get" action="/menages" class="flex gap-sm items-center" style="flex-wrap:wrap">
+    <label for="periode_menages"><strong>Période</strong></label>
+    <select name="mois" id="periode_menages" class="filter-input" aria-label="Période"
+            onchange="this.form.submit()">
+      {% for o in data.options.periodes %}
+        <option value="{{ o.id }}" {% if data.mois == o.id %}selected{% endif %}>{{ o.libelle }}</option>
+      {% endfor %}
+    </select>
+    {% for k, v in a.items() if k not in ['mois', 'page'] and v not in [None, '', False] %}
+      <input type="hidden" name="{{ k }}" value="{{ v }}">
+    {% endfor %}
+    <noscript><button type="submit" class="btn btn-secondary">Afficher</button></noscript>
+    <span class="text-xs text-secondary">
+      Tous les compteurs ci-dessous portent sur cette période.
+    </span>
+  </form>
+</div>
+
 <!-- ===== Actualisation réelle — parcours normal utilisateur ===== -->
 {% set act = actualisation %}
 <div class="card mb-md">
   <h2 class="card-title">Actualisation</h2>
+  {# §9 — deux métriques suffisent. « détectés / nouveaux / déjà importés / non supportés »
+     répétaient la même information sous quatre angles, et le détail fichier par fichier est
+     déjà affiché plus bas. #}
   <div class="kpi-grid mb-md">
     <div class="kpi-card">
       <div class="kpi-label">Dernière actualisation</div>
-      <div class="kpi-value" style="font-size:1rem">{{ act.derniere_actualisation or "Jamais" }}</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">PDF détectés</div>
-      <div class="kpi-value">{{ act.pdf.nb_detectes }}</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">Nouveaux PDF</div>
-      <div class="kpi-value">{{ act.pdf.nb_nouveaux }}</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">PDF déjà importés</div>
-      <div class="kpi-value">{{ act.pdf.nb_deja_importes }}</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">À contrôler</div>
-      <div class="kpi-value">{{ act.nb_a_controler }}</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">Mois disponibles</div>
       <div class="kpi-value" style="font-size:1rem">
-        {{ act.mois_disponibles|join(", ") if act.mois_disponibles else "Aucun" }}
+        {{ act.derniere_actualisation|datetime_fr if act.derniere_actualisation else "Jamais" }}
       </div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Factures PDF reconnues</div>
+      <div class="kpi-value">{{ act.pdf.nb_reconnues }}</div>
+      <div class="kpi-sub">{{ act.pdf.nb_detectes }} fichier(s) dans le dossier</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">À contrôler / en erreur</div>
+      <div class="kpi-value">{{ act.nb_a_controler }}</div>
     </div>
   </div>
 
@@ -136,37 +148,13 @@
       <input type="hidden" name="mois" value="{{ data.mois }}">
       <button type="submit" class="btn btn-primary" id="btn-actualiser-menages"
               {{ "disabled" if act.en_cours }}>
-        {{ "Actualisation en cours…" if act.en_cours else "Actualiser le rapprochement des ménages" }}
+        {{ "Actualisation en cours…" if act.en_cours else "Actualiser le rapprochement" }}
       </button>
-      <div class="text-xs text-secondary" style="max-width:24rem">
-        Vérifie les factures PDF (nouvelles/inchangées/modifiées), puis relance Hostaway et le
-        rapprochement réel pour {{ data.mois_libelle }} uniquement (SQLite — aucun Excel, aucune
-        écriture sur un fichier réel). Les mois clôturés ne sont jamais recalculés.
-      </div>
     </form>
   </div>
-
-  <details class="mt-md">
-    <summary class="text-secondary">Diagnostic technique / recette sur copies</summary>
-    <div class="flex gap-md items-start mt-sm" style="flex-wrap:wrap">
-      <div>
-        <a href="/menages/recalculer" class="btn btn-secondary">Simuler le recalcul sur copies</a>
-        <div class="text-xs text-secondary" style="max-width:22rem">
-          Recette isolée sur une copie de la base — n'écrit jamais dans les données réelles.
-        </div>
-      </div>
-      <div>
-        <a href="/menages/chaine" class="btn btn-secondary">Tester la chaîne complète sur copies</a>
-        <div class="text-xs text-secondary" style="max-width:22rem">
-          Régénère Hostaway, déclarations internes et factures PDF dans un atelier isolé, à titre
-          de diagnostic uniquement.
-        </div>
-      </div>
-      <div>
-        <a href="/menages/diagnostic" class="btn btn-secondary">Diagnostic du pipeline</a>
-      </div>
-    </div>
-  </details>
+  {# §14 — les outils de diagnostic (recette sur copies, chaîne complète, diagnostic du pipeline,
+     noms de lots) ne sont plus exposés ici : ils vivent dans Observabilité & outils. Un écran
+     métier n'est pas un banc de test. #}
 </div>
 
 {% set fr = data.fraicheur %}

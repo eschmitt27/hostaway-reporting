@@ -216,17 +216,22 @@ def test_ui_actions_operationnelles_presentes(client):
     Mission « simplifier complètement ménages » : les anciens boutons séparés (« Actualiser
     l'affichage », « Actualiser toute l'activité », « Importer les nouvelles factures »,
     « Déclarer / saisir un ménage interne ») ont été retirés de cet écran au profit d'un bouton
-    unique « Actualiser le rapprochement des ménages » qui fait tout (PDF + Hostaway +
-    rapprochement ciblé). Le diagnostic technique (« Simuler le recalcul sur copies ») reste
-    disponible, replié sous <details>, pour la recette — jamais mis en avant à l'utilisateur.
+    unique « Actualiser le rapprochement » qui fait tout (PDF + Hostaway + rapprochement ciblé).
+
+    Recette utilisateur n°3, §14 : les outils de DIAGNOSTIC ont à leur tour quitté l'écran métier
+    (« Simuler le recalcul sur copies », « Tester la chaîne complète sur copies », « Diagnostic du
+    pipeline », noms de lots). Ils restent accessibles par leurs routes, sous Observabilité &
+    outils — une application de gestion n'expose pas un banc de test à son utilisateur.
     """
     r = client.get("/menages")
     assert "Actualiser l'affichage" not in r.text
     assert "Actualiser toute l'activité" not in r.text
     assert "Importer les nouvelles factures" not in r.text
     assert "Déclarer / saisir un ménage interne" not in r.text
-    assert "Simuler le recalcul sur copies" in r.text
-    assert "Actualiser le rapprochement des ménages" in r.text
+    assert "Simuler le recalcul sur copies" not in r.text
+    assert "Tester la chaîne complète sur copies" not in r.text
+    assert "Diagnostic technique" not in r.text
+    assert "Actualiser le rapprochement" in r.text
 
 
 def test_ui_libelle_pdf_renomme(client, tmp_db):

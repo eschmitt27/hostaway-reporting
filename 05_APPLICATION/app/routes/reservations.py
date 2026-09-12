@@ -16,8 +16,6 @@ router = APIRouter()
 templates = get_templates()
 # Formatage des dates, partagé avec les autres écrans. Une date non convertible est affichée telle
 # quelle, précédée d'une mention : jamais une date inventée pour combler un champ vide.
-templates.env.filters["date_fr"] = date_affichage
-templates.env.filters["datetime_fr"] = datetime_affichage
 
 # Séparateurs typographiques possibles dans une valeur texte en entrée (espaces à retirer avant conversion)
 _SPACES = (" ", " ", " ")

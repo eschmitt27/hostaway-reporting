@@ -21,7 +21,7 @@ Il ne modifie aucune source ; il est affiché à part du statut moteur, jamais �
 """
 import csv
 import io
-from datetime import datetime
+from datetime import date as _date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -165,6 +165,15 @@ def charger_etat_actualisation(db_path=None) -> dict[str, Any]:
     pdf = pdf_svc.apercu(db_path=db_path)
     mois = _mois_disponibles(Path(db_path) if db_path else Path(cfg.DB_PATH))
     verrous = orch._verrous_actifs(db_path)
+
+    # §8 — « détecté » et « reconnu » ne répondaient PAS à la même question, et l'écran les
+    # affichait côte à côte comme si oui : « PDF détectés 0 » (fichiers présents dans le dossier,
+    # absent de cette installation) juste au-dessus de « 2 PDF reconnus » (factures réellement
+    # extraites, lues en base). Les deux nombres étaient justes et se contredisaient.
+    # `nb_reconnues` compte ce que le logiciel a RÉELLEMENT traité — c'est la métrique métier ;
+    # `nb_detectes` reste exposé, mais nommé pour ce qu'il est : des fichiers dans un dossier.
+    pdf = dict(pdf)
+    pdf["nb_reconnues"] = _nb_factures_pdf_reconnues(db_path=db_path)
     return {
         "dataset": dataset,
         "derniere_actualisation": dataset.get("calcule_le") if dataset else None,
@@ -174,6 +183,20 @@ def charger_etat_actualisation(db_path=None) -> dict[str, Any]:
         "mois_disponibles": mois,
         "en_cours": bool(verrous),
     }
+
+
+def _nb_factures_pdf_reconnues(db_path=None) -> int:
+    """Factures réellement issues d'une extraction PDF, telles qu'elles existent en base."""
+    from app.db.connection import get_db
+    conn = get_db(db_path)
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) n FROM factures WHERE source = 'PDF_EXTRACTION'").fetchone()
+        return int(row["n"] if row else 0)
+    except Exception:      # noqa: BLE001 — table absente : 0, jamais une erreur d'écran
+        return 0
+    finally:
+        conn.close()
 
 
 def _note_mode(mode: str | None) -> str:
@@ -237,10 +260,41 @@ def _now() -> str:
 # Périodes, filtres
 # ---------------------------------------------------------------------------
 
-def load_available_periods() -> list[str]:
-    """Mois présents dans le rapprochement moteur, du plus récent au plus ancien."""
-    mois = {to_mois(r.get("mois")) for r in reader.rapprochement().lignes}
-    return sorted((m for m in mois if m), reverse=True)
+def load_available_periods(db_path=None) -> list[str]:
+    """Mois RÉELLEMENT exploitables par l'écran Ménages, du plus récent au plus ancien.
+
+    Trois corrections par rapport à la version précédente (recette utilisateur n°3, §10/§56) :
+
+    1. La liste ne venait que de `menages_rapprochement`, qui ne contenait que deux mois : on ne
+       pouvait donc PAS sélectionner août ni septembre, alors que les tâches et les déclarations
+       de ces mois existent. Le sélecteur est désormais l'union des mois réellement porteurs de
+       données ménage (rapprochement, tâches Hostaway enrichies, déclarations internes).
+    2. Le mois COURANT est toujours proposé, même vide : c'est le mois que l'utilisateur suit au
+       jour le jour. Il n'est pas clôturable pour autant — l'écran le signale « provisoire ».
+    3. Les mois POSTÉRIEURS au mois courant sont écartés. Hostaway porte des tâches planifiées
+       jusqu'en 2027-05 ; les proposer comme périodes de pilotage n'avait aucun sens métier et
+       c'est exactement ce que l'ancien bloc « Mois disponibles » affichait.
+    """
+    from app.db.connection import get_db
+
+    mois: set[str] = {to_mois(r.get("mois")) for r in reader.rapprochement().lignes}
+    conn = get_db(db_path)
+    try:
+        for table in ("menages_taches_enrichies", "menages_declarations_internes",
+                      "menages_cout_complet"):
+            try:
+                mois.update(
+                    str(r[0])[:7] for r in conn.execute(
+                        f"SELECT DISTINCT mois FROM {table} WHERE mois IS NOT NULL AND mois <> ''")
+                    if r[0])
+            except Exception:      # noqa: BLE001 — table absente : elle n'apporte rien, c'est tout
+                continue
+    finally:
+        conn.close()
+
+    courant = _date.today().strftime("%Y-%m")
+    mois.add(courant)
+    return sorted((m for m in mois if m and m <= courant), reverse=True)
 
 
 def periode_par_defaut() -> str:
@@ -287,8 +341,14 @@ def load_filter_options(mois: str = "") -> dict[str, list[dict[str, str]]]:
     types = sorted({to_texte(r.get("type_intervenant")) for r in lignes if to_texte(r.get("type_intervenant"))})
     statuts = sorted({to_texte(r.get("statut_controle")) for r in lignes if to_texte(r.get("statut_controle"))})
 
+    courant = _date.today().strftime("%Y-%m")
     return {
-        "periodes": [{"id": m, "libelle": m} for m in load_available_periods()],
+        # Libellé humain (« septembre 2026 »), et le mois en cours annoncé comme provisoire (§56).
+        "periodes": [
+            {"id": m,
+             "libelle": libelle_mois(m) + (" — provisoire" if m == courant else "")}
+            for m in load_available_periods()
+        ],
         "logements": _options("logement_id", "nom_appartement"),
         "proprietaires": _options_proprietaires(),
         "intervenants": _options("intervenant_id", "nom_intervenant"),
@@ -588,6 +648,9 @@ def load_dashboard(mois: str = "", **filtres: Any) -> dict[str, Any]:
     return {
         "mois": mois,
         "mois_libelle": libelle_mois(mois),
+        # §56 — le mois en cours se consulte et se saisit, mais n'est pas définitif : l'écran doit
+        # le dire, sinon une valeur partielle se lit comme un résultat arrêté.
+        "mois_provisoire": mois == _date.today().strftime("%Y-%m"),
         "summary": load_summary(mois),
         "liste": liste,
         "options": load_filter_options(mois),
