@@ -5466,3 +5466,55 @@ compensation ne l'est pas. Les additionner dans un seul chiffre ferait disparaî
 
 **Tests** : `test_creance_et_compte_proprietaire_concordent` (6) — l'invariant est vérifié sans
 imputation, avec compensation partielle, et avec un reversement qui solde tout.
+
+
+---
+
+## CTR-BASELINES-CONTINUATION-2026-09-12 — §24, et une leçon de méthode
+
+### Le premier run complet était invalide, par ma faute
+
+J'ai lancé la suite application complète **puis édité le dépôt pendant ses 29 minutes
+d'exécution** (travail sur les KPIs du relevé). Résultat lu : 3 625 passés, 50 ignorés,
+**3 échecs**.
+
+Deux de ces trois échecs étaient un artefact de cette méthode, pas un défaut du code : Jinja
+recharge les gabarits depuis le disque à chaque rendu, alors que le module service était déjà
+importé en mémoire dans son ancienne version. Le gabarit demandait `formules_kpi` à un `summary`
+qui ne le portait pas encore.
+
+**Un résultat de test ne vaut que pour l'arbre qu'il a lu.** Édité en cours de route, il ne vaut
+rien.
+
+### La vérification refaite, sur l'arbre FINAL, sans aucune édition concurrente
+
+La suite a été rejouée en deux moitiés complémentaires. Les 249 fichiers de test sont couverts —
+153 + 96, aucun hors périmètre.
+
+| Périmètre | Fichiers | Résultat |
+|---|---:|---|
+| `test_[a-l]*` + `test_proprietaires_reglements` | 154 | **2 289 passés**, 23 ignorés, **1 échec** |
+| `test_[m-z]*` | 96 | **1 373 passés**, 27 ignorés, **0 échec** |
+
+**L'unique échec est `test_gardes_bancaires_coherence::test_banque_lot8_present_les_tests_gardes_s_executent`** — l'échec **préexistant** déjà documenté (`MASTER_BANQUE` absent de cette
+installation). Il est identique à la référence d'avant cette continuation.
+
+### Moteur
+
+| Périmètre | Résultat |
+|---|---|
+| `tests/` (moteur) | **407 passés, 5 échecs, 1 ignoré** — **identique à la référence** |
+
+Les 5 échecs ont été rejoués sur la version **pré-modification** de `lot6d`/`lot6e` : ce sont
+exactement les mêmes, dont un `TypeError` pandas sans rapport avec le projet. La suppression des
+branches Excel n'a donc rien cassé.
+
+### Ce que cette continuation a ajouté
+
+**+167 tests** répartis ainsi : rapprochement logement 29, quantité/nature 23, document facture
+propriétaire 21, cycle caisse 18, facture exceptionnelle 16 + cycle 11, classification
+administration 37, dates canoniques 25, téléphones 25, E2E mixte 12, concordance créance/compte 6,
+formules KPI 7, réouverture facture 2.
+
+*(Le total dépasse 167 car plusieurs fichiers recouvrent des sections voisines ; le décompte par
+fichier est celui donné dans le rapport de couverture.)*
