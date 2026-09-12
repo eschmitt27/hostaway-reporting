@@ -452,6 +452,51 @@ def _perimetre(cibles: list[str]) -> list[str]:
     return [n for n in dag.ordre_topologique() if n in retenus]
 
 
+def dernier_detail_a_jour(dataset: str, *, db_path=None) -> dict[str, Any] | None:
+    """Détail rendu par le service lors du dernier passage À JOUR de `dataset` (compteurs, version
+    d'entrée), lu dans le journal des transitions.
+
+    `orchestrateur_datasets.detail` ne le conserve pas : chaque passage EN_COURS ou ECHEC l'écrase.
+    C'est pourtant ce qui permet à un import de dire si la donnée qu'il sert est celle sur laquelle
+    l'aval a déjà été calculé.
+    """
+    if not _table_presente("orchestrateur_dataset_evenements", db_path):
+        return None
+    conn = get_db(db_path)
+    try:
+        r = conn.execute(
+            "SELECT detail FROM orchestrateur_dataset_evenements WHERE dataset = ? "
+            "AND statut_apres = ? AND detail IS NOT NULL ORDER BY id DESC LIMIT 1",
+            (dataset, ST_A_JOUR)).fetchone()
+    finally:
+        conn.close()
+    if r is None:
+        return None
+    try:
+        valeur = json.loads(r["detail"])
+    except (TypeError, ValueError):
+        return None
+    return valeur if isinstance(valeur, dict) else None
+
+
+def _invalider_enfants(dataset: str, perimetre: list[str], *, run_id: str, declencheur: str,
+                       db_path) -> None:
+    """`dataset` vient de CHANGER : ses enfants de calcul du périmètre cessent d'être « à jour »
+    avant même d'être recalculés.
+
+    Ils le seront dans la foulée — mais si le run s'interrompt entre-temps, un enfant resté A_JOUR
+    sur l'ancienne entrée serait ensuite pris pour inchangé et conservé à tort (§15). Seuls les
+    CALCULS avec service sont concernés : un import ne tire pas sa fraîcheur de l'amont, et un
+    dataset sans service ne pourrait jamais revenir à jour.
+    """
+    for enfant in dag.enfants(dataset):
+        noeud = dag.NOEUDS[enfant]
+        if enfant in perimetre and noeud.type_noeud == dag.TYPE_CALCUL and noeud.service:
+            marquer_dataset(enfant, ST_A_RECALCULER, run_id=run_id, declencheur=declencheur,
+                            motif="INVALIDATION_AMONT", detail={"amont": dataset},
+                            db_path=db_path)
+
+
 def _integrity_ok(db_path) -> bool:
     cible = cfg.DB_PATH if db_path is None else db_path
     conn = sqlite3.connect(str(cible))
@@ -528,6 +573,10 @@ def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEU
     etats: dict[str, str] = {d["dataset"]: d["statut"] for d in etat_datasets(db_path)}
     etapes: list[dict[str, Any]] = []
     nb_ok = nb_ko = 0
+    # Datasets de ce run dont on SAIT qu'ils n'ont pas changé : un import qui l'a déclaré
+    # (`donnees_modifiees=False`), ou un descendant conservé pour cette raison. Tout le reste est
+    # présumé modifié — dans le doute, on recalcule.
+    inchanges: set[str] = set()
     try:
         for ordre, dataset in enumerate(a_traiter, start=1):
             noeud = dag.NOEUDS[dataset]
@@ -583,11 +632,31 @@ def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEU
                 etapes.append({"dataset": dataset, "statut": "IGNOREE", "motif": motif})
                 continue
 
+            amonts_du_run = [a for a in noeud.depend_de if a in a_traiter]
+            if (cibles and dataset not in cibles and etats.get(dataset) == ST_A_JOUR
+                    and amonts_du_run and all(a in inchanges for a in amonts_du_run)):
+                # Aucun amont de ce run n'a changé : le jeu à jour a été calculé sur exactement ces
+                # entrées, le recalculer rendrait le même résultat au prix de la chaîne entière
+                # (§15). `_invalider_enfants` garantit qu'un dataset encore « à jour » ici l'est
+                # vraiment. Réservé aux actualisations CIBLÉES : « Actualiser toute l'activité »
+                # reste un recalcul complet, demandé comme tel.
+                motif = (f"{noeud.libelle} : amont(s) inchangé(s) ({', '.join(amonts_du_run)}) "
+                         "— recalcul inutile, jeu à jour conservé.")
+                _etape(run_id, dataset, ordre, "IGNOREE", debut, motif, None, db_path)
+                etapes.append({"dataset": dataset, "statut": "IGNOREE", "motif": motif})
+                inchanges.add(dataset)
+                continue
+
             resultat = recalculer_dataset(dataset, run_id=run_id, declencheur=declencheur,
                                           db_path=db_path)
             if resultat.get("ok"):
                 nb_ok += 1
                 etats[dataset] = ST_A_JOUR
+                if resultat.get("donnees_modifiees") is False:
+                    inchanges.add(dataset)
+                else:
+                    _invalider_enfants(dataset, a_traiter, run_id=run_id,
+                                       declencheur=declencheur, db_path=db_path)
                 _etape(run_id, dataset, ordre, "SUCCES", debut, "",
                        resultat.get("nb_constats") or resultat.get("nb_entetes"), db_path)
                 etapes.append({"dataset": dataset, "statut": "SUCCES",

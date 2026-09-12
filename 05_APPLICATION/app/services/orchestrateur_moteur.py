@@ -277,6 +277,12 @@ def importer_hostaway(*, db_path=None, declencheur: str | None = None) -> dict[s
     jour — ce qu'il est.
     """
     from app.services import hostaway_depot_service as depot
+    from app.services import hostaway_raw_service as raw
+    from app.services import orchestrateur_service as orch
+
+    # Extraction sur laquelle l'aval a été calculé la dernière fois — lue AVANT la synchronisation.
+    propagee = (orch.dernier_detail_a_jour("HOSTAWAY_RAW", db_path=db_path) or {}).get(
+        "extraction_id") or ""
 
     # Le déclencheur est celui du run orchestrateur (transmis par `_appeler_service`) : un run lancé
     # depuis l'écran reste MANUEL jusqu'au journal. Le forcer à AUTO faisait passer toute
@@ -290,10 +296,16 @@ def importer_hostaway(*, db_path=None, declencheur: str | None = None) -> dict[s
                 "message": f"lot1_hostaway_extract rc={code}"}
     if not resultat.get("ok"):
         return resultat
-    if not resultat.get("importe"):
-        # Déjà synchronisé : succès, sans nouvelle extraction.
-        return {"ok": True, **{k: v for k, v in resultat.items() if k != "ok"}}
-    return {"ok": True, **{k: v for k, v in resultat.items() if k != "ok"}}
+
+    # INCHANGÉ se juge sur l'IDENTITÉ de l'extraction servie à l'aval — ni sur « importé ou non », ni
+    # sur une date. Un clic sur l'écran Hostaway a pu importer une version nouvelle depuis le dernier
+    # run orchestré : elle n'a été propagée nulle part, et doit l'être. À l'inverse, un dépôt déjà
+    # synchronisé ET déjà propagé ne justifie aucun recalcul (§15) — c'est l'orchestrateur qui en
+    # tire la conséquence, pas ce service.
+    courante = raw.derniere_extraction_utilisable(db_path=db_path)
+    return {"ok": True, **{k: v for k, v in resultat.items() if k != "ok"},
+            "extraction_id": courante,
+            "donnees_modifiees": not propagee or courante != propagee}
 
 
 def importer_hostaway_cleaning_tasks(*, db_path=None, declencheur: str | None = None) -> dict[str, Any]:

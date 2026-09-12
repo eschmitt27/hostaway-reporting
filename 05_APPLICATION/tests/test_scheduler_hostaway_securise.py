@@ -658,3 +658,102 @@ def test_27_cleaning_tasks_demande_explicitement_reste_declenche_avec_son_aval(a
                           db_path=amonts_calcul_ok)
     assert any("cleaning_tasks" in a for a in appels)
     assert dag.MENAGES in [e["dataset"] for e in res["etapes"]]
+
+
+# ── 14, 15 : rien recalculé quand rien n'a changé, tout propagé quand quelque chose a changé ─────
+
+CHAINE_HOSTAWAY = (dag.HOSTAWAY_RAW, dag.RESERVATIONS, dag.FLUX_LOT9, dag.LOT10, dag.LOT11,
+                   dag.LOT12)
+COMMIT_B = "b" * 40
+
+
+def _premier_run_propage(db, tmp_path, monkeypatch) -> list[str]:
+    _depot_publie(monkeypatch, COMMIT_A)
+    _moteur_simule(monkeypatch, tmp_path, ecrire=_ecrire_extraction(COMMIT_A))
+    appels = _services_aval_neutralises(monkeypatch)
+    ordo.tick(maintenant=T0, db_path=db)
+    etats = {d["dataset"]: d["statut"] for d in orch.etat_datasets(db)}
+    assert all(etats[d] == orch.ST_A_JOUR for d in CHAINE_HOSTAWAY), etats
+    appels.clear()
+    return appels
+
+
+def _plus_tard(heures: float) -> datetime:
+    return datetime.now(timezone.utc) + timedelta(hours=heures)
+
+
+def test_14_meme_etat_publie_aucun_recalcul_aval(amonts_calcul_ok, tmp_path, monkeypatch):
+    db = amonts_calcul_ok
+    appels = _premier_run_propage(db, tmp_path, monkeypatch)
+
+    ordo.tick(maintenant=_plus_tard(6), db_path=db)
+
+    assert appels == [dag.NOEUDS[dag.HOSTAWAY_RAW].service]   # seule la source est interrogée
+    run = orch.dernier_run(db_path=db)
+    assert run["statut"] == orch.RUN_SUCCES
+    etapes = {e["etape"]: e for e in orch.etapes_run(run["run_id"], db_path=db)}
+    for dataset in CHAINE_HOSTAWAY[1:]:
+        assert etapes[dataset]["statut"] == "IGNOREE" and "inchangé" in etapes[dataset]["erreur"]
+    etats = {d["dataset"]: d["statut"] for d in orch.etat_datasets(db)}
+    assert all(etats[d] == orch.ST_A_JOUR for d in CHAINE_HOSTAWAY)
+
+
+def test_15_nouvelle_publication_propagee_par_le_dag_existant(amonts_calcul_ok, tmp_path,
+                                                             monkeypatch):
+    db = amonts_calcul_ok
+    appels = _premier_run_propage(db, tmp_path, monkeypatch)
+    _depot_publie(monkeypatch, COMMIT_B)
+    _moteur_simule(monkeypatch, tmp_path, ecrire=_ecrire_extraction(COMMIT_B, ids=("91001", "91003")))
+
+    ordo.tick(maintenant=_plus_tard(6), db_path=db)
+
+    assert appels == [dag.NOEUDS[d].service for d in CHAINE_HOSTAWAY]   # ordre du DAG, sans Lots codés
+    assert not any("cleaning_tasks" in a or "executer_menages" in a for a in appels)
+
+
+def test_15_import_fait_depuis_l_ecran_hostaway_est_propage_au_run_suivant(amonts_calcul_ok,
+                                                                          tmp_path, monkeypatch):
+    """Le bouton de l'écran Hostaway synchronise sans propager. Le run orchestré suivant voit que
+    l'extraction servie n'est pas celle de l'aval, même si le dépôt n'a rien de neuf entre-temps."""
+    db = amonts_calcul_ok
+    appels = _premier_run_propage(db, tmp_path, monkeypatch)
+    _depot_publie(monkeypatch, COMMIT_B)
+    _moteur_simule(monkeypatch, tmp_path, ecrire=_ecrire_extraction(COMMIT_B))
+    assert depot.synchroniser(declencheur="MANUEL", db_path=db)["importe"] is True
+
+    ordo.tick(maintenant=_plus_tard(6), db_path=db)
+
+    assert appels == [dag.NOEUDS[d].service for d in CHAINE_HOSTAWAY]
+
+
+class _ArretBrutal(BaseException):
+    """Échappe à `except Exception` : simule un processus tué au milieu d'un run."""
+
+
+def test_15_arret_brutal_apres_un_changement_ne_laisse_pas_l_aval_passer_pour_inchange(
+        amonts_calcul_ok, tmp_path, monkeypatch):
+    db = amonts_calcul_ok
+    appels = _premier_run_propage(db, tmp_path, monkeypatch)
+    _depot_publie(monkeypatch, COMMIT_B)
+    _moteur_simule(monkeypatch, tmp_path, ecrire=_ecrire_extraction(COMMIT_B))
+    etape_reelle = orch._etape
+
+    def etape_puis_arret(run_id, dataset, *args, **kwargs):
+        # Juste APRÈS l'import réussi de la nouvelle version, AVANT tout recalcul aval.
+        if dataset == dag.HOSTAWAY_CLEANING_TASKS:
+            raise _ArretBrutal()
+        return etape_reelle(run_id, dataset, *args, **kwargs)
+
+    monkeypatch.setattr(orch, "_etape", etape_puis_arret)
+    with pytest.raises(_ArretBrutal):
+        ordo.tick(maintenant=_plus_tard(6), db_path=db)
+    monkeypatch.setattr(orch, "_etape", etape_reelle)
+
+    etats = {d["dataset"]: d["statut"] for d in orch.etat_datasets(db)}
+    assert etats[dag.HOSTAWAY_RAW] == orch.ST_A_JOUR
+    assert etats[dag.RESERVATIONS] == orch.ST_A_RECALCULER, "aval calculé sur l'ancienne version"
+    appels.clear()
+
+    ordo.tick(maintenant=_plus_tard(12), db_path=db)      # le dépôt n'a plus rien de neuf
+
+    assert appels == [dag.NOEUDS[d].service for d in CHAINE_HOSTAWAY]
