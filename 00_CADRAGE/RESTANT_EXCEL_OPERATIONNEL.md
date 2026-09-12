@@ -178,3 +178,50 @@ invocation a changé) → les deux lectures résiduelles du classeur M04 dans `l
 → `lot3` (charges ; la table est déjà canonique côté application) → `lot5`, `lot7` →
 `lot4bis/ter/quater` **en dernier** : c'est le cœur du résultat économique, et c'est là que le coût
 d'une erreur est maximal.
+
+---
+
+## 7. Mise à jour 2026-09-12 — recette utilisateur n°3, §17bis
+
+**Aucun flux Excel opérationnel n'a été réintroduit, et un chemin résiduel a été fermé.**
+
+| Élément audité | État | Preuve |
+|---|---|---|
+| `menages_cout_complet` | **SQLite, recalculé dans la vraie base** (29 → 50 lignes, 6 mois) | `JOURNAL_CONTROLES.md`, `CTR-RECALCUL-MENAGES-COUT-COMPLET-2026-09-12` |
+| `lot6c` | **Gardé** par un test dédié : le parcours `--source SQLITE` n'ouvre AUCUN classeur, ni en lecture ni en écriture | `test_lot6c_anti_excel.py` (audit hook CPython, 5 tests) |
+| `lot6f` | Déjà `--source` réduit à `SQLITE`, chemin Excel supprimé avant cette mission | `test_lot6f_anti_excel.py` |
+| `lot6b` | Export legacy supprimé du code (mission précédente) | `test_lot6b_anti_excel.py` |
+| `lot6d` / `lot6e` | Mode `EXCEL` toujours présent dans le code, **plus aucun appelant ne l'emprunte** | voir ci-dessous |
+| `lot6a` | Chantier distinct, **non improvisé** | voir ci-dessous |
+
+### Le chemin résiduel qui a été fermé
+
+`run_menages_pipeline.py` — script autonome, cité tel quel comme « commande » sur l'écran de
+diagnostic ménages — lançait `lot6d`/`lot6e`/`lot6f` **sans aucun argument**. Ils retombaient donc
+sur leur défaut `--source EXCEL` : un chemin Excel réel, atteignable par un utilisateur qui suivait
+l'instruction affichée par l'application elle-même. Les trois appels passent désormais
+`--source SQLITE --sans-excel`, comme le font déjà `orchestrateur_moteur` et
+`menages_recalcul_service`.
+
+### `lot6d` / `lot6e` — pourquoi le mode EXCEL n'est pas supprimé aujourd'hui
+
+| | |
+|---|---|
+| **Rôle** | rapprochement des volumes (6d), gain/perte vs coût standard (6e) |
+| **Source Excel** | `MASTER_NORM_Declarations_Internes.xlsx`, `M04_MENAGES_PowerQuery.xlsx`, masters Lot6a/6c — **tous gelés**, plus personne ne les régénère |
+| **Consommateur** | aucun : les trois appelants réels (`orchestrateur_moteur`, `menages_recalcul_service`, `menages_chaine_service`) passent tous `--source SQLITE`, et le dernier qui ne le faisait pas vient d'être corrigé |
+| **Cible SQLite** | déjà en place, testée, et exercée à chaque recalcul |
+| **Blocage exact** | aucun blocage technique : c'est du **code mort à retirer**, pas une migration à faire. Le retirer implique de réécrire ~700 lignes de branche EXCEL dans deux scripts et de reprendre leurs tests structurels — un chantier propre, à faire d'un bloc, pas au milieu d'une mission de recette |
+
+### `lot6a` — chantier distinct, réellement bloqué
+
+| | |
+|---|---|
+| **Rôle** | extraction Hostaway CleaningTasks (API) → comptage |
+| **Source Excel** | lit `REF_Setup.xlsm` (3 lectures : référentiels) et ÉCRIT `MASTER_FACT_HA_CleaningTasks_Discovery.xlsx` |
+| **Consommateur** | le classeur est régénéré depuis SQLite par `hostaway_cleaning_tasks_adaptateur_moteur` pour la recette ; la table canonique `menages_taches_enrichies` est alimentée par le chemin applicatif (`hostaway_actualisation_service`), pas par ce script |
+| **Cible SQLite** | `menages_taches_enrichies` — déjà la source de tout l'aval depuis cette mission (cf. §15) |
+| **Blocage exact** | le script exige des identifiants API Hostaway (aucun `.env` sur cette installation) : il ne peut être ni exécuté ni testé ici. Le migrer à l'aveugle reviendrait à réécrire un extracteur réseau sans jamais l'exercer |
+
+**Règle projet inchangée** : les exports XLSX/CSV utilisateurs restent autorisés ; Excel comme
+**base ou source opérationnelle du moteur** reste interdit.

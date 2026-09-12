@@ -3433,3 +3433,60 @@ mission « lot6c vers SQLite ») : condition explicite avant tout recalcul de la
 l'écart n'est pas entièrement expliqué, ne pas recalculer la vraie base — rapporter
 `ARBITRAGE_REQUIS_AVANT_RECALCUL_REEL` et s'arrêter là. Le reset opérationnel reste **non exécuté**,
 en attente des mêmes décisions que la mission précédente.
+
+---
+
+## Mission 26 (2026-09-12) — recette utilisateur n°3 : débloquer les parcours cassés
+
+**But** : la recette utilisateur a remonté des écrans qui mentent et des parcours qui ne
+fonctionnent pas. Auditer, comprendre la cause, corriger, prouver — pas produire une feuille de
+route.
+
+Sauvegarde d'entrée : `BCK-2A302954F5A9` (`PRE_RECETTE_UTILISATEUR_03_20260912_023937`), VALIDE,
+schéma 0080.
+
+### Les parcours réparés, chacun reproduit avant correction
+
+| # | Ce que l'utilisateur constatait | Cause réelle | État |
+|---|---|---|---|
+| §4 | « Je ne peux pas créer une réservation hors Hostaway » | `ref_cloture_mensuelle` s'arrêtait à 2026-06 ; le contrôle D10 lisait « mois absent » comme « mois fermé ». Juillet, août et septembre étaient refusés depuis trois mois | **Corrigé**, E2E prouvé |
+| §15 | « juillet affiche 2904 attendus, 2599 réalisés » | Le compteur lisait la table RAW `hostaway_cleaning_tasks` (3 711 lignes, doublons inclus) quand tout le reste de l'écran lisait la table enrichie (727) | **Corrigé** : 71 attendus / 22 annulés / 93 tâches pour juillet |
+| §8 | « PDF détectés 0 » à côté de « 2 PDF reconnus » | Deux questions différentes affichées comme une seule : fichiers sur disque vs factures en base | **Corrigé** |
+| §21 | « 11 lignes extraites, la facture affiche 0 ligne » | Deux tables de lignes : l'extracteur écrivait dans l'une, l'écran lisait l'autre | **Corrigé** |
+| §28 | (non vu par l'utilisateur) Les deux factures réelles avaient été validées avec −89,00 € et +36,00 € d'écart | Aucun contrôle Σ lignes = total | **Corrigé**, validation refusée avec le détail chiffré |
+| §36/§77 | « le journal Achats ne montre pas les factures validées » | La validation ne faisait qu'un UPDATE de statut. `generer_ecriture_achat` existait et n'était appelée par personne | **Corrigé**, dette 401 créée à la validation, idempotente |
+| §12/§13 | « actualisation partielle », et pourtant « rapprochement à jour » | Hostaway en échec (`lot1_hostaway_extract rc=1`, aucun `.env` — vérifié par présence de fichier, aucune valeur lue). L'écran affichait l'horodatage du RECALCUL comme s'il datait la SOURCE | **Corrigé** : bandeau honnête avec les vraies dates (réservations 02/09, tâches 07/09) |
+| §5/§17/§32/§62 | « CANAL_003 », « LOG_0005 », « INT_003 » à l'écran | Filtres et tableaux affichant l'identifiant faute de libellé résolu | **Corrigé**, 0 identifiant technique sur 14 écrans réels |
+| §38 | « une charge validée ne peut plus être corrigée » | Transition inverse inexistante | **Corrigé**, avec deux verrous (mois clôturé, refacturation déjà émise) |
+| §17bis | `menages_cout_complet` figé sur un état antérieur | Reliquat de la mission précédente | **Recalculé** dans la vraie base après preuve sur copie |
+
+### Ce que la recette a révélé et que personne n'avait demandé
+
+- **Un écran peut être faux en étant techniquement juste.** « PDF détectés 0 » et « 2 PDF
+  reconnus » étaient tous deux exacts ; c'est leur voisinage qui mentait.
+- **Un garde-fou peut se retourner.** Le contrôle de clôture existait pour empêcher d'antidater ;
+  faute de distinguer « jamais déclaré » de « fermé », il a fini par interdire le mois courant.
+- **Une correction peut en casser une autre.** Exclure une ligne du total sans l'exclure de
+  l'écriture produisait une écriture déséquilibrée, donc refusée, donc une facture validée SANS sa
+  dette — trouvé en exerçant le parcours complet, pas en relisant le code.
+
+### État de la base réelle
+
+Recalcul de `menages_cout_complet` : 29 → 50 lignes, 3 → 6 mois, 6 197,99 € → 9 178,00 €, chaque
+écart rattaché à une cause (`JOURNAL_CONTROLES.md`,
+`CTR-RECALCUL-MENAGES-COUT-COMPLET-2026-09-12`). `integrity_check` **ok**, `foreign_key_check`
+**0**, schéma **0081**. `F-11/0-000001` **intacte** (EMIS, 465,88 €). **Aucun reset.**
+
+### Réserve explicite
+
+Les deux factures fournisseurs réelles sont `VALIDEE` alors que leurs lignes ne reconstituent pas
+leur total (−89,00 € et +36,00 €). Le contrôle qui refuse ce cas existe désormais, mais il
+n'existait pas quand elles ont été validées. Elles n'ont **pas** été dévalidées d'office : défaire
+un acte de l'utilisateur sans qu'il le demande serait pire que de signaler l'écart. L'écran de
+facture l'affiche, et les deux corrections tracées sont disponibles.
+
+### Prochaine action unique
+
+**Résoudre l'écart des deux factures de juillet** depuis l'écran de facture (ajouter la ligne
+manquante, ou marquer l'extraction incorrecte — motif obligatoire dans les deux cas), puis
+actualiser le mois : le coût complet de juillet se met à jour seul.

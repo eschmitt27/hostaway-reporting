@@ -192,3 +192,15 @@ Avant / après, dans `JOURNAL_CONTROLES.md` :
 - `integrity_check` **ok**, `foreign_key_check` **0** ;
 - l'application démarre et tous les écrans répondent ;
 - **septembre 2026 n'est pas clôturable** tant qu'il n'est pas terminé.
+
+### 2quater. Ce que la recette utilisateur n°3 (2026-09-12) change pour ce plan
+
+| Changement | Effet sur le reset |
+|---|---|
+| **`menages_cout_complet` a été recalculé** (29 → 50 lignes, 6 mois, 9 178,00 €) | Le point resté ouvert au §2bis et au critère §8 est **levé** : le coût complet ne décrit plus un mois que les déclarations ne décrivent plus. |
+| **Migration 0081** (`facture_lignes_menage.statut_ligne`, `motif_correction`) | Le schéma a changé depuis la rédaction de ce plan. Toute requête de reset touchant les lignes de facture doit en tenir compte ; aucune donnée existante n'a été modifiée par cette migration. |
+| **Une facture fournisseur validée crée désormais son écriture ACHATS** | Un reset qui retirerait des factures fournisseurs devra aussi traiter leurs écritures — contrepassation, jamais suppression. À ce jour la base réelle n'en porte aucune (les deux factures de juillet ont un écart non résolu). |
+| **Les mois non déclarés postérieurs à la dernière clôture sont ouverts** | Le reset n'a plus besoin d'« ouvrir » un mois dans `ref_cloture_mensuelle` pour que la saisie reprenne au 01/09/2026 : un mois non déclaré est ouvert par construction. Clôturer reste un acte explicite. |
+| **Une charge validée peut revenir à contrôler** | Sans effet sur le reset lui-même, mais la règle est symétrique de la sienne : le retour est refusé sur un mois clôturé. |
+
+**Inchangé** : F-11/0-000001 conservée, aucune séquence remise à zéro, aucun reset exécuté.

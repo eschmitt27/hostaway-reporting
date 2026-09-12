@@ -1618,3 +1618,84 @@ Ce qui A été traité dans la même mission (référentiels réellement présen
 générique — valeur courante sans période) : le paramètre canapé (`ref_canape_parametres`, migration
 0058) et l'audit confirme que taux de commission / gestion logement↔propriétaire / coût ménage
 standard étaient déjà historisés (missions précédentes). Voir `REGLES_METIER_TEMPORELLES.md`.
+
+---
+
+### D-FOURN-LIGNES-01 — la ligne du PDF EST la ligne de la facture fournisseur
+
+- **Date** : 2026-09-12
+- **Lot** : recette utilisateur n°3 (§21, §22, §28, §29, §30, §31, §33, §34, §35, §36, §77)
+- **Statut** : ACTÉ
+
+**Décisions :**
+
+- **D-FL-1 — une seule chaîne.** Les lignes extraites d'un PDF fournisseur (`facture_lignes_menage`
+  + quantité/prix unitaire + traçabilité PDF) SONT les lignes de la facture fournisseur. Il
+  n'existe plus deux tables de lignes vivant chacune sa vie : l'écran de facture affiche ce que
+  l'extracteur a produit.
+- **D-FL-2 — la source est immuable.** Le libellé d'origine et la quantité extraits du document ne
+  se modifient pas dans le contrôle normal. Ce que disait la pièce reçue reste lisible, toujours.
+- **D-FL-3 — Σ lignes = total document, sinon non validable.** Une facture dont les lignes ne
+  reconstituent pas son total n'est pas contrôlée. Aucun bouton « forcer valide », aucune
+  tolérance cachée, aucune modification silencieuse du total.
+- **D-FL-4 — deux corrections, toutes deux tracées, motif obligatoire.**
+  `AJOUTER UNE LIGNE MANQUANTE` (source `SAISIE_MANUELLE_CORRECTIVE`) quand le parseur a omis une
+  ligne ; `MARQUER EXTRACTION INCORRECTE` (statut `EXTRACTION_INCORRECTE`) quand une ligne a été
+  mal lue. Dans le second cas la ligne est **neutralisée, jamais supprimée** : elle reste affichée
+  avec son libellé et son montant d'origine, et cesse seulement de compter.
+- **D-FL-5 — cycle métier : `A_CONTROLER` → `VALIDEE`.** « détecté », « reconnu », « extrait »,
+  « erreur d'extraction » sont des états TECHNIQUES de traitement (runs, diagnostics), jamais des
+  statuts comptables concurrents. L'UI affiche « À contrôler » et « Validée », et une facture
+  validée s'affiche en vert.
+- **D-FL-6 — la validation crée la dette, pas la banque.** Valider une facture fournisseur génère
+  immédiatement l'écriture du journal ACHATS : un débit 606 par ligne retenue portant son
+  logement, un crédit 401 auxiliaire fournisseur. Le paiement ultérieur solde la dette ; il ne
+  constate pas l'achat. Génération **idempotente** : un rerun ne crée jamais une seconde dépense
+  (`une ligne validée = une seule dépense économique`).
+- **D-FL-7 — plus de charge parallèle.** « Rattacher une charge » et « Ajouter une ligne »
+  générique sont retirés du parcours : la facture fournisseur est la source primaire de la
+  dépense, et créer une charge à côté ouvrait un risque de double comptage.
+
+**Portée sur les lignes neutralisées** : une ligne écartée l'est des DEUX côtés — du total des
+lignes ET de l'écriture comptable. Sans cela le débit (toutes lignes) et le crédit (total document)
+ne s'équilibrent plus, et la facture resterait validée sans sa dette.
+
+---
+
+### D-CHG-REOUVERTURE-01 — rouvrir le contrôle d'une charge, tant que c'est réversible
+
+- **Date** : 2026-09-12
+- **Lot** : recette utilisateur n°3 (§37, §38)
+- **Statut** : ACTÉ
+
+**Décisions :**
+
+- **D-CR-1** : `VALIDE` → `A_CONTROLER` est possible, avec **motif obligatoire** et journalisation,
+  pour corriger les champs métier (montant, impact, périmètre, refacturable).
+- **D-CR-2** : REFUSÉ si le **mois est clôturé**. Une période arrêtée ne se rouvre pas depuis une
+  fiche.
+- **D-CR-3** : REFUSÉ si une **facture propriétaire émise** porte déjà la refacturation de cette
+  charge — le montant vit dans un document remis. La correction passe alors par un avoir ou une
+  opération corrective, jamais par une réécriture rétroactive.
+- **D-CR-4** : une charge `ANNULEE` n'est jamais rouverte : son cycle de vie est clos.
+
+---
+
+### D-SAISIE-MOIS-01 — « mois non déclaré » ne vaut pas « mois fermé »
+
+- **Date** : 2026-09-12
+- **Lot** : recette utilisateur n°3 (§4, §56)
+- **Statut** : ACTÉ
+
+**Décision.** Une clôture est un ACTE EXPLICITE et tracé ; son absence ne ferme rien. Un mois
+absent de `ref_cloture_mensuelle` est donc **ouvert à la saisie s'il est postérieur à la dernière
+clôture prononcée**, et refusé s'il lui est antérieur — pour qu'aucune saisie ne soit antidatée
+dans une période déjà arrêtée.
+
+**Pourquoi.** Le contrôle D10 lisait « absent du référentiel » comme « fermé ». Le référentiel
+s'arrêtant à 2026-06 alors qu'on était en septembre, plus **aucune** réservation hors Hostaway ne
+pouvait être créée depuis trois mois — sans message compréhensible, et sans que rien ne soit cassé
+côté code : il aurait fallu avancer le référentiel à la main chaque mois.
+
+**Conséquence** : le mois courant est saisissable sans intervention, et affiché « provisoire ». Le
+moteur ne le clôture toujours pas.

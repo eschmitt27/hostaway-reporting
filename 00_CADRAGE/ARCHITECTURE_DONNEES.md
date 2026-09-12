@@ -2276,3 +2276,45 @@ que `None`, faisant planter `lot11` dès qu'une période de gestion restait acti
 Détail complet, y compris ce qui reste non fait (recalcul réel de `menages_cout_complet`, modes
 `EXCEL` de `lot6d`/`lot6e` non nettoyés) : `HANDOFF_CANONIQUE.md` mission 25,
 `RESTANT_EXCEL_OPERATIONNEL.md`.
+
+## Mise à jour 2026-09-12 — Recette utilisateur n°3 : lignes fournisseurs, dette, ouverture des mois
+
+**Une migration : `0081_facture_ligne_correction_tracee`.** Deux colonnes sur
+`facture_lignes_menage` :
+
+| Colonne | Rôle |
+|---|---|
+| `statut_ligne` | `ACTIVE` (défaut) ou `EXTRACTION_INCORRECTE` — une ligne mal extraite est **neutralisée**, jamais supprimée : elle reste lisible et cesse de compter. |
+| `motif_correction` | Motif **obligatoire** de l'ajout manuel ou de la neutralisation. |
+
+Le couple (`source`, `statut_ligne`) distingue les trois natures de ligne :
+`PDF_EXTRACTION`+`ACTIVE` (ligne du document, libellé et quantité immuables) ·
+`PDF_EXTRACTION`+`EXTRACTION_INCORRECTE` (écartée, motif obligatoire) ·
+`SAISIE_MANUELLE_CORRECTIVE`+`ACTIVE` (ligne manquante ajoutée, motif obligatoire).
+
+**Aucune autre table modifiée.** Les changements portent sur qui LIT quoi :
+
+- `factures_service.lignes()` lisait `facture_lignes` (alimentée seulement par « rattacher une
+  charge », 0 ligne en base) ; il lit désormais AUSSI `facture_lignes_menage` + `_detail` +
+  `_pdf`, c'est-à-dire ce que l'extracteur produit réellement. `facture_lignes` reste lue pour ne
+  rien masquer des lignes historiques.
+- `menages_origine_service.origines()` lisait la table RAW `hostaway_cleaning_tasks`
+  (3 711 lignes : extractions cumulées, doublons, listings hors parc) avec un mois dérivé par
+  découpe de chaîne ; il lit désormais `menages_taches_enrichies` — la MÊME table que
+  lot6c/6d/6e/6f et `menages_ecarts_service`, dédoublonnée, `mois` et `logement_id` résolus.
+- `comptabilite_ecritures_service.generer_ecriture_achat()` est désormais APPELÉ à la validation
+  d'une facture (il existait, personne ne l'appelait) et exclut les lignes neutralisées des deux
+  côtés de l'écriture.
+- `menages_service.fraicheur_hostaway()` (nouveau) rend la date du dernier SUCCÈS réel par source
+  Hostaway — distincte de l'horodatage de recalcul, qu'on présentait jusqu'ici à sa place.
+- `ref_setup_hh_reader.mois_ouvert_pour_saisie()` (nouveau, fonction pure) : un mois non déclaré
+  postérieur à la dernière clôture est OUVERT ; antérieur, il reste refusé.
+
+**Filtres de gabarit canoniques** (`app/template_env.py`) : `datetime_fr`, `date_fr`, `entier`,
+`nom_canal` s'ajoutent aux filtres de libellé existants. Trois routes (banques, clôtures,
+réservations) ré-enregistraient `datetime_fr`/`date_fr` sur l'environnement Jinja **partagé** avec
+un autre format : la dernière importée l'emportait pour toute l'application. Ces
+ré-enregistrements sont supprimés — il n'existe plus qu'une définition.
+
+Détail complet : `HANDOFF_CANONIQUE.md` mission 26, `DECISIONS_METIER.md`
+(`D-FOURN-LIGNES-01`, `D-CHG-REOUVERTURE-01`, `D-SAISIE-MOIS-01`).
