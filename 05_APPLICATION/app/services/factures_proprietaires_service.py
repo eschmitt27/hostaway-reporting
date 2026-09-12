@@ -130,6 +130,20 @@ AVERTISSEMENT_LIGNE_CALCULEE = (
 
 TYPE_FACTURE, TYPE_AVOIR = "FACTURE", "AVOIR"
 
+#: §79 — marque d'une facture saisie hors cycle mensuel.
+#
+# UNE FACTURE EXCEPTIONNELLE RESTE UNE FACTURE. Fiscalement, rien ne la distingue : même
+# numérotation, même PDF, mêmes mentions, même créance, même écriture VENTES. J'avais commencé par
+# lui donner un `type_document` à elle — le schéma l'a refusé, et il avait raison : `type_document`
+# dit la NATURE du document (facture ou avoir), pas la façon dont on l'a fabriqué.
+#
+# Ce qui la distingue tient dans `source_calcul` : elle ne vient d'aucun calcul mensuel. C'est
+# aussi ce qui la libère de l'index d'unicité `(mois, propriétaire, logement, type_document)` —
+# index dont le rôle est d'empêcher DEUX factures mensuelles pour le même grain, pas d'interdire
+# une prestation ponctuelle. Et plusieurs prestations ponctuelles dans un même mois sont
+# parfaitement légitimes : deux interventions d'urgence, deux factures.
+SOURCE_EXCEPTIONNELLE = "SAISIE_EXCEPTIONNELLE"
+
 # Codes de contrôle stables (catalogue facturation).
 C_SOURCE_INCOMPLETE = "FACTURE_PROPRIETAIRE_SOURCE_INCOMPLETE"
 C_DOUBLON = "FACTURE_PROPRIETAIRE_DOUBLON"
@@ -254,6 +268,86 @@ def previsualiser(source: dict[str, Any],
 
 
 # ── Création ────────────────────────────────────────────────────────────────────────────────────
+
+def creer_exceptionnelle(*, proprietaire_id: str, logement_id: str, mois: str,
+                         lignes: list[dict[str, Any]], acteur: str = "",
+                         db_path=None) -> dict[str, Any]:
+    """§79 — facture ponctuelle, hors cycle mensuel. Les lignes sont DONNÉES, pas calculées.
+
+    LE MANQUE. Toute facture naissait d'une source Lot12 : un calcul mensuel par propriétaire et
+    par logement. Une prestation ponctuelle — une intervention d'urgence, un service rendu une
+    fois — n'en a aucune. Elle n'avait donc pas de chemin du tout : il fallait attendre le cycle
+    suivant et l'y glisser, ou renoncer à la facturer.
+
+    CE QUI NE CHANGE PAS. Le document reste une facture entière : même numérotation, même PDF,
+    même contrôle de conformité, même créance, même écriture VENTES. Rien n'est allégé sous
+    prétexte qu'elle est exceptionnelle — c'est une facture remise à un tiers.
+
+    CE QUI EST EXIGÉ. Au moins une ligne, chacune avec un libellé et un montant non nul. Un
+    montant négatif est refusé : une facture qui rend de l'argent est un AVOIR, et l'avoir a son
+    propre parcours (`creer_avoir`), avec son lien vers la facture d'origine.
+    """
+    proprietaire_id = str(proprietaire_id or "").strip()
+    logement_id = str(logement_id or "").strip()
+    mois = str(mois or "").strip()
+    if not (proprietaire_id and logement_id and mois):
+        raise FactureProprietaireError(
+            f"{C_SOURCE_INCOMPLETE}: propriétaire, logement et mois sont obligatoires")
+
+    preparees = []
+    for i, l in enumerate(lignes or [], start=1):
+        libelle = str(l.get("libelle") or "").strip()
+        try:
+            montant = round(float(str(l.get("montant") or "0").replace(",", ".")), 2)
+        except (TypeError, ValueError):
+            raise FactureProprietaireError(
+                f"{C_SOURCE_INCOMPLETE}: ligne {i}, montant illisible « {l.get('montant')} »")
+        if not libelle:
+            raise FactureProprietaireError(f"{C_SOURCE_INCOMPLETE}: ligne {i} sans libellé")
+        if montant <= 0:
+            raise FactureProprietaireError(
+                f"{C_SOURCE_INCOMPLETE}: ligne {i}, montant {montant:.2f} € — une facture qui rend "
+                f"de l'argent est un avoir, pas une facture négative")
+        # `EXTRA` est le type canonique d'une prestation ponctuelle (cf.
+        # `factures_proprietaires_composition_service.TYPE_EXTRA`) : c'est celui d'une ligne qui
+        # n'est ni une commission, ni un ménage, ni une charge refacturée — exactement le cas ici.
+        type_ligne = str(l.get("type_ligne") or "EXTRA").strip()
+        if type_ligne not in TYPES_LIGNE_SAISISSABLES + ("EXTRA",):
+            raise FactureProprietaireError(
+                f"{C_SOURCE_INCOMPLETE}: ligne {i}, type « {type_ligne} » non facturable")
+        preparees.append({"numero_ligne": i, "type_ligne": type_ligne, "libelle": libelle,
+                          "montant": montant})
+    if not preparees:
+        raise FactureProprietaireError(f"{C_SOURCE_INCOMPLETE}: aucune ligne facturable")
+
+    total = round(sum(l["montant"] for l in preparees), 2)
+    conn = get_db(db_path)
+    try:
+        # PAS de contrôle d'unicité ici, volontairement : deux interventions ponctuelles dans un
+        # même mois font deux factures. L'index d'unicité, lui, ne garde que le cycle mensuel.
+        fid = _opaque("FPR")
+        conn.execute(
+            "INSERT INTO factures_proprietaires "
+            "(facture_id_opaque, type_document, proprietaire_id, logement_id, mois, "
+            " montant_total, statut, source_calcul, acteur) VALUES (?,?,?,?,?,?,?,?,?)",
+            (fid, TYPE_FACTURE, proprietaire_id, logement_id, mois, total, ST_BROUILLON,
+             SOURCE_EXCEPTIONNELLE, acteur or "local"))
+        for l in preparees:
+            conn.execute(
+                "INSERT INTO factures_proprietaires_lignes "
+                "(ligne_id_opaque, facture_id_opaque, numero_ligne, type_ligne, libelle, montant, "
+                " objet_source_type) VALUES (?,?,?,?,?,?,?)",
+                (_opaque("FPRL"), fid, l["numero_ligne"], l["type_ligne"], l["libelle"],
+                 l["montant"], SOURCE_EXCEPTIONNELLE))
+        _journal(conn, fid, "CREATION_EXCEPTIONNELLE", None, ST_BROUILLON,
+                 f"{len(preparees)} ligne(s), {total:.2f} €", acteur)
+        conn.commit()
+    finally:
+        conn.close()
+    return {"facture_id_opaque": fid, "montant_total": total, "statut": ST_BROUILLON,
+            "type_document": TYPE_FACTURE, "source_calcul": SOURCE_EXCEPTIONNELLE,
+            "nb_lignes": len(preparees)}
+
 
 def creer(source: dict[str, Any], *, acteur: str = "", db_path=None,
           type_document: str = TYPE_FACTURE, facture_origine: str | None = None,

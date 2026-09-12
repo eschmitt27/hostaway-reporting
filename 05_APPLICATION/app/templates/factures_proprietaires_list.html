@@ -28,6 +28,42 @@
   <a href="/factures-proprietaires/proposer?mois={{ mois }}" class="btn">Générer les factures</a>
 </form>
 
+{# §79 — une prestation ponctuelle n'a pas de source mensuelle, et n'avait donc aucun chemin :
+   il fallait attendre le cycle suivant, ou renoncer à la facturer. #}
+<details class="card mb-md">
+  <summary><strong>+ Facturer une prestation ponctuelle</strong></summary>
+  <p class="text-xs text-secondary">
+    Hors cycle mensuel : une intervention d'urgence, un service rendu une fois. Le document reste
+    une facture entière — même numérotation, même PDF, même créance, même écriture de vente.
+    Plusieurs prestations ponctuelles dans un même mois sont possibles.
+  </p>
+  <form method="post" action="/factures-proprietaires/exceptionnelle">
+    <div class="flex gap-sm items-center" style="flex-wrap:wrap">
+      <label>Propriétaire
+        <select name="proprietaire_id" required>
+          <option value="">— choisir —</option>
+          {% for p in proprietaires_options %}
+          <option value="{{ p.id }}">{{ p.libelle }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Logement
+        <select name="logement_id" required>
+          <option value="">— choisir —</option>
+          {% for l in logements_options %}
+          <option value="{{ l.id }}">{{ l.libelle }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Mois <input type="month" name="mois" value="{{ mois }}" required></label>
+      <label>Désignation <input type="text" name="libelle" required
+             placeholder="Intervention d'urgence — fuite salle de bain" style="min-width:20rem"></label>
+      <label>Montant € <input type="text" name="montant" required placeholder="150,00" style="width:7rem"></label>
+      <button type="submit" class="btn btn-primary">Créer le brouillon</button>
+    </div>
+  </form>
+</details>
+
 <table class="table">
   <thead>
     <tr>

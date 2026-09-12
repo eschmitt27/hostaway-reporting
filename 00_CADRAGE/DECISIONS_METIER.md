@@ -1873,3 +1873,36 @@ correction différents — que l'écran annonçait jusqu'ici de façon identique
 écriture (de l'argent entré ou sorti dont le compte 530000 ne portait aucune trace) ; et `annuler()`
 retournait le statut **sans rien contrepasser**, laissant l'écriture en place. La caisse comptable
 et la caisse réelle divergeaient en silence.
+
+---
+
+### D-FACT-EXCEPTIONNELLE-01 — facturer une prestation ponctuelle
+
+- **Date** : 2026-09-12
+- **Lot** : recette utilisateur n°3 (§79, §80)
+- **Statut** : ACTÉ
+
+**Décisions :**
+
+- **D-FE-1** : une facture exceptionnelle est une **FACTURE** (`type_document = FACTURE`).
+  Fiscalement rien ne l'en distingue : même numérotation, même PDF, mêmes mentions, même créance,
+  même écriture VENTES. J'avais d'abord voulu lui donner un `type_document` propre ; **le schéma
+  l'a refusé, et il avait raison** — `type_document` dit la NATURE du document (facture ou avoir),
+  pas la façon dont on l'a fabriqué.
+- **D-FE-2** : ce qui la distingue tient dans **`source_calcul = SAISIE_EXCEPTIONNELLE`** : elle ne
+  vient d'aucun calcul mensuel.
+- **D-FE-3** : l'index d'unicité `(mois, propriétaire, logement, type_document)` **ne garde plus
+  que le cycle mensuel** (migration 0085). Son rôle est d'empêcher qu'un second passage du cycle
+  fabrique un doublon — pas d'interdire une prestation ponctuelle sur un mois déjà facturé, ni
+  **deux interventions d'urgence dans le même mois**, qui est le cas normal.
+- **D-FE-4** : les lignes sont **DONNÉES**, jamais calculées. Au moins une, chacune avec un libellé
+  et un montant strictement positif. Un montant négatif est **refusé** : une facture qui rend de
+  l'argent est un **avoir**, et l'avoir a son propre parcours, avec son lien vers la facture
+  d'origine.
+- **D-FE-5** : un montant illisible est refusé, **jamais interprété**.
+
+**Vérifié bout en bout sur copie isolée**, par les routes réelles : création d'une intervention
+d'urgence à **150,00 €**, validation, émission en `2026-09-001`, PDF produit et haché, créance de
+150,00 € « À régler ». Puis une seconde prestation le même mois (`2026-09-002`, 90,00 €), avec son
+écriture VENTES équilibrée. L'anti-doublon du cycle mensuel refuse toujours une seconde facture
+mensuelle sur le même grain.

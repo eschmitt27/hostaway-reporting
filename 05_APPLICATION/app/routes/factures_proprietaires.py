@@ -9,6 +9,7 @@ import calendar
 import re
 from datetime import date
 from pathlib import Path
+from urllib.parse import quote
 
 import app.config as cfg
 from fastapi import APIRouter, Form, Request
@@ -136,7 +137,63 @@ def liste(request: Request, mois: str = "", statut: str = "", comptabilisee: str
     return templates.TemplateResponse(request, "factures_proprietaires_list.html", {
         "active_menu": "factures_proprietaires", "factures": factures, "mois": mois, "statut": statut,
         "statuts": svc.STATUTS, "comptabilisee": comptabilisee,
+        # §79 — on choisit un propriétaire et un logement par leur NOM, jamais par leur code.
+        "proprietaires_options": _options_proprietaires(),
+        "logements_options": _options_logements(),
     })
+
+
+def _options_proprietaires() -> list[dict[str, str]]:
+    from app.services import referentiel_admin_service as ref_admin
+    from app.services import referentiel_service as ref
+    try:
+        options = [{"id": str(r.get("proprietaire_id") or "").strip(),
+                    "libelle": ref.libelle_proprietaire(str(r.get("proprietaire_id") or ""))}
+                   for r in ref_admin.lignes("ref_proprietaires")
+                   if str(r.get("proprietaire_id") or "").strip()]
+        return sorted(options, key=lambda o: o["libelle"].lower())
+    except Exception:      # noqa: BLE001 — référentiel absent : la liste est vide, jamais fausse
+        return []
+
+
+def _options_logements() -> list[dict[str, str]]:
+    """Les logements SORTIS DU PARC restent proposés, marqués : une prestation ponctuelle peut
+    porter sur un mois où le logement était encore géré."""
+    from app.services import referentiel_admin_service as ref_admin
+    from app.services import referentiel_service as ref
+    try:
+        options = []
+        for r in ref_admin.lignes("ref_logements"):
+            ident = str(r.get("logement_id") or "").strip()
+            if not ident:
+                continue
+            hors_parc = str(r.get("actif", "OUI")).strip().upper() == "NON"
+            libelle = ref.libelle_logement(ident)
+            options.append({"id": ident, "hors_parc": hors_parc,
+                            "libelle": f"{libelle} (sorti du parc)" if hors_parc else libelle})
+        return sorted(options, key=lambda o: (o["hors_parc"], o["libelle"].lower()))
+    except Exception:      # noqa: BLE001
+        return []
+
+
+@router.post("/factures-proprietaires/exceptionnelle")
+async def creer_exceptionnelle(request: Request):
+    """§79 — facture d'une prestation ponctuelle, hors cycle mensuel."""
+    form = await request.form()
+    try:
+        res = svc.creer_exceptionnelle(
+            proprietaire_id=str(form.get("proprietaire_id", "") or ""),
+            logement_id=str(form.get("logement_id", "") or ""),
+            mois=str(form.get("mois", "") or ""),
+            lignes=[{"libelle": str(form.get("libelle", "") or ""),
+                     "montant": str(form.get("montant", "") or "")}],
+            acteur="interface")
+    except svc.FactureProprietaireError as exc:
+        return RedirectResponse(
+            f"/factures-proprietaires?erreur={quote(str(exc))}", status_code=303)
+    # On ouvre directement le brouillon : c'est là que l'utilisateur va poursuivre (ajouter une
+    # ligne, valider, émettre), et non sur la liste qu'il vient de quitter.
+    return RedirectResponse(f"/factures-proprietaires/{res['facture_id_opaque']}", status_code=303)
 
 
 @router.get("/factures-proprietaires/proposer", response_class=HTMLResponse)
