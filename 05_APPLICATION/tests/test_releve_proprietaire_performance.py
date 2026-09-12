@@ -319,3 +319,52 @@ def test_le_moteur_de_suivi_reste_intact(base):
         suivi.creer_ou_charger(PROP, "2026-13", acteur="test", db_path=base)
     with pytest.raises(suivi.ReleveRefuse):
         suivi.creer_ou_charger("", MOIS, acteur="test", db_path=base)
+
+
+# ── §4 — un mandat terminé ne laisse pas de ligne vide sur un écran de performance ──────────────
+
+def test_un_proprietaire_sans_mandat_ni_activite_ne_figure_pas_au_releve(tmp_db):
+    """Le moteur conserve une ligne à zéro pour tracer un logement dont la gestion a pris fin.
+    La présenter ici afficherait une ligne vide, sur un écran de performance, pour quelqu'un dont
+    on ne gère plus rien."""
+    conn = get_db(tmp_db)
+    try:
+        conn.execute("INSERT INTO ref_proprietaires (proprietaire_id, nom_proprietaire, actif, "
+                     "import_id) VALUES ('PROP_FINI','Mandat termine','NON','IMP-T')")
+        conn.execute("INSERT INTO lot10_runs (run_id, date_calcul, actif) VALUES ('R','x',1)")
+        conn.execute(
+            "INSERT INTO lot10_net_reglement (run_id, mois, logement_id, proprietaire_id, "
+            "total_payout_mois, total_commission_mois, net_proprietaire_avant_charge_mois, "
+            "nb_reservations) VALUES ('R',?,'LOG_FINI','PROP_FINI',0,0,0,0)", (MOIS,))
+        conn.commit()
+    finally:
+        conn.close()
+    assert perf.proprietaires_du_mois(MOIS, db_path=tmp_db) == []
+
+
+def test_un_mandat_ouvert_sans_reservation_figure_bien_au_releve(tmp_db):
+    """Un taux de remplissage de 0 % est une information — sans doute la plus importante du
+    relevé. Confondre « rien loué » et « plus de mandat » ferait disparaître le premier."""
+    conn = get_db(tmp_db)
+    try:
+        conn.execute("INSERT INTO ref_proprietaires (proprietaire_id, nom_proprietaire, actif, "
+                     "import_id) VALUES ('PROP_VIDE','Sans reservation','OUI','IMP-T')")
+        conn.execute("INSERT INTO ref_logements (logement_id, nom_court, type_logement_id, actif, "
+                     "statut_parc, import_id) VALUES ('LOG_VIDE','Vide','TYPE_001','OUI','GERE','IMP-T')")
+        conn.execute(
+            "INSERT INTO ref_gestion_logements_hist (gestion_id, logement_id, proprietaire_id, "
+            "date_debut, date_fin, statut_gestion, import_id) "
+            "VALUES ('G-VIDE','LOG_VIDE','PROP_VIDE','2025-01-01',NULL,'ACTIF','IMP-T')")
+        conn.execute("INSERT INTO lot10_runs (run_id, date_calcul, actif) VALUES ('R','x',1)")
+        conn.execute(
+            "INSERT INTO lot10_net_reglement (run_id, mois, logement_id, proprietaire_id, "
+            "total_payout_mois, total_commission_mois, net_proprietaire_avant_charge_mois, "
+            "nb_reservations) VALUES ('R',?,'LOG_VIDE','PROP_VIDE',0,0,0,0)", (MOIS,))
+        conn.commit()
+    finally:
+        conn.close()
+    assert [p["proprietaire_id"] for p in perf.proprietaires_du_mois(MOIS, db_path=tmp_db)] \
+        == ["PROP_VIDE"]
+    releve = perf.releve("PROP_VIDE", MOIS, db_path=tmp_db)
+    assert releve["taux_remplissage"] == 0.0, "0 % se dit, il ne se cache pas"
+    assert releve["nuits_commercialisables"] == 30

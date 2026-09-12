@@ -392,13 +392,39 @@ def mois_disponibles(proprietaire_id: str = "", *, db_path=None) -> list[str]:
 
 
 def proprietaires_du_mois(mois: str, *, db_path=None) -> list[dict[str, Any]]:
-    """Propriétaires ayant une activité sur le mois, avec leur nom — jamais leur code."""
+    """Propriétaires à présenter sur le relevé du mois, avec leur nom — jamais leur code.
+
+    DEUX SITUATIONS QUI SE RESSEMBLENT ET QUI N'ONT RIEN À VOIR
+      · un logement SOUS MANDAT qui n'a rien loué ce mois-là : un taux de remplissage de 0 % est
+        une information, et sans doute la plus importante du relevé. Le propriétaire figure.
+      · un logement dont le MANDAT A PRIS FIN : ses séjours existent encore chez Hostaway, mais ils
+        ne relèvent plus de la gestion. Le moteur conserve une ligne à zéro pour le tracer ; la
+        présenter ici afficherait une ligne vide, sur un écran de performance, pour quelqu'un dont
+        on ne gère plus rien.
+
+    Le critère n'est donc pas « a une ligne de calcul », mais « a quelque chose à lire » : une
+    activité économique, OU des nuits commercialisables — c'est-à-dire un mandat ouvert.
+    """
+    from app.readers import proprietaires_reglements_reader as lot10
     from app.services import referentiel_service as ref
 
-    from app.readers import proprietaires_reglements_reader as lot10
+    lignes = [l for l in lot10.net_reglement(db_path=db_path).lignes
+              if _txt(l.get("mois")) == _txt(mois) and _txt(l.get("proprietaire_id"))]
 
-    identifiants = sorted({_txt(l.get("proprietaire_id"))
-                           for l in lot10.net_reglement(db_path=db_path).lignes
-                           if _txt(l.get("mois")) == _txt(mois) and _txt(l.get("proprietaire_id"))})
-    return [{"proprietaire_id": i, "libelle": ref.libelle_proprietaire(i, db_path=db_path)}
-            for i in identifiants]
+    activite: dict[str, bool] = {}
+    for ligne in lignes:
+        identifiant = _txt(ligne.get("proprietaire_id"))
+        chiffre = any(_f(ligne.get(c)) for c in (
+            "total_payout_mois", "total_menage_mois", "total_commission_mois",
+            "net_proprietaire_avant_charge_mois"))
+        activite[identifiant] = activite.get(identifiant, False) or chiffre or bool(
+            _f(ligne.get("nb_reservations")))
+
+    retenus = []
+    for identifiant in sorted(activite):
+        if not activite[identifiant] and not nuits_commercialisables(
+                identifiant, _txt(mois), db_path=db_path)["total"]:
+            continue
+        retenus.append({"proprietaire_id": identifiant,
+                        "libelle": ref.libelle_proprietaire(identifiant, db_path=db_path)})
+    return retenus

@@ -593,6 +593,21 @@ La donnée source, elle, est intacte — mois par mois :
 2026-08   7 résa · 0 dans l'économie ·  2 107,33 € conservés
 ```
 
+### U.3 — et le relevé ne garde pas une ligne vide
+
+Le moteur conserve une ligne à zéro pour tracer un logement dont la gestion a pris fin. La
+présenter sur le relevé afficherait une ligne vide, sur un écran de performance, pour quelqu un
+dont on ne gère plus rien.
+
+Le critère de présence n est donc pas « a une ligne de calcul » mais « a quelque chose à lire » :
+une activité économique, **ou** des nuits commercialisables — c est-à-dire un mandat ouvert. Un
+logement sous mandat qui n a rien loué figure donc bien, avec un taux de remplissage de **0 %**,
+qui est une information et sans doute la plus importante du relevé. Deux tests séparent ces deux
+situations qui se ressemblent.
+
+Août 2026 : 9 propriétaires listés avant, **8** après —  disparaît du relevé sans que
+ses données disparaissent de la base.
+
 Si la date de fin est erronée, la corriger depuis **Historique logement** suffira : tout se
 recalculera. Le moteur ne contourne rien de lui-même.
 
