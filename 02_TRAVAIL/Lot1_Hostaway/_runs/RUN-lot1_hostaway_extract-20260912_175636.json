@@ -1,0 +1,170 @@
+{
+  "run_id": "RUN-lot1_hostaway_extract-20260912_175636",
+  "lot": "lot1_hostaway_extract",
+  "started_at": "2026-09-12T15:56:36+00:00",
+  "statut": "SUCCES",
+  "declencheur": "MANUEL",
+  "pid": 43120,
+  "arguments": [
+    "--db",
+    "C:\\Users\\Ewans\\AppData\\Local\\Temp\\pytest_depot2\\test_google_sheet_reellement_b0\\app.db",
+    "--source",
+    "DEPOT_GITHUB",
+    "--skip-cleaning-tasks",
+    "--sans-excel"
+  ],
+  "erreur": "",
+  "etapes": [
+    {
+      "etape": "SQLITE_RAW",
+      "ordre": 1,
+      "started_at": "2026-09-12T15:56:41+00:00",
+      "ended_at": "2026-09-12T15:56:41+00:00",
+      "statut": "SUCCES",
+      "nb_lus": null,
+      "nb_ecrits": 1613,
+      "position": null,
+      "tentatives": 0,
+      "http_status": null,
+      "erreur": "",
+      "sorties": [
+        {
+          "table": "listings",
+          "lignes": 18
+        },
+        {
+          "table": "reservations",
+          "lignes": 1613
+        },
+        {
+          "table": "payouts",
+          "lignes": 1588
+        },
+        {
+          "table": "fees",
+          "lignes": 0
+        },
+        {
+          "table": "finance_fields",
+          "lignes": 14547
+        },
+        {
+          "table": "anomalies",
+          "lignes": 38
+        }
+      ]
+    },
+    {
+      "etape": "LISTINGS",
+      "ordre": 2,
+      "started_at": "2026-09-12T15:56:36+00:00",
+      "ended_at": "2026-09-12T15:56:41+00:00",
+      "statut": "SUCCES",
+      "nb_lus": 18,
+      "nb_ecrits": 18,
+      "position": null,
+      "tentatives": 0,
+      "http_status": null,
+      "erreur": "",
+      "sorties": []
+    },
+    {
+      "etape": "RESERVATIONS",
+      "ordre": 3,
+      "started_at": "2026-09-12T15:56:41+00:00",
+      "ended_at": "2026-09-12T15:56:41+00:00",
+      "statut": "SUCCES",
+      "nb_lus": 1962,
+      "nb_ecrits": 1613,
+      "position": "1900",
+      "tentatives": 0,
+      "http_status": null,
+      "erreur": "",
+      "sorties": []
+    },
+    {
+      "etape": "DETAILS",
+      "ordre": 4,
+      "started_at": "2026-09-12T15:56:41+00:00",
+      "ended_at": "2026-09-12T15:56:41+00:00",
+      "statut": "SUCCES",
+      "nb_lus": 0,
+      "nb_ecrits": 0,
+      "position": null,
+      "tentatives": 0,
+      "http_status": null,
+      "erreur": "",
+      "sorties": []
+    },
+    {
+      "etape": "FINANCE_FIELDS",
+      "ordre": 5,
+      "started_at": "2026-09-12T15:56:41+00:00",
+      "ended_at": "2026-09-12T15:56:41+00:00",
+      "statut": "SUCCES",
+      "nb_lus": null,
+      "nb_ecrits": 14547,
+      "position": null,
+      "tentatives": 0,
+      "http_status": null,
+      "erreur": "",
+      "sorties": []
+    },
+    {
+      "etape": "FEES",
+      "ordre": 6,
+      "started_at": "2026-09-12T15:56:41+00:00",
+      "ended_at": "2026-09-12T15:56:41+00:00",
+      "statut": "SUCCES",
+      "nb_lus": null,
+      "nb_ecrits": 0,
+      "position": null,
+      "tentatives": 0,
+      "http_status": null,
+      "erreur": "",
+      "sorties": []
+    },
+    {
+      "etape": "PAYOUTS",
+      "ordre": 7,
+      "started_at": "2026-09-12T15:56:41+00:00",
+      "ended_at": "2026-09-12T15:56:41+00:00",
+      "statut": "SUCCES",
+      "nb_lus": null,
+      "nb_ecrits": 1588,
+      "position": null,
+      "tentatives": 0,
+      "http_status": null,
+      "erreur": "",
+      "sorties": []
+    },
+    {
+      "etape": "ANOMALIES",
+      "ordre": 8,
+      "started_at": "2026-09-12T15:56:41+00:00",
+      "ended_at": "2026-09-12T15:56:41+00:00",
+      "statut": "SUCCES",
+      "nb_lus": null,
+      "nb_ecrits": 38,
+      "position": null,
+      "tentatives": 0,
+      "http_status": null,
+      "erreur": "",
+      "sorties": []
+    },
+    {
+      "etape": "CLEANING_TASKS",
+      "ordre": 9,
+      "started_at": "2026-09-12T15:56:41+00:00",
+      "ended_at": "2026-09-12T15:56:41+00:00",
+      "statut": "IGNOREE",
+      "nb_lus": null,
+      "nb_ecrits": null,
+      "position": null,
+      "tentatives": 0,
+      "http_status": null,
+      "erreur": "--skip-cleaning-tasks",
+      "sorties": []
+    }
+  ]
+}

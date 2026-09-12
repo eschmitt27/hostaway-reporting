@@ -225,6 +225,32 @@ def actualiser(*, mois_affiche: str = "", acteur: str = "ui:menages",
 
         etapes: list[dict[str, Any]] = []
 
+        # ── 0. DÉPÔT HOSTAWAY ───────────────────────────────────────────────────────────────
+        # « Actualiser » doit d'abord ALLER CHERCHER la donnée, pas seulement recalculer sur celle
+        # déjà présente. Le pipeline GitHub extrait Hostaway trois fois par jour et publie le
+        # résultat dans le dépôt ; cette étape synchronise le dernier état publié vers SQLite.
+        #
+        # Elle ne déclenche AUCUNE seconde extraction Hostaway : si l'état publié est déjà en base,
+        # elle ne fait rien et le dit. Aucun identifiant local n'est requis — c'est précisément ce
+        # qui distingue cette étape de l'étape 3 ci-dessous.
+        from app.services import hostaway_depot_service as depot_ha
+
+        try:
+            depot_resultat = depot_ha.synchroniser(declencheur=declencheur, db_path=db_path,
+                                                   attendre=True)
+        except Exception as exc:  # noqa: BLE001 — une source indisponible ne gèle pas les autres
+            depot_resultat = {"ok": False, "importe": False,
+                              "message": f"{type(exc).__name__}: {exc}"}
+        etapes.append({
+            "etape": "HOSTAWAY_DEPOT",
+            "ok": bool(depot_resultat.get("ok")),
+            "importe": bool(depot_resultat.get("importe")),
+            "mois_impactes": [],
+            "publie_le": (depot_resultat.get("publie") or {}).get("source_horodatage", ""),
+            "commit": (depot_resultat.get("publie") or {}).get("commit_court", ""),
+            "message": depot_resultat.get("message", ""),
+        })
+
         # ── 1. PDF ──────────────────────────────────────────────────────────────────────────
         # Déjà idempotent et sans IA : le hash décide seul si un fichier est nouveau, inchangé, ou
         # une nouvelle version d'une facture déjà connue.

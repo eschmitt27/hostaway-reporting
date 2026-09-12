@@ -567,6 +567,21 @@ CLASSIFICATION: dict[str, tuple[str, str]] = {
     # ici rouvrirait ou fermerait une période sans rien de tout cela.
     "ref_cloture_mensuelle": (
         DEDICATED_WORKFLOW, "Écran Clôture mensuelle → ouverture / clôture d'une période"),
+    # CORRESPONDANCES LOGEMENT — décision utilisateur, §18.
+    #
+    # Classée EDITABLE au départ, et c'était une erreur d'appréciation : l'exploitant DOIT pouvoir
+    # corriger une correspondance — c'est même une des opérations les plus fréquentes — mais une
+    # ligne de cette table n'est pas une donnée qu'on saisit, c'est une DÉCISION qu'on prend sur un
+    # libellé venu de l'extérieur. Éditer la ligne brute demande de connaître `source`,
+    # `champ_source`, `valeur_source` et l'identifiant technique du logement, et n'enregistre ni
+    # qui a tranché ni contre quelle proposition.
+    #
+    # Le parcours « Corriger une correspondance logement » pose la seule question qui compte —
+    # « ce libellé, c'est quel logement ? » — montre la correspondance actuelle et celle que le
+    # moteur propose, et trace le choix.
+    "ref_mapping_logements": (
+        DEDICATED_WORKFLOW, "Écran Correspondances logement → corriger / déclarer une "
+                            "correspondance"),
 
     # ── Consultation seule : le MOTEUR lit ces identifiants en dur ──────────────────────────────
     # Les compter n'est pas une intuition : `TYPE_FLUX_0…` apparaît 49 fois dans `app/`,

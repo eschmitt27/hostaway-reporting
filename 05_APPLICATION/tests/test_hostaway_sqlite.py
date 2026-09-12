@@ -423,16 +423,26 @@ def test_le_service_est_appelable_sans_contexte_http(tmp_db):
 
 
 def test_actualisation_refusee_si_une_autre_est_en_cours(tmp_db):
-    """Deux extractions simultanées écriraient deux extractions concurrentes."""
+    """Deux extractions simultanées écriraient deux extractions concurrentes.
+
+    L'horodatage est celui de MAINTENANT, et il doit l'être : le run que ce test simule est un run
+    qui tourne vraiment. Une date figée dans le passé décrivait en réalité un run abandonné —
+    lequel est désormais requalifié INTERROMPU par `marquer_runs_interrompus`, précisément pour
+    qu'un processus mort ne bloque plus le bouton indéfiniment (cf.
+    `test_hostaway_depot_github.py::test_un_run_reste_ouvert_est_requalifie_interrompu`).
+    """
+    from datetime import datetime, timezone
+
     from app.db.connection import get_db
     from app.services import hostaway_actualisation_service as act
 
+    maintenant = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     conn = get_db(tmp_db)
     try:
         conn.execute(
             "INSERT INTO moteur_runs (run_id, lot, started_at, statut, declencheur) "
-            "VALUES ('RUN-EN-COURS','lot1_hostaway_extract','2026-08-17T10:00:00Z',"
-            "'EN_COURS','MANUEL')")
+            "VALUES ('RUN-EN-COURS','lot1_hostaway_extract',?,'EN_COURS','MANUEL')",
+            (maintenant,))
         conn.commit()
     finally:
         conn.close()

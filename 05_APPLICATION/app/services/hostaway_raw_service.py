@@ -37,6 +37,11 @@ from app.db.connection import get_db
 MODE_API = "API"
 MODE_FIXTURE = "FIXTURE"
 MODE_REPRISE_EXCEL = "REPRISE_EXCEL"
+# Faits Hostaway extraits par le pipeline GitHub Actions (secrets gérés côté GitHub) et publiés
+# dans le dépôt, puis synchronisés ici. Le mode est explicite parce qu'il change la lecture de la
+# fraîcheur : ces données ont été PRODUITES avant d'être importées, ce qui n'est pas le cas d'un
+# appel API.
+MODE_DEPOT_GITHUB = "DEPOT_GITHUB"
 
 ST_EN_COURS = "EN_COURS"
 ST_SUCCES = "SUCCES"
@@ -96,23 +101,51 @@ def table_presente(nom: str, *, db_path=None) -> bool:
 
 # ── Ouverture et clôture d'une extraction ───────────────────────────────────────────────────────
 
-def ouvrir(*, mode: str = MODE_API, run_id: str = "", db_path=None) -> str:
+def ouvrir(*, mode: str = MODE_API, run_id: str = "", db_path=None, source_ref: str = "",
+           source_horodatage: str = "") -> str:
     """Ouvre une extraction et rend son identifiant.
 
     Ouverte AVANT le premier appel réseau : une extraction qui échoue à mi-parcours doit laisser une
     trace, sinon un échec ressemble à une absence d'exécution.
+
+    `source_ref` / `source_horodatage` décrivent la PROVENANCE quand la source est extérieure et
+    datée (dépôt de données publié par un pipeline) : quelle version exacte a été importée, et
+    quand cette version a été produite. Vides pour un appel API, où la source est l'appel lui-même.
     """
     extraction_id = "HAX-" + uuid.uuid4().hex[:12].upper()
     conn = get_db(db_path)
     try:
         conn.execute(
-            "INSERT INTO hostaway_extractions (extraction_id, run_id, mode, date_debut, statut) "
-            "VALUES (?,?,?,?,?)",
-            (extraction_id, run_id or None, mode, _maintenant(), ST_EN_COURS))
+            "INSERT INTO hostaway_extractions "
+            "(extraction_id, run_id, mode, date_debut, statut, source_ref, source_horodatage) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (extraction_id, run_id or None, mode, _maintenant(), ST_EN_COURS,
+             source_ref or None, source_horodatage or None))
         conn.commit()
     finally:
         conn.close()
     return extraction_id
+
+
+def extraction_de_source(source_ref: str, *, db_path=None) -> dict[str, Any] | None:
+    """Extraction déjà en base pour cette version de la source, s'il y en a une.
+
+    C'est ce qui rend la synchronisation IDEMPOTENTE : réimporter un état du dépôt déjà importé ne
+    doit rien recréer. Sans cela, chaque clic sur « Actualiser » fabriquerait une extraction de
+    plus, identique à la précédente — et la comparaison d'une extraction à l'autre, qui sert à
+    repérer ce qui a bougé, ne voudrait plus rien dire.
+    """
+    if not source_ref or not table_presente("hostaway_extractions", db_path=db_path):
+        return None
+    conn = get_db(db_path)
+    try:
+        r = conn.execute(
+            f"SELECT {', '.join(_COLS_EXTRACTION)} FROM hostaway_extractions "
+            "WHERE source_ref = ? AND statut IN (?, ?) ORDER BY date_debut DESC, id DESC LIMIT 1",
+            (source_ref, ST_SUCCES, ST_PARTIEL)).fetchone()
+    finally:
+        conn.close()
+    return dict(zip(_COLS_EXTRACTION, r)) if r else None
 
 
 def cloturer(extraction_id: str, *, statut: str, message: str = "", db_path=None) -> dict[str, Any]:
@@ -273,7 +306,8 @@ def enregistrer(extraction_id: str, *, listings: Iterable[dict] = (),
 # ── Lecture ─────────────────────────────────────────────────────────────────────────────────────
 
 _COLS_EXTRACTION = ("extraction_id", "run_id", "mode", "date_debut", "date_fin", "statut",
-                    "nb_listings", "nb_reservations", "nb_payouts", "message")
+                    "nb_listings", "nb_reservations", "nb_payouts", "message",
+                    "source_ref", "source_horodatage")
 
 
 def derniere_extraction(*, db_path=None) -> dict[str, Any] | None:
@@ -453,4 +487,13 @@ def fraicheur(*, db_path=None) -> dict[str, Any]:
         "nb_reservations": derniere["nb_reservations"],
         "nb_payouts": derniere["nb_payouts"],
         "nb_listings": derniere["nb_listings"],
+        # DEUX DATES, JAMAIS UNE SEULE.
+        #   `source_horodatage` — quand la plateforme a été interrogée et le jeu produit ;
+        #   `date_fin`          — quand CETTE installation l'a importé.
+        # Entre les deux il peut s'écouler des heures. N'en afficher qu'une revient soit à
+        # vieillir des données fraîches, soit — bien pire — à faire passer pour à jour un import
+        # qui n'a jamais eu lieu.
+        "source_ref": derniere["source_ref"],
+        "source_horodatage": derniere["source_horodatage"],
+        "importe_le": derniere["date_fin"] or derniere["date_debut"],
     }

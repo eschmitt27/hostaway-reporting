@@ -294,8 +294,19 @@ class AnomalyDetector:
                       f"Listing {map_id} dans API Hostaway absent de REF_Logements")
 
     def _add(self, res_id, code, sev, desc):
+        # L'IDENTIFIANT EST UN LIBELLÉ, PAS UN NOMBRE.
+        #
+        # `to_df()` construit un DataFrame de ces lignes. Dès qu'une seule anomalie porte
+        # `reservation_id = None` — c'est le cas de `check_listing`, qui vise une annonce et non une
+        # réservation — pandas type la colonne en flottant et réécrit tous les autres identifiants
+        # « 66096017 » en « 66096017.0 ». Ces lignes ne se rattachent alors plus à aucune
+        # réservation : l'anomalie existe, mais on ne peut plus dire laquelle elle concerne.
+        #
+        # Le défaut est resté invisible tant que toutes les annonces étaient connues. Il est apparu
+        # à la première annonce Hostaway absente du parc. Convertir ici, à l'écriture, est la seule
+        # place où la valeur est encore sûrement un identifiant.
         self._rows.append({
-            "reservation_id":  res_id,
+            "reservation_id":  None if res_id is None else str(res_id),
             "code_anomalie":   code,
             "severite":        sev,
             "description":     desc,

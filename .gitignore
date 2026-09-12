@@ -100,3 +100,4 @@ Conciergerie app/
 # non indispensables. On versionne le cadrage texte (*.md) et le catalogue (*.xlsx).
 00_CADRAGE/APPLICATION_LOCALE/stitch/**/*.png
 00_CADRAGE/APPLICATION_LOCALE/stitch/**/*.html
+.devswarm-temp/

@@ -36,6 +36,7 @@ def db(tmp_path, monkeypatch):
 @pytest.fixture()
 def espions_ok(monkeypatch, db):
     """Toutes les frontières externes réputées OK — permet d'isoler UN seul point d'échec par test."""
+    from app.services import hostaway_depot_service as depot_ha
     from app.services import menages_declarations_service as decl
     from app.services import menages_pdf_import_service as pdf_import
     from app.services import menages_service as svc
@@ -62,6 +63,15 @@ def espions_ok(monkeypatch, db):
         journal.append(f"MENAGES:{mois}")
         return {"ok": True, "mois_traite": mois, "code": ""}
 
+    def _depot(**kw):
+        journal.append("HOSTAWAY_DEPOT")
+        return {"ok": True, "importe": False, "message": "",
+                "publie": {"commit_court": "abc", "source_horodatage": "2026-09-12T14:35:42Z"}}
+
+    # L'étape 0 du workflow synchronise le dépôt publié, ce qui suppose un `git fetch` : une
+    # frontière externe comme les autres, neutralisée ici pour qu'un test de robustesse n'échoue
+    # pas au rythme du réseau.
+    monkeypatch.setattr(depot_ha, "synchroniser", _depot)
     monkeypatch.setattr(pdf_import, "importer_nouveaux", _pdf)
     monkeypatch.setattr(moteur, "executer_declarations_internes", _lot6b)
     monkeypatch.setattr(orch, "recalculer_dataset", _hostaway)

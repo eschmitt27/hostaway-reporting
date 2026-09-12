@@ -260,19 +260,30 @@ def executer_menages_cible(*, db_path=None, mois: str, declencheur: str = "MANUE
 
 
 def importer_hostaway(*, db_path=None) -> dict[str, Any]:
-    """Import Hostaway pour l'orchestrateur — MÊME service que le bouton manuel et l'ordonnanceur.
+    """Import Hostaway pour l'orchestrateur — MÊME chemin que le bouton manuel et l'ordonnanceur.
 
-    ATTENDU jusqu'au bout (`attendre=True`). `hostaway_actualisation_service.actualiser` rend la
-    main dès le lancement quand on ne l'attend pas : l'orchestrateur marquerait alors le dataset
-    « à jour » avant même que l'extraction ait commencé, et tout l'aval serait recalculé sur les
-    données précédentes en croyant l'inverse.
+    LA SOURCE CANONIQUE EST LE DÉPÔT PUBLIÉ, PAS UN APPEL DEPUIS CE POSTE.
+    Les identifiants Hostaway sont détenus par GitHub Actions, qui extrait la plateforme trois fois
+    par jour et publie le résultat dans le dépôt. Cette installation synchronise ce dernier état.
+    Appeler l'API d'ici en parallèle créerait une seconde chaîne d'ingestion pour la même donnée —
+    deux extracteurs qui finissent toujours par diverger, sans qu'on sache lequel dit vrai. Le
+    moteur d'extraction, lui, est rigoureusement le même : seul le transport change.
+
+    ATTENDU jusqu'au bout (`attendre=True`) : sans cela l'orchestrateur marquerait le dataset « à
+    jour » avant même que l'import ait commencé, et tout l'aval serait recalculé sur les données
+    précédentes en croyant l'inverse.
+
+    IDEMPOTENT : si l'état publié est déjà en base, rien n'est relancé et le nœud est considéré à
+    jour — ce qu'il est.
     """
-    from app.services import hostaway_actualisation_service as hostaway
+    from app.services import hostaway_depot_service as depot
 
-    resultat = hostaway.actualiser(declencheur=hostaway.DECLENCHEUR_AUTO, db_path=db_path,
-                                   attendre=True)
+    resultat = depot.synchroniser(declencheur="AUTO", db_path=db_path, attendre=True)
     if not resultat.get("ok"):
         return resultat
+    if not resultat.get("importe"):
+        # Déjà synchronisé : succès, sans nouvelle extraction.
+        return {"ok": True, **{k: v for k, v in resultat.items() if k != "ok"}}
     # Le code retour du lot fait foi : un lancement réussi n'est pas une extraction réussie.
     code = resultat.get("code_retour")
     if code not in (0, None):

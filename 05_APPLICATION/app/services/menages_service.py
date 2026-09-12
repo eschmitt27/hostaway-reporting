@@ -227,6 +227,23 @@ def fraicheur_hostaway(db_path=None) -> dict[str, Any]:
             pass
     finally:
         conn.close()
+
+    # ── Fraîcheur de la SOURCE, pas seulement de l'import ────────────────────────────────────
+    # Les réservations Hostaway sont extraites par le pipeline GitHub, puis synchronisées ici. Il y
+    # a donc deux instants distincts, et l'écran doit les dire tous les deux :
+    #   « données produites le »      — quand la plateforme a été interrogée ;
+    #   « synchronisées ici le »      — quand cette installation les a importées.
+    # Sans la première, un import récent d'un jeu ancien passerait pour frais. Sans la seconde, un
+    # pipeline qui vient de publier ferait croire que la base est à jour alors qu'elle ne l'est pas.
+    #
+    # Lecture SANS réseau (`rafraichir=False`) : un affichage d'écran ne doit pas dépendre d'un
+    # `git fetch`. Le bouton « Actualiser », lui, rafraîchit réellement.
+    try:
+        from app.services import hostaway_depot_service as depot
+
+        resultat["depot"] = depot.fraicheur(rafraichir=False, db_path=db_path)
+    except Exception as exc:      # noqa: BLE001 — un dépôt illisible est un état, pas une panne
+        resultat["depot"] = {"etat": "INDETERMINE", "erreur": f"{type(exc).__name__}: {exc}"}
     return resultat
 
 

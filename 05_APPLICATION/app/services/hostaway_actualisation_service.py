@@ -28,7 +28,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -72,6 +72,16 @@ MESSAGES = {
 # `orchestrateur_dag.py`). Un run réel ou schedulé ne doit donc plus les écrire, même en parité :
 # aligné sur le même flag déjà utilisé par `orchestrateur_moteur.executer_lot10`.
 ARGUMENTS_DEFAUT = ("--skip-cleaning-tasks", "--sans-excel")
+
+# Arguments du chemin CANONIQUE : les faits viennent du dépôt publié par le pipeline GitHub, qui
+# détient les identifiants Hostaway. Aucun secret local n'est requis. Le moteur d'extraction est le
+# même — seul son transport change (cf. `lot1_hostaway_extract.py`, constante `SOURCE_DEPOT`).
+ARGUMENTS_DEPOT = ("--source", "DEPOT_GITHUB", "--skip-cleaning-tasks", "--sans-excel")
+
+# Durée au-delà de laquelle un run encore ouvert n'est plus crédible. Une extraction complète
+# s'exécute en quelques minutes (secondes depuis le dépôt) ; deux heures laissent une marge très
+# large sans laisser un processus mort bloquer indéfiniment le bouton.
+BAIL_RUN_S = 7200
 
 _COLS_RUN = ("run_id", "lot", "started_at", "ended_at", "statut", "declencheur", "pid",
              "nb_etapes", "nb_etapes_ok", "nb_etapes_ko", "duree_s", "erreur_resume")
@@ -119,14 +129,58 @@ def _interpreteur() -> str | None:
 
 # ── Lancement ───────────────────────────────────────────────────────────────────────────────────
 
+def marquer_runs_interrompus(*, db_path=None, bail_s: int = BAIL_RUN_S) -> list[str]:
+    """Un run resté EN_COURS bien au-delà de sa durée possible est INTERROMPU, pas « en cours ».
+
+    CE QUE CE CORRECTIF RÉPARE, ET COMMENT ON S'EN EST APERÇU
+    Un run lancé le 2026-09-10 à 13h21 n'a jamais été clos : son sous-processus s'est arrêté sans
+    écrire de statut. Deux jours plus tard, il était toujours `EN_COURS` en base, et comme
+    `actualisation_en_cours()` refuse tout nouveau lancement tant qu'un run est ouvert, le bouton
+    d'actualisation Hostaway était devenu DÉFINITIVEMENT inopérant — en répondant « une
+    actualisation est déjà en cours », ce qui était faux et désignait la mauvaise cause.
+
+    Aucun verrou ne protège ce lot (contrairement à l'orchestrateur, qui dispose d'un bail en base
+    et d'une reprise équivalente dans `orchestrateur_service.marquer_runs_interrompus`). Le seul
+    critère disponible est donc le temps écoulé : au-delà du bail, un run n'est plus une hypothèse
+    raisonnable. Le bail vaut le temps d'attente maximal d'une extraction, largement majoré.
+
+    Le run n'est pas effacé : il est marqué INTERROMPU, avec sa raison. Un échec doit rester
+    visible — le faire disparaître empêcherait de comprendre pourquoi la donnée est ancienne.
+    """
+    if not _table_presente("moteur_runs", db_path=db_path):
+        return []
+    limite = (datetime.now(timezone.utc) - timedelta(seconds=bail_s)).strftime(
+        "%Y-%m-%dT%H:%M:%S")
+    conn = get_db(db_path)
+    try:
+        perimes = [r[0] for r in conn.execute(
+            "SELECT run_id FROM moteur_runs WHERE lot = 'lot1_hostaway_extract' "
+            "AND statut = ? AND started_at < ?", (ST_EN_COURS, limite))]
+        for run_id in perimes:
+            conn.execute(
+                "UPDATE moteur_runs SET statut = ?, ended_at = ?, erreur_resume = ? "
+                "WHERE run_id = ?",
+                (ST_INTERROMPU, datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                 f"Run resté ouvert plus de {bail_s // 60} minutes sans clôture : considéré "
+                 "interrompu (le sous-processus ne tourne plus).", run_id))
+        conn.commit()
+    finally:
+        conn.close()
+    return perimes
+
+
 def actualisation_en_cours(*, db_path=None) -> dict[str, Any] | None:
     """Run Hostaway encore ouvert, s'il y en a un.
 
     Empêche deux extractions simultanées : elles écriraient deux extractions concurrentes et la
     dernière close deviendrait « la » courante, quel que soit son contenu.
+
+    Les runs périmés sont d'abord requalifiés : sans cela, un processus mort bloquerait le bouton
+    pour toujours, en prétendant qu'une extraction tourne encore.
     """
     if not _table_presente("moteur_runs", db_path=db_path):
         return None
+    marquer_runs_interrompus(db_path=db_path)
     conn = get_db(db_path)
     try:
         r = conn.execute(

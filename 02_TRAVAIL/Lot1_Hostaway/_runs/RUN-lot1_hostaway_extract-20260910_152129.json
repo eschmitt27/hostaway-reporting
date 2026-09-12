@@ -1,0 +1,16 @@
+{
+  "run_id": "RUN-lot1_hostaway_extract-20260910_152129",
+  "lot": "lot1_hostaway_extract",
+  "started_at": "2026-09-10T13:21:29+00:00",
+  "statut": "EN_COURS",
+  "declencheur": "MANUEL",
+  "pid": 24568,
+  "arguments": [
+    "--db",
+    "C:\\Users\\Ewans\\.devswarm\\repos\\1\\9537f8ef\\resume-pilotage-conciergerie-20260909\\05_APPLICATION\\data\\app.db",
+    "--skip-cleaning-tasks",
+    "--sans-excel"
+  ],
+  "erreur": "",
+  "etapes": []
+}

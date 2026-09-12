@@ -162,6 +162,34 @@
    cette information-là que l'utilisateur doit lire, avec la date réelle des dernières données
    Hostaway disponibles — pas un horodatage de recalcul qui donnerait l'illusion du frais. #}
 {% set ha = actualisation.hostaway %}
+
+{# ── Fraîcheur de la SOURCE Hostaway ────────────────────────────────────────────────────────
+   Deux instants, jamais un seul : l'heure à laquelle le pipeline a interrogé Hostaway, et
+   l'heure à laquelle cette installation a importé ce jeu. Les confondre reviendrait soit à
+   vieillir des données fraîches, soit — bien pire — à annoncer « à jour » une base qui n'a
+   jamais synchronisé le dernier jeu publié. #}
+{% set dp = ha.depot if ha else none %}
+{% if dp and dp.etat and dp.etat != "INDETERMINE" %}
+<div class="alert {% if dp.etat == 'A_JOUR' %}alert-info{% else %}alert-warning{% endif %}">
+  <strong>Données Hostaway</strong> —
+  {% if dp.source_produite_le %}
+    produites le {{ dp.source_produite_le|datetime_fr }},
+    synchronisées ici le {{ dp.synchronise_le|datetime_fr if dp.synchronise_le else "jamais" }}.
+  {% else %}
+    jamais synchronisées sur cette installation.
+  {% endif %}
+  {% if dp.etat == "RETARD" %}
+    <br><strong>Un jeu plus récent est publié</strong>{% if dp.publie_le %} ({{ dp.publie_le|datetime_fr }}){% endif %} —
+    il n'a pas encore été importé. Lancez « Actualiser le rapprochement » pour le récupérer.
+  {% elif dp.etat == "JAMAIS_IMPORTE" %}
+    <br>Aucune extraction Hostaway en base. Lancez « Actualiser le rapprochement ».
+  {% endif %}
+  <span class="text-xs text-secondary">
+    (Source : pipeline GitHub — aucun identifiant Hostaway n'est stocké sur ce poste.)
+  </span>
+</div>
+{% endif %}
+
 {% if ha and ha.en_echec %}
 <div class="alert alert-warning">
   <strong>Actualisation incomplète — données Hostaway non actualisées.</strong>

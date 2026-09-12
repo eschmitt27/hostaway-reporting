@@ -68,6 +68,17 @@ from lib_guestcount import resolve_api_guest_count
 
 DATE_FROM       = "2026-01-01"
 
+# ── Provenance des faits Hostaway ─────────────────────────────
+# DEUX TRANSPORTS, UN SEUL MOTEUR. `API` appelle Hostaway depuis ce poste et exige des identifiants
+# locaux ; `DEPOT_GITHUB` lit les fichiers que le pipeline GitHub Actions publie dans le dépôt, avec
+# les secrets qui y sont déjà gérés. Tout ce qui suit — canaux, payout H1/H2/H3, coût de ménage
+# daté, anomalies, écriture RAW — est rigoureusement le même code dans les deux cas. C'est la
+# condition pour qu'il n'existe jamais deux extracteurs Hostaway qui divergent.
+SOURCE_API   = "API"
+SOURCE_DEPOT = "DEPOT_GITHUB"
+REMOTE_DEPOT_DEFAUT  = "origin"
+BRANCHE_DEPOT_DEFAUT = "main"
+
 DETAILS_MINIMAL = "minimal"   # détail uniquement si payout impossible depuis liste
 DETAILS_FULL    = "full"      # détail systématique (comportement original)
 
@@ -772,7 +783,8 @@ def _service_raw():
 
 
 def ecrire_raw_sqlite(args, log, *, listings, reservations, details, finance_fields, fees,
-                      payouts, anomalies, run_id="") -> dict:
+                      payouts, anomalies, run_id="", mode=None, source_ref="",
+                      source_horodatage="") -> dict:
     """Ecrit les lignes extraites dans la couche RAW SQLite. Ne leve jamais.
 
     Le payload des details est rattache a sa reservation : le repli historique de `guestCount` en
@@ -809,7 +821,9 @@ def ecrire_raw_sqlite(args, log, *, listings, reservations, details, finance_fie
                 ligne["json_snapshot"] = charge
             reservations_enrichies.append(ligne)
 
-        extraction_id = raw.ouvrir(mode=raw.MODE_API, run_id=run_id, db_path=chemin)
+        extraction_id = raw.ouvrir(mode=mode or raw.MODE_API, run_id=run_id, db_path=chemin,
+                                   source_ref=source_ref,
+                                   source_horodatage=source_horodatage)
         detail = raw.enregistrer(
             extraction_id, db_path=chemin,
             listings=listings, reservations=reservations_enrichies, payouts=payouts,
@@ -1295,6 +1309,24 @@ def main():
         "--limit", type=int, default=0,
         help="Limiter à N réservations (0 = pas de limite). Pour tests.",
     )
+    parser.add_argument(
+        "--source", choices=[SOURCE_API, SOURCE_DEPOT], default=SOURCE_API,
+        help="D'où viennent les faits Hostaway. API : appel direct, nécessite des identifiants "
+             "locaux. DEPOT_GITHUB : fichiers publiés par le pipeline GitHub Actions, aucun "
+             "identifiant local requis. Le traitement en aval est identique dans les deux cas.",
+    )
+    parser.add_argument(
+        "--depot-branche", type=str, default=BRANCHE_DEPOT_DEFAUT,
+        help=f"Branche portant les données publiées (défaut : {BRANCHE_DEPOT_DEFAUT}).",
+    )
+    parser.add_argument(
+        "--depot-remote", type=str, default=REMOTE_DEPOT_DEFAUT,
+        help=f"Remote Git du dépôt de données (défaut : {REMOTE_DEPOT_DEFAUT}).",
+    )
+    parser.add_argument(
+        "--sans-fetch", action="store_true",
+        help="Ne rafraîchit pas le dépôt avant lecture (état local). Pour tests hors ligne.",
+    )
     args = parser.parse_args()
 
     # ── Modes diagnostic : sys.exit() direct ─────────────────────
@@ -1340,42 +1372,70 @@ def main():
     log.info(f"Date from: {DATE_FROM}")
     log.info("=" * 60)
 
-    # ── Charger .env ─────────────────────────────────────────
-    if not ENV_FILE.exists():
-        log.error(f".env introuvable : {ENV_FILE}")
-        sys.exit(1)
+    # ── Source des faits ─────────────────────────────────────
+    # LE SEUL ENDROIT OÙ LES DEUX TRANSPORTS DIVERGENT. Après ce bloc, `client` présente la même
+    # surface dans les deux cas et plus rien en aval ne sait — ni n'a besoin de savoir — d'où les
+    # réservations arrivent.
+    source_mode = getattr(args, "source", SOURCE_API)
+    source_ref = ""
+    source_horodatage = ""
 
-    load_dotenv(ENV_FILE)
-    client_id     = os.getenv("HOSTAWAY_CLIENT_ID", "")
-    client_secret = os.getenv("HOSTAWAY_CLIENT_SECRET", "")
-    account_id    = os.getenv("HOSTAWAY_ACCOUNT_ID", "")
-    base_url      = os.getenv("HOSTAWAY_BASE_URL", "https://api.hostaway.com")
+    if source_mode == SOURCE_DEPOT:
+        from lib_hostaway_depot import SourceDepotGitHub, DepotIndisponible
 
-    missing_vars = [k for k, v in [
-        ("HOSTAWAY_CLIENT_ID", client_id),
-        ("HOSTAWAY_CLIENT_SECRET", client_secret),
-        ("HOSTAWAY_ACCOUNT_ID", account_id),
-    ] if not v]
+        log.info(f"Source : dépôt de données publié par le pipeline GitHub "
+                 f"({args.depot_remote}/{args.depot_branche}).")
+        log.info("Aucun identifiant Hostaway local n'est requis sur ce chemin.")
+        try:
+            client = SourceDepotGitHub(
+                BASE_DIR, log, remote=args.depot_remote, branche=args.depot_branche,
+                rafraichir=not getattr(args, "sans_fetch", False))
+        except DepotIndisponible as exc:
+            log.error(f"Dépôt de données illisible : {exc}")
+            sys.exit(1)
+        source_ref = client.source_ref
+        source_horodatage = client.source_horodatage
+        log.info(f"Dépôt lu au commit {client.etat_source['commit_court']}, "
+                 f"données produites le {source_horodatage}.")
+    else:
+        # ── Charger .env ─────────────────────────────────────
+        if not ENV_FILE.exists():
+            log.error(f".env introuvable : {ENV_FILE}")
+            sys.exit(1)
 
-    if missing_vars:
-        log.error(f"Variables manquantes dans .env : {', '.join(missing_vars)}")
-        sys.exit(1)
+        load_dotenv(ENV_FILE)
+        client_id     = os.getenv("HOSTAWAY_CLIENT_ID", "")
+        client_secret = os.getenv("HOSTAWAY_CLIENT_SECRET", "")
+        account_id    = os.getenv("HOSTAWAY_ACCOUNT_ID", "")
+        base_url      = os.getenv("HOSTAWAY_BASE_URL", "https://api.hostaway.com")
 
-    # Jamais de valeur affichée — CLIENT_ID, ACCOUNT_ID, CLIENT_SECRET masqués
-    log.info("Variables .env : CLIENT_ID=*** ACCOUNT_ID=*** — présentes")
-    log.info(f"BASE_URL     : {base_url}")
+        missing_vars = [k for k, v in [
+            ("HOSTAWAY_CLIENT_ID", client_id),
+            ("HOSTAWAY_CLIENT_SECRET", client_secret),
+            ("HOSTAWAY_ACCOUNT_ID", account_id),
+        ] if not v]
 
-    # ── Auth ─────────────────────────────────────────────────
-    log.info("Authentification OAuth2...")
-    auth = HostawayAuth(base_url, client_id, client_secret)
-    ok   = auth.test()
-    if not ok:
-        log.error("Authentification echouee. Lancer --check-auth pour diagnostic détaillé.")
-        sys.exit(1)
-    log.info("Authentification OK. Token valide (non affiché).")
+        if missing_vars:
+            log.error(f"Variables manquantes dans .env : {', '.join(missing_vars)}")
+            log.error("Cette installation n'a pas d'identifiants Hostaway locaux — et n'en a pas "
+                      "besoin : relancer avec --source DEPOT_GITHUB.")
+            sys.exit(1)
 
-    # ── Client ───────────────────────────────────────────────
-    client = HostawayClient(auth, account_id, log)
+        # Jamais de valeur affichée — CLIENT_ID, ACCOUNT_ID, CLIENT_SECRET masqués
+        log.info("Variables .env : CLIENT_ID=*** ACCOUNT_ID=*** — présentes")
+        log.info(f"BASE_URL     : {base_url}")
+
+        # ── Auth ─────────────────────────────────────────────
+        log.info("Authentification OAuth2...")
+        auth = HostawayAuth(base_url, client_id, client_secret)
+        ok   = auth.test()
+        if not ok:
+            log.error("Authentification echouee. Lancer --check-auth pour diagnostic détaillé.")
+            sys.exit(1)
+        log.info("Authentification OK. Token valide (non affiché).")
+
+        # ── Client ───────────────────────────────────────────
+        client = HostawayClient(auth, account_id, log)
 
     # ── Comptage (dry-run s'arrête ici) ──────────────────────
     log.info(f"Comptage réservations depuis {DATE_FROM}...")
@@ -1432,7 +1492,14 @@ def main():
                 map_id = lst.get("listingMapId") or lid
                 detector.check_listing(map_id)
                 special = lst.get("specialStatus") or ""
-                actif   = "NON" if special.strip() else "OUI"
+                # Une annonge DÉDUITE des réservations ne dit rien de son activité : le dépôt ne
+                # publie pas `/v1/listings`. `actif` reste alors NULL — « je ne sais pas ». Écrire
+                # « OUI » parce que `specialStatus` est absent transformerait cette ignorance en
+                # affirmation, indistinguable d'une annonce réellement constatée active.
+                if lst.get("_deduit_des_reservations"):
+                    actif = None
+                else:
+                    actif = "NON" if special.strip() else "OUI"
                 rows_listings.append({
                     "listingMapId":      map_id,
                     "listing_id_ha":     lid,
@@ -1650,6 +1717,8 @@ def main():
                 finance_fields=rows_ff, fees=rows_fees, payouts=rows_payout,
                 anomalies=detector.to_df().to_dict("records"),
                 run_id=journal.run_id,
+                mode=source_mode, source_ref=source_ref,
+                source_horodatage=source_horodatage,
             )
             if resultat_sqlite.get("ecrit"):
                 journal.etape("SQLITE_RAW", ETAPE_SUCCES,
