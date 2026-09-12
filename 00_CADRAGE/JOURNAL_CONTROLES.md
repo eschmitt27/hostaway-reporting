@@ -5050,3 +5050,58 @@ compléter » pour la saisir. Parcours vérifié **sur copie** : `A_TRAITER` →
 **Vraie base : aucune écriture de ce banc.** Facture `F-11/0-000001` conservée intacte (§1), aucune
 charge de test créée, aucun reset. Sauvegardes `BCK-736C3F25F83E`, `BCK-E908D1446F90` et
 `BCK-AD1444744D63`.
+
+---
+
+## CTR-RECALCUL-MENAGES-COUT-COMPLET-2026-09-12 — recalcul réel, après preuve sur copie
+
+**Contexte.** `menages_cout_complet` portait encore 29 lignes issues d'un état antérieur des
+données (mois 2026-05/06/07 uniquement, calculées les 2026-09-03 et 2026-09-07), alors que
+`menages_declarations_internes` en compte 39 réparties sur six mois depuis la réactualisation de
+lot6b du 2026-09-11.
+
+**Méthode.** Recalcul d'abord sur **copie isolée** de la base réelle, avec la chaîne SQLite
+(`lot6d --source SQLITE` → `lot6e --source SQLITE` → `lot6f`), un mois à la fois, sans aucun
+classeur intermédiaire. Comparaison chiffrée avant/après, puis application à la vraie base
+seulement une fois chaque écart rattaché à une cause.
+
+**Sauvegarde préalable** : `BCK-2A302954F5A9` (`PRE_RECETTE_UTILISATEUR_03_20260912_023937`),
+statut VALIDE, schéma 0080, `source_hash` `aee11c66…`.
+
+### Comparaison avant / après
+
+| Mois | Avant (lignes / ménages / coût complet) | Après | Écart | Cause |
+|---|---|---|---|---|
+| 2026-03 | absent | 5 / 28 / 1 084,00 € | +1 084,00 € | **A — couverture** : mois jamais calculé, déclarations présentes |
+| 2026-04 | absent | 8 / 32 / 1 844,00 € | +1 844,00 € | **A — couverture** : idem |
+| 2026-05 | 16 / 86 / 3 702,99 € | 5 / 34 / 1 322,00 € | −2 380,99 € | **A — source remplacée** : les 11 lignes EXTERNES de mai venaient de factures qui ne sont plus dans `facture_lignes_menage` (la table ne porte que les deux PDF réels de juillet). Aucune facture externe de mai n'existe : le calcul ne peut rien en produire |
+| 2026-06 | 6 / 28 / 1 025,00 € | 6 / 28 / 1 025,00 € | 0,00 € | **identique** |
+| 2026-07 | 7 / 41 / 1 470,00 € | 18 / 73 / 2 993,00 € | +1 523,00 € | **A — fraîcheur** : les 7 lignes INTERNES sont inchangées (1 470,00 €) ; les 11 lignes ajoutées sont EXTERNES (1 523,00 €), désormais prises en compte parce que les deux factures PDF ont été **validées le 2026-09-11** et que lot6f ne compte que les factures validées |
+| 2026-08 | absent | 8 / 25 / 910,00 € | +910,00 € | **A — couverture** : mois jamais calculé |
+
+**Total : 6 197,99 € → 9 178,00 €, 29 → 50 lignes, 3 → 6 mois.** Aucun écart de catégorie **D**
+(divergence métier) ; aucune correction de bug (**C**) n'a été nécessaire sur ce périmètre.
+
+### Invariants vérifiés sur la copie avant application
+
+- aucun doublon `(mois, logement_id, intervenant_id)` ;
+- `statut_controle` : `VALIDE` uniquement ;
+- ventilation du pool local/cave = **50,00 € exactement** pour chacun des six mois (aucun centime
+  perdu ni créé) ;
+- périmètre d'écriture : **3 tables sur 201** — `menages_rapprochement`, `menages_gainperte`,
+  `menages_cout_complet`. Rien d'autre n'est touché.
+
+### Après application à la vraie base
+
+`integrity_check` **ok** · `foreign_key_check` **0** · schéma **0081** ·
+`F-11/0-000001` **intacte** (EMIS, 465,88 €) · aucun reset.
+
+### Réserve explicite, à lever par l'utilisateur
+
+Les 1 523,00 € de juillet reposent sur deux factures fournisseurs **validées alors que la somme de
+leurs lignes ne reconstitue pas le total du document** (−89,00 € pour `2026-40`, +36,00 € pour
+`0005`). Ce contrôle n'existait pas au moment où elles ont été validées ; il existe désormais et
+refuse ce cas. Les deux factures n'ont **pas** été dévalidées d'office — ce serait défaire un acte
+de l'utilisateur. L'écran de facture affiche l'écart et les deux corrections tracées disponibles
+(ajouter la ligne manquante, marquer l'extraction incorrecte). Une fois l'écart résolu, une simple
+actualisation du mois met le coût complet à jour.
