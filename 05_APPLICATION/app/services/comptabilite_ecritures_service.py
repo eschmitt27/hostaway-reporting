@@ -67,6 +67,36 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _nom_tiers(proprietaire_id: Any, db_path=None) -> str:
+    """Nom du propriétaire pour un LIBELLÉ d'écriture. Le code si le référentiel ne le connaît pas.
+
+    Un libellé se lit dans un journal, un grand livre, un export remis au comptable : « PROP_0002 »
+    n'y apprend rien. L'identifiant, lui, reste porté par la colonne `auxiliaire`, qui est faite
+    pour ça — on ne perd donc aucune capacité de rapprochement en le retirant du texte.
+    """
+    ident = str(proprietaire_id or "").strip()
+    if not ident:
+        return ""
+    try:
+        from app.services import referentiel_service as ref
+        nom = ref.nom_complet_proprietaire(ident, db_path=db_path)
+    except Exception:      # noqa: BLE001 — référentiel absent : le code reste lisible
+        nom = ""
+    return nom or ident
+
+
+def _nom_logement(logement_id: Any, db_path=None) -> str:
+    ident = str(logement_id or "").strip()
+    if not ident:
+        return ""
+    try:
+        from app.services import referentiel_service as ref
+        nom = ref.nom_logement(ident, db_path=db_path)
+    except Exception:      # noqa: BLE001
+        nom = ""
+    return nom or ident
+
+
 def _compte_valide(compte: str, db_path=None) -> dict[str, Any] | None:
     conn = get_db(db_path)
     try:
@@ -445,7 +475,11 @@ def generer_ecriture_vente_facture(facture: dict[str, Any], *, acteur: str = "",
         return _refus(E_ORIGINE_INVALIDE, "montant de facture nul — rien a constater")
 
     numero = facture.get("numero_facture") or facture_id
-    libelle = f"Facture {numero} — {proprietaire_id} / {facture.get('logement_id')} — {mois}"
+    # §78 — le libellé d'une écriture se lit dans un journal, un grand livre, un export comptable.
+    # Il portait « PROP_0002 / LOG_0002 » : deux codes internes, illisibles pour qui tient les
+    # comptes. Les identifiants restent dans `auxiliaire` et `logement_id`, qui sont faits pour ça.
+    libelle = (f"Facture {numero} — {_nom_tiers(proprietaire_id, db_path)} / "
+               f"{_nom_logement(facture.get('logement_id'), db_path)} — {mois}")
 
     # Un avoir porte un montant négatif : le sens s'inverse, sans traitement particulier ailleurs.
     if montant > 0:

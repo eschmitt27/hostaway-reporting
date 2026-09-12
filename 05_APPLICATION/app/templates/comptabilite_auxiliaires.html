@@ -7,10 +7,25 @@
   <h1 class="page-title">Auxiliaires</h1>
 </div>
 
+{# §78 — on cherche un tiers par son NOM. Le champ demandait un identifiant en texte libre, ce qui
+   supposait de le connaître par cœur ; la liste ne contient que des auxiliaires ayant réellement
+   un mouvement, donc aucune saisie ne peut tomber à côté. #}
 <div class="card mb-md">
   <form method="get" class="filters-row">
-    <label>Identifiant auxiliaire (fournisseur / propriétaire / associé)
-      <input type="text" name="auxiliaire" value="{{ auxiliaire }}"></label>
+    <label>Compte auxiliaire
+      <select name="auxiliaire">
+        <option value="">— choisir un tiers —</option>
+        {% for famille, lignes in synthese.items() %}
+        {% if lignes %}
+        <optgroup label="{{ libelles_famille.get(famille, famille) }}">
+          {% for l in lignes %}
+          <option value="{{ l.auxiliaire }}" {% if l.auxiliaire == auxiliaire %}selected{% endif %}>{{ l.libelle }}</option>
+          {% endfor %}
+        </optgroup>
+        {% endif %}
+        {% endfor %}
+      </select>
+    </label>
     <button type="submit" class="btn btn-primary">Consulter le solde</button>
   </form>
 </div>
@@ -27,17 +42,26 @@
 
 {% for famille, lignes in synthese.items() %}
 <div class="card mb-md">
-  <div class="card-title">{{ famille }} ({{ lignes|length }})</div>
+  <div class="card-title">
+    {{ libelles_famille.get(famille, famille) }} ({{ lignes|length }})
+  </div>
   <div class="table-container">
     <table class="data-table">
-      <thead><tr><th>Auxiliaire</th><th class="num">Débit</th><th class="num">Crédit</th><th class="num">Solde</th></tr></thead>
+      <thead><tr><th>Tiers</th><th class="num">Débit</th><th class="num">Crédit</th><th class="num">Solde</th></tr></thead>
       <tbody>
         {% for l in lignes %}
         <tr>
-          <td><a href="/comptabilite/auxiliaires/{{ l.auxiliaire }}?famille={{ famille }}">{{ l.auxiliaire }}</a></td>
-          <td class="num">{{ "%.2f"|format(l.debit) }}</td>
-          <td class="num">{{ "%.2f"|format(l.credit) }}</td>
-          <td class="num">{{ "%.2f"|format(l.solde) }}</td>
+          {# Le NOM est le libellé ; le code reste la valeur du lien et se lit en second, plus
+             discret — il sert au rapprochement avec les autres écrans, pas à la lecture. #}
+          <td>
+            <a href="/comptabilite/auxiliaires/{{ l.auxiliaire }}?famille={{ famille }}">{{ l.libelle }}</a>
+            {% if l.libelle != l.auxiliaire %}
+            <br><span class="text-xs text-secondary">{{ l.auxiliaire }}</span>
+            {% endif %}
+          </td>
+          <td class="num">{{ "%.2f"|format(l.debit) }} €</td>
+          <td class="num">{{ "%.2f"|format(l.credit) }} €</td>
+          <td class="num">{{ "%.2f"|format(l.solde) }} €</td>
         </tr>
         {% else %}
         <tr><td colspan="4">Aucun mouvement.</td></tr>

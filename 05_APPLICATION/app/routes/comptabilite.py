@@ -152,7 +152,7 @@ def comptabilite_auxiliaires(request: Request, auxiliaire: str = ""):
     solde = compta.solde_auxiliaire(auxiliaire) if auxiliaire else None
     return templates.TemplateResponse(request, "comptabilite_auxiliaires.html", {
         "active_menu": "comptabilite", "auxiliaire": auxiliaire, "solde": solde,
-        "synthese": aux.synthese(),
+        "synthese": aux.synthese(), "libelles_famille": aux.LIBELLES_FAMILLE,
     })
 
 

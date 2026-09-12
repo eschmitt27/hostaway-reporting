@@ -5290,3 +5290,64 @@ commençant par 0, ou 11 chiffres commençant par 33). Tout le reste est laissé
 numéro incomplet produirait un numéro que quelqu'un finirait par appeler. Le service et la
 migration implémentent la même règle et sont confrontés l'un à l'autre par un test : s'ils
 divergent, l'un des deux est faux.
+
+---
+
+## CTR-DATES-FORME-ISO-2026-09-12 — quatre dates qui cassaient les tris
+
+**Objet** : §76. Balayage de **toutes** les colonnes de date de la base réelle, à la recherche de
+valeurs hors forme ISO.
+
+| Table.colonne | Valeurs trouvées |
+|---|---|
+| `ecritures.date_ecriture` | `11/09/2026` |
+| `factures_proprietaires.date_facture` | `11/09/2026` |
+| `imputations_airbnb.date_imputation` | `15/08/2026`, `12/08/2026` |
+
+**Pourquoi ce n'est pas cosmétique.** En SQLite les dates sont du TEXTE et se comparent caractère
+par caractère :
+
+    '11/09/2026' < '2020-01-01'   →   VRAI
+
+Une date française se trie **avant toutes les dates ISO**, quelle que soit l'année. Tri
+chronologique, filtre « depuis le 1er septembre », calcul d'ancienneté, rapprochement par date :
+tout se trompe sur ces lignes, silencieusement — la valeur reste lisible à l'œil.
+
+**Cause** : des champs de saisie en texte libre portant « AAAA-MM-JJ » comme simple indication. Ils
+acceptaient tout. Devenus sélecteurs de calendrier (§40) ; `dates_service.exiger()` ferme les
+chemins programmatiques.
+
+**Sauvegarde** : `BCK-F6E713AA3DCB` (VALIDE, schéma 0083). **Migration 0084** appliquée.
+
+| Contrôle après migration | Résultat |
+|---|---|
+| Dates converties | **4 / 4** (`2026-09-11`, `2026-08-15`, `2026-08-12`) |
+| Balayage complet de toutes les colonnes de date | **0 valeur non ISO** |
+| `periode` des écritures réalignée sur `date_ecriture` | ok (`2026-09`) |
+| `integrity_check` / `foreign_key_check` | **ok** / **0** |
+| `menages_cout_complet` | 39 lignes / 7 655,00 € — inchangé |
+| `F-11/0-000001` | **EMIS**, intacte |
+
+La conversion est une réécriture position par position (`JJ/MM/AAAA` → `AAAA-MM-JJ`), pas une
+interprétation : le filtre `GLOB` ne retient que les valeurs ayant exactement cette forme.
+
+**Invariant installé** : `test_aucune_colonne_de_date_ne_contient_de_valeur_non_iso` balaie toutes
+les tables, quel que soit le chemin d'écriture — présent ou futur.
+
+---
+
+## CTR-AUXILIAIRES-PAR-NOM-2026-09-12 — §78
+
+L'écran Auxiliaires listait `PROP_0001`, `PROP_0002`, et demandait un identifiant en **texte
+libre** pour consulter un solde : il fallait connaître les codes par cœur. Les libellés d'écriture
+portaient eux aussi « Facture 2026-08-001 — PROP_0002 / LOG_0002 », lisible dans le journal, le
+grand livre et tout export remis au comptable.
+
+**Après** : les comptes s'appellent **Cédrine Delrieu** et **Didier UZON**, triés par nom, groupés
+par famille nommée (« Propriétaires (411) »), sélectionnables dans une liste. Le code reste la
+valeur du lien et se lit en second, discrètement — il sert au rapprochement entre écrans, pas à la
+lecture.
+
+**Les écritures déjà passées n'ont PAS été réécrites.** Leur libellé porte encore les codes. Une
+écriture validée n'est pas un champ d'affichage qu'on retouche : le générateur est corrigé pour les
+suivantes, et c'est la seule chose qui soit légitime ici.

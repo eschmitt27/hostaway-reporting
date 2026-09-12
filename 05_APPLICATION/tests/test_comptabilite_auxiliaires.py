@@ -63,3 +63,68 @@ def test_synthese_regroupe_par_famille(db):
     s = aux.synthese(db_path=db)
     assert set(s.keys()) == set(aux.FAMILLES)
     assert any(l["auxiliaire"] == "PROP_Y" for l in s[aux.FAMILLE_PROPRIETAIRE])
+
+
+# ── §78 — un compte auxiliaire s'appelle par le nom du tiers ────────────────────────────────────
+
+def test_l_auxiliaire_porte_le_nom_du_tiers(tmp_path):
+    """« Didier UZON », pas « PROP_0001 » : personne ne tient une balance en lisant des codes."""
+    from app.db.connection import apply_migrations, get_db
+    from app.services import comptabilite_auxiliaires_service as aux
+
+    db = tmp_path / "test.db"
+    apply_migrations(db)
+    conn = get_db(db)
+    try:
+        conn.execute(
+            "INSERT INTO ref_proprietaires (proprietaire_id, nom_proprietaire, "
+            "prenom_proprietaire, actif, import_id) VALUES (?,?,?,?,?)",
+            ("PROP_0001", "UZON", "Didier", "OUI", "TEST"))
+        conn.commit()
+    finally:
+        conn.close()
+    libelle = aux.libelle_auxiliaire(aux.FAMILLE_PROPRIETAIRE, "PROP_0001", db_path=db)
+    assert "UZON" in libelle and libelle != "PROP_0001"
+
+
+def test_un_tiers_inconnu_garde_son_code(tmp_path):
+    """Mieux vaut un code qu'un nom inventé — et le code dit quoi aller corriger."""
+    from app.db.connection import apply_migrations
+    from app.services import comptabilite_auxiliaires_service as aux
+
+    db = tmp_path / "test.db"
+    apply_migrations(db)
+    assert aux.libelle_auxiliaire(aux.FAMILLE_PROPRIETAIRE, "PROP_9999", db_path=db) == "PROP_9999"
+
+
+def test_les_familles_ont_un_libelle_comptable():
+    from app.services import comptabilite_auxiliaires_service as aux
+
+    assert aux.LIBELLES_FAMILLE[aux.FAMILLE_PROPRIETAIRE] == "Propriétaires (411)"
+    assert set(aux.LIBELLES_FAMILLE) == set(aux.FAMILLES)
+
+
+def test_le_libelle_d_ecriture_ne_porte_plus_de_code_interne(tmp_path):
+    """« Facture 2026-08-001 — PROP_0002 / LOG_0002 » se lisait dans le journal et le grand livre."""
+    from app.db.connection import apply_migrations, get_db
+    from app.services import comptabilite_ecritures_service as compta
+
+    db = tmp_path / "test.db"
+    apply_migrations(db)
+    conn = get_db(db)
+    try:
+        conn.execute(
+            "INSERT INTO ref_proprietaires (proprietaire_id, nom_proprietaire, "
+            "prenom_proprietaire, actif, import_id) VALUES (?,?,?,?,?)",
+            ("PROP_0002", "Delrieu", "Cédrine", "OUI", "TEST"))
+        conn.execute(
+            "INSERT INTO ref_logements (logement_id, nom_logement_officiel, nom_court, adresse, "
+            "ville, actif, statut_parc, import_id) VALUES (?,?,?,?,?,?,?,?)",
+            ("LOG_0002", "T4 - 90 Blagnac", "T4 - 90 Blagnac", "", "BLAGNAC", "OUI", "GERE", "TEST"))
+        conn.commit()
+    finally:
+        conn.close()
+    assert compta._nom_tiers("PROP_0002", db) == "Cédrine Delrieu"
+    assert compta._nom_logement("LOG_0002", db) == "T4 - 90 Blagnac"
+    # L'identifiant reste disponible là où il sert : la colonne `auxiliaire`.
+    assert compta._nom_tiers("PROP_INCONNU", db) == "PROP_INCONNU"

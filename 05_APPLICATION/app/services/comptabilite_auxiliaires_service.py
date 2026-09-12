@@ -113,6 +113,45 @@ def fiche_auxiliaire(famille: str, auxiliaire: str, db_path=None) -> dict[str, A
     }
 
 
+#: Libellé humain d'une famille d'auxiliaires, pour les titres d'écran.
+LIBELLES_FAMILLE = {
+    FAMILLE_FOURNISSEUR: "Fournisseurs (401)",
+    FAMILLE_PROPRIETAIRE: "Propriétaires (411)",
+    FAMILLE_ASSOCIE: "Associés (467)",
+}
+
+
+def libelle_auxiliaire(famille: str, auxiliaire: str, db_path=None) -> str:
+    """§78 — le NOM du tiers, pas son code.
+
+    Un compte auxiliaire s'appelle « Didier UZON », pas « PROP_0001 ». Le code reste l'identifiant
+    — il est la clé de jointure et la valeur des liens — mais il n'a rien à faire comme LIBELLÉ sur
+    un écran comptable : personne ne tient une balance auxiliaire en lisant des identifiants.
+
+    Un tiers que le référentiel ne connaît pas garde son code : mieux vaut un code qu'un nom
+    inventé, et le code dit alors précisément ce qu'il faut aller corriger.
+    """
+    from app.services import referentiel_service as ref
+
+    ident = str(auxiliaire or "").strip()
+    if not ident:
+        return ""
+    try:
+        if famille == FAMILLE_PROPRIETAIRE:
+            nom = ref.nom_complet_proprietaire(ident, db_path=db_path)
+        elif famille == FAMILLE_FOURNISSEUR:
+            nom = ref.libelle_fournisseur(ident, db_path=db_path)
+        else:
+            nom = ref.libelle_associe(ident, db_path=db_path)
+    except Exception:      # noqa: BLE001 — référentiel indisponible : le code reste lisible
+        nom = ""
+    # `libelle_*` renvoie « Fournisseur non résolu (FOUR_9) » quand il ne sait pas : on préfère
+    # alors le code nu, plus court et tout aussi honnête.
+    if not nom or "non résolu" in nom:
+        return ident
+    return nom
+
+
 def synthese(db_path=None) -> dict[str, Any]:
     """Une ligne par auxiliaire ayant au moins un mouvement, groupée par famille."""
     from app.services import comptabilite_ecritures_service as compta
@@ -121,6 +160,14 @@ def synthese(db_path=None) -> dict[str, Any]:
         lignes = []
         for aux in lister_auxiliaires(famille, db_path):
             solde = compta.solde_auxiliaire(aux, db_path=db_path)
-            lignes.append({"auxiliaire": aux, **solde})
-        out[famille] = lignes
+            lignes.append({
+                "auxiliaire": aux,
+                "libelle": libelle_auxiliaire(famille, aux, db_path=db_path),
+                "famille": famille,
+                "libelle_famille": LIBELLES_FAMILLE.get(famille, famille),
+                "compte": COMPTE_PAR_FAMILLE.get(famille, ""),
+                **solde,
+            })
+        # Trié par NOM : c'est l'ordre dans lequel on cherche un tiers, pas l'ordre des codes.
+        out[famille] = sorted(lignes, key=lambda l: l["libelle"].lower())
     return out
