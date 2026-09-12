@@ -219,7 +219,10 @@ def generer_ecriture_achat(facture_id_opaque: str, *, acteur: str = "",
         return _refus(E_ORIGINE_INVALIDE, f"facture au statut {f['statut']}")
 
     montant = round(f["montant_ttc"], 2)
-    facture_lignes = f.get("lignes") or []
+    # Une ligne marquée EXTRACTION_INCORRECTE (§30) est écartée du total de la facture : elle doit
+    # l'être AUSSI de l'écriture, sinon le débit (toutes lignes) et le crédit (total document) ne
+    # s'équilibrent plus et l'écriture est refusée — la facture resterait validée SANS sa dette.
+    facture_lignes = [l for l in (f.get("lignes") or []) if not l.get("neutralisee")]
 
     ventilation: list[dict[str, Any]] = []
     if facture_lignes:

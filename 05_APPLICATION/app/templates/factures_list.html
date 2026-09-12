@@ -57,7 +57,7 @@
           <td class="num">{{ "%.2f"|format(f.montant_ttc) }}</td>
           <td class="num">{{ "%.2f"|format(f.montant_regle) }}</td>
           <td class="num">{{ "%.2f"|format(f.solde_restant) }}</td>
-          <td><span class="status-badge status-{{ 'valide' if f.statut == 'REGLEE' else 'bloquant' if f.statut in ['ANNULEE','LITIGE'] else 'a-controler' }}">{{ f.statut }}</span></td>
+          <td><span class="status-badge status-{{ 'valide' if f.statut == 'REGLEE' else 'bloquant' if f.statut in ['ANNULEE','LITIGE'] else 'a-controler' }}">{{ f.statut|libelle_statut }}</span></td>
           <td class="font-mono text-xs">{{ f.charge_id or "—" }}</td>
           <td><a href="/factures/{{ f.facture_id_opaque }}">Voir</a></td>
         </tr>

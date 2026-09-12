@@ -56,6 +56,22 @@ def _libelles_fournisseurs() -> dict[str, str]:
     return libelles
 
 
+def _logements_options() -> list[dict[str, str]]:
+    """Logements du parc, en libellés humains — §23 : on propose, on n'invente jamais."""
+    try:
+        from app.services import referentiel_service as ref
+        from app.services import referentiel_admin_service as ref_admin
+        options = []
+        for r in ref_admin.lignes("ref_logements"):
+            ident = str(r.get("logement_id") or "").strip()
+            if not ident or str(r.get("actif", "OUI")).strip().upper() == "NON":
+                continue
+            options.append({"id": ident, "libelle": ref.libelle_logement(ident)})
+        return sorted(options, key=lambda o: o["libelle"])
+    except Exception:      # noqa: BLE001 — référentiel absent : liste vide, le champ reste saisissable
+        return []
+
+
 @router.get("/factures", response_class=HTMLResponse)
 def factures_list(request: Request, statut: str = "", fournisseur: str = "",
                   echues: str = "", message: str = "", erreur: str = ""):
@@ -177,6 +193,7 @@ def facture_detail(request: Request, opaque: str, message: str = "", erreur: str
     return templates.TemplateResponse(request, "factures_detail.html", {
         "active_menu": "factures", "facture": facture,
         "libelles": _libelles_fournisseurs(),
+        "logements_options": _logements_options(),
         "reglements": reg.reglements_de_facture(opaque),
         "historique": svc.historique(opaque),
         "statuts": svc.STATUTS, "moyens": reg.MOYENS,
@@ -200,6 +217,51 @@ async def facture_lier_charge(request: Request, opaque: str):
     res = svc.lier_charge(opaque, str(form.get("charge_id", "") or ""),
                           acteur=str(form.get("acteur", "") or "local"))
     msg = "message=Charge rattachée." if res.get("ok") else f"erreur={res.get('message')}"
+    return RedirectResponse(url=f"/factures/{opaque}?{msg}", status_code=303)
+
+
+@router.post("/factures/{opaque}/ligne-manquante")
+async def facture_ligne_manquante(request: Request, opaque: str):
+    """§29 — AJOUTER UNE LIGNE MANQUANTE. Motif obligatoire, tracé sur la ligne."""
+    from app.services import facture_lignes_menage_service as flm
+
+    form = await request.form()
+
+    def _nombre(cle: str):
+        brut = str(form.get(cle, "") or "").strip().replace(",", ".")
+        try:
+            return float(brut) if brut else None
+        except ValueError:
+            return None
+
+    est_menage = str(form.get("est_menage", "oui") or "oui").lower().startswith("o")
+    quantite = _nombre("quantite")
+    res = flm.ajouter_ligne_manquante(
+        opaque,
+        motif=str(form.get("motif", "") or ""),
+        description=str(form.get("description", "") or ""),
+        montant_ttc=_nombre("montant_ttc") or 0,
+        type_ligne=flm.TYPE_MENAGE_EXTERNE if est_menage else flm.TYPE_AUTRE,
+        logement_id=str(form.get("logement_id", "") or ""),
+        quantite=int(quantite) if quantite is not None else None,
+        prix_unitaire=_nombre("prix_unitaire"),
+        acteur=str(form.get("acteur", "") or "local"))
+    msg = ("message=Ligne manquante ajoutée." if res.get("ok")
+           else f"erreur={res.get('detail') or res.get('message')}")
+    return RedirectResponse(url=f"/factures/{opaque}?{msg}", status_code=303)
+
+
+@router.post("/factures/{opaque}/lignes/{ligne_id}/extraction-incorrecte")
+async def facture_ligne_extraction_incorrecte(request: Request, opaque: str, ligne_id: str):
+    """§30 — MARQUER EXTRACTION INCORRECTE. La ligne est écartée du total, jamais supprimée."""
+    from app.services import facture_lignes_menage_service as flm
+
+    form = await request.form()
+    res = flm.marquer_extraction_incorrecte(
+        ligne_id, motif=str(form.get("motif", "") or ""),
+        acteur=str(form.get("acteur", "") or "local"))
+    msg = ("message=Ligne écartée : extraction incorrecte." if res.get("ok")
+           else f"erreur={res.get('detail') or res.get('message')}")
     return RedirectResponse(url=f"/factures/{opaque}?{msg}", status_code=303)
 
 
