@@ -5351,3 +5351,82 @@ lecture.
 **Les écritures déjà passées n'ont PAS été réécrites.** Leur libellé porte encore les codes. Une
 écriture validée n'est pas un champ d'affichage qu'on retouche : le générateur est corrigé pour les
 suivantes, et c'est la seule chose qui soit légitime ici.
+
+---
+
+## CTR-IMMUTABILITE-EMIS-APRES-0084-2026-09-12 — la migration a-t-elle touché un document émis ?
+
+**Objet** : la migration 0084 a normalisé quatre dates, dont une dans `factures_proprietaires`.
+Prouver qu'aucune facture ÉMISE n'a été altérée ni régénérée.
+
+**Méthode** : comparaison champ par champ entre la sauvegarde **pré-0084**
+(`BCK-F6E713AA3DCB`, schéma 0083) et la base actuelle, sur **toutes** les factures au statut EMIS.
+
+| Champ | `F-11/0-000001` | `2026-08-001` |
+|---|---|---|
+| `numero_facture` | inchangé | inchangé |
+| `statut` | **EMIS** | **EMIS** |
+| `montant_total` | 465,88 € inchangé | 823,65 € inchangé |
+| `snapshot_hash` | **inchangé** | **inchangé** |
+| `document_hash` | **inchangé** | **inchangé** |
+| lignes figées | 3, inchangées | 4, inchangées |
+| `date_emission` / `date_validation` | inchangées | inchangées |
+| **`date_facture` (colonne SQL)** | `11/09/2026` → **`2026-09-11`** | déjà ISO, inchangé |
+
+**Le seul changement est une NOTATION, pas une signification** : le 11 septembre 2026 reste le
+11 septembre 2026. La colonne SQL sert au tri et au filtrage ; c'est elle, et elle seule, qui devait
+être normalisée.
+
+**Le snapshot n'a PAS été réécrit.** Il porte toujours `date_facture = "11/09/2026"`, la chaîne
+historique telle que l'émission l'a figée. C'est délibéré : un snapshot est la photographie du
+document tel qu'il a été remis, et le normaliser rétroactivement pour des raisons de stockage
+reviendrait à retoucher une pièce déjà entre les mains d'un tiers.
+
+**Les PDF sur disque sont physiquement intacts** — sha256 recalculé sur les fichiers, identique à
+celui enregistré à l'émission :
+
+| Document | sha256 enregistré = recalculé | Date imprimée |
+|---|---|---|
+| `F-11-0-000001.pdf` | `91734d40…83ef4` **INTACT** | 11/09/2026 |
+| `2026-08-001.pdf` | `1ab02965…866fa9` **INTACT** | 12/09/2026 |
+
+**Verdict** : aucune facture émise n'a été régénérée, aucun snapshot réécrit, aucun PDF modifié.
+
+---
+
+## CTR-FACTURE-EXCEPTIONNELLE-CYCLE-2026-09-12 — §79/§80
+
+**Ce que l'audit du parcours a confirmé** : `POST /factures-proprietaires/exceptionnelle` crée un
+**BROUILLON** et redirige vers la fiche. Il n'émet pas. Mon compte rendu précédent décrivait la
+séquence de test complète (création + validation + émission, appelées séparément) d'une façon qui
+laissait croire à une émission immédiate — l'ambiguïté était dans le rapport, pas dans le code.
+
+**Ce qui est désormais prouvé par test** :
+
+| Étape | Numéro | PDF | Snapshot | Créance | Écriture |
+|---|---|---|---|---|---|
+| Création (150 €) | — | — | — | — | — |
+| Modification → 155 € | — | — | — | — | — |
+| Validation | — | — | — | — | — |
+| **Émission** | `2026-09-001` | produit | figé | **155 €** | VENTES équilibrée |
+
+La séquence du mois reste à **0** jusqu'à l'émission : un brouillon abandonné ne troue pas la
+numérotation, et c'est toute la raison d'attribuer le numéro tard.
+
+**Écriture VENTES** : journal VENTES, 411000 débité de 155,00 € sur l'auxiliaire `PROP_0001`,
+706000 crédité de 155,00 €, débit = crédit. **Idempotence** : trois appels successifs de la
+génération → **une seule écriture** (`deja_generee` au 2ᵉ et au 3ᵉ).
+
+**Série unique — preuve croisée** : trois émissions entremêlées dans le même mois,
+
+| Ordre | Origine | Numéro |
+|---|---|---|
+| 1 | exceptionnelle | `2026-09-001` |
+| 2 | **mensuelle** (source LOT12) | `2026-09-002` |
+| 3 | exceptionnelle | `2026-09-003` |
+
+Un seul compteur (`factures_proprietaires_sequence`), avancé trois fois. `serie_mois` ne branche
+que sur `type_document` (FACTURE / AVOIR) — **jamais sur l'origine**. `EXTRA` est une nature de
+prestation portée par la ligne, pas une série documentaire. L'unicité est garantie au niveau du
+schéma (`idx_fpr_numero`), et l'allocation est sérialisée par `BEGIN IMMEDIATE` avec un incrément
+atomique en SQL.
