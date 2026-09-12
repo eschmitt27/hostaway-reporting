@@ -101,3 +101,7 @@ Conciergerie app/
 00_CADRAGE/APPLICATION_LOCALE/stitch/**/*.png
 00_CADRAGE/APPLICATION_LOCALE/stitch/**/*.html
 .devswarm-temp/
+
+# Journaux de run des lots (repli disque quand aucune base n'est désignée) : sorties
+# d'exécution horodatées, régénérables. Le suivi de référence vit dans `moteur_runs`.
+02_TRAVAIL/**/_runs/
