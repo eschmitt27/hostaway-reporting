@@ -5105,3 +5105,45 @@ refuse ce cas. Les deux factures n'ont **pas** été dévalidées d'office — c
 de l'utilisateur. L'écran de facture affiche l'écart et les deux corrections tracées disponibles
 (ajouter la ligne manquante, marquer l'extraction incorrecte). Une fois l'écart résolu, une simple
 actualisation du mois met le coût complet à jour.
+
+---
+
+## CTR-RETOUR-A-CONTROLER-FACTURES-JUILLET-2026-09-12 — arbitrage utilisateur appliqué
+
+**Décision reçue** : une facture fournisseur dont la somme des lignes ≠ total document ne peut pas
+rester validée. Les deux factures PDF de juillet doivent revenir à `A_CONTROLER`.
+
+**Vérification transactionnelle AVANT modification** (préalable posé par la décision) :
+
+| Contrôle | Résultat |
+|---|---|
+| Écritures liées (`ecritures.origine_id_opaque`) | **0** |
+| Lignes 401 sur journal ACHATS | **0** |
+| Dettes fournisseur (`intervenant_menage_dettes`) | **0** |
+| Règlements imputés (`reglement_repartitions`) | **0** |
+| Statut réel | `VALIDEE` pour les deux |
+| Écart lignes / total | `0005` **+36,00 €** · `2026-40` **−89,00 €** |
+
+Aucune conséquence irréversible : **aucune contrepassation nécessaire.**
+
+**Sauvegarde préalable** : `BCK-633B04C0BAE9`
+(`AVANT_RETOUR_A_CONTROLER_FACTURES_JUILLET_20260912_043436`), VALIDE, schéma 0081.
+
+**Action** : `VALIDEE` → `A_CONTROLER` via le service canonique (pas de SQL direct), acteur
+`arbitrage:utilisateur`, événement `RETOUR_A_CONTROLER` portant le motif exact demandé :
+
+> « Retour à contrôler — incohérence lignes / total détectée après activation du contrôle de
+> cohérence fournisseur. »
+
+**Rien d'autre n'a été touché** : aucune facture supprimée, aucune ligne supprimée, aucun total
+forcé, aucun PDF source modifié.
+
+**Conséquence propagée** : `lot6f` ne compte que les factures validées. Juillet a donc été
+recalculé et repasse de 18 lignes / 2 993,00 € à **7 lignes / 1 470,00 €** (les 11 lignes externes
+sortent). Total `menages_cout_complet` : 9 178,00 € → **7 655,00 €** sur **39 lignes**.
+`integrity_check` **ok**, `foreign_key_check` **0**.
+
+**Ce que la correction a exigé côté code** : la transition `VALIDEE → A_CONTROLER` n'existait pas —
+une facture validée à tort l'était pour toujours. Elle est ajoutée, avec le garde-fou
+correspondant : `rouvrir_controle()` REFUSE dès qu'une écriture ou un règlement existe, et renvoie
+alors vers la contrepassation. Le motif est obligatoire et journalisé.

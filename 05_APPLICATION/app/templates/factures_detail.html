@@ -62,6 +62,23 @@
     </form>
   </details>
 
+  {% if facture.statut == 'VALIDEE' %}
+  <details class="mb-sm">
+    <summary class="btn btn-ghost">Repasser à contrôler</summary>
+    <form method="post" action="/factures/{{ facture.facture_id_opaque }}/rouvrir-controle"
+          style="margin-top: var(--stack-sm);">
+      <p class="section-note">
+        Rouvre le contrôle pour corriger les lignes. Refusé dès qu'une conséquence est constatée
+        (écriture d'achat, règlement) : la correction passe alors par une contrepassation.
+      </p>
+      <input type="text" name="motif" required class="filter-input" style="min-width:22rem"
+             placeholder="Motif de la réouverture (obligatoire)">
+      <button type="submit" class="btn btn-secondary"
+              {% if not ecriture_active %}disabled{% endif %}>Repasser à contrôler</button>
+    </form>
+  </details>
+  {% endif %}
+
   {# §33/§34 — « Rattacher une charge » et « Ajouter une ligne » générique sont supprimés.
      La facture fournisseur EST la source primaire de la dépense : créer une charge en parallèle
      puis la rattacher ouvrait un risque de double comptage, pour un geste qui n'apporte rien —

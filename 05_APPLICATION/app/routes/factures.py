@@ -5,6 +5,8 @@ par `FACTURES_REAL_WRITE_*` (double verrou RECETTE_MODE). Le rapprochement banca
 réimplémenté ici : il réutilise `banques_rapprochement_service` (service unique et partagé).
 """
 import app.config as cfg
+from urllib.parse import quote
+
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from app.template_env import get_templates
@@ -218,6 +220,20 @@ async def facture_lier_charge(request: Request, opaque: str):
                           acteur=str(form.get("acteur", "") or "local"))
     msg = "message=Charge rattachée." if res.get("ok") else f"erreur={res.get('message')}"
     return RedirectResponse(url=f"/factures/{opaque}?{msg}", status_code=303)
+
+
+@router.post("/factures/{opaque}/rouvrir-controle")
+async def facture_rouvrir_controle(request: Request, opaque: str):
+    """Rouvre le contrôle d'une facture validée — motif obligatoire, refusé si irréversible."""
+    form = await request.form()
+    res = svc.rouvrir_controle(opaque, motif=str(form.get("motif", "") or ""),
+                               acteur=str(form.get("acteur", "") or "local"))
+    if not res.get("ok"):
+        return RedirectResponse(
+            url=f"/factures/{opaque}?erreur={quote(res.get('detail') or res.get('message', ''))}",
+            status_code=303)
+    return RedirectResponse(url=f"/factures/{opaque}?message=Facture+repassee+a+controler",
+                            status_code=303)
 
 
 @router.post("/factures/{opaque}/ligne-manquante")

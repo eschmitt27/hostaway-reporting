@@ -74,7 +74,12 @@ MESSAGES = {
 TRANSITIONS: dict[str, set[str]] = {
     ST_BROUILLON: {ST_A_CONTROLER, ST_VALIDEE, ST_ANNULEE},
     ST_A_CONTROLER: {ST_VALIDEE, ST_LITIGE, ST_ANNULEE},
-    ST_VALIDEE: {ST_PARTIELLEMENT_REGLEE, ST_REGLEE, ST_LITIGE, ST_ANNULEE},
+    # `VALIDEE -> A_CONTROLER` : rouvrir le contrôle d'une facture. Autorisé UNIQUEMENT tant que
+    # rien d'irréversible n'en découle — aucune écriture d'achat, aucune dette, aucun règlement
+    # (vérifié par `rouvrir_controle`, pas par cette table). Sans cette transition, une facture
+    # validée à tort restait validée pour toujours : c'est exactement la situation trouvée sur les
+    # deux factures PDF réelles, validées alors que leurs lignes ne reconstituaient pas leur total.
+    ST_VALIDEE: {ST_A_CONTROLER, ST_PARTIELLEMENT_REGLEE, ST_REGLEE, ST_LITIGE, ST_ANNULEE},
     ST_PARTIELLEMENT_REGLEE: {ST_REGLEE, ST_LITIGE, ST_ANNULEE},
     ST_REGLEE: {ST_LITIGE},
     ST_LITIGE: {ST_VALIDEE, ST_PARTIELLEMENT_REGLEE, ST_REGLEE, ST_ANNULEE},
@@ -402,6 +407,86 @@ def changer_statut(opaque: str, nouveau: str, *, commentaire: str = "", acteur: 
     if ecriture is not None:
         resultat["ecriture_achat"] = ecriture
     return resultat
+
+
+#: Refus de rouvrir le contrôle d'une facture dont des conséquences sont déjà constatées.
+E_CONSEQUENCES_IRREVERSIBLES = "E05_CONSEQUENCES_DEJA_CONSTATEES"
+
+
+def consequences_constatees(opaque: str, db_path=None) -> dict[str, Any]:
+    """Ce qui a déjà découlé de la validation d'une facture — écriture, dette, règlement.
+
+    Sert à décider si rouvrir son contrôle est encore un geste RÉVERSIBLE. Aucune de ces
+    conséquences ne se défait par une simple mise à jour de statut : elles se corrigent par
+    contrepassation.
+    """
+    conn = get_db(db_path)
+    try:
+        ecritures = [dict(r) for r in conn.execute(
+            "SELECT ecriture_id_opaque, journal, statut FROM ecritures "
+            "WHERE origine_id_opaque = ?", (opaque,))]
+        reglements = conn.execute(
+            "SELECT COUNT(*) n FROM reglement_repartitions WHERE facture_id_opaque = ?",
+            (opaque,)).fetchone()["n"]
+    finally:
+        conn.close()
+    return {"ecritures": ecritures, "nb_reglements": int(reglements or 0),
+            "reversible": not ecritures and not reglements}
+
+
+def rouvrir_controle(opaque: str, *, motif: str, acteur: str = "",
+                     db_path=None) -> dict[str, Any]:
+    """`VALIDEE` → `A_CONTROLER` : rouvrir le contrôle d'une facture fournisseur.
+
+    Une facture dont la somme des lignes ne reconstitue pas le total du document ne peut pas
+    rester validée (§28). Encore faut-il pouvoir l'en sortir — c'est l'objet de cette fonction.
+
+    REFUSÉ si des conséquences sont déjà constatées : écriture d'achat générée, règlement
+    imputé. Elles ne se défont pas par un changement de statut ; la correction passe alors par
+    une contrepassation, qui laisse la trace de ce qui a eu lieu.
+
+    Le motif est obligatoire, et il est journalisé dans `facture_evenements`.
+    """
+    motif = str(motif or "").strip()
+    if not motif:
+        return _refus("MOTIF_OBLIGATOIRE",
+                      "Rouvrir le contrôle d'une facture exige d'en donner la raison.")
+    if not _niveau_requis_ok(ST_A_CONTROLER):
+        return _refus(E_FLAGS)
+
+    etat = consequences_constatees(opaque, db_path)
+    if not etat["reversible"]:
+        details = []
+        if etat["ecritures"]:
+            details.append("écriture(s) " + ", ".join(
+                f"{e['ecriture_id_opaque']} ({e['journal']})" for e in etat["ecritures"]))
+        if etat["nb_reglements"]:
+            details.append(f"{etat['nb_reglements']} règlement(s) imputé(s)")
+        return _refus(E_CONSEQUENCES_IRREVERSIBLES,
+                      "Conséquences déjà constatées : " + " · ".join(details)
+                      + ". La correction passe par une contrepassation, pas par un retour de "
+                        "statut.")
+
+    conn = get_db(db_path)
+    try:
+        row = conn.execute("SELECT statut FROM factures WHERE facture_id_opaque=?",
+                           (opaque,)).fetchone()
+        if row is None:
+            return _refus(E_INTROUVABLE, opaque)
+        ancien = row["statut"]
+        if ancien == ST_A_CONTROLER:
+            return {"ok": True, "facture_id_opaque": opaque, "statut": ST_A_CONTROLER,
+                    "inchange": True}
+        if ST_A_CONTROLER not in TRANSITIONS.get(ancien, set()):
+            return _refus(E_STATUT, f"{ancien} -> {ST_A_CONTROLER}")
+        conn.execute("UPDATE factures SET statut=?, date_modification=?, version=version+1 "
+                     "WHERE facture_id_opaque=?", (ST_A_CONTROLER, _now(), opaque))
+        _evenement(conn, opaque, "RETOUR_A_CONTROLER", ancien, ST_A_CONTROLER, motif, acteur)
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "facture_id_opaque": opaque, "statut": ST_A_CONTROLER,
+            "inchange": False, "motif": motif}
 
 
 def lier_charge(opaque: str, charge_id: str, *, acteur: str = "", db_path=None) -> dict[str, Any]:

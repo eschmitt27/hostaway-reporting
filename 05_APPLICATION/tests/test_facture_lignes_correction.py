@@ -157,3 +157,55 @@ def test_pas_de_double_comptage_au_rerun(facture_avec_ecart, db):
     finally:
         conn.close()
     assert n == 1
+
+
+# ── Rouvrir le contrôle d'une facture validée (arbitrage utilisateur 2026-09-12) ────────────────
+
+def test_rouvrir_controle_facture_sans_consequence(facture_avec_ecart, db):
+    """Une facture validée à tort doit pouvoir revenir à contrôler — motif obligatoire."""
+    flm.ajouter_ligne_manquante(facture_avec_ecart, motif="ligne omise", description="T3",
+                                montant_ttc=20.0, logement_id="LOG_0003", db_path=db)
+    fact.changer_statut(facture_avec_ecart, fact.ST_VALIDEE, db_path=db)
+
+    # Une écriture d'achat a été générée : le retour n'est PLUS réversible.
+    etat = fact.consequences_constatees(facture_avec_ecart, db)
+    assert etat["reversible"] is False
+    refus = fact.rouvrir_controle(facture_avec_ecart, motif="je me suis trompé", db_path=db)
+    assert refus["ok"] is False
+    assert refus["code"] == fact.E_CONSEQUENCES_IRREVERSIBLES
+    assert "contrepassation" in refus["detail"]
+
+
+def test_rouvrir_controle_exige_un_motif(db):
+    frs = frs_svc.creer("Presta", "MENAGE", db_path=db)["fournisseur_id_opaque"]
+    f = fact.creer({"fournisseur_id_opaque": frs, "facture_ref": "F-RO-1",
+                    "date_facture": "2026-07-31", "montant_ttc": 10.0}, db_path=db)
+    fact.changer_statut(f["facture_id_opaque"], fact.ST_VALIDEE, db_path=db)
+    conn = get_db(db)
+    try:      # on retire l'écriture pour se placer dans le cas réversible
+        conn.execute("DELETE FROM ecriture_lignes WHERE ecriture_id_opaque IN "
+                     "(SELECT ecriture_id_opaque FROM ecritures WHERE origine_id_opaque=?)",
+                     (f["facture_id_opaque"],))
+        conn.execute("DELETE FROM ecritures WHERE origine_id_opaque=?", (f["facture_id_opaque"],))
+        conn.commit()
+    finally:
+        conn.close()
+
+    assert fact.rouvrir_controle(f["facture_id_opaque"], motif=" ", db_path=db)["code"] == \
+        "MOTIF_OBLIGATOIRE"
+
+    res = fact.rouvrir_controle(f["facture_id_opaque"],
+                                motif="Incohérence lignes / total détectée", db_path=db)
+    assert res["ok"] is True and res["statut"] == fact.ST_A_CONTROLER
+
+    conn = get_db(db)
+    try:
+        evt = conn.execute(
+            "SELECT type_evenement, ancien_statut, nouveau_statut, commentaire "
+            "FROM facture_evenements WHERE facture_id_opaque=? AND type_evenement=?",
+            (f["facture_id_opaque"], "RETOUR_A_CONTROLER")).fetchone()
+    finally:
+        conn.close()
+    assert evt is not None
+    assert evt["ancien_statut"] == "VALIDEE" and evt["nouveau_statut"] == "A_CONTROLER"
+    assert "Incohérence" in evt["commentaire"]
