@@ -3490,3 +3490,66 @@ facture l'affiche, et les deux corrections tracées sont disponibles.
 **Résoudre l'écart des deux factures de juillet** depuis l'écran de facture (ajouter la ligne
 manquante, ou marquer l'extraction incorrecte — motif obligatoire dans les deux cas), puis
 actualiser le mois : le coût complet de juillet se met à jour seul.
+
+
+---
+
+## Mission 27 — continuation de la recette utilisateur n°3 (2026-09-12)
+
+*Seize commits depuis `e11632f`, +2 661 lignes de test, 5 migrations appliquées au réel.*
+
+Rapport complet : **`00_CADRAGE/RAPPORT_RECETTE_3_CONTINUATION.md`**.
+
+### La réserve de la mission 26 est levée
+
+Les deux factures de juillet ne sont plus `VALIDEE` : sur arbitrage de l'utilisateur, elles sont
+revenues à `A_CONTROLER`. La transition `VALIDEE → A_CONTROLER` **n'existait pas** — une facture
+validée à tort l'était pour toujours. Elle existe, avec son garde-fou : motif obligatoire, et refus
+dès qu'une écriture ou un règlement en découle.
+
+Et surtout, leur écart n'est plus un simple chiffre : il est **qualifié**, et les deux factures ne
+relèvent pas du même geste.
+
+| Facture | Diagnostic | Geste proposé par l'écran |
+|---|---|---|
+| `0005` | `LIGNES_INCOHERENTES` — une ligne porte 36,00 € pour 0 × 32,00 € | Écarter : extraction incorrecte |
+| `2026-40` | `LIGNE_MANQUANTE` — toutes cohérentes, il manque 89,00 € | Ajouter une ligne manquante |
+
+Le départage est arithmétique : `Σ(qté × P.U.)` de `0005` vaut **520,00 €**, exactement le total du
+document. L'écart venait d'une valeur mal lue, pas d'une ligne absente — et on le sait sans rouvrir
+le PDF.
+
+### Ce que cette continuation a appris
+
+- **Deux écrans cohérents chacun avec soi-même peuvent se contredire.** Créances disait 40,88 €
+  et Comptes propriétaires 465,88 € pour la même facture. Rien ne le signalait : il a fallu les
+  confronter. La cause tenait à deux fonctions du **même module** qui ne lisaient pas les mêmes
+  chemins d'imputation.
+- **Une contrainte qu'on croit du format est souvent un réglage.** Le PDF translittérait « € » en
+  « EUR » au motif que les polices de base sont en latin-1. L'encodage standard des polices de base
+  d'un PDF est WinAnsiEncoding, qui contient « € ». Aucune police à installer.
+- **Le schéma sait des choses que le développeur ignore.** J'ai voulu donner un `type_document`
+  propre à la facture exceptionnelle ; la contrainte CHECK l'a refusé, et elle avait raison :
+  fiscalement, c'est une facture. C'était l'index d'unicité qui était trop strict.
+- **Une date française en base n'est pas un détail d'affichage.** `'11/09/2026' < '2020-01-01'` est
+  vrai en SQLite : ces lignes se trient avant tout, et tout filtre s'y trompe en silence.
+- **Un correctif peut être un pansement.** Le solde de caisse affichait 0 € après validation d'un
+  encaissement de 250 € ; j'ai d'abord ajouté une note explicative. Le zéro restait faux —
+  l'argent était dans le tiroir. Corrigé sur arbitrage.
+
+### État de la base réelle
+
+Schéma **0085**. `integrity_check` **ok**, `foreign_key_check` **0**.
+`menages_cout_complet` : **39 lignes / 7 655,00 €** — inchangé par les cinq migrations.
+`F-11/0-000001` **EMIS**, snapshot et PDF **intacts** (sha256 recalculé sur le fichier).
+Cinq sauvegardes prises. **Aucun reset, aucune renumérotation, aucune suppression.**
+
+### Prochaine action unique
+
+**Résoudre les deux factures de juillet depuis l'écran**, chacune par son geste : `0005` par
+« Écarter : extraction incorrecte », `2026-40` par « Ajouter une ligne manquante ». L'écran nomme
+désormais lui-même le geste attendu pour chacune. Puis actualiser le mois — le coût complet de
+juillet se met à jour seul.
+
+Ce qui reste après cela : la refonte du **relevé propriétaire** (§53-70), seul chantier restant
+sans blocage technique.
