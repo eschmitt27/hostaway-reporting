@@ -44,7 +44,7 @@
       <tbody>
         {% for o in operations %}
         <tr>
-          <td>{{ o.operation_id_opaque }}</td><td>{{ o.type_operation }}</td><td>{{ o.date_operation }}</td>
+          <td>{{ o.operation_id_opaque }}</td><td>{{ o.type_operation }}</td><td>{{ o.date_operation|date_fr }}</td>
           <td class="num">{{ "%.2f"|format(o.montant) }}</td>
           <td>{{ o.tiers_type or "—" }} {{ o.tiers_id or "" }}</td>
           <td><span class="badge">{{ o.statut }}</span></td>

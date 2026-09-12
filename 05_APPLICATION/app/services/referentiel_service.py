@@ -229,6 +229,59 @@ def humaniser_code(code: str) -> str:
     return texte[:1].upper() + texte[1:].lower() if texte.isupper() else texte
 
 
+#: §51 — libellés canoniques des statuts, là où la transformation mécanique ne suffit pas.
+#
+# `humaniser_code` retire les soulignés et met une capitale. C'est honnête pour `BANQUE_PRO`, et
+# incapable pour `PARTIELLEMENT_REGLEE` : aucune règle typographique ne remet les accents d'un code
+# qui n'en porte pas. L'écran Créances montrait donc « Partiellement reglee » dans son filtre, à
+# côté de « Partiellement réglée » dans son tableau — le même statut, écrit de deux façons sur le
+# même écran, parce que le tableau lisait le libellé du service et le filtre passait par la règle
+# mécanique.
+#
+# Ce registre est la source unique. Il ne traduit QUE ce qui a un libellé métier arrêté ; tout le
+# reste continue de passer par la transformation mécanique, qui ne ment jamais.
+LIBELLES_STATUT: dict[str, str] = {
+    # Règlement d'une créance propriétaire (`creances_dettes_service`).
+    "NON_REGLEE": "À régler",
+    "PARTIELLEMENT_REGLEE": "Partiellement réglée",
+    "REGLEE": "Soldée",
+    "TROP_PERCU_A_CONTROLER": "À reverser au propriétaire",
+    # Cycle de vie d'une facture fournisseur (`factures_service`).
+    "A_CONTROLER": "À contrôler",
+    "VALIDEE": "Validée",
+    "PARTIELLEMENT_REGLEE_FOURNISSEUR": "Partiellement réglée",
+    "LITIGE": "En litige",
+    "ANNULEE": "Annulée",
+    # Facture propriétaire (`factures_proprietaires_service`).
+    "BROUILLON": "Brouillon",
+    "VALIDE": "Validée",
+    "EMIS": "Émise",
+    "ANNULE": "Annulée",
+    # Parc et gestion.
+    "GERE": "Géré",
+    "RETIRE": "Retiré du parc",
+    "HORS_PARC_TECHNIQUE": "Hors parc (technique)",
+    "ACTIF": "Actif",
+    "INACTIF": "Inactif",
+    # Clôture mensuelle.
+    "OUVERT": "Ouvert",
+    "CLOTURE": "Clôturé",
+    "PROVISOIRE": "Provisoire",
+}
+
+
+def libelle_statut(code: str) -> str:
+    """Libellé humain d'un statut. Le code STOCKÉ ne change jamais, seul son affichage.
+
+    Un statut absent du registre retombe sur `humaniser_code` : mieux vaut « Truc machin » qu'un
+    libellé inventé, et mieux vaut ça qu'une page en erreur.
+    """
+    texte = _txt(code)
+    if not texte:
+        return ""
+    return LIBELLES_STATUT.get(texte.upper(), humaniser_code(texte))
+
+
 def mode_paiement(mode_paiement_id: str, *, db_path=None) -> dict[str, str] | None:
     if not mode_paiement_id:
         return None

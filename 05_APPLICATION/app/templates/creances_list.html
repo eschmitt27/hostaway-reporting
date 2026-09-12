@@ -13,7 +13,9 @@
 <div class="card">
   <p><strong>{{ lignes|length }}</strong> créance(s) ouverte(s) · total
      <strong>{{ "%.2f"|format(total) }} €</strong> · dont échu
-     <strong>{{ "%.2f"|format(total_echu) }} €</strong></p>
+     <strong>{{ "%.2f"|format(total_echu) }} €</strong>
+     {% if total_a_relancer %}· dont à relancer (plus de {{ seuil_relance }} jours)
+     <strong>{{ "%.2f"|format(total_a_relancer) }} €</strong>{% endif %}</p>
 </div>
 
 <form method="get" class="flex gap-sm items-center" style="margin-bottom:1rem">
@@ -37,7 +39,7 @@
   <thead>
     <tr><th>Propriétaire</th><th>Facture</th><th>Logement</th><th>Période</th><th>Date</th>
         <th>Échéance</th><th class="text-right">Total</th><th class="text-right">Réglé</th>
-        <th class="text-right">Compensé</th><th class="text-right">Solde</th><th>Statut</th><th>Retard</th></tr>
+        <th class="text-right">Compensé</th><th class="text-right">Solde</th><th>Statut</th><th>Suivi</th></tr>
   </thead>
   <tbody>
   {% for l in lignes %}
@@ -47,8 +49,8 @@
           {% if l.type_document == "AVOIR" %}<span class="badge">AVOIR</span>{% endif %}</td>
       <td>{{ l.logement_id | nom_logement }}</td>
       <td>{{ l.mois }}</td>
-      <td>{{ l.date_facture or "—" }}</td>
-      <td>{{ l.date_echeance or "—" }}</td>
+      <td>{{ l.date_facture|date_fr or "—" }}</td>
+      <td>{{ l.date_echeance|date_fr or "—" }}</td>
       <td class="text-right">{{ "%.2f"|format(l.total) }} €</td>
       <td class="text-right">
         {{ "%.2f"|format(l.regle) }} €
@@ -69,7 +71,15 @@
         {% endif %}
       </td>
       <td><span class="status-badge status-{{ l.badge_statut }}">{{ l.libelle_statut }}</span></td>
-      <td>{% if l.echue %}<span class="badge">{{ l.jours_retard }} j</span>{% else %}—{% endif %}</td>
+      {# §52 — deux signaux distincts, jamais concurrents sur la même ligne. « En retard » suppose
+         une échéance contractuelle dépassée ; « À relancer » constate qu'une créance émise n'est
+         toujours pas soldée. Sans ce second signal, une facture payable à réception — donc sans
+         échéance — restait éternellement muette, si ancienne soit-elle. #}
+      <td>
+        {% if l.echue %}<span class="badge">{{ l.jours_retard }} j de retard</span>
+        {% elif l.a_relancer %}<span class="badge">à relancer — {{ l.jours_depuis_emission }} j</span>
+        {% else %}—{% endif %}
+      </td>
     </tr>
   {% else %}
     <tr><td colspan="12">Aucune créance ouverte.</td></tr>

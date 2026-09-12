@@ -18,7 +18,7 @@
 <div class="card mb-md">
   <h2 class="card-title">1 · Mouvement</h2>
   <dl class="detail-grid">
-    <div><dt>Date opération</dt><dd class="font-mono">{{ v.date_operation }}</dd></div>
+    <div><dt>Date opération</dt><dd class="font-mono">{{ v.date_operation|date_fr }}</dd></div>
     <div><dt>Date valeur</dt><dd class="font-mono">{{ v.date_valeur or "—" }}</dd></div>
     <div><dt>Compte</dt><dd class="font-mono">{{ v.compte_masque }}</dd></div>
     <div><dt>Montant</dt><dd>{{ "%.2f"|format(v.montant) if v.montant is not none else "—" }} {{ v.devise }}</dd></div>

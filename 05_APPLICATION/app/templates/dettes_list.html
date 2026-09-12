@@ -30,8 +30,8 @@
     <tr>
       <td>{{ l.tiers_id }}</td>
       <td><a href="/factures/{{ l.facture_id_opaque }}">{{ l.numero or "—" }}</a></td>
-      <td>{{ l.date_facture or "—" }}</td>
-      <td>{{ l.date_echeance or "—" }}</td>
+      <td>{{ l.date_facture|date_fr or "—" }}</td>
+      <td>{{ l.date_echeance|date_fr or "—" }}</td>
       <td class="text-right">{{ "%.2f"|format(l.total) }} €</td>
       <td class="text-right">{{ "%.2f"|format(l.regle) }} €</td>
       <td class="text-right"><strong>{{ "%.2f"|format(l.solde) }} €</strong></td>

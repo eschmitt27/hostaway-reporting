@@ -22,6 +22,9 @@ def creances(request: Request, proprietaire: str = "", logement: str = "", mois:
         "active_menu": "creances", "lignes": lignes,
         "total": round(sum(l["solde"] for l in lignes), 2),
         "total_echu": round(sum(l["solde"] for l in lignes if l["echue"]), 2),
+        # §52 — les créances sans échéance contractuelle qu'il est temps de relancer.
+        "total_a_relancer": round(sum(l["solde"] for l in lignes if l.get("a_relancer")), 2),
+        "seuil_relance": svc.SEUIL_RELANCE_JOURS,
         "filtres": {"proprietaire": proprietaire, "logement": logement, "mois": mois,
                     "statut": statut, "echues": echues},
         "statuts": (svc.ST_NON_REGLEE, svc.ST_PARTIELLE, svc.ST_REGLEE, svc.ST_TROP_PERCU),

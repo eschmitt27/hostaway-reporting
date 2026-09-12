@@ -56,7 +56,7 @@
       {% for l in lignes %}
       <tr>
         <td><span class="code-id">{{ l.id_opaque }}</span></td>
-        <td>{{ l.date_operation }}</td>
+        <td>{{ l.date_operation|date_fr }}</td>
         <td class="num">{{ "%.2f"|format(l.montant) }} €</td>
         <td>{{ l.sens }}</td>
         <td class="font-mono text-xs">{{ l.compte_masque }}</td>

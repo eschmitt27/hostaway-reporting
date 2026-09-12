@@ -20,7 +20,7 @@
 
 <div class="card mb-md">
   <div class="detail-grid">
-    <div><strong>Date</strong><br>{{ mouvement.date_operation }}</div>
+    <div><strong>Date</strong><br>{{ mouvement.date_operation|date_fr }}</div>
     <div><strong>Montant</strong><br>{{ "%.2f"|format(mouvement.montant) }} €</div>
     <div><strong>Sens</strong><br>{{ mouvement.sens }}</div>
     <div><strong>Compte</strong><br><span class="font-mono text-xs">{{ mouvement.compte_masque }}</span></div>

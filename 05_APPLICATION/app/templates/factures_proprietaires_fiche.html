@@ -118,7 +118,7 @@
           <strong>{{ c.description or "Charge refacturée" }}</strong>
           <br><span class="text-xs text-secondary">
             {{ c.categorie_charge_id | nom_categorie_charge if c.categorie_charge_id else "" }}
-            {% if c.date_charge %} · {{ c.date_charge }}{% endif %}
+            {% if c.date_charge %} · {{ c.date_charge|date_fr }}{% endif %}
             {% if c.justificatif %} · {{ c.justificatif }}{% endif %}
           </span>
         </td>
@@ -361,7 +361,7 @@
     <thead><tr><th>Date</th><th>Mode</th><th>Statut</th><th class="text-right">Montant</th></tr></thead>
     <tbody>
       {% for a in solde.acomptes_proprietaire %}
-      <tr><td>{{ a.date_mouvement }}</td><td>{{ a.mode_reglement or "—" }}</td>
+      <tr><td>{{ a.date_mouvement|date_fr }}</td><td>{{ a.mode_reglement or "—" }}</td>
           <td><span class="badge">{{ a.statut }}</span></td>
           <td class="text-right">{{ "%.2f"|format(a.montant) }} €</td></tr>
       {% endfor %}

@@ -82,7 +82,7 @@
         <tr>
           <td><span class="status-badge status-{{ 'valide' if c.niveau == 'EXACT' else 'a-controler' if c.niveau == 'PROBABLE' else 'info' }}">{{ c.niveau }}</span>
               <span class="text-xs">({{ c.score }})</span></td>
-          <td class="font-mono text-xs">{{ c.date_operation }}</td>
+          <td class="font-mono text-xs">{{ c.date_operation|date_fr }}</td>
           <td>{{ c.libelle[:36] }}</td>
           <td class="font-mono text-xs">{{ c.compte_masque }}</td>
           <td class="num">{{ "%.2f"|format(c.montant_mouvement) }}</td>

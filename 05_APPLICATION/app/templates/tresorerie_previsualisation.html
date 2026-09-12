@@ -11,7 +11,7 @@
   <div class="detail-grid">
     <div><strong>Propriétaire</strong><br>{{ apercu.proprietaire_id }}</div>
     <div><strong>Logement</strong><br>{{ apercu.logement_id or "—" }}</div>
-    <div><strong>Date</strong><br>{{ apercu.date_mouvement }}</div>
+    <div><strong>Date</strong><br>{{ apercu.date_mouvement|date_fr }}</div>
     <div><strong>Montant</strong><br>{{ "%.2f"|format(apercu.montant) }} €</div>
     <div><strong>Sens</strong><br>{{ apercu.sens }}</div>
     <div><strong>Nature</strong><br>{{ apercu.nature }}</div>

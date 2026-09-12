@@ -68,6 +68,30 @@ def _statut_reglement(total: float, impute: float, reste: float) -> str:
     return ST_TROP_PERCU
 
 
+#: §52 — au-delà de ce délai, une créance émise et non soldée mérite une relance, même sans
+#: échéance contractuelle. Quinze jours : le temps qu'un virement parte et arrive, pas davantage.
+SEUIL_RELANCE_JOURS = 15
+
+
+def _a_relancer(date_facture, date_echeance, solde: float) -> bool:
+    """Créance émise depuis plus de `SEUIL_RELANCE_JOURS`, non soldée, et SANS échéance convenue.
+
+    DÈS QU'UNE ÉCHÉANCE EXISTE, C'EST ELLE QUI GOUVERNE — et elle seule. Échéance dépassée : la
+    facture porte déjà « en retard », alerte plus forte et plus précise, et deux signaux
+    concurrents sur la même ligne feraient douter de ce qu'il faut regarder. Échéance à venir :
+    il n'y a rien à relancer, le propriétaire est dans son délai.
+
+    Ce second cas manquait à la première écriture de cette règle : elle n'excluait que les
+    échéances DÉPASSÉES, et réclamait donc une relance sur une facture payable le mois suivant.
+    """
+    if solde <= 0.005:
+        return False
+    if str(date_echeance or "").strip():
+        return False
+    age = _anciennete(date_facture)
+    return age is not None and age >= SEUIL_RELANCE_JOURS
+
+
 def libelle_statut(statut: str, solde: float = 0.0, jours_retard: int | None = None) -> str:
     """Statut lisible. « En retard » prime sur « À régler » : c'est l'information qui appelle une
     action, et elle disparaîtrait si l'on se contentait de traduire le code."""
@@ -150,6 +174,13 @@ def creances(*, proprietaire_id: str = "", logement_id: str = "", mois: str = ""
             "reversements_airbnb": imput.get("reversements_airbnb", 0.0),
             "jours_retard": jours,
             "echue": bool(jours is not None and jours > 0 and abs(s["solde"]) > 0.005),
+            # §52 — UNE CRÉANCE SANS ÉCHÉANCE N'ÉTAIT JAMAIS SIGNALÉE, si ancienne soit-elle.
+            # « En retard » suppose une échéance dépassée ; or `F-11/0-000001` n'en porte aucune
+            # (paiement à réception), et restait donc éternellement muette. L'ancienneté depuis
+            # l'ÉMISSION comble ce trou sans mentir sur la nature de l'alerte : ce n'est pas un
+            # retard contractuel, c'est une créance qu'il est temps de relancer.
+            "jours_depuis_emission": _anciennete(f["date_facture"]),
+            "a_relancer": _a_relancer(f["date_facture"], echeance, s["solde"]),
             # Sens du solde, formulé en métier. Un solde négatif n'est pas une facture négative :
             # c'est de l'argent détenu en trop pour le compte du propriétaire, donc à lui reverser.
             "sens": ("A_RECEVOIR" if s["solde"] > 0.005

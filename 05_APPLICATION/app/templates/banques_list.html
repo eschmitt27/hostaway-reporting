@@ -112,7 +112,7 @@
       <tbody>
         {% for m in liste.rows %}
         <tr>
-          <td class="font-mono text-xs">{{ m.date_operation }}</td>
+          <td class="font-mono text-xs">{{ m.date_operation|date_fr }}</td>
           <td class="font-mono text-xs">{{ m.compte_masque }}</td>
           <td>{{ m.libelle[:48] }}</td>
           <td class="num">{{ "%.2f"|format(m.montant) if m.montant is not none else "—" }}</td>

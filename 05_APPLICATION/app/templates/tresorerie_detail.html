@@ -17,7 +17,7 @@
   <div class="detail-grid">
     <div><strong>Propriétaire</strong><br>{{ mouvement.proprietaire_id | nom_proprietaire }}</div>
     <div><strong>Logement</strong><br>{{ mouvement.logement_id | nom_logement if mouvement.logement_id else "—" }}</div>
-    <div><strong>Date</strong><br>{{ mouvement.date_mouvement }}</div>
+    <div><strong>Date</strong><br>{{ mouvement.date_mouvement|date_fr }}</div>
     <div><strong>Montant</strong><br>{{ "%.2f"|format(mouvement.montant) }} €</div>
     <div><strong>Sens</strong><br>{{ mouvement.sens }}</div>
     <div><strong>Nature</strong><br>{{ mouvement.nature }}</div>
@@ -37,7 +37,7 @@
   <form method="post" action="/proprietaires/tresorerie/{{ mouvement.mouvement_opaque }}/modifier" class="mb-sm">
     <div class="detail-grid">
       <label>Montant <input type="number" step="0.01" name="montant" value="{{ mouvement.montant }}"></label>
-      <label>Date <input type="date" name="date_mouvement" value="{{ mouvement.date_mouvement }}"></label>
+      <label>Date <input type="date" name="date_mouvement" value="{{ mouvement.date_mouvement|date_fr }}"></label>
     </div>
     <button type="submit" class="btn btn-secondary mt-sm">Modifier le brouillon</button>
   </form>

@@ -58,10 +58,15 @@ def _nom_type_flux(tid: str) -> str:
 
 
 def _libelle_statut(code: str) -> str:
-    """`PARTIELLEMENT_REGLEE` → `Partiellement réglée`. Purement typographique : le statut STOCKÉ
-    reste le code canonique, seul son affichage change (mission « plus de codes à soulignés
-    dans l'UI »)."""
-    return ref_svc.humaniser_code(code) if code else ""
+    """`PARTIELLEMENT_REGLEE` → `Partiellement réglée`. Le statut STOCKÉ reste le code canonique,
+    seul son affichage change.
+
+    Passe par le registre canonique (`referentiel_service.libelle_statut`) et non plus par la
+    seule transformation mécanique : celle-ci retire les soulignés mais ne peut pas remettre les
+    accents, et l'écran Créances affichait « Partiellement reglee » dans son filtre à côté de
+    « Partiellement réglée » dans son tableau.
+    """
+    return ref_svc.libelle_statut(code) if code else ""
 
 
 def _nom_canal(cid: str) -> str:

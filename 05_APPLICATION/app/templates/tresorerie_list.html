@@ -117,7 +117,7 @@
         <td><span class="code-id">{{ m.mouvement_opaque }}</span></td>
         <td>{{ m.proprietaire_id | nom_proprietaire }}</td>
         <td>{{ m.logement_id | nom_logement if m.logement_id else "—" }}</td>
-        <td>{{ m.date_mouvement }}</td>
+        <td>{{ m.date_mouvement|date_fr }}</td>
         <td class="num">{{ "%.2f"|format(m.montant) }} €</td>
         <td>{{ m.sens }}</td>
         <td>{{ m.nature }}</td>

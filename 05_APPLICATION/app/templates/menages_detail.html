@@ -207,7 +207,7 @@
               {% if l.date_absente %}
                 <span class="badge badge-warning">Date absente</span>
               {% else %}
-                {{ l.date_menage }}
+                {{ l.date_menage|date_fr }}
                 {% if l.precision_date_menage and l.precision_date_menage != "DATE_PRECISE" %}
                   <span class="text-xs text-secondary">{{ l.precision_date_menage }}</span>
                 {% endif %}

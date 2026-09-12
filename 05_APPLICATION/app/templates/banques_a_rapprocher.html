@@ -42,7 +42,7 @@
         {% for m in d.lignes %}
         {% set r = resume_suggestions.get(m.mouvement_id) %}
         <tr>
-          <td class="font-mono text-xs">{{ m.date_operation }}</td>
+          <td class="font-mono text-xs">{{ m.date_operation|date_fr }}</td>
           <td class="font-mono text-xs">{{ m.compte_masque }}</td>
           <td>{{ m.libelle[:40] }}</td>
           <td class="num">{{ "%.2f"|format(m.montant) if m.montant is not none else "—" }}</td>

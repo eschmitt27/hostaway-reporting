@@ -184,3 +184,55 @@ def test_imputations_detail_expose_le_detail_des_deux_sources(db):
     assert d["reversements_airbnb"] == 425.0
     assert d["acomptes"] == 0.0
     assert d["total"] == 425.0
+
+
+# ── §52 — une créance sans échéance ne doit pas rester muette ───────────────────────────────────
+
+def test_relance_apres_quinze_jours_sans_echeance():
+    """`F-11/0-000001` est payable à réception : sans échéance, elle n'était JAMAIS signalée.
+
+    « En retard » suppose une échéance dépassée. L'ancienneté depuis l'émission comble le trou
+    sans mentir sur la nature de l'alerte : ce n'est pas un retard contractuel, c'est une créance
+    qu'il est temps de relancer.
+    """
+    from datetime import date, timedelta
+
+    from app.services import creances_dettes_service as svc
+
+    recente = (date.today() - timedelta(days=svc.SEUIL_RELANCE_JOURS - 1)).isoformat()
+    ancienne = (date.today() - timedelta(days=svc.SEUIL_RELANCE_JOURS)).isoformat()
+
+    assert svc._a_relancer(recente, None, 100.0) is False
+    assert svc._a_relancer(ancienne, None, 100.0) is True
+
+
+def test_une_creance_soldee_ne_se_relance_pas():
+    from datetime import date, timedelta
+
+    from app.services import creances_dettes_service as svc
+
+    vieille = (date.today() - timedelta(days=90)).isoformat()
+    assert svc._a_relancer(vieille, None, 0.0) is False
+    assert svc._a_relancer(vieille, None, -50.0) is False, "un trop-perçu n'est pas une créance"
+
+
+def test_une_creance_deja_en_retard_ne_porte_pas_deux_signaux():
+    """Une facture échue porte déjà son alerte « en retard », plus forte et plus précise."""
+    from datetime import date, timedelta
+
+    from app.services import creances_dettes_service as svc
+
+    vieille = (date.today() - timedelta(days=90)).isoformat()
+    echeance_depassee = (date.today() - timedelta(days=30)).isoformat()
+    assert svc._a_relancer(vieille, echeance_depassee, 100.0) is False
+
+
+def test_une_echeance_future_suspend_la_relance():
+    from datetime import date, timedelta
+
+    from app.services import creances_dettes_service as svc
+
+    vieille = (date.today() - timedelta(days=90)).isoformat()
+    echeance_future = (date.today() + timedelta(days=10)).isoformat()
+    assert svc._a_relancer(vieille, echeance_future, 100.0) is False, \
+        "tant que l'échéance n'est pas passée, il n'y a rien à relancer"
