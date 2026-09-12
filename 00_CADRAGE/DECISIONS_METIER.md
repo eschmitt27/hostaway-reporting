@@ -1980,3 +1980,172 @@ refus — juste une valeur que plus aucun filtre ne retrouvait.
   **dérivé du dernier attribué** et proposé pré-rempli. Il reste modifiable : une reprise de
   données peut légitimement imposer sa numérotation. La dérivation ne comble **jamais un trou** —
   réutiliser un identifiant libéré rattacherait des données anciennes à un nouveau tiers.
+
+---
+
+### D-HOSTAWAY-INGESTION-01 — une seule chaîne d'ingestion, par le dépôt publié
+
+- **Date** : 2026-09-12
+- **Lot** : recette utilisateur n°3 — continuation finale (§1 à §12)
+- **Statut** : ACTÉ
+
+**Le constat.** Le rapport précédent classait `lot6a` en « NON — identifiants Hostaway locaux
+absents ». Ce diagnostic était **insuffisant** : il existe un pipeline GitHub Actions
+(`Hostaway Pipeline`, `.github/workflows/pipeline.yml`, branche `main`) qui interroge réellement
+l'API trois fois par jour avec le secret `HOSTAWAY_TOKEN` des Secrets du dépôt, et **commite** le
+résultat. Il fonctionne ; il a tourné le 2026-09-12. La vraie question n'était donc pas « comment
+obtenir des identifiants » mais **« par où les données déjà extraites entrent-elles dans SQLite »**.
+
+**Décisions :**
+
+- **D-HA-1** : la source canonique des **réservations** et de leurs **champs financiers** est le
+  **dépôt publié par GitHub Actions**. L'application ne parle plus à l'API Hostaway pour ces
+  données. Motif : deux extracteurs pour une même API finissent toujours par se comporter
+  différemment, et l'un des deux ment sans qu'on sache lequel.
+- **D-HA-2** : le mécanisme de livraison est un **commit sur la branche de données du dépôt**, qui
+  est aussi `origin` du projet. Conséquence directe : **aucun jeton GitHub supplémentaire** n'est
+  nécessaire — l'authentification qui fonctionne déjà pour le code fonctionne pour la donnée.
+- **D-HA-3** : **aucun identifiant Hostaway local n'est requis**, et `.env.example` le dit. Les
+  variables `HOSTAWAY_CLIENT_*` restent présentes mais vides et non requises.
+- **D-HA-4** : le changement est un changement de **TRANSPORT**, jamais de moteur.
+  `lot1_hostaway_extract.py` reçoit `--source API|DEPOT_GITHUB` ; `lib_hostaway_depot.py` présente
+  la même surface que le client API. Normalisation des canaux, calcul du payout H1/H2/H3, coût de
+  ménage daté, détection d'anomalies et écriture RAW sont **le même code**.
+  *Preuve* : sur 1 536 réservations communes à l'import dépôt et à la dernière extraction API,
+  **zéro écart** de canal, statut de payout, payout, ménage retenu, assiette et coût standard.
+- **D-HA-5** : le dépôt publie aussi `CoutMenage`, `TauxCommission` et un `TotalPayout` déjà
+  calculé. **Ils ne sont jamais lus.** Ce sont des décisions de gestion et des conclusions, pas des
+  faits ; elles vivent dans les référentiels datés de l'application et sont appliquées par le
+  moteur. Les importer créerait une seconde vérité, muette et plus récente en apparence.
+- **D-HA-6** : les fichiers du dépôt sont un **format de transport**, jamais une base de calcul.
+  Les moteurs aval lisent SQLite. Aucun retour d'Excel ni de CSV opérationnel.
+- **D-HA-7** : une extraction porte désormais sa **provenance** (`source_ref`, `source_horodatage`,
+  migration 0086). « Produites le » et « synchronisées le » sont **deux dates distinctes** :
+  n'en afficher qu'une reviendrait soit à vieillir des données fraîches, soit — bien pire — à
+  annoncer « à jour » une base qui n'a jamais importé le dernier jeu publié. L'état se juge sur
+  l'**identité** de la version importée, jamais sur son ancienneté.
+- **D-HA-8** : la synchronisation est **idempotente**. Réimporter un `source_ref` déjà en base ne
+  recrée rien : sinon chaque clic fabriquerait une extraction de plus, identique à la précédente,
+  et la comparaison d'une extraction à l'autre — qui sert à repérer les mois impactés — perdrait
+  son sens.
+- **D-HA-9** : les **tâches de ménage** (`/v1/tasks`) ne sont pas publiées par le pipeline. Ce trou
+  est **nommé, pas comblé par un contournement** : `SourceDepotGitHub.get_tasks()` **lève** au lieu
+  de rendre une liste vide — « non fourni par cette source » n'est pas « aucune tâche ». La
+  correction naturelle est d'ajouter un quatrième script au pipeline GitHub, qui détient déjà le
+  jeton ; c'est une modification du dépôt de données, hors du périmètre de cette mission.
+- **D-HA-10** : `lot6a` n'a plus pour rôle d'appeler Hostaway. Le rôle canonique est la
+  **synchronisation du dernier jeu publié vers SQLite**, assurée par le moteur existant via son
+  nouveau transport — aucun nouveau gros moteur n'a été écrit.
+
+---
+
+### D-CORRESPONDANCE-LOGEMENT-01 — une correspondance est une décision, pas une saisie
+
+- **Date** : 2026-09-12
+- **Lot** : recette utilisateur n°3 — continuation finale (§18)
+- **Statut** : ACTÉ — **remplace** la classification `EDITABLE` retenue en D-ADMIN-CLASSIFICATION-01
+
+**Le constat.** `ref_mapping_logements` avait été classée `EDITABLE` au motif qu'une correspondance
+fausse doit pouvoir se corriger. Le besoin était juste ; le moyen ne l'était pas. Éditer la ligne
+brute demande de connaître `source`, `champ_source`, `valeur_source` et l'identifiant technique du
+logement, et n'enregistre **ni qui a tranché, ni contre quelle proposition**.
+
+**Décisions :**
+
+- **D-CL-1** : `ref_mapping_logements` passe en **`DEDICATED_WORKFLOW`**. Elle reste **visible** —
+  la cacher empêcherait de constater l'état des correspondances — mais n'est plus éditable en table.
+- **D-CL-2** : le parcours « Corriger une correspondance logement » (`/correspondances-logement`)
+  présente la valeur telle que la source l'écrit, le logement actuellement rattaché, celui que le
+  moteur **propose** avec son degré de certitude, et enregistre le choix humain.
+- **D-CL-3** : le parcours remonte aussi ce qu'**aucun écran ne montrait** : les libellés qu'une
+  source a produits et qu'aucune correspondance ne rattache. Ils ne se signalaient qu'en faisant
+  échouer un moteur, en langage de moteur.
+- **D-CL-4** : une correspondance corrigée est **désactivée, jamais supprimée** — des calculs passés
+  ont été faits sous elle et doivent rester explicables.
+- **D-CL-5** : un **logement technique** (`LOGEMENT_DIVERS`, `APPARTEMENT_DIVERS`) n'est **jamais**
+  proposé comme réponse. Masquer un mauvais rattachement derrière un fourre-tout est exactement ce
+  que ce parcours doit rendre inutile.
+- **D-CL-6** : rattacher une annonce Hostaway écrit **les deux** chemins de lecture — la fiche
+  logement (`hostaway_listing_id`, lue par les moteurs de réservation) **et** la correspondance
+  (lue par le rapprochement). N'en écrire qu'un laisserait l'autre bloqué avec le même message.
+- **D-CL-7** : un logement **retiré du parc** reste proposable : une correspondance porte souvent
+  sur des mois passés, où ce logement était géré.
+
+---
+
+### D-PRICING-DYNAMIQUE-01 — deux questions, deux colonnes
+
+- **Date** : 2026-09-12
+- **Lot** : recette utilisateur n°3 — continuation finale (§19)
+- **Statut** : ACTÉ — **précise et remplace** D-ACH-3
+
+**Le constat.** `ref_logements.dynamic_pricing` portait « hostdynamic » (14 logements) ou « non »
+(5). Une même colonne répondait à deux questions : *le pricing dynamique est-il activé ?* et *quel
+moteur s'en charge ?* Tant qu'il n'existe qu'un fournisseur la confusion est invisible ; elle
+apparaît le jour où l'on en change — « non » cesserait alors de vouloir dire « désactivé » pour
+vouloir dire « pas Hostdynamic », et aucune requête écrite avant ce jour-là ne saurait la
+différence.
+
+D-ACH-3 concluait qu'il ne fallait pas réduire la colonne à un booléen, pour ne pas perdre le nom
+de l'outil. C'était juste, et incomplet : la demande utilisateur — « Pricing dynamique : Oui/Non » —
+restait sans réponse. Les deux exigences ne s'opposent que si l'on s'interdit une seconde colonne.
+
+**Décisions :**
+
+- **D-PD-1** : migration 0087 — `dynamic_pricing_enabled` (OUI/NON) et `dynamic_pricing_provider`
+  (`hostdynamic` / autre / NULL). « hostdynamic » n'est pas perdu.
+- **D-PD-2** : la paire **DÉRIVE** de la valeur brute par **déclencheur SQL**, pas par le code
+  applicatif. Elle est donc exacte quel que soit le chemin d'écriture — import du classeur compris.
+  Une synchronisation confiée au code n'aurait rien garanti.
+- **D-PD-3** : l'écran modifie la **paire lisible** ; le service recompose la valeur brute. La
+  correspondance est **bijective** : `non` ↔ (NON, NULL), tout autre libellé ↔ (OUI, ce libellé).
+  Les trois colonnes ne peuvent donc pas se contredire.
+- **D-PD-4** : un « oui » **sans moteur nommé** reste « oui ». Lui attribuer d'office
+  « hostdynamic » affirmerait un fournisseur que personne n'a désigné, et ferait passer pour
+  constaté le cas simplement le plus fréquent.
+- **D-PD-5** : le catalogue déclare ces colonnes comme **dérivées** (`COLONNES_DERIVEES`). Le
+  contrôle d'alignement catalogue ↔ schéma continue d'attraper une dérive, tout en acceptant un
+  ajout assumé.
+
+---
+
+### D-RELEVE-PROPRIETAIRE-02 — le relevé est un écran de performance
+
+- **Date** : 2026-09-12
+- **Lot** : recette utilisateur n°3 — continuation finale (§13 à §17)
+- **Statut** : ACTÉ
+
+**Le constat.** Le « relevé » mêlait exploitation et trésorerie : on y cherchait une performance et
+on y trouvait un état de compte. Deux entrées de menu s'appelaient de surcroît presque pareil.
+
+**Décisions :**
+
+- **D-RP-1** : le **Relevé propriétaire** (`/releves-proprietaires`) répond à une seule question :
+  *ce parc a-t-il bien travaillé ce mois-ci ?* Il ne porte **ni créance, ni règlement, ni
+  compensation, ni geste de trésorerie** — un test interdit ces notions dans son résultat.
+  L'ancien écran porte désormais son vrai nom : **Règlements propriétaires**.
+- **D-RP-2** : **aucun montant n'est recalculé**. Total perçu, ménages, commission et net sont
+  **lus** de la sortie du moteur, via le lecteur qui filtre sur le **run actif**. Les recompter
+  depuis les réservations donnerait un second résultat, proche et jamais identique.
+  *Incident évité de justesse* : six runs coexistent en base ; une lecture non filtrée les
+  additionnait et rendait 12 046 € là où le mois vaut 1 204 €. Seuls des ADR à quatre chiffres
+  l'ont trahi.
+- **D-RP-3** : les **voyageurs moyens** se divisent par le nombre de réservations **portant la
+  donnée**, pas par le total. Sinon une donnée absente devient un séjour à zéro voyageur. L'écran
+  dit sur combien de réservations la moyenne est établie.
+- **D-RP-4** : les **nuits commercialisables** sont les jours **réellement sous gestion**, logement
+  par logement — pas les jours du mois multipliés par le nombre de logements. Un logement entré en
+  gestion le 16 n'était pas commercialisable du 1er au 15.
+- **D-RP-5** : un taux **absent dit pourquoi**. Des séjours et des recettes sur un mois sans aucune
+  période de gestion ouverte forment une **contradiction de données**, pas une case vide.
+- **D-RP-6** : chaque indicateur affiche **sa formule et sa source**. Un taux qu'on ne sait pas
+  reconstituer ne se discute pas : il se subit.
+- **D-RP-7 (§16)** : l'export existe comme **parcours utilisateur** (`/exports`) — génération,
+  liste, téléchargement fichier par fichier ou en archive. Le mois en cours est marqué
+  **PROVISOIRE dans le nom de l'archive** : un fichier téléchargé puis transmis n'emporte pas les
+  avertissements d'un écran.
+- **D-RP-8 (§17)** : « Démarrer le suivi » ouvre la **facturation** d'un propriétaire pour un mois.
+  C'est un **avancement mensuel**, pas une performance : le parcours se lit depuis la
+  **préparation de clôture**, qui signale les propriétaires ayant une activité et **aucun suivi
+  ouvert** — un suivi inexistant n'est pas « à jour », il est invisible. Le service, lui, n'a pas
+  bougé : il est transactionnel, idempotent et journalisé.

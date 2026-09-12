@@ -5,34 +5,62 @@
 <div class="page-header">
   <h1 class="page-title">Actualisation Hostaway</h1>
   <p class="page-subtitle">
-    Interroge l'API Hostaway et écrit les réservations, payouts et logements dans la base.
-    Aucun classeur n'est nécessaire.
+    Synchronise le dernier jeu de données publié par le pipeline GitHub vers la base —
+    réservations, champs financiers, payouts recalculés par le moteur.
   </p>
 </div>
 
-{% if config_hostaway and not config_hostaway.complet %}
-{# Diagnostic de configuration. N'affiche QUE des présences et un chemin — jamais une valeur :
-   un identifiant ne doit pouvoir fuir ni dans l'écran, ni dans une capture, ni dans un journal. #}
-<div class="alert alert-warning" data-testid="config-hostaway-incomplete">
-  <strong>Hostaway n'est pas configuré : aucun appel à l'API n'est possible.</strong>
+{# ── D'OÙ VIENNENT LES DONNÉES ──────────────────────────────────────────────────────────────
+   L'écran demandait auparavant de renseigner des identifiants Hostaway sur ce poste. Ce n'est
+   plus nécessaire, et le dire est important : un utilisateur à qui l'on réclame un secret dont
+   le logiciel n'a pas besoin finit par en fabriquer un, ou par croire l'application cassée. #}
+{% set dp = fraicheur_depot %}
+<div class="alert {% if dp and dp.etat == 'A_JOUR' %}alert-info{% else %}alert-warning{% endif %}">
+  <strong>Les identifiants Hostaway sont détenus par le pipeline GitHub, pas par ce poste.</strong>
   <p style="margin-top:var(--stack-sm)">
-    Renseignez les identifiants dans le fichier
-    <code>{{ config_hostaway.chemin_env }}</code>
-    {% if not config_hostaway.fichier_present %}
-      — <strong>ce fichier n'existe pas encore</strong>. Un modèle complet est fourni :
-      copiez <code>.env.example</code> en <code>.env</code> dans ce dossier, puis complétez-le.
-    {% else %}
-      — le fichier existe mais il manque des valeurs.
-    {% endif %}
+    Le pipeline interroge Hostaway trois fois par jour et publie le résultat dans le dépôt.
+    Cette installation ne fait que le récupérer : aucun secret Hostaway n'est stocké ici, et
+    aucune variable n'est à renseigner pour les réservations.
   </p>
-  <p>Variable(s) à renseigner :
+  {% if dp %}
+  <dl class="detail-grid" data-testid="fraicheur-depot">
+    <dt>Dernier jeu publié</dt>
+    <dd>{{ dp.publie_le|datetime_fr if dp.publie_le else "indéterminé" }}</dd>
+    <dt>Données en base, produites le</dt>
+    <dd>{{ dp.source_produite_le|datetime_fr if dp.source_produite_le else "—" }}</dd>
+    <dt>Synchronisées ici le</dt>
+    <dd>{{ dp.synchronise_le|datetime_fr if dp.synchronise_le else "jamais" }}</dd>
+    <dt>État</dt>
+    <dd>
+      {% if dp.etat == "A_JOUR" %}<span class="badge badge-success">À jour</span>
+      {% elif dp.etat == "RETARD" %}<span class="badge badge-warning">Un jeu plus récent est publié</span>
+      {% elif dp.etat == "JAMAIS_IMPORTE" %}<span class="badge badge-danger">Jamais synchronisé</span>
+      {% else %}<span class="badge badge-neutral">Indéterminé — dépôt non lu</span>{% endif %}
+    </dd>
+  </dl>
+  {% endif %}
+</div>
+
+{% if config_hostaway and not config_hostaway.complet %}
+{# Les TÂCHES DE MÉNAGE, elles, ne sont pas publiées par le pipeline : elles passent encore par
+   l'API. Ce diagnostic ne concerne donc plus que cette chaîne-là, et il le dit — sinon il
+   ferait croire que toute l'actualisation est bloquée alors que les réservations fonctionnent.
+   N'affiche QUE des présences et un chemin, jamais une valeur. #}
+<div class="alert alert-warning" data-testid="config-hostaway-incomplete">
+  <strong>Tâches de ménage : non configurées sur cette installation.</strong>
+  <p style="margin-top:var(--stack-sm)">
+    Les réservations ne sont pas concernées — elles arrivent par le dépôt ci-dessus. Seules les
+    <em>tâches de ménage</em> (<code>/v1/tasks</code>) ne sont pas publiées par le pipeline et
+    passent encore par un appel direct, qui demande des identifiants dans
+    <code>{{ config_hostaway.chemin_env }}</code>.
+  </p>
+  <p>Variable(s) attendue(s) par cette chaîne :
     {% for v in config_hostaway.manquantes %}<code>{{ v }}</code>{% if not loop.last %}, {% endif %}{% endfor %}
   </p>
   <p class="text-xs text-secondary">
-    Ce fichier est volontairement exclu de Git : il n'est donc jamais copié lors de la création
-    d'un nouvel espace de travail, et doit être renseigné une fois par installation.
-    L'application ne journalise ni n'affiche jamais ces valeurs. Redémarrez l'application après
-    l'avoir complété.
+    La bonne correction n'est pas de recopier ces secrets ici : c'est d'ajouter l'extraction des
+    tâches au pipeline GitHub, qui détient déjà le jeton. En attendant, le comptage des ménages
+    s'appuie sur la dernière extraction obtenue.
   </p>
 </div>
 {% endif %}

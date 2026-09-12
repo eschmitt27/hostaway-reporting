@@ -8,6 +8,7 @@ from app.services import reservations_hh_service as svc
 from app.services import saisie_hh_service as saisie_svc
 from app.services import reservations_hh_confirmation_service as confirmation
 from app.services import hostaway_actualisation_service as hostaway_svc
+from app.services import hostaway_depot_service as depot_svc
 from app.services import hostaway_cleaning_tasks_actualisation_service as cleaning_svc
 from app.services import ordonnanceur_service as ordo
 from app.services import regularisation_hh_service as regul_svc
@@ -286,6 +287,9 @@ def hostaway_actualisation(request: Request, message: str = "", message_type: st
         # Sans lui, l'écran annonce « identifiants absents » sans dire où les déposer — et le
         # fichier `.env` étant ignoré par Git, il manque par construction dans un worktree neuf.
         "config_hostaway": cleaning_svc.diagnostic_configuration(),
+        # Fraîcheur du dépôt publié : sans réseau (`rafraichir=False`), un affichage d'écran ne
+        # doit pas dépendre d'un `git fetch`. Le bouton, lui, rafraîchit réellement.
+        "fraicheur_depot": depot_svc.fraicheur(rafraichir=False),
         "message": message,
         "message_type": message_type,
     })
@@ -293,13 +297,38 @@ def hostaway_actualisation(request: Request, message: str = "", message_type: st
 
 @router.post("/hostaway/actualiser")
 def hostaway_actualiser(request: Request):
-    """Lance une actualisation et redirige. La requête n'attend jamais la fin de l'extraction."""
-    resultat = hostaway_svc.actualiser(declencheur=hostaway_svc.DECLENCHEUR_MANUEL)
-    if resultat.get("ok"):
-        message = "Actualisation Hostaway lancée. Rechargez la page pour suivre l'avancement."
+    """Synchronise le dernier jeu publié par le pipeline GitHub vers SQLite.
+
+    CE BOUTON N'APPELLE PLUS HOSTAWAY DEPUIS CE POSTE.
+    Il l'a fait tant que l'installation portait des identifiants ; elle n'en porte plus, et n'en a
+    plus besoin : le pipeline GitHub interroge la plateforme trois fois par jour avec les secrets
+    qu'il détient, et publie le résultat dans le dépôt. Conserver ici un second appel direct
+    ferait coexister deux chaînes d'ingestion pour la même donnée — celle qui fonctionne et celle
+    qui échoue faute de secret, sans que l'écran dise laquelle a produit ce qu'il affiche.
+
+    Le moteur d'extraction, lui, est rigoureusement le même : seul le transport change.
+
+    ATTENDUE, contrairement à l'ancien appel : l'import depuis le dépôt prend quelques secondes,
+    là où l'appel API prenait des minutes. Rendre la main avant la fin obligerait l'utilisateur à
+    deviner quand recharger, pour une attente qui ne se voit pas.
+    """
+    from app.services import hostaway_depot_service as depot
+
+    resultat = depot.synchroniser(declencheur=hostaway_svc.DECLENCHEUR_MANUEL, attendre=True)
+    if not resultat.get("ok"):
+        message = resultat.get("message", "Synchronisation impossible.")
+        type_message = "error"
+    elif not resultat.get("importe"):
+        # Déjà à jour : ce n'est ni un échec ni un import. Le dire évite qu'un utilisateur relance
+        # indéfiniment en croyant que rien ne se passe.
+        publie = (resultat.get("publie") or {}).get("source_horodatage", "")
+        message = ("Données déjà à jour" + (f" (jeu publié le {publie})." if publie else ".")
+                   + " Rien de nouveau à importer.")
         type_message = "info"
     else:
-        message = resultat.get("message", "Actualisation impossible.")
-        type_message = "error"
+        publie = (resultat.get("publie") or {}).get("source_horodatage", "")
+        message = ("Synchronisation terminée"
+                   + (f" — données Hostaway produites le {publie}." if publie else "."))
+        type_message = "info"
     return RedirectResponse(
         url=f"/hostaway?message={quote(message)}&message_type={type_message}", status_code=303)
