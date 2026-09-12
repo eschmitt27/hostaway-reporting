@@ -175,6 +175,7 @@ def charger_etat_actualisation(db_path=None) -> dict[str, Any]:
     pdf = dict(pdf)
     pdf["nb_reconnues"] = _nb_factures_pdf_reconnues(db_path=db_path)
     return {
+        "hostaway": fraicheur_hostaway(db_path=db_path),
         "dataset": dataset,
         "derniere_actualisation": dataset.get("calcule_le") if dataset else None,
         "statut_dataset": dataset.get("statut") if dataset else None,
@@ -183,6 +184,50 @@ def charger_etat_actualisation(db_path=None) -> dict[str, Any]:
         "mois_disponibles": mois,
         "en_cours": bool(verrous),
     }
+
+
+def fraicheur_hostaway(db_path=None) -> dict[str, Any]:
+    """Fraîcheur RÉELLE des données Hostaway, indépendamment du dernier recalcul ménages.
+
+    §12/§13 — l'écran affichait « Dernière actualisation 22h36 · 11/09 » et « Rapprochement à
+    jour » alors que l'extraction Hostaway avait ÉCHOUÉ dans ce même run : le recalcul, lui,
+    avait bien eu lieu — sur des données Hostaway datant du 2026-09-02 pour les réservations et
+    du 2026-09-07 pour les tâches. Un horodatage de recalcul n'est pas un horodatage de
+    fraîcheur de la source, et les présenter l'un pour l'autre revient à annoncer frais ce qui
+    ne l'est pas.
+
+    Rend, pour chaque source Hostaway, la date du dernier SUCCÈS réel — jamais celle d'un run
+    en échec — et l'état du dataset tel que l'orchestrateur le voit.
+    """
+    from app.db.connection import get_db
+
+    conn = get_db(db_path)
+    resultat: dict[str, Any] = {
+        "reservations_succes_le": None, "taches_succes_le": None,
+        "dataset_statut": None, "dataset_erreur": None, "en_echec": False,
+    }
+    try:
+        for table, cle in (("hostaway_extractions", "reservations_succes_le"),
+                           ("hostaway_cleaning_tasks_extractions", "taches_succes_le")):
+            try:
+                row = conn.execute(
+                    f"SELECT MAX(date_fin) d FROM {table} WHERE statut = 'SUCCES'").fetchone()
+                resultat[cle] = row["d"] if row and row["d"] else None
+            except Exception:      # noqa: BLE001 — table absente : inconnu, pas une erreur d'écran
+                continue
+        try:
+            row = conn.execute(
+                "SELECT statut, erreur_code, erreur_message FROM orchestrateur_datasets "
+                "WHERE dataset = 'HOSTAWAY_RAW'").fetchone()
+            if row is not None:
+                resultat["dataset_statut"] = row["statut"]
+                resultat["dataset_erreur"] = row["erreur_code"] or ""
+                resultat["en_echec"] = str(row["statut"]).upper() == "ECHEC"
+        except Exception:      # noqa: BLE001
+            pass
+    finally:
+        conn.close()
+    return resultat
 
 
 def _nb_factures_pdf_reconnues(db_path=None) -> int:

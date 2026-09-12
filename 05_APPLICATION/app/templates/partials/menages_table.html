@@ -26,8 +26,9 @@
       {% for r in liste.rows %}
       <tr class="{% if r.statut_effectif in ('A_CONTROLER', 'BLOQUANT') %}row-warn{% endif %}">
         <td>
-          <div>{{ r.nom_appartement or r.logement_id or "—" }}</div>
-          <div class="text-xs text-secondary">{{ r.logement_id }}</div>
+          {# §17 — le vrai nom suffit. L'identifiant reste dans le lien « Voir » ci-dessous, où
+             il sert de clé ; l'afficher sous le nom n'apprenait rien à personne. #}
+          <div>{{ r.nom_appartement or (r.logement_id | nom_logement) or "—" }}</div>
           {% if r.proprietaire_libelle %}
           <div class="text-xs text-secondary">{{ r.proprietaire_libelle }}</div>
           {% endif %}

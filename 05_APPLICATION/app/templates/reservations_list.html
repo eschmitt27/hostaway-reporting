@@ -29,10 +29,17 @@
         ('canal_id','Canal'), ('source_financiere','Source fin.'),
         ('statut_controle','Statut'), ('code_impact','Impact'), ('comptabilisation','Compta')
       ] %}
+      {# La VALEUR transmise reste l'identifiant technique — c'est la clé du filtre ; seul le
+         texte lu change. Un filtre « Logement : LOG_0008 » ne dit rien à personne. #}
       <select name="{{ col }}" class="filter-input">
         <option value="">{{ label }} : tous</option>
         {% for v in data.filters[col] %}
-        <option value="{{ v }}" {% if data.applied[col] == v %}selected{% endif %}>{{ v }}</option>
+        <option value="{{ v }}" {% if data.applied[col] == v %}selected{% endif %}>
+          {%- if col == 'logement_id' %}{{ v|nom_logement }}
+          {%- elif col == 'proprietaire_id' %}{{ v|nom_proprietaire }}
+          {%- elif col == 'canal_id' %}{{ v|nom_canal }}
+          {%- else %}{{ v|libelle_statut }}{% endif -%}
+        </option>
         {% endfor %}
       </select>
       {% endfor %}
@@ -80,7 +87,7 @@
             <td class="text-sm">{{ r.date_arrivee or "?" }} → {{ r.date_depart or "?" }}</td>
             <td>{{ (r.logement_id | nom_logement) if r.logement_id else "Non renseigné" }}</td>
             <td>{{ (r.proprietaire_id | nom_proprietaire) if r.proprietaire_id else "Non renseigné" }}</td>
-            <td>{{ r.canal_id or "—" }}</td>
+            <td>{{ (r.canal_id | nom_canal) if r.canal_id else "—" }}</td>
             <td>{{ r.source_financiere or "—" }}</td>
             <td style="text-align:right; white-space:nowrap">{{ r.total_percu | eur }}</td>
             <td style="text-align:right; white-space:nowrap">{{ r.menage | eur }}</td>

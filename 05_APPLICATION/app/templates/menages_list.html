@@ -157,8 +157,30 @@
      métier n'est pas un banc de test. #}
 </div>
 
+{# §13 — ne jamais annoncer « à jour » quand une source n'a pas pu être actualisée. Le bloc
+   ci-dessous passe AVANT l'indicateur de fraîcheur générique : si Hostaway est en échec, c'est
+   cette information-là que l'utilisateur doit lire, avec la date réelle des dernières données
+   Hostaway disponibles — pas un horodatage de recalcul qui donnerait l'illusion du frais. #}
+{% set ha = actualisation.hostaway %}
+{% if ha and ha.en_echec %}
+<div class="alert alert-warning">
+  <strong>Actualisation incomplète — données Hostaway non actualisées.</strong>
+  Le rapprochement ci-dessous a bien été recalculé, mais à partir des dernières données Hostaway
+  disponibles :
+  <ul>
+    <li>Réservations :
+      {{ ha.reservations_succes_le|datetime_fr if ha.reservations_succes_le else "jamais récupérées" }}</li>
+    <li>Tâches de ménage :
+      {{ ha.taches_succes_le|datetime_fr if ha.taches_succes_le else "jamais récupérées" }}</li>
+  </ul>
+  Les chiffres Hostaway de cet écran datent donc de ces relevés, pas d'aujourd'hui.
+</div>
+{% endif %}
+
 {% set fr = data.fraicheur %}
-{% if fr and fr.recommander_relance %}
+{% if ha and ha.en_echec %}
+{# l'indicateur générique « à jour » est volontairement tu : il porterait à faux. #}
+{% elif fr and fr.recommander_relance %}
 <div class="alert alert-warning">
   <strong>Des sources ont été modifiées depuis le dernier rapprochement.</strong>
   Fichiers plus récents : {{ fr.sources_recentes|join(", ") }}.

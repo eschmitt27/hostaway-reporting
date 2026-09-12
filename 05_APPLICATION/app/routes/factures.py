@@ -32,10 +32,28 @@ def _fournisseurs_actifs() -> list[dict]:
 
 
 def _libelles_fournisseurs() -> dict[str, str]:
+    """Nom affichable de chaque fournisseur — jamais `INT_0003` (recette utilisateur n°3, §32).
+
+    Les prestataires de ménage facturent en tant que fournisseurs mais vivent dans
+    `ref_intervenants` : ils étaient absents du référentiel Fournisseurs, et l'écran retombait
+    donc sur l'identifiant brut. On complète ici avec les intervenants, sans jamais écraser un
+    nom déjà connu côté Fournisseurs.
+    """
+    libelles: dict[str, str] = {}
     try:
-        return {f["fournisseur_id_opaque"]: f.get("nom", "") for f in frs.lister()}
-    except Exception:
-        return {}
+        libelles.update({f["fournisseur_id_opaque"]: f.get("nom", "") for f in frs.lister()})
+    except Exception:      # noqa: BLE001 — référentiel absent : on complète quand même ci-dessous
+        pass
+    try:
+        from app.services import referentiel_admin_service as ref_admin
+        for r in ref_admin.lignes("ref_intervenants"):
+            ident = str(r.get("intervenant_id") or "").strip()
+            nom = str(r.get("nom_intervenant") or "").strip()
+            if ident and nom and not libelles.get(ident):
+                libelles[ident] = nom
+    except Exception:      # noqa: BLE001
+        pass
+    return libelles
 
 
 @router.get("/factures", response_class=HTMLResponse)
