@@ -5430,3 +5430,39 @@ que sur `type_document` (FACTURE / AVOIR) — **jamais sur l'origine**. `EXTRA` 
 prestation portée par la ligne, pas une série documentaire. L'unicité est garantie au niveau du
 schéma (`idx_fpr_numero`), et l'allocation est sérialisée par `BEGIN IMMEDIATE` avec un incrément
 atomique en SQL.
+
+
+---
+
+## CTR-CREANCE-VS-COMPTE-PROPRIETAIRE-2026-09-12 — 425,00 € d'écart entre deux écrans
+
+**Trouvé en confrontant les deux écrans sur les mêmes propriétaires** (§53-70, « le compte
+propriétaire doit reposer sur le même service canonique »).
+
+| Propriétaire | Écran **Créances** | Écran **Comptes propriétaires** | Écart |
+|---|---|---|---|
+| Didier UZON — `F-11/0-000001` | solde **40,88 €** (425,00 € compensés) | solde **465,88 €** | **425,00 €** |
+| Cédrine Delrieu — `2026-08-001` | solde **757,65 €** (54,00 € compensés) | solde **811,65 €** | **54,00 €** |
+
+**La cause.** `position()` calculait le solde de chaque facture depuis les seules allocations FIFO
+(`proprietaire_allocations`). Or un **reversement Airbnb est imputé DIRECTEMENT sur le document** et
+ne passe pas par le FIFO. `imputations_detail`, **dans le même module**, le documentait déjà et les
+comptait — les deux fonctions du même service répondaient donc différemment sur la même facture.
+
+Rien ne signalait l'écart : chaque écran était cohérent avec lui-même.
+
+**Correction** : `position()` passe par `imputations_detail`, la fonction qui connaît **tous** les
+chemins d'imputation. Les compensations de l'agrégat suivent la même source. Il n'y a plus qu'un
+seul calcul du solde d'une facture.
+
+| Après correction | Créances | Comptes propriétaires | Écart |
+|---|---|---|---|
+| Didier UZON | 40,88 € (réglé 0,00 / compensé 425,00) | 40,88 € (paiements 0,00 / compensations 425,00) | **0,00 €** |
+| Cédrine Delrieu | 757,65 € (réglé 12,00 / compensé 54,00) | 757,65 € (paiements 12,00 / compensations 54,00) | **0,00 €** |
+
+`réglé` et `compensé` restent **distincts** des deux côtés : un règlement est de l'argent reçu, une
+compensation ne l'est pas. Les additionner dans un seul chiffre ferait disparaître une différence
+économique réelle.
+
+**Tests** : `test_creance_et_compte_proprietaire_concordent` (6) — l'invariant est vérifié sans
+imputation, avec compensation partielle, et avec un reversement qui solde tout.

@@ -220,12 +220,28 @@ def position(proprietaire_id: str, *, db_path=None) -> dict[str, Any]:
             par_facture.get(a["facture_id_opaque"], 0) + a["montant_alloue"])
         par_source[a["source_ref"]] = _round(par_source.get(a["source_ref"], 0) + a["montant_alloue"])
 
+    # LE SOLDE D'UNE FACTURE SE LIT AU MÊME ENDROIT PARTOUT (§53-70).
+    #
+    # Il se calculait ici depuis les seules allocations FIFO (`proprietaire_allocations`). Or les
+    # reversements Airbnb sont imputés DIRECTEMENT sur le document et ne passent PAS par le FIFO —
+    # `imputations_detail`, dans ce module même, le dit et les compte. Les deux fonctions
+    # répondaient donc différemment sur la même facture :
+    #
+    #     écran Créances          F-11/0-000001 : solde  40,88 € (dont 425,00 € compensés)
+    #     écran Comptes prop.     F-11/0-000001 : solde 465,88 €
+    #
+    # 425,00 € d'écart sur le même document, entre deux écrans du même logiciel. On passe donc par
+    # la fonction qui connaît TOUS les chemins d'imputation, et il n'en reste qu'une.
     lignes_factures = []
     for f in factures:
-        regle = par_facture.get(f["facture_id_opaque"], 0.0)
-        solde = _round(f["montant_total"] - regle)
-        lignes_factures.append({**f, "regle": regle, "solde": solde,
-                                "statut_reglement": _statut(f["montant_total"], regle)})
+        imput = imputations_detail(f["facture_id_opaque"], db_path=db_path)
+        regle = imput["regle"]
+        compense = imput["compense"]
+        solde = _round(f["montant_total"] - imput["total"])
+        lignes_factures.append({**f, "regle": regle, "compense": compense, "solde": solde,
+                                "acomptes": imput.get("acomptes", 0.0),
+                                "reversements_airbnb": imput.get("reversements_airbnb", 0.0),
+                                "statut_reglement": _statut(f["montant_total"], imput["total"])})
 
     lignes_sources = []
     for s in sources:
@@ -240,8 +256,10 @@ def position(proprietaire_id: str, *, db_path=None) -> dict[str, Any]:
     paiements_recus = _somme(lignes_sources, "montant", lambda s: s["source_type"] == SRC_PAIEMENT)
     reversements_dus = _somme(lignes_sources, "montant",
                               lambda s: s["source_type"] == SRC_REVERSEMENT)
-    compensations = _round(sum(a["montant_alloue"] for a in allocations
-                               if a["source_type"] == SRC_REVERSEMENT))
+    # Même correction : les compensations ne se lisent plus dans le seul FIFO. Un reversement
+    # Airbnb imputé directement sur un document éteint bien une créance — l'ignorer ici affichait
+    # « compensé 0,00 € » en face d'un solde qui, lui, en tenait compte.
+    compensations = _somme(lignes_factures, "compense")
     creance_restante = _somme(lignes_factures, "solde")
     credit_disponible = _somme(lignes_sources, "disponible",
                                lambda s: s["source_type"] != SRC_REVERSEMENT)
