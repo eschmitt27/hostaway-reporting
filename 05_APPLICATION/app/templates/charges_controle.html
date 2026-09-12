@@ -79,7 +79,7 @@
           <td class="font-mono text-xs">{{ r.charge_id }}</td>
           <td>{{ r.mois or '—' }}</td>
           <td>{{ r.date_charge or '—' }}</td>
-          <td>{{ r.categorie_charge_id or '—' }}</td>
+          <td>{{ r.categorie_charge_id|nom_categorie_charge if r.categorie_charge_id else '—' }}</td>
           <td>{{ r.montant if r.montant is not none else '—' }} €</td>
           <td>{{ r.logement_id or '—' }}</td>
           <td>{{ r.proprietaire_id or '—' }}</td>

@@ -31,6 +31,7 @@ ECRANS = [
     "/logements",
     "/reservations",
     "/menages",
+    "/charges-controle",
     "/fournisseurs",
     "/factures",
     "/factures-proprietaires",

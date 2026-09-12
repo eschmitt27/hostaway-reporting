@@ -36,6 +36,17 @@ TABLE_REGLES_VERSIONS = regv.TABLE
 TABLE_PROPRIETAIRES = "ref_proprietaires"
 
 
+@router.get("/administration")
+def administration_racine():
+    """`/administration` mène à l'administration des référentiels.
+
+    L'URL nue renvoyait 404 : le menu pointe vers `/administration/referentiels`, mais un
+    utilisateur qui tape l'adresse évidente tombait sur une page d'erreur. Une redirection vaut
+    mieux qu'un cul-de-sac.
+    """
+    return RedirectResponse(url="/administration/referentiels", status_code=307)
+
+
 @router.get("/administration/referentiels", response_class=HTMLResponse)
 def index(request: Request, message: str = "", erreur: str = ""):
     return templates.TemplateResponse(request, "administration_referentiels.html", {
