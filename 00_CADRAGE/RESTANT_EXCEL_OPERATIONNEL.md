@@ -225,3 +225,59 @@ l'instruction affichée par l'application elle-même. Les trois appels passent d
 
 **Règle projet inchangée** : les exports XLSX/CSV utilisateurs restent autorisés ; Excel comme
 **base ou source opérationnelle du moteur** reste interdit.
+
+
+---
+
+## §19 (recette utilisateur n°3) — suppression effective des chemins Excel morts, 2026-09-12
+
+La section §7 ci-dessus concluait, pour `lot6d` et `lot6e` : *« aucun blocage technique : c'est du
+**code mort à retirer**, pas une migration à faire »*. C'est fait.
+
+### Ce qui a été supprimé
+
+| Script | Avant | Après | Branche EXCEL retirée |
+|---|---:|---:|---|
+| `lot6d_rapprochement_menages.py` | 408 lignes | **360** | lecture de `REF_Setup.xlsm` (4 onglets), `MASTER_FACT_HA_CleaningTasks_Discovery.xlsx`, `MASTER_FACT_MEN_MenagesExternes.xlsx`, `MASTER_NORM_Declarations_Internes.xlsx`, `M04_MENAGES_PowerQuery.xlsx` |
+| `lot6e_gainperte_menages.py` | 365 lignes | **337** | lecture de `REF_Setup.xlsm` (3 onglets), `MASTER_FACT_MEN_MenagesExternes.xlsx`, `MASTER_NORM_Declarations_Internes.xlsx` |
+
+**`load_workbook` : 0 occurrence dans les deux scripts.** Les fonctions d'aide devenues inutiles
+(`sh()`, les constantes `REF` / `NORM_DIR` / `DRY_M04`, l'import `glob`) sont parties avec.
+
+`openpyxl` reste importé dans les deux : il **ÉCRIT** le classeur de sortie. C'est un export
+utilisateur, explicitement autorisé par la règle projet — ce qui était interdit, c'est Excel comme
+**source** du moteur, et cette lecture n'existe plus.
+
+### Ce qui n'a PAS été supprimé, et pourquoi
+
+L'option `--source` **survit**, avec une seule valeur possible :
+
+```
+_ap.add_argument("--source", choices=("SQLITE",), default="SQLITE")
+```
+
+Deux raisons. Les appelants existants passent tous `--source SQLITE` explicitement : retirer
+l'option les aurait tous cassés pour un gain nul. Et demander `EXCEL` produit désormais un **refus
+lisible** plutôt qu'un comportement silencieusement différent :
+
+```
+error: argument --source: invalid choice: 'EXCEL' (choose from SQLITE)
+```
+
+### Vérifié après suppression
+
+| Contrôle | Résultat |
+|---|---|
+| `lot6d --source SQLITE --mois 2026-07` | **19 lignes** (`VALIDE` 11, `A_CONTROLER` 8) |
+| `lot6e --source SQLITE --mois 2026-07` | **7 lignes** |
+| Appel **sans** `--source` (défaut) | identique — 19 lignes |
+| `--source EXCEL` | **refusé**, message explicite |
+| `--sans-excel` | « classeur legacy non écrit » — inchangé |
+
+### `lot6a` — toujours NON, et le blocage n'a pas bougé
+
+Le script exige des identifiants API Hostaway, absents de cette installation. Il ne peut être ni
+exécuté ni testé ici, et le migrer à l'aveugle reviendrait à réécrire un extracteur réseau sans
+jamais l'exercer. Sa cible SQLite (`menages_taches_enrichies`) est pourtant **déjà la source de
+tout l'aval** : le script n'alimente plus rien de vivant. C'est un chantier distinct, pas un reste
+de celui-ci.

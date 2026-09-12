@@ -22,9 +22,11 @@ DRY-RUN : sortie 02_TRAVAIL/Lot6_DryRun/DRYRUN_GainPerte_Menages.xlsx
 Périmètre courant : MOIS = 2026-05.
 """
 
-import argparse, sys, os, glob, hashlib, datetime, collections, warnings
+import argparse, sys, os, hashlib, datetime, collections, warnings
 warnings.filterwarnings("ignore")
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+# openpyxl sert uniquement a ECRIRE le classeur de sortie (export utilisateur, autorise).
+# Plus aucune LECTURE de classeur : les sources sont exclusivement SQLite.
 import openpyxl
 from openpyxl.styles import Font, PatternFill
 
@@ -34,15 +36,8 @@ from lib_ref_history import resolve_parametre_general
 
 PIVOT = "2026-06"          # >= pivot : méthode interne paramétrée
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-REF  = os.path.join(ROOT, "01_SOURCES_BRUTES", "REF_Setup", "REF_Setup.xlsm")
 OUTD = os.path.join(ROOT, "02_TRAVAIL", "Lot6e_GainPerte_Menages")
 OUT  = os.path.join(OUTD, "MASTER_CALC_GainPerte_Menages.xlsx")
-DRY_M04 = os.path.join(ROOT, "02_TRAVAIL", "Lot6b_DeclarationsInternes", "MASTER_NORM_Declarations_Internes.xlsx")
-
-def sh(p, s):
-    wb = openpyxl.load_workbook(p, read_only=True, data_only=True); ws = wb[s]
-    rows = [r for r in ws.iter_rows(values_only=True) if any(c is not None for c in r)]; wb.close()
-    return [dict(zip([str(c) for c in rows[0]], r)) for r in rows[1:]]
 
 def rowhash(*v):
     return hashlib.sha256("|".join("" if x is None else str(x) for x in v).encode()).hexdigest()[:16]
@@ -54,7 +49,13 @@ def to_d(v):
     except (ValueError, TypeError): return None
 
 _ap = argparse.ArgumentParser()
-_ap.add_argument("--source", choices=("EXCEL", "SQLITE"), default="EXCEL")
+# --source n'a plus qu'une valeur possible. L'option SURVIT pour que les appelants existants
+# (`--source SQLITE`, present partout) continuent de fonctionner sans etre modifies, et pour que
+# demander EXCEL produise un refus EXPLICITE plutot qu'un comportement silencieusement different.
+_ap.add_argument("--source", choices=("SQLITE",), default="SQLITE",
+                 help="SQLITE uniquement. La lecture des classeurs legacy a ete supprimee : plus "
+                      "aucun appelant ne l'empruntait et les classeurs sources ne sont plus "
+                      "regeneres.")
 _ap.add_argument("--db", default=None)
 _ap.add_argument("--mois", default=None,
                  help="AAAA-MM. Absent = dernier mois present dans menages_taches_enrichies "
@@ -65,38 +66,30 @@ _ap.add_argument("--run-id", default="")
 args = _ap.parse_args()
 chemin_base = dbm.chemin_db(args.db)
 
-if args.source == "SQLITE":
-    if chemin_base is None:
-        sys.exit("[lot6e] ERREUR : --source SQLITE exige une base (--db / PILOTAGE_DB_PATH / "
-                 "APP_DATA_DIR).")
-    _conn0 = dbm.ouvrir(chemin_base)
-    if args.mois:
-        MONTH = args.mois
-    else:
-        r = _conn0.execute(
-            "SELECT MAX(mois) FROM menages_taches_enrichies WHERE mois IS NOT NULL").fetchone()
-        MONTH = r[0] if r and r[0] else datetime.date.today().strftime("%Y-%m")
-    _conn0.close()
+if chemin_base is None:
+    sys.exit("[lot6e] ERREUR : --source SQLITE exige une base (--db / PILOTAGE_DB_PATH / "
+             "APP_DATA_DIR).")
+_conn0 = dbm.ouvrir(chemin_base)
+if args.mois:
+    MONTH = args.mois
 else:
-    MONTH = args.mois or "2026-05"
+    r = _conn0.execute(
+        "SELECT MAX(mois) FROM menages_taches_enrichies WHERE mois IS NOT NULL").fetchone()
+    MONTH = r[0] if r and r[0] else datetime.date.today().strftime("%Y-%m")
+_conn0.close()
 
 DREF = datetime.date.fromisoformat(MONTH + "-01")
 
 # ── Référentiels ─────────────────────────────────────────────────────────────
-if args.source == "SQLITE":
-    _conn = dbm.ouvrir(chemin_base)
-    log_info = {r["logement_id"]: r for r in dbm.lignes(
-        _conn, "ref_logements", ("logement_id", "type_logement_id", "nom_logement_officiel"),
-        ordre="logement_id")}
-    typ_lib = {r["type_logement_id"]: r["type_logement"] for r in dbm.lignes(
-        _conn, "ref_types_logements", ("type_logement_id", "type_logement"),
-        ordre="type_logement_id")}
-    int_info = {r["intervenant_id"]: r for r in dbm.lignes(
-        _conn, "ref_intervenants", ("intervenant_id", "nom_intervenant"), ordre="intervenant_id")}
-else:
-    log_info = {d["logement_id"]: d for d in sh(REF, "REF_Logements") if d.get("logement_id") and str(d["logement_id"]) != "logement_id"}
-    typ_lib  = {d["type_logement_id"]: d.get("type_logement") for d in sh(REF, "REF_Types_Logements")}
-    int_info = {d["intervenant_id"]: d for d in sh(REF, "REF_Intervenants")}
+_conn = dbm.ouvrir(chemin_base)
+log_info = {r["logement_id"]: r for r in dbm.lignes(
+    _conn, "ref_logements", ("logement_id", "type_logement_id", "nom_logement_officiel"),
+    ordre="logement_id")}
+typ_lib = {r["type_logement_id"]: r["type_logement"] for r in dbm.lignes(
+    _conn, "ref_types_logements", ("type_logement_id", "type_logement"),
+    ordre="type_logement_id")}
+int_info = {r["intervenant_id"]: r for r in dbm.lignes(
+    _conn, "ref_intervenants", ("intervenant_id", "nom_intervenant"), ordre="intervenant_id")}
 
 def cout_standard_unit(type_id):
     best = None
@@ -115,14 +108,11 @@ def _num(v):
     except (TypeError, ValueError):
         return None
 
-if args.source == "SQLITE":
-    sh_std = [{**r, "cout_standard_menage": _num(r.get("cout_standard_menage"))}
-             for r in dbm.lignes(_conn, "ref_couts_standards_menage",
-                                 ("type_logement_id", "cout_standard_menage", "actif",
-                                  "date_debut_validite", "date_fin_validite"),
-                                 ordre="cout_standard_id")]
-else:
-    sh_std = sh(REF, "REF_Couts_Standards_Menage")
+sh_std = [{**r, "cout_standard_menage": _num(r.get("cout_standard_menage"))}
+         for r in dbm.lignes(_conn, "ref_couts_standards_menage",
+                             ("type_logement_id", "cout_standard_menage", "actif",
+                              "date_debut_validite", "date_fin_validite"),
+                             ordre="cout_standard_id")]
 
 def cout_interne_unit(type_id):
     best = None
@@ -135,34 +125,25 @@ def cout_interne_unit(type_id):
         best = d.get("montant_interne_standard")
     return best
 
-if args.source == "SQLITE":
-    sh_int = [{**r, "montant_interne_standard": _num(r.get("montant_interne_standard"))}
-             for r in dbm.lignes(_conn, "ref_couts_menage_interne",
-                                 ("type_logement_id", "montant_interne_standard", "actif",
-                                  "date_debut_validite", "date_fin_validite"),
-                                 ordre="cout_menage_interne_id")] \
-        if dbm.table_presente(_conn, "ref_couts_menage_interne") else []
-else:
-    sh_int = sh(REF, "REF_Couts_Menage_Interne") if "REF_Couts_Menage_Interne" in openpyxl.load_workbook(REF, read_only=True).sheetnames else []
+sh_int = [{**r, "montant_interne_standard": _num(r.get("montant_interne_standard"))}
+         for r in dbm.lignes(_conn, "ref_couts_menage_interne",
+                             ("type_logement_id", "montant_interne_standard", "actif",
+                              "date_debut_validite", "date_fin_validite"),
+                             ordre="cout_menage_interne_id")] \
+    if dbm.table_presente(_conn, "ref_couts_menage_interne") else []
 
 # taux horaire (PARAM_004), pas en dur — resolu par date economique (Mission 6 bis) : ce
 # parametre peut evoluer, un recalcul historique ne doit pas utiliser le taux courant.
 taux_horaire = None
-if args.source == "SQLITE":
-    param_rows = dbm.lignes(_conn, "ref_parametres_generaux",
-                            ("nom_parametre", "valeur", "date_debut_validite",
-                             "date_fin_validite", "actif"),
-                            ordre="parametre_id")
-    _conn.close()
-    res_taux = resolve_parametre_general(param_rows, nom_parametre="TAUX_HORAIRE_MENAGE_INTERNE",
-                                         ref_date=DREF)
-    if res_taux.status == "OK":
-        taux_horaire = res_taux.value
-else:
-    for d in sh(REF, "REF_Parametres_Generaux"):
-        if d.get("nom_parametre") == "TAUX_HORAIRE_MENAGE_INTERNE":
-            try: taux_horaire = float(d.get("valeur"))
-            except (TypeError, ValueError): pass
+param_rows = dbm.lignes(_conn, "ref_parametres_generaux",
+                        ("nom_parametre", "valeur", "date_debut_validite",
+                         "date_fin_validite", "actif"),
+                        ordre="parametre_id")
+_conn.close()
+res_taux = resolve_parametre_general(param_rows, nom_parametre="TAUX_HORAIRE_MENAGE_INTERNE",
+                                     ref_date=DREF)
+if res_taux.status == "OK":
+    taux_horaire = res_taux.value
 
 rows_out = []
 controls = []
@@ -200,29 +181,26 @@ def add(mois, lg, iid, typ_interv, nb, nb_h, methode, reel_total, code="", comm=
 
 # ── A. EXTERNE_FACTURE (lot6c) ───────────────────────────────────────────────
 ext_agg = collections.defaultdict(lambda: [0, 0.0])   # (lg, prestataire) -> [nb, montant]
-if args.source == "SQLITE":
-    _conn = dbm.ouvrir(chemin_base)
-    ext_rows = []
-    if dbm.table_presente(_conn, "facture_lignes_menage"):
-        cur = _conn.execute(
-            "SELECT l.logement_id, f.fournisseur_id_opaque, l.montant_ttc, d.quantite, "
-            "f.date_facture, l.facture_id_opaque "
-            "FROM facture_lignes_menage l "
-            "JOIN factures f ON f.facture_id_opaque = l.facture_id_opaque "
-            "LEFT JOIN facture_lignes_menage_detail d ON d.ligne_id_opaque = l.ligne_id_opaque "
-            # Seules les factures VALIDEES engagent l'economie : le cout reel d'un menage externe
-            # est un montant facture ACCEPTE, pas un montant simplement recu. Une facture
-            # A_CONTROLER reste visible dans le rapprochement (lot6d) mais pese 0 ici.
-            "WHERE l.type_ligne = 'MENAGE_EXTERNE' "
-            f"AND {dbm.filtre_sql_factures_comptables('f')}")
-        ext_rows = [{"mois": str(dfac or "")[:7], "logement_id": lg, "prestataire_id": pid,
-                    "type_ligne_menage_id": "TLM_001",
-                    "nombre_menages": qte if qte is not None else 1, "montant_ligne_ttc": mttc,
-                    "facture_id": fid}
-                   for lg, pid, mttc, qte, dfac, fid in cur.fetchall()]
-else:
-    fc = glob.glob(os.path.join(ROOT, "02_TRAVAIL", "**", "MASTER_FACT_MEN_MenagesExternes.xlsx"), recursive=True)[0]
-    ext_rows = sh(fc, "MASTER")
+_conn = dbm.ouvrir(chemin_base)
+ext_rows = []
+if dbm.table_presente(_conn, "facture_lignes_menage"):
+    cur = _conn.execute(
+        "SELECT l.logement_id, f.fournisseur_id_opaque, l.montant_ttc, d.quantite, "
+        "f.date_facture, l.facture_id_opaque "
+        "FROM facture_lignes_menage l "
+        "JOIN factures f ON f.facture_id_opaque = l.facture_id_opaque "
+        "LEFT JOIN facture_lignes_menage_detail d ON d.ligne_id_opaque = l.ligne_id_opaque "
+        # Seules les factures VALIDEES engagent l'economie : le cout reel d'un menage externe
+        # est un montant facture ACCEPTE, pas un montant simplement recu. Une facture
+        # A_CONTROLER reste visible dans le rapprochement (lot6d) mais pese 0 ici.
+        "WHERE l.type_ligne = 'MENAGE_EXTERNE' "
+        f"AND {dbm.filtre_sql_factures_comptables('f')}")
+    ext_rows = [{"mois": str(dfac or "")[:7], "logement_id": lg, "prestataire_id": pid,
+                "type_ligne_menage_id": "TLM_001",
+                "nombre_menages": qte if qte is not None else 1, "montant_ligne_ttc": mttc,
+                "facture_id": fid}
+               for lg, pid, mttc, qte, dfac, fid in cur.fetchall()]
+
 for d in ext_rows:
     if str(d.get("mois"))[:7] != MONTH: continue
     if str(d.get("type_ligne_menage_id")) not in ("TLM_001", "TLM_002"): continue
@@ -237,17 +215,11 @@ for (lg, iid), (nb, mont) in ext_agg.items():
 
 # ── B/C. INTERNE (source dry-run sheet, ou menages_declarations_internes en SQLITE) ─────────────
 internal_method = "INTERNE_HEURES_M04" if MONTH < PIVOT else "INTERNE_STANDARD_PARAMETRE"
-if args.source == "SQLITE":
-    decl_rows = dbm.lignes(_conn, "menages_declarations_internes",
-        ("mois", "logement_id", "intervenant_id", "nb_menages", "nb_heures"), ordre="id")
-    _conn.close()
-    source_interne_ok = True
-elif os.path.exists(DRY_M04):
-    decl_rows = sh(DRY_M04, "MASTER_NORMALISE")
-    source_interne_ok = True
-else:
-    decl_rows = []
-    source_interne_ok = False
+decl_rows = dbm.lignes(_conn, "menages_declarations_internes",
+    ("mois", "logement_id", "intervenant_id", "nb_menages", "nb_heures"), ordre="id")
+_conn.close()
+source_interne_ok = True
+
 if source_interne_ok:
     int_agg = collections.defaultdict(lambda: [0, 0.0, False])  # nb, heures, has_h
     for d in decl_rows:
