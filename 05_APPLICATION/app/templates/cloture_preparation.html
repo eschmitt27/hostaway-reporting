@@ -40,6 +40,40 @@
   </div>
 </div>
 
+{# §17 — LE SUIVI DE FACTURATION EST UN AVANCEMENT MENSUEL.
+   Il dit où en est chaque propriétaire pour CE mois : non concerné, à facturer, facturé, avoir à
+   émettre. Sa place est donc ici, dans la préparation de la clôture, et non dans un relevé
+   économique. Le moteur (`proprietaires_suivi_service`) est inchangé : seule la porte d'entrée
+   a déménagé. #}
+{% if avancement_facturation and avancement_facturation.valide %}
+<div class="card mb-md">
+  <h2 class="card-title">Facturation propriétaires — {{ avancement_facturation.mois }}</h2>
+  <dl class="detail-grid">
+    <div><dt>Propriétaires avec activité</dt><dd>{{ avancement_facturation.nb_proprietaires_actifs }}</dd></div>
+    <div><dt>Suivis ouverts</dt><dd>{{ avancement_facturation.total }}</dd></div>
+    <div><dt>À facturer</dt><dd>{{ avancement_facturation.reste_a_facturer }}</dd></div>
+    <div><dt>Facturés</dt><dd>{{ avancement_facturation.factures }}</dd></div>
+    {% if avancement_facturation.avoirs_a_emettre %}
+    <div><dt>Avoirs à émettre</dt><dd>{{ avancement_facturation.avoirs_a_emettre }}</dd></div>
+    {% endif %}
+  </dl>
+
+  {% if avancement_facturation.nb_non_demarres %}
+  <div class="alert alert-warning">
+    <strong>{{ avancement_facturation.nb_non_demarres }} propriétaire(s) sans suivi ouvert</strong>
+    pour ce mois : {{ avancement_facturation.non_demarres|map(attribute='libelle')|join(', ') }}.
+    {# Un suivi non ouvert n'est pas « à jour » : il est invisible. Clôturer sans l'avoir vu
+       fermerait le mois sur une facturation que plus aucun écran ne réclame. #}
+    Ils ont une activité ce mois-ci mais aucune facturation n'est réclamée pour eux.
+  </div>
+  {% endif %}
+
+  <a href="/proprietaires-reglements?mois={{ avancement_facturation.mois }}" class="btn btn-secondary">
+    Ouvrir le suivi de facturation
+  </a>
+</div>
+{% endif %}
+
 <form method="post" action="/clotures/{{ cloture.cloture_id_opaque }}/passer-a-valider">
   <button type="submit" class="btn btn-primary">Passer à validation</button>
 </form>

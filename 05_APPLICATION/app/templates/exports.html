@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Exporter les données{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Exporter les données</h1>
+  <p class="page-subtitle">
+    Jeux de données complets au format CSV — référentiels, réservations, ménages, résultats,
+    règlements — accompagnés de leur dictionnaire de colonnes.
+  </p>
+</div>
+
+{% if message %}<div class="alert alert-info">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-error">{{ erreur }}</div>{% endif %}
+
+<div class="card" style="margin-bottom: var(--stack-lg);">
+  <div class="flex items-center flex-wrap" style="gap: var(--inline-md);">
+    <form method="post" action="/exports/generer">
+      <button type="submit" class="btn btn-primary">Générer l'export</button>
+    </form>
+    {% if fichiers %}
+    <a href="/exports/archive.zip" class="btn btn-secondary">Tout télécharger (ZIP)</a>
+    {% endif %}
+  </div>
+  <p class="text-xs text-secondary" style="margin-top: var(--stack-sm);">
+    Les fichiers sont écrits dans <code>{{ dossier }}</code> et régénérés à chaque demande.
+  </p>
+  <div class="alert alert-warning" style="margin-top: var(--stack-sm);">
+    <strong>Le mois en cours ({{ mois_courant }}) est PROVISOIRE.</strong>
+    L'export couvre tous les mois, y compris celui-ci : ses chiffres sont incomplets et
+    changeront encore. L'archive porte la mention dans son nom, pour qu'elle survive au
+    téléchargement.
+  </div>
+</div>
+
+{% if not fichiers %}
+<div class="card">
+  <p class="text-secondary">
+    Aucun export n'a encore été produit sur cette installation. Cliquez sur « Générer l'export ».
+  </p>
+</div>
+{% else %}
+<div class="card">
+  <h2 class="card-title">Fichiers disponibles — {{ fichiers|length }}</h2>
+  <table class="table">
+    <thead>
+      <tr><th>Fichier</th><th class="num">Lignes</th><th class="num">Taille</th>
+          <th>Produit le</th><th></th></tr>
+    </thead>
+    <tbody>
+    {% for f in fichiers %}
+      <tr>
+        <td><code>{{ f.nom }}</code></td>
+        <td class="num">
+          {% if f.lignes < 0 %}
+            {# « Je n'ai pas pu compter » n'est pas « il n'y a rien ». #}
+            <span class="text-secondary">illisible</span>
+          {% else %}{{ f.lignes }}{% endif %}
+        </td>
+        <td class="num">{{ f.taille_ko }} Ko</td>
+        <td class="text-xs">{{ f.modifie_le|datetime_fr }}</td>
+        <td><a href="/exports/fichier/{{ f.nom }}">Télécharger</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

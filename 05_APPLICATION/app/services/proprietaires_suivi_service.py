@@ -250,3 +250,51 @@ def rouvrir(releve: dict, *, acteur: str = "", justification: str = "", version_
                        version_attendue=version_attendue, db_path=db_path,
                        extra_cols={"date_reouverture": _now(),
                                   "justification_reouverture": justification})
+
+
+# ── Avancement du mois, pour la CLÔTURE MENSUELLE (§17) ─────────────────────────────────────────
+#
+# LE MOTEUR RESTE ICI, LE PARCOURS DÉMÉNAGE.
+# Ce suivi ne décrit pas une performance : il dit où en est la FACTURATION de chaque propriétaire
+# pour un mois — non concerné, à facturer, facturé, avoir à émettre. C'est un état d'avancement
+# mensuel, au même titre que les contrôles de clôture, et c'est donc dans la préparation de la
+# clôture qu'il doit se consulter. Le service, lui, ne bouge pas : il est éprouvé, transactionnel
+# et journalisé. Seule la porte d'entrée change.
+
+def avancement_mois(mois: str, db_path=None) -> dict[str, Any]:
+    """Où en est la facturation propriétaire pour ce mois.
+
+    `non_demarres` compte les propriétaires qui ont une activité ce mois-là et dont le suivi n'a
+    jamais été ouvert. C'est l'information utile avant de clôturer : un propriétaire dont le suivi
+    n'existe pas n'est pas « à jour », il est INVISIBLE — et clôturer sur cette base laisserait un
+    mois fermé avec une facturation qu'aucun écran ne réclamait.
+    """
+    periode = _txt(mois)
+    if not mois_valide(periode):
+        return {"mois": periode, "valide": False, "par_statut": {}, "total": 0,
+                "non_demarres": [], "nb_non_demarres": 0}
+
+    suivis = lister(periode, db_path=db_path)
+    par_statut: dict[str, int] = {}
+    for s in suivis:
+        statut = _txt(s.get("statut_facturation")) or ST_NON_CONCERNE
+        par_statut[statut] = par_statut.get(statut, 0) + 1
+
+    from app.services import proprietaire_performance_service as perf
+
+    actifs = perf.proprietaires_du_mois(periode, db_path=db_path)
+    connus = {_txt(s.get("proprietaire_id")) for s in suivis}
+    non_demarres = [p for p in actifs if p["proprietaire_id"] not in connus]
+
+    return {
+        "mois": periode,
+        "valide": True,
+        "par_statut": par_statut,
+        "total": len(suivis),
+        "nb_proprietaires_actifs": len(actifs),
+        "non_demarres": non_demarres,
+        "nb_non_demarres": len(non_demarres),
+        "reste_a_facturer": par_statut.get(ST_A_FACTURER, 0),
+        "factures": par_statut.get(ST_FACTURE, 0),
+        "avoirs_a_emettre": par_statut.get(ST_AVOIR_A_EMETTRE, 0),
+    }

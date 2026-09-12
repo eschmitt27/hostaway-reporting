@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+{% block title %}Relevé propriétaire{% endblock %}
+
+{% macro nombre(v, unite="") %}{% if v is none %}<span class="text-secondary">—</span>{% else %}{{ v }}{{ unite }}{% endif %}{% endmacro %}
+{% macro euros(v) %}{% if v is none %}<span class="text-secondary">—</span>{% else %}{{ "%.2f"|format(v) }} €{% endif %}{% endmacro %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Relevé propriétaire</h1>
+  <p class="page-subtitle">
+    Performance économique du parc sur la période — activité, remplissage, prix moyen, net.
+  </p>
+</div>
+
+{# ── Période et sélection ───────────────────────────────────────────────────────────────── #}
+<div class="card" style="margin-bottom: var(--stack-lg);">
+  <form method="get" action="/releves-proprietaires" class="filter-bar">
+    <select name="mois" class="filter-input" onchange="this.form.submit()">
+      {% for m in mois_disponibles %}
+      <option value="{{ m }}" {% if m == mois %}selected{% endif %}>{{ m }}</option>
+      {% endfor %}
+    </select>
+    <select name="proprietaire_id" class="filter-input" onchange="this.form.submit()">
+      <option value="">Tous les propriétaires</option>
+      {% for p in proprietaires %}
+      <option value="{{ p.proprietaire_id }}" {% if p.proprietaire_id == proprietaire_id %}selected{% endif %}>
+        {{ p.libelle }}
+      </option>
+      {% endfor %}
+    </select>
+    <noscript><button type="submit" class="btn btn-secondary">Afficher</button></noscript>
+    <a href="/releves-proprietaires/export.csv?mois={{ mois }}&proprietaire_id={{ proprietaire_id }}"
+       class="btn btn-secondary">Exporter les données (CSV)</a>
+  </form>
+  <p>
+    <strong>Période : {{ mois }}</strong>
+    {% if provisoire %}
+      {# Un mois non écoulé bougera encore : le dire est le seul moyen d'éviter qu'on le cite
+         comme un résultat acquis. #}
+      <span class="badge badge-warning">PROVISOIRE — mois en cours</span>
+    {% endif %}
+  </p>
+</div>
+
+{% if not mois_disponibles %}
+  <div class="alert alert-warning">
+    Aucun calcul mensuel disponible : lancez une actualisation avant de consulter les relevés.
+  </div>
+
+{% elif releve %}
+  {# ══ UN PROPRIÉTAIRE ══════════════════════════════════════════════════════════════════ #}
+  <h2 class="card-title">{{ releve.proprietaire }}</h2>
+
+  {% if releve.capacite_inconnue %}
+  <div class="alert alert-warning">{{ releve.capacite_inconnue }}</div>
+  {% endif %}
+
+  <div class="kpi-grid" style="margin-bottom: var(--stack-lg);">
+    <div class="kpi-card">
+      <div class="kpi-label">Réservations</div>
+      <div class="kpi-value">{{ releve.nb_reservations }}</div>
+      <div class="kpi-sub">{{ releve.nb_logements }} logement{{ "s" if releve.nb_logements > 1 }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Nuits occupées</div>
+      <div class="kpi-value">{{ releve.nuits_occupees }}</div>
+      <div class="kpi-sub">sur {{ releve.nuits_commercialisables }} commercialisables</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Taux de remplissage</div>
+      <div class="kpi-value">{{ nombre(releve.taux_remplissage, " %") }}</div>
+      <div class="kpi-sub">{{ formules.taux_remplissage.formule }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Durée moyenne</div>
+      <div class="kpi-value">{{ nombre(releve.duree_moyenne, " nuits") }}</div>
+      <div class="kpi-sub">{{ formules.duree_moyenne.formule }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Voyageurs moyens</div>
+      <div class="kpi-value">{{ nombre(releve.voyageurs_moyens) }}</div>
+      <div class="kpi-sub">
+        {# Le dénominateur est dit : sinon une moyenne sur 5 séjours et une moyenne sur 40
+           se lisent exactement pareil. #}
+        sur {{ releve.nb_reservations_avec_voyageurs }} réservation(s) portant la donnée
+        {% if releve.nb_reservations_sans_voyageurs %}
+          · {{ releve.nb_reservations_sans_voyageurs }} sans
+        {% endif %}
+      </div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Total perçu</div>
+      <div class="kpi-value">{{ euros(releve.total_percu) }}</div>
+      <div class="kpi-sub">{{ formules.total_percu.formule }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Commission</div>
+      <div class="kpi-value">{{ euros(releve.commission) }}</div>
+      <div class="kpi-sub">ménages : {{ euros(releve.menages) }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Net propriétaire</div>
+      <div class="kpi-value">{{ euros(releve.net_proprietaire) }}</div>
+      <div class="kpi-sub">{{ formules.net_proprietaire.formule }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">ADR</div>
+      <div class="kpi-value">{{ euros(releve.adr) }}</div>
+      <div class="kpi-sub">par nuit occupée</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">ADR net propriétaire</div>
+      <div class="kpi-value">{{ euros(releve.adr_net_proprietaire) }}</div>
+      <div class="kpi-sub">par nuit occupée</div>
+    </div>
+  </div>
+
+  {% if releve.canaux %}
+  <div class="card" style="margin-bottom: var(--stack-lg);">
+    <h2 class="card-title">Répartition par canal</h2>
+    <table class="table">
+      <thead>
+        <tr><th>Canal</th><th class="num">Réservations</th><th class="num">Part</th>
+            <th class="num">Nuits</th><th class="num">Part des nuits</th><th class="num">Montant</th></tr>
+      </thead>
+      <tbody>
+      {% for c in releve.canaux %}
+        <tr>
+          <td>{{ c.canal|capitalize }}</td>
+          <td class="num">{{ c.reservations }}</td>
+          <td class="num">{{ c.part_reservations }} %</td>
+          <td class="num">{{ c.nuits }}</td>
+          <td class="num">{{ c.part_nuits }} %</td>
+          <td class="num">{{ euros(c.montant) }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h2 class="card-title">Détail par logement</h2>
+    <table class="table">
+      <thead>
+        <tr><th>Logement</th><th class="num">Rés.</th><th class="num">Nuits</th>
+            <th class="num">Remplissage</th><th class="num">Total perçu</th>
+            <th class="num">Ménages</th><th class="num">Commission</th>
+            <th class="num">Net propriétaire</th><th class="num">ADR</th></tr>
+      </thead>
+      <tbody>
+      {% for l in releve.logements %}
+        <tr>
+          <td>{{ l.logement }}</td>
+          <td class="num">{{ l.reservations }}</td>
+          <td class="num">{{ l.nuits }}</td>
+          <td class="num">{{ nombre(l.taux_remplissage, " %") }}</td>
+          <td class="num">{{ euros(l.total_percu) }}</td>
+          <td class="num">{{ euros(l.menages) }}</td>
+          <td class="num">{{ euros(l.commission) }}</td>
+          <td class="num"><strong>{{ euros(l.net_proprietaire) }}</strong></td>
+          <td class="num">{{ euros(l.adr) }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% if releve.nb_exclues %}
+    <p class="text-xs text-secondary">
+      {{ releve.nb_exclues }} réservation(s) du mois écartée(s) du résultat réel (annulation sans
+      encaissement, séjour propriétaire) : elles ne comptent ni en nuits ni en recettes.
+    </p>
+    {% endif %}
+  </div>
+
+{% else %}
+  {# ══ TOUT LE PARC ═════════════════════════════════════════════════════════════════════ #}
+  {% if totaux %}
+  <div class="kpi-grid" style="margin-bottom: var(--stack-lg);">
+    <div class="kpi-card">
+      <div class="kpi-label">Propriétaires</div>
+      <div class="kpi-value">{{ totaux.nb_proprietaires }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Réservations</div>
+      <div class="kpi-value">{{ totaux.nb_reservations }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Nuits occupées</div>
+      <div class="kpi-value">{{ totaux.nuits_occupees }}</div>
+      <div class="kpi-sub">sur {{ totaux.nuits_commercialisables }} commercialisables</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Taux de remplissage</div>
+      <div class="kpi-value">{{ nombre(totaux.taux_remplissage, " %") }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Total perçu</div>
+      <div class="kpi-value">{{ euros(totaux.total_percu) }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Commission</div>
+      <div class="kpi-value">{{ euros(totaux.commission) }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Net propriétaires</div>
+      <div class="kpi-value">{{ euros(totaux.net_proprietaire) }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">ADR</div>
+      <div class="kpi-value">{{ euros(totaux.adr) }}</div>
+      <div class="kpi-sub">net propriétaire : {{ euros(totaux.adr_net_proprietaire) }}</div>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h2 class="card-title">Par propriétaire — {{ mois }}</h2>
+    <table class="table">
+      <thead>
+        <tr><th>Propriétaire</th><th class="num">Rés.</th><th class="num">Nuits</th>
+            <th class="num">Durée moy.</th><th class="num">Voyageurs moy.</th>
+            <th class="num">Remplissage</th><th class="num">Total perçu</th>
+            <th class="num">Commission</th><th class="num">Net propriétaire</th>
+            <th class="num">ADR</th><th></th></tr>
+      </thead>
+      <tbody>
+      {% for r in synthese %}
+        <tr>
+          <td>{{ r.proprietaire }}</td>
+          <td class="num">{{ r.nb_reservations }}</td>
+          <td class="num">{{ r.nuits_occupees }}</td>
+          <td class="num">{{ nombre(r.duree_moyenne) }}</td>
+          <td class="num">{{ nombre(r.voyageurs_moyens) }}</td>
+          <td class="num">{{ nombre(r.taux_remplissage, " %") }}</td>
+          <td class="num">{{ euros(r.total_percu) }}</td>
+          <td class="num">{{ euros(r.commission) }}</td>
+          <td class="num"><strong>{{ euros(r.net_proprietaire) }}</strong></td>
+          <td class="num">{{ euros(r.adr) }}</td>
+          <td><a href="/releves-proprietaires?mois={{ mois }}&proprietaire_id={{ r.proprietaire_id }}">Détail</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+
+{# ── Comment chaque indicateur est obtenu ───────────────────────────────────────────────── #}
+<details class="card" style="margin-top: var(--stack-lg);">
+  <summary class="card-title">Comment ces indicateurs sont calculés</summary>
+  <table class="table">
+    <thead><tr><th>Indicateur</th><th>Formule</th><th>Source</th></tr></thead>
+    <tbody>
+    {% for cle, f in formules.items() %}
+      <tr><td>{{ f.libelle }}</td><td>{{ f.formule }}</td>
+          <td class="text-xs text-secondary">{{ f.source }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</details>
+{% endblock %}

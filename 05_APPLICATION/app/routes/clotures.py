@@ -163,7 +163,14 @@ def cloture_preparation(request: Request, cloture_opaque: str):
         return templates.TemplateResponse(request, "cloture_preparation.html", {
             "active_menu": "clotures", "cloture": None,
         }, status_code=404)
-    return templates.TemplateResponse(request, "cloture_preparation.html", {"active_menu": "clotures", **ctx})
+    # §17 — le suivi de facturation propriétaire est un AVANCEMENT MENSUEL : sa place est dans la
+    # préparation de la clôture, pas dans un relevé économique. Le moteur ne bouge pas ; seule la
+    # porte d'entrée est ici.
+    from app.services import proprietaires_suivi_service as suivi_prop
+
+    avancement = suivi_prop.avancement_mois(ctx["cloture"]["mois"]) if ctx.get("cloture") else None
+    return templates.TemplateResponse(request, "cloture_preparation.html", {
+        "active_menu": "clotures", "avancement_facturation": avancement, **ctx})
 
 
 @router.post("/clotures/{cloture_opaque}/passer-a-valider")
