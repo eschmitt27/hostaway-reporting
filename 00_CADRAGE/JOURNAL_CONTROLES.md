@@ -5253,3 +5253,40 @@ s'affiche (« Une ligne au moins a été mal extraite »), la ligne fautive port
 (« 0 × 32,00 € = 0,00 €, or la ligne porte 36,00 € »), le geste attendu est nommé, les logements
 sortis du parc sont sélectionnables et marqués, et les deux bacs techniques s'affichent désormais
 « Logement divers (hors parc) » au lieu de `LOGEMENT_DIVERS`.
+
+---
+
+## CTR-TELEPHONES-CANONIQUES-2026-09-12 — deux écritures d'un même numéro
+
+**Constat** : le référentiel portait deux formats selon la table d'origine.
+
+| Table | Format observé | Exemple |
+|---|---|---|
+| `ref_proprietaires` | national, 10 chiffres, collé | `0610190367` |
+| `ref_intervenants` | indicatif pays sans « + », collé | `33775793253` |
+
+Aucun des deux ne se lit, et surtout : **deux numéros identiques écrits différemment ne se
+rapprochaient pas**. Comparer ou dédoublonner supposait de savoir de quelle table venait la valeur.
+
+**Règle retenue** : stocker en **E.164** (`+33610190367`), afficher en **groupes de deux**
+(`06 10 19 03 67`). Le stockage n'est pas l'affichage — c'est ce qui permet aux deux d'être bons.
+
+**Sauvegarde** : `BCK-CEF20FCFFC3E` (VALIDE, schéma 0082). **Migration 0083** appliquée.
+
+| Contrôle | Résultat |
+|---|---|
+| Numéros transformés | **17 / 17** (12 propriétaires + 5 intervenants) |
+| Divergences migration SQL / service Python | **0** |
+| Numéros restés non canoniques | **0** |
+| `integrity_check` / `foreign_key_check` | **ok** / **0** |
+| `menages_cout_complet` | 39 lignes / 7 655,00 € — inchangé |
+| `F-11/0-000001` | **EMIS**, intacte |
+
+**Vérification en direct sur l'instance** : la fiche propriétaire affiche « 06 10 19 03 67 » alors
+que la base stocke « +33610190367 ».
+
+**Ce que la migration ne fait pas** : elle ne transforme que ce qu'elle sait lire (10 chiffres
+commençant par 0, ou 11 chiffres commençant par 33). Tout le reste est laissé intact — compléter un
+numéro incomplet produirait un numéro que quelqu'un finirait par appeler. Le service et la
+migration implémentent la même règle et sont confrontés l'un à l'autre par un test : s'ils
+divergent, l'un des deux est faux.

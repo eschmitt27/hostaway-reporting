@@ -25,7 +25,7 @@
   <div class="detail-field"><span class="detail-label">Nom</span>{{ detail.prop.nom_proprietaire or "—" }}</div>
   <div class="detail-field"><span class="detail-label">Prénom</span>{{ detail.prop.prenom_proprietaire or "—" }}</div>
   <div class="detail-field"><span class="detail-label">Email</span>{{ detail.prop.email or "—" }}</div>
-  <div class="detail-field"><span class="detail-label">Téléphone</span>{{ detail.prop.telephone or "—" }}</div>
+  <div class="detail-field"><span class="detail-label">Téléphone</span>{{ detail.prop.telephone|telephone or "—" }}</div>
   <div class="detail-field"><span class="detail-label">Adresse facturation</span>{{ detail.prop.adresse_facturation or "—" }}</div>
   <div class="detail-field"><span class="detail-label">Mode facturation</span>{{ detail.prop.mode_facturation or "—" }}</div>
   <div class="detail-field"><span class="detail-label">Actif</span>{{ detail.prop.actif or "—" }}</div>

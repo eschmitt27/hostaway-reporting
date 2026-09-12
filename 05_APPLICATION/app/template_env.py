@@ -144,5 +144,13 @@ def get_templates() -> Jinja2Templates:
         t.env.filters["datetime_fr"] = _datetime_fr
         t.env.filters["date_fr"] = _date_fr
         t.env.filters["entier"] = _entier
+        # §45 — un numéro se STOCKE en E.164 et se LIT en groupes de deux. Le filtre est le seul
+        # point de passage vers l'affichage : un numéro brut reste rendu tel quel, jamais inventé.
+        t.env.filters["telephone"] = _telephone
         _templates = t
     return _templates
+
+
+def _telephone(valeur) -> str:
+    from app.services import telephone_service as tel
+    return tel.afficher(valeur)

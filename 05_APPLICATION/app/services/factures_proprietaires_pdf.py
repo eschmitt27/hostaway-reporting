@@ -97,6 +97,20 @@ def _libelle_nature(code: Any) -> str:
     return _LIBELLES_NATURE.get(texte.upper(), texte.replace("_", " ").capitalize())
 
 
+def _telephone_lisible(v: Any) -> str:
+    """`+33610190367` → `06 10 19 03 67` (§45). Un numéro se stocke canonique et se lit en paires.
+
+    L'import est local : ce module doit rester capable de rendre un document archivé sans dépendre
+    des services applicatifs, et un référentiel indisponible ne doit pas empêcher une facture de
+    s'imprimer — la valeur brute est alors rendue telle quelle.
+    """
+    try:
+        from app.services import telephone_service as tel
+        return tel.afficher(v)
+    except Exception:      # noqa: BLE001
+        return str(v or "")
+
+
 def _date_fr(v: Any) -> str:
     """`2026-07-31` → `31/07/2026`. Renvoie la valeur telle quelle si le format est inattendu."""
     s = "" if v is None else str(v)[:10]
@@ -447,7 +461,7 @@ class _Facture(FPDF):
                               or dest.get("adresse"),
                               # Contact du client : téléphone d'abord, courriel à défaut. Rien si
                               # le référentiel n'en connaît aucun — on n'invente pas un contact.
-                              cl.get("telephone") or cl.get("email") or None,
+                              _telephone_lisible(cl.get("telephone")) or cl.get("email") or None,
                               f"SIREN {cl['siren']}" if cl.get("siren") else None,
                               f"SIRET {cl['siret']}" if cl.get("siret") else None,
                               f"TVA {cl['tva_intra']}" if cl.get("tva_intra") else None,
