@@ -13,7 +13,7 @@
     <h1 class="page-title">Propriétaires &amp; règlements</h1>
     <p class="page-subtitle">
       Période <span class="periode-active">{{ data.mois or "aucune" }}</span>
-      · {{ data.freshness.libelle }} · lu le {{ s.read_at }}
+      {%- if data.freshness.derniere_generation %} · généré le {{ data.freshness.derniere_generation|datetime_fr }}{% endif %} · lu le {{ s.read_at|datetime_fr }}
     </p>
   </div>
   <div class="flex flex-wrap gap-sm items-center">
@@ -40,13 +40,17 @@
 <div class="kpi-grid kpi-grid--6">
   <div class="kpi-card"><div class="kpi-label">Propriétaires</div><div class="kpi-value">{{ s.nb_proprietaires }}</div></div>
   <div class="kpi-card"><div class="kpi-label">Logements</div><div class="kpi-value">{{ s.nb_logements }}</div></div>
-  <div class="kpi-card"><div class="kpi-label">Commission totale</div>
-    <div class="kpi-value" style="font-size:18px">{{ "%.2f"|format(s.commission_totale) if s.commission_totale is not none else "—" }} €</div>
-    <div class="kpi-sub">moteur (non recalculée)</div></div>
-  <div class="kpi-card"><div class="kpi-label">Net propriétaire total</div>
-    <div class="kpi-value" style="font-size:18px">{{ "%.2f"|format(s.net_total) if s.net_total is not none else "—" }} €</div></div>
-  <div class="kpi-card"><div class="kpi-label">Reste à régler</div>
-    <div class="kpi-value" style="font-size:18px">{{ "%.2f"|format(s.reste_total) if s.reste_total is not none else "—" }} €</div></div>
+  {# §53-70 — chaque KPI porte sa formule et sa source, déclarées dans le SERVICE qui le calcule.
+     Un chiffre qu'on ne sait pas reconstituer ne se vérifie pas, et finit par ne plus être cru. #}
+  {% for cle in ("commission_totale", "net_total", "reste_total") %}
+  {% set kpi = s.formules_kpi.get(cle, {}) %}
+  <div class="kpi-card" title="{{ kpi.formule }}">
+    <div class="kpi-label">{{ kpi.libelle or cle }}</div>
+    <div class="kpi-value" style="font-size:18px">{{ "%.2f"|format(s[cle]) if s[cle] is not none else "—" }} €</div>
+    <div class="kpi-sub">{{ kpi.formule }}</div>
+    <div class="kpi-sub text-xs text-secondary">{{ kpi.source }}</div>
+  </div>
+  {% endfor %}
   <div class="kpi-card"><div class="kpi-label">Factures / à contrôler</div>
     <div class="kpi-value">{{ s.nb_factures }} / {{ s.nb_a_controler }}</div></div>
 </div>

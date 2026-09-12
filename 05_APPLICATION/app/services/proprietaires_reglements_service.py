@@ -302,6 +302,38 @@ def load_freshness() -> dict[str, Any]:
             "libelle": ("Généré le " + e.derniere_maj) if e.derniere_maj else "Source indisponible"}
 
 
+#: §53-70 — CHAQUE KPI DIT D'OÙ IL VIENT, et la phrase est déclarée ICI, pas dans le gabarit.
+#
+# Les quatre chiffres du bandeau s'affichaient nus. « Commission totale 2 191,57 € » : somme de
+# quoi, sur quel périmètre, recalculée ou pas ? Un chiffre qu'on ne sait pas reconstituer ne se
+# vérifie pas — et un chiffre qu'on ne peut pas vérifier finit par ne plus être cru.
+#
+# La formule vit dans le service parce que c'est lui qui la calcule. Écrite dans le gabarit, elle
+# aurait dérivé du calcul dès la première modification, et aurait menti sans que rien ne le dise.
+FORMULES_KPI: dict[str, dict[str, str]] = {
+    "commission_totale": {
+        "libelle": "Commission totale",
+        "formule": "Σ total_commission_mois des relevés du mois",
+        "source": "moteur Lot10 — jamais recalculée ici",
+    },
+    "net_total": {
+        "libelle": "Net propriétaire total",
+        "formule": "Σ net_proprietaire_apres_charge_mois",
+        "source": "moteur Lot10 — jamais recalculé ici",
+    },
+    "reste_total": {
+        "libelle": "Reste à régler",
+        "formule": "Σ reste_a_payer_conciergerie",
+        "source": "cumul des règlements propriétaires imputés",
+    },
+    "reglement_total": {
+        "libelle": "Réglé",
+        "formule": "Σ des paiements propriétaires du mois",
+        "source": "mouvements de trésorerie propriétaires",
+    },
+}
+
+
 def load_dashboard(mois: str = "", **filtres: Any) -> dict[str, Any]:
     if not mois:
         mois = periode_par_defaut()
@@ -325,6 +357,8 @@ def load_dashboard(mois: str = "", **filtres: Any) -> dict[str, Any]:
         "nb_factures": sum(v["facture_nb"] for v in vues),
         "reglement_total": _somme("reglement_paiement"),
         "nb_a_controler": sum(1 for v in vues if a_controler(v)),
+        # La formule accompagne le chiffre, depuis la même source que lui.
+        "formules_kpi": FORMULES_KPI,
         "etats_sources": etats,
         "sources_manquantes": sources_ko,
         "read_at": _now(),
