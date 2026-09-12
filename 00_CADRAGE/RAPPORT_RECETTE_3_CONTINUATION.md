@@ -45,6 +45,7 @@ et je complète la numérotation manquante sans rien deviner.
 | **53-70** | Audit « virement net à affecter » | **OUI** | C'est cet audit qui a révélé l'écart de 425,00 € : `position()` lisait le seul FIFO |
 | **53-70** | KPIs du relevé à formules verrouillées | **OUI** | `FORMULES_KPI` déclaré dans le service qui calcule — chaque KPI porte sa formule et sa source à l'écran · `test_releve_kpi_formules` (7) |
 | **53-70** | Export Power BI | **OUI** | `lot13_export_service` — **13 CSV + dictionnaire**, lus en SQLite. Vérifié sur répertoire temporaire (les vrais CSV sont suivis par Git) : `PBI_Menages_Cout_Complet` **39 lignes**, identique à la base |
+| **53-70** | Audit « Démarrer le suivi » | **OUI** | `POST /proprietaires-reglements/demarrer` → `proprietaires_suivi_service.creer_ou_charger`. Audit **favorable** : idempotent, refuse un mois malformé ou un propriétaire vide, transitions contrôlées par `TRANSITIONS`, **verrou optimiste appliqué en SQL** (`WHERE … AND version=?`) et non seulement vérifié en Python, course concurrente tranchée par la contrainte UNIQUE de la base, chaque étape journalisée |
 | **72-73** | Caisse : cycle, immuabilité, contrepassation | **OUI** | D-CAISSE-CYCLE-01 + contrat de solde corrigé · `test_operations_caisse_cycle` (18) |
 | **74-78** | Comptabilité : dates, auxiliaires par nom | **OUI** | CTR-DATES-FORME-ISO (**0 date non ISO** dans toute la base), CTR-AUXILIAIRES-PAR-NOM |
 | **77** | Écritures manuelles | **OUI** | Comptes et auxiliaires en listes, refus détaillé |
@@ -59,7 +60,6 @@ et je complète la numérotation manquante sans rien deviner.
 |---|---|:--:|---|
 | **lot6a** (part de §19) | Extraction Hostaway CleaningTasks | **NON** | **Blocage réel** : le script exige des identifiants API Hostaway, absents de cette installation. Il ne peut être **ni exécuté ni testé** ici, et le migrer à l'aveugle reviendrait à réécrire un extracteur réseau sans jamais l'exercer. Sa cible SQLite alimente déjà tout l'aval : le script n'alimente plus rien de vivant |
 | **§53-70**, part | Relevé propriétaire : **refonte visuelle** de l'écran | **NON** | **Pas de blocage technique** — c'est du travail restant. L'écran fonctionne (KPIs désormais explicités, filtres, export CSV, 9 propriétaires, 13 logements) ; ce qui manque est la refonte de présentation elle-même, qui n'a pas de contenu précis dans ce que j'ai reçu |
-| **§53-70**, part | Audit « Démarrer le suivi » | **NON** | Ce parcours n'existe **nulle part** dans le code : ni route, ni service, ni gabarit — vérifié par recherche sur l'ensemble de `app/`. Auditer un parcours absent sans savoir ce qu'il devait faire produirait une conclusion inventée |
 | **Qonto** | Intégration bancaire | **NON** | **Hors scope explicite** du brief |
 
 ---
@@ -93,6 +93,7 @@ confiance.
 | Le diagnostic d'écart lui-même | Mes chiffres de test étaient faux ; il a répondu `LIGNES_EN_TROP`, et il avait raison |
 | La contrainte CHECK du schéma | J'avais inventé un `type_document` ; fiscalement, une facture exceptionnelle **est** une facture |
 | Le contrat de solde de caisse | Corrigé sur arbitrage : j'avais dérivé l'encaisse du statut comptable, puis « expliqué » le zéro en note — un pansement |
+| **Ce rapport lui-même** | J'y avais écrit que « Démarrer le suivi » n'existait **nulle part** dans le code. C'était **faux** : la route est `/proprietaires-reglements/demarrer`, et mes recherches portaient sur « Démarrer le suivi », `demarrer_suivi`, `demarrer-suivi` — jamais sur `demarrer` seul. Trouvé en lisant les tests d'une autre route. Une conclusion tirée d'une recherche infructueuse n'est pas une conclusion |
 
 ---
 
