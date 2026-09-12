@@ -15,8 +15,8 @@
   <table class="table">
     <thead>
       <tr>
-        <th>Run</th><th>Opération</th><th>Statut</th><th>Durée</th><th>Sauvegarde</th>
-        <th>Erreur</th><th>Début</th>
+        <th>Run</th><th>Opération</th><th>Déclencheur</th><th>Statut</th><th>Durée</th>
+        <th>Sauvegarde</th><th>Erreur</th><th>Début</th>
       </tr>
     </thead>
     <tbody>
@@ -24,6 +24,7 @@
       <tr>
         <td>{{ r.run_id_opaque }}</td>
         <td>{{ r.operation }}</td>
+        <td>{{ r.acteur or "—" }}</td>
         <td>
           {% if r.statut == 'SUCCESS' %}<span class="badge badge-success">SUCCESS</span>
           {% elif r.statut == 'FAILED' %}<span class="badge badge-danger">FAILED</span>

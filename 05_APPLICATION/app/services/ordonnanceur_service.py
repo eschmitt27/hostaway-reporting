@@ -28,6 +28,7 @@ toutes les décisions passent par `doit_declencher(maintenant=...)`.
 """
 from __future__ import annotations
 
+import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -36,6 +37,7 @@ import app.config as cfg
 from app.db.connection import get_db
 from app.services import orchestrateur_dag as dag
 from app.services import orchestrateur_service as orch
+from app.services import run_history_service as history
 from app.services.logging_config import get_logger
 from app.services.path_sanitizer import sanitize_exception
 
@@ -54,6 +56,11 @@ TACHES_AUTOMATIQUES = (TACHE_HOSTAWAY,)
 # application n'a jamais qu'un seul scheduler.
 NOM_FIL = "ordonnanceur-hostaway"
 
+# Opération `run_history` des synchronisations Hostaway, écrite par `hostaway_depot_service` et lue
+# ici pour l'AFFICHAGE seulement. Le scheduler n'importe pas le service de transport ; un test
+# garantit que les deux noms ne divergent pas.
+OPERATION_SUIVIE = "HOSTAWAY"
+
 
 def cadences() -> dict[str, int]:
     """Lues à chaud depuis `cfg` (jamais figées à l'import) — configurables par variable
@@ -69,6 +76,10 @@ E_INACTIF = "ORDONNANCEUR_INACTIF"
 
 def _maintenant() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _iso(horodatage: datetime) -> str:
+    return horodatage.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _parse(horodatage: str | None) -> datetime | None:
@@ -97,6 +108,8 @@ def dernier_declenchement(tache: str, *, db_path=None) -> dict[str, Any] | None:
 
 
 def _decision_cadence(tache: str, maintenant: datetime, db_path) -> dict[str, Any]:
+    """Décision brute de cadence. `prochain_le` : première échéance à laquelle la source sera due
+    (UTC), ou `None` quand elle l'est déjà — ou qu'aucune échéance ne peut être affirmée."""
     cadence_h = cadences()[tache]
     cadence = timedelta(hours=cadence_h)
     etat = dernier_declenchement(tache, db_path=db_path)
@@ -104,31 +117,36 @@ def _decision_cadence(tache: str, maintenant: datetime, db_path) -> dict[str, An
     # Une synchronisation détient le verrou de cette source (clic manuel, autre poste) : refus propre
     # et immédiat. Rien n'attend — le battement suivant reconsidérera.
     if orch.verrou_actif(tache, db_path=db_path):
-        return {"declencher": False, "motif": "Actualisation déjà en cours.", "tache": tache}
+        return {"declencher": False, "motif": "Actualisation déjà en cours.", "tache": tache,
+                "prochain_le": None}
 
     if etat is None or not etat.get("calcule_le"):
-        return {"declencher": True, "motif": "Jamais actualisé.", "tache": tache}
+        return {"declencher": True, "motif": "Jamais actualisé.", "tache": tache,
+                "prochain_le": None}
 
     if etat.get("statut") == orch.ST_EN_COURS:
-        return {"declencher": False, "motif": "Actualisation déjà en cours.", "tache": tache}
+        return {"declencher": False, "motif": "Actualisation déjà en cours.", "tache": tache,
+                "prochain_le": None}
 
     dernier = _parse(etat.get("calcule_le"))
     if dernier is None:
-        return {"declencher": True, "motif": "Date de dernier calcul illisible.", "tache": tache}
+        return {"declencher": True, "motif": "Date de dernier calcul illisible.", "tache": tache,
+                "prochain_le": None}
 
     # Un échec récent (source indisponible, notamment) impose un palier avant de réessayer.
     if etat.get("statut") == orch.ST_ECHEC:
-        derniere_tentative = _parse(etat.get("maj_le")) or dernier
-        if maintenant - derniere_tentative < timedelta(hours=REPRISE_APRES_ECHEC_H):
+        reprise = (_parse(etat.get("maj_le")) or dernier) + timedelta(hours=REPRISE_APRES_ECHEC_H)
+        if maintenant < reprise:
             return {"declencher": False, "tache": tache,
+                    "prochain_le": _iso(max(reprise, dernier + cadence)),
                     "motif": f"Échec récent ({etat.get('erreur_code') or 'inconnu'}) : "
                              f"attente de {REPRISE_APRES_ECHEC_H}h avant nouvelle tentative."}
 
     ecoule = maintenant - dernier
     if ecoule >= cadence:
-        return {"declencher": True, "tache": tache,
+        return {"declencher": True, "tache": tache, "prochain_le": None,
                 "motif": f"Dernière actualisation il y a {ecoule}. Cadence : {cadence_h}h."}
-    return {"declencher": False, "tache": tache,
+    return {"declencher": False, "tache": tache, "prochain_le": _iso(dernier + cadence),
             "motif": f"Actualisé il y a {ecoule} (cadence {cadence_h}h)."}
 
 
@@ -140,14 +158,15 @@ def doit_declencher(tache: str, *, maintenant: datetime | None = None,
     dépendre de l'heure réelle de la machine.
 
     Une source hors `TACHES_AUTOMATIQUES` ne part JAMAIS d'ici, même échéance atteinte : la décision
-    le dit (`automatique=False`) au lieu de laisser croire qu'elle partira au prochain battement.
+    le dit (`automatique=False`, aucun `prochain_le`) au lieu de laisser croire qu'elle partira au
+    prochain battement.
     """
     maintenant = maintenant or _maintenant()
     decision = _decision_cadence(tache, maintenant, db_path)
     if tache in TACHES_AUTOMATIQUES:
         return {**decision, "automatique": True}
     return {**decision, "automatique": False, "echeance_atteinte": decision["declencher"],
-            "declencher": False,
+            "echeance_le": decision["prochain_le"], "declencher": False, "prochain_le": None,
             "motif": "Non déclenchée automatiquement (cadence à arbitrer). " + decision["motif"]}
 
 
@@ -175,8 +194,7 @@ def tick(*, maintenant: datetime | None = None, db_path=None) -> dict[str, Any]:
         lances.append({"tache": tache, "run_id": resultat.get("run_id"),
                        "statut": resultat.get("statut")})
 
-    return {"horodatage": maintenant.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "decisions": decisions, "lances": lances}
+    return {"horodatage": _iso(maintenant), "decisions": decisions, "lances": lances}
 
 
 # ── Démarrage explicite (jamais automatique) ────────────────────────────────────────────────────
@@ -257,6 +275,28 @@ def arreter() -> None:
         _generation += 1
 
 
+# ── Lecture pour l'interface ────────────────────────────────────────────────────────────────────
+
+def suivi_synchronisations(*, db_path=None) -> dict[str, Any]:
+    """Dernier run, dernier succès et dernier échec des synchronisations Hostaway, tous déclencheurs
+    confondus — lus dans `run_history`, qui porte déclencheur, durée et erreur sanitisée.
+
+    Deux dates distinctes plutôt qu'un « dernier run » seul : l'échec de ce matin ne doit pas masquer
+    le succès d'hier, ni l'inverse.
+    """
+    try:
+        return {
+            "dernier": history.dernier(OPERATION_SUIVIE, db_path=db_path),
+            "dernier_succes": history.dernier(OPERATION_SUIVIE, statuts=("SUCCESS",),
+                                              db_path=db_path),
+            "dernier_echec": history.dernier(OPERATION_SUIVIE, statuts=("FAILED", "ROLLED_BACK"),
+                                             db_path=db_path),
+        }
+    except sqlite3.OperationalError:
+        # Base pas encore migrée : l'écran reste lisible, il ne plante pas.
+        return {"dernier": None, "dernier_succes": None, "dernier_echec": None}
+
+
 def etat(*, db_path=None) -> dict[str, Any]:
     """Ce que l'écran doit pouvoir dire de l'ordonnanceur, sans le démarrer."""
     cad = cadences()
@@ -268,4 +308,5 @@ def etat(*, db_path=None) -> dict[str, Any]:
         "taches": [dernier_declenchement(t, db_path=db_path) or {"dataset": t, "statut": "JAMAIS_CALCULE"}
                    for t in cad],
         "prochaines_decisions": [doit_declencher(t, db_path=db_path) for t in cad],
+        "suivi_hostaway": suivi_synchronisations(db_path=db_path),
     }

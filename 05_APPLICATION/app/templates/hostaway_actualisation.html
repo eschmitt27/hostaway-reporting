@@ -85,8 +85,8 @@
         Actualiser Hostaway
       </button>
       <p class="section-note mt-sm">
-        L'extraction se poursuit en arrière-plan : cette page n'attend pas sa fin.
-        Rechargez-la pour suivre l'avancement.
+        La synchronisation est attendue : son résultat s'affiche au retour sur cette page. Une
+        synchronisation déjà en cours, manuelle ou automatique, est refusée — jamais doublée.
       </p>
     </form>
   {% endif %}
@@ -94,10 +94,11 @@
 
 {# ── Actualisation automatique (scheduler) ────────────────────────────────
    LECTURE SEULE. Le même service que le bouton ci-dessus, seul le déclencheur
-   change. Le scheduler s'active par variable d'environnement, jamais ici. #}
+   change. Le scheduler s'active par variable d'environnement, jamais ici.
+   Dernier run / succès / échec : `run_history`, tous déclencheurs confondus. #}
 {% if ordonnanceur %}
-{% set auto_hostaway = ordonnanceur.taches[0] %}
 {% set auto_decision = ordonnanceur.prochaines_decisions[0] %}
+{% set suivi = ordonnanceur.suivi_hostaway %}
 <div class="card mb-md">
   <h2 class="card-title">Actualisation automatique</h2>
   <dl class="detail-grid" data-testid="scheduler-hostaway">
@@ -109,14 +110,31 @@
     <dt>Fréquence configurée</dt>
     <dd>{{ ordonnanceur.cadences_h.HOSTAWAY_RAW }} heures</dd>
     <dt>Dernier run</dt>
-    <dd>{{ auto_hostaway.calcule_le|datetime_fr if auto_hostaway.calcule_le else "—" }}</dd>
-    <dt>Prochain run</dt>
-    <dd>{{ auto_decision.motif }}</dd>
+    <dd data-testid="scheduler-dernier-run">
+      {% if suivi.dernier %}
+        {{ suivi.dernier.date_debut|datetime_fr }} — {{ suivi.dernier.statut }}
+        ({{ suivi.dernier.acteur or "déclencheur inconnu" }}{% if suivi.dernier.duree_s is not none %}, {{ "%.0f"|format(suivi.dernier.duree_s) }} s{% endif %})
+      {% else %}—{% endif %}
+    </dd>
+    <dt>Dernier succès</dt>
+    <dd>{% if suivi.dernier_succes %}{{ suivi.dernier_succes.date_debut|datetime_fr }} ({{ suivi.dernier_succes.acteur or "—" }}){% else %}—{% endif %}</dd>
+    <dt>Dernier échec</dt>
+    <dd data-testid="scheduler-dernier-echec">
+      {% if suivi.dernier_echec %}{{ suivi.dernier_echec.date_debut|datetime_fr }} — {{ suivi.dernier_echec.erreur or "cause non renseignée" }}{% else %}—{% endif %}
+    </dd>
+    <dt>Prochain run prévu</dt>
+    <dd data-testid="scheduler-prochain-run">
+      {% if not ordonnanceur.actif %}Aucun — actualisation automatique désactivée.
+      {% elif auto_decision.prochain_le %}{{ auto_decision.prochain_le|datetime_fr }}
+      {% else %}Au prochain battement{% endif %}
+      <span class="section-note">{{ auto_decision.motif }}</span>
+    </dd>
   </dl>
   <p class="section-note mt-sm">
     Même service que le bouton manuel — seul le déclencheur diffère (AUTOMATIQUE au lieu de
     MANUEL). L'activation est une décision d'exploitation
-    (<code>ORDONNANCEUR_ACTIF</code>), jamais un réglage de cette page.
+    (<code>ORDONNANCEUR_ACTIF</code>), jamais un réglage de cette page. Les tâches de ménage ne
+    sont jamais actualisées automatiquement : leur cadence reste à arbitrer.
   </p>
 </div>
 {% endif %}

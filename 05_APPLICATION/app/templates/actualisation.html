@@ -175,6 +175,7 @@
 </div>
 
 {% if ordonnanceur %}
+{% set suivi = ordonnanceur.suivi_hostaway %}
 <div class="card mt-lg">
   <div class="card-title">Scheduler Hostaway</div>
   <div class="flex gap-lg text-sm mb-md" style="flex-wrap: wrap;">
@@ -183,11 +184,23 @@
       {% else %}<span class="badge badge-neutral">DÉSACTIVÉ</span>{% endif %}
     </div>
     <div>Fréquence réservations/payouts : {{ ordonnanceur.cadences_h.HOSTAWAY_RAW }} h</div>
-    <div>Fréquence CleaningTasks : {{ ordonnanceur.cadences_h.HOSTAWAY_CLEANING_TASKS }} h</div>
+    <div>Fréquence CleaningTasks : {{ ordonnanceur.cadences_h.HOSTAWAY_CLEANING_TASKS }} h
+      <span class="text-secondary">(jamais déclenchée automatiquement — cadence à arbitrer)</span></div>
+  </div>
+  <div class="flex gap-lg text-xs mb-md" style="flex-wrap: wrap;" data-testid="suivi-synchronisations">
+    <div>Dernière synchronisation :
+      {% if suivi.dernier %}{{ suivi.dernier.date_debut }} — {{ suivi.dernier.statut }}
+        ({{ suivi.dernier.acteur or "—" }}{% if suivi.dernier.duree_s is not none %}, {{ "%.0f"|format(suivi.dernier.duree_s) }} s{% endif %})
+      {% else %}—{% endif %}</div>
+    <div>Dernier succès : {{ suivi.dernier_succes.date_debut if suivi.dernier_succes else "—" }}</div>
+    <div>Dernier échec :
+      {% if suivi.dernier_echec %}{{ suivi.dernier_echec.date_debut }} — {{ suivi.dernier_echec.erreur or "cause non renseignée" }}
+      {% else %}—{% endif %}</div>
   </div>
   <div class="table-container">
     <table>
-      <thead><tr><th>Source</th><th>Dernier run</th><th>Statut</th><th>Prochaine décision</th></tr></thead>
+      <thead><tr><th>Source</th><th>Dernier calcul réussi</th><th>Statut</th><th>Automatique</th>
+        <th>Prochain run prévu</th><th>Décision</th></tr></thead>
       <tbody>
       {% for t in ordonnanceur.taches %}
         {% set decision = ordonnanceur.prochaines_decisions[loop.index0] %}
@@ -195,6 +208,12 @@
           <td class="font-mono text-xs">{{ t.dataset }}</td>
           <td class="text-xs">{{ t.calcule_le or "—" }}</td>
           <td class="text-xs">{{ t.statut }}</td>
+          <td class="text-xs">{{ "Oui" if decision.automatique else "Non" }}</td>
+          <td class="text-xs">
+            {% if not decision.automatique or not ordonnanceur.actif %}—
+            {% elif decision.prochain_le %}{{ decision.prochain_le }}
+            {% else %}Au prochain battement{% endif %}
+          </td>
           <td class="text-xs text-secondary">{{ decision.motif }}</td>
         </tr>
       {% endfor %}

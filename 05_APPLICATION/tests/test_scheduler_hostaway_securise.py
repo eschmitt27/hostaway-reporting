@@ -757,3 +757,81 @@ def test_15_arret_brutal_apres_un_changement_ne_laisse_pas_l_aval_passer_pour_in
     ordo.tick(maintenant=_plus_tard(12), db_path=db)      # le dépôt n'a plus rien de neuf
 
     assert appels == [dag.NOEUDS[d].service for d in CHAINE_HOSTAWAY]
+
+
+# ── Observabilité : ce que les écrans EXISTANTS disent du scheduler ────────────────────────────
+
+def test_obs_operation_suivie_identique_a_celle_du_service():
+    """Le scheduler lit `run_history` sans importer le service de transport : les deux noms ne
+    doivent jamais diverger, sinon l'écran afficherait « aucun run » pour toujours."""
+    assert ordo.OPERATION_SUIVIE == depot.OPERATION_HISTORIQUE
+
+
+def test_obs_prochain_run_suit_la_cadence(tmp_db):
+    _a_jour_il_y_a(tmp_db, dag.HOSTAWAY_RAW, heures=2)
+    dernier = ordo._parse(ordo.dernier_declenchement(dag.HOSTAWAY_RAW, db_path=tmp_db)["calcule_le"])
+    decision = ordo.doit_declencher(ordo.TACHE_HOSTAWAY, db_path=tmp_db)
+    assert decision["declencher"] is False
+    assert decision["prochain_le"] == ordo._iso(
+        dernier + timedelta(hours=cfg.HOSTAWAY_REFRESH_INTERVAL_HOURS))
+
+
+def test_obs_un_echec_conserve_le_dernier_succes_et_date_le_palier(tmp_db):
+    """Régression : passer EN_COURS puis ECHEC effaçait `calcule_le` — la source redevenait
+    « jamais actualisée » et le palier après échec ne s'appliquait jamais."""
+    _a_jour_il_y_a(tmp_db, dag.HOSTAWAY_RAW, heures=6)
+    avant = ordo.dernier_declenchement(dag.HOSTAWAY_RAW, db_path=tmp_db)["calcule_le"]
+    orch.marquer_dataset(dag.HOSTAWAY_RAW, orch.ST_EN_COURS, db_path=tmp_db)
+    orch.marquer_dataset(dag.HOSTAWAY_RAW, orch.ST_ECHEC, erreur_code="HOSTAWAY_DEPOT_INDISPONIBLE",
+                         db_path=tmp_db)
+
+    etat = ordo.dernier_declenchement(dag.HOSTAWAY_RAW, db_path=tmp_db)
+    assert etat["calcule_le"] == avant
+    decision = ordo.doit_declencher(ordo.TACHE_HOSTAWAY, db_path=tmp_db)
+    assert decision["declencher"] is False
+    assert ordo._parse(decision["prochain_le"]) == (
+        ordo._parse(etat["maj_le"]) + timedelta(hours=ordo.REPRISE_APRES_ECHEC_H))
+
+
+def test_obs_cleaning_tasks_affichee_sans_prochain_run_automatique(tmp_db):
+    etat = ordo.etat(db_path=tmp_db)
+    h6 = etat["prochaines_decisions"][list(ordo.cadences()).index(ordo.TACHE_CLEANING_TASKS)]
+    assert h6["automatique"] is False and h6["prochain_le"] is None
+    assert etat["taches_automatiques"] == [ordo.TACHE_HOSTAWAY]
+
+
+def test_obs_ecrans_existants_dernier_run_succes_echec_et_declencheur(client, tmp_db):
+    succes = history.demarrer(depot.OPERATION_HISTORIQUE, acteur="AUTO", db_path=tmp_db)
+    history.marquer_succes(succes, db_path=tmp_db)
+    echec = history.demarrer(depot.OPERATION_HISTORIQUE, acteur="MANUEL", db_path=tmp_db)
+    history.marquer_echec(echec, erreur="HOSTAWAY_DEPOT_INDISPONIBLE : Could not resolve host",
+                          db_path=tmp_db)
+
+    hostaway = client.get("/hostaway").text
+    assert "Dernier succès" in hostaway and "Dernier échec" in hostaway
+    assert "HOSTAWAY_DEPOT_INDISPONIBLE" in hostaway
+    assert "Prochain run prévu" in hostaway and "actualisation automatique désactivée" in hostaway
+
+    pilotage = client.get("/actualisation").text
+    assert 'data-testid="suivi-synchronisations"' in pilotage
+    assert "cadence à arbitrer" in pilotage
+
+    runs = client.get("/observabilite/runs").text
+    assert "Déclencheur" in runs and succes in runs and echec in runs
+    assert ">AUTO<" in runs and ">MANUEL<" in runs
+
+
+def test_obs_22_aucun_chemin_ni_identifiant_a_l_ecran_apres_une_panne(client, tmp_db, tmp_path,
+                                                                    monkeypatch):
+    secret = "ghp_" + "Y" * 24
+    _depot_publie(monkeypatch, disponible=False,
+                  erreur=(f"git fetch a échoué : 'https://x-access-token:{secret}@github.com/o/r.git/'"
+                          f" dans {Path.home() / 'depot'}"))
+    _moteur_simule(monkeypatch, tmp_path)
+
+    retour = client.post("/hostaway/actualiser", follow_redirects=False)
+
+    for page in (retour.headers["location"], "/hostaway", "/actualisation", "/observabilite/runs"):
+        texte = unquote(client.get(page).text)
+        assert secret not in texte and "x-access-token" not in texte, page
+        assert str(Path.home()) not in texte, page
