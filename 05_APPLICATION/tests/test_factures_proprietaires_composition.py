@@ -501,16 +501,27 @@ def test_aucune_mention_fabriquee_quand_tout_manque(db, facture):
 
 
 def test_pdf_reel_porte_les_mentions_du_kbis(db, facture):
-    """Bout en bout : les mentions doivent réellement atteindre les octets du PDF."""
+    """Bout en bout : les mentions doivent réellement atteindre les octets du PDF.
+
+    CONTRAT MODIFIÉ (§49). Ce test attendait « 200,00 EUR » parce que le rendu translittérait
+    « € » en « EUR », au motif que les polices de base seraient limitées à latin-1. C'était vrai du
+    réglage, pas du format : l'encodage standard des polices de base d'un PDF est WinAnsiEncoding
+    (cp1252), qui contient « € », le tiret cadratin et les apostrophes typographiques. Le document
+    porte donc désormais le symbole réel — sans qu'aucune police n'ait été téléchargée ni copiée.
+    """
     doc = compo.document(facture, emetteur=EMETTEUR, destinataire=DESTINATAIRE, db_path=db)
     octets = pdfsvc.rendre(doc)
     assert octets[:4] == b"%PDF"
-    # Le rendu translittère vers latin-1 : « — » devient « - » et « € » devient « EUR ».
-    for attendu in (b"CHOUETTE PATRIMOINE", b"SAS au capital de 200,00 EUR",
-                    b"48E Route de Larnavey", b"33650 Saint-Selve", b"109 624 767",
-                    b"R.C.S. Bordeaux"):
-        assert attendu in octets, f"{attendu!r} absent du PDF"
+    enc = pdfsvc.ENCODAGE_POLICES_BASE
+    for attendu in ("CHOUETTE PATRIMOINE", "SAS au capital de 200,00 €",
+                    "48E Route de Larnavey", "33650 Saint-Selve", "109 624 767",
+                    "R.C.S. Bordeaux"):
+        assert attendu.encode(enc) in octets, f"{attendu!r} absent du PDF"
     assert b"SIRET" not in octets
+    # Aucun MONTANT n'est libellé « EUR ». (On ne peut pas chercher « EUR » seul : le mot
+    # « ÉMETTEUR », légitimement présent, le contient.)
+    assert "200,00 EUR".encode(enc) not in octets, "le symbole € remplace la mention « EUR »"
+    assert "465,88 €".encode(enc) in octets or "0,00 €".encode(enc) in octets
 
 
 def test_pdf_multi_pages_repete_les_entetes(db, facture):

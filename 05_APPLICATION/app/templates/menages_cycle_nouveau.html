@@ -16,7 +16,7 @@
   <form method="post" action="/menages/cycle">
     <div class="detail-grid">
       <label>Logement * <input type="text" name="logement_id" required></label>
-      <label>Mois * <input type="text" name="mois" placeholder="AAAA-MM" required></label>
+      <label>Mois * <input type="month" name="mois" required></label>
       <label>Type *
         <select name="type_menage" required>
           {% for t in types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}

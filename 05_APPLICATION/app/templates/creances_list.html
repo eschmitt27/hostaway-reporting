@@ -19,7 +19,7 @@
 <form method="get" class="flex gap-sm items-center" style="margin-bottom:1rem">
   <label>Propriétaire <input type="text" name="proprietaire" value="{{ filtres.proprietaire }}"></label>
   <label>Logement <input type="text" name="logement" value="{{ filtres.logement }}"></label>
-  <label>Mois <input type="text" name="mois" value="{{ filtres.mois }}" placeholder="AAAA-MM"></label>
+  <label>Mois <input type="month" name="mois" value="{{ filtres.mois }}"></label>
   <label>Statut
     <select name="statut">
       <option value="">tous</option>

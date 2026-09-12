@@ -473,11 +473,19 @@ def previsualiser_pdf(facture_id: str):
 
 @router.post("/factures-proprietaires/{facture_id}/reversement-airbnb")
 async def reversement_airbnb(request: Request, facture_id: str):
+    """Reversement Airbnb, saisi au MOIS (§42) — même raison que l'acompte juste en dessous.
+
+    Un versement de plateforme se raisonne par période : le jour exact n'a pas de sens métier, et
+    le demander en texte libre obligeait à en inventer un. `date_imputation` reste acceptée quand
+    elle est fournie (appels programmatiques, reprise de données), pour ne rien casser.
+    """
     form = await request.form()
+    mois = str(form.get("mois_reference", "") or "").strip()
+    date_imputation = str(form.get("date_imputation", "") or "").strip()
     try:
         edition.ajouter_reversement_airbnb(
             facture_id, montant=form.get("montant"),
-            date_imputation=str(form.get("date_imputation", "") or ""),
+            date_imputation=date_imputation or _fin_de_mois(mois),
             reference_airbnb=str(form.get("reference_airbnb", "") or ""),
             commentaire=str(form.get("commentaire", "") or ""), acteur="interface")
     except svc.FactureProprietaireError as exc:

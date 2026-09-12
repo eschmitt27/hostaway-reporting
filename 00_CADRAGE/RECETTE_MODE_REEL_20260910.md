@@ -35,17 +35,18 @@ set BANQUE_REAL_WRITE_ENABLED=1&  set BANQUE_REAL_WRITE_CONFIRMATION_ENABLED=1
 rem --- Identite legale (Kbis du 2026-09-10). SIRET et TVA intra volontairement absents. ---
 set SOCIETE_NOM=CHOUETTE PATRIMOINE
 set SOCIETE_FORME_JURIDIQUE=SAS
-set SOCIETE_CAPITAL=200,00 EUR
+set SOCIETE_CAPITAL=200,00 €
 set SOCIETE_ADRESSE=48E Route de Larnavey, 33650 Saint-Selve
 set SOCIETE_SIREN=109624767
 set SOCIETE_RCS=R.C.S. Bordeaux
+set SOCIETE_REPRESENTANTS=Wafa Souci et Ewan Schmitt
 rem --- Regime de TVA et conditions de reglement (confirmes le 2026-09-10) ---
 set FACTURATION_REGIME_TVA=FRANCHISE_TVA
 set FACTURATION_MENTION_FRANCHISE_TVA=TVA non applicable, art. 293 B du CGI
 set FACTURATION_DELAI_PAIEMENT_JOURS=0
 rem --- Clauses B2B : exigees uniquement face a un client PROFESSIONNEL ---
 set FACTURATION_TAUX_PENALITES_RETARD=3 fois le taux d'interet legal (art. L441-10 du code de commerce)
-set FACTURATION_INDEMNITE_RECOUVREMENT=40,00 EUR (art. D441-5 du code de commerce)
+set FACTURATION_INDEMNITE_RECOUVREMENT=40,00 € (art. D441-5 du code de commerce)
 %LOT4A_ENGINE_PYTHON% run_app.py
 ```
 

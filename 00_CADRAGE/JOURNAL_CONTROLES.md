@@ -5220,3 +5220,36 @@ Les trois requêtes filtrent maintenant sur `statut_ligne = 'ACTIVE'`.
 **Tests** : `test_facture_ligne_quantite_et_nature.py` (23), dont les deux factures réelles
 reproduites à l'identique, la somme au centime d'une répartition 100,00 € sur 3, et le refus d'une
 répartition qui ne conserve pas la quantité du document.
+
+---
+
+## CTR-MIGRATION-0082-INSTANCE-2026-09-12 — application sur la base réelle et relance
+
+**Sauvegarde préalable** : `BCK-E2AD71C2F927`
+(`AVANT_MIGRATION_0082_VALEURS_SOURCE_LIGNES_FOURNISSEUR`), VALIDE, schéma 0081.
+
+**Séquence** : arrêt de l'instance (PID 28460) → migration → relance par le mécanisme canonique.
+
+| Contrôle après migration | Résultat |
+|---|---|
+| Schéma | **0082** |
+| `montant_ttc_source` = `montant_ttc` sur les lignes existantes | **11 / 11** |
+| `quantite_source` + `prix_unitaire_source` = valeurs courantes | **11 / 11** |
+| `PRAGMA integrity_check` | **ok** |
+| `PRAGMA foreign_key_check` | **0** |
+| Factures de juillet | `0005` A_CONTROLER 520,00 € · `2026-40` A_CONTROLER 1 056,00 € — inchangées |
+| `menages_cout_complet` | **39 lignes / 7 655,00 €** — identique à avant |
+| `F-11/0-000001` | **EMIS**, intacte |
+
+Le backfill est une constatation, pas une hypothèse : ces 11 lignes n'avaient jamais été corrigées,
+leur valeur actuelle EST la valeur extraite.
+
+**Instance relancée** : `http://127.0.0.1:8000`, PID 6028, écritures réelles ON, scheduler OFF,
+CleaningTasks auto OFF, 127.0.0.1 uniquement. 14 routes métier vérifiées **200** (`/` → 307 attendu,
+la caisse vit sous `/banques-caisse`, pas `/caisse`).
+
+**Vérification sur l'écran réel** (facture `0005`, en direct sur l'instance) : le diagnostic qualifié
+s'affiche (« Une ligne au moins a été mal extraite »), la ligne fautive porte son arithmétique
+(« 0 × 32,00 € = 0,00 €, or la ligne porte 36,00 € »), le geste attendu est nommé, les logements
+sortis du parc sont sélectionnables et marqués, et les deux bacs techniques s'affichent désormais
+« Logement divers (hors parc) » au lieu de `LOGEMENT_DIVERS`.

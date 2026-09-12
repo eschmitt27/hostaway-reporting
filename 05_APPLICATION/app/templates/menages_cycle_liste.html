@@ -9,7 +9,7 @@
 
 <div class="card mb-md">
   <form method="get" class="filters-row">
-    <label>Mois <input type="text" name="mois" value="{{ applied.mois or '' }}" placeholder="AAAA-MM"></label>
+    <label>Mois <input type="month" name="mois" value="{{ applied.mois or '' }}"></label>
     <label>Logement <input type="text" name="logement_id" value="{{ applied.logement_id or '' }}"></label>
     <label>Prestataire <input type="text" name="fournisseur" value="{{ applied.fournisseur or '' }}"></label>
     <label>Type

@@ -1784,3 +1784,40 @@ son total : l'écart de +36,00 € n'était pas une ligne absente mais une valeu
 l'arithmétique le dit sans rouvrir le PDF. La facture 2026-40, à l'inverse, a **toutes ses lignes
 cohérentes** et il lui manque simplement 89,00 €. Deux écarts, deux causes opposées, deux gestes de
 correction différents — que l'écran annonçait jusqu'ici de façon identique.
+
+---
+
+### D-FACT-PROP-DOCUMENT-01 — ce que le propriétaire reçoit entre les mains
+
+- **Date** : 2026-09-12
+- **Lot** : recette utilisateur n°3 (§39 à §50)
+- **Statut** : ACTÉ
+
+**Décisions :**
+
+- **D-FP-1** : le PDF est rendu en **WinAnsiEncoding (cp1252)**, l'encodage standard des polices de
+  base d'un PDF, et non en latin-1. Le document porte donc « 465,88 € », les tirets cadratins et
+  les apostrophes typographiques — **sans qu'aucune police ne soit téléchargée, copiée depuis le
+  poste, ni redistribuée**. La contrainte invoquée jusqu'ici (« les polices de base sont limitées à
+  latin-1 ») décrivait un réglage, pas le format.
+- **D-FP-2** : **aucun identifiant technique** sur un document remis à un tiers. Le logement est
+  désigné par son nom ; une valeur qui EST l'identifiant est filtrée à l'affichage plutôt que
+  réécrite dans les snapshots figés.
+- **D-FP-3** : la **référence de réservation Hostaway est retirée** de la facture — elle ne dit
+  rien au propriétaire, qui n'a pas accès à Hostaway. Le **nombre de voyageurs** la remplace :
+  information compréhensible, déjà présente dans le snapshot, et qui ne nomme personne.
+  L'écran d'exploitation, lui, **conserve** la référence : c'est par elle qu'on vérifie un écart.
+- **D-FP-4** : la colonne « Référence » des acomptes n'imprime plus `mouvement_opaque` (`MTP-…`)
+  mais la seule **référence métier** du paiement, celle que le propriétaire retrouve sur son relevé.
+- **D-FP-5** : le **récapitulatif clôt le document**, après les conditions de règlement. Le lecteur
+  finit sur le NET, et la coupure de page éventuelle tombe avant le règlement — au lieu d'une page 2
+  ne portant que quatre lignes et le pied de page.
+- **D-FP-6** : la société est **représentée par Wafa Souci et Ewan Schmitt** (`SOCIETE_REPRESENTANTS`
+  dans la configuration canonique). Le mécanisme existait, la variable n'était pas posée.
+- **D-FP-7** : les dates se saisissent au **sélecteur de calendrier**, jamais en texte libre. Les
+  montants qui se raisonnent par période (acompte, reversement Airbnb) se saisissent au **MOIS** :
+  la date technique exigée par le schéma est dérivée du dernier jour, côté serveur, plutôt que
+  demandée à l'utilisateur qui devrait l'inventer.
+- **D-FP-8** : l'immuabilité reste celle déjà en place — seules les **lignes** sont éditables en
+  BROUILLON (`_exiger_brouillon`) ; un **paiement** (acompte, reversement) s'attache à tout moment
+  sans toucher au snapshot figé, ce qui est le cas normal : on émet, puis on encaisse.

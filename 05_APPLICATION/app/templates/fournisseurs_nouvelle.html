@@ -118,7 +118,8 @@
         </div>
         <div class="form-group">
           <label for="menage_mois">Mois d'imputation ménage</label>
-          <input type="text" id="menage_mois" name="menage_mois" value="{{ form.get('menage_mois', '') }}" placeholder="AAAA-MM (défaut = mois de la charge)">
+          <input type="month" id="menage_mois" name="menage_mois" value="{{ form.get('menage_mois', '') }}">
+          <p class="text-xs text-secondary">Laissé vide : le mois de la charge est retenu.</p>
         </div>
       </div>
       <div class="form-group" id="group_menage_intervenants" style="display:none; margin-top: var(--stack-md);">

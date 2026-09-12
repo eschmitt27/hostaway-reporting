@@ -286,7 +286,7 @@
             {% endfor %}
           </select>
         </label>
-        <label>Date de la charge <input type="text" name="date_charge" placeholder="AAAA-MM-JJ"></label>
+        <label>Date de la charge <input type="date" name="date_charge"></label>
         <label>Refacturable au propriétaire
           <select name="refacturable"><option value="NON">Non</option><option value="OUI">Oui</option></select>
         </label>
@@ -373,7 +373,13 @@
     <summary><strong>+ Ajouter un reversement Airbnb</strong></summary>
     <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/reversement-airbnb">
       <label>Montant <input type="text" name="montant" required></label>
-      <label>Date <input type="text" name="date_imputation" placeholder="AAAA-MM-JJ" required></label>
+      {# §42 — saisie au MOIS, comme l'acompte. Un reversement Airbnb est un versement de
+         plateforme qui se raisonne par période : le jour exact n'a pas de sens métier ici, et
+         demander « AAAA-MM-JJ » en texte libre obligeait à inventer un jour. La date technique
+         exigée par le schéma est dérivée du dernier jour du mois, côté serveur. #}
+      <label>Mois du reversement
+        <input type="month" name="mois_reference" value="{{ facture.mois }}" required>
+      </label>
       <label>Référence Airbnb <input type="text" name="reference_airbnb"></label>
       <label>Commentaire <input type="text" name="commentaire"></label>
       <button type="submit">Enregistrer le reversement</button>
@@ -418,14 +424,18 @@
   {% if reservations %}
   <div class="table-container">
   <table class="table">
+    {# La référence de réservation est RETIRÉE du PDF (§43 : elle ne dit rien au propriétaire) mais
+       CONSERVÉE ici : cet écran est un outil d'exploitation, et c'est par cette référence qu'on
+       retrouve le séjour dans Hostaway pour vérifier un écart. #}
     <thead><tr><th>Arrivée</th><th>Départ</th><th class="text-right">Nuits</th>
-               <th>Canal</th><th>Référence</th>
+               <th class="text-right">Voyageurs</th><th>Canal</th><th>Référence</th>
                <th class="text-right">Assiette</th><th class="text-right">Taux</th>
                <th class="text-right">Commission</th></tr></thead>
     <tbody>
       {% for r in reservations %}
       <tr><td>{{ r.check_in }}</td><td>{{ r.check_out }}</td>
           <td class="text-right">{{ r.nights }}</td>
+          <td class="text-right">{{ r.guest_count if r.guest_count is not none else "—" }}</td>
           <td>{{ r.plateforme or "—" }}</td>
           <td class="font-mono text-xs">{{ r.reservation_id }}</td>
           <td class="text-right">

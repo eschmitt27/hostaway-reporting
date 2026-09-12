@@ -13,7 +13,7 @@
       <select name="journal"><option value="">—</option>
         {% for j in journaux %}<option value="{{ j }}" {{ 'selected' if applied.journal == j }}>{{ j }}</option>{% endfor %}
       </select></label>
-    <label>Période <input type="text" name="periode" value="{{ applied.periode or '' }}" placeholder="AAAA-MM"></label>
+    <label>Période <input type="month" name="periode" value="{{ applied.periode or '' }}"></label>
     <label>Statut
       <select name="statut"><option value="">—</option>
         {% for s in statuts %}<option value="{{ s }}" {{ 'selected' if applied.statut == s }}>{{ s }}</option>{% endfor %}

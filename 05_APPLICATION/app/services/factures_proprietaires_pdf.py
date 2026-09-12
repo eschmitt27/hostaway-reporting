@@ -18,23 +18,38 @@ from fpdf import FPDF
 from fpdf.enums import XPos, YPos
 
 
-# Les polices de base (Helvetica) sont encodées en latin-1. Les caractères typographiques
-# courants y sont absents et deviendraient des "?" sur le document : on les translittère vers
-# leur équivalent ASCII avant l'encodage. Les accents, eux, existent en latin-1 et sont conservés.
+#: Encodage des polices de base du PDF (§49).
+#
+# Ce module translittérait « € » en « EUR », les tirets cadratins en traits d'union et les
+# apostrophes typographiques en apostrophes droites, au motif que « les polices de base sont
+# encodées en latin-1 ». C'était vrai du RÉGLAGE, pas du FORMAT : l'encodage standard des polices
+# de base d'un PDF est WinAnsiEncoding, c'est-à-dire cp1252 — et cp1252 contient « € » (0x80), le
+# tiret cadratin, les apostrophes et les guillemets typographiques. latin-1 était un choix
+# inutilement restrictif, pas une contrainte du format.
+#
+# Conséquence : la facture porte « 465,88 € » sans qu'AUCUNE police n'ait à être téléchargée,
+# copiée depuis le poste, ni redistribuée. Helvetica suffit.
+ENCODAGE_POLICES_BASE = "cp1252"
+
+#: Ce que cp1252 ne contient réellement pas, et qui s'imprimerait en caractère de remplacement.
+#: Espaces fines et insécables étroites : raffinements typographiques que l'espace ordinaire
+#: remplace sans perte de sens.
 _TRANSLITTERATION = str.maketrans({
-    "—": "-", "–": "-", "’": "'", "‘": "'", "“": '"', "”": '"',
-    "€": "EUR", "…": "...", " ": " ", " ": " ",
+    "…": "...", " ": " ", " ": " ", " ": " ",
+    "‑": "-", "−": "-",
 })
 
 
 def _t(v: Any) -> str:
-    """Texte prêt pour une police latin-1, sans caractère de remplacement visible."""
+    """Texte prêt pour une police de base, sans caractère de remplacement visible."""
     s = "" if v is None else str(v)
-    return s.translate(_TRANSLITTERATION).encode("latin-1", "replace").decode("latin-1")
+    return (s.translate(_TRANSLITTERATION)
+            .encode(ENCODAGE_POLICES_BASE, "replace").decode(ENCODAGE_POLICES_BASE))
 
 
 def _montant(v: Any) -> str:
-    return f"{float(v or 0):,.2f}".replace(",", " ").replace(".", ",") + " EUR"
+    """« 1 234,56 € » — espace insécable avant le symbole, comme l'exige l'usage français."""
+    return f"{float(v or 0):,.2f}".replace(",", " ").replace(".", ",") + " €"
 
 
 def _siren_lisible(v: Any) -> str:
@@ -116,18 +131,22 @@ LARGEUR_UTILE = 210.0 - 2 * MARGE
 # `test_pdf_groupes_alignes_sur_le_service` verrouille l'égalité des deux tables.
 _GROUPES_PDF: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("commissions", "Commissions", ("COMMISSION_CONCIERGERIE",)),
-    ("menages", "Menages", ("MENAGE_FACTURE",)),
-    ("canape", "Canape", ("PREPARATION_CANAPE",)),
+    ("menages", "Ménages", ("MENAGE_FACTURE",)),
+    ("canape", "Canapé", ("PREPARATION_CANAPE",)),
     ("forfait", "Forfait", ("CHARGE_FIXE",)),
     ("refacturations", "Refacturation", ("CHARGES_EXCEPT_REFAC", "CHARGE_REFACTUREE")),
     ("extras", "Extra", ("EXTRA",)),
-    ("reductions", "Reduction", ("REDUCTION",)),
+    ("reductions", "Réduction", ("REDUCTION",)),
 )
 
 
 class _Facture(FPDF):
     def __init__(self, snapshot: dict[str, Any]):
         super().__init__(orientation="P", unit="mm", format="A4")
+        # WinAnsiEncoding plutôt que latin-1 : c'est l'encodage standard des polices de base d'un
+        # PDF, et c'est lui qui permet d'imprimer « € » sans embarquer de police (cf.
+        # ENCODAGE_POLICES_BASE).
+        self.core_fonts_encoding = ENCODAGE_POLICES_BASE
         self.snapshot = snapshot
         self.set_margins(MARGE, MARGE, MARGE)
         # 26 mm : la hauteur réelle du pied de page de marque, mesurée. Une marge plus courte
@@ -176,7 +195,7 @@ class _Facture(FPDF):
         self.set_x(MARGE + 20)
         self.set_font("Helvetica", "", 8.5)
         self.set_text_color(*PIERRE)
-        self.cell(70, 4, _t("Conciergerie de location courte duree"),
+        self.cell(70, 4, _t("Conciergerie de location courte durée"),
                   0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
         # Pavé titre, aligné à droite
@@ -406,6 +425,17 @@ class _Facture(FPDF):
         logements = conf.get("logements") or snap.get("logements") or []
         if not logements and snap.get("logement_id"):
             logements = [snap.get("logement_nom") or snap.get("logement_id")]
+        # UN IDENTIFIANT N'EST PAS UN NOM (§102). `_noms_logements` se replie volontairement sur
+        # l'identifiant quand le référentiel ne connaît pas le logement — c'est le bon choix côté
+        # DONNÉES, où une ligne vide serait une perte d'information. Sur le DOCUMENT, c'est
+        # l'inverse : « Logement : LOG_0001 » n'apprend rien au propriétaire et fait sortir un code
+        # interne de l'application. Les snapshots anciens en portent encore un, faute de
+        # `conformite.logements` à l'époque de leur émission — et ils sont figés, donc on les filtre
+        # à l'affichage plutôt que de les réécrire. Le repère est structurel : une valeur qui EST
+        # l'identifiant n'est pas un nom.
+        identifiants = {str(i) for i in
+                        ([snap.get("logement_id")] + list(snap.get("logements") or [])) if i}
+        logements = [l for l in logements if str(l) not in identifiants]
         lignes_logement: list[str] = []
         if len(logements) == 1:
             lignes_logement = [f"Logement : {logements[0]}"]
@@ -442,17 +472,22 @@ class _Facture(FPDF):
 
         AUCUNE donnée personnelle du voyageur n'est imprimée : ni nom, ni e-mail, ni téléphone. La
         facture doit pouvoir circuler (comptable, propriétaire, archivage) sans emporter de PII.
-        La référence de réservation suffit à retrouver le séjour dans l'application.
+
+        LA RÉFÉRENCE DE RÉSERVATION A ÉTÉ RETIRÉE (§43). « 63200085 » est l'identifiant Hostaway :
+        il ne dit rien au propriétaire, qui n'a pas accès à Hostaway, et une facture n'est pas un
+        écran d'application. Le séjour est déjà identifié sans ambiguïté par ses dates et son canal.
+        Le nombre de VOYAGEURS le remplace : c'est une information que le propriétaire comprend, et
+        qui éclaire la préparation du logement — sans nommer personne.
         """
         reservations = self.snapshot.get("reservations") or []
         if not reservations:
             return
         self._titre_section("Séjours de la période et commission")
         # Assiette x Taux = Commission, colonne par colonne : le propriétaire doit pouvoir refaire
-        # l'operation de tete pour chaque sejour, sans avoir a nous croire sur parole.
-        colonnes = ((21, "Arrivee", "C"), (21, "Depart", "C"), (11, "Nuits", "C"),
-                    (22, "Canal", "L"), (28, "Référence", "L"), (24, "Total perçu", "R"),
-                    (15, "Taux", "R"), (23, "Commission", "R"))
+        # l'opération de tête pour chaque séjour, sans avoir à nous croire sur parole.
+        colonnes = ((22, "Arrivée", "C"), (22, "Départ", "C"), (12, "Nuits", "C"),
+                    (19, "Voyageurs", "C"), (26, "Canal", "L"), (25, "Total perçu", "R"),
+                    (15, "Taux", "R"), (24, "Commission", "R"))
         self._entete_tableau = (colonnes,)
         self._ligne_entete(colonnes)
         total_commission = 0.0
@@ -463,7 +498,10 @@ class _Facture(FPDF):
             self._ligne_tableau(colonnes, (
                 _date_fr(r.get("check_in")), _date_fr(r.get("check_out")),
                 r.get("nights") if r.get("nights") is not None else "",
-                r.get("plateforme") or "", r.get("reservation_id") or "",
+                # Le nombre de voyageurs vient du séjour. Absent, la case reste vide : « 0 » se
+                # lirait comme « personne n'est venu », ce que la donnée ne dit pas.
+                r.get("guest_count") if r.get("guest_count") is not None else "",
+                r.get("plateforme") or "",
                 _montant(r.get("assiette_commission")) if r.get("assiette_commission") is not None
                 else (_montant(r.get("payout")) if r.get("payout") is not None else ""),
                 _taux(taux), _montant(commission) if commission is not None else "",
@@ -482,11 +520,13 @@ class _Facture(FPDF):
                    "du calcul mensuel, ils ne sont pas recalculés sur la facture.")
 
     def _tableau_prestations(self):
-        """Détail facturé, groupé par poste. C'est la lecture « d'où vient le montant »."""
+        """Détail facturé, groupé par poste. C'est la lecture « d'où vient le montant ».
+
+        Le RÉCAPITULATIF ne se rend plus ici : il clôt le document (cf. `corps`, §44).
+        """
         snap = self.snapshot
-        deco = snap.get("decomposition") or {}
-        self._titre_section("Detail des frais")
-        colonnes = ((12, "N", "C"), (108, "Designation", "L"), (30, "Poste", "L"),
+        self._titre_section("Détail des frais")
+        colonnes = ((12, "N", "C"), (108, "Désignation", "L"), (30, "Poste", "L"),
                     (30, "Montant", "R"))
         self._entete_tableau = (colonnes,)
         self._ligne_entete(colonnes)
@@ -499,8 +539,6 @@ class _Facture(FPDF):
                 _montant(l.get("montant")),
             ), pair=(i % 2 == 0))
         self._entete_tableau = None
-        if deco:
-            self._recapitulatif(deco)
 
     def _recapitulatif(self, deco: dict[str, Any]):
         """Le récapitulatif EST la formule. Chaque poste apparaît même à zéro dès qu'il porte une
@@ -579,11 +617,11 @@ class _Facture(FPDF):
         # « à reverser au propriétaire », plutôt que de s'afficher en montant dû négatif.
         a_reverser = str(deco.get("sens_net")) == "A_REVERSER"
         if a_reverser:
-            titre, valeur = "  NET A REVERSER AU PROPRIETAIRE", deco.get("montant_a_reverser")
+            titre, valeur = "  NET À REVERSER AU PROPRIÉTAIRE", deco.get("montant_a_reverser")
         elif str(deco.get("sens_net")) == "SOLDE":
             titre, valeur = "  SOLDE", 0.0
         else:
-            titre, valeur = "  NET A PAYER", deco.get("net", deco.get("montant_du"))
+            titre, valeur = "  NET À PAYER", deco.get("net", deco.get("montant_du"))
         self.ln(1)
         self.set_x(gauche)
         self.set_fill_color(*(SAGE if a_reverser else BRIQUE))
@@ -624,14 +662,19 @@ class _Facture(FPDF):
             self._titre_section("Acomptes déjà versés",
                                 hauteur_bloc=10 + 6 + 5.2 * len(acomptes)
                                 + self._hauteur_note(note_acomptes))
-            colonnes = ((34, "Date", "C"), (36, "Mode", "L"), (80, "Référence", "L"),
+            # §43 — plus de colonne « Référence ». Elle imprimait `mouvement_opaque`, c'est-à-dire
+            # un identifiant technique de mouvement bancaire (« MTP-… ») : illisible pour le
+            # propriétaire, et sans usage pour lui. La RÉFÉRENCE MÉTIER est conservée quand elle
+            # existe — un libellé de virement, que le propriétaire retrouve sur son relevé — et
+            # seulement celle-là.
+            colonnes = ((34, "Date", "C"), (40, "Mode", "L"), (76, "Référence du paiement", "L"),
                         (30, "Montant", "R"))
             self._entete_tableau = (colonnes,)
             self._ligne_entete(colonnes)
             for i, a in enumerate(acomptes):
                 self._ligne_tableau(colonnes, (
                     _date_fr(a.get("date_mouvement")), a.get("mode_reglement") or "",
-                    a.get("mouvement_opaque") or a.get("reference_metier") or "",
+                    a.get("reference_metier") or "",
                     _montant(a.get("montant")),
                 ), pair=(i % 2 == 0))
             self._entete_tableau = None
@@ -682,9 +725,23 @@ class _Facture(FPDF):
             self.multi_cell(0, 4, _t(conf["mention_tva"]))
             self.ln(1)
         self.multi_cell(0, 4, _t(
-            "Cette facture ne reprend que les prestations facturees par la conciergerie. "
-            "Le detail des revenus, des acomptes et du solde figure sur le releve proprietaire "
-            "de la meme periode, qui est un document distinct."))
+            "Cette facture ne reprend que les prestations facturées par la conciergerie. "
+            "Le détail des revenus, des acomptes et du solde figure sur le relevé propriétaire "
+            "de la même période, qui est un document distinct."))
+
+        # ── LE RÉCAPITULATIF CLÔT LE DOCUMENT (§44) ───────────────────────────────────────────
+        # Il se rendait juste après le détail des frais, donc AVANT les conditions de règlement.
+        # Sur la facture réelle, la page 1 était alors pleine et la page 2 ne portait que quatre
+        # lignes de « Règlement » suivies du pied de page — un bloc orphelin, et un document qui
+        # ne se terminait pas sur son montant.
+        #
+        # En le plaçant en dernier, deux choses s'arrangent ensemble : le lecteur finit sur le NET,
+        # qui est la conclusion de la facture, et la coupure éventuelle tombe AVANT le règlement —
+        # une page 2 portant règlement + récapitulatif + net, qui se tient.
+        deco = snap.get("decomposition") or {}
+        if deco:
+            self.ln(2)
+            self._recapitulatif(deco)
 
 
 def _neutraliser_metadonnees(pdf: FPDF) -> None:

@@ -17,7 +17,7 @@
 <div class="card mb-md">
   <div class="card-title">Générer les écritures VENTES d'un mois</div>
   <form method="post" action="/comptabilite/journaux/ventes/generer">
-    <label>Mois (AAAA-MM) * <input type="text" name="mois" placeholder="2026-06" required></label>
+    <label>Mois * <input type="month" name="mois" required></label>
     <button type="submit" class="btn btn-primary" {% if not ecriture_active %}disabled{% endif %}>Générer depuis Lot12</button>
   </form>
 </div>
