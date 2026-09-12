@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 import app.config as cfg
@@ -555,7 +555,11 @@ def generer_ecriture_caisse_operation(operation_id_opaque: str, *, acteur: str =
             (operation_id_opaque,)).fetchone()
     finally:
         conn.close()
-    if op is None or op["statut"] == "ANNULEE":
+    # Une opération abandonnée ou déjà contrepassée n'a rien à comptabiliser. Le statut VALIDE
+    # n'est PAS exigé ici : c'est `operations_caisse_service.valider()` qui appelle ce générateur
+    # avant de poser le statut, précisément pour qu'une opération validée porte toujours son
+    # écriture (si l'écriture est refusée, la validation l'est aussi).
+    if op is None or op["statut"] in ("ANNULEE", "CONTREPASSEE"):
         return _refus(E_ORIGINE_INVALIDE, operation_id_opaque)
     montant = round(op["montant"], 2)
     if op["type_operation"] == "ENCAISSEMENT":

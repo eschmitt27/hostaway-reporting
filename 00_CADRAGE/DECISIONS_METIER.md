@@ -1821,3 +1821,36 @@ correction différents — que l'écran annonçait jusqu'ici de façon identique
 - **D-FP-8** : l'immuabilité reste celle déjà en place — seules les **lignes** sont éditables en
   BROUILLON (`_exiger_brouillon`) ; un **paiement** (acompte, reversement) s'attache à tout moment
   sans toucher au snapshot figé, ce qui est le cas normal : on émet, puis on encaisse.
+
+---
+
+### D-CAISSE-CYCLE-01 — valider une opération de caisse, c'est la comptabiliser
+
+- **Date** : 2026-09-12
+- **Lot** : recette utilisateur n°3 (§72, §73)
+- **Statut** : ACTÉ
+
+**Décisions :**
+
+- **D-CA-1** : le cycle est `BROUILLON` → `VALIDE` → (éventuellement) `CONTREPASSEE`. Un brouillon
+  est modifiable, abandonnable, et **ne touche à rien** en comptabilité.
+- **D-CA-2** : **la validation EST la génération de l'écriture**, dans le même geste. Si l'écriture
+  est refusée (période close, compte inconnu, déséquilibre), la validation l'est aussi et
+  l'opération reste au brouillon. Une opération validée porte donc **toujours** son écriture, sans
+  exception à vérifier ailleurs.
+- **D-CA-3** : une opération validée est **immuable**. `modifier()` la refuse.
+- **D-CA-4** : elle ne s'annule pas — elle se **contrepasse**, avec motif obligatoire, par une
+  écriture miroir. Les deux mouvements restent lisibles : ce qui est passé est passé.
+- **D-CA-5** : la contrepassation réutilise `comptabilite_ecritures_service.contrepasser`, déjà en
+  place et générique. Une seconde implémentation spécifique à la caisse a été écrite puis
+  **supprimée** : deux mécanismes pour le même geste finissent toujours par diverger.
+- **D-CA-6** : le solde de caisse vient du **compte 530000**, jamais d'un recalcul sur
+  `operations_caisse`. Deux chiffres finiraient par diverger sans qu'on sache lequel croire.
+  L'écran affiche aussi ce qui **attend la validation comptable** — sans quoi valider un
+  encaissement de 250 € laissait lire « solde 0,00 € », exact et incompréhensible.
+
+**Pourquoi.** Une opération naissait `ENREGISTREE` et la génération de son écriture était un
+**bouton séparé**. Deux trous, invisibles depuis l'écran : une opération pouvait exister sans
+écriture (de l'argent entré ou sorti dont le compte 530000 ne portait aucune trace) ; et `annuler()`
+retournait le statut **sans rien contrepasser**, laissant l'écriture en place. La caisse comptable
+et la caisse réelle divergeaient en silence.

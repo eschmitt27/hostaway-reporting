@@ -13,6 +13,28 @@
 <div class="alert alert-warning">Écriture désactivée sur cette installation : les actions sont indisponibles.</div>
 {% endif %}
 
+{# Le solde vient du COMPTE comptable et non d'un recalcul sur les opérations : deux chiffres
+   finiraient par diverger, sans qu'on sache lequel croire. Les brouillons, non comptabilisés, en
+   sont donc légitimement absents — et c'est dit, plutôt que laissé à deviner. #}
+<div class="card mb-md">
+  <div class="card-title">Solde de caisse</div>
+  <p><strong>{{ "%.2f"|format(solde_caisse.solde) }} €</strong>
+     <span class="text-xs text-secondary">au compte {{ solde_caisse.compte }}, sur les écritures
+     réellement postées.</span></p>
+  {% if solde_caisse.en_attente_de_validation_comptable %}
+  <p class="text-xs text-secondary">
+    <strong>{{ "%.2f"|format(solde_caisse.en_attente_de_validation_comptable) }} €</strong>
+    d'écritures générées attendent la validation comptable : elles ne sont pas encore dans ce
+    solde. Sans cette ligne, valider un encaissement de 250 € laissait l'écran afficher 0,00 €
+    — exact, et incompréhensible.
+  </p>
+  {% endif %}
+  {% if solde_caisse.nb_brouillons %}
+  <p class="text-xs text-secondary">{{ solde_caisse.nb_brouillons }} opération(s) au brouillon ne
+     sont pas comptées : elles ne seront comptabilisées qu'à la validation.</p>
+  {% endif %}
+</div>
+
 <div class="card mb-md">
   <div class="card-title">Nouvelle opération de caisse</div>
   <p class="section-note">Un paiement fournisseur en espèces passe par le règlement fournisseur (moyen CAISSE), pas par ce formulaire.</p>
@@ -40,19 +62,43 @@
   <div class="card-title">Opérations de caisse ({{ operations|length }})</div>
   <div class="table-container">
     <table class="data-table">
-      <thead><tr><th>Opération</th><th>Type</th><th>Date</th><th class="num">Montant</th><th>Tiers</th><th>Statut</th><th></th></tr></thead>
+      <thead><tr><th>Pièce</th><th>Type</th><th>Date</th><th class="num">Montant</th><th>Tiers</th><th>Statut</th><th></th></tr></thead>
       <tbody>
         {% for o in operations %}
         <tr>
-          <td>{{ o.operation_id_opaque }}</td><td>{{ o.type_operation }}</td><td>{{ o.date_operation|date_fr }}</td>
-          <td class="num">{{ "%.2f"|format(o.montant) }}</td>
-          <td>{{ o.tiers_type or "—" }} {{ o.tiers_id or "" }}</td>
-          <td><span class="badge">{{ o.statut }}</span></td>
+          {# L'identifiant technique (`CAI-…`) reste en infobulle : il sert au support, pas à la
+             lecture courante. Ce qui identifie l'opération pour l'utilisateur, c'est sa pièce. #}
+          <td title="{{ o.operation_id_opaque }}">{{ o.piece or o.commentaire or "—" }}</td>
+          <td>{{ o.type_operation | libelle_statut }}</td>
+          <td>{{ o.date_operation|date_fr }}</td>
+          <td class="num">{{ "%.2f"|format(o.montant) }} €</td>
           <td>
-            {% if o.statut == "ENREGISTREE" %}
-            <form method="post" action="/comptabilite/journaux/caisse/operations/{{ o.operation_id_opaque }}/generer-ecriture" style="display:inline">
-              <button type="submit" class="btn btn-secondary" {% if not ecriture_active %}disabled{% endif %}>Générer écriture</button>
+            {%- if o.tiers_type == "PROPRIETAIRE" %}{{ o.tiers_id | nom_proprietaire }}
+            {%- elif o.tiers_id %}{{ o.tiers_id }}
+            {%- else %}—{% endif -%}
+          </td>
+          <td><span class="badge">{{ o.statut | libelle_statut }}</span></td>
+          <td>
+            {# §72 — VALIDER, c'est comptabiliser. Il n'y a plus de bouton « générer l'écriture »
+               séparé : il laissait exister des opérations sans trace au compte 530000. #}
+            {% if o.statut == "BROUILLON" %}
+            <form method="post" action="/comptabilite/journaux/caisse/operations/{{ o.operation_id_opaque }}/valider" style="display:inline">
+              <button type="submit" class="btn btn-primary" {% if not ecriture_active %}disabled{% endif %}>Valider et comptabiliser</button>
             </form>
+            <form method="post" action="/comptabilite/journaux/caisse/operations/{{ o.operation_id_opaque }}/annuler" style="display:inline">
+              <button type="submit" class="btn btn-secondary" {% if not ecriture_active %}disabled{% endif %}>Abandonner</button>
+            </form>
+            {% elif o.statut in ("VALIDE", "ENREGISTREE") %}
+            {# §73 — une opération comptabilisée ne se supprime pas : elle se contrepasse, et les
+               deux mouvements restent lisibles. #}
+            <details>
+              <summary class="text-xs">Contrepasser</summary>
+              <form method="post" action="/comptabilite/journaux/caisse/operations/{{ o.operation_id_opaque }}/contrepasser">
+                <input type="text" name="motif" required placeholder="Motif obligatoire"
+                       class="filter-input" style="min-width:14rem">
+                <button type="submit" class="btn btn-secondary" {% if not ecriture_active %}disabled{% endif %}>Contrepasser</button>
+              </form>
+            </details>
             {% endif %}
           </td>
         </tr>

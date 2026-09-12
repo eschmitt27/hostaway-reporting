@@ -4,6 +4,8 @@ Première verticale : consultation des journaux/écritures/plan comptable/auxili
 d'une écriture ACHATS depuis une facture validée, validation, contrepassation. Aucun écran
 Résultats ni tableau analytique — hors périmètre de cette mission (cadrage `43`).
 """
+from urllib.parse import quote
+
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from app.template_env import get_templates
@@ -239,6 +241,8 @@ def comptabilite_journal_caisse(request: Request, message: str = "", erreur: str
     return templates.TemplateResponse(request, "comptabilite_journal_caisse.html", {
         "active_menu": "comptabilite", "ecritures": compta.lister(journal="CAISSE"),
         "operations": caisse.lister(), "types": caisse.TYPES,
+        # Le solde vient du COMPTE comptable, jamais d'un second calcul sur les opérations.
+        "solde_caisse": caisse.solde(),
         "ecriture_active": _ecriture_active(), "message": message, "erreur": erreur,
     })
 
@@ -256,10 +260,42 @@ async def comptabilite_caisse_creer_operation(request: Request):
     return RedirectResponse(url=f"/comptabilite/journaux/caisse?{msg}", status_code=303)
 
 
+@router.post("/comptabilite/journaux/caisse/operations/{opaque}/valider")
+async def comptabilite_caisse_valider(request: Request, opaque: str):
+    """§72 — valider une opération de caisse, c'est la comptabiliser. Les deux ne se séparent pas."""
+    form = await request.form()
+    res = caisse.valider(opaque, acteur=str(form.get("acteur", "") or "local"))
+    msg = ("message=Opération validée et comptabilisée." if res.get("ok")
+           else f"erreur={quote(res.get('detail') or res.get('message', ''))}")
+    return RedirectResponse(url=f"/comptabilite/journaux/caisse?{msg}", status_code=303)
+
+
+@router.post("/comptabilite/journaux/caisse/operations/{opaque}/contrepasser")
+async def comptabilite_caisse_contrepasser(request: Request, opaque: str):
+    """§73 — annuler une opération comptabilisée par une écriture miroir, jamais en effaçant."""
+    form = await request.form()
+    res = caisse.contrepasser(opaque, motif=str(form.get("motif", "") or ""),
+                              acteur=str(form.get("acteur", "") or "local"))
+    msg = ("message=Opération contrepassée : les deux mouvements restent lisibles."
+           if res.get("ok") else f"erreur={quote(res.get('detail') or res.get('message', ''))}")
+    return RedirectResponse(url=f"/comptabilite/journaux/caisse?{msg}", status_code=303)
+
+
+@router.post("/comptabilite/journaux/caisse/operations/{opaque}/annuler")
+async def comptabilite_caisse_annuler(request: Request, opaque: str):
+    """Abandonne un BROUILLON. Refusé sur une opération comptabilisée — voir contrepassation."""
+    form = await request.form()
+    res = caisse.annuler(opaque, acteur=str(form.get("acteur", "") or "local"))
+    msg = ("message=Brouillon abandonné." if res.get("ok")
+           else f"erreur={quote(res.get('detail') or res.get('message', ''))}")
+    return RedirectResponse(url=f"/comptabilite/journaux/caisse?{msg}", status_code=303)
+
+
 @router.post("/comptabilite/journaux/caisse/operations/{opaque}/generer-ecriture")
 async def comptabilite_caisse_generer_ecriture(request: Request, opaque: str):
+    """Conservée pour ne rien casser en amont : délègue à la validation, qui fait les deux."""
     form = await request.form()
-    res = compta.generer_ecriture_caisse_operation(opaque, acteur=str(form.get("acteur", "") or "local"))
+    res = caisse.valider(opaque, acteur=str(form.get("acteur", "") or "local"))
     msg = "message=Écriture CAISSE générée." if res.get("ok") else f"erreur={res.get('message')}"
     return RedirectResponse(url=f"/comptabilite/journaux/caisse?{msg}", status_code=303)
 
