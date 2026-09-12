@@ -200,23 +200,83 @@ def test_un_brouillon_ne_se_contrepasse_pas(operation, db):
 
 # ── Le solde vient de la comptabilité, pas d'un second calcul ───────────────────────────────────
 
-def test_le_solde_est_celui_du_compte_comptable(operation, db):
-    """Un second calcul depuis `operations_caisse` finirait par diverger, sans qu'on sache lequel
-    croire."""
+def test_le_solde_operationnel_ne_depend_pas_du_statut_comptable(operation, db):
+    """Un brouillon n'est pas encore un mouvement : il ne compte pas dans l'encaisse."""
     etat = caisse.solde(db_path=db)
     assert etat["compte"] == compta.COMPTE_CAISSE
+    assert etat["solde"] == 0.0
     assert etat["nb_brouillons"] == 1
 
 
-def test_le_solde_dit_ce_qui_attend_la_validation_comptable(operation, db):
-    """« Solde 0,00 € » juste après avoir validé 150 € est exact, et incompréhensible.
+# ── E2E : 250 € entrent en caisse, et le solde dit la vérité à chaque étape ──────────────────────
 
-    `solde_compte` ne compte que les écritures POSTÉES ; une écriture fraîchement générée est
-    PROPOSEE. Le second chiffre lève l'ambiguïté au lieu de laisser l'utilisateur conclure que son
-    encaissement s'est perdu.
+def test_e2e_encaisse_250_validation_comptable_puis_contrepassation(db):
+    """LE CONTRAT, ÉTAPE PAR ÉTAPE.
+
+    Le solde OPÉRATIONNEL mesure l'argent dans le tiroir : il vaut 250 € dès que le mouvement est
+    validé, et il ne bouge PAS quand le comptable valide l'écriture — l'argent avait déjà bougé.
+    Le compter une seconde fois à ce moment-là doublerait l'encaisse.
+
+    L'attente de validation comptable mesure autre chose : l'état de contrôle du grand livre. Elle
+    passe de 250 € à 0 € sans que le solde change d'un centime.
     """
-    caisse.valider(operation, db_path=db)
+    op = caisse.creer("ENCAISSEMENT", 250.0, date_operation="2026-09-12",
+                      tiers_type="PROPRIETAIRE", tiers_id="PROP_0001",
+                      piece="Reçu 2026-07", db_path=db)["operation_id_opaque"]
+
+    # 1 — brouillon : rien n'a bougé.
     etat = caisse.solde(db_path=db)
-    assert etat["solde"] == 0.0, "rien n'est posté tant que le comptable n'a pas validé"
-    assert etat["en_attente_de_validation_comptable"] == 150.0
-    assert etat["nb_brouillons"] == 0
+    assert (etat["solde"], etat["en_attente_de_validation_comptable"]) == (0.0, 0.0)
+
+    # 2 — mouvement validé : l'argent est dans le tiroir, l'écriture attend le contrôle.
+    assert caisse.valider(op, db_path=db)["ok"] is True
+    etat = caisse.solde(db_path=db)
+    assert etat["solde"] == 250.0, "un mouvement validé EST dans l'encaisse"
+    assert etat["en_attente_de_validation_comptable"] == 250.0
+    assert _statut_ecriture(op, db) == compta.ST_PROPOSEE
+
+    # 3 — le comptable valide l'écriture : le CONTRÔLE avance, l'encaisse ne bouge pas.
+    ecriture = _ecriture_de(op, db)
+    assert compta.valider(ecriture, db_path=db)["ok"] is True
+    etat = caisse.solde(db_path=db)
+    assert etat["solde"] == 250.0, "valider l'écriture ne fait pas entrer l'argent une 2e fois"
+    assert etat["en_attente_de_validation_comptable"] == 0.0
+    assert etat["ecart_comptable"] == 0.0, "les deux pistes se rejoignent une fois tout contrôlé"
+
+    # 4 — contrepassation : l'argent ressort, le solde revient à zéro.
+    assert caisse.contrepasser(op, motif="Reçu annulé par le propriétaire", db_path=db)["ok"] is True
+    etat = caisse.solde(db_path=db)
+    assert etat["solde"] == 0.0
+    assert etat["en_attente_de_validation_comptable"] == 0.0
+
+
+def test_une_sortie_de_caisse_diminue_l_encaisse(db):
+    """Le sens suit le type d'opération, comme l'écriture le fait sur le compte 530000."""
+    entree = caisse.creer("ENCAISSEMENT", 300.0, date_operation="2026-09-12",
+                          tiers_type="PROPRIETAIRE", tiers_id="PROP_0001", db_path=db)["operation_id_opaque"]
+    sortie = caisse.creer("REMBOURSEMENT_ASSOCIE", 120.0, date_operation="2026-09-12",
+                          tiers_type="ASSOCIE", tiers_id="ASSOC_1", db_path=db)["operation_id_opaque"]
+    caisse.valider(entree, db_path=db)
+    caisse.valider(sortie, db_path=db)
+    assert caisse.solde(db_path=db)["solde"] == 180.0
+
+
+def _ecriture_de(operation, db):
+    conn = get_db(db)
+    try:
+        return conn.execute(
+            "SELECT ecriture_id_opaque FROM ecritures WHERE journal='CAISSE' "
+            "AND origine_type='OPERATION_CAISSE' AND origine_id_opaque=? "
+            "AND statut <> 'CONTREPASSEE' ORDER BY id LIMIT 1", (operation,)).fetchone()[0]
+    finally:
+        conn.close()
+
+
+def _statut_ecriture(operation, db):
+    conn = get_db(db)
+    try:
+        return conn.execute(
+            "SELECT statut FROM ecritures WHERE journal='CAISSE' AND origine_id_opaque=? "
+            "ORDER BY id LIMIT 1", (operation,)).fetchone()[0]
+    finally:
+        conn.close()

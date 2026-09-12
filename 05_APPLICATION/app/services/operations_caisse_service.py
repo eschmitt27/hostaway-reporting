@@ -300,32 +300,81 @@ def _ecriture_de(opaque: str, db_path=None) -> str | None:
     return row["ecriture_id_opaque"] if row else None
 
 
-def solde(db_path=None) -> dict[str, Any]:
-    """Solde de caisse tel que la COMPTABILITÉ le porte, et non recalculé ici.
+#: Sens d'un type d'opération sur l'encaisse. Identique à celui que l'écriture applique au compte
+#: 530000 (`generer_ecriture_caisse_operation`) : un encaissement le débite, tout le reste le
+#: crédite. Les deux lectures décrivent le même fait physique et ne peuvent donc pas diverger.
+SENS_SUR_ENCAISSE = {"ENCAISSEMENT": +1, "REMBOURSEMENT_ASSOCIE": -1, "AUTRE": -1}
 
-    Recalculer le solde depuis `operations_caisse` donnerait un SECOND chiffre, qui finirait par
-    diverger du premier — et personne ne saurait lequel croire. `solde_compte` fait foi : il ne
-    compte que les écritures réellement postées, donc ni un brouillon d'opération, ni une écriture
-    encore proposée.
+#: Opérations qui pèsent réellement sur l'encaisse. Un brouillon n'est pas encore un mouvement ;
+#: un brouillon abandonné n'en a jamais été un ; une opération contrepassée a été annulée par un
+#: mouvement inverse, et les deux se neutralisent.
+STATUTS_DANS_L_ENCAISSE = (ST_VALIDE, ST_ENREGISTREE)
+
+
+def solde(db_path=None) -> dict[str, Any]:
+    """Solde OPÉRATIONNEL de la caisse : ce qu'il y a réellement dans le tiroir.
+
+    LE SOLDE OPÉRATIONNEL NE SE DÉDUIT PAS DU STATUT COMPTABLE. Il se déduisait de `solde_compte`,
+    qui ne compte que les écritures POSTÉES — l'écran affichait donc « 0,00 € » juste après qu'un
+    encaissement de 250 € ait été validé, au motif que le comptable n'avait pas encore contrôlé
+    l'écriture. C'était faux : l'argent était dans le tiroir. Expliquer ce zéro en note ne le
+    rendait pas vrai.
+
+    Les deux chiffres mesurent DEUX CHOSES DIFFÉRENTES, et c'est pourquoi ils coexistent :
+
+      · `solde`                — fait économique : les mouvements de caisse validés. Il ne bouge
+                                 PAS quand le comptable valide l'écriture ; l'argent avait déjà
+                                 bougé. Compter le mouvement une seconde fois à ce moment-là
+                                 doublerait l'encaisse.
+      · `en_attente_...`       — état de contrôle : la part de ce solde dont l'écriture miroir
+                                 n'est pas encore validée en comptabilité générale. Elle tombe à
+                                 zéro quand le comptable a fait son travail, sans que le solde
+                                 bouge d'un centime.
+      · `solde_comptable`      — ce que porte le compte 530000 sur les écritures postées. Il doit
+                                 rejoindre `solde` une fois tout contrôlé ; `ecart_comptable` le
+                                 dit, et c'est ce qui rend les deux pistes sûres au lieu de
+                                 concurrentes.
     """
     from app.services import comptabilite_ecritures_service as compta
 
     conn = get_db(db_path)
     try:
+        lignes = conn.execute(
+            "SELECT o.type_operation, o.montant, "
+            "       (SELECT e.statut FROM ecritures e "
+            "          WHERE e.journal = 'CAISSE' AND e.origine_type = 'OPERATION_CAISSE' "
+            "            AND e.origine_id_opaque = o.operation_id_opaque "
+            "          ORDER BY e.id LIMIT 1) AS statut_ecriture "
+            "  FROM operations_caisse o "
+            f" WHERE o.statut IN ({','.join('?' * len(STATUTS_DANS_L_ENCAISSE))})",
+            STATUTS_DANS_L_ENCAISSE).fetchall()
         brouillons = conn.execute(
             "SELECT COUNT(*) c FROM operations_caisse WHERE statut = ?", (ST_BROUILLON,)
         ).fetchone()["c"]
-        # `solde_compte` ne compte que les écritures POSTÉES (VALIDEE, CONTREPASSEE). Une écriture
-        # fraîchement générée est PROPOSEE : elle attend le contrôle du comptable. Sans ce second
-        # chiffre, l'écran affichait « solde 0,00 € » juste après qu'on ait validé un encaissement
-        # de 250 € — exact, et incompréhensible.
-        attente = conn.execute(
-            "SELECT ROUND(COALESCE(SUM(l.debit) - SUM(l.credit), 0), 2) AS m "
-            "FROM ecriture_lignes l JOIN ecritures e ON e.ecriture_id_opaque = l.ecriture_id_opaque "
-            "WHERE l.compte = ? AND e.statut = ?",
-            (compta.COMPTE_CAISSE, compta.ST_PROPOSEE)).fetchone()["m"]
     finally:
         conn.close()
-    etat = compta.solde_compte(compta.COMPTE_CAISSE, db_path=db_path)
-    return {**etat, "compte": compta.COMPTE_CAISSE, "nb_brouillons": brouillons,
-            "en_attente_de_validation_comptable": attente}
+
+    encaisse = 0.0
+    attente = 0.0
+    for l in lignes:
+        signe = SENS_SUR_ENCAISSE.get(l["type_operation"], -1)
+        montant = round(signe * float(l["montant"] or 0), 2)
+        encaisse += montant
+        # Une écriture absente compte AUSSI comme en attente : le mouvement est réel, et rien ne
+        # le porte encore en comptabilité. C'est le cas qu'il faut le plus voir.
+        if l["statut_ecriture"] != compta.ST_VALIDEE:
+            attente += montant
+
+    comptable = compta.solde_compte(compta.COMPTE_CAISSE, db_path=db_path)
+    encaisse = round(encaisse, 2)
+    return {
+        "compte": compta.COMPTE_CAISSE,
+        "solde": encaisse,
+        "en_attente_de_validation_comptable": round(attente, 2),
+        "solde_comptable": comptable["solde"],
+        # Une fois toutes les écritures validées, les deux pistes doivent tomber d'accord. Tant
+        # qu'un écart subsiste, il s'explique par ce qui attend le contrôle — et s'il subsiste
+        # APRÈS, c'est une anomalie qu'il vaut mieux voir que masquer.
+        "ecart_comptable": round(encaisse - comptable["solde"], 2),
+        "nb_brouillons": brouillons,
+    }

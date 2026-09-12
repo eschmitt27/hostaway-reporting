@@ -1844,10 +1844,29 @@ correction différents — que l'écran annonçait jusqu'ici de façon identique
 - **D-CA-5** : la contrepassation réutilise `comptabilite_ecritures_service.contrepasser`, déjà en
   place et générique. Une seconde implémentation spécifique à la caisse a été écrite puis
   **supprimée** : deux mécanismes pour le même geste finissent toujours par diverger.
-- **D-CA-6** : le solde de caisse vient du **compte 530000**, jamais d'un recalcul sur
-  `operations_caisse`. Deux chiffres finiraient par diverger sans qu'on sache lequel croire.
-  L'écran affiche aussi ce qui **attend la validation comptable** — sans quoi valider un
-  encaissement de 250 € laissait lire « solde 0,00 € », exact et incompréhensible.
+- **D-CA-6** *(corrigé — arbitrage utilisateur 2026-09-12)* : **le solde opérationnel de caisse
+  est la somme des mouvements de caisse VALIDÉS**, indépendamment du statut comptable de leur
+  écriture miroir. Une écriture `PROPOSEE` signifie seulement « mouvement économique déjà réalisé,
+  écriture générale encore à contrôler ».
+
+  Ma première écriture dérivait ce solde de `solde_compte`, qui ne compte que les écritures
+  postées : l'écran affichait « 0,00 € » juste après la validation d'un encaissement de 250 €.
+  J'avais corrigé en ajoutant une **note explicative** — un pansement : le zéro restait faux.
+
+  Les deux chiffres mesurent deux choses, et c'est pourquoi ils coexistent :
+
+  | Chiffre | Ce qu'il mesure | Bouge quand le comptable valide ? |
+  |---|---|---|
+  | `solde` | l'argent dans le tiroir — mouvements validés | **non**, l'argent avait déjà bougé |
+  | `en_attente_de_validation_comptable` | l'état de contrôle du grand livre | oui, il tombe à zéro |
+  | `solde_comptable` | ce que porte le compte 530000 | oui |
+
+  **Interdits, et vérifiés par test** : compter le mouvement une seconde fois à la validation
+  comptable ; dériver le solde opérationnel des seules écritures `VALIDEE` ; afficher 0 € alors
+  qu'un mouvement validé existe.
+
+  `ecart_comptable` confronte les deux pistes. Tant qu'un écart subsiste, il s'explique par ce qui
+  attend le contrôle ; s'il subsiste **après**, c'est une anomalie, et l'écran la nomme.
 
 **Pourquoi.** Une opération naissait `ENREGISTREE` et la génération de son écriture était un
 **bouton séparé**. Deux trous, invisibles depuis l'écran : une opération pouvait exister sans

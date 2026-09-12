@@ -13,25 +13,35 @@
 <div class="alert alert-warning">Écriture désactivée sur cette installation : les actions sont indisponibles.</div>
 {% endif %}
 
-{# Le solde vient du COMPTE comptable et non d'un recalcul sur les opérations : deux chiffres
-   finiraient par diverger, sans qu'on sache lequel croire. Les brouillons, non comptabilisés, en
-   sont donc légitimement absents — et c'est dit, plutôt que laissé à deviner. #}
+{# DEUX CHIFFRES QUI MESURENT DEUX CHOSES, jamais deux calculs du même.
+   Le SOLDE est un fait économique : l'argent qui est dans le tiroir, c'est-à-dire les mouvements
+   de caisse validés. Il ne bouge pas quand le comptable valide l'écriture — l'argent avait déjà
+   bougé. L'ATTENTE est un état de contrôle : la part de ce solde dont l'écriture générale n'est
+   pas encore validée. Elle tombe à zéro sans que le solde change d'un centime. #}
 <div class="card mb-md">
   <div class="card-title">Solde de caisse</div>
-  <p><strong>{{ "%.2f"|format(solde_caisse.solde) }} €</strong>
-     <span class="text-xs text-secondary">au compte {{ solde_caisse.compte }}, sur les écritures
-     réellement postées.</span></p>
-  {% if solde_caisse.en_attente_de_validation_comptable %}
-  <p class="text-xs text-secondary">
-    <strong>{{ "%.2f"|format(solde_caisse.en_attente_de_validation_comptable) }} €</strong>
-    d'écritures générées attendent la validation comptable : elles ne sont pas encore dans ce
-    solde. Sans cette ligne, valider un encaissement de 250 € laissait l'écran afficher 0,00 €
-    — exact, et incompréhensible.
+  <p style="font-size:1.4rem"><strong>{{ "%.2f"|format(solde_caisse.solde) }} €</strong>
+     <span class="text-xs text-secondary">— mouvements de caisse validés.</span></p>
+  <p>Dont en attente de validation comptable :
+     <strong>{{ "%.2f"|format(solde_caisse.en_attente_de_validation_comptable) }} €</strong>
+     <span class="text-xs text-secondary">
+       {%- if solde_caisse.en_attente_de_validation_comptable %}
+       — le mouvement est fait ; c'est l'écriture générale qui reste à contrôler.
+       {%- else %} — tout est contrôlé.{% endif -%}
+     </span></p>
+  {% if solde_caisse.ecart_comptable and not solde_caisse.en_attente_de_validation_comptable %}
+  {# L'écart doit s'expliquer par ce qui attend le contrôle. S'il subsiste alors que plus rien
+     n'attend, c'est une anomalie — mieux vaut la voir que la masquer. #}
+  <p class="alert alert-warning text-xs">
+    Écart inexpliqué de {{ "%.2f"|format(solde_caisse.ecart_comptable) }} € entre l'encaisse
+    ({{ "%.2f"|format(solde_caisse.solde) }} €) et le compte {{ solde_caisse.compte }}
+    ({{ "%.2f"|format(solde_caisse.solde_comptable) }} €), alors qu'aucune écriture n'attend de
+    validation. À examiner.
   </p>
   {% endif %}
   {% if solde_caisse.nb_brouillons %}
   <p class="text-xs text-secondary">{{ solde_caisse.nb_brouillons }} opération(s) au brouillon ne
-     sont pas comptées : elles ne seront comptabilisées qu'à la validation.</p>
+     comptent pas : un brouillon n'est pas encore un mouvement.</p>
   {% endif %}
 </div>
 
