@@ -35,6 +35,7 @@ from typing import Any
 import app.config as cfg
 from app.db.connection import get_db
 from app.services import run_history_service as history
+from app.services.path_sanitizer import sanitize_exception
 
 SCRIPT = "lot1_hostaway_extract.py"
 
@@ -51,6 +52,7 @@ E_SCRIPT_ABSENT = "HOSTAWAY_SCRIPT_ABSENT"
 E_INTERPRETEUR = "HOSTAWAY_INTERPRETEUR_ABSENT"
 E_DEJA_EN_COURS = "HOSTAWAY_ACTUALISATION_EN_COURS"
 E_LANCEMENT = "HOSTAWAY_LANCEMENT_IMPOSSIBLE"
+E_DELAI_DEPASSE = "HOSTAWAY_DELAI_DEPASSE"
 
 MESSAGES = {
     E_SCRIPT_ABSENT: "Le moteur d'extraction Hostaway est introuvable sur cette installation.",
@@ -59,6 +61,8 @@ MESSAGES = {
     E_DEJA_EN_COURS: ("Une actualisation Hostaway est déjà en cours. Attendez qu'elle se termine "
                       "avant d'en lancer une autre."),
     E_LANCEMENT: "Le moteur n'a pas pu être lancé.",
+    E_DELAI_DEPASSE: ("Le moteur d'extraction n'a pas terminé en {delai} s : il a été arrêté, et les "
+                      "données affichées restent celles de la dernière actualisation réussie."),
 }
 
 # Les tâches de ménage sont extraites par la même commande mais relèvent d'une autre chaîne, et leur
@@ -270,7 +274,8 @@ def actualisation_en_cours(*, db_path=None) -> dict[str, Any] | None:
 
 
 def actualiser(*, declencheur: str = DECLENCHEUR_MANUEL, arguments: tuple[str, ...] = (),
-               db_path=None, attendre: bool = False, timeout_s: int = 3600) -> dict[str, Any]:
+               db_path=None, attendre: bool = False, timeout_s: int = 3600,
+               journaliser: bool = True) -> dict[str, Any]:
     """Lance une actualisation Hostaway. Rend immédiatement, sauf `attendre=True`.
 
     Appelable sans contexte HTTP : c'est ce qui permettra à un ordonnanceur d'emprunter exactement ce
@@ -308,8 +313,10 @@ def actualiser(*, declencheur: str = DECLENCHEUR_MANUEL, arguments: tuple[str, .
     # (`attendre=True`, celui qu'empruntent l'orchestrateur et l'ordonnanceur) — c'est le seul où
     # l'issue réelle (code_retour) est connue avant de répondre. Le bouton "fire-and-forget" reste
     # suivi par `moteur_runs`/`hostaway_extractions`, écrits par le sous-processus lui-même.
+    # `journaliser=False` : l'appelant tient déjà l'entrée de cette opération
+    # (`hostaway_depot_service.synchroniser`) — deux entrées pour un même run fausseraient les volumes.
     history_run_id = history.demarrer("HOSTAWAY", acteur=declencheur, db_path=db_path) \
-        if attendre else None
+        if attendre and journaliser else None
 
     try:
         if attendre:
@@ -326,10 +333,21 @@ def actualiser(*, declencheur: str = DECLENCHEUR_MANUEL, arguments: tuple[str, .
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             code = None
             pid = proc.pid
+    except subprocess.TimeoutExpired:
+        # `subprocess.run` a tué le moteur : son extraction reste ouverte, donc jamais utilisable, et
+        # la précédente reste servie. Le message ne recopie PAS l'exception : elle contient la ligne
+        # de commande entière — interpréteur, script et base, trois chemins absolus.
+        message = MESSAGES[E_DELAI_DEPASSE].format(delai=timeout_s)
+        if history_run_id is not None:
+            history.marquer_echec(history_run_id, erreur=f"{E_DELAI_DEPASSE} : {message}",
+                                  db_path=db_path)
+        return {"ok": False, "code": E_DELAI_DEPASSE, "message": message}
     except Exception as exc:
         if history_run_id is not None:
-            history.marquer_echec(history_run_id, erreur=f"{type(exc).__name__}: {exc}",
-                                  db_path=db_path)
+            history.marquer_echec(
+                history_run_id,
+                erreur=f"{E_LANCEMENT} : {type(exc).__name__}: {sanitize_exception(exc, 300)}",
+                db_path=db_path)
         return {"ok": False, "code": E_LANCEMENT,
                 "message": f"{MESSAGES[E_LANCEMENT]} ({type(exc).__name__})"}
 

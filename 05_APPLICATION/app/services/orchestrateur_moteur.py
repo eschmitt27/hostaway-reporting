@@ -259,7 +259,7 @@ def executer_menages_cible(*, db_path=None, mois: str, declencheur: str = "MANUE
     return {**resultat, "mois_demande": mois}
 
 
-def importer_hostaway(*, db_path=None) -> dict[str, Any]:
+def importer_hostaway(*, db_path=None, declencheur: str | None = None) -> dict[str, Any]:
     """Import Hostaway pour l'orchestrateur — MÊME chemin que le bouton manuel et l'ordonnanceur.
 
     LA SOURCE CANONIQUE EST LE DÉPÔT PUBLIÉ, PAS UN APPEL DEPUIS CE POSTE.
@@ -278,27 +278,32 @@ def importer_hostaway(*, db_path=None) -> dict[str, Any]:
     """
     from app.services import hostaway_depot_service as depot
 
-    resultat = depot.synchroniser(declencheur="AUTO", db_path=db_path, attendre=True)
-    if not resultat.get("ok"):
-        return resultat
-    if not resultat.get("importe"):
-        # Déjà synchronisé : succès, sans nouvelle extraction.
-        return {"ok": True, **{k: v for k, v in resultat.items() if k != "ok"}}
+    # Le déclencheur est celui du run orchestrateur (transmis par `_appeler_service`) : un run lancé
+    # depuis l'écran reste MANUEL jusqu'au journal. Le forcer à AUTO faisait passer toute
+    # actualisation ciblée pour un battement du scheduler.
+    resultat = depot.synchroniser(declencheur=declencheur or "AUTO", db_path=db_path,
+                                  attendre=True)
     # Le code retour du lot fait foi : un lancement réussi n'est pas une extraction réussie.
     code = resultat.get("code_retour")
     if code not in (0, None):
         return {"ok": False, "code": E_CODE_RETOUR,
                 "message": f"lot1_hostaway_extract rc={code}"}
+    if not resultat.get("ok"):
+        return resultat
+    if not resultat.get("importe"):
+        # Déjà synchronisé : succès, sans nouvelle extraction.
+        return {"ok": True, **{k: v for k, v in resultat.items() if k != "ok"}}
     return {"ok": True, **{k: v for k, v in resultat.items() if k != "ok"}}
 
 
-def importer_hostaway_cleaning_tasks(*, db_path=None) -> dict[str, Any]:
+def importer_hostaway_cleaning_tasks(*, db_path=None, declencheur: str | None = None) -> dict[str, Any]:
     """Import Hostaway CleaningTasks pour l'orchestrateur — nœud `externe=True`, jamais entraîné par
-    « Actualiser toute l'activité ». Déclenché uniquement par une demande explicite
-    (`inclure_imports_externes=True`, ex. le bouton « Actualiser les ménages »)."""
+    « Actualiser toute l'activité » ni par la propagation d'une actualisation des réservations.
+    Déclenché uniquement quand il est lui-même demandé (ex. « Actualiser les ménages »)."""
     from app.services import hostaway_cleaning_tasks_actualisation_service as cleaning_tasks
 
-    resultat = cleaning_tasks.actualiser(declencheur=cleaning_tasks.DECLENCHEUR_AUTO, db_path=db_path)
+    resultat = cleaning_tasks.actualiser(declencheur=declencheur or cleaning_tasks.DECLENCHEUR_AUTO,
+                                         db_path=db_path)
     if not resultat.get("ok"):
         return resultat
     return {"ok": True, **{k: v for k, v in resultat.items() if k != "ok"}}

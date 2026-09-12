@@ -101,6 +101,11 @@ def _decision_cadence(tache: str, maintenant: datetime, db_path) -> dict[str, An
     cadence = timedelta(hours=cadence_h)
     etat = dernier_declenchement(tache, db_path=db_path)
 
+    # Une synchronisation détient le verrou de cette source (clic manuel, autre poste) : refus propre
+    # et immédiat. Rien n'attend — le battement suivant reconsidérera.
+    if orch.verrou_actif(tache, db_path=db_path):
+        return {"declencher": False, "motif": "Actualisation déjà en cours.", "tache": tache}
+
     if etat is None or not etat.get("calcule_le"):
         return {"declencher": True, "motif": "Jamais actualisé.", "tache": tache}
 

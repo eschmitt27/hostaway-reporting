@@ -3553,3 +3553,36 @@ juillet se met à jour seul.
 
 Ce qui reste après cela : la refonte du **relevé propriétaire** (§53-70), seul chantier restant
 sans blocage technique.
+
+---
+
+## Mission 28 (2026-09-13) — scheduler Hostaway sécurisé 5 h : l'audit refait sur l'arbre réel
+
+*Section tenue à jour à chaque commit. Détail complet : `SCHEDULER_HOSTAWAY.md` §13.*
+
+### Continuité
+
+HEAD de départ **`0d454bc`**, et non `b753cf1` comme l'annonçait la consigne : `b753cf1` en est un
+ancêtre, 74 commits plus loin sur la même branche, worktree propre. Migrations **0087** (et non
+0071). La requalification VRBO du §0 (`VRBO_REAL_PAYOUT_PENDING_EXTERNAL_SOURCE`) est déjà écrite
+depuis la Mission 18e, qui avait exécuté cette même mission le 2026-09-10.
+
+### Pourquoi l'audit a été refait
+
+Depuis 18e, l'ingestion Hostaway est passée au dépôt publié par le pipeline GitHub (`27411b4`,
+`9d03e05`) et le nœud H6 a reçu un service. Plusieurs conclusions de 18e ne tenaient plus :
+
+| Constat 18e | Arbre réel au 2026-09-13 |
+|---|---|
+| « CleaningTasks hors 5 h : aucun service dans le DAG » | H6 a un service : il partait **à chaque run 5 h** par propagation, et toutes les 24 h via `tick()` ; sans identifiants, son échec bloquait MENAGES puis toute la chaîne économique |
+| « Même service, déclencheur visible » | `importer_hostaway` forçait `AUTO`, même pour un run lancé depuis l'écran |
+| « Concurrence protégée » | garde lue dans `moteur_runs`, écrite par le sous-processus après son démarrage : fenêtre de course ; `prendre_verrou` non atomique |
+| « Aucun mécanisme pour éviter le recalcul aval » | `source_ref` (0086) existe : l'aval était pourtant recalculé à chaque battement |
+| `run_history` Hostaway | aucune entrée si dépôt illisible ou déjà synchronisé ; chemins absolus sur timeout |
+| Arrêt propre | `arreter()` pendant un battement réarmait un minuteur (fil orphelin) |
+
+### Commits
+
+| # | SHA | Contenu | Tests |
+|---|---|---|---|
+| 1 | `33fed0e` | Minuteur unique (génération de cycle), H6 hors job 5 h, cadence bornée | 237 passed |

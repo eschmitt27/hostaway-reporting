@@ -39,12 +39,27 @@ BRANCHE_DEFAUT = os.environ.get("HOSTAWAY_DEPOT_BRANCHE", "main")
 
 E_DEPOT_INDISPONIBLE = "HOSTAWAY_DEPOT_INDISPONIBLE"
 E_DEJA_SYNCHRONISE = "HOSTAWAY_DEPOT_DEJA_SYNCHRONISE"
+E_IMPORT_ECHOUE = "HOSTAWAY_IMPORT_ECHOUE"
 
 MESSAGES = {
     E_DEPOT_INDISPONIBLE: ("Le dépôt de données Hostaway n'a pas pu être lu : les réservations "
                            "affichées restent celles de la dernière synchronisation."),
     E_DEJA_SYNCHRONISE: "Les données publiées sont déjà synchronisées : rien de nouveau à importer.",
+    E_IMPORT_ECHOUE: ("L'import du jeu publié a échoué (code retour {code}) : les réservations "
+                      "affichées restent celles de la dernière synchronisation."),
 }
+
+# Verrou d'exclusion d'une synchronisation : le bail `orchestrateur_verrous` EXISTANT, sur la portée
+# nommée d'après le dataset (convention de la table : PIPELINE_GLOBAL, ou le nom d'un dataset).
+# Aucun second mécanisme de verrou n'est créé.
+PORTEE_VERROU = "HOSTAWAY_RAW"
+# Marge ajoutée au délai du moteur : couvre la lecture du dépôt (`git fetch`, borné à 300 s) avant
+# l'import. Un bail plus court qu'un run réel laisserait un second run démarrer pendant le premier.
+MARGE_BAIL_S = 600
+
+OPERATION_HISTORIQUE = "HOSTAWAY"
+MOTIF_RUN_INTERROMPU = ("RUN_INTERROMPU : synchronisation restée ouverte sans processus actif "
+                        "(arrêt brutal) — close à la synchronisation suivante.")
 
 
 def _lib_depot():
@@ -142,35 +157,102 @@ def synchroniser(*, declencheur: str = "MANUEL", force: bool = False, attendre: 
                  db_path=None, timeout_s: int = 1800) -> dict[str, Any]:
     """Importe le dernier état publié dans la couche RAW SQLite.
 
+    LE SERVICE CANONIQUE. Le bouton de l'écran Hostaway, l'orchestrateur (donc le scheduler) et
+    « Actualiser les ménages » appellent tous cette fonction ; seul `declencheur` change.
+
+    EXCLUSIVE. Le bail `orchestrateur_verrous` de la portée HOSTAWAY_RAW est pris AVANT la lecture
+    du dépôt et rendu à la fin. Une synchronisation demandée pendant une autre est refusée tout de
+    suite (`HOSTAWAY_ACTUALISATION_EN_COURS`), sans attente. Sans ce verrou, un clic pendant un
+    battement du scheduler lisait « rien en cours » tant que le sous-processus n'avait pas écrit sa
+    ligne de run, et deux imports concurrents partaient.
+
     IDEMPOTENTE PAR CONSTRUCTION. Si la version publiée est déjà en base, rien n'est relancé :
     réimporter un état identique fabriquerait une extraction de plus, indiscernable de la
     précédente, et la comparaison d'une extraction à l'autre — qui sert à repérer les mois
     impactés — perdrait tout sens. `force=True` passe outre, pour rejouer délibérément.
 
+    TRACÉE. Une synchronisation attendue ouvre une entrée `run_history` (opération HOSTAWAY, acteur
+    = déclencheur) et la clôt quelle que soit l'issue : dépôt illisible, déjà synchronisé, import
+    réussi ou échoué. Les erreurs y sont sanitisées : ni chemin, ni identifiant intégré à une URL.
+
+    UN LANCEMENT N'EST PAS UN IMPORT. Un moteur qui rend un code non nul donne `ok=False` : l'écran
+    ne peut plus annoncer « Synchronisation terminée » pour un import qui a échoué.
+
     Synchrone par défaut : l'import depuis le dépôt prend quelques secondes, et l'appelant doit
     pouvoir afficher l'état réel au retour plutôt qu'un état encore périmé.
     """
+    import uuid
+
     from app.services import hostaway_actualisation_service as moteur
     from app.services import hostaway_raw_service as raw
+    from app.services import orchestrateur_service as orch
+    from app.services import run_history_service as history
+    from app.services.path_sanitizer import sanitize_erreur_externe
 
-    publie = etat_publie(rafraichir=True)
-    if not publie.get("disponible"):
-        return {"ok": False, "code": E_DEPOT_INDISPONIBLE,
-                "message": publie.get("erreur") or MESSAGES[E_DEPOT_INDISPONIBLE],
-                "publie": publie}
+    jeton = f"HSYNC-{uuid.uuid4().hex[:12].upper()}"
+    verrou = orch.prendre_verrou(PORTEE_VERROU, jeton, bail_s=timeout_s + MARGE_BAIL_S,
+                                 db_path=db_path)
+    if not verrou.get("ok"):
+        return {"ok": False, "importe": False, "code": moteur.E_DEJA_EN_COURS,
+                "message": moteur.MESSAGES[moteur.E_DEJA_EN_COURS]}
 
-    reference = publie.get("commit") or ""
-    if not force:
-        deja = raw.extraction_de_source(reference, db_path=db_path)
-        if deja is not None:
-            return {"ok": True, "importe": False, "code": E_DEJA_SYNCHRONISE,
-                    "message": MESSAGES[E_DEJA_SYNCHRONISE], "publie": publie,
-                    "extraction": deja, "fraicheur": fraicheur(rafraichir=False, db_path=db_path)}
+    run_hist: str | None = None
 
-    resultat = moteur.actualiser(declencheur=declencheur, arguments=moteur.ARGUMENTS_DEPOT,
-                                 db_path=db_path, attendre=attendre, timeout_s=timeout_s)
-    resultat["publie"] = publie
-    resultat["importe"] = bool(resultat.get("ok"))
-    if resultat.get("ok"):
-        resultat["fraicheur"] = fraicheur(rafraichir=False, db_path=db_path)
-    return resultat
+    def _echec(code: str, detail: str = "") -> None:
+        if run_hist is not None:
+            history.marquer_echec(run_hist, erreur=f"{code} : {detail}" if detail else code,
+                                  db_path=db_path)
+
+    try:
+        if attendre:
+            # Verrou obtenu : aucune autre synchronisation ne tourne. Une entrée encore ouverte est
+            # la trace d'un processus mort — close avant d'en ouvrir une nouvelle.
+            history.marquer_orphelins(OPERATION_HISTORIQUE, erreur=MOTIF_RUN_INTERROMPU,
+                                      db_path=db_path)
+            run_hist = history.demarrer(OPERATION_HISTORIQUE, acteur=declencheur, db_path=db_path)
+
+        publie = etat_publie(rafraichir=True)
+        if not publie.get("disponible"):
+            detail = sanitize_erreur_externe(publie.get("erreur") or "")
+            _echec(E_DEPOT_INDISPONIBLE, detail)
+            return {"ok": False, "importe": False, "code": E_DEPOT_INDISPONIBLE,
+                    "message": MESSAGES[E_DEPOT_INDISPONIBLE]
+                               + (f" Détail : {detail}" if detail else ""),
+                    "publie": {k: v for k, v in publie.items() if k != "erreur"},
+                    "history_run_id": run_hist}
+
+        reference = publie.get("commit") or ""
+        if not force:
+            deja = raw.extraction_de_source(reference, db_path=db_path)
+            if deja is not None:
+                if run_hist is not None:
+                    history.marquer_succes(run_hist, db_path=db_path)
+                return {"ok": True, "importe": False, "code": E_DEJA_SYNCHRONISE,
+                        "message": MESSAGES[E_DEJA_SYNCHRONISE], "publie": publie,
+                        "extraction": deja, "history_run_id": run_hist,
+                        "fraicheur": fraicheur(rafraichir=False, db_path=db_path)}
+
+        resultat = moteur.actualiser(declencheur=declencheur, arguments=moteur.ARGUMENTS_DEPOT,
+                                     db_path=db_path, attendre=attendre, timeout_s=timeout_s,
+                                     journaliser=False)
+        resultat["publie"] = publie
+        resultat["history_run_id"] = run_hist
+        code_retour = resultat.get("code_retour")
+        if not resultat.get("ok"):
+            _echec(resultat.get("code") or E_IMPORT_ECHOUE,
+                   sanitize_erreur_externe(resultat.get("message", "")))
+        elif code_retour not in (0, None):
+            _echec(E_IMPORT_ECHOUE, f"code_retour={code_retour}")
+            resultat.update(ok=False, code=E_IMPORT_ECHOUE,
+                            message=MESSAGES[E_IMPORT_ECHOUE].format(code=code_retour))
+        elif run_hist is not None:
+            history.marquer_succes(run_hist, db_path=db_path)
+        resultat["importe"] = bool(resultat.get("ok"))
+        if resultat.get("ok"):
+            resultat["fraicheur"] = fraicheur(rafraichir=False, db_path=db_path)
+        return resultat
+    except Exception as exc:
+        _echec(type(exc).__name__, sanitize_erreur_externe(exc))
+        raise
+    finally:
+        orch.liberer_verrou(PORTEE_VERROU, jeton, db_path=db_path)

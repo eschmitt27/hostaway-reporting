@@ -158,6 +158,19 @@ def sanitize_exception(exc: BaseException, limite: int = 500) -> str:
     return sanitize_text(str(exc))[:limite]
 
 
+# Identifiants intégrés à une URL (`https://jeton@hôte/…`, `https://user:mdp@hôte/…`) : un message
+# d'outil tiers (git, client HTTP) peut les recopier tels quels.
+_RE_URL_IDENTIFIANTS = re.compile(r"(?i)\b([a-z][a-z0-9+.\-]*://)[^/\s@'\"<>]+@")
+
+
+def sanitize_erreur_externe(texte: Any, limite: int = 300) -> str:
+    """Message d'un outil externe (git, sous-processus, client réseau) rendu affichable et
+    journalisable : identifiants d'URL retirés AVANT la sanitisation des chemins, puis longueur
+    bornée. L'ordre compte — le filet générique des chemins réécrit aussi le `s://` d'une URL, et
+    doit trouver un texte déjà expurgé de tout secret."""
+    return sanitize_text(_RE_URL_IDENTIFIANTS.sub(r"\1<IDENTIFIANTS>@", str(texte or "")))[:limite]
+
+
 def sanitize_command(args: list[str] | str) -> str:
     """Ligne de commande (subprocess) sanitisée pour affichage/log."""
     texte = args if isinstance(args, str) else " ".join(str(a) for a in args)

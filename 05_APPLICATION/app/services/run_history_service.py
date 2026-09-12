@@ -84,6 +84,51 @@ def marquer_rollback(run_id: str, *, erreur: str = "", db_path: Path | None = No
     return _transition(run_id, "ROLLED_BACK", erreur=erreur, cloturer=True, db_path=db_path)
 
 
+def dernier(operation: str, *, statuts: tuple[str, ...] = (),
+            db_path: Path | None = None) -> dict[str, Any] | None:
+    """Dernier run d'une opération, éventuellement restreint à certains statuts.
+
+    C'est ce qui permet à un écran de dire « dernier succès » et « dernier échec » séparément : le
+    dernier run seul masquerait le succès d'hier derrière l'échec de ce matin, ou l'inverse.
+    """
+    sql = "SELECT * FROM run_history WHERE operation = ?"
+    params: list[Any] = [operation]
+    if statuts:
+        sql += f" AND statut IN ({','.join('?' * len(statuts))})"
+        params.extend(statuts)
+    conn = get_db(db_path)
+    try:
+        r = conn.execute(sql + " ORDER BY date_debut DESC, id DESC LIMIT 1", params).fetchone()
+        return dict(r) if r else None
+    finally:
+        conn.close()
+
+
+def marquer_orphelins(operation: str, *, erreur: str, db_path: Path | None = None) -> list[str]:
+    """Clôt en FAILED les runs d'une opération restés STARTED/VALIDATING.
+
+    À n'appeler QUE lorsque l'appelant a établi qu'aucun run de cette opération ne peut tourner — en
+    pratique, juste après avoir obtenu le verrou exclusif de l'opération. Un run encore ouvert est
+    alors la trace d'un processus mort (crash, arrêt brutal) : le laisser STARTED le ferait passer
+    pour en cours indéfiniment. Ce vocabulaire n'a pas d'INTERRUPTED : FAILED avec la cause écrite en
+    est l'équivalent, jamais un statut de plus. La durée reste vide : elle n'est pas connue, et le
+    temps écoulé jusqu'à la découverte n'en est pas une.
+    """
+    conn = get_db(db_path)
+    try:
+        ouverts = [r["run_id_opaque"] for r in conn.execute(
+            "SELECT run_id_opaque FROM run_history WHERE operation = ? "
+            "AND statut IN ('STARTED', 'VALIDATING')", (operation,))]
+        for run_id in ouverts:
+            conn.execute(
+                "UPDATE run_history SET statut = 'FAILED', erreur = ?, date_fin = ? "
+                "WHERE run_id_opaque = ?", (erreur, _maintenant(), run_id))
+        conn.commit()
+    finally:
+        conn.close()
+    return ouverts
+
+
 def derniers(limit: int = 20, *, db_path: Path | None = None) -> list[dict[str, Any]]:
     conn = get_db(db_path)
     try:

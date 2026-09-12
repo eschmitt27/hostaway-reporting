@@ -41,6 +41,15 @@ def _installer_faux_script(tmp_path, monkeypatch, code_retour: int):
     monkeypatch.setattr(svc, "_racine_moteur", lambda: tmp_path)
     monkeypatch.setattr(svc, "_interpreteur", lambda: sys.executable)
     monkeypatch.setattr(svc, "actualisation_en_cours", lambda **k: None)
+    # Le chemin orchestrateur passe par le dépôt publié : sans ce double, ces tests lançaient un vrai
+    # `git fetch` sur le dépôt du projet — un appel réseau réel, et un résultat qui dépendait de la
+    # connexion du poste.
+    from app.services import hostaway_depot_service as depot
+
+    monkeypatch.setattr(depot, "etat_publie",
+                        lambda **k: {"disponible": True, "commit": "c0ffee",
+                                     "commit_court": "c0ffee",
+                                     "source_horodatage": "2026-09-12T14:35:42Z"})
 
 
 def test_attendre_true_succes_ne_leve_aucune_exception(db, tmp_path, monkeypatch):

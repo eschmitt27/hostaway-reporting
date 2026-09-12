@@ -20,10 +20,12 @@ périmée produirait un résultat faux présenté comme frais.
 from __future__ import annotations
 
 import importlib
+import inspect
 import json
 import os
 import socket
 import uuid
+from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -101,15 +103,21 @@ def prendre_verrou(portee: str, run_id: str, *, bail_s: int = BAIL_DEFAUT_S,
 
     Deux portées différentes ne se gênent pas : c'est ce qui permet à deux actualisations réellement
     indépendantes de tourner en parallèle sans se bloquer inutilement.
+
+    ATOMIQUE : lecture et écriture du bail tiennent dans UNE transaction `BEGIN IMMEDIATE`. Sans
+    elle, deux demandeurs simultanés (un battement du scheduler et un clic) lisaient tous deux
+    « libre » avant que l'un n'écrive, et chacun croyait détenir le verrou.
     """
     maintenant = datetime.now(timezone.utc)
     conn = get_db(db_path)
     try:
+        conn.execute("BEGIN IMMEDIATE")
         existant = conn.execute(
             "SELECT run_id, detenu_par, expire_le FROM orchestrateur_verrous WHERE portee = ?",
             (portee,)).fetchone()
         if existant is not None and existant["expire_le"] > _horodatage(maintenant) \
                 and existant["run_id"] != run_id:
+            conn.rollback()
             return {"ok": False, "code": E_VERROU, "portee": portee,
                     "detenu_par": existant["detenu_par"], "run_id": existant["run_id"],
                     "message": f"Un recalcul est déjà en cours sur {portee}."}
@@ -131,6 +139,24 @@ def liberer_verrou(portee: str, run_id: str, *, db_path=None) -> None:
         conn.execute("DELETE FROM orchestrateur_verrous WHERE portee = ? AND run_id = ?",
                      (portee, run_id))
         conn.commit()
+    finally:
+        conn.close()
+
+
+def verrou_actif(portee: str, *, db_path=None) -> dict[str, Any] | None:
+    """Bail en cours sur `portee`, s'il y en a un — LECTURE SEULE, le verrou n'est jamais pris.
+
+    Sert à décider sans rien réserver (« une synchronisation tourne-t-elle ? »). La décision reste
+    indicative : seul `prendre_verrou` garantit l'exclusion.
+    """
+    if not _table_presente("orchestrateur_verrous", db_path):
+        return None
+    conn = get_db(db_path)
+    try:
+        r = conn.execute(
+            "SELECT portee, run_id, detenu_par, pris_le, expire_le FROM orchestrateur_verrous "
+            "WHERE portee = ? AND expire_le > ?", (portee, _maintenant())).fetchone()
+        return dict(r) if r else None
     finally:
         conn.close()
 
@@ -162,8 +188,13 @@ def marquer_dataset(dataset: str, statut: str, *, run_id: str = "", declencheur:
     """Écrit l'état d'un dataset et journalise la transition."""
     conn = get_db(db_path)
     try:
-        avant = conn.execute("SELECT statut FROM orchestrateur_datasets WHERE dataset = ?",
-                             (dataset,)).fetchone()
+        # `calcule_le` DOIT être lu ici : c'est la date du dernier calcul RÉUSSI, conservée à travers
+        # EN_COURS/ECHEC. Ne lire que `statut` l'effaçait à chaque transition — l'ordonnanceur voyait
+        # alors une source en échec comme « jamais actualisée » et la relançait à chaque battement,
+        # sans jamais appliquer son palier.
+        avant = conn.execute(
+            "SELECT statut, calcule_le FROM orchestrateur_datasets WHERE dataset = ?",
+            (dataset,)).fetchone()
         avant_statut = avant["statut"] if avant else None
         calcule_le = _maintenant() if statut == ST_A_JOUR else (
             avant["calcule_le"] if avant and "calcule_le" in avant.keys() else None)
@@ -232,16 +263,39 @@ def etat_datasets(db_path=None) -> list[dict[str, Any]]:
 
 # ── Exécution d'un dataset ──────────────────────────────────────────────────────────────────────
 
+# Déclencheur du run en cours, lu par `_appeler_service`. Un paramètre de plus aurait été plus direct,
+# mais la signature `(chemin, db_path)` est le point de substitution de toute la suite de tests ; une
+# variable de contexte transmet l'information sans la casser, et reste propre à chaque fil — un
+# battement du scheduler et une requête web ne se la partagent pas.
+_declencheur_courant: ContextVar[str] = ContextVar("orchestrateur_declencheur",
+                                                   default=DECLENCHEUR_MANUEL)
+
+
 def _appeler_service(chemin: str, db_path) -> dict[str, Any]:
     """Résout "module:fonction" et l'appelle avec `db_path`.
 
     La résolution est tardive : le DAG reste une carte, et l'orchestrateur n'importe que ce qu'il
     exécute réellement.
+
+    Un service qui déclare un paramètre `declencheur` le reçoit : un import Hostaway lancé depuis
+    l'écran reste MANUEL jusqu'au journal, un battement du scheduler reste AUTO. Les autres services
+    sont appelés exactement comme avant.
     """
     module_nom, fonction_nom = chemin.split(":")
     fonction = getattr(importlib.import_module(module_nom), fonction_nom)
-    resultat = fonction(db_path=db_path)
+    arguments: dict[str, Any] = {"db_path": db_path}
+    if "declencheur" in inspect.signature(fonction).parameters:
+        arguments["declencheur"] = _declencheur_courant.get()
+    resultat = fonction(**arguments)
     return resultat if isinstance(resultat, dict) else {"ok": bool(resultat)}
+
+
+def _executer_service(chemin: str, db_path, declencheur: str) -> dict[str, Any]:
+    jeton = _declencheur_courant.set(declencheur)
+    try:
+        return _appeler_service(chemin, db_path)
+    finally:
+        _declencheur_courant.reset(jeton)
 
 
 def _compter_lignes(tables: tuple[str, ...], db_path) -> int | None:
@@ -278,7 +332,7 @@ def recalculer_dataset(dataset: str, *, run_id: str = "",
 
     marquer_dataset(dataset, ST_EN_COURS, run_id=run_id, declencheur=declencheur, db_path=db_path)
     try:
-        resultat = _appeler_service(noeud.service, db_path)
+        resultat = _executer_service(noeud.service, db_path, declencheur)
     except Exception as exc:   # noqa: BLE001 — toute panne doit devenir un état lisible
         marquer_dataset(dataset, ST_ECHEC, run_id=run_id, declencheur=declencheur,
                         erreur_code=type(exc).__name__, erreur_message=str(exc)[:500],
