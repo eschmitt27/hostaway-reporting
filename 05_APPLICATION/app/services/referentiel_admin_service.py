@@ -516,14 +516,114 @@ CATEGORIES: tuple[dict[str, Any], ...] = (
     },
 )
 
-# Tables dont la modification passe par un parcours métier dédié (voir ci-dessus).
-LECTURE_SEULE = {
-    "ref_gestion_logements_hist": "Fiche logement → changement de propriétaire / archivage",
-    "ref_taux_commission": "Fiche logement → changement de taux de commission",
-    "ref_couts_standards_menage": "Écran coûts ménage → changement de coût standard",
-    "ref_canape_parametres": "Écran paramètres canapé → changement de seuil/montant",
-    "ref_regles_versions": "Écran règles versionnées → nouvelle version d'une règle",
+# ── §81-91 — CLASSIFICATION DES RÉFÉRENTIELS : quatre classes, une seule par table ──────────────
+#
+# L'écran n'en distinguait que deux : « Administrable » et « Parcours dédié ». Deux situations
+# pourtant très différentes se retrouvaient donc côte à côte dans « administrable » : les données
+# que l'exploitant possède vraiment (ses logements, ses propriétaires) et les NOMENCLATURES dont le
+# moteur lit les identifiants en dur. Renommer une catégorie de charge est inoffensif ; en
+# supprimer une, ou en ajouter une que le moteur ne connaît pas, casse un calcul sans un mot.
+#
+# La classe n'est pas une opinion : elle se déduit de ce que le code fait réellement de la table.
+
+EDITABLE = "EDITABLE"
+READ_ONLY = "READ_ONLY"
+DEDICATED_WORKFLOW = "DEDICATED_WORKFLOW"
+HIDDEN_TECHNICAL = "HIDDEN_TECHNICAL"
+CLASSES = (EDITABLE, READ_ONLY, DEDICATED_WORKFLOW, HIDDEN_TECHNICAL)
+
+LIBELLES_CLASSE = {
+    EDITABLE: "Administrable",
+    READ_ONLY: "Consultation seule",
+    DEDICATED_WORKFLOW: "Parcours dédié",
+    HIDDEN_TECHNICAL: "Technique",
 }
+
+#: Ce que chaque classe autorise. `editable` gouverne l'UI ET le service : une table non éditable
+#: refuse l'écriture, quelle que soit la route employée.
+DROITS_CLASSE = {
+    EDITABLE: {"editable": True, "visible": True},
+    READ_ONLY: {"editable": False, "visible": True},
+    DEDICATED_WORKFLOW: {"editable": False, "visible": True},
+    # « Technique » n'est pas « secret » : la table reste atteignable en dépliant les référentiels
+    # techniques. Elle sort seulement de la liste courante, où elle n'apprend rien à personne.
+    HIDDEN_TECHNICAL: {"editable": False, "visible": False},
+}
+
+#: Table → (classe, motif). Le motif est affiché tel quel : il doit dire où aller, ou pourquoi non.
+CLASSIFICATION: dict[str, tuple[str, str]] = {
+    # ── Parcours dédié : consultable ici, modifié là où la règle est appliquée ──────────────────
+    "ref_gestion_logements_hist": (
+        DEDICATED_WORKFLOW, "Fiche logement → changement de propriétaire / archivage"),
+    "ref_taux_commission": (
+        DEDICATED_WORKFLOW, "Fiche logement → changement de taux de commission"),
+    "ref_couts_standards_menage": (
+        DEDICATED_WORKFLOW, "Écran coûts ménage → changement de coût standard"),
+    "ref_canape_parametres": (
+        DEDICATED_WORKFLOW, "Écran paramètres canapé → changement de seuil/montant"),
+    "ref_regles_versions": (
+        DEDICATED_WORKFLOW, "Écran règles versionnées → nouvelle version d'une règle"),
+    # La clôture est un ACTE tracé, avec sa date et son auteur. Basculer `statut_mois` à la main
+    # ici rouvrirait ou fermerait une période sans rien de tout cela.
+    "ref_cloture_mensuelle": (
+        DEDICATED_WORKFLOW, "Écran Clôture mensuelle → ouverture / clôture d'une période"),
+
+    # ── Consultation seule : le MOTEUR lit ces identifiants en dur ──────────────────────────────
+    # Les compter n'est pas une intuition : `TYPE_FLUX_0…` apparaît 49 fois dans `app/`,
+    # `CHG_0…` 35 fois, `PAY_00…` 22 fois, les codes d'impact 10 fois. Supprimer ou renuméroter
+    # une de ces lignes casserait un calcul en silence.
+    "ref_types_flux": (
+        READ_ONLY, "Nomenclature du moteur : les règles de flux citent ces identifiants"),
+    "ref_codes_impact": (
+        READ_ONLY, "Nomenclature du moteur : l'impact comptable est décidé sur ces codes"),
+    "ref_categories_charges": (
+        READ_ONLY, "Nomenclature du moteur : le catalogue des charges porte les règles par code"),
+    "ref_modes_paiement": (
+        READ_ONLY, "Nomenclature du moteur : les règles de saisie citent ces modes"),
+    "ref_types_affectation": (
+        READ_ONLY, "Nomenclature du moteur : l'axe d'affectation des charges"),
+    "ref_types_lignes_menage": (
+        READ_ONLY, "Nomenclature importée du classeur ; aucun écran ne la modifie"),
+    "ref_statuts_payout": (
+        READ_ONLY, "Nomenclature importée du classeur ; aucun écran ne la modifie"),
+    "ref_parametres_generaux": (
+        READ_ONLY, "Paramètres du classeur d'origine ; la configuration vit dans l'environnement"),
+
+    # ── Technique : de la plomberie, sans signification pour l'exploitant ───────────────────────
+    "ref_assoc_mode": (
+        HIDDEN_TECHNICAL, "Table de correspondance préparée par une migration, lue par le moteur"),
+    "ref_sources_systeme": (
+        HIDDEN_TECHNICAL, "Registre des sources techniques (modules, fichiers), pas une donnée métier"),
+    "ref_statuts": (
+        HIDDEN_TECHNICAL, "Vocabulaire interne des statuts d'import, sans usage direct à l'écran"),
+}
+
+
+def classe(table: str) -> str:
+    """Classe d'un référentiel. Par défaut EDITABLE : c'est une donnée que l'exploitant possède.
+
+    Le défaut est délibérément permissif — une table oubliée dans la classification reste
+    administrable, et non muette. Verrouiller par oubli serait le pire des deux comportements.
+    """
+    return CLASSIFICATION.get(table, (EDITABLE, ""))[0]
+
+
+def motif_classe(table: str) -> str:
+    return CLASSIFICATION.get(table, (EDITABLE, ""))[1]
+
+
+def est_editable(table: str) -> bool:
+    return DROITS_CLASSE[classe(table)]["editable"]
+
+
+def est_visible(table: str) -> bool:
+    return DROITS_CLASSE[classe(table)]["visible"]
+
+
+# Compatibilité : tout le service raisonnait sur `LECTURE_SEULE`. La table est désormais DÉRIVÉE
+# de la classification, pour qu'il n'existe qu'une seule source de vérité.
+LECTURE_SEULE = {t: motif for t, (c, motif) in CLASSIFICATION.items()
+                 if not DROITS_CLASSE[c]["editable"]}
 
 # Colonnes exclues de l'édition libre bien que leur TABLE reste administrable — la donnée vit
 # aussi (et fait foi pour le calcul) dans une table historisée dédiée. `ref_logements` reste
@@ -535,6 +635,173 @@ COLONNES_LECTURE_SEULE: dict[str, set[str]] = {
 
 # Colonne portant l'activation, quand la table en a une.
 COLONNE_ACTIF = "actif"
+
+
+# ── §82-91 — LES CHAMPS SE CHOISISSENT, ILS NE SE RÉCITENT PAS ──────────────────────────────────
+#
+# L'éditeur générique rendait CHAQUE colonne en zone de texte libre. Conséquence : pour dire qu'un
+# logement est actif, il fallait savoir qu'on écrit « OUI » et non « oui », « Oui » ou « true » ; et
+# pour le rattacher à un type, connaître « TYPE_003 » de mémoire. Une faute de frappe ne produisait
+# aucun refus — juste une valeur que plus aucun filtre ne retrouvait.
+
+OUI_NON = ("OUI", "NON")
+
+#: Table → colonne → valeurs canoniques. Les valeurs RÉELLEMENT présentes en base sont ajoutées à
+#: l'exécution (`options_champ`) : une donnée existante hors liste reste sélectionnable au lieu
+#: d'être silencieusement remplacée à la première modification de la ligne.
+CHAMPS_ENUM: dict[str, dict[str, tuple[str, ...]]] = {
+    "ref_logements": {
+        "sur_hostaway": OUI_NON,
+        "actif": OUI_NON,
+        "statut_parc": ("GERE", "RETIRE", "HORS_PARC_TECHNIQUE"),
+        # `dynamic_pricing` n'est PAS un booléen : la base porte « hostdynamic », c'est-à-dire le
+        # nom de l'outil, et « non ». Le réduire à OUI/NON effacerait quel outil est employé —
+        # information qu'aucun calcul ne lit aujourd'hui, mais que personne ne nous a autorisés à
+        # perdre. La liste s'ouvre donc sur ce qui existe, sans le contraindre.
+        "dynamic_pricing": ("non",),
+    },
+    "ref_proprietaires": {"actif": OUI_NON, "mode_facturation": ("PAR_LOGEMENT",)},
+    "ref_intervenants": {"actif": OUI_NON, "type_intervenant": ("INTERNE", "EXTERNE")},
+    "ref_mapping_logements": {"actif": OUI_NON, "niveau_confiance": ("Fort", "Moyen", "Faible")},
+    "ref_associes": {"actif": OUI_NON},
+    "ref_canaux_reservation": {"dans_hostaway": OUI_NON},
+    "ref_banque_regles": {"actif": OUI_NON},
+    "ref_charges_recurrentes": {"actif": OUI_NON},
+    "ref_abonnements_logiciels": {"actif": OUI_NON},
+    "ref_couts_menage_interne": {"actif": OUI_NON},
+    "ref_taux_heures_menage": {"actif": OUI_NON},
+}
+
+#: Table → colonne → table référencée. La liste vient du RÉFÉRENTIEL, avec les libellés humains :
+#: on choisit « Studio » et non « TYPE_001 ».
+CHAMPS_REFERENCE: dict[str, dict[str, str]] = {
+    "ref_logements": {"type_logement_id": "ref_types_logements"},
+    "ref_mapping_logements": {"logement_id": "ref_logements"},
+    "ref_canape_parametres": {"logement_id": "ref_logements"},
+    "ref_couts_menage_interne": {"type_logement_id": "ref_types_logements"},
+    "ref_taux_heures_menage": {"intervenant_id": "ref_intervenants"},
+    "ref_gestion_logements_hist": {"logement_id": "ref_logements",
+                                   "proprietaire_id": "ref_proprietaires"},
+    "ref_taux_commission": {"logement_id": "ref_logements",
+                            "proprietaire_id": "ref_proprietaires"},
+    "ref_couts_standards_menage": {"type_logement_id": "ref_types_logements"},
+    "ref_cartes_paiement": {"personne_id": "ref_associes"},
+}
+
+#: Colonnes portant une DATE : sélecteur de calendrier, jamais du texte libre (§40, §76).
+def _est_colonne_date(colonne: str) -> bool:
+    return colonne.startswith("date_") or colonne.endswith("_date")
+
+
+#: Tables dont l'identifiant suit une séquence `PREFIXE_NNNN` et se dérive donc tout seul.
+CLES_AUTOMATIQUES: dict[str, tuple[str, int]] = {
+    "ref_proprietaires": ("PROP_", 4),
+    "ref_logements": ("LOG_", 4),
+    "ref_intervenants": ("INT_", 4),
+    "ref_types_logements": ("TYPE_", 3),
+}
+
+
+def prochaine_cle(table: str, *, db_path=None) -> str:
+    """§82 — l'identifiant se DÉRIVE, il ne se saisit pas.
+
+    Le formulaire de création demandait « PROP_0013 » à l'utilisateur. Rien ne l'empêchait de
+    saisir « PROP_13 », « prop_0013 » ou un identifiant déjà pris : le refus arrivait après coup,
+    et les formes divergentes cassent tous les rapprochements qui trient sur ce champ.
+
+    La dérivation ne comble JAMAIS un trou : elle part du maximum existant et prend le suivant.
+    Réutiliser un identifiant libéré rattacherait des données anciennes à un nouveau tiers.
+    """
+    prefixe_largeur = CLES_AUTOMATIQUES.get(table)
+    if not prefixe_largeur:
+        return ""
+    prefixe, largeur = prefixe_largeur
+    cle_col = _cle_de(table)
+    if not cle_col:
+        return ""
+    conn = get_db(db_path)
+    try:
+        rows = conn.execute(f"SELECT {cle_col} FROM {table}").fetchall()
+    finally:
+        conn.close()
+    maxi = 0
+    for r in rows:
+        valeur = txt(r[0])
+        if valeur.startswith(prefixe) and valeur[len(prefixe):].isdigit():
+            maxi = max(maxi, int(valeur[len(prefixe):]))
+    return f"{prefixe}{maxi + 1:0{largeur}d}"
+
+
+def _cle_de(table: str) -> str:
+    native = TABLES_NATIVES.get(table)
+    if native is not None:
+        return native.cle
+    from app.services import ref_setup_catalogue as cat
+    feuille = cat.PAR_TABLE.get(table)
+    return feuille.cle if feuille else ""
+
+
+def options_champ(table: str, colonne: str, *, db_path=None) -> list[dict[str, str]]:
+    """Valeurs proposées pour une colonne. Liste vide = champ libre.
+
+    Deux sources, jamais mélangées : une énumération déclarée, ou une TABLE référencée dont on
+    rend les libellés humains. Dans les deux cas les valeurs réellement présentes en base sont
+    ajoutées — une donnée existante hors liste reste choisissable au lieu de disparaître.
+    """
+    from app.services import referentiel_service as ref
+
+    reference = CHAMPS_REFERENCE.get(table, {}).get(colonne)
+    if reference:
+        cle_ref = _cle_de(reference)
+        conn = get_db(db_path)
+        try:
+            ids = [txt(r[0]) for r in
+                   conn.execute(f"SELECT {cle_ref} FROM {reference} ORDER BY {cle_ref}").fetchall()]
+        finally:
+            conn.close()
+        libelle = {
+            "ref_logements": lambda i: ref.libelle_logement(i, db_path=db_path),
+            "ref_proprietaires": lambda i: ref.libelle_proprietaire(i, db_path=db_path),
+            "ref_types_logements": lambda i: ref.libelle_type_logement(i, db_path=db_path),
+            "ref_intervenants": lambda i: ref.libelle_intervenant(i, db_path=db_path),
+        }.get(reference, lambda i: i)
+        return [{"valeur": i, "libelle": libelle(i) or i} for i in ids if i]
+
+    canoniques = CHAMPS_ENUM.get(table, {}).get(colonne)
+    if not canoniques:
+        return []
+    conn = get_db(db_path)
+    try:
+        presentes = [txt(r[0]) for r in conn.execute(
+            f"SELECT DISTINCT {colonne} FROM {table} "
+            f"WHERE {colonne} IS NOT NULL AND TRIM({colonne}) <> ''").fetchall()]
+    except Exception:      # noqa: BLE001 — colonne absente d'une base plus ancienne
+        presentes = []
+    finally:
+        conn.close()
+    valeurs = list(canoniques) + [v for v in sorted(presentes) if v not in canoniques]
+    return [{"valeur": v, "libelle": v} for v in valeurs]
+
+
+def champs_edition(table: str, *, db_path=None) -> dict[str, dict[str, Any]]:
+    """Description de CHAQUE colonne pour l'écran : type de contrôle et valeurs proposées."""
+    meta = decrire_table(table, db_path=db_path)
+    if not meta.get("ok"):
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for c in meta["colonnes"]:
+        options = options_champ(table, c, db_path=db_path)
+        if c == meta["cle"]:
+            type_champ = "cle"
+        elif options:
+            type_champ = "liste"
+        elif _est_colonne_date(c):
+            type_champ = "date"
+        else:
+            type_champ = "texte"
+        out[c] = {"type": type_champ, "options": options,
+                  "lecture_seule": c in meta.get("colonnes_lecture_seule", [])}
+    return out
 
 
 def _compter_native(table: str, *, db_path=None) -> int:
@@ -571,10 +838,21 @@ def categories(*, db_path=None) -> list[dict[str, Any]]:
                 "libelle": onglet.replace("REF_", "").replace("_", " "),
                 "cle": cle_t,
                 "nb_lignes": nb_lignes,
+                # §81-91 — la classe gouverne l'écran ET le service. `lecture_seule` en est
+                # dérivé, pour les appelants qui raisonnaient déjà dessus.
+                "classe": classe(t),
+                "libelle_classe": LIBELLES_CLASSE[classe(t)],
+                "motif_classe": motif_classe(t),
+                "editable": est_editable(t),
+                "technique": classe(t) == HIDDEN_TECHNICAL,
                 "lecture_seule": t in LECTURE_SEULE,
                 "motif_lecture_seule": LECTURE_SEULE.get(t, ""),
             })
-        out.append({**c, "tables": tables})
+        # Les référentiels TECHNIQUES sortent de la liste courante — ils n'apprennent rien à
+        # l'exploitant — mais restent servis à part, jamais supprimés de l'écran.
+        out.append({**c,
+                    "tables": [t for t in tables if not t["technique"]],
+                    "tables_techniques": [t for t in tables if t["technique"]]})
     return out
 
 
@@ -588,6 +866,10 @@ def decrire_table(table: str, *, db_path=None) -> dict[str, Any]:
             "onglet": native.onglet,
             "cle": native.cle,
             "colonnes": list(native.colonnes),
+            "classe": classe(table),
+            "libelle_classe": LIBELLES_CLASSE[classe(table)],
+            "motif_classe": motif_classe(table),
+            "editable": est_editable(table),
             "lecture_seule": table in LECTURE_SEULE,
             "motif_lecture_seule": LECTURE_SEULE.get(table, ""),
             "a_colonne_actif": COLONNE_ACTIF in native.colonnes,
@@ -605,6 +887,10 @@ def decrire_table(table: str, *, db_path=None) -> dict[str, Any]:
         "onglet": feuille.onglet,
         "cle": feuille.cle,
         "colonnes": list(feuille.colonnes),
+        "classe": classe(table),
+        "libelle_classe": LIBELLES_CLASSE[classe(table)],
+        "motif_classe": motif_classe(table),
+        "editable": est_editable(table),
         "lecture_seule": table in LECTURE_SEULE,
         "motif_lecture_seule": LECTURE_SEULE.get(table, ""),
         "a_colonne_actif": COLONNE_ACTIF in feuille.colonnes,

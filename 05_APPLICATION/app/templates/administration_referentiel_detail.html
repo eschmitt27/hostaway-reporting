@@ -2,6 +2,24 @@
 {% block title %}Référentiel — {{ meta.onglet }}{% endblock %}
 
 {% block content %}
+{% macro champ(c, valeur, champs, obligatoire=false, taille="input-sm") %}
+  {% set d = champs.get(c, {"type": "texte", "options": []}) %}
+  {% if d.type == "liste" %}
+    <select class="input {{ taille }}" name="{{ c }}" {% if obligatoire %}required{% endif %}>
+      <option value=""></option>
+      {% for o in d.options %}
+      <option value="{{ o.valeur }}" {% if o.valeur == valeur %}selected{% endif %}>{{ o.libelle }}</option>
+      {% endfor %}
+    </select>
+  {% elif d.type == "date" %}
+    <input class="input {{ taille }}" type="date" name="{{ c }}" value="{{ valeur }}"
+           {% if obligatoire %}required{% endif %}>
+  {% else %}
+    <input class="input {{ taille }}" name="{{ c }}" value="{{ valeur }}"
+           {% if obligatoire %}required{% endif %}>
+  {% endif %}
+{% endmacro %}
+
 <div class="page-header flex justify-between items-center">
   <div>
     <h1 class="page-title">{{ meta.onglet }}</h1>
@@ -13,10 +31,24 @@
 {% if message %}<div class="alert alert-success mb-md">{{ message }}</div>{% endif %}
 {% if erreur %}<div class="alert alert-danger mb-md">{{ erreur }}</div>{% endif %}
 
-{% if meta.lecture_seule %}
+{# §81 — le bandeau dit la CLASSE, et ce qu'elle implique. Il annonçait « référentiel historisé »
+   pour toutes les tables non éditables, y compris les nomenclatures du moteur et les tables
+   techniques, qui ne sont pas historisées du tout. #}
+{% if meta.classe == "DEDICATED_WORKFLOW" %}
 <div class="alert alert-info mb-lg">
-  Référentiel <strong>historisé</strong> — consultable ici, modifiable par : {{ meta.motif_lecture_seule }}.
+  Référentiel <strong>historisé</strong> — consultable ici, modifiable par : {{ meta.motif_classe }}.
   L'éditer directement permettrait de réécrire une période passée.
+</div>
+{% elif meta.classe == "READ_ONLY" %}
+<div class="alert alert-warning mb-lg">
+  <strong>Consultation seule.</strong> {{ meta.motif_classe }}.
+  Renommer une ligne est sans effet sur les calculs ; en supprimer une, ou en ajouter une que le
+  moteur ne connaît pas, casserait un calcul sans aucun message.
+</div>
+{% elif meta.classe == "HIDDEN_TECHNICAL" %}
+<div class="alert alert-warning mb-lg">
+  <strong>Référentiel technique.</strong> {{ meta.motif_classe }}.
+  Il est affiché pour l'inspection, jamais pour l'administration courante.
 </div>
 {% endif %}
 
@@ -51,7 +83,7 @@
                 {% elif c in meta.colonnes_lecture_seule %}
                   <span class="text-secondary" title="Historisé — voir l'écran dédié">{{ l.get(c, '') }}</span>
                 {% else %}
-                  <input class="input input-sm" name="{{ c }}" value="{{ l.get(c, '') }}">
+                  {{ champ(c, l.get(c, ''), champs) }}
                 {% endif %}
               </td>
             {% endfor %}
@@ -248,7 +280,15 @@
       {% if c not in meta.colonnes_lecture_seule %}
       <label class="text-xs">
         {{ c }}{% if c == meta.cle %} <span class="text-danger">*</span>{% endif %}
-        <input class="input" name="{{ c }}" {% if c == meta.cle %}required{% endif %}>
+        {% if c == meta.cle and cle_proposee %}
+          {# §82 — l'identifiant se DÉRIVE du dernier attribué. Le demander exposait à « PROP_13 »,
+             « prop_0013 » ou un identifiant déjà pris, refusés seulement après coup. Le champ
+             reste modifiable : une reprise de données peut légitimement imposer sa numérotation. #}
+          <input class="input font-mono" name="{{ c }}" value="{{ cle_proposee }}" required>
+          <span class="text-xs text-secondary">proposé d'après le dernier attribué</span>
+        {% else %}
+          {{ champ(c, '', champs, obligatoire=(c == meta.cle), taille="") }}
+        {% endif %}
       </label>
       {% endif %}
       {% endfor %}

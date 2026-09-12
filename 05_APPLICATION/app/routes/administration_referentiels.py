@@ -77,6 +77,10 @@ def detail(request: Request, table: str, message: str = "", erreur: str = ""):
         "active_menu": _MENU,
         "disponible": adm.disponible(),
         "meta": meta,
+        # §82-91 — type de contrôle et valeurs proposées, colonne par colonne : l'éditeur
+        # générique rendait tout en texte libre, y compris les énumérations et les références.
+        "champs": adm.champs_edition(table),
+        "cle_proposee": adm.prochaine_cle(table),
         "lignes": lignes,
         "evenements": adm.historique_evenements(table, limite=20),
         "table_couts_menage": TABLE_COUTS_MENAGE,

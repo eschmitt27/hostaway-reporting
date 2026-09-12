@@ -17,6 +17,18 @@
 </div>
 {% endif %}
 
+{# §81-91 — CHAQUE RÉFÉRENTIEL PORTE EXACTEMENT UNE CLASSE, et cette classe gouverne l'écran.
+   L'écran n'en distinguait que deux : « Administrable » et « Parcours dédié ». Les nomenclatures
+   dont le moteur lit les identifiants en dur se retrouvaient donc dans « administrable », au même
+   titre que les logements — alors qu'en supprimer une ligne casse un calcul sans un mot. #}
+{% macro badge_classe(t) %}
+  {% if t.classe == "EDITABLE" %}<span class="badge badge-success">{{ t.libelle_classe }}</span>
+  {% elif t.classe == "DEDICATED_WORKFLOW" %}<span class="badge badge-neutral">{{ t.libelle_classe }}</span>
+  {% elif t.classe == "READ_ONLY" %}<span class="badge badge-warning">{{ t.libelle_classe }}</span>
+  {% else %}<span class="badge badge-neutral">{{ t.libelle_classe }}</span>{% endif %}
+  {% if t.motif_classe %}<div class="text-xs text-secondary">{{ t.motif_classe }}</div>{% endif %}
+{% endmacro %}
+
 {% for categorie in categories %}
 <div class="card mb-lg">
   <div class="card-title">{{ categorie.titre }}</div>
@@ -32,20 +44,38 @@
           <td>{{ t.libelle }}<div class="text-xs text-secondary font-mono">{{ t.table }}</div></td>
           <td class="text-xs font-mono">{{ t.cle }}</td>
           <td class="text-sm">{{ t.nb_lignes }}</td>
-          <td class="text-xs">
-            {% if t.lecture_seule %}
-              <span class="badge badge-neutral">Parcours dédié</span>
-              <div class="text-xs text-secondary">{{ t.motif_lecture_seule }}</div>
-            {% else %}
-              <span class="badge badge-success">Administrable</span>
-            {% endif %}
-          </td>
-          <td><a href="/administration/referentiels/{{ t.table }}" class="btn btn-sm">Ouvrir</a></td>
+          <td class="text-xs">{{ badge_classe(t) }}</td>
+          <td><a href="/administration/referentiels/{{ t.table }}" class="btn btn-sm">
+            {{ "Administrer" if t.editable else "Consulter" }}</a></td>
         </tr>
       {% endfor %}
       </tbody>
     </table>
   </div>
+
+  {# « Technique » n'est pas « secret » : ces tables sortent de la liste courante — elles
+     n'apprennent rien à l'exploitant — mais restent atteignables en dépliant. #}
+  {% if categorie.tables_techniques %}
+  <details class="mt-sm">
+    <summary class="text-xs text-secondary">
+      {{ categorie.tables_techniques|length }} référentiel(s) technique(s)
+    </summary>
+    <div class="table-container mt-sm">
+      <table>
+        <tbody>
+        {% for t in categorie.tables_techniques %}
+          <tr>
+            <td>{{ t.libelle }}<div class="text-xs text-secondary font-mono">{{ t.table }}</div></td>
+            <td class="text-sm">{{ t.nb_lignes }}</td>
+            <td class="text-xs">{{ badge_classe(t) }}</td>
+            <td><a href="/administration/referentiels/{{ t.table }}" class="btn btn-sm">Consulter</a></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+  {% endif %}
 </div>
 {% endfor %}
 

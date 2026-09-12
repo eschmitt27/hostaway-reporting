@@ -1906,3 +1906,77 @@ d'urgence à **150,00 €**, validation, émission en `2026-09-001`, PDF produit
 150,00 € « À régler ». Puis une seconde prestation le même mois (`2026-09-002`, 90,00 €), avec son
 écriture VENTES équilibrée. L'anti-doublon du cycle mensuel refuse toujours une seconde facture
 mensuelle sur le même grain.
+
+
+---
+
+### D-ADMIN-CLASSIFICATION-01 — quatre classes de référentiel, appliquées et non décoratives
+
+- **Date** : 2026-09-12
+- **Lot** : recette utilisateur n°3 (§81 à §91)
+- **Statut** : ACTÉ
+
+**Décisions :**
+
+- **D-AC-1** : chaque référentiel porte **exactement une** classe parmi `EDITABLE`, `READ_ONLY`,
+  `DEDICATED_WORKFLOW`, `HIDDEN_TECHNICAL`. La classe gouverne **l'écran ET le service** : une
+  table non éditable refuse l'écriture quelle que soit la route employée.
+- **D-AC-2** : le défaut est **EDITABLE**. Une table oubliée dans la classification reste
+  administrable, jamais muette — verrouiller par oubli serait le pire des deux comportements.
+- **D-AC-3** : toute classe non éditable porte un **motif** affiché tel quel, qui dit où aller ou
+  pourquoi non. Un refus sans raison n'apprend rien.
+- **D-AC-4** : `HIDDEN_TECHNICAL` n'est pas « secret ». Ces tables sortent de la liste courante —
+  elles n'apprennent rien à l'exploitant — mais restent atteignables en dépliant.
+
+**Répartition des 30 référentiels** *(la classe se déduit de ce que le code fait de la table, pas
+d'une opinion)* :
+
+| Classe | Nb | Critère | Tables |
+|---|---|---|---|
+| `EDITABLE` | 13 | données que l'exploitant possède | logements, propriétaires, intervenants, mapping logements, coûts ménage interne, taux horaires, charges récurrentes, abonnements, règles banque, cartes, associés, canaux, types de logements |
+| `READ_ONLY` | 8 | **le moteur cite ces identifiants en dur** — `TYPE_FLUX_0…` 49 fois dans `app/`, `CHG_0…` 35, `PAY_00…` 22, codes d'impact 10 | types de flux, codes d'impact, catégories de charges, modes de paiement, types d'affectation, types de lignes ménage, statuts payout, paramètres généraux |
+| `DEDICATED_WORKFLOW` | 6 | modifié par un écran qui applique une règle | gestion logements hist, taux commission, coûts standards ménage, paramètres canapé, règles versionnées, **clôture mensuelle** |
+| `HIDDEN_TECHNICAL` | 3 | plomberie sans signification métier | assoc mode, sources système, statuts d'import |
+
+**Deux arbitrages explicitement demandés :**
+
+- **Mapping logement → `EDITABLE`.** Une correspondance FAUSSE impute l'argent au mauvais
+  propriétaire : elle doit pouvoir se corriger. Le chemin d'apprentissage (confirmer le logement
+  sur une ligne de facture, cf. D-FL-7) ne fait qu'**ajouter** ; sans édition ici, une
+  correspondance erronée serait définitive.
+- **Historique logement → `DEDICATED_WORKFLOW`**, et non `READ_ONLY` : il se modifie réellement,
+  mais par la fiche logement (archivage, changement de propriétaire), qui clôt la période en cours
+  et en ouvre une nouvelle. `READ_ONLY` laisserait croire qu'il ne bouge jamais.
+
+**Ajouté au passage** : `ref_cloture_mensuelle` passe en `DEDICATED_WORKFLOW`. Basculer
+`statut_mois` à la main rouvrait ou fermait une période sans date, sans auteur et sans trace.
+
+---
+
+### D-ADMIN-CHAMPS-01 — les champs se choisissent, ils ne se récitent pas
+
+- **Date** : 2026-09-12
+- **Lot** : recette utilisateur n°3 (§82 à §91)
+- **Statut** : ACTÉ
+
+**Le constat.** L'éditeur générique rendait **chaque** colonne en zone de texte libre. Pour dire
+qu'un logement est actif, il fallait savoir qu'on écrit `OUI` et non `oui`, `Oui` ou `true` ; pour
+le rattacher à un type, connaître `TYPE_003` de mémoire. Une faute de frappe ne produisait aucun
+refus — juste une valeur que plus aucun filtre ne retrouvait.
+
+**Décisions :**
+
+- **D-ACH-1** : une colonne d'**énumération** devient une liste déroulante ; une colonne de
+  **référence** propose les lignes de la table référencée **avec leurs libellés humains**
+  (« STUDIO » et non `TYPE_001`). La `value` transmise reste le code canonique.
+- **D-ACH-2** : les options sont l'union des valeurs **canoniques** et des valeurs **réellement
+  présentes en base**. Une donnée existante hors liste reste sélectionnable, au lieu d'être
+  silencieusement remplacée à la première modification de sa ligne.
+- **D-ACH-3** : `dynamic_pricing` n'est **pas** un booléen. La base porte « hostdynamic », le nom
+  de l'outil, et « non ». Aucun calcul ne le lit aujourd'hui, mais le réduire à OUI/NON effacerait
+  quel outil est employé — la liste s'ouvre donc sur ce qui existe sans le contraindre.
+- **D-ACH-4** : une colonne de date prend un **sélecteur de calendrier** (§40, §76).
+- **D-ACH-5** : l'identifiant d'un référentiel séquencé (`PROP_`, `LOG_`, `INT_`, `TYPE_`) est
+  **dérivé du dernier attribué** et proposé pré-rempli. Il reste modifiable : une reprise de
+  données peut légitimement imposer sa numérotation. La dérivation ne comble **jamais un trou** —
+  réutiliser un identifiant libéré rattacherait des données anciennes à un nouveau tiers.
