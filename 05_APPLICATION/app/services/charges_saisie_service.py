@@ -358,6 +358,88 @@ def valider_controle(charge_id: str, *, acteur: str = "", motif: str = "",
             "inchange": False}
 
 
+#: §38 — refus de rouvrir le contrôle d'une charge.
+E_MOIS_CLOTURE = "E_CHARGE_MOIS_CLOTURE"
+E_REFACTURATION_UTILISEE = "E_CHARGE_REFACTUREE_SUR_FACTURE_EMISE"
+
+
+def rouvrir_controle(charge_id: str, *, acteur: str = "", motif: str = "",
+                     db_path=None) -> dict[str, Any]:
+    """`VALIDE` → `A_CONTROLER` : rouvrir une charge pour la corriger (§37/§38).
+
+    AUTORISÉ SEULEMENT SI le retour reste réversible :
+
+      · le mois de la charge n'est pas clôturé — une période arrêtée ne se rouvre pas par un
+        bouton de fiche ;
+      · aucune facture propriétaire ÉMISE n'a déjà utilisé la refacturation de cette charge —
+        sinon le montant refacturé vit déjà dans un document remis au client, et le corriger en
+        amont réécrirait l'histoire. La correction passe alors par le circuit comptable (avoir,
+        opération corrective), jamais par une réouverture silencieuse.
+
+    Le motif est obligatoire : rouvrir un contrôle est un acte, pas un réglage d'affichage.
+    """
+    motif = str(motif or "").strip()
+    if not motif:
+        return _refus("MOTIF_OBLIGATOIRE",
+                      "Rouvrir le contrôle d'une charge exige d'en donner la raison.")
+    conn = get_db(db_path)
+    try:
+        avant = _charge(conn, charge_id)
+        if avant is None:
+            return _refus(E_INTROUVABLE, f"Charge inconnue : {charge_id}.")
+        if avant["statut"] == STATUT_ANNULEE:
+            return _refus(E_DEJA_ANNULEE,
+                          f"La charge {charge_id} est annulée : son contrôle ne peut plus changer.")
+        actuel = str(avant["statut_controle"] or "").strip().upper()
+        if actuel != CONTROLE_VALIDE:
+            return {"ok": True, "charge_id": charge_id,
+                    "statut_controle": actuel or CONTROLE_A_CONTROLER, "inchange": True}
+
+        # `charges.mois` existe ; quand il est vide, la date de la charge fait foi — c'est la
+        # donnée saisie, `mois` n'en est qu'une dérivée (même règle que lot6f).
+        mois = str(avant["mois"] or "").strip() if "mois" in avant.keys() else ""
+        if not mois:
+            mois = str(avant["date_charge"] or "").strip()[:7]
+        if mois:
+            ferme = conn.execute(
+                "SELECT statut_mois FROM ref_cloture_mensuelle WHERE mois = ?", (mois,)).fetchone()
+            if ferme is not None and str(ferme["statut_mois"]).strip().upper() == "CLOTURE":
+                return _refus(E_MOIS_CLOTURE,
+                              f"Le mois {mois} est clôturé : la charge ne peut plus être rouverte. "
+                              "La correction passe par une opération corrective tracée.")
+
+        # Refacturation déjà portée par une facture propriétaire ÉMISE ?
+        emises = []
+        try:
+            emises = [dict(r) for r in conn.execute(
+                "SELECT fp.numero_facture FROM factures_proprietaires_lignes_charge flc "
+                "JOIN factures_proprietaires fp "
+                "  ON fp.facture_id_opaque = flc.facture_id_opaque "
+                "WHERE flc.charge_id = ? AND fp.statut NOT IN ('BROUILLON','ANNULEE')",
+                (charge_id,))]
+        except Exception:      # noqa: BLE001 — schéma sans ce lien : rien à bloquer
+            emises = []
+        if emises:
+            numeros = ", ".join(str(e.get("numero_facture") or "?") for e in emises)
+            return _refus(
+                E_REFACTURATION_UTILISEE,
+                f"La refacturation de cette charge est déjà portée par la ou les factures émises "
+                f"{numeros}. Rouvrir le contrôle réécrirait un document déjà remis : passer par un "
+                "avoir ou une opération corrective.")
+
+        conn.execute(
+            "UPDATE charges SET statut_controle = ?, date_modification = ? WHERE charge_id = ?",
+            (CONTROLE_A_CONTROLER, _maintenant(), charge_id))
+        _journaliser(conn, charge_id, EVT_VALIDATION_CONTROLE, acteur, motif,
+                     avant={"statut_controle": actuel},
+                     apres={"statut_controle": CONTROLE_A_CONTROLER})
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "charge_id": charge_id, "statut_controle": CONTROLE_A_CONTROLER,
+            "inchange": False, "motif": motif}
+
+
 def signaler_anomalie(charge_id: str, *, acteur: str = "", motif: str = "",
                       db_path=None) -> dict[str, Any]:
     """`A_CONTROLER`/`VALIDE` → `ANOMALIE`. Contrepartie de `valider_controle` : un contrôle qui

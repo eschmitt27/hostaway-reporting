@@ -161,6 +161,25 @@ async def charge_valider(request: Request, charge_id: str):
     return RedirectResponse(url=cible, status_code=303)
 
 
+@router.post("/fournisseurs/{charge_id}/rouvrir-controle")
+async def charge_rouvrir_controle(request: Request, charge_id: str):
+    """§38 — « Repasser à contrôler » : `VALIDE` → `A_CONTROLER`, motif obligatoire.
+
+    Le service refuse de lui-même si le mois est clôturé ou si une facture propriétaire émise
+    porte déjà la refacturation : la route se contente de transmettre le motif du refus.
+    """
+    form = await request.form()
+    res = saisie.rouvrir_controle(charge_id, acteur="interface",
+                                  motif=str(form.get("motif", "") or ""))
+    cible = f"/fournisseurs/{charge_id}"
+    if not res.get("ok"):
+        from urllib.parse import quote as _q
+        return RedirectResponse(
+            url=f"{cible}?erreur={_q(res.get('message') or res.get('code', 'REFUS'))}",
+            status_code=303)
+    return RedirectResponse(url=f"{cible}?message=Charge+repassee+a+controler", status_code=303)
+
+
 @router.post("/fournisseurs/{charge_id}/anomalie")
 async def charge_anomalie(request: Request, charge_id: str):
     """Contrepartie de la validation : signaler une anomalie sur la charge."""

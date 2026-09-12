@@ -265,6 +265,27 @@
 </div>
 {% endif %}
 
+{% if c.statut_controle == 'VALIDE' and c.statut != 'ANNULEE' %}
+{# §38 — une charge validée peut revenir « à contrôler » tant que le retour reste réversible :
+   mois non clôturé, et aucune facture propriétaire émise ne portant déjà sa refacturation. Le
+   service tranche et explique son refus ; l'écran ne devine rien. #}
+<div class="detail-section">
+  <h2 class="section-title">Corriger cette charge</h2>
+  <p class="text-xs text-secondary">
+    Repasser la charge « à contrôler » rouvre la correction de ses champs métier (montant, impact,
+    périmètre, refacturable). C'est refusé si le mois est clôturé, ou si une facture propriétaire
+    déjà émise porte sa refacturation — dans ce cas la correction passe par un avoir ou une
+    opération corrective, jamais par une réécriture.
+  </p>
+  <form method="post" action="/fournisseurs/{{ charge_id }}/rouvrir-controle"
+        style="margin-top:var(--stack-md); display:flex; gap:var(--stack-sm); flex-wrap:wrap; align-items:center">
+    <input type="text" name="motif" required class="filter-input" style="min-width:20rem"
+           placeholder="Motif de la réouverture (obligatoire)">
+    <button type="submit" class="btn btn-secondary">Repasser à contrôler</button>
+  </form>
+</div>
+{% endif %}
+
 <!-- Paiement -->
 <div class="detail-section">
   <h2 class="section-title">Paiement</h2>
