@@ -42,6 +42,9 @@ et je complète la numérotation manquante sans rien deviner.
 | **45** | Téléphones | **OUI** | E.164 stocké / paires affichées · 17/17 convertis · migration 0083 |
 | **51-52** | Créances, indicateur à 15 jours | **OUI** | Statuts lisibles, dates françaises, « à relancer » pour une créance sans échéance |
 | **53-70** | Compte propriétaire sur le service canonique | **OUI** | CTR-CREANCE-VS-COMPTE-PROPRIETAIRE — **425,00 € d'écart** entre deux écrans, trouvé et fermé |
+| **53-70** | Audit « virement net à affecter » | **OUI** | C'est cet audit qui a révélé l'écart de 425,00 € : `position()` lisait le seul FIFO |
+| **53-70** | KPIs du relevé à formules verrouillées | **OUI** | `FORMULES_KPI` déclaré dans le service qui calcule — chaque KPI porte sa formule et sa source à l'écran · `test_releve_kpi_formules` (7) |
+| **53-70** | Export Power BI | **OUI** | `lot13_export_service` — **13 CSV + dictionnaire**, lus en SQLite. Vérifié sur répertoire temporaire (les vrais CSV sont suivis par Git) : `PBI_Menages_Cout_Complet` **39 lignes**, identique à la base |
 | **72-73** | Caisse : cycle, immuabilité, contrepassation | **OUI** | D-CAISSE-CYCLE-01 + contrat de solde corrigé · `test_operations_caisse_cycle` (18) |
 | **74-78** | Comptabilité : dates, auxiliaires par nom | **OUI** | CTR-DATES-FORME-ISO (**0 date non ISO** dans toute la base), CTR-AUXILIAIRES-PAR-NOM |
 | **77** | Écritures manuelles | **OUI** | Comptes et auxiliaires en listes, refus détaillé |
@@ -55,7 +58,8 @@ et je complète la numérotation manquante sans rien deviner.
 | § | Objet | Fait | Raison |
 |---|---|:--:|---|
 | **lot6a** (part de §19) | Extraction Hostaway CleaningTasks | **NON** | **Blocage réel** : le script exige des identifiants API Hostaway, absents de cette installation. Il ne peut être **ni exécuté ni testé** ici, et le migrer à l'aveugle reviendrait à réécrire un extracteur réseau sans jamais l'exercer. Sa cible SQLite alimente déjà tout l'aval : le script n'alimente plus rien de vivant |
-| **§53-70**, part | Relevé propriétaire : refonte, KPIs à formules verrouillées, export Power BI, audit « Démarrer le suivi » | **NON** | **Pas de blocage technique** — c'est du travail restant. L'écran existe et fonctionne (KPIs, filtres, export CSV, 9 propriétaires). « Démarrer le suivi » n'existe **nulle part** dans le code : ni route, ni service, ni gabarit. Auditer un parcours absent sans savoir ce qu'il devait faire produirait une conclusion inventée |
+| **§53-70**, part | Relevé propriétaire : **refonte visuelle** de l'écran | **NON** | **Pas de blocage technique** — c'est du travail restant. L'écran fonctionne (KPIs désormais explicités, filtres, export CSV, 9 propriétaires, 13 logements) ; ce qui manque est la refonte de présentation elle-même, qui n'a pas de contenu précis dans ce que j'ai reçu |
+| **§53-70**, part | Audit « Démarrer le suivi » | **NON** | Ce parcours n'existe **nulle part** dans le code : ni route, ni service, ni gabarit — vérifié par recherche sur l'ensemble de `app/`. Auditer un parcours absent sans savoir ce qu'il devait faire produirait une conclusion inventée |
 | **Qonto** | Intégration bancaire | **NON** | **Hors scope explicite** du brief |
 
 ---
