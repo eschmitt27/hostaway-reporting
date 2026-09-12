@@ -118,9 +118,15 @@ def test_creer_ligne_ref_logements_ignore_les_colonnes_canape(ref):
 
 
 def test_decrire_table_expose_les_colonnes_verrouillees(ref):
+    """Les deux colonnes canapé sont verrouillées — elles vivent dans une table historisée.
+
+    L'assertion porte sur leur PRÉSENCE, et non sur l'égalité de la liste entière : d'autres
+    colonnes peuvent légitimement s'y ajouter (les colonnes dérivées de la migration 0087 le font),
+    et une égalité stricte transformerait chaque ajout justifié en échec sans rapport.
+    """
     meta = adm.decrire_table("ref_logements", db_path=ref)
-    assert meta["colonnes_lecture_seule"] == sorted(
-        ["seuil_voyageurs_preparation_canape", "montant_preparation_canape"])
+    verrouillees = set(meta["colonnes_lecture_seule"])
+    assert {"seuil_voyageurs_preparation_canape", "montant_preparation_canape"} <= verrouillees
     meta_autre = adm.decrire_table("ref_proprietaires", db_path=ref)
     assert meta_autre["colonnes_lecture_seule"] == []
 

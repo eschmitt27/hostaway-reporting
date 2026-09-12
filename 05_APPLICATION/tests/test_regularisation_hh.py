@@ -260,7 +260,25 @@ def test_regularisation_puis_recalcul_resout_reellement_lanomalie(tmp_path, monk
     assert resultat["ok"] is True
 
     recalc = regul.recalculer(db_path=str(dest))
-    assert recalc["ok"] is True
+    # UN ÉCHEC ICI PEUT NE RIEN DEVOIR AU CODE.
+    #
+    # Ce test rejoue la chaîne RÉELLE sur une copie de la base réelle. Si cette base porte une
+    # anomalie BLOQUANTE — typiquement une annonce Hostaway qu'aucun logement ne rattache — le
+    # moteur refuse de calculer les réservations, et il a raison de refuser : c'est précisément le
+    # comportement « fail-closed » qu'on attend de lui, plutôt que de ranger les séjours dans un
+    # logement fourre-tout.
+    #
+    # Le message doit donc dire ce qui bloque, sinon on cherche une régression là où il n'y a
+    # qu'une donnée à compléter.
+    if not recalc.get("ok"):
+        detail = " · ".join(
+            f"{e['etape']}: {str(e['resultat'].get('message') or '').strip()}"
+            for e in recalc.get("etapes", []) if not e["resultat"].get("ok", True))
+        raise AssertionError(
+            "Le recalcul de la chaîne réelle a été refusé. Si le message ci-dessous désigne une "
+            "donnée manquante (logement non rattaché, référentiel incomplet), il ne s'agit PAS "
+            "d'une régression de code : la donnée doit être complétée dans l'application, écran "
+            "« Correspondances logement ».\n  " + (detail or "aucun détail fourni par le moteur"))
 
     conn = sqlite3.connect(str(dest))
     conn.row_factory = sqlite3.Row

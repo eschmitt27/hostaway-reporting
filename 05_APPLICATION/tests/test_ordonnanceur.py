@@ -124,14 +124,28 @@ def test_cleaning_tasks_non_declenche_toutes_les_5h(tmp_db):
 # ── Service unique manuel/auto (§39/§43) ────────────────────────────────────
 
 def test_ordonnanceur_et_manuel_partagent_le_meme_service():
-    """Une seule implémentation de l'extraction : le DAG pointe le service, l'écran l'appelle."""
-    from app.services import orchestrateur_moteur
+    """Une seule implémentation de l'ingestion : le DAG pointe le service, l'écran l'appelle.
+
+    Le service intermédiaire a changé — l'ingestion passe désormais par le dépôt publié par le
+    pipeline GitHub (`hostaway_depot_service`), lequel lance le MÊME moteur d'extraction via
+    `hostaway_actualisation_service`. Ce qui compte n'a pas bougé : il n'existe qu'un chemin, et
+    il est attendu jusqu'au bout. Le test vérifie donc la chaîne, et non le nom d'un maillon.
+    """
+    import inspect
+
+    from app.services import hostaway_depot_service, orchestrateur_moteur
 
     noeud = dag.NOEUDS[dag.HOSTAWAY_RAW]
     assert noeud.service == "app.services.orchestrateur_moteur:importer_hostaway"
-    source = __import__("inspect").getsource(orchestrateur_moteur.importer_hostaway)
-    assert "hostaway_actualisation_service" in source
+
+    source = inspect.getsource(orchestrateur_moteur.importer_hostaway)
+    assert "hostaway_depot_service" in source
     assert "attendre=True" in source
+
+    # …et le service de dépôt lance bien le moteur d'extraction unique, sans le réimplémenter.
+    source_depot = inspect.getsource(hostaway_depot_service.synchroniser)
+    assert "hostaway_actualisation_service" in source_depot
+    assert "ARGUMENTS_DEPOT" in source_depot
 
 
 def test_tick_declenche_via_orchestrateur(tmp_db, monkeypatch):
