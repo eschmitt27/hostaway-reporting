@@ -48,6 +48,8 @@ E_CHARGE_DEJA_LIEE = "E03_CHARGE_DEJA_LIEE"
 E_LIGNE_CHARGE_MANQUANTE = "V08_LIGNE_CHARGE_MANQUANTE"
 E_LIGNE_MONTANT_INVALIDE = "V09_LIGNE_MONTANT_INVALIDE"
 E_LIGNE_FACTURE_MONO_CHARGE = "E04_FACTURE_DEJA_MONO_CHARGE"
+#: §28 — la somme des lignes doit reconstituer le total du document pour valider la facture.
+E_ECART_LIGNES_TOTAL = "V11_ECART_LIGNES_TOTAL_DOCUMENT"
 
 MESSAGES = {
     E_FLAGS: "Écriture désactivée sur cette installation : l'enregistrement est impossible.",
@@ -287,7 +289,10 @@ def charger(opaque: str, db_path=None) -> dict[str, Any] | None:
     f = dict(row)
     f.update(solde(opaque, db_path))
     f["lignes"] = lignes(opaque, db_path)
-    f["montant_lignes_ttc"] = round(sum(l["montant_ttc"] for l in f["lignes"]), 2)
+    # Le total des lignes ignore les lignes neutralisées (extraction incorrecte, §30) : elles
+    # restent affichées, mais ce qu'elles disaient a été écarté avec motif.
+    f["montant_lignes_ttc"] = round(
+        sum(l["montant_ttc"] for l in f["lignes"] if not l.get("neutralisee")), 2)
     return f
 
 
@@ -341,6 +346,26 @@ def changer_statut(opaque: str, nouveau: str, *, commentaire: str = "", acteur: 
     # niveau B, donc une décision humaine explicite sur une installation habilitée.
     if not _niveau_requis_ok(nouveau):
         return _refus(E_FLAGS)
+
+    # ── §28 — Σ lignes == total document, sinon NON VALIDABLE ────────────────────────────────
+    # Contrôle absent jusqu'ici : les deux factures PDF réelles ont été validées le 2026-09-11
+    # avec un écart de -89,00 € et +36,00 € entre la somme de leurs lignes et le total du
+    # document. Une facture dont les lignes ne reconstituent pas le total n'est pas contrôlée :
+    # il manque une ligne, ou une ligne a été mal extraite. Aucun « forcer valide » n'est
+    # proposé — la résolution passe par les workflows tracés (ligne manquante / extraction
+    # incorrecte), jamais par une tolérance cachée.
+    if nouveau == ST_VALIDEE:
+        f = charger(opaque, db_path)
+        if f is None:
+            return _refus(E_INTROUVABLE, opaque)
+        if f.get("lignes"):
+            ecart = round(f["montant_lignes_ttc"] - round(f["montant_ttc"], 2), 2)
+            if abs(ecart) > 0.005:
+                return _refus(
+                    E_ECART_LIGNES_TOTAL,
+                    f"somme des lignes {f['montant_lignes_ttc']:.2f} € vs total document "
+                    f"{f['montant_ttc']:.2f} € (écart {ecart:+.2f} €)")
+
     conn = get_db(db_path)
     try:
         row = conn.execute("SELECT statut FROM factures WHERE facture_id_opaque=?",
@@ -357,7 +382,26 @@ def changer_statut(opaque: str, nouveau: str, *, commentaire: str = "", acteur: 
         conn.commit()
     finally:
         conn.close()
-    return {"ok": True, "facture_id_opaque": opaque, "statut": nouveau}
+
+    # ── §36/§77 — la validation CRÉE la dette fournisseur, sans attendre la banque ────────────
+    # La validation ne faisait qu'un UPDATE de statut : deux factures fournisseurs VALIDÉES
+    # (1 576 € au total) ne produisaient AUCUNE écriture d'achat et AUCUNE dette. Le journal
+    # ACHATS restait vide, et la dépense n'existait comptablement qu'au moment du débit
+    # bancaire — l'achat était constaté au paiement, ce qui n'est pas le fait générateur.
+    # `generer_ecriture_achat` est idempotent : un rerun ne crée jamais une seconde écriture.
+    ecriture = None
+    if nouveau == ST_VALIDEE:
+        try:
+            from app.services import comptabilite_ecritures_service as compta
+            ecriture = compta.generer_ecriture_achat(opaque, acteur=acteur or "local",
+                                                     db_path=db_path)
+        except Exception as exc:      # noqa: BLE001 — la facture reste validée ; l'écriture est tracée
+            ecriture = {"ok": False, "message": str(exc)}
+
+    resultat = {"ok": True, "facture_id_opaque": opaque, "statut": nouveau}
+    if ecriture is not None:
+        resultat["ecriture_achat"] = ecriture
+    return resultat
 
 
 def lier_charge(opaque: str, charge_id: str, *, acteur: str = "", db_path=None) -> dict[str, Any]:
@@ -386,12 +430,54 @@ def lier_charge(opaque: str, charge_id: str, *, acteur: str = "", db_path=None) 
 
 
 def lignes(opaque: str, db_path=None) -> list[dict[str, Any]]:
+    """Lignes de la facture fournisseur — UNE seule chaîne, extraction PDF incluse.
+
+    BUG D'INTÉGRATION CORRIGÉ (recette utilisateur n°3, §21). Deux tables de lignes coexistaient :
+    `facture_lignes_menage` (+ `_detail` quantité/prix unitaire, + `_pdf` traçabilité), ALIMENTÉE
+    par l'extracteur PDF (`facture_menage_pdf_service`) et lue par lot6c/6d/6e/6f ; et
+    `facture_lignes`, lue par CET écran et alimentée uniquement par « rattacher une charge ».
+    Résultat : 11 lignes réellement extraites de deux PDF, et une facture fournisseur affichant
+    « 0 ligne » — l'extracteur d'un côté, la facture vide de l'autre.
+
+    La ligne extraite du PDF EST la ligne de la facture : elle est donc rendue ici, avec son
+    libellé d'origine, sa quantité et son prix unitaire (§22 — le libellé et la quantité source
+    sont IMMUABLES). `facture_lignes` reste lue pour ne rien masquer des lignes historiques
+    éventuellement créées par l'ancien parcours de rattachement de charge.
+    """
     conn = get_db(db_path)
     try:
-        rows = conn.execute(
-            "SELECT * FROM facture_lignes WHERE facture_id_opaque=? ORDER BY id",
-            (opaque,)).fetchall()
-        return [dict(r) for r in rows]
+        resultat: list[dict[str, Any]] = []
+        for r in conn.execute(
+                "SELECT l.*, d.quantite, d.prix_unitaire, p.nom_prestataire, p.date_menage "
+                "FROM facture_lignes_menage l "
+                "LEFT JOIN facture_lignes_menage_detail d ON d.ligne_id_opaque = l.ligne_id_opaque "
+                "LEFT JOIN facture_lignes_menage_pdf p ON p.ligne_id_opaque = l.ligne_id_opaque "
+                "WHERE l.facture_id_opaque=? ORDER BY l.id", (opaque,)).fetchall():
+            d = dict(r)
+            d["origine_ligne"] = ("CORRECTIVE"
+                                  if str(d.get("source") or "") == "SAISIE_MANUELLE_CORRECTIVE"
+                                  else "PDF")
+            d["est_menage"] = str(d.get("type_ligne") or "") == "MENAGE_EXTERNE"
+            # Une ligne marquée EXTRACTION_INCORRECTE reste VISIBLE (la donnée brute ne disparaît
+            # jamais) mais ne compte plus dans le total — c'est tout l'objet du marquage.
+            d["neutralisee"] = str(d.get("statut_ligne") or "ACTIVE") != "ACTIVE"
+            resultat.append(d)
+        for r in conn.execute(
+                "SELECT * FROM facture_lignes WHERE facture_id_opaque=? ORDER BY id",
+                (opaque,)).fetchall():
+            d = dict(r)
+            d["origine_ligne"] = "CHARGE"
+            d["est_menage"] = False
+            d["neutralisee"] = False
+            # Mêmes clés pour toutes les lignes, quelle que soit leur table d'origine : le gabarit
+            # n'a pas à savoir laquelle il affiche (et Jinja lève sur un attribut absent).
+            d.setdefault("description", d.get("commentaire"))
+            d.setdefault("quantite", None)
+            d.setdefault("prix_unitaire", None)
+            d.setdefault("statut_ligne", "ACTIVE")
+            d.setdefault("motif_correction", None)
+            resultat.append(d)
+        return resultat
     finally:
         conn.close()
 

@@ -92,3 +92,58 @@ def get_cloture_mois(mois_str: str, ref_setup_path: Path | None = None, *,
         if str(row.get("mois", "")).strip() == target:
             return row
     return None
+
+
+# ── Ouverture d'un mois à la saisie — « non déclaré » n'est PAS « fermé » ────────────────────────
+#
+# BUG RÉEL CORRIGÉ (recette utilisateur n°3, §4/§56). `ref_cloture_mensuelle` s'arrêtait à 2026-06
+# (« Mois courant — source live »), figé à la date où il avait été peuplé. Le contrôle D10 lisait
+# `get_cloture_mois(mois) is None` comme « mois non ouvert » et REFUSAIT donc toute réservation de
+# juillet, août et septembre 2026 : plus aucune saisie hors Hostaway n'était possible depuis trois
+# mois, sans que rien ne soit cassé côté code — le référentiel devait simplement être avancé à la
+# main chaque mois, et ne l'avait pas été.
+#
+# La règle métier juste est asymétrique : une clôture est un ACTE EXPLICITE et tracé ; son absence
+# ne vaut pas clôture. Un mois jamais déclaré qui se situe APRÈS la frontière de clôture est donc
+# ouvert (il n'a jamais été fermé) ; un mois jamais déclaré situé DERRIÈRE cette frontière reste
+# refusé — sinon on pourrait antidater une saisie dans une période déjà arrêtée, ce que le contrôle
+# D10 existe précisément pour empêcher.
+#
+# Conséquence voulue : le mois courant est saisissable sans intervention, et il ne devient clos que
+# lorsqu'une clôture réelle est prononcée. Le moteur ne clôture toujours rien de lui-même (§56).
+STATUT_MOIS_CLOTURE = "CLOTURE"
+
+
+def get_cloture_rows(ref_setup_path: Path | None = None, *, db_path=None) -> list[dict[str, Any]]:
+    """Toutes les lignes de REF_Cloture_Mensuelle — nécessaire pour situer un mois par rapport à
+    la frontière de clôture (`mois_ouvert_pour_saisie`), là où `get_cloture_mois` ne rend que le
+    mois demandé et ne peut donc pas distinguer « jamais déclaré » de « antérieur à une clôture »."""
+    return _lire(_SHEET_CLOTURE, ref_setup_path, db_path=db_path)
+
+
+def mois_ouvert_pour_saisie(mois_str: str, cloture_rows: list[dict[str, Any]]) -> tuple[bool, str]:
+    """Le mois `AAAA-MM` accepte-t-il une saisie ? Rend (ouvert, code_refus).
+
+    Fonction PURE (aucune I/O) : testable sans base, et partagée par la validation et l'UI.
+    `code_refus` vaut "" si ouvert, sinon `MOIS_CLOTURE` ou `MOIS_ANTERIEUR_A_CLOTURE`.
+    """
+    mois = str(mois_str).strip()
+    if not mois:
+        return False, "MOIS_ABSENT"
+
+    statuts = {
+        str(r.get("mois", "")).strip(): str(r.get("statut_mois", "")).strip().upper()
+        for r in cloture_rows
+        if str(r.get("mois", "")).strip()
+    }
+    statut = statuts.get(mois)
+    if statut is not None:
+        if statut == STATUT_MOIS_CLOTURE:
+            return False, "MOIS_CLOTURE"
+        return True, ""
+
+    # Mois jamais déclaré : ouvert s'il est postérieur au dernier mois réellement CLÔTURÉ.
+    clos = sorted(m for m, s in statuts.items() if s == STATUT_MOIS_CLOTURE)
+    if clos and mois <= clos[-1]:
+        return False, "MOIS_ANTERIEUR_A_CLOTURE"
+    return True, ""

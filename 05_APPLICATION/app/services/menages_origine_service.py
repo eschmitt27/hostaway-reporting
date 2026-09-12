@@ -52,15 +52,35 @@ def etat_libelle(status: str) -> str:
 def origines(mois: str = "", logement_id: str = "", *, db_path=None) -> dict[str, Any]:
     """Ménages attendus du périmètre, ventilés par ORIGINE puis par ÉTAT d'exécution.
 
-    `logement_id` filtre via `listing_map_id` côté Hostaway : c'est la clé que porte la tâche.
-    Sans référentiel de correspondance disponible, le filtre logement ne s'applique qu'au hors
-    Hostaway — on préfère un total honnête à un filtrage approximatif.
+    SOURCE CANONIQUE : `menages_taches_enrichies` — la MÊME table que lot6c/6d/6e/6f et
+    `menages_ecarts_service`. Elle porte `mois` et `logement_id` déjà RÉSOLUS, et elle est
+    dédoublonnée par `task_id`.
+
+    BUG RÉEL CORRIGÉ (recette utilisateur n°3, §15). Cette fonction lisait la table RAW
+    `hostaway_cleaning_tasks` (3711 lignes : toutes les extractions cumulées, doublons inclus,
+    listings hors parc inclus) et en dérivait le mois par découpe de chaîne sur `can_start_from`.
+    Conséquence visible à l'écran : « Attendu Hostaway 355 » pour juillet à côté de « Hostaway
+    réalisés 71 » pour le même juillet — deux nombres contradictoires sur la même carte, parce
+    qu'ils venaient de deux tables différentes. Sans mois sélectionné, le même compteur affichait
+    2904 (= 2599 completed + 288 confirmed + 12 pending + 5 inProgress), c'est-à-dire tout
+    l'historique présenté comme le mois en cours.
+
+    Le filtre `logement_id` s'applique désormais AUSSI aux tâches Hostaway : la table enrichie
+    porte le `logement_id` résolu, là où la table RAW n'avait que `listing_map_id`.
     """
     conn = get_db(db_path)
     try:
+        clauses_t, args_t = [], []
+        if mois:
+            clauses_t.append("mois = ?")
+            args_t.append(mois)
+        if logement_id:
+            clauses_t.append("logement_id = ?")
+            args_t.append(logement_id)
+        ou_t = f" WHERE {' AND '.join(clauses_t)}" if clauses_t else ""
         taches = [dict(r) for r in conn.execute(
-            "SELECT task_id, status, can_start_from, listing_map_id, reservation_id "
-            "FROM hostaway_cleaning_tasks")]
+            "SELECT task_id, status, statut_menage, mois, logement_id, reservation_id "
+            f"FROM menages_taches_enrichies{ou_t}", args_t)]
         clauses, args = [], []
         if mois:
             clauses.append("mois = ?")
@@ -76,9 +96,6 @@ def origines(mois: str = "", logement_id: str = "", *, db_path=None) -> dict[str
         return _vide(mois, logement_id)
     finally:
         conn.close()
-
-    if mois:
-        taches = [t for t in taches if _mois_de(t.get("can_start_from")) == mois]
 
     par_etat: dict[str, int] = {}
     for t in taches:

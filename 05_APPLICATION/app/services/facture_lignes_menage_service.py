@@ -29,6 +29,14 @@ TYPES = (TYPE_MENAGE_INTERNE, TYPE_MENAGE_EXTERNE, TYPE_FRAIS_NON_AFFECTE, TYPE_
 
 SOURCE_PDF = "PDF_EXTRACTION"
 SOURCE_SAISIE = "SAISIE"
+#: §29 — ligne que le parseur a omise, ajoutée à la main avec motif obligatoire. Volontairement
+#: distincte de SOURCE_SAISIE : ce n'est pas une saisie ordinaire, c'est une CORRECTION d'un
+#: document reçu, et elle doit rester identifiable comme telle pour toujours.
+SOURCE_CORRECTIVE = "SAISIE_MANUELLE_CORRECTIVE"
+
+STATUT_LIGNE_ACTIVE = "ACTIVE"
+#: §30 — ligne du document mal extraite : neutralisée, jamais supprimée.
+STATUT_LIGNE_EXTRACTION_INCORRECTE = "EXTRACTION_INCORRECTE"
 
 
 def _maintenant() -> str:
@@ -91,6 +99,70 @@ def lignes(facture_id_opaque: str, db_path=None) -> list[dict[str, Any]]:
         return [dict(r) for r in rows]
     finally:
         conn.close()
+
+
+def ajouter_ligne_manquante(facture_id_opaque: str, *, motif: str, montant_ttc: float,
+                            description: str, type_ligne: str = TYPE_MENAGE_EXTERNE,
+                            logement_id: str = "", quantite: int | None = None,
+                            prix_unitaire: float | None = None, acteur: str = "",
+                            db_path=None) -> dict[str, Any]:
+    """§29 — AJOUTER UNE LIGNE MANQUANTE : usage exceptionnel, motif OBLIGATOIRE.
+
+    Réservé aux cas où le document contient une ligne que l'extraction n'a pas produite (parseur
+    en défaut, PDF sans texte exploitable, ligne source inutilisable). Ce n'est pas un bouton
+    « ajouter une ligne » générique : sans motif, rien n'est enregistré.
+    """
+    motif = str(motif or "").strip()
+    if not motif:
+        return _refus("MOTIF_OBLIGATOIRE",
+                      "Une ligne ajoutée à la main doit dire pourquoi elle l'a été.")
+    res = ajouter_ligne(
+        facture_id_opaque, type_ligne=type_ligne, montant_ttc=montant_ttc,
+        logement_id=logement_id, description=description, quantite=quantite,
+        prix_unitaire=prix_unitaire, source=SOURCE_CORRECTIVE,
+        commentaire=f"Ligne manquante ajoutée à la main — {motif}", acteur=acteur,
+        db_path=db_path)
+    if not res.get("ok"):
+        return res
+    conn = get_db(db_path)
+    try:
+        conn.execute("UPDATE facture_lignes_menage SET motif_correction=? "
+                     "WHERE ligne_id_opaque=?", (motif, res["ligne_id_opaque"]))
+        conn.commit()
+    finally:
+        conn.close()
+    res["motif"] = motif
+    return res
+
+
+def marquer_extraction_incorrecte(ligne_id_opaque: str, *, motif: str, acteur: str = "",
+                                  db_path=None) -> dict[str, Any]:
+    """§30 — MARQUER EXTRACTION INCORRECTE : la ligne est neutralisée, jamais supprimée.
+
+    La donnée brute reste intégralement lisible (libellé d'origine, quantité, montant) ; elle
+    cesse seulement de compter dans le total des lignes. Supprimer la ligne effacerait ce que le
+    document disait réellement — ici, on conserve la trace ET la raison de l'écarter.
+    """
+    motif = str(motif or "").strip()
+    if not motif:
+        return _refus("MOTIF_OBLIGATOIRE",
+                      "Écarter une ligne extraite exige d'en donner la raison.")
+    conn = get_db(db_path)
+    try:
+        row = conn.execute("SELECT statut_ligne FROM facture_lignes_menage "
+                           "WHERE ligne_id_opaque=?", (ligne_id_opaque,)).fetchone()
+        if row is None:
+            return _refus("LIGNE_INTROUVABLE", ligne_id_opaque)
+        conn.execute(
+            "UPDATE facture_lignes_menage SET statut_ligne=?, motif_correction=?, "
+            "commentaire=COALESCE(commentaire,'') || ? WHERE ligne_id_opaque=?",
+            (STATUT_LIGNE_EXTRACTION_INCORRECTE, motif,
+             f" · Extraction incorrecte ({acteur or 'local'}) : {motif}", ligne_id_opaque))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "ligne_id_opaque": ligne_id_opaque,
+            "statut_ligne": STATUT_LIGNE_EXTRACTION_INCORRECTE, "motif": motif}
 
 
 def cout_menages_par_logement(facture_id_opaque: str, db_path=None) -> dict[str, float]:

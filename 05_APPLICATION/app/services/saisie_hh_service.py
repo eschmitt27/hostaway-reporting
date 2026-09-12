@@ -31,6 +31,8 @@ from app.readers.ref_setup_hh_reader import (
     get_taux_commission,
     get_couts_standards_menage,
     get_cloture_mois,
+    get_cloture_rows,
+    mois_ouvert_pour_saisie,
 )
 from app.services.saisie_hh_schema_migration import NEW_SAISIE_FIELDS
 
@@ -135,11 +137,9 @@ def _cloture_ui_state(ref_setup_path: Path | None = None, *, db_path=None) -> di
     `ref_cloture_mensuelle` (migration 0029), déjà lue en SQLite par `get_cloture_mois` ailleurs dans
     ce module. Cette fonction en était la seule ouverture directe de classeur restante.
     """
-    from app.services import referentiel_admin_service as ref_admin
-
     rows: list[dict[str, Any]] = []
     try:
-        cloture_rows = ref_admin.lignes("ref_cloture_mensuelle", db_path=db_path)
+        cloture_rows = get_cloture_rows(db_path=db_path)
     except Exception:
         cloture_rows = []
     for rec in cloture_rows:
@@ -150,12 +150,41 @@ def _cloture_ui_state(ref_setup_path: Path | None = None, *, db_path=None) -> di
         rows.append({"mois": mois, "label": _month_label(mois), "statut_mois": statut})
     rows.sort(key=lambda r: r["mois"])
     open_rows = [row for row in rows if row["statut_mois"] == "OUVERT"]
+
+    # Mois saisissables NON déclarés : tous ceux qui suivent la dernière clôture prononcée, du mois
+    # le plus ancien encore ouvert jusqu'au mois courant inclus (§56 : le mois courant se consulte
+    # et se saisit, il ne se clôture pas). Sans cela, l'écran annonçait « Mois ouverts : juin 2026 »
+    # alors que la saisie de juillet/août/septembre était en réalité légitime — l'utilisateur voyait
+    # une porte fermée qui n'aurait jamais dû l'être.
+    from datetime import date as _date
+    mois_courant = _date.today().strftime("%Y-%m")
+    clos = sorted(r["mois"] for r in rows if r["statut_mois"] == "CLOTURE")
+    frontiere = clos[-1] if clos else ""
+    connus = {r["mois"] for r in rows}
+    implicites: list[dict[str, str]] = []
+    annee, mois_num = (int(mois_courant[:4]), int(mois_courant[5:7]))
+    curseur = frontiere or mois_courant
+    while curseur < mois_courant:
+        a, m = int(curseur[:4]), int(curseur[5:7])
+        m += 1
+        if m > 12:
+            a, m = a + 1, 1
+        curseur = f"{a:04d}-{m:02d}"
+        if curseur not in connus:
+            implicites.append({"mois": curseur, "label": _month_label(curseur),
+                               "statut_mois": "OUVERT"})
+    if mois_courant not in connus and all(i["mois"] != mois_courant for i in implicites):
+        implicites.append({"mois": mois_courant, "label": _month_label(mois_courant),
+                           "statut_mois": "OUVERT"})
+
+    tous_ouverts = sorted(open_rows + implicites, key=lambda r: r["mois"])
     return {
-        "mois_ouverts": [row["mois"] for row in open_rows],
-        "mois_ouverts_labels": [row["label"] for row in open_rows],
+        "mois_ouverts": [row["mois"] for row in tous_ouverts],
+        "mois_ouverts_labels": [row["label"] for row in tous_ouverts],
+        "mois_courant": mois_courant,
         "cloture_mois_status": {
             row["mois"]: {"statut_mois": row["statut_mois"], "label": row["label"]}
-            for row in rows
+            for row in rows + implicites
         },
     }
 
@@ -746,14 +775,23 @@ def valider(
     if date_arrivee:
         mois = _mois_from_date(date_arrivee)
         try:
+            # « Non déclaré » n'est pas « fermé » : cf. `mois_ouvert_pour_saisie`. Seule une
+            # clôture PRONONCÉE ferme un mois ; un mois postérieur à la dernière clôture reste
+            # saisissable sans qu'il faille avancer le référentiel à la main chaque mois.
             cloture_row = get_cloture_mois(mois, db_path=db_path)
-            if cloture_row is None:
-                err("date_arrivee", "MOIS_HORS_REFERENTIEL_CLOTURE",
-                    "Le mois sélectionné n'est pas ouvert dans le référentiel de clôture. "
-                    "Un commentaire ne permet pas de créer une réservation sur un mois non ouvert.")
-            elif str(cloture_row.get("statut_mois", "")).strip().upper() == "CLOTURE":
-                err("date_arrivee", "MOIS_CLOTURE",
-                    f"Mois {mois} clôturé (statut = CLOTURE)")
+            if cloture_row is not None:
+                cloture_rows = [{"mois": mois, **cloture_row}]
+            else:
+                cloture_rows = get_cloture_rows(db_path=db_path)
+            ouvert, code_refus = mois_ouvert_pour_saisie(mois, cloture_rows)
+            if not ouvert:
+                if code_refus == "MOIS_CLOTURE":
+                    err("date_arrivee", "MOIS_CLOTURE",
+                        f"Mois {mois} clôturé (statut = CLOTURE)")
+                else:
+                    err("date_arrivee", code_refus or "MOIS_HORS_REFERENTIEL_CLOTURE",
+                        f"Mois {mois} antérieur à la dernière clôture prononcée : une saisie "
+                        "ne peut pas être antidatée dans une période déjà arrêtée.")
         except Exception as exc:
             err("date_arrivee", "REF_SETUP_INDISPONIBLE",
                 f"REF_Setup inaccessible pour vérification clôture (D10) : {exc}")

@@ -7,10 +7,6 @@
     <h1 class="page-title">Vérification de la réservation</h1>
     <p class="page-subtitle">Vérifiez chaque champ avant confirmation</p>
   </div>
-  <span class="badge badge-warning">
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
-    HH_REAL_WRITE_ENABLED = False
-  </span>
 </div>
 
 {% if resultat_ecriture %}
@@ -148,9 +144,8 @@
 {% if not resultat_ecriture %}
 <div class="card" style="background: var(--color-bg-subtle); margin-bottom: var(--stack-lg); padding: var(--stack-md);">
   <p class="text-sm text-secondary">
-    <strong>Attention :</strong> La garde d'écriture <code>HH_REAL_WRITE_ENABLED = False</code> est active.
-    La prochaine étape exécute une simulation complète sur copies temporaires. Elle n'écrit <strong>pas</strong>
-    dans <code>SAISIE_ReservationsHorsHostaway.xlsx</code>.
+    La prochaine étape prépare la réservation et vous la présente une dernière fois.
+    L'enregistrement n'a lieu qu'après votre confirmation explicite.
   </p>
 </div>
 

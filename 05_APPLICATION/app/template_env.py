@@ -64,6 +64,64 @@ def _libelle_statut(code: str) -> str:
     return ref_svc.humaniser_code(code) if code else ""
 
 
+def _nom_canal(cid: str) -> str:
+    return ref_svc.libelle_canal(cid) if cid else ""
+
+
+# ── Formateurs français canoniques (recette utilisateur n°3, §7 et §63) ──────────────────────────
+#
+# UN seul formateur, ici, plutôt qu'un `strftime` recopié dans chaque template : l'écran Ménages
+# affichait `2026-09-11T22:32:26Z` (ISO brut, T, Z, secondes) là où l'utilisateur attend
+# `22h32 · 11/09/2026`. Et `15.0` réservations là où une quantité discrète s'écrit `15`.
+
+def _datetime_fr(valeur) -> str:
+    """`2026-09-11T22:32:26Z` → `22h32 · 11/09/2026`. Rend la valeur telle quelle si illisible."""
+    from datetime import datetime, timezone
+
+    texte = str(valeur or "").strip()
+    if not texte:
+        return ""
+    brut = texte.replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(brut)
+    except ValueError:
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+            try:
+                dt = datetime.strptime(texte[:19], fmt)
+                break
+            except ValueError:
+                continue
+        else:
+            return texte
+    if dt.tzinfo is not None:
+        dt = dt.astimezone()          # UTC stocké → heure locale affichée
+        dt = dt.replace(tzinfo=None)
+    return f"{dt:%Hh%M} · {dt:%d/%m/%Y}"
+
+
+def _date_fr(valeur) -> str:
+    """`2026-09-11` → `11/09/2026`. Rend la valeur telle quelle si illisible."""
+    from datetime import datetime
+
+    texte = str(valeur or "").strip()
+    if not texte:
+        return ""
+    try:
+        return f"{datetime.strptime(texte[:10], '%Y-%m-%d'):%d/%m/%Y}"
+    except ValueError:
+        return texte
+
+
+def _entier(valeur) -> str:
+    """`15.0` → `15`. Toute quantité discrète s'affiche en entier (§63)."""
+    if valeur is None or valeur == "":
+        return ""
+    try:
+        return str(int(round(float(valeur))))
+    except (TypeError, ValueError):
+        return str(valeur)
+
+
 def get_templates() -> Jinja2Templates:
     """Instance Jinja2Templates unique, partagée par toutes les routes."""
     global _templates
@@ -80,5 +138,9 @@ def get_templates() -> Jinja2Templates:
         t.env.filters["nom_categorie_charge"] = _nom_categorie_charge
         t.env.filters["nom_type_flux"] = _nom_type_flux
         t.env.filters["libelle_statut"] = _libelle_statut
+        t.env.filters["nom_canal"] = _nom_canal
+        t.env.filters["datetime_fr"] = _datetime_fr
+        t.env.filters["date_fr"] = _date_fr
+        t.env.filters["entier"] = _entier
         _templates = t
     return _templates

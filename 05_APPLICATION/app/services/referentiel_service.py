@@ -115,6 +115,26 @@ def libelle_logement(logement_id: str, *, db_path=None) -> str:
     return nom if nom else f"Logement non résolu ({logement_id})"
 
 
+# ── Canaux de réservation ───────────────────────────────────────────────────────────────────────
+
+def canal(canal_id: str, *, db_path=None) -> dict[str, str] | None:
+    if not canal_id:
+        return None
+    return repo.lire_par_cle("ref_canaux_reservation", _txt(canal_id), db_path=db_path)
+
+
+def libelle_canal(canal_id: str, *, db_path=None) -> str:
+    """« VRBO » plutôt que « CANAL_003 » (recette utilisateur n°3, §5).
+
+    Le code reste stocké en base et utilisable comme `value` HTML ; seul l'affichage change.
+    """
+    if not _txt(canal_id):
+        return ""
+    c = canal(canal_id, db_path=db_path)
+    nom = _txt(c.get("canal")) if c else ""
+    return nom if nom else f"Canal non résolu ({canal_id})"
+
+
 # ── Types de logement ───────────────────────────────────────────────────────────────────────────
 
 def type_label(type_logement_id: str, *, db_path=None) -> str | None:

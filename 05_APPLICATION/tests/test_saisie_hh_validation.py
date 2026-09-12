@@ -242,9 +242,16 @@ def test_cloture_ui_state_liste_uniquement_mois_ouverts(tmp_db):
 
     state = _cloture_ui_state(db_path=tmp_db)
 
-    assert state["mois_ouverts"] == ["2026-06", "2026-07"]
-    assert state["mois_ouverts_labels"] == ["juin 2026", "juillet 2026"]
+    # Les mois DÉCLARÉS ouverts le restent, le mois CLÔTURÉ ne l'est jamais.
+    assert "2026-06" in state["mois_ouverts"]
+    assert "2026-07" in state["mois_ouverts"]
+    assert "2026-05" not in state["mois_ouverts"]
     assert state["cloture_mois_status"]["2026-05"]["statut_mois"] == "CLOTURE"
+    # Le mois courant est saisissable même s'il n'a jamais été déclaré (§4/§56) : sinon la saisie
+    # s'arrête dès que personne n'a pensé à avancer le référentiel — c'est exactement ce qui
+    # s'était produit (référentiel figé à juin 2026 alors qu'on était en septembre).
+    assert state["mois_courant"] in state["mois_ouverts"]
+    assert state["mois_ouverts"] == sorted(state["mois_ouverts"])
 
 
 def test_load_form_refs_exclut_logements_techniques_et_hors_parc():
@@ -486,8 +493,18 @@ def test_d10_mois_cloture():
 
 
 def test_d10_mois_absent_referentiel():
+    """Mois jamais déclaré ET ANTÉRIEUR à une clôture prononcée : refusé.
+
+    Contrat corrigé (recette utilisateur n°3, §4/§56) : « absent du référentiel » ne vaut plus
+    « fermé » à lui seul. Une clôture est un acte explicite ; son absence ne ferme rien. Un mois
+    non déclaré n'est refusé que s'il se situe DERRIÈRE la dernière clôture prononcée — antidater
+    une saisie dans une période déjà arrêtée reste interdit, c'est l'objet réel de ce contrôle.
+    """
     with (
         patch("app.services.saisie_hh_service.get_cloture_mois", return_value=None),
+        patch("app.services.saisie_hh_service.get_cloture_rows", return_value=[
+            {"mois": "2026-09", "statut_mois": "CLOTURE"},
+        ]),
         patch("app.services.saisie_hh_service.get_all_logements", return_value=[
             {"logement_id": "LOG_0001", "actif": "OUI", "statut_parc": "GERE"}
         ]),
@@ -508,10 +525,49 @@ def test_d10_mois_absent_referentiel():
         with patch.object(opx, "load_workbook", side_effect=Exception("no real file")):
             result = valider(_base_form(), saisie_path=None, ref_setup_path=None)
     codes = {e["code"] for e in result["erreurs"]}
-    assert "MOIS_HORS_REFERENTIEL_CLOTURE" in codes
-    message = next(e["message"] for e in result["erreurs"] if e["code"] == "MOIS_HORS_REFERENTIEL_CLOTURE")
-    assert "Le mois sélectionné n'est pas ouvert dans le référentiel de clôture" in message
-    assert "Un commentaire ne permet pas de créer une réservation sur un mois non ouvert" in message
+    assert "MOIS_ANTERIEUR_A_CLOTURE" in codes
+    message = next(e["message"] for e in result["erreurs"]
+                   if e["code"] == "MOIS_ANTERIEUR_A_CLOTURE")
+    assert "antérieur à la dernière clôture prononcée" in message
+
+
+def test_d10_mois_non_declare_posterieur_a_la_cloture_est_ouvert():
+    """Le mois courant, jamais déclaré, reste saisissable (recette utilisateur n°3, §4/§56).
+
+    Régression réelle gardée : `ref_cloture_mensuelle` s'arrêtait à 2026-06 alors qu'on était en
+    septembre 2026 — juillet, août et septembre étaient refusés, et plus aucune réservation hors
+    Hostaway ne pouvait être créée. Le référentiel devait être avancé à la main, et ne l'avait
+    pas été.
+    """
+    with (
+        patch("app.services.saisie_hh_service.get_cloture_mois", return_value=None),
+        patch("app.services.saisie_hh_service.get_cloture_rows", return_value=[
+            {"mois": "2026-05", "statut_mois": "CLOTURE"},
+            {"mois": "2026-06", "statut_mois": "OUVERT"},
+        ]),
+        patch("app.services.saisie_hh_service.get_all_logements", return_value=[
+            {"logement_id": "LOG_0001", "actif": "OUI", "statut_parc": "GERE"}
+        ]),
+        patch("app.services.saisie_hh_service.get_gestion_hist", return_value=[
+            {"logement_id": "LOG_0001", "proprietaire_id": "PROP_0001",
+             "statut_gestion": "ACTIF", "date_debut": "2026-01-01", "date_fin": None}
+        ]),
+        patch("app.services.saisie_hh_service.get_all_proprietaires", return_value=[
+            {"proprietaire_id": "PROP_0001"}
+        ]),
+        patch("app.services.saisie_hh_service.get_all_associes", return_value=[]),
+        patch("app.services.saisie_hh_service.read_ref_locale", return_value={
+            "lst_Logements": ["LOG_0001"], "lst_Proprietaires": ["PROP_0001"],
+        }),
+        patch("app.services.saisie_hh_service.read_existing_pks", return_value=[]),
+    ):
+        import openpyxl as opx
+        with patch.object(opx, "load_workbook", side_effect=Exception("no real file")):
+            result = valider(_base_form(), saisie_path=None, ref_setup_path=None)
+    codes = {e["code"] for e in result["erreurs"]}
+    assert "MOIS_HORS_REFERENTIEL_CLOTURE" not in codes
+    assert "MOIS_ANTERIEUR_A_CLOTURE" not in codes
+    assert "MOIS_CLOTURE" not in codes
 
 
 # ── D7/D8 — éligibilité logement ─────────────────────────────────────────────

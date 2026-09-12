@@ -176,7 +176,11 @@ def test_get_nouvelle_200(client):
         resp = client.get("/reservations/nouvelle")
     assert resp.status_code == 200
     assert "Nouvelle réservation" in resp.text
-    assert "HH_REAL_WRITE_ENABLED" in resp.text
+    # `HH_REAL_WRITE_ENABLED` ne doit PLUS être affiché (recette utilisateur n°3, §14) : ce drapeau
+    # est mort depuis que la saisie HH vit en SQLite (aucun service ne le lit), et l'écran annonçait
+    # pourtant « garde d'écriture active » + « n'écrit pas dans SAISIE_ReservationsHorsHostaway.xlsx »
+    # alors que la confirmation écrit bel et bien la réservation. L'écran mentait à l'utilisateur.
+    assert "HH_REAL_WRITE_ENABLED" not in resp.text
 
 
 def test_get_nouvelle_contient_selects(client):

@@ -30,13 +30,65 @@ def test_controler_sans_donnees_ne_leve_pas(db):
 
 
 def test_facture_validee_sans_ecriture_detectee(db):
+    """Le contrôle garde le cas « facture validée, aucune écriture d'achat ».
+
+    Depuis la recette utilisateur n°3 (§36/§77), la validation GÉNÈRE elle-même l'écriture
+    d'achat : le cas ne peut donc plus naître d'une validation normale. Il reste possible pour
+    les factures validées AVANT cette correction (les deux factures PDF réelles étaient dans cet
+    état exact : VALIDEE, journal ACHATS vide) et si une écriture venait à disparaître. On
+    reconstitue donc la situation en retirant l'écriture après coup.
+    """
     frs = frs_svc.creer("Fournisseur Ctrl Test", "MAINTENANCE", db_path=db)["fournisseur_id_opaque"]
     r = fact.creer({"fournisseur_id_opaque": frs, "facture_ref": "FA-CTRL-1",
                    "date_facture": "2026-06-10", "montant_ttc": 40.0}, db_path=db)
     fact.changer_statut(r["facture_id_opaque"], fact.ST_VALIDEE, db_path=db)
+    conn = get_db(db)
+    try:
+        conn.execute("DELETE FROM ecriture_lignes WHERE ecriture_id_opaque IN "
+                     "(SELECT ecriture_id_opaque FROM ecritures WHERE origine_id_opaque=?)",
+                     (r["facture_id_opaque"],))
+        conn.execute("DELETE FROM ecritures WHERE origine_id_opaque=?", (r["facture_id_opaque"],))
+        conn.commit()
+    finally:
+        conn.close()
     rapport = ctrl.controler(db_path=db)
     codes = [a["code"] for a in rapport["anomalies"]]
     assert ctrl.C_FACTURE_SANS_ECRITURE in codes
+
+
+def test_validation_facture_genere_ecriture_achat_et_dette(db):
+    """§36/§77 — la dette fournisseur naît à la VALIDATION, pas au débit bancaire."""
+    frs = frs_svc.creer("Fournisseur Achat", "MAINTENANCE", db_path=db)["fournisseur_id_opaque"]
+    r = fact.creer({"fournisseur_id_opaque": frs, "facture_ref": "FA-ACHAT-1",
+                    "date_facture": "2026-06-10", "montant_ttc": 40.0}, db_path=db)
+    res = fact.changer_statut(r["facture_id_opaque"], fact.ST_VALIDEE, db_path=db)
+    assert res["ok"] is True
+    assert res["ecriture_achat"]["ok"] is True
+
+    conn = get_db(db)
+    try:
+        ecr = conn.execute(
+            "SELECT ecriture_id_opaque, journal, total_debit, total_credit FROM ecritures "
+            "WHERE origine_id_opaque=?", (r["facture_id_opaque"],)).fetchall()
+        assert len(ecr) == 1 and ecr[0]["journal"] == "ACHATS"
+        assert ecr[0]["total_debit"] == ecr[0]["total_credit"] == 40.0
+        dette = conn.execute(
+            "SELECT credit FROM ecriture_lignes WHERE ecriture_id_opaque=? AND compte='401000'",
+            (ecr[0]["ecriture_id_opaque"],)).fetchone()
+        assert dette["credit"] == 40.0
+    finally:
+        conn.close()
+
+    # Idempotence stricte (§35) : rejouer la validation ne crée jamais une seconde dépense.
+    fact.changer_statut(r["facture_id_opaque"], fact.ST_VALIDEE, db_path=db)
+    compta.generer_ecriture_achat(r["facture_id_opaque"], db_path=db)
+    conn = get_db(db)
+    try:
+        n = conn.execute("SELECT COUNT(*) c FROM ecritures WHERE origine_id_opaque=?",
+                         (r["facture_id_opaque"],)).fetchone()["c"]
+    finally:
+        conn.close()
+    assert n == 1
 
 
 def test_facture_avec_ecriture_ne_declenche_pas_lanomalie(db):

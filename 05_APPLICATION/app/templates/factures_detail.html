@@ -121,23 +121,34 @@
   {% if facture.lignes %}
   <div class="table-container">
     <table class="data-table">
-      <thead><tr><th>Charge</th><th>Logement</th><th class="num">Montant TTC</th><th>Commentaire</th></tr></thead>
+      <thead><tr>
+        <th>Libellé d'origine</th><th class="num">Qté</th><th class="num">P.U.</th>
+        <th class="num">Montant</th><th>Ménage</th><th>Logement</th>
+      </tr></thead>
       <tbody>
         {% for l in facture.lignes %}
         <tr>
-          <td>{{ l.charge_id }}</td>
-          <td>{{ l.logement_id or "—" }}</td>
+          <td>{{ l.description or l.commentaire or "—" }}</td>
+          <td class="num">{{ l.quantite|entier if l.quantite is not none else "—" }}</td>
+          <td class="num">{{ "%.2f"|format(l.prix_unitaire) if l.prix_unitaire is not none else "—" }}</td>
           <td class="num">{{ "%.2f"|format(l.montant_ttc) }}</td>
-          <td>{{ l.commentaire or "—" }}</td>
+          <td>{% if l.est_menage %}<span class="badge badge-success">Oui</span>{% else %}<span class="badge badge-neutral">Non</span>{% endif %}</td>
+          <td>{{ l.logement_id|nom_logement if l.logement_id else "À confirmer" }}</td>
         </tr>
         {% endfor %}
       </tbody>
-      <tfoot><tr><th colspan="2">Total des lignes</th>
-        <th class="num">{{ "%.2f"|format(facture.montant_lignes_ttc) }}</th><th></th></tr></tfoot>
+      <tfoot><tr><th colspan="3">Total des lignes</th>
+        <th class="num">{{ "%.2f"|format(facture.montant_lignes_ttc) }}</th><th colspan="2"></th></tr></tfoot>
     </table>
   </div>
-  {% if (facture.montant_lignes_ttc - facture.montant_ttc)|abs > 0.005 %}
-  <div class="alert alert-warning mt-sm">Le total des lignes ({{ "%.2f"|format(facture.montant_lignes_ttc) }}) ne correspond pas au montant TTC de la facture ({{ "%.2f"|format(facture.montant_ttc) }}).</div>
+  {% set ecart_lignes = (facture.montant_lignes_ttc - facture.montant_ttc)|round(2) %}
+  {% if ecart_lignes|abs > 0.005 %}
+  <div class="alert alert-warning mt-sm">
+    <strong>Écart de {{ "%.2f"|format(ecart_lignes) }} € entre les lignes et le total du document.</strong>
+    Total des lignes {{ "%.2f"|format(facture.montant_lignes_ttc) }} € · total facture
+    {{ "%.2f"|format(facture.montant_ttc) }} €. Tant que cet écart n'est pas résolu, la facture
+    ne peut pas être validée : une ligne manque, ou une ligne a été mal extraite.
+  </div>
   {% endif %}
   {% else %}
   <p class="section-note">Aucune ligne. {% if facture.charge_id %}Cette facture utilise le rattachement mono-charge.{% endif %}</p>

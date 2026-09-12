@@ -224,8 +224,12 @@ def generer_ecriture_achat(facture_id_opaque: str, *, acteur: str = "",
     ventilation: list[dict[str, Any]] = []
     if facture_lignes:
         for fl in facture_lignes:
+            # `charge_id` n'existe que sur les lignes issues de l'ancien rattachement de charge.
+            # Une ligne extraite d'un PDF (`facture_lignes_menage`) n'en a pas — et n'en a pas
+            # besoin : elle porte déjà son `logement_id` résolu. Sans ce `.get()`, la génération
+            # de l'écriture d'achat levait un KeyError sur toute facture réellement extraite.
             src = _ligne_source_depuis_charge(
-                fl["charge_id"], fl["montant_ttc"], origine_type="FACTURE_LIGNE",
+                fl.get("charge_id") or "", fl["montant_ttc"], origine_type="FACTURE_LIGNE",
                 origine_id=fl["ligne_id_opaque"], logement_id_hint=fl.get("logement_id"),
                 db_path=db_path)
             if src["methode"] != "SANS_DIMENSION":
