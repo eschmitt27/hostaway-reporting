@@ -87,3 +87,53 @@ plus sûr que de leur ouvrir un chemin d'activation. Les ouvrir serait un **éla
 | — | Verrou périmé bloquant définitivement la chaîne ménages — reprise atomique journalisée |
 | — | `lot13` bloquant systématique — renommage à la frontière d'export |
 | — | Double comptage de 8,90 € entre charge manuelle et flux bancaire |
+
+
+---
+
+## Mise à jour 2026-09-12 — recette utilisateur n°3 (§92)
+
+La matrice ci-dessus date du **27 juillet 2026**. Trois de ses lignes ne décrivaient plus l'état
+réel, et une colonne entière était périmée. Ce qui suit **remplace** la lecture précédente ; la
+matrice d'origine est conservée telle quelle, parce qu'elle documente un état à une date.
+
+### Ce qui a changé depuis, et qui rendait l'inventaire faux
+
+| Ligne | Ce que disait la matrice | Ce qui est vrai aujourd'hui |
+|---|---|---|
+| **Mode réel** (colonne entière) | ⛔ partout | **ACTIVÉ** : l'instance de recette tourne avec les cinq paires de drapeaux d'écriture réelle posées, sur `app.db` |
+| **Propriétaires** | PARTIEL — « module antérieur au chantier, jamais ré-exercé ici » | Ré-exercé intégralement : téléphones canoniques, type de client de facturation, classification d'administration, identifiants dérivés, listes déroulantes |
+| **Réservations** | PARTIEL — « lecture seule assumée ; aucune écriture applicative prévue » | **Écriture applicative en place** : saisie hors Hostaway, avec contrôle de mois ouvert (D-SAISIE-MOIS-01) |
+| **Ménages** | PARTIEL — restaient les pools et le rattachement facture | Chaîne **entièrement SQLite**, sans classeur intermédiaire ; lignes de facture ménage rattachées depuis l'écran |
+
+### Matrice au 12 septembre 2026
+
+| Module | Lecture | Écriture réelle | Pipeline | UI | Contrôles | Statut | Preuve |
+|---|:--:|:--:|:--:|:--:|:--:|---|---|
+| Logements | ✅ | ✅ | — | ✅ | ✅ | **TERMINÉ** | D-ADMIN-CLASSIFICATION-01, D-ADMIN-CHAMPS-01 |
+| Propriétaires | ✅ | ✅ | — | ✅ | ✅ | **TERMINÉ** | D-FACT-PROP-DOCUMENT-01, §45 téléphones |
+| Réservations | ✅ | ✅ | ✅ | ✅ | ⚠️ | **PARTIEL** | D-SAISIE-MOIS-01 · *reste : contrôles d'anomalie sur la saisie manuelle* |
+| Ménages | ✅ | ✅ | ✅ | ✅ | ✅ | **TERMINÉ** | D-MEN-SQLITE-01, CTR-RECALCUL-MENAGES-COUT-COMPLET |
+| Charges | ✅ | ✅ | ✅ | ✅ | ✅ | **TERMINÉ** | D-CHG-REOUVERTURE-01 |
+| Fournisseurs | ✅ | ✅ | — | ✅ | ✅ | **TERMINÉ** | D-FOURN-LIGNES-01, D-FOURN-LOGEMENT-01, D-FOURN-QUANTITE-01 |
+| Factures fournisseurs | ✅ | ✅ | — | ✅ | ✅ | **TERMINÉ** | CTR-COHERENCE-LIGNES-FOURNISSEUR |
+| Factures propriétaires | ✅ | ✅ | — | ✅ | ✅ | **TERMINÉ** | D-FACT-EXCEPTIONNELLE-01, CTR-FACTURE-EXCEPTIONNELLE-CYCLE |
+| Règlements | ✅ | ✅ | — | ✅ | ✅ | **TERMINÉ** | `34` |
+| Banque | ✅ | ✅ | — | ✅ | ✅ | **TERMINÉ** | `30`, `31` |
+| Caisse | ✅ | ✅ | — | ✅ | ✅ | **TERMINÉ** | D-CAISSE-CYCLE-01 |
+| Calculs | ✅ | ✅ | ✅ | ✅ | ✅ | **TERMINÉ** | `35`–`39` |
+| Contrôles | ✅ | ⛔ | ✅ | ✅ | ✅ | **PARTIEL** | écriture **gelée volontairement** — le moteur reste la vérité de l'anomalie |
+| Clôture | ✅ | ✅ | ✅ | ✅ | ✅ | **TERMINÉ** | `36`, `37` |
+| Exports Power BI | ✅ | ✅ | ✅ | — | ✅ | **TERMINÉ** | `38` |
+| Comptabilité | ✅ | ✅ | — | ✅ | ✅ | **TERMINÉ** | CTR-DATES-FORME-ISO, CTR-AUXILIAIRES-PAR-NOM |
+| Administration référentiels | ✅ | ✅ | — | ✅ | ✅ | **TERMINÉ** | D-ADMIN-CLASSIFICATION-01 |
+
+### Ce qui reste PARTIEL, et pourquoi
+
+| Module | Ce qui manque | Est-ce bloquant ? |
+|---|---|---|
+| Réservations | contrôles d'anomalie propres à la saisie hors Hostaway (l'écriture, elle, fonctionne) | non — la saisie est gardée par le contrôle de mois ouvert |
+| Contrôles | écriture réelle **gelée** : `CONTROLES_REAL_WRITE_*` agit en interlock **inverse** — l'activer ferait REFUSER le recalcul sur copie | non — c'est la décision, pas un manque |
+
+**Aucun module n'est classé TERMINÉ sans preuve** : chaque ligne renvoie à une décision métier ou à
+un contrôle daté du journal.
