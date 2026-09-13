@@ -34,6 +34,13 @@ jobs:
       - name: Run finance fields extraction
         run: python extract_finance_fields.py
 
+      # Tâches de ménage (/v1/tasks). Non bloquant : un échec ne doit empêcher ni le rapport ni la
+      # publication des réservations. Le script n'écrit son fichier qu'en cas d'extraction
+      # complète — sinon le dernier fichier publié reste inchangé.
+      - name: Run cleaning tasks extraction
+        continue-on-error: true
+        run: python extract_cleaning_tasks.py
+
       - name: Build final report
         run: python build_final_report.py
 
