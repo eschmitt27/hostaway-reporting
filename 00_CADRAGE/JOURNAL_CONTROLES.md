@@ -5613,3 +5613,32 @@ Le run est marqué `INTERROMPU` avec la preuve retenue, jamais effacé.
 
 **7 contrôles déterministes**, dont les deux cas les plus faciles à rater : un processus vivant
 au-delà du bail (jamais tué) et un run venu d'une autre machine (jamais jugé sur son PID).
+
+## CTR-SCHEDULER-HOSTAWAY-2026-09-13 — le scheduler 5 h contrôlé sur les vrais services
+
+**Pourquoi refaire des contrôles déjà « verts ».** La Mission 18e couvrait les 27 exigences par des
+tests nommés. Deux changements ultérieurs (ingestion par le dépôt publié ; service attaché à H6) les
+avaient rendus en partie aveugles : ils remplaçaient l'orchestrateur par un double, et ne voyaient
+donc jamais l'orchestrateur réel parcourir le DAG réel. Les nouveaux contrôles font tourner les vrais
+services — scheduler, orchestrateur, service canonique, verrou, `run_history` — et ne doublent QUE le
+transport : lecture du dépôt et sous-processus d'extraction.
+
+**Ce que ces contrôles ont révélé** — aucun défaut n'était visible avec les doubles précédents :
+
+| Contrôle | Défaut révélé |
+|---|---|
+| battement réel sur base neuve | H6 exécuté en descendant de chaque run 5 h |
+| second battement après un dépôt injoignable | palier jamais appliqué : `calcule_le` effacé par EN_COURS/ECHEC |
+| deux synchronisations dans deux fils | refus fondé sur une ligne écrite après le démarrage du sous-processus |
+| 8 prises de verrou simultanées | lecture et écriture du bail hors transaction |
+| `arreter()` pendant un battement bloqué | minuteur réarmé après l'arrêt |
+| code retour 1 du moteur via le bouton | « Synchronisation terminée » affiché |
+| suite exécutée sur une copie sans `.git` | deux tests `importer_hostaway` faisaient un vrai `git fetch` |
+
+**39 contrôles ajoutés** dans `test_scheduler_hostaway_securise.py`, numérotés selon la liste de la
+mission (correspondance : `SCHEDULER_HOSTAWAY.md` §13.10). Le plus exigeant simule un arrêt brutal
+entre l'import d'une nouvelle version et le recalcul aval : l'aval ne doit jamais rester « à jour »
+sur l'ancienne version, et le run suivant doit tout recalculer bien que le dépôt n'ait rien de neuf.
+
+**Garde-fous propres aux tests** : pendant un battement complet, `requests`, les sockets et toute
+commande `git` lèvent une erreur ; toute connexion SQLite ouverte doit viser la base de test.

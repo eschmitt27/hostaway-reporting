@@ -1609,3 +1609,97 @@ recette (variable d'environnement existante pointée sur le venv du projet, aucu
 `verifier_interpreteur()` rend `ok=True, pandas=True`. **Statut : CONTOURNÉ** — le défaut codé
 reste inadapté à toute machine sans ce chemin exact ; à arbitrer si le projet doit dériver
 l'interpréteur plutôt que le coder en dur.
+
+## Mission 28 (2026-09-13) — scheduler Hostaway sécurisé 5 h
+
+Uniquement les anomalies RÉELLES découvertes pendant la mission. Le scheduler réel étant resté OFF,
+aucune ne s'est produite sur la base réelle via le scheduler ; ANO-SCHED-02, -05 et -06 touchaient en
+revanche déjà les chemins manuels. Détail : `SCHEDULER_HOSTAWAY.md` §13.3.
+
+### ANO-SCHED-01 — CleaningTasks embarqué par chaque run 5 h — CORRIGÉE
+
+| Champ | Valeur |
+|---|---|
+| Sévérité | **HAUTE** dès l'activation du scheduler |
+| Cause | H6 dépend de HOSTAWAY_RAW et porte un service ; l'orchestrateur exécutait tout descendant externe dès que `inclure_imports_externes=True` |
+| Effet | sans identifiants de tâches : H6 ECHEC → MENAGES bloqué → FLUX_LOT9, LOT10, LOT11, LOT12 `A_RECALCULER` après chaque run automatique |
+| Correctif | import externe exécuté seulement s'il est ciblé ; propagation non traversante ; H6 hors `TACHES_AUTOMATIQUES` |
+| Commit | `33fed0e` |
+
+### ANO-SCHED-02 — `calcule_le` effacé : palier après échec inopérant — CORRIGÉE
+
+| Champ | Valeur |
+|---|---|
+| Sévérité | **HAUTE** à l'activation · **MOYENNE** aujourd'hui (date du dernier succès perdue à l'écran après tout échec) |
+| Cause | `marquer_dataset` conservait `calcule_le` en le cherchant dans un `SELECT statut` qui ne le ramenait pas |
+| Effet | toute source en ECHEC redevenait « jamais actualisée » : relance à chaque battement, palier jamais appliqué |
+| Correctif | `SELECT statut, calcule_le` |
+| Commit | `5f6cb38` |
+
+### ANO-SCHED-03 — exclusion manuel/automatique non atomique — CORRIGÉE
+
+| Champ | Valeur |
+|---|---|
+| Sévérité | **MOYENNE** |
+| Cause | refus fondé sur `moteur_runs`, ligne écrite par le sous-processus après son démarrage ; `prendre_verrou` lisait puis écrivait hors transaction |
+| Effet | deux imports concurrents possibles (clic pendant un battement, double clic) |
+| Correctif | bail `HOSTAWAY_RAW` pris par `synchroniser` avant toute lecture ; `BEGIN IMMEDIATE` |
+| Commit | `5f6cb38` |
+
+### ANO-SCHED-04 — déclencheur forcé à AUTO — CORRIGÉE
+
+| Champ | Valeur |
+|---|---|
+| Sévérité | **FAIBLE** (traçabilité) |
+| Effet | un import lancé depuis `/actualisation` tracé AUTO |
+| Commit | `5f6cb38` |
+
+### ANO-SCHED-05 — « Synchronisation terminée » pour un import échoué — CORRIGÉE
+
+| Champ | Valeur |
+|---|---|
+| Sévérité | **MOYENNE** — touchait le bouton réel de l'écran Hostaway |
+| Cause | code retour ≠ 0 du moteur rendu `ok=True` (le lancement avait réussi) |
+| Correctif | `ok=False`, code `HOSTAWAY_IMPORT_ECHOUE`, message explicite |
+| Commit | `5f6cb38` |
+
+### ANO-SCHED-06 — chemins et identifiants d'URL exposables — CORRIGÉE
+
+| Champ | Valeur |
+|---|---|
+| Sévérité | **MOYENNE** (APP-SEC) |
+| Cause | timeout journalisé par `str(TimeoutExpired)` (ligne de commande : 3 chemins absolus) ; erreur `git` brute affichée et stockée |
+| Correctif | code `HOSTAWAY_DELAI_DEPASSE` sans l'exception ; `sanitize_erreur_externe` (identifiants d'URL puis chemins) |
+| Commit | `5f6cb38` |
+
+### ANO-SCHED-07 — minuteur réarmé après l'arrêt — CORRIGÉE
+
+| Champ | Valeur |
+|---|---|
+| Sévérité | **FAIBLE** |
+| Effet | fil orphelin après `arreter()` pendant un battement ; deux schedulers après un redémarrage |
+| Commit | `33fed0e` |
+
+### ANO-SCHED-08 — aval recalculé à chaque battement — CORRIGÉE
+
+| Champ | Valeur |
+|---|---|
+| Sévérité | **FAIBLE** (coût) |
+| Effet | chaîne complète recalculée à chaque run 5 h, dépôt inchangé |
+| Commit | `73260d5` |
+
+### ANO-SCHED-09 — tests non hermétiques — CORRIGÉE
+
+| Champ | Valeur |
+|---|---|
+| Sévérité | **FAIBLE** |
+| Effet | deux tests `importer_hostaway` faisaient un vrai `git fetch` ; échec hors dépôt Git |
+| Commit | `5f6cb38` |
+
+### Points ouverts, à arbitrer (non bloquants)
+
+- **CADENCE H6 À ARBITRER** — jamais déclenchée automatiquement tant qu'aucune règle ne la fixe.
+- **Aval après un import en échec** — marqué `A_RECALCULER` (sémantique 14b) alors que ses données
+  restent valides ; recalculé au succès suivant.
+- **Bouton `/hostaway` sans propagation** — l'import est propagé au run orchestré suivant, jamais
+  perdu ; le rendre propagateur changerait un parcours recetté.

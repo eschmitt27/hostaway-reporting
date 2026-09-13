@@ -2318,3 +2318,31 @@ ré-enregistrements sont supprimés — il n'existe plus qu'une définition.
 
 Détail complet : `HANDOFF_CANONIQUE.md` mission 26, `DECISIONS_METIER.md`
 (`D-FOURN-LIGNES-01`, `D-CHG-REOUVERTURE-01`, `D-SAISIE-MOIS-01`).
+
+## Mise à jour 2026-09-13 — Mission 28 : scheduler Hostaway sécurisé 5 h
+
+**Schéma inchangé (0087) : aucune table, colonne, migration ni registre créé.** Ce qui change est la
+façon dont les registres EXISTANTS sont lus et écrits.
+
+- **Chaîne automatique** : `ordonnanceur_service` (déclencheur seul) →
+  `orchestrateur_service.actualiser(cibles=[HOSTAWAY_RAW], declencheur=AUTO)` → DAG →
+  `orchestrateur_moteur.importer_hostaway` → `hostaway_depot_service.synchroniser` (service
+  canonique, aussi appelé par le bouton `/hostaway` et « Actualiser les ménages ») →
+  `lot1_hostaway_extract --source DEPOT_GITHUB` → extraction RAW isolée, activée à sa clôture.
+- **`orchestrateur_verrous`** : portée `HOSTAWAY_RAW` (convention existante « nom d'un dataset »)
+  prise par chaque synchronisation avant la lecture du dépôt. `prendre_verrou` lit et écrit le bail
+  dans une transaction `BEGIN IMMEDIATE`.
+- **`orchestrateur_datasets.calcule_le`** : réellement conservé à travers EN_COURS/ECHEC. Il était
+  effacé à chaque transition — la colonne était documentée « dernier calcul RÉUSSI » sans que le
+  code la relise.
+- **`orchestrateur_dataset_evenements`** : le `detail` du dernier passage `A_JOUR` sert d'identité de
+  propagation — `extraction_id` sur lequel l'aval a été calculé.
+- **Propagation** : un import externe n'est exécuté que s'il est lui-même ciblé, et la propagation
+  ne le traverse pas (H6 n'est plus entraîné par HOSTAWAY_RAW). Sur une actualisation ciblée, un
+  descendant `A_JOUR` dont tous les amonts du run sont inchangés est conservé ; un dataset modifié
+  invalide ses enfants de calcul du périmètre AVANT leur recalcul.
+- **`run_history`** : opération `HOSTAWAY` ouverte et close par `synchroniser` quelle que soit
+  l'issue ; entrée orpheline close `FAILED` (RUN_INTERROMPU) sous verrou ; erreurs sanitisées
+  (`path_sanitizer.sanitize_erreur_externe`).
+
+Détail et correspondance des 27 tests : `SCHEDULER_HOSTAWAY.md` §13.

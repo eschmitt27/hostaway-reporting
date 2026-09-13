@@ -3586,3 +3586,73 @@ Depuis 18e, l'ingestion Hostaway est passée au dépôt publié par le pipeline 
 | # | SHA | Contenu | Tests |
 |---|---|---|---|
 | 1 | `33fed0e` | Minuteur unique (génération de cycle), H6 hors job 5 h, cadence bornée | 237 passed |
+| 2 | `5f6cb38` | Bail atomique `HOSTAWAY_RAW`, `run_history` complet et sanitisé, déclencheur exact, palier après échec rétabli (`calcule_le`), import échoué jamais annoncé terminé, tests hermétiques | 340 passed |
+| 3 | `73260d5` | Aval conservé quand l'extraction servie est celle déjà propagée ; invalidation des enfants au changement | 215 passed |
+| 4 | `f800dfa` | Observabilité sur les écrans existants : dernier run / succès / échec, déclencheur, durée, prochain run prévu | 161 passed |
+| 5 | *(ce commit)* | Documentation : `SCHEDULER_HOSTAWAY.md` §13, handoff, architecture, journaux, roadmap | — |
+
+### Architecture retenue
+
+```
+Scheduler (déclencheur seul) → orchestrateur.actualiser([HOSTAWAY_RAW], AUTO)
+  → DAG → importer_hostaway(déclencheur) → hostaway_depot_service.synchroniser   ← SERVICE CANONIQUE
+      bail HOSTAWAY_RAW · run_history · dépôt publié · lot1 --source DEPOT_GITHUB · activation à la clôture
+  → « inchangé ? » (extraction servie == extraction propagée) → descendants conservés ou recalculés
+```
+
+Le bouton `/hostaway` appelle le même `synchroniser` (MANUEL) ; `/actualisation` cible HOSTAWAY_RAW
+fait l'appel orchestrateur exact du scheduler. CleaningTasks : **hors scheduler 5 h, cadence à
+arbitrer**.
+
+### Verdict
+
+| Point | État |
+|---|---|
+| Scheduler Hostaway | **PRÊT** — construit, testé, inactif |
+| Fréquence | **5 h configurable** (`HOSTAWAY_REFRESH_INTERVAL_HOURS`, bornée ≥ 1 h) |
+| Activé par défaut | **NON** (`ORDONNANCEUR_ACTIF` vide) |
+| Manuel et automatique | **MÊME SERVICE** |
+| Concurrence | **PROTÉGÉE** (bail atomique, refus immédiat dans les deux sens) |
+| Run history | **INTÉGRÉ** (toute issue, erreurs sanitisées) |
+| Panne API / dépôt | **DERNIER DATASET CONSERVÉ** |
+| Restauration DB sur simple panne | **NON** |
+| Rate limit | **BORNÉ** (client canonique ; palier 1 h côté scheduler, désormais effectif) |
+| Crash / reprise | **PROTÉGÉ** |
+| DAG aval | **ORCHESTRATEUR EXISTANT** |
+| CleaningTasks | **HORS SCHEDULER 5 H — À ARBITRER** |
+
+### Tests
+
+| Périmètre | Résultat |
+|---|---|
+| `test_scheduler_hostaway_securise.py` (nouveau) | **39 passed** |
+| Ciblés, par commit | 237 · 340 · 215 · 161 passed |
+| Référence mesurée AVANT toute modification (copie de `0d454bc`) | application 3 710 passed / 7 failed / 69 skipped · moteur 407 / 5 / 1 |
+| Application, copie de `f800dfa` (même environnement que la référence) | **3 751 passed / 5 failed / 69 skipped** |
+| Comparaison test par test | **0 nouvel échec** · 2 échecs disparus (`test_orchestrateur_importer_hostaway_apres_extraction_reelle_reussie`/`_echouee`, rendus hermétiques) · +41 passed = 39 nouveaux + 2 réparés |
+| Application, worktree réel (`f800dfa`) | **3 764 passed / 1 failed / 60 skipped** (32 min) |
+| Seul échec worktree | `test_gardes_bancaires_coherence::test_banque_lot8_present_les_tests_gardes_s_executent` — déjà en échec dans la référence, sans rapport (Banque) |
+| Moteur (`tests/` racine), copie et worktree | **407 passed / 5 failed / 1 skipped** — mêmes 5 échecs que la référence (lot6e ×2, lot6f ×2, lot10 dédup) |
+
+Les 4 autres échecs de la copie (`test_banques` ×2, `test_calculs_routes::test_page_affiche_environnement_et_mode`,
+`test_menages_actualisation_workflow::test_route_est_synchrone`) sont environnementaux — présents
+avant et après, absents du worktree réel (sources non versionnées, pas de `.git` sur la copie).
+
+### Intégrité
+
+| Point | Constat |
+|---|---|
+| Vraie `05_APPLICATION/data/app.db` | sha256 `20b7e7a0…b407a8` **identique** avant et après, mtime 2026-09-12 20:45:32 inchangé, WAL vide. L'index `app.db-shm` a été horodaté pendant la suite worktree : ouverture en lecture par un test pré-existant ; aucun test de cette mission n'ouvre une autre base que la sienne (`test_20_21` le vérifie) |
+| Migrations | 0087 — aucune ajoutée |
+| Scheduler réel | **OFF** — `ORDONNANCEUR_ACTIF` vide dans `.env` (fichier inchangé depuis le 2026-09-11), défaut faux |
+| Écritures réelles | `MODE_REEL_ECRITURES` vide ; aucune garde, aucun défaut de configuration modifié |
+| Appels réels | aucun appel Hostaway, aucun `git fetch` en test |
+| VRBO | `56388919` / `57780060` non touchés ; 23 DIRECT et 3 VRBO futures non touchés (base réelle identique) |
+
+### Prochaine action unique
+
+**Mission « référentiels administrables »** — désignée par la consigne de la mission 28 comme sa
+suite, non commencée ici. Ne bloquent pas le développement mais restent en attente côté
+utilisateur : les deux factures de juillet (mission 27) et l'annonce `590757`. Points à arbitrer
+hérités de cette mission : `CADENCE_H6_A_ARBITRER`, statut de l'aval après un import en échec.
+`VRBO_REAL_PAYOUT_PENDING_EXTERNAL_SOURCE` inchangé : `56388919` et `57780060` restent figés.

@@ -561,3 +561,20 @@ tourne sur les vraies données, writers métier activés.
   accepté, aucune donnée fictive créée.
 - **Prochaine action** : la **recette utilisateur** elle-même (`RECETTE_MODE_REEL_20260910.md`).
   Les corrections seront priorisées à partir de ses résultats réels.
+
+**Mis à jour 2026-09-13 (mission 28 — scheduler Hostaway sécurisé 5 h, audit refait sur l'arbre
+réel)** :
+- Le constat 18e « scheduler déjà construit, 27 exigences couvertes » ne tenait plus après le
+  passage de l'ingestion au dépôt publié et l'ajout d'un service à H6 : CleaningTasks embarqué par
+  chaque run 5 h, palier après échec inopérant (`calcule_le` effacé), exclusion manuel/automatique
+  non atomique, aval recalculé à chaque battement, minuteur réarmé après arrêt, import échoué
+  annoncé « terminé ». **Tous corrigés** (`33fed0e`, `5f6cb38`, `73260d5`, `f800dfa`). Aucune table,
+  aucune migration (schéma 0087).
+- `OPT_RECALCUL_AVAL_HASH_RAW_A_ARBITRER` : **levé** — l'identité d'extraction (`source_ref` et
+  journal des transitions) suffisait, aucun hash créé.
+- Restent à arbitrer, non bloquants : `CADENCE_H6_A_ARBITRER` ; statut de l'aval après un import en
+  échec ; bouton `/hostaway` sans propagation immédiate.
+- Scheduler réel **toujours OFF** (`ORDONNANCEUR_ACTIF` vide). Configuration d'écriture réelle non
+  modifiée. Détail : `SCHEDULER_HOSTAWAY.md` §13.
+- **Prochaine action** : mission « référentiels administrables », désignée par la consigne de la
+  mission 28 comme sa suite — non commencée.
