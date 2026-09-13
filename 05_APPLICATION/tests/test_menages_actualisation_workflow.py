@@ -45,7 +45,7 @@ def espions(monkeypatch, db):
 
     # Préflights (mission « spinner infini ») : réputés OK par défaut dans ce fixture, testés
     # explicitement KO dans les tests dédiés A/B ci-dessous (override du monkeypatch au cas par cas).
-    monkeypatch.setattr(hostaway_ct, "credentials_disponibles", lambda: True)
+    monkeypatch.setattr(hostaway_ct, "source_disponible", lambda: True)
     monkeypatch.setattr(workflow_svc, "_google_sheet_config_ok", lambda **k: True)
 
     def _pdf(**kw):

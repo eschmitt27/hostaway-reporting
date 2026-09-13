@@ -24,10 +24,14 @@ référentiels de l'application, datés et versionnés, et c'est le moteur qui c
 importer d'ici créerait une seconde vérité, muette, plus récente en apparence, et fausse le jour
 où l'une des deux change. Le dépôt fournit des FAITS Hostaway ; l'application détient les RÈGLES.
 
+TÂCHES DE MÉNAGE
+Le pipeline publie aussi `cleaning_tasks_hostaway.tsv` (`/v1/tasks`). Ce fichier est FACULTATIF
+pour la disponibilité du dépôt (les réservations n'en dépendent pas) ; `etat()` dit s'il est
+publié. Absent, `get_tasks()` lève, avec un message explicite.
+
 CE QUE LE DÉPÔT NE PORTE PAS
-Le pipeline extrait les réservations et leurs champs financiers. Il n'extrait ni les tâches de
-ménage (`/v1/tasks`), ni la fiche des annonces (`/v1/listings`). `get_tasks()` lève donc, avec un
-message explicite : « non fourni par cette source » n'est pas « aucune tâche ». C'est la même
+La fiche des annonces (`/v1/listings`) n'est pas publiée. Et un fichier de tâches absent n'est
+jamais rendu comme une liste vide : « non fourni par cette source » n'est pas « aucune tâche ». C'est la même
 distinction que `RateLimitEpuise` fait déjà pour un débit saturé, et elle a la même raison d'être —
 un ensemble vide rendu par erreur fait disparaître des données sans la moindre alerte.
 """
@@ -42,6 +46,10 @@ from pathlib import Path
 # Fichiers publiés par le pipeline GitHub, sur la branche de données.
 FICHIER_RESERVATIONS = "reservations_hostaway.tsv"
 FICHIER_FINANCE_FIELDS = "finance_fields_hostaway.tsv"
+# Tâches de ménage (`/v1/tasks`, H6) — publiées par `extract_cleaning_tasks.py`. OPTIONNEL pour la
+# disponibilité du dépôt : son absence n'empêche pas de lire les réservations, elle fait seulement
+# refuser `get_tasks()` avec un motif explicite.
+FICHIER_CLEANING_TASKS = "cleaning_tasks_hostaway.tsv"
 
 # Le rapport final agrégé du pipeline. Volontairement NON lu : il porte `TotalPayout`, `CoutMenage`
 # et `TauxCommission`, qui sont des conclusions, pas des faits. Nommé ici pour que le lecteur sache
@@ -181,6 +189,9 @@ def etat(racine, *, remote: str = REMOTE_DEFAUT, branche: str = BRANCHE_DEFAUT,
         # installation les importera. Confondre les deux, c'est mentir sur la fraîcheur.
         "source_horodatage": horodatage.strip(),
         "fichiers_manquants": manquants,
+        # Tâches de ménage publiées dans CE commit ? Indépendant de `disponible` : un dépôt sans
+        # tâches reste lisible pour les réservations.
+        "cleaning_tasks_publiees": FICHIER_CLEANING_TASKS in presents,
         "rafraichi": not erreur,
         "erreur": erreur or ("Fichiers absents du dépôt : " + ", ".join(manquants)
                              if manquants else ""),
@@ -371,10 +382,37 @@ class SourceDepotGitHub:
         } for identifiant, nom in vues.items()]
 
     def get_tasks(self, date_from: str) -> list:
-        raise DonneeNonFournieParCetteSource(
-            "Les tâches de ménage ne sont pas publiées par le pipeline GitHub : il extrait les "
-            "réservations et les champs financiers, pas `/v1/tasks`. Rendre une liste vide ferait "
-            "passer « non fourni » pour « aucune tâche ».")
+        """Tâches de ménage publiées (`cleaning_tasks_hostaway.tsv`), présentées comme `/v1/tasks`.
+
+        AUCUN FILTRE DE DATE, comme `count_reservations` : le pipeline applique déjà son propre
+        `dateFrom`, et rejouer ce filtre au jugé écarterait des tâches sans le dire — l'aval
+        travaille par mois. Un fichier ABSENT n'est pas « aucune tâche » : il lève.
+        """
+        if not self._etat.get("cleaning_tasks_publiees"):
+            raise DonneeNonFournieParCetteSource(
+                f"Les tâches de ménage ne sont pas publiées dans le dépôt "
+                f"{self._etat['commit_court']} ({FICHIER_CLEANING_TASKS} absent). Rendre une "
+                "liste vide ferait passer « non fourni » pour « aucune tâche ».")
+        vues: dict = {}
+        for ligne in _lire_tsv(self._fichier(FICHIER_CLEANING_TASKS)):
+            identifiant = _identifiant(ligne.get("id"))
+            if identifiant is None or identifiant in vues:
+                continue
+            vues[identifiant] = {
+                "id": identifiant,
+                "reservationId": _identifiant(ligne.get("reservationId")),
+                "listingMapId": _identifiant(ligne.get("listingMapId")),
+                "title": _txt(ligne.get("title")) or None,
+                "status": _txt(ligne.get("status")) or None,
+                "taskType": _txt(ligne.get("taskType")) or None,
+                "type": _txt(ligne.get("type")) or None,
+                "canStartFrom": _txt(ligne.get("canStartFrom")) or None,
+                "shouldEndBy": _txt(ligne.get("shouldEndBy")) or None,
+                "assigneeUserId": _identifiant(ligne.get("assigneeUserId")),
+            }
+        self._log.info(f"  Dépôt {self._etat['commit_court']} : {len(vues)} tâches de ménage "
+                       "publiées.")
+        return list(vues.values())
 
     # ── Trace ────────────────────────────────────────────────────────────────────────────────
 

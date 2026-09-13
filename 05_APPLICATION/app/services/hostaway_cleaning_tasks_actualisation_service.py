@@ -43,8 +43,23 @@ DECLENCHEUR_AUTO = "AUTO"
 E_CREDENTIALS_ABSENTES = "HOSTAWAY_CLEANING_TASKS_CREDENTIALS_ABSENTES"
 E_API_ECHOUEE = "HOSTAWAY_CLEANING_TASKS_API_ECHOUEE"
 E_MIGRATION_ABSENTE = "MIGRATION_ABSENTE"
+E_DEPOT_INDISPONIBLE = "HOSTAWAY_CLEANING_TASKS_DEPOT_INDISPONIBLE"
+E_TACHES_NON_PUBLIEES = "HOSTAWAY_CLEANING_TASKS_NON_PUBLIEES"
+E_DEJA_SYNCHRONISEES = "HOSTAWAY_CLEANING_TASKS_DEJA_SYNCHRONISEES"
+
+# Transport des tâches. Le DÉPÔT publié par le pipeline GitHub est la source canonique, comme pour
+# les réservations : aucun identifiant Hostaway local. L'appel API direct reste disponible sur
+# demande explicite (`source=SOURCE_API`) mais n'est emprunté par aucun parcours.
+SOURCE_DEPOT = "DEPOT_GITHUB"
+SOURCE_API = "API"
 
 MESSAGES = {
+    E_DEPOT_INDISPONIBLE: ("Le dépôt de données Hostaway n'a pas pu être lu : les tâches de ménage "
+                           "affichées restent celles du dernier import réussi."),
+    E_TACHES_NON_PUBLIEES: ("Les tâches de ménage ne sont pas publiées dans le dernier état du dépôt "
+                            "de données : le dernier import réussi est conservé."),
+    E_DEJA_SYNCHRONISEES: ("Les tâches de ménage publiées sont identiques à celles déjà en base : "
+                           "rien de nouveau à importer."),
     # Message ACTIONNABLE : il dit quoi faire et OÙ, pas seulement ce qui manque. Sans le chemin,
     # l'utilisateur sait qu'il manque des identifiants mais pas où les déposer — et le fichier
     # `.env` étant ignoré par Git, il est normalement absent d'un worktree neuf.
@@ -82,6 +97,8 @@ def diagnostic_configuration() -> dict[str, Any]:
         "manquantes": [nom for nom, ok in presents.items() if not ok],
         "complet": all(presents.values()),
         "modele": path_sanitizer.sanitize_path(Path(cfg.PROJECT_ROOT) / ".env.example"),
+        # Ce qui conditionne réellement l'import des tâches : leur publication dans le dépôt.
+        "taches_publiees": source_disponible(),
     }
 
 
@@ -108,13 +125,119 @@ def credentials_disponibles() -> bool:
     return _credentials() is not None
 
 
+def source_disponible() -> bool:
+    """Préflight SANS réseau : le dernier état connu du dépôt publie-t-il les tâches de ménage ?
+
+    Lit l'état local du dépôt (le `git fetch` a lieu dans `actualiser()` et dans l'étape « dépôt »
+    de l'actualisation Ménages) — jamais un appel Hostaway, jamais un `.env`.
+    """
+    try:
+        from app.services import hostaway_depot_service as depot
+
+        lib = depot._lib_depot()
+        etat = lib.etat(cfg.PROJECT_ROOT, remote=depot.REMOTE_DEFAUT,
+                        branche=depot.BRANCHE_DEFAUT, rafraichir=False)
+        return bool(etat.get("cleaning_tasks_publiees"))
+    except Exception:      # noqa: BLE001 — dépôt illisible : source indisponible, pas une erreur d'écran
+        return False
+
+
+_CLES_CONTENU = ("task_id", "reservation_id", "listing_map_id", "title", "status",
+                 "can_start_from", "assignee_user_id")
+
+
+def _empreinte_contenu(taches):
+    """Multiensemble des tâches, colonne par colonne telles que stockées. Deux jeux de même
+    empreinte sont identiques : les réimporter fabriquerait une extraction indiscernable."""
+    from collections import Counter
+
+    def _norm(v):
+        return "" if v is None else str(v)
+
+    return Counter(tuple(_norm(raw._valeur(t, c)) for c in _CLES_CONTENU) for t in taches)
+
+
+def _actualiser_depuis_depot(*, declencheur: str, date_from: str, db_path) -> dict[str, Any]:
+    """Tâches lues dans le dépôt publié → MÊME normalisation → MÊME couche RAW versionnée.
+
+    Rien n'est ouvert en base tant que le jeu publié n'est pas lu en entier : un dépôt illisible,
+    des tâches non publiées ou un jeu vide laissent la dernière extraction réussie en place.
+    """
+    from app.services import hostaway_depot_service as depot
+    from app.services.path_sanitizer import sanitize_erreur_externe
+
+    history_run_id = history.demarrer("HOSTAWAY_CLEANING_TASKS", acteur=declencheur, db_path=db_path)
+    log = _LogRelais()
+    try:
+        lib = depot._lib_depot()
+        client = lib.SourceDepotGitHub(cfg.PROJECT_ROOT, log, remote=depot.REMOTE_DEFAUT,
+                                       branche=depot.BRANCHE_DEFAUT, rafraichir=True)
+    except Exception as exc:      # noqa: BLE001
+        history.marquer_echec(history_run_id,
+                              erreur=f"{E_DEPOT_INDISPONIBLE} : {sanitize_erreur_externe(str(exc))}",
+                              db_path=db_path)
+        return {"ok": False, "code": E_DEPOT_INDISPONIBLE, "message": MESSAGES[E_DEPOT_INDISPONIBLE]}
+
+    etat = client.etat_source
+    provenance = {"source_ref": etat.get("commit"), "commit_court": etat.get("commit_court"),
+                  "source_horodatage": etat.get("source_horodatage")}
+    if not etat.get("cleaning_tasks_publiees"):
+        history.marquer_echec(history_run_id, erreur=E_TACHES_NON_PUBLIEES, db_path=db_path)
+        return {"ok": False, "code": E_TACHES_NON_PUBLIEES,
+                "message": MESSAGES[E_TACHES_NON_PUBLIEES], **provenance}
+
+    lignes, statut_extraction = extraire_cleaning_tasks(client, date_from, AnomalyDetector(set()), log)
+    if statut_extraction != "OK" or not lignes:
+        history.marquer_echec(
+            history_run_id,
+            erreur=f"{E_DEPOT_INDISPONIBLE} : lecture {statut_extraction}, {len(lignes)} tâche(s)",
+            db_path=db_path)
+        return {"ok": False, "code": E_DEPOT_INDISPONIBLE,
+                "message": MESSAGES[E_DEPOT_INDISPONIBLE], **provenance}
+
+    precedente = raw.derniere_extraction_utilisable(db_path=db_path)
+    if precedente and _empreinte_contenu(lignes) == _empreinte_contenu(
+            raw.taches(extraction_id=precedente, db_path=db_path)):
+        history.marquer_succes(history_run_id, db_path=db_path)
+        return {"ok": True, "importe": False, "code": E_DEJA_SYNCHRONISEES,
+                "message": MESSAGES[E_DEJA_SYNCHRONISEES], "declencheur": declencheur,
+                "extraction_id": precedente, "nb_taches": len(lignes), **provenance}
+
+    extraction_id = raw.ouvrir(mode=raw.MODE_DEPOT_GITHUB, run_id=history_run_id or "",
+                               db_path=db_path)
+    if not extraction_id:
+        history.marquer_echec(history_run_id, erreur="migration 0035 absente", db_path=db_path)
+        return {"ok": False, "code": E_MIGRATION_ABSENTE,
+                "message": "Table hostaway_cleaning_tasks_extractions absente (migration 0035 non "
+                           "appliquée)."}
+    try:
+        raw.enregistrer(extraction_id, taches=lignes, db_path=db_path)
+    except Exception as exc:
+        raw.cloturer(extraction_id, statut=raw.ST_ECHEC, message=type(exc).__name__, db_path=db_path)
+        history.marquer_echec(history_run_id, erreur=type(exc).__name__, db_path=db_path)
+        raise
+    resultat_cloture = raw.cloturer(
+        extraction_id, statut=raw.ST_SUCCES, db_path=db_path,
+        message=(f"Dépôt {provenance['commit_court']} — données produites le "
+                 f"{provenance['source_horodatage']}"))
+    history.marquer_succes(history_run_id, db_path=db_path)
+    return {"ok": True, "importe": True, "declencheur": declencheur,
+            "history_run_id": history_run_id, "nb_taches": len(lignes), **provenance,
+            **resultat_cloture}
+
+
 def actualiser(*, declencheur: str = DECLENCHEUR_MANUEL, date_from: str = "2026-01-01",
-               db_path=None) -> dict[str, Any]:
+               db_path=None, source: str = SOURCE_DEPOT) -> dict[str, Any]:
     """Récupère les tâches ménage Hostaway (H6) et les enregistre en SQLite versionné.
 
-    Aucun fichier Excel créé ni lu — API → SQLite direct. `date_from` : mêmes tâches que
+    SOURCE CANONIQUE : le dépôt publié par le pipeline GitHub (`SOURCE_DEPOT`, défaut) — aucun
+    identifiant Hostaway local, aucun `.env`. `SOURCE_API` conserve l'appel direct, qu'aucun
+    parcours n'emprunte. Aucun fichier Excel créé ni lu. `date_from` : mêmes tâches que
     `lot1_hostaway_extract.py --only-cleaning-tasks` (défaut identique).
     """
+    if source == SOURCE_DEPOT:
+        return _actualiser_depuis_depot(declencheur=declencheur, date_from=date_from,
+                                        db_path=db_path)
     creds = _credentials()
     if creds is None:
         return {"ok": False, "code": E_CREDENTIALS_ABSENTES,

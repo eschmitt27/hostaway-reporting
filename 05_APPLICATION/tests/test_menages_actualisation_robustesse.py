@@ -82,7 +82,7 @@ def espions_ok(monkeypatch, db):
     monkeypatch.setattr(decl, "mois_cloture", lambda mois, db_path=None: False)
     monkeypatch.setattr(svc, "invalidate_menages_cache", lambda: None)
     monkeypatch.setattr(svc, "periode_par_defaut", lambda: "2026-06")
-    monkeypatch.setattr(hostaway_ct, "credentials_disponibles", lambda: True)
+    monkeypatch.setattr(hostaway_ct, "source_disponible", lambda: True)
     # Config Google Sheet réelle (pas un monkeypatch de la fonction elle-même) : une ligne SRC_011
     # valide en base, exactement ce que `_google_sheet_config_ok` doit lire pour rendre True. Exercer
     # le VRAI check partout sauf dans le test A (qui le laisse volontairement absent).
@@ -148,7 +148,7 @@ def test_b_hostaway_config_absente_n_empeche_pas_pdf_et_sheet(monkeypatch, db, e
     c'est son étape qui est marquée en échec, ce qui alimente le statut PARTIEL déjà prévu. Un
     résultat partiel n'est jamais présenté comme un succès.
     """
-    monkeypatch.setattr(hostaway_ct, "credentials_disponibles", lambda: False)
+    monkeypatch.setattr(hostaway_ct, "source_disponible", lambda: False)
 
     resultat = workflow.actualiser(mois_affiche="2026-06", db_path=db)
 
@@ -156,7 +156,7 @@ def test_b_hostaway_config_absente_n_empeche_pas_pdf_et_sheet(monkeypatch, db, e
     assert etapes["PDF"]["ok"] is True, "le PDF ne dépend pas de Hostaway"
     assert etapes["GOOGLE_SHEET"]["ok"] is True, "la Sheet ne dépend pas de Hostaway"
     assert etapes["HOSTAWAY"]["ok"] is False
-    assert etapes["HOSTAWAY"]["code"] == hostaway_ct.E_CREDENTIALS_ABSENTES
+    assert etapes["HOSTAWAY"]["code"] == hostaway_ct.E_TACHES_NON_PUBLIEES
     # Jamais un succès : une source manquante reste visible dans le statut global.
     assert resultat["statut"] == workflow.STATUT_PARTIEL
     assert resultat["ok"] is False
@@ -166,7 +166,7 @@ def test_b_bis_le_sous_processus_hostaway_n_est_pas_lance_pour_rien(monkeypatch,
     """L'intention d'origine du préflight est conservée : aucun appel Hostaway inutile."""
     from app.services import orchestrateur_moteur as orch_moteur
 
-    monkeypatch.setattr(hostaway_ct, "credentials_disponibles", lambda: False)
+    monkeypatch.setattr(hostaway_ct, "source_disponible", lambda: False)
     appels = []
     if hasattr(orch_moteur, "recalculer_dataset"):
         monkeypatch.setattr(orch_moteur, "recalculer_dataset",
@@ -280,14 +280,14 @@ def test_h_succes_complet_message_de_succes_exact(db, espions_ok):
 
 def test_g_apres_un_echec_un_nouveau_clic_est_accepte(monkeypatch, db, espions_ok):
     """Le verrou est bien relâché, y compris après un résultat non-succès."""
-    monkeypatch.setattr(hostaway_ct, "credentials_disponibles", lambda: False)
+    monkeypatch.setattr(hostaway_ct, "source_disponible", lambda: False)
     premier = workflow.actualiser(mois_affiche="2026-06", db_path=db)
     assert premier["ok"] is False
     assert premier.get("code") != workflow.E_DEJA_EN_COURS
 
     # Un second appel, même juste après un échec, ne doit JAMAIS être rejeté comme "déjà en cours" :
     # le verrou a bien été libéré dans le `finally` du premier appel.
-    monkeypatch.setattr(hostaway_ct, "credentials_disponibles", lambda: True)
+    monkeypatch.setattr(hostaway_ct, "source_disponible", lambda: True)
     second = workflow.actualiser(mois_affiche="2026-06", db_path=db)
     assert second.get("code") != workflow.E_DEJA_EN_COURS
     assert second["ok"] is True

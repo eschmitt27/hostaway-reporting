@@ -41,7 +41,7 @@ def test_actualiser_ne_cree_ni_ne_modifie_aucun_xlsx(tmp_db, monkeypatch, tmp_pa
     dossier_lot1 = Path(cfg.PROJECT_ROOT) / "02_TRAVAIL" / "Lot1_Hostaway"
     xlsx_avant = {p: _hash_ou_absent(p) for p in dossier_lot1.glob("*.xlsx")} if dossier_lot1.exists() else {}
 
-    res = svc.actualiser(db_path=tmp_db)
+    res = svc.actualiser(db_path=tmp_db, source=svc.SOURCE_API)
 
     assert res["ok"] is True
     assert res["nb_taches"] == 1
@@ -67,7 +67,9 @@ def test_credentials_absentes_refuse_proprement_sans_toucher_excel(tmp_db, monke
     dossier_lot1 = Path(cfg.PROJECT_ROOT) / "02_TRAVAIL" / "Lot1_Hostaway"
     xlsx_avant = {p: _hash_ou_absent(p) for p in dossier_lot1.glob("*.xlsx")} if dossier_lot1.exists() else {}
 
-    res = svc.actualiser(db_path=tmp_db)
+    # Le chemin API direct n'est plus le défaut (le dépôt publié l'est) : ce test garde la
+    # protection de CE chemin-là, désormais demandé explicitement.
+    res = svc.actualiser(db_path=tmp_db, source=svc.SOURCE_API)
 
     assert res["ok"] is False
     assert res["code"] == svc.E_CREDENTIALS_ABSENTES

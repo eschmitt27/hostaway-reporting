@@ -318,4 +318,33 @@ def importer_hostaway_cleaning_tasks(*, db_path=None, declencheur: str | None = 
                                          db_path=db_path)
     if not resultat.get("ok"):
         return resultat
-    return {"ok": True, **{k: v for k, v in resultat.items() if k != "ok"}}
+
+    # lot6a — COMPTAGE : tâches RAW → `menages_taches_enrichies`, que lot6d/6e/6f lisent. Aucun
+    # parcours ne le lançait : un import de tâches réussi s'arrêtait donc à la couche RAW, sans
+    # jamais atteindre l'écran Ménages. Rien de nouveau importé ET comptage déjà présent : rien à
+    # refaire, et l'aval n'a pas à être recalculé.
+    if resultat.get("importe") is False and _taches_enrichies_presentes(db_path):
+        return {"ok": True, **{k: v for k, v in resultat.items() if k != "ok"},
+                "donnees_modifiees": False}
+    comptage = executer("lot6a_cleaning_tasks_comptage.py", db_path=db_path,
+                        arguments=("--source", "SQLITE", "--sans-excel"))
+    if not comptage.get("ok"):
+        return {"ok": False, "code": comptage.get("code", E_CODE_RETOUR),
+                "message": f"lot6a_cleaning_tasks_comptage.py : {comptage.get('message', '')}"}
+    return {"ok": True, **{k: v for k, v in resultat.items() if k != "ok"},
+            "comptage_lot6a": "OK"}
+
+
+def _taches_enrichies_presentes(db_path) -> bool:
+    import sqlite3
+
+    base = Path(db_path or cfg.DB_PATH)
+    try:
+        conn = sqlite3.connect(str(base))
+        try:
+            return conn.execute("SELECT 1 FROM menages_taches_enrichies LIMIT 1").fetchone() \
+                is not None
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return False

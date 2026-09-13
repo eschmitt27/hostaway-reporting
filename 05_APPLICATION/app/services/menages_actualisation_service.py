@@ -221,7 +221,9 @@ def actualiser(*, mois_affiche: str = "", acteur: str = "ui:menages",
         # « Sheet OK, PDF OK, Hostaway KO -> PAS SUCCÈS », mais pas ÉCHEC non plus). Le préflight
         # l'alimente désormais au lieu de le court-circuiter : le sous-processus Hostaway n'est
         # toujours pas lancé pour rien, et les deux autres sources s'actualisent.
-        hostaway_configure = hostaway_ct.credentials_disponibles()
+        # Les tâches de ménage arrivent par le dépôt publié (pipeline GitHub), comme les
+        # réservations : le préflight vérifie qu'elles y sont PUBLIÉES, plus des identifiants locaux.
+        hostaway_configure = hostaway_ct.source_disponible()
 
         etapes: list[dict[str, Any]] = []
 
@@ -285,9 +287,9 @@ def actualiser(*, mois_affiche: str = "", acteur: str = "ui:menages",
             mois_hostaway: list[str] = []
             etapes.append({
                 "etape": "HOSTAWAY", "ok": False, "mois_impactes": [],
-                "code": hostaway_ct.E_CREDENTIALS_ABSENTES,
-                "message": hostaway_ct.MESSAGES[hostaway_ct.E_CREDENTIALS_ABSENTES]
-                           + " — sous-processus non lancé. PDF et Google Sheet actualisés."})
+                "code": hostaway_ct.E_TACHES_NON_PUBLIEES,
+                "message": hostaway_ct.MESSAGES[hostaway_ct.E_TACHES_NON_PUBLIEES]
+                           + " PDF et Google Sheet actualisés."})
         else:
             hostaway_avant = empreintes(ORIGINE_HOSTAWAY, db_path=db_path)
             hostaway = orch.recalculer_dataset("HOSTAWAY_CLEANING_TASKS", declencheur=declencheur,
