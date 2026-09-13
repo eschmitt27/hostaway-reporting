@@ -45,10 +45,13 @@ def test_facture_saine_aucune_anomalie_bloquante(env):
     assert res["nb_bloquants"] == 0 and res["fiable"] is True
 
 
-def test_validee_sans_charge_detectee(env):
+def test_validee_sans_charge_n_est_plus_une_anomalie(env):
+    """Recette n°3 §34/§35 — « Rattacher une charge » est supprimé : la facture fournisseur est la
+    source primaire de la dépense. Le contrôle qui exigeait une charge rattachée ne pouvait plus
+    être levé par aucun parcours ; il est retiré, et ce test en garde la trace."""
     fid = _facture(env, justificatif="pj.pdf")
     fact.changer_statut(fid, fact.ST_VALIDEE, acteur="t", db_path=env["db"])
-    assert cat.F_VALIDEE_SANS_CHARGE in _codes(env)
+    assert cat.F_VALIDEE_SANS_CHARGE not in _codes(env)
 
 
 def test_justificatif_absent_detecte(env):

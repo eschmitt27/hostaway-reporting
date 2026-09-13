@@ -173,8 +173,10 @@
   </p>
   <form method="post" action="/administration/referentiels/ref_couts_standards_menage/changer-cout">
     <div class="grid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:var(--space-sm);">
+      {# §85 — le type se choisit dans le référentiel (T1, T2, Maison…), jamais en tapant TYPE_001 :
+         mêmes options que l'éditeur de la table, libellé visible et code en valeur interne. #}
       <label class="text-xs">Type de logement <span class="text-danger">*</span>
-        <input class="input" name="type_logement_id" required>
+        {{ champ("type_logement_id", "", champs, obligatoire=true, taille="") }}
       </label>
       <label class="text-xs">Coût standard ménage <span class="text-danger">*</span>
         <input class="input" name="cout_standard_menage" required>

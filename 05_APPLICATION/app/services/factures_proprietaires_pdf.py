@@ -621,10 +621,13 @@ class _Facture(FPDF):
             self.cell(largeur, 4.5, _t("Règlements et compensations"), 0,
                       new_x=XPos.LMARGIN, new_y=YPos.NEXT)
             self.set_text_color(*ESPRESSO)
-            if acomptes:
-                ligne("Acompte(s) déjà versé(s)", -acomptes)
+            # §42 — ORDRE DÉFINITIF : total facture → reversement Airbnb → acompte(s) → net. Le
+            # reversement vient d'abord : c'est une somme que la plateforme a déjà versée pour ce
+            # mois, avant tout paiement du propriétaire.
             if reversements:
                 ligne("Reversement Airbnb du mois", -reversements)
+            if acomptes:
+                ligne("Acompte(s) déjà versé(s)", -acomptes)
 
         # Bandeau du net : le seul élément coloré plein du document, pour qu'il soit le premier
         # chiffre que l'oeil trouve. Un net négatif n'est PAS une facture négative : il se nomme,
@@ -637,13 +640,23 @@ class _Facture(FPDF):
         else:
             titre, valeur = "  NET À PAYER", deco.get("net", deco.get("montant_du"))
         self.ln(1)
-        self.set_x(gauche)
+        # §48 — badge « pilule » : rectangle aux coins fortement arrondis, dessiné d'un seul tenant
+        # AVANT le texte. Le saut de page est anticipé : sinon le fond resterait sur une page et le
+        # texte partirait sur la suivante.
+        hauteur_badge = 9
+        if self.get_y() + hauteur_badge > self.page_break_trigger:
+            self.add_page()
+        y_badge = self.get_y()
         self.set_fill_color(*(SAGE if a_reverser else BRIQUE))
+        self.rect(gauche, y_badge, largeur, hauteur_badge, style="F", round_corners=True,
+                  corner_radius=hauteur_badge / 2)
+        self.set_xy(gauche, y_badge)
         self.set_text_color(*BLANC)
         self.set_font("Helvetica", "B", 11)
-        self.cell(largeur * 0.55, 9, _t(titre), 0, new_x=XPos.RIGHT, new_y=YPos.TOP, fill=True)
-        self.cell(largeur * 0.45, 9, _t(_montant(valeur) + "  "), 0,
-                  new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R", fill=True)
+        self.cell(largeur * 0.55, hauteur_badge, _t("  " + titre), 0,
+                  new_x=XPos.RIGHT, new_y=YPos.TOP)
+        self.cell(largeur * 0.45, hauteur_badge, _t(_montant(valeur) + "    "), 0,
+                  new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R")
         self.set_text_color(*ESPRESSO)
         self.ln(2)
 
@@ -665,34 +678,11 @@ class _Facture(FPDF):
         self._tableau_sejours()
         self._tableau_prestations()
 
-        acomptes = (snap.get("decomposition") or {}).get("acomptes") or []
-        if acomptes:
-            note_acomptes = ("Un acompte est un paiement déjà reçu : il réduit ce qui reste à "
-                             "payer, pas le montant facturé. Une réduction commerciale, elle, "
-                             "diminue le montant facturé et figure dans le détail des frais.")
-            # Hauteur du bloc ENTIER : titre + en-tête + lignes + note, mesurés et non estimés.
-            # Le réserver d'un seul tenant évite qu'un tableau de deux lignes soit coupé en deux
-            # pages, ce que le saut automatique faisait volontiers.
-            self._titre_section("Acomptes déjà versés",
-                                hauteur_bloc=10 + 6 + 5.2 * len(acomptes)
-                                + self._hauteur_note(note_acomptes))
-            # §43 — plus de colonne « Référence ». Elle imprimait `mouvement_opaque`, c'est-à-dire
-            # un identifiant technique de mouvement bancaire (« MTP-… ») : illisible pour le
-            # propriétaire, et sans usage pour lui. La RÉFÉRENCE MÉTIER est conservée quand elle
-            # existe — un libellé de virement, que le propriétaire retrouve sur son relevé — et
-            # seulement celle-là.
-            colonnes = ((34, "Date", "C"), (40, "Mode", "L"), (76, "Référence du paiement", "L"),
-                        (30, "Montant", "R"))
-            self._entete_tableau = (colonnes,)
-            self._ligne_entete(colonnes)
-            for i, a in enumerate(acomptes):
-                self._ligne_tableau(colonnes, (
-                    _date_fr(a.get("date_mouvement")), a.get("mode_reglement") or "",
-                    a.get("reference_metier") or "",
-                    _montant(a.get("montant")),
-                ), pair=(i % 2 == 0))
-            self._entete_tableau = None
-            self._note(note_acomptes)
+        # §43 — le tableau détaillé « Acomptes déjà versés » (date, mode, référence, montant, puis
+        # une note réexpliquant ce qu'est un acompte) est SUPPRIMÉ du rendu. Il redisait, en page 2,
+        # ce que la ligne « Acompte(s) déjà versé(s) » du récapitulatif dit déjà sur la page
+        # principale — et portait jusqu'à un identifiant technique de mouvement. Un document ÉMIS
+        # n'est jamais régénéré : ce changement ne vaut que pour les nouveaux rendus.
 
         # ── Conditions de règlement et mentions ──────────────────────────────────────────────
         # Le libellé des conditions est DÉRIVÉ du délai (« Paiement à réception » quand il vaut 0),

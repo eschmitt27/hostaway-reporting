@@ -42,7 +42,7 @@
       <thead><tr>
         <th>Référence</th><th>Fournisseur</th><th>Date</th><th>Échéance</th>
         <th class="num">TTC</th><th class="num">Réglé</th><th class="num">Solde</th>
-        <th>Statut</th><th>Charge</th><th></th>
+        <th>Statut</th><th></th>
       </tr></thead>
       <tbody>
         {% for f in factures %}
@@ -57,12 +57,13 @@
           <td class="num">{{ "%.2f"|format(f.montant_ttc) }}</td>
           <td class="num">{{ "%.2f"|format(f.montant_regle) }}</td>
           <td class="num">{{ "%.2f"|format(f.solde_restant) }}</td>
-          <td><span class="status-badge status-{{ 'valide' if f.statut == 'REGLEE' else 'bloquant' if f.statut in ['ANNULEE','LITIGE'] else 'a-controler' }}">{{ f.statut|libelle_statut }}</span></td>
-          <td class="font-mono text-xs">{{ f.charge_id or "—" }}</td>
+          {# §31 — VALIDÉE est un état acquis : vert, comme sur la fiche. §34 — plus de colonne
+             « Charge » : la facture est la dépense, et un identifiant brut n'a rien à faire ici. #}
+          <td><span class="status-badge status-{{ 'valide' if f.statut in ['REGLEE','VALIDEE','PARTIELLEMENT_REGLEE'] else 'bloquant' if f.statut in ['ANNULEE','LITIGE'] else 'a-controler' }}">{{ f.statut|libelle_statut }}</span></td>
           <td><a href="/factures/{{ f.facture_id_opaque }}">Voir</a></td>
         </tr>
         {% else %}
-        <tr><td colspan="10" class="section-note">Aucune facture pour ces filtres.</td></tr>
+        <tr><td colspan="9" class="section-note">Aucune facture pour ces filtres.</td></tr>
         {% endfor %}
       </tbody>
     </table>

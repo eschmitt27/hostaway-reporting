@@ -26,6 +26,15 @@
   <span class="status-badge status-{{ 'valide' if facture.statut in ['REGLEE','VALIDEE','PARTIELLEMENT_REGLEE'] else 'bloquant' if facture.statut in ['ANNULEE','LITIGE'] else 'a-controler' }}">{{ facture.statut|libelle_statut }}</span>
 </div>
 
+{% if contradictions_nom_fichier %}
+{# §18 — le nom du fichier est une indication : quand il contredit le document, la facture reste
+   à contrôler et l'écran dit précisément quoi vérifier. #}
+<div class="alert alert-warning" data-testid="contradiction-nom-fichier">
+  <strong>Nom du fichier et document ne concordent pas.</strong>
+  <ul>{% for c in contradictions_nom_fichier %}<li>{{ c.libelle }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
 <div class="card mb-md">
   <div class="card-title">Facture</div>
   <dl class="detail-grid">

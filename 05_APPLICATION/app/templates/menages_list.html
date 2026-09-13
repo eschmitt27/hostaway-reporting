@@ -397,13 +397,9 @@
   <dl class="detail-grid">
     <div><dt>Dossier de dépôt des factures</dt>
       <dd><span class="font-mono text-xs">{{ pdf.dossier_relatif }}</span></dd></div>
-    <div><dt>PDF présents dans le dossier</dt><dd>{{ pdf.nb_pdf_presents }}</dd></div>
-    <div><dt>PDF reconnus</dt><dd>{{ pdf.nb_pdf_reconnus }}</dd></div>
-    <div><dt>PDF non supportés</dt><dd>{{ pdf.nb_pdf_non_supportes }}</dd></div>
-    <div><dt>PDF en erreur</dt><dd>{{ pdf.nb_pdf_erreur }}</dd></div>
-    <div><dt>PDF en doublon</dt><dd>{{ pdf.nb_pdf_doublon }}</dd></div>
-    <div><dt>Factures extraites (MASTER)</dt><dd>{{ pdf.nb_fichiers_transcrits }}</dd></div>
-    <div><dt>Lignes de ménage extraites</dt><dd>{{ pdf.nb_lignes_master }}</dd></div>
+    {# §9 — les compteurs PDF vivent UNE fois, en haut (« PDF reconnus », « À contrôler / en
+       erreur »). Les répéter ici — présents, non supportés, doublons, « MASTER » — redisait la
+       même information cinq fois, dans un vocabulaire de développeur. #}
     <div><dt>Prestataires détectés</dt>
       <dd>{{ pdf.prestataires_detectes|join(", ") if pdf.prestataires_detectes else "—" }}</dd></div>
     <div><dt>Période couverte</dt>
@@ -456,12 +452,11 @@
 <div class="card mt-lg">
   <div class="flex justify-between items-center mb-md">
     <h2 class="card-title">Dernier calcul Ménages</h2>
-    <a href="/menages/diagnostic" class="btn btn-secondary">Diagnostic du pipeline</a>
+    {# §14 — le diagnostic du pipeline est un outil technique : il vit dans Observabilité. #}
   </div>
   <dl class="detail-grid">
     <div><dt>Dernière génération</dt><dd>{{ dc.derniere_generation or "inconnue" }}</dd></div>
     <div><dt>Anomalies signalées</dt><dd>{{ dc.nb_anomalies }}</dd></div>
-    <div><dt>Recalcul depuis l'application</dt><dd>Désactivé à ce lot</dd></div>
   </dl>
   <div class="source-list mt-md">
     {% for e in dc.etats_sources %}

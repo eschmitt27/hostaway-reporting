@@ -304,6 +304,52 @@ def _extraire_mounir(doc, nom: str) -> FactureExtraite:
     return fac
 
 
+# ── §18 — le nom de fichier est une INDICATION, jamais la vérité ─────────────────────────────────
+#
+# Convention canonique : MM-YY-Prestataire.pdf, ou MM-YY-Prestataire_<suffixe>.pdf quand un même
+# prestataire a plusieurs factures le même mois. L'année est TOUJOURS sur 2 chiffres.
+_RE_NOM_CANONIQUE = re.compile(r"^(\d{2})-(\d{2})-([^_]+?)(?:_(.+))?\.pdf$", re.IGNORECASE)
+
+
+def indication_nom_fichier(nom: str) -> dict:
+    """Ce que le NOM suggère : période, prestataire, suffixe. Un nom hors convention ne suggère
+    rien — et une indication absente ne peut rien contredire."""
+    m = _RE_NOM_CANONIQUE.match(Path(str(nom)).name.strip())
+    if not m or not 1 <= int(m.group(1)) <= 12:
+        return {"conforme": False}
+    return {"conforme": True, "mois": f"20{m.group(2)}-{m.group(1)}",
+            "prestataire": m.group(3).strip(), "suffixe": (m.group(4) or "").strip()}
+
+
+def _cle_comparaison(s) -> str:
+    return re.sub(r"[^a-z0-9]", "", _strip_accents(str(s or "")).lower())
+
+
+def controler_nom_fichier(fac: FactureExtraite) -> None:
+    """Confronte l'indication du nom au CONTENU extrait ; une contradiction devient une anomalie.
+
+    Le logiciel ne valide jamais une facture sur la foi de son nom : elle reste À CONTRÔLER, et
+    l'anomalie dit à l'humain ce qu'il doit regarder.
+
+    Période — le mois du nom doit être celui de la facture OU celui d'au moins un ménage facturé :
+    une facture de fin de mois émise le 1er du mois suivant ne contredit rien ; un nom qui ne
+    correspond à AUCUNE des dates du document, si.
+    Prestataire — comparé seulement quand le document le nomme : sans nom lu, rien n'est affirmé.
+    Le suffixe ne sert qu'à distinguer deux fichiers ; le dédoublonnage repose sur le contenu.
+    """
+    ind = indication_nom_fichier(fac.nom_fichier_source)
+    if not ind["conforme"]:
+        return
+    mois_document = {m for m in [(fac.periode_facture or fac.date_facture or "")[:7]]
+                     + [(l.date_menage or "")[:7] for l in fac.lignes] if m}
+    if mois_document and ind["mois"] not in mois_document:
+        fac.anomalies.append(f"NOM_FICHIER_PERIODE_CONTRADICTOIRE:{ind['mois']}")
+    cle_nom = _cle_comparaison(ind["prestataire"])
+    if fac.nom_prestataire and cle_nom and cle_nom not in _cle_comparaison(fac.nom_prestataire):
+        fac.anomalies.append(
+            "NOM_FICHIER_PRESTATAIRE_CONTRADICTOIRE:" + ind["prestataire"].replace(",", " "))
+
+
 def extraire_pdf(path) -> FactureExtraite:
     p = Path(path)
     nom = p.name

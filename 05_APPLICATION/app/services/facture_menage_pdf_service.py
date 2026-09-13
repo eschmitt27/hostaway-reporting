@@ -112,6 +112,43 @@ def _enregistrer_diagnostic(fac, *, facture_id_opaque: str | None, db_path=None)
         conn.close()
 
 
+PREFIXE_CONTRADICTION_NOM = "NOM_FICHIER_"
+
+
+def contradictions_nom_fichier(facture_id_opaque: str, *, db_path=None) -> list[dict[str, str]]:
+    """§18 — contradictions entre le NOM du PDF et son CONTENU, relevées au dernier import.
+
+    Source unique de l'écran de la facture et du catalogue des contrôles. Chaque entrée porte son
+    code (stable, pour les tests et l'observabilité) et une phrase lisible par l'utilisateur.
+    """
+    import sqlite3
+
+    conn = get_db(db_path)
+    try:
+        r = conn.execute(
+            "SELECT anomalies FROM facture_pdf_diagnostics WHERE facture_id_opaque = ? "
+            "ORDER BY id DESC LIMIT 1", (facture_id_opaque,)).fetchone()
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        conn.close()
+    sortie = []
+    for code in ((r["anomalies"] or "").split(",") if r else []):
+        if not code.startswith(PREFIXE_CONTRADICTION_NOM):
+            continue
+        nature, _, valeur = code.partition(":")
+        if nature == "NOM_FICHIER_PERIODE_CONTRADICTOIRE":
+            libelle = (f"Le nom du fichier indique la période {valeur}, qu'aucune date du document "
+                       "ne porte : vérifier la période sur la facture elle-même.")
+        elif nature == "NOM_FICHIER_PRESTATAIRE_CONTRADICTOIRE":
+            libelle = (f"Le nom du fichier indique le prestataire « {valeur} », différent de celui "
+                       "que porte le document : vérifier le prestataire sur la facture.")
+        else:
+            libelle = "Le nom du fichier contredit le contenu du document."
+        sortie.append({"code": nature, "libelle": libelle})
+    return sortie
+
+
 def importer(path, *, acteur: str = "", db_path=None) -> dict[str, Any]:
     """Importe une facture PDF ménage externe : header + lignes + ventilation, aucune Charge créée.
 

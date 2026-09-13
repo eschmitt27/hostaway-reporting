@@ -199,6 +199,16 @@ async def facture_creer(request: Request):
                             status_code=303)
 
 
+def _contradictions_nom_fichier(opaque: str) -> list[dict[str, str]]:
+    """§18 — contradictions nom du PDF ↔ document, via le service canonique. Un écran de facture
+    ne doit jamais tomber parce que ce diagnostic est indisponible."""
+    try:
+        from app.services import facture_menage_pdf_service as pdf_svc
+        return pdf_svc.contradictions_nom_fichier(opaque)
+    except Exception:      # noqa: BLE001
+        return []
+
+
 @router.get("/factures/{opaque}", response_class=HTMLResponse)
 def facture_detail(request: Request, opaque: str, message: str = "", erreur: str = ""):
     facture = svc.charger(opaque)
@@ -217,6 +227,8 @@ def facture_detail(request: Request, opaque: str, message: str = "", erreur: str
         # §27 — l'écran nomme la CAUSE de l'écart, pas seulement son montant : « une ligne mal
         # lue » et « une ligne absente » n'appellent pas le même geste de correction.
         "diagnostic": flm.diagnostic_ecart(opaque),
+        # §18 — le nom du PDF n'est qu'une indication : s'il contredit le document, l'écran le dit.
+        "contradictions_nom_fichier": _contradictions_nom_fichier(opaque),
         "ecriture_active": _ecriture_active(), "message": message, "erreur": erreur,
     })
 

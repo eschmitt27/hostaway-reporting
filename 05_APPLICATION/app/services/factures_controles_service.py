@@ -57,7 +57,11 @@ R_RAPPROCHE_AU_DELA = "CTRL_REG_RAPPROCHE_AU_DELA_DE_SON_MONTANT"
 # ── Codes — Banque ──────────────────────────────────────────────────────────
 B_ANNULE_ENCORE_ACTIF = "CTRL_BQ_RAPPROCHEMENT_ANNULE_ENCORE_ACTIF"
 
+# ── Codes — PDF fournisseur (§18) ───────────────────────────────────────────
+F_NOM_FICHIER_CONTRADICTOIRE = "CTRL_FAC_NOM_FICHIER_CONTRADICTOIRE"
+
 MESSAGES = {
+    F_NOM_FICHIER_CONTRADICTOIRE: "Le nom du fichier PDF contredit le contenu de la facture.",
     F_DOUBLON_CERTAIN: "Deux factures partagent la même référence pour le même fournisseur.",
     F_DOUBLON_PROBABLE: "Facture de même montant et de date proche chez le même fournisseur.",
     F_FOURNISSEUR_ABSENT: "Facture sans fournisseur.",
@@ -150,9 +154,18 @@ def _controler_facture(f: dict[str, Any], frs_idx: dict, refs_vues: dict, charge
     if f["statut"] in (fact.ST_VALIDEE, fact.ST_PARTIELLEMENT_REGLEE, fact.ST_REGLEE):
         if not f["justificatif"]:
             add(F_JUSTIFICATIF_ABSENT, AVERTISSEMENT, action="Joindre la pièce fournisseur.")
-        if not f["charge_id"]:
-            add(F_VALIDEE_SANS_CHARGE, CRITIQUE,
-                action="Rattacher la charge économique créée par le parcours Charges.")
+    # §34/§35 — plus de contrôle « facture validée sans charge rattachée ». « Rattacher une charge »
+    # a été retiré : la facture fournisseur EST la dépense, ses lignes portent l'économie. Exiger
+    # une charge produisait un CRITIQUE que plus aucun parcours ne permettait de lever.
+
+    # §18 — le nom du PDF contredit le document : tant que la facture attend un contrôle humain, le
+    # catalogue le rappelle. Une fois validée, l'humain a tranché sur la pièce elle-même.
+    if f["statut"] == fact.ST_A_CONTROLER:
+        from app.services import facture_menage_pdf_service as pdf_svc
+        for c in pdf_svc.contradictions_nom_fichier(fid, db_path=db_path):
+            add(F_NOM_FICHIER_CONTRADICTOIRE, AVERTISSEMENT, detail=c["libelle"],
+                action="Vérifier période et prestataire sur le document : le nom n'est qu'une "
+                       "indication.")
 
     if f["charge_id"] and charges_vues.get(f["charge_id"], 0) > 1:
         add(F_CHARGE_MULTI_FACTURES, BLOQUANT, detail=f["charge_id"],
