@@ -1703,3 +1703,23 @@ revanche déjà les chemins manuels. Détail : `SCHEDULER_HOSTAWAY.md` §13.3.
   restent valides ; recalculé au succès suivant.
 - **Bouton `/hostaway` sans propagation** — l'import est propagé au run orchestré suivant, jamais
   perdu ; le rendre propagateur changerait un parcours recetté.
+
+## Mission 29 (2026-09-13) — Recette utilisateur n°3 : clôture
+
+Anomalies réelles trouvées à la réconciliation §§0-109, toutes **CORRIGÉES** dans `01e6765`.
+
+| Réf. | Anomalie | Sévérité | § |
+|---|---|---|---|
+| ANO-R3-01 | La convention `MM-YY-Prestataire` était documentée comme contrôlée, et aucun code ne lisait le nom | MOYENNE | 18 |
+| ANO-R3-02 | `CTRL_FAC_VALIDEE_SANS_CHARGE` (CRITIQUE) exigeait un rattachement que plus aucun parcours n'offrait | MOYENNE | 34 |
+| ANO-R3-03 | PDF propriétaire : tableau détaillé des acomptes toujours rendu ; acompte imprimé avant le reversement | MOYENNE | 42-43 |
+| ANO-R3-04 | Liste des factures fournisseurs : VALIDÉE en jaune, identifiant de charge brut affiché | FAIBLE | 31, 34 |
+| ANO-R3-05 | Coût standard ménage : type de logement à saisir en texte (`TYPE_00x`) | FAIBLE | 85 |
+| ANO-R3-06 | Écran Ménages : cinq compteurs PDF répétés, lien vers le diagnostic du pipeline | FAIBLE | 9, 14 |
+
+### Restant ouvert
+
+- **`lot6a` (§17 bis) — PARTIEL, bloqué par source externe** : tâches de ménage non publiées par le
+  pipeline GitHub ; pas de second extracteur local (architecture décidée).
+- **Volontairement ouverts, décision utilisateur** : factures `0005` / `2026-40` ; annonce `590757`.
+  Ce ne sont pas des défauts logiciels : les parcours de résolution existent et fonctionnent.

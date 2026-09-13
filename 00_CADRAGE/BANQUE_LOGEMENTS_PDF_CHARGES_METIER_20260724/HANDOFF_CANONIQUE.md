@@ -3656,3 +3656,60 @@ suite, non commencée ici. Ne bloquent pas le développement mais restent en att
 utilisateur : les deux factures de juillet (mission 27) et l'annonce `590757`. Points à arbitrer
 hérités de cette mission : `CADENCE_H6_A_ARBITRER`, statut de l'aval après un import en échec.
 `VRBO_REAL_PAYOUT_PENDING_EXTERNAL_SOURCE` inchangé : `56388919` et `57780060` restent figés.
+
+> **Supersédé le 2026-09-13 (Mission 29).** La mission scheduler est close et **ne se poursuit pas** ;
+> la suite n'est pas « référentiels administrables » mais la clôture de la Recette utilisateur n°3.
+
+---
+
+## Mission 29 (2026-09-13) — Recette utilisateur n°3 : clôture
+
+### Continuité
+
+Checkpoint fonctionnel de la recette : `0d454bc`. Les quatre commits scheduler qui le suivent
+(`33fed0e`, `5f6cb38`, `73260d5`, `f800dfa`) sont **conservés** : ils renforcent l'architecture
+Hostaway décidée (une seule ingestion par le dépôt publié, verrou, CleaningTasks jamais
+automatique). HEAD de départ de cette mission : `cb78217`. Aucun checkout, aucune réécriture.
+
+### Réconciliation §§0-109
+
+Prompt source : `PROMPT_CLAUDE_RECETTE_UTILISATEUR_3_DEFINITIF.md` (113 entrées, §17 bis, §39 bis et
+§39 ter compris). Six écarts réels trouvés et **corrigés** (`01e6765`, décisions
+`D-FOURN-NOM-FICHIER-01`, `D-FOURN-SANS-CHARGE-01`, `D-FACT-PROP-DOCUMENT-02`) :
+
+| § | Écart | Correction |
+|---|---|---|
+| 18 / 95 | la convention `MM-YY-Prestataire` promise n'était lue par aucun code | indication confrontée au contenu ; contradiction enregistrée, affichée, signalée |
+| 34 / 35 | CRITIQUE « facture validée sans charge » impossible à lever | contrôle retiré |
+| 42 / 43 / 48 | tableau des acomptes en page 2, ordre acompte avant reversement, bandeau rectangulaire | tableau supprimé, ordre définitif, pilule |
+| 31 / 34 | liste fournisseurs : VALIDÉE en jaune, colonne « Charge » brute | vert, colonne retirée |
+| 85 | type de logement en texte libre (coût standard ménage) | liste du référentiel |
+| 9 / 14 | Ménages : compteurs PDF répétés, lien « Diagnostic du pipeline » | retirés ; diagnostic accessible depuis Observabilité |
+
+**Seul PARTIEL restant — §17 bis, `lot6a`** : les tâches de ménage ne sont pas publiées par le
+pipeline GitHub, et l'architecture interdit un second extracteur API local. Il ne se ferme pas dans
+ce code : il se ferme en ajoutant `/v1/tasks` au pipeline du dépôt de données.
+
+§49 est traité (audit fait, limite de licence documentée — D-FP2-3). §20 : un PDF sans texte est
+signalé en erreur et se reprend par « Importer une facture PDF » (saisie de l'en-tête depuis la
+pièce, facture À CONTRÔLER) puis « Ajouter une ligne manquante » — rien n'est inventé.
+
+### Base réelle — contrôles finaux (lecture seule, `immutable=1`)
+
+| Contrôle | Constat |
+|---|---|
+| `integrity_check` / `foreign_key_check` / schéma | **ok** / **0** / **0087** |
+| `F-11/0-000001` | **EMIS**, 465,88 €, hash du snapshot et du PDF identiques aux valeurs figées |
+| Factures de juillet | **À CONTRÔLER**, diagnostics distincts : `2026-40` `LIGNE_MANQUANTE` (lignes 967,00 € pour 1 056,00 € : il manque 89,00 €) · `0005` `LIGNES_INCOHERENTES` (lignes 556,00 € pour 520,00 € : une ligne porte 36,00 € de trop) |
+| `590757` | aucune correspondance ; 4 séjours `LOGEMENT_NON_MAPPE`, hors économie |
+| `LOG_0002` | jeu actif : 52 séjours avant le 2026-01-01 dans l'économie ; 51 après, **aucun** ; 0 commission Lot10 |
+| `menages_cout_complet` | 39 lignes / 7 655,00 € ; juillet 7 / 1 470,00 €, sans les 11 lignes des factures À CONTRÔLER |
+| Fichier `app.db` | sha256 `20b7e7a0…b407a8` inchangé, WAL vide |
+
+**Aucun reset, aucune renumérotation, aucune suppression.**
+
+### Prochaine action unique
+
+**Côté utilisateur : résoudre les deux factures de juillet depuis l'écran** — `0005` par « Écarter :
+extraction incorrecte », `2026-40` par « Ajouter une ligne manquante » — puis décider `590757` depuis
+Correspondances logement. Aucune correction logicielle n'est en attente pour la recette n°3.

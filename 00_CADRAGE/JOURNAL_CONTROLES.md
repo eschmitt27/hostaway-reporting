@@ -5642,3 +5642,23 @@ sur l'ancienne version, et le run suivant doit tout recalculer bien que le dép�
 
 **Garde-fous propres aux tests** : pendant un battement complet, `requests`, les sockets et toute
 commande `git` lèvent une erreur ; toute connexion SQLite ouverte doit viser la base de test.
+
+## CTR-RECETTE3-RECONCILIATION-2026-09-13 — le prompt relu section par section, contre le code
+
+**Méthode.** Chaque section du prompt (§0 à §109, bis et ter compris : 113 entrées) confrontée à une
+preuve de code, de gabarit ou de test — jamais à un rapport antérieur seul. Un rapport disait
+« traité » pour §39-50 ; le code gardait le tableau des acomptes que §43 demandait de supprimer.
+
+**Six écarts trouvés, six fermés** — tous tranchés par le prompt, aucun arbitrage demandé :
+convention de nom PDF non lue (§18), contrôle CRITIQUE impossible à lever (§34), document
+propriétaire (§42/§43/§48), liste fournisseurs (§31/§34), type de logement libre (§85), outils de
+développeur sur Ménages (§9/§14).
+
+**25 contrôles ajoutés** (`test_recette3_points_finaux.py`). Le test de la liste des factures a
+échoué au premier passage : l'en-tête « Charge » était retiré, pas la cellule ni la couleur. Il a
+fait son travail.
+
+**Contrôles de la base réelle** en lecture seule stricte (`immutable=1`), puis vérifications de
+service sur une **copie** : intégrité, `F-11/0-000001`, factures de juillet, `590757`, `LOG_0002` sur
+le jeu de réservations ACTIF — une première mesure sans ce filtre comptait des jeux historiques et
+semblait contredire la règle de fin de gestion. Détail : `HANDOFF_CANONIQUE.md`, Mission 29.

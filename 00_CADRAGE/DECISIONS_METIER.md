@@ -2149,3 +2149,55 @@ on y trouvait un état de compte. Deux entrées de menu s'appelaient de surcroî
   **préparation de clôture**, qui signale les propriétaires ayant une activité et **aucun suivi
   ouvert** — un suivi inexistant n'est pas « à jour », il est invisible. Le service, lui, n'a pas
   bougé : il est transactionnel, idempotent et journalisé.
+
+---
+
+### D-FOURN-NOM-FICHIER-01 — le nom du PDF propose, le document décide
+
+- **Date** : 2026-09-13
+- **Lot** : recette utilisateur n°3 — clôture (§18, §94, §95)
+- **Statut** : ACTÉ
+
+**Le constat.** `LISEZ-MOI.txt` promettait qu'un nom contredit par le document enverrait la facture
+en À CONTRÔLER. Aucun code ne lisait le nom : la promesse était écrite, pas tenue.
+
+- **D-NF-1** : convention `MM-YY-Prestataire.pdf`, ou `MM-YY-Prestataire_<suffixe>.pdf`, année sur
+  deux chiffres. Un nom hors convention ne suggère rien — et une indication absente ne contredit rien.
+- **D-NF-2** : **contradiction de période** quand le mois du nom n'est ni celui de la facture, ni celui
+  d'aucun ménage facturé. Une facture d'août émise le 1er septembre ne contredit pas `08-26`.
+- **D-NF-3** : **contradiction de prestataire** seulement quand le document nomme le prestataire ;
+  comparaison sans accents ni casse. Sans nom lu, rien n'est affirmé.
+- **D-NF-4** : effet — anomalie enregistrée au diagnostic PDF, bandeau sur la fiche facture,
+  `CTRL_FAC_NOM_FICHIER_CONTRADICTOIRE` (AVERTISSEMENT) au catalogue tant que la facture est À
+  CONTRÔLER. **Pas de blocage automatique** : la facture est déjà À CONTRÔLER et seule une décision
+  humaine la valide ; bloquer sans issue piégerait une facture dont seul le nom est mal saisi.
+- **D-NF-5** : le suffixe distingue deux fichiers ; le dédoublonnage reste fondé sur le contenu
+  (fournisseur, référence, empreinte). Le dossier est relu à chaque passage : un PDF déposé après un
+  premier import est importé au suivant.
+
+### D-FOURN-SANS-CHARGE-01 — une facture validée n'attend plus de charge
+
+- **Date** : 2026-09-13 · **Lot** : recette n°3 (§34, §35) · **Statut** : ACTÉ
+
+`CTRL_FAC_VALIDEE_SANS_CHARGE` (CRITIQUE, « rattacher la charge ») n'est plus levé. « Rattacher une
+charge » est supprimé et la facture fournisseur est la source primaire de la dépense : le contrôle
+exigeait un geste que plus aucun parcours n'offrait. Le code reste défini pour la lecture de
+l'historique.
+
+### D-FACT-PROP-DOCUMENT-02 — amendement de D-FACT-PROP-DOCUMENT-01
+
+- **Date** : 2026-09-13 · **Lot** : recette n°3 (§42, §43, §48, §49) · **Statut** : ACTÉ
+
+- **D-FP2-1 (supersède D-FP-4)** : le tableau détaillé « Acomptes déjà versés » est **supprimé** du
+  rendu — et non seulement expurgé de sa référence technique. La ligne « Acompte(s) déjà versé(s) »
+  du récapitulatif demeure. Ordre définitif : TOTAL FACTURE → Reversement Airbnb du mois →
+  Acompte(s) déjà versé(s) → NET À PAYER / À REVERSER.
+- **D-FP2-2** : le bandeau du net est une **pilule** aux coins arrondis, dessinée d'un seul tenant.
+- **D-FP2-3 — typographie (§49), audit** : le site anime « Chouette Patrimoine » avec `tegaki`
+  (MIT), à partir de la police **Caveat** (SIL Open Font License 1.1), dont le TTF est présent dans le
+  projet du site. Le **texte intégral de la licence OFL n'est disponible nulle part localement** ;
+  embarquer la police sans lui serait une redistribution non conforme. Elle n'est donc **pas**
+  intégrée : fallback Helvetica conservé, « € » déjà imprimé via cp1252 (D-FP-1). Pour lever la
+  limite : déposer `OFL.txt` de Caveat à côté du TTF dans l'application.
+- **D-FP2-4** : aucun document ÉMIS n'est régénéré ; `F-11/0-000001` vérifié (hash du snapshot et du
+  PDF identiques aux valeurs figées).
