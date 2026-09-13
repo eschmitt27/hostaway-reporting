@@ -5654,7 +5654,8 @@ convention de nom PDF non lue (§18), contrôle CRITIQUE impossible à lever (§
 propriétaire (§42/§43/§48), liste fournisseurs (§31/§34), type de logement libre (§85), outils de
 développeur sur Ménages (§9/§14).
 
-**25 contrôles ajoutés** (`test_recette3_points_finaux.py`). Le test de la liste des factures a
+**21 contrôles ajoutés** (`test_recette3_points_finaux.py` — le message du commit `01e6765` en
+annonce 25 par erreur ; la collecte pytest en dénombre 21). Le test de la liste des factures a
 échoué au premier passage : l'en-tête « Charge » était retiré, pas la cellule ni la couleur. Il a
 fait son travail.
 

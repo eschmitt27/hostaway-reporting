@@ -111,6 +111,14 @@ def _form_to_decision(form) -> dict:
     }
 
 
+@router.get("/caisse")
+def caisse_alias():
+    """Recette n°3 §107 — la caisse est une section de l'écran « Banques & caisse » : `/caisse` y
+    mène au lieu de répondre 404."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse("/banques-caisse", status_code=308)
+
+
 @router.get("/banques-caisse", response_class=HTMLResponse)
 def banques_dashboard(
     request: Request,

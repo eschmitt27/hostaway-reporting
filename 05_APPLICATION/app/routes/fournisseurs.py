@@ -18,6 +18,15 @@ router = APIRouter()
 templates = get_templates()
 
 
+@router.get("/charges")
+def charges_alias():
+    """Recette n°3 §107 — `/charges` est l'adresse qu'on tape pour l'entrée de menu « Charges », qui
+    vit sur `/fournisseurs`. Redirection permanente plutôt qu'un 404 : une adresse devinée ou notée
+    doit mener à l'écran, et `308` laisse les clients la mémoriser."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse("/fournisseurs", status_code=308)
+
+
 @router.get("/fournisseurs", response_class=HTMLResponse)
 def fournisseurs_list(
     request: Request,

@@ -3685,6 +3685,7 @@ Prompt source : `PROMPT_CLAUDE_RECETTE_UTILISATEUR_3_DEFINITIF.md` (113 entrées
 | 31 / 34 | liste fournisseurs : VALIDÉE en jaune, colonne « Charge » brute | vert, colonne retirée |
 | 85 | type de logement en texte libre (coût standard ménage) | liste du référentiel |
 | 9 / 14 | Ménages : compteurs PDF répétés, lien « Diagnostic du pipeline » | retirés ; diagnostic accessible depuis Observabilité |
+| 107 | `/charges`, `/factures-fournisseurs`, `/caisse` en 404 sur l'instance réelle (constaté au redémarrage) | redirections 308 vers `/fournisseurs`, `/factures`, `/banques-caisse` ; les 15 routes testées |
 
 **Seul PARTIEL restant — §17 bis, `lot6a`** : les tâches de ménage ne sont pas publiées par le
 pipeline GitHub, et l'architecture interdit un second extracteur API local. Il ne se ferme pas dans

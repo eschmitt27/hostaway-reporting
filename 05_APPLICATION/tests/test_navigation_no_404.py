@@ -122,6 +122,32 @@ def test_racine_redirige_vers_logements(client):
     assert client.get("/accueil").status_code == 200
 
 
+ROUTES_RECETTE_3_107 = ["/", "/health", "/logements", "/reservations", "/menages", "/charges",
+                        "/factures-fournisseurs", "/factures-proprietaires", "/creances",
+                        "/comptes-proprietaires", "/releves-proprietaires", "/comptabilite",
+                        "/caisse", "/administration", "/observabilite/runs"]
+
+ALIAS_VOLONTAIRES = {"/charges": "/fournisseurs", "/factures-fournisseurs": "/factures",
+                     "/caisse": "/banques-caisse"}
+
+
+def test_les_quinze_routes_de_la_recette_3_repondent_ou_redirigent_volontairement(client):
+    """Recette utilisateur n°3 §107 — chacune répond, ou redirige vers un écran qui répond.
+
+    `/charges`, `/factures-fournisseurs` et `/caisse` répondaient 404 : ce sont les noms des entrées
+    de menu, dont les écrans vivent à une autre adresse. Aucun écran n'est dupliqué : l'adresse
+    redirige vers l'écran existant."""
+    for route in ROUTES_RECETTE_3_107:
+        r = client.get(route, follow_redirects=False)
+        assert r.status_code != 404, route
+        if route in ALIAS_VOLONTAIRES:
+            assert r.status_code == 308 and r.headers["location"] == ALIAS_VOLONTAIRES[route], route
+        if r.status_code in (301, 302, 303, 307, 308):
+            assert client.get(r.headers["location"]).status_code == 200, route
+        else:
+            assert r.status_code == 200, route
+
+
 def test_header_global_sans_periode_sur_toutes_les_pages(client):
     """Élément global (header) : badge Période retiré partout, uniformément."""
     for path in ("/", "/logements", "/reservations", "/menages", "/sources-calculs"):

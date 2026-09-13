@@ -88,6 +88,13 @@ def _logements_options() -> list[dict[str, str]]:
         return []
 
 
+@router.get("/factures-fournisseurs")
+def factures_fournisseurs_alias():
+    """Recette n°3 §107 — l'entrée de menu « Factures fournisseurs » vit sur `/factures` : son nom
+    complet redirige vers elle au lieu de répondre 404."""
+    return RedirectResponse("/factures", status_code=308)
+
+
 @router.get("/factures", response_class=HTMLResponse)
 def factures_list(request: Request, statut: str = "", fournisseur: str = "",
                   echues: str = "", message: str = "", erreur: str = ""):

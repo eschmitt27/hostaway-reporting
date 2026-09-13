@@ -1716,6 +1716,7 @@ Anomalies réelles trouvées à la réconciliation §§0-109, toutes **CORRIGÉE
 | ANO-R3-04 | Liste des factures fournisseurs : VALIDÉE en jaune, identifiant de charge brut affiché | FAIBLE | 31, 34 |
 | ANO-R3-05 | Coût standard ménage : type de logement à saisir en texte (`TYPE_00x`) | FAIBLE | 85 |
 | ANO-R3-06 | Écran Ménages : cinq compteurs PDF répétés, lien vers le diagnostic du pipeline | FAIBLE | 9, 14 |
+| ANO-R3-07 | Instance réelle : `/charges`, `/factures-fournisseurs`, `/caisse` répondaient 404 (écrans sous d'autres adresses) — corrigé après `01e6765` par redirections 308 | FAIBLE | 107 |
 
 ### Restant ouvert
 
