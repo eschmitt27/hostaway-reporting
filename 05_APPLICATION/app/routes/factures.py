@@ -230,7 +230,10 @@ def facture_detail(request: Request, opaque: str, message: str = "", erreur: str
         "logements_options": _logements_options(),
         "reglements": reg.reglements_de_facture(opaque),
         "historique": svc.historique(opaque),
-        "statuts": svc.STATUTS, "moyens": reg.MOYENS,
+        # ANNULEE est retirée du sélecteur : annuler une facture engagée n'est pas un changement
+        # de statut, c'est une CONTREPASSATION — écriture miroir, lignes neutralisées, trace. Le
+        # sélecteur générique permettait de le faire en un clic, sans motif et sans rien défaire.
+        "statuts": [s for s in svc.STATUTS if s != svc.ST_ANNULEE], "moyens": reg.MOYENS,
         # §27 — l'écran nomme la CAUSE de l'écart, pas seulement son montant : « une ligne mal
         # lue » et « une ligne absente » n'appellent pas le même geste de correction.
         "diagnostic": flm.diagnostic_ecart(opaque),
@@ -248,6 +251,32 @@ async def facture_statut(request: Request, opaque: str):
                              acteur=str(form.get("acteur", "") or "local"))
     msg = "message=Statut mis à jour." if res.get("ok") else f"erreur={res.get('message')}"
     return RedirectResponse(url=f"/factures/{opaque}?{msg}", status_code=303)
+
+
+@router.post("/factures/{opaque}/supprimer")
+async def facture_supprimer(request: Request, opaque: str):
+    """Règle A — supprimer une facture À CONTRÔLER dont le document n'a plus lieu d'être."""
+    form = await request.form()
+    res = svc.supprimer(opaque, motif=str(form.get("motif", "") or ""),
+                        acteur=str(form.get("acteur", "") or "local"))
+    if not res.get("ok"):
+        return RedirectResponse(
+            url=f"/factures/{opaque}?erreur={quote(res.get('message', ''))}", status_code=303)
+    return RedirectResponse(url="/factures?message=" + quote("Facture supprimée."), status_code=303)
+
+
+@router.post("/factures/{opaque}/contrepasser")
+async def facture_contrepasser(request: Request, opaque: str):
+    """Règle B — annuler une facture VALIDÉE sans jamais l'effacer."""
+    form = await request.form()
+    res = svc.contrepasser(opaque, motif=str(form.get("motif", "") or ""),
+                           acteur=str(form.get("acteur", "") or "local"))
+    if not res.get("ok"):
+        return RedirectResponse(
+            url=f"/factures/{opaque}?erreur={quote(res.get('message', ''))}", status_code=303)
+    message = ("Facture déjà contrepassée." if res.get("deja_contrepassee")
+               else "Facture contrepassée : dette et écriture annulées.")
+    return RedirectResponse(url=f"/factures/{opaque}?message={quote(message)}", status_code=303)
 
 
 @router.post("/factures/{opaque}/lier-charge")

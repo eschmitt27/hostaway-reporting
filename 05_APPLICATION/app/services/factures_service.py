@@ -13,6 +13,7 @@ répartitions de règlements, pour qu'ils ne puissent pas dériver de la vérit�
 from __future__ import annotations
 
 import hashlib
+import sqlite3
 import uuid
 from datetime import date, datetime, timezone
 from typing import Any
@@ -433,6 +434,231 @@ def consequences_constatees(opaque: str, db_path=None) -> dict[str, Any]:
         conn.close()
     return {"ecritures": ecritures, "nb_reglements": int(reglements or 0),
             "reversible": not ecritures and not reglements}
+
+
+E_SUPPRESSION_INTERDITE = "E06_SUPPRESSION_INTERDITE"
+E_MOIS_CLOTURE = "E07_MOIS_CLOTURE"
+E_MOTIF_OBLIGATOIRE = "E08_MOTIF_OBLIGATOIRE"
+E_RIEN_A_CONTREPASSER = "E09_RIEN_A_CONTREPASSER"
+
+#: Tables filles d'une facture fournisseur, dans l'ORDRE de suppression. Aucune clé étrangère ne
+#: relie ces tables à `factures` (le durcissement 0055/0060 n'a porté que sur la chaîne des
+#: factures propriétaires) : `PRAGMA foreign_keys=ON` ne cascade donc rien, et un DELETE naïf
+#: laisserait neuf tables orphelines. L'ordre va des feuilles vers la racine.
+_TABLES_FILLES = (
+    ("facture_lignes_menage_detail",
+     "ligne_id_opaque IN (SELECT ligne_id_opaque FROM facture_lignes_menage "
+     "WHERE facture_id_opaque = ?)"),
+    ("facture_lignes_menage_pdf",
+     "ligne_id_opaque IN (SELECT ligne_id_opaque FROM facture_lignes_menage "
+     "WHERE facture_id_opaque = ?)"),
+    ("facture_lignes_menage", "facture_id_opaque = ?"),
+    ("facture_lignes", "facture_id_opaque = ?"),
+    ("facture_ventilations", "facture_id_opaque = ?"),
+    ("facture_classification", "facture_id_opaque = ?"),
+    ("facture_pdf_diagnostics", "facture_id_opaque = ?"),
+    ("facture_evenements", "facture_id_opaque = ?"),
+)
+
+
+def _mois_facture(row) -> str:
+    return _txt(row["date_facture"])[:7]
+
+
+def _mois_est_cloture(mois: str, db_path=None) -> bool:
+    """Clôture MÉTIER du mois, lue là où elle est réellement peuplée (`ref_cloture_mensuelle`).
+
+    `comptabilite_periodes_service.est_fermee` existe aussi, sur `periodes_comptables`, table vide
+    en production : s'y fier seul laisserait passer une suppression dans un mois clôturé.
+    """
+    from app.services import menages_declarations_service as decl
+
+    try:
+        return bool(decl.mois_cloture(mois, db_path=db_path))
+    except Exception:      # noqa: BLE001 — table absente d'une base de test minimale
+        return False
+
+
+def _recalculer_menages(mois: str, motif: str, db_path=None) -> dict[str, Any] | None:
+    """Défait les impacts ménages en RECALCULANT le mois, jamais par des DELETE à la main.
+
+    lot6f réécrit `menages_cout_complet` intégralement par mois ; c'est donc le recalcul qui fait
+    disparaître la contribution d'une facture retirée, et lui seul reste cohérent avec le reste.
+    """
+    if not mois:
+        return None
+    try:
+        from app.services import orchestrateur_moteur
+
+        return orchestrateur_moteur.executer_menages_cible(mois=mois, declencheur=motif,
+                                                           db_path=db_path)
+    except Exception as exc:      # noqa: BLE001 — l'écriture métier est faite, le recalcul suivra
+        return {"ok": False, "code": type(exc).__name__}
+
+
+def supprimer(opaque: str, *, motif: str, acteur: str = "", db_path=None) -> dict[str, Any]:
+    """RÈGLE A — supprimer une facture À CONTRÔLER dont le document n'a plus lieu d'être.
+
+    Cas réel : le PDF a été retiré du dossier, la facture reste en base et aucun écran ne la
+    signale. Une facture à contrôler n'a AUCUN impact économique — `lib_db_moteur` ne compte que
+    VALIDEE / PARTIELLEMENT_REGLEE / REGLEE — la suppression ne défait donc que des données
+    provisoires. C'est ce qui la rend acceptable ici, et interdite ailleurs.
+
+    Trois verrous : le statut (seules BROUILLON et A_CONTROLER), l'absence de conséquence
+    constatée (écriture, dette, règlement), et le mois non clôturé. La trace est écrite AVANT la
+    suppression, dans la même transaction, sinon elle disparaîtrait avec la facture.
+    """
+    motif = _txt(motif)
+    if not motif:
+        return {"ok": False, "code": E_MOTIF_OBLIGATOIRE,
+                "message": "Supprimer une facture exige d'en donner la raison."}
+    if not _niveau_operationnel_actif():
+        return _refus(E_FLAGS)
+
+    conn = get_db(db_path)
+    try:
+        row = conn.execute(
+            "SELECT facture_id_opaque, statut, date_facture, facture_ref, montant_ttc "
+            "FROM factures WHERE facture_id_opaque = ?", (opaque,)).fetchone()
+        if row is None:
+            return _refus(E_INTROUVABLE, opaque)
+        if row["statut"] not in (ST_BROUILLON, ST_A_CONTROLER):
+            return {"ok": False, "code": E_SUPPRESSION_INTERDITE,
+                    "message": ("Une facture " + row["statut"] + " ne se supprime pas : elle se "
+                                "contrepasse, pour que son annulation reste lisible.")}
+        mois = _mois_facture(row)
+        if _mois_est_cloture(mois, db_path=db_path):
+            return {"ok": False, "code": E_MOIS_CLOTURE,
+                    "message": f"Le mois {mois} est clôturé : passer par les règles de correction."}
+    finally:
+        conn.close()
+
+    consequences = consequences_constatees(opaque, db_path=db_path)
+    if not consequences["reversible"]:
+        return {"ok": False, "code": E_CONSEQUENCES_IRREVERSIBLES,
+                "message": "Cette facture a déjà produit une écriture ou un règlement.",
+                "consequences": consequences}
+
+    conn = get_db(db_path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        _evenement(conn, opaque, "SUPPRESSION", row["statut"], None,
+                   f"Facture {_txt(row['facture_ref'])} ({row['montant_ttc']} €) supprimée : {motif}",
+                   acteur)
+        # Le hash du fichier est indexé par NOM : sans ce retrait, le PDF resterait classé « déjà
+        # importé » et ne pourrait plus jamais être réimporté après correction.
+        fichiers = [r["nom_fichier"] for r in conn.execute(
+            "SELECT nom_fichier FROM facture_pdf_diagnostics WHERE facture_id_opaque = ?",
+            (opaque,))]
+        supprimees: dict[str, int] = {}
+        for table, condition in _TABLES_FILLES:
+            try:
+                cur = conn.execute(f"DELETE FROM {table} WHERE {condition}", (opaque,))
+                supprimees[table] = cur.rowcount
+            except sqlite3.OperationalError:      # table absente d'une base partielle
+                continue
+        for nom in fichiers:
+            try:
+                conn.execute("DELETE FROM menages_pdf_fichiers_hash WHERE nom_fichier = ?", (nom,))
+            except sqlite3.OperationalError:
+                break
+        conn.execute("DELETE FROM factures WHERE facture_id_opaque = ?", (opaque,))
+        conn.commit()
+    finally:
+        conn.close()
+
+    return {"ok": True, "facture_id_opaque": opaque, "mois": mois, "motif": motif,
+            "tables_nettoyees": supprimees, "fichiers_liberes": fichiers,
+            "recalcul_menages": _recalculer_menages(mois, "FACTURE_SUPPRIMEE", db_path=db_path)}
+
+
+def contrepasser(opaque: str, *, motif: str, acteur: str = "", db_path=None) -> dict[str, Any]:
+    """RÈGLE B — annuler une facture VALIDÉE sans jamais l'effacer.
+
+    La facture reste, son annulation se lit : écriture d'achat contrepassée par une écriture
+    miroir (mécanisme unique du projet, `comptabilite_ecritures_service.contrepasser`, déjà
+    réutilisé par la caisse), lignes de ménage neutralisées pour ne plus peser sur le
+    rapprochement, statut terminal, et recalcul du mois pour défaire les impacts ménages.
+
+    IDEMPOTENTE : rejouée sur une facture déjà contrepassée, elle ne refait rien et le dit. Une
+    reprise après incident ne doit pas échouer sur un travail à moitié fait.
+    """
+    motif = _txt(motif)
+    if not motif:
+        return {"ok": False, "code": E_MOTIF_OBLIGATOIRE,
+                "message": "Contrepasser une facture exige d'en donner la raison."}
+    if not _flags_actifs():
+        return _refus(E_FLAGS)
+
+    conn = get_db(db_path)
+    try:
+        row = conn.execute(
+            "SELECT facture_id_opaque, statut, date_facture, facture_ref FROM factures "
+            "WHERE facture_id_opaque = ?", (opaque,)).fetchone()
+        if row is None:
+            return _refus(E_INTROUVABLE, opaque)
+        statut, mois = row["statut"], _mois_facture(row)
+        deja = conn.execute(
+            "SELECT COUNT(*) n FROM facture_evenements WHERE facture_id_opaque = ? "
+            "AND type_evenement = 'CONTREPASSATION'", (opaque,)).fetchone()["n"]
+    finally:
+        conn.close()
+
+    if deja:
+        return {"ok": True, "facture_id_opaque": opaque, "deja_contrepassee": True,
+                "message": "Cette facture a déjà été contrepassée."}
+    if statut == ST_A_CONTROLER or statut == ST_BROUILLON:
+        return {"ok": False, "code": E_RIEN_A_CONTREPASSER,
+                "message": ("Une facture à contrôler n'a rien engagé : elle se supprime, elle ne "
+                            "se contrepasse pas.")}
+    if statut == ST_ANNULEE:
+        return {"ok": False, "code": E_STATUT, "message": "Facture déjà annulée."}
+    if _mois_est_cloture(mois, db_path=db_path):
+        return {"ok": False, "code": E_MOIS_CLOTURE,
+                "message": f"Le mois {mois} est clôturé : passer par les règles de correction."}
+
+    # L'écriture d'achat n'est contrepassée que si elle a réellement été postée : générée au statut
+    # PROPOSEE, elle ne pèse sur aucun solde tant qu'elle n'est pas VALIDEE.
+    from app.services import comptabilite_ecritures_service as compta
+
+    miroirs = []
+    for ecriture in consequences_constatees(opaque, db_path=db_path)["ecritures"]:
+        if ecriture["statut"] != compta.ST_VALIDEE:
+            continue
+        resultat = compta.contrepasser(ecriture["ecriture_id_opaque"],
+                                       commentaire=f"Contrepassation facture : {motif}",
+                                       acteur=acteur, db_path=db_path)
+        if not resultat.get("ok"):
+            return {"ok": False, "code": resultat.get("code", "E_CONTREPASSATION"),
+                    "message": resultat.get("message", "Contrepassation comptable refusée."),
+                    "ecriture_id_opaque": ecriture["ecriture_id_opaque"]}
+        miroirs.append(resultat.get("miroir_id_opaque"))
+
+    conn = get_db(db_path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        # Les lignes de ménage d'une facture annulée continuaient d'alimenter le rapprochement et
+        # les écarts : lot6d et lib_db_moteur lisent `facture_lignes_menage` sans filtrer le statut
+        # du document. Les neutraliser — jamais les supprimer — remet le compte à zéro tout en
+        # laissant lisible ce que la facture portait.
+        conn.execute(
+            "UPDATE facture_lignes_menage SET statut_ligne = ?, motif_correction = ? "
+            "WHERE facture_id_opaque = ? AND COALESCE(statut_ligne, ?) = ?",
+            (flm.STATUT_LIGNE_EXTRACTION_INCORRECTE, f"Facture contrepassée : {motif}", opaque,
+             flm.STATUT_LIGNE_ACTIVE, flm.STATUT_LIGNE_ACTIVE))
+        conn.execute("UPDATE factures SET statut = ? WHERE facture_id_opaque = ?",
+                     (ST_ANNULEE, opaque))
+        _evenement(conn, opaque, "CONTREPASSATION", statut, ST_ANNULEE,
+                   f"Contrepassation : {motif}" + (f" — miroir {', '.join(m for m in miroirs if m)}"
+                                                   if miroirs else " — aucune écriture postée"),
+                   acteur)
+        conn.commit()
+    finally:
+        conn.close()
+
+    return {"ok": True, "facture_id_opaque": opaque, "statut": ST_ANNULEE, "mois": mois,
+            "motif": motif, "miroirs": [m for m in miroirs if m],
+            "recalcul_menages": _recalculer_menages(mois, "FACTURE_CONTREPASSEE", db_path=db_path)}
 
 
 def rouvrir_controle(opaque: str, *, motif: str, acteur: str = "",
