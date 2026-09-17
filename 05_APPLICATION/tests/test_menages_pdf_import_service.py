@@ -23,8 +23,11 @@ pytest.importorskip("lib_menages_externes_pdf")
 from app.services import menages_pdf_import_service as svc  # noqa: E402
 
 REAL_PDF_DIR = cfg.MENAGES_PDF_DIR
-AISSATA = REAL_PDF_DIR / "Facture juillet Aissata.pdf"
-MOUNIR = REAL_PDF_DIR / "Facture juillet Mounir.pdf"
+# Les PDF réels sont indexés sur la CONVENTION de nommage (MM-YY-Prestataire), et non plus sur un
+# nom littéral : les fichiers ont été renommés une fois, et les tests qui en dépendaient se sont
+# alors mis à se skipper en silence — l'extraction réelle n'était plus couverte du tout.
+AISSATA = REAL_PDF_DIR / "07-26-Aissata.pdf"
+MOUNIR = REAL_PDF_DIR / "07-26-Mounir.pdf"
 pdf_reels = pytest.mark.skipif(not (AISSATA.exists() and MOUNIR.exists()),
                                reason="PDF réels absents d'un checkout propre")
 

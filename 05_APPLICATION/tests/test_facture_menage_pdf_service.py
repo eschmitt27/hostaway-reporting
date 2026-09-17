@@ -25,8 +25,11 @@ from app.services import facture_menage_pdf_service as svc  # noqa: E402
 from app.services import factures_service as fact  # noqa: E402
 
 REAL_PDF_DIR = cfg.MENAGES_PDF_DIR
-AISSATA = REAL_PDF_DIR / "Facture mai Aissata.pdf"
-MOUNIR = REAL_PDF_DIR / "Facture mai Mounir.pdf"
+# Les PDF réels sont indexés sur la CONVENTION de nommage (MM-YY-Prestataire), et non plus sur un
+# nom littéral : les fichiers ont été renommés une fois, et les tests qui en dépendaient se sont
+# alors mis à se skipper en silence — l'extraction réelle n'était plus couverte du tout.
+AISSATA = REAL_PDF_DIR / "05-26-Aissata.pdf"
+MOUNIR = REAL_PDF_DIR / "05-26-Mounir.pdf"
 pdf_reels = pytest.mark.skipif(not (AISSATA.exists() and MOUNIR.exists()),
                                reason="PDF réels absents d'un checkout propre")
 
@@ -39,14 +42,14 @@ def _ecriture_activee(monkeypatch):
 
 @pytest.fixture
 def aissata(tmp_path):
-    dst = tmp_path / "Facture mai Aissata.pdf"
+    dst = tmp_path / AISSATA.name
     shutil.copy2(AISSATA, dst)
     return dst
 
 
 @pytest.fixture
 def mounir(tmp_path):
-    dst = tmp_path / "Facture mai Mounir.pdf"
+    dst = tmp_path / MOUNIR.name
     shutil.copy2(MOUNIR, dst)
     return dst
 

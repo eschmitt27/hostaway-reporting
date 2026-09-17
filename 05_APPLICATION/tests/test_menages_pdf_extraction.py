@@ -26,8 +26,11 @@ if str(_TRAVAIL) not in sys.path:
 pdfex = pytest.importorskip("lib_menages_externes_pdf")
 
 REAL_PDF_DIR = cfg.MENAGES_PDF_DIR
-AISSATA = REAL_PDF_DIR / "Facture mai Aissata.pdf"
-MOUNIR = REAL_PDF_DIR / "Facture mai Mounir.pdf"
+# Les PDF réels sont indexés sur la CONVENTION de nommage (MM-YY-Prestataire), et non plus sur un
+# nom littéral : les fichiers ont été renommés une fois, et les tests qui en dépendaient se sont
+# alors mis à se skipper en silence — l'extraction réelle n'était plus couverte du tout.
+AISSATA = REAL_PDF_DIR / "05-26-Aissata.pdf"
+MOUNIR = REAL_PDF_DIR / "05-26-Mounir.pdf"
 pdf_reels = pytest.mark.skipif(not (AISSATA.exists() and MOUNIR.exists()),
                                reason="PDF réels absents d'un checkout propre")
 
@@ -36,14 +39,14 @@ pdf_reels = pytest.mark.skipif(not (AISSATA.exists() and MOUNIR.exists()),
 
 @pytest.fixture
 def aissata(tmp_path):
-    dst = tmp_path / "Facture mai Aissata.pdf"
+    dst = tmp_path / AISSATA.name
     shutil.copy2(AISSATA, dst)
     return dst
 
 
 @pytest.fixture
 def mounir(tmp_path):
-    dst = tmp_path / "Facture mai Mounir.pdf"
+    dst = tmp_path / MOUNIR.name
     shutil.copy2(MOUNIR, dst)
     return dst
 
@@ -128,7 +131,10 @@ def test_07_lignes_libelle_logement(aissata):
     """
     fac = pdfex.extraire_pdf(aissata)
     libelles = {pdfex.normaliser_libelle(l.logement_source) for l in fac.lignes}
-    assert {"studio 76", "t3 4 rue engalieres"} <= libelles
+    # Libellés tels que les porte la facture réelle de mai : le prénom entre parenthèses fait
+    # partie de la désignation du logement et aide le rapprochement, seule l'adresse-entre-
+    # parenthèses est retirée. La nature de la prestation, elle, n'est plus dans le libellé.
+    assert {"studio 76 (dureuil)", "t3 4 rue engalieres"} <= libelles
     assert all(l.logement_id is None for l in fac.lignes), \
         "l'extracteur ne doit plus rapprocher de logement lui-même"
 
@@ -137,8 +143,10 @@ def test_07_lignes_libelle_logement(aissata):
 def test_08_quantite(mounir):
     fac = pdfex.extraire_pdf(mounir)
     q = {pdfex.normaliser_libelle(l.logement_source): l.quantite for l in fac.lignes}
-    assert q["t4 90 blagnac"] == 6 and q["t3 sept deniers"] == 10
-    assert q["t2 65"] == 0 and q["studio puits vert"] == 1
+    assert q["t.4-90 blagnac (cedrine)"] == 6 and q["t.3 sept deniers (francois)"] == 10
+    # Un appartement sans ménage du mois est facturé 0 : c'est une information du document, pas une
+    # ligne à faire disparaître.
+    assert q["t.2-65 (gabriel)"] == 0 and q["studio puits vert (caroline)"] == 1
 
 
 # ── 9-10 : l'extraction ne rapproche plus, elle normalise ────────────────────
@@ -254,7 +262,8 @@ def test_19_lot6c_genere_master_sur_copies(tmp_path):
     shutil.copy2(AISSATA, pdfd / AISSATA.name)
     shutil.copy2(MOUNIR, pdfd / MOUNIR.name)
     sha_pdf_avant = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in (AISSATA, MOUNIR)}
-    for s in ["lot6c_menages_externes.py", "lib_parc.py", "lib_ref_history.py", "lib_menages_externes_pdf.py"]:
+    for s in ["lot6c_menages_externes.py", "lib_parc.py", "lib_ref_history.py",
+              "lib_menages_externes_pdf.py", "lib_db_moteur.py"]:
         shutil.copy2(_TRAVAIL / s, ws / "02_TRAVAIL" / s)
     r = subprocess.run([str(engine), str(ws / "02_TRAVAIL/lot6c_menages_externes.py")],
                        cwd=str(ws / "02_TRAVAIL"), capture_output=True, text=True, timeout=120)
