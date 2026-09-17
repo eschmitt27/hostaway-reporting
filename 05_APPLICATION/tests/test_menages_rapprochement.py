@@ -790,10 +790,33 @@ def test_route_menages_200(client):
 
 
 def test_route_menages_cartes_presentes(client):
+    """Les huit indicateurs que l'écran doit porter (recette utilisateur n°4, §19).
+
+    « Hostaway réalisés » et « Coût complet total » ont été retirés : le premier redit l'état
+    d'exécution déjà donné par le bloc des origines, le second est un sujet économique et non un
+    rapprochement — et c'est par lui que le nom de lot « Lot6f » s'affichait à l'utilisateur.
+    """
     r = client.get("/menages")
-    for libelle in ("Ménages attendus", "Hostaway réalisés", "Internes déclarés",
-                    "Externes facturés", "Écarts à contrôler", "Coût complet total"):
-        assert libelle in r.text, f"Carte manquante : {libelle}"
+    for libelle in ("Dernière actualisation", "Factures PDF reconnues", "À contrôler / en erreur",
+                    "Ménages attendus", "Attendu Hostaway", "Attendu hors Hostaway",
+                    "Internes déclarés", "Externes facturés", "Écarts à contrôler"):
+        assert libelle in r.text, f"Indicateur manquant : {libelle}"
+
+
+def test_route_menages_ne_reaffiche_pas_le_technique(client):
+    """Ce qui n'appelle aucune action métier n'a pas sa place sur cet écran (§17).
+
+    Ces pavés sont soit de la doctrine permanente, soit des noms de lots, soit un doublon exact
+    d'un autre écran. Ce test existe pour qu'ils ne reviennent pas par mégarde.
+    """
+    r = client.get("/menages")
+    for interdit in ("aucun identifiant Hostaway n'est stocké",
+                     "Origine des données",
+                     "Dernier calcul Ménages",
+                     "Lot6f",
+                     "Lecture seule",
+                     "arrive au statut <strong>À CONTRÔLER</strong>"):
+        assert interdit not in r.text, f"Bloc supprimé réapparu : {interdit}"
 
 
 def test_route_menages_filtres(client):

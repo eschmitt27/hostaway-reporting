@@ -75,4 +75,89 @@
   <p class="text-secondary">Aucune sauvegarde enregistrée.</p>
   {% endif %}
 </div>
+
+{# ── Détail technique déplacé depuis l'écran Ménages (recette n°4, §17) ──────────────────────
+   Rien de ce qui suit n'appelle un geste métier immédiat : c'est de la matière à comprendre,
+   pas à décider. L'écran Ménages n'en garde que ce qui déclenche une action. #}
+
+{% if hostaway and hostaway.depot %}
+<div class="card mb-lg">
+  <div class="card-title">Données Hostaway — provenance et fraîcheur</div>
+  <dl class="detail-grid">
+    <div><dt>État</dt><dd>{{ hostaway.depot.etat or "indéterminé" }}</dd></div>
+    <div><dt>Produites le</dt>
+      <dd>{{ hostaway.depot.source_produite_le|datetime_fr if hostaway.depot.source_produite_le else "—" }}</dd></div>
+    <div><dt>Synchronisées ici le</dt>
+      <dd>{{ hostaway.depot.synchronise_le|datetime_fr if hostaway.depot.synchronise_le else "jamais" }}</dd></div>
+    <div><dt>Dernier succès réservations</dt>
+      <dd>{{ hostaway.reservations_succes_le|datetime_fr if hostaway.reservations_succes_le else "jamais" }}</dd></div>
+    <div><dt>Dernier succès tâches de ménage</dt>
+      <dd>{{ hostaway.taches_succes_le|datetime_fr if hostaway.taches_succes_le else "jamais" }}</dd></div>
+  </dl>
+  <p class="section-note">
+    Source : pipeline GitHub — aucun identifiant Hostaway n'est stocké sur ce poste.
+  </p>
+</div>
+{% endif %}
+
+{% if pdf_menages %}
+<div class="card mb-lg">
+  <div class="card-title">Factures PDF de ménage — diagnostic fichier par fichier</div>
+  <dl class="detail-grid">
+    <div><dt>Dossier de dépôt</dt>
+      <dd><span class="font-mono text-xs">{{ pdf_menages.dossier_relatif or pdf_menages.dossier }}</span></dd></div>
+    <div><dt>Mode d'extraction</dt><dd>{{ pdf_menages.mode_extraction or "—" }}</dd></div>
+    <div><dt>Dernière extraction</dt><dd>{{ pdf_menages.derniere_extraction or "inconnue" }}</dd></div>
+  </dl>
+  {% if pdf_menages.diagnostic_disponible and pdf_menages.diagnostic %}
+  <div class="table-container mt-md">
+    <table class="data-table">
+      <thead><tr><th>Fichier</th><th>Encore présent ?</th><th>Fournisseur</th><th>Statut</th>
+        <th>N° facture</th><th class="num">Montant</th><th class="num">Écart</th>
+        <th class="num">Lignes</th><th>Anomalie</th></tr></thead>
+      <tbody>
+        {% set presents = pdf_menages.details|map(attribute='nom_fichier')|list %}
+        {% for d in pdf_menages.diagnostic %}
+        <tr>
+          <td><span class="font-mono text-xs">{{ d.fichier }}</span></td>
+          {# Un PDF retiré du dossier mais toujours enregistré n'est pas la même chose qu'un PDF
+             présent : c'est précisément ce que l'ancien écran ne permettait pas de voir. #}
+          <td>{% if d.fichier in presents %}<span class="badge badge-success">Présent</span>
+              {% else %}<span class="badge badge-warning">Retiré du dossier</span>{% endif %}</td>
+          <td>{{ d.format }}</td>
+          <td>{{ 'DOUBLON' if d.doublon_de else d.statut }}</td>
+          <td>{{ d.numero_facture or "—" }}</td>
+          <td class="num">{% if d.montant_total is not none %}{{ "%.2f"|format(d.montant_total) }} €{% else %}—{% endif %}</td>
+          <td class="num">{% if d.ecart is not none %}{{ "%.2f"|format(d.ecart) }}{% else %}—{% endif %}</td>
+          <td class="num">{{ d.nb_lignes if d.nb_lignes is not none else "—" }}</td>
+          <td class="text-xs">{{ d.anomalies or "" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  {% if pdf_menages.note_extraction %}
+  <p class="section-note">{{ pdf_menages.note_extraction }}</p>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if changements_clotures %}
+<div class="card mb-lg">
+  <div class="card-title">Mois clôturés ayant reçu de nouvelles données</div>
+  <p class="section-note">
+    Signalés, jamais recalculés : rouvrir une clôture reste une décision explicite.
+  </p>
+  <table class="data-table">
+    <thead><tr><th>Mois</th><th>Origine</th><th>Détecté le</th><th>Statut</th></tr></thead>
+    <tbody>
+      {% for c in changements_clotures %}
+      <tr><td>{{ c.mois }}</td><td>{{ c.origine }}</td><td>{{ c.date_detection }}</td>
+        <td>{{ c.statut }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
 {% endblock %}

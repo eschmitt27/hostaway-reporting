@@ -22,28 +22,17 @@
       {% set _ = params.append(k ~ '=' ~ (v|lower if v is boolean else v)) %}
     {% endfor %}
     <a href="/menages/export.csv{% if params %}?{{ params|join('&') }}{% endif %}" class="btn btn-secondary">Export CSV</a>
-    <span class="read-only-badge">Lecture seule</span>
-    {% if s.etat_global == "CONFORME" %}
-      <span class="etat-global etat-global--ok">Conforme</span>
-    {% elif s.etat_global == "A_CONTROLER" %}
-      <span class="etat-global etat-global--warn">À contrôler</span>
-    {% else %}
-      <span class="etat-global etat-global--err">Source incomplète</span>
-    {% endif %}
   </div>
 </div>
 
-{% if a.affichage == "actualise" %}
-<div class="alert alert-info">Affichage actualisé — cache vidé, MASTER relus depuis le disque.</div>
-{% endif %}
+{# UNE seule bannière d'accusé de réception, branchée sur les marqueurs réellement émis par les
+   routes. Les trois autres branches étaient du code mort : aucune redirection ne les atteignait. #}
 {% if request.query_params.get("actualisation") == "pdf" %}
-<div class="alert alert-info">Import des factures PDF exécuté — voir le détail ci-dessous.</div>
-{% elif request.query_params.get("actualisation") == "lancee" %}
-<div class="alert alert-info">Actualisation de {{ data.mois_libelle }} lancée en tâche de fond —
-  tâches Hostaway, déclarations, factures, rapprochement et contrôles pour ce mois uniquement.
-  Cette page peut être rafraîchie pour suivre l'avancement.</div>
-{% elif request.query_params.get("actualisation") == "declaration" %}
+<div class="alert alert-info">Import des factures PDF exécuté.</div>
+{% elif request.query_params.get("declaration") == "modifiee" %}
 <div class="alert alert-info">Déclaration enregistrée.</div>
+{% elif request.query_params.get("outrepassage") == "ok" %}
+<div class="alert alert-info">Écart outrepassé.</div>
 {% endif %}
 
 <!-- ===== Période — en tête d'écran (§6) : tout ce qui suit s'y rapporte ===== -->
@@ -83,7 +72,9 @@
     <div class="kpi-card">
       <div class="kpi-label">Factures PDF reconnues</div>
       <div class="kpi-value">{{ act.pdf.nb_reconnues }}</div>
-      <div class="kpi-sub">{{ act.pdf.nb_detectes }} fichier(s) dans le dossier</div>
+      {# Le nombre de fichiers du dossier n'est plus affiché ICI : mis face au nombre de factures,
+         il opposait deux grandeurs justes et incomparables. Le rapprochement des deux se lit plus
+         bas, où il peut être expliqué. #}
     </div>
     <div class="kpi-card">
       <div class="kpi-label">À contrôler / en erreur</div>
@@ -96,13 +87,6 @@
     L'enregistrement des factures est désactivé sur cette installation
     (<code>ECRITURE_OPERATIONNELLE_ENABLED</code>). Les PDF sont détectés et classés ci-dessus, mais
     aucune facture n'est créée tant que ce réglage reste inactif.
-  </div>
-  {% else %}
-  <div class="alert alert-info">
-    Une facture importée depuis un PDF arrive au statut <strong>À CONTRÔLER</strong> : c'est un
-    document reçu, pas une dette comptabilisée. Aucune écriture comptable, aucun règlement et aucun
-    mouvement bancaire n'est créé par l'import — la comptabilité ne démarre qu'après validation
-    humaine explicite de la facture.
   </div>
   {% endif %}
   {% if act.en_cours %}
@@ -129,15 +113,21 @@
   </div>
   {% endif %}
   {% if changements_clotures %}
+  {# Une ligne par événement donnait dix lignes pour quatre mois. Ce qui appelle une décision,
+     c'est le nombre de MOIS concernés ; le détail reste à un clic. #}
+  {% set mois_clotures = changements_clotures|map(attribute='mois')|unique|list %}
   <div class="alert alert-warning">
-    <strong>Changement détecté sur un mois clôturé — aucun recalcul effectué.</strong>
-    <ul>
-      {% for c in changements_clotures[:5] %}
-      <li>{{ c.mois }} · {{ c.origine }} · {{ c.date_detection }}</li>
-      {% endfor %}
-    </ul>
-    Rouvrir la clôture reste une décision explicite : les chiffres économiques de ces mois sont
-    inchangés.
+    <strong>{{ mois_clotures|length }} mois clôturé{{ 's' if mois_clotures|length > 1 }}
+    {{ 'ont' if mois_clotures|length > 1 else 'a' }} reçu de nouvelles données — aucun recalcul
+    effectué.</strong>
+    <details class="mt-sm">
+      <summary class="text-xs">Voir le détail</summary>
+      <ul class="text-xs">
+        {% for c in changements_clotures %}
+        <li>{{ c.mois }} · {{ c.origine }} · {{ c.date_detection }}</li>
+        {% endfor %}
+      </ul>
+    </details>
   </div>
   {% endif %}
 
@@ -163,61 +153,68 @@
    Hostaway disponibles — pas un horodatage de recalcul qui donnerait l'illusion du frais. #}
 {% set ha = actualisation.hostaway %}
 
-{# ── Fraîcheur de la SOURCE Hostaway ────────────────────────────────────────────────────────
-   Deux instants, jamais un seul : l'heure à laquelle le pipeline a interrogé Hostaway, et
-   l'heure à laquelle cette installation a importé ce jeu. Les confondre reviendrait soit à
-   vieillir des données fraîches, soit — bien pire — à annoncer « à jour » une base qui n'a
-   jamais synchronisé le dernier jeu publié. #}
+{# ── État des données Hostaway — UNE ligne ────────────────────────────────────────────────────
+   Trois alertes se succédaient ici, dont deux se contredisaient frontalement : « produites le
+   17/09 à 17h58 » juste au-dessus de « données Hostaway non actualisées ». La fraîcheur se dit
+   maintenant en une phrase, fondée sur la dernière synchronisation RÉUSSIE. Le détail technique
+   (dates par source, provenance du pipeline) vit dans Observabilité. #}
 {% set dp = ha.depot if ha else none %}
 {% if dp and dp.etat and dp.etat != "INDETERMINE" %}
-<div class="alert {% if dp.etat == 'A_JOUR' %}alert-info{% else %}alert-warning{% endif %}">
-  <strong>Données Hostaway</strong> —
-  {% if dp.source_produite_le %}
-    produites le {{ dp.source_produite_le|datetime_fr }},
-    synchronisées ici le {{ dp.synchronise_le|datetime_fr if dp.synchronise_le else "jamais" }}.
+<div class="alert {% if dp.etat == 'A_JOUR' and not (ha and ha.en_echec) %}alert-info{% else %}alert-warning{% endif %}">
+  {% if dp.etat == "JAMAIS_IMPORTE" %}
+    <strong>Données Hostaway jamais synchronisées</strong> sur cette installation —
+    lancez « Actualiser le rapprochement ».
+  {% elif dp.etat == "RETARD" %}
+    <strong>Données Hostaway plus récentes disponibles</strong>{% if dp.publie_le %}
+      ({{ dp.publie_le|datetime_fr }}){% endif %} — lancez « Actualiser le rapprochement ».
+  {% elif ha and ha.en_echec %}
+    <strong>Actualisation incomplète</strong> — les chiffres Hostaway datent du
+    {{ dp.source_produite_le|datetime_fr if dp.source_produite_le else "dernier relevé connu" }}.
   {% else %}
-    jamais synchronisées sur cette installation.
+    <strong>Données Hostaway à jour</strong> — produites le
+    {{ dp.source_produite_le|datetime_fr }}.
   {% endif %}
-  {% if dp.etat == "RETARD" %}
-    <br><strong>Un jeu plus récent est publié</strong>{% if dp.publie_le %} ({{ dp.publie_le|datetime_fr }}){% endif %} —
-    il n'a pas encore été importé. Lancez « Actualiser le rapprochement » pour le récupérer.
-  {% elif dp.etat == "JAMAIS_IMPORTE" %}
-    <br>Aucune extraction Hostaway en base. Lancez « Actualiser le rapprochement ».
-  {% endif %}
-  <span class="text-xs text-secondary">
-    (Source : pipeline GitHub — aucun identifiant Hostaway n'est stocké sur ce poste.)
-  </span>
-</div>
-{% endif %}
-
-{% if ha and ha.en_echec %}
-<div class="alert alert-warning">
-  <strong>Actualisation incomplète — données Hostaway non actualisées.</strong>
-  Le rapprochement ci-dessous a bien été recalculé, mais à partir des dernières données Hostaway
-  disponibles :
-  <ul>
-    <li>Réservations :
-      {{ ha.reservations_succes_le|datetime_fr if ha.reservations_succes_le else "jamais récupérées" }}</li>
-    <li>Tâches de ménage :
-      {{ ha.taches_succes_le|datetime_fr if ha.taches_succes_le else "jamais récupérées" }}</li>
-  </ul>
-  Les chiffres Hostaway de cet écran datent donc de ces relevés, pas d'aujourd'hui.
 </div>
 {% endif %}
 
 {% set fr = data.fraicheur %}
-{% if ha and ha.en_echec %}
-{# l'indicateur générique « à jour » est volontairement tu : il porterait à faux. #}
-{% elif fr and fr.recommander_relance %}
+{% if not (ha and ha.en_echec) and fr and fr.recommander_relance %}
 <div class="alert alert-warning">
-  <strong>Des sources ont été modifiées depuis le dernier rapprochement.</strong>
-  Fichiers plus récents : {{ fr.sources_recentes|join(", ") }}.
-  Dernier rapprochement : {{ fr.master_maj }}. Relance recommandée.
-  <span class="text-xs text-secondary">(Indicateur de fraîcheur — comparaison de dates, pas une preuve comptable.)</span>
+  <strong>Des sources ont été modifiées depuis le dernier rapprochement</strong> —
+  relance recommandée.
 </div>
-{% elif fr and fr.etat == "A_JOUR" %}
-<div class="alert alert-info">
-  Rapprochement à jour (aucune source modifiée depuis le {{ fr.master_maj }}).
+{% endif %}
+
+<!-- ===== Factures de ménage externes (PDF) ===== -->
+{% set rap = actualisation.pdf.rapprochement %}
+{% if rap %}
+<div class="card mb-md">
+  <h2 class="card-title">Factures de ménage externes</h2>
+  {# §20 — un rapprochement explicite, au lieu de deux nombres justes mis côte à côte : « 7
+     reconnues » face à « 8 fichiers » n'apprenait rien, puisque ces 7 comptaient 2 fichiers
+     retirés du dossier et que 3 fichiers présents ne produisaient aucune facture. #}
+  <p>
+    <strong>{{ rap.presents }}</strong> fichier{{ 's' if rap.presents > 1 }} dans le dossier ·
+    <strong>{{ rap.rattaches }}</strong> rattaché{{ 's' if rap.rattaches > 1 }} à une facture
+    {%- if rap.non_exploites %} · <strong>{{ rap.non_exploites|length }}</strong> non exploité
+    {{- 's' if rap.non_exploites|length > 1 }}{% endif %}
+  </p>
+  {% if rap.non_exploites %}
+  <details class="text-xs text-secondary">
+    <summary>Fichiers non exploités</summary>
+    <ul>{% for f in rap.non_exploites %}
+      <li><span class="font-mono">{{ f.fichier }}</span> — {{ f.motif }}</li>
+    {% endfor %}</ul>
+  </details>
+  {% endif %}
+  {% if rap.factures_sans_fichier %}
+  <div class="alert alert-warning mt-sm">
+    <strong>{{ rap.factures_sans_fichier|length }} facture{{ 's' if rap.factures_sans_fichier|length > 1 }}
+    dont le PDF n'est plus dans le dossier.</strong>
+    Ouvrez la facture pour la supprimer si elle n'a plus lieu d'être :
+    <span class="font-mono text-xs">{{ rap.factures_sans_fichier|join(', ') }}</span>
+  </div>
+  {% endif %}
 </div>
 {% endif %}
 
@@ -234,46 +231,31 @@
 <!-- ===== Ménages attendus, par ORIGINE (§38) ===== -->
 <div class="card mb-md">
   <h2 class="card-title">Ménages attendus — {{ origines.total_attendus }}</h2>
-  <p class="text-xs text-secondary">
-    L'<strong>origine</strong> dit d'où vient le ménage attendu ; l'<strong>état</strong> dit où en
-    est son exécution. Ce sont deux questions différentes : une tâche Hostaway réalisée n'est pas
-    un autre ménage que le ménage attendu, c'est le même, plus tard. Une réservation a une seule
-    origine — aucun ménage n'est compté deux fois.
-  </p>
   <div class="kpi-grid kpi-grid--2" style="margin-top:var(--stack-md)">
     <div class="kpi-card">
       <div class="kpi-label">{{ origines.hostaway.libelle }}</div>
       <div class="kpi-value">{{ origines.hostaway.attendus }}</div>
       <div class="kpi-sub">{{ origines.hostaway.source }}</div>
       {% if origines.hostaway.etats %}
-      <div class="text-xs text-secondary" style="margin-top:var(--stack-sm)">
+      <details class="text-xs text-secondary mt-sm">
+        <summary>Détail par état</summary>
         {% for e in origines.hostaway.etats %}
           {{ e.libelle }} : <strong>{{ e.nb }}</strong>{% if not loop.last %} · {% endif %}
         {% endfor %}
-      </div>
+      </details>
       {% endif %}
     </div>
     <div class="kpi-card">
       <div class="kpi-label">{{ origines.hors_hostaway.libelle }}</div>
       <div class="kpi-value">{{ origines.hors_hostaway.attendus }}</div>
       <div class="kpi-sub">{{ origines.hors_hostaway.source }}</div>
-      {% if origines.hors_hostaway.etat_indisponible %}
-      <div class="text-xs text-secondary" style="margin-top:var(--stack-sm)">
-        Pas d'état d'exécution : ces ménages n'ont pas de tâche Hostaway pour en porter un.
-      </div>
-      {% endif %}
     </div>
   </div>
 </div>
 {% endif %}
 
 <!-- ===== Cartes de synthèse — 4 flux jamais fusionnés ===== -->
-<div class="kpi-grid kpi-grid--5">
-  <div class="kpi-card">
-    <div class="kpi-label">Hostaway réalisés</div>
-    <div class="kpi-value">{{ s.hostaway_realise if s.hostaway_realise is not none else "—" }}</div>
-    <div class="kpi-sub">État d'exécution, pas une origine</div>
-  </div>
+<div class="kpi-grid kpi-grid--3">
   <div class="kpi-card">
     <div class="kpi-label">Internes déclarés</div>
     <div class="kpi-value">{{ s.interne_declare if s.interne_declare is not none else "—" }}</div>
@@ -289,26 +271,16 @@
     <div class="kpi-value">{{ s.a_controler }}</div>
     <div class="kpi-sub"><a href="/menages/a-controler?mois={{ data.mois }}">Ouvrir la liste</a></div>
   </div>
-  <div class="kpi-card">
-    <div class="kpi-label">Coût complet total</div>
-    <div class="kpi-value">
-      {% if s.cout_complet_disponible and s.cout_complet_total is not none %}
-        {{ "%.2f"|format(s.cout_complet_total) }} €
-      {% else %}—{% endif %}
-    </div>
-    <div class="kpi-sub">
-      {% if s.cout_reel_total is not none %}
-        dont coût réel {{ "%.2f"|format(s.cout_reel_total) }} €
-      {% else %}Lot6f{% endif %}
-    </div>
-  </div>
 </div>
 
 {% if s.sources_manquantes %}
 <div class="alert alert-warning mt-md">
   <strong>Sources incomplètes</strong> —
+  {# Le libellé du référentiel porte son nom de lot (« Coût complet (Lot6f) ») : utile en
+     Observabilité, hors sujet ici. L'utilisateur a besoin de savoir QUELLE donnée manque, pas
+     quel script aurait dû la produire. #}
   {% for e in s.sources_manquantes %}
-    {{ e.libelle }} : {{ e.etat_libelle }}{% if not loop.last %} · {% endif %}
+    {{ e.libelle.split(' (')[0] }} : {{ e.etat_libelle }}{% if not loop.last %} · {% endif %}
   {% endfor %}
   <br>Les blocs concernés affichent « Source indisponible » plutôt qu'une valeur fabriquée.
 </div>
@@ -380,102 +352,13 @@
   </form>
 </div>
 
-<!-- ===== Factures de ménage externes (PDF) ===== -->
-{% set pdf = data.pdf_externes %}
-{% if pdf %}
-<div class="card mb-md">
-  <div class="flex justify-between items-center mb-md">
-    <h2 class="card-title">Factures de ménage externes</h2>
-    {% if pdf.mode_extraction == "PDF_AUTOMATIQUE" %}
-      <span class="status-badge status-valide">Extraction PDF automatique</span>
-    {% elif pdf.mode_extraction == "SAISIE_MANUELLE_SECOURS" %}
-      <span class="status-badge status-a-controler">Saisie manuelle (secours)</span>
-    {% else %}
-      <span class="status-badge status-a-controler">Mode inconnu</span>
-    {% endif %}
-  </div>
-  <dl class="detail-grid">
-    <div><dt>Dossier de dépôt des factures</dt>
-      <dd><span class="font-mono text-xs">{{ pdf.dossier_relatif }}</span></dd></div>
-    {# §9 — les compteurs PDF vivent UNE fois, en haut (« PDF reconnus », « À contrôler / en
-       erreur »). Les répéter ici — présents, non supportés, doublons, « MASTER » — redisait la
-       même information cinq fois, dans un vocabulaire de développeur. #}
-    <div><dt>Prestataires détectés</dt>
-      <dd>{{ pdf.prestataires_detectes|join(", ") if pdf.prestataires_detectes else "—" }}</dd></div>
-    <div><dt>Période couverte</dt>
-      <dd>{{ pdf.periode_couverte|join(", ") if pdf.periode_couverte else "—" }}</dd></div>
-    <div><dt>Dernière extraction</dt><dd>{{ pdf.derniere_extraction or "inconnue" }}</dd></div>
-  </dl>
-
-  {% if pdf.diagnostic_disponible and pdf.diagnostic %}
-  <div class="table-container mt-md">
-    <table class="data-table">
-      <thead><tr><th>Fichier</th><th>Fournisseur</th><th>Statut</th><th>N° facture</th>
-        <th class="num">Montant</th><th class="num">Écart</th><th class="num">Lignes</th><th>Anomalie</th></tr></thead>
-      <tbody>
-        {% for d in pdf.diagnostic %}
-        <tr>
-          <td><span class="font-mono text-xs">{{ d.fichier }}</span></td>
-          <td>{{ d.format }}</td>
-          <td><span class="status-badge status-{{ 'valide' if d.statut == 'OK' and not d.doublon_de else 'a-controler' }}">
-            {{ 'DOUBLON' if d.doublon_de else d.statut }}</span></td>
-          <td>{{ d.numero_facture or "—" }}</td>
-          <td class="num">{% if d.montant_total is not none %}{{ "%.0f"|format(d.montant_total) }} €{% else %}—{% endif %}</td>
-          <td class="num">{% if d.ecart is not none %}{{ "%.2f"|format(d.ecart) }}{% else %}—{% endif %}</td>
-          <td class="num">{{ d.nb_lignes if d.nb_lignes is not none else "—" }}</td>
-          <td class="text-xs">{{ d.anomalies or "" }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% endif %}
-
-  <div class="alert {{ 'alert-info' if pdf.mode_extraction == 'PDF_AUTOMATIQUE' else 'alert-warning' }} mt-md">
-    {{ pdf.note_extraction }}
-  </div>
-  <p class="section-note">
-    Les factures de ménage externes sont extraites depuis les PDF déposés dans
-    <span class="font-mono text-xs">{{ pdf.dossier_relatif }}</span>.
-    Elles ne doivent pas être saisies une seconde fois dans les charges générales.
-  </p>
-</div>
-{% endif %}
-
 <!-- ===== Tableau de rapprochement ===== -->
 <div class="card">
   {% include "partials/menages_table.html" %}
 </div>
 
-<!-- ===== Dernier calcul ===== -->
-{% set dc = data.dernier_calcul %}
-<div class="card mt-lg">
-  <div class="flex justify-between items-center mb-md">
-    <h2 class="card-title">Dernier calcul Ménages</h2>
-    {# §14 — le diagnostic du pipeline est un outil technique : il vit dans Observabilité. #}
-  </div>
-  <dl class="detail-grid">
-    <div><dt>Dernière génération</dt><dd>{{ dc.derniere_generation or "inconnue" }}</dd></div>
-    <div><dt>Anomalies signalées</dt><dd>{{ dc.nb_anomalies }}</dd></div>
-  </dl>
-  <div class="source-list mt-md">
-    {% for e in dc.etats_sources %}
-      <span class="source-chip source-chip--{{ 'ok' if e.etat == 'OK' else ('na' if e.etat == 'NON_ALIMENTE' else 'ko') }}"
-            title="{{ e.fichier }} — {{ e.onglet }}">
-        {{ e.libelle }} : {{ e.etat_libelle }}
-      </span>
-    {% endfor %}
-  </div>
-</div>
-
 {% endif %}
 
-<div class="origine-block">
-  <strong>Origine des données :</strong> sorties du pipeline ménages, lues en seule lecture.
-  Les quatre flux (attendu, Hostaway réalisé, interne déclaré, externe facturé) restent
-  séparés et ne sont jamais fusionnés. Les écarts et les statuts sont ceux produits par le
-  moteur : l'application ne recalcule rien et ne valorise jamais un ménage à partir des
-  données de coût Hostaway.
-</div>
+
 
 {% endblock %}

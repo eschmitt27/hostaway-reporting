@@ -33,8 +33,19 @@ def observabilite(request: Request):
 
 @router.get("/observabilite/runs", response_class=HTMLResponse)
 def runs(request: Request):
+    # Ce que l'écran Ménages n'affiche plus (recette utilisateur n°4, §17) : le détail fichier par
+    # fichier des PDF, la provenance des données Hostaway et l'historique complet des mois
+    # clôturés ayant reçu des données. Ces informations ne permettent aucune action métier
+    # immédiate — elles servent à comprendre après coup, et c'est ici qu'on vient comprendre.
+    from app.services import menages_actualisation_service as actualisation
+    from app.services import menages_service as menages
+
+    etat = menages.charger_etat_actualisation()
     return templates.TemplateResponse(request, "observabilite_runs.html", {
         "active_menu": "observabilite",
         "runs": history.derniers(limit=50),
         "sauvegardes": backup_service.lister(),
+        "pdf_menages": {**(etat.get("pdf") or {}), **menages.load_pdf_externes_info()},
+        "hostaway": etat.get("hostaway"),
+        "changements_clotures": actualisation.changements_mois_clotures(statut="SIGNALE"),
     })

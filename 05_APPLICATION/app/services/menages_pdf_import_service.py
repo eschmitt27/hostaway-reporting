@@ -89,9 +89,16 @@ def _deja_traite(nom_fichier: str, *, db_path=None) -> bool:
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='facture_pdf_diagnostics'"
         ).fetchone():
             return False
+        # Un fichier dont l'extraction a ÉCHOUÉ POUR UNE RAISON TENANT AU DOCUMENT — format non
+        # supporté, PDF vide, PDF corrompu — a bel et bien été examiné : son sort est réglé tant
+        # que son contenu ne change pas. L'exiger « avec facture » le laissait éternellement
+        # « nouveau » et le faisait retenter à chaque actualisation, en le comptant parmi les
+        # fichiers à importer. Un refus dû à un RÉGLAGE de l'installation, lui, ne conclut rien :
+        # ces fichiers restent à importer, et le seront quand le réglage sera rétabli.
         deja = conn.execute(
             "SELECT 1 FROM facture_pdf_diagnostics "
-            "WHERE nom_fichier = ? AND facture_id_opaque IS NOT NULL LIMIT 1",
+            "WHERE nom_fichier = ? AND (facture_id_opaque IS NOT NULL "
+            "                           OR COALESCE(statut_extraction,'OK') <> 'OK') LIMIT 1",
             (nom_fichier,),
         ).fetchone() is not None
     finally:

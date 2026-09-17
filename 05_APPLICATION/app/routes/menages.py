@@ -75,6 +75,10 @@ def menages_dashboard(
     actualisation_statut: str = "",
     resume: str = "",
 ):
+    # La période est résolue UNE fois, ici. `load_dashboard` retombait sur la période par défaut
+    # quand l'URL n'en portait pas, mais `origines` recevait la chaîne vide et comptait alors TOUT
+    # l'historique : l'écran affichait « Ménages attendus 619 » sous un titre « septembre 2026 ».
+    mois = mois or svc.periode_par_defaut()
     data = svc.load_dashboard(
         mois=mois,
         **_filtres(mois, logement_id, proprietaire_id, intervenant_id, type_intervenant,

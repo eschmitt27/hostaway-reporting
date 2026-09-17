@@ -174,6 +174,7 @@ def charger_etat_actualisation(db_path=None) -> dict[str, Any]:
     # `nb_detectes` reste exposé, mais nommé pour ce qu'il est : des fichiers dans un dossier.
     pdf = dict(pdf)
     pdf["nb_reconnues"] = _nb_factures_pdf_reconnues(db_path=db_path)
+    pdf["rapprochement"] = rapprochement_pdf_base(pdf, db_path=db_path)
     return {
         "hostaway": fraicheur_hostaway(db_path=db_path),
         "dataset": dataset,
@@ -183,6 +184,61 @@ def charger_etat_actualisation(db_path=None) -> dict[str, Any]:
         "nb_a_controler": _nb_factures_menage_a_controler(db_path=db_path),
         "mois_disponibles": mois,
         "en_cours": bool(verrous),
+    }
+
+
+def rapprochement_pdf_base(pdf: dict[str, Any], db_path=None) -> dict[str, Any]:
+    """Ce que le DOSSIER contient, face à ce que la BASE porte — en une seule passe.
+
+    L'écran opposait deux nombres justes et incomparables : « 7 factures PDF reconnues » et
+    « 8 fichier(s) dans le dossier ». Les 7 correspondaient à 5 fichiers présents PLUS 2 fichiers
+    retirés du dossier depuis, et 3 fichiers présents ne produisaient aucune facture. Aucun des
+    deux nombres ne mentait ; leur mise côte à côte, si.
+
+    Rend donc quatre grandeurs qui, elles, s'additionnent et se lisent :
+      · `presents`        fichiers actuellement dans le dossier ;
+      · `rattaches`       ceux qui ont produit une facture ;
+      · `non_exploites`   ceux qui n'en ont pas produit, avec le motif (format non supporté,
+                          doublon d'une facture déjà connue, extraction en échec) ;
+      · `factures_sans_fichier` factures dont le PDF n'est plus dans le dossier — ce sont elles
+                          que l'utilisateur veut pouvoir supprimer.
+    """
+    from app.db.connection import get_db
+
+    presents = {str(d.get("nom_fichier")) for d in (pdf.get("details") or [])}
+    conn = get_db(db_path)
+    try:
+        lignes = [dict(r) for r in conn.execute(
+            "SELECT nom_fichier, statut_extraction, doublon_de, facture_id_opaque, "
+            "MAX(id) AS dernier FROM facture_pdf_diagnostics GROUP BY nom_fichier")]
+    except Exception:      # noqa: BLE001 — table absente d'une base partielle
+        lignes = []
+    finally:
+        conn.close()
+
+    connus = {str(l["nom_fichier"]): l for l in lignes}
+    rattaches, non_exploites = [], []
+    for nom in sorted(presents):
+        diagnostic = connus.get(nom)
+        if diagnostic and diagnostic.get("facture_id_opaque"):
+            rattaches.append(nom)
+        elif diagnostic is None:
+            non_exploites.append({"fichier": nom, "motif": "pas encore importé"})
+        elif diagnostic.get("doublon_de"):
+            non_exploites.append({"fichier": nom, "motif": "doublon d'une facture déjà connue"})
+        elif str(diagnostic.get("statut_extraction") or "") != "OK":
+            non_exploites.append({"fichier": nom,
+                                  "motif": f"extraction {diagnostic['statut_extraction']}"})
+        else:
+            non_exploites.append({"fichier": nom, "motif": "doublon d'une facture déjà connue"})
+
+    orphelines = sorted(nom for nom, l in connus.items()
+                        if l.get("facture_id_opaque") and nom not in presents)
+    return {
+        "presents": len(presents),
+        "rattaches": len(rattaches),
+        "non_exploites": non_exploites,
+        "factures_sans_fichier": orphelines,
     }
 
 
