@@ -56,8 +56,35 @@ def mounir(tmp_path):
 
 # ── CAS 1 : facture parfaitement affectée → total OK ────────────────────────────────────────────
 
+@pytest.fixture
+def referentiel_de_la_facture(tmp_db, aissata):
+    """Déclare au référentiel un logement par ligne du document, en alias de rapprochement.
+
+    Depuis la recette n°3, l'extracteur ne rapproche plus lui-même : c'est l'import qui interroge
+    `ref_logements` / `ref_mapping_logements`. Sans référentiel, ce test ne pouvait plus rien
+    affecter — il vérifie la CHAÎNE de rapprochement, pas la richesse du parc.
+    """
+    fac = pdfex.extraire_pdf(aissata)
+    conn = get_db(tmp_db)
+    try:
+        for i, ligne in enumerate(fac.lignes, 1):
+            logement_id = f"LOG_FAC{i:02d}"
+            conn.execute(
+                "INSERT INTO ref_logements (logement_id, nom_court, statut_parc, actif, import_id) "
+                "VALUES (?,?,'GERE','OUI','IMP-TEST')", (logement_id, ligne.logement_source))
+            conn.execute(
+                "INSERT INTO ref_mapping_logements (mapping_logement_id, source, champ_source, "
+                "valeur_source, logement_id, actif, import_id) "
+                "VALUES (?,'FACTURE_MENAGE','libelle',?,?,'OUI','IMP-TEST')",
+                (f"MAP-FAC{i:02d}", ligne.logement_source, logement_id))
+        conn.commit()
+    finally:
+        conn.close()
+    return fac
+
+
 @pdf_reels
-def test_cas1_facture_totalement_affectee_total_ok(aissata, tmp_db):
+def test_cas1_facture_totalement_affectee_total_ok(aissata, tmp_db, referentiel_de_la_facture):
     r = svc.importer(aissata, db_path=tmp_db)
     assert r["ok"] is True
     # §23 : c'est l'IMPORT qui rapproche, sur le référentiel — l'extracteur ne le fait plus.

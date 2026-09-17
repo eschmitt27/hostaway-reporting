@@ -182,6 +182,12 @@ def importer(path, *, acteur: str = "", db_path=None) -> dict[str, Any]:
                 resultat = remplacement
         if not resultat.get("ok"):
             _enregistrer_diagnostic(fac, facture_id_opaque=None, db_path=db_path)
+            # Un PDF déjà importé n'est pas une « saisie invalide » : c'est le cas nominal d'un
+            # dossier rescanné. Le dire par son code propre évite de renvoyer l'utilisateur vers un
+            # formulaire à corriger pour un fichier qui n'a rien d'anormal.
+            if fact.E_DOUBLON_CERTAIN in codes:
+                return {**resultat, "code": fact.E_DOUBLON_CERTAIN,
+                        "message": "Cette facture est déjà enregistrée."}
             return resultat
 
     facture_id = resultat["facture_id_opaque"]
@@ -198,7 +204,7 @@ def importer(path, *, acteur: str = "", db_path=None) -> dict[str, Any]:
             ligne.code_anomalie = (
                 (ligne.code_anomalie or "") + " | LOGEMENT_FACTURE_EXTERNE_NON_RECONNU"
             ).strip(" |")
-        flm.ajouter_ligne(
+        ecriture = flm.ajouter_ligne(
             facture_id,
             type_ligne=flm.TYPE_MENAGE_EXTERNE if ligne.logement_id else flm.TYPE_FRAIS_NON_AFFECTE,
             logement_id=ligne.logement_id or "",
@@ -207,7 +213,18 @@ def importer(path, *, acteur: str = "", db_path=None) -> dict[str, Any]:
             date_menage=ligne.date_menage or "", precision_date_menage=ligne.precision_date,
             nom_prestataire=fac.nom_prestataire or "",
             source=flm.SOURCE_PDF, acteur=acteur, db_path=db_path,
-            logement_confiance=proposition["confiance"], logement_methode=proposition["methode"])
+            logement_confiance=proposition["confiance"], logement_methode=proposition["methode"],
+            # §8 et §9 — le texte du document, et la nature proposée par le parseur. La confiance
+            # AUCUN se lit « le logiciel n'a pas compris ce libellé » : la ligne existe, et elle
+            # attend un classement humain avant que la facture puisse être validée.
+            libelle_source=getattr(ligne, "libelle_source", "") or "",
+            categorie=getattr(ligne, "categorie", "") or "",
+            categorie_confiance=getattr(ligne, "categorie_confiance", "") or "")
+        # Un refus d'écriture ne doit JAMAIS passer inaperçu : c'est ainsi que deux lignes réelles
+        # avaient disparu de la base tout en restant comptées dans le diagnostic d'extraction.
+        if not ecriture.get("ok"):
+            fac.anomalies.append(
+                f"LIGNE_NON_ENREGISTREE:{ecriture.get('code')}:{ligne.logement_source[:40]}")
 
     ventilations = []
     non_affectees = [l for l in fac.lignes if not l.logement_id and (l.montant_ligne or 0) != 0]

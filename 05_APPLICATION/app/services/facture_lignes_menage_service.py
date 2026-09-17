@@ -49,6 +49,59 @@ STATUT_LIGNE_REPARTIE = "REPARTIE"
 #: confiance du rapprochement : c'est la fin du rapprochement, un humain a tranché.
 CONFIANCE_CONFIRMEE = "CONFIRME_MANUELLEMENT"
 
+#: Nature de la prestation — vocabulaire de `ref_types_lignes_menage`, rattaché par la migration
+#: 0088. À ne pas confondre avec `type_ligne`, qui dit seulement si un logement a été reconnu.
+#: Les trois catégories que l'utilisateur manipule à l'écran : MÉNAGE, REMISE EN ÉTAT, et
+#: AUTRE PRESTATION — cette dernière regroupant les quatre natures qui ne comptent pas un ménage.
+CAT_MENAGE_STANDARD = "MENAGE_STANDARD"
+CAT_REMISE_EN_ETAT = "REMISE_EN_ETAT"
+CAT_FRAIS_DEPLACEMENT = "FRAIS_DEPLACEMENT"
+CAT_LINGE = "LINGE"
+CAT_ACHAT_PRODUIT = "ACHAT_PRODUIT"
+CAT_AUTRE = "AUTRE"
+CATEGORIES = (CAT_MENAGE_STANDARD, CAT_REMISE_EN_ETAT, CAT_FRAIS_DEPLACEMENT, CAT_LINGE,
+              CAT_ACHAT_PRODUIT, CAT_AUTRE)
+
+
+def _type_ligne_menage_id(conn, categorie: str) -> str | None:
+    """Identifiant TLM_00x de la nature de prestation, lu dans le référentiel.
+
+    Le lien se fait par le LIBELLÉ (`type_ligne_menage`) et non par un identifiant en dur : c'est
+    le référentiel qui porte la nomenclature, et lui seul. Une catégorie inconnue du référentiel ne
+    bloque pas l'écriture de la ligne — la ligne du document doit exister quoi qu'il arrive — elle
+    laisse simplement le rattachement vide, ce qui la rendra non validable tant qu'un humain n'aura
+    pas tranché.
+    """
+    if not categorie:
+        return None
+    try:
+        row = conn.execute(
+            "SELECT type_ligne_menage_id FROM ref_types_lignes_menage "
+            "WHERE UPPER(type_ligne_menage) = UPPER(?)", (str(categorie).strip(),)).fetchone()
+    except Exception:      # noqa: BLE001 — référentiel absent d'une base de test minimale
+        return None
+    return row["type_ligne_menage_id"] if row else None
+
+
+def categories_disponibles(db_path=None) -> list[dict[str, Any]]:
+    """Les natures de prestation proposées au contrôle, avec ce qu'elles impliquent.
+
+    `compte_comme_menage` est ce qui décide, en aval, qu'une ligne vaut un ménage : une REMISE EN
+    ÉTAT compte (au coût réel de la ligne), un FRAIS DE DÉPLACEMENT non. L'écran lit donc le
+    référentiel plutôt que de redire la règle dans son gabarit.
+    """
+    conn = get_db(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT type_ligne_menage_id, type_ligne_menage, compte_comme_menage, "
+            "repartissable_sur_menages, commentaire FROM ref_types_lignes_menage "
+            "WHERE actif = 'OUI' ORDER BY type_ligne_menage_id").fetchall()
+        return [dict(r) for r in rows]
+    except Exception:      # noqa: BLE001
+        return []
+    finally:
+        conn.close()
+
 
 def _maintenant() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -66,11 +119,16 @@ def ajouter_ligne(facture_id_opaque: str, *, type_ligne: str, montant_ttc: float
                   nom_prestataire: str = "",
                   source: str = SOURCE_PDF, commentaire: str = "", acteur: str = "",
                   logement_confiance: str = "", logement_methode: str = "",
-                  db_path=None) -> dict[str, Any]:
+                  libelle_source: str = "", categorie: str = "",
+                  categorie_confiance: str = "", db_path=None) -> dict[str, Any]:
     if type_ligne not in TYPES:
         return _refus("TYPE_LIGNE_INVALIDE", type_ligne)
     montant_ttc = round(float(montant_ttc or 0), 2)
-    if montant_ttc == 0:
+    # Un 0 € lu sur une facture est une INFORMATION du document — « ce logement n'a eu aucun ménage
+    # ce mois-ci » — et le prestataire prend la peine de l'écrire. Le refuser faisait disparaître la
+    # ligne sans trace : deux lignes réelles manquaient en base, et le diagnostic d'écart annonçait
+    # pourtant le bon nombre. Une saisie humaine à 0, elle, reste une erreur de saisie.
+    if montant_ttc == 0 and source != SOURCE_PDF:
         return _refus("MONTANT_INVALIDE", str(montant_ttc))
     if type_ligne != TYPE_FRAIS_NON_AFFECTE and not logement_id:
         return _refus("LOGEMENT_MANQUANT", type_ligne)
@@ -82,13 +140,17 @@ def ajouter_ligne(facture_id_opaque: str, *, type_ligne: str, montant_ttc: float
             "INSERT INTO facture_lignes_menage (ligne_id_opaque, facture_id_opaque, type_ligne, "
             "logement_id, menage_id_opaque, description, montant_ht, montant_tva, montant_ttc, "
             "source, commentaire, acteur, montant_ttc_source, logement_id_source, "
-            "logement_confiance, logement_methode) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "logement_confiance, logement_methode, libelle_source, type_ligne_menage_id, "
+            "type_ligne_menage_confiance) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (ligne_id, facture_id_opaque, type_ligne, logement_id or None,
              menage_id_opaque or None, description or None, montant_ht, montant_tva, montant_ttc,
              source, commentaire or None, acteur or None,
              # §27 — photographie de ce que le document portait, jamais réécrite ensuite.
              montant_ttc, logement_id or None, logement_confiance or None,
-             logement_methode or None))
+             logement_methode or None,
+             # §8 — le texte du document, immuable ; `description` en est la forme métier.
+             libelle_source or None,
+             _type_ligne_menage_id(conn, categorie), categorie_confiance or None))
         if quantite is not None or prix_unitaire is not None:
             conn.execute(
                 "INSERT INTO facture_lignes_menage_detail (ligne_id_opaque, quantite, "
@@ -328,6 +390,65 @@ def diagnostic_ecart(facture_id_opaque: str, db_path=None) -> dict[str, Any]:
             f"Les lignes extraites dépassent le total du document de {abs(ecart):.2f} €. Une ligne "
             f"a été lue deux fois, ou un montant a été mal lu."),
     }
+
+
+def corriger_classification(ligne_id_opaque: str, *, categorie: str = "",
+                            libelle_metier: str = "", logement_id: str | None = None,
+                            acteur: str = "", db_path=None) -> dict[str, Any]:
+    """Contrôle humain d'une ligne : sa nature, son libellé métier, son logement (§9-§14).
+
+    Le logiciel propose, l'utilisateur tranche. Ce que cette fonction ne touche JAMAIS :
+    `libelle_source` (le texte du document), `montant_ttc_source` et `logement_id_source` — la
+    photographie de l'extraction reste lisible après toute correction, sans quoi plus personne ne
+    peut distinguer ce que la facture portait de ce que nous en avons fait.
+
+    Le montant n'est pas modifiable ici : une ligne mal lue se neutralise
+    (`marquer_extraction_incorrecte`) ou se corrige par les fonctions dédiées, avec motif.
+    """
+    categorie = str(categorie or "").strip().upper()
+    if categorie and categorie not in CATEGORIES:
+        return _refus("CATEGORIE_INVALIDE", categorie)
+    libelle_metier = str(libelle_metier or "").strip()
+
+    conn = get_db(db_path)
+    try:
+        row = conn.execute(
+            "SELECT type_ligne, description, logement_id FROM facture_lignes_menage "
+            "WHERE ligne_id_opaque=?", (ligne_id_opaque,)).fetchone()
+        if row is None:
+            return _refus("LIGNE_INTROUVABLE", ligne_id_opaque)
+
+        if categorie:
+            conn.execute(
+                "UPDATE facture_lignes_menage SET type_ligne_menage_id=?, "
+                "type_ligne_menage_confiance=? WHERE ligne_id_opaque=?",
+                (_type_ligne_menage_id(conn, categorie), CONFIANCE_CONFIRMEE, ligne_id_opaque))
+        if libelle_metier:
+            conn.execute("UPDATE facture_lignes_menage SET description=? WHERE ligne_id_opaque=?",
+                         (libelle_metier, ligne_id_opaque))
+        if logement_id is not None:
+            cible = str(logement_id).strip()
+            # Une ligne rattachée à un logement n'est plus un frais non affecté, et inversement :
+            # `type_ligne` suit le rattachement, il ne dit rien d'autre.
+            type_ligne = TYPE_MENAGE_EXTERNE if cible else TYPE_FRAIS_NON_AFFECTE
+            conn.execute(
+                "UPDATE facture_lignes_menage SET logement_id=?, logement_confiance=?, "
+                "type_ligne=? WHERE ligne_id_opaque=?",
+                (cible or None, CONFIANCE_CONFIRMEE if cible else None, type_ligne,
+                 ligne_id_opaque))
+        conn.execute(
+            "UPDATE facture_lignes_menage SET commentaire=COALESCE(commentaire,'') || ? "
+            "WHERE ligne_id_opaque=?",
+            (f" · Contrôle {acteur or 'local'} : "
+             + ", ".join(filter(None, [f"catégorie {categorie}" if categorie else "",
+                                       "libellé métier" if libelle_metier else "",
+                                       f"logement {logement_id}" if logement_id is not None else ""])),
+             ligne_id_opaque))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "ligne_id_opaque": ligne_id_opaque, "categorie": categorie or None,
+            "libelle_metier": libelle_metier or None, "logement_id": logement_id}
 
 
 def corriger_quantite(ligne_id_opaque: str, *, quantite: int, motif: str, acteur: str = "",
