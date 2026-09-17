@@ -16,7 +16,7 @@
   </div>
 {% else %}
 
-  <div class="card" style="margin-bottom: var(--stack-lg);">
+  <div class="card mb-lg">
     <form method="get" action="/logements" class="filter-bar">
       <input type="search" name="q" value="{{ data.applied.q }}" placeholder="Rechercher (nom, ville, identifiant…)" class="filter-input">
 
@@ -57,13 +57,13 @@
       <a href="/logements" class="btn btn-ghost">Réinitialiser</a>
     </form>
 
-    <div class="text-sm text-secondary" style="margin-top: var(--stack-md);">
+    <div class="text-sm text-secondary mt-md">
       Parc : <strong>{{ data.count_parc }}</strong> logement(s)
       · Affichés : <strong>{{ data.count_affiches }}</strong>
       {% if data.include_technique %}· lignes techniques incluses ({{ data.count_technique }}){% endif %}
     </div>
     {% if data.status == 'OK' and not data.gestion_disponible %}
-    <div class="alert alert-warning" style="margin-top: var(--stack-md);">
+    <div class="alert alert-warning mt-md">
       Rattachements de gestion indisponibles : <code>{{ data.source_gestion }}</code> n'a pas été
       généré. La colonne « Propriétaire » reste vide tant que le pipeline (Lot13) n'a pas été relancé.
     </div>
@@ -101,6 +101,9 @@
                 <span class="text-secondary">—</span>
               {% else %}Aucun rattachement{% endif %}
             </td>
+            {# La colonne Ville existait en en-tête sans cellule correspondante : tout le tableau
+               était décalé d'une colonne à partir d'ici. #}
+            <td>{{ r.ville if r.ville not in (None, '') else "Non renseigné" }}</td>
             <td>{{ (r.type_logement_id | nom_type_logement) if r.type_logement_id else "Non renseigné" }}</td>
             <td>
               {% if r._technique %}

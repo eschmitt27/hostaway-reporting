@@ -5,17 +5,161 @@
    macro rend le bandeau ⚠ MODIFICATION RÉTROACTIVE + la justification obligatoire visibles dès que
    la date saisie n'est pas strictement future. Le contrôle réel (backend) reste dans la route —
    ceci n'est qu'un confort de saisie, jamais la seule protection. #}
-{% macro champ_date_retroactif(name, label) %}
-  <label>{{ label }} *<input type="date" name="{{ name }}" class="js-date-retro" required></label>
-  <div class="alert alert-warning js-bandeau-retro" style="display:none; margin-top: var(--stack-sm);">
+{# Le préfixe sert à fabriquer des `id` uniques : sans lui, les `label for` de deux formulaires de la
+   même page désigneraient le même champ et cliquer sur un libellé activerait le mauvais input. #}
+{% macro champ_date_retroactif(prefixe, name, label) %}
+  <div class="form-field">
+    <label for="{{ prefixe }}-{{ name }}">{{ label }} *</label>
+    <input id="{{ prefixe }}-{{ name }}" type="date" name="{{ name }}" class="filter-input js-date-retro" required>
+  </div>
+  {# Le bandeau et le bloc justification sont montrés/masqués par `style.display` depuis le script
+     de bas de page : la classe repère et le `display:none` initial doivent donc rester portés par
+     le conteneur lui-même, sans quoi l'affichage conditionnel ne retrouve plus sa cible. #}
+  <div class="alert alert-warning form-field-full js-bandeau-retro" style="display:none;">
     ⚠ Modification rétroactive — cette date concerne une période déjà passée. Une justification
     est obligatoire ; la modification reste enregistrée avec l'historique intact (rien n'est
     supprimé, la période close reste consultable).
   </div>
-  <label class="js-justification-retro" style="display:none; margin-top: var(--stack-sm);">
-    Justification (obligatoire pour une correction rétroactive)
-    <textarea name="justification" rows="2" placeholder="Ex. : erreur de date d'effet, correction après vérification facture..."></textarea>
-  </label>
+  <div class="form-field form-field-full js-justification-retro" style="display:none;">
+    <label for="{{ prefixe }}-justification">Justification (obligatoire pour une correction rétroactive)</label>
+    <textarea id="{{ prefixe }}-justification" name="justification" rows="2" class="filter-input"
+              placeholder="Ex. : erreur de date d'effet, correction après vérification facture..."></textarea>
+  </div>
+{% endmacro %}
+
+{# Les cinq formulaires d'action existaient en double, à l'identique, dans les deux branches de la
+   page (fiche minimale en attente d'export, fiche complète) : une seule définition garantit qu'une
+   retouche de présentation ne soit pas oubliée dans l'une des deux. Les `name`, les libellés et les
+   URL d'action sont strictement ceux d'avant. `types` vaut `none` sur la fiche minimale, où le type
+   de logement n'est pas modifiable : le champ ne doit alors pas être posté du tout. #}
+{% macro bloc_actions(logement_id, valeurs, actif, ecriture_active, proprietaires, types, type_selectionne) %}
+<div class="card mb-lg">
+  <div class="card-title">Actions</div>
+  {% if not ecriture_active %}
+  <div class="alert alert-warning">
+    Écriture désactivée sur cette installation : ces actions sont indisponibles.
+  </div>
+  {% endif %}
+
+  <details class="mb-md">
+    <summary class="btn btn-ghost">Modifier les informations</summary>
+    <form method="post" action="/logements/{{ logement_id }}/modifier" class="mt-sm">
+      <div class="form-grid-3">
+        <div class="form-field">
+          <label for="mod-nom-officiel">Nom officiel</label>
+          <input id="mod-nom-officiel" type="text" name="nom_logement_officiel" class="filter-input" value="{{ valeurs.nom_logement_officiel or '' }}">
+        </div>
+        <div class="form-field">
+          <label for="mod-nom-court">Nom court</label>
+          <input id="mod-nom-court" type="text" name="nom_court" class="filter-input" value="{{ valeurs.nom_court or '' }}">
+        </div>
+        <div class="form-field">
+          <label for="mod-adresse">Adresse</label>
+          <input id="mod-adresse" type="text" name="adresse" class="filter-input" value="{{ valeurs.adresse or '' }}">
+        </div>
+        <div class="form-field">
+          <label for="mod-ville">Ville</label>
+          <input id="mod-ville" type="text" name="ville" class="filter-input" value="{{ valeurs.ville or '' }}">
+        </div>
+        {% if types is not none %}
+        <div class="form-field">
+          <label for="mod-type">Type de logement</label>
+          <select id="mod-type" name="type_logement_id" class="filter-input">
+            <option value="">—</option>
+            {% for t in types %}
+            <option value="{{ t.type_logement_id }}" {{ 'selected' if t.type_logement_id == type_selectionne }}>{{ t.libelle or (t.type_logement_id | nom_type_logement) }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+        <div class="form-field">
+          <label for="mod-forfait">Forfait logiciel/consommables mensuel</label>
+          <input id="mod-forfait" type="number" step="0.01" name="forfait_logiciel_consommables_mensuel" class="filter-input" value="{{ valeurs.forfait or 0 }}">
+        </div>
+      </div>
+      <div class="flex gap-md mt-md">
+        <button type="submit" class="btn btn-primary" {% if not ecriture_active %}disabled{% endif %}>Enregistrer</button>
+      </div>
+    </form>
+  </details>
+
+  <details class="mb-md">
+    <summary class="btn btn-ghost">Changer de propriétaire</summary>
+    <form method="post" action="/logements/{{ logement_id }}/changer-proprietaire" class="mt-sm">
+      <div class="form-grid-3">
+        <div class="form-field">
+          <label for="prop-proprietaire">Nouveau propriétaire *</label>
+          <select id="prop-proprietaire" name="proprietaire_id" class="filter-input" required>
+            <option value="">—</option>
+            {% for p in proprietaires %}
+            <option value="{{ p.proprietaire_id }}">{{ p.nom or (p.proprietaire_id | nom_proprietaire) }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {{ champ_date_retroactif('prop', 'date_debut', 'À compter du') }}
+      </div>
+      <div class="flex gap-md mt-md">
+        <button type="submit" class="btn btn-primary" {% if not ecriture_active %}disabled{% endif %}>Changer le propriétaire</button>
+      </div>
+    </form>
+  </details>
+
+  <details class="mb-md">
+    <summary class="btn btn-ghost">Changer le taux de commission</summary>
+    <form method="post" action="/logements/{{ logement_id }}/changer-taux-commission" class="mt-sm">
+      <div class="form-grid-3">
+        <div class="form-field">
+          <label for="taux-commission">Nouveau taux (ex. 0.15 pour 15 %) *</label>
+          <input id="taux-commission" type="number" step="0.0001" min="0" max="1" name="taux_commission" class="filter-input" required>
+        </div>
+        {{ champ_date_retroactif('taux', 'date_debut', 'À compter du') }}
+      </div>
+      <div class="flex gap-md mt-md">
+        <button type="submit" class="btn btn-primary" {% if not ecriture_active %}disabled{% endif %}>Changer le taux</button>
+        <a class="btn btn-ghost js-lien-impacts" href="#">Voir les impacts</a>
+      </div>
+    </form>
+  </details>
+
+  {% if actif %}
+  <details class="mb-md">
+    <summary class="btn btn-ghost">Archiver ce logement</summary>
+    <form method="post" action="/logements/{{ logement_id }}/archiver" class="mt-sm">
+      <p class="text-sm text-secondary">
+        Le logement n'apparaîtra plus dans les nouvelles réservations ni les nouvelles charges,
+        mais reste visible ici et dans l'historique.
+      </p>
+      <div class="form-grid-3 mt-md">
+        {{ champ_date_retroactif('arch', 'date_fin', 'Date de sortie de gestion') }}
+      </div>
+      <div class="flex gap-md mt-md">
+        <button type="submit" class="btn btn-ghost" {% if not ecriture_active %}disabled{% endif %}>Archiver</button>
+      </div>
+    </form>
+  </details>
+  {% else %}
+  <details class="mb-md">
+    <summary class="btn btn-ghost">Réactiver ce logement</summary>
+    <form method="post" action="/logements/{{ logement_id }}/reactiver" class="mt-sm">
+      <div class="form-grid-3">
+        <div class="form-field">
+          <label for="reac-proprietaire">Nouveau propriétaire *</label>
+          <select id="reac-proprietaire" name="proprietaire_id" class="filter-input" required>
+            <option value="">—</option>
+            {% for p in proprietaires %}
+            <option value="{{ p.proprietaire_id }}">{{ p.nom or (p.proprietaire_id | nom_proprietaire) }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {{ champ_date_retroactif('reac', 'date_debut', 'Date de reprise de gestion') }}
+      </div>
+      <div class="flex gap-md mt-md">
+        <button type="submit" class="btn btn-primary" {% if not ecriture_active %}disabled{% endif %}>Réactiver</button>
+      </div>
+    </form>
+  </details>
+  {% endif %}
+</div>
 {% endmacro %}
 
 {% block content %}

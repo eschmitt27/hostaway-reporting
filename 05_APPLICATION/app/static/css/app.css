@@ -491,6 +491,24 @@ td {
   cursor: not-allowed;
 }
 
+/* Bloc dépliant dont l'en-tête est un bouton : habiller le <summary> en .btn supprime le triangle
+   natif du navigateur, et plus rien n'indique alors que le bloc s'ouvre. On repose donc un marqueur
+   explicite, pivoté à l'ouverture. Règle volontairement limitée à `summary.btn` : une règle sur la
+   balise nue repeindrait tous les blocs dépliants de l'application. */
+summary.btn {
+  list-style: none;
+  user-select: none;
+}
+summary.btn::-webkit-details-marker { display: none; }
+summary.btn::before {
+  content: "\25B8";
+  display: inline-block;
+  font-size: 12px;
+  line-height: 1;
+  transition: transform 0.15s;
+}
+details[open] > summary.btn::before { transform: rotate(90deg); }
+
 /* === TABS === */
 .tabs {
   display: flex;
