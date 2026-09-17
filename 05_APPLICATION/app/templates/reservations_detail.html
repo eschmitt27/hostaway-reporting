@@ -45,7 +45,7 @@
       <div><dt>Nuits <span class="badge badge-info">moteur</span></dt><dd>{{ r.nuits if r.nuits not in (None,'') else "Non renseigné" }}</dd></div>
       <div><dt>Logement</dt><dd>{{ (r.logement_id | nom_logement) if r.logement_id not in (None,'') else "Non renseigné" }}</dd></div>
       <div><dt>Propriétaire (résolu moteur)</dt><dd>{{ (r.proprietaire_id | nom_proprietaire) if r.proprietaire_id not in (None,'') else "Non renseigné" }}</dd></div>
-      <div><dt>Canal</dt><dd>{{ r.canal_id if r.canal_id not in (None,'') else "Non renseigné" }}</dd></div>
+      <div><dt>Canal</dt><dd>{{ (r.canal_id | nom_canal) if r.canal_id not in (None,'') else "Non renseigné" }}</dd></div>
       <div><dt>Source financière</dt><dd>{{ r.source_financiere if r.source_financiere not in (None,'') else "Non renseigné" }}</dd></div>
     </dl>
   </div>

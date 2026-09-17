@@ -46,8 +46,8 @@
         <td>{{ preview.mois or "—" }}</td>
       </tr>
       <tr>
-        <td>canal_id</td>
-        <td>{{ preview.canal_id or "—" }}</td>
+        <td>Canal</td>
+        <td>{{ (preview.canal_id | nom_canal) if preview.canal_id else "—" }}</td>
       </tr>
       <tr>
         <td>source_financiere</td>

@@ -90,7 +90,7 @@ def origines(mois: str = "", logement_id: str = "", *, db_path=None) -> dict[str
             args.append(logement_id)
         ou = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         hh = [dict(r) for r in conn.execute(
-            "SELECT reservation_hh_id, mois, logement_id, date_depart, statut "
+            "SELECT reservation_hh_id, mois, logement_id, date_depart, statut, statut_controle "
             f"FROM reservations_hors_hostaway{ou}", args)]
     except Exception:      # noqa: BLE001 — sources absentes : périmètre vide, jamais une erreur
         return _vide(mois, logement_id)
@@ -101,8 +101,14 @@ def origines(mois: str = "", logement_id: str = "", *, db_path=None) -> dict[str
     for t in taches:
         par_etat[str(t.get("status") or "")] = par_etat.get(str(t.get("status") or ""), 0) + 1
     attendus_hostaway = sum(n for s, n in par_etat.items() if s in ETATS_ATTENDUS)
-    # Une réservation hors Hostaway annulée n'appelle plus de ménage.
-    hh_actives = [r for r in hh if str(r.get("statut") or "ACTIVE").upper() != "ANNULEE"]
+    # Une réservation hors Hostaway annulée n'appelle plus de ménage. Une réservation EXCLUE non
+    # plus : séjour propriétaire, logement hors parc, reprise sans archive d'origine. Le vocabulaire
+    # d'exclusion est celui des moteurs (lib_db_moteur : statut_controle EXCLU_RESULTAT /
+    # EXCLU_LEGACY) — compter ces lignes gonflait les « ménages attendus » d'un travail que personne
+    # n'aura à faire, et l'écart affiché juste à côté devenait faux.
+    hh_actives = [r for r in hh
+                  if str(r.get("statut") or "ACTIVE").upper() != "ANNULEE"
+                  and not str(r.get("statut_controle") or "").upper().startswith("EXCLU_")]
 
     return {
         "mois": mois,

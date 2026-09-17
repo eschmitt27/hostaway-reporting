@@ -42,10 +42,24 @@ MANUAL_COL_MAP: dict[str, str] = {
     "AD": "commentaire",
 }
 
-# Champs forcés — jamais saisis par l'utilisateur
+# Champs forcés — jamais saisis par l'utilisateur.
+#
+# VALIDE, et non plus A_CONTROLER : le contrôle humain a DÉJÀ eu lieu quand ces valeurs sont
+# écrites. L'écran ne crée rien sans avoir passé les règles D1–D11, présenté une prévisualisation
+# chiffrée et obtenu une confirmation explicite — c'est exactement ce que fait, de son côté, la
+# régularisation depuis un contrôle (`regularisation_hh_service`), qui écrit VALIDE/INFO.
+#
+# BUG RÉEL CORRIGÉ : A_CONTROLER était un cul-de-sac. `lot4bis_charger_reservations` ne retient que
+# les lignes VALIDE, aucune route ne permettait de promouvoir une ligne, et la réservation saisie
+# n'entrait donc dans AUCUN calcul — ni table commune, ni résultat, ni commission, ni facture
+# propriétaire — sans le moindre message. L'utilisateur croyait sa réservation enregistrée ; elle
+# l'était, mais elle ne comptait nulle part.
+#
+# Ce n'est PAS une exclusion : l'exclusion se dit par statut_controle EXCLU_RESULTAT/EXCLU_LEGACY
+# et motif_exclusion (lib_db_moteur), jamais par un code d'impact ni par un statut d'attente.
 FORCED_VALUES = {
-    "statut_controle": "A_CONTROLER",
-    "niveau_anomalie": "A_CONTROLER",
+    "statut_controle": "VALIDE",
+    "niveau_anomalie": "INFO",
 }
 
 

@@ -33,6 +33,7 @@ from app.readers.ref_setup_hh_reader import (
     get_cloture_mois,
     get_cloture_rows,
     mois_ouvert_pour_saisie,
+    mois_ouverts_pour_saisie,
 )
 from app.services.saisie_hh_schema_migration import NEW_SAISIE_FIELDS
 
@@ -151,31 +152,22 @@ def _cloture_ui_state(ref_setup_path: Path | None = None, *, db_path=None) -> di
     rows.sort(key=lambda r: r["mois"])
     open_rows = [row for row in rows if row["statut_mois"] == "OUVERT"]
 
-    # Mois saisissables NON déclarés : tous ceux qui suivent la dernière clôture prononcée, du mois
-    # le plus ancien encore ouvert jusqu'au mois courant inclus (§56 : le mois courant se consulte
-    # et se saisit, il ne se clôture pas). Sans cela, l'écran annonçait « Mois ouverts : juin 2026 »
-    # alors que la saisie de juillet/août/septembre était en réalité légitime — l'utilisateur voyait
-    # une porte fermée qui n'aurait jamais dû l'être.
+    # Mois saisissables NON déclarés : c'est `mois_ouverts_pour_saisie` qui tranche, c'est-à-dire la
+    # MÊME fonction pure que la validation D10. L'écran ne peut donc plus fermer une porte que le
+    # backend laisse ouverte.
+    #
+    # BUG RÉEL CORRIGÉ : l'énumération s'arrêtait au mois courant, et le formulaire désactive son
+    # bouton pour tout mois absent de cette liste. Une réservation d'octobre saisie en septembre
+    # était donc refusée à l'écran (« n'est pas ouvert dans le référentiel de clôture ») alors que
+    # la validation l'acceptait — or une réservation se prend par définition AVANT le séjour.
     from datetime import date as _date
     mois_courant = _date.today().strftime("%Y-%m")
-    clos = sorted(r["mois"] for r in rows if r["statut_mois"] == "CLOTURE")
-    frontiere = clos[-1] if clos else ""
     connus = {r["mois"] for r in rows}
-    implicites: list[dict[str, str]] = []
-    annee, mois_num = (int(mois_courant[:4]), int(mois_courant[5:7]))
-    curseur = frontiere or mois_courant
-    while curseur < mois_courant:
-        a, m = int(curseur[:4]), int(curseur[5:7])
-        m += 1
-        if m > 12:
-            a, m = a + 1, 1
-        curseur = f"{a:04d}-{m:02d}"
-        if curseur not in connus:
-            implicites.append({"mois": curseur, "label": _month_label(curseur),
-                               "statut_mois": "OUVERT"})
-    if mois_courant not in connus and all(i["mois"] != mois_courant for i in implicites):
-        implicites.append({"mois": mois_courant, "label": _month_label(mois_courant),
-                           "statut_mois": "OUVERT"})
+    implicites: list[dict[str, str]] = [
+        {"mois": mois, "label": _month_label(mois), "statut_mois": "OUVERT"}
+        for mois in mois_ouverts_pour_saisie(mois_courant, cloture_rows)
+        if mois not in connus
+    ]
 
     tous_ouverts = sorted(open_rows + implicites, key=lambda r: r["mois"])
     return {

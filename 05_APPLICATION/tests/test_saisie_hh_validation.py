@@ -1079,10 +1079,18 @@ def test_pk_saisie_indisponible_bloque():
 # ── Champs forcés ─────────────────────────────────────────────────────────────
 
 def test_champs_forces_dans_preview():
+    """VALIDE/INFO, et non plus A_CONTROLER/A_CONTROLER (recette utilisateur n°4, §2).
+
+    A_CONTROLER était un cul-de-sac : `lot4bis_charger_reservations` ne retient que les lignes
+    VALIDE, et aucune route ne permettait de promouvoir une ligne. La réservation saisie à l'écran
+    n'entrait donc dans aucun calcul, sans le moindre message. Le contrôle humain a bien lieu : il
+    est fait des règles D1-D11, de la prévisualisation chiffrée et de la confirmation explicite —
+    c'est déjà ce que produit la régularisation depuis un contrôle (VALIDE/INFO).
+    """
     result = _valider_no_refs(_base_form())
     if result["ok"]:
-        assert result["preview"]["statut_controle"] == "A_CONTROLER"
-        assert result["preview"]["niveau_anomalie"] == "A_CONTROLER"
+        assert result["preview"]["statut_controle"] == "VALIDE"
+        assert result["preview"]["niveau_anomalie"] == "INFO"
 
 
 # ── Decimal — précision ≤2 décimales ──────────────────────────────────────────

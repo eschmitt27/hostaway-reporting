@@ -40,7 +40,7 @@
         <tr><td>reservation_hh_id</td><td><code>{{ manifest.pk or "—" }}</code></td></tr>
         <tr><td>Logement</td><td>{{ p.logement_id or "—" }}</td></tr>
         <tr><td>Propriétaire</td><td>{{ p.proprietaire_id or "—" }}</td></tr>
-        <tr><td>Canal</td><td>{{ p.canal_id or "—" }}</td></tr>
+        <tr><td>Canal</td><td>{{ (p.canal_id | nom_canal) if p.canal_id else "—" }}</td></tr>
         <tr><td>Dates</td><td>{{ p.date_arrivee or "—" }} → {{ p.date_depart or "—" }}</td></tr>
         <tr><td>Total perçu</td><td>{{ p.total_percu or "—" }}</td></tr>
         <tr><td>Mode de paiement</td><td>{{ p.mode_paiement_id or "—" }}</td></tr>

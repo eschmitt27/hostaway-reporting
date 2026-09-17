@@ -147,3 +147,54 @@ def mois_ouvert_pour_saisie(mois_str: str, cloture_rows: list[dict[str, Any]]) -
     if clos and mois <= clos[-1]:
         return False, "MOIS_ANTERIEUR_A_CLOTURE"
     return True, ""
+
+
+# Horizon de la fenêtre proposée à l'écran. Le backend, lui, n'a AUCUNE borne vers l'avenir : tout
+# mois postérieur à la dernière clôture est ouvert (`mois_ouvert_pour_saisie`). Mais une liste
+# affichable doit bien s'arrêter quelque part ; deux ans couvrent très largement les réservations
+# prises à l'avance. Au-delà, c'est toujours D10 qui tranche — jamais cette borne d'affichage.
+HORIZON_MOIS_OUVERTS = 24
+
+# Garde-fou d'énumération : un référentiel contenant un mois très ancien ne doit pas faire boucler
+# l'écran sur des milliers d'itérations pour un résultat que personne ne lira.
+_MAX_MOIS_ENUMERES = 600
+
+
+def mois_suivant(mois: str) -> str:
+    """`2026-12` → `2027-01`. Le mois est une chaîne AAAA-MM, jamais une date."""
+    annee, numero = int(str(mois)[:4]), int(str(mois)[5:7])
+    return f"{annee + 1:04d}-01" if numero == 12 else f"{annee:04d}-{numero + 1:02d}"
+
+
+def mois_ouverts_pour_saisie(mois_courant: str, cloture_rows: list[dict[str, Any]],
+                             horizon: int = HORIZON_MOIS_OUVERTS) -> list[str]:
+    """Liste FINIE des mois saisissables, pour que l'écran dise exactement ce que dit le backend.
+
+    Fonction PURE, bâtie sur `mois_ouvert_pour_saisie` : elle n'a pas sa propre règle d'ouverture,
+    elle ne fait qu'énumérer des candidats et lui demander, mois par mois, s'il accepte une saisie.
+    Toute divergence UI/backend devient ainsi structurellement impossible.
+
+    BUG RÉEL CORRIGÉ : l'écran de saisie n'énumérait les mois ouverts que JUSQU'AU mois courant, et
+    désactivait son bouton pour tout mois absent de cette liste. Une réservation d'octobre saisie en
+    septembre était donc refusée à l'écran (« n'est pas ouvert dans le référentiel de clôture »)
+    alors que le backend l'acceptait sans réserve — une réservation se prend par définition AVANT le
+    séjour.
+    """
+    courant = str(mois_courant).strip()
+    if not courant:
+        return []
+    declares = sorted(str(r.get("mois", "")).strip() for r in cloture_rows
+                      if str(r.get("mois", "")).strip())
+    curseur = min(declares[0], courant) if declares else courant
+    fin = courant
+    for _ in range(horizon):
+        fin = mois_suivant(fin)
+
+    ouverts: list[str] = []
+    for _ in range(_MAX_MOIS_ENUMERES):
+        if curseur > fin:
+            break
+        if mois_ouvert_pour_saisie(curseur, cloture_rows)[0]:
+            ouverts.append(curseur)
+        curseur = mois_suivant(curseur)
+    return ouverts

@@ -225,6 +225,19 @@ def confirmer(token: str, *, db_path=None, dryruns_root: Path | None = None,
         _enregistrer_resultat(token, resultat, root)
         return resultat
 
+    # Une réservation qui vient d'être saisie périme tout ce qui se calcule à partir des
+    # réservations : table commune, flux, résultat, commissions, préfactures propriétaires. Sans
+    # cette invalidation, l'écran d'actualisation continuait d'annoncer « À JOUR » alors que ces
+    # calculs ignoraient encore la ligne écrite à l'instant. Même geste que pour REF_SETUP ; le
+    # recalcul lui-même reste piloté par l'orchestrateur, qui est le seul à savoir l'ordonner.
+    try:
+        from app.services import orchestrateur_dag as dag
+        from app.services import orchestrateur_service
+
+        orchestrateur_service.invalider_descendants(dag.RESERVATIONS, db_path=db_path)
+    except Exception:      # noqa: BLE001 — l'écriture métier est faite : ne pas la perdre pour ça
+        pass
+
     resultat = ResultatConfirmation(
         token=token, statut=SUCCES, code=None,
         message=f"Réservation {res['reservation_hh_id']} enregistrée.",
