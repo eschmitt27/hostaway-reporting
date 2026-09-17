@@ -52,6 +52,10 @@ E_LIGNE_MONTANT_INVALIDE = "V09_LIGNE_MONTANT_INVALIDE"
 E_LIGNE_FACTURE_MONO_CHARGE = "E04_FACTURE_DEJA_MONO_CHARGE"
 #: §28 — la somme des lignes doit reconstituer le total du document pour valider la facture.
 E_ECART_LIGNES_TOTAL = "V11_ECART_LIGNES_TOTAL_DOCUMENT"
+#: §15 — une ligne dont la nature n'a pas été tranchée par un humain interdit la validation.
+E_LIGNE_NON_CLASSEE = "V12_LIGNE_SANS_NATURE"
+#: §15 — une ligne qui compte pour un ménage sans logement désigné interdit la validation.
+E_LIGNE_SANS_LOGEMENT = "V13_LIGNE_MENAGE_SANS_LOGEMENT"
 
 MESSAGES = {
     E_FLAGS: "Écriture désactivée sur cette installation : l'enregistrement est impossible.",
@@ -372,6 +376,32 @@ def changer_statut(opaque: str, nouveau: str, *, commentaire: str = "", acteur: 
                     E_ECART_LIGNES_TOTAL,
                     f"somme des lignes {f['montant_lignes_ttc']:.2f} € vs total document "
                     f"{f['montant_ttc']:.2f} € (écart {ecart:+.2f} €)")
+            # §15 — chaque ligne doit AVOIR ÉTÉ CONTRÔLÉE : sa nature choisie, et son logement
+            # désigné dès lors qu'elle compte pour un ménage. Une ligne dont le libellé n'a pas
+            # été compris existe (elle est dans le document), mais elle interdit la validation
+            # tant qu'un humain ne l'a pas classée. Aucun « forcer valide ».
+            # Seules les lignes VENUES DU DOCUMENT sont concernées : une ligne ajoutée à la main
+            # porte déjà l'intention de celui qui l'a saisie. Et une nature proposée par le
+            # parseur avec certitude n'a pas besoin d'être reconfirmée — c'est le « je n'ai pas
+            # compris ce libellé » (confiance AUCUN) qui exige une décision humaine.
+            a_classer = [l for l in f["lignes"]
+                         if not l.get("neutralisee") and l.get("categorie_a_classer")
+                         and l.get("origine_ligne") == "PDF"
+                         and str(l.get("source") or "") == flm.SOURCE_PDF
+                         and _nomenclature_disponible(db_path)]
+            if a_classer:
+                return _refus(
+                    E_LIGNE_NON_CLASSEE,
+                    f"{len(a_classer)} ligne(s) sans nature : "
+                    + ", ".join((l.get("libelle_source") or l.get("description") or "?")[:40]
+                                for l in a_classer[:3]))
+            sans_logement = [l for l in f["lignes"]
+                             if not l.get("neutralisee") and l.get("categorie_compte_menage")
+                             and not l.get("logement_id")]
+            if sans_logement:
+                return _refus(
+                    E_LIGNE_SANS_LOGEMENT,
+                    f"{len(sans_logement)} ligne(s) comptant un ménage sans logement désigné")
 
     conn = get_db(db_path)
     try:
@@ -741,6 +771,94 @@ def lier_charge(opaque: str, charge_id: str, *, acteur: str = "", db_path=None) 
     return {"ok": True, "facture_id_opaque": opaque, "charge_id": charge_id}
 
 
+#: Au-delà de cet écart au tarif standard du logement, l'écran ALERTE — il ne bloque pas, et il ne
+#: remplace jamais le montant réel de la facture par le tarif de référence : c'est le prestataire
+#: qui dit ce qu'il facture, le référentiel ne sert qu'à faire remarquer l'inhabituel.
+ECART_TARIF_RELATIF = 0.20
+ECART_TARIF_ABSOLU = 5.0
+
+
+def _nomenclature_disponible(db_path=None) -> bool:
+    """La nomenclature des natures de prestation est-elle chargée ?
+
+    Elle vient du RÉFÉRENTIEL (REF_Setup), pas des migrations. Exiger un classement alors que la
+    liste des natures possibles n'existe pas reviendrait à interdire toute validation pour une
+    raison que l'utilisateur ne peut pas corriger depuis cet écran : la règle ne s'applique donc
+    que là où elle est applicable.
+    """
+    conn = get_db(db_path)
+    try:
+        return bool(conn.execute(
+            "SELECT 1 FROM ref_types_lignes_menage WHERE actif = 'OUI' LIMIT 1").fetchone())
+    except sqlite3.OperationalError:
+        return False
+    finally:
+        conn.close()
+
+
+def _cout_standard_du_logement(conn, logement_id: str, date_facture: str) -> float | None:
+    """Tarif de ménage de référence du logement, à la date de la facture. None si inconnu."""
+    if not logement_id:
+        return None
+    try:
+        row = conn.execute(
+            "SELECT c.cout_standard_menage FROM ref_logements l "
+            "JOIN ref_couts_standards_menage c ON c.type_logement_id = l.type_logement_id "
+            "WHERE l.logement_id = ? AND UPPER(COALESCE(c.actif,'OUI')) = 'OUI' "
+            "AND (COALESCE(c.date_debut_validite,'') = '' OR c.date_debut_validite <= ?) "
+            "AND (COALESCE(c.date_fin_validite,'') = '' OR c.date_fin_validite >= ?) "
+            "ORDER BY c.date_debut_validite DESC LIMIT 1",
+            (logement_id, date_facture or "9999-12-31", date_facture or "0001-01-01")).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    if row is None or row["cout_standard_menage"] in (None, ""):
+        return None
+    try:
+        return float(str(row["cout_standard_menage"]).replace(",", "."))
+    except ValueError:
+        return None
+
+
+def _enrichir_categorie(conn, d: dict[str, Any]) -> None:
+    """Nature de la prestation, état du classement, et alerte de tarif (§9 à §11).
+
+    `type_ligne` dit si un logement a été reconnu ; c'est `ref_types_lignes_menage` qui dit ce qui
+    a été fait. Une ligne dont la nature n'a pas été comprise doit rester visiblement à classer :
+    c'est ce qui empêche de valider une facture sur un classement que personne n'a fait.
+    """
+    d["categorie"] = None
+    d["categorie_compte_menage"] = None
+    try:
+        if d.get("type_ligne_menage_id"):
+            row = conn.execute(
+                "SELECT type_ligne_menage, compte_comme_menage FROM ref_types_lignes_menage "
+                "WHERE type_ligne_menage_id = ?", (d["type_ligne_menage_id"],)).fetchone()
+            if row is not None:
+                d["categorie"] = row["type_ligne_menage"]
+                d["categorie_compte_menage"] = row["compte_comme_menage"] == "OUI"
+    except sqlite3.OperationalError:      # référentiel absent d'une base partielle
+        pass
+    d["categorie_a_classer"] = (not d.get("categorie")
+                                or str(d.get("type_ligne_menage_confiance") or "") == "AUCUN")
+
+    # §10 — le tarif standard sert de CONTRÔLE, jamais de substitution. Et il ne s'applique qu'au
+    # ménage courant : une remise en état est par nature à prix variable (§11).
+    d["alerte_tarif"] = None
+    if d.get("categorie") != "MENAGE_STANDARD" or d.get("neutralisee"):
+        return
+    quantite = d.get("quantite") or 0
+    unitaire = d.get("prix_unitaire")
+    if unitaire is None and quantite:
+        unitaire = round(float(d.get("montant_ttc") or 0) / quantite, 2)
+    standard = _cout_standard_du_logement(conn, str(d.get("logement_id") or ""),
+                                          str(d.get("date_facture") or ""))
+    if unitaire is None or standard in (None, 0):
+        return
+    ecart = round(float(unitaire) - standard, 2)
+    if abs(ecart) > max(ECART_TARIF_ABSOLU, standard * ECART_TARIF_RELATIF):
+        d["alerte_tarif"] = {"unitaire": float(unitaire), "standard": standard, "ecart": ecart}
+
+
 def lignes(opaque: str, db_path=None) -> list[dict[str, Any]]:
     """Lignes de la facture fournisseur — UNE seule chaîne, extraction PDF incluse.
 
@@ -759,6 +877,9 @@ def lignes(opaque: str, db_path=None) -> list[dict[str, Any]]:
     conn = get_db(db_path)
     try:
         resultat: list[dict[str, Any]] = []
+        entete = conn.execute("SELECT date_facture FROM factures WHERE facture_id_opaque=?",
+                              (opaque,)).fetchone()
+        date_facture = _txt(entete["date_facture"]) if entete else ""
         for r in conn.execute(
                 "SELECT l.*, d.quantite, d.prix_unitaire, d.quantite_source, "
                 "d.prix_unitaire_source, p.nom_prestataire, p.date_menage "
@@ -782,6 +903,8 @@ def lignes(opaque: str, db_path=None) -> list[dict[str, Any]]:
             # §27 — la quantité a-t-elle été corrigée depuis l'extraction ?
             d["quantite_corrigee"] = (d.get("quantite_source") is not None
                                       and d.get("quantite") != d.get("quantite_source"))
+            d["date_facture"] = date_facture
+            _enrichir_categorie(conn, d)
             resultat.append(d)
         for r in conn.execute(
                 "SELECT * FROM facture_lignes WHERE facture_id_opaque=? ORDER BY id",

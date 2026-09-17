@@ -237,6 +237,8 @@ def facture_detail(request: Request, opaque: str, message: str = "", erreur: str
         # §27 — l'écran nomme la CAUSE de l'écart, pas seulement son montant : « une ligne mal
         # lue » et « une ligne absente » n'appellent pas le même geste de correction.
         "diagnostic": flm.diagnostic_ecart(opaque),
+        # §9 — les natures proposées au contrôle viennent du référentiel, pas du gabarit.
+        "categories": flm.categories_disponibles(),
         # §18 — le nom du PDF n'est qu'une indication : s'il contredit le document, l'écran le dit.
         "contradictions_nom_fichier": _contradictions_nom_fichier(opaque),
         "ecriture_active": _ecriture_active(), "message": message, "erreur": erreur,
@@ -250,6 +252,22 @@ async def facture_statut(request: Request, opaque: str):
                              commentaire=str(form.get("commentaire", "") or ""),
                              acteur=str(form.get("acteur", "") or "local"))
     msg = "message=Statut mis à jour." if res.get("ok") else f"erreur={res.get('message')}"
+    return RedirectResponse(url=f"/factures/{opaque}?{msg}", status_code=303)
+
+
+@router.post("/factures/{opaque}/lignes/{ligne_id}/classification")
+async def facture_ligne_classification(request: Request, opaque: str, ligne_id: str):
+    """Contrôle humain d'une ligne : sa nature, son libellé métier (§9 à §13)."""
+    from app.services import facture_lignes_menage_service as flm
+
+    form = await request.form()
+    res = flm.corriger_classification(
+        ligne_id,
+        categorie=str(form.get("categorie", "") or ""),
+        libelle_metier=str(form.get("libelle_metier", "") or ""),
+        acteur=str(form.get("acteur", "") or "local"))
+    msg = ("message=" + quote("Ligne classée.") if res.get("ok")
+           else "erreur=" + quote(res.get("detail") or res.get("code", "")))
     return RedirectResponse(url=f"/factures/{opaque}?{msg}", status_code=303)
 
 

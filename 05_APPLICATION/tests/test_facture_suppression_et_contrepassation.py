@@ -53,6 +53,7 @@ def _facture(tmp_db, *, ref="SUP-001", statut=fact.ST_A_CONTROLER, montant=155.0
     flm.ajouter_ligne(opaque, type_ligne=flm.TYPE_MENAGE_EXTERNE, logement_id="LOG_A",
                       montant_ttc=montant, description="t3 310 muret",
                       libelle_source="2. service de nettoyage T3 310 muret x 1",
+                      categorie=flm.CAT_MENAGE_STANDARD, categorie_confiance="CERTAIN",
                       source=flm.SOURCE_PDF, db_path=tmp_db)
     conn = get_db(tmp_db)
     try:

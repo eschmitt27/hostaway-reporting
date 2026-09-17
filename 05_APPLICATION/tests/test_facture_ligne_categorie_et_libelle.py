@@ -182,6 +182,51 @@ def test_les_categories_proposees_viennent_du_referentiel(tmp_db):
     assert comptent == {"MENAGE_STANDARD", "REMISE_EN_ETAT"}
 
 
+# ── §15 : ce qui rend une facture validable ─────────────────────────────────────────────────────
+
+def test_une_ligne_du_document_sans_nature_interdit_la_validation(tmp_db, facture):
+    """E2E C — la ligne au libellé inconnu existe, et elle bloque la validation jusqu'au classement.
+
+    C'est la contrepartie de « une ligne inconnue ne disparaît jamais » : si elle ne disparaît
+    pas, elle doit empêcher de déclarer la facture contrôlée tant que personne ne l'a lue.
+    """
+    ligne_id = _ligne(tmp_db, facture, montant_ttc=300.0, categorie=flm.CAT_AUTRE,
+                      categorie_confiance="AUCUN", logement_id="",
+                      type_ligne=flm.TYPE_FRAIS_NON_AFFECTE,
+                      libelle_source="15. solde dû suite aux prestations du mois de juillet",
+                      )["ligne_id_opaque"]
+
+    refus = fact.changer_statut(facture, fact.ST_VALIDEE, acteur="test", db_path=tmp_db)
+    assert refus["ok"] is False and refus["code"] == fact.E_LIGNE_NON_CLASSEE
+    assert "solde" in refus["detail"]
+
+    # L'utilisateur tranche : la facture devient validable, sans qu'aucun montant n'ait bougé.
+    flm.corriger_classification(ligne_id, categorie=flm.CAT_ACHAT_PRODUIT, acteur="ewan",
+                                db_path=tmp_db)
+    assert fact.changer_statut(facture, fact.ST_VALIDEE, acteur="test", db_path=tmp_db)["ok"] is True
+    assert _lue(tmp_db, ligne_id)["montant_ttc"] == pytest.approx(300.0)
+
+
+def test_une_ligne_qui_compte_un_menage_exige_son_logement(tmp_db, facture):
+    ligne_id = _ligne(tmp_db, facture, montant_ttc=300.0, categorie=flm.CAT_REMISE_EN_ETAT,
+                      categorie_confiance="CERTAIN", logement_id="",
+                      type_ligne=flm.TYPE_FRAIS_NON_AFFECTE)["ligne_id_opaque"]
+
+    refus = fact.changer_statut(facture, fact.ST_VALIDEE, acteur="test", db_path=tmp_db)
+    assert refus["ok"] is False and refus["code"] == fact.E_LIGNE_SANS_LOGEMENT
+
+    flm.corriger_classification(ligne_id, logement_id="LOG_0002", acteur="ewan", db_path=tmp_db)
+    assert fact.changer_statut(facture, fact.ST_VALIDEE, acteur="test", db_path=tmp_db)["ok"] is True
+
+
+def test_une_nature_proposee_avec_certitude_n_exige_pas_de_reconfirmation(tmp_db, facture):
+    """Le logiciel propose, l'utilisateur corrige s'il le souhaite : on ne lui impose pas de
+    re-cliquer sur chaque ligne que le parseur a comprise."""
+    _ligne(tmp_db, facture, montant_ttc=300.0, categorie=flm.CAT_MENAGE_STANDARD,
+           categorie_confiance="CERTAIN")
+    assert fact.changer_statut(facture, fact.ST_VALIDEE, acteur="test", db_path=tmp_db)["ok"] is True
+
+
 # ── §7 : une ligne à 0 € est une information, pas une erreur ────────────────────────────────────
 
 def test_une_ligne_facturee_zero_est_enregistree(tmp_db, facture):

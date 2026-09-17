@@ -204,7 +204,7 @@
   <div class="table-container">
     <table class="data-table">
       <thead><tr>
-        <th>Libellé d'origine</th><th class="num">Qté</th><th class="num">P.U.</th>
+        <th>Libellé d'origine</th><th>Nature</th><th class="num">Qté</th><th class="num">P.U.</th>
         <th class="num">Montant</th><th>Ménage</th><th>Logement</th><th>Origine</th><th></th>
       </tr></thead>
       <tbody>
@@ -214,6 +214,12 @@
         <tr {% if l.neutralisee %}style="opacity:.55"{% endif %}>
           <td>
             {{ l.description or l.commentaire or "—" }}
+            {# §8 — ce que la pièce écrit, mot pour mot. Le libellé au-dessus est sa forme métier,
+               corrigeable ; celui-ci ne change jamais. #}
+            {% if l.libelle_source %}
+              <br><span class="text-xs text-secondary" title="Texte exact du document">
+                Document : {{ l.libelle_source }}</span>
+            {% endif %}
             {% if l.statut_ligne == "EXTRACTION_INCORRECTE" %}
               <br><span class="badge badge-warning">Extraction incorrecte</span>
               <span class="text-xs text-secondary">{{ l.motif_correction }}</span>
@@ -226,6 +232,23 @@
             {% if l.coherence and l.coherence.verifiable and not l.coherence.coherente and not l.neutralisee %}
               <br><span class="badge badge-danger">Ligne incohérente</span>
               <span class="text-xs text-secondary">{{ l.coherence.message }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if l.categorie_a_classer %}
+              <span class="badge badge-warning">À classer</span>
+            {% elif l.categorie %}
+              <span class="badge {{ 'badge-success' if l.categorie_compte_menage else 'badge-neutral' }}">
+                {{ l.categorie|replace('_', ' ')|capitalize }}</span>
+            {% else %}—{% endif %}
+            {% if l.alerte_tarif %}
+              {# §10 — le tarif standard est un CONTRÔLE, pas une substitution : le montant affiché
+                 reste celui de la facture. #}
+              <br><span class="badge badge-warning">Tarif inhabituel</span>
+              <span class="text-xs text-secondary">
+                {{ "%.2f"|format(l.alerte_tarif.unitaire) }} € contre
+                {{ "%.2f"|format(l.alerte_tarif.standard) }} € au référentiel
+                ({{ "%+.2f"|format(l.alerte_tarif.ecart) }} €)</span>
             {% endif %}
           </td>
           <td class="num">
@@ -258,6 +281,24 @@
             <details>
               <summary class="text-xs">Corriger cette ligne</summary>
               <div class="text-xs" style="display:grid;gap:.5rem;margin-top:.5rem">
+
+                {# §9 à §13 — la nature de la prestation et le libellé métier. Le logiciel propose,
+                   l'utilisateur tranche ; le libellé du document, lui, n'est jamais touché. #}
+                <form method="post" action="{{ base }}/classification">
+                  <label>Nature de la prestation
+                    <select name="categorie">
+                      <option value="">— inchangée —</option>
+                      {% for c in categories %}
+                      <option value="{{ c.type_ligne_menage }}"
+                              {% if c.type_ligne_menage == l.categorie %}selected{% endif %}>
+                        {{ c.type_ligne_menage|replace('_', ' ')|capitalize }}{% if c.compte_comme_menage == 'OUI' %} (compte un ménage){% endif %}
+                      </option>
+                      {% endfor %}
+                    </select></label>
+                  <label>Libellé métier
+                    <input type="text" name="libelle_metier" value="{{ l.description or '' }}"></label>
+                  <button type="submit" class="btn btn-secondary">Enregistrer le classement</button>
+                </form>
 
                 {# §23 — confirmer ou changer le logement. Le choix est mémorisé. #}
                 <form method="post" action="{{ base }}/logement">
@@ -342,7 +383,7 @@
         </tr>
         {% endfor %}
       </tbody>
-      <tfoot><tr><th colspan="3">Total des lignes retenues</th>
+      <tfoot><tr><th colspan="4">Total des lignes retenues</th>
         <th class="num">{{ "%.2f"|format(facture.montant_lignes_ttc) }}</th><th colspan="4"></th></tr></tfoot>
     </table>
   </div>
