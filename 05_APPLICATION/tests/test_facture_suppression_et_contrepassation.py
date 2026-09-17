@@ -106,6 +106,33 @@ def test_supprimer_une_facture_a_controler_ne_laisse_aucun_residu(tmp_db, _pas_d
     assert _pas_de_recalcul and _pas_de_recalcul[0]["mois"] == "2026-08"
 
 
+def test_supprimer_emporte_les_ventilations_et_leurs_parts(tmp_db, _pas_de_recalcul):
+    """Les parts d'une ventilation référencent leur ventilation par clé étrangère : les oublier
+    faisait échouer la suppression sur une contrainte d'intégrité, au milieu du travail."""
+    opaque = _facture(tmp_db, ref="SUP-VENT")
+    conn = get_db(tmp_db)
+    try:
+        conn.execute("INSERT INTO facture_ventilations (ventilation_id_opaque, facture_id_opaque, "
+                     "montant_non_affecte, base_ponderation, statut) "
+                     "VALUES ('VEN-1',?,85.0,'MENAGES','ACTIVE')", (opaque,))
+        conn.execute("INSERT INTO facture_ventilation_parts (ventilation_id_opaque, logement_id, "
+                     "cout_menages_logement, poids, part_montant) "
+                     "VALUES ('VEN-1','LOG_A',155.0,1.0,85.0)")
+        conn.commit()
+    finally:
+        conn.close()
+
+    r = fact.supprimer(opaque, motif="document retiré du dossier", db_path=tmp_db)
+
+    assert r["ok"] is True, r
+    conn = get_db(tmp_db)
+    try:
+        assert conn.execute("SELECT COUNT(*) n FROM facture_ventilations").fetchone()["n"] == 0
+        assert conn.execute("SELECT COUNT(*) n FROM facture_ventilation_parts").fetchone()["n"] == 0
+    finally:
+        conn.close()
+
+
 def test_supprimer_exige_un_motif(tmp_db):
     opaque = _facture(tmp_db)
     r = fact.supprimer(opaque, motif="   ", db_path=tmp_db)

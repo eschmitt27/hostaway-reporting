@@ -484,6 +484,11 @@ _TABLES_FILLES = (
      "WHERE facture_id_opaque = ?)"),
     ("facture_lignes_menage", "facture_id_opaque = ?"),
     ("facture_lignes", "facture_id_opaque = ?"),
+    # Les PARTS d'une ventilation référencent leur ventilation par clé étrangère : elles doivent
+    # partir d'abord, sinon SQLite refuse la suppression de la ventilation elle-même.
+    ("facture_ventilation_parts",
+     "ventilation_id_opaque IN (SELECT ventilation_id_opaque FROM facture_ventilations "
+     "WHERE facture_id_opaque = ?)"),
     ("facture_ventilations", "facture_id_opaque = ?"),
     ("facture_classification", "facture_id_opaque = ?"),
     ("facture_pdf_diagnostics", "facture_id_opaque = ?"),
@@ -594,6 +599,12 @@ def supprimer(opaque: str, *, motif: str, acteur: str = "", db_path=None) -> dic
                 break
         conn.execute("DELETE FROM factures WHERE facture_id_opaque = ?", (opaque,))
         conn.commit()
+    except sqlite3.IntegrityError as exc:
+        # Une dépendance non prévue : mieux vaut refuser proprement, en nommant l'obstacle, que
+        # laisser remonter une erreur technique ou, pire, supprimer à moitié.
+        conn.rollback()
+        return {"ok": False, "code": E_SUPPRESSION_INTERDITE,
+                "message": "Une donnée liée empêche la suppression : " + str(exc)}
     finally:
         conn.close()
 
