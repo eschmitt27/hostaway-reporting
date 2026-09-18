@@ -198,7 +198,10 @@ if dbm.table_presente(_conn, "facture_lignes_menage"):
         # Seules les factures VALIDEES entrent dans le cout complet : une facture A_CONTROLER
         # est un document recu, pas une charge acceptee. Sans ce filtre, son montant remontait
         # jusqu'a menages_cout_complet puis TYPE_FLUX_018/019 dans lot9.
+        # `statut_ligne = 'ACTIVE'` (recette 4, §11) : une ligne neutralisee ou remplacee par ses
+        # parts ne pese plus.
         "WHERE l.type_ligne = 'MENAGE_EXTERNE' "
+        "AND COALESCE(l.statut_ligne, 'ACTIVE') = 'ACTIVE' "
         f"AND {dbm.filtre_sql_factures_comptables('f')}")
     for lg, pid, mttc, qte, dfac, fid in cur.fetchall():
         if str(dfac or "")[:7] != MONTH: continue

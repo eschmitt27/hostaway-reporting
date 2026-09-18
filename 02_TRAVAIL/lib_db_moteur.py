@@ -488,7 +488,10 @@ def calculer_ecarts_menages_externes(conn: sqlite3.Connection) -> list[dict[str,
             "FROM facture_lignes_menage l "
             "JOIN factures f ON f.facture_id_opaque = l.facture_id_opaque "
             "LEFT JOIN facture_lignes_menage_detail d ON d.ligne_id_opaque = l.ligne_id_opaque "
+            # `statut_ligne = 'ACTIVE'` (recette 4, §11) : une ligne neutralisee ou remplacee par
+            # ses parts ne doit plus compter dans les ecarts.
             "WHERE l.type_ligne = 'MENAGE_EXTERNE' "
+            "AND COALESCE(l.statut_ligne, 'ACTIVE') = 'ACTIVE' "
             "AND l.logement_id IS NOT NULL AND l.logement_id <> ''")
         for date_facture, logement_id, prestataire_id, quantite in cur.fetchall():
             mois = str(date_facture or "")[:7]

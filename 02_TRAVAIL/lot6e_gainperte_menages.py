@@ -193,7 +193,10 @@ if dbm.table_presente(_conn, "facture_lignes_menage"):
         # Seules les factures VALIDEES engagent l'economie : le cout reel d'un menage externe
         # est un montant facture ACCEPTE, pas un montant simplement recu. Une facture
         # A_CONTROLER reste visible dans le rapprochement (lot6d) mais pese 0 ici.
+        # `statut_ligne = 'ACTIVE'` (recette 4, §11) : une ligne neutralisee ou remplacee par ses
+        # parts ne pese plus, exactement comme si elle avait disparu.
         "WHERE l.type_ligne = 'MENAGE_EXTERNE' "
+        "AND COALESCE(l.statut_ligne, 'ACTIVE') = 'ACTIVE' "
         f"AND {dbm.filtre_sql_factures_comptables('f')}")
     ext_rows = [{"mois": str(dfac or "")[:7], "logement_id": lg, "prestataire_id": pid,
                 "type_ligne_menage_id": "TLM_001",

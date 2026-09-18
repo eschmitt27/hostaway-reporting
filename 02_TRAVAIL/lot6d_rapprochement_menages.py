@@ -122,13 +122,16 @@ if dbm.table_presente(_conn, "facture_lignes_menage"):
     # statut s'applique la ou des MONTANTS sont agreges (lot6e, lot6f), pas ici.
     # `statut_facture`/`economique` sont remontes pour que l'aval affiche explicitement
     # « impact economique retenu = 0 » sans redemander la base.
+    # `l.statut_ligne = 'ACTIVE'` (recette 4, §11) : une ligne neutralisee (extraction incorrecte)
+    # ou remplacee par ses parts (repartition) ne doit plus compter — sinon une correction ou une
+    # suppression cote application laisse un menage fantome ici, que rien n'a jamais recalcule.
     cur = _conn.execute(
         "SELECT l.facture_id_opaque, l.logement_id, f.fournisseur_id_opaque AS prestataire_id, "
         "l.montant_ttc, d.quantite, f.date_facture, f.statut "
         "FROM facture_lignes_menage l "
         "JOIN factures f ON f.facture_id_opaque = l.facture_id_opaque "
         "LEFT JOIN facture_lignes_menage_detail d ON d.ligne_id_opaque = l.ligne_id_opaque "
-        "WHERE l.type_ligne = 'MENAGE_EXTERNE'")
+        "WHERE l.type_ligne = 'MENAGE_EXTERNE' AND COALESCE(l.statut_ligne, 'ACTIVE') = 'ACTIVE'")
     for facture_id, logement_id, prestataire_id, montant_ttc, quantite, date_facture, statut \
             in cur.fetchall():
         ext.append({
