@@ -237,8 +237,10 @@ def facture_detail(request: Request, opaque: str, message: str = "", erreur: str
         # §27 — l'écran nomme la CAUSE de l'écart, pas seulement son montant : « une ligne mal
         # lue » et « une ligne absente » n'appellent pas le même geste de correction.
         "diagnostic": flm.diagnostic_ecart(opaque),
-        # §9 — les natures proposées au contrôle viennent du référentiel, pas du gabarit.
-        "categories": flm.categories_disponibles(),
+        # §9 — les natures proposées au contrôle viennent du référentiel, pas du gabarit. §2
+        # (vérification finale recette 4) — l'écran n'en propose que trois à l'humain : les six
+        # de `ref_types_lignes_menage` sont la nomenclature du parseur automatique.
+        "categories": flm.categories_ui_disponibles(),
         # §18 — le nom du PDF n'est qu'une indication : s'il contredit le document, l'écran le dit.
         "contradictions_nom_fichier": _contradictions_nom_fichier(opaque),
         "ecriture_active": _ecriture_active(), "message": message, "erreur": erreur,

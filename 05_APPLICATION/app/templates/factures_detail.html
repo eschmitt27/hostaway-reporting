@@ -186,7 +186,7 @@
           <select name="categorie">
             {% for c in categories %}
             <option value="{{ c.type_ligne_menage }}" {% if c.type_ligne_menage == 'MENAGE_STANDARD' %}selected{% endif %}>
-              {{ c.type_ligne_menage|replace('_', ' ')|capitalize }}{% if c.compte_comme_menage == 'OUI' %} (compte un ménage){% endif %}
+              {{ c.libelle_ui }}{% if c.compte_comme_menage == 'OUI' %} (compte un ménage){% endif %}
             </option>
             {% endfor %}
           </select></label>
@@ -320,7 +320,7 @@
                       {% for c in categories %}
                       <option value="{{ c.type_ligne_menage }}"
                               {% if c.type_ligne_menage == l.categorie %}selected{% endif %}>
-                        {{ c.type_ligne_menage|replace('_', ' ')|capitalize }}{% if c.compte_comme_menage == 'OUI' %} (compte un ménage){% endif %}
+                        {{ c.libelle_ui }}{% if c.compte_comme_menage == 'OUI' %} (compte un ménage){% endif %}
                       </option>
                       {% endfor %}
                     </select></label>

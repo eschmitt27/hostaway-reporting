@@ -122,6 +122,12 @@ def categories_disponibles(db_path=None) -> list[dict[str, Any]]:
     `compte_comme_menage` est ce qui décide, en aval, qu'une ligne vaut un ménage : une REMISE EN
     ÉTAT compte (au coût réel de la ligne), un FRAIS DE DÉPLACEMENT non. L'écran lit donc le
     référentiel plutôt que de redire la règle dans son gabarit.
+
+    RÉSERVÉ AU RÉFÉRENTIEL, PAS À L'ÉCRAN DE CORRECTION : les six lignes de
+    `ref_types_lignes_menage` sont la nomenclature du PARSEUR automatique, seul capable de
+    distinguer linge, achat de produit et frais de déplacement à la lecture du document
+    (`02_TRAVAIL/lib_menages_externes_pdf.py::detecter_categorie`). Un humain qui corrige une
+    ligne n'a que trois décisions utiles — voir `categories_ui_disponibles`.
     """
     conn = get_db(db_path)
     try:
@@ -134,6 +140,28 @@ def categories_disponibles(db_path=None) -> list[dict[str, Any]]:
         return []
     finally:
         conn.close()
+
+
+#: §2 (vérification finale recette 4) — les TROIS catégories que l'écran propose à l'humain qui
+#: classe ou corrige une ligne. `FRAIS_DEPLACEMENT`, `LINGE` et `ACHAT_PRODUIT` restent des
+#: valeurs valides — le parseur automatique les écrit avec certitude d'après le texte du document
+#: — mais ce sont des précisions TECHNIQUES que l'écran n'a pas à faire choisir : elles ne
+#: comptent de toute façon jamais un ménage, exactement comme `AUTRE`. Un humain qui corrige une
+#: ligne classée « Linge » vers « Autre prestation » ne perd rien d'utile en aval : seul
+#: `compte_comme_menage` (ici NON dans les deux cas) conditionne le rapprochement.
+LIBELLES_CATEGORIES_UI: dict[str, str] = {
+    CAT_MENAGE_STANDARD: "Ménage",
+    CAT_REMISE_EN_ETAT: "Remise en état",
+    CAT_AUTRE: "Autre prestation",
+}
+
+
+def categories_ui_disponibles(db_path=None) -> list[dict[str, Any]]:
+    """Les trois catégories métier proposées au sélecteur de nature — jamais la nomenclature
+    technique complète du référentiel (six entrées, dont quatre ne concernent que le parseur)."""
+    return [{**c, "libelle_ui": LIBELLES_CATEGORIES_UI[c["type_ligne_menage"]]}
+            for c in categories_disponibles(db_path)
+            if c["type_ligne_menage"] in LIBELLES_CATEGORIES_UI]
 
 
 def _maintenant() -> str:

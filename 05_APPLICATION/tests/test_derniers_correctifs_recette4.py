@@ -208,3 +208,86 @@ def test_controle_du_total_reflete_l_ecart_en_temps_reel(client, tmp_db):
 
     apres = client.get(f"/factures/{opaque}")
     assert "+0.00 €" in apres.text or "0.00 €" in apres.text
+
+
+# ── vérification finale — §1 : la correction manuelle enrichit ref_mapping_logements, et un
+#    nouvel import avec le même libellé propose automatiquement le logement appris ────────────────
+
+def test_correction_manuelle_du_logement_est_proposee_au_prochain_import(tmp_db):
+    conn = get_db(tmp_db)
+    try:
+        conn.execute("INSERT INTO ref_logements (logement_id, nom_court, statut_parc, actif, "
+                    "import_id) VALUES ('LOG_T4BLA','Le Petit Nid','GERE','OUI','IMP-T')")
+        conn.commit()
+    finally:
+        conn.close()
+
+    # Rien ne le sait encore : le nom du logement ne recoupe aucun mot du libellé fournisseur — la
+    # correspondance ne peut venir que de l'apprentissage, jamais d'une déduction de hasard.
+    # Le libellé n'est associé à aucun logement.
+    avant = lms.proposer_pour_libelle("T4 blagnac", db_path=tmp_db)
+    assert avant["logement_id"] == ""
+
+    opaque = fact.creer(
+        {"fournisseur_id_opaque": "FRS-T4", "facture_ref": "T4-1", "date_facture": "2026-08-31",
+         "montant_ttc": 60.0}, db_path=tmp_db)["facture_id_opaque"]
+    r = flm.ajouter_ligne(opaque, type_ligne=flm.TYPE_FRAIS_NON_AFFECTE, montant_ttc=60.0,
+                          description="T4 blagnac", source=flm.SOURCE_PDF, db_path=tmp_db)
+
+    # L'utilisateur corrige ET CONFIRME le logement sur cette ligne — `affecter_logement` est
+    # exactement l'action que déclenche le POST /factures/{opaque}/lignes/{ligne}/logement du
+    # formulaire réel, jamais une proposition automatique acceptée en silence.
+    confirmation = flm.affecter_logement(r["ligne_id_opaque"], logement_id="LOG_T4BLA",
+                                         acteur="ewan", db_path=tmp_db)
+    assert confirmation["ok"] is True
+    assert confirmation["correspondance_apprise"]["ok"] is True
+
+    # Un « nouvel import » ne relit pas la ligne existante : il appelle `lms.proposer` sur le
+    # référentiel vivant pour une ligne NEUVE — exactement ce que fait
+    # `facture_menage_pdf_service.importer()` ligne par ligne (mêmes deux appels, même fonction).
+    referentiel = lms.charger_referentiel(tmp_db)
+    proposition = lms.proposer("T4 blagnac", referentiel)
+    assert proposition["logement_id"] == "LOG_T4BLA"
+    assert proposition["confiance"] == lms.CERTAIN
+    assert proposition["preremplir"] is True
+
+    # Un alias contradictoire vers un AUTRE logement n'écrase jamais la correspondance apprise.
+    conn = get_db(tmp_db)
+    try:
+        conn.execute("INSERT INTO ref_logements (logement_id, nom_court, statut_parc, actif, "
+                    "import_id) VALUES ('LOG_AUTRE','Autre','GERE','OUI','IMP-T')")
+        conn.commit()
+    finally:
+        conn.close()
+    conflit = lms.enregistrer_correspondance("T4 blagnac", "LOG_AUTRE", db_path=tmp_db)
+    assert conflit["ok"] is False and conflit["code"] == "CORRESPONDANCE_CONTRADICTOIRE"
+    apres_conflit = lms.proposer_pour_libelle("T4 blagnac", db_path=tmp_db)
+    assert apres_conflit["logement_id"] == "LOG_T4BLA", "aucune écriture silencieuse"
+
+
+# ── vérification finale — §2 : le sélecteur de nature ne montre que les 3 catégories métier ───────
+
+def test_categories_ui_disponibles_ne_rend_que_les_trois_categories_metier(tmp_db):
+    ui = flm.categories_ui_disponibles(tmp_db)
+    assert {c["type_ligne_menage"] for c in ui} == {"MENAGE_STANDARD", "REMISE_EN_ETAT", "AUTRE"}
+    libelles = {c["type_ligne_menage"]: c["libelle_ui"] for c in ui}
+    assert libelles == {"MENAGE_STANDARD": "Ménage", "REMISE_EN_ETAT": "Remise en état",
+                        "AUTRE": "Autre prestation"}
+
+
+def test_ecran_facture_ne_propose_que_les_trois_categories_metier(client, tmp_db):
+    opaque = fact.creer(
+        {"fournisseur_id_opaque": "FRS-T", "facture_ref": "CAT-1", "date_facture": "2026-08-31",
+         "montant_ttc": 40.0}, db_path=tmp_db)["facture_id_opaque"]
+    flm.ajouter_ligne(opaque, type_ligne=flm.TYPE_FRAIS_NON_AFFECTE, montant_ttc=40.0,
+                      description="ligne test", categorie=flm.CAT_AUTRE,
+                      categorie_confiance="CERTAIN", source=flm.SOURCE_PDF, db_path=tmp_db)
+
+    page = client.get(f"/factures/{opaque}")
+    assert page.status_code == 200
+    assert "Remise en état" in page.text
+    assert "Autre prestation" in page.text
+    # Le référentiel connaît aussi FRAIS_DEPLACEMENT (nomenclature du parseur) : il ne doit plus
+    # apparaître dans un sélecteur destiné à l'humain.
+    assert "Frais deplacement" not in page.text
+    assert "FRAIS_DEPLACEMENT" not in page.text
