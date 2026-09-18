@@ -5663,3 +5663,45 @@ fait son travail.
 service sur une **copie** : intégrité, `F-11/0-000001`, factures de juillet, `590757`, `LOG_0002` sur
 le jeu de réservations ACTIF — une première mesure sans ce filtre comptait des jeux historiques et
 semblait contredire la règle de fin de gestion. Détail : `HANDOFF_CANONIQUE.md`, Mission 29.
+
+## CTR-RECETTE4-LOT1-2026-09-18 — logements, réservations hors Hostaway, ménages, factures PDF
+
+**Méthode.** Six chantiers diagnostiqués sur preuves (fichier:ligne, exécution, test) avant toute
+correction. Deux défauts annoncés par l'utilisateur se sont révélés différents de ce qu'ils
+paraissaient : la création de réservation hors Hostaway écrivait bien en base — elle était rendue
+inutilisable par un bouton désactivé et par un statut que rien ne pouvait lever ; et le compteur
+« 2 PDF reconnus / 0 fichier » n'opposait plus deux sources contradictoires, mais continuait de
+mettre côte à côte deux grandeurs incomparables.
+
+**Contrôles ajoutés — 71**, répartis en cinq fichiers :
+
+| fichier | objet | nb |
+|---|---|---|
+| `test_reservation_hh_creation_e2e.py` | parcours HTTP complet, sans mock, jusqu'à la préfacture | 5 |
+| `test_menages_pdf_factures_reelles.py` | les 8 factures réelles, figées ligne par ligne | 18 |
+| `test_facture_ligne_categorie_et_libelle.py` | libellé source immuable, natures, règle de validation | 13 |
+| `test_facture_suppression_et_contrepassation.py` | cycle de vie A et B, parcours HTTP compris | 12 |
+| `test_e2e_facture_pdf_trois_categories.py` | facture réelle à trois catégories, jusqu'à la dette | 6 |
+| `test_menages_ecran_simplifie.py` | rapprochement disque/base, période, déplacement vers Observabilité | 5 |
+| `test_menages_rapprochement.py` (complété) | les 8 indicateurs, et interdiction du retour des pavés retirés | 2 |
+
+**Mesure d'extraction, avant et après** : 49 lignes extraites sur 59 réellement présentes, deux
+totaux faux (89,00 € au lieu de 2 234,00 € ; 150,00 € au lieu de 2 790,00 €), un prestataire non
+lu du tout. Après : **59 lignes sur 59, les huit factures à écart 0,00 €**, PrivaDom lu.
+
+**Quatorze tests d'extraction étaient skippés en silence** depuis un renommage de fichiers : leurs
+gardes pointaient sur deux noms littéraux. Réindexés sur la convention, ils tournent de nouveau.
+
+**Base réelle** : jamais écrite pendant les travaux. Sauvegarde préalable
+(`data/backups/app_avant_recette4.db`), migration 0088 éprouvée sur copie avant d'être appliquée au
+redémarrage. Après migration : schéma 0088, `integrity_check` ok, `foreign_key_check` ok, 7
+factures et 47 lignes conservées, 3 réservations hors Hostaway.
+
+**Parcours de reprise prouvé sur copie isolée** : la facture d'août au total faux est supprimée
+puis réimportée, et ressort à 2 790,00 € avec ses 15 lignes et un écart de 0,00 €. Celle de mars
+est refusée — son mois est clôturé, et c'est la règle. Aucune facture réelle n'a été corrigée
+d'autorité.
+
+**Suite complète** : 3 880 tests passent, 37 sautés. Un échec, environnemental et antérieur :
+`test_gardes_bancaires_coherence.py` exige le classeur `BANQUE_LOT8_IMPORT.xlsx`, qui n'a jamais
+existé dans ce worktree et n'est pas versionné.
