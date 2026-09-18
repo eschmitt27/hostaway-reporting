@@ -83,6 +83,39 @@ def _type_ligne_menage_id(conn, categorie: str) -> str | None:
     return row["type_ligne_menage_id"] if row else None
 
 
+def _compte_comme_menage(conn, type_ligne_menage_id: str | None) -> bool | None:
+    """La nature de prestation compte-t-elle pour un ménage ? Rend `None` si la nature n'est pas
+    connue — une ligne jamais classée n'affirme rien, elle ne dit pas « non »."""
+    if not type_ligne_menage_id:
+        return None
+    try:
+        row = conn.execute(
+            "SELECT compte_comme_menage FROM ref_types_lignes_menage "
+            "WHERE type_ligne_menage_id = ?", (type_ligne_menage_id,)).fetchone()
+    except Exception:      # noqa: BLE001 — référentiel absent d'une base de test minimale
+        return None
+    return (str(row["compte_comme_menage"]).upper() == "OUI") if row else None
+
+
+def _type_ligne_pour(compte_comme_menage: bool, logement_id) -> str:
+    """UNE vérité canonique pour `type_ligne` — colonne SQL que lisent lot6c/6d/6e/6f et
+    `lib_db_moteur` directement, sans repasser par le référentiel des natures. `type_ligne` n'est
+    donc plus une décision indépendante : il est DÉRIVÉ, à chaque écriture, de la nature choisie
+    (`compte_comme_menage`) et de la présence d'un logement.
+
+    BUG RÉEL CORRIGÉ : une ligne classée MÉNAGE dont le logement était confirmé PAR LE FORMULAIRE
+    « Logement » (`affecter_logement`, existant depuis la recette 3) gardait son ancien
+    `type_ligne` — celui-ci n'était mis à jour que par l'ancien mécanisme « Ménage oui/non »
+    (`marquer_menage`), indépendant de la nature. La colonne affichée « Ménage » restait donc à
+    NON après une classification MÉNAGE, et le rapprochement (qui filtre sur `type_ligne` en SQL)
+    ignorait la ligne. Un ménage SANS logement compte déjà pour la nature — l'écran l'affiche —
+    mais ne peut pas encore être imputé à un coût : `TYPE_FRAIS_NON_AFFECTE` le porte en
+    attendant, exactement comme une ligne PDF non rapprochée l'a toujours fait.
+    """
+    return TYPE_MENAGE_EXTERNE if (compte_comme_menage and str(logement_id or "").strip()) \
+        else TYPE_FRAIS_NON_AFFECTE
+
+
 def categories_disponibles(db_path=None) -> list[dict[str, Any]]:
     """Les natures de prestation proposées au contrôle, avec ce qu'elles impliquent.
 
@@ -130,12 +163,19 @@ def ajouter_ligne(facture_id_opaque: str, *, type_ligne: str, montant_ttc: float
     # pourtant le bon nombre. Une saisie humaine à 0, elle, reste une erreur de saisie.
     if montant_ttc == 0 and source != SOURCE_PDF:
         return _refus("MONTANT_INVALIDE", str(montant_ttc))
-    if type_ligne != TYPE_FRAIS_NON_AFFECTE and not logement_id:
-        return _refus("LOGEMENT_MANQUANT", type_ligne)
 
     ligne_id = "FLM-" + uuid.uuid4().hex[:12].upper()
     conn = get_db(db_path)
     try:
+        tlm_id = _type_ligne_menage_id(conn, categorie)
+        compte = _compte_comme_menage(conn, tlm_id)
+        if compte is not None:
+            # La nature est connue : `type_ligne` est DÉRIVÉ d'elle, jamais une décision séparée
+            # que l'appelant pourrait faire diverger (§4/§6 recette 4).
+            type_ligne = _type_ligne_pour(compte, logement_id)
+        elif type_ligne != TYPE_FRAIS_NON_AFFECTE and not logement_id:
+            # Nature inconnue (appelant legacy, hors modèle des catégories) : garde-fou d'origine.
+            return _refus("LOGEMENT_MANQUANT", type_ligne)
         conn.execute(
             "INSERT INTO facture_lignes_menage (ligne_id_opaque, facture_id_opaque, type_ligne, "
             "logement_id, menage_id_opaque, description, montant_ht, montant_tva, montant_ttc, "
@@ -150,7 +190,7 @@ def ajouter_ligne(facture_id_opaque: str, *, type_ligne: str, montant_ttc: float
              logement_methode or None,
              # §8 — le texte du document, immuable ; `description` en est la forme métier.
              libelle_source or None,
-             _type_ligne_menage_id(conn, categorie), categorie_confiance or None))
+             tlm_id, categorie_confiance or None))
         if quantite is not None or prix_unitaire is not None:
             conn.execute(
                 "INSERT INTO facture_lignes_menage_detail (ligne_id_opaque, quantite, "
@@ -181,7 +221,7 @@ def lignes(facture_id_opaque: str, db_path=None) -> list[dict[str, Any]]:
 
 
 def ajouter_ligne_manquante(facture_id_opaque: str, *, motif: str, montant_ttc: float,
-                            description: str, type_ligne: str = TYPE_MENAGE_EXTERNE,
+                            description: str, categorie: str = CAT_MENAGE_STANDARD,
                             logement_id: str = "", quantite: int | None = None,
                             prix_unitaire: float | None = None, acteur: str = "",
                             db_path=None) -> dict[str, Any]:
@@ -190,15 +230,24 @@ def ajouter_ligne_manquante(facture_id_opaque: str, *, motif: str, montant_ttc: 
     Réservé aux cas où le document contient une ligne que l'extraction n'a pas produite (parseur
     en défaut, PDF sans texte exploitable, ligne source inutilisable). Ce n'est pas un bouton
     « ajouter une ligne » générique : sans motif, rien n'est enregistré.
+
+    La NATURE se choisit ici dans le MÊME vocabulaire que celui du contrôle d'une ligne extraite
+    (`categorie`, recette 4 §9-§13) — plus l'ancien couple « Ménage oui/non » qui ne connaissait
+    pas les catégories et pouvait produire une ligne durablement en désaccord avec elles (§4).
+    Aucun logement n'est exigé : une ligne classée MÉNAGE sans logement reste enregistrée
+    (`type_ligne` la porte en TYPE_FRAIS_NON_AFFECTE en attendant), exactement comme une ligne
+    extraite du PDF non rapprochée — c'est le contrôle de validation (§15), pas la création, qui
+    exige le logement.
     """
     motif = str(motif or "").strip()
     if not motif:
         return _refus("MOTIF_OBLIGATOIRE",
                       "Une ligne ajoutée à la main doit dire pourquoi elle l'a été.")
     res = ajouter_ligne(
-        facture_id_opaque, type_ligne=type_ligne, montant_ttc=montant_ttc,
-        logement_id=logement_id, description=description, quantite=quantite,
-        prix_unitaire=prix_unitaire, source=SOURCE_CORRECTIVE,
+        facture_id_opaque, type_ligne=TYPE_MENAGE_EXTERNE if logement_id else TYPE_FRAIS_NON_AFFECTE,
+        montant_ttc=montant_ttc, logement_id=logement_id, description=description,
+        quantite=quantite, prix_unitaire=prix_unitaire, source=SOURCE_CORRECTIVE,
+        categorie=categorie, categorie_confiance=CONFIANCE_CONFIRMEE,
         commentaire=f"Ligne manquante ajoutée à la main — {motif}", acteur=acteur,
         db_path=db_path)
     if not res.get("ok"):
@@ -265,6 +314,12 @@ def marquer_menage(ligne_id_opaque: str, *, menage: bool, motif: str, acteur: st
     raison doit rester lisible.
 
     Passer une ligne EN ménage exige un logement : un coût ménage sans logement ne veut rien dire.
+
+    Retirée de l'écran (recette 4, §4) au profit du sélecteur « Nature de la prestation », qui
+    connaît les six catégories du référentiel au lieu d'un simple oui/non — les deux ne pouvaient
+    que finir par se contredire. La fonction reste, pour compatibilité, et POSE désormais aussi la
+    catégorie canonique (`MENAGE_STANDARD`/`AUTRE`) en même temps que `type_ligne`, pour ne jamais
+    laisser les deux diverger si quelque chose l'appelle encore.
     """
     motif = str(motif or "").strip()
     if not motif:
@@ -283,11 +338,14 @@ def marquer_menage(ligne_id_opaque: str, *, menage: bool, motif: str, acteur: st
         nouveau = TYPE_MENAGE_EXTERNE if menage else TYPE_FRAIS_NON_AFFECTE
         if nouveau == row["type_ligne"]:
             return {"ok": True, "inchange": True, "type_ligne": nouveau}
+        categorie = CAT_MENAGE_STANDARD if menage else CAT_AUTRE
         conn.execute(
-            "UPDATE facture_lignes_menage SET type_ligne=?, "
+            "UPDATE facture_lignes_menage SET type_ligne=?, type_ligne_menage_id=?, "
+            "type_ligne_menage_confiance=?, "
             "commentaire=COALESCE(commentaire,'') || ? WHERE ligne_id_opaque=?",
-            (nouveau, f" · Nature corrigée {row['type_ligne']}→{nouveau} "
-                      f"({acteur or 'local'}) : {motif}", ligne_id_opaque))
+            (nouveau, _type_ligne_menage_id(conn, categorie), CONFIANCE_CONFIRMEE,
+             f" · Nature corrigée {row['type_ligne']}→{nouveau} "
+             f"({acteur or 'local'}) : {motif}", ligne_id_opaque))
         conn.commit()
     finally:
         conn.close()
@@ -413,29 +471,39 @@ def corriger_classification(ligne_id_opaque: str, *, categorie: str = "",
     conn = get_db(db_path)
     try:
         row = conn.execute(
-            "SELECT type_ligne, description, logement_id FROM facture_lignes_menage "
-            "WHERE ligne_id_opaque=?", (ligne_id_opaque,)).fetchone()
+            "SELECT type_ligne, description, logement_id, type_ligne_menage_id "
+            "FROM facture_lignes_menage WHERE ligne_id_opaque=?", (ligne_id_opaque,)).fetchone()
         if row is None:
             return _refus("LIGNE_INTROUVABLE", ligne_id_opaque)
 
+        nouveau_tlm_id = _type_ligne_menage_id(conn, categorie) if categorie else None
         if categorie:
             conn.execute(
                 "UPDATE facture_lignes_menage SET type_ligne_menage_id=?, "
                 "type_ligne_menage_confiance=? WHERE ligne_id_opaque=?",
-                (_type_ligne_menage_id(conn, categorie), CONFIANCE_CONFIRMEE, ligne_id_opaque))
+                (nouveau_tlm_id, CONFIANCE_CONFIRMEE, ligne_id_opaque))
         if libelle_metier:
             conn.execute("UPDATE facture_lignes_menage SET description=? WHERE ligne_id_opaque=?",
                          (libelle_metier, ligne_id_opaque))
         if logement_id is not None:
             cible = str(logement_id).strip()
-            # Une ligne rattachée à un logement n'est plus un frais non affecté, et inversement :
-            # `type_ligne` suit le rattachement, il ne dit rien d'autre.
-            type_ligne = TYPE_MENAGE_EXTERNE if cible else TYPE_FRAIS_NON_AFFECTE
             conn.execute(
-                "UPDATE facture_lignes_menage SET logement_id=?, logement_confiance=?, "
-                "type_ligne=? WHERE ligne_id_opaque=?",
-                (cible or None, CONFIANCE_CONFIRMEE if cible else None, type_ligne,
-                 ligne_id_opaque))
+                "UPDATE facture_lignes_menage SET logement_id=?, logement_confiance=? "
+                "WHERE ligne_id_opaque=?",
+                (cible or None, CONFIANCE_CONFIRMEE if cible else None, ligne_id_opaque))
+        if categorie or logement_id is not None:
+            # `type_ligne` est DÉRIVÉ — jamais réglé indépendamment — de la nature EFFECTIVE
+            # (celle qu'on vient de poser, sinon celle déjà en base) et du logement EFFECTIF
+            # (idem). Recalculé dès que l'un des deux change, ici, au même endroit à chaque fois :
+            # c'est ce qui garantit qu'aucun autre chemin ne peut plus les faire diverger.
+            tlm_effectif = nouveau_tlm_id if categorie else row["type_ligne_menage_id"]
+            logement_effectif = (str(logement_id).strip() if logement_id is not None
+                                 else row["logement_id"])
+            compte = _compte_comme_menage(conn, tlm_effectif)
+            if compte is not None:
+                conn.execute(
+                    "UPDATE facture_lignes_menage SET type_ligne=? WHERE ligne_id_opaque=?",
+                    (_type_ligne_pour(compte, logement_effectif), ligne_id_opaque))
         conn.execute(
             "UPDATE facture_lignes_menage SET commentaire=COALESCE(commentaire,'') || ? "
             "WHERE ligne_id_opaque=?",
@@ -449,6 +517,51 @@ def corriger_classification(ligne_id_opaque: str, *, categorie: str = "",
         conn.close()
     return {"ok": True, "ligne_id_opaque": ligne_id_opaque, "categorie": categorie or None,
             "libelle_metier": libelle_metier or None, "logement_id": logement_id}
+
+
+def corriger_montant(ligne_id_opaque: str, *, montant_ttc: float, motif: str, acteur: str = "",
+                     db_path=None) -> dict[str, Any]:
+    """§3 recette 4 — corrige le montant d'une ligne AJOUTÉE À LA MAIN (SOURCE_CORRECTIVE).
+
+    Réservé aux lignes manuelles : une ligne EXTRAITE du document a un montant qui EST le
+    document — la corriger reviendrait à réécrire la pièce. Pour elle, le geste reste
+    `marquer_extraction_incorrecte` (§30, neutralise sans jamais réécrire) suivi d'un nouvel ajout
+    si besoin. Une ligne manuelle, elle, n'a pas de « montant source » à protéger : c'est
+    l'utilisateur qui l'a saisi, il peut le corriger — avec motif, comme toute correction tracée.
+    """
+    motif = str(motif or "").strip()
+    if not motif:
+        return _refus("MOTIF_OBLIGATOIRE",
+                      "Corriger le montant d'une ligne ajoutée exige d'en donner la raison.")
+    try:
+        montant = round(float(montant_ttc), 2)
+    except (TypeError, ValueError):
+        return _refus("MONTANT_INVALIDE", str(montant_ttc))
+    conn = get_db(db_path)
+    try:
+        row = conn.execute(
+            "SELECT montant_ttc, source, statut_ligne FROM facture_lignes_menage "
+            "WHERE ligne_id_opaque=?", (ligne_id_opaque,)).fetchone()
+        if row is None:
+            return _refus("LIGNE_INTROUVABLE", ligne_id_opaque)
+        if row["source"] != SOURCE_CORRECTIVE:
+            return _refus("LIGNE_NON_MODIFIABLE",
+                          "Seule une ligne ajoutée à la main peut voir son montant corrigé.")
+        if row["statut_ligne"] != STATUT_LIGNE_ACTIVE:
+            return _refus("LIGNE_NEUTRALISEE", ligne_id_opaque)
+        if montant == 0:
+            return _refus("MONTANT_INVALIDE", "0")
+        conn.execute(
+            "UPDATE facture_lignes_menage SET montant_ttc=?, motif_correction=?, "
+            "commentaire=COALESCE(commentaire,'') || ? WHERE ligne_id_opaque=?",
+            (montant, motif,
+             f" · Montant corrigé {row['montant_ttc']}→{montant} ({acteur or 'local'}) : {motif}",
+             ligne_id_opaque))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "ligne_id_opaque": ligne_id_opaque, "montant_ttc": montant,
+            "ancien_montant": row["montant_ttc"], "motif": motif}
 
 
 def corriger_quantite(ligne_id_opaque: str, *, quantite: int, motif: str, acteur: str = "",
@@ -515,18 +628,24 @@ def affecter_logement(ligne_id_opaque: str, *, logement_id: str, acteur: str = "
     conn = get_db(db_path)
     try:
         row = conn.execute(
-            "SELECT description, logement_id, logement_id_source FROM facture_lignes_menage "
-            "WHERE ligne_id_opaque=?", (ligne_id_opaque,)).fetchone()
+            "SELECT description, logement_id, logement_id_source, type_ligne_menage_id "
+            "FROM facture_lignes_menage WHERE ligne_id_opaque=?", (ligne_id_opaque,)).fetchone()
         if row is None:
             return _refus("LIGNE_INTROUVABLE", ligne_id_opaque)
         if conn.execute("SELECT 1 FROM ref_logements WHERE logement_id=?", (lid,)).fetchone() \
                 is None:
             return _refus("LOGEMENT_INCONNU", lid)
+        # `type_ligne` suit le logement, DÉRIVÉ de la nature déjà classée si elle l'est (§4/§6
+        # recette 4) — sinon (ligne jamais classée) l'ancienne règle « logement confirmé = ménage »
+        # reste la seule information disponible, et continue de s'appliquer.
+        compte = _compte_comme_menage(conn, row["type_ligne_menage_id"])
+        type_ligne = (_type_ligne_pour(compte, lid) if compte is not None
+                     else TYPE_MENAGE_EXTERNE)
         conn.execute(
             "UPDATE facture_lignes_menage SET logement_id=?, logement_confiance=?, "
-            "logement_methode=?, commentaire=COALESCE(commentaire,'') || ? "
+            "logement_methode=?, type_ligne=?, commentaire=COALESCE(commentaire,'') || ? "
             "WHERE ligne_id_opaque=?",
-            (lid, CONFIANCE_CONFIRMEE, "CHOIX_UTILISATEUR",
+            (lid, CONFIANCE_CONFIRMEE, "CHOIX_UTILISATEUR", type_ligne,
              f" · Logement confirmé {row['logement_id'] or '—'}→{lid} ({acteur or 'local'})",
              ligne_id_opaque))
         conn.commit()
@@ -722,6 +841,36 @@ def lignes_externes_pour_reader(db_path=None) -> list[dict[str, Any]]:
     return out
 
 
+def somme_lignes_effectives(facture_id_opaque: str, db_path=None) -> float:
+    """LA somme canonique des lignes d'une facture — UNE fonction, utilisée PARTOUT où « la somme
+    des lignes » doit être dite : l'écran, le diagnostic d'écart, et le contrôle V11 qui
+    conditionne la validation (recette 4, §6).
+
+    BUG RÉEL CORRIGÉ : ce n'était pas le cas. `controler_total` (donc V11) sommait en SQL,
+    `factures_service.charger` sommait en PYTHON sur la liste déjà chargée par `lignes()` — deux
+    calculs séparés qui POUVAIENT diverger dès qu'une évolution touchait l'un sans l'autre. Il n'y
+    a plus qu'un seul calcul : les autres l'appellent.
+
+    Une ligne compte si `statut_ligne = ACTIVE` — neutralisée (§30) ou remplacée par ses parts
+    (§27), elle ne compte plus, mais reste lisible. `facture_lignes` (rattachement de charge,
+    §33/§34 retiré de l'écran mais dont d'anciennes factures peuvent porter des lignes) est
+    additionnée aussi : ces lignes n'ont jamais eu de statut de neutralisation, elles comptent
+    donc toujours.
+    """
+    conn = get_db(db_path)
+    try:
+        total_menage = conn.execute(
+            "SELECT COALESCE(SUM(montant_ttc), 0) FROM facture_lignes_menage "
+            "WHERE facture_id_opaque = ? AND statut_ligne = ?",
+            (facture_id_opaque, STATUT_LIGNE_ACTIVE)).fetchone()[0]
+        total_charge = conn.execute(
+            "SELECT COALESCE(SUM(montant_ttc), 0) FROM facture_lignes "
+            "WHERE facture_id_opaque = ?", (facture_id_opaque,)).fetchone()[0]
+    finally:
+        conn.close()
+    return round((total_menage or 0) + (total_charge or 0), 2)
+
+
 def controler_total(facture_id_opaque: str, db_path=None) -> dict[str, Any]:
     """Somme des lignes ménage vs montant_ttc de la facture. Écart attendu : 0,00€."""
     conn = get_db(db_path)
@@ -730,16 +879,10 @@ def controler_total(facture_id_opaque: str, db_path=None) -> dict[str, Any]:
                          (facture_id_opaque,)).fetchone()
         if f is None:
             return _refus("FACTURE_INTROUVABLE", facture_id_opaque)
-        # Les lignes neutralisées (§30 extraction incorrecte, §27 remplacée par ses parts) ne
-        # comptent plus : c'est tout le sens de les avoir neutralisées plutôt que supprimées.
-        total_lignes = conn.execute(
-            "SELECT COALESCE(SUM(montant_ttc), 0) FROM facture_lignes_menage "
-            "WHERE facture_id_opaque = ? AND statut_ligne = ?",
-            (facture_id_opaque, STATUT_LIGNE_ACTIVE)).fetchone()[0]
     finally:
         conn.close()
     montant_facture = round(f["montant_ttc"] or 0, 2)
-    total_lignes = round(total_lignes, 2)
+    total_lignes = somme_lignes_effectives(facture_id_opaque, db_path=db_path)
     ecart = round(montant_facture - total_lignes, 2)
     return {"ok": True, "montant_facture": montant_facture, "montant_lignes": total_lignes,
             "ecart": ecart, "coherent": abs(ecart) <= TOLERANCE}

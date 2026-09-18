@@ -26,6 +26,29 @@
   <span class="status-badge status-{{ 'valide' if facture.statut in ['REGLEE','VALIDEE','PARTIELLEMENT_REGLEE'] else 'bloquant' if facture.statut in ['ANNULEE','LITIGE'] else 'a-controler' }}">{{ facture.statut|libelle_statut }}</span>
 </div>
 
+{# §5 recette 4 — le contrôle du total, TOUJOURS visible en haut de l'écran, jamais réservé au
+   cas incohérent. « Montant TTC » plus bas reste le montant déclaré par le document ; ici, trois
+   grandeurs nommées sans ambiguïté, recalculées à chaque affichage par la MÊME fonction
+   canonique que la validation (`flm.somme_lignes_effectives`, §6) — jamais deux sommes qui
+   pourraient diverger. #}
+<div class="card mb-md" data-testid="controle-total">
+  <div class="card-title">Contrôle du total</div>
+  <div class="kpi-grid kpi-grid--3">
+    <div class="kpi-card">
+      <div class="kpi-label">Total document</div>
+      <div class="kpi-value">{{ "%.2f"|format(diagnostic.montant_facture) }} €</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Somme des lignes</div>
+      <div class="kpi-value">{{ "%.2f"|format(diagnostic.montant_lignes) }} €</div>
+    </div>
+    <div class="kpi-card {% if diagnostic.ecart|abs > 0.005 %}kpi-card--warn{% endif %}">
+      <div class="kpi-label">Écart</div>
+      <div class="kpi-value">{{ "%+.2f"|format(diagnostic.ecart) }} €</div>
+    </div>
+  </div>
+</div>
+
 {% if contradictions_nom_fichier %}
 {# §18 — le nom du fichier est une indication : quand il contredit le document, la facture reste
    à contrôler et l'écran dit précisément quoi vérifier. #}
@@ -159,10 +182,13 @@
         <label>Montant TTC * <input type="number" step="0.01" name="montant_ttc" required></label>
         <label>Quantité <input type="number" step="1" name="quantite"></label>
         <label>Prix unitaire <input type="number" step="0.01" name="prix_unitaire"></label>
-        <label>Ménage ?
-          <select name="est_menage">
-            <option value="oui">Oui — prestation de ménage</option>
-            <option value="non">Non — autre prestation</option>
+        <label>Nature de la prestation
+          <select name="categorie">
+            {% for c in categories %}
+            <option value="{{ c.type_ligne_menage }}" {% if c.type_ligne_menage == 'MENAGE_STANDARD' %}selected{% endif %}>
+              {{ c.type_ligne_menage|replace('_', ' ')|capitalize }}{% if c.compte_comme_menage == 'OUI' %} (compte un ménage){% endif %}
+            </option>
+            {% endfor %}
           </select></label>
         <label>Logement
           <select name="logement_id">
@@ -209,8 +235,11 @@
       </tr></thead>
       <tbody>
         {% for l in facture.lignes %}
+        {# §3 recette 4 — tant que la facture est À CONTRÔLER, chaque ligne se corrige, y compris
+           celles ajoutées à la main (CORRECTIVE) : les en exclure les rendait injustifiables une
+           fois posées, exactement l'inverse de ce qu'une ligne d'exception doit permettre. #}
         {% set corrigeable = not l.neutralisee and facture.statut == "A_CONTROLER"
-                             and l.origine_ligne in ("PDF", "REPARTITION") %}
+                             and l.origine_ligne in ("PDF", "REPARTITION", "CORRECTIVE") %}
         <tr {% if l.neutralisee %}style="opacity:.55"{% endif %}>
           <td>
             {{ l.description or l.commentaire or "—" }}
@@ -315,19 +344,11 @@
                           {% if not ecriture_active %}disabled{% endif %}>Confirmer le logement</button>
                 </form>
 
-                {# §26 — ménage oui/non : décide si le montant entre dans le coût du logement. #}
-                <form method="post" action="{{ base }}/nature">
-                  <label>Ménage
-                    <select name="menage">
-                      <option value="oui" {% if l.est_menage %}selected{% endif %}>Oui</option>
-                      <option value="non" {% if not l.est_menage %}selected{% endif %}>Non</option>
-                    </select>
-                  </label>
-                  <input type="text" name="motif" required placeholder="Motif obligatoire"
-                         class="filter-input" style="min-width:12rem">
-                  <button type="submit" class="btn btn-secondary"
-                          {% if not ecriture_active %}disabled{% endif %}>Changer la nature</button>
-                </form>
+                {# §26 legacy « Ménage oui/non » RETIRÉ (recette 4, §4) : deux contrôles
+                   indépendants pour la même question ne pouvaient que finir par se contredire.
+                   Le sélecteur « Nature de la prestation » ci-dessus, avec ses six catégories du
+                   référentiel, est désormais le SEUL endroit qui décide si une ligne compte comme
+                   un ménage. #}
 
                 {# §27 — la quantité vient du document : motif obligatoire, valeur lue conservée. #}
                 <form method="post" action="{{ base }}/quantite">
@@ -341,6 +362,21 @@
                   <button type="submit" class="btn btn-secondary"
                           {% if not ecriture_active %}disabled{% endif %}>Corriger la quantité</button>
                 </form>
+
+                {# §3 recette 4 — le montant n'est modifiable QUE sur une ligne ajoutée à la main :
+                   celui d'une ligne extraite EST le document, il ne se réécrit pas. #}
+                {% if l.origine_ligne == "CORRECTIVE" %}
+                <form method="post" action="{{ base }}/montant">
+                  <label>Montant TTC
+                    <input type="number" step="0.01" name="montant_ttc" required
+                           value="{{ '%.2f'|format(l.montant_ttc) }}" style="width:7rem">
+                  </label>
+                  <input type="text" name="motif" required placeholder="Motif obligatoire"
+                         class="filter-input" style="min-width:12rem">
+                  <button type="submit" class="btn btn-secondary"
+                          {% if not ecriture_active %}disabled{% endif %}>Corriger le montant</button>
+                </form>
+                {% endif %}
 
                 {# §27 — répartir sur plusieurs logements. Les quantités sont DONNÉES, jamais
                    devinées : leur somme doit retomber sur celle du document. #}

@@ -334,14 +334,13 @@ async def facture_ligne_manquante(request: Request, opaque: str):
         except ValueError:
             return None
 
-    est_menage = str(form.get("est_menage", "oui") or "oui").lower().startswith("o")
     quantite = _nombre("quantite")
     res = flm.ajouter_ligne_manquante(
         opaque,
         motif=str(form.get("motif", "") or ""),
         description=str(form.get("description", "") or ""),
         montant_ttc=_nombre("montant_ttc") or 0,
-        type_ligne=flm.TYPE_MENAGE_EXTERNE if est_menage else flm.TYPE_AUTRE,
+        categorie=str(form.get("categorie", "") or flm.CAT_MENAGE_STANDARD),
         logement_id=str(form.get("logement_id", "") or ""),
         quantite=int(quantite) if quantite is not None else None,
         prix_unitaire=_nombre("prix_unitaire"),
@@ -379,8 +378,14 @@ async def facture_ligne_logement(request: Request, opaque: str, ligne_id: str):
             url=f"/factures/{opaque}?erreur={quote(res.get('detail') or res.get('code', ''))}",
             status_code=303)
     appris = (res.get("correspondance_apprise") or {})
-    suite = ("+Ce+libelle+sera+reconnu+automatiquement+la+prochaine+fois."
-             if appris.get("ok") and not appris.get("deja_connue") else "")
+    if appris.get("ok") and not appris.get("deja_connue"):
+        suite = "+Ce+libelle+sera+reconnu+automatiquement+la+prochaine+fois."
+    elif appris.get("code") == "CORRESPONDANCE_CONTRADICTOIRE":
+        # Le logement de CETTE ligne est bien confirmé — seul l'APPRENTISSAGE a été refusé, pour
+        # ne jamais écraser silencieusement une correspondance différente déjà déclarée (§2).
+        suite = quote(f" Non mémorisé pour la suite : {appris.get('detail', '')}")
+    else:
+        suite = ""
     return RedirectResponse(url=f"/factures/{opaque}?message=Logement+confirme.{suite}",
                             status_code=303)
 
@@ -402,6 +407,27 @@ async def facture_ligne_quantite(request: Request, opaque: str, ligne_id: str):
                                 motif=str(form.get("motif", "") or ""),
                                 acteur=str(form.get("acteur", "") or "local"))
     msg = ("message=Quantité corrigée." if res.get("ok")
+           else f"erreur={quote(res.get('detail') or res.get('code', ''))}")
+    return RedirectResponse(url=f"/factures/{opaque}?{msg}", status_code=303)
+
+
+@router.post("/factures/{opaque}/lignes/{ligne_id}/montant")
+async def facture_ligne_montant(request: Request, opaque: str, ligne_id: str):
+    """§3 recette 4 — corriger le montant d'une ligne AJOUTÉE À LA MAIN. Motif obligatoire."""
+    from app.services import facture_lignes_menage_service as flm
+
+    form = await request.form()
+    brut = str(form.get("montant_ttc", "") or "").strip().replace(",", ".")
+    try:
+        montant = float(brut)
+    except ValueError:
+        return RedirectResponse(
+            url=f"/factures/{opaque}?erreur={quote('Montant illisible : ' + brut)}",
+            status_code=303)
+    res = flm.corriger_montant(ligne_id, montant_ttc=montant,
+                               motif=str(form.get("motif", "") or ""),
+                               acteur=str(form.get("acteur", "") or "local"))
+    msg = ("message=Montant corrigé." if res.get("ok")
            else f"erreur={quote(res.get('detail') or res.get('code', ''))}")
     return RedirectResponse(url=f"/factures/{opaque}?{msg}", status_code=303)
 

@@ -300,10 +300,10 @@ def charger(opaque: str, db_path=None) -> dict[str, Any] | None:
     f = dict(row)
     f.update(solde(opaque, db_path))
     f["lignes"] = lignes(opaque, db_path)
-    # Le total des lignes ignore les lignes neutralisées (extraction incorrecte, §30) : elles
-    # restent affichées, mais ce qu'elles disaient a été écarté avec motif.
-    f["montant_lignes_ttc"] = round(
-        sum(l["montant_ttc"] for l in f["lignes"] if not l.get("neutralisee")), 2)
+    # LA somme canonique (recette 4, §6) : `flm.somme_lignes_effectives`, exactement celle que
+    # lit le contrôle V11 avant de valider. Un seul calcul — jamais un pour l'écran, un autre pour
+    # la validation, qui pouvaient diverger dès que l'un évoluait sans l'autre.
+    f["montant_lignes_ttc"] = flm.somme_lignes_effectives(opaque, db_path)
     return f
 
 
@@ -903,8 +903,6 @@ def lignes(opaque: str, db_path=None) -> list[dict[str, Any]]:
             d["origine_ligne"] = ("CORRECTIVE" if source == "SAISIE_MANUELLE_CORRECTIVE"
                                   else "REPARTITION" if source == "REPARTITION_MULTI_LOGEMENTS"
                                   else "PDF")
-            d["est_menage"] = str(d.get("type_ligne") or "") in ("MENAGE_EXTERNE",
-                                                                 "MENAGE_INTERNE")
             # Une ligne marquée EXTRACTION_INCORRECTE (ou remplacée par ses parts) reste VISIBLE —
             # la donnée brute ne disparaît jamais — mais ne compte plus dans le total.
             d["neutralisee"] = str(d.get("statut_ligne") or "ACTIVE") != "ACTIVE"
@@ -916,6 +914,14 @@ def lignes(opaque: str, db_path=None) -> list[dict[str, Any]]:
                                       and d.get("quantite") != d.get("quantite_source"))
             d["date_facture"] = date_facture
             _enrichir_categorie(conn, d)
+            # UNE vérité canonique pour « cette ligne compte-t-elle un ménage ? » (recette 4, §4) :
+            # la NATURE choisie (`categorie_compte_menage`), jamais `type_ligne` — une colonne SQL
+            # que les moteurs lisent, tenue synchronisée en écriture, mais qui n'a plus voix au
+            # chapitre ici. Le repli sur `type_ligne` ne sert QUE pour les lignes jamais classées
+            # (antérieures à cette mission) : la seule information qui existe alors pour elles.
+            d["est_menage"] = (d["categorie_compte_menage"] if d["categorie_compte_menage"] is not None
+                               else str(d.get("type_ligne") or "") in ("MENAGE_EXTERNE",
+                                                                       "MENAGE_INTERNE"))
             resultat.append(d)
         for r in conn.execute(
                 "SELECT * FROM facture_lignes WHERE facture_id_opaque=? ORDER BY id",
