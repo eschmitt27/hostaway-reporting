@@ -146,8 +146,7 @@ def empreinte(fournisseur: str, ref: str, montant_ttc: Any, date_facture: str) -
     return hashlib.sha256(base.encode("utf-8")).hexdigest()[:16]
 
 
-def valider(form: dict[str, Any], db_path=None, fournisseur_actif: bool | None = None,
-            numero_reutilise_autorise: bool = False) -> list[dict[str, str]]:
+def valider(form: dict[str, Any], db_path=None, fournisseur_actif: bool | None = None) -> list[dict[str, str]]:
     """Contrôles métier AVANT écriture. Liste vide = valide."""
     erreurs: list[dict[str, str]] = []
 
@@ -196,25 +195,21 @@ def valider(form: dict[str, Any], db_path=None, fournisseur_actif: bool | None =
         if date.fromisoformat(d_ech) < date.fromisoformat(d_fac):
             err(E_DATE_INCOHERENTE, f"{d_ech} < {d_fac}")
 
-    mois = d_fac[:7] if (numero_reutilise_autorise and d_fac and fac_ok) else None
-    if frs and ref and _doublon_certain(frs, ref, db_path, mois=mois):
+    if frs and ref and _doublon_certain(frs, ref, db_path):
         err(E_DOUBLON_CERTAIN, ref)
 
     return erreurs
 
 
-def _doublon_certain(fournisseur: str, ref: str, db_path=None, *, mois: str | None = None) -> bool:
-    """Même fournisseur + même référence. Avec `mois` (import d'un numéro que le fournisseur a
-    RÉUTILISÉ sur une autre période), seule une facture du même mois est un doublon."""
+def _doublon_certain(fournisseur: str, ref: str, db_path=None) -> bool:
+    """Même fournisseur + même référence INTERNE. Le numéro IMPRIMÉ (`facture_ref_source`), lui,
+    peut légitimement se répéter : un fournisseur réutilise parfois son propre numéro, et les deux
+    factures existent alors sous des références internes désambiguïsées (« …-A », « …-B »)."""
     conn = get_db(db_path)
     try:
-        sql = ("SELECT 1 FROM factures WHERE fournisseur_id_opaque=? AND facture_ref=? "
-               "AND statut <> ?")
-        params: tuple = (fournisseur, ref, ST_ANNULEE)
-        if mois:
-            sql += " AND substr(COALESCE(date_facture,''),1,7) = ?"
-            params += (mois,)
-        row = conn.execute(sql, params).fetchone()
+        row = conn.execute(
+            "SELECT 1 FROM factures WHERE fournisseur_id_opaque=? AND facture_ref=? "
+            "AND statut <> ?", (fournisseur, ref, ST_ANNULEE)).fetchone()
         return row is not None
     finally:
         conn.close()
@@ -258,8 +253,7 @@ def _evenement(conn, opaque: str, type_evt: str, ancien: str | None, nouveau: st
 
 
 def creer(form: dict[str, Any], *, acteur: str = "", db_path=None,
-          fournisseur_actif: bool | None = None,
-          numero_reutilise_autorise: bool = False) -> dict[str, Any]:
+          fournisseur_actif: bool | None = None) -> dict[str, Any]:
     # Le statut visé est résolu AVANT le contrôle de niveau : créer une facture À CONTRÔLER est une
     # écriture opérationnelle (niveau A, production normale), la créer déjà VALIDEE engage la
     # comptabilité (niveau B, double verrou).
@@ -269,7 +263,7 @@ def creer(form: dict[str, Any], *, acteur: str = "", db_path=None,
     if not _niveau_requis_ok(statut):
         return _refus(E_FLAGS)
 
-    erreurs = valider(form, db_path, fournisseur_actif, numero_reutilise_autorise)
+    erreurs = valider(form, db_path, fournisseur_actif)
     if erreurs:
         return {"ok": False, "code": "V_INVALIDE", "message": "Saisie invalide.", "erreurs": erreurs}
 
@@ -282,10 +276,13 @@ def creer(form: dict[str, Any], *, acteur: str = "", db_path=None,
     try:
         conn.execute(
             "INSERT INTO factures (facture_id_opaque, fournisseur_id_opaque, facture_ref, "
-            "date_facture, date_echeance, montant_ht, montant_tva, montant_ttc, devise, statut, "
-            "justificatif, source, empreinte, commentaire, acteur) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (opaque, frs, ref, _txt(form.get("date_facture")) or None,
+            "facture_ref_source, date_facture, date_echeance, montant_ht, montant_tva, "
+            "montant_ttc, devise, statut, justificatif, source, empreinte, commentaire, acteur) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            # Le numéro imprimé par défaut : la référence interne elle-même, tant qu'aucune
+            # collision n'a imposé de la désambiguïser.
+            (opaque, frs, ref, _txt(form.get("facture_ref_source")) or ref,
+             _txt(form.get("date_facture")) or None,
              _txt(form.get("date_echeance")) or None, _nombre(form.get("montant_ht")),
              _nombre(form.get("montant_tva")), ttc, _txt(form.get("devise")) or "EUR", statut,
              _txt(form.get("justificatif")) or None, _txt(form.get("source")) or "SAISIE",

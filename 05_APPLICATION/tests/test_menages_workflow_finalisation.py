@@ -456,7 +456,7 @@ def test_14_numero_reutilise_sur_un_autre_mois_n_annule_rien(tmp_db):
         nom_fichier_source = "05-26-Test.pdf"
 
     active = pdf_svc._facture_active("FRS_TEST", "REF-R", db_path=tmp_db)
-    assert pdf_svc.nature_meme_numero(active, _AutreFacture()) == pdf_svc.MEME_NUMERO_REUTILISE
+    assert pdf_svc.nature_meme_numero(active, _AutreFacture()) == pdf_svc.MEME_NUMERO_DISTINCTE
     assert pdf_svc._tenter_remplacement_v1_v2(_AutreFacture(), {}, acteur="test",
                                               db_path=tmp_db) is None
     conn = get_db(tmp_db)

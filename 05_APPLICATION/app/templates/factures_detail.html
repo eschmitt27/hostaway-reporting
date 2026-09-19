@@ -16,6 +16,13 @@
 <div class="flex justify-between items-center" style="margin-bottom: var(--stack-lg);">
   <div>
     <h1 class="page-title">Facture {{ facture.facture_ref }}</h1>
+    {# La référence interne peut être désambiguïsée (« …-A », « …-B ») quand le fournisseur a
+       réutilisé son numéro. Le numéro IMPRIMÉ sur la pièce est alors rappelé tel quel. #}
+    {% if facture.facture_ref_source and facture.facture_ref_source != facture.facture_ref %}
+    <p class="page-subtitle" data-testid="numero-imprime">
+      Numéro imprimé sur la pièce : <strong>{{ facture.facture_ref_source }}</strong>
+    </p>
+    {% endif %}
     <p class="page-subtitle">
       <a href="/fournisseurs-soldes/{{ facture.fournisseur_id_opaque }}">{{ libelles.get(facture.fournisseur_id_opaque) or facture.fournisseur_id_opaque }}</a>
     </p>

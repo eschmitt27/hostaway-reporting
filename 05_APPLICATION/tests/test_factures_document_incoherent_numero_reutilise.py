@@ -3,10 +3,11 @@
 1. 02-26-Imrane : la pièce imprime « 2 × 30 € = 30 € » alors que 2 × 30 = 60 et que son total
    (205 €) compte 60. Le montant IMPRIMÉ reste 30 € ; 60 € n'est qu'une suggestion. La facture
    reste À CONTRÔLER et ne se valide qu'après un geste humain.
-2. « 2026-37 » : le même prestataire a émis deux factures différentes sous ce numéro (30 avril,
-   15 € ; 31 mai, 1 439 €). Les deux coexistent, aucune n'annule ni ne modifie l'autre, et chacune
-   dit à l'humain que l'autre existe. Une VRAIE nouvelle version (même période, contenu différent)
-   suit toujours le remplacement canonique.
+2. « 2026-37 » : le prestataire a réutilisé son propre numéro (30 avril, 15 € ; 31 mai, 1 439 €).
+   Les deux factures sont enregistrées, sous le MÊME numéro imprimé et des références INTERNES
+   désambiguïsées (« -A », « -B ») ; aucune n'annule ni ne remplace l'autre. Une vraie nouvelle
+   version (même période, lignes très semblables) suit toujours le remplacement V1 → V2, et le
+   même fichier réimporté reste un doublon exact.
 
 Tout se joue sur des bases temporaires. Les PDF réels sont lus, jamais modifiés.
 """
@@ -72,12 +73,25 @@ def base(tmp_path):
     return db
 
 
-def _factures(db, ref):
+def _factures_par_source(db, ref_source):
+    """Factures actives portant ce numéro IMPRIMÉ, quelle que soit leur référence interne."""
     conn = sqlite3.connect(str(db))
     conn.row_factory = sqlite3.Row
     try:
         return [dict(r) for r in conn.execute(
-            "SELECT * FROM factures WHERE facture_ref = ? ORDER BY id", (ref,))]
+            "SELECT * FROM factures WHERE COALESCE(facture_ref_source, facture_ref) = ? "
+            "AND statut <> 'ANNULEE' ORDER BY id", (ref_source,))]
+    finally:
+        conn.close()
+
+
+def _toutes_factures(db, ref_source):
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    try:
+        return [dict(r) for r in conn.execute(
+            "SELECT * FROM factures WHERE COALESCE(facture_ref_source, facture_ref) = ? "
+            "ORDER BY id", (ref_source,))]
     finally:
         conn.close()
 
@@ -144,7 +158,10 @@ def test_imrane_reste_a_controler_et_ne_se_valide_qu_apres_un_geste_humain(base)
 @_present(AVRIL_37, MAI_37)
 @pytest.mark.parametrize("ordre", [(AVRIL_37, MAI_37), (MAI_37, AVRIL_37)],
                          ids=["avril_puis_mai", "mai_puis_avril"])
-def test_deux_factures_2026_37_coexistent(base, ordre):
+def test_deux_factures_2026_37_coexistent_avec_des_references_internes(base, ordre):
+    """Le fournisseur a réutilisé « 2026-37 ». Les deux documents sont enregistrés : même numéro
+    IMPRIMÉ, références INTERNES « 2026-37-A » et « 2026-37-B ». Aucune annulation, aucune
+    substitution."""
     premier, second = ordre
     r1 = imp.importer(premier, acteur="test", db_path=base)
     r2 = imp.importer(second, acteur="test", db_path=base)
@@ -153,22 +170,26 @@ def test_deux_factures_2026_37_coexistent(base, ordre):
     assert r2["numero_reutilise_de"] == r1["facture_id_opaque"]
     assert _sha(premier) != _sha(second)
 
-    factures = _factures(base, "2026-37")
+    factures = _factures_par_source(base, "2026-37")
     assert len(factures) == 2
-    assert {f["facture_id_opaque"] for f in factures} == {r1["facture_id_opaque"], r2["facture_id_opaque"]}
+    assert all(f["facture_ref_source"] == "2026-37" for f in factures), \
+        "le numéro imprimé n'est jamais modifié"
+    assert sorted(f["facture_ref"] for f in factures) == ["2026-37-A", "2026-37-B"]
     assert all(f["statut"] == fact.ST_A_CONTROLER for f in factures), "aucune annulée"
     assert sorted(f["montant_ttc"] for f in factures) == [15.0, 1439.0]
     assert sorted(f["date_facture"] for f in factures) == ["2026-04-30", "2026-05-31"]
-    # La première n'a pas été touchée : même version, même montant qu'à sa création.
+    # La première garde son identité interne et son montant : elle n'a pas été remplacée.
     premiere = next(f for f in factures if f["facture_id_opaque"] == r1["facture_id_opaque"])
-    assert premiere["version"] == 1
+    assert premiere["facture_ref"] == "2026-37-A"
+    assert premiere["montant_ttc"] == pytest.approx(
+        15.0 if premier is AVRIL_37 else 1439.0)
 
     for f, autre in ((factures[0], factures[1]), (factures[1], factures[0])):
         anomalies = imp.anomalies_document(f["facture_id_opaque"], db_path=base)
         reutilise = [a for a in anomalies if a["code"] == imp.A_NUMERO_FACTURE_REUTILISE]
         assert [a["facture_id_opaque"] for a in reutilise] == [autre["facture_id_opaque"]]
-        assert autre["date_facture"] in reutilise[0]["libelle"]
-        assert str(autre["montant_ttc"]) in reutilise[0]["libelle"]
+        assert "2026-37" in reutilise[0]["libelle"]
+        assert autre["facture_ref"] in reutilise[0]["libelle"]
         assert fact.consequences_constatees(f["facture_id_opaque"], db_path=base)["ecritures"] == []
         assert flm.controler_total(f["facture_id_opaque"], db_path=base)["ecart"] == pytest.approx(0.0)
 
@@ -177,10 +198,10 @@ def test_deux_factures_2026_37_coexistent(base, ordre):
     assert not [a for a in anomalies if a["code"] == ctrl.F_DOUBLON_CERTAIN]
     assert len([a for a in anomalies if a["code"] == ctrl.F_ANOMALIE_DOCUMENT]) == 2
 
-    # Réimporter les deux documents ne crée rien de plus : ce sont alors de vrais doublons.
+    # Réimporter les mêmes fichiers : même empreinte, donc doublon exact — rien de plus n'est créé.
     assert imp.importer(premier, acteur="test", db_path=base)["code"] == fact.E_DOUBLON_CERTAIN
     assert imp.importer(second, acteur="test", db_path=base)["code"] == fact.E_DOUBLON_CERTAIN
-    assert len(_factures(base, "2026-37")) == 2
+    assert len(_factures_par_source(base, "2026-37")) == 2
 
 
 @_present(AVRIL_37, MAI_37)
@@ -194,16 +215,31 @@ def test_les_deux_factures_se_valident_separement(base):
 
 
 @_present(AVRIL_37, MAI_37)
-def test_ecran_de_la_facture_montre_l_autre_document(client, tmp_db, monkeypatch):
+def test_une_facture_deja_validee_n_est_pas_renommee(base):
+    """On ne renomme pas dans son dos une facture déjà validée : la nouvelle prend le suffixe
+    suivant, et le numéro imprimé reste commun aux deux."""
+    r1 = imp.importer(AVRIL_37, acteur="test", db_path=base)
+    assert fact.changer_statut(r1["facture_id_opaque"], fact.ST_VALIDEE, acteur="t",
+                               db_path=base)["ok"] is True
+    r2 = imp.importer(MAI_37, acteur="test", db_path=base)
+    assert r2["ok"] is True
+    refs = {f["facture_id_opaque"]: f["facture_ref"] for f in _factures_par_source(base, "2026-37")}
+    assert refs[r1["facture_id_opaque"]] == "2026-37", "la facture validée garde sa référence"
+    assert refs[r2["facture_id_opaque"]] == "2026-37-A", "la nouvelle prend le premier suffixe libre"
+    assert all(f["facture_ref_source"] == "2026-37" for f in _factures_par_source(base, "2026-37"))
+
+
+@_present(AVRIL_37, MAI_37)
+def test_ecran_de_la_facture_montre_le_numero_imprime_et_l_autre_document(client, tmp_db):
     r1 = imp.importer(AVRIL_37, acteur="test", db_path=tmp_db)
     r2 = imp.importer(MAI_37, acteur="test", db_path=tmp_db)
     page = client.get(f"/factures/{r2['facture_id_opaque']}").text
     assert 'data-testid="anomalies-document"' in page
-    assert r1["facture_id_opaque"] in page and "2026-04-30" in page
+    assert 'data-testid="numero-imprime"' in page and "2026-37" in page
+    assert r1["facture_id_opaque"] in page
 
 
-def test_la_saisie_manuelle_refuse_toujours_un_numero_deja_connu(base):
-    """L'assouplissement ne vaut que pour l'import d'un document réel, jamais pour une saisie."""
+def test_la_saisie_manuelle_refuse_toujours_une_reference_interne_deja_prise(base):
     form = {"fournisseur_id_opaque": "FRS-T", "facture_ref": "R-1", "montant_ttc": 10.0}
     assert fact.creer({**form, "date_facture": "2026-04-30"}, db_path=base)["ok"] is True
     refus = fact.creer({**form, "date_facture": "2026-05-31"}, db_path=base)
@@ -211,19 +247,33 @@ def test_la_saisie_manuelle_refuse_toujours_un_numero_deja_connu(base):
     assert fact.E_DOUBLON_CERTAIN in [e["code"] for e in refus["erreurs"]]
 
 
-def test_le_schema_interdit_toujours_le_doublon_du_meme_mois(base):
+def test_aucune_contrainte_unique_ne_porte_sur_le_numero_imprime(base):
+    """Deux factures peuvent porter le même numéro fournisseur ; seules leurs références INTERNES
+    sont uniques."""
     conn = get_db(base)
     try:
         conn.execute("INSERT INTO factures (facture_id_opaque, fournisseur_id_opaque, facture_ref, "
-                     "date_facture, montant_ttc, statut) VALUES ('FAC-A','F','X','2026-05-02',1,'A_CONTROLER')")
+                     "facture_ref_source, date_facture, montant_ttc, statut) "
+                     "VALUES ('FAC-A','F','X-A','X','2026-05-02',1,'A_CONTROLER')")
         conn.execute("INSERT INTO factures (facture_id_opaque, fournisseur_id_opaque, facture_ref, "
-                     "date_facture, montant_ttc, statut) VALUES ('FAC-B','F','X','2026-06-02',1,'A_CONTROLER')")
+                     "facture_ref_source, date_facture, montant_ttc, statut) "
+                     "VALUES ('FAC-B','F','X-B','X','2026-05-30',1,'A_CONTROLER')")
+        conn.commit()
+        assert conn.execute("SELECT COUNT(*) FROM factures WHERE facture_ref_source='X'"
+                            ).fetchone()[0] == 2
         with pytest.raises(sqlite3.IntegrityError):
             conn.execute("INSERT INTO factures (facture_id_opaque, fournisseur_id_opaque, "
-                         "facture_ref, date_facture, montant_ttc, statut) "
-                         "VALUES ('FAC-C','F','X','2026-05-30',1,'A_CONTROLER')")
+                         "facture_ref, facture_ref_source, date_facture, montant_ttc, statut) "
+                         "VALUES ('FAC-C','F','X-B','X','2026-06-30',1,'A_CONTROLER')")
     finally:
         conn.close()
+
+
+def test_similarite_des_lignes_est_un_comptage_explicable():
+    a = [("menage t3 4 rue a", 55.0), ("menage studio b", 29.0)]
+    assert imp.similarite_lignes(a, a) == 1.0
+    assert imp.similarite_lignes(a, a + [("frais de courses", 12.0)]) == pytest.approx(2 / 3)
+    assert imp.similarite_lignes(a, [("tout autre chose", 999.0)]) == 0.0
 
 
 # ── 3. Une vraie nouvelle version suit toujours le remplacement canonique ───────────────────────
@@ -259,6 +309,6 @@ def test_une_vraie_nouvelle_version_remplace_toujours_la_precedente(base, tmp_pa
     assert r1["ok"] and r2["ok"], (r1, r2)
     assert r2["remplacement_de"] == r1["facture_id_opaque"]
     assert r2["numero_reutilise_de"] is None
-    statuts = {f["facture_id_opaque"]: f["statut"] for f in _factures(base, "2099-50")}
+    statuts = {f["facture_id_opaque"]: f["statut"] for f in _toutes_factures(base, "2099-50")}
     assert statuts == {r1["facture_id_opaque"]: fact.ST_ANNULEE,
                        r2["facture_id_opaque"]: fact.ST_A_CONTROLER}
