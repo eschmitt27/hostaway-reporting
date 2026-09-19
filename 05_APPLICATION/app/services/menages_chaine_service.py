@@ -154,7 +154,7 @@ SCRIPTS_MOTEUR = [
     "02_TRAVAIL/lot6b_m04_menages_internes.py",
     "02_TRAVAIL/lot6c_menages_externes.py",
     "02_TRAVAIL/lib_menages_externes_pdf.py",   # extraction PDF (mode PDF_AUTOMATIQUE de lot6c)
-    "02_TRAVAIL/lib_factures_geometrie.py",     # reconstruction géométrique importée par lib_menages_externes_pdf
+    "02_TRAVAIL/lib_factures_geometrie.py",     # reconstruction géométrique, dépendance de lib_menages_externes_pdf
     "02_TRAVAIL/lot6d_rapprochement_menages.py",
     "02_TRAVAIL/lot6e_gainperte_menages.py",
     "02_TRAVAIL/lot6f_cout_complet_menages.py",
