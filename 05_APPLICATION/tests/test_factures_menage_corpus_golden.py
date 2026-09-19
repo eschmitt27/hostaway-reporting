@@ -43,11 +43,13 @@ GOLDEN = {
             (10, 2, 29, 58, M, "4 rue du Puits Verts"),
         ]},
     "02-26-Imrane.pdf": {
-        # Le document écrit « 2 × 30 € = 30 € » mais son sous-total (205 €) compte 60 € : le
-        # montant de ligne est recalculé, et la ligne comme la facture le signalent.
-        "numero": "2025-016", "date": "2026-03-02", "total": 205.00, "pages": 1, "lignes": [
+        # Le document IMPRIME « 2 × 30 € = 30 € » alors que son sous-total (205 €) compte 60 € :
+        # le montant imprimé est conservé tel quel, l'écart source (−30 €) reste visible, et le
+        # document — pas le parseur — porte l'anomalie.
+        "numero": "2025-016", "date": "2026-03-02", "total": 205.00, "pages": 1,
+        "somme_source": 175.00, "lignes": [
             (None, 5, 29, 145, M, "T1/ 1lits"),
-            (None, 2, 30, 60, M, "T1/2 lits"),
+            (None, 2, 30, 30, M, "T1/2 lits"),
         ]},
     "03-26-Aissata.pdf": {
         "numero": "2025-369", "date": "2026-03-31", "total": 2234.00, "pages": 2, "lignes": [
@@ -217,8 +219,10 @@ def test_facture_reelle_conforme_au_document(nom):
     for ligne, (*_, extrait) in zip(fac.lignes, attendu["lignes"]):
         assert extrait.lower() in ligne.libelle_source.lower(), (extrait, ligne.libelle_source)
 
-    assert fac.somme_lignes == pytest.approx(attendu["total"])
-    assert fac.ecart_reconciliation == pytest.approx(0.0)
+    somme_source = attendu.get("somme_source", attendu["total"])
+    assert fac.somme_lignes == pytest.approx(somme_source)
+    assert fac.ecart_reconciliation == pytest.approx(somme_source - attendu["total"])
+    assert fac.anomalies_parseur == [], "chaque document est lu fidèlement"
 
 
 @presents
@@ -277,20 +281,27 @@ def test_une_quantite_de_libelle_contredite_par_la_facturation_est_signalee():
 
 
 @presents
-def test_un_montant_de_ligne_faux_est_recalcule_seulement_si_le_total_le_prouve():
+def test_un_montant_imprime_faux_n_est_jamais_ecrase():
+    """Le calcul (60 €) est une SUGGESTION ; le montant imprimé (30 €) reste la donnée source."""
     fac = _extraire("02-26-Imrane.pdf")
     ligne = fac.lignes[1]
-    assert (ligne.montant_lu, ligne.montant_ligne) == (30.0, 60.0)
-    assert "MONTANT_LIGNE_RECALCULE" in ligne.code_anomalie
-    assert "MONTANTS_LIGNES_RECALCULES_QUANTITE_X_PRIX" in fac.anomalies
+    assert (ligne.montant_ligne, ligne.montant_calcule, ligne.ecart_arithmetique) == (30.0, 60.0, 30.0)
     assert fac.sous_total == pytest.approx(205.0)
+    assert (fac.somme_lignes, fac.somme_theorique, fac.correction_suggeree) == (175.0, 205.0, 30.0)
+    assert any(a.startswith("INCOHERENCE_ARITHMETIQUE_DOCUMENT") for a in fac.anomalies_document)
 
 
 @presents
 def test_corpus_complet_aucune_ligne_perdue_aucun_ecart():
     total_lignes = 0
+    incoherents = []
     for nom, attendu in GOLDEN.items():
         fac = _extraire(nom)
         total_lignes += len(fac.lignes)
-        assert fac.ecart_reconciliation == pytest.approx(0.0), nom
+        assert fac.anomalies_parseur == [], nom
+        if fac.anomalies_document:
+            incoherents.append(nom)
+        else:
+            assert fac.ecart_reconciliation == pytest.approx(0.0), nom
+    assert incoherents == ["02-26-Imrane.pdf"], "un seul document mathématiquement faux"
     assert total_lignes == sum(len(a["lignes"]) for a in GOLDEN.values()) == 97

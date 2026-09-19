@@ -49,6 +49,13 @@
   </div>
 </div>
 
+{% if anomalies_document %}
+<div class="alert alert-warning" data-testid="anomalies-document">
+  <strong>Le document fournisseur lui-même demande un contrôle.</strong>
+  <ul>{% for a in anomalies_document %}<li data-code="{{ a.code }}">{% if a.facture_id_opaque %}<a href="/factures/{{ a.facture_id_opaque }}">{{ a.libelle }}</a>{% else %}{{ a.libelle }}{% endif %}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
 {% if contradictions_nom_fichier %}
 {# §18 — le nom du fichier est une indication : quand il contredit le document, la facture reste
    à contrôler et l'écran dit précisément quoi vérifier. #}

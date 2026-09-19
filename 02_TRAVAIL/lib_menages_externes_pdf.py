@@ -119,8 +119,10 @@ class LigneFacture:
     numero_ligne: int | None = None
     # Quantité écrite dans le LIBELLÉ (« x 6 passages »), à comparer à la quantité facturée.
     quantite_libelle: int | None = None
-    # Montant de ligne tel qu'il est ÉCRIT, quand il a dû être recalculé (quantité × prix).
-    montant_lu: float | None = None
+    # Contrôle arithmétique : quantité × prix unitaire, quand les deux sont imprimés, et l'écart
+    # avec le montant IMPRIMÉ (`montant_ligne`, jamais réécrit). Une suggestion, pas une correction.
+    montant_calcule: float | None = None
+    ecart_arithmetique: float | None = None
 
 
 @dataclass
@@ -149,6 +151,21 @@ class FactureExtraite:
     net_a_payer: float | None = None
     # NUMEROTE (lignes « 1. », « 2. »…) ou LIBELLES (une prestation par libellé du tableau).
     mode_lecture: str = ""
+    # Cohérence MATHÉMATIQUE du document, distincte de la fidélité de l'extraction : somme si l'on
+    # retenait quantité × prix pour les lignes incohérentes, son écart au total, et la correction
+    # que cela suggérerait. Aucune de ces valeurs ne remplace un montant imprimé.
+    somme_theorique: float | None = None
+    ecart_theorique: float | None = None
+    correction_suggeree: float | None = None
+    # Anomalies du DOCUMENT (le fournisseur s'est trompé) et du PARSEUR (lecture douteuse) ; les
+    # deux sont aussi reprises dans `anomalies`, la liste historique.
+    anomalies_document: list[str] = field(default_factory=list)
+
+    @property
+    def anomalies_parseur(self) -> list[str]:
+        """Ce que la LECTURE n'a pas su établir (écart inexpliqué, montant sans libellé…)."""
+        return [a for a in self.anomalies
+                if a not in self.anomalies_document and not a.startswith("NOM_FICHIER_")]
 
 
 def detecter_categorie(libelle: str) -> tuple[str, str]:
@@ -408,8 +425,11 @@ def _ligne_depuis_enregistrement(enr, periode_facture: str | None) -> LigneFactu
     ligne.libelle_normalise = normaliser_libelle(ligne.logement_source)
     if total is None:
         _ajouter_anomalie(ligne, "MONTANT_ABSENT")
-    if None not in (qte, pu, total) and abs(qte * pu - total) > 0.005:
-        _ajouter_anomalie(ligne, "LIGNE_NB_PU_TOTAL_INCOHERENT")
+    if None not in (qte, pu, total) and not deduite:
+        ligne.montant_calcule = round(qte * pu, 2)
+        ligne.ecart_arithmetique = round(ligne.montant_calcule - total, 2)
+        if abs(ligne.ecart_arithmetique) > 0.005:
+            _ajouter_anomalie(ligne, "LIGNE_NB_PU_TOTAL_INCOHERENT")
     if qte_libelle is not None and qte is not None and not deduite and qte_libelle != qte:
         _ajouter_anomalie(ligne, f"QUANTITE_LIBELLE_DIFFERENTE(libelle={qte_libelle},facturee={qte})")
     return ligne
@@ -435,7 +455,7 @@ def _extraire_generique(doc, nom: str, fmt: str) -> FactureExtraite:
         fac.anomalies.append("TOTAL_DOCUMENT_NON_LU")
     if fac.net_a_payer is not None and fac.total_ttc is not None \
             and abs(fac.net_a_payer - fac.total_ttc) > 0.005:
-        fac.anomalies.append(f"TOTAUX_DOCUMENT_DIFFERENTS(ttc={fac.total_ttc},net={fac.net_a_payer})")
+        fac.anomalies_document.append(f"TOTAUX_DOCUMENT_DIFFERENTS:ttc={fac.total_ttc}:net={fac.net_a_payer}")
 
     tableau = geo.reconstruire_tableau(lignes)
     fac.mode_lecture = tableau.mode
@@ -546,40 +566,45 @@ def extraire_pdf(path) -> FactureExtraite:
         doc.close()
 
 
-def _recalculer_lignes_incoherentes(fac: FactureExtraite) -> None:
-    """Une ligne dont le montant écrit contredit « quantité × prix unitaire », sur une facture
-    dont le total ne se retrouve PAS avec les montants écrits mais se retrouve EXACTEMENT avec
-    quantité × prix : c'est le montant de ligne qui est faux (erreur de saisie du fournisseur),
-    pas la quantité ni le prix. Il est recalculé, le montant lu est conservé (`montant_lu`) et la
-    ligne comme la facture le disent. Dans tout autre cas, rien n'est touché : l'écart reste
-    visible et c'est à l'humain de trancher.
-    """
-    total = fac.montant_total_facture
-    incoherentes = [l for l in fac.lignes if "LIGNE_NB_PU_TOTAL_INCOHERENT" in (l.code_anomalie or "")
-                    and None not in (l.quantite, l.prix_unitaire, l.montant_ligne)]
-    if total is None or not incoherentes:
-        return
-    somme_lue = sum(l.montant_ligne or 0 for l in fac.lignes)
-    somme_recalculee = somme_lue + sum(l.quantite * l.prix_unitaire - l.montant_ligne
-                                       for l in incoherentes)
-    if abs(somme_lue - total) <= 0.005 or abs(somme_recalculee - total) > 0.005:
-        return
-    for l in incoherentes:
-        l.montant_lu = l.montant_ligne
-        l.montant_ligne = round(l.quantite * l.prix_unitaire, 2)
-        _ajouter_anomalie(l, f"MONTANT_LIGNE_RECALCULE(lu={l.montant_lu},calcule={l.montant_ligne})")
-    fac.anomalies.append("MONTANTS_LIGNES_RECALCULES_QUANTITE_X_PRIX")
-
-
 def _controle_reconciliation(fac: FactureExtraite) -> None:
+    """Deux contrôles DISTINCTS, jamais confondus :
+
+    A. Fidélité de l'extraction — `somme_lignes` est la somme des montants IMPRIMÉS, comparée au
+       total du document (`ecart_reconciliation`). Aucun montant imprimé n'est jamais réécrit.
+    B. Cohérence mathématique du document — pour chaque ligne où quantité, prix et montant sont
+       imprimés, `montant_calcule` = quantité × prix. Une contradiction est une anomalie du
+       DOCUMENT (INCOHERENCE_ARITHMETIQUE_DOCUMENT), pas du parseur. `somme_theorique` dit ce que
+       vaudrait la facture si l'on retenait les montants calculés ; `correction_suggeree` est
+       l'écart entre les deux sommes. Ce ne sont que des SUGGESTIONS : l'humain décide.
+
+    Un écart que la cohérence arithmétique n'explique pas reste une anomalie de lecture.
+    """
     if fac.statut_extraction != EX_OK or fac.montant_total_facture is None:
+        fac.anomalies.extend(fac.anomalies_document)
         return
-    _recalculer_lignes_incoherentes(fac)
     somme = round(sum(l.montant_ligne or 0 for l in fac.lignes), 2)
     fac.somme_lignes = somme
     fac.ecart_reconciliation = round(somme - fac.montant_total_facture, 2)
-    if abs(fac.ecart_reconciliation) > 1.0:
-        fac.anomalies.append(f"RECONCILIATION_ECART_{fac.ecart_reconciliation}")
+
+    for i, l in enumerate(fac.lignes, 1):
+        if l.montant_calcule is not None and abs(l.ecart_arithmetique or 0) > 0.005:
+            fac.anomalies_document.append(
+                f"INCOHERENCE_ARITHMETIQUE_DOCUMENT:ligne={l.numero_ligne or i}"
+                f":imprime={l.montant_ligne}:calcule={l.montant_calcule}")
+    fac.somme_theorique = round(sum(
+        (l.montant_calcule if l.montant_calcule is not None else (l.montant_ligne or 0))
+        for l in fac.lignes), 2)
+    fac.ecart_theorique = round(fac.somme_theorique - fac.montant_total_facture, 2)
+    fac.correction_suggeree = round(fac.somme_theorique - somme, 2)
+
+    if abs(fac.ecart_reconciliation) > 0.005:
+        code = f"RECONCILIATION_ECART_{fac.ecart_reconciliation}"
+        explique = fac.anomalies_document and abs(fac.ecart_theorique) <= 0.005
+        if explique:
+            fac.anomalies_document.append(code)
+        else:
+            fac.anomalies.append(code)
+    fac.anomalies.extend(fac.anomalies_document)
 
 
 def row_hash(fac: FactureExtraite, ligne: LigneFacture) -> str:

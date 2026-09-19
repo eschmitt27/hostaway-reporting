@@ -63,25 +63,38 @@ def diagnostiquer(dossier: Path, referentiel) -> list[dict]:
 
 def rapport(fiches: list[dict]) -> str:
     out = ["# Diagnostic du corpus — factures fournisseur ménage", "",
-           "| Facture | Pages | Lignes | Total document | Somme lignes | Écart | Ménages | Remises "
-           "| Autres | À classer | Logements certains | À confirmer | Non trouvés |",
-           "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
-    tot = {"lignes": 0, "ecart": 0.0, "CERTAIN": 0, "PROBABLE": 0, "AUCUN": 0, "ok": 0}
+           "Deux questions distinctes : le parseur a-t-il lu FIDÈLEMENT le document (anomalies "
+           "parseur) ? Le document est-il mathématiquement COHÉRENT (anomalies document) ? La "
+           "somme source est celle des montants IMPRIMÉS ; la somme théorique n'est qu'une "
+           "suggestion, jamais substituée.", "",
+           "| Facture | Pages | Lignes | Total document | Somme source | Écart source "
+           "| Somme théorique | Correction suggérée | Ménages | Remises | Autres | À classer "
+           "| Logements certains | À confirmer | Non trouvés | Anomalies document | Anomalies parseur |",
+           "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    tot = {"lignes": 0, "ecart": 0.0, "CERTAIN": 0, "PROBABLE": 0, "AUCUN": 0, "ok": 0,
+           "fideles": 0, "incoherents": 0}
     for f in fiches:
         fac, n, lg = f["fac"], f["natures"], f["logements"]
         out.append(
             f"| {fac.nom_fichier_source} | {fac.source_pages} | {len(fac.lignes)} "
             f"| {_eur(fac.montant_total_facture)} | {_eur(fac.somme_lignes)} "
-            f"| {_eur(fac.ecart_reconciliation)} | {n['MENAGE']} | {n['REMISE_EN_ETAT']} "
+            f"| {_eur(fac.ecart_reconciliation)} | {_eur(fac.somme_theorique)} "
+            f"| {_eur(fac.correction_suggeree)} | {n['MENAGE']} | {n['REMISE_EN_ETAT']} "
             f"| {n['AUTRE_PRESTATION']} | {n['A_CLASSER']} | {lg.get('CERTAIN', 0)} "
-            f"| {lg.get('PROBABLE', 0)} | {lg.get('AUCUN', 0)} |")
+            f"| {lg.get('PROBABLE', 0)} | {lg.get('AUCUN', 0)} "
+            f"| {'<br>'.join(fac.anomalies_document) or '—'} "
+            f"| {'<br>'.join(fac.anomalies_parseur) or '—'} |")
+        tot["fideles"] += int(not fac.anomalies_parseur)
+        tot["incoherents"] += int(bool(fac.anomalies_document))
         tot["lignes"] += len(fac.lignes)
         tot["ecart"] += abs(fac.ecart_reconciliation or 0)
         tot["ok"] += int(fac.ecart_reconciliation is not None and abs(fac.ecart_reconciliation) < 0.005)
         for c in ("CERTAIN", "PROBABLE", "AUCUN"):
             tot[c] += lg.get(c, 0)
-    out += ["", f"**{len(fiches)} factures — {tot['lignes']} lignes — {tot['ok']}/{len(fiches)} "
-                f"réconciliées à 0,00 € — écart absolu cumulé {_eur(tot['ecart'])} — logements : "
+    out += ["", f"**{len(fiches)} factures — {tot['lignes']} lignes — extraction fidèle (aucune "
+                f"anomalie parseur) : {tot['fideles']}/{len(fiches)} — documents incohérents : "
+                f"{tot['incoherents']} — sommes source = total document : {tot['ok']}/{len(fiches)} "
+                f"— écart source absolu cumulé {_eur(tot['ecart'])} — logements : "
                 f"{tot['CERTAIN']} certains, {tot['PROBABLE']} à confirmer, {tot['AUCUN']} non "
                 f"trouvés.**", ""]
 
@@ -94,11 +107,16 @@ def rapport(fiches: list[dict]) -> str:
                 f"- Totaux du document : base HT {_eur(fac.base_ht)} · sous-total "
                 f"{_eur(fac.sous_total)} · TTC {_eur(fac.total_ttc)} · net à payer "
                 f"{_eur(fac.net_a_payer)}",
-                f"- Lignes : {len(fac.lignes)} — somme {_eur(fac.somme_lignes)} — écart "
-                f"{_eur(fac.ecart_reconciliation)}",
-                f"- Anomalies : {', '.join(fac.anomalies) or 'aucune'}", "",
-                "| N° | Page | Qté | PU | Montant | Nature | Logement | Confiance | Libellé du document |",
-                "|---|---|---|---|---|---|---|---|---|"]
+                f"- Lignes : {len(fac.lignes)} — somme des montants imprimés "
+                f"{_eur(fac.somme_lignes)} — écart source {_eur(fac.ecart_reconciliation)}",
+                f"- Contrôle arithmétique : somme théorique {_eur(fac.somme_theorique)} — écart "
+                f"théorique {_eur(fac.ecart_theorique)} — correction suggérée "
+                f"{_eur(fac.correction_suggeree)}",
+                f"- Anomalies du document : {', '.join(fac.anomalies_document) or 'aucune'}",
+                f"- Anomalies du parseur : {', '.join(fac.anomalies_parseur) or 'aucune'}", "",
+                "| N° | Page | Qté | PU | Montant imprimé | Montant calculé | Nature | Logement "
+                "| Confiance | Libellé du document |",
+                "|---|---|---|---|---|---|---|---|---|---|"]
         for x in f["lignes"]:
             l, p = x["ligne"], x["proposition"] or {}
             libelle = l.libelle_source.replace("|", "/")
@@ -106,7 +124,8 @@ def rapport(fiches: list[dict]) -> str:
                 libelle += f" ⚠ {l.code_anomalie}"
             out.append(
                 f"| {l.numero_ligne or ''} | {l.source_page} | {l.quantite} | {_eur(l.prix_unitaire)} "
-                f"| {_eur(l.montant_ligne)} | {x['famille']} | {p.get('logement_id') or '—'} "
+                f"| {_eur(l.montant_ligne)} | {_eur(l.montant_calcule)} | {x['famille']} "
+                f"| {p.get('logement_id') or '—'} "
                 f"| {p.get('confiance', '—')} | {libelle} |")
         out.append("")
     return "\n".join(out)

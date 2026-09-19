@@ -43,7 +43,10 @@ if _TRAVAIL_DIR not in sys.path:
     sys.path.insert(0, _TRAVAIL_DIR)
 
 E_EXTRACTION_ECHOUEE = "EXTRACTION_ECHOUEE"
-E_NUMERO_FACTURE_REUTILISE = "NUMERO_FACTURE_REUTILISE"
+#: Anomalie portée par une facture dont le numéro fournisseur est aussi celui d'une autre facture.
+A_NUMERO_FACTURE_REUTILISE = "NUMERO_FACTURE_REUTILISE"
+#: Anomalie du DOCUMENT (pas du parseur) : une ligne imprimée contredit quantité × prix unitaire.
+A_INCOHERENCE_ARITHMETIQUE = "INCOHERENCE_ARITHMETIQUE_DOCUMENT"
 
 
 def _facture_active(fournisseur_id_opaque: str, facture_ref: str, db_path=None) -> dict[str, Any] | None:
@@ -59,32 +62,45 @@ def _facture_active(fournisseur_id_opaque: str, facture_ref: str, db_path=None) 
         conn.close()
 
 
-def _tenter_remplacement_v1_v2(fac, form: dict[str, Any], *, acteur: str,
-                               db_path=None) -> dict[str, Any] | None:
-    """Réémission d'un PDF déjà connu (même fournisseur+référence) avec un CONTENU différent
-    (montant TTC différent) : V1 est ANNULÉE (jamais supprimée, reste tracée via facture_evenements
-    et facture_pdf_diagnostics), V2 devient la seule facture active et comptabilisable (§E3/test 14).
-    Un même contenu (montant identique) reste un doublon CERTAIN, refusé comme avant."""
-    active = _facture_active(fac.prestataire_id, fac.numero_facture, db_path=db_path)
-    if active is None:
-        return None
-    ancien_montant = active.get("montant_ttc")
-    nouveau_montant = fac.montant_total_facture
-    if ancien_montant is not None and nouveau_montant is not None and round(float(ancien_montant), 2) == round(float(nouveau_montant), 2):
-        return None  # contenu identique : vrai doublon, pas une nouvelle version
-    # Une nouvelle VERSION porte sur la même période. Le même numéro sur un AUTRE mois est un
-    # numéro réutilisé par le fournisseur (cas réel : 2026-37 au 30 avril, 15 €, et au 31 mai,
-    # 1 439 €) : deux factures distinctes. Annuler l'une pour l'autre ferait disparaître une
-    # facture valide ; on refuse l'import, on le dit, et l'humain décide.
+MEME_NUMERO_DOUBLON = "DOUBLON"
+MEME_NUMERO_NOUVELLE_VERSION = "NOUVELLE_VERSION"
+MEME_NUMERO_REUTILISE = "NUMERO_REUTILISE"
+
+
+def nature_meme_numero(active: dict[str, Any], fac) -> str:
+    """Un document arrive avec le numéro d'une facture déjà active chez le même fournisseur.
+
+    Le numéro seul ne dit PAS s'il s'agit du même document. Les signaux, dans l'ordre :
+      · autre MOIS de facture  → NUMERO_REUTILISE : deux factures distinctes (cas réel : 2026-37
+        au 30 avril, 15 €, et au 31 mai, 1 439 €) — elles coexistent, aucune n'annule l'autre ;
+      · même mois, même montant → DOUBLON : le même document, refusé comme avant ;
+      · même mois, montant différent → NOUVELLE_VERSION : la réémission corrigée d'un document,
+        qui suit le remplacement canonique V1 → V2.
+    Une date absente d'un côté ne permet pas de conclure au numéro réutilisé : le montant décide
+    seul, comme avant.
+    """
     mois_actif = str(active.get("date_facture") or "")[:7]
     mois_nouveau = str(getattr(fac, "date_facture", None) or "")[:7]
     if mois_actif and mois_nouveau and mois_actif != mois_nouveau:
-        return {"ok": False, "code": E_NUMERO_FACTURE_REUTILISE,
-                "message": (f"Le numéro {fac.numero_facture} est déjà porté par la facture du "
-                            f"{active.get('date_facture')} ({ancien_montant} €) : ce document du "
-                            f"{fac.date_facture} ({nouveau_montant} €) est une autre facture. "
-                            f"Rien n'a été annulé ; à traiter manuellement."),
-                "facture_existante": active["facture_id_opaque"]}
+        return MEME_NUMERO_REUTILISE
+    ancien, nouveau = active.get("montant_ttc"), getattr(fac, "montant_total_facture", None)
+    if ancien is not None and nouveau is not None and round(float(ancien), 2) == round(float(nouveau), 2):
+        return MEME_NUMERO_DOUBLON
+    return MEME_NUMERO_NOUVELLE_VERSION
+
+
+def _tenter_remplacement_v1_v2(fac, form: dict[str, Any], *, acteur: str,
+                               db_path=None) -> dict[str, Any] | None:
+    """Réémission d'un PDF déjà connu (même fournisseur+référence, même période) avec un CONTENU
+    différent (montant TTC différent) : V1 est ANNULÉE (jamais supprimée, reste tracée via
+    facture_evenements et facture_pdf_diagnostics), V2 devient la seule facture active (§E3/test 14).
+    Un même contenu reste un doublon CERTAIN ; un numéro réutilisé sur un autre mois n'est pas une
+    version : dans ces deux cas, rien n'est annulé (None)."""
+    active = _facture_active(fac.prestataire_id, fac.numero_facture, db_path=db_path)
+    if active is None or nature_meme_numero(active, fac) != MEME_NUMERO_NOUVELLE_VERSION:
+        return None
+    ancien_montant = active.get("montant_ttc")
+    nouveau_montant = fac.montant_total_facture
     annulation = fact.changer_statut(
         active["facture_id_opaque"], fact.ST_ANNULEE, acteur=acteur,
         commentaire=f"Remplacée automatiquement par une nouvelle version du PDF "
@@ -163,6 +179,58 @@ def contradictions_nom_fichier(facture_id_opaque: str, *, db_path=None) -> list[
     return sortie
 
 
+def anomalies_document(facture_id_opaque: str, *, db_path=None) -> list[dict[str, str]]:
+    """Anomalies portées par le DOCUMENT lui-même — pas par le parseur — à montrer à l'humain.
+
+    · NUMERO_FACTURE_REUTILISE : calculée EN DIRECT (autres factures actives du même fournisseur
+      sous le même numéro), donc visible des DEUX côtés sans jamais écrire sur la première.
+    · INCOHERENCE_ARITHMETIQUE_DOCUMENT : relevée au dernier import (une ligne imprimée contredit
+      quantité × prix unitaire). Le montant imprimé est conservé ; la correction n'est qu'une
+      suggestion, à accepter ou refuser par l'humain.
+    """
+    import sqlite3
+
+    conn = get_db(db_path)
+    try:
+        f = conn.execute("SELECT fournisseur_id_opaque, facture_ref FROM factures "
+                         "WHERE facture_id_opaque = ?", (facture_id_opaque,)).fetchone()
+        if f is None:
+            return []
+        autres = conn.execute(
+            "SELECT facture_id_opaque, date_facture, montant_ttc, statut FROM factures "
+            "WHERE fournisseur_id_opaque = ? AND facture_ref = ? AND facture_id_opaque <> ? "
+            "AND statut <> ? ORDER BY date_facture, id",
+            (f["fournisseur_id_opaque"], f["facture_ref"], facture_id_opaque,
+             fact.ST_ANNULEE)).fetchall()
+        try:
+            diag = conn.execute(
+                "SELECT anomalies FROM facture_pdf_diagnostics WHERE facture_id_opaque = ? "
+                "ORDER BY id DESC LIMIT 1", (facture_id_opaque,)).fetchone()
+        except sqlite3.OperationalError:
+            diag = None
+    finally:
+        conn.close()
+    sortie = []
+    for a in autres:
+        sortie.append({"code": A_NUMERO_FACTURE_REUTILISE, "facture_id_opaque": a["facture_id_opaque"],
+                       "libelle": (
+                           f"Le numéro {f['facture_ref']} est aussi celui de la facture "
+                           f"{a['facture_id_opaque']} du même fournisseur (date {a['date_facture'] or '?'}, "
+                           f"période {str(a['date_facture'] or '')[:7] or '?'}, total "
+                           f"{a['montant_ttc']} €, statut {a['statut']}). Ce sont deux documents "
+                           "distincts : vérifier qu'il ne s'agit pas d'une même facture.")})
+    for code in ((diag["anomalies"] or "").split(",") if diag else []):
+        nature, _, detail = code.partition(":")
+        if nature == A_INCOHERENCE_ARITHMETIQUE:
+            champs = dict(x.split("=", 1) for x in detail.split(":") if "=" in x)
+            sortie.append({"code": nature, "libelle": (
+                f"Ligne {champs.get('ligne', '?')} : le document imprime {champs.get('imprime', '?')} € "
+                f"alors que quantité × prix unitaire = {champs.get('calcule', '?')} €. Le montant "
+                "imprimé est conservé ; corriger la ligne, ajouter une ligne corrective ou demander "
+                "une facture corrigée au fournisseur.")})
+    return sortie
+
+
 def importer(path, *, acteur: str = "", db_path=None) -> dict[str, Any]:
     """Importe une facture PDF ménage externe : header + lignes + ventilation, aucune Charge créée.
 
@@ -188,16 +256,27 @@ def importer(path, *, acteur: str = "", db_path=None) -> dict[str, Any]:
     }
     actif = _fournisseur_actif(fac.prestataire_id, db_path=db_path) if fac.prestataire_id else None
     resultat = fact.creer(form, acteur=acteur, db_path=db_path, fournisseur_actif=actif)
+    autre_facture = None
     if not resultat.get("ok"):
         codes = [resultat.get("code")] + [e.get("code") for e in (resultat.get("erreurs") or [])]
-        if fact.E_DOUBLON_CERTAIN in codes and fac.prestataire_id and fac.numero_facture:
+        active = (_facture_active(fac.prestataire_id, fac.numero_facture, db_path=db_path)
+                  if fact.E_DOUBLON_CERTAIN in codes and fac.prestataire_id and fac.numero_facture
+                  else None)
+        nature = nature_meme_numero(active, fac) if active else None
+        if nature == MEME_NUMERO_NOUVELLE_VERSION:
             remplacement = _tenter_remplacement_v1_v2(fac, form, acteur=acteur, db_path=db_path)
             if remplacement is not None:
                 resultat = remplacement
+        elif nature == MEME_NUMERO_REUTILISE:
+            # Deux documents distincts sous un même numéro : la seconde facture est créée, reste
+            # À CONTRÔLER et porte l'anomalie. La première n'est ni annulée, ni modifiée.
+            resultat = fact.creer(form, acteur=acteur, db_path=db_path, fournisseur_actif=actif,
+                                  numero_reutilise_autorise=True)
+            if resultat.get("ok"):
+                autre_facture = active["facture_id_opaque"]
+                fac.anomalies.append(f"{A_NUMERO_FACTURE_REUTILISE}:{autre_facture}")
         if not resultat.get("ok"):
             _enregistrer_diagnostic(fac, facture_id_opaque=None, db_path=db_path)
-            if resultat.get("code") == E_NUMERO_FACTURE_REUTILISE:
-                return resultat
             # Un PDF déjà importé n'est pas une « saisie invalide » : c'est le cas nominal d'un
             # dossier rescanné. Le dire par son code propre évite de renvoyer l'utilisateur vers un
             # formulaire à corriger pour un fichier qui n'a rien d'anormal.
@@ -255,6 +334,8 @@ def importer(path, *, acteur: str = "", db_path=None) -> dict[str, Any]:
     return {"ok": True, "facture_id_opaque": facture_id, "statut": resultat["statut"],
             "nb_lignes": len(fac.lignes), "controle_total": controle, "ventilations": ventilations,
             "anomalies_extraction": fac.anomalies,
+            "numero_reutilise_de": autre_facture,
+            "remplacement_de": resultat.get("remplacement_de"),
             # Mois impacté = EXACTEMENT ce que lot6d lira (`str(date_facture or "")[:7]`, cf. son
             # bloc `ext`) — mission "recalcul mensuel ciblé" §8 : jamais un mois recalculé au hasard.
             "mois_impacte": str(fac.date_facture or "")[:7] or None}

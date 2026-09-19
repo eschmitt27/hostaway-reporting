@@ -206,6 +206,14 @@ async def facture_creer(request: Request):
                             status_code=303)
 
 
+def _anomalies_document(opaque: str) -> list[dict[str, str]]:
+    try:
+        from app.services import facture_menage_pdf_service as pdf_svc
+        return pdf_svc.anomalies_document(opaque)
+    except Exception:      # noqa: BLE001
+        return []
+
+
 def _contradictions_nom_fichier(opaque: str) -> list[dict[str, str]]:
     """§18 — contradictions nom du PDF ↔ document, via le service canonique. Un écran de facture
     ne doit jamais tomber parce que ce diagnostic est indisponible."""
@@ -243,6 +251,8 @@ def facture_detail(request: Request, opaque: str, message: str = "", erreur: str
         "categories": flm.categories_ui_disponibles(),
         # §18 — le nom du PDF n'est qu'une indication : s'il contredit le document, l'écran le dit.
         "contradictions_nom_fichier": _contradictions_nom_fichier(opaque),
+        # Anomalies du DOCUMENT : numéro fournisseur réutilisé, incohérence arithmétique imprimée.
+        "anomalies_document": _anomalies_document(opaque),
         "ecriture_active": _ecriture_active(), "message": message, "erreur": erreur,
     })
 

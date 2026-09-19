@@ -59,9 +59,11 @@ B_ANNULE_ENCORE_ACTIF = "CTRL_BQ_RAPPROCHEMENT_ANNULE_ENCORE_ACTIF"
 
 # ── Codes — PDF fournisseur (§18) ───────────────────────────────────────────
 F_NOM_FICHIER_CONTRADICTOIRE = "CTRL_FAC_NOM_FICHIER_CONTRADICTOIRE"
+F_ANOMALIE_DOCUMENT = "CTRL_FAC_ANOMALIE_DOCUMENT"
 
 MESSAGES = {
     F_NOM_FICHIER_CONTRADICTOIRE: "Le nom du fichier PDF contredit le contenu de la facture.",
+    F_ANOMALIE_DOCUMENT: "Le document fournisseur porte une anomalie (numéro réutilisé, calcul imprimé faux).",
     F_DOUBLON_CERTAIN: "Deux factures partagent la même référence pour le même fournisseur.",
     F_DOUBLON_PROBABLE: "Facture de même montant et de date proche chez le même fournisseur.",
     F_FOURNISSEUR_ABSENT: "Facture sans fournisseur.",
@@ -133,7 +135,10 @@ def _controler_facture(f: dict[str, Any], frs_idx: dict, refs_vues: dict, charge
     if not ref:
         add(F_REF_ABSENTE, CRITIQUE, action="Saisir la référence portée par la pièce.")
     else:
-        cle = (f["fournisseur_id_opaque"], ref)
+        # Doublon CERTAIN = même fournisseur, même référence, même MOIS (définition du schéma,
+        # migration 0089). Le même numéro sur un autre mois est un numéro réutilisé par le
+        # fournisseur : signalé par F_ANOMALIE_DOCUMENT, jamais « à annuler ».
+        cle = (f["fournisseur_id_opaque"], ref, str(f["date_facture"] or "")[:7])
         if refs_vues.get(cle, 0) > 1 and f["statut"] != fact.ST_ANNULEE:
             add(F_DOUBLON_CERTAIN, BLOQUANT, detail=ref, action="Annuler la facture en double.")
 
@@ -166,6 +171,9 @@ def _controler_facture(f: dict[str, Any], frs_idx: dict, refs_vues: dict, charge
             add(F_NOM_FICHIER_CONTRADICTOIRE, AVERTISSEMENT, detail=c["libelle"],
                 action="Vérifier période et prestataire sur le document : le nom n'est qu'une "
                        "indication.")
+        for a in pdf_svc.anomalies_document(fid, db_path=db_path):
+            add(F_ANOMALIE_DOCUMENT, AVERTISSEMENT, detail=a["libelle"],
+                action="Contrôler le document ; aucune correction n'est faite automatiquement.")
 
     if f["charge_id"] and charges_vues.get(f["charge_id"], 0) > 1:
         add(F_CHARGE_MULTI_FACTURES, BLOQUANT, detail=f["charge_id"],
@@ -243,8 +251,8 @@ def controler(db_path=None) -> dict[str, Any]:
     for f in factures:
         if f["statut"] == fact.ST_ANNULEE:
             continue
-        refs_vues[(f["fournisseur_id_opaque"], f["facture_ref"])] = \
-            refs_vues.get((f["fournisseur_id_opaque"], f["facture_ref"]), 0) + 1
+        cle = (f["fournisseur_id_opaque"], f["facture_ref"], str(f["date_facture"] or "")[:7])
+        refs_vues[cle] = refs_vues.get(cle, 0) + 1
         if f["charge_id"]:
             charges_vues[f["charge_id"]] = charges_vues.get(f["charge_id"], 0) + 1
 
