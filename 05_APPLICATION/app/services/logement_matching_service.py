@@ -151,8 +151,9 @@ def _tokens_logement(logement: dict[str, Any]) -> set[str]:
 
 
 def _candidat(logement: dict[str, Any], confiance: str, methode: str, raison: str,
-              score: float = 1.0) -> dict[str, Any]:
+              score: float = 1.0, signaux: list[str] | None = None) -> dict[str, Any]:
     return {
+        "signaux": list(signaux or []),
         "logement_id": logement.get("logement_id") or "",
         "libelle": (logement.get("nom_logement_officiel") or logement.get("nom_court")
                     or logement.get("logement_id") or ""),
@@ -169,6 +170,7 @@ def _resultat(candidat: dict[str, Any] | None, *, candidats: list[dict[str, Any]
         return {"logement_id": "", "confiance": AUCUN, "methode": "",
                 "a_confirmer": False, "preremplir": False,
                 "raison": raison or "Aucun logement du référentiel ne correspond à ce libellé.",
+                "score": 0.0, "signaux": [],
                 "candidats": candidats or []}
     return {
         "logement_id": candidat["logement_id"],
@@ -177,6 +179,8 @@ def _resultat(candidat: dict[str, Any] | None, *, candidats: list[dict[str, Any]
         "a_confirmer": candidat["confiance"] == PROBABLE,
         "preremplir": candidat["confiance"] in (CERTAIN, PROBABLE),
         "raison": candidat["raison"],
+        "score": candidat["score"],
+        "signaux": candidat["signaux"],
         "libelle": candidat["libelle"],
         "actif": candidat["actif"],
         "statut_parc": candidat["statut_parc"],
@@ -194,19 +198,34 @@ def proposer(libelle_source: str, referentiel: list[dict[str, Any]]) -> dict[str
     cle = normaliser(libelle_source)
     if not cle:
         return _resultat(None, raison="Libellé vide : rien à rapprocher.")
+    signaux = _signaux_libelle(libelle_source, referentiel)
+    adresse = _voie_adresse(signaux)
 
-    # 1 — correspondance déclarée au référentiel.
+    # 1 — correspondance déclarée au référentiel. Le libellé est essayé tel quel, puis sans son
+    # adresse entre parenthèses : « T3 sept deniers (François) (4 rue Bardou) » est la même
+    # désignation que l'alias « T3 - sept deniers (François) ». Un alias qui ne dit qu'une ville
+    # ou un type (« BLAGNAC », « T3 ») ne désigne rien : il n'est jamais une correspondance.
+    cles = {cle, normaliser(re.sub(r"\(\s*\d[^)]*\)", " ", str(libelle_source or "")))} - {""}
+    neutres = _mots_neutres(referentiel)
     exacts = [(l, a) for l in referentiel for a in (l.get("aliases") or [])
-              if normaliser(a.get("valeur_source") or "") == cle]
+              if normaliser(a.get("valeur_source") or "") in cles
+              and not tokens(a.get("valeur_source") or "") <= neutres]
     ids = {l["logement_id"] for l, _ in exacts}
     if len(ids) == 1:
         logement, alias = exacts[0]
+        if adresse and adresse["complete"] \
+                and adresse["logement"]["logement_id"] != logement["logement_id"]:
+            # Un humain a dit X, l'adresse écrite dit Y : aucune des deux ne gagne en silence.
+            return _ambigu([
+                _candidat(logement, AUCUN, M_MAPPING, "correspondance déclarée"),
+                _candidat(adresse["logement"], AUCUN, M_ADRESSE, "adresse lue dans le libellé")])
         fort = str(alias.get("niveau_confiance") or "").strip().lower().startswith("fort")
+        s = ["ALIAS_CONFIRME"] + (["ADRESSE_EXACTE"] if adresse and adresse["complete"] else [])
         return _resultat(_candidat(
             logement, CERTAIN if fort else PROBABLE, M_MAPPING,
             f"Correspondance déclarée au référentiel « {alias.get('source') or 'mapping'} » "
             f"(champ {alias.get('champ_source') or '?'}, confiance "
-            f"{alias.get('niveau_confiance') or '?'})."))
+            f"{alias.get('niveau_confiance') or '?'}).", _score(s), s))
     if len(ids) > 1:
         return _ambigu([_candidat(l, AUCUN, M_MAPPING, "correspondance déclarée concurrente")
                         for l, _ in exacts])
@@ -225,11 +244,18 @@ def proposer(libelle_source: str, referentiel: list[dict[str, Any]]) -> dict[str
         if len(trouves) > 1:
             return _ambigu([_candidat(l, AUCUN, methode, f"même {etiquette}") for l in trouves])
 
-    # 4 — l'adresse du logement se lit dans le libellé.
+    # 4 — l'adresse du logement se lit dans le libellé : numéro ET nom de la voie, mot à mot.
+    if adresse is not None:
+        return _resultat_adresse(adresse, signaux)
+    if signaux["adresses_ambigues"]:
+        return _ambigu([_candidat(l, AUCUN, M_ADRESSE, "même numéro et même voie")
+                        for l in signaux["adresses_ambigues"]])
+
+    # 4 bis — adresse contenue telle quelle, bornée aux mots (« 4 rue… » n'est pas « 14 rue… »).
     adresses = []
     for l in referentiel:
         adr = normaliser(l.get("adresse") or "")
-        if _deductible(l) and adr and len(adr) > 4 and adr in cle:
+        if _deductible(l) and adr and len(adr) > 4 and f" {adr} " in f" {cle} ":
             adresses.append((l, adr))
     if len({l["logement_id"] for l, _ in adresses}) == 1:
         logement, adr = adresses[0]
@@ -274,6 +300,11 @@ def proposer(libelle_source: str, referentiel: list[dict[str, Any]]) -> dict[str
 
     if not scores or scores[0][0] < SEUIL_TOKENS:
         meilleur = f" Le plus proche atteint {scores[0][0]:.0%}." if scores else ""
+        type_ville = _candidats_type_ville(signaux, referentiel)
+        if type_ville:
+            return _resultat(None, candidats=type_ville, raison=(
+                "Le type de logement et la ville ne suffisent pas à désigner un logement : "
+                "les candidats sont proposés, il faut choisir."))
         return _resultat(None, raison=(
             f"Aucun logement ne partage assez de mots distinctifs avec ce libellé "
             f"(seuil {SEUIL_TOKENS:.0%}).{meilleur}"),
@@ -309,6 +340,163 @@ def _mots_designants(communs: set[str], referentiel: list[dict[str, Any]]) -> se
     """
     villes = {v for l in referentiel for v in tokens(l.get("ville") or "")}
     return {t for t in communs if t not in villes and not _RE_TYPE_HABITATION.match(t)}
+
+
+# ── Signaux structurés : adresse, type, propriétaire ─────────────────────────────────────────────
+#
+# Pas une liste de mots vides : la GRAMMAIRE d'une adresse française (type de voie, article) et
+# d'une désignation de logement (type d'habitation, prénom du propriétaire entre parenthèses).
+# Elle sert à lire la structure du libellé, jamais à décider seule.
+
+_TYPES_VOIE = {"rue", "avenue", "av", "allee", "impasse", "place", "pl", "boulevard", "bd",
+               "chemin", "route", "quai", "cour", "square", "residence", "lotissement", "voie",
+               "sentier", "esplanade", "promenade", "faubourg"}
+_ARTICLES = {"de", "du", "des", "la", "le", "les", "l", "d"}
+
+#: Poids explicables de chaque signal : le score se lit, il ne se devine pas. La ville seule
+#: vaut zéro — elle ne désigne jamais un logement.
+POIDS_SIGNAUX = {"ADRESSE_EXACTE": 100, "NUMERO_RUE": 80, "ALIAS_CONFIRME": 70,
+                 "PROPRIETAIRE_CONCORDANT": 15, "TYPE_CONCORDANT": 5,
+                 "TYPE_DIFFERENT": -40, "PROPRIETAIRE_DIFFERENT": -40, "VILLE_SEULE": 0}
+
+
+def _score(signaux: list[str]) -> float:
+    return float(sum(POIDS_SIGNAUX.get(s, 0) for s in signaux))
+
+
+def _mot(t: str) -> str:
+    """Singulier grossier (« allées » → « allee », « verts » → « vert ») et numéro sans zéro de tête
+    (« 04 » → « 4 ») : deux écritures d'une même voie se comparent mot à mot."""
+    if t.isdigit():
+        return t.lstrip("0") or "0"
+    return t[:-1] if len(t) > 3 and t.endswith("s") else t
+
+
+def _mots_liste(libelle: str) -> list[str]:
+    return [_mot(t) for t in normaliser(libelle).split(" ") if t]
+
+
+def _mots_neutres(referentiel: list[dict[str, Any]]) -> set[str]:
+    """Mots qui classent sans désigner : villes du référentiel, types d'habitation."""
+    villes = {v for l in referentiel for v in tokens(l.get("ville") or "")}
+    types = {t for l in referentiel for c in ("nom_logement_officiel", "nom_court")
+             for t in tokens(l.get(c) or "") if _RE_TYPE_HABITATION.match(t)}
+    return villes | types
+
+
+def _adresses_logement(logement: dict[str, Any], villes: set[str]) -> list[tuple[str, set[str]]]:
+    """(numéro, mots du nom de la voie) de chaque adresse connue du logement."""
+    valeurs = [logement.get("adresse") or ""] + [
+        a.get("valeur_source") or "" for a in logement.get("aliases") or []
+        if str(a.get("champ_source") or "").lower().startswith("adresse")]
+    out = []
+    for v in valeurs:
+        mots = _mots_liste(v)
+        numeros = [i for i, t in enumerate(mots) if t.isdigit()]
+        if not numeros:
+            continue
+        i = numeros[0]
+        nom = {t for t in mots[i + 1:] if t not in _TYPES_VOIE and t not in _ARTICLES
+               and t not in villes and not t.isdigit()}
+        if nom:
+            out.append((mots[i], nom))
+    return out
+
+
+def _types_logement(logement: dict[str, Any]) -> set[str]:
+    champs = [logement.get("nom_logement_officiel") or "", logement.get("nom_court") or ""] + [
+        a.get("valeur_source") or "" for a in logement.get("aliases") or []]
+    return {t for c in champs for t in tokens(c) if _RE_TYPE_HABITATION.match(t)}
+
+
+def _proprietaires(texte: str) -> set[str]:
+    """Prénoms entre parenthèses (« (François) ») ; une parenthèse qui commence par un chiffre est
+    une adresse, pas un propriétaire."""
+    out: set[str] = set()
+    for p in re.findall(r"\(([^)]*)\)", str(texte or "")):
+        if p.strip() and not p.strip()[0].isdigit():
+            out |= {_mot(t) for t in tokens(p)}
+    return out
+
+
+def _proprietaires_logement(logement: dict[str, Any]) -> set[str]:
+    champs = [logement.get("nom_logement_officiel") or ""] + [
+        a.get("valeur_source") or "" for a in logement.get("aliases") or []]
+    return {t for c in champs for t in _proprietaires(c)}
+
+
+def _signaux_libelle(libelle: str, referentiel: list[dict[str, Any]]) -> dict[str, Any]:
+    """Ce que le libellé dit de structuré, confronté à chaque logement déductible.
+
+    Une adresse est « complète » quand le numéro du logement est écrit ET suivi (à quelques mots
+    près) de TOUS les mots du nom de sa voie ; « partielle » quand au moins la moitié y est.
+    Le numéro seul ne vaut rien : « 4 » se lit dans trop de libellés.
+    """
+    villes = {v for l in referentiel for v in tokens(l.get("ville") or "")}
+    mots = _mots_liste(libelle)
+    completes, partielles = [], []
+    for l in referentiel:
+        if not _deductible(l):
+            continue
+        niveau = None
+        for numero, nom in _adresses_logement(l, villes):
+            for i, t in enumerate(mots):
+                if t != numero:
+                    continue
+                communs = nom & set(mots[i + 1:i + 1 + len(nom) + 4])
+                if communs == nom:
+                    niveau = "complete"
+                elif communs and len(communs) / len(nom) >= 0.5 and niveau is None:
+                    niveau = "partielle"
+        if niveau == "complete":
+            completes.append(l)
+        elif niveau == "partielle":
+            partielles.append(l)
+    return {"types": {t for t in mots if _RE_TYPE_HABITATION.match(t)},
+            "proprietaires": _proprietaires(libelle), "mots": set(mots), "villes": villes,
+            "completes": completes, "partielles": partielles,
+            "adresses_ambigues": completes if len(completes) > 1 else []}
+
+
+def _voie_adresse(signaux: dict[str, Any]) -> dict[str, Any] | None:
+    if len(signaux["completes"]) == 1:
+        return {"logement": signaux["completes"][0], "complete": True}
+    if not signaux["completes"] and len(signaux["partielles"]) == 1:
+        return {"logement": signaux["partielles"][0], "complete": False}
+    return None
+
+
+def _resultat_adresse(adresse: dict[str, Any], signaux: dict[str, Any]) -> dict[str, Any]:
+    """Numéro + nom de voie complets → CERTAIN, sauf si le type d'habitation ou le propriétaire
+    écrits contredisent le logement (→ PROBABLE). Nom de voie partiel → PROBABLE."""
+    l = adresse["logement"]
+    s = ["ADRESSE_EXACTE" if adresse["complete"] else "NUMERO_RUE"]
+    types_l, prop_l = _types_logement(l), _proprietaires_logement(l)
+    if signaux["types"] and types_l:
+        s.append("TYPE_CONCORDANT" if signaux["types"] & types_l else "TYPE_DIFFERENT")
+    if signaux["proprietaires"] and prop_l:
+        s.append("PROPRIETAIRE_CONCORDANT" if signaux["proprietaires"] & prop_l
+                 else "PROPRIETAIRE_DIFFERENT")
+    contradiction = "TYPE_DIFFERENT" in s or "PROPRIETAIRE_DIFFERENT" in s
+    confiance = CERTAIN if adresse["complete"] and not contradiction else PROBABLE
+    raison = (f"L'adresse du logement au référentiel (« {l.get('adresse') or '?'} ») se lit dans le "
+              f"libellé : numéro et nom de voie{'' if adresse['complete'] else ' (en partie)'}.")
+    if contradiction:
+        raison += " Le type de logement ou le propriétaire écrit diffère : à confirmer."
+    return _resultat(_candidat(l, confiance, M_ADRESSE, raison, _score(s), s))
+
+
+def _candidats_type_ville(signaux: dict[str, Any], referentiel: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """« T4 blagnac » : ni une adresse, ni un nom. Les logements de ce type dans cette ville sont
+    PROPOSÉS comme candidats, jamais retenus : la ville seule ne désigne pas un logement."""
+    villes_citees = signaux["mots"] & signaux["villes"]
+    if not signaux["types"] or not villes_citees:
+        return []
+    s = ["VILLE_SEULE", "TYPE_CONCORDANT"]
+    return [_candidat(l, AUCUN, M_AMBIGU, "même type de logement dans la même ville", _score(s), s)
+            for l in referentiel
+            if _deductible(l) and tokens(l.get("ville") or "") & villes_citees
+            and _types_logement(l) & signaux["types"]]
 
 
 def _ambigu(candidats: list[dict[str, Any]]) -> dict[str, Any]:

@@ -430,3 +430,36 @@ def test_17_mois_cloture_refuse_la_modification_directe(tmp_db):
                         nb_menages=9, acteur="test", db_path=tmp_db)
     assert res["ok"] is False
     assert res["code"] == svc.E_MOIS_CLOTURE
+
+
+# 14 ter. Même numéro, AUTRE mois : un numéro réutilisé par le fournisseur n'est pas une V2 -------
+
+def test_14_numero_reutilise_sur_un_autre_mois_n_annule_rien(tmp_db):
+    """Cas réel du corpus : « 2026-37 » porte une facture du 30 avril (15 €) ET une du 31 mai
+    (1 439 €). Traiter la seconde en « nouvelle version » annulait la première — une facture valide
+    disparaissait. Le même numéro sur une autre période est refusé, dit, et rien n'est annulé."""
+    _fournisseur_minimal(tmp_db)
+    v1 = _facture_minimale(tmp_db, ref="REF-R", montant=15.0)
+    conn = get_db(tmp_db)
+    try:
+        conn.execute("UPDATE factures SET date_facture='2026-04-30' WHERE facture_id_opaque=?", (v1,))
+        conn.commit()
+    finally:
+        conn.close()
+
+    class _AutreFacture:
+        prestataire_id = "FRS_TEST"
+        numero_facture = "REF-R"
+        montant_total_facture = 1439.0
+        date_facture = "2026-05-31"
+        nom_fichier_source = "05-26-Test.pdf"
+
+    res = pdf_svc._tenter_remplacement_v1_v2(_AutreFacture(), {}, acteur="test", db_path=tmp_db)
+    assert res["ok"] is False and res["code"] == pdf_svc.E_NUMERO_FACTURE_REUTILISE
+    assert res["facture_existante"] == v1
+    conn = get_db(tmp_db)
+    try:
+        statut = conn.execute("SELECT statut FROM factures WHERE facture_id_opaque=?", (v1,)).fetchone()[0]
+    finally:
+        conn.close()
+    assert statut != fact.ST_ANNULEE

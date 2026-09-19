@@ -263,7 +263,7 @@ def test_19_lot6c_genere_master_sur_copies(tmp_path):
     shutil.copy2(MOUNIR, pdfd / MOUNIR.name)
     sha_pdf_avant = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in (AISSATA, MOUNIR)}
     for s in ["lot6c_menages_externes.py", "lib_parc.py", "lib_ref_history.py",
-              "lib_menages_externes_pdf.py", "lib_db_moteur.py"]:
+              "lib_menages_externes_pdf.py", "lib_factures_geometrie.py", "lib_db_moteur.py"]:
         shutil.copy2(_TRAVAIL / s, ws / "02_TRAVAIL" / s)
     r = subprocess.run([str(engine), str(ws / "02_TRAVAIL/lot6c_menages_externes.py")],
                        cwd=str(ws / "02_TRAVAIL"), capture_output=True, text=True, timeout=120)

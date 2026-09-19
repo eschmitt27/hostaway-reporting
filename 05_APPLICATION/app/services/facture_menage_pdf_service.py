@@ -43,6 +43,7 @@ if _TRAVAIL_DIR not in sys.path:
     sys.path.insert(0, _TRAVAIL_DIR)
 
 E_EXTRACTION_ECHOUEE = "EXTRACTION_ECHOUEE"
+E_NUMERO_FACTURE_REUTILISE = "NUMERO_FACTURE_REUTILISE"
 
 
 def _facture_active(fournisseur_id_opaque: str, facture_ref: str, db_path=None) -> dict[str, Any] | None:
@@ -71,6 +72,19 @@ def _tenter_remplacement_v1_v2(fac, form: dict[str, Any], *, acteur: str,
     nouveau_montant = fac.montant_total_facture
     if ancien_montant is not None and nouveau_montant is not None and round(float(ancien_montant), 2) == round(float(nouveau_montant), 2):
         return None  # contenu identique : vrai doublon, pas une nouvelle version
+    # Une nouvelle VERSION porte sur la même période. Le même numéro sur un AUTRE mois est un
+    # numéro réutilisé par le fournisseur (cas réel : 2026-37 au 30 avril, 15 €, et au 31 mai,
+    # 1 439 €) : deux factures distinctes. Annuler l'une pour l'autre ferait disparaître une
+    # facture valide ; on refuse l'import, on le dit, et l'humain décide.
+    mois_actif = str(active.get("date_facture") or "")[:7]
+    mois_nouveau = str(getattr(fac, "date_facture", None) or "")[:7]
+    if mois_actif and mois_nouveau and mois_actif != mois_nouveau:
+        return {"ok": False, "code": E_NUMERO_FACTURE_REUTILISE,
+                "message": (f"Le numéro {fac.numero_facture} est déjà porté par la facture du "
+                            f"{active.get('date_facture')} ({ancien_montant} €) : ce document du "
+                            f"{fac.date_facture} ({nouveau_montant} €) est une autre facture. "
+                            f"Rien n'a été annulé ; à traiter manuellement."),
+                "facture_existante": active["facture_id_opaque"]}
     annulation = fact.changer_statut(
         active["facture_id_opaque"], fact.ST_ANNULEE, acteur=acteur,
         commentaire=f"Remplacée automatiquement par une nouvelle version du PDF "
@@ -182,6 +196,8 @@ def importer(path, *, acteur: str = "", db_path=None) -> dict[str, Any]:
                 resultat = remplacement
         if not resultat.get("ok"):
             _enregistrer_diagnostic(fac, facture_id_opaque=None, db_path=db_path)
+            if resultat.get("code") == E_NUMERO_FACTURE_REUTILISE:
+                return resultat
             # Un PDF déjà importé n'est pas une « saisie invalide » : c'est le cas nominal d'un
             # dossier rescanné. Le dire par son code propre évite de renvoyer l'utilisateur vers un
             # formulaire à corriger pour un fichier qui n'a rien d'anormal.

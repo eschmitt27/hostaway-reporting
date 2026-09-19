@@ -226,3 +226,67 @@ def test_correspondance_contradictoire_refusee(db):
 def test_correspondance_vers_un_logement_inconnu_refusee(db):
     res = lms.enregistrer_correspondance("Chez quelqu'un", "LOG_9999", db_path=db)
     assert res["ok"] is False and res["code"] == "LOGEMENT_INCONNU"
+
+
+# ── Signaux structurés : adresse, propriétaire, type, ville (chantier extraction factures) ────────
+
+def test_numero_et_nom_de_voie_complets_valent_certitude(ref):
+    """« T3 20 rue l'Amiral Galache » : l'adresse ne s'écrit pas à l'identique (article manquant),
+    mais le numéro ET tous les mots du nom de la voie y sont — c'est le logement."""
+    r = lms.proposer("T3 20 rue l'Amiral Galache", ref)
+    assert (r["logement_id"], r["confiance"], r["methode"]) == ("LOG_0003", lms.CERTAIN, lms.M_ADRESSE)
+    assert "ADRESSE_EXACTE" in r["signaux"] and "TYPE_CONCORDANT" in r["signaux"]
+    assert r["score"] > 0
+
+
+def test_pluriel_et_article_ne_cassent_pas_l_adresse(ref):
+    r = lms.proposer("studio 46 allées charles de fitte", ref)
+    assert (r["logement_id"], r["confiance"]) == ("LOG_0001", lms.CERTAIN)
+
+
+def test_le_numero_se_compare_mot_a_mot(ref):
+    """« 14 rue du puits vert » n'est pas « 4 rue du puits vert »."""
+    r = lms.proposer("studio 14 rue du puits vert", ref)
+    assert r["logement_id"] != "LOG_0004" or r["confiance"] != lms.CERTAIN
+
+
+def test_proprietaire_contradictoire_ramene_a_confirmer(ref):
+    r = lms.proposer("studio 4 rue du puits vert (Gérard)", ref)
+    assert r["logement_id"] == "LOG_0004"
+    assert r["confiance"] == lms.PROBABLE and "PROPRIETAIRE_DIFFERENT" in r["signaux"]
+
+
+def test_la_ville_seule_ne_suffit_jamais_mais_les_candidats_sont_proposes(ref):
+    """« T4 blagnac » : le seul T4 de Blagnac est proposé comme CANDIDAT, jamais prérempli."""
+    r = lms.proposer("T4 blagnac", ref)
+    assert r["logement_id"] == "" and r["preremplir"] is False
+    assert [c["logement_id"] for c in r["candidats"]] == ["LOG_0002"]
+
+
+def test_un_alias_qui_ne_dit_qu_une_ville_ne_designe_rien(db):
+    """Le référentiel réel porte l'alias « BLAGNAC » (adresse_source) : lu comme correspondance,
+    toute ligne « Blagnac » aurait été rattachée à un logement sur la seule foi de la ville."""
+    conn = get_db(db)
+    try:
+        conn.execute(
+            "INSERT INTO ref_mapping_logements (mapping_logement_id, source, champ_source, "
+            "valeur_source, logement_id, niveau_confiance, actif, import_id) VALUES (?,?,?,?,?,?,?,?)",
+            ("MAP_9003", "Setup.xlsx", "adresse_source", "BLAGNAC", "LOG_0002", "Moyen", "OUI", "TEST"))
+        conn.commit()
+    finally:
+        conn.close()
+    r = lms.proposer("Blagnac", lms.charger_referentiel(db))
+    assert r["logement_id"] == "" and r["preremplir"] is False
+
+
+def test_alias_confirme_retrouve_malgre_l_adresse_entre_parentheses(ref):
+    r = lms.proposer("T.4-90 Blagnac (Cédrine) (90 avenue de Cornebarrieu)", ref)
+    assert (r["logement_id"], r["confiance"], r["methode"]) == ("LOG_0002", lms.CERTAIN, lms.M_MAPPING)
+
+
+def test_alias_et_adresse_contradictoires_ne_tranchent_pas_en_silence(db):
+    """Un humain a rattaché ce libellé à X, mais l'adresse écrite est celle de Y : ambiguïté."""
+    lms.enregistrer_correspondance("Studio chez Didier 4 rue du puits vert", "LOG_0001", db_path=db)
+    r = lms.proposer("Studio chez Didier 4 rue du puits vert", lms.charger_referentiel(db))
+    assert r["logement_id"] == "" and r["preremplir"] is False
+    assert {c["logement_id"] for c in r["candidats"]} == {"LOG_0001", "LOG_0004"}
