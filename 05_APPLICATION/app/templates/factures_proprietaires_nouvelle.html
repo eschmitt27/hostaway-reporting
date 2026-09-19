@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Nouvelle facture propriétaire{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Nouvelle facture propriétaire</h1>
+  <p class="page-subtitle">
+    Un propriétaire, une période libre — un mois entier, le mois courant, ou quelques jours.
+    Le cycle mensuel automatique reste disponible depuis <a href="/factures-proprietaires/proposer">Proposer le mois</a>.
+  </p>
+</div>
+
+{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+
+<form method="get" action="/factures-proprietaires/nouvelle" class="card mb-md">
+  <div class="card-title">Période à facturer</div>
+  <div class="form-row">
+    <label>Propriétaire
+      <select name="proprietaire_id" required data-testid="choix-proprietaire">
+        <option value="">— choisir —</option>
+        {% for o in proprietaires_options %}
+        <option value="{{ o.id }}" {{ 'selected' if saisie.proprietaire_id == o.id }}>{{ o.libelle }}</option>
+        {% endfor %}
+      </select></label>
+    <label>Du <input type="date" name="debut" value="{{ saisie.debut }}" required></label>
+    <label>Au <input type="date" name="fin" value="{{ saisie.fin }}" required></label>
+    <button type="submit" class="btn btn-primary">Prévisualiser</button>
+  </div>
+  <p class="section-note">
+    Les montants sont ceux que le moteur a calculés pour chaque réservation ; la période retient
+    les réservations dont la date d'arrivée y tombe — la même règle que pour un mois entier.
+    Charges fixes et charges exceptionnelles restent mensuelles : elles s'ajoutent, s'il y a lieu,
+    sur le brouillon.
+  </p>
+</form>
+
+{% if apercu %}
+  {% if not apercu.ok %}
+    <div class="alert alert-warning">{{ apercu.message }}</div>
+  {% else %}
+
+    {% if apercu.chevauchements %}
+    <div class="alert alert-warning" data-testid="alerte-chevauchement">
+      <strong>Une facture existe déjà sur tout ou partie de cette période.</strong>
+      <table class="data-table mt-sm">
+        <thead><tr><th>Facture</th><th>Période couverte</th><th>Statut</th><th class="num">Montant</th></tr></thead>
+        <tbody>
+          {% for f in apercu.chevauchements %}
+          <tr>
+            <td><a href="/factures-proprietaires/{{ f.facture_id_opaque }}">{{ f.numero_facture or f.facture_id_opaque }}</a></td>
+            <td class="font-mono text-xs">{{ f.periode_debut_effective }} → {{ f.periode_fin_effective }}</td>
+            <td>{{ f.statut }}</td>
+            <td class="num">{{ "%.2f"|format(f.montant_total or 0) }} €</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p class="section-note">Rien n'est bloqué : si cette nouvelle facture est légitime, poursuivez.</p>
+    </div>
+    {% endif %}
+
+    <div class="card">
+      <div class="card-title">
+        {{ libelles_proprietaires.get(apercu.proprietaire_id) or apercu.proprietaire_id }} —
+        du {{ apercu.debut }} au {{ apercu.fin }}
+      </div>
+      <p class="section-note">
+        {{ apercu.nb_reservations }} réservation(s) — total à facturer
+        <strong>{{ "%.2f"|format(apercu.montant_total) }} €</strong>.
+      </p>
+
+      {% if not apercu.propositions %}
+      <p class="section-note" data-testid="aucune-reservation">
+        Aucune réservation du moteur sur cette période pour ce propriétaire.
+      </p>
+      {% endif %}
+
+      {% for p in apercu.propositions %}
+      <div class="card mt-sm">
+        <div class="card-title">{{ p.logement_id }} — {{ p.nb_reservations }} réservation(s)</div>
+        <table class="data-table">
+          <thead><tr><th>Ligne</th><th class="num">Montant</th></tr></thead>
+          <tbody>
+            {% for l in p.lignes %}
+            <tr><td>{{ l.libelle }}</td><td class="num">{{ "%.2f"|format(l.montant) }} €</td></tr>
+            {% endfor %}
+            <tr><td><strong>Total facturé</strong></td>
+                <td class="num"><strong data-testid="total-{{ p.logement_id }}">{{ "%.2f"|format(p.montant_total) }} €</strong></td></tr>
+          </tbody>
+        </table>
+
+        <details class="mt-sm">
+          <summary>Détail des réservations retenues</summary>
+          <table class="data-table mt-sm">
+            <thead><tr><th>Réservation</th><th>Arrivée</th><th>Départ</th><th class="num">Payout</th>
+              <th class="num">Commission</th><th class="num">Ménage</th><th class="num">Net propriétaire</th></tr></thead>
+            <tbody>
+              {% for r in p.reservations %}
+              <tr>
+                <td class="font-mono text-xs">{{ r.reservation }}</td>
+                <td class="font-mono text-xs">{{ r.date_arrivee }}</td>
+                <td class="font-mono text-xs">{{ r.date_depart }}</td>
+                <td class="num">{{ "%.2f"|format(r.payout or 0) }}</td>
+                <td class="num">{{ "%.2f"|format(r.commission or 0) }}</td>
+                <td class="num">{{ "%.2f"|format(r.menage or 0) }}</td>
+                <td class="num">{{ "%.2f"|format(r.net_proprietaire or 0) }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </details>
+
+        {% if p.facturable %}
+        <form method="post" action="/factures-proprietaires/nouvelle/creer" class="mt-sm">
+          <input type="hidden" name="proprietaire_id" value="{{ apercu.proprietaire_id }}">
+          <input type="hidden" name="debut" value="{{ apercu.debut }}">
+          <input type="hidden" name="fin" value="{{ apercu.fin }}">
+          <input type="hidden" name="logement_id" value="{{ p.logement_id }}">
+          <button type="submit" class="btn btn-primary" data-testid="creer-brouillon">
+            Créer le brouillon de cette facture
+          </button>
+        </form>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endif %}
+{% endblock %}

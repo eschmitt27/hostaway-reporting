@@ -22,6 +22,7 @@ from app.services import factures_proprietaires_composition_service as compo
 from app.services import factures_proprietaires_conformite_service as conformite
 from app.services import factures_proprietaires_pdf as pdf
 from app.services import factures_proprietaires_edition_service as edition
+from app.services import factures_proprietaires_periode_service as periode_svc
 from app.services import factures_proprietaires_service as svc
 from app.services import factures_proprietaires_source as source_svc
 from app.services import proprietaires_facturation_service as classement
@@ -194,6 +195,48 @@ async def creer_exceptionnelle(request: Request):
     # On ouvre directement le brouillon : c'est là que l'utilisateur va poursuivre (ajouter une
     # ligne, valider, émettre), et non sur la liste qu'il vient de quitter.
     return RedirectResponse(f"/factures-proprietaires/{res['facture_id_opaque']}", status_code=303)
+
+
+@router.get("/factures-proprietaires/nouvelle", response_class=HTMLResponse)
+def nouvelle_facture_periode(request: Request, proprietaire_id: str = "", debut: str = "",
+                             fin: str = "", erreur: str = ""):
+    """Parcours MANUEL : un propriétaire, une période libre, une prévisualisation.
+
+    Le cycle mensuel automatique reste ailleurs (`/proposer`). Ici, l'utilisateur décide : la
+    période peut être un mois entier, le mois courant, ou seulement quelques jours.
+    """
+    apercu = (periode_svc.previsualiser(proprietaire_id, debut, fin)
+              if proprietaire_id and debut and fin else None)
+    aujourdhui = date.today()
+    return templates.TemplateResponse(request, "factures_proprietaires_nouvelle.html", {
+        "active_menu": "factures_proprietaires",
+        "proprietaires_options": _options_proprietaires(),
+        "saisie": {"proprietaire_id": proprietaire_id,
+                   "debut": debut or aujourdhui.replace(day=1).isoformat(),
+                   "fin": fin or aujourdhui.isoformat()},
+        "apercu": apercu, "erreur": erreur,
+        "libelles_proprietaires": {o["id"]: o["libelle"] for o in _options_proprietaires()},
+    })
+
+
+@router.post("/factures-proprietaires/nouvelle/creer")
+async def creer_facture_periode(request: Request):
+    """Crée le brouillon de la période prévisualisée. Un chevauchement n'empêche pas : il alerte."""
+    form = await request.form()
+    proprietaire_id = str(form.get("proprietaire_id", "") or "")
+    debut, fin = str(form.get("debut", "") or ""), str(form.get("fin", "") or "")
+    res = periode_svc.creer(proprietaire_id, debut, fin,
+                            logement_id=str(form.get("logement_id", "") or ""),
+                            acteur="interface")
+    if not res.get("ok"):
+        return RedirectResponse(
+            f"/factures-proprietaires/nouvelle?proprietaire_id={quote(proprietaire_id)}"
+            f"&debut={quote(debut)}&fin={quote(fin)}&erreur={quote(res.get('message', ''))}",
+            status_code=303)
+    if len(res["creees"]) == 1:
+        return RedirectResponse(f"/factures-proprietaires/{res['creees'][0]['facture_id_opaque']}",
+                                status_code=303)
+    return RedirectResponse("/factures-proprietaires", status_code=303)
 
 
 @router.get("/factures-proprietaires/proposer", response_class=HTMLResponse)
