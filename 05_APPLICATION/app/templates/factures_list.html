@@ -12,6 +12,12 @@
     <a href="/reglements" class="btn btn-secondary">Règlements</a>
     <a href="/factures/controles" class="btn btn-secondary">Contrôles</a>
     <a href="/factures/importer" class="btn btn-secondary">Importer un PDF</a>
+    {# Le DOSSIER de dépôt fait foi pour tout ce qui n'est pas validé : ce bouton le relit. #}
+    <form method="post" action="/factures/recharger" style="display:inline">
+      <button type="submit" class="btn btn-secondary" data-testid="recharger-factures">
+        Recharger les factures
+      </button>
+    </form>
     <a href="/factures/nouvelle" class="btn btn-primary">+ Nouvelle facture</a>
   </div>
 </div>
@@ -19,16 +25,37 @@
 {% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
 {% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
 
+{% if doublons %}
+<div class="alert alert-warning" data-testid="doublons-dossier">
+  <strong>Deux fichiers du dossier contiennent le même document.</strong>
+  <ul>
+    {% for sha, noms in doublons.items() %}
+    <li>{{ noms|join(" = ") }}</li>
+    {% endfor %}
+  </ul>
+  <p class="section-note">
+    Aucun n'est supprimé automatiquement : choisissez celui à retirer du dossier de dépôt, puis
+    cliquez « Recharger les factures ».
+  </p>
+</div>
+{% endif %}
+
 <form method="get" action="/factures" class="filter-bar mt-md">
-  <label>Statut
-    <select name="statut"><option value="">Tous</option>
-      {% for s in statuts %}<option value="{{ s }}" {{ 'selected' if applied.statut == s }}>{{ s }}</option>{% endfor %}
-    </select></label>
   <label>Fournisseur
-    <select name="fournisseur"><option value="">Tous</option>
+    <select name="fournisseur" data-testid="filtre-fournisseur"><option value="">Tous</option>
       {% for f in fournisseurs %}
-      <option value="{{ f.fournisseur_id_opaque }}" {{ 'selected' if applied.fournisseur == f.fournisseur_id_opaque }}>{{ f.nom }}</option>
+      <option value="{{ f.id }}" {{ 'selected' if applied.fournisseur == f.id }}>{{ f.libelle }}</option>
       {% endfor %}
+    </select></label>
+  <label>Mois concerné
+    <select name="mois" data-testid="filtre-mois"><option value="">Tous</option>
+      {% for m in mois_options %}
+      <option value="{{ m.valeur }}" {{ 'selected' if applied.mois == m.valeur }}>{{ m.libelle }}</option>
+      {% endfor %}
+    </select></label>
+  <label>Statut
+    <select name="statut" data-testid="filtre-statut"><option value="">Tous</option>
+      {% for s in statuts %}<option value="{{ s }}" {{ 'selected' if applied.statut == s }}>{{ s|libelle_statut }}</option>{% endfor %}
     </select></label>
   <label><input type="checkbox" name="echues" value="1" {{ 'checked' if applied.echues }}> Échues seulement</label>
   <button type="submit" class="btn btn-primary">Filtrer</button>
@@ -40,30 +67,71 @@
   <div class="table-container">
     <table class="data-table">
       <thead><tr>
-        <th>Référence</th><th>Fournisseur</th><th>Date</th><th>Échéance</th>
-        <th class="num">TTC</th><th class="num">Réglé</th><th class="num">Solde</th>
-        <th>Statut</th><th></th>
+        <th>Fichier source</th><th>Référence fournisseur</th><th>Mois concerné</th><th>Fournisseur</th>
+        <th class="num">Total document</th><th class="num">Somme des lignes</th><th class="num">Écart</th>
+        <th class="num">Réglé</th><th class="num">Solde</th><th>Statut</th><th></th>
       </tr></thead>
       <tbody>
         {% for f in factures %}
-        <tr>
-          <td class="font-mono text-xs">{{ f.facture_ref }}</td>
-          <td>{{ libelles.get(f.fournisseur_id_opaque) or f.fournisseur_id_opaque }}</td>
-          <td class="font-mono text-xs">{{ f.date_facture or "—" }}</td>
+        <tr data-facture="{{ f.facture_id_opaque }}">
           <td class="font-mono text-xs">
-            {{ f.date_echeance or "—" }}
-            {% if f.echue %}<span class="status-badge status-bloquant">échue</span>{% endif %}
+            {{ f.fichier_source or "—" }}
+            {% if f.doublon_fichiers %}
+            <span class="status-badge status-a-controler" data-testid="badge-doublon"
+                  title="Même document que : {{ f.doublon_fichiers|join(', ') }}">DOUBLON ?</span>
+            {% endif %}
           </td>
+          {# Le numéro réellement IMPRIMÉ sur la pièce. La référence interne (suffixée en cas de
+             numéro réutilisé par le fournisseur) reste lisible sur la fiche. #}
+          <td class="font-mono text-xs">
+            {{ f.facture_ref_source }}
+            {% if f.facture_ref != f.facture_ref_source %}
+            <span class="text-xs" style="opacity:.6">({{ f.facture_ref }})</span>
+            {% endif %}
+          </td>
+          <td>{{ f.mois_concerne|mois_humain }}</td>
+          <td>{{ libelles.get(f.fournisseur_id_opaque) or f.fournisseur_id_opaque }}</td>
           <td class="num">{{ "%.2f"|format(f.montant_ttc) }}</td>
+          <td class="num">{{ "%.2f"|format(f.montant_lignes_ttc) }}</td>
+          {# UNE seule vérité : total document − somme canonique des lignes, la même que la fiche
+             et que le contrôle de validation. #}
+          <td class="num {{ 'text-warning' if f.ecart_lignes|abs > 0.005 }}" data-testid="ecart">
+            {{ "%.2f"|format(f.ecart_lignes) }}
+          </td>
           <td class="num">{{ "%.2f"|format(f.montant_regle) }}</td>
           <td class="num">{{ "%.2f"|format(f.solde_restant) }}</td>
-          {# §31 — VALIDÉE est un état acquis : vert, comme sur la fiche. §34 — plus de colonne
-             « Charge » : la facture est la dépense, et un identifiant brut n'a rien à faire ici. #}
           <td><span class="status-badge status-{{ 'valide' if f.statut in ['REGLEE','VALIDEE','PARTIELLEMENT_REGLEE'] else 'bloquant' if f.statut in ['ANNULEE','LITIGE'] else 'a-controler' }}">{{ f.statut|libelle_statut }}</span></td>
-          <td><a href="/factures/{{ f.facture_id_opaque }}">Voir</a></td>
+          <td>
+            {# Actions RÉELLEMENT possibles dans cet état — jamais une action qui sera refusée. #}
+            <details class="menu-actions">
+              <summary class="btn btn-ghost" data-testid="menu-actions">⋯</summary>
+              <div class="card" style="position:absolute; z-index:10; min-width:22rem">
+                <a href="/factures/{{ f.facture_id_opaque }}" class="btn btn-secondary">Ouvrir</a>
+                {% if f.statut in ['BROUILLON', 'A_CONTROLER'] %}
+                <form method="post" action="/factures/{{ f.facture_id_opaque }}/supprimer" class="mt-sm">
+                  <label class="text-xs">Motif de la suppression
+                    <input type="text" name="motif" required placeholder="ex. PDF retiré du dossier"></label>
+                  <button type="submit" class="btn btn-ghost" data-testid="action-supprimer">Supprimer</button>
+                </form>
+                {% elif f.statut in ['VALIDEE', 'PARTIELLEMENT_REGLEE', 'REGLEE'] %}
+                <form method="post" action="/factures/{{ f.facture_id_opaque }}/contrepasser" class="mt-sm">
+                  <p class="text-xs">
+                    Cette action ne supprimera pas la facture. Elle créera une contrepassation de
+                    ses effets (achat, dette, impacts ménages).
+                  </p>
+                  <label class="text-xs">Motif de la contrepassation
+                    <input type="text" name="motif" required placeholder="ex. facture erronée"></label>
+                  <button type="submit" class="btn btn-ghost" data-testid="action-contrepasser">Contrepasser</button>
+                </form>
+                {% elif f.statut == 'ANNULEE' %}
+                <p class="text-xs mt-sm">Facture annulée : ouvrir la fiche pour voir sa contrepassation.</p>
+                {% endif %}
+              </div>
+            </details>
+          </td>
         </tr>
         {% else %}
-        <tr><td colspan="9" class="section-note">Aucune facture pour ces filtres.</td></tr>
+        <tr><td colspan="11" class="section-note">Aucune facture pour ces filtres.</td></tr>
         {% endfor %}
       </tbody>
     </table>

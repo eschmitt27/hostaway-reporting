@@ -332,8 +332,59 @@ def solde(opaque: str, db_path=None) -> dict[str, Any]:
     return {"montant_regle": regle, "solde_restant": round(total - regle, 2)}
 
 
+def periode_metier(opaque: str, *, date_facture: Any = None, db_path=None) -> str:
+    """Le MOIS que la facture concerne réellement, et non la date à laquelle le PDF a été importé.
+
+    Une facture de ménage datée du 31 août facture les passages d'août ; une facture émise le 1er
+    septembre pour le mois précédent aussi. La vérité est donc dans les DATES DES PRESTATIONS
+    quand elles sont connues (mois majoritaire des lignes actives), et à défaut dans la date du
+    document. Une seule fonction le dit, pour que la liste, la fiche et les filtres s'accordent.
+    """
+    conn = get_db(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT substr(p.date_menage, 1, 7) AS mois, COUNT(*) AS n "
+            "FROM facture_lignes_menage l JOIN facture_lignes_menage_pdf p "
+            "  ON p.ligne_id_opaque = l.ligne_id_opaque "
+            "WHERE l.facture_id_opaque = ? AND COALESCE(l.statut_ligne,'ACTIVE') = 'ACTIVE' "
+            "  AND p.date_menage IS NOT NULL AND p.date_menage <> '' "
+            "GROUP BY 1 ORDER BY n DESC, mois DESC", (opaque,)).fetchall()
+    except sqlite3.OperationalError:
+        rows = []
+    finally:
+        conn.close()
+    if rows and rows[0]["mois"]:
+        return str(rows[0]["mois"])
+    return str(date_facture or "")[:7]
+
+
+def fichier_source(opaque: str, *, facture: dict[str, Any] | None = None, db_path=None) -> str:
+    """Nom du PDF d'où vient la facture — celui qu'on retrouve dans le dossier de dépôt.
+
+    Il est porté par `justificatif` depuis l'import ; les factures importées avant que ce champ
+    soit renseigné le retrouvent dans leur diagnostic d'extraction, puis dans le commentaire.
+    """
+    if facture and str(facture.get("justificatif") or "").strip():
+        return str(facture["justificatif"]).strip()
+    conn = get_db(db_path)
+    try:
+        r = conn.execute("SELECT nom_fichier FROM facture_pdf_diagnostics "
+                         "WHERE facture_id_opaque = ? AND nom_fichier IS NOT NULL "
+                         "ORDER BY id DESC LIMIT 1", (opaque,)).fetchone()
+        if r and str(r["nom_fichier"] or "").strip():
+            return str(r["nom_fichier"]).strip()
+    except sqlite3.OperationalError:
+        pass
+    finally:
+        conn.close()
+    commentaire = str((facture or {}).get("commentaire") or "").strip()
+    return commentaire if commentaire.lower().endswith(".pdf") else ""
+
+
 def lister(*, statut: str = "", fournisseur: str = "", echues_seulement: bool = False,
-           db_path=None) -> list[dict[str, Any]]:
+           mois: str = "", db_path=None) -> list[dict[str, Any]]:
+    """Les factures, enrichies de ce que l'écran doit pouvoir montrer SANS refaire de calcul :
+    numéro imprimé, fichier source, mois concerné, somme canonique des lignes et écart."""
     conn = get_db(db_path)
     try:
         rows = conn.execute("SELECT * FROM factures ORDER BY id DESC").fetchall()
@@ -352,6 +403,18 @@ def lister(*, statut: str = "", fournisseur: str = "", echues_seulement: bool = 
                           and f["statut"] in STATUTS_OUVERTS and f["solde_restant"] > 0.005)
         if echues_seulement and not f["echue"]:
             continue
+        # Référence IMPRIMÉE sur la pièce : c'est elle que l'utilisateur lit sur le PDF. La
+        # référence interne (suffixée « -A »/« -B » en cas de numéro réutilisé) reste disponible.
+        f["facture_ref_source"] = f.get("facture_ref_source") or f["facture_ref"]
+        f["fichier_source"] = fichier_source(f["facture_id_opaque"], facture=f, db_path=db_path)
+        f["mois_concerne"] = periode_metier(f["facture_id_opaque"],
+                                            date_facture=f.get("date_facture"), db_path=db_path)
+        if mois and f["mois_concerne"] != mois:
+            continue
+        # LA somme canonique — la même fonction que la fiche et que le contrôle V11 de validation.
+        f["montant_lignes_ttc"] = flm.somme_lignes_effectives(f["facture_id_opaque"],
+                                                              db_path=db_path)
+        f["ecart_lignes"] = round(round(f["montant_ttc"] or 0, 2) - f["montant_lignes_ttc"], 2)
         out.append(f)
     return out
 

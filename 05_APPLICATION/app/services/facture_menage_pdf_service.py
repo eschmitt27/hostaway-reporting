@@ -462,6 +462,9 @@ def importer(path, *, acteur: str = "", db_path=None) -> dict[str, Any]:
         "montant_ttc": fac.montant_total_facture,
         "devise": fac.devise,
         "source": "PDF_EXTRACTION",
+        # Provenance canonique : le NOM du PDF déposé dans le dossier surveillé. C'est par lui que
+        # l'écran, et le rechargement du dossier, retrouvent le document d'origine.
+        "justificatif": fac.nom_fichier_source,
         "commentaire": fac.nom_fichier_source,
     }
     actif = _fournisseur_actif(fac.prestataire_id, db_path=db_path) if fac.prestataire_id else None

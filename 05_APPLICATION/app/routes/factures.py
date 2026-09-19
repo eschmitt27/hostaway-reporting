@@ -95,17 +95,67 @@ def factures_fournisseurs_alias():
     return RedirectResponse("/factures", status_code=308)
 
 
+def _mois_humain(valeur: str) -> str:
+    from app.template_env import _mois_humain as filtre
+    return filtre(valeur)
+
+
+def _doublons_dossier() -> dict[str, list[str]]:
+    """Fichiers du dossier de dépôt qui contiennent le même document. Jamais bloquant."""
+    try:
+        from app.services import menages_pdf_import_service as pdf_import
+        return pdf_import.doublons_dossier()
+    except Exception:      # noqa: BLE001 — dossier absent : l'écran reste utilisable
+        return {}
+
+
 @router.get("/factures", response_class=HTMLResponse)
-def factures_list(request: Request, statut: str = "", fournisseur: str = "",
+def factures_list(request: Request, statut: str = "", fournisseur: str = "", mois: str = "",
                   echues: str = "", message: str = "", erreur: str = ""):
-    factures = svc.lister(statut=statut, fournisseur=fournisseur,
+    # Les options de filtre viennent des factures RÉELLEMENT présentes. Le référentiel
+    # Fournisseurs ne connaît pas les prestataires de ménage (ils vivent dans `ref_intervenants`) :
+    # la liste déroulante ne les proposait donc pas, et filtrer sur « Aissata » était impossible.
+    toutes = svc.lister()
+    libelles = _libelles_fournisseurs()
+    options_fournisseurs = {
+        f["fournisseur_id_opaque"]: libelles.get(f["fournisseur_id_opaque"])
+        or f["fournisseur_id_opaque"] for f in toutes}
+    fournisseurs = sorted(({"id": i, "libelle": l} for i, l in options_fournisseurs.items()),
+                          key=lambda o: o["libelle"].lower())
+    mois_options = [{"valeur": m, "libelle": _mois_humain(m)}
+                    for m in sorted({f["mois_concerne"] for f in toutes if f["mois_concerne"]},
+                                    reverse=True)]
+
+    factures = svc.lister(statut=statut, fournisseur=fournisseur, mois=mois,
                           echues_seulement=bool(echues))
+    doublons = _doublons_dossier()
+    par_fichier = {nom: [a for a in noms if a != nom]
+                   for noms in doublons.values() for nom in noms}
+    for f in factures:
+        f["doublon_fichiers"] = par_fichier.get(f.get("fichier_source") or "", [])
     return templates.TemplateResponse(request, "factures_list.html", {
         "active_menu": "factures", "factures": factures, "statuts": svc.STATUTS,
-        "fournisseurs": _fournisseurs_actifs(), "libelles": _libelles_fournisseurs(),
-        "applied": {"statut": statut, "fournisseur": fournisseur, "echues": echues},
+        "fournisseurs": fournisseurs, "mois_options": mois_options, "libelles": libelles,
+        "doublons": doublons,
+        "applied": {"statut": statut, "fournisseur": fournisseur, "mois": mois, "echues": echues},
         "ecriture_active": _ecriture_active(), "message": message, "erreur": erreur,
     })
+
+
+@router.post("/factures/recharger")
+def factures_recharger():
+    """Relit le DOSSIER de dépôt : importe les nouveaux PDF, retire les factures À CONTRÔLER dont
+    le PDF a disparu, conserve les factures validées, et signale les doublons exacts."""
+    from app.services import menages_pdf_import_service as pdf_import
+
+    res = pdf_import.recharger(acteur="interface")
+    message = (f"{res['nb_presents']} PDF dans le dossier · {res['nb_importees']} importée(s) · "
+               f"{res['nb_supprimees']} facture(s) à contrôler retirée(s) (PDF absent) · "
+               f"{res['nb_conservees']} facture(s) validée(s) conservée(s)")
+    if res["doublons"]:
+        message += f" · {len(res['doublons'])} doublon(s) de fichier à trancher"
+    cle = "erreur" if not res["ok"] else "message"
+    return RedirectResponse(f"/factures?{cle}={quote(message)}", status_code=303)
 
 
 @router.get("/factures/a-payer", response_class=HTMLResponse)

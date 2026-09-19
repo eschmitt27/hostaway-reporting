@@ -106,6 +106,25 @@ def _datetime_fr(valeur) -> str:
     return f"{dt:%Hh%M} · {dt:%d/%m/%Y}"
 
 
+#: Mois en toutes lettres — les écrans parlent à un humain, pas en « 2026-08 ».
+_MOIS_FR = ("janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août",
+            "septembre", "octobre", "novembre", "décembre")
+
+
+def _mois_humain(valeur) -> str:
+    """`2026-08` → `Août 2026`. Rend la valeur telle quelle si elle n'est pas un mois."""
+    texte = str(valeur or "").strip()[:7]
+    if len(texte) != 7 or texte[4] != "-":
+        return str(valeur or "") or "—"
+    try:
+        mois = int(texte[5:7])
+    except ValueError:
+        return texte
+    if not 1 <= mois <= 12:
+        return texte
+    return f"{_MOIS_FR[mois - 1].capitalize()} {texte[:4]}"
+
+
 def _date_fr(valeur) -> str:
     """`2026-09-11` → `11/09/2026`. Rend la valeur telle quelle si illisible."""
     from datetime import datetime
@@ -148,6 +167,7 @@ def get_templates() -> Jinja2Templates:
         t.env.filters["nom_canal"] = _nom_canal
         t.env.filters["datetime_fr"] = _datetime_fr
         t.env.filters["date_fr"] = _date_fr
+        t.env.filters["mois_humain"] = _mois_humain
         t.env.filters["entier"] = _entier
         # §45 — un numéro se STOCKE en E.164 et se LIT en groupes de deux. Le filtre est le seul
         # point de passage vers l'affichage : un numéro brut reste rendu tel quel, jamais inventé.

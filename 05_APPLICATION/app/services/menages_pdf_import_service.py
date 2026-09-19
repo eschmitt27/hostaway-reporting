@@ -195,3 +195,144 @@ def importer_nouveaux(*, acteur: str = "", dossier: Path | None = None,
         "mois_impactes": mois_impactes,
         "details": details,
     }
+
+
+# ── Le DOSSIER fait foi pour ce qui n'est pas encore validé (recette 4, lot 2 §10-§15) ──────────
+
+STATUT_SUPPRIMEE = "SUPPRIMEE_PDF_ABSENT"
+STATUT_CONSERVEE = "CONSERVEE_VALIDEE"
+MOTIF_PDF_ABSENT = "PDF source retiré du dossier de dépôt (rechargement des factures)"
+
+
+def doublons_dossier(*, dossier: Path | None = None) -> dict[str, list[str]]:
+    """Fichiers DIFFÉRENTS du dossier qui contiennent le MÊME document (même empreinte).
+
+    Le logiciel ne choisit pas lequel garder : il les montre. Supprimer d'autorité un fichier que
+    l'utilisateur a déposé serait décider à sa place, et deux dépôts identiques peuvent très bien
+    être une erreur de nommage qu'il veut constater lui-même.
+    """
+    par_sha: dict[str, list[str]] = {}
+    for p in lister_pdf(dossier=dossier):
+        par_sha.setdefault(_sha256(p), []).append(p.name)
+    return {sha: sorted(noms) for sha, noms in par_sha.items() if len(noms) > 1}
+
+
+def _factures_pdf(db_path=None) -> list[dict[str, Any]]:
+    """Factures issues d'un import PDF, avec le nom du fichier dont elles viennent."""
+    from app.services import factures_service as fact
+
+    out = []
+    for f in fact.lister(db_path=db_path):
+        if f["statut"] == fact.ST_ANNULEE:
+            continue
+        nom = fact.fichier_source(f["facture_id_opaque"], facture=f, db_path=db_path)
+        if nom:
+            out.append({**f, "fichier_source": nom})
+    return out
+
+
+def _sha_facture(facture_id_opaque: str, *, db_path=None) -> str | None:
+    """Empreinte du PDF dont la facture est issue, telle que l'import l'a tracée."""
+    conn = get_db(db_path)
+    try:
+        r = conn.execute(
+            "SELECT sha256_pdf FROM facture_pdf_diagnostics WHERE facture_id_opaque = ? "
+            "AND sha256_pdf IS NOT NULL ORDER BY id DESC LIMIT 1", (facture_id_opaque,)).fetchone()
+        return r["sha256_pdf"] if r else None
+    except Exception:      # noqa: BLE001 — colonne absente sur une base ancienne
+        return None
+    finally:
+        conn.close()
+
+
+def _suivre_fichier(facture_id_opaque: str, nom_fichier: str, *, db_path=None) -> None:
+    """Le document est toujours là, sous un autre nom : la facture suit son fichier."""
+    conn = get_db(db_path)
+    try:
+        conn.execute("UPDATE factures SET justificatif = ? WHERE facture_id_opaque = ?",
+                     (nom_fichier, facture_id_opaque))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _oublier_fichier(nom_fichier: str, *, db_path=None) -> None:
+    conn = get_db(db_path)
+    try:
+        conn.execute("DELETE FROM menages_pdf_fichiers_hash WHERE nom_fichier = ?", (nom_fichier,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def recharger(*, acteur: str = "", dossier: Path | None = None, db_path=None) -> dict[str, Any]:
+    """Resynchronise les factures fournisseurs avec le DOSSIER de dépôt.
+
+    TROIS MOUVEMENTS, dans cet ordre :
+      1. les PDF présents et nouveaux (ou dont le contenu a changé) sont importés ;
+      2. une facture À CONTRÔLER dont le PDF a disparu du dossier est SUPPRIMÉE avec ses données
+         provisoires (lignes, ventilations, impacts) : tant qu'elle n'est pas validée, le dossier
+         fait foi et une facture fantôme n'a aucune raison de subsister ;
+      3. une facture VALIDÉE, elle, est CONSERVÉE quoi qu'il arrive au fichier — elle porte une
+         dette et des écritures, qui ne se défont que par contrepassation, jamais par un scan.
+
+    Les doublons exacts (deux fichiers, un seul document) sont SIGNALÉS, jamais arbitrés.
+    """
+    from app.services import factures_service as fact
+
+    d = Path(dossier) if dossier else cfg.MENAGES_PDF_DIR
+    import_resultat = importer_nouveaux(acteur=acteur, dossier=d, db_path=db_path)
+    fichiers = {p.name: _sha256(p) for p in lister_pdf(dossier=d)}
+    presents = set(fichiers)
+    # PRÉSENCE D'UN DOCUMENT ≠ PRÉSENCE D'UN NOM DE FICHIER (§14). Un PDF simplement RENOMMÉ est
+    # toujours là : sa facture doit suivre son nouveau nom, pas disparaître. C'est l'empreinte du
+    # contenu qui dit si le document est encore dans le dossier.
+    par_sha: dict[str, list[str]] = {}
+    for nom, sha in fichiers.items():
+        par_sha.setdefault(sha, []).append(nom)
+
+    supprimees, conservees, echecs = [], [], []
+    for f in _factures_pdf(db_path=db_path):
+        if f["fichier_source"] in presents:
+            continue
+        sha = _sha_facture(f["facture_id_opaque"], db_path=db_path)
+        noms = par_sha.get(sha or "", [])
+        if noms:
+            _suivre_fichier(f["facture_id_opaque"], noms[0], db_path=db_path)
+            continue
+        if f["statut"] in (fact.ST_BROUILLON, fact.ST_A_CONTROLER):
+            res = fact.supprimer(f["facture_id_opaque"], motif=MOTIF_PDF_ABSENT,
+                                 acteur=acteur or "rechargement", db_path=db_path)
+            if res.get("ok"):
+                _oublier_fichier(f["fichier_source"], db_path=db_path)
+                supprimees.append({"facture_id_opaque": f["facture_id_opaque"],
+                                   "facture_ref": f["facture_ref"],
+                                   "fichier_source": f["fichier_source"],
+                                   "montant_ttc": f["montant_ttc"]})
+            else:
+                echecs.append({"facture_id_opaque": f["facture_id_opaque"],
+                               "fichier_source": f["fichier_source"],
+                               "code": res.get("code"), "message": res.get("message")})
+        else:
+            conservees.append({"facture_id_opaque": f["facture_id_opaque"],
+                               "facture_ref": f["facture_ref"], "statut": f["statut"],
+                               "fichier_source": f["fichier_source"]})
+
+    doublons = doublons_dossier(dossier=d)
+    return {
+        "ok": import_resultat["ok"] and not echecs,
+        "dossier": str(d),
+        "nb_presents": len(presents),
+        "nb_importees": import_resultat["nb_importees"],
+        "nb_deja_importees": import_resultat["nb_deja_importees"],
+        "nb_remplacees": import_resultat["nb_remplacees"],
+        "nb_echecs_import": import_resultat["nb_extraction_echouee"],
+        "nb_supprimees": len(supprimees),
+        "nb_conservees": len(conservees),
+        "supprimees": supprimees,
+        "conservees_validees": conservees,
+        "suppressions_refusees": echecs,
+        "doublons": doublons,
+        "mois_impactes": import_resultat["mois_impactes"],
+        "details_import": import_resultat["details"],
+    }
