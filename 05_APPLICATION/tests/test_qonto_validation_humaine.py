@@ -574,4 +574,8 @@ def test_une_ligne_rapprochee_dit_a_quoi_elle_est_rapprochee(client, base):
     html = client.get("/banques-caisse?vue=banque").text
     assert "Rapproché" in html
     assert 'data-testid="rapproche-objet"' in html
-    assert ASSOCIE in html
+    # Un libellé humain, pas un code : « Apport compte courant — Associé de test ».
+    assert "Apport compte courant" in html
+    assert "Associé de test" in html
+    assert ASSOCIE not in html, "l'identifiant technique de l'associé n'a rien à faire à l'écran"
+    assert "APPORT_ASSOCIE —" not in html

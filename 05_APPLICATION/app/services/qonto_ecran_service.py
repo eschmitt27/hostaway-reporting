@@ -142,11 +142,54 @@ def _rapprochements(mouvement: dict) -> list[dict]:
     opaque = mouvement.get("mouvement_id_opaque")
     if not opaque:
         return []
-    actifs = [r for r in rappro.lister(opaque, mouvement.get("_db_path"))
+    db_path = mouvement.get("_db_path")
+    actifs = [r for r in rappro.lister(opaque, db_path)
               if r.get("statut") in (rappro.ST_PROPOSE, rappro.ST_CONFIRME)]
+    noms = _noms_objets(actifs, db_path)
     return [{"type": r["type_objet"], "objet_id": r["objet_id"],
+             # Ce que l'écran montre : « Apport compte courant — Ewan », pas
+             # « APPORT_ASSOCIE — PERS_EWAN ». Un code et un identifiant technique ne disent rien
+             # à qui relit son relevé ; le nom de la personne, si.
+             "libelle": _libelle_rapprochement(r, noms),
              "montant": r["montant_rapproche"], "statut": r["statut"],
              "id": r["rapprochement_id_opaque"]} for r in actifs]
+
+
+#: Formulation courte de chaque nature, telle qu'elle se lit dans une liste de mouvements.
+LIBELLES_RAPPROCHEMENT = {
+    "APPORT_ASSOCIE": "Apport compte courant",
+    "TRANSFERT_CAISSE": "Transfert Banque → Caisse",
+    "REGLEMENT_CHARGE": "Facture fournisseur",
+    "REVERSEMENT_PROPRIETAIRE": "Encaissement propriétaire",
+}
+
+
+def _noms_objets(rapprochements: list, db_path=None) -> dict:
+    """Nom lisible des objets rapprochés. Une table absente fait perdre un nom, jamais la page."""
+    noms: dict[str, str] = {}
+    if not rapprochements:
+        return noms
+    conn = get_db(db_path)
+    try:
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "ref_associes" in tables:
+            for r in conn.execute("SELECT personne_id, nom_personne FROM ref_associes"):
+                noms[r["personne_id"]] = r["nom_personne"] or ""
+        if "factures" in tables:
+            for r in conn.execute("SELECT facture_id_opaque, facture_ref FROM factures"):
+                noms[r["facture_id_opaque"]] = r["facture_ref"] or ""
+    finally:
+        conn.close()
+    return noms
+
+
+def _libelle_rapprochement(rapprochement: dict, noms: dict) -> str:
+    nature = LIBELLES_RAPPROCHEMENT.get(rapprochement["type_objet"], rapprochement["type_objet"])
+    objet = rapprochement.get("objet_id") or ""
+    # Un transfert de caisse a pour « objet » le mouvement lui-même : l'afficher n'apprendrait rien.
+    if not objet or objet.startswith("QMV-"):
+        return nature
+    return f"{nature} — {noms.get(objet) or objet}"
 
 
 def _mouvements(db_path=None) -> list[dict]:

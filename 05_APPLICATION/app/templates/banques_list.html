@@ -165,8 +165,7 @@
                   data-testid="traitement">{{ t.traitement_libelle }}</span>
             {% for r in t.rapprochements %}
             <span class="mention" data-testid="rapproche-objet">
-              {{ r.type }}{% if r.objet_id %} — {{ r.objet_id }}{% endif %}
-              ({{ "%.2f"|format(r.montant) }} {{ t.devise }})</span>
+              {{ r.libelle }} ({{ "%.2f"|format(r.montant) }} {{ t.devise }})</span>
             {% endfor %}
             {% if not t.definitif %}
             <span class="mention" data-testid="qonto-non-definitif">{{ t.motif_non_definitif }}</span>
