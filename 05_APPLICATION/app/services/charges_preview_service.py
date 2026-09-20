@@ -874,6 +874,10 @@ def _build_row_data(
         "code_anomalie": str(form_data.get("code_anomalie", "")).strip() or None,
         "statut_rapprochement": "NON_RAPPROCHE",
         "justificatif": str(form_data.get("justificatif", "")).strip() or None,
+        # Justificatif ARCHIVÉ : oui/non seulement. La référence (JUS-AAAA-NNNN) n'est pas décidée
+        # ici — elle est attribuée par la séquence, à l'écriture, pour ne jamais être devinée.
+        "justificatif_archive": (str(form_data.get("justificatif_archive", "")).strip().upper()
+                                 or None),
         "commentaire": str(form_data.get("commentaire", "")).strip() or None,
         "date_saisie": date.today().isoformat(),
         "affectable_menage": affectable_menage,

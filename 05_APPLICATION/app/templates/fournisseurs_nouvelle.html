@@ -256,6 +256,19 @@
           <input type="text" id="justificatif" name="justificatif" value="{{ form.get('justificatif', '') }}" placeholder="Référence, numéro de facture...">
         </div>
         <div class="form-group">
+          <label for="justificatif_archive">Justificatif archivé</label>
+          <select id="justificatif_archive" name="justificatif_archive" data-testid="justificatif-archive">
+            <option value="">—</option>
+            <option value="NON" {% if form.get('justificatif_archive') == 'NON' %}selected{% endif %}>Non</option>
+            <option value="OUI" {% if form.get('justificatif_archive') == 'OUI' %}selected{% endif %}>Oui</option>
+          </select>
+          {# La référence n'est pas saisie : elle est attribuée à l'enregistrement (JUS-AAAA-NNNN),
+             sans jamais réutiliser un numéro déjà consommé. #}
+          <p class="form-help text-secondary">
+            « Oui » attribue automatiquement une référence de classement (JUS-{{ "%s"|format(annee_justificatif) }}-0001, 0002…).
+          </p>
+        </div>
+        <div class="form-group">
           <label for="commentaire">Commentaire</label>
           <input type="text" id="commentaire" name="commentaire" value="{{ form.get('commentaire', '') }}" placeholder="Commentaire libre">
         </div>

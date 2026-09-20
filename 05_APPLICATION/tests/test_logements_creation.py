@@ -72,9 +72,14 @@ def test_identifiant_deja_utilise_refuse(ref):
     assert svc.E_ID_EXISTANT in codes
 
 
-def test_identifiant_obligatoire(ref):
+def test_identifiant_absent_nest_plus_une_erreur(ref):
+    """Recette 4 lot 2 §25 : l'identifiant technique n'est plus saisi, il est ATTRIBUÉ.
+
+    L'exiger de l'utilisateur lui faisait inventer « LOG_XXXX » ; un identifiant explicitement
+    fourni (reprise de données) reste accepté et vérifié.
+    """
     codes = [e["code"] for e in svc.valider(dict(FORM, logement_id=""))]
-    assert svc.E_ID_MANQUANT in codes
+    assert svc.E_ID_MANQUANT not in codes
 
 
 def test_nom_obligatoire(ref):

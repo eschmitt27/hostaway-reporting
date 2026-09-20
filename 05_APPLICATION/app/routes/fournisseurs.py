@@ -54,11 +54,13 @@ def fournisseurs_list(
 @router.get("/fournisseurs/nouvelle", response_class=HTMLResponse)
 def fournisseurs_nouvelle_form(request: Request):
     refs = load_form_refs()
+    from datetime import date as _date
     return templates.TemplateResponse(request, "fournisseurs_nouvelle.html", {
         "active_menu": "fournisseurs",
         "refs": refs,
         "form": {},
         "erreurs": [],
+        "annee_justificatif": _date.today().strftime("%Y"),
     })
 
 
@@ -77,11 +79,13 @@ async def fournisseurs_nouvelle_previsualiser(request: Request):
     result = previsualiser(form_data)
     if not result["ok"]:
         refs = load_form_refs()
+        from datetime import date as _date
         return templates.TemplateResponse(request, "fournisseurs_nouvelle.html", {
             "active_menu": "fournisseurs",
             "refs": refs,
             "form": form_data,
             "erreurs": result["manifest"]["errors"],
+            "annee_justificatif": _date.today().strftime("%Y"),
         })
     return RedirectResponse(
         url=f"/fournisseurs/nouvelle/previsualisation/{result['token']}",

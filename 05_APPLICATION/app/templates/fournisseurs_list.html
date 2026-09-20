@@ -99,6 +99,7 @@
         <th class="num">Montant</th>
         <th>Impact</th>
         <th>Refact.</th>
+        <th>Justificatif</th>
         <th>Statut</th>
         <th></th>
       </tr>
@@ -130,6 +131,13 @@
           {% else %}
             {{ row.refacturable or "—" }}
           {% endif %}
+        </td>
+        {# Référence de classement du justificatif archivé — attribuée, jamais saisie. #}
+        <td class="text-xs">
+          {% if row.justificatif_reference %}
+            <span class="code-id">{{ row.justificatif_reference }}</span>
+          {% elif row.justificatif_archive == 'NON' %}Non
+          {% else %}—{% endif %}
         </td>
         <td>
           <span class="status-badge status-{{ (row.statut_controle or 'inconnu') | lower | replace('_','-') }}">

@@ -80,6 +80,9 @@ CHAMPS_SAISIE = (
     "affectation_type", "logement_id", "proprietaire_id", "reservation_id", "refacturable",
     "source_flux", "methode_traitement", "paye_avec_montant_recupere", "lien_virement_banque",
     "statut_controle", "niveau_anomalie", "code_anomalie", "statut_rapprochement", "justificatif",
+    # « Justificatif archivé » (oui/non) et sa RÉFÉRENCE, attribuée par la séquence — jamais
+    # saisie : voir `attribuer_reference_justificatif`.
+    "justificatif_archive", "justificatif_reference",
     "commentaire",
     # `affectable_menage` était CALCULÉ par la prévisualisation puis perdu à l'INSERT : la colonne
     # n'existait pas et ce champ ne figurait pas ici. `lot6f_cout_complet_menages` filtre pourtant
@@ -89,6 +92,59 @@ CHAMPS_SAISIE = (
 )
 
 OBLIGATOIRES = ("date_charge", "montant", "categorie_charge_id")
+
+
+JUSTIFICATIF_ARCHIVE_OUI = "OUI"
+JUSTIFICATIF_ARCHIVE_NON = "NON"
+#: Préfixe de la référence d'un justificatif archivé : JUS-AAAA-NNNN.
+PREFIXE_JUSTIFICATIF = "JUS"
+
+
+def formater_reference_justificatif(annee: str, numero: int) -> str:
+    return f"{PREFIXE_JUSTIFICATIF}-{annee}-{int(numero):04d}"
+
+
+def attribuer_reference_justificatif(conn, annee: str) -> str:
+    """Référence unique du prochain justificatif archivé de l'année. Jamais deux fois la même.
+
+    `BEGIN IMMEDIATE` sérialise deux attributions concurrentes (double clic, deux onglets) : la
+    seconde attend la première et obtient le numéro suivant, jamais le même. La séquence ne garde
+    que son dernier numéro : un numéro consommé par une charge ensuite annulée n'est pas rendu —
+    un justificatif classé sous JUS-2026-0001 doit rester retrouvable.
+    """
+    annee = str(annee or "").strip()[:4] or datetime.now(timezone.utc).strftime("%Y")
+    deja_en_transaction = conn.in_transaction
+    if not deja_en_transaction:
+        conn.execute("BEGIN IMMEDIATE")
+    conn.execute("INSERT OR IGNORE INTO charges_justificatif_sequence (serie) VALUES (?)", (annee,))
+    conn.execute(
+        "UPDATE charges_justificatif_sequence SET dernier_numero = dernier_numero + 1, "
+        "date_modification = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE serie = ?", (annee,))
+    numero = conn.execute(
+        "SELECT dernier_numero FROM charges_justificatif_sequence WHERE serie = ?",
+        (annee,)).fetchone()[0]
+    return formater_reference_justificatif(annee, numero)
+
+
+def _appliquer_justificatif_archive(conn, valeurs: dict[str, Any], date_charge: Any) -> None:
+    """Pose la référence quand le justificatif est archivé, et seulement alors.
+
+    Une référence déjà attribuée n'est jamais remplacée (la pièce est classée sous ce numéro), et
+    repasser à « non archivé » efface la référence sans la rendre à la séquence.
+    """
+    archive = str(valeurs.get("justificatif_archive") or "").strip().upper()
+    if archive not in (JUSTIFICATIF_ARCHIVE_OUI, JUSTIFICATIF_ARCHIVE_NON):
+        valeurs["justificatif_archive"] = None
+        valeurs["justificatif_reference"] = valeurs.get("justificatif_reference") or None
+        return
+    valeurs["justificatif_archive"] = archive
+    if archive == JUSTIFICATIF_ARCHIVE_NON:
+        valeurs["justificatif_reference"] = None
+        return
+    if str(valeurs.get("justificatif_reference") or "").strip():
+        return
+    valeurs["justificatif_reference"] = attribuer_reference_justificatif(
+        conn, str(date_charge or "")[:4])
 
 
 def _maintenant() -> str:
@@ -223,6 +279,7 @@ def creer(donnees: dict[str, Any], *, acteur: str = "", conn=None, perimetre=Non
     try:
         if _charge(conn, charge_id) is not None:
             return _refus(E_DOUBLON, f"Une charge porte déjà l'identifiant {charge_id}.")
+        _appliquer_justificatif_archive(conn, valeurs, valeurs.get("date_charge"))
         colonnes = ["charge_id", *CHAMPS_SAISIE, "date_saisie", "source_module", "acteur"]
         params = [charge_id, *(valeurs[c] for c in CHAMPS_SAISIE), _maintenant(), "SAISIE_APP",
                   acteur or None]
@@ -274,6 +331,10 @@ def modifier(charge_id: str, donnees: dict[str, Any], *, acteur: str = "", motif
         valeurs = {c: donnees.get(c) for c in CHAMPS_SAISIE}
         valeurs["montant"] = validation["montant"]
         valeurs["mois"] = validation["mois"]
+        # Une référence déjà attribuée est conservée : la pièce est classée sous ce numéro.
+        valeurs["justificatif_reference"] = (valeurs.get("justificatif_reference")
+                                             or avant.get("justificatif_reference"))
+        _appliquer_justificatif_archive(conn, valeurs, valeurs.get("date_charge"))
         conn.execute(
             f"UPDATE charges SET {', '.join(f'{c} = ?' for c in CHAMPS_SAISIE)}, "
             "date_modification = ? WHERE charge_id = ?",

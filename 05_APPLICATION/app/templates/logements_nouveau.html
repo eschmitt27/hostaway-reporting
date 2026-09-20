@@ -26,9 +26,13 @@
        de contrôle bancaire. Sans la classe `filter-input`, un champ n'hérite d'aucun style du
        projet — la feuille ne cible volontairement aucune balise de formulaire nue. #}
     <div class="form-grid-3">
+      {# L'identifiant technique n'est plus saisi : il est attribué à la création, à la suite du
+         dernier attribué. Le montrer en lecture seule évite de faire croire qu'il se choisit. #}
       <div class="form-field">
-        <label for="crea-logement-id">Identifiant du logement *</label>
-        <input id="crea-logement-id" type="text" name="logement_id" class="filter-input" required placeholder="LOG_XXX">
+        <label for="crea-logement-id">Identifiant du logement</label>
+        <input id="crea-logement-id" type="text" class="filter-input" value="{{ prochain_identifiant }}"
+               readonly disabled data-testid="prochain-identifiant">
+        <p class="form-help text-secondary">Attribué automatiquement.</p>
       </div>
       <div class="form-field">
         <label for="crea-nom-officiel">Nom officiel</label>

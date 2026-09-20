@@ -364,6 +364,17 @@
     <span class="detail-value text-secondary">{{ c.justificatif }}</span>
   </div>
   {% endif %}
+  {% if c.justificatif_archive %}
+  <div class="detail-row" data-testid="justificatif-archive">
+    <span class="detail-label">Justificatif archivé</span>
+    <span class="detail-value">
+      {{ "Oui" if c.justificatif_archive == "OUI" else "Non" }}
+      {% if c.justificatif_reference %}
+      — <span class="code-id">{{ c.justificatif_reference }}</span>
+      {% endif %}
+    </span>
+  </div>
+  {% endif %}
 </div>
 
 <!-- Origine -->

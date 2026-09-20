@@ -52,6 +52,8 @@ def logement_nouveau(request: Request, message: str = "", erreur: str = ""):
     return templates.TemplateResponse(request, "logements_nouveau.html", {
         "active_menu": "logements",
         "refs": refs,
+        # Montré en lecture seule : l'identifiant définitif est attribué à l'écriture.
+        "prochain_identifiant": creation_svc.prochain_identifiant(),
         "ecriture_active": _ecriture_active(),
         "message": message,
         "erreur": erreur,

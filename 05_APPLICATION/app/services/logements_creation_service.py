@@ -22,6 +22,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
+from app.db.connection import get_db
 from app.services import referentiel_admin_service as adm
 
 SH_LOG = adm.TABLE_LOGEMENTS
@@ -80,6 +81,34 @@ def referentiels(*, db_path=None) -> dict[str, Any]:
     }
 
 
+PREFIXE_LOGEMENT = "LOG_"
+
+
+def prochain_identifiant(*, db_path=None, conn=None) -> str:
+    """Prochain `LOG_nnnn` libre, déduit du référentiel lui-même.
+
+    Le rang suit le plus grand numéro DÉJÀ attribué (LOG_0012 → LOG_0013), y compris s'il manque
+    des numéros au milieu : un identifiant libéré ne se réattribue pas, il désignerait deux
+    logements différents dans l'historique.
+    """
+    local = conn is None
+    if local:
+        conn = get_db(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT logement_id FROM ref_logements WHERE logement_id LIKE ?",
+            (PREFIXE_LOGEMENT + "%",)).fetchall()
+    finally:
+        if local:
+            conn.close()
+    dernier = 0
+    for r in rows:
+        suffixe = str(r["logement_id"])[len(PREFIXE_LOGEMENT):]
+        if suffixe.isdigit():
+            dernier = max(dernier, int(suffixe))
+    return f"{PREFIXE_LOGEMENT}{dernier + 1:04d}"
+
+
 def valider(form: dict[str, Any], *, db_path=None) -> list[dict[str, str]]:
     """Contrôles métier AVANT écriture. Retourne la liste des erreurs (vide = valide)."""
     erreurs: list[dict[str, str]] = []
@@ -88,10 +117,11 @@ def valider(form: dict[str, Any], *, db_path=None) -> list[dict[str, str]]:
         erreurs.append({"code": code, "message": MESSAGES.get(code, code), "detail": detail})
 
     refs = referentiels(db_path=db_path)
+    # L'identifiant technique n'est PLUS demandé à l'utilisateur : il est attribué à la création
+    # (`prochain_identifiant`). Un identifiant explicitement fourni reste vérifié — reprise de
+    # données, réimport — mais son absence n'est plus une erreur.
     logement_id = _txt(form.get("logement_id"))
-    if not logement_id:
-        err(E_ID_MANQUANT)
-    elif logement_id in refs["logements"]:
+    if logement_id and logement_id in refs["logements"]:
         err(E_ID_EXISTANT, logement_id)
 
     if not _txt(form.get("nom_logement_officiel")) and not _txt(form.get("nom_court")):
@@ -132,7 +162,11 @@ def creer(form: dict[str, Any], *, acteur: str = "", db_path=None) -> dict[str, 
     if erreurs:
         return {"ok": False, "code": "V_INVALIDE", "message": "Saisie invalide.", "erreurs": erreurs}
 
-    logement_id = _txt(form.get("logement_id"))
+    # L'identifiant est ATTRIBUÉ ici, au plus près de l'écriture : deux créations simultanées (ou
+    # un double clic) lisent donc l'état le plus récent du référentiel, et `ref_logements.
+    # logement_id` étant la clé primaire, une collision serait refusée par la base plutôt que
+    # produire deux logements sous le même identifiant.
+    logement_id = _txt(form.get("logement_id")) or prochain_identifiant(db_path=db_path)
     prop = _txt(form.get("proprietaire_id"))
     actif = "OUI" if _txt(form.get("actif")).upper() != "NON" else "NON"
     date_debut = _txt(form.get("date_debut"))
