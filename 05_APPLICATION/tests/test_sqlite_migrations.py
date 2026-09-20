@@ -159,6 +159,9 @@ EXPECTED_TABLES = {
     "sauvegardes_base_tracabilite",               # 0061 — hash source + version schema (mission 14)
     "charges_justificatif_sequence",             # 0092 — séquence JUS-AAAA-NNNN (recette 4 lot 2)
     "facture_interpretations",                   # 0093 — versions d'interprétation PDF / MD
+    "qonto_accounts",                            # 0095 — couche RAW Qonto : comptes bancaires
+    "qonto_transactions_raw",                    # 0095 — couche RAW Qonto : mouvements bruts
+    "qonto_sync_runs",                           # 0095 — journal des synchronisations Qonto
     "charges_refacturation_positions",           # 0062 — positions de refacturation (mission 15)
     "charges_refacturation_evenements",          # 0062 — audit positions de refacturation (mission 15)
     "mois_archive_reglement",                    # 0064 — archive Lot10 reglement a la cloture (mission 15)
