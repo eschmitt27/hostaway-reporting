@@ -57,9 +57,14 @@ def etat(facture_id_opaque: str, *, db_path=None) -> dict[str, Any]:
     try:
         f = conn.execute(
             "SELECT source_interpretation, md_nom_fichier, md_sha256, md_referentiel_version, "
-            "md_etat, statut FROM factures WHERE facture_id_opaque = ?",
+            "md_etat, statut, source FROM factures WHERE facture_id_opaque = ?",
             (facture_id_opaque,)).fetchone()
         if f is None:
+            return {}
+        # Une facture saisie à la main n'a ni PDF ni MD : elle n'a donc aucune interprétation de
+        # document à afficher. Lui prêter « Extraction PDF » par défaut serait une affirmation
+        # fausse — l'écran n'en dit rien plutôt que d'inventer une provenance.
+        if not f["source_interpretation"] and str(f["source"] or "") != "PDF_EXTRACTION":
             return {}
         versions = [dict(r) for r in conn.execute(
             "SELECT version, source, md_nom_fichier, etat, nb_lignes, montant_lignes, active, "

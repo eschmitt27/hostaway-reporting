@@ -421,3 +421,42 @@ def test_le_contrat_livre_avec_l_application_valide_son_propre_exemple():
     donnees, erreurs = md_svc.lire(exemple)
     assert erreurs == [] and donnees is not None
     assert md_svc.valider_contrat(donnees) == []
+
+
+@reels
+def test_un_rechargement_sans_changement_ne_cree_aucune_version(base, dossier):
+    """Idempotence de la lecture : si ni le PDF ni le MD n'ont bougé, rien n'est réinterprété."""
+    shutil.copy2(AOUT, dossier / AOUT.name)
+    pdf_import.recharger(acteur="test", dossier=dossier, db_path=base)
+    opaque = _facture(base)["facture_id_opaque"]
+    versions_initiales = interpretation.etat(opaque, db_path=base)["versions"]
+
+    for _ in range(3):
+        res = pdf_import.recharger(acteur="test", dossier=dossier, db_path=base)
+        assert res["interpretations_changees"] == []
+    assert interpretation.etat(opaque, db_path=base)["versions"] == versions_initiales
+
+    # Même chose une fois le MD en place : un dossier stable ne produit plus de version.
+    (dossier / "08-26-Aissata.md").write_text(_md(dossier / AOUT.name), encoding="utf-8")
+    pdf_import.recharger(acteur="test", dossier=dossier, db_path=base)
+    apres_bascule = interpretation.etat(opaque, db_path=base)["versions"]
+    assert len(apres_bascule) == len(versions_initiales) + 1
+
+    for _ in range(3):
+        res = pdf_import.recharger(acteur="test", dossier=dossier, db_path=base)
+        assert res["interpretations_changees"] == []
+    etat = interpretation.etat(opaque, db_path=base)
+    assert etat["versions"] == apres_bascule
+    assert len(_lignes_actives(base, opaque)) == 2, "aucune ligne dupliquée par les rechargements"
+
+
+@reels
+def test_une_facture_importee_porte_toujours_sa_source(base, dossier):
+    shutil.copy2(AOUT, dossier / AOUT.name)
+    pdf_import.recharger(acteur="test", dossier=dossier, db_path=base)
+    conn = get_db(base)
+    try:
+        sources = [r[0] for r in conn.execute("SELECT source_interpretation FROM factures")]
+    finally:
+        conn.close()
+    assert sources == [interpretation.SOURCE_PDF], "jamais NULL après un import"
