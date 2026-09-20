@@ -30,6 +30,10 @@ TYPES_OBJET = (
     "RESERVATION", "PAYOUT_PLATEFORME", "CHARGE_FOURNISSEUR", "REGLEMENT_CHARGE",
     "REVERSEMENT_PROPRIETAIRE", "REMBOURSEMENT_ASSOCIE", "REMBOURSEMENT_VOYAGEUR",
     "MOUVEMENT_INTERNE", "NON_IDENTIFIE",
+    # Apport d'un associé sur le compte courant (argent qui ENTRE, l'inverse d'un
+    # REMBOURSEMENT_ASSOCIE) et retrait d'espèces au distributeur. Ajoutés à la liste canonique
+    # plutôt que gérés à part : un rapprochement reste un rapprochement, quelle que soit sa nature.
+    "APPORT_ASSOCIE", "TRANSFERT_CAISSE",
 )
 
 ST_PROPOSE = "PROPOSE"

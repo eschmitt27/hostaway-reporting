@@ -34,6 +34,8 @@ from app.services import qonto_raw_service as raw
 from app.services import qonto_statut_local_service as statut_local
 from app.services import qonto_suggestions_service as suggestions
 
+FILTRE_A_TRAITER = "A_TRAITER"
+
 VUE_BANQUE = "banque"
 VUE_CAISSE = "caisse"
 
@@ -102,7 +104,11 @@ def ligne_transaction(mouvement: dict, suggestion: dict | None = None) -> dict:
     statut_qonto = (mouvement.get("statut") or "").lower()
     nature = mouvement.get("nature") or classif.INCONNU
     traitement = classif.determiner_traitement(mouvement, suggestion["niveau"])
+    rapprochements = _rapprochements(mouvement)
     return {
+        # L'identifiant qui sort d'ici est le NÔTRE (opaque et stable), jamais celui de Qonto.
+        "mouvement_id": mouvement.get("mouvement_id_opaque") or "",
+        "rapprochements": rapprochements,
         # Pour une opération en attente, Qonto n'a pas de date de règlement : on montre la date
         # d'émission EN LE DISANT, plutôt qu'une case vide ou une date qui ferait croire au règlement.
         "date": _date_courte(mouvement.get("regle_le") or mouvement.get("emis_le")),
@@ -130,15 +136,29 @@ def ligne_transaction(mouvement: dict, suggestion: dict | None = None) -> dict:
     }
 
 
+def _rapprochements(mouvement: dict) -> list[dict]:
+    """À quoi ce mouvement est-il rattaché ? Répondu par le journal canonique, jamais déduit."""
+    from app.services import banques_rapprochement_service as rappro
+    opaque = mouvement.get("mouvement_id_opaque")
+    if not opaque:
+        return []
+    actifs = [r for r in rappro.lister(opaque, mouvement.get("_db_path"))
+              if r.get("statut") in (rappro.ST_PROPOSE, rappro.ST_CONFIRME)]
+    return [{"type": r["type_objet"], "objet_id": r["objet_id"],
+             "montant": r["montant_rapproche"], "statut": r["statut"],
+             "id": r["rapprochement_id_opaque"]} for r in actifs]
+
+
 def _mouvements(db_path=None) -> list[dict]:
     """Jointure RAW ↔ statut applicatif, sans faire remonter les colonnes de plomberie."""
     conn = get_db(db_path)
     try:
         return [dict(r) for r in conn.execute(
-            "SELECT t.montant, t.devise, t.sens, t.statut, t.type_operation, t.libelle, "
-            "       t.reference, t.note, t.contrepartie, t.emis_le, t.regle_le, t.categorie, "
-            "       t.categorie_flux, s.statut_local, s.comptabilisable, "
-            "       s.motif_non_comptabilisable, s.nature, s.nature_motif "
+            "SELECT t.qonto_transaction_uuid, t.transaction_id, t.montant, t.devise, t.sens, "
+            "       t.statut, t.type_operation, t.libelle, t.reference, t.note, t.contrepartie, "
+            "       t.emis_le, t.regle_le, t.categorie, t.categorie_flux, s.statut_local, "
+            "       s.comptabilisable, s.motif_non_comptabilisable, s.nature, s.nature_motif, "
+            "       s.mouvement_id_opaque "
             "  FROM qonto_transactions_raw t "
             "  LEFT JOIN qonto_transactions_statut_local s "
             "    ON s.qonto_transaction_uuid = t.qonto_transaction_uuid "
@@ -150,6 +170,10 @@ def _mouvements(db_path=None) -> list[dict]:
 def _lignes_avec_suggestions(db_path=None) -> list[dict]:
     """Les documents candidats sont chargés UNE fois pour toute la liste, pas une fois par ligne."""
     mouvements = _mouvements(db_path)
+    # La base visée voyage AVEC la ligne : sans cela, la lecture des rapprochements repartirait
+    # sur la base par défaut et un test isolé lirait la vraie base.
+    for mouvement in mouvements:
+        mouvement["_db_path"] = db_path
     noms = suggestions._noms_tiers(db_path)
     cache_documents: dict[str, list] = {}
     lignes = []
@@ -177,7 +201,10 @@ def _filtrer(lignes: list[dict], mois: str, traitement: str) -> list[dict]:
     retenues = lignes
     if mois:
         retenues = [ligne for ligne in retenues if ligne["mois"] == mois]
-    if traitement:
+    if traitement == FILTRE_A_TRAITER:
+        # Liste de travail : tout ce qui attend une décision, sans avoir à cocher trois cases.
+        retenues = [l for l in retenues if l["traitement"] in classif.A_TRAITER]
+    elif traitement:
         retenues = [ligne for ligne in retenues if ligne["traitement"] == traitement]
     return retenues
 
@@ -277,8 +304,10 @@ def tableau_de_bord(*, vue: str = VUE_BANQUE, mois: str = "", traitement: str = 
         "filtres": {
             "mois": mois, "traitement": traitement,
             "mois_disponibles": mois_disponibles(toutes),
-            "traitements": [(code, classif.LIBELLES_TRAITEMENT[code])
-                            for code in classif.TRAITEMENTS],
+            "traitements": ([(FILTRE_A_TRAITER,
+                              f"À traiter ({sum(compteurs[c] for c in classif.A_TRAITER)})")]
+                            + [(code, classif.LIBELLES_TRAITEMENT[code])
+                               for code in classif.TRAITEMENTS]),
         },
         "derniere_synchronisation": {
             "horodatage": _horodatage_lisible(derniere.get("termine_le")

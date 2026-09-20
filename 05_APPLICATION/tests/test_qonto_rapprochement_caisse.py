@@ -90,7 +90,9 @@ def test_A_retrait_confirme_sort_de_la_banque_et_entre_en_caisse(base):
     vue = ecran.tableau_de_bord(db_path=base)
     ligne = vue["transactions"][0]
     assert ligne["nature"] == classif.RETRAIT_ESPECES
-    assert ligne["traitement"] == classif.TRANSFERE_CAISSE
+    # Retrait identifié et réglé : la nature ne fait plus débat, il reste à comptabiliser
+    # le transfert — d'où « à valider » plutôt que « transféré ».
+    assert ligne["traitement"] == classif.A_VALIDER
     assert ligne["sens_code"] == "debit", "la banque diminue de 20 €"
     assert ligne["montant"] == 20.0
     assert vue["encaisse"]["retraits_confirmes"] == 20.0, "la caisse augmente de 20 €"
@@ -298,7 +300,7 @@ def test_H_les_filtres_mois_et_traitement_fonctionnent_ensemble(base):
     par_mois = ecran.tableau_de_bord(mois="2026-07", db_path=base)
     assert [t["mois"] for t in par_mois["transactions"]] == ["2026-07"]
 
-    par_traitement = ecran.tableau_de_bord(traitement=classif.TRANSFERE_CAISSE, db_path=base)
+    par_traitement = ecran.tableau_de_bord(traitement=classif.A_VALIDER, db_path=base)
     assert len(par_traitement["transactions"]) == 1
     assert par_traitement["transactions"][0]["nature"] == classif.RETRAIT_ESPECES
 

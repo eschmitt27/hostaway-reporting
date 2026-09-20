@@ -33,6 +33,7 @@ EN_ATTENTE_QONTO = "EN_ATTENTE_QONTO"
 TRANSFERE_CAISSE = "TRANSFERE_CAISSE"
 A_RAPPROCHER = "A_RAPPROCHER"
 A_CONTROLER = "A_CONTROLER"
+A_VALIDER = "A_VALIDER"
 RAPPROCHE = "RAPPROCHE"
 
 LIBELLES_TRAITEMENT = {
@@ -40,11 +41,17 @@ LIBELLES_TRAITEMENT = {
     TRANSFERE_CAISSE: "Transféré en caisse",
     A_RAPPROCHER: "À rapprocher",
     A_CONTROLER: "À contrôler",
+    A_VALIDER: "À valider",
     RAPPROCHE: "Rapproché",
 }
 
 # Ordre d'affichage des filtres : ce qui demande une action d'abord.
-TRAITEMENTS = (A_CONTROLER, A_RAPPROCHER, EN_ATTENTE_QONTO, TRANSFERE_CAISSE, RAPPROCHE)
+TRAITEMENTS = (A_CONTROLER, A_RAPPROCHER, A_VALIDER, EN_ATTENTE_QONTO,
+               TRANSFERE_CAISSE, RAPPROCHE)
+
+# Ce qui DEMANDE UNE ACTION humaine. Sert au filtre « à traiter » : le module Banque
+# devient une liste de travail, pas un journal qu'on relit.
+A_TRAITER = (A_CONTROLER, A_RAPPROCHER, A_VALIDER)
 
 # `category = "atm"` est le champ documenté par Qonto pour « retrait d'espèces au distributeur ».
 # Qonto le signale comme déprécié au profit de `cashflow_category`, MAIS cette dernière est une
@@ -96,8 +103,13 @@ def determiner_traitement(mouvement: dict, niveau_suggestion: str = "") -> str:
     if mouvement.get("statut_local") == RAPPROCHE:
         return RAPPROCHE
     if mouvement.get("nature") == RETRAIT_ESPECES:
-        return TRANSFERE_CAISSE
-    if niveau_suggestion in ("FORT", "MOYEN"):
+        # Retrait identifié et réglé : la nature ne fait plus débat, il ne reste qu'à
+        # comptabiliser le transfert. C'est « à valider », pas « à rapprocher ».
+        return A_VALIDER
+    if niveau_suggestion == "FORT":
+        # Un candidat unique et solide : il reste un clic de confirmation, pas une enquête.
+        return A_VALIDER
+    if niveau_suggestion == "MOYEN":
         return A_RAPPROCHER
     return A_CONTROLER
 

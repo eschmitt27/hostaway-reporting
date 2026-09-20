@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block title %}Traiter un mouvement bancaire{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+  <div class="page-header__titre">
+    <h1 class="page-title">Traiter un mouvement</h1>
+    <p class="page-subtitle">Validation humaine · rien n'est écrit avant votre confirmation</p>
+  </div>
+  <div class="page-header__actions">
+    <a href="/banques-caisse?vue=banque" class="btn btn-secondary">Retour</a>
+  </div>
+</div>
+
+{% if erreur %}<div class="alert alert-warning" data-testid="erreur-validation">{{ erreur }}</div>{% endif %}
+
+{% if not apercu %}
+<div class="alert alert-error">Mouvement introuvable.</div>
+{% else %}
+
+<div class="card">
+  <h2 class="section-title">Mouvement bancaire</h2>
+  <p class="section-note" data-testid="mouvement-resume">
+    <strong class="montant montant--{{ apercu.sens }}">
+      {{ '+' if apercu.sens == 'credit' else '−' }}{{ "%.2f"|format(apercu.montant) }} {{ apercu.devise }}
+    </strong>
+    · {{ apercu.date }} · {{ apercu.libelle }}
+  </p>
+  {% if apercu.nature_motif %}
+  <p class="mention" data-testid="nature-deduite">
+    Nature proposée d'après Qonto : <strong>{{ apercu.nature_motif }}</strong>
+  </p>
+  {% endif %}
+  {% if apercu.deja_affecte %}
+  <p class="mention">Déjà affecté : {{ "%.2f"|format(apercu.deja_affecte) }} {{ apercu.devise }}
+    · reste {{ "%.2f"|format(apercu.restant) }} {{ apercu.devise }}</p>
+  {% endif %}
+</div>
+
+{% if apercu.blocage %}
+<div class="alert alert-warning" data-testid="blocage">{{ apercu.blocage }}</div>
+{% endif %}
+
+<form method="get" action="/banques-caisse/qonto/{{ apercu.mouvement_id_opaque }}/traiter" class="barre-filtres mt-md">
+  <label class="champ">
+    <span>Nature</span>
+    <select name="nature" data-testid="choix-nature">
+      <option value="">— à choisir —</option>
+      {% for code, libelle in apercu.natures_possibles %}
+      <option value="{{ code }}" {{ 'selected' if code == apercu.nature_proposee }}>{{ libelle }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  {% if apercu.nature_proposee == 'APPORT_ASSOCIE' %}
+  <label class="champ">
+    {# L'associé n'est JAMAIS deviné : la société doit de l'argent à quelqu'un de précis. #}
+    <span>Associé concerné</span>
+    <select name="objet_id" data-testid="choix-associe">
+      <option value="">— à choisir —</option>
+      {% for a in apercu.associes %}
+      <option value="{{ a.id }}" {{ 'selected' if a.id == apercu.objet_id }}>{{ a.nom }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  {% endif %}
+  <button type="submit" class="btn btn-secondary">Prévisualiser</button>
+</form>
+
+{% if apercu.effets %}
+<div class="card mt-md" data-testid="apercu-effets">
+  <h2 class="section-title">Effet comptable prévu</h2>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Compte</th><th>Libellé</th><th class="num">Débit</th><th class="num">Crédit</th></tr></thead>
+      <tbody>
+        {% for e in apercu.effets %}
+        <tr>
+          <td class="font-mono text-xs">{{ e.compte }}</td>
+          <td>{{ e.libelle }}</td>
+          <td class="num">{{ "%.2f"|format(e.debit) if e.debit else "—" }}</td>
+          <td class="num">{{ "%.2f"|format(e.credit) if e.credit else "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if not apercu.blocage and apercu.nature_proposee
+        and (apercu.objet_id or apercu.nature_proposee == 'TRANSFERT_CAISSE') %}
+  <form method="post" action="/banques-caisse/qonto/{{ apercu.mouvement_id_opaque }}/valider"
+        class="barre-filtres mt-md">
+    <input type="hidden" name="nature" value="{{ apercu.nature_proposee }}">
+    <input type="hidden" name="objet_id" value="{{ apercu.objet_id }}">
+    <label class="champ">
+      <span>Montant affecté</span>
+      <input type="text" name="montant" value="{{ "%.2f"|format(apercu.montant_affecte) }}"
+             data-testid="montant-affecte">
+    </label>
+    <a href="/banques-caisse?vue=banque" class="btn btn-ghost">Annuler</a>
+    <button type="submit" class="btn btn-primary" data-testid="bouton-valider">Valider</button>
+  </form>
+  {% else %}
+  <p class="mention">
+    {% if apercu.blocage %}{{ apercu.blocage }}
+    {% else %}Choisissez la nature et l'objet concerné pour pouvoir valider.{% endif %}
+  </p>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if apercu.rapprochements %}
+<div class="card mt-md" data-testid="rapprochements-existants">
+  <h2 class="section-title">Rapprochements enregistrés</h2>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Nature</th><th>Objet</th><th class="num">Montant</th><th>Statut</th><th></th></tr></thead>
+      <tbody>
+        {% for r in apercu.rapprochements %}
+        <tr>
+          <td>{{ r.type_objet }}</td>
+          <td>{{ r.objet_id or "—" }}</td>
+          <td class="num">{{ "%.2f"|format(r.montant_rapproche) }}</td>
+          <td><span class="status-badge {{ 'status-valide' if r.statut == 'CONFIRME' else 'status-a-controler' }}">{{ r.statut }}</span></td>
+          <td>
+            {% if r.statut in ('PROPOSE', 'CONFIRME') %}
+            {# Annuler exige un motif : il reste dans l'historique, et l'écriture est contrepassée. #}
+            <form method="post" class="barre-filtres"
+                  action="/banques-caisse/qonto/rapprochements/{{ r.rapprochement_id_opaque }}/annuler">
+              <input type="text" name="motif" placeholder="Motif (obligatoire)" required
+                     data-testid="motif-annulation">
+              <button type="submit" class="btn btn-ghost btn-sm">Annuler le rapprochement</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<p class="note-bas">
+  Qonto reste en <strong>lecture seule</strong> : cette validation n'envoie rien à la banque, elle
+  n'écrit que dans cette application. Une opération encore en attente chez Qonto ne peut pas être
+  comptabilisée. Un rapprochement validé ne se supprime pas : il s'annule avec un motif, et
+  l'écriture est contrepassée.
+</p>
+
+{% endif %}
+{% endblock %}

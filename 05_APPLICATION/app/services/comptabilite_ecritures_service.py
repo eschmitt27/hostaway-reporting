@@ -372,6 +372,77 @@ def generer_ecriture_banque(rapprochement_id_opaque: str, *, acteur: str = "",
         acteur=acteur, db_path=db_path)
 
 
+def _rapprochement(rapprochement_id_opaque: str, type_attendu: str, db_path=None):
+    conn = get_db(db_path)
+    try:
+        rap = conn.execute(
+            "SELECT * FROM banque_rapprochements WHERE rapprochement_id_opaque=?",
+            (rapprochement_id_opaque,)).fetchone()
+    finally:
+        conn.close()
+    if rap is None or rap["type_objet"] != type_attendu or rap["statut"] != "CONFIRME":
+        return None
+    return rap
+
+
+def generer_ecriture_apport_associe(rapprochement_id_opaque: str, *, acteur: str = "",
+                                    db_path=None) -> dict[str, Any]:
+    """Apport d'un associé en compte courant : 512 (Banque, débit) / 467 (Associés, crédit).
+
+    Le compte est `467000 — Associés – comptes courants`, celui que le plan comptable de
+    l'application porte réellement. Aucun 455x n'est introduit : inventer une granularité que la
+    balance ne connaît pas créerait un compte orphelin que personne ne rapprocherait jamais.
+
+    L'associé est porté en AUXILIAIRE — c'est ce qui permet de dire plus tard « combien la société
+    doit-elle à Untel », et pourquoi l'écran exige de le choisir au lieu de le deviner.
+
+    Ce mouvement n'est ni une vente, ni un produit : il n'y a pas de résultat, seulement une dette
+    de la société envers son associé.
+    """
+    if not _flags_actifs():
+        return _refus(E_FLAGS)
+    rap = _rapprochement(rapprochement_id_opaque, "APPORT_ASSOCIE", db_path)
+    if rap is None:
+        return _refus(E_ORIGINE_INVALIDE, rapprochement_id_opaque)
+
+    montant = round(rap["montant_rapproche"], 2)
+    associe = rap["objet_id"]
+    lignes = [
+        {"compte": COMPTE_BANQUE, "debit": montant, "credit": 0, "libelle": "Apport en compte courant"},
+        {"compte": COMPTE_ASSOCIES, "debit": 0, "credit": montant, "auxiliaire": associe,
+         "libelle": "Apport en compte courant d'associé"},
+    ]
+    return _inserer_ecriture(
+        "BANQUE", rap["date_creation"][:10], rap["date_creation"][:7], rapprochement_id_opaque,
+        "Apport en compte courant d'associé", "RAPPROCHEMENT", rapprochement_id_opaque, lignes,
+        acteur=acteur, db_path=db_path)
+
+
+def generer_ecriture_transfert_caisse(rapprochement_id_opaque: str, *, acteur: str = "",
+                                      db_path=None) -> dict[str, Any]:
+    """Retrait d'espèces : 530 (Caisse, débit) / 512 (Banque, crédit).
+
+    L'argent change de contenant, il ne se dépense pas : aucun compte de charge n'apparaît, et le
+    résultat est rigoureusement inchangé. C'est ce qui rend cette écriture automatisable sans
+    décision humaine, là où un paiement par carte demanderait de savoir ce qui a été acheté.
+    """
+    if not _flags_actifs():
+        return _refus(E_FLAGS)
+    rap = _rapprochement(rapprochement_id_opaque, "TRANSFERT_CAISSE", db_path)
+    if rap is None:
+        return _refus(E_ORIGINE_INVALIDE, rapprochement_id_opaque)
+
+    montant = round(rap["montant_rapproche"], 2)
+    lignes = [
+        {"compte": COMPTE_CAISSE, "debit": montant, "credit": 0, "libelle": "Retrait d'espèces"},
+        {"compte": COMPTE_BANQUE, "debit": 0, "credit": montant, "libelle": "Retrait au distributeur"},
+    ]
+    return _inserer_ecriture(
+        "BANQUE", rap["date_creation"][:10], rap["date_creation"][:7], rapprochement_id_opaque,
+        "Transfert banque vers caisse", "RAPPROCHEMENT", rapprochement_id_opaque, lignes,
+        acteur=acteur, db_path=db_path)
+
+
 def generer_ecriture_avoir(facture_avoir_id_opaque: str, ecriture_origine_id_opaque: str, *,
                            acteur: str = "", db_path=None) -> dict[str, Any]:
     """Contrepasse l'écriture ACHATS d'origine pour un avoir : lignes inversées, jamais une

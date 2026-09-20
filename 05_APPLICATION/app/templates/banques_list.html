@@ -163,6 +163,11 @@
           <td>
             <span class="status-badge statut-{{ t.traitement|lower|replace('_','-') }}"
                   data-testid="traitement">{{ t.traitement_libelle }}</span>
+            {% for r in t.rapprochements %}
+            <span class="mention" data-testid="rapproche-objet">
+              {{ r.type }}{% if r.objet_id %} — {{ r.objet_id }}{% endif %}
+              ({{ "%.2f"|format(r.montant) }} {{ t.devise }})</span>
+            {% endfor %}
             {% if not t.definitif %}
             <span class="mention" data-testid="qonto-non-definitif">{{ t.motif_non_definitif }}</span>
             {% endif %}
@@ -185,13 +190,13 @@
             {% endif %}
           </td>
           <td class="col-action">
-            {% if t.traitement == 'TRANSFERE_CAISSE' %}
-              <span class="mention">automatique</span>
-            {% elif t.traitement == 'EN_ATTENTE_QONTO' %}
+            {% if t.traitement == 'EN_ATTENTE_QONTO' %}
               <span class="mention">attendre</span>
+            {% elif t.traitement == 'RAPPROCHE' %}
+              <a href="/banques-caisse/qonto/{{ t.mouvement_id }}/traiter" class="btn btn-ghost btn-sm">Détail</a>
             {% else %}
-              <a href="/banques-caisse?vue=caisse" class="btn btn-ghost btn-sm" aria-disabled="true"
-                 title="Le rapprochement sera activé à l'étape suivante">À traiter</a>
+              <a href="/banques-caisse/qonto/{{ t.mouvement_id }}/traiter" class="btn btn-primary btn-sm"
+                 data-testid="bouton-traiter">Traiter</a>
             {% endif %}
           </td>
         </tr>

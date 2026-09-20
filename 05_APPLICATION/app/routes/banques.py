@@ -24,6 +24,7 @@ from app.services import banques_classement_service as classement
 from app.services import qonto_ecran_service as qonto_ecran
 from app.services import qonto_sync_service as qonto_sync
 from app.services import qonto_statut_local_service as statut_local
+from app.services import qonto_validation_service as validation
 from app.readers.banques_reader import date_affichage, datetime_affichage
 
 router = APIRouter()
@@ -625,3 +626,54 @@ def qonto_actualiser(vue: str = qonto_ecran.VUE_BANQUE):
     return RedirectResponse(
         f"/banques-caisse?vue={quote_plus(vue)}&message={quote_plus('Données Qonto actualisées.')}",
         status_code=303)
+
+
+@router.get("/banques-caisse/qonto/{mouvement_id}/traiter", response_class=HTMLResponse)
+def qonto_traiter_form(request: Request, mouvement_id: str, nature: str = "",
+                       objet_id: str = "", erreur: str = ""):
+    """Écran de validation : la transaction, la suggestion, et les effets PRÉVUS.
+
+    L'utilisateur voit ce qui va être écrit avant que ce soit écrit. Une validation qui ne montre
+    pas son effet demande une confiance aveugle.
+    """
+    apercu = validation.apercu_par_mouvement(mouvement_id, nature=nature, objet_id=objet_id)
+    if not apercu.get("ok"):
+        return templates.TemplateResponse(request, "qonto_traiter.html", {
+            "active_menu": "banques", "apercu": None, "erreur": apercu.get("message"),
+        }, status_code=404)
+    return templates.TemplateResponse(request, "qonto_traiter.html", {
+        "active_menu": "banques", "apercu": apercu, "erreur": erreur,
+    })
+
+
+@router.post("/banques-caisse/qonto/{mouvement_id}/valider")
+async def qonto_valider(request: Request, mouvement_id: str):
+    form = await request.form()
+    nature = (form.get("nature") or "").strip()
+    objet_id = (form.get("objet_id") or "").strip()
+    montant = (form.get("montant") or "").strip()
+    resultat = validation.valider_par_mouvement(mouvement_id, nature=nature, objet_id=objet_id,
+                                  montant=montant or None, acteur="local",
+                                  commentaire=(form.get("commentaire") or "").strip())
+    if not resultat.get("ok"):
+        message = resultat.get("message") or resultat.get("code", "Validation refusée.")
+        return RedirectResponse(
+            f"/banques-caisse/qonto/{mouvement_id}/traiter"
+            f"?nature={quote_plus(nature)}&objet_id={quote_plus(objet_id)}"
+            f"&erreur={quote_plus(message)}", status_code=303)
+    return RedirectResponse(
+        f"/banques-caisse?vue=banque&message={quote_plus('Mouvement rapproché.')}",
+        status_code=303)
+
+
+@router.post("/banques-caisse/qonto/rapprochements/{rapprochement_id}/annuler")
+async def qonto_annuler_rapprochement(request: Request, rapprochement_id: str):
+    """Corriger une erreur humaine : motif obligatoire, écriture contrepassée, rien d'effacé."""
+    form = await request.form()
+    motif = (form.get("motif") or "").strip()
+    resultat = validation.annuler(rapprochement_id, motif=motif, acteur="local")
+    message = ("Rapprochement annulé." if resultat.get("ok")
+               else resultat.get("message", "Annulation refusée."))
+    cle = "message" if resultat.get("ok") else "erreur"
+    return RedirectResponse(f"/banques-caisse?vue=banque&{cle}={quote_plus(message)}",
+                            status_code=303)

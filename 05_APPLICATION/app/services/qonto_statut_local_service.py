@@ -29,6 +29,12 @@ MOTIFS_NON_DEFINITIFS = {
 }
 
 
+def _mouvement_opaque(transaction_id: str) -> str:
+    """Identifiant de mouvement stable (cf. `qonto_validation_service.mouvement_opaque`)."""
+    from app.services.qonto_validation_service import mouvement_opaque
+    return mouvement_opaque(transaction_id)
+
+
 def _maintenant() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -59,7 +65,8 @@ def synchroniser(*, db_path=None) -> dict:
     try:
         conn.execute("BEGIN IMMEDIATE")
         mouvements = list(conn.execute(
-            "SELECT t.qonto_transaction_uuid, t.statut, s.comptabilisable "
+            "SELECT t.qonto_transaction_uuid, t.transaction_id, t.statut, "
+            "       s.comptabilisable, s.mouvement_id_opaque "
             "FROM qonto_transactions_raw t "
             "LEFT JOIN qonto_transactions_statut_local s "
             "  ON s.qonto_transaction_uuid = t.qonto_transaction_uuid"))
@@ -72,11 +79,21 @@ def synchroniser(*, db_path=None) -> dict:
             if ligne["comptabilisable"] is None:
                 conn.execute(
                     "INSERT INTO qonto_transactions_statut_local (qonto_transaction_uuid, "
-                    "statut_local, comptabilisable, motif_non_comptabilisable, pose_le, maj_le) "
-                    "VALUES (?,?,?,?,?,?)",
+                    "statut_local, comptabilisable, motif_non_comptabilisable, pose_le, maj_le, "
+                    "mouvement_id_opaque) VALUES (?,?,?,?,?,?,?)",
                     (ligne["qonto_transaction_uuid"], A_RAPPROCHER, definitif, motif,
-                     horodatage, horodatage))
+                     horodatage, horodatage, _mouvement_opaque(ligne["transaction_id"])))
                 poses += 1
+            elif not ligne["mouvement_id_opaque"]:
+                # Ligne posée avant que l'identifiant de mouvement existe : on le complète sans
+                # toucher au reste.
+                conn.execute(
+                    "UPDATE qonto_transactions_statut_local SET mouvement_id_opaque=?, "
+                    "comptabilisable=?, motif_non_comptabilisable=?, maj_le=? "
+                    "WHERE qonto_transaction_uuid=?",
+                    (_mouvement_opaque(ligne["transaction_id"]), definitif, motif, horodatage,
+                     ligne["qonto_transaction_uuid"]))
+                rafraichis += 1
             elif ligne["comptabilisable"] != definitif:
                 conn.execute(
                     "UPDATE qonto_transactions_statut_local SET comptabilisable=?, "
