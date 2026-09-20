@@ -30,7 +30,9 @@ COMPTE_FOURNISSEURS = "401000"
 COMPTE_PROPRIETAIRES = "411000"
 COMPTE_BANQUE = "512000"
 COMPTE_CAISSE = "530000"
-COMPTE_ASSOCIES = "467000"
+# `455100` depuis la migration 0099. `467000`, retenu par défaut au démarrage du
+# module comptable, est désactivé : il n'a jamais porté d'écriture.
+COMPTE_ASSOCIES = "455100"
 COMPTE_ACHAT_GENERIQUE = "606000"
 COMPTE_VENTE_GENERIQUE = "706000"
 
@@ -387,11 +389,12 @@ def _rapprochement(rapprochement_id_opaque: str, type_attendu: str, db_path=None
 
 def generer_ecriture_apport_associe(rapprochement_id_opaque: str, *, acteur: str = "",
                                     db_path=None) -> dict[str, Any]:
-    """Apport d'un associé en compte courant : 512 (Banque, débit) / 467 (Associés, crédit).
+    """Apport d'un associé en compte courant : 512 (Banque, débit) / 455 (Associés, crédit).
 
-    Le compte est `467000 — Associés – comptes courants`, celui que le plan comptable de
-    l'application porte réellement. Aucun 455x n'est introduit : inventer une granularité que la
-    balance ne connaît pas créerait un compte orphelin que personne ne rapprocherait jamais.
+    Le compte est `455100 — Associés - comptes courants - Principal` (migration 0099), le compte
+    normatif d'un apport en compte courant. Un seul compte pour tous les associés : c'est
+    l'AUXILIAIRE qui nomme la personne, et c'est lui qui permet de dire plus tard « combien la
+    société doit-elle à Untel ».
 
     L'associé est porté en AUXILIAIRE — c'est ce qui permet de dire plus tard « combien la société
     doit-elle à Untel », et pourquoi l'écran exige de le choisir au lieu de le deviner.

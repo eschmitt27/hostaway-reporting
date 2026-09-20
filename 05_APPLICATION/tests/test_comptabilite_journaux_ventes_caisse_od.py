@@ -31,7 +31,7 @@ def test_plan_comptable_0023(db):
     conn = get_db(db)
     comptes = {r["compte"] for r in conn.execute("SELECT compte FROM plan_comptable")}
     conn.close()
-    assert {"530000", "467000", "706000"} <= comptes
+    assert {"530000", "455100", "706000"} <= comptes
 
 
 # ── VENTES (adaptateur Lot12) ─────────────────────────────────────────────────
@@ -114,8 +114,8 @@ def test_operation_caisse_encaissement_puis_ecriture(db):
     assert res["ok"], res
     lignes = {l["compte"]: l for l in compta.lignes(res["ecriture_id_opaque"], db)}
     assert lignes["530000"]["debit"] == 25.0
-    assert lignes["467000"]["credit"] == 25.0
-    assert lignes["467000"]["auxiliaire"] == "PERS_X"
+    assert lignes["455100"]["credit"] == 25.0
+    assert lignes["455100"]["auxiliaire"] == "PERS_X"
 
 
 def test_operation_caisse_remboursement_associe(db):
@@ -123,7 +123,7 @@ def test_operation_caisse_remboursement_associe(db):
     res = compta.generer_ecriture_caisse_operation(op["operation_id_opaque"], db_path=db)
     assert res["ok"], res
     lignes = {l["compte"]: l for l in compta.lignes(res["ecriture_id_opaque"], db)}
-    assert lignes["467000"]["debit"] == 30.0
+    assert lignes["455100"]["debit"] == 30.0
     assert lignes["530000"]["credit"] == 30.0
 
 

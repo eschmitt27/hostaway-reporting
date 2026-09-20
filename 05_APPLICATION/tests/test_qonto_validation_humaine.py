@@ -1,7 +1,7 @@
 """Validation humaine d'un mouvement Qonto : effets réels, une seule fois, et rien d'effacé.
 
 Ce que ces tests tiennent, dans l'ordre de la recette :
-  A. apport 200 € completed → validation avec associé → un rapprochement, écriture 512/467 ;
+  A. apport 200 € completed → validation avec associé → un rapprochement, écriture 512/455 ;
   B. double clic → aucun doublon ;
   C. transaction `pending` → validation impossible ;
   D. encaissement propriétaire → mouvement de trésorerie canonique, pas une seconde écriture ;
@@ -121,8 +121,8 @@ def test_A_un_apport_valide_produit_une_ecriture_banque_vers_compte_courant(base
         {"compte": compta.COMPTE_BANQUE, "auxiliaire": None, "debit": 200.0, "credit": 0.0},
         {"compte": compta.COMPTE_ASSOCIES, "auxiliaire": ASSOCIE, "debit": 0.0, "credit": 200.0},
     ]
-    assert compta.COMPTE_ASSOCIES == "467000", \
-        "le plan comptable de l'application porte 467000, aucun 455x n'est introduit"
+    assert compta.COMPTE_ASSOCIES == "455100", \
+        "compte normatif d'un apport en compte courant d'associé (migration 0099)"
 
 
 def test_A_un_apport_ne_cree_ni_facture_ni_creance_ni_charge(base):
@@ -541,7 +541,7 @@ def test_l_ecran_de_traitement_montre_les_effets_avant_validation(client, base):
                       f"&objet_id={ASSOCIE}")
     assert page.status_code == 200
     assert 'data-testid="apercu-effets"' in page.text
-    assert "467000" in page.text and "512000" in page.text
+    assert "455100" in page.text and "512000" in page.text
     assert "200.00" in page.text
     assert 'data-testid="bouton-valider"' in page.text
 

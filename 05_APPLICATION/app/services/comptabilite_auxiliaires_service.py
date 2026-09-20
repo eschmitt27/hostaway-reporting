@@ -16,10 +16,14 @@ FAMILLE_PROPRIETAIRE = "PROPRIETAIRE"
 FAMILLE_ASSOCIE = "ASSOCIE"
 FAMILLES = (FAMILLE_FOURNISSEUR, FAMILLE_PROPRIETAIRE, FAMILLE_ASSOCIE)
 
+# Le compte des associés vient du service d'écritures : une seule source, pour qu'un changement
+# de plan comptable ne laisse pas ce module en arrière (migration 0099 : 467000 → 455100).
+from app.services.comptabilite_ecritures_service import COMPTE_ASSOCIES
+
 COMPTE_PAR_FAMILLE = {
     FAMILLE_FOURNISSEUR: "401000",
     FAMILLE_PROPRIETAIRE: "411000",
-    FAMILLE_ASSOCIE: "467000",
+    FAMILLE_ASSOCIE: COMPTE_ASSOCIES,
 }
 
 
@@ -49,8 +53,8 @@ def _associes_avec_mouvement(db_path=None) -> list[str]:
     conn = get_db(db_path)
     try:
         rows = conn.execute(
-            "SELECT DISTINCT auxiliaire FROM ecriture_lignes WHERE compte='467000' "
-            "AND auxiliaire IS NOT NULL").fetchall()
+            "SELECT DISTINCT auxiliaire FROM ecriture_lignes WHERE compte=? "
+            "AND auxiliaire IS NOT NULL", (COMPTE_ASSOCIES,)).fetchall()
     finally:
         conn.close()
     return [r["auxiliaire"] for r in rows]
@@ -117,7 +121,7 @@ def fiche_auxiliaire(famille: str, auxiliaire: str, db_path=None) -> dict[str, A
 LIBELLES_FAMILLE = {
     FAMILLE_FOURNISSEUR: "Fournisseurs (401)",
     FAMILLE_PROPRIETAIRE: "Propriétaires (411)",
-    FAMILLE_ASSOCIE: "Associés (467)",
+    FAMILLE_ASSOCIE: "Associés (455)",
 }
 
 
