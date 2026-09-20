@@ -85,19 +85,44 @@ def test_l_inventaire_couvre_tous_les_flags():
 
 # ── Invariant 1 : tout est faux par défaut ───────────────────────────────────
 
-def test_tous_les_flags_sont_faux_par_defaut():
-    """Sans RECETTE_MODE ni variable dédiée, aucune écriture réelle n'est possible."""
-    actifs = [n for n in (DOUBLE_VERROU | GELES) if getattr(cfg, n)]
+def _config_sans_configuration(monkeypatch):
+    """Recharge `app.config` comme sur une machine VIERGE : sans `.env`, sans variable posée.
+
+    Depuis que le `.env` est chargé nativement au démarrage, mesurer `cfg` tel quel reviendrait à
+    mesurer la configuration de CETTE machine — une instance où l'exploitant a délibérément ouvert
+    des verrous ferait échouer un test de sûreté qui, lui, porte sur le défaut du CODE.
+    """
+    import importlib
+    monkeypatch.setenv("PILOTAGE_IGNORE_ENV_FILE", "1")
+    for nom in ("RECETTE_MODE", "MODE_REEL_ECRITURES"):
+        monkeypatch.delenv(nom, raising=False)
+    for nom in DOUBLE_VERROU | GELES:
+        monkeypatch.delenv(nom, raising=False)
+    return importlib.reload(cfg)
+
+
+@pytest.fixture(autouse=True)
+def _restaurer_config():
+    """Toute recharge de `cfg` est annulée : les autres tests doivent retrouver leur configuration."""
+    yield
+    import importlib
+    importlib.reload(cfg)
+
+
+def test_tous_les_flags_sont_faux_par_defaut(monkeypatch):
+    """Sans contexte d'écriture ni variable dédiée, aucune écriture réelle n'est possible."""
+    vierge = _config_sans_configuration(monkeypatch)
+    actifs = [n for n in (DOUBLE_VERROU | GELES) if getattr(vierge, n)]
     assert not actifs, f"Verrous actifs par défaut : {actifs}"
 
 
-def test_recette_mode_est_faux_par_defaut():
-    assert cfg.RECETTE_MODE is False
+def test_recette_mode_est_faux_par_defaut(monkeypatch):
+    assert _config_sans_configuration(monkeypatch).RECETTE_MODE is False
 
 
-def test_mode_reel_ecritures_est_faux_par_defaut():
+def test_mode_reel_ecritures_est_faux_par_defaut(monkeypatch):
     """Le second contexte d'activation ne s'allume jamais tout seul."""
-    assert cfg.MODE_REEL_ECRITURES is False
+    assert _config_sans_configuration(monkeypatch).MODE_REEL_ECRITURES is False
 
 
 # ── Invariant 2 : aucun flag activable seul ──────────────────────────────────
@@ -106,6 +131,9 @@ def test_mode_reel_ecritures_est_faux_par_defaut():
 def test_la_variable_seule_ne_suffit_pas(flag, monkeypatch):
     """Poser la variable d'environnement sans AUCUN contexte d'écriture ne doit rien activer."""
     monkeypatch.setenv(flag, "1")
+    # Le `.env` de la machine est ignoré : il réinjecterait le contexte qu'on veut justement
+    # absent, et le test ne prouverait plus rien.
+    monkeypatch.setenv("PILOTAGE_IGNORE_ENV_FILE", "1")
     monkeypatch.delenv("RECETTE_MODE", raising=False)
     monkeypatch.delenv("MODE_REEL_ECRITURES", raising=False)
     import importlib
@@ -139,6 +167,7 @@ def test_le_verrou_exige_deux_leviers_simultanes():
 @pytest.mark.parametrize("flag", sorted(DOUBLE_VERROU))
 def test_mode_reel_ecritures_seul_ne_suffit_pas(flag, monkeypatch):
     """Le contexte production seul n'active rien : la variable dédiée reste obligatoire."""
+    monkeypatch.setenv("PILOTAGE_IGNORE_ENV_FILE", "1")
     monkeypatch.setenv("MODE_REEL_ECRITURES", "1")
     monkeypatch.delenv("RECETTE_MODE", raising=False)
     monkeypatch.delenv(flag, raising=False)
@@ -193,6 +222,7 @@ def test_le_flag_gele_n_a_aucun_chemin_d_activation(flag, monkeypatch):
 # ── Invariant 3 : RECETTE_MODE seul n'écrit rien non plus ────────────────────
 
 def test_recette_mode_seul_n_active_aucune_ecriture(monkeypatch):
+    monkeypatch.setenv("PILOTAGE_IGNORE_ENV_FILE", "1")
     monkeypatch.setenv("RECETTE_MODE", "1")
     for flag in DOUBLE_VERROU:
         monkeypatch.delenv(flag, raising=False)
@@ -208,6 +238,7 @@ def test_recette_mode_seul_n_active_aucune_ecriture(monkeypatch):
 
 def test_mode_reel_ecritures_seul_n_active_aucune_ecriture(monkeypatch):
     """Symétrique du précédent pour le contexte production."""
+    monkeypatch.setenv("PILOTAGE_IGNORE_ENV_FILE", "1")
     monkeypatch.setenv("MODE_REEL_ECRITURES", "1")
     for flag in DOUBLE_VERROU | GELES:
         monkeypatch.delenv(flag, raising=False)

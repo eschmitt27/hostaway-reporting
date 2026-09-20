@@ -50,17 +50,45 @@ def test_04_contrat_ne_lit_jamais_le_fichier_directement():
     assert "MASTER_BANQUE" not in src   # jamais le chemin réel manipulé ici
 
 
-def test_05_flags_write_tous_false():
-    for attr in dir(cfg):
-        if attr.isupper() and "WRITE" in attr:
-            v = getattr(cfg, attr)
-            if isinstance(v, bool):
-                assert v is False, f"{attr} doit rester False"
+def _config_sans_fichier_env(monkeypatch):
+    """Recharge `app.config` en IGNORANT le `.env` de la machine.
+
+    Ces invariants portent sur le défaut du CODE — « aucun verrou d'écriture n'est vrai tant que
+    rien n'a été posé ». Depuis que le `.env` est chargé nativement au démarrage, les lire sur la
+    configuration ambiante reviendrait à mesurer les choix d'exploitation de cette machine : une
+    instance où l'écriture a été délibérément ouverte ferait échouer un test de sûreté qui ne la
+    concerne pas.
+    """
+    import importlib
+    monkeypatch.setenv("PILOTAGE_IGNORE_ENV_FILE", "1")
+    for nom in [a for a in dir(cfg) if a.isupper()]:
+        monkeypatch.delenv(nom, raising=False)
+    recharge = importlib.reload(cfg)
+    monkeypatch.undo()
+    return recharge
 
 
-def test_06_banque_real_write_reste_false():
-    assert cfg.BANQUE_REAL_WRITE_ENABLED is False
-    assert cfg.BANQUE_REAL_WRITE_CONFIRMATION_ENABLED is False
+def test_05_flags_write_tous_false(monkeypatch):
+    vierge = _config_sans_fichier_env(monkeypatch)
+    try:
+        for attr in dir(vierge):
+            if attr.isupper() and "WRITE" in attr:
+                v = getattr(vierge, attr)
+                if isinstance(v, bool):
+                    assert v is False, f"{attr} doit rester False"
+    finally:
+        import importlib
+        importlib.reload(cfg)
+
+
+def test_06_banque_real_write_reste_false(monkeypatch):
+    vierge = _config_sans_fichier_env(monkeypatch)
+    try:
+        assert vierge.BANQUE_REAL_WRITE_ENABLED is False
+        assert vierge.BANQUE_REAL_WRITE_CONFIRMATION_ENABLED is False
+    finally:
+        import importlib
+        importlib.reload(cfg)
 
 
 def test_07_contrat_ne_fuit_aucune_donnee_bancaire(monkeypatch):

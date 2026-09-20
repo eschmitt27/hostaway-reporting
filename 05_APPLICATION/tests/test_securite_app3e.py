@@ -43,12 +43,35 @@ def test_aucune_ecriture_fichier_reel_dans_les_services():
         assert "open(" not in src, f"open( trouvé dans {mod.__name__}"
 
 
-def test_flags_write_tous_false():
-    for attr in dir(cfg):
-        if attr.isupper() and "WRITE" in attr:
-            val = getattr(cfg, attr)
-            if isinstance(val, bool):
-                assert val is False, f"{attr} doit rester False"
+def _config_sans_fichier_env(monkeypatch):
+    """Recharge `app.config` en IGNORANT le `.env` de la machine.
+
+    Ces invariants portent sur le défaut du CODE — « aucun verrou d'écriture n'est vrai tant que
+    rien n'a été posé ». Depuis que le `.env` est chargé nativement au démarrage, les lire sur la
+    configuration ambiante reviendrait à mesurer les choix d'exploitation de cette machine : une
+    instance où l'écriture a été délibérément ouverte ferait échouer un test de sûreté qui ne la
+    concerne pas.
+    """
+    import importlib
+    monkeypatch.setenv("PILOTAGE_IGNORE_ENV_FILE", "1")
+    for nom in [a for a in dir(cfg) if a.isupper()]:
+        monkeypatch.delenv(nom, raising=False)
+    recharge = importlib.reload(cfg)
+    monkeypatch.undo()
+    return recharge
+
+
+def test_flags_write_tous_false(monkeypatch):
+    vierge = _config_sans_fichier_env(monkeypatch)
+    try:
+        for attr in dir(vierge):
+            if attr.isupper() and "WRITE" in attr:
+                val = getattr(vierge, attr)
+                if isinstance(val, bool):
+                    assert val is False, f"{attr} doit rester False"
+    finally:
+        import importlib
+        importlib.reload(cfg)
 
 
 def test_jinja_autoescape_actif():

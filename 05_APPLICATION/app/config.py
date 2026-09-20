@@ -5,6 +5,50 @@ import sys
 # Racine du dossier applicatif (05_APPLICATION/)
 APP_ROOT = Path(__file__).resolve().parent.parent
 
+# ── Chargement du `.env` — UNIQUE, ET AVANT TOUTE LECTURE DE VARIABLE ─────────────────────────
+# Ce module lit `os.environ` dès les lignes qui suivent, et TOUT le reste de l'application importe
+# ce module : c'est donc le seul endroit où charger le fichier puisse encore servir à quelque
+# chose. Les appels `load_dotenv` qui existaient ailleurs étaient PARESSEUX, déclenchés à la
+# première utilisation d'un service — donc longtemps après que les drapeaux aient été figés ici.
+# Résultat observé : un `.env` correctement renseigné laissait tous les verrous d'écriture
+# fermés, et un redémarrage semblait sans effet.
+#
+# Le chemin est déduit de l'ARBORESCENCE (`05_APPLICATION/..`), jamais de `PROJECT_ROOT` : cette
+# variable peut elle-même être définie dans le fichier qu'on cherche à lire.
+ENV_FILE = APP_ROOT.parent / ".env"
+
+
+def charger_env(chemin: Path | None = None) -> bool:
+    """Charge le `.env` dans l'environnement. Retourne s'il a été trouvé — jamais son contenu.
+
+    `override=False` est la règle : une vraie variable d'environnement, posée par le serveur, un
+    conteneur ou une CI, GAGNE toujours sur le fichier. L'inverse transformerait un fichier de
+    développement oublié sur une machine en source de vérité silencieuse.
+
+    Un fichier absent est un état NORMAL (worktree neuf : `.env` est ignoré par Git, il n'est donc
+    jamais recopié). L'application démarre, et les fonctionnalités qui exigent un identifiant le
+    disent au moment voulu. Une dépendance absente ne doit pas davantage empêcher le démarrage.
+    """
+    # Échappatoire explicite. Sans elle, les invariants de sûreté (« aucun verrou n'est vrai par
+    # défaut ») ne seraient plus vérifiables : ils mesureraient la configuration de la machine au
+    # lieu du défaut du CODE. Utile aussi en CI, pour garantir que seules les vraies variables
+    # d'environnement comptent.
+    if os.environ.get("PILOTAGE_IGNORE_ENV_FILE", "").strip() in ("1", "true", "True"):
+        return False
+    fichier = Path(chemin) if chemin is not None else ENV_FILE
+    if not fichier.is_file():
+        return False
+    try:
+        from dotenv import load_dotenv
+    except ImportError:  # pragma: no cover - python-dotenv est une dépendance du projet
+        return False
+    # Aucune valeur n'est journalisée ni retournée : seul le fait du chargement l'est.
+    load_dotenv(fichier, override=False)
+    return True
+
+
+ENV_FILE_CHARGE = charger_env()
+
 # Racine du projet (parent de 05_APPLICATION/)
 PROJECT_ROOT = Path(os.environ.get("PROJECT_ROOT", str(APP_ROOT.parent)))
 

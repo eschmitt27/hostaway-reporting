@@ -82,12 +82,10 @@ def diagnostic_configuration() -> dict[str, Any]:
     D'où un chemin SANITISÉ (`<PROJECT_ROOT>/.env`) : l'emplacement est parfaitement désigné, la
     machine reste anonyme. Les valeurs, elles, ne sortent jamais : uniquement des booléens.
     """
-    from dotenv import load_dotenv
-
     from app.services import path_sanitizer
 
-    chemin = Path(cfg.PROJECT_ROOT) / ".env"
-    load_dotenv(chemin)
+    # Chargé une seule fois, au démarrage, par `app.config`.
+    chemin = cfg.ENV_FILE
     requis = ("HOSTAWAY_CLIENT_ID", "HOSTAWAY_CLIENT_SECRET", "HOSTAWAY_ACCOUNT_ID")
     presents = {nom: bool(os.getenv(nom, "").strip()) for nom in requis}
     return {
@@ -103,9 +101,7 @@ def diagnostic_configuration() -> dict[str, Any]:
 
 
 def _credentials() -> tuple[str, str, str, str] | None:
-    from dotenv import load_dotenv
-
-    load_dotenv(Path(cfg.PROJECT_ROOT) / ".env")
+    # `.env` déjà chargé par `app.config` au démarrage.
     client_id = os.getenv("HOSTAWAY_CLIENT_ID", "")
     client_secret = os.getenv("HOSTAWAY_CLIENT_SECRET", "")
     account_id = os.getenv("HOSTAWAY_ACCOUNT_ID", "")

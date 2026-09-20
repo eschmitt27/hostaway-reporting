@@ -76,14 +76,9 @@ def identifiants(env: dict | None = None) -> tuple[str, str]:
 
     Même chemin que le reste de l'application : `.env` à la racine du projet (cf. `.env.example`).
     """
+    # `app.config` a déjà chargé le `.env` au démarrage : le recharger ici ne ferait que masquer
+    # une éventuelle défaillance de ce chargement central.
     source = env if env is not None else os.environ
-    if env is None:
-        try:
-            from dotenv import load_dotenv
-            load_dotenv(Path(cfg.PROJECT_ROOT) / ".env")
-        except ImportError:  # pragma: no cover - dotenv est une dépendance du projet
-            pass
-        source = os.environ
     login = (source.get("QONTO_LOGIN") or "").strip()
     secret = (source.get("QONTO_SECRET_KEY") or "").strip()
     return login, secret
