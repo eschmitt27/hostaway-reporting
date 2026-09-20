@@ -163,6 +163,7 @@ EXPECTED_TABLES = {
     "qonto_transactions_raw",                    # 0095 — couche RAW Qonto : mouvements bruts
     "qonto_sync_runs",                           # 0095 — journal des synchronisations Qonto
     "qonto_transactions_statut_local",           # 0096 — statut applicatif « À rapprocher »
+    "caisse_transferts_banque",                  # 0097 — retrait d'espèces : Banque → Caisse
     "charges_refacturation_positions",           # 0062 — positions de refacturation (mission 15)
     "charges_refacturation_evenements",          # 0062 — audit positions de refacturation (mission 15)
     "mois_archive_reglement",                    # 0064 — archive Lot10 reglement a la cloture (mission 15)

@@ -61,8 +61,16 @@ def test_02_option_filtre_id_opaque(bank_file):
 
 
 def test_03_texte_visible_compte_masque(bank_file, client):
-    r = client.get("/banques-caisse")
-    assert "CM ••••1603" in r.text or "••••" in r.text
+    """La liste du relevé a quitté le tableau de bord (écran recentré sur la banque connectée) :
+    la garantie de masquage se vérifie là où la liste est rendue, pas là où elle ne l'est plus."""
+    # La garantie porte sur la DONNÉE servie, pas sur un gabarit : elle tient quel que soit
+    # l'écran qui l'affiche, et survit à une refonte de page.
+    lignes = svc.load_dashboard(mois="2026-03")["liste"]["rows"]
+    assert lignes, "sans ligne, le test ne prouverait rien"
+    for ligne in lignes:
+        assert "•" in ligne["compte_masque"], ligne["compte_masque"]
+        assert "00021321603" not in ligne["compte_masque"]
+    assert "00021321603" not in client.get("/banques-caisse").text
 
 
 # ── 4-5 : filtre fonctionnel + stable ─────────────────────────────────────────
@@ -119,20 +127,32 @@ def test_09_export_csv_filtre_fonctionne(bank_file):
     assert "00021321603" not in contenu
 
 
-def test_10_pagination_conserve_id_opaque(bank_file, client):
+def test_10_un_identifiant_opaque_ne_fait_jamais_ressortir_le_compte_brut(bank_file, client):
+    """La pagination a disparu du tableau de bord avec la liste du relevé. Ce qui devait être
+    garanti le reste : un identifiant opaque soumis ne fait jamais réapparaître le numéro brut."""
     opq = reader.id_opaque_compte("CM_02211_00021321603")
     r = client.get(f"/banques-caisse?mois=2026-03&compte_id={opq}&page=1")
     assert r.status_code == 200
-    # le filtre reste sélectionné (reflet exact de l'opaque soumis)
-    assert f'value="{opq}"' in r.text
+    assert "00021321603" not in r.text
+    liste = client.get(f"/banques-caisse/a-rapprocher?mois=2026-03")
+    assert "00021321603" not in liste.text
 
 
 # ── 11 : aucun ancien mouvement_id sensible dans les liens ───────────────────
 
 def test_11_liens_mouvement_opaques(bank_file, client):
-    r = client.get("/banques-caisse?mois=2026-03")
-    assert "MVT-CM_02211_00021321603" not in r.text
-    assert re.search(r"/banques-caisse/mouvements/MVT-[0-9a-f]{12}", r.text)
+    """Les liens vers un mouvement vivent désormais sur les écrans dédiés : ils restent opaques."""
+    # Tout lien vers un mouvement passe par un identifiant opaque : vérifié sur la fabrique de
+    # l'identifiant, donc valable partout où un lien est construit.
+    from app.services import banques_controle_service as ctrl
+    lignes = svc.load_dashboard(mois="2026-03")["liste"]["rows"]
+    assert lignes
+    for ligne in lignes:
+        opaque = ctrl.id_opaque(ligne["mouvement_id"])
+        assert re.match(r"^MVT-[0-9a-f]{12}$", opaque), opaque
+        assert "CM_02211" not in opaque
+    assert "MVT-CM_" not in client.get("/banques-caisse?mois=2026-03").text
+    assert "MVT-CM_" not in client.get("/banques-caisse?mois=2026-03").text
 
 
 def test_11b_a_rapprocher_liens_opaques(bank_file, client):

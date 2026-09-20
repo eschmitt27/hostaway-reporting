@@ -264,7 +264,10 @@ def test_pas_import_moteur_ni_ecriture_openpyxl():
 def test_route_dashboard_200(client, bank_file):
     r = client.get("/banques-caisse?mois=2026-03")
     assert r.status_code == 200
-    assert "Banques" in r.text and "CM ••••" in r.text
+    # L'écran ne liste plus les mouvements du relevé Crédit Mutuel : ils ont leurs écrans
+    # dédiés (contrôle, à rapprocher, à classer), accessibles depuis cette page. La banque
+    # connectée (Qonto) est désormais ce que la page montre.
+    assert "Banque" in r.text and "Contrôler les mouvements" in r.text
     assert "C:\\" not in r.text and "SECRET" not in r.text
 
 

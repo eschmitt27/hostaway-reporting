@@ -139,16 +139,25 @@ def banques_dashboard(
     page: int = 1,
     message: str = "",
     erreur: str = "",
+    vue: str = qonto_ecran.VUE_BANQUE,
+    traitement: str = "",
 ):
+    """Écran Banque & Caisse. `vue` bascule entre les deux sans passer par la navigation générale.
+
+    La liste des mouvements du pipeline lot8 reste chargée pour les écrans de contrôle et de
+    rapprochement qui s'y rattachent ; elle n'encombre plus cette page.
+    """
     data = svc.load_dashboard(
         mois=mois, compte_id=compte_id, sens=sens, statut=statut, non_rapproche=non_rapproche,
         montant_min=montant_min, montant_max=montant_max, recherche=recherche, tri=tri, page=page,
     )
     return templates.TemplateResponse(request, "banques_list.html", {
         "active_menu": "banques", "data": data, "nb_a_controler": ctrl.compter_a_controler(),
-        "ecriture_active": _ecriture_active(), "airbnb": svc.categorisation_versements_airbnb(),
+        "ecriture_active": _ecriture_active(),
+        # Alerte MÉTIER (versements de plateformes), pas de la plomberie : elle reste.
+        "airbnb": svc.categorisation_versements_airbnb(),
         "nb_a_classer": classement.compter(),
-        "qonto": qonto_ecran.tableau_de_bord(),
+        "qonto": qonto_ecran.tableau_de_bord(vue=vue, mois=mois, traitement=traitement),
         "qonto_message": message, "qonto_erreur": erreur,
     })
 
@@ -598,18 +607,21 @@ def banque_a_classer_historique(request: Request, id_opaque: str):
 
 
 @router.post("/banques-caisse/qonto/actualiser")
-def qonto_actualiser():
-    """Bouton « Actualiser Qonto » : appelle la synchronisation GET-only, puis recharge l'écran.
+def qonto_actualiser(vue: str = qonto_ecran.VUE_BANQUE):
+    """Bouton « Actualiser Qonto » : synchronise, reclasse, puis recharge l'écran.
 
-    Rien d'autre. Pas de rapprochement, pas d'écriture comptable, pas de virement — le client
-    bancaire refuse structurellement tout verbe autre que GET. Un échec ne casse pas l'écran et ne
-    détruit rien : le dernier jeu importé reste affiché, avec le motif en bandeau.
+    L'enchaînement complet (mouvements bruts → statuts → natures → transferts vers la caisse) est
+    fait en un seul appel : l'écran ne peut pas afficher un solde frais avec des natures périmées.
+
+    Le message de retour est délibérément bref. Un décompte de lignes téléchargées n'apprend rien
+    à personne et ressemble à un journal technique ; ce qui compte est que les données soient à
+    jour. Aucun virement, aucune écriture comptable : le client bancaire ne sait faire que des GET.
     """
-    resultat = qonto_sync.synchroniser()
+    resultat = qonto_ecran.actualiser()
     if not resultat.get("ok"):
         message = resultat.get("message", "La synchronisation Qonto a échoué.")
-        return RedirectResponse(f"/banques-caisse?erreur={quote_plus(message)}", status_code=303)
-    statut_local.synchroniser()
-    bilan = (f"Qonto actualisé : {resultat['creees']} nouveau(x) mouvement(s), "
-             f"{resultat['mises_a_jour']} mis à jour, {resultat['inchangees']} inchangé(s).")
-    return RedirectResponse(f"/banques-caisse?message={quote_plus(bilan)}", status_code=303)
+        return RedirectResponse(
+            f"/banques-caisse?vue={quote_plus(vue)}&erreur={quote_plus(message)}", status_code=303)
+    return RedirectResponse(
+        f"/banques-caisse?vue={quote_plus(vue)}&message={quote_plus('Données Qonto actualisées.')}",
+        status_code=303)

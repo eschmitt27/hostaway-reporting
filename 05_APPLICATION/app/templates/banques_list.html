@@ -1,269 +1,264 @@
 {% extends "base.html" %}
-{% block title %}Banques & caisse{% endblock %}
+{% block title %}Banque &amp; caisse{% endblock %}
 
-{% set s = data.summary %}
-{% set liste = data.liste %}
-{% set a = data.applied %}
-{% set o = data.options %}
+{# Écran volontairement resserré. Ce qui relevait de la plomberie (import de relevé, export CSV,
+   compteurs de lignes, détail RAW Qonto, état du pipeline) a quitté cette page : l'export vit
+   dans le module Export, l'exécution dans Observabilité. Ici on répond à trois questions —
+   combien en banque, combien de trésorerie, qu'est-ce qui demande une action. #}
+{% set q = qonto %}
+{% set vue = (q.vue if q and q.disponible else 'banque') %}
 
 {% block content %}
 
-<div class="page-header flex justify-between items-center">
-  <div>
-    <h1 class="page-title">Banques &amp; caisse</h1>
+<div class="page-header">
+  <div class="page-header__titre">
+    <h1 class="page-title">Banque &amp; caisse</h1>
     <p class="page-subtitle">
-      Flux bancaires — période <span class="periode-active">{{ data.mois or "aucune" }}</span>
-      · {{ data.freshness.libelle }} · lu le {{ s.read_at }}
+      Qonto en lecture seule · mis à jour {{ q.derniere_synchronisation.horodatage if q and q.disponible else "jamais" }}
     </p>
   </div>
-  <div class="flex gap-sm items-center">
-    {% set params = [] %}
-    {% for k, v in a.items() if k not in ['page'] and v not in [None, '', False] %}
-      {% set _ = params.append(k ~ '=' ~ (v|lower if v is boolean else v)) %}
-    {% endfor %}
-    <a href="/banques-caisse/importer" class="btn btn-primary">+ Importer un relevé</a>
-    <a href="/banques-caisse/export.csv{% if params %}?{{ params|join('&') }}{% endif %}" class="btn btn-secondary">Export CSV</a>
-    <a href="/banques-caisse/a-rapprocher?mois={{ data.mois }}" class="btn btn-secondary">À rapprocher ({{ s.nb_a_rapprocher }})</a>
-    <a href="/banques-caisse/controles" class="btn btn-secondary">Contrôles</a>
-    <a href="/banques-caisse/a-classer" class="btn btn-secondary">À classer ({{ nb_a_classer }})</a>
-    <a href="/banques-caisse/controle" class="btn btn-primary">Contrôler les mouvements ({{ nb_a_controler }})</a>
-    {% if s.etat_global == "CONFORME" %}<span class="etat-global etat-global--ok">Conforme</span>
-    {% elif s.etat_global == "A_RAPPROCHER" %}<span class="etat-global etat-global--warn">À rapprocher</span>
-    {% else %}<span class="etat-global etat-global--err">Source incomplète</span>{% endif %}
-  </div>
-</div>
-
-{% if airbnb %}
-<div class="alert alert-info" data-testid="categorisation-airbnb">
-  <strong>VERSEMENTS PLATEFORMES</strong> —
-  <strong>{{ airbnb.nb_identifiables }}</strong> versement{% if airbnb.nb_identifiables != 1 %}s{% endif %}
-  catégorisé{% if airbnb.nb_identifiables != 1 %}s{% endif %} Airbnb (PAYOUT_PLATEFORME),
-  {{ "%.2f"|format(airbnb.montant_identifiables) }} €. Ces virements ne sont jamais rapprochés
-  d'une réservation individuelle — la Banque catégorise leur origine, les réservations sont
-  gérées indépendamment (Hostaway ou saisie hors Hostaway). Dernier audit : {{ airbnb.date_audit }}.
-</div>
-{% endif %}
-
-{# ── Qonto — connexion LECTURE SEULE. Volontairement hors du garde `liste.status` : Qonto ne
-     dépend pas du pipeline lot8a/8b/8c, et doit rester visible même si celui-ci n'a rien produit. #}
-{% if qonto_message %}<div class="alert alert-info" data-testid="qonto-message">{{ qonto_message }}</div>{% endif %}
-{% if qonto_erreur %}<div class="alert alert-warning" data-testid="qonto-erreur">
-  <strong>Qonto</strong> — {{ qonto_erreur }} Les mouvements déjà importés restent affichés ci-dessous.
-</div>{% endif %}
-
-{% if qonto and qonto.disponible %}
-<div class="card mt-md" data-testid="bloc-qonto">
-  <div class="flex justify-between items-center">
-    <div>
-      <h2 class="section-title">Qonto</h2>
-      <p class="section-note">
-        Connexion <strong>en lecture seule</strong> — dernière synchronisation :
-        <span data-testid="qonto-derniere-sync">{{ qonto.derniere_synchronisation.horodatage or "jamais" }}</span>
-        {% if qonto.derniere_synchronisation.statut == "ECHEC" %}
-          · <span class="status-badge status-erreur">dernier essai en échec</span>
-        {% endif %}
-      </p>
+  <div class="page-header__actions">
+    {# Switch Banque / Caisse : deux vues d'une même trésorerie, à un clic l'une de l'autre. #}
+    <div class="switch-vues" role="tablist" aria-label="Banque ou caisse">
+      <a class="switch-vues__onglet {{ 'is-actif' if vue == 'banque' }}" role="tab"
+         aria-selected="{{ 'true' if vue == 'banque' else 'false' }}"
+         href="/banques-caisse?vue=banque" data-testid="switch-banque">Banque</a>
+      <a class="switch-vues__onglet {{ 'is-actif' if vue == 'caisse' }}" role="tab"
+         aria-selected="{{ 'true' if vue == 'caisse' else 'false' }}"
+         href="/banques-caisse?vue=caisse" data-testid="switch-caisse">Caisse</a>
     </div>
-    <form method="post" action="/banques-caisse/qonto/actualiser">
+    <form method="post" action="/banques-caisse/qonto/actualiser" class="inline-form">
+      <input type="hidden" name="vue" value="{{ vue }}">
       <button type="submit" class="btn btn-primary" data-testid="qonto-actualiser">Actualiser Qonto</button>
     </form>
   </div>
+</div>
 
-  {% if not qonto.identifiants_presents %}
-  <div class="alert alert-warning mt-sm">
-    Identifiants Qonto absents du fichier « .env » : l'actualisation est impossible. Les mouvements
-    déjà importés restent consultables.
+{# Les mouvements du Crédit Mutuel (import de relevé) ne sont plus listés ici : ils ont leurs
+   écrans dédiés, qu'on rejoint d'un lien. La page ne montre plus deux banques mélangées. #}
+<div class="liens-ecrans">
+  <a href="/banques-caisse/controle" class="btn btn-secondary btn-sm">Contrôler les mouvements ({{ nb_a_controler }})</a>
+  <a href="/banques-caisse/a-rapprocher?mois={{ data.mois }}" class="btn btn-secondary btn-sm">Relevé à rapprocher</a>
+  <a href="/banques-caisse/a-classer" class="btn btn-secondary btn-sm">À classer ({{ nb_a_classer }})</a>
+  <a href="/banques-caisse/controles" class="btn btn-secondary btn-sm">Contrôles</a>
+</div>
+
+{% if data.liste.compte_id_invalide %}
+<div class="alert alert-warning">
+  Filtre compte invalide ou inconnu — filtre ignoré. Aucun numéro de compte brut n'est accepté.
+</div>
+{% endif %}
+
+{% if airbnb and airbnb.nb_identifiables %}
+<div class="alert alert-info" data-testid="categorisation-airbnb">
+  <strong>VERSEMENTS PLATEFORMES</strong> — <strong>{{ airbnb.nb_identifiables }}</strong>
+  versement{{ "s" if airbnb.nb_identifiables != 1 }} Airbnb identifié{{ "s" if airbnb.nb_identifiables != 1 }}
+  ({{ "%.2f"|format(airbnb.montant_identifiables) }} €). Ces virements ne sont jamais rapprochés
+  d'une réservation individuelle.
+</div>
+{% endif %}
+
+{% if qonto_message %}<div class="alert alert-info" data-testid="qonto-message">{{ qonto_message }}</div>{% endif %}
+{% if qonto_erreur %}<div class="alert alert-warning" data-testid="qonto-erreur">
+  <strong>Qonto</strong> — {{ qonto_erreur }} Les mouvements déjà connus restent affichés.
+</div>{% endif %}
+
+{% if not q or not q.disponible %}
+<div class="alert alert-warning" data-testid="bloc-qonto">{{ q.message if q else "Qonto indisponible." }}</div>
+{% else %}
+
+{% if not q.identifiants_presents %}
+<div class="alert alert-warning">
+  Identifiants Qonto absents du fichier « .env » : l'actualisation est impossible. Les mouvements
+  déjà connus restent consultables.
+</div>
+{% endif %}
+
+{# ── KPI : quatre chiffres, pas huit. ─────────────────────────────────────────────────────── #}
+<div class="kpi-grid kpi-grid--4" data-testid="kpi-tresorerie">
+  <div class="kpi-card kpi-card--fort">
+    <div class="kpi-label">Solde banque</div>
+    <div class="kpi-value" data-testid="kpi-solde-banque">{{ "%.2f"|format(q.soldes.banque) }} {{ q.soldes.devise }}</div>
+    <div class="kpi-sub">
+      disponible réellement{% if q.soldes.engage %} · {{ "%.2f"|format(q.soldes.engage) }} {{ q.soldes.devise }} déjà engagés{% endif %}
+    </div>
+    {# Le compte, avec son IBAN toujours masqué : contexte utile, jamais une donnée complète. #}
+    <div class="kpi-sub" data-testid="qonto-comptes">
+      {% for c in q.comptes %}{{ c.nom }} · {{ c.iban_masque }}{% if not loop.last %} · {% endif %}{% endfor %}
+    </div>
   </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Caisse</div>
+    <div class="kpi-value" data-testid="kpi-caisse">{{ "%.2f"|format(q.soldes.caisse) }} {{ q.soldes.devise }}</div>
+    <div class="kpi-sub">
+      {% if q.encaisse.retraits_provisoires %}+ {{ "%.2f"|format(q.encaisse.retraits_provisoires) }} en attente{% else %}espèces en main{% endif %}
+    </div>
+  </div>
+  <div class="kpi-card kpi-card--fort">
+    <div class="kpi-label">Trésorerie disponible</div>
+    <div class="kpi-value" data-testid="kpi-tresorerie-dispo">{{ "%.2f"|format(q.soldes.tresorerie) }} {{ q.soldes.devise }}</div>
+    <div class="kpi-sub">banque + caisse</div>
+  </div>
+  <div class="kpi-card {{ 'kpi-card--alerte' if q.a_controler else '' }}">
+    <div class="kpi-label">Demande une action</div>
+    <div class="kpi-value" data-testid="kpi-action">{{ q.a_controler + q.a_rapprocher }}</div>
+    <div class="kpi-sub">{{ q.a_controler }} à contrôler · {{ q.a_rapprocher }} à rapprocher</div>
+  </div>
+</div>
+
+{% if vue == 'banque' %}
+{# ── Vue BANQUE ───────────────────────────────────────────────────────────────────────────── #}
+<form method="get" action="/banques-caisse" class="barre-filtres" data-testid="filtres-banque">
+  <input type="hidden" name="vue" value="banque">
+  <label class="champ">
+    <span>Mois</span>
+    <select name="mois">
+      <option value="">Tous</option>
+      {% for m in q.filtres.mois_disponibles %}
+      <option value="{{ m }}" {{ 'selected' if m == q.filtres.mois }}>{{ m }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="champ">
+    <span>Traitement</span>
+    <select name="traitement">
+      <option value="">Tous</option>
+      {% for code, libelle in q.filtres.traitements %}
+      <option value="{{ code }}" {{ 'selected' if code == q.filtres.traitement }}>
+        {{ libelle }} ({{ q.compteurs[code] }})</option>
+      {% endfor %}
+    </select>
+  </label>
+  <button type="submit" class="btn btn-secondary">Filtrer</button>
+  {% if q.filtres.mois or q.filtres.traitement %}
+  <a href="/banques-caisse?vue=banque" class="btn btn-ghost">Tout voir</a>
   {% endif %}
+</form>
 
-  <div class="kpi-grid kpi-grid--5 mt-sm">
-    <div class="kpi-card"><div class="kpi-label">Solde Qonto</div>
-      <div class="kpi-value" data-testid="qonto-solde">{{ "%.2f"|format(qonto.solde) }} {{ qonto.devise }}</div>
-      <div class="kpi-sub">solde comptable</div></div>
-    <div class="kpi-card"><div class="kpi-label">Solde disponible</div>
-      <div class="kpi-value" data-testid="qonto-disponible">{{ "%.2f"|format(qonto.solde_disponible) }} {{ qonto.devise }}</div>
-      <div class="kpi-sub">
-        {% if qonto.ecart_soldes %}{{ "%.2f"|format(qonto.ecart_soldes) }} {{ qonto.devise }} immobilisés
-        {% else %}rien en attente{% endif %}</div></div>
-    <div class="kpi-card"><div class="kpi-label">Mouvements importés</div>
-      <div class="kpi-value" data-testid="qonto-nb">{{ qonto.nb_transactions }}</div>
-      <div class="kpi-sub">{{ qonto.comptes|length }} compte(s)</div></div>
-    <div class="kpi-card"><div class="kpi-label">À rapprocher</div>
-      <div class="kpi-value" data-testid="qonto-a-rapprocher">{{ qonto.a_rapprocher }}</div>
-      <div class="kpi-sub">aucun effet comptable</div></div>
-    <div class="kpi-card {{ 'kpi-card--muted' if not qonto.non_definitifs }}">
-      <div class="kpi-label">Non définitifs</div>
-      <div class="kpi-value" data-testid="qonto-non-definitifs">{{ qonto.non_definitifs }}</div>
-      <div class="kpi-sub">en attente / refusés</div></div>
-  </div>
-
-  {# Le détail par compte : indispensable dès qu'il y en aura plus d'un, et c'est là que l'IBAN
-     apparaît — toujours masqué, jamais en entier. #}
-  <p class="section-note mt-sm" data-testid="qonto-comptes">
-    {% for c in qonto.comptes %}
-      <strong>{{ c.nom }}</strong> · {{ c.iban_masque }} · {{ "%.2f"|format(c.solde) }} {{ c.devise }}
-      (disponible {{ "%.2f"|format(c.solde_autorise) }}) ·
-      <span class="status-badge {{ 'status-valide' if c.statut == 'active' else 'status-a-controler' }}">{{ c.statut }}</span>
-      {% if not loop.last %}<br>{% endif %}
-    {% else %}Aucun compte importé.{% endfor %}
-  </p>
-
-  <div class="table-container mt-sm">
-    <table class="data-table">
+<div class="card">
+  <div class="table-container">
+    <table class="data-table table-banque">
       <thead><tr>
-        <th>Date</th><th class="num">Montant</th><th>Sens</th><th>Statut Qonto</th><th>Type</th>
-        <th>Libellé</th><th>Contrepartie</th><th>Référence</th><th>Statut applicatif</th>
+        <th>Date</th><th>Libellé</th><th class="num">Montant</th><th>Statut</th>
+        <th>Traitement</th><th>Suggestion</th><th class="col-action">Action</th>
       </tr></thead>
       <tbody>
-        {% for t in qonto.transactions %}
+        {% for t in q.transactions %}
         <tr data-testid="qonto-ligne"{% if not t.definitif %} class="ligne-non-definitive"{% endif %}>
-          <td class="font-mono text-xs">
-            {{ t.date }}{% if t.date_est_prevue %}<br><span class="text-xs">(émission, non réglée)</span>{% endif %}
+          <td class="cellule-date">
+            {{ t.date }}
+            {% if t.date_est_prevue %}<span class="mention">prévue</span>{% endif %}
           </td>
-          <td class="num">{{ "%.2f"|format(t.montant) if t.montant is not none else "—" }} {{ t.devise }}</td>
-          <td>{{ t.sens }}</td>
+          <td>
+            <span class="libelle-principal">{{ t.contrepartie or t.libelle }}</span>
+            {% if t.reference %}<span class="mention">{{ t.reference }}</span>{% endif %}
+          </td>
+          <td class="num montant montant--{{ t.sens_code }}">
+            {{ '+' if t.sens_code == 'credit' else '−' }}{{ "%.2f"|format(t.montant) }} {{ t.devise }}
+          </td>
           <td>
             <span class="status-badge {{ 'status-valide' if t.statut_qonto_code == 'completed' else 'status-a-controler' }}">
               {{ t.statut_qonto }}</span>
           </td>
-          <td>{{ t.type }}</td>
-          <td>{{ t.libelle }}</td>
-          <td>{{ t.contrepartie or "—" }}</td>
-          <td class="text-xs">{{ t.reference or "—" }}</td>
-          <td class="text-xs">
-            <span class="status-badge status-info">{{ t.statut_local }}</span>
+          <td>
+            <span class="status-badge statut-{{ t.traitement|lower|replace('_','-') }}"
+                  data-testid="traitement">{{ t.traitement_libelle }}</span>
             {% if not t.definitif %}
-            <div class="text-xs" data-testid="qonto-non-definitif">⚠ {{ t.motif_non_definitif }}</div>
+            <span class="mention" data-testid="qonto-non-definitif">{{ t.motif_non_definitif }}</span>
+            {% endif %}
+          </td>
+          <td class="cellule-suggestion">
+            {% if t.nature == 'RETRAIT_ESPECES' %}
+              <span class="suggestion-titre">{{ t.nature_libelle }}</span>
+              <span class="mention">{{ t.nature_motif }} · aucune charge, transfert interne</span>
+            {% elif t.suggestion.candidats %}
+              <span class="suggestion-titre niveau-{{ t.suggestion.niveau|lower }}">
+                {{ t.suggestion.message }}</span>
+              {% for c in t.suggestion.candidats[:2] %}
+              <div class="suggestion-candidat">
+                {{ c.numero }} — {{ c.tiers }} · {{ "%.2f"|format(c.solde or 0) }} €
+                <span class="mention">{{ c.raisons|join(" · ") }}</span>
+              </div>
+              {% endfor %}
+            {% else %}
+              <span class="mention">{{ t.nature_motif or "Aucun document ne correspond" }}</span>
+            {% endif %}
+          </td>
+          <td class="col-action">
+            {% if t.traitement == 'TRANSFERE_CAISSE' %}
+              <span class="mention">automatique</span>
+            {% elif t.traitement == 'EN_ATTENTE_QONTO' %}
+              <span class="mention">attendre</span>
+            {% else %}
+              <a href="/banques-caisse?vue=caisse" class="btn btn-ghost btn-sm" aria-disabled="true"
+                 title="Le rapprochement sera activé à l'étape suivante">À traiter</a>
             {% endif %}
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="9" class="section-note">
-          Aucun mouvement Qonto importé. Utilisez « Actualiser Qonto ».
+        <tr><td colspan="7" class="section-note">
+          {% if q.nb_total %}Aucun mouvement pour ces filtres.
+          {% else %}Aucun mouvement Qonto. Utilisez « Actualiser Qonto ».{% endif %}
         </td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-
-  <div class="origine-block-card mt-sm">
-    Ces mouvements viennent de l'API Qonto en <strong>lecture seule</strong> (le client refuse tout
-    verbe autre que GET : aucun virement, aucune modification n'est possible depuis ici). Le statut
-    « À rapprocher » est un simple marqueur d'écran : il ne crée aucun règlement, ne rapproche rien
-    et ne modifie ni dette ni créance. Une opération <strong>en attente</strong> n'est pas acquise —
-    son montant peut encore changer ou ne jamais être débité : elle est signalée comme non
-    définitive et ne doit pas être tenue pour comptabilisée. Aucun identifiant de connexion n'est
-    stocké ni affiché ; les IBAN sont masqués.
-  </div>
 </div>
-{% elif qonto %}
-<div class="alert alert-warning mt-md" data-testid="bloc-qonto">{{ qonto.message }}</div>
-{% endif %}
 
-{% if liste.status != "OK" %}
-<div class="alert alert-error">
-  <strong>Source indisponible</strong> — {{ liste.etat_source.fichier }}
-  ({{ liste.etat_source.onglet }}) : {{ liste.etat_source.etat_libelle }}.
-  Le pipeline banque (lot8a → lot8b → lot8c) n'a pas produit cette sortie dans ce dépôt.
-</div>
+<p class="note-bas">
+  Connexion Qonto en <strong>lecture seule</strong> : aucun virement n'est possible depuis cette
+  application. Rien n'est rapproché automatiquement — hors retrait d'espèces, qui est un simple
+  transfert de trésorerie. Un mouvement <strong>en attente</strong> n'est pas acquis et ne peut
+  pas être tenu pour comptabilisé.
+</p>
+
 {% else %}
-
-{% if liste.compte_id_invalide %}
-<div class="alert alert-warning">
-  Filtre compte invalide ou inconnu — filtre ignoré (refusé), aucun compte brut n'est accepté.
-</div>
-{% endif %}
-
-<div class="kpi-grid kpi-grid--6">
-  <div class="kpi-card"><div class="kpi-label">Mouvements bancaires</div>
-    <div class="kpi-value">{{ s.nb_mouvements_bancaires }}</div><div class="kpi-sub">Crédit Mutuel</div></div>
-  <div class="kpi-card kpi-card--muted"><div class="kpi-label">Mouvements caisse</div>
-    <div class="kpi-value">—</div><div class="kpi-sub">Non alimenté (aucun module)</div></div>
-  <div class="kpi-card"><div class="kpi-label">Rapprochés</div>
-    <div class="kpi-value">{{ s.nb_rapproches }}</div><div class="kpi-sub">validés par le moteur</div></div>
-  <div class="kpi-card"><div class="kpi-label">À rapprocher</div>
-    <div class="kpi-value">{{ s.nb_a_rapprocher }}</div><div class="kpi-sub">en attente</div></div>
-  <div class="kpi-card"><div class="kpi-label">À contrôler</div>
-    <div class="kpi-value">{{ s.nb_a_controler }}</div><div class="kpi-sub">anomalies moteur</div></div>
-  <div class="kpi-card"><div class="kpi-label">Débit / Crédit</div>
-    <div class="kpi-value" style="font-size:16px">{{ "%.2f"|format(s.total_debit) }} / {{ "%.2f"|format(s.total_credit) }} €</div>
-    <div class="kpi-sub">totaux période</div></div>
-</div>
-
-<form method="get" action="/banques-caisse" class="filter-bar mt-md">
-  <label>Période
-    <select name="mois"><option value="">—</option>
-      {% for p in o.periodes %}<option value="{{ p.id }}" {{ 'selected' if p.id == data.mois }}>{{ p.libelle }}</option>{% endfor %}
-    </select></label>
-  <label>Compte
-    <select name="compte_id"><option value="">Tous</option>
-      {% for c in o.comptes %}<option value="{{ c.id }}" {{ 'selected' if c.id == a.compte_id }}>{{ c.libelle }}</option>{% endfor %}
-    </select></label>
-  <label>Sens
-    <select name="sens"><option value="">Tous</option>
-      <option value="DEBIT" {{ 'selected' if a.sens == 'DEBIT' }}>Débit</option>
-      <option value="CREDIT" {{ 'selected' if a.sens == 'CREDIT' }}>Crédit</option>
-    </select></label>
-  <label>Statut
-    <select name="statut"><option value="">Tous</option>
-      {% for st in o.statuts %}<option value="{{ st.id }}" {{ 'selected' if st.id == a.statut }}>{{ st.libelle }}</option>{% endfor %}
-    </select></label>
-  <label>Montant min <input type="text" name="montant_min" value="{{ a.montant_min or '' }}" size="6"></label>
-  <label>Montant max <input type="text" name="montant_max" value="{{ a.montant_max or '' }}" size="6"></label>
-  <label>Recherche <input type="text" name="recherche" value="{{ a.recherche or '' }}" size="14"></label>
-  <label>Tri
-    <select name="tri">{% for k, v in data.tris.items() %}<option value="{{ k }}" {{ 'selected' if k == a.tri }}>{{ v }}</option>{% endfor %}</select></label>
-  <label>&nbsp;<label><input type="checkbox" name="non_rapproche" value="true" {{ 'checked' if a.non_rapproche }}> Non rapprochés seulement</label></label>
-  <button type="submit" class="btn btn-primary">Filtrer</button>
-</form>
-
+{# ── Vue CAISSE ───────────────────────────────────────────────────────────────────────────── #}
 <div class="card">
-  <p class="section-note">{{ liste.count_filtre }} mouvement(s) sur {{ liste.count_total }} — page {{ liste.page }}/{{ liste.pages }}</p>
+  <p class="section-note">
+    Encaisse : <strong>{{ "%.2f"|format(q.encaisse.solde) }} {{ q.soldes.devise }}</strong>
+    {% if q.encaisse.operations %}· dont {{ "%.2f"|format(q.encaisse.operations) }} d'opérations de caisse{% endif %}
+    {% if q.encaisse.retraits_confirmes %}· dont {{ "%.2f"|format(q.encaisse.retraits_confirmes) }} de retraits bancaires confirmés{% endif %}
+    {% if q.encaisse.retraits_provisoires %}
+    <br><span class="mention">{{ "%.2f"|format(q.encaisse.retraits_provisoires) }} {{ q.soldes.devise }}
+    de retrait encore en attente chez Qonto — pas encore dans l'encaisse.</span>{% endif %}
+  </p>
   <div class="table-container">
     <table class="data-table">
       <thead><tr>
-        <th>Date</th><th>Compte</th><th>Libellé</th><th class="num">Montant</th><th>Sens</th>
-        <th>Type flux</th><th>Rapprochement</th><th>Statut</th><th>Anomalie</th><th></th>
+        <th>Date</th><th>Libellé</th><th>Origine</th><th>Sens</th>
+        <th class="num">Montant</th><th>État</th>
       </tr></thead>
       <tbody>
-        {% for m in liste.rows %}
-        <tr>
-          <td class="font-mono text-xs">{{ m.date_operation|date_fr }}</td>
-          <td class="font-mono text-xs">{{ m.compte_masque }}</td>
-          <td>{{ m.libelle[:48] }}</td>
-          <td class="num">{{ "%.2f"|format(m.montant) if m.montant is not none else "—" }}</td>
-          <td>{{ m.sens }}</td>
-          <td class="font-mono text-xs">{{ m.type_flux_id or "—" }}</td>
-          <td class="text-xs">{% if m.rappro_statut %}<span class="status-badge status-a-rapprocher">{{ m.rappro_canal }}</span>{% else %}—{% endif %}</td>
-          <td><span class="status-badge status-{{ 'a-controler' if m.statut_moteur in ['A_CONTROLER','BLOQUANT'] else 'valide' }}">{{ m.statut_moteur or "—" }}</span></td>
-          <td class="text-xs">{{ m.codes_anomalie or "" }}</td>
-          <td><a href="/banques-caisse/mouvements/{{ m.mouvement_id|mvt_opaque }}">Voir</a></td>
+        {% for m in q.mouvements_caisse %}
+        <tr data-testid="caisse-ligne"{% if not m.definitif %} class="ligne-non-definitive"{% endif %}>
+          <td class="cellule-date">{{ m.date }}</td>
+          <td>{{ m.libelle }}</td>
+          <td class="text-xs">{{ m.origine }}</td>
+          <td><span class="montant montant--credit">{{ m.sens }}</span></td>
+          <td class="num montant montant--credit">+{{ "%.2f"|format(m.montant) }} {{ m.devise }}</td>
+          <td>
+            <span class="status-badge {{ 'status-valide' if m.definitif else 'status-a-controler' }}">
+              {{ m.etat_libelle }}</span>
+            {% if not m.definitif %}<span class="mention">{{ m.motif }}</span>{% endif %}
+          </td>
         </tr>
         {% else %}
-        <tr><td colspan="10" class="section-note">Aucun mouvement pour ces filtres.</td></tr>
+        <tr><td colspan="6" class="section-note">Aucun mouvement de caisse.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-  {% if liste.pages > 1 %}
-  <div class="pagination">
-    {% set base = '/banques-caisse?' ~ (params|join('&')) %}
-    {% if liste.page > 1 %}<a href="{{ base }}&page={{ liste.page - 1 }}">← Précédent</a>{% endif %}
-    <span class="current">{{ liste.page }} / {{ liste.pages }}</span>
-    {% if liste.page < liste.pages %}<a href="{{ base }}&page={{ liste.page + 1 }}">Suivant →</a>{% endif %}
-  </div>
-  {% endif %}
 </div>
 
-<div class="origine-block-card mt-md">
-  Cette liste reste en lecture seule (elle ne modifie jamais un mouvement). L'import d'un relevé et
-  le rapprochement se font depuis les écrans dédiés (« + Importer un relevé », fiche mouvement).
-  Aucun virement. La seule connexion bancaire est celle de Qonto ci-dessus, en lecture seule ;
-  Crédit Mutuel reste alimenté par import de relevé. Un mouvement bancaire ne devient jamais
-  automatiquement une charge ou un revenu : les statuts moteur proviennent de lot8a/8b/8c ; les
-  rapprochements applicatifs sont journalisés séparément (jamais une nouvelle vérité moteur).
-  Numéros de compte masqués.
-</div>
+<p class="note-bas">
+  Un retrait d'espèces confirmé entre ici et sort de la banque : le résultat n'en est pas affecté,
+  ce n'est pas une charge. Tant que la banque n'a pas réglé l'opération, le retrait reste
+  <strong>provisoire</strong> et ne compte pas dans l'encaisse.
+</p>
+{% endif %}
+
 {% endif %}
 
 {% endblock %}

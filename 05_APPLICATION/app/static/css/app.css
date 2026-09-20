@@ -891,3 +891,181 @@ textarea.filter-input {
    fausse du compte — mais se distingue au premier coup d'œil d'un mouvement comptabilisé. */
 .ligne-non-definitive { background: var(--color-warning-bg); }
 .ligne-non-definitive td { font-style: italic; }
+
+/* ══ ÉCRAN BANQUE & CAISSE ══════════════════════════════════════════════════════════════════
+   Page resserrée : quatre chiffres, un switch, une table. Tout est construit sur les jetons
+   existants (couleurs, espacements, rayons) pour que l'écran reste de la même famille que le
+   reste de l'application, et pas une page à part. */
+
+/* En-tête : titre à gauche, actions à droite — et les deux passent l'un sous l'autre quand la
+   fenêtre se resserre, au lieu de déborder ou de s'éparpiller. */
+.page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--stack-md);
+}
+.page-header__titre { min-width: 0; }
+.page-header__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--stack-sm);
+}
+/* Un formulaire ne doit pas casser l'alignement d'une rangée de boutons. */
+.inline-form { display: inline-flex; margin: 0; }
+.page-header__actions .btn { height: 38px; display: inline-flex; align-items: center; }
+
+/* Switch Banque / Caisse — deux vues d'une même trésorerie, à un clic l'une de l'autre. */
+.switch-vues {
+  display: inline-flex;
+  padding: 3px;
+  gap: 3px;
+  background: var(--color-surface-container);
+  border-radius: var(--radius-full);
+}
+.switch-vues__onglet {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 18px;
+  border-radius: var(--radius-full);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-on-surface-variant);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background .15s, color .15s;
+}
+.switch-vues__onglet:hover { background: var(--color-surface-container-high); }
+.switch-vues__onglet.is-actif {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+/* KPI : quatre cartes de hauteur égale. Les deux chiffres qui comptent sont mis en avant. */
+.kpi-grid--4 { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+.kpi-card--fort { border-color: var(--color-primary); border-width: 1px 1px 3px 1px; }
+.kpi-card--alerte { border-color: var(--color-warning); border-width: 1px 1px 3px 1px; }
+
+/* Barre de filtres : contrôles de même hauteur, alignés sur leur ligne de base. */
+.barre-filtres {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--stack-sm);
+  margin-bottom: var(--stack-md);
+}
+.barre-filtres .champ { display: flex; flex-direction: column; gap: 4px; min-width: 160px; }
+.barre-filtres .champ > span { font-size: 12px; font-weight: 600; color: var(--color-secondary); }
+.barre-filtres select {
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-md);
+  background: #fff;
+  font-size: 14px;
+}
+.barre-filtres .btn { height: 38px; display: inline-flex; align-items: center; }
+
+/* Table : lisible d'un coup d'œil, sans surcharge. */
+.table-banque td { vertical-align: top; }
+.cellule-date { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.libelle-principal { display: block; font-weight: 600; }
+/* Une mention est une précision, pas une information de premier plan : elle ne doit jamais
+   attirer l'œil autant que la donnée qu'elle accompagne. */
+.mention {
+  display: block;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--color-secondary);
+  line-height: 1.4;
+}
+.montant { font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 600; }
+.montant--credit { color: var(--color-success); }
+.montant--debit { color: var(--color-on-surface); }
+.col-action { text-align: right; white-space: nowrap; }
+.cellule-suggestion { max-width: 380px; }
+.suggestion-titre { font-size: 13px; font-weight: 600; }
+.suggestion-titre.niveau-fort { color: var(--color-success); }
+.suggestion-titre.niveau-moyen { color: var(--color-info); }
+.suggestion-titre.niveau-ambigu { color: var(--color-warning); }
+.suggestion-candidat { margin-top: 4px; font-size: 13px; }
+
+/* Badges de traitement — mêmes couleurs sémantiques que le reste de l'application. */
+.statut-a-controler { background: var(--color-warning-bg); color: var(--color-warning); }
+.statut-a-rapprocher { background: var(--color-info-bg); color: var(--color-info); }
+.statut-en-attente-qonto { background: var(--color-surface-container); color: var(--color-secondary); }
+.statut-transfere-caisse, .statut-rapproche { background: var(--color-success-bg); color: var(--color-success); }
+
+.note-bas {
+  margin-top: var(--stack-md);
+  font-size: 13px;
+  color: var(--color-secondary);
+  line-height: 1.6;
+}
+
+/* Écrans étroits : la table cesse d'être une grille et devient une liste de fiches. Une table à
+   sept colonnes sur un téléphone ne se lit pas — elle se fait scroller horizontalement, ce qui
+   revient à cacher la moitié de l'information. */
+@media (max-width: 720px) {
+  .page-header__actions { width: 100%; }
+  .switch-vues { flex: 1; }
+  .switch-vues__onglet { flex: 1; justify-content: center; }
+  .inline-form, .page-header__actions .btn { width: 100%; justify-content: center; }
+  .barre-filtres .champ { flex: 1 1 100%; min-width: 0; }
+  .barre-filtres .btn { flex: 1; justify-content: center; }
+  .table-banque thead { display: none; }
+  .table-banque tr {
+    display: block;
+    padding: var(--stack-sm) 0;
+    border-bottom: 1px solid var(--color-outline-variant);
+  }
+  .table-banque td { display: block; border: none; padding: 2px var(--stack-sm); }
+  .table-banque .num, .table-banque .col-action { text-align: left; }
+  .cellule-suggestion { max-width: none; }
+}
+
+/* Accès aux écrans dédiés (relevé Crédit Mutuel) : une rangée, jamais une liste dispersée. */
+.liens-ecrans {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--stack-sm);
+  margin-bottom: var(--stack-md);
+}
+@media (max-width: 720px) { .liens-ecrans .btn { flex: 1 1 auto; justify-content: center; } }
+
+/* ══ ÉCRANS ÉTROITS — LA COQUILLE ═══════════════════════════════════════════════════════════
+   La barre latérale est fixe et large de 260 px, et `.main-area` se décale d'autant. En dessous
+   de ~700 px de large, il ne restait donc quasiment plus de place au contenu : tout débordait à
+   droite et la page se faisait scroller horizontalement. Aucune page ne pouvait être « responsive »
+   tant que la coquille ne rendait pas la main.
+   Sous 720 px : la navigation repasse dans le flux, en bandeau horizontal défilable, et le contenu
+   reprend toute la largeur. */
+@media (max-width: 720px) {
+  .app-layout { display: block; }
+  .sidebar {
+    position: static;
+    width: 100%;
+    min-height: 0;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--stack-sm);
+    padding: var(--stack-sm);
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+  .sidebar-brand { flex-shrink: 0; padding: 0 var(--stack-sm) 0 0; }
+  .sidebar-nav {
+    display: flex;
+    flex-direction: row;
+    gap: 4px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .sidebar-nav .nav-item { white-space: nowrap; }
+  .main-area { margin-left: 0; }
+  .app-header { padding: 0 var(--stack-md); }
+  .page-content, .content-container { padding: var(--stack-md); }
+}

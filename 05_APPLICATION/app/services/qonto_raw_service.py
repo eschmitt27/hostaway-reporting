@@ -126,6 +126,10 @@ def _valeurs_mouvement(mouvement: dict, horodatage: str, run_id: str) -> tuple:
         mouvement.get("settled_balance"),
         mouvement.get("settled_balance_cents"),
         mouvement.get("category"),
+        # Catégorie de flux posée par le TITULAIRE dans Qonto : information humaine, pas
+        # une déduction — le moteur de suggestions s'en sert comme d'une preuve.
+        ((mouvement.get("cashflow_category") or {}).get("name")
+         if isinstance(mouvement.get("cashflow_category"), dict) else None),
         mouvement.get("vat_amount"),
         mouvement.get("vat_rate"),
         mouvement.get("card_last_digits"),
@@ -145,7 +149,8 @@ _COLONNES_MOUVEMENT = """
     sens, statut, type_operation,
     libelle, reference, note, contrepartie,
     emis_le, regle_le, cree_le, maj_le,
-    solde_apres, solde_apres_cents, categorie, tva_montant, tva_taux, carte_4_derniers,
+    solde_apres, solde_apres_cents, categorie, categorie_flux, tva_montant, tva_taux,
+    carte_4_derniers,
     justificatifs_nb, justificatif_requis, operation_externe,
     charge_utile_json, empreinte
 """
@@ -209,8 +214,8 @@ def enregistrer(comptes: list[dict], mouvements: list[dict], *, pages_lues: int 
                 conn.execute(
                     f"INSERT INTO qonto_transactions_raw ({_COLONNES_MOUVEMENT}, "
                     "premiere_recuperation, derniere_maj, dernier_sync_run_id) "
-                    "VALUES (" + ",".join(["?"] * 31) + ",?,?,?)",
-                    _valeurs_mouvement(mouvement, horodatage, run_id)[:31]
+                    "VALUES (" + ",".join(["?"] * 32) + ",?,?,?)",
+                    _valeurs_mouvement(mouvement, horodatage, run_id)[:32]
                     + (horodatage, horodatage, run_id))
                 bilan["creees"] += 1
             elif connues[identifiant] != empreinte:
@@ -223,12 +228,12 @@ def enregistrer(comptes: list[dict], mouvements: list[dict], *, pages_lues: int 
                     "  montant_local=?, montant_local_cents=?, devise_locale=?, sens=?, statut=?, "
                     "  type_operation=?, libelle=?, reference=?, note=?, contrepartie=?, "
                     "  emis_le=?, regle_le=?, cree_le=?, maj_le=?, solde_apres=?, "
-                    "  solde_apres_cents=?, categorie=?, tva_montant=?, tva_taux=?, "
+                    "  solde_apres_cents=?, categorie=?, categorie_flux=?, tva_montant=?, tva_taux=?, "
                     "  carte_4_derniers=?, justificatifs_nb=?, justificatif_requis=?, "
                     "  operation_externe=?, charge_utile_json=?, empreinte=?, derniere_maj=?, "
                     "  dernier_sync_run_id=? "
                     "WHERE qonto_transaction_uuid=?",
-                    valeurs[1:31] + (horodatage, run_id, identifiant))
+                    valeurs[1:32] + (horodatage, run_id, identifiant))
                 bilan["mises_a_jour"] += 1
             else:
                 # Rien n'a bougé : la ligne n'est même pas touchée. C'est ce qui rend une seconde

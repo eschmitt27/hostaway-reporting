@@ -54,10 +54,10 @@ def test_le_tableau_de_bord_porte_soldes_et_derniere_synchronisation(base):
     vue = ecran.tableau_de_bord(db_path=base)
 
     assert vue["disponible"] is True
-    assert vue["solde"] == 200.0
-    assert vue["solde_disponible"] == 180.0
-    assert vue["ecart_soldes"] == 20.0, "l'écart dit ce que les opérations en attente immobilisent"
-    assert vue["devise"] == "EUR"
+    assert vue["soldes"]["banque"] == 180.0, "le solde mis en avant est le disponible"
+    assert vue["soldes"]["banque_comptable"] == 200.0
+    assert vue["soldes"]["engage"] == 20.0, "ce que les opérations en attente immobilisent"
+    assert vue["soldes"]["devise"] == "EUR"
     assert vue["derniere_synchronisation"]["horodatage"] != "jamais"
     assert vue["derniere_synchronisation"]["statut"] == raw.ST_SUCCES
 
@@ -73,7 +73,7 @@ def test_chaque_transaction_est_lisible(base):
     assert ligne["type"] == "Encaissement"
     assert ligne["libelle"] == "Virement reçu"
     assert ligne["contrepartie"] == "LOCATAIRE X"
-    assert ligne["statut_local"] == "À rapprocher"
+    assert ligne["traitement_libelle"] in ("À contrôler", "À rapprocher")
 
 
 def test_les_codes_techniques_sont_traduits_en_francais(base):
@@ -121,20 +121,20 @@ def test_une_operation_en_attente_n_est_pas_comptabilisable(base):
         conn.close()
     assert etats["completed"] == 1
     assert etats["pending"] == 0, "une autorisation de carte n'est pas un mouvement acquis"
-    assert ecran.tableau_de_bord(db_path=base)["non_definitifs"] == 1
+    assert ecran.tableau_de_bord(db_path=base)["en_attente"] == 1
 
 
 def test_une_operation_en_attente_qui_se_regle_devient_definitive(base):
     _importer(base, [mouvement(2, **EN_ATTENTE)])
-    assert ecran.tableau_de_bord(db_path=base)["non_definitifs"] == 1
+    assert ecran.tableau_de_bord(db_path=base)["en_attente"] == 1
 
     reglee = dict(EN_ATTENTE)
     reglee.update(status="completed", settled_at="2026-09-13T09:00:00.000Z")
     _importer(base, [mouvement(2, **reglee)])
 
     vue = ecran.tableau_de_bord(db_path=base)
-    assert vue["non_definitifs"] == 0
-    assert vue["nb_transactions"] == 1, "toujours pas de doublon"
+    assert vue["en_attente"] == 0
+    assert vue["nb_total"] == 1, "toujours pas de doublon"
     assert vue["transactions"][0]["definitif"] is True
 
 
@@ -142,7 +142,7 @@ def test_une_operation_en_attente_qui_se_regle_devient_definitive(base):
 def test_a_rapprocher_est_pose_sur_chaque_mouvement_importe(base):
     _importer(base, [mouvement(1, **REGLE), mouvement(2, **EN_ATTENTE)])
     assert statut_local.resume(db_path=base)["a_rapprocher"] == 2
-    assert all(ligne["statut_local"] == "À rapprocher"
+    assert all(ligne["traitement"] in ("A_CONTROLER", "A_RAPPROCHER", "EN_ATTENTE_QONTO")
                for ligne in ecran.tableau_de_bord(db_path=base)["transactions"])
 
 
@@ -240,14 +240,14 @@ def test_l_ecran_banque_affiche_le_bloc_qonto(client, base):
     assert page.status_code == 200
     html = page.text
 
-    assert 'data-testid="bloc-qonto"' in html
+    assert 'data-testid="kpi-tresorerie"' in html
     assert 'data-testid="qonto-actualiser"' in html and "Actualiser Qonto" in html
-    assert "200.00 EUR" in html and "180.00 EUR" in html
-    assert "Solde Qonto" in html and "Solde disponible" in html
+    assert "180.00 EUR" in html, "le KPI principal est le solde disponible"
+    assert "Solde banque" in html and "Trésorerie disponible" in html
     assert "À rapprocher" in html
-    # Les deux mouvements attendus, décrits en français.
-    assert "Virement reçu" in html and "LOCATAIRE X" in html
-    assert "Paiement carte" in html and "FOURNISSEUR Y" in html
+    # Les deux mouvements attendus. La contrepartie prime sur le libellé : elle dit QUI, ce
+    # qui renseigne davantage que l'intitulé technique de l'opération.
+    assert "LOCATAIRE X" in html and "FOURNISSEUR Y" in html
     assert "Comptabilisé" in html and "En attente" in html
 
 
@@ -287,18 +287,19 @@ def test_le_bouton_actualiser_ne_fait_qu_une_synchronisation(client, base, monke
         return {"ok": True, "creees": 0, "mises_a_jour": 0, "inchangees": 0}
 
     from app.routes import banques as routes_banques
-    monkeypatch.setattr(routes_banques.qonto_sync, "synchroniser", faux_sync)
+    monkeypatch.setattr(routes_banques.qonto_ecran, "actualiser", faux_sync)
 
     reponse = client.post("/banques-caisse/qonto/actualiser", follow_redirects=False)
     assert reponse.status_code == 303
-    assert reponse.headers["location"].startswith("/banques-caisse?message=")
+    assert "message=" in reponse.headers["location"]
+    assert reponse.headers["location"].startswith("/banques-caisse?")
     assert appels["n"] == 1
 
 
 def test_un_echec_d_actualisation_ne_casse_pas_l_ecran(client, base, monkeypatch):
     _importer(base, [mouvement(1, **REGLE)])
     from app.routes import banques as routes_banques
-    monkeypatch.setattr(routes_banques.qonto_sync, "synchroniser",
+    monkeypatch.setattr(routes_banques.qonto_ecran, "actualiser",
                         lambda **k: {"ok": False, "code": "QONTO_API_ECHOUEE",
                                      "message": "L'API Qonto n'a pas répondu correctement."})
 
@@ -306,4 +307,4 @@ def test_un_echec_d_actualisation_ne_casse_pas_l_ecran(client, base, monkeypatch
     assert reponse.status_code == 200
     assert "n&#39;a pas répondu correctement" in reponse.text or "n'a pas répondu" in reponse.text
     # Le mouvement déjà importé reste affiché : un échec ne détruit rien.
-    assert "Virement reçu" in reponse.text
+    assert "LOCATAIRE X" in reponse.text
