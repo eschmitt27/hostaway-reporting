@@ -44,6 +44,122 @@
 </div>
 {% endif %}
 
+{# ── Qonto — connexion LECTURE SEULE. Volontairement hors du garde `liste.status` : Qonto ne
+     dépend pas du pipeline lot8a/8b/8c, et doit rester visible même si celui-ci n'a rien produit. #}
+{% if qonto_message %}<div class="alert alert-info" data-testid="qonto-message">{{ qonto_message }}</div>{% endif %}
+{% if qonto_erreur %}<div class="alert alert-warning" data-testid="qonto-erreur">
+  <strong>Qonto</strong> — {{ qonto_erreur }} Les mouvements déjà importés restent affichés ci-dessous.
+</div>{% endif %}
+
+{% if qonto and qonto.disponible %}
+<div class="card mt-md" data-testid="bloc-qonto">
+  <div class="flex justify-between items-center">
+    <div>
+      <h2 class="section-title">Qonto</h2>
+      <p class="section-note">
+        Connexion <strong>en lecture seule</strong> — dernière synchronisation :
+        <span data-testid="qonto-derniere-sync">{{ qonto.derniere_synchronisation.horodatage or "jamais" }}</span>
+        {% if qonto.derniere_synchronisation.statut == "ECHEC" %}
+          · <span class="status-badge status-erreur">dernier essai en échec</span>
+        {% endif %}
+      </p>
+    </div>
+    <form method="post" action="/banques-caisse/qonto/actualiser">
+      <button type="submit" class="btn btn-primary" data-testid="qonto-actualiser">Actualiser Qonto</button>
+    </form>
+  </div>
+
+  {% if not qonto.identifiants_presents %}
+  <div class="alert alert-warning mt-sm">
+    Identifiants Qonto absents du fichier « .env » : l'actualisation est impossible. Les mouvements
+    déjà importés restent consultables.
+  </div>
+  {% endif %}
+
+  <div class="kpi-grid kpi-grid--5 mt-sm">
+    <div class="kpi-card"><div class="kpi-label">Solde Qonto</div>
+      <div class="kpi-value" data-testid="qonto-solde">{{ "%.2f"|format(qonto.solde) }} {{ qonto.devise }}</div>
+      <div class="kpi-sub">solde comptable</div></div>
+    <div class="kpi-card"><div class="kpi-label">Solde disponible</div>
+      <div class="kpi-value" data-testid="qonto-disponible">{{ "%.2f"|format(qonto.solde_disponible) }} {{ qonto.devise }}</div>
+      <div class="kpi-sub">
+        {% if qonto.ecart_soldes %}{{ "%.2f"|format(qonto.ecart_soldes) }} {{ qonto.devise }} immobilisés
+        {% else %}rien en attente{% endif %}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Mouvements importés</div>
+      <div class="kpi-value" data-testid="qonto-nb">{{ qonto.nb_transactions }}</div>
+      <div class="kpi-sub">{{ qonto.comptes|length }} compte(s)</div></div>
+    <div class="kpi-card"><div class="kpi-label">À rapprocher</div>
+      <div class="kpi-value" data-testid="qonto-a-rapprocher">{{ qonto.a_rapprocher }}</div>
+      <div class="kpi-sub">aucun effet comptable</div></div>
+    <div class="kpi-card {{ 'kpi-card--muted' if not qonto.non_definitifs }}">
+      <div class="kpi-label">Non définitifs</div>
+      <div class="kpi-value" data-testid="qonto-non-definitifs">{{ qonto.non_definitifs }}</div>
+      <div class="kpi-sub">en attente / refusés</div></div>
+  </div>
+
+  {# Le détail par compte : indispensable dès qu'il y en aura plus d'un, et c'est là que l'IBAN
+     apparaît — toujours masqué, jamais en entier. #}
+  <p class="section-note mt-sm" data-testid="qonto-comptes">
+    {% for c in qonto.comptes %}
+      <strong>{{ c.nom }}</strong> · {{ c.iban_masque }} · {{ "%.2f"|format(c.solde) }} {{ c.devise }}
+      (disponible {{ "%.2f"|format(c.solde_autorise) }}) ·
+      <span class="status-badge {{ 'status-valide' if c.statut == 'active' else 'status-a-controler' }}">{{ c.statut }}</span>
+      {% if not loop.last %}<br>{% endif %}
+    {% else %}Aucun compte importé.{% endfor %}
+  </p>
+
+  <div class="table-container mt-sm">
+    <table class="data-table">
+      <thead><tr>
+        <th>Date</th><th class="num">Montant</th><th>Sens</th><th>Statut Qonto</th><th>Type</th>
+        <th>Libellé</th><th>Contrepartie</th><th>Référence</th><th>Statut applicatif</th>
+      </tr></thead>
+      <tbody>
+        {% for t in qonto.transactions %}
+        <tr data-testid="qonto-ligne"{% if not t.definitif %} class="ligne-non-definitive"{% endif %}>
+          <td class="font-mono text-xs">
+            {{ t.date }}{% if t.date_est_prevue %}<br><span class="text-xs">(émission, non réglée)</span>{% endif %}
+          </td>
+          <td class="num">{{ "%.2f"|format(t.montant) if t.montant is not none else "—" }} {{ t.devise }}</td>
+          <td>{{ t.sens }}</td>
+          <td>
+            <span class="status-badge {{ 'status-valide' if t.statut_qonto_code == 'completed' else 'status-a-controler' }}">
+              {{ t.statut_qonto }}</span>
+          </td>
+          <td>{{ t.type }}</td>
+          <td>{{ t.libelle }}</td>
+          <td>{{ t.contrepartie or "—" }}</td>
+          <td class="text-xs">{{ t.reference or "—" }}</td>
+          <td class="text-xs">
+            <span class="status-badge status-info">{{ t.statut_local }}</span>
+            {% if not t.definitif %}
+            <div class="text-xs" data-testid="qonto-non-definitif">⚠ {{ t.motif_non_definitif }}</div>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="section-note">
+          Aucun mouvement Qonto importé. Utilisez « Actualiser Qonto ».
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="origine-block-card mt-sm">
+    Ces mouvements viennent de l'API Qonto en <strong>lecture seule</strong> (le client refuse tout
+    verbe autre que GET : aucun virement, aucune modification n'est possible depuis ici). Le statut
+    « À rapprocher » est un simple marqueur d'écran : il ne crée aucun règlement, ne rapproche rien
+    et ne modifie ni dette ni créance. Une opération <strong>en attente</strong> n'est pas acquise —
+    son montant peut encore changer ou ne jamais être débité : elle est signalée comme non
+    définitive et ne doit pas être tenue pour comptabilisée. Aucun identifiant de connexion n'est
+    stocké ni affiché ; les IBAN sont masqués.
+  </div>
+</div>
+{% elif qonto %}
+<div class="alert alert-warning mt-md" data-testid="bloc-qonto">{{ qonto.message }}</div>
+{% endif %}
+
 {% if liste.status != "OK" %}
 <div class="alert alert-error">
   <strong>Source indisponible</strong> — {{ liste.etat_source.fichier }}
@@ -142,7 +258,8 @@
 <div class="origine-block-card mt-md">
   Cette liste reste en lecture seule (elle ne modifie jamais un mouvement). L'import d'un relevé et
   le rapprochement se font depuis les écrans dédiés (« + Importer un relevé », fiche mouvement).
-  Aucun virement, aucune connexion Qonto / Crédit Mutuel. Un mouvement bancaire ne devient jamais
+  Aucun virement. La seule connexion bancaire est celle de Qonto ci-dessus, en lecture seule ;
+  Crédit Mutuel reste alimenté par import de relevé. Un mouvement bancaire ne devient jamais
   automatiquement une charge ou un revenu : les statuts moteur proviennent de lot8a/8b/8c ; les
   rapprochements applicatifs sont journalisés séparément (jamais une nouvelle vérité moteur).
   Numéros de compte masqués.

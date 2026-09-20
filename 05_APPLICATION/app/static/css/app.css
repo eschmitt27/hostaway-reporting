@@ -885,3 +885,9 @@ textarea.filter-input {
   word-break: break-word;
   overflow-wrap: anywhere;
 }
+
+/* === Mouvement bancaire NON DÉFINITIF (Qonto : en attente, refusé, contrepassé) ===
+   Une opération en attente n'est pas acquise. Elle reste lisible — la masquer donnerait une image
+   fausse du compte — mais se distingue au premier coup d'œil d'un mouvement comptabilisé. */
+.ligne-non-definitive { background: var(--color-warning-bg); }
+.ligne-non-definitive td { font-style: italic; }

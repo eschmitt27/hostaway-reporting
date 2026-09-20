@@ -5,6 +5,8 @@ lisent les sorties du pipeline banque (lot8a/8b/8c). Les routes d'IMPORT et de R
 écrivent, mais uniquement sous garde (`BANQUE_REAL_WRITE_*` + write-guard mode recette) — jamais de
 connexion bancaire, jamais de virement, jamais d'écriture hors `data_recette`.
 """
+from urllib.parse import quote_plus
+
 import app.config as cfg
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -19,6 +21,9 @@ from app.services import banques_suggestions_service as sugg
 from app.services import banques_candidats_service as candidats
 from app.services import banques_controles_catalogue_service as catalogue
 from app.services import banques_classement_service as classement
+from app.services import qonto_ecran_service as qonto_ecran
+from app.services import qonto_sync_service as qonto_sync
+from app.services import qonto_statut_local_service as statut_local
 from app.readers.banques_reader import date_affichage, datetime_affichage
 
 router = APIRouter()
@@ -132,6 +137,8 @@ def banques_dashboard(
     recherche: str = "",
     tri: str = "anomalie",
     page: int = 1,
+    message: str = "",
+    erreur: str = "",
 ):
     data = svc.load_dashboard(
         mois=mois, compte_id=compte_id, sens=sens, statut=statut, non_rapproche=non_rapproche,
@@ -141,6 +148,8 @@ def banques_dashboard(
         "active_menu": "banques", "data": data, "nb_a_controler": ctrl.compter_a_controler(),
         "ecriture_active": _ecriture_active(), "airbnb": svc.categorisation_versements_airbnb(),
         "nb_a_classer": classement.compter(),
+        "qonto": qonto_ecran.tableau_de_bord(),
+        "qonto_message": message, "qonto_erreur": erreur,
     })
 
 
@@ -586,3 +595,21 @@ def banque_a_classer_historique(request: Request, id_opaque: str):
     return templates.TemplateResponse(request, "banques_a_classer_historique.html", {
         "active_menu": "banques", "mouvement": d, "historique": classement.historique(id_opaque),
     })
+
+
+@router.post("/banques-caisse/qonto/actualiser")
+def qonto_actualiser():
+    """Bouton « Actualiser Qonto » : appelle la synchronisation GET-only, puis recharge l'écran.
+
+    Rien d'autre. Pas de rapprochement, pas d'écriture comptable, pas de virement — le client
+    bancaire refuse structurellement tout verbe autre que GET. Un échec ne casse pas l'écran et ne
+    détruit rien : le dernier jeu importé reste affiché, avec le motif en bandeau.
+    """
+    resultat = qonto_sync.synchroniser()
+    if not resultat.get("ok"):
+        message = resultat.get("message", "La synchronisation Qonto a échoué.")
+        return RedirectResponse(f"/banques-caisse?erreur={quote_plus(message)}", status_code=303)
+    statut_local.synchroniser()
+    bilan = (f"Qonto actualisé : {resultat['creees']} nouveau(x) mouvement(s), "
+             f"{resultat['mises_a_jour']} mis à jour, {resultat['inchangees']} inchangé(s).")
+    return RedirectResponse(f"/banques-caisse?message={quote_plus(bilan)}", status_code=303)
