@@ -28,6 +28,7 @@ from __future__ import annotations
 import hashlib
 from datetime import datetime, timezone
 
+import app.config as cfg
 from app.db.connection import get_db
 from app.services import banques_rapprochement_service as rappro
 from app.services import caisse_transferts_service as transferts
@@ -61,6 +62,8 @@ E_NATURE_SENS = "QV04_NATURE_INCOMPATIBLE_AVEC_LE_SENS"
 E_OBJET_REQUIS = "QV05_OBJET_OBLIGATOIRE"
 E_MOTIF_REQUIS = "QV06_MOTIF_OBLIGATOIRE"
 E_DEJA_AFFECTE = "QV07_MOUVEMENT_DEJA_AFFECTE_INTEGRALEMENT"
+E_VERROU_BANQUE = "QV08_ECRITURES_BANCAIRES_DESACTIVEES"
+E_VERROU_COMPTA = "QV09_ECRITURES_COMPTABLES_DESACTIVEES"
 
 MESSAGES = {
     E_INTROUVABLE: "Cette transaction Qonto est introuvable.",
@@ -71,7 +74,52 @@ MESSAGES = {
     E_OBJET_REQUIS: "Il faut désigner l'objet concerné (associé, facture, propriétaire).",
     E_MOTIF_REQUIS: "Annuler un rapprochement exige un motif : il reste dans l'historique.",
     E_DEJA_AFFECTE: "Ce mouvement est déjà affecté en totalité.",
+    E_VERROU_BANQUE: ("Les écritures bancaires réelles sont désactivées sur cette instance. "
+                      "Renseignez MODE_REEL_ECRITURES, BANQUE_REAL_WRITE_ENABLED et "
+                      "BANQUE_REAL_WRITE_CONFIRMATION_ENABLED dans « .env », puis redémarrez."),
+    E_VERROU_COMPTA: ("Cette opération produit une écriture comptable, et les écritures réelles "
+                      "sont désactivées. Renseignez COMPTABILITE_REAL_WRITE_ENABLED et "
+                      "COMPTABILITE_REAL_WRITE_CONFIRMATION_ENABLED dans « .env », puis "
+                      "redémarrez."),
 }
+
+
+# Natures dont la validation génère ELLE-MÊME une écriture. Les deux autres délèguent à un
+# service de règlement qui produit son effet séparément : exiger ici les verrous comptables pour
+# elles bloquerait une opération qui n'écrit encore aucune écriture.
+NATURES_AVEC_ECRITURE = (APPORT_ASSOCIE, TRANSFERT_CAISSE)
+
+
+def _contexte_ecriture() -> bool:
+    """Un contexte d'écriture est posé : `MODE_REEL_ECRITURES` (ou le mode recette)."""
+    return bool(getattr(cfg, "MODE_REEL_ECRITURES", False) or getattr(cfg, "RECETTE_MODE", False))
+
+
+def _verrou_banque() -> bool:
+    """Écrire depuis la Banque exige les trois leviers ENSEMBLE.
+
+    LE POINT IMPORTANT : ouvrir la comptabilité ne doit PAS ouvrir la banque. Ce sont deux
+    décisions d'exploitation distinctes — on peut vouloir laisser un comptable valider des
+    écritures existantes sans autoriser un écran bancaire à en créer de nouvelles. Sans ce verrou
+    propre, `COMPTABILITE_REAL_WRITE_*` aurait suffi à faire écrire la Banque, ce qui n'a jamais
+    été le contrat de ce drapeau.
+    """
+    return bool(_contexte_ecriture()
+                and getattr(cfg, "BANQUE_REAL_WRITE_ENABLED", False)
+                and getattr(cfg, "BANQUE_REAL_WRITE_CONFIRMATION_ENABLED", False))
+
+
+def _verrou_comptabilite() -> bool:
+    """S'ajoute au précédent dès qu'une écriture comptable est produite. Jamais en remplacement."""
+    return bool(_contexte_ecriture()
+                and getattr(cfg, "COMPTABILITE_REAL_WRITE_ENABLED", False)
+                and getattr(cfg, "COMPTABILITE_REAL_WRITE_CONFIRMATION_ENABLED", False))
+
+
+def verrous() -> dict:
+    """État des verrous, pour l'écran : dire pourquoi un bouton n'agit pas vaut mieux qu'un échec."""
+    return {"banque": _verrou_banque(), "comptabilite": _verrou_comptabilite(),
+            "contexte": _contexte_ecriture()}
 
 
 def _maintenant() -> str:
@@ -217,6 +265,10 @@ def apercu(uuid_transaction: str, *, nature: str = "", objet_id: str = "", monta
         "deja_affecte": round(deja, 2),
         "restant": restant,
         "effets": _effets_prevus(nature_choisie, montant_affecte, objet_libelle),
+        # L'écran doit pouvoir dire POURQUOI le bouton n'agira pas, et quoi activer — un refus au
+        # moment du clic, après avoir tout saisi, est une perte de temps évitable.
+        "verrous": verrous(),
+        "ecriture_attendue": nature_choisie in NATURES_AVEC_ECRITURE,
         "rapprochements": rappro.lister(opaque, db_path),
         "blocage": (MESSAGES[E_PENDING] if not definitif else
                     MESSAGES[E_DEJA_AFFECTE] if restant <= 0 else ""),
@@ -232,6 +284,15 @@ def valider(uuid_transaction: str, *, nature: str, objet_id: str = "", montant=N
     la seconde est refusée par l'index unique, et la génération d'écriture est de toute façon un
     no-op pour une origine déjà servie.
     """
+    # LES VERROUS D'ABORD, avant toute lecture métier : un refus doit être franc, et ne doit
+    # surtout pas dépendre de l'état des données. L'ordre compte aussi — le verrou BANQUE est
+    # vérifié avant le verrou COMPTABILITÉ, pour que « comptabilité ouverte, banque fermée »
+    # réponde « la banque est fermée » et pas autre chose.
+    if not _verrou_banque():
+        return _refus(E_VERROU_BANQUE)
+    if nature in NATURES_AVEC_ECRITURE and not _verrou_comptabilite():
+        return _refus(E_VERROU_COMPTA, nature)
+
     ligne = transaction(uuid_transaction, db_path=db_path)
     if ligne is None:
         return _refus(E_INTROUVABLE, uuid_transaction)
@@ -363,10 +424,16 @@ def annuler(rapprochement_id_opaque: str, *, motif: str, acteur: str = "", db_pa
     est CONTREPASSÉE par une écriture miroir — jamais supprimée. Une comptabilité dont on peut
     effacer une ligne ne prouve plus rien.
     """
+    if not _verrou_banque():
+        return _refus(E_VERROU_BANQUE)
     if not (motif or "").strip():
         return _refus(E_MOTIF_REQUIS)
 
     ecriture = compta.charger_par_origine("RAPPROCHEMENT", rapprochement_id_opaque, db_path)
+    # Contrepasser EST une écriture. Annuler à moitié — rapprochement défait, écriture restée en
+    # place — laisserait une comptabilité qui affirme un mouvement que plus rien ne justifie.
+    if ecriture and not _verrou_comptabilite():
+        return _refus(E_VERROU_COMPTA, "contrepassation")
     resultat = {"ok": True, "rapprochement_id_opaque": rapprochement_id_opaque}
 
     if ecriture:
@@ -407,6 +474,11 @@ def confirmer_transferts_caisse(*, acteur: str = "AUTOMATIQUE", db_path=None) ->
     Tant qu'il est provisoire, rien n'est écrit. Idempotent de bout en bout : le rapprochement est
     unique par l'index, l'écriture l'est par son origine.
     """
+    if not _verrou_banque():
+        return dict(_refus(E_VERROU_BANQUE), comptabilises=0, ignores=0)
+    if not _verrou_comptabilite():
+        return dict(_refus(E_VERROU_COMPTA, TRANSFERT_CAISSE), comptabilises=0, ignores=0)
+
     bilan = {"comptabilises": 0, "ignores": 0}
     for transfert in transferts.lister(db_path=db_path):
         if transfert.get("etat") != transferts.CONFIRME:

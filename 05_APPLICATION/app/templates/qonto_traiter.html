@@ -42,6 +42,18 @@
 <div class="alert alert-warning" data-testid="blocage">{{ apercu.blocage }}</div>
 {% endif %}
 
+{% if not apercu.verrous.banque or (apercu.ecriture_attendue and not apercu.verrous.comptabilite) %}
+<div class="alert alert-warning" data-testid="verrous-fermes">
+  <strong>Écritures réelles désactivées</strong> — cette instance ne peut rien enregistrer.
+  Renseignez dans le fichier « .env » à la racine du projet, puis redémarrez :
+  <code>MODE_REEL_ECRITURES</code>, <code>BANQUE_REAL_WRITE_ENABLED</code>,
+  <code>BANQUE_REAL_WRITE_CONFIRMATION_ENABLED</code>{% if apercu.ecriture_attendue %},
+  <code>COMPTABILITE_REAL_WRITE_ENABLED</code>,
+  <code>COMPTABILITE_REAL_WRITE_CONFIRMATION_ENABLED</code>{% endif %}.
+  Ces variables ne concernent que cette application : la connexion Qonto reste en lecture seule.
+</div>
+{% endif %}
+
 <form method="get" action="/banques-caisse/qonto/{{ apercu.mouvement_id_opaque }}/traiter" class="barre-filtres mt-md">
   <label class="champ">
     <span>Nature</span>
@@ -86,7 +98,9 @@
     </table>
   </div>
 
-  {% if not apercu.blocage and apercu.nature_proposee
+  {% if not apercu.blocage and apercu.verrous.banque
+        and (apercu.verrous.comptabilite or not apercu.ecriture_attendue)
+        and apercu.nature_proposee
         and (apercu.objet_id or apercu.nature_proposee == 'TRANSFERT_CAISSE') %}
   <form method="post" action="/banques-caisse/qonto/{{ apercu.mouvement_id_opaque }}/valider"
         class="barre-filtres mt-md">
@@ -103,6 +117,7 @@
   {% else %}
   <p class="mention">
     {% if apercu.blocage %}{{ apercu.blocage }}
+    {% elif not apercu.verrous.banque %}Les écritures réelles sont désactivées (voir ci-dessus).
     {% else %}Choisissez la nature et l'objet concerné pour pouvoir valider.{% endif %}
   </p>
   {% endif %}

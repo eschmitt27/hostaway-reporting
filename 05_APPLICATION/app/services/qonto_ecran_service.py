@@ -129,11 +129,27 @@ def ligne_transaction(mouvement: dict, suggestion: dict | None = None) -> dict:
         "nature_libelle": classif.LIBELLES_NATURE.get(nature, nature),
         "nature_motif": mouvement.get("nature_motif") or "",
         "traitement": traitement,
-        "traitement_libelle": classif.LIBELLES_TRAITEMENT.get(traitement, traitement),
+        "traitement_libelle": _libelle_traitement(traitement, rapprochements),
         "definitif": bool(mouvement.get("comptabilisable")),
         "motif_non_definitif": mouvement.get("motif_non_comptabilisable") or "",
         "suggestion": suggestion,
     }
+
+
+def _libelle_traitement(traitement: str, rapprochements: list[dict]) -> str:
+    """« Rapproché — écriture à valider » plutôt que « Rapproché » tout court.
+
+    Un rapprochement confirmé dont l'écriture dort en PROPOSEE n'est pas une affaire close : le
+    dire évite qu'on referme l'écran en croyant le travail fini.
+    """
+    base = classif.LIBELLES_TRAITEMENT.get(traitement, traitement)
+    if traitement != classif.RAPPROCHE:
+        return base
+    etats = {r.get("etat_comptable") for r in rapprochements}
+    for etat in (ETAT_ECRITURE_A_VALIDER, ETAT_COMPTABILISE):
+        if etat in etats:
+            return f"{base} — {SUFFIXES_COMPTABLES[etat]}"
+    return base
 
 
 def _rapprochements(mouvement: dict) -> list[dict]:
@@ -146,7 +162,9 @@ def _rapprochements(mouvement: dict) -> list[dict]:
     actifs = [r for r in rappro.lister(opaque, db_path)
               if r.get("statut") in (rappro.ST_PROPOSE, rappro.ST_CONFIRME)]
     noms = _noms_objets(actifs, db_path)
+    etats = _etats_comptables(actifs, db_path)
     return [{"type": r["type_objet"], "objet_id": r["objet_id"],
+             "etat_comptable": etats.get(r["rapprochement_id_opaque"], ETAT_SANS_ECRITURE),
              # Ce que l'écran montre : « Apport compte courant — Ewan », pas
              # « APPORT_ASSOCIE — PERS_EWAN ». Un code et un identifiant technique ne disent rien
              # à qui relit son relevé ; le nom de la personne, si.
@@ -156,6 +174,47 @@ def _rapprochements(mouvement: dict) -> list[dict]:
 
 
 #: Formulation courte de chaque nature, telle qu'elle se lit dans une liste de mouvements.
+# Un rapprochement confirmé ne veut pas dire « comptabilisé » : l'écriture naît PROPOSEE et
+# attend la validation du workflow comptable. Afficher « Rapproché » tout court laisserait croire
+# que le travail est fini alors qu'une écriture dort en attente de contrôle.
+ETAT_SANS_ECRITURE = "SANS_ECRITURE"
+ETAT_ECRITURE_A_VALIDER = "ECRITURE_A_VALIDER"
+ETAT_COMPTABILISE = "COMPTABILISE"
+
+SUFFIXES_COMPTABLES = {
+    ETAT_ECRITURE_A_VALIDER: "écriture à valider",
+    ETAT_COMPTABILISE: "comptabilisé",
+}
+
+
+def _etats_comptables(rapprochements: list, db_path=None) -> dict:
+    """État de l'écriture attachée à chaque rapprochement, lu dans le journal comptable.
+
+    Rien n'est déduit ni recalculé : c'est le statut que porte l'écriture. Une écriture
+    contrepassée n'est pas un état d'avancement — le rapprochement correspondant est annulé, donc
+    absent de cette liste.
+    """
+    if not rapprochements:
+        return {}
+    conn = get_db(db_path)
+    try:
+        if not conn.execute("SELECT name FROM sqlite_master WHERE type='table' "
+                            "AND name='ecritures'").fetchone():
+            return {}
+        identifiants = [r["rapprochement_id_opaque"] for r in rapprochements]
+        marques = ",".join("?" * len(identifiants))
+        etats = {}
+        for r in conn.execute(
+                f"SELECT origine_id_opaque, statut FROM ecritures "
+                f"WHERE origine_type='RAPPROCHEMENT' AND origine_id_opaque IN ({marques}) "
+                f"AND statut <> 'CONTREPASSEE'", identifiants):
+            etats[r["origine_id_opaque"]] = (ETAT_COMPTABILISE if r["statut"] == "VALIDEE"
+                                             else ETAT_ECRITURE_A_VALIDER)
+        return etats
+    finally:
+        conn.close()
+
+
 LIBELLES_RAPPROCHEMENT = {
     "APPORT_ASSOCIE": "Apport compte courant",
     "TRANSFERT_CAISSE": "Transfert Banque → Caisse",
