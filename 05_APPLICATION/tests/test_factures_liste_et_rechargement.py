@@ -223,3 +223,28 @@ def test_le_meme_pdf_redepose_sous_un_autre_nom_reprend_la_facture(base, dossier
     res = pdf_import.recharger(acteur="test", dossier=dossier, db_path=base)
     assert len(fact.lister(db_path=base)) == 1, "même document : une seule facture"
     assert res["nb_importees"] == 0
+
+
+@reels
+def test_une_date_aberrante_ne_deplace_pas_le_mois_concerne(base, dossier):
+    """Cas réel : une facture de février 2026 dont UNE ligne porte « le 8 février 2028 » (coquille
+    du fournisseur). Le mois majoritaire ne l'emporte que s'il porte au moins la moitié des lignes."""
+    fevrier = cfg.MENAGES_PDF_DIR / "02-26-Aissata.pdf"
+    if not fevrier.exists():
+        pytest.skip("PDF de février absent")
+    shutil.copy2(fevrier, dossier / fevrier.name)
+    pdf_import.recharger(acteur="test", dossier=dossier, db_path=base)
+    f = fact.lister(db_path=base)[0]
+    assert f["mois_concerne"] == "2026-02", "la date du document fait foi, pas une ligne isolée"
+
+
+def test_le_mois_concerne_suit_les_prestations_quand_elles_le_disent(base):
+    """Facture émise le 1er septembre pour des ménages d'août : le mois concerné est août."""
+    res = fact.creer({"fournisseur_id_opaque": "FRS-T", "facture_ref": "R-9",
+                      "date_facture": "2026-09-01", "montant_ttc": 100.0}, db_path=base)
+    opaque = res["facture_id_opaque"]
+    for jour in ("2026-08-03", "2026-08-11"):
+        flm.ajouter_ligne(opaque, type_ligne=flm.TYPE_MENAGE_EXTERNE, logement_id="LOG_A",
+                          montant_ttc=50.0, description="ménage", date_menage=jour,
+                          source=flm.SOURCE_PDF, db_path=base)
+    assert fact.periode_metier(opaque, date_facture="2026-09-01", db_path=base) == "2026-08"

@@ -108,6 +108,52 @@ def _deja_traite(nom_fichier: str, *, db_path=None) -> bool:
     return True  # la distinction contenu-changé se fait dans apercu()/importer_nouveaux() (hash)
 
 
+#: Verdicts qui portent sur le DOCUMENT lui-même : ils ne changeront pas si le fichier ne change
+#: pas. `NON_SUPPORTE`, lui, dit seulement que le MOTEUR ne savait pas lire ce fournisseur — un
+#: moteur amélioré doit pouvoir réessayer (cas réel : PrivaDom, longtemps non supporté).
+VERDICTS_DEFINITIFS = ("VIDE", "CORROMPU", "ERREUR")
+
+
+def _regle_par_le_document(nom_fichier: str, *, db_path=None) -> bool:
+    conn = get_db(db_path)
+    try:
+        r = conn.execute(
+            "SELECT statut_extraction FROM facture_pdf_diagnostics WHERE nom_fichier = ? "
+            "ORDER BY id DESC LIMIT 1", (nom_fichier,)).fetchone()
+    except Exception:      # noqa: BLE001
+        return False
+    finally:
+        conn.close()
+    return bool(r) and str(r["statut_extraction"] or "") in VERDICTS_DEFINITIFS
+
+
+def _facture_vivante_pour(nom_fichier: str, sha: str, *, db_path=None) -> bool:
+    """Une facture NON annulée est-elle encore rattachée à ce fichier (par son nom ou son contenu) ?
+
+    C'est ce qui distingue « déjà importé » de « importé puis supprimé » : après une remise à zéro,
+    un PDF toujours présent doit être réimporté, pas considéré comme classé pour toujours.
+    """
+    from app.services import factures_service as fact
+
+    conn = get_db(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT f.facture_id_opaque, f.justificatif, f.commentaire, d.sha256_pdf "
+            "FROM factures f LEFT JOIN facture_pdf_diagnostics d "
+            "  ON d.facture_id_opaque = f.facture_id_opaque "
+            "WHERE f.statut <> ?", (fact.ST_ANNULEE,)).fetchall()
+    except Exception:      # noqa: BLE001
+        return False
+    finally:
+        conn.close()
+    for r in rows:
+        if nom_fichier in (r["justificatif"], r["commentaire"]):
+            return True
+        if sha and r["sha256_pdf"] == sha:
+            return True
+    return False
+
+
 def _contenu_change(p: Path, *, db_path=None) -> bool:
     connu = _hash_connu(p.name, db_path=db_path)
     return connu is not None and connu != _sha256(p)
@@ -151,7 +197,12 @@ def importer_nouveaux(*, acteur: str = "", dossier: Path | None = None,
     details: list[dict[str, Any]] = []
     nb_importees = nb_deja = nb_echecs = nb_desactive = nb_remplacees = 0
     for p in pdfs:
-        if _deja_traite(p.name, db_path=db_path) and not _contenu_change(p, db_path=db_path):
+        # « Déjà traité » = contenu inchangé ET (une facture vivante en est issue OU le document
+        # lui-même est inexploitable). Un fichier dont la facture a été supprimée, ou que le moteur
+        # de l'époque ne savait pas lire, est RÉESSAYÉ : c'est le dossier qui fait foi.
+        if (_deja_traite(p.name, db_path=db_path) and not _contenu_change(p, db_path=db_path)
+                and (_facture_vivante_pour(p.name, _sha256(p), db_path=db_path)
+                     or _regle_par_le_document(p.name, db_path=db_path))):
             details.append({"nom_fichier": p.name, "statut": STATUT_DEJA_IMPORTEE, "resultat": {"ok": True}})
             nb_deja += 1
             continue

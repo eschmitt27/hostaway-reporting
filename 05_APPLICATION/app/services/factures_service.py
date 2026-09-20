@@ -339,9 +339,17 @@ def periode_metier(opaque: str, *, date_facture: Any = None, db_path=None) -> st
     septembre pour le mois précédent aussi. La vérité est donc dans les DATES DES PRESTATIONS
     quand elles sont connues (mois majoritaire des lignes actives), et à défaut dans la date du
     document. Une seule fonction le dit, pour que la liste, la fiche et les filtres s'accordent.
+
+    Le mois majoritaire doit porter au moins la MOITIÉ des lignes de la facture. Sans ce seuil,
+    une seule date aberrante l'emportait : une facture de février 2026 dont une ligne porte
+    « le 8 février 2028 » (coquille du fournisseur, cas réel) ressortait en février 2028, parce
+    que c'était la seule ligne datée du document.
     """
     conn = get_db(db_path)
     try:
+        actives = conn.execute(
+            "SELECT COUNT(*) FROM facture_lignes_menage WHERE facture_id_opaque = ? "
+            "AND COALESCE(statut_ligne,'ACTIVE') = 'ACTIVE'", (opaque,)).fetchone()[0]
         rows = conn.execute(
             "SELECT substr(p.date_menage, 1, 7) AS mois, COUNT(*) AS n "
             "FROM facture_lignes_menage l JOIN facture_lignes_menage_pdf p "
@@ -350,10 +358,10 @@ def periode_metier(opaque: str, *, date_facture: Any = None, db_path=None) -> st
             "  AND p.date_menage IS NOT NULL AND p.date_menage <> '' "
             "GROUP BY 1 ORDER BY n DESC, mois DESC", (opaque,)).fetchall()
     except sqlite3.OperationalError:
-        rows = []
+        actives, rows = 0, []
     finally:
         conn.close()
-    if rows and rows[0]["mois"]:
+    if rows and rows[0]["mois"] and actives and rows[0]["n"] * 2 >= actives:
         return str(rows[0]["mois"])
     return str(date_facture or "")[:7]
 
