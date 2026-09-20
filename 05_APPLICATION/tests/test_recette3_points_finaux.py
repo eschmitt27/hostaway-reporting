@@ -177,6 +177,15 @@ def _faux_import(db):
         try:
             conn.execute("INSERT INTO facture_pdf_diagnostics (nom_fichier, statut_extraction, "
                          "facture_id_opaque) VALUES (?,?,?)", (Path(path).name, "OK", fid))
+            # Le vrai import crée AUSSI la facture, et c'est elle qui atteste qu'un fichier est
+            # déjà traité : un diagnostic sans facture signifie « importé puis supprimé », cas où
+            # le fichier encore présent doit être réimporté (recette 4 lot 2 §11/§19).
+            conn.execute(
+                "INSERT INTO factures (facture_id_opaque, fournisseur_id_opaque, facture_ref, "
+                "facture_ref_source, date_facture, montant_ttc, statut, source, justificatif) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                (fid, "INT_0004", f"FAUX-{compteur['n']}", f"FAUX-{compteur['n']}", "2026-08-31",
+                 100.0, fact.ST_A_CONTROLER, "PDF_EXTRACTION", Path(path).name))
             conn.commit()
         finally:
             conn.close()
