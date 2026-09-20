@@ -142,6 +142,21 @@ def factures_list(request: Request, statut: str = "", fournisseur: str = "", moi
     })
 
 
+@router.get("/factures/referentiel-logements.json")
+def factures_referentiel_logements():
+    """Le référentiel des logements, à donner à l'outil qui rédige les MD (hors application).
+
+    `referentiel_version` est l'empreinte du contenu : deux exports identiques portent la même
+    version, et un MD écrit avec une version antérieure se signale tout seul.
+    """
+    from fastapi.responses import Response
+    from app.services import referentiel_logements_export_service as ref_export
+
+    contenu = ref_export.exporter_json()
+    return Response(contenu, media_type="application/json", headers={
+        "Content-Disposition": f'attachment; filename="{ref_export.NOM_FICHIER}"'})
+
+
 @router.post("/factures/recharger")
 def factures_recharger():
     """Relit le DOSSIER de dépôt : importe les nouveaux PDF, retire les factures À CONTRÔLER dont
@@ -256,6 +271,14 @@ async def facture_creer(request: Request):
                             status_code=303)
 
 
+def _interpretation(opaque: str) -> dict:
+    try:
+        from app.services import facture_interpretation_service as interpretation
+        return interpretation.etat(opaque)
+    except Exception:      # noqa: BLE001 — l'écran d'une facture ne tombe pas pour un diagnostic
+        return {}
+
+
 def _anomalies_document(opaque: str) -> list[dict[str, str]]:
     try:
         from app.services import facture_menage_pdf_service as pdf_svc
@@ -303,6 +326,8 @@ def facture_detail(request: Request, opaque: str, message: str = "", erreur: str
         "contradictions_nom_fichier": _contradictions_nom_fichier(opaque),
         # Anomalies du DOCUMENT : numéro fournisseur réutilisé, incohérence arithmétique imprimée.
         "anomalies_document": _anomalies_document(opaque),
+        # Quelle lecture du document fait foi : le parseur PDF, ou le MD structuré déposé à côté.
+        "interpretation": _interpretation(opaque),
         "ecriture_active": _ecriture_active(), "message": message, "erreur": erreur,
     })
 

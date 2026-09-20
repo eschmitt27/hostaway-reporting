@@ -56,6 +56,49 @@
   </div>
 </div>
 
+{% if interpretation %}
+{# Quelle LECTURE du document fait foi : le parseur PDF, ou le MD structuré déposé à côté. Jamais
+   les deux — les lignes d'une facture viennent d'une seule source. #}
+<div class="card mb-md" data-testid="source-interpretation">
+  <div class="card-title">Source d'interprétation</div>
+  <p>
+    <strong>{{ "MD structuré" if interpretation.source_interpretation == "MD" else "Extraction PDF" }}</strong>
+    {% if interpretation.md_nom_fichier %} — {{ interpretation.md_nom_fichier }}{% endif %}
+  </p>
+  {% if interpretation.source_interpretation == "MD" and interpretation.md_referentiel_version %}
+  <p class="section-note">
+    Référentiel logements : <span class="font-mono text-xs">{{ interpretation.md_referentiel_version[:12] }}…</span>
+  </p>
+  {% endif %}
+  <p class="section-note" data-testid="md-etat">
+    État du MD :
+    {% if interpretation.md_etat == "VALIDE" %}valide
+    {% elif interpretation.md_etat == "OBSOLETE" %}obsolète — écrit pour une autre version du PDF, il n'est pas utilisé
+    {% elif interpretation.md_etat == "INVALIDE" %}invalide — non conforme au contrat, il n'est pas utilisé
+    {% else %}absent — le parseur PDF fait foi
+    {% endif %}
+  </p>
+  {% if interpretation.versions|length > 1 %}
+  <details>
+    <summary class="section-note">{{ interpretation.versions|length }} versions d'interprétation</summary>
+    <table class="data-table mt-sm">
+      <thead><tr><th>Version</th><th>Source</th><th>Lignes</th><th class="num">Somme</th><th>Motif</th></tr></thead>
+      <tbody>
+        {% for v in interpretation.versions %}
+        <tr>
+          <td>{{ v.version }}{% if v.active %} <strong>(active)</strong>{% endif %}</td>
+          <td>{{ v.source }}</td><td>{{ v.nb_lignes }}</td>
+          <td class="num">{{ "%.2f"|format(v.montant_lignes or 0) }}</td>
+          <td class="text-xs">{{ v.motif }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </details>
+  {% endif %}
+</div>
+{% endif %}
+
 {% if anomalies_document %}
 <div class="alert alert-warning" data-testid="anomalies-document">
   <strong>Le document fournisseur lui-même demande un contrôle.</strong>

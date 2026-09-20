@@ -12,6 +12,9 @@
     <a href="/reglements" class="btn btn-secondary">Règlements</a>
     <a href="/factures/controles" class="btn btn-secondary">Contrôles</a>
     <a href="/factures/importer" class="btn btn-secondary">Importer un PDF</a>
+    {# Contexte à fournir à l'outil qui rédige les MD structurés, hors application. #}
+    <a href="/factures/referentiel-logements.json" class="btn btn-secondary"
+       data-testid="export-referentiel-logements">Exporter le référentiel logements</a>
     {# Le DOSSIER de dépôt fait foi pour tout ce qui n'est pas validé : ce bouton le relit. #}
     <form method="post" action="/factures/recharger" style="display:inline">
       <button type="submit" class="btn btn-secondary" data-testid="recharger-factures">

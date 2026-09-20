@@ -36,7 +36,9 @@ from typing import Any
 
 import app.config as cfg
 from app.db.connection import get_db
+from app.services import facture_interpretation_service as interpretation
 from app.services import facture_lignes_menage_service as flm
+from app.services import facture_md_service as md_svc
 from app.services import facture_ventilation_menage_service as vent
 from app.services import factures_service as fact
 from app.services import fournisseurs_referentiel_service as frs
@@ -509,6 +511,56 @@ def importer(path, *, acteur: str = "", db_path=None) -> dict[str, Any]:
     facture_id = resultat["facture_id_opaque"]
     _enregistrer_diagnostic(fac, facture_id_opaque=facture_id, db_path=db_path)
 
+    # Le MD structuré, s'il est là et valide, PREND LA MAIN : les lignes viennent de lui, et
+    # jamais un mélange des deux lectures (contrat FACTURE_FOURNISSEUR_MD_V1).
+    analyse_md = md_svc.analyser(path, db_path=db_path, pdf_sha256=fac.sha256_pdf)
+    if analyse_md["etat"] == md_svc.ETAT_VALIDE:
+        from app.services import referentiel_logements_export_service as ref_export
+
+        lignes_md = md_svc.lignes_canoniques(
+            analyse_md["donnees"], logements_connus=ref_export.logements_connus(db_path=db_path))
+        interpretation._poser_lignes_md(
+            facture_id, lignes_md, acteur=acteur, nom_prestataire=fac.nom_prestataire or "",
+            db_path=db_path)
+        pose = interpretation.enregistrer_version_initiale(
+            facture_id, source=interpretation.SOURCE_MD, nb_lignes=len(lignes_md), md=analyse_md,
+            pdf_sha256=fac.sha256_pdf,
+            motif=f"Interprétation structurée {analyse_md['md_nom_fichier']}",
+            acteur=acteur, db_path=db_path)
+        pose["anomalies"] = analyse_md["anomalies"]
+        controle = flm.controler_total(facture_id, db_path=db_path)
+        return {"ok": True, "facture_id_opaque": facture_id, "statut": resultat["statut"],
+                "nb_lignes": len(lignes_md), "controle_total": controle, "ventilations": [],
+                "anomalies_extraction": fac.anomalies + list(pose.get("anomalies") or []),
+                "numero_reutilise_de": autre_facture,
+                "remplacement_de": resultat.get("remplacement_de"),
+                "source_interpretation": interpretation.SOURCE_MD,
+                "md_etat": analyse_md["etat"], "md_nom_fichier": analyse_md["md_nom_fichier"],
+                "mois_impacte": str(fac.date_facture or "")[:7] or None}
+
+    ventilations = _poser_lignes_pdf(facture_id, fac, acteur=acteur, db_path=db_path)
+    interpretation.enregistrer_version_initiale(
+        facture_id, source=interpretation.SOURCE_PDF, nb_lignes=len(fac.lignes), md=analyse_md,
+        pdf_sha256=fac.sha256_pdf, motif="Extraction du PDF par le moteur déterministe",
+        acteur=acteur, db_path=db_path)
+    controle = flm.controler_total(facture_id, db_path=db_path)
+    return {"ok": True, "facture_id_opaque": facture_id, "statut": resultat["statut"],
+            "nb_lignes": len(fac.lignes), "controle_total": controle, "ventilations": ventilations,
+            "anomalies_extraction": fac.anomalies,
+            "numero_reutilise_de": autre_facture,
+            "remplacement_de": resultat.get("remplacement_de"),
+            "source_interpretation": interpretation.SOURCE_PDF,
+            "md_etat": analyse_md["etat"],
+            "md_nom_fichier": analyse_md["md_nom_fichier"] if analyse_md["md_present"] else None,
+            "mois_impacte": str(fac.date_facture or "")[:7] or None}
+
+
+def _poser_lignes_pdf(facture_id: str, fac, *, acteur: str = "", db_path=None) -> list[dict[str, Any]]:
+    """Écrit les lignes que le PARSEUR a lues, et ventile ce qui n'a pas de logement.
+
+    Extrait de `importer()` pour être rejouable : quand un MD disparaît, la facture doit pouvoir
+    revenir à cette lecture-ci sans repasser par la création de la facture.
+    """
     # §23 — le rapprochement du logement se fait ICI, sur le référentiel vivant, et non plus dans
     # l'extracteur. `proposition` porte toujours sa confiance et sa raison : une ligne préremplie
     # « à confirmer » n'est pas une ligne certaine, et l'écran doit pouvoir le dire.
@@ -549,14 +601,25 @@ def importer(path, *, acteur: str = "", db_path=None) -> dict[str, Any]:
         for ligne in non_affectees:
             ventilations.append(vent.ventiler_et_enregistrer(
                 facture_id, ligne.montant_ligne or 0, base, acteur=acteur, db_path=db_path))
+    return ventilations
 
-    controle = flm.controler_total(facture_id, db_path=db_path)
 
-    return {"ok": True, "facture_id_opaque": facture_id, "statut": resultat["statut"],
-            "nb_lignes": len(fac.lignes), "controle_total": controle, "ventilations": ventilations,
-            "anomalies_extraction": fac.anomalies,
-            "numero_reutilise_de": autre_facture,
-            "remplacement_de": resultat.get("remplacement_de"),
-            # Mois impacté = EXACTEMENT ce que lot6d lira (`str(date_facture or "")[:7]`, cf. son
-            # bloc `ext`) — mission "recalcul mensuel ciblé" §8 : jamais un mois recalculé au hasard.
-            "mois_impacte": str(fac.date_facture or "")[:7] or None}
+def relire_pdf(facture_id_opaque: str, chemin_pdf, *, motif: str = "", acteur: str = "",
+               db_path=None) -> dict[str, Any]:
+    """Repose les lignes du PARSEUR sur une facture existante (retour au PDF après un MD retiré).
+
+    Le document est relu par le moteur déterministe ; les lignes de la lecture précédente ont déjà
+    été désactivées par `facture_interpretation_service.appliquer`.
+    """
+    import lib_menages_externes_pdf as pdfex
+
+    fac = pdfex.extraire_pdf(chemin_pdf)
+    if fac.statut_extraction != "OK":
+        return {"ok": False, "code": E_EXTRACTION_ECHOUEE,
+                "statut_extraction": fac.statut_extraction, "anomalies": fac.anomalies}
+    resultat = interpretation.appliquer(
+        facture_id_opaque, source=interpretation.SOURCE_PDF, lignes=list(fac.lignes),
+        pdf_sha256=fac.sha256_pdf, motif=motif or "Retour à l'extraction PDF", acteur=acteur,
+        db_path=db_path, poser=lambda: _poser_lignes_pdf(facture_id_opaque, fac, acteur=acteur,
+                                                         db_path=db_path))
+    return resultat

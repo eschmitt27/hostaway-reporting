@@ -369,8 +369,34 @@ def recharger(*, acteur: str = "", dossier: Path | None = None, db_path=None) ->
                                "facture_ref": f["facture_ref"], "statut": f["statut"],
                                "fichier_source": f["fichier_source"]})
 
+    # ── Le MD structuré peut avoir été ajouté ou retiré depuis le dernier passage ──────────────
+    # Le dossier fait foi : une facture encore à contrôler suit la lecture que le dossier propose
+    # aujourd'hui (MD valide → MD ; sinon → parseur PDF). Une facture validée, jamais.
+    from app.services import facture_interpretation_service as interpretation
+
+    interpretations = []
+    for p in lister_pdf(dossier=d):
+        facture = next((f for f in _factures_pdf(db_path=db_path)
+                        if f["fichier_source"] == p.name), None)
+        if facture is None:
+            continue
+        res = interpretation.synchroniser(
+            facture["facture_id_opaque"], p, acteur=acteur, db_path=db_path,
+            extraire_pdf=lambda fid, motif="", chemin=p: pdf_import.relire_pdf(
+                fid, chemin, motif=motif, acteur=acteur, db_path=db_path))
+        if res.get("change"):
+            interpretations.append({"fichier": p.name, "source": res.get("source"),
+                                    "md_etat": res.get("md_etat"), "version": res.get("version"),
+                                    "nb_lignes": res.get("nb_lignes")})
+
+    # Un MD sans PDF ne s'interprète pas : le PDF reste la pièce originale obligatoire.
+    presents_md = {m.stem for m in d.glob("*.md")} if d.exists() else set()
+    orphelins = sorted(nom + ".md" for nom in presents_md - {p.stem for p in lister_pdf(dossier=d)})
+
     doublons = doublons_dossier(dossier=d)
     return {
+        "interpretations_changees": interpretations,
+        "md_orphelins": orphelins,
         "ok": import_resultat["ok"] and not echecs,
         "dossier": str(d),
         "nb_presents": len(presents),

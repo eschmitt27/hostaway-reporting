@@ -158,6 +158,7 @@ EXPECTED_TABLES = {
     "ref_regles_versions",                       # 0059 — versionnement règles algorithmiques (Mission 6 bis)
     "sauvegardes_base_tracabilite",               # 0061 — hash source + version schema (mission 14)
     "charges_justificatif_sequence",             # 0092 — séquence JUS-AAAA-NNNN (recette 4 lot 2)
+    "facture_interpretations",                   # 0093 — versions d'interprétation PDF / MD
     "charges_refacturation_positions",           # 0062 — positions de refacturation (mission 15)
     "charges_refacturation_evenements",          # 0062 — audit positions de refacturation (mission 15)
     "mois_archive_reglement",                    # 0064 — archive Lot10 reglement a la cloture (mission 15)

@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "FACTURE_FOURNISSEUR_MD_V1",
+  "title": "Interprétation structurée d'une facture fournisseur (V1)",
+  "description": "Contrat du fichier .md déposé à côté du PDF. Le MD TRANSCRIT la facture : il ne la corrige jamais. Les montants imprimés restent la donnée source ; l'application recalcule elle-même les contrôles.",
+  "type": "object",
+  "required": ["schema", "source", "facture", "lignes"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "FACTURE_FOURNISSEUR_MD_V1"},
+    "source": {
+      "type": "object",
+      "required": ["pdf_filename", "pdf_sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "pdf_filename": {"type": "string", "minLength": 1},
+        "pdf_sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+        "referentiel_version": {"type": ["string", "null"]}
+      }
+    },
+    "facture": {
+      "type": "object",
+      "required": ["reference_fournisseur", "total_document"],
+      "additionalProperties": false,
+      "properties": {
+        "fournisseur": {"type": ["string", "null"]},
+        "reference_fournisseur": {"type": "string", "minLength": 1},
+        "date_facture": {"type": ["string", "null"], "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+        "mois_concerne": {"type": ["string", "null"], "pattern": "^\\d{4}-\\d{2}$"},
+        "devise": {"type": ["string", "null"]},
+        "total_ht": {"type": ["number", "null"]},
+        "total_tva": {"type": ["number", "null"]},
+        "total_ttc": {"type": ["number", "null"]},
+        "net_a_payer": {"type": ["number", "null"]},
+        "total_document": {"type": "number"}
+      }
+    },
+    "lignes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["libelle_source", "nature", "montant_source"],
+        "additionalProperties": false,
+        "properties": {
+          "numero": {"type": ["integer", "null"], "minimum": 1},
+          "page": {"type": ["integer", "null"], "minimum": 1},
+          "libelle_source": {"type": "string", "minLength": 1},
+          "libelle_metier": {"type": ["string", "null"]},
+          "nature": {"enum": ["MENAGE", "REMISE_EN_ETAT", "AUTRE_PRESTATION", "A_CLASSER"]},
+          "dates_prestation": {
+            "type": "array",
+            "items": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"}
+          },
+          "quantite_source": {"type": ["number", "null"], "minimum": 0},
+          "prix_unitaire_source": {"type": ["number", "null"]},
+          "montant_source": {"type": "number"},
+          "montant_calcule": {"type": ["number", "null"]},
+          "logements": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["logement_id"],
+              "additionalProperties": false,
+              "properties": {
+                "logement_id": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"},
+                "confiance": {
+                  "enum": ["CERTAIN", "A_CONFIRMER", "AMBIGU", "NON_TROUVE", "NON_APPLICABLE"]
+                },
+                "motif": {"type": ["string", "null"]},
+                "quote_part": {"type": ["number", "null"], "minimum": 0}
+              }
+            }
+          },
+          "anomalies": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "controles": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Purement indicatif : l'application recalcule ces valeurs et ne s'y fie jamais.",
+      "properties": {
+        "nombre_lignes": {"type": ["integer", "null"], "minimum": 0},
+        "somme_montants_source": {"type": ["number", "null"]},
+        "total_document": {"type": ["number", "null"]},
+        "ecart_source": {"type": ["number", "null"]},
+        "anomalies_document": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}

@@ -144,6 +144,19 @@ def _env_flag(nom: str) -> bool:
 ECRITURE_OPERATIONNELLE_ENABLED = True
 
 
+# ── ARCHIVAGE DÉFINITIF DES PIÈCES — PRÉPARÉ, VOLONTAIREMENT INACTIF ─────────────────────────────
+#
+# Cible : à la validation d'une facture, archiver de façon immuable le PDF original et, s'il
+# existe, le MD qui a servi à cette validation (à défaut, un MD canonique produit depuis les
+# données réellement validées). Ce stockage est celui de la PRODUCTION.
+#
+# Il reste DÉSACTIVÉ tant que l'application est en phase de test : les PDF et MD de recette n'ont
+# rien à faire dans le futur dépôt définitif, et une fois archivée une pièce ne se retire pas.
+# L'activation se fera au passage officiel TEST → PRODUCTION, par cette variable seule.
+ARCHIVAGE_PIECES_ENABLED = os.environ.get(
+    "ARCHIVAGE_PIECES_ENABLED", "0").strip() in ("1", "true", "True")
+
+
 # ── SECOND LEVIER D'ACTIVATION DU NIVEAU B (mission activation recette réelle, 2026-09-10) ────
 # Le NIVEAU B était bâti sur `RECETTE_MODE and _env_flag(...)`. Conséquence : une instance de
 # PRODUCTION ne pouvait JAMAIS écrire, même en posant sa variable dédiée — seule une instance
@@ -220,6 +233,9 @@ SAISIE_PATTERN = "SAISIE_"
 # DATA_DIR isolable par env (APP_DATA_DIR) : permet de lancer une instance de validation sans
 # toucher la vraie base ni le vrai dossier data/ (snapshots, workspaces). Défaut = comportement normal.
 DATA_DIR = Path(os.environ.get("APP_DATA_DIR", str(APP_ROOT / "data")))
+#: Dépôt des pièces archivées à la validation — créé seulement quand
+#: `ARCHIVAGE_PIECES_ENABLED` sera posé, au passage en production.
+ARCHIVAGE_PIECES_DIR = DATA_DIR / "pieces_archivees"
 DB_PATH = DATA_DIR / "app.db"
 
 # Identité de la société émettrice, imprimée sur les factures propriétaires. Volontairement vide
