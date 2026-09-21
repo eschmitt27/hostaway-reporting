@@ -516,6 +516,14 @@ class _Facture(FPDF):
         filet brique fin posé dessous. Le tableau se lit comme une liste, pas comme une grille.
         """
         largeur_totale = sum(c[0] for c in colonnes)
+        # Un bandeau crème très clair, aux coins hauts arrondis, pose l'en-tête sans refaire
+        # l'aplat plein qui découpait la page. Les capitales brique restent le contraste ; le
+        # fond ne fait que leur donner une assise et ouvrir le tableau comme un bloc.
+        y_bandeau = self.get_y()
+        self.set_fill_color(*CREME_CLAIR)
+        self.rect(MARGE, y_bandeau, largeur_totale, hauteur, style="F",
+                  round_corners=("TOP_LEFT", "TOP_RIGHT"), corner_radius=RAYON)
+        self.set_xy(MARGE, y_bandeau)
         self.set_font("Helvetica", "B", 7.2)
         self.set_text_color(*BRIQUE)
         self.set_char_spacing(0.5)
@@ -639,6 +647,27 @@ class _Facture(FPDF):
         gauche = ([titre_gauche] if titre_gauche else []) + gauche
         self._cartes_parties(gauche, droite)
 
+    def _etiquette_carte(self, texte: str, x: float, y: float) -> None:
+        """Étiquette interne d'une carte : petites capitales brique, soulignées d'un tiret court.
+
+        Partagée par ÉMETTEUR, FACTURÉ À et RÈGLEMENT — c'est elle qui fait lire les trois blocs
+        comme un même système, plutôt que comme trois inventions successives. Laisse le curseur
+        sur la première ligne de contenu.
+        """
+        self.set_xy(x + PADDING, y + PADDING - 2.0)
+        self.set_font("Helvetica", "B", 6.6)
+        self.set_text_color(*BRIQUE)
+        self.set_char_spacing(0.9)
+        self.cell(LARGEUR_CARTE - 2 * PADDING, 3.6, _t(texte), 0,
+                  new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        self.set_char_spacing(0)
+        y_tiret = self.get_y() + 0.3
+        self.set_draw_color(*BRIQUE)
+        self.set_line_width(0.6)
+        self.line(x + PADDING, y_tiret, x + PADDING + 7, y_tiret)
+        self.set_line_width(0.2)
+        self.set_y(y_tiret + 1.3)
+
     def _cartes_parties(self, gauche: list[str], droite: list[str]):
         """Les deux parties dans deux cartes alignées, de MÊME hauteur.
 
@@ -662,20 +691,7 @@ class _Facture(FPDF):
 
         for x, etiquette, contenu in ((MARGE, "ÉMETTEUR", gauche),
                                       (MARGE + LARGEUR_CARTE + GOUTTIERE, "FACTURÉ À", droite)):
-            self.set_xy(x + PADDING, y + PADDING - 2.0)
-            self.set_font("Helvetica", "B", 6.6)
-            self.set_text_color(*BRIQUE)
-            self.set_char_spacing(0.9)
-            self.cell(LARGEUR_CARTE - 2 * PADDING, 3.6, _t(etiquette), 0,
-                      new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-            self.set_char_spacing(0)
-            # Tiret d'étiquette, même grammaire que le filet des titres de section.
-            y_tiret = self.get_y() + 0.3
-            self.set_draw_color(*BRIQUE)
-            self.set_line_width(0.6)
-            self.line(x + PADDING, y_tiret, x + PADDING + 7, y_tiret)
-            self.set_line_width(0.2)
-            self.set_y(y_tiret + 1.3)
+            self._etiquette_carte(etiquette, x, y)
 
             for i, ligne in enumerate(contenu):
                 self.set_x(x + PADDING)
@@ -813,7 +829,7 @@ class _Facture(FPDF):
         if nb_reglements:
             contenu += 1 + 4.5 + h * nb_reglements    # intertitre + lignes
         contenu += PADDING - 1                        # air bas
-        return contenu, 12.0
+        return contenu, 13.0
 
     def _recapitulatif(self, deco: dict[str, Any], *, y_depart: float | None = None):
         """Le récapitulatif EST la formule. Chaque poste apparaît même à zéro dès qu'il porte une
@@ -927,13 +943,15 @@ class _Facture(FPDF):
         self.set_xy(gauche + PADDING, y_badge)
         self.set_text_color(*BLANC)
         # Le libellé reste discret, le MONTANT porte la taille : c'est le chiffre qu'on cherche.
-        self.set_font("Helvetica", "B", 8)
-        self.set_char_spacing(0.6)
-        self.cell(interne * 0.54, hauteur_badge, _t(titre), 0,
+        self.set_font("Helvetica", "B", 7.6)
+        self.set_char_spacing(0.9)
+        self.cell(interne * 0.50, hauteur_badge, _t(titre), 0,
                   new_x=XPos.RIGHT, new_y=YPos.TOP)
         self.set_char_spacing(0)
-        self.set_font("Helvetica", "B", 14)
-        self.cell(interne * 0.46, hauteur_badge, _t(_montant(valeur)), 0,
+        # Le montant porte tout le poids : deux points de plus que le libellé ne suffisaient pas
+        # à en faire le premier chiffre que l'oeil trouve.
+        self.set_font("Helvetica", "B", 16)
+        self.cell(interne * 0.50, hauteur_badge, _t(_montant(valeur)), 0,
                   new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R")
         self.set_text_color(*ESPRESSO)
         self.ln(2)
@@ -947,12 +965,27 @@ class _Facture(FPDF):
         self._bloc_parties()
         # Nature de l'opération et bon de commande : mentions réglementaires quand elles sont
         # renseignées. Elles étaient rendues avant la refonte et doivent le rester.
-        self.set_font("Helvetica", "", 8.5)
-        for libelle, valeur in (("Nature de l'opération", _libelle_nature(conf.get("nature_operation"))),
-                                ("Bon de commande", conf.get("numero_bon_commande"))):
-            if valeur:
-                self.cell(0, 4.6, _t(f"{libelle} : {valeur}"), 0,
-                          new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        # Ces deux mentions réglementaires formaient une ligne isolée, en corps courant, posée
+        # entre les cartes et la première section sans appartenir à rien. Elles adoptent la
+        # grammaire du pavé de références : étiquette en petites capitales discrètes, valeur en
+        # corps de lecture, sur une seule ligne. Le texte imprimé est le même, au caractère près.
+        mentions = [(libelle, valeur) for libelle, valeur in (
+            ("Nature de l'opération", _libelle_nature(conf.get("nature_operation"))),
+            ("Bon de commande", conf.get("numero_bon_commande"))) if valeur]
+        for libelle, valeur in mentions:
+            self.set_x(MARGE)
+            self.set_font("Helvetica", "", 6.9)
+            self.set_text_color(*PIERRE)
+            self.set_char_spacing(0.5)
+            largeur_etiquette = self.get_string_width(_t(libelle.upper() + " :")) + 3.2
+            self.cell(largeur_etiquette, 4.6, _t(libelle.upper() + " :"), 0,
+                      new_x=XPos.RIGHT, new_y=YPos.TOP)
+            self.set_char_spacing(0)
+            self.set_font("Helvetica", "", 8.5)
+            self.set_text_color(*ESPRESSO)
+            self.cell(0, 4.6, _t(valeur), 0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        if mentions:
+            self.ln(0.8)
         self._tableau_sejours()
         self._tableau_prestations()
 
@@ -1001,9 +1034,10 @@ class _Facture(FPDF):
         # récapitulatif est calé sur le cadre du règlement, pas sur le mot « RÈGLEMENT ». Ne
         # réserver que le plus haut des deux corps oubliait donc ces ~10 mm, et deux factures qui
         # tenaient basculaient sur une seconde feuille sans qu'aucun garde-fou ne s'en aperçoive.
-        hauteur_titre = self._hauteur_titre_section()
+        # Étiquette interne + tiret + air : la carte de gauche porte son titre, elle n'en a plus
+        # au-dessus d'elle.
         hauteur_mentions = 4 * (2 if conf.get("mention_tva") else 0) + 16
-        hauteur_gauche = 5 * len(retenues) + hauteur_mentions
+        hauteur_gauche = 5 * len(retenues) + hauteur_mentions + 7
         hauteur_droite = (sum(self._hauteur_recapitulatif(deco)) + 2) if deco else 0
 
         self.ln(3 + self.air)
@@ -1015,7 +1049,7 @@ class _Facture(FPDF):
         # de 4 mm coûtait une page entière sur une facture qui tenait — mesurée à 0,1 mm près,
         # elle demandait 67,2 mm là où 67,1 restaient. Le millimètre conservé n'absorbe que les
         # arrondis d'interligne.
-        self._reserver(max(hauteur_titre + hauteur_gauche, hauteur_droite) + 1)
+        self._reserver(max(hauteur_gauche, hauteur_droite) + 1)
         y_colonnes = self.get_y()
 
         # ── Colonne de gauche : conditions, mentions légales, renvoi au relevé ───────────────
@@ -1023,16 +1057,19 @@ class _Facture(FPDF):
         # pierre — secondaire par rapport aux montants d'en face, comme il doit l'être — mais un
         # fond crème très clair et un filet d'attache le rattachent à la composition. Le fond est
         # posé AVANT le texte : fpdf n'a pas de calques, un rectangle dessiné après recouvrirait.
+        # LA CLÔTURE EST UNE PAIRE DE CARTES, comme l'ouverture du document. Le titre de section
+        # « Règlement » se lisait au-dessus du bloc de gauche, si bien que la carte des totaux
+        # commençait dix millimètres plus haut que sa voisine : deux rectangles côte à côte qui
+        # ne partageaient pas leur bord supérieur, ce qui se voit sans qu'on sache le nommer.
+        #
+        # J'avais d'abord descendu la carte des totaux pour la rattraper. Mesuré, cela faisait
+        # basculer deux factures sur une seconde feuille. La section « Règlement » garde donc son
+        # nom, mais le porte À L'INTÉRIEUR de sa carte, avec la même étiquette en petites
+        # capitales et le même tiret brique que ÉMETTEUR et FACTURÉ À. Les deux bords s'alignent,
+        # et les dix millimètres sont rendus à la page au lieu d'être dépensés.
         self._bloc_reglement(retenues, conf, y_colonnes)
         bas_gauche = self.get_y()
 
-        # ── Colonne de droite : le récapitulatif, sur la ligne du titre ──────────────────────
-        # J'avais d'abord calé cette carte sur le CADRE du règlement, titre déduit : les deux
-        # rectangles partageaient alors exactement leur bord supérieur, ce qui était plus propre.
-        # Mesuré, cela décalait toute la clôture de dix millimètres vers le bas et faisait
-        # basculer DEUX factures sur une seconde feuille. Une page gagnée vaut mieux qu'un bord
-        # aligné : la carte repart donc de la ligne du titre, et l'écart optique résiduel est
-        # absorbé par sa marge haute.
         if deco:
             self._recapitulatif(deco, y_depart=y_colonnes)
         self.set_y(max(bas_gauche, self.get_y()))
@@ -1044,9 +1081,7 @@ class _Facture(FPDF):
         récapitulatif ferait un grand rectangle vide à côté des montants, ce qui est pire que le
         déséquilibre qu'on cherche à corriger.
         """
-        self.set_y(y_depart)
-        self._titre_section("Règlement", hauteur_bloc=0, largeur=LARGEUR_CARTE)
-        y_bloc = self.get_y()
+        y_bloc = y_depart
 
         # Première passe : on compose HORS PAGE pour mesurer, puis on recompose sur le fond.
         # fpdf ne sait pas mesurer un `multi_cell` sans l'écrire ; `offset_rendering` l'écrit dans
@@ -1069,7 +1104,7 @@ class _Facture(FPDF):
     def _contenu_reglement(self, retenues, conf: dict[str, Any], y_bloc: float) -> None:
         """Le texte du bloc Règlement. Appelé deux fois : une pour mesurer, une pour rendre."""
         interne = LARGEUR_CARTE - 2 * PADDING
-        self.set_y(y_bloc + PADDING - 1)
+        self._etiquette_carte("RÈGLEMENT", MARGE, y_bloc)
         self.set_font("Helvetica", "", 8.3)
         self.set_text_color(*ESPRESSO)
         for libelle, valeur in retenues:
@@ -1116,8 +1151,10 @@ def _neutraliser_metadonnees(pdf: FPDF) -> None:
 
 
 #: En deçà de ce blanc résiduel, une page d'une seule feuille est simplement aérée. Au-delà, elle
-#: paraît abandonnée, et on redistribue. 42 mm ≈ un sixième de la hauteur utile.
-BLANC_TOLERE = 42.0
+#: paraît abandonnée, et on redistribue. 30 mm ≈ un neuvième de la hauteur utile : c'est la marge
+#: basse d'un document bien composé. Le seuil valait 42 mm, et laissait passer des factures qui
+#: finissaient aux quatre cinquièmes de la page — mesuré à 51 mm sur une facture de trois lignes.
+BLANC_TOLERE = 30.0
 
 #: Plafond de la respiration ajoutée à chaque inter-bloc. Au-delà, on ne compose plus : on étire.
 AIR_MAX = 5.0
