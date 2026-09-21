@@ -139,6 +139,21 @@ LOGO = Path(__file__).resolve().parent.parent / "static" / "img" / "brand" / "ch
 MARGE = 15.0
 LARGEUR_UTILE = 210.0 - 2 * MARGE
 
+# ── Grille et respiration ───────────────────────────────────────────────────────────────────────
+# Une facture est un document, pas un tableur : la lisibilité vient d'abord des blancs. Ces
+# constantes remplacent les valeurs dispersées dans le code de rendu, pour qu'un ajustement de
+# densité se fasse en un seul endroit et reste cohérent d'un bloc à l'autre.
+RAYON = 1.6            # arrondi des cartes — franc mais sobre, jamais une pastille
+PADDING = 3.5          # air intérieur d'une carte
+GOUTTIERE = 5.0        # espace entre les deux cartes ÉMETTEUR / FACTURÉ À
+LARGEUR_CARTE = (LARGEUR_UTILE - GOUTTIERE) / 2
+HAUTEUR_LIGNE = 6.5    # hauteur d'une ligne de tableau : +0,3 mm sur l'ancienne, l'air se voit
+BAS_PIED = 22.0        # hauteur réservée au pied de page
+
+#: Fond très clair des lignes alternées. CRÈME pleine faisait des bandes trop marquées une fois
+#: les bordures retirées : la teinte est éclaircie pour rester un repère, pas une trame.
+CREME_CLAIR = (0xFB, 0xF8, 0xF5)
+
 # Regroupement des types de ligne, identique à celui du service de composition. Redéfini ici plutôt
 # qu'importé pour garder ce module SANS dépendance applicative : il ne reçoit qu'un snapshot et doit
 # rester capable de rendre un document archivé, même si les services évoluent. Le test
@@ -192,46 +207,89 @@ class _Facture(FPDF):
                 self._ligne_entete(*self._entete_tableau)
 
     def _bandeau_marque(self, est_avoir: bool):
+        """Identité à gauche, nature du document à droite, sur une même ligne de base.
+
+        L'ancienne version empilait le titre et quatre lignes de référence en corps 9, toutes de
+        même poids : le numéro, la période et le statut se lisaient d'un bloc. Ici la hiérarchie
+        est explicite — le mot FACTURE domine, les références sont secondaires, et le statut d'un
+        document non émis devient un badge plutôt qu'une ligne de texte perdue au milieu des
+        autres.
+        """
         snap = self.snapshot
-        haut = 12.0
+        haut = 13.0
         if LOGO.exists():
             # Le logo est plus haut que large (256x384) : on borne la HAUTEUR et laissons fpdf
             # déduire la largeur, sinon il serait étiré.
             try:
-                self.image(str(LOGO), x=MARGE, y=haut, h=22)
+                self.image(str(LOGO), x=MARGE, y=haut, h=21)
             except Exception:      # noqa: BLE001 — un logo illisible ne doit pas empêcher la facture
                 pass
-        self.set_xy(MARGE + 20, haut + 1)
-        self.set_font("Helvetica", "B", 17)
+        self.set_xy(MARGE + 19, haut + 2.5)
+        self.set_font("Helvetica", "B", 16)
         self.set_text_color(*BRIQUE)
-        self.cell(70, 8, _t(snap.get("emetteur", {}).get("nom") or "Chouette Patrimoine"),
+        self.cell(76, 7, _t(snap.get("emetteur", {}).get("nom") or "Chouette Patrimoine"),
                   0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        self.set_x(MARGE + 20)
+        self.set_x(MARGE + 19)
+        self.set_font("Helvetica", "", 8)
+        self.set_text_color(*PIERRE)
+        self.set_char_spacing(0.4)
+        self.cell(76, 4, _t("CONCIERGERIE DE LOCATION COURTE DURÉE"),
+                  0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        self.set_char_spacing(0)
+
+        # Pavé titre, aligné à droite. La colonne commence à 112 mm : assez large pour que
+        # « Période des prestations : du 01/09/2026 au 13/09/2026 » tienne sur UNE ligne — elle
+        # débordait sous l'ancienne largeur et repassait à la ligne sans indentation.
+        colonne, largeur = 112.0, 210 - MARGE - 112.0
+        self.set_xy(colonne, haut)
+        self.set_font("Helvetica", "B", 24)
+        self.set_text_color(*ESPRESSO)
+        self.set_char_spacing(1.2)
+        self.cell(largeur, 11, _t("AVOIR" if est_avoir else "FACTURE"),
+                  0, new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R")
+        self.set_char_spacing(0)
+        self.ln(0.8)
         self.set_font("Helvetica", "", 8.5)
         self.set_text_color(*PIERRE)
-        self.cell(70, 4, _t("Conciergerie de location courte durée"),
-                  0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-
-        # Pavé titre, aligné à droite
-        self.set_xy(120, haut)
-        self.set_font("Helvetica", "B", 22)
-        self.set_text_color(*ESPRESSO)
-        self.cell(LARGEUR_UTILE - 105, 11, _t("AVOIR" if est_avoir else "FACTURE"),
-                  0, new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R")
-        self.set_font("Helvetica", "", 9)
-        self.set_text_color(*PIERRE)
         for texte in self._references():
-            self.set_x(120)
-            self.cell(LARGEUR_UTILE - 105, 4.5, _t(texte), 0,
+            self.set_x(colonne)
+            self.cell(largeur, 4.4, _t(texte), 0,
                       new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R")
 
-        self.set_y(max(self.get_y(), haut + 24))
+        statut = snap.get("statut")
+        if statut and statut != "EMIS":
+            self.ln(1.4)
+            self._badge(str(statut), droite=210 - MARGE)
+            self.ln(2.2)      # le badge ne doit pas venir s'asseoir sur le filet de marque
+
+        self.set_y(max(self.get_y(), haut + 23))
         self.set_draw_color(*TERRACOTTA)
-        self.set_line_width(0.8)
+        self.set_line_width(0.7)
         self.line(MARGE, self.get_y(), 210 - MARGE, self.get_y())
         self.set_line_width(0.2)
         self.set_text_color(*ESPRESSO)
-        self.ln(4)
+        self.ln(4.5)
+
+    def _badge(self, texte: str, *, droite: float):
+        """Pastille discrète, calée sur son bord droit. Sert au statut d'un document non émis.
+
+        Contraste volontairement doux (fond sable, texte brique) : un BROUILLON doit se remarquer
+        sans faire croire à un tampon officiel.
+        """
+        self.set_font("Helvetica", "B", 7)
+        self.set_char_spacing(0.5)
+        largeur = self.get_string_width(_t(texte.upper())) + 7
+        hauteur = 5.0
+        x, y = droite - largeur, self.get_y()
+        self.set_fill_color(*SABLE)
+        self.rect(x, y, largeur, hauteur, style="F", round_corners=True,
+                  corner_radius=hauteur / 2)
+        self.set_xy(x, y)
+        self.set_text_color(*BRIQUE)
+        self.cell(largeur, hauteur, _t(texte.upper()), 0,
+                  new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="C")
+        self.set_char_spacing(0)
+        self.set_text_color(*ESPRESSO)
 
     def _references(self) -> list[str]:
         snap = self.snapshot
@@ -246,9 +304,6 @@ class _Facture(FPDF):
         debut, fin = conf.get("periode_debut"), conf.get("periode_fin")
         out.append(f"Période des prestations : du {_date_fr(debut)} au {_date_fr(fin)}"
                    if debut and fin else f"Période des prestations : {snap.get('mois', '')}")
-        statut = snap.get("statut")
-        if statut and statut != "EMIS":
-            out.append(f"Statut : {statut}")
         if snap.get("type_document") == "AVOIR" and snap.get("facture_origine"):
             out.append(f"Avoir sur : {snap['facture_origine']}")
         return out
@@ -256,16 +311,25 @@ class _Facture(FPDF):
     # ── Pied de page ────────────────────────────────────────────────────────────────────────────
 
     def footer(self):
-        self.set_y(-24)
+        """Ancré en bas, jamais superposé au contenu : `BAS_PIED` lui est réservé, et
+        `_place_restante` interdit d'écrire au-delà.
+
+        Le filet est plus court que la largeur utile et centré : il pose le bloc sans redessiner
+        une bordure de page. Le numéro de page est séparé des mentions légales par un demi-interligne
+        — c'est une information de navigation, pas une mention légale de plus.
+        """
+        self.set_y(-BAS_PIED)
         self.set_draw_color(*SABLE)
-        self.line(MARGE, self.get_y(), 210 - MARGE, self.get_y())
-        self.ln(1.5)
-        self.set_font("Helvetica", "", 6.8)
+        self.set_line_width(0.2)
+        self.line(70, self.get_y(), 140, self.get_y())
+        self.ln(2)
+        self.set_font("Helvetica", "", 6.6)
         self.set_text_color(*PIERRE)
         for ligne in self._mentions_pied():
-            self.cell(0, 3.2, _t(ligne), 0, new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="C")
-        self.set_font("Helvetica", "", 6.5)
-        self.cell(0, 3.2, _t(f"Page {self.page_no()}/{{nb}}"), 0,
+            self.cell(0, 3.1, _t(ligne), 0, new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="C")
+        self.ln(1)
+        self.set_font("Helvetica", "", 6.4)
+        self.cell(0, 3.1, _t(f"Page {self.page_no()} / {{nb}}"), 0,
                   new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="C")
         self.set_text_color(*ESPRESSO)
 
@@ -332,8 +396,9 @@ class _Facture(FPDF):
 
     # ── Briques de mise en page ─────────────────────────────────────────────────────────────────
 
-    # Hauteur utile d'une page : 297 mm moins la marge basse réservée au pied de marque.
-    BAS_UTILE = 297 - 26
+    # Hauteur utile d'une page : 297 mm moins la marge basse réservée au pied de marque, plus
+    # 4 mm de garde. Le pied ne doit jamais toucher la dernière ligne écrite.
+    BAS_UTILE = 297 - BAS_PIED - 4
 
     def _place_restante(self) -> float:
         """Millimètres encore disponibles avant le pied de page."""
@@ -349,7 +414,8 @@ class _Facture(FPDF):
         if hauteur > 0 and self._place_restante() < hauteur:
             self.add_page()
 
-    def _titre_section(self, texte: str, hauteur_bloc: float = 22.0):
+    def _titre_section(self, texte: str, hauteur_bloc: float = 22.0,
+                       largeur: float | None = None):
         """Un titre ne doit jamais rester seul en bas de page : on force la coupe s'il ne reste pas
         de quoi afficher le bloc qu'il annonce.
 
@@ -358,30 +424,54 @@ class _Facture(FPDF):
         réelle la passent, pour que le bloc migre en entier plutôt qu'à moitié.
         """
         self._reserver(hauteur_bloc)
-        # Interlignes resserrés (2 mm → 1,4 mm avant, 2 → 1,6 après) : quatre sections par document,
-        # donc ~4 mm regagnés sans que les titres se collent au contenu. Compaction mesurée, pas un
-        # rétrécissement de police — la lisibilité ne se négocie pas pour gagner une page (§30 A).
-        self.ln(1.4)
-        self.set_font("Helvetica", "B", 10)
+        # Le titre porte sa propre hiérarchie : capitales espacées en corps 9, soulignées d'un
+        # filet sable traversant, sur lequel un court segment brique marque le début de section.
+        # Un titre en corps 10 gras sur filet plein se lisait comme une ligne de tableau de plus.
+        self.ln(1.8)
+        self.set_font("Helvetica", "B", 9)
         self.set_text_color(*BRIQUE)
-        self.cell(0, 5.6, _t(texte), 0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        self.set_char_spacing(0.8)
+        self.cell(0, 5.2, _t(texte.upper()), 0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        self.set_char_spacing(0)
         self.set_text_color(*ESPRESSO)
+        y = self.get_y() + 0.4
         self.set_draw_color(*SABLE)
-        self.line(MARGE, self.get_y(), 210 - MARGE, self.get_y())
-        self.ln(1.6)
+        self.set_line_width(0.2)
+        self.line(MARGE, y, MARGE + (largeur or LARGEUR_UTILE), y)
+        self.set_draw_color(*BRIQUE)
+        self.set_line_width(0.7)
+        self.line(MARGE, y, MARGE + 14, y)
+        self.set_line_width(0.2)
+        self.set_draw_color(*SABLE)
+        self.ln(2.0)
 
     def _ligne_entete(self, colonnes: tuple, hauteur: float = 7.0):
         """En-tête de tableau. Mémorisé pour être RÉPÉTÉ automatiquement en haut de chaque page
-        suivante (cf. `header`) — sans quoi un tableau long deviendrait illisible dès la page 2."""
-        self.set_font("Helvetica", "B", 8)
-        self.set_fill_color(*TERRACOTTA)
-        self.set_text_color(*BLANC)
-        self.set_draw_color(*TERRACOTTA)
+        suivante (cf. `header`) — sans quoi un tableau long deviendrait illisible dès la page 2.
+
+        Bandeau sable + libellés brique, plutôt que terracotta plein + blanc : à l'impression,
+        un aplat saturé sur toute la largeur écrasait le reste du document et bavait sur les
+        imprimantes laser d'entrée de gamme. Le contraste sable/brique reste franc, et le coin
+        supérieur du bandeau est arrondi pour que le tableau lise comme un bloc, pas comme une
+        grille.
+        """
+        largeur_totale = sum(c[0] for c in colonnes)
+        y = self.get_y()
+        self.set_fill_color(*SABLE)
+        # Arrondi sur les seuls coins hauts : le bas du bandeau touche la première ligne.
+        self.rect(MARGE, y, largeur_totale, hauteur, style="F", round_corners=("TOP_LEFT",
+                                                                               "TOP_RIGHT"),
+                  corner_radius=RAYON)
+        self.set_xy(MARGE, y)
+        self.set_font("Helvetica", "B", 7.6)
+        self.set_text_color(*BRIQUE)
+        self.set_char_spacing(0.3)
         for i, (largeur, titre, align) in enumerate(colonnes):
             dernier = i == len(colonnes) - 1
             self.cell(largeur, hauteur, _t(titre), 0,
                       new_x=XPos.LMARGIN if dernier else XPos.RIGHT,
-                      new_y=YPos.NEXT if dernier else YPos.TOP, align=align, fill=True)
+                      new_y=YPos.NEXT if dernier else YPos.TOP, align=align, fill=False)
+        self.set_char_spacing(0)
         self.set_text_color(*ESPRESSO)
         self.set_draw_color(*SABLE)
 
@@ -402,14 +492,31 @@ class _Facture(FPDF):
         self.multi_cell(0, 3.6, _t(texte))
         self.set_text_color(*ESPRESSO)
 
-    def _ligne_tableau(self, colonnes: tuple, valeurs: tuple, pair: bool, hauteur: float = 6.2):
+    def _ligne_tableau(self, colonnes: tuple, valeurs: tuple, pair: bool,
+                       hauteur: float = HAUTEUR_LIGNE):
+        """Une ligne, SANS bordure de cellule.
+
+        L'ancienne version bordait chaque cellule par le bas (`"B"`) : quinze colonnes de traits
+        verticaux implicites et un filet sous chaque cellule donnaient l'aspect d'une feuille de
+        calcul exportée. Ici la séparation est portée par une alternance de fond très claire, et
+        rien d'autre — l'alignement des montants suffit à guider l'oeil.
+        """
         self.set_font("Helvetica", "", 8)
-        self.set_fill_color(*(CREME if pair else BLANC))
+        self.set_fill_color(*(CREME_CLAIR if pair else BLANC))
         for i, ((largeur, _, align), valeur) in enumerate(zip(colonnes, valeurs)):
             dernier = i == len(colonnes) - 1
-            self.cell(largeur, hauteur, _t(valeur), "B",
+            self.cell(largeur, hauteur, _t(valeur), 0,
                       new_x=XPos.LMARGIN if dernier else XPos.RIGHT,
                       new_y=YPos.NEXT if dernier else YPos.TOP, align=align, fill=True)
+
+    def _fin_tableau(self, colonnes: tuple):
+        """Filet de clôture d'un tableau : il FERME le bloc, là où l'absence de bordure le
+        laisserait flotter."""
+        y = self.get_y()
+        self.set_draw_color(*SABLE)
+        self.set_line_width(0.3)
+        self.line(MARGE, y, MARGE + sum(c[0] for c in colonnes), y)
+        self.set_line_width(0.2)
 
     def _bloc_parties(self):
         snap = self.snapshot
@@ -466,20 +573,55 @@ class _Facture(FPDF):
                               f"SIRET {cl['siret']}" if cl.get("siret") else None,
                               f"TVA {cl['tva_intra']}" if cl.get("tva_intra") else None,
                               *lignes_logement) if x]
-        depart = self.get_y()
-        self.set_font("Helvetica", "B", 8)
-        self.set_text_color(*PIERRE)
-        self.cell(88, 4.5, _t("ÉMETTEUR"), 0, new_x=XPos.RIGHT, new_y=YPos.TOP)
-        self.cell(0, 4.5, _t("FACTURE A"), 0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        self.set_text_color(*ESPRESSO)
-        self.set_font("Helvetica", "", 8.5)
-        for i in range(max(len(gauche), len(droite))):
-            self.cell(88, 4.4, _t(gauche[i] if i < len(gauche) else ""), 0,
-                      new_x=XPos.RIGHT, new_y=YPos.TOP)
-            self.cell(0, 4.4, _t(droite[i] if i < len(droite) else ""), 0,
+        # La DÉNOMINATION est la première ligne de chaque partie et se compose en gras : sans
+        # elle, les deux colonnes s'ouvraient l'une sur « Représentée par… » et l'autre sur un nom,
+        # de même graisse — on ne voyait plus qui facturait qui.
+        titre_gauche = str(em.get("denomination") or base.get("nom") or "").strip()
+        gauche = ([titre_gauche] if titre_gauche else []) + gauche
+        self._cartes_parties(gauche, droite)
+
+    def _cartes_parties(self, gauche: list[str], droite: list[str]):
+        """Les deux parties dans deux cartes alignées, de MÊME hauteur.
+
+        Avant, c'étaient deux colonnes de texte nu posées côte à côte : rien ne les délimitait, et
+        la partie la plus courte laissait un vide qu'on lisait comme une erreur de composition. Un
+        fond crème et un arrondi franc suffisent à en faire deux blocs — aucune bordure, qui
+        alourdirait sans rien ajouter.
+
+        La hauteur est calculée sur le plus long des deux contenus, donc les deux cartes se
+        terminent au même millimètre.
+        """
+        interligne = 4.4
+        nb = max(len(gauche), len(droite))
+        hauteur = PADDING + 4.6 + nb * interligne + PADDING - 1
+        self._reserver(hauteur + 2)
+        y = self.get_y()
+
+        self.set_fill_color(*CREME)
+        for x in (MARGE, MARGE + LARGEUR_CARTE + GOUTTIERE):
+            self.rect(x, y, LARGEUR_CARTE, hauteur, style="F", round_corners=True,
+                      corner_radius=RAYON)
+
+        for x, etiquette, contenu in ((MARGE, "ÉMETTEUR", gauche),
+                                      (MARGE + LARGEUR_CARTE + GOUTTIERE, "FACTURÉ À", droite)):
+            self.set_xy(x + PADDING, y + PADDING - 1)
+            self.set_font("Helvetica", "B", 6.8)
+            self.set_text_color(*PIERRE)
+            self.set_char_spacing(0.7)
+            self.cell(LARGEUR_CARTE - 2 * PADDING, 4.6, _t(etiquette), 0,
                       new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        self.set_y(max(self.get_y(), depart + 4.5))
-        self.ln(1)
+            self.set_char_spacing(0)
+            self.set_text_color(*ESPRESSO)
+            for i, ligne in enumerate(contenu):
+                self.set_x(x + PADDING)
+                # Première ligne = la dénomination : c'est elle qui identifie la partie.
+                self.set_font("Helvetica", "B" if i == 0 else "", 8.5)
+                self.cell(LARGEUR_CARTE - 2 * PADDING, interligne, _t(ligne), 0,
+                          new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+
+        self.set_font("Helvetica", "", 8.5)
+        self.set_y(y + hauteur)
+        self.ln(2.0)
 
     def _tableau_sejours(self):
         """Séjours de la période et commission de chacun.
@@ -521,12 +663,16 @@ class _Facture(FPDF):
                 _taux(taux), _montant(commission) if commission is not None else "",
             ), pair=(i % 2 == 0))
         self._entete_tableau = None
+        self._fin_tableau(colonnes)
         if total_commission:
-            self.set_font("Helvetica", "B", 8)
+            self.ln(0.6)
+            self.set_font("Helvetica", "B", 8.5)
+            self.set_text_color(*BRIQUE)
             self.cell(sum(c[0] for c in colonnes[:-1]), 6, _t("Total commissions"), 0,
                       new_x=XPos.RIGHT, new_y=YPos.TOP, align="R")
             self.cell(colonnes[-1][0], 6, _t(_montant(total_commission)), 0,
                       new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R")
+            self.set_text_color(*ESPRESSO)
         # L'explication du calcul est CONSERVÉE : c'est elle qui rend la colonne vérifiable à la
         # main. Seul son vocabulaire suit le nouveau libellé de colonne.
         self._note(f"{len(reservations)} séjour(s). Total perçu = versement de la plateforme "
@@ -553,41 +699,81 @@ class _Facture(FPDF):
                 _montant(l.get("montant")),
             ), pair=(i % 2 == 0))
         self._entete_tableau = None
+        self._fin_tableau(colonnes)
 
-    def _recapitulatif(self, deco: dict[str, Any]):
-        """Le récapitulatif EST la formule. Chaque poste apparaît même à zéro dès qu'il porte une
-        ligne, pour qu'on puisse suivre l'addition sans deviner ce qui a été omis."""
-        self.ln(3)
-        # Le récapitulatif EST la conclusion du document : le scinder entre deux pages séparerait
-        # le total facturé de son net. On mesure donc le bloc réel avant de l'écrire.
+    #: Hauteur d'une ligne du récapitulatif. Toutes les lignes en font exactement autant : c'est
+    #: ce qui permet de CALCULER la hauteur de la carte avant de l'écrire, au lieu de la deviner.
+    H_LIGNE_RECAP = 5.2
+
+    def _hauteur_recapitulatif(self, deco: dict[str, Any]) -> tuple[float, float]:
+        """(hauteur du contenu, hauteur du bandeau du net), en millimètres.
+
+        fpdf n'a pas de calques : un rectangle dessiné après le texte le recouvre. Le fond de la
+        carte doit donc être posé AVANT, ce qui suppose de connaître sa hauteur à l'avance. Toutes
+        les lignes ayant la même hauteur, ce calcul est exact et non une marge de sécurité.
+        """
+        h = self.H_LIGNE_RECAP
         nb_postes = len([p for p in deco.get("postes", [])
                          if p.get("cle") != "reductions" and p.get("nb")])
         nb_reglements = sum(1 for v in (deco.get("total_acomptes"),
                                         deco.get("total_reversements_airbnb")) if v)
-        self._reserver(5.2 * nb_postes                       # postes
-                       + 5.2 * (2 if deco.get("total_reductions") else 1)  # sous-total, réductions
-                       + 5.2 * 3                             # TOTAL HT / TVA / TOTAL FACTURE
-                       + (5 + 5.2 * nb_reglements if nb_reglements else 0)
-                       + 14)                                 # bandeau du net + marges
-        gauche, largeur = 105.0, 75.0
+        contenu = (PADDING - 1)                       # air haut
+        contenu += h * nb_postes                      # postes
+        contenu += 0.8 + 1.8                          # filet + interligne
+        contenu += h                                  # sous-total
+        contenu += h if deco.get("total_reductions") else 0
+        contenu += h * 3                              # TOTAL HT / TVA / TOTAL FACTURE
+        if nb_reglements:
+            contenu += 1 + 4.5 + h * nb_reglements    # intertitre + lignes
+        contenu += PADDING - 1                        # air bas
+        return contenu, 12.0
+
+    def _recapitulatif(self, deco: dict[str, Any], *, y_depart: float | None = None):
+        """Le récapitulatif EST la formule. Chaque poste apparaît même à zéro dès qu'il porte une
+        ligne, pour qu'on puisse suivre l'addition sans deviner ce qui a été omis.
+
+        PRÉSENTATION. Une carte crème occupant la moitié droite, alignée sur la carte « FACTURÉ À »
+        de l'en-tête : deux blocs de même largeur ouvrent et ferment le document. Le net se détache
+        dessous, en aplat plein — c'est le seul du document, et le seul chiffre composé en grand.
+        """
+        hauteur_carte, hauteur_badge = self._hauteur_recapitulatif(deco)
+        if y_depart is None:
+            self.ln(3)
+            # Le récapitulatif EST la conclusion du document : le scinder entre deux pages
+            # séparerait le total facturé de son net. On mesure le bloc réel avant de l'écrire.
+            self._reserver(hauteur_carte + hauteur_badge + 4)
+        else:
+            # Place déjà réservée par l'appelant, qui aligne cette carte sur la colonne de gauche.
+            self.set_y(y_depart)
+
+        largeur = LARGEUR_CARTE
+        gauche = 210 - MARGE - largeur
+        interne = largeur - 2 * PADDING
+        y_carte = self.get_y()
+        self.set_fill_color(*CREME)
+        self.rect(gauche, y_carte, largeur, hauteur_carte, style="F", round_corners=True,
+                  corner_radius=RAYON)
+        self.set_y(y_carte + PADDING - 1)
 
         def ligne(libelle: str, valeur: Any, gras: bool = False, couleur=None):
-            self.set_x(gauche)
+            self.set_x(gauche + PADDING)
             self.set_font("Helvetica", "B" if gras else "", 9 if gras else 8.5)
-            if couleur:
-                self.set_text_color(*couleur)
-            self.cell(largeur * 0.6, 5.2, _t(libelle), 0, new_x=XPos.RIGHT, new_y=YPos.TOP)
-            self.cell(largeur * 0.4, 5.2, _t(_montant(valeur)), 0,
+            self.set_text_color(*(couleur or ESPRESSO))
+            self.cell(interne * 0.58, self.H_LIGNE_RECAP, _t(libelle), 0,
+                      new_x=XPos.RIGHT, new_y=YPos.TOP)
+            self.cell(interne * 0.42, self.H_LIGNE_RECAP, _t(_montant(valeur)), 0,
                       new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R")
             self.set_text_color(*ESPRESSO)
 
         for poste in deco.get("postes", []):
             if poste.get("cle") == "reductions" or not poste.get("nb"):
                 continue
-            ligne(poste["libelle"], poste["montant"])
+            ligne(poste["libelle"], poste["montant"], couleur=PIERRE)
         self.set_draw_color(*SABLE)
-        self.line(gauche, self.get_y() + 0.5, gauche + largeur, self.get_y() + 0.5)
-        self.ln(1.5)
+        self.set_line_width(0.2)
+        y_filet = self.get_y() + 0.8
+        self.line(gauche + PADDING, y_filet, gauche + largeur - PADDING, y_filet)
+        self.ln(1.8)
         ligne("Sous-total", deco.get("sous_total"))
         if deco.get("total_reductions"):
             ligne("Reductions", -float(deco["total_reductions"]))
@@ -615,11 +801,13 @@ class _Facture(FPDF):
         reversements = float(deco.get("total_reversements_airbnb") or 0)
         if acomptes or reversements:
             self.ln(1)
-            self.set_x(gauche)
-            self.set_font("Helvetica", "B", 8)
+            self.set_x(gauche + PADDING)
+            self.set_font("Helvetica", "B", 6.8)
             self.set_text_color(*PIERRE)
-            self.cell(largeur, 4.5, _t("Règlements et compensations"), 0,
+            self.set_char_spacing(0.7)
+            self.cell(interne, 4.5, _t("RÈGLEMENTS ET COMPENSATIONS"), 0,
                       new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            self.set_char_spacing(0)
             self.set_text_color(*ESPRESSO)
             # §42 — ORDRE DÉFINITIF : total facture → reversement Airbnb → acompte(s) → net. Le
             # reversement vient d'abord : c'est une somme que la plateforme a déjà versée pour ce
@@ -634,28 +822,31 @@ class _Facture(FPDF):
         # « à reverser au propriétaire », plutôt que de s'afficher en montant dû négatif.
         a_reverser = str(deco.get("sens_net")) == "A_REVERSER"
         if a_reverser:
-            titre, valeur = "  NET À REVERSER AU PROPRIÉTAIRE", deco.get("montant_a_reverser")
+            titre, valeur = "NET À REVERSER AU PROPRIÉTAIRE", deco.get("montant_a_reverser")
         elif str(deco.get("sens_net")) == "SOLDE":
-            titre, valeur = "  SOLDE", 0.0
+            titre, valeur = "SOLDE", 0.0
         else:
-            titre, valeur = "  NET À PAYER", deco.get("net", deco.get("montant_du"))
-        self.ln(1)
-        # §48 — badge « pilule » : rectangle aux coins fortement arrondis, dessiné d'un seul tenant
-        # AVANT le texte. Le saut de page est anticipé : sinon le fond resterait sur une page et le
-        # texte partirait sur la suivante.
-        hauteur_badge = 9
-        if self.get_y() + hauteur_badge > self.page_break_trigger:
-            self.add_page()
+            titre, valeur = "NET À PAYER", deco.get("net", deco.get("montant_du"))
+
+        # On repart du bas RÉEL de la carte, pas du curseur : les arrondis d'interligne feraient
+        # sinon flotter le bandeau d'un dixième de millimètre selon le nombre de postes.
+        self.set_y(y_carte + hauteur_carte + 2)
         y_badge = self.get_y()
         self.set_fill_color(*(SAGE if a_reverser else BRIQUE))
+        # Coins franchement arrondis, mais plus une pilule : à 12 mm de haut, un rayon de moitié
+        # aurait donné une gélule publicitaire.
         self.rect(gauche, y_badge, largeur, hauteur_badge, style="F", round_corners=True,
-                  corner_radius=hauteur_badge / 2)
-        self.set_xy(gauche, y_badge)
+                  corner_radius=2.4)
+        self.set_xy(gauche + PADDING, y_badge)
         self.set_text_color(*BLANC)
-        self.set_font("Helvetica", "B", 11)
-        self.cell(largeur * 0.55, hauteur_badge, _t("  " + titre), 0,
+        # Le libellé reste discret, le MONTANT porte la taille : c'est le chiffre qu'on cherche.
+        self.set_font("Helvetica", "B", 8)
+        self.set_char_spacing(0.6)
+        self.cell(interne * 0.54, hauteur_badge, _t(titre), 0,
                   new_x=XPos.RIGHT, new_y=YPos.TOP)
-        self.cell(largeur * 0.45, hauteur_badge, _t(_montant(valeur) + "    "), 0,
+        self.set_char_spacing(0)
+        self.set_font("Helvetica", "B", 14)
+        self.cell(interne * 0.46, hauteur_badge, _t(_montant(valeur)), 0,
                   new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R")
         self.set_text_color(*ESPRESSO)
         self.ln(2)
@@ -707,13 +898,36 @@ class _Facture(FPDF):
                 ("Pénalités de retard", conf.get("taux_penalites_retard")),
                 ("Indemnité forfaitaire de recouvrement", conf.get("indemnite_recouvrement")),
             ]
-        # Le bloc Règlement se déplace ENTIER : titre + conditions + mentions légales + renvoi au
-        # relevé. Le couper laissait une page 2 ne portant que deux lignes et le pied de page.
+        # ── LA CLÔTURE SE COMPOSE EN DEUX COLONNES (§44) ─────────────────────────────────────
+        # Le règlement occupait toute la largeur, et le récapitulatif venait DESSOUS, calé à
+        # droite : sur une facture courte, la moitié gauche de la page restait vide sur une
+        # quinzaine de centimètres, et le document paraissait inachevé. Les deux blocs partent
+        # désormais de la MÊME ordonnée — mentions à gauche, montants à droite. La page se remplit
+        # d'elle-même, sans qu'aucun texte ait été rapproché ni aucune police réduite.
+        #
+        # L'ordre de LECTURE est préservé : le lecteur finit toujours sur le NET, qui reste le
+        # bloc le plus bas et le seul en aplat plein.
         retenues = [(l, v) for l, v in conditions if v]
-        hauteur_mentions = 4 * (2 if conf.get("mention_tva") else 0) + 14
+        deco = snap.get("decomposition") or {}
+
+        hauteur_mentions = 4 * (2 if conf.get("mention_tva") else 0) + 16
+        hauteur_gauche = 10 + 5 * len(retenues) + hauteur_mentions
+        hauteur_droite = (sum(self._hauteur_recapitulatif(deco)) + 2) if deco else 0
+
         self.ln(2)
-        self._titre_section("Règlement",
-                            hauteur_bloc=10 + 5 * len(retenues) + hauteur_mentions)
+        # Le bloc de clôture se déplace ENTIER : le couper laissait une page 2 ne portant que deux
+        # lignes et le pied de page.
+        #
+        # UN SEUL MILLIMÈTRE DE GARDE, et c'est délibéré. `_hauteur_recapitulatif` ne fait pas une
+        # estimation : toutes ses lignes ont la même hauteur, donc le total est EXACT. Une garde
+        # de 4 mm coûtait une page entière sur une facture qui tenait — mesurée à 0,1 mm près,
+        # elle demandait 67,2 mm là où 67,1 restaient. Le millimètre conservé n'absorbe que les
+        # arrondis d'interligne.
+        self._reserver(max(hauteur_gauche, hauteur_droite) + 1)
+        y_colonnes = self.get_y()
+
+        # ── Colonne de gauche : conditions, mentions légales, renvoi au relevé ───────────────
+        self._titre_section("Règlement", hauteur_bloc=0, largeur=LARGEUR_CARTE)
         self.set_font("Helvetica", "", 8.5)
         for libelle, valeur in retenues:
             # La mention légale d'escompte est une PHRASE COMPLÈTE (« Escompte pour paiement
@@ -721,31 +935,25 @@ class _Facture(FPDF):
             # Escompte pour… ». On n'ajoute donc le libellé que si la valeur ne le porte pas déjà.
             texte = (str(valeur) if str(valeur).lower().startswith(libelle.lower())
                      else f"{libelle} : {valeur}")
-            self.cell(0, 5, _t(texte), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        self.ln(2)
+            self.multi_cell(LARGEUR_CARTE, 5, _t(texte), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        self.ln(1.5)
 
-        self.set_font("Helvetica", "I", 8)
+        self.set_font("Helvetica", "I", 7.6)
+        self.set_text_color(*PIERRE)
         if conf.get("mention_tva"):
-            self.multi_cell(0, 4, _t(conf["mention_tva"]))
+            self.multi_cell(LARGEUR_CARTE, 3.9, _t(conf["mention_tva"]))
             self.ln(1)
-        self.multi_cell(0, 4, _t(
+        self.multi_cell(LARGEUR_CARTE, 3.9, _t(
             "Cette facture ne reprend que les prestations facturées par la conciergerie. "
             "Le détail des revenus, des acomptes et du solde figure sur le relevé propriétaire "
             "de la même période, qui est un document distinct."))
+        self.set_text_color(*ESPRESSO)
+        bas_gauche = self.get_y()
 
-        # ── LE RÉCAPITULATIF CLÔT LE DOCUMENT (§44) ───────────────────────────────────────────
-        # Il se rendait juste après le détail des frais, donc AVANT les conditions de règlement.
-        # Sur la facture réelle, la page 1 était alors pleine et la page 2 ne portait que quatre
-        # lignes de « Règlement » suivies du pied de page — un bloc orphelin, et un document qui
-        # ne se terminait pas sur son montant.
-        #
-        # En le plaçant en dernier, deux choses s'arrangent ensemble : le lecteur finit sur le NET,
-        # qui est la conclusion de la facture, et la coupure éventuelle tombe AVANT le règlement —
-        # une page 2 portant règlement + récapitulatif + net, qui se tient.
-        deco = snap.get("decomposition") or {}
+        # ── Colonne de droite : le récapitulatif, aligné sur le haut du règlement ────────────
         if deco:
-            self.ln(2)
-            self._recapitulatif(deco)
+            self._recapitulatif(deco, y_depart=y_colonnes)
+        self.set_y(max(bas_gauche, self.get_y()))
 
 
 def _neutraliser_metadonnees(pdf: FPDF) -> None:

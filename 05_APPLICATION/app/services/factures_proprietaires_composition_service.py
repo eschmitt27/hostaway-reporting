@@ -454,14 +454,22 @@ def document(facture_id: str, *, emetteur: dict[str, Any] | None = None,
     }
 
 
-def periode(mois: str) -> dict[str, str]:
-    """Période couverte par la facture, en clair. Le grain est le MOIS — celui de Lot10/Lot12.
+def periode(mois: str, *, debut: str = "", fin: str = "") -> dict[str, str]:
+    """Période couverte par la facture, en clair.
 
-    Exposer des dates de début/fin libres laisserait croire qu'on peut facturer du 12 au 27 : ni
-    les commissions, ni le forfait, ni les contrôles ne savent le faire. On rend donc explicites les
-    bornes RÉELLES du mois plutôt que d'inventer une période que le moteur ne saurait pas honorer.
+    Le grain par DÉFAUT est le mois — celui de Lot10/Lot12, et celui du cycle mensuel. Mais une
+    facture de période libre porte ses propres bornes (`periode_debut`/`periode_fin`) : les
+    ignorer ferait annoncer à l'écran une période plus large que celle réellement facturée, et
+    contredirait le document PDF, qui les imprime. Les bornes fournies l'emportent donc, et le
+    mois reste le repli.
+
+    Ce qui n'a pas changé : on ne FABRIQUE jamais de bornes. Sans période stockée, ce sont celles
+    du mois, exactes, plutôt qu'un intervalle inventé.
     """
     import calendar
+    debut, fin = str(debut or "")[:10], str(fin or "")[:10]
+    if debut and fin:
+        return {"mois": mois, "debut": debut, "fin": fin}
     try:
         annee, mm = int(str(mois)[:4]), int(str(mois)[5:7])
         dernier = calendar.monthrange(annee, mm)[1]

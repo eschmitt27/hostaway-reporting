@@ -10,7 +10,7 @@
   </p>
 </div>
 
-{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-warning" data-testid="erreur-periode">{{ erreur }}</div>{% endif %}
 
 <form method="get" action="/factures-proprietaires/nouvelle" class="card mb-md">
   <div class="card-title">Période à facturer</div>
@@ -22,15 +22,22 @@
         <option value="{{ o.id }}" {{ 'selected' if saisie.proprietaire_id == o.id }}>{{ o.libelle }}</option>
         {% endfor %}
       </select></label>
+    <label>Logement
+      <select name="logement_id" data-testid="choix-logement">
+        <option value="">tous les logements</option>
+        {% for l in logements_options %}
+        <option value="{{ l.id }}" {{ 'selected' if saisie.logement_id == l.id }}>{{ l.libelle }}</option>
+        {% endfor %}
+      </select></label>
     <label>Du <input type="date" name="debut" value="{{ saisie.debut }}" required></label>
     <label>Au <input type="date" name="fin" value="{{ saisie.fin }}" required></label>
     <button type="submit" class="btn btn-primary">Prévisualiser</button>
   </div>
   <p class="section-note">
-    Les montants sont ceux que le moteur a calculés pour chaque réservation ; la période retient
-    les réservations dont la date d'arrivée y tombe — la même règle que pour un mois entier.
-    Charges fixes et charges exceptionnelles restent mensuelles : elles s'ajoutent, s'il y a lieu,
-    sur le brouillon.
+    Les montants sont ceux que le moteur a calculés ; la période retient les séjours dont la date
+    d'arrivée y tombe — la même règle que pour un mois entier. Le forfait et les charges
+    refacturées sont des éléments <strong>mensuels</strong> que le moteur ne proratise pas : ils ne
+    sont facturés que si la période couvre le mois civil entier, et signalés sinon.
   </p>
 </form>
 
@@ -59,25 +66,49 @@
     </div>
     {% endif %}
 
+    {% if apercu.mensuels_ecartes %}
+    <div class="alert alert-info" data-testid="alerte-mensuels-ecartes">
+      <strong>Éléments mensuels non facturés sur cette période.</strong>
+      <p class="section-note">
+        Le moteur pose ces montants une fois par mois civil, au montant plein : il n'existe aucune
+        règle de proratisation, et en inventer une ici produirait un montant que rien d'autre dans
+        l'application ne saurait justifier. Ajoutez-les au brouillon si vous les estimez dus.
+      </p>
+      <table class="data-table mt-sm">
+        <thead><tr><th>Élément</th><th>Logement</th><th>Mois</th><th class="num">Montant</th></tr></thead>
+        <tbody>
+          {% for m in apercu.mensuels_ecartes %}
+          <tr>
+            <td>{{ m.libelle }}</td>
+            <td>{{ m.logement_id | nom_logement }}</td>
+            <td>{{ m.mois }}</td>
+            <td class="num">{{ "%.2f"|format(m.montant) }} €</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
     <div class="card">
       <div class="card-title">
         {{ libelles_proprietaires.get(apercu.proprietaire_id) or apercu.proprietaire_id }} —
         du {{ apercu.debut }} au {{ apercu.fin }}
       </div>
       <p class="section-note">
-        {{ apercu.nb_reservations }} réservation(s) — total à facturer
+        {{ apercu.nb_reservations }} séjour(s) — total à facturer
         <strong>{{ "%.2f"|format(apercu.montant_total) }} €</strong>.
       </p>
 
       {% if not apercu.propositions %}
       <p class="section-note" data-testid="aucune-reservation">
-        Aucune réservation du moteur sur cette période pour ce propriétaire.
+        Aucun élément facturable par le moteur sur cette période pour ce propriétaire.
       </p>
       {% endif %}
 
       {% for p in apercu.propositions %}
       <div class="card mt-sm">
-        <div class="card-title">{{ p.logement_id }} — {{ p.nb_reservations }} réservation(s)</div>
+        <div class="card-title">{{ p.logement_id | nom_logement }} — {{ p.nb_reservations }} séjour(s)</div>
         <table class="data-table">
           <thead><tr><th>Ligne</th><th class="num">Montant</th></tr></thead>
           <tbody>
@@ -89,11 +120,13 @@
           </tbody>
         </table>
 
+        {% if p.reservations %}
         <details class="mt-sm">
-          <summary>Détail des réservations retenues</summary>
+          <summary>Détail des séjours retenus</summary>
           <table class="data-table mt-sm">
-            <thead><tr><th>Réservation</th><th>Arrivée</th><th>Départ</th><th class="num">Payout</th>
-              <th class="num">Commission</th><th class="num">Ménage</th><th class="num">Net propriétaire</th></tr></thead>
+            <thead><tr><th>Séjour</th><th>Arrivée</th><th>Départ</th><th class="num">Payout</th>
+              <th class="num">Commission</th><th class="num">Ménage</th><th class="num">Canapé</th>
+              <th class="num">Net propriétaire</th></tr></thead>
             <tbody>
               {% for r in p.reservations %}
               <tr>
@@ -103,12 +136,14 @@
                 <td class="num">{{ "%.2f"|format(r.payout or 0) }}</td>
                 <td class="num">{{ "%.2f"|format(r.commission or 0) }}</td>
                 <td class="num">{{ "%.2f"|format(r.menage or 0) }}</td>
+                <td class="num">{{ "%.2f"|format(r.canape or 0) }}</td>
                 <td class="num">{{ "%.2f"|format(r.net_proprietaire or 0) }}</td>
               </tr>
               {% endfor %}
             </tbody>
           </table>
         </details>
+        {% endif %}
 
         {% if p.facturable %}
         <form method="post" action="/factures-proprietaires/nouvelle/creer" class="mt-sm">

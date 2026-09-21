@@ -14,7 +14,10 @@
     <span class="badge">{{ facture.statut }}</span>
   </h1>
   <p class="page-subtitle">
-    {{ facture.proprietaire_id | nom_proprietaire }} · {{ facture.logement_id | nom_logement }} · période {{ facture.mois }}
+    {{ facture.proprietaire_id | nom_proprietaire }} · {{ facture.logement_id | nom_logement }} ·
+    {% if facture.periode_debut and facture.periode_fin %}
+      période des prestations : du {{ facture.periode_debut | date_fr }} au {{ facture.periode_fin | date_fr }}
+    {% else %}période {{ facture.mois }}{% endif %}
     {% if facture.facture_origine %}· avoir sur {{ facture.facture_origine }}{% endif %}
   </p>
 </div>
@@ -418,8 +421,9 @@
 <div class="card" id="reservations">
   <h3>Séjours de la période et commission</h3>
   <p class="text-xs text-secondary">
-    Période facturée : {{ periode.mois }}
-    {% if periode.debut %}(du {{ periode.debut }} au {{ periode.fin }}){% endif %}
+    Période des prestations :
+    {% if periode.debut %}du {{ periode.debut | date_fr }} au {{ periode.fin | date_fr }}
+    {% else %}{{ periode.mois }}{% endif %}
   </p>
   {% if reservations %}
   <div class="table-container">

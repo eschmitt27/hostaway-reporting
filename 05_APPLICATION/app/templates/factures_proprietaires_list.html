@@ -35,19 +35,23 @@
   <a href="/factures-proprietaires/proposer?mois={{ mois }}" class="btn">Générer les factures</a>
 </form>
 
-{# §79 — une prestation ponctuelle n'a pas de source mensuelle, et n'avait donc aucun chemin :
-   il fallait attendre le cycle suivant, ou renoncer à la facturer. #}
-<details class="card mb-md">
-  <summary><strong>+ Facturer une prestation ponctuelle</strong></summary>
+{# Facturer sans attendre la fin du mois : un propriétaire, un logement, deux dates.
+   Le contenu de la facture n'est PAS saisi — il vient du moteur, exactement comme au cycle
+   mensuel : séjours de la période, commissions, ménages, préparation du canapé, forfait. Une
+   désignation et un montant libres feraient une facture que le calcul ne saurait pas justifier. #}
+<details class="card mb-md" data-testid="bloc-periode-libre">
+  <summary><strong>+ Facturer une période libre</strong></summary>
   <p class="text-xs text-secondary">
-    Hors cycle mensuel : une intervention d'urgence, un service rendu une fois. Le document reste
-    une facture entière — même numérotation, même PDF, même créance, même écriture de vente.
-    Plusieurs prestations ponctuelles dans un même mois sont possibles.
+    Facture propriétaire <strong>normale</strong>, sur les dates de votre choix — même moteur de
+    calcul, même numérotation, même PDF, même créance, même écriture de vente. Les séjours retenus
+    sont ceux dont la date d'arrivée tombe dans la période, règle identique à celle d'un mois
+    entier. Pour voir le détail avant de créer, passez par
+    <a href="/factures-proprietaires/nouvelle">+ Nouvelle facture propriétaire</a>.
   </p>
-  <form method="post" action="/factures-proprietaires/exceptionnelle">
+  <form method="post" action="/factures-proprietaires/periode-libre">
     <div class="flex gap-sm items-center" style="flex-wrap:wrap">
       <label>Propriétaire
-        <select name="proprietaire_id" required>
+        <select name="proprietaire_id" required data-testid="periode-libre-proprietaire">
           <option value="">— choisir —</option>
           {% for p in proprietaires_options %}
           <option value="{{ p.id }}">{{ p.libelle }}</option>
@@ -55,18 +59,16 @@
         </select>
       </label>
       <label>Logement
-        <select name="logement_id" required>
+        <select name="logement_id" required data-testid="periode-libre-logement">
           <option value="">— choisir —</option>
           {% for l in logements_options %}
           <option value="{{ l.id }}">{{ l.libelle }}</option>
           {% endfor %}
         </select>
       </label>
-      <label>Mois <input type="month" name="mois" value="{{ mois }}" required></label>
-      <label>Désignation <input type="text" name="libelle" required
-             placeholder="Intervention d'urgence — fuite salle de bain" style="min-width:20rem"></label>
-      <label>Montant € <input type="text" name="montant" required placeholder="150,00" style="width:7rem"></label>
-      <button type="submit" class="btn btn-primary">Créer le brouillon</button>
+      <label>Du <input type="date" name="debut" required data-testid="periode-libre-debut"></label>
+      <label>Au <input type="date" name="fin" required data-testid="periode-libre-fin"></label>
+      <button type="submit" class="btn btn-primary" data-testid="periode-libre-creer">Créer le brouillon</button>
     </div>
   </form>
 </details>

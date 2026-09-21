@@ -177,41 +177,58 @@ def _options_logements() -> list[dict[str, str]]:
         return []
 
 
-@router.post("/factures-proprietaires/exceptionnelle")
-async def creer_exceptionnelle(request: Request):
-    """§79 — facture d'une prestation ponctuelle, hors cycle mensuel."""
+def _retour_periode_libre(proprietaire_id: str, logement_id: str, debut: str, fin: str,
+                          message: str) -> RedirectResponse:
+    """Renvoie sur l'écran de période libre EN CONSERVANT la saisie : un refus ne doit pas
+    obliger à tout ressaisir."""
+    return RedirectResponse(
+        f"/factures-proprietaires/nouvelle?proprietaire_id={quote(proprietaire_id)}"
+        f"&logement_id={quote(logement_id)}&debut={quote(debut)}&fin={quote(fin)}"
+        f"&erreur={quote(message)}", status_code=303)
+
+
+@router.post("/factures-proprietaires/periode-libre")
+async def creer_periode_libre(request: Request):
+    """Facturation d'une PÉRIODE LIBRE depuis la liste, sans passer par l'aperçu.
+
+    Même moteur que `/factures-proprietaires/nouvelle` — un seul parcours, deux entrées. Le
+    formulaire de la liste est le raccourci de celui qui sait déjà ce qu'il veut facturer ; l'écran
+    dédié reste là pour prévisualiser d'abord.
+    """
     form = await request.form()
+    proprietaire_id = str(form.get("proprietaire_id", "") or "")
+    logement_id = str(form.get("logement_id", "") or "")
+    debut, fin = str(form.get("debut", "") or ""), str(form.get("fin", "") or "")
     try:
-        res = svc.creer_exceptionnelle(
-            proprietaire_id=str(form.get("proprietaire_id", "") or ""),
-            logement_id=str(form.get("logement_id", "") or ""),
-            mois=str(form.get("mois", "") or ""),
-            lignes=[{"libelle": str(form.get("libelle", "") or ""),
-                     "montant": str(form.get("montant", "") or "")}],
-            acteur="interface")
+        res = periode_svc.creer(proprietaire_id, debut, fin, logement_id=logement_id,
+                                acteur="interface")
     except svc.FactureProprietaireError as exc:
-        return RedirectResponse(
-            f"/factures-proprietaires?erreur={quote(str(exc))}", status_code=303)
+        return _retour_periode_libre(proprietaire_id, logement_id, debut, fin, str(exc))
+    if not res.get("ok"):
+        return _retour_periode_libre(proprietaire_id, logement_id, debut, fin,
+                                     res.get("message", ""))
     # On ouvre directement le brouillon : c'est là que l'utilisateur va poursuivre (ajouter une
     # ligne, valider, émettre), et non sur la liste qu'il vient de quitter.
-    return RedirectResponse(f"/factures-proprietaires/{res['facture_id_opaque']}", status_code=303)
+    return RedirectResponse(f"/factures-proprietaires/{res['creees'][0]['facture_id_opaque']}",
+                            status_code=303)
 
 
 @router.get("/factures-proprietaires/nouvelle", response_class=HTMLResponse)
-def nouvelle_facture_periode(request: Request, proprietaire_id: str = "", debut: str = "",
-                             fin: str = "", erreur: str = ""):
-    """Parcours MANUEL : un propriétaire, une période libre, une prévisualisation.
+def nouvelle_facture_periode(request: Request, proprietaire_id: str = "", logement_id: str = "",
+                             debut: str = "", fin: str = "", erreur: str = ""):
+    """Parcours MANUEL : un propriétaire, un logement, une période libre, une prévisualisation.
 
     Le cycle mensuel automatique reste ailleurs (`/proposer`). Ici, l'utilisateur décide : la
     période peut être un mois entier, le mois courant, ou seulement quelques jours.
     """
-    apercu = (periode_svc.previsualiser(proprietaire_id, debut, fin)
+    apercu = (periode_svc.previsualiser(proprietaire_id, debut, fin, logement_id=logement_id)
               if proprietaire_id and debut and fin else None)
     aujourdhui = date.today()
     return templates.TemplateResponse(request, "factures_proprietaires_nouvelle.html", {
         "active_menu": "factures_proprietaires",
         "proprietaires_options": _options_proprietaires(),
-        "saisie": {"proprietaire_id": proprietaire_id,
+        "logements_options": _options_logements(),
+        "saisie": {"proprietaire_id": proprietaire_id, "logement_id": logement_id,
                    "debut": debut or aujourdhui.replace(day=1).isoformat(),
                    "fin": fin or aujourdhui.isoformat()},
         "apercu": apercu, "erreur": erreur,
@@ -224,15 +241,13 @@ async def creer_facture_periode(request: Request):
     """Crée le brouillon de la période prévisualisée. Un chevauchement n'empêche pas : il alerte."""
     form = await request.form()
     proprietaire_id = str(form.get("proprietaire_id", "") or "")
+    logement_id = str(form.get("logement_id", "") or "")
     debut, fin = str(form.get("debut", "") or ""), str(form.get("fin", "") or "")
-    res = periode_svc.creer(proprietaire_id, debut, fin,
-                            logement_id=str(form.get("logement_id", "") or ""),
+    res = periode_svc.creer(proprietaire_id, debut, fin, logement_id=logement_id,
                             acteur="interface")
     if not res.get("ok"):
-        return RedirectResponse(
-            f"/factures-proprietaires/nouvelle?proprietaire_id={quote(proprietaire_id)}"
-            f"&debut={quote(debut)}&fin={quote(fin)}&erreur={quote(res.get('message', ''))}",
-            status_code=303)
+        return _retour_periode_libre(proprietaire_id, logement_id, debut, fin,
+                                     res.get("message", ""))
     if len(res["creees"]) == 1:
         return RedirectResponse(f"/factures-proprietaires/{res['creees'][0]['facture_id_opaque']}",
                                 status_code=303)
@@ -285,7 +300,8 @@ def _contexte_fiche(facture_id: str, erreur: str | None = None) -> dict:
         # affiché ne peut donc pas diverger du total réel — il n'existe pas de seconde addition,
         # ni en JavaScript ni dans le gabarit.
         "decomposition": compo.decomposition(facture_id),
-        "periode": compo.periode(facture["mois"]),
+        "periode": compo.periode(facture["mois"], debut=facture.get("periode_debut") or "",
+                                 fin=facture.get("periode_fin") or ""),
         "charges_eligibles": (compo.charges_eligibles(facture_id)
                               if facture["statut"] == svc.ST_BROUILLON else []),
         "emetteur": _emetteur(),

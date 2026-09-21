@@ -118,8 +118,18 @@ def test_la_typographie_francaise_est_conservee(octets):
     "Conciergerie de location courte durée",
 ])
 def test_les_libelles_portent_leurs_accents(texte, libelle):
+    """La propriété vérifiée est l'ACCENT, pas la casse.
+
+    Les titres de section et le sous-titre de marque se composent en capitales depuis la refonte
+    de présentation : « DÉTAIL DES FRAIS » plutôt que « Détail des frais ». Comparer sans tenir
+    compte de la casse garde intact ce que ce test protège — qu'aucun « é » ne soit aplati en
+    « e » par l'encodage — tout en laissant la mise en page évoluer. Les capitales accentuées
+    sont d'ailleurs le cas le plus exposé : É, È et À doivent survivre au cp1252 comme les
+    minuscules.
+    """
     contenu, _ = texte
-    assert libelle in contenu
+    assert libelle.upper() in contenu.upper()
+    assert any(c in contenu for c in "ÉÈÀÊÔÇéèàêôç"), "l'encodage aplatit les accents"
 
 
 def test_aucun_caractere_de_remplacement(texte):
@@ -182,11 +192,18 @@ def test_une_facture_ordinaire_tient_sur_une_page(texte):
 
 
 def test_le_document_se_termine_sur_le_net(texte):
-    """Le récapitulatif clôt la facture : c'est sa conclusion, et cela évite le bloc orphelin."""
+    """Le récapitulatif clôt la facture : c'est sa conclusion, et cela évite le bloc orphelin.
+
+    Depuis la refonte, règlement et récapitulatif se composent en DEUX COLONNES à partir de la
+    même ordonnée — mais l'ordre de lecture ne change pas : le règlement d'abord, le net en
+    dernier et plus bas. Comparaison insensible à la casse, les titres étant désormais en
+    capitales (cf. `test_les_libelles_portent_leurs_accents`).
+    """
     contenu, _ = texte
-    assert contenu.index("Règlement") < contenu.index("NET À PAYER"), \
+    haut = contenu.upper()
+    assert haut.index("RÈGLEMENT") < haut.index("NET À PAYER"), \
         "les conditions de règlement viennent AVANT le récapitulatif"
-    assert contenu.index("Détail des frais") < contenu.index("Règlement")
+    assert haut.index("DÉTAIL DES FRAIS") < haut.index("RÈGLEMENT")
 
 
 def test_un_document_long_pagine_toujours(octets):

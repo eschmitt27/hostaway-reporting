@@ -41,6 +41,23 @@ def periode_prestation(mois: str) -> tuple[str, str]:
     return f"{a:04d}-{m:02d}-01", f"{a:04d}-{m:02d}-{calendar.monthrange(a, m)[1]:02d}"
 
 
+def periode_facturee(facture: dict[str, Any]) -> tuple[str, str]:
+    """Période RÉELLEMENT couverte par la facture : la sienne si elle en porte une, sinon son mois.
+
+    Une facture de période libre (§ parcours « Facturer une période libre ») couvre du 1er au 13
+    septembre, pas septembre entier. Dériver la mention du seul `mois` faisait imprimer une période
+    plus large que celle facturée — une mention réglementaire fausse sur un document opposable.
+    Le mois reste la valeur de repli : le cycle mensuel, lui, ne porte pas de bornes.
+    """
+    debut, fin = str(facture.get("periode_debut") or ""), str(facture.get("periode_fin") or "")
+    try:
+        if debut and fin:
+            return date.fromisoformat(debut[:10]).isoformat(), date.fromisoformat(fin[:10]).isoformat()
+    except ValueError:      # bornes illisibles : on retombe sur le mois plutôt que d'imprimer faux
+        pass
+    return periode_prestation(facture["mois"])
+
+
 def date_echeance(date_facture: str, delai_jours: int | None) -> str | None:
     """Échéance de règlement.
 
@@ -115,7 +132,7 @@ def construire(facture: dict[str, Any], *, date_facture: str, db_path=None) -> d
     """Bloc de conformité complet pour une facture, sans rien écrire."""
     regime = conf.regime_tva()
     taux = conf.taux_tva_applicable(regime)
-    debut, fin = periode_prestation(facture["mois"])
+    debut, fin = periode_facturee(facture)
     cl = client(facture["proprietaire_id"], db_path=db_path)
 
     total_ht = round(float(facture.get("montant_total") or 0), 2)
