@@ -111,6 +111,32 @@ def _telephone_lisible(v: Any) -> str:
         return str(v or "")
 
 
+#: Séparateurs de ligne, nommés plutôt qu'échappés au milieu d'une expression.
+SAUT = chr(10)
+RETOUR_CHARIOT = chr(13)
+SAUT_WINDOWS = RETOUR_CHARIOT + SAUT
+
+
+def _deplier(lignes: list[str]) -> list[str]:
+    """Une valeur écrite sur plusieurs lignes en occupe plusieurs sur le document.
+
+    Une adresse se saisit couramment en trois lignes dans une cellule — voie, complément, code
+    postal et ville. La carte d'une partie composait chaque valeur dans UNE cellule fpdf, qui ne
+    sait pas retourner à la ligne : le saut disparaissait et les trois lignes se soudaient en
+    « 18 rue de CugnauxC202Toulouse, 31000 ». Les déplier ici rend au document ce que la saisie
+    exprimait, sans rien ajouter ni réordonner — et reste sans effet sur une valeur d'une seule
+    ligne, c'est-à-dire sur presque toutes.
+    """
+    sortie: list[str] = []
+    for valeur in lignes:
+        normalise = str(valeur).replace(SAUT_WINDOWS, SAUT).replace(RETOUR_CHARIOT, SAUT)
+        for morceau in normalise.split(SAUT):
+            morceau = morceau.strip()
+            if morceau:
+                sortie.append(morceau)
+    return sortie
+
+
 def _date_fr(v: Any) -> str:
     """`2026-07-31` → `31/07/2026`. Renvoie la valeur telle quelle si le format est inattendu."""
     s = "" if v is None else str(v)[:10]
@@ -645,7 +671,7 @@ class _Facture(FPDF):
         # de même graisse — on ne voyait plus qui facturait qui.
         titre_gauche = str(em.get("denomination") or base.get("nom") or "").strip()
         gauche = ([titre_gauche] if titre_gauche else []) + gauche
-        self._cartes_parties(gauche, droite)
+        self._cartes_parties(_deplier(gauche), _deplier(droite))
 
     def _etiquette_carte(self, texte: str, x: float, y: float) -> None:
         """Étiquette interne d'une carte : petites capitales brique, soulignées d'un tiret court.
