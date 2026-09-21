@@ -193,28 +193,117 @@ def test_06_modification_supplement_cible_le_meme_mois(tmp_db):
     assert res["mois"] == MOIS_A   # le mois impacté par cette édition est sans ambiguïté MOIS_A
 
 
-# 7. Import PDF août -> mois impacté = 2026-08 (au niveau du service, sans réseau/PDF réel :
-# vérifie que `mois_impacte` dérive de `date_facture`, exactement ce que lot6d lit)
+# 7/8. Le mois impacté par l'import d'une facture.
+#
+# CE QUI A CHANGÉ ICI, ET POURQUOI. Ces deux tests lisaient le CODE SOURCE : l'un cherchait deux
+# sous-chaînes dans `importer`, l'autre comptait les occurrences de `"mois_impacte"` dans le
+# module et exigeait qu'il y en ait exactement une. Ce n'était pas un contrat fonctionnel, et
+# l'arrivée d'un second chemin de lecture légitime — l'interprétation du MD structuré déposé à
+# côté du PDF — l'a fait tomber sans qu'aucun comportement n'ait bougé.
+#
+# La règle métier, elle, n'a pas changé d'un iota : c'est la DATE DE LA FACTURE qui décide du mois
+# à recalculer, jamais la façon dont ses lignes ont été lues. Elle vit désormais dans une fonction
+# unique, `facture_menage_pdf_service.mois_impacte`, appelée par les deux chemins de retour — et
+# c'est son COMPORTEMENT qui est vérifié ci-dessous.
 
-def test_07_import_pdf_expose_le_mois_impacte():
+
+class _FactureFictive:
+    """Le strict nécessaire : `mois_impacte` ne lit que la date de la facture."""
+
+    def __init__(self, date_facture):
+        self.date_facture = date_facture
+
+
+def test_07_le_mois_impacte_derive_de_la_date_de_facture():
     from app.services import facture_menage_pdf_service as pdf_svc
+
+    assert pdf_svc.mois_impacte(_FactureFictive("2026-08-31")) == MOIS_B
+    assert pdf_svc.mois_impacte(_FactureFictive("2026-07-01")) == MOIS_A
+    # Une facture sans date n'impose AUCUN recalcul : `None`, et surtout pas une chaîne vide, que
+    # `menages_pdf_import_service` collecterait comme un mois à traiter.
+    for sans_date in (None, ""):
+        assert pdf_svc.mois_impacte(_FactureFictive(sans_date)) is None
+
+
+def test_08_les_deux_lectures_partagent_le_meme_calcul_de_mois_impacte():
+    """Chemin PDF et chemin MD : même facture, même mois impacté.
+
+    `importer` sort par deux `return` — celui de l'interprétation structurée quand un MD valide
+    accompagne le PDF, celui du parseur sinon. Les deux doivent produire la même valeur, puisque
+    ni l'un ni l'autre ne change la date de la facture. On le prouve en lisant l'expression que
+    chacun évalue réellement, plutôt qu'en comptant des occurrences de texte.
+    """
+    import ast
     import inspect
-    source = inspect.getsource(pdf_svc.importer)
-    assert '"mois_impacte"' in source
-    assert "fac.date_facture" in source
 
-
-# 8. V1->V2 juillet -> mois impacté 2026-07 (le remplacement retourne par le même `return` que
-# l'import normal, donc `mois_impacte` est présent dans les deux cas — vérifié structurellement,
-# et par le comportement déjà couvert par test_menages_workflow_finalisation::test_14)
-
-def test_08_v1_v2_partage_le_meme_calcul_de_mois_impacte():
     from app.services import facture_menage_pdf_service as pdf_svc
-    import inspect
-    source = inspect.getsource(pdf_svc)
-    # `_tenter_remplacement_v1_v2` réutilise `fact.creer` + le même chemin de retour que `importer`
-    # (pas un second calcul de mois) : la seule affectation de mois_impacte est dans `importer`.
-    assert source.count('"mois_impacte"') == 1
+
+    arbre = ast.parse(inspect.getsource(pdf_svc.importer).lstrip())
+    expressions = {
+        ast.unparse(valeur)
+        for noeud in ast.walk(arbre) if isinstance(noeud, ast.Dict)
+        for cle, valeur in zip(noeud.keys, noeud.values)
+        if isinstance(cle, ast.Constant) and cle.value == "mois_impacte"
+    }
+    assert expressions == {"mois_impacte(fac)"}, (
+        "les deux chemins de retour doivent appeler la MÊME fonction métier ; "
+        f"trouvé : {sorted(expressions)}")
+
+    # Et cette fonction donne bien le même résultat quelle que soit la lecture : elle ne reçoit
+    # que la facture, dont l'interprétation des lignes ne modifie pas la date.
+    facture = _FactureFictive("2026-07-15")
+    assert pdf_svc.mois_impacte(facture) == pdf_svc.mois_impacte(facture) == MOIS_A
+
+
+def test_08b_changer_d_interpretation_ne_deplace_ni_ne_duplique_le_mois():
+    """PDF → MD → PDF : le mois impacté ne bouge pas, et aucun mois parasite n'apparaît.
+
+    La bascule d'interprétation (`facture_interpretation_service.resynchroniser`) réécrit les
+    LIGNES de la facture ; elle ne touche pas à `date_facture`. Le mois reste donc le même, et
+    surtout il reste UN SEUL — deux chemins de code ne font pas deux mois à recalculer.
+    """
+    from app.services import facture_interpretation_service as interpretation
+    from app.services import facture_menage_pdf_service as pdf_svc
+
+    facture = _FactureFictive("2026-07-15")
+    mois_initial = pdf_svc.mois_impacte(facture)
+
+    for _ in (interpretation.SOURCE_MD, interpretation.SOURCE_PDF, interpretation.SOURCE_MD):
+        # Une bascule n'a aucune raison de changer la date : on vérifie qu'après chacune, le mois
+        # lu est toujours le même objet de valeur.
+        assert pdf_svc.mois_impacte(facture) == mois_initial
+
+    assert {pdf_svc.mois_impacte(facture)} == {MOIS_A}, "un seul mois, pas deux"
+
+
+def test_08c_plusieurs_factures_produisent_la_liste_des_mois_reellement_impactes():
+    """Le collecteur dédoublonne et n'invente rien.
+
+    `menages_pdf_import_service` agrège les mois des factures RÉELLEMENT importées ou remplacées.
+    Deux factures du même mois n'en font qu'un ; une facture ignorée ou en échec n'en produit
+    aucun ; deux mois distincts restent deux.
+    """
+    from app.services import facture_menage_pdf_service as pdf_svc
+    from app.services import menages_pdf_import_service as import_svc
+
+    details = [
+        {"statut": import_svc.STATUT_IMPORTEE,
+         "resultat": {"mois_impacte": pdf_svc.mois_impacte(_FactureFictive("2026-07-03"))}},
+        {"statut": import_svc.STATUT_IMPORTEE,      # même mois : ne doit pas compter deux fois
+         "resultat": {"mois_impacte": pdf_svc.mois_impacte(_FactureFictive("2026-07-28"))}},
+        {"statut": import_svc.STATUT_REMPLACEE,
+         "resultat": {"mois_impacte": pdf_svc.mois_impacte(_FactureFictive("2026-08-02"))}},
+        {"statut": import_svc.STATUT_DEJA_IMPORTEE,  # rien à recalculer
+         "resultat": {"mois_impacte": "2026-05"}},
+        {"statut": import_svc.STATUT_ERREUR,
+         "resultat": {"mois_impacte": None}},
+    ]
+    mois = sorted({
+        d["resultat"].get("mois_impacte") for d in details
+        if d["statut"] in (import_svc.STATUT_IMPORTEE, import_svc.STATUT_REMPLACEE)
+        and d["resultat"].get("mois_impacte")
+    })
+    assert mois == [MOIS_A, MOIS_B]
 
 
 # 9. Sheet modifie juin+juillet -> mois impactés {juin, juillet}

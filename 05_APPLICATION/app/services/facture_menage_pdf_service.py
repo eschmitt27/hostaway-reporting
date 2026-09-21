@@ -440,6 +440,25 @@ def anomalies_document(facture_id_opaque: str, *, db_path=None) -> list[dict[str
     return sortie
 
 
+def mois_impacte(fac) -> str | None:
+    """Le mois que l'import de cette facture oblige à recalculer — ou `None` s'il n'y en a pas.
+
+    UNE SEULE DÉFINITION, POUR LES DEUX LECTURES. `importer` sort par deux chemins : les lignes
+    viennent du MD structuré quand il est valide, du parseur PDF sinon. Les deux calculaient ce
+    mois avec la même expression, recopiée ; la duplication ne faisait aucun mal tant que les deux
+    copies restaient d'accord, mais rien ne le garantissait — et un test s'était résigné à compter
+    les occurrences dans le code source, faute de pouvoir vérifier autre chose.
+
+    LA RÈGLE MÉTIER NE CHANGE PAS : c'est la DATE DE LA FACTURE qui décide du mois, jamais la façon
+    dont ses lignes ont été lues. Changer d'interprétation ne déplace donc aucun mois, et ne peut
+    pas en inventer un second.
+    """
+    # `fac.date_facture` en accès direct, sans `getattr` de complaisance : une facture extraite
+    # porte toujours ce champ, et le masquer derrière un défaut transformerait une extraction
+    # cassée en « aucun mois à recalculer », ce qui est silencieux et faux.
+    return str(fac.date_facture or "")[:7] or None
+
+
 def importer(path, *, acteur: str = "", db_path=None) -> dict[str, Any]:
     """Importe une facture PDF ménage externe : header + lignes + ventilation, aucune Charge créée.
 
@@ -536,7 +555,7 @@ def importer(path, *, acteur: str = "", db_path=None) -> dict[str, Any]:
                 "remplacement_de": resultat.get("remplacement_de"),
                 "source_interpretation": interpretation.SOURCE_MD,
                 "md_etat": analyse_md["etat"], "md_nom_fichier": analyse_md["md_nom_fichier"],
-                "mois_impacte": str(fac.date_facture or "")[:7] or None}
+                "mois_impacte": mois_impacte(fac)}
 
     ventilations = _poser_lignes_pdf(facture_id, fac, acteur=acteur, db_path=db_path)
     interpretation.enregistrer_version_initiale(
@@ -552,7 +571,7 @@ def importer(path, *, acteur: str = "", db_path=None) -> dict[str, Any]:
             "source_interpretation": interpretation.SOURCE_PDF,
             "md_etat": analyse_md["etat"],
             "md_nom_fichier": analyse_md["md_nom_fichier"] if analyse_md["md_present"] else None,
-            "mois_impacte": str(fac.date_facture or "")[:7] or None}
+            "mois_impacte": mois_impacte(fac)}
 
 
 def _poser_lignes_pdf(facture_id: str, fac, *, acteur: str = "", db_path=None) -> list[dict[str, Any]]:
