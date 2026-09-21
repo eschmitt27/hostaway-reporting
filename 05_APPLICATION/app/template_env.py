@@ -172,6 +172,10 @@ def get_templates() -> Jinja2Templates:
         # §45 — un numéro se STOCKE en E.164 et se LIT en groupes de deux. Le filtre est le seul
         # point de passage vers l'affichage : un numéro brut reste rendu tel quel, jamais inventé.
         t.env.filters["telephone"] = _telephone
+        # Le saut de ligne, nommé, pour les gabarits qui doivent distinguer une valeur multiligne
+        # d'une valeur d'une seule ligne. Un littéral échappé au milieu d'une expression Jinja se
+        # lit mal et se casse au premier outil qui touche au fichier ; une globale ne se casse pas.
+        t.env.globals["SAUT"] = "\n"
         _templates = t
     return _templates
 

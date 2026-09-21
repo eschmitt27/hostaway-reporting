@@ -1069,3 +1069,20 @@ textarea.filter-input {
   .app-header { padding: 0 var(--stack-md); }
   .page-content, .content-container { padding: var(--stack-md); }
 }
+
+/* Champ référentiel multiligne.
+   `.input` n'a jamais eu de style : les champs de l'écran référentiel s'affichent aux réglages
+   par défaut du navigateur. Un textarea sans style y serait étroit et non redimensionnable, plus
+   mauvais que l'input qu'il remplace — d'où ces quelques règles, strictement présentationnelles.
+   `width: 100%` avec `box-sizing: border-box` le rend correct sur petit écran, où la fiche passe
+   en colonne unique. */
+textarea.input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 4.5em;
+  padding: 4px 6px;
+  resize: vertical;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: 1.4;
+}

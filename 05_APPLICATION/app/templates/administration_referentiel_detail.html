@@ -15,8 +15,25 @@
     <input class="input {{ taille }}" type="date" name="{{ c }}" value="{{ valeur }}"
            {% if obligatoire %}required{% endif %}>
   {% else %}
-    <input class="input {{ taille }}" name="{{ c }}" value="{{ valeur }}"
-           {% if obligatoire %}required{% endif %}>
+    {# UNE VALEUR MULTILIGNE EXIGE UN TEXTAREA. Un `<input>` ne peut pas porter de saut de ligne :
+       le navigateur aplatit ce qu'on met dans son attribut `value`, et resoumet la valeur soudée.
+       C'est ainsi que « 18 rue de Cugnaux / C202 / Toulouse, 31000 » est devenu
+       « 18 rue de CugnauxC202Toulouse, 31000 » le 11/09/2026, en éditant un tout autre champ —
+       le formulaire renvoie TOUTES les colonnes, donc corriger un téléphone réécrivait l'adresse.
+
+       Le choix se fait sur LA VALEUR, pas sur le nom de la colonne : aucune liste de champs à
+       tenir à jour, et aucun champ aujourd'hui mono-ligne ne change d'apparence. Le `{{ valeur }}`
+       colle à la balise ouvrante : HTML ignore un premier saut de ligne juste après `<textarea>`,
+       et l'y laisser mangerait une ligne à chaque enregistrement. #}
+    {% set texte = valeur|string %}
+    {% if SAUT in texte %}
+      <textarea class="input {{ taille }}" name="{{ c }}"
+                rows="{{ [[texte.split(SAUT)|length, 2]|max, 6]|min }}"
+                {% if obligatoire %}required{% endif %}>{{ texte }}</textarea>
+    {% else %}
+      <input class="input {{ taille }}" name="{{ c }}" value="{{ texte }}"
+             {% if obligatoire %}required{% endif %}>
+    {% endif %}
   {% endif %}
 {% endmacro %}
 

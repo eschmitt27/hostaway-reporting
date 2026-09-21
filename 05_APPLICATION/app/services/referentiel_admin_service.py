@@ -110,8 +110,24 @@ def est_retroactif(date_reference: str, *, aujourdhui: date | None = None) -> bo
     return date.fromisoformat(txt(date_reference)) <= (aujourdhui or date.today())
 
 
+#: Séparateurs de ligne, nommés plutôt qu'échappés au fil des expressions.
+SAUT = chr(10)
+RETOUR_CHARIOT = chr(13)
+
+
 def txt(v: Any) -> str:
-    return str(v or "").strip()
+    """Valeur de référentiel → texte stable. Entonnoir UNIQUE de toutes les écritures.
+
+    LES SAUTS DE LIGNE INTERNES SONT CONSERVÉS, et ramenés à `\\n`. Une adresse se saisit
+    couramment sur trois lignes — voie, complément, code postal et ville — et cette forme est une
+    donnée, pas une décoration : l'aplatir changerait ce que le propriétaire a écrit.
+
+    La normalisation n'est pas cosmétique. Un navigateur renvoie le contenu d'un `<textarea>` avec
+    des fins de ligne `\\r\\n` (la norme HTML l'impose), alors que la valeur lue en base porte des
+    `\\n`. Sans cette conversion, ouvrir une fiche et la réenregistrer SANS RIEN TOUCHER modifierait
+    la valeur — et le journal enregistrerait une modification fantôme à chaque passage.
+    """
+    return str(v or "").replace(RETOUR_CHARIOT + SAUT, SAUT).replace(RETOUR_CHARIOT, SAUT).strip()
 
 
 def date_valide(d: str) -> bool:

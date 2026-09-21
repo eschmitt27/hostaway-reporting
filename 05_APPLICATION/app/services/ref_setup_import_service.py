@@ -20,6 +20,24 @@ peut-être déjà dans le référentiel réel, et refuser l'import les rendrait 
 exposer. Bloquer sur elles reviendrait à exiger que les données soient propres avant de pouvoir
 les regarder.
 
+QUI FAIT FOI — LA RÈGLE, ÉNONCÉE UNE FOIS POUR TOUTES
+    REF_Setup.xlsm  = source d'INITIALISATION. Il amorce le référentiel, et continue d'alimenter
+                      toute ligne que l'application n'a pas encore prise en gestion.
+    SQLite + écran  = source CANONIQUE dès qu'une ligne a été créée ou modifiée dans
+                      l'application. Elle porte alors `import_id = SAISIE_APPLICATION`.
+
+Le classeur ne reprend JAMAIS la main sur une ligne applicative. Concrètement, dans `importer()` :
+le `DELETE` épargne ces lignes, les lignes homonymes du classeur sont écartées de l'`INSERT`, et
+l'écart est remonté en avertissement plutôt que réglé en silence — « c'est la saisie qui fait foi »
+n'est pas une intention, c'est ce que fait le code, et `test_referentiel_gouvernance_source.py`
+l'exige.
+
+Ce n'est pas un défaut à réparer : un référentiel administrable qui se ferait écraser au prochain
+import perdrait la saisie sans prévenir, et l'écran ne servirait à rien. Il ne faut donc PAS
+resynchroniser automatiquement le classeur vers ces lignes. Corriger une ligne applicative se fait
+par l'écran ; le classeur reste utile pour l'amorçage, pour les lignes non encore applicatives, et
+comme trace de l'état d'origine.
+
 IDEMPOTENCE
 Un import remplace intégralement le contenu des tables (DELETE puis INSERT dans la transaction).
 Deux imports du même classeur produisent donc les mêmes lignes et les mêmes empreintes de contenu.
