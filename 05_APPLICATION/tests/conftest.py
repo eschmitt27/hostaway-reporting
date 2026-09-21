@@ -1,6 +1,39 @@
-import pytest
-from pathlib import Path
+import os
 import sys
+from pathlib import Path
+
+import pytest
+
+# ── LA SUITE NE LIT JAMAIS LE `.env` DE LA MACHINE ──────────────────────────────────────────────
+# Quatorze tests répartis dans onze fichiers affirment que les verrous d'écriture sont FERMÉS
+# (`BANQUE_REAL_WRITE_ENABLED is False`, et les recettes « aucune écriture réelle »). Depuis que
+# `app.config` charge nativement le `.env` du projet, ces tests lisaient la configuration du
+# POSTE : verts sur une machine aux verrous fermés, rouges sur celle d'un exploitant qui les a
+# ouverts pour travailler. Le résultat de la suite dépendait donc de qui la lançait — exactement
+# ce qu'une suite de tests ne doit jamais faire.
+#
+# On neutralise donc le fichier POUR LE PROCESSUS DE TEST, et rien d'autre : l'application en
+# local comme en production continue de le charger normalement. Le drapeau est celui que
+# `app.config.charger_env` respecte déjà ; on n'ajoute aucun mécanisme.
+#
+# CE BLOC EST EN TÊTE DE CONFTEST, ET C'EST STRUCTUREL. `app.config` fige ses drapeaux À L'IMPORT :
+# poser la variable plus tard — dans une fixture, dans `pytest_configure` — arriverait après que
+# le premier module de test a importé la configuration. pytest importe les `conftest.py` avant
+# tout module de test : c'est le seul endroit assez tôt qui ne demande pas de plugin.
+#
+# Un `assert` plutôt qu'un simple `setdefault` : si quelque chose avait déjà importé la
+# configuration, la neutralisation serait sans effet et les tests mentiraient en silence.
+#
+# CE QUI N'A PAS BOUGÉ : l'application. Lancée normalement, elle charge son `.env` et ouvre les
+# verrous que l'exploitant y a définis — vérifié par `test_config_chargement_env.py`.
+os.environ["PILOTAGE_IGNORE_ENV_FILE"] = "1"
+assert "app.config" not in sys.modules, (
+    "app.config a été importé avant conftest : ses drapeaux sont déjà figés sur le .env de la "
+    "machine, et la suite n'est plus isolée.")
+
+# `test_config_chargement_env.py` est la seule exception légitime : il TESTE le chargement du
+# fichier, et lance pour cela des sous-processus dont il retire lui-même cette variable
+# (cf. `_env_sans_neutralisation` dans ce module).
 
 # Ajouter la racine de l'app au PYTHONPATH pour les tests
 APP_ROOT = Path(__file__).resolve().parent.parent

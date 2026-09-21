@@ -228,7 +228,25 @@ def test_le_pdf_affiche_la_periode_au_format_francais(base):
     facture = svc.lire(res["creees"][0]["facture_id_opaque"], db_path=base)
     bloc = conformite.construire(facture, date_facture="2026-09-20", db_path=base)
     references = pdf._Facture({"mois": "2026-09", "conformite": bloc})._references()
-    assert "Période des prestations : du 01/09/2026 au 13/09/2026" in references
+    assert ("", "Période des prestations : du 01/09/2026 au 13/09/2026") in references
+
+
+def test_la_mention_de_periode_est_imprimee_en_un_seul_morceau(base):
+    """Vérifié sur le PDF RENDU, pas sur la structure : c'est le document qui fait foi.
+
+    La mention doit sortir d'un bloc. J'avais composé le libellé et les dates en deux cellules
+    pour gagner en hiérarchie ; le texte du document se retrouvait alors coupé en deux fragments.
+    Ce test fige la propriété qui compte : la phrase réglementaire est imprimée entière.
+    """
+    pymupdf = pytest.importorskip("pymupdf")
+    res = periode.creer(PROP, "2026-09-01", "2026-09-13", acteur="test", db_path=base)
+    facture = svc.lire(res["creees"][0]["facture_id_opaque"], db_path=base)
+    snapshot = {"mois": "2026-09", "type_document": "FACTURE", "lignes": facture["lignes"],
+                "conformite": conformite.construire(facture, date_facture="2026-09-20",
+                                                    db_path=base)}
+    document = pymupdf.open(stream=pdf.rendre(snapshot), filetype="pdf")
+    texte = "".join(page.get_text() for page in document)
+    assert "Période des prestations : du 01/09/2026 au 13/09/2026" in texte
 
 
 def test_une_facture_mensuelle_garde_les_bornes_de_son_mois(base):

@@ -16,6 +16,8 @@ import sys
 import textwrap
 from pathlib import Path
 
+import pytest
+
 import app.config as cfg
 
 VARIABLES_VERIFIEES = (
@@ -24,6 +26,24 @@ VARIABLES_VERIFIEES = (
     "COMPTABILITE_REAL_WRITE_ENABLED", "COMPTABILITE_REAL_WRITE_CONFIRMATION_ENABLED",
     "QONTO_LOGIN", "QONTO_SECRET_KEY",
 )
+
+
+#: Drapeau par lequel `conftest.py` neutralise le `.env` pour TOUTE la suite, afin qu'aucun test
+#: ne dépende de la configuration du poste qui l'exécute.
+NEUTRALISATION = "PILOTAGE_IGNORE_ENV_FILE"
+
+
+def _env_sans_neutralisation(base: dict | None = None) -> dict:
+    """Environnement débarrassé du drapeau de neutralisation posé par le harness de test.
+
+    CE MODULE EST LA SEULE EXCEPTION LÉGITIME. Tous les autres tests doivent ignorer le `.env` de
+    la machine ; celui-ci TESTE le chargement de ce fichier — l'ignorer reviendrait à ne rien
+    vérifier du tout. Il retire donc le drapeau, explicitement et pour lui seul, plutôt que de
+    demander à l'exploitant de lancer la suite avec une variable particulière.
+    """
+    environnement = dict(os.environ if base is None else base)
+    environnement.pop(NEUTRALISATION, None)
+    return environnement
 
 
 def _dans_un_processus_neuf(code: str, *, env: dict | None = None,
@@ -35,7 +55,7 @@ def _dans_un_processus_neuf(code: str, *, env: dict | None = None,
     chargement.
     """
     racine = Path(cfg.APP_ROOT)
-    environnement = dict(os.environ if env is None else env)
+    environnement = _env_sans_neutralisation(env)
     environnement["PYTHONIOENCODING"] = "utf-8"
     resultat = subprocess.run(
         [sys.executable, "-c", textwrap.dedent(code)],
@@ -75,7 +95,6 @@ def test_le_fichier_env_est_charge_au_demarrage(tmp_path):
 def test_les_cinq_verrous_et_les_identifiants_qonto_viennent_du_fichier():
     """Sur le vrai projet : le seul import de la configuration suffit à poser les variables."""
     if not cfg.ENV_FILE.is_file():
-        import pytest
         pytest.skip("aucun .env sur cette machine — rien à vérifier")
 
     sortie = _dans_un_processus_neuf("""
@@ -101,7 +120,6 @@ def test_les_cinq_verrous_et_les_identifiants_qonto_viennent_du_fichier():
 def test_le_chargement_se_fait_avant_l_evaluation_des_drapeaux():
     """La propriété qui manquait : les drapeaux doivent refléter le fichier, pas l'inverse."""
     if not cfg.ENV_FILE.is_file():
-        import pytest
         pytest.skip("aucun .env sur cette machine")
 
     sortie = _dans_un_processus_neuf("""
@@ -150,8 +168,14 @@ def test_le_fichier_remplit_ce_que_l_environnement_ne_fournit_pas(tmp_path):
 
 
 # ── 3. `.env` absent → démarrage normal ───────────────────────────────────────────────────────
-def test_un_fichier_absent_ne_casse_rien(tmp_path):
-    """Un worktree neuf n'a pas de `.env` (ignoré par Git) : ce n'est pas une erreur."""
+def test_un_fichier_absent_ne_casse_rien(tmp_path, monkeypatch):
+    """Un worktree neuf n'a pas de `.env` (ignoré par Git) : ce n'est pas une erreur.
+
+    Le drapeau de neutralisation est retiré le temps de l'appel, sans quoi `charger_env` refuserait
+    d'entrée et le test passerait pour la mauvaise raison — il faut que ce soit bien L'ABSENCE du
+    fichier qui produise `False`.
+    """
+    monkeypatch.delenv(NEUTRALISATION, raising=False)
     assert cfg.charger_env(tmp_path / "inexistant.env") is False
 
 
@@ -214,3 +238,77 @@ def test_le_chemin_du_fichier_ne_depend_pas_d_une_variable_du_fichier():
     source = (Path(cfg.APP_ROOT) / "app" / "config.py").read_text(encoding="utf-8")
     ligne = next(l for l in source.splitlines() if l.startswith("ENV_FILE ="))
     assert "PROJECT_ROOT" not in ligne
+
+
+# ── 6. Le drapeau de neutralisation, et l'isolation de la suite ────────────────────────────────
+# Ce que ces tests protègent : qu'un `pytest` lancé nu, sur n'importe quelle machine, donne le même
+# résultat. Le défaut corrigé était exactement l'inverse — quatorze tests de verrous viraient au rouge
+# sur un poste dont le `.env` ouvrait les écritures, et au vert ailleurs.
+
+def test_le_drapeau_empeche_tout_chargement(tmp_path, monkeypatch):
+    """`PILOTAGE_IGNORE_ENV_FILE=1` : le fichier existe, et n'est pourtant pas lu."""
+    fichier = tmp_path / ".env"
+    fichier.write_text("PILOTAGE_TEST_NEUTRALISE=valeur-du-fichier\n", encoding="utf-8")
+    monkeypatch.setenv(NEUTRALISATION, "1")
+    monkeypatch.delenv("PILOTAGE_TEST_NEUTRALISE", raising=False)
+
+    assert cfg.charger_env(fichier) is False
+    assert os.environ.get("PILOTAGE_TEST_NEUTRALISE") is None
+
+
+@pytest.mark.parametrize("valeur,charge", [("1", False), ("true", False), ("True", False),
+                                           ("0", True), ("", True), ("non", True)])
+def test_seules_les_valeurs_affirmatives_neutralisent(tmp_path, monkeypatch, valeur, charge):
+    """`0` ou une chaîne vide ne sont PAS une demande de neutralisation.
+
+    Un drapeau qui s'activerait dès qu'il est défini rendrait `=0` indistinguable de `=1` : on
+    ne pourrait plus le désactiver sans le supprimer de l'environnement.
+    """
+    fichier = tmp_path / ".env"
+    fichier.write_text("PILOTAGE_TEST_VALEUR=lue\n", encoding="utf-8")
+    monkeypatch.setenv(NEUTRALISATION, valeur)
+    monkeypatch.delenv("PILOTAGE_TEST_VALEUR", raising=False)
+
+    assert cfg.charger_env(fichier) is charge
+    assert (os.environ.get("PILOTAGE_TEST_VALEUR") == "lue") is charge
+
+
+def test_la_suite_de_tests_ignore_le_env_de_la_machine():
+    """Le harness pose le drapeau AVANT le premier import de `app.config`.
+
+    C'est la garantie centrale : sans elle, les tests de verrous mesurent le poste de l'exploitant
+    et non le code. Si quelqu'un retire le bloc en tête de `conftest.py`, ce test tombe.
+    """
+    assert os.environ.get(NEUTRALISATION) == "1", "conftest.py doit poser le drapeau"
+    assert cfg.ENV_FILE_CHARGE is False, \
+        "la configuration du processus de test a lu le .env de la machine"
+
+
+def test_les_verrous_d_ecriture_sont_fermes_dans_la_suite():
+    """Le symptôme, pris à l'endroit exact où il faisait mal.
+
+    Quatorze tests répartis dans onze fichiers affirment cela ; le vérifier ici aussi fait tomber
+    UN test lisible plutôt que quatorze énigmatiques le jour où l'isolation se casse.
+    """
+    for verrou in ("MODE_REEL_ECRITURES", "BANQUE_REAL_WRITE_ENABLED",
+                   "BANQUE_REAL_WRITE_CONFIRMATION_ENABLED",
+                   "COMPTABILITE_REAL_WRITE_ENABLED",
+                   "COMPTABILITE_REAL_WRITE_CONFIRMATION_ENABLED"):
+        assert getattr(cfg, verrou) is False, f"{verrou} ouvert : le .env du poste a été lu"
+
+
+def test_le_module_de_chargement_reste_capable_de_lire_un_fichier():
+    """La neutralisation ne doit pas être une façon déguisée de désactiver la fonctionnalité.
+
+    Dans un processus neuf SANS le drapeau, le vrai `.env` du projet est bien chargé — c'est le
+    comportement de l'application en local et en production, et il n'a pas bougé.
+    """
+    if not cfg.ENV_FILE.is_file():
+        pytest.skip("aucun .env sur cette machine — rien à vérifier")
+    sortie = _dans_un_processus_neuf("""
+        import os, sys
+        sys.path.insert(0, os.getcwd())
+        import app.config as cfg
+        print(os.environ.get("PILOTAGE_IGNORE_ENV_FILE"), cfg.ENV_FILE_CHARGE)
+    """)
+    assert sortie == "None True"

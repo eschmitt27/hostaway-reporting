@@ -16,6 +16,8 @@ CE QUE LES PREMIERS RENDUS RÉELS ONT MONTRÉ, ET QUE CES TESTS EMPÊCHENT DE RE
 """
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from app.services import factures_proprietaires_pdf as pdfsvc
@@ -103,9 +105,18 @@ def test_le_symbole_euro_est_imprime(octets):
 
 
 def test_aucun_montant_libelle_en_eur(texte):
+    """Un MONTANT porte le symbole, jamais le code devise.
+
+    La version précédente cherchait « EUR » n'importe où et devait déjà excuser « ÉMETTEUR » ;
+    les en-têtes de colonne en capitales lui ont ajouté « VOYAGEURS », et le pied porte
+    « capital de 200,00 EUR », qui est une mention d'entité, pas un montant facturé. On cherche
+    donc ce que l'on veut réellement interdire — un nombre suivi du code devise dans le corps du
+    document — plutôt qu'une sous-chaîne qu'il faut excuser au cas par cas.
+    """
     contenu, _ = texte
-    assert "EUR" not in contenu.replace("ÉMETTEUR", ""), \
-        "les montants portent le symbole, pas le code devise"
+    corps = contenu.split("CHOUETTE PATRIMOINE —")[0]      # hors mentions légales du pied
+    fautifs = re.findall(r"[0-9][0-9  ,.]*\s*EUR\b", corps)
+    assert not fautifs, f"les montants portent le symbole, pas le code devise : {fautifs}"
 
 
 def test_la_typographie_francaise_est_conservee(octets):
@@ -153,9 +164,12 @@ def test_la_reference_de_reservation_hostaway_est_absente(texte):
 
 
 def test_le_nombre_de_voyageurs_remplace_la_reference(texte):
+    """Comparaison insensible à la casse : les en-têtes de colonne se composent en capitales
+    depuis la refonte de présentation (cf. `test_les_libelles_portent_leurs_accents`)."""
     contenu, _ = texte
-    assert "Voyageurs" in contenu
-    assert "Référence" not in contenu.split("Détail des frais")[0], \
+    haut = contenu.upper()
+    assert "VOYAGEURS" in haut
+    assert "RÉFÉRENCE" not in haut.split("DÉTAIL DES FRAIS")[0], \
         "la table des séjours n'a plus de colonne Référence"
 
 
