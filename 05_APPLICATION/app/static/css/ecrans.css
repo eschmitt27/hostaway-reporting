@@ -201,6 +201,9 @@
   white-space: nowrap;
 }
 .ecran .ec-vide { padding: 20px 12px; color: var(--color-secondary); text-align: center; }
+/* Pied de tableau : mêmes marges que les cellules (sinon les totaux se décalent de leur colonne). */
+.ecran tfoot th, .ecran tfoot td { padding: 10px 12px; text-align: left; }
+.ecran tfoot th.text-right, .ecran tfoot td.text-right { text-align: right; }
 .ecran tfoot th, .ecran tr.ec-total th, .ecran tr.ec-total td {
   border-top: 2px solid var(--ec-border);
   background: var(--color-surface-container-low);

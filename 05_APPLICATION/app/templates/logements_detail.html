@@ -163,6 +163,7 @@
 {% endmacro %}
 
 {% block content %}
+{% import "_libelles.html" as lib %}
 
 {# `etat` vient de REF_Setup et peut ne rien contenir : logement présent au référentiel SQLite mais
    absent du classeur, ou classeur indisponible. Sans cette garde, la fiche plantait sur
@@ -234,8 +235,8 @@
         <thead><tr><th>Propriétaire</th><th>Date début</th><th>Date fin</th><th>Statut</th></tr></thead>
         <tbody>
           {% for g in histo.gestion %}
-          <tr><td>{{ g.proprietaire_id | nom_proprietaire }}</td><td>{{ g.date_debut }}</td>
-              <td>{{ g.date_fin or "En cours" }}</td><td>{{ g.statut_gestion }}</td></tr>
+          <tr><td>{{ g.proprietaire_id | nom_proprietaire }}</td><td>{{ g.date_debut|date_fr or g.date_debut }}</td>
+              <td>{{ (g.date_fin|date_fr or g.date_fin) if g.date_fin else "En cours" }}</td><td>{{ lib.libelle(g.statut_gestion) }}</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -369,18 +370,18 @@
       <p class="text-sm">Non disponible : {{ etat.status }}.</p>
     {% else %}
       <dl class="detail-grid">
-        <div><dt>Actif</dt><dd>{{ fiche_sure.actif or "Non renseigné" }}</dd></div>
-        <div><dt>Statut parc</dt><dd>{{ fiche_sure.statut_parc or "Non renseigné" }}</dd></div>
+        <div><dt>Actif</dt><dd>{{ lib.libelle(fiche_sure.actif) if fiche_sure.actif else "Non renseigné" }}</dd></div>
+        <div><dt>Statut parc</dt><dd>{{ lib.libelle(fiche_sure.statut_parc) if fiche_sure.statut_parc else "Non renseigné" }}</dd></div>
         <div><dt>Propriétaire en gestion (ligne active)</dt>
           <dd>{{ (etat.gestion_active.proprietaire_id | nom_proprietaire) if etat.gestion_active else "Aucun rattachement actif" }}</dd></div>
         <div><dt>Depuis le</dt>
-          <dd>{{ etat.gestion_active.date_debut if etat.gestion_active else "—" }}</dd></div>
+          <dd>{{ (etat.gestion_active.date_debut|date_fr or etat.gestion_active.date_debut) if etat.gestion_active else "—" }}</dd></div>
         <div><dt>Taux de commission actif (grain logement)</dt>
           <dd>{% if etat.taux_actif %}{{ ((etat.taux_actif.taux_commission or 0) * 100) | round(2) }} %{% else %}Aucun taux dédié à ce logement{% endif %}</dd></div>
       </dl>
     {% endif %}
     <p class="text-sm text-secondary" style="margin-top: var(--stack-sm);">
-      Cette section reflète l'état réel de <code>REF_Setup.xlsm</code> immédiatement après chaque
+      Cette section reflète l'état réel du référentiel immédiatement après chaque
       action ci-dessous. La liste des logements et les blocs « Informations principales »/« Historique
       des taux » plus bas restent basés sur l'export PBI (Lot13) et peuvent être en retard tant que
       le pipeline n'a pas été relancé.
@@ -490,7 +491,7 @@
       <div><dt>Entrée en gestion</dt><dd>{{ base.date_entree_gestion if base.date_entree_gestion not in (None,'') else "Non renseigné" }}</dd></div>
       <div><dt>Sortie de gestion</dt><dd>{{ base.date_sortie_gestion if base.date_sortie_gestion not in (None,'') else "Non renseigné" }}</dd></div>
       <div><dt>Forfait logiciel / consommables</dt><dd>{{ base.forfait_logiciel_consommables_mensuel if base.forfait_logiciel_consommables_mensuel not in (None,'') else "Non renseigné" }}</dd></div>
-      <div><dt>Statut parc (référentiel)</dt><dd>{{ ref.statut_parc if (ref and ref.statut_parc not in (None,'')) else "Non renseigné" }}</dd></div>
+      <div><dt>Statut parc (référentiel)</dt><dd>{{ lib.libelle(ref.statut_parc) if (ref and ref.statut_parc not in (None,'')) else "Non renseigné" }}</dd></div>
     </dl>
   </div>
 
@@ -498,7 +499,7 @@
   <div class="card" style="margin-bottom: var(--stack-lg);">
     <div class="card-title">Historique des taux de commission</div>
     <p class="text-sm text-secondary" style="margin-bottom: var(--stack-md);">
-      Lignes brutes rattachées au propriétaire résolu (<code>{{ detail.proprietaire_id or "Non renseigné" }}</code>).
+      Lignes brutes rattachées au propriétaire résolu ({{ (detail.proprietaire_id | nom_proprietaire) if detail.proprietaire_id else "non renseigné" }}).
       Aucune sélection, aucun tri par date, aucun calcul appliqué.
     </p>
     {% if detail.commission_rows %}
@@ -528,7 +529,7 @@
   <div class="card" style="margin-bottom: var(--stack-lg);">
     <div class="card-title">Paramètres ménage (référence, brut)</div>
 
-    <div class="text-sm text-secondary" style="margin-bottom: 8px;">Coût standard par type (<code>{{ detail.type_logement_id or "—" }}</code>)</div>
+    <div class="text-sm text-secondary" style="margin-bottom: 8px;">Coût standard par type ({{ (detail.type_logement_id | nom_type_logement) if detail.type_logement_id else "—" }})</div>
     {% if detail.menage_standard %}
     <div class="table-container" style="margin-bottom: var(--stack-md);">
       <table>
@@ -550,7 +551,7 @@
     <p class="text-sm">Non renseigné.</p>
     {% endif %}
 
-    <div class="text-sm text-secondary" style="margin: var(--stack-md) 0 8px;">Coût interne rattaché au logement (<code>{{ detail.logement_id }}</code>)</div>
+    <div class="text-sm text-secondary" style="margin: var(--stack-md) 0 8px;">Coût interne rattaché à ce logement</div>
     {% if detail.menage_interne %}
     <div class="table-container">
       <table>
@@ -598,10 +599,10 @@
         <tbody>
           {% for g in histo.gestion %}
           <tr>
-            <td>{{ g.proprietaire_id }}</td>
-            <td>{{ g.date_debut }}</td>
-            <td>{{ g.date_fin or "En cours" }}</td>
-            <td>{{ g.statut_gestion }}</td>
+            <td>{{ g.proprietaire_id | nom_proprietaire }}</td>
+            <td>{{ g.date_debut|date_fr or g.date_debut }}</td>
+            <td>{{ (g.date_fin|date_fr or g.date_fin) if g.date_fin else "En cours" }}</td>
+            <td>{{ lib.libelle(g.statut_gestion) }}</td>
             <td>{{ g.source }}</td>
           </tr>
           {% endfor %}

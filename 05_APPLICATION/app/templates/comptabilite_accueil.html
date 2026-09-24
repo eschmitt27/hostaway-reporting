@@ -2,16 +2,22 @@
 {% block title %}Comptabilité{% endblock %}
 
 {% block content %}
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<div class="ecran">
 <div class="page-header">
+  <div class="page-header__titre">
   <h1 class="page-title">Comptabilité — premier socle</h1>
   <p class="page-subtitle">
     Écritures en partie double dérivées des factures et rapprochements. Ne recalcule aucun résultat
     de gestion — Lot10 reste seul maître du résultat économique.
   </p>
+  </div>
 </div>
 
 {% if etat_alimentation.etat == "NON_DISPONIBLE" %}
 <div class="alert alert-warning">
+  {# Un seul bloc dans l'alerte (elle est en flex) : texte, liste et conseil s'empilent. #}
+  <div>
   <strong>Comptabilité non encore alimentée.</strong> {{ etat_alimentation.cause }}.
   <ul class="mt-sm">
     <li>Factures propriétaires réelles : {{ etat_alimentation.nb_factures_prop }}</li>
@@ -25,26 +31,34 @@
   <p class="section-note mt-sm">Prochaine étape : émettre une facture réelle (propriétaire ou
     fournisseur) pour que le journal correspondant génère sa première écriture, et configurer les
     mappings catégorie → compte si ce n'est pas déjà fait.</p>
+  </div>
 </div>
 {% endif %}
 
-<div class="kpi-grid">
+<div class="kpi-grid kpi-grid--4">
   <div class="kpi-card"><div class="kpi-label">Écritures</div><div class="kpi-value">{{ nb_ecritures if nb_ecritures > 0 else "—" }}</div>
     {% if nb_ecritures == 0 %}<div class="kpi-sub">non alimentée, pas « zéro » comptable</div>{% endif %}</div>
   <div class="kpi-card"><div class="kpi-label">À contrôler (proposées)</div><div class="kpi-value">{{ nb_proposees if nb_ecritures > 0 else "—" }}</div></div>
 </div>
 
+{% set noms_journaux = {"ACHATS": "Achats", "VENTES": "Ventes", "BANQUE": "Banque", "CAISSE": "Caisse",
+                        "ODIVERSES": "Opérations diverses"} %}
 <div class="card mt-md">
   <div class="card-title">Journaux</div>
-  <ul>
-    {% for j in journaux %}<li><a href="/comptabilite/ecritures?journal={{ j }}">{{ j }}</a></li>{% endfor %}
-  </ul>
+  <div class="ec-liens">
+    {% for j in journaux %}<a href="/comptabilite/ecritures?journal={{ j }}" class="btn btn-secondary">{{ noms_journaux.get(j, j) }}</a>{% endfor %}
+  </div>
 </div>
 
-<div class="card mt-md">
-  <a href="/comptabilite/ecritures" class="btn btn-secondary">Toutes les écritures</a>
-  <a href="/comptabilite/a-controler" class="btn btn-secondary">À contrôler</a>
-  <a href="/comptabilite/plan-comptable" class="btn btn-secondary">Plan comptable</a>
-  <a href="/comptabilite/auxiliaires" class="btn btn-secondary">Auxiliaires</a>
+<div class="card">
+  <div class="card-title">Accès</div>
+  <div class="ec-liens">
+    <a href="/comptabilite/ecritures" class="btn btn-secondary">Toutes les écritures</a>
+    <a href="/comptabilite/a-controler" class="btn btn-secondary">À contrôler</a>
+    <a href="/comptabilite/plan-comptable" class="btn btn-secondary">Plan comptable</a>
+    <a href="/comptabilite/auxiliaires" class="btn btn-secondary">Auxiliaires</a>
+    <a href="/comptabilite/balance" class="btn btn-secondary">Balance générale</a>
+  </div>
+</div>
 </div>
 {% endblock %}
