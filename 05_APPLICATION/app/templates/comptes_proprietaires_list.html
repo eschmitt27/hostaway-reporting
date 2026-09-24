@@ -1,13 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Comptes propriétaires{% endblock %}
 {% block content %}
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<div class="ecran">
 <div class="page-header">
+  <div class="page-header__titre">
   <h1 class="page-title">Comptes propriétaires</h1>
   <p class="page-subtitle">Un compte global par propriétaire, tous logements confondus.
      Les paiements soldent les factures de la plus ancienne à la plus récente.</p>
+  </div>
 </div>
 
-<div class="card">
+<div class="card mb-md">
   <div class="card-title">Tous propriétaires</div>
   <div class="table-container">
     <table class="table">
@@ -22,7 +26,7 @@
         <tr><td>Sommes à reverser</td><td class="text-right">{{ "%.2f"|format(totaux.reversements_dus) }} €</td></tr>
         <tr><td>Compensations</td><td class="text-right">{{ "%.2f"|format(totaux.compensations) }} €</td></tr>
         <tr><td>Virement net à effectuer</td><td class="text-right">{{ "%.2f"|format(totaux.virement_net) }} €</td></tr>
-        <tr><td><strong>Position nette</strong></td>
+        <tr class="ec-total"><td><strong>Position nette</strong></td>
             <td class="text-right"><strong>{{ "%.2f"|format(totaux.position_nette) }} €</strong></td></tr>
       </tbody>
     </table>
@@ -46,7 +50,8 @@
       <tbody>
         {% for p in positions %}
         <tr onclick="window.location='/comptes-proprietaires/{{ p.proprietaire_id }}'" style="cursor:pointer">
-          <td><strong>{{ p.proprietaire_id | nom_proprietaire }}</strong>
+          {# Lien réel en plus du clic sur la ligne : la fiche s'ouvre aussi au clavier. #}
+          <td><a href="/comptes-proprietaires/{{ p.proprietaire_id }}"><strong>{{ p.proprietaire_id | nom_proprietaire }}</strong></a>
               <div class="text-sm text-secondary">{{ p.factures|length }} facture(s) émise(s)</div></td>
           <td class="text-right">{{ "%.2f"|format(p.factures_a_recevoir) }} €</td>
           <td class="text-right">{{ "%.2f"|format(p.creance_restante) }} €</td>
@@ -63,5 +68,6 @@
   {% else %}
   <p class="text-secondary">Aucun propriétaire ne porte de facture émise ni de mouvement validé.</p>
   {% endif %}
+</div>
 </div>
 {% endblock %}

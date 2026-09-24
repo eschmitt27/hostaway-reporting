@@ -23,6 +23,9 @@
 .ecran .page-header { margin-bottom: var(--stack-md); }
 .ecran .page-subtitle { max-width: 90ch; }
 
+/* Cartes empilées : jamais collées l'une à l'autre. */
+.ecran .card + .card { margin-top: var(--stack-md); }
+
 /* ── Sous-navigation entre écrans d'un même module (onglets-liens) ───────────────────────── */
 .ecran .ec-onglets {
   display: flex;
@@ -233,6 +236,26 @@
 .ecran .ec-kpi-detail summary::before { content: "\25B8\00a0"; }
 .ecran .ec-kpi-detail[open] summary::before { content: "\25BE\00a0"; }
 .ecran .ec-kpi-detail p { margin: 4px 0 0; overflow-wrap: anywhere; line-height: 1.5; }
+
+/* ── Liens d'accès vers des sous-écrans (grille régulière) et exports ───────────────────── */
+.ecran .ec-liens {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--stack-sm);
+}
+.ecran .ec-liens .btn { justify-content: center; padding: 8px 12px; }
+.ecran .ec-exports {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  margin-top: var(--stack-md);
+  padding-top: var(--stack-md);
+  border-top: 1px solid var(--color-surface-container);
+  font-size: 14px;
+  color: var(--color-secondary);
+}
+.ecran .ec-exports a { font-weight: 600; color: var(--color-primary); text-decoration: underline; text-underline-offset: 2px; }
 
 /* ── Écrans étroits ──────────────────────────────────────────────────────────────────────── */
 @media (max-width: 720px) {

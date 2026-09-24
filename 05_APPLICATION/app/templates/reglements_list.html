@@ -7,6 +7,7 @@
 {% set o = data.options %}
 
 {% block content %}
+{% import "_libelles.html" as lib %}
 <link rel="stylesheet" href="/static/css/ecrans.css">
 <div class="ecran">
 
@@ -130,7 +131,7 @@
           <td><span class="status-badge status-{{ 'a-controler' if m.nb_bloquants or m.nb_a_controler or (m.reste and m.reste > 0.005) else 'valide' }}">{{ m.reglement_statut }}</span></td>
           <td class="ec-nowrap">
             {% if sf %}
-              <span class="status-badge status-{{ 'valide' if sf.statut_facturation == 'FACTURE' else 'info' }}">{{ sf.statut_facturation | libelle_statut }}</span>
+              <span class="status-badge status-{{ 'valide' if sf.statut_facturation == 'FACTURE' else 'info' }}">{{ lib.libelle(sf.statut_facturation) }}</span>
             {% else %}<span class="text-xs text-secondary">Non démarré</span>{% endif %}
           </td>
           <td><span class="ec-actions-ligne">
