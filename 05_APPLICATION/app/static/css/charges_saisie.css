@@ -1,0 +1,551 @@
+/* ══ NOUVELLE SAISIE CHARGE ══════════════════════════════════════════════════════════════════
+   Styles propres à l'écran `/fournisseurs/nouvelle`. Tout est rangé sous `.cs-saisie` : rien ici
+   ne peut repeindre un autre écran, et le CSS global (`app.css`) n'est pas touché. On ne réutilise
+   que ses jetons (couleurs, espacements, rayons) pour rester de la même famille visuelle.
+
+   Présentation uniquement : aucun champ, nom ou valeur envoyé au serveur ne dépend de ce fichier. */
+
+.cs-saisie {
+  --cs-control-h: 40px;
+  --cs-border: var(--color-outline-variant);
+  --cs-focus-ring: 0 0 0 3px rgba(0, 52, 65, 0.16);
+  --cs-radius: var(--radius-md);
+  --cs-gap: 20px;
+  max-width: 1320px;
+}
+
+/* Un élément masqué l'est vraiment, même si une règle lui donne `display: grid` ou `flex`. */
+.cs-saisie [hidden] { display: none !important; }
+
+/* ── En-tête ────────────────────────────────────────────────────────────────────────────── */
+.cs-saisie .cs-header { margin-bottom: var(--stack-md); }
+.cs-saisie .page-subtitle { max-width: 90ch; }
+
+.cs-saisie .cs-erreurs { margin-bottom: var(--stack-md); }
+.cs-saisie .cs-erreurs ul { margin: 6px 0 0 18px; }
+.cs-saisie .cs-erreurs li { margin: 2px 0; }
+
+/* ── Mise en page : formulaire + récapitulatif ────────────────────────────────────────────── */
+.cs-saisie .cs-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--stack-md);
+  align-items: start;
+}
+.cs-saisie .cs-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack-md);
+  min-width: 0;
+  container-type: inline-size;
+}
+@media (min-width: 1280px) {
+  .cs-saisie .cs-layout { grid-template-columns: minmax(0, 1fr) 320px; gap: var(--gutter); }
+  .cs-saisie .cs-aside {
+    position: sticky;
+    top: calc(var(--header-height) + var(--stack-md));
+  }
+}
+
+/* ── Sections ───────────────────────────────────────────────────────────────────────────── */
+.cs-saisie .cs-section {
+  min-width: 0;
+  margin: 0;
+  padding: 20px 24px 24px;
+  border: 1px solid var(--cs-border);
+  border-radius: var(--radius-lg);
+  background: #ffffff;
+  box-shadow: var(--shadow-card);
+}
+/* Le `legend` natif se place mal dans une bordure arrondie : on le remet dans le flux. */
+.cs-saisie .cs-section__title {
+  float: left;
+  width: 100%;
+  padding: 0;
+  /* La marge du flottant est la seule qui tienne : celle de l'élément suivant, qui le « clear »,
+     serait absorbée par le dégagement. */
+  margin: 0 0 16px;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--color-on-surface);
+}
+.cs-saisie .cs-section__title:has(+ .cs-section__desc) { margin-bottom: 2px; }
+.cs-saisie .cs-section__title + * { clear: both; }
+.cs-saisie .cs-section__desc {
+  margin: 0 0 var(--stack-md);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-secondary);
+  max-width: 80ch;
+}
+/* Séparation douce entre deux blocs d'une même section (Affectation → Refacturation). */
+.cs-saisie .cs-divider {
+  margin: 20px 0;
+  border: none;
+  border-top: 1px solid var(--color-surface-container);
+}
+
+/* Grille des champs : une colonne par défaut, deux dès que la section a la place. */
+.cs-saisie .cs-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px var(--cs-gap);
+}
+@container (min-width: 600px) {
+  .cs-saisie .cs-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.cs-saisie .cs-field--full { grid-column: 1 / -1; }
+/* Aide posée à côté d'un champ court (sous lui, sur une colonne). */
+.cs-saisie .cs-grid__aside { align-self: end; padding-bottom: 2px; }
+@container (max-width: 599px) {
+  .cs-saisie .cs-grid__aside { margin-top: -12px; }
+}
+.cs-saisie .cs-stack { display: flex; flex-direction: column; gap: 18px; }
+
+/* ── Champ ──────────────────────────────────────────────────────────────────────────────── */
+.cs-saisie .cs-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.cs-saisie .cs-field > label,
+.cs-saisie .cs-label-row > label,
+.cs-saisie .cs-label {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--color-on-surface-variant);
+}
+.cs-saisie .cs-label--sub { margin-top: 10px; font-weight: 500; }
+.cs-saisie .cs-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--stack-sm);
+}
+.cs-saisie .required { color: var(--color-error); font-weight: 700; }
+
+.cs-saisie .cs-help {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-secondary);
+}
+.cs-saisie .cs-note {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--cs-radius);
+  background: var(--color-info-bg);
+  color: var(--color-info);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.cs-saisie .cs-vide {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px dashed var(--cs-border);
+  border-radius: var(--cs-radius);
+  font-size: 13px;
+  color: var(--color-secondary);
+}
+.cs-saisie .cs-tag {
+  display: inline-block;
+  margin: 2px 4px 0 0;
+  padding: 0 8px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-container);
+  color: var(--color-on-surface-variant);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Bouton discret à côté d'un libellé (« Aujourd'hui »). */
+.cs-saisie .cs-link-btn {
+  padding: 0 2px;
+  border: none;
+  background: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+.cs-saisie .cs-link-btn:hover { color: var(--color-primary-container); }
+.cs-saisie .cs-link-btn:focus-visible { outline: none; box-shadow: var(--cs-focus-ring); }
+
+/* ── Contrôles natifs : même hauteur, même bordure, même focus ─────────────────────────── */
+.cs-saisie input[type="text"],
+.cs-saisie input[type="date"],
+.cs-saisie input[type="month"],
+.cs-saisie select {
+  width: 100%;
+  min-width: 0;
+  height: var(--cs-control-h);
+  padding: 0 12px;
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius);
+  background-color: #ffffff;
+  color: var(--color-on-surface);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.2;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.cs-saisie input::placeholder { color: var(--color-outline); }
+.cs-saisie input:hover,
+.cs-saisie select:hover { border-color: var(--color-outline); }
+.cs-saisie input:focus,
+.cs-saisie select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: var(--cs-focus-ring);
+}
+
+/* Liste déroulante : flèche dessinée, identique sur tous les navigateurs. */
+.cs-saisie select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 36px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2340484b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+/* Calendrier : l'icône du sélecteur de date s'aligne sur la flèche des listes. */
+.cs-saisie input[type="date"],
+.cs-saisie input[type="month"] { padding-right: 8px; font-variant-numeric: tabular-nums; }
+.cs-saisie input[type="date"]::-webkit-calendar-picker-indicator,
+.cs-saisie input[type="month"]::-webkit-calendar-picker-indicator {
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  opacity: 0.65;
+  cursor: pointer;
+}
+.cs-saisie input[type="date"]::-webkit-calendar-picker-indicator:hover,
+.cs-saisie input[type="month"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+  background-color: var(--color-surface-container-low);
+}
+
+/* Montant : suffixe € dans le champ, chiffres alignés. */
+.cs-saisie .cs-affix { position: relative; }
+.cs-saisie .cs-affix input {
+  padding-right: 34px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.cs-saisie .cs-affix__suffix {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-secondary);
+  pointer-events: none;
+}
+
+/* ── Multi-sélection (propriétaires, logements, intervenants) ───────────────────────────
+   Sans JavaScript, les cases à cocher natives s'affichent en grille. Avec, elles restent dans le
+   formulaire (ce sont elles qui partent au serveur) mais cèdent la place au champ de recherche. */
+.cs-saisie .cs-ms { position: relative; min-width: 0; }
+
+.cs-saisie .cs-ms__natif {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 6px 12px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 8px 12px;
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius);
+}
+.cs-saisie .cs-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 14px;
+  cursor: pointer;
+}
+.cs-saisie .cs-check span { overflow-wrap: anywhere; }
+.cs-saisie .cs-ms.is-enhanced .cs-ms__natif { display: none; }
+
+.cs-saisie .cs-ms__control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--cs-control-h);
+  padding: 4px 6px 4px 8px;
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius);
+  background: #ffffff;
+  cursor: text;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.cs-saisie .cs-ms__control:hover { border-color: var(--color-outline); }
+.cs-saisie .cs-ms.is-open .cs-ms__control,
+.cs-saisie .cs-ms__control:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: var(--cs-focus-ring);
+}
+.cs-saisie .cs-ms__values {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.cs-saisie .cs-ms__chips {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cs-saisie .cs-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 0 2px 0 10px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-container);
+  color: var(--color-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+.cs-saisie .cs-chip__texte {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cs-saisie .cs-chip__retirer {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--color-on-surface-variant);
+}
+.cs-saisie .cs-chip__retirer:hover { background: var(--color-surface-container-high); color: var(--color-error); }
+.cs-saisie .cs-chip__retirer:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 0; }
+
+.cs-saisie .cs-ms .cs-ms__search {
+  flex: 1 1 120px;
+  width: auto;
+  min-width: 120px;
+  height: 30px;
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+.cs-saisie .cs-ms .cs-ms__search:focus { box-shadow: none; }
+
+.cs-saisie .cs-ms__icon-btn {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-secondary);
+}
+.cs-saisie .cs-ms__icon-btn:hover { background: var(--color-surface-container-low); color: var(--color-on-surface); }
+.cs-saisie .cs-ms__icon-btn:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 0; }
+.cs-saisie .cs-ms__chevron svg { transition: transform 0.15s; }
+.cs-saisie .cs-ms.is-open .cs-ms__chevron svg { transform: rotate(180deg); }
+.cs-saisie .cs-ms__sep {
+  flex-shrink: 0;
+  width: 1px;
+  height: 20px;
+  background: var(--cs-border);
+}
+
+.cs-saisie .cs-ms__panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  overflow: hidden;
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius);
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(16, 27, 48, 0.14), 0 2px 6px rgba(16, 27, 48, 0.08);
+}
+.cs-saisie .cs-ms__listbox {
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 4px;
+  list-style: none;
+  overscroll-behavior: contain;
+}
+.cs-saisie .cs-ms__option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  line-height: 1.35;
+  cursor: pointer;
+  user-select: none;
+}
+.cs-saisie .cs-ms__option:hover { background: var(--color-surface-container-low); }
+.cs-saisie .cs-ms__option.is-active {
+  background: var(--color-surface-container);
+  box-shadow: inset 0 0 0 1px var(--color-primary);
+}
+.cs-saisie .cs-ms__option[aria-selected="true"] { font-weight: 600; color: var(--color-primary); }
+.cs-saisie .cs-ms__option-texte { min-width: 0; overflow-wrap: anywhere; }
+.cs-saisie .cs-ms__coche {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--color-outline);
+  border-radius: var(--radius-sm);
+  background: #ffffff;
+  color: transparent;
+}
+.cs-saisie .cs-ms__option[aria-selected="true"] .cs-ms__coche {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+.cs-saisie .cs-ms__empty {
+  margin: 0;
+  padding: 12px 14px;
+  font-size: 13px;
+  color: var(--color-secondary);
+}
+.cs-saisie .cs-ms__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--stack-sm);
+  padding: 6px 8px 6px 14px;
+  border-top: 1px solid var(--color-surface-container);
+  background: var(--color-surface-container-low);
+  font-size: 12px;
+  color: var(--color-secondary);
+}
+.cs-saisie .cs-ms__footer .cs-link-btn { padding: 4px 6px; }
+
+.cs-saisie .cs-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── Récapitulatif et actions ───────────────────────────────────────────────────────────── */
+.cs-saisie .cs-aside {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack-md);
+  min-width: 0;
+}
+.cs-saisie .cs-recap {
+  padding: 20px 20px 12px;
+  border: 1px solid var(--cs-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-container-low);
+}
+.cs-saisie .cs-recap__title {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--color-on-surface);
+}
+.cs-saisie .cs-recap__liste { margin: 0; }
+.cs-saisie .cs-recap__ligne {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-outline-variant);
+  font-size: 13px;
+}
+.cs-saisie .cs-recap__ligne:last-child { border-bottom: none; }
+.cs-saisie .cs-recap__ligne dt { color: var(--color-on-surface-variant); }
+.cs-saisie .cs-recap__ligne dd {
+  margin: 0;
+  font-weight: 600;
+  text-align: right;
+  color: var(--color-on-surface);
+  overflow-wrap: anywhere;
+}
+
+.cs-saisie .cs-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--stack-sm);
+}
+.cs-saisie .cs-actions .btn {
+  flex: 1 1 auto;
+  justify-content: center;
+  height: 42px;
+}
+.cs-saisie .cs-actions .btn-primary { flex-grow: 2; }
+.cs-saisie .cs-actions .btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(0, 52, 65, 0.3); }
+.cs-saisie .cs-actions__note { margin-top: calc(-1 * var(--stack-sm)); }
+
+/* ── Écrans étroits ─────────────────────────────────────────────────────────────────────── */
+@media (max-width: 1279px) {
+  /* Récapitulatif sous le formulaire, sur deux colonnes quand la largeur le permet. */
+  .cs-saisie .cs-recap__liste {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    column-gap: var(--cs-gap);
+  }
+  .cs-saisie .cs-recap__ligne:last-child { border-bottom: 1px solid var(--color-outline-variant); }
+  .cs-saisie .cs-actions .btn { flex: 0 1 auto; min-width: 160px; }
+}
+@media (max-width: 720px) {
+  .cs-saisie .cs-section { padding: 16px; }
+  .cs-saisie .cs-recap { padding: 16px 16px 8px; }
+  .cs-saisie .cs-actions .btn { flex: 1 1 100%; }
+  /* 16 px : en dessous, les navigateurs mobiles zooment sur le champ à la saisie. */
+  .cs-saisie input[type="text"],
+  .cs-saisie input[type="date"],
+  .cs-saisie input[type="month"],
+  .cs-saisie select { font-size: 16px; }
+  .cs-saisie .cs-ms__option { min-height: 44px; }
+}
