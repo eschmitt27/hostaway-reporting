@@ -8,21 +8,31 @@
     <p class="page-subtitle">Dette et pièce fournisseur — distincte de la charge économique.</p>
   </div>
   <div class="flex gap-sm items-center">
-    <a href="/factures/a-payer" class="btn btn-secondary">À payer</a>
     <a href="/reglements" class="btn btn-secondary">Règlements</a>
     <a href="/factures/controles" class="btn btn-secondary">Contrôles</a>
-    <a href="/factures/importer" class="btn btn-secondary">Importer un PDF</a>
-    {# Contexte à fournir à l'outil qui rédige les MD structurés, hors application. #}
-    <a href="/factures/referentiel-logements.json" class="btn btn-secondary"
-       data-testid="export-referentiel-logements">Exporter le référentiel logements</a>
-    {# Le DOSSIER de dépôt fait foi pour tout ce qui n'est pas validé : ce bouton le relit. #}
-    <form method="post" action="/factures/recharger" style="display:inline">
-      <button type="submit" class="btn btn-secondary" data-testid="recharger-factures">
-        Recharger les factures
-      </button>
-    </form>
-    <a href="/factures/nouvelle" class="btn btn-primary">+ Nouvelle facture</a>
   </div>
+</div>
+
+{# UN bouton principal : le dossier de dépôt fait foi. Il relit le dossier (PDF, MD, versions,
+   interprétation, lignes) ; les pièces jointes au formulaire y sont d'abord posées, puis suivent
+   exactement le même chemin. Une facture fournisseur provient toujours d'une pièce importée. #}
+<div class="card mb-md">
+  <form method="post" action="/factures/recharger" enctype="multipart/form-data"
+        class="flex gap-md items-center" style="flex-wrap:wrap"
+        onsubmit="const b=this.querySelector('button'); b.disabled=true;
+                  b.textContent='Actualisation en cours…';">
+    <button type="submit" class="btn btn-primary" data-testid="actualiser-factures">
+      Actualiser les factures
+    </button>
+    <label class="text-xs text-secondary">
+      Ajouter des pièces (facultatif, PDF et MD) :
+      <input type="file" name="pieces" accept=".pdf,.md,application/pdf,text/markdown" multiple>
+    </label>
+  </form>
+  <p class="text-xs text-secondary mt-sm">
+    Relit le dossier de dépôt : nouvelles pièces importées, MD structurés pris en compte, factures
+    à contrôler dont le PDF a été retiré supprimées ; les factures validées ne bougent jamais.
+  </p>
 </div>
 
 {% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
@@ -38,7 +48,7 @@
   </ul>
   <p class="section-note">
     Aucun n'est supprimé automatiquement : choisissez celui à retirer du dossier de dépôt, puis
-    cliquez « Recharger les factures ».
+    cliquez « Actualiser les factures ».
   </p>
 </div>
 {% endif %}

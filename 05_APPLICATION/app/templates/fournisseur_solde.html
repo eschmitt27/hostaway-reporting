@@ -20,9 +20,6 @@
   </div>
   <div class="flex gap-sm items-center">
     <span class="status-badge status-{{ 'valide' if fournisseur.statut == 'ACTIF' else 'bloquant' }}">{{ fournisseur.statut }}</span>
-    {% if fournisseur.statut == 'ACTIF' %}
-    <a href="/factures/nouvelle" class="btn btn-primary">+ Nouvelle facture</a>
-    {% endif %}
     <a href="/factures?fournisseur={{ fournisseur.fournisseur_id_opaque }}" class="btn btn-secondary">Ses factures</a>
   </div>
 </div>

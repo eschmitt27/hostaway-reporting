@@ -33,6 +33,17 @@
   </div>
 </div>
 
+<div class="card" style="margin-bottom: var(--stack-lg);">
+  <h2 class="card-title">Référentiel des logements</h2>
+  <p class="text-xs text-secondary">
+    Liste des logements au format JSON (contrat <code>REFERENTIEL_LOGEMENTS_V1</code>), à fournir à
+    l'outil qui rédige les MD structurés des factures fournisseurs. Sa version est l'empreinte de
+    son contenu : un MD rédigé avec une version antérieure se signale de lui-même.
+  </p>
+  <a href="/exports/referentiel-logements.json" class="btn btn-secondary"
+     data-testid="export-referentiel-logements">Exporter le référentiel logements</a>
+</div>
+
 {% if not fichiers %}
 <div class="card">
   <p class="text-secondary">

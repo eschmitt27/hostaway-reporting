@@ -248,6 +248,41 @@ def importer_nouveaux(*, acteur: str = "", dossier: Path | None = None,
     }
 
 
+# ── Dépôt d'une pièce depuis le navigateur ──────────────────────────────────────────────────────
+# Il n'existe qu'UN importeur : le rechargement du dossier. Déposer une pièce depuis le navigateur
+# revient à la poser dans le dossier surveillé — rien de plus — puis à le recharger. Le fichier suit
+# alors exactement le chemin de ceux déposés à la main (hash, version, MD, interprétation, lignes).
+
+EXTENSIONS_DEPOT = (".pdf", ".md")
+TAILLE_MAX_DEPOT = 20 * 1024 * 1024
+
+
+def deposer(nom_fichier: str, contenu: bytes, *, dossier: Path | None = None) -> dict[str, Any]:
+    """Pose une pièce dans le dossier de dépôt. N'écrase JAMAIS un fichier existant : une pièce
+    source ne se modifie pas. Même nom et même contenu : rien à faire. Même nom, autre contenu :
+    refus explicite — renommer le fichier est une décision de l'utilisateur, pas de l'application."""
+    d = Path(dossier) if dossier else cfg.MENAGES_PDF_DIR
+    nom = Path(str(nom_fichier or "").replace("\\", "/")).name.strip()
+    if not nom or nom.startswith(".") or Path(nom).suffix.lower() not in EXTENSIONS_DEPOT:
+        return {"ok": False, "nom": nom or "?", "message": "seuls les fichiers PDF et MD sont acceptés"}
+    if not contenu:
+        return {"ok": False, "nom": nom, "message": "fichier vide"}
+    if len(contenu) > TAILLE_MAX_DEPOT:
+        return {"ok": False, "nom": nom, "message": "fichier trop volumineux"}
+    if Path(nom).suffix.lower() == ".pdf" and not contenu.startswith(b"%PDF"):
+        return {"ok": False, "nom": nom, "message": "ce fichier n'est pas un PDF"}
+    cible = d / nom
+    if cible.exists():
+        if hashlib.sha256(cible.read_bytes()).hexdigest() == hashlib.sha256(contenu).hexdigest():
+            return {"ok": True, "nom": nom, "depose": False, "message": "déjà présent"}
+        return {"ok": False, "nom": nom,
+                "message": "un autre fichier porte déjà ce nom : renommez la pièce avant de la déposer"}
+    d.mkdir(parents=True, exist_ok=True)
+    with open(cible, "xb") as f:          # « x » : jamais d'écrasement, même en cas de course
+        f.write(contenu)
+    return {"ok": True, "nom": nom, "depose": True, "message": "déposé"}
+
+
 # ── Le DOSSIER fait foi pour ce qui n'est pas encore validé (recette 4, lot 2 §10-§15) ──────────
 
 STATUT_SUPPRIMEE = "SUPPRIMEE_PDF_ABSENT"

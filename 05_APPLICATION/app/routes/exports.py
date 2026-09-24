@@ -76,6 +76,17 @@ def exports(request: Request, message: str = "", erreur: str = ""):
     })
 
 
+@router.get("/exports/referentiel-logements.json")
+def referentiel_logements():
+    """Le référentiel des logements (`REFERENTIEL_LOGEMENTS_V1`), à donner à l'outil qui rédige les
+    MD structurés des factures. Déplacé depuis l'écran Factures : c'est un export de données. Même
+    générateur, inchangé — `referentiel_version` est l'empreinte du contenu."""
+    from app.services import referentiel_logements_export_service as ref_export
+
+    return Response(ref_export.exporter_json(), media_type="application/json", headers={
+        "Content-Disposition": f'attachment; filename="{ref_export.NOM_FICHIER}"'})
+
+
 @router.post("/exports/generer")
 def generer():
     """Produit les exports. Le moteur ABANDONNE sans rien écrire s'il détecte une colonne

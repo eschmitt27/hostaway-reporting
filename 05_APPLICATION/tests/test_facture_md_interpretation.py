@@ -374,9 +374,11 @@ def test_K_export_referentiel_stable_et_versionne(base):
 
 
 def test_K_bis_l_export_se_telecharge_depuis_l_ecran(client, tmp_db):
-    page = client.get("/factures").text
+    # Mission 3 (3D) : l'export a quitté l'écran Factures pour « Exporter les données ».
+    assert 'data-testid="export-referentiel-logements"' not in client.get("/factures").text
+    page = client.get("/exports").text
     assert 'data-testid="export-referentiel-logements"' in page
-    reponse = client.get("/factures/referentiel-logements.json")
+    reponse = client.get("/exports/referentiel-logements.json")
     assert reponse.status_code == 200
     assert "referentiel_logements.json" in reponse.headers["content-disposition"]
     charge = json.loads(reponse.text)

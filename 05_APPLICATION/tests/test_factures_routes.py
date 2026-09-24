@@ -54,38 +54,37 @@ def test_page_reglements(client, env):
 
 # ── Création ──────────────────────────────────────────────────────────────────
 
-def test_page_nouvelle_facture(client, env):
-    html = client.get("/factures/nouvelle").text
-    assert 'action="/factures"' in html
-    assert "Fournisseur Ménage Test" in html
+def test_saisie_manuelle_retiree_message_humain(client, env):
+    """Mission 3 (3C) : une facture fournisseur provient toujours d'une pièce importée."""
+    assert "+ Nouvelle facture" not in client.get("/factures").text
+    r = client.get("/factures/nouvelle", follow_redirects=False)
+    assert r.status_code == 303
+    assert "pi%C3%A8ce%20import%C3%A9e" in r.headers["location"] or "pièce" in r.headers["location"]
+    assert "pièce importée" in client.get(r.headers["location"]).text
 
 
-def test_creer_facture_via_http(client, env):
+def test_creation_manuelle_bloquee_par_la_route_publique(client, env):
+    avant = len(svc.lister(db_path=env["db"]))
     r = client.post("/factures", data={
         "fournisseur_id_opaque": env["fournisseur"], "facture_ref": "FA-WEB-1",
         "date_facture": "2026-06-01", "date_echeance": "2026-07-01", "montant_ttc": "250.00",
     }, follow_redirects=False)
     assert r.status_code == 303
-    html = client.get(r.headers["location"]).text
-    assert "Facture enregistrée" in html
-    assert "FA-WEB-1" in html
+    assert len(svc.lister(db_path=env["db"])) == avant, "aucune facture créée"
 
 
-def test_creer_facture_invalide_renvoie_erreur(client, env):
-    r = client.post("/factures", data={
-        "fournisseur_id_opaque": env["fournisseur"], "facture_ref": "", "montant_ttc": "0",
-    }, follow_redirects=False)
-    assert r.status_code == 303
-    assert r.headers["location"].startswith("/factures/nouvelle?erreur=")
+def test_historique_facture_existante_reste_lisible(client, env):
+    fid = _creer_facture(env)     # créée par le service, comme l'historique déjà en base
+    assert "FA-HTTP-001" in client.get("/factures").text
+    assert client.get(f"/factures/{fid}").status_code == 200
 
 
-def test_creer_refuse_si_flags_off(client, env, monkeypatch):
-    monkeypatch.setattr(cfg, "FACTURES_REAL_WRITE_ENABLED", False)
-    r = client.post("/factures", data={
-        "fournisseur_id_opaque": env["fournisseur"], "facture_ref": "FA-OFF", "montant_ttc": "10",
-    }, follow_redirects=False)
-    html = client.get(r.headers["location"]).text
-    assert "Écriture désactivée" in html
+def test_bouton_a_payer_retire_de_la_liste(client, env):
+    page = client.get("/factures").text
+    assert 'href="/factures/a-payer"' not in page
+    assert 'href="/reglements"' in page and 'href="/factures/controles"' in page
+    assert "Actualiser les factures" in page and "Recharger les factures" not in page
+    assert "Importer un PDF" not in page
 
 
 # ── Fiche ─────────────────────────────────────────────────────────────────────
