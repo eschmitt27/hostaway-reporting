@@ -7,6 +7,8 @@
 {% set o = data.options %}
 
 {% block content %}
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<div class="ecran">
 
 <div class="page-header flex justify-between items-center">
   <div>
@@ -46,17 +48,22 @@
   {% set kpi = s.formules_kpi.get(cle, {}) %}
   <div class="kpi-card" title="{{ kpi.formule }}">
     <div class="kpi-label">{{ kpi.libelle or cle }}</div>
-    <div class="kpi-value" style="font-size:18px">{{ "%.2f"|format(s[cle]) if s[cle] is not none else "—" }} €</div>
-    <div class="kpi-sub">{{ kpi.formule }}</div>
-    <div class="kpi-sub text-xs text-secondary">{{ kpi.source }}</div>
+    <div class="kpi-value" style="font-size:22px">{{ "%.2f"|format(s[cle]) if s[cle] is not none else "—" }} €</div>
+    {# Formule et source restent consultables (vérifiabilité), repliées pour ne pas noyer le chiffre. #}
+    {% if kpi.formule or kpi.source %}
+    <details class="ec-kpi-detail"><summary>Comment ce chiffre est obtenu</summary>
+      {% if kpi.formule %}<p>{{ kpi.formule }}</p>{% endif %}
+      {% if kpi.source %}<p>{{ kpi.source }}</p>{% endif %}
+    </details>
+    {% endif %}
   </div>
   {% endfor %}
   <div class="kpi-card"><div class="kpi-label">Factures / à contrôler</div>
     <div class="kpi-value">{{ s.nb_factures }} / {{ s.nb_a_controler }}</div></div>
 </div>
 
-<form method="get" action="/proprietaires-reglements" class="filter-bar mt-md">
-  <label>Période
+<form method="get" action="/proprietaires-reglements" class="ec-filtres mt-md">
+  <label class="ec-champ"><span>Période</span>
     <select name="mois"><option value="">—</option>
       {% for p in o.periodes %}<option value="{{ p.id }}" {{ 'selected' if p.id == data.mois }}>{{ p.libelle }}</option>{% endfor %}
       {% if o.periodes_futures %}
@@ -65,27 +72,32 @@
       </optgroup>
       {% endif %}
     </select></label>
-  <label>Propriétaire
+  <label class="ec-champ"><span>Propriétaire</span>
     <select name="proprietaire_id"><option value="">Tous</option>
       {% for c in o.proprietaires %}<option value="{{ c.id }}" {{ 'selected' if c.id == a.proprietaire_id }}>{{ c.libelle }}</option>{% endfor %}
     </select></label>
-  <label>Logement
+  <label class="ec-champ"><span>Logement</span>
     <select name="logement_id"><option value="">Tous</option>
       {% for c in o.logements %}<option value="{{ c.id }}" {{ 'selected' if c.id == a.logement_id }}>{{ c.libelle }}</option>{% endfor %}
     </select></label>
-  <label>Facture
+  <label class="ec-champ"><span>Facture</span>
     <select name="facture"><option value="">—</option>
       <option value="oui" {{ 'selected' if a.facture == 'oui' }}>Facturé</option>
       <option value="non" {{ 'selected' if a.facture == 'non' }}>Non facturé</option></select></label>
-  <label>Règlement
+  <label class="ec-champ"><span>Règlement</span>
     <select name="regle"><option value="">—</option>
       <option value="oui" {{ 'selected' if a.regle == 'oui' }}>Réglé</option>
       <option value="non" {{ 'selected' if a.regle == 'non' }}>Non réglé</option></select></label>
-  <label>Tri
+  <label class="ec-champ"><span>Tri</span>
     <select name="tri">{% for k, v in data.tris.items() %}<option value="{{ k }}" {{ 'selected' if k == a.tri }}>{{ v }}</option>{% endfor %}</select></label>
-  <label>&nbsp;<label><input type="checkbox" name="avec_anomalie" value="true" {{ 'checked' if a.avec_anomalie }}> Avec anomalie</label></label>
-  <label>&nbsp;<label><input type="checkbox" name="avec_reste" value="true" {{ 'checked' if a.avec_reste }}> Avec reste à régler</label></label>
-  <button type="submit" class="btn btn-primary">Filtrer</button>
+  <div class="ec-cases">
+    <label class="ec-case"><input type="checkbox" name="avec_anomalie" value="true" {{ 'checked' if a.avec_anomalie }}> Avec anomalie</label>
+    <label class="ec-case"><input type="checkbox" name="avec_reste" value="true" {{ 'checked' if a.avec_reste }}> Avec reste à régler</label>
+  </div>
+  <div class="ec-filtres__actions">
+    <a href="/proprietaires-reglements" class="btn btn-ghost">Réinitialiser</a>
+    <button type="submit" class="btn btn-primary">Filtrer</button>
+  </div>
 </form>
 
 <div class="card">
@@ -102,7 +114,9 @@
         {% for m in liste.rows %}
         {% set sf = suivis_facturation.get(m.proprietaire_id) if suivis_facturation else None %}
         <tr>
-          <td>{{ m.nom or m.proprietaire_id }}</td>
+          {# Le service renvoie l'identifiant en guise de nom quand il ne le résout pas : on affiche
+             alors le nom du référentiel, jamais le code. #}
+          <td>{{ m.nom if (m.nom and m.nom != m.proprietaire_id) else (m.proprietaire_id | nom_proprietaire) }}</td>
           <td class="num">{{ m.nb_logements }}</td>
           <td class="num">{{ "%.2f"|format(m.ca_retenu) if m.ca_retenu is not none else "—" }}</td>
           <td class="num">{{ "%.2f"|format(m.menage) if m.menage is not none else "—" }}</td>
@@ -114,23 +128,23 @@
           <td class="num">{{ "%.2f"|format(m.reglement_paiement) }}</td>
           <td class="num">{{ "%.2f"|format(m.reste) if m.reste is not none else "—" }}</td>
           <td><span class="status-badge status-{{ 'a-controler' if m.nb_bloquants or m.nb_a_controler or (m.reste and m.reste > 0.005) else 'valide' }}">{{ m.reglement_statut }}</span></td>
-          <td>
+          <td class="ec-nowrap">
             {% if sf %}
-              <span class="status-badge status-{{ 'valide' if sf.statut_facturation == 'FACTURE' else 'info' }}">{{ sf.statut_facturation }}</span>
+              <span class="status-badge status-{{ 'valide' if sf.statut_facturation == 'FACTURE' else 'info' }}">{{ sf.statut_facturation | libelle_statut }}</span>
             {% else %}<span class="text-xs text-secondary">Non démarré</span>{% endif %}
           </td>
-          <td>
+          <td><span class="ec-actions-ligne">
             {{ '' }}<a href="/proprietaires-reglements/{{ m.proprietaire_id }}?mois={{ m.mois }}">Voir</a>
             {% if sf %}
-              · <a href="/proprietaires-reglements/{{ sf.releve_id_opaque }}">Suivi</a>
+              <a href="/proprietaires-reglements/{{ sf.releve_id_opaque }}">Suivi</a>
             {% elif data.mois %}
-              · <form method="post" action="/proprietaires-reglements/demarrer" style="display:inline">
+              <form method="post" action="/proprietaires-reglements/demarrer" style="display:inline">
                   <input type="hidden" name="proprietaire_id" value="{{ m.proprietaire_id }}">
                   <input type="hidden" name="mois" value="{{ data.mois }}">
                   <button type="submit" class="btn btn-ghost btn-sm">Démarrer suivi</button>
                 </form>
             {% endif %}
-          </td>
+          </span></td>
         </tr>
         {% else %}
         <tr><td colspan="15" class="section-note">Aucun propriétaire pour ces filtres.</td></tr>
@@ -156,4 +170,5 @@
 </div>
 {% endif %}
 
+</div>
 {% endblock %}

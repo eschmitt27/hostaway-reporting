@@ -1,0 +1,251 @@
+/* ══ ÉCRANS HARMONISÉS ═══════════════════════════════════════════════════════════════════════
+   Petite couche de présentation commune aux écrans métier remis à niveau (Créances & dettes,
+   Règlements, Relevé, Comptes propriétaires, Résultats, Comptabilité, Logements).
+
+   Règles de confinement :
+   · tout sélecteur commence par `.ecran` — la classe posée sur le conteneur de l'écran. Un écran
+     qui ne la porte pas n'est pas concerné : rien ici ne peut repeindre le reste de l'application ;
+   · on ne réutilise que les jetons d'`app.css` (couleurs, espacements, rayons) ;
+   · présentation uniquement : aucun nom de champ, aucun paramètre, aucune donnée n'en dépend.
+
+   Même vocabulaire visuel que la saisie de charge : champs de 38-40 px, mêmes bordures, même focus,
+   montants alignés à droite en chiffres tabulaires, tableaux qui défilent dans leur cadre au lieu
+   de faire défiler la page. */
+
+.ecran {
+  --ec-border: var(--color-outline-variant);
+  --ec-control-h: 38px;
+  --ec-focus-ring: 0 0 0 3px rgba(0, 52, 65, 0.16);
+}
+.ecran [hidden] { display: none !important; }
+
+/* ── En-tête ─────────────────────────────────────────────────────────────────────────────── */
+.ecran .page-header { margin-bottom: var(--stack-md); }
+.ecran .page-subtitle { max-width: 90ch; }
+
+/* ── Sous-navigation entre écrans d'un même module (onglets-liens) ───────────────────────── */
+.ecran .ec-onglets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 var(--stack-md);
+  padding: 3px;
+  width: fit-content;
+  max-width: 100%;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-container);
+}
+.ecran .ec-onglets a {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 16px;
+  border-radius: var(--radius-full);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-on-surface-variant);
+  white-space: nowrap;
+}
+.ecran .ec-onglets a:hover { background: var(--color-surface-container-high); }
+.ecran .ec-onglets a[aria-current="page"] { background: var(--color-primary); color: var(--color-on-primary); }
+.ecran .ec-onglets a:focus-visible { outline: none; box-shadow: var(--ec-focus-ring); }
+
+/* ── Synthèse chiffrée (bandeau d'indicateurs compact) ───────────────────────────────────── */
+.ecran .ec-synthese {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 32px;
+  margin: 0 0 var(--stack-md);
+  padding: 16px 20px;
+  border: 1px solid var(--ec-border);
+  border-radius: var(--radius-lg);
+  background: #ffffff;
+  box-shadow: var(--shadow-card);
+}
+.ecran .ec-synthese__item { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ecran .ec-synthese__label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+}
+.ecran .ec-synthese__valeur {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-primary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ecran .ec-synthese__valeur--alerte { color: var(--color-warning); }
+
+/* ── Barre de filtres : champs étiquetés, même hauteur, actions à droite ─────────────────── */
+.ecran .ec-filtres {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 12px 16px;
+  align-items: end;
+  margin: 0 0 var(--stack-md);
+  padding: 16px 20px;
+  border: 1px solid var(--ec-border);
+  border-radius: var(--radius-lg);
+  background: #ffffff;
+  box-shadow: var(--shadow-card);
+}
+.ecran .ec-champ { display: flex; flex-direction: column; gap: 4px; min-width: 0; margin: 0; }
+.ecran .ec-champ > span {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--color-on-surface-variant);
+}
+.ecran .ec-filtres input[type="text"],
+.ecran .ec-filtres input[type="search"],
+.ecran .ec-filtres input[type="month"],
+.ecran .ec-filtres input[type="date"],
+.ecran .ec-filtres select {
+  width: 100%;
+  min-width: 0;
+  height: var(--ec-control-h);
+  padding: 0 10px;
+  border: 1px solid var(--ec-border);
+  border-radius: var(--radius-md);
+  background-color: #ffffff;
+  color: var(--color-on-surface);
+  font: inherit;
+  font-size: 14px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.ecran .ec-filtres select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2340484b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.ecran .ec-filtres input:hover,
+.ecran .ec-filtres select:hover { border-color: var(--color-outline); }
+.ecran .ec-filtres input:focus,
+.ecran .ec-filtres select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: var(--ec-focus-ring);
+}
+/* Cases à cocher d'un filtre : alignées sur la ligne des champs. */
+.ecran .ec-cases {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  min-height: var(--ec-control-h);
+}
+.ecran .ec-case {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--color-on-surface);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ecran .ec-case input { width: 16px; height: 16px; margin: 0; accent-color: var(--color-primary); }
+.ecran .ec-filtres__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--stack-sm);
+  grid-column: -2 / -1;
+}
+.ecran .ec-filtres__actions--large { grid-column: 1 / -1; }
+.ecran .ec-filtres__actions .btn {
+  height: var(--ec-control-h);
+  padding: 0 18px;
+  justify-content: center;
+}
+.ecran .ec-filtres .btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(0, 52, 65, 0.3); }
+
+/* ── Tableaux ────────────────────────────────────────────────────────────────────────────── */
+/* Le tableau défile dans son cadre : la page, elle, ne déborde jamais. */
+.ecran .ec-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0 0 var(--stack-md);
+  border: 1px solid var(--ec-border);
+  border-radius: var(--radius-lg);
+  background: #ffffff;
+  box-shadow: var(--shadow-card);
+}
+.ecran .card .ec-table-wrap { margin-bottom: 0; box-shadow: none; }
+.ecran .ec-table-wrap > table { min-width: 100%; }
+.ecran .ec-table-wrap thead th { white-space: nowrap; }
+.ecran .ec-table-wrap tbody tr:last-child td { border-bottom: none; }
+/* Montants : à droite, chiffres de même largeur, jamais coupés entre le nombre et « € ». */
+.ecran .text-right,
+.ecran .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ecran td.ec-nowrap, .ecran th.ec-nowrap { white-space: nowrap; }
+/* Colonne de noms (propriétaire, logement) : ne s'écrase jamais sur la largeur d'un mot. */
+.ecran th.ec-col-nom { min-width: 150px; }
+.ecran .ec-sous-ligne {
+  display: block;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--color-secondary);
+  white-space: nowrap;
+}
+.ecran .ec-vide { padding: 20px 12px; color: var(--color-secondary); text-align: center; }
+.ecran tfoot th, .ecran tr.ec-total th, .ecran tr.ec-total td {
+  border-top: 2px solid var(--ec-border);
+  background: var(--color-surface-container-low);
+  font-weight: 700;
+}
+.ecran .ec-titre-tableau {
+  margin: var(--stack-lg) 0 var(--stack-sm);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-on-surface);
+}
+.ecran .ec-note {
+  margin: 0 0 var(--stack-md);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-secondary);
+  max-width: 110ch;
+}
+.ecran .ec-actions-ligne { display: inline-flex; flex-wrap: nowrap; align-items: center; gap: 4px 10px; white-space: nowrap; }
+.ecran .ec-actions-ligne a { font-weight: 600; color: var(--color-primary); }
+.ecran .ec-actions-ligne a:hover { text-decoration: underline; }
+.ecran .ec-actions-ligne form { display: inline; margin: 0; }
+
+/* ── Indicateurs (cartes KPI existantes) ─────────────────────────────────────────────────── */
+/* Une valeur longue (« Non disponible », un montant à 7 chiffres) reste dans sa carte. */
+.ecran .kpi-card { min-width: 0; }
+.ecran .kpi-value { overflow-wrap: anywhere; }
+.ecran .kpi-value--texte { font-size: 18px; color: var(--color-secondary); font-weight: 600; }
+/* Formule d'un indicateur : consultable, repliée par défaut. */
+.ecran .ec-kpi-detail { margin-top: 6px; font-size: 12px; color: var(--color-secondary); }
+.ecran .ec-kpi-detail summary { cursor: pointer; font-weight: 600; list-style: none; }
+.ecran .ec-kpi-detail summary::-webkit-details-marker { display: none; }
+.ecran .ec-kpi-detail summary::before { content: "\25B8\00a0"; }
+.ecran .ec-kpi-detail[open] summary::before { content: "\25BE\00a0"; }
+.ecran .ec-kpi-detail p { margin: 4px 0 0; overflow-wrap: anywhere; line-height: 1.5; }
+
+/* ── Écrans étroits ──────────────────────────────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  .ecran .ec-filtres { grid-template-columns: minmax(0, 1fr); padding: 16px; }
+  .ecran .ec-filtres__actions { grid-column: 1 / -1; justify-content: stretch; }
+  .ecran .ec-filtres__actions .btn { flex: 1 1 auto; }
+  .ecran .ec-filtres input[type="text"],
+  .ecran .ec-filtres input[type="search"],
+  .ecran .ec-filtres input[type="month"],
+  .ecran .ec-filtres input[type="date"],
+  .ecran .ec-filtres select { font-size: 16px; }
+  .ecran .ec-synthese { gap: 12px 20px; padding: 14px 16px; }
+  .ecran .ec-synthese__valeur { font-size: 18px; }
+  .ecran .ec-onglets { width: 100%; }
+  .ecran .ec-onglets a { flex: 1 1 auto; justify-content: center; }
+}
