@@ -24,6 +24,8 @@ MODE_FIXTURE = "FIXTURE"
 MODE_REPRISE_EXCEL = "REPRISE_EXCEL"
 # Tâches lues dans le dépôt publié par le pipeline GitHub (même transport que les réservations).
 MODE_DEPOT_GITHUB = "DEPOT_GITHUB"
+# Tâches lues dans l'artifact du run GitHub déclenché par « Actualiser les ménages ».
+MODE_ARTIFACT_GITHUB = "ARTIFACT_GITHUB"
 
 ST_EN_COURS = "EN_COURS"
 ST_SUCCES = "SUCCES"

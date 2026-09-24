@@ -43,7 +43,7 @@ def test_menages_dashboard_affiche_etat_actualisation(client, tmp_db):
     assert "Actualisation" in r.text
     # Mission « simplifier complètement ménages » : un seul bouton, qui fait tout (PDF + Hostaway
     # + rapprochement ciblé sur le mois affiché) — plus de boutons séparés à comprendre.
-    assert "Actualiser le rapprochement" in r.text
+    assert "Actualiser les ménages" in r.text
     assert "Importer les nouvelles factures" not in r.text
     assert "Déclarer / saisir un ménage interne" not in r.text
     assert "Actualiser l'affichage" not in r.text

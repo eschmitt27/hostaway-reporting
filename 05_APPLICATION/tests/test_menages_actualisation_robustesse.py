@@ -362,6 +362,8 @@ def test_route_ne_bloque_pas_le_serveur_pendant_le_workflow(monkeypatch, db, esp
     # Patché sur le MODULE (`app.routes.menages` l'importe par `from ... import ... as
     # actualisation` — un alias du MÊME module, donc patcher l'un patche l'autre).
     monkeypatch.setattr(workflow_svc, "actualiser", _lent)
+    from app.services import menages_hostaway_github_service as suivi
+    monkeypatch.setattr(suivi, "assurer_suivi", lambda *a, **k: False)
 
     from app.main import app as application
     with TestClient(application) as client:
@@ -391,4 +393,6 @@ def test_route_ne_bloque_pas_le_serveur_pendant_le_workflow(monkeypatch, db, esp
         f"GET /menages a mis {duree_get:.2f}s pendant un POST /menages/actualiser en vol (sleep de "
         "4s) : le serveur est resté bloqué (régression de la correction §1).")
     assert resultats["post"].status_code == 303
-    assert duree_totale >= 4.0, "le POST doit avoir réellement attendu les 4s du workflow ralenti"
+    # Depuis l'actualisation asynchrone (Mission 1), le POST n'attend plus le workflow : il
+    # enregistre la demande et rend la main. Le workflow ralenti ne pèse donc pas sur la requête.
+    assert duree_totale < 4.0, "le POST ne doit plus attendre la fin du workflow"

@@ -114,15 +114,51 @@ _EMPREINTES = {
     ORIGINE_SHEET: (
         "SELECT mois AS mois, COUNT(*) AS n, GROUP_CONCAT(row_hash) AS h "
         "FROM menages_declarations_internes GROUP BY mois"),
-    ORIGINE_HOSTAWAY: (
-        "SELECT substr(can_start_from, 1, 7) AS mois, COUNT(*) AS n, GROUP_CONCAT(row_hash) AS h "
-        "FROM hostaway_cleaning_tasks WHERE can_start_from IS NOT NULL "
-        "GROUP BY substr(can_start_from, 1, 7)"),
 }
+
+# Tâches du SEUL jeu servi (dernière extraction utilisable). L'empreinte portait auparavant sur la
+# table RAW entière, toutes extractions cumulées : chaque nouvelle extraction augmentait le nombre
+# de lignes de TOUS les mois, et chaque actualisation signalait donc tous les mois clôturés comme
+# « modifiés » — 21 signalements Hostaway sur 2026-02..05 entre le 15 et le 22/09, alors que la
+# comparaison des extractions successives montre ces mois strictement inchangés.
+# `row_hash` ne suffit pas non plus : il ne hache que l'identifiant de la tâche, pas son état.
+_SQL_TACHES_ACTIVES = (
+    "SELECT task_id, status, can_start_from, listing_map_id, reservation_id "
+    "FROM hostaway_cleaning_tasks WHERE can_start_from IS NOT NULL AND extraction_id = ("
+    "  SELECT extraction_id FROM hostaway_cleaning_tasks_extractions "
+    "  WHERE statut IN ('SUCCES', 'PARTIEL') ORDER BY date_debut DESC LIMIT 1)")
+
+
+def taches_actives_par_mois(*, db_path=None) -> dict[str, set[tuple]]:
+    """Mois → ensemble des tâches (identité + état + date + logement + réservation) du jeu servi."""
+    conn = get_db(db_path)
+    try:
+        rows = conn.execute(_SQL_TACHES_ACTIVES).fetchall()
+    except Exception:  # noqa: BLE001 — table absente : aucun jeu servi
+        return {}
+    finally:
+        conn.close()
+    out: dict[str, set[tuple]] = {}
+    for r in rows:
+        mois = str(r["can_start_from"] or "")[:7]
+        if len(mois) == 7:
+            out.setdefault(mois, set()).add(tuple("" if v is None else str(v) for v in r))
+    return out
+
+
+def nb_taches_modifiees(avant: dict[str, set], apres: dict[str, set], mois: str) -> int:
+    """Nombre de tâches apparues, disparues ou changées d'état sur le mois."""
+    a = {t[0]: t for t in avant.get(mois, set())}
+    b = {t[0]: t for t in apres.get(mois, set())}
+    return sum(1 for k in set(a) | set(b) if a.get(k) != b.get(k))
 
 
 def empreintes(origine: str, *, db_path=None) -> dict[str, str]:
     """Empreinte stable par mois. Une table absente rend un dictionnaire vide, pas une erreur."""
+    if origine == ORIGINE_HOSTAWAY:
+        return {m: hashlib.sha256("|".join(sorted("\x1f".join(t) for t in taches))
+                                  .encode("utf-8")).hexdigest()[:16]
+                for m, taches in taches_actives_par_mois(db_path=db_path).items()}
     conn = get_db(db_path)
     try:
         rows = conn.execute(_EMPREINTES[origine]).fetchall()
@@ -146,13 +182,21 @@ def _mois_modifies(avant: dict[str, str], apres: dict[str, str]) -> list[str]:
 
 
 def signaler_mois_cloture(mois: str, origine: str, detail: str, *, acteur: str = "",
-                          db_path=None) -> None:
+                          quantite: int | None = None, db_path=None) -> None:
     """Trace un changement détecté sur un mois clôturé. AUCUN recalcul n'en découle."""
     conn = get_db(db_path)
     try:
-        conn.execute(
-            "INSERT INTO menages_changements_mois_clotures (mois, origine, detail, acteur) "
-            "VALUES (?,?,?,?)", (mois, origine, detail, acteur or "ui:menages"))
+        colonnes = {r[1] for r in conn.execute(
+            "PRAGMA table_info(menages_changements_mois_clotures)")}
+        if "quantite" in colonnes:
+            conn.execute(
+                "INSERT INTO menages_changements_mois_clotures (mois, origine, detail, acteur, "
+                "quantite) VALUES (?,?,?,?,?)",
+                (mois, origine, detail, acteur or "ui:menages", quantite))
+        else:
+            conn.execute(
+                "INSERT INTO menages_changements_mois_clotures (mois, origine, detail, acteur) "
+                "VALUES (?,?,?,?)", (mois, origine, detail, acteur or "ui:menages"))
         conn.commit()
     finally:
         conn.close()
@@ -177,8 +221,14 @@ def changements_mois_clotures(*, statut: str = "", db_path=None) -> list[dict[st
 # ── Le workflow ─────────────────────────────────────────────────────────────────────────────────
 
 def actualiser(*, mois_affiche: str = "", acteur: str = "ui:menages",
-               declencheur: str = "MANUEL", db_path=None) -> dict[str, Any]:
+               declencheur: str = "MANUEL", etape_hostaway=None, db_path=None) -> dict[str, Any]:
     """Exécute la chaîne complète, SYNCHRONE, et rend des statistiques RÉELLES.
+
+    `etape_hostaway` : fonction sans argument qui REMPLACE l'étape 3 (tâches de ménage). C'est ainsi
+    que l'actualisation par le run GitHub (`menages_hostaway_github_service`) active le jeu qu'elle a
+    préparé depuis l'artifact AU BON MOMENT de la chaîne — après les empreintes « avant », avant le
+    ciblage — sans second moteur : le reste de la chaîne est celui-ci, inchangé. Elle rend
+    `{"ok": bool, "message": str}`.
 
     Les compteurs rendus sont ceux des opérations effectivement réalisées — jamais une estimation,
     jamais une valeur figée dans le gabarit : un message qui annonce « 1 nouvelle facture » quand
@@ -281,7 +331,16 @@ def actualiser(*, mois_affiche: str = "", acteur: str = "ui:menages",
                            "message": sheet.get("message", ""), "mois_impactes": mois_sheet})
 
         # ── 3. Hostaway Cleaning Tasks (lecture seule) ─────────────────────────────────────────
-        if not hostaway_configure:
+        taches_avant = taches_actives_par_mois(db_path=db_path)
+        if etape_hostaway is not None:
+            hostaway_avant = empreintes(ORIGINE_HOSTAWAY, db_path=db_path)
+            hostaway = etape_hostaway() or {}
+            hostaway_apres = empreintes(ORIGINE_HOSTAWAY, db_path=db_path)
+            mois_hostaway = _mois_modifies(hostaway_avant, hostaway_apres)
+            etapes.append({"etape": "HOSTAWAY", "ok": bool(hostaway.get("ok")),
+                           "message": hostaway.get("message", ""),
+                           "mois_impactes": mois_hostaway})
+        elif not hostaway_configure:
             # Étape marquée en échec, explicitement : le statut global devient PARTIEL et l'écran
             # le dit. Jamais présenté comme un succès — c'est la règle du §8 d'origine, intacte.
             mois_hostaway: list[str] = []
@@ -315,11 +374,14 @@ def actualiser(*, mois_affiche: str = "", acteur: str = "ui:menages",
                 origines = [o for o, liste in ((ORIGINE_PDF, pdf.get("mois_impactes", [])),
                                                (ORIGINE_SHEET, mois_sheet),
                                                (ORIGINE_HOSTAWAY, mois_hostaway)) if mois in liste]
+                taches_apres = taches_actives_par_mois(db_path=db_path) if origines else {}
                 for origine in origines:
+                    quantite = (nb_taches_modifiees(taches_avant, taches_apres, mois)
+                                if origine == ORIGINE_HOSTAWAY else None)
                     signaler_mois_cloture(
                         mois, origine,
                         "changement détecté sur un mois clôturé : aucun recalcul économique effectué",
-                        acteur=acteur, db_path=db_path)
+                        acteur=acteur, quantite=quantite, db_path=db_path)
                 continue
 
             resultat = moteur.executer_menages_cible(mois=mois, declencheur=declencheur,

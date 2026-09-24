@@ -46,7 +46,7 @@
         <tr>
           <th>Logement</th><th>Intervenant</th>
           <th class="num">Hostaway</th><th class="num">Interne</th><th class="num">Externe</th>
-          <th class="num">Écart</th><th>Code</th><th>Niveau</th><th>Résumé</th><th></th>
+          <th class="num">Écart</th><th>Motif</th><th>Niveau</th><th>Résumé</th><th></th>
         </tr>
       </thead>
       <tbody>
@@ -66,7 +66,7 @@
           <td class="num">{{ r.interne_declare if r.interne_declare is not none else "—" }}</td>
           <td class="num">{{ r.externe_facture if r.externe_facture is not none else "—" }}</td>
           <td class="num text-error">{{ r.ecart if r.ecart is not none else "—" }}</td>
-          <td><span class="font-mono text-xs">{{ r.code_controle or "—" }}</span></td>
+          <td class="text-xs">{{ (explication_controle(r.code_controle) if explication_controle else "") or ("Contrôle moteur" if r.code_controle else "—") }}</td>
           <td>
             <span class="status-badge status-{{ (r.statut_effectif or 'inconnu') | lower | replace('_','-') }}">
               {{ r.statut_effectif }}
@@ -92,7 +92,7 @@
 
 <!-- Contrôles moteur (Lot6d) -->
 <div class="card mb-md">
-  <h2 class="card-title">Contrôles du rapprochement (Lot6d)</h2>
+  <h2 class="card-title">Contrôles du rapprochement</h2>
   {% if data.controles_moteur %}
   <div class="table-container">
     <table class="data-table">
@@ -100,7 +100,7 @@
       <tbody>
         {% for c in data.controles_moteur %}
         <tr>
-          <td><span class="font-mono text-xs">{{ c.code }}</span></td>
+          <td class="text-xs">{{ explication_controle(c.code) or c.code }}</td>
           <td>
             <span class="status-badge status-{{ c.niveau | lower | replace('_','-') }}">{{ c.niveau }}</span>
           </td>
@@ -118,7 +118,7 @@
 
 <!-- Contrôles transverses (Lot11) -->
 <div class="card">
-  <h2 class="card-title">Contrôles de cohérence ménages (Lot11)</h2>
+  <h2 class="card-title">Contrôles de cohérence ménages</h2>
   {% if data.controles_lot11 %}
   <div class="table-container">
     <table class="data-table">

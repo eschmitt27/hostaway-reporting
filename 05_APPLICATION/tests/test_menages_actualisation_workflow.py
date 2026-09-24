@@ -187,14 +187,17 @@ def client(db, espions, monkeypatch, tmp_path):
         yield c
 
 
-def test_route_est_synchrone(client, espions):
-    """Le travail est FAIT au retour de la requête — aucun second appel n'est nécessaire."""
+def test_route_rend_la_main_sans_executer_la_chaine(client, espions, monkeypatch):
+    """Mission 1 — le clic ENREGISTRE la demande et rend la main : la chaîne (extraction Hostaway,
+    récupération, rapprochement) est suivie en tâche de fond, jamais dans la requête."""
+    from app.services import menages_hostaway_github_service as suivi
+    monkeypatch.setattr(suivi, "assurer_suivi", lambda *a, **k: False)
     journal, _ = espions
     reponse = client.post("/menages/actualiser", data={"mois": "2026-06"},
                           follow_redirects=False)
     assert reponse.status_code == 303
-    assert "MENAGES:2026-06" in journal, "le recalcul a eu lieu PENDANT la requête"
-    assert "actualisation=terminee" in reponse.headers["location"]
+    assert "MENAGES:2026-06" not in journal, "aucun recalcul pendant la requête"
+    assert "refresh=MRH-" in reponse.headers["location"]
 
 
 def test_route_actualiser_affichage_supprimee(client):

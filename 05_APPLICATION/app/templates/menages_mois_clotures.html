@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Ménages — Mois clôturés modifiés{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Mois clôturés ayant reçu de nouvelles données</h1>
+  <p class="page-subtitle">
+    Un mois clôturé n'est jamais recalculé automatiquement. Pour chaque mois, décidez : le rouvrir
+    (il sera recalculé puis restera « à contrôler / à reclore »), ou classer le signalement sans
+    le rouvrir.
+  </p>
+  <a href="/menages" class="btn btn-secondary btn-sm">← Retour aux ménages</a>
+</div>
+
+{% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-error">{{ erreur }}</div>{% endif %}
+
+{% if a_reclore %}
+<div class="alert alert-warning">
+  <strong>À contrôler / à reclore :</strong> {{ a_reclore|join(', ') }} —
+  rouvert{{ 's' if a_reclore|length > 1 }} depuis cet écran. La reclôture se fait par le parcours
+  de clôture, jamais automatiquement.
+</div>
+{% endif %}
+
+{% for m in mois %}
+<div class="card mb-md">
+  <h2 class="card-title">{{ m.mois }}
+    <span class="badge {{ 'badge-warning' if m.statut_mois == 'CLOTURE' else 'badge-info' }}">
+      {{ {'CLOTURE': 'Clôturé', 'EN_CONTROLE': 'À contrôler / à reclore', 'OUVERT': 'Ouvert'}.get(m.statut_mois, m.statut_mois or 'Statut inconnu') }}
+    </span>
+  </h2>
+  <div class="table-container">
+    <table class="data-table">
+      <thead><tr><th>Type de donnée</th><th>Signalements</th><th>Dernière détection</th><th>Quantité</th></tr></thead>
+      <tbody>
+        {% for o in m.origines %}
+        <tr>
+          <td>{{ o.libelle }}</td>
+          <td>{{ o.nb_signalements }}</td>
+          <td>{{ o.derniere_detection|datetime_fr if o.derniere_detection else "—" }}</td>
+          <td>{% if o.quantite is not none %}{{ o.quantite }} {{ o.unite }}{{ 's' if o.quantite > 1 }}{% else %}non mesurée{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="flex gap-md mt-md" style="flex-wrap:wrap;align-items:flex-start">
+    {% if m.reouvrable %}
+    <form method="post" action="/menages/mois-clotures/rouvrir" class="card" style="flex:1;min-width:280px"
+          onsubmit="return confirm('Rouvrir {{ m.mois }} ? Le mois sera recalculé et restera à contrôler / à reclore.');">
+      <input type="hidden" name="mois" value="{{ m.mois }}">
+      <strong>Rouvrir le mois</strong>
+      <label class="text-xs" style="display:block;margin-top:8px">Motif (obligatoire)
+        <textarea class="input" name="motif" rows="2" required style="display:block;width:100%"></textarea></label>
+      <label class="text-xs" style="display:block;margin-top:8px">Votre nom (obligatoire)
+        <input class="input" name="acteur" required style="display:block;width:100%"></label>
+      <label class="text-xs" style="display:block;margin-top:8px"><input type="checkbox" name="confirmation" value="1" required>
+        Je confirme la réouverture de {{ m.mois }}</label>
+      <button type="submit" class="btn btn-primary btn-sm" style="margin-top:8px">Rouvrir le mois</button>
+    </form>
+    {% endif %}
+    <form method="post" action="/menages/mois-clotures/classer" class="card" style="flex:1;min-width:280px">
+      <input type="hidden" name="mois" value="{{ m.mois }}">
+      <strong>Classer sans rouvrir</strong>
+      <label class="text-xs" style="display:block;margin-top:8px">Motif (obligatoire)
+        <textarea class="input" name="motif" rows="2" required style="display:block;width:100%"></textarea></label>
+      <label class="text-xs" style="display:block;margin-top:8px">Votre nom
+        <input class="input" name="acteur" style="display:block;width:100%"></label>
+      <button type="submit" class="btn btn-secondary btn-sm" style="margin-top:8px">Classer</button>
+    </form>
+  </div>
+</div>
+{% else %}
+<div class="alert alert-info">Aucun mois clôturé n'a reçu de nouvelles données.</div>
+{% endfor %}
+
+{% if reouvertures %}
+<div class="card">
+  <h2 class="card-title">Réouvertures récentes</h2>
+  <table class="data-table">
+    <thead><tr><th>Mois</th><th>Date</th><th>Par</th><th>Motif</th><th>Recalcul</th></tr></thead>
+    <tbody>
+      {% for r in reouvertures %}
+      <tr><td>{{ r.mois }}</td><td>{{ r.reouvert_le|datetime_fr }}</td><td>{{ r.acteur }}</td>
+          <td>{{ r.motif }}</td>
+          <td>{{ {'SUCCES': 'Effectué', 'ECHEC': 'En échec', 'NON_LANCE': 'Non lancé'}.get(r.recalcul_statut, r.recalcul_statut) }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

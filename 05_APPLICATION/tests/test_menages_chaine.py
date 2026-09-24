@@ -231,7 +231,7 @@ def test_ui_actions_operationnelles_presentes(client):
     assert "Simuler le recalcul sur copies" not in r.text
     assert "Tester la chaîne complète sur copies" not in r.text
     assert "Diagnostic technique" not in r.text
-    assert "Actualiser le rapprochement" in r.text
+    assert "Actualiser les ménages" in r.text
 
 
 def test_ui_libelle_pdf_renomme(client, tmp_db):
@@ -251,7 +251,9 @@ def test_ui_libelle_pdf_renomme(client, tmp_db):
     finally:
         conn.close()
     r = client.get("/menages")
-    assert "Factures de ménage externes" in r.text
+    # Le bloc « Factures de ménage externes » (état du dossier) a quitté l'écran (Mission 1, 1M) ;
+    # le flux externe se lit dans l'indicateur « réalisés / justifiés ».
+    assert "facturé" in r.text and "en externe" in r.text
     assert "Factures prestataires" not in r.text
 
 

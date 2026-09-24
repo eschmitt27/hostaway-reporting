@@ -68,7 +68,7 @@
     <div class="kpi-card">
       <div class="kpi-label">Interne déclaré</div>
       <div class="kpi-value">{{ v.interne_declare if v.interne_declare is not none else "—" }}</div>
-      <div class="kpi-sub">M04</div>
+      <div class="kpi-sub">Déclarations internes</div>
     </div>
     <div class="kpi-card">
       <div class="kpi-label">Externe facturé</div>
@@ -149,7 +149,7 @@
 
 <!-- ===== 4. Interne ===== -->
 <div class="card mb-md">
-  <h2 class="card-title">3 · Ménages internes déclarés (M04)</h2>
+  <h2 class="card-title">3 · Ménages internes déclarés</h2>
   {% if not detail.interne.etat.disponible %}
     <div class="alert alert-warning">
       Source indisponible — {{ detail.interne.etat.fichier }} : {{ detail.interne.etat.etat_libelle }}.

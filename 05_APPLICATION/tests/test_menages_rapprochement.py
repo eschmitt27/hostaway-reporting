@@ -797,9 +797,11 @@ def test_route_menages_cartes_presentes(client):
     rapprochement — et c'est par lui que le nom de lot « Lot6f » s'affichait à l'utilisateur.
     """
     r = client.get("/menages")
+    # Mission 1 (1K) : trois indicateurs d'une même unité remplacent les cartes par origine et
+    # par flux, qui mettaient des ménages (53) face à des lignes (9).
     for libelle in ("Dernière actualisation", "Factures PDF reconnues", "À contrôler / en erreur",
-                    "Ménages attendus", "Attendu Hostaway", "Attendu hors Hostaway",
-                    "Internes déclarés", "Externes facturés", "Écarts à contrôler"):
+                    "Attendus", "Réalisés / justifiés", "À contrôler",
+                    "déclaré", "en interne", "en externe"):
         assert libelle in r.text, f"Indicateur manquant : {libelle}"
 
 
