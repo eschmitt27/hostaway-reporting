@@ -21,6 +21,7 @@ from app.template_env import get_templates
 from app.services import canape_gestion_service as canape
 from app.services import couts_menage_gestion_service as cm
 from app.services import impact_preview_service as preview_svc
+from app.services import parametres_societe_service as parametres
 from app.services import referentiel_admin_service as adm
 from app.services import regle_version_gestion_service as regv
 
@@ -45,6 +46,60 @@ def administration_racine():
     mieux qu'un cul-de-sac.
     """
     return RedirectResponse(url="/administration/referentiels", status_code=307)
+
+
+@router.get("/administration/societe-facturation", response_class=HTMLResponse)
+def societe_facturation(request: Request, message: str = "", erreur: str = ""):
+    """Paramètres société & facturation — la source canonique de ce que la facture imprime."""
+    from app.services import facturation_config_service as fconf
+
+    champs = parametres.etat()
+    sections = []
+    for section in (parametres.SECTION_IDENTITE, parametres.SECTION_CONTACT,
+                    parametres.SECTION_FACTURATION):
+        sections.append({"titre": section, "champs": [c for c in champs if c["section"] == section]})
+    delai = fconf.delai_paiement_jours()
+    return templates.TemplateResponse(request, "administration_societe_facturation.html", {
+        "active_menu": _MENU,
+        "sections": sections,
+        "regimes": [{"code": r, "libelle": parametres.LIBELLES_REGIMES[r]}
+                    for r in parametres.REGIMES_TVA],
+        "depuis_environnement": [c for c in champs if c["origine"] == "ENVIRONNEMENT"],
+        "jamais_enregistres": [c for c in champs if c["origine"] != "BASE"],
+        "apercu": {"conditions": fconf.conditions_paiement(delai), "delai": delai,
+                   "mention": fconf.mention_tva(), "taux": fconf.taux_tva_applicable(),
+                   "regime": parametres.LIBELLES_REGIMES.get(fconf.regime_tva(), "")},
+        "historique": parametres.historique(limite=20),
+        "libelles": {c.cle: c.libelle for c in parametres.CHAMPS},
+        "message": message, "erreur": erreur,
+    })
+
+
+@router.post("/administration/societe-facturation")
+async def societe_facturation_enregistrer(request: Request):
+    form = dict(await request.form())
+    acteur = str(form.pop("acteur", "") or "").strip()
+    motif = str(form.pop("motif", "") or "")
+    try:
+        res = parametres.enregistrer(form, acteur=acteur, motif=motif)
+    except parametres.ParametreInvalide as exc:
+        return RedirectResponse(f"/administration/societe-facturation?erreur={quote(str(exc))}",
+                                status_code=303)
+    n = len(res["modifiees"])
+    message = f"{n} paramètre(s) enregistré(s)." if n else "Aucun changement."
+    return RedirectResponse(f"/administration/societe-facturation?message={quote(message)}",
+                            status_code=303)
+
+
+@router.post("/administration/societe-facturation/reprendre")
+async def societe_facturation_reprendre(request: Request):
+    """Reprise unique de l'ancienne source (environnement) vers la base."""
+    form = await request.form()
+    acteur = str(form.get("acteur", "") or "").strip() or "ui:administration"
+    res = parametres.reprendre_depuis_environnement(acteur=acteur)
+    message = f"{len(res['modifiees'])} paramètre(s) repris en base."
+    return RedirectResponse(f"/administration/societe-facturation?message={quote(message)}",
+                            status_code=303)
 
 
 @router.get("/administration/referentiels", response_class=HTMLResponse)

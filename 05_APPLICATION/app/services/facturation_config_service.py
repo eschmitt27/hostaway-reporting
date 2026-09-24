@@ -4,8 +4,8 @@ Tout ce qui rend une facture opposable est regroupé ici : numérotation, identi
 régime de TVA, mentions, conditions de règlement, pénalités, préparation de la facturation
 électronique. Aucun hardcode dispersé ailleurs dans le code.
 
-**Rien n'est inventé.** Les valeurs viennent de l'environnement (ou d'un fichier de configuration
-non versionné) et sont **vides par défaut**. Une valeur réglementaire absente ne reçoit pas de
+**Rien n'est inventé.** Les valeurs viennent de la base (`parametres_societe_service`, écran
+« Administration › Paramètres société & facturation ») et sont **vides par défaut**. Une valeur réglementaire absente ne reçoit pas de
 valeur « raisonnable » de repli : elle bloque l'émission réelle, et le contrôle dit laquelle
 manque. C'est particulièrement vrai pour le régime de TVA, le taux de pénalités de retard et
 l'indemnité forfaitaire de recouvrement — trois données juridiques que ce module ne choisit pas.
@@ -57,6 +57,20 @@ _MOIS_VALIDE = re.compile(r"^\d{4}-(?:0[1-9]|1[0-2])$")
 
 
 def _env(nom: str, defaut: str = "") -> str:
+    """Valeur d'un paramètre société/facturation.
+
+    SOURCE CANONIQUE : la base (`parametres_societe_service`, écran « Paramètres société &
+    facturation »). Un paramètre enregistré en base fait foi, y compris quand il y est enregistré
+    VIDE (« non configuré ») : l'environnement n'est alors plus consulté. Tant qu'il n'a jamais été
+    enregistré, l'ancienne source (variable d'environnement) est lue — transition signalée à
+    l'écran, que la reprise referme.
+    """
+    from app.services import parametres_societe_service as parametres
+
+    if nom in parametres.PAR_CLE:
+        enregistre, valeur = parametres.lire(nom)
+        if enregistre:
+            return str(valeur if valeur is not None else defaut).strip()
     return str(os.environ.get(nom, getattr(cfg, nom, defaut)) or "").strip()
 
 

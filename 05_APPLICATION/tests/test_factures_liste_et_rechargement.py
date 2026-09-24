@@ -136,7 +136,7 @@ def test_l_ecran_propose_les_fournisseurs_reellement_presents(client, tmp_db, do
     page = client.get("/factures").text
     assert 'data-testid="filtre-fournisseur"' in page
     assert 'data-testid="filtre-mois"' in page and "Août 2026" in page
-    assert 'data-testid="recharger-factures"' in page
+    assert 'data-testid="actualiser-factures"' in page     # Mission 3 : bouton unique
     assert "08-26-Aissata.pdf" in page and "2026-41" in page
     assert 'data-testid="menu-actions"' in page
 

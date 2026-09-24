@@ -286,6 +286,11 @@ DB_PATH = DATA_DIR / "app.db"
 # par défaut : une facture ne peut pas être validée tant que ces informations manquent
 # (FACTURE_PROPRIETAIRE_IDENTITE_INCOMPLETE). Rien n'est inventé pour compléter un document, et
 # aucune mention légale n'est décidée ici — elles restent à arbitrer avant toute émission réelle.
+#
+# TRANSITION (migration 0111) : la source canonique de ces données est désormais la base —
+# « Administration › Paramètres société & facturation » (`parametres_societe_service`). Ces lectures
+# d'environnement ne servent plus que de repli pour un paramètre JAMAIS enregistré en base, via
+# `facturation_config_service._env` ; aucun autre module ne doit les lire directement.
 SOCIETE_NOM = os.environ.get("SOCIETE_NOM", "")
 SOCIETE_ADRESSE = os.environ.get("SOCIETE_ADRESSE", "")
 SOCIETE_SIRET = os.environ.get("SOCIETE_SIRET", "")
