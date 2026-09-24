@@ -5705,3 +5705,39 @@ d'autorité.
 **Suite complète** : 3 880 tests passent, 37 sautés. Un échec, environnemental et antérieur :
 `test_gardes_bancaires_coherence.py` exige le classeur `BANQUE_LOT8_IMPORT.xlsx`, qui n'a jamais
 existé dans ce worktree et n'est pas versionné.
+
+---
+
+## 2026-09-24 — Recette locale Missions 1 + 3 + 4 (Ménages/Hostaway, Fournisseurs/Export, Administration/Facturation)
+
+Branche `resume/pilotage-conciergerie-20260909`, HEAD de départ `0300a74`. La Mission 2 (frontend
+Charges) est traitée par une PR séparée, non fusionnée ici.
+
+**Mission 1 — Ménages + GitHub.** « Actualiser les ménages » déclenche le workflow
+`hostaway-cleaning-tasks.yml` avec un `request_id` `MEN-REFRESH-…`, retrouve le run par son titre
+exact, lit l'artifact `cleaning-tasks-output` DE CE RUN, prépare une extraction non active, puis
+l'active dans la chaîne Ménages canonique (désactivation + recomptage en cas d'échec). Asynchrone,
+une seule actualisation active (index unique partiel). Jeton GitHub absent sur ce poste : chemin
+réel non exécuté, contrat couvert par un double du client (36 contrôles).
+Origine des « 4 mois clôturés modifiés » : empreinte calculée sur la table RAW cumulée — 21
+signalements Hostaway sur 2026-02..05 sans aucune différence réelle entre extractions. Corrigé
+(empreinte du seul jeu servi) ; réouverture tracée vers `EN_CONTROLE`, jamais de reclôture auto.
+Origine du « 9 » : 9 LIGNES logement × intervenant, portant 34 ménages réalisés sans déclaration
+ni facture, face à 53 MÉNAGES attendus (52 Hostaway = 34 réalisés + 18 à venir, 1 hors Hostaway).
+
+**Mission 3.** Un bouton « Actualiser les factures » = le rechargement canonique du dossier ; le
+dépôt navigateur pose la pièce dans le dossier (jamais d'écrasement). Import par prévisualisation et
+saisie manuelle retirés (message humain). Export `REFERENTIEL_LOGEMENTS_V1` déplacé sous « Exporter
+les données », contenu identique. Idempotence prouvée sur copie des données réelles (15/15, 0 écart).
+
+**Mission 4.** Lien Administration 404 corrigé. Paramètres société & facturation en base (0111),
+source unique. Blocages d'émission reproduits sur copie (identité émetteur, régime TVA, échéance),
+levés : facture PARTICULIER / franchise / délai 0 validée et émise SUR COPIE (`2026-06-001`),
+snapshot inchangé après modification des paramètres. Aucune émission réelle.
+
+**Base réelle.** Sauvegardes `data/backups/app_AVANT_RECETTE_M134_20260924.db` et
+`app_avant_parametres_societe_20260924.db`. Migrations 0110, 0111. Écritures réelles : paramètres
+société (valeurs documentées du Kbis 2026-09-10, audités) ; une ligne de trace d'actualisation en
+échec (jeton absent). `integrity_check` ok, `foreign_key_check` 0.
+
+**Suite complète** : 4 290 tests passent (après mise à jour de l'inventaire des tables de `test_sqlite_migrations.py`), 37 sautés.
