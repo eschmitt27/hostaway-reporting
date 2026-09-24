@@ -8,6 +8,11 @@ on:
   schedule:
     - cron: '0 6,12,18 * * *'
 
+# Partagé avec hostaway-cleaning-tasks.yml : un seul workflow publie sur main à la fois.
+concurrency:
+  group: hostaway-data-publish
+  cancel-in-progress: false
+
 jobs:
   run-pipeline:
     runs-on: ubuntu-latest

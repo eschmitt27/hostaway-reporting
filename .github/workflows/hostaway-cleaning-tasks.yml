@@ -1,0 +1,97 @@
+name: HOSTAWAY — CLEANING TASKS ONLY
+
+# Actualisation rapide des seules tâches de ménage (/v1/tasks) → cleaning_tasks_hostaway.tsv,
+# sans relancer réservations / finance / rapport. Réutilise tel quel extract_cleaning_tasks.py
+# (même extracteur que le pipeline complet, même fichier, même format).
+#
+# Déclenchable à la main (bouton "Run workflow") ou par l'application via l'API GitHub
+# (POST /repos/{owner}/{repo}/actions/workflows/hostaway-cleaning-tasks.yml/dispatches
+#  avec {"ref": "main", "inputs": {"request_id": "..."}}). Le request_id apparaît dans le nom
+# du run pour que l'application retrouve le run qu'elle a lancé ; le TSV produit est aussi
+# exposé en artifact "cleaning-tasks-output" sur ce run.
+
+run-name: Hostaway Cleaning Tasks — ${{ inputs.request_id || 'manual' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: "Identifiant de la demande (non sensible, [A-Za-z0-9._-], 64 caractères max)"
+        required: false
+        default: manual
+        type: string
+
+permissions:
+  contents: write
+
+# Même groupe que le pipeline complet : les deux workflows publient par commit sur main,
+# ils ne doivent jamais écrire/pousser en même temps.
+concurrency:
+  group: hostaway-data-publish
+  cancel-in-progress: false
+
+jobs:
+  cleaning-tasks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      HOSTAWAY_TOKEN: ${{ secrets.HOSTAWAY_TOKEN }}
+      REQUEST_ID: ${{ inputs.request_id || 'manual' }}
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - name: Validate request_id
+        run: |
+          if ! [[ "$REQUEST_ID" =~ ^[A-Za-z0-9._-]{1,64}$ ]]; then
+            echo "request_id invalide : caractères autorisés [A-Za-z0-9._-], 64 max."
+            exit 1
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      # Bloquant ici : si l'extraction échoue, le fichier publié reste inchangé et le run échoue.
+      - name: Run cleaning tasks extraction
+        run: python extract_cleaning_tasks.py
+
+      - name: Upload cleaning tasks artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: cleaning-tasks-output
+          path: cleaning_tasks_hostaway.tsv
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Commit cleaning tasks file
+        id: publish
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add cleaning_tasks_hostaway.tsv
+          if git diff --cached --quiet; then
+            echo "Aucun changement : pas de commit."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            git commit -m "Automated cleaning tasks refresh [$REQUEST_ID]"
+            git push || { git pull --rebase origin main && git push; }
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Summary
+        run: |
+          taches=$(python -c "import csv; print(sum(1 for _ in csv.reader(open('cleaning_tasks_hostaway.tsv', encoding='utf-8-sig', newline=''), delimiter='\t')) - 1)")
+          {
+            echo "### Hostaway Cleaning Tasks — $REQUEST_ID"
+            echo "- Tâches extraites : $taches"
+            echo "- Fichier publié sur main modifié : ${{ steps.publish.outputs.changed }}"
+            echo "- Artifact : cleaning-tasks-output"
+          } >> "$GITHUB_STEP_SUMMARY"
