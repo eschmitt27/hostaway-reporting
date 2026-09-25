@@ -8,10 +8,12 @@ import asyncio
 from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from app.template_env import get_templates
 
 from app.services import menages_actualisation_service as actualisation
+from app.services import menages_hostaway_github_service as hostaway_github
+from app.services import menages_mois_clotures_service as mois_clotures
 from app.services import menages_origine_service as origines_svc
 from app.services import menages_service as svc
 from app.services import menages_recalcul_service as recalc
@@ -74,6 +76,7 @@ def menages_dashboard(
     page: int = 1,
     actualisation_statut: str = "",
     resume: str = "",
+    refresh: str = "",
 ):
     # La période est résolue UNE fois, ici. `load_dashboard` retombait sur la période par défaut
     # quand l'URL n'en portait pas, mais `origines` recevait la chaîne vide et comptait alors TOUT
@@ -104,6 +107,10 @@ def menages_dashboard(
         # tenu à part (§39). Remplace l'opposition « attendu » vs « Hostaway réalisé », qui
         # présentait comme deux sources concurrentes ce qui est un même ménage à deux moments.
         "origines": origines_svc.origines(mois, logement_id),
+        "indicateurs": svc.indicateurs_perimetre(mois),
+        # Actualisation en cours, ou celle dont l'URL porte l'identifiant (message de fin).
+        "refresh": hostaway_github.vue(
+            (hostaway_github.charger(refresh) if refresh else None) or hostaway_github.active()),
     })
 
 
@@ -142,6 +149,7 @@ def menages_a_controler(request: Request, mois: str = ""):
         "active_menu": "menages",
         "data": data,
         "options": svc.load_filter_options(mois),
+        "explication_controle": svc.explication_controle,
     })
 
 
@@ -186,53 +194,78 @@ def _retour_contexte(form, defaut: str) -> str:
 
 @router.post("/menages/actualiser")
 async def menages_actualiser(request: Request):
-    """« Actualiser le rapprochement des ménages » — L'UNIQUE action de l'écran, SYNCHRONE pour
-    l'utilisateur, MAIS HORS BOUCLE ÉVÉNEMENTIELLE pour le serveur.
+    """« Actualiser les ménages » — ENREGISTRE la demande et rend la main aussitôt.
 
-    Le workflow complet (PDF → Google Sheet → Hostaway → ciblage → recalcul des mois OUVERTS →
-    rapprochement) s'exécute avant que la redirection n'ait lieu : l'écran affiche l'état réel dès
-    son affichage, comme avant. La différence : `actualisation.actualiser(...)` est une fonction
-    SYNCHRONE BLOQUANTE (sous-processus PDF/Sheet, appel API Hostaway) — l'appeler directement dans une
-    route `async def` bloquerait l'UNIQUE boucle événementielle d'uvicorn pendant toute sa durée,
-    empêchant même un `GET /` sans rapport d'être servi (constaté en recette : le serveur entier
-    cessait de répondre). `asyncio.to_thread` déporte l'appel bloquant sur un thread du pool ; le
-    reste du serveur continue de répondre pendant ce temps. `asyncio.wait_for` borne la durée que
-    CETTE requête attend avant de rendre un message d'échec propre — le thread sous-jacent n'est PAS
-    tué au dépassement (impossible en CPython) : il continue jusqu'à sa fin naturelle, protégé
-    contre un second déclenchement concurrent par le verrou DB pris dans le service lui-même.
+    Le cycle (extraction Hostaway des tâches, récupération, rapprochement) dure de quelques dizaines
+    de secondes à plusieurs minutes : il ne tient plus la requête HTTP. Il est suivi en tâche de fond
+    (`menages_hostaway_github_service`) et l'écran interroge son état toutes les 4 secondes.
 
-    `mois` est le mois filtré à l'écran, transmis par un champ caché : il arrive en corps
-    `application/x-www-form-urlencoded`, jamais en query string, d'où la lecture via
-    `request.form()` plutôt qu'un paramètre de fonction FastAPI. Absent, on retombe sur le mois par
-    défaut de l'écran — jamais sur le comportement implicite de lot6d/6e/6f.
+    Un clic pendant qu'une actualisation est active ne lance rien : il ramène à celle-ci.
     """
     form = await request.form()
     mois_cible = str(form.get("mois", "") or "").strip() or svc.periode_par_defaut()
-    orch.marquer_runs_interrompus()
-    try:
-        resultat = await asyncio.wait_for(
-            asyncio.to_thread(actualisation.actualiser, mois_affiche=mois_cible,
-                              acteur="ui:menages", declencheur=orch.DECLENCHEUR_MANUEL),
-            timeout=cfg.MENAGES_ACTUALISER_TIMEOUT_SECONDS)
-    except asyncio.TimeoutError:
-        # Le thread continue en tâche de fond (non tuable) — le verrou DB (§36, pris dans le
-        # service) empêche un nouveau clic de lancer une seconde chaîne tant qu'il tourne encore.
-        message = (f"Délai dépassé ({cfg.MENAGES_ACTUALISER_TIMEOUT_SECONDS}s) : l'actualisation "
-                   "n'a pas répondu à temps. Réessayez dans quelques instants.")
-        return RedirectResponse(
-            url=f"/menages?mois={mois_cible}&actualisation=echec&resume={quote(message)}",
-            status_code=303)
-
-    # Le résumé est passé en query string parce qu'il est COURT et calculé à partir de ce qui a
-    # réellement été fait — jamais un compteur figé dans le gabarit.
-    resume = " · ".join(resultat["statistiques"])
-    # « terminee » (succès plein) n'est utilisé QUE si les trois sources et tous les mois ciblés ont
-    # réellement réussi (mission §8) : un statut PARTIEL/ECHEC ne doit JAMAIS afficher le message de
-    # succès, même si des statistiques partielles existent.
-    statut = resultat.get("statut", "SUCCES" if resultat.get("ok") else "ECHEC")
-    marqueur = {"SUCCES": "terminee", "PARTIEL": "partielle", "ECHEC": "echec"}.get(statut, "echec")
+    demande = hostaway_github.demarrer(acteur="ui:menages", mois_affiche=mois_cible)
     return RedirectResponse(
-        url=f"/menages?mois={mois_cible}&actualisation={marqueur}&resume={quote(resume)}",
+        url=f"/menages?mois={quote(mois_cible)}&refresh={quote(demande.get('refresh_id', ''))}",
+        status_code=303)
+
+
+@router.get("/menages/actualisation/etat")
+def menages_actualisation_etat(refresh_id: str = ""):
+    """État d'une actualisation, pour l'écran. IDEMPOTENT : lire l'état ne relance aucune étape ;
+    tout au plus redémarre-t-il le suiveur de fond s'il a disparu (redémarrage du serveur)."""
+    ligne = (hostaway_github.charger(refresh_id) if refresh_id else None)         or hostaway_github.active() or hostaway_github.derniere()
+    if not ligne:
+        return JSONResponse({"etat": None})
+    if ligne["etat"] not in hostaway_github.TERMINAUX:
+        hostaway_github.assurer_suivi(ligne["refresh_id"])
+    return JSONResponse(hostaway_github.vue(ligne))
+
+
+@router.get("/menages/mois-clotures", response_class=HTMLResponse)
+def menages_mois_clotures(request: Request, message: str = "", erreur: str = ""):
+    return templates.TemplateResponse(request, "menages_mois_clotures.html", {
+        "active_menu": "menages",
+        "mois": mois_clotures.detail(),
+        "reouvertures": mois_clotures.reouvertures(),
+        "a_reclore": mois_clotures.mois_a_reclore(),
+        "message": message, "erreur": erreur,
+    })
+
+
+@router.post("/menages/mois-clotures/rouvrir")
+async def menages_mois_clotures_rouvrir(request: Request):
+    """Réouverture : confirmation, motif et auteur obligatoires. Le recalcul canonique qui suit est
+    bloquant (sous-processus moteur) : déporté hors de la boucle événementielle."""
+    form = await request.form()
+    mois = str(form.get("mois", "") or "").strip()
+    try:
+        resultat = await asyncio.to_thread(
+            mois_clotures.rouvrir, mois, motif=str(form.get("motif", "") or ""),
+            acteur=str(form.get("acteur", "") or ""),
+            confirmation=str(form.get("confirmation", "")) == "1")
+    except mois_clotures.DecisionRefusee as exc:
+        return RedirectResponse(url=f"/menages/mois-clotures?erreur={quote(str(exc))}",
+                                status_code=303)
+    message = (f"{mois} rouvert — recalcul effectué ; le mois est à contrôler puis à reclore."
+               if resultat["recalcul_ok"] else
+               f"{mois} rouvert — le recalcul a échoué : relancez « Actualiser les ménages ».")
+    return RedirectResponse(url=f"/menages/mois-clotures?message={quote(message)}",
+                            status_code=303)
+
+
+@router.post("/menages/mois-clotures/classer")
+async def menages_mois_clotures_classer(request: Request):
+    form = await request.form()
+    mois = str(form.get("mois", "") or "").strip()
+    try:
+        mois_clotures.classer(mois, motif=str(form.get("motif", "") or ""),
+                              acteur=str(form.get("acteur", "") or "") or "ui:menages")
+    except mois_clotures.DecisionRefusee as exc:
+        return RedirectResponse(url=f"/menages/mois-clotures?erreur={quote(str(exc))}",
+                                status_code=303)
+    return RedirectResponse(
+        url=f"/menages/mois-clotures?message={quote(f'Signalements de {mois} classés sans réouverture.')}",
         status_code=303)
 
 

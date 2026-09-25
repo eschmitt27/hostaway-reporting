@@ -142,6 +142,57 @@ def _identifiant(v):
         return s
 
 
+# ── Tâches de ménage : UN lecteur, quel que soit le transport ─────────────────────────────────
+# Le même fichier arrive par deux chemins : commité sur la branche (dépôt) ou joint au run qui l'a
+# produit (artifact GitHub). Il n'y a qu'une manière de le lire.
+
+# Colonnes sans lesquelles une tâche n'est pas exploitable par Lot6a : l'identité de la tâche, son
+# logement, sa date et son état. Les autres (`title`, `taskType`, `shouldEndBy`…) sont lues si
+# présentes.
+ENTETES_TACHES_REQUIS = ("id", "listingMapId", "status", "canStartFrom")
+
+
+class FichierTachesInvalide(ValueError):
+    """Le fichier de tâches ne respecte pas le format publié par `extract_cleaning_tasks.py`."""
+
+
+def valider_tsv_taches(octets: bytes) -> list[str]:
+    """En-tête du fichier, ou `FichierTachesInvalide`. Un fichier vide, non délimité par des
+    tabulations ou amputé d'une colonne requise n'est jamais lu comme « aucune tâche »."""
+    texte = (octets or b"").decode("utf-8-sig", errors="replace")
+    premiere = texte.splitlines()[0] if texte.strip() else ""
+    if not premiere:
+        raise FichierTachesInvalide("fichier de tâches vide")
+    entetes = [e.strip() for e in premiere.split("\t")]
+    manquants = [c for c in ENTETES_TACHES_REQUIS if c not in entetes]
+    if manquants:
+        raise FichierTachesInvalide("colonnes absentes : " + ", ".join(manquants))
+    return entetes
+
+
+def taches_depuis_tsv(octets: bytes) -> list[dict]:
+    """Tâches du fichier, présentées comme `/v1/tasks`, dédoublonnées par `id`."""
+    valider_tsv_taches(octets)
+    vues: dict = {}
+    for ligne in _lire_tsv(octets):
+        identifiant = _identifiant(ligne.get("id"))
+        if identifiant is None or identifiant in vues:
+            continue
+        vues[identifiant] = {
+            "id": identifiant,
+            "reservationId": _identifiant(ligne.get("reservationId")),
+            "listingMapId": _identifiant(ligne.get("listingMapId")),
+            "title": _txt(ligne.get("title")) or None,
+            "status": _txt(ligne.get("status")) or None,
+            "taskType": _txt(ligne.get("taskType")) or None,
+            "type": _txt(ligne.get("type")) or None,
+            "canStartFrom": _txt(ligne.get("canStartFrom")) or None,
+            "shouldEndBy": _txt(ligne.get("shouldEndBy")) or None,
+            "assigneeUserId": _identifiant(ligne.get("assigneeUserId")),
+        }
+    return list(vues.values())
+
+
 # ── Lecture de l'état du dépôt ──────────────────────────────────────────────────────────────────
 
 def etat(racine, *, remote: str = REMOTE_DEFAUT, branche: str = BRANCHE_DEFAUT,
@@ -393,26 +444,10 @@ class SourceDepotGitHub:
                 f"Les tâches de ménage ne sont pas publiées dans le dépôt "
                 f"{self._etat['commit_court']} ({FICHIER_CLEANING_TASKS} absent). Rendre une "
                 "liste vide ferait passer « non fourni » pour « aucune tâche ».")
-        vues: dict = {}
-        for ligne in _lire_tsv(self._fichier(FICHIER_CLEANING_TASKS)):
-            identifiant = _identifiant(ligne.get("id"))
-            if identifiant is None or identifiant in vues:
-                continue
-            vues[identifiant] = {
-                "id": identifiant,
-                "reservationId": _identifiant(ligne.get("reservationId")),
-                "listingMapId": _identifiant(ligne.get("listingMapId")),
-                "title": _txt(ligne.get("title")) or None,
-                "status": _txt(ligne.get("status")) or None,
-                "taskType": _txt(ligne.get("taskType")) or None,
-                "type": _txt(ligne.get("type")) or None,
-                "canStartFrom": _txt(ligne.get("canStartFrom")) or None,
-                "shouldEndBy": _txt(ligne.get("shouldEndBy")) or None,
-                "assigneeUserId": _identifiant(ligne.get("assigneeUserId")),
-            }
-        self._log.info(f"  Dépôt {self._etat['commit_court']} : {len(vues)} tâches de ménage "
+        taches = taches_depuis_tsv(self._fichier(FICHIER_CLEANING_TASKS))
+        self._log.info(f"  Dépôt {self._etat['commit_court']} : {len(taches)} tâches de ménage "
                        "publiées.")
-        return list(vues.values())
+        return taches
 
     # ── Trace ────────────────────────────────────────────────────────────────────────────────
 

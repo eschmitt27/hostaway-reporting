@@ -49,7 +49,7 @@ _QUALIFICATION = {
                    "A valider, pas une erreur prestataire."),
     CODE_HA_SANS_FACTURE: ("INFO",
                            "Menages Hostaway sans facture externe : probable menage interne / "
-                           "a croiser avec M04."),
+                           "a croiser avec les declarations internes."),
     CODE_RAPPROCHE: ("INFO",
                      "Volume facture = volume Hostaway. Rapproche ; date jour non requise."),
     CODE_ECART: ("A_CONTROLER",

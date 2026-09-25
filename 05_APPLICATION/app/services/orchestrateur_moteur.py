@@ -326,13 +326,25 @@ def importer_hostaway_cleaning_tasks(*, db_path=None, declencheur: str | None = 
     if resultat.get("importe") is False and _taches_enrichies_presentes(db_path):
         return {"ok": True, **{k: v for k, v in resultat.items() if k != "ok"},
                 "donnees_modifiees": False}
+    comptage = compter_taches_menage(db_path=db_path)
+    if not comptage.get("ok"):
+        return comptage
+    return {"ok": True, **{k: v for k, v in resultat.items() if k != "ok"},
+            "comptage_lot6a": "OK"}
+
+
+def compter_taches_menage(*, db_path=None) -> dict[str, Any]:
+    """lot6a — COMPTAGE de la dernière extraction utilisable → `menages_taches_enrichies`.
+
+    Seul chemin vers la table enrichie, quel que soit le transport des tâches (dépôt, artifact du
+    run, API) : l'import ne fait qu'ajouter une extraction, ce comptage la rend lisible par l'aval.
+    """
     comptage = executer("lot6a_cleaning_tasks_comptage.py", db_path=db_path,
                         arguments=("--source", "SQLITE", "--sans-excel"))
     if not comptage.get("ok"):
         return {"ok": False, "code": comptage.get("code", E_CODE_RETOUR),
                 "message": f"lot6a_cleaning_tasks_comptage.py : {comptage.get('message', '')}"}
-    return {"ok": True, **{k: v for k, v in resultat.items() if k != "ok"},
-            "comptage_lot6a": "OK"}
+    return {"ok": True, "comptage_lot6a": "OK"}
 
 
 def _taches_enrichies_presentes(db_path) -> bool:

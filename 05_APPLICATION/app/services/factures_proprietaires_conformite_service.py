@@ -215,8 +215,9 @@ def verifier(facture: dict[str, Any], *, date_facture: str = "", db_path=None) -
     if not bloc["date_echeance"]:
         manques.append({"code": C_ECHEANCE,
                         "message": "Délai de paiement non configuré : l'échéance ne peut pas être "
-                                   "calculée. Renseignez FACTURATION_DELAI_PAIEMENT_JOURS "
-                                   "(0 = paiement à réception)."})
+                                   "calculée. Renseignez-le dans Administration › Paramètres "
+                                   "société & facturation (FACTURATION_DELAI_PAIEMENT_JOURS ; "
+                                   "0 = paiement à réception)."})
 
     lignes = facture.get("lignes") or []
     if not lignes:

@@ -349,7 +349,7 @@ EXPLICATIONS_CONTROLE: dict[str, str] = {
     "MENAGE_ECART_NOMBRE":
         "Le nombre de ménages déclarés ne correspond pas au nombre de tâches Hostaway réalisées.",
     "MENAGE_M04_NON_ALIMENTE":
-        "Des tâches Hostaway internes existent mais aucune déclaration M04 n'a été trouvée.",
+        "Des tâches Hostaway internes existent mais aucune déclaration interne n'a été trouvée.",
     "MENAGE_PRESTATAIRE_ECART_HOSTAWAY":
         "Le prestataire a facturé plus de ménages que de tâches Hostaway réalisées.",
     "MENAGE_ASSIGNEE_NON_MAPPE":
@@ -675,6 +675,47 @@ def a_controler(vue: dict[str, Any]) -> bool:
     exactement le même ensemble de lignes.
     """
     return vue["statut_effectif"] in STATUTS_A_CONTROLER or vue["identification_incomplete"]
+
+
+def indicateurs_perimetre(mois: str, *, db_path=None) -> dict[str, Any]:
+    """ATTENDUS · RÉALISÉS / JUSTIFIÉS · À CONTRÔLER — trois nombres d'une même unité (le ménage),
+    sur un même périmètre (le mois, tous logements).
+
+    POURQUOI. L'écran affichait « 53 attendus » à côté de « 9 écarts » : 53 compte des MÉNAGES, 9
+    compte des LIGNES de rapprochement (un logement × un intervenant). Les deux étaient justes et
+    se lisaient comme s'ils partageaient une unité. Ici chaque nombre dit ce qu'il compte, et la
+    carte « à contrôler » garde ses 9 lignes en les traduisant en ménages.
+
+    Aucune règle rejouée : attendus et états viennent de `menages_origine_service.origines` (tâches
+    enrichies + réservations hors Hostaway), déclarés et écarts des lignes du moteur (lot6d), le
+    critère « à contrôler » est `a_controler()`, le même que la liste.
+    """
+    from app.services import menages_origine_service as origines_svc
+
+    o = origines_svc.origines(mois, "", db_path=db_path)
+    etats = {e["code"]: e["nb"] for e in o["hostaway"]["etats"]}
+    realises = int(etats.get("completed", 0))
+    a_venir = int(o["hostaway"]["attendus"]) - realises
+    s = load_summary(mois)
+    interne = int(s.get("interne_declare") or 0)
+    externe = int(s.get("externe_facture") or 0)
+    lignes = [v for v in _toutes_les_vues(mois) if a_controler(v)]
+    return {
+        "mois": mois,
+        "attendus": o["total_attendus"],
+        "attendus_hostaway": o["hostaway"]["attendus"],
+        "attendus_hors_hostaway": o["hors_hostaway"]["attendus"],
+        "realises": realises,
+        "a_venir": a_venir,
+        "annules": o["hostaway"]["annules"],
+        "justifies": interne + externe,
+        "justifies_internes": interne,
+        "justifies_externes": externe,
+        "a_controler_lignes": len(lignes),
+        "a_controler_menages": int(sum(abs(v["ecart"] or 0) for v in lignes)),
+        "a_controler_sans_declaration": sum(
+            1 for v in lignes if not (v["interne_declare"] or v["externe_facture"])),
+    }
 
 
 def load_summary(mois: str = "") -> dict[str, Any]:

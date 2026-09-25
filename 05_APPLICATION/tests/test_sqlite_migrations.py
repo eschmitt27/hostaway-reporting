@@ -4,6 +4,9 @@ from app.db.connection import apply_migrations, get_db
 from app.services import ref_setup_catalogue as _CATALOGUE_SETUP
 
 EXPECTED_TABLES = {
+    # 0110 — actualisation Ménages par GitHub, réouvertures de mois ; 0111 — paramètres société
+    "menages_actualisations_hostaway", "mois_reouvertures",
+    "parametres_societe_facturation", "parametres_societe_facturation_historique",
     "schema_migrations",
     "audit_events",
     "pipeline_runs",

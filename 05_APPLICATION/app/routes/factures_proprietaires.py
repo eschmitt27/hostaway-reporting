@@ -43,26 +43,31 @@ def _repertoire_documents() -> Path:
 
 
 def _emetteur() -> dict:
-    """Identité de la société émettrice. Absente en recette : la facture reste alors BROUILLON.
+    """Identité de la société émettrice, lue à LA source canonique (`facturation_config_service`,
+    elle-même adossée aux paramètres administrés en base).
+
+    Cette fonction lisait auparavant `app.config.SOCIETE_*` pendant que le contrôle de conformité
+    lisait `facturation_config_service` : deux lectures d'une même donnée, qui pouvaient diverger.
 
     `siren` et `siret` sont DEUX champs distincts, jamais interchangeables : le SIREN identifie
     l'entreprise (9 chiffres), le SIRET un établissement (14 = SIREN + NIC). Chacun n'est imprimé
     que sous sa propre étiquette, et aucun n'est déduit de l'autre.
     """
+    em = fconf.emetteur()
     return {
-        "nom": getattr(cfg, "SOCIETE_NOM", ""),
-        "adresse": getattr(cfg, "SOCIETE_ADRESSE", ""),
-        "siret": getattr(cfg, "SOCIETE_SIRET", ""),
-        "siren": getattr(cfg, "SOCIETE_SIREN", ""),
+        "nom": em["denomination"],
+        "adresse": em["adresse_siege"],
+        "siret": em["siret"],
+        "siren": em["siren"],
         # Même règle de présentation que le document : le numéro est stocké brut et formaté à
         # l'affichage. Deux formatages différents à l'écran et sur le PDF feraient douter du numéro.
-        "siren_lisible": pdf._siren_lisible(getattr(cfg, "SOCIETE_SIREN", "")),
-        "forme_juridique": getattr(cfg, "SOCIETE_FORME_JURIDIQUE", ""),
-        "capital": getattr(cfg, "SOCIETE_CAPITAL", ""),
-        "rcs": getattr(cfg, "SOCIETE_RCS", ""),
-        "tva_intra": getattr(cfg, "SOCIETE_TVA_INTRA", ""),
-        "contact": getattr(cfg, "SOCIETE_CONTACT", ""),
-        "coordonnees_paiement": getattr(cfg, "SOCIETE_COORDONNEES_PAIEMENT", ""),
+        "siren_lisible": pdf._siren_lisible(em["siren"]),
+        "forme_juridique": em["forme_juridique"],
+        "capital": em["capital"],
+        "rcs": em["rcs"],
+        "tva_intra": em["tva_intra"],
+        "contact": em["contact"],
+        "coordonnees_paiement": em["coordonnees_paiement"],
     }
 
 

@@ -89,45 +89,43 @@
     aucune facture n'est créée tant que ce réglage reste inactif.
   </div>
   {% endif %}
-  {% if act.en_cours %}
-  <div class="alert alert-info">Une actualisation est déjà en cours.</div>
-  {% endif %}
-  {% if actualisation_terminee %}
-  {# Message affiché APRÈS un traitement réellement terminé — le workflow est synchrone, donc
-     l'écran ci-dessous reflète déjà son résultat. Les lignes viennent du service, jamais d'ici.
-     UNIQUEMENT si les trois sources ET tous les mois ciblés ont réellement réussi (mission §8) :
-     un statut PARTIEL/ECHEC n'emprunte jamais ce message. #}
-  <div class="alert alert-success">
-    <strong>Rapprochement actualisé.</strong>
-    <ul>{% for ligne in resume_actualisation %}<li>{{ ligne }}</li>{% endfor %}</ul>
+  {# Actualisation ASYNCHRONE : le clic enregistre la demande et rend la main ; l'état est relu
+     toutes les 4 secondes. Aucun vocabulaire technique : l'utilisateur voit l'étape, pas le
+     mécanisme. Le message final est celui du service (`menages_hostaway_github_service.MESSAGES`). #}
+  {% set rf = refresh %}
+  {% set rf_actif = rf and not rf.termine %}
+  <div id="menages-refresh" data-refresh-id="{{ rf.refresh_id if rf else '' }}"
+       data-mois="{{ data.mois }}" data-termine="{{ '1' if (not rf or rf.termine) else '0' }}">
+    {% if rf and rf.termine and request.query_params.get("refresh") == rf.refresh_id %}
+    <div class="alert {{ 'alert-success' if rf.succes else ('alert-warning' if rf.etat == 'ANNULE' else 'alert-danger') }}">
+      <strong>{{ rf.message }}</strong>
+      {% set details = rf.resume | reject("equalto", rf.message) | list %}
+      {% if details %}<ul>{% for ligne in details %}<li>{{ ligne }}</li>{% endfor %}</ul>{% endif %}
+    </div>
+    {% endif %}
+    {% if rf_actif %}
+    <div class="alert alert-info" id="menages-refresh-etape">
+      <strong>Actualisation en cours…</strong>
+      <span id="menages-refresh-libelle">{{ rf.libelle if rf_actif else '' }}</span>
+      <ol class="text-xs">
+        {% for code, lib in [("LANCEMENT", "Lancement"), ("EN_ATTENTE", "En attente"),
+                             ("EXTRACTION", "Extraction"), ("RECUPERATION", "Récupération"),
+                             ("RAPPROCHEMENT", "Rapprochement")] %}
+        <li data-etape="{{ code }}" {% if rf_actif and rf.etat == code %}style="font-weight:700"{% endif %}>{{ lib }}</li>
+        {% endfor %}
+      </ol>
+    </div>
+    {% endif %}
   </div>
-  {% elif actualisation_partielle %}
-  <div class="alert alert-warning">
-    <strong>Actualisation partielle.</strong> Une source a échoué, le reste a été actualisé.
-    <ul>{% for ligne in resume_actualisation %}<li>{{ ligne }}</li>{% endfor %}</ul>
-  </div>
-  {% elif actualisation_echec %}
-  <div class="alert alert-danger">
-    <strong>L'actualisation n'a pas abouti.</strong>
-    <ul>{% for ligne in resume_actualisation %}<li>{{ ligne }}</li>{% endfor %}</ul>
-  </div>
-  {% endif %}
   {% if changements_clotures %}
-  {# Une ligne par événement donnait dix lignes pour quatre mois. Ce qui appelle une décision,
-     c'est le nombre de MOIS concernés ; le détail reste à un clic. #}
+  {# Ce qui appelle une décision, c'est le nombre de MOIS concernés ; le détail et la décision
+     (rouvrir, ou classer sans rouvrir) vivent sur leur propre écran. #}
   {% set mois_clotures = changements_clotures|map(attribute='mois')|unique|list %}
   <div class="alert alert-warning">
     <strong>{{ mois_clotures|length }} mois clôturé{{ 's' if mois_clotures|length > 1 }}
     {{ 'ont' if mois_clotures|length > 1 else 'a' }} reçu de nouvelles données — aucun recalcul
     effectué.</strong>
-    <details class="mt-sm">
-      <summary class="text-xs">Voir le détail</summary>
-      <ul class="text-xs">
-        {% for c in changements_clotures %}
-        <li>{{ c.mois }} · {{ c.origine }} · {{ c.date_detection }}</li>
-        {% endfor %}
-      </ul>
-    </details>
+    <a href="/menages/mois-clotures" class="btn btn-secondary btn-sm">Voir le détail</a>
   </div>
   {% endif %}
 
@@ -137,11 +135,45 @@
                     b.disabled=true; b.textContent='Actualisation en cours…';">
       <input type="hidden" name="mois" value="{{ data.mois }}">
       <button type="submit" class="btn btn-primary" id="btn-actualiser-menages"
-              {{ "disabled" if act.en_cours }}>
-        {{ "Actualisation en cours…" if act.en_cours else "Actualiser le rapprochement" }}
+              {{ "disabled" if (rf_actif or act.en_cours) }}>
+        {{ "Actualisation en cours…" if (rf_actif or act.en_cours) else "Actualiser les ménages" }}
       </button>
     </form>
   </div>
+  <script>
+  (function () {
+    var bloc = document.getElementById('menages-refresh');
+    if (!bloc || bloc.dataset.termine === '1' || !bloc.dataset.refreshId) return;
+    var id = bloc.dataset.refreshId, mois = bloc.dataset.mois;
+    var ordre = ['LANCEMENT', 'EN_ATTENTE', 'EXTRACTION', 'RECUPERATION', 'RAPPROCHEMENT'];
+    function afficher(e) {
+      document.getElementById('menages-refresh-libelle').textContent = e.libelle || '';
+      var rang = ordre.indexOf(e.etat);
+      document.querySelectorAll('#menages-refresh-etape li').forEach(function (li) {
+        var r = ordre.indexOf(li.dataset.etape);
+        li.style.fontWeight = r === rang ? '700' : '400';
+        li.style.opacity = r > rang ? '0.5' : '1';
+      });
+    }
+    function interroger() {
+      fetch('/menages/actualisation/etat?refresh_id=' + encodeURIComponent(id),
+            {headers: {'Accept': 'application/json'}})
+        .then(function (r) { return r.json(); })
+        .then(function (e) {
+          if (!e || !e.etat) { return; }
+          if (e.termine) {
+            window.location = '/menages?mois=' + encodeURIComponent(mois) +
+                              '&refresh=' + encodeURIComponent(id);
+            return;
+          }
+          afficher(e);
+          setTimeout(interroger, 4000);
+        })
+        .catch(function () { setTimeout(interroger, 4000); });
+    }
+    setTimeout(interroger, 1500);
+  })();
+  </script>
   {# §14 — les outils de diagnostic (recette sur copies, chaîne complète, diagnostic du pipeline,
      noms de lots) ne sont plus exposés ici : ils vivent dans Observabilité & outils. Un écran
      métier n'est pas un banc de test. #}
@@ -163,10 +195,10 @@
 <div class="alert {% if dp.etat == 'A_JOUR' and not (ha and ha.en_echec) %}alert-info{% else %}alert-warning{% endif %}">
   {% if dp.etat == "JAMAIS_IMPORTE" %}
     <strong>Données Hostaway jamais synchronisées</strong> sur cette installation —
-    lancez « Actualiser le rapprochement ».
+    lancez « Actualiser les ménages ».
   {% elif dp.etat == "RETARD" %}
     <strong>Données Hostaway plus récentes disponibles</strong>{% if dp.publie_le %}
-      ({{ dp.publie_le|datetime_fr }}){% endif %} — lancez « Actualiser le rapprochement ».
+      ({{ dp.publie_le|datetime_fr }}){% endif %} — lancez « Actualiser les ménages ».
   {% elif ha and ha.en_echec %}
     <strong>Actualisation incomplète</strong> — les chiffres Hostaway datent du
     {{ dp.source_produite_le|datetime_fr if dp.source_produite_le else "dernier relevé connu" }}.
@@ -185,38 +217,9 @@
 </div>
 {% endif %}
 
-<!-- ===== Factures de ménage externes (PDF) ===== -->
-{% set rap = actualisation.pdf.rapprochement %}
-{% if rap %}
-<div class="card mb-md">
-  <h2 class="card-title">Factures de ménage externes</h2>
-  {# §20 — un rapprochement explicite, au lieu de deux nombres justes mis côte à côte : « 7
-     reconnues » face à « 8 fichiers » n'apprenait rien, puisque ces 7 comptaient 2 fichiers
-     retirés du dossier et que 3 fichiers présents ne produisaient aucune facture. #}
-  <p>
-    <strong>{{ rap.presents }}</strong> fichier{{ 's' if rap.presents > 1 }} dans le dossier ·
-    <strong>{{ rap.rattaches }}</strong> rattaché{{ 's' if rap.rattaches > 1 }} à une facture
-    {%- if rap.non_exploites %} · <strong>{{ rap.non_exploites|length }}</strong> non exploité
-    {{- 's' if rap.non_exploites|length > 1 }}{% endif %}
-  </p>
-  {% if rap.non_exploites %}
-  <details class="text-xs text-secondary">
-    <summary>Fichiers non exploités</summary>
-    <ul>{% for f in rap.non_exploites %}
-      <li><span class="font-mono">{{ f.fichier }}</span> — {{ f.motif }}</li>
-    {% endfor %}</ul>
-  </details>
-  {% endif %}
-  {% if rap.factures_sans_fichier %}
-  <div class="alert alert-warning mt-sm">
-    <strong>{{ rap.factures_sans_fichier|length }} facture{{ 's' if rap.factures_sans_fichier|length > 1 }}
-    dont le PDF n'est plus dans le dossier.</strong>
-    Ouvrez la facture pour la supprimer si elle n'a plus lieu d'être :
-    <span class="font-mono text-xs">{{ rap.factures_sans_fichier|join(', ') }}</span>
-  </div>
-  {% endif %}
-</div>
-{% endif %}
+{# Le bloc « Factures de ménage externes — N fichiers · N rattachés » a quitté cet écran : c'est un
+   état du dossier de dépôt, pas une information de pilotage. Le rapprochement fichiers / factures
+   reste calculé (`menages_service.rapprochement_pdf_base`) et consultable dans Observabilité. #}
 
 {% if liste.status != "OK" %}
 <div class="alert alert-error">
@@ -227,51 +230,51 @@
 </div>
 {% else %}
 
-{% if origines %}
-<!-- ===== Ménages attendus, par ORIGINE (§38) ===== -->
+{% set k = indicateurs %}
+{% if k %}
+<!-- ===== Trois indicateurs, une seule unité : le ménage ===== -->
 <div class="card mb-md">
-  <h2 class="card-title">Ménages attendus — {{ origines.total_attendus }}</h2>
-  <div class="kpi-grid kpi-grid--2" style="margin-top:var(--stack-md)">
+  <h2 class="card-title">Ménages — {{ data.mois_libelle or data.mois }}</h2>
+  <p class="text-xs text-secondary">
+    Périmètre : tous les logements, ménages dont la date tombe dans le mois.
+    Les ménages annulés ({{ k.annules }}) ne sont pas attendus.
+  </p>
+  <div class="kpi-grid kpi-grid--3" style="margin-top:var(--stack-md)">
     <div class="kpi-card">
-      <div class="kpi-label">{{ origines.hostaway.libelle }}</div>
-      <div class="kpi-value">{{ origines.hostaway.attendus }}</div>
-      <div class="kpi-sub">{{ origines.hostaway.source }}</div>
-      {% if origines.hostaway.etats %}
-      <details class="text-xs text-secondary mt-sm">
-        <summary>Détail par état</summary>
-        {% for e in origines.hostaway.etats %}
-          {{ e.libelle }} : <strong>{{ e.nb }}</strong>{% if not loop.last %} · {% endif %}
-        {% endfor %}
-      </details>
-      {% endif %}
+      <div class="kpi-label">Attendus</div>
+      <div class="kpi-value">{{ k.attendus }}</div>
+      <div class="kpi-sub">
+        {{ k.attendus_hostaway }} Hostaway ({{ k.realises }} réalisé{{ 's' if k.realises > 1 }},
+        {{ k.a_venir }} à venir){% if k.attendus_hors_hostaway %} ·
+        {{ k.attendus_hors_hostaway }} hors Hostaway{% endif %}
+      </div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-label">{{ origines.hors_hostaway.libelle }}</div>
-      <div class="kpi-value">{{ origines.hors_hostaway.attendus }}</div>
-      <div class="kpi-sub">{{ origines.hors_hostaway.source }}</div>
+      <div class="kpi-label">Réalisés / justifiés</div>
+      <div class="kpi-value">{{ k.realises }} / {{ k.justifies }}</div>
+      <div class="kpi-sub">
+        {{ k.realises }} réalisé{{ 's' if k.realises > 1 }} ·
+        {{ k.justifies }} justifié{{ 's' if k.justifies > 1 }}
+        ({{ k.justifies_internes }} déclaré{{ 's' if k.justifies_internes > 1 }} en interne,
+        {{ k.justifies_externes }} facturé{{ 's' if k.justifies_externes > 1 }} en externe)
+      </div>
+    </div>
+    <div class="kpi-card {% if k.a_controler_lignes %}kpi-card--warn{% endif %}">
+      <div class="kpi-label">À contrôler</div>
+      <div class="kpi-value">{{ k.a_controler_lignes }}</div>
+      <div class="kpi-sub">
+        {% if k.a_controler_lignes %}
+        ligne{{ 's' if k.a_controler_lignes > 1 }} logement × intervenant ·
+        {{ k.a_controler_menages }} ménage{{ 's' if k.a_controler_menages > 1 }} d'écart
+        {% if k.a_controler_sans_declaration == k.a_controler_lignes %}— aucune déclaration ni
+        facture reçue pour ces lignes{% endif %}
+        · <a href="/menages/a-controler?mois={{ data.mois }}">Ouvrir la liste</a>
+        {% else %}Aucun écart{% endif %}
+      </div>
     </div>
   </div>
 </div>
 {% endif %}
-
-<!-- ===== Cartes de synthèse — 4 flux jamais fusionnés ===== -->
-<div class="kpi-grid kpi-grid--3">
-  <div class="kpi-card">
-    <div class="kpi-label">Internes déclarés</div>
-    <div class="kpi-value">{{ s.interne_declare if s.interne_declare is not none else "—" }}</div>
-    <div class="kpi-sub">M04</div>
-  </div>
-  <div class="kpi-card">
-    <div class="kpi-label">Externes facturés</div>
-    <div class="kpi-value">{{ s.externe_facture if s.externe_facture is not none else "—" }}</div>
-    <div class="kpi-sub">Factures de ménage externes</div>
-  </div>
-  <div class="kpi-card {% if s.a_controler %}kpi-card--warn{% endif %}">
-    <div class="kpi-label">Écarts à contrôler</div>
-    <div class="kpi-value">{{ s.a_controler }}</div>
-    <div class="kpi-sub"><a href="/menages/a-controler?mois={{ data.mois }}">Ouvrir la liste</a></div>
-  </div>
-</div>
 
 {% if s.sources_manquantes %}
 <div class="alert alert-warning mt-md">

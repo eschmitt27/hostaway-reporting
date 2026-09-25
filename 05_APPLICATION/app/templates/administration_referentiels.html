@@ -10,6 +10,15 @@
 {% if message %}<div class="alert alert-success mb-md">{{ message }}</div>{% endif %}
 {% if erreur %}<div class="alert alert-danger mb-md">{{ erreur }}</div>{% endif %}
 
+<div class="card mb-lg">
+  <h2 class="card-title">Paramètres société &amp; facturation</h2>
+  <p class="text-xs text-secondary">
+    Identité légale, contact, régime de TVA, délai de paiement et mentions imprimées sur les
+    factures. Administrés ici, historisés ; une facture déjà émise garde ses propres valeurs.
+  </p>
+  <a href="/administration/societe-facturation" class="btn btn-secondary">Ouvrir les paramètres</a>
+</div>
+
 {% if not disponible %}
 <div class="alert alert-warning mb-lg">
   Référentiel non initialisé : aucune donnée de paramétrage n'a encore été importée.

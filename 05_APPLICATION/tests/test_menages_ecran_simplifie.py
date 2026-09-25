@@ -84,15 +84,16 @@ def test_une_facture_dont_le_pdf_a_disparu_est_signalee(base):
     assert rap["factures_sans_fichier"] == ["Facture juillet Aissata.pdf"]
 
 
-def test_l_ecran_publie_le_rapprochement_et_non_deux_nombres_opposes(client):
+def test_le_bloc_technique_du_dossier_a_quitte_l_ecran_menages(client, base):
+    """Mission 1 (1M) : « N fichiers dans le dossier · N rattachés » est un état du dossier de
+    dépôt, pas une information de pilotage. Il quitte l'écran Ménages ; le rapprochement reste
+    calculé (tests ci-dessus) et consultable dans Observabilité."""
     page = client.get("/menages")
     assert page.status_code == 200
-    assert "<strong>3</strong> fichiers dans le dossier" in page.text
-    assert "<strong>1</strong> rattaché à une facture" in page.text
-    assert "<strong>2</strong> non exploité" in page.text
-    assert "dont le PDF n'est plus dans le dossier" in page.text
-    # Les deux nombres incomparables d'avant ne doivent plus être mis face à face.
+    assert "fichiers dans le dossier" not in page.text
+    assert "rattaché à une facture" not in page.text
     assert "fichier(s) dans le dossier" not in page.text
+    assert svc.charger_etat_actualisation(db_path=base)["pdf"]["rapprochement"]["presents"] == 3
 
 
 # ── La période affichée est celle des compteurs ─────────────────────────────────────────────────
@@ -104,11 +105,13 @@ def test_les_menages_attendus_portent_sur_la_periode_affichee(client, monkeypatc
 
     recus = []
     monkeypatch.setattr(route_menages.origines_svc, "origines",
-                        lambda mois, logement_id=None: recus.append(mois) or {})
+                        lambda mois, logement_id=None, **k: recus.append(mois)
+                        or route_menages.origines_svc._vide(mois, ""))
     monkeypatch.setattr(svc, "periode_par_defaut", lambda: "2026-05")
 
     client.get("/menages")
-    assert recus == ["2026-05"], "le comptage doit recevoir la période réellement affichée"
+    # Deux lecteurs du même périmètre (bloc des origines, indicateurs) : tous sur la période.
+    assert recus and set(recus) == {"2026-05"}, "le comptage doit recevoir la période affichée"
 
 
 # ── §17 : le technique est déplacé, pas seulement supprimé ──────────────────────────────────────

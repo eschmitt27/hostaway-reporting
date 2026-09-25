@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Paramètres société & facturation{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Paramètres société &amp; facturation</h1>
+  <p class="page-subtitle">
+    Ce que chaque facture imprime : identité de la société, contact, régime de TVA et conditions de
+    règlement. Un champ vide reste vide — rien n'est complété automatiquement.
+  </p>
+  <a href="/administration/referentiels" class="btn btn-secondary btn-sm">← Administration</a>
+</div>
+
+{% if message %}<div class="alert alert-success mb-md">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-danger mb-md">{{ erreur }}</div>{% endif %}
+
+{% if jamais_enregistres %}
+<div class="alert alert-warning mb-md">
+  <strong>{{ jamais_enregistres|length }} paramètre{{ 's' if jamais_enregistres|length > 1 }}
+  jamais enregistré{{ 's' if jamais_enregistres|length > 1 }} ici.</strong>
+  {% if depuis_environnement %}
+  {{ depuis_environnement|length }} d'entre eux sont encore lus depuis l'ancienne configuration
+  (fichier d'environnement). Enregistrez-les ici — ou reprenez-les en une fois — pour qu'il n'existe
+  plus qu'une seule source.
+  {% endif %}
+  <form method="post" action="/administration/societe-facturation/reprendre" class="mt-sm">
+    <button type="submit" class="btn btn-secondary btn-sm">Reprendre l'ancienne configuration</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="card mb-md">
+  <h2 class="card-title">Ce qui sera imprimé</h2>
+  <p class="text-sm">
+    Régime : <strong>{{ apercu.regime or "non confirmé" }}</strong>
+    {% if apercu.mention %} · Mention : « {{ apercu.mention }} »{% endif %}
+    · TVA appliquée : <strong>{{ apercu.taux }} %</strong><br>
+    Règlement : <strong>{{ apercu.conditions or "non configuré — l'échéance ne peut pas être calculée" }}</strong>
+    {% if apercu.delai == 0 %}(échéance = date d'émission){% endif %}
+  </p>
+</div>
+
+<form method="post" action="/administration/societe-facturation">
+  {% for section in sections %}
+  <div class="card mb-md">
+    <h2 class="card-title">{{ section.titre }}</h2>
+    {% for c in section.champs %}
+    <div style="margin-bottom:12px">
+      <label for="{{ c.cle }}" style="display:block"><strong>{{ c.libelle }}</strong>
+        {% if c.origine == "ENVIRONNEMENT" %}<span class="badge badge-warning">ancienne configuration</span>
+        {% elif c.origine == "NON_CONFIGURE" %}<span class="badge badge-neutral">non configuré</span>{% endif %}
+      </label>
+      {% if c.type == "regime" %}
+      <select class="input" id="{{ c.cle }}" name="{{ c.cle }}">
+        <option value="" {% if not c.valeur %}selected{% endif %}>— non renseigné —</option>
+        {% for r in regimes %}
+        <option value="{{ r.code }}" {% if c.valeur == r.code %}selected{% endif %}>{{ r.libelle }}</option>
+        {% endfor %}
+      </select>
+      {% elif c.type == "multiligne" %}
+      {# Contenu collé à la balise : HTML ignore un premier saut de ligne après <textarea>. #}
+      <textarea class="input" id="{{ c.cle }}" name="{{ c.cle }}" rows="3" style="width:100%">{{ c.valeur or "" }}</textarea>
+      {% else %}
+      <input class="input" id="{{ c.cle }}" name="{{ c.cle }}" value="{{ c.valeur or '' }}" style="width:100%"
+             {% if c.type == "entier" %}inputmode="numeric"{% endif %}>
+      {% endif %}
+      {% if c.aide %}<div class="text-xs text-secondary">{{ c.aide }}</div>{% endif %}
+      {% if c.maj_le %}<div class="text-xs text-secondary">Modifié le {{ c.maj_le|datetime_fr }} par {{ c.maj_par }}</div>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+
+  <div class="card mb-md">
+    <label style="display:block"><strong>Votre nom</strong> (obligatoire)
+      <input class="input" name="acteur" required style="width:100%"></label>
+    <label style="display:block;margin-top:8px"><strong>Motif</strong> (facultatif)
+      <input class="input" name="motif" style="width:100%"></label>
+    <p class="text-xs text-secondary mt-sm">
+      Une facture déjà émise n'est jamais modifiée : elle conserve les valeurs figées à son émission.
+    </p>
+    <button type="submit" class="btn btn-primary mt-sm">Enregistrer</button>
+  </div>
+</form>
+
+{% if historique %}
+<div class="card">
+  <h2 class="card-title">Dernières modifications</h2>
+  <table class="data-table">
+    <thead><tr><th>Date</th><th>Paramètre</th><th>Avant</th><th>Après</th><th>Par</th><th>Motif</th></tr></thead>
+    <tbody>
+      {% for h in historique %}
+      <tr><td class="text-xs">{{ h.modifie_le|datetime_fr }}</td><td class="text-xs">{{ libelles.get(h.cle, h.cle) }}</td>
+          <td class="text-xs">{{ h.ancienne_valeur if h.ancienne_valeur is not none else "—" }}</td>
+          <td class="text-xs">{{ h.nouvelle_valeur if h.nouvelle_valeur is not none else "—" }}</td>
+          <td class="text-xs">{{ h.modifie_par }}</td><td class="text-xs">{{ h.motif or "" }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

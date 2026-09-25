@@ -16,7 +16,6 @@ from app.services import reglements_fournisseurs_service as reg
 from app.services import fournisseurs_referentiel_service as frs
 from app.services import factures_banque_service as pont
 from app.services import factures_controles_service as controles
-from app.services import factures_import_service as imp
 
 router = APIRouter()
 templates = get_templates()
@@ -144,33 +143,61 @@ def factures_list(request: Request, statut: str = "", fournisseur: str = "", moi
 
 @router.get("/factures/referentiel-logements.json")
 def factures_referentiel_logements():
-    """Le référentiel des logements, à donner à l'outil qui rédige les MD (hors application).
-
-    `referentiel_version` est l'empreinte du contenu : deux exports identiques portent la même
-    version, et un MD écrit avec une version antérieure se signale tout seul.
-    """
-    from fastapi.responses import Response
-    from app.services import referentiel_logements_export_service as ref_export
-
-    contenu = ref_export.exporter_json()
-    return Response(contenu, media_type="application/json", headers={
-        "Content-Disposition": f'attachment; filename="{ref_export.NOM_FICHIER}"'})
+    """Ancienne adresse de l'export du référentiel : il vit désormais sous « Exporter les données ».
+    Même générateur, même contrat `REFERENTIEL_LOGEMENTS_V1` — seule l'adresse a changé."""
+    return RedirectResponse("/exports/referentiel-logements.json", status_code=307)
 
 
 @router.post("/factures/recharger")
-def factures_recharger():
-    """Relit le DOSSIER de dépôt : importe les nouveaux PDF, retire les factures À CONTRÔLER dont
-    le PDF a disparu, conserve les factures validées, et signale les doublons exacts."""
+async def factures_recharger(request: Request):
+    """« Actualiser les factures » — L'UNIQUE import des factures fournisseurs.
+
+    Relit le DOSSIER de dépôt (nouveaux PDF, MD structurés, versions, interprétation, lignes,
+    factures à contrôler dont le PDF a disparu, doublons). Les pièces éventuellement jointes au
+    formulaire sont d'abord POSÉES dans ce dossier, puis suivent exactement le même chemin : il n'y a
+    pas de second importeur.
+    """
+    import asyncio
+
     from app.services import menages_pdf_import_service as pdf_import
 
-    res = pdf_import.recharger(acteur="interface")
-    message = (f"{res['nb_presents']} PDF dans le dossier · {res['nb_importees']} importée(s) · "
-               f"{res['nb_supprimees']} facture(s) à contrôler retirée(s) (PDF absent) · "
-               f"{res['nb_conservees']} facture(s) validée(s) conservée(s)")
+    form = await request.form()
+    deposes, refuses = [], []
+    for fichier in form.getlist("pieces"):
+        if not getattr(fichier, "filename", ""):
+            continue
+        res = pdf_import.deposer(fichier.filename, await fichier.read())
+        (deposes if res["ok"] else refuses).append(res)
+    res = await asyncio.to_thread(pdf_import.recharger, acteur="interface")
+    message = (f"Factures actualisées : {res['nb_importees']} nouvelle(s)"
+               + (f", {res['nb_remplacees']} remplacée(s)" if res.get("nb_remplacees") else "")
+               + (f", {len(res.get('interpretations_changees') or [])} relue(s)"
+                  if res.get("interpretations_changees") else "")
+               + (f", {res['nb_supprimees']} à contrôler retirée(s) (PDF absent du dossier)"
+                  if res["nb_supprimees"] else "")
+               + f" · {res['nb_presents']} PDF dans le dossier.")
+    if deposes:
+        message += f" {sum(1 for d in deposes if d.get('depose'))} pièce(s) déposée(s)."
     if res["doublons"]:
-        message += f" · {len(res['doublons'])} doublon(s) de fichier à trancher"
-    cle = "erreur" if not res["ok"] else "message"
+        message += f" {len(res['doublons'])} doublon(s) de fichier à trancher."
+    if refuses:
+        message += " Pièces refusées : " + "; ".join(f"{r['nom']} ({r['message']})"
+                                                       for r in refuses) + "."
+    cle = "erreur" if (not res["ok"] or refuses) else "message"
     return RedirectResponse(f"/factures?{cle}={quote(message)}", status_code=303)
+
+
+# Une facture fournisseur provient TOUJOURS d'une pièce importée (décision métier). Les anciennes
+# entrées — saisie manuelle, import par prévisualisation — ne créent plus rien ; leur adresse répond
+# par un message au lieu d'une erreur, et l'historique des factures déjà créées reste lisible.
+MESSAGE_PIECE_OBLIGATOIRE = (
+    "Une facture fournisseur provient toujours d'une pièce importée : déposez le PDF (et son MD "
+    "éventuel) puis cliquez « Actualiser les factures ».")
+
+
+def _vers_liste_avec_message():
+    return RedirectResponse(f"/factures?message={quote(MESSAGE_PIECE_OBLIGATOIRE)}",
+                            status_code=303)
 
 
 @router.get("/factures/a-payer", response_class=HTMLResponse)
@@ -197,78 +224,35 @@ def factures_controles(request: Request, severite: str = ""):
     })
 
 
-@router.get("/factures/importer", response_class=HTMLResponse)
-def facture_importer_form(request: Request, message: str = "", erreur: str = ""):
-    return templates.TemplateResponse(request, "factures_importer.html", {
-        "active_menu": "factures", "fournisseurs": _fournisseurs_actifs(),
-        "ecriture_active": _ecriture_active(), "message": message, "erreur": erreur,
-    })
+@router.get("/factures/importer")
+def facture_importer_form():
+    return _vers_liste_avec_message()
 
 
 @router.post("/factures/importer/previsualiser")
-async def facture_importer_previsualiser(request: Request):
-    form = await request.form()
-    fichier = form.get("fichier")
-    if fichier is None or not getattr(fichier, "filename", ""):
-        return RedirectResponse(url="/factures/importer?erreur=Aucun fichier sélectionné.",
-                                status_code=303)
-    contenu = await fichier.read()
-    res = imp.previsualiser(contenu, fichier.filename,
-                            fournisseur_id_opaque=str(form.get("fournisseur_id_opaque", "") or ""))
-    if not res.get("ok"):
-        return RedirectResponse(url=f"/factures/importer?erreur={res.get('message')}",
-                                status_code=303)
-    return RedirectResponse(url=f"/factures/importer/previsualisation/{res['token']}",
-                            status_code=303)
+def facture_importer_previsualiser():
+    return _vers_liste_avec_message()
 
 
-@router.get("/factures/importer/previsualisation/{token}", response_class=HTMLResponse)
-def facture_importer_previsualisation(request: Request, token: str, erreur: str = ""):
-    manifest = imp.charger_manifest(token)
-    if manifest is None:
-        return templates.TemplateResponse(request, "factures_importer_previsualisation.html", {
-            "active_menu": "factures", "manifest": None, "token": token,
-        }, status_code=404)
-    return templates.TemplateResponse(request, "factures_importer_previsualisation.html", {
-        "active_menu": "factures", "manifest": manifest, "token": token,
-        "fournisseurs": _fournisseurs_actifs(), "ecriture_active": _ecriture_active(),
-        "erreur": erreur,
-    })
+@router.get("/factures/importer/previsualisation/{token}")
+def facture_importer_previsualisation(token: str):
+    return _vers_liste_avec_message()
 
 
 @router.post("/factures/importer/confirmer/{token}")
-async def facture_importer_confirmer(request: Request, token: str):
-    form = dict(await request.form())
-    corrections = {k: v for k, v in form.items() if k != "acteur"}
-    res = imp.confirmer(token, corrections, acteur=str(form.get("acteur", "") or "local"))
-    if not res.get("ok"):
-        msgs = "; ".join(e["message"] for e in res.get("erreurs", [])) or res.get("message", "")
-        return RedirectResponse(
-            url=f"/factures/importer/previsualisation/{token}?erreur={msgs}", status_code=303)
-    return RedirectResponse(
-        url=f"/factures/{res['facture_id_opaque']}?message=Facture importée depuis le PDF.",
-        status_code=303)
+def facture_importer_confirmer(token: str):
+    return _vers_liste_avec_message()
 
 
-@router.get("/factures/nouvelle", response_class=HTMLResponse)
-def facture_nouvelle(request: Request, erreur: str = ""):
-    return templates.TemplateResponse(request, "factures_nouvelle.html", {
-        "active_menu": "factures", "fournisseurs": _fournisseurs_actifs(),
-        "ecriture_active": _ecriture_active(), "erreur": erreur,
-    })
+@router.get("/factures/nouvelle")
+def facture_nouvelle():
+    return _vers_liste_avec_message()
 
 
 @router.post("/factures")
-async def facture_creer(request: Request):
-    form = dict(await request.form())
-    fid = str(form.get("fournisseur_id_opaque", "") or "")
-    actif = any(f["fournisseur_id_opaque"] == fid for f in _fournisseurs_actifs()) if fid else None
-    res = svc.creer(form, acteur=str(form.get("acteur", "") or "local"), fournisseur_actif=actif)
-    if not res.get("ok"):
-        msgs = "; ".join(e["message"] for e in res.get("erreurs", [])) or res.get("message", "")
-        return RedirectResponse(url=f"/factures/nouvelle?erreur={msgs}", status_code=303)
-    return RedirectResponse(url=f"/factures/{res['facture_id_opaque']}?message=Facture enregistrée.",
-                            status_code=303)
+def facture_creer():
+    """Plus aucune création manuelle par la route publique : rien n'est lu, rien n'est écrit."""
+    return _vers_liste_avec_message()
 
 
 def _interpretation(opaque: str) -> dict:

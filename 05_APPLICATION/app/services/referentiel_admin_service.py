@@ -652,7 +652,8 @@ def motif_classe(table: str) -> str:
 URLS_PARCOURS: dict[str, str] = {
     "ref_mapping_logements": "/correspondances-logement",
     "ref_cloture_mensuelle": "/clotures",
-    "ref_couts_standards_menage": "/referentiel/couts-menage",
+    # Le changement de coût se fait sur la fiche du référentiel elle-même (formulaire daté).
+    "ref_couts_standards_menage": "/administration/referentiels/ref_couts_standards_menage",
 }
 
 

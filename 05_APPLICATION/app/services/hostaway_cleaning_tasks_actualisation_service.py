@@ -222,6 +222,79 @@ def _actualiser_depuis_depot(*, declencheur: str, date_from: str, db_path) -> di
             **resultat_cloture}
 
 
+class _SourceTachesFournies:
+    """Présente une liste de tâches déjà lue comme un client `/v1/tasks` : `extraire_cleaning_tasks`
+    applique alors EXACTEMENT la même normalisation que pour l'API et le dépôt."""
+
+    def __init__(self, taches: list[dict]) -> None:
+        self._taches = taches
+
+    def get_tasks(self, date_from: str) -> list:     # noqa: ARG002 — même contrat que le dépôt
+        return list(self._taches)
+
+
+E_ARTIFACT_INVALIDE = "HOSTAWAY_CLEANING_TASKS_ARTIFACT_INVALIDE"
+
+
+def preparer_depuis_artifact(octets: bytes, *, request_id: str, declencheur: str = DECLENCHEUR_MANUEL,
+                             date_from: str = "2026-01-01", db_path=None) -> dict[str, Any]:
+    """Tâches de l'artifact du run → MÊME lecteur TSV → MÊME normalisation → extraction EN ATTENTE.
+
+    L'extraction est écrite mais NON ACTIVE (statut `EN_COURS`) : `derniere_extraction_utilisable`
+    ne la voit pas, l'écran et les moteurs continuent de lire le dernier jeu valide. Elle ne devient
+    active que par `activer()`, une fois toute la chaîne prête — et `abandonner()` la met en échec
+    sans jamais l'avoir exposée.
+
+    Contenu identique au jeu actif : rien n'est écrit (`importe=False`), le jeu actif reste servi.
+    """
+    lib = _lib_depot()
+    try:
+        taches = lib.taches_depuis_tsv(octets)
+    except lib.FichierTachesInvalide as exc:
+        return {"ok": False, "code": E_ARTIFACT_INVALIDE, "message": str(exc)}
+    lignes, statut_extraction = extraire_cleaning_tasks(
+        _SourceTachesFournies(taches), date_from, AnomalyDetector(set()), _LogRelais())
+    if statut_extraction != "OK" or not lignes:
+        return {"ok": False, "code": E_ARTIFACT_INVALIDE,
+                "message": f"lecture {statut_extraction}, {len(lignes)} tâche(s)"}
+
+    precedente = raw.derniere_extraction_utilisable(db_path=db_path)
+    if precedente and _empreinte_contenu(lignes) == _empreinte_contenu(
+            raw.taches(extraction_id=precedente, db_path=db_path)):
+        return {"ok": True, "importe": False, "code": E_DEJA_SYNCHRONISEES,
+                "extraction_id": precedente, "nb_taches": len(lignes)}
+
+    extraction_id = raw.ouvrir(mode=raw.MODE_ARTIFACT_GITHUB, run_id=request_id, db_path=db_path)
+    if not extraction_id:
+        return {"ok": False, "code": E_MIGRATION_ABSENTE,
+                "message": "Table hostaway_cleaning_tasks_extractions absente."}
+    try:
+        raw.enregistrer(extraction_id, taches=lignes, db_path=db_path)
+    except Exception as exc:
+        raw.cloturer(extraction_id, statut=raw.ST_ECHEC, message=type(exc).__name__,
+                     db_path=db_path)
+        return {"ok": False, "code": E_ARTIFACT_INVALIDE, "message": type(exc).__name__}
+    return {"ok": True, "importe": True, "extraction_id": extraction_id, "nb_taches": len(lignes),
+            "precedente": precedente, "declencheur": declencheur}
+
+
+def activer(extraction_id: str, *, message: str = "", db_path=None) -> dict[str, Any]:
+    """L'extraction préparée devient le jeu servi (statut SUCCES)."""
+    return raw.cloturer(extraction_id, statut=raw.ST_SUCCES, message=message, db_path=db_path)
+
+
+def abandonner(extraction_id: str, *, motif: str, db_path=None) -> dict[str, Any]:
+    """L'extraction n'est pas (ou plus) servie : le jeu actif précédent redevient le dernier
+    utilisable. Rien n'est effacé — l'extraction reste lisible, en ÉCHEC, avec son motif."""
+    return raw.cloturer(extraction_id, statut=raw.ST_ECHEC, message=motif, db_path=db_path)
+
+
+def _lib_depot():
+    from app.services import hostaway_depot_service as depot
+
+    return depot._lib_depot()
+
+
 def actualiser(*, declencheur: str = DECLENCHEUR_MANUEL, date_from: str = "2026-01-01",
                db_path=None, source: str = SOURCE_DEPOT) -> dict[str, Any]:
     """Récupère les tâches ménage Hostaway (H6) et les enregistre en SQLite versionné.
