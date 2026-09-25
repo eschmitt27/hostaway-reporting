@@ -1,9 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Compte {{ position.proprietaire_id | nom_proprietaire }}{% endblock %}
 {% block content %}
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<div class="ecran">
+<a href="/comptes-proprietaires" class="back-link">&larr; Comptes propriétaires</a>
 <div class="page-header">
+  <div class="page-header__titre">
   <h1 class="page-title">Compte — {{ position.proprietaire_id | nom_proprietaire }}</h1>
   <p class="page-subtitle">Position financière, tous logements confondus.</p>
+  </div>
 </div>
 
 {% if message %}<div class="alert alert-info">{{ message }}</div>{% endif %}
@@ -27,7 +32,7 @@
             <td class="text-right">{{ "%.2f"|format(position.compensations) }} €</td></tr>
         <tr><td>Virement net à effectuer</td>
             <td class="text-right">{{ "%.2f"|format(position.virement_net) }} €</td></tr>
-        <tr><td><strong>Position nette</strong></td>
+        <tr class="ec-total"><td><strong>Position nette</strong></td>
             <td class="text-right"><strong>{{ "%.2f"|format(position.position_nette) }} €</strong></td></tr>
       </tbody>
     </table>
@@ -39,24 +44,24 @@
   </p>
   <form method="post" action="/comptes-proprietaires/{{ position.proprietaire_id }}/recalculer"
         style="margin-top: var(--stack-md);">
-    <button type="submit">Recalculer les allocations</button>
+    <button type="submit" class="btn btn-secondary">Recalculer les allocations</button>
   </form>
 </div>
 
 <div class="card">
   <div class="card-title">Factures émises</div>
   {% if logements|length > 1 %}
-  <form method="get" class="flex gap-sm items-center" style="margin-bottom:1rem">
-    <label>Logement
+  <form method="get" class="ec-filtres">
+    <label class="ec-champ"><span>Logement</span>
       <select name="logement">
         <option value="">tous</option>
         {% for l in logements %}
-        <option value="{{ l }}" {% if logement == l %}selected{% endif %}>{{ l }}</option>
+        <option value="{{ l }}" {% if logement == l %}selected{% endif %}>{{ l | nom_logement }}</option>
         {% endfor %}
       </select>
     </label>
-    <button type="submit">Filtrer</button>
-    <span class="text-sm text-secondary">Filtre d'analyse : les totaux ci-dessus restent ceux du
+    <div class="ec-filtres__actions"><button type="submit" class="btn btn-primary">Filtrer</button></div>
+    <span class="text-sm text-secondary ec-filtres__actions--large">Filtre d'analyse : les totaux ci-dessus restent ceux du
       compte entier.</span>
   </form>
   {% endif %}
@@ -74,7 +79,7 @@
           <td><code>{{ f.numero_facture or f.facture_id_opaque }}</code></td>
           <td>{{ f.logement_id | nom_logement }}</td>
           <td>{{ f.mois }}</td>
-          <td>{{ f.date_emission }}</td>
+          <td class="ec-nowrap">{{ f.date_emission|datetime_fr or f.date_emission }}</td>
           <td class="text-right">{{ "%.2f"|format(f.montant_total) }} €</td>
           <td class="text-right">{{ "%.2f"|format(f.regle) }} €</td>
           <td class="text-right">{{ "%.2f"|format(f.solde) }} €</td>
@@ -106,7 +111,7 @@
       <tbody>
         {% for s in position.sources %}
         <tr>
-          <td>{{ s.source_date }}</td>
+          <td class="ec-nowrap">{{ s.source_date|date_fr or s.source_date }}</td>
           <td>
             {% if s.source_type == 'PAIEMENT' %}<span class="badge badge-success">Paiement reçu</span>
             {% else %}<span class="badge badge-neutral">À reverser</span>{% endif %}
@@ -176,7 +181,7 @@
         {% for h in historique %}
         <tr>
           <td><code>{{ h.recalcul_id }}</code></td>
-          <td>{{ h.horodatage }}</td>
+          <td class="ec-nowrap">{{ h.horodatage|datetime_fr or h.horodatage }}</td>
           <td class="text-sm text-secondary">{{ h.declencheur }}</td>
           <td class="text-right">{{ h.nb_factures }}</td>
           <td class="text-right">{{ h.nb_sources }}</td>
@@ -195,5 +200,6 @@
   {% endif %}
 </div>
 
-<a href="/comptes-proprietaires">Retour aux comptes</a>
+<a href="/comptes-proprietaires" class="back-link">&larr; Retour aux comptes</a>
+</div>
 {% endblock %}

@@ -1,0 +1,14 @@
+{# Libellés d'affichage des codes courants, accentués. Présentation seulement : la valeur envoyée ou
+   stockée reste le code. Tout code absent de la table passe par le libellé canonique
+   (`libelle_statut`), jamais affiché brut. #}
+{% macro libelle(code) -%}
+{%- set _table = {
+  "REEL": "Réel", "COMPTABLE": "Comptable", "NON_DISPONIBLE": "Non disponible",
+  "NON_APPLICABLE": "Non applicable", "OUVERTE": "Ouverte", "EN_CONTROLE": "En contrôle",
+  "CLOTUREE": "Clôturée", "VALIDEE": "Validée", "FACTURE": "Facturé", "A_FACTURER": "À facturer",
+  "NON_DEMARRE": "Non démarré", "A_CONTROLER": "À contrôler", "EN_COURS": "En cours",
+  "VALIDE": "Validé", "EN_ATTENTE": "En attente", "ACTIF": "Actif", "INACTIF": "Inactif",
+  "GERE": "Géré", "RETIRE": "Retiré", "OUI": "Oui", "NON": "Non",
+} -%}
+{{- _table.get(code, code | libelle_statut) if code else "—" -}}
+{%- endmacro %}

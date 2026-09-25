@@ -5,6 +5,8 @@
 {% macro euros(v) %}{% if v is none %}<span class="text-secondary">—</span>{% else %}{{ "%.2f"|format(v) }} €{% endif %}{% endmacro %}
 
 {% block content %}
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<div class="ecran">
 <div class="page-header">
   <h1 class="page-title">Relevé propriétaire</h1>
   <p class="page-subtitle">
@@ -13,26 +15,28 @@
 </div>
 
 {# ── Période et sélection ───────────────────────────────────────────────────────────────── #}
-<div class="card" style="margin-bottom: var(--stack-lg);">
-  <form method="get" action="/releves-proprietaires" class="filter-bar">
-    <select name="mois" class="filter-input" onchange="this.form.submit()">
+<form method="get" action="/releves-proprietaires" class="ec-filtres">
+    <label class="ec-champ"><span>Période</span>
+    <select name="mois" onchange="this.form.submit()">
       {% for m in mois_disponibles %}
       <option value="{{ m }}" {% if m == mois %}selected{% endif %}>{{ m }}</option>
       {% endfor %}
-    </select>
-    <select name="proprietaire_id" class="filter-input" onchange="this.form.submit()">
+    </select></label>
+    <label class="ec-champ"><span>Propriétaire</span>
+    <select name="proprietaire_id" onchange="this.form.submit()">
       <option value="">Tous les propriétaires</option>
       {% for p in proprietaires %}
       <option value="{{ p.proprietaire_id }}" {% if p.proprietaire_id == proprietaire_id %}selected{% endif %}>
         {{ p.libelle }}
       </option>
       {% endfor %}
-    </select>
-    <noscript><button type="submit" class="btn btn-secondary">Afficher</button></noscript>
-    <a href="/releves-proprietaires/export.csv?mois={{ mois }}&proprietaire_id={{ proprietaire_id }}"
-       class="btn btn-secondary">Exporter les données (CSV)</a>
-  </form>
-  <p>
+    </select></label>
+    <div class="ec-filtres__actions">
+      <noscript><button type="submit" class="btn btn-secondary">Afficher</button></noscript>
+      <a href="/releves-proprietaires/export.csv?mois={{ mois }}&proprietaire_id={{ proprietaire_id }}"
+         class="btn btn-secondary">Exporter les données (CSV)</a>
+    </div>
+  <p class="ec-filtres__actions--large" style="margin:0;">
     <strong>Période : {{ mois }}</strong>
     {% if provisoire %}
       {# Un mois non écoulé bougera encore : le dire est le seul moyen d'éviter qu'on le cite
@@ -40,7 +44,7 @@
       <span class="badge badge-warning">PROVISOIRE — mois en cours</span>
     {% endif %}
   </p>
-</div>
+</form>
 
 {% if not mois_disponibles %}
   <div class="alert alert-warning">
@@ -118,7 +122,7 @@
   {% if releve.canaux %}
   <div class="card" style="margin-bottom: var(--stack-lg);">
     <h2 class="card-title">Répartition par canal</h2>
-    <table class="table">
+    <div class="ec-table-wrap"><table class="table">
       <thead>
         <tr><th>Canal</th><th class="num">Réservations</th><th class="num">Part</th>
             <th class="num">Nuits</th><th class="num">Part des nuits</th><th class="num">Montant</th></tr>
@@ -135,13 +139,13 @@
         </tr>
       {% endfor %}
       </tbody>
-    </table>
+    </table></div>
   </div>
   {% endif %}
 
   <div class="card">
     <h2 class="card-title">Détail par logement</h2>
-    <table class="table">
+    <div class="ec-table-wrap"><table class="table">
       <thead>
         <tr><th>Logement</th><th class="num">Rés.</th><th class="num">Nuits</th>
             <th class="num">Remplissage</th><th class="num">Total perçu</th>
@@ -163,7 +167,7 @@
         </tr>
       {% endfor %}
       </tbody>
-    </table>
+    </table></div>
     {% if releve.nb_exclues %}
     <p class="text-xs text-secondary">
       {{ releve.nb_exclues }} réservation(s) du mois écartée(s) du résultat réel (annulation sans
@@ -215,7 +219,7 @@
 
   <div class="card">
     <h2 class="card-title">Par propriétaire — {{ mois }}</h2>
-    <table class="table">
+    <div class="ec-table-wrap"><table class="table">
       <thead>
         <tr><th>Propriétaire</th><th class="num">Rés.</th><th class="num">Nuits</th>
             <th class="num">Durée moy.</th><th class="num">Voyageurs moy.</th>
@@ -236,18 +240,18 @@
           <td class="num">{{ euros(r.commission) }}</td>
           <td class="num"><strong>{{ euros(r.net_proprietaire) }}</strong></td>
           <td class="num">{{ euros(r.adr) }}</td>
-          <td><a href="/releves-proprietaires?mois={{ mois }}&proprietaire_id={{ r.proprietaire_id }}">Détail</a></td>
+          <td><span class="ec-actions-ligne"><a href="/releves-proprietaires?mois={{ mois }}&proprietaire_id={{ r.proprietaire_id }}">Détail</a></span></td>
         </tr>
       {% endfor %}
       </tbody>
-    </table>
+    </table></div>
   </div>
 {% endif %}
 
 {# ── Comment chaque indicateur est obtenu ───────────────────────────────────────────────── #}
 <details class="card" style="margin-top: var(--stack-lg);">
   <summary class="card-title">Comment ces indicateurs sont calculés</summary>
-  <table class="table">
+  <div class="ec-table-wrap"><table class="table">
     <thead><tr><th>Indicateur</th><th>Formule</th><th>Source</th></tr></thead>
     <tbody>
     {% for cle, f in formules.items() %}
@@ -255,6 +259,7 @@
           <td class="text-xs text-secondary">{{ f.source }}</td></tr>
     {% endfor %}
     </tbody>
-  </table>
+  </table></div>
 </details>
+</div>
 {% endblock %}

@@ -2,397 +2,381 @@
 {% block title %}Nouvelle charge{% endblock %}
 
 {% block content %}
-<div class="page-header flex justify-between items-center">
-  <div>
-    <h1 class="page-title">Nouvelle saisie charge</h1>
-    <p class="page-subtitle">Saisie guidée — Prévisualisation sur copie · Aucune écriture réelle</p>
-  </div>
-  <span class="badge badge-warning">CHARGES_REAL_WRITE_ENABLED = False</span>
-</div>
+{# Styles et comportement propres à cet écran : fichiers dédiés, jamais le CSS global. #}
+<link rel="stylesheet" href="/static/css/charges_saisie.css">
 
-{% if erreurs %}
-<div class="alert alert-error" style="margin-bottom: var(--stack-lg);">
-  <strong>{{ erreurs|length }} point(s) à corriger :</strong>
-  <ul style="margin: var(--stack-sm) 0 0 var(--stack-lg);">
-    {% for e in erreurs %}<li>{{ e.message }}</li>{% endfor %}
-  </ul>
-</div>
-{% endif %}
+{# Sélections multiples déjà faites (retour du serveur après une erreur) : on les recoche, pour ne
+   pas faire tout ressaisir. Le serveur les transporte en listes (`MULTI` de la route). #}
+{% set sel_proprietaires = form.get('proprietaires') or [] %}
+{% set sel_logements = form.get('logements') or [] %}
+{% set sel_menage_intervenants = form.get('menage_intervenants') or [] %}
+{% set sel_menage_logements = form.get('menage_logements') or [] %}
+{% set sel_menage_proprietaires = form.get('menage_proprietaires') or [] %}
 
-<div class="card">
-  <form id="charge_form" method="post" action="/fournisseurs/nouvelle/previsualiser">
+<div class="cs-saisie">
 
-    <!-- ── Date & montant ── -->
-    <fieldset style="border:none; padding:0; margin:0 0 var(--stack-xl);">
-      <legend class="text-sm text-secondary" style="font-weight:600; margin-bottom:var(--stack-md);">Date &amp; montant</legend>
-      <div class="form-grid">
-        <div class="form-group">
-          <label for="date_charge">Date de la charge <span class="required">*</span></label>
-          <input type="date" id="date_charge" name="date_charge" required value="{{ form.get('date_charge', '') }}">
-          {% set mois_ouverts = refs.get('mois_ouverts', []) %}
-          <p class="form-help text-secondary">
-            {% if mois_ouverts %}Mois ouverts : {% for m in mois_ouverts %}{{ m.mois }}{% if not loop.last %}, {% endif %}{% endfor %}
-            {% else %}Aucun mois ouvert actuellement.{% endif %}
-          </p>
-        </div>
-        <div class="form-group">
-          <label for="montant">Montant TTC (€) <span class="required">*</span></label>
-          <input type="text" id="montant" name="montant" required value="{{ form.get('montant', '') }}" placeholder="ex. 85.50">
-        </div>
-      </div>
-    </fieldset>
-
-    <!-- ── Catégorie ── -->
-    <fieldset style="border:none; padding:0; margin:0 0 var(--stack-xl);">
-      <legend class="text-sm text-secondary" style="font-weight:600; margin-bottom:var(--stack-md);">Catégorie</legend>
-      <div class="form-grid">
-        <div class="form-group">
-          <label for="categorie_charge_id">Catégorie <span class="required">*</span></label>
-          <select id="categorie_charge_id" name="categorie_charge_id" required>
-            <option value="">— Sélectionner —</option>
-            {% set groupes = ['Logiciels', 'Charges courantes', 'Ménages', 'Autre'] %}
-            {% for grp in groupes %}
-            <optgroup label="{{ grp }}">
-              {% for c in refs.get('categories', []) %}
-                {% if c.groupe_metier == grp %}
-                <option value="{{ c.categorie_charge_id }}"
-                        data-menage="{{ c.menage_comportement }}"
-                        data-avantage="{{ 'OUI' if c.avantage_possible else 'NON' }}"
-                        {% if form.get('categorie_charge_id') == c.categorie_charge_id %}selected{% endif %}>
-                  {{ c.label_metier }}
-                </option>
-                {% endif %}
-              {% endfor %}
-            </optgroup>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="form-group" id="group_libelle_perso" style="display:none;">
-          <label for="libelle_categorie_personnalise">Libellé personnalisé <span class="required">*</span></label>
-          <input type="text" id="libelle_categorie_personnalise" name="libelle_categorie_personnalise"
-                 value="{{ form.get('libelle_categorie_personnalise', '') }}" placeholder="Décrire la charge (traitée en global)">
-          <p class="form-help text-secondary">Catégorie personnalisée : toujours globale, jamais ménage / logement / incident.</p>
-        </div>
-        <div class="form-group">
-          <label for="code_impact">Impact sur le résultat <span class="required">*</span></label>
-          {% set impact_labels = {'IC': 'Impacte le résultat réel et comptable', 'HC': 'Impacte le résultat réel, hors compta'} %}
-          <select id="code_impact" name="code_impact" required>
-            <option value="">— Sélectionner —</option>
-            {% for ci in refs.get('codes_impact', []) %}
-            <option value="{{ ci.code_impact }}" {% if form.get('code_impact') == ci.code_impact %}selected{% endif %}>
-              {{ impact_labels.get(ci.code_impact, ci.libelle) }}
-            </option>
-            {% endfor %}
-          </select>
-          <p class="form-help text-secondary">« À comptabiliser » et le type de flux sont déduits automatiquement. Un commentaire est requis si l'impact diffère du défaut.</p>
-        </div>
-      </div>
-    </fieldset>
-
-    <!-- ── Impact ménage ── -->
-    <fieldset style="border:none; padding:0; margin:0 0 var(--stack-xl);" id="fs_impact_menage" style="display:none;">
-      <legend class="text-sm text-secondary" style="font-weight:600; margin-bottom:var(--stack-md);">Impact ménage</legend>
-      <div class="form-grid">
-        <div class="form-group" id="group_impact_menage_choix">
-          <label for="impact_menage">Cette charge impacte-t-elle le coût complet ménage ?</label>
-          <select id="impact_menage" name="impact_menage">
-            <option value="NON" {% if form.get('impact_menage') == 'NON' %}selected{% endif %}>Non</option>
-            <option value="OUI" {% if form.get('impact_menage') == 'OUI' %}selected{% endif %}>Oui</option>
-          </select>
-        </div>
-      </div>
-      <p class="form-help text-secondary" id="menage_force_note" style="display:none;">Cette catégorie impacte toujours le coût ménage (analytique). Jamais refacturable, aucune seconde charge réelle.</p>
-    </fieldset>
-
-    <!-- ── Parcours ménage ── -->
-    <fieldset style="border:none; padding:0; margin:0 0 var(--stack-xl);" id="fs_menage" style="display:none;">
-      <legend class="text-sm text-secondary" style="font-weight:600; margin-bottom:var(--stack-md);">Répartition ménage (analytique)</legend>
-      <div class="form-grid">
-        <div class="form-group">
-          <label for="menage_mode">Répartir par</label>
-          <select id="menage_mode" name="menage_mode">
-            <option value="">— Choisir —</option>
-            <option value="INTERVENANT" {% if form.get('menage_mode') == 'INTERVENANT' %}selected{% endif %}>Intervenant(s)</option>
-            <option value="LOGEMENT" {% if form.get('menage_mode') == 'LOGEMENT' %}selected{% endif %}>Logement(s)</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="menage_mois">Mois d'imputation ménage</label>
-          <input type="month" id="menage_mois" name="menage_mois" value="{{ form.get('menage_mois', '') }}">
-          <p class="text-xs text-secondary">Laissé vide : le mois de la charge est retenu.</p>
-        </div>
-      </div>
-      <div class="form-group" id="group_menage_intervenants" style="display:none; margin-top: var(--stack-md);">
-        <label>Intervenants ménage</label>
-        <div class="form-help text-secondary">Sélection multiple (internes / externes pertinents).</div>
-        {% for i in refs.get('intervenants', []) %}
-        <label style="display:inline-flex; align-items:center; gap:6px; margin:4px 12px 4px 0;">
-          <input type="checkbox" name="menage_intervenants" value="{{ i.intervenant_id }}">
-          {{ i.nom_intervenant }} ({{ i.type_intervenant }})
-        </label>
-        {% endfor %}
-      </div>
-      <div class="form-group" id="group_menage_logements" style="display:none; margin-top: var(--stack-md);">
-        <label>Logements ménage</label>
-        <div class="form-help text-secondary">Sélection multiple. Le filtre propriétaire ci-dessous ajoute leurs logements actifs.</div>
-        {% for l in refs.get('logements', []) %}
-        <label style="display:inline-flex; align-items:center; gap:6px; margin:4px 12px 4px 0;">
-          <input type="checkbox" name="menage_logements" value="{{ l.logement_id }}"> {{ l.nom_court }}
-        </label>
-        {% endfor %}
-        <div style="margin-top: var(--stack-sm);"><em class="text-secondary">Filtre propriétaires (sélection indirecte de logements)</em></div>
-        {% for pr in refs.get('proprietaires', []) %}
-        <label style="display:inline-flex; align-items:center; gap:6px; margin:4px 12px 4px 0;">
-          <input type="checkbox" name="menage_proprietaires" value="{{ pr.proprietaire_id }}"> {{ pr.proprietaire_id | nom_proprietaire }}
-        </label>
-        {% endfor %}
-      </div>
-    </fieldset>
-
-    <!-- ── Affectation analytique (non ménage) ── -->
-    <fieldset style="border:none; padding:0; margin:0 0 var(--stack-xl);" id="fs_affectation">
-      <legend class="text-sm text-secondary" style="font-weight:600; margin-bottom:var(--stack-md);">Affectation analytique</legend>
-      <p class="form-help text-secondary">Sans sélection : charge globale conciergerie. Un propriétaire élargit à ses logements actifs. Les logements se cumulent sans doublon. Le montant est réparti également (jamais répliqué).</p>
-      <div class="form-group" style="margin-top: var(--stack-md);">
-        <label>Propriétaires concernés</label><br>
-        {% for pr in refs.get('proprietaires', []) %}
-        <label style="display:inline-flex; align-items:center; gap:6px; margin:4px 12px 4px 0;">
-          {# L'identifiant reste dans `value` (il est nécessaire au traitement) mais n'est jamais
-             le libellé : l'utilisateur choisit un propriétaire par son nom. #}
-          <input type="checkbox" name="proprietaires" value="{{ pr.proprietaire_id }}"> {{ pr.proprietaire_id | nom_proprietaire }}
-        </label>
-        {% endfor %}
-      </div>
-      <div class="form-group" style="margin-top: var(--stack-md);">
-        <label>Logements concernés</label><br>
-        {% for l in refs.get('logements', []) %}
-        <label style="display:inline-flex; align-items:center; gap:6px; margin:4px 12px 4px 0;">
-          <input type="checkbox" name="logements" value="{{ l.logement_id }}"> {{ l.nom_court }}
-        </label>
-        {% endfor %}
-      </div>
-    </fieldset>
-
-    <!-- ── Paiement ── -->
-    <fieldset style="border:none; padding:0; margin:0 0 var(--stack-xl);">
-      <legend class="text-sm text-secondary" style="font-weight:600; margin-bottom:var(--stack-md);">Payé avec</legend>
-      <div class="form-grid">
-        <div class="form-group">
-          <label for="mode_paiement_id">Mode de paiement <span class="required">*</span></label>
-          <select id="mode_paiement_id" name="mode_paiement_id" required>
-            <option value="">— Sélectionner —</option>
-            {% for m in refs.get('modes_paiement', []) %}
-            <option value="{{ m.mode_paiement_id }}" {% if form.get('mode_paiement_id') == m.mode_paiement_id %}selected{% endif %}>{{ m.mode_paiement_id | nom_mode_paiement }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="form-group" id="group_associe_id" style="display:none;">
-          <label for="associe_id">Associé(e) (paiement) <span class="required">*</span></label>
-          <select id="associe_id" name="associe_id">
-            <option value="">— Sélectionner —</option>
-            {% for a in refs.get('associes', []) %}
-            <option value="{{ a.personne_id }}" {% if form.get('associe_id') == a.personne_id %}selected{% endif %}>{{ a.nom_personne }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="form-group" id="group_carte_id" style="display:none;">
-          <label for="carte_id">Carte <span class="required">*</span></label>
-          <select id="carte_id" name="carte_id">
-            <option value="">— Sélectionner —</option>
-            {% for c in refs.get('cartes', []) %}
-            <option value="{{ c.carte_id }}" data-personne="{{ c.personne_id }}" {% if form.get('carte_id') == c.carte_id %}selected{% endif %}>{{ c.nom_personne }} ({{ c.suffixe_carte }})</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="paye_avec_montant_recupere">Payé avec un montant récupéré ?</label>
-          <select id="paye_avec_montant_recupere" name="paye_avec_montant_recupere">
-            <option value="">—</option>
-            <option value="OUI" {% if form.get('paye_avec_montant_recupere') == 'OUI' %}selected{% endif %}>Oui</option>
-            <option value="NON" {% if form.get('paye_avec_montant_recupere') == 'NON' %}selected{% endif %}>Non</option>
-          </select>
-        </div>
-      </div>
-    </fieldset>
-
-    <!-- ── Avantage associé ── -->
-    <fieldset style="border:none; padding:0; margin:0 0 var(--stack-xl);" id="fs_avantage" style="display:none;">
-      <legend class="text-sm text-secondary" style="font-weight:600; margin-bottom:var(--stack-md);">Avantage associé</legend>
-      <div class="form-grid">
-        <div class="form-group">
-          <label for="avantage_associe">Cette charge constitue-t-elle un avantage associé ?</label>
-          <select id="avantage_associe" name="avantage_associe">
-            <option value="NON" {% if form.get('avantage_associe') == 'NON' %}selected{% endif %}>Non</option>
-            <option value="OUI" {% if form.get('avantage_associe') == 'OUI' %}selected{% endif %}>Oui</option>
-          </select>
-          <p class="form-help text-secondary">Distinct du mode de paiement : une charge banque pro peut être un avantage ; une carte associée ne l'est pas forcément.</p>
-        </div>
-        <div class="form-group" id="group_avantage_associe_id" style="display:none;">
-          <label for="avantage_associe_id">Associé bénéficiaire <span class="required">*</span></label>
-          <select id="avantage_associe_id" name="avantage_associe_id">
-            <option value="">— Sélectionner —</option>
-            {% for a in refs.get('associes', []) %}
-            <option value="{{ a.personne_id }}" {% if form.get('avantage_associe_id') == a.personne_id %}selected{% endif %}>{{ a.nom_personne }}</option>
-            {% endfor %}
-          </select>
-        </div>
-      </div>
-    </fieldset>
-
-    <!-- ── Compléments ── -->
-    <fieldset style="border:none; padding:0; margin:0 0 var(--stack-xl);">
-      <legend class="text-sm text-secondary" style="font-weight:600; margin-bottom:var(--stack-md);">Compléments</legend>
-      <div class="form-grid">
-        <div class="form-group" id="group_refacturable">
-          <label for="refacturable">Refacturable au propriétaire ?</label>
-          <select id="refacturable" name="refacturable">
-            <option value="NON" {% if form.get('refacturable') == 'NON' %}selected{% endif %}>Non</option>
-            <option value="OUI" {% if form.get('refacturable') == 'OUI' %}selected{% endif %}>Oui</option>
-          </select>
-          <p class="form-help text-secondary" id="refac_note">Possible seulement si au moins un logement final est ciblé. Met la charge en réserve de facturation (aucune facture créée).</p>
-        </div>
-        <div class="form-group">
-          <label for="justificatif">Justificatif</label>
-          <input type="text" id="justificatif" name="justificatif" value="{{ form.get('justificatif', '') }}" placeholder="Référence, numéro de facture...">
-        </div>
-        <div class="form-group">
-          <label for="justificatif_archive">Justificatif archivé</label>
-          <select id="justificatif_archive" name="justificatif_archive" data-testid="justificatif-archive">
-            <option value="">—</option>
-            <option value="NON" {% if form.get('justificatif_archive') == 'NON' %}selected{% endif %}>Non</option>
-            <option value="OUI" {% if form.get('justificatif_archive') == 'OUI' %}selected{% endif %}>Oui</option>
-          </select>
-          {# La référence n'est pas saisie : elle est attribuée à l'enregistrement (JUS-AAAA-NNNN),
-             sans jamais réutiliser un numéro déjà consommé. #}
-          <p class="form-help text-secondary">
-            « Oui » attribue automatiquement une référence de classement (JUS-{{ "%s"|format(annee_justificatif) }}-0001, 0002…).
-          </p>
-        </div>
-        <div class="form-group">
-          <label for="commentaire">Commentaire</label>
-          <input type="text" id="commentaire" name="commentaire" value="{{ form.get('commentaire', '') }}" placeholder="Commentaire libre">
-        </div>
-      </div>
-    </fieldset>
-
-    <div style="display:flex; gap:var(--stack-md); margin-top:var(--stack-xl);">
-      <button type="submit" class="btn btn-primary" id="btn_previsualiser">Prévisualiser (copie)</button>
-      <a href="/fournisseurs" class="btn btn-secondary">Annuler</a>
+  <a href="/fournisseurs" class="back-link">&larr; Charges</a>
+  <div class="page-header cs-header">
+    <div class="page-header__titre">
+      <h1 class="page-title">Nouvelle saisie charge</h1>
+      <p class="page-subtitle">Saisie guidée : rien n'est enregistré avant la prévisualisation, puis votre confirmation.</p>
     </div>
+  </div>
 
-    <!-- ── Bloc « Effet de la saisie » (live) ── -->
-    <div class="card" id="effet_saisie" style="margin-top: var(--stack-xl); background: var(--surface-2, #f6f8fa);">
-      <h2 style="margin-top:0;">Effet de la saisie</h2>
-      <ul id="effet_liste" style="margin:0; padding-left: var(--stack-lg);">
-        <li>Crée une charge réelle : <strong id="ef_charge">Oui</strong></li>
-        <li>Impacte le résultat réel : <strong>Oui</strong></li>
-        <li>Impacte le résultat comptable : <strong id="ef_compta">—</strong></li>
-        <li>Impact ménage : <strong id="ef_menage">Non</strong></li>
-        <li>Périmètre analytique : <strong id="ef_perimetre">global conciergerie</strong></li>
-        <li>Refacturation : <strong id="ef_refac">non refacturable</strong></li>
-        <li>Avantage associé : <strong id="ef_avantage">non</strong></li>
+  {% if erreurs %}
+  <div class="alert alert-error cs-erreurs" role="alert">
+    <div>
+      <strong>{{ erreurs|length }} point(s) à corriger :</strong>
+      <ul>
+        {% for e in erreurs %}<li>{{ e.message }}</li>{% endfor %}
       </ul>
     </div>
+  </div>
+  {% endif %}
 
+  <form id="charge_form" class="cs-form" method="post" action="/fournisseurs/nouvelle/previsualiser">
+    <div class="cs-layout">
+      <div class="cs-main">
+
+        <!-- ── La charge ── -->
+        <fieldset class="cs-section">
+          <legend class="cs-section__title">La charge</legend>
+          <p class="cs-section__desc">Quand, combien, et de quelle nature.</p>
+          <div class="cs-grid">
+            <div class="cs-field">
+              <div class="cs-label-row">
+                <label for="date_charge">Date de la charge <span class="required" aria-hidden="true">*</span></label>
+                <button type="button" class="cs-link-btn" id="btn_date_aujourdhui">Aujourd'hui</button>
+              </div>
+              <input type="date" id="date_charge" name="date_charge" required value="{{ form.get('date_charge', '') }}" aria-describedby="aide_date_charge">
+              {% set mois_ouverts = refs.get('mois_ouverts', []) %}
+              <p class="cs-help" id="aide_date_charge">
+                {% if mois_ouverts %}Mois ouverts :
+                  {% for m in mois_ouverts %}<span class="cs-tag">{{ m.mois }}</span>{% endfor %}
+                {% else %}Aucun mois ouvert actuellement.{% endif %}
+              </p>
+            </div>
+
+            <div class="cs-field">
+              <label for="montant">Montant TTC <span class="required" aria-hidden="true">*</span></label>
+              <div class="cs-affix">
+                <input type="text" id="montant" name="montant" required inputmode="decimal" autocomplete="off"
+                       value="{{ form.get('montant', '') }}" placeholder="ex. 85,50">
+                <span class="cs-affix__suffix" aria-hidden="true">€</span>
+              </div>
+            </div>
+
+            <div class="cs-field">
+              <label for="categorie_charge_id">Catégorie <span class="required" aria-hidden="true">*</span></label>
+              <select id="categorie_charge_id" name="categorie_charge_id" required>
+                <option value="">— Sélectionner —</option>
+                {% set groupes = ['Logiciels', 'Charges courantes', 'Ménages', 'Autre'] %}
+                {% for grp in groupes %}
+                <optgroup label="{{ grp }}">
+                  {% for c in refs.get('categories', []) %}
+                    {% if c.groupe_metier == grp %}
+                    <option value="{{ c.categorie_charge_id }}"
+                            data-menage="{{ c.menage_comportement }}"
+                            data-avantage="{{ 'OUI' if c.avantage_possible else 'NON' }}"
+                            {% if form.get('categorie_charge_id') == c.categorie_charge_id %}selected{% endif %}>
+                      {{ c.label_metier }}
+                    </option>
+                    {% endif %}
+                  {% endfor %}
+                </optgroup>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="cs-field">
+              <label for="code_impact">Impact sur le résultat <span class="required" aria-hidden="true">*</span></label>
+              {% set impact_labels = {'IC': 'Impacte le résultat réel et comptable', 'HC': 'Impacte le résultat réel, hors compta'} %}
+              <select id="code_impact" name="code_impact" required aria-describedby="aide_code_impact">
+                <option value="">— Sélectionner —</option>
+                {% for ci in refs.get('codes_impact', []) %}
+                <option value="{{ ci.code_impact }}" {% if form.get('code_impact') == ci.code_impact %}selected{% endif %}>
+                  {{ impact_labels.get(ci.code_impact, ci.libelle) }}
+                </option>
+                {% endfor %}
+              </select>
+              <p class="cs-help" id="aide_code_impact">« À comptabiliser » et le type de flux sont déduits automatiquement. Un commentaire est requis si l'impact diffère du défaut.</p>
+            </div>
+
+            <div class="cs-field cs-field--full" id="group_libelle_perso" hidden>
+              <label for="libelle_categorie_personnalise">Libellé personnalisé <span class="required" aria-hidden="true">*</span></label>
+              <input type="text" id="libelle_categorie_personnalise" name="libelle_categorie_personnalise"
+                     value="{{ form.get('libelle_categorie_personnalise', '') }}" placeholder="Décrire la charge (traitée en global)">
+              <p class="cs-help">Catégorie personnalisée : toujours globale, jamais ménage / logement / incident.</p>
+            </div>
+          </div>
+        </fieldset>
+
+        <!-- ── Impact ménage ── -->
+        <fieldset class="cs-section" id="fs_impact_menage" hidden>
+          <legend class="cs-section__title">Impact ménage</legend>
+          <div class="cs-grid">
+            <div class="cs-field" id="group_impact_menage_choix">
+              <label for="impact_menage">Cette charge impacte-t-elle le coût complet ménage ?</label>
+              <select id="impact_menage" name="impact_menage">
+                <option value="NON" {% if form.get('impact_menage') == 'NON' %}selected{% endif %}>Non</option>
+                <option value="OUI" {% if form.get('impact_menage') == 'OUI' %}selected{% endif %}>Oui</option>
+              </select>
+            </div>
+            <p class="cs-note cs-field--full" id="menage_force_note" hidden>Cette catégorie impacte toujours le coût ménage (analytique). Jamais refacturable, aucune seconde charge réelle.</p>
+          </div>
+        </fieldset>
+
+        <!-- ── Répartition ménage ── -->
+        <fieldset class="cs-section" id="fs_menage" hidden>
+          <legend class="cs-section__title">Répartition ménage (analytique)</legend>
+          <div class="cs-grid">
+            <div class="cs-field">
+              <label for="menage_mode">Répartir par</label>
+              <select id="menage_mode" name="menage_mode">
+                <option value="">— Choisir —</option>
+                <option value="INTERVENANT" {% if form.get('menage_mode') == 'INTERVENANT' %}selected{% endif %}>Intervenant(s)</option>
+                <option value="LOGEMENT" {% if form.get('menage_mode') == 'LOGEMENT' %}selected{% endif %}>Logement(s)</option>
+              </select>
+            </div>
+            <div class="cs-field">
+              <label for="menage_mois">Mois d'imputation ménage</label>
+              <input type="month" id="menage_mois" name="menage_mois" value="{{ form.get('menage_mois', '') }}" aria-describedby="aide_menage_mois">
+              <p class="cs-help" id="aide_menage_mois">Laissé vide : le mois de la charge est retenu.</p>
+            </div>
+
+            <div class="cs-field cs-field--full" id="group_menage_intervenants" hidden>
+              <span class="cs-label" id="lbl_menage_intervenants">Intervenants ménage</span>
+              {% set items = refs.get('intervenants', []) %}
+              {% if items %}
+              <div class="cs-ms" data-multiselect data-label-id="lbl_menage_intervenants"
+                   data-placeholder="Rechercher un intervenant…" data-empty="Aucun intervenant ne correspond.">
+                <div class="cs-ms__natif" role="group" aria-labelledby="lbl_menage_intervenants">
+                  {% for i in items %}
+                  <label class="cs-check"><input type="checkbox" name="menage_intervenants" value="{{ i.intervenant_id }}"{% if i.intervenant_id in sel_menage_intervenants %} checked{% endif %}> <span>{{ i.nom_intervenant }} ({{ i.type_intervenant }})</span></label>
+                  {% endfor %}
+                </div>
+              </div>
+              {% else %}
+              <p class="cs-vide">Aucun intervenant actif au référentiel.</p>
+              {% endif %}
+              <p class="cs-help">Sélection multiple (internes / externes pertinents).</p>
+            </div>
+
+            <div class="cs-field cs-field--full" id="group_menage_logements" hidden>
+              <span class="cs-label" id="lbl_menage_logements">Logements ménage</span>
+              {% set items = refs.get('logements', []) %}
+              {% if items %}
+              <div class="cs-ms" data-multiselect data-label-id="lbl_menage_logements"
+                   data-placeholder="Rechercher un logement…" data-empty="Aucun logement ne correspond.">
+                <div class="cs-ms__natif" role="group" aria-labelledby="lbl_menage_logements">
+                  {% for l in items %}
+                  <label class="cs-check"><input type="checkbox" name="menage_logements" value="{{ l.logement_id }}"{% if l.logement_id in sel_menage_logements %} checked{% endif %}> <span>{{ l.nom_court }}</span></label>
+                  {% endfor %}
+                </div>
+              </div>
+              {% else %}
+              <p class="cs-vide">Aucun logement actif au référentiel.</p>
+              {% endif %}
+              <p class="cs-help">Sélection multiple. Le filtre propriétaire ci-dessous ajoute leurs logements actifs.</p>
+
+              <span class="cs-label cs-label--sub" id="lbl_menage_proprietaires">Filtre propriétaires (sélection indirecte de logements)</span>
+              {% set items = refs.get('proprietaires', []) %}
+              {% if items %}
+              <div class="cs-ms" data-multiselect data-label-id="lbl_menage_proprietaires"
+                   data-placeholder="Rechercher un propriétaire…" data-empty="Aucun propriétaire ne correspond.">
+                <div class="cs-ms__natif" role="group" aria-labelledby="lbl_menage_proprietaires">
+                  {% for pr in items %}
+                  <label class="cs-check"><input type="checkbox" name="menage_proprietaires" value="{{ pr.proprietaire_id }}"{% if pr.proprietaire_id in sel_menage_proprietaires %} checked{% endif %}> <span>{{ pr.proprietaire_id | nom_proprietaire }}</span></label>
+                  {% endfor %}
+                </div>
+              </div>
+              {% else %}
+              <p class="cs-vide">Aucun propriétaire actif au référentiel.</p>
+              {% endif %}
+            </div>
+          </div>
+        </fieldset>
+
+        <!-- ── Affectation analytique (non ménage) ── -->
+        <fieldset class="cs-section" id="fs_affectation">
+          <legend class="cs-section__title">Affectation analytique</legend>
+          <p class="cs-section__desc">Sans sélection : charge globale conciergerie. Un propriétaire élargit à ses logements actifs. Les logements se cumulent sans doublon. Le montant est réparti également (jamais répliqué).</p>
+          <div class="cs-stack">
+            <div class="cs-field">
+              <span class="cs-label" id="lbl_proprietaires">Propriétaires concernés</span>
+              {% set items = refs.get('proprietaires', []) %}
+              {% if items %}
+              <div class="cs-ms" data-multiselect data-label-id="lbl_proprietaires"
+                   data-placeholder="Rechercher un propriétaire…" data-empty="Aucun propriétaire ne correspond.">
+                <div class="cs-ms__natif" role="group" aria-labelledby="lbl_proprietaires">
+                  {% for pr in items %}
+                  {# L'identifiant reste dans `value` (il est nécessaire au traitement) mais n'est jamais
+                     le libellé : l'utilisateur choisit un propriétaire par son nom. #}
+                  <label class="cs-check"><input type="checkbox" name="proprietaires" value="{{ pr.proprietaire_id }}"{% if pr.proprietaire_id in sel_proprietaires %} checked{% endif %}> <span>{{ pr.proprietaire_id | nom_proprietaire }}</span></label>
+                  {% endfor %}
+                </div>
+              </div>
+              {% else %}
+              <p class="cs-vide">Aucun propriétaire actif au référentiel.</p>
+              {% endif %}
+              <p class="cs-help">Chaque propriétaire ajoute ses logements actifs du mois de la charge.</p>
+            </div>
+
+            <div class="cs-field">
+              <span class="cs-label" id="lbl_logements">Logements concernés</span>
+              {% set items = refs.get('logements', []) %}
+              {% if items %}
+              <div class="cs-ms" data-multiselect data-label-id="lbl_logements"
+                   data-placeholder="Rechercher un logement…" data-empty="Aucun logement ne correspond.">
+                <div class="cs-ms__natif" role="group" aria-labelledby="lbl_logements">
+                  {% for l in items %}
+                  <label class="cs-check"><input type="checkbox" name="logements" value="{{ l.logement_id }}"{% if l.logement_id in sel_logements %} checked{% endif %}> <span>{{ l.nom_court }}</span></label>
+                  {% endfor %}
+                </div>
+              </div>
+              {% else %}
+              <p class="cs-vide">Aucun logement actif au référentiel.</p>
+              {% endif %}
+              <p class="cs-help">S'ajoutent aux logements des propriétaires choisis, sans doublon.</p>
+            </div>
+          </div>
+
+          {# Refacturation : dépend des logements ciblés ci-dessus, et se masque avec eux en parcours
+             ménage (une charge ménage n'est jamais refacturable). #}
+          <div id="group_refacturable">
+            <hr class="cs-divider">
+            <div class="cs-grid">
+              <div class="cs-field">
+                <label for="refacturable">Refacturable au propriétaire ?</label>
+                <select id="refacturable" name="refacturable" aria-describedby="refac_note">
+                  <option value="NON" {% if form.get('refacturable') == 'NON' %}selected{% endif %}>Non</option>
+                  <option value="OUI" {% if form.get('refacturable') == 'OUI' %}selected{% endif %}>Oui</option>
+                </select>
+              </div>
+              <p class="cs-help cs-grid__aside" id="refac_note">Possible seulement si au moins un logement final est ciblé. Met la charge en réserve de facturation (aucune facture créée).</p>
+            </div>
+          </div>
+        </fieldset>
+
+        <!-- ── Paiement ── -->
+        <fieldset class="cs-section">
+          <legend class="cs-section__title">Payé avec</legend>
+          <div class="cs-grid">
+            <div class="cs-field">
+              <label for="mode_paiement_id">Mode de paiement <span class="required" aria-hidden="true">*</span></label>
+              <select id="mode_paiement_id" name="mode_paiement_id" required>
+                <option value="">— Sélectionner —</option>
+                {% for m in refs.get('modes_paiement', []) %}
+                <option value="{{ m.mode_paiement_id }}" {% if form.get('mode_paiement_id') == m.mode_paiement_id %}selected{% endif %}>{{ m.mode_paiement_id | nom_mode_paiement }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="cs-field">
+              <label for="paye_avec_montant_recupere">Payé avec un montant récupéré ?</label>
+              <select id="paye_avec_montant_recupere" name="paye_avec_montant_recupere">
+                <option value="">—</option>
+                <option value="OUI" {% if form.get('paye_avec_montant_recupere') == 'OUI' %}selected{% endif %}>Oui</option>
+                <option value="NON" {% if form.get('paye_avec_montant_recupere') == 'NON' %}selected{% endif %}>Non</option>
+              </select>
+            </div>
+            <div class="cs-field" id="group_associe_id" hidden>
+              <label for="associe_id">Associé(e) (paiement) <span class="required" aria-hidden="true">*</span></label>
+              <select id="associe_id" name="associe_id">
+                <option value="">— Sélectionner —</option>
+                {% for a in refs.get('associes', []) %}
+                <option value="{{ a.personne_id }}" {% if form.get('associe_id') == a.personne_id %}selected{% endif %}>{{ a.nom_personne }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="cs-field" id="group_carte_id" hidden>
+              <label for="carte_id">Carte <span class="required" aria-hidden="true">*</span></label>
+              <select id="carte_id" name="carte_id">
+                <option value="">— Sélectionner —</option>
+                {% for c in refs.get('cartes', []) %}
+                <option value="{{ c.carte_id }}" data-personne="{{ c.personne_id }}" {% if form.get('carte_id') == c.carte_id %}selected{% endif %}>{{ c.nom_personne }} ({{ c.suffixe_carte }})</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+        </fieldset>
+
+        <!-- ── Avantage associé ── -->
+        <fieldset class="cs-section" id="fs_avantage" hidden>
+          <legend class="cs-section__title">Avantage associé</legend>
+          <div class="cs-grid">
+            <div class="cs-field">
+              <label for="avantage_associe">Cette charge constitue-t-elle un avantage associé ?</label>
+              <select id="avantage_associe" name="avantage_associe" aria-describedby="aide_avantage_associe">
+                <option value="NON" {% if form.get('avantage_associe') == 'NON' %}selected{% endif %}>Non</option>
+                <option value="OUI" {% if form.get('avantage_associe') == 'OUI' %}selected{% endif %}>Oui</option>
+              </select>
+              <p class="cs-help" id="aide_avantage_associe">Distinct du mode de paiement : une charge banque pro peut être un avantage ; une carte associée ne l'est pas forcément.</p>
+            </div>
+            <div class="cs-field" id="group_avantage_associe_id" hidden>
+              <label for="avantage_associe_id">Associé bénéficiaire <span class="required" aria-hidden="true">*</span></label>
+              <select id="avantage_associe_id" name="avantage_associe_id">
+                <option value="">— Sélectionner —</option>
+                {% for a in refs.get('associes', []) %}
+                <option value="{{ a.personne_id }}" {% if form.get('avantage_associe_id') == a.personne_id %}selected{% endif %}>{{ a.nom_personne }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+        </fieldset>
+
+        <!-- ── Compléments ── -->
+        <fieldset class="cs-section">
+          <legend class="cs-section__title">Justificatif &amp; commentaire</legend>
+          <div class="cs-grid">
+            <div class="cs-field">
+              <label for="justificatif">Justificatif</label>
+              <input type="text" id="justificatif" name="justificatif" value="{{ form.get('justificatif', '') }}" placeholder="Référence, numéro de facture…">
+            </div>
+            <div class="cs-field">
+              <label for="justificatif_archive">Justificatif archivé</label>
+              <select id="justificatif_archive" name="justificatif_archive" data-testid="justificatif-archive" aria-describedby="aide_justificatif_archive">
+                <option value="">—</option>
+                <option value="NON" {% if form.get('justificatif_archive') == 'NON' %}selected{% endif %}>Non</option>
+                <option value="OUI" {% if form.get('justificatif_archive') == 'OUI' %}selected{% endif %}>Oui</option>
+              </select>
+              {# La référence n'est pas saisie : elle est attribuée à l'enregistrement (JUS-AAAA-NNNN),
+                 sans jamais réutiliser un numéro déjà consommé. #}
+              <p class="cs-help" id="aide_justificatif_archive">
+                « Oui » attribue automatiquement une référence de classement (JUS-{{ "%s"|format(annee_justificatif) }}-0001, 0002…).
+              </p>
+            </div>
+            <div class="cs-field cs-field--full">
+              <label for="commentaire">Commentaire</label>
+              <input type="text" id="commentaire" name="commentaire" value="{{ form.get('commentaire', '') }}" placeholder="Commentaire libre">
+            </div>
+          </div>
+        </fieldset>
+
+      </div>
+
+      <!-- ── Récapitulatif (live) + actions ── -->
+      <aside class="cs-aside" aria-label="Récapitulatif de la saisie">
+        <div class="cs-recap" id="effet_saisie">
+          <h2 class="cs-recap__title">Effet de la saisie</h2>
+          <dl class="cs-recap__liste" id="effet_liste">
+            <div class="cs-recap__ligne"><dt>Crée une charge réelle</dt><dd id="ef_charge">Oui</dd></div>
+            <div class="cs-recap__ligne"><dt>Impacte le résultat réel</dt><dd>Oui</dd></div>
+            <div class="cs-recap__ligne"><dt>Impacte le résultat comptable</dt><dd id="ef_compta">—</dd></div>
+            <div class="cs-recap__ligne"><dt>Impact ménage</dt><dd id="ef_menage">Non</dd></div>
+            <div class="cs-recap__ligne"><dt>Périmètre analytique</dt><dd id="ef_perimetre">global conciergerie</dd></div>
+            <div class="cs-recap__ligne"><dt>Refacturation</dt><dd id="ef_refac">non refacturable</dd></div>
+            <div class="cs-recap__ligne"><dt>Avantage associé</dt><dd id="ef_avantage">non</dd></div>
+          </dl>
+        </div>
+        <div class="cs-actions">
+          <button type="submit" class="btn btn-primary" id="btn_previsualiser">Prévisualiser</button>
+          <a href="/fournisseurs" class="btn btn-secondary">Annuler</a>
+        </div>
+        <p class="cs-help cs-actions__note">La prévisualisation n'enregistre rien : vous confirmez à l'étape suivante.</p>
+      </aside>
+    </div>
   </form>
 </div>
 
-<script>
-(function () {
-  var MODES_ASSOCIE = ["PAY_003", "PAY_004"];
-  var MODE_CARTE = "PAY_003";
-  function el(id){ return document.getElementById(id); }
-  function show(id){ var e=el(id); if(e) e.style.display=""; }
-  function hide(id){ var e=el(id); if(e) e.style.display="none"; }
-  function catOpt(){ var s=el("categorie_charge_id"); return s.options[s.selectedIndex]; }
-  function menageComport(){ var o=catOpt(); return o?(o.getAttribute("data-menage")||""):""; }
-  function avantagePossible(){ var o=catOpt(); return o?(o.getAttribute("data-avantage")==="OUI"):false; }
-
-  function impactMenageEffectif(){
-    var c = menageComport();
-    if (c === "FORCE") return true;
-    if (c === "INTERDIT") return false;
-    return el("impact_menage").value === "OUI";
-  }
-  function selectedCount(name){ return document.querySelectorAll('input[name="'+name+'"]:checked').length; }
-
-  function updatePaiement(){
-    var mode = el("mode_paiement_id").value;
-    if (MODES_ASSOCIE.indexOf(mode) >= 0) show("group_associe_id");
-    else { hide("group_associe_id"); el("associe_id").value=""; }
-    if (mode === MODE_CARTE) show("group_carte_id");
-    else { hide("group_carte_id"); el("carte_id").value=""; }
-  }
-
-  function updateMenageMode(){
-    var m = el("menage_mode").value;
-    if (m === "INTERVENANT"){ show("group_menage_intervenants"); hide("group_menage_logements"); }
-    else if (m === "LOGEMENT"){ hide("group_menage_intervenants"); show("group_menage_logements"); }
-    else { hide("group_menage_intervenants"); hide("group_menage_logements"); }
-  }
-
-  function refreshVisibility(){
-    var c = menageComport();
-    var val = el("categorie_charge_id").value;
-    // Impact ménage : visible seulement si CHOIX ; forcé affiché si FORCE
-    if (c === "CHOIX"){ show("fs_impact_menage"); show("group_impact_menage_choix"); hide("menage_force_note"); }
-    else if (c === "FORCE"){ show("fs_impact_menage"); hide("group_impact_menage_choix"); show("menage_force_note"); }
-    else { hide("fs_impact_menage"); }
-
-    var men = impactMenageEffectif();
-    if (men){
-      show("fs_menage"); hide("fs_affectation");
-      hide("group_refacturable");           // ménage jamais refacturable
-      el("refacturable").value = "NON";
-    } else {
-      hide("fs_menage"); show("fs_affectation"); show("group_refacturable");
-    }
-    // Avantage associé
-    if (avantagePossible() && !men) show("fs_avantage"); else { hide("fs_avantage"); el("avantage_associe").value="NON"; }
-    // Libellé personnalisé
-    if (val === "CHG_024"){ show("group_libelle_perso"); } else { hide("group_libelle_perso"); var lp=el("libelle_categorie_personnalise"); if(lp) lp.value=""; }
-    updateMenageMode();
-    updateAvantage();
-    updateEffet();
-  }
-
-  function updateAvantage(){
-    if (el("avantage_associe").value === "OUI") show("group_avantage_associe_id");
-    else { hide("group_avantage_associe_id"); el("avantage_associe_id").value=""; }
-  }
-
-  function updateEffet(){
-    var impact = el("code_impact").value;
-    el("ef_compta").textContent = impact === "IC" ? "Oui" : (impact === "HC" ? "Non" : "—");
-    var men = impactMenageEffectif();
-    el("ef_menage").textContent = men ? "Oui" : "Non";
-    if (men){
-      var mode = el("menage_mode").value;
-      var nb = mode === "INTERVENANT" ? selectedCount("menage_intervenants")
-             : (mode === "LOGEMENT" ? (selectedCount("menage_logements")+selectedCount("menage_proprietaires")) : 0);
-      el("ef_perimetre").textContent = (mode||"—") + " (" + nb + " sélection)";
-      el("ef_refac").textContent = "non applicable (ménage)";
-    } else {
-      var np = selectedCount("proprietaires"), nl = selectedCount("logements");
-      el("ef_perimetre").textContent = (np===0 && nl===0) ? "global conciergerie" : (np + " propriétaire(s), " + nl + " logement(s) sélectionné(s)");
-      el("ef_refac").textContent = el("refacturable").value === "OUI" ? "mise en réserve de facturation" : "non refacturable";
-    }
-    el("ef_avantage").textContent = (el("avantage_associe").value === "OUI") ? "associé bénéficiaire" : "non";
-  }
-
-  el("categorie_charge_id").addEventListener("change", refreshVisibility);
-  el("code_impact").addEventListener("change", updateEffet);
-  el("mode_paiement_id").addEventListener("change", updatePaiement);
-  el("impact_menage").addEventListener("change", refreshVisibility);
-  el("menage_mode").addEventListener("change", function(){ updateMenageMode(); updateEffet(); });
-  el("avantage_associe").addEventListener("change", function(){ updateAvantage(); updateEffet(); });
-  el("refacturable").addEventListener("change", updateEffet);
-  document.addEventListener("change", function(e){
-    if (e.target && e.target.type === "checkbox") updateEffet();
-  });
-
-  updatePaiement();
-  refreshVisibility();
-})();
-</script>
+<script src="/static/js/charges_saisie.js"></script>
 {% endblock %}

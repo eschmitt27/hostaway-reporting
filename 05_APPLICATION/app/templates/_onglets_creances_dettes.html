@@ -1,0 +1,7 @@
+{# Sous-navigation du module « Créances & dettes » : trois écrans, un seul menu. Liens simples. #}
+{% set _chemin = request.url.path if request is defined else "" %}
+<nav class="ec-onglets" aria-label="Créances et dettes">
+  <a href="/creances" {% if _chemin == "/creances" %}aria-current="page"{% endif %}>Créances propriétaires</a>
+  <a href="/dettes" {% if _chemin == "/dettes" %}aria-current="page"{% endif %}>Dettes fournisseurs</a>
+  <a href="/echeancier" {% if _chemin == "/echeancier" %}aria-current="page"{% endif %}>Échéancier</a>
+</nav>
