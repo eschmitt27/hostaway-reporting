@@ -2,44 +2,72 @@
 {% block title %}Factures fournisseurs{% endblock %}
 
 {% block content %}
-<div class="page-header flex justify-between items-center">
-  <div>
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+<div class="ecran">
+<div class="page-header">
+  <div class="page-header__titre">
     <h1 class="page-title">Factures fournisseurs</h1>
     <p class="page-subtitle">Dette et pièce fournisseur — distincte de la charge économique.</p>
   </div>
-  <div class="flex gap-sm items-center">
+  <div class="page-header__actions">
     <a href="/reglements" class="btn btn-secondary">Règlements</a>
     <a href="/factures/controles" class="btn btn-secondary">Contrôles</a>
   </div>
 </div>
 
-{# UN bouton principal : le dossier de dépôt fait foi. Il relit le dossier (PDF, MD, versions,
-   interprétation, lignes) ; les pièces jointes au formulaire y sont d'abord posées, puis suivent
-   exactement le même chemin. Une facture fournisseur provient toujours d'une pièce importée. #}
-<div class="card mb-md">
-  <form method="post" action="/factures/recharger" enctype="multipart/form-data"
-        class="flex gap-md items-center" style="flex-wrap:wrap"
-        onsubmit="const b=this.querySelector('button'); b.disabled=true;
-                  b.textContent='Actualisation en cours…';">
-    <button type="submit" class="btn btn-primary" data-testid="actualiser-factures">
-      Actualiser les factures
-    </button>
-    <label class="text-xs text-secondary">
-      Ajouter des pièces (facultatif, PDF et MD) :
-      <input type="file" name="pieces" accept=".pdf,.md,application/pdf,text/markdown" multiple>
-    </label>
-  </form>
-  <p class="text-xs text-secondary mt-sm">
-    Relit le dossier de dépôt : nouvelles pièces importées, MD structurés pris en compte, factures
-    à contrôler dont le PDF a été retiré supprimées ; les factures validées ne bougent jamais.
-  </p>
-</div>
-
 {% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
 {% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
 
+{# Synthèse de la liste affichée : lue sur les lignes déjà servies, aucun recalcul. #}
+{% set synth = namespace(a_controler=0, ecarts=0, solde=0) %}
+{% for f in factures %}
+  {% if f.statut in ["BROUILLON", "A_CONTROLER"] %}{% set synth.a_controler = synth.a_controler + 1 %}{% endif %}
+  {% if f.ecart_lignes|abs > 0.005 %}{% set synth.ecarts = synth.ecarts + 1 %}{% endif %}
+  {% set synth.solde = synth.solde + (f.solde_restant or 0) %}
+{% endfor %}
+<div class="fi-kpis" data-testid="synthese-factures">
+  <div class="fi-kpi"><span class="fi-kpi__label">Factures affichées</span>
+    <span class="fi-kpi__valeur">{{ factures|length }}</span></div>
+  <div class="fi-kpi{% if synth.a_controler %} fi-kpi--alerte{% endif %}"><span class="fi-kpi__label">À contrôler</span>
+    <span class="fi-kpi__valeur">{{ synth.a_controler }}</span>
+    <span class="fi-kpi__sous">brouillons et pièces à vérifier</span></div>
+  <div class="fi-kpi{% if synth.ecarts %} fi-kpi--alerte{% endif %}"><span class="fi-kpi__label">Écarts total / lignes</span>
+    <span class="fi-kpi__valeur">{{ synth.ecarts }}</span>
+    <span class="fi-kpi__sous">pièce ≠ somme de ses lignes</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Solde restant</span>
+    <span class="fi-kpi__valeur">{{ "%.2f"|format(synth.solde) }} €</span>
+    <span class="fi-kpi__sous">sur la liste affichée</span></div>
+</div>
+
+{# UN bouton principal : le dossier de dépôt fait foi. Il relit le dossier (PDF, MD, versions,
+   interprétation, lignes) ; les pièces jointes au formulaire y sont d'abord posées, puis suivent
+   exactement le même chemin. Une facture fournisseur provient toujours d'une pièce importée. #}
+<div class="card">
+  <form method="post" action="/factures/recharger" enctype="multipart/form-data"
+        class="fi-import" data-fi-occupe="Actualisation en cours…">
+    <div class="fi-import__texte">
+      <div class="card-title">Dossier de dépôt</div>
+      <p class="fi-discret">
+        Relit le dossier de dépôt : nouvelles pièces importées, MD structurés pris en compte, factures
+        à contrôler dont le PDF a été retiré supprimées ; les factures validées ne bougent jamais.
+      </p>
+    </div>
+    <div class="fi-import__actions">
+      <label class="ec-champ fi-import__fichiers">
+        <span>Ajouter des pièces (facultatif, PDF et MD)</span>
+        <input type="file" name="pieces" accept=".pdf,.md,application/pdf,text/markdown" multiple>
+      </label>
+      <button type="submit" class="btn btn-primary" data-testid="actualiser-factures">
+        Actualiser les factures
+      </button>
+    </div>
+  </form>
+</div>
+
 {% if doublons %}
 <div class="alert alert-warning" data-testid="doublons-dossier">
+  <div>
   <strong>Deux fichiers du dossier contiennent le même document.</strong>
   <ul>
     {% for sha, noms in doublons.items() %}
@@ -50,45 +78,49 @@
     Aucun n'est supprimé automatiquement : choisissez celui à retirer du dossier de dépôt, puis
     cliquez « Actualiser les factures ».
   </p>
+  </div>
 </div>
 {% endif %}
 
-<form method="get" action="/factures" class="filter-bar mt-md">
-  <label>Fournisseur
+<form method="get" action="/factures" class="ec-filtres mt-md" data-fi-filtres>
+  <label class="ec-champ"><span>Fournisseur</span>
     <select name="fournisseur" data-testid="filtre-fournisseur"><option value="">Tous</option>
       {% for f in fournisseurs %}
       <option value="{{ f.id }}" {{ 'selected' if applied.fournisseur == f.id }}>{{ f.libelle }}</option>
       {% endfor %}
     </select></label>
-  <label>Mois concerné
+  <label class="ec-champ"><span>Mois concerné</span>
     <select name="mois" data-testid="filtre-mois"><option value="">Tous</option>
       {% for m in mois_options %}
       <option value="{{ m.valeur }}" {{ 'selected' if applied.mois == m.valeur }}>{{ m.libelle }}</option>
       {% endfor %}
     </select></label>
-  <label>Statut
+  <label class="ec-champ"><span>Statut</span>
     <select name="statut" data-testid="filtre-statut"><option value="">Tous</option>
       {% for s in statuts %}<option value="{{ s }}" {{ 'selected' if applied.statut == s }}>{{ s|libelle_statut }}</option>{% endfor %}
     </select></label>
-  <label><input type="checkbox" name="echues" value="1" {{ 'checked' if applied.echues }}> Échues seulement</label>
-  <button type="submit" class="btn btn-primary">Filtrer</button>
-  <a href="/factures" class="btn btn-ghost">Réinitialiser</a>
+  <div class="ec-cases">
+    <label class="ec-case"><input type="checkbox" name="echues" value="1" {{ 'checked' if applied.echues }}> Échues seulement</label>
+  </div>
+  <div class="ec-filtres__actions">
+    <a href="/factures" class="btn btn-ghost fi-reinit">Réinitialiser <span class="fi-nb-filtres" hidden></span></a>
+    <button type="submit" class="btn btn-primary">Filtrer</button>
+  </div>
 </form>
 
-<div class="card mt-md">
-  <p class="section-note">{{ factures|length }} facture(s).</p>
-  <div class="table-container">
+{% if factures %}
+<div class="ec-table-wrap">
     <table class="data-table">
       <thead><tr>
-        <th>Fichier source</th><th>Référence fournisseur</th><th>Mois concerné</th><th>Fournisseur</th>
+        <th>Fichier source</th><th>Référence fournisseur</th><th>Mois concerné</th><th class="ec-col-nom">Fournisseur</th>
         <th class="num">Total document</th><th class="num">Somme des lignes</th><th class="num">Écart</th>
-        <th class="num">Réglé</th><th class="num">Solde</th><th>Statut</th><th></th>
+        <th class="num">Réglé</th><th class="num">Solde</th><th>Statut</th><th class="fi-col-actions"><span class="sr-only">Actions</span></th>
       </tr></thead>
       <tbody>
         {% for f in factures %}
         <tr data-facture="{{ f.facture_id_opaque }}">
-          <td class="font-mono text-xs">
-            {{ f.fichier_source or "—" }}
+          <td class="fi-mono fi-fichier">
+            <a href="/factures/{{ f.facture_id_opaque }}" class="fi-cle">{{ f.fichier_source or "—" }}</a>
             {% if f.doublon_fichiers %}
             <span class="status-badge status-a-controler" data-testid="badge-doublon"
                   title="Même document que : {{ f.doublon_fichiers|join(', ') }}">DOUBLON ?</span>
@@ -96,58 +128,64 @@
           </td>
           {# Le numéro réellement IMPRIMÉ sur la pièce. La référence interne (suffixée en cas de
              numéro réutilisé par le fournisseur) reste lisible sur la fiche. #}
-          <td class="font-mono text-xs">
+          <td class="fi-mono ec-nowrap">
             {{ f.facture_ref_source }}
             {% if f.facture_ref != f.facture_ref_source %}
-            <span class="text-xs" style="opacity:.6">({{ f.facture_ref }})</span>
+            <span class="ec-sous-ligne">({{ f.facture_ref }})</span>
             {% endif %}
           </td>
-          <td>{{ f.mois_concerne|mois_humain }}</td>
+          <td class="ec-nowrap">{{ f.mois_concerne|mois_humain }}</td>
           <td>{{ libelles.get(f.fournisseur_id_opaque) or f.fournisseur_id_opaque }}</td>
           <td class="num">{{ "%.2f"|format(f.montant_ttc) }}</td>
           <td class="num">{{ "%.2f"|format(f.montant_lignes_ttc) }}</td>
           {# UNE seule vérité : total document − somme canonique des lignes, la même que la fiche
              et que le contrôle de validation. #}
-          <td class="num {{ 'text-warning' if f.ecart_lignes|abs > 0.005 }}" data-testid="ecart">
+          <td class="num {{ 'fi-texte-alerte' if f.ecart_lignes|abs > 0.005 else 'fi-zero' }}" data-testid="ecart">
             {{ "%.2f"|format(f.ecart_lignes) }}
           </td>
           <td class="num">{{ "%.2f"|format(f.montant_regle) }}</td>
-          <td class="num">{{ "%.2f"|format(f.solde_restant) }}</td>
-          <td><span class="status-badge status-{{ 'valide' if f.statut in ['REGLEE','VALIDEE','PARTIELLEMENT_REGLEE'] else 'bloquant' if f.statut in ['ANNULEE','LITIGE'] else 'a-controler' }}">{{ f.statut|libelle_statut }}</span></td>
-          <td>
+          <td class="num"><strong>{{ "%.2f"|format(f.solde_restant) }}</strong></td>
+          <td><span class="status-badge status-{{ 'valide' if f.statut in ['REGLEE','VALIDEE','PARTIELLEMENT_REGLEE'] else 'bloquant' if f.statut in ['ANNULEE','LITIGE'] else 'brouillon' if f.statut == 'BROUILLON' else 'a-controler' }}">{{ f.statut|libelle_statut }}</span></td>
+          <td class="fi-col-actions">
             {# Actions RÉELLEMENT possibles dans cet état — jamais une action qui sera refusée. #}
-            <details class="menu-actions">
-              <summary class="btn btn-ghost" data-testid="menu-actions">⋯</summary>
-              <div class="card" style="position:absolute; z-index:10; min-width:22rem">
-                <a href="/factures/{{ f.facture_id_opaque }}" class="btn btn-secondary">Ouvrir</a>
+            <details class="fi-menu">
+              <summary data-testid="menu-actions" aria-label="Actions sur la facture" title="Actions">⋯</summary>
+              <div class="fi-menu__panneau">
+                <a href="/factures/{{ f.facture_id_opaque }}" class="btn btn-secondary">Ouvrir la fiche</a>
                 {% if f.statut in ['BROUILLON', 'A_CONTROLER'] %}
-                <form method="post" action="/factures/{{ f.facture_id_opaque }}/supprimer" class="mt-sm">
-                  <label class="text-xs">Motif de la suppression
+                <form method="post" action="/factures/{{ f.facture_id_opaque }}/supprimer">
+                  <label>Motif de la suppression
                     <input type="text" name="motif" required placeholder="ex. PDF retiré du dossier"></label>
-                  <button type="submit" class="btn btn-ghost" data-testid="action-supprimer">Supprimer</button>
+                  <button type="submit" class="btn btn-danger" data-testid="action-supprimer">Supprimer</button>
                 </form>
                 {% elif f.statut in ['VALIDEE', 'PARTIELLEMENT_REGLEE', 'REGLEE'] %}
-                <form method="post" action="/factures/{{ f.facture_id_opaque }}/contrepasser" class="mt-sm">
-                  <p class="text-xs">
+                <form method="post" action="/factures/{{ f.facture_id_opaque }}/contrepasser">
+                  <p>
                     Cette action ne supprimera pas la facture. Elle créera une contrepassation de
                     ses effets (achat, dette, impacts ménages).
                   </p>
-                  <label class="text-xs">Motif de la contrepassation
+                  <label>Motif de la contrepassation
                     <input type="text" name="motif" required placeholder="ex. facture erronée"></label>
-                  <button type="submit" class="btn btn-ghost" data-testid="action-contrepasser">Contrepasser</button>
+                  <button type="submit" class="btn btn-danger" data-testid="action-contrepasser">Contrepasser</button>
                 </form>
                 {% elif f.statut == 'ANNULEE' %}
-                <p class="text-xs mt-sm">Facture annulée : ouvrir la fiche pour voir sa contrepassation.</p>
+                <p class="mt-sm">Facture annulée : ouvrir la fiche pour voir sa contrepassation.</p>
                 {% endif %}
               </div>
             </details>
           </td>
         </tr>
-        {% else %}
-        <tr><td colspan="11" class="section-note">Aucune facture pour ces filtres.</td></tr>
         {% endfor %}
       </tbody>
     </table>
-  </div>
 </div>
+{% else %}
+<div class="card fi-vide" data-testid="factures-vide">
+  <span class="fi-vide__icone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
+  <span class="fi-vide__titre">Aucune facture pour ces filtres.</span>
+  <span class="fi-vide__texte">Élargissez les filtres, ou déposez des pièces puis cliquez « Actualiser les factures ».</span>
+</div>
+{% endif %}
+</div>
+<script src="/static/js/finitions.js" defer></script>
 {% endblock %}

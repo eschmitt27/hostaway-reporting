@@ -1,0 +1,571 @@
+/* ══ FINITIONS — mouvement, états et composants de confort ══════════════════════════════════
+   Couche optionnelle posée PAR-DESSUS `ecrans.css`, chargée écran par écran (jamais par base.html).
+
+   Règles de confinement (identiques à ecrans.css) :
+   · tout sélecteur commence par `.ecran` : un écran qui ne charge pas ce fichier, ou ne porte pas
+     la classe, n'est pas concerné ;
+   · uniquement les jetons d'app.css (couleurs, rayons, espacements) : l'identité ne change pas ;
+   · présentation seulement : aucun nom de champ, aucune valeur, aucune route n'en dépend.
+
+   Mouvement : 120-220 ms, courbes douces, aucun rebond. Tout est neutralisé sous
+   `prefers-reduced-motion: reduce` (voir fin de fichier). */
+
+.ecran {
+  --fi-ease: cubic-bezier(0.2, 0, 0, 1);
+  --fi-rapide: 120ms;
+  --fi-normal: 180ms;
+  --fi-lent: 220ms;
+  --fi-ombre-survol: 0 4px 14px rgba(16, 27, 48, 0.08), 0 1px 3px rgba(16, 27, 48, 0.06);
+  --fi-focus: 0 0 0 3px rgba(0, 52, 65, 0.22);
+}
+
+/* ── Apparition de l'écran ───────────────────────────────────────────────────────────────── */
+@keyframes fi-apparition {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes fi-fondu {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+/* Les blocs principaux arrivent en fondu, avec un décalage à peine perceptible. */
+.ecran > .card,
+.ecran > .ec-synthese,
+.ecran > .ec-filtres,
+.ecran > .ec-table-wrap,
+.ecran > .fi-kpis,
+.ecran > .fi-vide,
+.ecran > .alert {
+  animation: fi-apparition var(--fi-lent) var(--fi-ease) both;
+}
+.ecran > :nth-child(3) { animation-delay: 30ms; }
+.ecran > :nth-child(4) { animation-delay: 60ms; }
+.ecran > :nth-child(n+5) { animation-delay: 90ms; }
+
+/* ── En-tête : le titre prend la place disponible, les actions restent sur sa ligne ────────── */
+.ecran .page-header__titre { flex: 1 1 420px; }
+.ecran .page-header__actions { flex: 0 1 auto; justify-content: flex-end; }
+
+/* ── Boutons : transitions, pression, focus clavier ─────────────────────────────────────── */
+.ecran .btn {
+  transition: background-color var(--fi-rapide) var(--fi-ease),
+              border-color var(--fi-rapide) var(--fi-ease),
+              color var(--fi-rapide) var(--fi-ease),
+              box-shadow var(--fi-rapide) var(--fi-ease),
+              transform var(--fi-rapide) var(--fi-ease),
+              opacity var(--fi-rapide) var(--fi-ease);
+}
+.ecran .btn:not([disabled]):active { transform: translateY(1px); }
+.ecran .btn-primary:not([disabled]):hover { box-shadow: 0 2px 8px rgba(0, 52, 65, 0.22); }
+.ecran .btn:focus-visible,
+.ecran a:focus-visible,
+.ecran summary:focus-visible { outline: none; box-shadow: var(--fi-focus); border-radius: var(--radius-md); }
+.ecran .btn-danger:not([disabled]):hover { background: #ffc9c3; }
+/* Bouton « en cours » posé par finitions.js après envoi : le libellé reste lisible. */
+.ecran .btn.is-occupe { position: relative; cursor: progress; opacity: 0.85; }
+.ecran .btn.is-occupe::after {
+  content: "";
+  width: 12px;
+  height: 12px;
+  margin-left: 2px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: fi-rotation 0.7s linear infinite;
+}
+@keyframes fi-rotation { to { transform: rotate(360deg); } }
+
+/* ── Cartes ──────────────────────────────────────────────────────────────────────────────── */
+.ecran .card { transition: box-shadow var(--fi-normal) var(--fi-ease), border-color var(--fi-normal) var(--fi-ease); }
+.ecran .card > .card-title:first-child { margin-top: 0; }
+/* Blocs de premier niveau : toujours séparés du suivant, jamais collés. */
+.ecran > .card { margin-bottom: var(--stack-md); }
+.ecran > .card.mb-lg { margin-bottom: var(--stack-lg); }
+.ecran .fi-card-tete {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 16px;
+  margin-bottom: var(--stack-md);
+}
+.ecran .fi-card-tete .card-title { margin: 0; }
+.ecran .fi-compteur {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-container);
+  color: var(--color-on-surface-variant);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Indicateurs (KPI) : une seule grammaire ────────────────────────────────────────────── */
+.ecran .fi-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+  margin: 0 0 var(--stack-md);
+}
+.ecran .fi-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--ec-border, var(--color-outline-variant));
+  border-radius: var(--radius-lg);
+  background: #ffffff;
+  box-shadow: var(--shadow-card);
+  color: inherit;
+  transition: border-color var(--fi-normal) var(--fi-ease), box-shadow var(--fi-normal) var(--fi-ease),
+              transform var(--fi-normal) var(--fi-ease);
+}
+.ecran a.fi-kpi:hover { border-color: var(--color-outline); box-shadow: var(--fi-ombre-survol); transform: translateY(-1px); }
+.ecran .fi-kpi__label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+}
+.ecran .fi-kpi__valeur {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--color-primary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.ecran .fi-kpi__sous { font-size: 12px; color: var(--color-secondary); }
+.ecran .fi-kpi--alerte { border-left: 3px solid var(--color-warning); }
+.ecran .fi-kpi--alerte .fi-kpi__valeur { color: var(--color-warning); }
+.ecran .fi-kpi--erreur { border-left: 3px solid var(--color-error); }
+.ecran .fi-kpi--erreur .fi-kpi__valeur { color: var(--color-error); }
+.ecran .fi-kpi--ok .fi-kpi__valeur { color: var(--color-success); }
+
+/* ── Tableaux ────────────────────────────────────────────────────────────────────────────── */
+.ecran .ec-table-wrap thead th { background: var(--color-surface-container-low); }
+.ecran .ec-table-wrap tbody tr { transition: background-color var(--fi-rapide) var(--fi-ease); }
+.ecran .ec-table-wrap tbody tr:hover { background: #f5f7ff; }
+.ecran .ec-table-wrap tbody td { border-bottom: 1px solid var(--color-surface-container); vertical-align: middle; }
+.ecran .ec-table-wrap tbody tr:last-child td { border-bottom: none; }
+/* Ligne entièrement cliquable : le curseur le dit, le lien de la première cellule le permet au clavier. */
+.ecran tr.fi-ligne-cliquable { cursor: pointer; }
+/* Première colonne : la clé de lecture de la ligne. */
+.ecran .fi-cle { font-weight: 600; color: var(--color-on-surface); }
+.ecran .fi-cle a { color: var(--color-primary); }
+.ecran .fi-cle a:hover { text-decoration: underline; text-underline-offset: 2px; }
+.ecran .fi-mono { font-family: "Cascadia Code", "Consolas", monospace; font-size: 12px; }
+/* Un nom de fichier se coupe n'importe où plutôt qu'au premier tiret, dans une largeur bornée. */
+.ecran td.fi-fichier { min-width: 230px; max-width: 300px; overflow-wrap: anywhere; }
+.ecran td.fi-fichier .status-badge { margin-top: 4px; }
+.ecran .fi-discret { color: var(--color-secondary); }
+.ecran td.fi-zero { color: var(--color-outline); }
+.ecran .fi-texte-alerte { color: var(--color-warning); font-weight: 600; }
+/* Colonne d'actions : compacte, à droite. */
+.ecran th.fi-col-actions, .ecran td.fi-col-actions { width: 1%; text-align: right; white-space: nowrap; }
+.ecran .fi-lien-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-primary);
+  transition: background-color var(--fi-rapide) var(--fi-ease);
+}
+.ecran .fi-lien-action:hover { background: var(--color-surface-container); }
+.ecran .fi-lien-action::after { content: "\203A"; font-size: 16px; line-height: 1; transition: transform var(--fi-rapide) var(--fi-ease); }
+.ecran .fi-lien-action:hover::after { transform: translateX(2px); }
+.ecran td.fi-col-actions .btn-sm { height: 30px; }
+.ecran .btn-sm { display: inline-flex; align-items: center; }
+
+/* Compteurs cliquables d'une ligne (pilotage) : lisibles comme des liens, pas comme du texte. */
+.ecran .fi-nb {
+  display: inline-flex;
+  justify-content: center;
+  min-width: 28px;
+  height: 24px;
+  padding: 0 8px;
+  align-items: center;
+  border-radius: var(--radius-full);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-primary);
+  background: var(--color-surface-container-low);
+  transition: background-color var(--fi-rapide) var(--fi-ease);
+}
+.ecran a.fi-nb:hover { background: var(--color-surface-container-high); }
+.ecran .fi-nb--alerte { background: var(--color-warning-bg); color: var(--color-warning); }
+.ecran .fi-nb--zero { background: transparent; color: var(--color-outline); font-weight: 400; }
+
+/* ── Statuts : même forme partout, texte toujours présent ───────────────────────────────── */
+.ecran .status-badge,
+.ecran .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 9px;
+  line-height: 1;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  animation: fi-fondu var(--fi-normal) var(--fi-ease) both;
+}
+/* Pastille devant le texte : un repère de plus, jamais le seul. */
+.ecran .status-badge::before,
+.ecran .fi-statut::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.8;
+  flex: none;
+}
+.ecran .badge-danger { background: var(--color-error-container); color: var(--color-on-error-container); }
+.ecran .badge-ok { background: var(--color-success-bg); color: var(--color-success); }
+/* Brouillon / clôturé : deux états que la palette sémantique ne couvrait pas. */
+.ecran .status-brouillon { background: var(--color-surface-container); color: var(--color-on-surface-variant); }
+.ecran .status-brouillon::before { background: transparent; border: 1.5px solid currentColor; width: 7px; height: 7px; }
+.ecran .status-cloture { background: var(--color-primary); color: var(--color-on-primary); }
+
+/* ── Filtres ─────────────────────────────────────────────────────────────────────────────── */
+/* Barre compacte : les champs gardent une largeur lisible, les actions restent groupées à droite
+   sur la même ligne au lieu de s'empiler dans la dernière colonne de la grille. */
+.ecran .ec-filtres[data-fi-filtres] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 16px;
+}
+.ecran .ec-filtres[data-fi-filtres] > .ec-champ { flex: 1 1 170px; max-width: 260px; }
+.ecran .ec-filtres[data-fi-filtres] > .ec-champ.fi-champ-large { flex: 2 1 260px; max-width: 420px; }
+.ecran .ec-filtres[data-fi-filtres] > .ec-cases { flex: 0 1 auto; }
+.ecran .ec-filtres[data-fi-filtres] > .ec-filtres__actions { flex: 0 0 auto; margin-left: auto; flex-wrap: nowrap; }
+.ecran .ec-filtres .ec-champ.is-actif > span { color: var(--color-primary); }
+.ecran .ec-filtres .ec-champ.is-actif > span::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  vertical-align: 1px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  animation: fi-fondu var(--fi-normal) var(--fi-ease) both;
+}
+.ecran .ec-filtres .ec-champ.is-actif select,
+.ecran .ec-filtres .ec-champ.is-actif input { border-color: var(--color-primary); background-color: #fbfcff; }
+.ecran .ec-filtres .ec-case.is-actif { color: var(--color-primary); font-weight: 600; }
+/* « Réinitialiser » n'a de sens qu'avec un filtre posé : discret sinon. */
+.ecran .ec-filtres[data-fi-actifs="0"] .fi-reinit { opacity: 0.55; }
+.ecran .fi-nb-filtres {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-size: 11px;
+  font-weight: 700;
+}
+.ecran .fi-nb-filtres[hidden] { display: none; }
+
+/* ── Bloc d'import (texte à gauche, dépôt + action à droite) ─────────────────────────────── */
+.ecran .fi-import {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 32px;
+}
+.ecran .fi-import__texte { flex: 1 1 320px; min-width: 0; }
+.ecran .fi-import__texte .card-title { margin-bottom: 4px; }
+.ecran .fi-import__texte p { font-size: 13px; line-height: 1.6; max-width: 80ch; }
+.ecran .fi-import__actions { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.ecran .fi-import__fichiers { gap: 6px; }
+.ecran .fi-import__fichiers > span { font-size: 12px; font-weight: 600; color: var(--color-on-surface-variant); }
+.ecran .fi-import__actions .btn { height: 38px; }
+.ecran .fi-import input[type="file"] { font-size: 13px; max-width: 100%; color: var(--color-secondary); }
+.ecran .fi-import input[type="file"]::file-selector-button {
+  height: 32px;
+  margin-right: 10px;
+  padding: 0 12px;
+  border: 1.5px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  background: #ffffff;
+  color: var(--color-primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--fi-rapide) var(--fi-ease);
+}
+.ecran .fi-import input[type="file"]::file-selector-button:hover { background: var(--color-surface-container-low); }
+
+/* ── Cartes d'export côte à côte ─────────────────────────────────────────────────────────── */
+.ecran .fi-exports {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--stack-md);
+  margin-bottom: var(--stack-md);
+}
+.ecran .fi-exports > .card { margin: 0; display: flex; flex-direction: column; gap: 12px; animation: fi-apparition var(--fi-lent) var(--fi-ease) both; }
+.ecran .fi-exports > .card + .card { margin-top: 0; animation-delay: 40ms; }
+.ecran .fi-export-carte__tete { display: flex; gap: 14px; align-items: flex-start; }
+.ecran .fi-export-carte__tete .card-title { margin: 0 0 4px; }
+.ecran .fi-export-carte__tete p { font-size: 13px; line-height: 1.6; }
+.ecran .fi-export-carte__icone {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-container);
+  color: var(--color-primary);
+}
+.ecran .fi-export-carte__icone svg { width: 20px; height: 20px; }
+.ecran .fi-export-carte .alert { margin: 0; }
+.ecran .fi-export-carte__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; }
+
+/* Texte réservé aux lecteurs d'écran (en-tête de colonne d'actions, par exemple). */
+.ecran .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── Formulaires dans une carte (hors barre de filtres) ─────────────────────────────────── */
+.ecran .fi-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px 16px;
+  align-items: end;
+}
+.ecran .fi-form .ec-champ > span { font-size: 12px; font-weight: 600; color: var(--color-on-surface-variant); }
+.ecran .fi-form input[type="text"],
+.ecran .fi-form input[type="date"],
+.ecran .fi-form input[type="month"],
+.ecran .fi-form select {
+  width: 100%;
+  min-width: 0;
+  height: var(--ec-control-h, 38px);
+  padding: 0 10px;
+  border: 1px solid var(--ec-border, var(--color-outline-variant));
+  border-radius: var(--radius-md);
+  background-color: #ffffff;
+  color: var(--color-on-surface);
+  font: inherit;
+  font-size: 14px;
+  transition: border-color var(--fi-rapide), box-shadow var(--fi-rapide);
+}
+.ecran .fi-form select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2340484b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px;
+  cursor: pointer;
+}
+.ecran .fi-form input:hover, .ecran .fi-form select:hover { border-color: var(--color-outline); }
+.ecran .fi-form input:focus, .ecran .fi-form select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: var(--ec-focus-ring, var(--fi-focus));
+}
+.ecran .fi-form input:user-invalid, .ecran .fi-form select:user-invalid { border-color: var(--color-error); }
+.ecran .fi-form .btn { height: var(--ec-control-h, 38px); justify-content: center; }
+
+/* ── Bloc dépliant (<details class="fi-depliant">) ──────────────────────────────────────── */
+.ecran .fi-depliant { padding: 0; overflow: hidden; }
+.ecran .fi-depliant > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 20px;
+  list-style: none;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--color-primary);
+  transition: background-color var(--fi-rapide) var(--fi-ease);
+}
+.ecran .fi-depliant > summary::-webkit-details-marker { display: none; }
+.ecran .fi-depliant > summary::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--fi-normal) var(--fi-ease);
+  flex: none;
+}
+.ecran .fi-depliant[open] > summary::before { transform: rotate(45deg); }
+.ecran .fi-depliant > summary:hover { background: var(--color-surface-container-low); }
+.ecran .fi-depliant__aide { font-weight: 400; font-size: 13px; color: var(--color-secondary); margin-left: auto; }
+.ecran .fi-depliant__corps {
+  padding: 4px 20px 20px;
+  border-top: 1px solid var(--color-surface-container);
+  animation: fi-apparition var(--fi-normal) var(--fi-ease) both;
+}
+.ecran .fi-depliant__corps > p { margin: 12px 0 16px; font-size: 13px; line-height: 1.6; color: var(--color-secondary); max-width: 100ch; }
+.ecran .fi-depliant__corps a { color: var(--color-primary); font-weight: 600; }
+
+/* ── Menu d'actions d'une ligne (<details class="fi-menu">) ─────────────────────────────── */
+.ecran .fi-menu { position: relative; display: inline-block; }
+.ecran .fi-menu > summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: var(--radius-md);
+  list-style: none;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--color-on-surface-variant);
+  cursor: pointer;
+}
+.ecran .fi-menu > summary::-webkit-details-marker { display: none; }
+.ecran .fi-menu > summary::before { content: none; }
+.ecran .fi-menu > summary:hover,
+.ecran .fi-menu[open] > summary { background: var(--color-surface-container); color: var(--color-primary); }
+.ecran .fi-menu__panneau {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  width: min(22rem, 80vw);
+  padding: 12px;
+  border: 1px solid var(--ec-border, var(--color-outline-variant));
+  border-radius: var(--radius-lg);
+  background: #ffffff;
+  box-shadow: 0 12px 32px rgba(16, 27, 48, 0.14), 0 2px 6px rgba(16, 27, 48, 0.06);
+  text-align: left;
+  white-space: normal;
+  transform-origin: top right;
+  animation: fi-menu-ouverture var(--fi-normal) var(--fi-ease) both;
+}
+@keyframes fi-menu-ouverture {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+.ecran .fi-menu__panneau > .btn { width: 100%; justify-content: center; }
+.ecran .fi-menu__panneau form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-surface-container);
+}
+.ecran .fi-menu__panneau p { font-size: 12px; line-height: 1.5; color: var(--color-secondary); margin: 0; }
+.ecran .fi-menu__panneau label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--color-on-surface-variant); }
+.ecran .fi-menu__panneau input[type="text"] {
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--ec-border, var(--color-outline-variant));
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 400;
+}
+.ecran .fi-menu__panneau input[type="text"]:focus { outline: none; border-color: var(--color-primary); box-shadow: var(--fi-focus); }
+.ecran .fi-menu__panneau .btn { justify-content: center; }
+/* Un menu ouvert dans un tableau qui défile ne doit pas être rogné par le bas du cadre. */
+.ecran .ec-table-wrap:has(.fi-menu[open]) { padding-bottom: 220px; }
+
+/* ── États vides ─────────────────────────────────────────────────────────────────────────── */
+.ecran .fi-vide {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 40px 24px;
+  text-align: center;
+}
+.ecran .fi-vide__icone {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 6px;
+  border-radius: 50%;
+  background: var(--color-surface-container-low);
+  color: var(--color-outline);
+}
+.ecran .fi-vide__icone svg { width: 22px; height: 22px; }
+.ecran .fi-vide__titre { font-size: 15px; font-weight: 600; color: var(--color-on-surface); }
+.ecran .fi-vide__texte { max-width: 60ch; font-size: 13px; line-height: 1.6; color: var(--color-secondary); }
+.ecran .fi-vide .btn { margin-top: 10px; }
+
+/* ── Alertes / messages ──────────────────────────────────────────────────────────────────── */
+.ecran .alert { border: 1px solid transparent; line-height: 1.55; }
+.ecran .alert-info    { border-color: #c3d6fb; }
+.ecran .alert-warning { border-color: #f6dc9a; }
+.ecran .alert-error   { border-color: #f7bdb6; }
+.ecran .alert-success { border-color: #bfe1c9; }
+.ecran .alert.fi-alerte-compacte { font-size: 13px; padding: 10px 14px; }
+.ecran .alert ul { margin: 6px 0 0 18px; }
+
+/* ── Grille de détail (dl) ───────────────────────────────────────────────────────────────── */
+.ecran .detail-grid > div {
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-container-low);
+}
+.ecran .detail-grid dt { font-size: 11px; }
+
+/* ── Écrans étroits ──────────────────────────────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  .ecran .ec-filtres[data-fi-filtres] > .ec-champ { flex-basis: 100%; max-width: none; }
+  .ecran .ec-filtres[data-fi-filtres] > .ec-filtres__actions { flex: 1 1 100%; margin-left: 0; }
+  .ecran .ec-filtres[data-fi-filtres] > .ec-filtres__actions .btn { flex: 1 1 0; }
+  .ecran .fi-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ecran .fi-kpi__valeur { font-size: 18px; }
+  .ecran .fi-form { grid-template-columns: minmax(0, 1fr); }
+  .ecran .fi-form input, .ecran .fi-form select { font-size: 16px; }
+  .ecran .fi-depliant > summary { flex-wrap: wrap; }
+  .ecran .fi-depliant__aide { margin-left: 18px; }
+  .ecran .page-header { flex-direction: column; align-items: stretch; gap: var(--stack-sm); }
+  .ecran .page-header__titre, .ecran .page-header__actions { flex: 0 0 auto; }
+  .ecran .page-header .btn { justify-content: center; }
+}
+@media (max-width: 340px) {
+  .ecran .fi-kpis { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ── Mouvement réduit : rien ne bouge, tout reste lisible ───────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .ecran *,
+  .ecran *::before,
+  .ecran *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+  .ecran .btn:not([disabled]):active,
+  .ecran a.fi-kpi:hover { transform: none; }
+}

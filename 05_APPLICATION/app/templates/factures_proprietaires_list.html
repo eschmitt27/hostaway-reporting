@@ -1,8 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Factures propriétaires{% endblock %}
 {% block content %}
-<div class="page-header flex justify-between items-center">
-  <div>
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+<div class="ecran">
+<div class="page-header">
+  <div class="page-header__titre">
     <h1 class="page-title">Factures propriétaires</h1>
     <p class="page-subtitle">
       Factures <strong>émises par la conciergerie</strong>. Le relevé propriétaire, qui explique
@@ -11,46 +14,72 @@
   </div>
   {# Parcours MANUEL, à côté du cycle mensuel : un propriétaire, une période libre — sans
      attendre la fin du mois. #}
-  <a href="/factures-proprietaires/nouvelle" class="btn btn-primary" data-testid="nouvelle-facture-proprietaire">
-    + Nouvelle facture propriétaire
-  </a>
+  <div class="page-header__actions">
+    <a href="/factures-proprietaires/proposer?mois={{ mois }}" class="btn btn-secondary">Générer les factures du mois</a>
+    <a href="/factures-proprietaires/nouvelle" class="btn btn-primary" data-testid="nouvelle-facture-proprietaire">
+      + Nouvelle facture propriétaire
+    </a>
+  </div>
 </div>
 
-<form method="get" class="flex gap-sm items-center" style="margin-bottom:1rem">
-  <label>Mois <input type="month" name="mois" value="{{ mois }}"></label>
-  <label>Statut
+{# Synthèse de la liste affichée : simple lecture des lignes servies. #}
+{% set synth = namespace(brouillons=0, a_comptabiliser=0, solde=0) %}
+{% for f in factures %}
+  {% if f.statut == "BROUILLON" %}{% set synth.brouillons = synth.brouillons + 1 %}{% endif %}
+  {% if f.statut == "EMIS" and not f.comptabilisee %}{% set synth.a_comptabiliser = synth.a_comptabiliser + 1 %}{% endif %}
+  {% set synth.solde = synth.solde + (f.solde or 0) %}
+{% endfor %}
+<div class="fi-kpis">
+  <div class="fi-kpi"><span class="fi-kpi__label">Factures affichées</span>
+    <span class="fi-kpi__valeur">{{ factures|length }}</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Brouillons</span>
+    <span class="fi-kpi__valeur">{{ synth.brouillons }}</span>
+    <span class="fi-kpi__sous">à valider avant émission</span></div>
+  <div class="fi-kpi{% if synth.a_comptabiliser %} fi-kpi--alerte{% endif %}"><span class="fi-kpi__label">Émises non comptabilisées</span>
+    <span class="fi-kpi__valeur">{{ synth.a_comptabiliser }}</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Solde restant</span>
+    <span class="fi-kpi__valeur">{{ "%.2f"|format(synth.solde) }} €</span>
+    <span class="fi-kpi__sous">sur la liste affichée</span></div>
+</div>
+
+<form method="get" class="ec-filtres" data-fi-filtres>
+  <label class="ec-champ"><span>Mois</span><input type="month" name="mois" value="{{ mois }}"></label>
+  <label class="ec-champ"><span>Statut</span>
     <select name="statut">
       <option value="">tous</option>
-      {% for s in statuts %}<option value="{{ s }}" {% if s == statut %}selected{% endif %}>{{ s }}</option>{% endfor %}
+      {% for s in statuts %}<option value="{{ s }}" {% if s == statut %}selected{% endif %}>{{ s|libelle_statut }}</option>{% endfor %}
     </select>
   </label>
-  <label>Comptabilisée
+  <label class="ec-champ"><span>Comptabilisée</span>
     <select name="comptabilisee">
       <option value="">toutes</option>
       <option value="oui" {% if comptabilisee == "oui" %}selected{% endif %}>oui</option>
       <option value="non" {% if comptabilisee == "non" %}selected{% endif %}>non</option>
     </select>
   </label>
-  <button type="submit">Filtrer</button>
-  <a href="/factures-proprietaires/proposer?mois={{ mois }}" class="btn">Générer les factures</a>
+  <div class="ec-filtres__actions">
+    <a href="/factures-proprietaires" class="btn btn-ghost fi-reinit">Réinitialiser <span class="fi-nb-filtres" hidden></span></a>
+    <button type="submit" class="btn btn-primary">Filtrer</button>
+  </div>
 </form>
 
 {# Facturer sans attendre la fin du mois : un propriétaire, un logement, deux dates.
    Le contenu de la facture n'est PAS saisi — il vient du moteur, exactement comme au cycle
    mensuel : séjours de la période, commissions, ménages, préparation du canapé, forfait. Une
    désignation et un montant libres feraient une facture que le calcul ne saurait pas justifier. #}
-<details class="card mb-md" data-testid="bloc-periode-libre">
-  <summary><strong>+ Facturer une période libre</strong></summary>
-  <p class="text-xs text-secondary">
+<details class="card fi-depliant" data-testid="bloc-periode-libre">
+  <summary>+ Facturer une période libre
+    <span class="fi-depliant__aide">un propriétaire, un logement, deux dates</span></summary>
+  <div class="fi-depliant__corps">
+  <p>
     Facture propriétaire <strong>normale</strong>, sur les dates de votre choix — même moteur de
     calcul, même numérotation, même PDF, même créance, même écriture de vente. Les séjours retenus
     sont ceux dont la date d'arrivée tombe dans la période, règle identique à celle d'un mois
     entier. Pour voir le détail avant de créer, passez par
     <a href="/factures-proprietaires/nouvelle">+ Nouvelle facture propriétaire</a>.
   </p>
-  <form method="post" action="/factures-proprietaires/periode-libre">
-    <div class="flex gap-sm items-center" style="flex-wrap:wrap">
-      <label>Propriétaire
+  <form method="post" action="/factures-proprietaires/periode-libre" class="fi-form" data-fi-occupe="Création…">
+      <label class="ec-champ"><span>Propriétaire</span>
         <select name="proprietaire_id" required data-testid="periode-libre-proprietaire">
           <option value="">— choisir —</option>
           {% for p in proprietaires_options %}
@@ -58,7 +87,7 @@
           {% endfor %}
         </select>
       </label>
-      <label>Logement
+      <label class="ec-champ"><span>Logement</span>
         <select name="logement_id" required data-testid="periode-libre-logement">
           <option value="">— choisir —</option>
           {% for l in logements_options %}
@@ -66,41 +95,52 @@
           {% endfor %}
         </select>
       </label>
-      <label>Du <input type="date" name="debut" required data-testid="periode-libre-debut"></label>
-      <label>Au <input type="date" name="fin" required data-testid="periode-libre-fin"></label>
+      <label class="ec-champ"><span>Du</span><input type="date" name="debut" required data-testid="periode-libre-debut"></label>
+      <label class="ec-champ"><span>Au</span><input type="date" name="fin" required data-testid="periode-libre-fin"></label>
       <button type="submit" class="btn btn-primary" data-testid="periode-libre-creer">Créer le brouillon</button>
-    </div>
   </form>
+  </div>
 </details>
 
+{% if factures %}
+<div class="ec-table-wrap">
 <table class="table">
   <thead>
     <tr>
-      <th>Numéro</th><th>Type</th><th>Période</th><th>Propriétaire</th><th>Logement</th>
+      <th>Numéro</th><th>Type</th><th>Période</th><th class="ec-col-nom">Propriétaire</th><th class="ec-col-nom">Logement</th>
       <th class="text-right">Total</th><th class="text-right">Solde</th><th>Statut</th>
-      <th>Comptabilisée</th><th>Émise le</th><th></th>
+      <th>Comptabilisée</th><th>Émise le</th><th class="fi-col-actions"><span class="sr-only">Actions</span></th>
     </tr>
   </thead>
   <tbody>
   {% for f in factures %}
     <tr>
-      <td>{{ f.numero_facture or "—" }}</td>
-      <td>{{ f.type_document }}</td>
-      <td>{{ f.mois }}</td>
+      <td class="fi-cle ec-nowrap"><a href="/factures-proprietaires/{{ f.facture_id_opaque }}">{{ f.numero_facture or "—" }}</a></td>
+      <td>{% if f.type_document == "AVOIR" %}<span class="badge badge-info">{{ f.type_document|libelle_statut }}</span>{% else %}{{ f.type_document|libelle_statut }}{% endif %}</td>
+      <td class="ec-nowrap">{{ f.mois }}</td>
       <td>{{ f.proprietaire_id | nom_proprietaire }}</td>
       <td>{{ f.logement_id | nom_logement }}</td>
       <td class="text-right">{{ "%.2f"|format(f.montant_total) }} €</td>
-      <td class="text-right">{{ "%.2f"|format(f.solde) }} €</td>
-      <td>{{ f.statut }}</td>
+      <td class="text-right"><strong>{{ "%.2f"|format(f.solde) }} €</strong></td>
+      <td><span class="status-badge status-{{ {'BROUILLON': 'brouillon', 'VALIDE': 'info', 'EMIS': 'valide', 'ANNULE': 'bloquant'}.get(f.statut, 'info') }}">{{ f.statut|libelle_statut }}</span></td>
       {# Lu dans les écritures, jamais dans un drapeau porté par la facture : un drapeau se
          désynchroniserait de la comptabilité au premier incident. #}
-      <td>{% if f.comptabilisee %}oui{% elif f.statut == "EMIS" %}<strong>non</strong>{% else %}—{% endif %}</td>
-      <td>{{ f.date_emission or "—" }}</td>
-      <td><a href="/factures-proprietaires/{{ f.facture_id_opaque }}">ouvrir</a></td>
+      <td>{% if f.comptabilisee %}<span class="badge badge-success">oui</span>{% elif f.statut == "EMIS" %}<span class="badge badge-warning">non</span>{% else %}<span class="fi-discret">—</span>{% endif %}</td>
+      <td class="ec-nowrap">{{ f.date_emission|date_fr if f.date_emission else "—" }}</td>
+      <td class="fi-col-actions"><a class="fi-lien-action" href="/factures-proprietaires/{{ f.facture_id_opaque }}">Ouvrir</a></td>
     </tr>
-  {% else %}
-    <tr><td colspan="10">Aucune facture propriétaire.</td></tr>
   {% endfor %}
   </tbody>
 </table>
+</div>
+{% else %}
+<div class="card fi-vide">
+  <span class="fi-vide__icone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="16" x2="14" y2="16"/></svg></span>
+  <span class="fi-vide__titre">Aucune facture propriétaire.</span>
+  <span class="fi-vide__texte">Générez les factures du mois, ou facturez une période libre pour un propriétaire.</span>
+  <a href="/factures-proprietaires/proposer?mois={{ mois }}" class="btn btn-secondary">Générer les factures du mois</a>
+</div>
+{% endif %}
+</div>
+<script src="/static/js/finitions.js" defer></script>
 {% endblock %}
