@@ -2,62 +2,99 @@
 {% block title %}Clôtures mensuelles{% endblock %}
 
 {% block content %}
-
-<div class="page-header flex justify-between items-center">
-  <div>
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+<div class="ecran">
+<div class="page-header">
+  <div class="page-header__titre">
     <h1 class="page-title">Clôtures mensuelles</h1>
     <p class="page-subtitle">Suivi humain de préparation — la clôture réelle reste pilotée par le moteur</p>
   </div>
-  <span class="read-only-badge">Clôture réelle non active</span>
+  <div class="page-header__actions">
+    <span class="read-only-badge">Clôture réelle non active</span>
+    <a href="/pilotage-mensuel" class="btn btn-secondary">Pilotage mensuel</a>
+  </div>
 </div>
 
 {% if erreur %}<div class="alert alert-error">{{ erreur }}</div>{% endif %}
 
-<div class="alert alert-info">
+<div class="alert alert-info fi-alerte-compacte">
   Cet écran journalise la préparation et la revue humaine des contrôles avant clôture. Il n'écrit
   jamais dans la clôture réelle (REF_Cloture_Mensuelle) : celle-ci reste exclusivement pilotée par le
   moteur.
 </div>
 
-<form method="get" action="/clotures" class="filter-bar mt-md">
-  <label>Statut <select name="statut"><option value="">Tous</option>
+{# Synthèse des mois affichés : simple décompte des lignes servies. #}
+{% set synth = namespace(bloques=0, validees=0, a_traiter=0) %}
+{% for l in lignes %}
+  {% if l.progression.nb_bloqueurs > 0 %}{% set synth.bloques = synth.bloques + 1 %}{% endif %}
+  {% if l.statut == "VALIDEE" %}{% set synth.validees = synth.validees + 1 %}{% endif %}
+  {% set synth.a_traiter = synth.a_traiter + (l.progression.nb_a_traiter or 0) %}
+{% endfor %}
+<div class="fi-kpis">
+  <div class="fi-kpi"><span class="fi-kpi__label">Mois affichés</span>
+    <span class="fi-kpi__valeur">{{ lignes|length }}</span></div>
+  <div class="fi-kpi{% if synth.bloques %} fi-kpi--erreur{% endif %}"><span class="fi-kpi__label">Mois avec bloqueurs</span>
+    <span class="fi-kpi__valeur">{{ synth.bloques }}</span>
+    <span class="fi-kpi__sous">empêchent la validation</span></div>
+  <div class="fi-kpi{% if synth.a_traiter %} fi-kpi--alerte{% endif %}"><span class="fi-kpi__label">Contrôles à traiter</span>
+    <span class="fi-kpi__valeur">{{ synth.a_traiter }}</span></div>
+  <div class="fi-kpi{% if synth.validees %} fi-kpi--ok{% endif %}"><span class="fi-kpi__label">Mois validés</span>
+    <span class="fi-kpi__valeur">{{ synth.validees }}</span></div>
+</div>
+
+<form method="get" action="/clotures" class="ec-filtres" data-fi-filtres>
+  <label class="ec-champ"><span>Statut</span><select name="statut"><option value="">Tous</option>
     {% for k, v in statuts.items() %}<option value="{{ k }}" {{ 'selected' if k == applied.statut }}>{{ v }}</option>{% endfor %}</select></label>
-  <label>Année <input type="text" name="annee" value="{{ applied.annee or '' }}" size="6" placeholder="2026"></label>
-  <label>&nbsp;<label><input type="checkbox" name="avec_bloqueurs" value="true" {{ 'checked' if applied.avec_bloqueurs }}> Avec bloqueurs</label></label>
-  <button type="submit" class="btn btn-primary">Filtrer</button>
+  <label class="ec-champ"><span>Année</span><input type="text" name="annee" value="{{ applied.annee or '' }}" size="6" placeholder="2026" inputmode="numeric"></label>
+  <div class="ec-cases">
+    <label class="ec-case"><input type="checkbox" name="avec_bloqueurs" value="true" {{ 'checked' if applied.avec_bloqueurs }}> Avec bloqueurs</label>
+  </div>
+  <div class="ec-filtres__actions">
+    <a href="/clotures" class="btn btn-ghost fi-reinit">Réinitialiser <span class="fi-nb-filtres" hidden></span></a>
+    <button type="submit" class="btn btn-primary">Filtrer</button>
+  </div>
 </form>
 
-<div class="card mt-md">
-  <div class="table-container">
+{% if lignes %}
+<div class="ec-table-wrap">
     <table class="data-table">
-      <thead><tr><th>Mois</th><th>Statut</th><th>Bloqueurs</th><th>À traiter</th><th>Résolus</th>
-        <th>Exceptions</th><th>Informatifs</th><th>Dernière action</th><th></th></tr></thead>
+      <thead><tr><th>Mois</th><th>Statut</th><th class="num">Bloqueurs</th><th class="num">À traiter</th><th class="num">Résolus</th>
+        <th class="num">Exceptions</th><th class="num">Informatifs</th><th>Dernière action</th><th class="fi-col-actions"><span class="sr-only">Actions</span></th></tr></thead>
       <tbody>
         {% for l in lignes %}
         <tr>
-          <td class="font-mono text-xs">{{ l.mois }}</td>
-          <td><span class="status-badge status-{{ 'valide' if l.statut == 'VALIDEE' else ('bloquant' if l.progression.nb_bloqueurs > 0 else 'info') }}">{{ l.statut_libelle }}</span></td>
-          <td>{{ l.progression.nb_bloqueurs }}</td>
-          <td>{{ l.progression.nb_a_traiter }}</td>
-          <td>{{ l.progression.nb_resolus }}</td>
-          <td>{{ l.progression.nb_exceptions }}</td>
-          <td>{{ l.progression.nb_informatifs }}</td>
-          <td class="text-xs">{{ l.derniere_action or "—" }}</td>
-          <td>
+          <td class="fi-cle ec-nowrap">{{ l.mois|mois_humain or l.mois }}</td>
+          <td><span class="status-badge status-{{ 'valide' if l.statut == 'VALIDEE' else ('cloture' if l.statut == 'ARCHIVEE' else ('bloquant' if l.progression.nb_bloqueurs > 0 else ('brouillon' if l.statut == 'NON_DEMARREE' else 'info'))) }}">{{ l.statut_libelle }}</span></td>
+          <td class="num">{% if l.progression.nb_bloqueurs %}<span class="fi-nb fi-nb--alerte">{{ l.progression.nb_bloqueurs }}</span>{% else %}<span class="fi-nb fi-nb--zero">0</span>{% endif %}</td>
+          <td class="num {{ 'fi-zero' if not l.progression.nb_a_traiter }}">{{ l.progression.nb_a_traiter }}</td>
+          <td class="num {{ 'fi-zero' if not l.progression.nb_resolus }}">{{ l.progression.nb_resolus }}</td>
+          <td class="num {{ 'fi-zero' if not l.progression.nb_exceptions }}">{{ l.progression.nb_exceptions }}</td>
+          <td class="num {{ 'fi-zero' if not l.progression.nb_informatifs }}">{{ l.progression.nb_informatifs }}</td>
+          <td class="text-xs fi-discret">{{ l.derniere_action or "—" }}</td>
+          <td class="fi-col-actions">
             {% if l.cloture_id_opaque %}
-              <a href="/clotures/{{ l.cloture_id_opaque }}">Ouvrir</a>
+              <a class="fi-lien-action" href="/clotures/{{ l.cloture_id_opaque }}">Ouvrir</a>
             {% else %}
-              <form method="post" action="/clotures/demarrer" style="display:inline">
+              <form method="post" action="/clotures/demarrer" class="inline-form" data-fi-occupe>
                 <input type="hidden" name="mois" value="{{ l.mois }}">
-                <button type="submit" class="btn btn-ghost btn-sm">Démarrer</button>
+                <button type="submit" class="btn btn-secondary btn-sm">Démarrer</button>
               </form>
             {% endif %}
           </td>
         </tr>
-        {% else %}<tr><td colspan="9" class="section-note">Aucun mois pour ces filtres.</td></tr>{% endfor %}
+        {% endfor %}
       </tbody>
     </table>
-  </div>
 </div>
-
+{% else %}
+<div class="card fi-vide">
+  <span class="fi-vide__icone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg></span>
+  <span class="fi-vide__titre">Aucun mois pour ces filtres.</span>
+  <span class="fi-vide__texte">Aucun élément à contrôler pour cette sélection. Changez l'année ou le statut pour élargir la liste.</span>
+  <a href="/clotures" class="btn btn-secondary">Voir tous les mois</a>
+</div>
+{% endif %}
+</div>
+<script src="/static/js/finitions.js" defer></script>
 {% endblock %}

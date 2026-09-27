@@ -2,69 +2,103 @@
 {% block title %}Pilotage mensuel{% endblock %}
 
 {% block content %}
-
-<div class="page-header flex justify-between items-center">
-  <div>
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+<div class="ecran">
+<div class="page-header">
+  <div class="page-header__titre">
     <h1 class="page-title">Pilotage mensuel</h1>
     <p class="page-subtitle">Vue d'ensemble agrégée en lecture seule — aucun recalcul, aucune écriture</p>
   </div>
-  <span class="read-only-badge">Lecture seule</span>
+  <div class="page-header__actions">
+    <span class="read-only-badge">Lecture seule</span>
+    <a href="/clotures" class="btn btn-secondary">Clôtures mensuelles</a>
+  </div>
 </div>
 
-<div class="alert alert-info">
+<div class="alert alert-info fi-alerte-compacte">
   Chaque compteur ci-dessous est lu depuis l'écran source correspondant (aucune règle recalculée ici).
   Cliquez sur un compteur pour ouvrir la liste filtrée d'origine.
 </div>
 
 {% if tableau.indisponibles %}
-<div class="alert alert-warning">
+<div class="alert alert-warning fi-alerte-compacte">
   ⚠ Données indisponibles pour : {{ tableau.indisponibles|join(', ') }}. Les autres indicateurs
   restent affichés normalement.
 </div>
 {% endif %}
 
-<form method="get" action="/pilotage-mensuel" class="filter-bar mt-md">
-  <label>Année <select name="annee"><option value="">Toutes</option>
+<form method="get" action="/pilotage-mensuel" class="ec-filtres" data-fi-filtres>
+  <label class="ec-champ"><span>Année</span><select name="annee"><option value="">Toutes</option>
     {% for a in tableau.annees_disponibles %}<option value="{{ a }}" {{ 'selected' if a == applied.annee }}>{{ a }}</option>{% endfor %}</select></label>
-  <label>Mois <input type="month" name="mois" value="{{ applied.mois }}"></label>
-  <label>Indicateur <select name="statut"><option value="">Tous</option>
+  <label class="ec-champ"><span>Mois</span><input type="month" name="mois" value="{{ applied.mois }}"></label>
+  <label class="ec-champ"><span>Indicateur</span><select name="statut"><option value="">Tous</option>
     {% for k, v in tableau.indicateurs.items() %}<option value="{{ k }}" {{ 'selected' if k == applied.statut }}>{{ v }}</option>{% endfor %}</select></label>
-  <button type="submit" class="btn btn-primary">Filtrer</button>
-  <a href="/pilotage-mensuel/export.csv?annee={{ applied.annee }}&mois={{ applied.mois }}&statut={{ applied.statut }}" class="btn btn-ghost">Export CSV</a>
+  <div class="ec-filtres__actions">
+    <a href="/pilotage-mensuel/export.csv?annee={{ applied.annee }}&mois={{ applied.mois }}&statut={{ applied.statut }}" class="btn btn-ghost">Export CSV</a>
+    <a href="/pilotage-mensuel" class="btn btn-ghost fi-reinit">Réinitialiser <span class="fi-nb-filtres" hidden></span></a>
+    <button type="submit" class="btn btn-primary">Filtrer</button>
+  </div>
 </form>
 
-<div class="card mt-md">
-  <div class="table-container">
+{# Un compteur : lien vers la liste d'origine, en couleur d'alerte seulement s'il reste quelque chose.
+   `href` n'est composé que de chemins fixes et du mois passé par `urlencode` : il peut sortir tel
+   quel (sans quoi `&` deviendrait `&amp;` dans la source). #}
+{% macro compteur(n, href) -%}
+  {%- if n is none -%}<span class="fi-discret">—</span>
+  {%- elif n == 0 -%}<a class="fi-nb fi-nb--zero" href="{{ href|safe }}">0</a>
+  {%- else -%}<a class="fi-nb fi-nb--alerte" href="{{ href|safe }}">{{ n }}</a>
+  {%- endif -%}
+{%- endmacro %}
+{% macro volume(n, href) -%}
+  {%- if n is none -%}<span class="fi-discret">—</span>
+  {%- else -%}<a class="fi-nb" href="{{ href|safe }}">{{ n }}</a>
+  {%- endif -%}
+{%- endmacro %}
+
+{% if tableau.lignes %}
+<div class="ec-table-wrap">
     <table class="data-table">
       <thead>
         <tr>
           <th>Mois</th><th>Statut réel (moteur)</th><th>Suivi humain (APP-5C)</th><th>Indicateur</th>
-          <th>Bloquants</th><th>Exceptions</th><th>Banque à contrôler</th><th>Ménages à contrôler</th>
-          <th>Règlements à contrôler</th><th>Charges</th><th>Réservations</th>
-          <th>Dernière action humaine</th><th></th>
+          <th class="num">Bloquants</th><th class="num">Exceptions</th><th class="num">Banque à contrôler</th><th class="num">Ménages à contrôler</th>
+          <th class="num">Règlements à contrôler</th><th class="num">Charges</th><th class="num">Réservations</th>
+          <th>Dernière action humaine</th><th class="fi-col-actions"><span class="sr-only">Actions</span></th>
         </tr>
       </thead>
       <tbody>
         {% for l in tableau.lignes %}
         <tr>
-          <td class="font-mono text-xs">{{ l.mois }}</td>
-          <td class="text-xs">{{ l.statut_moteur or "—" }}</td>
-          <td><span class="status-badge status-{{ 'valide' if l.statut_humain == 'VALIDEE' else 'info' }}">{{ l.statut_humain_libelle }}</span></td>
+          <td class="fi-cle ec-nowrap">{{ l.mois|mois_humain or l.mois }}</td>
+          {# Statut lu tel quel dans REF_Cloture_Mensuelle ; seul son habillage change. #}
+          <td>{% if l.statut_moteur == "CLOTURE" %}<span class="status-badge status-cloture">Clôturé</span>
+              {%- elif l.statut_moteur == "OUVERT" %}<span class="status-badge status-info">Ouvert</span>
+              {%- elif l.statut_moteur %}<span class="status-badge">{{ l.statut_moteur }}</span>
+              {%- else %}<span class="fi-discret">—</span>{% endif %}</td>
+          <td><span class="status-badge status-{{ 'valide' if l.statut_humain == 'VALIDEE' else ('brouillon' if l.statut_humain in (none, '', 'NON_DEMARREE') else 'info') }}">{{ l.statut_humain_libelle }}</span></td>
           <td><span class="status-badge status-{{ 'bloquant' if l.indicateur in ('A_TRAITER','EN_COURS') else ('valide' if l.indicateur == 'VALIDE' else 'info') }}">{{ l.indicateur_libelle }}</span></td>
-          <td>{% if l.nb_bloquants is not none %}<a href="/controles-cloture?mois={{ l.mois }}&cloture_bloquee=true">{{ l.nb_bloquants }}</a>{% else %}—{% endif %}</td>
-          <td>{% if l.nb_exceptions is not none %}<a href="/controles-cloture?mois={{ l.mois }}&statut_suivi=ACCEPTE_AVEC_JUSTIFICATION">{{ l.nb_exceptions }}</a>{% else %}—{% endif %}</td>
-          <td>{% if l.nb_mouvements_a_controler is not none %}<a href="/banques-caisse/controle?mois={{ l.mois }}&statut=A_CONTROLER">{{ l.nb_mouvements_a_controler }}</a>{% else %}—{% endif %}</td>
-          <td>{% if l.nb_menages_a_controler is not none %}<a href="/menages/a-controler?mois={{ l.mois }}">{{ l.nb_menages_a_controler }}</a>{% else %}—{% endif %}</td>
-          <td>{% if l.nb_reglements_a_controler is not none %}<a href="/proprietaires-reglements/a-controler?mois={{ l.mois }}">{{ l.nb_reglements_a_controler }}</a>{% else %}—{% endif %}</td>
-          <td>{% if l.nb_charges_mois is not none %}<a href="/fournisseurs?mois={{ l.mois }}">{{ l.nb_charges_mois }}</a>{% else %}—{% endif %}</td>
-          <td>{% if l.nb_reservations_mois is not none %}<a href="/reservations?mois={{ l.mois }}">{{ l.nb_reservations_mois }}</a>{% else %}—{% endif %}</td>
-          <td class="text-xs">{{ l.derniere_action_humaine or "—" }}</td>
-          <td>{% if l.cloture_id_opaque %}<a href="/clotures/{{ l.cloture_id_opaque }}">Fiche APP-5C</a>{% else %}<a href="/clotures">Clôtures</a>{% endif %}</td>
+          <td class="num">{{ compteur(l.nb_bloquants, "/controles-cloture?mois=" ~ (l.mois|urlencode) ~ "&cloture_bloquee=true") }}</td>
+          <td class="num">{{ compteur(l.nb_exceptions, "/controles-cloture?mois=" ~ (l.mois|urlencode) ~ "&statut_suivi=ACCEPTE_AVEC_JUSTIFICATION") }}</td>
+          <td class="num">{{ compteur(l.nb_mouvements_a_controler, "/banques-caisse/controle?mois=" ~ (l.mois|urlencode) ~ "&statut=A_CONTROLER") }}</td>
+          <td class="num">{{ compteur(l.nb_menages_a_controler, "/menages/a-controler?mois=" ~ (l.mois|urlencode)) }}</td>
+          <td class="num">{{ compteur(l.nb_reglements_a_controler, "/proprietaires-reglements/a-controler?mois=" ~ (l.mois|urlencode)) }}</td>
+          <td class="num">{{ volume(l.nb_charges_mois, "/fournisseurs?mois=" ~ (l.mois|urlencode)) }}</td>
+          <td class="num">{{ volume(l.nb_reservations_mois, "/reservations?mois=" ~ (l.mois|urlencode)) }}</td>
+          <td class="text-xs fi-discret">{{ l.derniere_action_humaine or "—" }}</td>
+          <td class="fi-col-actions">{% if l.cloture_id_opaque %}<a class="fi-lien-action" href="/clotures/{{ l.cloture_id_opaque }}">Fiche APP-5C</a>{% else %}<a class="fi-lien-action" href="/clotures">Clôtures</a>{% endif %}</td>
         </tr>
-        {% else %}<tr><td colspan="12" class="section-note">Aucun mois pour ces filtres.</td></tr>{% endfor %}
+        {% endfor %}
       </tbody>
     </table>
-  </div>
 </div>
-
+{% else %}
+<div class="card fi-vide">
+  <span class="fi-vide__icone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18M7 15l4-6 4 3 5-8"/></svg></span>
+  <span class="fi-vide__titre">Aucun mois pour ces filtres.</span>
+  <span class="fi-vide__texte">Aucun élément à contrôler pour cette période. Élargissez l'année ou l'indicateur pour voir d'autres mois.</span>
+</div>
+{% endif %}
+</div>
+<script src="/static/js/finitions.js" defer></script>
 {% endblock %}
