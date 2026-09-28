@@ -11,6 +11,8 @@
     var actifs = 0;
     form.querySelectorAll(".ec-champ").forEach(function (champ) {
       var ctl = champ.querySelector("select, input:not([type=checkbox]):not([type=file])");
+      // Un tri n'est pas un filtre : il a toujours une valeur, il ne restreint rien.
+      if (ctl && ctl.hasAttribute("data-fi-neutre")) return;
       var actif = !!(ctl && ctl.value && ctl.value.trim() !== "");
       champ.classList.toggle("is-actif", actif);
       if (actif) actifs++;
@@ -34,6 +36,14 @@
       marquerFiltres(form);
       form.addEventListener("change", function () { marquerFiltres(form); });
       form.addEventListener("input", function () { marquerFiltres(form); });
+    });
+
+    // Blocs dépliants et menus : l'état ouvert / fermé est annoncé aux technologies d'assistance.
+    document.querySelectorAll(".ecran details.fi-menu, .ecran details.fi-depliant").forEach(function (d) {
+      var s = d.querySelector(":scope > summary");
+      if (!s) return;
+      s.setAttribute("aria-expanded", d.open ? "true" : "false");
+      d.addEventListener("toggle", function () { s.setAttribute("aria-expanded", d.open ? "true" : "false"); });
     });
 
     // Menus d'actions : un seul ouvert à la fois ; clic ailleurs ou Échap pour refermer.
