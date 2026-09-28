@@ -67,6 +67,15 @@ E_DEJA_ANNULEE = "CHARGE_DEJA_ANNULEE"
 E_DOUBLON = "CHARGE_ID_DEJA_UTILISE"
 E_CONTRAT_INVALIDE = "CHARGE_CONTRAT_INVALIDE"
 E_IMPACT_INVALIDE = "CHARGE_CODE_IMPACT_INVALIDE"
+E_HORS_COMPTA_MOUVEMENT = "CHARGE_HORS_COMPTA_LIEE_A_UN_MOUVEMENT"
+
+#: Identifiants des mouvements réels de trésorerie de la société (module Flux financiers) :
+#: transaction Qonto, opération de caisse, retrait Banque → Caisse.
+PREFIXES_MOUVEMENT_SOCIETE = ("QMV-", "CAI-", "TRF-")
+MESSAGE_HORS_COMPTA_MOUVEMENT = (
+    "Cette charge est liée à un mouvement Banque ou Caisse de la société : elle ne peut pas être "
+    "« hors comptabilité ». Un mouvement réel de trésorerie finit toujours comptabilisé — "
+    "choisissez « Impacte le résultat réel et comptable ».")
 
 # Champs modifiables par la saisie. `charge_id`, `statut` et les horodatages n'en font pas partie :
 # l'identité et le cycle de vie ne se corrigent pas comme une valeur métier.
@@ -225,6 +234,35 @@ def _journaliser(conn, charge_id: str, evenement: str, acteur: str, motif: str,
          json.dumps(apres, default=str) if apres else None))
 
 
+def _hors_compta(valeurs: dict[str, Any]) -> bool:
+    return (str(valeurs.get("prise_en_compta") or "").strip().upper() == "NON"
+            or str(valeurs.get("code_impact") or "").strip().upper() == "HC")
+
+
+def _liee_a_un_mouvement(conn, charge_id: str, valeurs: dict[str, Any]) -> bool:
+    """Vrai si la charge explique un mouvement réel de la société : lien porté par la charge, ou
+    rapprochement validé dans le module Flux financiers."""
+    if str(valeurs.get("lien_virement_banque") or "").strip().startswith(PREFIXES_MOUVEMENT_SOCIETE):
+        return True
+    if not charge_id or not conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='flux_lettrage_lignes'"
+    ).fetchone():
+        return False
+    return bool(conn.execute(
+        "SELECT 1 FROM flux_lettrage_lignes l JOIN flux_lettrages t "
+        "ON t.lettrage_id_opaque = l.lettrage_id_opaque WHERE t.statut='VALIDE' "
+        "AND l.cote='OBJET' AND l.type_element='CHARGE' AND l.element_id=?",
+        (charge_id,)).fetchone())
+
+
+def refus_hors_compta_liee(conn, charge_id: str, valeurs: dict[str, Any]) -> dict[str, Any] | None:
+    """Garde-fou : une charge liée à un mouvement Banque/Caisse n'est jamais hors comptabilité.
+    Une charge générale, sans mouvement lié, peut toujours l'être."""
+    if _hors_compta(valeurs) and _liee_a_un_mouvement(conn, charge_id, valeurs):
+        return _refus(E_HORS_COMPTA_MOUVEMENT, MESSAGE_HORS_COMPTA_MOUVEMENT)
+    return None
+
+
 def _charge(conn, charge_id: str) -> dict[str, Any] | None:
     r = conn.execute("SELECT * FROM charges WHERE charge_id = ?", (charge_id,)).fetchone()
     return dict(r) if r else None
@@ -279,6 +317,9 @@ def creer(donnees: dict[str, Any], *, acteur: str = "", conn=None, perimetre=Non
     try:
         if _charge(conn, charge_id) is not None:
             return _refus(E_DOUBLON, f"Une charge porte déjà l'identifiant {charge_id}.")
+        refus = refus_hors_compta_liee(conn, charge_id, valeurs)
+        if refus is not None:
+            return refus
         _appliquer_justificatif_archive(conn, valeurs, valeurs.get("date_charge"))
         colonnes = ["charge_id", *CHAMPS_SAISIE, "date_saisie", "source_module", "acteur"]
         params = [charge_id, *(valeurs[c] for c in CHAMPS_SAISIE), _maintenant(), "SAISIE_APP",
@@ -331,6 +372,9 @@ def modifier(charge_id: str, donnees: dict[str, Any], *, acteur: str = "", motif
         valeurs = {c: donnees.get(c) for c in CHAMPS_SAISIE}
         valeurs["montant"] = validation["montant"]
         valeurs["mois"] = validation["mois"]
+        refus = refus_hors_compta_liee(conn, charge_id, valeurs)
+        if refus is not None:
+            return refus
         # Une référence déjà attribuée est conservée : la pièce est classée sous ce numéro.
         valeurs["justificatif_reference"] = (valeurs.get("justificatif_reference")
                                              or avant.get("justificatif_reference"))
@@ -406,6 +450,9 @@ def valider_controle(charge_id: str, *, acteur: str = "", motif: str = "",
         if actuel == CONTROLE_VALIDE:
             return {"ok": True, "charge_id": charge_id, "statut_controle": CONTROLE_VALIDE,
                     "inchange": True}
+        refus = refus_hors_compta_liee(conn, charge_id, avant)
+        if refus is not None:
+            return refus
         conn.execute(
             "UPDATE charges SET statut_controle = ?, date_modification = ? WHERE charge_id = ?",
             (CONTROLE_VALIDE, _maintenant(), charge_id))

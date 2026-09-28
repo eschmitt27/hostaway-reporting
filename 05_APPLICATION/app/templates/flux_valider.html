@@ -103,7 +103,10 @@
               <input type="hidden" name="l_objet" value="{{ l.objet }}"><input type="hidden" name="l_logement_id" value="{{ l.logement_id or '' }}">
               <input type="hidden" name="l_proprietaire_id" value="{{ l.proprietaire_id or '' }}">
               {% if tres %}<input type="hidden" name="l_compte" value="{{ l.compte }}"><strong>{{ l.compte }}</strong>
-              {% else %}<select name="l_compte" aria-label="Compte">
+              {% else %}<select name="l_compte" aria-label="Compte" {% if not l.compte %}data-testid="compte-a-definir" aria-invalid="true"{% endif %}>
+                {# Aucun compte n'est présélectionné en silence : sans règle de mapping validée,
+                   le compte reste « à définir » et c'est l'utilisateur qui le choisit. #}
+                <option value="" {{ 'selected' if not l.compte }}>— Compte comptable à définir —</option>
                 {% for c in comptes %}<option value="{{ c.compte }}" {{ 'selected' if c.compte == l.compte }}>{{ c.compte }} — {{ c.libelle }}</option>{% endfor %}
               </select>{% endif %}
             </td>

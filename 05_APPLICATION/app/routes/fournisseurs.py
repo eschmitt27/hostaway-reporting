@@ -190,7 +190,10 @@ async def charge_valider(request: Request, charge_id: str):
                                   motif=str(form.get("motif", "") or ""))
     cible = f"/fournisseurs/{charge_id}"
     if not res.get("ok"):
-        return RedirectResponse(url=f"{cible}?erreur={res.get('code', 'REFUS')}", status_code=303)
+        from urllib.parse import quote as _q
+        return RedirectResponse(
+            url=f"{cible}?erreur={_q(res.get('message') or res.get('code', 'REFUS'))}",
+            status_code=303)
     return RedirectResponse(url=cible, status_code=303)
 
 

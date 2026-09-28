@@ -59,6 +59,11 @@ def base(tmp_db):
         conn.commit()
     finally:
         conn.close()
+    # Mapping canonique (Comptabilité › Mappings) : « Achat petit équipement » → 615000, VALIDÉ.
+    # Les autres catégories n'ont AUCUNE règle validée : leur compte reste « à définir ».
+    from app.services import comptabilite_mappings_service as maps
+    maps.creer_regle(maps.PORTEE_CATEGORIE, "615000", cle="CHG_018", statut=maps.ST_VALIDE,
+                     source="Test : arbitrage fictif", acteur=ACTEUR, db_path=tmp_db)
     return tmp_db
 
 
@@ -325,7 +330,7 @@ def test_13_validation_humaine_rapproche_et_comptabilise(base, verrous):
     assert flux.resume_charge(cid, db_path=base) == "Rapprochée · Comptabilisée"
     lignes = _lignes_ecriture(base, res["ecritures"][0])
     assert {(l["compte"], l["debit"], l["credit"]) for l in lignes} == {
-        ("606000", 42.0, 0.0), ("512000", 0.0, 42.0)}, "charge directe : 6xx / 512, sans 401"
+        ("615000", 42.0, 0.0), ("512000", 0.0, 42.0)}, "charge directe : 6xx / 512, sans 401"
 
 
 def test_14_ecriture_proposee_visible_avant_validation(client, base):
@@ -333,7 +338,7 @@ def test_14_ecriture_proposee_visible_avant_validation(client, base):
     page = client.get(f"/flux-financiers/rapprochement/valider?m=BANQUE:{m['id']}&o=CHARGE:{cid}")
     assert page.status_code == 200
     assert "Écriture comptable proposée" in page.text
-    assert "512000" in page.text and "606000" in page.text
+    assert "512000" in page.text and "615000" in page.text
     assert "Valider le rapprochement et comptabiliser" in page.text
     assert _compter(base, "ecritures", "origine_type='LETTRAGE'") == 0
 
@@ -344,7 +349,7 @@ def test_15_modification_manuelle_de_l_ecriture(client, base, verrous):
         "m": f"BANQUE:{m['id']}", "o": f"CHARGE:{cid}", "nb_ecritures": "1", "acteur": ACTEUR,
         "l_ecr": ["0", "0"], "l_role": ["TRESORERIE", "OBJET"], "l_objet": ["", f"CHARGE:{cid}"],
         "l_logement_id": ["", ""], "l_proprietaire_id": ["", ""],
-        "l_compte": ["512000", "615000"], "l_auxiliaire": ["", ""],
+        "l_compte": ["512000", "627000"], "l_auxiliaire": ["", ""],
         "l_libelle": ["Magasin", "Réparation"], "l_debit": ["", "42.00"],
         "l_credit": ["42.00", ""]}, follow_redirects=False)
     assert r.status_code == 303, r.text[:500]
@@ -355,7 +360,7 @@ def test_15_modification_manuelle_de_l_ecriture(client, base, verrous):
         conn.close()
     assert let["ecriture_modifiee"] == 1
     comptes = {l["compte"] for l in _lignes_ecriture(base, let["ecriture_id_opaque"])}
-    assert comptes == {"512000", "615000"}
+    assert comptes == {"512000", "627000"}
 
 
 def test_16_validation_atomique(base, verrous):
@@ -773,6 +778,290 @@ def test_apport_associe_ecriture_refusee_aucun_rapprochement_garde(base, verrous
     res = qv.valider_par_mouvement(m["id"], nature=qv.APPORT_ASSOCIE, objet_id="PERS_TFLUX",
                                    acteur=ACTEUR, db_path=base)
     assert res["ok"] is False and res["code"] == qv.E_ECRITURE_REFUSEE
-    assert _compter(base, "banque_rapprochements", "statut='CONFIRME'") == 0
+    # Une seule transaction : pas même un rapprochement « annulé » à relire après coup.
+    assert _compter(base, "banque_rapprochements") == 0
+    assert _compter(base, "banque_rapprochement_evenements") == 0
     assert _compter(base, "ecritures") == 0
     assert flux.mouvement(flux.BANQUE, m["id"], db_path=base)["statut_rapprochement"] != flux.RAPPROCHE
+
+
+# ══ Finalisation : mapping canonique, garde-fou hors compta, circuit apport/retrait atomique ══
+
+def _charge_sans_mapping(base, montant=24.0, **kw):
+    """Frais bancaires (CHG_010) : aucune règle de mapping validée dans la base de test."""
+    return _charge(base, montant, categorie="CHG_010", **kw)
+
+
+def test_A_mapping_categorie_vers_compte_valide(base):
+    _importer(base, [_mvt(42.0)])
+    m = _par_montant(base, 42.0)
+    cid = _charge(base, 42.0)
+    prep = lettrage.preparer([f"BANQUE:{m['id']}"], [f"CHARGE:{cid}"], db_path=base)
+    ligne = next(l for l in prep["ecritures"][0]["lignes"] if l["role"] == lettrage.ROLE_OBJET)
+    assert ligne["compte"] == "615000" and not ligne["avertissement"]
+
+
+def test_B_D_categorie_sans_mapping_compte_a_definir_sans_fallback_606000(client, base, verrous):
+    _importer(base, [_mvt(24.0)])
+    m = _par_montant(base, 24.0)
+    cid = _charge_sans_mapping(base)
+    prep = lettrage.preparer([f"BANQUE:{m['id']}"], [f"CHARGE:{cid}"], db_path=base)
+    ligne = next(l for l in prep["ecritures"][0]["lignes"] if l["role"] == lettrage.ROLE_OBJET)
+    assert ligne["compte"] == "", "jamais 606000 en silence"
+    assert any("Compte comptable à définir" in a for a in prep["avertissements"])
+    assert "606000" not in {l["compte"] for e in prep["ecritures"] for l in e["lignes"]}
+    page = client.get(f"/flux-financiers/rapprochement/valider?m=BANQUE:{m['id']}&o=CHARGE:{cid}")
+    assert "Compte comptable à définir" in page.text
+    assert 'data-testid="compte-a-definir"' in page.text
+    # Validation sans choix de compte : refusée, rien n'est écrit.
+    res = lettrage.valider([f"BANQUE:{m['id']}"], [f"CHARGE:{cid}"], acteur=ACTEUR, db_path=base)
+    assert res["ok"] is False and res["code"] == lettrage.E_COMPTE_A_DEFINIR
+    assert _compter(base, "flux_lettrages") == 0 and _compter(base, "banque_rapprochements") == 0
+
+
+def test_C_compte_choisi_manuellement_puis_valide(base, verrous):
+    _importer(base, [_mvt(24.0)])
+    m = _par_montant(base, 24.0)
+    cid = _charge_sans_mapping(base)
+    prep = lettrage.preparer([f"BANQUE:{m['id']}"], [f"CHARGE:{cid}"], db_path=base)
+    choisies = [[dict(l, compte="627000") if l["role"] == lettrage.ROLE_OBJET else l
+                 for l in prep["ecritures"][0]["lignes"]]]
+    res = lettrage.valider(prep["selection_m"], prep["selection_o"], acteur=ACTEUR,
+                           lignes=choisies, db_path=base)
+    assert res["ok"], res
+    lignes = _lignes_ecriture(base, res["ecritures"][0])
+    assert {(l["compte"], l["debit"], l["credit"]) for l in lignes} == {
+        ("627000", 24.0, 0.0), ("512000", 0.0, 24.0)}
+    assert round(sum(l["debit"] for l in lignes), 2) == round(sum(l["credit"] for l in lignes), 2)
+
+
+def test_compte_inactif_ou_hors_classe_6_refuse(base, verrous):
+    _importer(base, [_mvt(24.0)])
+    m = _par_montant(base, 24.0)
+    cid = _charge_sans_mapping(base)
+    prep = lettrage.preparer([f"BANQUE:{m['id']}"], [f"CHARGE:{cid}"], db_path=base)
+    for compte in ("467000", "401000"):          # inactif ; puis actif mais pas une charge
+        lignes = [[dict(l, compte=compte, auxiliaire=None) if l["role"] == lettrage.ROLE_OBJET
+                   else l for l in prep["ecritures"][0]["lignes"]]]
+        res = lettrage.valider(prep["selection_m"], prep["selection_o"], acteur=ACTEUR,
+                               lignes=lignes, db_path=base)
+        assert res["ok"] is False and res["code"] == lettrage.E_COMPTE_A_DEFINIR, compte
+    conn = get_db(base)
+    try:
+        conn.execute("UPDATE plan_comptable SET actif=0 WHERE compte='627000'")
+        conn.commit()
+    finally:
+        conn.close()
+    lignes = [[dict(l, compte="627000") if l["role"] == lettrage.ROLE_OBJET else l
+               for l in prep["ecritures"][0]["lignes"]]]
+    res = lettrage.valider(prep["selection_m"], prep["selection_o"], acteur=ACTEUR, lignes=lignes,
+                           db_path=base)
+    assert res["ok"] is False and _compter(base, "flux_lettrages") == 0
+
+
+def test_regle_de_mapping_vers_compte_inactif_reste_a_definir(base):
+    from app.services import comptabilite_mappings_service as maps
+    maps.creer_regle(maps.PORTEE_CATEGORIE, "467000", cle="CHG_010", statut=maps.ST_VALIDE,
+                     acteur=ACTEUR, db_path=base)
+    _importer(base, [_mvt(24.0)])
+    m = _par_montant(base, 24.0)
+    cid = _charge_sans_mapping(base)
+    prep = lettrage.preparer([f"BANQUE:{m['id']}"], [f"CHARGE:{cid}"], db_path=base)
+    ligne = next(l for l in prep["ecritures"][0]["lignes"] if l["role"] == lettrage.ROLE_OBJET)
+    assert ligne["compte"] == "" and "467000" in ligne["avertissement"]
+
+
+def test_E_charge_liee_a_un_mouvement_jamais_hors_compta(base, verrous):
+    _importer(base, [_mvt(42.0)])
+    m = _par_montant(base, 42.0)
+    # Création : une charge portant le lien d'un mouvement ne naît pas hors comptabilité.
+    refus = saisie.creer({"date_charge": "2026-09-19", "montant": 42.0, "categorie_charge_id": "CHG_018",
+                          "code_impact": "HC", "prise_en_compta": "NON", "mode_paiement_id": "PAY_001",
+                          "lien_virement_banque": m["id"]}, acteur=ACTEUR, db_path=base)
+    assert refus["ok"] is False and refus["code"] == saisie.E_HORS_COMPTA_MOUVEMENT
+    assert "hors comptabilité" in refus["message"]
+    # Rapprochée puis repassée en hors compta : refusé aussi (le lien vient du lettrage).
+    cid = _charge(base, 42.0)
+    assert lettrage.valider([f"BANQUE:{m['id']}"], [f"CHARGE:{cid}"], acteur=ACTEUR,
+                            db_path=base)["ok"]
+    ligne = saisie.lire(cid, db_path=base)
+    donnees = {k: ligne[k] for k in saisie.CHAMPS_SAISIE}
+    donnees.update(code_impact="HC", prise_en_compta="NON", lien_virement_banque=None)
+    res = saisie.modifier(cid, donnees, acteur=ACTEUR, motif="test", db_path=base)
+    assert res["ok"] is False and res["code"] == saisie.E_HORS_COMPTA_MOUVEMENT
+    assert saisie.lire(cid, db_path=base)["prise_en_compta"] == "OUI"
+    # Validation du contrôle d'une charge hors compta liée à un mouvement : refusée.
+    conn = get_db(base)
+    try:
+        conn.execute("UPDATE charges SET code_impact='HC', prise_en_compta='NON', "
+                     "statut_controle='A_CONTROLER' WHERE charge_id=?", (cid,))
+        conn.commit()
+    finally:
+        conn.close()
+    res = saisie.valider_controle(cid, acteur=ACTEUR, db_path=base)
+    assert res["ok"] is False and res["code"] == saisie.E_HORS_COMPTA_MOUVEMENT
+
+
+def test_F_charge_generale_hors_compta_toujours_possible_et_validable(base):
+    res = saisie.creer({"date_charge": "2026-09-19", "montant": 70.0, "categorie_charge_id": "CHG_018",
+                        "code_impact": "HC", "prise_en_compta": "NON", "mode_paiement_id": "PAY_001",
+                        "statut_controle": "A_CONTROLER"}, acteur=ACTEUR, db_path=base)
+    assert res["ok"], res
+    assert saisie.valider_controle(res["charge_id"], acteur=ACTEUR, db_path=base)["ok"]
+    assert flux.resume_charge(res["charge_id"], db_path=base) == "Hors comptabilité"
+
+
+def test_G_charge_hors_compta_payee_banque_sans_mouvement_reste_intacte(base, verrous):
+    """Le cas réel 700 € : hors compta, mode banque, AUCUN mouvement bancaire correspondant.
+    Rien ne la transforme automatiquement ; elle n'est proposée à aucun rapprochement."""
+    cid = _charge(base, 700.0, impact="HC", commentaire="cas 700")
+    _importer(base, [_mvt(48.39)])
+    avant = saisie.lire(cid, db_path=base)
+    assert not any(o["id"] == cid for o in flux.objets(db_path=base))
+    assert not any(any(o["id"] == cid for o in p["objets"])
+                   for p in matching.propositions(db_path=base))
+    assert saisie.lire(cid, db_path=base) == avant
+    assert flux.resume_charge(cid, db_path=base) == "Hors comptabilité"
+
+
+def test_H_I_aucune_double_charge_ni_double_ecriture(base, verrous):
+    m, cid = _cas_simple(base)
+    lettrage.valider([f"BANQUE:{m['id']}"], [f"CHARGE:{cid}"], acteur=ACTEUR, db_path=base)
+    lettrage.valider([f"BANQUE:{m['id']}"], [f"CHARGE:{cid}"], acteur=ACTEUR, db_path=base)
+    assert _compter(base, "charges", "montant=42.0") == 1
+    assert _compter(base, "ecritures", "origine_type='LETTRAGE'") == 1
+    assert _compter(base, "banque_rapprochements", "statut='CONFIRME'") == 1
+
+
+def _uuid_montant(base, montant):
+    conn = get_db(base)
+    try:
+        return conn.execute("SELECT qonto_transaction_uuid FROM qonto_transactions_raw "
+                            "WHERE abs(montant-?)<0.001", (montant,)).fetchone()[0]
+    finally:
+        conn.close()
+
+
+def _associe(base):
+    conn = get_db(base)
+    try:
+        conn.execute("INSERT OR REPLACE INTO ref_associes (personne_id, nom_personne, type_personne, "
+                     "actif, import_id) VALUES ('PERS_TFLUX', 'Associé fictif', 'ASSOCIE', 'OUI', "
+                     "'IMP-TEST')")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_J_apport_associe_atomique_succes(base, verrous):
+    from app.services import qonto_validation_service as qv
+    _associe(base)
+    _importer(base, [_mvt(200.0, sens="credit", contrepartie="Associé")])
+    uuid = _uuid_montant(base, 200.0)
+    res = qv.valider(uuid, nature=qv.APPORT_ASSOCIE, objet_id="PERS_TFLUX", acteur=ACTEUR,
+                     db_path=base)
+    assert res["ok"], res
+    lignes = _lignes_ecriture(base, res["ecriture"]["ecriture_id_opaque"])
+    assert {(l["compte"], l["auxiliaire"], l["debit"], l["credit"]) for l in lignes} == {
+        ("512000", None, 200.0, 0.0), ("455100", "PERS_TFLUX", 0.0, 200.0)}
+    assert compta.charger(res["ecriture"]["ecriture_id_opaque"], db_path=base)["statut"] == \
+        compta.ST_PROPOSEE, "comportement existant préservé : écriture à valider en Comptabilité"
+    assert _compter(base, "banque_rapprochements", "statut='CONFIRME'") == 1
+    assert _compter(base, "qonto_transactions_statut_local", "statut_local='RAPPROCHE'") == 1
+    assert qv.valider(uuid, nature=qv.APPORT_ASSOCIE, objet_id="PERS_TFLUX", acteur=ACTEUR,
+                      db_path=base)["code"] == qv.E_DEJA_AFFECTE
+    assert _compter(base, "ecritures") == 1
+
+
+@pytest.mark.parametrize("panne", ["refus", "exception"])
+def test_J_L_apport_associe_echec_ecriture_rollback_complet(base, verrous, monkeypatch, panne):
+    from app.services import qonto_validation_service as qv
+    _associe(base)
+    _importer(base, [_mvt(200.0, sens="credit", contrepartie="Associé")])
+    uuid = _uuid_montant(base, 200.0)
+    if panne == "refus":
+        monkeypatch.setattr(compta, "_inserer_ecriture",
+                            lambda *a, **k: {"ok": False, "code": "E_TEST", "message": "refus"})
+    else:
+        def explose(*a, **k):
+            raise RuntimeError("panne simulée")
+        monkeypatch.setattr(compta, "_inserer_ecriture", explose)
+    res = qv.valider(uuid, nature=qv.APPORT_ASSOCIE, objet_id="PERS_TFLUX", acteur=ACTEUR,
+                     db_path=base)
+    assert res["ok"] is False and res["code"] == qv.E_ECRITURE_REFUSEE
+    for table in ("banque_rapprochements", "banque_rapprochement_evenements", "ecritures",
+                  "ecriture_lignes"):
+        assert _compter(base, table) == 0, table
+    assert _compter(base, "qonto_transactions_statut_local", "statut_local='RAPPROCHE'") == 0
+
+
+def _retrait(base):
+    from tests.test_qonto_rapprochement_caisse import retrait
+    ecran.actualiser(client=ClientDouble(pages=[[retrait(statut="completed")]]), db_path=base)
+    conn = get_db(base)
+    try:
+        return conn.execute("SELECT t.qonto_transaction_uuid FROM qonto_transactions_raw t "
+                            "JOIN qonto_transactions_statut_local s USING (qonto_transaction_uuid) "
+                            "WHERE s.nature='RETRAIT_ESPECES'").fetchone()[0]
+    finally:
+        conn.close()
+
+
+def test_K_retrait_transfert_caisse_atomique_succes(base, verrous):
+    from app.services import qonto_validation_service as qv
+    uuid = _retrait(base)
+    res = qv.valider(uuid, nature=qv.TRANSFERT_CAISSE, acteur=ACTEUR, db_path=base)
+    assert res["ok"], res
+    lignes = _lignes_ecriture(base, res["ecriture"]["ecriture_id_opaque"])
+    assert {l["compte"] for l in lignes} == {"530000", "512000"}
+    transfert = next(m for m in flux.mouvements(source=flux.CAISSE, db_path=base)
+                     if m.get("nature_caisse") == "TRANSFERT")
+    assert transfert["statut_rapprochement"] == flux.RAPPROCHE
+
+
+def test_K_L_retrait_echec_ecriture_aucun_rapprochement_ni_operation(base, verrous, monkeypatch):
+    from app.services import qonto_validation_service as qv
+    uuid = _retrait(base)
+    monkeypatch.setattr(compta, "_inserer_ecriture",
+                        lambda *a, **k: {"ok": False, "code": "E_TEST", "message": "refus"})
+    res = qv.valider(uuid, nature=qv.TRANSFERT_CAISSE, acteur=ACTEUR, db_path=base)
+    assert res["ok"] is False and res["code"] == qv.E_ECRITURE_REFUSEE
+    assert _compter(base, "banque_rapprochements") == 0
+    assert _compter(base, "ecritures") == 0
+    bilan = qv.confirmer_transferts_caisse(acteur=ACTEUR, db_path=base)
+    assert bilan["comptabilises"] == 0 and _compter(base, "banque_rapprochements") == 0
+    transfert = next(m for m in flux.mouvements(source=flux.CAISSE, db_path=base)
+                     if m.get("nature_caisse") == "TRANSFERT")
+    assert transfert["statut_compta"] != flux.COMPTABILISE
+
+
+def test_M_mois_cloture_toujours_protege_pour_l_apport(base, verrous):
+    from datetime import datetime, timezone
+    from app.services import qonto_validation_service as qv
+    _associe(base)
+    conn = get_db(base)
+    try:
+        conn.execute("INSERT OR REPLACE INTO periodes_comptables (periode, statut) VALUES (?, "
+                     "'CLOTUREE')", (datetime.now(timezone.utc).strftime("%Y-%m"),))
+        conn.commit()
+    finally:
+        conn.close()
+    _importer(base, [_mvt(200.0, sens="credit", contrepartie="Associé")])
+    res = qv.valider(_uuid_montant(base, 200.0), nature=qv.APPORT_ASSOCIE, objet_id="PERS_TFLUX",
+                     acteur=ACTEUR, db_path=base)
+    assert res["ok"] is False and _compter(base, "banque_rapprochements") == 0
+
+
+def test_N_O_integrite_apres_circuits_atomiques(base, verrous):
+    from app.services import qonto_validation_service as qv
+    _associe(base)
+    _importer(base, [_mvt(200.0, sens="credit", contrepartie="Associé")])
+    qv.valider(_uuid_montant(base, 200.0), nature=qv.APPORT_ASSOCIE, objet_id="PERS_TFLUX",
+               acteur=ACTEUR, db_path=base)
+    qv.valider(_retrait(base), nature=qv.TRANSFERT_CAISSE, acteur=ACTEUR, db_path=base)
+    conn = get_db(base)
+    try:
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    finally:
+        conn.close()

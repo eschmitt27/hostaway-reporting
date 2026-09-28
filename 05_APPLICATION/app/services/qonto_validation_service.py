@@ -26,6 +26,8 @@ et aucun drapeau d'écriture ne change cela. Les effets décrits sont internes �
 from __future__ import annotations
 
 import hashlib
+import logging
+import sqlite3
 from datetime import datetime, timezone
 
 import app.config as cfg
@@ -34,6 +36,8 @@ from app.services import banques_rapprochement_service as rappro
 from app.services import caisse_transferts_service as transferts
 from app.services import comptabilite_ecritures_service as compta
 from app.services import qonto_classification_service as classif
+
+log = logging.getLogger(__name__)
 
 # ── Natures proposables à l'écran ─────────────────────────────────────────────────────────────
 APPORT_ASSOCIE = "APPORT_ASSOCIE"
@@ -286,6 +290,9 @@ def valider(uuid_transaction: str, *, nature: str, objet_id: str = "", montant=N
     unique à l'écriture. Deux clics produisent donc au pire deux tentatives sur la même origine —
     la seconde est refusée par l'index unique, et la génération d'écriture est de toute façon un
     no-op pour une origine déjà servie.
+
+    Apport d'associé et retrait Banque → Caisse (les natures qui écrivent une écriture) passent
+    par `_valider_avec_ecriture` : rapprochement et écriture dans la même transaction SQLite.
     """
     # LES VERROUS D'ABORD, avant toute lecture métier : un refus doit être franc, et ne doit
     # surtout pas dépendre de l'état des données. L'ordre compte aussi — le verrou BANQUE est
@@ -324,14 +331,19 @@ def valider(uuid_transaction: str, *, nature: str, objet_id: str = "", montant=N
     # Pour un transfert de caisse, l'« objet » est la transaction elle-même : c'est ce qui rend le
     # rapprochement unique par l'index, et donc non rejouable.
     objet = objet_id or opaque
+    criteres = {"origine": "QONTO", "transaction_id": ligne.get("transaction_id"),
+                "nature_deduite": ligne.get("nature") or "",
+                "nature_motif": ligne.get("nature_motif") or ""}
+
+    if nature in NATURES_AVEC_ECRITURE:
+        return _valider_avec_ecriture(uuid_transaction, opaque, nature, objet, montant_affecte,
+                                      montant_mouvement, criteres, commentaire=commentaire,
+                                      acteur=acteur, db_path=db_path)
 
     lien = rappro.enregistrer(
         opaque, nature, objet, montant_affecte,
         montant_mouvement=montant_mouvement, statut=rappro.ST_CONFIRME, source="MANUEL",
-        criteres={"origine": "QONTO", "transaction_id": ligne.get("transaction_id"),
-                  "nature_deduite": ligne.get("nature") or "",
-                  "nature_motif": ligne.get("nature_motif") or ""},
-        commentaire=commentaire, acteur=acteur, db_path=db_path)
+        criteres=criteres, commentaire=commentaire, acteur=acteur, db_path=db_path)
     if not lien.get("ok"):
         return lien
 
@@ -339,13 +351,7 @@ def valider(uuid_transaction: str, *, nature: str, objet_id: str = "", montant=N
     effets = {"rapprochement_id_opaque": brp, "montant_affecte": montant_affecte,
               "montant_restant": lien.get("montant_restant")}
 
-    if nature == APPORT_ASSOCIE:
-        effets["ecriture"] = compta.generer_ecriture_apport_associe(
-            brp, acteur=acteur, db_path=db_path)
-    elif nature == TRANSFERT_CAISSE:
-        effets["ecriture"] = compta.generer_ecriture_transfert_caisse(
-            brp, acteur=acteur, db_path=db_path)
-    elif nature == REGLEMENT_CHARGE:
+    if nature == REGLEMENT_CHARGE:
         # Le règlement fournisseur canonique produit lui-même son effet bancaire : on ne double
         # pas l'écriture ici. Voir la docstring du module.
         effets["reglement"] = _reglement_fournisseur(ligne, objet_id, montant_affecte,
@@ -354,18 +360,61 @@ def valider(uuid_transaction: str, *, nature: str, objet_id: str = "", montant=N
         effets["encaissement"] = _encaissement_proprietaire(ligne, objet_id, montant_affecte,
                                                             acteur=acteur, db_path=db_path)
 
-    if nature in NATURES_AVEC_ECRITURE and not (effets.get("ecriture") or {}).get("ok"):
-        # Tout ou rien : un rapprochement dont l'écriture est refusée (période close, compte
-        # inactif…) n'est pas gardé. Il est ANNULÉ — pas effacé : l'essai reste dans le journal.
-        refus_ecriture = effets.get("ecriture") or {}
-        rappro.annuler(brp, commentaire="Écriture refusée : "
-                                        f"{refus_ecriture.get('message') or refus_ecriture.get('code')}",
-                       acteur=acteur, db_path=db_path)
-        return _refus(E_ECRITURE_REFUSEE, str(refus_ecriture.get("code") or ""))
-
     _marquer_statut_local(uuid_transaction, opaque, db_path=db_path)
     effets["ok"] = True
     return effets
+
+
+def _valider_avec_ecriture(uuid_transaction: str, opaque: str, nature: str, objet: str,
+                           montant_affecte: float, montant_mouvement: float, criteres: dict, *,
+                           commentaire: str, acteur: str, db_path=None) -> dict:
+    """Apport d'associé, retrait Banque → Caisse : UNE transaction SQLite, tout ou rien.
+
+    rapprochement CONFIRMÉ → écriture (générateur canonique, inchangé) → statut local → commit.
+    Si l'écriture est refusée (période close, compte inactif…) ou si quoi que ce soit échoue,
+    ROLLBACK : il ne reste ni rapprochement, ni écriture, ni statut modifié — rien à annuler après
+    coup. Le moteur comptable ne change pas : mêmes comptes, même auxiliaire, même statut
+    d'écriture (PROPOSEE, validée ensuite dans Comptabilité)."""
+    generateur = {APPORT_ASSOCIE: compta.generer_ecriture_apport_associe,
+                  TRANSFERT_CAISSE: compta.generer_ecriture_transfert_caisse}[nature]
+    if montant_affecte <= 0:
+        return rappro._refus(rappro.E_MONTANT_INVALIDE)
+    conn = get_db(db_path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        # Relu SOUS le verrou d'écriture : deux validations concurrentes ne passent pas toutes deux.
+        deja = conn.execute(
+            "SELECT COALESCE(SUM(montant_rapproche), 0) FROM banque_rapprochements "
+            "WHERE mouvement_id_opaque=? AND statut IN (?,?)",
+            (opaque, rappro.ST_PROPOSE, rappro.ST_CONFIRME)).fetchone()[0]
+        if deja >= montant_mouvement - 1e-9:
+            conn.rollback()
+            return _refus(E_DEJA_AFFECTE)
+        if deja + montant_affecte > montant_mouvement + 1e-9:
+            conn.rollback()
+            return rappro._refus(rappro.E_DEPASSEMENT)
+        brp = rappro.inserer_lien_confirme(conn, opaque, nature, objet, montant_affecte,
+                                           lettrage_id_opaque=None, criteres=criteres,
+                                           commentaire=commentaire, acteur=acteur)
+        ecriture = generateur(brp, acteur=acteur, db_path=db_path, conn=conn)
+        if not ecriture.get("ok") or ecriture.get("deja_generee"):
+            conn.rollback()
+            return _refus(E_ECRITURE_REFUSEE, str(ecriture.get("code") or ""))
+        _marquer_statut_local(uuid_transaction, opaque, db_path=db_path, conn=conn)
+        conn.commit()
+    except sqlite3.IntegrityError:
+        # L'index unique des rapprochements actifs : c'est un double clic, pas une panne.
+        conn.rollback()
+        return _refus(E_DEJA_AFFECTE)
+    except Exception as exc:      # noqa: BLE001 — tout échec annule TOUT, et se dit sans secret
+        conn.rollback()
+        log.exception("Validation Qonto %s annulée", nature)
+        return _refus(E_ECRITURE_REFUSEE, type(exc).__name__)
+    finally:
+        conn.close()
+    return {"ok": True, "rapprochement_id_opaque": brp, "montant_affecte": montant_affecte,
+            "montant_restant": round(montant_mouvement - deja - montant_affecte, 2),
+            "ecriture": ecriture}
 
 
 def _reglement_fournisseur(ligne: dict, facture_opaque: str, montant: float, *, acteur: str,
@@ -417,16 +466,21 @@ def _encaissement_proprietaire(ligne: dict, proprietaire_id: str, montant: float
     return tres.valider(cree["mouvement_opaque"], acteur=acteur, db_path=db_path)
 
 
-def _marquer_statut_local(uuid_transaction: str, opaque: str, *, db_path=None) -> None:
-    conn = get_db(db_path)
+def _marquer_statut_local(uuid_transaction: str, opaque: str, *, db_path=None,
+                          conn=None) -> None:
+    connexion_locale = conn is None
+    if connexion_locale:
+        conn = get_db(db_path)
     try:
         conn.execute(
             "UPDATE qonto_transactions_statut_local SET statut_local=?, mouvement_id_opaque=?, "
             "maj_le=? WHERE qonto_transaction_uuid=?",
             (classif.RAPPROCHE, opaque, _maintenant(), uuid_transaction))
-        conn.commit()
+        if connexion_locale:
+            conn.commit()
     finally:
-        conn.close()
+        if connexion_locale:
+            conn.close()
 
 
 def annuler(rapprochement_id_opaque: str, *, motif: str, acteur: str = "", db_path=None) -> dict:

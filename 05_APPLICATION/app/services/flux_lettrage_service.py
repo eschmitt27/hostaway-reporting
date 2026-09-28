@@ -79,6 +79,7 @@ E_CONCURRENCE = "L15_MOUVEMENT_DEJA_AFFECTE"
 E_INTROUVABLE = "L16_LETTRAGE_INTROUVABLE"
 E_MOTIF = "L17_MOTIF_OBLIGATOIRE"
 E_DOUBLON_SELECTION = "L18_ELEMENT_EN_DOUBLE"
+E_COMPTE_A_DEFINIR = "L19_COMPTE_DE_CHARGE_A_DEFINIR"
 
 E_NOM_REQUIS = "F01_NOM_OBLIGATOIRE"
 E_NOM_GENERIQUE = "F02_NOM_GENERIQUE_INTERDIT"
@@ -173,6 +174,37 @@ def _allouer(mvts: list[dict], objs: list[dict], montant_m: dict, montant_o: dic
     return aretes
 
 
+COMPTE_A_DEFINIR = ""
+LIBELLE_COMPTE_A_DEFINIR = "Compte comptable à définir"
+
+
+def compte_de_charge(charge: dict, *, db_path=None) -> tuple[str, str]:
+    """Compte de charge PROPOSÉ pour une charge : (compte, avertissement).
+
+    Source canonique unique : les règles VALIDÉES de `mapping_comptable_regles` (Comptabilité ›
+    Mappings), résolues par `comptabilite_mappings_service.resoudre_compte` — catégorie d'abord,
+    type de flux ensuite. Aucun numéro de compte n'est inventé ici.
+
+    Pas de règle validée, ou règle pointant vers un compte absent/inactif du plan comptable :
+    le compte reste À DÉFINIR. Le filet provisoire générique (606000) n'est JAMAIS repris en
+    silence — l'utilisateur choisit lui-même un compte de charge actif avant de valider."""
+    from app.services import comptabilite_mappings_service as maps
+    resolu = maps.resoudre_compte(categorie_charge_id=_txt(charge.get("categorie_charge_id")),
+                                  type_flux_id=_txt(charge.get("type_flux_id")),
+                                  date_reference=_txt(charge.get("date_charge"))[:10],
+                                  db_path=db_path)
+    actifs = {c["compte"] for c in flux.comptes_actifs(db_path=db_path)}
+    if resolu["statut"] == maps.ST_VALIDE and resolu["compte"] in actifs             and resolu["compte"].startswith("6"):
+        return resolu["compte"], ""
+    if resolu["statut"] == maps.ST_VALIDE:
+        return COMPTE_A_DEFINIR, (f"{LIBELLE_COMPTE_A_DEFINIR} : la règle de mapping désigne le "
+                                  f"compte {resolu['compte']}, absent, inactif ou qui n'est pas un "
+                                  "compte de charge. Choisissez un compte de charge actif.")
+    return COMPTE_A_DEFINIR, (f"{LIBELLE_COMPTE_A_DEFINIR} : aucune règle de mapping validée pour "
+                              "cette catégorie (Comptabilité › Mappings). Choisissez un compte de "
+                              "charge actif avant de valider.")
+
+
 def _ligne_objet(o: dict, montant: float, sens: str, charges: dict, db_path=None) -> dict:
     """La contrepartie d'un objet — celle que le modèle comptable existant désigne."""
     sortie = sens == flux.SORTIE
@@ -180,18 +212,11 @@ def _ligne_objet(o: dict, montant: float, sens: str, charges: dict, db_path=None
             "role": ROLE_OBJET, "objet": o["cle"], "logement_id": None, "proprietaire_id": None,
             "auxiliaire": None, "avertissement": ""}
     if o["type"] == flux.CHARGE:
-        from app.services import comptabilite_mappings_service as maps
         c = charges.get(o["id"], {})
-        resolu = maps.resoudre_compte(categorie_charge_id=_txt(c.get("categorie_charge_id")),
-                                      type_flux_id=_txt(c.get("type_flux_id")),
-                                      date_reference=_txt(c.get("date_charge"))[:10],
-                                      db_path=db_path)
-        base.update(compte=resolu["compte"], libelle=o["libelle"],
+        compte, avertissement = compte_de_charge(c, db_path=db_path)
+        base.update(compte=compte, libelle=o["libelle"], avertissement=avertissement,
                     logement_id=c.get("logement_id") or None,
                     proprietaire_id=c.get("proprietaire_id") or None)
-        if resolu["statut"] != maps.ST_VALIDE:
-            base["avertissement"] = (f"Compte {resolu['compte']} issu d'une règle PROVISOIRE : "
-                                     "aucun mapping validé pour cette catégorie.")
         return base
     if o["type"] in (flux.FACTURE_FOURNISSEUR, flux.REGLEMENT_FOURNISSEUR):
         base.update(compte=COMPTE_FOURNISSEURS, auxiliaire=o["tiers_id"],
@@ -488,7 +513,14 @@ def verifier_ecritures(prep: dict, groupes: list[list[dict]], *, db_path=None) -
                 return erreurs
             if l["debit"] < 0 or l["credit"] < 0 or (l["debit"] > EPS and l["credit"] > EPS):
                 err(E_ECRITURE, f"{nom} : chaque ligne porte soit un débit, soit un crédit positif.")
-            if l["compte"] not in comptes:
+            if l["role"] == ROLE_OBJET and l["objet"].startswith(f"{flux.CHARGE}:"):
+                if not l["compte"]:
+                    err(E_COMPTE_A_DEFINIR, f"{nom} : {LIBELLE_COMPTE_A_DEFINIR.lower()} pour la "
+                                            "charge — choisissez un compte de charge actif.")
+                elif l["compte"] not in comptes or not l["compte"].startswith("6"):
+                    err(E_COMPTE_A_DEFINIR, f"{nom} : la charge doit porter sur un compte de "
+                                            f"charge actif (classe 6), pas « {l['compte']} ».")
+            elif l["compte"] not in comptes:
                 err(E_ECRITURE, f"{nom} : compte « {l['compte'] or '(vide)'} » inconnu ou inactif.")
             if l["compte"].startswith("401") and l["auxiliaire"] not in fournisseurs:
                 err(E_AUXILIAIRE, f"{nom} : un compte fournisseur (401) exige un fournisseur "

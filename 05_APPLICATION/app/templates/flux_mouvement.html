@@ -68,7 +68,7 @@
   {% for e in meilleure.ecritures %}
   <table class="data-table flux-table">
     <thead><tr><th>Compte</th><th>Auxiliaire</th><th>Libellé</th><th class="num">Débit</th><th class="num">Crédit</th></tr></thead>
-    <tbody>{% for l in e.lignes %}<tr><td>{{ l.compte }}</td><td>{{ l.auxiliaire | nom_tiers_flux if l.auxiliaire else "—" }}</td><td>{{ l.libelle }}</td><td class="num">{{ euros(l.debit) if l.debit else "" }}</td><td class="num">{{ euros(l.credit) if l.credit else "" }}</td></tr>{% endfor %}</tbody>
+    <tbody>{% for l in e.lignes %}<tr><td>{% if l.compte %}{{ l.compte }}{% else %}<span class="badge badge-warning" data-testid="compte-a-definir">? Compte comptable à définir</span>{% endif %}</td><td>{{ l.auxiliaire | nom_tiers_flux if l.auxiliaire else "—" }}</td><td>{{ l.libelle }}</td><td class="num">{{ euros(l.debit) if l.debit else "" }}</td><td class="num">{{ euros(l.credit) if l.credit else "" }}</td></tr>{% endfor %}</tbody>
   </table>
   {% endfor %}
 </div>
