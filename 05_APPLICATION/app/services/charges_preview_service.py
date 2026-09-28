@@ -743,7 +743,53 @@ def validate_charge(
     guide = compute_guidee(form_data, refs, mois_guide)
     errors.extend(guide["errors"])
 
+    # V30-V34 — charge créée DEPUIS un mouvement Banque/Caisse de la société (Flux financiers).
+    # Un mouvement réel de trésorerie finit toujours comptabilisé : la charge qui l'explique ne
+    # peut donc pas être « hors comptabilité », et son moyen de paiement est celui du mouvement.
+    origine = str(form_data.get("mouvement_origine", "")).strip()
+    if origine:
+        for e in erreurs_charge_depuis_mouvement(origine, code_impact=code_impact,
+                                                 mode_paiement_id=mode_paiement_id,
+                                                 montant=form_data.get("montant")):
+            err(e["code"], e["message"])
+
     return errors
+
+
+def erreurs_charge_depuis_mouvement(origine: str, *, code_impact: str, mode_paiement_id: str,
+                                    montant: Any) -> list[dict[str, str]]:
+    """Règles d'une charge née d'un mouvement bancaire ou de caisse. Liste vide = conforme."""
+    from app.services import flux_financiers_service as flux
+
+    source, _, identifiant = str(origine).partition(":")
+    mvt = flux.mouvement(source, identifiant) if source in flux.SOURCES else None
+    if mvt is None:
+        return [{"code": "V30_MOUVEMENT_ORIGINE_INCONNU",
+                 "message": "Le mouvement d'origine de cette charge est introuvable."}]
+    erreurs = []
+    if code_impact != "IC":
+        erreurs.append({"code": "V31_CHARGE_MOUVEMENT_HORS_COMPTA",
+                        "message": "Une charge créée depuis un mouvement Banque ou Caisse de la "
+                                   "société est obligatoirement comptable : « hors comptabilité » "
+                                   "est impossible pour un mouvement réel de trésorerie."})
+    attendu = flux.MODE_PAR_SOURCE[source]
+    if str(mode_paiement_id or "").strip() != attendu:
+        erreurs.append({"code": "V32_MODE_PAIEMENT_DU_MOUVEMENT",
+                        "message": "Le moyen de paiement doit être celui du mouvement d'origine "
+                                   f"({'banque professionnelle' if source == flux.BANQUE else 'espèces de la caisse'})."})
+    if not mvt["lettrable"] or mvt["sens"] != flux.SORTIE:
+        erreurs.append({"code": "V33_MOUVEMENT_NON_DISPONIBLE",
+                        "message": "Ce mouvement n'est plus disponible : déjà rapproché, en "
+                                   "attente chez la banque, ou encaissement."})
+    try:
+        valeur = float(str(montant or "").replace(" ", "").replace(",", "."))
+    except ValueError:
+        valeur = None
+    if valeur is not None and valeur > mvt.get("restant", 0) + 0.005:
+        erreurs.append({"code": "V34_MONTANT_SUPERIEUR_AU_MOUVEMENT",
+                        "message": f"Le montant dépasse ce qui reste à expliquer sur le mouvement "
+                                   f"({mvt.get('restant', 0):.2f} €)."})
+    return erreurs
 
 
 def _build_row_data(
@@ -867,7 +913,10 @@ def _build_row_data(
         "source_flux": "SAISIE_MANUELLE",
         "methode_traitement": str(form_data.get("methode_traitement", "")).strip() or None,
         "paye_avec_montant_recupere": str(form_data.get("paye_avec_montant_recupere", "")).strip() or None,
-        "lien_virement_banque": str(form_data.get("lien_virement_banque", "")).strip() or None,
+        # Charge née d'un mouvement (Flux financiers) : le lien au mouvement est porté ici, par
+        # l'identifiant opaque du mouvement — jamais un numéro de compte.
+        "lien_virement_banque": (str(form_data.get("mouvement_origine", "")).partition(":")[2].strip()
+                                 or str(form_data.get("lien_virement_banque", "")).strip() or None),
         # Injectés automatiquement — jamais saisis par l'utilisateur
         "statut_controle": AUTO_STATUT_CONTROLE,
         "niveau_anomalie": AUTO_NIVEAU_ANOMALIE,

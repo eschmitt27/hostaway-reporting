@@ -313,9 +313,14 @@ def charger(opaque: str, db_path=None) -> dict[str, Any] | None:
     return f
 
 
-def solde(opaque: str, db_path=None) -> dict[str, Any]:
-    """Montant réglé et solde restant — TOUJOURS recalculés, jamais lus d'une colonne stockée."""
-    conn = get_db(db_path)
+def solde(opaque: str, db_path=None, conn=None) -> dict[str, Any]:
+    """Montant réglé et solde restant — TOUJOURS recalculés, jamais lus d'une colonne stockée.
+
+    `conn` fourni : lecture DANS la transaction de l'appelant, qui voit donc un règlement qu'il
+    vient d'insérer sans l'avoir encore validé (lettrage atomique des flux financiers)."""
+    connexion_locale = conn is None
+    if connexion_locale:
+        conn = get_db(db_path)
     try:
         f = conn.execute("SELECT montant_ttc, statut FROM factures WHERE facture_id_opaque=?",
                          (opaque,)).fetchone()
@@ -326,7 +331,8 @@ def solde(opaque: str, db_path=None) -> dict[str, Any]:
             "JOIN reglements_fournisseurs g ON g.reglement_id_opaque = r.reglement_id_opaque "
             "WHERE r.facture_id_opaque=? AND g.statut <> 'ANNULE'", (opaque,)).fetchall()
     finally:
-        conn.close()
+        if connexion_locale:
+            conn.close()
     regle = round(sum(r["montant"] for r in rows), 2)
     total = f["montant_ttc"] or 0
     return {"montant_regle": regle, "solde_restant": round(total - regle, 2)}

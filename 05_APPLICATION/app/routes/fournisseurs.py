@@ -20,46 +20,56 @@ templates = get_templates()
 
 @router.get("/charges")
 def charges_alias():
-    """Recette n°3 §107 — `/charges` est l'adresse qu'on tape pour l'entrée de menu « Charges », qui
-    vit sur `/fournisseurs`. Redirection permanente plutôt qu'un 404 : une adresse devinée ou notée
-    doit mener à l'écran, et `308` laisse les clients la mémoriser."""
+    """Recette n°3 §107 — `/charges` est l'adresse qu'on tape pour l'entrée « Charges ». La liste
+    vit désormais dans le module Flux financiers : redirection permanente plutôt qu'un 404."""
     from fastapi.responses import RedirectResponse
-    return RedirectResponse("/fournisseurs", status_code=308)
+    return RedirectResponse("/flux-financiers/charges", status_code=308)
 
 
-@router.get("/fournisseurs", response_class=HTMLResponse)
-def fournisseurs_list(
-    request: Request,
-    mois: str = "",
-    logement_id: str = "",
-    categorie_charge_id: str = "",
-    code_impact: str = "",
-    statut_controle: str = "",
-    associe_id: str = "",
-):
-    data = svc.load_list(
-        mois=mois,
-        logement_id=logement_id,
-        categorie_charge_id=categorie_charge_id,
-        code_impact=code_impact,
-        statut_controle=statut_controle,
-        associe_id=associe_id,
-    )
-    return templates.TemplateResponse(request, "fournisseurs_list.html", {
-        "active_menu": "fournisseurs",
-        "data": data,
-    })
+@router.get("/fournisseurs")
+def fournisseurs_list(request: Request):
+    """Ancienne adresse de la liste des charges : elle mène à l'onglet Charges du module Flux
+    financiers, filtres conservés. Les fiches, la saisie et les actions restent sous
+    `/fournisseurs/...` — seul l'écran de liste a déménagé."""
+    requete = request.url.query
+    return RedirectResponse("/flux-financiers/charges" + (f"?{requete}" if requete else ""),
+                            status_code=307)
+
+
+def _prefill_depuis_mouvement(origine: str) -> tuple[dict, str]:
+    """Préremplissage du formulaire HABITUEL depuis un mouvement. Rien n'est créé : l'utilisateur
+    complète (catégorie, logement, refacturable, justificatif…) puis confirme comme toujours."""
+    from app.services import flux_financiers_service as flux
+    source, _, identifiant = str(origine or "").partition(":")
+    mvt = flux.mouvement(source, identifiant) if source in flux.SOURCES else None
+    if mvt is None:
+        return {}, "Mouvement d'origine introuvable."
+    if mvt["sens"] != flux.SORTIE or not mvt["lettrable"]:
+        return {}, ("Ce mouvement ne peut pas recevoir de charge : il n'est pas une dépense "
+                    "disponible (déjà rapproché, en attente chez la banque ou encaissement).")
+    libelle = mvt["libelle"] + (f" ({mvt['reference']})" if mvt.get("reference") else "")
+    return {
+        "date_charge": mvt["date"],
+        "montant": f"{mvt['restant']:.2f}",
+        "mode_paiement_id": flux.MODE_PAR_SOURCE[source],
+        "code_impact": "IC",
+        "commentaire": (f"{'Paiement bancaire' if source == flux.BANQUE else 'Dépense en espèces'}"
+                        f" du {mvt['date_fr']} — {libelle}")[:250],
+        "mouvement_origine": f"{source}:{identifiant}",
+        "mouvement_libelle": f"{mvt['libelle']} — {mvt['date_fr']} — {mvt['restant']:.2f} €",
+    }, ""
 
 
 @router.get("/fournisseurs/nouvelle", response_class=HTMLResponse)
-def fournisseurs_nouvelle_form(request: Request):
+def fournisseurs_nouvelle_form(request: Request, mouvement: str = ""):
     refs = load_form_refs()
     from datetime import date as _date
+    form, erreur = _prefill_depuis_mouvement(mouvement) if mouvement else ({}, "")
     return templates.TemplateResponse(request, "fournisseurs_nouvelle.html", {
-        "active_menu": "fournisseurs",
+        "active_menu": "flux",
         "refs": refs,
-        "form": {},
-        "erreurs": [],
+        "form": form,
+        "erreurs": [{"code": "MOUVEMENT", "message": erreur}] if erreur else [],
         "annee_justificatif": _date.today().strftime("%Y"),
     })
 
@@ -81,7 +91,7 @@ async def fournisseurs_nouvelle_previsualiser(request: Request):
         refs = load_form_refs()
         from datetime import date as _date
         return templates.TemplateResponse(request, "fournisseurs_nouvelle.html", {
-            "active_menu": "fournisseurs",
+            "active_menu": "flux",
             "refs": refs,
             "form": form_data,
             "erreurs": result["manifest"]["errors"],
@@ -101,11 +111,11 @@ def fournisseurs_previsualisation(request: Request, token: str):
         return templates.TemplateResponse(
             request,
             "fournisseurs_previsualisation.html",
-            {"active_menu": "fournisseurs", "token": token, "manifest": None, "not_found": True},
+            {"active_menu": "flux", "token": token, "manifest": None, "not_found": True},
             status_code=404,
         )
     return templates.TemplateResponse(request, "fournisseurs_previsualisation.html", {
-        "active_menu": "fournisseurs",
+        "active_menu": "flux",
         "token": token,
         "manifest": data["manifest"],
         "not_found": False,
@@ -133,7 +143,7 @@ def fournisseurs_confirmer(request: Request, token: str):
         # prévisualisation où déposer un résultat. On rend le refus directement plutôt que de
         # rediriger vers une page vide. Sans écriture, rejouer ce POST est sans conséquence.
         return templates.TemplateResponse(request, "fournisseurs_resultat.html", {
-            "active_menu": "fournisseurs",
+            "active_menu": "flux",
             "token": token,
             "resultat": resultat.as_dict(),
         }, status_code=404)
@@ -147,14 +157,24 @@ def fournisseurs_resultat(request: Request, token: str):
     resultat = confirmation.charger_resultat(token)
     if resultat is None:
         return templates.TemplateResponse(request, "fournisseurs_resultat.html", {
-            "active_menu": "fournisseurs",
+            "active_menu": "flux",
             "token": token,
             "resultat": None,
         }, status_code=404)
+    # Charge née d'un mouvement : la suite logique est de la rapprocher et de la comptabiliser.
+    rapprocher = ""
+    if resultat.get("statut") == "SUCCES" and resultat.get("charge_id"):
+        ligne = saisie.lire(resultat["charge_id"]) or {}
+        lien = str(ligne.get("lien_virement_banque") or "")
+        if lien.startswith(("QMV-", "CAI-")):
+            source = "BANQUE" if lien.startswith("QMV-") else "CAISSE"
+            rapprocher = (f"/flux-financiers/rapprochement/valider?m={source}:{lien}"
+                          f"&o=CHARGE:{resultat['charge_id']}")
     return templates.TemplateResponse(request, "fournisseurs_resultat.html", {
-        "active_menu": "fournisseurs",
+        "active_menu": "flux",
         "token": token,
         "resultat": resultat,
+        "lien_rapprocher": rapprocher,
     })
 
 
@@ -238,7 +258,7 @@ def fournisseur_detail(request: Request, charge_id: str, erreur: str = ""):
             request,
             "fournisseurs_detail.html",
             {
-                "active_menu": "fournisseurs",
+                "active_menu": "flux",
                 "detail": None,
                 "charge_id": charge_id,
             },
@@ -261,7 +281,7 @@ def fournisseur_detail(request: Request, charge_id: str, erreur: str = ""):
     # `code_impact` est un état réel — et se lit « non renseigné ».
     impact = impact_charge(charge.get("code_impact"))
     return templates.TemplateResponse(request, "fournisseurs_detail.html", {
-        "active_menu": "fournisseurs",
+        "active_menu": "flux",
         "detail": detail,
         "charge_id": charge_id,
         "impact": impact,

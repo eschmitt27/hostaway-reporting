@@ -382,9 +382,10 @@ def test_I_le_switch_bascule_entre_banque_et_caisse(client, base):
 
     banque = client.get("/banques-caisse?vue=banque")
     assert banque.status_code == 200
-    assert 'data-testid="switch-banque"' in banque.text
-    assert 'data-testid="switch-caisse"' in banque.text
-    assert 'href="/banques-caisse?vue=caisse"' in banque.text
+    # Le switch est désormais celui du module Flux financiers (Banque | Caisse | Charges | Rapprochement).
+    assert 'data-testid="flux-onglet-banque"' in banque.text
+    assert 'data-testid="flux-onglet-caisse"' in banque.text
+    assert 'href="/flux-financiers/caisse"' in banque.text
 
     caisse = client.get("/banques-caisse?vue=caisse")
     assert caisse.status_code == 200
@@ -425,15 +426,15 @@ def test_I_les_filtres_sont_rendus_et_conservent_la_vue(client, base):
     _actualiser(base, [mouvement(1, **CREDIT_200)])
     html = client.get("/banques-caisse?vue=banque").text
     assert 'data-testid="filtres-banque"' in html
-    assert 'name="mois"' in html and 'name="traitement"' in html
-    assert 'value="banque"' in html, "le filtre ne doit pas faire perdre la vue courante"
+    assert 'name="mois"' in html and 'name="rapprochement"' in html and 'name="compta"' in html
+    assert 'action="/flux-financiers/banque"' in html, "le filtre ne doit pas faire perdre la vue courante"
 
 
 def test_I_le_retrait_est_presente_comme_un_transfert_pas_comme_une_charge(client, base):
     _actualiser(base, [retrait()])
     html = client.get("/banques-caisse").text
     assert "Retrait espèces" in html
-    assert "Transféré en caisse" in html
+    assert "À comptabiliser" in html, "un retrait réglé attend son transfert 530 / 512"
     assert "transfert interne" in html
     assert "charge" not in html.split("Retrait espèces")[1][:200].lower() or \
            "aucune charge" in html

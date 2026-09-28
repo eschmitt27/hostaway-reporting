@@ -15,7 +15,7 @@
 
 <div class="cs-saisie">
 
-  <a href="/fournisseurs" class="back-link">&larr; Charges</a>
+  <a href="/flux-financiers/charges" class="back-link">&larr; Charges</a>
   <div class="page-header cs-header">
     <div class="page-header__titre">
       <h1 class="page-title">Nouvelle saisie charge</h1>
@@ -34,7 +34,19 @@
   </div>
   {% endif %}
 
+  {% set origine = form.get('mouvement_origine', '') %}
+  {% if origine %}
+  <div class="alert alert-info" data-testid="charge-depuis-mouvement">
+    <div><strong>Charge créée depuis un mouvement {{ "bancaire" if origine.startswith("BANQUE") else "de caisse" }}</strong>
+      {% if form.get('mouvement_libelle') %} — {{ form.get('mouvement_libelle') }}{% endif %}.<br>
+      Date, montant et moyen de paiement viennent du mouvement. Complétez la catégorie, le logement,
+      la refacturation et le justificatif. La charge sera <strong>comptable</strong> (un mouvement réel
+      de la société n'est jamais hors comptabilité), puis proposée au rapprochement.</div>
+  </div>
+  {% endif %}
   <form id="charge_form" class="cs-form" method="post" action="/fournisseurs/nouvelle/previsualiser">
+    {% if origine %}<input type="hidden" name="mouvement_origine" value="{{ origine }}">
+    <input type="hidden" name="mouvement_libelle" value="{{ form.get('mouvement_libelle', '') }}">{% endif %}
     <div class="cs-layout">
       <div class="cs-main">
 
@@ -93,7 +105,7 @@
               {% set impact_labels = {'IC': 'Impacte le résultat réel et comptable', 'HC': 'Impacte le résultat réel, hors compta'} %}
               <select id="code_impact" name="code_impact" required aria-describedby="aide_code_impact">
                 <option value="">— Sélectionner —</option>
-                {% for ci in refs.get('codes_impact', []) %}
+                {% for ci in refs.get('codes_impact', []) if not form.get('mouvement_origine') or ci.code_impact == 'IC' %}
                 <option value="{{ ci.code_impact }}" {% if form.get('code_impact') == ci.code_impact %}selected{% endif %}>
                   {{ impact_labels.get(ci.code_impact, ci.libelle) }}
                 </option>

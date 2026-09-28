@@ -131,9 +131,15 @@ def _deja_generee(journal: str, origine_type: str, origine_id: str, db_path=None
 
 def _inserer_ecriture(journal: str, date_ecriture: str, periode: str, piece: str, libelle: str,
                       origine_type: str, origine_id: str, lignes: list[dict[str, Any]], *,
-                      acteur: str = "", db_path=None) -> dict[str, Any]:
+                      acteur: str = "", db_path=None, conn=None) -> dict[str, Any]:
     """Insère une écriture équilibrée. Ne vérifie PAS les flags — appelé par les générateurs
-    spécifiques, qui l'ont déjà fait."""
+    spécifiques, qui l'ont déjà fait.
+
+    `conn` : même idiome que `charges_saisie_service.creer`. Fourni, l'écriture s'insère DANS la
+    transaction de l'appelant (ni commit ni fermeture ici) : c'est ce qui permet au lettrage des
+    flux financiers de rapprocher ET de comptabiliser en une seule opération, annulée en bloc si
+    l'une des deux échoue. Les contrôles (équilibre, période, comptes, doublon) restent ceux-ci,
+    lus sur l'état validé de la base — aucun second jeu de règles."""
     total_debit = round(sum(l.get("debit", 0) or 0 for l in lignes), 2)
     total_credit = round(sum(l.get("credit", 0) or 0 for l in lignes), 2)
     if total_debit != total_credit or total_debit == 0:
@@ -153,7 +159,9 @@ def _inserer_ecriture(journal: str, date_ecriture: str, periode: str, piece: str
         return {"ok": True, "ecriture_id_opaque": existant, "deja_generee": True}
 
     opaque = "ECR-" + uuid.uuid4().hex[:12].upper()
-    conn = get_db(db_path)
+    connexion_locale = conn is None
+    if connexion_locale:
+        conn = get_db(db_path)
     try:
         conn.execute(
             "INSERT INTO ecritures (ecriture_id_opaque, journal, date_ecriture, periode, piece, "
@@ -170,10 +178,25 @@ def _inserer_ecriture(journal: str, date_ecriture: str, periode: str, piece: str
                  l.get("credit", 0) or 0, l.get("logement_id"), l.get("proprietaire_id"),
                  l.get("reservation_id"), l.get("libelle")))
         _evenement(conn, opaque, "GENERATION", nouveau=ST_PROPOSEE, commentaire=libelle, acteur=acteur)
-        conn.commit()
+        if connexion_locale:
+            conn.commit()
     finally:
-        conn.close()
+        if connexion_locale:
+            conn.close()
     return {"ok": True, "ecriture_id_opaque": opaque, "deja_generee": False}
+
+
+def valider_dans_transaction(conn, opaque: str, *, commentaire: str = "",
+                             acteur: str = "") -> None:
+    """PROPOSEE → VALIDEE dans la transaction de l'appelant, avec son événement.
+
+    Réservé à une écriture que l'appelant vient d'insérer dans cette même transaction et que
+    l'utilisateur a relue AVANT de valider (écran « écriture comptable proposée ») : la validation
+    humaine a eu lieu, il n'y a pas de seconde étape à attendre."""
+    conn.execute("UPDATE ecritures SET statut=?, version=version+1 WHERE ecriture_id_opaque=? "
+                 "AND statut=?", (ST_VALIDEE, opaque, ST_PROPOSEE))
+    _evenement(conn, opaque, "VALIDATION", ancien=ST_PROPOSEE, nouveau=ST_VALIDEE,
+               commentaire=commentaire, acteur=acteur)
 
 
 def _menage_dimensions(charge_id: str, db_path=None) -> tuple[str | None, str | None]:
@@ -775,8 +798,11 @@ def valider(opaque: str, *, acteur: str = "", db_path=None) -> dict[str, Any]:
 
 
 def contrepasser(opaque: str, *, commentaire: str = "", acteur: str = "",
-                 db_path=None) -> dict[str, Any]:
-    """Annule une écriture par une écriture MIROIR (débit/crédit inversés), jamais une suppression."""
+                 db_path=None, conn=None) -> dict[str, Any]:
+    """Annule une écriture par une écriture MIROIR (débit/crédit inversés), jamais une suppression.
+
+    `conn` fourni : le miroir s'écrit dans la transaction de l'appelant (même idiome que
+    `_inserer_ecriture`)."""
     if not _flags_actifs():
         return _refus(E_FLAGS)
     e = charger(opaque, db_path)
@@ -793,7 +819,9 @@ def contrepasser(opaque: str, *, commentaire: str = "", acteur: str = "",
         for l in lignes(opaque, db_path)
     ]
     miroir_opaque = "ECR-" + uuid.uuid4().hex[:12].upper()
-    conn = get_db(db_path)
+    connexion_locale = conn is None
+    if connexion_locale:
+        conn = get_db(db_path)
     try:
         conn.execute(
             "INSERT INTO ecritures (ecriture_id_opaque, journal, date_ecriture, periode, piece, "
@@ -816,9 +844,11 @@ def contrepasser(opaque: str, *, commentaire: str = "", acteur: str = "",
                   commentaire=commentaire, acteur=acteur)
         _evenement(conn, miroir_opaque, "GENERATION", nouveau=ST_VALIDEE,
                   commentaire=f"Contrepasse {opaque}", acteur=acteur)
-        conn.commit()
+        if connexion_locale:
+            conn.commit()
     finally:
-        conn.close()
+        if connexion_locale:
+            conn.close()
     return {"ok": True, "ecriture_id_opaque": opaque, "miroir_id_opaque": miroir_opaque,
            "statut": ST_CONTREPASSEE}
 

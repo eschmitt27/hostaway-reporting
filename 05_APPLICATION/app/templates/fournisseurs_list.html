@@ -1,15 +1,15 @@
 {% extends "base.html" %}
-{% block title %}Charges{% endblock %}
+{% from "_flux_badges.html" import statut %}
+{% block title %}Flux financiers · Charges{% endblock %}
 
 {% block content %}
-<div class="page-header flex justify-between items-center">
-  <div>
-    <h1 class="page-title">Charges</h1>
-    <p class="page-subtitle">
-      Source : {{ data.source }} — lu le {{ data.read_at }}
-    </p>
-  </div>
-  <a href="/fournisseurs/nouvelle" class="btn btn-primary">+ Nouvelle charge</a>
+{# Page « Charges » du module Flux financiers : le module Charges existant, inchangé dans son
+   moteur, enrichi de ses deux statuts (rapprochement, comptabilité) et de son origine. #}
+{% set flux_sous_titre = "Charges — comptables ou hors comptabilité. Une charge liée à un mouvement de la société est toujours comptable." %}
+{% include "_flux_entete.html" %}
+<div class="flux-barre-actions">
+  <a href="/fournisseurs/nouvelle" class="btn btn-primary" data-testid="creer-charge">+ Créer une charge</a>
+  <span class="mention">Pour une dépense déjà passée en banque, partez plutôt du mouvement (Banque › Traiter › « Créer une charge depuis ce mouvement »).</span>
 </div>
 
 {% if data.status == "ERROR" %}
@@ -20,7 +20,7 @@
 {% else %}
 
 <!-- Filtres -->
-<form method="get" action="/fournisseurs" class="filter-bar">
+<form method="get" action="/flux-financiers/charges" class="filter-bar">
   <div class="filter-group">
     <label for="mois">Mois</label>
     <select id="mois" name="mois" onchange="this.form.submit()">
@@ -75,8 +75,17 @@
       {% endfor %}
     </select>
   </div>
-  {% if data.applied.mois or data.applied.logement_id or data.applied.categorie_charge_id or data.applied.code_impact or data.applied.statut_controle or data.applied.associe_id %}
-    <a href="/fournisseurs" class="btn btn-secondary btn-sm">Effacer les filtres</a>
+  <div class="filter-group">
+    <label for="compta">Comptabilité</label>
+    <select id="compta" name="compta" onchange="this.form.submit()">
+      <option value="">Tous</option>
+      {% for code, info in statuts_compta_charge.items() %}
+        <option value="{{ code }}" {% if filtre_compta == code %}selected{% endif %}>{{ info.libelle }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% if data.applied.mois or data.applied.logement_id or data.applied.categorie_charge_id or data.applied.code_impact or data.applied.statut_controle or data.applied.associe_id or filtre_compta %}
+    <a href="/flux-financiers/charges" class="btn btn-secondary btn-sm">Effacer les filtres</a>
   {% endif %}
 </form>
 
@@ -90,8 +99,6 @@
   <table class="data-table">
     <thead>
       <tr>
-        <th>Charge ID</th>
-        <th>Mois</th>
         <th>Date</th>
         <th>Catégorie</th>
         <th>Logement</th>
@@ -100,16 +107,17 @@
         <th>Impact</th>
         <th>Refact.</th>
         <th>Justificatif</th>
-        <th>Statut</th>
+        <th>Contrôle</th>
+        <th>Rapprochement</th>
+        <th>Comptabilité</th>
+        <th>Origine</th>
         <th></th>
       </tr>
     </thead>
     <tbody>
       {% for row in data.rows %}
       <tr class="{% if row.statut_controle == 'VALIDE' %}row-ok{% elif row.statut_controle == 'BLOQUANT' %}row-error{% elif row.statut_controle == 'A_CONTROLER' or row.statut_controle == 'A_VENTILER' %}row-warning{% else %}row-neutral{% endif %}">
-        <td><span class="code-id">{{ row.charge_id or "—" }}</span></td>
-        <td>{{ row.mois or "—" }}</td>
-        <td>{{ row.date_charge or "—" }}</td>
+        <td>{{ row.date_charge | date_fr if row.date_charge else "—" }}</td>
         <td>{{ row.categorie_charge_id | nom_categorie_charge if row.categorie_charge_id else "—" }}</td>
         <td>
           {{ row.logement_id | nom_logement if row.logement_id else "—" }}
@@ -144,6 +152,11 @@
             {{ row.statut_controle | libelle_statut if row.statut_controle else "—" }}
           </span>
         </td>
+        {% set st = (statuts or {}).get(row.charge_id) %}
+        <td>{% if st %}{{ statut(st.rapprochement, "charge-rapprochement") }}{% else %}—{% endif %}</td>
+        <td>{% if st %}{{ statut(st.compta, "charge-compta") }}<span class="mention">{{ st.resultat }}</span>{% else %}—{% endif %}</td>
+        <td>{% if st %}{{ st.origine }}{% if st.lien_mouvement and st.origine in ("Banque", "Caisse") %}
+          <a class="mention" href="/flux-financiers/{{ 'banque' if st.origine == 'Banque' else 'caisse' }}/{{ st.lien_mouvement }}">voir le mouvement</a>{% endif %}{% else %}—{% endif %}</td>
         <td>
           <a href="/fournisseurs/{{ row.charge_id }}" class="btn btn-secondary btn-sm">Détail</a>
         </td>

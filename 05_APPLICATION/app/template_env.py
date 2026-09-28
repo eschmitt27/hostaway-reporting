@@ -138,6 +138,14 @@ def _date_fr(valeur) -> str:
         return texte
 
 
+def _nom_tiers_flux(identifiant) -> str:
+    from app.services import flux_financiers_service as flux
+    ident = str(identifiant or "").strip()
+    if not ident:
+        return ""
+    return flux.noms_tiers().get(ident) or "Tiers non résolu"
+
+
 def _entier(valeur) -> str:
     """`15.0` → `15`. Toute quantité discrète s'affiche en entier (§63)."""
     if valeur is None or valeur == "":
@@ -172,6 +180,9 @@ def get_templates() -> Jinja2Templates:
         # §45 — un numéro se STOCKE en E.164 et se LIT en groupes de deux. Le filtre est le seul
         # point de passage vers l'affichage : un numéro brut reste rendu tel quel, jamais inventé.
         t.env.filters["telephone"] = _telephone
+        # Flux financiers : nom humain de n'importe quel tiers (propriétaire, fournisseur,
+        # prestataire, associé) porté en auxiliaire — jamais « PROP_00xx » à l'écran.
+        t.env.filters["nom_tiers_flux"] = _nom_tiers_flux
         # Le saut de ligne, nommé, pour les gabarits qui doivent distinguer une valeur multiligne
         # d'une valeur d'une seule ligne. Un littéral échappé au milieu d'une expression Jinja se
         # lit mal et se casse au premier outil qui touche au fichier ; une globale ne se casse pas.

@@ -1,0 +1,175 @@
+/* ══ Module « Flux financiers » ═══════════════════════════════════════════════════════════════
+   Réutilise les jetons et composants globaux (badges, switch, tables, cartes KPI). Ce fichier
+   n'ajoute que la mise en page propre au module : en-tête à sélecteur, colonnes du
+   rapprochement, éditeur d'écriture. */
+
+.flux-entete {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--stack-md);
+  margin-bottom: var(--stack-md);
+}
+.flux-entete__titre { min-width: 0; }
+.flux-onglets { flex-wrap: wrap; }
+
+.flux-badge { white-space: nowrap; }
+.flux-badge__symbole { font-weight: 700; margin-right: 2px; }
+
+.flux-barre-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--stack-sm);
+  align-items: center;
+  margin-bottom: var(--stack-md);
+}
+
+.flux-filtres-segment {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: var(--stack-sm);
+}
+.flux-filtres-segment a {
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-outline-variant);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-on-surface-variant);
+  background: #fff;
+}
+.flux-filtres-segment a[aria-current="true"] {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.flux-table td.num, .flux-table th.num { text-align: right; }
+.flux-table td { vertical-align: top; }
+.flux-table .mention { max-width: 360px; }
+
+/* ── Rapprochement : deux colonnes ───────────────────────────────────────────────────────── */
+.flux-colonnes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--stack-md);
+  align-items: start;
+}
+.flux-colonne { min-width: 0; }
+.flux-colonne .card { padding: 0; overflow: hidden; }
+.flux-colonne h2 { font-size: 15px; margin: 0; padding: 12px 16px; border-bottom: 1px solid var(--color-surface-container); }
+.flux-liste { list-style: none; margin: 0; padding: 0; max-height: 560px; overflow-y: auto; }
+.flux-liste li { border-bottom: 1px solid var(--color-surface-container-low); }
+.flux-liste label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 10px 16px;
+  cursor: pointer;
+  align-items: start;
+}
+.flux-liste label:hover { background: var(--color-surface-container-low); }
+.flux-liste .is-inactif { opacity: .6; cursor: not-allowed; }
+.flux-liste .flux-liste__montant { text-align: right; white-space: nowrap; }
+
+.flux-selection-barre {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--stack-sm);
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--stack-md);
+  padding: 12px 16px;
+  background: var(--color-inverse-surface);
+  color: var(--color-inverse-on-surface);
+  border-radius: var(--radius-md);
+}
+.flux-selection-barre .btn-primary { background: #fff; color: var(--color-primary); }
+
+.flux-proposition {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--stack-sm);
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-surface-container-low);
+}
+.flux-proposition:last-child { border-bottom: none; }
+.flux-proposition__actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: start; justify-content: flex-end; }
+.flux-raisons { margin: 4px 0 0; padding-left: 18px; font-size: 12px; color: var(--color-secondary); }
+
+/* ── Validation : écriture proposée ──────────────────────────────────────────────────────── */
+.flux-ecriture { margin-top: var(--stack-sm); }
+.flux-ecriture table input, .flux-ecriture table select {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 13px;
+  background: #fff;
+}
+.flux-ecriture table input.num { text-align: right; }
+.flux-ecriture tr.is-tresorerie td { background: var(--color-surface-container-low); }
+.flux-ecriture tfoot td { font-weight: 700; }
+.flux-equilibre-ok { color: var(--color-success); }
+.flux-equilibre-ko { color: var(--color-error); }
+
+.flux-grille-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--stack-md);
+}
+.flux-champ { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--stack-sm); }
+.flux-champ > span { font-size: 12px; font-weight: 600; color: var(--color-secondary); }
+.flux-champ input, .flux-champ select, .flux-champ textarea {
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: 14px;
+  background: #fff;
+}
+.flux-champ textarea { height: auto; min-height: 64px; padding: 8px 10px; }
+
+dialog.flux-modale {
+  border: none;
+  border-radius: var(--radius-lg);
+  padding: var(--stack-lg);
+  max-width: 440px;
+  width: calc(100% - 32px);
+  box-shadow: 0 10px 40px rgba(0,0,0,.25);
+}
+dialog.flux-modale::backdrop { background: rgba(16, 27, 48, .45); }
+
+.flux-fiche {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--stack-sm) var(--stack-md);
+}
+.flux-fiche dt { font-size: 12px; font-weight: 600; color: var(--color-secondary); }
+.flux-fiche dd { margin: 0; font-weight: 600; }
+
+@media (max-width: 900px) {
+  .flux-colonnes, .flux-grille-2 { grid-template-columns: 1fr; }
+}
+@media (max-width: 720px) {
+  .flux-onglets { width: 100%; }
+  .flux-onglets .switch-vues__onglet { flex: 1 1 auto; justify-content: center; padding: 0 10px; }
+  .flux-table thead { display: none; }
+  .flux-table tr { display: block; padding: var(--stack-sm) 0; border-bottom: 1px solid var(--color-outline-variant); }
+  .flux-table td { display: block; border: none; padding: 2px var(--stack-sm); }
+  .flux-table td.num { text-align: left; }
+  .flux-ecriture table thead { display: none; }
+  .flux-ecriture table tr { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 6px 0; }
+  .flux-ecriture table td { padding: 2px 4px; }
+  .flux-proposition { grid-template-columns: 1fr; }
+  .flux-proposition__actions { justify-content: flex-start; }
+}

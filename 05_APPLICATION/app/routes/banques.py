@@ -119,48 +119,24 @@ def _form_to_decision(form) -> dict:
 
 @router.get("/caisse")
 def caisse_alias():
-    """Recette n°3 §107 — la caisse est une section de l'écran « Banques & caisse » : `/caisse` y
-    mène au lieu de répondre 404."""
+    """Recette n°3 §107 — `/caisse` mène à l'onglet Caisse du module Flux financiers."""
     from fastapi.responses import RedirectResponse
-    return RedirectResponse("/banques-caisse", status_code=308)
+    return RedirectResponse("/flux-financiers/caisse", status_code=308)
 
 
-@router.get("/banques-caisse", response_class=HTMLResponse)
-def banques_dashboard(
-    request: Request,
-    mois: str = "",
-    compte_id: str = "",
-    sens: str = "",
-    statut: str = "",
-    non_rapproche: bool = False,
-    montant_min: str = "",
-    montant_max: str = "",
-    recherche: str = "",
-    tri: str = "anomalie",
-    page: int = 1,
-    message: str = "",
-    erreur: str = "",
-    vue: str = qonto_ecran.VUE_BANQUE,
-    traitement: str = "",
-):
-    """Écran Banque & Caisse. `vue` bascule entre les deux sans passer par la navigation générale.
+@router.get("/banques-caisse")
+def banques_caisse_redirection(request: Request, vue: str = qonto_ecran.VUE_BANQUE,
+                               message: str = "", erreur: str = ""):
+    """L'écran « Banques & caisse » est remplacé par le module Flux financiers.
 
-    La liste des mouvements du pipeline lot8 reste chargée pour les écrans de contrôle et de
-    rapprochement qui s'y rattachent ; elle n'encombre plus cette page.
-    """
-    data = svc.load_dashboard(
-        mois=mois, compte_id=compte_id, sens=sens, statut=statut, non_rapproche=non_rapproche,
-        montant_min=montant_min, montant_max=montant_max, recherche=recherche, tri=tri, page=page,
-    )
-    return templates.TemplateResponse(request, "banques_list.html", {
-        "active_menu": "banques", "data": data, "nb_a_controler": ctrl.compter_a_controler(),
-        "ecriture_active": _ecriture_active(),
-        # Alerte MÉTIER (versements de plateformes), pas de la plomberie : elle reste.
-        "airbnb": svc.categorisation_versements_airbnb(),
-        "nb_a_classer": classement.compter(),
-        "qonto": qonto_ecran.tableau_de_bord(vue=vue, mois=mois, traitement=traitement),
-        "qonto_message": message, "qonto_erreur": erreur,
-    })
+    L'adresse reste servie (favoris, liens anciens, retours des écrans Qonto historiques) et mène
+    à l'onglet équivalent, message de retour compris. Les sous-écrans `/banques-caisse/...`
+    (import Crédit Mutuel, contrôles, fiche Qonto « Traiter ») restent en place : ils sont
+    accessibles depuis l'onglet Banque."""
+    cible = "/flux-financiers/caisse" if vue == qonto_ecran.VUE_CAISSE else "/flux-financiers/banque"
+    params = [(k, v) for k, v in (("message", message), ("erreur", erreur)) if v]
+    from urllib.parse import urlencode
+    return RedirectResponse(cible + (f"?{urlencode(params)}" if params else ""), status_code=307)
 
 
 @router.get("/banques-caisse/a-rapprocher", response_class=HTMLResponse)

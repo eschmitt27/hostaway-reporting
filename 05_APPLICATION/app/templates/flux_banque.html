@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% from "_flux_badges.html" import statut, montant %}
+{% block title %}Flux financiers · Banque{% endblock %}
+
+{% block content %}
+{% set flux_sous_titre = "Banque — Qonto en lecture seule · mis à jour " ~ (derniere_synchro or "jamais") %}
+{% include "_flux_entete.html" %}
+
+{% if message %}<div class="alert alert-info" data-testid="qonto-message">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-warning" data-testid="qonto-erreur"><strong>Qonto</strong> — {{ erreur }} Les mouvements déjà connus restent affichés.</div>{% endif %}
+{% if not identifiants_presents %}
+<div class="alert alert-warning">Identifiants Qonto absents du fichier « .env » : l'actualisation est impossible. Les mouvements déjà connus restent consultables.</div>
+{% endif %}
+
+{% if airbnb and airbnb.nb_identifiables %}
+<div class="alert alert-info" data-testid="categorisation-airbnb">
+  <strong>VERSEMENTS PLATEFORMES</strong> — <strong>{{ airbnb.nb_identifiables }}</strong> versement{{ "s" if airbnb.nb_identifiables != 1 }}
+  Airbnb identifié{{ "s" if airbnb.nb_identifiables != 1 }} ({{ "%.2f"|format(airbnb.montant_identifiables) }} €).
+  Ces virements ne sont jamais rapprochés d'une réservation individuelle.
+</div>
+{% endif %}
+
+<div class="kpi-grid kpi-grid--4" data-testid="kpi-tresorerie">
+  <div class="kpi-card kpi-card--fort">
+    <div class="kpi-label">Solde banque</div>
+    <div class="kpi-value" data-testid="kpi-solde-banque">{{ "%.2f"|format(soldes.banque) }} {{ soldes.devise }}</div>
+    <div class="kpi-sub">disponible réellement{% if soldes.engage %} · {{ "%.2f"|format(soldes.engage) }} {{ soldes.devise }} déjà engagés{% endif %}</div>
+    <div class="kpi-sub" data-testid="qonto-comptes">{% for c in comptes %}{{ c.nom }} · {{ c.iban_masque }}{% if not loop.last %} · {% endif %}{% endfor %}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Caisse</div>
+    <div class="kpi-value" data-testid="kpi-caisse">{{ "%.2f"|format(soldes.caisse) }} {{ soldes.devise }}</div>
+    <div class="kpi-sub">espèces en main</div>
+  </div>
+  <div class="kpi-card kpi-card--fort">
+    <div class="kpi-label">Trésorerie disponible</div>
+    <div class="kpi-value" data-testid="kpi-tresorerie-dispo">{{ "%.2f"|format(soldes.tresorerie) }} {{ soldes.devise }}</div>
+    <div class="kpi-sub">banque + caisse</div>
+  </div>
+  <div class="kpi-card {{ 'kpi-card--alerte' if kpis.a_qualifier or kpis.erreurs }}">
+    <div class="kpi-label">Demande une action</div>
+    <div class="kpi-value" data-testid="kpi-action">{{ kpis.a_qualifier + kpis.a_comptabiliser + kpis.erreurs }}</div>
+    <div class="kpi-sub">{{ kpis.a_qualifier }} à qualifier · {{ kpis.a_comptabiliser }} à comptabiliser{% if kpis.erreurs %} · {{ kpis.erreurs }} en erreur{% endif %}</div>
+  </div>
+</div>
+
+<div class="flux-barre-actions">
+  <form method="post" action="/flux-financiers/banque/actualiser" class="inline-form">
+    <button type="submit" class="btn btn-primary" data-testid="qonto-actualiser">Actualiser Qonto</button>
+  </form>
+  <a href="/flux-financiers/rapprochement?source=BANQUE" class="btn btn-secondary">Rapprocher</a>
+  <details class="flux-autres-ecrans">
+    <summary class="btn btn-ghost">Autres écrans bancaires</summary>
+    <div class="liens-ecrans" style="margin-top:8px">
+      <a href="/banques-caisse/a-rapprocher" class="btn btn-secondary btn-sm">Relevé Crédit Mutuel à rapprocher</a>
+      <a href="/banques-caisse/controle" class="btn btn-secondary btn-sm">Contrôler les mouvements ({{ nb_a_controler }})</a>
+      <a href="/banques-caisse/a-classer" class="btn btn-secondary btn-sm">À classer ({{ nb_a_classer }})</a>
+      <a href="/banques-caisse/controles" class="btn btn-secondary btn-sm">Contrôles bancaires</a>
+    </div>
+  </details>
+</div>
+
+<form method="get" action="/flux-financiers/banque" class="barre-filtres" data-testid="filtres-banque">
+  <label class="champ"><span>Période</span>
+    <select name="mois"><option value="">Toutes</option>
+      {% for x in mois_disponibles %}<option value="{{ x }}" {{ 'selected' if x == filtres.mois }}>{{ x }}</option>{% endfor %}
+    </select></label>
+  <label class="champ"><span>Rapprochement</span>
+    <select name="rapprochement"><option value="">Tous</option>
+      {% for code, info in statuts_rapprochement.items() if code not in ('NON_RAPPROCHABLE',) %}
+      <option value="{{ code }}" {{ 'selected' if code == filtres.rapprochement }}>{{ info.libelle }}</option>{% endfor %}
+    </select></label>
+  <label class="champ"><span>Comptabilité</span>
+    <select name="compta"><option value="">Tous</option>
+      <option value="A_TRAITER" {{ 'selected' if filtres.compta == 'A_TRAITER' }}>À traiter (demande une action)</option>
+      {% for code, info in statuts_compta.items() %}
+      <option value="{{ code }}" {{ 'selected' if code == filtres.compta }}>{{ info.libelle }}</option>{% endfor %}
+    </select></label>
+  <label class="champ"><span>Sens</span>
+    <select name="sens"><option value="">Débit et crédit</option>
+      <option value="SORTIE" {{ 'selected' if filtres.sens == 'SORTIE' }}>Débit</option>
+      <option value="ENTREE" {{ 'selected' if filtres.sens == 'ENTREE' }}>Crédit</option>
+    </select></label>
+  <label class="champ"><span>Recherche</span><input type="search" name="q" value="{{ filtres.q }}" placeholder="Libellé, tiers…" style="height:38px;padding:0 10px;border:1px solid var(--color-outline-variant);border-radius:var(--radius-md)"></label>
+  <button type="submit" class="btn btn-secondary">Filtrer</button>
+  {% if filtres.mois or filtres.rapprochement or filtres.compta or filtres.sens or filtres.q %}
+  <a href="/flux-financiers/banque" class="btn btn-ghost">Tout voir</a>{% endif %}
+</form>
+
+<div class="card">
+  <div class="table-container">
+    <table class="data-table flux-table" data-testid="flux-table-banque">
+      <thead><tr>
+        <th>Date</th><th>Libellé</th><th class="num">Montant</th><th>Sens</th>
+        <th>Rapprochement</th><th>Comptabilité</th><th class="col-action"></th>
+      </tr></thead>
+      <tbody>
+        {% for m in lignes %}
+        <tr data-testid="qonto-ligne"{% if not m.definitif %} class="ligne-non-definitive"{% endif %}>
+          <td class="cellule-date">{{ m.date_fr }}{% if m.date_est_prevue %}<span class="mention">prévue</span>{% endif %}</td>
+          <td>
+            <span class="libelle-principal">{{ m.libelle }}</span>
+            {% if m.reference %}<span class="mention">{{ m.reference }}</span>{% endif %}
+            {% if not m.definitif and not m.sans_effet %}<span class="mention" data-testid="qonto-non-definitif">En attente chez Qonto — non définitif</span>{% endif %}
+            {% if m.sans_effet %}<span class="mention">Refusée ou contrepassée par la banque — aucun argent n'a bougé</span>{% endif %}
+          </td>
+          <td class="num">{{ montant(m.montant, m.sens) }}</td>
+          <td>{{ "Crédit" if m.sens == "ENTREE" else "Débit" }}</td>
+          <td>{{ statut(m.rapprochement, "statut-rapprochement") }}
+            {% if m.statut_rapprochement == 'PARTIEL' %}<span class="mention">reste {{ "%.2f"|format(m.restant) }} €</span>{% endif %}
+            {% if m.parcours_dedie == 'RETRAIT' %}<span class="mention">Retrait espèces → caisse (transfert interne)</span>{% endif %}
+            {% for r in m.rattachements %}<span class="mention" data-testid="rapproche-objet">{{ r }}</span>{% endfor %}
+          </td>
+          <td>{{ statut(m.compta, "statut-compta") }}</td>
+          <td class="col-action"><a href="/flux-financiers/banque/{{ m.id }}" class="btn {{ 'btn-primary' if m.a_traiter else 'btn-ghost' }} btn-sm" data-testid="{{ 'bouton-traiter' if m.a_traiter else 'bouton-detail' }}">{{ "Traiter" if m.a_traiter else "Détail" }}</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="section-note">{% if nb_total %}Aucun mouvement pour ces filtres.{% else %}Aucun mouvement bancaire. Utilisez « Actualiser Qonto ».{% endif %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<p class="note-bas">
+  Connexion Qonto en <strong>lecture seule</strong> : aucun virement n'est possible depuis cette
+  application. Rien n'est rapproché automatiquement : le moteur propose, vous validez. Tout
+  mouvement réel doit finir <strong>comptabilisé</strong> — « hors comptabilité » n'existe pas pour
+  un mouvement de trésorerie.
+</p>
+{% endblock %}

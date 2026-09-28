@@ -34,6 +34,10 @@ TYPES_OBJET = (
     # REMBOURSEMENT_ASSOCIE) et retrait d'espèces au distributeur. Ajoutés à la liste canonique
     # plutôt que gérés à part : un rapprochement reste un rapprochement, quelle que soit sa nature.
     "APPORT_ASSOCIE", "TRANSFERT_CAISSE",
+    # Objets du lettrage « Flux financiers » (migration 0112), désignés sans ambiguïté par leur
+    # identifiant propre. `CHARGE_FOURNISSEUR` y garde son sens historique (identifiant de charge).
+    "FACTURE_FOURNISSEUR", "FACTURE_PROPRIETAIRE", "REGLEMENT_FOURNISSEUR",
+    "MOUVEMENT_PROPRIETAIRE", "ECART",
 )
 
 ST_PROPOSE = "PROPOSE"
@@ -143,9 +147,34 @@ def enregistrer(mouvement_id_opaque: str, type_objet: str, objet_id: str, montan
             "montant_rapproche": montant_f, "montant_restant": round(montant_mvt_abs - deja - montant_f, 2)}
 
 
+def inserer_lien_confirme(conn, mouvement_id_opaque: str, type_objet: str, objet_id: str,
+                          montant: float, *, lettrage_id_opaque: str, criteres: dict | None = None,
+                          commentaire: str = "", acteur: str = "") -> str:
+    """Dépose un lien CONFIRMÉ dans la transaction de l'appelant (lettrage des flux financiers).
+
+    Les contrôles de montant (dépassement, mouvement déjà couvert) sont faits EN AMONT par le
+    lettrage sur l'ensemble de la décision : vérifier ici lien par lien relirait l'état validé de
+    la base sans voir les liens frères de la même transaction. L'index unique partiel
+    (migration 0098) reste le dernier rempart contre un doublon actif."""
+    if type_objet not in TYPES_OBJET:
+        raise ValueError(f"type d'objet inconnu : {type_objet}")
+    opaque = "BRP-" + uuid.uuid4().hex[:12].upper()
+    conn.execute(
+        "INSERT INTO banque_rapprochements (rapprochement_id_opaque, mouvement_id_opaque, "
+        "type_objet, objet_id, montant_rapproche, statut, source, criteres_json, commentaire, "
+        "acteur, lettrage_id_opaque) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (opaque, mouvement_id_opaque, type_objet, objet_id, round(float(montant), 2), ST_CONFIRME,
+         "MANUEL", json.dumps(criteres or {}, ensure_ascii=False), commentaire, acteur,
+         lettrage_id_opaque))
+    _evenement(conn, opaque, "CREATION", None, ST_CONFIRME, commentaire, acteur)
+    return opaque
+
+
 def _transition(opaque: str, nouveau_statut: str, *, commentaire: str = "", acteur: str = "",
-                db_path=None) -> dict[str, Any]:
-    conn = get_db(db_path)
+                db_path=None, conn=None) -> dict[str, Any]:
+    connexion_locale = conn is None
+    if connexion_locale:
+        conn = get_db(db_path)
     try:
         row = conn.execute(
             "SELECT statut FROM banque_rapprochements WHERE rapprochement_id_opaque=?",
@@ -158,9 +187,11 @@ def _transition(opaque: str, nouveau_statut: str, *, commentaire: str = "", acte
             "WHERE rapprochement_id_opaque=?", (nouveau_statut, _now(), opaque))
         type_evt = {"CONFIRME": "CONFIRMATION", "REFUSE": "REFUS", "ANNULE": "ANNULATION"}[nouveau_statut]
         _evenement(conn, opaque, type_evt, ancien, nouveau_statut, commentaire, acteur)
-        conn.commit()
+        if connexion_locale:
+            conn.commit()
     finally:
-        conn.close()
+        if connexion_locale:
+            conn.close()
     return {"ok": True, "rapprochement_id_opaque": opaque, "statut": nouveau_statut}
 
 
@@ -172,8 +203,10 @@ def refuser(opaque: str, *, commentaire: str = "", acteur: str = "", db_path=Non
     return _transition(opaque, ST_REFUSE, commentaire=commentaire, acteur=acteur, db_path=db_path)
 
 
-def annuler(opaque: str, *, commentaire: str = "", acteur: str = "", db_path=None) -> dict[str, Any]:
-    return _transition(opaque, ST_ANNULE, commentaire=commentaire, acteur=acteur, db_path=db_path)
+def annuler(opaque: str, *, commentaire: str = "", acteur: str = "", db_path=None,
+            conn=None) -> dict[str, Any]:
+    return _transition(opaque, ST_ANNULE, commentaire=commentaire, acteur=acteur, db_path=db_path,
+                       conn=conn)
 
 
 def historique_evenements(opaque: str, db_path=None) -> list[dict[str, Any]]:

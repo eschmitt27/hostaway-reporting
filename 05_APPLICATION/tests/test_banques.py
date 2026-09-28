@@ -283,8 +283,9 @@ def test_route_a_rapprocher_et_export(client, bank_file):
 
 
 def test_sidebar_nav_present(client, bank_file):
+    # Une seule entrée « Flux financiers » porte désormais Banque, Caisse, Charges, Rapprochement.
     r = client.get("/banques-caisse")
-    assert 'href="/banques-caisse"' in r.text  # lien nav actif
+    assert 'href="/flux-financiers"' in r.text  # lien nav actif
 
 
 # ── Catégorisation des versements plateformes (Airbnb) ───────────────────────

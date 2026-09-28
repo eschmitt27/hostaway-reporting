@@ -64,6 +64,7 @@ E_MOTIF_REQUIS = "QV06_MOTIF_OBLIGATOIRE"
 E_DEJA_AFFECTE = "QV07_MOUVEMENT_DEJA_AFFECTE_INTEGRALEMENT"
 E_VERROU_BANQUE = "QV08_ECRITURES_BANCAIRES_DESACTIVEES"
 E_VERROU_COMPTA = "QV09_ECRITURES_COMPTABLES_DESACTIVEES"
+E_ECRITURE_REFUSEE = "QV10_ECRITURE_REFUSEE"
 
 MESSAGES = {
     E_INTROUVABLE: "Cette transaction Qonto est introuvable.",
@@ -81,6 +82,8 @@ MESSAGES = {
                       "sont désactivées. Renseignez COMPTABILITE_REAL_WRITE_ENABLED et "
                       "COMPTABILITE_REAL_WRITE_CONFIRMATION_ENABLED dans « .env », puis "
                       "redémarrez."),
+    E_ECRITURE_REFUSEE: ("L'écriture comptable a été refusée : le rapprochement n'a pas été "
+                         "gardé (un rapprochement validé porte toujours son écriture)."),
 }
 
 
@@ -350,6 +353,15 @@ def valider(uuid_transaction: str, *, nature: str, objet_id: str = "", montant=N
     elif nature == REVERSEMENT_PROPRIETAIRE:
         effets["encaissement"] = _encaissement_proprietaire(ligne, objet_id, montant_affecte,
                                                             acteur=acteur, db_path=db_path)
+
+    if nature in NATURES_AVEC_ECRITURE and not (effets.get("ecriture") or {}).get("ok"):
+        # Tout ou rien : un rapprochement dont l'écriture est refusée (période close, compte
+        # inactif…) n'est pas gardé. Il est ANNULÉ — pas effacé : l'essai reste dans le journal.
+        refus_ecriture = effets.get("ecriture") or {}
+        rappro.annuler(brp, commentaire="Écriture refusée : "
+                                        f"{refus_ecriture.get('message') or refus_ecriture.get('code')}",
+                       acteur=acteur, db_path=db_path)
+        return _refus(E_ECRITURE_REFUSEE, str(refus_ecriture.get("code") or ""))
 
     _marquer_statut_local(uuid_transaction, opaque, db_path=db_path)
     effets["ok"] = True
