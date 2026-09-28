@@ -336,6 +336,11 @@
 .ecran .fi-adresse { white-space: pre-line; }
 @media (max-width: 720px) { .ecran .fi-fiche-grille__large { grid-column: auto; } }
 
+.ecran .fi-deux-blocs { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-top: 16px; }
+.ecran .fi-deux-blocs .ec-table-wrap { margin-bottom: 0; }
+.ecran tr.fi-ligne-total > td { font-weight: 700; background: var(--color-surface-container-low); border-top: 2px solid var(--color-outline-variant); }
+@media (max-width: 720px) { .ecran .fi-deux-blocs { grid-template-columns: minmax(0, 1fr); } }
+
 /* ── Paramètres : formulaire à gauche, aperçu imprimé qui suit à droite ─────────────────── */
 .ecran .fi-parametres {
   display: grid;
@@ -1026,6 +1031,7 @@
   .ecran .fi-kpi--grand .fi-kpi__valeur { font-size: 22px; }
   .ecran .fi-kpis.fi-kpis--3 { grid-template-columns: minmax(0, 1fr); }
   .ecran .fi-resultat { grid-template-columns: minmax(0, 1fr); }
+  .ecran .fi-kpi--hero .fi-kpi__valeur { font-size: 21px; white-space: nowrap; }
   .ecran .fi-parametres { grid-template-columns: minmax(0, 1fr); }
   .ecran .fi-apercu { position: static; order: 0; }
   .ecran .input { font-size: 16px; }

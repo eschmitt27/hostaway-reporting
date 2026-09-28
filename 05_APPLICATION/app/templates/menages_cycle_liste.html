@@ -2,57 +2,78 @@
 {% block title %}Cycle des ménages{% endblock %}
 
 {% block content %}
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+<div class="ecran">
+{# Statuts du cycle : couleur selon la convention (vert terminé, orange à traiter, bleu en cours,
+   rouge litige, gris neutre) ; texte toujours présent, valeur envoyée inchangée. #}
+{% set statuts_cycle = {
+  "PREVU": ("info", "Prévu"), "A_AFFECTER": ("a-controler", "À affecter"), "A_REALISER": ("info", "À réaliser"),
+  "REALISE": ("info", "Réalisé"), "A_CONTROLER": ("a-controler", "À contrôler"), "VALIDE": ("valide", "Validé"),
+  "FACTURE": ("valide", "Facturé"), "REGLE": ("valide", "Réglé"), "ANNULE": ("neutre", "Annulé"),
+  "REMPLACE": ("neutre", "Remplacé"), "LITIGE": ("bloquant", "Litige")} %}
 <div class="page-header">
-  <a href="/menages" class="back-link">← Ménages (comptage)</a>
-  <h1 class="page-title">{{ titre or "Cycle de vie des ménages" }}</h1>
+  <div class="page-header__titre">
+    <a href="/menages" class="back-link">← Ménages (comptage)</a>
+    <h1 class="page-title">{{ titre or "Cycle de vie des ménages" }}</h1>
+  </div>
+  <div class="page-header__actions">
+    <a href="/menages/cycle/controles" class="btn btn-secondary">Contrôles</a>
+    <a href="/menages/cycle/nouveau" class="btn btn-primary">+ Nouveau ménage hors Hostaway</a>
+  </div>
 </div>
 
-<div class="card mb-md">
-  <form method="get" class="filters-row">
-    <label>Mois <input type="month" name="mois" value="{{ applied.mois or '' }}"></label>
-    <label>Logement <input type="text" name="logement_id" value="{{ applied.logement_id or '' }}"></label>
-    <label>Prestataire <input type="text" name="fournisseur" value="{{ applied.fournisseur or '' }}"></label>
-    <label>Type
-      <select name="type_menage">
-        <option value="">—</option>
-        {% for t in types %}<option value="{{ t }}" {{ 'selected' if applied.type_menage == t }}>{{ t }}</option>{% endfor %}
-      </select>
-    </label>
-    <label>Statut
-      <select name="statut">
-        <option value="">—</option>
-        {% for s in statuts %}<option value="{{ s }}" {{ 'selected' if applied.statut == s }}>{{ s }}</option>{% endfor %}
-      </select>
-    </label>
-    <button type="submit" class="btn btn-secondary">Filtrer</button>
-  </form>
-</div>
+<form method="get" class="ec-filtres" data-fi-filtres>
+  <label class="ec-champ"><span>Mois</span><input type="month" name="mois" value="{{ applied.mois or '' }}"></label>
+  <label class="ec-champ"><span>Logement</span><input type="text" name="logement_id" value="{{ applied.logement_id or '' }}"></label>
+  <label class="ec-champ"><span>Prestataire</span><input type="text" name="fournisseur" value="{{ applied.fournisseur or '' }}"></label>
+  <label class="ec-champ"><span>Type</span>
+    <select name="type_menage">
+      <option value="">Tous</option>
+      {% for t in types %}<option value="{{ t }}" {{ 'selected' if applied.type_menage == t }}>{{ t|libelle_statut }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="ec-champ"><span>Statut</span>
+    <select name="statut">
+      <option value="">Tous</option>
+      {% for s in statuts %}<option value="{{ s }}" {{ 'selected' if applied.statut == s }}>{{ statuts_cycle.get(s, (none, s|libelle_statut))[1] }}</option>{% endfor %}
+    </select>
+  </label>
+  <div class="ec-filtres__actions">
+    <a href="{{ request.url.path }}" class="btn btn-ghost fi-reinit">Réinitialiser <span class="fi-nb-filtres" hidden></span></a>
+    <button type="submit" class="btn btn-primary">Filtrer</button>
+  </div>
+</form>
 
-<div class="card mb-md">
-  <a href="/menages/cycle/nouveau" class="btn btn-primary">+ Nouveau ménage hors Hostaway</a>
-  <a href="/menages/cycle/controles" class="btn btn-secondary">Contrôles</a>
-</div>
-
-<div class="table-container">
+{% if menages %}
+<div class="ec-table-wrap">
   <table class="data-table">
-    <thead><tr><th>ID</th><th>Mois</th><th>Logement</th><th>Type</th><th>Prestataire</th>
-      <th>Statut</th><th>Coût prévu</th><th>Coût réel</th></tr></thead>
+    <thead><tr><th>Ménage</th><th>Mois</th><th class="ec-col-nom">Logement</th><th>Type</th><th class="ec-col-nom">Prestataire</th>
+      <th>Statut</th><th class="num">Coût prévu</th><th class="num">Coût réel</th></tr></thead>
     <tbody>
       {% for m in menages %}
+      {% set st = statuts_cycle.get(m.statut) %}
       <tr>
-        <td><a href="/menages/cycle/{{ m.menage_id_opaque }}">{{ m.menage_id_opaque }}</a></td>
-        <td>{{ m.mois }}</td>
-        <td>{{ m.logement_id }}</td>
-        <td>{{ m.type_menage }}</td>
-        <td>{{ m.fournisseur_id_opaque or "—" }}</td>
-        <td><span class="badge">{{ m.statut }}</span></td>
-        <td>{{ "%.2f"|format(m.cout_prevu) if m.cout_prevu is not none else "—" }}</td>
-        <td>{{ "%.2f"|format(m.cout_reel) if m.cout_reel is not none else "—" }}</td>
+        <td class="fi-mono ec-nowrap"><a href="/menages/cycle/{{ m.menage_id_opaque }}" class="fi-cle">{{ m.menage_id_opaque }}</a></td>
+        <td class="ec-nowrap">{{ m.mois|mois_humain if m.mois else "—" }}</td>
+        <td>{{ ((m.logement_id|nom_logement) or m.logement_id) if m.logement_id else "—" }}</td>
+        <td>{% if m.type_menage %}<span class="badge badge-{{ 'info' if m.type_menage == 'INTERNE' else 'neutral' }}">{{ m.type_menage|libelle_statut }}</span>{% else %}—{% endif %}</td>
+        <td>{{ ((m.fournisseur_id_opaque|nom_fournisseur) or m.fournisseur_id_opaque) if m.fournisseur_id_opaque else "—" }}</td>
+        <td class="ec-nowrap"><span class="status-badge status-{{ st[0] if st else 'neutre' }}" data-statut="{{ m.statut }}">{{ st[1] if st else (m.statut|libelle_statut) }}</span></td>
+        <td class="num">{{ ("%.2f"|format(m.cout_prevu) ~ " €") if m.cout_prevu is not none else "—" }}</td>
+        <td class="num">{{ ("%.2f"|format(m.cout_reel) ~ " €") if m.cout_reel is not none else "—" }}</td>
       </tr>
-      {% else %}
-      <tr><td colspan="8">Aucun ménage.</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+{% else %}
+<div class="card fi-vide">
+  <span class="fi-vide__icone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M6 21V8l6-5 6 5v13"/><path d="M10 21v-6h4v6"/></svg></span>
+  <span class="fi-vide__titre">Aucun ménage.</span>
+  <span class="fi-vide__texte">Aucun ménage ne correspond à ces filtres. Les ménages hors Hostaway se déclarent avec « + Nouveau ménage hors Hostaway ».</span>
+</div>
+{% endif %}
+</div>
+<script src="/static/js/finitions.js" defer></script>
 {% endblock %}

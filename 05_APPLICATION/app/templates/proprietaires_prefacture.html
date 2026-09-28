@@ -2,79 +2,93 @@
 {% block title %}Préfacture {{ mois }}{% endblock %}
 
 {% block content %}
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+<div class="ecran">
+{% macro eur(v) -%}{%- if v is none -%}<span class="fi-zero">—</span>{%- else -%}<span class="fi-montant{{ ' fi-montant--negatif' if v < 0 }}">{{ "%.2f"|format(v) }} €</span>{%- endif -%}{%- endmacro %}
 <div class="page-header">
-  <a href="/proprietaires/{{ prop_id }}/{{ mois }}" class="btn btn-secondary btn-sm" style="margin-bottom:0.5rem">← Relevé {{ mois }}</a>
-  <h1 class="page-title">Préfacture — {{ mois }}</h1>
+  <div class="page-header__titre">
+    <a href="/proprietaires/{{ prop_id }}/{{ mois }}" class="back-link">← Relevé {{ mois|mois_humain }}</a>
+    <h1 class="page-title">Préfacture — {{ mois|mois_humain }}</h1>
+    <p class="page-subtitle fi-sous-titre"><span class="badge badge-warning">Préfacture non finale</span> <span>{{ prop_id|nom_proprietaire }}</span></p>
+  </div>
 </div>
 
 {% if pref.status == "NOT_FOUND" %}
-<div class="alert alert-error">Aucune préfacture pour <strong>{{ prop_id }}</strong> / <strong>{{ mois }}</strong>.</div>
+<div class="card fi-vide">
+  <span class="fi-vide__titre">Aucune préfacture pour ce propriétaire ce mois-ci</span>
+  <span class="fi-vide__texte">{{ prop_id|nom_proprietaire }} — {{ mois|mois_humain }}.</span>
+</div>
 
 {% elif pref.status == "UNAVAILABLE" %}
-<div class="alert alert-warning">
-  <strong>Préfacture indisponible</strong> — {{ pref.error_message }}<br>
-  Le relevé reste consultable.
+<div class="card fi-vide">
+  <span class="fi-vide__icone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
+  <span class="fi-vide__titre">Préfacture indisponible</span>
+  <span class="fi-vide__texte">{{ pref.error_message }} Le relevé reste consultable.</span>
+  <a href="/proprietaires/{{ prop_id }}/{{ mois }}" class="btn btn-secondary">Revenir au relevé</a>
 </div>
 
 {% elif pref.status == "ERROR" %}
-<div class="alert alert-error"><strong>Source indisponible</strong> — {{ pref.error_message }}</div>
+<div class="alert alert-error"><div><strong>Source indisponible</strong> — {{ pref.error_message }}</div></div>
 
 {% else %}
 
 {% for facture in pref.factures %}
 {% set e = facture.entete %}
-<div class="card" style="margin-bottom:2rem;padding:1.25rem">
-  <div class="detail-grid" style="margin-bottom:1rem">
-    <div class="detail-field"><span class="detail-label">Facture ID</span><span class="code-id">{{ e.facture_id or "—" }}</span></div>
-    <div class="detail-field"><span class="detail-label">Logement</span><span class="code-id">{{ e.logement_id or "—" }}</span></div>
-    <div class="detail-field"><span class="detail-label">Nom logement</span>{{ e.nom_logement or "—" }}</div>
-    <div class="detail-field"><span class="detail-label">Statut facture</span>{{ e.statut_facture or "—" }}</div>
-    <div class="detail-field"><span class="detail-label">Statut génération</span>{{ e.statut_generation or "—" }}</div>
-    <div class="detail-field"><span class="detail-label">Réservations</span>{{ e.nb_reservations or "—" }}</div>
+<section class="card">
+  <div class="fi-card-tete">
+    <h2 class="card-title">{{ e.nom_logement or (e.logement_id|nom_logement) or "Logement" }}</h2>
+    <span class="status-badge status-info">{{ (e.statut_facture|libelle_statut) if e.statut_facture else "Statut inconnu" }}</span>
   </div>
+  <dl class="detail-grid fi-fiche-grille">
+    <div><dt>Facture</dt><dd class="fi-mono">{{ e.facture_id or "—" }}</dd></div>
+    <div><dt>Logement</dt><dd>{{ e.nom_logement or ((e.logement_id|nom_logement) if e.logement_id else "—") }}</dd></div>
+    <div><dt>Statut génération</dt><dd>{{ (e.statut_generation|libelle_statut) if e.statut_generation else "—" }}</dd></div>
+    <div><dt>Réservations</dt><dd>{{ e.nb_reservations or "—" }}</dd></div>
+  </dl>
 
-  <!-- BLOC EXPLOITATION (5 lignes) -->
-  <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:0.5rem;color:var(--color-text-muted)">Bloc Exploitation</h3>
-  <div class="table-wrapper" style="margin-bottom:1.25rem">
-    <table class="data-table">
-      <thead><tr><th>Type</th><th>Libellé</th><th class="num">Montant</th></tr></thead>
-      <tbody>
-        {% for l in facture.lignes_exploitation %}
-        <tr {% if l.type_ligne == "REVENU_NET_EXPLOITATION" %}style="font-weight:600"{% endif %}>
-          <td><span class="code-id">{{ l.type_ligne or "—" }}</span></td>
-          <td>{{ l.libelle or "—" }}</td>
-          <td class="num">{{ l.montant | round(2) if l.montant is not none else "—" }} €</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="fi-deux-blocs">
+    <div>
+      <h3 class="fi-analyses__titre">Bloc exploitation</h3>
+      <div class="ec-table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Libellé</th><th class="num">Montant</th></tr></thead>
+          <tbody>
+            {% for l in facture.lignes_exploitation %}
+            <tr class="{{ 'fi-ligne-total' if l.type_ligne == 'REVENU_NET_EXPLOITATION' }}">
+              <td>{{ l.libelle or "—" }}<span class="ec-sous-ligne fi-mono">{{ l.type_ligne or "" }}</span></td>
+              <td class="num">{{ eur(l.montant) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div>
+      <h3 class="fi-analyses__titre">Bloc règlement</h3>
+      <div class="ec-table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Libellé</th><th class="num">Montant / Valeur</th></tr></thead>
+          <tbody>
+            {% for l in facture.lignes_reglement %}
+            <tr class="{{ 'fi-ligne-total' if l.type_ligne == 'RESTE_A_PAYER' }}">
+              <td>{{ l.libelle or "—" }}<span class="ec-sous-ligne fi-mono">{{ l.type_ligne or "" }}</span></td>
+              <td class="num">{{ eur(l.montant) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
-
-  <!-- BLOC REGLEMENT (7 lignes) -->
-  <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:0.5rem;color:var(--color-text-muted)">Bloc Règlement</h3>
-  <div class="table-wrapper">
-    <table class="data-table">
-      <thead><tr><th>Type</th><th>Libellé</th><th class="num">Montant / Valeur</th></tr></thead>
-      <tbody>
-        {% for l in facture.lignes_reglement %}
-        <tr {% if l.type_ligne == "RESTE_A_PAYER" %}style="font-weight:600"{% endif %}>
-          <td><span class="code-id">{{ l.type_ligne or "—" }}</span></td>
-          <td>{{ l.libelle or "—" }}</td>
-          <td class="num">
-            {% if l.montant is not none %}{{ l.montant | round(2) }} €{% else %}—{% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
+</section>
 {% endfor %}
 
-<div class="source-note">
+<p class="ec-note">
   <strong>Source :</strong> {{ pref.source_fact }} — lu le {{ pref.read_at }}.
   Données affichées telles quelles, aucun recalcul. Préfacture non finale.
-</div>
+</p>
 
 {% endif %}
+</div>
 {% endblock %}

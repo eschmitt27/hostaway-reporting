@@ -2,66 +2,98 @@
 {% block title %}Fiche propriétaire{% endblock %}
 
 {% block content %}
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+<div class="ecran">
+{% set ok = detail and detail.status == "OK" %}
+{% set nom_complet = ((detail.prop.prenom_proprietaire or "") ~ " " ~ (detail.prop.nom_proprietaire or (prop_id | nom_proprietaire))) if ok else (prop_id | nom_proprietaire) %}
 <div class="page-header">
-  <a href="/proprietaires" class="btn btn-secondary btn-sm" style="margin-bottom:0.5rem">← Propriétaires</a>
-  <h1 class="page-title">
-    {% if detail and detail.status == "OK" %}
-      {{ detail.prop.nom_proprietaire or (prop_id | nom_proprietaire) }} {{ detail.prop.prenom_proprietaire or "" }}
-    {% else %}
-      {{ prop_id | nom_proprietaire }}
-    {% endif %}
-  </h1>
+  <div class="page-header__titre">
+    <a href="/proprietaires" class="back-link">← Propriétaires</a>
+    <div class="fi-identite">
+      <span class="fi-avatar" aria-hidden="true">{{ ((detail.prop.prenom_proprietaire or "")[:1] ~ (detail.prop.nom_proprietaire or "")[:1])|upper if ok else "?" }}</span>
+      <div>
+        <h1 class="page-title">{{ nom_complet|trim }}</h1>
+        {% if ok %}
+        <p class="page-subtitle fi-sous-titre">
+          {% if detail.prop.actif == "OUI" %}<span class="status-badge status-valide">Actif</span>
+          {% else %}<span class="status-badge status-brouillon">{{ "Inactif" if detail.prop.actif == "NON" else (detail.prop.actif or "Statut inconnu") }}</span>{% endif %}
+          {% if detail.prop.mode_facturation %}<span class="badge badge-neutral">Facturation {{ detail.prop.mode_facturation|libelle_statut|lower }}</span>{% endif %}
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% if ok %}
+  <div class="page-header__actions">
+    <a href="/comptes-proprietaires/{{ detail.prop_id }}" class="btn btn-secondary">Compte propriétaire</a>
+  </div>
+  {% endif %}
 </div>
 
 {% if detail is none %}
-<div class="alert alert-error">Propriétaire <strong>{{ prop_id | nom_proprietaire }}</strong> introuvable.</div>
+<div class="card fi-vide fi-vide--alerte">
+  <span class="fi-vide__titre">Propriétaire introuvable</span>
+  <span class="fi-vide__texte">Aucun propriétaire <strong>{{ prop_id | nom_proprietaire }}</strong> dans le référentiel.</span>
+  <a href="/proprietaires" class="btn btn-secondary">Retour à la liste</a>
+</div>
 
 {% elif detail.status == "ERROR" %}
-<div class="alert alert-error"><strong>Source indisponible</strong> — {{ detail.error_message }}</div>
+<div class="alert alert-error"><div><strong>Source indisponible</strong> — {{ detail.error_message }}</div></div>
 
 {% else %}
 
-<div class="detail-grid">
-  <div class="detail-field"><span class="detail-label">Nom</span>{{ detail.prop.nom_proprietaire or "—" }}</div>
-  <div class="detail-field"><span class="detail-label">Prénom</span>{{ detail.prop.prenom_proprietaire or "—" }}</div>
-  <div class="detail-field"><span class="detail-label">Email</span>{{ detail.prop.email or "—" }}</div>
-  <div class="detail-field"><span class="detail-label">Téléphone</span>{{ detail.prop.telephone|telephone or "—" }}</div>
-  <div class="detail-field"><span class="detail-label">Adresse facturation</span>{{ detail.prop.adresse_facturation or "—" }}</div>
-  <div class="detail-field"><span class="detail-label">Mode facturation</span>{{ detail.prop.mode_facturation or "—" }}</div>
-  <div class="detail-field"><span class="detail-label">Actif</span>{{ detail.prop.actif or "—" }}</div>
-</div>
+<section class="card">
+  <h2 class="card-title">Coordonnées</h2>
+  <dl class="detail-grid fi-fiche-grille">
+    <div><dt>Nom</dt><dd>{{ detail.prop.nom_proprietaire or "—" }}</dd></div>
+    <div><dt>Prénom</dt><dd>{{ detail.prop.prenom_proprietaire or "—" }}</dd></div>
+    <div><dt>Email</dt><dd>{% if detail.prop.email %}<a href="mailto:{{ detail.prop.email }}">{{ detail.prop.email }}</a>{% else %}—{% endif %}</dd></div>
+    <div><dt>Téléphone</dt><dd>{{ detail.prop.telephone|telephone or "—" }}</dd></div>
+    <div class="fi-fiche-grille__large"><dt>Adresse facturation</dt><dd class="fi-adresse">{{ detail.prop.adresse_facturation or "—" }}</dd></div>
+    <div><dt>Mode facturation</dt><dd>{{ detail.prop.mode_facturation|libelle_statut if detail.prop.mode_facturation else "—" }}</dd></div>
+    <div><dt>Actif</dt><dd>{{ {"OUI": "Oui", "NON": "Non"}.get(detail.prop.actif, detail.prop.actif or "—") }}</dd></div>
+  </dl>
+</section>
 
-{% if detail.mois_disponibles %}
-<h2 class="section-title" style="margin-top:2rem">Relevés disponibles</h2>
-<div class="table-wrapper">
-  <table class="data-table">
-    <thead>
-      <tr><th>Mois</th><th></th></tr>
-    </thead>
-    <tbody>
-      {% for m in detail.mois_disponibles %}
-      <tr>
-        <td>{{ m }}</td>
-        <td>
-          <a href="/proprietaires/{{ detail.prop_id }}/{{ m }}" class="btn btn-secondary btn-sm">Relevé</a>
-          <a href="/proprietaires/{{ detail.prop_id }}/{{ m }}/prefacture" class="btn btn-secondary btn-sm">Préfacture</a>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-{% else %}
-<div class="empty-state" style="margin-top:2rem">
-  <p>Aucun relevé disponible pour ce propriétaire.</p>
-</div>
-{% endif %}
+<section class="card">
+  <div class="fi-card-tete">
+    <h2 class="card-title">Relevés disponibles</h2>
+    {% if detail.mois_disponibles %}<span class="fi-compteur">{{ detail.mois_disponibles|length }}</span>{% endif %}
+  </div>
+  {% if detail.mois_disponibles %}
+  <div class="ec-table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr><th>Mois</th><th class="fi-col-actions"><span class="sr-only">Documents</span></th></tr>
+      </thead>
+      <tbody>
+        {% for m in detail.mois_disponibles %}
+        <tr>
+          <td class="fi-cle">{{ m|mois_humain }}</td>
+          <td class="fi-col-actions">
+            <a href="/proprietaires/{{ detail.prop_id }}/{{ m }}" class="fi-lien-action">Relevé</a>
+            <a href="/proprietaires/{{ detail.prop_id }}/{{ m }}/prefacture" class="fi-lien-action">Préfacture</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="fi-vide fi-vide--compact">
+    <span class="fi-vide__titre">Aucun relevé disponible pour ce propriétaire.</span>
+    <span class="fi-vide__texte">Les relevés apparaissent ici dès qu'un mois a été calculé pour l'un de ses logements.</span>
+  </div>
+  {% endif %}
+</section>
 
-<div class="source-note">
+<p class="ec-note">
   <strong>Référentiel :</strong> {{ detail.source_ref }}
   {% if detail.source_calc %} — <strong>Calculs :</strong> {{ detail.source_calc }}{% endif %}
   — lu le {{ detail.read_at }}
-</div>
+</p>
 
 {% endif %}
+</div>
 {% endblock %}
