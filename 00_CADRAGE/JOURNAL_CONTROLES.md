@@ -5860,3 +5860,14 @@ suite complète **4 456 passed / 37 skipped / 0 failed** (44 min), puis 338 pass
 
 **Base réelle.** Intacte (empreinte logique identique), schéma 0113, aucune clôture réelle.
 **SEPTEMBRE 2026 NON CLÔTURÉ — MOIS EN COURS.** Détail : `HANDOFF_CANONIQUE.md`, Mission 33.
+
+## CTR-SEPTEMBRE-ASSAINISSEMENT-2026-09-29 — bloqueurs de septembre 2026 audités, un bug d'affichage corrigé
+
+**Périmètre.** Mission 34, commit `619017b`. Lecture des 16 bloquants réels de septembre et classement
+(à traiter 1, décision utilisateur 15 dont 7 sans justificatif). Aucune action réelle.
+
+**Contrôles.** Recette copie 13/13 ; test de non-régression du bug ; régression ciblée 631 passed.
+
+**Base réelle.** Schéma 0113, intégrité ok ; septembre non clôturé ; seul écrit : le rafraîchissement
+FIFO des allocations propriétaires déclenché par une lecture avec propositions (contenu identique).
+Détail : `HANDOFF_CANONIQUE.md`, Mission 34.

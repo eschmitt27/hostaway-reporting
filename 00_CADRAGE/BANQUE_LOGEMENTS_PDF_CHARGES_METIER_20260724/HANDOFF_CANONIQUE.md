@@ -4191,3 +4191,35 @@ Charge 700 € inchangée, Qonto GET-only, 15 PDF intacts, scheduler OFF.
 ### Prochaine action
 
 Traiter septembre au fil de l'eau ; en octobre, sa validation puis sa clôture définitive.
+
+## Mission 34 (2026-09-29) — Assainissement opérationnel de septembre 2026 (audit, aucun traitement réel)
+
+**SEPTEMBRE 2026 NON CLÔTURÉ.** 16 bloquants réels recalculés, classés en file ; aucun traité dans la
+base réelle (aucune qualification, aucun mapping, aucune écriture validée, charge 700 € inchangée).
+
+| # | Bloqueur | Montant | File | Action |
+|---|---|---:|---|---|
+| 1-6 | Achats carte (Leroy Merlin 5,89 ; Castorama 48,39 ; GiFi 5,00 et 15,25 ; E.Leclerc 4,90 et 59,82) | 139,25 | Décision utilisateur (+ justificatif manquant pour 4 d'entre eux) | créer la charge (catégorie, logement), la rapprocher |
+| 7 | Free Mobile | 12,00 | Décision utilisateur + justificatif manquant | idem |
+| 8 | Frais Qonto du retrait (nature « frais bancaires » connue) | 2,40 | Décision utilisateur | charge « Banque · Frais bancaires » + compte à choisir |
+| 9 | Retrait d'espèces 21/09 | 20,00 | À traiter (règle certaine : Qonto « atm » → transfert Banque → Caisse) | « Comptabiliser le transfert » puis valider l'écriture 530 / 512 |
+| 10 | Écriture Ventes proposée (facture propriétaire 2026-08-001, 411 / 706) | 823,65 | Décision utilisateur (écriture correcte, cas A) | la vérifier puis la valider |
+| 11-12 | Charges sans compte : Linge · Blanchisserie (09/09) et Achat · Petit équipement (10/09) | 146,00 + 42,00 | Décision utilisateur + justificatif manquant | créer ou choisir un compte de charge (seul actif : 606000), valider une règle de mapping |
+| 13-16 | Réservations directes à contrôler (montant retenu 0) | — | Décision utilisateur | saisir le montant de la réservation (écran de régularisation) |
+
+Aucun versement plateforme n'est en jeu en septembre ; aucune règle Airbnb ↔ réservation n'a été
+touchée. Les 4 contrôles moteur sont réellement bloquants (net propriétaire et commission incomplets).
+
+**Bug corrigé** (`619017b`) : un mouvement rapproché dont l'écriture est encore proposée (cas du retrait
+après « Comptabiliser le transfert ») est affiché « écriture à valider », avec un lien vers l'écriture,
+au lieu de « le transfert n'est pas encore passé ».
+
+**Constat, sans correction** : ouvrir un écran qui calcule les propositions de rapprochement rafraîchit
+les allocations FIFO des propriétaires (`creances()` → `recalculer_tous`, comportement voulu et
+documenté). L'audit de cette mission l'a déclenché une fois sur la base réelle (le 29/09, à 01 h 16) :
+3 recalculs journalisés, allocations régénérées à l'identique (même empreinte). La clôture, elle,
+calcule ses bloqueurs sans propositions et n'écrit rien.
+
+Recette sur copie : 13/13 (retrait passé puis écriture validée → bloqueur levé ; mapping prévisualisé ;
+règle provisoire insuffisante ; règle fictive validée lève le blocage ; exception fictive sur un contrôle
+moteur ; compteur 16 → 13 ; septembre refusé). Régression ciblée : 631 passed.
