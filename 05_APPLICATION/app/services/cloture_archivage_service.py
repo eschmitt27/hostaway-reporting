@@ -165,12 +165,25 @@ def archiver_mois(mois: str, *, acteur: str = "", conn=None, db_path=None) -> di
                 f"{E_DEJA_ARCHIVE}: le mois {mois} porte déjà une archive — utiliser une "
                 "CORRECTION_HISTORIQUE explicite, jamais une réécriture.")
 
+        # Mission 33 : `reservations_resolues` CONSERVE les jeux de calcul précédents (un recalcul
+        # doit rester comparable) — seul le jeu ACTIF fait foi, comme pour tous ses lecteurs
+        # (`reservations_dataset_service`). Lire tous les jeux archivait chaque réservation autant
+        # de fois qu'il y a de jeux : l'index unique en écartait les doublons et la vérification
+        # refusait, à juste titre, l'archive (vu sur copie de la base réelle : 412 lignes écrites
+        # pour 70 réservations). Sans table de jeux (base ancienne), comportement inchangé.
+        dataset_actif = None
+        if _table_presente(conn, "reservations_datasets"):
+            r = conn.execute("SELECT dataset_id FROM reservations_datasets WHERE etape = 'RESOLUES' "
+                             "AND actif = 1 ORDER BY rowid DESC LIMIT 1").fetchone()
+            dataset_actif = r["dataset_id"] if r else None
+        filtre_dataset = " AND dataset_id = ?" if dataset_actif else ""
         reservations = [dict(r) for r in conn.execute(
             "SELECT reservation_calc_id, reservation_id_hostaway, reservation_hh_id, source, "
             "logement_id, proprietaire_id, mois, date_arrivee, date_depart, nuits, "
             "montant_retenu, code_impact, impact_resultat_reel, impact_resultat_comptable, "
             "statut_controle, niveau_anomalie, code_anomalie "
-            "FROM reservations_resolues WHERE mois = ? AND statut_controle = 'VALIDE'", (mois,))]
+            "FROM reservations_resolues WHERE mois = ? AND statut_controle = 'VALIDE'" + filtre_dataset,
+            (mois, dataset_actif) if dataset_actif else (mois,))]
 
         pay_par_res = {}
         if _table_presente(conn, "hostaway_payouts"):

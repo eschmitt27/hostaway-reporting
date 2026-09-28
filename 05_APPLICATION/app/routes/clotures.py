@@ -1,7 +1,10 @@
-"""Routes Clôtures mensuelles (APP-5C) — suivi humain uniquement, jamais la clôture réelle.
+"""Routes Clôtures mensuelles (APP-5C) — préparation, validation humaine, clôture définitive.
 
-La clôture RÉELLE reste exclusivement REF_Cloture_Mensuelle (moteur, D024), jamais écrite ici.
-Identifiants opaques CLO-/DOC-, jamais un id SQLite brut dans l'URL. Flags réels toujours False.
+« Valider » (VALIDEE) enregistre la validation humaine de la préparation : le mois n'est pas gelé.
+« Clôturer définitivement » (mission 33) appelle `clotures_service.archiver()` — archive économique,
+`ref_cloture_mensuelle` à CLOTURE, statut ARCHIVEE, en une transaction — après une page de
+confirmation ; le service refait tous les contrôles, la route n'en décide aucun.
+Identifiants opaques CLO-/DOC-, jamais un id SQLite brut dans l'URL.
 """
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -244,6 +247,46 @@ async def cloture_valider(request: Request, cloture_opaque: str):
         from urllib.parse import quote
         return RedirectResponse(
             url=f"/clotures/{cloture_opaque}/validation?erreur={quote(str(exc))}", status_code=303)
+    return RedirectResponse(url=f"/clotures/{cloture_opaque}", status_code=303)
+
+
+@router.get("/clotures/{cloture_opaque}/cloture-definitive", response_class=HTMLResponse)
+def cloture_definitive_confirmation(request: Request, cloture_opaque: str, erreur: str = ""):
+    """Étape de confirmation — n'écrit rien. Le bouton n'y figure que si la clôture paraît
+    éligible ; le POST refait de toute façon chaque contrôle."""
+    ctx = _fiche_ctx(cloture_opaque)
+    if ctx is None:
+        return templates.TemplateResponse(request, "cloture_definitive.html", {
+            "active_menu": "clotures", "cloture": None}, status_code=404)
+    c, prog = ctx["cloture"], ctx["progression"]
+    motif = (cs.MSG_DEJA_ARCHIVEE if c["statut"] == cs.ST_ARCHIVEE
+             else prog["refus_temporel"] or (cs.MSG_NON_VALIDEE if c["statut"] != cs.ST_VALIDEE else "")
+             or ("" if prog["cloturable"] else cs.message_bloquants(prog["nb_bloqueurs"])))
+    return templates.TemplateResponse(request, "cloture_definitive.html", {
+        "active_menu": "clotures", "erreur": erreur, "motif_indisponible": motif, **ctx})
+
+
+@router.post("/clotures/{cloture_opaque}/cloture-definitive")
+async def cloture_definitive(request: Request, cloture_opaque: str):
+    from urllib.parse import quote
+    from app.services import cloture_archivage_service as arch
+    c = cs.charger_par_opaque(cloture_opaque)
+    if c is None:
+        return RedirectResponse(url="/clotures", status_code=303)
+    form = await request.form()
+    retour = f"/clotures/{cloture_opaque}/cloture-definitive?erreur="
+    if (form.get("confirmation") or "") != "oui":
+        return RedirectResponse(url=retour + quote("Cochez la confirmation pour clôturer "
+                                                   "définitivement le mois."), status_code=303)
+    try:
+        version = int(form.get("version") or "")
+    except ValueError:
+        return RedirectResponse(url=retour + quote(cs.MSG_ETAT_PERIME), status_code=303)
+    try:
+        cs.archiver(c, acteur="local", commentaire=(form.get("commentaire") or "").strip(),
+                    version_attendue=version)
+    except (cs.ClotureRefusee, arch.ArchivageRefuse) as exc:
+        return RedirectResponse(url=retour + quote(str(exc)), status_code=303)
     return RedirectResponse(url=f"/clotures/{cloture_opaque}", status_code=303)
 
 

@@ -1,12 +1,14 @@
-"""Service clôture mensuelle (APP-5C) — suivi humain uniquement, jamais la clôture réelle.
+"""Service clôture mensuelle (APP-5C) — préparation, validation humaine, clôture définitive.
 
-La clôture RÉELLE reste exclusivement pilotée par REF_Cloture_Mensuelle (REF_Setup.xlsm, moteur,
-D024) : statuts OUVERT/EN_CONTROLE/CLOTURE, jamais écrits par ce module. Ici, un automate SQLite
-distinct journalise la PRÉPARATION et la VALIDATION HUMAINE (revue des contrôles APP-5B, checklist,
-décision de passage) — jamais une nouvelle vérité, jamais une écriture réelle. Composé exclusivement
-à partir des services APP-5B existants (aucune duplication de la logique de contrôle).
-(Exception documentée depuis la mission 15 : `archiver()` fige l'archive économique et marque le
-mois CLOTURE, atomiquement ; aucune route ne l'appelle.)
+Deux décisions humaines distinctes, jamais enchaînées en un clic :
+  · VALIDEE  = la préparation du mois est contrôlée et validée par un humain. Le mois n'est PAS
+               gelé : ses opérations restent modifiables (une réouverture VALIDEE → ROUVERTE existe).
+  · ARCHIVEE = la clôture DÉFINITIVE (mission 15, exposée par la mission 33) : `archiver()` fige
+               l'archive économique du mois, la vérifie, marque `ref_cloture_mensuelle` à CLOTURE
+               — le mois est alors fermé, et chaque module qui lit ce statut refuse ses écritures —
+               puis passe la clôture à ARCHIVEE, le tout dans UNE transaction.
+Les contrôles sont composés exclusivement à partir des services APP-5B existants (aucune
+duplication de la logique de contrôle).
 
 MISSION 32 — la clôture lit Flux financiers. Les bloqueurs d'un mois = contrôles moteur bloquants
 (APP-5B) + bloqueurs financiers calculés EN DIRECT par `cloture_flux_service` (mouvements Qonto et
@@ -40,7 +42,7 @@ ST_ARCHIVEE = "ARCHIVEE"
 STATUTS = {ST_NON_DEMARREE, ST_EN_PREPARATION, ST_A_VALIDER, ST_VALIDEE, ST_ROUVERTE, ST_ARCHIVEE}
 STATUTS_LIBELLES = {
     ST_NON_DEMARREE: "Non démarrée", ST_EN_PREPARATION: "En préparation", ST_A_VALIDER: "À valider",
-    ST_VALIDEE: "Validée", ST_ROUVERTE: "Rouverte", ST_ARCHIVEE: "Archivée",
+    ST_VALIDEE: "Validée", ST_ROUVERTE: "Rouverte", ST_ARCHIVEE: "Clôturée définitivement",
 }
 TRANSITIONS: dict[str, set[str]] = {
     ST_NON_DEMARREE: {ST_EN_PREPARATION},
@@ -99,6 +101,13 @@ def refus_temporel(mois: str) -> str:
         return (f"Le mois {_du_mois(mois)} n'est pas commencé : un mois futur ne peut jamais "
                 "être clôturé.")
     return ""
+
+
+MSG_NON_VALIDEE = ("Le mois doit d'abord être validé avant de pouvoir être clôturé "
+                   "définitivement.")
+MSG_DEJA_ARCHIVEE = "Ce mois est déjà clôturé définitivement."
+MSG_ETAT_PERIME = ("La clôture a changé depuis l'affichage de la confirmation : rechargez la page "
+                   "et vérifiez-la de nouveau.")
 
 
 def message_bloquants(nb: int) -> str:
@@ -417,10 +426,15 @@ def rouvrir(cloture: dict, *, acteur: str = "", justification: str = "", version
                        extra_cols={"date_reouverture": _now(), "justification_reouverture": justification})
 
 
-def archiver(cloture: dict, *, acteur: str = "", version_attendue=None, db_path=None):
-    """VALIDEE -> ARCHIVEE — mission 15 : DÉCLENCHE l'archivage économique du mois, ATOMIQUEMENT
-    avec la transition. Si l'archivage échoue (`ArchivageRefuse`), tout est annulé : ni ARCHIVEE,
-    ni mois marqué CLOTURE, ni archive partielle. Jamais `mois=CLOTURE` sans archive complète.
+def archiver(cloture: dict, *, acteur: str = "", commentaire: str = "", version_attendue=None,
+             db_path=None):
+    """VALIDEE -> ARCHIVEE — la clôture DÉFINITIVE (mission 15, exposée en mission 33).
+
+    Sous verrou d'écriture (`BEGIN IMMEDIATE`), dans cet ordre : calendrier (mois terminé), état
+    RELU en base (VALIDEE, et inchangé depuis `version_attendue` si l'appelant l'a affiché),
+    bloqueurs moteur et Flux recalculés ; puis archive économique, `CLOTURE`, transition et trace
+    des contrôles — tout ou rien. Si l'archivage échoue (`ArchivageRefuse`), rien n'est appliqué :
+    jamais `mois=CLOTURE` sans archive complète.
     """
     from app.services import cloture_archivage_service as arch
 
@@ -428,15 +442,32 @@ def archiver(cloture: dict, *, acteur: str = "", version_attendue=None, db_path=
     conn = get_db(db_path)
     try:
         conn.execute("BEGIN IMMEDIATE")
-        # Mêmes gardes que la validation, refaites ici : calendrier et bloqueurs du moment.
-        _garde_cloture(cloture, db_path)
+        refus = refus_temporel(mois)
+        if refus:
+            raise ClotureRefusee(refus)
+        actuelle = _row(conn.execute("SELECT * FROM clotures_mensuelles WHERE cloture_id_opaque=? "
+                                     "AND actif=1", (cloture["cloture_id_opaque"],)).fetchone())
+        if actuelle is None:
+            raise ClotureRefusee("Clôture introuvable.")
+        if actuelle["statut"] == ST_ARCHIVEE:
+            raise ClotureRefusee(MSG_DEJA_ARCHIVEE)
+        if actuelle["statut"] != ST_VALIDEE:
+            raise ClotureRefusee(MSG_NON_VALIDEE)
+        if version_attendue is not None and int(version_attendue) != actuelle["version"]:
+            raise ClotureRefusee(MSG_ETAT_PERIME)
+        progression = calcul_progression(mois, db_path)
+        if not progression["cloturable"]:
+            raise ClotureRefusee(message_bloquants(progression["nb_bloqueurs"]))
+        cloture = actuelle
         arch.archiver_mois(mois, acteur=acteur, conn=conn)
         conn.execute(
             "INSERT INTO ref_cloture_mensuelle (mois, statut_mois, import_id) VALUES (?,?,?) "
             "ON CONFLICT(mois) DO UPDATE SET statut_mois='CLOTURE'",
             (mois, "CLOTURE", f"CLOTURE_APP-{acteur or 'SYSTEME'}"))
-        resultat = _transition(cloture, ST_ARCHIVEE, acteur=acteur,
-                               version_attendue=version_attendue, conn=conn)
+        resultat = _transition(cloture, ST_ARCHIVEE, acteur=acteur, commentaire=commentaire,
+                               conn=conn)
+        _journaliser_evenement(conn, cloture["cloture_id_opaque"], "CONTROLES", None, None,
+                               commentaire=_resume_controles(progression), acteur=acteur)
         conn.commit()
         return resultat
     except Exception:

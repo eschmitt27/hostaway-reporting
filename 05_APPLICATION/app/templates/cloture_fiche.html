@@ -34,7 +34,9 @@
 {% endif %}
 
 <div class="alert alert-info">
-  Suivi humain uniquement — la clôture réelle reste pilotée par le moteur (REF_Cloture_Mensuelle).
+  « Validée » : la préparation du mois est contrôlée et validée, mais le mois n'est pas gelé.
+  « Clôturée définitivement » : l'archive du mois est figée et le mois est fermé (CLOTURE) — ses
+  opérations ne se modifient plus normalement.
 </div>
 
 {% if cloture.statut == 'VALIDEE' and progression.nb_bloqueurs_flux %}
@@ -72,6 +74,13 @@
       {% endif %}
       <a href="/clotures/{{ cloture.cloture_id_opaque }}/preparation" class="btn btn-secondary">Préparation</a>
       {% if cloture.statut == 'A_VALIDER' %}<a href="/clotures/{{ cloture.cloture_id_opaque }}/validation" class="btn btn-secondary">Validation</a>{% endif %}
+      {% if cloture.statut == 'VALIDEE' %}
+        {% if progression.cloture_autorisee %}
+        <a href="/clotures/{{ cloture.cloture_id_opaque }}/cloture-definitive" class="btn btn-primary" data-testid="bouton-cloture-definitive">Clôturer définitivement le mois</a>
+        {% else %}
+        <span class="section-note" data-testid="cloture-definitive-indisponible">Clôture définitive indisponible : {{ progression.refus_temporel or (progression.nb_bloqueurs ~ ' élément(s) bloquant(s)') }}</span>
+        {% endif %}
+      {% endif %}
       {% if 'rouvrir' in actions %}<a href="/clotures/{{ cloture.cloture_id_opaque }}/reouvrir" class="btn btn-secondary">Rouvrir</a>{% endif %}
       <a href="/clotures/{{ cloture.cloture_id_opaque }}/historique" class="btn btn-ghost">Historique</a>
       <a href="/clotures/{{ cloture.cloture_id_opaque }}/export.csv" class="btn btn-ghost">Export CSV</a>

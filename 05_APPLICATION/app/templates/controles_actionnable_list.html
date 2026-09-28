@@ -20,7 +20,7 @@
     {% endfor %}
     <a href="/controles-cloture/export.csv{% if params %}?{{ params|join('&') }}{% endif %}" class="btn btn-secondary">Export CSV</a>
     <a href="/controles-cloture/bloquants" class="btn btn-secondary">Bloquants moteur</a>
-    <span class="read-only-badge">Clôture réelle non active</span>
+    <span class="read-only-badge">Clôture définitive : depuis la fiche de clôture</span>
   </div>
 </div>
 
@@ -125,7 +125,7 @@
 </div>
 
 <div class="card">
-  <h2 class="card-title">Préparation clôture par mois <span class="read-only-badge">Clôture réelle non active</span></h2>
+  <h2 class="card-title">Préparation clôture par mois <span class="read-only-badge">Clôture définitive : depuis la fiche de clôture</span></h2>
   <div class="table-container">
     <table class="data-table">
       <thead><tr><th>Mois</th><th>Préparation</th><th>Anomalies</th><th>Bloquantes</th><th>Exceptions</th></tr></thead>
@@ -146,7 +146,7 @@
   <strong>Le moteur reste la vérité de l'anomalie.</strong> Le suivi humain (prise en charge, exception,
   résolution) est journalisé séparément et ne masque jamais une anomalie moteur encore présente. Les
   contrôles informatifs n'exigent aucune action et ne bloquent pas la clôture. Recalcul moteur sur
-  copies uniquement ; aucune clôture réelle (préparation APP-5C).
+  copies uniquement ; la clôture définitive se fait depuis la fiche d'une clôture validée.
 </div>
 
 {% endblock %}

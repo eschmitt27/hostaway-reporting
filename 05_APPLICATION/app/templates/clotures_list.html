@@ -6,17 +6,16 @@
 <div class="page-header flex justify-between items-center">
   <div>
     <h1 class="page-title">Clôtures mensuelles</h1>
-    <p class="page-subtitle">Suivi humain de préparation — la clôture réelle reste pilotée par le moteur</p>
+    <p class="page-subtitle">Préparation, validation humaine, puis clôture définitive de chaque mois</p>
   </div>
-  <span class="read-only-badge">Clôture réelle non active</span>
 </div>
 
 {% if erreur %}<div class="alert alert-error">{{ erreur }}</div>{% endif %}
 
 <div class="alert alert-info">
-  Cet écran journalise la préparation et la revue humaine des contrôles avant clôture. Il n'écrit
-  jamais dans la clôture réelle (REF_Cloture_Mensuelle) : celle-ci reste exclusivement pilotée par le
-  moteur.
+  « Validée » : la préparation est contrôlée et validée, le mois n'est pas gelé. « Clôturée
+  définitivement » : l'archive du mois est figée et le mois fermé (CLOTURE), depuis la fiche d'une
+  clôture validée, pour un mois terminé et sans bloqueur.
 </div>
 
 <form method="get" action="/clotures/mois" class="filter-bar mt-md" data-testid="choix-periode">

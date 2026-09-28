@@ -368,10 +368,11 @@ def test_28_securite_des_routes(client, base):
         assert r.status_code == 303 and r.headers["location"] == "/clotures"
     assert client.post("/clotures/CLO-inconnu/valider", data={"commentaire": "x"},
                        follow_redirects=False).status_code == 303
-    from app.main import app
-    chemins = {getattr(r, "path", "") for r in app.routes}
-    assert not any("archiv" in p for p in chemins if p.startswith("/clotures")), \
-        "aucune route ne pose la clôture réelle (archivage)"
+    # Mission 33 (supersède l'assertion « aucune route ne pose la clôture réelle ») : la clôture
+    # définitive a sa route, qui n'accepte qu'un POST confirmé et refait tous les contrôles.
+    assert client.get("/clotures/CLO-inconnu/cloture-definitive").status_code == 404
+    assert client.post("/clotures/CLO-inconnu/cloture-definitive", data={"confirmation": "oui"},
+                       follow_redirects=False).status_code == 303
     assert client.get("/clotures/mois/2026-09").status_code == 200
 
 
@@ -384,7 +385,7 @@ def test_29_aucune_donnee_reelle(base):
 
 
 def test_30_non_regression_flux_mois_cloture_protege(base, verrous):
-    """Après la clôture réelle (archivage, jamais exposé par une route), Flux refuse toujours tout
+    """Après la clôture définitive (archivage, exposé par la route de la Mission 33), Flux refuse tout
     rapprochement sur le mois : la protection existante reste celle qui s'applique."""
     c = cs.valider(_a_valider(base), acteur=ACTEUR, commentaire="ok", db_path=base)
     cs.archiver(c, acteur=ACTEUR, db_path=base)

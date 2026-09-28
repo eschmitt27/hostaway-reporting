@@ -11,8 +11,9 @@
 <div class="alert alert-warning">Clôture introuvable.</div>
 {% else %}
 
-<div class="alert alert-info">« Valider » enregistre uniquement le suivi humain (SQLite). La clôture
-  réelle (REF_Cloture_Mensuelle) n'est jamais modifiée.</div>
+<div class="alert alert-info">« Valider » enregistre la validation humaine de la préparation : le
+  mois n'est pas encore gelé. La clôture définitive est une décision distincte, proposée ensuite sur
+  la fiche de la clôture.</div>
 
 {% if erreur %}<div class="alert alert-error">{{ erreur }}</div>{% endif %}
 
@@ -38,7 +39,7 @@
 <div class="card">
   <h2 class="card-title">Décision</h2>
   <form method="post" action="/clotures/{{ cloture.cloture_id_opaque }}/valider"
-        onsubmit="return confirm('Confirmez-vous la validation du suivi humain pour {{ cloture.mois }} ? Ceci n\'affecte pas la clôture réelle du moteur.');">
+        onsubmit="return confirm('Confirmez-vous la validation du suivi humain pour {{ cloture.mois }} ? Le mois ne sera pas encore clôturé définitivement.');">
     <div class="form-field form-field-full">
       <label for="f-commentaire">Commentaire final (requis)</label>
       <textarea id="f-commentaire" name="commentaire" class="filter-input" required></textarea>

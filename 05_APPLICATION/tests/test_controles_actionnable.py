@@ -725,7 +725,8 @@ def test_44_45_46_fiche_historique_badge(client, el_commission, tmp_db):
 @moteur_requis
 def test_47_preparation_cloture_visible(client):
     r = client.get("/controles-cloture")
-    assert "Préparation clôture" in r.text and "Clôture réelle non active" in r.text
+    # Mission 33 : la clôture définitive existe désormais (fiche de clôture) — le badge le dit.
+    assert "Préparation clôture" in r.text and "Clôture définitive : depuis la fiche de clôture" in r.text
 
 
 @moteur_requis

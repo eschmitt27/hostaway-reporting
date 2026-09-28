@@ -139,8 +139,8 @@
     <span class="status-badge status-{{ 'valide' if cloture.statut in ['VALIDEE','CLOTUREE'] else 'bloquant' if cloture.statut == 'BLOQUEE' else 'a-controler' }}">{{ cloture.statut }}</span>
   </div>
   <p class="section-note">
-    La clôture réelle reste portée par <code>REF_Cloture_Mensuelle</code> (moteur) : ce suivi est la
-    préparation et la validation applicatives.
+    « Validée » = préparation validée ; « Clôturée définitivement » = mois fermé
+    (<code>REF_Cloture_Mensuelle</code> à CLOTURE), depuis la fiche d'une clôture validée.
   </p>
   <div class="table-container mb-sm">
     <table class="data-table">
