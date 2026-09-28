@@ -3975,3 +3975,108 @@ Empreinte `app.db` identique avant et après (`12a7285972e7ae86…`), schéma **
 ### Prochaine action unique
 
 **CLÔTURE MENSUELLE BRANCHÉE SUR FLUX FINANCIERS** — non commencée.
+
+## Mission 32 (2026-09-28) — Clôture mensuelle branchée sur Flux financiers
+
+### État
+
+| Élément | Valeur |
+|---|---|
+| **CLÔTURE MENSUELLE BRANCHÉE SUR FLUX** | **FONCTIONNELLE** |
+| **SEPTEMBRE 2026** | **NON CLÔTURÉ — MOIS EN COURS** (le serveur refuse ; 16 bloquants réels de toute façon) |
+| Branche | `resume/pilotage-conciergerie-20260909` |
+| HEAD de départ | `9c6a6e5` |
+| Commits | `4d4227a` (code + tests existants adaptés), `bc9663d` (tests Mission 32), puis ce commit documentaire |
+| Migration 0113 | **appliquée à la base réelle** le 2026-09-28 (21 h 18) par `apply_migrations()` — le mécanisme du démarrage —, après répétition sur copie ; 9 contrôles sur 9 (schéma 0113, `integrity_check` ok, `foreign_key_check` vide, données métier identiques — empreinte logique `ac7c2f2bd0a5a04e` avant et après —, aucun compte, règle, écriture créés, Qonto et charge 700 € inchangés) |
+| Sauvegarde préalable | `data/backups/app_avant_migration_0113_plan_comptable_20260928T190725.db` (intègre, schéma 0112, empreinte logique égale à la base d'avant) |
+| Empreinte fichier `app.db` | `12a7285972e7ae86…` avant migration → **`d95f7797ec258fc3…`** après ; inchangée ensuite jusqu'à la fin de la mission |
+| Aucune migration nouvelle | la mission n'ajoute aucune table ni colonne |
+| PR Cloud #4 | non touchée, non fusionnée |
+
+### Audit — d'où venaient les bloqueurs, d'où ils viennent
+
+| Contrôle | Source avant | Source correcte | Bloquant ? | Modification |
+|---|---|---|---|---|
+| Ligne bancaire non classée (`CLOTURE_IMPOSSIBLE_LIGNE_BANCAIRE_NON_CLASSEE`, C4-C6) | `banque_mouvements.statut_classification = RAPPROCHEMENT_REQUIS` — ancien import Crédit Mutuel (0 ligne en base), seulement pour les mois présents dans `ref_cloture_mensuelle`, figé au dernier recalcul moteur | Flux financiers : statut comptable de chaque mouvement Qonto (`flux_financiers_service.mouvements`) | Oui | Bloqueur « Mouvement bancaire à qualifier / à comptabiliser / en anomalie / en attente » calculé en direct ; le contrôle moteur reste pour l'import Crédit Mutuel |
+| Mouvement de caisse non traité | absent | Flux (opérations de caisse) | Oui | nouveau bloqueur, même vocabulaire |
+| Écriture `PROPOSEE` du mois | absent | `ecritures.statut` | Oui (C3 + balance, voir limites) | nouveau bloqueur |
+| Compte comptable à définir | absent | `flux_lettrage_service.compte_de_charge` (règles VALIDÉES) | Oui | nouveau bloqueur + « X opération(s) nécessitent encore un compte comptable. » |
+| Facture fournisseur à contrôler / validée non réglée | absent | `factures.statut` | Non (aucune règle) | informatif, raison affichée |
+| Contrôles moteur APP-5B (réservations, ménages, commissions…) | `controles_actionnable_service` | inchangé | selon leur niveau | réutilisés tels quels |
+| Mois courant / futur | aucune garde (`valider` acceptait tout mois sans bloqueur) | calendrier | Oui | refus serveur de `valider` et `archiver` |
+
+### Ce que la clôture lit désormais
+
+- **Un service de lecture, `cloture_flux_service`** : aucune écriture, aucune qualification, aucun mapping,
+  aucune validation. Chaque élément porte type, date, montant, origine, statut, raison, action et lien
+  vers l'écran de traitement ; chaque informatif dit pourquoi il ne bloque pas.
+- **`calcul_progression` = contrôles moteur + bloqueurs Flux**, et l'état du mois : « Clôture impossible
+  — N éléments bloquants », « Prêt techniquement — mois en cours », « Prêt à clôturer », « Mois futur —
+  non clôturable ». « Prêt à clôturer » est **calculé, jamais persisté** : l'automate existant
+  (`NON_DEMARREE → EN_PREPARATION → A_VALIDER → VALIDEE → ROUVERTE/ARCHIVEE`) est inchangé.
+- **Gardes serveur** dans `valider()` et `archiver()` : calendrier d'abord (« Le mois de septembre 2026
+  est encore en cours et ne peut pas être clôturé. »), bloqueurs ensuite (« Ce mois ne peut pas être
+  clôturé : 4 contrôles bloquants restent à traiter. »), recalculés sous `BEGIN IMMEDIATE` ; transition
+  et trace des contrôles dans un seul commit.
+- **Historique** : un évènement « CONTROLES » (résumé moteur / Flux / informatifs) au passage à valider
+  et à la validation.
+
+### Écrans
+
+- **Contrôle du mois** `/clotures/mois/AAAA-MM` (lecture seule) : sélecteur de période, état, synthèse
+  (bloqueurs Flux, Banque, Caisse, écritures, comptes à définir, autres contrôles bloquants, informatifs),
+  détail de chaque bloqueur avec son lien de traitement, informatifs repliés.
+- **Liste** : mois de Flux et mois courant ajoutés (septembre apparaît), colonne « État du mois ».
+- **Fiche / validation** : même bilan ; bouton désactivé avec le motif (calendrier ou bloqueurs), et
+  rappel que le serveur refait les contrôles ; statut en libellé ; alerte si un bloqueur apparaît après
+  validation.
+
+### Après clôture, réouverture
+
+- La protection existante est conservée : un mois `CLOTURE` (`ref_cloture_mensuelle`) ou une période
+  comptable `CLOTUREE` refuse tout rapprochement et toute écriture Flux (test). Une clôture VALIDÉE
+  (suivi humain) ne verrouille rien : un nouveau bloqueur y déclenche une alerte.
+- Réouverture existante conservée : `VALIDEE → ROUVERTE`, justification obligatoire (tests existants).
+- **`archiver()` (clôture réelle : archive économique + `CLOTURE`) n'est appelée par aucune route**,
+  comme avant ; ses gardes sont maintenant les mêmes que la validation.
+
+### Septembre 2026 réel — lu en lecture seule (empreintes identiques avant/après)
+
+| Famille | Nombre | Détail |
+|---|---|---|
+| Mouvements bancaires Qonto à qualifier | 8 | 21/09 → 26/09/2026, de 2,40 € à 59,82 € (enseignes de bricolage, supermarché, téléphonie, frais Qonto) |
+| Retrait d'espèces à comptabiliser | 1 | 20,00 € le 21/09/2026 — transfert Banque → Caisse (530 / 512) non passé |
+| Écriture proposée à valider | 1 | Vente, 823,65 € (facture propriétaire 2026-08-001, période 2026-09) |
+| Comptes comptables à définir | 2 | Charges de 146,00 € (Linge · Blanchisserie) et 42,00 € (Achat · Petit équipement) — aucune règle validée |
+| Contrôles moteur bloquants | 4 | Réservations à contrôler exclues du calcul de commission |
+| Informatifs | 3 | Opérations Qonto sans effet (1 contrepassée par la banque, 2 opérations en attente à 0 €) |
+| **Total** | **16 bloquants** | « Clôture impossible — 16 éléments bloquants » ; et quand bien même : mois en cours |
+
+Aucun de ces éléments n'a été traité. Aucune clôture de septembre n'a été démarrée dans la base réelle.
+
+### Tests et recette
+
+| Périmètre | Résultat |
+|---|---|
+| `test_cloture_flux_financiers.py` (30 points du cahier, POST forcés) | **23 passed** |
+| Tests existants adaptés (date du jour fixée au 01/01/2100 pour les mois de test 2098-2099) | 112 passed |
+| Régression concernée | **1 320 passed / 18 skipped / 0 failed** (76 fichiers : clôture, contrôles, pilotage, Flux, comptabilité, Qonto, banque, charges, caisse, navigation, identifiants UI, migrations) ; puis 176 passed sur l'état final des gabarits |
+| Recette copie (A mois courant, B bloqueur fictif, C mapping, D écritures, E mois sain) | **17/17** |
+| Recette navigateur (copie) | sélection de période, synthèse, bloqueur ouvert puis traité (règle validée), disparition après actualisation, septembre : bouton désactivé et POST forgé refusé, novembre 2025 validé, persistance après redémarrage, mobile 375 px sans débordement |
+
+### Limites et arbitrages
+
+- **Écriture `PROPOSEE` bloquante** : déduit de C3 (validation officielle avant clôture) et de
+  `45_MODELE_ECRITURES_COMPTABLES.md` (la balance exclut `PROPOSEE`) — **à confirmer par l'utilisateur**.
+- **Opération bancaire en attente** : bloquante (C4). Aucune en base réelle (les deux « pending » sont à
+  0 €, donc sans effet).
+- **Les contrôles moteur restent ce qu'ils sont** : la plupart des mois historiques sont bloqués par des
+  réservations à contrôler ou des écarts ménages — non traités ici.
+- **Clôture réelle (`ARCHIVEE` → `CLOTURE`) non exposée** : décider si un bouton « Clôturer
+  définitivement » doit exister (prochaine évolution).
+- Les 15 factures fournisseurs « À contrôler » (février → août 2026) sont informatives, non bloquantes.
+
+### Prochaine action
+
+Traiter septembre au fil de l'eau (qualifier les 8 mouvements, passer le retrait, valider la vente,
+choisir les comptes), puis, en octobre, sa clôture ; décider de l'exposition de la clôture réelle.

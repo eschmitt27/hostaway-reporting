@@ -5815,3 +5815,32 @@ Qonto GET-only, scheduler OFF.
 **Réserves, laissées à l'utilisateur.** Choix des comptes de charge et des règles par catégorie ; charge
 `CHG-fc93f74a63d1`. Limite : journal Achats sur filet `606000` PROVISOIRE sans règle validée. Détail :
 `HANDOFF_CANONIQUE.md`, Mission 31.
+
+## CTR-CLOTURE-FLUX-FINANCIERS-2026-09-28 — clôture mensuelle branchée sur Flux financiers : FONCTIONNELLE
+
+**Périmètre.** Mission 32, commits `4d4227a` et `bc9663d`, départ `9c6a6e5`. Aucune migration
+nouvelle. Migration **0113 appliquée à la base réelle** (répétition sur copie, puis `apply_migrations()`,
+9/9 contrôles, données métier identiques).
+
+**Méthode.** Audit ciblé (automate APP-5C, contrôles moteur, Flux, écritures, factures, périodes) : le
+contrôle « ligne bancaire non classée » lisait l'ancien import Crédit Mutuel et ignorait Qonto. Nouveau
+service de LECTURE des bloqueurs Flux, branché sur l'automate existant (aucune architecture parallèle) ;
+garde calendrier et recalcul des bloqueurs côté serveur, transactionnels.
+
+**Contrôles.**
+
+| Contrôle | Résultat |
+|---|---|
+| Tests Mission 32 (30 points + POST forcés) | **23 passed** |
+| Tests existants adaptés | 112 passed |
+| Régression concernée | **1 320 passed / 18 skipped / 0 failed** (76 fichiers : clôture, contrôles, pilotage, Flux, comptabilité, Qonto, banque, charges, caisse, navigation, identifiants UI, migrations) ; puis 176 passed sur l'état final des gabarits |
+| Recette copie A-E | 17/17 |
+| Recette navigateur (copie) | parcours complet, mobile sans débordement |
+
+**Base réelle.** Schéma 0113, `integrity_check` ok, `foreign_key_check` 0 ; aucune clôture réelle,
+aucun mouvement, écriture, facture ou mapping modifié ; charge 700 € inchangée ; Qonto GET-only ; 15 PDF
+inchangés ; scheduler OFF.
+
+**SEPTEMBRE 2026 NON CLÔTURÉ — MOIS EN COURS.** 16 bloquants réels relevés (8 mouvements Qonto à
+qualifier, retrait 20 € à comptabiliser, 1 vente proposée, 2 comptes à définir, 4 contrôles moteur).
+Détail : `HANDOFF_CANONIQUE.md`, Mission 32.

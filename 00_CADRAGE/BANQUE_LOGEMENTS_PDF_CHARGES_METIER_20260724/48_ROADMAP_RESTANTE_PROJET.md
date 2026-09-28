@@ -602,3 +602,15 @@ intacte (0113 au prochain démarrage, sauvegarde prête). Détail : `HANDOFF_CAN
   validée ne couvre la catégorie (à traiter avec la recette factures fournisseurs).
 - **Prochaine action** : **clôture mensuelle branchée sur Flux financiers**, puis première clôture réelle
   (septembre 2026). Supersède la « prochaine action » de la mise à jour Flux financiers du 2026-09-28.
+
+**Mis à jour 2026-09-28 (Mission 32 — clôture mensuelle branchée sur Flux financiers : FONCTIONNELLE)** :
+les bloqueurs de clôture lisent Flux financiers en direct (mouvements Qonto et caisse non traités,
+écritures proposées, comptes comptables à définir) en plus des contrôles moteur ; seul un mois terminé se
+valide (refus serveur du mois courant et des mois futurs) ; tableau de contrôle du mois en lecture seule.
+Migration 0113 appliquée à la base réelle. **SEPTEMBRE 2026 NON CLÔTURÉ — MOIS EN COURS** (16 bloquants
+réels). Détail : `HANDOFF_CANONIQUE.md` Mission 32, `JOURNAL_CONTROLES.md`
+`CTR-CLOTURE-FLUX-FINANCIERS-2026-09-28`.
+- **À arbitrer** : écriture proposée bloquante (déduit de C3) ; exposition de la clôture réelle
+  (archivage → `CLOTURE`), aujourd'hui sans route.
+- **Prochaine action** : traitement de septembre par l'utilisateur, puis sa clôture en octobre. Supersède
+  la « prochaine action » de la mise à jour Mission 31.

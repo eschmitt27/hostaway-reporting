@@ -220,6 +220,8 @@ Le détail de la clôture mensuelle est traité en §11 (Clôture mensuelle et p
 | C6 | Contrôle dédié : `CLOTURE_IMPOSSIBLE_LIGNE_BANCAIRE_NON_CLASSEE`. |
 | C7 | Facturation propriétaire : seulement après clôture validée. |
 | C8 | `REF_Cloture_Mensuelle.statut_mois = CLOTURE` est le **seul** déclencheur de la bascule historique des réservations (D097). REF vide ⇒ aucun mois clôturé. Une **clôture technique des réservations** (historisation) peut précéder la clôture comptable banque finale, à condition d'être indiquée dans le commentaire. |
+| C9 | **Calendrier** (règle posée par l'utilisateur, Mission 32, 2026-09-28) : un mois antérieur au mois courant est clôturable ; le mois courant se prépare et se contrôle mais ne se clôture pas ; un mois futur ne se clôture jamais. Refus appliqué par le serveur. |
+| C10 | Les lignes bancaires et de caisse de C4-C6 s'évaluent sur leur état **Flux financiers** (à qualifier, à comptabiliser, en anomalie, en attente = non validée). Une écriture `PROPOSEE` du mois bloque aussi (C3 ; la balance l'exclut) — application à confirmer par l'utilisateur. |
 
 ---
 
