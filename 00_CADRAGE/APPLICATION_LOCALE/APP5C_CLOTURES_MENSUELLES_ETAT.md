@@ -49,4 +49,17 @@ sans données réelles.
   techniquement — mois en cours », « Clôture impossible — N éléments bloquants », « Mois futur ».
 - **Tableau de contrôle du mois** `/clotures/mois/AAAA-MM`, lecture seule ; évènement d'historique
   « CONTROLES » à la préparation et à la validation ; validation transactionnelle (`BEGIN IMMEDIATE`).
-- Machine à états inchangée ; `archiver()` toujours sans route.
+- Machine à états inchangée ; `archiver()` toujours sans route **[supersédé par la Mission 33 : route de clôture définitive]**.
+
+## Mission 33 (2026-09-28) — clôture définitive exposée
+
+- `VALIDEE` = validation humaine de la préparation (mois non gelé) ; `ARCHIVEE` +
+  `ref_cloture_mensuelle = CLOTURE` = clôture définitive. **Supersède** « `archiver()` toujours sans
+  route » (Mission 32) et la mention « clôture réelle non active ».
+- Fiche `VALIDEE` éligible → « Clôturer définitivement le mois » → page de confirmation → POST
+  `/clotures/{id}/cloture-definitive` → `archiver()`, qui refait sous verrou : mois terminé, état relu
+  (`VALIDEE`, version affichée), bloqueurs moteur et Flux ; archive, CLOTURE, ARCHIVEE et trace en un
+  commit.
+- Archivage : seul le jeu `reservations_resolues` actif est figé (défaut corrigé).
+- Réouverture : `ARCHIVEE` ne se rouvre pas par l'écran de réouverture des mois clos (correction
+  rétroactive) ; `VALIDEE → ROUVERTE` inchangé.

@@ -5844,3 +5844,19 @@ inchangés ; scheduler OFF.
 **SEPTEMBRE 2026 NON CLÔTURÉ — MOIS EN COURS.** 16 bloquants réels relevés (8 mouvements Qonto à
 qualifier, retrait 20 € à comptabiliser, 1 vente proposée, 2 comptes à définir, 4 contrôles moteur).
 Détail : `HANDOFF_CANONIQUE.md`, Mission 32.
+
+## CTR-CLOTURE-DEFINITIVE-2026-09-28 — clôture définitive depuis l'interface : FONCTIONNELLE
+
+**Périmètre.** Mission 33, commits `083bda7` et `1fe8b40`, départ `3af3dc6`. Aucune migration.
+Exposition de `clotures_service.archiver()` (VALIDEE → ARCHIVEE, mois à CLOTURE) par une page de
+confirmation et un POST ; contrôles recalculés par le service sous verrou (calendrier, état relu,
+version affichée, bloqueurs moteur et Flux).
+
+**Défaut corrigé.** Archivage de tous les jeux `reservations_resolues` au lieu du jeu actif :
+vérification toujours en échec sur les données réelles (copie : 412 écrites / 70 relues).
+
+**Contrôles.** `test_cloture_definitive.py` 18 passed ; clôture/archivage/contrôles/ménages 191 passed ;
+suite complète **4 456 passed / 37 skipped / 0 failed** (44 min), puis 338 passed sur le code final (clôture, archivage, contrôles, ménages, Hostaway, navigation, identifiants UI) ; recette copie 10/10 ; parcours navigateur sur copie.
+
+**Base réelle.** Intacte (empreinte logique identique), schéma 0113, aucune clôture réelle.
+**SEPTEMBRE 2026 NON CLÔTURÉ — MOIS EN COURS.** Détail : `HANDOFF_CANONIQUE.md`, Mission 33.

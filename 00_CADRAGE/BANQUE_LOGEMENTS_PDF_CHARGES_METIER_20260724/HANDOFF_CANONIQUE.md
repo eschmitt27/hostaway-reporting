@@ -4038,7 +4038,8 @@ Empreinte `app.db` identique avant et après (`12a7285972e7ae86…`), schéma **
   (suivi humain) ne verrouille rien : un nouveau bloqueur y déclenche une alerte.
 - Réouverture existante conservée : `VALIDEE → ROUVERTE`, justification obligatoire (tests existants).
 - **`archiver()` (clôture réelle : archive économique + `CLOTURE`) n'est appelée par aucune route**,
-  comme avant ; ses gardes sont maintenant les mêmes que la validation.
+  comme avant ; ses gardes sont maintenant les mêmes que la validation. **[Supersédé par la Mission
+  33 : exposée par « Clôturer définitivement le mois ».]**
 
 ### Septembre 2026 réel — lu en lecture seule (empreintes identiques avant/après)
 
@@ -4080,3 +4081,113 @@ Aucun de ces éléments n'a été traité. Aucune clôture de septembre n'a ét�
 
 Traiter septembre au fil de l'eau (qualifier les 8 mouvements, passer le retrait, valider la vente,
 choisir les comptes), puis, en octobre, sa clôture ; décider de l'exposition de la clôture réelle.
+
+## Mission 33 (2026-09-28) — Clôture définitive depuis l'interface
+
+### État
+
+| Élément | Valeur |
+|---|---|
+| **CLÔTURE DÉFINITIVE DEPUIS L'INTERFACE** | **FONCTIONNELLE** |
+| Transition | `VALIDEE → ARCHIVEE` (automate existant, aucun nouvel état) |
+| **SEPTEMBRE 2026** | **NON CLÔTURÉ — MOIS EN COURS** (16 bloquants réels, lus seulement) |
+| HEAD de départ | `3af3dc6` |
+| Commits | `083bda7` (code), `1fe8b40` (tests), puis ce commit documentaire |
+| Migration | aucune ; base réelle au schéma 0113, inchangée (empreinte `d95f7797…`) |
+
+### Contrat audité — ce que chaque statut veut dire
+
+- **`VALIDEE` = validation humaine de la préparation.** Le mois n'est pas gelé : ses opérations restent
+  modifiables, la clôture peut être rouverte (`VALIDEE → ROUVERTE`, justification obligatoire).
+- **`ARCHIVEE` + `ref_cloture_mensuelle = CLOTURE` = clôture définitive et gel du mois.** `archiver()`
+  fige l'archive économique (réservations du jeu de calcul actif, agrégat de règlement), la vérifie,
+  marque `CLOTURE`, passe la clôture à `ARCHIVEE` et trace les contrôles — une seule transaction.
+- Deux décisions humaines distinctes : jamais `EN_PREPARATION → VALIDEE → ARCHIVEE` en un clic.
+- **Supersède** : « la clôture réelle n'est pas active », « aucune route ne pose CLOTURE » (Missions 15
+  à 32, écrans et tests) — la route existe désormais.
+
+### Parcours ajouté
+
+- Fiche d'une clôture `VALIDEE` éligible (mois terminé, aucun bloqueur) : **« Clôturer définitivement le
+  mois »** ; sinon, le motif d'indisponibilité.
+- **Page de confirmation** `GET /clotures/{id}/cloture-definitive` (n'écrit rien) : mois, statut,
+  bloqueurs, date de validation, avertissement « Cette action clôturera définitivement le mois de … »,
+  case de confirmation, commentaire facultatif, « Confirmer la clôture définitive » / « Annuler ».
+- `POST` même adresse : appelle `clotures_service.archiver()` — aucune logique de clôture dans la route.
+
+### Contrôles refaits par le serveur (sous `BEGIN IMMEDIATE`, dans cet ordre)
+
+1. mois terminé (courant et futur refusés, POST forgé compris) ;
+2. état **relu en base** : `ARCHIVEE` → « Ce mois est déjà clôturé définitivement. » ; autre que
+   `VALIDEE` → « Le mois doit d'abord être validé avant de pouvoir être clôturé définitivement. » ;
+3. état périmé : version différente de celle affichée → refus, rechargement demandé ;
+4. bloqueurs moteur et Flux recalculés (écriture `PROPOSEE` comprise) → « Ce mois ne peut pas être
+   clôturé : N contrôle(s) bloquant(s) … » ;
+5. règles de l'archivage existant (archive déjà présente, vérification).
+
+Confirmation cochée obligatoire. Refus = message métier, jamais d'erreur SQL.
+
+### Écriture `PROPOSEE`
+
+Confirmée bloquante par l'utilisateur. Une écriture devenue sans objet se **contrepasse** (mécanisme
+unique du projet : l'originale passe `CONTREPASSEE`, le miroir naît `VALIDEE`) et cesse alors de
+bloquer — aucun nouveau statut créé.
+
+### Défaut de l'existant trouvé et corrigé
+
+`archiver_mois` (mission 15) lisait **tous** les jeux de `reservations_resolues` : chaque réservation y
+était autant de fois qu'il y a de jeux conservés, l'index unique écartait les doublons et la
+vérification refusait l'archive — sur copie de la base réelle, juin 2026 : « 412 lignes écrites mais 70
+relues ». La clôture définitive était impossible sur les données réelles. Désormais, seul le jeu
+**actif** (`reservations_datasets`, comme tous ses lecteurs) est archivé ; test de non-régression.
+
+### Protections après clôture
+
+| Objet | Protégé après CLOTURE ? | Mécanisme | Test existant |
+|---|---|---|---|
+| Charge — saisie par le parcours utilisateur | Oui | `charges_preview_service.validate_charge` V02_MOIS_CLOTURE, rejouée à la confirmation | `test_charges_preview`, `test_charges_confirmation`, `test_cloture_definitive::test_19` |
+| Charge — réouverture du contrôle | Oui | `charges_saisie_service.rouvrir_controle` (E_CHARGE_MOIS_CLOTURE) | `test_charge_retour_a_controler` |
+| Charge — appel direct du service `saisie.creer` | Non | la garde vit dans le parcours de saisie, pas dans le service bas niveau | limite documentée |
+| Réservation hors Hostaway | Oui | `saisie_hh_service` (MOIS_CLOTURE) | `test_reservation_hh_creation_e2e` |
+| Ménages — déclarations | Oui | `menages_declarations_service` (E_MOIS_CLOTURE) ; l'actualisation signale sans recalculer | `test_menages_mois_clotures`, `test_menages_actualisation_*` |
+| Facture fournisseur — suppression / modification | Oui | `factures_service` (E07_MOIS_CLOTURE) | `test_facture_suppression_et_contrepassation` |
+| Rapprochement / lettrage Flux | Oui | `flux_financiers_service.mois_cloture` (clôture mensuelle OU période comptable) | `test_flux_financiers`, `test_cloture_flux_financiers::test_30`, `test_cloture_definitive::test_19` |
+| Réservations — valeurs économiques | Oui (figées) | archive `reservations_historique_cloture` qui prime le live (D097) | `test_cloture_archivage_economique` |
+| Écritures comptables (générateurs Achats, Ventes, OD, caisse) | Non par la clôture mensuelle | le moteur d'écritures ne lit que la **période comptable** `CLOTUREE` (clôture distinte, par conception) | limite documentée |
+
+### Réouverture
+
+- Clôture `VALIDEE` : `VALIDEE → ROUVERTE` (justification), inchangé.
+- Mois `CLOTURE` non archivé : `menages_mois_clotures_service.rouvrir` (confirmation, motif, auteur,
+  journal `mois_reouvertures`) → `EN_CONTROLE`, jamais de reclôture automatique ; une clôture VALIDÉE
+  associée passe ROUVERTE par son automate.
+- Clôture `ARCHIVEE` : **refusée** par cet écran (« sa réouverture passe par la correction
+  rétroactive ») — contrat existant, conservé et testé.
+
+### Tests et recette
+
+| Périmètre | Résultat |
+|---|---|
+| `test_cloture_definitive.py` | 18 passed |
+| Clôture, archivage, contrôles, ménages (dont tests Mission 32 adaptés) | 191 passed / 2 skipped |
+| Suite complète | **4 456 passed / 37 skipped / 0 failed** (44 min), puis 338 passed sur le code final (clôture, archivage, contrôles, ménages, Hostaway, navigation, identifiants UI) |
+| Recette copie (10 scénarios) | **10/10** — juin 2026 amené dans la copie (exceptions justifiées sur ses contrôles moteur), validé, bloqueur injecté entre confirmation et POST refusé, puis clôturé : ARCHIVEE, CLOTURE, 65 réservations et 13 lignes de règlement archivées |
+| Navigateur (copie) | fiche → bouton → confirmation → case → « Clôturée définitivement » |
+
+### Base réelle
+
+Aucune clôture, validation d'écriture, qualification, mapping ou charge modifiés. Empreinte logique
+identique avant/après (`fe7ab69c1213db38`), schéma 0113, intégrité ok. Septembre 2026 : 16 bloquants
+(9 mouvements bancaires, 1 écriture proposée, 2 comptes à définir, 4 contrôles moteur), non traités.
+Charge 700 € inchangée, Qonto GET-only, 15 PDF intacts, scheduler OFF.
+
+### Limites
+
+- Les écritures comptables d'un mois `CLOTURE` restent protégées par la seule **période comptable**
+  (clôture distincte) : clôturer définitivement un mois ne clôture pas sa période comptable.
+- La plupart des mois historiques gardent des contrôles moteur bloquants (réservations à contrôler,
+  écarts ménages) : à traiter ou justifier avant leur clôture définitive.
+
+### Prochaine action
+
+Traiter septembre au fil de l'eau ; en octobre, sa validation puis sa clôture définitive.

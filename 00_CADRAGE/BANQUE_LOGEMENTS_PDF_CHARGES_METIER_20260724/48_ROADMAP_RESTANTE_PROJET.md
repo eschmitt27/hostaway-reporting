@@ -614,3 +614,12 @@ réels). Détail : `HANDOFF_CANONIQUE.md` Mission 32, `JOURNAL_CONTROLES.md`
   (archivage → `CLOTURE`), aujourd'hui sans route.
 - **Prochaine action** : traitement de septembre par l'utilisateur, puis sa clôture en octobre. Supersède
   la « prochaine action » de la mise à jour Mission 31.
+
+**Mis à jour 2026-09-28 (Mission 33 — clôture définitive depuis l'interface : FONCTIONNELLE)** :
+`VALIDEE` = validation humaine de la préparation ; `ARCHIVEE` + `CLOTURE` = clôture définitive, exposée
+par « Clôturer définitivement le mois » (confirmation, contrôles refaits par le serveur). Archivage
+corrigé (jeu de calcul actif seulement). Septembre 2026 non clôturé. Détail : `HANDOFF_CANONIQUE.md`
+Mission 33, `JOURNAL_CONTROLES.md` `CTR-CLOTURE-DEFINITIVE-2026-09-28`.
+- **Prochaine action** : traitement de septembre par l'utilisateur, puis validation et clôture
+  définitive en octobre. Supersède la « prochaine action » de la mise à jour Mission 32 (l'arbitrage
+  « exposer la clôture réelle » est tranché).
