@@ -61,6 +61,9 @@ def base(tmp_db):
         conn.close()
     # Mapping canonique (Comptabilité › Mappings) : « Achat petit équipement » → 615000, VALIDÉ.
     # Les autres catégories n'ont AUCUNE règle validée : leur compte reste « à définir ».
+    # Mission 31 : une règle ne désigne qu'une catégorie qui existe dans le référentiel.
+    from tests.fixtures_referentiel import semer_comptabilite
+    semer_comptabilite(tmp_db, categories=["CHG_018", "CHG_010", "CHG_008", "CHG_017"])
     from app.services import comptabilite_mappings_service as maps
     maps.creer_regle(maps.PORTEE_CATEGORIE, "615000", cle="CHG_018", statut=maps.ST_VALIDE,
                      source="Test : arbitrage fictif", acteur=ACTEUR, db_path=tmp_db)
@@ -860,15 +863,22 @@ def test_compte_inactif_ou_hors_classe_6_refuse(base, verrous):
 
 
 def test_regle_de_mapping_vers_compte_inactif_reste_a_definir(base):
+    """Mission 31 : une règle vers un compte inactif ne peut plus être CRÉÉE ; le cas réel est un
+    compte désactivé APRÈS la règle — elle cesse alors de proposer ce compte."""
     from app.services import comptabilite_mappings_service as maps
-    maps.creer_regle(maps.PORTEE_CATEGORIE, "467000", cle="CHG_010", statut=maps.ST_VALIDE,
-                     acteur=ACTEUR, db_path=base)
+    from app.services import comptabilite_plan_service as plan
+    refus = maps.creer_regle(maps.PORTEE_CATEGORIE, "467000", cle="CHG_010", statut=maps.ST_VALIDE,
+                             acteur=ACTEUR, db_path=base)
+    assert refus["ok"] is False and refus["code"] == maps.E_COMPTE_INACTIF
+    assert maps.creer_regle(maps.PORTEE_CATEGORIE, "627000", cle="CHG_010", statut=maps.ST_VALIDE,
+                            acteur=ACTEUR, db_path=base)["ok"]
+    plan.desactiver("627000", acteur=ACTEUR, motif="test", db_path=base)
     _importer(base, [_mvt(24.0)])
     m = _par_montant(base, 24.0)
     cid = _charge_sans_mapping(base)
     prep = lettrage.preparer([f"BANQUE:{m['id']}"], [f"CHARGE:{cid}"], db_path=base)
     ligne = next(l for l in prep["ecritures"][0]["lignes"] if l["role"] == lettrage.ROLE_OBJET)
-    assert ligne["compte"] == "" and "467000" in ligne["avertissement"]
+    assert ligne["compte"] == "" and "627000" in ligne["avertissement"]
 
 
 def test_E_charge_liee_a_un_mouvement_jamais_hors_compta(base, verrous):

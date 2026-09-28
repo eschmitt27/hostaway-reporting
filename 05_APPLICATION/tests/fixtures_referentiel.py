@@ -146,3 +146,28 @@ def lignes(db_path, table: str) -> list[dict[str, str]]:
     from app.services import ref_setup_repo as repo
 
     return repo.lire_table(table, db_path=db_path)
+
+
+def semer_comptabilite(db_path, *, comptes=(), categories=(), types_flux=()) -> None:
+    """Sème des comptes du plan et des catégories / types de flux de référentiel FICTIFS.
+
+    Depuis la Mission 31, une règle de mapping n'est acceptée que si sa catégorie existe dans le
+    référentiel et si son compte existe, actif et de charge, dans le plan comptable : un test qui
+    éprouve la résolution doit donc d'abord poser ce que la règle désigne. `comptes` :
+    (numéro, libellé, type) ; `categories` / `types_flux` : identifiants.
+    """
+    conn = get_db(db_path)
+    try:
+        for compte, libelle, type_compte in comptes:
+            conn.execute("INSERT OR IGNORE INTO plan_comptable (compte, libelle, type_compte, actif) "
+                         "VALUES (?,?,?,1)", (compte, libelle, type_compte))
+        for cid in categories:
+            conn.execute("INSERT OR IGNORE INTO ref_categories_charges (categorie_charge_id, "
+                         "categorie_niveau_1, categorie_niveau_2, actif, import_id) "
+                         "VALUES (?,?,?,?,?)", (cid, "Test", f"Catégorie {cid}", "OUI", IMPORT_TEST))
+        for tid in types_flux:
+            conn.execute("INSERT OR IGNORE INTO ref_types_flux (type_flux_id, type_flux, actif, "
+                         "import_id) VALUES (?,?,?,?)", (tid, tid, "OUI", IMPORT_TEST))
+        conn.commit()
+    finally:
+        conn.close()

@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Compte comptable{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/comptabilite/plan-comptable" class="back-link">← Plan comptable</a>
+  {% if fiche %}<h1 class="page-title">{{ fiche.compte }} — {{ fiche.libelle }}</h1>
+  {% else %}<h1 class="page-title">Compte introuvable</h1>{% endif %}
+</div>
+
+{% if not fiche %}
+<div class="alert alert-warning">Ce compte comptable n'existe pas.</div>
+{% else %}
+{% if message %}<div class="alert alert-success" data-testid="compte-message">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-error" data-testid="compte-erreur">{{ erreur }}</div>{% endif %}
+
+<div class="card mb-md">
+  <dl class="detail-grid">
+    <div><dt>Numéro</dt><dd class="font-mono">{{ fiche.compte }}</dd></div>
+    <div><dt>Type</dt><dd>{{ fiche.type_libelle }}</dd></div>
+    <div><dt>Statut</dt><dd>{% if fiche.actif %}<span class="badge badge-success">● Actif</span>{% else %}<span class="badge badge-neutral">– Désactivé</span>{% endif %}</dd></div>
+    <div><dt>Tiers en auxiliaire</dt><dd>{{ "Oui" if fiche.auxiliaire_autorise else "Non" }}</dd></div>
+    <div><dt>Créé le</dt><dd>{{ fiche.date_creation | datetime_fr if fiche.date_creation else "avant l'historisation du plan" }}</dd></div>
+    <div><dt>Modifié le</dt><dd>{{ fiche.date_modification | datetime_fr if fiche.date_modification else "—" }}</dd></div>
+  </dl>
+  {% if fiche.commentaire %}<p class="mention">{{ fiche.commentaire }}</p>{% endif %}
+  <p data-testid="compte-utilisation">
+    {% if fiche.utilise %}<strong>Compte utilisé</strong> : {{ (([fiche.nb_ecritures ~ " ligne(s) d'écriture"] if fiche.nb_ecritures else []) + ([fiche.nb_od ~ " ligne(s) d'opérations diverses"] if fiche.nb_od else []) + ([fiche.nb_regles ~ " règle(s) de mapping"] if fiche.nb_regles else [])) | join(", ") }}. Il ne peut pas être supprimé ; il peut être désactivé.
+    {% else %}Compte non utilisé à ce jour. Un compte ne se supprime pas : il se désactive.{% endif %}
+  </p>
+  {% if fiche.structurel %}<div class="alert alert-info">Compte utilisé par le moteur comptable ({{ fiche.structurel }}) : il ne peut pas être désactivé.</div>{% endif %}
+</div>
+
+<div class="card mb-md">
+  <h2 class="card-title">Modifier</h2>
+  <form method="post" action="/comptabilite/plan-comptable/{{ fiche.compte }}/modifier" class="detail-grid">
+    <label>Libellé * <input name="libelle" value="{{ fiche.libelle }}" required></label>
+    <label>Commentaire <input name="commentaire" value="{{ fiche.commentaire or '' }}"></label>
+    <label>Motif <input name="motif"></label>
+    <label>Votre nom * <input name="acteur" required></label>
+    <div><button type="submit" class="btn btn-secondary">Enregistrer</button></div>
+  </form>
+  <p class="mention">Le numéro et le type ne se modifient pas : ils font l'identité du compte et le sens des écritures déjà passées.</p>
+</div>
+
+{% if not fiche.structurel %}
+<div class="card mb-md">
+  <h2 class="card-title">{{ "Désactiver" if fiche.actif else "Réactiver" }}</h2>
+  <form method="post" action="/comptabilite/plan-comptable/{{ fiche.compte }}/{{ 'desactiver' if fiche.actif else 'reactiver' }}" class="detail-grid">
+    <label>Motif * <input name="motif" required></label>
+    <label>Votre nom * <input name="acteur" required></label>
+    <div><button type="submit" class="btn {{ 'btn-danger' if fiche.actif else 'btn-secondary' }}" data-testid="compte-changer-etat">{{ "Désactiver le compte" if fiche.actif else "Réactiver le compte" }}</button></div>
+  </form>
+  {% if fiche.actif %}<p class="mention">Désactivé, le compte n'est plus proposé ni accepté pour une nouvelle opération. Une règle de mapping qui le désigne cesse de proposer un compte.</p>{% endif %}
+</div>
+{% endif %}
+
+{% if regles %}
+<div class="card mb-md">
+  <h2 class="card-title">Règles de mapping qui le désignent</h2>
+  <table class="data-table">
+    <thead><tr><th>Catégorie</th><th>Statut</th><th>Début</th><th>Fin</th><th></th></tr></thead>
+    <tbody>{% for r in regles %}<tr>
+      <td>{{ r.cle_libelle }}</td><td>{{ r.statut_libelle }}{% if not r.actif %} · désactivée{% endif %}</td>
+      <td>{{ r.date_debut_validite | date_fr if r.date_debut_validite else "—" }}</td>
+      <td>{{ r.date_fin_validite | date_fr if r.date_fin_validite else "—" }}</td>
+      <td class="col-action">{% if r.portee != 'PROVISOIRE_GENERIQUE' %}<a class="btn btn-ghost btn-sm" href="/comptabilite/mappings/{{ r.regle_id_opaque }}">Voir</a>{% endif %}</td>
+    </tr>{% endfor %}</tbody>
+  </table>
+</div>
+{% endif %}
+
+<div class="card" data-testid="compte-historique">
+  <h2 class="card-title">Historique</h2>
+  {% if historique %}
+  <table class="data-table">
+    <thead><tr><th>Date</th><th>Événement</th><th>Par</th><th>Motif</th></tr></thead>
+    <tbody>{% for h in historique %}<tr>
+      <td class="text-xs">{{ h.horodatage | datetime_fr }}</td>
+      <td>{{ {'CREATION': 'Création', 'MODIFICATION': 'Modification', 'DESACTIVATION': 'Désactivation', 'REACTIVATION': 'Réactivation'}.get(h.type_evenement, h.type_evenement) }}</td>
+      <td>{{ h.acteur }}</td><td class="text-xs">{{ h.motif or "" }}</td>
+    </tr>{% endfor %}</tbody>
+  </table>
+  {% else %}<p class="section-note">Aucun événement enregistré depuis l'historisation du plan comptable.</p>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

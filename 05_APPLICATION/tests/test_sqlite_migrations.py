@@ -10,6 +10,8 @@ EXPECTED_TABLES = {
     # 0112 — Flux financiers : lettrage (rapprochement + comptabilisation), refus humains
     "flux_lettrages", "flux_lettrage_lignes", "flux_lettrage_evenements",
     "flux_propositions_refusees",
+    # 0113 — plan comptable et mappings administrables : journaux des changements
+    "plan_comptable_evenements", "mapping_regle_evenements",
     "schema_migrations",
     "audit_events",
     "pipeline_runs",

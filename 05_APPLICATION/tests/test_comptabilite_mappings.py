@@ -9,8 +9,16 @@ from app.services import comptabilite_mappings_service as maps
 
 @pytest.fixture
 def db(tmp_path):
+    from tests.fixtures_referentiel import semer_comptabilite
     p = tmp_path / "test.db"
     apply_migrations(p)
+    # Mission 31 : une règle ne désigne qu'un compte et une catégorie qui existent.
+    semer_comptabilite(p, comptes=[("606100", "Ménage (test)", "CHARGE"),
+                                   ("606150", "Ménage bis (test)", "CHARGE"),
+                                   ("606200", "Maintenance (test)", "CHARGE"),
+                                   ("627000", "Services bancaires (test)", "CHARGE")],
+                       categories=["CHG_MENAGE", "CHG_MAINT", "CHG_AUTRE"],
+                       types_flux=["TYPE_BANQUE", "TYPE_X"])
     return p
 
 

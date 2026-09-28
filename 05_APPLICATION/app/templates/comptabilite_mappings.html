@@ -4,57 +4,98 @@
 {% block content %}
 <div class="page-header">
   <a href="/comptabilite/plan-comptable" class="back-link">← Plan comptable</a>
-  <h1 class="page-title">Mappings comptables</h1>
-  <p class="page-subtitle">Résolution catégorie/type de flux → compte. PROVISOIRE tant qu'un arbitrage métier ne passe pas la règle en VALIDE.</p>
+  <h1 class="page-title">Mappings catégorie → compte</h1>
+  <p class="page-subtitle">Le compte comptable de chaque catégorie de charge se choisit ici, parmi les
+    comptes de charge actifs du plan comptable. Seule une règle <strong>validée</strong> propose son
+    compte aux opérations à traiter ; sans elle, le compte reste « à définir ». Aucune écriture déjà
+    passée n'est modifiée.</p>
 </div>
 
-{% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
-{% if erreur %}<div class="alert alert-warning">{{ erreur }}</div>{% endif %}
+{% if message %}<div class="alert alert-success" data-testid="mapping-message">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-error" data-testid="mapping-erreur">{{ erreur }}</div>{% endif %}
+
+<div class="alert {{ 'alert-warning' if nb_sans_compte else 'alert-success' }}" data-testid="mapping-synthese">
+  {% if nb_sans_compte %}<strong>{{ nb_sans_compte }} catégorie{{ 's' if nb_sans_compte > 1 }} sur {{ vue|length }}</strong>
+  sans compte comptable validé : paramétrage incomplet.
+  {% else %}Toutes les catégories actives ont un compte validé.{% endif %}
+</div>
 
 <div class="card mb-md">
-  <div class="card-title">Nouvelle règle</div>
-  <form method="post" action="/comptabilite/mappings">
-    <div class="detail-grid">
-      <label>Portée *
-        <select name="portee" required>
-          <option value="CATEGORIE">CATEGORIE</option>
-          <option value="TYPE_FLUX">TYPE_FLUX</option>
-          <option value="PROVISOIRE_GENERIQUE">PROVISOIRE_GENERIQUE</option>
-        </select></label>
-      <label>Clé (catégorie ou type de flux) <input type="text" name="cle" placeholder="CHG_001"></label>
-      <label>Compte cible * <input type="text" name="compte" required placeholder="606100"></label>
-      <label>Statut *
-        <select name="statut" required>
-          <option value="PROVISOIRE">PROVISOIRE</option>
-          <option value="VALIDE">VALIDE</option>
-        </select></label>
-      <label>Date début validité <input type="date" name="date_debut_validite"></label>
-      <label>Date fin validité <input type="date" name="date_fin_validite"></label>
-      <label>Source / justification <input type="text" name="source"></label>
-    </div>
-    <button type="submit" class="btn btn-primary mt-sm">Créer la règle</button>
+  <h2 class="card-title">Catégories de charges</h2>
+  <div class="table-container">
+    <table class="data-table" data-testid="mapping-categories">
+      <thead><tr><th>Catégorie</th><th>Compte</th><th>Statut</th><th>Début</th><th>Fin</th><th class="num">Charges concernées</th><th></th></tr></thead>
+      <tbody>
+        {% for v in vue %}
+        <tr data-testid="mapping-categorie">
+          <td>{{ v.libelle }}</td>
+          <td>{% if v.compte %}<span class="font-mono">{{ v.compte.compte }}</span> — {{ v.compte.libelle }}
+            {% else %}<span class="badge badge-warning" data-testid="compte-a-definir">? Compte comptable à définir</span>
+              {% if v.regle_bloquee %}<span class="mention">règle validée vers {{ v.regle_bloquee.compte }}, non proposée : {{ v.blocage }}</span>
+              {% elif v.regle_provisoire %}<span class="mention">règle provisoire vers {{ v.regle_provisoire.compte }} : non proposée tant qu'elle n'est pas validée</span>{% endif %}
+            {% endif %}</td>
+          <td>{% if v.compte %}<span class="badge badge-success">● Validée</span>{% elif v.regle_bloquee %}<span class="badge badge-warning">⚠ Validée, bloquée</span>{% elif v.regle_provisoire %}<span class="badge badge-info">◑ Provisoire</span>{% else %}<span class="badge badge-neutral">○ Aucune règle</span>{% endif %}</td>
+          <td>{{ v.regle.date_debut_validite | date_fr if v.regle and v.regle.date_debut_validite else "—" }}</td>
+          <td>{{ v.regle.date_fin_validite | date_fr if v.regle and v.regle.date_fin_validite else "—" }}</td>
+          <td class="num">{{ v.nb_charges }}{% if v.nb_charges %}<span class="mention">{{ "%.2f"|format(v.montant) }} € · {{ v.nb_a_traiter }} à comptabiliser</span>{% endif %}</td>
+          <td class="col-action">{% set existante = v.regle or v.regle_bloquee or v.regle_provisoire %}
+            {% if existante %}<a class="btn btn-ghost btn-sm" href="/comptabilite/mappings/{{ existante.regle_id_opaque }}">Voir la règle</a>{% endif %}
+            {% if not v.regle_bloquee %}<a class="btn btn-ghost btn-sm" href="/comptabilite/mappings?categorie={{ v.categorie }}#nouvelle-regle">{{ "Définir le compte" if not v.compte else "Nouvelle règle" }}</a>{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="section-note">Référentiel des catégories de charges non importé.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card mb-md" id="nouvelle-regle" data-testid="mapping-formulaire">
+  <h2 class="card-title">Nouvelle règle</h2>
+  {% if not comptes_charge %}
+  <div class="alert alert-warning">Aucun compte de charge actif dans le plan comptable : ajoutez d'abord le compte voulu dans le <a href="/comptabilite/plan-comptable">plan comptable</a>.</div>
+  {% endif %}
+  <form method="post" action="/comptabilite/mappings/previsualiser" class="detail-grid">
+    <label>Catégorie *
+      <select name="cle" required>
+        <option value="">— choisir —</option>
+        {% for c in categories %}<option value="{{ c.id }}" {{ 'selected' if c.id == categorie_choisie }}>{{ c.libelle }}</option>{% endfor %}
+      </select></label>
+    <label>Compte comptable *
+      <select name="compte" required>
+        <option value="">— choisir un compte de charge actif —</option>
+        {% for c in comptes_charge %}<option value="{{ c.compte }}">{{ c.compte }} — {{ c.libelle }}</option>{% endfor %}
+      </select></label>
+    <label>Statut *
+      <select name="statut" required>
+        {% for code, libelle in statuts.items() %}<option value="{{ code }}">{{ libelle }}</option>{% endfor %}
+      </select></label>
+    <label>Début de validité <input type="date" name="date_debut_validite"></label>
+    <label>Fin de validité <input type="date" name="date_fin_validite"></label>
+    <label>Justification <input name="source" placeholder="qui a arbitré, pourquoi"></label>
+    <label>Votre nom * <input name="acteur" required></label>
+    <div><button type="submit" class="btn btn-primary" data-testid="mapping-previsualiser">Prévisualiser l'impact</button></div>
   </form>
+  <p class="mention">Rien n'est enregistré avant la confirmation qui suit la prévisualisation. Une règle provisoire ne propose aucun compte ; une règle validée le propose aux opérations à traiter.</p>
 </div>
 
 <div class="card">
-  <div class="card-title">Règles existantes ({{ regles|length }})</div>
+  <h2 class="card-title">Toutes les règles ({{ regles|length }})</h2>
   <div class="table-container">
-    <table class="data-table">
-      <thead><tr><th>Portée</th><th>Clé</th><th>Compte</th><th>Statut</th><th>Début</th><th>Fin</th><th>Source</th></tr></thead>
+    <table class="data-table" data-testid="mapping-regles">
+      <thead><tr><th>Catégorie</th><th>Compte</th><th>Statut</th><th>Début</th><th>Fin</th><th></th></tr></thead>
       <tbody>
         {% for r in regles %}
-        <tr>
-          <td>{{ r.portee }}</td>
-          <td>{{ r.cle or "—" }}</td>
-          <td>{{ r.compte }}</td>
-          <td><span class="status-badge status-{{ 'valide' if r.statut == 'VALIDE' else 'a-controler' }}">{{ r.statut }}</span></td>
-          <td>{{ r.date_debut_validite or "—" }}</td>
-          <td>{{ r.date_fin_validite or "—" }}</td>
-          <td>{{ r.source or "—" }}</td>
+        <tr data-testid="mapping-regle">
+          <td>{{ r.cle_libelle }}</td>
+          <td><span class="font-mono">{{ r.compte }}</span> — {{ r.compte_libelle }}{% if not r.compte_actif %} <span class="badge badge-neutral">compte désactivé</span>{% endif %}</td>
+          <td>{% if not r.actif %}<span class="badge badge-neutral">– Désactivée</span>{% elif r.statut == 'VALIDE' %}<span class="badge badge-success">● Validée</span>{% else %}<span class="badge badge-info">◑ Provisoire</span>{% endif %}
+            {% if r.generique %}<span class="mention">journal Achats des factures fournisseurs uniquement — jamais proposé par Flux financiers</span>{% endif %}</td>
+          <td>{{ r.date_debut_validite | date_fr if r.date_debut_validite else "—" }}</td>
+          <td>{{ r.date_fin_validite | date_fr if r.date_fin_validite else "—" }}</td>
+          <td class="col-action">{% if not r.generique %}<a class="btn btn-ghost btn-sm" href="/comptabilite/mappings/{{ r.regle_id_opaque }}">Voir</a>{% endif %}</td>
         </tr>
-        {% else %}
-        <tr><td colspan="7">Aucune règle.</td></tr>
-        {% endfor %}
+        {% else %}<tr><td colspan="6" class="section-note">Aucune règle.</td></tr>{% endfor %}
       </tbody>
     </table>
   </div>
