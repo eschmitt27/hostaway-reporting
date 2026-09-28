@@ -2,27 +2,44 @@
 {% block title %}Administration — Référentiels{% endblock %}
 
 {% block content %}
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+<div class="ecran">
 <div class="page-header">
-  <h1 class="page-title">Administration — Référentiels</h1>
-  <p class="page-subtitle">Les données de paramétrage, administrées en base. REF_Setup n'est plus qu'un import initial.</p>
+  <div class="page-header__titre">
+    <h1 class="page-title">Administration — Référentiels</h1>
+    <p class="page-subtitle">Les données de paramétrage, administrées en base. REF_Setup n'est plus qu'un import initial.</p>
+  </div>
 </div>
 
-{% if message %}<div class="alert alert-success mb-md">{{ message }}</div>{% endif %}
-{% if erreur %}<div class="alert alert-danger mb-md">{{ erreur }}</div>{% endif %}
+{% if message %}<div class="alert alert-success" role="status">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-error" role="alert">{{ erreur }}</div>{% endif %}
 
-<div class="card mb-lg">
-  <h2 class="card-title">Paramètres société &amp; facturation</h2>
-  <p class="text-xs text-secondary">
-    Identité légale, contact, régime de TVA, délai de paiement et mentions imprimées sur les
-    factures. Administrés ici, historisés ; une facture déjà émise garde ses propres valeurs.
-  </p>
-  <a href="/administration/societe-facturation" class="btn btn-secondary">Ouvrir les paramètres</a>
+<div class="fi-raccourcis">
+  <a href="/administration/societe-facturation" class="card fi-raccourci">
+    <span class="fi-raccourci__icone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg></span>
+    <span class="fi-raccourci__texte">
+      <span class="fi-raccourci__titre">Paramètres société &amp; facturation</span>
+      <span class="fi-raccourci__desc">Identité légale, contact, régime de TVA, délai de paiement et mentions imprimées sur les
+      factures. Administrés ici, historisés ; une facture déjà émise garde ses propres valeurs.</span>
+    </span>
+    <span class="fi-raccourci__action">Ouvrir les paramètres</span>
+  </a>
+  <a href="/referentiel-fournisseurs" class="card fi-raccourci">
+    <span class="fi-raccourci__icone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg></span>
+    <span class="fi-raccourci__texte">
+      <span class="fi-raccourci__titre">Fournisseurs &amp; prestataires</span>
+      <span class="fi-raccourci__desc">Référentiel dédié (hors catalogue REF_Setup) : création, modification, désactivation/
+      réactivation, rattachement daté à un logement — jamais de suppression physique.</span>
+    </span>
+    <span class="fi-raccourci__action">Ouvrir</span>
+  </a>
 </div>
 
 {% if not disponible %}
-<div class="alert alert-warning mb-lg">
-  Référentiel non initialisé : aucune donnée de paramétrage n'a encore été importée.
-  Ouvrez <a href="/referentiel-setup">Référentiel Setup</a> pour l'import initial.
+<div class="alert alert-warning fi-alerte-compacte">
+  <div>Référentiel non initialisé : aucune donnée de paramétrage n'a encore été importée.
+  Ouvrez <a href="/referentiel-setup">Référentiel Setup</a> pour l'import initial.</div>
 </div>
 {% endif %}
 
@@ -32,11 +49,11 @@
    titre que les logements — alors qu'en supprimer une ligne casse un calcul sans un mot. #}
 {% macro badge_classe(t) %}
   {% if t.classe == "EDITABLE" %}<span class="badge badge-success">{{ t.libelle_classe }}</span>
-  {% elif t.classe == "DEDICATED_WORKFLOW" %}<span class="badge badge-neutral">{{ t.libelle_classe }}</span>
+  {% elif t.classe == "DEDICATED_WORKFLOW" %}<span class="badge badge-info">{{ t.libelle_classe }}</span>
   {% elif t.classe == "READ_ONLY" %}<span class="badge badge-warning">{{ t.libelle_classe }}</span>
   {% else %}<span class="badge badge-neutral">{{ t.libelle_classe }}</span>{% endif %}
   {% if t.motif_classe %}
-    <div class="text-xs text-secondary">
+    <div class="ec-sous-ligne fi-note-ligne">
       {% if t.url_parcours %}
         {# Nommer le parcours sans y conduire laisse chercher. Quand il a une adresse, on y va. #}
         <a href="{{ t.url_parcours }}">{{ t.motif_classe }}</a>
@@ -46,22 +63,26 @@
 {% endmacro %}
 
 {% for categorie in categories %}
-<div class="card mb-lg">
-  <div class="card-title">{{ categorie.titre }}</div>
-  <p class="text-sm text-secondary mb-md">{{ categorie.description }}</p>
-  <div class="table-container">
-    <table>
+<section class="card">
+  <div class="fi-card-tete">
+    <h2 class="card-title">{{ categorie.titre }}</h2>
+    <span class="fi-compteur">{{ categorie.tables|length }} référentiel{{ 's' if categorie.tables|length > 1 }}</span>
+  </div>
+  <p class="ec-note">{{ categorie.description }}</p>
+  <div class="ec-table-wrap">
+    <table class="data-table fi-table-catalogue">
+      <colgroup><col class="fi-c-nom"><col class="fi-c-cle"><col class="fi-c-nb"><col class="fi-c-classe"><col class="fi-c-action"></colgroup>
       <thead>
-        <tr><th>Référentiel</th><th>Clé</th><th>Lignes</th><th>Modification</th><th></th></tr>
+        <tr><th>Référentiel</th><th>Clé</th><th class="num">Lignes</th><th>Modification</th><th class="fi-col-actions"><span class="sr-only">Action</span></th></tr>
       </thead>
       <tbody>
       {% for t in categorie.tables %}
         <tr>
-          <td>{{ t.libelle }}<div class="text-xs text-secondary font-mono">{{ t.table }}</div></td>
-          <td class="text-xs font-mono">{{ t.cle }}</td>
-          <td class="text-sm">{{ t.nb_lignes }}</td>
-          <td class="text-xs">{{ badge_classe(t) }}</td>
-          <td><a href="/administration/referentiels/{{ t.table }}" class="btn btn-sm">
+          <td><a href="/administration/referentiels/{{ t.table }}" class="fi-cle">{{ t.libelle }}</a><span class="ec-sous-ligne fi-mono">{{ t.table }}</span></td>
+          <td class="fi-mono">{{ t.cle }}</td>
+          <td class="num{{ ' fi-zero' if not t.nb_lignes }}">{{ t.nb_lignes }}</td>
+          <td>{{ badge_classe(t) }}</td>
+          <td class="fi-col-actions"><a href="/administration/referentiels/{{ t.table }}" class="fi-lien-action">
             {{ "Administrer" if t.editable else "Consulter" }}</a></td>
         </tr>
       {% endfor %}
@@ -72,42 +93,37 @@
   {# « Technique » n'est pas « secret » : ces tables sortent de la liste courante — elles
      n'apprennent rien à l'exploitant — mais restent atteignables en dépliant. #}
   {% if categorie.tables_techniques %}
-  <details class="mt-sm">
-    <summary class="text-xs text-secondary">
+  <details class="fi-depliant fi-depliant--ligne">
+    <summary>
       {{ categorie.tables_techniques|length }} référentiel(s) technique(s)
     </summary>
-    <div class="table-container mt-sm">
-      <table>
+    <div class="fi-depliant__corps">
+    <div class="ec-table-wrap">
+      <table class="data-table">
         <tbody>
         {% for t in categorie.tables_techniques %}
           <tr>
-            <td>{{ t.libelle }}<div class="text-xs text-secondary font-mono">{{ t.table }}</div></td>
-            <td class="text-sm">{{ t.nb_lignes }}</td>
-            <td class="text-xs">{{ badge_classe(t) }}</td>
-            <td><a href="/administration/referentiels/{{ t.table }}" class="btn btn-sm">Consulter</a></td>
+            <td><span class="fi-cle">{{ t.libelle }}</span><span class="ec-sous-ligne fi-mono">{{ t.table }}</span></td>
+            <td class="num">{{ t.nb_lignes }}</td>
+            <td>{{ badge_classe(t) }}</td>
+            <td class="fi-col-actions"><a href="/administration/referentiels/{{ t.table }}" class="fi-lien-action">Consulter</a></td>
           </tr>
         {% endfor %}
         </tbody>
       </table>
     </div>
+    </div>
   </details>
   {% endif %}
-</div>
+</section>
 {% endfor %}
 
-<div class="card mb-lg">
-  <div class="card-title">Fournisseurs &amp; prestataires</div>
-  <p class="text-sm text-secondary mb-md">
-    Référentiel dédié (hors catalogue REF_Setup) : création, modification, désactivation/
-    réactivation, rattachement daté à un logement — jamais de suppression physique.
-  </p>
-  <a href="/referentiel-fournisseurs" class="btn btn-sm">Ouvrir</a>
-</div>
-
-<div class="alert alert-info">
-  Les référentiels <strong>historisés</strong> (rattachement de gestion, taux de commission, coûts
+<div class="alert alert-info fi-alerte-compacte">
+  <div>Les référentiels <strong>historisés</strong> (rattachement de gestion, taux de commission, coûts
   standards ménage) ne s'éditent pas directement : ils se modifient depuis leur parcours dédié
   (fiche logement, ou écran ci-dessus pour les coûts ménage), qui clôture la période en cours et en
-  ouvre une nouvelle. Une période passée n'est jamais réécrite.
+  ouvre une nouvelle. Une période passée n'est jamais réécrite.</div>
 </div>
+</div>
+<script src="/static/js/finitions.js" defer></script>
 {% endblock %}
