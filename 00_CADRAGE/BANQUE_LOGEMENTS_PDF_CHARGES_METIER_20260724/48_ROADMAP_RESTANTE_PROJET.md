@@ -578,3 +578,13 @@ réel)** :
   modifiée. Détail : `SCHEDULER_HOSTAWAY.md` §13.
 - **Prochaine action** : mission « référentiels administrables », désignée par la consigne de la
   mission 28 comme sa suite — non commencée.
+
+**Mis à jour 2026-09-28 (Flux financiers — FONCTIONNEL)** : Banque, Caisse, Charges et Rapprochement
+réunis sous une entrée « Flux financiers » ; lettrage atomique rapprochement + comptabilisation ; aucun
+repli silencieux sur `606000` ; circuit apport/retrait atomique. Détail : `HANDOFF_CANONIQUE.md`
+Mission 30, `JOURNAL_CONTROLES.md` `CTR-FLUX-FINANCIERS-2026-09-28`.
+- **Arbitrages ouverts** : mapping catégorie → compte (27 catégories, plan comptable à un seul compte de
+  charge) ; charge `CHG-fc93f74a63d1` (700 €).
+- **Prochaine action** : plan comptable et mappings administrables (sans créer ni déduire de compte), puis
+  clôture branchée sur les statuts Flux et première clôture réelle (septembre 2026). Supersède la
+  « prochaine action » de la mise à jour du 2026-09-13.

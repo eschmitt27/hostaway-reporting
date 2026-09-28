@@ -3,6 +3,9 @@
 Document unique de reprise. Toute nouvelle session lit CE fichier en premier.
 Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais recréer à côté.
 
+> **État courant (2026-09-28)** : lire d'abord la **dernière section** (Mission 30 — Flux financiers).
+> Le tableau « Contexte technique » ci-dessous est historique (état du 2026-08-02).
+
 ## Contexte technique
 
 | Élément | Valeur |
@@ -3714,3 +3717,110 @@ pièce, facture À CONTRÔLER) puis « Ajouter une ligne manquante » — rien n
 **Côté utilisateur : résoudre les deux factures de juillet depuis l'écran** — `0005` par « Écarter :
 extraction incorrecte », `2026-40` par « Ajouter une ligne manquante » — puis décider `590757` depuis
 Correspondances logement. Aucune correction logicielle n'est en attente pour la recette n°3.
+
+---
+
+## Mission 30 (2026-09-28) — Flux financiers : FONCTIONNEL, bloc clos
+
+### État
+
+| Élément | Valeur |
+|---|---|
+| **FLUX_FINANCIERS** | **FONCTIONNEL** (périmètre actuel) |
+| Branche | `resume/pilotage-conciergerie-20260909`, synchronisée avec `origin` |
+| HEAD code du bloc | `ad00144` (module) puis **`d16cff9`** (finalisation). Ce fichier est porté par le commit documentaire suivant, dont le SHA ne peut pas y figurer |
+| Migration | **0112** (additive), appliquée à la base réelle le 2026-09-28 |
+| PR Cloud #4 | non touchée, non fusionnée |
+| Arbre | propre, hors les 15 PDF `01_SOURCES_BRUTES/MenagesExternes/` volontairement non suivis (inchangés) |
+
+### Continuité — ce que ce handoff ne portait pas encore
+
+Entre la Mission 29 et ce bloc, le travail est tracé dans `JOURNAL_CONTROLES.md` et l'historique Git, pas
+ici : recette utilisateur n°4 lot 1 (`CTR-RECETTE4-LOT1-2026-09-18`) ; import RAW Qonto en lecture seule,
+validation humaine d'un mouvement Qonto, comptes courants d'associés `467000 → 455100` (2026-09-20/21) ;
+Missions 1 + 3 + 4 — actualisation Ménages par workflow GitHub, factures fournisseurs par un seul
+importeur, paramètres société & facturation en base, migrations 0110-0111 (entrée du 2026-09-24) ;
+refonte frontend « Nouvelle saisie charge » (PR #3, `7fb2616`).
+
+### Ce que le bloc a livré
+
+- **Une entrée de navigation « Flux financiers »**, quatre pages distinctes : `/flux-financiers/banque`,
+  `/caisse`, `/charges`, `/rapprochement`. Anciennes adresses (`/banques-caisse`, `/caisse`, `/charges`,
+  `/fournisseurs`) redirigées ; sous-écrans historiques (import Crédit Mutuel, contrôles, fiche Qonto
+  « Traiter ») conservés et accessibles depuis l'onglet Banque.
+- **Deux statuts par mouvement**, jamais confondus : rapprochement (non matché, matché, partiel, rapproché,
+  anomalie) et comptabilité (à qualifier, à comptabiliser, comptabilisé, erreur).
+- **Moteur de propositions** (1↔1, 1↔2, 1↔3, 2↔1, 3↔1, 2↔2, écart ≤ 0,10 €), confiance forte / moyenne /
+  faible avec raisons ; il propose, il ne valide jamais.
+- **Lettrage** (`flux_lettrages`) : « Valider le rapprochement et comptabiliser » écrit en UNE transaction
+  le lettrage, les liens `banque_rapprochements`, le règlement canonique et l'écriture, relue et modifiable
+  avant validation. Annulation par contrepassation, motif obligatoire.
+- **Charge créée depuis un mouvement** : formulaire de charge existant, prérempli, toujours comptable.
+- **Création de fournisseur à la volée** : doublons et noms génériques refusés, aucun identifiant inventé.
+- **Circuit historique apport d'associé / retrait Banque → Caisse** rendu atomique (une transaction SQLite).
+
+### Garde-fous acquis — à conserver
+
+1. Aucun repli silencieux sur `606000`.
+2. Une catégorie sans règle validée reste « **Compte comptable à définir** ».
+3. Aucun compte comptable inventé.
+4. Seules les règles **VALIDÉES** de `mapping_comptable_regles` proposent automatiquement un compte.
+5. Une charge ne se valide pas sur un compte inexistant, inactif ou hors classe 6.
+6. Une charge liée à un mouvement Banque ou Caisse n'est jamais « hors comptabilité » (création,
+   modification et validation du contrôle refusées). Une charge générale peut toujours l'être.
+7. Apport d'associé et retrait/transfert caisse : transactionnels et atomiques.
+8. En cas d'échec : aucun rapprochement partiel, aucune écriture partielle.
+9. Facture fournisseur validée → `401/512` seulement ; facture propriétaire émise → `512/411` seulement ;
+   charge directe → `6xx/512` sans dette inventée ; `401`/`411` exigent un tiers nommé.
+10. Mois clôturé (clôture mensuelle ou période comptable) : aucun rapprochement ni écriture.
+
+### Tests
+
+| Périmètre | Résultat |
+|---|---|
+| `test_flux_financiers.py` | **57 passed** |
+| Régression concernée (Qonto, comptabilité, charges, caisse, rapprochement, migrations, navigation) | **743 passed / 8 skipped** |
+| Ensemble ciblé du module (2026-09-28, 92 fichiers) | 1 718 passed / 16 skipped |
+| Recette sur copie de la base réelle | module **20/20** · finalisation **11/11** |
+
+Suite complète non rejouée pendant ce bloc (tests ciblés, par consigne).
+
+### Base réelle
+
+Schéma **0112**. `integrity_check` **ok**, `foreign_key_check` **0**. **Aucune écriture réelle** par le
+module : 0 lettrage, 4 rapprochements et 4 écritures, identiques à l'état d'avant. Sauvegardes :
+`data/backups/app_avant_migration_0112_flux_financiers_20260928T015048.db` (avant migration) et
+`app_avant_finalisation_flux_20260928T112816.db`. Aucune donnée métier modifiée, mappings inchangés.
+
+### Qonto
+
+Strictement **GET-only** (le client refuse toute autre méthode). 13 transactions, du 2026-09-11 au
+2026-09-26 : aucun mouvement bancaire de la SAS n'est connu avant le 11/09.
+
+### Arbitrages humains ouverts — ne pas résoudre automatiquement
+
+- **A. Mapping catégorie → compte.** Les 27 catégories actives n'ont aucune règle validée ; seule la règle
+  provisoire générique `606000` existe, et le plan comptable ne compte qu'**un** compte de charge. Le
+  cadrage `46`/`70` laisse ce mapping non arbitré. Choix à faire par l'utilisateur dans Comptabilité ›
+  Mappings. **Limite constatée** : le plan comptable n'est pas administrable dans l'application (écran en
+  lecture seule, aucun ajout de compte possible) et le formulaire de mapping est en texte libre — l'arbitrage
+  ne peut donc pas encore être rendu depuis l'écran.
+- **B. Charge `CHG-fc93f74a63d1` (700 €).** Datée du 09/08/2026, Maintenance / réparation logement, hors
+  comptabilité, mode « banque professionnelle », contrôle validé ; aucun lien, rapprochement ni écriture ;
+  commentaire et justificatif à l'allure de saisies de test. Aucun mouvement correspondant : Qonto ne
+  commence que le 11/09, aucun relevé Crédit Mutuel importé. **Ne pas modifier.** Pour trancher : le relevé
+  bancaire d'août portant ce paiement, ou la confirmation qu'il s'agit d'une saisie de test à annuler.
+
+Autres actions utilisateur en attente, sans blocage logiciel : retrait de 20 € du 21/09 à comptabiliser
+(transfert 530/512) ; deux écritures de vente `PROPOSEE` à valider en Comptabilité ; 15 factures
+fournisseurs « À contrôler » (aucune dette 401 tant qu'elles ne sont pas validées) ;
+`FACTURES_REAL_WRITE_*` vides dans `.env` (le paiement d'une facture fournisseur depuis Flux est refusé
+tant qu'ils ne sont pas renseignés) ; `ORDONNANCEUR_ACTIF` vide (scheduler Hostaway OFF).
+
+### Prochaine action unique
+
+**Mission « Plan comptable et mappings administrables »** — rendre l'arbitrage A possible depuis
+l'application, sans créer ni déduire aucun compte : ajout / désactivation de comptes par l'utilisateur
+(jamais de suppression), écran de mapping par libellé de catégorie et liste de comptes actifs de classe 6,
+refus d'une règle vers un compte absent. Puis : brancher le contrôle de clôture « lignes bancaires non
+classées » sur les statuts Flux, et conduire la première clôture réelle (septembre 2026).

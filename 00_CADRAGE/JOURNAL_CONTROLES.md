@@ -5741,3 +5741,41 @@ société (valeurs documentées du Kbis 2026-09-10, audités) ; une ligne de tra
 échec (jeton absent). `integrity_check` ok, `foreign_key_check` 0.
 
 **Suite complète** : 4 290 tests passent (après mise à jour de l'inventaire des tables de `test_sqlite_migrations.py`), 37 sautés.
+
+---
+
+## CTR-FLUX-FINANCIERS-2026-09-28 — Banque, Caisse, Charges, Rapprochement : bloc FONCTIONNEL
+
+**Périmètre.** Module « Flux financiers » (`ad00144`) puis finalisation (`d16cff9`), branche
+`resume/pilotage-conciergerie-20260909`. Migration 0112 (additive : `flux_lettrages`,
+`flux_lettrage_lignes`, `flux_lettrage_evenements`, `flux_propositions_refusees`,
+`banque_rapprochements.lettrage_id_opaque`). Aucune table métier fusionnée.
+
+**Méthode.** Audit de l'existant avant code (routes Banque, tables Qonto, rapprochements, moteur
+d'écritures, règlements, caisse, mappings, clôtures), réutilisation des services canoniques par un
+paramètre `conn` optionnel (comportement par défaut inchangé), recette des scénarios comptables sur
+**copie** de `app.db`, jamais sur la base réelle.
+
+**Contrôles.**
+
+| Contrôle | Résultat |
+|---|---|
+| `test_flux_financiers.py` (35 points du cahier + finalisation) | 57 passed |
+| Régression concernée | 743 passed / 8 skipped |
+| Ensemble ciblé du module | 1 718 passed / 16 skipped |
+| Recette copie — module | 20/20 (charge depuis mouvement, 6xx/512, annulation par contrepassation, refus sans effet, partiel, fournisseur et doublon, mois clôturé, intégrité) |
+| Recette copie — finalisation | 11/11 (27 catégories « à définir », refus sans choix de compte, choix explicite accepté, cas 700 € sans mouvement, retrait 20 € : échec → rollback complet puis succès 530/512) |
+
+**Deux défauts de l'existant trouvés et corrigés.** La validation Qonto historique écrivait le
+rapprochement et l'écriture sur deux connexions distinctes (rapprochement orphelin possible) — désormais
+une seule transaction. Le paiement bancaire d'une facture fournisseur ne produisait aucune écriture 401/512
+— produit par le lettrage.
+
+**Base réelle.** Sauvegarde avant migration (`app_avant_migration_0112_flux_financiers_20260928T015048.db`)
+et avant finalisation (`app_avant_finalisation_flux_20260928T112816.db`). Après : schéma 0112,
+`integrity_check` ok, `foreign_key_check` 0, aucune écriture réelle (0 lettrage ; rapprochements et
+écritures inchangés). Qonto GET-only.
+
+**Réserves, laissées à l'utilisateur.** Mapping catégorie → compte non arbitré (27 catégories « à
+définir ») ; charge `CHG-fc93f74a63d1` (700 €) sans mouvement correspondant, non modifiée. Détail :
+`HANDOFF_CANONIQUE.md`, Mission 30.
