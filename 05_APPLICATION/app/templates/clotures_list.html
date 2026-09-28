@@ -19,6 +19,11 @@
   moteur.
 </div>
 
+<form method="get" action="/clotures/mois" class="filter-bar mt-md" data-testid="choix-periode">
+  <label>Contrôler un mois <input type="month" name="mois"></label>
+  <button type="submit" class="btn btn-secondary">Afficher son état</button>
+</form>
+
 <form method="get" action="/clotures" class="filter-bar mt-md">
   <label>Statut <select name="statut"><option value="">Tous</option>
     {% for k, v in statuts.items() %}<option value="{{ k }}" {{ 'selected' if k == applied.statut }}>{{ v }}</option>{% endfor %}</select></label>
@@ -30,13 +35,14 @@
 <div class="card mt-md">
   <div class="table-container">
     <table class="data-table">
-      <thead><tr><th>Mois</th><th>Statut</th><th>Bloqueurs</th><th>À traiter</th><th>Résolus</th>
+      <thead><tr><th>Mois</th><th>Statut</th><th>État du mois</th><th>Bloqueurs</th><th>À traiter</th><th>Résolus</th>
         <th>Exceptions</th><th>Informatifs</th><th>Dernière action</th><th></th></tr></thead>
       <tbody>
         {% for l in lignes %}
         <tr>
-          <td class="font-mono text-xs">{{ l.mois }}</td>
+          <td><a href="/clotures/mois/{{ l.mois }}">{{ l.progression.mois_fr }}</a></td>
           <td><span class="status-badge status-{{ 'valide' if l.statut == 'VALIDEE' else ('bloquant' if l.progression.nb_bloqueurs > 0 else 'info') }}">{{ l.statut_libelle }}</span></td>
+          <td class="text-xs" data-testid="etat-liste">{{ l.progression.etat_libelle }}</td>
           <td>{{ l.progression.nb_bloqueurs }}</td>
           <td>{{ l.progression.nb_a_traiter }}</td>
           <td>{{ l.progression.nb_resolus }}</td>
@@ -54,7 +60,7 @@
             {% endif %}
           </td>
         </tr>
-        {% else %}<tr><td colspan="9" class="section-note">Aucun mois pour ces filtres.</td></tr>{% endfor %}
+        {% else %}<tr><td colspan="10" class="section-note">Aucun mois pour ces filtres.</td></tr>{% endfor %}
       </tbody>
     </table>
   </div>

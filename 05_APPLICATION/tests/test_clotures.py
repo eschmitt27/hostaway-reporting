@@ -17,6 +17,15 @@ MOIS_TEST = "2099-01"
 MOIS_TEST2 = "2099-02"
 
 
+@pytest.fixture(autouse=True)
+def _mois_de_test_termines(monkeypatch):
+    """Mission 32 : seul un mois TERMINÉ se valide. Les mois de test de ce fichier (2098-2099)
+    éprouvent l'automate, pas le calendrier : on se place après eux. La garde du calendrier a ses
+    propres tests (`test_cloture_flux_financiers.py`)."""
+    from datetime import date
+    monkeypatch.setattr(cs, "aujourdhui", lambda: date(2100, 1, 1))
+
+
 def _sha(p):
     return hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else None
 

@@ -6,10 +6,21 @@ bloc, jamais toute la page. app.db isolée (fixture tmp_db/client).
 """
 import inspect
 
+import pytest
+
 import app.config as cfg
 from app.services import clotures_service as cs
 from app.services import pilotage_mensuel_export_service as export_svc
 from app.services import pilotage_mensuel_service as svc
+
+
+@pytest.fixture(autouse=True)
+def _mois_de_test_termines(monkeypatch):
+    """Mission 32 : seul un mois TERMINÉ se valide. Les mois de test de ce fichier (2098-2099)
+    éprouvent l'automate, pas le calendrier : on se place après eux. La garde du calendrier a ses
+    propres tests (`test_cloture_flux_financiers.py`)."""
+    from datetime import date
+    monkeypatch.setattr(cs, "aujourdhui", lambda: date(2100, 1, 1))
 
 
 # ── 1-2 : agrégation correcte / cohérente avec APP-5C ─────────────────────────

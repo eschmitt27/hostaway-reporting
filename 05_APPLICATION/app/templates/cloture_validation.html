@@ -23,6 +23,8 @@
 </div>
 {% endif %}
 
+{% include "_cloture_bilan_mois.html" %}
+
 <div class="card mb-md">
   <h2 class="card-title">Résumé (état courant — recalculé à chaque validation)</h2>
   <dl class="detail-grid">
@@ -41,12 +43,15 @@
       <label for="f-commentaire">Commentaire final (requis)</label>
       <textarea id="f-commentaire" name="commentaire" class="filter-input" required></textarea>
     </div>
-    <button type="submit" class="btn btn-primary mt-md" {{ 'disabled' if not progression.cloturable }}>
+    <button type="submit" class="btn btn-primary mt-md" {{ 'disabled' if not progression.cloture_autorisee }}>
       Valider la clôture
     </button>
-    {% if not progression.cloturable %}
-    <p class="section-note mt-sm">Bouton désactivé : {{ progression.nb_bloqueurs }} bloqueur(s) subsiste(nt).</p>
+    {% if progression.refus_temporel %}
+    <p class="section-note mt-sm" data-testid="validation-indisponible">Bouton désactivé : {{ progression.refus_temporel }}</p>
+    {% elif not progression.cloturable %}
+    <p class="section-note mt-sm" data-testid="validation-indisponible">Bouton désactivé : {{ progression.nb_bloqueurs }} bloqueur(s) subsiste(nt).</p>
     {% endif %}
+    <p class="section-note mt-sm">Le serveur refait ces contrôles au moment de la validation, quel que soit l'état de ce bouton.</p>
   </form>
 </div>
 
