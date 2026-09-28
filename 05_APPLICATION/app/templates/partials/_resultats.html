@@ -1,0 +1,63 @@
+{#- Pièces communes aux écrans Résultats — présentation uniquement.
+    Les `name` et `value` des formulaires restent ceux du moteur (REEL, COMPTABLE, HORS_COMPTA,
+    AAAA-MM) : seul le texte lu est traduit. Aucune valeur n'est recalculée ici. -#}
+
+{% set VISIONS = {"REEL": "Réel", "COMPTABLE": "Comptable", "HORS_COMPTA": "Hors comptabilité"} %}
+
+{% macro vision_libelle(v) -%}{{ VISIONS.get(v, v) }}{%- endmacro %}
+
+{#- Montant : deux décimales (comme la source), signe euro, rouge seulement s'il est négatif. -#}
+{% macro eur(v) -%}
+  {%- if v is none -%}<span class="fi-zero">—</span>
+  {%- else -%}<span class="fi-montant{{ ' fi-montant--negatif' if v < 0 }}">{{ "%.2f"|format(v) }} €</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{#- Barre de période des écrans d'analyse : Mois (et Vision si l'écran en a une). -#}
+{% macro filtre(mois_disponibles, mois, vision=none, toutes=false, export=none) -%}
+<form method="get" class="ec-filtres" data-fi-filtres>
+  <label class="ec-champ"><span>Mois</span>
+    <select name="mois">
+      {% if toutes %}<option value="">Toutes périodes</option>{% endif %}
+      {% for m in mois_disponibles %}<option value="{{ m }}" {{ 'selected' if m == mois }}>{{ m|mois_humain }}</option>{% endfor %}
+      {% if not mois_disponibles and not toutes %}<option value="">Aucun mois disponible</option>{% endif %}
+    </select></label>
+  {% if vision is not none %}
+  <label class="ec-champ"><span>Vision</span>
+    <select name="vision" data-fi-neutre>
+      {% for v in ["REEL","COMPTABLE","HORS_COMPTA"] %}<option value="{{ v }}" {{ 'selected' if v == vision }}>{{ VISIONS[v] }}</option>{% endfor %}
+    </select></label>
+  {% endif %}
+  <div class="ec-filtres__actions">
+    {% if export %}<a href="{{ export }}" class="btn btn-ghost">Exporter CSV</a>{% endif %}
+    <button type="submit" class="btn btn-primary">Appliquer</button>
+  </div>
+</form>
+{%- endmacro %}
+
+{#- Résultat absent : une phrase, jamais un code en gros caractères. Le code reste lisible par
+    les outils (attribut `data-statut`). -#}
+{% macro indisponible(titre, texte="", statut="NON_DISPONIBLE") -%}
+<div class="card fi-vide" data-statut="{{ statut }}">
+  <span class="fi-vide__icone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18M7 15l4-6 4 3 5-8"/></svg></span>
+  <span class="fi-vide__titre">{{ titre }}</span>
+  {% if texte %}<span class="fi-vide__texte">{{ texte }}</span>{% endif %}
+</div>
+{%- endmacro %}
+
+{#- En-tête d'un écran d'analyse : retour, titre, période et vision en badges. -#}
+{#- Les actions éventuelles se passent par `{% call %}`. -#}
+{% macro entete(titre, retour_href="/resultats", retour_libelle="Résultats", mois=none, vision=none, sous_titre="") -%}
+<div class="page-header">
+  <div class="page-header__titre">
+    <a href="{{ retour_href }}" class="back-link">← {{ retour_libelle }}</a>
+    <h1 class="page-title">{{ titre }}</h1>
+    <p class="page-subtitle fi-sous-titre">
+      {% if mois %}<span class="periode-active">{{ mois|mois_humain }}</span>{% elif mois is not none %}<span class="periode-active">Aucun mois</span>{% endif %}
+      {% if vision %}<span class="badge badge-info">Vision : {{ VISIONS.get(vision, vision) }}</span>{% endif %}
+      {% if sous_titre %}<span>{{ sous_titre }}</span>{% endif %}
+    </p>
+  </div>
+  {% if caller is defined %}<div class="page-header__actions">{{ caller() }}</div>{% endif %}
+</div>
+{%- endmacro %}

@@ -2,55 +2,59 @@
 {% block title %}Résultats — Fournisseur {{ fournisseur_id_opaque | nom_fournisseur }}{% endblock %}
 
 {% block content %}
-<div class="page-header">
-  <a href="/resultats/fournisseurs" class="back-link">← Fournisseurs</a>
-  <h1 class="page-title">{{ fournisseur_id_opaque | nom_fournisseur }}</h1>
-</div>
-
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+{% import "partials/_resultats.html" as r %}
+<div class="ecran">
+{{ r.entete(fournisseur_id_opaque | nom_fournisseur, retour_href="/resultats/fournisseurs", retour_libelle="Fournisseurs") }}
 {% if resultat.statut != "OK" %}
-<div class="alert alert-warning">NON_DISPONIBLE — aucun mouvement comptable pour ce fournisseur.</div>
+{{ r.indisponible("Aucun mouvement comptable pour ce fournisseur", "Rien n'a encore été comptabilisé sur ce tiers.") }}
 {% else %}
-<div class="kpi-grid mb-md">
-  <div class="kpi-card"><div class="kpi-label">Débit</div><div class="kpi-value">{{ "%.2f"|format(resultat.fiche.solde.debit) }}</div></div>
-  <div class="kpi-card"><div class="kpi-label">Crédit</div><div class="kpi-value">{{ "%.2f"|format(resultat.fiche.solde.credit) }}</div></div>
-  <div class="kpi-card"><div class="kpi-label">Solde (dette)</div><div class="kpi-value">{{ "%.2f"|format(resultat.fiche.solde.solde) }}</div></div>
+<div class="fi-kpis">
+  <div class="fi-kpi"><span class="fi-kpi__label">Débit</span><span class="fi-kpi__valeur">{{ r.eur(resultat.fiche.solde.debit) }}</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Crédit</span><span class="fi-kpi__valeur">{{ r.eur(resultat.fiche.solde.credit) }}</span></div>
+  <div class="fi-kpi fi-kpi--hero"><span class="fi-kpi__label">Solde (dette)</span><span class="fi-kpi__valeur">{{ r.eur(resultat.fiche.solde.solde) }}</span></div>
 </div>
 
-<div class="card mb-md">
-  <div class="card-title">Éléments ouverts ({{ resultat.fiche.elements_ouverts|length }})</div>
-  <div class="table-container">
+<section class="card">
+  <div class="fi-card-tete"><h2 class="card-title">Éléments ouverts</h2><span class="fi-compteur">{{ resultat.fiche.elements_ouverts|length }}</span></div>
+  {% if resultat.fiche.elements_ouverts %}
+  <div class="ec-table-wrap">
     <table class="data-table">
       <thead><tr><th>Type</th><th>Identifiant</th><th class="num">Montant</th><th>Statut</th></tr></thead>
       <tbody>
         {% for el in resultat.fiche.elements_ouverts %}
-        <tr><td>{{ el.type }}</td><td>{{ el.identifiant }}</td>
-          <td class="num">{{ "%.2f"|format(el.montant) }}</td><td>{{ el.statut }}</td></tr>
-        {% else %}
-        <tr><td colspan="4">Aucun élément ouvert.</td></tr>
+        <tr><td>{{ el.type|libelle_statut }}</td><td class="fi-mono">{{ el.identifiant }}</td>
+          <td class="num">{{ r.eur(el.montant) }}</td><td><span class="status-badge status-a-controler">{{ el.statut|libelle_statut }}</span></td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-</div>
+  {% else %}
+  <div class="fi-vide fi-vide--compact"><span class="fi-vide__titre">Aucun élément ouvert.</span></div>
+  {% endif %}
+</section>
 
-<div class="card">
-  <div class="card-title">Mouvements ({{ resultat.fiche.mouvements|length }})</div>
-  <div class="table-container">
+<section class="card">
+  <div class="fi-card-tete"><h2 class="card-title">Mouvements</h2><span class="fi-compteur">{{ resultat.fiche.mouvements|length }}</span></div>
+  <div class="ec-table-wrap">
     <table class="data-table">
       <thead><tr><th>Écriture</th><th>Journal</th><th>Date</th><th class="num">Débit</th><th class="num">Crédit</th><th>Statut</th></tr></thead>
       <tbody>
         {% for m in resultat.fiche.mouvements %}
         <tr>
-          <td><a href="/resultats/lignes/{{ m.ecriture_id_opaque }}">{{ m.ecriture_id_opaque }}</a></td>
-          <td>{{ m.journal }}</td><td>{{ m.date_ecriture }}</td>
-          <td class="num">{{ "%.2f"|format(m.debit) if m.debit else "" }}</td>
-          <td class="num">{{ "%.2f"|format(m.credit) if m.credit else "" }}</td>
-          <td><span class="badge">{{ m.statut }}</span></td>
+          <td class="fi-mono ec-nowrap"><a href="/resultats/lignes/{{ m.ecriture_id_opaque }}">{{ m.ecriture_id_opaque }}</a></td>
+          <td>{{ m.journal }}</td><td class="ec-nowrap">{{ m.date_ecriture|date_fr or m.date_ecriture }}</td>
+          <td class="num">{{ r.eur(m.debit) if m.debit else "" }}</td>
+          <td class="num">{{ r.eur(m.credit) if m.credit else "" }}</td>
+          <td><span class="status-badge">{{ m.statut|libelle_statut }}</span></td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-</div>
+</section>
 {% endif %}
+</div>
+<script src="/static/js/finitions.js" defer></script>
 {% endblock %}

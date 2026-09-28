@@ -2,32 +2,34 @@
 {% block title %}Catégorie {{ categorie }}{% endblock %}
 
 {% block content %}
-<div class="page-header">
-  <a href="/resultats/categories" class="back-link">← Catégories</a>
-  <h1 class="page-title">{{ categorie }}</h1>
-</div>
-
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+{% import "partials/_resultats.html" as r %}
+<div class="ecran">
+{{ r.entete(categorie, retour_href="/resultats/categories", retour_libelle="Catégories") }}
 {% if resultat.statut != "OK" %}
-<div class="alert alert-warning">NON_DISPONIBLE — aucune charge pour cette catégorie.</div>
+{{ r.indisponible("Aucune charge pour cette catégorie", "La catégorie existe mais ne porte aucune ligne dans la source.") }}
 {% else %}
-<div class="kpi-grid mb-md">
-  <div class="kpi-card"><div class="kpi-label">Montant total</div><div class="kpi-value">{{ "%.2f"|format(resultat.montant_total) }}</div></div>
-  <div class="kpi-card"><div class="kpi-label">Nb lignes</div><div class="kpi-value">{{ resultat.lignes|length }}</div></div>
+<div class="fi-kpis">
+  <div class="fi-kpi"><span class="fi-kpi__label">Montant total</span><span class="fi-kpi__valeur">{{ r.eur(resultat.montant_total) }}</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Nb lignes</span><span class="fi-kpi__valeur">{{ resultat.lignes|length }}</span></div>
 </div>
-<div class="table-container">
+<div class="ec-table-wrap">
   <table class="data-table">
-    <thead><tr><th>Charge</th><th>Logement</th><th>Fournisseur</th><th class="num">Montant</th></tr></thead>
+    <thead><tr><th>Charge</th><th class="ec-col-nom">Logement</th><th class="ec-col-nom">Fournisseur</th><th class="num">Montant</th></tr></thead>
     <tbody>
       {% for c in resultat.lignes %}
       <tr>
-        <td>{{ c.charge_id }}</td>
-        <td>{{ c.logement_id or "—" }}</td>
-        <td>{{ c.fournisseur_id_opaque or "—" }}</td>
-        <td class="num">{{ "%.2f"|format(c.montant|float) if c.montant is not none else "—" }}</td>
+        <td class="fi-mono ec-nowrap">{{ c.charge_id }}</td>
+        <td>{{ ((c.logement_id | nom_logement) or c.logement_id) if c.logement_id else "—" }}</td>
+        <td>{{ ((c.fournisseur_id_opaque | nom_fournisseur) or c.fournisseur_id_opaque) if c.fournisseur_id_opaque else "—" }}</td>
+        <td class="num">{{ r.eur(c.montant|float) if c.montant is not none else "—" }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
 {% endif %}
+</div>
+<script src="/static/js/finitions.js" defer></script>
 {% endblock %}
