@@ -31,7 +31,9 @@ Nouvelle table `mapping_comptable_regles` (migration `0024`), historisée, à tr
 
 `comptabilite_mappings_service.resoudre_compte(categorie_charge_id, type_flux_id, date_reference)`
 implémente l'ordre de résolution exact du brief : exact catégorie actif à la date → type de flux →
-provisoire catégorie-spécifique → provisoire générique → filet absolu. Un mapping dont
+provisoire catégorie-spécifique → provisoire générique → filet absolu **[filet absolu SUPPRIMÉ en
+Mission 31 : sans aucune règle, le résolveur rend un compte vide (`AUCUNE_REGLE`), plus `606000` codé en
+dur ; une règle désactivée n'est plus utilisée]**. Un mapping dont
 `date_fin_validite` est dépassée, ou dont `date_debut_validite` n'est pas encore atteinte, n'est
 JAMAIS utilisé — vérifié par test (`test_mapping_expire_ignore`,
 `test_mapping_pas_encore_actif_ignore`), et deux mappings sur la même catégorie à des périodes
@@ -44,7 +46,14 @@ par le contrôle `CTRL_CPT_MAPPING_CATEGORIE_NON_ARBITRE` — les deux tables co
 délibérément (une pour le signalement d'arbitrage en attente, une pour la règle réellement
 appliquée), comme `REF_Logements`/`REF_Gestion_Logements_Hist` dans les sources réelles.
 
-Écran : `/comptabilite/mappings` (liste + création de règle).
+> **SUPERSÉDÉ (Mission 31, 2026-09-28)** : `mapping_comptable_regles` est la seule source canonique ;
+> `mapping_categorie_compte` est vide et n'a plus de rôle de signalement effectif. Le signalement
+> d'arbitrage en attente est la synthèse de l'écran Mappings (catégories sans compte validé).
+
+Écran : `/comptabilite/mappings` (liste + création de règle). **Mission 31** : vue par catégorie,
+listes contrôlées (catégories du référentiel, comptes de charge actifs), validations serveur, périodes,
+statuts, prévisualisation d'impact, fiche et historique par règle, désactivation (jamais de suppression).
+Détail : `46` (section Mission 31) et `HANDOFF_CANONIQUE.md` Mission 31.
 
 ## 2. Ventilation analytique — `generer_ecriture_achat` refondu
 

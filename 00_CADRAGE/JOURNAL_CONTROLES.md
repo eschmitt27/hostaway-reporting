@@ -5779,3 +5779,39 @@ et avant finalisation (`app_avant_finalisation_flux_20260928T112816.db`). Après
 **Réserves, laissées à l'utilisateur.** Mapping catégorie → compte non arbitré (27 catégories « à
 définir ») ; charge `CHG-fc93f74a63d1` (700 €) sans mouvement correspondant, non modifiée. Détail :
 `HANDOFF_CANONIQUE.md`, Mission 30.
+
+## CTR-PLAN-COMPTABLE-MAPPINGS-2026-09-28 — plan comptable et mappings administrables : FONCTIONNELS
+
+**Périmètre.** Mission 31, commits `f897acb` (code, migration, tests existants adaptés) et `9b46b99`
+(tests), branche `resume/pilotage-conciergerie-20260909`, départ `9f150e7`. Migration **0113** additive :
+horodatages et journal du plan comptable, colonne `actif` et journal des règles de mapping, triggers
+interdisant la suppression d'un compte ou d'une règle et le changement de numéro. Une seule table de
+règles (`mapping_comptable_regles`) ; `mapping_categorie_compte` marquée supersédée.
+
+**Méthode.** Audit avant code (tables, service de résolution, consommateurs : journal Achats, Flux
+financiers, contrôles, OD) ; validations dans le service, refaites côté serveur quelle que soit la requête ;
+recette sur **copie fraîche** de `app.db`, jamais sur la base réelle.
+
+**Contrôles.**
+
+| Contrôle | Résultat |
+|---|---|
+| Tests Mission 31 (30 points + autorité serveur : POST forgés) | 47 passed |
+| Tests existants adaptés | 114 passed |
+| Régression concernée | **907 passed / 13 skipped** (55 fichiers : comptabilité, Flux, Qonto, banque, charges, caisse, navigation, migrations, code final) |
+| Suite complète | **4 416 passed / 37 skipped / 0 failed** (41 min 56 s, code avant les dernières retouches de libellés — rejouées ensuite par la régression ciblée et la recette) |
+| Recette copie | 20/20 (ajout de compte, règle provisoire sans proposition, validation après prévisualisation, proposition dans Flux, désactivation, historique conservé, refus serveur, prévisualisation sans écriture, 700 € et Qonto inchangés, suppression refusée, intégrité) |
+
+**Défauts de l'existant corrigés.** Le résolveur rendait `606000` codé en dur en l'absence de toute règle
+(supprimé : compte vide) ; une règle pouvait viser un compte ou une catégorie inexistants (refusé) ; le
+formulaire OD présélectionnait `606000` et `401000` (retiré) ; le formulaire de mapping était en texte
+libre (listes contrôlées).
+
+**Base réelle.** Intacte : empreinte identique avant/après, schéma 0112, `integrity_check` ok,
+`foreign_key_check` 0 ; 0113 s'appliquera au prochain démarrage, sauvegarde préalable prête
+(`app_avant_migration_0113_plan_comptable_20260928T190725.db`). Charge 700 € inchangée, 15 PDF inchangés,
+Qonto GET-only, scheduler OFF.
+
+**Réserves, laissées à l'utilisateur.** Choix des comptes de charge et des règles par catégorie ; charge
+`CHG-fc93f74a63d1`. Limite : journal Achats sur filet `606000` PROVISOIRE sans règle validée. Détail :
+`HANDOFF_CANONIQUE.md`, Mission 31.

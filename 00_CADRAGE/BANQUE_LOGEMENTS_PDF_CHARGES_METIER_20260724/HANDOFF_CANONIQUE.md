@@ -3805,6 +3805,8 @@ Strictement **GET-only** (le client refuse toute autre méthode). 13 transaction
   Mappings. **Limite constatée** : le plan comptable n'est pas administrable dans l'application (écran en
   lecture seule, aucun ajout de compte possible) et le formulaire de mapping est en texte libre — l'arbitrage
   ne peut donc pas encore être rendu depuis l'écran.
+  **[Supersédé par la Mission 31]** : plan comptable administrable et mapping par listes contrôlées —
+  l'arbitrage se rend désormais depuis l'écran.
 - **B. Charge `CHG-fc93f74a63d1` (700 €).** Datée du 09/08/2026, Maintenance / réparation logement, hors
   comptabilité, mode « banque professionnelle », contrôle validé ; aucun lien, rapprochement ni écriture ;
   commentaire et justificatif à l'allure de saisies de test. Aucun mouvement correspondant : Qonto ne
@@ -3824,3 +3826,152 @@ l'application, sans créer ni déduire aucun compte : ajout / désactivation de 
 (jamais de suppression), écran de mapping par libellé de catégorie et liste de comptes actifs de classe 6,
 refus d'une règle vers un compte absent. Puis : brancher le contrôle de clôture « lignes bancaires non
 classées » sur les statuts Flux, et conduire la première clôture réelle (septembre 2026).
+
+## Mission 31 (2026-09-28) — Plan comptable et mappings administrables
+
+### État
+
+| Élément | Valeur |
+|---|---|
+| **PLAN COMPTABLE** | **FONCTIONNEL** — administrable depuis l'application |
+| **MAPPINGS COMPTABLES** | **FONCTIONNELS** — catégorie → compte choisi dans des listes contrôlées |
+| Branche | `resume/pilotage-conciergerie-20260909` |
+| HEAD de départ | `9f150e7` (clôture documentaire Flux financiers) |
+| Commits du bloc | `f897acb` (code + migration + tests existants adaptés), `9b46b99` (tests Mission 31), puis ce commit documentaire, dont le SHA ne peut pas figurer ici |
+| Migration | **0113** (additive). **Non appliquée à la base réelle** : elle s'appliquera au prochain démarrage de l'application (`apply_migrations` au démarrage). Sauvegarde préalable déjà prête : `data/backups/app_avant_migration_0113_plan_comptable_20260928T190725.db` (intègre, schéma 0112) |
+| PR Cloud #4 | non touchée, non fusionnée |
+| Arbre | propre, hors les 15 PDF `01_SOURCES_BRUTES/MenagesExternes/` volontairement non suivis (inchangés) |
+
+### Modèle retenu
+
+- **Une seule table de règles** : `mapping_comptable_regles` (`0024`), étendue par `0113` (`actif`,
+  `date_modification`). Aucune table concurrente créée.
+- **`mapping_categorie_compte` (`0023`) est SUPERSÉDÉE** : vide en base, plus lue ni écrite par les écrans ;
+  seul le contrôle `CTRL_CPT_MAPPING_CATEGORIE_NON_ARBITRE` la lit encore (0 ligne, donc 0 signalement).
+  Le signalement utile est désormais la synthèse de l'écran Mappings (« N catégories sur M sans compte
+  comptable validé »).
+- `plan_comptable` : colonnes `date_creation` / `date_modification` ; journal `plan_comptable_evenements`
+  (création, modification, désactivation, réactivation : avant/après, motif, acteur, horodatage).
+- `mapping_regle_evenements` : journal des règles (création, modification, validation, passage en
+  provisoire, désactivation, réactivation).
+- **Le schéma refuse la destruction** : triggers `trg_plan_comptable_sans_suppression`,
+  `trg_plan_comptable_numero_immuable`, `trg_mapping_regles_sans_suppression`.
+
+### Plan comptable — Comptabilité › Plan comptable
+
+- Liste avec recherche (numéro ou libellé), filtres type et statut, type en clair (Actif (bilan), Passif
+  (bilan), Charge, Produit), utilisation (lignes d'écriture, lignes d'OD, règles), comptes utilisés par le
+  moteur signalés.
+- **Ajout manuel** : numéro saisi par l'utilisateur (chiffres uniquement), libellé et type obligatoires,
+  nom de l'auteur obligatoire, doublon refusé. Cohérence type ↔ classe : un compte de charge commence par 6,
+  un compte de produit par 7, et réciproquement — alignée sur le plan existant (`606000` CHARGE, `706000`
+  PRODUIT) et le garde-fou 5 de Flux. **Aucun numéro généré.**
+- **Modification** : libellé et commentaire seulement ; numéro et type immuables (identité du compte, sens
+  des écritures passées).
+- **Désactivation / réactivation** : motif et nom obligatoires, historisées. Les comptes utilisés par les
+  générateurs d'écritures (`401000`, `411000`, `455100`, `512000`, `530000`, `606000`, `706000`) ne se
+  désactivent pas. Un compte désactivé n'est plus proposé nulle part (mapping, Flux financiers, OD) ; ses
+  écritures passées restent intactes et consultables.
+- **Aucune suppression** : ni route, ni service, et le schéma l'interdit.
+
+### Mappings — Comptabilité › Mappings
+
+- **Vue par catégorie** (libellé « famille · catégorie », jamais le code) : compte proposé ou « ? Compte
+  comptable à définir », statut (Validée / Validée, bloquée / Provisoire / Aucune règle), période, charges
+  concernées (nombre, montant, reste à comptabiliser).
+- **Création** : catégorie choisie dans le référentiel, compte choisi dans la liste des comptes de charge
+  ACTIFS (classe 6) — aucun champ libre ; statut ; début et fin de validité ; justification ; nom.
+  Toujours **prévisualisation d'impact, puis confirmation**.
+- **Statuts** : une règle provisoire ne propose rien ; une règle validée propose son compte s'il est actif et
+  de classe 6.
+- **Temporalité** : une règle validée ne change ni de compte ni de date de début. Pour changer de compte :
+  poser sa date de fin, créer la suivante à partir du lendemain. Août garde son compte quand octobre change
+  (vérifié par test).
+- **Validations serveur** (le formulaire n'est jamais la seule protection) : catégorie inconnue, compte
+  absent, désactivé ou non-charge, statut inconnu, période illisible ou inversée, chevauchement, filet
+  générique, transition interdite, motif manquant, auteur manquant — messages métier, jamais d'erreur SQL.
+- **Conflits** : deux règles actives de même statut ne se chevauchent pas sur une catégorie. Une provisoire
+  sous une validée est admise (la validée prime). Une règle validée dont le compte a été désactivé reste
+  « Validée, bloquée » : pour affecter un autre compte, la désactiver ou la clore d'abord (l'écran mène à la
+  règle).
+- **Filet générique `MAP-GENERIQUE-606000`** : lecture seule, non administrable ; il ne sert qu'au journal
+  Achats des factures fournisseurs, jamais à Flux financiers.
+- **Repli absolu `606000` du résolveur SUPPRIMÉ** : sans aucune règle, `resoudre_compte` rend un compte
+  vide (`AUCUNE_REGLE`), plus un numéro codé en dur.
+- **Journal des OD** : plus aucun compte présélectionné (`606000`/`401000` l'étaient), comptes désactivés
+  absents de la liste.
+
+### Prévisualisation d'impact
+
+Non destructive : catégorie, compte, statut, période ; nombre et montant des charges comptables actives
+de la catégorie dans la période ; combien restent à comptabiliser, combien sont déjà comptabilisées (non
+modifiées) ; jusqu'à 10 exemples avec leur état ; ce que la règle proposera. Aucune charge, écriture ni
+rapprochement n'est écrit ou recalculé — prouvé par comparaison d'empreintes de tables (tests et recette).
+
+### Intégration Flux financiers (règle inchangée, renforcée)
+
+| Situation | Proposition |
+|---|---|
+| Aucune règle validée | « Compte comptable à définir » |
+| Règle provisoire | « Compte comptable à définir » |
+| Règle validée, compte actif de classe 6 | le compte de la règle |
+| Compte désactivé après la règle | « Compte comptable à définir » (l'avertissement nomme le compte) |
+| Règle désactivée | « Compte comptable à définir » |
+| Compte absent | règle impossible à créer |
+
+Les écritures déjà validées ne sont jamais réécrites (test et recette : l'écriture sur le compte
+désactivé reste identique et consultable).
+
+### Tests
+
+| Périmètre | Résultat |
+|---|---|
+| `test_plan_comptable_mappings_administrables.py` (30 points du cahier + autorité serveur) | **47 passed** |
+| Tests existants adaptés (règle = catégorie et compte réels) : mappings, routes, ventilation, flux, migrations, journaux, routes compta | **114 passed** |
+| Régression concernée | **907 passed / 13 skipped** (55 fichiers : comptabilité, Flux, Qonto, banque, charges, caisse, navigation, migrations, code final) |
+| Suite complète `05_APPLICATION/tests` | **4 416 passed / 37 skipped / 0 failed** (41 min 56 s, code avant les dernières retouches de libellés — rejouées ensuite par la régression ciblée et la recette) |
+
+### Recette sur copie fraîche de la base réelle — 20/20
+
+Copie par l'API `backup` (source ouverte en lecture seule), migration 0113 appliquée à la COPIE seulement,
+parcours HTTP : plan ouvert (8 comptes, 7 actifs) ; 27 catégories sur 27 sans compte validé ; compte fictif
+`615999` ajouté puis visible ; règle provisoire « Achat · Petit équipement » → `615999` sans proposition ;
+validation après prévisualisation ; Flux propose `615999` ; opération comptabilisée dans la copie ;
+compte désactivé → plus proposé, règle « Validée, bloquée » ; historique intact (écriture, événements du
+compte et de la règle) ; refus serveur d'un numéro inconnu, d'un compte désactivé, d'un compte non-charge,
+d'une catégorie inconnue ; prévisualisations (avec conflit : 4 charges 206,72 € ; sans conflit « Linge ·
+Blanchisserie » : 1 charge 146,00 €) ; aucune écriture par la prévisualisation ; charge 700 € et Qonto
+inchangés ; suppression refusée par le schéma ; copie intègre. Contrôle visuel dans le navigateur sur la
+copie (plan, fiche compte, mappings, prévisualisation, fiche règle).
+
+### Base réelle — INTACTE
+
+Empreinte `app.db` identique avant et après (`12a7285972e7ae86…`), schéma **0112**, `integrity_check` ok,
+`foreign_key_check` 0. Charge `CHG-fc93f74a63d1` (700 €) inchangée. 15 PDF inchangés (empreinte groupée
+`0398ca5f0c01da04`). Qonto GET-only. Scheduler Hostaway OFF.
+
+### Limites, documentées
+
+- **Journal Achats (factures fournisseurs)** : sans règle validée pour la catégorie, il retombe sur le
+  filet générique `606000` **PROVISOIRE**, visible comme tel. Non modifié : la recette factures
+  fournisseurs n'est pas démarrée. Si la règle validée d'une catégorie vise un compte ensuite désactivé,
+  la génération Achats est **refusée** (« Compte inconnu ou inactif ») : aucune substitution silencieuse.
+  Les OD refusent aussi, côté serveur, un compte désactivé.
+- **Portée `TYPE_FLUX`** : gérée par le résolveur, non administrable depuis l'écran (non demandée).
+- **Réactiver un compte** rend à nouveau effectives les règles validées qui le désignent (elles n'ont
+  jamais été désactivées) — c'est voulu.
+- Horodatages en UTC, comme le reste de l'application.
+
+### Arbitrages humains ouverts — ne pas résoudre automatiquement
+
+- **A. Mapping catégorie → compte** — désormais **réalisable depuis l'application**. Reste à faire par
+  l'utilisateur : créer ses comptes de charge (le plan réel n'en compte qu'un, `606000`), puis une règle par
+  catégorie. Aucun compte ni aucune règle n'a été créé dans la base réelle. La « limite constatée » de la
+  Mission 30 est levée.
+- **B. Charge `CHG-fc93f74a63d1` (700 €)** — inchangée, toujours à trancher par l'utilisateur.
+- Autres actions en attente, inchangées (retrait 20 €, deux ventes `PROPOSEE`, 15 factures « À contrôler »,
+  `FACTURES_REAL_WRITE_*` et `ORDONNANCEUR_ACTIF` vides).
+
+### Prochaine action unique
+
+**CLÔTURE MENSUELLE BRANCHÉE SUR FLUX FINANCIERS** — non commencée.
