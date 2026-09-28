@@ -396,3 +396,31 @@ def test_30_non_regression_flux_mois_cloture_protege(base, verrous):
     res = lettrage.valider([f"BANQUE:{m['id']}"], [f"CHARGE:{cid}"], acteur=ACTEUR, db_path=base)
     assert res["ok"] is False
     assert _analyse(base)["bloquants"][0]["type"] == "Mouvement bancaire à qualifier"
+
+
+def test_retrait_passe_mais_ecriture_proposee_le_bloqueur_le_dit(base, verrous):
+    """Mission 34 — défaut trouvé sur copie réelle : après « Comptabiliser le transfert », l'écriture
+    530 / 512 naît PROPOSÉE (contrat existant) et le bloqueur affirmait encore « le transfert n'est
+    pas encore passé ». Il doit dire que l'écriture est à valider, et y mener."""
+    from tests.test_qonto_rapprochement_caisse import retrait
+    from app.services import qonto_ecran_service as ecran
+    from app.services import qonto_validation_service as qv
+    from tests.test_qonto_raw_import import ClientDouble
+    ecran.actualiser(client=ClientDouble(pages=[[retrait(settled_at="2026-07-19T10:00:00.000Z",
+                                                         emitted_at="2026-07-19T09:00:00.000Z")]]),
+                     db_path=base)
+    conn = get_db(base)
+    try:
+        uuid = conn.execute("SELECT qonto_transaction_uuid FROM qonto_transactions_statut_local "
+                            "WHERE nature='RETRAIT_ESPECES'").fetchone()[0]
+    finally:
+        conn.close()
+    res = qv.valider(uuid, nature=qv.TRANSFERT_CAISSE, acteur=ACTEUR, db_path=base)
+    assert res["ok"], res
+    opaque = res["ecriture"]["ecriture_id_opaque"]
+    a = _analyse(base)
+    assert [b["type"] for b in a["bloquants"]] == ["Retrait d'espèces : écriture à valider"]
+    assert a["bloquants"][0]["lien"] == f"/comptabilite/ecritures/{opaque}"
+    assert "pas encore passé" not in a["bloquants"][0]["raison"]
+    assert compta.valider(opaque, acteur=ACTEUR, db_path=base)["ok"]
+    assert _types(base) == []

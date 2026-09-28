@@ -129,7 +129,7 @@ _QUOI = {flux.BANQUE: ("Mouvement bancaire", "Opération bancaire"),
          flux.CAISSE: ("Opération de caisse", "Opération de caisse")}
 
 
-def _bloqueur_mouvement(m: dict) -> dict | None:
+def _bloqueur_mouvement(m: dict, ecriture_proposee: dict | None = None) -> dict | None:
     source = m["source"]
     famille = F_BANQUE if source == flux.BANQUE else F_CAISSE
     lien_detail = (f"/flux-financiers/banque/{quote(m['id'])}" if source == flux.BANQUE
@@ -153,6 +153,16 @@ def _bloqueur_mouvement(m: dict) -> dict | None:
                             f"(rapprochement : {m['rapprochement']['libelle'].lower()}).",
                      action="Le rapprocher d'une pièce, ou créer la charge correspondante.",
                      lien=lien_rappro, lien_libelle="Traiter dans Flux financiers", **commun)
+    if code == flux.A_COMPTABILISER and ecriture_proposee:
+        # Rapproché (ou transfert passé) : il ne manque que la validation de son écriture. Le dire,
+        # et mener à l'écriture — pas au mouvement, où il n'y a plus rien à faire.
+        quoi = "Retrait d'espèces" if retrait else nom
+        return _item(famille, type_=f"{quoi} : écriture à valider", statut="Écriture proposée",
+                     raison="Le rapprochement est fait ; son écriture est proposée et n'entre pas "
+                            "encore dans la balance.",
+                     action="Vérifier puis valider l'écriture dans Comptabilité.",
+                     lien=f"/comptabilite/ecritures/{quote(ecriture_proposee['ecriture_id_opaque'])}",
+                     lien_libelle="Ouvrir l'écriture", **commun)
     if code == flux.A_COMPTABILISER:
         if retrait:
             return _item(famille, type_="Retrait d'espèces à comptabiliser",
@@ -187,6 +197,9 @@ def analyser(mois: str, *, contexte_flux: dict | None = None, db_path=None) -> d
 
     # 1. Mouvements Banque (Qonto) et Caisse du mois.
     mouvements_bloquants: set[str] = set()
+    ecriture_proposee_par_mouvement = {
+        ctx["rappro_mouvement"].get(e["origine_id_opaque"]): e for e in ctx["ecritures"]
+        if e["origine_type"] == "RAPPROCHEMENT" and e["statut"] == "PROPOSEE"}
     for m in ctx["mouvements"]:
         if m["mois"] != mois:
             continue
@@ -199,7 +212,7 @@ def analyser(mois: str, *, contexte_flux: dict | None = None, db_path=None) -> d
                 raison="Refusée ou contrepassée par la banque : aucun argent n'a bougé.",
                 action="Aucune.", lien="", lien_libelle=""))
             continue
-        b = _bloqueur_mouvement(m)
+        b = _bloqueur_mouvement(m, ecriture_proposee_par_mouvement.get(m["id"]))
         if b:
             bloquants.append(b)
             mouvements_bloquants.add(m["id"])
