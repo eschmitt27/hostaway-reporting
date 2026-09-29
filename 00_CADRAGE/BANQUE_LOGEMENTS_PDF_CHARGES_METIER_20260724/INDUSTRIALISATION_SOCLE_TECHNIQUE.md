@@ -85,6 +85,15 @@ automatique**, appelé uniquement à la demande (mission §2 : « aucune suppres
 règle claire »). Un test dédié (`test_purger_ne_supprime_jamais_automatiquement`) vérifie par
 `git grep` que `purger()` n'est appelé nulle part dans `app/`.
 
+## 4 bis. Emplacement des données de l'instance réelle (2026-09-29)
+
+`DATA_DIR` = `APP_DATA_DIR` (`.env`), fixé pour l'instance réelle à un dossier stable hors du code :
+`C:/Users/Ewans/PilotageConciergerie/data` (hors worktree, hors dossier temporaire, hors OneDrive).
+`BACKUPS_DIR` en dérive (`<APP_DATA_DIR>/backups/`), comme les justificatifs, snapshots, PDF émis et
+workspaces : changer de branche, de worktree ou mettre à jour le code ne change pas les données.
+Sauvegarder le dossier `APP_DATA_DIR` entier couvre la base, les sauvegardes et les pièces.
+Défaut sans `.env` : `05_APPLICATION/data` (développement et instances isolées uniquement).
+
 ## 5. Mécanisme de rollback (Phase 3)
 
 `restaurer(sauvegarde_id, cible=None, confirmer=False)` : refuse tant que `confirmer` n'est pas

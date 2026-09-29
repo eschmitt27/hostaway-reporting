@@ -4439,3 +4439,47 @@ servie après redémarrage). Migration 0115 appliquée à la base réelle après
 **Limites.** Réallocation FIFO d'un acompte après une imputation déjà constatée : non recomposée
 automatiquement (cas rare, visible dans l'écran Crédits). Sauvegarde des pièces : celle du dossier
 de données, pas l'outil de sauvegarde applicatif. PR #4 en attente, non mergée.
+
+## Finalisation technique avant recette utilisateur V1 (2026-09-29) — APP_DATA_DIR stable
+
+Aucune fonctionnalité, aucun changement de code : configuration de l'instance réelle et
+documentation. HEAD `65ec27e` inchangé pour le code.
+
+**Avant.** `APP_DATA_DIR` absent du `.env` : `DATA_DIR` retombait sur `05_APPLICATION/data` du
+worktree courant (base réelle, `backups/`, `snapshots/`, `dryruns/`, `factures_proprietaires/`,
+613 fichiers, 1,26 Go). Changer de worktree ou de clone aurait fait « perdre » la base. Les
+sauvegardes d'avant 0114 / 0115 étaient restées dans le dossier temporaire de la session.
+
+**Emplacement retenu (instance réelle).** `APP_DATA_DIR=C:/Users/Ewans/PilotageConciergerie/data`
+(clé ajoutée au `.env`, ignoré par git — aucune autre clé lue ni modifiée). Hors du code, hors de
+tout worktree/clone, hors du dossier temporaire, et hors de `Documents` (synchronisé par OneDrive :
+une base SQLite en WAL ne doit pas être synchronisée fichier par fichier). Tout suit `DATA_DIR` :
+`app.db`, `justificatifs/`, `backups/` (moteur `backup_service`, inchangé), `snapshots/`, `dryruns/`,
+PDF émis (`factures_proprietaires/`), workspaces et verrous.
+
+**Migration (copie, rien supprimé).** Instance arrêtée, WAL vide vérifié → sauvegarde SQLite de la
+base + copie intégrale de l'ancien dossier dans
+`C:/Users/Ewans/PilotageConciergerie/sauvegardes/avant_app_data_dir_20260929T131755/` (avec un
+`MANIFESTE.json`) → copie vers le nouvel emplacement (`app.db` identique octet pour octet, sha256
+`df29912b…`) → `.env` → redémarrage. Contrôles : schéma 0115, `integrity_check` ok,
+`foreign_key_check` 0, empreinte logique `bc3ae6258164fd58` identique ancienne / nouvelle base.
+L'instance ouvre bien la nouvelle base (fichiers `-wal`/`-shm` observés au nouvel emplacement pendant
+les requêtes ; ancienne copie jamais ouverte). **L'ancien `05_APPLICATION/data` est conservé intact
+comme copie de sécurité** jusqu'à décision explicite.
+
+**Sauvegardes.** Rattachées à `<APP_DATA_DIR>/backups/` : la sauvegarde pré-bascule et les deux
+sauvegardes de migration restées en session (`…_0114_circuit_banque_compta_20260929.db`, schéma
+0113 ; `…_0115_credits_clients_20260929.db`, schéma 0114), integrity ok. Les futures sauvegardes
+applicatives y vont d'elles-mêmes (`BACKUPS_DIR = DATA_DIR / "backups"`). La sauvegarde applicative
+copie `app.db` ; les pièces sont couvertes en sauvegardant le dossier `APP_DATA_DIR` entier.
+
+**Règles d'exploitation.** Un nouveau worktree / clone doit recevoir le même `.env` (au moins
+`APP_DATA_DIR`) — sans lui, l'application retomberait sur un `05_APPLICATION/data` local. Les tests
+ignorent le `.env` (`PILOTAGE_IGNORE_ENV_FILE=1`, `conftest.py`) : ils n'atteignent jamais la base
+réelle stable. Justificatifs : 0 pièce en base à ce jour ; la racine servie est
+`<APP_DATA_DIR>/justificatifs`.
+
+**Preuves.** Suite complète sur `65ec27e` : 4 554 passed / 37 skipped / 0 failed (47 min 27 s). Contrôle GET réel (31 écrans : Flux, Charges,
+Comptabilité, Factures propriétaires et fournisseurs, Compte propriétaire / Crédits, Clôture
+mensuelle, justificatif inconnu → 404) : empreinte logique identique avant / après. PR #4 en
+attente, non mergée, non modifiée.

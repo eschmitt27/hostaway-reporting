@@ -5909,3 +5909,14 @@ historiques, catégories ambiguës, stockage et consultation des pièces.
 copie 10/10 (dont redémarrage).
 
 **Base réelle.** Migration 0115 appliquée à la base réelle après sauvegarde : additive (aucune table existante modifiée hors périmètre ; 0 crédit créé ; les 2 reversements historiques de 425 € et 54 € intacts, à régulariser). Contrôle en lecture de 10 écrans (Flux, Crédits, fiche facture, écriture, charge, mappings) : empreinte identique. Détail : `HANDOFF_CANONIQUE.md`, Mission 37.
+
+## CTR-APP-DATA-DIR-STABLE-2026-09-29 — finalisation technique avant recette V1
+
+**Périmètre.** Configuration de l'instance réelle, sans code : `APP_DATA_DIR` =
+`C:/Users/Ewans/PilotageConciergerie/data` (hors code, worktree, temporaire, OneDrive).
+
+**Contrôles.** Copie contrôlée (sauvegarde SQLite + copie intégrale préalables ; `app.db` identique
+octet pour octet) ; schéma 0115 ; `integrity_check` ok ; `foreign_key_check` 0 ; empreinte logique
+`bc3ae6258164fd58` identique ; instance réelle sur le nouvel emplacement ; 31 GET, empreinte
+identique avant / après ; sauvegardes rattachées à `<APP_DATA_DIR>/backups/` ; suite complète
+4 554 passed / 37 skipped / 0 failed (47 min 27 s). Ancien dossier `05_APPLICATION/data` conservé. Détail : `HANDOFF_CANONIQUE.md`.
