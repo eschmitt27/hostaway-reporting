@@ -1055,6 +1055,12 @@ def emettre(facture_id: str, *, emetteur: dict[str, Any], destinataire: dict[str
     # Le bloc réglementaire est figé après l'émission, en écriture unique : une facture émise ne
     # voit jamais ses données de conformité réécrites.
     conformite.enregistrer(bloc, db_path=db_path)
+    # Une FACTURE émise devient une créance du FIFO : les allocations du propriétaire sont
+    # persistées maintenant (un avoir, lui, n'entre pas dans le FIFO — voir compte propriétaire).
+    if f["type_document"] == TYPE_FACTURE:
+        from app.services import compte_proprietaire_service as cpt
+        cpt.apres_ecriture([f["proprietaire_id"]], declencheur=cpt.DECL_EMISSION_FACTURE,
+                           db_path=db_path)
     return lire(facture_id, db_path=db_path)
 
 

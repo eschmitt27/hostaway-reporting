@@ -262,7 +262,11 @@ def valider(mouvement_opaque: str, *, acteur: str = "", db_path=None,
             conn=None) -> dict[str, Any]:
     """BROUILLON ou A_CONTROLER -> VALIDE. Un mouvement validé ne peut plus être supprimé.
 
-    `conn` fourni : lecture et écriture dans la transaction de l'appelant."""
+    Un mouvement VALIDE devient une source du FIFO : les allocations du propriétaire sont
+    persistées juste après (`compte_proprietaire_service.apres_ecriture`).
+
+    `conn` fourni : lecture et écriture dans la transaction de l'appelant — qui persiste alors
+    lui-même les allocations après SON commit (le recalcul ouvre sa propre transaction)."""
     m = charger(mouvement_opaque, db_path, conn=conn)
     if m is None:
         return _refus(E_INTROUVABLE, mouvement_opaque)
@@ -282,7 +286,15 @@ def valider(mouvement_opaque: str, *, acteur: str = "", db_path=None,
     finally:
         if connexion_locale:
             conn.close()
+    if connexion_locale:
+        _persister_fifo(m, "VALIDATION_MOUVEMENT", db_path)
     return {"ok": True, "mouvement_opaque": mouvement_opaque, "statut": ST_VALIDE}
+
+
+def _persister_fifo(m: dict[str, Any], declencheur: str, db_path) -> None:
+    """Le mouvement change les sources FIFO de son propriétaire : persister ses allocations."""
+    from app.services import compte_proprietaire_service as cpt
+    cpt.apres_ecriture([m.get("proprietaire_id")], declencheur=declencheur, db_path=db_path)
 
 
 def annuler(mouvement_opaque: str, *, commentaire: str = "", acteur: str = "",
@@ -306,6 +318,9 @@ def annuler(mouvement_opaque: str, *, commentaire: str = "", acteur: str = "",
     finally:
         if connexion_locale:
             conn.close()
+    # Seul un mouvement VALIDE était une source FIFO : annuler un brouillon ne change rien.
+    if connexion_locale and m["statut"] == ST_VALIDE:
+        _persister_fifo(m, "ANNULATION_MOUVEMENT", db_path)
     return {"ok": True, "mouvement_opaque": mouvement_opaque, "statut": ST_ANNULE}
 
 

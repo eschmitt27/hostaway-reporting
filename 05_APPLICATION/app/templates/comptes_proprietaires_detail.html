@@ -42,6 +42,13 @@
     une compensation sont des faits économiques distincts. Le compte en calcule la position, il ne
     les fusionne pas.
   </p>
+  {% if not position.persistance.a_jour %}
+  <p class="text-sm text-secondary" style="margin-top: var(--stack-sm);">
+    Les montants affichés sont calculés sur les données du moment. Les allocations enregistrées,
+    elles, datent d'avant la dernière modification de ces données : « Recalculer les allocations »
+    les enregistre à nouveau (l'affichage n'enregistre jamais rien).
+  </p>
+  {% endif %}
   <form method="post" action="/comptes-proprietaires/{{ position.proprietaire_id }}/recalculer"
         style="margin-top: var(--stack-md);">
     <button type="submit" class="btn btn-secondary">Recalculer les allocations</button>

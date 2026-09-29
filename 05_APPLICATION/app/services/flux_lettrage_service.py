@@ -682,8 +682,22 @@ def valider(selection_m: list[str], selection_o: list[str], *, acteur: str,
                                "(rapprochement non validé).", detail=type(exc).__name__)
     finally:
         conn.close()
+    _persister_fifo(crees["encaissements"], "VALIDATION_MOUVEMENT", db_path)
     return {"ok": True, "lettrage_id_opaque": lettrage, "ecritures": crees["ecritures"],
             "ecriture_modifiee": modifiee}
+
+
+def _persister_fifo(encaissements: list[str], declencheur: str, db_path=None) -> None:
+    """Un encaissement propriétaire validé ou annulé change les sources FIFO de son propriétaire.
+
+    Il l'a été dans la transaction du lettrage (`tres.valider/annuler(conn=...)`), qui laisse donc
+    à l'appelant la persistance des allocations : elle a lieu ici, une fois le commit fait."""
+    if not encaissements:
+        return
+    from app.services import compte_proprietaire_service as cpt
+    from app.services import proprietaires_tresorerie_service as tres
+    cpt.apres_ecriture([(tres.charger(m, db_path) or {}).get("proprietaire_id")
+                        for m in encaissements], declencheur=declencheur, db_path=db_path)
 
 
 def _refus(code: str, message: str, *, erreurs: list | None = None, detail: str = "") -> dict:
@@ -992,6 +1006,7 @@ def annuler(lettrage_id: str, *, motif: str, acteur: str, db_path=None) -> dict[
                       detail=type(exc).__name__)
     finally:
         conn.close()
+    _persister_fifo(crees.get("encaissements", []), "ANNULATION_MOUVEMENT", db_path)
     return {"ok": True, "lettrage_id_opaque": lettrage_id}
 
 
