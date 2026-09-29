@@ -164,12 +164,13 @@ def test_07_erreur_flux_bloque(base, verrous):
 
 
 def test_08_09_10_compte_a_definir_provisoire_insuffisante_validee_resout(base, verrous):
-    _charge(base, 18.0, date="2026-07-08", categorie="CHG_010", commentaire="Frais test")
+    # CHG_017 (charge générale) : aucune règle au catalogue fonctionnel (0114).
+    _charge(base, 18.0, date="2026-07-08", categorie="CHG_017", commentaire="Frais test")
     a = _analyse(base)
     assert _types(base) == ["Compte comptable à définir"]
     assert a["message_comptes"] == "1 opération(s) nécessitent encore un compte comptable."
-    assert a["bloquants"][0]["lien"].startswith("/comptabilite/mappings?categorie=CHG_010")
-    rid = maps.creer_regle(maps.PORTEE_CATEGORIE, "627000", cle="CHG_010", statut=maps.ST_PROVISOIRE,
+    assert a["bloquants"][0]["lien"].startswith("/comptabilite/mappings?categorie=CHG_017")
+    rid = maps.creer_regle(maps.PORTEE_CATEGORIE, "627000", cle="CHG_017", statut=maps.ST_PROVISOIRE,
                            acteur=ACTEUR, db_path=base)["regle_id_opaque"]
     assert _types(base) == ["Compte comptable à définir"], "une règle provisoire ne suffit pas"
     maps.valider_regle(rid, acteur=ACTEUR, db_path=base)
@@ -180,7 +181,7 @@ def test_08_09_10_compte_a_definir_provisoire_insuffisante_validee_resout(base, 
 
 def test_11_un_autre_mois_ne_bloque_pas(base, verrous):
     _importer(base, [_mvt(44.0, date="2026-08-03")])
-    _charge(base, 9.0, date="2026-08-04", categorie="CHG_010")
+    _charge(base, 9.0, date="2026-08-04", categorie="CHG_017")
     _ecriture_proposee(base, "2026-08")
     assert _analyse(base, PASSE)["nb_bloquants"] == 0
     assert _analyse(base, "2026-08")["nb_bloquants"] == 3

@@ -75,7 +75,8 @@ def test_01_affichage_plan_comptable(client, base):
     assert "Ajouter un compte" in page.text and "Charge" in page.text
     assert "ACTIF</td>" not in page.text, "types affichés en libellés, pas en codes"
     filtre = client.get("/comptabilite/plan-comptable?type_compte=CHARGE")
-    assert filtre.text.count('data-testid="plan-ligne"') == 1
+    assert filtre.text.count('data-testid="plan-ligne"') == len(
+        plan.lister(type_compte="CHARGE", db_path=base))
     recherche = client.get("/comptabilite/plan-comptable?q=Banque")
     assert "512000" in recherche.text and "401000" not in recherche.text
 
@@ -93,7 +94,7 @@ def test_02_ajout_manuel_d_un_compte(client, base):
 
 @pytest.mark.parametrize("donnees, attendu", [
     ({"compte": "606000", "libelle": "Doublon", "type_compte": "CHARGE"}, "existe déjà"),
-    ({"compte": "615200", "libelle": "", "type_compte": "CHARGE"}, "libellé"),
+    ({"compte": "615900", "libelle": "", "type_compte": "CHARGE"}, "libellé"),
     ({"compte": "", "libelle": "Sans numéro", "type_compte": "CHARGE"}, "numéro"),
     ({"compte": "61A000", "libelle": "Lettres", "type_compte": "CHARGE"}, "chiffres"),
     ({"compte": "401500", "libelle": "Pas une charge", "type_compte": "CHARGE"}, "commence par 6"),
@@ -227,9 +228,9 @@ def test_autorite_serveur_actions_forgees(client, base):
     rid = maps.creer_regle(maps.PORTEE_CATEGORIE, "615100", cle=CAT, statut=maps.ST_VALIDE,
                            acteur=ACTEUR, db_path=base)["regle_id_opaque"]
     # Changer le compte d'une règle validée : refusé (la temporalité passe par une nouvelle règle).
-    _compte_test(base, "615200", "Autre (test)")
+    _compte_test(base, "615900", "Autre (test)")
     r = client.post(f"/comptabilite/mappings/{rid}/modifier",
-                    data={"compte": "615200", "acteur": ACTEUR})
+                    data={"compte": "615900", "acteur": ACTEUR})
     assert "ne change ni de compte" in r.text
     assert maps.charger_regle(rid, db_path=base)["compte"] == "615100"
     # Le filet générique n'est pas administrable, même par une requête forgée.
@@ -244,15 +245,18 @@ def test_autorite_serveur_actions_forgees(client, base):
 
 def test_14_15_listes_controlees_sans_saisie_libre(client, base):
     _compte_test(base)
-    _compte_test(base, "615200", "Désactivé (test)")
-    plan.desactiver("615200", acteur=ACTEUR, motif="test", db_path=base)
-    assert [c["compte"] for c in plan.comptes_de_charge_actifs(db_path=base)] == ["606000", "615100"]
+    _compte_test(base, "615900", "Désactivé (test)")
+    plan.desactiver("615900", acteur=ACTEUR, motif="test", db_path=base)
+    actifs = [c["compte"] for c in plan.comptes_de_charge_actifs(db_path=base)]
+    # Plan interne du catalogue (0114) compris : le compte créé est proposé, le désactivé non.
+    assert "615100" in actifs and "615900" not in actifs and actifs == sorted(actifs)
+    assert all(x.startswith("6") for x in actifs)
     page = client.get("/comptabilite/mappings").text
     formulaire = page.split('data-testid="mapping-formulaire"')[1].split("</form>")[0]
     assert '<select name="compte"' in formulaire and '<select name="cle"' in formulaire
     assert 'name="compte" ' not in formulaire.replace('<select name="compte"', "")
     assert "<input" not in formulaire.split('name="compte"')[0].split("<label")[-1]
-    assert 'value="615100"' in formulaire and 'value="615200"' not in formulaire
+    assert 'value="615100"' in formulaire and 'value="615900"' not in formulaire
     assert 'value="401000"' not in formulaire and 'value="512000"' not in formulaire
     assert f"Catégorie {CAT}" in formulaire, "catégories par libellé"
 
@@ -274,36 +278,36 @@ def test_16_17_regle_provisoire_puis_validee(base):
 
 def test_18_periode_de_validite_et_succession(base):
     _compte_test(base)
-    _compte_test(base, "615200", "Nouveau compte (test)")
+    _compte_test(base, "615900", "Nouveau compte (test)")
     rid = maps.creer_regle(maps.PORTEE_CATEGORIE, "615100", cle=CAT, statut=maps.ST_VALIDE,
                            date_debut_validite="2026-01-01", acteur=ACTEUR, db_path=base)["regle_id_opaque"]
     # Changement de compte au 1er octobre : on CLÔT l'ancienne, on crée la suivante.
     assert maps.modifier_regle(rid, date_fin_validite="2026-09-30", acteur=ACTEUR,
                                db_path=base)["ok"]
-    assert maps.creer_regle(maps.PORTEE_CATEGORIE, "615200", cle=CAT, statut=maps.ST_VALIDE,
+    assert maps.creer_regle(maps.PORTEE_CATEGORIE, "615900", cle=CAT, statut=maps.ST_VALIDE,
                             date_debut_validite="2026-10-01", acteur=ACTEUR, db_path=base)["ok"]
     aout = maps.resoudre_compte(categorie_charge_id=CAT, date_reference="2026-08-15", db_path=base)
     octobre = maps.resoudre_compte(categorie_charge_id=CAT, date_reference="2026-10-15", db_path=base)
-    assert aout["compte"] == "615100" and octobre["compte"] == "615200", \
+    assert aout["compte"] == "615100" and octobre["compte"] == "615900", \
         "une règle posée en octobre ne réécrit pas le traitement d'août"
 
 
 def test_19_chevauchement_refuse(base):
     _compte_test(base)
-    _compte_test(base, "615200", "Autre (test)")
+    _compte_test(base, "615900", "Autre (test)")
     assert maps.creer_regle(maps.PORTEE_CATEGORIE, "615100", cle=CAT, statut=maps.ST_VALIDE,
                             date_debut_validite="2026-01-01", date_fin_validite="2026-12-31",
                             acteur=ACTEUR, db_path=base)["ok"]
-    res = maps.creer_regle(maps.PORTEE_CATEGORIE, "615200", cle=CAT, statut=maps.ST_VALIDE,
+    res = maps.creer_regle(maps.PORTEE_CATEGORIE, "615900", cle=CAT, statut=maps.ST_VALIDE,
                            date_debut_validite="2026-06-01", acteur=ACTEUR, db_path=base)
     assert res["ok"] is False and res["code"] == maps.E_CHEVAUCHEMENT
     assert "chevauche" in res["message"]
     assert res["detail"] == "règle existante : compte 615100, du 01/01/2026 au 31/12/2026"
     # Une règle provisoire sous une validée n'est pas ambiguë (la validée prime) : acceptée.
-    assert maps.creer_regle(maps.PORTEE_CATEGORIE, "615200", cle=CAT, statut=maps.ST_PROVISOIRE,
+    assert maps.creer_regle(maps.PORTEE_CATEGORIE, "615900", cle=CAT, statut=maps.ST_PROVISOIRE,
                             date_debut_validite="2026-06-01", acteur=ACTEUR, db_path=base)["ok"]
     # Une autre catégorie sur la même période : aucun conflit.
-    assert maps.creer_regle(maps.PORTEE_CATEGORIE, "615200", cle=CAT_2, statut=maps.ST_VALIDE,
+    assert maps.creer_regle(maps.PORTEE_CATEGORIE, "615900", cle=CAT_2, statut=maps.ST_VALIDE,
                             acteur=ACTEUR, db_path=base)["ok"]
 
 
@@ -312,7 +316,10 @@ def test_20_categorie_sans_regle_compte_a_definir(client, base):
     assert "Compte comptable à définir" in page
     vue = {v["categorie"]: v for v in maps.vue_par_categorie(db_path=base)}
     assert vue[CAT]["compte"] is None and vue[CAT_2]["compte"] is None
-    assert 'data-testid="mapping-synthese"' in page and "2 catégories sur 2" in page
+    # Catalogue fonctionnel (0114) compris : les deux catégories de test restent sans compte.
+    import re
+    assert 'data-testid="mapping-synthese"' in page
+    assert re.search(r"\d+ catégories sur \d+", page)
 
 
 # ══ Intégration Flux financiers ═══════════════════════════════════════════════════════════════
@@ -460,8 +467,9 @@ def test_26_aucun_compte_cree_automatiquement(client, base):
 
 
 def test_27_aucun_repli_606000(base):
-    # Toutes les catégories restent « à définir » malgré le filet générique existant.
-    assert all(v["compte"] is None for v in maps.vue_par_categorie(db_path=base))
+    # Une catégorie sans règle validée reste « à définir » malgré le filet générique existant.
+    vue = {v["categorie"]: v for v in maps.vue_par_categorie(db_path=base)}
+    assert vue[CAT]["compte"] is None and vue[CAT_2]["compte"] is None
     # Sans AUCUNE règle, le résolveur ne rend plus de numéro codé en dur.
     conn = get_db(base)
     try:

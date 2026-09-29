@@ -36,7 +36,15 @@ def _charge(db, **kw):
     donnees = {"date_charge": "2026-09-05", "montant": 700.0, "categorie_charge_id": "CHG_008",
                "code_impact": "IC", "refacturable": "NON", "commentaire": "invariant"}
     donnees.update(kw)
-    return saisie.creer(donnees, acteur="t", db_path=db)["charge_id"]
+    return _repondre_justificatif(db, saisie.creer(donnees, acteur="t", db_path=db)["charge_id"])
+
+
+def _repondre_justificatif(db, cid):
+    """Mission 36 : pas de validation finale sans réponse sur le justificatif."""
+    from app.services import justificatifs_service as justif
+    justif.confirmer(justif.OBJET_CHARGE, cid, present="NON", justification="Test : sans pièce",
+                     acteur="t", db_path=db)
+    return cid
 
 
 def _perimetre(n, montant=700.0):

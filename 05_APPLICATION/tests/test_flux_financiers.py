@@ -59,14 +59,12 @@ def base(tmp_db):
         conn.commit()
     finally:
         conn.close()
-    # Mapping canonique (Comptabilité › Mappings) : « Achat petit équipement » → 615000, VALIDÉ.
-    # Les autres catégories n'ont AUCUNE règle validée : leur compte reste « à définir ».
+    # Mapping canonique : le catalogue fonctionnel (migration 0114) porte déjà « Achat petit
+    # équipement » (CHG_018) → 606320 et « Frais bancaires » (CHG_010) → 627800, VALIDÉS.
+    # « Charge générale » (CHG_017) n'a AUCUNE règle : son compte reste « à définir ».
     # Mission 31 : une règle ne désigne qu'une catégorie qui existe dans le référentiel.
     from tests.fixtures_referentiel import semer_comptabilite
     semer_comptabilite(tmp_db, categories=["CHG_018", "CHG_010", "CHG_008", "CHG_017"])
-    from app.services import comptabilite_mappings_service as maps
-    maps.creer_regle(maps.PORTEE_CATEGORIE, "615000", cle="CHG_018", statut=maps.ST_VALIDE,
-                     source="Test : arbitrage fictif", acteur=ACTEUR, db_path=tmp_db)
     return tmp_db
 
 
@@ -333,7 +331,7 @@ def test_13_validation_humaine_rapproche_et_comptabilise(base, verrous):
     assert flux.resume_charge(cid, db_path=base) == "Rapprochée · Comptabilisée"
     lignes = _lignes_ecriture(base, res["ecritures"][0])
     assert {(l["compte"], l["debit"], l["credit"]) for l in lignes} == {
-        ("615000", 42.0, 0.0), ("512000", 0.0, 42.0)}, "charge directe : 6xx / 512, sans 401"
+        ("606320", 42.0, 0.0), ("512000", 0.0, 42.0)}, "charge directe : 6xx / 512, sans 401"
 
 
 def test_14_ecriture_proposee_visible_avant_validation(client, base):
@@ -791,8 +789,8 @@ def test_apport_associe_ecriture_refusee_aucun_rapprochement_garde(base, verrous
 # ══ Finalisation : mapping canonique, garde-fou hors compta, circuit apport/retrait atomique ══
 
 def _charge_sans_mapping(base, montant=24.0, **kw):
-    """Frais bancaires (CHG_010) : aucune règle de mapping validée dans la base de test."""
-    return _charge(base, montant, categorie="CHG_010", **kw)
+    """Charge générale (CHG_017) : aucune règle de mapping validée, catalogue compris."""
+    return _charge(base, montant, categorie="CHG_017", **kw)
 
 
 def test_A_mapping_categorie_vers_compte_valide(base):
@@ -801,7 +799,7 @@ def test_A_mapping_categorie_vers_compte_valide(base):
     cid = _charge(base, 42.0)
     prep = lettrage.preparer([f"BANQUE:{m['id']}"], [f"CHARGE:{cid}"], db_path=base)
     ligne = next(l for l in prep["ecritures"][0]["lignes"] if l["role"] == lettrage.ROLE_OBJET)
-    assert ligne["compte"] == "615000" and not ligne["avertissement"]
+    assert ligne["compte"] == "606320" and not ligne["avertissement"]
 
 
 def test_B_D_categorie_sans_mapping_compte_a_definir_sans_fallback_606000(client, base, verrous):
@@ -867,10 +865,10 @@ def test_regle_de_mapping_vers_compte_inactif_reste_a_definir(base):
     compte désactivé APRÈS la règle — elle cesse alors de proposer ce compte."""
     from app.services import comptabilite_mappings_service as maps
     from app.services import comptabilite_plan_service as plan
-    refus = maps.creer_regle(maps.PORTEE_CATEGORIE, "467000", cle="CHG_010", statut=maps.ST_VALIDE,
+    refus = maps.creer_regle(maps.PORTEE_CATEGORIE, "467000", cle="CHG_017", statut=maps.ST_VALIDE,
                              acteur=ACTEUR, db_path=base)
     assert refus["ok"] is False and refus["code"] == maps.E_COMPTE_INACTIF
-    assert maps.creer_regle(maps.PORTEE_CATEGORIE, "627000", cle="CHG_010", statut=maps.ST_VALIDE,
+    assert maps.creer_regle(maps.PORTEE_CATEGORIE, "627000", cle="CHG_017", statut=maps.ST_VALIDE,
                             acteur=ACTEUR, db_path=base)["ok"]
     plan.desactiver("627000", acteur=ACTEUR, motif="test", db_path=base)
     _importer(base, [_mvt(24.0)])
@@ -917,6 +915,9 @@ def test_F_charge_generale_hors_compta_toujours_possible_et_validable(base):
                         "code_impact": "HC", "prise_en_compta": "NON", "mode_paiement_id": "PAY_001",
                         "statut_controle": "A_CONTROLER"}, acteur=ACTEUR, db_path=base)
     assert res["ok"], res
+    from app.services import justificatifs_service as justif
+    justif.confirmer(justif.OBJET_CHARGE, res["charge_id"], present="NON",
+                     justification="Test : sans pièce", acteur=ACTEUR, db_path=base)
     assert saisie.valider_controle(res["charge_id"], acteur=ACTEUR, db_path=base)["ok"]
     assert flux.resume_charge(res["charge_id"], db_path=base) == "Hors comptabilité"
 

@@ -204,6 +204,11 @@ EXPECTED_TABLES = {
     # OU logements) étaient calculés puis jetés, comme l'était le périmètre analytique avant
     # 0074. `lot6f_cout_complet_menages` filtre pourtant sur ce drapeau.
     "charges_perimetre_menage",
+    # 0114 — circuit Banque → Charges → Comptabilité → Facturation (Mission 36)
+    "mapping_produits_facture",                   # type économique d'une ligne de facture → compte
+    "justificatifs",                              # référence documentaire, présence ou absence justifiée
+    "justificatif_evenements",                    # historique des réponses
+    "justificatifs_sequence",                     # compteur CHG-AAAA-MM / FAF-AAAA-MM
 }
 
 
