@@ -4223,3 +4223,55 @@ calcule ses bloqueurs sans propositions et n'écrit rien.
 Recette sur copie : 13/13 (retrait passé puis écriture validée → bloqueur levé ; mapping prévisualisé ;
 règle provisoire insuffisante ; règle fictive validée lève le blocage ; exception fictive sur un contrôle
 moteur ; compteur 16 → 13 ; septembre refusé). Régression ciblée : 631 passed.
+
+## Mission 35 (2026-09-29) — Lecture seule réelle des écrans Flux
+
+**Les parcours de consultation GET et de prévisualisation n'ont aucun effet d'écriture métier.** Acquis prouvé par tests (empreinte de toutes les tables avant / après chaque écran), pas
+supposé. Commit `f40228b`.
+
+**Défaut corrigé** (constaté en Mission 34) : afficher Flux, ses propositions, les créances ou un
+compte propriétaire PERSISTAIT le FIFO (`proprietaire_allocations` régénérées, une ligne « AUTO »
+de plus dans `proprietaire_recalculs` par propriétaire et par affichage). Chaîne :
+route GET → `flux.mouvements()` → `flux_matching.propositions()` → `flux.objets()` →
+`_creances_ouvertes` → `creances_dettes.creances()` → `compte_proprietaire.recalculer_tous()` →
+`recalculer()` (DELETE + INSERT allocations, INSERT journal). Second chemin :
+`/comptes-proprietaires*` → `position()` → `recalculer(…, "AUTO")`. Avant correctif, 13 écrans
+écrivaient (Flux banque, caisse, détail mouvement, rapprochement, prévisualisation du lettrage,
+banques-caisse, créances, dettes, échéancier, comptes propriétaires liste et fiche).
+
+**Séparation retenue** (`compte_proprietaire_service`) :
+- `calculer()` : allocations de l'état courant EN MÉMOIRE, aucune écriture. Lue par `position()`,
+  `imputations_detail()`, `creances()` (une fois pour toutes les factures). L'affichage est donc
+  toujours juste, même si l'enregistrement est en retard.
+- `recalculer()` : persistance + journal, inchangée, appelée seulement par une action.
+- `apres_ecriture()` : persistance après commit d'une écriture métier qui change une entrée du
+  FIFO ; un échec est journalisé sans annuler l'écriture déjà validée.
+
+**Déclencheurs persistants conservés** (issus des seuls écrivains réels des entrées FIFO —
+factures `EMIS` de type FACTURE, mouvements de trésorerie propriétaire `VALIDE` actifs) :
+
+| Workflow | Recalcul nécessaire ? | Persistant ? | Justification |
+|---|---|---|---|
+| Émission d'une facture (`fpr.emettre`, type FACTURE) | oui | oui — `EMISSION_FACTURE` | une créance entre dans le FIFO (EMIS est terminal) |
+| Émission d'un avoir | non | non | l'avoir n'est pas une entrée FIFO (créance négative côté créances) |
+| Validation d'un mouvement (`tres.valider` : écran trésorerie, acompte de facture, Qonto « encaissement propriétaire ») | oui | oui — `VALIDATION_MOUVEMENT` | une source entre dans le FIFO |
+| Annulation d'un mouvement VALIDE (`tres.annuler`) | oui | oui — `ANNULATION_MOUVEMENT` | une source sort du FIFO |
+| Création / modification / annulation d'un BROUILLON | non | non | un brouillon n'est pas une source |
+| Lettrage Flux d'une facture propriétaire et son annulation | oui | oui — après le commit du lettrage | encaissement validé / annulé dans la transaction du lettrage |
+| Bouton « Recalculer les allocations » (existant) | à la demande | oui — `MANUEL` | action explicite ; aucun nouveau bouton créé |
+| Tout GET, prévisualisation, audit, export, clôture | non | **non** | lecture : calcul en mémoire |
+
+La fiche compte propriétaire signale (sans rien écrire) quand l'enregistrement est en retard sur
+les données (donnée reprise hors workflow) ; le bouton existant le remet à jour.
+
+**Preuves.** `tests/test_lecture_seule_flux.py` (10 tests : 24 écrans GET, propositions réelles,
+chemin exact de l'audit M34, idempotence de deux GET, affichage juste avec persistance en
+retard, validation / annulation d'un mouvement, lettrage Flux et son annulation, émission de
+facture) — rejoués sur le code d'avant : 9 échecs sur 10 (le témoin passe), 13 écrans fautifs.
+Suite complète : 4 468 passed / 37 skipped / 0 failed (44 min). Recette copie 11/11 (A→G : 0 modification ; H : acompte fictif validé →
+recalcul `VALIDATION_MOUVEMENT` journalisé ; J : second affichage sans écriture). Contrôle réel en
+lecture : hash `app.db`, empreinte logique, journal et allocations identiques avant / après
+(Flux banque, rapprochement, un mouvement, clôture de septembre, `flux.mouvements()`).
+
+La base réelle n'a pas été nettoyée : les 3 recalculs « AUTO » du 29/09 01:16 restent (baseline).
+Les 16 bloqueurs de septembre sont inchangés. PR #4 en attente, non mergée.

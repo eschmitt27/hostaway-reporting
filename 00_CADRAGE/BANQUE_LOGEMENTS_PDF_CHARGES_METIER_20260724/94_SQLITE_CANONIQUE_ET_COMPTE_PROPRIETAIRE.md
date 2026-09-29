@@ -199,6 +199,17 @@ réelle.
 rang, historique des recalculs. Le filtre logement sert à **analyser** ; les totaux affichés
 restent ceux du compte entier.
 
+### 2.10 Lire n'écrit rien (Mission 35)
+
+Les allocations persistées ne sont plus rafraîchies à l'affichage. Toute lecture (position,
+créances, Flux et ses propositions, clôture) les **calcule en mémoire** sur l'état courant
+(`compte_proprietaire_service.calculer`) ; `recalculer` (remplacement des allocations + ligne de
+journal) n'est appelé que par une action : émission d'une facture, validation ou annulation d'un
+mouvement de trésorerie propriétaire (y compris via le lettrage Flux), bouton « Recalculer ».
+Déclencheurs journalisés : `EMISSION_FACTURE`, `VALIDATION_MOUVEMENT`, `ANNULATION_MOUVEMENT`,
+`MANUEL` ; `AUTO` n'est plus produit. La fiche du compte indique, sans rien écrire, quand
+l'enregistrement est en retard sur les données.
+
 ---
 
 ## 3. Migrations

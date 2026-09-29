@@ -5871,3 +5871,19 @@ suite complète **4 456 passed / 37 skipped / 0 failed** (44 min), puis 338 pass
 **Base réelle.** Schéma 0113, intégrité ok ; septembre non clôturé ; seul écrit : le rafraîchissement
 FIFO des allocations propriétaires déclenché par une lecture avec propositions (contenu identique).
 Détail : `HANDOFF_CANONIQUE.md`, Mission 34.
+
+## CTR-LECTURE-SEULE-FLUX-2026-09-29 — consultation sans écriture : PROUVÉE (D029)
+
+**Périmètre.** Mission 35, commit `f40228b`. Aucune migration. Les lectures du compte propriétaire
+calculent le FIFO en mémoire ; la persistance n'a lieu qu'après une écriture métier qui change une
+entrée du FIFO (émission de facture, validation / annulation d'un mouvement, lettrage Flux) ou sur
+le bouton existant « Recalculer ».
+
+**Règle.** **Les parcours de consultation GET et de prévisualisation n'ont aucun effet d'écriture métier.**
+
+**Contrôles.** `test_lecture_seule_flux.py` 10 passed (9 échecs sur le code d'avant) ; suite
+complète 4 468 passed / 37 skipped / 0 failed (44 min) ; recette copie 11/11 ; contrôle réel en lecture : base inchangée (hash fichier,
+empreinte logique, journal, allocations).
+
+**Base réelle.** Inchangée par la mission ; aucun nettoyage (baseline conservée). Septembre non
+clôturé, 16 bloqueurs inchangés. Détail : `HANDOFF_CANONIQUE.md`, Mission 35.
