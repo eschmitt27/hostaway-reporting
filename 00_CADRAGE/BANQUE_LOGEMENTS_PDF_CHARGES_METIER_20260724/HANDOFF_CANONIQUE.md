@@ -3,6 +3,9 @@
 Document unique de reprise. Toute nouvelle session lit CE fichier en premier.
 Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais recréer à côté.
 
+> **État courant (2026-09-28)** : lire d'abord la **dernière section** (Mission 30 — Flux financiers).
+> Le tableau « Contexte technique » ci-dessous est historique (état du 2026-08-02).
+
 ## Contexte technique
 
 | Élément | Valeur |
@@ -3714,3 +3717,769 @@ pièce, facture À CONTRÔLER) puis « Ajouter une ligne manquante » — rien n
 **Côté utilisateur : résoudre les deux factures de juillet depuis l'écran** — `0005` par « Écarter :
 extraction incorrecte », `2026-40` par « Ajouter une ligne manquante » — puis décider `590757` depuis
 Correspondances logement. Aucune correction logicielle n'est en attente pour la recette n°3.
+
+---
+
+## Mission 30 (2026-09-28) — Flux financiers : FONCTIONNEL, bloc clos
+
+### État
+
+| Élément | Valeur |
+|---|---|
+| **FLUX_FINANCIERS** | **FONCTIONNEL** (périmètre actuel) |
+| Branche | `resume/pilotage-conciergerie-20260909`, synchronisée avec `origin` |
+| HEAD code du bloc | `ad00144` (module) puis **`d16cff9`** (finalisation). Ce fichier est porté par le commit documentaire suivant, dont le SHA ne peut pas y figurer |
+| Migration | **0112** (additive), appliquée à la base réelle le 2026-09-28 |
+| PR Cloud #4 | non touchée, non fusionnée |
+| Arbre | propre, hors les 15 PDF `01_SOURCES_BRUTES/MenagesExternes/` volontairement non suivis (inchangés) |
+
+### Continuité — ce que ce handoff ne portait pas encore
+
+Entre la Mission 29 et ce bloc, le travail est tracé dans `JOURNAL_CONTROLES.md` et l'historique Git, pas
+ici : recette utilisateur n°4 lot 1 (`CTR-RECETTE4-LOT1-2026-09-18`) ; import RAW Qonto en lecture seule,
+validation humaine d'un mouvement Qonto, comptes courants d'associés `467000 → 455100` (2026-09-20/21) ;
+Missions 1 + 3 + 4 — actualisation Ménages par workflow GitHub, factures fournisseurs par un seul
+importeur, paramètres société & facturation en base, migrations 0110-0111 (entrée du 2026-09-24) ;
+refonte frontend « Nouvelle saisie charge » (PR #3, `7fb2616`).
+
+### Ce que le bloc a livré
+
+- **Une entrée de navigation « Flux financiers »**, quatre pages distinctes : `/flux-financiers/banque`,
+  `/caisse`, `/charges`, `/rapprochement`. Anciennes adresses (`/banques-caisse`, `/caisse`, `/charges`,
+  `/fournisseurs`) redirigées ; sous-écrans historiques (import Crédit Mutuel, contrôles, fiche Qonto
+  « Traiter ») conservés et accessibles depuis l'onglet Banque.
+- **Deux statuts par mouvement**, jamais confondus : rapprochement (non matché, matché, partiel, rapproché,
+  anomalie) et comptabilité (à qualifier, à comptabiliser, comptabilisé, erreur).
+- **Moteur de propositions** (1↔1, 1↔2, 1↔3, 2↔1, 3↔1, 2↔2, écart ≤ 0,10 €), confiance forte / moyenne /
+  faible avec raisons ; il propose, il ne valide jamais.
+- **Lettrage** (`flux_lettrages`) : « Valider le rapprochement et comptabiliser » écrit en UNE transaction
+  le lettrage, les liens `banque_rapprochements`, le règlement canonique et l'écriture, relue et modifiable
+  avant validation. Annulation par contrepassation, motif obligatoire.
+- **Charge créée depuis un mouvement** : formulaire de charge existant, prérempli, toujours comptable.
+- **Création de fournisseur à la volée** : doublons et noms génériques refusés, aucun identifiant inventé.
+- **Circuit historique apport d'associé / retrait Banque → Caisse** rendu atomique (une transaction SQLite).
+
+### Garde-fous acquis — à conserver
+
+1. Aucun repli silencieux sur `606000`.
+2. Une catégorie sans règle validée reste « **Compte comptable à définir** ».
+3. Aucun compte comptable inventé.
+4. Seules les règles **VALIDÉES** de `mapping_comptable_regles` proposent automatiquement un compte.
+5. Une charge ne se valide pas sur un compte inexistant, inactif ou hors classe 6.
+6. Une charge liée à un mouvement Banque ou Caisse n'est jamais « hors comptabilité » (création,
+   modification et validation du contrôle refusées). Une charge générale peut toujours l'être.
+7. Apport d'associé et retrait/transfert caisse : transactionnels et atomiques.
+8. En cas d'échec : aucun rapprochement partiel, aucune écriture partielle.
+9. Facture fournisseur validée → `401/512` seulement ; facture propriétaire émise → `512/411` seulement ;
+   charge directe → `6xx/512` sans dette inventée ; `401`/`411` exigent un tiers nommé.
+10. Mois clôturé (clôture mensuelle ou période comptable) : aucun rapprochement ni écriture.
+
+### Tests
+
+| Périmètre | Résultat |
+|---|---|
+| `test_flux_financiers.py` | **57 passed** |
+| Régression concernée (Qonto, comptabilité, charges, caisse, rapprochement, migrations, navigation) | **743 passed / 8 skipped** |
+| Ensemble ciblé du module (2026-09-28, 92 fichiers) | 1 718 passed / 16 skipped |
+| Recette sur copie de la base réelle | module **20/20** · finalisation **11/11** |
+
+Suite complète non rejouée pendant ce bloc (tests ciblés, par consigne).
+
+### Base réelle
+
+Schéma **0112**. `integrity_check` **ok**, `foreign_key_check` **0**. **Aucune écriture réelle** par le
+module : 0 lettrage, 4 rapprochements et 4 écritures, identiques à l'état d'avant. Sauvegardes :
+`data/backups/app_avant_migration_0112_flux_financiers_20260928T015048.db` (avant migration) et
+`app_avant_finalisation_flux_20260928T112816.db`. Aucune donnée métier modifiée, mappings inchangés.
+
+### Qonto
+
+Strictement **GET-only** (le client refuse toute autre méthode). 13 transactions, du 2026-09-11 au
+2026-09-26 : aucun mouvement bancaire de la SAS n'est connu avant le 11/09.
+
+### Arbitrages humains ouverts — ne pas résoudre automatiquement
+
+- **A. Mapping catégorie → compte.** Les 27 catégories actives n'ont aucune règle validée ; seule la règle
+  provisoire générique `606000` existe, et le plan comptable ne compte qu'**un** compte de charge. Le
+  cadrage `46`/`70` laisse ce mapping non arbitré. Choix à faire par l'utilisateur dans Comptabilité ›
+  Mappings. **Limite constatée** : le plan comptable n'est pas administrable dans l'application (écran en
+  lecture seule, aucun ajout de compte possible) et le formulaire de mapping est en texte libre — l'arbitrage
+  ne peut donc pas encore être rendu depuis l'écran.
+  **[Supersédé par la Mission 31]** : plan comptable administrable et mapping par listes contrôlées —
+  l'arbitrage se rend désormais depuis l'écran.
+- **B. Charge `CHG-fc93f74a63d1` (700 €).** Datée du 09/08/2026, Maintenance / réparation logement, hors
+  comptabilité, mode « banque professionnelle », contrôle validé ; aucun lien, rapprochement ni écriture ;
+  commentaire et justificatif à l'allure de saisies de test. Aucun mouvement correspondant : Qonto ne
+  commence que le 11/09, aucun relevé Crédit Mutuel importé. **Ne pas modifier.** Pour trancher : le relevé
+  bancaire d'août portant ce paiement, ou la confirmation qu'il s'agit d'une saisie de test à annuler.
+
+Autres actions utilisateur en attente, sans blocage logiciel : retrait de 20 € du 21/09 à comptabiliser
+(transfert 530/512) ; deux écritures de vente `PROPOSEE` à valider en Comptabilité ; 15 factures
+fournisseurs « À contrôler » (aucune dette 401 tant qu'elles ne sont pas validées) ;
+`FACTURES_REAL_WRITE_*` vides dans `.env` (le paiement d'une facture fournisseur depuis Flux est refusé
+tant qu'ils ne sont pas renseignés) ; `ORDONNANCEUR_ACTIF` vide (scheduler Hostaway OFF).
+
+### Prochaine action unique
+
+**Mission « Plan comptable et mappings administrables »** — rendre l'arbitrage A possible depuis
+l'application, sans créer ni déduire aucun compte : ajout / désactivation de comptes par l'utilisateur
+(jamais de suppression), écran de mapping par libellé de catégorie et liste de comptes actifs de classe 6,
+refus d'une règle vers un compte absent. Puis : brancher le contrôle de clôture « lignes bancaires non
+classées » sur les statuts Flux, et conduire la première clôture réelle (septembre 2026).
+
+## Mission 31 (2026-09-28) — Plan comptable et mappings administrables
+
+### État
+
+| Élément | Valeur |
+|---|---|
+| **PLAN COMPTABLE** | **FONCTIONNEL** — administrable depuis l'application |
+| **MAPPINGS COMPTABLES** | **FONCTIONNELS** — catégorie → compte choisi dans des listes contrôlées |
+| Branche | `resume/pilotage-conciergerie-20260909` |
+| HEAD de départ | `9f150e7` (clôture documentaire Flux financiers) |
+| Commits du bloc | `f897acb` (code + migration + tests existants adaptés), `9b46b99` (tests Mission 31), puis ce commit documentaire, dont le SHA ne peut pas figurer ici |
+| Migration | **0113** (additive). **Non appliquée à la base réelle** : elle s'appliquera au prochain démarrage de l'application (`apply_migrations` au démarrage). Sauvegarde préalable déjà prête : `data/backups/app_avant_migration_0113_plan_comptable_20260928T190725.db` (intègre, schéma 0112) |
+| PR Cloud #4 | non touchée, non fusionnée |
+| Arbre | propre, hors les 15 PDF `01_SOURCES_BRUTES/MenagesExternes/` volontairement non suivis (inchangés) |
+
+### Modèle retenu
+
+- **Une seule table de règles** : `mapping_comptable_regles` (`0024`), étendue par `0113` (`actif`,
+  `date_modification`). Aucune table concurrente créée.
+- **`mapping_categorie_compte` (`0023`) est SUPERSÉDÉE** : vide en base, plus lue ni écrite par les écrans ;
+  seul le contrôle `CTRL_CPT_MAPPING_CATEGORIE_NON_ARBITRE` la lit encore (0 ligne, donc 0 signalement).
+  Le signalement utile est désormais la synthèse de l'écran Mappings (« N catégories sur M sans compte
+  comptable validé »).
+- `plan_comptable` : colonnes `date_creation` / `date_modification` ; journal `plan_comptable_evenements`
+  (création, modification, désactivation, réactivation : avant/après, motif, acteur, horodatage).
+- `mapping_regle_evenements` : journal des règles (création, modification, validation, passage en
+  provisoire, désactivation, réactivation).
+- **Le schéma refuse la destruction** : triggers `trg_plan_comptable_sans_suppression`,
+  `trg_plan_comptable_numero_immuable`, `trg_mapping_regles_sans_suppression`.
+
+### Plan comptable — Comptabilité › Plan comptable
+
+- Liste avec recherche (numéro ou libellé), filtres type et statut, type en clair (Actif (bilan), Passif
+  (bilan), Charge, Produit), utilisation (lignes d'écriture, lignes d'OD, règles), comptes utilisés par le
+  moteur signalés.
+- **Ajout manuel** : numéro saisi par l'utilisateur (chiffres uniquement), libellé et type obligatoires,
+  nom de l'auteur obligatoire, doublon refusé. Cohérence type ↔ classe : un compte de charge commence par 6,
+  un compte de produit par 7, et réciproquement — alignée sur le plan existant (`606000` CHARGE, `706000`
+  PRODUIT) et le garde-fou 5 de Flux. **Aucun numéro généré.**
+- **Modification** : libellé et commentaire seulement ; numéro et type immuables (identité du compte, sens
+  des écritures passées).
+- **Désactivation / réactivation** : motif et nom obligatoires, historisées. Les comptes utilisés par les
+  générateurs d'écritures (`401000`, `411000`, `455100`, `512000`, `530000`, `606000`, `706000`) ne se
+  désactivent pas. Un compte désactivé n'est plus proposé nulle part (mapping, Flux financiers, OD) ; ses
+  écritures passées restent intactes et consultables.
+- **Aucune suppression** : ni route, ni service, et le schéma l'interdit.
+
+### Mappings — Comptabilité › Mappings
+
+- **Vue par catégorie** (libellé « famille · catégorie », jamais le code) : compte proposé ou « ? Compte
+  comptable à définir », statut (Validée / Validée, bloquée / Provisoire / Aucune règle), période, charges
+  concernées (nombre, montant, reste à comptabiliser).
+- **Création** : catégorie choisie dans le référentiel, compte choisi dans la liste des comptes de charge
+  ACTIFS (classe 6) — aucun champ libre ; statut ; début et fin de validité ; justification ; nom.
+  Toujours **prévisualisation d'impact, puis confirmation**.
+- **Statuts** : une règle provisoire ne propose rien ; une règle validée propose son compte s'il est actif et
+  de classe 6.
+- **Temporalité** : une règle validée ne change ni de compte ni de date de début. Pour changer de compte :
+  poser sa date de fin, créer la suivante à partir du lendemain. Août garde son compte quand octobre change
+  (vérifié par test).
+- **Validations serveur** (le formulaire n'est jamais la seule protection) : catégorie inconnue, compte
+  absent, désactivé ou non-charge, statut inconnu, période illisible ou inversée, chevauchement, filet
+  générique, transition interdite, motif manquant, auteur manquant — messages métier, jamais d'erreur SQL.
+- **Conflits** : deux règles actives de même statut ne se chevauchent pas sur une catégorie. Une provisoire
+  sous une validée est admise (la validée prime). Une règle validée dont le compte a été désactivé reste
+  « Validée, bloquée » : pour affecter un autre compte, la désactiver ou la clore d'abord (l'écran mène à la
+  règle).
+- **Filet générique `MAP-GENERIQUE-606000`** : lecture seule, non administrable ; il ne sert qu'au journal
+  Achats des factures fournisseurs, jamais à Flux financiers.
+- **Repli absolu `606000` du résolveur SUPPRIMÉ** : sans aucune règle, `resoudre_compte` rend un compte
+  vide (`AUCUNE_REGLE`), plus un numéro codé en dur.
+- **Journal des OD** : plus aucun compte présélectionné (`606000`/`401000` l'étaient), comptes désactivés
+  absents de la liste.
+
+### Prévisualisation d'impact
+
+Non destructive : catégorie, compte, statut, période ; nombre et montant des charges comptables actives
+de la catégorie dans la période ; combien restent à comptabiliser, combien sont déjà comptabilisées (non
+modifiées) ; jusqu'à 10 exemples avec leur état ; ce que la règle proposera. Aucune charge, écriture ni
+rapprochement n'est écrit ou recalculé — prouvé par comparaison d'empreintes de tables (tests et recette).
+
+### Intégration Flux financiers (règle inchangée, renforcée)
+
+| Situation | Proposition |
+|---|---|
+| Aucune règle validée | « Compte comptable à définir » |
+| Règle provisoire | « Compte comptable à définir » |
+| Règle validée, compte actif de classe 6 | le compte de la règle |
+| Compte désactivé après la règle | « Compte comptable à définir » (l'avertissement nomme le compte) |
+| Règle désactivée | « Compte comptable à définir » |
+| Compte absent | règle impossible à créer |
+
+Les écritures déjà validées ne sont jamais réécrites (test et recette : l'écriture sur le compte
+désactivé reste identique et consultable).
+
+### Tests
+
+| Périmètre | Résultat |
+|---|---|
+| `test_plan_comptable_mappings_administrables.py` (30 points du cahier + autorité serveur) | **47 passed** |
+| Tests existants adaptés (règle = catégorie et compte réels) : mappings, routes, ventilation, flux, migrations, journaux, routes compta | **114 passed** |
+| Régression concernée | **907 passed / 13 skipped** (55 fichiers : comptabilité, Flux, Qonto, banque, charges, caisse, navigation, migrations, code final) |
+| Suite complète `05_APPLICATION/tests` | **4 416 passed / 37 skipped / 0 failed** (41 min 56 s, code avant les dernières retouches de libellés — rejouées ensuite par la régression ciblée et la recette) |
+
+### Recette sur copie fraîche de la base réelle — 20/20
+
+Copie par l'API `backup` (source ouverte en lecture seule), migration 0113 appliquée à la COPIE seulement,
+parcours HTTP : plan ouvert (8 comptes, 7 actifs) ; 27 catégories sur 27 sans compte validé ; compte fictif
+`615999` ajouté puis visible ; règle provisoire « Achat · Petit équipement » → `615999` sans proposition ;
+validation après prévisualisation ; Flux propose `615999` ; opération comptabilisée dans la copie ;
+compte désactivé → plus proposé, règle « Validée, bloquée » ; historique intact (écriture, événements du
+compte et de la règle) ; refus serveur d'un numéro inconnu, d'un compte désactivé, d'un compte non-charge,
+d'une catégorie inconnue ; prévisualisations (avec conflit : 4 charges 206,72 € ; sans conflit « Linge ·
+Blanchisserie » : 1 charge 146,00 €) ; aucune écriture par la prévisualisation ; charge 700 € et Qonto
+inchangés ; suppression refusée par le schéma ; copie intègre. Contrôle visuel dans le navigateur sur la
+copie (plan, fiche compte, mappings, prévisualisation, fiche règle).
+
+### Base réelle — INTACTE
+
+Empreinte `app.db` identique avant et après (`12a7285972e7ae86…`), schéma **0112**, `integrity_check` ok,
+`foreign_key_check` 0. Charge `CHG-fc93f74a63d1` (700 €) inchangée. 15 PDF inchangés (empreinte groupée
+`0398ca5f0c01da04`). Qonto GET-only. Scheduler Hostaway OFF.
+
+### Limites, documentées
+
+- **Journal Achats (factures fournisseurs)** : sans règle validée pour la catégorie, il retombe sur le
+  filet générique `606000` **PROVISOIRE**, visible comme tel. Non modifié : la recette factures
+  fournisseurs n'est pas démarrée. Si la règle validée d'une catégorie vise un compte ensuite désactivé,
+  la génération Achats est **refusée** (« Compte inconnu ou inactif ») : aucune substitution silencieuse.
+  Les OD refusent aussi, côté serveur, un compte désactivé.
+- **Portée `TYPE_FLUX`** : gérée par le résolveur, non administrable depuis l'écran (non demandée).
+- **Réactiver un compte** rend à nouveau effectives les règles validées qui le désignent (elles n'ont
+  jamais été désactivées) — c'est voulu.
+- Horodatages en UTC, comme le reste de l'application.
+
+### Arbitrages humains ouverts — ne pas résoudre automatiquement
+
+- **A. Mapping catégorie → compte** — désormais **réalisable depuis l'application**. Reste à faire par
+  l'utilisateur : créer ses comptes de charge (le plan réel n'en compte qu'un, `606000`), puis une règle par
+  catégorie. Aucun compte ni aucune règle n'a été créé dans la base réelle. La « limite constatée » de la
+  Mission 30 est levée.
+- **B. Charge `CHG-fc93f74a63d1` (700 €)** — inchangée, toujours à trancher par l'utilisateur.
+- Autres actions en attente, inchangées (retrait 20 €, deux ventes `PROPOSEE`, 15 factures « À contrôler »,
+  `FACTURES_REAL_WRITE_*` et `ORDONNANCEUR_ACTIF` vides).
+
+### Prochaine action unique
+
+**CLÔTURE MENSUELLE BRANCHÉE SUR FLUX FINANCIERS** — non commencée.
+
+## Mission 32 (2026-09-28) — Clôture mensuelle branchée sur Flux financiers
+
+### État
+
+| Élément | Valeur |
+|---|---|
+| **CLÔTURE MENSUELLE BRANCHÉE SUR FLUX** | **FONCTIONNELLE** |
+| **SEPTEMBRE 2026** | **NON CLÔTURÉ — MOIS EN COURS** (le serveur refuse ; 16 bloquants réels de toute façon) |
+| Branche | `resume/pilotage-conciergerie-20260909` |
+| HEAD de départ | `9c6a6e5` |
+| Commits | `4d4227a` (code + tests existants adaptés), `bc9663d` (tests Mission 32), puis ce commit documentaire |
+| Migration 0113 | **appliquée à la base réelle** le 2026-09-28 (21 h 18) par `apply_migrations()` — le mécanisme du démarrage —, après répétition sur copie ; 9 contrôles sur 9 (schéma 0113, `integrity_check` ok, `foreign_key_check` vide, données métier identiques — empreinte logique `ac7c2f2bd0a5a04e` avant et après —, aucun compte, règle, écriture créés, Qonto et charge 700 € inchangés) |
+| Sauvegarde préalable | `data/backups/app_avant_migration_0113_plan_comptable_20260928T190725.db` (intègre, schéma 0112, empreinte logique égale à la base d'avant) |
+| Empreinte fichier `app.db` | `12a7285972e7ae86…` avant migration → **`d95f7797ec258fc3…`** après ; inchangée ensuite jusqu'à la fin de la mission |
+| Aucune migration nouvelle | la mission n'ajoute aucune table ni colonne |
+| PR Cloud #4 | non touchée, non fusionnée |
+
+### Audit — d'où venaient les bloqueurs, d'où ils viennent
+
+| Contrôle | Source avant | Source correcte | Bloquant ? | Modification |
+|---|---|---|---|---|
+| Ligne bancaire non classée (`CLOTURE_IMPOSSIBLE_LIGNE_BANCAIRE_NON_CLASSEE`, C4-C6) | `banque_mouvements.statut_classification = RAPPROCHEMENT_REQUIS` — ancien import Crédit Mutuel (0 ligne en base), seulement pour les mois présents dans `ref_cloture_mensuelle`, figé au dernier recalcul moteur | Flux financiers : statut comptable de chaque mouvement Qonto (`flux_financiers_service.mouvements`) | Oui | Bloqueur « Mouvement bancaire à qualifier / à comptabiliser / en anomalie / en attente » calculé en direct ; le contrôle moteur reste pour l'import Crédit Mutuel |
+| Mouvement de caisse non traité | absent | Flux (opérations de caisse) | Oui | nouveau bloqueur, même vocabulaire |
+| Écriture `PROPOSEE` du mois | absent | `ecritures.statut` | Oui (C3 + balance, voir limites) | nouveau bloqueur |
+| Compte comptable à définir | absent | `flux_lettrage_service.compte_de_charge` (règles VALIDÉES) | Oui | nouveau bloqueur + « X opération(s) nécessitent encore un compte comptable. » |
+| Facture fournisseur à contrôler / validée non réglée | absent | `factures.statut` | Non (aucune règle) | informatif, raison affichée |
+| Contrôles moteur APP-5B (réservations, ménages, commissions…) | `controles_actionnable_service` | inchangé | selon leur niveau | réutilisés tels quels |
+| Mois courant / futur | aucune garde (`valider` acceptait tout mois sans bloqueur) | calendrier | Oui | refus serveur de `valider` et `archiver` |
+
+### Ce que la clôture lit désormais
+
+- **Un service de lecture, `cloture_flux_service`** : aucune écriture, aucune qualification, aucun mapping,
+  aucune validation. Chaque élément porte type, date, montant, origine, statut, raison, action et lien
+  vers l'écran de traitement ; chaque informatif dit pourquoi il ne bloque pas.
+- **`calcul_progression` = contrôles moteur + bloqueurs Flux**, et l'état du mois : « Clôture impossible
+  — N éléments bloquants », « Prêt techniquement — mois en cours », « Prêt à clôturer », « Mois futur —
+  non clôturable ». « Prêt à clôturer » est **calculé, jamais persisté** : l'automate existant
+  (`NON_DEMARREE → EN_PREPARATION → A_VALIDER → VALIDEE → ROUVERTE/ARCHIVEE`) est inchangé.
+- **Gardes serveur** dans `valider()` et `archiver()` : calendrier d'abord (« Le mois de septembre 2026
+  est encore en cours et ne peut pas être clôturé. »), bloqueurs ensuite (« Ce mois ne peut pas être
+  clôturé : 4 contrôles bloquants restent à traiter. »), recalculés sous `BEGIN IMMEDIATE` ; transition
+  et trace des contrôles dans un seul commit.
+- **Historique** : un évènement « CONTROLES » (résumé moteur / Flux / informatifs) au passage à valider
+  et à la validation.
+
+### Écrans
+
+- **Contrôle du mois** `/clotures/mois/AAAA-MM` (lecture seule) : sélecteur de période, état, synthèse
+  (bloqueurs Flux, Banque, Caisse, écritures, comptes à définir, autres contrôles bloquants, informatifs),
+  détail de chaque bloqueur avec son lien de traitement, informatifs repliés.
+- **Liste** : mois de Flux et mois courant ajoutés (septembre apparaît), colonne « État du mois ».
+- **Fiche / validation** : même bilan ; bouton désactivé avec le motif (calendrier ou bloqueurs), et
+  rappel que le serveur refait les contrôles ; statut en libellé ; alerte si un bloqueur apparaît après
+  validation.
+
+### Après clôture, réouverture
+
+- La protection existante est conservée : un mois `CLOTURE` (`ref_cloture_mensuelle`) ou une période
+  comptable `CLOTUREE` refuse tout rapprochement et toute écriture Flux (test). Une clôture VALIDÉE
+  (suivi humain) ne verrouille rien : un nouveau bloqueur y déclenche une alerte.
+- Réouverture existante conservée : `VALIDEE → ROUVERTE`, justification obligatoire (tests existants).
+- **`archiver()` (clôture réelle : archive économique + `CLOTURE`) n'est appelée par aucune route**,
+  comme avant ; ses gardes sont maintenant les mêmes que la validation. **[Supersédé par la Mission
+  33 : exposée par « Clôturer définitivement le mois ».]**
+
+### Septembre 2026 réel — lu en lecture seule (empreintes identiques avant/après)
+
+| Famille | Nombre | Détail |
+|---|---|---|
+| Mouvements bancaires Qonto à qualifier | 8 | 21/09 → 26/09/2026, de 2,40 € à 59,82 € (enseignes de bricolage, supermarché, téléphonie, frais Qonto) |
+| Retrait d'espèces à comptabiliser | 1 | 20,00 € le 21/09/2026 — transfert Banque → Caisse (530 / 512) non passé |
+| Écriture proposée à valider | 1 | Vente, 823,65 € (facture propriétaire 2026-08-001, période 2026-09) |
+| Comptes comptables à définir | 2 | Charges de 146,00 € (Linge · Blanchisserie) et 42,00 € (Achat · Petit équipement) — aucune règle validée |
+| Contrôles moteur bloquants | 4 | Réservations à contrôler exclues du calcul de commission |
+| Informatifs | 3 | Opérations Qonto sans effet (1 contrepassée par la banque, 2 opérations en attente à 0 €) |
+| **Total** | **16 bloquants** | « Clôture impossible — 16 éléments bloquants » ; et quand bien même : mois en cours |
+
+Aucun de ces éléments n'a été traité. Aucune clôture de septembre n'a été démarrée dans la base réelle.
+
+### Tests et recette
+
+| Périmètre | Résultat |
+|---|---|
+| `test_cloture_flux_financiers.py` (30 points du cahier, POST forcés) | **23 passed** |
+| Tests existants adaptés (date du jour fixée au 01/01/2100 pour les mois de test 2098-2099) | 112 passed |
+| Régression concernée | **1 320 passed / 18 skipped / 0 failed** (76 fichiers : clôture, contrôles, pilotage, Flux, comptabilité, Qonto, banque, charges, caisse, navigation, identifiants UI, migrations) ; puis 176 passed sur l'état final des gabarits |
+| Recette copie (A mois courant, B bloqueur fictif, C mapping, D écritures, E mois sain) | **17/17** |
+| Recette navigateur (copie) | sélection de période, synthèse, bloqueur ouvert puis traité (règle validée), disparition après actualisation, septembre : bouton désactivé et POST forgé refusé, novembre 2025 validé, persistance après redémarrage, mobile 375 px sans débordement |
+
+### Limites et arbitrages
+
+- **Écriture `PROPOSEE` bloquante** : déduit de C3 (validation officielle avant clôture) et de
+  `45_MODELE_ECRITURES_COMPTABLES.md` (la balance exclut `PROPOSEE`) — **à confirmer par l'utilisateur**.
+- **Opération bancaire en attente** : bloquante (C4). Aucune en base réelle (les deux « pending » sont à
+  0 €, donc sans effet).
+- **Les contrôles moteur restent ce qu'ils sont** : la plupart des mois historiques sont bloqués par des
+  réservations à contrôler ou des écarts ménages — non traités ici.
+- **Clôture réelle (`ARCHIVEE` → `CLOTURE`) non exposée** : décider si un bouton « Clôturer
+  définitivement » doit exister (prochaine évolution).
+- Les 15 factures fournisseurs « À contrôler » (février → août 2026) sont informatives, non bloquantes.
+
+### Prochaine action
+
+Traiter septembre au fil de l'eau (qualifier les 8 mouvements, passer le retrait, valider la vente,
+choisir les comptes), puis, en octobre, sa clôture ; décider de l'exposition de la clôture réelle.
+
+## Mission 33 (2026-09-28) — Clôture définitive depuis l'interface
+
+### État
+
+| Élément | Valeur |
+|---|---|
+| **CLÔTURE DÉFINITIVE DEPUIS L'INTERFACE** | **FONCTIONNELLE** |
+| Transition | `VALIDEE → ARCHIVEE` (automate existant, aucun nouvel état) |
+| **SEPTEMBRE 2026** | **NON CLÔTURÉ — MOIS EN COURS** (16 bloquants réels, lus seulement) |
+| HEAD de départ | `3af3dc6` |
+| Commits | `083bda7` (code), `1fe8b40` (tests), puis ce commit documentaire |
+| Migration | aucune ; base réelle au schéma 0113, inchangée (empreinte `d95f7797…`) |
+
+### Contrat audité — ce que chaque statut veut dire
+
+- **`VALIDEE` = validation humaine de la préparation.** Le mois n'est pas gelé : ses opérations restent
+  modifiables, la clôture peut être rouverte (`VALIDEE → ROUVERTE`, justification obligatoire).
+- **`ARCHIVEE` + `ref_cloture_mensuelle = CLOTURE` = clôture définitive et gel du mois.** `archiver()`
+  fige l'archive économique (réservations du jeu de calcul actif, agrégat de règlement), la vérifie,
+  marque `CLOTURE`, passe la clôture à `ARCHIVEE` et trace les contrôles — une seule transaction.
+- Deux décisions humaines distinctes : jamais `EN_PREPARATION → VALIDEE → ARCHIVEE` en un clic.
+- **Supersède** : « la clôture réelle n'est pas active », « aucune route ne pose CLOTURE » (Missions 15
+  à 32, écrans et tests) — la route existe désormais.
+
+### Parcours ajouté
+
+- Fiche d'une clôture `VALIDEE` éligible (mois terminé, aucun bloqueur) : **« Clôturer définitivement le
+  mois »** ; sinon, le motif d'indisponibilité.
+- **Page de confirmation** `GET /clotures/{id}/cloture-definitive` (n'écrit rien) : mois, statut,
+  bloqueurs, date de validation, avertissement « Cette action clôturera définitivement le mois de … »,
+  case de confirmation, commentaire facultatif, « Confirmer la clôture définitive » / « Annuler ».
+- `POST` même adresse : appelle `clotures_service.archiver()` — aucune logique de clôture dans la route.
+
+### Contrôles refaits par le serveur (sous `BEGIN IMMEDIATE`, dans cet ordre)
+
+1. mois terminé (courant et futur refusés, POST forgé compris) ;
+2. état **relu en base** : `ARCHIVEE` → « Ce mois est déjà clôturé définitivement. » ; autre que
+   `VALIDEE` → « Le mois doit d'abord être validé avant de pouvoir être clôturé définitivement. » ;
+3. état périmé : version différente de celle affichée → refus, rechargement demandé ;
+4. bloqueurs moteur et Flux recalculés (écriture `PROPOSEE` comprise) → « Ce mois ne peut pas être
+   clôturé : N contrôle(s) bloquant(s) … » ;
+5. règles de l'archivage existant (archive déjà présente, vérification).
+
+Confirmation cochée obligatoire. Refus = message métier, jamais d'erreur SQL.
+
+### Écriture `PROPOSEE`
+
+Confirmée bloquante par l'utilisateur. Une écriture devenue sans objet se **contrepasse** (mécanisme
+unique du projet : l'originale passe `CONTREPASSEE`, le miroir naît `VALIDEE`) et cesse alors de
+bloquer — aucun nouveau statut créé.
+
+### Défaut de l'existant trouvé et corrigé
+
+`archiver_mois` (mission 15) lisait **tous** les jeux de `reservations_resolues` : chaque réservation y
+était autant de fois qu'il y a de jeux conservés, l'index unique écartait les doublons et la
+vérification refusait l'archive — sur copie de la base réelle, juin 2026 : « 412 lignes écrites mais 70
+relues ». La clôture définitive était impossible sur les données réelles. Désormais, seul le jeu
+**actif** (`reservations_datasets`, comme tous ses lecteurs) est archivé ; test de non-régression.
+
+### Protections après clôture
+
+| Objet | Protégé après CLOTURE ? | Mécanisme | Test existant |
+|---|---|---|---|
+| Charge — saisie par le parcours utilisateur | Oui | `charges_preview_service.validate_charge` V02_MOIS_CLOTURE, rejouée à la confirmation | `test_charges_preview`, `test_charges_confirmation`, `test_cloture_definitive::test_19` |
+| Charge — réouverture du contrôle | Oui | `charges_saisie_service.rouvrir_controle` (E_CHARGE_MOIS_CLOTURE) | `test_charge_retour_a_controler` |
+| Charge — appel direct du service `saisie.creer` | Non | la garde vit dans le parcours de saisie, pas dans le service bas niveau | limite documentée |
+| Réservation hors Hostaway | Oui | `saisie_hh_service` (MOIS_CLOTURE) | `test_reservation_hh_creation_e2e` |
+| Ménages — déclarations | Oui | `menages_declarations_service` (E_MOIS_CLOTURE) ; l'actualisation signale sans recalculer | `test_menages_mois_clotures`, `test_menages_actualisation_*` |
+| Facture fournisseur — suppression / modification | Oui | `factures_service` (E07_MOIS_CLOTURE) | `test_facture_suppression_et_contrepassation` |
+| Rapprochement / lettrage Flux | Oui | `flux_financiers_service.mois_cloture` (clôture mensuelle OU période comptable) | `test_flux_financiers`, `test_cloture_flux_financiers::test_30`, `test_cloture_definitive::test_19` |
+| Réservations — valeurs économiques | Oui (figées) | archive `reservations_historique_cloture` qui prime le live (D097) | `test_cloture_archivage_economique` |
+| Écritures comptables (générateurs Achats, Ventes, OD, caisse) | Non par la clôture mensuelle | le moteur d'écritures ne lit que la **période comptable** `CLOTUREE` (clôture distinte, par conception) | limite documentée |
+
+### Réouverture
+
+- Clôture `VALIDEE` : `VALIDEE → ROUVERTE` (justification), inchangé.
+- Mois `CLOTURE` non archivé : `menages_mois_clotures_service.rouvrir` (confirmation, motif, auteur,
+  journal `mois_reouvertures`) → `EN_CONTROLE`, jamais de reclôture automatique ; une clôture VALIDÉE
+  associée passe ROUVERTE par son automate.
+- Clôture `ARCHIVEE` : **refusée** par cet écran (« sa réouverture passe par la correction
+  rétroactive ») — contrat existant, conservé et testé.
+
+### Tests et recette
+
+| Périmètre | Résultat |
+|---|---|
+| `test_cloture_definitive.py` | 18 passed |
+| Clôture, archivage, contrôles, ménages (dont tests Mission 32 adaptés) | 191 passed / 2 skipped |
+| Suite complète | **4 456 passed / 37 skipped / 0 failed** (44 min), puis 338 passed sur le code final (clôture, archivage, contrôles, ménages, Hostaway, navigation, identifiants UI) |
+| Recette copie (10 scénarios) | **10/10** — juin 2026 amené dans la copie (exceptions justifiées sur ses contrôles moteur), validé, bloqueur injecté entre confirmation et POST refusé, puis clôturé : ARCHIVEE, CLOTURE, 65 réservations et 13 lignes de règlement archivées |
+| Navigateur (copie) | fiche → bouton → confirmation → case → « Clôturée définitivement » |
+
+### Base réelle
+
+Aucune clôture, validation d'écriture, qualification, mapping ou charge modifiés. Empreinte logique
+identique avant/après (`fe7ab69c1213db38`), schéma 0113, intégrité ok. Septembre 2026 : 16 bloquants
+(9 mouvements bancaires, 1 écriture proposée, 2 comptes à définir, 4 contrôles moteur), non traités.
+Charge 700 € inchangée, Qonto GET-only, 15 PDF intacts, scheduler OFF.
+
+### Limites
+
+- Les écritures comptables d'un mois `CLOTURE` restent protégées par la seule **période comptable**
+  (clôture distincte) : clôturer définitivement un mois ne clôture pas sa période comptable.
+- La plupart des mois historiques gardent des contrôles moteur bloquants (réservations à contrôler,
+  écarts ménages) : à traiter ou justifier avant leur clôture définitive.
+
+### Prochaine action
+
+Traiter septembre au fil de l'eau ; en octobre, sa validation puis sa clôture définitive.
+
+## Mission 34 (2026-09-29) — Assainissement opérationnel de septembre 2026 (audit, aucun traitement réel)
+
+**SEPTEMBRE 2026 NON CLÔTURÉ.** 16 bloquants réels recalculés, classés en file ; aucun traité dans la
+base réelle (aucune qualification, aucun mapping, aucune écriture validée, charge 700 € inchangée).
+
+| # | Bloqueur | Montant | File | Action |
+|---|---|---:|---|---|
+| 1-6 | Achats carte (Leroy Merlin 5,89 ; Castorama 48,39 ; GiFi 5,00 et 15,25 ; E.Leclerc 4,90 et 59,82) | 139,25 | Décision utilisateur (+ justificatif manquant pour 4 d'entre eux) | créer la charge (catégorie, logement), la rapprocher |
+| 7 | Free Mobile | 12,00 | Décision utilisateur + justificatif manquant | idem |
+| 8 | Frais Qonto du retrait (nature « frais bancaires » connue) | 2,40 | Décision utilisateur | charge « Banque · Frais bancaires » + compte à choisir |
+| 9 | Retrait d'espèces 21/09 | 20,00 | À traiter (règle certaine : Qonto « atm » → transfert Banque → Caisse) | « Comptabiliser le transfert » puis valider l'écriture 530 / 512 |
+| 10 | Écriture Ventes proposée (facture propriétaire 2026-08-001, 411 / 706) | 823,65 | Décision utilisateur (écriture correcte, cas A) | la vérifier puis la valider |
+| 11-12 | Charges sans compte : Linge · Blanchisserie (09/09) et Achat · Petit équipement (10/09) | 146,00 + 42,00 | Décision utilisateur + justificatif manquant | créer ou choisir un compte de charge (seul actif : 606000), valider une règle de mapping |
+| 13-16 | Réservations directes à contrôler (montant retenu 0) | — | Décision utilisateur | saisir le montant de la réservation (écran de régularisation) |
+
+Aucun versement plateforme n'est en jeu en septembre ; aucune règle Airbnb ↔ réservation n'a été
+touchée. Les 4 contrôles moteur sont réellement bloquants (net propriétaire et commission incomplets).
+
+**Bug corrigé** (`619017b`) : un mouvement rapproché dont l'écriture est encore proposée (cas du retrait
+après « Comptabiliser le transfert ») est affiché « écriture à valider », avec un lien vers l'écriture,
+au lieu de « le transfert n'est pas encore passé ».
+
+**Constat, sans correction** : ouvrir un écran qui calcule les propositions de rapprochement rafraîchit
+les allocations FIFO des propriétaires (`creances()` → `recalculer_tous`, comportement voulu et
+documenté). L'audit de cette mission l'a déclenché une fois sur la base réelle (le 29/09, à 01 h 16) :
+3 recalculs journalisés, allocations régénérées à l'identique (même empreinte). La clôture, elle,
+calcule ses bloqueurs sans propositions et n'écrit rien.
+
+Recette sur copie : 13/13 (retrait passé puis écriture validée → bloqueur levé ; mapping prévisualisé ;
+règle provisoire insuffisante ; règle fictive validée lève le blocage ; exception fictive sur un contrôle
+moteur ; compteur 16 → 13 ; septembre refusé). Régression ciblée : 631 passed.
+
+## Mission 35 (2026-09-29) — Lecture seule réelle des écrans Flux
+
+**Les parcours de consultation GET et de prévisualisation n'ont aucun effet d'écriture métier.** Acquis prouvé par tests (empreinte de toutes les tables avant / après chaque écran), pas
+supposé. Commit `f40228b`.
+
+**Défaut corrigé** (constaté en Mission 34) : afficher Flux, ses propositions, les créances ou un
+compte propriétaire PERSISTAIT le FIFO (`proprietaire_allocations` régénérées, une ligne « AUTO »
+de plus dans `proprietaire_recalculs` par propriétaire et par affichage). Chaîne :
+route GET → `flux.mouvements()` → `flux_matching.propositions()` → `flux.objets()` →
+`_creances_ouvertes` → `creances_dettes.creances()` → `compte_proprietaire.recalculer_tous()` →
+`recalculer()` (DELETE + INSERT allocations, INSERT journal). Second chemin :
+`/comptes-proprietaires*` → `position()` → `recalculer(…, "AUTO")`. Avant correctif, 13 écrans
+écrivaient (Flux banque, caisse, détail mouvement, rapprochement, prévisualisation du lettrage,
+banques-caisse, créances, dettes, échéancier, comptes propriétaires liste et fiche).
+
+**Séparation retenue** (`compte_proprietaire_service`) :
+- `calculer()` : allocations de l'état courant EN MÉMOIRE, aucune écriture. Lue par `position()`,
+  `imputations_detail()`, `creances()` (une fois pour toutes les factures). L'affichage est donc
+  toujours juste, même si l'enregistrement est en retard.
+- `recalculer()` : persistance + journal, inchangée, appelée seulement par une action.
+- `apres_ecriture()` : persistance après commit d'une écriture métier qui change une entrée du
+  FIFO ; un échec est journalisé sans annuler l'écriture déjà validée.
+
+**Déclencheurs persistants conservés** (issus des seuls écrivains réels des entrées FIFO —
+factures `EMIS` de type FACTURE, mouvements de trésorerie propriétaire `VALIDE` actifs) :
+
+| Workflow | Recalcul nécessaire ? | Persistant ? | Justification |
+|---|---|---|---|
+| Émission d'une facture (`fpr.emettre`, type FACTURE) | oui | oui — `EMISSION_FACTURE` | une créance entre dans le FIFO (EMIS est terminal) |
+| Émission d'un avoir | non | non | l'avoir n'est pas une entrée FIFO (créance négative côté créances) |
+| Validation d'un mouvement (`tres.valider` : écran trésorerie, acompte de facture, Qonto « encaissement propriétaire ») | oui | oui — `VALIDATION_MOUVEMENT` | une source entre dans le FIFO |
+| Annulation d'un mouvement VALIDE (`tres.annuler`) | oui | oui — `ANNULATION_MOUVEMENT` | une source sort du FIFO |
+| Création / modification / annulation d'un BROUILLON | non | non | un brouillon n'est pas une source |
+| Lettrage Flux d'une facture propriétaire et son annulation | oui | oui — après le commit du lettrage | encaissement validé / annulé dans la transaction du lettrage |
+| Bouton « Recalculer les allocations » (existant) | à la demande | oui — `MANUEL` | action explicite ; aucun nouveau bouton créé |
+| Tout GET, prévisualisation, audit, export, clôture | non | **non** | lecture : calcul en mémoire |
+
+La fiche compte propriétaire signale (sans rien écrire) quand l'enregistrement est en retard sur
+les données (donnée reprise hors workflow) ; le bouton existant le remet à jour.
+
+**Preuves.** `tests/test_lecture_seule_flux.py` (10 tests : 24 écrans GET, propositions réelles,
+chemin exact de l'audit M34, idempotence de deux GET, affichage juste avec persistance en
+retard, validation / annulation d'un mouvement, lettrage Flux et son annulation, émission de
+facture) — rejoués sur le code d'avant : 9 échecs sur 10 (le témoin passe), 13 écrans fautifs.
+Suite complète : 4 468 passed / 37 skipped / 0 failed (44 min). Recette copie 11/11 (A→G : 0 modification ; H : acompte fictif validé →
+recalcul `VALIDATION_MOUVEMENT` journalisé ; J : second affichage sans écriture). Contrôle réel en
+lecture : hash `app.db`, empreinte logique, journal et allocations identiques avant / après
+(Flux banque, rapprochement, un mouvement, clôture de septembre, `flux.mouvements()`).
+
+La base réelle n'a pas été nettoyée : les 3 recalculs « AUTO » du 29/09 01:16 restent (baseline).
+Les 16 bloqueurs de septembre sont inchangés. PR #4 en attente, non mergée.
+
+## Mission 36 (2026-09-29) — Circuit Banque → Charges → Comptabilité → Facturation exploitable
+
+Objectif : des workflows justes pour l'exploitation future, pas la clôture de septembre (les
+bloqueurs ne sont pas un indicateur de réussite ici). Commit(s) `c5d1bad`, migration **0114**.
+
+**Modèle.** MOUVEMENT (trésorerie, immuable : montant, sens, date, compte ne sont éditables par
+aucun parcours) ≠ CHARGE (réalité économique, montant libre) ≠ RAPPROCHEMENT (lien N↔M, plafonné
+par le reste du mouvement ET le reste de la charge). Une charge partiellement payée ou un mouvement
+partiellement expliqué ne sont pas des anomalies : sans autre choix, l'écart d'un rapprochement de
+charges reste OUVERT (rien n'est absorbé ; les factures gardent le choix explicite).
+
+**Charge née d'un mouvement.** Le plafond « montant ≤ reste du mouvement » (V34) a disparu : un
+montant différent exige une justification (historisée avec la charge). GiFi : mouvement 5 € →
+charge 20,25 € ; rapprochement 5 € (606320 / 512) ; depuis le mouvement de 15,25 € la charge est
+proposée pour son reste ; second rapprochement 15,25 €. Une charge, deux écritures, jamais 20,25 €
+contre 5 €.
+
+**Justificatifs** (`justificatifs_service`). Référence humaine dès la création, distincte de
+l'identifiant technique : `CHG-AAAA-MM-NNN` (charges), `FAF-AAAA-MM-NNN` (factures fournisseurs).
+Dossier canonique `01_SOURCES_BRUTES/Justificatifs/<Charges|FacturesFournisseurs>/AAAA/MM/`
+(configurable `JUSTIFICATIFS_ROOT`, exclu de git), fichier nommé par la référence. L'écran de
+confirmation montre référence et dossier et demande « le justificatif a-t-il bien été enregistré ? » :
+OUI → présence VÉRIFIÉE dans le dossier (`JUSTIFICATIF_ARCHIVE`, nom du fichier constaté) ; NON →
+justification obligatoire (`JUSTIFICATIF_ABSENT_JUSTIFIE`, contrainte aussi en base). Réponse,
+justification, fichier, auteur, date historisés ; la fiche permet de répondre plus tard (duplicata).
+Une charge n'est plus validable tant que la question est sans réponse (charges antérieures sans
+référence : non bloquées, référence attribuable à la demande). Une facture née d'un PDF importé a
+déjà sa pièce : constatée automatiquement. L'ancien champ « Justificatif archivé (JUS-…) » n'est plus
+proposé à la saisie ; les valeurs historiques restent lisibles.
+
+**Catégories → comptes.** Catalogue fonctionnel : 16 catégories ajoutées (CHG_028…CHG_043, marquées
+`SAISIE_APPLICATION` : un réimport REF_Setup ne les supprime pas) ; aucune supprimée ; « Autre
+charge » = CHG_024 existante (doublon évité). Plan interne : 26 comptes de charge (611100…651100,
+635110 CFE et 635400 droits d'enregistrement pour les impôts — aucun compte générique), 8 comptes de
+produit (706100…706900, 708800, 709600) et 419100 (acomptes clients). 411000 reste le compte client
+(pas de 411100 en double). Règles VALIDÉES : 26 par défaut + 2 autorisées (impôts, au choix).
+Catégories volontairement sans compte (à définir ou imputation libre) : ménage interne, remboursement
+voyageur, associées, forfait client/cave, charge générale non affectée, sinistre, à contrôler,
+incident voyageur, AirCover, repas, prestation diverse, supplément ménage, catégorie personnalisée.
+Mapping : rôle DEFAUT (présélectionné) ou AUTORISE (au choix), dates, actif, historique. À la
+saisie : un seul compte → présélectionné (et retenu par le serveur) ; plusieurs → choix ; aucun →
+« Compte comptable à définir ». Imputation libre : compte de charge actif + justification tracée.
+
+**Écritures bancaires éditables.** La ligne banque (compte, montant, sens) est imposée ; seule la
+contrepartie s'édite (comptes, ventilation, tiers). Somme ≠ mouvement → « La ventilation
+comptable doit correspondre exactement au montant du mouvement bancaire : 100,00 €. »
+
+**Auxiliaires.** Plan comptable : `auxiliaire_mode` NONE / OPTIONAL / REQUIRED et `auxiliaire_type`
+FOURNISSEUR / CLIENT / ASSOCIE (6xx, 7xx, 512, 530 : NONE ; 401 : fournisseur ; 411, 419100 : client ;
+455 : associé), administrables. Le champ tiers n'apparaît que pour un compte qui en porte, du bon
+type ; changer 401 → 606320 le vide ; le serveur efface tout tiers sur un compte NONE et refuse un
+compte REQUIRED sans tiers (à l'insertion de TOUTE écriture).
+
+**Fournisseurs.** A. achat payé directement : 6xx / 512 au rapprochement ; B. facture fournisseur :
+6xx / 401 à la validation, 401 / 512 au paiement — jamais la charge deux fois (contrôle existant).
+
+**Facturation propriétaire.** Chaque ligne porte un `type_economique` (dérivé du type technique pour
+l'existant, déclencheur pour les nouvelles ; un extra se déclare service additionnel, sinistre ou
+autre prestation) et son compte vient de `mapping_produits_facture` : gestion 706100, ménage 706200,
+forfait 706300, sinistre 706400, services additionnels / canapé 706500, autres 706900,
+refacturations 708800, réduction **709600 au débit** (jamais un produit négatif). Écriture à
+l'émission : 411 débité du total, un crédit par compte de produit. TVA : aucune sous franchise ; si
+la facture en porte, compte 445710 actif exigé, sinon refus (aucune hypothèse fiscale).
+**Acomptes** : encaissement rapproché dans Flux → 512 / **419100** (jamais 706) ; à l'émission,
+imputation 419100 → 411 (écriture OD proposée). **Reversements Airbnb** : famille acompte (même
+imputation 419100 → 411, sous-type conservé au libellé). Si le crédit 419100 du client ne couvre pas
+ce qu'on impute, rien n'est écrit : incohérence signalée (« acompte sans origine comptable »).
+
+**Preuves.** `tests/test_circuit_banque_charges_compta.py` (62 tests : GiFi, N↔M, plafonds,
+immutabilité, justificatifs, catalogue, impôts, imputation libre, auxiliaires, ventilation 70/30 et
+99/101, fournisseur, facture multi-lignes, acompte, reversement avec et sans origine, sinistre, TVA,
+GET sans écriture, retrait 530/512). Suite complète : 4 530 passed / 37 skipped / 0 failed (44 min). Recette copie 10/10 (A achat carte →
+I règlement, J lecture sans écriture). Migration 0114 appliquée à la base réelle après sauvegarde : additive (aucune table existante modifiée hors périmètre ; 7 charges et 5 écritures intactes ; aucun justificatif, aucune écriture, aucune pièce créés). Contrôle en lecture de 10 écrans (Flux, saisie, fiche charge, plan, mappings, écriture) : empreinte identique.
+
+**Limites restantes.** (1) Aucun parcours ne comptabilise encore un PAYOUT Airbnb en 419100 : tant
+qu'il manque, l'imputation d'un reversement Airbnb est signalée « sans origine comptable » au lieu
+d'être inventée. (2) Les 3 écritures de vente déjà générées (dont la proposée de 823,65 € en
+706000) ne sont pas recomposées : seules les factures émises à partir de maintenant sont
+comptabilisées par ligne. (3) Les charges antérieures n'ont pas de référence CHG tant qu'on ne la
+demande pas depuis leur fiche. (4) Catégories hors catalogue listées ci-dessus : compte à arbitrer.
+PR #4 en attente, non mergée.
+
+## Mission 37 (2026-09-29) — Derniers trous fonctionnels avant recette V1
+
+Commit(s) `2cf1381`, migration **0115** (additive). Aucun mois clôturé, aucune écriture réelle.
+
+**Reversements Airbnb — ce que c'est.** D032 : un versement d'Airbnb reçu par la conciergerie pour
+le compte d'un propriétaire ; il réduit uniquement ce que ce propriétaire doit. Jamais relié à une
+réservation (règle Banque inchangée : le virement est qualifié par son origine plateforme,
+`PAYOUT_PLATEFORME`). Jusqu'ici il n'existait que comme IMPUTATION sur une facture
+(`imputations_airbnb`), sans objet pour l'argent reçu : pas d'origine comptable, pas de reste.
+
+**Modèle du crédit client** (`credits_clients`, `credits_clients_service`) : propriétaire, date et
+mois d'origine, origine (REVERSEMENT_AIRBNB), montant initial, utilisé, reste, statut, historique
+(`credit_client_evenements`), imputations (`imputations_airbnb.credit_id_opaque`, écriture
+`ecriture_imputation`). Les ACOMPTES ne sont pas recopiés : ils restent des mouvements de
+trésorerie propriétaire imputés par le FIFO ; l'écran les présente avec la même lecture.
+
+| Cas | Traitement |
+|---|---|
+| A. Montant encaissé et identifiable | déclaré (EN_ATTENTE_ORIGINE), rapproché dans Flux du virement Airbnb réel (un virement peut couvrir plusieurs propriétaires ; pas d'origine partielle) → 512 / 419100, crédit DISPONIBLE |
+| B. Crédit créé manuellement sur justification | compte source nommé (jamais 512, 530, 411, 419) + justification obligatoire → écriture validée <source> / 419100 |
+| C. Montant purement calculé dans une facture | aucune écriture : le calcul (Lot10, solde) ne crée ni crédit ni pièce |
+| D. Donnée historique sans origine fiable | « à régulariser » (écran Crédits, fiche facture) ; rattachement à un crédit d'origine constatée → écriture ; sinon refus propre, rien d'inventé |
+
+Application : imputation d'un crédit DISPONIBLE sur une facture du même propriétaire, plafonnée
+par le reste du crédit et le solde de la facture → 419100 → 411000 (proposée ; à l'émission si la
+facture est encore en brouillon). Acomptes : 419100 → 411000 par acompte, selon la part que le FIFO
+impute à chaque facture émise, si l'acompte a son origine (rapprochement Flux 512 / 419100, ou
+régularisation d'un rapprochement de l'ancien écran Qonto). La saisie libre d'un reversement sur la
+facture n'est plus proposée : on impute le crédit qui le représente.
+
+**Écrans.** Compte propriétaire › Crédits : crédit disponible, origine, utilisé, reste, factures
+imputées (par numéro), écriture d'origine ; déclarer un reversement, imputer, régulariser, constater
+l'encaissement d'un acompte Qonto. Fiche facture : origine comptable de chaque reversement.
+
+**Écriture de 823,65 €.** Non migrée. Les écritures existantes avant la Mission 36 ne sont pas
+recomposées automatiquement ; seules les nouvelles émissions suivent le modèle par ligne.
+
+**Catégories sans compte automatique (audit).**
+
+| Catégorie | Nature | Mapping fixe possible ? | Proposition |
+|---|---|---|---|
+| CHG_002 Ménage interne | main-d'œuvre interne, hors compta par défaut | Non (C) | aucune charge comptable ; à définir si exceptionnellement comptable |
+| CHG_012 Remboursement voyageur | remboursement pour compte du propriétaire ou geste | Non (B) | imputation justifiée selon le cas |
+| CHG_013 Associées · Salaire | rémunération d'associé | Non (C) | compte selon le statut social, à arbitrer avec l'expert-comptable (non inventé) |
+| CHG_014 Associées · Avance | compte courant d'associé | Non (C) | mouvement 455, jamais une charge |
+| CHG_015 Associées · Remboursement de frais | frais avancé par un associé | Non (D) | saisir la charge sous sa vraie catégorie |
+| CHG_016 Forfait client | ligne de facture propriétaire | Non (C) | produit 706300 côté facture ; exclu de la saisie |
+| CHG_017 Charge générale / non affectée | fourre-tout | Non (D) | imputation manuelle justifiée ; à remplacer par le catalogue |
+| CHG_019 Sinistre · dégât logement | immobilier ou mobilier | Choix (B) | autorisés 615200 / 615500 (0115), aucun par défaut |
+| CHG_020 Autre · à contrôler | à qualifier | Non (D) | requalifier |
+| CHG_021 Incident voyageur | réparation, geste, remboursement | Non (B/D) | imputation justifiée selon la nature |
+| CHG_022 AirCover refacturée | règlement plateforme | Non (C) | objet de règlement, pas une charge |
+| CHG_023 Forfait local cave | loyer du local, hors compta, hors saisie | A si comptable | 613200 le jour où il devient comptable |
+| CHG_024 Autre (personnalisée) | libre | Non (D) | = « Autre charge » : imputation libre justifiée |
+| CHG_025 Repas | réception ou déplacement | Choix (B) | autorisés 625700 / 625100 (0115) |
+| CHG_026 Prestation diverse | générique | Non (D) | imputation justifiée |
+| CHG_027 Supplément ménage | interne (hors compta) ou sous-traité | Non (B) | sous-traité : 611100 par imputation ; interne : hors compta |
+| CHG_043 Impôts / taxes | selon la taxe | Choix | 635110 / 635400 (0114) |
+
+**Justificatifs — stockage.** Audit : `01_SOURCES_BRUTES/Justificatifs/` était dans l'arbre du
+code (worktree). Déplacé AVANT tout usage réel (aucune pièce n'y avait été rangée) vers
+`<DATA_DIR>/justificatifs` : les pièces vivent avec la base (même dossier de données, déplaçable par
+`APP_DATA_DIR`), exclues de git ; la base n'enregistre que le dossier relatif (« Charges/2026/09 »).
+Mise à jour du code : sans effet. Redémarrage : vérifié (nouveau processus). Chemins Windows :
+`pathlib`, aucun chemin utilisateur codé. **Point d'attention** : `APP_DATA_DIR` n'est pas renseigné
+sur l'installation actuelle, donc la base ET les pièces sont dans `05_APPLICATION/data` du worktree ;
+pour un déploiement ou un changement de worktree, fixer `APP_DATA_DIR` vers un dossier stable hors du
+code (et sauvegarder ce dossier entier : la sauvegarde applicative copie `app.db`, pas les pièces).
+
+**Pièce ↔ objet.** Lien « Ouvrir la pièce » (route `/justificatifs/<référence>`, seul le fichier
+constaté est servi) depuis la charge et la facture fournisseur ; la fiche d'écriture montre la
+« Pièce source » (charge, facture, document émis, crédit) et ne demande aucune seconde pièce.
+
+**Preuves.** `tests/test_credits_clients_reversements.py` (24 tests). Suite complète : 4 553 passed / 37 skipped, 1 échec (filtre d'un test Mission 36 sur les règles semées) corrigé puis revérifié (10 passed).
+Recette copie 10/10 (crédit réel rapproché, 419100, imputation partielle puis extinction sur deux
+factures, origine justifiée, refus sans origine sur les données historiques, pièce ouverte, pièce
+servie après redémarrage). Migration 0115 appliquée à la base réelle après sauvegarde : additive (aucune table existante modifiée hors périmètre ; 0 crédit créé ; les 2 reversements historiques de 425 € et 54 € intacts, à régulariser). Contrôle en lecture de 10 écrans (Flux, Crédits, fiche facture, écriture, charge, mappings) : empreinte identique.
+
+**Limites.** Réallocation FIFO d'un acompte après une imputation déjà constatée : non recomposée
+automatiquement (cas rare, visible dans l'écran Crédits). Sauvegarde des pièces : celle du dossier
+de données, pas l'outil de sauvegarde applicatif. PR #4 en attente, non mergée.
+
+## Finalisation technique avant recette utilisateur V1 (2026-09-29) — APP_DATA_DIR stable
+
+Aucune fonctionnalité, aucun changement de code : configuration de l'instance réelle et
+documentation. HEAD `65ec27e` inchangé pour le code.
+
+**Avant.** `APP_DATA_DIR` absent du `.env` : `DATA_DIR` retombait sur `05_APPLICATION/data` du
+worktree courant (base réelle, `backups/`, `snapshots/`, `dryruns/`, `factures_proprietaires/`,
+613 fichiers, 1,26 Go). Changer de worktree ou de clone aurait fait « perdre » la base. Les
+sauvegardes d'avant 0114 / 0115 étaient restées dans le dossier temporaire de la session.
+
+**Emplacement retenu (instance réelle).** `APP_DATA_DIR=C:/Users/Ewans/PilotageConciergerie/data`
+(clé ajoutée au `.env`, ignoré par git — aucune autre clé lue ni modifiée). Hors du code, hors de
+tout worktree/clone, hors du dossier temporaire, et hors de `Documents` (synchronisé par OneDrive :
+une base SQLite en WAL ne doit pas être synchronisée fichier par fichier). Tout suit `DATA_DIR` :
+`app.db`, `justificatifs/`, `backups/` (moteur `backup_service`, inchangé), `snapshots/`, `dryruns/`,
+PDF émis (`factures_proprietaires/`), workspaces et verrous.
+
+**Migration (copie, rien supprimé).** Instance arrêtée, WAL vide vérifié → sauvegarde SQLite de la
+base + copie intégrale de l'ancien dossier dans
+`C:/Users/Ewans/PilotageConciergerie/sauvegardes/avant_app_data_dir_20260929T131755/` (avec un
+`MANIFESTE.json`) → copie vers le nouvel emplacement (`app.db` identique octet pour octet, sha256
+`df29912b…`) → `.env` → redémarrage. Contrôles : schéma 0115, `integrity_check` ok,
+`foreign_key_check` 0, empreinte logique `bc3ae6258164fd58` identique ancienne / nouvelle base.
+L'instance ouvre bien la nouvelle base (fichiers `-wal`/`-shm` observés au nouvel emplacement pendant
+les requêtes ; ancienne copie jamais ouverte). **L'ancien `05_APPLICATION/data` est conservé intact
+comme copie de sécurité** jusqu'à décision explicite.
+
+**Sauvegardes.** Rattachées à `<APP_DATA_DIR>/backups/` : la sauvegarde pré-bascule et les deux
+sauvegardes de migration restées en session (`…_0114_circuit_banque_compta_20260929.db`, schéma
+0113 ; `…_0115_credits_clients_20260929.db`, schéma 0114), integrity ok. Les futures sauvegardes
+applicatives y vont d'elles-mêmes (`BACKUPS_DIR = DATA_DIR / "backups"`). La sauvegarde applicative
+copie `app.db` ; les pièces sont couvertes en sauvegardant le dossier `APP_DATA_DIR` entier.
+
+**Règles d'exploitation.** Un nouveau worktree / clone doit recevoir le même `.env` (au moins
+`APP_DATA_DIR`) — sans lui, l'application retomberait sur un `05_APPLICATION/data` local. Les tests
+ignorent le `.env` (`PILOTAGE_IGNORE_ENV_FILE=1`, `conftest.py`) : ils n'atteignent jamais la base
+réelle stable. Justificatifs : 0 pièce en base à ce jour ; la racine servie est
+`<APP_DATA_DIR>/justificatifs`.
+
+**Preuves.** Suite complète sur `65ec27e` : 4 554 passed / 37 skipped / 0 failed (47 min 27 s). Contrôle GET réel (31 écrans : Flux, Charges,
+Comptabilité, Factures propriétaires et fournisseurs, Compte propriétaire / Crédits, Clôture
+mensuelle, justificatif inconnu → 404) : empreinte logique identique avant / après. PR #4 en
+attente, non mergée, non modifiée.

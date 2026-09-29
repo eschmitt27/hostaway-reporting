@@ -174,6 +174,12 @@
     <label for="extra_libelle">Libellé</label>
     <input type="text" id="extra_libelle" name="libelle" required maxlength="160"
            placeholder="Intervention ponctuelle, prestation supplémentaire…">
+    <label for="extra_nature">Nature</label>
+    <select id="extra_nature" name="nature">
+      <option value="SERVICE_ADDITIONNEL">Service additionnel / extra (706500)</option>
+      <option value="SINISTRE">Gestion de sinistre / intervention (706400)</option>
+      <option value="AUTRE_PRESTATION">Autre prestation de conciergerie (706900)</option>
+    </select>
     <label for="extra_montant">Montant (€)</label>
     <input type="number" id="extra_montant" name="montant" step="0.01" min="0.01" required>
     <label for="extra_commentaire">Note (facultatif)</label>
@@ -348,10 +354,12 @@
   {% if solde.reversements_airbnb %}
   <h4>Reversements Airbnb</h4>
   <table class="table">
-    <thead><tr><th>Date</th><th>Référence</th><th class="text-right">Montant</th></tr></thead>
+    <thead><tr><th>Date</th><th>Référence</th><th>Origine comptable</th><th class="text-right">Montant</th></tr></thead>
     <tbody>
       {% for r in solde.reversements_airbnb %}
-      <tr><td>{{ r.date_imputation }}</td><td>{{ r.reference_airbnb or r.commentaire or "—" }}</td>
+      <tr><td>{{ r.date_imputation | date_fr }}</td><td>{{ r.reference_airbnb or "—" }}</td>
+          <td data-testid="origine-reversement">{% if r.credit_id_opaque %}Crédit d'origine constatée{% if r.ecriture_imputation %} — <a href="/comptabilite/ecritures/{{ r.ecriture_imputation }}">écriture 419100 → 411000</a>{% endif %}
+              {% else %}<span class="badge">À régulariser</span> sans origine comptable — <a href="/comptes-proprietaires/{{ facture.proprietaire_id }}/credits">régulariser</a>{% endif %}</td>
           <td class="text-right">{{ "%.2f"|format(r.montant_impute) }} €</td></tr>
       {% endfor %}
     </tbody>
@@ -372,23 +380,27 @@
   </table>
   {% endif %}
 
-  <details>
-    <summary><strong>+ Ajouter un reversement Airbnb</strong></summary>
-    <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/reversement-airbnb">
+  {# Mission 37 — un reversement Airbnb s'impute depuis le CRÉDIT qui le représente (montant
+     reçu, origine comptable constatée) ; la saisie libre d'un montant sans origine n'est plus
+     proposée. #}
+  <details {% if credits_airbnb %}open{% endif %} data-testid="imputer-reversement">
+    <summary><strong>+ Imputer un reversement Airbnb</strong></summary>
+    {% if credits_airbnb %}
+    <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/imputer-credit">
+      <label>Reversement reçu
+        <select name="credit_id" required>
+          {% for c in credits_airbnb %}<option value="{{ c.credit_id_opaque }}">{{ c.date_origine | date_fr }} — {{ c.reference or "reversement Airbnb" }} — reste {{ "%.2f"|format(c.reste) }} €</option>{% endfor %}
+        </select></label>
       <label>Montant <input type="text" name="montant" required></label>
-      {# §42 — saisie au MOIS, comme l'acompte. Un reversement Airbnb est un versement de
-         plateforme qui se raisonne par période : le jour exact n'a pas de sens métier ici, et
-         demander « AAAA-MM-JJ » en texte libre obligeait à inventer un jour. La date technique
-         exigée par le schéma est dérivée du dernier jour du mois, côté serveur. #}
-      <label>Mois du reversement
-        <input type="month" name="mois_reference" value="{{ facture.mois }}" required>
-      </label>
-      <label>Référence Airbnb <input type="text" name="reference_airbnb"></label>
-      <label>Commentaire <input type="text" name="commentaire"></label>
-      <button type="submit">Enregistrer le reversement</button>
+      <label>Votre nom <input type="text" name="acteur" required></label>
+      <button type="submit">Imputer</button>
     </form>
-    <p class="text-xs text-secondary">Un reversement Airbnb reste un payout plateforme : il ne crée
-       ni réservation, ni charge, ni mouvement bancaire, ni écriture comptable.</p>
+    {% else %}
+    <p class="text-sm">Aucun reversement Airbnb disponible pour ce propriétaire.
+      <a href="/comptes-proprietaires/{{ facture.proprietaire_id }}/credits">Déclarer un reversement reçu</a> (il sera rapproché de son virement).</p>
+    {% endif %}
+    <p class="text-xs text-secondary">Un reversement Airbnb reste un versement de plateforme : il ne crée
+       ni réservation, ni charge. Sur une facture émise, son imputation est constatée 419100 → 411000.</p>
   </details>
 
   <details>

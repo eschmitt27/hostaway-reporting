@@ -75,6 +75,14 @@ def _garde_sources_reelles(monkeypatch):
     garde_sources_reelles.armer(monkeypatch)
 
 
+@pytest.fixture(autouse=True)
+def _justificatifs_isoles(tmp_path, monkeypatch):
+    """Le dossier canonique des justificatifs (Mission 36) pointe vers un dossier temporaire :
+    aucun test ne crée de dossier dans `01_SOURCES_BRUTES/Justificatifs` réel."""
+    import app.config as cfg
+    monkeypatch.setattr(cfg, "JUSTIFICATIFS_ROOT", tmp_path / "justificatifs", raising=False)
+
+
 @pytest.fixture
 def tmp_db(tmp_path):
     """Base SQLite temporaire isolée — zéro impact sur les données réelles."""

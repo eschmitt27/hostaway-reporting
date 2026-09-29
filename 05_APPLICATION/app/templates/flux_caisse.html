@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% from "_flux_badges.html" import statut, montant, euros %}
+{% block title %}Flux financiers · Caisse{% endblock %}
+
+{% block content %}
+{% set flux_sous_titre = "Caisse — espèces de la société. Chaque mouvement finit comptabilisé (530)." %}
+{% include "_flux_entete.html" %}
+
+{% if message %}<div class="alert alert-success" data-testid="caisse-message">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-error" data-testid="caisse-erreur">{{ erreur }}</div>{% endif %}
+
+<div class="kpi-grid kpi-grid--4">
+  <div class="kpi-card kpi-card--fort">
+    <div class="kpi-label">Encaisse</div>
+    <div class="kpi-value" data-testid="kpi-encaisse">{{ euros(encaisse.solde) }}</div>
+    <div class="kpi-sub">{% if encaisse.retraits_provisoires %}+ {{ euros(encaisse.retraits_provisoires) }} de retrait en attente{% else %}espèces en main{% endif %}</div>
+  </div>
+  <div class="kpi-card"><div class="kpi-label">À qualifier</div><div class="kpi-value">{{ kpis.a_qualifier }}</div><div class="kpi-sub">nature à arrêter</div></div>
+  <div class="kpi-card"><div class="kpi-label">À comptabiliser</div><div class="kpi-value">{{ kpis.a_comptabiliser }}</div><div class="kpi-sub">qualifiés, écriture à passer</div></div>
+  <div class="kpi-card {{ 'kpi-card--alerte' if kpis.erreurs }}"><div class="kpi-label">Erreurs</div><div class="kpi-value">{{ kpis.erreurs }}</div><div class="kpi-sub">incohérence à corriger</div></div>
+</div>
+
+<details class="card mb-md" data-testid="caisse-nouveau" {% if not nb_total %}open{% endif %}>
+  <summary class="btn btn-primary">+ Nouveau mouvement de caisse</summary>
+  <form method="post" action="/flux-financiers/caisse/operations" class="flux-grille-2" style="margin-top:12px">
+    <label class="flux-champ"><span>Nature</span>
+      <select name="type_operation" required>
+        {% for code, libelle in libelles_types.items() %}<option value="{{ code }}">{{ libelle }}</option>{% endfor %}
+      </select></label>
+    <label class="flux-champ"><span>Date</span><input type="date" name="date_operation" required></label>
+    <label class="flux-champ"><span>Montant (€)</span><input name="montant" inputmode="decimal" required placeholder="ex. 25,00"></label>
+    <label class="flux-champ"><span>Tiers</span>
+      <select name="tiers_type"><option value="">Aucun (dépense à rapprocher d'une charge)</option>
+        <option value="ASSOCIE">Associé</option><option value="PROPRIETAIRE">Propriétaire</option></select></label>
+    <label class="flux-champ"><span>Associé</span>
+      <select name="associe_id"><option value="">—</option>{% for a in associes %}<option value="{{ a.id }}">{{ a.nom }}</option>{% endfor %}</select></label>
+    <label class="flux-champ"><span>Propriétaire</span>
+      <select name="proprietaire_id"><option value="">—</option>{% for p in proprietaires %}<option value="{{ p.id }}">{{ p.nom }}</option>{% endfor %}</select></label>
+    <label class="flux-champ"><span>Pièce / référence</span><input name="piece"></label>
+    <label class="flux-champ"><span>Commentaire</span><input name="commentaire"></label>
+    <label class="flux-champ"><span>Votre nom (obligatoire)</span><input name="acteur" required></label>
+    <div class="flux-champ"><span>&nbsp;</span><button type="submit" class="btn btn-primary">Enregistrer en brouillon</button></div>
+  </form>
+  <p class="mention">Le mouvement naît en brouillon, sans écriture. Un encaissement ou un remboursement d'associé se valide ici (écriture 530) ; une dépense se qualifie en la rapprochant d'une charge.</p>
+</details>
+
+<form method="get" action="/flux-financiers/caisse" class="barre-filtres">
+  <label class="champ"><span>Période</span><select name="mois"><option value="">Toutes</option>
+    {% for x in mois_disponibles %}<option value="{{ x }}" {{ 'selected' if x == filtres.mois }}>{{ x }}</option>{% endfor %}</select></label>
+  <label class="champ"><span>Rapprochement</span><select name="rapprochement"><option value="">Tous</option>
+    {% for code, info in statuts_rapprochement.items() %}<option value="{{ code }}" {{ 'selected' if code == filtres.rapprochement }}>{{ info.libelle }}</option>{% endfor %}</select></label>
+  <label class="champ"><span>Comptabilité</span><select name="compta"><option value="">Tous</option>
+    {% for code, info in statuts_compta.items() %}<option value="{{ code }}" {{ 'selected' if code == filtres.compta }}>{{ info.libelle }}</option>{% endfor %}</select></label>
+  <button type="submit" class="btn btn-secondary">Filtrer</button>
+</form>
+
+<div class="card">
+  <div class="table-container">
+    <table class="data-table flux-table" data-testid="flux-table-caisse">
+      <thead><tr><th>Date</th><th>Libellé</th><th>Entrée / sortie</th><th class="num">Montant</th><th>Rapprochement</th><th>Comptabilité</th><th class="col-action"></th></tr></thead>
+      <tbody>
+        {% for m in lignes %}
+        <tr data-testid="caisse-ligne"{% if not m.definitif %} class="ligne-non-definitive"{% endif %}>
+          <td class="cellule-date">{{ m.date_fr }}</td>
+          <td><span class="libelle-principal">{{ m.libelle }}</span>{% if m.reference %}<span class="mention">{{ m.reference }}</span>{% endif %}
+            {% if m.statut_operation == 'BROUILLON' %}<span class="mention">brouillon</span>{% endif %}
+            {% if m.statut_operation == 'CONTREPASSEE' %}<span class="mention">contrepassée</span>{% endif %}</td>
+          <td>{{ "Entrée" if m.sens == "ENTREE" else "Sortie" }}</td>
+          <td class="num">{{ montant(m.montant, m.sens) }}</td>
+          <td>{{ statut(m.rapprochement, "statut-rapprochement") }}</td>
+          <td>{{ statut(m.compta, "statut-compta") }}</td>
+          <td class="col-action">
+            {% if m.nature_caisse == 'OPERATION' and m.statut_operation == 'BROUILLON' %}
+              {% if m.type_operation in ('ENCAISSEMENT', 'REMBOURSEMENT_ASSOCIE') and m.tiers_id %}
+              <form method="post" action="/flux-financiers/caisse/operations/{{ m.id }}/valider" class="inline-form">
+                <input name="acteur" placeholder="Votre nom" required style="width:110px;height:30px">
+                <button class="btn btn-primary btn-sm" type="submit">Valider et comptabiliser</button></form>
+              {% else %}
+              <a class="btn btn-primary btn-sm" href="/flux-financiers/caisse/{{ m.id }}">Qualifier</a>
+              {% endif %}
+            {% else %}
+              <a class="btn btn-ghost btn-sm" href="/flux-financiers/caisse/{{ m.id }}">Détail</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="section-note">Aucun mouvement de caisse.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+<p class="note-bas">Un retrait d'espèces confirmé par la banque entre en caisse sans toucher au résultat (530 / 512). Tant que la banque n'a pas réglé l'opération, le retrait reste provisoire.</p>
+{% endblock %}

@@ -561,7 +561,7 @@ def test_la_liste_propose_un_bouton_traiter_et_le_filtre_a_traiter(client, base)
     assert 'data-testid="bouton-traiter"' in html
     assert "À traiter" in html
 
-    filtre = client.get(f"/banques-caisse?vue=banque&traitement={ecran.FILTRE_A_TRAITER}")
+    filtre = client.get("/flux-financiers/banque?compta=A_TRAITER")
     assert filtre.status_code == 200
     # La transaction en attente n'est pas « à traiter » : rien à décider tant que la banque hésite.
     assert filtre.text.count('data-testid="qonto-ligne"') == 1

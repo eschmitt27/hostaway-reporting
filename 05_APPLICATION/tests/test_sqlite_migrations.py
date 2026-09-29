@@ -7,6 +7,11 @@ EXPECTED_TABLES = {
     # 0110 — actualisation Ménages par GitHub, réouvertures de mois ; 0111 — paramètres société
     "menages_actualisations_hostaway", "mois_reouvertures",
     "parametres_societe_facturation", "parametres_societe_facturation_historique",
+    # 0112 — Flux financiers : lettrage (rapprochement + comptabilisation), refus humains
+    "flux_lettrages", "flux_lettrage_lignes", "flux_lettrage_evenements",
+    "flux_propositions_refusees",
+    # 0113 — plan comptable et mappings administrables : journaux des changements
+    "plan_comptable_evenements", "mapping_regle_evenements",
     "schema_migrations",
     "audit_events",
     "pipeline_runs",
@@ -199,6 +204,14 @@ EXPECTED_TABLES = {
     # OU logements) étaient calculés puis jetés, comme l'était le périmètre analytique avant
     # 0074. `lot6f_cout_complet_menages` filtre pourtant sur ce drapeau.
     "charges_perimetre_menage",
+    # 0114 — circuit Banque → Charges → Comptabilité → Facturation (Mission 36)
+    "mapping_produits_facture",                   # type économique d'une ligne de facture → compte
+    "justificatifs",                              # référence documentaire, présence ou absence justifiée
+    "justificatif_evenements",                    # historique des réponses
+    "justificatifs_sequence",                     # compteur CHG-AAAA-MM / FAF-AAAA-MM
+    # 0115 — crédits clients : origine comptable des reversements Airbnb (Mission 37)
+    "credits_clients",                            # crédit détenu pour un propriétaire (montant, origine)
+    "credit_client_evenements",                   # historique : origine, imputations, régularisations
 }
 
 

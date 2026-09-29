@@ -122,9 +122,12 @@ def previsualiser(proprietaire_id: str, sens: str, nature: str, montant: Any,
 def creer(proprietaire_id: str, sens: str, nature: str, montant: Any, date_mouvement: str, *,
          logement_id: str = "", mode_reglement: str = "", reference_metier: str = "",
          justification: str = "", source_type: str = "MANUEL", source_id: str = "",
-         acteur: str = "", db_path=None) -> dict[str, Any]:
+         acteur: str = "", db_path=None, conn=None) -> dict[str, Any]:
     """Crée un mouvement en BROUILLON. Ne devient jamais un candidat au rapprochement tant qu'il
-    n'est pas VALIDE."""
+    n'est pas VALIDE.
+
+    `conn` fourni : écrit dans la transaction de l'appelant (ni commit ni fermeture ici) — utilisé
+    par le lettrage des flux financiers, qui encaisse et comptabilise en une seule opération."""
     verif = previsualiser(proprietaire_id, sens, nature, montant, date_mouvement,
                           logement_id=logement_id, mode_reglement=mode_reglement,
                           reference_metier=reference_metier, justification=justification)
@@ -145,7 +148,9 @@ def creer(proprietaire_id: str, sens: str, nature: str, montant: Any, date_mouve
 
     opaque = "MTP-" + uuid.uuid4().hex[:12].upper()
     montant_f = _nombre(montant)
-    conn = get_db(db_path)
+    connexion_locale = conn is None
+    if connexion_locale:
+        conn = get_db(db_path)
     try:
         conn.execute(
             "INSERT INTO mouvements_tresorerie_proprietaires "
@@ -159,20 +164,25 @@ def creer(proprietaire_id: str, sens: str, nature: str, montant: Any, date_mouve
              _txt(justification) or None, 1 if _txt(justification) else 0, _txt(source_type),
              _txt(source_id) or None, acteur or "local"))
         _evenement(conn, opaque, "CREATION", None, ST_BROUILLON, justification, acteur)
-        conn.commit()
+        if connexion_locale:
+            conn.commit()
     finally:
-        conn.close()
+        if connexion_locale:
+            conn.close()
     return {"ok": True, "mouvement_opaque": opaque, "statut": ST_BROUILLON}
 
 
-def charger(mouvement_opaque: str, db_path=None) -> dict[str, Any] | None:
-    conn = get_db(db_path)
+def charger(mouvement_opaque: str, db_path=None, conn=None) -> dict[str, Any] | None:
+    connexion_locale = conn is None
+    if connexion_locale:
+        conn = get_db(db_path)
     try:
         row = conn.execute(
             "SELECT * FROM mouvements_tresorerie_proprietaires WHERE mouvement_opaque=?",
             (mouvement_opaque,)).fetchone()
     finally:
-        conn.close()
+        if connexion_locale:
+            conn.close()
     return dict(row) if row else None
 
 
@@ -248,43 +258,69 @@ def modifier_brouillon(mouvement_opaque: str, *, acteur: str = "", db_path=None,
     return {"ok": True, "mouvement_opaque": mouvement_opaque, "statut": ST_BROUILLON}
 
 
-def valider(mouvement_opaque: str, *, acteur: str = "", db_path=None) -> dict[str, Any]:
-    """BROUILLON ou A_CONTROLER -> VALIDE. Un mouvement validé ne peut plus être supprimé."""
-    m = charger(mouvement_opaque, db_path)
+def valider(mouvement_opaque: str, *, acteur: str = "", db_path=None,
+            conn=None) -> dict[str, Any]:
+    """BROUILLON ou A_CONTROLER -> VALIDE. Un mouvement validé ne peut plus être supprimé.
+
+    Un mouvement VALIDE devient une source du FIFO : les allocations du propriétaire sont
+    persistées juste après (`compte_proprietaire_service.apres_ecriture`).
+
+    `conn` fourni : lecture et écriture dans la transaction de l'appelant — qui persiste alors
+    lui-même les allocations après SON commit (le recalcul ouvre sa propre transaction)."""
+    m = charger(mouvement_opaque, db_path, conn=conn)
     if m is None:
         return _refus(E_INTROUVABLE, mouvement_opaque)
     if m["statut"] not in (ST_BROUILLON, ST_A_CONTROLER):
         return _refus(E_STATUT, f"{m['statut']} -> {ST_VALIDE}")
-    conn = get_db(db_path)
+    connexion_locale = conn is None
+    if connexion_locale:
+        conn = get_db(db_path)
     try:
         conn.execute(
             "UPDATE mouvements_tresorerie_proprietaires SET statut=?, valide_le=?, valide_par=?, "
             "version=version+1 WHERE mouvement_opaque=?",
             (ST_VALIDE, _now(), acteur or "local", mouvement_opaque))
         _evenement(conn, mouvement_opaque, "VALIDATION", m["statut"], ST_VALIDE, "", acteur)
-        conn.commit()
+        if connexion_locale:
+            conn.commit()
     finally:
-        conn.close()
+        if connexion_locale:
+            conn.close()
+    if connexion_locale:
+        _persister_fifo(m, "VALIDATION_MOUVEMENT", db_path)
     return {"ok": True, "mouvement_opaque": mouvement_opaque, "statut": ST_VALIDE}
 
 
+def _persister_fifo(m: dict[str, Any], declencheur: str, db_path) -> None:
+    """Le mouvement change les sources FIFO de son propriétaire : persister ses allocations."""
+    from app.services import compte_proprietaire_service as cpt
+    cpt.apres_ecriture([m.get("proprietaire_id")], declencheur=declencheur, db_path=db_path)
+
+
 def annuler(mouvement_opaque: str, *, commentaire: str = "", acteur: str = "",
-           db_path=None) -> dict[str, Any]:
+           db_path=None, conn=None) -> dict[str, Any]:
     """Annule un mouvement (BROUILLON, A_CONTROLER ou VALIDE) — jamais une suppression physique."""
-    m = charger(mouvement_opaque, db_path)
+    m = charger(mouvement_opaque, db_path, conn=conn)
     if m is None:
         return _refus(E_INTROUVABLE, mouvement_opaque)
     if m["statut"] == ST_ANNULE:
         return _refus(E_STATUT, "déjà annulé")
-    conn = get_db(db_path)
+    connexion_locale = conn is None
+    if connexion_locale:
+        conn = get_db(db_path)
     try:
         conn.execute(
             "UPDATE mouvements_tresorerie_proprietaires SET statut=?, annule_le=?, "
             "version=version+1 WHERE mouvement_opaque=?", (ST_ANNULE, _now(), mouvement_opaque))
         _evenement(conn, mouvement_opaque, "ANNULATION", m["statut"], ST_ANNULE, commentaire, acteur)
-        conn.commit()
+        if connexion_locale:
+            conn.commit()
     finally:
-        conn.close()
+        if connexion_locale:
+            conn.close()
+    # Seul un mouvement VALIDE était une source FIFO : annuler un brouillon ne change rien.
+    if connexion_locale and m["statut"] == ST_VALIDE:
+        _persister_fifo(m, "ANNULATION_MOUVEMENT", db_path)
     return {"ok": True, "mouvement_opaque": mouvement_opaque, "statut": ST_ANNULE}
 
 

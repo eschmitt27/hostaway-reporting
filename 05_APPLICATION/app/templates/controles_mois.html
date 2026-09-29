@@ -66,8 +66,8 @@
 </div>
 
 <div class="card">
-  <button type="button" class="btn btn-primary" disabled title="Non activé — lot ultérieur">Clôturer le mois — prochain lot</button>
-  <span class="text-xs text-secondary">La clôture réelle n'est pas activée à ce lot. Aucun changement d'état OUVERT/EN_CONTROLE/CLOTURE depuis l'application.</span>
+  <a class="btn btn-primary" href="/clotures/mois/{{ d.mois }}">Préparer ou clôturer ce mois</a>
+  <span class="text-xs text-secondary">Validation humaine puis clôture définitive (mois terminé, sans bloqueur) depuis Clôtures mensuelles.</span>
 </div>
 
 {% endblock %}

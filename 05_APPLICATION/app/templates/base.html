@@ -42,11 +42,12 @@
         </svg>
         <span class="nav-label">Ménages</span>
       </a>
-      <a href="/fournisseurs" class="nav-item {% if active_menu == 'fournisseurs' %}active{% endif %}">
+      <!-- Flux financiers : Banque | Caisse | Charges | Rapprochement, un seul module. -->
+      <a href="/flux-financiers" class="nav-item {% if active_menu in ('flux', 'banques', 'fournisseurs') %}active{% endif %}" data-testid="nav-flux-financiers">
         <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 6h18M3 12h18M3 18h13"/><circle cx="19" cy="18" r="3"/>
+          <path d="M3 7h13l-3-3M21 17H8l3 3"/>
         </svg>
-        <span class="nav-label">Charges</span>
+        <span class="nav-label">Flux financiers</span>
       </a>
       <a href="/factures" class="nav-item {% if active_menu == 'factures' %}active{% endif %}">
         <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -83,12 +84,6 @@
           <rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/>
         </svg>
         <span class="nav-label">Comptes propriétaires</span>
-      </a>
-      <a href="/banques-caisse" class="nav-item {% if active_menu == 'banques' %}active{% endif %}">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 21h18M5 21V10l7-5 7 5v11"/><line x1="9" y1="21" x2="9" y2="14"/><line x1="15" y1="21" x2="15" y2="14"/>
-        </svg>
-        <span class="nav-label">Banques &amp; caisse</span>
       </a>
       <a href="/comptabilite" class="nav-item {% if active_menu == 'comptabilite' %}active{% endif %}">
         <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

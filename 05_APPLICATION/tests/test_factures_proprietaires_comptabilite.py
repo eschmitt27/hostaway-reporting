@@ -94,7 +94,8 @@ def test_total_ecriture_egale_total_facture(db):
     ecr = compta.charger_par_origine(compta.ORIGINE_FACTURE, emise["facture_id_opaque"], db)
 
     lignes = compta.lignes(ecr["ecriture_id_opaque"], db)
-    produits = round(sum(l["credit"] for l in lignes if l["compte"] == compta.COMPTE_VENTE_GENERIQUE), 2)
+    # Mission 36 : un compte de produit par nature de ligne (706100, 706200, 706300…).
+    produits = round(sum(l["credit"] - l["debit"] for l in lignes if l["compte"].startswith("70")), 2)
     creance = round(sum(l["debit"] for l in lignes if l["compte"] == compta.COMPTE_PROPRIETAIRES), 2)
 
     total_lignes_facture = round(sum(l["montant"] for l in emise["lignes"]), 2)
@@ -115,18 +116,19 @@ def test_franchise_aucune_tva_collectee(db):
     ecr = compta.charger_par_origine(compta.ORIGINE_FACTURE, emise["facture_id_opaque"], db)
     comptes = [l["compte"] for l in compta.lignes(ecr["ecriture_id_opaque"], db)]
     assert not [c for c in comptes if str(c).startswith("4457")], comptes
-    assert sorted(comptes) == sorted([compta.COMPTE_PROPRIETAIRES,
-                                      compta.COMPTE_VENTE_GENERIQUE])
+    # Mission 36 : commission 706100, ménage 706200, forfait 706300 — plus de 706000 global.
+    assert sorted(comptes) == sorted([compta.COMPTE_PROPRIETAIRES, "706100", "706200", "706300"])
 
 
 def test_vente_enregistree_pour_le_montant_total_hors_taxe(db):
     """En franchise, HT = TTC : le produit constaté est le montant de la facture, sans ventilation
-    de taxe. L'écriture doit donc porter exactement deux lignes et rester équilibrée."""
+    de taxe. L'écriture porte le client et une ligne par nature de prestation (Mission 36),
+    sans ligne de TVA, et reste équilibrée."""
     emise = _emettre(db)
     compta.generer_ecriture_vente_facture(emise, db_path=db)
     ecr = compta.charger_par_origine(compta.ORIGINE_FACTURE, emise["facture_id_opaque"], db)
     lignes = compta.lignes(ecr["ecriture_id_opaque"], db)
-    assert len(lignes) == 2
+    assert len(lignes) == 4
     assert round(sum(l["debit"] for l in lignes), 2) == \
            round(sum(l["credit"] for l in lignes), 2) == 500.0
 
@@ -152,9 +154,10 @@ def test_acompte_ne_diminue_pas_le_chiffre_d_affaires(db, monkeypatch):
     ecr = compta.charger_par_origine(compta.ORIGINE_FACTURE, fid, db)
     assert ecr["total_credit"] == 500.0
     lignes = compta.lignes(ecr["ecriture_id_opaque"], db)
-    produits = round(sum(l["credit"] for l in lignes
-                         if l["compte"] == compta.COMPTE_VENTE_GENERIQUE), 2)
+    produits = round(sum(l["credit"] - l["debit"] for l in lignes
+                         if l["compte"].startswith("70")), 2)
     assert produits == 500.0, "le produit constate est le total facture, jamais le reste a payer"
+    assert not any(l["compte"] == "419100" for l in lignes), "l'acompte n'est pas dans la vente"
 
 
 def _referentiel_proprietaire(db):
@@ -286,7 +289,7 @@ def test_avoir_total_net_comptable_nul(db):
     produits = 0.0
     for v in ventes:
         for l in compta.lignes(v["ecriture_id_opaque"], db):
-            if l["compte"] == compta.COMPTE_VENTE_GENERIQUE:
+            if l["compte"].startswith("70"):
                 produits += (l["credit"] or 0) - (l["debit"] or 0)
     assert round(produits, 2) == 0.0        # 500 constatés, 500 annulés
 
@@ -324,7 +327,7 @@ def test_avoir_partiel_net_400(db):
     produits = 0.0
     for v in _ventes(db):
         for l in compta.lignes(v["ecriture_id_opaque"], db):
-            if l["compte"] == compta.COMPTE_VENTE_GENERIQUE:
+            if l["compte"].startswith("70"):
                 produits += (l["credit"] or 0) - (l["debit"] or 0)
     assert round(produits, 2) == 400.0
     assert svc.lire(emise["facture_id_opaque"], db_path=db)["montant_total"] == 500.0

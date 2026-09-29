@@ -54,6 +54,11 @@ journaux fonctionnent, ils ne préjugent d'aucun plan comptable détaillé futur
 
 ## Table `mapping_categorie_compte` (migration `0023`) — infrastructure créée, non reliée
 
+> **SUPERSÉDÉ (Mission 31, 2026-09-28)** : la règle appliquée vit dans `mapping_comptable_regles`
+> (`0024`, étendue par `0113`), seule source canonique. `mapping_categorie_compte` est vide et n'est plus
+> lue que par le contrôle `CTRL_CPT_MAPPING_CATEGORIE_NON_ARBITRE` (0 signalement). Voir la section
+> « Mission 31 » ci-dessous.
+
 Une ligne par catégorie de charge, `compte` par défaut `606000`, `statut` `A_CONTROLER` tant qu'un
 arbitrage métier ne la fait pas passer `VALIDE`. Le contrôle `CTRL_CPT_MAPPING_CATEGORIE_NON_ARBITRE`
 signale chaque ligne `A_CONTROLER`.
@@ -66,6 +71,10 @@ cette table serve à autre chose qu'à afficher un contrôle A_CONTROLER.
 
 ## Ce qui reste à faire
 
+> **État au 2026-09-28 (Mission 31)** : le point 2 est fait depuis `50` (résolution par
+> `mapping_comptable_regles`) ; le point 1 est désormais réalisable par l'utilisateur depuis l'application
+> (plan comptable administrable), il n'est pas tranché à sa place.
+
 1. Décision métier sur le plan de comptes détaillé (hors périmètre de ce tour, aucune source ne le
    fixait).
 2. Relier `mapping_categorie_compte` à la résolution réelle du compte dans `generer_ecriture_achat`
@@ -73,3 +82,21 @@ cette table serve à autre chose qu'à afficher un contrôle A_CONTROLER.
 3. Génération d'écritures pour le circuit propriétaire COMME OBJET APPLICATIF (facture propriétaire
    émise), si la décision `44` de ne pas migrer lot12 est un jour révisée — l'adaptateur VENTES
    actuel reste une lecture, pas une migration.
+
+## Mission 31 (2026-09-28, migration `0113`) — plan comptable et mappings administrables
+
+- **Plan comptable administrable** (Comptabilité › Plan comptable) : ajout manuel d'un compte par
+  l'utilisateur (numéro en chiffres, libellé, type ; charge ⇔ classe 6, produit ⇔ classe 7 ; doublon refusé ;
+  aucun numéro généré), modification du libellé et du commentaire seulement, désactivation / réactivation
+  avec motif et auteur, historique `plan_comptable_evenements`. Les comptes utilisés par les générateurs
+  (`401000`, `411000`, `455100`, `512000`, `530000`, `606000`, `706000`) ne se désactivent pas. **Aucune
+  suppression** : le schéma la refuse (trigger), le numéro est immuable (trigger).
+- **Mappings** : règle catégorie → compte choisie dans des listes (catégories du référentiel, comptes de
+  charge actifs), période de validité, statut provisoire ou validé, prévisualisation d'impact avant
+  enregistrement ou validation, historique `mapping_regle_evenements`, désactivation au lieu de suppression.
+- **Aucun repli silencieux** : le repli absolu `606000` du résolveur est supprimé ; Flux financiers ne
+  propose qu'une règle validée vers un compte actif de classe 6, sinon « Compte comptable à définir ».
+- **Limite** : le journal Achats des factures fournisseurs garde le filet `MAP-GENERIQUE-606000`
+  PROVISOIRE (lecture seule dans l'écran) tant qu'aucune règle validée ne couvre la catégorie.
+- Le plan de comptes détaillé reste un **choix de l'utilisateur** : aucun compte ni aucune règle n'a été créé
+  dans la base réelle.

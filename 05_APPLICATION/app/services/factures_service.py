@@ -289,6 +289,20 @@ def creer(form: dict[str, Any], *, acteur: str = "", db_path=None,
              empreinte(frs, ref, ttc, _txt(form.get("date_facture"))),
              _txt(form.get("commentaire")) or None, acteur or "local"))
         _evenement(conn, opaque, "CREATION", None, statut, _txt(form.get("commentaire")), acteur)
+        # Mission 36 — référence documentaire dès la création (FAF-AAAA-MM-NNN). Une facture née
+        # d'un PDF importé a déjà sa pièce : elle est constatée, sans question à l'utilisateur.
+        from app.services import justificatifs_service as justif
+        j = justif.attribuer(conn, justif.OBJET_FACTURE_FOURNISSEUR, opaque,
+                             _txt(form.get("date_facture")), acteur=acteur)
+        piece = _txt(form.get("justificatif"))
+        if piece.lower().endswith(".pdf") and _txt(form.get("source")).upper() not in ("", "SAISIE"):
+            conn.execute("UPDATE justificatifs SET statut=?, fichier_constate=?, confirme_par=?, "
+                         "confirme_le=? WHERE reference=?",
+                         (justif.ST_ARCHIVE, piece, acteur or "import", _now(), j["reference"]))
+            conn.execute("INSERT INTO justificatif_evenements (reference, type_evenement, statut, "
+                         "justification, fichier, acteur) VALUES (?,?,?,?,?,?)",
+                         (j["reference"], "CONFIRMATION_ARCHIVE", justif.ST_ARCHIVE,
+                          "Pièce source de l'import", piece, acteur or "import"))
         conn.commit()
     finally:
         conn.close()
@@ -313,9 +327,14 @@ def charger(opaque: str, db_path=None) -> dict[str, Any] | None:
     return f
 
 
-def solde(opaque: str, db_path=None) -> dict[str, Any]:
-    """Montant réglé et solde restant — TOUJOURS recalculés, jamais lus d'une colonne stockée."""
-    conn = get_db(db_path)
+def solde(opaque: str, db_path=None, conn=None) -> dict[str, Any]:
+    """Montant réglé et solde restant — TOUJOURS recalculés, jamais lus d'une colonne stockée.
+
+    `conn` fourni : lecture DANS la transaction de l'appelant, qui voit donc un règlement qu'il
+    vient d'insérer sans l'avoir encore validé (lettrage atomique des flux financiers)."""
+    connexion_locale = conn is None
+    if connexion_locale:
+        conn = get_db(db_path)
     try:
         f = conn.execute("SELECT montant_ttc, statut FROM factures WHERE facture_id_opaque=?",
                          (opaque,)).fetchone()
@@ -326,7 +345,8 @@ def solde(opaque: str, db_path=None) -> dict[str, Any]:
             "JOIN reglements_fournisseurs g ON g.reglement_id_opaque = r.reglement_id_opaque "
             "WHERE r.facture_id_opaque=? AND g.statut <> 'ANNULE'", (opaque,)).fetchall()
     finally:
-        conn.close()
+        if connexion_locale:
+            conn.close()
     regle = round(sum(r["montant"] for r in rows), 2)
     total = f["montant_ttc"] or 0
     return {"montant_regle": regle, "solde_restant": round(total - regle, 2)}

@@ -210,8 +210,12 @@ def test_19_cors_non_permissif(client):
 
 
 def test_20_cache_control_no_store(client):
-    for u in ("/health", "/banques-caisse", "/controles-cloture"):
-        assert client.get(u).headers.get("cache-control") == "no-store"
+    # « /banques-caisse » mène désormais au module Flux financiers : c'est la page d'arrivée,
+    # qui porte les mouvements bancaires, qui doit refuser la mise en cache.
+    for u in ("/health", "/banques-caisse", "/controles-cloture", "/flux-financiers/banque",
+              "/flux-financiers/caisse", "/flux-financiers/charges",
+              "/flux-financiers/rapprochement"):
+        assert client.get(u).headers.get("cache-control") == "no-store", u
 
 
 def test_21_protection_clickjacking(client):

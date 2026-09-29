@@ -2,99 +2,67 @@
 {% block title %}Clôtures mensuelles{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="/static/css/ecrans.css">
-<link rel="stylesheet" href="/static/css/finitions.css">
-<div class="ecran">
-<div class="page-header">
-  <div class="page-header__titre">
+
+<div class="page-header flex justify-between items-center">
+  <div>
     <h1 class="page-title">Clôtures mensuelles</h1>
-    <p class="page-subtitle">Suivi humain de préparation — la clôture réelle reste pilotée par le moteur</p>
-  </div>
-  <div class="page-header__actions">
-    <span class="read-only-badge">Clôture réelle non active</span>
-    <a href="/pilotage-mensuel" class="btn btn-secondary">Pilotage mensuel</a>
+    <p class="page-subtitle">Préparation, validation humaine, puis clôture définitive de chaque mois</p>
   </div>
 </div>
 
 {% if erreur %}<div class="alert alert-error">{{ erreur }}</div>{% endif %}
 
-<div class="alert alert-info fi-alerte-compacte">
-  Cet écran journalise la préparation et la revue humaine des contrôles avant clôture. Il n'écrit
-  jamais dans la clôture réelle (REF_Cloture_Mensuelle) : celle-ci reste exclusivement pilotée par le
-  moteur.
+<div class="alert alert-info">
+  « Validée » : la préparation est contrôlée et validée, le mois n'est pas gelé. « Clôturée
+  définitivement » : l'archive du mois est figée et le mois fermé (CLOTURE), depuis la fiche d'une
+  clôture validée, pour un mois terminé et sans bloqueur.
 </div>
 
-{# Synthèse des mois affichés : simple décompte des lignes servies. #}
-{% set synth = namespace(bloques=0, validees=0, a_traiter=0) %}
-{% for l in lignes %}
-  {% if l.progression.nb_bloqueurs > 0 %}{% set synth.bloques = synth.bloques + 1 %}{% endif %}
-  {% if l.statut == "VALIDEE" %}{% set synth.validees = synth.validees + 1 %}{% endif %}
-  {% set synth.a_traiter = synth.a_traiter + (l.progression.nb_a_traiter or 0) %}
-{% endfor %}
-<div class="fi-kpis">
-  <div class="fi-kpi"><span class="fi-kpi__label">Mois affichés</span>
-    <span class="fi-kpi__valeur">{{ lignes|length }}</span></div>
-  <div class="fi-kpi{% if synth.bloques %} fi-kpi--erreur{% endif %}"><span class="fi-kpi__label">Mois avec bloqueurs</span>
-    <span class="fi-kpi__valeur">{{ synth.bloques }}</span>
-    <span class="fi-kpi__sous">empêchent la validation</span></div>
-  <div class="fi-kpi{% if synth.a_traiter %} fi-kpi--alerte{% endif %}"><span class="fi-kpi__label">Contrôles à traiter</span>
-    <span class="fi-kpi__valeur">{{ synth.a_traiter }}</span></div>
-  <div class="fi-kpi{% if synth.validees %} fi-kpi--ok{% endif %}"><span class="fi-kpi__label">Mois validés</span>
-    <span class="fi-kpi__valeur">{{ synth.validees }}</span></div>
-</div>
-
-<form method="get" action="/clotures" class="ec-filtres" data-fi-filtres>
-  <label class="ec-champ"><span>Statut</span><select name="statut"><option value="">Tous</option>
-    {% for k, v in statuts.items() %}<option value="{{ k }}" {{ 'selected' if k == applied.statut }}>{{ v }}</option>{% endfor %}</select></label>
-  <label class="ec-champ"><span>Année</span><input type="text" name="annee" value="{{ applied.annee or '' }}" size="6" placeholder="2026" inputmode="numeric"></label>
-  <div class="ec-cases">
-    <label class="ec-case"><input type="checkbox" name="avec_bloqueurs" value="true" {{ 'checked' if applied.avec_bloqueurs }}> Avec bloqueurs</label>
-  </div>
-  <div class="ec-filtres__actions">
-    <a href="/clotures" class="btn btn-ghost fi-reinit">Réinitialiser <span class="fi-nb-filtres" hidden></span></a>
-    <button type="submit" class="btn btn-primary">Filtrer</button>
-  </div>
+<form method="get" action="/clotures/mois" class="filter-bar mt-md" data-testid="choix-periode">
+  <label>Contrôler un mois <input type="month" name="mois"></label>
+  <button type="submit" class="btn btn-secondary">Afficher son état</button>
 </form>
 
-{% if lignes %}
-<div class="ec-table-wrap">
+<form method="get" action="/clotures" class="filter-bar mt-md">
+  <label>Statut <select name="statut"><option value="">Tous</option>
+    {% for k, v in statuts.items() %}<option value="{{ k }}" {{ 'selected' if k == applied.statut }}>{{ v }}</option>{% endfor %}</select></label>
+  <label>Année <input type="text" name="annee" value="{{ applied.annee or '' }}" size="6" placeholder="2026"></label>
+  <label>&nbsp;<label><input type="checkbox" name="avec_bloqueurs" value="true" {{ 'checked' if applied.avec_bloqueurs }}> Avec bloqueurs</label></label>
+  <button type="submit" class="btn btn-primary">Filtrer</button>
+</form>
+
+<div class="card mt-md">
+  <div class="table-container">
     <table class="data-table">
-      <thead><tr><th>Mois</th><th>Statut</th><th class="num">Bloqueurs</th><th class="num">À traiter</th><th class="num">Résolus</th>
-        <th class="num">Exceptions</th><th class="num">Informatifs</th><th>Dernière action</th><th class="fi-col-actions"><span class="sr-only">Actions</span></th></tr></thead>
+      <thead><tr><th>Mois</th><th>Statut</th><th>État du mois</th><th>Bloqueurs</th><th>À traiter</th><th>Résolus</th>
+        <th>Exceptions</th><th>Informatifs</th><th>Dernière action</th><th></th></tr></thead>
       <tbody>
         {% for l in lignes %}
         <tr>
-          <td class="fi-cle ec-nowrap">{{ l.mois|mois_humain or l.mois }}</td>
-          <td><span class="status-badge status-{{ 'valide' if l.statut == 'VALIDEE' else ('cloture' if l.statut == 'ARCHIVEE' else ('bloquant' if l.progression.nb_bloqueurs > 0 else ('brouillon' if l.statut == 'NON_DEMARREE' else 'info'))) }}">{{ l.statut_libelle }}</span></td>
-          <td class="num">{% if l.progression.nb_bloqueurs %}<span class="fi-nb fi-nb--alerte">{{ l.progression.nb_bloqueurs }}</span>{% else %}<span class="fi-nb fi-nb--zero">0</span>{% endif %}</td>
-          <td class="num {{ 'fi-zero' if not l.progression.nb_a_traiter }}">{{ l.progression.nb_a_traiter }}</td>
-          <td class="num {{ 'fi-zero' if not l.progression.nb_resolus }}">{{ l.progression.nb_resolus }}</td>
-          <td class="num {{ 'fi-zero' if not l.progression.nb_exceptions }}">{{ l.progression.nb_exceptions }}</td>
-          <td class="num {{ 'fi-zero' if not l.progression.nb_informatifs }}">{{ l.progression.nb_informatifs }}</td>
-          <td class="text-xs fi-discret">{{ l.derniere_action or "—" }}</td>
-          <td class="fi-col-actions">
+          <td><a href="/clotures/mois/{{ l.mois }}">{{ l.progression.mois_fr }}</a></td>
+          <td><span class="status-badge status-{{ 'valide' if l.statut == 'VALIDEE' else ('bloquant' if l.progression.nb_bloqueurs > 0 else 'info') }}">{{ l.statut_libelle }}</span></td>
+          <td class="text-xs" data-testid="etat-liste">{{ l.progression.etat_libelle }}</td>
+          <td>{{ l.progression.nb_bloqueurs }}</td>
+          <td>{{ l.progression.nb_a_traiter }}</td>
+          <td>{{ l.progression.nb_resolus }}</td>
+          <td>{{ l.progression.nb_exceptions }}</td>
+          <td>{{ l.progression.nb_informatifs }}</td>
+          <td class="text-xs">{{ l.derniere_action or "—" }}</td>
+          <td>
             {% if l.cloture_id_opaque %}
-              <a class="fi-lien-action" href="/clotures/{{ l.cloture_id_opaque }}">Ouvrir</a>
+              <a href="/clotures/{{ l.cloture_id_opaque }}">Ouvrir</a>
             {% else %}
-              <form method="post" action="/clotures/demarrer" class="inline-form" data-fi-occupe>
+              <form method="post" action="/clotures/demarrer" style="display:inline">
                 <input type="hidden" name="mois" value="{{ l.mois }}">
-                <button type="submit" class="btn btn-secondary btn-sm">Démarrer</button>
+                <button type="submit" class="btn btn-ghost btn-sm">Démarrer</button>
               </form>
             {% endif %}
           </td>
         </tr>
-        {% endfor %}
+        {% else %}<tr><td colspan="10" class="section-note">Aucun mois pour ces filtres.</td></tr>{% endfor %}
       </tbody>
     </table>
+  </div>
 </div>
-{% else %}
-<div class="card fi-vide">
-  <span class="fi-vide__icone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg></span>
-  <span class="fi-vide__titre">Aucun mois pour ces filtres.</span>
-  <span class="fi-vide__texte">Aucun élément à contrôler pour cette sélection. Changez l'année ou le statut pour élargir la liste.</span>
-  <a href="/clotures" class="btn btn-secondary">Voir tous les mois</a>
-</div>
-{% endif %}
-</div>
-<script src="/static/js/finitions.js" defer></script>
+
 {% endblock %}

@@ -35,7 +35,7 @@
           <select name="compte_1" required>
             <option value="">— choisir —</option>
             {% for c in comptes %}
-            <option value="{{ c.compte }}" {% if c.compte == "606000" %}selected{% endif %}>{{ c.compte }} — {{ c.libelle }}</option>
+            <option value="{{ c.compte }}">{{ c.compte }} — {{ c.libelle }}</option>
             {% endfor %}
           </select></label>
         <label>Auxiliaire
@@ -58,7 +58,7 @@
           <select name="compte_2" required>
             <option value="">— choisir —</option>
             {% for c in comptes %}
-            <option value="{{ c.compte }}" {% if c.compte == "401000" %}selected{% endif %}>{{ c.compte }} — {{ c.libelle }}</option>
+            <option value="{{ c.compte }}">{{ c.compte }} — {{ c.libelle }}</option>
             {% endfor %}
           </select></label>
         <label>Auxiliaire

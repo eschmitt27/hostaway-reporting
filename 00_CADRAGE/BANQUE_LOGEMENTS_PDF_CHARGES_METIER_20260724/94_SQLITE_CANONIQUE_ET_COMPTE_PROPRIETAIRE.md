@@ -199,6 +199,34 @@ réelle.
 rang, historique des recalculs. Le filtre logement sert à **analyser** ; les totaux affichés
 restent ceux du compte entier.
 
+### 2.10 Lire n'écrit rien (Mission 35)
+
+Les allocations persistées ne sont plus rafraîchies à l'affichage. Toute lecture (position,
+créances, Flux et ses propositions, clôture) les **calcule en mémoire** sur l'état courant
+(`compte_proprietaire_service.calculer`) ; `recalculer` (remplacement des allocations + ligne de
+journal) n'est appelé que par une action : émission d'une facture, validation ou annulation d'un
+mouvement de trésorerie propriétaire (y compris via le lettrage Flux), bouton « Recalculer ».
+Déclencheurs journalisés : `EMISSION_FACTURE`, `VALIDATION_MOUVEMENT`, `ANNULATION_MOUVEMENT`,
+`MANUEL` ; `AUTO` n'est plus produit. La fiche du compte indique, sans rien écrire, quand
+l'enregistrement est en retard sur les données.
+
+### 2.11 Acomptes et reversements Airbnb en comptabilité (Mission 36)
+
+Le FIFO du compte propriétaire est inchangé. En comptabilité, un acompte encaissé (rapproché dans
+Flux) va en 419100 (acomptes clients, tiers = propriétaire) ; à l'émission de la facture, les
+acomptes et reversements Airbnb qui lui sont rattachés s'imputent 419100 → 411000. Un reversement
+Airbnb est de la famille ACOMPTE (décision utilisateur) : ni réduction (709600), ni produit négatif.
+Sans crédit suffisant en 419100, l'imputation est refusée et signalée — aucun encaissement inventé.
+
+### 2.12 Crédits clients (Mission 37)
+
+Un reversement Airbnb est un CRÉDIT (`credits_clients`) : montant initial, origine constatée
+(virement rapproché 512 / 419100, ou origine justifiée sur un compte source nommé), imputations
+facture par facture (419100 → 411000), reste. Les imputations restent des lignes
+`imputations_airbnb` (le solde et Lot10 les lisent). Une imputation historique sans crédit d'origine
+est « à régulariser ». Les acomptes restent imputés par le FIFO ; leur passage 419100 → 411000 suit
+la part que le FIFO attribue à chaque facture émise.
+
 ---
 
 ## 3. Migrations

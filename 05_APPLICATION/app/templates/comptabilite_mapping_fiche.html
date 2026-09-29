@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Règle de mapping{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/comptabilite/mappings" class="back-link">← Mappings</a>
+  <h1 class="page-title">{% if regle %}{{ regle.cle_libelle }} → {{ regle.compte }}{% else %}Règle introuvable{% endif %}</h1>
+</div>
+
+{% if not regle %}
+<div class="alert alert-warning">Cette règle n'existe pas.</div>
+{% else %}
+{% if message %}<div class="alert alert-success" data-testid="regle-message">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-error" data-testid="regle-erreur">{{ erreur }}</div>{% endif %}
+
+<div class="card mb-md">
+  <dl class="detail-grid">
+    <div><dt>Catégorie</dt><dd>{{ regle.cle_libelle }}</dd></div>
+    <div><dt>Compte</dt><dd><span class="font-mono">{{ regle.compte }}</span> — {{ regle.compte_libelle }}{% if not regle.compte_actif %} <span class="badge badge-neutral">compte désactivé</span>{% endif %}</dd></div>
+    <div><dt>Statut</dt><dd>{% if not regle.actif %}Désactivée{% else %}{{ regle.statut_libelle }}{% endif %}</dd></div>
+    <div><dt>Début</dt><dd>{{ regle.date_debut_validite | date_fr if regle.date_debut_validite else "depuis toujours" }}</dd></div>
+    <div><dt>Fin</dt><dd>{{ regle.date_fin_validite | date_fr if regle.date_fin_validite else "sans fin" }}</dd></div>
+    <div><dt>Justification</dt><dd>{{ regle.source or "—" }}</dd></div>
+  </dl>
+  {% if regle.actif and regle.statut == 'VALIDE' and regle.compte_actif %}<p class="mention">Cette règle propose son compte aux charges de la catégorie encore à comptabiliser, dans sa période.</p>
+  {% else %}<p class="mention">Cette règle ne propose aucun compte{% if not regle.compte_actif %} : son compte est désactivé{% elif regle.statut != 'VALIDE' %} : elle est provisoire{% elif not regle.actif %} : elle est désactivée{% endif %}.</p>{% endif %}
+</div>
+
+{% if regle.actif %}
+<div class="card mb-md">
+  <h2 class="card-title">Modifier</h2>
+  <form method="post" action="/comptabilite/mappings/{{ regle.regle_id_opaque }}/modifier" class="detail-grid">
+    {% if regle.statut != 'VALIDE' %}
+    <label>Compte comptable
+      <select name="compte">
+        {% for c in comptes_charge %}<option value="{{ c.compte }}" {{ 'selected' if c.compte == regle.compte }}>{{ c.compte }} — {{ c.libelle }}</option>{% endfor %}
+      </select></label>
+    <label>Début de validité <input type="date" name="date_debut_validite" value="{{ regle.date_debut_validite or '' }}"></label>
+    {% endif %}
+    <label>Fin de validité <input type="date" name="date_fin_validite" value="{{ regle.date_fin_validite or '' }}"></label>
+    <label>Justification <input name="source" value="{{ regle.source or '' }}"></label>
+    <label>Motif <input name="motif"></label>
+    <label>Votre nom * <input name="acteur" required></label>
+    <div><button type="submit" class="btn btn-secondary">Enregistrer</button></div>
+  </form>
+  {% if regle.statut == 'VALIDE' %}<p class="mention">Une règle validée ne change ni de compte ni de début : posez sa date de fin, puis créez la nouvelle règle à partir du lendemain. Les périodes passées gardent ainsi leur compte.</p>{% endif %}
+</div>
+{% endif %}
+
+<div class="card mb-md">
+  <h2 class="card-title">Actions</h2>
+  <div class="flux-barre-actions" style="display:flex;flex-wrap:wrap;gap:8px">
+    {% if regle.actif and regle.statut != 'VALIDE' %}
+    <a class="btn btn-primary" href="/comptabilite/mappings/{{ regle.regle_id_opaque }}/valider" data-testid="regle-valider">Valider (prévisualiser l'impact)</a>
+    {% endif %}
+    {% for action, libelle, style in [('rendre-provisoire', 'Repasser en provisoire', 'btn-secondary'), ('desactiver', 'Désactiver la règle', 'btn-danger'), ('reactiver', 'Réactiver la règle', 'btn-secondary')] %}
+      {% if (action == 'rendre-provisoire' and regle.actif and regle.statut == 'VALIDE') or (action == 'desactiver' and regle.actif) or (action == 'reactiver' and not regle.actif) %}
+      <form method="post" action="/comptabilite/mappings/{{ regle.regle_id_opaque }}/{{ action }}" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <input name="motif" placeholder="Motif *" required>
+        <input name="acteur" placeholder="Votre nom *" required>
+        <button type="submit" class="btn {{ style }} btn-sm">{{ libelle }}</button>
+      </form>
+      {% endif %}
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card" data-testid="regle-historique">
+  <h2 class="card-title">Historique</h2>
+  {% if historique %}
+  <table class="data-table">
+    <thead><tr><th>Date</th><th>Événement</th><th>Par</th><th>Motif</th></tr></thead>
+    <tbody>{% for h in historique %}<tr>
+      <td class="text-xs">{{ h.horodatage | datetime_fr }}</td>
+      <td>{{ {'CREATION': 'Création', 'MODIFICATION': 'Modification', 'VALIDATION': 'Validation', 'PASSAGE_PROVISOIRE': 'Repassée en provisoire', 'DESACTIVATION': 'Désactivation', 'REACTIVATION': 'Réactivation'}.get(h.type_evenement, h.type_evenement) }}</td>
+      <td>{{ h.acteur }}</td><td class="text-xs">{{ h.motif or "" }}</td>
+    </tr>{% endfor %}</tbody>
+  </table>
+  {% else %}<p class="section-note">Aucun événement enregistré (règle antérieure à l'historisation).</p>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

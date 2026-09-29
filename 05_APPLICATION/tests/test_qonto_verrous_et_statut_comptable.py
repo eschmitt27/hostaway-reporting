@@ -246,7 +246,8 @@ def test_l_ecran_affiche_l_ecriture_restant_a_valider(client, base, monkeypatch)
                        db_path=base)
 
     html = client.get("/banques-caisse?vue=banque").text
-    assert "Rapproché — écriture à valider" in html
+    # Rapproché, mais l'écriture attend encore sa validation : « À comptabiliser », pas « fini ».
+    assert "Rapproché" in html and "À comptabiliser" in html
     assert "Apport compte courant — Associé de test" in html
 
 

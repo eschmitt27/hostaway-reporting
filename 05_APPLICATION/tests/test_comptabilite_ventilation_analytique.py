@@ -68,6 +68,8 @@ def test_case_a_mapping_valide_utilise_le_bon_compte(db, monkeypatch):
                 "VALUES ('606100', 'Menage externe', 'CHARGE')")
     conn.commit()
     conn.close()
+    from tests.fixtures_referentiel import semer_comptabilite
+    semer_comptabilite(db, categories=["CHG_MENAGE"])     # Mission 31 : catégorie déclarée
     maps.creer_regle(maps.PORTEE_CATEGORIE, "606100", cle="CHG_MENAGE", statut=maps.ST_VALIDE, db_path=db)
 
     fact.changer_statut(r["facture_id_opaque"], fact.ST_VALIDEE, db_path=db)

@@ -126,7 +126,10 @@ def test_previsualiser_n_ecrit_rien(db, classeur):
     assert avant["ok"] is True
     conn = get_db(db)
     try:
-        total = sum(conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+        # Les lignes administrées dans l'application (catalogue fonctionnel 0114) ne viennent
+        # pas d'un import : elles ne comptent pas.
+        total = sum(conn.execute(f"SELECT COUNT(*) FROM {t} WHERE import_id IS NOT "
+                                 "'SAISIE_APPLICATION'").fetchone()[0]
                     for t in cat.toutes_les_tables())
         assert total == 0
         assert conn.execute(f"SELECT COUNT(*) FROM {cat.TABLE_IMPORTS}").fetchone()[0] == 0

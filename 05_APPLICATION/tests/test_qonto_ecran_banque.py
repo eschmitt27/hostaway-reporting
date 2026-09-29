@@ -244,7 +244,8 @@ def test_l_ecran_banque_affiche_le_bloc_qonto(client, base):
     assert 'data-testid="qonto-actualiser"' in html and "Actualiser Qonto" in html
     assert "180.00 EUR" in html, "le KPI principal est le solde disponible"
     assert "Solde banque" in html and "Trésorerie disponible" in html
-    assert "À rapprocher" in html
+    # Module Flux financiers : deux statuts par mouvement (rapprochement, comptabilité).
+    assert "Non matché" in html and "À qualifier" in html
     # Les deux mouvements attendus. La contrepartie prime sur le libellé : elle dit QUI, ce
     # qui renseigne davantage que l'intitulé technique de l'opération.
     assert "LOCATAIRE X" in html and "FOURNISSEUR Y" in html

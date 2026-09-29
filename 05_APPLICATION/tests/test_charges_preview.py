@@ -49,7 +49,10 @@ def _form(**overrides) -> dict:
 
 def test_load_form_refs_lit_les_referentiels_sqlite(tmp_db):
     refs = prev.load_form_refs(db_path=tmp_db)
-    assert {c["categorie_charge_id"] for c in refs["categories_all"]} == {"CHG_017"}
+    # CHG_017 vient du référentiel importé ; CHG_028…CHG_043 du catalogue fonctionnel (0114).
+    categories = {c["categorie_charge_id"] for c in refs["categories_all"]}
+    assert "CHG_017" in categories
+    assert categories - {"CHG_017"} == {f"CHG_0{n}" for n in range(28, 44)}
     assert {m["mode_paiement_id"] for m in refs["modes_paiement"]} == {"PAY_001"}
     assert refs["cloture"]
 

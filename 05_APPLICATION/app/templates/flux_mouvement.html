@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% from "_flux_badges.html" import statut, montant, euros %}
+{% block title %}Flux financiers · Mouvement{% endblock %}
+
+{% block content %}
+{% include "_flux_entete.html" %}
+{% set base_url = "/flux-financiers/banque" if flux_onglet == "banque" else "/flux-financiers/caisse" %}
+<a href="{{ base_url }}" class="back-link">&larr; {{ "Banque" if flux_onglet == "banque" else "Caisse" }}</a>
+
+{% if not m %}
+<div class="alert alert-warning">Mouvement introuvable.</div>
+{% else %}
+{% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-error">{{ erreur }}</div>{% endif %}
+
+<div class="card mb-md" data-testid="flux-mouvement-fiche">
+  <h2 class="card-title">{{ m.libelle }}</h2>
+  <dl class="flux-fiche">
+    <div><dt>Date</dt><dd>{{ m.date_fr }}{% if m.date_est_prevue %} (prévue){% endif %}</dd></div>
+    <div><dt>Montant</dt><dd>{{ montant(m.montant, m.sens) }}</dd></div>
+    <div><dt>Sens</dt><dd>{{ ("Crédit" if m.sens == "ENTREE" else "Débit") if m.source == "BANQUE" else ("Entrée" if m.sens == "ENTREE" else "Sortie") }}</dd></div>
+    <div><dt>Source</dt><dd>{{ "Banque (Qonto)" if m.source == "BANQUE" else "Caisse" }}</dd></div>
+    <div><dt>Rapprochement</dt><dd>{{ statut(m.rapprochement, "statut-rapprochement") }}</dd></div>
+    <div><dt>Comptabilité</dt><dd>{{ statut(m.compta, "statut-compta") }}</dd></div>
+    {% if m.montant_rapproche %}<div><dt>Déjà rapproché</dt><dd>{{ euros(m.montant_rapproche) }} · reste {{ euros(m.restant) }}</dd></div>{% endif %}
+  </dl>
+  {% if m.reference %}<p class="mention" style="margin-top:8px">Référence : {{ m.reference }}</p>{% endif %}
+  {% if not m.definitif and not m.sans_effet %}<div class="alert alert-warning mt-sm">Opération encore en attente chez la banque : son montant peut changer. Elle ne peut pas être comptabilisée tant qu'elle n'est pas réglée.</div>{% endif %}
+</div>
+
+{% if m.parcours_dedie == "RETRAIT" %}
+<div class="alert alert-info">Retrait d'espèces : ce n'est ni une charge ni un produit, l'argent passe de la banque à la caisse (530 / 512). Il se comptabilise par le transfert Banque → Caisse.
+  {% set mvt_banque = m.id if m.source == "BANQUE" else m.mouvement_banque %}
+  {% if mvt_banque and m.definitif and m.statut_compta != "COMPTABILISE" %}<a href="/banques-caisse/qonto/{{ mvt_banque }}/traiter" class="btn btn-secondary btn-sm" data-testid="comptabiliser-transfert">Comptabiliser le transfert</a>{% endif %}
+</div>
+{% elif m.parcours_dedie == "APPORT" and m.lettrable %}
+<div class="alert alert-info">Qonto classe ce crédit en apport en compte courant d'associé.
+  <a href="/banques-caisse/qonto/{{ m.id }}/traiter?nature=APPORT_ASSOCIE" class="btn btn-secondary btn-sm">Qualifier l'apport (512 / 455)</a>
+</div>
+{% endif %}
+
+{% if m.lettrable %}
+<div class="card mb-md" data-testid="flux-propositions">
+  <h2 class="card-title">Propositions de rapprochement</h2>
+  {% if propositions %}
+    {% for p in propositions %}
+    <div class="flux-proposition">
+      <div>
+        <span class="badge badge-{{ p.confiance_badge }}" data-testid="confiance">{{ p.confiance_libelle }}</span>
+        <strong>{{ p.forme }}</strong> —
+        {% for o in p.objets %}{{ o.type_libelle }} « {{ o.libelle }} »{% if o.tiers %} ({{ o.tiers }}){% endif %} {{ euros(o.montant) }}{% if not loop.last %} + {% endif %}{% endfor %}
+        {% if not p.exact %}<span class="badge badge-warning">écart {{ euros(p.ecart|abs) }}</span>{% endif %}
+        <ul class="flux-raisons">{% for r in p.raisons %}<li>{{ r }}</li>{% endfor %}</ul>
+      </div>
+      <div class="flux-proposition__actions">
+        <a class="btn btn-primary btn-sm" href="/flux-financiers/rapprochement/valider?{% for x in p.mouvements %}m={{ x.source }}:{{ x.id }}&{% endfor %}{% for x in p.objets %}o={{ x.type }}:{{ x.id }}&{% endfor %}proposition={{ p.empreinte }}" data-testid="examiner-proposition">Examiner et valider</a>
+      </div>
+    </div>
+    {% endfor %}
+  {% else %}
+    <p class="section-note" data-testid="aucune-proposition">Aucune proposition : aucun objet connu ne correspond à ce mouvement.</p>
+  {% endif %}
+</div>
+
+{% if meilleure and meilleure.ecritures %}
+<div class="card mb-md" data-testid="ecriture-proposee">
+  <h2 class="card-title">Écriture comptable proposée <span class="mention">pour la première proposition — à confirmer à l'étape suivante</span></h2>
+  {% for e in meilleure.ecritures %}
+  <table class="data-table flux-table">
+    <thead><tr><th>Compte</th><th>Auxiliaire</th><th>Libellé</th><th class="num">Débit</th><th class="num">Crédit</th></tr></thead>
+    <tbody>{% for l in e.lignes %}<tr><td>{% if l.compte %}{{ l.compte }}{% else %}<span class="badge badge-warning" data-testid="compte-a-definir">? Compte comptable à définir</span>{% endif %}</td><td>{{ l.auxiliaire | nom_tiers_flux if l.auxiliaire else "—" }}</td><td>{{ l.libelle }}</td><td class="num">{{ euros(l.debit) if l.debit else "" }}</td><td class="num">{{ euros(l.credit) if l.credit else "" }}</td></tr>{% endfor %}</tbody>
+  </table>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="card mb-md">
+  <h2 class="card-title">Autres actions</h2>
+  <div class="flux-barre-actions">
+    <a class="btn btn-secondary" href="/flux-financiers/rapprochement?m={{ m.source }}:{{ m.id }}&source={{ m.source }}&sens={{ m.sens }}" data-testid="rapprocher-manuellement">Rapprocher manuellement</a>
+    {% if m.sens == "SORTIE" %}
+    <a class="btn btn-primary" href="/fournisseurs/nouvelle?mouvement={{ m.source }}:{{ m.id }}" data-testid="creer-charge-depuis-mouvement">Créer une charge depuis ce mouvement</a>
+    {% endif %}
+  </div>
+  <p class="mention">« Créer une charge » ouvre le formulaire habituel, prérempli (date, montant, moyen de paiement, libellé). Rien n'est créé sans votre confirmation ; la charge sera comptable, puis proposée au rapprochement.</p>
+</div>
+
+{% if candidats %}
+<div class="card mb-md" data-testid="objets-lies">
+  <h2 class="card-title">Objets potentiellement liés</h2>
+  <table class="data-table flux-table">
+    <thead><tr><th>Objet</th><th>Tiers</th><th>Date</th><th class="num">Reste</th><th></th></tr></thead>
+    <tbody>{% for o in candidats %}<tr>
+      <td>{{ o.type_libelle }} — {{ o.libelle }}</td><td>{{ o.tiers or "—" }}</td><td>{{ o.date_fr }}</td>
+      <td class="num">{{ euros(o.reste) }}</td>
+      <td class="col-action"><a class="btn btn-ghost btn-sm" href="/flux-financiers/rapprochement/valider?m={{ m.source }}:{{ m.id }}&o={{ o.cle }}">Rapprocher</a></td>
+    </tr>{% endfor %}</tbody>
+  </table>
+</div>
+{% endif %}
+{% endif %}
+
+<div class="card" data-testid="flux-historique">
+  <h2 class="card-title">Historique</h2>
+  {% if historique or liens %}
+  <table class="data-table flux-table">
+    <thead><tr><th>Date</th><th>Rapprochement</th><th class="num">Montant</th><th>État</th><th></th></tr></thead>
+    <tbody>
+      {% for h in historique %}
+      <tr>
+        <td>{{ h.cree_le[:10] | date_fr if h.cree_le else "—" }}</td>
+        <td>{% for l in h.lignes if l.cote == "OBJET" %}{{ l.libelle }}{% if not loop.last %}, {% endif %}{% endfor %}
+          <span class="mention">validé par {{ h.acteur }}{% if h.ecriture_modifiee %} · écriture corrigée à la main{% endif %}{% if h.traitement_ecart == 'COMPTABILISE' %} · écart comptabilisé ({{ h.compte_ecart }}){% endif %}</span></td>
+        <td class="num">{{ euros(h.total_objets) }}</td>
+        <td>{% if h.statut == "VALIDE" %}<span class="badge badge-success">● Validé et comptabilisé</span>{% else %}<span class="badge badge-neutral">– Annulé</span><span class="mention">{{ h.motif_annulation }} ({{ h.annule_par }})</span>{% endif %}</td>
+        <td class="col-action">{% if h.statut == "VALIDE" %}
+          <details><summary class="btn btn-ghost btn-sm">Annuler</summary>
+            <form method="post" action="/flux-financiers/rapprochement/{{ h.lettrage_id_opaque }}/annuler" class="flux-champ" style="min-width:220px">
+              <input type="hidden" name="retour" value="{{ base_url }}/{{ m.id }}">
+              <span>Motif (obligatoire)</span><input name="motif" required>
+              <span>Votre nom</span><input name="acteur" required>
+              <button type="submit" class="btn btn-danger btn-sm">Annuler (contrepassation)</button>
+            </form></details>{% endif %}</td>
+      </tr>
+      {% endfor %}
+      {% for l in liens %}
+      <tr><td>{{ l.date }}</td><td>{{ l.libelle }} <span class="mention">rapprochement antérieur au module</span></td><td class="num">{{ euros(l.montant) }}</td><td>{{ l.statut | libelle_statut }}</td><td></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="section-note">Aucun rapprochement pour ce mouvement.</p>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

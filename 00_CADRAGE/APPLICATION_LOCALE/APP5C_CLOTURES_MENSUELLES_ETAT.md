@@ -36,3 +36,30 @@ Tests de charge concurrente réelle multi-thread non exécutés (garde SQL prouv
 test séquentiel). 5 tests de recette réelle (comptages exacts sur données bancaires réelles) sautent
 proprement en l'absence de `BANQUE_LOT8_IMPORT.xlsx` dans l'environnement courant — non falsifiables
 sans données réelles.
+
+## Mission 32 (2026-09-28) — branchée sur Flux financiers
+
+- **Bloqueurs** = contrôles moteur APP-5B (inchangés) + bloqueurs financiers lus en direct par
+  `cloture_flux_service` : mouvements Qonto et caisse à qualifier / à comptabiliser / en anomalie / en
+  attente, écritures `PROPOSEE`, comptes comptables à définir. Informatifs séparés (factures à contrôler,
+  hors comptabilité, sans effet). **Supersède** la source « `banque_mouvements` / `RAPPROCHEMENT_REQUIS` »
+  pour les mouvements Qonto : le contrôle moteur ne couvre plus que l'import Crédit Mutuel.
+- **Calendrier** : `valider()` et `archiver()` refusent le mois courant et les mois futurs, côté serveur ;
+  la préparation reste possible. État calculé (jamais persisté) : « Prêt à clôturer », « Prêt
+  techniquement — mois en cours », « Clôture impossible — N éléments bloquants », « Mois futur ».
+- **Tableau de contrôle du mois** `/clotures/mois/AAAA-MM`, lecture seule ; évènement d'historique
+  « CONTROLES » à la préparation et à la validation ; validation transactionnelle (`BEGIN IMMEDIATE`).
+- Machine à états inchangée ; `archiver()` toujours sans route **[supersédé par la Mission 33 : route de clôture définitive]**.
+
+## Mission 33 (2026-09-28) — clôture définitive exposée
+
+- `VALIDEE` = validation humaine de la préparation (mois non gelé) ; `ARCHIVEE` +
+  `ref_cloture_mensuelle = CLOTURE` = clôture définitive. **Supersède** « `archiver()` toujours sans
+  route » (Mission 32) et la mention « clôture réelle non active ».
+- Fiche `VALIDEE` éligible → « Clôturer définitivement le mois » → page de confirmation → POST
+  `/clotures/{id}/cloture-definitive` → `archiver()`, qui refait sous verrou : mois terminé, état relu
+  (`VALIDEE`, version affichée), bloqueurs moteur et Flux ; archive, CLOTURE, ARCHIVEE et trace en un
+  commit.
+- Archivage : seul le jeu `reservations_resolues` actif est figé (défaut corrigé).
+- Réouverture : `ARCHIVEE` ne se rouvre pas par l'écran de réouverture des mois clos (correction
+  rétroactive) ; `VALIDEE → ROUVERTE` inchangé.

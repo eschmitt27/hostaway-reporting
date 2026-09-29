@@ -12,7 +12,7 @@ from app.config import STATIC_DIR, DATA_DIR, SNAPSHOTS_DIR
 from app.db.connection import apply_migrations
 from app.services import ordonnanceur_service
 from app.services.logging_config import log_erreur
-from app.routes import home, actualisation, administration_referentiels, sources_calculs, health, logements, reservations, menages, fournisseurs, proprietaires, proprietaires_tresorerie, banques, proprietaires_reglements, controles_cloture, clotures, pilotage_mensuel, fournisseurs_referentiel, charges_controle, charges_refacturation, factures, factures_proprietaires, creances_dettes, calculs, comptabilite, resultats, referentiel_setup, comptes_proprietaires, observabilite, correspondances_logement, proprietaire_performance, exports
+from app.routes import home, actualisation, administration_referentiels, sources_calculs, health, logements, reservations, menages, fournisseurs, proprietaires, proprietaires_tresorerie, banques, proprietaires_reglements, controles_cloture, clotures, pilotage_mensuel, fournisseurs_referentiel, charges_controle, charges_refacturation, factures, factures_proprietaires, creances_dettes, calculs, comptabilite, resultats, referentiel_setup, comptes_proprietaires, observabilite, correspondances_logement, proprietaire_performance, exports, flux_financiers
 
 
 @asynccontextmanager
@@ -68,7 +68,7 @@ async def headers_securite(request: Request, call_next):
     path = request.url.path
     if path.startswith(("/banques-caisse", "/controles-cloture", "/clotures", "/proprietaires",
                         "/reservations", "/logements", "/menages", "/fournisseurs", "/health",
-                        "/pilotage-mensuel", "/referentiel-fournisseurs")):
+                        "/pilotage-mensuel", "/referentiel-fournisseurs", "/flux-financiers")):
         response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -82,6 +82,7 @@ app.include_router(menages.router)
 app.include_router(fournisseurs.router)
 app.include_router(proprietaires_tresorerie.router)
 app.include_router(proprietaires.router)
+app.include_router(flux_financiers.router)
 app.include_router(banques.router)
 app.include_router(proprietaires_reglements.router)
 app.include_router(controles_cloture.router)

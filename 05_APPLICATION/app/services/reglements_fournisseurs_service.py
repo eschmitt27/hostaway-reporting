@@ -74,11 +74,15 @@ def _nombre(v: Any) -> float | None:
 
 def enregistrer(fournisseur_opaque: str, repartitions: list[dict[str, Any]], *,
                 date_reglement: str, moyen: str, compte: str = "", commentaire: str = "",
-                acteur: str = "", db_path=None) -> dict[str, Any]:
+                acteur: str = "", db_path=None, conn=None) -> dict[str, Any]:
     """Enregistre un règlement ventilé sur une ou plusieurs factures.
 
     `repartitions` : [{facture_id_opaque, montant}, ...] — une seule entrée = paiement simple,
     plusieurs = paiement groupé.
+
+    `conn` fourni : le règlement ET le statut dérivé des factures s'écrivent dans la transaction de
+    l'appelant (ni commit ni fermeture ici). C'est ce qui permet au lettrage des flux financiers de
+    régler une facture et de comptabiliser le paiement en une seule opération, tout ou rien.
     """
     if not _flags_actifs():
         return _refus(E_FLAGS)
@@ -106,7 +110,9 @@ def enregistrer(fournisseur_opaque: str, repartitions: list[dict[str, Any]], *,
         total += m
 
     opaque = "REG-" + uuid.uuid4().hex[:12].upper()
-    conn = get_db(db_path)
+    connexion_locale = conn is None
+    if connexion_locale:
+        conn = get_db(db_path)
     try:
         conn.execute(
             "INSERT INTO reglements_fournisseurs (reglement_id_opaque, fournisseur_id_opaque, "
@@ -119,20 +125,30 @@ def enregistrer(fournisseur_opaque: str, repartitions: list[dict[str, Any]], *,
                 "INSERT INTO reglement_repartitions (reglement_id_opaque, facture_id_opaque, montant) "
                 "VALUES (?,?,?)",
                 (opaque, _txt(r.get("facture_id_opaque")), _nombre(r.get("montant"))))
-        conn.commit()
+        if connexion_locale:
+            conn.commit()
+        else:
+            # Dans la transaction de l'appelant : le statut dérivé suit dans la même transaction.
+            for r in repartitions:
+                _rafraichir_statut_facture(_txt(r.get("facture_id_opaque")), acteur=acteur,
+                                           db_path=db_path, conn=conn)
     finally:
-        conn.close()
+        if connexion_locale:
+            conn.close()
 
     # Met à jour le statut des factures touchées (REGLEE / PARTIELLEMENT_REGLEE) — jamais un
     # montant stocké, uniquement le statut, qui reste dérivé du solde recalculé.
-    for r in repartitions:
-        _rafraichir_statut_facture(_txt(r.get("facture_id_opaque")), acteur=acteur, db_path=db_path)
+    if connexion_locale:
+        for r in repartitions:
+            _rafraichir_statut_facture(_txt(r.get("facture_id_opaque")), acteur=acteur,
+                                       db_path=db_path)
 
     return {"ok": True, "reglement_id_opaque": opaque, "montant": round(total, 2),
             "nb_factures": len(repartitions)}
 
 
-def _rafraichir_statut_facture(facture_opaque: str, *, acteur: str = "", db_path=None) -> None:
+def _rafraichir_statut_facture(facture_opaque: str, *, acteur: str = "", db_path=None,
+                               conn=None) -> None:
     """Recalcule le statut de règlement d'une facture depuis son solde, DANS LES DEUX SENS.
 
     Le statut de règlement est une valeur DÉRIVÉE : il doit redescendre quand le solde remonte
@@ -145,7 +161,13 @@ def _rafraichir_statut_facture(facture_opaque: str, *, acteur: str = "", db_path
     pas à s'appliquer (elle interdit REGLEE -> VALIDEE, qui est pourtant le retour légitime après
     annulation d'un paiement).
     """
-    f = fact.charger(facture_opaque, db_path)
+    if conn is not None:
+        # Lecture dans la transaction de l'appelant : elle voit le règlement qu'il vient d'écrire.
+        ligne = conn.execute("SELECT statut FROM factures WHERE facture_id_opaque=?",
+                             (facture_opaque,)).fetchone()
+        f = dict(ligne, **fact.solde(facture_opaque, conn=conn)) if ligne else None
+    else:
+        f = fact.charger(facture_opaque, db_path)
     if f is None or f["statut"] in (fact.ST_ANNULEE, fact.ST_LITIGE):
         return
     solde = f["solde_restant"]
@@ -160,7 +182,9 @@ def _rafraichir_statut_facture(facture_opaque: str, *, acteur: str = "", db_path
         return
     if cible == f["statut"]:
         return
-    conn = get_db(db_path)
+    connexion_locale = conn is None
+    if connexion_locale:
+        conn = get_db(db_path)
     try:
         conn.execute("UPDATE factures SET statut=?, version=version+1 WHERE facture_id_opaque=?",
                      (cible, facture_opaque))
@@ -169,9 +193,11 @@ def _rafraichir_statut_facture(facture_opaque: str, *, acteur: str = "", db_path
             "nouveau_statut, commentaire, acteur) VALUES (?,?,?,?,?,?)",
             (facture_opaque, "REGLEMENT", f["statut"], cible, "statut dérivé du solde",
              acteur or "local"))
-        conn.commit()
+        if connexion_locale:
+            conn.commit()
     finally:
-        conn.close()
+        if connexion_locale:
+            conn.close()
 
 
 def charger(opaque: str, db_path=None) -> dict[str, Any] | None:
@@ -221,23 +247,33 @@ def reglements_de_facture(facture_opaque: str, db_path=None) -> list[dict[str, A
         conn.close()
 
 
-def annuler(opaque: str, *, commentaire: str = "", acteur: str = "", db_path=None) -> dict[str, Any]:
+def annuler(opaque: str, *, commentaire: str = "", acteur: str = "", db_path=None,
+            conn=None) -> dict[str, Any]:
     """Annule un règlement : ses répartitions cessent de compter dans le solde des factures
-    (jamais de suppression physique)."""
+    (jamais de suppression physique). `conn` fourni : dans la transaction de l'appelant."""
     if not _flags_actifs():
         return _refus(E_FLAGS)
     reg = charger(opaque, db_path)
     if reg is None:
         return _refus(E_INTROUVABLE, opaque)
-    conn = get_db(db_path)
+    connexion_locale = conn is None
+    if connexion_locale:
+        conn = get_db(db_path)
     try:
         conn.execute("UPDATE reglements_fournisseurs SET statut=?, version=version+1 "
                      "WHERE reglement_id_opaque=?", (ST_ANNULE, opaque))
-        conn.commit()
+        if connexion_locale:
+            conn.commit()
+        else:
+            for r in reg["repartitions"]:
+                _rafraichir_statut_facture(r["facture_id_opaque"], acteur=acteur,
+                                           db_path=db_path, conn=conn)
     finally:
-        conn.close()
-    for r in reg["repartitions"]:
-        _rafraichir_statut_facture(r["facture_id_opaque"], acteur=acteur, db_path=db_path)
+        if connexion_locale:
+            conn.close()
+    if connexion_locale:
+        for r in reg["repartitions"]:
+            _rafraichir_statut_facture(r["facture_id_opaque"], acteur=acteur, db_path=db_path)
     return {"ok": True, "reglement_id_opaque": opaque, "statut": ST_ANNULE}
 
 

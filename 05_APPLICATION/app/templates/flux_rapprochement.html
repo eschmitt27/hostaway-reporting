@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% from "_flux_badges.html" import statut, montant, euros %}
+{% block title %}Flux financiers · Rapprochement{% endblock %}
+
+{% block content %}
+{% set flux_sous_titre = "Rapprochement — le moteur propose, vous décidez. Rien n'est validé automatiquement." %}
+{% include "_flux_entete.html" %}
+
+{% if message %}<div class="alert alert-success" data-testid="rapprochement-message">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-error" data-testid="rapprochement-erreur">{{ erreur }}</div>{% endif %}
+
+{# Filtres principaux : un segment, le reste en barre de filtres. #}
+<nav class="flux-filtres-segment" aria-label="Statut de rapprochement" data-testid="filtres-statut">
+  {% for code, libelle, href in liens_statut %}
+  <a href="{{ href }}" aria-current="{{ 'true' if code == filtres.statut else 'false' }}"
+     data-testid="filtre-statut-{{ code or 'tous' }}">{{ libelle }} ({{ compteurs.get(code, 0) }})</a>
+  {% endfor %}
+</nav>
+
+<form method="get" action="/flux-financiers/rapprochement" class="barre-filtres" data-testid="filtres-rapprochement">
+  <input type="hidden" name="statut" value="{{ filtres.statut }}">
+  <label class="champ"><span>Période</span><select name="mois"><option value="">Toutes</option>
+    {% for x in mois_disponibles %}<option value="{{ x }}" {{ 'selected' if x == filtres.mois }}>{{ x }}</option>{% endfor %}</select></label>
+  <label class="champ"><span>Source</span><select name="source"><option value="">Banque et caisse</option>
+    <option value="BANQUE" {{ 'selected' if filtres.source == 'BANQUE' }}>Banque</option>
+    <option value="CAISSE" {{ 'selected' if filtres.source == 'CAISSE' }}>Caisse</option></select></label>
+  <label class="champ"><span>Sens</span><select name="sens"><option value="">Débit et crédit</option>
+    <option value="SORTIE" {{ 'selected' if filtres.sens == 'SORTIE' }}>Débit / sortie</option>
+    <option value="ENTREE" {{ 'selected' if filtres.sens == 'ENTREE' }}>Crédit / entrée</option></select></label>
+  <label class="champ"><span>Comptabilité</span><select name="compta"><option value="">Tous</option>
+    {% for code, info in statuts_compta.items() %}<option value="{{ code }}" {{ 'selected' if code == filtres.compta }}>{{ info.libelle }}</option>{% endfor %}</select></label>
+  <label class="champ"><span>Tiers</span><input name="tiers" value="{{ filtres.tiers }}" style="height:38px;padding:0 10px;border:1px solid var(--color-outline-variant);border-radius:var(--radius-md)"></label>
+  <label class="champ"><span>Montant min.</span><input name="montant_min" value="{{ filtres.montant_min }}" inputmode="decimal" style="height:38px;padding:0 10px;border:1px solid var(--color-outline-variant);border-radius:var(--radius-md)"></label>
+  <label class="champ"><span>Montant max.</span><input name="montant_max" value="{{ filtres.montant_max }}" inputmode="decimal" style="height:38px;padding:0 10px;border:1px solid var(--color-outline-variant);border-radius:var(--radius-md)"></label>
+  <button type="submit" class="btn btn-secondary">Filtrer</button>
+  <a href="/flux-financiers/rapprochement" class="btn btn-ghost">Réinitialiser</a>
+</form>
+
+<div class="card mb-md" data-testid="flux-propositions">
+  <h2 class="card-title">Propositions du moteur ({{ propositions|length }})</h2>
+  {% for p in propositions %}
+  <div class="flux-proposition" data-testid="proposition">
+    <div>
+      <span class="badge badge-{{ p.confiance_badge }}" data-testid="confiance">{{ p.confiance_libelle }}</span>
+      <strong>{{ p.forme }}</strong>
+      {% if not p.exact %}<span class="badge badge-warning">écart {{ euros(p.ecart|abs) }}</span>{% endif %}
+      <div>{% for x in p.mouvements %}{{ x.libelle }} ({{ x.date_fr }}, {{ euros(x.montant) }}){% if not loop.last %} + {% endif %}{% endfor %}
+        → {% for o in p.objets %}{{ o.type_libelle }} « {{ o.libelle }} »{% if o.tiers %} ({{ o.tiers }}){% endif %} {{ euros(o.montant) }}{% if not loop.last %} + {% endif %}{% endfor %}</div>
+      <ul class="flux-raisons">{% for r in p.raisons %}<li>{{ r }}</li>{% endfor %}</ul>
+    </div>
+    <div class="flux-proposition__actions">
+      <a class="btn btn-primary btn-sm" data-testid="examiner-proposition"
+         href="/flux-financiers/rapprochement/valider?{% for x in p.mouvements %}m={{ x.source }}:{{ x.id }}&{% endfor %}{% for o in p.objets %}o={{ o.type }}:{{ o.id }}&{% endfor %}proposition={{ p.empreinte }}">Examiner et valider</a>
+      <details><summary class="btn btn-ghost btn-sm">Refuser</summary>
+        <form method="post" action="/flux-financiers/rapprochement/refuser" class="flux-champ" style="min-width:220px">
+          <input type="hidden" name="empreinte" value="{{ p.empreinte }}">
+          <span>Motif (facultatif)</span><input name="motif">
+          <span>Votre nom</span><input name="acteur" required>
+          <button type="submit" class="btn btn-secondary btn-sm" data-testid="refuser-proposition">Refuser — rien d'autre ne change</button>
+        </form></details>
+    </div>
+  </div>
+  {% else %}
+  <p class="section-note">Aucune proposition pour ces filtres. Sélectionnez vous-même un ou plusieurs mouvements et objets ci-dessous.</p>
+  {% endfor %}
+</div>
+
+<form method="get" action="/flux-financiers/rapprochement/valider" id="form-selection">
+  <div class="flux-colonnes">
+    <section class="flux-colonne" aria-labelledby="titre-mouvements">
+      <div class="card">
+        <h2 id="titre-mouvements">Mouvements banque et caisse ({{ mouvements|length }})</h2>
+        <ul class="flux-liste" data-testid="colonne-mouvements">
+          {% for x in mouvements %}
+          <li><label class="{{ '' if x.lettrable else 'is-inactif' }}">
+            <input type="checkbox" name="m" value="{{ x.source }}:{{ x.id }}" {{ 'disabled' if not x.lettrable }}
+                   {{ 'checked' if (x.source ~ ':' ~ x.id) in preselection }} data-montant="{{ x.restant }}" data-sens="{{ x.sens }}">
+            <span><span class="libelle-principal">{{ x.libelle }}</span>
+              <span class="mention">{{ x.date_fr }} · {{ "Banque" if x.source == "BANQUE" else "Caisse" }}{% if x.reference %} · {{ x.reference }}{% endif %}</span>
+              {{ statut(x.rapprochement) }} {{ statut(x.compta) }}</span>
+            <span class="flux-liste__montant">{{ montant(x.montant, x.sens) }}{% if x.statut_rapprochement == 'PARTIEL' %}<span class="mention">reste {{ euros(x.restant) }}</span>{% endif %}</span>
+          </label></li>
+          {% else %}<li class="section-note" style="padding:12px 16px">Aucun mouvement.</li>{% endfor %}
+        </ul>
+      </div>
+    </section>
+    <section class="flux-colonne" aria-labelledby="titre-objets">
+      <div class="card">
+        <h2 id="titre-objets">Objets à rapprocher ({{ objets|length }})</h2>
+        <ul class="flux-liste" data-testid="colonne-objets">
+          {% for o in objets %}
+          <li><label class="{{ 'is-inactif' if o.non_rapprochable }}">
+            <input type="checkbox" name="o" value="{{ o.cle }}" {{ 'disabled' if o.non_rapprochable }} data-montant="{{ o.reste }}" data-sens="{{ o.sens }}">
+            <span><span class="libelle-principal">{{ o.type_libelle }} — {{ o.libelle }}</span>
+              <span class="mention">{{ o.tiers or "" }}{% if o.tiers %} · {% endif %}{{ o.date_fr }}{% if o.detail %} · {{ o.detail }}{% endif %}</span>
+              {% if o.non_rapprochable %}<span class="mention">{{ o.non_rapprochable }}</span>{% endif %}</span>
+            <span class="flux-liste__montant">{{ montant(o.reste, o.sens) }}{% if o.reste != o.montant %}<span class="mention">sur {{ euros(o.montant) }}</span>{% endif %}</span>
+          </label></li>
+          {% else %}<li class="section-note" style="padding:12px 16px">Aucun objet ouvert.</li>{% endfor %}
+        </ul>
+      </div>
+    </section>
+  </div>
+  <div class="flux-selection-barre">
+    <span id="selection-resume">Cochez des mouvements (à gauche) et des objets (à droite).</span>
+    <button type="submit" class="btn btn-primary" data-testid="examiner-selection">Examiner la sélection</button>
+  </div>
+</form>
+
+{% if recents %}
+<div class="card mt-md" data-testid="rapprochements-recents" style="margin-top:var(--stack-md)">
+  <h2 class="card-title">Derniers rapprochements</h2>
+  <table class="data-table flux-table">
+    <thead><tr><th>Date</th><th>Objets</th><th class="num">Montant</th><th>Par</th><th>État</th></tr></thead>
+    <tbody>{% for h in recents %}<tr>
+      <td>{{ h.cree_le[:10] | date_fr }}</td>
+      <td>{% for l in h.lignes if l.cote == 'OBJET' %}{{ l.libelle }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
+      <td class="num">{{ euros(h.total_objets) }}</td><td>{{ h.acteur }}</td>
+      <td>{% if h.statut == 'VALIDE' %}<span class="badge badge-success">● Validé et comptabilisé</span>{% else %}<span class="badge badge-neutral">– Annulé</span>{% endif %}</td>
+    </tr>{% endfor %}</tbody>
+  </table>
+</div>
+{% endif %}
+
+<script>
+(function () {
+  var form = document.getElementById("form-selection");
+  var resume = document.getElementById("selection-resume");
+  if (!form || !resume) return;
+  function maj() {
+    var sm = 0, so = 0, nm = 0, no = 0;
+    form.querySelectorAll('input[name="m"]:checked').forEach(function (c) { sm += parseFloat(c.dataset.montant || 0); nm++; });
+    form.querySelectorAll('input[name="o"]:checked').forEach(function (c) { so += parseFloat(c.dataset.montant || 0); no++; });
+    if (!nm && !no) { resume.textContent = "Cochez des mouvements (à gauche) et des objets (à droite)."; return; }
+    var ecart = Math.round((sm - so) * 100) / 100;
+    resume.textContent = nm + " mouvement(s) : " + sm.toFixed(2) + " € · " + no + " objet(s) : " + so.toFixed(2) + " € · écart " + ecart.toFixed(2) + " €";
+  }
+  form.addEventListener("change", maj);
+  maj();
+})();
+</script>
+{% endblock %}

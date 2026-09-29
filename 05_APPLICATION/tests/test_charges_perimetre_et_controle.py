@@ -34,7 +34,15 @@ def _charge(db, montant=700.0, refacturable="OUI", **kw):
                "code_impact": "HC", "refacturable": refacturable,
                "commentaire": "Reparation serrurerie"}
     donnees.update(kw)
-    return saisie.creer(donnees, acteur="test", db_path=db)["charge_id"]
+    return _repondre_justificatif(db, saisie.creer(donnees, acteur="test", db_path=db)["charge_id"])
+
+
+def _repondre_justificatif(db, cid):
+    """Mission 36 : pas de validation finale sans réponse sur le justificatif."""
+    from app.services import justificatifs_service as justif
+    justif.confirmer(justif.OBJET_CHARGE, cid, present="NON", justification="Test : sans pièce",
+                     acteur="t", db_path=db)
+    return cid
 
 
 PERIMETRE_2 = [

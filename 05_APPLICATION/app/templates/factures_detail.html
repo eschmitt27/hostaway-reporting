@@ -132,6 +132,36 @@
   </dl>
 </div>
 
+<div class="card mb-md" data-testid="bloc-justificatif-facture">
+  <div class="card-title">Justificatif</div>
+  {% if justificatif_piece %}
+  <dl class="detail-grid">
+    <div><dt>Référence</dt><dd class="font-mono" data-testid="reference-justificatif">{{ justificatif_piece.reference }}</dd></div>
+    <div><dt>Dossier d'archivage</dt><dd><code>{{ justificatif_piece.dossier_complet }}</code></dd></div>
+    <div><dt>État</dt><dd data-testid="statut-justificatif">{{ justificatif_piece.libelle_statut }}
+      {% if justificatif_piece.fichier_constate %} — <code>{{ justificatif_piece.fichier_constate }}</code>
+        {% if justificatif_piece.fichier_present %} <a href="/justificatifs/{{ justificatif_piece.reference }}" target="_blank" rel="noopener">Ouvrir la pièce</a>{% endif %}{% endif %}
+      {% if justificatif_piece.justification_absence %} — {{ justificatif_piece.justification_absence }}{% endif %}</dd></div>
+  </dl>
+  {% if justificatif_piece.statut != "JUSTIFICATIF_ARCHIVE" %}
+  <form method="post" action="/factures/{{ facture.facture_id_opaque }}/justificatif" class="detail-grid">
+    <span>La facture a-t-elle bien été enregistrée ?</span>
+    <label><input type="radio" name="justificatif_present" value="OUI" required> Oui</label>
+    <label><input type="radio" name="justificatif_present" value="NON"> Non</label>
+    <label>Si non : pourquoi ? <input name="justification_absence" placeholder="ex. duplicata demandé"></label>
+    <label>Votre nom <input name="acteur"></label>
+    <div><button type="submit" class="btn btn-secondary btn-sm">Enregistrer la réponse</button></div>
+  </form>
+  {% endif %}
+  {% else %}
+  <p class="text-secondary">Facture antérieure sans référence de justificatif.</p>
+  <form method="post" action="/factures/{{ facture.facture_id_opaque }}/justificatif">
+    <input type="hidden" name="action" value="attribuer">
+    <button type="submit" class="btn btn-secondary btn-sm">Attribuer une référence</button>
+  </form>
+  {% endif %}
+</div>
+
 {% if not ecriture_active %}
 <div class="alert alert-warning">Écriture désactivée sur cette installation : les actions sont indisponibles.</div>
 {% endif %}

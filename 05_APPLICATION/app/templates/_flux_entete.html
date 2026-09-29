@@ -1,0 +1,17 @@
+{# En-tête commun aux quatre pages du module « Flux financiers » : un titre, un sélecteur, toujours
+   au même endroit. Les pages restent distinctes (chacune son adresse) : le sélecteur est une
+   navigation, pas un état caché — un lien partagé ouvre le bon onglet. #}
+<link rel="stylesheet" href="/static/css/flux_financiers.css">
+<div class="flux-entete">
+  <div class="flux-entete__titre">
+    <h1 class="page-title">Flux financiers</h1>
+    <p class="page-subtitle">{{ flux_sous_titre or "Banque, caisse, charges et rapprochement : un seul espace de travail." }}</p>
+  </div>
+  <nav class="switch-vues flux-onglets" aria-label="Flux financiers" data-testid="flux-onglets">
+    {% for code, libelle, href in flux_onglets %}
+    <a class="switch-vues__onglet {{ 'is-actif' if code == flux_onglet }}" href="{{ href }}"
+       {% if code == flux_onglet %}aria-current="page"{% endif %}
+       data-testid="flux-onglet-{{ code }}">{{ libelle }}</a>
+    {% endfor %}
+  </nav>
+</div>

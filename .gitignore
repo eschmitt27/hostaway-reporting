@@ -105,3 +105,6 @@ Conciergerie app/
 # Journaux de run des lots (repli disque quand aucune base n'est désignée) : sorties
 # d'exécution horodatées, régénérables. Le suivi de référence vit dans `moteur_runs`.
 02_TRAVAIL/**/_runs/
+
+# Justificatifs réels rangés par l'utilisateur (Mission 36) : pièces probantes, jamais versionnées.
+01_SOURCES_BRUTES/Justificatifs/

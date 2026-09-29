@@ -313,7 +313,40 @@ def facture_detail(request: Request, opaque: str, message: str = "", erreur: str
         # Quelle lecture du document fait foi : le parseur PDF, ou le MD structuré déposé à côté.
         "interpretation": _interpretation(opaque),
         "ecriture_active": _ecriture_active(), "message": message, "erreur": erreur,
+        **_contexte_justificatif_facture(opaque),
     })
+
+
+def _contexte_justificatif_facture(opaque: str) -> dict:
+    """Justificatif de la facture fournisseur (Mission 36) — lecture seule."""
+    from app.services import justificatifs_service as justif
+    j = justif.charger(justif.OBJET_FACTURE_FOURNISSEUR, opaque)
+    return {"justificatif_piece": j,
+            "justificatif_historique": justif.historique(j["reference"]) if j else []}
+
+
+@router.post("/factures/{opaque}/justificatif")
+async def facture_justificatif(request: Request, opaque: str):
+    """Répondre « la facture a-t-elle bien été archivée ? », ou attribuer une référence à une
+    facture antérieure (action explicite, jamais automatique)."""
+    from urllib.parse import quote as _q
+    from app.services import justificatifs_service as justif
+    form = await request.form()
+    facture = svc.charger(opaque)
+    if facture is None:
+        return RedirectResponse(url=f"/factures/{opaque}?erreur={_q('Facture inconnue.')}",
+                                status_code=303)
+    if str(form.get("action", "")) == "attribuer":
+        justif.attribuer_seul(justif.OBJET_FACTURE_FOURNISSEUR, opaque, facture.get("date_facture"),
+                              acteur="interface")
+        return RedirectResponse(url=f"/factures/{opaque}", status_code=303)
+    res = justif.confirmer(justif.OBJET_FACTURE_FOURNISSEUR, opaque,
+                           present=str(form.get("justificatif_present", "") or ""),
+                           justification=str(form.get("justification_absence", "") or ""),
+                           acteur=str(form.get("acteur", "") or "interface"))
+    msg = ("message=" + _q("Justificatif enregistré.")) if res.get("ok") \
+        else ("erreur=" + _q(res["message"]))
+    return RedirectResponse(url=f"/factures/{opaque}?{msg}", status_code=303)
 
 
 @router.post("/factures/{opaque}/statut")

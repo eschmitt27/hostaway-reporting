@@ -1,17 +1,28 @@
-"""Service clôture mensuelle (APP-5C) — suivi humain uniquement, jamais la clôture réelle.
+"""Service clôture mensuelle (APP-5C) — préparation, validation humaine, clôture définitive.
 
-La clôture RÉELLE reste exclusivement pilotée par REF_Cloture_Mensuelle (REF_Setup.xlsm, moteur,
-D024) : statuts OUVERT/EN_CONTROLE/CLOTURE, jamais écrits par ce module. Ici, un automate SQLite
-distinct journalise la PRÉPARATION et la VALIDATION HUMAINE (revue des contrôles APP-5B, checklist,
-décision de passage) — jamais une nouvelle vérité, jamais une écriture réelle. Composé exclusivement
-à partir des services APP-5B existants (aucune duplication de la logique de contrôle).
+Deux décisions humaines distinctes, jamais enchaînées en un clic :
+  · VALIDEE  = la préparation du mois est contrôlée et validée par un humain. Le mois n'est PAS
+               gelé : ses opérations restent modifiables (une réouverture VALIDEE → ROUVERTE existe).
+  · ARCHIVEE = la clôture DÉFINITIVE (mission 15, exposée par la mission 33) : `archiver()` fige
+               l'archive économique du mois, la vérifie, marque `ref_cloture_mensuelle` à CLOTURE
+               — le mois est alors fermé, et chaque module qui lit ce statut refuse ses écritures —
+               puis passe la clôture à ARCHIVEE, le tout dans UNE transaction.
+Les contrôles sont composés exclusivement à partir des services APP-5B existants (aucune
+duplication de la logique de contrôle).
+
+MISSION 32 — la clôture lit Flux financiers. Les bloqueurs d'un mois = contrôles moteur bloquants
+(APP-5B) + bloqueurs financiers calculés EN DIRECT par `cloture_flux_service` (mouvements Qonto et
+caisse non traités, écritures proposées, comptes comptables à définir). Et le calendrier s'impose :
+seul un mois TERMINÉ se valide ou s'archive — le mois courant se prépare et se contrôle, jamais il ne
+se clôture ; un mois futur non plus. Les deux gardes sont refaites par le serveur à chaque tentative,
+sous verrou d'écriture, quelle que soit l'interface.
 """
 from __future__ import annotations
 
 import hashlib
 import re
 import sqlite3
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 import app.config as cfg
@@ -31,7 +42,7 @@ ST_ARCHIVEE = "ARCHIVEE"
 STATUTS = {ST_NON_DEMARREE, ST_EN_PREPARATION, ST_A_VALIDER, ST_VALIDEE, ST_ROUVERTE, ST_ARCHIVEE}
 STATUTS_LIBELLES = {
     ST_NON_DEMARREE: "Non démarrée", ST_EN_PREPARATION: "En préparation", ST_A_VALIDER: "À valider",
-    ST_VALIDEE: "Validée", ST_ROUVERTE: "Rouverte", ST_ARCHIVEE: "Archivée",
+    ST_VALIDEE: "Validée", ST_ROUVERTE: "Rouverte", ST_ARCHIVEE: "Clôturée définitivement",
 }
 TRANSITIONS: dict[str, set[str]] = {
     ST_NON_DEMARREE: {ST_EN_PREPARATION},
@@ -45,6 +56,64 @@ TRANSITIONS: dict[str, set[str]] = {
 
 class ClotureRefusee(Exception):
     """Action de clôture refusée (transition invalide, bloqueur présent, justification manquante)."""
+
+
+# ── Calendrier : seul un mois terminé se clôture ──────────────────────────────────────────────
+T_PASSE = "PASSE"
+T_COURANT = "COURANT"
+T_FUTUR = "FUTUR"
+_MOIS_FR = ("janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre",
+            "octobre", "novembre", "décembre")
+
+E_BLOQUE = "BLOQUE"
+E_FUTUR = "MOIS_FUTUR"
+E_PRET_EN_COURS = "PRET_MOIS_EN_COURS"
+E_PRET = "PRET_A_CLOTURER"
+
+
+def aujourdhui() -> date:
+    """La date du jour — une fonction, pour que les tests puissent la fixer."""
+    return date.today()
+
+
+def mois_fr(mois: str) -> str:
+    """« 2026-09 » → « septembre 2026 »."""
+    return f"{_MOIS_FR[int(mois[5:7]) - 1]} {mois[:4]}" if mois_valide(mois) else _txt(mois)
+
+
+def _du_mois(mois: str) -> str:
+    """« de septembre 2026 », « d'août 2026 »."""
+    texte = mois_fr(mois)
+    return f"d'{texte}" if texte[:1] in "aeiouéâ" else f"de {texte}"
+
+
+def temporalite(mois: str) -> str:
+    courant = aujourdhui().strftime("%Y-%m")
+    return T_PASSE if mois < courant else (T_COURANT if mois == courant else T_FUTUR)
+
+
+def refus_temporel(mois: str) -> str:
+    """Motif de refus lié au calendrier, ou chaîne vide pour un mois terminé."""
+    t = temporalite(mois)
+    if t == T_COURANT:
+        return f"Le mois {_du_mois(mois)} est encore en cours et ne peut pas être clôturé."
+    if t == T_FUTUR:
+        return (f"Le mois {_du_mois(mois)} n'est pas commencé : un mois futur ne peut jamais "
+                "être clôturé.")
+    return ""
+
+
+MSG_NON_VALIDEE = ("Le mois doit d'abord être validé avant de pouvoir être clôturé "
+                   "définitivement.")
+MSG_DEJA_ARCHIVEE = "Ce mois est déjà clôturé définitivement."
+MSG_ETAT_PERIME = ("La clôture a changé depuis l'affichage de la confirmation : rechargez la page "
+                   "et vérifiez-la de nouveau.")
+
+
+def message_bloquants(nb: int) -> str:
+    pluriel = nb > 1
+    return (f"Ce mois ne peut pas être clôturé : {nb} contrôle{'s' if pluriel else ''} "
+            f"bloquant{'s' if pluriel else ''} reste{'nt' if pluriel else ''} à traiter.")
 
 
 def _txt(v: Any) -> str:
@@ -126,16 +195,46 @@ def elements_du_mois(mois: str, db_path=None) -> list[dict[str, Any]]:
     return [e for e in tous if e["mois"] == mois]
 
 
-def calcul_progression(mois: str, db_path=None) -> dict[str, Any]:
+def calcul_progression(mois: str, db_path=None, *,
+                       contexte_flux: dict | None = None) -> dict[str, Any]:
+    """Progression du mois : contrôles moteur (APP-5B) + bloqueurs Flux financiers, recalculés à
+    chaque appel. `contexte_flux` évite de relire Flux pour chaque mois d'une liste."""
+    from app.services import cloture_flux_service as cf
+
     els = elements_du_mois(mois, db_path)
     anomalies = [e for e in els if not e["est_info"]]
     bloqueurs = [e for e in anomalies
                 if e["etat"]["anomalie_moteur_presente"] and not e["etat"]["exception_active"]]
+    financier = cf.analyser(mois, contexte_flux=contexte_flux, db_path=db_path)
+    nb_bloqueurs = len(bloqueurs) + financier["nb_bloquants"]
+    temporel = temporalite(mois) if mois_valide(mois) else T_FUTUR
+    pluriel = "s" if nb_bloqueurs > 1 else ""
+    if temporel == T_FUTUR:
+        etat, etat_libelle = E_FUTUR, "Mois futur — non clôturable"
+    elif nb_bloqueurs:
+        etat = E_BLOQUE
+        etat_libelle = f"Clôture impossible — {nb_bloqueurs} élément{pluriel} bloquant{pluriel}"
+    elif temporel == T_COURANT:
+        etat, etat_libelle = E_PRET_EN_COURS, "Prêt techniquement — mois en cours"
+    else:
+        etat, etat_libelle = E_PRET, "Prêt à clôturer"
     return {
         "mois": mois,
+        "mois_fr": mois_fr(mois),
         "nb_total": len(els),
         "nb_anomalies": len(anomalies),
-        "nb_bloqueurs": len(bloqueurs),
+        "nb_bloqueurs": nb_bloqueurs,
+        "nb_bloqueurs_moteur": len(bloqueurs),
+        "nb_bloqueurs_flux": financier["nb_bloquants"],
+        "nb_informatifs_flux": financier["nb_informatifs"],
+        "flux": financier,
+        "temporalite": temporel,
+        "refus_temporel": refus_temporel(mois) if mois_valide(mois) else "",
+        "etat": etat,
+        "etat_libelle": etat_libelle,
+        # « Prêt » = tous les contrôles automatiques satisfaits ; « autorisée » = prêt ET terminé.
+        "pret_a_cloturer": nb_bloqueurs == 0,
+        "cloture_autorisee": nb_bloqueurs == 0 and temporel == T_PASSE,
         "nb_a_traiter": sum(1 for e in anomalies if e["etat"]["statut_suivi"] == "OUVERT"),
         "nb_en_cours": sum(1 for e in anomalies if e["etat"]["statut_suivi"] == "EN_COURS"),
         "nb_resolus": sum(1 for e in anomalies if e["etat"]["statut_suivi"] == "RESOLU"),
@@ -143,8 +242,25 @@ def calcul_progression(mois: str, db_path=None) -> dict[str, Any]:
         "nb_reapparus": sum(1 for e in anomalies if e["etat"]["statut_suivi"] == "ROUVERT"),
         "nb_informatifs": sum(1 for e in els if e["est_info"]),
         "bloqueurs": bloqueurs,
-        "cloturable": len(bloqueurs) == 0,
+        "cloturable": nb_bloqueurs == 0,
     }
+
+
+def _resume_controles(progression: dict) -> str:
+    return (f"Contrôles recalculés : {progression['nb_bloqueurs_moteur']} bloquant(s) moteur, "
+            f"{progression['nb_bloqueurs_flux']} bloquant(s) Flux financiers, "
+            f"{progression['nb_informatifs_flux']} informatif(s) Flux financiers.")
+
+
+def _garde_cloture(cloture: dict, db_path=None) -> dict[str, Any]:
+    """Les deux gardes d'une clôture, refaites par le serveur : calendrier, puis bloqueurs."""
+    refus = refus_temporel(cloture["mois"])
+    if refus:
+        raise ClotureRefusee(refus)
+    progression = calcul_progression(cloture["mois"], db_path)
+    if not progression["cloturable"]:
+        raise ClotureRefusee(message_bloquants(progression["nb_bloqueurs"]))
+    return progression
 
 
 # ── Création / transition ────────────────────────────────────────────────────
@@ -256,11 +372,14 @@ def passer_a_valider(cloture: dict, *, acteur: str = "", version_attendue=None, 
     Sans cela, un arrêt du processus entre la transition et le snapshot laisserait une clôture en
     A_VALIDER sans instantané figé. La garde de version protège aussi ce passage contre un double
     déclenchement concurrent."""
+    progression = calcul_progression(cloture["mois"], db_path)
     conn = get_db(db_path)
     try:
         res = _transition(cloture, ST_A_VALIDER, acteur=acteur, version_attendue=version_attendue,
                           db_path=db_path, conn=conn)
         snapshot(res, db_path=db_path, conn=conn)
+        _journaliser_evenement(conn, cloture["cloture_id_opaque"], "CONTROLES", None, None,
+                               commentaire=_resume_controles(progression), acteur=acteur)
         conn.commit()
     except Exception:
         conn.rollback()
@@ -272,17 +391,30 @@ def passer_a_valider(cloture: dict, *, acteur: str = "", version_attendue=None, 
 
 def valider(cloture: dict, *, acteur: str = "", commentaire: str = "", version_attendue=None,
            db_path=None) -> dict[str, Any]:
-    """Valide la clôture : refuse si un bloqueur subsiste (jamais d'écriture réelle)."""
+    """Valide la clôture d'un mois TERMINÉ sans aucun bloqueur (jamais d'écriture réelle).
+
+    Transactionnel : le verrou d'écriture (`BEGIN IMMEDIATE`) est pris AVANT le recalcul des
+    bloqueurs, si bien qu'aucune écriture concurrente ne peut s'intercaler entre le contrôle et la
+    validation ; la transition et la trace des contrôles partent dans le même commit, ou rien."""
     if not commentaire.strip():
         raise ClotureRefusee("Commentaire de validation requis.")
-    progression = calcul_progression(cloture["mois"], db_path)
-    if not progression["cloturable"]:
-        raise ClotureRefusee(
-            f"{progression['nb_bloqueurs']} bloqueur(s) subsiste(nt) — validation refusée.")
-    return _transition(cloture, ST_VALIDEE, acteur=acteur, commentaire=commentaire,
-                       version_attendue=version_attendue, db_path=db_path,
-                       extra_cols={"date_validation": _now(), "commentaire_validation": commentaire,
-                                   "valide_par": acteur})
+    conn = get_db(db_path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        progression = _garde_cloture(cloture, db_path)
+        _transition(cloture, ST_VALIDEE, acteur=acteur, commentaire=commentaire,
+                    version_attendue=version_attendue, db_path=db_path, conn=conn,
+                    extra_cols={"date_validation": _now(), "commentaire_validation": commentaire,
+                                "valide_par": acteur})
+        _journaliser_evenement(conn, cloture["cloture_id_opaque"], "CONTROLES", None, None,
+                               commentaire=_resume_controles(progression), acteur=acteur)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return charger_par_opaque(cloture["cloture_id_opaque"], db_path)
 
 
 def rouvrir(cloture: dict, *, acteur: str = "", justification: str = "", version_attendue=None,
@@ -294,23 +426,48 @@ def rouvrir(cloture: dict, *, acteur: str = "", justification: str = "", version
                        extra_cols={"date_reouverture": _now(), "justification_reouverture": justification})
 
 
-def archiver(cloture: dict, *, acteur: str = "", version_attendue=None, db_path=None):
-    """VALIDEE -> ARCHIVEE — mission 15 : DÉCLENCHE l'archivage économique du mois, ATOMIQUEMENT
-    avec la transition. Si l'archivage échoue (`ArchivageRefuse`), tout est annulé : ni ARCHIVEE,
-    ni mois marqué CLOTURE, ni archive partielle. Jamais `mois=CLOTURE` sans archive complète.
+def archiver(cloture: dict, *, acteur: str = "", commentaire: str = "", version_attendue=None,
+             db_path=None):
+    """VALIDEE -> ARCHIVEE — la clôture DÉFINITIVE (mission 15, exposée en mission 33).
+
+    Sous verrou d'écriture (`BEGIN IMMEDIATE`), dans cet ordre : calendrier (mois terminé), état
+    RELU en base (VALIDEE, et inchangé depuis `version_attendue` si l'appelant l'a affiché),
+    bloqueurs moteur et Flux recalculés ; puis archive économique, `CLOTURE`, transition et trace
+    des contrôles — tout ou rien. Si l'archivage échoue (`ArchivageRefuse`), rien n'est appliqué :
+    jamais `mois=CLOTURE` sans archive complète.
     """
     from app.services import cloture_archivage_service as arch
 
     mois = cloture["mois"]
     conn = get_db(db_path)
     try:
+        conn.execute("BEGIN IMMEDIATE")
+        refus = refus_temporel(mois)
+        if refus:
+            raise ClotureRefusee(refus)
+        actuelle = _row(conn.execute("SELECT * FROM clotures_mensuelles WHERE cloture_id_opaque=? "
+                                     "AND actif=1", (cloture["cloture_id_opaque"],)).fetchone())
+        if actuelle is None:
+            raise ClotureRefusee("Clôture introuvable.")
+        if actuelle["statut"] == ST_ARCHIVEE:
+            raise ClotureRefusee(MSG_DEJA_ARCHIVEE)
+        if actuelle["statut"] != ST_VALIDEE:
+            raise ClotureRefusee(MSG_NON_VALIDEE)
+        if version_attendue is not None and int(version_attendue) != actuelle["version"]:
+            raise ClotureRefusee(MSG_ETAT_PERIME)
+        progression = calcul_progression(mois, db_path)
+        if not progression["cloturable"]:
+            raise ClotureRefusee(message_bloquants(progression["nb_bloqueurs"]))
+        cloture = actuelle
         arch.archiver_mois(mois, acteur=acteur, conn=conn)
         conn.execute(
             "INSERT INTO ref_cloture_mensuelle (mois, statut_mois, import_id) VALUES (?,?,?) "
             "ON CONFLICT(mois) DO UPDATE SET statut_mois='CLOTURE'",
             (mois, "CLOTURE", f"CLOTURE_APP-{acteur or 'SYSTEME'}"))
-        resultat = _transition(cloture, ST_ARCHIVEE, acteur=acteur,
-                               version_attendue=version_attendue, conn=conn)
+        resultat = _transition(cloture, ST_ARCHIVEE, acteur=acteur, commentaire=commentaire,
+                               conn=conn)
+        _journaliser_evenement(conn, cloture["cloture_id_opaque"], "CONTROLES", None, None,
+                               commentaire=_resume_controles(progression), acteur=acteur)
         conn.commit()
         return resultat
     except Exception:

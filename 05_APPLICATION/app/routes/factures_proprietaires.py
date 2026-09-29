@@ -282,6 +282,12 @@ def generer(request: Request, mois: str = Form(...)):
     })
 
 
+def _credits_disponibles(proprietaire_id: str) -> list[dict]:
+    from app.services import credits_clients_service as credits
+    return [c for c in credits.lister(proprietaire_id=proprietaire_id, statut=credits.ST_DISPONIBLE)
+            if c["reste"] > credits.EPS]
+
+
 def _contexte_fiche(facture_id: str, erreur: str | None = None) -> dict:
     facture = svc.lire(facture_id)
     return {
@@ -291,6 +297,8 @@ def _contexte_fiche(facture_id: str, erreur: str | None = None) -> dict:
         "active_menu": "factures_proprietaires", "facture": facture,
         "aujourdhui": date.today().isoformat(),
         "solde": svc.solde(facture_id),
+        # Mission 37 — reversements Airbnb DISPONIBLES (origine constatée) du propriétaire.
+        "credits_airbnb": _credits_disponibles(facture["proprietaire_id"]),
         # Édition du BROUILLON : tout est calculé ICI. Le gabarit n'effectue aucune arithmétique
         # et ne dérive aucun droit — il affiche.
         "editable": facture["statut"] == svc.ST_BROUILLON,
@@ -395,7 +403,7 @@ def emettre(request: Request, facture_id: str, date_facture: str = Form(...)):
     # L'émission constate la vente : c'est ici, et nulle part ailleurs, que naît l'écriture VENTES.
     # Un refus (flags désactivés, mapping, double source) n'annule pas l'émission — la facture est
     # émise et le conflit reste visible sur la fiche, jamais résolu en silence.
-    compta.generer_ecriture_vente_facture(emise, acteur="interface")
+    compta.comptabiliser_facture_emise(emise, acteur="interface")
     return RedirectResponse(f"/factures-proprietaires/{facture_id}", status_code=303)
 
 
@@ -493,6 +501,7 @@ async def ajouter_extra(request: Request, facture_id: str):
                             libelle=str(form.get("libelle", "") or ""),
                             montant=form.get("montant"),
                             commentaire=str(form.get("commentaire", "") or ""),
+                            nature=str(form.get("nature", "") or "SERVICE_ADDITIONNEL"),
                             acteur="interface")
     except svc.FactureProprietaireError as exc:
         return _refus_fiche(request, facture_id, f"Extra non ajouté : {exc}")
@@ -611,6 +620,18 @@ async def reversement_airbnb(request: Request, facture_id: str):
             commentaire=str(form.get("commentaire", "") or ""), acteur="interface")
     except svc.FactureProprietaireError as exc:
         return _refus_fiche(request, facture_id, f"Reversement non enregistré : {exc}")
+    return _retour(facture_id, ANCRE_REGLEMENT)
+
+
+@router.post("/factures-proprietaires/{facture_id}/imputer-credit")
+async def imputer_credit(request: Request, facture_id: str):
+    """Mission 37 — imputer un reversement Airbnb reçu (crédit d'origine constatée)."""
+    from app.services import credits_clients_service as credits
+    form = await request.form()
+    res = credits.imputer(str(form.get("credit_id", "") or ""), facture_id, form.get("montant"),
+                          acteur=str(form.get("acteur", "") or ""))
+    if not res.get("ok"):
+        return _refus_fiche(request, facture_id, f"Reversement non imputé : {res['message']}")
     return _retour(facture_id, ANCRE_REGLEMENT)
 
 

@@ -35,10 +35,21 @@ elle changerait une règle métier existante, et rien dans le cadrage ne la dema
 DÉTERMINISME
 Mêmes entrées ⇒ mêmes allocations. Tous les tris ont un départage explicite jusqu'à l'identifiant
 opaque : aucun ordre ne dépend de l'ordre d'insertion en base.
+
+LIRE N'ÉCRIT RIEN (Mission 35)
+Deux opérations distinctes, qui ne se confondent plus :
+    CALCULER    `calculer()` — les allocations de l'état courant, en mémoire. Aucune écriture.
+                C'est ce que lisent TOUS les écrans : position, créances, Flux, propositions,
+                clôture. Le solde affiché est donc toujours celui des données du moment.
+    PERSISTER   `recalculer()` — remplace `proprietaire_allocations` et journalise dans
+                `proprietaire_recalculs`. Appelé seulement quand une ENTRÉE du FIFO vient de
+                changer (voir `apres_ecriture`) ou sur demande explicite (bouton « Recalculer »).
+Auparavant un écran rafraîchissait la persistance en s'affichant : ouvrir Flux écrivait en base.
 """
 from __future__ import annotations
 
 import hashlib
+import logging
 import sqlite3
 import uuid
 from datetime import datetime
@@ -53,6 +64,15 @@ SRC_REVERSEMENT = "REVERSEMENT"
 ST_NON_REGLEE = "NON_REGLEE"
 ST_PARTIELLE = "PARTIELLEMENT_REGLEE"
 ST_REGLEE = "REGLEE"
+
+# Déclencheurs de persistance : chacun est une ÉCRITURE MÉTIER qui change une entrée du FIFO.
+# « AUTO » (rafraîchissement à l'affichage) n'est plus produit ; il reste dans l'historique.
+DECL_MANUEL = "MANUEL"
+DECL_EMISSION_FACTURE = "EMISSION_FACTURE"
+DECL_VALIDATION_MOUVEMENT = "VALIDATION_MOUVEMENT"
+DECL_ANNULATION_MOUVEMENT = "ANNULATION_MOUVEMENT"
+
+log = logging.getLogger(__name__)
 
 
 def _round(x: float) -> float:
@@ -121,6 +141,41 @@ def _empreinte(factures: list[dict], sources: list[dict]) -> str:
     return h.hexdigest()
 
 
+def _empreinte_allocations(allocations: list[dict]) -> str:
+    return hashlib.sha256("\n".join(
+        f"{a['source_type']}|{a['source_ref']}|{a['facture_id_opaque']}|"
+        f"{a['montant_alloue']:.2f}|{a['rang_fifo']}" for a in allocations).encode()).hexdigest()
+
+
+def _calculer(conn: sqlite3.Connection, proprietaire_id: str) -> dict[str, Any]:
+    factures = _factures(conn, proprietaire_id)
+    sources = _sources(conn, proprietaire_id)
+    allocations = calculer_fifo(factures, sources)
+    return {"factures": factures, "sources": sources, "allocations": allocations,
+            "empreinte_entrees": _empreinte(factures, sources),
+            "empreinte_allocations": _empreinte_allocations(allocations)}
+
+
+def calculer(proprietaire_id: str, *, db_path=None) -> dict[str, Any]:
+    """Allocations FIFO de l'état COURANT, calculées en mémoire. N'écrit rien, jamais.
+
+    Point d'entrée de toute lecture : un écran n'a pas à persister pour afficher juste.
+    """
+    conn = get_db(db_path)
+    try:
+        return _calculer(conn, proprietaire_id)
+    finally:
+        conn.close()
+
+
+def allocations_courantes(*, db_path=None) -> list[dict[str, Any]]:
+    """Allocations en mémoire de tous les propriétaires concernés. N'écrit rien."""
+    out: list[dict[str, Any]] = []
+    for pid in proprietaires_concernes(db_path=db_path):
+        out += calculer(pid, db_path=db_path)["allocations"]
+    return out
+
+
 # ── Moteur FIFO ─────────────────────────────────────────────────────────────────────────────────
 #
 # `calculer_fifo` et `TOLERANCE` vivent désormais dans `app.moteurs.fifo_engine` (Mission 5,
@@ -132,23 +187,25 @@ def _empreinte(factures: list[dict], sources: list[dict]) -> str:
 
 # ── Recalcul ────────────────────────────────────────────────────────────────────────────────────
 
-def recalculer(proprietaire_id: str, *, declencheur: str = "MANUEL", db_path=None) -> dict[str, Any]:
-    """Recalcule intégralement les allocations du propriétaire. Idempotent.
+def recalculer(proprietaire_id: str, *, declencheur: str = DECL_MANUEL,
+               db_path=None) -> dict[str, Any]:
+    """PERSISTE les allocations du propriétaire et journalise le recalcul. Idempotent.
+
+    Écrit toujours : à n'appeler que depuis une action (écriture métier, bouton « Recalculer »),
+    jamais depuis un affichage — un affichage utilise `calculer()`.
 
     Remplacement intégral dans une transaction : les allocations sont une dérivation, pas un
     historique. L'historique, lui, est dans `proprietaire_recalculs`, qui n'est jamais effacé.
     """
     conn = get_db(db_path)
     try:
-        factures = _factures(conn, proprietaire_id)
-        sources = _sources(conn, proprietaire_id)
-        allocations = calculer_fifo(factures, sources)
+        calcul = _calculer(conn, proprietaire_id)
+        factures, sources = calcul["factures"], calcul["sources"]
+        allocations = calcul["allocations"]
 
         recalcul_id = "RCL-" + uuid.uuid4().hex[:12].upper()
-        empreinte_entrees = _empreinte(factures, sources)
-        empreinte_alloc = hashlib.sha256("\n".join(
-            f"{a['source_type']}|{a['source_ref']}|{a['facture_id_opaque']}|"
-            f"{a['montant_alloue']:.2f}|{a['rang_fifo']}" for a in allocations).encode()).hexdigest()
+        empreinte_entrees = calcul["empreinte_entrees"]
+        empreinte_alloc = calcul["empreinte_allocations"]
 
         total_factures = _round(sum(f["montant_total"] for f in factures))
         total_sources = _round(sum(s["montant"] for s in sources))
@@ -193,25 +250,13 @@ def recalculer(proprietaire_id: str, *, declencheur: str = "MANUEL", db_path=Non
 def position(proprietaire_id: str, *, db_path=None) -> dict[str, Any]:
     """Position financière complète. Aucun chiffre unique ambigu : chaque composant est lisible.
 
-    Recalcule d'abord, pour ne jamais afficher une position construite sur des allocations
-    devenues fausses. C'est un calcul déterministe sur des volumes petits, pas un traitement lourd.
+    LECTURE SEULE. Les allocations sont calculées en mémoire sur l'état courant (`calculer`) :
+    la position n'est jamais construite sur des allocations devenues fausses, et l'afficher
+    n'écrit rien. Calcul déterministe sur des volumes petits, pas un traitement lourd.
     """
-    recalculer(proprietaire_id, declencheur="AUTO", db_path=db_path)
-
-    conn = get_db(db_path)
-    try:
-        factures = _factures(conn, proprietaire_id)
-        sources = _sources(conn, proprietaire_id)
-        rows = conn.execute(
-            "SELECT source_type, source_ref, source_date, facture_id_opaque, montant_alloue, "
-            "rang_fifo FROM proprietaire_allocations WHERE proprietaire_id = ? ORDER BY rang_fifo",
-            (proprietaire_id,)).fetchall()
-    finally:
-        conn.close()
-
-    allocations = [{"source_type": r[0], "source_ref": r[1], "source_date": r[2],
-                    "facture_id_opaque": r[3], "montant_alloue": _round(r[4]),
-                    "rang_fifo": r[5]} for r in rows]
+    calcul = calculer(proprietaire_id, db_path=db_path)
+    factures, sources = calcul["factures"], calcul["sources"]
+    allocations = sorted(calcul["allocations"], key=lambda a: a["rang_fifo"])
 
     par_facture: dict[str, float] = {}
     par_source: dict[str, float] = {}
@@ -234,7 +279,8 @@ def position(proprietaire_id: str, *, db_path=None) -> dict[str, Any]:
     # la fonction qui connaît TOUS les chemins d'imputation, et il n'en reste qu'une.
     lignes_factures = []
     for f in factures:
-        imput = imputations_detail(f["facture_id_opaque"], db_path=db_path)
+        imput = imputations_detail(f["facture_id_opaque"], db_path=db_path,
+                                   allocations=allocations)
         regle = imput["regle"]
         compense = imput["compense"]
         solde = _round(f["montant_total"] - imput["total"])
@@ -280,7 +326,32 @@ def position(proprietaire_id: str, *, db_path=None) -> dict[str, Any]:
         "virement_net": virement_net,
         # Positif : le propriétaire nous doit. Négatif : nous lui devons.
         "position_nette": _round(creance_restante - credit_disponible - virement_net),
+        "persistance": etat_persistance(proprietaire_id, calcul, db_path=db_path),
     }
+
+
+def etat_persistance(proprietaire_id: str, calcul: dict[str, Any] | None = None, *,
+                     db_path=None) -> dict[str, Any]:
+    """Le dernier recalcul enregistré correspond-il à l'état courant ? Lecture seule.
+
+    Sert à le DIRE, pas à le corriger : l'affichage reste juste dans tous les cas (il est calculé
+    en mémoire) ; seul l'enregistrement peut être en retard, par exemple sur une donnée reprise
+    hors des parcours métier. Le bouton « Recalculer » existant le remet à jour.
+    """
+    calcul = calcul or calculer(proprietaire_id, db_path=db_path)
+    conn = get_db(db_path)
+    try:
+        r = conn.execute(
+            "SELECT recalcul_id, horodatage, empreinte_entrees, empreinte_allocations "
+            "FROM proprietaire_recalculs WHERE proprietaire_id = ? "
+            "ORDER BY horodatage DESC, id DESC LIMIT 1", (proprietaire_id,)).fetchone()
+    finally:
+        conn.close()
+    if r is None:
+        return {"recalcul_id": "", "horodatage": "", "a_jour": not calcul["allocations"]}
+    return {"recalcul_id": r[0], "horodatage": r[1],
+            "a_jour": r[2] == calcul["empreinte_entrees"]
+            and r[3] == calcul["empreinte_allocations"]}
 
 
 def _statut(total: float, regle: float) -> str:
@@ -297,7 +368,8 @@ def imputations_facture(facture_id: str, *, db_path=None) -> float:
     return d["total"]
 
 
-def imputations_detail(facture_id: str, *, db_path=None) -> dict[str, float]:
+def imputations_detail(facture_id: str, *, db_path=None,
+                       allocations: list[dict[str, Any]] | None = None) -> dict[str, float]:
     """{regle, compense, total} — le règlement encaissé et la compensation restent distincts.
 
     Les additionner dans un seul chiffre ferait disparaître une différence économique réelle :
@@ -324,17 +396,26 @@ def imputations_detail(facture_id: str, *, db_path=None) -> dict[str, float]:
 
     `acomptes` est renvoyé pour l'AFFICHAGE seulement (« dont acompte … ») : il est déjà compris
     dans `regle` et ne doit jamais être additionné par l'appelant.
+
+    LECTURE SEULE. La part FIFO vient des allocations calculées en mémoire (`allocations`, fournies
+    par l'appelant qui boucle sur plusieurs factures, sinon calculées ici pour le propriétaire de
+    la facture) — jamais d'un rafraîchissement persistant.
     """
     from app.services import factures_proprietaires_service as fpr
 
-    conn = get_db(db_path)
-    try:
-        rows = conn.execute(
-            "SELECT source_type, COALESCE(SUM(montant_alloue), 0) FROM proprietaire_allocations "
-            "WHERE facture_id_opaque = ? GROUP BY source_type", (facture_id,)).fetchall()
-    finally:
-        conn.close()
-    par_type = {r[0]: _round(r[1]) for r in rows}
+    if allocations is None:
+        conn = get_db(db_path)
+        try:
+            r = conn.execute("SELECT proprietaire_id FROM factures_proprietaires "
+                             "WHERE facture_id_opaque = ?", (facture_id,)).fetchone()
+        finally:
+            conn.close()
+        allocations = calculer(r[0], db_path=db_path)["allocations"] if r and r[0] else []
+    par_type: dict[str, float] = {}
+    for a in allocations:
+        if a["facture_id_opaque"] == facture_id:
+            par_type[a["source_type"]] = _round(par_type.get(a["source_type"], 0)
+                                                + a["montant_alloue"])
     regle = par_type.get(SRC_PAIEMENT, 0.0)
 
     reversements = _round(sum(_round(r["montant_impute"])
@@ -350,17 +431,34 @@ def imputations_detail(facture_id: str, *, db_path=None) -> dict[str, float]:
             "acomptes": min(acomptes, regle), "reversements_airbnb": reversements}
 
 
-def recalculer_tous(*, declencheur: str = "AUTO", db_path=None) -> int:
-    """Rafraîchit les allocations de tous les propriétaires concernés. Retourne leur nombre.
+def recalculer_tous(*, declencheur: str = DECL_MANUEL, db_path=None) -> int:
+    """PERSISTE les allocations de tous les propriétaires concernés. Retourne leur nombre.
 
-    Les allocations sont dérivées : elles vieillissent dès qu'une facture est émise ou qu'un
-    mouvement est validé. Un écran qui les lit doit donc les rafraîchir, sinon il afficherait un
-    solde exact au moment d'un calcul passé — c'est-à-dire faux.
+    Écrit : réservé à une action explicite. Un écran n'en a pas besoin — il lit `calculer()`, qui
+    donne les allocations de l'état courant sans rien enregistrer (Mission 35 : c'est ici que
+    l'affichage de Flux écrivait, via `creances_dettes_service.creances`).
     """
     proprietaires = proprietaires_concernes(db_path=db_path)
     for pid in proprietaires:
         recalculer(pid, declencheur=declencheur, db_path=db_path)
     return len(proprietaires)
+
+
+def apres_ecriture(proprietaire_ids, *, declencheur: str, db_path=None) -> list[str]:
+    """Persiste les allocations après une écriture métier qui a changé une entrée du FIFO.
+
+    À appeler APRÈS le commit de l'écriture (jamais dans sa transaction : `recalculer` ouvre la
+    sienne). Les écrans ne dépendent pas de cet enregistrement — ils calculent en mémoire — donc
+    un échec ici ne doit pas faire échouer une écriture déjà enregistrée : il est journalisé, et
+    `etat_persistance` le signale sur la fiche du compte. Retourne les recalculs enregistrés.
+    """
+    faits: list[str] = []
+    for pid in sorted({p for p in proprietaire_ids if p}):
+        try:
+            faits.append(recalculer(pid, declencheur=declencheur, db_path=db_path)["recalcul_id"])
+        except Exception:      # noqa: BLE001 — l'écriture métier est déjà validée, voir ci-dessus
+            log.exception("Persistance FIFO de %s après %s impossible", pid, declencheur)
+    return faits
 
 
 def proprietaires_concernes(*, db_path=None) -> list[str]:

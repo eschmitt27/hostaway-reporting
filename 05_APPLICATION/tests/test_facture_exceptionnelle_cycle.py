@@ -178,8 +178,9 @@ def test_l_emission_constate_une_vente_equilibree(db):
     client = next(l for l in lignes if l["compte"] == compta.COMPTE_PROPRIETAIRES)
     assert client["debit"] == 155.0, "le client (411) est débité de ce qu'il doit"
     assert client["auxiliaire"] == "PROP_0001", "sur son compte auxiliaire"
-    assert any(l["compte"] == compta.COMPTE_VENTE_GENERIQUE and l["credit"] == 155.0
-               for l in lignes), "le produit est crédité"
+    # Mission 36 : un compte de produit par nature de ligne ; leur total fait la facture.
+    assert round(sum(l["credit"] - l["debit"] for l in lignes if l["compte"].startswith("70")),
+                 2) == 155.0, "le produit est crédité"
 
 
 def test_rejouer_la_generation_ne_double_jamais_la_vente(db):

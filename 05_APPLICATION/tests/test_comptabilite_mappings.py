@@ -9,8 +9,16 @@ from app.services import comptabilite_mappings_service as maps
 
 @pytest.fixture
 def db(tmp_path):
+    from tests.fixtures_referentiel import semer_comptabilite
     p = tmp_path / "test.db"
     apply_migrations(p)
+    # Mission 31 : une règle ne désigne qu'un compte et une catégorie qui existent.
+    semer_comptabilite(p, comptes=[("606100", "Ménage (test)", "CHARGE"),
+                                   ("606150", "Ménage bis (test)", "CHARGE"),
+                                   ("606200", "Maintenance (test)", "CHARGE"),
+                                   ("627000", "Services bancaires (test)", "CHARGE")],
+                       categories=["CHG_MENAGE", "CHG_MAINT", "CHG_AUTRE"],
+                       types_flux=["TYPE_BANQUE", "TYPE_X"])
     return p
 
 
@@ -88,5 +96,8 @@ def test_creer_regle_cle_manquante_refusee(db):
 def test_lister_regles_filtre_par_portee(db):
     maps.creer_regle(maps.PORTEE_CATEGORIE, "606100", cle="CHG_MENAGE", db_path=db)
     maps.creer_regle(maps.PORTEE_TYPE_FLUX, "627000", cle="TYPE_BANQUE", db_path=db)
-    cats = maps.lister_regles(portee=maps.PORTEE_CATEGORIE, db_path=db)
+    # Les règles semées par les migrations (catalogue 0114, audit 0115) existent aussi : on ne
+    # lit que la règle posée par le test.
+    cats = [r for r in maps.lister_regles(portee=maps.PORTEE_CATEGORIE, db_path=db)
+            if not str(r["acteur"] or "").startswith("Migration ")]
     assert len(cats) == 1 and cats[0]["cle"] == "CHG_MENAGE"

@@ -5,25 +5,82 @@
 <div class="page-header">
   <a href="/comptabilite" class="back-link">← Comptabilité</a>
   <h1 class="page-title">Plan comptable</h1>
-  <p class="page-subtitle">Seed provisoire — le mapping catégorie de charge → compte fin n'est pas
-    arbitré ; à valider métier avant tout usage réel.</p>
+  <p class="page-subtitle">Les comptes sont saisis par vous : l'application n'en crée ni n'en invente
+    aucun. Un compte ne se supprime pas, il se désactive — l'historique qui le cite reste intact.
+    <a href="/comptabilite/mappings">Mappings catégorie → compte</a></p>
 </div>
 
-<div class="table-container">
-  <table class="data-table">
-    <thead><tr><th>Compte</th><th>Libellé</th><th>Type</th><th>Auxiliaire</th><th>Actif</th><th>Commentaire</th></tr></thead>
-    <tbody>
-      {% for c in comptes %}
-      <tr>
-        <td class="font-mono">{{ c.compte }}</td>
-        <td>{{ c.libelle }}</td>
-        <td>{{ c.type_compte }}</td>
-        <td>{{ "OUI" if c.auxiliaire_autorise else "NON" }}</td>
-        <td>{{ "OUI" if c.actif else "NON" }}</td>
-        <td class="text-xs">{{ c.commentaire or "" }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+{% if message %}<div class="alert alert-success" data-testid="plan-message">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-error" data-testid="plan-erreur">{{ erreur }}</div>{% endif %}
+
+<form method="get" action="/comptabilite/plan-comptable" class="barre-filtres" data-testid="plan-filtres">
+  <label class="champ"><span>Recherche</span>
+    <input type="search" name="q" value="{{ filtres.q }}" placeholder="Numéro ou libellé"
+           style="height:38px;padding:0 10px;border:1px solid var(--color-outline-variant);border-radius:var(--radius-md)"></label>
+  <label class="champ"><span>Type</span>
+    <select name="type_compte"><option value="">Tous</option>
+      {% for code, libelle in types.items() %}<option value="{{ code }}" {{ 'selected' if code == filtres.type_compte }}>{{ libelle }}</option>{% endfor %}
+    </select></label>
+  <label class="champ"><span>Statut</span>
+    <select name="statut"><option value="">Tous</option>
+      <option value="ACTIF" {{ 'selected' if filtres.statut == 'ACTIF' }}>Actifs</option>
+      <option value="INACTIF" {{ 'selected' if filtres.statut == 'INACTIF' }}>Désactivés</option>
+    </select></label>
+  <button type="submit" class="btn btn-secondary">Filtrer</button>
+  {% if filtres.q or filtres.type_compte or filtres.statut %}<a href="/comptabilite/plan-comptable" class="btn btn-ghost">Tout voir</a>{% endif %}
+</form>
+
+<div class="card mb-md">
+  <div class="table-container">
+    <table class="data-table" data-testid="plan-table">
+      <thead><tr><th>Compte</th><th>Libellé</th><th>Type</th><th>Statut</th><th>Utilisation</th><th></th></tr></thead>
+      <tbody>
+        {% for c in comptes %}
+        <tr data-testid="plan-ligne">
+          <td class="font-mono">{{ c.compte }}</td>
+          <td>{{ c.libelle }}{% if c.structurel %}<span class="mention">utilisé par le moteur : {{ c.structurel }}</span>{% endif %}</td>
+          <td>{{ c.type_libelle }}</td>
+          <td>{% if c.actif %}<span class="badge badge-success">● Actif</span>{% else %}<span class="badge badge-neutral">– Désactivé</span>{% endif %}</td>
+          <td class="text-xs">{% if c.utilise %}{{ (([c.nb_ecritures ~ " ligne(s) d'écriture"] if c.nb_ecritures else []) + ([c.nb_od ~ " ligne(s) d'OD"] if c.nb_od else []) + ([c.nb_regles ~ " règle(s) de mapping"] if c.nb_regles else [])) | join(" · ") }}{% else %}non utilisé{% endif %}</td>
+          <td class="col-action"><a href="/comptabilite/plan-comptable/{{ c.compte }}" class="btn btn-ghost btn-sm">Voir</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="section-note">Aucun compte pour ces filtres ({{ nb_total }} au total).</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
+
+<details class="card" data-testid="plan-ajout" {% if erreur %}open{% endif %}>
+  <summary class="btn btn-primary">+ Ajouter un compte</summary>
+  <form method="post" action="/comptabilite/plan-comptable" class="detail-grid" style="margin-top:12px">
+    <label>Numéro * <input name="compte" required inputmode="numeric" placeholder="saisi par vous"></label>
+    <label>Libellé * <input name="libelle" required></label>
+    <label>Type *
+      <select name="type_compte" required>
+        <option value="">— choisir —</option>
+        {% for code, libelle in types.items() %}<option value="{{ code }}">{{ libelle }}</option>{% endfor %}
+      </select></label>
+    <label>Tiers (auxiliaire)
+      <select name="auxiliaire_mode">
+        <option value="">— selon le numéro —</option>
+        <option value="NONE">Sans tiers</option>
+        <option value="OPTIONAL">Tiers facultatif</option>
+        <option value="REQUIRED">Tiers obligatoire</option>
+      </select></label>
+    <label>Type de tiers
+      <select name="auxiliaire_type">
+        <option value="">—</option>
+        <option value="FOURNISSEUR">Fournisseur</option>
+        <option value="CLIENT">Client / propriétaire</option>
+        <option value="ASSOCIE">Associé</option>
+      </select></label>
+    <label>Commentaire <input name="commentaire"></label>
+    <label>Votre nom * <input name="acteur" required></label>
+    <div><button type="submit" class="btn btn-primary">Ajouter le compte</button></div>
+  </form>
+  <p class="mention">Un numéro ne contient que des chiffres. Un compte de charge commence par 6, un
+    compte de produit par 7. Le numéro et le type ne se modifient plus ensuite.</p>
+</details>
 {% endblock %}

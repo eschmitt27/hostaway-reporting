@@ -127,11 +127,14 @@
 </div>
 
 <div style="display:flex; gap:var(--stack-md); margin-top:var(--stack-xl);">
+  {% if lien_rapprocher %}
+  <a href="{{ lien_rapprocher }}" class="btn btn-primary" data-testid="rapprocher-charge-creee">Rapprocher et comptabiliser</a>
+  {% endif %}
   {% if resultat.charge_id and resultat.statut == "SUCCES" %}
-  <a href="/fournisseurs/{{ resultat.charge_id }}" class="btn btn-primary">Voir la charge</a>
+  <a href="/fournisseurs/{{ resultat.charge_id }}" class="btn {{ 'btn-secondary' if lien_rapprocher else 'btn-primary' }}">Voir la charge</a>
   {% endif %}
   <a href="/fournisseurs/nouvelle" class="btn btn-secondary">Nouvelle saisie</a>
-  <a href="/fournisseurs" class="btn btn-secondary">Retour à la liste</a>
+  <a href="/flux-financiers/charges" class="btn btn-secondary">Retour à la liste</a>
 </div>
 
 {% endif %}

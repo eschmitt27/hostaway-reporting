@@ -14,6 +14,15 @@ MOIS_A = "2099-03"
 MOIS_B = "2099-04"
 
 
+@pytest.fixture(autouse=True)
+def _mois_de_test_termines(monkeypatch):
+    """Mission 32 : seul un mois TERMINÉ se valide. Les mois de test de ce fichier (2098-2099)
+    éprouvent l'automate, pas le calendrier : on se place après eux. La garde du calendrier a ses
+    propres tests (`test_cloture_flux_financiers.py`)."""
+    from datetime import date
+    monkeypatch.setattr(cs, "aujourdhui", lambda: date(2100, 1, 1))
+
+
 # ── 1-2 : double validation / double réouverture concurrentes ────────────────
 
 def test_c01_double_validation_concurrente_rejette_la_seconde(tmp_db):

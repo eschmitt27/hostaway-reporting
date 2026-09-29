@@ -5741,3 +5741,182 @@ société (valeurs documentées du Kbis 2026-09-10, audités) ; une ligne de tra
 échec (jeton absent). `integrity_check` ok, `foreign_key_check` 0.
 
 **Suite complète** : 4 290 tests passent (après mise à jour de l'inventaire des tables de `test_sqlite_migrations.py`), 37 sautés.
+
+---
+
+## CTR-FLUX-FINANCIERS-2026-09-28 — Banque, Caisse, Charges, Rapprochement : bloc FONCTIONNEL
+
+**Périmètre.** Module « Flux financiers » (`ad00144`) puis finalisation (`d16cff9`), branche
+`resume/pilotage-conciergerie-20260909`. Migration 0112 (additive : `flux_lettrages`,
+`flux_lettrage_lignes`, `flux_lettrage_evenements`, `flux_propositions_refusees`,
+`banque_rapprochements.lettrage_id_opaque`). Aucune table métier fusionnée.
+
+**Méthode.** Audit de l'existant avant code (routes Banque, tables Qonto, rapprochements, moteur
+d'écritures, règlements, caisse, mappings, clôtures), réutilisation des services canoniques par un
+paramètre `conn` optionnel (comportement par défaut inchangé), recette des scénarios comptables sur
+**copie** de `app.db`, jamais sur la base réelle.
+
+**Contrôles.**
+
+| Contrôle | Résultat |
+|---|---|
+| `test_flux_financiers.py` (35 points du cahier + finalisation) | 57 passed |
+| Régression concernée | 743 passed / 8 skipped |
+| Ensemble ciblé du module | 1 718 passed / 16 skipped |
+| Recette copie — module | 20/20 (charge depuis mouvement, 6xx/512, annulation par contrepassation, refus sans effet, partiel, fournisseur et doublon, mois clôturé, intégrité) |
+| Recette copie — finalisation | 11/11 (27 catégories « à définir », refus sans choix de compte, choix explicite accepté, cas 700 € sans mouvement, retrait 20 € : échec → rollback complet puis succès 530/512) |
+
+**Deux défauts de l'existant trouvés et corrigés.** La validation Qonto historique écrivait le
+rapprochement et l'écriture sur deux connexions distinctes (rapprochement orphelin possible) — désormais
+une seule transaction. Le paiement bancaire d'une facture fournisseur ne produisait aucune écriture 401/512
+— produit par le lettrage.
+
+**Base réelle.** Sauvegarde avant migration (`app_avant_migration_0112_flux_financiers_20260928T015048.db`)
+et avant finalisation (`app_avant_finalisation_flux_20260928T112816.db`). Après : schéma 0112,
+`integrity_check` ok, `foreign_key_check` 0, aucune écriture réelle (0 lettrage ; rapprochements et
+écritures inchangés). Qonto GET-only.
+
+**Réserves, laissées à l'utilisateur.** Mapping catégorie → compte non arbitré (27 catégories « à
+définir ») ; charge `CHG-fc93f74a63d1` (700 €) sans mouvement correspondant, non modifiée. Détail :
+`HANDOFF_CANONIQUE.md`, Mission 30.
+
+## CTR-PLAN-COMPTABLE-MAPPINGS-2026-09-28 — plan comptable et mappings administrables : FONCTIONNELS
+
+**Périmètre.** Mission 31, commits `f897acb` (code, migration, tests existants adaptés) et `9b46b99`
+(tests), branche `resume/pilotage-conciergerie-20260909`, départ `9f150e7`. Migration **0113** additive :
+horodatages et journal du plan comptable, colonne `actif` et journal des règles de mapping, triggers
+interdisant la suppression d'un compte ou d'une règle et le changement de numéro. Une seule table de
+règles (`mapping_comptable_regles`) ; `mapping_categorie_compte` marquée supersédée.
+
+**Méthode.** Audit avant code (tables, service de résolution, consommateurs : journal Achats, Flux
+financiers, contrôles, OD) ; validations dans le service, refaites côté serveur quelle que soit la requête ;
+recette sur **copie fraîche** de `app.db`, jamais sur la base réelle.
+
+**Contrôles.**
+
+| Contrôle | Résultat |
+|---|---|
+| Tests Mission 31 (30 points + autorité serveur : POST forgés) | 47 passed |
+| Tests existants adaptés | 114 passed |
+| Régression concernée | **907 passed / 13 skipped** (55 fichiers : comptabilité, Flux, Qonto, banque, charges, caisse, navigation, migrations, code final) |
+| Suite complète | **4 416 passed / 37 skipped / 0 failed** (41 min 56 s, code avant les dernières retouches de libellés — rejouées ensuite par la régression ciblée et la recette) |
+| Recette copie | 20/20 (ajout de compte, règle provisoire sans proposition, validation après prévisualisation, proposition dans Flux, désactivation, historique conservé, refus serveur, prévisualisation sans écriture, 700 € et Qonto inchangés, suppression refusée, intégrité) |
+
+**Défauts de l'existant corrigés.** Le résolveur rendait `606000` codé en dur en l'absence de toute règle
+(supprimé : compte vide) ; une règle pouvait viser un compte ou une catégorie inexistants (refusé) ; le
+formulaire OD présélectionnait `606000` et `401000` (retiré) ; le formulaire de mapping était en texte
+libre (listes contrôlées).
+
+**Base réelle.** Intacte : empreinte identique avant/après, schéma 0112, `integrity_check` ok,
+`foreign_key_check` 0 ; 0113 s'appliquera au prochain démarrage, sauvegarde préalable prête
+(`app_avant_migration_0113_plan_comptable_20260928T190725.db`). Charge 700 € inchangée, 15 PDF inchangés,
+Qonto GET-only, scheduler OFF.
+
+**Réserves, laissées à l'utilisateur.** Choix des comptes de charge et des règles par catégorie ; charge
+`CHG-fc93f74a63d1`. Limite : journal Achats sur filet `606000` PROVISOIRE sans règle validée. Détail :
+`HANDOFF_CANONIQUE.md`, Mission 31.
+
+## CTR-CLOTURE-FLUX-FINANCIERS-2026-09-28 — clôture mensuelle branchée sur Flux financiers : FONCTIONNELLE
+
+**Périmètre.** Mission 32, commits `4d4227a` et `bc9663d`, départ `9c6a6e5`. Aucune migration
+nouvelle. Migration **0113 appliquée à la base réelle** (répétition sur copie, puis `apply_migrations()`,
+9/9 contrôles, données métier identiques).
+
+**Méthode.** Audit ciblé (automate APP-5C, contrôles moteur, Flux, écritures, factures, périodes) : le
+contrôle « ligne bancaire non classée » lisait l'ancien import Crédit Mutuel et ignorait Qonto. Nouveau
+service de LECTURE des bloqueurs Flux, branché sur l'automate existant (aucune architecture parallèle) ;
+garde calendrier et recalcul des bloqueurs côté serveur, transactionnels.
+
+**Contrôles.**
+
+| Contrôle | Résultat |
+|---|---|
+| Tests Mission 32 (30 points + POST forcés) | **23 passed** |
+| Tests existants adaptés | 112 passed |
+| Régression concernée | **1 320 passed / 18 skipped / 0 failed** (76 fichiers : clôture, contrôles, pilotage, Flux, comptabilité, Qonto, banque, charges, caisse, navigation, identifiants UI, migrations) ; puis 176 passed sur l'état final des gabarits |
+| Recette copie A-E | 17/17 |
+| Recette navigateur (copie) | parcours complet, mobile sans débordement |
+
+**Base réelle.** Schéma 0113, `integrity_check` ok, `foreign_key_check` 0 ; aucune clôture réelle,
+aucun mouvement, écriture, facture ou mapping modifié ; charge 700 € inchangée ; Qonto GET-only ; 15 PDF
+inchangés ; scheduler OFF.
+
+**SEPTEMBRE 2026 NON CLÔTURÉ — MOIS EN COURS.** 16 bloquants réels relevés (8 mouvements Qonto à
+qualifier, retrait 20 € à comptabiliser, 1 vente proposée, 2 comptes à définir, 4 contrôles moteur).
+Détail : `HANDOFF_CANONIQUE.md`, Mission 32.
+
+## CTR-CLOTURE-DEFINITIVE-2026-09-28 — clôture définitive depuis l'interface : FONCTIONNELLE
+
+**Périmètre.** Mission 33, commits `083bda7` et `1fe8b40`, départ `3af3dc6`. Aucune migration.
+Exposition de `clotures_service.archiver()` (VALIDEE → ARCHIVEE, mois à CLOTURE) par une page de
+confirmation et un POST ; contrôles recalculés par le service sous verrou (calendrier, état relu,
+version affichée, bloqueurs moteur et Flux).
+
+**Défaut corrigé.** Archivage de tous les jeux `reservations_resolues` au lieu du jeu actif :
+vérification toujours en échec sur les données réelles (copie : 412 écrites / 70 relues).
+
+**Contrôles.** `test_cloture_definitive.py` 18 passed ; clôture/archivage/contrôles/ménages 191 passed ;
+suite complète **4 456 passed / 37 skipped / 0 failed** (44 min), puis 338 passed sur le code final (clôture, archivage, contrôles, ménages, Hostaway, navigation, identifiants UI) ; recette copie 10/10 ; parcours navigateur sur copie.
+
+**Base réelle.** Intacte (empreinte logique identique), schéma 0113, aucune clôture réelle.
+**SEPTEMBRE 2026 NON CLÔTURÉ — MOIS EN COURS.** Détail : `HANDOFF_CANONIQUE.md`, Mission 33.
+
+## CTR-SEPTEMBRE-ASSAINISSEMENT-2026-09-29 — bloqueurs de septembre 2026 audités, un bug d'affichage corrigé
+
+**Périmètre.** Mission 34, commit `619017b`. Lecture des 16 bloquants réels de septembre et classement
+(à traiter 1, décision utilisateur 15 dont 7 sans justificatif). Aucune action réelle.
+
+**Contrôles.** Recette copie 13/13 ; test de non-régression du bug ; régression ciblée 631 passed.
+
+**Base réelle.** Schéma 0113, intégrité ok ; septembre non clôturé ; seul écrit : le rafraîchissement
+FIFO des allocations propriétaires déclenché par une lecture avec propositions (contenu identique).
+Détail : `HANDOFF_CANONIQUE.md`, Mission 34.
+
+## CTR-LECTURE-SEULE-FLUX-2026-09-29 — consultation sans écriture : PROUVÉE (D029)
+
+**Périmètre.** Mission 35, commit `f40228b`. Aucune migration. Les lectures du compte propriétaire
+calculent le FIFO en mémoire ; la persistance n'a lieu qu'après une écriture métier qui change une
+entrée du FIFO (émission de facture, validation / annulation d'un mouvement, lettrage Flux) ou sur
+le bouton existant « Recalculer ».
+
+**Règle.** **Les parcours de consultation GET et de prévisualisation n'ont aucun effet d'écriture métier.**
+
+**Contrôles.** `test_lecture_seule_flux.py` 10 passed (9 échecs sur le code d'avant) ; suite
+complète 4 468 passed / 37 skipped / 0 failed (44 min) ; recette copie 11/11 ; contrôle réel en lecture : base inchangée (hash fichier,
+empreinte logique, journal, allocations).
+
+**Base réelle.** Inchangée par la mission ; aucun nettoyage (baseline conservée). Septembre non
+clôturé, 16 bloqueurs inchangés. Détail : `HANDOFF_CANONIQUE.md`, Mission 35.
+
+## CTR-CIRCUIT-BANQUE-COMPTA-FACTURATION-2026-09-29 — workflows exploitables (D029)
+
+**Périmètre.** Mission 36, commit(s) `c5d1bad`, migration 0114 (additive : comptes, catégories,
+mappings, auxiliaires, justificatifs, type économique des lignes). Aucune charge reclassée, aucune
+écriture validée, aucune pièce créée, aucun mois clôturé sur la base réelle.
+
+**Contrôles.** `test_circuit_banque_charges_compta.py` 62 passed ; suite complète 4 530 passed / 37 skipped / 0 failed (44 min) ; recette
+copie 10/10 ; lecture des écrans sans écriture.
+
+**Base réelle.** Migration 0114 appliquée à la base réelle après sauvegarde : additive (aucune table existante modifiée hors périmètre ; 7 charges et 5 écritures intactes ; aucun justificatif, aucune écriture, aucune pièce créés). Contrôle en lecture de 10 écrans (Flux, saisie, fiche charge, plan, mappings, écriture) : empreinte identique. Détail : `HANDOFF_CANONIQUE.md`, Mission 36.
+
+## CTR-CREDITS-CLIENTS-REVERSEMENTS-2026-09-29 — derniers trous avant recette V1 (D029)
+
+**Périmètre.** Mission 37, commit(s) `2cf1381`, migration 0115 (additive). Crédits clients et
+origine comptable des reversements Airbnb, acomptes par FIFO, régularisation des données
+historiques, catégories ambiguës, stockage et consultation des pièces.
+
+**Contrôles.** `test_credits_clients_reversements.py` 24 passed ; suite complète 4 553 passed / 37 skipped, 1 échec (filtre d'un test Mission 36 sur les règles semées) corrigé puis revérifié (10 passed) ; recette
+copie 10/10 (dont redémarrage).
+
+**Base réelle.** Migration 0115 appliquée à la base réelle après sauvegarde : additive (aucune table existante modifiée hors périmètre ; 0 crédit créé ; les 2 reversements historiques de 425 € et 54 € intacts, à régulariser). Contrôle en lecture de 10 écrans (Flux, Crédits, fiche facture, écriture, charge, mappings) : empreinte identique. Détail : `HANDOFF_CANONIQUE.md`, Mission 37.
+
+## CTR-APP-DATA-DIR-STABLE-2026-09-29 — finalisation technique avant recette V1
+
+**Périmètre.** Configuration de l'instance réelle, sans code : `APP_DATA_DIR` =
+`C:/Users/Ewans/PilotageConciergerie/data` (hors code, worktree, temporaire, OneDrive).
+
+**Contrôles.** Copie contrôlée (sauvegarde SQLite + copie intégrale préalables ; `app.db` identique
+octet pour octet) ; schéma 0115 ; `integrity_check` ok ; `foreign_key_check` 0 ; empreinte logique
+`bc3ae6258164fd58` identique ; instance réelle sur le nouvel emplacement ; 31 GET, empreinte
+identique avant / après ; sauvegardes rattachées à `<APP_DATA_DIR>/backups/` ; suite complète
+4 554 passed / 37 skipped / 0 failed (47 min 27 s). Ancien dossier `05_APPLICATION/data` conservé. Détail : `HANDOFF_CANONIQUE.md`.

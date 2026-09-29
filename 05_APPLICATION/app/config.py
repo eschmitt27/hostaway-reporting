@@ -281,6 +281,11 @@ DATA_DIR = Path(os.environ.get("APP_DATA_DIR", str(APP_ROOT / "data")))
 #: `ARCHIVAGE_PIECES_ENABLED` sera posé, au passage en production.
 ARCHIVAGE_PIECES_DIR = DATA_DIR / "pieces_archivees"
 DB_PATH = DATA_DIR / "app.db"
+# Justificatifs (Missions 36-37) : les pièces que l'utilisateur range, nommées par leur référence
+# (CHG-AAAA-MM-NNN…) — `justificatifs_service`. DONNÉES MÉTIER : elles vivent avec la base, sous
+# DATA_DIR (déplaçable par APP_DATA_DIR), jamais dans l'arbre du code — une mise à jour du code ne
+# les touche pas, et déplacer les données les emporte avec la base. Exclues du dépôt git.
+JUSTIFICATIFS_ROOT = Path(os.environ.get("JUSTIFICATIFS_ROOT", str(DATA_DIR / "justificatifs")))
 
 # Identité de la société émettrice, imprimée sur les factures propriétaires. Volontairement vide
 # par défaut : une facture ne peut pas être validée tant que ces informations manquent

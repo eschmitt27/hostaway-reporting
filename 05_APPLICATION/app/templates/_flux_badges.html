@@ -1,0 +1,11 @@
+{# Un statut se lit toujours par son MOT et son symbole ; la couleur ne fait que confirmer. #}
+{% macro statut(info, testid="") -%}
+<span class="badge badge-{{ info.badge }} flux-badge"{% if testid %} data-testid="{{ testid }}"{% endif %}
+      data-statut="{{ info.code }}"><span class="flux-badge__symbole" aria-hidden="true">{{ info.symbole }}</span>{{ info.libelle }}</span>
+{%- endmacro %}
+
+{% macro montant(valeur, sens) -%}
+<span class="montant {{ 'montant--credit' if sens == 'ENTREE' else 'montant--debit' }}">{{ '+' if sens == 'ENTREE' else '−' }}{{ "%.2f"|format(valeur or 0) }}&nbsp;€</span>
+{%- endmacro %}
+
+{% macro euros(valeur) -%}{{ "%.2f"|format(valeur or 0) }}&nbsp;€{%- endmacro %}

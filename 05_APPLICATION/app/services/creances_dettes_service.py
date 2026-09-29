@@ -132,9 +132,11 @@ def creances(*, proprietaire_id: str = "", logement_id: str = "", mois: str = ""
     from app.services import factures_proprietaires_service as fpr
     from app.services import factures_proprietaires_conformite_service as conformite
 
-    # Les allocations FIFO sont dérivées : elles doivent être à jour avant d'être lues, sinon
-    # l'écran afficherait des soldes exacts au moment d'un calcul passé.
-    _cpt().recalculer_tous(db_path=db_path)
+    # Les allocations FIFO sont dérivées : on les CALCULE ici sur l'état courant, en mémoire, une
+    # fois pour toutes les factures. Lire les créances n'écrit rien (Mission 35) : c'est cette
+    # fonction qui, en persistant ici le FIFO, faisait écrire l'affichage de Flux et de ses
+    # propositions de rapprochement.
+    allocations = _cpt().allocations_courantes(db_path=db_path)
 
     out: list[dict[str, Any]] = []
     for f in fpr.lister(mois=mois or None, proprietaire_id=proprietaire_id or None,
@@ -146,7 +148,8 @@ def creances(*, proprietaire_id: str = "", logement_id: str = "", mois: str = ""
         # d'imputation sans doublon (FIFO + reversements Airbnb) ; le solde en découle
         # directement. Repasser par `fpr.solde()`, qui refait ses propres déductions, rajouterait
         # une seconde addition des mêmes montants — c'est exactement le double comptage qu'on évite.
-        imput = _imputations_detail(f["facture_id_opaque"], db_path=db_path)
+        imput = _imputations_detail(f["facture_id_opaque"], db_path=db_path,
+                                    allocations=allocations)
         total = round(float(f["montant_total"] or 0), 2)
         reste = round(total - imput["total"], 2)
         s = {"montant_total": total, "solde": reste,
@@ -205,9 +208,9 @@ def _cpt():
     return compte_proprietaire_service
 
 
-def _imputations_detail(facture_id: str, *, db_path=None) -> dict[str, float]:
+def _imputations_detail(facture_id: str, *, db_path=None, allocations=None) -> dict[str, float]:
     """Détail de l'imputation : règlement encaissé et compensation, gardés distincts."""
-    return _cpt().imputations_detail(facture_id, db_path=db_path)
+    return _cpt().imputations_detail(facture_id, db_path=db_path, allocations=allocations)
 
 
 def _imputations(facture_id: str, *, db_path=None) -> float:

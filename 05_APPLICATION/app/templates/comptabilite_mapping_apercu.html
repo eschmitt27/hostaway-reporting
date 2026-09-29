@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}{{ titre }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/comptabilite/mappings" class="back-link">← Mappings</a>
+  <h1 class="page-title">{{ titre }} — prévisualisation</h1>
+  <p class="page-subtitle">Rien n'a été enregistré. Cette page montre ce que la règle changerait ; aucune charge, aucune écriture et aucun rapprochement ne sont modifiés.</p>
+</div>
+
+{% if apercu.refus %}
+<div class="alert alert-error" data-testid="apercu-refus">{{ apercu.refus.message }}{% if apercu.refus.detail %} ({{ apercu.refus.detail }}){% endif %}</div>
+{% endif %}
+
+<div class="card mb-md" data-testid="apercu-impact">
+  <dl class="detail-grid">
+    <div><dt>Catégorie</dt><dd>{{ apercu.cle_libelle }}</dd></div>
+    <div><dt>Compte</dt><dd>{% if apercu.compte %}<span class="font-mono">{{ apercu.compte }}</span> — {{ apercu.compte_libelle or "compte inconnu" }}{% else %}—{% endif %}</dd></div>
+    <div><dt>Statut</dt><dd>{{ apercu.statut_libelle }}</dd></div>
+    <div><dt>Période</dt><dd>{{ apercu.debut | date_fr if apercu.debut else "depuis toujours" }} → {{ apercu.fin | date_fr if apercu.fin else "sans fin" }}</dd></div>
+  </dl>
+  <p data-testid="apercu-charges"><strong>{{ apercu.nb_charges }}</strong> charge(s) comptable(s) de cette catégorie dans la période ({{ "%.2f"|format(apercu.montant) }} €),
+    dont <strong>{{ apercu.nb_a_traiter }}</strong> encore à comptabiliser ({{ "%.2f"|format(apercu.montant_a_traiter) }} €)
+    et {{ apercu.nb_deja_comptabilisees }} déjà comptabilisée(s), qui ne seront pas modifiées.</p>
+  {% if apercu.proposera %}
+  <p class="mention">Une fois validée, la règle proposera ce compte pour les charges encore à comptabiliser, à la place de « Compte comptable à définir ». La proposition reste modifiable avant chaque validation.</p>
+  {% else %}
+  <p class="mention">Une règle provisoire ne propose aucun compte : ces charges resteront « Compte comptable à définir » tant qu'elle n'est pas validée.</p>
+  {% endif %}
+  {% if apercu.exemples %}
+  <table class="data-table">
+    <thead><tr><th>Date</th><th>Charge</th><th>Logement</th><th>État comptable</th><th class="num">Montant</th></tr></thead>
+    <tbody>{% for c in apercu.exemples %}<tr><td>{{ c.date_fr }}</td><td>{{ c.commentaire or "—" }}</td><td>{{ c.logement or "Global" }}</td>
+      <td>{% if c.comptabilisee %}<span class="badge badge-neutral">Déjà comptabilisée : inchangée</span>{% else %}<span class="badge badge-info">À comptabiliser</span>{% endif %}</td>
+      <td class="num">{{ "%.2f"|format(c.montant or 0) }} €</td></tr>{% endfor %}</tbody>
+  </table>
+  {% endif %}
+</div>
+
+{% if apercu.ok %}
+<form method="post" action="{{ action }}" class="card detail-grid">
+  <input type="hidden" name="cle" value="{{ formulaire.cle }}">
+  <input type="hidden" name="compte" value="{{ formulaire.compte }}">
+  <input type="hidden" name="statut" value="{{ formulaire.statut }}">
+  <input type="hidden" name="role" value="{{ formulaire.role or 'DEFAUT' }}">
+  <input type="hidden" name="date_debut_validite" value="{{ formulaire.debut }}">
+  <input type="hidden" name="date_fin_validite" value="{{ formulaire.fin }}">
+  <input type="hidden" name="source" value="{{ formulaire.source }}">
+  <label>Motif <input name="motif"></label>
+  <label>Votre nom * <input name="acteur" value="{{ formulaire.acteur }}" required></label>
+  <div><button type="submit" class="btn btn-primary" data-testid="apercu-confirmer">{{ bouton }}</button>
+    <a href="/comptabilite/mappings" class="btn btn-ghost">Annuler</a></div>
+</form>
+{% else %}
+<a href="/comptabilite/mappings" class="btn btn-secondary">Revenir aux mappings</a>
+{% endif %}
+{% endblock %}

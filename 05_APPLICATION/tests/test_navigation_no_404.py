@@ -87,7 +87,9 @@ def test_sidebar_contient_href_menages(client):
 def test_sidebar_contient_href_fournisseurs(client):
     r = client.get("/")
     assert r.status_code == 200
-    assert 'href="/fournisseurs"' in r.text, "Menu Fournisseurs doit être cliquable au Lot APP-3a"
+    # Les charges vivent dans le module « Flux financiers » (une seule entrée de menu), et
+    # l'ancienne adresse `/fournisseurs` y mène.
+    assert 'href="/flux-financiers"' in r.text, "Menu Flux financiers (charges) doit être cliquable"
 
 
 def test_sidebar_contient_href_proprietaires(client):
@@ -105,7 +107,7 @@ def test_sidebar_contient_liens_modules_integres(client):
     """
     r = client.get("/logements")
     assert r.status_code == 200
-    for href in ('href="/menages"', 'href="/banques-caisse"',
+    for href in ('href="/menages"', 'href="/flux-financiers"',
                  'href="/proprietaires-reglements"', 'href="/clotures"'):
         assert href in r.text, f"Lien de module manquant dans la sidebar : {href}"
     # Banques et Contrôles ne sont plus « à venir » ; aucun badge futur ne doit subsister.
@@ -127,8 +129,9 @@ ROUTES_RECETTE_3_107 = ["/", "/health", "/logements", "/reservations", "/menages
                         "/comptes-proprietaires", "/releves-proprietaires", "/comptabilite",
                         "/caisse", "/administration", "/observabilite/runs"]
 
-ALIAS_VOLONTAIRES = {"/charges": "/fournisseurs", "/factures-fournisseurs": "/factures",
-                     "/caisse": "/banques-caisse"}
+# Charges et caisse sont des onglets du module « Flux financiers ».
+ALIAS_VOLONTAIRES = {"/charges": "/flux-financiers/charges", "/factures-fournisseurs": "/factures",
+                     "/caisse": "/flux-financiers/caisse"}
 
 
 def test_les_quinze_routes_de_la_recette_3_repondent_ou_redirigent_volontairement(client):

@@ -34,8 +34,17 @@
 {% endif %}
 
 <div class="alert alert-info">
-  Suivi humain uniquement — la clôture réelle reste pilotée par le moteur (REF_Cloture_Mensuelle).
+  « Validée » : la préparation du mois est contrôlée et validée, mais le mois n'est pas gelé.
+  « Clôturée définitivement » : l'archive du mois est figée et le mois est fermé (CLOTURE) — ses
+  opérations ne se modifient plus normalement.
 </div>
+
+{% if cloture.statut == 'VALIDEE' and progression.nb_bloqueurs_flux %}
+<div class="alert alert-warning" data-testid="alerte-apres-validation">
+  ⚠ Depuis la validation, {{ progression.nb_bloqueurs_flux }} élément(s) financier(s) bloquant(s) sont
+  apparus sur ce mois : la clôture validée ne les couvre pas. Rouvrez-la pour les traiter.
+</div>
+{% endif %}
 
 {% if a_snapshot and snapshot_derive %}
 <div class="alert alert-warning">
@@ -52,7 +61,7 @@
   <div class="card">
     <h2 class="card-title">État</h2>
     <dl class="detail-grid">
-      <div><dt>Statut</dt><dd><span class="status-badge status-{{ 'valide' if cloture.statut == 'VALIDEE' else 'info' }}">{{ cloture.statut }}</span></dd></div>
+      <div><dt>Statut</dt><dd><span class="status-badge status-{{ 'valide' if cloture.statut == 'VALIDEE' else 'info' }}">{{ statut_libelle or cloture.statut }}</span></dd></div>
       <div><dt>Identifiant</dt><dd class="font-mono text-xs">{{ cloture.cloture_id_opaque }}</dd></div>
       <div><dt>Créée le</dt><dd>{{ cloture.date_creation|datetime_fr }}</dd></div>
       {% if cloture.date_validation %}<div><dt>Validée le</dt><dd>{{ cloture.date_validation|datetime_fr }}</dd></div>{% endif %}
@@ -65,6 +74,13 @@
       {% endif %}
       <a href="/clotures/{{ cloture.cloture_id_opaque }}/preparation" class="btn btn-secondary">Préparation</a>
       {% if cloture.statut == 'A_VALIDER' %}<a href="/clotures/{{ cloture.cloture_id_opaque }}/validation" class="btn btn-secondary">Validation</a>{% endif %}
+      {% if cloture.statut == 'VALIDEE' %}
+        {% if progression.cloture_autorisee %}
+        <a href="/clotures/{{ cloture.cloture_id_opaque }}/cloture-definitive" class="btn btn-primary" data-testid="bouton-cloture-definitive">Clôturer définitivement le mois</a>
+        {% else %}
+        <span class="section-note" data-testid="cloture-definitive-indisponible">Clôture définitive indisponible : {{ progression.refus_temporel or (progression.nb_bloqueurs ~ ' élément(s) bloquant(s)') }}</span>
+        {% endif %}
+      {% endif %}
       {% if 'rouvrir' in actions %}<a href="/clotures/{{ cloture.cloture_id_opaque }}/reouvrir" class="btn btn-secondary">Rouvrir</a>{% endif %}
       <a href="/clotures/{{ cloture.cloture_id_opaque }}/historique" class="btn btn-ghost">Historique</a>
       <a href="/clotures/{{ cloture.cloture_id_opaque }}/export.csv" class="btn btn-ghost">Export CSV</a>
@@ -81,9 +97,11 @@
       <div class="kpi-card"><div class="kpi-label">Exceptions</div><div class="kpi-value">{{ progression.nb_exceptions }}</div></div>
       <div class="kpi-card kpi-card--muted"><div class="kpi-label">Informatifs</div><div class="kpi-value">{{ progression.nb_informatifs }}</div></div>
     </div>
-    <p class="section-note mt-sm">{{ 'Aucun bloqueur — prête à valider.' if progression.cloturable else progression.nb_bloqueurs ~ ' bloqueur(s) empêchent la validation.' }}</p>
+    <p class="section-note mt-sm">{{ ('Aucun bloqueur.' if cloture.statut in ('VALIDEE', 'ARCHIVEE') else 'Aucun bloqueur — prête à valider.') if progression.cloturable else progression.nb_bloqueurs ~ ' bloqueur(s) empêchent la validation.' }}</p>
   </div>
 </div>
+
+{% include "_cloture_bilan_mois.html" %}
 
 <div class="card mb-md">
   <h2 class="card-title">{{ 'Contrôles au moment de la préparation (figé)' if a_snapshot else 'Contrôles du mois (état courant)' }}</h2>

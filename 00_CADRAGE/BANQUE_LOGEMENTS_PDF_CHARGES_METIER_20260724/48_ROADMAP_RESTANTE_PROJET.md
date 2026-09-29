@@ -578,3 +578,48 @@ réel)** :
   modifiée. Détail : `SCHEDULER_HOSTAWAY.md` §13.
 - **Prochaine action** : mission « référentiels administrables », désignée par la consigne de la
   mission 28 comme sa suite — non commencée.
+
+**Mis à jour 2026-09-28 (Flux financiers — FONCTIONNEL)** : Banque, Caisse, Charges et Rapprochement
+réunis sous une entrée « Flux financiers » ; lettrage atomique rapprochement + comptabilisation ; aucun
+repli silencieux sur `606000` ; circuit apport/retrait atomique. Détail : `HANDOFF_CANONIQUE.md`
+Mission 30, `JOURNAL_CONTROLES.md` `CTR-FLUX-FINANCIERS-2026-09-28`.
+- **Arbitrages ouverts** : mapping catégorie → compte (27 catégories, plan comptable à un seul compte de
+  charge) ; charge `CHG-fc93f74a63d1` (700 €).
+- **Prochaine action** : plan comptable et mappings administrables (sans créer ni déduire de compte), puis
+  clôture branchée sur les statuts Flux et première clôture réelle (septembre 2026). Supersède la
+  « prochaine action » de la mise à jour du 2026-09-13.
+
+**Mis à jour 2026-09-28 (Mission 31 — plan comptable et mappings administrables : FONCTIONNELS)** :
+plan comptable administrable (ajout manuel, modification limitée, désactivation historisée, aucune
+suppression), mappings catégorie → compte par listes contrôlées avec période de validité, statut,
+prévisualisation d'impact et validations serveur ; Flux financiers propose uniquement une règle validée vers
+un compte actif de classe 6 ; repli `606000` codé en dur supprimé du résolveur. Migration 0113, base réelle
+intacte (0113 au prochain démarrage, sauvegarde prête). Détail : `HANDOFF_CANONIQUE.md` Mission 31,
+`JOURNAL_CONTROLES.md` `CTR-PLAN-COMPTABLE-MAPPINGS-2026-09-28`.
+- **Arbitrages ouverts** : choix des comptes et règles par catégorie — désormais réalisable par
+  l'utilisateur depuis Comptabilité › Plan comptable puis Mappings ; charge `CHG-fc93f74a63d1` (700 €).
+- **Limite** : journal Achats des factures fournisseurs sur filet `606000` PROVISOIRE tant qu'aucune règle
+  validée ne couvre la catégorie (à traiter avec la recette factures fournisseurs).
+- **Prochaine action** : **clôture mensuelle branchée sur Flux financiers**, puis première clôture réelle
+  (septembre 2026). Supersède la « prochaine action » de la mise à jour Flux financiers du 2026-09-28.
+
+**Mis à jour 2026-09-28 (Mission 32 — clôture mensuelle branchée sur Flux financiers : FONCTIONNELLE)** :
+les bloqueurs de clôture lisent Flux financiers en direct (mouvements Qonto et caisse non traités,
+écritures proposées, comptes comptables à définir) en plus des contrôles moteur ; seul un mois terminé se
+valide (refus serveur du mois courant et des mois futurs) ; tableau de contrôle du mois en lecture seule.
+Migration 0113 appliquée à la base réelle. **SEPTEMBRE 2026 NON CLÔTURÉ — MOIS EN COURS** (16 bloquants
+réels). Détail : `HANDOFF_CANONIQUE.md` Mission 32, `JOURNAL_CONTROLES.md`
+`CTR-CLOTURE-FLUX-FINANCIERS-2026-09-28`.
+- **À arbitrer** : écriture proposée bloquante (déduit de C3) ; exposition de la clôture réelle
+  (archivage → `CLOTURE`), aujourd'hui sans route.
+- **Prochaine action** : traitement de septembre par l'utilisateur, puis sa clôture en octobre. Supersède
+  la « prochaine action » de la mise à jour Mission 31.
+
+**Mis à jour 2026-09-28 (Mission 33 — clôture définitive depuis l'interface : FONCTIONNELLE)** :
+`VALIDEE` = validation humaine de la préparation ; `ARCHIVEE` + `CLOTURE` = clôture définitive, exposée
+par « Clôturer définitivement le mois » (confirmation, contrôles refaits par le serveur). Archivage
+corrigé (jeu de calcul actif seulement). Septembre 2026 non clôturé. Détail : `HANDOFF_CANONIQUE.md`
+Mission 33, `JOURNAL_CONTROLES.md` `CTR-CLOTURE-DEFINITIVE-2026-09-28`.
+- **Prochaine action** : traitement de septembre par l'utilisateur, puis validation et clôture
+  définitive en octobre. Supersède la « prochaine action » de la mise à jour Mission 32 (l'arbitrage
+  « exposer la clôture réelle » est tranché).

@@ -109,7 +109,25 @@ CATEGORY_CATALOG: dict[str, dict[str, Any]] = {
     "CHG_004": {"label": "Achat ménage", "groupe": "Ménages", "menage": MENAGE_FORCE, "avantage": False},
     "CHG_003": {"label": "Blanchisserie / linge", "groupe": "Ménages", "menage": MENAGE_FORCE, "avantage": False},
     "CHG_027": {"label": "Supplément ménage", "groupe": "Ménages", "menage": MENAGE_FORCE, "avantage": False},
-    # Catégorie personnalisée (GLOBAL forcé, jamais ménage)
+    # Catalogue fonctionnel (Mission 36) : une nature → un compte proposé (Comptabilité › Mappings).
+    "CHG_028": {"label": "Fournitures administratives", "groupe": "Charges courantes", "menage": MENAGE_INTERDIT, "avantage": False},
+    "CHG_029": {"label": "Autres fournitures", "groupe": "Charges courantes", "menage": MENAGE_INTERDIT, "avantage": False},
+    "CHG_030": {"label": "Réparation mobilier / équipement", "groupe": "Charges courantes", "menage": MENAGE_INTERDIT, "avantage": False},
+    "CHG_031": {"label": "Maintenance technique", "groupe": "Charges courantes", "menage": MENAGE_INTERDIT, "avantage": False},
+    "CHG_037": {"label": "Livraison / transport d'achats", "groupe": "Charges courantes", "menage": MENAGE_INTERDIT, "avantage": False},
+    "CHG_032": {"label": "Commissions plateformes / intermédiaires", "groupe": "Frais généraux", "menage": MENAGE_INTERDIT, "avantage": False},
+    "CHG_033": {"label": "Honoraires comptables / juridiques / conseil", "groupe": "Frais généraux", "menage": MENAGE_INTERDIT, "avantage": False},
+    "CHG_034": {"label": "Frais d'actes / contentieux", "groupe": "Frais généraux", "menage": MENAGE_INTERDIT, "avantage": False},
+    "CHG_035": {"label": "Publicité / annonces / acquisition", "groupe": "Frais généraux", "menage": MENAGE_INTERDIT, "avantage": False},
+    "CHG_036": {"label": "Cadeaux clientèle", "groupe": "Frais généraux", "menage": MENAGE_INTERDIT, "avantage": False},
+    "CHG_038": {"label": "Réceptions", "groupe": "Frais généraux", "menage": MENAGE_INTERDIT, "avantage": False},
+    "CHG_039": {"label": "Téléphone / télécommunications", "groupe": "Frais généraux", "menage": MENAGE_INTERDIT, "avantage": False},
+    "CHG_040": {"label": "Loyer", "groupe": "Frais généraux", "menage": MENAGE_INTERDIT, "avantage": False},
+    "CHG_041": {"label": "Charges locatives / copropriété", "groupe": "Frais généraux", "menage": MENAGE_INTERDIT, "avantage": False},
+    "CHG_042": {"label": "Cotisations / adhésions", "groupe": "Frais généraux", "menage": MENAGE_INTERDIT, "avantage": False},
+    "CHG_043": {"label": "Impôts / taxes (compte selon la taxe)", "groupe": "Frais généraux", "menage": MENAGE_INTERDIT, "avantage": False},
+    # Catégorie personnalisée (GLOBAL forcé, jamais ménage) — « Autre charge » du catalogue :
+    # aucun compte par défaut, imputation libre justifiée.
     "CHG_024": {"label": "Autre (catégorie personnalisée)", "groupe": "Autre", "menage": MENAGE_INTERDIT, "avantage": False},
 }
 

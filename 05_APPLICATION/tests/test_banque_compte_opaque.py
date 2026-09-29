@@ -111,10 +111,13 @@ def test_08_compte_brut_query_string_refuse(bank_file):
 
 
 def test_08b_route_compte_brut_refuse_pas_de_500(bank_file, client):
+    # `/banques-caisse` mène au module Flux financiers : le paramètre `compte_id` n'y est pas
+    # transmis (la redirection ne garde que les messages), il ne peut donc ni filtrer ni fuiter.
+    r = client.get("/banques-caisse?compte_id=CM_02211_00021321603", follow_redirects=False)
+    assert "00021321603" not in r.headers.get("location", "")
     r = client.get("/banques-caisse?compte_id=CM_02211_00021321603")
     assert r.status_code == 200
     assert "00021321603" not in r.text
-    assert "invalide" in r.text.lower() or "inconnu" in r.text.lower()
 
 
 # ── 9-10 : export CSV + pagination ───────────────────────────────────────────

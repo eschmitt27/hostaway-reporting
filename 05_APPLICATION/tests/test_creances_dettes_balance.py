@@ -177,8 +177,9 @@ def test_balance_apres_vente(db):
     comptes = {c["compte"]: c for c in b["comptes"]}
     assert comptes[compta.COMPTE_PROPRIETAIRES]["debit"] == 500.0
     assert comptes[compta.COMPTE_PROPRIETAIRES]["solde_debiteur"] == 500.0
-    assert comptes[compta.COMPTE_VENTE_GENERIQUE]["credit"] == 500.0
-    assert comptes[compta.COMPTE_VENTE_GENERIQUE]["solde_crediteur"] == 500.0
+    # Mission 36 : la commission va en 706100 (gestion / commission de conciergerie).
+    assert comptes["706100"]["credit"] == 500.0
+    assert comptes["706100"]["solde_crediteur"] == 500.0
     assert b["total_debit"] == b["total_credit"] == 500.0
     assert b["equilibree"] is True
     assert b["ecart"] == 0.0
@@ -189,7 +190,7 @@ def test_balance_classes_comptables(db):
     compta.generer_ecriture_vente_facture(emise, db_path=db)
     classes = {c["compte"]: c["classe"] for c in bal.balance(db_path=db)["comptes"]}
     assert classes[compta.COMPTE_PROPRIETAIRES] == "Tiers"
-    assert classes[compta.COMPTE_VENTE_GENERIQUE] == "Produits"
+    assert classes["706100"] == "Produits"
 
 
 def test_balance_filtre_periode(db):
@@ -244,7 +245,7 @@ def test_ecran_balance_affiche_les_comptes(db, client):
     compta.generer_ecriture_vente_facture(emise, db_path=db)
     r = client.get("/comptabilite/balance")
     assert compta.COMPTE_PROPRIETAIRES in r.text
-    assert compta.COMPTE_VENTE_GENERIQUE in r.text
+    assert "706100" in r.text
 
 
 # ── Persistance ─────────────────────────────────────────────────────────────────────────────────

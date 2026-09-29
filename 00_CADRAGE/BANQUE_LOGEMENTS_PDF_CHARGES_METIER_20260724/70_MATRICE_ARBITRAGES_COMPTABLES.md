@@ -15,6 +15,13 @@ Aucune règle comptable modifiée par cette mission. Décisions distinguées exp
 > catégorie, résout aujourd'hui sur `606000` PROVISOIRE** — ce n'est pas un défaut du mécanisme
 > (`resoudre_compte()` est fonctionnel et testé), c'est l'absence totale de règles arbitrées.
 
+> **Mise à jour 2026-09-28 (Mission 31)** — la matrice reste à arbitrer par l'utilisateur, mais
+> l'arbitrage se rend désormais **depuis l'application** : Comptabilité › Plan comptable (ajouter les
+> comptes de charge voulus) puis Comptabilité › Mappings (une règle par catégorie, prévisualisée puis
+> validée). La colonne « Compte actuel » ci-dessous décrit le **journal Achats** des factures fournisseurs
+> (filet `606000` PROVISOIRE) ; **Flux financiers**, lui, ne reprend jamais ce filet : sans règle validée, une
+> catégorie y reste « Compte comptable à définir ». Au 2026-09-28, aucune règle validée en base réelle.
+
 ## A. Catégories de charges (`REF_Categories_Charges`, 27 lignes réelles) → 606000
 
 Toutes résolvent aujourd'hui sur `606000` (PROVISOIRE, filet générique — aucune règle `VALIDE`

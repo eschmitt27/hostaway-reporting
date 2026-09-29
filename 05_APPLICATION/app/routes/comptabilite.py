@@ -15,6 +15,7 @@ from app.services import comptabilite_auxiliaires_service as aux
 from app.services import comptabilite_controles_service as ctrl
 from app.services import comptabilite_ecritures_service as compta
 from app.services import comptabilite_mappings_service as maps
+from app.services import comptabilite_plan_service as plan
 from app.services import comptabilite_periodes_service as per
 from app.services import operations_caisse_service as caisse
 from app.services import operations_diverses_service as od
@@ -119,32 +120,241 @@ def comptabilite_a_controler(request: Request):
     })
 
 
+# ── Plan comptable administrable (Mission 31) ─────────────────────────────────────────────────
+# Les comptes sont SAISIS par l'utilisateur : aucun numéro n'est généré, aucun compte n'est
+# supprimé (désactivation seulement, le schéma refuse la suppression).
+
+def _retour(chemin: str, ok: bool, texte: str) -> RedirectResponse:
+    return RedirectResponse(f"{chemin}?{'message' if ok else 'erreur'}={quote(texte)}",
+                            status_code=303)
+
+
+def _champ(form, nom: str) -> str:
+    return str(form.get(nom, "") or "").strip()
+
+
 @router.get("/comptabilite/plan-comptable", response_class=HTMLResponse)
-def comptabilite_plan_comptable(request: Request):
+def comptabilite_plan_comptable(request: Request, q: str = "", type_compte: str = "",
+                                statut: str = "", message: str = "", erreur: str = ""):
     return templates.TemplateResponse(request, "comptabilite_plan_comptable.html", {
-        "active_menu": "comptabilite", "comptes": _plan_comptable(),
+        "active_menu": "comptabilite",
+        "comptes": plan.lister(recherche=q, type_compte=type_compte, statut=statut),
+        "nb_total": len(plan.lister()), "types": plan.LIBELLES_TYPE,
+        "filtres": {"q": q, "type_compte": type_compte, "statut": statut},
+        "message": message, "erreur": erreur,
     })
 
 
-@router.get("/comptabilite/mappings", response_class=HTMLResponse)
-def comptabilite_mappings(request: Request, message: str = "", erreur: str = ""):
-    return templates.TemplateResponse(request, "comptabilite_mappings.html", {
-        "active_menu": "comptabilite", "regles": maps.lister_regles(),
+@router.post("/comptabilite/plan-comptable")
+async def comptabilite_plan_ajouter(request: Request):
+    form = await request.form()
+    try:
+        c = plan.creer(_champ(form, "compte"), _champ(form, "libelle"), _champ(form, "type_compte"),
+                       auxiliaire_autorise=_champ(form, "auxiliaire_autorise") in ("1", "on", "OUI"),
+                       auxiliaire_mode=_champ(form, "auxiliaire_mode"),
+                       auxiliaire_type=_champ(form, "auxiliaire_type"),
+                       commentaire=_champ(form, "commentaire"), acteur=_champ(form, "acteur"))
+    except plan.CompteRefuse as exc:
+        return _retour("/comptabilite/plan-comptable", False, exc.message)
+    return _retour(f"/comptabilite/plan-comptable/{c['compte']}", True,
+                   f"Compte {c['compte']} ajouté au plan comptable.")
+
+
+@router.get("/comptabilite/plan-comptable/{compte}", response_class=HTMLResponse)
+def comptabilite_compte_fiche(request: Request, compte: str, message: str = "", erreur: str = ""):
+    fiche = next((c for c in plan.lister() if c["compte"] == compte), None)
+    if fiche is None:
+        return templates.TemplateResponse(request, "comptabilite_compte.html", {
+            "active_menu": "comptabilite", "fiche": None}, status_code=404)
+    regles = [dict(r, cle_libelle=maps.libelle_cle(r["portee"], r["cle"] or ""),
+                   statut_libelle=maps.LIBELLES_STATUT.get(r["statut"], r["statut"]))
+              for r in maps.lister_regles() if r["compte"] == compte]
+    return templates.TemplateResponse(request, "comptabilite_compte.html", {
+        "active_menu": "comptabilite", "fiche": fiche, "regles": regles,
+        "historique": plan.historique(compte), "types": plan.LIBELLES_TYPE,
         "message": message, "erreur": erreur,
+        "mode_aux": plan.mode_auxiliaire(fiche), "modes_aux": plan.LIBELLES_AUX_MODE,
+        "types_aux": plan.LIBELLES_AUX_TYPE,
+    })
+
+
+@router.post("/comptabilite/plan-comptable/{compte}/modifier")
+async def comptabilite_compte_modifier(request: Request, compte: str):
+    form = await request.form()
+    try:
+        plan.modifier(compte, libelle=_champ(form, "libelle"), commentaire=_champ(form, "commentaire"),
+                      acteur=_champ(form, "acteur"), motif=_champ(form, "motif"),
+                      auxiliaire_mode=_champ(form, "auxiliaire_mode"),
+                      auxiliaire_type=_champ(form, "auxiliaire_type"))
+    except plan.CompteRefuse as exc:
+        return _retour(f"/comptabilite/plan-comptable/{quote(compte, safe='')}", False, exc.message)
+    return _retour(f"/comptabilite/plan-comptable/{quote(compte, safe='')}", True, "Compte modifié.")
+
+
+@router.post("/comptabilite/plan-comptable/{compte}/desactiver")
+async def comptabilite_compte_desactiver(request: Request, compte: str):
+    form = await request.form()
+    try:
+        plan.desactiver(compte, acteur=_champ(form, "acteur"), motif=_champ(form, "motif"))
+    except plan.CompteRefuse as exc:
+        return _retour(f"/comptabilite/plan-comptable/{quote(compte, safe='')}", False, exc.message)
+    return _retour(f"/comptabilite/plan-comptable/{quote(compte, safe='')}", True,
+                   "Compte désactivé : il n'est plus proposé pour de nouvelles opérations ; "
+                   "son historique reste consultable.")
+
+
+@router.post("/comptabilite/plan-comptable/{compte}/reactiver")
+async def comptabilite_compte_reactiver(request: Request, compte: str):
+    form = await request.form()
+    try:
+        plan.reactiver(compte, acteur=_champ(form, "acteur"), motif=_champ(form, "motif"))
+    except plan.CompteRefuse as exc:
+        return _retour(f"/comptabilite/plan-comptable/{quote(compte, safe='')}", False, exc.message)
+    return _retour(f"/comptabilite/plan-comptable/{quote(compte, safe='')}", True, "Compte réactivé.")
+
+
+# ── Mappings catégorie → compte (Mission 31) ──────────────────────────────────────────────────
+# Le compte se CHOISIT dans le plan comptable : aucun numéro libre. Le serveur refait toutes les
+# validations (`comptabilite_mappings_service.verifier`) quel que soit le formulaire.
+
+def _regles_affichables() -> list[dict]:
+    comptes = {c["compte"]: c for c in plan.lister()}
+    out = []
+    for r in maps.lister_regles():
+        c = comptes.get(r["compte"])
+        out.append(dict(r, cle_libelle=maps.libelle_cle(r["portee"], r["cle"] or ""),
+                        compte_libelle=(c or {}).get("libelle", "compte inconnu"),
+                        compte_actif=bool(c and c["actif"]),
+                        statut_libelle=maps.LIBELLES_STATUT.get(r["statut"], r["statut"]),
+                        generique=r["portee"] == maps.PORTEE_PROVISOIRE))
+    return out
+
+
+@router.get("/comptabilite/mappings", response_class=HTMLResponse)
+def comptabilite_mappings(request: Request, categorie: str = "", message: str = "",
+                          erreur: str = ""):
+    vue = maps.vue_par_categorie()
+    return templates.TemplateResponse(request, "comptabilite_mappings.html", {
+        "active_menu": "comptabilite", "vue": vue,
+        "nb_sans_compte": sum(1 for v in vue if not v["compte"]),
+        "regles": _regles_affichables(), "categories": maps.categories(),
+        "comptes_charge": plan.comptes_de_charge_actifs(), "statuts": maps.LIBELLES_STATUT,
+        "categorie_choisie": categorie, "message": message, "erreur": erreur,
+    })
+
+
+def _formulaire_regle(form) -> dict:
+    return {"portee": maps.PORTEE_CATEGORIE, "cle": _champ(form, "cle"),
+            "compte": _champ(form, "compte"), "statut": _champ(form, "statut") or maps.ST_PROVISOIRE,
+            "debut": _champ(form, "date_debut_validite"), "fin": _champ(form, "date_fin_validite"),
+            "source": _champ(form, "source"), "acteur": _champ(form, "acteur"),
+            "role": _champ(form, "role") or maps.ROLE_DEFAUT}
+
+
+@router.post("/comptabilite/mappings/previsualiser", response_class=HTMLResponse)
+async def comptabilite_mappings_previsualiser(request: Request):
+    """Prévisualisation NON destructive : rien n'est écrit, ni règle, ni charge, ni écriture."""
+    f = _formulaire_regle(await request.form())
+    apercu = maps.apercu_impact(f["portee"], f["cle"], f["compte"], f["statut"], f["debut"],
+                                f["fin"], role=f["role"])
+    return templates.TemplateResponse(request, "comptabilite_mapping_apercu.html", {
+        "active_menu": "comptabilite", "apercu": apercu, "formulaire": f,
+        "action": "/comptabilite/mappings", "titre": "Nouvelle règle de mapping",
+        "bouton": "Enregistrer la règle",
     })
 
 
 @router.post("/comptabilite/mappings")
 async def comptabilite_mappings_creer(request: Request):
+    f = _formulaire_regle(await request.form())
+    if not f["acteur"]:
+        return _retour("/comptabilite/mappings", False,
+                       "Indiquez votre nom : chaque règle de mapping est tracée.")
+    res = maps.creer_regle(f["portee"], f["compte"], cle=f["cle"], statut=f["statut"],
+                           date_debut_validite=f["debut"], date_fin_validite=f["fin"],
+                           source=f["source"], role=f["role"], acteur=f["acteur"])
+    if not res.get("ok"):
+        return _retour("/comptabilite/mappings", False,
+                       res["message"] + (f" ({res['detail']})" if res.get("detail") else ""))
+    return _retour("/comptabilite/mappings", True, "Règle enregistrée.")
+
+
+@router.get("/comptabilite/mappings/{regle_id}", response_class=HTMLResponse)
+def comptabilite_mapping_fiche(request: Request, regle_id: str, message: str = "",
+                               erreur: str = ""):
+    regle = next((r for r in _regles_affichables() if r["regle_id_opaque"] == regle_id), None)
+    if regle is None:
+        return templates.TemplateResponse(request, "comptabilite_mapping_fiche.html", {
+            "active_menu": "comptabilite", "regle": None}, status_code=404)
+    return templates.TemplateResponse(request, "comptabilite_mapping_fiche.html", {
+        "active_menu": "comptabilite", "regle": regle,
+        "historique": maps.historique_regle(regle_id),
+        "comptes_charge": plan.comptes_de_charge_actifs(),
+        "message": message, "erreur": erreur,
+    })
+
+
+@router.get("/comptabilite/mappings/{regle_id}/valider", response_class=HTMLResponse)
+def comptabilite_mapping_valider_apercu(request: Request, regle_id: str):
+    r = maps.charger_regle(regle_id)
+    if r is None:
+        return _retour("/comptabilite/mappings", False, "Règle introuvable.")
+    apercu = maps.apercu_impact(r["portee"], r["cle"] or "", r["compte"], maps.ST_VALIDE,
+                                r["date_debut_validite"] or "", r["date_fin_validite"] or "",
+                                exclure=regle_id)
+    return templates.TemplateResponse(request, "comptabilite_mapping_apercu.html", {
+        "active_menu": "comptabilite", "apercu": apercu,
+        "formulaire": {"cle": r["cle"], "compte": r["compte"], "statut": maps.ST_VALIDE,
+                       "debut": r["date_debut_validite"] or "", "fin": r["date_fin_validite"] or "",
+                       "source": r["source"] or "", "acteur": ""},
+        "action": f"/comptabilite/mappings/{regle_id}/valider",
+        "titre": "Valider la règle", "bouton": "Valider la règle",
+    })
+
+
+_ACTIONS_REGLE = {
+    "valider": (maps.valider_regle, "Règle validée : elle propose désormais son compte."),
+    "rendre-provisoire": (maps.rendre_provisoire,
+                          "Règle repassée en provisoire : elle ne propose plus son compte."),
+    "desactiver": (maps.desactiver_regle, "Règle désactivée : son historique reste consultable."),
+    "reactiver": (maps.reactiver_regle, "Règle réactivée."),
+}
+
+
+@router.post("/comptabilite/mappings/{regle_id}/modifier")
+async def comptabilite_mapping_modifier(request: Request, regle_id: str):
     form = await request.form()
-    res = maps.creer_regle(
-        str(form.get("portee", "") or ""), str(form.get("compte", "") or ""),
-        cle=str(form.get("cle", "") or ""), statut=str(form.get("statut", "") or "PROVISOIRE"),
-        date_debut_validite=str(form.get("date_debut_validite", "") or ""),
-        date_fin_validite=str(form.get("date_fin_validite", "") or ""),
-        source=str(form.get("source", "") or ""), acteur=str(form.get("acteur", "") or "local"))
-    msg = "message=Règle créée." if res.get("ok") else f"erreur={res.get('message')}"
-    return RedirectResponse(url=f"/comptabilite/mappings?{msg}", status_code=303)
+    acteur = _champ(form, "acteur")
+    cible = f"/comptabilite/mappings/{quote(regle_id, safe='')}"
+    if not acteur:
+        return _retour(cible, False, "Indiquez votre nom : chaque règle de mapping est tracée.")
+    champs = {k: (form.get(k) if k in form else None) for k in
+              ("compte", "date_debut_validite", "date_fin_validite", "source")}
+    res = maps.modifier_regle(regle_id, compte=champs["compte"],
+                              date_debut_validite=champs["date_debut_validite"],
+                              date_fin_validite=champs["date_fin_validite"],
+                              source=champs["source"], acteur=acteur, motif=_champ(form, "motif"))
+    if not res.get("ok"):
+        return _retour(cible, False, res["message"] + (f" ({res['detail']})"
+                                                       if res.get("detail") else ""))
+    return _retour(cible, True, "Règle modifiée.")
+
+
+@router.post("/comptabilite/mappings/{regle_id}/{action}")
+async def comptabilite_mapping_action(request: Request, regle_id: str, action: str):
+    form = await request.form()
+    cible = f"/comptabilite/mappings/{quote(regle_id, safe='')}"
+    if action not in _ACTIONS_REGLE:
+        return _retour(cible, False, "Action inconnue.")
+    acteur = _champ(form, "acteur")
+    if not acteur:
+        return _retour(cible, False, "Indiquez votre nom : chaque règle de mapping est tracée.")
+    fonction, texte = _ACTIONS_REGLE[action]
+    res = fonction(regle_id, acteur=acteur, motif=_champ(form, "motif"))
+    if not res.get("ok"):
+        return _retour(cible, False, res["message"] + (f" ({res['detail']})"
+                                                       if res.get("detail") else ""))
+    return _retour(cible, True, texte)
 
 
 @router.get("/comptabilite/auxiliaires", response_class=HTMLResponse)
@@ -176,7 +386,27 @@ def comptabilite_ecriture_detail(request: Request, opaque: str, message: str = "
         "active_menu": "comptabilite", "ecriture": e, "opaque": opaque,
         "lignes": compta.lignes(opaque), "ventilation": compta.ventilation_ecriture(opaque),
         "ecriture_active": _ecriture_active(), "message": message, "erreur": erreur,
+        # Mission 37 — la pièce qui justifie l'écriture, par son objet source (jamais une 2e pièce).
+        "pieces_source": _pieces_source(e),
     })
+
+
+def _pieces_source(ecriture: dict) -> list[dict]:
+    from app.services import justificatifs_service as justif
+    return justif.pieces_source(ecriture)
+
+
+@router.get("/justificatifs/{reference}")
+def justificatif_fichier(reference: str):
+    """Ouvre la pièce d'un justificatif archivé — lecture seule, le seul fichier constaté."""
+    from fastapi.responses import FileResponse
+    from app.services import justificatifs_service as justif
+    chemin = justif.fichier(reference)
+    if chemin is None:
+        return HTMLResponse("Pièce introuvable : aucun fichier constaté pour cette référence.",
+                            status_code=404)
+    return FileResponse(chemin, filename=chemin.name,
+                        content_disposition_type="inline")
 
 
 @router.post("/comptabilite/ecritures/{opaque}/valider")
@@ -318,7 +548,8 @@ def comptabilite_journal_od(request: Request, message: str = "", erreur: str = "
         "ods": od.lister(), "types": od.TYPES,
         # §77 — comptes et auxiliaires se CHOISISSENT. Saisis à la main, ils étaient refusés plus
         # tard par le contrôle de validité, après que l'utilisateur avait tout ressaisi.
-        "comptes": _plan_comptable(),
+        # Mission 31 : comptes ACTIFS seulement — un compte désactivé ne se choisit plus.
+        "comptes": [c for c in _plan_comptable() if c["actif"]],
         "auxiliaires": aux.synthese(), "libelles_famille": aux.LIBELLES_FAMILLE,
         "ecriture_active": _ecriture_active(), "message": message, "erreur": erreur,
     })

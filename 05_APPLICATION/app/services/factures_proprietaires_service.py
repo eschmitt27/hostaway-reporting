@@ -646,7 +646,7 @@ def _prochain_numero_ligne(conn, facture_id: str) -> int:
 def ajouter_ligne(facture_id: str, *, type_ligne: str, libelle: str, montant: Any,
                   objet_source_type: str | None = None, objet_source_ref: str | None = None,
                   acteur: str = "", commentaire: str = "",
-                  justification_imputation: str = "", db_path=None,
+                  justification_imputation: str = "", type_economique: str = "", db_path=None,
                   _conn=None) -> dict[str, Any]:
     """Ajoute une ligne MANUELLE (ou reliée à une source, si `objet_source_type` est fourni).
 
@@ -676,11 +676,13 @@ def ajouter_ligne(facture_id: str, *, type_ligne: str, libelle: str, montant: An
         conn.execute(
             "INSERT INTO factures_proprietaires_lignes "
             "(ligne_id_opaque, facture_id_opaque, numero_ligne, type_ligne, libelle, montant, "
-            " objet_source_type, objet_source_ref, justification_imputation) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
+            " objet_source_type, objet_source_ref, justification_imputation, type_economique) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
             (lid, facture_id, _prochain_numero_ligne(conn, facture_id), type_ligne, libelle,
              valeur, objet_source_type, objet_source_ref,
-             str(justification_imputation or "").strip() or None))
+             str(justification_imputation or "").strip() or None,
+             # NULL : dérivé du type technique par la base (déclencheur 0114).
+             str(type_economique or "").strip() or None))
         total = _resynchroniser_total(conn, facture_id)
         _journal(conn, facture_id, EVT_AJOUT_LIGNE, ST_BROUILLON, ST_BROUILLON,
                  _commentaire_ligne(type_ligne, libelle, valeur, total, commentaire), acteur)
@@ -1055,6 +1057,12 @@ def emettre(facture_id: str, *, emetteur: dict[str, Any], destinataire: dict[str
     # Le bloc réglementaire est figé après l'émission, en écriture unique : une facture émise ne
     # voit jamais ses données de conformité réécrites.
     conformite.enregistrer(bloc, db_path=db_path)
+    # Une FACTURE émise devient une créance du FIFO : les allocations du propriétaire sont
+    # persistées maintenant (un avoir, lui, n'entre pas dans le FIFO — voir compte propriétaire).
+    if f["type_document"] == TYPE_FACTURE:
+        from app.services import compte_proprietaire_service as cpt
+        cpt.apres_ecriture([f["proprietaire_id"]], declencheur=cpt.DECL_EMISSION_FACTURE,
+                           db_path=db_path)
     return lire(facture_id, db_path=db_path)
 
 
