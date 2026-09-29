@@ -137,9 +137,10 @@
   {% if justificatif_piece %}
   <dl class="detail-grid">
     <div><dt>Référence</dt><dd class="font-mono" data-testid="reference-justificatif">{{ justificatif_piece.reference }}</dd></div>
-    <div><dt>Dossier d'archivage</dt><dd><code>{{ justificatif_piece.dossier }}</code></dd></div>
+    <div><dt>Dossier d'archivage</dt><dd><code>{{ justificatif_piece.dossier_complet }}</code></dd></div>
     <div><dt>État</dt><dd data-testid="statut-justificatif">{{ justificatif_piece.libelle_statut }}
-      {% if justificatif_piece.fichier_constate %} — <code>{{ justificatif_piece.fichier_constate }}</code>{% endif %}
+      {% if justificatif_piece.fichier_constate %} — <code>{{ justificatif_piece.fichier_constate }}</code>
+        {% if justificatif_piece.fichier_present %} <a href="/justificatifs/{{ justificatif_piece.reference }}" target="_blank" rel="noopener">Ouvrir la pièce</a>{% endif %}{% endif %}
       {% if justificatif_piece.justification_absence %} — {{ justificatif_piece.justification_absence }}{% endif %}</dd></div>
   </dl>
   {% if justificatif_piece.statut != "JUSTIFICATIF_ARCHIVE" %}

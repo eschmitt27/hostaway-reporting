@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}Crédits {{ proprietaire_id | nom_proprietaire }}{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<div class="ecran">
+<a href="/comptes-proprietaires/{{ proprietaire_id }}" class="back-link">&larr; Compte {{ proprietaire_id | nom_proprietaire }}</a>
+<div class="page-header">
+  <div class="page-header__titre">
+  <h1 class="page-title">Crédits — {{ proprietaire_id | nom_proprietaire }}</h1>
+  <p class="page-subtitle">L'argent détenu pour ce propriétaire (compte 419100) : son origine, ce qui en a été imputé, ce qu'il reste.</p>
+  </div>
+</div>
+
+{% if message %}<div class="alert alert-info">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-error" role="alert">{{ erreur }}</div>{% endif %}
+
+<div class="card" data-testid="credit-disponible">
+  <div class="card-title">Crédit disponible : {{ "%.2f"|format(vue.total_disponible) }} €</div>
+  <p class="text-sm text-secondary">Seul un crédit dont l'origine comptable est constatée (encaissement rapproché, ou origine justifiée) est disponible.</p>
+</div>
+
+<div class="card" data-testid="credits-airbnb">
+  <div class="card-title">Reversements Airbnb</div>
+  {% if vue.credits %}
+  <div class="table-container"><table class="table">
+    <thead><tr><th>Date</th><th>Référence</th><th>Origine</th><th class="text-right">Montant</th>
+      <th class="text-right">Utilisé</th><th class="text-right">Reste</th><th>Imputé sur</th></tr></thead>
+    <tbody>
+    {% for c in vue.credits %}
+      <tr data-testid="credit-ligne">
+        <td>{{ c.date_fr }}</td>
+        <td>{{ c.reference or "—" }}</td>
+        <td>{{ c.origine_lisible }}
+          {% if c.ecriture_origine %}<br><a class="text-sm" href="/comptabilite/ecritures/{{ c.ecriture_origine }}">Écriture d'origine</a>{% endif %}
+          {% if c.justification %}<br><span class="text-sm text-secondary">{{ c.justification }}</span>{% endif %}</td>
+        <td class="text-right">{{ "%.2f"|format(c.montant_initial) }} €</td>
+        <td class="text-right">{{ "%.2f"|format(c.utilise) }} €</td>
+        <td class="text-right"><strong>{{ "%.2f"|format(c.reste) }} €</strong></td>
+        <td>{% for i in c.factures %}<div><a href="/factures-proprietaires/{{ i.facture_id }}">Facture {{ i.numero }}</a> — {{ "%.2f"|format(i.montant) }} €
+             {% if i.ecriture %}(<a href="/comptabilite/ecritures/{{ i.ecriture }}">écriture</a>){% endif %}</div>{% else %}—{% endfor %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p class="text-secondary">Aucun reversement Airbnb déclaré pour ce propriétaire.</p>{% endif %}
+
+  <details style="margin-top:var(--stack-md);">
+    <summary><strong>+ Déclarer un reversement Airbnb reçu</strong></summary>
+    <form method="post" action="/comptes-proprietaires/{{ proprietaire_id }}/credits" class="detail-grid">
+      <label>Montant * <input name="montant" inputmode="decimal" required></label>
+      <label>Date de réception * <input type="date" name="date_origine" value="{{ aujourdhui }}" required></label>
+      <label>Référence Airbnb <input name="reference" placeholder="ex. payout du 12/09"></label>
+      <label>Origine *
+        <select name="mode">
+          <option value="BANQUE">Virement reçu sur la banque (à rapprocher dans Flux)</option>
+          <option value="JUSTIFIE">Sans virement exploitable : origine justifiée</option>
+        </select></label>
+      <label>Si justifiée : compte d'où vient le crédit
+        <select name="compte_source"><option value="">—</option>
+          {% for c in comptes_source %}<option value="{{ c.compte }}">{{ c.compte }} — {{ c.libelle }}</option>{% endfor %}
+        </select></label>
+      <label>Si justifiée : justification <input name="justification" placeholder="ex. versement Airbnb de juillet, antérieur à l'historique bancaire"></label>
+      <label>Votre nom * <input name="acteur" required></label>
+      <div><button type="submit" class="btn btn-primary">Enregistrer</button></div>
+    </form>
+    <p class="text-xs text-secondary">Un virement bancaire se rapproche dans Flux : c'est là qu'est proposée l'écriture 512 / 419100. Un virement Airbnb peut couvrir plusieurs propriétaires. Aucune réservation n'est rattachée au virement.</p>
+  </details>
+
+  {% set disponibles = vue.credits | selectattr("statut", "equalto", "DISPONIBLE") | selectattr("reste", "gt", 0) | list %}
+  {% if disponibles and factures %}
+  <details open style="margin-top:var(--stack-md);" data-testid="form-imputer">
+    <summary><strong>Imputer un reversement sur une facture</strong></summary>
+    <form method="post" action="/comptes-proprietaires/{{ proprietaire_id }}/credits/imputer" class="detail-grid">
+      <label>Crédit * <select name="credit_id" required>
+        {% for c in disponibles %}<option value="{{ c.credit_id_opaque }}">{{ c.date_fr }} — {{ c.reference or "reversement" }} — reste {{ "%.2f"|format(c.reste) }} €</option>{% endfor %}
+      </select></label>
+      <label>Facture * <select name="facture_id" required>
+        {% for f in factures %}<option value="{{ f.facture_id }}">Facture {{ f.numero }} — solde {{ "%.2f"|format(f.solde) }} €</option>{% endfor %}
+      </select></label>
+      <label>Montant * <input name="montant" inputmode="decimal" required></label>
+      <label>Votre nom * <input name="acteur" required></label>
+      <div><button type="submit" class="btn btn-primary">Imputer</button></div>
+    </form>
+  </details>
+  {% endif %}
+</div>
+
+<div class="card" data-testid="credits-acomptes">
+  <div class="card-title">Acomptes</div>
+  <p class="text-sm text-secondary">Un acompte s'impute automatiquement sur les factures, de la plus ancienne à la plus récente (règle du compte propriétaire).</p>
+  {% if vue.acomptes %}
+  <div class="table-container"><table class="table">
+    <thead><tr><th>Date</th><th>Origine</th><th class="text-right">Montant</th><th class="text-right">Utilisé</th>
+      <th class="text-right">Reste</th><th>Imputé sur</th></tr></thead>
+    <tbody>
+    {% for a in vue.acomptes %}
+      <tr>
+        <td>{{ a.date_fr }}</td>
+        <td>{{ a.origine_lisible }}
+          {% if a.ecriture_origine %}<br><a class="text-sm" href="/comptabilite/ecritures/{{ a.ecriture_origine }}">Écriture d'origine</a>
+          {% else %}
+          <form method="post" action="/comptes-proprietaires/{{ proprietaire_id }}/credits/acompte-origine" class="form-inline">
+            <input type="hidden" name="mouvement" value="{{ a.mouvement_opaque }}">
+            <input name="acteur" placeholder="votre nom" required>
+            <button type="submit" class="btn btn-secondary btn-sm">Comptabiliser son encaissement rapproché</button>
+          </form>{% endif %}</td>
+        <td class="text-right">{{ "%.2f"|format(a.montant_initial) }} €</td>
+        <td class="text-right">{{ "%.2f"|format(a.utilise) }} €</td>
+        <td class="text-right"><strong>{{ "%.2f"|format(a.reste) }} €</strong></td>
+        <td>{% for i in a.factures %}<div><a href="/factures-proprietaires/{{ i.facture_id }}">Facture {{ i.numero }}</a> — {{ "%.2f"|format(i.montant) }} €</div>{% else %}—{% endfor %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p class="text-secondary">Aucun acompte.</p>{% endif %}
+</div>
+
+{% if vue.a_regulariser %}
+<div class="card" data-testid="a-regulariser">
+  <div class="card-title">Reversements à régulariser</div>
+  <p class="text-sm text-secondary">Ces reversements Airbnb ont été imputés sur une facture sans crédit d'origine : aucune écriture n'est passée pour eux. Rattachez-les au reversement réellement reçu (dont l'origine est constatée).</p>
+  <div class="table-container"><table class="table">
+    <thead><tr><th>Date</th><th class="text-right">Montant</th><th>Facture</th><th>Rattacher à</th></tr></thead>
+    <tbody>
+    {% for r in vue.a_regulariser %}
+      <tr>
+        <td>{{ r.date_imputation | date_fr }}</td>
+        <td class="text-right">{{ "%.2f"|format(r.montant_impute) }} €</td>
+        <td>{% if r.document_id %}<a href="/factures-proprietaires/{{ r.document_id }}">voir la facture</a>{% else %}—{% endif %}</td>
+        <td>{% if disponibles %}
+          <form method="post" action="/comptes-proprietaires/{{ proprietaire_id }}/credits/regulariser" class="form-inline">
+            <input type="hidden" name="imputation_id" value="{{ r.imputation_airbnb_id }}">
+            <select name="credit_id">{% for c in disponibles %}<option value="{{ c.credit_id_opaque }}">{{ c.date_fr }} — reste {{ "%.2f"|format(c.reste) }} €</option>{% endfor %}</select>
+            <input name="acteur" placeholder="votre nom" required>
+            <button type="submit" class="btn btn-secondary btn-sm">Rattacher</button>
+          </form>
+          {% else %}Déclarez d'abord le reversement reçu.{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endif %}
+</div>
+{% endblock %}

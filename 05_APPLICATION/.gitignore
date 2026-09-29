@@ -6,6 +6,8 @@ data/app.db-shm
 data/snapshots/
 data/restore_workspace/
 data/backups/
+# Justificatifs rangés par l'utilisateur (Missions 36-37) : pièces probantes, jamais versionnées.
+data/justificatifs/
 .env
 __pycache__/
 **/__pycache__/

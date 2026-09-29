@@ -7,7 +7,8 @@
 <div class="page-header">
   <div class="page-header__titre">
   <h1 class="page-title">Compte — {{ position.proprietaire_id | nom_proprietaire }}</h1>
-  <p class="page-subtitle">Position financière, tous logements confondus.</p>
+  <p class="page-subtitle">Position financière, tous logements confondus.
+    <a href="/comptes-proprietaires/{{ position.proprietaire_id }}/credits" data-testid="lien-credits">Crédits (reversements Airbnb, acomptes)</a></p>
   </div>
 </div>
 

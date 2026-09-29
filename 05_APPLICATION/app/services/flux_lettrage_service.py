@@ -240,6 +240,12 @@ def _ligne_objet(o: dict, montant: float, sens: str, charges: dict, db_path=None
         base.update(compte=COMPTE_FOURNISSEURS, auxiliaire=o["tiers_id"],
                     libelle=f"Règlement {o['libelle']}".strip())
         return base
+    if o["type"] == flux.CREDIT_CLIENT:
+        # Mission 37 — le virement Airbnb reçu pour le propriétaire : 512 / 419100.
+        base.update(compte=COMPTE_ACOMPTES_CLIENTS, auxiliaire=o["tiers_id"],
+                    proprietaire_id=o["tiers_id"] or None,
+                    libelle=f"Reversement Airbnb reçu — {o.get('tiers') or o['tiers_id']}".strip())
+        return base
     if (o["type"] == flux.MOUVEMENT_PROPRIETAIRE and not sortie
             and o.get("nature") == "ACOMPTE_PROPRIETAIRE"):
         base.update(compte=COMPTE_ACOMPTES_CLIENTS, auxiliaire=o["tiers_id"],
@@ -442,6 +448,12 @@ def preparer(selection_m: list[str], selection_o: list[str], *, traitement_ecart
 
     engage_m = {k: _r(v) for k, v in montant_m.items()}
     engage_o = {k: _r(v) for k, v in montant_o.items()}
+    for o in objs:
+        if o["type"] == flux.CREDIT_CLIENT and engage_o.get(o["cle"], 0) + EPS < o.get("reste", 0):
+            erreurs.append({"code": E_OBJET, "message": (
+                f"{o['libelle']} {o.get('tiers') or ''} : un reversement Airbnb se rapproche de son "
+                f"montant entier ({o['reste']:.2f} €). Un virement Airbnb peut en couvrir plusieurs : "
+                "sélectionnez-les ensemble.").replace("  ", " ")})
     empreinte = matching.empreinte([(m["source"], m["id"], engage_m[m["id"]]) for m in mvts],
                                    [(o["type"], o["id"], engage_o[o["cle"]]) for o in objs])
     empreinte_selection = matching.empreinte(
@@ -620,7 +632,7 @@ def verifier_ecritures(prep: dict, groupes: list[list[dict]], *, db_path=None) -
                 (COMPTE_PROPRIETAIRES, "debit" if sortie else "credit",
                  (flux.FACTURE_PROPRIETAIRE, flux.MOUVEMENT_PROPRIETAIRE)),
                 (COMPTE_ACOMPTES_CLIENTS, "debit" if sortie else "credit",
-                 (flux.MOUVEMENT_PROPRIETAIRE,))):
+                 (flux.MOUVEMENT_PROPRIETAIRE, flux.CREDIT_CLIENT))):
             du = {}
             for l in proposee["lignes"]:
                 if l["role"] == ROLE_OBJET and l["compte"] == compte:
@@ -687,7 +699,7 @@ def valider(selection_m: list[str], selection_o: list[str], *, acteur: str,
     lettrage = "LET-" + uuid.uuid4().hex[:12].upper()
     crees: dict[str, list] = {"liens": [], "reglements": [], "encaissements": [],
                               "ecritures": [], "reglements_rapproches": [], "operations_caisse": [],
-                              "charges": [], "qonto": []}
+                              "charges": [], "qonto": [], "credits": []}
     conn = get_db(db_path)
     try:
         conn.execute("BEGIN IMMEDIATE")
@@ -719,6 +731,13 @@ def valider(selection_m: list[str], selection_o: list[str], *, acteur: str,
         _deposer_liens(conn, prep, lettrage, acteur, objets_rappro, crees)
         _comptabiliser(conn, prep, groupes, lettrage, acteur, crees, db_path=db_path)
         _marquer_mouvements(conn, prep, lettrage, acteur, crees)
+        if crees["credits"]:
+            # Mission 37 — l'origine comptable du reversement est désormais constatée.
+            from app.services import credits_clients_service as credits
+            for credit_id in crees["credits"]:
+                credits.constater_origine_bancaire(
+                    conn, credit_id, mouvement_id=prep["mouvements"][0]["id"], lettrage=lettrage,
+                    ecriture_id=crees["ecritures"][0] if crees["ecritures"] else None, acteur=acteur)
 
         conn.execute("UPDATE flux_lettrages SET ecriture_id_opaque=? WHERE lettrage_id_opaque=?",
                      (",".join(crees["ecritures"]), lettrage))
@@ -826,6 +845,9 @@ def _regler_objets(conn, prep, lettrage, acteur, crees, *, db_path=None) -> dict
             crees["encaissements"].append(res["mouvement_opaque"])
             cibles[cle] = (type_rappro, res["mouvement_opaque"])
         elif o["type"] == flux.MOUVEMENT_PROPRIETAIRE:
+            cibles[cle] = (type_rappro, o["id"])
+        elif o["type"] == flux.CREDIT_CLIENT:
+            crees["credits"].append(o["id"])
             cibles[cle] = (type_rappro, o["id"])
         elif o["type"] == flux.CHARGE:
             avant = conn.execute("SELECT statut_rapprochement, lien_virement_banque FROM charges "
@@ -1015,6 +1037,13 @@ def annuler(lettrage_id: str, *, motif: str, acteur: str, db_path=None) -> dict[
             res = regl.annuler(reg, commentaire=motif, acteur=acteur, db_path=db_path, conn=conn)
             if not res.get("ok"):
                 raise _Echec(E_ECHEC, f"Annulation du règlement refusée : {res.get('message')}")
+        if crees.get("credits"):
+            from app.services import credits_clients_service as credits
+            for credit_id in crees["credits"]:
+                motif_refus = credits.retirer_origine_bancaire(conn, credit_id, lettrage=lettrage_id,
+                                                               acteur=acteur)
+                if motif_refus:
+                    raise _Echec(E_ECHEC, motif_refus)
         for mtp in crees.get("encaissements", []):
             res = tres.annuler(mtp, commentaire=motif, acteur=acteur, db_path=db_path, conn=conn)
             if not res.get("ok"):

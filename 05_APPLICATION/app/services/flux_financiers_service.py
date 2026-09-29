@@ -43,8 +43,10 @@ FACTURE_FOURNISSEUR = "FACTURE_FOURNISSEUR"
 FACTURE_PROPRIETAIRE = "FACTURE_PROPRIETAIRE"
 REGLEMENT_FOURNISSEUR = "REGLEMENT_FOURNISSEUR"
 MOUVEMENT_PROPRIETAIRE = "MOUVEMENT_PROPRIETAIRE"
+# Mission 37 — reversement Airbnb déclaré pour un propriétaire, qui attend son virement réel.
+CREDIT_CLIENT = "CREDIT_CLIENT"
 TYPES_OBJET = (CHARGE, FACTURE_FOURNISSEUR, FACTURE_PROPRIETAIRE, REGLEMENT_FOURNISSEUR,
-               MOUVEMENT_PROPRIETAIRE)
+               MOUVEMENT_PROPRIETAIRE, CREDIT_CLIENT)
 
 LIBELLES_TYPE_OBJET = {
     CHARGE: "Charge",
@@ -52,6 +54,7 @@ LIBELLES_TYPE_OBJET = {
     FACTURE_PROPRIETAIRE: "Facture propriétaire",
     REGLEMENT_FOURNISSEUR: "Règlement fournisseur",
     MOUVEMENT_PROPRIETAIRE: "Règlement propriétaire",
+    CREDIT_CLIENT: "Reversement Airbnb à encaisser",
 }
 
 #: Type d'objet tel qu'il est écrit dans `banque_rapprochements` (vocabulaire existant réutilisé).
@@ -63,6 +66,8 @@ TYPE_RAPPROCHEMENT = {
     # Même nom que le moteur historique : `proprietaires_tresorerie_service.montant_rapproche` lit
     # ce type-là pour dire ce qui reste à rapprocher d'un règlement propriétaire.
     MOUVEMENT_PROPRIETAIRE: "REVERSEMENT_PROPRIETAIRE",
+    # Vocabulaire existant : un versement de plateforme. Jamais une réservation.
+    CREDIT_CLIENT: "PAYOUT_PLATEFORME",
 }
 
 # ── Statuts de rapprochement ──────────────────────────────────────────────────────────────────
@@ -855,6 +860,25 @@ def objets(*, db_path=None, inclure_non_rapprochables: bool = False) -> list[dic
                     "date": _txt(mt["date_mouvement"])[:10],
                     "montant": _r(abs(mt["montant"])), "reste": reste,
                     "sens": ENTREE if entree else SORTIE, "sources": (BANQUE, CAISSE),
+                    "lien_mouvement": "", "non_rapprochable": "",
+                })
+        # ── Reversements Airbnb déclarés, en attente de leur virement (Mission 37) ───────────
+        if "credits_clients" in tables:
+            for r in conn.execute("SELECT * FROM credits_clients WHERE statut='EN_ATTENTE_ORIGINE' "
+                                  "AND mode_origine='BANQUE'"):
+                cr = dict(r)
+                reste = _r(cr["montant_initial"] - lettres.get((CREDIT_CLIENT, cr["credit_id_opaque"]), 0))
+                if reste <= EPS:
+                    continue
+                out.append({
+                    "type": CREDIT_CLIENT, "id": cr["credit_id_opaque"],
+                    "libelle": "Reversement Airbnb",
+                    "detail": _txt(cr.get("reference")),
+                    "tiers_id": cr["proprietaire_id"], "tiers": noms.get(cr["proprietaire_id"], ""),
+                    "numero": _txt(cr.get("reference")),
+                    "date": _txt(cr["date_origine"])[:10],
+                    "montant": _r(cr["montant_initial"]), "reste": reste,
+                    "sens": ENTREE, "sources": (BANQUE,),
                     "lien_mouvement": "", "non_rapprochable": "",
                 })
     finally:

@@ -59,6 +59,24 @@
   </table>
 </div>
 
+{# Mission 37 — la pièce qui justifie l'écriture, retrouvée par son objet source. #}
+<div class="card" data-testid="pieces-source">
+  <div class="card-title">Pièce source</div>
+  {% if pieces_source %}
+  <ul>
+    {% for p in pieces_source %}
+    <li><a href="{{ p.lien_objet }}">{{ p.libelle }}</a>
+      {% if p.reference %} — <span class="code-id">{{ p.reference }}</span>{% endif %} — {{ p.statut }}
+      {% if p.justification %} ({{ p.justification }}){% endif %}
+      {% if p.lien_piece %} — <a href="{{ p.lien_piece }}" target="_blank" rel="noopener">Ouvrir la pièce</a>{% endif %}</li>
+    {% endfor %}
+  </ul>
+  <p class="text-sm text-secondary">Cette écriture est justifiée par la pièce de son objet source : aucune seconde pièce n'est demandée.</p>
+  {% else %}
+  <p class="text-secondary">Écriture sans objet source rattaché (saisie ou opération diverse).</p>
+  {% endif %}
+</div>
+
 {% if ventilation %}
 <div class="card mb-md">
   <div class="card-title">Ventilation analytique</div>

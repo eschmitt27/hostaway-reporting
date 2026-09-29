@@ -386,7 +386,27 @@ def comptabilite_ecriture_detail(request: Request, opaque: str, message: str = "
         "active_menu": "comptabilite", "ecriture": e, "opaque": opaque,
         "lignes": compta.lignes(opaque), "ventilation": compta.ventilation_ecriture(opaque),
         "ecriture_active": _ecriture_active(), "message": message, "erreur": erreur,
+        # Mission 37 — la pièce qui justifie l'écriture, par son objet source (jamais une 2e pièce).
+        "pieces_source": _pieces_source(e),
     })
+
+
+def _pieces_source(ecriture: dict) -> list[dict]:
+    from app.services import justificatifs_service as justif
+    return justif.pieces_source(ecriture)
+
+
+@router.get("/justificatifs/{reference}")
+def justificatif_fichier(reference: str):
+    """Ouvre la pièce d'un justificatif archivé — lecture seule, le seul fichier constaté."""
+    from fastapi.responses import FileResponse
+    from app.services import justificatifs_service as justif
+    chemin = justif.fichier(reference)
+    if chemin is None:
+        return HTMLResponse("Pièce introuvable : aucun fichier constaté pour cette référence.",
+                            status_code=404)
+    return FileResponse(chemin, filename=chemin.name,
+                        content_disposition_type="inline")
 
 
 @router.post("/comptabilite/ecritures/{opaque}/valider")

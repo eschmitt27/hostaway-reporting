@@ -399,12 +399,14 @@
   </div>
   <div class="detail-row">
     <span class="detail-label">Dossier d'archivage</span>
-    <span class="detail-value"><code>{{ justificatif.dossier }}</code></span>
+    <span class="detail-value"><code>{{ justificatif.dossier_complet }}</code></span>
   </div>
   <div class="detail-row">
     <span class="detail-label">État</span>
     <span class="detail-value" data-testid="statut-justificatif">{{ justificatif.libelle_statut }}
-      {% if justificatif.fichier_constate %} — fichier <code>{{ justificatif.fichier_constate }}</code>{% endif %}
+      {% if justificatif.fichier_constate %} — fichier <code>{{ justificatif.fichier_constate }}</code>
+        {% if justificatif.fichier_present %}<a href="/justificatifs/{{ justificatif.reference }}" target="_blank" rel="noopener" data-testid="ouvrir-piece">Ouvrir la pièce</a>
+        {% else %}<span class="badge">fichier introuvable dans le dossier</span>{% endif %}{% endif %}
       {% if justificatif.justification_absence %} — {{ justificatif.justification_absence }}{% endif %}
       {% if justificatif.confirme_par %}<span class="text-sm text-secondary"> ({{ justificatif.confirme_par }}, {{ justificatif.confirme_le|datetime_fr or justificatif.confirme_le }})</span>{% endif %}
     </span>

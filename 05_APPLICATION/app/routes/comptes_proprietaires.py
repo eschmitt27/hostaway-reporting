@@ -64,3 +64,81 @@ def recalculer(proprietaire_id: str):
         f"/comptes-proprietaires/{proprietaire_id}"
         f"?message=Recalcul {r['recalcul_id']} — {r['nb_allocations']} allocation(s)",
         status_code=303)
+
+
+# ══ Crédits clients : reversements Airbnb et acomptes (Mission 37) ═══════════════════════════
+
+def _retour_credits(proprietaire_id: str, res: dict, succes: str) -> RedirectResponse:
+    from urllib.parse import quote
+    cle, texte = ("message", succes) if res.get("ok") else ("erreur", res.get("message") or "Refusé.")
+    return RedirectResponse(f"/comptes-proprietaires/{quote(proprietaire_id)}/credits"
+                            f"?{cle}={quote(texte)}", status_code=303)
+
+
+@router.get("/comptes-proprietaires/{proprietaire_id}/credits", response_class=HTMLResponse)
+def credits(request: Request, proprietaire_id: str, message: str = "", erreur: str = ""):
+    """Crédit disponible du client : origine, montant, utilisé, reste, factures — lecture seule."""
+    from datetime import date as _date
+    from app.services import comptabilite_plan_service as plan
+    from app.services import credits_clients_service as cr
+    from app.services import factures_proprietaires_service as fpr
+    vue = cr.vue(proprietaire_id)
+    factures = []
+    for f in fpr.lister(proprietaire_id=proprietaire_id):
+        if f["type_document"] != fpr.TYPE_FACTURE or f["statut"] == fpr.ST_ANNULE:
+            continue
+        _, solde = cr._facture_et_solde(f["facture_id_opaque"])
+        if solde > cr.EPS:
+            factures.append({"facture_id": f["facture_id_opaque"], "solde": solde,
+                             "numero": f.get("numero_facture") or f"brouillon {f['mois']}",
+                             "statut": f["statut"]})
+    comptes_source = [c for c in plan.lister(statut="ACTIF")
+                      if not c["compte"].startswith(cr.COMPTES_SOURCE_INTERDITS)]
+    return templates.TemplateResponse(request, "comptes_proprietaires_credits.html", {
+        "active_menu": _MENU, "proprietaire_id": proprietaire_id, "vue": vue,
+        "factures": factures, "comptes_source": comptes_source,
+        "aujourdhui": _date.today().isoformat(), "message": message, "erreur": erreur,
+    })
+
+
+@router.post("/comptes-proprietaires/{proprietaire_id}/credits")
+async def credits_creer(request: Request, proprietaire_id: str):
+    from app.services import credits_clients_service as cr
+    f = await request.form()
+    res = cr.creer_reversement_airbnb(
+        proprietaire_id, f.get("montant", ""), str(f.get("date_origine", "") or ""),
+        reference=str(f.get("reference", "") or ""), mode=str(f.get("mode", "") or "BANQUE"),
+        compte_source=str(f.get("compte_source", "") or ""),
+        auxiliaire_source=str(f.get("auxiliaire_source", "") or ""),
+        justification=str(f.get("justification", "") or ""), acteur=str(f.get("acteur", "") or ""))
+    succes = ("Reversement Airbnb déclaré : rapprochez-le de son virement dans Flux › Rapprochement."
+              if res.get("statut") == cr.ST_EN_ATTENTE else
+              "Reversement Airbnb enregistré, origine justifiée : disponible.")
+    return _retour_credits(proprietaire_id, res, succes)
+
+
+@router.post("/comptes-proprietaires/{proprietaire_id}/credits/imputer")
+async def credits_imputer(request: Request, proprietaire_id: str):
+    from app.services import credits_clients_service as cr
+    f = await request.form()
+    res = cr.imputer(str(f.get("credit_id", "") or ""), str(f.get("facture_id", "") or ""),
+                     f.get("montant", ""), acteur=str(f.get("acteur", "") or ""))
+    return _retour_credits(proprietaire_id, res, "Crédit imputé sur la facture.")
+
+
+@router.post("/comptes-proprietaires/{proprietaire_id}/credits/regulariser")
+async def credits_regulariser(request: Request, proprietaire_id: str):
+    from app.services import credits_clients_service as cr
+    f = await request.form()
+    res = cr.regulariser(str(f.get("imputation_id", "") or ""), str(f.get("credit_id", "") or ""),
+                         acteur=str(f.get("acteur", "") or ""))
+    return _retour_credits(proprietaire_id, res, "Reversement rattaché à son crédit d'origine.")
+
+
+@router.post("/comptes-proprietaires/{proprietaire_id}/credits/acompte-origine")
+async def credits_acompte_origine(request: Request, proprietaire_id: str):
+    from app.services import credits_clients_service as cr
+    f = await request.form()
+    res = cr.comptabiliser_encaissement_acompte(str(f.get("mouvement", "") or ""),
+                                                acteur=str(f.get("acteur", "") or ""))
+    return _retour_credits(proprietaire_id, res, "Encaissement de l'acompte comptabilisé (512 / 419100).")

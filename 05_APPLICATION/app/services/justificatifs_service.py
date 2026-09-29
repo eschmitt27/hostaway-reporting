@@ -6,14 +6,20 @@ HUMAINE, distincte de son identifiant technique :
     CHG-2026-09-001      charge de septembre 2026, première de la série du mois
     FAF-2026-09-001      facture fournisseur
 
-La pièce se range dans un dossier CANONIQUE, déterminé par la date de l'objet :
+La pièce se range dans un dossier CANONIQUE, déterminé par la date de l'objet, sous la racine
+des justificatifs (`cfg.JUSTIFICATIFS_ROOT`, par défaut `<DATA_DIR>/justificatifs`) :
 
-    01_SOURCES_BRUTES/Justificatifs/Charges/2026/09/CHG-2026-09-001__GIFI.pdf
-    01_SOURCES_BRUTES/Justificatifs/FacturesFournisseurs/2026/09/FAF-2026-09-001__…pdf
+    <racine>/Charges/2026/09/CHG-2026-09-001__GIFI.pdf
+    <racine>/FacturesFournisseurs/2026/09/FAF-2026-09-001__…pdf
 
 Le nom commence par la référence : c'est ce qui permet de VÉRIFIER la présence du fichier, au lieu
-de croire l'utilisateur sur parole. (`01_SOURCES_BRUTES` est la racine des sources brutes du
-projet ; `Justificatifs/` est exclu du dépôt git : une pièce réelle n'y est jamais versionnée.)
+de croire l'utilisateur sur parole.
+
+STOCKAGE (Mission 37). Les pièces sont des DONNÉES MÉTIER : elles vivent avec la base, sous
+DATA_DIR (déplaçable par APP_DATA_DIR), jamais dans l'arbre du code — une mise à jour du code,
+un autre worktree ou un déploiement qui conserve les données les conservent. La base n'enregistre
+que le dossier RELATIF à la racine (« Charges/2026/09 ») : déplacer les données ne casse aucun lien.
+Exclues de git.
 
 Deux réponses, et seulement deux, closent la question :
     JUSTIFICATIF_ARCHIVE           le fichier est dans le dossier (vérifié) ;
@@ -88,12 +94,26 @@ def dossier(objet_type: str, date_objet: Any) -> Path:
 
 
 def dossier_affiche(chemin: Path | str) -> str:
-    """Le dossier tel qu'on le montre : relatif au projet quand il y est, sinon absolu."""
-    p = Path(chemin)
-    try:
-        return p.resolve().relative_to(Path(cfg.PROJECT_ROOT).resolve()).as_posix() + "/"
-    except ValueError:
-        return str(p)
+    """Le dossier tel qu'on le montre : le chemin complet, celui où l'on range la pièce."""
+    return str(Path(chemin))
+
+
+def dossier_relatif(objet_type: str, date_objet: Any) -> str:
+    """Ce que la base enregistre : le dossier RELATIF à la racine des justificatifs."""
+    annee, mois = _mois(date_objet)
+    return f"{SOUS_DOSSIERS[objet_type]}/{annee}/{mois}"
+
+
+def dossier_de(j: dict[str, Any]) -> Path:
+    """Dossier réel d'un justificatif enregistré. Relatif (Mission 37) : sous la racine courante.
+    Ancien format (Mission 36, avant tout usage réel) : chemin absolu ou relatif au projet."""
+    d = str(j.get("dossier") or "")
+    p = Path(d)
+    if p.is_absolute():
+        return p
+    if d.startswith("01_SOURCES_BRUTES"):
+        return Path(cfg.PROJECT_ROOT) / d
+    return racine() / d
 
 
 def _serie(objet_type: str, date_objet: Any) -> str:
@@ -146,7 +166,7 @@ def attribuer(conn, objet_type: str, objet_id: str, date_objet: Any, *, acteur: 
     reference = formater(serie, numero)
     conn.execute("INSERT INTO justificatifs (reference, objet_type, objet_id, dossier, statut) "
                  "VALUES (?,?,?,?,?)",
-                 (reference, objet_type, objet_id, dossier_affiche(dossier(objet_type, date_objet)),
+                 (reference, objet_type, objet_id, dossier_relatif(objet_type, date_objet),
                   ST_A_CONFIRMER))
     conn.execute("INSERT INTO justificatif_evenements (reference, type_evenement, statut, acteur) "
                  "VALUES (?,?,?,?)", (reference, "ATTRIBUTION", ST_A_CONFIRMER, acteur or "local"))
@@ -180,7 +200,87 @@ def charger(objet_type: str, objet_id: str, *, db_path=None) -> dict[str, Any] |
     j = dict(r)
     j["libelle_statut"] = LIBELLES_STATUT.get(j["statut"], j["statut"])
     j["confirme"] = j["statut"] != ST_A_CONFIRMER
+    j["dossier_complet"] = dossier_affiche(dossier_de(j))
+    j["fichier_present"] = bool(j.get("fichier_constate")) and (
+        dossier_de(j) / str(j["fichier_constate"])).is_file()
     return j
+
+
+def charger_par_reference(reference: str, *, db_path=None) -> dict[str, Any] | None:
+    conn = get_db(db_path)
+    try:
+        r = conn.execute("SELECT objet_type, objet_id FROM justificatifs WHERE reference=?",
+                         (_txt(reference),)).fetchone()
+    finally:
+        conn.close()
+    return charger(r[0], r[1], db_path=db_path) if r else None
+
+
+def fichier(reference: str, *, db_path=None) -> Path | None:
+    """Le fichier constaté d'un justificatif, s'il est toujours là — jamais un autre chemin : le
+    nom vient de la base et doit être un fichier DIRECT du dossier de la référence."""
+    j = charger_par_reference(reference, db_path=db_path)
+    if not j or not j.get("fichier_constate"):
+        return None
+    d = dossier_de(j).resolve()
+    f = (d / str(j["fichier_constate"])).resolve()
+    if f.parent != d or not f.is_file() or not f.name.startswith(j["reference"]):
+        return None
+    return f
+
+
+def pieces_source(ecriture: dict[str, Any], *, db_path=None) -> list[dict[str, str]]:
+    """Pièces qui justifient une écriture générée depuis un objet source — LECTURE SEULE.
+
+    Une écriture issue d'une charge, d'une facture ou d'un crédit n'a pas à recevoir une seconde
+    pièce : elle se justifie par celle de son objet source, que l'on retrouve ici."""
+    origine, oid = _txt(ecriture.get("origine_type")), _txt(ecriture.get("origine_id_opaque"))
+    out: list[dict[str, str]] = []
+
+    def _piece(objet_type: str, objet_id: str, libelle: str, lien: str):
+        j = charger(objet_type, objet_id, db_path=db_path)
+        out.append({"libelle": libelle, "lien_objet": lien,
+                    "reference": (j or {}).get("reference", ""),
+                    "statut": (j or {}).get("libelle_statut", "Sans référence de justificatif"),
+                    "lien_piece": (f"/justificatifs/{j['reference']}"
+                                   if j and j.get("fichier_present") else ""),
+                    "justification": (j or {}).get("justification_absence") or ""})
+
+    conn = get_db(db_path)
+    try:
+        if origine == "LETTRAGE":
+            lettrage = oid.split("/")[0]
+            for r in conn.execute("SELECT type_element, element_id, libelle FROM flux_lettrage_lignes "
+                                  "WHERE lettrage_id_opaque=? AND cote='OBJET'", (lettrage,)).fetchall():
+                if r["type_element"] == "CHARGE":
+                    _piece(OBJET_CHARGE, r["element_id"], r["libelle"] or "Charge",
+                           f"/fournisseurs/{r['element_id']}")
+                elif r["type_element"] == "FACTURE_FOURNISSEUR":
+                    _piece(OBJET_FACTURE_FOURNISSEUR, r["element_id"], r["libelle"] or "Facture",
+                           f"/factures/{r['element_id']}")
+                elif r["type_element"] == "FACTURE_PROPRIETAIRE":
+                    out.append({"libelle": r["libelle"] or "Facture propriétaire", "reference": "",
+                                "lien_objet": f"/factures-proprietaires/{r['element_id']}",
+                                "statut": "Document émis", "justification": "",
+                                "lien_piece": f"/factures-proprietaires/{r['element_id']}/document"})
+        elif origine in ("FACTURE", "FACTURE_FOURNISSEUR"):     # écriture d'achat (ACHATS)
+            _piece(OBJET_FACTURE_FOURNISSEUR, oid, "Facture fournisseur", f"/factures/{oid}")
+        elif origine == "FACTURE_PROPRIETAIRE":
+            out.append({"libelle": "Facture propriétaire émise", "reference": "",
+                        "lien_objet": f"/factures-proprietaires/{oid}", "statut": "Document émis",
+                        "justification": "", "lien_piece": f"/factures-proprietaires/{oid}/document"})
+        elif origine in ("CREDIT_CLIENT", "IMPUTATION_CREDIT", "IMPUTATION_ACOMPTE"):
+            pid = conn.execute("SELECT auxiliaire FROM ecriture_lignes WHERE ecriture_id_opaque=? "
+                               "AND compte='419100' LIMIT 1",
+                               (ecriture["ecriture_id_opaque"],)).fetchone()
+            if pid and pid[0]:
+                out.append({"libelle": "Crédit du client (reversement Airbnb / acompte)",
+                            "reference": "", "statut": "Voir l'origine du crédit",
+                            "lien_objet": f"/comptes-proprietaires/{pid[0]}/credits",
+                            "lien_piece": "", "justification": ""})
+    finally:
+        conn.close()
+    return out
 
 
 def historique(reference: str, *, db_path=None) -> list[dict[str, Any]]:
@@ -233,8 +333,7 @@ def confirmer(objet_type: str, objet_id: str, *, present: str, justification: st
     j = charger(objet_type, objet_id, db_path=db_path)
     if j is None:
         return _refus(E_SANS_REFERENCE, "Cet objet n'a pas encore de référence de justificatif.")
-    d = Path(cfg.PROJECT_ROOT) / j["dossier"] if not Path(j["dossier"]).is_absolute() \
-        else Path(j["dossier"])
+    d = dossier_de(j)
     verif = verifier_reponse(j["reference"], d, present=present, justification=justification)
     if not verif["ok"]:
         return verif

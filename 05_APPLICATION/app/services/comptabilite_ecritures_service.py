@@ -48,7 +48,8 @@ TYPE_ECONOMIQUE_PAR_TYPE_LIGNE = {
     "CHARGES_EXCEPT_REFAC": "REFACTURATION", "CHARGE_REFACTUREE": "REFACTURATION",
     "REDUCTION": "REDUCTION",
 }
-ORIGINE_IMPUTATION_ACOMPTES = "IMPUTATION_ACOMPTES_FACTURE"
+ORIGINE_IMPUTATION_ACOMPTE = "IMPUTATION_ACOMPTE"        # une écriture par (facture, acompte)
+ORIGINE_IMPUTATION_CREDIT = "IMPUTATION_CREDIT"          # une écriture par imputation Airbnb
 
 E_FLAGS = "E_FLAGS_DESACTIVES"
 E_INTROUVABLE = "E_ECRITURE_INTROUVABLE"
@@ -709,77 +710,136 @@ def ecriture_vente_prevue(facture: dict[str, Any], *, db_path=None) -> dict[str,
             "total_client": total_client}
 
 
-def acomptes_a_imputer(facture: dict[str, Any], *, db_path=None) -> list[dict[str, Any]]:
-    """Acomptes VALIDÉS et reversements Airbnb imputés sur cette facture — la famille ACOMPTE."""
+def generer_ecriture_imputation_credit(imputation_airbnb_id: str, *, acteur: str = "",
+                                       db_path=None) -> dict[str, Any]:
+    """Constate l'imputation d'un reversement Airbnb sur une facture ÉMISE : 419100 → 411000.
+
+    L'imputation doit être reliée à un crédit dont l'origine est constatée (Mission 37) : sans lui,
+    refus — aucune écriture d'origine n'est inventée. Idempotent (une écriture par imputation)."""
+    from app.services import credits_clients_service as credits
     from app.services import factures_proprietaires_service as fpr
-    fid = facture["facture_id_opaque"]
-    items = []
-    for a in fpr.acomptes_proprietaire(fid, db_path=db_path):
-        if a["statut"] == "VALIDE" and int(a.get("actif") or 0) == 1 and float(a["montant"] or 0) > 0:
-            items.append({"type_economique": "ACOMPTE_APPLIQUE", "reference": a["mouvement_opaque"],
-                          "montant": round(float(a["montant"]), 2),
-                          "libelle": f"Acompte du {str(a.get('date_mouvement') or '')[:10]}"})
-    for r in fpr.reversements_airbnb(fid, db_path=db_path):
-        if str(r.get("statut") or "VALIDE").upper() == "VALIDE" and float(r["montant_impute"] or 0) > 0:
-            items.append({"type_economique": "REVERSEMENT_AIRBNB",
-                          "reference": r["imputation_airbnb_id"],
-                          "montant": round(float(r["montant_impute"]), 2),
-                          "libelle": "Reversement Airbnb"
-                                     + (f" {r['reference_airbnb']}" if r.get("reference_airbnb") else "")})
-    return items
-
-
-def credit_acomptes_disponible(proprietaire_id: str, *, db_path=None) -> float:
-    """Crédit du client au compte d'acomptes (419100), sur les écritures VALIDÉES : l'origine
-    comptable réelle des acomptes et reversements qu'on impute."""
+    if not _flags_actifs():
+        return _refus(E_FLAGS)
     conn = get_db(db_path)
     try:
-        r = conn.execute(
-            "SELECT COALESCE(SUM(l.credit - l.debit), 0) FROM ecriture_lignes l JOIN ecritures e "
-            "ON e.ecriture_id_opaque = l.ecriture_id_opaque WHERE l.compte = ? AND l.auxiliaire = ? "
-            "AND e.statut = ?", (COMPTE_ACOMPTES_CLIENTS, proprietaire_id, ST_VALIDEE)).fetchone()
+        imp = conn.execute("SELECT * FROM imputations_airbnb WHERE imputation_airbnb_id=?",
+                           (imputation_airbnb_id,)).fetchone()
     finally:
         conn.close()
-    return round(float(r[0] or 0), 2)
+    if imp is None:
+        return _refus(E_ORIGINE_INVALIDE, imputation_airbnb_id)
+    credit = credits.charger(imp["credit_id_opaque"], db_path=db_path) \
+        if imp["credit_id_opaque"] else None
+    if credit is None or credit["statut"] != credits.ST_DISPONIBLE:
+        return _refus(E_ORIGINE_ACOMPTE, f"reversement Airbnb {round(imp['montant_impute'], 2):.2f} € "
+                                         "sans crédit d'origine constatée — à régulariser")
+    facture = fpr.lire(imp["document_id"], db_path=db_path)
+    if facture["statut"] != fpr.ST_EMIS:
+        return {"ok": True, "en_attente_emission": True}
+    montant = round(float(imp["montant_impute"]), 2)
+    numero = facture.get("numero_facture") or facture["facture_id_opaque"]
+    pid = facture["proprietaire_id"]
+    libelle = f"Reversement Airbnb imputé — Facture {numero}"
+    res = _inserer_ecriture(
+        "ODIVERSES", facture.get("date_facture") or f"{facture['mois']}-01", facture["mois"],
+        numero, libelle, ORIGINE_IMPUTATION_CREDIT, imputation_airbnb_id,
+        [{"compte": COMPTE_ACOMPTES_CLIENTS, "debit": montant, "credit": 0, "auxiliaire": pid,
+          "proprietaire_id": pid, "libelle": f"{libelle} ({credit['reference'] or credit['credit_id_opaque']})"},
+         {"compte": COMPTE_PROPRIETAIRES, "debit": 0, "credit": montant, "auxiliaire": pid,
+          "proprietaire_id": pid, "libelle": libelle}],
+        acteur=acteur, db_path=db_path)
+    if res.get("ok") and not res.get("deja_generee"):
+        conn = get_db(db_path)
+        try:
+            conn.execute("UPDATE imputations_airbnb SET ecriture_imputation=? "
+                         "WHERE imputation_airbnb_id=?", (res["ecriture_id_opaque"], imputation_airbnb_id))
+            credits._evenement(conn, credit["credit_id_opaque"], "ECRITURE_IMPUTATION", acteur=acteur,
+                               montant=montant, facture_id=facture["facture_id_opaque"],
+                               ecriture_id=res["ecriture_id_opaque"])
+            conn.commit()
+        finally:
+            conn.close()
+    return res
+
+
+def _acomptes_imputes_par_fifo(facture: dict[str, Any], *, db_path=None) -> list[dict[str, Any]]:
+    """Part de chaque ACOMPTE que le FIFO du compte propriétaire impute sur cette facture.
+
+    Seuls comptent les acomptes (mouvement propriétaire → société, nature ACOMPTE) qui ne sont pas
+    un règlement direct de facture : un encaissement créé par un rapprochement de facture est déjà
+    constaté 512 / 411 et n'a rien à transiter par 419100."""
+    from app.services import compte_proprietaire_service as cpt
+    from app.services import proprietaires_tresorerie_service as tres
+    fid = facture["facture_id_opaque"]
+    out = []
+    for a in cpt.calculer(facture["proprietaire_id"], db_path=db_path)["allocations"]:
+        if a["facture_id_opaque"] != fid or a["source_type"] != cpt.SRC_PAIEMENT:
+            continue
+        m = tres.charger(a["source_ref"], db_path)
+        if (m is None or m["nature"] != "ACOMPTE_PROPRIETAIRE"
+                or str(m.get("source_type") or "") == "FLUX_LETTRAGE"):
+            continue
+        out.append({"reference": a["source_ref"], "montant": round(a["montant_alloue"], 2),
+                    "date": str(m.get("date_mouvement") or "")[:10]})
+    return out
 
 
 def generer_ecriture_imputation_acomptes(facture: dict[str, Any], *, acteur: str = "",
                                          db_path=None) -> dict[str, Any]:
-    """Impute sur la créance les acomptes et reversements Airbnb déjà détenus : 419100 → 411000.
+    """Impute sur la créance de cette facture ÉMISE ce que le client a déjà en 419100.
 
-    Décision métier : un reversement Airbnb qui réduit le montant dû est de la famille ACOMPTE
-    (sous-type conservé dans le libellé), jamais une réduction (709600) ni un produit négatif.
-    Aucune écriture de banque n'est inventée : si le crédit du client en 419100 ne couvre pas ce
-    qu'on impute, c'est une INCOHÉRENCE, signalée et non comptabilisée."""
+    · ACOMPTES : la part que le FIFO leur attribue sur cette facture ; une écriture 419100 → 411000
+      par acompte, si l'acompte a son origine comptable (512 / 419100) ;
+    · REVERSEMENTS AIRBNB : chaque imputation reliée à un crédit dont l'origine est constatée
+      (`generer_ecriture_imputation_credit`).
+    Ce qui n'a pas d'origine comptable n'est PAS écrit : il est rendu dans `sans_origine` (refus
+    propre, à régulariser), jamais compensé par une écriture inventée. Rejouable sans doublon."""
+    from app.services import credits_clients_service as credits
+    from app.services import factures_proprietaires_service as fpr
     if not _flags_actifs():
         return _refus(E_FLAGS)
     if facture.get("statut") != "EMIS" or facture.get("type_document", "FACTURE") != "FACTURE":
-        return {"ok": True, "rien_a_imputer": True}
-    items = acomptes_a_imputer(facture, db_path=db_path)
-    if not items:
-        return {"ok": True, "rien_a_imputer": True}
+        return {"ok": True, "rien_a_imputer": True, "ecritures": [], "sans_origine": []}
     fid = facture["facture_id_opaque"]
-    existant = _deja_generee("ODIVERSES", ORIGINE_IMPUTATION_ACOMPTES, fid, db_path)
-    if existant:
-        return {"ok": True, "ecriture_id_opaque": existant, "deja_generee": True}
-    proprietaire_id = facture["proprietaire_id"]
-    total = round(sum(i["montant"] for i in items), 2)
-    disponible = credit_acomptes_disponible(proprietaire_id, db_path=db_path)
-    if disponible + 0.005 < total:
-        return _refus(E_ORIGINE_ACOMPTE,
-                      f"à imputer {total:.2f} € (acomptes et reversements Airbnb) ; crédit du "
-                      f"client en {COMPTE_ACOMPTES_CLIENTS} : {disponible:.2f} €")
+    pid = facture["proprietaire_id"]
     numero = facture.get("numero_facture") or fid
-    lignes = [{"compte": COMPTE_ACOMPTES_CLIENTS, "debit": i["montant"], "credit": 0,
-               "auxiliaire": proprietaire_id, "proprietaire_id": proprietaire_id,
-               "libelle": f"{i['libelle']} imputé — Facture {numero}"} for i in items]
-    lignes.append({"compte": COMPTE_PROPRIETAIRES, "debit": 0, "credit": total,
-                   "auxiliaire": proprietaire_id, "proprietaire_id": proprietaire_id,
-                   "libelle": f"Imputation des acomptes — Facture {numero}"})
-    return _inserer_ecriture(
-        "ODIVERSES", facture.get("date_facture") or f"{facture['mois']}-01", facture["mois"],
-        numero, f"Imputation des acomptes — Facture {numero}", ORIGINE_IMPUTATION_ACOMPTES, fid,
-        lignes, acteur=acteur, db_path=db_path)
+    ecritures, sans_origine = [], []
+
+    for a in _acomptes_imputes_par_fifo(facture, db_path=db_path):
+        if not credits.ecriture_origine_acompte(a["reference"], db_path=db_path):
+            sans_origine.append({"type": "ACOMPTE_APPLIQUE", "montant": a["montant"],
+                                 "detail": f"acompte du {a['date']} sans encaissement comptabilisé"})
+            continue
+        libelle = f"Acompte imputé — Facture {numero}"
+        res = _inserer_ecriture(
+            "ODIVERSES", facture.get("date_facture") or f"{facture['mois']}-01", facture["mois"],
+            numero, libelle, ORIGINE_IMPUTATION_ACOMPTE, f"{fid}|{a['reference']}",
+            [{"compte": COMPTE_ACOMPTES_CLIENTS, "debit": a["montant"], "credit": 0,
+              "auxiliaire": pid, "proprietaire_id": pid, "libelle": f"Acompte du {a['date']} imputé"},
+             {"compte": COMPTE_PROPRIETAIRES, "debit": 0, "credit": a["montant"],
+              "auxiliaire": pid, "proprietaire_id": pid, "libelle": libelle}],
+            acteur=acteur, db_path=db_path)
+        if res.get("ok"):
+            ecritures.append(res["ecriture_id_opaque"])
+
+    for r in fpr.reversements_airbnb(fid, db_path=db_path):
+        if str(r.get("statut") or "VALIDE").upper() not in ("VALIDE", "VALIDEE"):
+            continue
+        res = generer_ecriture_imputation_credit(r["imputation_airbnb_id"], acteur=acteur,
+                                                 db_path=db_path)
+        if res.get("ok") and res.get("ecriture_id_opaque"):
+            ecritures.append(res["ecriture_id_opaque"])
+        elif not res.get("ok"):
+            sans_origine.append({"type": "REVERSEMENT_AIRBNB",
+                                 "montant": round(float(r["montant_impute"]), 2),
+                                 "detail": res.get("detail") or res.get("message")})
+    if sans_origine:
+        return {**_refus(E_ORIGINE_ACOMPTE, "; ".join(f"{x['montant']:.2f} € — {x['detail']}"
+                                                      for x in sans_origine)),
+                "ecritures": ecritures, "sans_origine": sans_origine}
+    return {"ok": True, "ecritures": ecritures, "sans_origine": [],
+            "rien_a_imputer": not ecritures,
+            "ecriture_id_opaque": ecritures[0] if len(ecritures) == 1 else None}
 
 
 def comptabiliser_facture_emise(facture: dict[str, Any], *, acteur: str = "",
