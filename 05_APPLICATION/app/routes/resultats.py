@@ -71,6 +71,9 @@ def resultats_dashboard(request: Request, mois: str = "", vision: str = "REEL"):
         "mois_disponibles": ana.mois_disponibles(), "globales": globales,
         "resultat_courant": resultat_courant, "resultat_precedent": resultat_prec,
         "mois_precedent": mois_prec, "cumule": cumule, "periode": periode,
+        # Graphique « Évolution mensuelle » (PR #4), tout le parc : il n'était visible que
+        # sur /resultats/pilotage, jamais sur l'écran ouvert par le menu.
+        "serie": pilot.serie_mensuelle(),
     })
 
 

@@ -67,6 +67,9 @@
   </div>
 </div>
 
+{% set graphique_lien = "/resultats/pilotage" %}
+{% include "partials/_graphique_pilotage.html" %}
+
 {% if globales.statut == "OK" %}
 <section class="card">
   <h2 class="card-title">Global par vision (Lot10)</h2>

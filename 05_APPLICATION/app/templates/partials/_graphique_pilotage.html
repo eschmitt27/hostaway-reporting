@@ -1,0 +1,180 @@
+{#- Graphique « Évolution mensuelle » (finitions PR #4) — partagé par /resultats/pilotage et
+    /resultats. Attend `serie` = resultats_pilotage_service.serie_mensuelle(...) ; lecture seule,
+    aucune valeur recalculée. `graphique_lien` (facultatif) : lien vers l'écran filtrable. -#}
+{% import "partials/_resultats.html" as r %}
+<section class="card fi-graphique">
+  <div class="fi-card-tete">
+    <h2 class="card-title">Évolution mensuelle</h2>
+    {% if graphique_lien is defined %}<a href="{{ graphique_lien }}" class="btn btn-ghost">Filtrer dans Pilotage</a>{% endif %}
+    {% if serie.statut == "OK" %}
+    <div class="fi-legende" role="group" aria-label="Séries affichées">
+      <label class="fi-legende__item" style="--serie: var(--fi-serie-1)"><input type="checkbox" class="serie-toggle" data-serie="total_payout" checked> Total payout</label>
+      <label class="fi-legende__item" style="--serie: var(--fi-serie-2)"><input type="checkbox" class="serie-toggle" data-serie="ca_conciergerie" checked> CA conciergerie</label>
+      <label class="fi-legende__item" style="--serie: var(--fi-serie-3)"><input type="checkbox" class="serie-toggle" data-serie="commission" checked> Commission conciergerie</label>
+    </div>
+    {% endif %}
+  </div>
+  {% if serie.statut != "OK" %}
+  <div class="fi-vide fi-vide--compact">
+    <span class="fi-vide__titre">Aucune donnée disponible pour cette période.</span>
+    <span class="fi-vide__texte">Le graphique apparaîtra dès qu'un calcul aura produit au moins un mois.</span>
+  </div>
+  {% else %}
+  <div class="fi-graphique__zone">
+    <canvas id="chart-pilotage" role="img" aria-label="Évolution mensuelle du total payout, du CA et de la commission conciergerie"></canvas>
+    <div class="fi-infobulle" id="chart-pilotage-infobulle" hidden></div>
+  </div>
+  <details class="fi-depliant fi-depliant--ligne">
+    <summary>Voir les données en tableau</summary>
+    <div class="fi-depliant__corps">
+      <div class="ec-table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Mois</th><th class="num">Total payout</th><th class="num">CA conciergerie</th><th class="num">Commission conciergerie</th></tr></thead>
+          <tbody>
+            {% for p in serie.points %}
+            <tr><td class="ec-nowrap">{{ p.mois|mois_humain }}</td>
+              <td class="num">{{ r.eur(p.total_payout) }}</td>
+              <td class="num">{{ r.eur(p.ca_conciergerie) }}</td>
+              <td class="num">{{ r.eur(p.commission) }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </details>
+  <script id="pilotage-data" type="application/json">{{ serie.points | tojson }}</script>
+  <script>
+  (function() {
+    const points = JSON.parse(document.getElementById('pilotage-data').textContent);
+    const canvas = document.getElementById('chart-pilotage');
+    const bulle = document.getElementById('chart-pilotage-infobulle');
+    const ctx = canvas.getContext('2d');
+    const css = getComputedStyle(canvas);
+    const lire = (nom, defaut) => (css.getPropertyValue(nom) || '').trim() || defaut;
+    // Palette catégorielle validée (ordre fixe, jamais recyclé) : la couleur suit la série.
+    const series = {
+      total_payout:    {label: 'Total payout',            color: lire('--fi-serie-1', '#2a78d6')},
+      ca_conciergerie: {label: 'CA conciergerie',         color: lire('--fi-serie-2', '#eb6834')},
+      commission:      {label: 'Commission conciergerie', color: lire('--fi-serie-3', '#1baf7a')},
+    };
+    const encre = lire('--fi-encre-secondaire', '#5b5f61');
+    const grille = lire('--fi-grille', '#e8edff');
+    const actives = new Set(Object.keys(series));
+    const MOIS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+    const moisCourt = m => { const p = String(m || '').split('-'); return p.length === 2 ? MOIS[(+p[1]) - 1] + ' ' + p[0].slice(2) : m; };
+    const euros = v => v.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €';
+    let geo = null, survol = -1;
+
+    function resize() {
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * devicePixelRatio;
+      canvas.height = rect.height * devicePixelRatio;
+      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+      draw();
+    }
+
+    function draw() {
+      const w = canvas.clientWidth, h = canvas.clientHeight;
+      ctx.clearRect(0, 0, w, h);
+      if (!points.length) return;
+      const padL = 72, padB = 30, padT = 12, padR = 16;
+      const plotW = w - padL - padR, plotH = h - padT - padB;
+      let maxV = 0;
+      for (const p of points) {
+        for (const k of actives) { if (typeof p[k] === 'number' && p[k] > maxV) maxV = p[k]; }
+      }
+      if (maxV === 0) maxV = 1;
+      // Grille horizontale discrète + libellés de l'axe (une seule échelle, en euros).
+      ctx.font = '11px "Segoe UI", Arial, sans-serif';
+      ctx.textAlign = 'right';
+      for (let i = 0; i <= 4; i++) {
+        const v = maxV * i / 4;
+        const y = Math.round(padT + plotH - (plotH * i / 4)) + 0.5;
+        ctx.strokeStyle = grille; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + plotW, y); ctx.stroke();
+        ctx.fillStyle = encre;
+        ctx.fillText(Math.round(v).toLocaleString('fr-FR') + ' €', padL - 8, y + 4);
+      }
+      // Mois : un libellé sur deux si la place manque.
+      ctx.textAlign = 'center';
+      const stepX = points.length > 1 ? plotW / (points.length - 1) : 0;
+      const pas = Math.max(1, Math.ceil(points.length / Math.max(1, Math.floor(plotW / 64))));
+      const xDe = i => padL + (points.length > 1 ? stepX * i : plotW / 2);
+      const dernierRegulier = Math.floor((points.length - 1) / pas) * pas;
+      points.forEach((p, i) => {
+        // Le dernier mois est toujours nommé, sauf s'il chevaucherait le libellé précédent.
+        const dernier = i === points.length - 1 && (i - dernierRegulier) * stepX >= 56;
+        if (i % pas === 0 || dernier) {
+          ctx.fillStyle = i === survol ? '#101b30' : encre;
+          ctx.fillText(moisCourt(p.mois), xDe(i), padT + plotH + 20);
+        }
+      });
+      // Repère vertical du mois survolé.
+      if (survol >= 0) {
+        const x = Math.round(xDe(survol)) + 0.5;
+        ctx.strokeStyle = '#c0c8cb'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + plotH); ctx.stroke();
+      }
+      // Séries : traits de 2 px, points de 8 px entourés de blanc.
+      for (const key of Object.keys(series)) {
+        if (!actives.has(key)) continue;
+        const s = series[key];
+        ctx.strokeStyle = s.color; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+        ctx.beginPath();
+        let started = false;
+        points.forEach((p, i) => {
+          const v = p[key];
+          if (typeof v !== 'number') { started = false; return; }
+          const x = xDe(i), y = padT + plotH - (v / maxV) * plotH;
+          if (!started) { ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); }
+        });
+        ctx.stroke();
+        points.forEach((p, i) => {
+          const v = p[key];
+          if (typeof v !== 'number') return;
+          const x = xDe(i), y = padT + plotH - (v / maxV) * plotH;
+          const r = i === survol ? 5 : (points.length <= 18 ? 3.5 : 0);
+          if (!r) return;
+          ctx.beginPath(); ctx.arc(x, y, r + 2, 0, Math.PI * 2); ctx.fillStyle = '#ffffff'; ctx.fill();
+          ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = s.color; ctx.fill();
+        });
+      }
+      geo = {padL, plotW, stepX, xDe};
+    }
+
+    function infobulle(i, xClient) {
+      if (i < 0) { bulle.hidden = true; return; }
+      const p = points[i];
+      const lignes = Object.keys(series).filter(k => actives.has(k) && typeof p[k] === 'number')
+        .map(k => '<div class="fi-infobulle__ligne"><span class="fi-infobulle__puce" style="background:' + series[k].color + '"></span>'
+                  + series[k].label + '<strong>' + euros(p[k]) + '</strong></div>').join('');
+      bulle.innerHTML = '<div class="fi-infobulle__titre">' + moisCourt(p.mois) + '</div>' + (lignes || '<div>Aucune série affichée</div>');
+      bulle.hidden = false;
+      const zone = canvas.getBoundingClientRect();
+      const x = geo.xDe(i);
+      const gauche = x + 14 + bulle.offsetWidth > zone.width ? x - 14 - bulle.offsetWidth : x + 14;
+      bulle.style.left = Math.max(0, gauche) + 'px';
+    }
+
+    canvas.addEventListener('mousemove', e => {
+      if (!geo || !points.length) return;
+      const x = e.clientX - canvas.getBoundingClientRect().left;
+      const i = points.length > 1 ? Math.round((x - geo.padL) / geo.stepX) : 0;
+      const idx = Math.min(points.length - 1, Math.max(0, i));
+      if (idx !== survol) { survol = idx; draw(); }
+      infobulle(idx);
+    });
+    canvas.addEventListener('mouseleave', () => { survol = -1; draw(); infobulle(-1); });
+
+    document.querySelectorAll('.serie-toggle').forEach(cb => {
+      cb.addEventListener('change', () => {
+        if (cb.checked) actives.add(cb.dataset.serie); else actives.delete(cb.dataset.serie);
+        draw();
+      });
+    });
+    window.addEventListener('resize', resize);
+    resize();
+  })();
+  </script>
+  {% endif %}
+</section>
