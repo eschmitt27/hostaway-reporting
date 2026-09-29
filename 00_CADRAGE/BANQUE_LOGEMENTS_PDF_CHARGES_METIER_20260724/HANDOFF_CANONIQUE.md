@@ -4357,3 +4357,85 @@ d'être inventée. (2) Les 3 écritures de vente déjà générées (dont la pro
 comptabilisées par ligne. (3) Les charges antérieures n'ont pas de référence CHG tant qu'on ne la
 demande pas depuis leur fiche. (4) Catégories hors catalogue listées ci-dessus : compte à arbitrer.
 PR #4 en attente, non mergée.
+
+## Mission 37 (2026-09-29) — Derniers trous fonctionnels avant recette V1
+
+Commit(s) `2cf1381`, migration **0115** (additive). Aucun mois clôturé, aucune écriture réelle.
+
+**Reversements Airbnb — ce que c'est.** D032 : un versement d'Airbnb reçu par la conciergerie pour
+le compte d'un propriétaire ; il réduit uniquement ce que ce propriétaire doit. Jamais relié à une
+réservation (règle Banque inchangée : le virement est qualifié par son origine plateforme,
+`PAYOUT_PLATEFORME`). Jusqu'ici il n'existait que comme IMPUTATION sur une facture
+(`imputations_airbnb`), sans objet pour l'argent reçu : pas d'origine comptable, pas de reste.
+
+**Modèle du crédit client** (`credits_clients`, `credits_clients_service`) : propriétaire, date et
+mois d'origine, origine (REVERSEMENT_AIRBNB), montant initial, utilisé, reste, statut, historique
+(`credit_client_evenements`), imputations (`imputations_airbnb.credit_id_opaque`, écriture
+`ecriture_imputation`). Les ACOMPTES ne sont pas recopiés : ils restent des mouvements de
+trésorerie propriétaire imputés par le FIFO ; l'écran les présente avec la même lecture.
+
+| Cas | Traitement |
+|---|---|
+| A. Montant encaissé et identifiable | déclaré (EN_ATTENTE_ORIGINE), rapproché dans Flux du virement Airbnb réel (un virement peut couvrir plusieurs propriétaires ; pas d'origine partielle) → 512 / 419100, crédit DISPONIBLE |
+| B. Crédit créé manuellement sur justification | compte source nommé (jamais 512, 530, 411, 419) + justification obligatoire → écriture validée <source> / 419100 |
+| C. Montant purement calculé dans une facture | aucune écriture : le calcul (Lot10, solde) ne crée ni crédit ni pièce |
+| D. Donnée historique sans origine fiable | « à régulariser » (écran Crédits, fiche facture) ; rattachement à un crédit d'origine constatée → écriture ; sinon refus propre, rien d'inventé |
+
+Application : imputation d'un crédit DISPONIBLE sur une facture du même propriétaire, plafonnée
+par le reste du crédit et le solde de la facture → 419100 → 411000 (proposée ; à l'émission si la
+facture est encore en brouillon). Acomptes : 419100 → 411000 par acompte, selon la part que le FIFO
+impute à chaque facture émise, si l'acompte a son origine (rapprochement Flux 512 / 419100, ou
+régularisation d'un rapprochement de l'ancien écran Qonto). La saisie libre d'un reversement sur la
+facture n'est plus proposée : on impute le crédit qui le représente.
+
+**Écrans.** Compte propriétaire › Crédits : crédit disponible, origine, utilisé, reste, factures
+imputées (par numéro), écriture d'origine ; déclarer un reversement, imputer, régulariser, constater
+l'encaissement d'un acompte Qonto. Fiche facture : origine comptable de chaque reversement.
+
+**Écriture de 823,65 €.** Non migrée. Les écritures existantes avant la Mission 36 ne sont pas
+recomposées automatiquement ; seules les nouvelles émissions suivent le modèle par ligne.
+
+**Catégories sans compte automatique (audit).**
+
+| Catégorie | Nature | Mapping fixe possible ? | Proposition |
+|---|---|---|---|
+| CHG_002 Ménage interne | main-d'œuvre interne, hors compta par défaut | Non (C) | aucune charge comptable ; à définir si exceptionnellement comptable |
+| CHG_012 Remboursement voyageur | remboursement pour compte du propriétaire ou geste | Non (B) | imputation justifiée selon le cas |
+| CHG_013 Associées · Salaire | rémunération d'associé | Non (C) | compte selon le statut social, à arbitrer avec l'expert-comptable (non inventé) |
+| CHG_014 Associées · Avance | compte courant d'associé | Non (C) | mouvement 455, jamais une charge |
+| CHG_015 Associées · Remboursement de frais | frais avancé par un associé | Non (D) | saisir la charge sous sa vraie catégorie |
+| CHG_016 Forfait client | ligne de facture propriétaire | Non (C) | produit 706300 côté facture ; exclu de la saisie |
+| CHG_017 Charge générale / non affectée | fourre-tout | Non (D) | imputation manuelle justifiée ; à remplacer par le catalogue |
+| CHG_019 Sinistre · dégât logement | immobilier ou mobilier | Choix (B) | autorisés 615200 / 615500 (0115), aucun par défaut |
+| CHG_020 Autre · à contrôler | à qualifier | Non (D) | requalifier |
+| CHG_021 Incident voyageur | réparation, geste, remboursement | Non (B/D) | imputation justifiée selon la nature |
+| CHG_022 AirCover refacturée | règlement plateforme | Non (C) | objet de règlement, pas une charge |
+| CHG_023 Forfait local cave | loyer du local, hors compta, hors saisie | A si comptable | 613200 le jour où il devient comptable |
+| CHG_024 Autre (personnalisée) | libre | Non (D) | = « Autre charge » : imputation libre justifiée |
+| CHG_025 Repas | réception ou déplacement | Choix (B) | autorisés 625700 / 625100 (0115) |
+| CHG_026 Prestation diverse | générique | Non (D) | imputation justifiée |
+| CHG_027 Supplément ménage | interne (hors compta) ou sous-traité | Non (B) | sous-traité : 611100 par imputation ; interne : hors compta |
+| CHG_043 Impôts / taxes | selon la taxe | Choix | 635110 / 635400 (0114) |
+
+**Justificatifs — stockage.** Audit : `01_SOURCES_BRUTES/Justificatifs/` était dans l'arbre du
+code (worktree). Déplacé AVANT tout usage réel (aucune pièce n'y avait été rangée) vers
+`<DATA_DIR>/justificatifs` : les pièces vivent avec la base (même dossier de données, déplaçable par
+`APP_DATA_DIR`), exclues de git ; la base n'enregistre que le dossier relatif (« Charges/2026/09 »).
+Mise à jour du code : sans effet. Redémarrage : vérifié (nouveau processus). Chemins Windows :
+`pathlib`, aucun chemin utilisateur codé. **Point d'attention** : `APP_DATA_DIR` n'est pas renseigné
+sur l'installation actuelle, donc la base ET les pièces sont dans `05_APPLICATION/data` du worktree ;
+pour un déploiement ou un changement de worktree, fixer `APP_DATA_DIR` vers un dossier stable hors du
+code (et sauvegarder ce dossier entier : la sauvegarde applicative copie `app.db`, pas les pièces).
+
+**Pièce ↔ objet.** Lien « Ouvrir la pièce » (route `/justificatifs/<référence>`, seul le fichier
+constaté est servi) depuis la charge et la facture fournisseur ; la fiche d'écriture montre la
+« Pièce source » (charge, facture, document émis, crédit) et ne demande aucune seconde pièce.
+
+**Preuves.** `tests/test_credits_clients_reversements.py` (24 tests). Suite complète : 4 553 passed / 37 skipped, 1 échec (filtre d'un test Mission 36 sur les règles semées) corrigé puis revérifié (10 passed).
+Recette copie 10/10 (crédit réel rapproché, 419100, imputation partielle puis extinction sur deux
+factures, origine justifiée, refus sans origine sur les données historiques, pièce ouverte, pièce
+servie après redémarrage). Migration 0115 appliquée à la base réelle après sauvegarde : additive (aucune table existante modifiée hors périmètre ; 0 crédit créé ; les 2 reversements historiques de 425 € et 54 € intacts, à régulariser). Contrôle en lecture de 10 écrans (Flux, Crédits, fiche facture, écriture, charge, mappings) : empreinte identique.
+
+**Limites.** Réallocation FIFO d'un acompte après une imputation déjà constatée : non recomposée
+automatiquement (cas rare, visible dans l'écran Crédits). Sauvegarde des pièces : celle du dossier
+de données, pas l'outil de sauvegarde applicatif. PR #4 en attente, non mergée.

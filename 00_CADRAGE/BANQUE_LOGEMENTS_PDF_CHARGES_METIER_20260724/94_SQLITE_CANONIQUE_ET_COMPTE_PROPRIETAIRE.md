@@ -218,6 +218,15 @@ acomptes et reversements Airbnb qui lui sont rattachés s'imputent 419100 → 41
 Airbnb est de la famille ACOMPTE (décision utilisateur) : ni réduction (709600), ni produit négatif.
 Sans crédit suffisant en 419100, l'imputation est refusée et signalée — aucun encaissement inventé.
 
+### 2.12 Crédits clients (Mission 37)
+
+Un reversement Airbnb est un CRÉDIT (`credits_clients`) : montant initial, origine constatée
+(virement rapproché 512 / 419100, ou origine justifiée sur un compte source nommé), imputations
+facture par facture (419100 → 411000), reste. Les imputations restent des lignes
+`imputations_airbnb` (le solde et Lot10 les lisent). Une imputation historique sans crédit d'origine
+est « à régulariser ». Les acomptes restent imputés par le FIFO ; leur passage 419100 → 411000 suit
+la part que le FIFO attribue à chaque facture émise.
+
 ---
 
 ## 3. Migrations

@@ -5898,3 +5898,14 @@ mappings, auxiliaires, justificatifs, type économique des lignes). Aucune charg
 copie 10/10 ; lecture des écrans sans écriture.
 
 **Base réelle.** Migration 0114 appliquée à la base réelle après sauvegarde : additive (aucune table existante modifiée hors périmètre ; 7 charges et 5 écritures intactes ; aucun justificatif, aucune écriture, aucune pièce créés). Contrôle en lecture de 10 écrans (Flux, saisie, fiche charge, plan, mappings, écriture) : empreinte identique. Détail : `HANDOFF_CANONIQUE.md`, Mission 36.
+
+## CTR-CREDITS-CLIENTS-REVERSEMENTS-2026-09-29 — derniers trous avant recette V1 (D029)
+
+**Périmètre.** Mission 37, commit(s) `2cf1381`, migration 0115 (additive). Crédits clients et
+origine comptable des reversements Airbnb, acomptes par FIFO, régularisation des données
+historiques, catégories ambiguës, stockage et consultation des pièces.
+
+**Contrôles.** `test_credits_clients_reversements.py` 24 passed ; suite complète 4 553 passed / 37 skipped, 1 échec (filtre d'un test Mission 36 sur les règles semées) corrigé puis revérifié (10 passed) ; recette
+copie 10/10 (dont redémarrage).
+
+**Base réelle.** Migration 0115 appliquée à la base réelle après sauvegarde : additive (aucune table existante modifiée hors périmètre ; 0 crédit créé ; les 2 reversements historiques de 425 € et 54 € intacts, à régulariser). Contrôle en lecture de 10 écrans (Flux, Crédits, fiche facture, écriture, charge, mappings) : empreinte identique. Détail : `HANDOFF_CANONIQUE.md`, Mission 37.
