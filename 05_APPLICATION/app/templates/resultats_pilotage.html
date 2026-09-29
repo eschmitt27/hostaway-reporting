@@ -1,87 +1,131 @@
 {% extends "base.html" %}
 {% block title %}Pilotage — Résultats{% endblock %}
 {% block content %}
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+{% import "partials/_resultats.html" as r %}
+<div class="ecran">
 
-<div class="page-header">
-  <h1 class="page-title">Pilotage — vue d'ensemble</h1>
-  <p class="page-subtitle">
-    Source : run Lot10 actif uniquement (aucune génération mélangée). Le moteur calcule, cet écran
-    ne fait que sommer ses résultats déjà calculés.
-  </p>
-</div>
+{{ r.entete("Pilotage — vue d'ensemble", sous_titre="Source : run Lot10 actif uniquement (aucune génération mélangée). Le moteur calcule, cet écran ne fait que sommer ses résultats déjà calculés.") }}
 
-<form method="get" action="/resultats/pilotage" class="filter-bar mb-md">
-  <label>Mois <select name="mois">
+<form method="get" action="/resultats/pilotage" class="ec-filtres" data-fi-filtres>
+  <label class="ec-champ"><span>Mois</span><select name="mois">
     <option value="">Tous</option>
-    {% for m in mois_disponibles %}<option value="{{ m }}" {{ 'selected' if m == mois }}>{{ m }}</option>{% endfor %}
+    {% for m in mois_disponibles %}<option value="{{ m }}" {{ 'selected' if m == mois }}>{{ m|mois_humain }}</option>{% endfor %}
   </select></label>
-  <label>Propriétaire <select name="proprietaire_id" onchange="this.form.submit()">
+  <label class="ec-champ"><span>Propriétaire</span><select name="proprietaire_id" onchange="this.form.submit()">
     <option value="">Tous</option>
     {% for p in filtres.proprietaires %}<option value="{{ p.id }}" {{ 'selected' if p.id == proprietaire_id }}>{{ p.libelle }}</option>{% endfor %}
   </select></label>
-  <label>Logement <select name="logement_id">
+  <label class="ec-champ"><span>Logement</span><select name="logement_id">
     <option value="">Tous</option>
     {% for l in logements_dispo %}<option value="{{ l.id }}" {{ 'selected' if l.id == logement_id }}>{{ l.libelle }}</option>{% endfor %}
   </select></label>
-  <label>Plateforme <select name="canal">
+  <label class="ec-champ"><span>Plateforme</span><select name="canal">
     <option value="">Toutes</option>
     {% for c in filtres.canaux %}<option value="{{ c.id }}" {{ 'selected' if c.id == canal }}>{{ c.libelle }}</option>{% endfor %}
   </select></label>
-  <button type="submit" class="btn btn-primary">Filtrer</button>
-  <a href="/resultats/pilotage" class="btn btn-ghost">Réinitialiser</a>
+  <div class="ec-filtres__actions">
+    <a href="/resultats/pilotage" class="btn btn-ghost fi-reinit">Réinitialiser <span class="fi-nb-filtres" hidden></span></a>
+    <button type="submit" class="btn btn-primary">Filtrer</button>
+  </div>
 </form>
 
 {% if vue.statut == "NON_DISPONIBLE" %}
-<div class="alert alert-warning">Calcul non encore disponible — Lot10 n'a jamais été exécuté sur cette base.</div>
+{{ r.indisponible("Calcul non encore disponible", "Lot10 n'a jamais été exécuté sur cette base : lancez une actualisation des calculs.") }}
 
 {% elif vue.statut == "VIDE" %}
-<div class="alert alert-info">Aucune donnée disponible pour cette période / ce filtre.</div>
+<div class="card fi-vide">
+  <span class="fi-vide__titre">Aucune donnée disponible pour cette période / ce filtre.</span>
+  <span class="fi-vide__texte">Retirez un filtre ou choisissez « Tous » les mois.</span>
+</div>
 
 {% else %}
 {% set k = vue.kpi %}
-<div class="kpi-grid kpi-grid--6 mb-md">
-  <div class="kpi-card"><div class="kpi-label">Total payout</div><div class="kpi-value">{{ "%.2f"|format(k.total_payout) }} €</div></div>
-  <div class="kpi-card kpi-card--warn"><div class="kpi-label">CA conciergerie</div>
-    <div class="kpi-value">{{ "%.2f"|format(k.ca_conciergerie) if k.ca_conciergerie is not none else "—" }}{% if k.ca_conciergerie is not none %} €{% endif %}</div>
-    {% if vue.ventilation_limitee %}<div class="kpi-sub">non ventilé par plateforme</div>{% endif %}
+{% macro euro(v) -%}{%- if v is none -%}<span class="fi-kpi__valeur fi-kpi__valeur--texte">—</span>{%- else -%}<span class="fi-kpi__valeur">{{ "%.2f"|format(v) }} €</span>{%- endif -%}{%- endmacro %}
+<section class="fi-section" aria-labelledby="titre-activite">
+  <div class="fi-section__tete"><h2 class="fi-section__titre" id="titre-activite">Chiffres clés</h2></div>
+  <div class="fi-kpis">
+    <div class="fi-kpi fi-kpi--hero"><span class="fi-kpi__label">Total payout</span>{{ euro(k.total_payout) }}</div>
+    <div class="fi-kpi"><span class="fi-kpi__label">CA conciergerie</span>{{ euro(k.ca_conciergerie) }}
+      {% if vue.ventilation_limitee %}<span class="fi-kpi__sous">non ventilé par plateforme</span>{% endif %}</div>
+    <div class="fi-kpi"><span class="fi-kpi__label">Commission conciergerie</span>{{ euro(k.commission) }}</div>
+    <div class="fi-kpi"><span class="fi-kpi__label">Réservations</span><span class="fi-kpi__valeur">{{ k.nb_reservations }}</span></div>
+    <div class="fi-kpi"><span class="fi-kpi__label">Net propriétaire</span>{{ euro(k.net_proprietaire) }}</div>
   </div>
-  <div class="kpi-card"><div class="kpi-label">Commission conciergerie</div><div class="kpi-value">{{ "%.2f"|format(k.commission) }} €</div></div>
-  <div class="kpi-card"><div class="kpi-label">Ménage</div><div class="kpi-value">{{ "%.2f"|format(k.menage) }} €</div></div>
-  <div class="kpi-card"><div class="kpi-label">Réservations</div><div class="kpi-value">{{ k.nb_reservations }}</div></div>
-  <div class="kpi-card"><div class="kpi-label">Net propriétaire</div>
-    <div class="kpi-value">{{ "%.2f"|format(k.net_proprietaire) if k.net_proprietaire is not none else "—" }}{% if k.net_proprietaire is not none %} €{% endif %}</div>
+</section>
+<section class="fi-section" aria-labelledby="titre-couts">
+  <div class="fi-section__tete"><h2 class="fi-section__titre" id="titre-couts">Détail par poste</h2></div>
+  <div class="fi-kpis">
+    <div class="fi-kpi"><span class="fi-kpi__label">Ménage</span>{{ euro(k.menage) }}</div>
+    <div class="fi-kpi"><span class="fi-kpi__label">Préparation canapé</span>{{ euro(k.canape) }}</div>
+    <div class="fi-kpi"><span class="fi-kpi__label">Charge fixe</span>{{ euro(k.charge_fixe) }}</div>
+    <div class="fi-kpi"><span class="fi-kpi__label">Charges refacturées réalisées</span>{{ euro(k.refacturations) }}</div>
   </div>
-</div>
-<div class="kpi-grid mb-md">
-  <div class="kpi-card"><div class="kpi-label">Préparation canapé</div><div class="kpi-value">{{ "%.2f"|format(k.canape) if k.canape is not none else "—" }}{% if k.canape is not none %} €{% endif %}</div></div>
-  <div class="kpi-card"><div class="kpi-label">Charge fixe</div><div class="kpi-value">{{ "%.2f"|format(k.charge_fixe) if k.charge_fixe is not none else "—" }}{% if k.charge_fixe is not none %} €{% endif %}</div></div>
-  <div class="kpi-card"><div class="kpi-label">Charges refacturées réalisées</div><div class="kpi-value">{{ "%.2f"|format(k.refacturations) if k.refacturations is not none else "—" }}{% if k.refacturations is not none %} €{% endif %}</div></div>
-</div>
+</section>
 {% endif %}
 
-<div class="card mt-md">
-  <div class="card-title">Évolution mensuelle</div>
-  {% if serie.statut != "OK" %}
-  <p class="section-note">Aucune donnée disponible pour cette période.</p>
-  {% else %}
-  <div class="flex gap-md mb-sm">
-    <label><input type="checkbox" class="serie-toggle" data-serie="total_payout" checked> Total payout</label>
-    <label><input type="checkbox" class="serie-toggle" data-serie="ca_conciergerie" checked> CA conciergerie</label>
-    <label><input type="checkbox" class="serie-toggle" data-serie="commission" checked> Commission conciergerie</label>
+<section class="card fi-graphique">
+  <div class="fi-card-tete">
+    <h2 class="card-title">Évolution mensuelle</h2>
+    {% if serie.statut == "OK" %}
+    <div class="fi-legende" role="group" aria-label="Séries affichées">
+      <label class="fi-legende__item" style="--serie: var(--fi-serie-1)"><input type="checkbox" class="serie-toggle" data-serie="total_payout" checked> Total payout</label>
+      <label class="fi-legende__item" style="--serie: var(--fi-serie-2)"><input type="checkbox" class="serie-toggle" data-serie="ca_conciergerie" checked> CA conciergerie</label>
+      <label class="fi-legende__item" style="--serie: var(--fi-serie-3)"><input type="checkbox" class="serie-toggle" data-serie="commission" checked> Commission conciergerie</label>
+    </div>
+    {% endif %}
   </div>
-  <canvas id="chart-pilotage" style="width:100%; max-width:100%; height:320px;"></canvas>
+  {% if serie.statut != "OK" %}
+  <div class="fi-vide fi-vide--compact">
+    <span class="fi-vide__titre">Aucune donnée disponible pour cette période.</span>
+    <span class="fi-vide__texte">Le graphique apparaîtra dès qu'un calcul aura produit au moins un mois.</span>
+  </div>
+  {% else %}
+  <div class="fi-graphique__zone">
+    <canvas id="chart-pilotage" role="img" aria-label="Évolution mensuelle du total payout, du CA et de la commission conciergerie"></canvas>
+    <div class="fi-infobulle" id="chart-pilotage-infobulle" hidden></div>
+  </div>
+  <details class="fi-depliant fi-depliant--ligne">
+    <summary>Voir les données en tableau</summary>
+    <div class="fi-depliant__corps">
+      <div class="ec-table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Mois</th><th class="num">Total payout</th><th class="num">CA conciergerie</th><th class="num">Commission conciergerie</th></tr></thead>
+          <tbody>
+            {% for p in serie.points %}
+            <tr><td class="ec-nowrap">{{ p.mois|mois_humain }}</td>
+              <td class="num">{{ r.eur(p.total_payout) }}</td>
+              <td class="num">{{ r.eur(p.ca_conciergerie) }}</td>
+              <td class="num">{{ r.eur(p.commission) }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </details>
   <script id="pilotage-data" type="application/json">{{ serie.points | tojson }}</script>
   <script>
   (function() {
     const points = JSON.parse(document.getElementById('pilotage-data').textContent);
     const canvas = document.getElementById('chart-pilotage');
+    const bulle = document.getElementById('chart-pilotage-infobulle');
     const ctx = canvas.getContext('2d');
+    const css = getComputedStyle(canvas);
+    const lire = (nom, defaut) => (css.getPropertyValue(nom) || '').trim() || defaut;
+    // Palette catégorielle validée (ordre fixe, jamais recyclé) : la couleur suit la série.
     const series = {
-      total_payout: {label: 'Total payout', color: '#2563eb'},
-      ca_conciergerie: {label: 'CA conciergerie', color: '#d97706'},
-      commission: {label: 'Commission conciergerie', color: '#16a34a'},
+      total_payout:    {label: 'Total payout',            color: lire('--fi-serie-1', '#2a78d6')},
+      ca_conciergerie: {label: 'CA conciergerie',         color: lire('--fi-serie-2', '#eb6834')},
+      commission:      {label: 'Commission conciergerie', color: lire('--fi-serie-3', '#1baf7a')},
     };
+    const encre = lire('--fi-encre-secondaire', '#5b5f61');
+    const grille = lire('--fi-grille', '#e8edff');
     const actives = new Set(Object.keys(series));
+    const MOIS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+    const moisCourt = m => { const p = String(m || '').split('-'); return p.length === 2 ? MOIS[(+p[1]) - 1] + ' ' + p[0].slice(2) : m; };
+    const euros = v => v.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €';
+    let geo = null, survol = -1;
 
     function resize() {
       const rect = canvas.getBoundingClientRect();
@@ -95,44 +139,94 @@
       const w = canvas.clientWidth, h = canvas.clientHeight;
       ctx.clearRect(0, 0, w, h);
       if (!points.length) return;
-      const padL = 60, padB = 30, padT = 10, padR = 10;
+      const padL = 72, padB = 30, padT = 12, padR = 16;
       const plotW = w - padL - padR, plotH = h - padT - padB;
       let maxV = 0;
       for (const p of points) {
         for (const k of actives) { if (typeof p[k] === 'number' && p[k] > maxV) maxV = p[k]; }
       }
       if (maxV === 0) maxV = 1;
-      // Axes
-      ctx.strokeStyle = '#ccc'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(padL, padT); ctx.lineTo(padL, padT + plotH); ctx.lineTo(padL + plotW, padT + plotH); ctx.stroke();
-      // Y labels
-      ctx.fillStyle = '#666'; ctx.font = '11px sans-serif'; ctx.textAlign = 'right';
+      // Grille horizontale discrète + libellés de l'axe (une seule échelle, en euros).
+      ctx.font = '11px "Segoe UI", Arial, sans-serif';
+      ctx.textAlign = 'right';
       for (let i = 0; i <= 4; i++) {
         const v = maxV * i / 4;
-        const y = padT + plotH - (plotH * i / 4);
-        ctx.fillText(v.toFixed(0) + ' €', padL - 6, y + 4);
+        const y = Math.round(padT + plotH - (plotH * i / 4)) + 0.5;
+        ctx.strokeStyle = grille; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + plotW, y); ctx.stroke();
+        ctx.fillStyle = encre;
+        ctx.fillText(Math.round(v).toLocaleString('fr-FR') + ' €', padL - 8, y + 4);
       }
-      // X labels + series
+      // Mois : un libellé sur deux si la place manque.
       ctx.textAlign = 'center';
       const stepX = points.length > 1 ? plotW / (points.length - 1) : 0;
+      const pas = Math.max(1, Math.ceil(points.length / Math.max(1, Math.floor(plotW / 64))));
+      const xDe = i => padL + (points.length > 1 ? stepX * i : plotW / 2);
+      const dernierRegulier = Math.floor((points.length - 1) / pas) * pas;
       points.forEach((p, i) => {
-        const x = padL + stepX * i;
-        ctx.fillText(p.mois, x, padT + plotH + 18);
+        // Le dernier mois est toujours nommé, sauf s'il chevaucherait le libellé précédent.
+        const dernier = i === points.length - 1 && (i - dernierRegulier) * stepX >= 56;
+        if (i % pas === 0 || dernier) {
+          ctx.fillStyle = i === survol ? '#101b30' : encre;
+          ctx.fillText(moisCourt(p.mois), xDe(i), padT + plotH + 20);
+        }
       });
-      for (const key of actives) {
+      // Repère vertical du mois survolé.
+      if (survol >= 0) {
+        const x = Math.round(xDe(survol)) + 0.5;
+        ctx.strokeStyle = '#c0c8cb'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + plotH); ctx.stroke();
+      }
+      // Séries : traits de 2 px, points de 8 px entourés de blanc.
+      for (const key of Object.keys(series)) {
+        if (!actives.has(key)) continue;
         const s = series[key];
-        ctx.strokeStyle = s.color; ctx.lineWidth = 2; ctx.beginPath();
+        ctx.strokeStyle = s.color; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+        ctx.beginPath();
         let started = false;
         points.forEach((p, i) => {
           const v = p[key];
-          if (typeof v !== 'number') return;
-          const x = padL + stepX * i;
-          const y = padT + plotH - (v / maxV) * plotH;
+          if (typeof v !== 'number') { started = false; return; }
+          const x = xDe(i), y = padT + plotH - (v / maxV) * plotH;
           if (!started) { ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); }
         });
         ctx.stroke();
+        points.forEach((p, i) => {
+          const v = p[key];
+          if (typeof v !== 'number') return;
+          const x = xDe(i), y = padT + plotH - (v / maxV) * plotH;
+          const r = i === survol ? 5 : (points.length <= 18 ? 3.5 : 0);
+          if (!r) return;
+          ctx.beginPath(); ctx.arc(x, y, r + 2, 0, Math.PI * 2); ctx.fillStyle = '#ffffff'; ctx.fill();
+          ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = s.color; ctx.fill();
+        });
       }
+      geo = {padL, plotW, stepX, xDe};
     }
+
+    function infobulle(i, xClient) {
+      if (i < 0) { bulle.hidden = true; return; }
+      const p = points[i];
+      const lignes = Object.keys(series).filter(k => actives.has(k) && typeof p[k] === 'number')
+        .map(k => '<div class="fi-infobulle__ligne"><span class="fi-infobulle__puce" style="background:' + series[k].color + '"></span>'
+                  + series[k].label + '<strong>' + euros(p[k]) + '</strong></div>').join('');
+      bulle.innerHTML = '<div class="fi-infobulle__titre">' + moisCourt(p.mois) + '</div>' + (lignes || '<div>Aucune série affichée</div>');
+      bulle.hidden = false;
+      const zone = canvas.getBoundingClientRect();
+      const x = geo.xDe(i);
+      const gauche = x + 14 + bulle.offsetWidth > zone.width ? x - 14 - bulle.offsetWidth : x + 14;
+      bulle.style.left = Math.max(0, gauche) + 'px';
+    }
+
+    canvas.addEventListener('mousemove', e => {
+      if (!geo || !points.length) return;
+      const x = e.clientX - canvas.getBoundingClientRect().left;
+      const i = points.length > 1 ? Math.round((x - geo.padL) / geo.stepX) : 0;
+      const idx = Math.min(points.length - 1, Math.max(0, i));
+      if (idx !== survol) { survol = idx; draw(); }
+      infobulle(idx);
+    });
+    canvas.addEventListener('mouseleave', () => { survol = -1; draw(); infobulle(-1); });
 
     document.querySelectorAll('.serie-toggle').forEach(cb => {
       cb.addEventListener('change', () => {
@@ -145,6 +239,8 @@
   })();
   </script>
   {% endif %}
-</div>
+</section>
 
+</div>
+<script src="/static/js/finitions.js" defer></script>
 {% endblock %}

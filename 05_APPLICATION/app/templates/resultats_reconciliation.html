@@ -2,43 +2,35 @@
 {% block title %}Réconciliations{% endblock %}
 
 {% block content %}
-<div class="page-header">
-  <a href="/resultats" class="back-link">← Résultats</a>
-  <h1 class="page-title">Réconciliations — {{ mois or "aucun mois" }}</h1>
-</div>
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+{% import "partials/_resultats.html" as rs %}
+<div class="ecran">
+{{ rs.entete("Réconciliations", mois=(mois or "")) }}
+{{ rs.filtre(mois_disponibles, mois, export="/resultats/reconciliation/export.csv?mois=" ~ (mois or "")) }}
 
-<div class="card mb-md">
-  <form method="get" class="filters-row">
-    <label>Mois
-      <select name="mois">
-        {% for m in mois_disponibles %}<option value="{{ m }}" {{ 'selected' if m == mois }}>{{ m }}</option>{% endfor %}
-      </select></label>
-    <button type="submit" class="btn btn-primary">Appliquer</button>
-    <a href="/resultats/reconciliation/export.csv?mois={{ mois }}" class="btn btn-ghost">Exporter CSV</a>
-  </form>
-</div>
-
-<div class="table-container">
-  <table class="data-table">
-    <thead><tr><th>Réconciliation</th><th class="num">Gauche</th><th class="num">Droit</th><th class="num">Écart</th><th>Statut</th></tr></thead>
+{# Chaque ligne confronte deux montants issus de deux sources ; seul l'habillage change. #}
+<div class="ec-table-wrap">
+  <table class="data-table fi-table-reconciliation">
+    <thead><tr><th class="ec-col-nom">Réconciliation</th><th class="num">Gauche</th><th class="num">Droit</th><th class="num">Écart</th><th>Statut</th></tr></thead>
     <tbody>
       {% for nom, r in lignes.items() %}
       <tr>
-        <td>{{ nom }}<br><span class="section-note">{{ r.libelle_gauche }} / {{ r.libelle_droit }}</span>
-          {% if nom.startswith('B ') %}<br><span class="section-note">Toujours à l'échelle du jeu de données complet (GLOBAL n'a pas de grain mensuel) — indépendante du mois sélectionné ci-dessus.</span>{% endif %}
+        <td><span class="fi-cle">{{ nom }}</span><span class="ec-sous-ligne">{{ r.libelle_gauche }} / {{ r.libelle_droit }}</span>
+          {% if nom.startswith('B ') %}<span class="ec-sous-ligne fi-note-ligne">Toujours à l'échelle du jeu de données complet — indépendante du mois sélectionné.</span>{% endif %}
         </td>
         <td class="num">{{ "%.2f"|format(r.montant_gauche) if r.montant_gauche is not none else "—" }}</td>
         <td class="num">{{ "%.2f"|format(r.montant_droit) if r.montant_droit is not none else "—" }}</td>
         <td class="num">{{ "%.2f"|format(r.ecart) if r.ecart is not none else "—" }}</td>
         <td>
-          <span class="status-badge status-{{ 'valide' if r.statut == 'OK' else 'bloquant' if r.statut == 'BLOQUANT' else 'a-controler' }}">{{ r.statut }}</span>
-          {% if r.get('raison') %}<br><span class="section-note">{{ r.raison }}</span>{% endif %}
+          <span class="status-badge status-{{ 'valide' if r.statut == 'OK' else 'bloquant' if r.statut == 'BLOQUANT' else 'neutre' if r.statut == 'NON_DISPONIBLE' else 'a-controler' }}" data-statut="{{ r.statut }}">{{ {"OK": "OK", "A_CONTROLER": "À contrôler", "BLOQUANT": "Bloquant", "NON_DISPONIBLE": "Non disponible"}.get(r.statut, r.statut) }}</span>
+          {% if r.get('raison') %}<span class="ec-sous-ligne fi-note-ligne">{{ r.raison }}</span>{% endif %}
         </td>
       </tr>
       {% if r.detail %}
-      <tr><td colspan="5">
-        <details><summary>Détail ({{ r.detail|length }})</summary>
-          <pre style="white-space: pre-wrap; font-size: 0.85em;">{{ r.detail }}</pre>
+      <tr class="fi-ligne-detail"><td colspan="5">
+        <details class="fi-depliant fi-depliant--ligne"><summary>Détail ({{ r.detail|length }})</summary>
+          <div class="fi-depliant__corps"><pre class="fi-pre">{{ r.detail }}</pre></div>
         </details>
       </td></tr>
       {% endif %}
@@ -46,4 +38,6 @@
     </tbody>
   </table>
 </div>
+</div>
+<script src="/static/js/finitions.js" defer></script>
 {% endblock %}

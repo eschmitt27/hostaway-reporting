@@ -2,115 +2,140 @@
 {% block title %}Relevé {{ mois }}{% endblock %}
 
 {% block content %}
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+<div class="ecran">
+{# Montant tel que fourni par le moteur, affiché à deux décimales ; absent = tiret, jamais « — € ». #}
+{% macro eur(v) -%}{%- if v is none -%}<span class="fi-zero">—</span>{%- else -%}<span class="fi-montant{{ ' fi-montant--negatif' if v < 0 }}">{{ "%.2f"|format(v) }} €</span>{%- endif -%}{%- endmacro %}
+{% macro nb(v) -%}{{ (v|int) if v is not none and v == v|int else (v if v is not none else "—") }}{%- endmacro %}
+{% set statuts = {"REGLE": ("valide", "Réglé"), "A_CONTROLER": ("a-controler", "À contrôler"),
+                  "EN_RETARD": ("bloquant", "En retard"), "A_PAYER": ("info", "À payer"),
+                  "PARTIEL": ("a-controler", "Partiel")} %}
+
 <div class="page-header">
-  <a href="/proprietaires/{{ prop_id }}" class="btn btn-secondary btn-sm" style="margin-bottom:0.5rem">← Fiche propriétaire</a>
-  <h1 class="page-title">
-    Relevé {{ mois }}
-    {% if releve.status == "OK" %}— {{ releve.prop.nom_proprietaire or prop_id }} {{ releve.prop.prenom_proprietaire or "" }}{% endif %}
-  </h1>
+  <div class="page-header__titre">
+    <a href="/proprietaires/{{ prop_id }}" class="back-link">← Fiche propriétaire</a>
+    <h1 class="page-title">
+      Relevé {{ mois|mois_humain }}
+      {% if releve.status == "OK" %}— {{ releve.prop.prenom_proprietaire or "" }} {{ releve.prop.nom_proprietaire or (prop_id|nom_proprietaire) }}{% endif %}
+    </h1>
+    <p class="page-subtitle">Données directement issues du moteur Lot10. Aucune valeur recalculée.</p>
+  </div>
+  {% if releve.status == "OK" and releve.prefacture_disponible %}
+  <div class="page-header__actions">
+    <a href="/proprietaires/{{ prop_id }}/{{ mois }}/prefacture" class="btn btn-secondary">Voir la préfacture</a>
+  </div>
+  {% endif %}
 </div>
 
 {% if releve.status == "NOT_FOUND" %}
-<div class="alert alert-error">Aucune donnée pour le propriétaire <strong>{{ prop_id }}</strong> au mois <strong>{{ mois }}</strong>.</div>
+<div class="card fi-vide">
+  <span class="fi-vide__titre">Aucune donnée pour ce propriétaire ce mois-ci</span>
+  <span class="fi-vide__texte">{{ prop_id|nom_proprietaire }} — {{ mois|mois_humain }}.</span>
+</div>
 
 {% elif releve.status == "ERROR" %}
-<div class="alert alert-error"><strong>Source indisponible</strong> — {{ releve.error_message }}</div>
+<div class="alert alert-error"><div><strong>Source indisponible</strong> — {{ releve.error_message }}</div></div>
 
 {% else %}
 
 {% if releve.vue_mois %}
-<div class="detail-grid" style="margin-bottom:1.5rem">
-  <div class="detail-field"><span class="detail-label">Total payout</span>{{ releve.vue_mois.total_payout_mois | round(2) if releve.vue_mois.total_payout_mois is not none else "—" }} €</div>
-  <div class="detail-field"><span class="detail-label">Net avant charge</span>{{ releve.vue_mois.net_proprietaire_avant_charge_mois | round(2) if releve.vue_mois.net_proprietaire_avant_charge_mois is not none else "—" }} €</div>
-  <div class="detail-field"><span class="detail-label">Net après charge</span>{{ releve.vue_mois.net_proprietaire_apres_charge_mois | round(2) if releve.vue_mois.net_proprietaire_apres_charge_mois is not none else "—" }} €</div>
-  <div class="detail-field"><span class="detail-label">Reste à payer</span>{{ releve.vue_mois.reste_a_payer_conciergerie | round(2) if releve.vue_mois.reste_a_payer_conciergerie is not none else "—" }} €</div>
-  <div class="detail-field"><span class="detail-label">Réservations</span>{{ releve.vue_mois.nb_reservations or "—" }}</div>
+{% set v = releve.vue_mois %}
+<div class="fi-kpis">
+  <div class="fi-kpi"><span class="fi-kpi__label">Total payout</span><span class="fi-kpi__valeur">{{ eur(v.total_payout_mois) }}</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Net avant charge</span><span class="fi-kpi__valeur">{{ eur(v.net_proprietaire_avant_charge_mois) }}</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Net après charge</span><span class="fi-kpi__valeur">{{ eur(v.net_proprietaire_apres_charge_mois) }}</span></div>
+  <div class="fi-kpi fi-kpi--hero"><span class="fi-kpi__label">Reste à payer</span><span class="fi-kpi__valeur">{{ eur(v.reste_a_payer_conciergerie) }}</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Réservations</span><span class="fi-kpi__valeur">{{ nb(v.nb_reservations) }}</span></div>
 </div>
 {% endif %}
 
 <!-- BLOC 1 : EXPLOITATION -->
-<h2 class="section-title">Bloc 1 — Exploitation</h2>
-<div class="alert alert-info" style="font-size:0.85rem;margin-bottom:0.75rem">
-  Données directement issues du moteur Lot10. Aucune valeur recalculée.
-</div>
-<div class="table-wrapper">
-  <table class="data-table">
-    <thead>
-      <tr>
-        <th>Logement</th>
-        <th class="num">Total payout</th>
-        <th class="num">Ménage</th>
-        <th class="num">Commission</th>
-        <th class="num">Charge fixe</th>
-        <th class="num">Net exploitation</th>
-        <th class="num">Résa</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in releve.bloc_exploitation %}
-      <tr>
-        <td><span class="code-id">{{ row.logement_id or "—" }}</span></td>
-        <td class="num">{{ row.total_payout_mois | round(2) if row.total_payout_mois is not none else "—" }} €</td>
-        <td class="num">{{ row.total_menage_mois | round(2) if row.total_menage_mois is not none else "—" }} €</td>
-        <td class="num">{{ row.total_commission_mois | round(2) if row.total_commission_mois is not none else "—" }} €</td>
-        <td class="num">{{ row.charge_fixe_mensuelle | round(2) if row.charge_fixe_mensuelle is not none else "—" }} €</td>
-        <td class="num"><strong>{{ row.net_proprietaire_avant_charge_mois | round(2) if row.net_proprietaire_avant_charge_mois is not none else "—" }} €</strong></td>
-        <td class="num">{{ row.nb_reservations or "—" }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+<section class="card">
+  <div class="fi-card-tete">
+    <h2 class="card-title">Bloc 1 — Exploitation</h2>
+    <span class="fi-compteur">{{ releve.bloc_exploitation|length }} logement{{ 's' if releve.bloc_exploitation|length > 1 }}</span>
+  </div>
+  <div class="ec-table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th class="ec-col-nom">Logement</th>
+          <th class="num">Total payout</th>
+          <th class="num">Ménage</th>
+          <th class="num">Commission</th>
+          <th class="num">Charge fixe</th>
+          <th class="num">Net exploitation</th>
+          <th class="num">Résa</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in releve.bloc_exploitation %}
+        <tr>
+          <td class="fi-cle">{{ ((row.logement_id|nom_logement) or row.logement_id) if row.logement_id else "—" }}</td>
+          <td class="num">{{ eur(row.total_payout_mois) }}</td>
+          <td class="num">{{ eur(row.total_menage_mois) }}</td>
+          <td class="num">{{ eur(row.total_commission_mois) }}</td>
+          <td class="num">{{ eur(row.charge_fixe_mensuelle) }}</td>
+          <td class="num"><strong>{{ eur(row.net_proprietaire_avant_charge_mois) }}</strong></td>
+          <td class="num fi-discret">{{ nb(row.nb_reservations) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 
 <!-- BLOC 2 : REGLEMENT -->
-<h2 class="section-title" style="margin-top:2rem">Bloc 2 — Règlement</h2>
-<div class="table-wrapper">
-  <table class="data-table">
-    <thead>
-      <tr>
-        <th>Logement</th>
-        <th class="num">Montant dû</th>
-        <th class="num">Acompte Airbnb</th>
-        <th class="num">Autres paiements</th>
-        <th class="num">Déjà reçu</th>
-        <th class="num">Reste à payer</th>
-        <th class="num">Net après charge</th>
-        <th>Statut</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in releve.bloc_reglement %}
-      <tr class="{% if row.statut_reglement == 'REGLE' %}row-ok{% elif row.statut_reglement == 'A_CONTROLER' %}row-warning{% elif row.statut_reglement == 'EN_RETARD' %}row-error{% else %}row-neutral{% endif %}">
-        <td><span class="code-id">{{ row.logement_id or "—" }}</span></td>
-        <td class="num">{{ row.montant_du_conciergerie | round(2) if row.montant_du_conciergerie is not none else "—" }} €</td>
-        <td class="num">{{ row.acompte_conciergerie_recu_via_airbnb | round(2) if row.acompte_conciergerie_recu_via_airbnb is not none else "—" }} €</td>
-        <td class="num">{{ row.autres_acomptes_recus | round(2) if row.autres_acomptes_recus is not none else "—" }} €</td>
-        <td class="num">{{ row.paiement_deja_recu | round(2) if row.paiement_deja_recu is not none else "—" }} €</td>
-        <td class="num"><strong>{{ row.reste_a_payer_conciergerie | round(2) if row.reste_a_payer_conciergerie is not none else "—" }} €</strong></td>
-        <td class="num">{{ row.net_proprietaire_apres_charge_mois | round(2) if row.net_proprietaire_apres_charge_mois is not none else "—" }} €</td>
-        <td>
-          <span class="status-badge status-{{ (row.statut_reglement or 'inconnu') | lower | replace('_','-') }}">
-            {{ row.statut_reglement or "—" }}
-          </span>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+<section class="card">
+  <div class="fi-card-tete">
+    <h2 class="card-title">Bloc 2 — Règlement</h2>
+  </div>
+  <div class="ec-table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th class="ec-col-nom">Logement</th>
+          <th class="num">Montant dû</th>
+          <th class="num">Acompte Airbnb</th>
+          <th class="num">Autres paiements</th>
+          <th class="num">Déjà reçu</th>
+          <th class="num">Reste à payer</th>
+          <th class="num">Net après charge</th>
+          <th>Statut</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in releve.bloc_reglement %}
+        {% set st = statuts.get(row.statut_reglement or "") %}
+        <tr class="{{ 'fi-ligne-alerte' if row.statut_reglement in ('A_CONTROLER', 'EN_RETARD') }}">
+          <td class="fi-cle">{{ ((row.logement_id|nom_logement) or row.logement_id) if row.logement_id else "—" }}</td>
+          <td class="num">{{ eur(row.montant_du_conciergerie) }}</td>
+          <td class="num">{{ eur(row.acompte_conciergerie_recu_via_airbnb) }}</td>
+          <td class="num">{{ eur(row.autres_acomptes_recus) }}</td>
+          <td class="num">{{ eur(row.paiement_deja_recu) }}</td>
+          <td class="num"><strong>{{ eur(row.reste_a_payer_conciergerie) }}</strong></td>
+          <td class="num">{{ eur(row.net_proprietaire_apres_charge_mois) }}</td>
+          <td class="ec-nowrap">
+            <span class="status-badge status-{{ st[0] if st else 'neutre' }}">
+              {{ st[1] if st else ((row.statut_reglement|libelle_statut) or "—") }}
+            </span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 
-<div style="margin-top:1rem">
-  {% if releve.prefacture_disponible %}
-  <a href="/proprietaires/{{ prop_id }}/{{ mois }}/prefacture" class="btn btn-secondary">Voir la préfacture</a>
-  {% else %}
-  <span class="source-note">Préfacture indisponible ({{ releve.source_calc }} absent).</span>
-  {% endif %}
-</div>
-
-<div class="source-note">
+{% if not releve.prefacture_disponible %}
+<p class="ec-note">Préfacture indisponible ({{ releve.source_calc }} absent).</p>
+{% endif %}
+<p class="ec-note">
   <strong>Source :</strong> {{ releve.source_calc }} — lu le {{ releve.read_at }}.
   Données affichées telles quelles, aucun recalcul.
-</div>
+</p>
 
 {% endif %}
+</div>
 {% endblock %}

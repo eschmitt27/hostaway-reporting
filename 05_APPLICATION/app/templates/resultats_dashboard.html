@@ -3,7 +3,9 @@
 
 {% block content %}
 {% import "_libelles.html" as lib %}
+{% import "partials/_resultats.html" as r %}
 <link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
 <div class="ecran">
 
 <div class="page-header">
@@ -16,14 +18,14 @@
   </div>
 </div>
 
-<form method="get" class="ec-filtres">
+<form method="get" class="ec-filtres" data-fi-filtres>
   <label class="ec-champ"><span>Mois</span>
     <select name="mois">
-      {% for m in mois_disponibles %}<option value="{{ m }}" {{ 'selected' if m == mois }}>{{ m }}</option>{% endfor %}
+      {% for m in mois_disponibles %}<option value="{{ m }}" {{ 'selected' if m == mois }}>{{ m|mois_humain }}</option>{% endfor %}
       {% if not mois_disponibles %}<option value="">Aucun mois disponible</option>{% endif %}
     </select></label>
   <label class="ec-champ"><span>Vision</span>
-    <select name="vision">
+    <select name="vision" data-fi-neutre>
       {% for v in visions %}<option value="{{ v }}" {{ 'selected' if v == vision }}>{{ lib.libelle(v) }}</option>{% endfor %}
     </select></label>
   <div class="ec-filtres__actions">
@@ -32,75 +34,97 @@
 </form>
 
 {% if globales.statut != "OK" %}
-<div class="alert alert-warning">Aucun résultat calculé n'est disponible pour l'instant ({{ lib.libelle(globales.statut) | lower }}) : lancez une actualisation des calculs.</div>
+<div class="alert alert-warning fi-alerte-compacte"><div>Aucun résultat calculé n'est disponible pour l'instant ({{ lib.libelle(globales.statut) | lower }}) : lancez une actualisation des calculs.</div></div>
 {% endif %}
 
-{# Valeur absente : dite en toutes lettres, en plus petit — jamais un code technique en gros chiffres. #}
-{% macro kpi(label, valeur, sous="") -%}
-<div class="kpi-card">
-  <div class="kpi-label">{{ label }}</div>
-  {% if valeur is none %}<div class="kpi-value kpi-value--texte">Non disponible</div>
-  {% else %}<div class="kpi-value">{{ valeur }}</div>{% endif %}
-  {% if sous %}<div class="kpi-sub">{{ sous }}</div>{% endif %}
-</div>
+{# Le résultat du mois d'abord, en grand ; le mois précédent et le cumul à côté, pour comparer
+   d'un coup d'œil. Aucune variation n'est calculée ici : les deux valeurs sont lues telles quelles.
+   Valeur absente : dite en toutes lettres, en plus petit — jamais un code technique en gros chiffres. #}
+{% macro valeur(v) -%}
+  {%- if v is none -%}<span class="fi-kpi__valeur fi-kpi__valeur--texte">Non disponible</span>
+  {%- else -%}<span class="fi-kpi__valeur{{ ' fi-montant--negatif' if v < 0 }}">{{ "%.2f"|format(v) }} €</span>{%- endif -%}
 {%- endmacro %}
 
-<div class="kpi-grid kpi-grid--4 mb-md">
-  {{ kpi("Résultat " ~ (mois or "") ~ " (" ~ lib.libelle(vision) ~ ")",
-         ("%.2f"|format(resultat_courant) ~ " €") if resultat_courant is not none else none) }}
-  {{ kpi("Mois précédent" ~ ((" (" ~ mois_precedent ~ ")") if mois_precedent else ""),
-         ("%.2f"|format(resultat_precedent) ~ " €") if resultat_precedent is not none else none) }}
-  {{ kpi("Cumul " ~ cumule.mois_couverts|length ~ " mois",
-         ("%.2f"|format(cumule.resultat) ~ " €") if cumule.statut == "OK" else none) }}
-  <div class="kpi-card">
-    <div class="kpi-label">Période comptable {{ mois or "" }}</div>
-    <div class="kpi-value kpi-value--texte">{{ lib.libelle(periode.statut) if periode else "Non applicable" }}</div>
+<div class="fi-resultat">
+  <div class="fi-kpi fi-kpi--hero fi-resultat__principal">
+    <span class="fi-kpi__label">Résultat {{ mois|mois_humain if mois else "" }}</span>
+    {{ valeur(resultat_courant) }}
+    <span class="fi-kpi__sous">Vision {{ lib.libelle(vision)|lower }} · somme des résultats par logement</span>
+  </div>
+  <div class="fi-resultat__cote">
+    <div class="fi-kpi">
+      <span class="fi-kpi__label">Mois précédent{% if mois_precedent %} · {{ mois_precedent|mois_humain }}{% endif %}</span>
+      {{ valeur(resultat_precedent) }}
+    </div>
+    <div class="fi-kpi">
+      <span class="fi-kpi__label">Cumul {{ cumule.mois_couverts|length }} mois</span>
+      {{ valeur(cumule.resultat if cumule.statut == "OK" else none) }}
+    </div>
+    <div class="fi-kpi">
+      <span class="fi-kpi__label">Période comptable {{ mois|mois_humain if mois else "" }}</span>
+      <span class="fi-kpi__valeur fi-kpi__valeur--texte">{{ lib.libelle(periode.statut) if periode else "Non applicable" }}</span>
+    </div>
   </div>
 </div>
 
 {% if globales.statut == "OK" %}
-<h2 class="ec-titre-tableau">Global par vision (Lot10)</h2>
-<div class="ec-table-wrap">
-  <table class="data-table">
-    <thead><tr><th>Vision</th><th class="num">Produits</th><th class="num">Charges</th><th class="num">Résultat</th><th>Commentaire</th></tr></thead>
-    <tbody>
-      {% for v, d in globales.visions.items() %}
-      <tr class="{{ 'active' if v == vision }}">
-        <td>{% if v == vision %}<strong>{{ lib.libelle(v) }}</strong>{% else %}{{ lib.libelle(v) }}{% endif %}</td>
-        <td class="num">{{ "%.2f"|format(d.total_produits) }} €</td>
-        <td class="num">{{ "%.2f"|format(d.total_charges) }} €</td>
-        <td class="num"><strong>{{ "%.2f"|format(d.resultat) }} €</strong></td>
-        <td>{{ d.commentaire }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+<section class="card">
+  <h2 class="card-title">Global par vision (Lot10)</h2>
+  <div class="ec-table-wrap">
+    <table class="data-table">
+      <thead><tr><th>Vision</th><th class="num">Produits</th><th class="num">Charges</th><th class="num">Résultat</th><th>Commentaire</th></tr></thead>
+      <tbody>
+        {% for v, d in globales.visions.items() %}
+        <tr class="{{ 'active fi-ligne-active' if v == vision }}">
+          <td class="fi-cle">{{ lib.libelle(v) }}{% if v == vision %} <span class="badge badge-info">affichée</span>{% endif %}</td>
+          <td class="num">{{ "%.2f"|format(d.total_produits) }} €</td>
+          <td class="num">{{ "%.2f"|format(d.total_charges) }} €</td>
+          <td class="num"><strong class="{{ 'fi-montant--negatif' if d.resultat < 0 }}">{{ "%.2f"|format(d.resultat) }} €</strong></td>
+          <td class="fi-discret text-sm">{{ d.commentaire }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% endif %}
 
-<div class="card">
-  <div class="card-title">Analyses détaillées</div>
-  <div class="ec-liens">
-    <a href="/resultats/mensuel?mois={{ mois }}&vision={{ vision }}" class="btn btn-secondary">Mensuel</a>
-    <a href="/resultats/cumule?vision={{ vision }}" class="btn btn-secondary">Cumulé</a>
-    <a href="/resultats/logements?mois={{ mois }}&vision={{ vision }}" class="btn btn-secondary">Logements</a>
-    <a href="/resultats/proprietaires?mois={{ mois }}&vision={{ vision }}" class="btn btn-secondary">Propriétaires</a>
-    <a href="/resultats/plateformes" class="btn btn-secondary">Plateformes</a>
-    <a href="/resultats/fournisseurs" class="btn btn-secondary">Fournisseurs</a>
-    <a href="/resultats/prestataires?mois={{ mois }}" class="btn btn-secondary">Prestataires</a>
-    <a href="/resultats/charges" class="btn btn-secondary">Charges</a>
-    <a href="/resultats/categories" class="btn btn-secondary">Catégories</a>
-    <a href="/resultats/activites" class="btn btn-secondary">Activités</a>
-    <a href="/resultats/menages?mois={{ mois }}" class="btn btn-secondary">Ménages</a>
-    <a href="/resultats/comptabilite?mois={{ mois }}" class="btn btn-secondary">Comptabilité</a>
-    <a href="/resultats/reconciliation?mois={{ mois }}" class="btn btn-secondary">Réconciliations</a>
+<section class="card">
+  <h2 class="card-title">Analyses détaillées</h2>
+  <div class="fi-analyses">
+    <div class="fi-analyses__groupe">
+      <h3 class="fi-analyses__titre">Par période</h3>
+      <a href="/resultats/mensuel?mois={{ mois }}&vision={{ vision }}" class="fi-analyse">Mensuel<span>logements et propriétaires du mois</span></a>
+      <a href="/resultats/cumule?vision={{ vision }}" class="fi-analyse">Cumulé<span>somme des mois de l'année</span></a>
+    </div>
+    <div class="fi-analyses__groupe">
+      <h3 class="fi-analyses__titre">Par axe</h3>
+      <a href="/resultats/logements?mois={{ mois }}&vision={{ vision }}" class="fi-analyse">Logements</a>
+      <a href="/resultats/proprietaires?mois={{ mois }}&vision={{ vision }}" class="fi-analyse">Propriétaires</a>
+      <a href="/resultats/plateformes" class="fi-analyse">Plateformes</a>
+      <a href="/resultats/activites" class="fi-analyse">Activités</a>
+    </div>
+    <div class="fi-analyses__groupe">
+      <h3 class="fi-analyses__titre">Coûts & tiers</h3>
+      <a href="/resultats/fournisseurs" class="fi-analyse">Fournisseurs</a>
+      <a href="/resultats/prestataires?mois={{ mois }}" class="fi-analyse">Prestataires</a>
+      <a href="/resultats/charges" class="fi-analyse">Charges</a>
+      <a href="/resultats/categories" class="fi-analyse">Catégories</a>
+      <a href="/resultats/menages?mois={{ mois }}" class="fi-analyse">Ménages</a>
+    </div>
+    <div class="fi-analyses__groupe">
+      <h3 class="fi-analyses__titre">Contrôle</h3>
+      <a href="/resultats/comptabilite?mois={{ mois }}" class="fi-analyse">Comptabilité</a>
+      <a href="/resultats/reconciliation?mois={{ mois }}" class="fi-analyse">Réconciliations</a>
+    </div>
   </div>
   <div class="ec-exports">
     <span>Exporter :</span>
     <a href="/resultats/export.csv?mois={{ mois }}&vision={{ vision }}">CSV par logement</a>
     <a href="/resultats/dashboard/export.csv">CSV global</a>
   </div>
-</div>
+</section>
 
 </div>
+<script src="/static/js/finitions.js" defer></script>
 {% endblock %}

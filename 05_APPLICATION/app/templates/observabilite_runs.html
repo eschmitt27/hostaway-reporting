@@ -2,19 +2,28 @@
 {% block title %}Observabilité{% endblock %}
 
 {% block content %}
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+<div class="ecran">
 <div class="page-header">
-  <div>
+  <div class="page-header__titre">
     <h1 class="page-title">Observabilité</h1>
     <p class="page-subtitle">Derniers runs et sauvegardes de la base — vue d'ensemble, lecture seule</p>
   </div>
   {# §14 — les outils techniques (diagnostic du pipeline Ménages, chaîne sur copies) vivent ici,
      jamais sur l'écran métier Ménages. #}
-  <a href="/menages/diagnostic" class="btn btn-secondary" data-testid="lien-diagnostic-menages">Diagnostic technique Ménages</a>
+  <div class="page-header__actions">
+    <a href="/menages/diagnostic" class="btn btn-secondary" data-testid="lien-diagnostic-menages">Diagnostic technique Ménages</a>
+  </div>
 </div>
 
-<div class="card mb-lg">
-  <div class="card-title">Derniers runs</div>
+<div class="card">
+  <div class="fi-card-tete">
+    <div class="card-title">Derniers runs</div>
+    {% if runs %}<span class="fi-compteur">{{ runs|length }}</span>{% endif %}
+  </div>
   {% if runs %}
+  <div class="ec-table-wrap">
   <table class="table">
     <thead>
       <tr>
@@ -25,8 +34,8 @@
     <tbody>
       {% for r in runs %}
       <tr>
-        <td>{{ r.run_id_opaque }}</td>
-        <td>{{ r.operation }}</td>
+        <td class="fi-mono ec-nowrap">{{ r.run_id_opaque }}</td>
+        <td class="fi-cle">{{ r.operation }}</td>
         <td>{{ r.acteur or "—" }}</td>
         <td>
           {% if r.statut == 'SUCCESS' %}<span class="badge badge-success">SUCCESS</span>
@@ -34,22 +43,31 @@
           {% elif r.statut == 'ROLLED_BACK' %}<span class="badge badge-warning">ROLLED_BACK</span>
           {% else %}<span class="badge">{{ r.statut }}</span>{% endif %}
         </td>
-        <td>{{ "%.1f"|format(r.duree_s) + " s" if r.duree_s is not none else "—" }}</td>
-        <td>{{ r.sauvegarde_id_opaque or "—" }}</td>
-        <td>{{ r.erreur or "—" }}</td>
-        <td>{{ r.date_debut }}</td>
+        <td class="num">{{ "%.1f"|format(r.duree_s) + " s" if r.duree_s is not none else "—" }}</td>
+        <td class="fi-mono ec-nowrap">{{ r.sauvegarde_id_opaque or "—" }}</td>
+        <td class="text-xs{{ ' fi-texte-alerte' if r.erreur }}">{{ r.erreur or "—" }}</td>
+        <td class="ec-nowrap">{{ r.date_debut|datetime_fr if r.date_debut else "—" }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
-  <p class="text-secondary">Aucun run enregistré.</p>
+  <div class="fi-vide">
+    <span class="fi-vide__icone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></span>
+    <span class="fi-vide__titre">Aucun run enregistré.</span>
+    <span class="fi-vide__texte">Les actualisations et calculs lancés depuis l'application apparaîtront ici, avec leur durée et leur sauvegarde.</span>
+  </div>
   {% endif %}
 </div>
 
 <div class="card">
-  <div class="card-title">Sauvegardes de la base</div>
+  <div class="fi-card-tete">
+    <div class="card-title">Sauvegardes de la base</div>
+    {% if sauvegardes %}<span class="fi-compteur">{{ sauvegardes|length }}</span>{% endif %}
+  </div>
   {% if sauvegardes %}
+  <div class="ec-table-wrap">
   <table class="table">
     <thead>
       <tr><th>Sauvegarde</th><th>Opération</th><th>Statut</th><th>Taille</th><th>Commit</th><th>Date</th></tr>
@@ -57,22 +75,27 @@
     <tbody>
       {% for s in sauvegardes %}
       <tr>
-        <td>{{ s.sauvegarde_id_opaque }}</td>
-        <td>{{ s.operation }}</td>
+        <td class="fi-mono ec-nowrap">{{ s.sauvegarde_id_opaque }}</td>
+        <td class="fi-cle">{{ s.operation }}</td>
         <td>
           {% if s.validation_status == 'VALIDE' %}<span class="badge badge-success">VALIDE</span>
           {% elif s.validation_status == 'CORROMPU' %}<span class="badge badge-danger">CORROMPU</span>
           {% else %}<span class="badge">{{ s.validation_status }}</span>{% endif %}
         </td>
-        <td>{{ (s.taille_octets / 1024) | round(1) }} Ko</td>
-        <td>{{ (s.git_commit or "")[:8] or "—" }}</td>
-        <td>{{ s.date_creation }}</td>
+        <td class="num">{{ (s.taille_octets / 1024) | round(1) }} Ko</td>
+        <td class="fi-mono">{{ (s.git_commit or "")[:8] or "—" }}</td>
+        <td class="ec-nowrap">{{ s.date_creation|datetime_fr if s.date_creation else "—" }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
-  <p class="text-secondary">Aucune sauvegarde enregistrée.</p>
+  <div class="fi-vide">
+    <span class="fi-vide__icone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></span>
+    <span class="fi-vide__titre">Aucune sauvegarde enregistrée.</span>
+    <span class="fi-vide__texte">Une sauvegarde de la base est prise automatiquement avant chaque opération qui écrit.</span>
+  </div>
   {% endif %}
 </div>
 
@@ -81,7 +104,7 @@
    pas à décider. L'écran Ménages n'en garde que ce qui déclenche une action. #}
 
 {% if hostaway and hostaway.depot %}
-<div class="card mb-lg">
+<div class="card">
   <div class="card-title">Données Hostaway — provenance et fraîcheur</div>
   <dl class="detail-grid">
     <div><dt>État</dt><dd>{{ hostaway.depot.etat or "indéterminé" }}</dd></div>
@@ -101,7 +124,7 @@
 {% endif %}
 
 {% if pdf_menages %}
-<div class="card mb-lg">
+<div class="card">
   <div class="card-title">Factures PDF de ménage — diagnostic fichier par fichier</div>
   <dl class="detail-grid">
     <div><dt>Dossier de dépôt</dt>
@@ -110,7 +133,7 @@
     <div><dt>Dernière extraction</dt><dd>{{ pdf_menages.derniere_extraction or "inconnue" }}</dd></div>
   </dl>
   {% if pdf_menages.diagnostic_disponible and pdf_menages.diagnostic %}
-  <div class="table-container mt-md">
+  <div class="ec-table-wrap mt-md">
     <table class="data-table">
       <thead><tr><th>Fichier</th><th>Encore présent ?</th><th>Fournisseur</th><th>Statut</th>
         <th>N° facture</th><th class="num">Montant</th><th class="num">Écart</th>
@@ -144,11 +167,12 @@
 {% endif %}
 
 {% if changements_clotures %}
-<div class="card mb-lg">
+<div class="card">
   <div class="card-title">Mois clôturés ayant reçu de nouvelles données</div>
   <p class="section-note">
     Signalés, jamais recalculés : rouvrir une clôture reste une décision explicite.
   </p>
+  <div class="ec-table-wrap">
   <table class="data-table">
     <thead><tr><th>Mois</th><th>Origine</th><th>Détecté le</th><th>Statut</th></tr></thead>
     <tbody>
@@ -158,6 +182,8 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 {% endif %}
+</div>
 {% endblock %}

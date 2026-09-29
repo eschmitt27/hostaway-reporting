@@ -1,15 +1,21 @@
 {# Tableau de rapprochement — fragment réutilisable (page complète et rafraîchissement partiel). #}
-<div class="table-meta">
-  {{ liste.count_filtre }} ligne{{ "s" if liste.count_filtre != 1 }} retenue{{ "s" if liste.count_filtre != 1 }}
-  sur {{ liste.count_total }} · page {{ liste.page }} / {{ liste.pages }}
+{% set libelles_statut = {"OK": "OK", "A_CONTROLER": "À contrôler", "BLOQUANT": "Bloquant",
+                          "JUSTIFIE": "Justifié", "CONFORME": "Conforme"} %}
+{% set classes_statut = {"OK": "valide", "CONFORME": "valide", "JUSTIFIE": "info",
+                         "A_CONTROLER": "a-controler", "BLOQUANT": "bloquant"} %}
+<div class="fi-table-tete">
+  <span class="table-meta">
+    {{ liste.count_filtre }} ligne{{ "s" if liste.count_filtre != 1 }} retenue{{ "s" if liste.count_filtre != 1 }}
+    sur {{ liste.count_total }} · page {{ liste.page }} / {{ liste.pages }}
+  </span>
 </div>
 
 {% if liste.rows %}
-<div class="table-container">
+<div class="ec-table-wrap">
   <table class="data-table">
     <thead>
       <tr>
-        <th>Logement</th>
+        <th class="ec-col-nom">Logement</th>
         <th>Intervenant</th>
         <th>Type</th>
         <th class="num" title="Non alimenté par le moteur">Attendu</th>
@@ -19,50 +25,53 @@
         <th class="num">Écart</th>
         <th class="num" title="Coût réel augmenté des quotes-parts de charges">Coût complet</th>
         <th>Statut</th>
-        <th></th>
+        <th class="fi-col-actions"><span class="sr-only">Actions</span></th>
       </tr>
     </thead>
     <tbody>
       {% for r in liste.rows %}
-      <tr class="{% if r.statut_effectif in ('A_CONTROLER', 'BLOQUANT') %}row-warn{% endif %}">
+      <tr class="{% if r.statut_effectif in ('A_CONTROLER', 'BLOQUANT') %}row-warn fi-ligne-alerte{% endif %}">
         <td>
           {# §17 — le vrai nom suffit. L'identifiant reste dans le lien « Voir » ci-dessous, où
              il sert de clé ; l'afficher sous le nom n'apprenait rien à personne. #}
-          <div>{{ r.nom_appartement or (r.logement_id | nom_logement) or "—" }}</div>
+          <span class="fi-cle">{{ r.nom_appartement or (r.logement_id | nom_logement) or "—" }}</span>
           {% if r.proprietaire_libelle %}
-          <div class="text-xs text-secondary">{{ r.proprietaire_libelle }}</div>
+          <span class="ec-sous-ligne">{{ r.proprietaire_libelle }}</span>
           {% endif %}
         </td>
         <td>{{ r.nom_intervenant or r.intervenant_id or "—" }}</td>
         <td>
           {% if r.type_intervenant %}
             <span class="badge badge-{{ 'info' if r.type_intervenant == 'INTERNE' else 'neutral' }}">
-              {{ r.type_intervenant }}
+              {{ r.type_intervenant|libelle_statut }}
             </span>
           {% else %}
             <span class="badge badge-warning">Non identifié</span>
           {% endif %}
         </td>
-        <td class="num text-secondary">—</td>
+        <td class="num fi-zero">—</td>
         <td class="num">{{ r.hostaway_realise if r.hostaway_realise is not none else "—" }}</td>
         <td class="num">{{ r.interne_declare if r.interne_declare is not none else "—" }}</td>
         <td class="num">{{ r.externe_facture if r.externe_facture is not none else "—" }}</td>
-        <td class="num {% if r.ecart %}text-error{% endif %}">
-          {{ r.ecart if r.ecart is not none else "—" }}
+        <td class="num">
+          {% if r.ecart %}<span class="fi-nb fi-nb--alerte">{{ r.ecart }}</span>
+          {% elif r.ecart is not none %}<span class="fi-zero">{{ r.ecart }}</span>
+          {% else %}—{% endif %}
         </td>
         <td class="num">
-          {% if r.cout_complet is not none %}{{ "%.2f"|format(r.cout_complet) }} €{% else %}—{% endif %}
+          {% if r.cout_complet is not none %}{{ "%.2f"|format(r.cout_complet) }} €{% else %}<span class="fi-zero">—</span>{% endif %}
         </td>
-        <td>
-          <span class="status-badge status-{{ (r.statut_effectif or 'inconnu') | lower | replace('_','-') }}">
-            {{ r.statut_effectif or "—" }}
+        <td class="ec-nowrap">
+          {% set st = r.statut_effectif or "" %}
+          <span class="status-badge status-{{ classes_statut.get(st, 'info') if st else 'brouillon' }}">
+            {{ libelles_statut.get(st) or (st|libelle_statut) or "—" }}
           </span>
           {% if r.override %}<span class="badge badge-info" title="Motif enregistré">Outrepassé</span>{% endif %}
         </td>
-        <td>
+        <td class="fi-col-actions">
           {# `retour` transporte le mois ET les filtres courants : après une correction de ligne,
              l'utilisateur revient exactement ici, jamais sur un rapprochement non filtré. #}
-          <a class="btn btn-secondary btn-sm"
+          <a class="fi-lien-action"
              href="/menages/{{ r.mois }}/{{ r.logement_id }}/{{ r.intervenant_id }}{% if retour_contexte %}?retour={{ retour_contexte | urlencode }}{% endif %}">Voir</a>
         </td>
       </tr>
@@ -78,7 +87,7 @@
    ~ "&statut=" ~ a.statut ~ "&tri=" ~ a.tri
    ~ ("&ecart_seul=true" if a.ecart_seul else "")
    ~ ("&identification_incomplete=true" if a.identification_incomplete else "") %}
-<nav class="pagination" aria-label="Pagination">
+<nav class="pagination fi-pagination" aria-label="Pagination">
   {% if liste.page > 1 %}
     <a class="btn btn-secondary btn-sm" href="{{ base }}&page={{ liste.page - 1 }}">← Précédent</a>
   {% endif %}
@@ -90,9 +99,10 @@
 {% endif %}
 
 {% else %}
-<div class="empty-state">
-  <div class="empty-icon">∅</div>
-  <p>Aucune ligne de rapprochement pour ces filtres.</p>
+<div class="card fi-vide">
+  <span class="fi-vide__icone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
+  <span class="fi-vide__titre">Aucune ligne de rapprochement pour ces filtres.</span>
+  <span class="fi-vide__texte">Retirez un filtre, ou changez de période en tête d'écran.</span>
   <a href="/menages" class="btn btn-secondary btn-sm">Réinitialiser les filtres</a>
 </div>
 {% endif %}

@@ -2,14 +2,12 @@
 {% block title %}Résultats par plateforme{% endblock %}
 
 {% block content %}
-<div class="page-header">
-  <a href="/resultats" class="back-link">← Résultats</a>
-  <h1 class="page-title">Plateformes</h1>
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+{% import "partials/_resultats.html" as r %}
+<div class="ecran">
+{{ r.entete("Résultats par plateforme", sous_titre=plateforme_id or "") }}
+{{ r.indisponible("Analyse par plateforme non disponible", raison or "Aucune dimension plateforme fiable n'est peuplée à ce stade.", statut=statut) }}
 </div>
-
-{% if plateforme_id %}<p class="page-subtitle">{{ plateforme_id }}</p>{% endif %}
-
-<div class="alert alert-warning">
-  {{ statut }} — {{ raison or "aucune dimension plateforme fiable n'est peuplée à ce stade." }}
-</div>
+<script src="/static/js/finitions.js" defer></script>
 {% endblock %}

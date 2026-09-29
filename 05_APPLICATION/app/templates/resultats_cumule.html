@@ -2,37 +2,43 @@
 {% block title %}Résultats cumulés{% endblock %}
 
 {% block content %}
-<div class="page-header">
-  <a href="/resultats" class="back-link">← Résultats</a>
-  <h1 class="page-title">Cumul {{ vision }} {{ annee }}</h1>
-</div>
-
-<div class="card mb-md">
-  <form method="get" class="filters-row">
-    <label>Année <input type="text" name="annee" value="{{ annee }}" placeholder="2026"></label>
-    <label>Vision
-      <select name="vision">
-        {% for v in ["REEL","COMPTABLE","HORS_COMPTA"] %}<option value="{{ v }}" {{ 'selected' if v == vision }}>{{ v }}</option>{% endfor %}
-      </select></label>
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+{% import "partials/_resultats.html" as r %}
+<div class="ecran">
+{{ r.entete("Résultats cumulés", vision=vision, sous_titre=("Année " ~ annee) if annee else "") }}
+<form method="get" class="ec-filtres" data-fi-filtres>
+  <label class="ec-champ"><span>Année</span><input type="text" name="annee" value="{{ annee }}" placeholder="2026" inputmode="numeric"></label>
+  <label class="ec-champ"><span>Vision</span>
+    <select name="vision" data-fi-neutre>
+      {% for v in ["REEL","COMPTABLE","HORS_COMPTA"] %}<option value="{{ v }}" {{ 'selected' if v == vision }}>{{ r.vision_libelle(v) }}</option>{% endfor %}
+    </select></label>
+  <div class="ec-filtres__actions">
     <button type="submit" class="btn btn-primary">Appliquer</button>
-  </form>
-</div>
+  </div>
+</form>
 
 {% if cumule.statut != "OK" %}
-<div class="alert alert-warning">NON_DISPONIBLE</div>
+{{ r.indisponible("Cumul non disponible", "Aucun mois calculé pour cette année dans cette vision.") }}
 {% else %}
-<div class="kpi-grid mb-md">
-  <div class="kpi-card"><div class="kpi-label">Produits</div><div class="kpi-value">{{ "%.2f"|format(cumule.total_produits) }}</div></div>
-  <div class="kpi-card"><div class="kpi-label">Charges</div><div class="kpi-value">{{ "%.2f"|format(cumule.total_charges) }}</div></div>
-  <div class="kpi-card"><div class="kpi-label">Résultat</div><div class="kpi-value">{{ "%.2f"|format(cumule.resultat) }}</div></div>
-  <div class="kpi-card"><div class="kpi-label">Mois couverts</div><div class="kpi-value">{{ cumule.nb_mois_couverts }}</div></div>
+<div class="fi-kpis">
+  <div class="fi-kpi fi-kpi--hero{% if cumule.resultat < 0 %} fi-kpi--erreur{% endif %}"><span class="fi-kpi__label">Résultat cumulé</span>
+    <span class="fi-kpi__valeur">{{ r.eur(cumule.resultat) }}</span>
+    <span class="fi-kpi__sous">{{ cumule.nb_mois_couverts }} mois couverts</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Produits</span><span class="fi-kpi__valeur">{{ r.eur(cumule.total_produits) }}</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Charges</span><span class="fi-kpi__valeur">{{ r.eur(cumule.total_charges) }}</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Mois couverts</span><span class="fi-kpi__valeur">{{ cumule.nb_mois_couverts }}</span></div>
 </div>
-<div class="card">
-  <div class="card-title">Mois inclus dans ce cumul</div>
-  <p>{{ cumule.mois_couverts|join(", ") }}</p>
+<section class="card">
+  <h2 class="card-title">Mois inclus dans ce cumul</h2>
+  <ul class="fi-puces fi-puces--mois">
+    {% for m in cumule.mois_couverts %}<li>{{ m|mois_humain }}</li>{% endfor %}
+  </ul>
   {% if cumule.nb_mois_couverts < 12 %}
-  <p class="section-note">Cumul partiel ({{ cumule.nb_mois_couverts }} mois) — pas nécessairement un exercice complet.</p>
+  <p class="ec-note mt-sm">Cumul partiel ({{ cumule.nb_mois_couverts }} mois) — pas nécessairement un exercice complet.</p>
   {% endif %}
-</div>
+</section>
 {% endif %}
+</div>
+<script src="/static/js/finitions.js" defer></script>
 {% endblock %}

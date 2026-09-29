@@ -36,66 +36,84 @@
     {% endif %}
   {% endif %}
 {% endmacro %}
+{# Intitulé lisible d'une colonne ; le `name` du champ, lui, reste le nom de colonne. #}
+{% macro intitule(c) -%}{{ c|replace('_id', '')|replace('_', ' ')|capitalize }}{%- endmacro %}
 
-<div class="page-header flex justify-between items-center">
-  <div>
-    <h1 class="page-title">{{ meta.onglet }}</h1>
-    <p class="page-subtitle font-mono text-xs">{{ meta.table }} — clé : {{ meta.cle }}</p>
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+<div class="ecran">
+<div class="page-header">
+  <div class="page-header__titre">
+    <a href="/administration/referentiels" class="back-link">← Administration</a>
+    <h1 class="page-title">{{ meta.onglet|replace('_', ' ') }}</h1>
+    <p class="page-subtitle fi-sous-titre">
+      {% if meta.lecture_seule %}<span class="badge badge-neutral">Consultation seule</span>
+      {% else %}<span class="badge badge-success">Administrable</span>{% endif %}
+      <span class="fi-mono fi-discret">{{ meta.table }} · clé : {{ meta.cle }}</span>
+    </p>
   </div>
-  <a href="/administration/referentiels" class="btn">Retour</a>
+  <div class="page-header__actions">
+    <a href="/administration/referentiels" class="btn btn-secondary">Retour</a>
+  </div>
 </div>
 
-{% if message %}<div class="alert alert-success mb-md">{{ message }}</div>{% endif %}
-{% if erreur %}<div class="alert alert-danger mb-md">{{ erreur }}</div>{% endif %}
+{% if message %}<div class="alert alert-success" role="status">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-error" role="alert">{{ erreur }}</div>{% endif %}
 
 {# §81 — le bandeau dit la CLASSE, et ce qu'elle implique. Il annonçait « référentiel historisé »
    pour toutes les tables non éditables, y compris les nomenclatures du moteur et les tables
    techniques, qui ne sont pas historisées du tout. #}
 {% if meta.classe == "DEDICATED_WORKFLOW" %}
-<div class="alert alert-info mb-lg">
-  Référentiel <strong>historisé</strong> — consultable ici, modifiable par : {{ meta.motif_classe }}.
-  L'éditer directement permettrait de réécrire une période passée.
+<div class="alert alert-info fi-alerte-compacte">
+  <div>Référentiel <strong>historisé</strong> — consultable ici, modifiable par : {{ meta.motif_classe }}.
+  L'éditer directement permettrait de réécrire une période passée.</div>
 </div>
 {% elif meta.classe == "READ_ONLY" %}
-<div class="alert alert-warning mb-lg">
-  <strong>Consultation seule.</strong> {{ meta.motif_classe }}.
+<div class="alert alert-warning fi-alerte-compacte">
+  <div><strong>Consultation seule.</strong> {{ meta.motif_classe }}.
   Renommer une ligne est sans effet sur les calculs ; en supprimer une, ou en ajouter une que le
-  moteur ne connaît pas, casserait un calcul sans aucun message.
+  moteur ne connaît pas, casserait un calcul sans aucun message.</div>
 </div>
 {% elif meta.classe == "HIDDEN_TECHNICAL" %}
-<div class="alert alert-warning mb-lg">
-  <strong>Référentiel technique.</strong> {{ meta.motif_classe }}.
-  Il est affiché pour l'inspection, jamais pour l'administration courante.
+<div class="alert alert-warning fi-alerte-compacte">
+  <div><strong>Référentiel technique.</strong> {{ meta.motif_classe }}.
+  Il est affiché pour l'inspection, jamais pour l'administration courante.</div>
 </div>
 {% endif %}
 
 {% if not disponible %}
-<div class="alert alert-warning mb-lg">
+<div class="alert alert-warning fi-alerte-compacte">
   Référentiel non initialisé. <a href="/referentiel-setup">Import initial</a> requis avant toute saisie.
 </div>
 {% endif %}
 
-<div class="card mb-lg">
-  <div class="card-title">Contenu ({{ lignes|length }} ligne{{ 's' if lignes|length > 1 else '' }})</div>
-  <div class="table-container">
-    <table>
+<section class="card">
+  <div class="fi-card-tete">
+    <h2 class="card-title">Contenu</h2>
+    <span class="fi-compteur">{{ lignes|length }} ligne{{ 's' if lignes|length > 1 else '' }}</span>
+  </div>
+  {% if lignes %}
+  <div class="ec-table-wrap">
+    <table class="data-table fi-table-referentiel">
       <thead>
         <tr>
-          {% for c in meta.colonnes %}<th class="text-xs">{{ c }}</th>{% endfor %}
-          {% if not meta.lecture_seule %}<th></th>{% endif %}
+          {% for c in meta.colonnes %}<th title="{{ c }}">{{ intitule(c) }}</th>{% endfor %}
+          {% if not meta.lecture_seule %}<th class="fi-col-actions"><span class="sr-only">Actions</span></th>{% endif %}
         </tr>
       </thead>
       <tbody>
       {% for l in lignes %}
-        <tr>
+        {% set inactif = meta.a_colonne_actif and l.get('actif', '')|upper == 'NON' %}
+        <tr class="{{ 'fi-ligne-inactive' if inactif }}">
           {% if meta.lecture_seule %}
-            {% for c in meta.colonnes %}<td class="text-xs">{{ l.get(c, '') }}</td>{% endfor %}
+            {% for c in meta.colonnes %}<td class="text-sm{{ ' fi-mono' if c == meta.cle }}">{{ l.get(c, '') }}</td>{% endfor %}
           {% else %}
             <form method="post" action="/administration/referentiels/{{ meta.table }}/modifier">
             {% for c in meta.colonnes %}
               <td class="text-xs">
                 {% if c == meta.cle %}
-                  <span class="font-mono">{{ l.get(c, '') }}</span>
+                  <span class="fi-mono fi-cle ec-nowrap">{{ l.get(c, '') }}</span>
+                  {% if meta.a_colonne_actif %}<span class="status-badge {{ 'status-brouillon' if inactif else 'status-valide' }} fi-etat-actif">{{ 'Inactif' if inactif else 'Actif' }}</span>{% endif %}
                   <input type="hidden" name="{{ c }}" value="{{ l.get(c, '') }}">
                 {% elif c in meta.colonnes_lecture_seule %}
                   <span class="text-secondary" title="Historisé — voir l'écran dédié">{{ l.get(c, '') }}</span>
@@ -104,14 +122,14 @@
                 {% endif %}
               </td>
             {% endfor %}
-              <td class="flex gap-sm">
+              <td class="fi-col-actions fi-actions-ligne">
                 <button type="submit" class="btn btn-sm btn-primary" {% if not disponible %}disabled{% endif %}>Enregistrer</button>
             </form>
             {% if meta.a_colonne_actif %}
               <form method="post" action="/administration/referentiels/{{ meta.table }}/activation">
                 <input type="hidden" name="cle" value="{{ l.get(meta.cle, '') }}">
                 <input type="hidden" name="actif" value="{{ 'NON' if l.get('actif', '')|upper == 'OUI' else 'OUI' }}">
-                <button type="submit" class="btn btn-sm" {% if not disponible %}disabled{% endif %}>
+                <button type="submit" class="btn btn-sm {{ 'btn-secondary' if inactif else 'btn-ghost' }}" {% if not disponible %}disabled{% endif %}>
                   {{ 'Désactiver' if l.get('actif', '')|upper == 'OUI' else 'Activer' }}
                 </button>
               </form>
@@ -123,15 +141,21 @@
       </tbody>
     </table>
   </div>
-  <p class="text-xs text-secondary mt-sm">
+  {% else %}
+  <div class="fi-vide fi-vide--compact">
+    <span class="fi-vide__titre">Aucune ligne dans ce référentiel.</span>
+    {% if not meta.lecture_seule %}<span class="fi-vide__texte">Ajoutez la première ligne avec le formulaire ci-dessous.</span>{% endif %}
+  </div>
+  {% endif %}
+  <p class="ec-note mt-sm">
     Aucune suppression : une donnée déjà référencée ailleurs reste lisible, elle se désactive.
   </p>
-</div>
+</section>
 
 {% if meta.table == table_proprietaires %}
-<div class="card mb-lg">
-  <div class="card-title">Type de client de facturation</div>
-  <p class="text-xs text-secondary mb-md">
+<section class="card">
+  <h2 class="card-title">Type de client de facturation</h2>
+  <p class="ec-note">
     Les mentions légales obligatoires d'une facture diffèrent selon que le propriétaire est un
     <strong>particulier</strong> ou un <strong>professionnel</strong> : pénalités de retard et
     indemnité forfaitaire de 40 € sont dues entre professionnels, et n'ont rien à faire sur la
@@ -139,14 +163,14 @@
     adresse, ni d'après la présence d'un SIREN. Tant qu'un propriétaire n'est pas classé, l'émission
     de ses factures reste bloquée. Classez-les ici, en une passe, plutôt qu'une facture à la fois.
   </p>
-  <div class="table-container">
+  <div class="ec-table-wrap">
     <table class="table">
-      <thead><tr><th>Propriétaire</th><th>Type actuel</th><th>Classer</th></tr></thead>
+      <thead><tr><th class="ec-col-nom">Propriétaire</th><th>Type actuel</th><th>Classer</th></tr></thead>
       <tbody>
         {% for l in lignes %}
         {% set actuel = classements.get(l.proprietaire_id, 'A_CONTROLER') %}
         <tr>
-          <td>{{ l.proprietaire_id | nom_proprietaire }}</td>
+          <td class="fi-cle">{{ l.proprietaire_id | nom_proprietaire }}</td>
           <td>
             {% if actuel == 'A_CONTROLER' %}
               <span class="status-badge status-a-controler">À classer</span>
@@ -157,14 +181,14 @@
           <td>
             <form method="post"
                   action="/administration/referentiels/ref_proprietaires/type-client"
-                  style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+                  class="fi-form-ligne">
               <input type="hidden" name="proprietaire_id" value="{{ l.proprietaire_id }}">
-              <select name="type_client_facturation" required>
+              <select class="input" name="type_client_facturation" required aria-label="Type de client">
                 <option value="">— Choisir —</option>
                 <option value="PARTICULIER" {% if actuel == 'PARTICULIER' %}selected{% endif %}>Particulier</option>
                 <option value="PROFESSIONNEL" {% if actuel == 'PROFESSIONNEL' %}selected{% endif %}>Professionnel</option>
               </select>
-              <input type="text" name="motif" size="18" placeholder="Motif (facultatif)">
+              <input class="input" type="text" name="motif" size="18" placeholder="Motif (facultatif)" aria-label="Motif (facultatif)">
               <button type="submit" class="btn btn-secondary">Enregistrer</button>
             </form>
           </td>
@@ -173,32 +197,32 @@
       </tbody>
     </table>
   </div>
-  <p class="text-xs text-secondary">
+  <p class="ec-note mt-sm">
     Un reclassement reste possible : une société peut cesser, un particulier peut en créer une.
     Chaque changement est journalisé avec sa valeur précédente. Les factures déjà émises ne bougent
     pas — leur bloc de conformité est figé dans leur document.
   </p>
-</div>
+</section>
 {% endif %}
 
 {% if meta.table == table_couts_menage %}
-<div class="card mb-lg">
-  <div class="card-title">Changer le coût standard d'un type de logement</div>
-  <p class="text-xs text-secondary mb-md">
+<section class="card fi-carte-formulaire">
+  <h2 class="card-title">Changer le coût standard d'un type de logement</h2>
+  <p class="ec-note">
     Clôture la période active à la veille de la date choisie et ouvre une nouvelle ligne — la ligne
     précédente reste consultable, jamais modifiée.
   </p>
   <form method="post" action="/administration/referentiels/ref_couts_standards_menage/changer-cout">
-    <div class="grid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:var(--space-sm);">
+    <div class="fi-grille-champs">
       {# §85 — le type se choisit dans le référentiel (T1, T2, Maison…), jamais en tapant TYPE_001 :
          mêmes options que l'éditeur de la table, libellé visible et code en valeur interne. #}
-      <label class="text-xs">Type de logement <span class="text-danger">*</span>
+      <label class="fi-champ fi-champ__label fi-champ--empile">Type de logement <span class="fi-requis" aria-hidden="true">*</span>
         {{ champ("type_logement_id", "", champs, obligatoire=true, taille="") }}
       </label>
-      <label class="text-xs">Coût standard ménage <span class="text-danger">*</span>
+      <label class="fi-champ fi-champ__label fi-champ--empile">Coût standard ménage <span class="fi-requis" aria-hidden="true">*</span>
         <input class="input" name="cout_standard_menage" required>
       </label>
-      <label class="text-xs">Date de début <span class="text-danger">*</span>
+      <label class="fi-champ fi-champ__label fi-champ--empile">Date de début <span class="fi-requis" aria-hidden="true">*</span>
         <input class="input js-date-retro" type="date" name="date_debut" required>
       </label>
     </div>
@@ -206,38 +230,40 @@
       ⚠ Modification rétroactive — cette date concerne une période déjà passée. Une justification
       est obligatoire.
     </div>
-    <label class="text-xs js-justification-retro mt-sm" style="display:none;">
+    <label class="fi-champ fi-champ__label fi-champ--empile js-justification-retro mt-sm" style="display:none;">
       Justification (obligatoire pour une correction rétroactive)
       <textarea class="input" name="justification" rows="2"></textarea>
     </label>
-    <button type="submit" class="btn btn-primary mt-md" {% if not disponible %}disabled{% endif %}>Changer le coût</button>
+    <div class="fi-actions-formulaire">
+    <button type="submit" class="btn btn-primary" {% if not disponible %}disabled{% endif %}>Changer le coût</button>
     <a class="btn btn-ghost btn-sm js-lien-impacts" data-champ="type_logement_id"
        href="/administration/referentiels/ref_couts_standards_menage/impacts">Voir les impacts</a>
+    </div>
   </form>
-</div>
+</section>
 {% endif %}
 
 {% if meta.table == table_regles_versions %}
-<div class="card mb-lg">
-  <div class="card-title">Introduire une nouvelle version d'une règle</div>
-  <p class="text-xs text-secondary mb-md">
+<section class="card fi-carte-formulaire">
+  <h2 class="card-title">Introduire une nouvelle version d'une règle</h2>
+  <p class="ec-note">
     Règle ALGORITHMIQUE (pas une simple variable) : l'implémentation reste dans le code, ceci
     n'enregistre que la date à partir de laquelle une version devient applicable. Clôture la
     version active à la veille de la date choisie — la version précédente reste consultable,
     jamais modifiée.
   </p>
   <form method="post" action="/administration/referentiels/ref_regles_versions/changer-version">
-    <div class="grid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:var(--space-sm);">
-      <label class="text-xs">Règle (rule_code) <span class="text-danger">*</span>
+    <div class="fi-grille-champs">
+      <label class="fi-champ fi-champ__label fi-champ--empile">Règle (rule_code) <span class="fi-requis" aria-hidden="true">*</span>
         <input class="input" name="rule_code" required>
       </label>
-      <label class="text-xs">Version <span class="text-danger">*</span>
+      <label class="fi-champ fi-champ__label fi-champ--empile">Version <span class="fi-requis" aria-hidden="true">*</span>
         <input class="input" name="version" required>
       </label>
-      <label class="text-xs">Date de début <span class="text-danger">*</span>
+      <label class="fi-champ fi-champ__label fi-champ--empile">Date de début <span class="fi-requis" aria-hidden="true">*</span>
         <input class="input js-date-retro" type="date" name="date_debut" required>
       </label>
-      <label class="text-xs">Commentaire / justification
+      <label class="fi-champ fi-champ__label fi-champ--empile">Commentaire / justification
         <input class="input js-justification-retro" name="commentaire">
       </label>
     </div>
@@ -245,33 +271,35 @@
       ⚠ Modification rétroactive — cette date concerne une période déjà passée. Une justification
       (commentaire) est obligatoire.
     </div>
-    <button type="submit" class="btn btn-primary mt-md" {% if not disponible %}disabled{% endif %}>Enregistrer la version</button>
+    <div class="fi-actions-formulaire">
+    <button type="submit" class="btn btn-primary" {% if not disponible %}disabled{% endif %}>Enregistrer la version</button>
     <a class="btn btn-ghost btn-sm js-lien-impacts" data-champ="rule_code"
        href="/administration/referentiels/ref_regles_versions/impacts">Voir les impacts</a>
+    </div>
   </form>
-</div>
+</section>
 {% endif %}
 
 {% if meta.table == table_canape %}
-<div class="card mb-lg">
-  <div class="card-title">Changer le seuil/montant canapé d'un logement</div>
-  <p class="text-xs text-secondary mb-md">
+<section class="card fi-carte-formulaire">
+  <h2 class="card-title">Changer le seuil/montant canapé d'un logement</h2>
+  <p class="ec-note">
     Clôture la période active à la veille de la date choisie et ouvre une nouvelle ligne — la ligne
     précédente reste consultable, jamais modifiée. Un recalcul futur d'une réservation passée
     continue d'utiliser le paramètre en vigueur à sa date, jamais celui-ci.
   </p>
   <form method="post" action="/administration/referentiels/ref_canape_parametres/changer-parametres">
-    <div class="grid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:var(--space-sm);">
-      <label class="text-xs">Logement <span class="text-danger">*</span>
+    <div class="fi-grille-champs">
+      <label class="fi-champ fi-champ__label fi-champ--empile">Logement <span class="fi-requis" aria-hidden="true">*</span>
         <input class="input" name="logement_id" required>
       </label>
-      <label class="text-xs">Seuil de voyageurs <span class="text-danger">*</span>
+      <label class="fi-champ fi-champ__label fi-champ--empile">Seuil de voyageurs <span class="fi-requis" aria-hidden="true">*</span>
         <input class="input" name="seuil_voyageurs_preparation_canape" required>
       </label>
-      <label class="text-xs">Montant <span class="text-danger">*</span>
+      <label class="fi-champ fi-champ__label fi-champ--empile">Montant <span class="fi-requis" aria-hidden="true">*</span>
         <input class="input" name="montant_preparation_canape" required>
       </label>
-      <label class="text-xs">Date de début <span class="text-danger">*</span>
+      <label class="fi-champ fi-champ__label fi-champ--empile">Date de début <span class="fi-requis" aria-hidden="true">*</span>
         <input class="input js-date-retro" type="date" name="date_debut" required>
       </label>
     </div>
@@ -279,32 +307,34 @@
       ⚠ Modification rétroactive — cette date concerne une période déjà passée. Une justification
       est obligatoire.
     </div>
-    <label class="text-xs js-justification-retro mt-sm" style="display:none;">
+    <label class="fi-champ fi-champ__label fi-champ--empile js-justification-retro mt-sm" style="display:none;">
       Justification (obligatoire pour une correction rétroactive)
       <textarea class="input" name="justification" rows="2"></textarea>
     </label>
-    <button type="submit" class="btn btn-primary mt-md" {% if not disponible %}disabled{% endif %}>Changer les paramètres</button>
+    <div class="fi-actions-formulaire">
+    <button type="submit" class="btn btn-primary" {% if not disponible %}disabled{% endif %}>Changer les paramètres</button>
     <a class="btn btn-ghost btn-sm js-lien-impacts" data-champ="logement_id"
        href="/administration/referentiels/ref_canape_parametres/impacts">Voir les impacts</a>
+    </div>
   </form>
-</div>
+</section>
 {% endif %}
 
 {% if not meta.lecture_seule %}
-<div class="card mb-lg">
-  <div class="card-title">Ajouter une ligne</div>
+<section class="card fi-carte-formulaire">
+  <h2 class="card-title">Ajouter une ligne</h2>
   <form method="post" action="/administration/referentiels/{{ meta.table }}/creer">
-    <div class="grid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:var(--space-sm);">
+    <div class="fi-grille-champs">
       {% for c in meta.colonnes %}
       {% if c not in meta.colonnes_lecture_seule %}
-      <label class="text-xs">
-        {{ c }}{% if c == meta.cle %} <span class="text-danger">*</span>{% endif %}
+      <label class="fi-champ fi-champ__label fi-champ--empile">
+        <span title="{{ c }}">{{ intitule(c) }}{% if c == meta.cle %} <span class="fi-requis" aria-hidden="true">*</span>{% endif %}</span>
         {% if c == meta.cle and cle_proposee %}
           {# §82 — l'identifiant se DÉRIVE du dernier attribué. Le demander exposait à « PROP_13 »,
              « prop_0013 » ou un identifiant déjà pris, refusés seulement après coup. Le champ
              reste modifiable : une reprise de données peut légitimement imposer sa numérotation. #}
-          <input class="input font-mono" name="{{ c }}" value="{{ cle_proposee }}" required>
-          <span class="text-xs text-secondary">proposé d'après le dernier attribué</span>
+          <input class="input fi-mono" name="{{ c }}" value="{{ cle_proposee }}" required>
+          <span class="fi-champ__aide">proposé d'après le dernier attribué</span>
         {% else %}
           {{ champ(c, '', champs, obligatoire=(c == meta.cle), taille="") }}
         {% endif %}
@@ -313,38 +343,40 @@
       {% endfor %}
     </div>
     {% if meta.colonnes_lecture_seule %}
-    <p class="text-xs text-secondary mt-sm">
+    <p class="ec-note mt-sm">
       Champs historisés ({{ meta.colonnes_lecture_seule|join(', ') }}) : non saisissables ici, voir
       l'écran dédié une fois le logement créé.
     </p>
     {% endif %}
-    <button type="submit" class="btn btn-primary mt-md" {% if not disponible %}disabled{% endif %}>Créer</button>
+    <div class="fi-actions-formulaire">
+    <button type="submit" class="btn btn-primary" {% if not disponible %}disabled{% endif %}>Créer</button>
+    </div>
   </form>
-</div>
+</section>
 {% endif %}
 
-<div class="card">
-  <div class="card-title">Dernières modifications</div>
+<section class="card">
+  <div class="fi-card-tete"><h2 class="card-title">Dernières modifications</h2>{% if evenements %}<span class="fi-compteur">{{ evenements|length }}</span>{% endif %}</div>
   {% if evenements %}
-  <div class="table-container">
-    <table>
+  <div class="ec-table-wrap">
+    <table class="data-table">
       <thead><tr><th>Date</th><th>Action</th><th>Clé</th><th>Acteur</th></tr></thead>
       <tbody>
       {% for e in evenements %}
         <tr>
-          <td class="text-xs">{{ e.horodatage }}</td>
-          <td class="text-xs">{{ e.action }}</td>
-          <td class="text-xs font-mono">{{ e.cle }}</td>
-          <td class="text-xs">{{ e.acteur or '—' }}</td>
+          <td class="text-xs ec-nowrap">{{ e.horodatage|datetime_fr or e.horodatage }}</td>
+          <td class="text-sm"><span class="status-badge status-info">{{ e.action|libelle_statut }}</span></td>
+          <td class="fi-mono">{{ e.cle }}</td>
+          <td class="text-sm">{{ e.acteur or '—' }}</td>
         </tr>
       {% endfor %}
       </tbody>
     </table>
   </div>
   {% else %}
-  <p class="text-sm text-secondary">Aucune modification enregistrée depuis l'application.</p>
+  <div class="fi-vide fi-vide--compact"><span class="fi-vide__titre">Aucune modification enregistrée depuis l'application.</span></div>
   {% endif %}
-</div>
+</section>
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
@@ -377,4 +409,6 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 });
 </script>
+</div>
+<script src="/static/js/finitions.js" defer></script>
 {% endblock %}

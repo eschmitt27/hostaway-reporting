@@ -6,9 +6,13 @@
 {% set a = data.applied %}
 
 {% block content %}
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+<div class="ecran">
 
-<div class="page-header flex justify-between items-center">
-  <div>
+{% set k = indicateurs %}
+<div class="page-header">
+  <div class="page-header__titre">
     <h1 class="page-title">Ménages</h1>
     <p class="page-subtitle">
       Rapprochement des flux — période
@@ -16,10 +20,25 @@
       {% if data.mois_provisoire %}<span class="badge badge-warning">Provisoire — mois en cours</span>{% endif %}
     </p>
   </div>
-  <div class="flex gap-sm items-center">
+  <div class="page-header__actions">
+    {# Période — en tête d'écran (§6) : tout ce qui suit s'y rapporte. Changer de période garde
+       les filtres courants (champs cachés). #}
+    <form method="get" action="/menages" class="fi-periode">
+      <label for="periode_menages" class="fi-periode__label">Période</label>
+      <select name="mois" id="periode_menages" aria-label="Période"
+              onchange="this.form.submit()">
+        {% for o in data.options.periodes %}
+          <option value="{{ o.id }}" {% if data.mois == o.id %}selected{% endif %}>{{ o.libelle }}</option>
+        {% endfor %}
+      </select>
+      {% for k2, v in a.items() if k2 not in ['mois', 'page'] and v not in [None, '', False] %}
+        <input type="hidden" name="{{ k2 }}" value="{{ v }}">
+      {% endfor %}
+      <noscript><button type="submit" class="btn btn-secondary">Afficher</button></noscript>
+    </form>
     {% set params = [] %}
-    {% for k, v in a.items() if k not in ['page'] and v not in [None, '', False] %}
-      {% set _ = params.append(k ~ '=' ~ (v|lower if v is boolean else v)) %}
+    {% for k2, v in a.items() if k2 not in ['page'] and v not in [None, '', False] %}
+      {% set _ = params.append(k2 ~ '=' ~ (v|lower if v is boolean else v)) %}
     {% endfor %}
     <a href="/menages/export.csv{% if params %}?{{ params|join('&') }}{% endif %}" class="btn btn-secondary">Export CSV</a>
   </div>
@@ -28,118 +47,155 @@
 {# UNE seule bannière d'accusé de réception, branchée sur les marqueurs réellement émis par les
    routes. Les trois autres branches étaient du code mort : aucune redirection ne les atteignait. #}
 {% if request.query_params.get("actualisation") == "pdf" %}
-<div class="alert alert-info">Import des factures PDF exécuté.</div>
+<div class="alert alert-success fi-alerte-compacte" role="status">Import des factures PDF exécuté.</div>
 {% elif request.query_params.get("declaration") == "modifiee" %}
-<div class="alert alert-info">Déclaration enregistrée.</div>
+<div class="alert alert-success fi-alerte-compacte" role="status">Déclaration enregistrée.</div>
 {% elif request.query_params.get("outrepassage") == "ok" %}
-<div class="alert alert-info">Écart outrepassé.</div>
+<div class="alert alert-success fi-alerte-compacte" role="status">Écart outrepassé.</div>
 {% endif %}
-
-<!-- ===== Période — en tête d'écran (§6) : tout ce qui suit s'y rapporte ===== -->
-<div class="card mb-md">
-  <form method="get" action="/menages" class="flex gap-sm items-center" style="flex-wrap:wrap">
-    <label for="periode_menages"><strong>Période</strong></label>
-    <select name="mois" id="periode_menages" class="filter-input" aria-label="Période"
-            onchange="this.form.submit()">
-      {% for o in data.options.periodes %}
-        <option value="{{ o.id }}" {% if data.mois == o.id %}selected{% endif %}>{{ o.libelle }}</option>
-      {% endfor %}
-    </select>
-    {% for k, v in a.items() if k not in ['mois', 'page'] and v not in [None, '', False] %}
-      <input type="hidden" name="{{ k }}" value="{{ v }}">
-    {% endfor %}
-    <noscript><button type="submit" class="btn btn-secondary">Afficher</button></noscript>
-    <span class="text-xs text-secondary">
-      Tous les compteurs ci-dessous portent sur cette période.
-    </span>
-  </form>
-</div>
 
 <!-- ===== Actualisation réelle — parcours normal utilisateur ===== -->
 {% set act = actualisation %}
-<div class="card mb-md">
-  <h2 class="card-title">Actualisation</h2>
+{% set rf = refresh %}
+{% set rf_actif = rf and not rf.termine %}
+{% set en_cours = rf_actif or act.en_cours %}
+{% set ha = actualisation.hostaway %}
+{% set dp = ha.depot if ha else none %}
+{% set fr = data.fraicheur %}
+<section class="card fi-actualisation" aria-labelledby="titre-actualisation">
+  <div class="fi-actualisation__tete">
+    <div>
+      <h2 class="card-title" id="titre-actualisation">Actualisation</h2>
+      <p class="fi-discret">Tâches Hostaway et factures de ménage de la période, relues puis rapprochées.</p>
+    </div>
+    <form method="post" action="/menages/actualiser" id="form-actualiser-menages"
+          onsubmit="const b=document.getElementById('btn-actualiser-menages');
+                    b.disabled=true; b.classList.add('is-occupe'); b.textContent='Actualisation en cours…';">
+      <input type="hidden" name="mois" value="{{ data.mois }}">
+      <button type="submit" class="btn btn-primary{{ ' is-occupe' if en_cours }}" id="btn-actualiser-menages"
+              {{ "disabled" if en_cours }}>
+        {{ "Actualisation en cours…" if en_cours else "Actualiser les ménages" }}
+      </button>
+    </form>
+  </div>
+
   {# §9 — deux métriques suffisent. « détectés / nouveaux / déjà importés / non supportés »
      répétaient la même information sous quatre angles, et le détail fichier par fichier est
      déjà affiché plus bas. #}
-  <div class="kpi-grid mb-md">
-    <div class="kpi-card">
-      <div class="kpi-label">Dernière actualisation</div>
-      <div class="kpi-value" style="font-size:1rem">
-        {{ act.derniere_actualisation|datetime_fr if act.derniere_actualisation else "Jamais" }}
-      </div>
+  <dl class="fi-stats">
+    <div class="fi-stat">
+      <dt>Dernière actualisation</dt>
+      <dd>{{ act.derniere_actualisation|datetime_fr if act.derniere_actualisation else "Jamais" }}</dd>
     </div>
-    <div class="kpi-card">
-      <div class="kpi-label">Factures PDF reconnues</div>
-      <div class="kpi-value">{{ act.pdf.nb_reconnues }}</div>
+    <div class="fi-stat">
+      <dt>Factures PDF reconnues</dt>
+      <dd>{{ act.pdf.nb_reconnues }}</dd>
       {# Le nombre de fichiers du dossier n'est plus affiché ICI : mis face au nombre de factures,
          il opposait deux grandeurs justes et incomparables. Le rapprochement des deux se lit plus
          bas, où il peut être expliqué. #}
     </div>
-    <div class="kpi-card">
-      <div class="kpi-label">À contrôler / en erreur</div>
-      <div class="kpi-value">{{ act.nb_a_controler }}</div>
+    <div class="fi-stat{% if act.nb_a_controler %} fi-stat--alerte{% endif %}">
+      <dt>À contrôler / en erreur</dt>
+      <dd>{{ act.nb_a_controler }}</dd>
     </div>
-  </div>
+  </dl>
+
+  {# §13 — ne jamais annoncer « à jour » quand une source n'a pas pu être actualisée. La ligne
+     ci-dessous passe AVANT l'indicateur de fraîcheur générique : si Hostaway est en échec, c'est
+     cette information-là que l'utilisateur doit lire, avec la date réelle des dernières données
+     Hostaway disponibles — pas un horodatage de recalcul qui donnerait l'illusion du frais.
+
+     État des données Hostaway — UNE ligne. Trois alertes se succédaient ici, dont deux se
+     contredisaient frontalement : « produites le 17/09 à 17h58 » juste au-dessus de « données
+     Hostaway non actualisées ». La fraîcheur se dit maintenant en une phrase, fondée sur la
+     dernière synchronisation RÉUSSIE. Le détail technique vit dans Observabilité. #}
+  {% if dp and dp.etat and dp.etat != "INDETERMINE" %}
+  {% set hostaway_ok = dp.etat == 'A_JOUR' and not (ha and ha.en_echec) %}
+  <p class="fi-etat-ligne {{ 'fi-etat-ligne--ok' if hostaway_ok else 'fi-etat-ligne--alerte' }}">
+    {% if dp.etat == "JAMAIS_IMPORTE" %}
+      <strong>Données Hostaway jamais synchronisées</strong> sur cette installation —
+      lancez « Actualiser les ménages ».
+    {% elif dp.etat == "RETARD" %}
+      <strong>Données Hostaway plus récentes disponibles</strong>{% if dp.publie_le %}
+        ({{ dp.publie_le|datetime_fr }}){% endif %} — lancez « Actualiser les ménages ».
+    {% elif ha and ha.en_echec %}
+      <strong>Actualisation incomplète</strong> — les chiffres Hostaway datent du
+      {{ dp.source_produite_le|datetime_fr if dp.source_produite_le else "dernier relevé connu" }}.
+    {% else %}
+      <strong>Données Hostaway à jour</strong> — produites le
+      {{ dp.source_produite_le|datetime_fr }}.
+    {% endif %}
+  </p>
+  {% endif %}
+  {% if not (ha and ha.en_echec) and fr and fr.recommander_relance %}
+  <p class="fi-etat-ligne fi-etat-ligne--alerte">
+    <strong>Des sources ont été modifiées depuis le dernier rapprochement</strong> —
+    relance recommandée.
+  </p>
+  {% endif %}
 
   {% if not act.pdf.ecriture_active %}
-  <div class="alert alert-warning">
+  <div class="alert alert-warning fi-alerte-compacte">
+    <div>
     L'enregistrement des factures est désactivé sur cette installation
     (<code>ECRITURE_OPERATIONNELLE_ENABLED</code>). Les PDF sont détectés et classés ci-dessus, mais
     aucune facture n'est créée tant que ce réglage reste inactif.
+    </div>
   </div>
   {% endif %}
+
   {# Actualisation ASYNCHRONE : le clic enregistre la demande et rend la main ; l'état est relu
      toutes les 4 secondes. Aucun vocabulaire technique : l'utilisateur voit l'étape, pas le
      mécanisme. Le message final est celui du service (`menages_hostaway_github_service.MESSAGES`). #}
-  {% set rf = refresh %}
-  {% set rf_actif = rf and not rf.termine %}
+  {% set etapes = [("LANCEMENT", "Lancement"), ("EN_ATTENTE", "En attente"),
+                   ("EXTRACTION", "Extraction"), ("RECUPERATION", "Récupération"),
+                   ("RAPPROCHEMENT", "Rapprochement")] %}
   <div id="menages-refresh" data-refresh-id="{{ rf.refresh_id if rf else '' }}"
-       data-mois="{{ data.mois }}" data-termine="{{ '1' if (not rf or rf.termine) else '0' }}">
+       data-mois="{{ data.mois }}" data-termine="{{ '1' if (not rf or rf.termine) else '0' }}"
+       aria-live="polite">
     {% if rf and rf.termine and request.query_params.get("refresh") == rf.refresh_id %}
-    <div class="alert {{ 'alert-success' if rf.succes else ('alert-warning' if rf.etat == 'ANNULE' else 'alert-danger') }}">
+    <div class="alert {{ 'alert-success' if rf.succes else ('alert-warning' if rf.etat == 'ANNULE' else 'alert-error') }}" role="status">
+      <div>
       <strong>{{ rf.message }}</strong>
       {% set details = rf.resume | reject("equalto", rf.message) | list %}
       {% if details %}<ul>{% for ligne in details %}<li>{{ ligne }}</li>{% endfor %}</ul>{% endif %}
+      </div>
     </div>
     {% endif %}
     {% if rf_actif %}
-    <div class="alert alert-info" id="menages-refresh-etape">
-      <strong>Actualisation en cours…</strong>
-      <span id="menages-refresh-libelle">{{ rf.libelle if rf_actif else '' }}</span>
-      <ol class="text-xs">
-        {% for code, lib in [("LANCEMENT", "Lancement"), ("EN_ATTENTE", "En attente"),
-                             ("EXTRACTION", "Extraction"), ("RECUPERATION", "Récupération"),
-                             ("RAPPROCHEMENT", "Rapprochement")] %}
-        <li data-etape="{{ code }}" {% if rf_actif and rf.etat == code %}style="font-weight:700"{% endif %}>{{ lib }}</li>
+    {% set rang = etapes|map(attribute=0)|list %}
+    {% set rang_courant = rang.index(rf.etat) if rf.etat in rang else -1 %}
+    <div class="fi-progression" id="menages-refresh-etape">
+      <div class="fi-progression__tete">
+        <strong>Actualisation en cours…</strong>
+        <span id="menages-refresh-libelle" class="fi-discret">{{ rf.libelle if rf_actif else '' }}</span>
+      </div>
+      <ol class="fi-etapes" aria-label="Étapes de l'actualisation">
+        {% for code, lib in etapes %}
+        <li data-etape="{{ code }}"
+            class="fi-etape{{ ' is-faite' if loop.index0 < rang_courant }}{{ ' is-courante' if loop.index0 == rang_courant }}"
+            {% if loop.index0 == rang_courant %}aria-current="step"{% endif %}>
+          <span class="fi-etape__point" aria-hidden="true"></span>{{ lib }}
+        </li>
         {% endfor %}
       </ol>
     </div>
     {% endif %}
   </div>
+
   {% if changements_clotures %}
   {# Ce qui appelle une décision, c'est le nombre de MOIS concernés ; le détail et la décision
      (rouvrir, ou classer sans rouvrir) vivent sur leur propre écran. #}
   {% set mois_clotures = changements_clotures|map(attribute='mois')|unique|list %}
-  <div class="alert alert-warning">
+  <div class="alert alert-warning fi-alerte-action">
+    <div>
     <strong>{{ mois_clotures|length }} mois clôturé{{ 's' if mois_clotures|length > 1 }}
     {{ 'ont' if mois_clotures|length > 1 else 'a' }} reçu de nouvelles données — aucun recalcul
     effectué.</strong>
+    </div>
     <a href="/menages/mois-clotures" class="btn btn-secondary btn-sm">Voir le détail</a>
   </div>
   {% endif %}
-
-  <div class="flex gap-md items-start" style="flex-wrap:wrap">
-    <form method="post" action="/menages/actualiser" id="form-actualiser-menages"
-          onsubmit="const b=document.getElementById('btn-actualiser-menages');
-                    b.disabled=true; b.textContent='Actualisation en cours…';">
-      <input type="hidden" name="mois" value="{{ data.mois }}">
-      <button type="submit" class="btn btn-primary" id="btn-actualiser-menages"
-              {{ "disabled" if (rf_actif or act.en_cours) }}>
-        {{ "Actualisation en cours…" if (rf_actif or act.en_cours) else "Actualiser les ménages" }}
-      </button>
-    </form>
-  </div>
   <script>
   (function () {
     var bloc = document.getElementById('menages-refresh');
@@ -151,8 +207,9 @@
       var rang = ordre.indexOf(e.etat);
       document.querySelectorAll('#menages-refresh-etape li').forEach(function (li) {
         var r = ordre.indexOf(li.dataset.etape);
-        li.style.fontWeight = r === rang ? '700' : '400';
-        li.style.opacity = r > rang ? '0.5' : '1';
+        li.classList.toggle('is-faite', r < rang);
+        li.classList.toggle('is-courante', r === rang);
+        if (r === rang) li.setAttribute('aria-current', 'step'); else li.removeAttribute('aria-current');
       });
     }
     function interroger() {
@@ -177,191 +234,166 @@
   {# §14 — les outils de diagnostic (recette sur copies, chaîne complète, diagnostic du pipeline,
      noms de lots) ne sont plus exposés ici : ils vivent dans Observabilité & outils. Un écran
      métier n'est pas un banc de test. #}
-</div>
-
-{# §13 — ne jamais annoncer « à jour » quand une source n'a pas pu être actualisée. Le bloc
-   ci-dessous passe AVANT l'indicateur de fraîcheur générique : si Hostaway est en échec, c'est
-   cette information-là que l'utilisateur doit lire, avec la date réelle des dernières données
-   Hostaway disponibles — pas un horodatage de recalcul qui donnerait l'illusion du frais. #}
-{% set ha = actualisation.hostaway %}
-
-{# ── État des données Hostaway — UNE ligne ────────────────────────────────────────────────────
-   Trois alertes se succédaient ici, dont deux se contredisaient frontalement : « produites le
-   17/09 à 17h58 » juste au-dessus de « données Hostaway non actualisées ». La fraîcheur se dit
-   maintenant en une phrase, fondée sur la dernière synchronisation RÉUSSIE. Le détail technique
-   (dates par source, provenance du pipeline) vit dans Observabilité. #}
-{% set dp = ha.depot if ha else none %}
-{% if dp and dp.etat and dp.etat != "INDETERMINE" %}
-<div class="alert {% if dp.etat == 'A_JOUR' and not (ha and ha.en_echec) %}alert-info{% else %}alert-warning{% endif %}">
-  {% if dp.etat == "JAMAIS_IMPORTE" %}
-    <strong>Données Hostaway jamais synchronisées</strong> sur cette installation —
-    lancez « Actualiser les ménages ».
-  {% elif dp.etat == "RETARD" %}
-    <strong>Données Hostaway plus récentes disponibles</strong>{% if dp.publie_le %}
-      ({{ dp.publie_le|datetime_fr }}){% endif %} — lancez « Actualiser les ménages ».
-  {% elif ha and ha.en_echec %}
-    <strong>Actualisation incomplète</strong> — les chiffres Hostaway datent du
-    {{ dp.source_produite_le|datetime_fr if dp.source_produite_le else "dernier relevé connu" }}.
-  {% else %}
-    <strong>Données Hostaway à jour</strong> — produites le
-    {{ dp.source_produite_le|datetime_fr }}.
-  {% endif %}
-</div>
-{% endif %}
-
-{% set fr = data.fraicheur %}
-{% if not (ha and ha.en_echec) and fr and fr.recommander_relance %}
-<div class="alert alert-warning">
-  <strong>Des sources ont été modifiées depuis le dernier rapprochement</strong> —
-  relance recommandée.
-</div>
-{% endif %}
-
-{# Le bloc « Factures de ménage externes — N fichiers · N rattachés » a quitté cet écran : c'est un
-   état du dossier de dépôt, pas une information de pilotage. Le rapprochement fichiers / factures
-   reste calculé (`menages_service.rapprochement_pdf_base`) et consultable dans Observabilité. #}
+</section>
 
 {% if liste.status != "OK" %}
-<div class="alert alert-error">
-  <strong>Source indisponible</strong> —
-  {{ liste.etat_source.fichier }} ({{ liste.etat_source.onglet }}) :
-  {{ liste.etat_source.etat_libelle }}.
-  Le rapprochement ne peut pas être affiché tant que le moteur n'a pas produit cette sortie.
+<div class="card fi-vide fi-vide--alerte">
+  <span class="fi-vide__icone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
+  <span class="fi-vide__titre">Source indisponible</span>
+  <span class="fi-vide__texte">
+    {{ liste.etat_source.fichier }} ({{ liste.etat_source.onglet }}) :
+    {{ liste.etat_source.etat_libelle }}.
+    Le rapprochement ne peut pas être affiché tant que le moteur n'a pas produit cette sortie.
+  </span>
 </div>
 {% else %}
 
-{% set k = indicateurs %}
 {% if k %}
 <!-- ===== Trois indicateurs, une seule unité : le ménage ===== -->
-<div class="card mb-md">
-  <h2 class="card-title">Ménages — {{ data.mois_libelle or data.mois }}</h2>
-  <p class="text-xs text-secondary">
-    Périmètre : tous les logements, ménages dont la date tombe dans le mois.
-    Les ménages annulés ({{ k.annules }}) ne sont pas attendus.
-  </p>
-  <div class="kpi-grid kpi-grid--3" style="margin-top:var(--stack-md)">
-    <div class="kpi-card">
-      <div class="kpi-label">Attendus</div>
-      <div class="kpi-value">{{ k.attendus }}</div>
-      <div class="kpi-sub">
+<section class="fi-section" aria-labelledby="titre-indicateurs">
+  <div class="fi-section__tete">
+    <h2 class="fi-section__titre" id="titre-indicateurs">Ménages — {{ data.mois_libelle or data.mois }}</h2>
+    <p class="fi-discret">
+      Périmètre : tous les logements, ménages dont la date tombe dans le mois.
+      Les ménages annulés ({{ k.annules }}) ne sont pas attendus.
+    </p>
+  </div>
+  <div class="fi-kpis fi-kpis--3">
+    <div class="fi-kpi fi-kpi--grand">
+      <span class="fi-kpi__label">Attendus</span>
+      <span class="fi-kpi__valeur">{{ k.attendus }}</span>
+      <span class="fi-kpi__sous">
         {{ k.attendus_hostaway }} Hostaway ({{ k.realises }} réalisé{{ 's' if k.realises > 1 }},
         {{ k.a_venir }} à venir){% if k.attendus_hors_hostaway %} ·
         {{ k.attendus_hors_hostaway }} hors Hostaway{% endif %}
-      </div>
+      </span>
     </div>
-    <div class="kpi-card">
-      <div class="kpi-label">Réalisés / justifiés</div>
-      <div class="kpi-value">{{ k.realises }} / {{ k.justifies }}</div>
-      <div class="kpi-sub">
+    <div class="fi-kpi fi-kpi--grand">
+      <span class="fi-kpi__label">Réalisés / justifiés</span>
+      <span class="fi-kpi__valeur">{{ k.realises }} <span class="fi-kpi__sep">/</span> {{ k.justifies }}</span>
+      <span class="fi-kpi__sous">
         {{ k.realises }} réalisé{{ 's' if k.realises > 1 }} ·
         {{ k.justifies }} justifié{{ 's' if k.justifies > 1 }}
         ({{ k.justifies_internes }} déclaré{{ 's' if k.justifies_internes > 1 }} en interne,
         {{ k.justifies_externes }} facturé{{ 's' if k.justifies_externes > 1 }} en externe)
-      </div>
+      </span>
     </div>
-    <div class="kpi-card {% if k.a_controler_lignes %}kpi-card--warn{% endif %}">
-      <div class="kpi-label">À contrôler</div>
-      <div class="kpi-value">{{ k.a_controler_lignes }}</div>
-      <div class="kpi-sub">
+    <div class="fi-kpi fi-kpi--grand{% if k.a_controler_lignes %} fi-kpi--alerte{% else %} fi-kpi--ok{% endif %}">
+      <span class="fi-kpi__label">À contrôler</span>
+      <span class="fi-kpi__valeur">{{ k.a_controler_lignes }}</span>
+      <span class="fi-kpi__sous">
         {% if k.a_controler_lignes %}
         ligne{{ 's' if k.a_controler_lignes > 1 }} logement × intervenant ·
         {{ k.a_controler_menages }} ménage{{ 's' if k.a_controler_menages > 1 }} d'écart
         {% if k.a_controler_sans_declaration == k.a_controler_lignes %}— aucune déclaration ni
         facture reçue pour ces lignes{% endif %}
-        · <a href="/menages/a-controler?mois={{ data.mois }}">Ouvrir la liste</a>
         {% else %}Aucun écart{% endif %}
-      </div>
+      </span>
+      {% if k.a_controler_lignes %}
+      <a class="fi-lien-action fi-kpi__action" href="/menages/a-controler?mois={{ data.mois }}">Ouvrir la liste</a>
+      {% endif %}
     </div>
   </div>
-</div>
+</section>
 {% endif %}
 
 {% if s.sources_manquantes %}
-<div class="alert alert-warning mt-md">
+<div class="alert alert-warning fi-alerte-compacte">
+  <div>
   <strong>Sources incomplètes</strong> —
   {# Le libellé du référentiel porte son nom de lot (« Coût complet (Lot6f) ») : utile en
      Observabilité, hors sujet ici. L'utilisateur a besoin de savoir QUELLE donnée manque, pas
      quel script aurait dû la produire. #}
+  les blocs concernés affichent « Source indisponible » plutôt qu'une valeur fabriquée.
+  <ul class="fi-puces">
   {% for e in s.sources_manquantes %}
-    {{ e.libelle.split(' (')[0] }} : {{ e.etat_libelle }}{% if not loop.last %} · {% endif %}
+    <li>{{ e.libelle.split(' (')[0] }} : {{ e.etat_libelle }}</li>
   {% endfor %}
-  <br>Les blocs concernés affichent « Source indisponible » plutôt qu'une valeur fabriquée.
+  </ul>
+  </div>
 </div>
 {% endif %}
 
 <!-- ===== Filtres ===== -->
-<div class="card mb-md">
-  <form method="get" action="/menages" class="filter-bar">
-    <select name="mois" class="filter-input" aria-label="Période">
-      {% for o in data.options.periodes %}
-        <option value="{{ o.id }}" {% if data.mois == o.id %}selected{% endif %}>{{ o.libelle }}</option>
-      {% endfor %}
-    </select>
+{# La période se choisit en tête d'écran : elle voyage ici en champ caché, pour qu'un filtre
+   s'applique toujours au mois affiché. #}
+<form method="get" action="/menages" class="ec-filtres" data-fi-filtres>
+  <input type="hidden" name="mois" value="{{ data.mois }}">
 
-    <select name="logement_id" class="filter-input" aria-label="Logement">
+  <label class="ec-champ"><span>Logement</span>
+    <select name="logement_id" aria-label="Logement">
       <option value="">Tous les logements</option>
       {% for o in data.options.logements %}
         <option value="{{ o.id }}" {% if a.logement_id == o.id %}selected{% endif %}>{{ o.libelle }}</option>
       {% endfor %}
-    </select>
+    </select></label>
 
-    <select name="proprietaire_id" class="filter-input" aria-label="Propriétaire">
+  <label class="ec-champ"><span>Propriétaire</span>
+    <select name="proprietaire_id" aria-label="Propriétaire">
       <option value="">Tous les propriétaires</option>
       {% for o in data.options.proprietaires %}
         <option value="{{ o.id }}" {% if a.proprietaire_id == o.id %}selected{% endif %}>{{ o.libelle }}</option>
       {% endfor %}
-    </select>
+    </select></label>
 
-    <select name="intervenant_id" class="filter-input" aria-label="Intervenant">
+  <label class="ec-champ"><span>Intervenant</span>
+    <select name="intervenant_id" aria-label="Intervenant">
       <option value="">Tous les intervenants</option>
       {% for o in data.options.intervenants %}
         <option value="{{ o.id }}" {% if a.intervenant_id == o.id %}selected{% endif %}>{{ o.libelle }}</option>
       {% endfor %}
-    </select>
+    </select></label>
 
-    <select name="type_intervenant" class="filter-input" aria-label="Type de ménage">
+  <label class="ec-champ"><span>Type de ménage</span>
+    <select name="type_intervenant" aria-label="Type de ménage">
       <option value="">Tous les types</option>
       {% for o in data.options.types %}
-        <option value="{{ o.id }}" {% if a.type_intervenant == o.id %}selected{% endif %}>{{ o.libelle }}</option>
+        <option value="{{ o.id }}" {% if a.type_intervenant == o.id %}selected{% endif %}>{{ o.libelle|libelle_statut if o.libelle == o.id else o.libelle }}</option>
       {% endfor %}
-    </select>
+    </select></label>
 
-    <select name="statut" class="filter-input" aria-label="Statut">
+  {# Libellés lisibles des statuts du rapprochement ; la valeur envoyée reste le code. #}
+  {% set libelles_statut = {"OK": "OK", "A_CONTROLER": "À contrôler", "BLOQUANT": "Bloquant",
+                            "JUSTIFIE": "Justifié", "CONFORME": "Conforme"} %}
+  <label class="ec-champ"><span>Statut</span>
+    <select name="statut" aria-label="Statut">
       <option value="">Tous les statuts</option>
       {% for o in data.options.statuts %}
-        <option value="{{ o.id }}" {% if a.statut == o.id %}selected{% endif %}>{{ o.libelle }}</option>
+        <option value="{{ o.id }}" {% if a.statut == o.id %}selected{% endif %}>{{ libelles_statut.get(o.id) or (o.libelle|libelle_statut if o.libelle == o.id else o.libelle) }}</option>
       {% endfor %}
-      <option value="JUSTIFIE" {% if a.statut == "JUSTIFIE" %}selected{% endif %}>JUSTIFIE</option>
-    </select>
+      <option value="JUSTIFIE" {% if a.statut == "JUSTIFIE" %}selected{% endif %}>Justifié</option>
+    </select></label>
 
-    <select name="tri" class="filter-input" aria-label="Tri">
+  <label class="ec-champ"><span>Tri</span>
+    <select name="tri" aria-label="Tri" data-fi-neutre>
       {% for cle, libelle in data.tris.items() %}
-        <option value="{{ cle }}" {% if a.tri == cle %}selected{% endif %}>Tri : {{ libelle }}</option>
+        <option value="{{ cle }}" {% if a.tri == cle %}selected{% endif %}>{{ libelle }}</option>
       {% endfor %}
-    </select>
+    </select></label>
 
-    <label class="filter-check">
+  <div class="ec-cases">
+    <label class="ec-case">
       <input type="checkbox" name="ecart_seul" value="true" {% if a.ecart_seul %}checked{% endif %}>
       Avec écart uniquement
     </label>
-    <label class="filter-check">
+    <label class="ec-case">
       <input type="checkbox" name="identification_incomplete" value="true"
              {% if a.identification_incomplete %}checked{% endif %}>
       Identification incomplète
     </label>
+  </div>
 
+  <div class="ec-filtres__actions">
+    <a href="/menages?mois={{ data.mois }}" class="btn btn-ghost fi-reinit">Réinitialiser <span class="fi-nb-filtres" hidden></span></a>
     <button type="submit" class="btn btn-primary">Filtrer</button>
-    <a href="/menages" class="btn btn-ghost">Réinitialiser</a>
-  </form>
-</div>
+  </div>
+</form>
 
 <!-- ===== Tableau de rapprochement ===== -->
-<div class="card">
-  {% include "partials/menages_table.html" %}
-</div>
+{% include "partials/menages_table.html" %}
 
 {% endif %}
 
-
-
+</div>
+<script src="/static/js/finitions.js" defer></script>
 {% endblock %}

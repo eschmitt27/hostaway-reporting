@@ -2,47 +2,60 @@
 {% block title %}Propriétaires & règlements{% endblock %}
 
 {% block content %}
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+<div class="ecran">
 <div class="page-header">
-  <h1 class="page-title">Propriétaires &amp; règlements</h1>
-  <p class="page-subtitle">Source : {{ data.source }} — lu le {{ data.read_at }}</p>
+  <div class="page-header__titre">
+    <h1 class="page-title">Propriétaires &amp; règlements</h1>
+    <p class="page-subtitle">Source : {{ data.source }} — lu le {{ data.read_at }}</p>
+  </div>
 </div>
 
 {% if data.status == "ERROR" %}
 <div class="alert alert-error">
-  <strong>Source indisponible</strong> — {{ data.error_message }}
+  <div><strong>Source indisponible</strong> — {{ data.error_message }}</div>
 </div>
 
 {% else %}
 
-<div class="table-meta">{{ data.count }} propriétaire{% if data.count != 1 %}s{% endif %}</div>
-
 {% if data.rows %}
-<div class="table-wrapper">
+{% set nb_actifs = data.rows|selectattr("actif", "equalto", "OUI")|list|length %}
+<div class="fi-kpis">
+  <div class="fi-kpi"><span class="fi-kpi__label">Propriétaires</span>
+    <span class="fi-kpi__valeur">{{ data.count }}</span></div>
+  <div class="fi-kpi fi-kpi--ok"><span class="fi-kpi__label">Actifs</span>
+    <span class="fi-kpi__valeur">{{ nb_actifs }}</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Inactifs</span>
+    <span class="fi-kpi__valeur">{{ data.rows|length - nb_actifs }}</span></div>
+</div>
+
+<div class="ec-table-wrap">
   <table class="data-table">
     <thead>
       <tr>
-        <th>Nom</th>
+        <th class="ec-col-nom">Nom</th>
         <th>Prénom</th>
         <th>Mode facturation</th>
         <th>Actif</th>
-        <th></th>
+        <th class="fi-col-actions"><span class="sr-only">Actions</span></th>
       </tr>
     </thead>
     <tbody>
       {% for row in data.rows %}
       <tr>
-        <td>{{ row.nom_proprietaire or "—" }}</td>
+        <td class="fi-cle"><a href="/proprietaires/{{ row.proprietaire_id }}">{{ row.nom_proprietaire or "—" }}</a></td>
         <td>{{ row.prenom_proprietaire or "—" }}</td>
-        <td>{{ row.mode_facturation or "—" }}</td>
+        <td>{{ row.mode_facturation|libelle_statut if row.mode_facturation else "—" }}</td>
         <td>
           {% if row.actif == "OUI" %}
-            <span class="badge badge-ok">OUI</span>
+            <span class="status-badge status-valide">Actif</span>
           {% else %}
-            <span class="badge badge-neutral">{{ row.actif or "—" }}</span>
+            <span class="status-badge">{{ "Inactif" if row.actif == "NON" else (row.actif or "—") }}</span>
           {% endif %}
         </td>
-        <td>
-          <a href="/proprietaires/{{ row.proprietaire_id }}" class="btn btn-secondary btn-sm">Fiche</a>
+        <td class="fi-col-actions">
+          <a href="/proprietaires/{{ row.proprietaire_id }}" class="fi-lien-action">Fiche</a>
         </td>
       </tr>
       {% endfor %}
@@ -50,13 +63,17 @@
   </table>
 </div>
 {% else %}
-<div class="empty-state">
-  <p>Aucun propriétaire dans le référentiel.</p>
+<div class="card fi-vide">
+  <span class="fi-vide__icone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
+  <span class="fi-vide__titre">Aucun propriétaire dans le référentiel.</span>
+  <span class="fi-vide__texte">Les propriétaires s'ajoutent depuis l'administration des référentiels.</span>
+  <a href="/administration/referentiels" class="btn btn-secondary">Ouvrir l'administration</a>
 </div>
 {% endif %}
 
-<div class="source-note">
+<p class="ec-note">
   <strong>Source :</strong> {{ data.source }} — lecture seule, aucun recalcul.
-</div>
+</p>
 {% endif %}
+</div>
 {% endblock %}

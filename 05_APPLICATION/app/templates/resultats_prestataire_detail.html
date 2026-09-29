@@ -2,40 +2,41 @@
 {% block title %}Prestataire {{ prestataire_id | nom_prestataire }}{% endblock %}
 
 {% block content %}
-<div class="page-header">
-  <a href="/resultats/prestataires?mois={{ mois }}" class="back-link">← Prestataires</a>
-  <h1 class="page-title">{{ prestataire_id | nom_prestataire }}</h1>
-  <p class="page-subtitle">
-    <a href="/resultats/fournisseurs/{{ prestataire_id }}">Voir la vue comptable de ce tiers (fournisseur)</a>
-  </p>
-</div>
-
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+{% import "partials/_resultats.html" as r %}
+<div class="ecran">
+{% call r.entete(prestataire_id | nom_prestataire, retour_href="/resultats/prestataires?mois=" ~ (mois or ""), retour_libelle="Prestataires", mois=(mois or none)) %}
+  <a href="/resultats/fournisseurs/{{ prestataire_id }}" class="btn btn-secondary">Vue comptable (fournisseur)</a>
+{% endcall %}
 {% if resultat.statut != "OK" %}
-<div class="alert alert-warning">NON_DISPONIBLE — aucun ménage pour ce prestataire/cette période.</div>
+{{ r.indisponible("Aucun ménage pour ce prestataire sur cette période") }}
 {% else %}
-<div class="kpi-grid mb-md">
-  <div class="kpi-card"><div class="kpi-label">Coût prévu total</div><div class="kpi-value">{{ "%.2f"|format(resultat.cout_prevu_total) }}</div></div>
-  <div class="kpi-card"><div class="kpi-label">Coût réel total</div><div class="kpi-value">{{ "%.2f"|format(resultat.cout_reel_total) }}</div></div>
+<div class="fi-kpis">
+  <div class="fi-kpi"><span class="fi-kpi__label">Coût prévu total</span><span class="fi-kpi__valeur">{{ r.eur(resultat.cout_prevu_total) }}</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Coût réel total</span><span class="fi-kpi__valeur">{{ r.eur(resultat.cout_reel_total) }}</span></div>
 </div>
-<div class="table-container">
+<div class="ec-table-wrap">
   <table class="data-table">
-    <thead><tr><th>Ménage</th><th>Mois</th><th>Logement</th><th>Type</th><th class="num">Coût prévu</th><th class="num">Coût réel</th><th>Statut</th><th>Charge</th><th>Facture</th></tr></thead>
+    <thead><tr><th>Ménage</th><th>Mois</th><th class="ec-col-nom">Logement</th><th>Type</th><th class="num">Coût prévu</th><th class="num">Coût réel</th><th>Statut</th><th>Charge</th><th>Facture</th></tr></thead>
     <tbody>
       {% for m in resultat.lignes %}
       <tr>
-        <td><a href="/menages/cycle/{{ m.menage_id_opaque }}">{{ m.menage_id_opaque }}</a></td>
-        <td>{{ m.mois }}</td>
+        <td class="fi-mono ec-nowrap"><a href="/menages/cycle/{{ m.menage_id_opaque }}">{{ m.menage_id_opaque }}</a></td>
+        <td class="ec-nowrap">{{ m.mois|mois_humain if m.mois else "—" }}</td>
         <td>{{ m.logement_id | nom_logement }}</td>
-        <td>{{ m.type_menage }}</td>
-        <td class="num">{{ "%.2f"|format(m.cout_prevu) if m.cout_prevu is not none else "—" }}</td>
-        <td class="num">{{ "%.2f"|format(m.cout_reel) if m.cout_reel is not none else "—" }}</td>
-        <td><span class="badge">{{ m.statut }}</span></td>
-        <td>{{ m.charge_id or "—" }}</td>
-        <td>{% if m.facture_id_opaque %}<a href="/factures/{{ m.facture_id_opaque }}">{{ m.facture_id_opaque }}</a>{% else %}—{% endif %}</td>
+        <td>{{ m.type_menage|libelle_statut if m.type_menage else "—" }}</td>
+        <td class="num">{{ r.eur(m.cout_prevu) }}</td>
+        <td class="num">{{ r.eur(m.cout_reel) }}</td>
+        <td><span class="status-badge">{{ m.statut|libelle_statut }}</span></td>
+        <td class="fi-mono">{{ m.charge_id or "—" }}</td>
+        <td class="fi-mono">{% if m.facture_id_opaque %}<a href="/factures/{{ m.facture_id_opaque }}">{{ m.facture_id_opaque }}</a>{% else %}—{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
 {% endif %}
+</div>
+<script src="/static/js/finitions.js" defer></script>
 {% endblock %}

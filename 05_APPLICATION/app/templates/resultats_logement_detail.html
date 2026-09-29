@@ -2,26 +2,25 @@
 {% block title %}Résultat {{ logement_id | nom_logement }}{% endblock %}
 
 {% block content %}
-<div class="page-header">
-  <a href="/resultats/logements?mois={{ mois }}" class="back-link">← Logements</a>
-  <h1 class="page-title">{{ logement_id | nom_logement }}</h1>
-  <p class="page-subtitle">{{ mois or "aucun mois" }}</p>
-</div>
-
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+{% import "partials/_resultats.html" as r %}
+<div class="ecran">
+{{ r.entete(logement_id | nom_logement, retour_href="/resultats/logements?mois=" ~ (mois or ""), retour_libelle="Logements", mois=(mois or "")) }}
 {% if fiche.statut != "OK" %}
-<div class="alert alert-warning">NON_DISPONIBLE pour ce logement/mois.</div>
+{{ r.indisponible("Résultat non disponible pour ce logement et ce mois") }}
 {% else %}
-<div class="table-container mb-md">
+<div class="ec-table-wrap">
   <table class="data-table">
     <thead><tr><th>Vision</th><th class="num">Produits</th><th class="num">Charges</th><th class="num">Résultat</th><th class="num">Flux</th></tr></thead>
     <tbody>
       {% for v, d in fiche.visions.items() %}
       <tr>
-        <td>{{ v }}</td>
-        <td class="num">{{ "%.2f"|format(d.total_produits) }}</td>
-        <td class="num">{{ "%.2f"|format(d.total_charges) }}</td>
-        <td class="num">{{ "%.2f"|format(d.resultat) }}</td>
-        <td class="num">{{ d.nb_flux }}</td>
+        <td class="fi-cle">{{ r.vision_libelle(v) }}</td>
+        <td class="num">{{ r.eur(d.total_produits) }}</td>
+        <td class="num">{{ r.eur(d.total_charges) }}</td>
+        <td class="num"><strong>{{ r.eur(d.resultat) }}</strong></td>
+        <td class="num fi-discret">{{ d.nb_flux }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -29,25 +28,29 @@
 </div>
 {% endif %}
 
-<div class="card">
-  <div class="card-title">Drill-down — écritures portant ce logement ({{ mouvements|length }})</div>
-  <div class="table-container">
+<section class="card">
+  <div class="fi-card-tete"><h2 class="card-title">Écritures portant ce logement</h2><span class="fi-compteur">{{ mouvements|length }}</span></div>
+  {% if mouvements %}
+  <div class="ec-table-wrap">
     <table class="data-table">
       <thead><tr><th>Écriture</th><th>Journal</th><th>Date</th><th>Statut</th><th class="num">Débit</th><th class="num">Crédit</th></tr></thead>
       <tbody>
         {% for m in mouvements %}
         <tr>
-          <td><a href="/comptabilite/ecritures/{{ m.ecriture_id_opaque }}">{{ m.ecriture_id_opaque }}</a></td>
-          <td>{{ m.journal }}</td><td>{{ m.date_ecriture }}</td>
-          <td><span class="badge">{{ m.statut }}</span></td>
-          <td class="num">{{ "%.2f"|format(m.debit) if m.debit else "" }}</td>
-          <td class="num">{{ "%.2f"|format(m.credit) if m.credit else "" }}</td>
+          <td class="fi-mono ec-nowrap"><a href="/comptabilite/ecritures/{{ m.ecriture_id_opaque }}">{{ m.ecriture_id_opaque }}</a></td>
+          <td>{{ m.journal }}</td><td class="ec-nowrap">{{ m.date_ecriture|date_fr or m.date_ecriture }}</td>
+          <td><span class="status-badge">{{ m.statut|libelle_statut }}</span></td>
+          <td class="num">{{ r.eur(m.debit) if m.debit else "" }}</td>
+          <td class="num">{{ r.eur(m.credit) if m.credit else "" }}</td>
         </tr>
-        {% else %}
-        <tr><td colspan="6">Aucune écriture ne porte encore ce logement.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  {% else %}
+  <div class="fi-vide fi-vide--compact"><span class="fi-vide__titre">Aucune écriture ne porte encore ce logement.</span></div>
+  {% endif %}
+</section>
 </div>
+<script src="/static/js/finitions.js" defer></script>
 {% endblock %}

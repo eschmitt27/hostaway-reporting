@@ -2,28 +2,35 @@
 {% block title %}Résultats — Fournisseurs{% endblock %}
 
 {% block content %}
-<div class="page-header">
-  <a href="/resultats" class="back-link">← Résultats</a>
-  <h1 class="page-title">Fournisseurs</h1>
-  <p class="page-subtitle">Auxiliaires comptables (compte 401000) — réutilise la Comptabilité, aucun second calcul.</p>
-  <a href="/resultats/fournisseurs/export.csv" class="btn btn-ghost">Exporter CSV</a>
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+{% import "partials/_resultats.html" as r %}
+<div class="ecran">
+{% call r.entete("Fournisseurs", sous_titre="Auxiliaires comptables (compte 401000) — réutilise la Comptabilité, aucun second calcul.") %}
+  <a href="/resultats/fournisseurs/export.csv" class="btn btn-secondary">Exporter CSV</a>
+{% endcall %}
+{% if not fournisseurs %}
+<div class="card fi-vide">
+  <span class="fi-vide__titre">Aucun fournisseur avec mouvement.</span>
+  <span class="fi-vide__texte">Les fournisseurs apparaissent ici dès qu'une facture ou un règlement est comptabilisé.</span>
 </div>
-
-<div class="table-container">
+{% else %}
+<div class="ec-table-wrap">
   <table class="data-table">
-    <thead><tr><th>Fournisseur</th><th class="num">Débit</th><th class="num">Crédit</th><th class="num">Solde (dette)</th></tr></thead>
+    <thead><tr><th class="ec-col-nom">Fournisseur</th><th class="num">Débit</th><th class="num">Crédit</th><th class="num">Solde (dette)</th></tr></thead>
     <tbody>
       {% for f in fournisseurs %}
       <tr>
-        <td><a href="/resultats/fournisseurs/{{ f.auxiliaire }}">{{ f.auxiliaire }}</a></td>
-        <td class="num">{{ "%.2f"|format(f.debit) }}</td>
-        <td class="num">{{ "%.2f"|format(f.credit) }}</td>
-        <td class="num">{{ "%.2f"|format(f.solde) }}</td>
+        <td class="fi-cle"><a href="/resultats/fournisseurs/{{ f.auxiliaire }}">{{ f.auxiliaire }}</a></td>
+        <td class="num">{{ r.eur(f.debit) }}</td>
+        <td class="num">{{ r.eur(f.credit) }}</td>
+        <td class="num"><strong>{{ r.eur(f.solde) }}</strong></td>
       </tr>
-      {% else %}
-      <tr><td colspan="4">Aucun fournisseur avec mouvement.</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+{% endif %}
+</div>
+<script src="/static/js/finitions.js" defer></script>
 {% endblock %}

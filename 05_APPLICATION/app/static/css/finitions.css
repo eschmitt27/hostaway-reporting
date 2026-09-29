@@ -1,0 +1,1076 @@
+/* ══ FINITIONS — mouvement, états et composants de confort ══════════════════════════════════
+   Couche optionnelle posée PAR-DESSUS `ecrans.css`, chargée écran par écran (jamais par base.html).
+
+   Règles de confinement (identiques à ecrans.css) :
+   · tout sélecteur commence par `.ecran` : un écran qui ne charge pas ce fichier, ou ne porte pas
+     la classe, n'est pas concerné ;
+   · uniquement les jetons d'app.css (couleurs, rayons, espacements) : l'identité ne change pas ;
+   · présentation seulement : aucun nom de champ, aucune valeur, aucune route n'en dépend.
+
+   Mouvement : 120-220 ms, courbes douces, aucun rebond. Tout est neutralisé sous
+   `prefers-reduced-motion: reduce` (voir fin de fichier). */
+
+.ecran {
+  --fi-ease: cubic-bezier(0.2, 0, 0, 1);
+  --fi-rapide: 120ms;
+  --fi-normal: 180ms;
+  --fi-lent: 220ms;
+  --fi-ombre-survol: 0 4px 14px rgba(16, 27, 48, 0.08), 0 1px 3px rgba(16, 27, 48, 0.06);
+  --fi-focus: 0 0 0 3px rgba(0, 52, 65, 0.22);
+  /* Graphiques : palette catégorielle validée (ordre fixe), encre et grille discrètes. */
+  --fi-serie-1: #2a78d6;
+  --fi-serie-2: #eb6834;
+  --fi-serie-3: #1baf7a;
+  --fi-encre-secondaire: #5b5f61;
+  --fi-grille: #e8edff;
+}
+
+/* ── Apparition de l'écran ───────────────────────────────────────────────────────────────── */
+@keyframes fi-apparition {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes fi-fondu {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+/* Les blocs principaux arrivent en fondu, avec un décalage à peine perceptible. */
+.ecran > .card,
+.ecran > .ec-synthese,
+.ecran > .ec-filtres,
+.ecran > .ec-table-wrap,
+.ecran > .fi-kpis,
+.ecran > .fi-vide,
+.ecran > .alert {
+  animation: fi-apparition var(--fi-lent) var(--fi-ease) both;
+}
+.ecran > :nth-child(3) { animation-delay: 30ms; }
+.ecran > :nth-child(4) { animation-delay: 60ms; }
+.ecran > :nth-child(n+5) { animation-delay: 90ms; }
+
+/* ── En-tête : le titre prend la place disponible, les actions restent sur sa ligne ────────── */
+.ecran .page-header__titre { flex: 1 1 420px; }
+.ecran .page-header__actions { flex: 0 1 auto; justify-content: flex-end; }
+
+/* ── Boutons : transitions, pression, focus clavier ─────────────────────────────────────── */
+.ecran .btn {
+  transition: background-color var(--fi-rapide) var(--fi-ease),
+              border-color var(--fi-rapide) var(--fi-ease),
+              color var(--fi-rapide) var(--fi-ease),
+              box-shadow var(--fi-rapide) var(--fi-ease),
+              transform var(--fi-rapide) var(--fi-ease),
+              opacity var(--fi-rapide) var(--fi-ease);
+}
+.ecran .btn:not([disabled]):active { transform: translateY(1px); }
+.ecran .btn-primary:not([disabled]):hover { box-shadow: 0 2px 8px rgba(0, 52, 65, 0.22); }
+.ecran .btn:focus-visible,
+.ecran a:focus-visible,
+.ecran summary:focus-visible { outline: none; box-shadow: var(--fi-focus); border-radius: var(--radius-md); }
+.ecran .btn-danger:not([disabled]):hover { background: #ffc9c3; }
+/* Bouton « en cours » posé par finitions.js après envoi : le libellé reste lisible. */
+.ecran .btn.is-occupe { position: relative; cursor: progress; opacity: 0.85; }
+.ecran .btn.is-occupe::after {
+  content: "";
+  width: 12px;
+  height: 12px;
+  margin-left: 2px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: fi-rotation 0.7s linear infinite;
+}
+@keyframes fi-rotation { to { transform: rotate(360deg); } }
+
+/* ── Montants ───────────────────────────────────────────────────────────────────────────── */
+.ecran .fi-montant { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ecran .fi-montant--negatif, .ecran .fi-kpi__valeur.fi-montant--negatif { color: var(--color-error); }
+.ecran .fi-sous-titre { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.ecran .fi-liens-bas { display: flex; flex-wrap: wrap; gap: 8px; margin-top: var(--stack-md); }
+.ecran .fi-kpi__valeur--texte { font-size: 16px; font-weight: 600; color: var(--color-secondary); }
+.ecran .fi-kpi--hero { border-top: 3px solid var(--color-primary); }
+.ecran .fi-kpi--hero .fi-kpi__valeur { font-size: 26px; }
+.ecran .fi-puces--mois { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; padding: 0; list-style: none; }
+.ecran .fi-puces--mois li {
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-container);
+  color: var(--color-on-surface-variant);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ── Résultat du mois : le chiffre principal, puis ses points de comparaison ─────────────── */
+.ecran .fi-resultat {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.1fr) 2fr;
+  gap: 12px;
+  margin: 0 0 var(--stack-md);
+  animation: fi-apparition var(--fi-lent) var(--fi-ease) both;
+}
+.ecran .fi-resultat__principal { justify-content: center; padding: 22px 24px; }
+.ecran .fi-resultat__principal .fi-kpi__valeur { font-size: 34px; line-height: 1.15; }
+.ecran .fi-resultat__cote { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.ecran tr.fi-ligne-active { background: #f5f8ff; }
+
+/* ── Accès aux analyses, regroupés par intention ────────────────────────────────────────── */
+.ecran .fi-analyses {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px 20px;
+  margin-top: 12px;
+}
+.ecran .fi-analyses__groupe { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ecran .fi-analyses__titre {
+  margin: 0 0 2px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+}
+.ecran .fi-analyse {
+  display: flex;
+  flex-direction: column;
+  padding: 9px 12px;
+  border: 1px solid var(--color-surface-container);
+  border-radius: var(--radius-md);
+  background: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-primary);
+  transition: border-color var(--fi-rapide) var(--fi-ease), background-color var(--fi-rapide) var(--fi-ease), transform var(--fi-rapide) var(--fi-ease);
+}
+.ecran .fi-analyse span { font-size: 12px; font-weight: 400; color: var(--color-secondary); }
+.ecran .fi-analyse:hover { border-color: var(--color-outline-variant); background: var(--color-surface-container-low); transform: translateX(2px); }
+
+/* ── Graphique ───────────────────────────────────────────────────────────────────────────── */
+.ecran .fi-graphique__zone { position: relative; }
+.ecran .fi-graphique canvas { display: block; width: 100%; height: 320px; }
+.ecran .fi-legende { display: flex; flex-wrap: wrap; gap: 6px; }
+.ecran .fi-legende__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 12px 0 10px;
+  border: 1px solid var(--color-surface-container);
+  border-radius: var(--radius-full);
+  font-size: 13px;
+  color: var(--color-on-surface);
+  cursor: pointer;
+  user-select: none;
+  transition: background-color var(--fi-rapide) var(--fi-ease), opacity var(--fi-rapide) var(--fi-ease);
+}
+.ecran .fi-legende__item:hover { background: var(--color-surface-container-low); }
+/* La case devient la pastille de couleur de la série ; décochée, la série est grisée. */
+.ecran .fi-legende__item input {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  border: 2px solid var(--serie);
+  border-radius: 3px;
+  background: var(--serie);
+  cursor: pointer;
+}
+.ecran .fi-legende__item input:not(:checked) { background: transparent; }
+.ecran .fi-legende__item:has(input:not(:checked)) { opacity: 0.55; }
+.ecran .fi-legende__item input:focus-visible { outline: none; box-shadow: var(--fi-focus); }
+.ecran .fi-infobulle {
+  position: absolute;
+  top: 8px;
+  z-index: 5;
+  min-width: 190px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-md);
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(16, 27, 48, 0.12);
+  font-size: 12px;
+  pointer-events: none;
+  animation: fi-fondu var(--fi-rapide) var(--fi-ease) both;
+}
+.ecran .fi-infobulle__titre { margin-bottom: 6px; font-weight: 700; color: var(--color-on-surface); }
+.ecran .fi-infobulle__ligne { display: flex; align-items: center; gap: 8px; color: var(--color-on-surface-variant); }
+.ecran .fi-infobulle__ligne strong { margin-left: auto; padding-left: 12px; color: var(--color-on-surface); font-variant-numeric: tabular-nums; }
+.ecran .fi-infobulle__puce { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+
+/* Dépliant compact dans une carte ou une ligne de tableau. */
+.ecran .fi-depliant--ligne { margin-top: 12px; border: 1px solid var(--color-surface-container); border-radius: var(--radius-md); }
+.ecran .fi-depliant--ligne > summary { padding: 10px 14px; font-size: 13px; }
+.ecran .fi-depliant--ligne .fi-depliant__corps { padding: 8px 14px 14px; }
+.ecran .fi-pre { margin: 0; white-space: pre-wrap; font-size: 12px; font-family: "Cascadia Code", "Consolas", monospace; }
+.ecran .fi-note-ligne { white-space: normal; max-width: 52ch; }
+.ecran td .fi-note-ligne { font-size: 12px; }
+.ecran tr.fi-ligne-detail:hover { background: transparent; }
+
+/* ── Champs de saisie `.input` (formulaires d'administration) ───────────────────────────── */
+.ecran input.input,
+.ecran select.input,
+.ecran textarea.input {
+  width: 100%;
+  min-width: 0;
+  height: var(--ec-control-h, 38px);
+  padding: 0 10px;
+  border: 1px solid var(--ec-border, var(--color-outline-variant));
+  border-radius: var(--radius-md);
+  background-color: #ffffff;
+  color: var(--color-on-surface);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 400;
+  transition: border-color var(--fi-rapide) var(--fi-ease), box-shadow var(--fi-rapide) var(--fi-ease), background-color var(--fi-rapide) var(--fi-ease);
+}
+.ecran textarea.input { height: auto; min-height: 76px; padding: 8px 10px; line-height: 1.5; resize: vertical; }
+.ecran select.input {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2340484b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px;
+  cursor: pointer;
+}
+.ecran .input:hover { border-color: var(--color-outline); }
+.ecran .input:focus { outline: none; border-color: var(--color-primary); box-shadow: var(--fi-focus); }
+.ecran .input:user-invalid { border-color: var(--color-error); background-color: #fffafa; }
+.ecran .input[readonly], .ecran .input:disabled { background-color: var(--color-surface-container-low); color: var(--color-secondary); cursor: default; }
+
+/* ── Grille de champs étiquetés ─────────────────────────────────────────────────────────── */
+.ecran .fi-grille-champs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px 20px;
+}
+.ecran .fi-champ { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ecran .fi-champ--large { grid-column: 1 / -1; }
+.ecran .fi-champ__label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-on-surface);
+}
+.ecran .fi-champ__label .badge { height: 20px; font-size: 11px; }
+.ecran .fi-champ__aide { font-size: 12px; font-weight: 400; line-height: 1.45; color: var(--color-secondary); }
+.ecran .fi-requis { color: var(--color-error); font-weight: 700; }
+.ecran .fi-facultatif { font-weight: 400; color: var(--color-secondary); }
+
+/* Libellé qui enveloppe son champ : texte au-dessus, champ dessous. */
+.ecran .fi-champ.fi-champ--empile { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+.ecran .fi-actions-formulaire { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
+.ecran .fi-form-ligne { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ecran .fi-form-ligne .input { width: auto; min-width: 150px; height: 34px; }
+.ecran .fi-form-ligne .btn { height: 34px; padding: 0 14px; }
+
+/* ── Référentiel éditable : champs compacts dans le tableau, lignes inactives estompées ── */
+.ecran .fi-table-referentiel td { vertical-align: middle; }
+.ecran .fi-table-referentiel td .input { min-width: 140px; height: 32px; padding: 0 8px; font-size: 13px; }
+.ecran .fi-table-referentiel td select.input { padding-right: 28px; background-position: right 8px center; }
+.ecran .fi-table-referentiel td textarea.input { min-width: 200px; height: auto; padding: 6px 8px; }
+.ecran .fi-table-referentiel td input[type="date"].input { min-width: 150px; }
+.ecran .fi-etat-actif { margin-top: 4px; }
+.ecran tr.fi-ligne-inactive > td { background: #fafafa; }
+.ecran tr.fi-ligne-inactive > td .input { color: var(--color-secondary); }
+.ecran td.fi-actions-ligne form { display: inline-flex; margin: 0; }
+.ecran td.fi-actions-ligne { display: table-cell; }
+.ecran td.fi-actions-ligne .btn + form, .ecran td.fi-actions-ligne form + form { margin-left: 4px; }
+
+/* ── Raccourcis (cartes-liens) ──────────────────────────────────────────────────────────── */
+.ecran .fi-raccourcis { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: var(--stack-md); margin-bottom: var(--stack-md); }
+.ecran .fi-raccourcis > .card { margin: 0; }
+.ecran .fi-raccourci {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 14px;
+  color: inherit;
+  transition: border-color var(--fi-normal) var(--fi-ease), box-shadow var(--fi-normal) var(--fi-ease), transform var(--fi-normal) var(--fi-ease);
+  animation: fi-apparition var(--fi-lent) var(--fi-ease) both;
+}
+.ecran .fi-raccourci:hover { border-color: var(--color-outline); box-shadow: var(--fi-ombre-survol); transform: translateY(-1px); }
+.ecran .fi-raccourci__icone {
+  display: grid; place-items: center; width: 40px; height: 40px; grid-row: span 2;
+  border-radius: var(--radius-md); background: var(--color-surface-container); color: var(--color-primary);
+}
+.ecran .fi-raccourci__icone svg { width: 20px; height: 20px; }
+.ecran .fi-raccourci__texte { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ecran .fi-raccourci__titre { font-size: 15px; font-weight: 700; color: var(--color-on-surface); }
+.ecran .fi-raccourci__desc { font-size: 12px; line-height: 1.55; color: var(--color-secondary); }
+.ecran .fi-raccourci__action { grid-column: 2; font-size: 13px; font-weight: 600; color: var(--color-primary); }
+.ecran .fi-raccourci__action::after { content: "\203A"; display: inline-block; margin-left: 5px; transition: transform var(--fi-rapide) var(--fi-ease); }
+.ecran .fi-raccourci:hover .fi-raccourci__action::after { transform: translateX(3px); }
+
+/* Catalogue : mêmes largeurs de colonnes d'une catégorie à l'autre. */
+.ecran .fi-table-catalogue { table-layout: fixed; min-width: 760px; }
+.ecran .fi-table-catalogue .fi-c-nom { width: 30%; }
+.ecran .fi-table-catalogue .fi-c-cle { width: 20%; }
+.ecran .fi-table-catalogue .fi-c-nb { width: 8%; }
+.ecran .fi-table-catalogue .fi-c-classe { width: 30%; }
+.ecran .fi-table-catalogue .fi-c-action { width: 12%; }
+.ecran .fi-table-catalogue td { overflow-wrap: anywhere; }
+
+/* ── Fiches : identité en en-tête, grille d'informations ─────────────────────────────────── */
+.ecran .fi-identite { display: flex; align-items: center; gap: 14px; margin-top: 4px; }
+.ecran .fi-identite .page-title { margin: 0; }
+.ecran .fi-identite .page-subtitle { margin-top: 4px; }
+.ecran .fi-avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.ecran .fi-fiche-grille { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-top: 12px; }
+.ecran .fi-fiche-grille__large { grid-column: span 2; }
+.ecran .fi-fiche-grille dd a { color: var(--color-primary); font-weight: 600; }
+.ecran .fi-adresse { white-space: pre-line; }
+@media (max-width: 720px) { .ecran .fi-fiche-grille__large { grid-column: auto; } }
+
+.ecran .fi-deux-blocs { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-top: 16px; }
+.ecran .fi-deux-blocs .ec-table-wrap { margin-bottom: 0; }
+.ecran tr.fi-ligne-total > td { font-weight: 700; background: var(--color-surface-container-low); border-top: 2px solid var(--color-outline-variant); }
+@media (max-width: 720px) { .ecran .fi-deux-blocs { grid-template-columns: minmax(0, 1fr); } }
+
+/* ── Paramètres : formulaire à gauche, aperçu imprimé qui suit à droite ─────────────────── */
+.ecran .fi-parametres {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: var(--stack-md);
+  align-items: start;
+  margin-bottom: var(--stack-md);
+}
+.ecran .fi-parametres__form { order: 1; min-width: 0; }
+.ecran .fi-parametres__form > .card { margin-bottom: var(--stack-md); }
+.ecran .fi-apercu {
+  order: 2;
+  position: sticky;
+  top: 16px;
+  margin: 0;
+  border-top: 3px solid var(--color-primary);
+}
+.ecran .fi-apercu__liste { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
+.ecran .fi-apercu__liste dt { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--color-secondary); }
+.ecran .fi-apercu__liste dd { margin: 2px 0 0; font-size: 14px; font-weight: 600; color: var(--color-on-surface); }
+.ecran .fi-barre-enregistrer {
+  position: sticky;
+  bottom: 12px;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px 16px;
+  padding: 14px 20px;
+  box-shadow: 0 -2px 18px rgba(16, 27, 48, 0.1), var(--shadow-card);
+}
+.ecran .fi-barre-enregistrer .btn { height: var(--ec-control-h, 38px); }
+
+/* ── Sélecteur de période en tête d'écran ────────────────────────────────────────────────── */
+.ecran .fi-periode {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 4px 0 12px;
+  border: 1px solid var(--ec-border, var(--color-outline-variant));
+  border-radius: var(--radius-md);
+  background: #ffffff;
+  transition: border-color var(--fi-rapide) var(--fi-ease), box-shadow var(--fi-rapide) var(--fi-ease);
+}
+.ecran .fi-periode:focus-within { border-color: var(--color-primary); box-shadow: var(--fi-focus); }
+.ecran .fi-periode__label { font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-secondary); }
+.ecran .fi-periode select {
+  height: 34px;
+  padding: 0 28px 0 6px;
+  border: none;
+  background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23003441' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") no-repeat right 8px center / 12px;
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-primary);
+  cursor: pointer;
+}
+.ecran .fi-periode select:focus { outline: none; }
+
+/* ── Section titrée hors carte ───────────────────────────────────────────────────────────── */
+.ecran .fi-section { margin: 0 0 var(--stack-md); animation: fi-apparition var(--fi-lent) var(--fi-ease) both; }
+.ecran .fi-section__tete { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 12px; }
+.ecran .fi-section__titre { margin: 0; font-size: 17px; font-weight: 700; color: var(--color-on-surface); }
+.ecran .fi-section__tete p { font-size: 13px; margin: 0; }
+
+/* ── Bloc d'actualisation (centre de commande d'un écran alimenté par un moteur) ─────────── */
+.ecran .fi-actualisation { display: flex; flex-direction: column; gap: 14px; }
+.ecran .fi-actualisation__tete {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+.ecran .fi-actualisation__tete .card-title { margin: 0 0 2px; }
+.ecran .fi-actualisation__tete p { font-size: 13px; margin: 0; }
+.ecran .fi-actualisation__tete .btn { height: 40px; }
+.ecran .fi-actualisation .alert { margin: 0; }
+
+/* Mesures compactes en ligne (libellé au-dessus, valeur dessous) */
+.ecran .fi-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0;
+  margin: 0;
+  border: 1px solid var(--color-surface-container);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-container-low);
+  overflow: hidden;
+}
+.ecran .fi-stat { padding: 12px 16px; min-width: 0; }
+.ecran .fi-stat + .fi-stat { border-left: 1px solid var(--color-surface-container); }
+.ecran .fi-stat dt {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+}
+.ecran .fi-stat dd { margin: 2px 0 0; font-size: 18px; font-weight: 700; color: var(--color-primary); font-variant-numeric: tabular-nums; }
+.ecran .fi-stat--alerte dd { color: var(--color-warning); }
+
+/* Ligne d'état (fraîcheur d'une source) : pastille + phrase, sans le poids d'une alerte. */
+.ecran .fi-etat-ligne {
+  display: block;
+  margin: 0;
+  padding: 10px 14px 10px 32px;
+  position: relative;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  line-height: 1.5;
+  animation: fi-fondu var(--fi-normal) var(--fi-ease) both;
+}
+.ecran .fi-etat-ligne::before {
+  content: "";
+  position: absolute;
+  left: 14px;
+  top: 16px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.ecran .fi-etat-ligne--ok { background: var(--color-success-bg); color: var(--color-success); }
+.ecran .fi-etat-ligne--alerte { background: var(--color-warning-bg); color: var(--color-warning); }
+
+/* Progression d'un traitement long : étapes, étape courante animée. */
+.ecran .fi-progression {
+  padding: 14px 16px;
+  border: 1px solid #c3d6fb;
+  border-radius: var(--radius-md);
+  background: var(--color-info-bg);
+  color: var(--color-info);
+  animation: fi-apparition var(--fi-normal) var(--fi-ease) both;
+}
+.ecran .fi-progression__tete { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; font-size: 14px; }
+.ecran .fi-progression__tete .fi-discret { color: var(--color-info); opacity: 0.85; }
+.ecran .fi-etapes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 0;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: fi-etape;
+}
+.ecran .fi-etape {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 28px;
+  font-size: 13px;
+  color: var(--color-info);
+  opacity: 0.55;
+  transition: opacity var(--fi-normal) var(--fi-ease);
+}
+.ecran .fi-etape:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  width: 12px;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.5;
+}
+.ecran .fi-etape__point {
+  width: 10px;
+  height: 10px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  flex: none;
+  transition: background-color var(--fi-normal) var(--fi-ease);
+}
+.ecran .fi-etape.is-faite { opacity: 1; }
+.ecran .fi-etape.is-faite .fi-etape__point { background: currentColor; }
+.ecran .fi-etape.is-courante { opacity: 1; font-weight: 700; }
+.ecran .fi-etape.is-courante .fi-etape__point { animation: fi-pulsation 1.4s ease-in-out infinite; }
+@keyframes fi-pulsation {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(30, 64, 175, 0.35); }
+  50%      { box-shadow: 0 0 0 5px rgba(30, 64, 175, 0); }
+}
+
+/* Alerte portant son action à droite. */
+.ecran .alert.fi-alerte-action { align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.ecran .alert .fi-puces { display: flex; flex-wrap: wrap; gap: 4px 6px; margin: 8px 0 0; padding: 0; list-style: none; }
+.ecran .alert .fi-puces li {
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+}
+
+/* ── Cartes ──────────────────────────────────────────────────────────────────────────────── */
+.ecran .card { transition: box-shadow var(--fi-normal) var(--fi-ease), border-color var(--fi-normal) var(--fi-ease); }
+.ecran .card > .card-title:first-child { margin-top: 0; }
+/* Blocs de premier niveau : toujours séparés du suivant, jamais collés. */
+.ecran > .card { margin-bottom: var(--stack-md); }
+.ecran > .card.mb-lg { margin-bottom: var(--stack-lg); }
+.ecran .fi-card-tete {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 16px;
+  margin-bottom: var(--stack-md);
+}
+.ecran .fi-card-tete .card-title { margin: 0; }
+.ecran .fi-compteur {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-container);
+  color: var(--color-on-surface-variant);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Indicateurs (KPI) : une seule grammaire ────────────────────────────────────────────── */
+.ecran .fi-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+  margin: 0 0 var(--stack-md);
+}
+.ecran .fi-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--ec-border, var(--color-outline-variant));
+  border-radius: var(--radius-lg);
+  background: #ffffff;
+  box-shadow: var(--shadow-card);
+  color: inherit;
+  transition: border-color var(--fi-normal) var(--fi-ease), box-shadow var(--fi-normal) var(--fi-ease),
+              transform var(--fi-normal) var(--fi-ease);
+}
+.ecran a.fi-kpi:hover { border-color: var(--color-outline); box-shadow: var(--fi-ombre-survol); transform: translateY(-1px); }
+.ecran .fi-kpi__label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+}
+.ecran .fi-kpi__valeur {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--color-primary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.ecran .fi-kpi__sous { font-size: 12px; line-height: 1.5; color: var(--color-secondary); }
+.ecran .fi-kpis--3 { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.ecran .fi-kpi--grand { padding: 18px 20px; gap: 4px; }
+.ecran .fi-kpi--grand .fi-kpi__valeur { font-size: 28px; }
+.ecran .fi-kpi__sep { color: var(--color-outline); font-weight: 400; }
+.ecran .fi-kpi__action { align-self: flex-start; margin: 6px 0 0 -10px; }
+.ecran .fi-kpi--alerte { border-left: 3px solid var(--color-warning); }
+.ecran .fi-kpi--alerte .fi-kpi__valeur { color: var(--color-warning); }
+.ecran .fi-kpi--erreur { border-left: 3px solid var(--color-error); }
+.ecran .fi-kpi--erreur .fi-kpi__valeur { color: var(--color-error); }
+.ecran .fi-kpi--ok .fi-kpi__valeur { color: var(--color-success); }
+
+/* ── Tableaux ────────────────────────────────────────────────────────────────────────────── */
+/* Cadre positionné : un élément absolu d'une cellule (texte pour lecteur d'écran, menu) reste
+   contenu dans le cadre qui défile au lieu d'élargir la page. */
+.ecran .ec-table-wrap { position: relative; }
+.ecran .ec-table-wrap thead th { background: var(--color-surface-container-low); }
+.ecran .ec-table-wrap tbody tr { transition: background-color var(--fi-rapide) var(--fi-ease); }
+.ecran .ec-table-wrap tbody tr:hover { background: #f5f7ff; }
+.ecran .ec-table-wrap tbody td { border-bottom: 1px solid var(--color-surface-container); vertical-align: middle; }
+.ecran .ec-table-wrap tbody tr:last-child td { border-bottom: none; }
+/* Ligne au-dessus d'un tableau : volume et pagination. */
+.ecran .fi-table-tete { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin: 0 0 8px; }
+.ecran .fi-table-tete .table-meta { margin: 0; }
+/* Ligne à traiter : un liseré, pas un aplat qui noie les chiffres. */
+.ecran .ec-table-wrap tr.fi-ligne-alerte { background: #fffcf3; }
+.ecran .ec-table-wrap tr.fi-ligne-alerte > td:first-child { box-shadow: inset 3px 0 0 var(--color-warning); }
+.ecran .ec-table-wrap tr.fi-ligne-alerte:hover { background: #fff7e3; }
+.ecran .fi-pagination { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 0 0 var(--stack-md); }
+/* Ligne entièrement cliquable : le curseur le dit, le lien de la première cellule le permet au clavier. */
+.ecran tr.fi-ligne-cliquable { cursor: pointer; }
+/* Première colonne : la clé de lecture de la ligne. */
+.ecran .fi-cle { font-weight: 600; color: var(--color-on-surface); }
+.ecran .fi-cle a { color: var(--color-primary); }
+.ecran .fi-cle a:hover { text-decoration: underline; text-underline-offset: 2px; }
+.ecran .fi-mono { font-family: "Cascadia Code", "Consolas", monospace; font-size: 12px; }
+/* Un nom de fichier se coupe n'importe où plutôt qu'au premier tiret, dans une largeur bornée. */
+.ecran td.fi-fichier { min-width: 230px; max-width: 300px; overflow-wrap: anywhere; }
+.ecran td.fi-fichier .status-badge { margin-top: 4px; }
+.ecran .fi-discret { color: var(--color-secondary); }
+.ecran td.fi-zero { color: var(--color-outline); }
+.ecran .fi-texte-alerte { color: var(--color-warning); font-weight: 600; }
+/* Colonne d'actions : compacte, à droite. */
+.ecran th.fi-col-actions, .ecran td.fi-col-actions { width: 1%; text-align: right; white-space: nowrap; }
+.ecran .fi-lien-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-primary);
+  transition: background-color var(--fi-rapide) var(--fi-ease);
+}
+.ecran .fi-lien-action:hover { background: var(--color-surface-container); }
+.ecran .fi-lien-action::after { content: "\203A"; font-size: 16px; line-height: 1; transition: transform var(--fi-rapide) var(--fi-ease); }
+.ecran .fi-lien-action:hover::after { transform: translateX(2px); }
+.ecran td.fi-col-actions .btn-sm { height: 30px; }
+.ecran .btn-sm { display: inline-flex; align-items: center; }
+
+/* Compteurs cliquables d'une ligne (pilotage) : lisibles comme des liens, pas comme du texte. */
+.ecran .fi-nb {
+  display: inline-flex;
+  justify-content: center;
+  min-width: 28px;
+  height: 24px;
+  padding: 0 8px;
+  align-items: center;
+  border-radius: var(--radius-full);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-primary);
+  background: var(--color-surface-container-low);
+  transition: background-color var(--fi-rapide) var(--fi-ease);
+}
+.ecran a.fi-nb:hover { background: var(--color-surface-container-high); }
+.ecran .fi-nb--alerte { background: var(--color-warning-bg); color: var(--color-warning); }
+.ecran .fi-nb--zero { background: transparent; color: var(--color-outline); font-weight: 400; }
+
+/* ── Statuts : même forme partout, texte toujours présent ───────────────────────────────── */
+.ecran .status-badge,
+.ecran .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 9px;
+  line-height: 1;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  animation: fi-fondu var(--fi-normal) var(--fi-ease) both;
+}
+/* Pastille devant le texte : un repère de plus, jamais le seul. */
+.ecran .status-badge::before,
+.ecran .fi-statut::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.8;
+  flex: none;
+}
+.ecran .badge-danger { background: var(--color-error-container); color: var(--color-on-error-container); }
+.ecran .badge-ok { background: var(--color-success-bg); color: var(--color-success); }
+/* Brouillon / clôturé : deux états que la palette sémantique ne couvrait pas. */
+.ecran .status-brouillon { background: var(--color-surface-container); color: var(--color-on-surface-variant); }
+.ecran .status-brouillon::before { background: transparent; border: 1.5px solid currentColor; width: 7px; height: 7px; }
+.ecran .status-cloture { background: var(--color-primary); color: var(--color-on-primary); }
+.ecran .status-neutre { background: var(--color-surface-container); color: var(--color-secondary); }
+
+/* ── Filtres ─────────────────────────────────────────────────────────────────────────────── */
+/* Barre compacte : les champs gardent une largeur lisible, les actions restent groupées à droite
+   sur la même ligne au lieu de s'empiler dans la dernière colonne de la grille. */
+.ecran .ec-filtres[data-fi-filtres] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 16px;
+}
+.ecran .ec-filtres[data-fi-filtres] > .ec-champ { flex: 1 1 170px; max-width: 260px; }
+.ecran .ec-filtres[data-fi-filtres] > .ec-champ.fi-champ-large { flex: 2 1 260px; max-width: 420px; }
+.ecran .ec-filtres[data-fi-filtres] > .ec-cases { flex: 0 1 auto; }
+.ecran .ec-filtres[data-fi-filtres] > .ec-filtres__actions { flex: 0 0 auto; margin-left: auto; flex-wrap: nowrap; }
+.ecran .ec-filtres .ec-champ.is-actif > span { color: var(--color-primary); }
+.ecran .ec-filtres .ec-champ.is-actif > span::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  vertical-align: 1px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  animation: fi-fondu var(--fi-normal) var(--fi-ease) both;
+}
+.ecran .ec-filtres .ec-champ.is-actif select,
+.ecran .ec-filtres .ec-champ.is-actif input { border-color: var(--color-primary); background-color: #fbfcff; }
+.ecran .ec-filtres .ec-case.is-actif { color: var(--color-primary); font-weight: 600; }
+/* « Réinitialiser » n'a de sens qu'avec un filtre posé : discret sinon. */
+.ecran .ec-filtres[data-fi-actifs="0"] .fi-reinit { opacity: 0.55; }
+.ecran .fi-nb-filtres {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-size: 11px;
+  font-weight: 700;
+}
+.ecran .fi-nb-filtres[hidden] { display: none; }
+
+/* ── Bloc d'import (texte à gauche, dépôt + action à droite) ─────────────────────────────── */
+.ecran .fi-import {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 32px;
+}
+.ecran .fi-import__texte { flex: 1 1 320px; min-width: 0; }
+.ecran .fi-import__texte .card-title { margin-bottom: 4px; }
+.ecran .fi-import__texte p { font-size: 13px; line-height: 1.6; max-width: 80ch; }
+.ecran .fi-import__actions { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.ecran .fi-import__fichiers { gap: 6px; }
+.ecran .fi-import__fichiers > span { font-size: 12px; font-weight: 600; color: var(--color-on-surface-variant); }
+.ecran .fi-import__actions .btn { height: 38px; }
+.ecran .fi-import input[type="file"] { font-size: 13px; max-width: 100%; color: var(--color-secondary); }
+.ecran .fi-import input[type="file"]::file-selector-button {
+  height: 32px;
+  margin-right: 10px;
+  padding: 0 12px;
+  border: 1.5px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  background: #ffffff;
+  color: var(--color-primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--fi-rapide) var(--fi-ease);
+}
+.ecran .fi-import input[type="file"]::file-selector-button:hover { background: var(--color-surface-container-low); }
+
+/* ── Cartes d'export côte à côte ─────────────────────────────────────────────────────────── */
+.ecran .fi-exports {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--stack-md);
+  margin-bottom: var(--stack-md);
+}
+.ecran .fi-exports > .card { margin: 0; display: flex; flex-direction: column; gap: 12px; animation: fi-apparition var(--fi-lent) var(--fi-ease) both; }
+.ecran .fi-exports > .card + .card { margin-top: 0; animation-delay: 40ms; }
+.ecran .fi-export-carte__tete { display: flex; gap: 14px; align-items: flex-start; }
+.ecran .fi-export-carte__tete .card-title { margin: 0 0 4px; }
+.ecran .fi-export-carte__tete p { font-size: 13px; line-height: 1.6; }
+.ecran .fi-export-carte__icone {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-container);
+  color: var(--color-primary);
+}
+.ecran .fi-export-carte__icone svg { width: 20px; height: 20px; }
+.ecran .fi-export-carte .alert { margin: 0; }
+.ecran .fi-export-carte__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; }
+
+/* Texte réservé aux lecteurs d'écran (en-tête de colonne d'actions, par exemple). */
+.ecran .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── Formulaires dans une carte (hors barre de filtres) ─────────────────────────────────── */
+.ecran .fi-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px 16px;
+  align-items: end;
+}
+.ecran .fi-form .ec-champ > span { font-size: 12px; font-weight: 600; color: var(--color-on-surface-variant); }
+.ecran .fi-form input[type="text"],
+.ecran .fi-form input[type="date"],
+.ecran .fi-form input[type="month"],
+.ecran .fi-form select {
+  width: 100%;
+  min-width: 0;
+  height: var(--ec-control-h, 38px);
+  padding: 0 10px;
+  border: 1px solid var(--ec-border, var(--color-outline-variant));
+  border-radius: var(--radius-md);
+  background-color: #ffffff;
+  color: var(--color-on-surface);
+  font: inherit;
+  font-size: 14px;
+  transition: border-color var(--fi-rapide), box-shadow var(--fi-rapide);
+}
+.ecran .fi-form select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2340484b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px;
+  cursor: pointer;
+}
+.ecran .fi-form input:hover, .ecran .fi-form select:hover { border-color: var(--color-outline); }
+.ecran .fi-form input:focus, .ecran .fi-form select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: var(--ec-focus-ring, var(--fi-focus));
+}
+.ecran .fi-form input:user-invalid, .ecran .fi-form select:user-invalid { border-color: var(--color-error); }
+.ecran .fi-form .btn { height: var(--ec-control-h, 38px); justify-content: center; }
+
+/* ── Bloc dépliant (<details class="fi-depliant">) ──────────────────────────────────────── */
+.ecran .fi-depliant { padding: 0; overflow: hidden; }
+.ecran .fi-depliant > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 20px;
+  list-style: none;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--color-primary);
+  transition: background-color var(--fi-rapide) var(--fi-ease);
+}
+.ecran .fi-depliant > summary::-webkit-details-marker { display: none; }
+.ecran .fi-depliant > summary::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--fi-normal) var(--fi-ease);
+  flex: none;
+}
+.ecran .fi-depliant[open] > summary::before { transform: rotate(45deg); }
+.ecran .fi-depliant > summary:hover { background: var(--color-surface-container-low); }
+.ecran .fi-depliant__aide { font-weight: 400; font-size: 13px; color: var(--color-secondary); margin-left: auto; }
+.ecran .fi-depliant__corps {
+  padding: 4px 20px 20px;
+  border-top: 1px solid var(--color-surface-container);
+  animation: fi-apparition var(--fi-normal) var(--fi-ease) both;
+}
+.ecran .fi-depliant__corps > p { margin: 12px 0 16px; font-size: 13px; line-height: 1.6; color: var(--color-secondary); max-width: 100ch; }
+.ecran .fi-depliant__corps a { color: var(--color-primary); font-weight: 600; }
+
+/* ── Menu d'actions d'une ligne (<details class="fi-menu">) ─────────────────────────────── */
+.ecran .fi-menu { position: relative; display: inline-block; }
+.ecran .fi-menu > summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: var(--radius-md);
+  list-style: none;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--color-on-surface-variant);
+  cursor: pointer;
+}
+.ecran .fi-menu > summary::-webkit-details-marker { display: none; }
+.ecran .fi-menu > summary::before { content: none; }
+.ecran .fi-menu > summary:hover,
+.ecran .fi-menu[open] > summary { background: var(--color-surface-container); color: var(--color-primary); }
+.ecran .fi-menu__panneau {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  width: min(22rem, 80vw);
+  padding: 12px;
+  border: 1px solid var(--ec-border, var(--color-outline-variant));
+  border-radius: var(--radius-lg);
+  background: #ffffff;
+  box-shadow: 0 12px 32px rgba(16, 27, 48, 0.14), 0 2px 6px rgba(16, 27, 48, 0.06);
+  text-align: left;
+  white-space: normal;
+  transform-origin: top right;
+  animation: fi-menu-ouverture var(--fi-normal) var(--fi-ease) both;
+}
+@keyframes fi-menu-ouverture {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+.ecran .fi-menu__panneau > .btn { width: 100%; justify-content: center; }
+.ecran .fi-menu__panneau form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-surface-container);
+}
+.ecran .fi-menu__panneau p { font-size: 12px; line-height: 1.5; color: var(--color-secondary); margin: 0; }
+.ecran .fi-menu__panneau label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--color-on-surface-variant); }
+.ecran .fi-menu__panneau input[type="text"] {
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--ec-border, var(--color-outline-variant));
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 400;
+}
+.ecran .fi-menu__panneau input[type="text"]:focus { outline: none; border-color: var(--color-primary); box-shadow: var(--fi-focus); }
+.ecran .fi-menu__panneau .btn { justify-content: center; }
+/* Un menu ouvert dans un tableau qui défile ne doit pas être rogné par le bas du cadre. */
+.ecran .ec-table-wrap:has(.fi-menu[open]) { padding-bottom: 220px; }
+
+/* ── États vides ─────────────────────────────────────────────────────────────────────────── */
+.ecran .fi-vide {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 40px 24px;
+  text-align: center;
+}
+.ecran .fi-vide__icone {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 6px;
+  border-radius: 50%;
+  background: var(--color-surface-container-low);
+  color: var(--color-outline);
+}
+.ecran .fi-vide__icone svg { width: 22px; height: 22px; }
+.ecran .fi-vide__titre { font-size: 15px; font-weight: 600; color: var(--color-on-surface); }
+.ecran .fi-vide__texte { max-width: 60ch; font-size: 13px; line-height: 1.6; color: var(--color-secondary); }
+.ecran .fi-vide .btn { margin-top: 10px; }
+.ecran .fi-vide--compact { padding: 20px 16px; }
+.ecran .fi-vide__icone--ok { background: var(--color-success-bg); color: var(--color-success); }
+.ecran td.fi-motif { min-width: 220px; max-width: 320px; }
+.ecran td.fi-resume { min-width: 180px; }
+.ecran .fi-vide--alerte .fi-vide__icone { background: var(--color-error-container); color: var(--color-error); }
+
+/* ── Alertes / messages ──────────────────────────────────────────────────────────────────── */
+.ecran .alert { border: 1px solid transparent; line-height: 1.55; }
+.ecran .alert-info    { border-color: #c3d6fb; }
+.ecran .alert-warning { border-color: #f6dc9a; }
+.ecran .alert-error   { border-color: #f7bdb6; }
+.ecran .alert-success { border-color: #bfe1c9; }
+.ecran .alert.fi-alerte-compacte { font-size: 13px; padding: 10px 14px; }
+.ecran .alert ul { margin: 6px 0 0 18px; }
+
+/* ── Grille de détail (dl) ───────────────────────────────────────────────────────────────── */
+.ecran .detail-grid > div {
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-container-low);
+}
+.ecran .detail-grid dt { font-size: 11px; }
+
+/* ── Écrans étroits ──────────────────────────────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  .ecran .fi-periode { width: 100%; }
+  .ecran .fi-periode select { flex: 1; min-width: 0; font-size: 16px; }
+  .ecran .fi-actualisation__tete form, .ecran .fi-actualisation__tete .btn { width: 100%; justify-content: center; }
+  .ecran .fi-stat + .fi-stat { border-left: none; border-top: 1px solid var(--color-surface-container); }
+  .ecran .fi-kpi--grand .fi-kpi__valeur { font-size: 22px; }
+  .ecran .fi-kpis.fi-kpis--3 { grid-template-columns: minmax(0, 1fr); }
+  .ecran .fi-resultat { grid-template-columns: minmax(0, 1fr); }
+  .ecran .fi-kpi--hero .fi-kpi__valeur { font-size: 21px; white-space: nowrap; }
+  .ecran .fi-parametres { grid-template-columns: minmax(0, 1fr); }
+  .ecran .fi-apercu { position: static; order: 0; }
+  .ecran .input { font-size: 16px; }
+  .ecran .fi-barre-enregistrer { position: static; grid-template-columns: minmax(0, 1fr); }
+  .ecran .fi-barre-enregistrer .btn { justify-content: center; }
+  .ecran .fi-resultat__principal .fi-kpi__valeur { font-size: 28px; }
+  .ecran .fi-graphique canvas { height: 240px; }
+  .ecran > .card, .ecran .card { padding: 20px 16px; }
+  .ecran .ec-filtres[data-fi-filtres] > .ec-champ { flex-basis: 100%; max-width: none; }
+  .ecran .ec-filtres[data-fi-filtres] > .ec-filtres__actions { flex: 1 1 100%; margin-left: 0; }
+  .ecran .ec-filtres[data-fi-filtres] > .ec-filtres__actions .btn { flex: 1 1 0; }
+  .ecran .fi-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ecran .fi-kpi__valeur { font-size: 18px; }
+  .ecran .fi-form { grid-template-columns: minmax(0, 1fr); }
+  .ecran .fi-form input, .ecran .fi-form select { font-size: 16px; }
+  .ecran .fi-depliant > summary { flex-wrap: wrap; }
+  .ecran .fi-depliant__aide { margin-left: 18px; }
+  .ecran .page-header { flex-direction: column; align-items: stretch; gap: var(--stack-sm); }
+  .ecran .page-header__titre, .ecran .page-header__actions { flex: 0 0 auto; }
+  .ecran .page-header .btn { justify-content: center; }
+}
+@media (max-width: 1100px) {
+  .ecran .fi-parametres { grid-template-columns: minmax(0, 1fr); }
+  .ecran .fi-apercu { position: static; order: 0; }
+}
+@media (max-width: 340px) {
+  .ecran .fi-kpis { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ── Mouvement réduit : rien ne bouge, tout reste lisible ───────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .ecran *,
+  .ecran *::before,
+  .ecran *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+  .ecran .btn:not([disabled]):active,
+  .ecran a.fi-kpi:hover { transform: none; }
+}
