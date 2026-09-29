@@ -210,6 +210,14 @@ Déclencheurs journalisés : `EMISSION_FACTURE`, `VALIDATION_MOUVEMENT`, `ANNULA
 `MANUEL` ; `AUTO` n'est plus produit. La fiche du compte indique, sans rien écrire, quand
 l'enregistrement est en retard sur les données.
 
+### 2.11 Acomptes et reversements Airbnb en comptabilité (Mission 36)
+
+Le FIFO du compte propriétaire est inchangé. En comptabilité, un acompte encaissé (rapproché dans
+Flux) va en 419100 (acomptes clients, tiers = propriétaire) ; à l'émission de la facture, les
+acomptes et reversements Airbnb qui lui sont rattachés s'imputent 419100 → 411000. Un reversement
+Airbnb est de la famille ACOMPTE (décision utilisateur) : ni réduction (709600), ni produit négatif.
+Sans crédit suffisant en 419100, l'imputation est refusée et signalée — aucun encaissement inventé.
+
 ---
 
 ## 3. Migrations

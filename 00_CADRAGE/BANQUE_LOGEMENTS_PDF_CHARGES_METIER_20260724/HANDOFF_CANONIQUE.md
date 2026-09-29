@@ -4275,3 +4275,85 @@ lecture : hash `app.db`, empreinte logique, journal et allocations identiques av
 
 La base réelle n'a pas été nettoyée : les 3 recalculs « AUTO » du 29/09 01:16 restent (baseline).
 Les 16 bloqueurs de septembre sont inchangés. PR #4 en attente, non mergée.
+
+## Mission 36 (2026-09-29) — Circuit Banque → Charges → Comptabilité → Facturation exploitable
+
+Objectif : des workflows justes pour l'exploitation future, pas la clôture de septembre (les
+bloqueurs ne sont pas un indicateur de réussite ici). Commit(s) `c5d1bad`, migration **0114**.
+
+**Modèle.** MOUVEMENT (trésorerie, immuable : montant, sens, date, compte ne sont éditables par
+aucun parcours) ≠ CHARGE (réalité économique, montant libre) ≠ RAPPROCHEMENT (lien N↔M, plafonné
+par le reste du mouvement ET le reste de la charge). Une charge partiellement payée ou un mouvement
+partiellement expliqué ne sont pas des anomalies : sans autre choix, l'écart d'un rapprochement de
+charges reste OUVERT (rien n'est absorbé ; les factures gardent le choix explicite).
+
+**Charge née d'un mouvement.** Le plafond « montant ≤ reste du mouvement » (V34) a disparu : un
+montant différent exige une justification (historisée avec la charge). GiFi : mouvement 5 € →
+charge 20,25 € ; rapprochement 5 € (606320 / 512) ; depuis le mouvement de 15,25 € la charge est
+proposée pour son reste ; second rapprochement 15,25 €. Une charge, deux écritures, jamais 20,25 €
+contre 5 €.
+
+**Justificatifs** (`justificatifs_service`). Référence humaine dès la création, distincte de
+l'identifiant technique : `CHG-AAAA-MM-NNN` (charges), `FAF-AAAA-MM-NNN` (factures fournisseurs).
+Dossier canonique `01_SOURCES_BRUTES/Justificatifs/<Charges|FacturesFournisseurs>/AAAA/MM/`
+(configurable `JUSTIFICATIFS_ROOT`, exclu de git), fichier nommé par la référence. L'écran de
+confirmation montre référence et dossier et demande « le justificatif a-t-il bien été enregistré ? » :
+OUI → présence VÉRIFIÉE dans le dossier (`JUSTIFICATIF_ARCHIVE`, nom du fichier constaté) ; NON →
+justification obligatoire (`JUSTIFICATIF_ABSENT_JUSTIFIE`, contrainte aussi en base). Réponse,
+justification, fichier, auteur, date historisés ; la fiche permet de répondre plus tard (duplicata).
+Une charge n'est plus validable tant que la question est sans réponse (charges antérieures sans
+référence : non bloquées, référence attribuable à la demande). Une facture née d'un PDF importé a
+déjà sa pièce : constatée automatiquement. L'ancien champ « Justificatif archivé (JUS-…) » n'est plus
+proposé à la saisie ; les valeurs historiques restent lisibles.
+
+**Catégories → comptes.** Catalogue fonctionnel : 16 catégories ajoutées (CHG_028…CHG_043, marquées
+`SAISIE_APPLICATION` : un réimport REF_Setup ne les supprime pas) ; aucune supprimée ; « Autre
+charge » = CHG_024 existante (doublon évité). Plan interne : 26 comptes de charge (611100…651100,
+635110 CFE et 635400 droits d'enregistrement pour les impôts — aucun compte générique), 8 comptes de
+produit (706100…706900, 708800, 709600) et 419100 (acomptes clients). 411000 reste le compte client
+(pas de 411100 en double). Règles VALIDÉES : 26 par défaut + 2 autorisées (impôts, au choix).
+Catégories volontairement sans compte (à définir ou imputation libre) : ménage interne, remboursement
+voyageur, associées, forfait client/cave, charge générale non affectée, sinistre, à contrôler,
+incident voyageur, AirCover, repas, prestation diverse, supplément ménage, catégorie personnalisée.
+Mapping : rôle DEFAUT (présélectionné) ou AUTORISE (au choix), dates, actif, historique. À la
+saisie : un seul compte → présélectionné (et retenu par le serveur) ; plusieurs → choix ; aucun →
+« Compte comptable à définir ». Imputation libre : compte de charge actif + justification tracée.
+
+**Écritures bancaires éditables.** La ligne banque (compte, montant, sens) est imposée ; seule la
+contrepartie s'édite (comptes, ventilation, tiers). Somme ≠ mouvement → « La ventilation
+comptable doit correspondre exactement au montant du mouvement bancaire : 100,00 €. »
+
+**Auxiliaires.** Plan comptable : `auxiliaire_mode` NONE / OPTIONAL / REQUIRED et `auxiliaire_type`
+FOURNISSEUR / CLIENT / ASSOCIE (6xx, 7xx, 512, 530 : NONE ; 401 : fournisseur ; 411, 419100 : client ;
+455 : associé), administrables. Le champ tiers n'apparaît que pour un compte qui en porte, du bon
+type ; changer 401 → 606320 le vide ; le serveur efface tout tiers sur un compte NONE et refuse un
+compte REQUIRED sans tiers (à l'insertion de TOUTE écriture).
+
+**Fournisseurs.** A. achat payé directement : 6xx / 512 au rapprochement ; B. facture fournisseur :
+6xx / 401 à la validation, 401 / 512 au paiement — jamais la charge deux fois (contrôle existant).
+
+**Facturation propriétaire.** Chaque ligne porte un `type_economique` (dérivé du type technique pour
+l'existant, déclencheur pour les nouvelles ; un extra se déclare service additionnel, sinistre ou
+autre prestation) et son compte vient de `mapping_produits_facture` : gestion 706100, ménage 706200,
+forfait 706300, sinistre 706400, services additionnels / canapé 706500, autres 706900,
+refacturations 708800, réduction **709600 au débit** (jamais un produit négatif). Écriture à
+l'émission : 411 débité du total, un crédit par compte de produit. TVA : aucune sous franchise ; si
+la facture en porte, compte 445710 actif exigé, sinon refus (aucune hypothèse fiscale).
+**Acomptes** : encaissement rapproché dans Flux → 512 / **419100** (jamais 706) ; à l'émission,
+imputation 419100 → 411 (écriture OD proposée). **Reversements Airbnb** : famille acompte (même
+imputation 419100 → 411, sous-type conservé au libellé). Si le crédit 419100 du client ne couvre pas
+ce qu'on impute, rien n'est écrit : incohérence signalée (« acompte sans origine comptable »).
+
+**Preuves.** `tests/test_circuit_banque_charges_compta.py` (62 tests : GiFi, N↔M, plafonds,
+immutabilité, justificatifs, catalogue, impôts, imputation libre, auxiliaires, ventilation 70/30 et
+99/101, fournisseur, facture multi-lignes, acompte, reversement avec et sans origine, sinistre, TVA,
+GET sans écriture, retrait 530/512). Suite complète : 4 530 passed / 37 skipped / 0 failed (44 min). Recette copie 10/10 (A achat carte →
+I règlement, J lecture sans écriture). Migration 0114 appliquée à la base réelle après sauvegarde : additive (aucune table existante modifiée hors périmètre ; 7 charges et 5 écritures intactes ; aucun justificatif, aucune écriture, aucune pièce créés). Contrôle en lecture de 10 écrans (Flux, saisie, fiche charge, plan, mappings, écriture) : empreinte identique.
+
+**Limites restantes.** (1) Aucun parcours ne comptabilise encore un PAYOUT Airbnb en 419100 : tant
+qu'il manque, l'imputation d'un reversement Airbnb est signalée « sans origine comptable » au lieu
+d'être inventée. (2) Les 3 écritures de vente déjà générées (dont la proposée de 823,65 € en
+706000) ne sont pas recomposées : seules les factures émises à partir de maintenant sont
+comptabilisées par ligne. (3) Les charges antérieures n'ont pas de référence CHG tant qu'on ne la
+demande pas depuis leur fiche. (4) Catégories hors catalogue listées ci-dessus : compte à arbitrer.
+PR #4 en attente, non mergée.

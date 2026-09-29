@@ -5887,3 +5887,14 @@ empreinte logique, journal, allocations).
 
 **Base réelle.** Inchangée par la mission ; aucun nettoyage (baseline conservée). Septembre non
 clôturé, 16 bloqueurs inchangés. Détail : `HANDOFF_CANONIQUE.md`, Mission 35.
+
+## CTR-CIRCUIT-BANQUE-COMPTA-FACTURATION-2026-09-29 — workflows exploitables (D029)
+
+**Périmètre.** Mission 36, commit(s) `c5d1bad`, migration 0114 (additive : comptes, catégories,
+mappings, auxiliaires, justificatifs, type économique des lignes). Aucune charge reclassée, aucune
+écriture validée, aucune pièce créée, aucun mois clôturé sur la base réelle.
+
+**Contrôles.** `test_circuit_banque_charges_compta.py` 62 passed ; suite complète 4 530 passed / 37 skipped / 0 failed (44 min) ; recette
+copie 10/10 ; lecture des écrans sans écriture.
+
+**Base réelle.** Migration 0114 appliquée à la base réelle après sauvegarde : additive (aucune table existante modifiée hors périmètre ; 7 charges et 5 écritures intactes ; aucun justificatif, aucune écriture, aucune pièce créés). Contrôle en lecture de 10 écrans (Flux, saisie, fiche charge, plan, mappings, écriture) : empreinte identique. Détail : `HANDOFF_CANONIQUE.md`, Mission 36.
