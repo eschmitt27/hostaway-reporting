@@ -289,6 +289,20 @@ def creer(form: dict[str, Any], *, acteur: str = "", db_path=None,
              empreinte(frs, ref, ttc, _txt(form.get("date_facture"))),
              _txt(form.get("commentaire")) or None, acteur or "local"))
         _evenement(conn, opaque, "CREATION", None, statut, _txt(form.get("commentaire")), acteur)
+        # Mission 36 — référence documentaire dès la création (FAF-AAAA-MM-NNN). Une facture née
+        # d'un PDF importé a déjà sa pièce : elle est constatée, sans question à l'utilisateur.
+        from app.services import justificatifs_service as justif
+        j = justif.attribuer(conn, justif.OBJET_FACTURE_FOURNISSEUR, opaque,
+                             _txt(form.get("date_facture")), acteur=acteur)
+        piece = _txt(form.get("justificatif"))
+        if piece.lower().endswith(".pdf") and _txt(form.get("source")).upper() not in ("", "SAISIE"):
+            conn.execute("UPDATE justificatifs SET statut=?, fichier_constate=?, confirme_par=?, "
+                         "confirme_le=? WHERE reference=?",
+                         (justif.ST_ARCHIVE, piece, acteur or "import", _now(), j["reference"]))
+            conn.execute("INSERT INTO justificatif_evenements (reference, type_evenement, statut, "
+                         "justification, fichier, acteur) VALUES (?,?,?,?,?,?)",
+                         (j["reference"], "CONFIRMATION_ARCHIVE", justif.ST_ARCHIVE,
+                          "Pièce source de l'import", piece, acteur or "import"))
         conn.commit()
     finally:
         conn.close()

@@ -273,8 +273,14 @@ def confirmer(
     dryruns_root: Path | None = None,
     db_path: Path | None = None,
     acteur: str = "",
+    justificatif: dict[str, str] | None = None,
 ) -> ResultatConfirmation:
     """Confirme une prévisualisation : écrit la charge en SQLite.
+
+    `justificatif` (Mission 36) : la réponse de l'écran de confirmation — {present: OUI|NON,
+    justification}. Contrôlée AVANT l'écriture : « oui » sans fichier au nom de la référence dans
+    le dossier canonique, ou « non » sans justification, refusent SANS consommer la
+    prévisualisation (l'utilisateur range la pièce, puis confirme à nouveau).
 
     Tous les chemins sont injectables (les tests travaillent en base isolée). Ne lève jamais : tout
     incident est rendu dans le résultat.
@@ -338,12 +344,27 @@ def confirmer(
             "; ".join(f"{e['code']}" for e in guide["errors"][:5]),
         )
 
+    # ── 4-bis. Justificatif (Mission 36) — avant toute écriture ──────────────
+    from app.services import justificatifs_service as justif
+    row_data = manifest["row_data"]
+    reponse = None
+    if justificatif is not None:
+        reference = justif.prochaine_reference(justif.OBJET_CHARGE, row_data.get("date_charge"),
+                                               db_path=db_path)
+        reponse = justif.verifier_reponse(
+            reference, justif.dossier(justif.OBJET_CHARGE, row_data.get("date_charge")),
+            present=justificatif.get("present", ""),
+            justification=justificatif.get("justification", ""))
+        if not reponse["ok"]:
+            # Rien n'est écrit ni enregistré : la prévisualisation reste confirmable.
+            return ResultatConfirmation(token=token, statut=REFUSE, code=reponse["code"],
+                                        message=reponse["message"], horodatage_utc=horodatage)
+
     # ── 5. Écriture SQLite (transaction atomique, aucun fichier à remplacer) ──
     # Le périmètre analytique était jusqu'ici CALCULÉ puis JETÉ : `guide` ne servait qu'à détecter
     # des erreurs, et seul `row_data` était écrit. Une charge commune à deux logements arrivait donc
     # en base sans logement ni propriétaire, et sa position de refacturation naissait `A_TRAITER`,
     # invisible de toute facture. On persiste désormais ce que le moteur a déjà calculé.
-    row_data = manifest["row_data"]
     perimetre = _perimetre_a_persister(guide, mois, row_data.get("montant"))
     perimetre_menage = _perimetre_menage_a_persister(guide, mois, row_data.get("montant"))
     res = saisie.creer(row_data, acteur=acteur, perimetre=perimetre,
@@ -359,9 +380,22 @@ def confirmer(
         _enregistrer_resultat(token, resultat, root)
         return resultat
 
+    message = f"Charge {res['charge_id']} enregistrée."
+    if justificatif is not None:
+        conf = justif.confirmer(justif.OBJET_CHARGE, res["charge_id"],
+                                present=justificatif.get("present", ""),
+                                justification=justificatif.get("justification", ""),
+                                acteur=acteur or "interface", db_path=db_path)
+        j = justif.charger(justif.OBJET_CHARGE, res["charge_id"], db_path=db_path) or {}
+        message += (f" Justificatif {j.get('reference', '')} : "
+                    f"{justif.LIBELLES_STATUT.get(j.get('statut'), '').lower()}.")
+        if not conf.get("ok"):
+            # Cas limite (référence prise entre-temps) : la charge existe, la réponse reste à
+            # donner depuis sa fiche — dit, jamais tu.
+            message += f" {conf.get('message', '')} Confirmez-le depuis la fiche de la charge."
     resultat = ResultatConfirmation(
         token=token, statut=SUCCES, code=None,
-        message=f"Charge {res['charge_id']} enregistrée.",
+        message=message,
         charge_id=res["charge_id"], horodatage_utc=horodatage,
         transaction={"code": "OK", "details": "table charges"},
     )

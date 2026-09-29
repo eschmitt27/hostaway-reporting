@@ -74,8 +74,16 @@ def _err(message: str) -> None:
 
 # ── EXTRA ───────────────────────────────────────────────────────────────────────────────────────
 
+# Nature économique d'un EXTRA (Mission 36) : c'est elle, pas le libellé, qui choisit le compte de
+# produit (706500 services additionnels, 706400 sinistre / intervention, 706900 autres).
+NATURES_EXTRA = {"SERVICE_ADDITIONNEL": "Service additionnel / extra",
+                 "SINISTRE": "Gestion de sinistre / intervention",
+                 "AUTRE_PRESTATION": "Autre prestation de conciergerie"}
+
+
 def ajouter_extra(facture_id: str, *, libelle: str, montant: Any, commentaire: str = "",
-                  acteur: str = "", db_path=None) -> dict[str, Any]:
+                  nature: str = "SERVICE_ADDITIONNEL", acteur: str = "",
+                  db_path=None) -> dict[str, Any]:
     """Ajoute un EXTRA (prestation ponctuelle facturée en plus). Montant strictement positif.
 
     Un extra négatif serait une réduction déguisée : refusé explicitement plutôt que silencieusement
@@ -86,9 +94,12 @@ def ajouter_extra(facture_id: str, *, libelle: str, montant: Any, commentaire: s
     if valeur <= 0:
         _err("un extra doit avoir un montant strictement positif "
              "(pour diminuer la facture, utiliser une reduction)")
+    nature = str(nature or "SERVICE_ADDITIONNEL").strip().upper()
+    if nature not in NATURES_EXTRA:
+        _err(f"nature d'extra inconnue : {nature}")
     return svc.ajouter_ligne(facture_id, type_ligne=TYPE_EXTRA, libelle=libelle, montant=valeur,
                              objet_source_type=None, objet_source_ref=None, acteur=acteur,
-                             commentaire=commentaire, db_path=db_path)
+                             commentaire=commentaire, type_economique=nature, db_path=db_path)
 
 
 # ── RÉDUCTION ───────────────────────────────────────────────────────────────────────────────────

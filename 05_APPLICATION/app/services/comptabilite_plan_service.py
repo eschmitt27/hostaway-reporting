@@ -12,6 +12,12 @@ RÈGLES DE FORMAT — celles que le projet utilise déjà, rien de plus :
   · le type est l'un de ceux du schéma (`ACTIF`, `PASSIF`, `CHARGE`, `PRODUIT`, migration 0021) ;
   · un compte de charge est de classe 6, un compte de produit de classe 7, et réciproquement.
 
+AUXILIAIRES (Mission 36). Chaque compte dit s'il porte un tiers : `auxiliaire_mode` NONE (jamais),
+OPTIONAL (permis) ou REQUIRED (obligatoire), et `auxiliaire_type` FOURNISSEUR, CLIENT ou ASSOCIE.
+Un compte antérieur non paramétré se lit par son numéro (401 fournisseur, 411/4191 client, 455/467
+associé : obligatoire) puis par `auxiliaire_autorise` (permis). Le champ auxiliaire ne s'affiche
+que si le compte en porte un, et un auxiliaire posé sur un compte NONE est effacé à l'écriture.
+
 COMPTES STRUCTURELS. Les générateurs d'écritures citent certains comptes par leur numéro (banque,
 caisse, fournisseurs, propriétaires, associés, ventes, filet provisoire des achats). Les désactiver
 casserait la comptabilisation : c'est refusé, et l'écran le dit.
@@ -41,6 +47,20 @@ E_STRUCTUREL = "PC08_COMPTE_STRUCTUREL"
 E_DEJA = "PC09_ETAT_INCHANGE"
 E_ACTEUR = "PC10_ACTEUR_OBLIGATOIRE"
 E_MOTIF = "PC11_MOTIF_OBLIGATOIRE"
+E_AUXILIAIRE = "PC12_PARAMETRE_AUXILIAIRE"
+
+AUX_NONE, AUX_OPTIONAL, AUX_REQUIRED = "NONE", "OPTIONAL", "REQUIRED"
+AUX_MODES = (AUX_NONE, AUX_OPTIONAL, AUX_REQUIRED)
+LIBELLES_AUX_MODE = {AUX_NONE: "Sans tiers", AUX_OPTIONAL: "Tiers facultatif",
+                     AUX_REQUIRED: "Tiers obligatoire"}
+AUX_FOURNISSEUR, AUX_CLIENT, AUX_ASSOCIE = "FOURNISSEUR", "CLIENT", "ASSOCIE"
+AUX_TYPES = (AUX_FOURNISSEUR, AUX_CLIENT, AUX_ASSOCIE)
+LIBELLES_AUX_TYPE = {AUX_FOURNISSEUR: "fournisseur", AUX_CLIENT: "client / propriétaire",
+                     AUX_ASSOCIE: "associé"}
+# Lecture d'un compte ANTÉRIEUR non paramétré : numéro → tiers obligatoire. Rien d'autre n'est
+# déduit du numéro ; un compte paramétré (auxiliaire_mode renseigné) fait toujours foi.
+_TIERS_PAR_PREFIXE = (("401", AUX_FOURNISSEUR), ("4191", AUX_CLIENT), ("411", AUX_CLIENT),
+                      ("455", AUX_ASSOCIE), ("467", AUX_ASSOCIE))
 
 
 class CompteRefuse(Exception):
@@ -79,6 +99,60 @@ def _evenement(conn, compte: str, type_evt: str, *, avant=None, apres=None, moti
         "motif, acteur) VALUES (?,?,?,?,?,?)",
         (compte, type_evt, json.dumps(avant, ensure_ascii=False) if avant else None,
          json.dumps(apres, ensure_ascii=False) if apres else None, _txt(motif) or None, acteur))
+
+
+def _type_par_prefixe(numero: str) -> str:
+    return next((t for prefixe, t in _TIERS_PAR_PREFIXE if numero.startswith(prefixe)), "")
+
+
+def mode_auxiliaire(compte: dict[str, Any] | str | None, *, db_path=None) -> tuple[str, str]:
+    """(mode, type de tiers) d'un compte — NONE / OPTIONAL / REQUIRED, et FOURNISSEUR / CLIENT /
+    ASSOCIE (vide si NONE). Accepte une ligne du plan ou un numéro."""
+    row = charger(compte, db_path=db_path) if isinstance(compte, str) else compte
+    numero = _txt(row.get("compte")) if row else _txt(compte if isinstance(compte, str) else "")
+    mode = _txt((row or {}).get("auxiliaire_mode")).upper()
+    type_ = _txt((row or {}).get("auxiliaire_type")).upper()
+    if mode in AUX_MODES:
+        if mode == AUX_NONE:
+            return AUX_NONE, ""
+        return mode, type_ or _type_par_prefixe(numero)
+    type_prefixe = _type_par_prefixe(numero)
+    if type_prefixe:
+        return AUX_REQUIRED, type_prefixe
+    if row and row.get("auxiliaire_autorise"):
+        return AUX_OPTIONAL, type_
+    return AUX_NONE, ""
+
+
+def modes_auxiliaires(*, db_path=None) -> dict[str, dict[str, str]]:
+    """{compte: {mode, type, libelle_type}} pour tous les comptes — ce que l'écran d'écriture lit
+    pour afficher (ou masquer) le champ tiers au changement de compte."""
+    conn = get_db(db_path)
+    try:
+        comptes = [dict(r) for r in conn.execute("SELECT * FROM plan_comptable")]
+    finally:
+        conn.close()
+    out = {}
+    for c in comptes:
+        mode, type_ = mode_auxiliaire(c)
+        out[c["compte"]] = {"mode": mode, "type": type_,
+                            "libelle_type": LIBELLES_AUX_TYPE.get(type_, "tiers")}
+    return out
+
+
+def _valider_auxiliaire(mode: str, type_: str) -> tuple[str | None, str | None]:
+    mode, type_ = _txt(mode).upper(), _txt(type_).upper()
+    if not mode:
+        return None, None
+    if mode not in AUX_MODES:
+        raise CompteRefuse(E_AUXILIAIRE, "Mode d'auxiliaire inconnu : sans tiers, tiers facultatif "
+                                         "ou tiers obligatoire.")
+    if mode == AUX_NONE:
+        return AUX_NONE, None
+    if type_ not in AUX_TYPES:
+        raise CompteRefuse(E_AUXILIAIRE, "Précisez le type de tiers porté par ce compte : "
+                                         "fournisseur, client ou associé.")
+    return mode, type_
 
 
 def charger(compte: str, *, db_path=None) -> dict[str, Any] | None:
@@ -181,6 +255,7 @@ def _valider_saisie(compte: str, libelle: str, type_compte: str) -> None:
 
 
 def creer(compte: str, libelle: str, type_compte: str, *, auxiliaire_autorise: bool = False,
+          auxiliaire_mode: str = "", auxiliaire_type: str = "",
           commentaire: str = "", acteur: str, db_path=None) -> dict[str, Any]:
     """Ajoute un compte SAISI par l'utilisateur. Rien n'est complété ni deviné."""
     compte, libelle, type_compte = _txt(compte), _txt(libelle), _txt(type_compte).upper()
@@ -188,6 +263,13 @@ def creer(compte: str, libelle: str, type_compte: str, *, auxiliaire_autorise: b
     if not acteur:
         raise CompteRefuse(E_ACTEUR, "Indiquez votre nom : chaque modification du plan est tracée.")
     _valider_saisie(compte, libelle, type_compte)
+    mode, type_aux = _valider_auxiliaire(auxiliaire_mode, auxiliaire_type)
+    if mode is None:
+        # Non précisé : même lecture que pour un compte antérieur (numéro, puis case « tiers »).
+        mode, type_aux = mode_auxiliaire({"compte": compte, "auxiliaire_autorise":
+                                          auxiliaire_autorise})
+        type_aux = type_aux or None
+    auxiliaire_autorise = mode != AUX_NONE
     conn = get_db(db_path)
     try:
         conn.execute("BEGIN IMMEDIATE")
@@ -197,12 +279,13 @@ def creer(compte: str, libelle: str, type_compte: str, *, auxiliaire_autorise: b
         maintenant = _now()
         conn.execute(
             "INSERT INTO plan_comptable (compte, libelle, type_compte, actif, auxiliaire_autorise, "
-            "commentaire, date_creation, date_modification) VALUES (?,?,?,1,?,?,?,?)",
-            (compte, libelle, type_compte, 1 if auxiliaire_autorise else 0,
+            "auxiliaire_mode, auxiliaire_type, commentaire, date_creation, date_modification) "
+            "VALUES (?,?,?,1,?,?,?,?,?,?)",
+            (compte, libelle, type_compte, 1 if auxiliaire_autorise else 0, mode, type_aux,
              _txt(commentaire) or None, maintenant, maintenant))
         _evenement(conn, compte, "CREATION", acteur=acteur,
                    apres={"libelle": libelle, "type_compte": type_compte,
-                          "auxiliaire_autorise": bool(auxiliaire_autorise)})
+                          "auxiliaire_mode": mode, "auxiliaire_type": type_aux})
         conn.commit()
     finally:
         conn.close()
@@ -210,9 +293,10 @@ def creer(compte: str, libelle: str, type_compte: str, *, auxiliaire_autorise: b
 
 
 def modifier(compte: str, *, libelle: str, commentaire: str = "", acteur: str, motif: str = "",
+             auxiliaire_mode: str = "", auxiliaire_type: str = "",
              db_path=None) -> dict[str, Any]:
-    """Seuls le libellé et le commentaire se corrigent : le numéro et le type font l'identité du
-    compte et le sens des écritures déjà passées."""
+    """Se corrigent : le libellé, le commentaire et le paramètre de tiers (auxiliaire). Le numéro
+    et le type font l'identité du compte et le sens des écritures déjà passées."""
     acteur, libelle = _txt(acteur), _txt(libelle)
     if not acteur:
         raise CompteRefuse(E_ACTEUR, "Indiquez votre nom : chaque modification du plan est tracée.")
@@ -221,16 +305,25 @@ def modifier(compte: str, *, libelle: str, commentaire: str = "", acteur: str, m
     avant = charger(compte, db_path=db_path)
     if avant is None:
         raise CompteRefuse(E_INTROUVABLE, "Ce compte comptable n'existe pas.")
-    apres = {"libelle": libelle, "commentaire": _txt(commentaire) or None}
-    if avant["libelle"] == apres["libelle"] and (avant["commentaire"] or None) == apres["commentaire"]:
+    mode, type_aux = _valider_auxiliaire(auxiliaire_mode, auxiliaire_type)
+    if mode is None:
+        mode, type_aux = avant.get("auxiliaire_mode"), avant.get("auxiliaire_type")
+    apres = {"libelle": libelle, "commentaire": _txt(commentaire) or None,
+             "auxiliaire_mode": mode, "auxiliaire_type": type_aux}
+    cles = ("libelle", "commentaire", "auxiliaire_mode", "auxiliaire_type")
+    if all((avant.get(k) or None) == (apres[k] or None) for k in cles):
         return avant
+    autorise = avant.get("auxiliaire_autorise") or 0
+    if mode:
+        autorise = 0 if mode == AUX_NONE else 1
     conn = get_db(db_path)
     try:
-        conn.execute("UPDATE plan_comptable SET libelle=?, commentaire=?, date_modification=? "
-                     "WHERE compte=?", (apres["libelle"], apres["commentaire"], _now(), avant["compte"]))
+        conn.execute("UPDATE plan_comptable SET libelle=?, commentaire=?, auxiliaire_mode=?, "
+                     "auxiliaire_type=?, auxiliaire_autorise=?, date_modification=? WHERE compte=?",
+                     (apres["libelle"], apres["commentaire"], mode, type_aux, autorise, _now(),
+                      avant["compte"]))
         _evenement(conn, avant["compte"], "MODIFICATION", acteur=acteur, motif=motif,
-                   avant={"libelle": avant["libelle"], "commentaire": avant["commentaire"]},
-                   apres=apres)
+                   avant={k: avant.get(k) for k in cles}, apres=apres)
         conn.commit()
     finally:
         conn.close()

@@ -151,6 +151,8 @@ async def comptabilite_plan_ajouter(request: Request):
     try:
         c = plan.creer(_champ(form, "compte"), _champ(form, "libelle"), _champ(form, "type_compte"),
                        auxiliaire_autorise=_champ(form, "auxiliaire_autorise") in ("1", "on", "OUI"),
+                       auxiliaire_mode=_champ(form, "auxiliaire_mode"),
+                       auxiliaire_type=_champ(form, "auxiliaire_type"),
                        commentaire=_champ(form, "commentaire"), acteur=_champ(form, "acteur"))
     except plan.CompteRefuse as exc:
         return _retour("/comptabilite/plan-comptable", False, exc.message)
@@ -171,6 +173,8 @@ def comptabilite_compte_fiche(request: Request, compte: str, message: str = "", 
         "active_menu": "comptabilite", "fiche": fiche, "regles": regles,
         "historique": plan.historique(compte), "types": plan.LIBELLES_TYPE,
         "message": message, "erreur": erreur,
+        "mode_aux": plan.mode_auxiliaire(fiche), "modes_aux": plan.LIBELLES_AUX_MODE,
+        "types_aux": plan.LIBELLES_AUX_TYPE,
     })
 
 
@@ -179,7 +183,9 @@ async def comptabilite_compte_modifier(request: Request, compte: str):
     form = await request.form()
     try:
         plan.modifier(compte, libelle=_champ(form, "libelle"), commentaire=_champ(form, "commentaire"),
-                      acteur=_champ(form, "acteur"), motif=_champ(form, "motif"))
+                      acteur=_champ(form, "acteur"), motif=_champ(form, "motif"),
+                      auxiliaire_mode=_champ(form, "auxiliaire_mode"),
+                      auxiliaire_type=_champ(form, "auxiliaire_type"))
     except plan.CompteRefuse as exc:
         return _retour(f"/comptabilite/plan-comptable/{quote(compte, safe='')}", False, exc.message)
     return _retour(f"/comptabilite/plan-comptable/{quote(compte, safe='')}", True, "Compte modifié.")
@@ -241,7 +247,8 @@ def _formulaire_regle(form) -> dict:
     return {"portee": maps.PORTEE_CATEGORIE, "cle": _champ(form, "cle"),
             "compte": _champ(form, "compte"), "statut": _champ(form, "statut") or maps.ST_PROVISOIRE,
             "debut": _champ(form, "date_debut_validite"), "fin": _champ(form, "date_fin_validite"),
-            "source": _champ(form, "source"), "acteur": _champ(form, "acteur")}
+            "source": _champ(form, "source"), "acteur": _champ(form, "acteur"),
+            "role": _champ(form, "role") or maps.ROLE_DEFAUT}
 
 
 @router.post("/comptabilite/mappings/previsualiser", response_class=HTMLResponse)
@@ -249,7 +256,7 @@ async def comptabilite_mappings_previsualiser(request: Request):
     """Prévisualisation NON destructive : rien n'est écrit, ni règle, ni charge, ni écriture."""
     f = _formulaire_regle(await request.form())
     apercu = maps.apercu_impact(f["portee"], f["cle"], f["compte"], f["statut"], f["debut"],
-                                f["fin"])
+                                f["fin"], role=f["role"])
     return templates.TemplateResponse(request, "comptabilite_mapping_apercu.html", {
         "active_menu": "comptabilite", "apercu": apercu, "formulaire": f,
         "action": "/comptabilite/mappings", "titre": "Nouvelle règle de mapping",
@@ -265,7 +272,7 @@ async def comptabilite_mappings_creer(request: Request):
                        "Indiquez votre nom : chaque règle de mapping est tracée.")
     res = maps.creer_regle(f["portee"], f["compte"], cle=f["cle"], statut=f["statut"],
                            date_debut_validite=f["debut"], date_fin_validite=f["fin"],
-                           source=f["source"], acteur=f["acteur"])
+                           source=f["source"], role=f["role"], acteur=f["acteur"])
     if not res.get("ok"):
         return _retour("/comptabilite/mappings", False,
                        res["message"] + (f" ({res['detail']})" if res.get("detail") else ""))

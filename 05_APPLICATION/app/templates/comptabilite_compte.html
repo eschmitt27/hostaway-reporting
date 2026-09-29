@@ -19,7 +19,7 @@
     <div><dt>Numéro</dt><dd class="font-mono">{{ fiche.compte }}</dd></div>
     <div><dt>Type</dt><dd>{{ fiche.type_libelle }}</dd></div>
     <div><dt>Statut</dt><dd>{% if fiche.actif %}<span class="badge badge-success">● Actif</span>{% else %}<span class="badge badge-neutral">– Désactivé</span>{% endif %}</dd></div>
-    <div><dt>Tiers en auxiliaire</dt><dd>{{ "Oui" if fiche.auxiliaire_autorise else "Non" }}</dd></div>
+    <div><dt>Tiers en auxiliaire</dt><dd data-testid="mode-auxiliaire">{{ modes_aux[mode_aux[0]] }}{% if mode_aux[1] %} — {{ types_aux[mode_aux[1]] }}{% endif %}</dd></div>
     <div><dt>Créé le</dt><dd>{{ fiche.date_creation | datetime_fr if fiche.date_creation else "avant l'historisation du plan" }}</dd></div>
     <div><dt>Modifié le</dt><dd>{{ fiche.date_modification | datetime_fr if fiche.date_modification else "—" }}</dd></div>
   </dl>
@@ -36,6 +36,15 @@
   <form method="post" action="/comptabilite/plan-comptable/{{ fiche.compte }}/modifier" class="detail-grid">
     <label>Libellé * <input name="libelle" value="{{ fiche.libelle }}" required></label>
     <label>Commentaire <input name="commentaire" value="{{ fiche.commentaire or '' }}"></label>
+    <label>Tiers (auxiliaire)
+      <select name="auxiliaire_mode">
+        {% for code, libelle in modes_aux.items() %}<option value="{{ code }}" {{ 'selected' if code == mode_aux[0] }}>{{ libelle }}</option>{% endfor %}
+      </select></label>
+    <label>Type de tiers
+      <select name="auxiliaire_type">
+        <option value="">—</option>
+        {% for code, libelle in types_aux.items() %}<option value="{{ code }}" {{ 'selected' if code == mode_aux[1] }}>{{ libelle }}</option>{% endfor %}
+      </select></label>
     <label>Motif <input name="motif"></label>
     <label>Votre nom * <input name="acteur" required></label>
     <div><button type="submit" class="btn btn-secondary">Enregistrer</button></div>

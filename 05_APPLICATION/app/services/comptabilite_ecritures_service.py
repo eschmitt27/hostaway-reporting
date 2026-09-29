@@ -35,6 +35,20 @@ COMPTE_CAISSE = "530000"
 COMPTE_ASSOCIES = "455100"
 COMPTE_ACHAT_GENERIQUE = "606000"
 COMPTE_VENTE_GENERIQUE = "706000"
+# Mission 36 — acomptes clients (et reversements Airbnb, famille acompte) : jamais un produit.
+COMPTE_ACOMPTES_CLIENTS = "419100"
+# TVA collectée : utilisée SEULEMENT si la facture porte de la TVA (hors franchise) et que le
+# compte existe, actif, dans le plan. Rien n'est supposé : sinon la comptabilisation est refusée.
+COMPTE_TVA_COLLECTEE = "445710"
+
+# Dérivation CERTAINE type technique → type économique (même table que la migration 0114).
+TYPE_ECONOMIQUE_PAR_TYPE_LIGNE = {
+    "COMMISSION_CONCIERGERIE": "GESTION", "MENAGE_FACTURE": "MENAGE", "CHARGE_FIXE": "FORFAIT",
+    "PREPARATION_CANAPE": "SERVICE_ADDITIONNEL", "EXTRA": "SERVICE_ADDITIONNEL",
+    "CHARGES_EXCEPT_REFAC": "REFACTURATION", "CHARGE_REFACTUREE": "REFACTURATION",
+    "REDUCTION": "REDUCTION",
+}
+ORIGINE_IMPUTATION_ACOMPTES = "IMPUTATION_ACOMPTES_FACTURE"
 
 E_FLAGS = "E_FLAGS_DESACTIVES"
 E_INTROUVABLE = "E_ECRITURE_INTROUVABLE"
@@ -44,6 +58,10 @@ E_COMPTE_INCONNU = "E_COMPTE_INCONNU"
 E_ORIGINE_INVALIDE = "E_ORIGINE_INVALIDE"
 E_STATUT = "E_TRANSITION_INTERDITE"
 E_PERIODE_CLOTUREE = "E_PERIODE_CLOTUREE"
+E_AUXILIAIRE = "E_AUXILIAIRE_REQUIS"
+E_TYPE_LIGNE = "E_TYPE_LIGNE_SANS_COMPTE"
+E_TVA = "E_TVA_NON_PARAMETREE"
+E_ORIGINE_ACOMPTE = "E_ACOMPTE_SANS_ORIGINE_COMPTABLE"
 
 MESSAGES = {
     E_FLAGS: "Écriture comptable désactivée sur cette installation.",
@@ -54,6 +72,11 @@ MESSAGES = {
     E_ORIGINE_INVALIDE: "Origine de l'écriture invalide pour ce journal.",
     E_STATUT: "Transition de statut interdite.",
     E_PERIODE_CLOTUREE: "Cette période comptable est clôturée : aucune écriture directe n'est autorisée.",
+    E_AUXILIAIRE: "Ce compte exige un tiers (auxiliaire) : fournisseur, client ou associé selon le compte.",
+    E_TYPE_LIGNE: "Une ligne de facture n'a pas de compte de produit actif pour son type.",
+    E_TVA: "La facture porte de la TVA, mais aucun compte de TVA collectée actif n'est paramétré.",
+    E_ORIGINE_ACOMPTE: "Acompte ou reversement imputé sans crédit correspondant au compte d'acomptes "
+                       "du client (419100) : aucune écriture n'est inventée.",
 }
 
 
@@ -149,9 +172,21 @@ def _inserer_ecriture(journal: str, date_ecriture: str, periode: str, piece: str
     if per.est_fermee(periode, db_path):
         return _refus(E_PERIODE_CLOTUREE, periode)
 
+    # Tiers (auxiliaire) : c'est le PLAN qui dit si un compte en porte un (Mission 36). Sur un
+    # compte sans tiers, un auxiliaire resté d'un ancien choix est effacé — jamais enregistré ;
+    # sur un compte à tiers obligatoire, son absence est refusée.
+    from app.services import comptabilite_plan_service as plan
+    lignes = [dict(l) for l in lignes]
     for l in lignes:
-        if _compte_valide(l["compte"], db_path) is None:
+        compte = _compte_valide(l["compte"], db_path)
+        if compte is None:
             return _refus(E_COMPTE_INCONNU, l["compte"])
+        mode, type_tiers = plan.mode_auxiliaire(compte)
+        if mode == plan.AUX_NONE:
+            l["auxiliaire"] = None
+        elif mode == plan.AUX_REQUIRED and not str(l.get("auxiliaire") or "").strip():
+            return _refus(E_AUXILIAIRE, f"{l['compte']} : "
+                          f"{plan.LIBELLES_AUX_TYPE.get(type_tiers, 'tiers')} obligatoire")
 
     existant = _deja_generee(journal, origine_type, origine_id, db_path)
     if existant:
@@ -576,6 +611,52 @@ def generer_ecriture_vente_facture(facture: dict[str, Any], *, acteur: str = "",
     if montant == 0:
         return _refus(E_ORIGINE_INVALIDE, "montant de facture nul — rien a constater")
 
+    prevue = ecriture_vente_prevue(facture, db_path=db_path)
+    if not prevue["ok"]:
+        return prevue
+    return _inserer_ecriture(
+        "VENTES", facture.get("date_facture") or f"{mois}-01", mois, prevue["piece"],
+        prevue["libelle"], ORIGINE_FACTURE, facture_id, prevue["lignes"], acteur=acteur,
+        db_path=db_path)
+
+
+def mapping_produits(*, db_path=None) -> dict[str, dict[str, Any]]:
+    """{type_economique: {compte, famille, libelle}} — table `mapping_produits_facture` (0114)."""
+    conn = get_db(db_path)
+    try:
+        return {r["type_economique"]: dict(r) for r in conn.execute(
+            "SELECT * FROM mapping_produits_facture WHERE actif=1")}
+    finally:
+        conn.close()
+
+
+def type_economique(ligne: dict[str, Any]) -> str:
+    return (str(ligne.get("type_economique") or "").strip()
+            or TYPE_ECONOMIQUE_PAR_TYPE_LIGNE.get(str(ligne.get("type_ligne") or ""), ""))
+
+
+def ecriture_vente_prevue(facture: dict[str, Any], *, db_path=None) -> dict[str, Any]:
+    """L'écriture VENTES d'une facture, LIGNE PAR LIGNE — calcul pur, n'écrit rien (Mission 36).
+
+    Chaque ligne va au compte de SON TYPE économique (jamais déduit du libellé) :
+    gestion 706100, ménage 706200, forfait 706300, sinistre 706400, services additionnels 706500,
+    autres prestations 706900, refacturations 708800 ; une RÉDUCTION va au débit de 709600
+    (« rabais, remises et ristournes accordés »), jamais en produit négatif. Le client est débité
+    du total (411000 + propriétaire). Un acompte n'est pas une ligne : il s'impute à part
+    (`generer_ecriture_imputation_acomptes`), 419100 → 411000.
+
+    TVA : sous franchise (état actuel), aucune ligne de TVA. Si la facture en porte, le compte de
+    TVA collectée doit exister, actif — sinon refus explicite, aucune hypothèse fiscale."""
+    from app.services import factures_proprietaires_conformite_service as conformite
+    from app.services import factures_proprietaires_service as fpr
+
+    facture_id = facture["facture_id_opaque"]
+    proprietaire_id = facture["proprietaire_id"]
+    mois = facture["mois"]
+    lignes_facture = facture.get("lignes")
+    if lignes_facture is None:
+        lignes_facture = fpr.lire(facture_id, db_path=db_path)["lignes"]
+    produits = mapping_produits(db_path=db_path)
     numero = facture.get("numero_facture") or facture_id
     # §78 — le libellé d'une écriture se lit dans un journal, un grand livre, un export comptable.
     # Il portait « PROP_0002 / LOG_0002 » : deux codes internes, illisibles pour qui tient les
@@ -583,29 +664,130 @@ def generer_ecriture_vente_facture(facture: dict[str, Any], *, acteur: str = "",
     libelle = (f"Facture {numero} — {_nom_tiers(proprietaire_id, db_path)} / "
                f"{_nom_logement(facture.get('logement_id'), db_path)} — {mois}")
 
-    # Un avoir porte un montant négatif : le sens s'inverse, sans traitement particulier ailleurs.
-    if montant > 0:
-        lignes_ecr = [
-            {"compte": COMPTE_PROPRIETAIRES, "debit": montant, "credit": 0,
-             "auxiliaire": proprietaire_id, "proprietaire_id": proprietaire_id, "libelle": libelle},
-            {"compte": COMPTE_VENTE_GENERIQUE, "debit": 0, "credit": montant,
-             "proprietaire_id": proprietaire_id, "libelle": libelle},
-        ]
-    else:
-        m = abs(montant)
-        lignes_ecr = [
-            {"compte": COMPTE_VENTE_GENERIQUE, "debit": m, "credit": 0,
-             "proprietaire_id": proprietaire_id, "libelle": libelle},
-            {"compte": COMPTE_PROPRIETAIRES, "debit": 0, "credit": m,
-             "auxiliaire": proprietaire_id, "proprietaire_id": proprietaire_id, "libelle": libelle},
-        ]
+    # Montant net par compte de produit (signé : positif = crédit). Un avoir porte des lignes
+    # négatives : les sens s'inversent d'eux-mêmes, ligne par ligne.
+    par_compte: dict[str, float] = {}
+    libelles: dict[str, str] = {}
+    for l in lignes_facture:
+        te = type_economique(l)
+        regle = produits.get(te)
+        if regle is None or regle["famille"] == "ACOMPTE" or _compte_valide(regle["compte"],
+                                                                             db_path) is None:
+            return _refus(E_TYPE_LIGNE, f"ligne {l.get('numero_ligne')} « {l.get('libelle')} » "
+                                        f"(type {te or l.get('type_ligne')}) : aucun compte de "
+                                        "produit actif — Comptabilité › Mappings")
+        v = round(float(l.get("montant") or 0), 2)
+        par_compte[regle["compte"]] = round(par_compte.get(regle["compte"], 0) + v, 2)
+        libelles.setdefault(regle["compte"], regle["libelle"])
 
-    # Écriture agrégée au total de la facture : le détail par prestation reste porté par les lignes
-    # de facture, qui constituent la piste d'audit. Ventiler par type exigerait un compte de produit
-    # par prestation — mapping non arbitré, qu'on ne décide pas ici (706000 reste provisoire).
+    tva = 0.0
+    conf = conformite.charger(facture_id, db_path=db_path) or {}
+    try:
+        tva = round(float(conf.get("total_tva") or 0), 2)
+    except (TypeError, ValueError):
+        tva = 0.0
+    if abs(tva) > 0.005 and _compte_valide(COMPTE_TVA_COLLECTEE, db_path) is None:
+        return _refus(E_TVA, f"TVA {tva:.2f} € — compte {COMPTE_TVA_COLLECTEE} absent ou inactif")
+
+    total_client = round(sum(par_compte.values()) + tva, 2)
+    lignes_ecr: list[dict[str, Any]] = []
+
+    def _ligne(compte, signe_credit, texte, **kw):
+        v = round(signe_credit, 2)
+        if abs(v) > 0.005:
+            lignes_ecr.append({"compte": compte, "debit": abs(v) if v < 0 else 0,
+                               "credit": v if v > 0 else 0, "libelle": texte,
+                               "proprietaire_id": proprietaire_id,
+                               "logement_id": facture.get("logement_id"), **kw})
+
+    _ligne(COMPTE_PROPRIETAIRES, -total_client, libelle, auxiliaire=proprietaire_id)
+    for compte in sorted(par_compte):
+        _ligne(compte, par_compte[compte], f"{libelles[compte]} — Facture {numero}")
+    if abs(tva) > 0.005:
+        _ligne(COMPTE_TVA_COLLECTEE, tva, f"TVA collectée — Facture {numero}")
+    return {"ok": True, "piece": numero, "libelle": libelle, "lignes": lignes_ecr,
+            "total_client": total_client}
+
+
+def acomptes_a_imputer(facture: dict[str, Any], *, db_path=None) -> list[dict[str, Any]]:
+    """Acomptes VALIDÉS et reversements Airbnb imputés sur cette facture — la famille ACOMPTE."""
+    from app.services import factures_proprietaires_service as fpr
+    fid = facture["facture_id_opaque"]
+    items = []
+    for a in fpr.acomptes_proprietaire(fid, db_path=db_path):
+        if a["statut"] == "VALIDE" and int(a.get("actif") or 0) == 1 and float(a["montant"] or 0) > 0:
+            items.append({"type_economique": "ACOMPTE_APPLIQUE", "reference": a["mouvement_opaque"],
+                          "montant": round(float(a["montant"]), 2),
+                          "libelle": f"Acompte du {str(a.get('date_mouvement') or '')[:10]}"})
+    for r in fpr.reversements_airbnb(fid, db_path=db_path):
+        if str(r.get("statut") or "VALIDE").upper() == "VALIDE" and float(r["montant_impute"] or 0) > 0:
+            items.append({"type_economique": "REVERSEMENT_AIRBNB",
+                          "reference": r["imputation_airbnb_id"],
+                          "montant": round(float(r["montant_impute"]), 2),
+                          "libelle": "Reversement Airbnb"
+                                     + (f" {r['reference_airbnb']}" if r.get("reference_airbnb") else "")})
+    return items
+
+
+def credit_acomptes_disponible(proprietaire_id: str, *, db_path=None) -> float:
+    """Crédit du client au compte d'acomptes (419100), sur les écritures VALIDÉES : l'origine
+    comptable réelle des acomptes et reversements qu'on impute."""
+    conn = get_db(db_path)
+    try:
+        r = conn.execute(
+            "SELECT COALESCE(SUM(l.credit - l.debit), 0) FROM ecriture_lignes l JOIN ecritures e "
+            "ON e.ecriture_id_opaque = l.ecriture_id_opaque WHERE l.compte = ? AND l.auxiliaire = ? "
+            "AND e.statut = ?", (COMPTE_ACOMPTES_CLIENTS, proprietaire_id, ST_VALIDEE)).fetchone()
+    finally:
+        conn.close()
+    return round(float(r[0] or 0), 2)
+
+
+def generer_ecriture_imputation_acomptes(facture: dict[str, Any], *, acteur: str = "",
+                                         db_path=None) -> dict[str, Any]:
+    """Impute sur la créance les acomptes et reversements Airbnb déjà détenus : 419100 → 411000.
+
+    Décision métier : un reversement Airbnb qui réduit le montant dû est de la famille ACOMPTE
+    (sous-type conservé dans le libellé), jamais une réduction (709600) ni un produit négatif.
+    Aucune écriture de banque n'est inventée : si le crédit du client en 419100 ne couvre pas ce
+    qu'on impute, c'est une INCOHÉRENCE, signalée et non comptabilisée."""
+    if not _flags_actifs():
+        return _refus(E_FLAGS)
+    if facture.get("statut") != "EMIS" or facture.get("type_document", "FACTURE") != "FACTURE":
+        return {"ok": True, "rien_a_imputer": True}
+    items = acomptes_a_imputer(facture, db_path=db_path)
+    if not items:
+        return {"ok": True, "rien_a_imputer": True}
+    fid = facture["facture_id_opaque"]
+    existant = _deja_generee("ODIVERSES", ORIGINE_IMPUTATION_ACOMPTES, fid, db_path)
+    if existant:
+        return {"ok": True, "ecriture_id_opaque": existant, "deja_generee": True}
+    proprietaire_id = facture["proprietaire_id"]
+    total = round(sum(i["montant"] for i in items), 2)
+    disponible = credit_acomptes_disponible(proprietaire_id, db_path=db_path)
+    if disponible + 0.005 < total:
+        return _refus(E_ORIGINE_ACOMPTE,
+                      f"à imputer {total:.2f} € (acomptes et reversements Airbnb) ; crédit du "
+                      f"client en {COMPTE_ACOMPTES_CLIENTS} : {disponible:.2f} €")
+    numero = facture.get("numero_facture") or fid
+    lignes = [{"compte": COMPTE_ACOMPTES_CLIENTS, "debit": i["montant"], "credit": 0,
+               "auxiliaire": proprietaire_id, "proprietaire_id": proprietaire_id,
+               "libelle": f"{i['libelle']} imputé — Facture {numero}"} for i in items]
+    lignes.append({"compte": COMPTE_PROPRIETAIRES, "debit": 0, "credit": total,
+                   "auxiliaire": proprietaire_id, "proprietaire_id": proprietaire_id,
+                   "libelle": f"Imputation des acomptes — Facture {numero}"})
     return _inserer_ecriture(
-        "VENTES", facture.get("date_facture") or f"{mois}-01", mois, numero, libelle,
-        ORIGINE_FACTURE, facture_id, lignes_ecr, acteur=acteur, db_path=db_path)
+        "ODIVERSES", facture.get("date_facture") or f"{facture['mois']}-01", facture["mois"],
+        numero, f"Imputation des acomptes — Facture {numero}", ORIGINE_IMPUTATION_ACOMPTES, fid,
+        lignes, acteur=acteur, db_path=db_path)
+
+
+def comptabiliser_facture_emise(facture: dict[str, Any], *, acteur: str = "",
+                                db_path=None) -> dict[str, Any]:
+    """À l'émission : l'écriture de vente ligne par ligne, puis l'imputation des acomptes."""
+    vente = generer_ecriture_vente_facture(facture, acteur=acteur, db_path=db_path)
+    imputation = generer_ecriture_imputation_acomptes(facture, acteur=acteur, db_path=db_path)
+    return {"vente": vente, "imputation": imputation}
 
 
 def generer_ecriture_vente(proprietaire_id: str, mois: str, montant_du_conciergerie: float, *,

@@ -841,10 +841,13 @@ def objets(*, db_path=None, inclure_non_rapprochables: bool = False) -> list[dic
                 if reste <= EPS:
                     continue
                 entree = mt["sens"] == "PROPRIETAIRE_VERS_SOCIETE"
+                acompte = entree and _txt(mt.get("nature")) == "ACOMPTE_PROPRIETAIRE"
                 out.append({
                     "type": MOUVEMENT_PROPRIETAIRE, "id": mt["mouvement_opaque"],
-                    "libelle": ("Règlement reçu d'un propriétaire" if entree
+                    "libelle": ("Acompte reçu d'un propriétaire" if acompte
+                                else "Règlement reçu d'un propriétaire" if entree
                                 else "Reversement à un propriétaire"),
+                    "nature": _txt(mt.get("nature")),
                     "detail": _txt(mt.get("reference_metier")),
                     "tiers_id": mt["proprietaire_id"],
                     "tiers": noms.get(mt["proprietaire_id"], ""),

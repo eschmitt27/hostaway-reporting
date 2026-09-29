@@ -46,7 +46,8 @@
   {% endif %}
   <form id="charge_form" class="cs-form" method="post" action="/fournisseurs/nouvelle/previsualiser">
     {% if origine %}<input type="hidden" name="mouvement_origine" value="{{ origine }}">
-    <input type="hidden" name="mouvement_libelle" value="{{ form.get('mouvement_libelle', '') }}">{% endif %}
+    <input type="hidden" name="mouvement_libelle" value="{{ form.get('mouvement_libelle', '') }}">
+    <input type="hidden" name="mouvement_restant" id="mouvement_restant" value="{{ form.get('mouvement_restant', '') }}">{% endif %}
     <div class="cs-layout">
       <div class="cs-main">
 
@@ -82,7 +83,7 @@
               <label for="categorie_charge_id">Catégorie <span class="required" aria-hidden="true">*</span></label>
               <select id="categorie_charge_id" name="categorie_charge_id" required>
                 <option value="">— Sélectionner —</option>
-                {% set groupes = ['Logiciels', 'Charges courantes', 'Ménages', 'Autre'] %}
+                {% set groupes = ['Logiciels', 'Charges courantes', 'Frais généraux', 'Ménages', 'Autre'] %}
                 {% for grp in groupes %}
                 <optgroup label="{{ grp }}">
                   {% for c in refs.get('categories', []) %}
@@ -114,11 +115,49 @@
               <p class="cs-help" id="aide_code_impact">« À comptabiliser » et le type de flux sont déduits automatiquement. Un commentaire est requis si l'impact diffère du défaut.</p>
             </div>
 
+            {% if origine %}
+            <div class="cs-field cs-field--full" id="group_ecart_montant" data-testid="ecart-montant"
+                 {% if not form.get('justification_ecart_montant') %}hidden{% endif %}>
+              <label for="justification_ecart_montant">Pourquoi le montant diffère-t-il du mouvement ? <span class="required" aria-hidden="true">*</span></label>
+              <input type="text" id="justification_ecart_montant" name="justification_ecart_montant"
+                     value="{{ form.get('justification_ecart_montant', '') }}"
+                     placeholder="ex. Acompte de 5 € puis paiement du solde de 15,25 € au retrait de la commande">
+              <p class="cs-help">La charge garde son montant réel ; seul le montant du mouvement est rapproché
+                maintenant. Le reste sera rapproché d'un autre paiement.</p>
+            </div>
+            {% endif %}
+
             <div class="cs-field cs-field--full" id="group_libelle_perso" hidden>
               <label for="libelle_categorie_personnalise">Libellé personnalisé <span class="required" aria-hidden="true">*</span></label>
               <input type="text" id="libelle_categorie_personnalise" name="libelle_categorie_personnalise"
                      value="{{ form.get('libelle_categorie_personnalise', '') }}" placeholder="Décrire la charge (traitée en global)">
               <p class="cs-help">Catégorie personnalisée : toujours globale, jamais ménage / logement / incident.</p>
+            </div>
+          </div>
+        </fieldset>
+
+        <!-- ── Compte comptable (Mission 36) ── -->
+        <fieldset class="cs-section" id="fs_compte" data-testid="bloc-compte">
+          <legend class="cs-section__title">Compte comptable</legend>
+          <p class="cs-section__desc" id="compte_proposition" aria-live="polite">
+            Choisissez une catégorie : le compte est proposé automatiquement.</p>
+          <div class="cs-grid">
+            <div class="cs-field">
+              <label for="compte_comptable">Compte</label>
+              <select id="compte_comptable" name="compte_comptable">
+                <option value="">Compte comptable à définir</option>
+                {% for c in comptes_charge %}
+                <option value="{{ c.compte }}" {% if form.get('compte_comptable') == c.compte %}selected{% endif %}>{{ c.compte }} — {{ c.libelle }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="cs-field cs-field--full" id="group_imputation_libre"
+                 {% if not form.get('justification_imputation') %}hidden{% endif %}>
+              <label for="justification_imputation">Imputation libre : pourquoi ce compte ? <span class="required" aria-hidden="true">*</span></label>
+              <input type="text" id="justification_imputation" name="justification_imputation"
+                     value="{{ form.get('justification_imputation', '') }}"
+                     placeholder="ex. Taxe de séjour réglée pour un logement">
+              <p class="cs-help">Ce compte n'est pas celui proposé pour la catégorie : la justification est enregistrée avec la charge.</p>
             </div>
           </div>
         </fieldset>
@@ -345,16 +384,9 @@
               <input type="text" id="justificatif" name="justificatif" value="{{ form.get('justificatif', '') }}" placeholder="Référence, numéro de facture…">
             </div>
             <div class="cs-field">
-              <label for="justificatif_archive">Justificatif archivé</label>
-              <select id="justificatif_archive" name="justificatif_archive" data-testid="justificatif-archive" aria-describedby="aide_justificatif_archive">
-                <option value="">—</option>
-                <option value="NON" {% if form.get('justificatif_archive') == 'NON' %}selected{% endif %}>Non</option>
-                <option value="OUI" {% if form.get('justificatif_archive') == 'OUI' %}selected{% endif %}>Oui</option>
-              </select>
-              {# La référence n'est pas saisie : elle est attribuée à l'enregistrement (JUS-AAAA-NNNN),
-                 sans jamais réutiliser un numéro déjà consommé. #}
-              <p class="cs-help" id="aide_justificatif_archive">
-                « Oui » attribue automatiquement une référence de classement (JUS-{{ "%s"|format(annee_justificatif) }}-0001, 0002…).
+              <p class="cs-help" data-testid="aide-reference-justificatif">
+                Une référence documentaire (CHG-AAAA-MM-001, 002…) est attribuée à l'enregistrement.
+                L'écran suivant indique où ranger la pièce et demande si elle a bien été enregistrée.
               </p>
             </div>
             <div class="cs-field cs-field--full">
@@ -390,5 +422,7 @@
   </form>
 </div>
 
+<script type="application/json" id="donnees_comptes">{{ {"propositions": comptes_proposes, "comptes": comptes_charge}|tojson }}</script>
 <script src="/static/js/charges_saisie.js"></script>
+<script src="/static/js/charges_compte.js"></script>
 {% endblock %}

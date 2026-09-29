@@ -364,6 +364,18 @@
     <span class="detail-value text-secondary">{{ c.justificatif }}</span>
   </div>
   {% endif %}
+  {% if compte_charge %}
+  <div class="detail-row" data-testid="compte-charge">
+    <span class="detail-label">Compte comptable</span>
+    <span class="detail-value">{{ compte_charge.compte }} — {{ compte_charge.libelle }}</span>
+  </div>
+  {% endif %}
+  {% if c.justification_ecart_montant %}
+  <div class="detail-row">
+    <span class="detail-label">Écart avec le mouvement</span>
+    <span class="detail-value">{{ c.justification_ecart_montant }}</span>
+  </div>
+  {% endif %}
   {% if c.justificatif_archive %}
   <div class="detail-row" data-testid="justificatif-archive">
     <span class="detail-label">Justificatif archivé</span>
@@ -374,6 +386,51 @@
       {% endif %}
     </span>
   </div>
+  {% endif %}
+</div>
+
+<!-- Justificatif (Mission 36) -->
+<div class="detail-section" data-testid="bloc-justificatif-charge">
+  <h2 class="section-title">Justificatif</h2>
+  {% if justificatif %}
+  <div class="detail-row">
+    <span class="detail-label">Référence</span>
+    <span class="detail-value"><span class="code-id" data-testid="reference-justificatif">{{ justificatif.reference }}</span></span>
+  </div>
+  <div class="detail-row">
+    <span class="detail-label">Dossier d'archivage</span>
+    <span class="detail-value"><code>{{ justificatif.dossier }}</code></span>
+  </div>
+  <div class="detail-row">
+    <span class="detail-label">État</span>
+    <span class="detail-value" data-testid="statut-justificatif">{{ justificatif.libelle_statut }}
+      {% if justificatif.fichier_constate %} — fichier <code>{{ justificatif.fichier_constate }}</code>{% endif %}
+      {% if justificatif.justification_absence %} — {{ justificatif.justification_absence }}{% endif %}
+      {% if justificatif.confirme_par %}<span class="text-sm text-secondary"> ({{ justificatif.confirme_par }}, {{ justificatif.confirme_le|datetime_fr or justificatif.confirme_le }})</span>{% endif %}
+    </span>
+  </div>
+  {% if statut_cycle == "ACTIVE" %}
+  <form method="post" action="/fournisseurs/{{ charge_id }}/justificatif" class="form-inline" style="margin-top:var(--stack-sm);">
+    <span>Le justificatif a-t-il bien été enregistré ?</span>
+    <label><input type="radio" name="justificatif_present" value="OUI" required> Oui</label>
+    <label><input type="radio" name="justificatif_present" value="NON"> Non —</label>
+    <input type="text" name="justification_absence" placeholder="pourquoi ? (obligatoire si non)">
+    <button type="submit" class="btn btn-secondary btn-sm">Enregistrer la réponse</button>
+  </form>
+  {% endif %}
+  {% if justificatif_historique|length > 1 %}
+  <ul class="text-sm text-secondary">
+    {% for e in justificatif_historique %}<li>{{ e.horodatage }} — {{ e.type_evenement }}{% if e.justification %} : {{ e.justification }}{% endif %}{% if e.fichier %} ({{ e.fichier }}){% endif %} — {{ e.acteur }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+  {% else %}
+  <p class="text-secondary">Charge antérieure sans référence de justificatif.</p>
+  {% if statut_cycle == "ACTIVE" %}
+  <form method="post" action="/fournisseurs/{{ charge_id }}/justificatif">
+    <input type="hidden" name="action" value="attribuer">
+    <button type="submit" class="btn btn-secondary btn-sm">Attribuer une référence</button>
+  </form>
+  {% endif %}
   {% endif %}
 </div>
 

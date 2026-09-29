@@ -42,6 +42,18 @@ PORTEE_TYPE_FLUX = "TYPE_FLUX"
 PORTEE_PROVISOIRE = "PROVISOIRE_GENERIQUE"
 PORTEES = (PORTEE_CATEGORIE, PORTEE_TYPE_FLUX, PORTEE_PROVISOIRE)
 
+# Rôle d'une règle (Mission 36) : DEFAUT = le compte présélectionné (au plus un par catégorie et
+# par période) ; AUTORISE = un autre compte que l'utilisateur peut choisir sans justification.
+ROLE_DEFAUT = "DEFAUT"
+ROLE_AUTORISE = "AUTORISE"
+ROLES = (ROLE_DEFAUT, ROLE_AUTORISE)
+LIBELLES_ROLE = {ROLE_DEFAUT: "Compte par défaut", ROLE_AUTORISE: "Compte autorisé"}
+
+# Ce que la saisie d'une charge propose, une fois la catégorie choisie.
+PROPOSITION_UNIQUE = "UNIQUE"          # un seul compte valide : présélectionné
+PROPOSITION_CHOIX = "CHOIX"            # plusieurs comptes autorisés : l'utilisateur choisit
+PROPOSITION_A_DEFINIR = "A_DEFINIR"    # aucun : « Compte comptable à définir » ou imputation libre
+
 ST_PROVISOIRE = "PROVISOIRE"
 ST_VALIDE = "VALIDE"
 STATUTS = (ST_PROVISOIRE, ST_VALIDE)
@@ -91,6 +103,10 @@ def _txt(v: Any) -> str:
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _role(r: dict[str, Any]) -> str:
+    return _txt(r.get("role")) or ROLE_DEFAUT
 
 
 def _actif(r: dict[str, Any]) -> bool:
@@ -196,7 +212,8 @@ def resoudre_compte(*, categorie_charge_id: str = "", type_flux_id: str = "",
 
     def _cherche(portee: str, cle: str) -> dict[str, Any] | None:
         candidats = [r for r in regles if r["portee"] == portee and r["cle"] == cle
-                     and r["statut"] == ST_VALIDE and _active_a_date(r, date_reference)]
+                     and r["statut"] == ST_VALIDE and _role(r) == ROLE_DEFAUT
+                     and _active_a_date(r, date_reference)]
         candidats.sort(key=lambda r: r.get("date_debut_validite") or "", reverse=True)
         return candidats[0] if candidats else None
 
@@ -217,7 +234,7 @@ def resoudre_compte(*, categorie_charge_id: str = "", type_flux_id: str = "",
     if categorie_charge_id:
         prov_categorie = [r for r in regles if r["portee"] == PORTEE_CATEGORIE
                          and r["cle"] == categorie_charge_id and r["statut"] == ST_PROVISOIRE
-                         and _active_a_date(r, date_reference)]
+                         and _role(r) == ROLE_DEFAUT and _active_a_date(r, date_reference)]
         if prov_categorie:
             r = prov_categorie[0]
             return {"compte": r["compte"], "regle_id_opaque": r["regle_id_opaque"],
@@ -231,6 +248,33 @@ def resoudre_compte(*, categorie_charge_id: str = "", type_flux_id: str = "",
     # (Mission 31) : un consommateur qui reçoit un compte vide refuse d'écrire, il ne devine pas.
     return {"compte": "", "regle_id_opaque": None, "regle": "AUCUNE_REGLE",
             "statut": ST_PROVISOIRE, "source": "Aucune règle applicable : compte à définir."}
+
+
+def comptes_proposes(categorie_charge_id: str, *, date_reference: str = "",
+                     db_path=None) -> dict[str, Any]:
+    """Ce que la saisie d'une charge propose pour une catégorie — lecture seule.
+
+    Seules comptent les règles VALIDÉES, actives à la date, pointant vers un compte de charge
+    actif. Un seul compte → présélectionné ; plusieurs → à choisir ; aucun → « Compte comptable
+    à définir » (l'imputation libre justifiée reste possible)."""
+    from app.services import comptabilite_plan_service as plan
+
+    date_reference = date_reference or date.today().isoformat()
+    actifs = {c["compte"]: c for c in plan.comptes_de_charge_actifs(db_path=db_path)}
+    regles = [r for r in lister_regles(portee=PORTEE_CATEGORIE, db_path=db_path)
+              if _actif(r) and r["cle"] == _txt(categorie_charge_id) and r["statut"] == ST_VALIDE
+              and _active_a_date(r, date_reference) and r["compte"] in actifs]
+    defaut = next((r["compte"] for r in regles if _role(r) == ROLE_DEFAUT), "")
+    comptes = list(dict.fromkeys(([defaut] if defaut else [])
+                                 + [r["compte"] for r in regles if _role(r) == ROLE_AUTORISE]))
+    statut = (PROPOSITION_A_DEFINIR if not comptes
+              else PROPOSITION_UNIQUE if len(comptes) == 1 else PROPOSITION_CHOIX)
+    return {"categorie_charge_id": _txt(categorie_charge_id), "statut": statut,
+            # Un seul compte valide : présélectionné. Plusieurs : le défaut s'il existe, sinon
+            # rien — le choix revient à l'utilisateur (impôts : compte selon la taxe).
+            "compte_defaut": comptes[0] if statut == PROPOSITION_UNIQUE else defaut,
+            "comptes": [{"compte": c, "libelle": actifs[c]["libelle"],
+                         "defaut": c == defaut} for c in comptes]}
 
 
 # ══ Validations ═══════════════════════════════════════════════════════════════════════════════
@@ -251,7 +295,7 @@ def _chevauche(a_debut, a_fin, b_debut, b_fin) -> bool:
 
 
 def verifier(portee: str, cle: str, compte: str, statut: str, debut: str, fin: str, *,
-             exclure: str = "", db_path=None) -> dict[str, Any] | None:
+             exclure: str = "", role: str = ROLE_DEFAUT, db_path=None) -> dict[str, Any] | None:
     """Toutes les règles d'une règle de mapping. `None` = conforme, sinon le refus."""
     from app.services import comptabilite_plan_service as plan
 
@@ -265,6 +309,9 @@ def verifier(portee: str, cle: str, compte: str, statut: str, debut: str, fin: s
         return _refus(E_COMPTE_MANQUANT)
     if statut not in STATUTS:
         return _refus(E_STATUT, statut)
+    role = _txt(role) or ROLE_DEFAUT
+    if role not in ROLES or (role == ROLE_AUTORISE and portee != PORTEE_CATEGORIE):
+        return _refus(E_STATUT, f"rôle {role}")
     if portee == PORTEE_CATEGORIE and cle not in {c["id"] for c in categories(
             db_path=db_path, actives_seulement=False)}:
         return _refus(E_CLE_INCONNUE, cle)
@@ -283,6 +330,11 @@ def verifier(portee: str, cle: str, compte: str, statut: str, debut: str, fin: s
     if debut and fin and debut > fin:
         return _refus(E_PERIODE, f"fin au {_date_fr(fin)}, avant le début au {_date_fr(debut)}")
     for r in lister_regles(db_path=db_path):
+        # Un seul compte PAR DÉFAUT à la fois ; un compte AUTORISÉ ne se déclare pas deux fois.
+        if role == ROLE_AUTORISE and (_role(r) != ROLE_AUTORISE or r["compte"] != compte):
+            continue
+        if role == ROLE_DEFAUT and _role(r) != ROLE_DEFAUT:
+            continue
         if (r["regle_id_opaque"] != exclure and _actif(r) and r["portee"] == portee
                 and r["cle"] == cle and r["statut"] == statut
                 and _chevauche(debut, fin, r["date_debut_validite"], r["date_fin_validite"])):
@@ -320,18 +372,19 @@ def _evenement(conn, regle_id: str, type_evt: str, *, avant=None, apres=None, mo
 
 def _figer(r: dict[str, Any]) -> dict[str, Any]:
     return {k: r.get(k) for k in ("compte", "statut", "date_debut_validite", "date_fin_validite",
-                                  "actif", "source")}
+                                  "actif", "source", "role")}
 
 
 # ══ Écritures des règles ══════════════════════════════════════════════════════════════════════
 
 def creer_regle(portee: str, compte: str, *, cle: str = "", statut: str = ST_PROVISOIRE,
                 date_debut_validite: str = "", date_fin_validite: str = "", source: str = "",
-                acteur: str = "", db_path=None) -> dict[str, Any]:
+                role: str = ROLE_DEFAUT, acteur: str = "", db_path=None) -> dict[str, Any]:
     portee, cle, compte = _txt(portee), _txt(cle), _txt(compte)
     statut = _txt(statut) or ST_PROVISOIRE
+    role = _txt(role) or ROLE_DEFAUT
     debut, fin = _txt(date_debut_validite), _txt(date_fin_validite)
-    refus = verifier(portee, cle, compte, statut, debut, fin, db_path=db_path)
+    refus = verifier(portee, cle, compte, statut, debut, fin, role=role, db_path=db_path)
     if refus:
         return refus
 
@@ -340,12 +393,13 @@ def creer_regle(portee: str, compte: str, *, cle: str = "", statut: str = ST_PRO
     try:
         conn.execute(
             "INSERT INTO mapping_comptable_regles (regle_id_opaque, portee, cle, compte, statut, "
-            "date_debut_validite, date_fin_validite, source, acteur, actif, date_modification) "
-            "VALUES (?,?,?,?,?,?,?,?,?,1,?)",
+            "date_debut_validite, date_fin_validite, source, acteur, actif, date_modification, "
+            "role) VALUES (?,?,?,?,?,?,?,?,?,1,?,?)",
             (opaque, portee, cle, compte, statut, debut or None, fin or None,
-             _txt(source) or None, _txt(acteur) or "local", _now()))
+             _txt(source) or None, _txt(acteur) or "local", _now(), role))
         _evenement(conn, opaque, "CREATION", acteur=acteur, motif=source,
                    apres={"portee": portee, "cle": cle, "compte": compte, "statut": statut,
+                          "role": role,
                           "date_debut_validite": debut or None, "date_fin_validite": fin or None})
         conn.commit()
     finally:
@@ -407,7 +461,7 @@ def modifier_regle(regle_id: str, *, compte: str | None = None, date_debut_valid
         nouveau["source"] = _txt(source)
     refus = verifier(r["portee"], r["cle"], nouveau["compte"], r["statut"],
                      _txt(nouveau["date_debut_validite"]), _txt(nouveau["date_fin_validite"]),
-                     exclure=r["regle_id_opaque"], db_path=db_path)
+                     exclure=r["regle_id_opaque"], role=_role(r), db_path=db_path)
     if refus:
         return refus
     return _mettre_a_jour(r, nouveau, "MODIFICATION", acteur=acteur, motif=motif, db_path=db_path)
@@ -420,7 +474,8 @@ def valider_regle(regle_id: str, *, acteur: str = "", motif: str = "", db_path=N
     if r["statut"] == ST_VALIDE or not _actif(r):
         return _refus(E_TRANSITION, "Seule une règle provisoire active se valide.")
     refus = verifier(r["portee"], r["cle"], r["compte"], ST_VALIDE, _txt(r["date_debut_validite"]),
-                     _txt(r["date_fin_validite"]), exclure=r["regle_id_opaque"], db_path=db_path)
+                     _txt(r["date_fin_validite"]), exclure=r["regle_id_opaque"], role=_role(r),
+                     db_path=db_path)
     if refus:
         return refus
     return _mettre_a_jour(r, dict(r, statut=ST_VALIDE), "VALIDATION", acteur=acteur, motif=motif,
@@ -440,7 +495,7 @@ def rendre_provisoire(regle_id: str, *, acteur: str = "", motif: str = "",
         return _refus(E_TRANSITION, "Seule une règle validée repasse en provisoire.")
     refus = verifier(r["portee"], r["cle"], r["compte"], ST_PROVISOIRE,
                      _txt(r["date_debut_validite"]), _txt(r["date_fin_validite"]),
-                     exclure=r["regle_id_opaque"], db_path=db_path)
+                     exclure=r["regle_id_opaque"], role=_role(r), db_path=db_path)
     if refus and refus["code"] != E_COMPTE_INACTIF:
         return refus
     return _mettre_a_jour(r, dict(r, statut=ST_PROVISOIRE), "PASSAGE_PROVISOIRE", acteur=acteur,
@@ -470,7 +525,8 @@ def reactiver_regle(regle_id: str, *, acteur: str = "", motif: str = "",
     if _actif(r):
         return _refus(E_TRANSITION, "Cette règle est déjà active.")
     refus = verifier(r["portee"], r["cle"], r["compte"], r["statut"], _txt(r["date_debut_validite"]),
-                     _txt(r["date_fin_validite"]), exclure=r["regle_id_opaque"], db_path=db_path)
+                     _txt(r["date_fin_validite"]), exclure=r["regle_id_opaque"], role=_role(r),
+                     db_path=db_path)
     if refus:
         return refus
     return _mettre_a_jour(r, dict(r, actif=1), "REACTIVATION", acteur=acteur, motif=motif,
@@ -547,14 +603,15 @@ def vue_par_categorie(*, date_reference: str = "", db_path=None) -> list[dict[st
 
 
 def apercu_impact(portee: str, cle: str, compte: str, statut: str, debut: str = "", fin: str = "",
-                  *, exclure: str = "", db_path=None) -> dict[str, Any]:
+                  *, exclure: str = "", role: str = ROLE_DEFAUT, db_path=None) -> dict[str, Any]:
     """Ce que la règle CHANGERAIT, sans rien changer : aucune charge, écriture ni rapprochement n'est
     écrit ni recalculé ici."""
     from app.services import comptabilite_plan_service as plan
     portee, cle, compte = _txt(portee), _txt(cle), _txt(compte)
     statut = _txt(statut) or ST_PROVISOIRE
     debut, fin = _txt(debut), _txt(fin)
-    refus = verifier(portee, cle, compte, statut, debut, fin, exclure=exclure, db_path=db_path)
+    refus = verifier(portee, cle, compte, statut, debut, fin, exclure=exclure, role=role,
+                     db_path=db_path)
     c = plan.charger(compte, db_path=db_path) if compte else None
     charges = _charges_de_categorie(cle, debut, fin, db_path=db_path) if portee == PORTEE_CATEGORIE \
         else []

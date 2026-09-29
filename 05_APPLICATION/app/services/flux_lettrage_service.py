@@ -59,6 +59,9 @@ ROLE_SAISIE = "SAISIE"
 
 COMPTE_FOURNISSEURS = "401000"
 COMPTE_PROPRIETAIRES = "411000"
+# Mission 36 — un acompte reçu n'est pas un règlement de créance : il se range en 419100
+# (acomptes clients), puis s'impute sur la facture à son émission (419100 → 411000).
+COMPTE_ACOMPTES_CLIENTS = "419100"
 COMPTE_ASSOCIES = "455100"
 
 E_SELECTION = "L01_SELECTION_INCOMPLETE"
@@ -80,6 +83,7 @@ E_INTROUVABLE = "L16_LETTRAGE_INTROUVABLE"
 E_MOTIF = "L17_MOTIF_OBLIGATOIRE"
 E_DOUBLON_SELECTION = "L18_ELEMENT_EN_DOUBLE"
 E_COMPTE_A_DEFINIR = "L19_COMPTE_DE_CHARGE_A_DEFINIR"
+E_VENTILATION = "L20_VENTILATION_DIFFERENTE_DU_MOUVEMENT"
 
 E_NOM_REQUIS = "F01_NOM_OBLIGATOIRE"
 E_NOM_GENERIQUE = "F02_NOM_GENERIQUE_INTERDIT"
@@ -137,6 +141,11 @@ def verrous_fermes(source: str, types_objets: set[str]) -> list[str]:
 
 # ══ Préparation : ventilation + écriture proposée ═════════════════════════════════════════════
 
+def _montant_fr(v: float) -> str:
+    """100.0 → « 100,00 € » ; 1234.5 → « 1 234,50 € »."""
+    return f"{v:,.2f} €".replace(",", " ").replace(".", ",")
+
+
 def _split(cle: str) -> tuple[str, str]:
     t, _, i = _txt(cle).partition(":")
     return t.upper(), i.strip()
@@ -189,11 +198,20 @@ def compte_de_charge(charge: dict, *, db_path=None) -> tuple[str, str]:
     le compte reste À DÉFINIR. Le filet provisoire générique (606000) n'est JAMAIS repris en
     silence — l'utilisateur choisit lui-même un compte de charge actif avant de valider."""
     from app.services import comptabilite_mappings_service as maps
+    actifs = {c["compte"] for c in flux.comptes_actifs(db_path=db_path)}
+    # Mission 36 — le compte porté par la charge (défaut de sa catégorie, compte autorisé choisi,
+    # ou imputation libre justifiée à la saisie) fait foi tant qu'il reste un compte de charge actif.
+    porte = _txt(charge.get("compte_comptable"))
+    if porte:
+        if porte in actifs and porte.startswith("6"):
+            return porte, ""
+        return COMPTE_A_DEFINIR, (f"{LIBELLE_COMPTE_A_DEFINIR} : le compte {porte} choisi pour "
+                                  "cette charge est devenu inactif. Choisissez un compte de charge "
+                                  "actif.")
     resolu = maps.resoudre_compte(categorie_charge_id=_txt(charge.get("categorie_charge_id")),
                                   type_flux_id=_txt(charge.get("type_flux_id")),
                                   date_reference=_txt(charge.get("date_charge"))[:10],
                                   db_path=db_path)
-    actifs = {c["compte"] for c in flux.comptes_actifs(db_path=db_path)}
     if resolu["statut"] == maps.ST_VALIDE and resolu["compte"] in actifs             and resolu["compte"].startswith("6"):
         return resolu["compte"], ""
     if resolu["statut"] == maps.ST_VALIDE:
@@ -221,6 +239,12 @@ def _ligne_objet(o: dict, montant: float, sens: str, charges: dict, db_path=None
     if o["type"] in (flux.FACTURE_FOURNISSEUR, flux.REGLEMENT_FOURNISSEUR):
         base.update(compte=COMPTE_FOURNISSEURS, auxiliaire=o["tiers_id"],
                     libelle=f"Règlement {o['libelle']}".strip())
+        return base
+    if (o["type"] == flux.MOUVEMENT_PROPRIETAIRE and not sortie
+            and o.get("nature") == "ACOMPTE_PROPRIETAIRE"):
+        base.update(compte=COMPTE_ACOMPTES_CLIENTS, auxiliaire=o["tiers_id"],
+                    proprietaire_id=o["tiers_id"] or None,
+                    libelle=f"Acompte reçu — {o.get('tiers') or o['tiers_id']}".strip())
         return base
     # Propriétaire : créance (facture émise, encaissement reçu) ou reversement.
     base.update(compte=COMPTE_PROPRIETAIRES, auxiliaire=o["tiers_id"],
@@ -308,6 +332,16 @@ def preparer(selection_m: list[str], selection_o: list[str], *, traitement_ecart
     ecart = _r(total_m - total_o)
     traitement = traitement_ecart if traitement_ecart in TRAITEMENTS_ECART else ""
     compte_ecart = _txt(compte_ecart)
+    # Mission 36 — une CHARGE partiellement payée (acompte puis solde) ou un mouvement qui en
+    # règle plusieurs en partie n'est pas une anomalie : sans autre choix, l'écart reste OUVERT.
+    # Rien n'est absorbé — le reste sera rapproché d'un autre mouvement. Les factures gardent le
+    # choix explicite (un écart y peut être un escompte ou un frais à constater).
+    if abs(ecart) > EPS and not traitement and objs and all(o["type"] == flux.CHARGE for o in objs):
+        traitement = SOLDE_OUVERT
+        avertissements.append(
+            f"La charge reste partiellement rapprochée : {abs(ecart):.2f} € restent à rapprocher "
+            "d'un autre paiement." if ecart < 0 else
+            f"Le mouvement reste partiellement expliqué : {ecart:.2f} € restent à affecter.")
     periodes = sorted({m["date"][:7] for m in mvts})
 
     if abs(ecart) > EPS and traitement == COMPTABILISE:
@@ -489,7 +523,9 @@ def verifier_ecritures(prep: dict, groupes: list[list[dict]], *, db_path=None) -
     def err(code, message):
         erreurs.append({"code": code, "message": message})
 
+    from app.services import comptabilite_plan_service as plan
     comptes = {c["compte"]: c for c in flux.comptes_actifs(db_path=db_path)}
+    modes = plan.modes_auxiliaires(db_path=db_path)
     fournisseurs = {f["id"] for f in flux.fournisseurs_connus(db_path=db_path)} | {
         o["tiers_id"] for o in prep["objets"]
         if o["type"] in (flux.FACTURE_FOURNISSEUR, flux.REGLEMENT_FOURNISSEUR)}
@@ -522,26 +558,42 @@ def verifier_ecritures(prep: dict, groupes: list[list[dict]], *, db_path=None) -
                                             f"charge actif (classe 6), pas « {l['compte']} ».")
             elif l["compte"] not in comptes:
                 err(E_ECRITURE, f"{nom} : compte « {l['compte'] or '(vide)'} » inconnu ou inactif.")
-            if l["compte"].startswith("401") and l["auxiliaire"] not in fournisseurs:
-                err(E_AUXILIAIRE, f"{nom} : un compte fournisseur (401) exige un fournisseur "
-                                  "nommé — choisissez-le ou créez-le.")
-            if l["compte"].startswith("411") and l["auxiliaire"] not in proprietaires:
-                err(E_AUXILIAIRE, f"{nom} : un compte client/propriétaire (411) exige le "
-                                  "propriétaire concerné.")
-            if l["compte"].startswith("455") and l["auxiliaire"] not in associes:
-                err(E_AUXILIAIRE, f"{nom} : un compte d'associé (455) exige l'associé concerné.")
+            # Tiers : c'est le plan comptable qui dit si le compte en porte un (Mission 36). Un
+            # tiers resté d'un ancien choix sur un compte sans tiers est EFFACÉ (401 + fournisseur
+            # changé en 606320 : le fournisseur disparaît) ; obligatoire, il doit être du bon type.
+            mode = modes.get(l["compte"], {"mode": plan.AUX_NONE, "type": ""})
+            if mode["mode"] == plan.AUX_NONE:
+                l["auxiliaire"] = None
+            else:
+                connus = {plan.AUX_FOURNISSEUR: fournisseurs, plan.AUX_CLIENT: proprietaires,
+                          plan.AUX_ASSOCIE: associes}.get(mode["type"])
+                if l["auxiliaire"] and connus is not None and l["auxiliaire"] not in connus:
+                    err(E_AUXILIAIRE, f"{nom} : le compte {l['compte']} porte un "
+                                      f"{mode['libelle_type']} — « {l['auxiliaire']} » n'en est "
+                                      "pas un connu.")
+                elif mode["mode"] == plan.AUX_REQUIRED and not l["auxiliaire"]:
+                    err(E_AUXILIAIRE, f"{nom} : le compte {l['compte']} exige un "
+                                      f"{mode['libelle_type']} — choisissez-le"
+                                      + (" ou créez-le." if mode["type"] == plan.AUX_FOURNISSEUR
+                                         else "."))
         total_d = _r(sum(l["debit"] for l in lignes))
         total_c = _r(sum(l["credit"] for l in lignes))
-        if abs(total_d - total_c) > EPS or total_d <= EPS:
-            err(E_ECRITURE, f"{nom} : déséquilibrée (débit {total_d:.2f} ≠ crédit {total_c:.2f}).")
 
         # La trésorerie n'est pas modifiable : elle dit ce que la banque (ou la caisse) a fait.
+        # Seule la CONTREPARTIE s'édite (comptes, ventilation, tiers) ; sa somme doit égaler
+        # exactement le mouvement.
         attendu = _r(sum(l["debit"] - l["credit"] for l in proposee["lignes"]
                          if l["role"] == ROLE_TRESORERIE))
         saisi = _r(sum(l["debit"] - l["credit"] for l in lignes if l["compte"] == tresorerie))
+        contrepartie = _r(sum(l["credit"] - l["debit"] for l in lignes if l["compte"] != tresorerie))
         if abs(attendu - saisi) > EPS:
             err(E_ECRITURE, f"{nom} : le montant porté au compte {tresorerie} doit rester "
                             f"{abs(attendu):.2f} € — c'est le mouvement réel.")
+        elif abs(contrepartie - attendu) > EPS:
+            err(E_VENTILATION, "La ventilation comptable doit correspondre exactement au montant "
+                               f"du mouvement bancaire : {_montant_fr(abs(attendu))}.")
+        elif abs(total_d - total_c) > EPS or total_d <= EPS:
+            err(E_ECRITURE, f"{nom} : déséquilibrée (débit {total_d:.2f} ≠ crédit {total_c:.2f}).")
         autres_tresorerie = [l for l in lignes if l["compte"] in flux.TRESORERIE_PAR_SOURCE.values()
                              and l["compte"] != tresorerie]
         if autres_tresorerie:
@@ -566,7 +618,9 @@ def verifier_ecritures(prep: dict, groupes: list[list[dict]], *, db_path=None) -
                 (COMPTE_FOURNISSEURS, "debit" if sortie else "credit",
                  (flux.FACTURE_FOURNISSEUR, flux.REGLEMENT_FOURNISSEUR)),
                 (COMPTE_PROPRIETAIRES, "debit" if sortie else "credit",
-                 (flux.FACTURE_PROPRIETAIRE, flux.MOUVEMENT_PROPRIETAIRE))):
+                 (flux.FACTURE_PROPRIETAIRE, flux.MOUVEMENT_PROPRIETAIRE)),
+                (COMPTE_ACOMPTES_CLIENTS, "debit" if sortie else "credit",
+                 (flux.MOUVEMENT_PROPRIETAIRE,))):
             du = {}
             for l in proposee["lignes"]:
                 if l["role"] == ROLE_OBJET and l["compte"] == compte:

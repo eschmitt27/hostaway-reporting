@@ -57,7 +57,21 @@ def _prefill_depuis_mouvement(origine: str) -> tuple[dict, str]:
                         f" du {mvt['date_fr']} — {libelle}")[:250],
         "mouvement_origine": f"{source}:{identifiant}",
         "mouvement_libelle": f"{mvt['libelle']} — {mvt['date_fr']} — {mvt['restant']:.2f} €",
+        "mouvement_restant": f"{mvt['restant']:.2f}",
     }, ""
+
+
+def _contexte_comptes(refs: dict) -> dict:
+    """Ce que le bloc « Compte comptable » de la saisie lit (Mission 36) — lecture seule :
+    pour chaque catégorie, le compte proposé (unique, à choisir, ou à définir), et tous les comptes
+    de charge actifs pour une imputation libre justifiée."""
+    from app.services import comptabilite_mappings_service as maps
+    from app.services import comptabilite_plan_service as plan
+    propositions = {c["categorie_charge_id"]: maps.comptes_proposes(c["categorie_charge_id"])
+                    for c in refs.get("categories", [])}
+    return {"comptes_proposes": propositions,
+            "comptes_charge": [{"compte": c["compte"], "libelle": c["libelle"]}
+                               for c in plan.comptes_de_charge_actifs()]}
 
 
 @router.get("/fournisseurs/nouvelle", response_class=HTMLResponse)
@@ -71,6 +85,7 @@ def fournisseurs_nouvelle_form(request: Request, mouvement: str = ""):
         "form": form,
         "erreurs": [{"code": "MOUVEMENT", "message": erreur}] if erreur else [],
         "annee_justificatif": _date.today().strftime("%Y"),
+        **_contexte_comptes(refs),
     })
 
 
@@ -96,7 +111,12 @@ async def fournisseurs_nouvelle_previsualiser(request: Request):
             "form": form_data,
             "erreurs": result["manifest"]["errors"],
             "annee_justificatif": _date.today().strftime("%Y"),
+            **_contexte_comptes(refs),
         })
+    # Mission 36 — le dossier canonique du mois existe avant l'écran de confirmation : on peut y
+    # ranger le justificatif, nommé par sa référence, avant de répondre « oui ».
+    from app.services import justificatifs_service as justif
+    justif.preparer_dossier(justif.OBJET_CHARGE, form_data.get("date_charge"))
     return RedirectResponse(
         url=f"/fournisseurs/nouvelle/previsualisation/{result['token']}",
         status_code=303,
@@ -121,11 +141,35 @@ def fournisseurs_previsualisation(request: Request, token: str):
         "not_found": False,
         "ecriture_activee": True,
         "deja_confirme": confirmation.resultat_existe(token),
+        **_contexte_justificatif(data["manifest"]),
     })
 
 
+def _contexte_justificatif(manifest: dict, *, erreur: str = "", reponse: dict | None = None) -> dict:
+    """Écran de confirmation (Mission 36) : la référence que recevra la charge, le dossier
+    canonique où ranger la pièce, et la question « le justificatif a-t-il bien été enregistré ? ».
+    Lecture seule : la référence n'est réservée qu'à l'enregistrement."""
+    from app.services import comptabilite_plan_service as plan
+    from app.services import justificatifs_service as justif
+    from app.services import comptabilite_mappings_service as maps
+    row = manifest.get("row_data") or {}
+    numero = row.get("compte_comptable")
+    if not numero and str(row.get("prise_en_compta") or "").upper() != "NON":
+        # Même règle qu'à l'enregistrement : un seul compte valide pour la catégorie → retenu.
+        p = maps.comptes_proposes(str(row.get("categorie_charge_id") or ""),
+                                  date_reference=str(row.get("date_charge") or "")[:10])
+        numero = p["compte_defaut"] if p["statut"] == maps.PROPOSITION_UNIQUE else ""
+    compte = plan.charger(numero) if numero else None
+    return {"justificatif_reference": justif.prochaine_reference(justif.OBJET_CHARGE,
+                                                                 row.get("date_charge")),
+            "justificatif_dossier": justif.dossier_affiche(
+                justif.dossier(justif.OBJET_CHARGE, row.get("date_charge"))),
+            "justificatif_erreur": erreur, "justificatif_reponse": reponse or {},
+            "compte_charge": compte}
+
+
 @router.post("/fournisseurs/nouvelle/confirmer/{token}")
-def fournisseurs_confirmer(request: Request, token: str):
+async def fournisseurs_confirmer(request: Request, token: str):
     """Confirme l'écriture réelle. **Ne reçoit AUCUNE donnée métier du navigateur** : seul le token
     compte, tout le reste est relu du manifest serveur.
 
@@ -136,7 +180,21 @@ def fournisseurs_confirmer(request: Request, token: str):
     if confirmation.resultat_existe(token):
         return RedirectResponse(url=f"/fournisseurs/nouvelle/resultat/{token}", status_code=303)
 
-    resultat = confirmation.confirmer(token)   # les flags sont gardés en aval, avant toute écriture
+    # Mission 36 — seule donnée reçue du navigateur, et ce n'est pas une donnée de la charge : la
+    # réponse sur le justificatif (oui / non + justification), contrôlée par le service.
+    form = await request.form()
+    reponse = {"present": str(form.get("justificatif_present", "") or ""),
+               "justification": str(form.get("justification_absence", "") or "")}
+    resultat = confirmation.confirmer(token, justificatif=reponse, acteur="interface")
+    if not resultat.ok and str(resultat.code or "").startswith("J0"):
+        # Réponse incomplète (non sans justification, oui sans fichier) : rien n'est écrit, la
+        # prévisualisation reste confirmable — on la réaffiche avec le motif.
+        data = load_previsualisation(token)
+        return templates.TemplateResponse(request, "fournisseurs_previsualisation.html", {
+            "active_menu": "flux", "token": token, "manifest": data["manifest"],
+            "not_found": False, "ecriture_activee": True, "deja_confirme": False,
+            **_contexte_justificatif(data["manifest"], erreur=resultat.message, reponse=reponse),
+        }, status_code=422)
 
     if not confirmation.resultat_existe(token):
         # Refus qui ne peut pas être persisté (token inconnu, manifest illisible) : aucun dossier de
@@ -302,4 +360,40 @@ def fournisseur_detail(request: Request, charge_id: str, erreur: str = ""):
                  or str(ligne.get("refacturable") or "").upper() == "OUI")),
         "logements_disponibles": _logements_disponibles(),
         "erreur": erreur,
+        **_contexte_justificatif_charge(charge_id, ligne),
     })
+
+
+def _contexte_justificatif_charge(charge_id: str, ligne: dict) -> dict:
+    """Bloc « Justificatif » de la fiche (Mission 36) — lecture seule."""
+    from app.services import comptabilite_plan_service as plan
+    from app.services import justificatifs_service as justif
+    j = justif.charger(justif.OBJET_CHARGE, charge_id)
+    compte = plan.charger(ligne["compte_comptable"]) if ligne.get("compte_comptable") else None
+    return {"justificatif": j,
+            "justificatif_historique": justif.historique(j["reference"]) if j else [],
+            "compte_charge": compte}
+
+
+@router.post("/fournisseurs/{charge_id}/justificatif")
+async def charge_justificatif(request: Request, charge_id: str):
+    """Répondre « le justificatif a-t-il bien été enregistré ? » depuis la fiche — ou, pour une
+    charge antérieure sans référence, en attribuer une (action explicite, jamais automatique)."""
+    from urllib.parse import quote as _q
+    from app.services import justificatifs_service as justif
+    form = await request.form()
+    cible = f"/fournisseurs/{charge_id}"
+    ligne = saisie.lire(charge_id)
+    if ligne is None:
+        return RedirectResponse(url=f"{cible}?erreur={_q('Charge inconnue.')}", status_code=303)
+    if str(form.get("action", "")) == "attribuer":
+        justif.attribuer_seul(justif.OBJET_CHARGE, charge_id, ligne.get("date_charge"),
+                              acteur="interface")
+        return RedirectResponse(url=cible, status_code=303)
+    res = justif.confirmer(justif.OBJET_CHARGE, charge_id,
+                           present=str(form.get("justificatif_present", "") or ""),
+                           justification=str(form.get("justification_absence", "") or ""),
+                           acteur="interface")
+    if not res.get("ok"):
+        return RedirectResponse(url=f"{cible}?erreur={_q(res['message'])}", status_code=303)
+    return RedirectResponse(url=cible, status_code=303)

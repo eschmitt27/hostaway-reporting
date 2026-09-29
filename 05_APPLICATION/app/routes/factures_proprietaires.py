@@ -395,7 +395,7 @@ def emettre(request: Request, facture_id: str, date_facture: str = Form(...)):
     # L'émission constate la vente : c'est ici, et nulle part ailleurs, que naît l'écriture VENTES.
     # Un refus (flags désactivés, mapping, double source) n'annule pas l'émission — la facture est
     # émise et le conflit reste visible sur la fiche, jamais résolu en silence.
-    compta.generer_ecriture_vente_facture(emise, acteur="interface")
+    compta.comptabiliser_facture_emise(emise, acteur="interface")
     return RedirectResponse(f"/factures-proprietaires/{facture_id}", status_code=303)
 
 
@@ -493,6 +493,7 @@ async def ajouter_extra(request: Request, facture_id: str):
                             libelle=str(form.get("libelle", "") or ""),
                             montant=form.get("montant"),
                             commentaire=str(form.get("commentaire", "") or ""),
+                            nature=str(form.get("nature", "") or "SERVICE_ADDITIONNEL"),
                             acteur="interface")
     except svc.FactureProprietaireError as exc:
         return _refus_fiche(request, facture_id, f"Extra non ajouté : {exc}")

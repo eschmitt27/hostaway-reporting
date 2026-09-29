@@ -748,17 +748,37 @@ def validate_charge(
     # peut donc pas être « hors comptabilité », et son moyen de paiement est celui du mouvement.
     origine = str(form_data.get("mouvement_origine", "")).strip()
     if origine:
-        for e in erreurs_charge_depuis_mouvement(origine, code_impact=code_impact,
-                                                 mode_paiement_id=mode_paiement_id,
-                                                 montant=form_data.get("montant")):
+        for e in erreurs_charge_depuis_mouvement(
+                origine, code_impact=code_impact, mode_paiement_id=mode_paiement_id,
+                montant=form_data.get("montant"),
+                justification_ecart=str(form_data.get("justification_ecart_montant", ""))):
             err(e["code"], e["message"])
+
+    # V36 (Mission 36) — compte comptable de la charge : proposé par sa catégorie, autorisé, ou
+    # imputation libre JUSTIFIÉE. Une charge hors comptabilité n'en porte aucun.
+    if code_impact == "IC" and str(form_data.get("compte_comptable", "")).strip():
+        from app.services import charges_saisie_service as saisie
+        refus = saisie.refus_compte({
+            "compte_comptable": form_data.get("compte_comptable"),
+            "compte_origine": form_data.get("compte_origine"),
+            "justification_imputation": form_data.get("justification_imputation"),
+            "categorie_charge_id": form_data.get("categorie_charge_id"),
+            "date_charge": form_data.get("date_charge")})
+        if refus is not None:
+            err("V36_COMPTE_DE_CHARGE", refus["message"])
 
     return errors
 
 
 def erreurs_charge_depuis_mouvement(origine: str, *, code_impact: str, mode_paiement_id: str,
-                                    montant: Any) -> list[dict[str, str]]:
-    """Règles d'une charge née d'un mouvement bancaire ou de caisse. Liste vide = conforme."""
+                                    montant: Any, justification_ecart: str = ""
+                                    ) -> list[dict[str, str]]:
+    """Règles d'une charge née d'un mouvement bancaire ou de caisse. Liste vide = conforme.
+
+    Mission 36 — le MOUVEMENT (réalité de trésorerie) et la CHARGE (réalité économique) sont deux
+    objets : le montant de la charge est libre. GiFi : un acompte de 5 € crée une charge de
+    20,25 € ; c'est le RAPPROCHEMENT qui reste plafonné aux 5 € du mouvement. Un montant différent
+    du mouvement se justifie seulement (« acompte de 5 € puis solde de 15,25 € au retrait »)."""
     from app.services import flux_financiers_service as flux
 
     source, _, identifiant = str(origine).partition(":")
@@ -785,10 +805,14 @@ def erreurs_charge_depuis_mouvement(origine: str, *, code_impact: str, mode_paie
         valeur = float(str(montant or "").replace(" ", "").replace(",", "."))
     except ValueError:
         valeur = None
-    if valeur is not None and valeur > mvt.get("restant", 0) + 0.005:
-        erreurs.append({"code": "V34_MONTANT_SUPERIEUR_AU_MOUVEMENT",
-                        "message": f"Le montant dépasse ce qui reste à expliquer sur le mouvement "
-                                   f"({mvt.get('restant', 0):.2f} €)."})
+    if (valeur is not None and abs(valeur - mvt.get("restant", 0)) > 0.005
+            and not str(justification_ecart or "").strip()):
+        erreurs.append({"code": "V34_JUSTIFICATION_ECART_MONTANT",
+                        "message": f"Le montant de la charge ({valeur:.2f} €) diffère de celui du "
+                                   f"mouvement ({mvt.get('restant', 0):.2f} €) : expliquez "
+                                   "pourquoi (ex. « Acompte de 5 € puis paiement du solde de "
+                                   "15,25 € au retrait de la commande »). Seul le montant du "
+                                   "mouvement sera rapproché maintenant."})
     return erreurs
 
 
@@ -928,6 +952,15 @@ def _build_row_data(
         "justificatif_archive": (str(form_data.get("justificatif_archive", "")).strip().upper()
                                  or None),
         "commentaire": str(form_data.get("commentaire", "")).strip() or None,
+        # Mission 36 — compte porté par la charge et justifications (contrôlés par V34/V36).
+        "compte_comptable": (str(form_data.get("compte_comptable", "")).strip() or None)
+                            if code_impact == "IC" else None,
+        "compte_origine": (str(form_data.get("compte_origine", "")).strip().upper() or None)
+                          if code_impact == "IC" else None,
+        "justification_imputation": str(form_data.get("justification_imputation", "")).strip()
+                                    or None,
+        "justification_ecart_montant": str(form_data.get("justification_ecart_montant", ""))
+                                       .strip() or None,
         "date_saisie": date.today().isoformat(),
         "affectable_menage": affectable_menage,
         "intervenant_concerne": intervenant_concerne,

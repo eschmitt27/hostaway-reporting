@@ -57,6 +57,9 @@ LOG_LEVEL = os.environ.get("LOG_LEVEL", "info")
 
 # Chemins sources (lecture seule)
 SOURCES_BRUTES = PROJECT_ROOT / "01_SOURCES_BRUTES"
+# Justificatifs (Mission 36) : dossier canonique où l'utilisateur range chaque pièce, nommée par
+# sa référence (CHG-AAAA-MM-NNN…) — `justificatifs_service`. Exclu du dépôt git.
+JUSTIFICATIFS_ROOT = Path(os.environ.get("JUSTIFICATIFS_ROOT", str(SOURCES_BRUTES / "Justificatifs")))
 TRAVAIL = PROJECT_ROOT / "02_TRAVAIL"
 EXPORTS_POWERBI = PROJECT_ROOT / "03_EXPORTS" / "PowerBI"
 # REF_Setup.xlsm vit dans un sous-dossier REF_Setup/ (corrigé APP-1)

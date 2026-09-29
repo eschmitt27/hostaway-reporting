@@ -242,6 +242,22 @@
   </ul>
 </section>
 
+{# ── Compte comptable et écart (Mission 36) ── #}
+{% set rd = manifest.row_data or {} %}
+<section class="card" data-testid="bloc-compte-previsualise">
+  <h2>Comptabilité</h2>
+  <table class="table"><tbody>
+    <tr><td>Compte de charge</td><td>
+      {% if compte_charge %}<strong>{{ compte_charge.compte }}</strong> — {{ compte_charge.libelle }}
+        {% if rd.get('justification_imputation') %}<br><span class="text-sm text-secondary">Imputation libre : {{ rd.get('justification_imputation') }}</span>{% endif %}
+      {% else %}Compte comptable à définir (choisi au rapprochement){% endif %}
+    </td></tr>
+    {% if rd.get('justification_ecart_montant') %}
+    <tr><td>Écart avec le mouvement</td><td>{{ rd.get('justification_ecart_montant') }}</td></tr>
+    {% endif %}
+  </tbody></table>
+</section>
+
 {# ── Confirmation ── #}
 <section class="card" data-testid="bloc-confirmation">
   <h2>Confirmation</h2>
@@ -259,15 +275,37 @@
     Elle est tracée et ne peut pas être rejouée avec la même prévisualisation.
     Vérifiez le récapitulatif ci-dessus avant de confirmer.
   </div>
-  <div style="display:flex; gap:var(--stack-md); align-items:center;">
-    <form method="post" action="/fournisseurs/nouvelle/confirmer/{{ token }}">
-      {# Aucun champ métier : le serveur relit tout depuis le manifest. #}
+  <form method="post" action="/fournisseurs/nouvelle/confirmer/{{ token }}" data-testid="form-justificatif">
+    {# Aucun champ métier : le serveur relit tout depuis le manifest. Seule la réponse sur le
+       justificatif est transmise (Mission 36). #}
+    <div class="alert alert-info" data-testid="bloc-justificatif">
+      <div>Référence du justificatif : <strong data-testid="reference-justificatif">{{ justificatif_reference }}</strong></div>
+      <div>Dossier d'archivage : <code data-testid="dossier-justificatif">{{ justificatif_dossier }}</code></div>
+      <div class="text-sm">Nom du fichier : commence par la référence, ex. <code>{{ justificatif_reference }}__FOURNISSEUR.pdf</code></div>
+    </div>
+    {% if justificatif_erreur %}
+    <div class="alert alert-error" role="alert" data-testid="erreur-justificatif">{{ justificatif_erreur }}</div>
+    {% endif %}
+    <fieldset class="cs-section">
+      <legend class="cs-section__title">Le justificatif a-t-il bien été enregistré ?</legend>
+      <label><input type="radio" name="justificatif_present" value="OUI" required
+             {% if justificatif_reponse.get('present') == 'OUI' %}checked{% endif %}> Oui, il est dans le dossier</label>
+      <label style="margin-left:var(--stack-md);"><input type="radio" name="justificatif_present" value="NON"
+             {% if justificatif_reponse.get('present') == 'NON' %}checked{% endif %}> Non</label>
+      <div style="margin-top:var(--stack-sm);">
+        <label for="justification_absence">Si non : pourquoi ? (obligatoire)</label>
+        <input type="text" id="justification_absence" name="justification_absence" style="width:100%;"
+               value="{{ justificatif_reponse.get('justification', '') }}"
+               placeholder="ex. Ticket perdu — demande de duplicata au fournisseur">
+      </div>
+    </fieldset>
+    <div style="display:flex; gap:var(--stack-md); align-items:center; margin-top:var(--stack-md);">
       <button type="submit" class="btn btn-primary" data-testid="btn-confirmer">
         Confirmer l'enregistrement
       </button>
-    </form>
-    <a href="/fournisseurs/nouvelle" class="btn btn-secondary">Revenir modifier</a>
-  </div>
+      <a href="/fournisseurs/nouvelle" class="btn btn-secondary">Revenir modifier</a>
+    </div>
+  </form>
   {% endif %}
 </section>
 

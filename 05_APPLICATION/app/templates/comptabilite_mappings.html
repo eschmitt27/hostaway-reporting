@@ -70,6 +70,11 @@
       <select name="statut" required>
         {% for code, libelle in statuts.items() %}<option value="{{ code }}">{{ libelle }}</option>{% endfor %}
       </select></label>
+    <label>Rôle *
+      <select name="role" required>
+        <option value="DEFAUT">Compte par défaut (présélectionné)</option>
+        <option value="AUTORISE">Compte autorisé (au choix)</option>
+      </select></label>
     <label>Début de validité <input type="date" name="date_debut_validite"></label>
     <label>Fin de validité <input type="date" name="date_fin_validite"></label>
     <label>Justification <input name="source" placeholder="qui a arbitré, pourquoi"></label>

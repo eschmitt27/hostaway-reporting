@@ -328,6 +328,11 @@ def flux_rapprochement(request: Request, statut: str = "", mois: str = "", sourc
         recents=lettrage.lettrages()[:10], message=message, erreur=erreur))
 
 
+def _modes_auxiliaires() -> dict:
+    from app.services import comptabilite_plan_service as plan
+    return plan.modes_auxiliaires()
+
+
 def _page_validation(request: Request, m: list[str], o: list[str], *, traitement_ecart: str = "",
                      compte_ecart: str = "", proposition: str = "", erreurs: list | None = None,
                      lignes_saisies: list | None = None, justification: str = "", acteur: str = "",
@@ -343,6 +348,7 @@ def _page_validation(request: Request, m: list[str], o: list[str], *, traitement
         erreurs=(erreurs or []) or prep["erreurs"], comptes=flux.comptes_actifs(),
         fournisseurs=flux.fournisseurs_connus(), proprietaires=flux.proprietaires_connus(),
         associes=flux.associes_connus(), traitements_ecart=lettrage.LIBELLES_TRAITEMENT_ECART,
+        modes_aux=_modes_auxiliaires(),
         justification=justification, acteur=acteur, message=message, erreur_flash=erreur_flash,
         retour_query=urlencode([("m", x) for x in m] + [("o", x) for x in o]
                                + ([("proposition", proposition)] if proposition else []))),

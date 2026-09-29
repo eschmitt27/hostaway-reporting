@@ -113,9 +113,9 @@
             <td>{% if tres %}<input type="hidden" name="l_auxiliaire" value="">—
               {% else %}<select name="l_auxiliaire" class="js-aux" aria-label="Auxiliaire">
                 <option value="">— aucun —</option>
-                <optgroup label="Fournisseurs" data-groupe="fournisseurs">{% for f in fournisseurs %}<option value="{{ f.id }}" {{ 'selected' if f.id == l.auxiliaire }}>{{ f.nom }}</option>{% endfor %}</optgroup>
-                <optgroup label="Propriétaires">{% for p in proprietaires %}<option value="{{ p.id }}" {{ 'selected' if p.id == l.auxiliaire }}>{{ p.nom }}</option>{% endfor %}</optgroup>
-                <optgroup label="Associés">{% for a in associes %}<option value="{{ a.id }}" {{ 'selected' if a.id == l.auxiliaire }}>{{ a.nom }}</option>{% endfor %}</optgroup>
+                <optgroup label="Fournisseurs" data-groupe="fournisseurs" data-type="FOURNISSEUR">{% for f in fournisseurs %}<option value="{{ f.id }}" {{ 'selected' if f.id == l.auxiliaire }}>{{ f.nom }}</option>{% endfor %}</optgroup>
+                <optgroup label="Propriétaires / clients" data-type="CLIENT">{% for p in proprietaires %}<option value="{{ p.id }}" {{ 'selected' if p.id == l.auxiliaire }}>{{ p.nom }}</option>{% endfor %}</optgroup>
+                <optgroup label="Associés" data-type="ASSOCIE">{% for a in associes %}<option value="{{ a.id }}" {{ 'selected' if a.id == l.auxiliaire }}>{{ a.nom }}</option>{% endfor %}</optgroup>
               </select>{% endif %}</td>
             <td><input name="l_libelle" value="{{ l.libelle }}" {{ 'readonly' if tres }} aria-label="Libellé"></td>
             <td><input name="l_debit" class="num js-debit" value="{{ '%.2f'|format(l.debit) if l.debit else '' }}" {{ 'readonly' if tres }} inputmode="decimal" aria-label="Débit"></td>
@@ -129,9 +129,9 @@
               <select name="l_compte" aria-label="Compte (ligne ajoutée)"><option value="">— ajouter une ligne —</option>
                 {% for c in comptes %}<option value="{{ c.compte }}">{{ c.compte }} — {{ c.libelle }}</option>{% endfor %}</select></td>
             <td><select name="l_auxiliaire" class="js-aux"><option value="">— aucun —</option>
-                <optgroup label="Fournisseurs" data-groupe="fournisseurs">{% for f in fournisseurs %}<option value="{{ f.id }}">{{ f.nom }}</option>{% endfor %}</optgroup>
-                <optgroup label="Propriétaires">{% for p in proprietaires %}<option value="{{ p.id }}">{{ p.nom }}</option>{% endfor %}</optgroup>
-                <optgroup label="Associés">{% for a in associes %}<option value="{{ a.id }}">{{ a.nom }}</option>{% endfor %}</optgroup></select></td>
+                <optgroup label="Fournisseurs" data-groupe="fournisseurs" data-type="FOURNISSEUR">{% for f in fournisseurs %}<option value="{{ f.id }}">{{ f.nom }}</option>{% endfor %}</optgroup>
+                <optgroup label="Propriétaires / clients" data-type="CLIENT">{% for p in proprietaires %}<option value="{{ p.id }}">{{ p.nom }}</option>{% endfor %}</optgroup>
+                <optgroup label="Associés" data-type="ASSOCIE">{% for a in associes %}<option value="{{ a.id }}">{{ a.nom }}</option>{% endfor %}</optgroup></select></td>
             <td><input name="l_libelle" value="" aria-label="Libellé"></td>
             <td><input name="l_debit" class="num js-debit" value="" inputmode="decimal"></td>
             <td><input name="l_credit" class="num js-credit" value="" inputmode="decimal"></td>
@@ -171,6 +171,38 @@
   </form>
 </dialog>
 
+<script type="application/json" id="modes-auxiliaires">{{ modes_aux|tojson }}</script>
+<script>
+/* Tiers (auxiliaire) contextuel — Mission 36. Le plan comptable dit si un compte porte un tiers :
+   sans tiers, le champ disparaît et est vidé ; sinon seul le bon type de tiers est proposé, et il
+   est signalé obligatoire. Le serveur rejoue la même règle (un tiers resté est effacé). */
+(function () {
+  var source = document.getElementById("modes-auxiliaires");
+  if (!source) return;
+  var modes = JSON.parse(source.textContent || "{}");
+  function appliquer(compte) {
+    var ligne = compte.closest("tr");
+    var aux = ligne && ligne.querySelector("select.js-aux");
+    if (!aux) return;
+    var m = modes[compte.value] || { mode: "NONE", type: "" };
+    var sans = !compte.value || m.mode === "NONE";
+    aux.hidden = sans;
+    if (sans) { aux.value = ""; }
+    aux.required = m.mode === "REQUIRED";
+    aux.setAttribute("aria-label", sans ? "Auxiliaire" : ("Tiers : " + (m.libelle_type || "tiers")
+      + (m.mode === "REQUIRED" ? " (obligatoire)" : "")));
+    aux.querySelectorAll("optgroup").forEach(function (g) {
+      var visible = !m.type || g.getAttribute("data-type") === m.type;
+      g.hidden = !visible; g.disabled = !visible;
+      if (!visible && g.contains(aux.selectedOptions[0])) { aux.value = ""; }
+    });
+  }
+  document.querySelectorAll("select[name='l_compte']").forEach(function (compte) {
+    compte.addEventListener("change", function () { appliquer(compte); });
+    appliquer(compte);
+  });
+})();
+</script>
 <script>
 (function () {
   function nombre(v) { v = (v || "").replace(/\s/g, "").replace(",", "."); var n = parseFloat(v); return isNaN(n) ? 0 : n; }

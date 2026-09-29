@@ -93,6 +93,11 @@ CHAMPS_SAISIE = (
     # saisie : voir `attribuer_reference_justificatif`.
     "justificatif_archive", "justificatif_reference",
     "commentaire",
+    # Mission 36 — compte porté par la charge (proposé par le mapping de sa catégorie, choisi
+    # parmi les comptes autorisés, ou imputation LIBRE justifiée), et justification d'un montant
+    # différent de celui du mouvement bancaire d'origine (acompte puis solde, paiement groupé…).
+    "compte_comptable", "compte_origine", "justification_imputation",
+    "justification_ecart_montant",
     # `affectable_menage` était CALCULÉ par la prévisualisation puis perdu à l'INSERT : la colonne
     # n'existait pas et ce champ ne figurait pas ici. `lot6f_cout_complet_menages` filtre pourtant
     # dessus pour constituer ses pools — une charge ménage saisie dans l'application ne pouvait donc
@@ -154,6 +159,55 @@ def _appliquer_justificatif_archive(conn, valeurs: dict[str, Any], date_charge: 
         return
     valeurs["justificatif_reference"] = attribuer_reference_justificatif(
         conn, str(date_charge or "")[:4])
+
+
+E_COMPTE_CHARGE = "S20_COMPTE_DE_CHARGE"
+E_JUSTIFICATIF_A_CONFIRMER = "S21_JUSTIFICATIF_A_CONFIRMER"
+
+COMPTE_MAPPING, COMPTE_AUTORISE, COMPTE_LIBRE = "MAPPING", "AUTORISE", "LIBRE"
+
+
+def refus_compte(valeurs: dict[str, Any], *, db_path=None) -> dict[str, Any] | None:
+    """Le compte porté par une charge (Mission 36). `None` = conforme.
+
+    · aucun compte : permis — « compte comptable à définir », tranché au rapprochement ;
+    · MAPPING / AUTORISE : le compte doit être l'un de ceux que la catégorie propose ;
+    · LIBRE : un compte de charge ACTIF, et une justification écrite (tracée avec la charge)."""
+    from app.services import comptabilite_mappings_service as maps
+    from app.services import comptabilite_plan_service as plan
+
+    compte = str(valeurs.get("compte_comptable") or "").strip()
+    origine = str(valeurs.get("compte_origine") or "").strip().upper()
+    if not compte:
+        valeurs["compte_comptable"] = valeurs["compte_origine"] = None
+        valeurs["justification_imputation"] = None
+        # Même règle que l'écran : un seul compte valide pour la catégorie → il est retenu. Une
+        # charge hors comptabilité n'en porte pas ; plusieurs ou aucun → à définir.
+        if str(valeurs.get("prise_en_compta") or "").upper() != "NON":
+            proposes = maps.comptes_proposes(str(valeurs.get("categorie_charge_id") or ""),
+                                             date_reference=str(valeurs.get("date_charge") or "")[:10],
+                                             db_path=db_path)
+            if proposes["statut"] == maps.PROPOSITION_UNIQUE:
+                valeurs["compte_comptable"] = proposes["compte_defaut"]
+                valeurs["compte_origine"] = COMPTE_MAPPING
+        return None
+    if not plan.compatible_charge(plan.charger(compte, db_path=db_path)):
+        return _refus(E_COMPTE_CHARGE, f"Le compte {compte} n'est pas un compte de charge actif "
+                                       "du plan comptable.")
+    proposes = maps.comptes_proposes(str(valeurs.get("categorie_charge_id") or ""),
+                                     date_reference=str(valeurs.get("date_charge") or "")[:10],
+                                     db_path=db_path)
+    parmi = {c["compte"] for c in proposes["comptes"]}
+    if origine == COMPTE_LIBRE or compte not in parmi:
+        if not str(valeurs.get("justification_imputation") or "").strip():
+            return _refus(E_COMPTE_CHARGE, "Imputation libre : ce compte n'est pas proposé pour la "
+                                           "catégorie — une justification est obligatoire.")
+        valeurs["compte_origine"] = COMPTE_LIBRE
+        return None
+    valeurs["compte_origine"] = (COMPTE_MAPPING if compte == proposes["compte_defaut"]
+                                 else COMPTE_AUTORISE)
+    valeurs["justification_imputation"] = None
+    return None
 
 
 def _maintenant() -> str:
@@ -320,6 +374,9 @@ def creer(donnees: dict[str, Any], *, acteur: str = "", conn=None, perimetre=Non
         refus = refus_hors_compta_liee(conn, charge_id, valeurs)
         if refus is not None:
             return refus
+        refus = refus_compte(valeurs, db_path=db_path)
+        if refus is not None:
+            return refus
         _appliquer_justificatif_archive(conn, valeurs, valeurs.get("date_charge"))
         colonnes = ["charge_id", *CHAMPS_SAISIE, "date_saisie", "source_module", "acteur"]
         params = [charge_id, *(valeurs[c] for c in CHAMPS_SAISIE), _maintenant(), "SAISIE_APP",
@@ -328,6 +385,11 @@ def creer(donnees: dict[str, Any], *, acteur: str = "", conn=None, perimetre=Non
             f"INSERT INTO charges ({', '.join(colonnes)}) "
             f"VALUES ({', '.join(['?'] * len(colonnes))})", params)
         _journaliser(conn, charge_id, EVT_CREATION, acteur, "", apres=valeurs)
+        # Mission 36 — référence documentaire humaine dès la création (CHG-AAAA-MM-NNN), distincte
+        # de l'identifiant technique ; la présence du justificatif se confirme ensuite.
+        from app.services import justificatifs_service as justif
+        justif.attribuer(conn, justif.OBJET_CHARGE, charge_id, valeurs.get("date_charge"),
+                         acteur=acteur)
         # Le périmètre analytique s'écrit AVANT la synchronisation de refacturation : celle-ci en
         # dérive les propriétaires éligibles quand la charge est commune à plusieurs logements.
         if perimetre:
@@ -348,6 +410,9 @@ def creer(donnees: dict[str, Any], *, acteur: str = "", conn=None, perimetre=Non
     finally:
         if connexion_locale:
             conn.close()
+    if connexion_locale:
+        from app.services import justificatifs_service as justif
+        justif.preparer_dossier(justif.OBJET_CHARGE, valeurs.get("date_charge"))
     return {"ok": True, "charge_id": charge_id}
 
 
@@ -453,6 +518,15 @@ def valider_controle(charge_id: str, *, acteur: str = "", motif: str = "",
         refus = refus_hors_compta_liee(conn, charge_id, avant)
         if refus is not None:
             return refus
+        # Mission 36 — pas de validation finale sans réponse sur le justificatif (archivé, ou
+        # absence justifiée). Une charge antérieure sans référence n'est pas bloquée.
+        justificatif = conn.execute(
+            "SELECT reference, statut FROM justificatifs WHERE objet_type='CHARGE' AND objet_id=?",
+            (charge_id,)).fetchone()
+        if justificatif is not None and justificatif["statut"] == "A_CONFIRMER":
+            return _refus(E_JUSTIFICATIF_A_CONFIRMER,
+                          f"Justificatif {justificatif['reference']} à confirmer avant de valider "
+                          "la charge : archivé, ou absence justifiée.")
         conn.execute(
             "UPDATE charges SET statut_controle = ?, date_modification = ? WHERE charge_id = ?",
             (CONTROLE_VALIDE, _maintenant(), charge_id))

@@ -62,7 +62,20 @@
         <option value="">— choisir —</option>
         {% for code, libelle in types.items() %}<option value="{{ code }}">{{ libelle }}</option>{% endfor %}
       </select></label>
-    <label><input type="checkbox" name="auxiliaire_autorise" value="1"> Porte un tiers en auxiliaire</label>
+    <label>Tiers (auxiliaire)
+      <select name="auxiliaire_mode">
+        <option value="">— selon le numéro —</option>
+        <option value="NONE">Sans tiers</option>
+        <option value="OPTIONAL">Tiers facultatif</option>
+        <option value="REQUIRED">Tiers obligatoire</option>
+      </select></label>
+    <label>Type de tiers
+      <select name="auxiliaire_type">
+        <option value="">—</option>
+        <option value="FOURNISSEUR">Fournisseur</option>
+        <option value="CLIENT">Client / propriétaire</option>
+        <option value="ASSOCIE">Associé</option>
+      </select></label>
     <label>Commentaire <input name="commentaire"></label>
     <label>Votre nom * <input name="acteur" required></label>
     <div><button type="submit" class="btn btn-primary">Ajouter le compte</button></div>
