@@ -96,8 +96,8 @@ def test_creer_regle_cle_manquante_refusee(db):
 def test_lister_regles_filtre_par_portee(db):
     maps.creer_regle(maps.PORTEE_CATEGORIE, "606100", cle="CHG_MENAGE", db_path=db)
     maps.creer_regle(maps.PORTEE_TYPE_FLUX, "627000", cle="TYPE_BANQUE", db_path=db)
-    # Les règles du catalogue fonctionnel (migration 0114) existent aussi : on ne lit que la
-    # règle posée par le test.
+    # Les règles semées par les migrations (catalogue 0114, audit 0115) existent aussi : on ne
+    # lit que la règle posée par le test.
     cats = [r for r in maps.lister_regles(portee=maps.PORTEE_CATEGORIE, db_path=db)
-            if r["acteur"] != "Migration 0114"]
+            if not str(r["acteur"] or "").startswith("Migration ")]
     assert len(cats) == 1 and cats[0]["cle"] == "CHG_MENAGE"

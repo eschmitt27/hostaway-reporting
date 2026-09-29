@@ -209,6 +209,9 @@ EXPECTED_TABLES = {
     "justificatifs",                              # référence documentaire, présence ou absence justifiée
     "justificatif_evenements",                    # historique des réponses
     "justificatifs_sequence",                     # compteur CHG-AAAA-MM / FAF-AAAA-MM
+    # 0115 — crédits clients : origine comptable des reversements Airbnb (Mission 37)
+    "credits_clients",                            # crédit détenu pour un propriétaire (montant, origine)
+    "credit_client_evenements",                   # historique : origine, imputations, régularisations
 }
 
 

@@ -540,11 +540,18 @@ def test_20_acompte_4191_puis_imputation_et_net_411(base, verrous, factures_ok):
 
 
 def test_21_reversement_airbnb_famille_acompte(base, verrous, factures_ok):
-    _acompte_encaisse(base, 100.0)       # 100 € détenus pour le client en 419100
-    fid, emise = _facture(base, {"gestion": 200.0, "reversements": [60.0]})
-    res = compta.comptabiliser_facture_emise(emise, acteur=ACTEUR, db_path=base)
-    assert res["imputation"]["ok"], res
-    lignes = compta.lignes(res["imputation"]["ecriture_id_opaque"], db_path=base)
+    """Mission 37 : un reversement Airbnb s'impute depuis SON crédit (origine constatée), jamais
+    sur le crédit d'un acompte. 419100 → 411000, sous-type conservé au libellé."""
+    from app.services import credits_clients_service as credits
+    credit = credits.creer_reversement_airbnb(
+        PROPRIO, 100.0, "2026-08-20", reference="Payout août", mode=credits.MODE_JUSTIFIE,
+        compte_source="455100", auxiliaire_source="ASSOC_TEST",
+        justification="Versement antérieur à l'historique bancaire", acteur=ACTEUR, db_path=base)
+    assert credit["ok"], credit
+    fid, emise = _facture(base, {"gestion": 200.0})
+    res = credits.imputer(credit["credit_id_opaque"], fid, 60.0, acteur=ACTEUR, db_path=base)
+    assert res["ok"] and res["ecriture"]["ok"], res
+    lignes = compta.lignes(res["ecriture"]["ecriture_id_opaque"], db_path=base)
     assert {(l["compte"], l["debit"], l["credit"]) for l in lignes} == {
         ("419100", 60.0, 0.0), ("411000", 0.0, 60.0)}
     assert any("Reversement Airbnb" in (l["libelle"] or "") for l in lignes)
