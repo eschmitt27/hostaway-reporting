@@ -72,6 +72,7 @@ def ik_fiche(request: Request, ik_id: str, message: str = "", erreur: str = ""):
     return templates.TemplateResponse(request, "associes_ik.html", {
         "active_menu": _MENU, "ik": ik, "motifs": svc.MOTIFS_TRAJET,
         "types_vehicule": bareme.TYPES_VEHICULE, "motorisations": bareme.MOTORISATIONS,
+        "vehicules": svc.vehicules(ik["associe_id"]) if ik else [],
         "natures": svc.NATURES_DEPENSE, "statuts": svc.LIBELLES_STATUT_IK,
         "transitions": svc.TRANSITIONS_IK.get(ik["statut"], ()) if ik else (),
         "nom_associe": svc.nom_associe(ik["associe_id"]) if ik else "",
@@ -116,7 +117,8 @@ async def ik_retirer(request: Request, ik_id: str):
 @router.post("/associes/ik/{ik_id}/vehicule")
 async def ik_vehicule(request: Request, ik_id: str):
     f = await request.form()
-    res = svc.definir_vehicule(ik_id, libelle=str(f.get("vehicule_libelle", "")),
+    res = svc.definir_vehicule(ik_id, vehicule_id=str(f.get("vehicule_id", "")),
+                               libelle=str(f.get("vehicule_libelle", "")),
                                type_vehicule=str(f.get("type_vehicule", "")),
                                puissance_fiscale=str(f.get("puissance_fiscale", "")),
                                motorisation=str(f.get("motorisation", "")), acteur="interface")

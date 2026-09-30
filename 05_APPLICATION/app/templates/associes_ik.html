@@ -51,25 +51,43 @@
   <div class="fi-card-tete"><h2 class="card-title">Contrôle selon le barème kilométrique</h2></div>
   <p>Montant IK saisi : <strong>{{ euros(cb.montant_saisi) }}</strong><br>
     {% if cb.ok %}Montant indicatif selon barème : <strong data-testid="montant-indicatif">{{ euros(cb.montant) }}</strong>
-      <span class="text-xs text-secondary">— barème {{ cb.annee }}{% if cb.annee != cb.annee_demandee %} (dernier configuré){% endif %}, {{ cb.formule }}</span>
     {% else %}<span class="text-secondary" data-testid="bareme-manque">{{ cb.manque }}</span>{% endif %}</p>
+  {% if cb.repli %}<p class="alert alert-info" data-testid="bareme-repli">{{ cb.repli }}</p>{% endif %}
   {% if cb.depassement %}
   <div class="alert alert-warning" data-testid="alerte-bareme">⚠ Le montant saisi dépasse le montant indicatif calculé
     selon le barème kilométrique. Vérifiez le relevé, le véhicule et le montant avant validation.</div>
   {% endif %}
-  <p class="ec-note">Référence de contrôle uniquement : elle ne bloque rien et ne modifie jamais le montant de la charge.</p>
+  {% if cb.details %}
+  <div class="ec-table-wrap"><table class="data-table" data-testid="cumul-annuel">
+    <thead><tr><th>Année</th><th>Barème</th><th class="num">Km déjà déclarés</th><th class="num">Km de l'IK</th>
+      <th class="num">Cumul après</th><th class="num">Théorique avant</th><th class="num">Théorique après</th><th class="num">Part de l'IK</th></tr></thead>
+    <tbody>{% for d in cb.details %}<tr><td>{{ d.annee }}</td><td>{{ d.bareme_annee }}{% if cb.fige %} (figé){% endif %}</td>
+      <td class="num">{{ d.km_avant }}</td><td class="num">{{ d.km_ik }}</td><td class="num">{{ d.km_apres }}</td>
+      <td class="num">{{ euros(d.theorique_avant) }}</td><td class="num">{{ euros(d.theorique_apres) }}</td>
+      <td class="num"><strong>{{ euros(d.part) }}</strong></td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% endif %}
+  <p class="ec-note">Le barème s'applique au kilométrage annuel du véhicule : la part de cette IK est la différence entre
+    le montant théorique après et avant ses kilomètres. Référence de contrôle uniquement : elle ne bloque rien et ne
+    modifie jamais le montant de la charge.</p>
   {% if ik.modifiable %}
   <form method="post" action="/associes/ik/{{ ik.ik_id_opaque }}/vehicule" class="ec-filtres">
-    <label class="ec-champ"><span>Véhicule</span><input type="text" name="vehicule_libelle" value="{{ ik.vehicule_libelle or '' }}" placeholder="ex. Clio"></label>
+    {% if vehicules %}
+    <label class="ec-champ"><span>Véhicule de l'associé</span><select name="vehicule_id">
+      <option value="">— nouveau véhicule (ci-contre) —</option>
+      {% for v in vehicules %}<option value="{{ v.vehicule_id_opaque }}" {{ 'selected' if v.vehicule_id_opaque == ik.vehicule_id }}>{{ v.libelle or types_vehicule[v.type_vehicule] }}{% if v.puissance_fiscale %} · {{ v.puissance_fiscale }} CV{% endif %} · {{ motorisations[v.motorisation] }}</option>{% endfor %}
+    </select></label>
+    {% endif %}
+    <label class="ec-champ"><span>Véhicule (nouveau)</span><input type="text" name="vehicule_libelle" placeholder="ex. Clio"></label>
     <label class="ec-champ"><span>Type</span><select name="type_vehicule">
-      {% for code, lib in types_vehicule.items() %}<option value="{{ code }}" {{ 'selected' if code == (ik.type_vehicule or 'AUTO') }}>{{ lib }}</option>{% endfor %}</select></label>
-    <label class="ec-champ"><span>Puissance fiscale (CV)</span><input type="text" name="puissance_fiscale" inputmode="numeric" size="4" value="{{ ik.puissance_fiscale or '' }}"></label>
+      {% for code, lib in types_vehicule.items() %}<option value="{{ code }}">{{ lib }}</option>{% endfor %}</select></label>
+    <label class="ec-champ"><span>Puissance fiscale (CV)</span><input type="text" name="puissance_fiscale" inputmode="numeric" size="4"></label>
     <label class="ec-champ"><span>Motorisation</span><select name="motorisation">
-      {% for code, lib in motorisations.items() %}<option value="{{ code }}" {{ 'selected' if code == (ik.motorisation or 'THERMIQUE') }}>{{ lib }}</option>{% endfor %}</select></label>
+      {% for code, lib in motorisations.items() %}<option value="{{ code }}">{{ lib }}</option>{% endfor %}</select></label>
     <div class="ec-filtres__actions"><button type="submit" class="btn btn-secondary">Enregistrer le véhicule</button></div>
   </form>
-  {% elif ik.type_vehicule %}
-  <p class="ec-note">Véhicule : {{ ik.vehicule_libelle or "—" }} · {{ types_vehicule.get(ik.type_vehicule, ik.type_vehicule) }}{% if ik.puissance_fiscale %} · {{ ik.puissance_fiscale }} CV{% endif %} · {{ motorisations.get(ik.motorisation or 'THERMIQUE') }}</p>
+  {% elif cb.vehicule %}
+  <p class="ec-note">Véhicule : {{ cb.vehicule.libelle or "—" }} · {{ types_vehicule.get(cb.vehicule.type_vehicule) }}{% if cb.vehicule.puissance_fiscale %} · {{ cb.vehicule.puissance_fiscale }} CV{% endif %} · {{ motorisations.get(cb.vehicule.motorisation) }}</p>
   {% endif %}
 </section>
 

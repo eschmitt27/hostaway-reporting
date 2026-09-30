@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Barème IK{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+<div class="ecran">
+{% if not b %}
+<a href="/administration/baremes-ik" class="back-link">← Barèmes IK</a>
+<div class="card fi-vide"><span class="fi-vide__titre">Barème introuvable.</span></div>
+{% else %}
+<div class="page-header">
+  <div class="page-header__titre">
+    <a href="/administration/baremes-ik" class="back-link">← Barèmes IK</a>
+    <h1 class="page-title">Barème {{ b.annee }} <span class="text-secondary">v{{ b.version }}</span></h1>
+    <p class="page-subtitle fi-sous-titre">
+      <span class="status-badge status-{{ 'valide' if b.statut == 'ACTIF' else ('brouillon' if b.statut == 'BROUILLON' else 'neutre') }}" data-testid="statut-bareme">{{ b.statut_libelle }}</span>
+      <span>créé le {{ b.cree_le|datetime_fr }} · modifié le {{ b.modifie_le|datetime_fr }}</span>
+      {% if b.nb_ik_validees %}<span>· utilisé par {{ b.nb_ik_validees }} IK validée(s)</span>{% endif %}
+    </p>
+  </div>
+  <div class="page-header__actions">
+    {% if b.statut == 'BROUILLON' %}
+    <form method="post" action="/administration/baremes-ik/{{ b.bareme_id_opaque }}/activer" class="inline-form">
+      <button type="submit" class="btn btn-primary" data-testid="activer-bareme">Activer ce barème</button></form>
+    {% endif %}
+    {% if b.statut != 'ARCHIVE' %}
+    <form method="post" action="/administration/baremes-ik/{{ b.bareme_id_opaque }}/archiver" class="inline-form">
+      <button type="submit" class="btn btn-ghost">Archiver</button></form>
+    {% endif %}
+    {% if not b.modifiable %}
+    <form method="post" action="/administration/baremes-ik/{{ b.bareme_id_opaque }}/nouvelle-version" class="inline-form">
+      <button type="submit" class="btn btn-secondary">Créer une nouvelle version</button></form>
+    {% endif %}
+  </div>
+</div>
+
+{% if message %}<div class="alert alert-success" role="status">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-error" role="alert" data-testid="erreur-bareme">{{ erreur }}
+  {% if erreurs|length > 1 %}<ul>{% for e in erreurs %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}</div>{% endif %}
+{% if not b.modifiable %}<div class="alert alert-info">Ce barème n'est plus modifiable (archivé, ou déjà utilisé par une IK validée).
+  Pour le corriger, créez une nouvelle version : celui-ci reste intact, ainsi que les contrôles qui s'en servent.</div>{% endif %}
+
+<p class="ec-note">Formule de chaque tranche : <strong>montant = kilomètres × coefficient + constante</strong>, sur le
+  kilométrage professionnel ANNUEL du véhicule ; bornes : km min &lt; km ≤ km max (vide = au-delà).
+  Véhicule 100 % électrique : montant × (1 + majoration).</p>
+
+<form method="post" action="/administration/baremes-ik/{{ b.bareme_id_opaque }}/enregistrer" data-fi-occupe="Enregistrement…">
+<section class="card">
+  <div class="ec-filtres">
+    <label class="ec-champ"><span>Majoration véhicule électrique</span>
+      <input type="text" name="majoration_electrique" value="{{ b.majoration_electrique }}" size="6" {{ 'disabled' if not b.modifiable }}></label>
+    <label class="ec-champ" style="flex:1 1 360px"><span>Source</span>
+      <input type="text" name="source" value="{{ b.source or '' }}" {{ 'disabled' if not b.modifiable }}></label>
+  </div>
+  <div class="ec-table-wrap">
+  <table class="data-table" data-testid="tranches">
+    <thead><tr><th>Véhicule</th><th class="num">CV min</th><th class="num">CV max</th><th class="num">Km min</th><th class="num">Km max</th>
+      <th class="num">Coefficient</th><th class="num">Constante</th>{% if b.modifiable %}<th>Retirer</th>{% endif %}</tr></thead>
+    <tbody>
+    {% set lignes = b.tranches + ([{}] * 3 if b.modifiable else []) %}
+    {% for t in lignes %}
+      {% set i = loop.index0 %}
+      <tr>
+      {% if b.modifiable %}
+        <td><select name="type_vehicule" aria-label="Véhicule">{% for code, lib in types.items() %}<option value="{{ code }}" {{ 'selected' if code == t.type_vehicule }}>{{ lib }}</option>{% endfor %}</select></td>
+        <td class="num"><input type="text" name="cv_min" size="3" value="{{ t.cv_min if t.cv_min is defined and t.cv_min is not none else '' }}" aria-label="CV min"></td>
+        <td class="num"><input type="text" name="cv_max" size="3" value="{{ t.cv_max if t.cv_max is defined and t.cv_max is not none else '' }}" aria-label="CV max"></td>
+        <td class="num"><input type="text" name="km_min" size="7" value="{{ t.km_min|int if t.km_min is defined and t.km_min is not none else '' }}" aria-label="Km min"></td>
+        <td class="num"><input type="text" name="km_max" size="7" value="{{ t.km_max|int if t.km_max is defined and t.km_max is not none else '' }}" aria-label="Km max"></td>
+        <td class="num"><input type="text" name="coefficient" size="6" value="{{ t.coefficient if t.coefficient is defined and t.coefficient is not none else '' }}" aria-label="Coefficient"></td>
+        <td class="num"><input type="text" name="constante" size="6" value="{{ t.constante if t.constante is defined and t.constante is not none else '' }}" aria-label="Constante"></td>
+        <td>{% if t %}<input type="checkbox" name="retirer" value="{{ i }}" aria-label="Retirer la tranche">{% endif %}</td>
+      {% else %}
+        <td>{{ types.get(t.type_vehicule, t.type_vehicule) }}</td>
+        <td class="num">{{ t.cv_min }}</td><td class="num">{{ t.cv_max if t.cv_max is not none else "et plus" }}</td>
+        <td class="num">{{ t.km_min|int }}</td><td class="num">{{ t.km_max|int if t.km_max is not none else "au-delà" }}</td>
+        <td class="num">{{ t.coefficient }}</td><td class="num">{{ t.constante }}</td>
+      {% endif %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% if b.modifiable %}
+  <div class="fi-liens-bas"><button type="submit" class="btn btn-primary" data-testid="enregistrer-bareme">Enregistrer le barème</button></div>
+  {% endif %}
+</section>
+</form>
+{% endif %}
+</div>
+<script src="/static/js/finitions.js" defer></script>
+{% endblock %}

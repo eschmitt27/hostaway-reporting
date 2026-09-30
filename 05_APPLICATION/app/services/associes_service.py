@@ -444,34 +444,71 @@ def retirer_ligne(ik_id: str, table: str, ligne_id: int, *, acteur: str = "",
     return {"ok": True}
 
 
-def definir_vehicule(ik_id: str, *, libelle: str = "", type_vehicule: str = "",
-                     puissance_fiscale: Any = None, motorisation: str = "", acteur: str = "",
-                     db_path=None) -> dict[str, Any]:
-    """Véhicule de l'IK, pour le contrôle indicatif du barème. Ne change aucun montant."""
+def vehicules(associe_id: str, *, db_path=None) -> list[dict[str, Any]]:
+    """Véhicules de l'associé : identité stable, un cumul kilométrique annuel chacun."""
+    conn = get_db(db_path)
+    try:
+        if "ik_vehicules" not in _tables(conn):
+            return []
+        return [dict(r) for r in conn.execute(
+            "SELECT * FROM ik_vehicules WHERE associe_id = ? AND actif = 1 ORDER BY libelle, id",
+            (associe_id,))]
+    finally:
+        conn.close()
+
+
+def definir_vehicule(ik_id: str, *, vehicule_id: str = "", libelle: str = "",
+                     type_vehicule: str = "", puissance_fiscale: Any = None, motorisation: str = "",
+                     acteur: str = "", db_path=None) -> dict[str, Any]:
+    """Rattache l'IK à un véhicule de l'associé — existant (`vehicule_id`), ou décrit ; un véhicule
+    décrit à l'identique est RÉUTILISÉ, pour que son cumul annuel reste unique. Pour le contrôle
+    indicatif du barème seulement : aucun montant ne change."""
     from app.services import bareme_ik_service as bareme
-    type_vehicule = _txt(type_vehicule).upper()
-    motorisation = _txt(motorisation).upper() or "THERMIQUE"
-    cv = _nombre(puissance_fiscale) if _txt(puissance_fiscale) else None
-    if (type_vehicule not in bareme.TYPES_VEHICULE or motorisation not in bareme.MOTORISATIONS
-            or (cv is not None and not (1 <= cv <= 50))
-            or (type_vehicule != "CYCLO" and cv is None)):
-        return _refus(E_VEHICULE)
     conn = get_db(db_path)
     try:
         refus = _ik_modifiable(conn, ik_id)
         if refus:
             return refus
-        conn.execute("UPDATE ik SET vehicule_libelle = ?, type_vehicule = ?, puissance_fiscale = ?, "
-                     "motorisation = ?, version = version + 1 WHERE ik_id_opaque = ?",
-                     (_txt(libelle) or None, type_vehicule, int(cv) if cv is not None else None,
-                      motorisation, ik_id))
+        associe = conn.execute("SELECT associe_id FROM ik WHERE ik_id_opaque = ?",
+                               (ik_id,)).fetchone()["associe_id"]
+        if vehicule_id:
+            v = conn.execute("SELECT * FROM ik_vehicules WHERE vehicule_id_opaque = ? "
+                             "AND associe_id = ?", (vehicule_id, associe)).fetchone()
+            if v is None:
+                return _refus(E_VEHICULE, vehicule_id)
+        else:
+            type_vehicule = _txt(type_vehicule).upper()
+            motorisation = _txt(motorisation).upper() or "THERMIQUE"
+            cv = _nombre(puissance_fiscale) if _txt(puissance_fiscale) else None
+            if (type_vehicule not in bareme.TYPES_VEHICULE or motorisation not in bareme.MOTORISATIONS
+                    or (cv is not None and not (1 <= cv <= 50))
+                    or (type_vehicule != "CYCLO" and cv is None)):
+                return _refus(E_VEHICULE)
+            cv = int(cv) if cv is not None else None
+            v = conn.execute(
+                "SELECT * FROM ik_vehicules WHERE associe_id = ? AND lower(trim(COALESCE(libelle, ''))) "
+                "= lower(?) AND type_vehicule = ? AND COALESCE(puissance_fiscale, -1) = ? "
+                "AND motorisation = ? AND actif = 1",
+                (associe, _txt(libelle), type_vehicule, cv if cv is not None else -1,
+                 motorisation)).fetchone()
+            if v is None:
+                vehicule_id = "VEH-" + uuid.uuid4().hex[:12].upper()
+                conn.execute("INSERT INTO ik_vehicules (vehicule_id_opaque, associe_id, libelle, "
+                             "type_vehicule, puissance_fiscale, motorisation) VALUES (?,?,?,?,?,?)",
+                             (vehicule_id, associe, _txt(libelle) or None, type_vehicule, cv,
+                              motorisation))
+                v = conn.execute("SELECT * FROM ik_vehicules WHERE vehicule_id_opaque = ?",
+                                 (vehicule_id,)).fetchone()
+        conn.execute("UPDATE ik SET vehicule_id = ?, version = version + 1 WHERE ik_id_opaque = ?",
+                     (v["vehicule_id_opaque"], ik_id))
+        cv_txt = f" · {v['puissance_fiscale']} CV" if v["puissance_fiscale"] else ""
+        nom = v["libelle"] or bareme.TYPES_VEHICULE[v["type_vehicule"]]
         _evenement(conn, ik_id, "VEHICULE",
-                   f"{bareme.TYPES_VEHICULE[type_vehicule]}"
-                   f"{f' {int(cv)} CV' if cv else ''} · {bareme.MOTORISATIONS[motorisation]}", acteur)
+                   f"{nom}{cv_txt} · {bareme.MOTORISATIONS[v['motorisation']]}", acteur)
         conn.commit()
+        return {"ok": True, "vehicule_id": v["vehicule_id_opaque"]}
     finally:
         conn.close()
-    return {"ok": True}
 
 
 def changer_statut(ik_id: str, statut: str, *, acteur: str = "", db_path=None) -> dict[str, Any]:
@@ -482,8 +519,15 @@ def changer_statut(ik_id: str, statut: str, *, acteur: str = "", db_path=None) -
             return _refus(E_INTROUVABLE, ik_id)
         if statut not in TRANSITIONS_IK.get(r["statut"], ()):
             return _refus(E_STATUT, f"{r['statut']} → {statut}")
-        conn.execute("UPDATE ik SET statut = ?, version = version + 1 WHERE ik_id_opaque = ?",
-                     (statut, ik_id))
+        # Le barème du contrôle indicatif est FIGÉ à la validation : créer ou modifier une autre
+        # année ensuite ne change pas le contrôle d'une IK validée. Rouvrir le libère.
+        fige = None
+        if statut == ST_VALIDEE:
+            from app.services import bareme_ik_service as bareme
+            ligne = conn.execute("SELECT date_fin FROM ik WHERE ik_id_opaque = ?", (ik_id,)).fetchone()
+            fige = bareme.bareme_pour_validation({"date_fin": ligne["date_fin"]}, db_path=db_path)
+        conn.execute("UPDATE ik SET statut = ?, bareme_id_opaque = ?, version = version + 1 "
+                     "WHERE ik_id_opaque = ?", (statut, fige, ik_id))
         _evenement(conn, ik_id, "STATUT", f"{r['statut']} → {statut}", acteur)
         conn.commit()
     finally:

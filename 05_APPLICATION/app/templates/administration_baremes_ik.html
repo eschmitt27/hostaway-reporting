@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Barème des indemnités kilométriques{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+<div class="ecran">
+<div class="page-header">
+  <div class="page-header__titre">
+    <a href="/administration/referentiels" class="back-link">← Administration</a>
+    <h1 class="page-title">Barème des indemnités kilométriques</h1>
+    <p class="page-subtitle">Un barème par année, jamais supprimé. Il sert au contrôle indicatif des IK :
+      une alerte, jamais un blocage. Une IK validée garde le barème qui a servi à son contrôle.</p>
+  </div>
+</div>
+
+{% if message %}<div class="alert alert-success" role="status">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-error" role="alert" data-testid="erreur-bareme">{{ erreur }}</div>{% endif %}
+
+<form method="post" action="/administration/baremes-ik/nouveau" class="ec-filtres" data-fi-occupe="Création…">
+  <label class="ec-champ"><span>Année du nouveau barème</span><input type="text" name="annee" inputmode="numeric" size="6" placeholder="2026" required></label>
+  <div class="ec-filtres__actions">
+    <button type="submit" class="btn btn-primary" data-testid="ajouter-bareme">Ajouter un barème annuel</button>
+  </div>
+  <p class="ec-note" style="flex-basis:100%;margin:0">Le nouveau barème part d'une copie du dernier barème actif ; modifiez-le puis activez-le.</p>
+</form>
+
+<section class="card">
+  <div class="ec-table-wrap">
+  <table class="data-table">
+    <thead><tr><th>Année</th><th>Version</th><th>Statut</th><th class="num">Tranches</th><th class="num">IK validées</th>
+      <th>Créé le</th><th>Modifié le</th><th></th></tr></thead>
+    <tbody>
+    {% for b in baremes %}
+      <tr>
+        <td class="fi-cle">Barème {{ b.annee }}</td><td>v{{ b.version }}</td>
+        <td><span class="status-badge status-{{ 'valide' if b.statut == 'ACTIF' else ('brouillon' if b.statut == 'BROUILLON' else 'neutre') }}">{{ b.statut_libelle }}</span></td>
+        <td class="num">{{ b.nb_tranches }}</td><td class="num">{{ b.nb_ik_validees }}</td>
+        <td class="ec-nowrap">{{ b.cree_le|datetime_fr }}</td><td class="ec-nowrap">{{ b.modifie_le|datetime_fr }}</td>
+        <td class="fi-col-actions"><a class="fi-lien-action" href="/administration/baremes-ik/{{ b.bareme_id_opaque }}">Voir le détail</a></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="8" class="ec-vide">Aucun barème configuré.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+</div>
+<script src="/static/js/finitions.js" defer></script>
+{% endblock %}
