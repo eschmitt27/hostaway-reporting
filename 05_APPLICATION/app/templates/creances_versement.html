@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% set pid = prep.proprietaire_id %}
+{% block title %}Versement — {{ pid | nom_proprietaire }}{% endblock %}
+{% macro euros(v) %}<span class="fi-montant{{ ' fi-montant--negatif' if v is not none and v < 0 }}">{{ "%.2f"|format(v or 0) }} €</span>{% endmacro %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+<div class="ecran">
+<div class="page-header">
+  <div class="page-header__titre">
+    <a href="/creances" class="back-link">← Créances &amp; dettes</a>
+    <h1 class="page-title">Versement — {{ pid | nom_proprietaire }}</h1>
+    <p class="page-subtitle">Ce que la société doit virer au propriétaire, puis le virement émis : vérifiez, puis réglez.</p>
+  </div>
+  <div class="page-header__actions">
+    <a href="/comptes-proprietaires/{{ pid }}" class="btn btn-secondary">Voir le compte</a>
+  </div>
+</div>
+
+{% for e in erreurs %}<div class="alert alert-error" data-testid="erreur-versement">{{ e.message }}</div>{% endfor %}
+
+<div class="fi-kpis">
+  <div class="fi-kpi fi-kpi--hero"><span class="fi-kpi__label">Reste à virer</span>
+    <span class="fi-kpi__valeur" data-testid="montant-versement">{{ euros(prep.montant_propose) }}</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Sommes à reverser</span>
+    <span class="fi-kpi__valeur">{{ euros(prep.position.reversements_dus) }}</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Compensées sur factures</span>
+    <span class="fi-kpi__valeur">{{ euros(prep.position.compensations) }}</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Déjà viré</span>
+    <span class="fi-kpi__valeur">{{ euros(prep.position.vire) }}</span></div>
+</div>
+
+<section class="card">
+  <div class="fi-card-tete"><h2 class="card-title">Reversements à virer, du plus ancien au plus récent</h2></div>
+  <div class="ec-table-wrap">
+  <table class="data-table">
+    <thead><tr><th>Date</th><th>Nature</th><th>Référence</th><th class="num">Montant</th><th class="num">Reste à virer</th></tr></thead>
+    <tbody>
+    {% for o in prep.reversements %}
+      <tr><td class="ec-nowrap">{{ o.date|date_fr }}</td><td>{{ o.libelle }}</td><td>{{ o.numero or "—" }}</td>
+        <td class="num">{{ euros(o.montant) }}</td><td class="num"><strong>{{ euros(o.reste) }}</strong></td></tr>
+    {% else %}
+      <tr><td colspan="5" class="ec-vide">Aucun reversement à virer pour ce propriétaire.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% if prep.trop_percu %}
+  <p class="ec-note">Trop-perçu sur facture ({{ euros(prep.trop_percu_total) }}) : il n'est pas encore déclaré comme
+    reversement. Déclarez-le d'abord depuis le <a href="/comptes-proprietaires/{{ pid }}">compte du propriétaire</a>.</p>
+  {% endif %}
+</section>
+
+{% if prep.montant_propose > 0.005 %}
+<section class="card" data-testid="choix-virement">
+  <div class="fi-card-tete"><h2 class="card-title">Régler — quel virement a été émis ?</h2></div>
+  {% if prep.mouvements %}
+  <div class="ec-table-wrap">
+  <table class="data-table">
+    <thead><tr><th>Date</th><th>Libellé</th><th>Source</th><th class="num">Montant disponible</th><th></th></tr></thead>
+    <tbody>
+    {% for m in prep.mouvements %}
+      <tr class="{{ 'fi-ligne-active' if m.cle == mouvement }}">
+        <td class="ec-nowrap">{{ m.date_fr }}</td>
+        <td>{{ m.libelle }}{% if m.porte_nom %} <span class="badge badge-info">au nom du propriétaire</span>{% endif %}</td>
+        <td>{{ "Banque" if m.source == "BANQUE" else "Caisse" }}</td>
+        <td class="num">{{ euros(m.restant) }}</td>
+        <td class="fi-col-actions"><a class="fi-lien-action" href="?mouvement={{ m.cle | urlencode }}" data-testid="choisir-virement">Choisir</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="ec-note">Aucun virement émis à rapprocher pour l'instant. Dès qu'il apparaît au relevé bancaire
+    (actualisation), il sera proposé ici.</p>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if apercu %}
+<section class="card" data-testid="apercu-versement">
+  <div class="fi-card-tete"><h2 class="card-title">Vérifier puis régler</h2></div>
+  {% if not apercu.ok %}
+    {% for e in apercu.erreurs %}<div class="alert alert-error">{{ e.message }}</div>{% endfor %}
+  {% else %}
+  <p>Virement du <strong>{{ apercu.mouvement.date_fr }}</strong> — {{ apercu.mouvement.libelle }} :
+    <strong>{{ euros(apercu.total_mouvements) }}</strong> versés, pour <strong>{{ euros(apercu.total_objets) }}</strong> de reversements.</p>
+  {% for e in apercu.ecritures %}
+  <div class="ec-table-wrap"><table class="data-table">
+    <thead><tr><th>Compte</th><th>Libellé</th><th class="num">Débit</th><th class="num">Crédit</th></tr></thead>
+    <tbody>{% for l in e.lignes %}<tr><td class="font-mono text-xs">{{ l.compte }}</td><td>{{ l.libelle }}</td>
+      <td class="num">{{ "%.2f"|format(l.debit) if l.debit else "—" }}</td><td class="num">{{ "%.2f"|format(l.credit) if l.credit else "—" }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% endfor %}
+  {% if apercu.verrous_fermes %}<div class="alert alert-warning">{% for v in apercu.verrous_fermes %}{{ v }} {% endfor %}</div>{% endif %}
+  <form method="post" action="/creances/proprietaires/{{ pid }}/verser" class="ec-filtres" data-fi-occupe="Enregistrement…">
+    <input type="hidden" name="mouvement" value="{{ mouvement }}">
+    {% if apercu.ecart_a_traiter %}
+    <div class="alert alert-info" style="flex-basis:100%">
+      {% if apercu.ecart < 0 %}Le virement ne couvre pas tout le reversement : le reste demeure à virer.
+      {% else %}Le virement dépasse les reversements : l'excédent reste à qualifier.{% endif %}
+      Écart laissé ouvert : {{ euros(apercu.ecart) }} (rien n'est absorbé).
+      <input type="hidden" name="traitement_ecart" value="SOLDE_OUVERT">
+    </div>
+    {% endif %}
+    <label class="ec-champ"><span>Votre nom (signature)</span><input type="text" name="acteur" value="{{ acteur }}" required></label>
+    <div class="ec-filtres__actions">
+      <button type="submit" class="btn btn-primary" data-testid="bouton-verser" {% if apercu.verrous_fermes %}disabled{% endif %}>Régler</button>
+    </div>
+  </form>
+  {% endif %}
+</section>
+{% endif %}
+</div>
+<script src="/static/js/finitions.js" defer></script>
+{% endblock %}

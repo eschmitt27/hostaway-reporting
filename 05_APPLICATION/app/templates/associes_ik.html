@@ -45,6 +45,34 @@
     <span class="fi-kpi__sous">IK − dépenses activité</span></div>
 </div>
 
+{# ── Contrôle indicatif selon le barème kilométrique — ALERTE seulement, jamais bloquant ──── #}
+{% set cb = ik.controle_bareme %}
+<section class="card" data-testid="controle-bareme">
+  <div class="fi-card-tete"><h2 class="card-title">Contrôle selon le barème kilométrique</h2></div>
+  <p>Montant IK saisi : <strong>{{ euros(cb.montant_saisi) }}</strong><br>
+    {% if cb.ok %}Montant indicatif selon barème : <strong data-testid="montant-indicatif">{{ euros(cb.montant) }}</strong>
+      <span class="text-xs text-secondary">— barème {{ cb.annee }}{% if cb.annee != cb.annee_demandee %} (dernier configuré){% endif %}, {{ cb.formule }}</span>
+    {% else %}<span class="text-secondary" data-testid="bareme-manque">{{ cb.manque }}</span>{% endif %}</p>
+  {% if cb.depassement %}
+  <div class="alert alert-warning" data-testid="alerte-bareme">⚠ Le montant saisi dépasse le montant indicatif calculé
+    selon le barème kilométrique. Vérifiez le relevé, le véhicule et le montant avant validation.</div>
+  {% endif %}
+  <p class="ec-note">Référence de contrôle uniquement : elle ne bloque rien et ne modifie jamais le montant de la charge.</p>
+  {% if ik.modifiable %}
+  <form method="post" action="/associes/ik/{{ ik.ik_id_opaque }}/vehicule" class="ec-filtres">
+    <label class="ec-champ"><span>Véhicule</span><input type="text" name="vehicule_libelle" value="{{ ik.vehicule_libelle or '' }}" placeholder="ex. Clio"></label>
+    <label class="ec-champ"><span>Type</span><select name="type_vehicule">
+      {% for code, lib in types_vehicule.items() %}<option value="{{ code }}" {{ 'selected' if code == (ik.type_vehicule or 'AUTO') }}>{{ lib }}</option>{% endfor %}</select></label>
+    <label class="ec-champ"><span>Puissance fiscale (CV)</span><input type="text" name="puissance_fiscale" inputmode="numeric" size="4" value="{{ ik.puissance_fiscale or '' }}"></label>
+    <label class="ec-champ"><span>Motorisation</span><select name="motorisation">
+      {% for code, lib in motorisations.items() %}<option value="{{ code }}" {{ 'selected' if code == (ik.motorisation or 'THERMIQUE') }}>{{ lib }}</option>{% endfor %}</select></label>
+    <div class="ec-filtres__actions"><button type="submit" class="btn btn-secondary">Enregistrer le véhicule</button></div>
+  </form>
+  {% elif ik.type_vehicule %}
+  <p class="ec-note">Véhicule : {{ ik.vehicule_libelle or "—" }} · {{ types_vehicule.get(ik.type_vehicule, ik.type_vehicule) }}{% if ik.puissance_fiscale %} · {{ ik.puissance_fiscale }} CV{% endif %} · {{ motorisations.get(ik.motorisation or 'THERMIQUE') }}</p>
+  {% endif %}
+</section>
+
 {# ── Relevé de trajets ─────────────────────────────────────────────────────────────────────── #}
 <section class="card" data-testid="trajets">
   <div class="fi-card-tete"><h2 class="card-title">Relevé de trajets</h2><span class="fi-compteur">{{ ik.nb_trajets }}</span></div>

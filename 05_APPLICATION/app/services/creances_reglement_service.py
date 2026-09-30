@@ -69,7 +69,9 @@ def positions(*, inclure_soldes: bool = False, db_path=None) -> list[dict[str, A
         pos = _cpt().position(pid, db_path=db_path)
         restant = _r(sum(l["solde"] for l in mine))
         credit = _r(pos["credit_disponible"] + _credits_airbnb_disponibles(pid, db_path=db_path))
-        a_reverser = _r(sum(l["montant_a_reverser"] for l in mine) + max(pos["virement_net"], 0))
+        # À reverser = trop-perçu sur facture + ce qui reste à virer (déjà viré déduit).
+        a_virer = _r(pos.get("reste_a_virer", max(pos["virement_net"], 0)))
+        a_reverser = _r(sum(l["montant_a_reverser"] for l in mine) + a_virer)
         ouvertes = [l for l in mine if l["solde"] > EPS]
         retard = max([l["jours_retard"] for l in ouvertes if l["jours_retard"] is not None
                       and l["jours_retard"] > 0] or [0])
@@ -93,6 +95,7 @@ def positions(*, inclure_soldes: bool = False, db_path=None) -> list[dict[str, A
             "restant_du": restant,
             "credit_disponible": credit,
             "a_reverser": a_reverser,
+            "reste_a_virer": a_virer,
             "nb_factures_ouvertes": len(ouvertes),
             "jours_retard": retard,
             "prochaine_echeance": echeances[0] if echeances else "",
@@ -116,8 +119,9 @@ def _factures_ouvertes(pid: str, *, db_path=None) -> list[dict[str, Any]]:
 
 
 def mouvements_candidats(pid: str, *, montant_cible: float = 0.0, limite: int = 25,
-                         db_path=None) -> list[dict[str, Any]]:
-    """Encaissements (banque ou caisse) encore à rapprocher. Ceux qui portent le nom du
+                         sens: str = "", db_path=None) -> list[dict[str, Any]]:
+    """Mouvements (banque ou caisse) encore à rapprocher, dans le sens voulu : ENTREE pour un
+    encaissement (défaut), SORTIE pour un versement au propriétaire. Ceux qui portent le nom du
     propriétaire d'abord, puis les montants les plus proches du montant attendu."""
     from app.db.connection import get_db
     from app.services import flux_financiers_service as flux
@@ -134,7 +138,7 @@ def mouvements_candidats(pid: str, *, montant_cible: float = 0.0, limite: int = 
         conn.close()
     out = []
     for m in flux.mouvements(avec_propositions=False, db_path=db_path):
-        if m["sens"] != flux.ENTREE or not m["lettrable"] or m["restant"] <= EPS:
+        if m["sens"] != (sens or flux.ENTREE) or not m["lettrable"] or m["restant"] <= EPS:
             continue
         porte_nom = bool(nom) and nom in _norm(m.get("texte_recherche") or m.get("libelle"))
         out.append({**m, "cle": f"{m['source']}:{m['id']}", "porte_nom": porte_nom,
@@ -221,4 +225,86 @@ def regler(pid: str, mouvement_cle: str, *, acteur: str, traitement_ecart: str =
     return lettrage.valider([mouvement_cle], objets, acteur=acteur,
                             traitement_ecart=traitement_ecart, compte_ecart=compte_ecart,
                             justification=f"Règlement préparé depuis Créances & Dettes ({pid})",
+                            db_path=db_path)
+
+
+# ── Préparer le versement propriétaire → Régler (sens société → propriétaire) ────────────────────
+#
+# Même principe que l'encaissement, en sens inverse : le versement est le rapprochement canonique
+# de Flux entre le débit bancaire et le(s) reversement(s) validé(s) du propriétaire (mouvement de
+# trésorerie « société → propriétaire »). Écriture 411 / 512, rapprochement, compte mis à jour
+# (« déjà viré » / « reste à virer ») : aucun mécanisme nouveau.
+
+def reversements_ouverts(pid: str, *, db_path=None) -> list[dict[str, Any]]:
+    """Reversements validés du propriétaire, pas encore entièrement virés — du plus ancien au
+    plus récent."""
+    from app.services import flux_financiers_service as flux
+    return sorted((o for o in flux.objets(db_path=db_path)
+                   if o["type"] == flux.MOUVEMENT_PROPRIETAIRE and o["sens"] == flux.SORTIE
+                   and o["tiers_id"] == pid and o["reste"] > EPS),
+                  key=lambda o: (o["date"] or "", o["id"]))
+
+
+def preparer_versement(pid: str, *, db_path=None) -> dict[str, Any]:
+    """Ce qui compose le versement — lecture seule."""
+    from app.services import flux_financiers_service as flux
+    pos = _cpt().position(pid, db_path=db_path)
+    ouverts = reversements_ouverts(pid, db_path=db_path)
+    montant = _r(min(pos["reste_a_virer"], sum(o["reste"] for o in ouverts)))
+    trop_percu = [f for f in pos["factures"] if f["solde"] < -EPS]
+    return {
+        "proprietaire_id": pid,
+        "position": pos,
+        "reversements": ouverts,
+        "montant_propose": montant,
+        "trop_percu": trop_percu,
+        "trop_percu_total": _r(sum(-f["solde"] for f in trop_percu)),
+        "mouvements": mouvements_candidats(pid, montant_cible=montant, sens=flux.SORTIE,
+                                           db_path=db_path) if montant > EPS else [],
+    }
+
+
+def objets_versement(pid: str, montant_verse: float, *, db_path=None) -> list[str]:
+    """Reversements ouverts, du plus ancien, jusqu'à couvrir le montant versé (au moins un)."""
+    from app.services import flux_financiers_service as flux
+    out, cumul = [], 0.0
+    for o in reversements_ouverts(pid, db_path=db_path):
+        out.append(f"{flux.MOUVEMENT_PROPRIETAIRE}:{o['id']}")
+        cumul = _r(cumul + o["reste"])
+        if cumul >= montant_verse - EPS:
+            break
+    return out
+
+
+def apercu_versement(pid: str, mouvement_cle: str, *, traitement_ecart: str = "",
+                     db_path=None) -> dict:
+    """Aperçu — `flux_lettrage_service.preparer`, qui n'écrit rien."""
+    from app.services import flux_lettrage_service as lettrage
+    m = _mouvement(mouvement_cle, db_path=db_path)
+    if m is None:
+        return {"ok": False, "erreurs": [{"code": "V01", "message": "Mouvement introuvable."}]}
+    objets = objets_versement(pid, m["restant"], db_path=db_path)
+    if not objets:
+        return {"ok": False, "erreurs": [{"code": "V02",
+                                           "message": "Aucun reversement à virer."}]}
+    prep = lettrage.preparer([mouvement_cle], objets, traitement_ecart=traitement_ecart,
+                             db_path=db_path)
+    prep["objets_cles"] = objets
+    prep["mouvement"] = m
+    return prep
+
+
+def verser(pid: str, mouvement_cle: str, *, acteur: str, traitement_ecart: str = "",
+           db_path=None) -> dict[str, Any]:
+    """Enregistre le versement : rapprochement + écriture 411 / 512, tout ou rien."""
+    from app.services import flux_lettrage_service as lettrage
+    m = _mouvement(mouvement_cle, db_path=db_path)
+    if m is None:
+        return {"ok": False, "message": "Mouvement introuvable."}
+    objets = objets_versement(pid, m["restant"], db_path=db_path)
+    if not objets:
+        return {"ok": False, "message": "Aucun reversement à virer."}
+    return lettrage.valider([mouvement_cle], objets, acteur=acteur,
+                            traitement_ecart=traitement_ecart,
+                            justification=f"Versement préparé depuis Créances & Dettes ({pid})",
                             db_path=db_path)

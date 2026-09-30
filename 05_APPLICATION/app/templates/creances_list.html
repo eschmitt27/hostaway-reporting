@@ -17,6 +17,8 @@
 
 {% include "_onglets_creances_dettes.html" %}
 
+{% if message %}<div class="alert alert-info" data-testid="message-hub">{{ message }}</div>{% endif %}
+
 {# ══ Par propriétaire — l'entrée naturelle vers le compte et le règlement ══════════════════ #}
 <section class="card" data-testid="positions-proprietaires">
   <div class="fi-card-tete">
@@ -49,6 +51,9 @@
           <a class="fi-lien-action" href="/comptes-proprietaires/{{ p.proprietaire_id }}">Voir le compte</a>
           {% if p.restant_du > 0.005 %}
           · <a class="fi-lien-action" href="/creances/proprietaires/{{ p.proprietaire_id }}/reglement" data-testid="lien-preparer">Préparer le règlement</a>
+          {% endif %}
+          {% if p.reste_a_virer > 0.005 %}
+          · <a class="fi-lien-action" href="/creances/proprietaires/{{ p.proprietaire_id }}/versement" data-testid="lien-versement">Préparer le versement propriétaire</a>
           {% endif %}
         </td>
       </tr>

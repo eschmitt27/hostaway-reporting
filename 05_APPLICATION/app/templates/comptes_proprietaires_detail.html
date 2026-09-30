@@ -15,6 +15,9 @@
     {% if position.creance_restante > 0.005 %}
     <a href="/creances/proprietaires/{{ position.proprietaire_id }}/reglement" class="btn btn-primary" data-testid="bouton-preparer-reglement">Préparer le règlement</a>
     {% endif %}
+    {% if position.reste_a_virer > 0.005 %}
+    <a href="/creances/proprietaires/{{ position.proprietaire_id }}/versement" class="btn btn-primary" data-testid="bouton-preparer-versement">Préparer le versement propriétaire</a>
+    {% endif %}
     <a href="/factures-proprietaires?proprietaire_id={{ position.proprietaire_id }}" class="btn btn-secondary">Voir les factures</a>
     <a href="/proprietaires-reglements/{{ position.proprietaire_id }}" class="btn btn-ghost">Suivi mensuel</a>
   </div>
@@ -41,6 +44,12 @@
             <td class="text-right">{{ "%.2f"|format(position.compensations) }} €</td></tr>
         <tr><td>Virement net à effectuer</td>
             <td class="text-right">{{ "%.2f"|format(position.virement_net) }} €</td></tr>
+        {% if position.vire %}
+        <tr><td>Déjà viré au propriétaire</td>
+            <td class="text-right">{{ "%.2f"|format(position.vire) }} €</td></tr>
+        <tr><td>Reste à virer</td>
+            <td class="text-right">{{ "%.2f"|format(position.reste_a_virer) }} €</td></tr>
+        {% endif %}
         <tr class="ec-total"><td><strong>Position nette</strong></td>
             <td class="text-right"><strong>{{ "%.2f"|format(position.position_nette) }} €</strong></td></tr>
       </tbody>

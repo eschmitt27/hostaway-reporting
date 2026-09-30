@@ -84,6 +84,7 @@ E_TRAJET = "AS10_TRAJET_INVALIDE"
 E_NATURE = "AS11_NATURE_INVALIDE"
 E_DATE = "AS12_DATE_INVALIDE"
 E_LIGNE = "AS13_LIGNE_INTROUVABLE"
+E_VEHICULE = "AS14_VEHICULE_INVALIDE"
 
 MESSAGES = {
     E_INTROUVABLE: "IK introuvable.",
@@ -100,6 +101,7 @@ MESSAGES = {
     E_NATURE: "Nature de dépense inconnue.",
     E_DATE: "Date invalide.",
     E_LIGNE: "Ligne introuvable.",
+    E_VEHICULE: "Véhicule invalide : type, puissance fiscale (1 à 50 CV) et motorisation connus.",
 }
 
 
@@ -251,9 +253,12 @@ def charger_ik(ik_id: str, *, db_path=None) -> dict[str, Any] | None:
         ik["historique"] = [dict(e) for e in conn.execute(
             "SELECT evenement, detail, acteur, horodatage FROM ik_evenements "
             "WHERE ik_id_opaque = ? ORDER BY id DESC", (ik_id,))]
-        return ik
     finally:
         conn.close()
+    # Contrôle indicatif selon le barème kilométrique : une ALERTE, jamais un blocage.
+    from app.services import bareme_ik_service as bareme
+    ik["controle_bareme"] = bareme.controle(ik, db_path=db_path)
+    return ik
 
 
 def lister_ik(*, associe_id: str = "", db_path=None) -> list[dict[str, Any]]:
@@ -433,6 +438,36 @@ def retirer_ligne(ik_id: str, table: str, ligne_id: int, *, acteur: str = "",
         if cur.rowcount != 1:
             return _refus(E_LIGNE)
         _evenement(conn, ik_id, "RETRAIT", f"{table} n° {ligne_id} retiré(e)", acteur)
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True}
+
+
+def definir_vehicule(ik_id: str, *, libelle: str = "", type_vehicule: str = "",
+                     puissance_fiscale: Any = None, motorisation: str = "", acteur: str = "",
+                     db_path=None) -> dict[str, Any]:
+    """Véhicule de l'IK, pour le contrôle indicatif du barème. Ne change aucun montant."""
+    from app.services import bareme_ik_service as bareme
+    type_vehicule = _txt(type_vehicule).upper()
+    motorisation = _txt(motorisation).upper() or "THERMIQUE"
+    cv = _nombre(puissance_fiscale) if _txt(puissance_fiscale) else None
+    if (type_vehicule not in bareme.TYPES_VEHICULE or motorisation not in bareme.MOTORISATIONS
+            or (cv is not None and not (1 <= cv <= 50))
+            or (type_vehicule != "CYCLO" and cv is None)):
+        return _refus(E_VEHICULE)
+    conn = get_db(db_path)
+    try:
+        refus = _ik_modifiable(conn, ik_id)
+        if refus:
+            return refus
+        conn.execute("UPDATE ik SET vehicule_libelle = ?, type_vehicule = ?, puissance_fiscale = ?, "
+                     "motorisation = ?, version = version + 1 WHERE ik_id_opaque = ?",
+                     (_txt(libelle) or None, type_vehicule, int(cv) if cv is not None else None,
+                      motorisation, ik_id))
+        _evenement(conn, ik_id, "VEHICULE",
+                   f"{bareme.TYPES_VEHICULE[type_vehicule]}"
+                   f"{f' {int(cv)} CV' if cv else ''} · {bareme.MOTORISATIONS[motorisation]}", acteur)
         conn.commit()
     finally:
         conn.close()

@@ -19,7 +19,7 @@ templates = get_templates()
 
 @router.get("/creances", response_class=HTMLResponse)
 def creances(request: Request, proprietaire: str = "", logement: str = "", mois: str = "",
-             statut: str = "", echues: str = "", soldes: str = ""):
+             statut: str = "", echues: str = "", soldes: str = "", message: str = ""):
     lignes = svc.creances(proprietaire_id=proprietaire, logement_id=logement, mois=mois,
                           statut=statut, echues_seulement=bool(echues))
     return templates.TemplateResponse(request, "creances_list.html", {
@@ -27,6 +27,7 @@ def creances(request: Request, proprietaire: str = "", logement: str = "", mois:
         # Pilotage par propriétaire : c'est l'entrée naturelle vers le compte et le règlement.
         "positions": reglement.positions(inclure_soldes=bool(soldes)),
         "soldes": soldes,
+        "message": message,
         "total": round(sum(l["solde"] for l in lignes), 2),
         "total_echu": round(sum(l["solde"] for l in lignes if l["echue"]), 2),
         # §52 — les créances sans échéance contractuelle qu'il est temps de relancer.
@@ -94,5 +95,38 @@ async def regler(request: Request, proprietaire_id: str):
                                traitement_ecart=traitement, acteur=acteur, erreurs=erreurs)
     texte = ("Ce règlement était déjà enregistré : rien n'a été rejoué." if res.get("deja_valide")
              else "Règlement enregistré : le compte, les factures et les créances sont à jour.")
-    return RedirectResponse(f"/comptes-proprietaires/{quote(proprietaire_id)}?message={quote(texte)}",
-                            status_code=303)
+    # Retour au hub : le solde qu'on vient de régler y est déjà à jour.
+    return RedirectResponse(f"/creances?message={quote(texte)}", status_code=303)
+
+
+def _page_versement(request: Request, pid: str, *, mouvement: str = "", acteur: str = "",
+                    erreurs: list | None = None):
+    prep = reglement.preparer_versement(pid)
+    apercu = reglement.apercu_versement(pid, mouvement) if mouvement else None
+    return templates.TemplateResponse(request, "creances_versement.html", {
+        "active_menu": "creances", "prep": prep, "apercu": apercu, "mouvement": mouvement,
+        "acteur": acteur, "erreurs": erreurs or [],
+    })
+
+
+@router.get("/creances/proprietaires/{proprietaire_id}/versement", response_class=HTMLResponse)
+def preparer_versement(request: Request, proprietaire_id: str, mouvement: str = ""):
+    """Préparer le versement propriétaire : ce qui reste à virer, puis le débit bancaire.
+    LECTURE SEULE : l'aperçu de l'écriture est calculé, jamais enregistré."""
+    return _page_versement(request, proprietaire_id, mouvement=mouvement)
+
+
+@router.post("/creances/proprietaires/{proprietaire_id}/verser")
+async def verser(request: Request, proprietaire_id: str):
+    form = await request.form()
+    mouvement = str(form.get("mouvement", "") or "")
+    acteur = str(form.get("acteur", "") or "").strip()
+    res = reglement.verser(proprietaire_id, mouvement, acteur=acteur,
+                           traitement_ecart=str(form.get("traitement_ecart", "") or ""))
+    if not res.get("ok"):
+        erreurs = res.get("erreurs") or [{"message": res.get("message") or "Versement refusé."}]
+        return _page_versement(request, proprietaire_id, mouvement=mouvement, acteur=acteur,
+                               erreurs=erreurs)
+    texte = ("Ce versement était déjà enregistré : rien n'a été rejoué." if res.get("deja_valide")
+             else "Versement propriétaire enregistré : le compte et les créances sont à jour.")
+    return RedirectResponse(f"/creances?message={quote(texte)}", status_code=303)

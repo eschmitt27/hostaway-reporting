@@ -115,17 +115,11 @@
     <p class="mention" data-testid="solde-cca">Solde du compte courant de {{ apercu.objet_libelle }} :
       <strong>{{ "%.2f"|format(apercu.solde_cca) }} €</strong></p>
     {% endif %}
-    {% if apercu.nature_proposee == 'REMBOURSEMENT_ASSOCIE' %}
-    {% if apercu.depassement_cca %}
-    <div class="alert alert-warning" data-testid="depassement-cca">
-      Ce remboursement dépasse le solde disponible du compte courant. Il n'est enregistré que sur
-      confirmation explicite, avec un motif.
-      <label class="champ"><input type="checkbox" name="confirmer_depassement" value="1">
-        Je confirme le dépassement</label>
+    {% if apercu.nature_proposee == 'REMBOURSEMENT_ASSOCIE' and apercu.depassement_cca %}
+    <div class="alert alert-error" data-testid="depassement-cca">
+      Le remboursement demandé dépasse le solde créditeur disponible du compte courant d'associé.
+      Réduisez le montant affecté : au-delà du solde, le remboursement est refusé.
     </div>
-    {% endif %}
-    <label class="champ"><span>Motif{% if apercu.depassement_cca %} (obligatoire){% endif %}</span>
-      <input type="text" name="commentaire" {% if apercu.depassement_cca %}required{% endif %}></label>
     {% endif %}
     <a href="/banques-caisse?vue=banque" class="btn btn-ghost">Annuler</a>
     <button type="submit" class="btn btn-primary" data-testid="bouton-valider">Valider</button>

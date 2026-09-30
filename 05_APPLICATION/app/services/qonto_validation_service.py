@@ -74,7 +74,6 @@ E_VERROU_BANQUE = "QV08_ECRITURES_BANCAIRES_DESACTIVEES"
 E_VERROU_COMPTA = "QV09_ECRITURES_COMPTABLES_DESACTIVEES"
 E_ECRITURE_REFUSEE = "QV10_ECRITURE_REFUSEE"
 E_DEPASSEMENT_CCA = "QV11_REMBOURSEMENT_SUPERIEUR_AU_SOLDE_CCA"
-E_MOTIF_DEPASSEMENT = "QV12_MOTIF_DEPASSEMENT_OBLIGATOIRE"
 
 MESSAGES = {
     E_INTROUVABLE: "Cette transaction Qonto est introuvable.",
@@ -94,9 +93,8 @@ MESSAGES = {
                       "redémarrez."),
     E_ECRITURE_REFUSEE: ("L'écriture comptable a été refusée : le rapprochement n'a pas été "
                          "gardé (un rapprochement validé porte toujours son écriture)."),
-    E_DEPASSEMENT_CCA: ("Ce remboursement dépasse le solde disponible du compte courant de "
-                        "l'associé. Confirmez explicitement le dépassement, avec un motif."),
-    E_MOTIF_DEPASSEMENT: "Un remboursement au-delà du solde exige un motif écrit.",
+    E_DEPASSEMENT_CCA: ("Le remboursement demandé dépasse le solde créditeur disponible du compte "
+                        "courant d'associé."),
 }
 
 
@@ -307,8 +305,7 @@ def apercu(uuid_transaction: str, *, nature: str = "", objet_id: str = "", monta
 
 
 def valider(uuid_transaction: str, *, nature: str, objet_id: str = "", montant=None,
-            acteur: str = "", commentaire: str = "", confirmer_depassement: bool = False,
-            db_path=None) -> dict:
+            acteur: str = "", commentaire: str = "", db_path=None) -> dict:
     """Enregistre la décision humaine, puis déclenche les effets canoniques.
 
     L'ordre compte : le rapprochement est créé CONFIRMÉ d'abord, et c'est LUI qui sert d'origine
@@ -352,16 +349,16 @@ def valider(uuid_transaction: str, *, nature: str, objet_id: str = "", montant=N
         return _refus(E_DEJA_AFFECTE)
     montant_affecte = (round(float(montant), 2) if montant not in (None, "")
                        else round(montant_mouvement - deja, 2))
-    # Un remboursement ne dépasse jamais le solde créditeur du compte courant sans une décision
-    # explicite et motivée : rembourser plus que ce qui a été apporté est une avance à l'associé.
+    # BLOCAGE STRICT : un remboursement ne dépasse JAMAIS le solde créditeur du compte courant.
+    # Rembourser plus que ce qui a été apporté rendrait le compte courant débiteur (une avance à
+    # l'associé), ce que rien n'autorise ici : le référentiel des associés ne distingue aucune
+    # catégorie pour laquelle un compte courant débiteur serait permis. Aucune confirmation, aucune
+    # justification ne lève ce refus.
     if nature == REMBOURSEMENT_ASSOCIE:
         from app.services import associes_service
         solde = associes_service.solde_cca(objet_id, db_path=db_path)
         if montant_affecte > solde + 0.005:
-            if not confirmer_depassement:
-                return _refus(E_DEPASSEMENT_CCA, f"solde {solde:.2f} €")
-            if not (commentaire or "").strip():
-                return _refus(E_MOTIF_DEPASSEMENT)
+            return _refus(E_DEPASSEMENT_CCA, f"solde {solde:.2f} €")
 
     # Pour un transfert de caisse, l'« objet » est la transaction elle-même : c'est ce qui rend le
     # rapprochement unique par l'index, et donc non rejouable.

@@ -68,8 +68,10 @@ async def ik_creer(request: Request):
 @router.get("/associes/ik/{ik_id}", response_class=HTMLResponse)
 def ik_fiche(request: Request, ik_id: str, message: str = "", erreur: str = ""):
     ik = svc.charger_ik(ik_id)
+    from app.services import bareme_ik_service as bareme
     return templates.TemplateResponse(request, "associes_ik.html", {
         "active_menu": _MENU, "ik": ik, "motifs": svc.MOTIFS_TRAJET,
+        "types_vehicule": bareme.TYPES_VEHICULE, "motorisations": bareme.MOTORISATIONS,
         "natures": svc.NATURES_DEPENSE, "statuts": svc.LIBELLES_STATUT_IK,
         "transitions": svc.TRANSITIONS_IK.get(ik["statut"], ()) if ik else (),
         "nom_associe": svc.nom_associe(ik["associe_id"]) if ik else "",
@@ -109,6 +111,16 @@ async def ik_retirer(request: Request, ik_id: str):
         ligne = 0
     res = svc.retirer_ligne(ik_id, str(f.get("table", "")), ligne, acteur="interface")
     return _retour(f"/associes/ik/{ik_id}", res, "Ligne retirée.")
+
+
+@router.post("/associes/ik/{ik_id}/vehicule")
+async def ik_vehicule(request: Request, ik_id: str):
+    f = await request.form()
+    res = svc.definir_vehicule(ik_id, libelle=str(f.get("vehicule_libelle", "")),
+                               type_vehicule=str(f.get("type_vehicule", "")),
+                               puissance_fiscale=str(f.get("puissance_fiscale", "")),
+                               motorisation=str(f.get("motorisation", "")), acteur="interface")
+    return _retour(f"/associes/ik/{ik_id}", res, "Véhicule enregistré.")
 
 
 @router.post("/associes/ik/{ik_id}/statut")

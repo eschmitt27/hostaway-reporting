@@ -247,6 +247,26 @@ def recalculer(proprietaire_id: str, *, declencheur: str = DECL_MANUEL,
 
 # ── Position ────────────────────────────────────────────────────────────────────────────────────
 
+def _deja_vire(refs: list[str], *, db_path=None) -> float:
+    """Part des reversements déjà virée : rapprochements bancaires CONFIRMÉS de ces mouvements
+    (le versement passe par le rapprochement canonique de Flux). Lecture seule."""
+    if not refs:
+        return 0.0
+    conn = get_db(db_path)
+    try:
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' "
+                            "AND name='banque_rapprochements'").fetchone():
+            return 0.0
+        marques = ",".join("?" * len(refs))
+        r = conn.execute(
+            f"SELECT COALESCE(SUM(montant_rapproche), 0) FROM banque_rapprochements "
+            f"WHERE type_objet = 'REVERSEMENT_PROPRIETAIRE' AND statut = 'CONFIRME' "
+            f"AND objet_id IN ({marques})", refs).fetchone()
+        return _round(r[0])
+    finally:
+        conn.close()
+
+
 def position(proprietaire_id: str, *, db_path=None) -> dict[str, Any]:
     """Position financière complète. Aucun chiffre unique ambigu : chaque composant est lisible.
 
@@ -311,6 +331,11 @@ def position(proprietaire_id: str, *, db_path=None) -> dict[str, Any]:
                                lambda s: s["source_type"] != SRC_REVERSEMENT)
     # Ce qui reste réellement à virer au propriétaire après compensation (§26).
     virement_net = _round(reversements_dus - compensations)
+    # Mission 38 bis : ce qui a DÉJÀ été viré (versement rapproché d'un débit bancaire dans Flux)
+    # ne reste plus dû. Sans ce terme, un propriétaire payé restait affiché « à reverser ».
+    vire = _deja_vire([s["source_ref"] for s in lignes_sources
+                       if s["source_type"] == SRC_REVERSEMENT], db_path=db_path)
+    reste_a_virer = _round(max(virement_net - vire, 0.0))
 
     return {
         "proprietaire_id": proprietaire_id,
@@ -324,8 +349,10 @@ def position(proprietaire_id: str, *, db_path=None) -> dict[str, Any]:
         "creance_restante": creance_restante,
         "credit_disponible": credit_disponible,
         "virement_net": virement_net,
-        # Positif : le propriétaire nous doit. Négatif : nous lui devons.
-        "position_nette": _round(creance_restante - credit_disponible - virement_net),
+        "vire": vire,
+        "reste_a_virer": reste_a_virer,
+        # Positif : le propriétaire nous doit. Négatif : nous lui devons (ce qui reste à virer).
+        "position_nette": _round(creance_restante - credit_disponible - reste_a_virer),
         "persistance": etat_persistance(proprietaire_id, calcul, db_path=db_path),
     }
 
