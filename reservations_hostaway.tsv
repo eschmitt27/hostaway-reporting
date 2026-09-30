@@ -1,4 +1,5 @@
 ﻿reservationId	listingMapId	listingName	channelName	channelId	reservationCode	guestName	guestFirstName	guestLastName	arrivalDate	departureDate	nights	numberOfGuests	status	paymentStatus	totalPrice	currency	reservationDate	insertedOn	updatedOn	latestActivityOn
+66997333	480137	T3 - sept deniers (François)	direct	2000	181258-480137-2000-7739133511	François			2026-10-22	2026-10-25	3	2	new	Unknown	55.0	EUR	2026-09-30 19:38:59	2026-09-30 19:38:59	2026-09-30 19:39:00	2026-09-30 19:38:59
 66988702	480137	T3 - sept deniers (François)	bookingcom	2005	5115545944	RIO JEAN-NOEL	RIO	JEAN-NOEL	2026-10-04	2026-10-08	4	3	new	Paid	385.41	EUR	2026-09-30 16:30:50	2026-09-30 16:32:07	2026-09-30 16:32:08	2026-09-30 16:32:07
 66406561	493047	Studio - 96 (Florane)	bookingcom	2005	6957545625	Elsa Griffault	Elsa	Griffault	2026-10-01	2026-10-04	3	2	new	Paid	145.96	EUR	2026-09-17 15:28:12	2026-09-17 15:29:31	2026-09-30 14:03:39	2026-09-30 14:03:39
 66976474	480137	T3 - sept deniers (François)	bookingcom	2005	6734720189	Gheorghe Caciula	Gheorghe	Caciula	2026-09-30	2026-10-04	4	2	new	Paid	371.93	EUR	2026-09-30 12:13:46	2026-09-30 12:15:04	2026-09-30 13:45:34	2026-09-30 13:45:34
