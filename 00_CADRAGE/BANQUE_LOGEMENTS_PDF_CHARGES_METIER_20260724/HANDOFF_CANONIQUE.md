@@ -4596,3 +4596,22 @@ barème), modification contrôlée (chevauchements, trous, catégories CV, valeu
 majoration), activation, archivage. Contrôle toujours indicatif, jamais bloquant. Tests : 26 + 5
 (migrations) ; non-régression Administration 225 ; base réelle migrée après sauvegarde, données
 existantes identiques.
+
+## Mission Résultats lisibles — UI/UX (2026-09-30)
+
+Présentation seule, aucune migration, aucun calcul métier modifié. **/resultats** = synthèse
+(« comment se porte l'activité sur la période ? ») ; **/resultats/pilotage** = analyse détaillée.
+Même barre de filtres, mêmes paramètres d'URL : `du` / `au` (AAAA-MM inclus ; vides = toute la
+période ; absents = défaut : dernier mois disponible déjà commencé pour la synthèse, toute la période
+pour l'analyse), `proprietaire_id`, `logement_id`, `canal` (seulement si `lot10_commissions.channel_type`
+est renseigné), `vision` (synthèse). L'ancien `mois=` reste accepté. Raccourcis calendaires (mois en
+cours, précédent, 3 / 6 derniers mois, année en cours, tout) ; filtres actifs retirables ; KPI,
+graphique et tableaux toujours sur le même périmètre (mois unique : la courbe montre 12 mois de
+contexte, écart annoncé à l'écran). Période précédente affichée seulement si les deux périodes sont
+entièrement couvertes par des données, jamais de variation calculée. Sous filtre plateforme, CA
+conciergerie, net propriétaire et résultat sont « non ventilés » (charge fixe et refacturations
+mensuelles). Services : `resultats_perimetre_service` (présentation), `resultats_pilotage_service`
+(`du`/`au`, série lue en une fois, `par_logement`, `par_canal` — sommes de lignes Lot10). Filtre Jinja
+`euros` (`1 245,50 €`, `−245,50 €`, `—` si absent) sur tous les écrans Résultats. JS du graphique :
+`static/js/resultats.js` (plus de JS inline). Tests : `test_resultats_lisibilite.py` (8) ; ciblés
+Résultats / navigation / identifiants / lecture seule : 248 verts.

@@ -5940,3 +5940,10 @@ Détail : `HANDOFF_CANONIQUE.md`, Mission 38 bis.
 
 Barème 2025 officiel, cumul annuel par véhicule, barèmes versionnés administrables (migration 0118).
 Tests ciblés verts ; base réelle migrée après sauvegarde, lecture seule vérifiée. Détail : HANDOFF.
+
+## CTR-RESULTATS-LISIBILITE-2026-09-30 — module Résultats (UI/UX)
+
+Présentation seule : filtres communs synthèse / analyse (période, propriétaire, logement, plateforme),
+KPI, graphique d'évolution accessible, classements, format monétaire français. Aucun calcul métier
+modifié ; GET Résultats = zéro écriture (empreinte de base). Tests : 8 nouveaux + 248 ciblés, 0 échec.
+Détail : HANDOFF, mission Résultats lisibles.
