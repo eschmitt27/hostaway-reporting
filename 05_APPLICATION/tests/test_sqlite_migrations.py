@@ -212,6 +212,10 @@ EXPECTED_TABLES = {
     # 0115 — crédits clients : origine comptable des reversements Airbnb (Mission 37)
     "credits_clients",                            # crédit détenu pour un propriétaire (montant, origine)
     "credit_client_evenements",                   # historique : origine, imputations, régularisations
+    "ik",                                         # IK : fiche analytique d'une charge de déplacement (0116)
+    "ik_trajets",                                 # relevé de trajets justifiant une IK
+    "ik_depenses_activite",                       # part de l'IK engagée pour l'activité (analytique)
+    "ik_evenements",                              # historique d'une IK
 }
 
 

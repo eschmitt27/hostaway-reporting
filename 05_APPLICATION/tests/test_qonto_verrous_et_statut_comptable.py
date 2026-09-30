@@ -121,8 +121,10 @@ def test_banque_ouverte_sans_comptabilite_refuse_une_operation_qui_ecrit_une_ecr
 def test_le_verrou_comptable_ne_vise_que_les_natures_qui_ecrivent(base):
     """Un règlement délègue à un service qui produit son effet séparément : le bloquer ici serait
     interdire une opération qui n'écrit encore aucune écriture."""
+    # Mission 38 : le remboursement de compte courant écrit lui aussi (455100 / 512).
     assert validation.NATURES_AVEC_ECRITURE == (validation.APPORT_ASSOCIE,
-                                                validation.TRANSFERT_CAISSE)
+                                                validation.TRANSFERT_CAISSE,
+                                                validation.REMBOURSEMENT_ASSOCIE)
     assert validation.REGLEMENT_CHARGE not in validation.NATURES_AVEC_ECRITURE
     assert validation.REVERSEMENT_PROPRIETAIRE not in validation.NATURES_AVEC_ECRITURE
 

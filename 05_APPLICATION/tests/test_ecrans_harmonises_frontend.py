@@ -48,10 +48,11 @@ def test_filtres_envoient_les_memes_parametres(client, url, attendus):
 
 
 def test_sous_navigation_creances_dettes(client):
-    for url in ("/creances", "/dettes", "/echeancier"):
+    # Mission 38 : quatrième vue du hub, « Associés ».
+    for url in ("/creances", "/dettes", "/echeancier", "/associes"):
         page = BeautifulSoup(client.get(url).text, "html.parser")
         liens = {a["href"] for a in page.select(".ec-onglets a")}
-        assert liens == {"/creances", "/dettes", "/echeancier"}
+        assert liens == {"/creances", "/dettes", "/echeancier", "/associes"}
         assert page.select_one(f'.ec-onglets a[href="{url}"]')["aria-current"] == "page"
 
 

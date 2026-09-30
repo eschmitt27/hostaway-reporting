@@ -95,8 +95,11 @@ def test_sidebar_contient_href_fournisseurs(client):
 def test_sidebar_contient_href_proprietaires(client):
     r = client.get("/")
     assert r.status_code == 200
-    # APP-3C : le menu « Propriétaires & règlements » pointe vers l'écran consolidé.
-    assert 'href="/proprietaires-reglements"' in r.text, "Menu Propriétaires doit être cliquable"
+    # Mission 38 : les propriétaires se pilotent depuis « Créances & dettes », le hub financier.
+    # « Règlements propriétaires » n'est plus une entrée du menu ; sa route reste servie.
+    assert 'href="/creances" class="nav-item' in r.text, "Menu Créances & dettes doit être cliquable"
+    assert 'href="/proprietaires-reglements" class="nav-item' not in r.text
+    assert client.get("/proprietaires-reglements").status_code == 200
 
 
 def test_sidebar_contient_liens_modules_integres(client):
@@ -108,7 +111,7 @@ def test_sidebar_contient_liens_modules_integres(client):
     r = client.get("/logements")
     assert r.status_code == 200
     for href in ('href="/menages"', 'href="/flux-financiers"',
-                 'href="/proprietaires-reglements"', 'href="/clotures"'):
+                 'href="/creances"', 'href="/clotures"'):
         assert href in r.text, f"Lien de module manquant dans la sidebar : {href}"
     # Banques et Contrôles ne sont plus « à venir » ; aucun badge futur ne doit subsister.
     assert "nav-badge-future" not in r.text

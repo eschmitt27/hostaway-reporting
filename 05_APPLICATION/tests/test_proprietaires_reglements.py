@@ -305,4 +305,6 @@ def test_aucune_route_paiement(client, owners_files):
 
 def test_sidebar_nav(client, owners_files):
     r = client.get("/proprietaires-reglements")
-    assert 'href="/proprietaires-reglements"' in r.text
+    # Mission 38 : plus d'entrée de menu dédiée — l'écran s'ouvre depuis le hub, qui reste actif.
+    assert 'href="/creances" class="nav-item active"' in r.text
+    assert 'href="/creances" class="back-link"' in r.text
