@@ -5935,3 +5935,8 @@ Versement propriétaire depuis le hub (lettrage canonique, compte « reste à vi
 CCA strictement plafonné au solde, alerte barème kilométrique non bloquante (migration 0117).
 Tests : 21 + 463 ciblés, 0 échec. Base réelle migrée après sauvegarde, lecture seule vérifiée.
 Détail : `HANDOFF_CANONIQUE.md`, Mission 38 bis.
+
+## CTR-BAREME-IK-ADMINISTRABLE-2026-09-30 — correctif Mission 38 bis
+
+Barème 2025 officiel, cumul annuel par véhicule, barèmes versionnés administrables (migration 0118).
+Tests ciblés verts ; base réelle migrée après sauvegarde, lecture seule vérifiée. Détail : HANDOFF.

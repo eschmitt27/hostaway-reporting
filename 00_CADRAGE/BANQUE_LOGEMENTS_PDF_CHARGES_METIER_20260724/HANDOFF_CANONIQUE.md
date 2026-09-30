@@ -4579,3 +4579,20 @@ une année au référentiel.
 propriétaires, créances, Flux, Qonto, trésorerie, migrations, navigation) : 463 passed. Base réelle :
 0117 après sauvegarde (backups/app_avant_migration_0117_ik_vehicule_bareme_20260930T123726.db),
 integrity ok, foreign_key_check 0, données existantes identiques ; 29 GET, empreinte inchangée.
+
+## Mission 38 bis — correctif barème IK (2026-09-30)
+
+Migration **0118** (additive). Barème IK versionné et administrable : `ik_baremes` (année, version,
+BROUILLON / ACTIF / ARCHIVE, un seul actif par année, jamais supprimé) et `ik_bareme_tranches`
+(valeurs structurées : montant = km × coefficient + constante ; majoration électrique par barème).
+Barème automobile **2025 officiel** actif ; le barème 2024 saisi de mémoire (0117) est archivé, jamais
+utilisé. **Cumul annuel par véhicule** (`ik_vehicules`, identité stable) : indicatif d'une IK =
+barème(cumul après) − barème(cumul avant), année par année selon les dates des trajets. Année non
+configurée : dernier barème actif antérieur, annoncé « Estimation basée sur le dernier barème
+officiel disponible : barème XXXX ». Une IK validée fige son barème (`ik.bareme_id_opaque`) ; un
+barème utilisé par une IK validée n'est plus modifiable (nouvelle version). Administration ›
+« Barème des indemnités kilométriques » : liste, détail, ajout d'une année (copie du dernier
+barème), modification contrôlée (chevauchements, trous, catégories CV, valeurs numériques,
+majoration), activation, archivage. Contrôle toujours indicatif, jamais bloquant. Tests : 26 + 5
+(migrations) ; non-régression Administration 225 ; base réelle migrée après sauvegarde, données
+existantes identiques.
