@@ -482,43 +482,133 @@ def test_19_versement_proprietaire_depuis_le_hub(base, verrous, client):
 
 # ══ Mission 38 bis — IK : alerte barème, jamais bloquante ═══════════════════════════════════════
 
-def test_20_bareme_calcul_tranches_electrique_et_annee(tmp_db):
+def _ik_km(db, montant, km, debut, fin, *, vehicule="Clio", cv="6", associe=A1):
+    ik_id, _ = _ik(db, montant, debut, fin, associe=associe)
+    assert ass.ajouter_trajets(ik_id, [{"date_trajet": debut, "motif": "LOGEMENT", "km": str(km)}],
+                               db_path=db)["ok"]
+    assert ass.definir_vehicule(ik_id, libelle=vehicule, type_vehicule="AUTO", puissance_fiscale=cv,
+                                motorisation="THERMIQUE", db_path=db)["ok"]
+    return ik_id
+
+
+def _indicatif(db, ik_id):
+    return ass.charger_ik(ik_id, db_path=db)["controle_bareme"]
+
+
+def test_20_bareme_2025_officiel_et_repli_annonce(tmp_db):
     from app.services import bareme_ik_service as bareme
-    db = tmp_db
-    assert bareme.montant_indicatif(500, "AUTO", 5, "THERMIQUE", 2024, db_path=db)["montant"] == 318.0
-    assert bareme.montant_indicatif(6000, "AUTO", 5, "THERMIQUE", 2024,
-                                    db_path=db)["montant"] == 3537.0          # 6000 × 0,357 + 1395
-    assert bareme.montant_indicatif(500, "AUTO", 5, "ELECTRIQUE", 2024,
-                                    db_path=db)["montant"] == 381.6           # + 20 %
-    assert bareme.montant_indicatif(100, "AUTO", 9, "THERMIQUE", 2024,
-                                    db_path=db)["montant"] == 69.7            # 7 CV et plus
-    futur = bareme.montant_indicatif(500, "AUTO", 5, "THERMIQUE", 2026, db_path=db)
-    assert futur["annee"] == 2024 and futur["annee_demandee"] == 2026
-    assert not bareme.montant_indicatif(500, "", None, "", 2024, db_path=db)["ok"]
-    assert not bareme.montant_indicatif(0, "AUTO", 5, "THERMIQUE", 2024, db_path=db)["ok"]
+    assert bareme.montant_indicatif(500, "AUTO", 5, "THERMIQUE", 2025, db_path=tmp_db)["montant"] == 318.0
+    assert bareme.montant_indicatif(6000, "AUTO", 5, "THERMIQUE", 2025,
+                                    db_path=tmp_db)["montant"] == 3537.0      # 6000 × 0,357 + 1395
+    assert bareme.montant_indicatif(500, "AUTO", 5, "ELECTRIQUE", 2025,
+                                    db_path=tmp_db)["montant"] == 381.6       # + 20 %
+    assert bareme.montant_indicatif(25000, "AUTO", 9, "THERMIQUE", 2025,
+                                    db_path=tmp_db)["montant"] == 11750.0     # 7 CV et plus
+    futur = bareme.montant_indicatif(500, "AUTO", 5, "THERMIQUE", 2026, db_path=tmp_db)
+    assert futur["annee"] == 2025 and futur["repli"] == (
+        "Estimation basée sur le dernier barème officiel disponible : barème 2025.")
+    # Le barème 2024 saisi de mémoire est archivé : jamais une référence.
+    assert not bareme.montant_indicatif(500, "AUTO", 5, "THERMIQUE", 2024, db_path=tmp_db)["ok"]
+    assert [b["statut"] for b in bareme.lister(db_path=tmp_db)] == ["ACTIF", "ARCHIVE"]
 
 
-def test_21_alerte_bareme_visible_mais_jamais_bloquante(associes, client):
-    au_dessus, _ = _ik(associes, 400.0)
-    en_dessous, _ = _ik(associes, 300.0)
-    for ik_id in (au_dessus, en_dessous):
-        assert ass.ajouter_trajets(ik_id, [{"date_trajet": "2026-09-03", "motif": "LOGEMENT",
-                                            "km": "500"}], db_path=associes)["ok"]
-        assert ass.definir_vehicule(ik_id, libelle="Clio", type_vehicule="AUTO",
-                                    puissance_fiscale="5", motorisation="THERMIQUE",
-                                    db_path=associes)["ok"]
-    c1 = ass.charger_ik(au_dessus, db_path=associes)["controle_bareme"]
-    c2 = ass.charger_ik(en_dessous, db_path=associes)["controle_bareme"]
+def test_21_ik_unique_calcul_normal(associes):
+    c = _indicatif(associes, _ik_km(associes, 300.0, 500, "2025-03-01", "2025-03-31"))
+    assert (c["montant"], c["depassement"], c["repli"]) == (332.5, False, "")      # 500 × 0,665
+
+
+def test_22_deux_ik_meme_vehicule_cumul_annuel(associes):
+    ik1 = _ik_km(associes, 2660.0, 4000, "2025-03-01", "2025-03-31")
+    ik2 = _ik_km(associes, 1415.0, 3000, "2025-06-01", "2025-06-30")
+    assert _indicatif(associes, ik1)["montant"] == 2660.0                          # 4000 × 0,665
+    c2 = _indicatif(associes, ik2)
+    # barème(7 000) − barème(4 000) = (7000 × 0,374 + 1457) − 2660 — jamais 3 000 km isolés (1 995).
+    assert c2["montant"] == 1415.0
+    assert (c2["details"][0]["km_avant"], c2["details"][0]["km_apres"]) == (4000.0, 7000.0)
+    assert ass.charger_ik(ik1, db_path=associes)["vehicule_id"] == \
+        ass.charger_ik(ik2, db_path=associes)["vehicule_id"], "même véhicule, identité stable"
+
+
+def test_23_deux_vehicules_cumuls_independants(associes):
+    _ik_km(associes, 2660.0, 4000, "2025-03-01", "2025-03-31", vehicule="Clio")
+    autre = _ik_km(associes, 1995.0, 3000, "2025-06-01", "2025-06-30", vehicule="Kangoo")
+    assert _indicatif(associes, autre)["montant"] == 1995.0 and \
+        _indicatif(associes, autre)["details"][0]["km_avant"] == 0.0
+
+
+def test_24_nouveau_bareme_administration_utilise_et_historique_preserve(associes, client):
+    from app.services import bareme_ik_service as bareme
+    ancien = _ik_km(associes, 500.0, 500, "2025-05-01", "2025-05-31")
+    assert ass.changer_statut(ancien, ass.ST_VALIDEE, db_path=associes)["ok"]
+    fige = ass.charger_ik(ancien, db_path=associes)["bareme_id_opaque"]
+    assert fige == "IKB-2025-V1"
+    ik26 = _ik_km(associes, 400.0, 500, "2026-02-01", "2026-02-28", vehicule="Zoe")
+    assert _indicatif(associes, ik26)["repli"].endswith("barème 2025.")
+
+    assert client.get("/administration/referentiels").text.count('href="/administration/baremes-ik"') >= 1
+    r = client.post("/administration/baremes-ik/nouveau", data={"annee": "2026"}, follow_redirects=False)
+    bid = r.headers["location"].split("/administration/baremes-ik/")[1].split("?")[0]
+    b = bareme.charger(bid, db_path=associes)
+    assert (b["annee"], b["statut"], len(b["tranches"])) == (2026, "BROUILLON", 15), "copie du dernier"
+    # Modification structurée : 6 CV, première tranche → 0,700.
+    colonnes = {k: [] for k in ("type_vehicule", "cv_min", "cv_max", "km_min", "km_max", "coefficient",
+                                "constante")}
+    for t in b["tranches"]:
+        coef = 0.7 if (t["cv_min"], t["km_min"]) == (6, 0) else t["coefficient"]
+        for k, v in (("type_vehicule", t["type_vehicule"]), ("cv_min", t["cv_min"]),
+                     ("cv_max", t["cv_max"] if t["cv_max"] is not None else ""),
+                     ("km_min", t["km_min"]), ("km_max", t["km_max"] if t["km_max"] is not None else ""),
+                     ("coefficient", coef), ("constante", t["constante"])):
+            colonnes[k].append(str(v))
+    r = client.post(f"/administration/baremes-ik/{bid}/enregistrer",
+                    data={**colonnes, "majoration_electrique": "0.2", "source": "Barème 2026 (test)"},
+                    follow_redirects=False)
+    assert r.status_code == 303 and "message=" in r.headers["location"]
+    assert client.post(f"/administration/baremes-ik/{bid}/activer", follow_redirects=False).status_code == 303
+    assert bareme.charger(bid, db_path=associes)["statut"] == "ACTIF"
+    c26 = _indicatif(associes, ik26)
+    assert (c26["montant"], c26["repli"]) == (350.0, ""), "500 × 0,700 : le moteur lit 2026"
+    # Historique : 2025 intact, l'IK validée garde son barème figé.
+    assert bareme.charger("IKB-2025-V1", db_path=associes)["statut"] == "ACTIF"
+    assert next(t for t in bareme.charger("IKB-2025-V1", db_path=associes)["tranches"]
+                if (t["cv_min"], t["km_min"]) == (6, 0))["coefficient"] == 0.665
+    c_ancien = _indicatif(associes, ancien)
+    assert (c_ancien["montant"], c_ancien["fige"]) == (332.5, True)
+    # Un barème utilisé par une IK validée ne se modifie plus : on crée une nouvelle version.
+    refus = bareme.enregistrer("IKB-2025-V1", [], "0.2", db_path=associes)
+    assert refus["code"] == bareme.E_NON_MODIFIABLE
+    v2 = bareme.nouvelle_version("IKB-2025-V1", db_path=associes)["bareme_id_opaque"]
+    assert bareme.charger(v2, db_path=associes)["version"] == 2
+    page = client.get("/administration/baremes-ik").text
+    assert "Barème 2026" in page and "Barème 2025" in page and "Ajouter un barème annuel" in page
+
+
+def test_25_controles_de_coherence_du_bareme(tmp_db):
+    from app.services import bareme_ik_service as bareme
+    base = [{"type_vehicule": "AUTO", "cv_min": 0, "cv_max": 3, "km_min": 0, "km_max": 5000,
+             "coefficient": 0.5, "constante": 0},
+            {"type_vehicule": "AUTO", "cv_min": 0, "cv_max": 3, "km_min": 5000, "km_max": None,
+             "coefficient": 0.4, "constante": 100}]
+    assert bareme.verifier(base, "0.2") == []
+    chevauche = base + [{**base[0], "km_min": 4000, "km_max": 6000}]
+    assert bareme.verifier(chevauche, "0.2")
+    cv = base + [{**base[0], "cv_min": 2, "cv_max": 5}, {**base[1], "cv_min": 2, "cv_max": 5}]
+    assert any("se chevauchent" in e for e in bareme.verifier(cv, "0.2"))
+    assert bareme.verifier(base, "1.5") and bareme.verifier(base, "abc")
+    assert bareme.verifier([{**base[0], "km_max": None}, {**base[0], "coefficient": -1}], "0.2")
+
+
+def test_26_alerte_bareme_visible_mais_jamais_bloquante(associes, client):
+    au_dessus = _ik_km(associes, 400.0, 500, "2025-09-01", "2025-09-30", vehicule="Clio", cv="5")
+    en_dessous = _ik_km(associes, 300.0, 500, "2025-10-01", "2025-10-31", vehicule="Polo", cv="5")
+    c1, c2 = _indicatif(associes, au_dessus), _indicatif(associes, en_dessous)
     assert (c1["montant_saisi"], c1["montant"], c1["depassement"]) == (400.0, 318.0, True)
     assert (c2["montant_saisi"], c2["montant"], c2["depassement"]) == (300.0, 318.0, False)
     fiche = client.get(f"/associes/ik/{au_dessus}").text
     assert 'data-testid="alerte-bareme"' in fiche and "318.00 €" in fiche
     assert 'data-testid="alerte-bareme"' not in client.get(f"/associes/ik/{en_dessous}").text
-    # Jamais bloquant : la validation passe, le montant de la charge reste celui saisi.
     r = client.post(f"/associes/ik/{au_dessus}/statut", data={"statut": "VALIDEE"},
                     follow_redirects=False)
     assert "message=" in r.headers["location"]
     ik = ass.charger_ik(au_dessus, db_path=associes)
-    assert ik["statut"] == ass.ST_VALIDEE and ik["montant"] == 400.0
-    assert ass.definir_vehicule(au_dessus, type_vehicule="MOTO", puissance_fiscale="0",
-                                db_path=associes)["code"] in (ass.E_VEHICULE, ass.E_VERROUILLEE)
+    assert ik["statut"] == ass.ST_VALIDEE and ik["montant"] == 400.0, "montant jamais modifié"

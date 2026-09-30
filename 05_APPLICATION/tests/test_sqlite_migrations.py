@@ -218,6 +218,9 @@ EXPECTED_TABLES = {
     "ik_evenements",                              # historique d'une IK
     "ref_bareme_ik_annees",                       # barème kilométrique : une ligne par année (0117)
     "ref_bareme_ik",                              # tranches du barème (contrôle indicatif des IK)
+    "ik_baremes",                                 # barèmes IK versionnés et administrables (0118)
+    "ik_bareme_tranches",                         # tranches structurées d'un barème IK
+    "ik_vehicules",                               # véhicules : cumul kilométrique annuel par véhicule
 }
 
 
