@@ -19,9 +19,9 @@
         <td><span class="fi-cle">{{ nom }}</span><span class="ec-sous-ligne">{{ r.libelle_gauche }} / {{ r.libelle_droit }}</span>
           {% if nom.startswith('B ') %}<span class="ec-sous-ligne fi-note-ligne">Toujours à l'échelle du jeu de données complet — indépendante du mois sélectionné.</span>{% endif %}
         </td>
-        <td class="num">{{ "%.2f"|format(r.montant_gauche) if r.montant_gauche is not none else "—" }}</td>
-        <td class="num">{{ "%.2f"|format(r.montant_droit) if r.montant_droit is not none else "—" }}</td>
-        <td class="num">{{ "%.2f"|format(r.ecart) if r.ecart is not none else "—" }}</td>
+        <td class="num">{{ r.montant_gauche|euros }}</td>
+        <td class="num">{{ r.montant_droit|euros }}</td>
+        <td class="num">{{ r.ecart|euros }}</td>
         <td>
           <span class="status-badge status-{{ 'valide' if r.statut == 'OK' else 'bloquant' if r.statut == 'BLOQUANT' else 'neutre' if r.statut == 'NON_DISPONIBLE' else 'a-controler' }}" data-statut="{{ r.statut }}">{{ {"OK": "OK", "A_CONTROLER": "À contrôler", "BLOQUANT": "Bloquant", "NON_DISPONIBLE": "Non disponible"}.get(r.statut, r.statut) }}</span>
           {% if r.get('raison') %}<span class="ec-sous-ligne fi-note-ligne">{{ r.raison }}</span>{% endif %}

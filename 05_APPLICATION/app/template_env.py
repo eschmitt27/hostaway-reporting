@@ -146,6 +146,30 @@ def _nom_tiers_flux(identifiant) -> str:
     return flux.noms_tiers().get(ident) or "Tiers non résolu"
 
 
+def _euros(valeur, decimales: int = 2) -> str:
+    """`-1245.5` → `−1 245,50 €`. Présentation seulement : la valeur n'est ni arrondie ailleurs
+    que pour l'affichage, ni recalculée.
+
+    Milliers séparés par une espace insécable, virgule décimale, vrai signe moins (U+2212, lu
+    « moins » par les lecteurs d'écran) : un montant négatif ne se reconnaît jamais à sa seule
+    couleur. Valeur absente ou illisible (None, vide, NaN) → « — », jamais « None » ni « nan ».
+    """
+    import math
+
+    if valeur is None or valeur == "":
+        return "—"
+    try:
+        v = float(valeur)
+    except (TypeError, ValueError):
+        return str(valeur)
+    if math.isnan(v) or math.isinf(v):
+        return "—"
+    texte = f"{abs(v):,.{decimales}f}".replace(",", " ").replace(".", ",")
+    # « −0,00 € » n'a pas de sens : le signe ne s'affiche que si le montant affiché est non nul.
+    signe = "−" if v < 0 and round(abs(v), decimales) != 0 else ""
+    return f"{signe}{texte} €"
+
+
 def _entier(valeur) -> str:
     """`15.0` → `15`. Toute quantité discrète s'affiche en entier (§63)."""
     if valeur is None or valeur == "":
@@ -177,6 +201,8 @@ def get_templates() -> Jinja2Templates:
         t.env.filters["date_fr"] = _date_fr
         t.env.filters["mois_humain"] = _mois_humain
         t.env.filters["entier"] = _entier
+        # Montants : `1 245,50 €`, `−245,50 €` — un seul format pour tous les écrans qui l'adoptent.
+        t.env.filters["euros"] = _euros
         # §45 — un numéro se STOCKE en E.164 et se LIT en groupes de deux. Le filtre est le seul
         # point de passage vers l'affichage : un numéro brut reste rendu tel quel, jamais inventé.
         t.env.filters["telephone"] = _telephone

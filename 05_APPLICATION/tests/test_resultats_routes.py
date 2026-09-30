@@ -72,7 +72,7 @@ def test_dashboard_sans_source(client):
 def test_dashboard_avec_source(client, resultats_files):
     r = client.get("/resultats?mois=2026-06&vision=REEL")
     assert r.status_code == 200
-    assert "700.00" in r.text
+    assert "700,00\u00a0€" in r.text
 
 
 def test_mensuel(client, resultats_files):
@@ -84,7 +84,7 @@ def test_mensuel(client, resultats_files):
 def test_cumule(client, resultats_files):
     r = client.get("/resultats/cumule?vision=REEL")
     assert r.status_code == 200
-    assert "700.00" in r.text
+    assert "700,00\u00a0€" in r.text
 
 
 def test_cumule_sans_source(client):
@@ -98,7 +98,7 @@ def test_logements_liste(client, resultats_files):
 
 def test_logement_detail(client, resultats_files):
     r = client.get("/resultats/logements/LOG_A1?mois=2026-06")
-    assert r.status_code == 200 and "700.00" in r.text
+    assert r.status_code == 200 and "700,00\u00a0€" in r.text
 
 
 def test_logement_detail_inconnu(client, resultats_files):
@@ -184,7 +184,7 @@ def test_reconciliation_b_reste_ok_quel_que_soit_le_mois_filtre(client, tmp_db, 
     assert "B — Lot10 ↔ Analytique" in r.text
     idx = r.text.index("B — Lot10 ↔ Analytique")
     bloc_b = r.text[idx:idx + 600]
-    assert "1100.00" in bloc_b and "1100.00" in bloc_b  # gauche = droit = cumul complet
+    assert bloc_b.count("1\u00a0100,00\u00a0€") == 2  # gauche = droit = cumul complet
     assert ">OK<" in bloc_b or "status-valide" in bloc_b
     reader.vider_cache()
 

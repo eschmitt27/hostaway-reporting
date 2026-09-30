@@ -4,130 +4,178 @@
 {% block content %}
 {% import "_libelles.html" as lib %}
 {% import "partials/_resultats.html" as r %}
+{#- Ligne secondaire d'un indicateur : la même mesure sur la période précédente, lue telle quelle
+    (aucune variation calculée). Rien si elle n'est pas disponible. -#}
+{% macro rappel(v, entier=false) -%}
+  {%- if precedent and v is not none -%}{{ precedent.nature }} : {{ v|entier if entier else v|euros }}{%- endif -%}
+{%- endmacro %}
 <link rel="stylesheet" href="/static/css/ecrans.css">
 <link rel="stylesheet" href="/static/css/finitions.css">
-<div class="ecran">
+<div class="ecran rs-ecran">
 
 <div class="page-header">
   <div class="page-header__titre">
     <h1 class="page-title">Résultats</h1>
-    <p class="page-subtitle">Lecture des sorties Lot10 et de la Comptabilité — aucun recalcul.</p>
+    <p class="page-subtitle">Analysez les performances de l'activité sur la période sélectionnée.</p>
   </div>
   <div class="page-header__actions">
-    <a href="/resultats/pilotage" class="btn btn-secondary">Pilotage (KPI, graphique, filtres)</a>
+    <a href="{{ lien_analyse }}" class="btn btn-secondary">Analyse détaillée</a>
   </div>
 </div>
 
-<form method="get" class="ec-filtres" data-fi-filtres>
-  <label class="ec-champ"><span>Mois</span>
-    <select name="mois">
-      {% for m in mois_disponibles %}<option value="{{ m }}" {{ 'selected' if m == mois }}>{{ m|mois_humain }}</option>{% endfor %}
-      {% if not mois_disponibles %}<option value="">Aucun mois disponible</option>{% endif %}
-    </select></label>
-  <label class="ec-champ"><span>Vision</span>
-    <select name="vision" data-fi-neutre>
-      {% for v in visions %}<option value="{{ v }}" {{ 'selected' if v == vision }}>{{ lib.libelle(v) }}</option>{% endfor %}
-    </select></label>
-  <div class="ec-filtres__actions">
-    <button type="submit" class="btn btn-primary">Appliquer</button>
-  </div>
-</form>
+{{ r.barre_filtres(p, filtres) }}
+{{ r.perimetre_actif(p, extra=("Période comptable : " ~ lib.libelle(periode.statut)|lower) if periode else "") }}
 
-{% if globales.statut != "OK" %}
-<div class="alert alert-warning fi-alerte-compacte"><div>Aucun résultat calculé n'est disponible pour l'instant ({{ lib.libelle(globales.statut) | lower }}) : lancez une actualisation des calculs.</div></div>
-{% endif %}
-
-{# Le résultat du mois d'abord, en grand ; le mois précédent et le cumul à côté, pour comparer
-   d'un coup d'œil. Aucune variation n'est calculée ici : les deux valeurs sont lues telles quelles.
-   Valeur absente : dite en toutes lettres, en plus petit — jamais un code technique en gros chiffres. #}
-{% macro valeur(v) -%}
-  {%- if v is none -%}<span class="fi-kpi__valeur fi-kpi__valeur--texte">Non disponible</span>
-  {%- else -%}<span class="fi-kpi__valeur{{ ' fi-montant--negatif' if v < 0 }}">{{ "%.2f"|format(v) }} €</span>{%- endif -%}
-{%- endmacro %}
-
-<div class="fi-resultat">
-  <div class="fi-kpi fi-kpi--hero fi-resultat__principal">
-    <span class="fi-kpi__label">Résultat {{ mois|mois_humain if mois else "" }}</span>
-    {{ valeur(resultat_courant) }}
-    <span class="fi-kpi__sous">Vision {{ lib.libelle(vision)|lower }} · somme des résultats par logement</span>
-  </div>
-  <div class="fi-resultat__cote">
-    <div class="fi-kpi">
-      <span class="fi-kpi__label">Mois précédent{% if mois_precedent %} · {{ mois_precedent|mois_humain }}{% endif %}</span>
-      {{ valeur(resultat_precedent) }}
-    </div>
-    <div class="fi-kpi">
-      <span class="fi-kpi__label">Cumul {{ cumule.mois_couverts|length }} mois</span>
-      {{ valeur(cumule.resultat if cumule.statut == "OK" else none) }}
-    </div>
-    <div class="fi-kpi">
-      <span class="fi-kpi__label">Période comptable {{ mois|mois_humain if mois else "" }}</span>
-      <span class="fi-kpi__valeur fi-kpi__valeur--texte">{{ lib.libelle(periode.statut) if periode else "Non applicable" }}</span>
-    </div>
-  </div>
+{% if not calcul_disponible %}
+<div class="card fi-vide" data-statut="NON_DISPONIBLE">
+  <span class="fi-vide__icone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18M7 15l4-6 4 3 5-8"/></svg></span>
+  <span class="fi-vide__titre">Aucun résultat calculé pour l'instant.</span>
+  <span class="fi-vide__texte">Les chiffres apparaîtront ici après la prochaine actualisation des calculs.</span>
+  <a href="/actualisation" class="btn btn-secondary">Aller à l'actualisation</a>
 </div>
 
-{% set graphique_lien = "/resultats/pilotage" %}
+{% elif vue.statut != "OK" and resultat is none %}
+<div class="card fi-vide" data-statut="VIDE">
+  <span class="fi-vide__icone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span>
+  <span class="fi-vide__titre">Aucun résultat pour cette période.</span>
+  <span class="fi-vide__texte">Modifiez les filtres pour afficher une autre période ou d'autres logements.</span>
+  {% if p.filtres_actifs %}<a href="{{ p.url_reinit }}" class="btn btn-secondary">Réinitialiser les filtres</a>{% endif %}
+</div>
+
+{% else %}
+{% set k = vue.kpi if vue.statut in ("OK", "VIDE") else none %}
+{% set kp = precedent.kpi if precedent else none %}
+{% set non_ventile = "Non ventilé par plateforme" if p.canal else "Non disponible" %}
+
+<section class="fi-section rs-section" aria-labelledby="titre-chiffres">
+  <div class="fi-section__tete">
+    <h2 class="fi-section__titre" id="titre-chiffres">Chiffres clés</h2>
+    <p class="fi-discret">{{ p.libelle_periode }}{% if p.du and p.au and p.mois_periode|length < p.nb_mois_periode %} · données sur {{ p.mois_periode|length }} mois sur {{ p.nb_mois_periode }}{% endif %}{% if precedent %} · comparé à {{ precedent.libelle|lower }}{% endif %}</p>
+  </div>
+  <div class="fi-kpis rs-kpis">
+    {{ r.kpi("CA conciergerie", k.ca_conciergerie if k else none, sous=rappel(kp.ca_conciergerie if kp else none), hero=true, indisponible=non_ventile) }}
+    {{ r.kpi("Commission", k.commission if k else none, sous=rappel(kp.commission if kp else none)) }}
+    {{ r.kpi("Résultat " ~ p.vision_libelle|lower, resultat, sous=rappel(precedent.resultat if precedent else none), indisponible=non_ventile) }}
+    {{ r.kpi("Total payout", k.total_payout if k else none, sous=rappel(kp.total_payout if kp else none) or "Versé par les plateformes") }}
+    {{ r.kpi("Réservations", k.nb_reservations if k else none, sous=rappel(kp.nb_reservations if kp else none, entier=true), entier=true) }}
+  </div>
+  <details class="rs-definitions">
+    <summary>Que recouvrent ces chiffres ?</summary>
+    <dl>
+      <div><dt>CA conciergerie</dt><dd>Montant dû à la conciergerie : commission, ménage facturé, préparation canapé, charge fixe et charges refacturées.</dd></div>
+      <div><dt>Commission</dt><dd>Commission de la conciergerie, calculée réservation par réservation ; elle fait partie du CA.</dd></div>
+      <div><dt>Résultat</dt><dd>Produits moins charges, selon la vision choisie (réelle, comptable ou hors comptabilité).</dd></div>
+      <div><dt>Total payout</dt><dd>Sommes versées par les plateformes pour les réservations de la période.</dd></div>
+    </dl>
+    <p>Chiffres issus du dernier calcul validé, affichés sans recalcul.{% if p.canal %} Avec un filtre plateforme, le CA conciergerie et le résultat ne sont pas ventilables : charge fixe et refacturations sont mensuelles.{% endif %}</p>
+  </details>
+</section>
+
 {% include "partials/_graphique_pilotage.html" %}
 
-{% if globales.statut == "OK" %}
-<section class="card">
-  <h2 class="card-title">Global par vision (Lot10)</h2>
+{% if par_logement|length > 1 %}
+{% set cle = "commission" if p.canal else "ca_conciergerie" %}
+{% set cle2 = "total_payout" if p.canal else "commission" %}
+{% set titre_cle = "Commission" if p.canal else "CA conciergerie" %}
+{% set max_v = par_logement|map(attribute=cle)|max %}
+<section class="card rs-classement" aria-labelledby="titre-logements">
+  <div class="rs-bloc-tete">
+    <div class="rs-bloc-tete__texte">
+      <h2 class="card-title" id="titre-logements">{{ titre_cle }} par logement</h2>
+      <p class="rs-bloc-tete__sous">Du plus élevé au plus faible · {{ p.libelle_periode }}. Cliquez sur un logement pour filtrer la page.</p>
+    </div>
+    <a href="{{ lien_analyse }}#par-logement" class="fi-lien-action">Tous les indicateurs</a>
+  </div>
   <div class="ec-table-wrap">
-    <table class="data-table">
-      <thead><tr><th>Vision</th><th class="num">Produits</th><th class="num">Charges</th><th class="num">Résultat</th><th>Commentaire</th></tr></thead>
+    <table class="data-table rs-table-barres">
+      <caption class="sr-only">{{ titre_cle }} par logement, {{ p.libelle_periode }}</caption>
+      <thead><tr>
+        <th scope="col">Logement</th>
+        <th scope="col" class="rs-col-barre">{{ titre_cle }}</th>
+        <th scope="col" class="num rs-col-secondaire">{{ "Total payout" if p.canal else "Commission" }}</th>
+        <th scope="col" class="num rs-col-secondaire">Réservations</th>
+      </tr></thead>
       <tbody>
-        {% for v, d in globales.visions.items() %}
-        <tr class="{{ 'active fi-ligne-active' if v == vision }}">
-          <td class="fi-cle">{{ lib.libelle(v) }}{% if v == vision %} <span class="badge badge-info">affichée</span>{% endif %}</td>
-          <td class="num">{{ "%.2f"|format(d.total_produits) }} €</td>
-          <td class="num">{{ "%.2f"|format(d.total_charges) }} €</td>
-          <td class="num"><strong class="{{ 'fi-montant--negatif' if d.resultat < 0 }}">{{ "%.2f"|format(d.resultat) }} €</strong></td>
-          <td class="fi-discret text-sm">{{ d.commentaire }}</td>
+        {% for l in par_logement[:12] %}
+        <tr>
+          <th scope="row" class="fi-cle rs-th-ligne"><a href="{{ p.url(logement_id=l.logement_id) }}">{{ l.libelle }}</a></th>
+          <td class="rs-col-barre"><span class="rs-barre-ligne">{{ r.barre(l[cle], max_v, "--fi-serie-3" if p.canal else "--fi-serie-2") }}{{ r.eur(l[cle]) }}</span></td>
+          <td class="num rs-col-secondaire">{{ r.eur(l[cle2]) }}</td>
+          <td class="num rs-col-secondaire">{{ l.nb_reservations }}</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  {% if par_logement|length > 12 %}<p class="ec-note rs-note-tableau">{{ par_logement|length - 12 }} autres logements dans <a href="{{ lien_analyse }}#par-logement">l'analyse détaillée</a>.</p>{% endif %}
 </section>
 {% endif %}
+{% endif %}
 
-<section class="card">
-  <h2 class="card-title">Analyses détaillées</h2>
+<section class="card rs-analyses" aria-labelledby="titre-analyses">
+  <h2 class="card-title" id="titre-analyses">Autres analyses</h2>
+  <p class="rs-bloc-tete__sous">Écrans mensuels{% if mois_analyses %}, ouverts sur {{ mois_analyses|mois_humain|lower }}{% endif %}.</p>
   <div class="fi-analyses">
     <div class="fi-analyses__groupe">
       <h3 class="fi-analyses__titre">Par période</h3>
-      <a href="/resultats/mensuel?mois={{ mois }}&vision={{ vision }}" class="fi-analyse">Mensuel<span>logements et propriétaires du mois</span></a>
-      <a href="/resultats/cumule?vision={{ vision }}" class="fi-analyse">Cumulé<span>somme des mois de l'année</span></a>
+      <a href="/resultats/mensuel?mois={{ mois_analyses }}&vision={{ p.vision }}" class="fi-analyse">Mensuel<span>logements et propriétaires du mois</span></a>
+      <a href="/resultats/cumule?vision={{ p.vision }}" class="fi-analyse">Cumulé<span>somme des mois de l'année</span></a>
     </div>
     <div class="fi-analyses__groupe">
       <h3 class="fi-analyses__titre">Par axe</h3>
-      <a href="/resultats/logements?mois={{ mois }}&vision={{ vision }}" class="fi-analyse">Logements</a>
-      <a href="/resultats/proprietaires?mois={{ mois }}&vision={{ vision }}" class="fi-analyse">Propriétaires</a>
+      <a href="/resultats/logements?mois={{ mois_analyses }}&vision={{ p.vision }}" class="fi-analyse">Logements</a>
+      <a href="/resultats/proprietaires?mois={{ mois_analyses }}&vision={{ p.vision }}" class="fi-analyse">Propriétaires</a>
       <a href="/resultats/plateformes" class="fi-analyse">Plateformes</a>
       <a href="/resultats/activites" class="fi-analyse">Activités</a>
     </div>
     <div class="fi-analyses__groupe">
       <h3 class="fi-analyses__titre">Coûts & tiers</h3>
       <a href="/resultats/fournisseurs" class="fi-analyse">Fournisseurs</a>
-      <a href="/resultats/prestataires?mois={{ mois }}" class="fi-analyse">Prestataires</a>
+      <a href="/resultats/prestataires?mois={{ mois_analyses }}" class="fi-analyse">Prestataires</a>
       <a href="/resultats/charges" class="fi-analyse">Charges</a>
       <a href="/resultats/categories" class="fi-analyse">Catégories</a>
-      <a href="/resultats/menages?mois={{ mois }}" class="fi-analyse">Ménages</a>
+      <a href="/resultats/menages?mois={{ mois_analyses }}" class="fi-analyse">Ménages</a>
     </div>
     <div class="fi-analyses__groupe">
       <h3 class="fi-analyses__titre">Contrôle</h3>
-      <a href="/resultats/comptabilite?mois={{ mois }}" class="fi-analyse">Comptabilité</a>
-      <a href="/resultats/reconciliation?mois={{ mois }}" class="fi-analyse">Réconciliations</a>
+      <a href="/resultats/comptabilite?mois={{ mois_analyses }}" class="fi-analyse">Comptabilité</a>
+      <a href="/resultats/reconciliation?mois={{ mois_analyses }}" class="fi-analyse">Réconciliations</a>
     </div>
   </div>
+
+  {% if globales.statut == "OK" %}
+  <details class="fi-depliant fi-depliant--ligne">
+    <summary>Résultat global par vision <span class="fi-depliant__aide">toutes périodes, hors filtres</span></summary>
+    <div class="fi-depliant__corps">
+      <div class="ec-table-wrap">
+        <table class="data-table">
+          <caption class="sr-only">Résultat global par vision, toutes périodes, sans filtre</caption>
+          <thead><tr><th scope="col">Vision</th><th scope="col" class="num">Produits</th><th scope="col" class="num">Charges</th><th scope="col" class="num">Résultat</th><th scope="col">Commentaire</th></tr></thead>
+          <tbody>
+            {% for v, d in globales.visions.items() %}
+            <tr class="{{ 'fi-ligne-active' if v == p.vision }}">
+              <th scope="row" class="fi-cle rs-th-ligne">{{ lib.libelle(v) }}{% if v == p.vision %} <span class="badge badge-info">affichée</span>{% endif %}</th>
+              <td class="num">{{ r.eur(d.total_produits) }}</td>
+              <td class="num">{{ r.eur(d.total_charges) }}</td>
+              <td class="num"><strong>{{ r.eur(d.resultat) }}</strong></td>
+              <td class="fi-discret text-sm">{{ d.commentaire }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </details>
+  {% endif %}
+
   <div class="ec-exports">
     <span>Exporter :</span>
-    <a href="/resultats/export.csv?mois={{ mois }}&vision={{ vision }}">CSV par logement</a>
-    <a href="/resultats/dashboard/export.csv">CSV global</a>
+    {% if mois_analyses %}<a href="/resultats/export.csv?mois={{ mois_analyses }}&vision={{ p.vision }}">CSV par logement ({{ mois_analyses|mois_humain|lower }})</a>{% endif %}
+    <a href="/resultats/dashboard/export.csv">CSV global par vision</a>
   </div>
 </section>
 
 </div>
 <script src="/static/js/finitions.js" defer></script>
+<script src="/static/js/resultats.js" defer></script>
 {% endblock %}

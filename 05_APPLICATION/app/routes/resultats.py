@@ -20,27 +20,114 @@ from app.services import comptabilite_axes_service as axes
 from app.services import comptabilite_ecritures_service as compta
 from app.services import comptabilite_periodes_service as per
 from app.services import comptabilite_reconciliations_service as recon
+from app.services import referentiel_service as ref_svc
+from app.services import resultats_perimetre_service as perim
 from app.services import resultats_pilotage_service as pilot
 
 router = APIRouter()
 templates = get_templates()
 
 
+def _perimetre(chemin: str, mois_disponibles: list[str], filtres: dict, *, du, au, mois,
+               proprietaire_id: str, logement_id: str, canal: str, vision=None,
+               defaut: str, avec_vision: bool = False) -> dict:
+    """Périmètre commun aux deux écrans (mêmes paramètres, mêmes badges, mêmes raccourcis).
+    Un identifiant inconnu des filtres (lien ancien, logement sorti du parc) reste appliqué mais
+    affiché par son libellé référentiel, jamais par son code technique."""
+    p = perim.lire(chemin=chemin, mois_disponibles=mois_disponibles, du=du, au=au, mois=mois,
+                   proprietaire_id=proprietaire_id, logement_id=logement_id, canal=canal,
+                   vision=vision, defaut=defaut, avec_vision=avec_vision)
+    noms_canaux = {c["id"]: c["libelle"] for c in filtres["canaux"]}
+    p["badges"] = perim.badges(
+        p,
+        nom_proprietaire=ref_svc.libelle_proprietaire(p["proprietaire_id"]) if p["proprietaire_id"] else "",
+        nom_logement=ref_svc.libelle_logement(p["logement_id"]) if p["logement_id"] else "",
+        nom_canal=noms_canaux.get(p["canal"]) or pilot.libelle_canal(p["canal"]))
+    p["filtres_actifs"] = perim.filtres_actifs(p)
+    return p
+
+
+def _portee(p: dict) -> dict:
+    """Le même périmètre, passé tel quel à chaque lecture (KPI, graphique, tableaux)."""
+    return {"du": p["du"], "au": p["au"], "proprietaire_id": p["proprietaire_id"],
+            "logement_id": p["logement_id"], "canal": p["canal"]}
+
+
+def _graphique(p: dict) -> dict:
+    """Fenêtre du graphique d'évolution. Sur une plage, la plage elle-même. Sur un mois unique, une
+    courbe d'un seul point ne dirait rien : on montre jusqu'aux 12 mois qui s'achèvent sur ce mois,
+    et le mois choisi est mis en évidence — l'écart de périmètre est dit à l'écran (`_note`)."""
+    if p["mois_unique"]:
+        m = p["mois_unique"]
+        return {"du": perim.decaler(m, -11), "au": m, "surligne": m, "note": ""}
+    return {"du": p["du"], "au": p["au"], "surligne": "", "note": ""}
+
+
+def _note(graphique: dict, serie: dict) -> str:
+    """Note du mois unique, écrite d'après les mois RÉELLEMENT affichés par la courbe : l'historique
+    peut compter moins de 12 mois, et la note ne doit jamais en promettre davantage."""
+    m = graphique.get("surligne")
+    mois = [pt["mois"] for pt in serie.get("points", [])]
+    if not m or not mois:
+        return ""
+    choisi = perim.libelle_mois(m).lower()
+    premier, dernier = perim.libelle_mois(mois[0]).lower(), perim.libelle_mois(mois[-1]).lower()
+    if mois[0] == mois[-1]:
+        fenetre = premier
+    elif mois[0][:4] == mois[-1][:4]:
+        fenetre = f"{perim.MOIS_FR[int(mois[0][5:7]) - 1]} → {dernier}"
+    else:
+        fenetre = f"{premier} → {dernier}"
+    return (f"Contexte : jusqu'à 12 mois avant {choisi} (ici {fenetre}), mêmes filtres ; "
+            f"les chiffres clés portent sur {choisi} seul.")
+
+
+def _resultat_analytique(*, du: str, au: str, vision: str, proprietaire_id: str = "",
+                         logement_id: str = "") -> float | None:
+    """Résultat (produits − charges) déjà calculé par Lot10 au grain mois × logement × vision :
+    simple somme des lignes du périmètre, comme le faisait l'écran pour un mois (et le cumul
+    annuel pour une année). None si aucune ligne : jamais un 0 inventé."""
+    res = ana.mesures_par_logement(vision=vision)
+    if res["statut"] != "OK":
+        return None
+    lignes = [l for l in res["lignes"]
+              if (not du or l["mois"] >= du) and (not au or l["mois"] <= au)
+              and (not proprietaire_id or l["proprietaire_id"] == proprietaire_id)
+              and (not logement_id or l["logement_id"] == logement_id)]
+    if not lignes:
+        return None
+    return round(sum(l["resultat"] for l in lignes), 2)
+
+
 @router.get("/resultats/pilotage", response_class=HTMLResponse)
-def resultats_pilotage(request: Request, mois: str = "", proprietaire_id: str = "",
-                       logement_id: str = "", canal: str = ""):
-    """Vue globale/propriétaire/logement/plateforme + série mensuelle (mission « comptabilité +
-    résultats + graphiques »). Lit exclusivement `resultats_pilotage_service`, lui-même une somme
-    de lignes Lot10 déjà calculées (run actif) — aucun second calcul économique ici."""
+def resultats_pilotage(request: Request, mois: str | None = None, du: str | None = None,
+                       au: str | None = None, proprietaire_id: str = "", logement_id: str = "",
+                       canal: str = ""):
+    """Analyse détaillée : tous les postes, ventilation par logement et par plateforme, série
+    mensuelle — mêmes filtres que la synthèse `/resultats`. Lit exclusivement
+    `resultats_pilotage_service`, lui-même une somme de lignes Lot10 déjà calculées (run actif) —
+    aucun second calcul économique ici, aucune écriture."""
     filtres = pilot.filtres_reference()
-    logements_dispo = pilot.logements_du_proprietaire(proprietaire_id)
-    mois_dispo = pilot.mois_disponibles()
-    v = pilot.vue(mois=mois, proprietaire_id=proprietaire_id, logement_id=logement_id, canal=canal)
-    serie = pilot.serie_mensuelle(proprietaire_id=proprietaire_id, logement_id=logement_id, canal=canal)
+    p = _perimetre("/resultats/pilotage", pilot.mois_disponibles(), filtres, du=du, au=au,
+                   mois=mois, proprietaire_id=proprietaire_id, logement_id=logement_id,
+                   canal=canal, defaut=perim.DEFAUT_TOUT)
+    portee = _portee(p)
+    graphique = _graphique(p)
+    canaux = pilot.par_canal(du=p["du"], au=p["au"], proprietaire_id=p["proprietaire_id"],
+                             logement_id=p["logement_id"])
+    if p["canal"]:
+        canaux = [c for c in canaux if c["canal"] == p["canal"]]
+    serie = pilot.serie_mensuelle(proprietaire_id=p["proprietaire_id"], logement_id=p["logement_id"],
+                                  canal=p["canal"], du=graphique["du"], au=graphique["au"])
+    graphique["note"] = _note(graphique, serie)
     return templates.TemplateResponse(request, "resultats_pilotage.html", {
-        "active_menu": "resultats", "mois": mois, "proprietaire_id": proprietaire_id,
-        "logement_id": logement_id, "canal": canal, "mois_disponibles": mois_dispo,
-        "filtres": filtres, "logements_dispo": logements_dispo, "vue": v, "serie": serie,
+        "active_menu": "resultats", "p": p, "filtres": filtres,
+        "vue": pilot.vue(**portee),
+        "par_logement": pilot.par_logement(**portee),
+        "par_canal": canaux,
+        "graphique": graphique,
+        "serie": serie,
+        "lien_synthese": p["url"]("/resultats"),
     })
 
 
@@ -52,28 +139,54 @@ def _mois_defaut(mois: str) -> str:
 
 
 @router.get("/resultats", response_class=HTMLResponse)
-def resultats_dashboard(request: Request, mois: str = "", vision: str = "REEL"):
-    mois = _mois_defaut(mois)
+def resultats_dashboard(request: Request, mois: str | None = None, du: str | None = None,
+                        au: str | None = None, proprietaire_id: str = "", logement_id: str = "",
+                        canal: str = "", vision: str = "REEL"):
+    """Synthèse : « comment se porte l'activité sur la période choisie ? ». Chiffres clés, courbe
+    d'évolution et classement des logements, TOUS sur le même périmètre (période, propriétaire,
+    logement, plateforme). Lecture seule : Lot10 (run actif) et l'Analytique, jamais recalculés."""
+    filtres = pilot.filtres_reference()
+    dispo = sorted(set(pilot.mois_disponibles()) | set(ana.mois_disponibles()))
+    p = _perimetre("/resultats", dispo, filtres, du=du, au=au, mois=mois,
+                   proprietaire_id=proprietaire_id, logement_id=logement_id, canal=canal,
+                   vision=vision, defaut=perim.DEFAUT_DERNIER_MOIS, avec_vision=True)
+    portee = _portee(p)
+    v = pilot.vue(**portee)
+    # Le résultat analytique n'a pas de dimension plateforme : jamais approché par une clé inventée.
+    resultat = None if p["canal"] else _resultat_analytique(
+        du=p["du"], au=p["au"], vision=p["vision"], proprietaire_id=p["proprietaire_id"],
+        logement_id=p["logement_id"])
+
+    # Période précédente de même longueur, lue avec EXACTEMENT les mêmes filtres. Aucune
+    # variation n'est calculée : les deux valeurs sont affichées telles quelles.
+    precedent = None
+    if p["precedente"]:
+        pp = {**portee, "du": p["precedente"]["du"], "au": p["precedente"]["au"]}
+        vp = pilot.vue(**pp)
+        rp = None if p["canal"] else _resultat_analytique(
+            du=pp["du"], au=pp["au"], vision=p["vision"], proprietaire_id=p["proprietaire_id"],
+            logement_id=p["logement_id"])
+        if vp["statut"] == "OK" or rp is not None:
+            precedent = {**p["precedente"], "kpi": vp["kpi"] if vp["statut"] == "OK" else None,
+                         "resultat": rp}
+
+    graphique = _graphique(p)
+    serie = pilot.serie_mensuelle(proprietaire_id=p["proprietaire_id"], logement_id=p["logement_id"],
+                                  canal=p["canal"], du=graphique["du"], au=graphique["au"])
+    graphique["note"] = _note(graphique, serie)
     globales = ana.mesures_globales()
-    par_logement = ana.mesures_par_logement(mois=mois, vision=vision) if mois else {"statut": ana.NON_DISPONIBLE, "lignes": []}
-    mois_prec = ana.mois_precedent(mois) if mois else ""
-    par_logement_prec = ana.mesures_par_logement(mois=mois_prec, vision=vision) if mois_prec else {"statut": ana.NON_DISPONIBLE, "lignes": []}
-    cumule = ana.mesures_cumulees(vision=vision, annee=mois[:4] if mois else "")
-
-    resultat_prec = round(sum(l["resultat"] for l in par_logement_prec.get("lignes", [])), 2) \
-        if par_logement_prec["statut"] == "OK" else None
-    resultat_courant = round(sum(l["resultat"] for l in par_logement.get("lignes", [])), 2) \
-        if par_logement["statut"] == "OK" else None
-
-    periode = per.charger(mois) if mois else None
     return templates.TemplateResponse(request, "resultats_dashboard.html", {
-        "active_menu": "resultats", "mois": mois, "vision": vision, "visions": ana.VISIONS,
-        "mois_disponibles": ana.mois_disponibles(), "globales": globales,
-        "resultat_courant": resultat_courant, "resultat_precedent": resultat_prec,
-        "mois_precedent": mois_prec, "cumule": cumule, "periode": periode,
-        # Graphique « Évolution mensuelle » (PR #4), tout le parc : il n'était visible que
-        # sur /resultats/pilotage, jamais sur l'écran ouvert par le menu.
-        "serie": pilot.serie_mensuelle(),
+        "active_menu": "resultats", "p": p, "filtres": filtres, "visions": ana.VISIONS,
+        "vue": v, "resultat": resultat, "precedent": precedent,
+        "calcul_disponible": v["statut"] != pilot.NON_DISPONIBLE or globales["statut"] == "OK",
+        "globales": globales,
+        "periode": per.charger(p["mois_unique"]) if p["mois_unique"] else None,
+        "graphique": graphique,
+        "serie": serie,
+        "par_logement": pilot.par_logement(**portee),
+        "lien_analyse": p["url"]("/resultats/pilotage"),
+        # Liens des analyses historiques (un mois) : le mois affiché, sinon le dernier de la période.
+        "mois_analyses": p["mois_unique"] or (p["mois_periode"][-1] if p["mois_periode"] else ""),
     })
 
 
