@@ -31,7 +31,7 @@ def test_fournisseur_detail_reel(client, tmp_db):
     compta.valider(res["ecriture_id_opaque"], db_path=tmp_db)
 
     html = client.get(f"/resultats/fournisseurs/{frs}").text
-    assert "33.00" in html
+    assert "33,00\u00a0€" in html
 
 
 def test_fournisseur_detail_inconnu(client):
@@ -66,7 +66,7 @@ def test_prestataires_reel(client, tmp_db):
     assert "FRS-ROUTE-1" in html
 
     detail = client.get("/resultats/prestataires/FRS-ROUTE-1?mois=2026-06").text
-    assert "MEN-ROUTE-1" in detail and "32.00" in detail
+    assert "MEN-ROUTE-1" in detail and "32,00\u00a0€" in detail
 
 
 def test_prestataire_detail_inconnu(client):

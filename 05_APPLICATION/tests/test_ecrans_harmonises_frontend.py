@@ -20,7 +20,9 @@ FILTRES = {
     "/creances": {"proprietaire", "logement", "mois", "statut", "echues"},
     "/dettes": {"fournisseur", "statut", "echues"},
     "/comptabilite/balance": {"periode_debut", "periode_fin", "journal"},
-    "/resultats": {"mois", "vision"},
+    # Mission « Résultats lisibles » : plage de mois + propriétaire / logement (la plateforme
+    # n'apparaît que si des réservations la renseignent — base vide ici).
+    "/resultats": {"du", "au", "proprietaire_id", "logement_id", "vision"},
     "/releves-proprietaires": {"mois", "proprietaire_id"},
 }
 

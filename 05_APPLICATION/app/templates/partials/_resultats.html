@@ -6,11 +6,111 @@
 
 {% macro vision_libelle(v) -%}{{ VISIONS.get(v, v) }}{%- endmacro %}
 
-{#- Montant : deux décimales (comme la source), signe euro, rouge seulement s'il est négatif. -#}
+{#- Montant : `1 245,50 €` (deux décimales, comme la source). Négatif : `−245,50 €`, en rouge —
+    le signe moins est toujours là, la couleur n'est qu'un repère de plus. -#}
 {% macro eur(v) -%}
   {%- if v is none -%}<span class="fi-zero">—</span>
-  {%- else -%}<span class="fi-montant{{ ' fi-montant--negatif' if v < 0 }}">{{ "%.2f"|format(v) }} €</span>
+  {%- else -%}<span class="fi-montant{{ ' fi-montant--negatif' if v < 0 }}">{{ v|euros }}</span>
   {%- endif -%}
+{%- endmacro %}
+
+{#- Barre de filtres partagée par la synthèse (/resultats) et l'analyse (/resultats/pilotage) :
+    mêmes champs, mêmes noms de paramètres, même ordre. `p` = resultats_perimetre_service.lire(…),
+    `filtres` = resultats_pilotage_service.filtres_reference(). Les raccourcis de période sont des
+    liens : un clic suffit. Les listes s'appliquent avec « Appliquer les filtres » (aucun
+    rechargement surprise au changement d'une liste). -#}
+{% macro barre_filtres(p, filtres) -%}
+<form method="get" action="{{ p.chemin }}" class="ec-filtres rs-filtres" data-fi-filtres data-rs-filtres aria-label="Filtres">
+  <fieldset class="rs-periode">
+    <legend class="rs-periode__titre">Période</legend>
+    <div class="rs-periode__corps">
+    <div class="rs-raccourcis">
+      {% for r in p.raccourcis %}<a href="{{ r.url }}" class="rs-raccourci"{% if r.actif %} aria-current="true"{% endif %}>{{ r.libelle }}</a>{% endfor %}
+    </div>
+    <div class="rs-periode__plage">
+      <label class="ec-champ"><span>Du</span>
+        <select name="du" data-fi-neutre>
+          <option value="">Premier mois disponible</option>
+          {% for m in p.options_mois %}<option value="{{ m }}"{{ ' selected' if m == p.du }}>{{ m|mois_humain }}</option>{% endfor %}
+        </select></label>
+      <label class="ec-champ"><span>Au</span>
+        <select name="au" data-fi-neutre>
+          <option value="">Dernier mois disponible</option>
+          {% for m in p.options_mois %}<option value="{{ m }}"{{ ' selected' if m == p.au }}>{{ m|mois_humain }}</option>{% endfor %}
+        </select></label>
+    </div>
+    </div>
+  </fieldset>
+  <div class="rs-filtres__axes">
+    <label class="ec-champ"><span>Propriétaire</span>
+      <select name="proprietaire_id" data-rs-proprietaire>
+        <option value="">Tous les propriétaires</option>
+        {% for o in filtres.proprietaires %}<option value="{{ o.id }}"{{ ' selected' if o.id == p.proprietaire_id }}>{{ o.libelle }}</option>{% endfor %}
+      </select></label>
+    <label class="ec-champ"><span>Logement</span>
+      <select name="logement_id" data-rs-logement>
+        <option value="">Tous les logements</option>
+        {% for o in filtres.logements %}<option value="{{ o.id }}" data-proprietaires="{{ o.proprietaires|join(' ') }}"{{ ' selected' if o.id == p.logement_id }}>{{ o.libelle }}</option>{% endfor %}
+      </select></label>
+    {% if filtres.canaux %}
+    <label class="ec-champ"><span>Plateforme</span>
+      <select name="canal">
+        <option value="">Toutes les plateformes</option>
+        {% for o in filtres.canaux %}<option value="{{ o.id }}"{{ ' selected' if o.id == p.canal }}>{{ o.libelle }}</option>{% endfor %}
+      </select></label>
+    {% endif %}
+    {% if p.avec_vision %}
+    <label class="ec-champ"><span>Vision du résultat</span>
+      <select name="vision" data-fi-neutre>
+        {% for code, libelle in [("REEL", "Réel"), ("COMPTABLE", "Comptable"), ("HORS_COMPTA", "Hors comptabilité")] %}<option value="{{ code }}"{{ ' selected' if code == p.vision }}>{{ libelle }}</option>{% endfor %}
+      </select></label>
+    {% endif %}
+    <div class="ec-filtres__actions">
+      <button type="submit" class="btn btn-primary">Appliquer les filtres</button>
+    </div>
+  </div>
+</form>
+{%- endmacro %}
+
+{#- Ce que l'écran montre, en une ligne : la période puis chaque filtre posé (retirable d'un clic).
+    « Réinitialiser » n'apparaît que si l'écran s'écarte de sa vue par défaut. -#}
+{% macro perimetre_actif(p, extra="") -%}
+<div class="rs-actifs" role="region" aria-label="Filtres actifs">
+  <span class="rs-actifs__titre">Filtres actifs</span>
+  <ul class="rs-chips">
+    {% for b in p.badges %}
+    <li class="rs-chip{{ ' rs-chip--periode' if not b.retrait }}">
+      <span class="rs-chip__libelle">{{ b.libelle }} :</span> <span class="rs-chip__valeur">{{ b.valeur }}</span>
+      {% if b.retrait %}<a href="{{ b.retrait }}" class="rs-chip__retrait" aria-label="Retirer le filtre {{ b.libelle|lower }} : {{ b.valeur }}" title="Retirer ce filtre"><span aria-hidden="true">×</span></a>{% endif %}
+    </li>
+    {% endfor %}
+    {% if extra %}<li class="rs-chip rs-chip--info">{{ extra }}</li>{% endif %}
+  </ul>
+  {% if p.filtres_actifs %}<a href="{{ p.url_reinit }}" class="btn btn-ghost btn-sm rs-actifs__reinit">Réinitialiser</a>{% endif %}
+</div>
+{%- endmacro %}
+
+{#- Indicateur : titre court, valeur immédiatement lisible, une ligne secondaire au plus. -#}
+{% macro kpi(label, valeur, sous="", hero=false, entier=false, indisponible="Non disponible") -%}
+<div class="fi-kpi rs-kpi{{ ' fi-kpi--hero' if hero }}">
+  <span class="fi-kpi__label">{{ label }}</span>
+  {%- if valeur is none %}
+  <span class="fi-kpi__valeur fi-kpi__valeur--texte">{{ indisponible }}</span>
+  {%- elif entier %}
+  <span class="fi-kpi__valeur">{{ valeur|entier }}</span>
+  {%- else %}
+  <span class="fi-kpi__valeur{{ ' fi-montant--negatif' if valeur < 0 }}">{{ valeur|euros }}</span>
+  {%- endif %}
+  {% if sous %}<span class="fi-kpi__sous">{{ sous }}</span>{% endif %}
+</div>
+{%- endmacro %}
+
+{#- Barre horizontale d'un tableau comparatif : longueur proportionnelle au plus grand montant du
+    tableau (décor — la valeur exacte est écrite à côté, en chiffres). La couleur suit la mesure,
+    comme dans le graphique d'évolution (CA = série 2, commission = série 3, payout = série 1). -#}
+{% macro barre(v, max_v, couleur="--fi-serie-2") -%}
+{%- set part = (100 * v / max_v) if (v is not none and max_v and max_v > 0 and v > 0) else 0 -%}
+<span class="rs-barre" aria-hidden="true"><span class="rs-barre__remplie" style="width: {{ '%.1f'|format(part) }}%; background: var({{ couleur }})"></span></span>
 {%- endmacro %}
 
 {#- Barre de période des écrans d'analyse : Mois (et Vision si l'écran en a une). -#}

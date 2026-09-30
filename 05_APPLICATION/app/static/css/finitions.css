@@ -1022,6 +1022,206 @@
 }
 .ecran .detail-grid dt { font-size: 11px; }
 
+/* ── Résultats : filtres, filtres actifs, graphiques, classements ───────────────────────────
+   Composants des écrans /resultats et /resultats/pilotage (préfixe rs-). Mêmes jetons, mêmes
+   rayons, mêmes hauteurs de champ que le reste : aucun second système visuel. */
+.ecran {
+  /* Postes du CA (barre empilée) : suite de la palette catégorielle validée, sans réutiliser
+     les teintes du payout / du CA, déjà portées par le graphique voisin. */
+  --rs-poste-2: #eda100;
+  --rs-poste-3: #e87ba4;
+  --rs-poste-4: #4a3aa7;
+  --rs-poste-5: #008300;
+}
+/* Bloc simple : en flex (ou grille) colonne, Chrome surévalue la hauteur intrinsèque de la
+   ligne des listes déroulantes et ouvre un grand vide sous la période. */
+.ecran .ec-filtres.rs-filtres { display: block; }
+.ecran .rs-filtres > .rs-periode + .rs-filtres__axes { margin-top: 14px; }
+.ecran .rs-periode { min-width: 0; margin: 0; padding: 0; border: 0; }
+.ecran .rs-periode__titre { margin: 0 0 8px; padding: 0; font-size: 13px; font-weight: 700; color: var(--color-on-surface); }
+.ecran .rs-periode__corps { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 20px; }
+.ecran .rs-raccourcis { display: flex; flex-wrap: wrap; gap: 6px; flex: 1 1 440px; min-width: 0; }
+.ecran .rs-raccourci {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-full);
+  background: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-on-surface-variant);
+  white-space: nowrap;
+  transition: background-color var(--fi-rapide) var(--fi-ease), border-color var(--fi-rapide) var(--fi-ease);
+}
+.ecran .rs-raccourci:hover { border-color: var(--color-outline); background: var(--color-surface-container-low); color: var(--color-primary); }
+.ecran .rs-raccourci[aria-current="true"] { border-color: var(--color-primary); background: var(--color-primary); color: var(--color-on-primary); }
+.ecran .rs-periode__plage { display: flex; gap: 12px; flex: 1 1 340px; max-width: 480px; min-width: 0; }
+.ecran .rs-periode__plage > .ec-champ { flex: 1 1 0; }
+/* Grille régulière ; le bouton occupe toujours la dernière colonne, à droite. */
+.ecran .rs-filtres__axes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  align-items: end;
+  gap: 12px 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-surface-container);
+}
+.ecran .rs-filtres__axes > .ec-filtres__actions { grid-column: -2 / -1; justify-content: flex-end; }
+
+/* Filtres actifs : la période d'abord, puis chaque filtre avec son « × » de retrait. */
+.ecran .rs-actifs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 var(--stack-md); }
+.ecran .rs-actifs__titre { font-size: 13px; font-weight: 600; color: var(--color-on-surface-variant); }
+.ecran .rs-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.ecran .rs-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+  padding: 0 4px 0 12px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-container);
+  color: var(--color-on-surface);
+  font-size: 13px;
+}
+.ecran .rs-chip--periode, .ecran .rs-chip--info { padding-right: 12px; }
+.ecran .rs-chip--periode { background: var(--color-primary-container); color: var(--color-on-primary); }
+.ecran .rs-chip--info { background: transparent; box-shadow: inset 0 0 0 1px var(--color-outline-variant); color: var(--color-on-surface-variant); }
+.ecran .rs-chip__libelle { color: var(--color-on-surface-variant); }
+.ecran .rs-chip--periode .rs-chip__libelle { color: inherit; }
+.ecran .rs-chip__valeur { font-weight: 700; }
+.ecran .rs-chip__retrait {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 17px;
+  line-height: 1;
+  color: var(--color-on-surface-variant);
+}
+.ecran .rs-chip__retrait:hover { background: var(--color-surface-container-high); color: var(--color-primary); }
+.ecran .rs-chip__retrait:focus-visible { border-radius: 50%; }
+.ecran .rs-actifs__reinit { height: 30px; color: var(--color-primary); font-weight: 600; }
+
+/* Chiffres clés : 5 au plus ; la ligne secondaire rappelle la période précédente. */
+.ecran .rs-section { margin-bottom: var(--stack-md); }
+.ecran .rs-kpis { grid-template-columns: repeat(auto-fit, minmax(185px, 1fr)); margin-bottom: 10px; }
+.ecran .rs-kpi .fi-kpi__sous { margin-top: 2px; }
+/* Valeur absente : une phrase courte en texte courant, jamais en gros chiffres (même en tête). */
+.ecran .rs-kpi .fi-kpi__valeur.fi-kpi__valeur--texte { font-size: 15px; line-height: 1.4; font-weight: 600; color: var(--color-on-surface-variant); }
+.ecran .rs-definitions { font-size: 13px; }
+.ecran .rs-definitions > summary { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; list-style: none; font-weight: 600; color: var(--color-primary); border-radius: var(--radius-md); }
+.ecran .rs-definitions > summary::-webkit-details-marker { display: none; }
+.ecran .rs-definitions > summary::before { content: "\25B8"; font-size: 11px; transition: transform var(--fi-normal) var(--fi-ease); }
+.ecran .rs-definitions[open] > summary::before { transform: rotate(90deg); }
+.ecran .rs-definitions dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px 24px; margin: 12px 0 8px; }
+.ecran .rs-definitions dt { font-weight: 600; color: var(--color-on-surface); }
+.ecran .rs-definitions dd { margin: 2px 0 0; line-height: 1.5; color: var(--color-on-surface-variant); }
+.ecran .rs-definitions p { margin: 0; line-height: 1.5; color: var(--color-on-surface-variant); }
+
+/* En-tête de bloc : titre + phrase de lecture à gauche, action ou légende à droite. */
+.ecran .rs-bloc-tete { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px 20px; margin-bottom: 14px; }
+.ecran .rs-bloc-tete__texte { min-width: 0; }
+.ecran .rs-bloc-tete .card-title { margin: 0; }
+.ecran .rs-bloc-tete__sous { margin: 3px 0 0; font-size: 13px; line-height: 1.5; color: var(--color-on-surface-variant); }
+
+/* Graphique d'évolution : légende-boutons (aria-pressed), message d'état, infobulle. */
+.ecran .rs-graphique canvas { height: 340px; }
+.ecran .rs-graphique canvas:focus-visible { outline: none; box-shadow: var(--fi-focus); border-radius: var(--radius-md); }
+.ecran .rs-legende { display: flex; flex-wrap: wrap; gap: 6px; }
+.ecran .rs-legende__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 12px 0 10px;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-full);
+  background: #ffffff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-on-surface);
+  transition: background-color var(--fi-rapide) var(--fi-ease), color var(--fi-rapide) var(--fi-ease);
+}
+.ecran .rs-legende__item:hover { background: var(--color-surface-container-low); }
+.ecran .rs-legende__item:focus-visible { outline: none; box-shadow: var(--fi-focus); }
+/* Trait de la couleur de la courbe (la légende reprend la forme de la marque). */
+.ecran .rs-legende__puce { width: 18px; height: 3px; border-radius: 2px; background: var(--serie); flex: none; }
+/* Courbe masquée : bord pointillé, trait gris, texte courant — l'état ne dépend pas de la couleur. */
+.ecran .rs-legende__item[aria-pressed="false"] { border-style: dashed; background: transparent; font-weight: 400; color: var(--color-on-surface-variant); }
+.ecran .rs-legende__item[aria-pressed="false"] .rs-legende__puce { background: var(--color-outline-variant); }
+.ecran .rs-note-perimetre { display: flex; align-items: center; gap: 8px; margin: -4px 0 10px; font-size: 13px; color: var(--color-on-surface-variant); }
+.ecran .rs-note-perimetre__puce { width: 12px; height: 12px; border-radius: 2px; background: rgba(0, 52, 65, 0.14); flex: none; }
+.ecran .rs-graphique__message {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 24px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--color-on-surface-variant);
+}
+.ecran .rs-infobulle__ligne { gap: 8px; }
+.ecran .rs-infobulle__ligne strong { min-width: 92px; margin: 0; padding: 0; text-align: right; }
+.ecran .rs-infobulle__cle { width: 12px; height: 3px; border-radius: 2px; flex: none; }
+.ecran .rs-note-tableau { margin: 10px 0 0; }
+
+/* Tableaux comparatifs : nom de ligne lisible (pas une en-tête en capitales), barre + montant. */
+.ecran .data-table tbody th.rs-th-ligne,
+.ecran .data-table tfoot th {
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--color-on-surface);
+  white-space: normal;
+  vertical-align: middle;
+}
+.ecran .data-table tbody th.rs-th-ligne { border-bottom: 1px solid var(--color-surface-container); }
+.ecran .rs-table-barres tfoot th { border-bottom: none; }
+.ecran .ec-table-wrap tbody tr:last-child th.rs-th-ligne { border-bottom: none; }
+.ecran .data-table th.rs-th-ligne { min-width: 150px; }
+.ecran .rs-th-ligne a { color: var(--color-primary); }
+.ecran .rs-th-ligne a:hover { text-decoration: underline; text-underline-offset: 2px; }
+.ecran .rs-col-barre { width: 42%; min-width: 230px; }
+.ecran th.rs-col-barre { text-align: right; }
+.ecran .rs-barre-ligne { display: flex; align-items: center; gap: 12px; }
+.ecran .rs-barre-ligne .fi-montant { flex: none; min-width: 100px; text-align: right; font-variant-numeric: tabular-nums; }
+.ecran .rs-barre { display: block; flex: 1 1 auto; min-width: 48px; height: 10px; }
+.ecran .rs-barre__remplie { display: block; height: 100%; border-radius: 0 4px 4px 0; }
+
+/* Composition du CA : barre empilée (2 px d'écart entre postes) et montants en toutes lettres. */
+.ecran .rs-empile { display: flex; gap: 2px; height: 14px; margin: 0 0 16px; }
+.ecran .rs-empile__part { flex: 1 1 0; min-width: 3px; background: var(--poste); }
+.ecran .rs-empile__part:first-child { border-radius: 4px 0 0 4px; }
+.ecran .rs-empile__part:last-child { border-radius: 0 4px 4px 0; }
+.ecran .rs-empile__part:only-child { border-radius: 4px; }
+.ecran .rs-postes { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px 20px; margin: 0; }
+.ecran .rs-poste dt { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--color-on-surface-variant); }
+.ecran .rs-poste__puce { width: 10px; height: 10px; border-radius: 2px; background: var(--poste); flex: none; }
+.ecran .rs-poste dd { margin: 3px 0 0 18px; font-size: 16px; font-weight: 700; color: var(--color-on-surface); font-variant-numeric: tabular-nums; }
+.ecran .rs-poste__part { margin-left: 4px; font-size: 12px; font-weight: 600; color: var(--color-on-surface-variant); }
+
+@media (max-width: 720px) {
+  .ecran .rs-periode__plage { flex-basis: 100%; max-width: none; }
+  .ecran .rs-raccourcis { flex-basis: 100%; }
+  .ecran .rs-filtres__axes { grid-template-columns: minmax(0, 1fr); }
+  .ecran .rs-filtres__axes > .ec-filtres__actions { grid-column: 1 / -1; }
+  .ecran .rs-filtres__axes > .ec-filtres__actions .btn { flex: 1 1 0; }
+  .ecran .rs-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ecran .rs-kpis > .fi-kpi--hero { grid-column: 1 / -1; }
+  .ecran .rs-graphique canvas { height: 260px; }
+  .ecran .rs-col-secondaire { display: none; }
+  .ecran .rs-col-barre { width: auto; min-width: 0; }
+  .ecran .rs-barre { min-width: 32px; }
+  .ecran .rs-barre-ligne .fi-montant { min-width: 0; }
+}
+
 /* ── Écrans étroits ──────────────────────────────────────────────────────────────────────── */
 @media (max-width: 720px) {
   .ecran .fi-periode { width: 100%; }
