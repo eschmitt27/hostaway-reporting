@@ -4483,3 +4483,67 @@ réelle stable. Justificatifs : 0 pièce en base à ce jour ; la racine servie e
 Comptabilité, Factures propriétaires et fournisseurs, Compte propriétaire / Crédits, Clôture
 mensuelle, justificatif inconnu → 404) : empreinte logique identique avant / après. PR #4 en
 attente, non mergée, non modifiée.
+
+## Mission 38 (2026-09-30) — Créances & Dettes, hub financier ; Associés, IK, compte courant
+
+Migration **0116** (additive). Aucune écriture comptable nouvelle hors du remboursement de compte
+courant (miroir de l'apport existant).
+
+**Navigation.** « Créances & dettes » est l'entrée unique du pilotage financier : Créances
+propriétaires, Dettes fournisseurs, Échéancier, Associés (onglets). « Comptes propriétaires » et
+« Règlements propriétaires » ne sont plus des entrées du menu ; leurs routes restent servies et
+s'ouvrent depuis le hub (Voir le compte, Suivi mensuel des relevés). Le menu reste actif sur le hub
+quand on est dans un compte ou un règlement.
+
+**Parcours propriétaire.** Créances propriétaires → tableau par propriétaire (facturé, réglé,
+crédits appliqués, restant dû, crédit disponible, statut, échéance/ancienneté) → Voir le compte
+(sous-ledger : factures, sources, allocations FIFO, historique) → **Préparer le règlement**
+(`/creances/proprietaires/<id>/reglement` : factures ouvertes dans l'ordre FIFO, crédits, virements
+reçus à rapprocher) → **Régler**. « Régler » n'enregistre rien lui-même : il appelle le lettrage
+canonique de Flux (`flux_lettrage_service.valider`) — encaissement VALIDE, écriture 512 / 411,
+FIFO persisté, mouvement rapproché. Compte, créances, factures et échéancier lisent ces mêmes
+données : pas de double saisie. La règle existante L04 s'applique (vente de la facture comptabilisée
+avant tout encaissement). Un écart est laissé ouvert, jamais absorbé ; les cas complexes passent par
+« Ajuster dans Flux financiers ». Le sens « à reverser au propriétaire » est affiché, son virement
+reste traité dans Flux.
+
+**Associés** (`/associes`) : vue tous associés ou par associé, période en mois, une ligne par mois
+(IK brute, dépenses activité, avantage IK, autres avantages, apports CCA, remboursements CCA,
+position nette), total de période, cumul historique, détail d'un mois (`/associes/mois/<mois>`) où
+chaque montant renvoie à sa source. Rien n'est ressaisi : charges, rapprochements bancaires,
+opérations de caisse et écritures 455100 sont lus.
+
+**IK (indemnités kilométriques).** Constat : aucun parcours de création d'IK n'existait dans
+l'application (seul le type de flux « Indemnité kilométrique » du référentiel, alimenté autrefois
+par un classeur Lot 7 vide). Une IK est désormais la fiche analytique d'une **charge de déplacement**
+(catégorie « Déplacement professionnel », saisie dans Charges) : associé, date de début et de fin
+(période libre), statut brouillon / à contrôler / validée (validée = verrouillée, « Rouvrir »).
+Relevé de trajets (date, motif, départ, destination, km, véhicule, commentaire ; autant de lignes que
+nécessaire). Part engagée pour l'activité (montant, date réelle du débit personnel, nature ménage /
+fonctionnement / non affectable, intervenant, ménage/prestation, justificatif, commentaire) :
+**analytique seulement**, la charge comptable reste entière ; la somme ne dépasse jamais l'IK
+(contrôle serveur + déclencheur en base). Prorata calendaire des jours (bornes incluses, centimes
+répartis pour retomber exactement sur l'IK) ; dépenses au mois de leur débit, jamais proratisées.
+Sans ventilation : 100 % avantage. Aucune IK n'est attendue ; son absence ne bloque rien, clôture
+comprise (aucun contrôle IK dans la clôture).
+
+**Avantage associé.** Le formulaire « Nouvelle charge » demandait déjà « avantage associé ? » et
+l'associé bénéficiaire, mais la ligne enregistrée n'en gardait rien. Colonnes `avantage_associe` /
+`avantage_associe_id` ajoutées à `charges` (0116), remplies à la création, conservées lors d'une
+correction qui ne les transmet pas ; une telle charge alimente « Autres avantages » à son mois. La
+fiche charge affiche l'avantage et le lien vers l'IK.
+
+**Compte courant d'associé (455100).** Apport : parcours existant (validation bancaire, 512 / 455100,
+associé en auxiliaire). Remboursement : nouvelle nature de la même validation pour un débit,
+écriture 455100 / 512, refusée au-delà du solde créditeur du compte courant sauf confirmation
+explicite motivée. Liens de qualification sur la fiche d'un mouvement bancaire (Flux). Opérations de
+caisse « remboursement d'associé » comprises dans le suivi.
+
+**Preuves.** Tests : test_hub_creances_associes_ik.py 18 passed ; suite complète 4 572 passed / 37 skipped / 0 failed. Recette sur copie de la base réelle : migration 0116, règlement bout en bout
+(facture réglée, FIFO persisté), IK créée depuis l'écran, 2 trajets, dépassement refusé, IK validée
+puis verrouillée, suivi mensuel et détail cohérents, bureau et mobile, console sans erreur.
+Base réelle : migration 0116 appliquée après sauvegarde (backups/app_avant_migration_0116_associes_ik_20260930T020429.db), integrity ok, foreign_key_check 0, données existantes identiques (seule la ligne 0116 de schema_migrations s'ajoute) ; 27 écrans en lecture, empreinte identique avant / après.
+
+**Limites.** Le montant d'une IK est celui de la charge (aucun barème kilométrique n'est
+inventé) ; l'identité de l'intervenant d'une dépense est saisie librement. Le virement « à reverser
+au propriétaire » n'a pas de bouton dédié dans le hub (Flux). Aucune IK historique n'est créée.

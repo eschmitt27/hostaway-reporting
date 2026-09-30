@@ -5920,3 +5920,11 @@ octet pour octet) ; schéma 0115 ; `integrity_check` ok ; `foreign_key_check` 0 
 `bc3ae6258164fd58` identique ; instance réelle sur le nouvel emplacement ; 31 GET, empreinte
 identique avant / après ; sauvegardes rattachées à `<APP_DATA_DIR>/backups/` ; suite complète
 4 554 passed / 37 skipped / 0 failed (47 min 27 s). Ancien dossier `05_APPLICATION/data` conservé. Détail : `HANDOFF_CANONIQUE.md`.
+
+## CTR-HUB-CREANCES-ASSOCIES-IK-2026-09-30 — Mission 38
+
+**Périmètre.** Hub Créances & Dettes (menu, parcours compte → règlement via le lettrage canonique),
+Associés (IK, avantages, compte courant), migration 0116 (additive).
+
+**Contrôles.** Tests : test_hub_creances_associes_ik.py 18 passed ; suite complète 4 572 passed / 37 skipped / 0 failed. Recette copie : règlement réel de bout en bout, parcours IK complet, refus
+serveur du dépassement, mobile, console. Base réelle : migration 0116 appliquée après sauvegarde (backups/app_avant_migration_0116_associes_ik_20260930T020429.db), integrity ok, foreign_key_check 0, données existantes identiques (seule la ligne 0116 de schema_migrations s'ajoute) ; 27 écrans en lecture, empreinte identique avant / après. Détail : `HANDOFF_CANONIQUE.md`, Mission 38.
