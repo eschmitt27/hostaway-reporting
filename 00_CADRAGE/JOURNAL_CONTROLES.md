@@ -5928,3 +5928,10 @@ Associés (IK, avantages, compte courant), migration 0116 (additive).
 
 **Contrôles.** Tests : test_hub_creances_associes_ik.py 18 passed ; suite complète 4 572 passed / 37 skipped / 0 failed. Recette copie : règlement réel de bout en bout, parcours IK complet, refus
 serveur du dépassement, mobile, console. Base réelle : migration 0116 appliquée après sauvegarde (backups/app_avant_migration_0116_associes_ik_20260930T020429.db), integrity ok, foreign_key_check 0, données existantes identiques (seule la ligne 0116 de schema_migrations s'ajoute) ; 27 écrans en lecture, empreinte identique avant / après. Détail : `HANDOFF_CANONIQUE.md`, Mission 38.
+
+## CTR-VERSEMENT-CCA-BAREME-IK-2026-09-30 — Mission 38 bis
+
+Versement propriétaire depuis le hub (lettrage canonique, compte « reste à virer »), remboursement
+CCA strictement plafonné au solde, alerte barème kilométrique non bloquante (migration 0117).
+Tests : 21 + 463 ciblés, 0 échec. Base réelle migrée après sauvegarde, lecture seule vérifiée.
+Détail : `HANDOFF_CANONIQUE.md`, Mission 38 bis.

@@ -4547,3 +4547,35 @@ Base réelle : migration 0116 appliquée après sauvegarde (backups/app_avant_mi
 **Limites.** Le montant d'une IK est celui de la charge (aucun barème kilométrique n'est
 inventé) ; l'identité de l'intervenant d'une dépense est saisie librement. Le virement « à reverser
 au propriétaire » n'a pas de bouton dédié dans le hub (Flux). Aucune IK historique n'est créée.
+
+## Mission 38 bis (2026-09-30) — Versement propriétaire, CCA strict, alerte barème IK
+
+Migration **0117** (additive : véhicule de l'IK, barème kilométrique en référentiel).
+
+**Versement propriétaire depuis le hub.** « Préparer le versement propriétaire »
+(`/creances/proprietaires/<id>/versement`, depuis le hub et le compte) → choix du virement émis →
+« Régler » : lettrage canonique de Flux entre le débit bancaire et le(s) reversement(s) validé(s)
+(mouvement de trésorerie société → propriétaire), écriture 411 / 512, rapprochement. Le compte lit
+désormais « déjà viré » / « reste à virer » (rapprochements confirmés des reversements) : un
+propriétaire payé n'apparaît plus « à reverser », et la position nette en tient compte. Règlement et
+versement ramènent au hub, solde à jour. Un trop-perçu sur facture non déclaré en reversement reste
+signalé, hors de ce parcours.
+
+**Compte courant d'associé : blocage strict.** Un remboursement ne dépasse jamais le solde
+créditeur (455100, auxiliaire = associé) : « Le remboursement demandé dépasse le solde créditeur
+disponible du compte courant d'associé. » Plus de confirmation ni de motif pour passer outre (le
+référentiel des associés ne distingue aucune catégorie autorisant un compte courant débiteur).
+Écritures existantes inchangées.
+
+**IK : alerte barème.** Véhicule sur la fiche IK (libellé, type, puissance fiscale, motorisation).
+Montant indicatif = kilomètres du relevé × barème de l'année (référentiel `ref_bareme_ik`,
+`ref_bareme_ik_annees` ; majoration électrique par année). Barème configuré : revenus 2024
+(identique à 2023) ; une IK d'une année non configurée utilise le dernier barème, et l'écran le dit.
+Montant saisi > indicatif : alerte visible. JAMAIS bloquant (création, validation, clôture,
+comptabilisation) ; le montant de la charge n'est jamais modifié. Mettre le barème à jour = ajouter
+une année au référentiel.
+
+**Preuves.** test_hub_creances_associes_ik.py : 21 passed ; non-régression ciblée (comptes
+propriétaires, créances, Flux, Qonto, trésorerie, migrations, navigation) : 463 passed. Base réelle :
+0117 après sauvegarde (backups/app_avant_migration_0117_ik_vehicule_bareme_20260930T123726.db),
+integrity ok, foreign_key_check 0, données existantes identiques ; 29 GET, empreinte inchangée.
