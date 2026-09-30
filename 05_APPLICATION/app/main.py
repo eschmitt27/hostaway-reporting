@@ -12,7 +12,7 @@ from app.config import STATIC_DIR, DATA_DIR, SNAPSHOTS_DIR
 from app.db.connection import apply_migrations
 from app.services import ordonnanceur_service
 from app.services.logging_config import log_erreur
-from app.routes import home, actualisation, administration_referentiels, sources_calculs, health, logements, reservations, menages, fournisseurs, proprietaires, proprietaires_tresorerie, banques, proprietaires_reglements, controles_cloture, clotures, pilotage_mensuel, fournisseurs_referentiel, charges_controle, charges_refacturation, factures, factures_proprietaires, creances_dettes, calculs, comptabilite, resultats, referentiel_setup, comptes_proprietaires, observabilite, correspondances_logement, proprietaire_performance, exports, flux_financiers
+from app.routes import home, actualisation, administration_referentiels, sources_calculs, health, logements, reservations, menages, fournisseurs, proprietaires, proprietaires_tresorerie, banques, proprietaires_reglements, controles_cloture, clotures, pilotage_mensuel, fournisseurs_referentiel, charges_controle, charges_refacturation, factures, factures_proprietaires, creances_dettes, calculs, comptabilite, resultats, referentiel_setup, comptes_proprietaires, associes, observabilite, correspondances_logement, proprietaire_performance, exports, flux_financiers
 
 
 @asynccontextmanager
@@ -92,6 +92,7 @@ app.include_router(fournisseurs_referentiel.router)
 app.include_router(factures.router)
 app.include_router(factures_proprietaires.router)
 app.include_router(creances_dettes.router)
+app.include_router(associes.router)
 app.include_router(calculs.router)
 app.include_router(comptabilite.router)
 app.include_router(resultats.router)

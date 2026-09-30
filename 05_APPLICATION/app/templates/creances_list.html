@@ -1,20 +1,70 @@
 {% extends "base.html" %}
-{% block title %}Créances propriétaires{% endblock %}
+{% block title %}Créances & dettes{% endblock %}
 {% block content %}
 <link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
 <div class="ecran">
 <div class="page-header">
   <div class="page-header__titre">
-  <h1 class="page-title">Créances propriétaires</h1>
+  <h1 class="page-title">Créances &amp; dettes</h1>
   <p class="page-subtitle">
-    Ce que les propriétaires restent devoir sur les factures <strong>émises</strong>.
-    Une facture non émise n'est pas une créance. À ne pas confondre avec la trésorerie
-    propriétaire ni avec le net d'exploitation.
+    Ce que les propriétaires doivent à la société, ce que la société leur doit, les fournisseurs,
+    les échéances et les associés. Choisissez un propriétaire pour voir son compte ou préparer
+    son règlement.
   </p>
   </div>
 </div>
 
 {% include "_onglets_creances_dettes.html" %}
+
+{# ══ Par propriétaire — l'entrée naturelle vers le compte et le règlement ══════════════════ #}
+<section class="card" data-testid="positions-proprietaires">
+  <div class="fi-card-tete">
+    <h2 class="card-title">Par propriétaire</h2>
+    <span class="fi-compteur">{{ positions|length }} propriétaire{{ "s" if positions|length > 1 }}</span>
+  </div>
+  <div class="ec-table-wrap">
+  <table class="data-table">
+    <thead><tr><th class="ec-col-nom">Propriétaire</th><th class="num">Facturé</th><th class="num">Réglé</th>
+      <th class="num">Crédits appliqués</th><th class="num">Restant dû</th><th class="num">Crédit disponible</th>
+      <th>Statut</th><th>Échéance / ancienneté</th><th class="fi-col-actions"><span class="sr-only">Actions</span></th></tr></thead>
+    <tbody>
+    {% for p in positions %}
+      <tr>
+        <td class="fi-cle"><a href="/comptes-proprietaires/{{ p.proprietaire_id }}" data-testid="lien-compte">{{ p.proprietaire_id | nom_proprietaire }}</a></td>
+        <td class="num">{{ "%.2f"|format(p.facture) }} €</td>
+        <td class="num">{{ "%.2f"|format(p.regle) }} €{% if p.acomptes %}<span class="ec-sous-ligne">dont acomptes {{ "%.2f"|format(p.acomptes) }} €</span>{% endif %}</td>
+        <td class="num">{{ "%.2f"|format(p.credits_appliques) }} €</td>
+        <td class="num"><strong>{{ "%.2f"|format(p.restant_du) }} €</strong>
+          {% if p.a_reverser > 0.005 %}<span class="ec-sous-ligne">à reverser {{ "%.2f"|format(p.a_reverser) }} €</span>{% endif %}</td>
+        <td class="num">{{ "%.2f"|format(p.credit_disponible) }} €</td>
+        <td><span class="status-badge status-{{ p.badge }}">{{ p.statut }}</span></td>
+        <td class="ec-nowrap text-xs">
+          {% if p.jours_retard %}{{ p.jours_retard }} j de retard
+          {% elif p.prochaine_echeance %}échéance {{ p.prochaine_echeance|date_fr }}
+          {% elif p.plus_ancienne %}émise le {{ p.plus_ancienne|date_fr }}
+          {% else %}—{% endif %}
+        </td>
+        <td class="fi-col-actions ec-nowrap">
+          <a class="fi-lien-action" href="/comptes-proprietaires/{{ p.proprietaire_id }}">Voir le compte</a>
+          {% if p.restant_du > 0.005 %}
+          · <a class="fi-lien-action" href="/creances/proprietaires/{{ p.proprietaire_id }}/reglement" data-testid="lien-preparer">Préparer le règlement</a>
+          {% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="9" class="ec-vide">Aucun propriétaire n'a de créance, de crédit ou de somme à reverser.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="ec-note">
+    {% if soldes %}<a href="/creances">Masquer les comptes soldés</a>{% else %}<a href="/creances?soldes=1">Afficher aussi les comptes soldés</a>{% endif %}
+    · Le suivi mensuel des relevés reste accessible : <a href="/proprietaires-reglements">Suivi des relevés et règlements mensuels</a>.
+  </p>
+</section>
+
+<h2 class="ec-titre-tableau">Détail des factures</h2>
 
 <div class="ec-synthese">
   <div class="ec-synthese__item"><span class="ec-synthese__label">Créances ouvertes</span>
@@ -61,7 +111,7 @@
   <tbody>
   {% for l in lignes %}
     <tr>
-      <td>{{ l.tiers_id | nom_proprietaire }}</td>
+      <td><a href="/comptes-proprietaires/{{ l.tiers_id }}">{{ l.tiers_id | nom_proprietaire }}</a></td>
       <td class="ec-nowrap"><a href="/factures-proprietaires/{{ l.facture_id_opaque }}">{{ l.numero or "—" }}</a>
           {% if l.type_document == "AVOIR" %}<span class="badge">AVOIR</span>{% endif %}</td>
       <td>{{ l.logement_id | nom_logement }}</td>
@@ -112,20 +162,5 @@
   la différence lui est due.
 </p>
 
-{% if par_tiers %}
-<h2 class="ec-titre-tableau">Par propriétaire</h2>
-<div class="ec-table-wrap">
-  <table class="table">
-    <thead><tr><th>Propriétaire</th><th class="text-right">Factures</th><th class="text-right">Solde</th><th class="text-right">dont échu</th></tr></thead>
-    <tbody>
-      {% for t in par_tiers %}
-      <tr><td>{{ t.tiers_id | nom_proprietaire }}</td><td class="text-right">{{ t.nombre }}</td>
-          <td class="text-right">{{ "%.2f"|format(t.total) }} €</td>
-          <td class="text-right">{{ "%.2f"|format(t.echu) }} €</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-{% endif %}
 </div>
 {% endblock %}

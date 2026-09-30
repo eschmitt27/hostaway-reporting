@@ -64,7 +64,7 @@
       {% endfor %}
     </select>
   </label>
-  {% if apercu.nature_proposee == 'APPORT_ASSOCIE' %}
+  {% if apercu.nature_associe %}
   <label class="champ">
     {# L'associé n'est JAMAIS deviné : la société doit de l'argent à quelqu'un de précis. #}
     <span>Associé concerné</span>
@@ -111,6 +111,22 @@
       <input type="text" name="montant" value="{{ "%.2f"|format(apercu.montant_affecte) }}"
              data-testid="montant-affecte">
     </label>
+    {% if apercu.solde_cca is not none %}
+    <p class="mention" data-testid="solde-cca">Solde du compte courant de {{ apercu.objet_libelle }} :
+      <strong>{{ "%.2f"|format(apercu.solde_cca) }} €</strong></p>
+    {% endif %}
+    {% if apercu.nature_proposee == 'REMBOURSEMENT_ASSOCIE' %}
+    {% if apercu.depassement_cca %}
+    <div class="alert alert-warning" data-testid="depassement-cca">
+      Ce remboursement dépasse le solde disponible du compte courant. Il n'est enregistré que sur
+      confirmation explicite, avec un motif.
+      <label class="champ"><input type="checkbox" name="confirmer_depassement" value="1">
+        Je confirme le dépassement</label>
+    </div>
+    {% endif %}
+    <label class="champ"><span>Motif{% if apercu.depassement_cca %} (obligatoire){% endif %}</span>
+      <input type="text" name="commentaire" {% if apercu.depassement_cca %}required{% endif %}></label>
+    {% endif %}
     <a href="/banques-caisse?vue=banque" class="btn btn-ghost">Annuler</a>
     <button type="submit" class="btn btn-primary" data-testid="bouton-valider">Valider</button>
   </form>

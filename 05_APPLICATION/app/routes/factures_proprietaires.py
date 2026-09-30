@@ -130,8 +130,11 @@ def _ids_proprietaires() -> list[str]:
 
 
 @router.get("/factures-proprietaires", response_class=HTMLResponse)
-def liste(request: Request, mois: str = "", statut: str = "", comptabilisee: str = ""):
-    factures = svc.lister(mois=mois or None, statut=statut or None)
+def liste(request: Request, mois: str = "", statut: str = "", comptabilisee: str = "",
+          proprietaire_id: str = ""):
+    # `proprietaire_id` : ouvert depuis le compte d'un propriétaire (« Voir les factures »).
+    factures = svc.lister(mois=mois or None, statut=statut or None,
+                          proprietaire_id=proprietaire_id or None)
     for f in factures:
         f["solde"] = svc.solde(f["facture_id_opaque"])["solde"]
         # « Comptabilisée » se LIT dans les écritures, jamais dans un drapeau porté par la facture :

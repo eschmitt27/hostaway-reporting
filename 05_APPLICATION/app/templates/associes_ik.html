@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}IK{% endblock %}
+{% macro euros(v) %}<span class="fi-montant{{ ' fi-montant--negatif' if v is not none and v < -0.005 }}">{{ "%.2f"|format(v or 0) }} €</span>{% endmacro %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+<div class="ecran">
+{% if not ik %}
+<a href="/associes" class="back-link">← Associés</a>
+<div class="card fi-vide"><span class="fi-vide__titre">IK introuvable.</span></div>
+{% else %}
+<div class="page-header">
+  <div class="page-header__titre">
+    <a href="/associes?associe={{ ik.associe_id }}" class="back-link">← Associés</a>
+    <h1 class="page-title">IK — {{ nom_associe }}</h1>
+    <p class="page-subtitle fi-sous-titre">
+      <span class="periode-active">{{ ik.date_debut|date_fr }} → {{ ik.date_fin|date_fr }}</span>
+      <span class="status-badge status-{{ 'valide' if ik.statut == 'VALIDEE' else ('a-controler' if ik.statut == 'A_CONTROLER' else 'brouillon') }}" data-testid="statut-ik">{{ ik.statut_libelle }}</span>
+      <a href="/fournisseurs/{{ ik.charge_id }}">Voir la charge (source comptable)</a>
+    </p>
+  </div>
+  <div class="page-header__actions">
+    {% for s in transitions %}
+    <form method="post" action="/associes/ik/{{ ik.ik_id_opaque }}/statut" class="inline-form">
+      <input type="hidden" name="statut" value="{{ s }}">
+      <button type="submit" class="btn {{ 'btn-primary' if s == 'VALIDEE' else 'btn-secondary' }}">
+        {% if s == 'VALIDEE' %}Valider l'IK{% elif s == 'A_CONTROLER' %}{{ 'Rouvrir' if ik.statut == 'VALIDEE' else 'Passer à contrôler' }}{% else %}Repasser en brouillon{% endif %}
+      </button>
+    </form>
+    {% endfor %}
+  </div>
+</div>
+
+{% if message %}<div class="alert alert-info">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-error" data-testid="erreur-ik">{{ erreur }}</div>{% endif %}
+{% if ik.depassement %}<div class="alert alert-warning">La charge a été corrigée à la baisse : les dépenses liées à l'activité dépassent désormais son montant. À revoir.</div>{% endif %}
+
+<div class="fi-kpis">
+  <div class="fi-kpi"><span class="fi-kpi__label">Montant de l'IK</span><span class="fi-kpi__valeur">{{ euros(ik.montant) }}</span>
+    <span class="fi-kpi__sous">charge comptable, inchangée</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Trajets</span><span class="fi-kpi__valeur" data-testid="nb-trajets">{{ ik.nb_trajets }}</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Kilomètres</span><span class="fi-kpi__valeur" data-testid="km-total">{{ ik.km_total }}</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Dépenses activité</span><span class="fi-kpi__valeur">{{ euros(ik.depenses_total) }}</span></div>
+  <div class="fi-kpi fi-kpi--hero"><span class="fi-kpi__label">Avantage réel</span><span class="fi-kpi__valeur" data-testid="avantage-reel">{{ euros(ik.avantage_reel) }}</span>
+    <span class="fi-kpi__sous">IK − dépenses activité</span></div>
+</div>
+
+{# ── Relevé de trajets ─────────────────────────────────────────────────────────────────────── #}
+<section class="card" data-testid="trajets">
+  <div class="fi-card-tete"><h2 class="card-title">Relevé de trajets</h2><span class="fi-compteur">{{ ik.nb_trajets }}</span></div>
+  <div class="ec-table-wrap"><table class="data-table">
+    <thead><tr><th>Date</th><th>Motif</th><th>Départ</th><th>Destination</th><th class="num">Km</th><th>Véhicule</th><th>Commentaire</th><th></th></tr></thead>
+    <tbody>{% for t in ik.trajets %}<tr>
+      <td class="ec-nowrap">{{ t.date_trajet|date_fr }}</td><td>{{ t.motif_libelle }}</td><td>{{ t.depart or "—" }}</td>
+      <td>{{ t.destination or "—" }}</td><td class="num">{{ t.km }}</td><td>{{ t.vehicule or "—" }}</td><td>{{ t.commentaire or "—" }}</td>
+      <td>{% if ik.modifiable %}<form method="post" action="/associes/ik/{{ ik.ik_id_opaque }}/retirer" class="inline-form">
+        <input type="hidden" name="table" value="trajet"><input type="hidden" name="ligne_id" value="{{ t.id }}">
+        <button type="submit" class="btn btn-ghost btn-sm">Retirer</button></form>{% endif %}</td></tr>
+    {% else %}<tr><td colspan="8" class="ec-vide">Aucun trajet pour l'instant.</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% if ik.modifiable %}
+  <form method="post" action="/associes/ik/{{ ik.ik_id_opaque }}/trajets" id="form-trajets" data-fi-occupe="Enregistrement…">
+    <div class="ec-table-wrap"><table class="data-table">
+      <thead><tr><th>Date</th><th>Motif</th><th>Départ</th><th>Destination</th><th>Km</th><th>Véhicule</th><th>Commentaire</th></tr></thead>
+      <tbody id="lignes-trajets">
+      {% for n in range(3) %}
+        <tr class="ligne-trajet">
+          <td><input type="date" name="date_trajet" aria-label="Date"></td>
+          <td><select name="motif" aria-label="Motif">{% for code, lib in motifs.items() %}<option value="{{ code }}">{{ lib }}</option>{% endfor %}</select></td>
+          <td><input type="text" name="depart" aria-label="Départ"></td>
+          <td><input type="text" name="destination" aria-label="Destination"></td>
+          <td><input type="text" name="km" inputmode="decimal" size="6" aria-label="Kilomètres"></td>
+          <td><input type="text" name="vehicule" size="8" aria-label="Véhicule"></td>
+          <td><input type="text" name="commentaire" aria-label="Commentaire"></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    <div class="fi-liens-bas">
+      <button type="button" class="btn btn-ghost" id="ajouter-ligne-trajet">Ajouter un trajet</button>
+      <button type="submit" class="btn btn-primary">Enregistrer les trajets</button>
+    </div>
+  </form>
+  {% endif %}
+</section>
+
+{# ── Part engagée pour l'activité ─────────────────────────────────────────────────────────── #}
+<section class="card" data-testid="depenses">
+  <div class="fi-card-tete"><h2 class="card-title">Dépenses liées à l'activité</h2>
+    <span class="fi-compteur">reste disponible {{ "%.2f"|format(ik.disponible_depenses) }} €</span></div>
+  <p class="ec-note">Argent de l'IK utilisé ensuite sur un compte personnel pour l'activité. Analytique seulement :
+    la charge comptable reste {{ "%.2f"|format(ik.montant) }} €. Chaque dépense compte au mois de son débit réel.</p>
+  <div class="ec-table-wrap"><table class="data-table">
+    <thead><tr><th>Débit le</th><th class="num">Montant</th><th>Nature</th><th>Intervenant</th><th>Ménage / prestation</th><th>Justificatif</th><th>Commentaire</th><th></th></tr></thead>
+    <tbody>{% for d in ik.depenses %}<tr>
+      <td class="ec-nowrap">{{ d.date_debit|date_fr }}</td><td class="num">{{ euros(d.montant) }}</td><td>{{ d.nature_libelle }}</td>
+      <td>{{ (d.intervenant_id | nom_intervenant) if d.intervenant_id else "—" }}</td><td>{{ d.prestation_ref or "—" }}</td>
+      <td>{{ d.justificatif_reference or "—" }}</td><td>{{ d.commentaire or "—" }}</td>
+      <td>{% if ik.modifiable %}<form method="post" action="/associes/ik/{{ ik.ik_id_opaque }}/retirer" class="inline-form">
+        <input type="hidden" name="table" value="depense"><input type="hidden" name="ligne_id" value="{{ d.id }}">
+        <button type="submit" class="btn btn-ghost btn-sm">Retirer</button></form>{% endif %}</td></tr>
+    {% else %}<tr><td colspan="8" class="ec-vide">Aucune : 100 % de l'IK est un avantage associé.</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% if ik.modifiable %}
+  <form method="post" action="/associes/ik/{{ ik.ik_id_opaque }}/depenses" class="ec-filtres" data-fi-occupe="Enregistrement…">
+    <label class="ec-champ"><span>Montant</span><input type="text" name="montant" inputmode="decimal" required></label>
+    <label class="ec-champ"><span>Date du débit</span><input type="date" name="date_debit" required></label>
+    <label class="ec-champ"><span>Nature</span><select name="nature">{% for code, lib in natures.items() %}<option value="{{ code }}">{{ lib }}</option>{% endfor %}</select></label>
+    <label class="ec-champ"><span>Intervenant (facultatif)</span><input type="text" name="intervenant_id"></label>
+    <label class="ec-champ"><span>Ménage / prestation (facultatif)</span><input type="text" name="prestation_ref"></label>
+    <label class="ec-champ"><span>Justificatif (facultatif)</span><input type="text" name="justificatif_reference"></label>
+    <label class="ec-champ"><span>Commentaire</span><input type="text" name="commentaire"></label>
+    <div class="ec-filtres__actions"><button type="submit" class="btn btn-primary">Ajouter une dépense liée à l'activité</button></div>
+  </form>
+  {% endif %}
+</section>
+
+<section class="card">
+  <div class="fi-card-tete"><h2 class="card-title">Répartition par mois (prorata des jours)</h2></div>
+  <div class="ec-table-wrap"><table class="data-table">
+    <thead><tr><th>Mois</th><th class="num">Jours</th><th class="num">IK affectée</th></tr></thead>
+    <tbody>{% for p in ik.prorata %}<tr><td>{{ p.mois|mois_humain }}</td><td class="num">{{ p.jours }} / {{ p.total_jours }}</td><td class="num">{{ euros(p.montant) }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+
+<details class="card fi-depliant">
+  <summary>Historique</summary>
+  <div class="fi-depliant__corps"><ul>{% for e in ik.historique %}<li>{{ e.horodatage|datetime_fr }} — {{ e.detail or e.evenement }}{% if e.acteur %} ({{ e.acteur }}){% endif %}</li>{% endfor %}</ul></div>
+</details>
+{% endif %}
+</div>
+<script>
+(function () {
+  var b = document.getElementById("ajouter-ligne-trajet");
+  if (!b) return;
+  b.addEventListener("click", function () {
+    var corps = document.getElementById("lignes-trajets");
+    var modele = corps.querySelector(".ligne-trajet");
+    var copie = modele.cloneNode(true);
+    copie.querySelectorAll("input").forEach(function (i) { i.value = ""; });
+    corps.appendChild(copie);
+  });
+})();
+</script>
+<script src="/static/js/finitions.js" defer></script>
+{% endblock %}

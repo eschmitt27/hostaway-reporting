@@ -278,6 +278,21 @@ def _verifier_contrat(donnees: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+# Avantage associé (migration 0116) : l'associé BÉNÉFICIAIRE, distinct de `associe_id` (celui qui
+# a payé). Hors de `CHAMPS_SAISIE` à dessein : `modifier()` réécrit toutes ces colonnes, et une
+# correction qui ne transmet pas l'avantage l'effacerait. Écrit à la création, mis à jour seulement
+# quand il est fourni.
+CHAMPS_AVANTAGE = ("avantage_associe", "avantage_associe_id")
+
+
+def _avantage(donnees: dict[str, Any]) -> dict[str, Any]:
+    """`OUI` + associé, ou rien. Un avantage sans associé bénéficiaire n'est pas enregistré."""
+    oui = str(donnees.get("avantage_associe") or "").strip().upper() == "OUI"
+    associe = str(donnees.get("avantage_associe_id") or "").strip()
+    return {"avantage_associe": "OUI" if oui and associe else None,
+            "avantage_associe_id": associe if oui and associe else None}
+
+
 def _journaliser(conn, charge_id: str, evenement: str, acteur: str, motif: str,
                  avant: Any = None, apres: Any = None) -> None:
     conn.execute(
@@ -378,9 +393,11 @@ def creer(donnees: dict[str, Any], *, acteur: str = "", conn=None, perimetre=Non
         if refus is not None:
             return refus
         _appliquer_justificatif_archive(conn, valeurs, valeurs.get("date_charge"))
-        colonnes = ["charge_id", *CHAMPS_SAISIE, "date_saisie", "source_module", "acteur"]
-        params = [charge_id, *(valeurs[c] for c in CHAMPS_SAISIE), _maintenant(), "SAISIE_APP",
-                  acteur or None]
+        valeurs.update(_avantage(donnees))
+        colonnes = ["charge_id", *CHAMPS_SAISIE, *CHAMPS_AVANTAGE, "date_saisie", "source_module",
+                    "acteur"]
+        params = [charge_id, *(valeurs[c] for c in (*CHAMPS_SAISIE, *CHAMPS_AVANTAGE)),
+                  _maintenant(), "SAISIE_APP", acteur or None]
         conn.execute(
             f"INSERT INTO charges ({', '.join(colonnes)}) "
             f"VALUES ({', '.join(['?'] * len(colonnes))})", params)
@@ -448,6 +465,11 @@ def modifier(charge_id: str, donnees: dict[str, Any], *, acteur: str = "", motif
             f"UPDATE charges SET {', '.join(f'{c} = ?' for c in CHAMPS_SAISIE)}, "
             "date_modification = ? WHERE charge_id = ?",
             [*(valeurs[c] for c in CHAMPS_SAISIE), _maintenant(), charge_id])
+        if any(c in donnees for c in CHAMPS_AVANTAGE):
+            valeurs.update(_avantage(donnees))
+            conn.execute("UPDATE charges SET avantage_associe = ?, avantage_associe_id = ? "
+                         "WHERE charge_id = ?", (valeurs["avantage_associe"],
+                                                 valeurs["avantage_associe_id"], charge_id))
         _journaliser(conn, charge_id, EVT_MODIFICATION, acteur, motif,
                      avant={c: avant.get(c) for c in CHAMPS_SAISIE}, apres=valeurs)
         from app.services import charges_refacturation_service as refac

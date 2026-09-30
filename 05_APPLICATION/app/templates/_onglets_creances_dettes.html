@@ -1,7 +1,9 @@
-{# Sous-navigation du module « Créances & dettes » : trois écrans, un seul menu. Liens simples. #}
+{# Créances & Dettes : le point d'entrée du pilotage financier — quatre vues, un seul menu.
+   Le Compte propriétaire et le règlement s'ouvrent DEPUIS ces vues, jamais par une entrée séparée. #}
 {% set _chemin = request.url.path if request is defined else "" %}
 <nav class="ec-onglets" aria-label="Créances et dettes">
-  <a href="/creances" {% if _chemin == "/creances" %}aria-current="page"{% endif %}>Créances propriétaires</a>
+  <a href="/creances" {% if _chemin == "/creances" or _chemin.startswith("/creances/") %}aria-current="page"{% endif %}>Créances propriétaires</a>
   <a href="/dettes" {% if _chemin == "/dettes" %}aria-current="page"{% endif %}>Dettes fournisseurs</a>
   <a href="/echeancier" {% if _chemin == "/echeancier" %}aria-current="page"{% endif %}>Échéancier</a>
+  <a href="/associes" {% if _chemin.startswith("/associes") %}aria-current="page"{% endif %}>Associés</a>
 </nav>

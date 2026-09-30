@@ -311,6 +311,13 @@ async def charge_perimetre(request: Request, charge_id: str):
     return RedirectResponse(url=cible, status_code=303)
 
 
+def _ik_de_charge(charge_id: str) -> str:
+    """Identifiant de l'IK portée par la charge, ou « » — lecture seule."""
+    from app.services import associes_service
+    return next((i["ik_id_opaque"] for i in associes_service.lister_ik()
+                 if i["charge_id"] == charge_id), "")
+
+
 @router.get("/fournisseurs/{charge_id}", response_class=HTMLResponse)
 def fournisseur_detail(request: Request, charge_id: str, erreur: str = ""):
     detail = svc.load_detail(charge_id)
@@ -349,6 +356,10 @@ def fournisseur_detail(request: Request, charge_id: str, erreur: str = ""):
         "perimetre": perimetre,
         "position_refac": position,
         "statut_cycle": ligne.get("statut"),
+        # Associés (migration 0116) : avantage associé conservé, et IK portée par cette charge.
+        "avantage_associe_id": (ligne.get("avantage_associe_id")
+                                if ligne.get("avantage_associe") == "OUI" else ""),
+        "ik_charge": _ik_de_charge(charge_id),
         "peut_valider": active and controle != saisie.CONTROLE_VALIDE,
         "peut_signaler": active and controle != saisie.CONTROLE_ANOMALIE,
         # Périmètre à compléter : charge active, sans aucun logement, dont la position de

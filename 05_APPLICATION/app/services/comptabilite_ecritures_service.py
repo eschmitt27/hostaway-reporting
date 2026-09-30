@@ -485,6 +485,33 @@ def generer_ecriture_apport_associe(rapprochement_id_opaque: str, *, acteur: str
         acteur=acteur, db_path=db_path, conn=conn)
 
 
+def generer_ecriture_remboursement_associe(rapprochement_id_opaque: str, *, acteur: str = "",
+                                           db_path=None, conn=None) -> dict[str, Any]:
+    """Remboursement d'un compte courant d'associé : 455 (Associés, débit) / 512 (Banque, crédit).
+
+    L'écriture miroir de l'apport : même compte `455100`, même auxiliaire (l'associé), sens
+    inverse. La dette de la société envers l'associé diminue ; aucun résultat n'est touché.
+    """
+    if not _flags_actifs():
+        return _refus(E_FLAGS)
+    rap = _rapprochement(rapprochement_id_opaque, "REMBOURSEMENT_ASSOCIE", db_path, conn=conn)
+    if rap is None:
+        return _refus(E_ORIGINE_INVALIDE, rapprochement_id_opaque)
+
+    montant = round(rap["montant_rapproche"], 2)
+    associe = rap["objet_id"]
+    lignes = [
+        {"compte": COMPTE_ASSOCIES, "debit": montant, "credit": 0, "auxiliaire": associe,
+         "libelle": "Remboursement de compte courant d'associé"},
+        {"compte": COMPTE_BANQUE, "debit": 0, "credit": montant,
+         "libelle": "Remboursement de compte courant"},
+    ]
+    return _inserer_ecriture(
+        "BANQUE", rap["date_creation"][:10], rap["date_creation"][:7], rapprochement_id_opaque,
+        "Remboursement de compte courant d'associé", "RAPPROCHEMENT", rapprochement_id_opaque,
+        lignes, acteur=acteur, db_path=db_path, conn=conn)
+
+
 def generer_ecriture_transfert_caisse(rapprochement_id_opaque: str, *, acteur: str = "",
                                       db_path=None, conn=None) -> dict[str, Any]:
     """Retrait d'espèces : 530 (Caisse, débit) / 512 (Banque, crédit).

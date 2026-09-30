@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}Associés{% endblock %}
+{% macro euros(v) %}<span class="fi-montant{{ ' fi-montant--negatif' if v is not none and v < -0.005 }}">{{ "%.2f"|format(v or 0) }} €</span>{% endmacro %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+<div class="ecran">
+<div class="page-header">
+  <div class="page-header__titre">
+    <h1 class="page-title">Créances &amp; dettes</h1>
+    <p class="page-subtitle">Associés : IK, avantages et compte courant, mois par mois. Tout vient des charges,
+      de la banque et de la comptabilité — rien n'est ressaisi ici.</p>
+  </div>
+  <div class="page-header__actions">
+    <a href="/associes/ik/nouvelle" class="btn btn-primary" data-testid="declarer-ik">Déclarer une IK</a>
+  </div>
+</div>
+
+{% include "_onglets_creances_dettes.html" %}
+
+{% if message %}<div class="alert alert-info">{{ message }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-error">{{ erreur }}</div>{% endif %}
+
+<form method="get" action="/associes" class="ec-filtres" data-fi-filtres>
+  <label class="ec-champ"><span>Associé</span>
+    <select name="associe">
+      <option value="">Tous les associés</option>
+      {% for a in suivi.associes %}<option value="{{ a.id }}" {{ 'selected' if a.id == filtres.associe }}>{{ a.nom }}</option>{% endfor %}
+    </select></label>
+  <label class="ec-champ"><span>Du mois</span><input type="month" name="debut" value="{{ filtres.debut }}"></label>
+  <label class="ec-champ"><span>Au mois</span><input type="month" name="fin" value="{{ filtres.fin }}"></label>
+  <div class="ec-filtres__actions">
+    <a href="/associes" class="btn btn-ghost">Réinitialiser</a>
+    <button type="submit" class="btn btn-primary">Appliquer</button>
+  </div>
+</form>
+
+{% set t = suivi.total_periode %}
+<div class="fi-kpis" data-testid="cartes-associes">
+  <div class="fi-kpi"><span class="fi-kpi__label">IK brutes</span><span class="fi-kpi__valeur">{{ euros(t.ik_brute) }}</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Dépenses activité</span><span class="fi-kpi__valeur">{{ euros(t.depenses_activite) }}</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Avantage réel IK</span><span class="fi-kpi__valeur">{{ euros(t.avantage_ik) }}</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Autres avantages</span><span class="fi-kpi__valeur">{{ euros(t.autres_avantages) }}</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Apports CCA</span><span class="fi-kpi__valeur">{{ euros(t.apports_cca) }}</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Remboursements CCA</span><span class="fi-kpi__valeur">{{ euros(t.remboursements_cca) }}</span></div>
+  <div class="fi-kpi fi-kpi--hero"><span class="fi-kpi__label">Position nette</span><span class="fi-kpi__valeur" data-testid="position-nette">{{ euros(t.position_nette) }}</span>
+    <span class="fi-kpi__sous">avantages totaux − apport CCA net</span></div>
+</div>
+
+<section class="card" data-testid="suivi-mensuel">
+  <div class="fi-card-tete"><h2 class="card-title">Mois par mois</h2>
+    <span class="fi-compteur">{{ suivi.lignes|length }} mois</span></div>
+  <div class="ec-table-wrap">
+  <table class="data-table">
+    <thead><tr><th>Mois</th><th class="num">IK brute</th><th class="num">Dépenses activité</th><th class="num">Avantage IK</th>
+      <th class="num">Autres avantages</th><th class="num">Apports CCA</th><th class="num">Remboursements CCA</th><th class="num">Position nette</th></tr></thead>
+    <tbody>
+    {% for l in suivi.lignes %}
+      <tr>
+        <td class="fi-cle ec-nowrap"><a href="/associes/mois/{{ l.mois }}{% if filtres.associe %}?associe={{ filtres.associe }}{% endif %}" data-testid="lien-mois">{{ l.mois|mois_humain }}</a></td>
+        <td class="num">{{ euros(l.ik_brute) }}</td><td class="num">{{ euros(l.depenses_activite) }}</td>
+        <td class="num">{{ euros(l.avantage_ik) }}</td><td class="num">{{ euros(l.autres_avantages) }}</td>
+        <td class="num">{{ euros(l.apports_cca) }}</td><td class="num">{{ euros(l.remboursements_cca) }}</td>
+        <td class="num"><strong>{{ euros(l.position_nette) }}</strong></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="8" class="ec-vide">Rien sur cette période : ni IK, ni avantage, ni mouvement de compte courant.</td></tr>
+    {% endfor %}
+    </tbody>
+    {% if suivi.lignes %}
+    <tfoot>
+      <tr class="ec-total"><td>Total de la période</td>
+        <td class="num">{{ euros(t.ik_brute) }}</td><td class="num">{{ euros(t.depenses_activite) }}</td>
+        <td class="num">{{ euros(t.avantage_ik) }}</td><td class="num">{{ euros(t.autres_avantages) }}</td>
+        <td class="num">{{ euros(t.apports_cca) }}</td><td class="num">{{ euros(t.remboursements_cca) }}</td>
+        <td class="num"><strong>{{ euros(t.position_nette) }}</strong></td></tr>
+      {% set c = suivi.cumul_historique %}
+      <tr data-testid="cumul-historique"><td>Cumul historique</td>
+        <td class="num">{{ euros(c.ik_brute) }}</td><td class="num">{{ euros(c.depenses_activite) }}</td>
+        <td class="num">{{ euros(c.avantage_ik) }}</td><td class="num">{{ euros(c.autres_avantages) }}</td>
+        <td class="num">{{ euros(c.apports_cca) }}</td><td class="num">{{ euros(c.remboursements_cca) }}</td>
+        <td class="num"><strong>{{ euros(c.position_nette) }}</strong></td></tr>
+    </tfoot>
+    {% endif %}
+  </table>
+  </div>
+</section>
+
+{% if not filtres.associe and suivi.par_associe|length > 1 %}
+<section class="card">
+  <div class="fi-card-tete"><h2 class="card-title">Par associé</h2></div>
+  <div class="ec-table-wrap">
+  <table class="data-table">
+    <thead><tr><th class="ec-col-nom">Associé</th><th class="num">Avantages totaux</th><th class="num">Apport CCA net</th>
+      <th class="num">Position nette</th><th class="num">Solde du compte courant</th></tr></thead>
+    <tbody>
+    {% for a in suivi.par_associe %}
+      <tr><td class="fi-cle"><a href="/associes?associe={{ a.associe_id }}">{{ a.nom }}</a></td>
+        <td class="num">{{ euros(a.avantages_totaux) }}</td><td class="num">{{ euros(a.apport_cca_net) }}</td>
+        <td class="num"><strong>{{ euros(a.position_nette) }}</strong></td><td class="num">{{ euros(a.solde_cca) }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endif %}
+
+<section class="card" data-testid="liste-ik">
+  <div class="fi-card-tete"><h2 class="card-title">IK (indemnités kilométriques)</h2>
+    <span class="fi-compteur">{{ ik|length }}</span></div>
+  <div class="ec-table-wrap">
+  <table class="data-table">
+    <thead><tr><th>Associé</th><th>Période</th><th class="num">Montant</th><th class="num">Trajets</th><th class="num">Km</th>
+      <th class="num">Dépenses activité</th><th class="num">Avantage réel</th><th>Statut</th><th></th></tr></thead>
+    <tbody>
+    {% for i in ik %}
+      <tr><td>{{ i.associe_id | nom_associe }}</td>
+        <td class="ec-nowrap">{{ i.date_debut|date_fr }} → {{ i.date_fin|date_fr }}</td>
+        <td class="num">{{ euros(i.montant) }}</td><td class="num">{{ i.nb_trajets }}</td><td class="num">{{ i.km_total }}</td>
+        <td class="num">{{ euros(i.depenses_total) }}</td><td class="num"><strong>{{ euros(i.avantage_reel) }}</strong></td>
+        <td><span class="status-badge status-{{ 'valide' if i.statut == 'VALIDEE' else ('a-controler' if i.statut == 'A_CONTROLER' else 'brouillon') }}">{{ i.statut_libelle }}</span></td>
+        <td class="fi-col-actions"><a class="fi-lien-action" href="/associes/ik/{{ i.ik_id_opaque }}">Voir le détail</a></td></tr>
+    {% else %}
+      <tr><td colspan="9" class="ec-vide">Aucune IK. Une IK n'est jamais attendue : son absence ne bloque rien, clôture comprise.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<p class="ec-note">
+  <strong>Comment lire.</strong> Une IK couvrant plusieurs mois est répartie au prorata des jours (bornes incluses).
+  Les dépenses liées à l'activité comptent au mois de leur débit réel. Avantage réel IK = IK brute − dépenses activité ;
+  position nette = avantages totaux − (apports − remboursements de compte courant).
+  Un apport ou un remboursement se qualifie depuis le mouvement bancaire, dans <a href="/flux-financiers/banque">Flux financiers</a>.
+  Une charge marquée « avantage associé » dans Charges apparaît ici automatiquement.
+</p>
+</div>
+<script src="/static/js/finitions.js" defer></script>
+{% endblock %}

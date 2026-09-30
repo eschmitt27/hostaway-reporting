@@ -118,6 +118,17 @@
     <span class="detail-label">Associé</span>
     <span class="detail-value">{{ c.associe_id | nom_associe if c.associe_id else "—" }}</span>
   </div>
+  <div class="detail-row">
+    <span class="detail-label">Avantage associé</span>
+    <span class="detail-value" data-testid="avantage-associe">{% if avantage_associe_id %}Oui — {{ avantage_associe_id | nom_associe }}
+      (<a href="/associes?associe={{ avantage_associe_id }}">suivi Associés</a>){% else %}Non{% endif %}</span>
+  </div>
+  {% if ik_charge %}
+  <div class="detail-row">
+    <span class="detail-label">IK</span>
+    <span class="detail-value"><a href="/associes/ik/{{ ik_charge }}">Voir l'IK (trajets, dépenses liées à l'activité)</a></span>
+  </div>
+  {% endif %}
   {% if c.reservation_id %}
   <div class="detail-row">
     <span class="detail-label">Réservation liée</span>

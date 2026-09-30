@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Associés — {{ d.mois|mois_humain }}{% endblock %}
+{% macro euros(v) %}<span class="fi-montant{{ ' fi-montant--negatif' if v is not none and v < -0.005 }}">{{ "%.2f"|format(v or 0) }} €</span>{% endmacro %}
+{% set noms = {} %}{% for a in d.associes %}{% set _ = noms.update({a.id: a.nom}) %}{% endfor %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+<div class="ecran">
+<div class="page-header">
+  <div class="page-header__titre">
+    <a href="/associes{% if d.associe_id %}?associe={{ d.associe_id }}{% endif %}" class="back-link">← Associés</a>
+    <h1 class="page-title">{{ d.mois|mois_humain }}{% if d.associe_id %} — {{ noms.get(d.associe_id, d.associe_id) }}{% else %} — tous les associés{% endif %}</h1>
+    <p class="page-subtitle">Chaque montant renvoie à sa source.</p>
+  </div>
+</div>
+
+{% set l = d.ligne %}
+<div class="fi-kpis">
+  <div class="fi-kpi"><span class="fi-kpi__label">IK affectée au mois</span><span class="fi-kpi__valeur">{{ euros(l.ik_brute) }}</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Dépenses activité</span><span class="fi-kpi__valeur">{{ euros(l.depenses_activite) }}</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Avantage réel IK</span><span class="fi-kpi__valeur">{{ euros(l.avantage_ik) }}</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Autres avantages</span><span class="fi-kpi__valeur">{{ euros(l.autres_avantages) }}</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Apport CCA net</span><span class="fi-kpi__valeur">{{ euros(l.apport_cca_net) }}</span></div>
+  <div class="fi-kpi fi-kpi--hero"><span class="fi-kpi__label">Position nette</span><span class="fi-kpi__valeur">{{ euros(l.position_nette) }}</span></div>
+</div>
+
+<section class="card">
+  <div class="fi-card-tete"><h2 class="card-title">IK</h2></div>
+  <div class="ec-table-wrap"><table class="data-table">
+    <thead><tr><th>Associé</th><th>Période</th><th>Charge source</th><th class="num">Montant global</th><th class="num">Affecté au mois</th><th>Validation</th></tr></thead>
+    <tbody>{% for p in d.ik %}<tr>
+      <td>{{ noms.get(p.associe_id, p.associe_id) }}</td>
+      <td class="ec-nowrap">{{ p.date_debut|date_fr }} → {{ p.date_fin|date_fr }}</td>
+      <td><a href="/fournisseurs/{{ p.charge_id }}">Voir la charge</a> · <a href="/associes/ik/{{ p.ik_id_opaque }}">Voir l'IK</a></td>
+      <td class="num">{{ euros(p.montant_global) }}</td>
+      <td class="num"><strong>{{ euros(p.montant) }}</strong><span class="ec-sous-ligne">{{ p.jours }} j / {{ p.total_jours }} j</span></td>
+      <td>{{ p.statut_libelle }}</td></tr>
+    {% else %}<tr><td colspan="6" class="ec-vide">Aucune IK sur ce mois.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+
+<section class="card">
+  <div class="fi-card-tete"><h2 class="card-title">Dépenses liées à l'activité (payées sur un compte personnel)</h2></div>
+  <div class="ec-table-wrap"><table class="data-table">
+    <thead><tr><th>Date du débit</th><th>Associé</th><th class="num">Montant</th><th>Nature</th><th>Intervenant</th><th>Ménage / prestation</th><th>Commentaire</th></tr></thead>
+    <tbody>{% for x in d.depenses %}<tr>
+      <td class="ec-nowrap">{{ x.date_debit|date_fr }}</td><td>{{ noms.get(x.associe_id, x.associe_id) }}</td>
+      <td class="num">{{ euros(x.montant) }}</td><td>{{ x.nature_libelle }}</td>
+      <td>{{ (x.intervenant_id | nom_intervenant) if x.intervenant_id else "—" }}</td><td>{{ x.prestation_ref or "—" }}</td><td>{{ x.commentaire or "—" }}</td></tr>
+    {% else %}<tr><td colspan="7" class="ec-vide">Aucune dépense ce mois-ci.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+
+<section class="card">
+  <div class="fi-card-tete"><h2 class="card-title">Autres avantages (charges « avantage associé »)</h2></div>
+  <div class="ec-table-wrap"><table class="data-table">
+    <thead><tr><th>Date</th><th>Associé</th><th>Charge</th><th class="num">Montant</th><th>Catégorie</th></tr></thead>
+    <tbody>{% for a in d.autres %}<tr>
+      <td class="ec-nowrap">{{ a.date|date_fr }}</td><td>{{ noms.get(a.associe_id, a.associe_id) }}</td>
+      <td><a href="/fournisseurs/{{ a.charge_id }}">{{ a.commentaire or "Voir la charge" }}</a></td>
+      <td class="num">{{ euros(a.montant) }}</td><td>{{ a.categorie_charge_id | nom_categorie_charge }}</td></tr>
+    {% else %}<tr><td colspan="5" class="ec-vide">Aucun autre avantage ce mois-ci.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+
+<section class="card">
+  <div class="fi-card-tete"><h2 class="card-title">Compte courant d'associé</h2></div>
+  <div class="ec-table-wrap"><table class="data-table">
+    <thead><tr><th>Date</th><th>Associé</th><th>Mouvement</th><th>Source</th><th class="num">Montant</th></tr></thead>
+    <tbody>{% for m in d.cca %}<tr>
+      <td class="ec-nowrap">{{ m.date|date_fr }}</td><td>{{ noms.get(m.associe_id, m.associe_id) }}</td>
+      <td>{{ "Apport" if m.type == "APPORT" else "Remboursement" }}</td><td>{{ m.source }}</td>
+      <td class="num">{{ euros(m.montant) }}</td></tr>
+    {% else %}<tr><td colspan="5" class="ec-vide">Aucun apport ni remboursement ce mois-ci.</td></tr>{% endfor %}</tbody>
+  </table></div>
+  <p class="ec-note">Solde actuel du compte courant (comptabilité, 455100) :
+    {% for aid, s in d.soldes_cca.items() %}{{ noms.get(aid, aid) }} {{ euros(s) }}{{ " · " if not loop.last }}{% endfor %}</p>
+</section>
+</div>
+{% endblock %}

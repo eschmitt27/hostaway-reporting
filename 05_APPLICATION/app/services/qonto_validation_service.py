@@ -44,19 +44,23 @@ APPORT_ASSOCIE = "APPORT_ASSOCIE"
 TRANSFERT_CAISSE = "TRANSFERT_CAISSE"
 REGLEMENT_CHARGE = "REGLEMENT_CHARGE"
 REVERSEMENT_PROPRIETAIRE = "REVERSEMENT_PROPRIETAIRE"
+REMBOURSEMENT_ASSOCIE = "REMBOURSEMENT_ASSOCIE"
 
 LIBELLES_NATURE = {
     APPORT_ASSOCIE: "Apport en compte courant d'associé",
     TRANSFERT_CAISSE: "Retrait d'espèces (Banque → Caisse)",
     REGLEMENT_CHARGE: "Paiement d'une facture fournisseur",
     REVERSEMENT_PROPRIETAIRE: "Encaissement d'un propriétaire",
+    REMBOURSEMENT_ASSOCIE: "Remboursement de compte courant d'associé",
 }
+# Natures dont l'objet est un associé (choisi, jamais deviné).
+NATURES_ASSOCIE = (APPORT_ASSOCIE, REMBOURSEMENT_ASSOCIE)
 
 # Quelle nature peut s'appliquer à quel sens. Un apport ne sort pas du compte, un paiement
 # fournisseur n'y entre pas : proposer l'inverse serait offrir une erreur en un clic.
 NATURES_PAR_SENS = {
     "credit": (APPORT_ASSOCIE, REVERSEMENT_PROPRIETAIRE),
-    "debit": (REGLEMENT_CHARGE, TRANSFERT_CAISSE),
+    "debit": (REGLEMENT_CHARGE, TRANSFERT_CAISSE, REMBOURSEMENT_ASSOCIE),
 }
 
 E_INTROUVABLE = "QV01_TRANSACTION_INTROUVABLE"
@@ -69,6 +73,8 @@ E_DEJA_AFFECTE = "QV07_MOUVEMENT_DEJA_AFFECTE_INTEGRALEMENT"
 E_VERROU_BANQUE = "QV08_ECRITURES_BANCAIRES_DESACTIVEES"
 E_VERROU_COMPTA = "QV09_ECRITURES_COMPTABLES_DESACTIVEES"
 E_ECRITURE_REFUSEE = "QV10_ECRITURE_REFUSEE"
+E_DEPASSEMENT_CCA = "QV11_REMBOURSEMENT_SUPERIEUR_AU_SOLDE_CCA"
+E_MOTIF_DEPASSEMENT = "QV12_MOTIF_DEPASSEMENT_OBLIGATOIRE"
 
 MESSAGES = {
     E_INTROUVABLE: "Cette transaction Qonto est introuvable.",
@@ -88,13 +94,16 @@ MESSAGES = {
                       "redémarrez."),
     E_ECRITURE_REFUSEE: ("L'écriture comptable a été refusée : le rapprochement n'a pas été "
                          "gardé (un rapprochement validé porte toujours son écriture)."),
+    E_DEPASSEMENT_CCA: ("Ce remboursement dépasse le solde disponible du compte courant de "
+                        "l'associé. Confirmez explicitement le dépassement, avec un motif."),
+    E_MOTIF_DEPASSEMENT: "Un remboursement au-delà du solde exige un motif écrit.",
 }
 
 
 # Natures dont la validation génère ELLE-MÊME une écriture. Les deux autres délèguent à un
 # service de règlement qui produit son effet séparément : exiger ici les verrous comptables pour
 # elles bloquerait une opération qui n'écrit encore aucune écriture.
-NATURES_AVEC_ECRITURE = (APPORT_ASSOCIE, TRANSFERT_CAISSE)
+NATURES_AVEC_ECRITURE = (APPORT_ASSOCIE, TRANSFERT_CAISSE, REMBOURSEMENT_ASSOCIE)
 
 
 def _contexte_ecriture() -> bool:
@@ -203,6 +212,12 @@ def _effets_prevus(nature: str, montant: float, objet_libelle: str) -> list[dict
             {"compte": compta.COMPTE_ASSOCIES,
              "libelle": f"Compte courant d'associé — {objet_libelle}", "debit": 0, "credit": montant},
         ]
+    if nature == REMBOURSEMENT_ASSOCIE:
+        return [
+            {"compte": compta.COMPTE_ASSOCIES,
+             "libelle": f"Compte courant d'associé — {objet_libelle}", "debit": montant, "credit": 0},
+            {"compte": compta.COMPTE_BANQUE, "libelle": "Banque", "debit": 0, "credit": montant},
+        ]
     if nature == TRANSFERT_CAISSE:
         return [
             {"compte": compta.COMPTE_CAISSE, "libelle": "Caisse", "debit": montant, "credit": 0},
@@ -244,11 +259,16 @@ def apercu(uuid_transaction: str, *, nature: str = "", objet_id: str = "", monta
     nature_choisie = nature or prefill
 
     objet_libelle = ""
-    if nature_choisie == APPORT_ASSOCIE and objet_id:
+    if nature_choisie in NATURES_ASSOCIE and objet_id:
         objet_libelle = next((a["nom"] for a in associes(db_path=db_path) if a["id"] == objet_id),
                              objet_id)
 
     montant_affecte = round(float(montant), 2) if montant not in (None, "") else restant
+    # Remboursement : le solde du compte courant est dit AVANT la validation (455100 créditeur).
+    solde_cca = None
+    if nature_choisie in NATURES_ASSOCIE and objet_id:
+        from app.services import associes_service
+        solde_cca = associes_service.solde_cca(objet_id, db_path=db_path)
 
     return {
         "ok": True,
@@ -268,6 +288,10 @@ def apercu(uuid_transaction: str, *, nature: str = "", objet_id: str = "", monta
         "associes": associes(db_path=db_path),
         "objet_id": objet_id,
         "objet_libelle": objet_libelle,
+        "nature_associe": nature_choisie in NATURES_ASSOCIE,
+        "solde_cca": solde_cca,
+        "depassement_cca": (nature_choisie == REMBOURSEMENT_ASSOCIE and solde_cca is not None
+                            and montant_affecte > solde_cca + 0.005),
         "montant_affecte": montant_affecte,
         "deja_affecte": round(deja, 2),
         "restant": restant,
@@ -283,7 +307,8 @@ def apercu(uuid_transaction: str, *, nature: str = "", objet_id: str = "", monta
 
 
 def valider(uuid_transaction: str, *, nature: str, objet_id: str = "", montant=None,
-            acteur: str = "", commentaire: str = "", db_path=None) -> dict:
+            acteur: str = "", commentaire: str = "", confirmer_depassement: bool = False,
+            db_path=None) -> dict:
     """Enregistre la décision humaine, puis déclenche les effets canoniques.
 
     L'ordre compte : le rapprochement est créé CONFIRMÉ d'abord, et c'est LUI qui sert d'origine
@@ -327,6 +352,16 @@ def valider(uuid_transaction: str, *, nature: str, objet_id: str = "", montant=N
         return _refus(E_DEJA_AFFECTE)
     montant_affecte = (round(float(montant), 2) if montant not in (None, "")
                        else round(montant_mouvement - deja, 2))
+    # Un remboursement ne dépasse jamais le solde créditeur du compte courant sans une décision
+    # explicite et motivée : rembourser plus que ce qui a été apporté est une avance à l'associé.
+    if nature == REMBOURSEMENT_ASSOCIE:
+        from app.services import associes_service
+        solde = associes_service.solde_cca(objet_id, db_path=db_path)
+        if montant_affecte > solde + 0.005:
+            if not confirmer_depassement:
+                return _refus(E_DEPASSEMENT_CCA, f"solde {solde:.2f} €")
+            if not (commentaire or "").strip():
+                return _refus(E_MOTIF_DEPASSEMENT)
 
     # Pour un transfert de caisse, l'« objet » est la transaction elle-même : c'est ce qui rend le
     # rapprochement unique par l'index, et donc non rejouable.
@@ -376,6 +411,7 @@ def _valider_avec_ecriture(uuid_transaction: str, opaque: str, nature: str, obje
     coup. Le moteur comptable ne change pas : mêmes comptes, même auxiliaire, même statut
     d'écriture (PROPOSEE, validée ensuite dans Comptabilité)."""
     generateur = {APPORT_ASSOCIE: compta.generer_ecriture_apport_associe,
+                  REMBOURSEMENT_ASSOCIE: compta.generer_ecriture_remboursement_associe,
                   TRANSFERT_CAISSE: compta.generer_ecriture_transfert_caisse}[nature]
     if montant_affecte <= 0:
         return rappro._refus(rappro.E_MONTANT_INVALIDE)

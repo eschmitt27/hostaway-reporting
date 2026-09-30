@@ -952,6 +952,10 @@ def _build_row_data(
         "justificatif_archive": (str(form_data.get("justificatif_archive", "")).strip().upper()
                                  or None),
         "commentaire": str(form_data.get("commentaire", "")).strip() or None,
+        # Avantage associé (migration 0116) : le choix validé par V25/V26 est désormais CONSERVÉ
+        # sur la charge. Il n'était que contrôlé, puis perdu à l'enregistrement.
+        "avantage_associe": "OUI" if g.get("avantage_associe") else None,
+        "avantage_associe_id": g.get("associe_id") if g.get("avantage_associe") else None,
         # Mission 36 — compte porté par la charge et justifications (contrôlés par V34/V36).
         "compte_comptable": (str(form_data.get("compte_comptable", "")).strip() or None)
                             if code_impact == "IC" else None,

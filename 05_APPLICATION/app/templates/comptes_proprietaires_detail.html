@@ -3,12 +3,20 @@
 {% block content %}
 <link rel="stylesheet" href="/static/css/ecrans.css">
 <div class="ecran">
-<a href="/comptes-proprietaires" class="back-link">&larr; Comptes propriétaires</a>
+<a href="/creances" class="back-link">&larr; Créances &amp; dettes</a>
 <div class="page-header">
   <div class="page-header__titre">
   <h1 class="page-title">Compte — {{ position.proprietaire_id | nom_proprietaire }}</h1>
-  <p class="page-subtitle">Position financière, tous logements confondus.
+  <p class="page-subtitle">Ce qui explique le solde du propriétaire, tous logements confondus :
+    factures, paiements, acomptes, reversements, crédits, compensations et allocations.
     <a href="/comptes-proprietaires/{{ position.proprietaire_id }}/credits" data-testid="lien-credits">Crédits (reversements Airbnb, acomptes)</a></p>
+  </div>
+  <div class="page-header__actions">
+    {% if position.creance_restante > 0.005 %}
+    <a href="/creances/proprietaires/{{ position.proprietaire_id }}/reglement" class="btn btn-primary" data-testid="bouton-preparer-reglement">Préparer le règlement</a>
+    {% endif %}
+    <a href="/factures-proprietaires?proprietaire_id={{ position.proprietaire_id }}" class="btn btn-secondary">Voir les factures</a>
+    <a href="/proprietaires-reglements/{{ position.proprietaire_id }}" class="btn btn-ghost">Suivi mensuel</a>
   </div>
 </div>
 

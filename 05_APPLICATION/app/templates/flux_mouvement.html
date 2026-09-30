@@ -37,6 +37,16 @@
 <div class="alert alert-info">Qonto classe ce crédit en apport en compte courant d'associé.
   <a href="/banques-caisse/qonto/{{ m.id }}/traiter?nature=APPORT_ASSOCIE" class="btn btn-secondary btn-sm">Qualifier l'apport (512 / 455)</a>
 </div>
+{% elif m.source == "BANQUE" and m.lettrable and m.definitif %}
+{# Compte courant d'associé : un apport entre, un remboursement sort. La qualification passe par
+   la validation bancaire existante (écriture 512 / 455100, associé en auxiliaire). #}
+<p class="mention" data-testid="qualifier-associe">
+  {% if m.sens == "ENTREE" %}Argent apporté par un associé ?
+    <a href="/banques-caisse/qonto/{{ m.id }}/traiter?nature=APPORT_ASSOCIE">Qualifier en apport en compte courant d'associé</a>
+  {% else %}Virement à un associé pour lui rembourser son compte courant ?
+    <a href="/banques-caisse/qonto/{{ m.id }}/traiter?nature=REMBOURSEMENT_ASSOCIE">Qualifier en remboursement de compte courant d'associé</a>
+  {% endif %}
+</p>
 {% endif %}
 
 {% if m.lettrable %}

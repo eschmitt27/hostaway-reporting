@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Déclarer une IK{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+<div class="ecran">
+<div class="page-header">
+  <div class="page-header__titre">
+    <a href="/associes" class="back-link">← Associés</a>
+    <h1 class="page-title">Déclarer une IK</h1>
+    <p class="page-subtitle">Une IK (indemnité kilométrique) est une charge : choisissez la charge de déplacement
+      déjà saisie, l'associé et la période couverte. Le montant reste celui de la charge.</p>
+  </div>
+</div>
+
+{% if erreur %}<div class="alert alert-error" data-testid="erreur-ik">{{ erreur }}</div>{% endif %}
+
+{% if not candidates %}
+<div class="card fi-vide">
+  <span class="fi-vide__titre">Aucune charge de déplacement disponible.</span>
+  <span class="fi-vide__texte">Saisissez d'abord la charge dans Charges, catégorie « Déplacement professionnel ».
+    Elle apparaîtra ici pour être déclarée comme IK.</span>
+  <a href="/fournisseurs/nouvelle" class="btn btn-secondary">Saisir la charge</a>
+</div>
+{% else %}
+<form method="post" action="/associes/ik/nouvelle" class="card" data-fi-occupe="Création…">
+  <div class="fi-card-tete"><h2 class="card-title">Charge de déplacement</h2></div>
+  <div class="ec-table-wrap"><table class="data-table">
+    <thead><tr><th></th><th>Date</th><th class="num">Montant</th><th>Commentaire</th></tr></thead>
+    <tbody>{% for c in candidates %}<tr>
+      <td><input type="radio" name="charge_id" value="{{ c.charge_id }}" required {{ 'checked' if loop.first and candidates|length == 1 }} aria-label="Choisir cette charge"></td>
+      <td class="ec-nowrap">{{ c.date_charge|date_fr }}</td><td class="num">{{ "%.2f"|format(c.montant or 0) }} €</td>
+      <td>{{ c.commentaire or "—" }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  <div class="ec-filtres">
+    <label class="ec-champ"><span>Associé</span>
+      <select name="associe_id" required>
+        <option value="">— à choisir —</option>
+        {% for a in associes %}<option value="{{ a.id }}">{{ a.nom }}</option>{% endfor %}
+      </select></label>
+    <label class="ec-champ"><span>Du</span><input type="date" name="date_debut" required></label>
+    <label class="ec-champ"><span>Au</span><input type="date" name="date_fin" required></label>
+    <label class="ec-champ"><span>Commentaire (facultatif)</span><input type="text" name="commentaire"></label>
+    <div class="ec-filtres__actions"><button type="submit" class="btn btn-primary">Déclarer l'IK</button></div>
+  </div>
+</form>
+{% endif %}
+</div>
+<script src="/static/js/finitions.js" defer></script>
+{% endblock %}

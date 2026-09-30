@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% set pid = prep.proprietaire_id %}
+{% block title %}Règlement — {{ pid | nom_proprietaire }}{% endblock %}
+{% macro euros(v) %}<span class="fi-montant{{ ' fi-montant--negatif' if v is not none and v < 0 }}">{{ "%.2f"|format(v or 0) }} €</span>{% endmacro %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+<div class="ecran">
+<div class="page-header">
+  <div class="page-header__titre">
+    <a href="/creances" class="back-link">← Créances &amp; dettes</a>
+    <h1 class="page-title">Règlement — {{ pid | nom_proprietaire }}</h1>
+    <p class="page-subtitle">Vérifiez ce qui compose le montant, choisissez le virement reçu, puis réglez.
+      L'argent reçu solde les factures de la plus ancienne à la plus récente.</p>
+  </div>
+  <div class="page-header__actions">
+    <a href="/comptes-proprietaires/{{ pid }}" class="btn btn-secondary">Voir le compte</a>
+  </div>
+</div>
+
+{% for e in erreurs %}<div class="alert alert-error" data-testid="erreur-reglement">{{ e.message }}</div>{% endfor %}
+
+{# ══ 1. Ce qui compose le montant ═══════════════════════════════════════════════════════════ #}
+<div class="fi-kpis">
+  <div class="fi-kpi fi-kpi--hero"><span class="fi-kpi__label">Montant à régler</span>
+    <span class="fi-kpi__valeur" data-testid="montant-propose">{{ euros(prep.montant_propose) }}</span>
+    <span class="fi-kpi__sous">{{ prep.factures_ouvertes|length }} facture(s) ouverte(s)</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Déjà réglé</span>
+    <span class="fi-kpi__valeur">{{ euros(prep.position.paiements_recus) }}</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Crédits appliqués</span>
+    <span class="fi-kpi__valeur">{{ euros(prep.position.compensations) }}</span>
+    <span class="fi-kpi__sous">reversements Airbnb, compensations</span></div>
+  <div class="fi-kpi"><span class="fi-kpi__label">Reversements Airbnb disponibles</span>
+    <span class="fi-kpi__valeur">{{ euros(prep.credits_airbnb_total) }}</span>
+    {% if prep.credits_airbnb_total > 0.005 %}<span class="fi-kpi__sous"><a href="/comptes-proprietaires/{{ pid }}/credits">Imputer avant de régler</a></span>{% endif %}</div>
+</div>
+
+<section class="card">
+  <div class="fi-card-tete"><h2 class="card-title">Factures ouvertes, dans l'ordre où elles seront soldées</h2></div>
+  <div class="ec-table-wrap">
+  <table class="data-table">
+    <thead><tr><th>Ordre</th><th>Facture</th><th>Émise le</th><th class="num">Total</th><th class="num">Déjà réglé</th>
+      <th class="num">Crédits appliqués</th><th class="num">Restant</th></tr></thead>
+    <tbody>
+    {% for f in prep.factures_ouvertes %}
+      <tr><td>{{ loop.index }}</td>
+        <td><a href="/factures-proprietaires/{{ f.facture_id_opaque }}">{{ f.numero_facture or "—" }}</a></td>
+        <td class="ec-nowrap">{{ f.date_emission|date_fr or "—" }}</td>
+        <td class="num">{{ euros(f.montant_total) }}</td><td class="num">{{ euros(f.regle) }}</td>
+        <td class="num">{{ euros(f.compense) }}</td><td class="num"><strong>{{ euros(f.solde) }}</strong></td></tr>
+    {% else %}
+      <tr><td colspan="7" class="ec-vide">Aucune facture ouverte : rien à régler pour ce propriétaire.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% if prep.sources_disponibles %}
+  <p class="ec-note">Acompte non encore utilisé :
+    {% for s in prep.sources_disponibles %}{{ euros(s.disponible) }} du {{ s.date|date_fr }}{{ ", " if not loop.last }}{% endfor %}
+    — il soldera automatiquement la prochaine facture émise.</p>
+  {% endif %}
+  {% if prep.a_reverser > 0.005 %}
+  <p class="ec-note"><strong>À reverser au propriétaire : {{ euros(prep.a_reverser) }}</strong> — voir le compte pour le détail.</p>
+  {% endif %}
+</section>
+
+{# ══ 2. Régler ═══════════════════════════════════════════════════════════════════════════════ #}
+{% if prep.montant_propose > 0.005 %}
+<section class="card" data-testid="choix-mouvement">
+  <div class="fi-card-tete"><h2 class="card-title">Régler — quel virement avez-vous reçu ?</h2></div>
+  {% if prep.mouvements %}
+  <div class="ec-table-wrap">
+  <table class="data-table">
+    <thead><tr><th>Date</th><th>Libellé</th><th>Source</th><th class="num">Montant disponible</th><th></th></tr></thead>
+    <tbody>
+    {% for m in prep.mouvements %}
+      <tr class="{{ 'fi-ligne-active' if m.cle == mouvement }}">
+        <td class="ec-nowrap">{{ m.date_fr }}</td>
+        <td>{{ m.libelle }}{% if m.porte_nom %} <span class="badge badge-info">au nom du propriétaire</span>{% endif %}</td>
+        <td>{{ "Banque" if m.source == "BANQUE" else "Caisse" }}</td>
+        <td class="num">{{ euros(m.restant) }}</td>
+        <td class="fi-col-actions"><a class="fi-lien-action" href="?mouvement={{ m.cle | urlencode }}" data-testid="choisir-mouvement">Choisir</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="ec-note">Aucun encaissement à rapprocher pour l'instant. Dès que le virement apparaît dans
+    <a href="/flux-financiers/banque">Flux financiers</a> (actualisation bancaire), il sera proposé ici.</p>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if apercu %}
+<section class="card" data-testid="apercu-reglement">
+  <div class="fi-card-tete"><h2 class="card-title">Vérifier puis régler</h2></div>
+  {% if not apercu.ok %}
+    {% for e in apercu.erreurs %}<div class="alert alert-error">{{ e.message }}</div>{% endfor %}
+  {% else %}
+  <p>Virement du <strong>{{ apercu.mouvement.date_fr }}</strong> — {{ apercu.mouvement.libelle }} :
+    <strong>{{ euros(apercu.total_mouvements) }}</strong> reçus, pour <strong>{{ euros(apercu.total_objets) }}</strong> de factures.</p>
+  <div class="ec-table-wrap">
+  <table class="data-table">
+    <thead><tr><th>Facture soldée</th><th class="num">Restant</th><th class="num">Réglé par ce virement</th></tr></thead>
+    <tbody>{% for o in apercu.objets %}<tr><td>{{ o.numero or o.libelle }}</td><td class="num">{{ euros(o.reste) }}</td><td class="num"><strong>{{ euros(o.engage) }}</strong></td></tr>{% endfor %}</tbody>
+  </table>
+  </div>
+  {% if apercu.ecritures %}
+  <p class="ec-note">Écriture qui sera passée :</p>
+  {% for e in apercu.ecritures %}
+  <div class="ec-table-wrap"><table class="data-table">
+    <thead><tr><th>Compte</th><th>Libellé</th><th class="num">Débit</th><th class="num">Crédit</th></tr></thead>
+    <tbody>{% for l in e.lignes %}<tr><td class="font-mono text-xs">{{ l.compte }}</td><td>{{ l.libelle }}</td>
+      <td class="num">{{ "%.2f"|format(l.debit) if l.debit else "—" }}</td><td class="num">{{ "%.2f"|format(l.credit) if l.credit else "—" }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% endfor %}
+  {% endif %}
+  {% if apercu.verrous_fermes %}<div class="alert alert-warning">{% for v in apercu.verrous_fermes %}{{ v }} {% endfor %}</div>{% endif %}
+
+  <form method="post" action="/creances/proprietaires/{{ pid }}/regler" class="ec-filtres" data-fi-occupe="Règlement en cours…">
+    <input type="hidden" name="mouvement" value="{{ mouvement }}">
+    {% if apercu.ecart_a_traiter %}
+    <div class="alert alert-info" style="flex-basis:100%">
+      {% if apercu.ecart < 0 %}Le virement ne couvre pas tout : les factures restent partiellement dues.
+      {% else %}Le virement dépasse les factures ouvertes : l'excédent reste à qualifier dans Flux financiers.{% endif %}
+      <input type="hidden" name="traitement_ecart" value="SOLDE_OUVERT">
+      Écart laissé ouvert : {{ euros(apercu.ecart) }} (rien n'est absorbé).
+    </div>
+    {% endif %}
+    <label class="ec-champ"><span>Votre nom (signature)</span><input type="text" name="acteur" value="{{ acteur }}" required></label>
+    <div class="ec-filtres__actions">
+      <a href="/flux-financiers/rapprochement/valider?m={{ mouvement|urlencode }}{% for o in apercu.objets_cles %}&o={{ o|urlencode }}{% endfor %}" class="btn btn-ghost">Ajuster dans Flux financiers</a>
+      <button type="submit" class="btn btn-primary" data-testid="bouton-regler" {% if apercu.verrous_fermes %}disabled{% endif %}>Régler</button>
+    </div>
+  </form>
+  {% endif %}
+</section>
+{% endif %}
+</div>
+<script src="/static/js/finitions.js" defer></script>
+{% endblock %}

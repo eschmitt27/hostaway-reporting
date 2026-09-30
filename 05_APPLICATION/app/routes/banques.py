@@ -630,7 +630,8 @@ async def qonto_valider(request: Request, mouvement_id: str):
     montant = (form.get("montant") or "").strip()
     resultat = validation.valider_par_mouvement(mouvement_id, nature=nature, objet_id=objet_id,
                                   montant=montant or None, acteur="local",
-                                  commentaire=(form.get("commentaire") or "").strip())
+                                  commentaire=(form.get("commentaire") or "").strip(),
+                                  confirmer_depassement=form.get("confirmer_depassement") == "1")
     if not resultat.get("ok"):
         message = resultat.get("message") or resultat.get("code", "Validation refusée.")
         return RedirectResponse(

@@ -1,13 +1,17 @@
-"""Routes Créances propriétaires, Dettes fournisseurs et Échéancier.
+"""Créances & Dettes — le point d'entrée du pilotage financier.
 
-Vues de consultation uniquement : aucune écriture, aucun calcul métier. Elles répondent aux trois
-questions du quotidien — qui me doit quoi, à qui dois-je quoi, et à quelle échéance.
+Quatre vues : Créances propriétaires, Dettes fournisseurs, Échéancier, Associés (route voisine).
+Les vues sont des lectures. La seule action d'écriture, « Régler », délègue au rapprochement
+canonique de Flux financiers (`creances_reglement_service`) : aucune donnée parallèle.
 """
+from urllib.parse import quote
+
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from app.template_env import get_templates
 
 from app.services import creances_dettes_service as svc
+from app.services import creances_reglement_service as reglement
 
 router = APIRouter()
 templates = get_templates()
@@ -15,11 +19,14 @@ templates = get_templates()
 
 @router.get("/creances", response_class=HTMLResponse)
 def creances(request: Request, proprietaire: str = "", logement: str = "", mois: str = "",
-             statut: str = "", echues: str = ""):
+             statut: str = "", echues: str = "", soldes: str = ""):
     lignes = svc.creances(proprietaire_id=proprietaire, logement_id=logement, mois=mois,
                           statut=statut, echues_seulement=bool(echues))
     return templates.TemplateResponse(request, "creances_list.html", {
         "active_menu": "creances", "lignes": lignes,
+        # Pilotage par propriétaire : c'est l'entrée naturelle vers le compte et le règlement.
+        "positions": reglement.positions(inclure_soldes=bool(soldes)),
+        "soldes": soldes,
         "total": round(sum(l["solde"] for l in lignes), 2),
         "total_echu": round(sum(l["solde"] for l in lignes if l["echue"]), 2),
         # §52 — les créances sans échéance contractuelle qu'il est temps de relancer.
@@ -49,3 +56,43 @@ def echeancier(request: Request):
     return templates.TemplateResponse(request, "echeancier.html", {
         "active_menu": "creances", "data": svc.echeancier(),
     })
+
+
+# ── Préparer le règlement → Régler ───────────────────────────────────────────────────────────────
+
+def _page_reglement(request: Request, pid: str, *, mouvement: str = "", traitement_ecart: str = "",
+                    acteur: str = "", erreurs: list | None = None, status_code: int = 200):
+    prep = reglement.preparer(pid)
+    apercu = reglement.apercu(pid, mouvement, traitement_ecart=traitement_ecart) if mouvement else None
+    from app.services import flux_lettrage_service as lettrage
+    return templates.TemplateResponse(request, "creances_reglement.html", {
+        "active_menu": "creances", "prep": prep, "apercu": apercu, "mouvement": mouvement,
+        "traitement_ecart": traitement_ecart, "acteur": acteur, "erreurs": erreurs or [],
+        "traitements": lettrage.LIBELLES_TRAITEMENT_ECART,
+    }, status_code=status_code)
+
+
+@router.get("/creances/proprietaires/{proprietaire_id}/reglement", response_class=HTMLResponse)
+def preparer_reglement(request: Request, proprietaire_id: str, mouvement: str = "",
+                       traitement_ecart: str = ""):
+    """Préparer le règlement : ce qui compose le montant, puis le choix du mouvement reçu.
+    LECTURE SEULE : l'aperçu de l'écriture est calculé, jamais enregistré."""
+    return _page_reglement(request, proprietaire_id, mouvement=mouvement,
+                           traitement_ecart=traitement_ecart)
+
+
+@router.post("/creances/proprietaires/{proprietaire_id}/regler")
+async def regler(request: Request, proprietaire_id: str):
+    form = await request.form()
+    mouvement = str(form.get("mouvement", "") or "")
+    traitement = str(form.get("traitement_ecart", "") or "")
+    acteur = str(form.get("acteur", "") or "").strip()
+    res = reglement.regler(proprietaire_id, mouvement, acteur=acteur, traitement_ecart=traitement)
+    if not res.get("ok"):
+        erreurs = res.get("erreurs") or [{"message": res.get("message") or "Règlement refusé."}]
+        return _page_reglement(request, proprietaire_id, mouvement=mouvement,
+                               traitement_ecart=traitement, acteur=acteur, erreurs=erreurs)
+    texte = ("Ce règlement était déjà enregistré : rien n'a été rejoué." if res.get("deja_valide")
+             else "Règlement enregistré : le compte, les factures et les créances sont à jour.")
+    return RedirectResponse(f"/comptes-proprietaires/{quote(proprietaire_id)}?message={quote(texte)}",
+                            status_code=303)
