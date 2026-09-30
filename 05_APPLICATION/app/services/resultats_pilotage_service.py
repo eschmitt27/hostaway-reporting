@@ -45,31 +45,23 @@ def mois_disponibles(*, db_path=None) -> list[str]:
     return sorted({reader.to_mois(r.get("mois")) for r in src.lignes if r.get("mois")})
 
 
-def _lignes_net_reglement(*, mois: str = "", proprietaire_id: str = "",
-                         logement_id: str = "", db_path=None) -> list[dict[str, Any]]:
-    src = reader.net_reglement(db_path=db_path)
-    if not src.etat.disponible:
-        return []
-    out = []
-    for r in src.lignes:
-        if mois and reader.to_mois(r.get("mois")) != mois:
-            continue
-        if proprietaire_id and reader.to_texte(r.get("proprietaire_id")) != proprietaire_id:
-            continue
-        if logement_id and reader.to_texte(r.get("logement_id")) != logement_id:
-            continue
-        out.append(r)
-    return out
+def _dans_periode(m: str, *, mois: str = "", du: str = "", au: str = "") -> bool:
+    """`mois` = un mois exact ; `du`/`au` = bornes incluses (AAAA-MM, comparables en texte).
+    Une borne vide ne restreint rien : sans aucune borne, toute la période disponible."""
+    if mois and m != mois:
+        return False
+    if du and m < du:
+        return False
+    if au and m > au:
+        return False
+    return True
 
 
-def _lignes_commissions(*, mois: str = "", proprietaire_id: str = "", logement_id: str = "",
-                        canal: str = "", db_path=None) -> list[dict[str, Any]]:
-    src = reader.commissions(db_path=db_path)
-    if not src.etat.disponible:
-        return []
+def _filtrer(lignes: list[dict[str, Any]], *, mois: str = "", du: str = "", au: str = "",
+             proprietaire_id: str = "", logement_id: str = "", canal: str = "") -> list[dict[str, Any]]:
     out = []
-    for r in src.lignes:
-        if mois and reader.to_mois(r.get("mois")) != mois:
+    for r in lignes:
+        if not _dans_periode(reader.to_mois(r.get("mois")), mois=mois, du=du, au=au):
             continue
         if proprietaire_id and reader.to_texte(r.get("proprietaire_id")) != proprietaire_id:
             continue
@@ -79,6 +71,24 @@ def _lignes_commissions(*, mois: str = "", proprietaire_id: str = "", logement_i
             continue
         out.append(r)
     return out
+
+
+def _lignes_net_reglement(*, mois: str = "", du: str = "", au: str = "", proprietaire_id: str = "",
+                         logement_id: str = "", db_path=None) -> list[dict[str, Any]]:
+    src = reader.net_reglement(db_path=db_path)
+    if not src.etat.disponible:
+        return []
+    return _filtrer(src.lignes, mois=mois, du=du, au=au, proprietaire_id=proprietaire_id,
+                    logement_id=logement_id)
+
+
+def _lignes_commissions(*, mois: str = "", du: str = "", au: str = "", proprietaire_id: str = "",
+                        logement_id: str = "", canal: str = "", db_path=None) -> list[dict[str, Any]]:
+    src = reader.commissions(db_path=db_path)
+    if not src.etat.disponible:
+        return []
+    return _filtrer(src.lignes, mois=mois, du=du, au=au, proprietaire_id=proprietaire_id,
+                    logement_id=logement_id, canal=canal)
 
 
 def _agreger_net_reglement(lignes: list[dict[str, Any]]) -> dict[str, Any]:
@@ -110,11 +120,28 @@ def _agreger_commissions(lignes: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def filtres_reference(*, db_path=None) -> dict[str, list[dict[str, str]]]:
-    """Options réelles pour les filtres — vrais noms via les resolvers déjà construits."""
+#: Libellés d'affichage des canaux Hostaway (`channel_type`) — le code reste la valeur du filtre.
+_LIBELLES_CANAUX = {
+    "AIRBNB": "Airbnb", "AIRBNBOFFICIAL": "Airbnb",
+    "BOOKING": "Booking.com", "BOOKINGCOM": "Booking.com",
+    "VRBO": "Vrbo", "VRBOICAL": "Vrbo", "HOMEAWAY": "Vrbo",
+    "DIRECT": "Direct", "EXPEDIA": "Expedia",
+}
+
+
+def libelle_canal(code: str) -> str:
+    c = reader.to_texte(code).upper()
+    return _LIBELLES_CANAUX.get(c, c.capitalize())
+
+
+def filtres_reference(*, db_path=None) -> dict[str, list[dict[str, Any]]]:
+    """Options réelles pour les filtres — vrais noms via les resolvers déjà construits.
+
+    Chaque logement porte la liste des propriétaires auxquels Lot10 le rattache : l'écran s'en
+    sert pour restreindre la liste des logements dès qu'un propriétaire est choisi, sans recharger."""
     src = reader.net_reglement(db_path=db_path)
     props: set[str] = set()
-    logs: set[str] = set()
+    logs: dict[str, set[str]] = {}
     if src.etat.disponible:
         for r in src.lignes:
             p = reader.to_texte(r.get("proprietaire_id"))
@@ -122,7 +149,9 @@ def filtres_reference(*, db_path=None) -> dict[str, list[dict[str, str]]]:
             if p:
                 props.add(p)
             if l:
-                logs.add(l)
+                logs.setdefault(l, set())
+                if p:
+                    logs[l].add(p)
     src_com = reader.commissions(db_path=db_path)
     canaux: set[str] = set()
     if src_com.etat.disponible:
@@ -130,10 +159,13 @@ def filtres_reference(*, db_path=None) -> dict[str, list[dict[str, str]]]:
             c = reader.to_texte(r.get("channel_type"))
             if c:
                 canaux.add(c.upper())
+    logements = [{"id": l, "libelle": ref_svc.libelle_logement(l, db_path=db_path),
+                  "proprietaires": sorted(logs[l])} for l in logs]
     return {
-        "proprietaires": [{"id": p, "libelle": ref_svc.libelle_proprietaire(p, db_path=db_path)} for p in sorted(props)],
-        "logements": [{"id": l, "libelle": ref_svc.libelle_logement(l, db_path=db_path)} for l in sorted(logs)],
-        "canaux": [{"id": c, "libelle": c.capitalize()} for c in sorted(canaux)],
+        "proprietaires": sorted(({"id": p, "libelle": ref_svc.libelle_proprietaire(p, db_path=db_path)}
+                                 for p in props), key=lambda d: d["libelle"].lower()),
+        "logements": sorted(logements, key=lambda d: d["libelle"].lower()),
+        "canaux": [{"id": c, "libelle": libelle_canal(c)} for c in sorted(canaux)],
     }
 
 
@@ -151,42 +183,57 @@ def logements_du_proprietaire(proprietaire_id: str, *, db_path=None) -> list[dic
     return [{"id": l, "libelle": ref_svc.libelle_logement(l, db_path=db_path)} for l in logs]
 
 
-def vue(*, mois: str = "", proprietaire_id: str = "", logement_id: str = "",
-       canal: str = "", db_path=None) -> dict[str, Any]:
-    """KPI agrégés pour le périmètre demandé — jamais un second calcul économique, uniquement la
-    somme des lignes Lot10 déjà calculées (run actif)."""
+def _source_et_lignes(*, mois: str = "", du: str = "", au: str = "", proprietaire_id: str = "",
+                      logement_id: str = "", canal: str = "", db_path=None):
+    """(source disponible ?, lignes filtrées, agrégateur) — UNE lecture de la table du grain
+    adapté : réservation si un canal est demandé, mois × logement sinon."""
     if canal:
-        lignes = _lignes_commissions(mois=mois, proprietaire_id=proprietaire_id,
-                                     logement_id=logement_id, canal=canal, db_path=db_path)
-        source_disponible = reader.commissions(db_path=db_path).etat.disponible
-        agg = _agreger_commissions(lignes)
-        ventilation_limitee = True
+        src = reader.commissions(db_path=db_path)
+        agreger = _agreger_commissions
     else:
-        lignes = _lignes_net_reglement(mois=mois, proprietaire_id=proprietaire_id,
-                                       logement_id=logement_id, db_path=db_path)
-        source_disponible = reader.net_reglement(db_path=db_path).etat.disponible
-        agg = _agreger_net_reglement(lignes)
-        ventilation_limitee = False
+        src = reader.net_reglement(db_path=db_path)
+        agreger = _agreger_net_reglement
+    if not src.etat.disponible:
+        return False, [], agreger
+    return True, _filtrer(src.lignes, mois=mois, du=du, au=au, proprietaire_id=proprietaire_id,
+                          logement_id=logement_id, canal=canal), agreger
 
+
+def vue(*, mois: str = "", proprietaire_id: str = "", logement_id: str = "",
+       canal: str = "", du: str = "", au: str = "", db_path=None) -> dict[str, Any]:
+    """KPI agrégés pour le périmètre demandé — jamais un second calcul économique, uniquement la
+    somme des lignes Lot10 déjà calculées (run actif). `du`/`au` : plage de mois incluse."""
+    source_disponible, lignes, agreger = _source_et_lignes(
+        mois=mois, du=du, au=au, proprietaire_id=proprietaire_id, logement_id=logement_id,
+        canal=canal, db_path=db_path)
+    ventilation_limitee = bool(canal)
     if not source_disponible:
         return {"statut": NON_DISPONIBLE, "kpi": None, "ventilation_limitee": ventilation_limitee}
+    agg = agreger(lignes)
     if not lignes:
         return {"statut": "VIDE", "kpi": agg, "ventilation_limitee": ventilation_limitee}
     return {"statut": OK, "kpi": agg, "ventilation_limitee": ventilation_limitee}
 
 
 def serie_mensuelle(*, proprietaire_id: str = "", logement_id: str = "",
-                    canal: str = "", db_path=None) -> dict[str, Any]:
+                    canal: str = "", du: str = "", au: str = "", db_path=None) -> dict[str, Any]:
     """Une entrée par mois disponible — TOTAL PAYOUT / CA CONCIERGERIE / COMMISSION (graphique § 12).
 
     CA CONCIERGERIE reste None (jamais 0 inventé) quand un filtre plateforme est actif : le champ
-    n'est pas ventilable au grain réservation (voir docstring module)."""
-    mois_liste = mois_disponibles(db_path=db_path)
+    n'est pas ventilable au grain réservation (voir docstring module).
+
+    Mêmes sommes que `vue(mois=m, …)` pour chaque mois — mais la table n'est lue qu'une fois puis
+    répartie par mois, au lieu d'une lecture complète par mois affiché."""
+    mois_liste = [m for m in mois_disponibles(db_path=db_path) if _dans_periode(m, du=du, au=au)]
+    source_disponible, lignes, agreger = _source_et_lignes(
+        du=du, au=au, proprietaire_id=proprietaire_id, logement_id=logement_id, canal=canal,
+        db_path=db_path)
+    par_mois: dict[str, list[dict[str, Any]]] = {}
+    for l in lignes:
+        par_mois.setdefault(reader.to_mois(l.get("mois")), []).append(l)
     points = []
     for m in mois_liste:
-        v = vue(mois=m, proprietaire_id=proprietaire_id, logement_id=logement_id, canal=canal,
-                db_path=db_path)
-        kpi = v.get("kpi") or {}
+        kpi = agreger(par_mois.get(m, [])) if source_disponible else {}
         points.append({
             "mois": m,
             "total_payout": kpi.get("total_payout", 0.0),
@@ -194,3 +241,46 @@ def serie_mensuelle(*, proprietaire_id: str = "", logement_id: str = "",
             "commission": kpi.get("commission", 0.0),
         })
     return {"statut": OK if mois_liste else NON_DISPONIBLE, "points": points}
+
+
+def par_logement(*, mois: str = "", du: str = "", au: str = "", proprietaire_id: str = "",
+                 logement_id: str = "", canal: str = "", db_path=None) -> list[dict[str, Any]]:
+    """Mêmes agrégats que `vue`, répartis par logement (même périmètre, même source) — du plus
+    gros CA conciergerie au plus petit (commission quand un canal est filtré : le CA n'y est pas
+    ventilé). Sert la comparaison « quels logements produisent le plus ? »."""
+    source_disponible, lignes, agreger = _source_et_lignes(
+        mois=mois, du=du, au=au, proprietaire_id=proprietaire_id, logement_id=logement_id,
+        canal=canal, db_path=db_path)
+    if not source_disponible:
+        return []
+    groupes: dict[str, list[dict[str, Any]]] = {}
+    for l in lignes:
+        groupes.setdefault(reader.to_texte(l.get("logement_id")), []).append(l)
+    out = []
+    for lid, rows in groupes.items():
+        props = sorted({reader.to_texte(r.get("proprietaire_id")) for r in rows
+                        if reader.to_texte(r.get("proprietaire_id"))})
+        out.append({"logement_id": lid,
+                    "libelle": ref_svc.libelle_logement(lid, db_path=db_path) if lid else "Sans logement",
+                    "proprietaires": props, **agreger(rows)})
+    cle = "commission" if canal else "ca_conciergerie"
+    out.sort(key=lambda d: (-(d.get(cle) or 0.0), d["libelle"].lower()))
+    return out
+
+
+def par_canal(*, mois: str = "", du: str = "", au: str = "", proprietaire_id: str = "",
+              logement_id: str = "", db_path=None) -> list[dict[str, Any]]:
+    """Payout / commission / ménage / réservations par plateforme (`lot10_commissions.channel_type`,
+    grain réservation). Le CA conciergerie n'y figure pas : il n'est pas ventilable par canal."""
+    src = reader.commissions(db_path=db_path)
+    if not src.etat.disponible:
+        return []
+    lignes = _filtrer(src.lignes, mois=mois, du=du, au=au, proprietaire_id=proprietaire_id,
+                      logement_id=logement_id)
+    groupes: dict[str, list[dict[str, Any]]] = {}
+    for l in lignes:
+        groupes.setdefault(reader.to_texte(l.get("channel_type")).upper(), []).append(l)
+    out = [{"canal": c, "libelle": libelle_canal(c) if c else "Non renseignée",
+            **_agreger_commissions(rows)} for c, rows in groupes.items()]
+    out.sort(key=lambda d: (-d["total_payout"], d["libelle"].lower()))
+    return out
