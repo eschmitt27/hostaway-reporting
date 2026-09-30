@@ -137,7 +137,8 @@ def test_03_preparer_puis_regler_met_tout_a_jour(base, verrous, factures_ok, cli
 
     r = client.post(f"/creances/proprietaires/{PROPRIO}/regler",
                     data={"mouvement": cle, "acteur": ACTEUR}, follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"].startswith(f"/comptes-proprietaires/{PROPRIO}")
+    assert r.status_code == 303 and r.headers["location"].startswith("/creances?message="), \
+        "après règlement : retour au hub"
 
     # Créances & Dettes, compte, facture, échéancier : tous à jour, depuis les mêmes données.
     ligne = next(l for l in creances.creances(db_path=base) if l["facture_id_opaque"] == fid)
@@ -339,21 +340,36 @@ def test_14_apport_avantages_puis_remboursement_position_nette(associes, verrous
     assert ass.solde_cca(A1, db_path=associes) == 600.0
 
 
-def test_15_remboursement_superieur_au_solde_exige_confirmation_et_motif(associes, verrous):
-    assert _qualifier(associes, 100.0, "credit", "APPORT_ASSOCIE")["ok"]
-    _importer(associes, [_mvt(150.0, contrepartie="Alice", date="2026-09-12")])
-    m = _par_montant(associes, 150.0)
-    appel = dict(nature="REMBOURSEMENT_ASSOCIE", objet_id=A1, acteur=ACTEUR, db_path=associes)
-    assert validation.valider_par_mouvement(m["id"], **appel)["code"] == validation.E_DEPASSEMENT_CCA
-    assert validation.valider_par_mouvement(m["id"], confirmer_depassement=True,
-                                            **appel)["code"] == validation.E_MOTIF_DEPASSEMENT
-    ok = validation.valider_par_mouvement(m["id"], confirmer_depassement=True,
-                                          commentaire="Avance validée par les associés", **appel)
-    assert ok["ok"], ok
-    assert ass.solde_cca(A1, db_path=associes) == -50.0
-    apercu = validation.apercu_par_mouvement(m["id"], nature="REMBOURSEMENT_ASSOCIE", objet_id=A1,
+def test_15_remboursement_cca_jamais_au_dela_du_solde(associes, verrous, client):
+    """Blocage strict : aucune confirmation ni justification ne permet de dépasser le solde."""
+    assert _qualifier(associes, 600.0, "credit", "APPORT_ASSOCIE")["ok"]
+    assert ass.solde_cca(A1, db_path=associes) == 600.0
+    assert _qualifier(associes, 400.0, "debit", "REMBOURSEMENT_ASSOCIE")["ok"], "400 € : accepté"
+    assert ass.solde_cca(A1, db_path=associes) == 200.0
+    _importer(associes, [_mvt(700.0, contrepartie="Alice", date="2026-09-12")])
+    m = _par_montant(associes, 700.0)
+    avant = _compter(associes, "ecritures"), _compter(associes, "banque_rapprochements")
+    refus = validation.valider_par_mouvement(m["id"], nature="REMBOURSEMENT_ASSOCIE", objet_id=A1,
+                                             acteur=ACTEUR, commentaire="Avance voulue",
                                              db_path=associes)
-    assert apercu["solde_cca"] == -50.0
+    assert refus["code"] == validation.E_DEPASSEMENT_CCA
+    assert refus["message"] == ("Le remboursement demandé dépasse le solde créditeur disponible "
+                                "du compte courant d'associé.")
+    assert (_compter(associes, "ecritures"), _compter(associes, "banque_rapprochements")) == avant
+    with pytest.raises(TypeError):
+        validation.valider_par_mouvement(m["id"], nature="REMBOURSEMENT_ASSOCIE", objet_id=A1,
+                                         acteur=ACTEUR, confirmer_depassement=True,
+                                         db_path=associes)
+    # À l'écran : un refus, aucun bouton « confirmer quand même ».
+    page = client.get(f"/banques-caisse/qonto/{m['id']}/traiter?nature=REMBOURSEMENT_ASSOCIE"
+                      f"&objet_id={A1}").text
+    assert 'data-testid="depassement-cca"' in page and "confirmer_depassement" not in page
+    r = client.post(f"/banques-caisse/qonto/{m['id']}/valider",
+                    data={"nature": "REMBOURSEMENT_ASSOCIE", "objet_id": A1, "montant": "700",
+                          "confirmer_depassement": "1", "commentaire": "Forcer"},
+                    follow_redirects=False)
+    assert "erreur=" in r.headers["location"]
+    assert ass.solde_cca(A1, db_path=associes) == 200.0
 
 
 # ══ Clôture, écrans, lecture seule ══════════════════════════════════════════════════════════════
@@ -417,3 +433,92 @@ def test_18_consulter_n_ecrit_rien(associes, verrous, factures_ok, client):
                 f"/fournisseurs/{cid}"):
         assert client.get(url).status_code == 200, url
     assert _ecarts(avant, _empreintes(associes)) == []
+
+
+# ══ Mission 38 bis — versement propriétaire depuis le hub ═══════════════════════════════════════
+
+def test_19_versement_proprietaire_depuis_le_hub(base, verrous, client):
+    from app.services import proprietaires_tresorerie_service as tres
+    cree = tres.creer(PROPRIO, "SOCIETE_VERS_PROPRIETAIRE", "REMBOURSEMENT_PROPRIETAIRE", 300.0,
+                      "2026-09-05", acteur=ACTEUR, db_path=base)
+    assert tres.valider(cree["mouvement_opaque"], acteur=ACTEUR, db_path=base)["ok"]
+    p = next(x for x in reglement.positions(db_path=base) if x["proprietaire_id"] == PROPRIO)
+    assert p["reste_a_virer"] == 300.0 and p["statut"] == "À reverser au propriétaire"
+    hub = client.get("/creances").text
+    assert f'href="/creances/proprietaires/{PROPRIO}/versement"' in hub
+    assert "Préparer le versement propriétaire" in client.get(f"/comptes-proprietaires/{PROPRIO}").text
+
+    _importer(base, [_mvt(300.0, contrepartie="Claire Testeur", date="2026-09-20",
+                          libelle="VIR PROPRIETAIRE")])
+    cle = f"BANQUE:{_par_montant(base, 300.0)['id']}"
+    prep = reglement.preparer_versement(PROPRIO, db_path=base)
+    assert prep["montant_propose"] == 300.0 and prep["mouvements"][0]["cle"] == cle
+    avant = _empreintes(base)
+    page = client.get(f"/creances/proprietaires/{PROPRIO}/versement?mouvement={quote(cle)}")
+    assert page.status_code == 200 and "Régler" in page.text and "411000" in page.text
+    assert _ecarts(avant, _empreintes(base)) == [], "préparer un versement n'écrit rien"
+
+    r = client.post(f"/creances/proprietaires/{PROPRIO}/verser",
+                    data={"mouvement": cle, "acteur": ACTEUR}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"].startswith("/creances?message=")
+    # Le mécanisme canonique de Flux : rapprochement du reversement + écriture 411 / 512.
+    conn = get_db(base)
+    try:
+        rap = conn.execute("SELECT montant_rapproche, lettrage_id_opaque FROM banque_rapprochements "
+                           "WHERE type_objet='REVERSEMENT_PROPRIETAIRE' AND objet_id=? "
+                           "AND statut='CONFIRME'", (cree["mouvement_opaque"],)).fetchone()
+        ecr = conn.execute("SELECT ecriture_id_opaque FROM ecritures WHERE origine_type='LETTRAGE' "
+                           "AND origine_id_opaque=?", (rap["lettrage_id_opaque"],)).fetchone()[0]
+    finally:
+        conn.close()
+    assert rap["montant_rapproche"] == 300.0
+    assert _lignes(base, ecr) == [("411000", 300.0, 0.0, PROPRIO), ("512000", 0.0, 300.0, None)]
+    pos = cpt.position(PROPRIO, db_path=base)
+    assert (pos["vire"], pos["reste_a_virer"], pos["position_nette"]) == (300.0, 0.0, 0.0)
+    assert not [x for x in reglement.positions(db_path=base) if x["proprietaire_id"] == PROPRIO]
+    assert "Préparer le versement propriétaire" not in client.get(
+        f"/comptes-proprietaires/{PROPRIO}").text
+
+
+# ══ Mission 38 bis — IK : alerte barème, jamais bloquante ═══════════════════════════════════════
+
+def test_20_bareme_calcul_tranches_electrique_et_annee(tmp_db):
+    from app.services import bareme_ik_service as bareme
+    db = tmp_db
+    assert bareme.montant_indicatif(500, "AUTO", 5, "THERMIQUE", 2024, db_path=db)["montant"] == 318.0
+    assert bareme.montant_indicatif(6000, "AUTO", 5, "THERMIQUE", 2024,
+                                    db_path=db)["montant"] == 3537.0          # 6000 × 0,357 + 1395
+    assert bareme.montant_indicatif(500, "AUTO", 5, "ELECTRIQUE", 2024,
+                                    db_path=db)["montant"] == 381.6           # + 20 %
+    assert bareme.montant_indicatif(100, "AUTO", 9, "THERMIQUE", 2024,
+                                    db_path=db)["montant"] == 69.7            # 7 CV et plus
+    futur = bareme.montant_indicatif(500, "AUTO", 5, "THERMIQUE", 2026, db_path=db)
+    assert futur["annee"] == 2024 and futur["annee_demandee"] == 2026
+    assert not bareme.montant_indicatif(500, "", None, "", 2024, db_path=db)["ok"]
+    assert not bareme.montant_indicatif(0, "AUTO", 5, "THERMIQUE", 2024, db_path=db)["ok"]
+
+
+def test_21_alerte_bareme_visible_mais_jamais_bloquante(associes, client):
+    au_dessus, _ = _ik(associes, 400.0)
+    en_dessous, _ = _ik(associes, 300.0)
+    for ik_id in (au_dessus, en_dessous):
+        assert ass.ajouter_trajets(ik_id, [{"date_trajet": "2026-09-03", "motif": "LOGEMENT",
+                                            "km": "500"}], db_path=associes)["ok"]
+        assert ass.definir_vehicule(ik_id, libelle="Clio", type_vehicule="AUTO",
+                                    puissance_fiscale="5", motorisation="THERMIQUE",
+                                    db_path=associes)["ok"]
+    c1 = ass.charger_ik(au_dessus, db_path=associes)["controle_bareme"]
+    c2 = ass.charger_ik(en_dessous, db_path=associes)["controle_bareme"]
+    assert (c1["montant_saisi"], c1["montant"], c1["depassement"]) == (400.0, 318.0, True)
+    assert (c2["montant_saisi"], c2["montant"], c2["depassement"]) == (300.0, 318.0, False)
+    fiche = client.get(f"/associes/ik/{au_dessus}").text
+    assert 'data-testid="alerte-bareme"' in fiche and "318.00 €" in fiche
+    assert 'data-testid="alerte-bareme"' not in client.get(f"/associes/ik/{en_dessous}").text
+    # Jamais bloquant : la validation passe, le montant de la charge reste celui saisi.
+    r = client.post(f"/associes/ik/{au_dessus}/statut", data={"statut": "VALIDEE"},
+                    follow_redirects=False)
+    assert "message=" in r.headers["location"]
+    ik = ass.charger_ik(au_dessus, db_path=associes)
+    assert ik["statut"] == ass.ST_VALIDEE and ik["montant"] == 400.0
+    assert ass.definir_vehicule(au_dessus, type_vehicule="MOTO", puissance_fiscale="0",
+                                db_path=associes)["code"] in (ass.E_VEHICULE, ass.E_VERROUILLEE)

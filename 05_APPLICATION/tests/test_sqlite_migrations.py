@@ -216,6 +216,8 @@ EXPECTED_TABLES = {
     "ik_trajets",                                 # relevé de trajets justifiant une IK
     "ik_depenses_activite",                       # part de l'IK engagée pour l'activité (analytique)
     "ik_evenements",                              # historique d'une IK
+    "ref_bareme_ik_annees",                       # barème kilométrique : une ligne par année (0117)
+    "ref_bareme_ik",                              # tranches du barème (contrôle indicatif des IK)
 }
 
 
