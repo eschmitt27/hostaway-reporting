@@ -166,6 +166,10 @@ def test_graphique_coherent_avec_le_filtre(client, base):
     donnees = _serie(page)
     assert donnees["surligne"] == "2026-05" and donnees["points"][-1]["mois"] == "2026-05"
     assert page.select_one(".rs-note-perimetre") is not None
+    # La note décrit les mois RÉELLEMENT affichés (ici 2), jamais « 12 mois » supposés.
+    assert page.select_one(".rs-note-perimetre").get_text(" ", strip=True) == (
+        "Contexte : jusqu'à 12 mois avant mai 2026 (ici avril → mai 2026), mêmes filtres ; "
+        "les chiffres clés portent sur mai 2026 seul.")
 
     # Série lue en une fois = mêmes sommes que `vue` mois par mois (aucun écart de calcul).
     for canal in ("", "BOOKINGCOM"):

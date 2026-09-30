@@ -55,15 +55,31 @@ def _portee(p: dict) -> dict:
 
 def _graphique(p: dict) -> dict:
     """Fenêtre du graphique d'évolution. Sur une plage, la plage elle-même. Sur un mois unique, une
-    courbe d'un seul point ne dirait rien : on montre les 12 mois qui s'achèvent sur ce mois, et le
-    mois choisi est mis en évidence — l'écart de périmètre est dit à l'écran."""
+    courbe d'un seul point ne dirait rien : on montre jusqu'aux 12 mois qui s'achèvent sur ce mois,
+    et le mois choisi est mis en évidence — l'écart de périmètre est dit à l'écran (`_note`)."""
     if p["mois_unique"]:
         m = p["mois_unique"]
-        du = perim.decaler(m, -11)
-        return {"du": du, "au": m, "surligne": m,
-                "note": f"Pour situer {perim.libelle_mois(m).lower()}, la courbe montre les 12 mois "
-                        f"qui s'achèvent sur ce mois (mis en évidence)."}
+        return {"du": perim.decaler(m, -11), "au": m, "surligne": m, "note": ""}
     return {"du": p["du"], "au": p["au"], "surligne": "", "note": ""}
+
+
+def _note(graphique: dict, serie: dict) -> str:
+    """Note du mois unique, écrite d'après les mois RÉELLEMENT affichés par la courbe : l'historique
+    peut compter moins de 12 mois, et la note ne doit jamais en promettre davantage."""
+    m = graphique.get("surligne")
+    mois = [pt["mois"] for pt in serie.get("points", [])]
+    if not m or not mois:
+        return ""
+    choisi = perim.libelle_mois(m).lower()
+    premier, dernier = perim.libelle_mois(mois[0]).lower(), perim.libelle_mois(mois[-1]).lower()
+    if mois[0] == mois[-1]:
+        fenetre = premier
+    elif mois[0][:4] == mois[-1][:4]:
+        fenetre = f"{perim.MOIS_FR[int(mois[0][5:7]) - 1]} → {dernier}"
+    else:
+        fenetre = f"{premier} → {dernier}"
+    return (f"Contexte : jusqu'à 12 mois avant {choisi} (ici {fenetre}), mêmes filtres ; "
+            f"les chiffres clés portent sur {choisi} seul.")
 
 
 def _resultat_analytique(*, du: str, au: str, vision: str, proprietaire_id: str = "",
@@ -101,15 +117,16 @@ def resultats_pilotage(request: Request, mois: str | None = None, du: str | None
                              logement_id=p["logement_id"])
     if p["canal"]:
         canaux = [c for c in canaux if c["canal"] == p["canal"]]
+    serie = pilot.serie_mensuelle(proprietaire_id=p["proprietaire_id"], logement_id=p["logement_id"],
+                                  canal=p["canal"], du=graphique["du"], au=graphique["au"])
+    graphique["note"] = _note(graphique, serie)
     return templates.TemplateResponse(request, "resultats_pilotage.html", {
         "active_menu": "resultats", "p": p, "filtres": filtres,
         "vue": pilot.vue(**portee),
         "par_logement": pilot.par_logement(**portee),
         "par_canal": canaux,
         "graphique": graphique,
-        "serie": pilot.serie_mensuelle(proprietaire_id=p["proprietaire_id"],
-                                       logement_id=p["logement_id"], canal=p["canal"],
-                                       du=graphique["du"], au=graphique["au"]),
+        "serie": serie,
         "lien_synthese": p["url"]("/resultats"),
     })
 
@@ -154,6 +171,9 @@ def resultats_dashboard(request: Request, mois: str | None = None, du: str | Non
                          "resultat": rp}
 
     graphique = _graphique(p)
+    serie = pilot.serie_mensuelle(proprietaire_id=p["proprietaire_id"], logement_id=p["logement_id"],
+                                  canal=p["canal"], du=graphique["du"], au=graphique["au"])
+    graphique["note"] = _note(graphique, serie)
     globales = ana.mesures_globales()
     return templates.TemplateResponse(request, "resultats_dashboard.html", {
         "active_menu": "resultats", "p": p, "filtres": filtres, "visions": ana.VISIONS,
@@ -162,9 +182,7 @@ def resultats_dashboard(request: Request, mois: str | None = None, du: str | Non
         "globales": globales,
         "periode": per.charger(p["mois_unique"]) if p["mois_unique"] else None,
         "graphique": graphique,
-        "serie": pilot.serie_mensuelle(proprietaire_id=p["proprietaire_id"],
-                                       logement_id=p["logement_id"], canal=p["canal"],
-                                       du=graphique["du"], au=graphique["au"]),
+        "serie": serie,
         "par_logement": pilot.par_logement(**portee),
         "lien_analyse": p["url"]("/resultats/pilotage"),
         # Liens des analyses historiques (un mois) : le mois affiché, sinon le dernier de la période.
