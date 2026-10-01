@@ -403,8 +403,16 @@ def actualiser(*, mois_affiche: str = "", acteur: str = "ui:menages",
         # lot6d a déjà reconstruit le rapprochement ; la cascade propage aux résultats économiques.
         # Elle n'est déclenchée que si un mois a réellement été recalculé : sans changement, aucun
         # recalcul aval — c'est ce qui rend l'action idempotente.
+        #
+        # Si l'étape 0 a pu lire le dépôt, HOSTAWAY_RAW est ciblé lui aussi : la synchronisation
+        # est déjà faite (rien n'est réimporté), mais l'orchestrateur constate ainsi la version
+        # servie, lève un éventuel ancien échec et recalcule les Réservations quand elle a changé.
+        # Sans cela, les réservations importées ici n'atteignaient jamais Flux, Résultats ni
+        # préfactures, et un vieil échec Hostaway bloquait chaque cascade pour toujours.
         if mois_recalcules:
-            orch.actualiser(cibles=["FLUX_LOT9"], declencheur=declencheur,
+            cibles = (["HOSTAWAY_RAW", "FLUX_LOT9"] if depot_resultat.get("ok")
+                      else ["FLUX_LOT9"])
+            orch.actualiser(cibles=cibles, declencheur=declencheur,
                             inclure_imports_externes=True, db_path=db_path)
         svc.invalidate_menages_cache()
 

@@ -35,7 +35,7 @@ def actualisation(request: Request):
     orch.marquer_runs_interrompus()
     etat = orch.etat_global()
     return templates.TemplateResponse(request, "actualisation.html", {
-        "active_menu": "actualisation",
+        "active_menu": "observabilite",
         "datasets": etat["datasets"],
         "dernier_run": etat["dernier_run"],
         "etapes": etat["etapes"],
@@ -53,10 +53,11 @@ def actualiser_tout_dry_run(request: Request):
     Synchrone (aucun service n'est réellement appelé, donc rapide) : le résultat s'affiche
     immédiatement, contrairement à une vraie actualisation qui tourne en tâche de fond.
     """
-    resultat = orch.actualiser(cibles=None, declencheur=orch.DECLENCHEUR_MANUEL, dry_run=True)
+    resultat = orch.actualiser(cibles=None, declencheur=orch.DECLENCHEUR_MANUEL, dry_run=True,
+                               inclure_imports_externes=True)
     etat = orch.etat_global()
     return templates.TemplateResponse(request, "actualisation.html", {
-        "active_menu": "actualisation",
+        "active_menu": "observabilite",
         "datasets": etat["datasets"],
         "dernier_run": etat["dernier_run"],
         "etapes": etat["etapes"],
@@ -70,10 +71,16 @@ def actualiser_tout_dry_run(request: Request):
 
 @router.post("/actualisation/tout")
 def actualiser_tout(background: BackgroundTasks):
-    """« Actualiser toute l'activité » — tout le DAG, dans l'ordre des dépendances."""
+    """« Actualiser toute l'activité » — tout le DAG, dans l'ordre des dépendances.
+
+    Les réservations Hostaway sont d'abord synchronisées depuis le dépôt publié (aucun appel d'API,
+    idempotent) : un « tout actualiser » qui recalculerait l'aval sans aller chercher la donnée
+    laissait les mois récents absents des résultats et des préfactures. Les tâches de ménage
+    gardent leur propre parcours (« Actualiser les ménages »).
+    """
     orch.marquer_runs_interrompus()
     background.add_task(orch.actualiser, cibles=None,
-                        declencheur=orch.DECLENCHEUR_MANUEL)
+                        declencheur=orch.DECLENCHEUR_MANUEL, inclure_imports_externes=True)
     return RedirectResponse("/actualisation", status_code=303)
 
 
@@ -81,8 +88,8 @@ def actualiser_tout(background: BackgroundTasks):
 def actualiser_cible(background: BackgroundTasks, dataset: str = Form(...)):
     """Actualisation ciblée : le dataset demandé PUIS tous ses descendants nécessaires (§29).
 
-    Demander explicitement une source externe (Hostaway) l'autorise pour ce run : c'est la seule
-    façon de la déclencher depuis l'écran, un « tout actualiser » ne la lance jamais tout seul.
+    Demander explicitement une source externe (Hostaway) l'autorise pour ce run. Un « tout
+    actualiser » ne lance que les sources lues dans le dépôt publié (`actualisation_globale`).
     """
     if dataset not in dag.NOEUDS:
         return RedirectResponse("/actualisation?erreur=dataset_inconnu", status_code=303)

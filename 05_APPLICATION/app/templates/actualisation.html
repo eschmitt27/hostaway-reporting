@@ -4,6 +4,7 @@
 {% block content %}
 <div class="page-header flex justify-between items-center">
   <div>
+    <p class="text-xs text-secondary"><a href="/observabilite/runs">← Observabilité &amp; outils</a></p>
     <h1 class="page-title">Actualisation</h1>
     <p class="page-subtitle">Pilotage du pipeline — datasets SQLite, dépendances et fraîcheur</p>
   </div>
@@ -39,8 +40,9 @@
   <p class="text-xs text-secondary mt-sm">
     Une actualisation ciblée recalcule le dataset choisi <strong>puis tous ses descendants</strong>,
     dans l'ordre des dépendances. Un dataset dont un amont a échoué n'est jamais recalculé sur une
-    entrée périmée : il reste marqué à recalculer. « Actualiser toute l'activité » sauvegarde
-    d'abord la base entière (restauration automatique si l'intégrité échoue après coup) ; « Simuler
+    entrée périmée : il reste marqué à recalculer. « Actualiser toute l'activité » synchronise
+    d'abord les réservations Hostaway publiées par GitHub (sans appel direct à Hostaway), recalcule
+    tout ce qui en dépend, et sauvegarde avant cela la base entière (restauration automatique si l'intégrité échoue après coup) ; « Simuler
     (dry-run) » calcule le même plan sans rien exécuter ni activer.
   </p>
   {% if dry_run_resultat %}

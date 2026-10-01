@@ -66,12 +66,20 @@ class Noeud:
     # (429) et n'ont pas à partir à chaque recalcul interne. L'ordonnanceur et le bouton dédié les
     # demandent explicitement.
     externe: bool = False
+    # Import externe SANS appel d'API depuis ce poste, donc sans quota ni 429 : la donnée est lue
+    # dans le dépôt publié par le pipeline GitHub, et la synchronisation est idempotente (un état
+    # déjà en base n'est pas réimporté). « Actualiser toute l'activité » l'inclut quand l'écran le
+    # demande : sans lui, une actualisation globale recalculait l'aval sur des réservations figées,
+    # et un ancien échec de cette source bloquait toute la chaîne sans qu'aucun bouton global ne
+    # puisse jamais le lever.
+    actualisation_globale: bool = False
 
 
 NOEUDS: dict[str, Noeud] = {n.nom: n for n in (
     Noeud(HOSTAWAY_RAW, TYPE_IMPORT, "Hostaway — réservations, payouts, listings, anomalies",
           service="app.services.orchestrateur_moteur:importer_hostaway",
           externe=True,
+          actualisation_globale=True,
           tables=("hostaway_extractions", "hostaway_reservations", "hostaway_payouts",
                   "hostaway_listings", "hostaway_anomalies"),
           commentaire="Source externe : API Hostaway. Passe par `hostaway_actualisation_service."

@@ -327,7 +327,9 @@ def test_14_apport_avantages_puis_remboursement_position_nette(associes, verrous
     assert _qualifier(associes, 1000.0, "credit", "APPORT_ASSOCIE")["ok"]
     _charge(associes, 600.0, categorie="CHG_018", date_charge="2026-09-11",
             avantage_associe="OUI", avantage_associe_id=A1)
-    l = _ligne(ass.suivi(associe_id=A1, db_path=associes), "2026-09")
+    # Cumul, pas un mois : l'apport est daté par son écriture, donc par le jour de la validation
+    # — figer « 2026-09 » rendait ce test faux dès le 1er octobre.
+    l = ass.suivi(associe_id=A1, db_path=associes)["cumul_historique"]
     assert (l["apports_cca"], l["avantages_totaux"], l["position_nette"]) == (1000.0, 600.0, -400.0)
     assert ass.solde_cca(A1, db_path=associes) == 1000.0
 
@@ -335,7 +337,7 @@ def test_14_apport_avantages_puis_remboursement_position_nette(associes, verrous
     assert res["ok"], res
     assert _lignes(associes, res["ecriture"]["ecriture_id_opaque"]) == [
         ("455100", 400.0, 0.0, A1), ("512000", 0.0, 400.0, None)]
-    l = _ligne(ass.suivi(associe_id=A1, db_path=associes), "2026-09")
+    l = ass.suivi(associe_id=A1, db_path=associes)["cumul_historique"]
     assert (l["remboursements_cca"], l["apport_cca_net"], l["position_nette"]) == (400.0, 600.0, 0.0)
     assert ass.solde_cca(A1, db_path=associes) == 600.0
 

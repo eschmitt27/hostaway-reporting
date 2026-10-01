@@ -153,3 +153,32 @@ Ce document + `HANDOFF_CANONIQUE.md` mis à jour.
 Scheduler Hostaway (déclenchement automatique, hors mandat explicite de cette mission),
 administration référentiels, ou étendre `run_history` aux imports Hostaway/Banque eux-mêmes
 (déjà signalé comme manque dans la mission précédente).
+
+## 13. Correctif 2026-10-01 — chaîne bloquée par un ancien échec Hostaway
+
+**Constat (base réelle).** `HOSTAWAY_RAW` était resté en ÉCHEC depuis le 2026-09-10 (import en mode
+API, `rc=1`), alors que le dépôt publié avait été synchronisé avec succès sept fois depuis — mais
+par « Actualiser les ménages » et l'écran Hostaway, qui appellent `hostaway_depot_service.synchroniser`
+directement, sans passer par l'orchestrateur : l'état du nœud n'était donc jamais relevé.
+Conséquences : `RESERVATIONS` « à recalculer » depuis le 10/09, toutes les cascades Ménages
+(ciblées sur `FLUX_LOT9`) refusées, Lot10 figé au 12/09 (septembre alors mois en cours, donc
+exclu), aucune préfacture de septembre. « Actualiser toute l'activité » ne pouvait rien y faire :
+il ne lançait aucun import externe, et marquait en plus les tâches de ménage (un import)
+« à recalculer », ce qui bloquait aussi Ménages, sans qu'aucun parcours puisse lever cet état.
+
+**Correctif.**
+- `Noeud.actualisation_globale` : `HOSTAWAY_RAW` (lu dans le dépôt publié, sans appel d'API,
+  idempotent) est synchronisé par « Actualiser toute l'activité » et par son dry-run. Les tâches
+  de ménage (H6) gardent leur parcours propre (« Actualiser les ménages »).
+- Un IMPORT n'est plus jamais marqué « à recalculer » en cascade, et un import resté dans cet état
+  ne bloque plus ses descendants (sa dernière extraction réussie reste en place). Un import non
+  demandé n'est pas « bloqué » : il est « non déclenché ». Le garde-fou 14b reste entier pour les
+  CALCULS (ÉCHEC, À RECALCULER, JAMAIS).
+- « Actualiser les ménages » cible `HOSTAWAY_RAW` + `FLUX_LOT9` quand le dépôt a pu être lu : les
+  réservations synchronisées atteignent enfin Réservations → Flux → Lot10/11/12.
+- Résumé du run : seulement les échecs et les blocages (les étapes normalement ignorées restent
+  dans le détail).
+- Écran : bouton « Actualisation des calculs » sur Observabilité & outils ; l'écran Actualisation
+  est rattaché à ce menu.
+
+Tests : `tests/test_actualisation_deblocage.py` (reproduction de l'état réel).

@@ -406,11 +406,19 @@ def _amonts_en_echec(dataset: str, etats: dict[str, str]) -> list[str]:
     `CALCUL_SQLITE` jamais produit signifie que la couche économique elle-même n'existe pas encore :
     le traiter comme un apport vide légitime serait exactement le résultat faux que ce garde-fou
     doit empêcher.
+
+    Un IMPORT « à recalculer » ne bloque pas : il ne tire pas sa fraîcheur de l'amont, sa
+    dernière extraction réussie reste en place, et rien ne le « recalcule » en aval. Cet état n'est
+    que la trace d'un ancien marquage en cascade — qui gelait toute la chaîne indéfiniment, faute
+    d'un parcours capable de le lever (Ménages bloqué par les tâches Hostaway, elles-mêmes marquées
+    « à recalculer » par un échec de réservations pourtant réimportées depuis).
     """
     bloquants = []
     for a in dag.NOEUDS[dataset].depend_de:
         statut = etats.get(a)
-        if statut in (ST_ECHEC, ST_A_RECALCULER):
+        if statut == ST_ECHEC:
+            bloquants.append(a)
+        elif statut == ST_A_RECALCULER and dag.NOEUDS[a].type_noeud != dag.TYPE_IMPORT:
             bloquants.append(a)
         elif statut == ST_JAMAIS and dag.NOEUDS[a].type_noeud == dag.TYPE_CALCUL:
             bloquants.append(a)
@@ -427,8 +435,30 @@ def _import_externe_demande(dataset: str, cibles: list[str] | None,
     sans cette règle, chaque actualisation des réservations — donc chaque battement du scheduler —
     relançait aussi l'import des tâches de ménage, dont la cadence n'est pas arbitrée, et son échec
     bloquait ensuite Ménages et toute la chaîne économique en aval.
+
+    Sur une actualisation GLOBALE (`cibles=None`), seuls les imports marqués
+    `actualisation_globale` partent : ceux qui lisent le dépôt publié, sans appel d'API.
     """
-    return inclure_imports_externes and (cibles is None or dataset in cibles)
+    if not inclure_imports_externes:
+        return False
+    if cibles is None:
+        return dag.NOEUDS[dataset].actualisation_globale
+    return dataset in cibles
+
+
+def _bloquants(dataset: str, etats: dict[str, str], cibles: list[str] | None,
+               inclure_imports_externes: bool) -> list[str]:
+    """`_amonts_en_echec`, sauf pour un import qui ne sera de toute façon pas tenté.
+
+    Un import non demandé n'est ni exécuté ni invalidé : le dire « bloqué » compterait un échec
+    pour une étape qui n'a jamais été voulue, et masquerait sa vraie raison (non déclenché).
+    """
+    noeud = dag.NOEUDS[dataset]
+    if noeud.type_noeud == dag.TYPE_IMPORT and not (
+            noeud.service and noeud.externe
+            and _import_externe_demande(dataset, cibles, inclure_imports_externes)):
+        return []
+    return _amonts_en_echec(dataset, etats)
 
 
 def _perimetre(cibles: list[str]) -> list[str]:
@@ -586,7 +616,7 @@ def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEU
                 # Plan uniquement : ni marquage de dataset, ni appel de service. Les blocages
                 # (amont en échec, dataset sans service, import externe) restent visibles dans le
                 # plan pour que l'utilisateur voie exactement ce qui SERAIT ignoré en réel.
-                bloquants_dry = _amonts_en_echec(dataset, etats)
+                bloquants_dry = _bloquants(dataset, etats, cibles, inclure_imports_externes)
                 if bloquants_dry:
                     motif = f"DRY-RUN : serait ignoré (amont en échec : {bloquants_dry})."
                 elif not noeud.service:
@@ -600,16 +630,21 @@ def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEU
                 etapes.append({"dataset": dataset, "statut": "IGNOREE", "motif": motif})
                 continue
 
-            bloquants = _amonts_en_echec(dataset, etats)
+            bloquants = _bloquants(dataset, etats, cibles, inclure_imports_externes)
             if bloquants:
                 motif = (f"Amont(s) en échec : {bloquants}. Calcul non tenté — le faire sur une "
                          "entrée périmée produirait un résultat faux présenté comme frais.")
-                marquer_dataset(dataset, ST_A_RECALCULER, run_id=run_id, declencheur=declencheur,
-                                erreur_code=E_AMONT_INDISPONIBLE, erreur_message=motif,
-                                motif="INVALIDATION_AMONT", db_path=db_path)
+                if noeud.type_noeud != dag.TYPE_IMPORT:
+                    # Un import n'est jamais invalidé en cascade : sa dernière extraction reste
+                    # valable, et seul un nouvel import pourrait lever cet état — aucun recalcul.
+                    marquer_dataset(dataset, ST_A_RECALCULER, run_id=run_id,
+                                    declencheur=declencheur, erreur_code=E_AMONT_INDISPONIBLE,
+                                    erreur_message=motif, motif="INVALIDATION_AMONT",
+                                    db_path=db_path)
+                    etats[dataset] = ST_A_RECALCULER
                 _etape(run_id, dataset, ordre, "IGNOREE", debut, motif, None, db_path)
-                etapes.append({"dataset": dataset, "statut": "IGNOREE", "motif": motif})
-                etats[dataset] = ST_A_RECALCULER
+                etapes.append({"dataset": dataset, "statut": "IGNOREE", "motif": motif,
+                               "bloque": True})
                 nb_ko += 1
                 continue
 
@@ -678,8 +713,12 @@ def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEU
             statut = RUN_ECHEC
         else:
             statut = RUN_PARTIEL
+        # Résumé = ce qui a empêché le calcul : échecs et blocages. Une étape normalement ignorée
+        # (relevé bancaire ou référentiel importés par l'utilisateur, jeu à jour conservé) reste
+        # dans le détail des étapes ; la mêler au résumé noyait la vraie cause sous dix lignes.
         resume = "; ".join(f"{e['dataset']}: {e.get('motif', '')}" for e in etapes
-                           if e["statut"] in ("ECHEC", "IGNOREE"))
+                           if e["statut"] == "ECHEC" or e.get("bloque")
+                           or (dry_run and e["statut"] == "IGNOREE"))
         _cloturer_run(run_id, statut, nb_ok, nb_ko, resume, db_path)
 
         rollback: dict[str, Any] | None = None
