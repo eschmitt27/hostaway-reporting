@@ -219,3 +219,32 @@ trouve le verrou pris et ne crée aucun run. Un run terminé ou interrompu solde
 exécutées.
 
 Tests : `tests/test_actualisation_globale_progression.py`.
+
+## 15. Extraction Hostaway à la demande au clic manuel (2026-10-01)
+
+Le clic « Actualiser toute l'activité » (`hostaway_a_la_demande=True`, posé par la route seule)
+DÉCLENCHE le pipeline GitHub canonique `pipeline.yml` (`workflow_dispatch` déjà prévu ; mêmes
+scripts `extract_reservations.py` / `extract_finance_fields.py` / `extract_cleaning_tasks.py`,
+mêmes secrets), suit ses étapes en direct (API `jobs`) et n'importe qu'APRÈS sa publication, par
+`hostaway_depot_service.synchroniser` (atomique, inchangé). Aucun second extracteur ; le poste
+n'a toujours aucun identifiant Hostaway. Service : `hostaway_extraction_demande_service`.
+
+- Run identifié comme le run `workflow_dispatch` apparu après le dispatch et absent de la liste
+  relevée juste avant ; file d'attente derrière un run planifié affichée (groupe de concurrence
+  `hostaway-data-publish`).
+- Sous-étapes affichées : connexion, réservations, données financières, tâches de ménage,
+  publication, puis « Validation des données Hostaway » (import local).
+- Échecs (jeton absent/refusé, run en échec — étape nommée —, annulé, > 20 min, run introuvable) :
+  étape Hostaway rouge, dernières données valides conservées, aval non exécuté. Tâches de ménage
+  en échec côté GitHub (toléré par le pipeline) : l'import H6 refuse de les présenter comme
+  fraîches.
+- Scheduler et actualisations ciblées : inchangés (relecture de la dernière publication).
+- Coût par clic : ~3 min, ~3 min d'Actions GitHub, ~1 670 appels Hostaway (gestion 429 des
+  scripts existants). Listings : toujours déduits des réservations (`/v1/listings` non extrait par
+  le pipeline).
+
+Preuve du 2026-10-01 : réservation créée dans Hostaway à 19:07:03 UTC (n° 67048314, Studio 46,
+04→10/01/2027), absente de la publication `e161d4d` (18:56:56) ; clic à 19:08:41 ; publication
+`072e34f` à 19:11:23 ; importée à 19:11:36 ; présente dans les réservations calculées et résolues.
+
+Tests : `tests/test_hostaway_extraction_demande.py`.

@@ -80,8 +80,8 @@ def actualiser_tout(background: BackgroundTasks):
     """« Actualiser toute l'activité » — TOUTES les sources configurées, puis TOUT le DAG.
 
     Sources : chaque nœud `actualisation_globale` du DAG, par son service canonique (banque Qonto
-    en lecture seule, réservations et tâches de ménage Hostaway depuis le dépôt publié, déclarations
-    et factures PDF de ménage). Calculs : tous rejoués dans l'ordre du DAG, sans l'optimisation
+    en lecture seule ; Hostaway EXTRAIT À L'INSTANT par le pipeline GitHub canonique, puis importé ;
+    déclarations et factures PDF de ménage). Calculs : tous rejoués dans l'ordre du DAG, sans l'optimisation
     « amont inchangé » des actualisations ciblées.
 
     Le run est OUVERT et PLANIFIÉ ici, avant la tâche de fond : l'écran rechargé montre aussitôt
@@ -92,7 +92,8 @@ def actualiser_tout(background: BackgroundTasks):
         return RedirectResponse("/actualisation?message=" + quote(prepare["message"]),
                                 status_code=303)
     background.add_task(orch.actualiser, cibles=None, declencheur=orch.DECLENCHEUR_MANUEL,
-                        inclure_imports_externes=True, run_id=prepare["run_id"])
+                        inclure_imports_externes=True, run_id=prepare["run_id"],
+                        hostaway_a_la_demande=True)
     return RedirectResponse("/actualisation", status_code=303)
 
 

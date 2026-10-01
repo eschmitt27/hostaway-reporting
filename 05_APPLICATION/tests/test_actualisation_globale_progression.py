@@ -133,8 +133,8 @@ def test_04_hostaway_passe_par_le_service_canonique_du_depot(tmp_db, monkeypatch
     res = moteur.importer_hostaway(db_path=tmp_db, declencheur="MANUEL")
     assert len(appels) == 1 and appels[0]["attendre"] is True
     texte = prog.volume(dag.HOSTAWAY_RAW, res, db_path=tmp_db)
-    assert texte == ("1 651 réservations, 1 610 paiements, 18 logements — nouvelles "
-                     "données (publiées le 01/10 à 12:01)")
+    assert texte == ("1 651 réservations, 1 610 paiements, 18 logements — publication "
+                     "du 01/10 à 12:01 importée")
 
 
 def test_09_aucun_second_moteur_hostaway():

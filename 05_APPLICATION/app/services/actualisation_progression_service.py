@@ -115,10 +115,7 @@ def volume(dataset: str, resultat: dict, *, db_path=None) -> str | None:
         return _volume_hostaway(resultat, db_path)
     if dataset == dag.HOSTAWAY_CLEANING_TASKS:
         base = _pluriel(resultat["nb_taches"], "tâche") if "nb_taches" in resultat else ""
-        etat = "nouvelles données" if resultat.get("importe") else "déjà à jour"
-        publie = _publie_le(resultat)
-        return " — ".join(x for x in (base, etat + (f" (publiées le {publie})" if publie else ""))
-                          if x)
+        return " — ".join(x for x in (base, _etat_publication(resultat)) if x)
     if dataset == dag.BANQUE_QONTO:
         if "vues" not in resultat:
             return None
@@ -140,6 +137,21 @@ def volume(dataset: str, resultat: dict, *, db_path=None) -> str | None:
 
 
 def _volume_hostaway(resultat: dict, db_path) -> str | None:
+    texte = _volume_hostaway_donnees(resultat, db_path)
+    demande = resultat.get("extraction_demande")
+    if not demande:
+        return texte
+    debut = _instant(demande.get("debut"))
+    entete = f"Extraction Hostaway lancée à {debut:%H:%M:%S}" if debut else "Extraction Hostaway"
+    if not resultat.get("importe"):
+        # Le run a extrait, mais rien n'avait changé depuis la publication précédente : son
+        # commit est vide, le dépôt garde le même état. C'est une vraie vérification, pas un
+        # « déjà à jour » par défaut.
+        return f"{entete} — aucune nouvelle publication (rien n'a changé) — {texte}"
+    return f"{entete} — {texte}"
+
+
+def _volume_hostaway_donnees(resultat: dict, db_path) -> str | None:
     extraction = resultat.get("extraction_id")
     ligne = None
     if extraction:
@@ -155,10 +167,17 @@ def _volume_hostaway(resultat: dict, db_path) -> str | None:
         morceaux.append(f"{_pluriel(ligne['nb_reservations'], 'réservation')}, "
                         f"{_pluriel(ligne['nb_payouts'], 'paiement')}, "
                         f"{_pluriel(ligne['nb_listings'], 'logement')}")
-    publie = _publie_le(resultat)
-    etat = "nouvelles données" if resultat.get("importe") else "déjà à jour"
-    morceaux.append(etat + (f" (publiées le {publie})" if publie else ""))
+    morceaux.append(_etat_publication(resultat))
     return " — ".join(morceaux)
+
+
+def _etat_publication(resultat: dict) -> str:
+    """Ce qui a été importé, sans surpromettre : une publication importée n'est pas forcément un
+    contenu modifié (le pipeline réécrit parfois les mêmes lignes dans un autre ordre)."""
+    publie = _publie_le(resultat)
+    if resultat.get("importe"):
+        return f"publication du {publie} importée" if publie else "nouvelle publication importée"
+    return f"déjà à jour (publication du {publie})" if publie else "déjà à jour"
 
 
 # ── Messages d'échec ────────────────────────────────────────────────────────────────────────────
@@ -168,6 +187,10 @@ def _message_echec(dataset: str, code: str | None, erreur: str) -> str:
     if dataset == orch.ETAPE_SAUVEGARDE:
         return ("La copie de sécurité de la base n'a pas pu être faite : par prudence, rien n'a "
                 "été actualisé.")
+    if code in ("HOSTAWAY_DEMANDE_RUN_ECHEC", "HOSTAWAY_DEMANDE_RUN_ANNULE",
+                "HOSTAWAY_DEMANDE_DELAI", "HOSTAWAY_DEMANDE_RUN_INTROUVABLE",
+                "HOSTAWAY_TACHES_NON_EXTRAITES") or (code or "").startswith("GITHUB_"):
+        return (erreur or "").strip()           # messages déjà écrits pour l'utilisateur
     if dataset in (dag.HOSTAWAY_RAW, dag.HOSTAWAY_CLEANING_TASKS) and (
             code == "MOTEUR_CODE_RETOUR" or "rc=" in (erreur or "")):
         return ("L'import des données Hostaway s'est arrêté en erreur. Les dernières données "
@@ -213,6 +236,16 @@ def _etat(ligne: dict, detail: dict) -> tuple[str, str]:
     return IGNORE, "Ignorée."
 
 
+def _sous_etapes(detail: dict) -> list[dict]:
+    out = []
+    for s in detail.get("sous_etapes") or []:
+        etat = s.get("etat") if s.get("etat") in ICONES else ATTENTE
+        out.append({"libelle": s.get("libelle", ""), "etat": etat, "icone": ICONES[etat],
+                    "etat_libelle": LIBELLES_ETAT[etat], "message": s.get("message") or "",
+                    "duree": duree_lisible(s.get("duree_s"))})
+    return out
+
+
 def _duree(ligne: dict, etat: str, maintenant: datetime) -> float | None:
     debut = _instant(ligne.get("started_at"))
     if etat == ATTENTE or debut is None:
@@ -250,7 +283,8 @@ def progression(*, run_id: str | None = None, db_path=None) -> dict[str, Any]:
         duree = _duree(ligne, etat, maintenant)
         etapes.append({"cle": ligne["etape"], "libelle": _libelle(ligne["etape"]), "etat": etat,
                        "icone": ICONES[etat], "etat_libelle": LIBELLES_ETAT[etat],
-                       "message": message, "duree_s": duree, "duree": duree_lisible(duree)})
+                       "message": message, "duree_s": duree, "duree": duree_lisible(duree),
+                       "sous_etapes": _sous_etapes(detail)})
 
     total = len(etapes)
     finies = sum(1 for e in etapes if e["etat"] not in (ATTENTE, EN_COURS))

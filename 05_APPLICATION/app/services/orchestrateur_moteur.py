@@ -284,6 +284,21 @@ def importer_hostaway(*, db_path=None, declencheur: str | None = None) -> dict[s
     propagee = (orch.dernier_detail_a_jour("HOSTAWAY_RAW", db_path=db_path) or {}).get(
         "extraction_id") or ""
 
+    # Clic manuel « Actualiser toute l'activité » : EXTRAIRE maintenant, par le pipeline GitHub
+    # canonique (même moteur que les runs planifiés), puis importer ce qu'il vient de publier.
+    demande = None
+    if orch.option_run("hostaway_a_la_demande"):
+        from app.services import hostaway_extraction_demande_service as extraction
+
+        demande = extraction.extraire_maintenant(suivi=orch.signaler_sous_etapes)
+        orch.definir_option_run("taches_hostaway_extraites", bool(demande.get("taches_ok")))
+        if not demande["ok"]:
+            return {"ok": False, "code": demande["code"], "message": demande["message"],
+                    "sous_etapes": demande["sous_etapes"]}
+        sous = demande["sous_etapes"] + [{"libelle": "Validation des données Hostaway",
+                                          "etat": "en_cours", "message": "", "duree_s": None}]
+        orch.signaler_sous_etapes(sous)
+
     # Le déclencheur est celui du run orchestrateur (transmis par `_appeler_service`) : un run lancé
     # depuis l'écran reste MANUEL jusqu'au journal. Le forcer à AUTO faisait passer toute
     # actualisation ciblée pour un battement du scheduler.
@@ -291,11 +306,19 @@ def importer_hostaway(*, db_path=None, declencheur: str | None = None) -> dict[s
                                   attendre=True)
     # Le code retour du lot fait foi : un lancement réussi n'est pas une extraction réussie.
     code = resultat.get("code_retour")
+    echec_import = None
     if code not in (0, None):
-        return {"ok": False, "code": E_CODE_RETOUR,
-                "message": f"lot1_hostaway_extract rc={code}"}
-    if not resultat.get("ok"):
-        return resultat
+        echec_import = {"ok": False, "code": E_CODE_RETOUR,
+                        "message": f"lot1_hostaway_extract rc={code}"}
+    elif not resultat.get("ok"):
+        echec_import = resultat
+    if demande is not None:
+        sous[-1].update(etat="echec" if echec_import else "termine",
+                        message="Import refusé : dernières données valides conservées."
+                        if echec_import else "")
+        orch.signaler_sous_etapes(sous)
+    if echec_import is not None:
+        return {**echec_import, "sous_etapes": sous} if demande is not None else echec_import
 
     # INCHANGÉ se juge sur l'IDENTITÉ de l'extraction servie à l'aval — ni sur « importé ou non », ni
     # sur une date. Un clic sur l'écran Hostaway a pu importer une version nouvelle depuis le dernier
@@ -303,9 +326,14 @@ def importer_hostaway(*, db_path=None, declencheur: str | None = None) -> dict[s
     # synchronisé ET déjà propagé ne justifie aucun recalcul (§15) — c'est l'orchestrateur qui en
     # tire la conséquence, pas ce service.
     courante = raw.derniere_extraction_utilisable(db_path=db_path)
+    supplement = {}
+    if demande is not None:
+        supplement = {"sous_etapes": sous,
+                      "extraction_demande": {"run_id": demande["run_id"], "debut": demande["debut"],
+                                             "fin": demande["fin"]}}
     return {"ok": True, **{k: v for k, v in resultat.items() if k != "ok"},
             "extraction_id": courante,
-            "donnees_modifiees": not propagee or courante != propagee}
+            "donnees_modifiees": not propagee or courante != propagee, **supplement}
 
 
 def importer_hostaway_cleaning_tasks(*, db_path=None, declencheur: str | None = None) -> dict[str, Any]:
@@ -313,6 +341,14 @@ def importer_hostaway_cleaning_tasks(*, db_path=None, declencheur: str | None = 
     « Actualiser toute l'activité » ni par la propagation d'une actualisation des réservations.
     Déclenché uniquement quand il est lui-même demandé (ex. « Actualiser les ménages »)."""
     from app.services import hostaway_cleaning_tasks_actualisation_service as cleaning_tasks
+    from app.services import orchestrateur_service as orch
+
+    # Extraction à la demande dont l'étape « tâches » a échoué sur GitHub : le dépôt ne porte que
+    # les tâches de la publication précédente. Les importer en les disant fraîches serait faux.
+    if orch.option_run("taches_hostaway_extraites") is False:
+        return {"ok": False, "code": "HOSTAWAY_TACHES_NON_EXTRAITES",
+                "message": "L'extraction des tâches de ménage a échoué sur GitHub : les tâches "
+                           "précédentes sont conservées."}
 
     resultat = cleaning_tasks.actualiser(declencheur=declencheur or cleaning_tasks.DECLENCHEUR_AUTO,
                                          db_path=db_path)

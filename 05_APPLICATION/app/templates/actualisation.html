@@ -22,6 +22,9 @@
   .act-etape--echec { background: rgba(220, 38, 38, .08); }
   .act-etape--echec .act-etape__libelle, .act-etape--echec .act-etape__message { color: var(--color-danger, #b91c1c); }
   .act-etape--attente { opacity: .65; }
+  .act-etape { flex-wrap: wrap; }
+  .act-sous-etapes { list-style: none; margin: 4px 0 0 2em; padding: 0; flex-basis: 100%; }
+  .act-sous-etapes .act-etape { border-bottom: none; padding: 2px 4px; font-size: 13px; }
 </style>
 <div class="page-header flex justify-between items-center">
   <div>
@@ -47,6 +50,18 @@
     {% if e.message %}<span class="act-etape__message">{{ e.message }}</span>{% endif %}
   </span>
   <span class="act-etape__duree">{{ e.duree }}</span>
+  {% if e.sous_etapes %}
+  <ul class="act-sous-etapes">
+    {% for s in e.sous_etapes %}
+    <li class="act-etape act-etape--{{ s.etat }}" data-etat="{{ s.etat }}">
+      <span class="act-etape__icone" aria-hidden="true">{{ s.icone }}</span>
+      <span class="act-etape__texte"><span>{{ s.libelle }}</span> <span class="act-etape__etat">— {{ s.etat_libelle }}</span>
+        {% if s.message %}<span class="act-etape__message">{{ s.message }}</span>{% endif %}</span>
+      <span class="act-etape__duree">{{ s.duree }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
 </li>
 {%- endmacro %}
 {% if p and p.run %}
@@ -89,7 +104,17 @@
       '<span class="act-etape__texte"><span class="act-etape__libelle">' + texte(e.libelle) + '</span>' +
       '<span class="act-etape__etat">— ' + texte(e.etat_libelle) + '</span>' +
       (e.message ? '<span class="act-etape__message">' + texte(e.message) + '</span>' : '') + '</span>' +
-      '<span class="act-etape__duree">' + texte(e.duree) + '</span></li>';
+      '<span class="act-etape__duree">' + texte(e.duree) + '</span>' + sousEtapes(e.sous_etapes) + '</li>';
+  }
+  function sousEtapes(liste) {
+    if (!liste || !liste.length) return '';
+    return '<ul class="act-sous-etapes">' + liste.map(function (s) {
+      return '<li class="act-etape act-etape--' + s.etat + '" data-etat="' + s.etat + '">' +
+        '<span class="act-etape__icone" aria-hidden="true">' + s.icone + '</span>' +
+        '<span class="act-etape__texte"><span>' + texte(s.libelle) + '</span> <span class="act-etape__etat">— ' +
+        texte(s.etat_libelle) + '</span>' + (s.message ? '<span class="act-etape__message">' + texte(s.message) + '</span>' : '') +
+        '</span><span class="act-etape__duree">' + texte(s.duree) + '</span></li>';
+    }).join('') + '</ul>';
   }
   function champ(nom) { return panneau.querySelector('[data-champ="' + nom + '"]'); }
   function rendre(p) {
@@ -152,8 +177,9 @@
     Une actualisation ciblée recalcule le dataset choisi <strong>puis tous ses descendants</strong>,
     dans l'ordre des dépendances. Un dataset dont un amont a échoué n'est jamais recalculé sur une
     entrée périmée : il reste marqué à recalculer. « Actualiser toute l'activité » interroge d'abord
-    toutes les sources configurées (banque Qonto en lecture seule, réservations et tâches de ménage
-    Hostaway publiées par GitHub, déclarations et factures de ménage), puis rejoue tous les calculs
+    toutes les sources configurées (banque Qonto en lecture seule ; Hostaway extrait à l'instant par
+    le pipeline GitHub — réservations, données financières, tâches de ménage — puis importé ;
+    déclarations et factures de ménage), puis rejoue tous les calculs
     dans l'ordre des dépendances, et sauvegarde avant cela la base entière (restauration automatique si l'intégrité échoue après coup) ; « Simuler
     (dry-run) » calcule le même plan sans rien exécuter ni activer.
   </p>

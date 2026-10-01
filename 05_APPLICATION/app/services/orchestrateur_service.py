@@ -289,6 +289,41 @@ def etat_datasets(db_path=None) -> list[dict[str, Any]]:
 _declencheur_courant: ContextVar[str] = ContextVar("orchestrateur_declencheur",
                                                    default=DECLENCHEUR_MANUEL)
 
+# Options du run en cours (ex. `hostaway_a_la_demande`) et étape en cours d'exécution — même
+# mécanisme que le déclencheur, pour la même raison : la signature des services ne change pas.
+_options_run: ContextVar[dict | None] = ContextVar("orchestrateur_options", default=None)
+_etape_courante: ContextVar[tuple | None] = ContextVar("orchestrateur_etape", default=None)
+
+
+def option_run(nom: str, defaut: Any = None) -> Any:
+    """Option du run orchestré en cours, lue par un service ; `defaut` hors run."""
+    return (_options_run.get() or {}).get(nom, defaut)
+
+
+def definir_option_run(nom: str, valeur: Any) -> None:
+    """Un service transmet une information aux étapes suivantes du MÊME run."""
+    options = _options_run.get()
+    if options is not None:
+        options[nom] = valeur
+
+
+def signaler_sous_etapes(sous_etapes: list[dict]) -> None:
+    """Publie l'avancement interne de l'étape en cours (ex. les phases de l'extraction Hostaway)
+    dans son détail : l'écran les affiche sous l'étape, en direct. Sans run en cours : rien."""
+    courante = _etape_courante.get()
+    if courante is None:
+        return
+    run_id, etape, db_path = courante
+    conn = get_db(db_path)
+    try:
+        conn.execute(
+            "UPDATE moteur_run_etapes SET detail = ? WHERE run_id = ? AND etape = ? AND statut = ?",
+            (json.dumps({"sous_etapes": sous_etapes}, default=str, ensure_ascii=False), run_id,
+             etape, ETAPE_EN_COURS))
+        conn.commit()
+    finally:
+        conn.close()
+
 
 def _appeler_service(chemin: str, db_path) -> dict[str, Any]:
     """Résout "module:fonction" et l'appelle avec `db_path`.
@@ -680,7 +715,7 @@ def _volume(dataset: str, resultat: dict, db_path) -> str | None:
 def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEUR_MANUEL,
                inclure_exports: bool = False, inclure_imports_externes: bool = False,
                dry_run: bool = False, run_id: str | None = None,
-               db_path=None) -> dict[str, Any]:
+               hostaway_a_la_demande: bool = False, db_path=None) -> dict[str, Any]:
     """Actualise le pipeline : tout par défaut, ou les descendants des `cibles` demandées.
 
     `cibles=None` → « Actualiser toute l'activité » (§30).
@@ -749,6 +784,11 @@ def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEU
                                           sauvegarde_id=sauvegarde_id, db_path=db_path)
         history.marquer_validating(history_run_id, db_path=db_path)
 
+    # `hostaway_a_la_demande` : le clic manuel « Actualiser toute l'activité » fait EXTRAIRE
+    # Hostaway maintenant (pipeline GitHub canonique) au lieu de relire la dernière publication.
+    # Le scheduler et les actualisations ciblées ne le demandent pas : leur comportement est
+    # inchangé.
+    jeton_options = _options_run.set({"hostaway_a_la_demande": bool(hostaway_a_la_demande)})
     etats: dict[str, str] = {d["dataset"]: d["statut"] for d in etat_datasets(db_path)}
     etapes: list[dict[str, Any]] = []
     nb_ok = nb_ko = 0
@@ -836,8 +876,13 @@ def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEU
                 continue
 
             _etape_debut(run_id, dataset, db_path)
-            resultat = recalculer_dataset(dataset, run_id=run_id, declencheur=declencheur,
-                                          db_path=db_path)
+            jeton_etape = _etape_courante.set((run_id, dataset, db_path))
+            try:
+                resultat = recalculer_dataset(dataset, run_id=run_id, declencheur=declencheur,
+                                              db_path=db_path)
+            finally:
+                _etape_courante.reset(jeton_etape)
+            sous_etapes = resultat.get("sous_etapes")
             if resultat.get("non_configure"):
                 # Ni succès ni échec : la source n'a pas été interrogée, et l'écran le dit.
                 etats[dataset] = resultat.get("statut_dataset", etats.get(dataset))
@@ -857,7 +902,8 @@ def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEU
                                        declencheur=declencheur, db_path=db_path)
                 _etape(run_id, dataset, ordre, "SUCCES", debut, "",
                        resultat.get("nb_constats") or resultat.get("nb_entetes"), db_path,
-                       detail={"volume": _volume(dataset, resultat, db_path)})
+                       detail={"volume": _volume(dataset, resultat, db_path),
+                               "sous_etapes": sous_etapes})
                 etapes.append({"dataset": dataset, "statut": "SUCCES",
                                "detail": {k: v for k, v in resultat.items()
                                           if k not in ("ok", "dataset")}})
@@ -866,7 +912,7 @@ def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEU
                 etats[dataset] = ST_ECHEC
                 message = resultat.get("message", "")
                 _etape(run_id, dataset, ordre, "ECHEC", debut, message, None, db_path,
-                       detail={"code": resultat.get("code")})
+                       detail={"code": resultat.get("code"), "sous_etapes": sous_etapes})
                 etapes.append({"dataset": dataset, "statut": "ECHEC",
                                "code": resultat.get("code"), "motif": message})
 
@@ -916,6 +962,7 @@ def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEU
                 "datasets": etat_datasets(db_path), "sauvegarde_id": sauvegarde_id,
                 "history_run_id": history_run_id, "rollback": rollback}
     finally:
+        _options_run.reset(jeton_options)
         liberer_verrou(PORTEE_GLOBALE, run_id, db_path=db_path)
 
 

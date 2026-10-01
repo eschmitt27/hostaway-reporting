@@ -225,6 +225,43 @@ class ClientGitHubActions:
         c = self.config
         return _resume_run(self._json(self._appel("GET", f"/repos/{c.depot}/actions/runs/{run_id}")))
 
+    # ── Pipeline complet (actualisation globale à la demande) ───────────────────────────────
+    def dispatch_workflow(self, workflow: str, *, inputs: dict | None = None) -> dict:
+        """Déclenche `workflow` (sur la même référence). Rend `workflow_run_id` quand GitHub le
+        fournit — simple indice : l'appelant identifie toujours le run par la liste des runs."""
+        c = self.config
+        reponse = self._appel(
+            "POST", f"/repos/{c.depot}/actions/workflows/{workflow}/dispatches",
+            json={"ref": c.ref, "inputs": inputs or {}})
+        run_id = None
+        if reponse.status_code == 200 and reponse.content:
+            try:
+                run_id = (reponse.json() or {}).get("workflow_run_id")
+            except ValueError:
+                run_id = None
+        return {"workflow_run_id": run_id}
+
+    def runs_workflow(self, workflow: str, *, event: str = "workflow_dispatch",
+                      depuis: datetime | None = None) -> list[dict]:
+        """Runs récents de `workflow` déclenchés par `event`, du plus récent au plus ancien."""
+        c = self.config
+        params: dict = {"event": event, "per_page": 30}
+        if depuis is not None:
+            borne = depuis.astimezone(timezone.utc)
+            params["created"] = ">=" + borne.strftime("%Y-%m-%dT%H:%M:%SZ")
+        donnees = self._json(self._appel(
+            "GET", f"/repos/{c.depot}/actions/workflows/{workflow}/runs", params=params))
+        return [_resume_run(r) for r in donnees.get("workflow_runs") or []]
+
+    def etapes_run(self, run_id: int | str) -> list[dict]:
+        """Étapes de chaque job du run : nom, statut, conclusion, début, fin — lecture seule."""
+        c = self.config
+        donnees = self._json(self._appel("GET", f"/repos/{c.depot}/actions/runs/{run_id}/jobs"))
+        return [{"nom": s.get("name"), "status": s.get("status"),
+                 "conclusion": s.get("conclusion"), "started_at": s.get("started_at"),
+                 "completed_at": s.get("completed_at")}
+                for job in donnees.get("jobs") or [] for s in job.get("steps") or []]
+
     # ── 3. artifact du run exact ─────────────────────────────────────────────────────────────
     def telecharger_artifact(self, run_id: int | str, nom_artifact: str,
                              nom_fichier: str) -> dict:
