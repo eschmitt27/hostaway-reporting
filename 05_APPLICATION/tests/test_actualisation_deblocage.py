@@ -59,14 +59,14 @@ def test_actualisation_globale_ecran_synchronise_hostaway_et_debloque_tout(base_
         assert etats[d] == orch.ST_A_JOUR, (d, etats[d])
 
 
-def test_actualisation_globale_ne_lance_jamais_les_taches_de_menage(base_bloquee, monkeypatch):
-    """Les tâches H6 gardent leur parcours propre (« Actualiser les ménages ») : leur échec
-    bloquerait sinon toute la chaîne à chaque clic global."""
+def test_actualisation_globale_synchronise_aussi_les_taches_de_menage(base_bloquee, monkeypatch):
+    """Contrat du 2026-10-01 (mission « actualisation réellement globale ») : les tâches H6 sont
+    lues dans le même dépôt publié que les réservations — le bouton global les synchronise."""
     appels = _espion(monkeypatch)
     res = orch.actualiser(cibles=None, inclure_imports_externes=True, db_path=base_bloquee)
-    assert not any("cleaning_tasks" in a for a in appels)
+    assert any("cleaning_tasks" in a for a in appels)
     h6 = next(e for e in res["etapes"] if e["dataset"] == dag.HOSTAWAY_CLEANING_TASKS)
-    assert h6["statut"] == "IGNOREE" and "non déclenché" in h6["motif"]
+    assert h6["statut"] == "SUCCES"
 
 
 def test_un_import_n_est_jamais_invalide_en_cascade(tmp_db, monkeypatch):

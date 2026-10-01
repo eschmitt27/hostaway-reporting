@@ -2,6 +2,27 @@
 {% block title %}Actualisation{% endblock %}
 
 {% block content %}
+<style>
+  .act-prog__tete { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .act-prog__compte { font-weight: 600; }
+  .act-prog__barre { height: 10px; border-radius: 6px; background: var(--color-border, #e5e7eb); overflow: hidden; margin-top: 8px; }
+  .act-prog__barre > span { display: block; height: 100%; background: var(--color-primary, #2563eb); transition: width .4s ease; }
+  .act-prog--en-cours .act-prog__barre > span { background: var(--color-warning, #d97706); }
+  .act-prog__pourcentage { font-size: 12px; margin: 4px 0 8px; }
+  .act-prog__etapes { list-style: none; margin: 8px 0; padding: 0; }
+  .act-etape { display: flex; gap: 10px; align-items: flex-start; padding: 6px 4px; border-bottom: 1px solid var(--color-border, #eee); }
+  .act-etape__icone { width: 1.5em; flex: none; }
+  .act-etape__texte { flex: 1; min-width: 0; }
+  .act-etape__libelle { font-weight: 600; }
+  .act-etape__etat { margin-left: 4px; color: var(--color-text-secondary, #6b7280); }
+  .act-etape__message { display: block; font-size: 12px; color: var(--color-text-secondary, #6b7280); }
+  .act-etape__duree { flex: none; font-size: 12px; color: var(--color-text-secondary, #6b7280); white-space: nowrap; }
+  .act-etape--en_cours { background: rgba(217, 119, 6, .08); }
+  .act-etape--en_cours .act-etape__libelle { color: var(--color-warning, #b45309); }
+  .act-etape--echec { background: rgba(220, 38, 38, .08); }
+  .act-etape--echec .act-etape__libelle, .act-etape--echec .act-etape__message { color: var(--color-danger, #b91c1c); }
+  .act-etape--attente { opacity: .65; }
+</style>
 <div class="page-header flex justify-between items-center">
   <div>
     <p class="text-xs text-secondary"><a href="/observabilite/runs">← Observabilité &amp; outils</a></p>
@@ -13,12 +34,102 @@
   {% endif %}
 </div>
 
+{% set p = progression %}
+{% if message %}
+<div class="alert alert-warning mb-lg" data-testid="message-actualisation">{{ message }}</div>
+{% endif %}
+{% macro ligne_etape(e) -%}
+<li class="act-etape act-etape--{{ e.etat }}" data-etat="{{ e.etat }}" data-testid="etape-{{ e.cle }}">
+  <span class="act-etape__icone" aria-hidden="true">{{ e.icone }}</span>
+  <span class="act-etape__texte">
+    <span class="act-etape__libelle">{{ e.libelle }}</span>
+    <span class="act-etape__etat">— {{ e.etat_libelle }}</span>
+    {% if e.message %}<span class="act-etape__message">{{ e.message }}</span>{% endif %}
+  </span>
+  <span class="act-etape__duree">{{ e.duree }}</span>
+</li>
+{%- endmacro %}
+{% if p and p.run %}
+<section class="card mb-lg act-prog{% if p.en_cours %} act-prog--en-cours{% endif %}" id="act-progression"
+         data-testid="progression" data-run="{{ p.run.run_id }}" data-en-cours="{{ 1 if p.en_cours else 0 }}"
+         aria-live="polite">
+  <div class="act-prog__tete">
+    <div class="card-title" data-champ="titre">{{ p.run.titre }}{% if not p.run.global %} <span class="text-secondary text-xs">(actualisation ciblée)</span>{% endif %}</div>
+    <div class="act-prog__compte" data-champ="compte">{{ p.terminees }} / {{ p.total }} étapes terminées</div>
+  </div>
+  <div class="act-prog__barre" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+       aria-valuenow="{{ p.pourcentage }}" data-champ="barre">
+    <span style="width: {{ p.pourcentage }}%"></span>
+  </div>
+  <div class="act-prog__pourcentage" data-champ="pourcentage">{{ p.pourcentage }} %</div>
+  <div class="alert alert-danger act-prog__echec" data-champ="echec" data-testid="progression-echec"{% if not p.echec %} hidden{% endif %}>
+    {% if p.echec %}<strong>{{ p.echec.titre }}</strong><br>{{ p.echec.message }}{% endif %}
+  </div>
+  <ul class="act-prog__etapes" data-champ="etapes">
+    {% for e in p.etapes %}{{ ligne_etape(e) }}{% endfor %}
+  </ul>
+  <div class="act-prog__resume text-xs text-secondary" data-champ="resume">
+    Début : {{ p.run.debut or "—" }}{% if not p.en_cours %} · Fin : {{ p.run.fin or "—" }}{% endif %}
+    · Durée : {{ p.run.duree or "—" }}
+    · ✅ {{ p.compteurs.termine }} terminée(s)
+    · ⚠️ {{ p.compteurs.non_configure + p.compteurs.ignore }} non configurée(s) ou ignorée(s)
+    · ⛔ {{ p.compteurs.bloque }} non exécutée(s) · ❌ {{ p.compteurs.echec }} échec(s)
+  </div>
+  <p class="text-xs text-secondary mt-sm">Détails techniques : <a href="/observabilite/runs">Observabilité &amp; outils</a> (run {{ p.run.run_id }}).</p>
+</section>
+<script>
+(function () {
+  var panneau = document.getElementById('act-progression');
+  if (!panneau || panneau.getAttribute('data-en-cours') !== '1') return;
+  var run = panneau.getAttribute('data-run');
+  function texte(v) { var d = document.createElement('div'); d.textContent = v == null ? '' : String(v); return d.innerHTML; }
+  function ligne(e) {
+    return '<li class="act-etape act-etape--' + e.etat + '" data-etat="' + e.etat + '" data-testid="etape-' + texte(e.cle) + '">' +
+      '<span class="act-etape__icone" aria-hidden="true">' + e.icone + '</span>' +
+      '<span class="act-etape__texte"><span class="act-etape__libelle">' + texte(e.libelle) + '</span>' +
+      '<span class="act-etape__etat">— ' + texte(e.etat_libelle) + '</span>' +
+      (e.message ? '<span class="act-etape__message">' + texte(e.message) + '</span>' : '') + '</span>' +
+      '<span class="act-etape__duree">' + texte(e.duree) + '</span></li>';
+  }
+  function champ(nom) { return panneau.querySelector('[data-champ="' + nom + '"]'); }
+  function rendre(p) {
+    champ('titre').textContent = p.run.titre;
+    champ('compte').textContent = p.terminees + ' / ' + p.total + ' étapes terminées';
+    champ('barre').setAttribute('aria-valuenow', p.pourcentage);
+    champ('barre').firstElementChild.style.width = p.pourcentage + '%';
+    champ('pourcentage').textContent = p.pourcentage + ' %';
+    var echec = champ('echec');
+    if (p.echec) { echec.hidden = false; echec.innerHTML = '<strong>' + texte(p.echec.titre) + '</strong><br>' + texte(p.echec.message); }
+    champ('etapes').innerHTML = p.etapes.map(ligne).join('');
+    var c = p.compteurs;
+    champ('resume').textContent = 'Début : ' + (p.run.debut || '—') + (p.en_cours ? '' : ' · Fin : ' + (p.run.fin || '—')) +
+      ' · Durée : ' + (p.run.duree || '—') + ' · ✅ ' + c.termine + ' terminée(s) · ⚠️ ' + (c.non_configure + c.ignore) +
+      ' non configurée(s) ou ignorée(s) · ⛔ ' + c.bloque + ' non exécutée(s) · ❌ ' + c.echec + ' échec(s)';
+  }
+  // Relecture de l'état RÉEL du run chaque seconde (moteur_runs / moteur_run_etapes) : aucune
+  // progression simulée. À la fin, la page est rechargée pour remettre à jour les tableaux.
+  var minuterie = setInterval(function () {
+    fetch('/actualisation/progression?run_id=' + encodeURIComponent(run), {cache: 'no-store'})
+      .then(function (r) { return r.json(); })
+      .then(function (p) {
+        if (!p.run) return;
+        rendre(p);
+        if (!p.en_cours) { clearInterval(minuterie); setTimeout(function () { window.location.reload(); }, 1200); }
+      })
+      .catch(function () { /* réseau momentané : on réessaie au prochain tour */ });
+  }, 1000);
+})();
+</script>
+{% endif %}
+
 <div class="card mb-lg">
   <div class="card-title">Lancer une actualisation</div>
   <div class="flex items-center gap-md" style="flex-wrap: wrap;">
-    <form method="post" action="/actualisation/tout">
-      <button type="submit" class="btn btn-primary" {% if verrous %}disabled{% endif %}>
-        Actualiser toute l'activité
+    {% set occupe = verrous or (progression and progression.en_cours) %}
+    <form method="post" action="/actualisation/tout"
+          onsubmit="var b=this.querySelector('button'); b.disabled=true; b.textContent='Actualisation en cours…';">
+      <button type="submit" class="btn btn-primary" data-testid="bouton-actualiser-tout" {% if occupe %}disabled{% endif %}>
+        {{ "Actualisation en cours…" if occupe else "Actualiser toute l'activité" }}
       </button>
     </form>
     <form method="post" action="/actualisation/tout/dry-run">
@@ -40,9 +151,10 @@
   <p class="text-xs text-secondary mt-sm">
     Une actualisation ciblée recalcule le dataset choisi <strong>puis tous ses descendants</strong>,
     dans l'ordre des dépendances. Un dataset dont un amont a échoué n'est jamais recalculé sur une
-    entrée périmée : il reste marqué à recalculer. « Actualiser toute l'activité » synchronise
-    d'abord les réservations Hostaway publiées par GitHub (sans appel direct à Hostaway), recalcule
-    tout ce qui en dépend, et sauvegarde avant cela la base entière (restauration automatique si l'intégrité échoue après coup) ; « Simuler
+    entrée périmée : il reste marqué à recalculer. « Actualiser toute l'activité » interroge d'abord
+    toutes les sources configurées (banque Qonto en lecture seule, réservations et tâches de ménage
+    Hostaway publiées par GitHub, déclarations et factures de ménage), puis rejoue tous les calculs
+    dans l'ordre des dépendances, et sauvegarde avant cela la base entière (restauration automatique si l'intégrité échoue après coup) ; « Simuler
     (dry-run) » calcule le même plan sans rien exécuter ni activer.
   </p>
   {% if dry_run_resultat %}

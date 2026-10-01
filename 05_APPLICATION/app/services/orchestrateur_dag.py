@@ -32,6 +32,9 @@ HOSTAWAY_RAW = "HOSTAWAY_RAW"
 HOSTAWAY_CLEANING_TASKS = "HOSTAWAY_CLEANING_TASKS"
 REF_SETUP = "REF_SETUP"
 BANQUE = "BANQUE"
+BANQUE_QONTO = "BANQUE_QONTO"
+MENAGES_DECLARATIONS = "MENAGES_DECLARATIONS"
+MENAGES_PDF = "MENAGES_PDF"
 RESERVATIONS = "RESERVATIONS"
 MENAGES = "MENAGES"
 FLUX_LOT9 = "FLUX_LOT9"
@@ -73,6 +76,19 @@ class Noeud:
     # et un ancien échec de cette source bloquait toute la chaîne sans qu'aucun bouton global ne
     # puisse jamais le lever.
     actualisation_globale: bool = False
+    # Libellé montré à l'utilisateur pendant une actualisation : jamais un code de dataset ni un
+    # numéro de lot. Vide → `libelle`.
+    libelle_utilisateur: str = ""
+    # Un ÉCHEC de ce nœud empêche-t-il de calculer ses descendants ? Vrai par défaut (mission 14b).
+    # Faux pour une source d'appoint dont l'import garde la dernière version valide en place et que
+    # la chaîne a toujours traitée comme facultative (déclarations internes, factures PDF) : son
+    # échec est affiché en rouge, le run est PARTIEL, mais il ne prive pas l'utilisateur de tous ses
+    # résultats.
+    bloque_l_aval: bool = True
+
+    @property
+    def nom_affiche(self) -> str:
+        return self.libelle_utilisateur or self.libelle
 
 
 NOEUDS: dict[str, Noeud] = {n.nom: n for n in (
@@ -80,6 +96,7 @@ NOEUDS: dict[str, Noeud] = {n.nom: n for n in (
           service="app.services.orchestrateur_moteur:importer_hostaway",
           externe=True,
           actualisation_globale=True,
+          libelle_utilisateur="Hostaway — réservations, logements et paiements",
           tables=("hostaway_extractions", "hostaway_reservations", "hostaway_payouts",
                   "hostaway_listings", "hostaway_anomalies"),
           commentaire="Source externe : API Hostaway. Passe par `hostaway_actualisation_service."
@@ -91,6 +108,11 @@ NOEUDS: dict[str, Noeud] = {n.nom: n for n in (
           depend_de=(HOSTAWAY_RAW,),
           service="app.services.orchestrateur_moteur:importer_hostaway_cleaning_tasks",
           externe=True,
+          # Lues dans le même dépôt publié que les réservations (aucun appel d'API, donc aucun 429
+          # possible d'ici) : « Actualiser toute l'activité » les synchronise aussi. Le scheduler,
+          # qui ne cible que HOSTAWAY_RAW, ne les entraîne toujours pas.
+          actualisation_globale=True,
+          libelle_utilisateur="Hostaway — tâches de ménage",
           tables=("hostaway_cleaning_tasks_extractions", "hostaway_cleaning_tasks"),
           commentaire="Cadence PROPRE, volontairement séparée de HOSTAWAY_RAW : H6 a rencontré des "
                       "limites 429 sévères, et le rafraîchir aussi souvent que les réservations "
@@ -101,6 +123,7 @@ NOEUDS: dict[str, Noeud] = {n.nom: n for n in (
                       "à arbitrer."),
 
     Noeud(REF_SETUP, TYPE_IMPORT, "Référentiel Setup (logements, propriétaires, taux, clôture)",
+          libelle_utilisateur="Référentiel (logements, propriétaires, taux)",
           tables=("ref_logements", "ref_proprietaires", "ref_taux_commission",
                   "ref_gestion_logements_hist", "ref_cloture_mensuelle",
                   "ref_couts_standards_menage", "ref_canape_parametres", "ref_regles_versions"),
@@ -112,10 +135,46 @@ NOEUDS: dict[str, Noeud] = {n.nom: n for n in (
                       "Excel, mais leur modification doit invalider les mêmes descendants."),
 
     Noeud(BANQUE, TYPE_IMPORT, "Banque — mouvements normalisés et classification",
+          libelle_utilisateur="Banque — relevés importés par fichier",
           tables=("banque_mouvements", "banque_classifications", "banque_controles"),
           commentaire="Import d'un relevé : action utilisateur. Même raison que REF_SETUP."),
 
+    Noeud(BANQUE_QONTO, TYPE_IMPORT, "Banque — synchronisation Qonto (lecture seule)",
+          service="app.services.orchestrateur_moteur:importer_banque_qonto",
+          externe=True,
+          actualisation_globale=True,
+          libelle_utilisateur="Banque — Qonto",
+          tables=("qonto_accounts", "qonto_transactions_raw"),
+          commentaire="Le connecteur bancaire CANONIQUE (`qonto_ecran_service.actualiser`, GET "
+                      "seulement), le même que le bouton de l'écran Banque. Aucun calcul du DAG ne "
+                      "le lit aujourd'hui (le Flux lit `banque_mouvements`) : il n'a pas de "
+                      "descendant, son échec n'en bloque donc aucun. Sans identifiants Qonto, il "
+                      "est dit « non configuré », jamais présenté comme actualisé."),
+
+    Noeud(MENAGES_DECLARATIONS, TYPE_IMPORT, "Ménages — déclarations internes (Google Sheet, lot6b)",
+          service="app.services.orchestrateur_moteur:importer_declarations_menages",
+          externe=True,
+          actualisation_globale=True,
+          bloque_l_aval=False,
+          libelle_utilisateur="Ménages — déclarations internes (Google Sheet)",
+          commentaire="Même lot6b que « Actualiser les ménages ». Source d'appoint : son échec "
+                      "laisse les dernières déclarations valides en place et ne bloque pas Ménages "
+                      "(règle d'origine : lot6b jamais rendu obligatoire)."),
+
+    Noeud(MENAGES_PDF, TYPE_IMPORT, "Ménages — factures des prestataires (PDF)",
+          service="app.services.orchestrateur_moteur:importer_factures_menages_pdf",
+          # Dossier local, mais un import qui crée des factures : il ne part que demandé, comme
+          # les sources externes (jamais par la propagation d'un recalcul).
+          externe=True,
+          actualisation_globale=True,
+          bloque_l_aval=False,
+          libelle_utilisateur="Ménages — factures des prestataires (PDF)",
+          commentaire="Même import idempotent que « Actualiser les ménages » "
+                      "(`menages_pdf_import_service.importer_nouveaux`) : un PDF déjà importé ne "
+                      "crée jamais de doublon. Dossier local, aucun appel externe."),
+
     Noeud(RESERVATIONS, TYPE_CALCUL, "Réservations calculées puis résolues (Lot4bis/4quater)",
+          libelle_utilisateur="Calcul des réservations",
           depend_de=(HOSTAWAY_RAW, REF_SETUP),
           service="app.services.orchestrateur_moteur:executer_reservations",
           tables=("reservations_calculees", "reservations_resolues"),
@@ -126,7 +185,8 @@ NOEUDS: dict[str, Noeud] = {n.nom: n for n in (
                       "au runtime. Preuve A/B : `tests/test_lot4bis_ref_hh_sqlite.py`."),
 
     Noeud(MENAGES, TYPE_CALCUL, "Ménages — comptage, déclarations, rapprochement, coût complet",
-          depend_de=(HOSTAWAY_CLEANING_TASKS, REF_SETUP),
+          depend_de=(HOSTAWAY_CLEANING_TASKS, MENAGES_DECLARATIONS, MENAGES_PDF, REF_SETUP),
+          libelle_utilisateur="Calcul des ménages",
           service="app.services.orchestrateur_moteur:executer_menages",
           tables=("menages_taches_enrichies", "menages_declarations_internes",
                   "menages_rapprochement", "menages_gainperte", "menages_cout_complet"),
@@ -140,6 +200,7 @@ NOEUDS: dict[str, Noeud] = {n.nom: n for n in (
                       "`facture_lignes_menage`, lu directement par lot6d."),
 
     Noeud(FLUX_LOT9, TYPE_CALCUL, "Flux économique unifié (Lot9)",
+          libelle_utilisateur="Flux économiques",
           depend_de=(RESERVATIONS, MENAGES, BANQUE),
           service="app.services.flux_unifie_service:construire",
           tables=("flux_unifies",),
@@ -147,6 +208,7 @@ NOEUDS: dict[str, Noeud] = {n.nom: n for n in (
                       "minimale, lue par `charges_reader` — pas un dataset SQLite à ce jour."),
 
     Noeud(LOT10, TYPE_CALCUL, "Résultats économiques (Lot10)",
+          libelle_utilisateur="Calcul des résultats",
           depend_de=(FLUX_LOT9,),
           service="app.services.orchestrateur_moteur:executer_lot10",
           tables=("lot10_runs", "lot10_commissions", "lot10_resultats", "lot10_net_exploitation",
@@ -161,6 +223,7 @@ NOEUDS: dict[str, Noeud] = {n.nom: n for n in (
                       "Excel minimale documentée, hors périmètre RESERVATIONS/MENAGES."),
 
     Noeud(LOT11, TYPE_CALCUL, "Contrôles de cohérence transverses (Lot11)",
+          libelle_utilisateur="Contrôles de cohérence",
           depend_de=(FLUX_LOT9, LOT10, RESERVATIONS, MENAGES, BANQUE, REF_SETUP, HOSTAWAY_RAW),
           service="app.services.controles_lot11_service:construire",
           tables=("controles_lot11_constats", "controles_lot11_constats_champs",
@@ -169,6 +232,7 @@ NOEUDS: dict[str, Noeud] = {n.nom: n for n in (
                       "ENTRE les chaînes."),
 
     Noeud(LOT12, TYPE_CALCUL, "Préfactures propriétaires (Lot12)",
+          libelle_utilisateur="Préfactures propriétaires",
           depend_de=(LOT10, LOT11, REF_SETUP),
           service="app.services.lot12_prefactures_service:construire",
           tables=("lot12_runs", "lot12_prefactures_entete", "lot12_prefactures_lignes",
@@ -177,6 +241,7 @@ NOEUDS: dict[str, Noeud] = {n.nom: n for n in (
                       "propriétaire réelle est un autre chemin, hors DAG de calcul."),
 
     Noeud(LOT13_EXPORT, TYPE_EXPORT, "Exports Power BI (Lot13)",
+          libelle_utilisateur="Exports Power BI",
           depend_de=(FLUX_LOT9, LOT10, LOT11, LOT12, RESERVATIONS, MENAGES, REF_SETUP),
           service="app.services.lot13_export_service:exporter",
           tables=(),

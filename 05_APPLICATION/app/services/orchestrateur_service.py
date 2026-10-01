@@ -65,6 +65,25 @@ E_VERROU = "ORCHESTRATEUR_VERROU_PRIS"
 E_DATASET_INCONNU = "ORCHESTRATEUR_DATASET_INCONNU"
 E_AMONT_INDISPONIBLE = "ORCHESTRATEUR_AMONT_INDISPONIBLE"
 E_SANS_SERVICE = "ORCHESTRATEUR_DATASET_SANS_SERVICE"
+E_NON_CONFIGURE = "ORCHESTRATEUR_SOURCE_NON_CONFIGUREE"
+
+# Statuts d'ÉTAPE (moteur_run_etapes). Un run réel est PLANIFIÉ dès son ouverture : chaque étape
+# existe en EN_ATTENTE, passe EN_COURS quand elle démarre, puis prend son statut final. C'est ce
+# que l'écran lit pour montrer la progression — aucun minuteur, aucune estimation.
+ETAPE_EN_ATTENTE = "EN_ATTENTE"
+ETAPE_EN_COURS = "EN_COURS"
+ETAPE_SUCCES = "SUCCES"
+ETAPE_ECHEC = "ECHEC"
+ETAPE_IGNOREE = "IGNOREE"
+ETAPE_NON_CONFIGUREE = "NON_CONFIGUREE"
+ETAPE_SAUVEGARDE = "SAUVEGARDE"
+
+# Nature d'une étape ignorée (détail JSON) : ce qui distingue un blocage d'un saut légitime.
+NATURE_BLOQUEE = "BLOQUEE"
+NATURE_SANS_SERVICE = "SANS_SERVICE"
+NATURE_NON_DECLENCHEE = "NON_DECLENCHEE"
+NATURE_INCHANGEE = "INCHANGEE"
+NATURE_NON_EXECUTEE = "NON_EXECUTEE"
 
 
 def _maintenant() -> str:
@@ -330,6 +349,7 @@ def recalculer_dataset(dataset: str, *, run_id: str = "",
                 "message": f"{noeud.libelle} : donnée fournie de l'extérieur, "
                            "l'orchestrateur ne la recalcule pas."}
 
+    statut_avant = _statut_dataset(dataset, db_path)
     marquer_dataset(dataset, ST_EN_COURS, run_id=run_id, declencheur=declencheur, db_path=db_path)
     try:
         resultat = _executer_service(noeud.service, db_path, declencheur)
@@ -339,6 +359,17 @@ def recalculer_dataset(dataset: str, *, run_id: str = "",
                         motif="ECHEC", db_path=db_path)
         return {"ok": False, "dataset": dataset, "code": type(exc).__name__,
                 "message": str(exc)[:500]}
+
+    if resultat.get("non_configure"):
+        # Rien n'a été interrogé : la donnée en place n'est PAS rafraîchie, donc jamais « à jour »
+        # à cette date — et ce n'est pas une panne non plus. Un import « à recalculer » ne bloque
+        # pas l'aval (`_amonts_en_echec`).
+        nouveau = ST_JAMAIS if statut_avant in (None, ST_JAMAIS) else ST_A_RECALCULER
+        marquer_dataset(dataset, nouveau, run_id=run_id, declencheur=declencheur,
+                        erreur_code=E_NON_CONFIGURE, erreur_message=resultat.get("message", ""),
+                        motif="NON_CONFIGURE", db_path=db_path)
+        return {"ok": False, "dataset": dataset, "code": E_NON_CONFIGURE, **resultat,
+                "statut_dataset": nouveau}
 
     if not resultat.get("ok", False):
         marquer_dataset(dataset, ST_ECHEC, run_id=run_id, declencheur=declencheur,
@@ -352,10 +383,24 @@ def recalculer_dataset(dataset: str, *, run_id: str = "",
     return {"ok": True, "dataset": dataset, **resultat}
 
 
+def _statut_dataset(dataset: str, db_path) -> str | None:
+    conn = get_db(db_path)
+    try:
+        r = conn.execute("SELECT statut FROM orchestrateur_datasets WHERE dataset = ?",
+                         (dataset,)).fetchone()
+        return r["statut"] if r else None
+    finally:
+        conn.close()
+
+
 # ── Runs (réutilise moteur_runs / moteur_run_etapes) ────────────────────────────────────────────
 
-def _ouvrir_run(declencheur: str, cible: str, db_path) -> str:
-    run_id = f"ORCH-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
+def _nouveau_run_id() -> str:
+    return f"ORCH-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
+
+
+def _ouvrir_run(declencheur: str, cible: str, db_path, *, run_id: str | None = None) -> str:
+    run_id = run_id or _nouveau_run_id()
     conn = get_db(db_path)
     try:
         conn.execute(
@@ -369,17 +414,71 @@ def _ouvrir_run(declencheur: str, cible: str, db_path) -> str:
     return run_id
 
 
-def _etape(run_id: str, dataset: str, ordre: int, statut: str, debut: str,
-           erreur: str, nb_ecrits: int | None, db_path) -> None:
+def _planifier(run_id: str, a_traiter: list[str], *, sauvegarde: bool, db_path) -> None:
+    """Écrit le PLAN du run : une étape EN_ATTENTE par dataset, dans l'ordre du DAG (et la
+    sauvegarde en tête d'une actualisation globale). Idempotent : un run déjà planifié (préparé
+    par l'écran avant la tâche de fond) ne l'est pas deux fois."""
     conn = get_db(db_path)
     try:
-        conn.execute(
-            "INSERT INTO moteur_run_etapes (run_id, etape, ordre, started_at, ended_at, statut, "
-            "nb_ecrits, erreur) VALUES (?,?,?,?,?,?,?,?)",
-            (run_id, dataset, ordre, debut, _maintenant(), statut, nb_ecrits, erreur or None))
+        if conn.execute("SELECT 1 FROM moteur_run_etapes WHERE run_id = ? LIMIT 1",
+                        (run_id,)).fetchone():
+            return
+        maintenant = _maintenant()
+        lignes = ([(run_id, ETAPE_SAUVEGARDE, 0)] if sauvegarde else []) + [
+            (run_id, d, i) for i, d in enumerate(a_traiter, start=1)]
+        conn.executemany(
+            "INSERT INTO moteur_run_etapes (run_id, etape, ordre, started_at, statut) "
+            "VALUES (?,?,?,?,'" + ETAPE_EN_ATTENTE + "')",
+            [(r, e, o, maintenant) for r, e, o in lignes])
         conn.commit()
     finally:
         conn.close()
+
+
+def _etape_debut(run_id: str, etape: str, db_path) -> None:
+    """L'étape démarre : c'est ce passage EN_COURS que l'écran affiche en direct."""
+    conn = get_db(db_path)
+    try:
+        conn.execute(
+            "UPDATE moteur_run_etapes SET statut = ?, started_at = ? "
+            "WHERE run_id = ? AND etape = ? AND statut = ?",
+            (ETAPE_EN_COURS, _maintenant(), run_id, etape, ETAPE_EN_ATTENTE))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _etape(run_id: str, dataset: str, ordre: int, statut: str, debut: str,
+           erreur: str, nb_ecrits: int | None, db_path, *, detail: dict | None = None) -> None:
+    """Statut final d'une étape : met à jour l'étape planifiée, ou l'insère (dry-run, run ancien)."""
+    contenu = json.dumps(detail, default=str, ensure_ascii=False) if detail else None
+    conn = get_db(db_path)
+    try:
+        maj = conn.execute(
+            "UPDATE moteur_run_etapes SET ordre = ?, started_at = ?, ended_at = ?, statut = ?, "
+            "nb_ecrits = ?, erreur = ?, detail = ? WHERE run_id = ? AND etape = ?",
+            (ordre, debut, _maintenant(), statut, nb_ecrits, erreur or None, contenu, run_id,
+             dataset))
+        if maj.rowcount == 0:
+            conn.execute(
+                "INSERT INTO moteur_run_etapes (run_id, etape, ordre, started_at, ended_at, "
+                "statut, nb_ecrits, erreur, detail) VALUES (?,?,?,?,?,?,?,?,?)",
+                (run_id, dataset, ordre, debut, _maintenant(), statut, nb_ecrits, erreur or None,
+                 contenu))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _solder_etapes(conn, run_id: str, motif: str) -> None:
+    """Un run terminé n'a plus d'étape « en attente » ni « en cours » : celles qui n'ont pas eu
+    lieu sont dites non exécutées, jamais laissées à faire croire qu'elles vont démarrer."""
+    conn.execute(
+        "UPDATE moteur_run_etapes SET statut = ?, ended_at = COALESCE(ended_at, ?), "
+        "erreur = COALESCE(erreur, ?), detail = COALESCE(detail, ?) "
+        "WHERE run_id = ? AND statut IN (?, ?)",
+        (ETAPE_IGNOREE, _maintenant(), motif,
+         json.dumps({"nature": NATURE_NON_EXECUTEE}), run_id, ETAPE_EN_ATTENTE, ETAPE_EN_COURS))
 
 
 def _cloturer_run(run_id: str, statut: str, nb_ok: int, nb_ko: int, resume: str, db_path) -> None:
@@ -389,6 +488,7 @@ def _cloturer_run(run_id: str, statut: str, nb_ok: int, nb_ko: int, resume: str,
             "UPDATE moteur_runs SET ended_at = ?, statut = ?, nb_etapes = ?, nb_etapes_ok = ?, "
             "nb_etapes_ko = ?, erreur_resume = ? WHERE run_id = ?",
             (_maintenant(), statut, nb_ok + nb_ko, nb_ok, nb_ko, resume or None, run_id))
+        _solder_etapes(conn, run_id, "Non exécutée : le run s'est terminé avant cette étape.")
         conn.commit()
     finally:
         conn.close()
@@ -415,6 +515,8 @@ def _amonts_en_echec(dataset: str, etats: dict[str, str]) -> list[str]:
     """
     bloquants = []
     for a in dag.NOEUDS[dataset].depend_de:
+        if not dag.NOEUDS[a].bloque_l_aval:
+            continue    # source d'appoint : la dernière version valide reste en place
         statut = etats.get(a)
         if statut == ST_ECHEC:
             bloquants.append(a)
@@ -536,9 +638,49 @@ def _integrity_ok(db_path) -> bool:
         conn.close()
 
 
+def plan(cibles: list[str] | None = None, *, inclure_exports: bool = False) -> list[str]:
+    """Étapes d'un run, dans l'ordre du DAG — la SEULE liste : l'écran, la route et la boucle
+    d'exécution la lisent ici, personne ne la recopie."""
+    a_traiter = _perimetre(cibles) if cibles else dag.ordre_topologique()
+    if not inclure_exports:
+        a_traiter = [n for n in a_traiter if dag.NOEUDS[n].type_noeud != dag.TYPE_EXPORT]
+    return a_traiter
+
+
+def preparer_actualisation_globale(*, declencheur: str = DECLENCHEUR_MANUEL,
+                                   db_path=None) -> dict[str, Any]:
+    """Ouvre et planifie « Actualiser toute l'activité » AVANT la tâche de fond.
+
+    Le clic doit montrer tout de suite le plan (toutes les étapes « en attente ») : sans cela,
+    l'écran rechargé avant que la tâche de fond n'ait écrit sa première ligne affichait encore le
+    run précédent. Le verrou est pris ICI, sous l'identifiant du run : un double clic ou un second
+    onglet est refusé sans créer de run fantôme.
+    """
+    marquer_runs_interrompus(db_path=db_path)
+    run_id = _nouveau_run_id()
+    verrou = prendre_verrou(PORTEE_GLOBALE, run_id, db_path=db_path)
+    if not verrou["ok"]:
+        return {"ok": False, "deja_en_cours": True, "run_id": verrou.get("run_id"),
+                "code": verrou.get("code"), "message": "Une actualisation est déjà en cours."}
+    _ouvrir_run(declencheur, "TOUT", db_path, run_id=run_id)
+    _planifier(run_id, plan(None), sauvegarde=True, db_path=db_path)
+    return {"ok": True, "run_id": run_id}
+
+
+def _volume(dataset: str, resultat: dict, db_path) -> str | None:
+    """Volume lisible d'une étape réussie (« 1 651 réservations ») — affichage seulement : une
+    lecture qui échouerait ne doit jamais faire échouer le run."""
+    try:
+        from app.services import actualisation_progression_service as progression
+        return progression.volume(dataset, resultat, db_path=db_path)
+    except Exception:   # noqa: BLE001
+        return None
+
+
 def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEUR_MANUEL,
                inclure_exports: bool = False, inclure_imports_externes: bool = False,
-               dry_run: bool = False, db_path=None) -> dict[str, Any]:
+               dry_run: bool = False, run_id: str | None = None,
+               db_path=None) -> dict[str, Any]:
     """Actualise le pipeline : tout par défaut, ou les descendants des `cibles` demandées.
 
     `cibles=None` → « Actualiser toute l'activité » (§30).
@@ -566,18 +708,19 @@ def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEU
         if inconnues:
             return {"ok": False, "code": E_DATASET_INCONNU, "datasets": inconnues,
                     "message": f"Dataset(s) inconnu(s) du DAG : {inconnues}"}
-        a_traiter = _perimetre(cibles)
-    else:
-        a_traiter = dag.ordre_topologique()
+    a_traiter = plan(cibles, inclure_exports=inclure_exports)
 
-    if not inclure_exports:
-        a_traiter = [n for n in a_traiter if dag.NOEUDS[n].type_noeud != dag.TYPE_EXPORT]
-
-    run_id = _ouvrir_run(declencheur, ",".join(cibles) if cibles else "TOUT", db_path)
+    # `run_id` fourni : run préparé par l'écran (`preparer_actualisation_globale`), qui détient
+    # déjà le verrou — le reprendre sous le même identifiant ne fait que prolonger le bail.
+    if run_id is None:
+        run_id = _ouvrir_run(declencheur, ",".join(cibles) if cibles else "TOUT", db_path)
     verrou = prendre_verrou(PORTEE_GLOBALE, run_id, db_path=db_path)
     if not verrou["ok"]:
         _cloturer_run(run_id, RUN_ECHEC, 0, 0, verrou["message"], db_path)
         return {"ok": False, "run_id": run_id, **verrou}
+    global_reel = cibles is None and not dry_run
+    if not dry_run:
+        _planifier(run_id, a_traiter, sauvegarde=global_reel, db_path=db_path)
 
     # Phase 4 (industrialisation) : sauvegarde obligatoire avant une actualisation GLOBALE réelle —
     # jamais sur une cible unique (coût disproportionné pour un recalcul ciblé) ni en dry-run (rien
@@ -585,8 +728,14 @@ def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEU
     # celui-ci reste la source de vérité détaillée, `run_history` sert la vue d'ensemble (§32).
     sauvegarde_id: str | None = None
     history_run_id: str | None = None
-    if cibles is None and not dry_run:
+    if global_reel:
+        debut_sauvegarde = _maintenant()
+        _etape_debut(run_id, ETAPE_SAUVEGARDE, db_path)
         sauvegarde = backup_service.sauvegarder("ACTUALISATION_GLOBALE", db_path=db_path)
+        _etape(run_id, ETAPE_SAUVEGARDE, 0, ETAPE_SUCCES if sauvegarde["ok"] else ETAPE_ECHEC,
+               debut_sauvegarde, "" if sauvegarde["ok"] else "Sauvegarde impossible ou corrompue.",
+               None, db_path, detail={"volume": f"Copie de sécurité {sauvegarde.get('sauvegarde_id')}"}
+               if sauvegarde["ok"] else {"code": "E_SAUVEGARDE_ECHOUEE"})
         if not sauvegarde["ok"]:
             liberer_verrou(PORTEE_GLOBALE, run_id, db_path=db_path)
             _cloturer_run(run_id, RUN_ECHEC, 0, 0,
@@ -642,7 +791,8 @@ def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEU
                                     erreur_message=motif, motif="INVALIDATION_AMONT",
                                     db_path=db_path)
                     etats[dataset] = ST_A_RECALCULER
-                _etape(run_id, dataset, ordre, "IGNOREE", debut, motif, None, db_path)
+                _etape(run_id, dataset, ordre, "IGNOREE", debut, motif, None, db_path,
+                       detail={"nature": NATURE_BLOQUEE, "amonts": bloquants})
                 etapes.append({"dataset": dataset, "statut": "IGNOREE", "motif": motif,
                                "bloque": True})
                 nb_ko += 1
@@ -652,7 +802,8 @@ def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEU
                 # Point d'entrée fourni de l'extérieur, ou chaîne pas entièrement migrée : on ne
                 # fabrique rien, on constate. Le commentaire du DAG dit pourquoi.
                 motif = f"{noeud.libelle} : non recalculable ici. {noeud.commentaire}"
-                _etape(run_id, dataset, ordre, "IGNOREE", debut, motif, None, db_path)
+                _etape(run_id, dataset, ordre, "IGNOREE", debut, motif, None, db_path,
+                       detail={"nature": NATURE_SANS_SERVICE})
                 etapes.append({"dataset": dataset, "statut": "IGNOREE", "motif": motif})
                 continue
 
@@ -663,7 +814,8 @@ def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEU
                 # explicitement.
                 motif = (f"{noeud.libelle} : import externe non déclenché "
                          "(demander explicitement cette source pour l'actualiser).")
-                _etape(run_id, dataset, ordre, "IGNOREE", debut, motif, None, db_path)
+                _etape(run_id, dataset, ordre, "IGNOREE", debut, motif, None, db_path,
+                       detail={"nature": NATURE_NON_DECLENCHEE})
                 etapes.append({"dataset": dataset, "statut": "IGNOREE", "motif": motif})
                 continue
 
@@ -677,13 +829,24 @@ def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEU
                 # reste un recalcul complet, demandé comme tel.
                 motif = (f"{noeud.libelle} : amont(s) inchangé(s) ({', '.join(amonts_du_run)}) "
                          "— recalcul inutile, jeu à jour conservé.")
-                _etape(run_id, dataset, ordre, "IGNOREE", debut, motif, None, db_path)
+                _etape(run_id, dataset, ordre, "IGNOREE", debut, motif, None, db_path,
+                       detail={"nature": NATURE_INCHANGEE})
                 etapes.append({"dataset": dataset, "statut": "IGNOREE", "motif": motif})
                 inchanges.add(dataset)
                 continue
 
+            _etape_debut(run_id, dataset, db_path)
             resultat = recalculer_dataset(dataset, run_id=run_id, declencheur=declencheur,
                                           db_path=db_path)
+            if resultat.get("non_configure"):
+                # Ni succès ni échec : la source n'a pas été interrogée, et l'écran le dit.
+                etats[dataset] = resultat.get("statut_dataset", etats.get(dataset))
+                message = resultat.get("message", "")
+                _etape(run_id, dataset, ordre, ETAPE_NON_CONFIGUREE, debut, message, None,
+                       db_path, detail={"code": E_NON_CONFIGURE})
+                etapes.append({"dataset": dataset, "statut": ETAPE_NON_CONFIGUREE,
+                               "motif": message})
+                continue
             if resultat.get("ok"):
                 nb_ok += 1
                 etats[dataset] = ST_A_JOUR
@@ -693,7 +856,8 @@ def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEU
                     _invalider_enfants(dataset, a_traiter, run_id=run_id,
                                        declencheur=declencheur, db_path=db_path)
                 _etape(run_id, dataset, ordre, "SUCCES", debut, "",
-                       resultat.get("nb_constats") or resultat.get("nb_entetes"), db_path)
+                       resultat.get("nb_constats") or resultat.get("nb_entetes"), db_path,
+                       detail={"volume": _volume(dataset, resultat, db_path)})
                 etapes.append({"dataset": dataset, "statut": "SUCCES",
                                "detail": {k: v for k, v in resultat.items()
                                           if k not in ("ok", "dataset")}})
@@ -701,7 +865,8 @@ def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEU
                 nb_ko += 1
                 etats[dataset] = ST_ECHEC
                 message = resultat.get("message", "")
-                _etape(run_id, dataset, ordre, "ECHEC", debut, message, None, db_path)
+                _etape(run_id, dataset, ordre, "ECHEC", debut, message, None, db_path,
+                       detail={"code": resultat.get("code")})
                 etapes.append({"dataset": dataset, "statut": "ECHEC",
                                "code": resultat.get("code"), "motif": message})
 
@@ -780,6 +945,7 @@ def marquer_runs_interrompus(*, db_path=None) -> list[str]:
                 "WHERE run_id = ?",
                 (RUN_INTERROMPU, _maintenant(),
                  "Run resté ouvert sans verrou actif : considéré interrompu.", run_id))
+            _solder_etapes(conn, run_id, "Non exécutée : le run a été interrompu.")
         conn.commit()
     finally:
         conn.close()

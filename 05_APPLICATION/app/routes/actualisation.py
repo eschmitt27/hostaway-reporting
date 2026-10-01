@@ -10,10 +10,13 @@ des datasets et les étapes du run — jamais en devinant.
 """
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from fastapi import APIRouter, BackgroundTasks, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from app.template_env import get_templates
 
+from app.services import actualisation_progression_service as progression_svc
 from app.services import ordonnanceur_service as ordo
 from app.services import orchestrateur_dag as dag
 from app.services import orchestrateur_service as orch
@@ -24,7 +27,7 @@ templates = get_templates()
 # Actions ciblées proposées à l'écran : les datasets que l'orchestrateur sait réellement recalculer.
 # Construite depuis le DAG, jamais recopiée à la main — une chaîne ajoutée au DAG apparaît ici.
 def _cibles_proposees() -> list[dict[str, str]]:
-    return [{"dataset": nom, "libelle": dag.NOEUDS[nom].libelle}
+    return [{"dataset": nom, "libelle": dag.NOEUDS[nom].nom_affiche}
             for nom in dag.noeuds_calculables()
             if dag.NOEUDS[nom].service]
 
@@ -43,6 +46,8 @@ def actualisation(request: Request):
         "cibles": _cibles_proposees(),
         "historique": orch.historique(limite=10),
         "ordonnanceur": ordo.etat(),
+        "progression": progression_svc.progression(),
+        "message": request.query_params.get("message", ""),
     })
 
 
@@ -66,21 +71,28 @@ def actualiser_tout_dry_run(request: Request):
         "historique": orch.historique(limite=10),
         "dry_run_resultat": resultat,
         "ordonnanceur": ordo.etat(),
+        "progression": progression_svc.progression(),
     })
 
 
 @router.post("/actualisation/tout")
 def actualiser_tout(background: BackgroundTasks):
-    """« Actualiser toute l'activité » — tout le DAG, dans l'ordre des dépendances.
+    """« Actualiser toute l'activité » — TOUTES les sources configurées, puis TOUT le DAG.
 
-    Les réservations Hostaway sont d'abord synchronisées depuis le dépôt publié (aucun appel d'API,
-    idempotent) : un « tout actualiser » qui recalculerait l'aval sans aller chercher la donnée
-    laissait les mois récents absents des résultats et des préfactures. Les tâches de ménage
-    gardent leur propre parcours (« Actualiser les ménages »).
+    Sources : chaque nœud `actualisation_globale` du DAG, par son service canonique (banque Qonto
+    en lecture seule, réservations et tâches de ménage Hostaway depuis le dépôt publié, déclarations
+    et factures PDF de ménage). Calculs : tous rejoués dans l'ordre du DAG, sans l'optimisation
+    « amont inchangé » des actualisations ciblées.
+
+    Le run est OUVERT et PLANIFIÉ ici, avant la tâche de fond : l'écran rechargé montre aussitôt
+    toutes les étapes « en attente », et un double clic trouve le verrou déjà pris.
     """
-    orch.marquer_runs_interrompus()
-    background.add_task(orch.actualiser, cibles=None,
-                        declencheur=orch.DECLENCHEUR_MANUEL, inclure_imports_externes=True)
+    prepare = orch.preparer_actualisation_globale(declencheur=orch.DECLENCHEUR_MANUEL)
+    if not prepare["ok"]:
+        return RedirectResponse("/actualisation?message=" + quote(prepare["message"]),
+                                status_code=303)
+    background.add_task(orch.actualiser, cibles=None, declencheur=orch.DECLENCHEUR_MANUEL,
+                        inclure_imports_externes=True, run_id=prepare["run_id"])
     return RedirectResponse("/actualisation", status_code=303)
 
 
@@ -98,6 +110,13 @@ def actualiser_cible(background: BackgroundTasks, dataset: str = Form(...)):
                         declencheur=orch.DECLENCHEUR_MANUEL,
                         inclure_imports_externes=dag.NOEUDS[dataset].externe)
     return RedirectResponse("/actualisation", status_code=303)
+
+
+@router.get("/actualisation/progression")
+def progression_json(run_id: str | None = None):
+    """Avancement réel du run (dernier run par défaut), relu à chaque appel — l'écran l'interroge
+    chaque seconde tant qu'une actualisation tourne."""
+    return progression_svc.progression(run_id=run_id or None)
 
 
 @router.get("/actualisation/etat")

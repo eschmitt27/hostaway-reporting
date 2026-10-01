@@ -182,3 +182,40 @@ il ne lançait aucun import externe, et marquait en plus les tâches de ménage 
   est rattaché à ce menu.
 
 Tests : `tests/test_actualisation_deblocage.py` (reproduction de l'état réel).
+
+## 14. « Actualiser toute l'activité » réellement global + progression en direct (2026-10-01)
+
+**Contrat du bouton.** Il interroge TOUTES les sources configurées puis rejoue TOUS les calculs.
+
+| Étape | Service canonique | Remarque |
+|---|---|---|
+| Sauvegarde | `backup_service.sauvegarder` | étape visible, avant tout |
+| Banque — relevés par fichier (`BANQUE`) | — | import manuel : « Ignorée », jamais une erreur |
+| Banque — Qonto (`BANQUE_QONTO`, nouveau) | `qonto_ecran_service.actualiser` (GET seulement) | sans `QONTO_LOGIN`/`QONTO_SECRET_KEY` : « Non configurée » ; aucun descendant (le Flux lit `banque_mouvements`) |
+| Hostaway — réservations, logements, paiements | `hostaway_depot_service.synchroniser` | réservations + champs financiers du dépôt publié ; logements DÉDUITS des réservations (le pipeline ne publie pas `/v1/listings`) ; idempotent (« déjà à jour » si le commit publié est déjà en base) |
+| Hostaway — tâches de ménage | `hostaway_cleaning_tasks_actualisation_service.actualiser` (dépôt) | désormais incluses (`actualisation_globale=True`) ; le scheduler ne les tire toujours pas |
+| Ménages — déclarations (Google Sheet, `MENAGES_DECLARATIONS`, nouveau) | lot6b | source d'appoint : `bloque_l_aval=False` |
+| Ménages — factures PDF (`MENAGES_PDF`, nouveau) | `menages_pdf_import_service.importer_nouveaux` | idempotent ; `bloque_l_aval=False` |
+| Référentiel | — | import manuel : « Ignorée » |
+| Réservations → Ménages → Flux → Résultats → Contrôles → Préfactures | services du DAG | TOUS rejoués : l'optimisation « amont inchangé » ne vaut que pour les actualisations ciblées |
+
+La comptabilité n'est pas une étape : aucune écriture n'est « recalculée », elles naissent des
+validations. Les exports Power BI (Lot13) restent exclus du bouton.
+
+**Échecs.** Hostaway en échec → étape rouge, réservations et tout l'aval « Non exécutée ». Banque
+Qonto en échec → étape rouge, run PARTIEL, aucun calcul bloqué (aucun ne lit Qonto), dernière
+synchronisation conservée. Source d'appoint ménages en échec → rouge, Ménages calculé sur la
+dernière version valide. Source non configurée → « Non configurée » (⚠️), jamais un succès, le
+dataset n'est jamais marqué à jour.
+
+**Progression.** `preparer_actualisation_globale` (appelée par la route, AVANT la tâche de fond)
+prend le verrou, ouvre le run et écrit le PLAN dans `moteur_run_etapes` (toutes les étapes
+EN_ATTENTE, ordre du DAG — `orchestrateur_service.plan`, seule liste). Chaque étape passe EN_COURS
+à son démarrage puis à son statut final, avec un détail JSON (`moteur_run_etapes.detail`,
+migration 0119 : nature, volume, code). L'écran relit `/actualisation/progression` chaque seconde
+(`actualisation_progression_service`, lecture seule, libellés `Noeud.nom_affiche`) : aucun
+minuteur, aucun pourcentage estimé. Un rechargement retrouve le run en cours ; un double clic
+trouve le verrou pris et ne crée aucun run. Un run terminé ou interrompu solde ses étapes non
+exécutées.
+
+Tests : `tests/test_actualisation_globale_progression.py`.

@@ -333,6 +333,48 @@ def importer_hostaway_cleaning_tasks(*, db_path=None, declencheur: str | None = 
             "comptage_lot6a": "OK"}
 
 
+# ── Sources ajoutées à « Actualiser toute l'activité » ─────────────────────────────────────────
+# Chacune appelle le service CANONIQUE déjà utilisé par son écran : aucun second connecteur. Une
+# source sans configuration le dit (`non_configure`) au lieu d'être présentée comme actualisée.
+
+def importer_banque_qonto(*, db_path=None) -> dict[str, Any]:
+    """Banque — synchronisation Qonto, GET seulement : le même service que le bouton de l'écran
+    Banque (`qonto_ecran_service.actualiser`). Aucune écriture bancaire, aucun virement."""
+    from app.adapters import qonto_client
+    from app.services import qonto_ecran_service as ecran
+
+    if not qonto_client.identifiants_presents():
+        return {"ok": True, "non_configure": True,
+                "message": "Identifiants Qonto absents du fichier « .env » (QONTO_LOGIN et "
+                           "QONTO_SECRET_KEY) : la banque ne peut pas être interrogée."}
+    return ecran.actualiser(db_path=db_path)
+
+
+def importer_declarations_menages(*, db_path=None) -> dict[str, Any]:
+    """Déclarations internes de ménage (Google Sheet, lot6b) — même préflight et même lot que
+    « Actualiser les ménages »."""
+    from app.services import menages_actualisation_service as chaine
+
+    if not chaine._google_sheet_config_ok(db_path=db_path):
+        return {"ok": True, "non_configure": True,
+                "message": "Adresse de la Google Sheet des déclarations absente ou inactive "
+                           "(source GOOGLE_SHEET_M04_DECLARATIONS du référentiel)."}
+    return executer_declarations_internes(db_path=db_path)
+
+
+def importer_factures_menages_pdf(*, db_path=None) -> dict[str, Any]:
+    """Factures PDF des prestataires de ménage — même import idempotent que « Actualiser les
+    ménages » : un PDF déjà importé ne crée jamais de doublon."""
+    from app.services import menages_pdf_import_service as pdf_import
+
+    resultat = pdf_import.importer_nouveaux(acteur="orchestrateur", db_path=db_path)
+    resultat.pop("details", None)
+    if not resultat.get("ok") and not resultat.get("message"):
+        resultat["message"] = (f"{resultat.get('nb_extraction_echouee', 0)} PDF illisible(s) ; les "
+                               "autres factures ont été traitées.")
+    return resultat
+
+
 def compter_taches_menage(*, db_path=None) -> dict[str, Any]:
     """lot6a — COMPTAGE de la dernière extraction utilisable → `menages_taches_enrichies`.
 
