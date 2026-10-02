@@ -10,6 +10,7 @@
 from datetime import datetime
 from typing import Any
 from app.readers import proprietaires_reader as reader
+from app.services import perimetre_v1_service as _v1
 from app.services import referentiel_service as referentiel
 
 
@@ -58,8 +59,8 @@ def load_detail(prop_id: str) -> dict[str, Any] | None:
     mois_list: list[str] = []
     if reader.calc_available():
         lignes = reader.read_reglement_prop(prop_id)
-        mois_list = sorted({str(r.get("mois") or "").strip()
-                            for r in lignes if (r.get("mois") or "").strip()})
+        mois_list = _v1.filtrer_mois(sorted({str(r.get("mois") or "").strip()
+                                             for r in lignes if (r.get("mois") or "").strip()}))
 
     return {
         "status": "OK",
@@ -78,8 +79,14 @@ def load_releve(prop_id: str, mois: str) -> dict[str, Any]:
 
     Renvoie status=NOT_FOUND si propriétaire inconnu ou aucune ligne pour ce mois.
     Ne mélange jamais les deux blocs (D033).
+
+    Période antérieure à la comptabilité V1 : rien n'est lu ni calculé, la réponse est
+    `HORS_V1` (D-V1-FIN-1) — jamais un ancien relevé.
     """
     read_at = _now()
+    if _v1.est_anterieur(mois):
+        return {"status": _v1.ST_HORS_V1, "message": _v1.MESSAGE_AUCUNE_COMPTABILITE,
+                "prop_id": prop_id, "mois": mois, "read_at": read_at}
     if not reader.ref_available():
         return {
             "status": "ERROR",
@@ -146,8 +153,12 @@ def load_prefacture(prop_id: str, mois: str) -> dict[str, Any]:
 
     Retourne status=UNAVAILABLE si Lot12 absent (sans exception).
     Retourne status=NOT_FOUND si propriétaire ou mois inconnu.
+    Retourne status=HORS_V1 pour une période antérieure à la comptabilité V1 (D-V1-FIN-1).
     """
     read_at = _now()
+    if _v1.est_anterieur(mois):
+        return {"status": _v1.ST_HORS_V1, "message": _v1.MESSAGE_AUCUNE_COMPTABILITE,
+                "prop_id": prop_id, "mois": mois, "read_at": read_at, "factures": []}
     if not reader.fact_available():
         return {
             "status": "UNAVAILABLE",

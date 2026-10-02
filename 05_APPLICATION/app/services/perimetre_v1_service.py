@@ -38,6 +38,15 @@ DATE_V1_DECIDEE = "2026-09-01"
 E_FACTURATION_AVANT_V1 = "FACTURATION_AVANT_V1"
 E_COMPTABILITE_AVANT_V1 = "COMPTABILITE_AVANT_V1"
 E_CLOTURE_AVANT_V1 = "CLOTURE_AVANT_V1"
+# Finition du cutover (D-V1-FIN-1, D-V1-FIN-2).
+E_COMPTABILITE_PROPRIETAIRE_AVANT_V1 = "COMPTABILITE_PROPRIETAIRE_AVANT_V1"
+E_FACTURE_FOURNISSEUR_AVANT_V1 = "FACTURE_FOURNISSEUR_AVANT_V1"
+
+#: Statut rendu par un écran de comptabilité propriétaire interrogé sur une période antérieure.
+ST_HORS_V1 = "HORS_V1"
+#: Réponse fonctionnelle de ces écrans — jamais « historique », jamais un ancien relevé : la
+#: comptabilité propriétaire d'avant la V1 n'existe pas dans l'application (D-V1-FIN-1).
+MESSAGE_AUCUNE_COMPTABILITE = "Aucune comptabilité disponible pour cette période."
 
 _MOIS_FR = ("janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre",
             "octobre", "novembre", "décembre")
@@ -63,6 +72,18 @@ def debut(*, db_path=None) -> str | None:
         return None
     finally:
         conn.close()
+    valeur = str(r[0] or "").strip() if r else ""
+    return valeur if _RE_DATE.match(valeur) else None
+
+
+def debut_depuis_connexion(conn) -> str | None:
+    """Même lecture que `debut()`, sur une connexion DÉJÀ ouverte — celle d'une transaction en
+    cours (cutover, finition), qui doit voir son propre état et non un état concurrent."""
+    try:
+        r = conn.execute("SELECT valeur FROM parametres_societe_facturation WHERE cle = ?",
+                         (CLE_PARAMETRE,)).fetchone()
+    except Exception:          # noqa: BLE001 — base antérieure à 0111
+        return None
     valeur = str(r[0] or "").strip() if r else ""
     return valeur if _RE_DATE.match(valeur) else None
 
@@ -99,6 +120,20 @@ def est_anterieur(periode: Any, *, db_path=None) -> bool:
 def message_facturation(*, db_path=None) -> str:
     v1 = premier_mois(db_path=db_path) or DATE_V1_DECIDEE[:7]
     return f"La facturation V1 débute en {libelle_mois(v1)}."
+
+
+def message_debut_v1(*, db_path=None) -> str:
+    """« La comptabilité V1 débute en septembre 2026. » — refus d'une saisie antérieure (facture
+    fournisseur, mouvement ou relevé propriétaire)."""
+    v1 = premier_mois(db_path=db_path) or DATE_V1_DECIDEE[:7]
+    return f"La comptabilité V1 débute en {libelle_mois(v1)}."
+
+
+def filtrer_mois(mois_list, *, db_path=None) -> list[str]:
+    """Les seuls mois que la comptabilité V1 connaît : un sélecteur ne propose jamais un mois
+    antérieur. Sans cutover, la liste est rendue telle quelle."""
+    v1 = premier_mois(db_path=db_path)
+    return [m for m in mois_list if not (v1 and str(m or "")[:7] < v1)]
 
 
 def message_comptabilite(*, db_path=None) -> str:

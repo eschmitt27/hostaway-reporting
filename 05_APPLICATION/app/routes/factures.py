@@ -175,6 +175,8 @@ async def factures_recharger(request: Request):
                   if res.get("interpretations_changees") else "")
                + (f", {res['nb_supprimees']} à contrôler retirée(s) (PDF absent du dossier)"
                   if res["nb_supprimees"] else "")
+               + (f", {res['nb_anterieures_v1']} antérieure(s) à la comptabilité V1 non reprise(s)"
+                  if res.get("nb_anterieures_v1") else "")
                + f" · {res['nb_presents']} PDF dans le dossier.")
     if deposes:
         message += f" {sum(1 for d in deposes if d.get('depose'))} pièce(s) déposée(s)."

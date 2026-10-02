@@ -96,9 +96,18 @@ def calculer(db_path=None) -> list[dict[str, Any]]:
         if r.get("nom_prestataire"):
             ext_prest.setdefault(cle, set()).add(str(r["nom_prestataire"]))
 
+    # Périmètre V1 (D-V1-FIN-2) : aucune facture fournisseur antérieure à la V1 n'existe plus.
+    # Comparer les ménages Hostaway de ces mois à des factures qui, par décision, n'existent pas
+    # fabriquerait un écart pour chaque mois ancien : ils sont hors comparaison, comme dans
+    # `lib_db_moteur.calculer_ecarts_menages_externes`.
+    from app.services import perimetre_v1_service as v1
+    mois_v1 = v1.premier_mois(db_path=db_path)
+
     lignes = []
     for cle in sorted(set(vue_ha) | set(ext_cpt)):
         mois, logement = cle
+        if mois_v1 and str(mois) < mois_v1:
+            continue
         nb_ha = vue_ha.get(cle, {}).get("nb_ha", 0) or 0
         nb_ext = ext_cpt.get(cle, 0)
         code = _classer(nb_ext, nb_ha)

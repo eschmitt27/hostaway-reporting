@@ -254,7 +254,10 @@ Le détail de la clôture mensuelle est traité en §11 (Clôture mensuelle et p
 | V1-3 | Aucune écriture comptable, aucune opération diverse et aucune clôture mensuelle ne porte sur une période antérieure à 2026-09. |
 | V1-4 | Une charge héritée de l'ancien environnement n'est conservée que si elle dispose d'un rapprochement bancaire validé ; la catégorisation d'un mouvement n'est pas un rapprochement. |
 | V1-5 | Les créances antérieures sont purgées : aucun ancien solde client, aucun ancien acompte ne crée de solde V1. |
-| V1-6 | La date de début V1 ne borne pas l'historique métier : réservations Hostaway et hors Hostaway, mouvements bancaires, ménages et performance (Lot10) restent consultables sur toutes les périodes. |
+| V1-6 | La date de début V1 ne borne pas l'historique métier des SOURCES : réservations Hostaway et hors Hostaway, mouvements bancaires et ménages restent consultables sur toutes les périodes. La comptabilité propriétaire, elle, n'existe qu'à partir de 2026-09 (V1-7). |
+| V1-7 | Avant 2026-09, aucune comptabilité propriétaire n'existe, pas même consultable : ni relevé, ni solde, ni reste à payer, ni règlement, ni commission, ni résultat, ni préfacture (D-CUTOVER-V1-02). Les écrans répondent « Aucune comptabilité disponible pour cette période. » ; le moteur Lot10 exclut ces mois (motif `ANTERIEUR_V1`) et ne peut pas les reconstruire. |
+| V1-8 | Une facture fournisseur antérieure à 2026-09 n'entre pas dans la comptabilité V1. Le refus est assuré à trois endroits : la création côté serveur, un verrou en base, et l'import PDF, qui reconnaît la pièce sans la reprendre (`ANTERIEURE_V1`). Seule exception : une facture déjà nécessaire à une charge rapprochée avec la banque ; elle ne crée alors aucune dette. |
+| V1-9 | Aucun relevé de règlement, aucun acompte et aucune compensation propriétaire ne peut être créé pour une période antérieure à 2026-09. Le refus est serveur, avec le message « La comptabilité V1 débute en septembre 2026. » |
 
 ---
 

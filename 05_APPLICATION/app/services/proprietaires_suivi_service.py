@@ -136,6 +136,10 @@ def creer_ou_charger(proprietaire_id: str, mois: str, acteur: str = "", db_path=
     if not mois_valide(mois):
         raise ReleveRefuse(f"Mois invalide : « {mois} ». Format attendu AAAA-MM.")
     mois = _txt(mois)
+    from app.services import perimetre_v1_service as v1
+    if v1.est_anterieur(mois, db_path=db_path):
+        # D-V1-FIN-1 : aucune comptabilité propriétaire ne naît avant la V1.
+        raise ReleveRefuse(v1.message_debut_v1(db_path=db_path))
     existante = charger_par_prop_mois(proprietaire_id, mois, db_path)
     if existante:
         return existante

@@ -30,6 +30,9 @@ STATUT_ECRITURE_DESACTIVEE = "ECRITURE_DESACTIVEE"
 STATUT_ERREUR = "ERREUR"
 STATUT_NOUVEAU = "NOUVEAU"
 STATUT_REMPLACEE = "REMPLACEE"  # même nom de fichier, contenu changé -> V1 ANNULEE, V2 créée
+#: D-V1-FIN-2 — document daté d'avant la comptabilité V1 : reconnu, tracé, JAMAIS importé. Tant que
+#: son contenu ne change pas, il n'est même plus relu (verdict définitif).
+STATUT_ANTERIEURE_V1 = "ANTERIEURE_V1"
 
 _CODES_DOUBLON = (fact.E_DOUBLON_CERTAIN, "E_DOUBLON_CERTAIN")
 
@@ -111,7 +114,7 @@ def _deja_traite(nom_fichier: str, *, db_path=None) -> bool:
 #: Verdicts qui portent sur le DOCUMENT lui-même : ils ne changeront pas si le fichier ne change
 #: pas. `NON_SUPPORTE`, lui, dit seulement que le MOTEUR ne savait pas lire ce fournisseur — un
 #: moteur amélioré doit pouvoir réessayer (cas réel : PrivaDom, longtemps non supporté).
-VERDICTS_DEFINITIFS = ("VIDE", "CORROMPU", "ERREUR")
+VERDICTS_DEFINITIFS = ("VIDE", "CORROMPU", "ERREUR", pdf_import.VERDICT_ANTERIEURE_V1)
 
 
 def _regle_par_le_document(nom_fichier: str, *, db_path=None) -> bool:
@@ -159,7 +162,26 @@ def _contenu_change(p: Path, *, db_path=None) -> bool:
     return connu is not None and connu != _sha256(p)
 
 
+def _ecarte_anterieur_v1(p: Path, *, db_path=None) -> bool:
+    """Le dernier examen de CE contenu a conclu « antérieur à la V1 » (D-V1-FIN-2) : le document
+    n'entrera jamais dans la comptabilité V1. Un contenu modifié est réexaminé, jamais présumé."""
+    conn = get_db(db_path)
+    try:
+        r = conn.execute(
+            "SELECT statut_extraction FROM facture_pdf_diagnostics WHERE nom_fichier = ? "
+            "ORDER BY id DESC LIMIT 1", (p.name,)).fetchone()
+    except Exception:      # noqa: BLE001 — table absente d'une base partielle
+        return False
+    finally:
+        conn.close()
+    if not r or str(r["statut_extraction"] or "") != pdf_import.VERDICT_ANTERIEURE_V1:
+        return False
+    return not _contenu_change(p, db_path=db_path)
+
+
 def _statut_apercu(p: Path, *, db_path=None) -> str:
+    if _ecarte_anterieur_v1(p, db_path=db_path):
+        return STATUT_ANTERIEURE_V1
     if not _deja_traite(p.name, db_path=db_path):
         return STATUT_NOUVEAU
     return STATUT_NOUVEAU if _contenu_change(p, db_path=db_path) else STATUT_DEJA_IMPORTEE
@@ -174,12 +196,14 @@ def apercu(*, dossier: Path | None = None, db_path=None) -> dict[str, Any]:
         for p in pdfs
     ]
     nb_nouveaux = sum(1 for d_ in details if d_["statut"] == STATUT_NOUVEAU)
+    nb_anterieures = sum(1 for d_ in details if d_["statut"] == STATUT_ANTERIEURE_V1)
     return {
         "dossier": str(d),
         "dossier_present": d.exists(),
         "nb_detectes": len(pdfs),
         "nb_nouveaux": nb_nouveaux,
-        "nb_deja_importes": len(pdfs) - nb_nouveaux,
+        "nb_deja_importes": len(pdfs) - nb_nouveaux - nb_anterieures,
+        "nb_anterieures_v1": nb_anterieures,
         "details": details,
         # Niveau A : c'est ce qui gouverne réellement l'import d'un PDF en facture À CONTRÔLER.
         "ecriture_active": bool(getattr(cfg, "ECRITURE_OPERATIONNELLE_ENABLED", False)),
@@ -195,8 +219,14 @@ def importer_nouveaux(*, acteur: str = "", dossier: Path | None = None,
     (dédoublonnage délégué à `factures_service.creer`, pas réimplémenté ici)."""
     pdfs = lister_pdf(dossier=dossier)
     details: list[dict[str, Any]] = []
-    nb_importees = nb_deja = nb_echecs = nb_desactive = nb_remplacees = 0
+    nb_importees = nb_deja = nb_echecs = nb_desactive = nb_remplacees = nb_anterieures = 0
     for p in pdfs:
+        # D-V1-FIN-2 : un document déjà reconnu antérieur à la V1, inchangé, n'est pas relu.
+        if _ecarte_anterieur_v1(p, db_path=db_path):
+            details.append({"nom_fichier": p.name, "statut": STATUT_ANTERIEURE_V1,
+                            "resultat": {"ok": True, "code": pdf_import.E_ANTERIEURE_V1}})
+            nb_anterieures += 1
+            continue
         # « Déjà traité » = contenu inchangé ET (une facture vivante en est issue OU le document
         # lui-même est inexploitable). Un fichier dont la facture a été supprimée, ou que le moteur
         # de l'époque ne savait pas lire, est RÉESSAYÉ : c'est le dossier qui fait foi.
@@ -214,6 +244,11 @@ def importer_nouveaux(*, acteur: str = "", dossier: Path | None = None,
                 nb_remplacees += 1
             else:
                 nb_importees += 1
+            _enregistrer_hash(p.name, _sha256(p), db_path=db_path)
+        elif code == pdf_import.E_ANTERIEURE_V1:
+            # Reconnu, tracé (diagnostic ANTERIEURE_V1), jamais importé — ni échec ni doublon.
+            statut = STATUT_ANTERIEURE_V1
+            nb_anterieures += 1
             _enregistrer_hash(p.name, _sha256(p), db_path=db_path)
         elif _est_doublon(res):
             statut = STATUT_DEJA_IMPORTEE
@@ -243,6 +278,7 @@ def importer_nouveaux(*, acteur: str = "", dossier: Path | None = None,
         "nb_remplacees": nb_remplacees,
         "nb_extraction_echouee": nb_echecs,
         "nb_ecriture_desactivee": nb_desactive,
+        "nb_anterieures_v1": nb_anterieures,
         "mois_impactes": mois_impactes,
         "details": details,
     }
@@ -439,6 +475,7 @@ def recharger(*, acteur: str = "", dossier: Path | None = None, db_path=None) ->
         "nb_deja_importees": import_resultat["nb_deja_importees"],
         "nb_remplacees": import_resultat["nb_remplacees"],
         "nb_echecs_import": import_resultat["nb_extraction_echouee"],
+        "nb_anterieures_v1": import_resultat.get("nb_anterieures_v1", 0),
         "nb_supprimees": len(supprimees),
         "nb_conservees": len(conservees),
         "supprimees": supprimees,

@@ -34,7 +34,9 @@
   </div>
 </div>
 
-{% if liste.status != "OK" %}
+{% if data.hors_v1 %}
+{% include "_comptabilite_hors_v1.html" %}
+{% elif liste.status != "OK" %}
 <div class="alert alert-error">
   <strong>Source indisponible</strong> — {{ liste.etat_source.fichier }}
   ({{ liste.etat_source.onglet }}) : {{ liste.etat_source.etat_libelle }}.

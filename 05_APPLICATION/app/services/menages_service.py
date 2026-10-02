@@ -226,6 +226,9 @@ def rapprochement_pdf_base(pdf: dict[str, Any], db_path=None) -> dict[str, Any]:
             non_exploites.append({"fichier": nom, "motif": "pas encore importé"})
         elif diagnostic.get("doublon_de"):
             non_exploites.append({"fichier": nom, "motif": "doublon d'une facture déjà connue"})
+        elif str(diagnostic.get("statut_extraction") or "") == "ANTERIEURE_V1":
+            non_exploites.append({"fichier": nom,
+                                  "motif": "antérieur à la comptabilité V1 : non repris"})
         elif str(diagnostic.get("statut_extraction") or "") != "OK":
             non_exploites.append({"fichier": nom,
                                   "motif": f"extraction {diagnostic['statut_extraction']}"})

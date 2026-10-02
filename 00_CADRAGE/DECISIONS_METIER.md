@@ -2236,7 +2236,8 @@ l'historique.
   avant / après. Seules disparaissent des données de RECETTE prouvées (fichier
   `releve_recette.csv`, rapprochements et décisions vers des mouvements inexistants et des objets
   `CHG_SEED_*`, documentés comme fixtures en mission 14d).
-- **D-V1-6 — factures fournisseurs** : les 15 factures des prestataires ménage (février → août,
+- **D-V1-6 — factures fournisseurs** *(supersédé le 2026-10-03 par D-CUTOVER-V1-02 / D-V1-FIN-2 :
+  les 15 factures ont été purgées)* : les 15 factures des prestataires ménage (février → août,
   « À contrôler », sans écriture) sont **conservées** : elles sont la source des coûts de ménage
   externes (historique métier) et le prochain import PDF les recréerait depuis les documents. Aucune
   écriture ne peut plus être passée sur leur période (D-V1-7).
@@ -2245,7 +2246,9 @@ l'historique.
   clôtures de l'ancien modèle (2025-01, 2025-02) sont purgées ; les clôtures TECHNIQUES de
   `ref_cloture_mensuelle` (historisation des réservations, « ne vaut pas clôture comptable ») sont
   un référentiel, conservées.
-- **D-V1-8 — calculs** : les données dérivées (flux, Lot10, Lot11, Lot12, ménages calculés) sont
+- **D-V1-8 — calculs** *(supersédé le 2026-10-03 par D-CUTOVER-V1-02 / D-V1-FIN-1 pour la
+  comptabilité propriétaire : plus aucun historique Lot10 avant la V1)* : les données dérivées (flux,
+  Lot10, Lot11, Lot12, ménages calculés) sont
   reconstruites depuis les sources conservées. L'historique de performance (Lot10, toutes périodes)
   reste consultable (D-LOT-PROD-01) ; les PRÉFACTURES (Lot12) ne portent plus que sur la période V1.
 - **D-V1-9 — anomalie = arrêt** : un cas que la décision ne tranche pas (argent réellement encaissé
@@ -2253,3 +2256,63 @@ l'historique.
   l'exécution, rien n'est supprimé.
 
 Détail, matrice et preuves : `CUTOVER_V1_2026-09.md`.
+
+### D-CUTOVER-V1-02 — finition : aucune comptabilité antérieure à la V1, même consultable
+
+- **Date** : 2026-10-03 · **Lot** : cutover V1.0 — finition · **Statut** : VALIDÉ (ordre explicite de
+  l'utilisateur). Complète D-CUTOVER-V1-01. Supersède, pour la comptabilité propriétaire, la
+  conservation de l'historique de performance de D-LOT-PROD-01 et de D-V1-8, et la conservation des
+  factures fournisseurs de D-V1-6.
+
+> « La comptabilité propriétaire antérieure au 1er septembre 2026 n'est pas conservée dans
+> l'application, y compris sous forme d'historique consultable. Les relevés, soldes, restes à payer,
+> règlements et données calculées correspondantes doivent être supprimés et ne doivent pas pouvoir
+> être reconstruits. Les seules données antérieures conservées sont les sources métier et
+> référentiels explicitement nécessaires, notamment Hostaway, les réservations, la banque et les
+> chaînes de dépenses déjà rapprochées. »
+
+> « Une facture fournisseur antérieure au 1er septembre 2026 ne peut subsister que lorsqu'elle
+> constitue une dépendance nécessaire d'une charge déjà rapprochée avec la banque. Dans le cutover V1
+> réalisé le 02/10/2026, les 15 factures fournisseurs de février à août identifiées n'avaient aucune
+> dépendance de ce type et ont donc toutes été purgées. »
+
+La purge elle-même a été exécutée le 2026-10-03, en finition de ce cutover.
+
+- **D-V1-FIN-1 — comptabilité propriétaire** : supprimée de TOUS les runs, actif comme inactifs.
+  - Lot10 : règlements, net par mois, commissions, net d'exploitation, résultats, provenance, et
+    anomalies de commission des réservations antérieures.
+  - Lot12 : préfactures, lignes, contrôle mensuel, tableau de bord, contrôles de facturation.
+  - Lot11 : les contrôles qui ne portaient que sur elle, et la décision humaine `controles_suivi` qui
+    leur était attachée.
+  - Le Lot10 ne la recalcule plus : motif `ANTERIEUR_V1` (`EXCLU_PERIMETRE_ANTERIEUR_V1`), lu dans
+    `V1_ACCOUNTING_START_DATE`, appliqué avant toute autre règle et tracé dans la provenance du run.
+  - Les écrans (relevé mensuel, préfacture, relevé propriétaire, propriétaires & règlements)
+    répondent « Aucune comptabilité disponible pour cette période. », jamais « historique ».
+  - La création d'un relevé, d'un acompte ou d'une compensation antérieure est refusée côté service.
+- **D-V1-FIN-2 — factures fournisseurs** : une facture datée d'avant la V1 n'entre pas dans la base.
+  - Refus métier dans `factures_service.creer` : « La comptabilité V1 débute en septembre 2026. »
+  - Déclencheurs `trg_factures_fournisseurs_v1_*` (migration 0121), actifs dès que le paramètre V1
+    existe.
+  - L'import PDF lit la pièce, trace un verdict `ANTERIEURE_V1` (`facture_pdf_diagnostics`) et ne
+    crée ni facture, ni dette, ni ligne, ni ventilation. Le verdict est définitif tant que le
+    contenu du fichier ne change pas : la pièce n'est même plus relue.
+  - Les PDF restent dans `01_SOURCES_BRUTES/MenagesExternes`.
+  - Une facture antérieure qui serait une dépendance d'une charge rapprochée bloquerait la finition
+    (anomalie) au lieu de recevoir un statut inventé. Ce cas ne s'est pas présenté.
+- **D-V1-FIN-3 — ce qui reste avant la V1** :
+  - les sources : Hostaway, réservations, banque, ménages déclarés et tâches ;
+  - les référentiels ;
+  - les chaînes de dépenses rapprochées.
+
+  Les calculs de normalisation des sources (réservations résolues, flux) restent produits, mais
+  n'alimentent plus aucune comptabilité avant 2026-09.
+- **D-V1-FIN-4 — contrôles** : le Lot11 n'attribue aucun statut de clôture ou de facturation à un
+  mois antérieur à la V1. Le rapprochement ménages externes ↔ Hostaway ne compare plus ces mois :
+  sinon chaque mois ancien deviendrait un écart, du seul fait que les factures n'existent plus.
+- **D-V1-FIN-5 — 8 rapprochements pour 7 charges** : c'est cohérent, rien n'est modifié.
+  `CHG-d0ff3f64c35f` (20,25 €) est réglée par deux paiements GiFi, de 5,00 € et 15,25 €. Au total,
+  153,65 € de charges correspondent à 153,65 € rapprochés.
+- **D-V1-FIN-6 — coûts ménage externes de juin à août** : ils reposaient sur les factures purgées et
+  disparaissent du calcul comptable. Ils ne sont pas recréés, et Hostaway n'est pas modifié pour les
+  compenser. Les agrégats ménage déjà calculés pour ces mois ne sont pas recalculés : aucune
+  reconstruction avant 2026-09.

@@ -10,6 +10,8 @@
 
 {% if detail is none %}
 <div class="alert alert-warning">Propriétaire <span class="font-mono">{{ proprietaire_id }}</span> introuvable.</div>
+{% elif detail.status == "HORS_V1" %}
+{% include "_comptabilite_hors_v1.html" %}
 {% elif detail.status != "OK" %}
 <div class="alert alert-error">Source indisponible : {{ detail.etat_source.etat_libelle }}.</div>
 {% else %}

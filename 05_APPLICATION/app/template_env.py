@@ -217,6 +217,7 @@ def get_templates() -> Jinja2Templates:
         # Une FONCTION, relue à chaque rendu — jamais une valeur figée au démarrage.
         from app.services import perimetre_v1_service as _v1
         t.env.globals["perimetre_v1"] = _v1.contexte
+        t.env.globals["MESSAGE_AUCUNE_COMPTABILITE"] = _v1.MESSAGE_AUCUNE_COMPTABILITE
         _templates = t
     return _templates
 

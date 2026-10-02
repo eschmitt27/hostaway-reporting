@@ -161,8 +161,10 @@ def _mois_courant() -> str:
 
 def load_periods() -> list[str]:
     """Tous les mois présents dans le MASTER, du plus récent au plus ancien (usage interne)."""
+    from app.services import perimetre_v1_service as v1
+
     mois = {to_mois(r.get("mois")) for r in reader.net_vue_mois().lignes}
-    return sorted((m for m in mois if m), reverse=True)
+    return sorted(v1.filtrer_mois([m for m in mois if m]), reverse=True)
 
 
 def load_periods_split() -> dict[str, Any]:
@@ -365,7 +367,14 @@ def load_dashboard(mois: str = "", **filtres: Any) -> dict[str, Any]:
     }
     return {"mois": mois, "summary": summary, "liste": liste, "options": load_filters(mois),
             "freshness": load_freshness(), "tris": TRIS,
-            "applied": {"mois": mois, "page": page, **filtres}}
+            "applied": {"mois": mois, "page": page, **filtres},
+            "hors_v1": _hors_v1(mois)}
+
+
+def _hors_v1(mois: str) -> bool:
+    """D-V1-FIN-1 : aucune comptabilité propriétaire n'existe avant la V1."""
+    from app.services import perimetre_v1_service as v1
+    return bool(mois) and v1.est_anterieur(mois)
 
 
 # ── Fiche propriétaire ───────────────────────────────────────────────────────
@@ -373,6 +382,10 @@ def load_dashboard(mois: str = "", **filtres: Any) -> dict[str, Any]:
 def load_owner_detail(proprietaire_id: str, mois: str = "") -> dict[str, Any] | None:
     if not mois:
         mois = periode_par_defaut()
+    if _hors_v1(mois):
+        from app.services import perimetre_v1_service as v1
+        return {"status": v1.ST_HORS_V1, "message": v1.MESSAGE_AUCUNE_COMPTABILITE,
+                "proprietaire_id": str(proprietaire_id).strip(), "mois": mois, "read_at": _now()}
     src = reader.net_vue_mois()
     if not src.etat.disponible:
         return {"status": "SOURCE_INDISPONIBLE", "etat_source": src.etat,
@@ -453,7 +466,8 @@ def load_to_control(mois: str = "") -> dict[str, Any]:
         if not mois or to_mois(r.get("mois")) == mois]
     return {"mois": mois, "status": src.etat.etat if not src.etat.disponible else "OK",
             "etat_source": src.etat, "lignes": vues, "controles": controles,
-            "etats_sources": reader.etats_sources(), "read_at": _now()}
+            "etats_sources": reader.etats_sources(), "read_at": _now(),
+            "hors_v1": _hors_v1(mois)}
 
 
 # ── Export CSV ───────────────────────────────────────────────────────────────

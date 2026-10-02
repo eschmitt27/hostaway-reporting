@@ -311,6 +311,7 @@ def actualiser(*, mois_affiche: str = "", acteur: str = "ui:menages",
                        "nb_importees": pdf.get("nb_importees", 0),
                        "nb_remplacees": pdf.get("nb_remplacees", 0),
                        "nb_deja_importees": pdf.get("nb_deja_importees", 0),
+                       "nb_anterieures_v1": pdf.get("nb_anterieures_v1", 0),
                        "mois_impactes": pdf.get("mois_impactes", [])})
 
         # ── 2. Google Sheet (lot6b) ─────────────────────────────────────────────────────────

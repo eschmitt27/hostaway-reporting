@@ -8,6 +8,10 @@
 > **Verdict : RÉUSSI.** Factures 0, créances 0, charges héritées non rapprochées 0, banque, Hostaway,
 > réservations, référentiels et fiche société identiques à la sauvegarde, facturation antérieure à
 > septembre 2026 refusée par le serveur et par la base.
+>
+> **FINALISÉ le 2026-10-03 (§19, D-CUTOVER-V1-02)** : plus aucune comptabilité propriétaire
+> antérieure dans aucun run, plus aucune facture ni dette fournisseur antérieure, calcul et import
+> pré-V1 bloqués.
 
 ## 1. Objectif
 
@@ -551,11 +555,13 @@ ensuite été relancée (redémarrage n°2) et reste en service.
 
 ## 18. Limites
 
-1. **Les 15 factures fournisseurs** des prestataires ménage (février → août) sont conservées et restent
+1. *(Résolu le 2026-10-03, §19 : les 15 factures ont été purgées.)* **Les 15 factures fournisseurs**
+   des prestataires ménage (février → août) étaient conservées et restaient
    visibles « À contrôler » dans les dettes. Elles sont la source des coûts de ménage externes, et le
    prochain import PDF les recréerait (D-V1-6). Aucune écriture ne peut plus être passée sur leur
    période. Leur traitement éventuel en dettes V1 reste une décision utilisateur.
-2. **Le relevé propriétaire d'un mois antérieur** (`/proprietaires/{id}/2026-08`, par exemple) affiche
+2. *(Résolu le 2026-10-03, §19 : aucune comptabilité n'est plus affichée avant la V1.)* **Le relevé
+   propriétaire d'un mois antérieur** (`/proprietaires/{id}/2026-08`, par exemple) affichait
    toujours le bloc « Règlement » calculé par le Lot10 : montant dû, reste à payer, statut
    « À contrôler ».
    - C'est l'historique de performance (D-LOT-PROD-01), annoncé « Source : SQLite (Lot10) … aucun
@@ -566,7 +572,8 @@ ensuite été relancée (redémarrage n°2) et reste en service.
      non faite ici (aucun nouveau module pendant la mission).
 3. **Lot10, août 2026** : `autres_acomptes_recus` et `credit_a_traiter` passent de 12 € à 0, suite à la
    purge de l'acompte. C'est voulu.
-4. **Les runs antérieurs des tables dérivées** (Lot10, Lot11, Lot12, jeux de réservations résolues)
+4. *(Résolu le 2026-10-03 pour la comptabilité, §19.)* **Les runs antérieurs des tables dérivées**
+   (Lot10, Lot11, Lot12, jeux de réservations résolues)
    restent stockés, inactifs. Rien ne les lit ; ils seraient purgeables plus tard sans conséquence.
 5. **Charges purgées qui correspondaient à une dépense réelle** : 146 € (linge, 09/09) et 42 € (petit
    équipement, 10/09). Si ces dépenses sont réelles, elles devront être ressaisies en V1 et
@@ -574,6 +581,254 @@ ensuite été relancée (redémarrage n°2) et reste en service.
    d'une période où aucune écriture n'est plus possible.
 6. **Hors cutover** : `SOLDE_INITIAL_BANQUE` (solde d'ouverture) n'a pas été fourni, et n'a donc pas été
    créé. `STATUT_PERIODE` se déduit de la date V1 (ARCHITECTURE_DONNEES §1.3).
+
+## 19. Finition du 2026-10-03 — plus aucune comptabilité antérieure (D-CUTOVER-V1-02)
+
+> **Exécutée le 2026-10-03** sur la base réelle, application arrêtée, sur ordre explicite de l'utilisateur. **Verdict : CUTOVER V1 FINALISÉ.**
+> Avant septembre 2026, il ne reste plus aucune donnée comptable propriétaire, dans aucun run, ni aucune facture ou dette fournisseur. Les sources, les référentiels et les chaînes de dépenses rapprochées sont identiques à la sauvegarde.
+
+### 19.1 Décisions de l'utilisateur (verbatim, D-CUTOVER-V1-02)
+
+> « La comptabilité propriétaire antérieure au 1er septembre 2026 n'est pas conservée dans l'application, y compris sous forme d'historique consultable. Les relevés, soldes, restes à payer, règlements et données calculées correspondantes doivent être supprimés et ne doivent pas pouvoir être reconstruits. Les seules données antérieures conservées sont les sources métier et référentiels explicitement nécessaires, notamment Hostaway, les réservations, la banque et les chaînes de dépenses déjà rapprochées. »
+
+> « Une facture fournisseur antérieure au 1er septembre 2026 ne peut subsister que lorsqu'elle constitue une dépendance nécessaire d'une charge déjà rapprochée avec la banque. Dans le cutover V1 réalisé le 02/10/2026, les 15 factures fournisseurs de février à août identifiées n'avaient aucune dépendance de ce type et ont donc toutes été purgées. »
+
+### 19.2 Comptabilité propriétaire antérieure — tous runs (actif, inactifs, anciens)
+
+| Table | Contenu | Avant (total) | Supprimé | Après (total) | Après, mois < 2026-09 |
+|---|---|---:|---:|---:|---:|
+| `lot10_commissions` | Commissions par réservation (Lot10) | 2 825 | 2 484 | 341 | 0 |
+| `lot10_net_exploitation` | Net d'exploitation par réservation (Lot10) | 2 825 | 2 484 | 341 | 0 |
+| `lot10_net_reglement` | Règlements, soldes, restes à payer (Lot10) | 599 | 455 | 144 | 0 |
+| `lot10_net_vue_mois` | Net propriétaire par mois (Lot10) | 443 | 323 | 120 | 0 |
+| `lot10_resultats` | Résultats par mois / logement / vision (Lot10) | 1 285 | 1 046 | 239 | 0 |
+| `lot10_run_mois_provenance` | Provenance des mois calculés (Lot10) | 129 | 48 | 81 | 0 |
+| `lot10_commissions_a_controler` | Anomalies de commission des réservations antérieures (Lot10) | 1 139 | 794 | 345 | 0 |
+| `lot12_prefactures_entete` | Préfactures, en-têtes (Lot12) | 563 | 419 | 144 | 0 |
+| `lot12_prefactures_lignes` | Préfactures, lignes (Lot12) | 6 895 | 5 127 | 1 768 | 0 |
+| `lot12_prefactures_id_legacy` | Préfactures, identifiants (Lot12) | 563 | 419 | 144 | 0 |
+| `lot12_controle_mensuel` | Contrôle mensuel de facturation (Lot12) | 563 | 419 | 144 | 0 |
+| `lot12_dashboard_facturation` | Tableau de bord de facturation (Lot12) | 418 | 298 | 120 | 0 |
+| `lot12_a_controler` | Contrôles de facturation (Lot12) | 1 144 | 799 | 345 | 0 |
+| `controles_lot11_constats_champs` | Champs de ce constat | 30 | 1 | 29 | 0 |
+| `controles_lot11_constats` | Constat Lot11 sur la comptabilité d'août | 31 | 1 | 30 | 0 |
+| `controles_lot11_dashboard_mois` | Statuts mensuels Lot11 des mois antérieurs | 21 | 19 | 2 | 0 |
+| `controles_suivi` | Décision humaine attachée au constat | 1 | 1 | 0 | 0 |
+| `controles_suivi_historique` | Historique de cette décision | 1 | 1 | 0 | 0 |
+| **Total comptabilité propriétaire** | | | **15 138** | | **0** |
+
+Avec les factures fournisseurs (§19.3 : 15 factures et 547 lignes propres, soit 562 lignes), la
+transaction a supprimé **15 700 lignes** et posé 15 verdicts `ANTERIEURE_V1`.
+
+Les colonnes « après » des tables Lot10/Lot12 ne comptent plus que la période V1 (septembre 2026), dans chaque run. Le run Lot10 recalculé après la purge ne contient que 2026-09 : chaque mois antérieur y est tracé `EXCLU_PERIMETRE_ANTERIEUR_V1` (§19.6). Les anomalies de commission ont été attribuées à leur mois par la réservation. Les anomalies « canapé », sans réservation, l'ont été par les lignes de commission du run qui les a produites : 0 ligne n'était attribuable à aucun mois.
+
+Les tables d'état propriétaire déjà purgées le 2026-10-02 restent à 0 : relevés de règlement, allocations, acomptes, imputations, factures propriétaires. Les 3 lignes techniques `N/A` (« HC_ZERO_SOURCES_VIDES », 0 €, sans période) de 3 anciens runs ne sont pas de la comptabilité : elles restent.
+
+### 19.3 Factures fournisseurs — 15 analysées, 15 purgées, 0 conservée par dépendance
+
+| # | Facture | Pièce | Date | Prestataire | Montant TTC | Logements | Charge | Règlement / mouvement / rapprochement | Décision |
+|---:|---|---|---|---|---:|---|---|---|---|
+| 1 | `FAC-E97FFBA024F5` (2025-370) | 02-26-Aissata.pdf | 2026-02-28 | Aissata | 1 702,00 € | LOG_0003, LOG_0006, LOG_0009, LOG_0010, LOG_0011, LOG_0012, LOG_0013, LOG_0014 | aucune | aucun / aucun / aucun (validé : non) | **PURGE** |
+| 2 | `FAC-F5575F303A1D` (2025-016) | 02-26-Imrane.pdf | 2026-03-02 | PrivaDom (`INT_PRIVADOM`), pièce « Imrane » | 205,00 € | — | aucune | aucun / aucun / aucun (validé : non) | **PURGE** |
+| 3 | `FAC-B979B5D35156` (2025-369) | 03-26-Aissata.pdf | 2026-03-31 | Aissata | 2 234,00 € | LOG_0001, LOG_0003, LOG_0006, LOG_0007, LOG_0008, LOG_0010, LOG_0011, LOG_0012, LOG_0013, LOG_0014, LOG_0016 | aucune | aucun / aucun / aucun (validé : non) | **PURGE** |
+| 4 | `FAC-7FAF8F813780` (0001) | 03-26-Mounir.pdf | 2026-03-31 | Mounir | 218,00 € | — | aucune | aucun / aucun / aucun (validé : non) | **PURGE** |
+| 5 | `FAC-06D7B900C667` (2025-017) | 03-26-Imrane.pdf | 2026-04-21 | PrivaDom (`INT_PRIVADOM`), pièce « Imrane » | 228,00 € | — | aucune | aucun / aucun / aucun (validé : non) | **PURGE** |
+| 6 | `FAC-E470067ABA38` (2026-36) | 04-26-Aissata_1.pdf | 2026-04-30 | Aissata | 2 313,00 € | LOG_0002, LOG_0003, LOG_0006, LOG_0007, LOG_0008, LOG_0010, LOG_0011, LOG_0012, LOG_0013, LOG_0014 | aucune | aucun / aucun / aucun (validé : non) | **PURGE** |
+| 7 | `FAC-067D2C5E73E9` (2026-37) | 04-26-Aissata_2.pdf | 2026-04-30 | Aissata | 15,00 € | — | aucune | aucun / aucun / aucun (validé : non) | **PURGE** |
+| 8 | `FAC-5C2C34363676` (0002) | 04-26-Mounir.pdf | 2026-04-30 | Mounir | 491,00 € | LOG_0002, LOG_0003 | aucune | aucun / aucun / aucun (validé : non) | **PURGE** |
+| 9 | `FAC-43D8EA6C6817` (2026-37) | 05-26-Aissata.pdf | 2026-05-31 | Aissata | 1 439,00 € | LOG_0006, LOG_0007, LOG_0009, LOG_0010, LOG_0011, LOG_0012, LOG_0014, LOG_0016 | aucune | aucun / aucun / aucun (validé : non) | **PURGE** |
+| 10 | `FAC-D4390C34EC41` (0003) | 05-26-Mounir.pdf | 2026-05-31 | Mounir | 942,00 € | LOG_0002, LOG_0003, LOG_0006, LOG_0013 | aucune | aucun / aucun / aucun (validé : non) | **PURGE** |
+| 11 | `FAC-503A5C96C0BC` (2026-38) | 06-26-Aissata.pdf | 2026-06-30 | Aissata | 1 016,00 € | LOG_0006, LOG_0007, LOG_0010, LOG_0011, LOG_0012, LOG_0014, LOG_0016 | aucune | aucun / aucun / aucun (validé : non) | **PURGE** |
+| 12 | `FAC-41EAA7AC16DC` (0004) | 06-26-Mounir.pdf | 2026-06-30 | Mounir | 741,00 € | LOG_0002, LOG_0003, LOG_0006, LOG_0013 | aucune | aucun / aucun / aucun (validé : non) | **PURGE** |
+| 13 | `FAC-739CD2FB2199` (0005) | 07-26-Mounir.pdf | 2026-07-27 | Mounir | 520,00 € | LOG_0002, LOG_0003, LOG_0006, LOG_0011, LOG_0013 | aucune | aucun / aucun / aucun (validé : non) | **PURGE** |
+| 14 | `FAC-B4D0521FA674` (2026-40) | 07-26-Aissata.pdf | 2026-07-31 | Aissata | 1 056,00 € | LOG_0002, LOG_0006, LOG_0008, LOG_0009, LOG_0010, LOG_0011, LOG_0012, LOG_0013 | aucune | aucun / aucun / aucun (validé : non) | **PURGE** |
+| 15 | `FAC-6F7396BA6F1A` (2026-41) | 08-26-Aissata.pdf | 2026-08-31 | Aissata | 2 790,00 € | LOG_0001, LOG_0002, LOG_0006, LOG_0007, LOG_0008, LOG_0009, LOG_0011, LOG_0012, LOG_0013, LOG_0016 | aucune | aucun / aucun / aucun (validé : non) | **PURGE** |
+| | **Total** | | | | **15 910,00 €** | | | | **15 PURGE, 0 KEEP_BY_DEPENDENCY** |
+
+**Justification, identique pour les 15 factures.** Hors de ses propres tables, aucune ne figure nulle part : chacune des 233 tables a été balayée, colonne par colonne. Il n'y a donc ni charge, ni règlement, ni mouvement bancaire, ni rapprochement, ni lettrage, ni écriture, ni justificatif. Aucune ne soutient une dépense rapprochée : c'est le cas B de D-V1-FIN-2.
+
+| Table propre | Avant | Supprimé | Après |
+|---|---:|---:|---:|
+| `facture_lignes_menage_detail` | 127 | 127 | 0 |
+| `facture_lignes_menage_pdf` | 127 | 127 | 0 |
+| `facture_lignes_menage` | 127 | 127 | 0 |
+| `facture_lignes` | 0 | 0 | 0 |
+| `facture_ventilation_parts` | 99 | 99 | 0 |
+| `facture_ventilations` | 19 | 19 | 0 |
+| `facture_classification` | 15 | 15 | 0 |
+| `facture_pdf_diagnostics` | 18 | 15 | 3 + 15 verdicts `ANTERIEURE_V1` |
+| `facture_evenements` | 16 | 16 | 0 |
+| `facture_interpretations` | 2 | 2 | 0 |
+| `factures` | 15 | 15 | 0 |
+
+- **Dettes fournisseurs actives antérieures : 15 (15 910,00 €) → 0.**
+- **Factures fournisseurs antérieures : 15 → 0.**
+- Les 15 PDF restent dans `01_SOURCES_BRUTES/MenagesExternes`.
+- Pour chacune de leurs pièces, un verdict `ANTERIEURE_V1` est posé dans `facture_pdf_diagnostics` : nom, empreinte, numéro et montant imprimés, mention `CUTOVER_V1_FINITION`. L'import les reconnaît sans les relire.
+- `menages_pdf_fichiers_hash` (15 lignes) est conservé : un PDF dont le contenu changerait serait réexaminé, et refusé à nouveau s'il reste antérieur.
+- Les 3 diagnostics d'import sans facture (03-26-Imrane, 07-26-Aissata, 07-26-Mounir) sont conservés : c'est de l'observabilité.
+
+### 19.4 Charges et rapprochements — 8 rapprochements pour 7 charges : cohérent, rien modifié
+
+| Charge | Montant charge | Mouvement(s) bancaire(s) | Montant rapproché | Nb rapprochements | Statut |
+|---|---:|---|---:|---:|---|
+| `CHG-16d11b7c940f` | 12,00 € | QMV-07a2c46aa598 | 12,00 € | 1 | CONFIRME |
+| `CHG-1d8e83f63d2f` | 5,89 € | QMV-f5f069b75623 | 5,89 € | 1 | CONFIRME |
+| `CHG-28333720fcc6` | 2,40 € | QMV-6ddc58890a7f | 2,40 € | 1 | CONFIRME |
+| `CHG-5dfd31538114` | 59,82 € | QMV-bca1eacdd6f4 | 59,82 € | 1 | CONFIRME |
+| `CHG-acdbb2a1124c` | 48,39 € | QMV-fd24fe48af19 | 48,39 € | 1 | CONFIRME |
+| `CHG-d0ff3f64c35f` | 20,25 € | QMV-39e3d2d845b2, QMV-34346b87d080 | 20,25 € | 2 | CONFIRME |
+| `CHG-f46f1ae78219` | 4,90 € | QMV-d8e00892153a | 4,90 € | 1 | CONFIRME |
+| **Total** | **153,65 €** | | **153,65 €** | **8** | |
+
+La différence de 8 à 7 vient de `CHG-d0ff3f64c35f` (20,25 €), réglée par deux paiements GiFi de 5,00 € et 15,25 €. Les autres contrôles :
+
+- 7 charges, toutes avec au moins un rapprochement confirmé vers un mouvement existant ;
+- aucune charge orpheline (aucune) ;
+- aucun rapprochement fantôme (aucun) ;
+- aucun écart charge ↔ rapproché (aucun) ;
+- aucun double comptage : le flux unifié ne contient aucun flux de charge.
+
+### 19.5 Garde-fous ajoutés — rien ne peut revenir
+
+| Où | Ce qui est refusé |
+|---|---|
+| Lot10, `classifier_mois_lot10` | Tout mois < 2026-09 est classé `ANTERIEUR_V1`, avant toute autre règle. Il n'est écrit dans aucune des tables et sa provenance le dit. Les anomalies de commission de ces réservations sont retirées (`exclure_anomalies_anterieures_v1`). |
+| Paramètre | La date est relue en base (`lib_db_moteur.debut_v1`, `perimetre_v1_service`), jamais recopiée. Le test `test_cle_du_parametre_v1_identique_cote_moteur_et_application` verrouille la clé. |
+| Écrans propriétaire | Le relevé mensuel, la préfacture, le relevé propriétaire, Propriétaires & règlements (liste, fiche, à contrôler) répondent `HORS_V1` : « Aucune comptabilité disponible pour cette période. ». Aucun sélecteur ne propose un mois antérieur. |
+| Création côté propriétaire | Relevé de suivi (`proprietaires_suivi_service`), acompte, compensation ou régularisation (`proprietaires_tresorerie_service`) : « La comptabilité V1 débute en septembre 2026. » |
+| Lot12 | Il ne lit que la période V1 (déjà en place) et ne reçoit plus d'anomalie antérieure du Lot10. |
+| Lot11 | Aucun statut mensuel de clôture ou de facturation pour un mois antérieur. Les écarts ménages externes ↔ Hostaway ne sont calculés que sur la V1, côté application et côté moteur. |
+| Factures fournisseurs | `factures_service.creer`, `valider`, `changer_statut` refusent une date antérieure. Migration **0121** : déclencheurs `trg_factures_fournisseurs_v1_insert` et `_update`. |
+| Import PDF | Verdict `ANTERIEURE_V1`, idempotent, définitif tant que le fichier ne change pas : aucune facture, aucune dette, aucune ligne, aucune ventilation. |
+
+### 19.6 Procédure et preuves
+
+Rapports dans `C:\Users\Ewans\PilotageConciergerie\data\backups\finition_cutover_v1_20261002T231529Z`.
+
+| # | Étape | Rapport | Résultat |
+|---|---|---|---|
+| A | Code et tests ciblés | `tests/test_finition_cutover_v1.py` | `test_finition_cutover_v1.py` 26 passed + `test_cutover_v1.py` 20 passed (46) |
+| B | `finition-simuler` ×2, lecture seule | `02_simulation_1.json`, `02_simulation_2.json` | identiques (fbda9d2a545db6749427fe6a = fbda9d2a545db6749427fe6a), 0 anomalie, 15 700 lignes à supprimer |
+| C | `finition-sauvegarder`, application arrêtée | `01_etat_et_sauvegarde.json` | Sauvegarde lisible ; restauration isolée identique (§19.8). Une première tentative (`…20261002T231409Z`) s'est interrompue au nettoyage de la copie de contrôle : des fichiers WAL annexes étaient restés. Sa sauvegarde, valide, est restée sur disque. L'outil a été corrigé (sauvegardes autonomes, `journal_mode=DELETE`) et c'est la seconde sauvegarde qui fait foi. |
+| D | `finition-executer` : migration 0121, puis UNE transaction | `03_execution.json` | 22/22 invariants OK avant COMMIT |
+| E | `finition-reconstruire` : LOT10, puis LOT11 et LOT12, sans import | `05_reconstruction.json` | SUCCES (ORCH-20261002231623-2ada2b) : LOT10 SUCCES, LOT11 SUCCES, LOT12 SUCCES |
+| F | `finition-verifier`, après reconstruction puis après chaque redémarrage | `04_verification_*.json` (4) | 4 passages. Le premier, juste après la reconstruction, signalait 6 lignes de provenance : c'étaient les traces `EXCLU_PERIMETRE_ANTERIEUR_V1` du nouveau run, comptées à tort comme reliquat. La règle de comptage a été corrigée et testée (`test_la_trace_d_exclusion_lot10_n_est_ni_un_reliquat_ni_purgee`). Les 3 passages suivants : ok. |
+| G | Deux redémarrages de l'application, contrôles HTTP | `06_controles_http.json` | 20 contrôles OK après chacun des deux redémarrages (août : message « Aucune comptabilité disponible pour cette période. », septembre normal, refus d'août, aucune ancienne facture ni dette) |
+| H | Copie de la base réelle après purge : import PDF ×2 et actualisation depuis MENAGES_PDF (PDF présents) | §19.7 | 0 recréation |
+
+**Invariants vérifiés avant le COMMIT :**
+
+| Code | Vérification | Résultat |
+|---|---|---|
+| A | Factures propriétaires = 0 | OK |
+| B | Créances = 0 (aucune facture émise, aucune allocation) | OK |
+| C | Relevés propriétaires antérieurs = 0 (relevés et net par mois, tous runs) | OK |
+| D | Soldes propriétaires antérieurs = 0 (règlements Lot10, tous runs) | OK |
+| E | Restes à payer antérieurs = 0 (Lot10 et Lot12, tous runs) | OK |
+| F | Acomptes hérités = 0 | OK |
+| G | Compensations anciennes = 0 | OK |
+| H | Dette fournisseur active antérieure = 0 ; factures fournisseurs antérieures = 0 | OK |
+| I | Charges non rapprochées héritées = 0 | OK |
+| J | Charges rapprochées inchangées | OK — 7 |
+| K | Rapprochements banque ↔ charges inchangés, montants égaux | OK — 8 → 7 charges ; 153.65 € ↔ 153.65 € |
+| L | Mouvements bancaires inchangés | OK |
+| M | Hostaway inchangé | OK |
+| N | Archive des réservations et réservations hors Hostaway inchangées | OK |
+| O | Référentiels inchangés | OK |
+| P | Fiche société inchangée | OK |
+| Q | Paramètre V1 en place (facturation antérieure interdite) | OK |
+| R | Comptabilité propriétaire antérieure : aucune donnée, tous runs confondus | OK |
+| S | Comptabilité propriétaire de la période V1 intacte | OK — 8 |
+| PROTEGEES | Toutes les tables protégées intactes (empreintes) | OK |
+| U | PRAGMA foreign_key_check : 0 erreur | OK — 0 |
+| T | PRAGMA integrity_check : ok | OK — ok |
+
+**Vérification après coup (`finition-verifier`, dernier passage) :**
+
+- `cutover_applique` : True
+- `comptabilite_anterieure_0` : True
+- `creances_0` : True
+- `dettes_fournisseurs_anterieures_0` : True
+- `charges_rapprochees` : 7
+- `rapprochements_banque_charges` : 8
+- `rapprochements_montants_egaux` : True
+- `charges_non_rapprochees_0` : True
+- `lot10_mois_actifs` : ['2026-09']
+- `lot10_aucun_mois_anterieur` : True
+- `lot10_provenance_anterieure_exclue` : True
+- `releve_mois_anterieur` : HORS_V1
+- `releve_mois_anterieur_hors_v1` : True
+- `facture_proprietaire_mois_anterieur_refusee` : True
+- `facture_proprietaire_v1_autorisee` : True
+- `facture_fournisseur_anterieure_refusee` : True
+- `facture_fournisseur_v1_autorisee` : True
+- `integrity_ok` : True
+- `foreign_key_check_0` : True
+- `ok` : True
+
+### 19.7 Copie de la base après purge — l'import ne recrée rien
+
+La copie contient 15 PDF dans le dossier source.
+
+- Import n°1 : 15 détectés, **0 importé**, 15 reconnus antérieurs à la V1, 0 remplacé, 0 échec.
+- Import n°2 : 15 détectés, **0 importé**, 15 reconnus antérieurs à la V1, 0 remplacé, 0 échec.
+- Actualisation depuis MENAGES_PDF : SUCCES — MENAGES_PDF SUCCES, MENAGES SUCCES, FLUX_LOT9 SUCCES, LOT10 SUCCES, LOT11 SUCCES, LOT12 SUCCES.
+- Avant → après :
+  - factures fournisseurs : 0 → 0 (antérieures 0 → 0) ;
+  - dettes antérieures : 0 → 0 ;
+  - charges : 7 → 7 ;
+  - créances : 0 → 0 ;
+  - comptabilité antérieure : 0 → 0.
+- `verifier` sur la copie : ok = True.
+- Créations, sur la copie uniquement :
+  - facture propriétaire d'août : REFUSEE : La facturation V1 débute en septembre 2026. ;
+  - facture propriétaire de septembre : AUTORISEE : BROUILLON ;
+  - facture fournisseur d'août : REFUSEE : FACTURE_FOURNISSEUR_AVANT_V1 — La comptabilité V1 débute en septembre 2026. ;
+  - facture fournisseur de septembre : AUTORISEE.
+
+### 19.8 Empreintes et sauvegarde
+
+| Moment | SHA256 | Taille | Tables / lignes | Schéma | integrity | FK |
+|---|---|---:|---|---|---|---:|
+| Avant la finition | `c7d489e78eaa1a149876e70b1ca5e504a9396dbc3f4c60d8e0363f2151789817` | 70 410 240 | 233 / 263 972 | 0120 | ok | 0 |
+| Juste après le COMMIT | `118e8aa95e8848f30f6dfa77c20d4311b2a50024ca06d17928358f935598ed47` | 70 410 240 | 233 / 248 288 | 0121 | ok | 0 |
+| État final : après reconstruction et redémarrages, application arrêtée | `a1cacb957a525121ba5b85b82d099b7c164da40371b35204e51b5bf52c8936f9` | 70 410 240 | 233 / 248 620 | 0121 | ok | 0 |
+
+| | |
+|---|---|
+| Sauvegarde | `C:\Users\Ewans\PilotageConciergerie\data\backups\app_avant_finition_cutover_v1_20261002T231529Z.db` |
+| SHA256 de la sauvegarde | `3cbe9ae37b61cfdde038adc8c89d5eb1bf3b403140d9636e42c202cb9db233e3` |
+| Contrôle | integrity ok, FK 0, 233 tables, 263 972 lignes (identique à la source) |
+| Restauration isolée | empreinte logique source `fc39dfca170dbace4147f9cb` = restaurée `fc39dfca170dbace4147f9cb` (schéma `0c2102e299184554`), integrity ok, FK 0, 233 tables, 263 972 lignes : **identique** |
+
+**Preuve d'identité des sources à l'état final.** La comparaison est faite table par table, sur le
+contenu trié : la sauvegarde d'avant la finition face à la base après reconstruction et redémarrages
+(`08_preuve_identite_sources.json`).
+
+| Groupe | Tables | Lignes avant → après | Tables différentes |
+|---|---:|---|---|
+| Banque (14 mouvements Qonto) | 13 | 52 → 52 | aucune |
+| Hostaway (21 126 réservations) | 9 | 204 578 → 204 578 | aucune |
+| Réservations hors Hostaway | 4 | 14 → 14 | aucune |
+| Archive des réservations | 8 | 17 → 17 | aucune |
+| Référentiels | 55 | 743 → 743 | aucune |
+| Ménages (sources) | 12 | 100 → 100 | aucune |
+| Chaînes des charges rapprochées (charges, rapprochements, lettrages, écritures, justificatifs) | 16 | 139 → 139 | aucune |
+| Fiche société / paramètres (dont `V1_ACCOUNTING_START_DATE`) | 1 | 21 → 21 | aucune |
+
+### 19.9 Tests
+
+- Ciblés : `test_finition_cutover_v1.py` 26 passed + `test_cutover_v1.py` 20 passed (46).
+- Modules concernés (159 fichiers) : 159 fichiers, 2 441 tests : 2 431 passed / 9 skipped / 1 failed au premier passage. L'échec, `test_menages_recalcul_mensuel_cible.py::test_08`, venait d'une clé `mois_impacte` ajoutée à tort sur le chemin de refus de l'import ; elle est retirée. Les 15 fichiers qui touchent l'import PDF ont été rejoués : 202 passed.
+- Suite complète : **4 710 tests (4 684 de référence + 26 nouveaux) : 4 673 passed / 37 skipped / 0 failed**, sur le code final, en 4 lots parallèles (1 173 + 1 175 + 1 176 + 1 149 passed).
+
+### 19.10 Limites
+
+1. **Agrégats ménage de juin à août.** Ils ont été calculés avant la purge et ne sont pas recalculés (aucune reconstruction avant 2026-09). Ils n'alimentent plus aucune comptabilité, le Lot10 excluant ces mois. Un recalcul ménage ciblé de ces mois, s'il était lancé, les referait sans les factures purgées. C'est accepté (D-V1-FIN-6).
+2. **Calculs de normalisation des sources.** Les réservations résolues et le flux unifié restent produits sur toutes les périodes, comme l'historique des réservations. Ils ne sont pas de la comptabilité propriétaire (D-V1-FIN-3).
+3. **Métadonnées des runs inactifs.** `lot10_runs` et `lot12_runs` gardent leurs compteurs d'origine (nombre de lignes produites à l'époque) : c'est l'observabilité de l'exécution. Les lignes antérieures, elles, n'existent plus.
+4. **Facture fournisseur antérieure nécessaire à une charge rapprochée.** Le cas n'existe pas. S'il se présentait, la finition s'arrêterait (anomalie) au lieu d'inventer une neutralisation.
 
 ---
 

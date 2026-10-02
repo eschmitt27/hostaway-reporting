@@ -27,6 +27,7 @@ def _mois_retenu(mois: str, disponibles: list[str]) -> str:
 def releves(request: Request, mois: str = "", proprietaire_id: str = ""):
     disponibles = svc.mois_disponibles()
     periode = _mois_retenu(mois, disponibles)
+    hors_v1 = svc.hors_v1(periode)
     proprietaires = svc.proprietaires_du_mois(periode)
 
     choisi = proprietaire_id if any(p["proprietaire_id"] == proprietaire_id
@@ -45,6 +46,7 @@ def releves(request: Request, mois: str = "", proprietaire_id: str = ""):
         "synthese": synthese,
         "totaux": _totaux(synthese) if synthese else None,
         "provisoire": periode >= svc.mois_courant(),
+        "hors_v1": hors_v1,
         "formules": svc.FORMULES,
     })
 

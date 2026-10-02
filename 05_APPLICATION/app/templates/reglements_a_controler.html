@@ -14,7 +14,9 @@
   </p>
 </div>
 
-{% if d.status != "OK" %}
+{% if d.hors_v1 %}
+{% include "_comptabilite_hors_v1.html" %}
+{% elif d.status != "OK" %}
 <div class="alert alert-error">Source indisponible : {{ d.etat_source.etat_libelle }}.</div>
 {% else %}
 

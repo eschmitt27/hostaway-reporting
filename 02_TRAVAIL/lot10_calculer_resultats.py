@@ -600,24 +600,36 @@ MODE_RECALCULE = "RECALCULE"
 MODE_EXCLU_CLOTURE = "EXCLU_PERIMETRE_CLOTURE"
 MODE_EXCLU_EN_COURS = "EXCLU_PERIMETRE_MOIS_EN_COURS"
 MODE_EXCLU_FUTUR = "EXCLU_PERIMETRE_FUTUR"
+MODE_EXCLU_ANTERIEUR_V1 = "EXCLU_PERIMETRE_ANTERIEUR_V1"
 
 CLASS_CLOTURE = "CLOTURE"
 CLASS_MOIS_TERMINE_OUVERT = "MOIS_TERMINE_OUVERT"
 CLASS_MOIS_EN_COURS = "MOIS_EN_COURS"
 CLASS_FUTUR = "FUTUR"
+CLASS_ANTERIEUR_V1 = "ANTERIEUR_V1"
 
-_MODES_EXCLUSION = (MODE_EXCLU_CLOTURE, MODE_EXCLU_EN_COURS, MODE_EXCLU_FUTUR)
+_MODES_EXCLUSION = (MODE_EXCLU_CLOTURE, MODE_EXCLU_EN_COURS, MODE_EXCLU_FUTUR,
+                    MODE_EXCLU_ANTERIEUR_V1)
 
 
 def classifier_mois_lot10(conn, mois_list, *, date_reference=None):
-    """CLOTURE -> hors périmètre (mission précédente, inchangé). Sinon, comparé au mois courant
+    """ANTERIEUR_V1 -> hors périmètre, AVANT toute autre règle : la comptabilité propriétaire
+    antérieure au début de la V1 n'existe pas (décision D-V1-FIN-1, `V1_ACCOUNTING_START_DATE` relu
+    en base, jamais recopié) — aucun règlement, net, commission, net d'exploitation ni résultat n'est
+    produit pour ces mois, et la provenance du run le dit. Sans cutover, la règle ne s'applique pas.
+
+    CLOTURE -> hors périmètre (mission précédente, inchangé). Sinon, comparé au mois courant
     (`date_reference`, `datetime.now()` par défaut — jamais figé en dur, pour rester testable) :
     strictement antérieur -> MOIS_TERMINE_OUVERT (recalculé) ; égal -> MOIS_EN_COURS (exclu, les
     factures/déclarations du mois ne sont pas encore toutes arrivées) ; postérieur -> FUTUR (exclu,
     rien à calculer)."""
     mois_courant = (date_reference or datetime.now()).strftime("%Y-%m")
+    mois_v1 = dbm.premier_mois_v1(conn)
     resultat = {}
     for mois in mois_list:
+        if mois_v1 and mois < mois_v1:
+            resultat[mois] = {"classification": CLASS_ANTERIEUR_V1, "mode": MODE_EXCLU_ANTERIEUR_V1}
+            continue
         r = conn.execute(
             "SELECT statut_mois FROM ref_cloture_mensuelle WHERE mois = ?", (mois,)).fetchone()
         if r and r[0] == "CLOTURE":
@@ -654,6 +666,45 @@ def exclure_mois_clotures(classifications, df_comm, df_reel, df_compt, df_hc, df
 
     return (_retirer(df_comm), _retirer(df_reel), _retirer(df_compt), _retirer(df_hc),
            _retirer(df_exploit), _retirer(df_reg), _retirer(df_vue), provenance_rows)
+
+
+def exclure_anomalies_anterieures_v1(df_ac, df_res, mois_v1):
+    """Retire des anomalies de commission (`A_CONTROLER`) celles d'une réservation antérieure à la V1.
+
+    Les 7 tables économiques sont filtrées par `exclure_mois_clotures` ; les anomalies, elles, n'ont
+    pas de colonne `mois` stockée et traversaient le filtre : une réservation de juillet restait
+    « à contrôler » pour une commission qui n'existe plus. Le mois d'une anomalie vient de la ligne
+    (`mois`, anomalies nées des commissions) ou, à défaut, de la date d'arrivée de la réservation
+    résolue (le mois d'une réservation est celui de son arrivée, D097). Une anomalie dont le mois
+    est inconnu est CONSERVÉE : on ne retire que ce qui est prouvé antérieur."""
+    if not mois_v1 or df_ac is None or len(df_ac) == 0:
+        return df_ac
+
+    def _cle(v):
+        try:
+            return str(int(float(v)))
+        except (TypeError, ValueError):
+            return ""
+
+    mois_par_resa = {}
+    if df_res is not None and len(df_res) and {"reservation_id_hostaway", "date_arrivee"} <= set(
+            df_res.columns):
+        for rid, arrivee in zip(df_res["reservation_id_hostaway"], df_res["date_arrivee"]):
+            cle, texte = _cle(rid), str(arrivee or "")[:7]
+            if cle and len(texte) == 7 and texte[4] == "-":
+                mois_par_resa[cle] = texte
+
+    def _mois(ligne):
+        m = ligne.get("mois")
+        if m is not None and not (isinstance(m, float) and pd.isna(m)) and str(m)[:7].strip():
+            return str(m)[:7]
+        return mois_par_resa.get(_cle(ligne.get("reservation_id")), "")
+
+    garder = [not (mm and mm < mois_v1) for mm in (_mois(r) for r in df_ac.to_dict("records"))]
+    retirees = len(garder) - sum(garder)
+    if retirees:
+        log.info(f"  Anomalies commission antérieures à la V1 retirées : {retirees}")
+    return df_ac[garder].reset_index(drop=True)
 
 
 def _valeur_sql(v):
@@ -2112,6 +2163,11 @@ def main():
             (df_comm, df_reel, df_compt, df_hc, df_exploit, df_reg, df_vue,
              provenance_rows) = exclure_mois_clotures(
                 classifications, df_comm, df_reel, df_compt, df_hc, df_exploit, df_reg, df_vue)
+            conn_v1, _msg_v1 = dbm.verifier(chemin_base, ())
+            mois_v1 = dbm.premier_mois_v1(conn_v1) if conn_v1 is not None else None
+            if conn_v1 is not None:
+                conn_v1.close()
+            df_ac = exclure_anomalies_anterieures_v1(df_ac, df_res, mois_v1)
 
         log.info("=== Ecriture dataset SQLite (0044) ===")
         ecrire_sqlite(chemin_base, df_comm, df_ac, df_reel, df_compt, df_hc,

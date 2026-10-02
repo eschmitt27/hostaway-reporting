@@ -3,8 +3,9 @@
 Document unique de reprise. Toute nouvelle session lit CE fichier en premier.
 Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais recréer à côté.
 
-> **État courant (2026-10-02)** : **CUTOVER V1 APPLIQUÉ** — la comptabilité applicative démarre
-> au 2026-09-01 (`00_CADRAGE/CUTOVER_V1_2026-09.md`). Lire d'abord la **dernière section**.
+> **État courant (2026-10-03)** : **CUTOVER V1 FINALISÉ** — la comptabilité applicative démarre
+> au 2026-09-01, et il n'existe plus aucune comptabilité antérieure, même consultable
+> (`00_CADRAGE/CUTOVER_V1_2026-09.md` §19). Lire d'abord la **dernière section**.
 > Le tableau « Contexte technique » ci-dessous est historique (état du 2026-08-02).
 
 ## Contexte technique
@@ -4697,3 +4698,94 @@ re-contrôlée. Références :
 1. Facturer septembre 2026, le premier mois V1.
 2. Traiter les charges de septembre au fil des rapprochements.
 3. Préparer, puis valider, la clôture de septembre.
+
+## Mission Finition du cutover V1.0 (2026-10-03) — FINALISÉ
+
+**État.** La finition est exécutée, vérifiée et documentée sur la base réelle.
+
+- Avant septembre 2026, il ne reste plus aucune comptabilité propriétaire, dans aucun run, ni
+  aucune facture ou dette fournisseur.
+- Les sources (banque, Hostaway, réservations), les référentiels, la fiche société et les
+  chaînes de dépenses rapprochées sont identiques à la sauvegarde.
+- Détail, tables avant / supprimé / après et preuves : `00_CADRAGE/CUTOVER_V1_2026-09.md` §19.
+- Décision `D-CUTOVER-V1-02`, deux textes de l'utilisateur, verbatim.
+- Règles V1-6 à V1-9 (`REGLES_METIER.md` §14) ; `ARCHITECTURE_DONNEES.md` §1.3.
+
+| Élément | Valeur |
+|---|---|
+| Code | `02_TRAVAIL/lib_db_moteur.py`, `lot10_calculer_resultats.py` ; `cutover_v1_finition_service.py` ; services propriétaire, factures fournisseurs, import PDF, Lot11 ; outil `tools/cutover_v1.py finition-*` |
+| Migration | **0121** `0121_factures_fournisseurs_v1.sql` (déclencheurs `trg_factures_fournisseurs_v1_*`), appliquée à la base réelle |
+| Base avant | schéma 0120 ; SHA256 `c7d489e78eaa1a149876e70b1ca5e504a9396dbc3f4c60d8e0363f2151789817` ; 233 tables / 263 972 lignes |
+| Base après | schéma 0121 ; SHA256 `a1cacb957a525121ba5b85b82d099b7c164da40371b35204e51b5bf52c8936f9` ; 233 tables / 248 620 lignes ; `integrity_check` ok ; `foreign_key_check` 0 |
+| Sauvegarde | `backups\app_avant_finition_cutover_v1_20261002T231529Z.db` (SHA256 `3cbe9ae3…b233e3`). Restauration isolée identique, empreinte logique `fc39dfca170dbace4147f9cb`. Rapports dans `backups\finition_cutover_v1_20261002T231529Z\` |
+
+**Ce qui a changé pour l'utilisateur.**
+
+- **Août 2026 et avant.** Le relevé mensuel, la préfacture, le relevé propriétaire et Propriétaires
+  & règlements affichent « Aucune comptabilité disponible pour cette période. ». Il n'y a plus de
+  reste à payer, de solde, de commission, de résultat, de préfacture, ni de mois antérieur dans les
+  sélecteurs.
+- **Lignes purgées.** 15 700 lignes ont été supprimées, tous runs confondus (les 12 runs Lot10 et les
+  12 runs Lot12, l'actif comme les inactifs) :
+  - règlements : 455 ;
+  - net par mois : 323 ;
+  - commissions : 2 484 ;
+  - net d'exploitation : 2 484 ;
+  - résultats : 1 046 ;
+  - provenance : 48 ;
+  - anomalies de commission : 794 ;
+  - préfactures : 419 en-têtes, 5 127 lignes et 419 identifiants ;
+  - contrôle mensuel : 419 ;
+  - tableau de bord : 298 ;
+  - contrôles de facturation : 799 ;
+  - Lot11 : 1 constat, 1 champ et 19 statuts mensuels ;
+  - la décision `controles_suivi` et son historique ;
+  - les 15 factures fournisseurs (15 910 €) et leurs 547 lignes propres.
+- **Factures fournisseurs.** 15 analysées, 15 purgées, 0 conservée par dépendance. Les dettes
+  actives antérieures passent de 15 (15 910 €) à 0. Les 15 PDF restent dans le dossier source et
+  sont reconnus « antérieurs à la V1 » à chaque import, sans jamais être repris.
+- **Septembre 2026.** Inchangé et fonctionnel : 8 préfactures. La première facture recevra
+  `2026-09-001`.
+- **Charges et rapprochements.** 7 charges rapprochées, 8 rapprochements, 153,65 € ↔ 153,65 €.
+  L'écart vient de `CHG-d0ff3f64c35f`, payée en deux fois. Rien n'est modifié.
+
+**Garde-fous.**
+
+- Lot10 : motif `ANTERIEUR_V1`, provenance `EXCLU_PERIMETRE_ANTERIEUR_V1`.
+- Refus côté services propriétaire, en lecture comme en création.
+- Lot11 : aucun mois antérieur, et des écarts ménages calculés sur la V1 seulement.
+- Factures fournisseurs : refus métier et déclencheurs 0121.
+- Import PDF : verdict `ANTERIEURE_V1`, idempotent.
+
+**Preuves.**
+
+- Simulation : deux passages identiques (`fbda9d2a545db6749427fe6a`), 0 anomalie.
+- Exécution : 22 invariants sur 22 au vert avant le COMMIT.
+- Reconstruction LOT10 → LOT11 → LOT12 : SUCCES. Le nouveau run Lot10 ne porte que 2026-09.
+- Deux redémarrages : 20 contrôles HTTP au vert à chaque fois, et une empreinte de base identique.
+- Copie de la base purgée : deux imports PDF et une actualisation depuis MENAGES_PDF donnent 0
+  facture, 0 dette, 0 charge, 0 comptabilité antérieure. Les créations d'août sont refusées, celles
+  de septembre autorisées (facture propriétaire et facture fournisseur).
+
+**Tests.**
+
+- `tests/test_finition_cutover_v1.py` : 26 passed.
+- `tests/test_cutover_v1.py` : 20 passed.
+- Modules concernés (159 fichiers) : 159 fichiers, 2 441 tests : 2 431 passed / 9 skipped / 1 failed au premier passage. L'échec, `test_menages_recalcul_mensuel_cible.py::test_08`, venait d'une clé `mois_impacte` ajoutée à tort sur le chemin de refus de l'import ; elle est retirée. Les 15 fichiers qui touchent l'import PDF ont été rejoués : 202 passed.
+- Suite complète : **4 710 tests (4 684 de référence + 26 nouveaux) : 4 673 passed / 37 skipped / 0 failed**, sur le code final, en 4 lots parallèles (1 173 + 1 175 + 1 176 + 1 149 passed).
+
+**Exploitation.**
+
+- `tools/cutover_v1.py finition-verifier` fonctionne en lecture seule.
+- `finition-executer` est idempotent : un second passage ne trouve rien.
+- `cutover_v1_finition_service.etat_comptable` donne l'état des reliquats.
+
+**Limites** (§19.10) :
+
+- Les agrégats ménage de juin à août ne sont pas recalculés : aucune reconstruction avant 2026-09.
+- Les réservations résolues et le flux unifié restent produits sur toutes les périodes, comme
+  sources normalisées.
+- Les compteurs des runs inactifs restent ceux d'origine.
+
+**Prochaine action (utilisateur).** Facturer septembre 2026, le premier mois V1. Cette mission ne
+l'a pas commencé.

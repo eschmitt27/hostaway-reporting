@@ -49,6 +49,11 @@ if _TRAVAIL_DIR not in sys.path:
     sys.path.insert(0, _TRAVAIL_DIR)
 
 E_EXTRACTION_ECHOUEE = "EXTRACTION_ECHOUEE"
+#: D-V1-FIN-2 — document lu, daté d'avant la comptabilité V1 : AUCUNE facture, aucune dette, aucune
+#: ligne, aucune ventilation. Le verdict est tracé dans `facture_pdf_diagnostics` (statut
+#: `ANTERIEURE_V1`) : le dossier peut garder la pièce source, la comptabilité ne la reprend jamais.
+E_ANTERIEURE_V1 = "FACTURE_ANTERIEURE_V1"
+VERDICT_ANTERIEURE_V1 = "ANTERIEURE_V1"
 #: Anomalie portée par une facture dont le numéro fournisseur est aussi celui d'une autre facture.
 A_NUMERO_FACTURE_REUTILISE = "NUMERO_FACTURE_REUTILISE"
 #: Anomalie du DOCUMENT (pas du parseur) : une ligne imprimée contredit quantité × prix unitaire.
@@ -322,7 +327,8 @@ def _fournisseur_actif(prestataire_id: str, db_path=None) -> bool | None:
     return f.get("statut") == "ACTIF"
 
 
-def _enregistrer_diagnostic(fac, *, facture_id_opaque: str | None, db_path=None) -> None:
+def _enregistrer_diagnostic(fac, *, facture_id_opaque: str | None, db_path=None,
+                            statut_extraction: str | None = None) -> None:
     """Trace CHAQUE tentative d'import (succès ou échec) — même grain que l'onglet DIAGNOSTIC_PDF
     legacy (0040) : mode_extraction est toujours PDF_AUTOMATIQUE ici, ce module n'a pas de secours
     de saisie manuelle (celui-ci reste, s'il existe, un mécanisme applicatif distinct non retouché)."""
@@ -333,9 +339,11 @@ def _enregistrer_diagnostic(fac, *, facture_id_opaque: str | None, db_path=None)
             "numero_facture, montant_total, somme_lignes, ecart_reconciliation, nb_lignes, "
             "anomalies, mode_extraction, facture_id_opaque, sha256_pdf) "
             "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-            (fac.nom_fichier_source, fac.format_detecte, fac.statut_extraction, fac.numero_facture,
-             fac.montant_total_facture, fac.somme_lignes, fac.ecart_reconciliation,
-             len(fac.lignes), ",".join(fac.anomalies) or None, "PDF_AUTOMATIQUE",
+            (fac.nom_fichier_source, fac.format_detecte, statut_extraction or fac.statut_extraction,
+             fac.numero_facture, fac.montant_total_facture, fac.somme_lignes,
+             fac.ecart_reconciliation, len(fac.lignes),
+             ",".join(list(fac.anomalies) + ([statut_extraction] if statut_extraction else []))
+             or None, "PDF_AUTOMATIQUE",
              facture_id_opaque, getattr(fac, "sha256_pdf", None) or None))
         conn.commit()
     finally:
@@ -472,6 +480,18 @@ def importer(path, *, acteur: str = "", db_path=None) -> dict[str, Any]:
         _enregistrer_diagnostic(fac, facture_id_opaque=None, db_path=db_path)
         return {"ok": False, "code": E_EXTRACTION_ECHOUEE, "statut_extraction": fac.statut_extraction,
                 "anomalies": fac.anomalies}
+
+    from app.services import perimetre_v1_service as v1
+    if v1.est_anterieur(fac.date_facture, db_path=db_path):
+        # D-V1-FIN-2 : la pièce existe, elle est lue, elle n'entre pas dans la comptabilité V1.
+        _enregistrer_diagnostic(fac, facture_id_opaque=None, db_path=db_path,
+                                statut_extraction=VERDICT_ANTERIEURE_V1)
+        # Aucun `mois_impacte` : rien n'est importé, aucun mois n'est à recalculer (comme pour
+        # tout autre refus — seuls les deux chemins d'import réels en portent un).
+        return {"ok": False, "code": E_ANTERIEURE_V1, "date_facture": fac.date_facture,
+                "message": (f"Facture du {fac.date_facture} antérieure à la comptabilité V1 : "
+                            "document ignoré, aucune facture créée. "
+                            + v1.message_debut_v1(db_path=db_path))}
 
     form = {
         "fournisseur_id_opaque": fac.prestataire_id,

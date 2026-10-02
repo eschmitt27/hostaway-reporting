@@ -7,6 +7,13 @@
     python tools/cutover_v1.py verifier
     python tools/cutover_v1.py reconstruire
 
+FINITION (2026-10-03, D-V1-FIN-1 / D-V1-FIN-2) — purge de tout reliquat antérieur à la V1 :
+    python tools/cutover_v1.py finition-sauvegarder
+    python tools/cutover_v1.py finition-simuler --dossier <dossier de finition>
+    python tools/cutover_v1.py finition-executer --confirmer --acteur <nom> --dossier <dossier>
+    python tools/cutover_v1.py finition-reconstruire --dossier <dossier>
+    python tools/cutover_v1.py finition-verifier --dossier <dossier>
+
 La base visée est celle de l'application (`APP_DATA_DIR` du `.env`). L'application doit être
 ARRÊTÉE pour `sauvegarder` et `executer` (le port est vérifié) : la sauvegarde doit décrire
 exactement la base que le cutover modifie. Chaque étape écrit son rapport JSON dans le dossier de
@@ -32,6 +39,7 @@ os.chdir(RACINE)
 import app.config as cfg  # noqa: E402  (charge le .env : la vraie base de l'instance)
 from app.db.connection import apply_migrations  # noqa: E402
 from app.services import cutover_v1_service as cut  # noqa: E402
+from app.services import cutover_v1_finition_service as fin  # noqa: E402
 
 
 def _sha256(chemin: Path) -> str:
@@ -78,6 +86,24 @@ def etat(db: Path) -> dict:
             "volumetrie": volumetrie}
 
 
+def empreinte_logique(db: Path) -> dict:
+    """Empreinte du CONTENU (toutes tables, lignes triées) et du schéma — indépendante de la mise en
+    page des pages SQLite : deux bases au contenu identique ont la même, quel que soit le fichier."""
+    conn = sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        tables = cut._tables(conn)
+        contenu = hashlib.sha256()
+        for t in tables:
+            contenu.update(f"{t}:{cut.empreinte(conn, t)}".encode("utf-8"))
+        schema = hashlib.sha256("\n".join(r[0] or "" for r in conn.execute(
+            "SELECT sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name")
+        ).encode("utf-8")).hexdigest()[:16]
+    finally:
+        conn.close()
+    return {"contenu": contenu.hexdigest()[:24], "schema": schema, "nb_tables": len(tables)}
+
+
 def _ecrire(dossier: Path, nom: str, contenu: dict) -> Path:
     dossier.mkdir(parents=True, exist_ok=True)
     chemin = dossier / nom
@@ -90,7 +116,9 @@ def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     p.add_argument("etape", choices=("etat", "sauvegarder", "simuler", "executer", "verifier",
-                                     "reconstruire"))
+                                     "reconstruire", "finition-sauvegarder", "finition-simuler",
+                                     "finition-executer", "finition-reconstruire",
+                                     "finition-verifier"))
     p.add_argument("--dossier", help="dossier de sauvegarde du cutover (créé par « sauvegarder »)")
     p.add_argument("--confirmer", action="store_true")
     p.add_argument("--acteur", default="")
@@ -188,6 +216,133 @@ def main() -> int:
             _ecrire(dossier, "05_reconstruction.json", resume)
         print(json.dumps(resume, ensure_ascii=False, indent=1))
         return 0 if r["statut"] in ("SUCCES", "PARTIEL") else 7
+
+    # ── FINITION ────────────────────────────────────────────────────────────────────────────────
+    if args.etape == "finition-sauvegarder":
+        if _application_active():
+            print("REFUS : l'application tourne (port %s). L'arrêter d'abord." % cfg.PORT)
+            return 2
+        horodatage = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        dossier = Path(cfg.BACKUPS_DIR) / f"finition_cutover_v1_{horodatage}"
+        dossier.mkdir(parents=True)
+        avant = etat(db)
+        cible = Path(cfg.BACKUPS_DIR) / f"app_avant_finition_cutover_v1_{horodatage}.db"
+        src = sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True)
+        dst = sqlite3.connect(str(cible))
+        src.backup(dst)
+        # Sauvegarde AUTONOME : un seul fichier, sans -wal/-shm à côté (le mode WAL de la source
+        # serait sinon recopié, et un simple contrôle en lecture laisserait des fichiers annexes).
+        dst.execute("PRAGMA journal_mode=DELETE")
+        dst.close()
+        src.close()
+        verif = etat(cible)
+        lisible = (verif["integrity_check"] == "ok" and verif["foreign_key_check"] == 0
+                   and verif["nb_lignes"] == avant["nb_lignes"]
+                   and verif["nb_tables"] == avant["nb_tables"])
+        # Restauration dans un emplacement ISOLÉ : la sauvegarde redonne-t-elle la même base ?
+        isole = dossier / "restauration_isolee"
+        isole.mkdir()
+        restauree = isole / "app.db"
+        src = sqlite3.connect(f"file:{cible.as_posix()}?mode=ro", uri=True)
+        dst = sqlite3.connect(str(restauree))
+        src.backup(dst)
+        dst.execute("PRAGMA journal_mode=DELETE")
+        dst.close()
+        src.close()
+        e_source, e_restauree = empreinte_logique(db), empreinte_logique(restauree)
+        controle_restauree = etat(restauree)
+        restauration = {"emplacement": str(restauree), "empreinte_source": e_source,
+                        "empreinte_restauree": e_restauree,
+                        "integrity_check": controle_restauree["integrity_check"],
+                        "foreign_key_check": controle_restauree["foreign_key_check"],
+                        "nb_tables": controle_restauree["nb_tables"],
+                        "nb_lignes": controle_restauree["nb_lignes"],
+                        "identique": e_source == e_restauree}
+        shutil.rmtree(isole)        # la copie de contrôle ne reste pas : la preuve est dans le rapport
+        rapport = {"etat_avant": avant, "sauvegarde": str(cible),
+                   "sauvegarde_sha256": verif["sha256"], "sauvegarde_lisible": lisible,
+                   "sauvegarde_controle": verif, "restauration_isolee": restauration}
+        _ecrire(dossier, "01_etat_et_sauvegarde.json", rapport)
+        print(json.dumps(rapport, ensure_ascii=False, indent=1))
+        print(f"\nDOSSIER DE FINITION : {dossier}")
+        return 0 if lisible and restauration["identique"] else 3
+
+    if args.etape == "finition-simuler":
+        r1, r2 = fin.simuler(), fin.simuler()
+        identiques = r1["empreinte_rapport"] == r2["empreinte_rapport"]
+        if dossier:
+            _ecrire(dossier, "02_simulation_1.json", r1)
+            _ecrire(dossier, "02_simulation_2.json", r2)
+        print("CUTOVER V1 — FINITION — SIMULATION")
+        for t, c in {**r1["comptabilite_proprietaire"], **r1["factures_fournisseurs_tables"]}.items():
+            extra = {k: v for k, v in c.items() if k not in ("avant", "a_supprimer", "apres_attendu",
+                                                              "par_run")}
+            print(f"  {t:<38} avant {c['avant']:>6}  à supprimer {c['a_supprimer']:>6}  "
+                  f"après {c['apres_attendu']:>6}  {extra or ''}")
+        print(f"  factures fournisseurs : {r1['factures_fournisseurs_resume']}")
+        print(f"  dettes actives avant : {r1['dettes_actives_avant']} → après attendu : 0")
+        print(f"  verdicts ANTERIEURE_V1 à poser : {r1['verdicts_anterieure_v1_a_poser']}")
+        rc = r1["rapprochements_charges"]
+        print(f"  rapprochements → charges : {rc['nb_rapprochements']} → {rc['nb_charges']} ; "
+              f"{rc['total_charges']} € ↔ {rc['total_rapproche']} €")
+        print(f"  impact : {r1['impact']}")
+        print(f"  lignes à supprimer : {r1['lignes_a_supprimer']}")
+        print(f"  anomalies : {r1['anomalies']}")
+        print(f"  deux simulations identiques : {identiques} ({r1['empreinte_rapport']})")
+        return 0 if identiques and not r1["anomalies"] else 4
+
+    if args.etape == "finition-executer":
+        if not dossier or not (dossier / "01_etat_et_sauvegarde.json").exists():
+            print("REFUS : « finition-sauvegarder » d'abord, puis --dossier <dossier de finition>.")
+            return 2
+        sauvegarde = json.loads((dossier / "01_etat_et_sauvegarde.json").read_text("utf-8"))
+        if not (sauvegarde.get("sauvegarde_lisible")
+                and (sauvegarde.get("restauration_isolee") or {}).get("identique")):
+            print("REFUS : la sauvegarde n'est pas lisible ou sa restauration n'est pas prouvée.")
+            return 3
+        if _application_active():
+            print("REFUS : l'application tourne (port %s). L'arrêter d'abord." % cfg.PORT)
+            return 2
+        apply_migrations(db)          # 0121 : le verrou base des factures fournisseurs pré-V1
+        r = fin.executer(confirmer=args.confirmer, acteur=args.acteur)
+        r["etat_apres"] = etat(db) if r.get("ok") else None
+        _ecrire(dossier, "03_execution.json", r)
+        print(json.dumps({k: r.get(k) for k in ("ok", "code", "message", "journal_suppressions",
+                                                 "anomalies", "echecs")},
+                         ensure_ascii=False, indent=1, default=str))
+        for v in r.get("verifications") or []:
+            print(f"  {v['code']:>9} {'OK' if v['ok'] else 'KO'}  {v['libelle']}"
+                  + (f"  [{v['detail']}]" if v.get("detail") not in ("", None, [], {}) else ""))
+        return 0 if r.get("ok") else 5
+
+    if args.etape == "finition-reconstruire":
+        from app.services import orchestrateur_service as orch
+        # Seuls les calculs comptables : Lot10 (qui exclut désormais tout mois antérieur à la V1)
+        # puis ses descendants Lot11 et Lot12. Aucune source, aucun import, aucun recalcul des
+        # réservations ni des ménages de juin à août.
+        r = orch.actualiser(cibles=["LOT10"], inclure_imports_externes=False,
+                            declencheur="CUTOVER_V1_FINITION")
+        resume = {"statut": r.get("statut"), "run_id": r.get("run_id"),
+                  "etapes": [(e["dataset"], e["statut"]) for e in r.get("etapes") or []]}
+        if dossier:
+            _ecrire(dossier, "05_reconstruction.json", resume)
+        print(json.dumps(resume, ensure_ascii=False, indent=1))
+        return 0 if r.get("statut") in ("SUCCES", "PARTIEL") else 7
+
+    if args.etape == "finition-verifier":
+        v = fin.verifier()
+        v["cutover"] = cut.verifier()["checks"]
+        v["etat"] = etat(db)
+        if dossier:
+            _ecrire(dossier, f"04_verification_{datetime.now(timezone.utc):%H%M%S}.json", v)
+        print(json.dumps({"checks": v["checks"], "cutover": v["cutover"],
+                          "etat_comptable_anterieur": v["etat_comptable_anterieur"],
+                          "etat": {k: v["etat"][k] for k in ("sha256", "taille", "wal_taille",
+                                                              "schema", "integrity_check",
+                                                              "foreign_key_check", "nb_tables",
+                                                              "nb_lignes")}},
+                         ensure_ascii=False, indent=1, default=str))
+        return 0 if v["checks"]["ok"] and v["cutover"]["ok"] else 6
     return 1
 
 

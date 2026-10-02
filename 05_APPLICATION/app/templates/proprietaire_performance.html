@@ -53,7 +53,10 @@
     </div>
 </form>
 
-{% if not mois_disponibles %}
+{% if hors_v1 %}
+  {% include "_comptabilite_hors_v1.html" %}
+
+{% elif not mois_disponibles %}
   <div class="card fi-vide" data-statut="NON_DISPONIBLE">
     <span class="fi-vide__titre">Aucun calcul mensuel disponible</span>
     <span class="fi-vide__texte">Lancez une actualisation avant de consulter les relevés.</span>

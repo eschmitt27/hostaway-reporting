@@ -91,7 +91,8 @@ def _evenement(conn, mouvement_opaque: str, type_evt: str, ancien: str | None, n
 
 def previsualiser(proprietaire_id: str, sens: str, nature: str, montant: Any,
                   date_mouvement: str, *, logement_id: str = "", mode_reglement: str = "",
-                  reference_metier: str = "", justification: str = "") -> dict[str, Any]:
+                  reference_metier: str = "", justification: str = "",
+                  db_path=None) -> dict[str, Any]:
     """Valide les champs sans écrire — retourne les erreurs ou un aperçu."""
     pid = _txt(proprietaire_id)
     if not proprietaires_reader.find_proprietaire(pid):
@@ -107,6 +108,11 @@ def previsualiser(proprietaire_id: str, sens: str, nature: str, montant: Any,
         return _refus(E_MONTANT_INVALIDE)
     if not _txt(date_mouvement):
         return _refus(E_DATE_MANQUANTE)
+    from app.services import perimetre_v1_service as v1
+    if v1.est_anterieur(date_mouvement, db_path=db_path):
+        # D-V1-FIN-1 : pas d'acompte, de compensation ni de régularisation propriétaire avant la V1.
+        return {"ok": False, "code": v1.E_COMPTABILITE_PROPRIETAIRE_AVANT_V1,
+                "message": v1.message_debut_v1(db_path=db_path), "detail": _txt(date_mouvement)}
     return {
         "ok": True,
         "apercu": {
@@ -130,7 +136,8 @@ def creer(proprietaire_id: str, sens: str, nature: str, montant: Any, date_mouve
     par le lettrage des flux financiers, qui encaisse et comptabilise en une seule opération."""
     verif = previsualiser(proprietaire_id, sens, nature, montant, date_mouvement,
                           logement_id=logement_id, mode_reglement=mode_reglement,
-                          reference_metier=reference_metier, justification=justification)
+                          reference_metier=reference_metier, justification=justification,
+                          db_path=db_path)
     if not verif["ok"]:
         return verif
 

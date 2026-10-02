@@ -56,6 +56,9 @@ E_ECART_LIGNES_TOTAL = "V11_ECART_LIGNES_TOTAL_DOCUMENT"
 E_LIGNE_NON_CLASSEE = "V12_LIGNE_SANS_NATURE"
 #: §15 — une ligne qui compte pour un ménage sans logement désigné interdit la validation.
 E_LIGNE_SANS_LOGEMENT = "V13_LIGNE_MENAGE_SANS_LOGEMENT"
+#: D-V1-FIN-2 — une facture fournisseur datée d'avant la comptabilité V1 n'y entre pas. Le message
+#: vient du paramètre central (`perimetre_v1_service.message_debut_v1`), jamais d'une date recopiée.
+E_DATE_ANTERIEURE_V1 = "V14_DATE_ANTERIEURE_V1"
 
 MESSAGES = {
     E_FLAGS: "Écriture désactivée sur cette installation : l'enregistrement est impossible.",
@@ -194,6 +197,11 @@ def valider(form: dict[str, Any], db_path=None, fournisseur_actif: bool | None =
     if d_fac and d_ech and fac_ok and ech_ok:
         if date.fromisoformat(d_ech) < date.fromisoformat(d_fac):
             err(E_DATE_INCOHERENTE, f"{d_ech} < {d_fac}")
+    if d_fac and fac_ok:
+        from app.services import perimetre_v1_service as v1
+        if v1.est_anterieur(d_fac, db_path=db_path):
+            erreurs.append({"code": E_DATE_ANTERIEURE_V1,
+                            "message": v1.message_debut_v1(db_path=db_path), "detail": d_fac})
 
     if frs and ref and _doublon_certain(frs, ref, db_path):
         err(E_DOUBLON_CERTAIN, ref)
@@ -254,6 +262,15 @@ def _evenement(conn, opaque: str, type_evt: str, ancien: str | None, nouveau: st
 
 def creer(form: dict[str, Any], *, acteur: str = "", db_path=None,
           fournisseur_actif: bool | None = None) -> dict[str, Any]:
+    # D-V1-FIN-2 — AVANT tout autre contrôle, réglage d'installation compris : une facture datée
+    # d'avant la comptabilité V1 ne crée ni facture, ni dette, ni ligne, ni ventilation, quel que
+    # soit le chemin (import PDF, saisie, remplacement de version). La migration 0121 en est le
+    # second verrou, au niveau de la base.
+    from app.services import perimetre_v1_service as v1
+    d_fac = _txt(form.get("date_facture"))
+    if d_fac and v1.est_anterieur(d_fac, db_path=db_path):
+        return {"ok": False, "code": v1.E_FACTURE_FOURNISSEUR_AVANT_V1,
+                "message": v1.message_debut_v1(db_path=db_path), "detail": d_fac}
     # Le statut visé est résolu AVANT le contrôle de niveau : créer une facture À CONTRÔLER est une
     # écriture opérationnelle (niveau A, production normale), la créer déjà VALIDEE engage la
     # comptabilité (niveau B, double verrou).
@@ -466,6 +483,11 @@ def changer_statut(opaque: str, nouveau: str, *, commentaire: str = "", acteur: 
         f = charger(opaque, db_path)
         if f is None:
             return _refus(E_INTROUVABLE, opaque)
+        from app.services import perimetre_v1_service as v1
+        if v1.est_anterieur(f.get("date_facture"), db_path=db_path):
+            return {"ok": False, "code": v1.E_FACTURE_FOURNISSEUR_AVANT_V1,
+                    "message": v1.message_debut_v1(db_path=db_path),
+                    "detail": _txt(f.get("date_facture"))}
         if f.get("lignes"):
             ecart = round(f["montant_lignes_ttc"] - round(f["montant_ttc"], 2), 2)
             if abs(ecart) > 0.005:

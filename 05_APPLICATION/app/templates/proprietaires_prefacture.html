@@ -14,7 +14,10 @@
   </div>
 </div>
 
-{% if pref.status == "NOT_FOUND" %}
+{% if pref.status == "HORS_V1" %}
+{% include "_comptabilite_hors_v1.html" %}
+
+{% elif pref.status == "NOT_FOUND" %}
 <div class="card fi-vide">
   <span class="fi-vide__titre">Aucune préfacture pour ce propriétaire ce mois-ci</span>
   <span class="fi-vide__texte">{{ prop_id|nom_proprietaire }} — {{ mois|mois_humain }}.</span>

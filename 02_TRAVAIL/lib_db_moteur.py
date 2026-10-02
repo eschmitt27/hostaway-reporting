@@ -53,6 +53,38 @@ ST_ECHEC = "ECHEC"
 STATUTS_FACTURE_COMPTABLES = ("VALIDEE", "PARTIELLEMENT_REGLEE", "REGLEE")
 
 
+# ── PERIMETRE DE LA COMPTABILITE V1 (cutover) ─────────────────────────────────────────────────────
+# SOURCE DE VERITE : `05_APPLICATION/app/services/perimetre_v1_service.CLE_PARAMETRE` — UNE ligne de
+# `parametres_societe_facturation`, posee par la transaction de cutover, immuable (migration 0120).
+# Seule la CLE est recopiee ici, jamais la date : elle est relue en base a chaque appel. Meme regle
+# que `STATUTS_FACTURE_COMPTABLES` (un lot moteur n'importe pas l'application), meme verrou : un test
+# de synchronisation echoue si les deux cles divergent.
+#
+# Tant que la ligne n'existe pas (installation neuve, base de test), rien n'est restreint : la
+# regle nait avec le cutover, elle ne le precede pas.
+CLE_DEBUT_V1 = "V1_ACCOUNTING_START_DATE"
+
+
+def debut_v1(conn: sqlite3.Connection) -> str | None:
+    """`AAAA-MM-JJ` du debut de la comptabilite V1, ou None (cutover non applique, ou base
+    anterieure a la table des parametres)."""
+    try:
+        r = conn.execute("SELECT valeur FROM parametres_societe_facturation WHERE cle = ?",
+                         (CLE_DEBUT_V1,)).fetchone()
+    except sqlite3.Error:
+        return None
+    valeur = str(r[0] or "").strip() if r else ""
+    if len(valeur) == 10 and valeur[4] == "-" and valeur[7] == "-" and valeur[:4].isdigit():
+        return valeur
+    return None
+
+
+def premier_mois_v1(conn: sqlite3.Connection) -> str | None:
+    """`AAAA-MM` du premier mois de la comptabilite V1, ou None sans cutover."""
+    d = debut_v1(conn)
+    return d[:7] if d else None
+
+
 # ── EXCLUSION DU CALCUL ECONOMIQUE — vocabulaire canonique ────────────────────────────────────────
 #
 # CE QUE CECI REMPLACE : le code d'impact `HR` (« hors resultat »).
@@ -465,7 +497,13 @@ def calculer_ecarts_menages_externes(conn: sqlite3.Connection) -> list[dict[str,
     Rend une ligne par couple portant une activite (aucune ligne "rien a comparer"), avec les
     memes noms de colonnes que l'ancien onglet VUE_ECART_HOSTAWAY — aucun consommateur n'a besoin
     de changer de vocabulaire pour lire cette sortie.
+
+    PERIMETRE V1 : une fois le cutover applique, aucune facture fournisseur anterieure a la V1
+    n'existe plus (decision D-V1-FIN-2). Comparer les menages Hostaway d'avant la V1 a des factures
+    qui, par decision, n'existent pas fabriquerait un ecart pour chaque mois ancien : ces mois sont
+    donc hors comparaison, au meme titre qu'ils sont hors comptabilite.
     """
+    mois_v1 = premier_mois_v1(conn)
     ha: dict[tuple[str, str], dict[str, Any]] = {}
     if table_presente(conn, "menages_taches_enrichies"):
         cur = conn.execute(
@@ -506,6 +544,8 @@ def calculer_ecarts_menages_externes(conn: sqlite3.Connection) -> list[dict[str,
     lignes: list[dict[str, Any]] = []
     for cle in sorted(set(ha) | set(ext)):
         mois, logement_id = cle
+        if mois_v1 and mois < mois_v1:
+            continue
         nb_ha = ha.get(cle, {}).get("nb_ha", 0) or 0
         nb_ext = ext.get(cle, {}).get("nb_ext", 0) or 0
         code = classer_ecart_menage_externe(nb_ext, nb_ha)

@@ -5989,3 +5989,55 @@ Détail : HANDOFF, mission Résultats lisibles.
 / 0 failed.
 
 Détail : `CUTOVER_V1_2026-09.md`.
+
+## CTR-CUTOVER-V1-FINITION-2026-10-03 — plus aucune comptabilité antérieure à la V1 : FINALISÉ
+
+**Périmètre.** Base réelle, application arrêtée ; outil `tools/cutover_v1.py finition-*` ; décision
+D-CUTOVER-V1-02.
+
+**Avant.**
+
+- Schéma 0120 ; SHA256 `c7d489e78eaa1a149876e70b1ca5e504a9396dbc3f4c60d8e0363f2151789817` ;
+  `integrity_check` ok ; `foreign_key_check` 0 ; 233 tables / 263 972 lignes.
+- Sauvegarde `backups/app_avant_finition_cutover_v1_20261002T231529Z.db`
+  (SHA256 `3cbe9ae37b61cfdde038adc8c89d5eb1bf3b403140d9636e42c202cb9db233e3`) : lisible.
+- Restauration isolée : empreinte logique `fc39dfca170dbace4147f9cb` identique.
+
+**Simulation et exécution.**
+
+- Deux simulations identiques (`fbda9d2a545db6749427fe6a`) : 0 anomalie.
+- Exécution en une transaction : 15 700 lignes supprimées dans tous les runs, 15 verdicts
+  `ANTERIEURE_V1` posés, 22 invariants sur 22 OK avant le COMMIT.
+
+**Après.**
+
+| Objet antérieur à 2026-09 | Avant → après |
+|---|---|
+| Règlements Lot10 | 455 → 0 |
+| Net par mois | 323 → 0 |
+| Commissions | 2 484 → 0 |
+| Net d'exploitation | 2 484 → 0 |
+| Résultats | 1 046 → 0 |
+| Préfactures | 419 → 0 |
+| Constat Lot11 et décision `controles_suivi` | 1 + 1 → 0 |
+| Factures fournisseurs | 15 → 0 |
+| Dettes fournisseurs actives | 15 (15 910 €) → 0 |
+
+- Charges et rapprochements inchangés : 7 charges, 8 rapprochements, 153,65 € ↔ 153,65 €.
+- Banque (14 mouvements), Hostaway (21 126 réservations), archive, référentiels et fiche société :
+  identiques à la sauvegarde.
+- Reconstruction LOT10, LOT11, LOT12 : SUCCES. Le Lot10 ne calcule que 2026-09 ; les mois antérieurs
+  sont tracés `EXCLU_PERIMETRE_ANTERIEUR_V1`.
+- Deux redémarrages, avec 20 contrôles HTTP OK à chaque fois : août affiche « Aucune comptabilité
+  disponible pour cette période. », septembre fonctionne.
+- Copie : deux imports PDF et une actualisation recréent 0 facture et 0 dette.
+- Base finale : schéma 0121 ; SHA256 `a1cacb957a525121ba5b85b82d099b7c164da40371b35204e51b5bf52c8936f9` ;
+  `integrity_check` ok ; `foreign_key_check` 0.
+
+**Tests.**
+
+- 26 tests de finition et 20 tests de cutover : 46 passed.
+- Modules concernés : 159 fichiers, 2 441 tests : 2 431 passed / 9 skipped / 1 failed au premier passage. L'échec, `test_menages_recalcul_mensuel_cible.py::test_08`, venait d'une clé `mois_impacte` ajoutée à tort sur le chemin de refus de l'import ; elle est retirée. Les 15 fichiers qui touchent l'import PDF ont été rejoués : 202 passed.
+- Suite complète : **4 710 tests (4 684 de référence + 26 nouveaux) : 4 673 passed / 37 skipped / 0 failed**, sur le code final, en 4 lots parallèles (1 173 + 1 175 + 1 176 + 1 149 passed).
+
+Détail : `CUTOVER_V1_2026-09.md` §19.

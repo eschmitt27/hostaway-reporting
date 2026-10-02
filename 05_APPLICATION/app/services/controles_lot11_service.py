@@ -865,13 +865,18 @@ def _caisse_theorique(db_path, df_hh: list[dict]) -> list[dict]:
 
 
 def _dashboard_mois(ctrl_rows: list[dict], cloture_rows: list[dict],
-                    banque_dispo: bool) -> list[dict]:
+                    banque_dispo: bool, mois_v1: str | None = None) -> list[dict]:
     from lib_controls import facture_control_counts
 
     mois_avec_ctrl = {_txt(r.get("mois")) for r in ctrl_rows if r.get("mois")}
     mois_banque = sorted({_txt(r.get("mois"))[:7] for r in cloture_rows if r.get("mois")}) \
         if banque_dispo else []
     mois_all = sorted(mois_avec_ctrl | set(mois_banque) | {"TRANSVERSE"})
+    if mois_v1:
+        # Périmètre V1 (D-V1-FIN-1) : un mois antérieur n'est ni clôturable ni facturable. Lui
+        # attribuer un statut de clôture ou de facturation inventerait une comptabilité qui n'existe
+        # pas — et ferait apparaître des mois « à contrôler » du seul fait qu'ils ne sont plus calculés.
+        mois_all = [m for m in mois_all if m == "TRANSVERSE" or m >= mois_v1]
 
     cloture_par_mois = {_txt(r.get("mois"))[:7]: r for r in cloture_rows} if banque_dispo else {}
 
@@ -1000,7 +1005,9 @@ def construire(*, db_path=None, run_id: str | None = None) -> dict[str, Any]:
         _groupe_charges_non_validees(ctrl, db_path)
         _groupe_menages_provenance(ctrl, db_path)
 
-        dashboard = _dashboard_mois(ctrl.rows, cloture_rows, banque_dispo)
+        from app.services import perimetre_v1_service as _v1
+        dashboard = _dashboard_mois(ctrl.rows, cloture_rows, banque_dispo,
+                                    mois_v1=_v1.premier_mois(db_path=db_path))
         caisse = _caisse_theorique(db_path, df_hh)
 
         n_bloquant = sum(1 for r in ctrl.rows if r["severity"] == "BLOQUANT")

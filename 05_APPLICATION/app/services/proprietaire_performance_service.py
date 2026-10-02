@@ -46,6 +46,17 @@ from app.db.connection import get_db
 ST_OK = "OK"
 ST_SANS_DONNEES = "SANS_DONNEES"
 ST_INDISPONIBLE = "INDISPONIBLE"
+ST_HORS_V1 = "HORS_V1"
+
+
+def _v1():
+    from app.services import perimetre_v1_service
+    return perimetre_v1_service
+
+
+def hors_v1(mois: str, *, db_path=None) -> bool:
+    """Le mois précède-t-il la comptabilité V1 ? Aucun relevé n'existe alors (D-V1-FIN-1)."""
+    return _v1().est_anterieur(mois, db_path=db_path)
 
 # Une réservation ne compte dans l'activité que si elle est retenue au résultat réel. Les exclues
 # (annulations sans payout, séjours propriétaire) existent, mais compter leurs nuits ferait monter
@@ -236,6 +247,10 @@ def releve(proprietaire_id: str, mois: str, *, db_path=None) -> dict[str, Any]:
     if not identifiant or not mois_valide(periode):
         return {"status": ST_INDISPONIBLE, "message": "Propriétaire ou mois non renseigné.",
                 "proprietaire_id": identifiant, "mois": periode}
+    if hors_v1(periode, db_path=db_path):
+        # D-V1-FIN-1 : ni activité, ni économie — aucun relevé n'existe avant la V1.
+        return {"status": ST_HORS_V1, "message": _v1().MESSAGE_AUCUNE_COMPTABILITE,
+                "proprietaire_id": identifiant, "mois": periode}
 
     activite = _agreger_activite(_reservations(identifiant, periode, db_path=db_path))
     economie = _economie(identifiant, periode, db_path=db_path)
@@ -388,7 +403,7 @@ def mois_disponibles(proprietaire_id: str = "", *, db_path=None) -> list[str]:
     cible = _txt(proprietaire_id)
     mois = {_txt(l.get("mois")) for l in lot10.net_reglement(db_path=db_path).lignes
             if (not cible or _txt(l.get("proprietaire_id")) == cible) and _txt(l.get("mois"))}
-    return sorted(mois, reverse=True)
+    return sorted(_v1().filtrer_mois(mois, db_path=db_path), reverse=True)
 
 
 def proprietaires_du_mois(mois: str, *, db_path=None) -> list[dict[str, Any]]:
@@ -408,6 +423,8 @@ def proprietaires_du_mois(mois: str, *, db_path=None) -> list[dict[str, Any]]:
     from app.readers import proprietaires_reglements_reader as lot10
     from app.services import referentiel_service as ref
 
+    if hors_v1(mois, db_path=db_path):
+        return []
     lignes = [l for l in lot10.net_reglement(db_path=db_path).lignes
               if _txt(l.get("mois")) == _txt(mois) and _txt(l.get("proprietaire_id"))]
 

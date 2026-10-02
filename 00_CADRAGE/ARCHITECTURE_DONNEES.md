@@ -107,6 +107,25 @@ avec une date de début de comptabilité applicative V1 au **2026-09-01**.
 | Conservé | mouvements bancaires, rapprochements banque ↔ charges validés et leur chaîne, Hostaway, réservations, référentiels, fiche société, factures fournisseurs (source des ménages externes) |
 | Reconstruit | flux unifié, Lot10, Lot11, Lot12 (préfactures limitées à la période V1), ménages calculés |
 
+**Finition du 2026-10-03 (D-CUTOVER-V1-02).** `cutover_v1_finition_service` a supprimé de tous
+les runs (actif et inactifs) la comptabilité propriétaire antérieure :
+
+- les sorties Lot10 et Lot12 datées d'avant 2026-09 ;
+- les contrôles Lot11 qui en dépendaient, et leur décision humaine ;
+- les 15 factures fournisseurs de février à août, avec leurs tables propres. Un verdict
+  `ANTERIEURE_V1` a été posé pour chacune de leurs pièces.
+
+Ce qui l'empêche désormais de revenir :
+
+| Verrou | Où |
+|---|---|
+| Lot10 n'écrit plus aucun mois antérieur | `02_TRAVAIL/lot10_calculer_resultats.classifier_mois_lot10` : classification `ANTERIEUR_V1`, mode `EXCLU_PERIMETRE_ANTERIEUR_V1`, provenance tracée. Les anomalies de commission des réservations antérieures sont retirées. |
+| Date lue, jamais recopiée | `lib_db_moteur.debut_v1` (moteur) et `perimetre_v1_service` (application) : même clé, verrouillée par un test de synchronisation |
+| Écrans propriétaire | `perimetre_v1_service.ST_HORS_V1`, message `MESSAGE_AUCUNE_COMPTABILITE` |
+| Factures fournisseurs | `factures_service.creer` (refus métier) ; migration **0121**, déclencheurs `trg_factures_fournisseurs_v1_insert` / `_update` |
+| Import PDF | verdict `ANTERIEURE_V1` dans `facture_pdf_diagnostics`, définitif tant que le fichier ne change pas |
+| Lot11 | aucun mois antérieur dans `controles_lot11_dashboard_mois` ; écarts ménages externes limités à la V1 |
+
 `SOLDE_INITIAL_BANQUE` et `STATUT_PERIODE` (§1.2) n'ont pas été créés : le solde d'ouverture n'a pas
 été fourni, et le statut d'une période se déduit de `V1_ACCOUNTING_START_DATE`. Détail et preuves :
 `CUTOVER_V1_2026-09.md`.
