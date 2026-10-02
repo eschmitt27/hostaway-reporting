@@ -5947,3 +5947,45 @@ Présentation seule : filtres communs synthèse / analyse (période, propriétai
 KPI, graphique d'évolution accessible, classements, format monétaire français. Aucun calcul métier
 modifié ; GET Résultats = zéro écriture (empreinte de base). Tests : 8 nouveaux + 248 ciblés, 0 échec.
 Détail : HANDOFF, mission Résultats lisibles.
+
+## CTR-CUTOVER-V1-2026-10-02 — cutover V1.0, comptabilité applicative au 2026-09-01 : RÉUSSI
+
+**Périmètre.** Base réelle, application arrêtée ; outil `tools/cutover_v1.py` ; décision D-CUTOVER-V1-01.
+
+**Avant.**
+
+- Schéma 0119 ; SHA256 `719c23c8511db096dd8ec3f58d5e0f193c5497b9f85a86a63711d0a0751a2863` ;
+  68 378 624 octets.
+- `integrity_check` ok ; `foreign_key_check` 0 ; 233 tables / 260 560 lignes.
+- Sauvegarde `backups/app_avant_cutover_v1_20261002T184338Z.db`
+  (SHA256 `be77901b85b52eb2fd02e401b4eaf5bf11c08fd7103a1555238576ec9b16e718`) : lisible.
+- Restauration testée : empreinte logique `fc8f461f36b6d1ed8122c56c` identique.
+
+**Simulation et exécution.**
+
+- Deux simulations identiques (`6d6d1c48f6443561574b1548`) : 0 anomalie, 0 table non classée.
+- Exécution en une transaction : 938 lignes purgées, 24 vérifications (A → Z) OK avant le COMMIT.
+
+**Après.**
+
+| Objet | Avant → après |
+|---|---|
+| Factures | 27 → 0 |
+| Créances | 3 → 0 |
+| Charges | 12 → 7 (0 non rapprochée) |
+| Écritures | 12 → 9 (toutes en 2026-09) |
+| Rapprochements banque ↔ charges | 8 → 8 |
+
+- Banque, Hostaway, archive, réservations hors Hostaway, référentiels et fiche société : identiques
+  ligne à ligne à la sauvegarde. Seules exceptions : la ligne du paramètre V1 et son historique.
+- Reconstruction : SUCCES.
+- `verifier` : ok, deux fois.
+- Deux redémarrages, avec 13 contrôles HTTP OK à chaque fois : août refusé, septembre autorisé,
+  prochain numéro `2026-09-001`.
+- Base finale : schéma 0120 ; SHA256 `c7d489e78eaa1a149876e70b1ca5e504a9396dbc3f4c60d8e0363f2151789817` ;
+  `integrity_check` ok ; `foreign_key_check` 0.
+
+**Tests.** 20 tests de cutover et 924 tests liés : 0 échec. Suite complète : 4 647 passed / 37 skipped
+/ 0 failed.
+
+Détail : `CUTOVER_V1_2026-09.md`.

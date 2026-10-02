@@ -3,7 +3,8 @@
 Document unique de reprise. Toute nouvelle session lit CE fichier en premier.
 Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais recréer à côté.
 
-> **État courant (2026-09-28)** : lire d'abord la **dernière section** (Mission 30 — Flux financiers).
+> **État courant (2026-10-02)** : **CUTOVER V1 APPLIQUÉ** — la comptabilité applicative démarre
+> au 2026-09-01 (`00_CADRAGE/CUTOVER_V1_2026-09.md`). Lire d'abord la **dernière section**.
 > Le tableau « Contexte technique » ci-dessous est historique (état du 2026-08-02).
 
 ## Contexte technique
@@ -4615,3 +4616,84 @@ mensuelles). Services : `resultats_perimetre_service` (présentation), `resultat
 `euros` (`1 245,50 €`, `−245,50 €`, `—` si absent) sur tous les écrans Résultats. JS du graphique :
 `static/js/resultats.js` (plus de JS inline). Tests : `test_resultats_lisibilite.py` (8) ; ciblés
 Résultats / navigation / identifiants / lecture seule : 248 verts.
+
+## Mission Cutover V1.0 (2026-10-02) — comptabilité applicative V1 au 2026-09-01 : APPLIQUÉ
+
+**État.** Le cutover est exécuté, vérifié et documenté sur la base réelle
+(`C:\Users\Ewans\PilotageConciergerie\data\app.db`). L'application a été redémarrée deux fois et
+re-contrôlée. Références :
+
+- détail, matrice table par table et preuves : `00_CADRAGE/CUTOVER_V1_2026-09.md` ;
+- décision `D-CUTOVER-V1-01` (texte de l'utilisateur, verbatim) ;
+- règles V1-1 à V1-6 (`REGLES_METIER.md` §14) ;
+- `ARCHITECTURE_DONNEES.md` §1.3.
+
+`PLAN_RESET_PRODUCTION_APRES_RECETTE.md` est supersédé.
+
+| Élément | Valeur |
+|---|---|
+| Branche | `resume/pilotage-conciergerie-20260909` |
+| Code | `4b08e98` (service de cutover, garde-fous, migration, tests). Ce fichier est porté par le commit documentaire suivant. |
+| Migration | **0120** `0120_perimetre_v1_garde_fous.sql`, appliquée à la base réelle. Ses déclencheurs sont inactifs tant que le paramètre est absent. |
+| Paramètre | `V1_ACCOUNTING_START_DATE = 2026-09-01` dans `parametres_societe_facturation`, immuable, lu par `perimetre_v1_service` seulement |
+| Base avant | schéma 0119 ; SHA256 `719c23c8511db096dd8ec3f58d5e0f193c5497b9f85a86a63711d0a0751a2863` ; 233 tables / 260 560 lignes |
+| Base après | schéma 0120 ; SHA256 `c7d489e78eaa1a149876e70b1ca5e504a9396dbc3f4c60d8e0363f2151789817` ; 233 tables / 263 972 lignes ; `integrity_check` ok ; `foreign_key_check` 0 |
+| Sauvegarde | `backups\app_avant_cutover_v1_20261002T184338Z.db`, restauration testée. Rapports et PDF archivés dans `backups\cutover_v1_20261002T184338Z\`. |
+
+**Ce qui change pour l'utilisateur.**
+
+- **Factures propriétaires : 27 → 0.**
+  - Les 3 factures émises ont été purgées : F-11/0-000001, 2026-08-001 et 2026-08-002. Leurs PDF sont
+    archivés.
+  - Toute période antérieure à 2026-09 est refusée avec le message « La facturation V1 débute en
+    septembre 2026. ». Le refus est assuré par le service, la route et un déclencheur SQLite, et les
+    sélecteurs sont bornés.
+  - La première facture de septembre recevra **2026-09-001**.
+- **Créances : 3 → 0.** L'acompte de 12 € `MTP-E00AEA98D2EF` a été purgé, sans crédit V1.
+- **Charges : 12 → 7.**
+  - Les 7 charges conservées sont rapprochées, toutes de septembre, avec leur chaîne complète.
+  - 5 charges non rapprochées ont été purgées : 12,34 € (annulée), 100 €, **700 €**
+    (`CHG-fc93f74a63d1`), 146 € et 42 €.
+- **Écritures : 12 → 9**, toutes en 2026-09. Les 3 écritures VENTES des factures purgées ont été
+  supprimées.
+  - Aucune écriture, aucune OD et aucune clôture n'est possible avant 2026-09.
+  - Les clôtures 2025-01 et 2025-02 ont été purgées. La clôture 2026-09 (EN_PREPARATION) est conservée.
+- **Données intactes**, identiques ligne à ligne à la sauvegarde :
+  - la banque : 14 mouvements, 8 rapprochements banque ↔ charge et 2 autres ;
+  - Hostaway (21 126 réservations) et l'archive des réservations ;
+  - les 4 réservations hors Hostaway ;
+  - les référentiels et la fiche société (la ligne du paramètre est la seule ajoutée) ;
+  - les 15 factures fournisseurs et les ménages.
+- **Données de recette purgées**, prouvées comme telles : 3 rapprochements vers des mouvements
+  inexistants, les imports `releve_recette.csv` et 2 décisions de suggestion.
+
+**Exploitation.**
+
+- `05_APPLICATION/tools/cutover_v1.py etat` et `verifier` fonctionnent en lecture seule.
+- `executer` refuse tout second passage.
+- L'ancien reset 14d (`cutover_service.reset_domaine_bancaire`) refuse désormais avec le code
+  `E_SUPERSEDE_PAR_CUTOVER_V1`.
+- Après toute actualisation, `verifier` doit rester `ok: true`. C'est prouvé sur la base réelle par la
+  reconstruction, et sur une copie par l'actualisation globale avec les imports Qonto, Hostaway et
+  ménages.
+
+**Tests.**
+
+- `tests/test_cutover_v1.py` : 20 passed.
+- Suites liées : 924 passed.
+- Suite complète : **4 647 passed / 37 skipped / 0 failed** (4 684 tests).
+
+**Limites** (détail au §18 du document) :
+
+- Le relevé propriétaire d'un mois antérieur affiche toujours le bloc « Règlement » du Lot10. C'est de
+  l'historique de performance, pas une créance.
+- Les 15 factures fournisseurs (février → août) restent « À contrôler ».
+- Les runs antérieurs des tables dérivées sont stockés comme inactifs ; rien ne les lit.
+- Si les charges de 146 € (09/09) et 42 € (10/09) correspondaient à des dépenses réelles, il faut les
+  ressaisir puis les rapprocher.
+
+**Prochaine action (utilisateur).**
+
+1. Facturer septembre 2026, le premier mois V1.
+2. Traiter les charges de septembre au fil des rapprochements.
+3. Préparer, puis valider, la clôture de septembre.
