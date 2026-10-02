@@ -2201,3 +2201,55 @@ l'historique.
   limite : déposer `OFL.txt` de Caveat à côté du TTF dans l'application.
 - **D-FP2-4** : aucun document ÉMIS n'est régénéré ; `F-11/0-000001` vérifié (hash du snapshot et du
   PDF identiques aux valeurs figées).
+
+### D-CUTOVER-V1-01 — la comptabilité applicative V1 démarre au 1er septembre 2026
+
+- **Date** : 2026-10-02 · **Lot** : cutover V1.0 · **Statut** : VALIDÉ (ordre explicite de
+  l'utilisateur) — exécution de la bascule prévue par **D-LOT-PROD-01** et par
+  `PLAN_RESET_PRODUCTION_APRES_RECETTE.md`, qu'elle supersède.
+
+> « La comptabilité applicative V1 de Chouette Patrimoine démarre au 1er septembre 2026. Les
+> factures propriétaires antérieures ne sont pas reprises et aucune facture ne peut être créée ou
+> éditée pour une période antérieure à septembre 2026. Les créances antérieures sont purgées. Les
+> charges héritées ne sont conservées que lorsqu'elles disposent déjà d'un rapprochement bancaire
+> validé. Les mouvements bancaires, les rapprochements banque ↔ charges correspondants, les données
+> Hostaway, les réservations, les référentiels et les données société sont conservés. »
+
+- **D-V1-1 — date canonique** : `V1_ACCOUNTING_START_DATE = 2026-09-01`, UNE ligne de
+  `parametres_societe_facturation` (et non `REF_Parametres_Generaux`, que tout réimport de
+  `REF_Setup` réécrit), posée par la transaction de cutover, immuable (migration 0120). Lue par
+  `perimetre_v1_service`, seul module qui la connaît. Elle ne date ni l'historique Hostaway, ni
+  l'historique bancaire, ni les référentiels.
+- **D-V1-2 — factures propriétaires** : 0 facture à l'issue du cutover (émises, validées, brouillons,
+  annulées : toutes antérieures). Aucune création, édition, validation, émission ni déplacement sur
+  une période antérieure à 2026-09 : refus serveur (« La facturation V1 débute en septembre
+  2026. »), doublé d'un déclencheur SQLite ; les sélecteurs ne proposent plus rien avant.
+- **D-V1-3 — créances** : 0. Avec les factures partent ce qui n'existait que pour elles :
+  imputations Airbnb, acompte propriétaire sans lien bancaire, allocations FIFO et leur journal,
+  séquence de numérotation. Un ancien acompte ne devient jamais un crédit V1.
+- **D-V1-4 — charges** : conservée si et seulement si un rapprochement BANCAIRE VALIDÉ existe
+  (rapprochement CONFIRMÉ vers un mouvement existant, lettrage éventuel VALIDÉ) — quelle que soit sa
+  date ; purgée sinon, quels que soient sa date, son statut ou son montant (charge de 700 €
+  `CHG-fc93f74a63d1` comprise : arbitrage B des missions 30-33 tranché par cette règle). Toute la
+  chaîne d'une charge conservée reste : rapprochement, lettrage, écriture, justificatif, périmètre.
+- **D-V1-5 — banque, Hostaway, réservations, référentiels, société** : intacts, preuve par empreinte
+  avant / après. Seules disparaissent des données de RECETTE prouvées (fichier
+  `releve_recette.csv`, rapprochements et décisions vers des mouvements inexistants et des objets
+  `CHG_SEED_*`, documentés comme fixtures en mission 14d).
+- **D-V1-6 — factures fournisseurs** : les 15 factures des prestataires ménage (février → août,
+  « À contrôler », sans écriture) sont **conservées** : elles sont la source des coûts de ménage
+  externes (historique métier) et le prochain import PDF les recréerait depuis les documents. Aucune
+  écriture ne peut plus être passée sur leur période (D-V1-7).
+- **D-V1-7 — comptabilité** : aucune écriture, aucune OD, aucune clôture sur une période antérieure à
+  2026-09 (refus serveur + déclencheurs). Les écritures conservées sont toutes de septembre. Les
+  clôtures de l'ancien modèle (2025-01, 2025-02) sont purgées ; les clôtures TECHNIQUES de
+  `ref_cloture_mensuelle` (historisation des réservations, « ne vaut pas clôture comptable ») sont
+  un référentiel, conservées.
+- **D-V1-8 — calculs** : les données dérivées (flux, Lot10, Lot11, Lot12, ménages calculés) sont
+  reconstruites depuis les sources conservées. L'historique de performance (Lot10, toutes périodes)
+  reste consultable (D-LOT-PROD-01) ; les PRÉFACTURES (Lot12) ne portent plus que sur la période V1.
+- **D-V1-9 — anomalie = arrêt** : un cas que la décision ne tranche pas (argent réellement encaissé
+  sur une ancienne facture, justificatif d'une charge à purger, IK, crédit client…) bloque
+  l'exécution, rien n'est supprimé.
+
+Détail, matrice et preuves : `CUTOVER_V1_2026-09.md`.

@@ -262,22 +262,34 @@ async def creer_facture_periode(request: Request):
     return RedirectResponse("/factures-proprietaires", status_code=303)
 
 
+def _refus_avant_v1(mois: str) -> str:
+    """Message du périmètre V1 pour un mois antérieur à la facturation V1, sinon chaîne vide."""
+    from app.services import perimetre_v1_service as v1
+    return v1.message_facturation() if mois and v1.est_anterieur(mois) else ""
+
+
 @router.get("/factures-proprietaires/proposer", response_class=HTMLResponse)
 def proposer(request: Request, mois: str = ""):
     """Prévisualisation du mois complet. Lecture pure : aucune écriture."""
-    propositions = source_svc.propositions_du_mois(mois, _ids_proprietaires()) if mois else []
+    erreur = _refus_avant_v1(mois)
+    propositions = (source_svc.propositions_du_mois(mois, _ids_proprietaires())
+                    if mois and not erreur else [])
     resume = {s: sum(1 for p in propositions if p["statut_proposition"] == s)
               for s in ("PRETE", "A_CONTROLER", "NON_CONCERNE")}
     return templates.TemplateResponse(request, "factures_proprietaires_proposer.html", {
         "active_menu": "factures_proprietaires", "mois": mois, "propositions": propositions, "resume": resume,
         "total_pret": round(sum(p["montant_total"] for p in propositions
                                 if p["statut_proposition"] == "PRETE"), 2),
+        "erreur": erreur,
     })
 
 
 @router.post("/factures-proprietaires/generer", response_class=HTMLResponse)
 def generer(request: Request, mois: str = Form(...)):
     """Crée les BROUILLON des seules propositions PRETE, après confirmation de l'utilisateur."""
+    if _refus_avant_v1(mois):
+        # POST forgé ou page restée ouverte : aucune création, le motif est affiché.
+        return proposer(request, mois)
     propositions = source_svc.propositions_du_mois(mois, _ids_proprietaires())
     resultat = source_svc.creer_lot(propositions, acteur="interface")
     return templates.TemplateResponse(request, "factures_proprietaires_resultat.html", {

@@ -93,7 +93,13 @@ def temporalite(mois: str) -> str:
 
 
 def refus_temporel(mois: str) -> str:
-    """Motif de refus lié au calendrier, ou chaîne vide pour un mois terminé."""
+    """Motif de refus lié au calendrier, ou chaîne vide pour un mois terminé.
+
+    Le premier motif est le périmètre V1 : un mois antérieur au début de la comptabilité V1
+    n'appartient plus à la comptabilité applicative, il ne se clôture donc plus (cutover)."""
+    from app.services import perimetre_v1_service as v1
+    if v1.est_anterieur(mois):
+        return v1.message_cloture(mois)
     t = temporalite(mois)
     if t == T_COURANT:
         return f"Le mois {_du_mois(mois)} est encore en cours et ne peut pas être clôturé."
@@ -281,6 +287,9 @@ def creer_ou_charger(mois: str, acteur: str = "", db_path=None) -> dict[str, Any
     if not mois_valide(mois):
         raise ClotureRefusee(f"Mois invalide : « {mois} ». Format attendu AAAA-MM.")
     mois = _txt(mois)
+    from app.services import perimetre_v1_service as v1
+    if v1.est_anterieur(mois, db_path=db_path):
+        raise ClotureRefusee(v1.message_cloture(mois, db_path=db_path))
     existante = charger_par_mois(mois, db_path)
     if existante:
         return existante

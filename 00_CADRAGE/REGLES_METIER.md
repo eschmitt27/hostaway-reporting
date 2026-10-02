@@ -245,6 +245,19 @@ Le détail de la clôture mensuelle est traité en §11 (Clôture mensuelle et p
 
 ---
 
+## 14. Comptabilité applicative V1 — début au 01/09/2026 (D-CUTOVER-V1-01)
+
+| # | Règle |
+|---|---|
+| V1-1 | La comptabilité applicative V1 démarre au **2026-09-01** (`V1_ACCOUNTING_START_DATE`, paramètre unique et immuable). Premier mois comptable : **2026-09**. |
+| V1-2 | Aucune facture propriétaire ne peut être créée, éditée, validée, émise ou déplacée sur une période de prestation antérieure à 2026-09 — refus serveur « La facturation V1 débute en septembre 2026. », jamais un simple masquage d'écran. |
+| V1-3 | Aucune écriture comptable, aucune opération diverse et aucune clôture mensuelle ne porte sur une période antérieure à 2026-09. |
+| V1-4 | Une charge héritée de l'ancien environnement n'est conservée que si elle dispose d'un rapprochement bancaire validé ; la catégorisation d'un mouvement n'est pas un rapprochement. |
+| V1-5 | Les créances antérieures sont purgées : aucun ancien solde client, aucun ancien acompte ne crée de solde V1. |
+| V1-6 | La date de début V1 ne borne pas l'historique métier : réservations Hostaway et hors Hostaway, mouvements bancaires, ménages et performance (Lot10) restent consultables sur toutes les périodes. |
+
+---
+
 ## À compléter ultérieurement
 
 - Règles ménages externes affinées une fois le futur fichier construit (champs définitifs, contrôles).

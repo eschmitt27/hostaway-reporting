@@ -209,6 +209,10 @@ def previsualiser(proprietaire_id: str, debut: str, fin: str, *, logement_id: st
     if fin < debut:
         return {"ok": False, "code": E_PERIODE_INVALIDE,
                 "message": "La date de fin précède la date de début."}
+    from app.services import perimetre_v1_service as v1
+    if v1.debut(db_path=db_path) and debut < v1.debut(db_path=db_path):
+        return {"ok": False, "code": v1.E_FACTURATION_AVANT_V1,
+                "message": v1.message_facturation(db_path=db_path)}
 
     reservations = reservations_periode(proprietaire_id, debut, fin, db_path=db_path)
     mensuels = elements_mensuels(proprietaire_id, debut, fin, db_path=db_path)

@@ -24,10 +24,15 @@ def _mois_disponibles(contexte_flux: dict | None = None) -> list[str]:
     """Mois connus du moteur (contrôles APP-5A/5B), de Flux financiers (mouvements, écritures,
     charges) et le mois courant — triés décroissant. Sans Flux, un mois portant de l'argent réel
     mais aucun constat moteur (septembre 2026) n'apparaîtrait jamais ici."""
+    from app.services import perimetre_v1_service as v1
     mois = set(ctrl_cloture.load_periods())
     mois |= cloture_flux.mois_concernes(contexte_flux=contexte_flux)
     mois.add(cs.aujourdhui().strftime("%Y-%m"))
-    return sorted((m for m in mois if cs.mois_valide(m)), reverse=True)
+    # Après le cutover V1, les mois antérieurs ne sont plus des périodes comptables : la liste ne
+    # demande plus de les préparer ni de les clôturer (ils restent consultables ailleurs).
+    premier = v1.premier_mois()
+    return sorted((m for m in mois if cs.mois_valide(m) and not (premier and m < premier)),
+                  reverse=True)
 
 
 @router.get("/clotures", response_class=HTMLResponse)

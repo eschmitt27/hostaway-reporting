@@ -213,6 +213,10 @@ def get_templates() -> Jinja2Templates:
         # d'une valeur d'une seule ligne. Un littéral échappé au milieu d'une expression Jinja se
         # lit mal et se casse au premier outil qui touche au fichier ; une globale ne se casse pas.
         t.env.globals["SAUT"] = "\n"
+        # Périmètre de la comptabilité V1 (cutover) : bornes des sélecteurs de période et mention.
+        # Une FONCTION, relue à chaque rendu — jamais une valeur figée au démarrage.
+        from app.services import perimetre_v1_service as _v1
+        t.env.globals["perimetre_v1"] = _v1.contexte
         _templates = t
     return _templates
 

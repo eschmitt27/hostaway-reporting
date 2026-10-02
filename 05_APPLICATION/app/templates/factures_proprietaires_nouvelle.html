@@ -29,8 +29,9 @@
         <option value="{{ l.id }}" {{ 'selected' if saisie.logement_id == l.id }}>{{ l.libelle }}</option>
         {% endfor %}
       </select></label>
-    <label>Du <input type="date" name="debut" value="{{ saisie.debut }}" required></label>
-    <label>Au <input type="date" name="fin" value="{{ saisie.fin }}" required></label>
+    {% set v1 = perimetre_v1() %}
+    <label>Du <input type="date" name="debut" value="{{ saisie.debut }}" required{% if v1 %} min="{{ v1.debut }}"{% endif %} data-testid="nouvelle-debut"></label>
+    <label>Au <input type="date" name="fin" value="{{ saisie.fin }}" required{% if v1 %} min="{{ v1.debut }}"{% endif %}></label>
     <button type="submit" class="btn btn-primary">Prévisualiser</button>
   </div>
   <p class="section-note">

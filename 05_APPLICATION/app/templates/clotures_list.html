@@ -46,7 +46,8 @@
 </div>
 
 <form method="get" action="/clotures/mois" class="ec-filtres" data-testid="choix-periode">
-  <label class="ec-champ"><span>Contrôler un mois</span><input type="month" name="mois"></label>
+  {% set v1 = perimetre_v1() %}
+  <label class="ec-champ"><span>Contrôler un mois</span><input type="month" name="mois"{% if v1 %} min="{{ v1.mois }}"{% endif %} data-testid="cloture-choix-mois"></label>
   <div class="ec-filtres__actions">
     <button type="submit" class="btn btn-secondary">Afficher son état</button>
   </div>

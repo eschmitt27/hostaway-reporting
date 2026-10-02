@@ -93,6 +93,24 @@ Le systÃ¨me distingue deux natures de donnÃ©es :
 
 Le solde initial de banque et les coordonnÃ©es dÃ©finitives de la sociÃ©tÃ© (nom lÃ©gal, SIRET, RCS, adresse, TVA intracom, IBAN, logo) seront **fournis plus tard** par l'utilisateur.
 
+
+### 1.3 Bascule exécutée — cutover V1 au 2026-09-01 (D-CUTOVER-V1-01, 2026-10-02)
+
+La bascule décrite au §1.2 a été **exécutée** le 2026-10-02, sur ordre explicite de l'utilisateur,
+avec une date de début de comptabilité applicative V1 au **2026-09-01**.
+
+| Élément | Réalisation |
+|---|---|
+| Paramètre | `V1_ACCOUNTING_START_DATE` dans `parametres_societe_facturation` (et non `REF_Parametres_Generaux`, réécrit par tout réimport de `REF_Setup`) ; immuable (déclencheurs `trg_parametre_v1_immuable_*`, migration **0120**) ; lu par `perimetre_v1_service` |
+| Garde-fous | refus serveur (facturation, écritures, clôtures) + déclencheurs SQLite `trg_fpr_periode_v1_*`, `trg_ecritures_periode_v1`, `trg_clotures_mois_v1` (inactifs tant que le paramètre est absent) |
+| Purge | `cutover_v1_service` : matrice KEEP / PURGE / KEEP_BY_DEPENDENCY / REBUILD de toutes les tables, une transaction, invariants vérifiés avant COMMIT |
+| Conservé | mouvements bancaires, rapprochements banque ↔ charges validés et leur chaîne, Hostaway, réservations, référentiels, fiche société, factures fournisseurs (source des ménages externes) |
+| Reconstruit | flux unifié, Lot10, Lot11, Lot12 (préfactures limitées à la période V1), ménages calculés |
+
+`SOLDE_INITIAL_BANQUE` et `STATUT_PERIODE` (§1.2) n'ont pas été créés : le solde d'ouverture n'a pas
+été fourni, et le statut d'une période se déduit de `V1_ACCOUNTING_START_DATE`. Détail et preuves :
+`CUTOVER_V1_2026-09.md`.
+
 ---
 
 ## 2. Principes structurants

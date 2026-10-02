@@ -147,6 +147,15 @@ def construire(*, db_path=None, run_id: str | None = None) -> dict[str, Any]:
         ids_legacy: list[dict[str, str]] = []
         compteur: dict[str, int] = {}
 
+        # Cutover V1 : une préfacture est une PROPOSITION de facture ; aucune facture ne peut
+        # porter sur une période antérieure au début de la comptabilité V1, donc aucune
+        # préfacture non plus (les résultats Lot10 de ces mois restent l'historique de
+        # performance, intacts).
+        from app.services import perimetre_v1_service as v1
+        premier_v1 = v1.premier_mois(db_path=db_path)
+        if premier_v1:
+            df_reg = [r for r in df_reg if str(r.get("mois") or "") >= premier_v1]
+
         for r in df_reg:
             mois = r.get("mois")
             log_id = r.get("logement_id")

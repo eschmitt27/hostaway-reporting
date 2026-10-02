@@ -95,8 +95,9 @@
           {% endfor %}
         </select>
       </label>
-      <label class="ec-champ"><span>Du</span><input type="date" name="debut" required data-testid="periode-libre-debut"></label>
-      <label class="ec-champ"><span>Au</span><input type="date" name="fin" required data-testid="periode-libre-fin"></label>
+      {% set v1 = perimetre_v1() %}
+      <label class="ec-champ"><span>Du</span><input type="date" name="debut" required data-testid="periode-libre-debut"{% if v1 %} min="{{ v1.debut }}"{% endif %}></label>
+      <label class="ec-champ"><span>Au</span><input type="date" name="fin" required data-testid="periode-libre-fin"{% if v1 %} min="{{ v1.debut }}"{% endif %}></label>
       <button type="submit" class="btn btn-primary" data-testid="periode-libre-creer">Créer le brouillon</button>
   </form>
   </div>

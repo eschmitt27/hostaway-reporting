@@ -172,6 +172,12 @@ def _inserer_ecriture(journal: str, date_ecriture: str, periode: str, piece: str
     from app.services import comptabilite_periodes_service as per
     if per.est_fermee(periode, db_path):
         return _refus(E_PERIODE_CLOTUREE, periode)
+    # Cutover V1 : la comptabilité applicative commence à sa date de début ; une écriture d'une
+    # période antérieure recréerait l'ancienne comptabilité (doublé par la migration 0120).
+    from app.services import perimetre_v1_service as v1
+    if v1.est_anterieur(periode, db_path=db_path):
+        return {"ok": False, "code": v1.E_COMPTABILITE_AVANT_V1,
+                "message": v1.message_comptabilite(db_path=db_path), "detail": periode}
 
     # Tiers (auxiliaire) : c'est le PLAN qui dit si un compte en porte un (Mission 36). Sur un
     # compte sans tiers, un auxiliaire resté d'un ancien choix est effacé — jamais enregistré ;

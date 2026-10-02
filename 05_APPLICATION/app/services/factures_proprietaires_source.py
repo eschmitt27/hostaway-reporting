@@ -54,6 +54,9 @@ def propositions_du_mois(mois: str, proprietaires: list[str], *, db_path=None) -
       A_CONTROLER    — données de calcul incomplètes ou incohérentes, facture non proposée ;
       NON_CONCERNE   — rien à facturer (aucun montant), ou facture déjà existante.
     """
+    from app.services import perimetre_v1_service as v1
+    if v1.est_anterieur(mois, db_path=db_path):
+        return []           # la facturation V1 ne propose rien avant son début
     propositions: list[dict[str, Any]] = []
     for prop_id in proprietaires:
         entetes = reader.read_prefacture_entetes_prop_mois(prop_id, mois)

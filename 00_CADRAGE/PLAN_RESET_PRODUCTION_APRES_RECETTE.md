@@ -1,5 +1,11 @@
 # Plan de remise à zéro opérationnelle — À EXÉCUTER PLUS TARD
 
+> **SUPERSÉDÉ LE 2026-10-02 — EXÉCUTÉ PAR LE CUTOVER V1** (`CUTOVER_V1_2026-09.md`,
+> décision `D-CUTOVER-V1-01`). La facture `F-11/0-000001` a suivi la **voie B** (retrait pur,
+> sur ordre de l'utilisateur : toutes les factures propriétaires antérieures sont purgées),
+> les charges non rapprochées sont purgées et les charges rapprochées conservées. Le texte
+> ci-dessous est conservé comme trace du raisonnement préparatoire.
+
 > **AUCUNE ACTION DE CE DOCUMENT N'A ÉTÉ EXÉCUTÉE.**
 > Rédigé le 2026-09-11 pendant que la recette utilisateur se poursuit. Il ne sera mis en œuvre
 > **qu'après un ordre explicite de l'utilisateur**, une fois les tests terminés.

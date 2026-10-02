@@ -160,6 +160,30 @@ class FactureProprietaireError(RuntimeError):
     """Refus métier explicite. Jamais levée pour un cas nominal."""
 
 
+class FacturationAvantV1(FactureProprietaireError):
+    """Période antérieure au début de la comptabilité V1. Le message est destiné à l'utilisateur
+    tel quel (« La facturation V1 débute en septembre 2026. ») : aucun code technique devant."""
+    code = "FACTURATION_AVANT_V1"
+
+
+def exiger_periode_v1(periode: Any, *, db_path=None) -> None:
+    """Refuse toute facture dont la période de prestation précède la comptabilité V1.
+
+    Contrôle SERVEUR, appelé par chaque chemin qui crée, édite, valide ou émet une facture : le
+    masquage des sélecteurs à l'écran n'est qu'un confort. Le déclencheur de la migration 0120
+    double ce contrôle au niveau de la base. Sans cutover appliqué, ne refuse rien.
+    """
+    from app.services import perimetre_v1_service as v1
+    if v1.est_anterieur(periode, db_path=db_path):
+        raise FacturationAvantV1(v1.message_facturation(db_path=db_path))
+
+
+def _exiger_facture_v1(f: dict[str, Any], *, db_path=None) -> None:
+    exiger_periode_v1(f.get("mois"), db_path=db_path)
+    if f.get("periode_debut"):
+        exiger_periode_v1(f["periode_debut"], db_path=db_path)
+
+
 def _opaque(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:12].upper()}"
 
@@ -293,6 +317,7 @@ def creer_exceptionnelle(*, proprietaire_id: str, logement_id: str, mois: str,
     if not (proprietaire_id and logement_id and mois):
         raise FactureProprietaireError(
             f"{C_SOURCE_INCOMPLETE}: propriétaire, logement et mois sont obligatoires")
+    exiger_periode_v1(mois, db_path=db_path)
 
     preparees = []
     for i, l in enumerate(lignes or [], start=1):
@@ -357,6 +382,7 @@ def creer(source: dict[str, Any], *, acteur: str = "", db_path=None,
     `decisions_charges` : voir `previsualiser()`. Purement représentatif à ce stade — aucune
     position de refacturation n'est consommée avant `valider()`.
     """
+    exiger_periode_v1(source.get("mois"), db_path=db_path)
     apercu = previsualiser(source, decisions_charges=decisions_charges)
     if not apercu["lignes"]:
         raise FactureProprietaireError(f"{C_SOURCE_INCOMPLETE}: aucune ligne facturable")
@@ -624,6 +650,9 @@ def _exiger_brouillon(f: dict[str, Any], action: str) -> None:
         raise FactureProprietaireError(
             f"statut {f['statut']} : {action} impossible. Seul un BROUILLON est modifiable ; "
             "une facture validée ou émise se corrige par un avoir.")
+    # Une facture d'avant le cutover ne s'édite pas non plus (il n'en reste aucune après le
+    # cutover ; ce refus garde la règle vraie même pour une donnée reprise hors parcours).
+    _exiger_facture_v1(f)
 
 
 def _resynchroniser_total(conn, facture_id: str) -> float:
@@ -800,6 +829,7 @@ def valider(facture_id: str, *, emetteur: dict[str, Any], destinataire: dict[str
     moment de la validation, pas dérivée des lignes déjà écrites.
     """
     f = lire(facture_id, db_path=db_path)
+    _exiger_facture_v1(f, db_path=db_path)
     if f["statut"] != ST_BROUILLON:
         raise FactureProprietaireError(f"statut {f['statut']}: seul un BROUILLON peut etre valide")
 
@@ -959,6 +989,25 @@ def _attribuer_numero(conn, serie: str) -> str:
     return fconf.formater_numero(serie, seq)
 
 
+def prochain_numero(mois: str, *, type_document: str = TYPE_FACTURE, db_path=None) -> str:
+    """Le numéro que recevrait la PROCHAINE émission de ce mois — sans rien consommer.
+
+    Même format (`facturation_config_service`) et même compteur que `_attribuer_numero` : sert à
+    vérifier que la séquence d'un mois (ex. `2026-09-001` après le cutover V1) est prête, sans
+    jamais créer de facture ni brûler de numéro définitif.
+    """
+    from app.services import facturation_config_service as fconf
+
+    serie = fconf.serie_mois(type_document, mois)
+    conn = get_db(db_path)
+    try:
+        r = conn.execute("SELECT dernier_numero FROM factures_proprietaires_sequence WHERE serie=?",
+                         (serie,)).fetchone()
+    finally:
+        conn.close()
+    return fconf.formater_numero(serie, (int(r[0]) if r else 0) + 1)
+
+
 # ── Émission ────────────────────────────────────────────────────────────────────────────────────
 
 def emettre(facture_id: str, *, emetteur: dict[str, Any], destinataire: dict[str, Any],
@@ -975,6 +1024,7 @@ def emettre(facture_id: str, *, emetteur: dict[str, Any], destinataire: dict[str
     f = lire(facture_id, db_path=db_path)
     if f["statut"] != ST_VALIDE:
         raise FactureProprietaireError(f"statut {f['statut']}: seul un VALIDE peut etre emis")
+    _exiger_facture_v1(f, db_path=db_path)
 
     # Contrôle de pré-émission : il décrit toujours l'état de conformité, mais ne bloque que si on
     # le lui demande. La recette peut ainsi émettre avec une configuration fictive incomplète,
@@ -1119,6 +1169,7 @@ def creer_avoir(facture_id: str, *, motif: str, acteur: str = "", db_path=None) 
         raise FactureProprietaireError("un avoir ne se cree pas depuis un avoir")
     if not str(motif or "").strip():
         raise FactureProprietaireError("avoir sans motif refuse")
+    _exiger_facture_v1(f, db_path=db_path)
 
     conn = get_db(db_path)
     try:

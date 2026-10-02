@@ -72,6 +72,7 @@ TABLES_DOMAINE = (
 
 E_CONFIRMATION_REQUISE = "E_CONFIRMATION_REQUISE"
 E_INTEGRITE_POST_RESET = "E_INTEGRITE_POST_RESET"
+E_SUPERSEDE_V1 = "E_SUPERSEDE_PAR_CUTOVER_V1"
 
 
 def _table_existe(conn, nom: str) -> bool:
@@ -104,6 +105,14 @@ def reset_domaine_bancaire(*, confirmer: bool = False, db_path: Path | None = No
     if not confirmer:
         return {"ok": False, "code": E_CONFIRMATION_REQUISE,
                 "message": "Reset refusé sans confirmation explicite (confirmer=True)."}
+    # Supersédé par le cutover V1 (`cutover_v1_service`) : ce reset vide des TABLES ENTIÈRES,
+    # rapprochements banque ↔ charges validés et écritures de septembre compris — exactement ce que
+    # le cutover V1 conserve. Une fois la V1 en place, il ne doit plus pouvoir s'exécuter.
+    from app.services import perimetre_v1_service as v1
+    if v1.debut(db_path=db_path):
+        return {"ok": False, "code": E_SUPERSEDE_V1,
+                "message": "Reset refusé : le cutover V1 est appliqué ; ce reset effacerait des "
+                           "rapprochements et des écritures conservés par la V1."}
 
     avant = previsualiser(db_path=db_path)
 
