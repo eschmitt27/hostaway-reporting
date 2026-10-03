@@ -147,6 +147,10 @@ def creances(*, proprietaire_id: str = "", logement_id: str = "", mois: str = ""
         # paiement n'est attendu sur le compte.
         if int(f.get("hors_compta") or 0):
             continue
+        # Un AVOIR émis n'est pas une créance négative : c'est une source qui diminue les
+        # créances (et dont le surplus devient crédit disponible) — compte propriétaire, FIFO.
+        if f.get("type_document") == "AVOIR":
+            continue
 
         # UNE SEULE addition, ici. `imputations_detail` a déjà réuni les deux mécanismes
         # d'imputation sans doublon (FIFO + reversements Airbnb) ; le solde en découle

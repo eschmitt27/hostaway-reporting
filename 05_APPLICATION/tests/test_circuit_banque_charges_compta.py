@@ -543,12 +543,14 @@ def test_21_reversement_airbnb_famille_acompte(base, verrous, factures_ok):
     """Mission 37 : un reversement Airbnb s'impute depuis SON crédit (origine constatée), jamais
     sur le crédit d'un acompte. 419100 → 411000, sous-type conservé au libellé."""
     from app.services import credits_clients_service as credits
+    # Facture émise D'ABORD : un crédit disponible à l'émission s'impute automatiquement
+    # (2026-10-03) ; ici on exerce l'imputation manuelle d'un crédit constaté ensuite.
+    fid, emise = _facture(base, {"gestion": 200.0})
     credit = credits.creer_reversement_airbnb(
         PROPRIO, 100.0, "2026-08-20", reference="Payout août", mode=credits.MODE_JUSTIFIE,
         compte_source="455100", auxiliaire_source="ASSOC_TEST",
         justification="Versement antérieur à l'historique bancaire", acteur=ACTEUR, db_path=base)
     assert credit["ok"], credit
-    fid, emise = _facture(base, {"gestion": 200.0})
     res = credits.imputer(credit["credit_id_opaque"], fid, 60.0, acteur=ACTEUR, db_path=base)
     assert res["ok"] and res["ecriture"]["ok"], res
     lignes = compta.lignes(res["ecriture"]["ecriture_id_opaque"], db_path=base)

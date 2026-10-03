@@ -48,7 +48,7 @@ def test_detail_montre_les_composants_separement(client, db_app):
     r = client.get(f"/comptes-proprietaires/{PROP}")
     assert r.status_code == 200
     for libelle in ("Factures à recevoir", "Paiements reçus", "Créances restantes",
-                    "Acompte / crédit disponible", "Sommes à reverser",
+                    "Crédit disponible", "Sommes à reverser",
                     "Compensations appliquées", "Virement net", "Position nette"):
         assert libelle in r.text, libelle
     assert "800.00" in r.text, "le virement net après compensation doit être affiché"

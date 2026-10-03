@@ -275,15 +275,16 @@ def test_mouvement_non_valide_ne_solde_rien(db):
     assert p["paiements_recus"] == 0.0
 
 
-def test_avoir_n_est_pas_une_source_fifo(db):
-    """Un avoir réduit déjà la créance ailleurs (créance négative) : l'utiliser ici le compterait
-    deux fois. Régression constatée en test, pas supposée."""
+def test_avoir_emis_est_une_source_fifo_comptee_une_seule_fois(db):
+    """Décision du 2026-10-03 : un avoir ÉMIS diminue la créance (source FIFO) et n'est plus une
+    créance négative côté Créances & Dettes — il n'est donc compté qu'une fois."""
     _facture(db, PROP, 300, "2026-01-31")
     _facture(db, PROP, 100, "2026-02-10", type_document="AVOIR")
     p = cpt.position(PROP, db_path=db)
-    assert p["sources"] == [], "l'avoir ne doit pas devenir une source de paiement"
-    assert p["creance_restante"] == 300.0
-    assert p["factures_a_recevoir"] == 300.0, "l'avoir n'est pas une facture à recevoir non plus"
+    assert [s["source_type"] for s in p["sources"]] == [cpt.SRC_AVOIR]
+    assert p["creance_restante"] == 200.0
+    assert p["factures_a_recevoir"] == 300.0, "l'avoir n'est pas une facture à recevoir"
+    assert p["credit_disponible"] == 0.0
 
 
 # ── Traçabilité ─────────────────────────────────────────────────────────────────────────────────

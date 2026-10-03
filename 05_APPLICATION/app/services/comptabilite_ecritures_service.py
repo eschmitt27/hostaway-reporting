@@ -772,7 +772,9 @@ def generer_ecriture_imputation_credit(imputation_airbnb_id: str, *, acteur: str
     montant = round(float(imp["montant_impute"]), 2)
     numero = facture.get("numero_facture") or facture["facture_id_opaque"]
     pid = facture["proprietaire_id"]
-    libelle = f"Reversement Airbnb imputé — Facture {numero}"
+    libelle = (f"Reversement Airbnb imputé — Facture {numero}"
+               if credit["origine"] == credits.ORIGINE_REVERSEMENT_AIRBNB
+               else f"Crédit client imputé ({credit['libelle_origine']}) — Facture {numero}")
     res = _inserer_ecriture(
         "ODIVERSES", facture.get("date_facture") or f"{facture['mois']}-01", facture["mois"],
         numero, libelle, ORIGINE_IMPUTATION_CREDIT, imputation_airbnb_id,
@@ -880,7 +882,17 @@ def comptabiliser_facture_emise(facture: dict[str, Any], *, acteur: str = "",
     """À l'émission : l'écriture de vente ligne par ligne, puis l'imputation des acomptes."""
     vente = generer_ecriture_vente_facture(facture, acteur=acteur, db_path=db_path)
     imputation = generer_ecriture_imputation_acomptes(facture, acteur=acteur, db_path=db_path)
-    return {"vente": vente, "imputation": imputation}
+    # Crédits clients imputés à l'émission (2026-10-03) : 419100 → 411000, APRÈS la vente et la
+    # créance. Idempotent (une écriture par imputation).
+    conn = get_db(db_path)
+    try:
+        ids = [r[0] for r in conn.execute(
+            "SELECT imputation_airbnb_id FROM imputations_airbnb WHERE document_id=? "
+            "AND credit_id_opaque IS NOT NULL", (facture["facture_id_opaque"],))]
+    finally:
+        conn.close()
+    credits = [generer_ecriture_imputation_credit(i, acteur=acteur, db_path=db_path) for i in ids]
+    return {"vente": vente, "imputation": imputation, "credits": credits}
 
 
 def generer_ecriture_vente(proprietaire_id: str, mois: str, montant_du_conciergerie: float, *,

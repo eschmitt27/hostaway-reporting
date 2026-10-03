@@ -23,6 +23,33 @@
 </div>
 
 {% if message %}<div class="card"><p>{{ message }}</p></div>{% endif %}
+<details class="card" id="creer-avoir" data-testid="creer-avoir">
+  <summary><strong>Créer un avoir</strong></summary>
+  <p class="text-xs text-secondary">L'avoir est créé en <strong>brouillon</strong> : aucun impact
+     tant qu'il n'est pas émis. Émis, il diminue la créance du client ; s'il la dépasse, le surplus
+     devient un crédit disponible.</p>
+  <form method="post" action="/factures-proprietaires/avoirs/creer">
+    <label>Client
+      <select name="proprietaire_id" required>
+        <option value="">—</option>
+        {% for o in proprietaires_options %}<option value="{{ o.id }}">{{ o.libelle }}</option>{% endfor %}
+      </select></label>
+    <label>Facture d'origine (facultatif)
+      <select name="facture_origine">
+        <option value="">— aucune —</option>
+        {% for f in factures_emises %}<option value="{{ f.facture_id_opaque }}">{{ f.numero_facture }} — {{ f.proprietaire_id | nom_proprietaire }} — {{ "%.2f"|format(f.montant_total) }} €</option>{% endfor %}
+      </select></label>
+    <label>Logement (sans facture d'origine)
+      <select name="logement_id">
+        <option value="">—</option>
+        {% for o in logements_options %}<option value="{{ o.id }}">{{ o.libelle }}</option>{% endfor %}
+      </select></label>
+    <label>Date <input type="date" name="date_avoir" required></label>
+    <label>Motif <input type="text" name="motif" maxlength="200" required></label>
+    <label>Montant (€) <input type="text" name="montant" required></label>
+    <button type="submit" class="btn btn-secondary">Créer l'avoir (brouillon)</button>
+  </form>
+</details>
 {% if nb_annulees_supprimables %}
 <form method="post" action="/factures-proprietaires/supprimer-annulees" class="card"
       onsubmit="return confirm('Supprimer définitivement {{ nb_annulees_supprimables }} facture(s) annulée(s) jamais émise(s) ?');">

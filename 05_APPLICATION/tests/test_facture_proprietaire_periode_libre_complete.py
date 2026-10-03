@@ -269,7 +269,10 @@ def test_la_liste_propose_une_periode_libre_et_plus_une_saisie_manuelle(client, 
     for champ in ('name="proprietaire_id"', 'name="logement_id"', 'name="debut"', 'name="fin"'):
         assert champ in page
     assert "Créer le brouillon" in page
-    # Ce qui a été RETIRÉ : une facture propriétaire ne se saisit pas à la main.
+    # Ce qui a été RETIRÉ : une facture propriétaire ne se saisit pas à la main. Le seul montant
+    # saisi sur la liste est celui d'un AVOIR (« Créer un avoir », 2026-10-03) : on l'écarte.
+    import re
+    page = re.sub(r'<details class="card" id="creer-avoir".*?</details>', "", page, flags=re.S)
     assert "Désignation" not in page
     assert 'name="libelle"' not in page
     assert 'name="montant"' not in page

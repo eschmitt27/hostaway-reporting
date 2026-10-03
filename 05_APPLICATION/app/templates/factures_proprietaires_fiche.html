@@ -75,6 +75,10 @@
       <tr><td>Réductions</td>
           <td class="text-right">− {{ "%.2f"|format(decomposition.total_reductions) }} €</td></tr>
       {% endif %}
+      {% if decomposition.total_credit_client %}
+      <tr><td>Crédit client utilisé</td>
+          <td class="text-right">− {{ "%.2f"|format(decomposition.total_credit_client) }} €</td></tr>
+      {% endif %}
       {% if decomposition.total_acomptes %}
       <tr><td>Acomptes déjà versés</td>
           <td class="text-right">− {{ "%.2f"|format(decomposition.total_acomptes) }} €</td></tr>
@@ -338,6 +342,11 @@
 
 <div class="card" id="reglement">
   <h3>Règlement</h3>
+  {% if facture.statut != "EMIS" or facture.hors_compta %}
+  <p data-testid="sans-impact-compte-client">{% if facture.hors_compta %}Facture hors comptabilité : aucun
+     paiement attendu.{% else %}Facture non émise : <strong>aucun impact sur le compte client</strong>.
+     À l'émission, le crédit disponible du client s'imputera automatiquement sur la créance.{% endif %}</p>
+  {% else %}
   {# Zéro arithmétique ici : tous les montants sont calculés par `svc.solde()`. #}
   <table class="table">
     <tbody>
@@ -425,6 +434,7 @@
 
   <p class="text-muted">Un règlement impute une créance existante : il ne recrée ni commission,
      ni charge, ni facture.</p>
+  {% endif %}
 </div>
 
 {# ── Séjours de la période et commission ──────────────────────────────────────

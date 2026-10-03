@@ -36,8 +36,12 @@
             <td class="text-right">{{ "%.2f"|format(position.paiements_recus) }} €</td></tr>
         <tr><td>Créances restantes</td>
             <td class="text-right">{{ "%.2f"|format(position.creance_restante) }} €</td></tr>
-        <tr><td>Acompte / crédit disponible</td>
-            <td class="text-right">{{ "%.2f"|format(position.credit_disponible) }} €</td></tr>
+        <tr><td>Avoirs émis</td>
+            <td class="text-right">{{ "%.2f"|format(position.avoirs_emis) }} €</td></tr>
+        <tr data-testid="credit-disponible"><td><strong>Crédit disponible</strong></td>
+            <td class="text-right"><strong>{{ "%.2f"|format(position.credit_disponible) }} €</strong></td></tr>
+        <tr><td>État du compte</td>
+            <td class="text-right"><span class="badge">{{ {"DEBITEUR": "Débiteur — le client nous doit", "SOLDE": "Soldé", "CREDITEUR": "Créditeur — crédit disponible"}[position.etat_compte] }}</span></td></tr>
         <tr><td>Sommes à reverser</td>
             <td class="text-right">{{ "%.2f"|format(position.reversements_dus) }} €</td></tr>
         <tr><td>Compensations appliquées</td>
@@ -71,6 +75,27 @@
         style="margin-top: var(--stack-md);">
     <button type="submit" class="btn btn-secondary">Recalculer les allocations</button>
   </form>
+</div>
+
+<div class="card" data-testid="historique-credits">
+  <div class="card-title">Crédits clients — historique</div>
+  {% if position.credits_clients %}
+  <table class="table">
+    <thead><tr><th>Date</th><th>Opération</th><th class="text-right">Montant</th></tr></thead>
+    <tbody>
+      {% for c in position.credits_clients %}
+      <tr><td>{{ c.date_origine | date_fr }}</td><td>{{ c.reference or c.libelle_origine }}</td>
+          <td class="text-right">+{{ "%.2f"|format(c.montant_initial) }} €</td></tr>
+      {% for i in c.imputations %}
+      <tr><td>{{ i.date_imputation | date_fr }}</td><td>Crédit imputé sur facture {{ i.document_id }}</td>
+          <td class="text-right">−{{ "%.2f"|format(i.montant_impute) }} €</td></tr>
+      {% endfor %}
+      <tr><td></td><td><em>Crédit restant</em></td>
+          <td class="text-right"><em>{{ "%.2f"|format(c.reste) }} €</em></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="text-muted">Aucun crédit client.</p>{% endif %}
 </div>
 
 <div class="card">

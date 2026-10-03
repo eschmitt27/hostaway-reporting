@@ -85,7 +85,10 @@ def credits(request: Request, proprietaire_id: str, message: str = "", erreur: s
     vue = cr.vue(proprietaire_id)
     factures = []
     for f in fpr.lister(proprietaire_id=proprietaire_id):
-        if f["type_document"] != fpr.TYPE_FACTURE or f["statut"] == fpr.ST_ANNULE:
+        # Seule une facture ÉMISE (en comptabilité) peut recevoir un crédit : un brouillon n'a aucun
+        # impact sur le compte client.
+        if (f["type_document"] != fpr.TYPE_FACTURE or f["statut"] != fpr.ST_EMIS
+                or int(f.get("hors_compta") or 0)):
             continue
         _, solde = cr._facture_et_solde(f["facture_id_opaque"])
         if solde > cr.EPS:

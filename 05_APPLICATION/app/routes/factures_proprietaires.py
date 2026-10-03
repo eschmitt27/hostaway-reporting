@@ -153,6 +153,8 @@ def liste(request: Request, mois: str = "", statut: str = "", comptabilisee: str
         "statuts": svc.STATUTS, "comptabilisee": comptabilisee, "message": message,
         "nb_annulees_supprimables": sum(1 for f in svc.lister(statut=svc.ST_ANNULE)
                                         if brouillon.supprimable(f)),
+        "factures_emises": [f for f in svc.lister(statut=svc.ST_EMIS)
+                            if f["type_document"] == svc.TYPE_FACTURE],
         # §79 — on choisit un propriétaire et un logement par leur NOM, jamais par leur code.
         "proprietaires_options": _options_proprietaires(),
         "logements_options": _options_logements(),
@@ -417,7 +419,8 @@ def emettre(request: Request, facture_id: str, date_facture: str = Form(...),
                             destinataire=_destinataire(facture["proprietaire_id"]),
                             date_facture=date_facture,
                             generer_pdf=pdf.fabrique(_repertoire_documents()), acteur="interface",
-                            exiger_conformite=fconf.emission_reelle_autorisee())
+                            exiger_conformite=fconf.emission_reelle_autorisee(),
+                            hors_compta=comptabilite == "HORS_COMPTA")
     except svc.FactureProprietaireError as exc:
         return templates.TemplateResponse(
             request, "factures_proprietaires_fiche.html",
@@ -435,6 +438,24 @@ def emettre(request: Request, facture_id: str, date_facture: str = Form(...),
     else:
         compta.comptabiliser_facture_emise(emise, acteur="interface")
     return RedirectResponse(f"/factures-proprietaires/{facture_id}", status_code=303)
+
+
+@router.post("/factures-proprietaires/avoirs/creer")
+async def creer_avoir_libre(request: Request):
+    """« Créer un avoir » depuis Factures / Créances : un BROUILLON, sans impact jusqu'à l'émission."""
+    form = await request.form()
+    try:
+        a = svc.creer_avoir_libre(
+            proprietaire_id=str(form.get("proprietaire_id", "") or ""),
+            logement_id=str(form.get("logement_id", "") or ""),
+            facture_origine=str(form.get("facture_origine", "") or ""),
+            mois=str(form.get("date_avoir", "") or "")[:7],
+            motif=str(form.get("motif", "") or ""), montant=form.get("montant"),
+            acteur="interface")
+    except svc.FactureProprietaireError as exc:
+        return RedirectResponse("/factures-proprietaires?message=" + quote(
+            f"Avoir non créé : {exc}"), status_code=303)
+    return RedirectResponse(f"/factures-proprietaires/{a['facture_id_opaque']}", status_code=303)
 
 
 @router.post("/factures-proprietaires/supprimer-annulees")

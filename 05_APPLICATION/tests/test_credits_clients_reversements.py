@@ -147,23 +147,17 @@ def test_05_credit_impute_sur_deux_factures_jusqu_a_extinction(base, verrous, fa
     assert credits.imputer(cid, "X", 10, acteur=ACTEUR, db_path=base)["code"] == credits.E_SANS_ORIGINE
     m = _virement_airbnb(base, 150.0)
     lettrage.valider([f"BANQUE:{m['id']}"], [f"CREDIT_CLIENT:{cid}"], acteur=ACTEUR, db_path=base)
+    # Décision du 2026-10-03 : à l'émission, le crédit disponible s'impute AUTOMATIQUEMENT, de la
+    # plus ancienne facture à la plus récente, jamais au-delà de ce qui reste dû.
     f1, e1 = _facture(base, {"gestion": 100.0}, mois="2026-07")
-    f2, e2 = _facture(base, {"gestion": 80.0}, mois="2026-08")
-    for e in (e1, e2):
-        compta.comptabiliser_facture_emise(e, acteur=ACTEUR, db_path=base)
-    assert _solde_411(base) == 180.0
-
-    r1 = credits.imputer(cid, f1, 100.0, acteur=ACTEUR, db_path=base)
-    assert r1["ok"] and r1["reste"] == 50.0
-    assert _lignes(base, r1["ecriture"]["ecriture_id_opaque"]) == [
-        ("411000", 0.0, 100.0, PROPRIO), ("419100", 100.0, 0.0, PROPRIO)]
+    res1 = compta.comptabiliser_facture_emise(e1, acteur=ACTEUR, db_path=base)
     assert credits.charger(cid, db_path=base)["reste"] == 50.0
-    # Plafonds : le reste du crédit, le solde de la facture.
-    assert credits.imputer(cid, f2, 60.0, acteur=ACTEUR, db_path=base)["code"] == credits.E_RESTE
-    assert credits.imputer(cid, f1, 1.0, acteur=ACTEUR, db_path=base)["code"] == \
-        credits.E_SOLDE_FACTURE
-    r2 = credits.imputer(cid, f2, 50.0, acteur=ACTEUR, db_path=base)
-    assert r2["ok"] and r2["reste"] == 0.0
+    assert _lignes(base, res1["credits"][0]["ecriture_id_opaque"]) == [
+        ("411000", 0.0, 100.0, PROPRIO), ("419100", 100.0, 0.0, PROPRIO)]
+    f2, e2 = _facture(base, {"gestion": 80.0}, mois="2026-08")
+    compta.comptabiliser_facture_emise(e2, acteur=ACTEUR, db_path=base)
+    # Plafonds de l'imputation manuelle : le reste du crédit, le solde de la facture.
+    assert credits.imputer(cid, f2, 1.0, acteur=ACTEUR, db_path=base)["code"] == credits.E_RESTE
     c = credits.charger(cid, db_path=base)
     assert c["utilise"] == 150.0 and c["reste"] == 0.0
     assert sorted(i["document_id"] for i in c["imputations"]) == sorted([f1, f2])
@@ -172,7 +166,7 @@ def test_05_credit_impute_sur_deux_factures_jusqu_a_extinction(base, verrous, fa
     assert fpr.solde(f1, db_path=base)["solde"] == 0.0 and fpr.solde(f2, db_path=base)["solde"] == 30.0
 
 
-def test_06_imputation_sur_brouillon_constatee_a_l_emission(base, verrous, factures_ok):
+def test_06_brouillon_sans_imputation_credit_impute_a_l_emission(base, verrous, factures_ok):
     from app.services import factures_proprietaires_service as fpr
     from tests.test_creances_regle_compense import DESTINATAIRE, EMETTEUR
     cid = credits.creer_reversement_airbnb(
@@ -182,17 +176,18 @@ def test_06_imputation_sur_brouillon_constatee_a_l_emission(base, verrous, factu
     fid = fpr.creer({"mois": "2026-08", "proprietaire_id": PROPRIO, "logement_id": "LOG_T",
                      "source_calcul": "PREF-B", "COMMISSION_CONCIERGERIE": 90.0,
                      "montant_du_conciergerie": 90.0}, acteur="t", db_path=base)["facture_id_opaque"]
+    # Décision du 2026-10-03 : BROUILLON = AUCUN IMPACT — aucune imputation sur un brouillon.
     r = credits.imputer(cid, fid, 40, acteur=ACTEUR, db_path=base)
-    assert r["ok"] and r["ecriture"] is None, "facture non émise : pas encore de créance 411"
+    assert not r["ok"] and r["code"] == credits.E_NON_EMISE
     fpr.valider(fid, emetteur=EMETTEUR, destinataire=DESTINATAIRE, acteur="t", db_path=base)
     emise = fpr.emettre(fid, emetteur=EMETTEUR, destinataire=DESTINATAIRE, date_facture="2026-08-31",
                         acteur="t", exiger_conformite=False, db_path=base)
     res = compta.comptabiliser_facture_emise(emise, acteur=ACTEUR, db_path=base)
-    assert res["imputation"]["ok"] and len(res["imputation"]["ecritures"]) == 1
+    assert [c["ok"] for c in res["credits"]] == [True]     # imputé automatiquement à l'émission
     assert _solde_411(base) == 50.0
     # Rejouer ne double rien.
-    again = compta.generer_ecriture_imputation_acomptes(emise, acteur=ACTEUR, db_path=base)
-    assert again["ok"] and _solde_411(base) == 50.0
+    again = compta.comptabiliser_facture_emise(emise, acteur=ACTEUR, db_path=base)
+    assert again["credits"][0].get("deja_generee") and _solde_411(base) == 50.0
 
 
 # ══ Données historiques sans origine : refus propre, puis régularisation ═════════════════════════

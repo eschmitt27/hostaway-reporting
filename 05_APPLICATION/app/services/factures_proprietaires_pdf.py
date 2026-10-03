@@ -845,7 +845,10 @@ class _Facture(FPDF):
         nb_postes = len([p for p in deco.get("postes", [])
                          if p.get("cle") != "reductions" and p.get("nb")])
         nb_reglements = sum(1 for v in (deco.get("total_acomptes"),
-                                        deco.get("total_reversements_airbnb")) if v)
+                                        deco.get("total_reversements_airbnb"),
+                                        deco.get("total_credit_client")) if v)
+        if deco.get("total_credit_client") and deco.get("credit_client_restant") is not None:
+            nb_reglements += 1                        # « Crédit restant disponible »
         contenu = (PADDING - 1)                       # air haut
         contenu += h * nb_postes                      # postes
         contenu += 0.8 + 1.8                          # filet + interligne
@@ -928,7 +931,8 @@ class _Facture(FPDF):
         # pourquoi ils sont présentés en dessous, et non fondus dans le total.
         acomptes = float(deco.get("total_acomptes") or 0)
         reversements = float(deco.get("total_reversements_airbnb") or 0)
-        if acomptes or reversements:
+        credit_client = float(deco.get("total_credit_client") or 0)
+        if acomptes or reversements or credit_client:
             self.ln(1)
             self.set_x(gauche + PADDING)
             self.set_font("Helvetica", "B", 6.8)
@@ -945,6 +949,12 @@ class _Facture(FPDF):
                 ligne("Reversement Airbnb du mois", -reversements)
             if acomptes:
                 ligne("Acompte(s) déjà versé(s)", -acomptes)
+            # Crédit client (ex. solde repris de l'ancienne structure) : il éteint la créance sans
+            # diminuer le montant facturé ; ce qu'il en reste est indiqué, pour information.
+            if credit_client:
+                ligne("Crédit client utilisé", -credit_client)
+                if deco.get("credit_client_restant") is not None:
+                    ligne("Crédit restant disponible", float(deco.get("credit_client_restant") or 0))
 
         # Bandeau du net : le seul élément coloré plein du document, pour qu'il soit le premier
         # chiffre que l'oeil trouve. Un net négatif n'est PAS une facture négative : il se nomme,

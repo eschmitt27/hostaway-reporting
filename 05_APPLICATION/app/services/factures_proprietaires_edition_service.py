@@ -237,6 +237,15 @@ def supprimer_ligne_charge(facture_id: str, ligne_id: str, *, acteur: str = "",
 
 # ── C — Reversement Airbnb ──────────────────────────────────────────────────────────────────────
 
+
+def exiger_facture_emise(facture: dict[str, Any]) -> None:
+    """BROUILLON = AUCUN IMPACT (2026-10-03) : aucun acompte, reversement ni crédit ne se rattache
+    à une facture non émise ou hors compta — le compte client ne bouge qu'à l'émission."""
+    if facture["statut"] != svc.ST_EMIS or int(facture.get("hors_compta") or 0):
+        raise svc.FactureProprietaireError(
+            "facture non émise (ou hors compta) : aucun paiement, acompte ni crédit ne s'y impute. "
+            "Le compte client n'est touché qu'à l'émission")
+
 def ajouter_reversement_airbnb(facture_id: str, *, montant: Any, date_imputation: str,
                                reference_airbnb: str = "", commentaire: str = "",
                                acteur: str = "", db_path=None) -> dict[str, Any]:
@@ -248,6 +257,7 @@ def ajouter_reversement_airbnb(facture_id: str, *, montant: Any, date_imputation
     from app.services import imputations_airbnb_service as imputations
 
     facture = svc.lire(facture_id, db_path=db_path)
+    exiger_facture_emise(facture)
     resultat = imputations.creer(
         proprietaire_id=facture["proprietaire_id"], logement_id=facture["logement_id"],
         mois=facture["mois"], document_id=facture_id, montant_impute=montant,
@@ -290,6 +300,7 @@ def ajouter_acompte(facture_id: str, *, montant: Any, date_mouvement: str,
     net d'exploitation, ni résultat économique.
     """
     facture = svc.lire(facture_id, db_path=db_path)
+    exiger_facture_emise(facture)
     resultat = tresorerie.creer(
         facture["proprietaire_id"], "PROPRIETAIRE_VERS_SOCIETE", "ACOMPTE_PROPRIETAIRE",
         montant, date_mouvement, logement_id=facture["logement_id"],

@@ -1078,7 +1078,8 @@ def prochain_numero(mois: str, *, type_document: str = TYPE_FACTURE, db_path=Non
 
 def emettre(facture_id: str, *, emetteur: dict[str, Any], destinataire: dict[str, Any],
             serie: str | None = None, date_facture: str, generer_pdf=None, acteur: str = "",
-            db_path=None, exiger_conformite: bool = False) -> dict[str, Any]:
+            db_path=None, exiger_conformite: bool = False,
+            hors_compta: bool = False) -> dict[str, Any]:
     """VALIDE -> EMIS. Fige le snapshot, attribue le numéro, génère le document, enregistre le hash.
 
     `generer_pdf(snapshot) -> (nom_fichier, sha256)` est injecté : ce service ne connaît ni le
@@ -1118,6 +1119,29 @@ def emettre(facture_id: str, *, emetteur: dict[str, Any], destinataire: dict[str
     try:
         numero = _attribuer_numero(conn, serie)
 
+        # CRÉDIT CLIENT (2026-10-03) : à l'émission d'une FACTURE en comptabilité, et seulement
+        # là, le crédit disponible du client s'impute sur la créance — jamais plus que ce qui
+        # reste dû, le reliquat demeure sur le crédit. DANS cette transaction : si l'émission
+        # échoue, rien n'est imputé. Le montant de la facture n'est jamais modifié.
+        imputations_credit: list[dict[str, Any]] = []
+        credit_restant = 0.0
+        if f["type_document"] == TYPE_FACTURE and not hors_compta:
+            from app.services import credits_clients_service as credits
+            deja = _round(sum(_round(a["montant"]) for a in acomptes_proprietaire(
+                facture_id, db_path=db_path) if a["statut"] == "VALIDE" and int(a["actif"] or 0))
+                + sum(_round(r["montant_impute"]) for r in reversements_airbnb(
+                    facture_id, db_path=db_path)))
+            imputations_credit = credits.imputer_a_l_emission(
+                conn, f, a_couvrir=_round(_round(f["montant_total"]) - deja), acteur=acteur)
+            credit_restant = _round(sum(c["reste"] for c in credits.credits_disponibles(
+                conn, f["proprietaire_id"])))
+        decomposition = _decomposition_figee(facture_id, db_path=db_path)
+        if imputations_credit:
+            from app.services import factures_proprietaires_composition_service as compo
+            compo.ajouter_credit_client(decomposition,
+                                        sum(i["montant"] for i in imputations_credit),
+                                        credit_restant)
+
         snapshot = {
             "facture_id_opaque": facture_id,
             "numero_facture": numero,
@@ -1139,7 +1163,7 @@ def emettre(facture_id: str, *, emetteur: dict[str, Any], destinataire: dict[str
             # reproductible même si les datasets de réservations sont régénérés ensuite. Les figer
             # ici est la seule façon d'y parvenir — les relire plus tard donnerait un autre document.
             "reservations": reservations(facture_id, db_path=db_path),
-            "decomposition": _decomposition_figee(facture_id, db_path=db_path),
+            "decomposition": decomposition,
             # Bloc réglementaire figé : identités complètes, type de client, régime de TVA et son
             # fondement, période de prestation, conditions de règlement. C'est lui qui rend le
             # document reproductible à l'identique, et non un recalcul depuis les référentiels.
@@ -1159,10 +1183,12 @@ def emettre(facture_id: str, *, emetteur: dict[str, Any], destinataire: dict[str
         conn.execute(
             "UPDATE factures_proprietaires SET statut=?, numero_facture=?, date_facture=?, "
             "snapshot_json=?, snapshot_hash=?, document_nom=?, document_hash=?, "
-            "date_emission=strftime('%Y-%m-%dT%H:%M:%SZ','now'), version=version+1 "
+            "date_emission=strftime('%Y-%m-%dT%H:%M:%SZ','now'), version=version+1, "
+            "hors_compta=?, motif_hors_compta=COALESCE(motif_hors_compta, ?) "
             "WHERE facture_id_opaque=?",
             (ST_EMIS, numero, date_facture, payload, snapshot_hash, document_nom,
-             document_hash, facture_id))
+             document_hash, 1 if hors_compta else 0,
+             MOTIF_HORS_COMPTA_DEFAUT if hors_compta else None, facture_id))
         _journal(conn, facture_id, "EMISSION", ST_VALIDE, ST_EMIS,
                  f"numero {numero}, snapshot {snapshot_hash[:16]}", acteur)
         conn.commit()
@@ -1175,9 +1201,12 @@ def emettre(facture_id: str, *, emetteur: dict[str, Any], destinataire: dict[str
     # Le bloc réglementaire est figé après l'émission, en écriture unique : une facture émise ne
     # voit jamais ses données de conformité réécrites.
     conformite.enregistrer(bloc, db_path=db_path)
+    # Les écritures 419100 → 411000 des crédits imputés suivent la vente, dans
+    # `comptabilite_ecritures_service.comptabiliser_facture_emise` : CA, créance, puis crédit.
     # Une FACTURE émise devient une créance du FIFO : les allocations du propriétaire sont
     # persistées maintenant (un avoir, lui, n'entre pas dans le FIFO — voir compte propriétaire).
-    if f["type_document"] == TYPE_FACTURE:
+    if f["type_document"] in (TYPE_FACTURE, TYPE_AVOIR):
+        # Un AVOIR émis est une source du FIFO (il diminue la créance, son surplus devient crédit).
         from app.services import compte_proprietaire_service as cpt
         cpt.apres_ecriture([f["proprietaire_id"]], declencheur=cpt.DECL_EMISSION_FACTURE,
                            db_path=db_path)
@@ -1305,6 +1334,67 @@ def creer_avoir(facture_id: str, *, motif: str, acteur: str = "", db_path=None) 
         _journal(conn, aid, "CREATION", None, ST_BROUILLON, f"avoir sur {facture_id}: {motif}",
                  acteur)
         _journal(conn, facture_id, "AVOIR_CREE", ST_EMIS, ST_EMIS, f"avoir {aid}: {motif}", acteur)
+        conn.commit()
+    finally:
+        conn.close()
+    return lire(aid, db_path=db_path)
+
+
+def creer_avoir_libre(*, proprietaire_id: str, motif: str, montant: Any, logement_id: str = "",
+                      facture_origine: str = "", mois: str = "", acteur: str = "",
+                      db_path=None) -> dict[str, Any]:
+    """AVOIR en BROUILLON, créé depuis Factures / Créances (2026-10-03) : client, facture d'origine
+    facultative, motif, montant. Brouillon : aucun impact. Émis (même parcours qu'une facture :
+    validation, numéro `A-…`, PDF, écriture de vente inversée), il diminue la créance du client ;
+    s'il dépasse ce qui reste dû, le surplus devient un crédit disponible (compte propriétaire).
+
+    L'avoir porte une seule ligne de RÉDUCTION négative : comptabilisée au débit de 709600
+    (« rabais, remises et ristournes accordés »), jamais en produit négatif."""
+    pid = str(proprietaire_id or "").strip()
+    motif = str(motif or "").strip()
+    if not pid:
+        raise FactureProprietaireError(f"{C_SOURCE_INCOMPLETE}: client obligatoire")
+    if not motif:
+        raise FactureProprietaireError("avoir sans motif refusé")
+    try:
+        valeur = round(float(str(montant).replace(",", ".").replace("€", "").strip()), 2)
+    except (TypeError, ValueError):
+        raise FactureProprietaireError(f"montant illisible « {montant} »")
+    if valeur <= 0:
+        raise FactureProprietaireError("le montant d'un avoir est strictement positif")
+    origine = str(facture_origine or "").strip() or None
+    if origine:
+        f = lire(origine, db_path=db_path)
+        if f["proprietaire_id"] != pid or f["type_document"] != TYPE_FACTURE \
+                or f["statut"] != ST_EMIS:
+            raise FactureProprietaireError(
+                "la facture d'origine doit être une facture ÉMISE de ce client")
+        logement_id, mois = f["logement_id"], f["mois"]
+    logement_id = str(logement_id or "").strip()
+    mois = str(mois or "").strip()[:7]
+    if not (logement_id and mois):
+        raise FactureProprietaireError(
+            f"{C_SOURCE_INCOMPLETE}: logement et mois obligatoires sans facture d'origine")
+    exiger_periode_v1(mois, db_path=db_path)
+
+    conn = get_db(db_path)
+    try:
+        aid = _opaque("FPR")
+        conn.execute(
+            "INSERT INTO factures_proprietaires (facture_id_opaque, type_document, facture_origine, "
+            "proprietaire_id, logement_id, mois, montant_total, statut, source_calcul, acteur) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (aid, TYPE_AVOIR, origine, pid, logement_id, mois, -valeur, ST_BROUILLON,
+             SOURCE_EXCEPTIONNELLE, acteur or "local"))
+        conn.execute(
+            "INSERT INTO factures_proprietaires_lignes (ligne_id_opaque, facture_id_opaque, "
+            "numero_ligne, type_ligne, libelle, montant) VALUES (?,?,?,?,?,?)",
+            (_opaque("FPRL"), aid, 1, "REDUCTION", f"Avoir — {motif}"[:240], -valeur))
+        _journal(conn, aid, "CREATION", None, ST_BROUILLON,
+                 f"avoir {valeur:.2f} €{(' sur ' + origine) if origine else ''} : {motif}", acteur)
+        if origine:
+            _journal(conn, origine, "AVOIR_CREE", ST_EMIS, ST_EMIS,
+                     f"avoir {aid} ({valeur:.2f} €) : {motif}", acteur)
         conn.commit()
     finally:
         conn.close()

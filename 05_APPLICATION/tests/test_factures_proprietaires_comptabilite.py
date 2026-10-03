@@ -144,10 +144,11 @@ def test_acompte_ne_diminue_pas_le_chiffre_d_affaires(db, monkeypatch):
 
     f = svc.creer(source(), db_path=db)
     fid = f["facture_id_opaque"]
-    edition.ajouter_acompte(fid, montant=100, date_mouvement="2026-06-05", acteur="t", db_path=db)
     svc.valider(fid, emetteur=EMETTEUR, destinataire=DESTINATAIRE, db_path=db)
     emise = svc.emettre(fid, emetteur=EMETTEUR, destinataire=DESTINATAIRE, serie="RECETTE-2026",
                         date_facture="2026-07-01", db_path=db)
+    # Acompte rattaché après l'émission : un brouillon n'a aucun impact (2026-10-03).
+    edition.ajouter_acompte(fid, montant=100, date_mouvement="2026-06-05", acteur="t", db_path=db)
 
     assert emise["montant_total"] == 500.0, "l'acompte ne touche pas le total facture"
     compta.generer_ecriture_vente_facture(emise, db_path=db)

@@ -363,6 +363,13 @@ def decomposition(facture_id: str, *, db_path=None) -> dict[str, Any]:
     # créance sans encaissement. Ils ne sont ni une ligne de facture ni un acompte — d'où un poste
     # distinct jusque sur le document (§17, §20).
     reversements = svc.reversements_airbnb(facture_id, db_path=db_path)
+    # Crédit client hors Airbnb (ex. solde repris de l'ancienne structure) : même mécanisme
+    # d'imputation, présenté à part — ce n'est pas un reversement de la plateforme.
+    origines = _origines_credits({r.get("credit_id_opaque") for r in reversements}, db_path)
+    credit_client = [r for r in reversements
+                     if origines.get(r.get("credit_id_opaque")) not in (None, "REVERSEMENT_AIRBNB")]
+    reversements = [r for r in reversements if r not in credit_client]
+    total_credit_client = svc._round(sum(float(r.get("montant_impute") or 0) for r in credit_client))
     total_reversements = svc._round(sum(float(r.get("montant_impute") or 0) for r in reversements))
 
     par_cle = {p["cle"]: p["montant"] for p in postes}
@@ -372,7 +379,7 @@ def decomposition(facture_id: str, *, db_path=None) -> dict[str, Any]:
 
     # NET = ce qui reste à payer une fois déduits les règlements reçus et les compensations.
     # Négatif, il ne devient pas une « facture négative » : c'est un montant dû AU propriétaire.
-    net = svc._round(total_facture - total_acomptes - total_reversements)
+    net = svc._round(total_facture - total_acomptes - total_reversements - total_credit_client)
 
     return {
         "facture_id_opaque": facture_id,
@@ -385,7 +392,9 @@ def decomposition(facture_id: str, *, db_path=None) -> dict[str, Any]:
         "total_acomptes": total_acomptes,
         "reversements_airbnb": reversements,
         "total_reversements_airbnb": total_reversements,
-        "total_reglements": svc._round(total_acomptes + total_reversements),
+        "credit_client": credit_client,
+        "total_credit_client": total_credit_client,
+        "total_reglements": svc._round(total_acomptes + total_reversements + total_credit_client),
         "net": net,
         "sens_net": "A_PAYER" if net > 0.005 else "A_REVERSER" if net < -0.005 else "SOLDE",
         "montant_a_reverser": svc._round(-net) if net < -0.005 else 0.0,
@@ -393,6 +402,37 @@ def decomposition(facture_id: str, *, db_path=None) -> dict[str, Any]:
         "montant_du": net,
         "devise": facture.get("devise") or "EUR",
     }
+
+
+def _origines_credits(ids: set, db_path=None) -> dict[str, str]:
+    ids = {i for i in ids if i}
+    if not ids:
+        return {}
+    from app.db.connection import get_db
+    conn = get_db(db_path)
+    try:
+        marques = ",".join("?" * len(ids))
+        return {r[0]: r[1] for r in conn.execute(
+            f"SELECT credit_id_opaque, origine FROM credits_clients "
+            f"WHERE credit_id_opaque IN ({marques})", list(ids))}
+    except Exception:      # noqa: BLE001 — table absente d'une base ancienne
+        return {}
+    finally:
+        conn.close()
+
+
+def ajouter_credit_client(deco: dict[str, Any], montant: float, restant: float) -> dict[str, Any]:
+    """Reporte dans une décomposition déjà calculée le crédit client imputé à l'émission (même
+    transaction, donc invisible d'une autre connexion) et le crédit qui reste disponible."""
+    montant = svc._round(montant)
+    deco["total_credit_client"] = svc._round(deco.get("total_credit_client", 0.0) + montant)
+    deco["total_reglements"] = svc._round(deco.get("total_reglements", 0.0) + montant)
+    net = svc._round(deco.get("net", deco.get("total_facture", 0.0)) - montant)
+    deco.update(net=net, montant_du=net,
+                sens_net="A_PAYER" if net > 0.005 else "A_REVERSER" if net < -0.005 else "SOLDE",
+                montant_a_reverser=svc._round(-net) if net < -0.005 else 0.0,
+                credit_client_restant=svc._round(restant))
+    return deco
 
 
 # ── DOCUMENT : une seule structure pour la prévisualisation ET le PDF ───────────────────────────

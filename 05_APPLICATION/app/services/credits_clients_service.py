@@ -33,9 +33,15 @@ from app.db.connection import get_db
 
 ORIGINE_REVERSEMENT_AIRBNB = "REVERSEMENT_AIRBNB"
 ORIGINE_ACOMPTE = "ACOMPTE"
+# Solde créditeur dû par l'ancienne structure, repris par la nouvelle société (migration 0123).
+ORIGINE_REPRISE_SOLDE = "REPRISE_SOLDE"
+LIBELLE_REPRISE_SOLDE = "Solde créditeur repris de l'ancienne structure"
+COMPTE_ANCIENNE_STRUCTURE = "467100"
+COMPTE_PERTE_CREANCE = "654000"
 MODE_BANQUE, MODE_JUSTIFIE = "BANQUE", "JUSTIFIE"
 ST_EN_ATTENTE, ST_DISPONIBLE, ST_ANNULE = "EN_ATTENTE_ORIGINE", "DISPONIBLE", "ANNULE"
-LIBELLES_ORIGINE = {ORIGINE_REVERSEMENT_AIRBNB: "Reversement Airbnb", ORIGINE_ACOMPTE: "Acompte"}
+LIBELLES_ORIGINE = {ORIGINE_REVERSEMENT_AIRBNB: "Reversement Airbnb", ORIGINE_ACOMPTE: "Acompte",
+                    ORIGINE_REPRISE_SOLDE: LIBELLE_REPRISE_SOLDE}
 LIBELLES_STATUT = {ST_EN_ATTENTE: "En attente de son encaissement bancaire",
                    ST_DISPONIBLE: "Disponible", ST_ANNULE: "Annulé"}
 
@@ -58,6 +64,8 @@ E_ACTEUR = "CR12_AUTEUR_OBLIGATOIRE"
 E_DEJA = "CR13_DEJA_REGULARISE"
 E_ECRITURE = "CR14_ECRITURE_REFUSEE"
 E_ORIGINE_ACOMPTE = "CR15_ORIGINE_ACOMPTE_IMPOSSIBLE"
+E_NON_EMISE = "CR16_FACTURE_NON_EMISE"
+E_REPRISE_EXISTANTE = "CR17_REPRISE_DEJA_ENREGISTREE"
 EPS = 0.005
 
 
@@ -321,6 +329,11 @@ def imputer(credit_id: str, facture_id: str, montant: Any, *, acteur: str,
     if (f is None or f["proprietaire_id"] != c["proprietaire_id"]
             or f["type_document"] != fpr.TYPE_FACTURE or f["statut"] == fpr.ST_ANNULE):
         return _refus(E_FACTURE, "Facture introuvable, annulée, avoir, ou d'un autre propriétaire.")
+    # BROUILLON = AUCUN IMPACT : un crédit ne se consomme que sur une facture ÉMISE (et en compta).
+    if f["statut"] != fpr.ST_EMIS or int(f.get("hors_compta") or 0):
+        return _refus(E_NON_EMISE, "Un crédit ne s'impute que sur une facture émise (en "
+                                   "comptabilité). Un brouillon n'a aucun impact sur le compte "
+                                   "client.")
     if valeur > solde + EPS:
         return _refus(E_SOLDE_FACTURE, f"La facture ne doit plus que {solde:.2f} €.")
 
@@ -400,6 +413,147 @@ def regulariser(imputation_id: str, credit_id: str, *, acteur: str,
         ecriture = compta.generer_ecriture_imputation_credit(imputation_id, acteur=acteur,
                                                              db_path=db_path)
     return {"ok": True, "ecriture": ecriture}
+
+
+# ══ Reprise d'un solde créditeur de l'ancienne structure ══════════════════════════════════════════
+
+def creer_reprise_solde(proprietaire_id: str, montant: Any, date_origine: str, *, acteur: str,
+                        libelle: str = LIBELLE_REPRISE_SOLDE, db_path=None) -> dict[str, Any]:
+    """Crédit client DISPONIBLE repris de l'ancienne structure, et ses deux écritures validées :
+
+        1. reprise de la dette envers le client   467100 D  /  419100 C (auxiliaire = client)
+        2. créance sur l'ancienne structure perdue 654000 D  /  467100 C
+
+    467100 est soldé, la perte est constatée en charge, le client reste créditeur. Ce n'est ni un
+    encaissement, ni une facture, ni une réduction, ni un acompte, ni un mouvement bancaire.
+    Une seule reprise par client (idempotence)."""
+    from app.services import comptabilite_ecritures_service as compta
+    from app.services import flux_financiers_service as flux
+
+    acteur, pid = _txt(acteur), _txt(proprietaire_id)
+    if not acteur:
+        return _refus(E_ACTEUR, "Indiquez votre nom : la reprise est tracée.")
+    if pid not in {p["id"] for p in flux.proprietaires_connus(db_path=db_path)}:
+        return _refus(E_PROPRIETAIRE, "Propriétaire inconnu du référentiel.")
+    try:
+        valeur = _r(str(montant).replace(",", ".").replace(" ", ""))
+    except ValueError:
+        valeur = 0.0
+    if valeur <= 0:
+        return _refus(E_MONTANT, "Le montant doit être strictement positif.")
+    jour = _txt(date_origine)[:10]
+    try:
+        date.fromisoformat(jour)
+    except ValueError:
+        return _refus(E_DATE, "Date d'origine invalide (AAAA-MM-JJ).")
+    if not compta._flags_actifs():
+        return _refus(E_ECRITURE, compta.MESSAGES[compta.E_FLAGS])
+
+    credit_id = "CRD-" + uuid.uuid4().hex[:12].upper()
+    conn = get_db(db_path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        if conn.execute("SELECT 1 FROM credits_clients WHERE proprietaire_id=? AND origine=? "
+                        "AND statut<>?", (pid, ORIGINE_REPRISE_SOLDE, ST_ANNULE)).fetchone():
+            conn.rollback()
+            return _refus(E_REPRISE_EXISTANTE, "Une reprise de solde existe déjà pour ce client.")
+        conn.execute(
+            "INSERT INTO credits_clients (credit_id_opaque, proprietaire_id, origine, mode_origine, "
+            "date_origine, mois, montant_initial, reference, justification, compte_source, statut, "
+            "cree_par) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (credit_id, pid, ORIGINE_REPRISE_SOLDE, MODE_JUSTIFIE, jour, jour[:7], valeur,
+             _txt(libelle) or LIBELLE_REPRISE_SOLDE, LIBELLE_REPRISE_SOLDE,
+             COMPTE_ANCIENNE_STRUCTURE, ST_DISPONIBLE, acteur))
+        _evenement(conn, credit_id, "CREATION", acteur=acteur, montant=valeur,
+                   detail=_txt(libelle) or LIBELLE_REPRISE_SOLDE)
+        ecritures = []
+        for piece, texte, lignes in (
+                (f"{credit_id}-REPRISE", f"{LIBELLE_REPRISE_SOLDE} — reprise de la dette client",
+                 [{"compte": COMPTE_ANCIENNE_STRUCTURE, "debit": valeur, "credit": 0,
+                   "libelle": "Ancienne structure — solde client repris"},
+                  {"compte": COMPTE_CREDITS, "debit": 0, "credit": valeur, "auxiliaire": pid,
+                   "proprietaire_id": pid, "libelle": LIBELLE_REPRISE_SOLDE}]),
+                (f"{credit_id}-PERTE", "Créance sur l'ancienne structure considérée perdue",
+                 [{"compte": COMPTE_PERTE_CREANCE, "debit": valeur, "credit": 0,
+                   "libelle": "Perte sur créance irrécouvrable — ancienne structure"},
+                  {"compte": COMPTE_ANCIENNE_STRUCTURE, "debit": 0, "credit": valeur,
+                   "libelle": "Ancienne structure — créance abandonnée"}])):
+            res = compta._inserer_ecriture("ODIVERSES", jour, jour[:7], piece, texte,
+                                           "CREDIT_CLIENT", piece, lignes, acteur=acteur,
+                                           db_path=db_path, conn=conn)
+            if not res.get("ok"):
+                conn.rollback()
+                return _refus(E_ECRITURE, f"{res.get('message')} {res.get('detail', '')}".strip())
+            compta.valider_dans_transaction(conn, res["ecriture_id_opaque"],
+                                            commentaire="Validée avec la reprise du solde",
+                                            acteur=acteur)
+            ecritures.append(res["ecriture_id_opaque"])
+        conn.execute("UPDATE credits_clients SET ecriture_origine=? WHERE credit_id_opaque=?",
+                     (ecritures[0], credit_id))
+        _evenement(conn, credit_id, "ORIGINE_CONSTATEE", acteur=acteur, montant=valeur,
+                   ecriture_id=ecritures[0],
+                   detail=f"467100 / 419100 puis 654000 / 467100 ({', '.join(ecritures)})")
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "credit_id_opaque": credit_id, "ecritures": ecritures,
+            "statut": ST_DISPONIBLE}
+
+
+# ══ Imputation automatique à l'émission ═════════════════════════════════════════════════════════
+
+def credits_disponibles(conn, proprietaire_id: str) -> list[dict[str, Any]]:
+    """Crédits DISPONIBLES du client et leur reste, du plus ancien au plus récent (même connexion
+    que l'appelant : utilisé DANS la transaction d'émission)."""
+    out = []
+    for c in conn.execute("SELECT credit_id_opaque, montant_initial, origine, reference, "
+                          "mouvement_origine, ecriture_origine, date_origine "
+                          "FROM credits_clients WHERE proprietaire_id=? AND statut=? "
+                          "ORDER BY date_origine, id", (proprietaire_id, ST_DISPONIBLE)):
+        utilise = conn.execute(
+            "SELECT COALESCE(SUM(montant_impute),0) FROM imputations_airbnb WHERE credit_id_opaque=? "
+            "AND UPPER(COALESCE(statut,'VALIDE')) IN ('VALIDE','VALIDEE')",
+            (c["credit_id_opaque"],)).fetchone()[0]
+        reste = _r(_r(c["montant_initial"]) - _r(utilise))
+        if reste > EPS:
+            out.append({**dict(c), "reste": reste})
+    return out
+
+
+def imputer_a_l_emission(conn, facture: dict[str, Any], *, a_couvrir: float,
+                         acteur: str) -> list[dict[str, Any]]:
+    """DANS la transaction d'émission : impute les crédits disponibles du client sur la facture,
+    du plus ancien au plus récent, jamais au-delà de `a_couvrir` (la créance). Le reliquat reste
+    sur chaque crédit. Le montant de la facture n'est jamais modifié. Rend les imputations créées
+    (l'écriture 419100 → 411000 est générée après la validation de l'émission)."""
+    from app.services import factures_proprietaires_service as fpr
+    restant = _r(a_couvrir)
+    faites = []
+    for c in credits_disponibles(conn, facture["proprietaire_id"]):
+        if restant <= EPS:
+            break
+        montant = _r(min(c["reste"], restant))
+        imputation_id = "IMPA-" + uuid.uuid4().hex[:12].upper()
+        conn.execute(
+            "INSERT INTO imputations_airbnb (imputation_airbnb_id, transaction_banque_id, "
+            "reference_airbnb, proprietaire_id, logement_id, mois, document_id, montant_impute, "
+            "date_imputation, justificatif, statut, commentaire, credit_id_opaque) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (imputation_id, c["mouvement_origine"] or c["ecriture_origine"], c["reference"],
+             facture["proprietaire_id"], facture["logement_id"], facture["mois"],
+             facture["facture_id_opaque"], montant, date.today().isoformat(),
+             c["credit_id_opaque"], "VALIDE",
+             f"Crédit client imputé à l'émission ({LIBELLES_ORIGINE.get(c['origine'], c['origine'])})",
+             c["credit_id_opaque"]))
+        _evenement(conn, c["credit_id_opaque"], "IMPUTATION", acteur=acteur, montant=montant,
+                   facture_id=facture["facture_id_opaque"],
+                   detail=f"Imputé automatiquement à l'émission — reste {c['reste'] - montant:.2f} €")
+        fpr._journal(conn, facture["facture_id_opaque"], "IMPUTATION_CREDIT_CLIENT", None, None,
+                     f"crédit client {c['credit_id_opaque']} imputé {montant:.2f} €", acteur)
+        faites.append({"imputation_airbnb_id": imputation_id, "credit_id_opaque": c["credit_id_opaque"],
+                       "montant": montant, "reste_credit": _r(c["reste"] - montant)})
+        restant = _r(restant - montant)
+    return faites
 
 
 # ══ Acomptes : origine comptable et vue ══════════════════════════════════════════════════════════
@@ -489,7 +643,8 @@ def vue(proprietaire_id: str, *, db_path=None) -> dict[str, Any]:
     for c in lister(proprietaire_id=proprietaire_id, db_path=db_path):
         numeros = _factures_numeros({i["document_id"] for i in c["imputations"] if i["document_id"]},
                                     db_path)
-        origine = ("Justifiée — compte " + (c["compte_source"] or "") if c["mode_origine"] == MODE_JUSTIFIE
+        origine = (LIBELLE_REPRISE_SOLDE if c["origine"] == ORIGINE_REPRISE_SOLDE
+                   else "Justifiée — compte " + (c["compte_source"] or "") if c["mode_origine"] == MODE_JUSTIFIE
                    else "Encaissement bancaire rapproché" if c["statut"] == ST_DISPONIBLE
                    else "À rapprocher du virement Airbnb dans Flux")
         credits.append({**c, "origine_lisible": origine, "date_fr": _date_fr(c["date_origine"]),

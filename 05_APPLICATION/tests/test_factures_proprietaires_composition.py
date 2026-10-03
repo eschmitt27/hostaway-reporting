@@ -22,6 +22,15 @@ EMETTEUR = {"nom": "CHOUETTE PATRIMOINE", "forme_juridique": "SAS", "capital": "
             "siren": "109624767", "rcs": "R.C.S. Bordeaux", "siret": "", "tva_intra": ""}
 DESTINATAIRE = {"nom": "Proprietaire Fixture", "adresse": "2 rue de Test, 31000 Toulouse"}
 
+def _emettre_avant_reglement(db, fid):
+    """Décision du 2026-10-03 : BROUILLON = AUCUN IMPACT. Un acompte, un reversement ou un crédit
+    ne se rattache qu'à une facture ÉMISE ; les tests de règlement émettent donc d'abord."""
+    svc.valider(fid, emetteur=EMETTEUR, destinataire=DESTINATAIRE, db_path=db)
+    svc.emettre(fid, emetteur=EMETTEUR, destinataire=DESTINATAIRE, serie="RECETTE-2026",
+                date_facture="2026-07-01", db_path=db)
+    return fid
+
+
 
 @pytest.fixture()
 def db(tmp_path, monkeypatch):
@@ -182,6 +191,7 @@ def test_reduction_et_acompte_ne_sont_pas_la_meme_chose(db, facture, monkeypatch
     """Invariant central : la réduction entre dans le total facturé, l'acompte non."""
     from app.services import factures_proprietaires_edition_service as edition
     compo.ajouter_reduction(facture, libelle="Remise", montant=25, acteur="t", db_path=db)
+    _emettre_avant_reglement(db, facture)
     edition.ajouter_acompte(facture, montant=100, date_mouvement="2026-06-05", acteur="t",
                             db_path=db)
     d = compo.decomposition(facture, db_path=db)
@@ -197,6 +207,7 @@ def test_formule_totale_exacte(db, facture, ecritures_actives):
     _charge_rattachee(db, facture)                                           # +42.90
     compo.ajouter_extra(facture, libelle="Extra", montant=60, acteur="t", db_path=db)   # +60
     compo.ajouter_reduction(facture, libelle="Remise", montant=25, acteur="t", db_path=db)  # -25
+    _emettre_avant_reglement(db, facture)
     edition.ajouter_acompte(facture, montant=100, date_mouvement="2026-06-05", acteur="t",
                             db_path=db)
     d = compo.decomposition(facture, db_path=db)

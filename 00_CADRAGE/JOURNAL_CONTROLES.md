@@ -6088,3 +6088,15 @@ Détail : `CUTOVER_V1_2026-09.md` §19.
   séjours éditables (LOG_0001 : 6 séjours, conformes au rapport Hostaway).
 - Tests : `test_factures_proprietaires_brouillon.py` (15) ; suite complète 4 734 passed /
   37 skipped / 0 failed.
+
+## CTR-COMPTE-CLIENT-2026-10-03 — Brouillons sans impact, crédit Didier, avoirs
+
+- Sauvegardes : `BCK-8D4CBB13C3E6` (protégée), `BCK-F037E6FA644F` (avant migration 0123, VALIDE).
+- Effets des brouillons sur les comptes clients : 0 imputation, 0 acompte, 0 allocation,
+  0 écriture — rien à retirer ; garde-fous ajoutés pour que cela reste vrai.
+- Crédit `CRD-05508FCF33DA` (PROP_0001, 300 €) ; écritures `ECR-BF30A5478CD0` (467100 / 419100) et
+  `ECR-42227A640E11` (654000 / 467100), VALIDÉES. Soldes : 467100 = 0, 654000 = 300 D,
+  419100 = 300 C (Didier). Compte propriétaire et Créances & Dettes : crédit disponible 300 €,
+  créance 0, état CRÉDITEUR. Aucune facture émise.
+- Tests : `test_compte_client_credits_avoirs.py` 11/11 ; régression ciblée (52 fichiers) : 905 passed
+  puis les 14 tests portant les anciennes règles mis à jour, 275 + 52 passed. integrity ok, FK 0.

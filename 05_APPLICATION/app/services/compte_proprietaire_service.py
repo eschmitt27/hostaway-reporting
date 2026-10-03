@@ -22,15 +22,20 @@ Elles sont consommées dans l'ordre CHRONOLOGIQUE, sans priorité de type. Un or
 demandé de décider laquelle prime, décision que rien dans le métier ne tranche ; l'ordre
 chronologique, lui, se lit directement dans les données.
 
-POURQUOI L'AVOIR N'EST PAS UNE SOURCE
-Un avoir réduit déjà ce que doit le propriétaire : `creances_dettes_service` le présente comme une
-créance de montant NÉGATIF, et c'est la représentation en place. En faire aussi une source FIFO le
-compterait DEUX FOIS — une fois en diminuant le solde de la facture, une fois en diminuant le total
-des créances. Ce piège a été constaté en test, pas supposé.
+L'AVOIR ÉMIS EST UNE SOURCE (décision du 2026-10-03)
+Un avoir ÉMIS diminue la créance du client ; s'il dépasse ce qui reste dû, le surplus devient un
+crédit disponible, consommé par les factures émises ensuite. Il est donc une SOURCE du FIFO, au
+même titre qu'un paiement — et n'est plus présenté comme une créance négative dans
+`creances_dettes_service` (il serait sinon compté deux fois). Un avoir en brouillon n'a aucun effet.
 
-Une autre lecture existe — « un avoir solde en priorité la facture qu'il corrige », dont il porte
-d'ailleurs la référence dans `facture_origine`. Elle est défendable, elle n'est pas appliquée :
-elle changerait une règle métier existante, et rien dans le cadrage ne la demande.
+UNE SEULE POSITION CLIENT (décision du 2026-10-03)
+    Factures ÉMISES (en comptabilité)
+  − règlements affectés (FIFO)          − avoirs ÉMIS (FIFO)
+  − crédits clients imputés (`imputations_airbnb`, reprise de solde, reversement Airbnb)
+  = position : DÉBITEUR (nous doit) / SOLDÉ / CRÉDITEUR (crédit disponible).
+Un brouillon n'a AUCUN impact. Créances & Dettes et Compte propriétaire lisent cette même
+position. Le FIFO porte sur ce qui reste dû APRÈS les imputations directes de crédit : un même
+euro n'éteint jamais deux fois la même facture.
 
 DÉTERMINISME
 Mêmes entrées ⇒ mêmes allocations. Tous les tris ont un départage explicite jusqu'à l'identifiant
@@ -60,6 +65,8 @@ from app.moteurs.fifo_engine import TOLERANCE, calculer_fifo  # noqa: F401 — r
 
 SRC_PAIEMENT = "PAIEMENT"
 SRC_REVERSEMENT = "REVERSEMENT"
+SRC_AVOIR = "AVOIR"
+POS_DEBITEUR, POS_SOLDE, POS_CREDITEUR = "DEBITEUR", "SOLDE", "CREDITEUR"
 
 ST_NON_REGLEE = "NON_REGLEE"
 ST_PARTIELLE = "PARTIELLEMENT_REGLEE"
@@ -103,9 +110,32 @@ def _factures(conn: sqlite3.Connection, proprietaire_id: str) -> list[dict[str, 
         "facture_id_opaque": r[0], "numero_facture": r[1] or "", "logement_id": r[2] or "",
         "mois": r[3] or "", "montant_total": _round(r[4]),
         "date_emission": r[5] or r[6] or "", "date_facture": r[6] or "",
+        "credits_imputes": _credits_imputes(conn, r[0]),
     } for r in rows]
     factures.sort(key=lambda f: (f["date_emission"], f["numero_facture"], f["facture_id_opaque"]))
     return factures
+
+
+def _credits_imputes(conn: sqlite3.Connection, facture_id: str) -> float:
+    """Crédits imputés DIRECTEMENT sur la facture (reprise de solde, reversement Airbnb)."""
+    try:
+        return _round(conn.execute(
+            "SELECT COALESCE(SUM(montant_impute), 0) FROM imputations_airbnb WHERE document_id = ? "
+            "AND UPPER(COALESCE(statut, 'VALIDE')) IN ('VALIDE', 'VALIDEE')",
+            (facture_id,)).fetchone()[0])
+    except sqlite3.Error:
+        return 0.0
+
+
+def _avoirs_emis(conn: sqlite3.Connection, proprietaire_id: str) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT facture_id_opaque, numero_facture, montant_total, date_emission, date_facture "
+        "FROM factures_proprietaires WHERE proprietaire_id = ? AND statut = 'EMIS' "
+        "AND type_document = 'AVOIR' AND COALESCE(hors_compta, 0) = 0",
+        (proprietaire_id,)).fetchall()
+    return [{"source_type": SRC_AVOIR, "source_ref": r[0], "numero": r[1] or "",
+             "source_date": r[3] or r[4] or "", "montant": _round(abs(r[2] or 0)),
+             "nature": "AVOIR"} for r in rows if abs(r[2] or 0) > TOLERANCE]
 
 
 def _sources(conn: sqlite3.Connection, proprietaire_id: str) -> list[dict[str, Any]]:
@@ -125,8 +155,8 @@ def _sources(conn: sqlite3.Connection, proprietaire_id: str) -> list[dict[str, A
             "source_ref": r[0], "source_date": r[1] or "", "montant": montant, "nature": r[4],
         })
 
-    # Les avoirs ne figurent PAS ici : ils réduisent déjà la créance côté `creances_dettes_service`
-    # (créance négative). Les ajouter les compterait deux fois. Voir la docstring du module.
+    # Avoirs ÉMIS : source au même titre qu'un paiement (docstring du module).
+    sources.extend(_avoirs_emis(conn, proprietaire_id))
     sources.sort(key=lambda s: (s["source_date"], s["source_type"], s["source_ref"]))
     return sources
 
@@ -151,7 +181,10 @@ def _empreinte_allocations(allocations: list[dict]) -> str:
 def _calculer(conn: sqlite3.Connection, proprietaire_id: str) -> dict[str, Any]:
     factures = _factures(conn, proprietaire_id)
     sources = _sources(conn, proprietaire_id)
-    allocations = calculer_fifo(factures, sources)
+    # Le FIFO ne voit que ce qui reste dû APRÈS les crédits imputés directement sur la facture.
+    allocations = calculer_fifo(
+        [{**f, "montant_total": _round(f["montant_total"] - f["credits_imputes"])} for f in factures],
+        sources)
     return {"factures": factures, "sources": sources, "allocations": allocations,
             "empreinte_entrees": _empreinte(factures, sources),
             "empreinte_allocations": _empreinte_allocations(allocations)}
@@ -328,8 +361,12 @@ def position(proprietaire_id: str, *, db_path=None) -> dict[str, Any]:
     # « compensé 0,00 € » en face d'un solde qui, lui, en tenait compte.
     compensations = _somme(lignes_factures, "compense")
     creance_restante = _somme(lignes_factures, "solde")
-    credit_disponible = _somme(lignes_sources, "disponible",
-                               lambda s: s["source_type"] != SRC_REVERSEMENT)
+    credits_clients = _credits_clients(proprietaire_id, db_path=db_path)
+    credit_disponible = _round(_somme(lignes_sources, "disponible",
+                                      lambda s: s["source_type"] != SRC_REVERSEMENT)
+                               + sum(c["reste"] for c in credits_clients
+                                     if c["statut"] == "DISPONIBLE"))
+    avoirs_emis = _somme(lignes_sources, "montant", lambda s: s["source_type"] == SRC_AVOIR)
     # Ce qui reste réellement à virer au propriétaire après compensation (§26).
     virement_net = _round(reversements_dus - compensations)
     # Mission 38 bis : ce qui a DÉJÀ été viré (versement rapproché d'un débit bancaire dans Flux)
@@ -349,6 +386,11 @@ def position(proprietaire_id: str, *, db_path=None) -> dict[str, Any]:
         "compensations": compensations,
         "creance_restante": creance_restante,
         "credit_disponible": credit_disponible,
+        "credits_clients": credits_clients,
+        "avoirs_emis": avoirs_emis,
+        "etat_compte": (POS_DEBITEUR if creance_restante - credit_disponible > TOLERANCE
+                        else POS_CREDITEUR if credit_disponible - creance_restante > TOLERANCE
+                        else POS_SOLDE),
         "virement_net": virement_net,
         "vire": vire,
         "reste_a_virer": reste_a_virer,
@@ -356,6 +398,15 @@ def position(proprietaire_id: str, *, db_path=None) -> dict[str, Any]:
         "position_nette": _round(creance_restante - credit_disponible - reste_a_virer),
         "persistance": etat_persistance(proprietaire_id, calcul, db_path=db_path),
     }
+
+
+def _credits_clients(proprietaire_id: str, *, db_path=None) -> list[dict[str, Any]]:
+    """Crédits clients (419100) du propriétaire : origine, montant, utilisé, reste, imputations."""
+    try:
+        from app.services import credits_clients_service as credits
+        return credits.lister(proprietaire_id=proprietaire_id, db_path=db_path)
+    except sqlite3.Error:
+        return []
 
 
 def etat_persistance(proprietaire_id: str, calcul: dict[str, Any] | None = None, *,
@@ -448,7 +499,8 @@ def imputations_detail(facture_id: str, *, db_path=None,
 
     reversements = _round(sum(_round(r["montant_impute"])
                               for r in fpr.reversements_airbnb(facture_id, db_path=db_path)))
-    compense = _round(par_type.get(SRC_REVERSEMENT, 0.0) + reversements)
+    compense = _round(par_type.get(SRC_REVERSEMENT, 0.0) + par_type.get(SRC_AVOIR, 0.0)
+                      + reversements)
 
     # Part des acomptes DANS `regle` — pour l'expliquer à l'écran, jamais pour l'additionner.
     acomptes = _round(sum(_round(a["montant"])
@@ -498,7 +550,10 @@ def proprietaires_concernes(*, db_path=None) -> list[str]:
             "AND COALESCE(hors_compta, 0) = 0 "
             "UNION "
             "SELECT DISTINCT proprietaire_id FROM mouvements_tresorerie_proprietaires "
-            "WHERE statut='VALIDE' AND actif=1").fetchall()
+            "WHERE statut='VALIDE' AND actif=1 "
+            "UNION "
+            "SELECT DISTINCT proprietaire_id FROM credits_clients WHERE statut='DISPONIBLE'"
+        ).fetchall()
         return sorted(r[0] for r in rows if r[0])
     finally:
         conn.close()

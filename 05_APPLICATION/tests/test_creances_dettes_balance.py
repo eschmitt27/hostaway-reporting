@@ -79,8 +79,9 @@ def test_facture_annulee_absente_des_creances(db):
     assert cd.creances(db_path=db) == []
 
 
-def test_avoir_apparait_en_negatif(db):
-    """Un avoir réduit ce que le propriétaire doit : il est inclus, avec un montant négatif."""
+def test_avoir_emis_solde_la_facture_sans_creance_negative(db):
+    """Décision du 2026-10-03 : un avoir émis diminue la créance de la facture (source du compte
+    client) ; il n'apparaît plus comme une créance négative (il serait compté deux fois)."""
     emise = _facture_emise(db)
     avoir = fpr.creer_avoir(emise["facture_id_opaque"], motif="remise", db_path=db)
     aid = avoir["facture_id_opaque"]
@@ -89,9 +90,8 @@ def test_avoir_apparait_en_negatif(db):
                 db_path=db)
 
     lignes = cd.creances(db_path=db)
-    assert len(lignes) == 2
-    assert round(sum(l["solde"] for l in lignes), 2) == 0.0
-    assert any(l["type_document"] == fpr.TYPE_AVOIR and l["solde"] == -500.0 for l in lignes)
+    assert len(lignes) == 1 and lignes[0]["type_document"] == fpr.TYPE_FACTURE
+    assert lignes[0]["solde"] == 0.0 and lignes[0]["compense"] == 500.0
 
 
 def test_filtres_creances(db):

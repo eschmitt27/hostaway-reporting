@@ -20,6 +20,15 @@ from app.services import factures_proprietaires_service as svc
 EMETTEUR = {"nom": "Conciergerie Fixture", "adresse": "1 rue de Test", "siret": "00000000000000"}
 DESTINATAIRE = {"nom": "Proprietaire Fixture", "adresse": "2 rue de Test"}
 
+def _emettre(db, fid):
+    """Décision du 2026-10-03 : BROUILLON = AUCUN IMPACT. Un acompte, un reversement ou un crédit
+    ne se rattache qu'à une facture ÉMISE ; les tests de règlement émettent donc d'abord."""
+    svc.valider(fid, emetteur=EMETTEUR, destinataire=DESTINATAIRE, db_path=db)
+    svc.emettre(fid, emetteur=EMETTEUR, destinataire=DESTINATAIRE, serie="RECETTE-2026",
+                date_facture="2026-07-01", db_path=db)
+    return fid
+
+
 
 @pytest.fixture()
 def db(tmp_path, monkeypatch):
@@ -369,7 +378,7 @@ def _compte(db, table):
 
 
 def test_reversement_airbnb_ne_cree_aucun_autre_objet(db):
-    fid = _facture(db)
+    fid = _emettre(db, _facture(db))
     avant = {t: _compte(db, t) for t in ("reservations_resolues", "charges", "banque_mouvements",
                                          "ecritures")}
     resultat = edition.ajouter_reversement_airbnb(fid, montant=120.0,
@@ -383,6 +392,17 @@ def test_reversement_airbnb_ne_cree_aucun_autre_objet(db):
     assert reversements[0]["document_id"] == fid
 
 
+def test_brouillon_refuse_acompte_et_reversement(db, proprietaire_connu):
+    """BROUILLON = AUCUN IMPACT (2026-10-03) : ni acompte ni reversement sur un brouillon."""
+    fid = _facture(db)
+    with pytest.raises(svc.FactureProprietaireError):
+        edition.ajouter_acompte(fid, montant=200.0, date_mouvement="2026-06-10", db_path=db)
+    with pytest.raises(svc.FactureProprietaireError):
+        edition.ajouter_reversement_airbnb(fid, montant=120.0, date_imputation="2026-06-15",
+                                           db_path=db)
+    assert _compte(db, "imputations_airbnb") == 0
+
+
 # ── D — Acompte propriétaire ────────────────────────────────────────────────────────────────────
 
 @pytest.fixture()
@@ -394,7 +414,7 @@ def proprietaire_connu(monkeypatch):
 
 
 def test_acompte_valide_et_ne_touche_ni_lot9_ni_lot10_ni_lot12(db, proprietaire_connu):
-    fid = _facture(db)
+    fid = _emettre(db, _facture(db))
     photo = _photo_lots(db)
     resultat = edition.ajouter_acompte(fid, montant=200.0, date_mouvement="2026-06-10",
                                        mode_reglement="VIREMENT", db_path=db)
@@ -410,7 +430,7 @@ def test_acompte_valide_et_ne_touche_ni_lot9_ni_lot10_ni_lot12(db, proprietaire_
 # ── E — Solde de règlement ──────────────────────────────────────────────────────────────────────
 
 def test_solde_deduit_reversements_et_acomptes(db, proprietaire_connu):
-    fid = _facture(db)
+    fid = _emettre(db, _facture(db))
     edition.ajouter_reversement_airbnb(fid, montant=120.0, date_imputation="2026-06-15",
                                        db_path=db)
     edition.ajouter_acompte(fid, montant=200.0, date_mouvement="2026-06-10", db_path=db)
@@ -423,7 +443,7 @@ def test_solde_deduit_reversements_et_acomptes(db, proprietaire_connu):
 
 
 def test_solde_regle_quand_tout_est_couvert(db, proprietaire_connu):
-    fid = _facture(db)
+    fid = _emettre(db, _facture(db))
     edition.ajouter_acompte(fid, montant=500.0, date_mouvement="2026-06-10", db_path=db)
     assert svc.solde(fid, db_path=db)["statut_reglement"] == "REGLEE"
 

@@ -68,7 +68,9 @@ def positions(*, inclure_soldes: bool = False, db_path=None) -> list[dict[str, A
         mine = par.get(pid, [])
         pos = _cpt().position(pid, db_path=db_path)
         restant = _r(sum(l["solde"] for l in mine))
-        credit = _r(pos["credit_disponible"] + _credits_airbnb_disponibles(pid, db_path=db_path))
+        # Crédit disponible : UNE source, la position du compte propriétaire (paiements et avoirs
+        # non consommés + crédits clients, dont reprise de solde et reversements Airbnb).
+        credit = _r(pos["credit_disponible"])
         # À reverser = trop-perçu sur facture + ce qui reste à virer (déjà viré déduit).
         a_virer = _r(pos.get("reste_a_virer", max(pos["virement_net"], 0)))
         a_reverser = _r(sum(l["montant_a_reverser"] for l in mine) + a_virer)

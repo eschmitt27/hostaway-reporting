@@ -2352,3 +2352,22 @@ cas, la proposition D054 (« DIRECT sans HH → À CONTRÔLER »).
 - **Factures annulées** : une facture ANNULÉE jamais émise (sans numéro) peut être supprimée
   définitivement. Une facture émise ne se supprime jamais (avoir).
 - Migration 0122 (`hors_compta`, `motif_hors_compta`, montants figés par séjour).
+
+## D-COMPTE-CLIENT-01 — Compte client : brouillon sans impact, crédit à l'émission, vrais avoirs (2026-10-03)
+
+**Décisions utilisateur (2026-10-03).**
+- **Brouillon = aucun impact** : ni créance, ni 411, ni compte propriétaire, ni consommation de
+  crédit, ni écriture. Acompte, reversement et imputation de crédit sont refusés sur une facture
+  non émise (ou hors compta).
+- **Émission** : vente et créance, puis imputation AUTOMATIQUE du crédit disponible du client
+  (du plus ancien au plus récent, jamais au-delà de la créance, reliquat conservé). Le montant de
+  la facture n'est pas modifié ; le PDF affiche « Crédit client utilisé », « NET À PAYER »,
+  « Crédit restant disponible ». Aucun avoir n'est créé pour consommer un crédit.
+- **Avoirs** : « Créer un avoir » (client, facture d'origine facultative, date, motif, montant),
+  brouillon sans impact ; émis (numéro, PDF, écriture 709600 / 411), il diminue la créance ; le
+  surplus devient crédit disponible.
+- **Position client unique** (`compte_proprietaire_service.position`) : factures émises − règlements
+  − avoirs émis − crédits imputés ; états DÉBITEUR / SOLDÉ / CRÉDITEUR. Créances & Dettes la relit.
+- **Reprise Didier (PROP_0001)** : crédit de 300 € « Solde créditeur repris de l'ancienne
+  structure » ; 467100 D / 419100 C (Didier), puis 654000 D / 467100 C. Comptes 467100 et 654000
+  ajoutés au plan (migration 0123) ; le crédit client est porté par 419100 + auxiliaire.
