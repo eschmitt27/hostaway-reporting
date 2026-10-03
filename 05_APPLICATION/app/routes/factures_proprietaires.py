@@ -151,6 +151,9 @@ def liste(request: Request, mois: str = "", statut: str = "", comptabilisee: str
     return templates.TemplateResponse(request, "factures_proprietaires_list.html", {
         "active_menu": "factures_proprietaires", "factures": factures, "mois": mois, "statut": statut,
         "statuts": svc.STATUTS, "comptabilisee": comptabilisee, "message": message,
+        # Affichage seulement : le filtre déjà appliqué est dit à l'écran et conservé par
+        # « Filtrer » (il était appliqué sans être visible, et perdu au premier filtrage).
+        "proprietaire_id": proprietaire_id,
         "nb_annulees_supprimables": sum(1 for f in svc.lister(statut=svc.ST_ANNULE)
                                         if brouillon.supprimable(f)),
         "factures_emises": [f for f in svc.lister(statut=svc.ST_EMIS)
