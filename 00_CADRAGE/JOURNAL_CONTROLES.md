@@ -6072,3 +6072,9 @@ Détail : `CUTOVER_V1_2026-09.md` §19.
   manuelle 21→27/09 (400 €) → À CONTRÔLER, décision utilisateur requise.
 - integrity_check ok, foreign_key_check 0. Tests : 987 passed sur les 57 fichiers concernés + 9
   nouveaux (`test_reservations_directes_hostaway.py`).
+- Suite (même jour) : saisie hors Hostaway `RESHH-2026-09-001` (LOG_0015, 21→27/09, 400 €, créée dans
+  l'application le 19/09/2026, jamais liée à Hostaway) déclarée non réelle par l'utilisateur →
+  annulée (statut ANNULEE, motif tracé). Réservation directe 60047710 ramenée à 700 € dans Hostaway
+  par l'utilisateur ; actualisation globale `ORCH-20261003133400-dcea45` SUCCES (sauvegarde
+  préalable incluse). LOG_0015 septembre : 1 réservation, 700 €, ménage 29 €, commission 100,65 €,
+  plus aucune réservation à contrôler. integrity_check ok, FK 0.
