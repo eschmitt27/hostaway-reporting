@@ -197,15 +197,38 @@ def test_08_avoir_superieur_a_la_creance_devient_credit(db):
     # L'avoir corrige le CA (709600, rabais accordés) et la créance (411) — ni charge ni paiement.
     ecr = compta.charger_par_origine(compta.ORIGINE_FACTURE, aid, db)
     assert {(l["compte"], l["debit"], l["credit"]) for l in compta.lignes(ecr["ecriture_id_opaque"], db)}         == {("709600", 150.0, 0.0), ("411000", 0.0, 150.0)}
-    assert _solde_compte(db, "411000", PID) == -10     # client créditeur de 10 €
+    # Le surplus (10 €) quitte le 411 et devient un crédit canonique : 411 D / 419700 C.
+    assert _solde_compte(db, "411000", PID) == 0
+    assert _solde_compte(db, "419700", PID) == -10
+    surplus = [c for c in credits.lister(proprietaire_id=PID, db_path=db)
+               if c["origine"] == credits.ORIGINE_SURPLUS_AVOIR]
+    assert len(surplus) == 1 and surplus[0]["reste"] == 10 and surplus[0]["reference"] == aid
+    assert surplus[0]["statut"] == credits.ST_DISPONIBLE
     pos = cpt.position(PID, db_path=db)
-    assert pos["creance_restante"] == 0 and pos["credit_disponible"] == 10
+    assert pos["creance_restante"] == 0 and pos["credit_disponible"] == 10, "compté une seule fois"
     assert pos["etat_compte"] == cpt.POS_CREDITEUR
-    # Le surplus est consommé par la facture émise ensuite.
+    # L'avoir ne garde comme source que ce qui a soldé la facture (140 €) ; le surplus est au registre.
+    assert [(s["montant"], s["disponible"]) for s in pos["sources"]
+            if s["source_type"] == cpt.SRC_AVOIR] == [(140.0, 0.0)]
+    # Rejouer la comptabilisation ne recrée rien.
+    assert credits.convertir_surplus_avoir(aid, acteur="t", db_path=db)["deja_converti"]
+    # Le crédit est imputé automatiquement à l'émission suivante, comme celui de Didier.
     f2 = _brouillon(db, 30, logement="LOG_2")
     _emettre(db, f2)
     pos = cpt.position(PID, db_path=db)
     assert pos["credit_disponible"] == 0 and pos["creance_restante"] == 20
+    assert _solde_facture(db, f2) == 20
+    assert _solde_compte(db, "419700", PID) == 0 and _solde_compte(db, "411000", PID) == 20
+
+
+def test_08b_avoir_partiel_sans_surplus_aucun_credit(db):
+    fid = _brouillon(db, 140)
+    _emettre(db, fid)
+    aid = svc.creer_avoir_libre(proprietaire_id=PID, facture_origine=fid, motif="geste",
+                                montant=40, db_path=db)["facture_id_opaque"]
+    _emettre(db, aid)
+    assert credits.lister(proprietaire_id=PID, db_path=db) == []
+    assert _solde_compte(db, "419700", PID) == 0 and _solde_compte(db, "411000", PID) == 100
 
 
 def test_07b_avoir_total_sur_facture_inverse_les_produits(db):

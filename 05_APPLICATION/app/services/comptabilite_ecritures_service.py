@@ -893,7 +893,13 @@ def comptabiliser_facture_emise(facture: dict[str, Any], *, acteur: str = "",
     finally:
         conn.close()
     credits = [generer_ecriture_imputation_credit(i, acteur=acteur, db_path=db_path) for i in ids]
-    return {"vente": vente, "imputation": imputation, "credits": credits}
+    surplus = None
+    if facture.get("type_document") == "AVOIR" and vente.get("ok"):
+        # Surplus d'avoir au-delà de la créance : 411 → 419700, crédit client canonique.
+        from app.services import credits_clients_service as credits_svc
+        surplus = credits_svc.convertir_surplus_avoir(facture["facture_id_opaque"], acteur=acteur,
+                                                      db_path=db_path)
+    return {"vente": vente, "imputation": imputation, "credits": credits, "surplus": surplus}
 
 
 def generer_ecriture_vente(proprietaire_id: str, mois: str, montant_du_conciergerie: float, *,

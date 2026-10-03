@@ -2376,3 +2376,7 @@ cas, la proposition D054 (« DIRECT sans HH → À CONTRÔLER »).
   Migration 0124 ; reclassement 419100 D / 419700 C des 300 € de Didier (`ECR-D240C651CE4C`).
   Un avoir émis corrige le CA (709600 ou comptes 706 inversés) et la créance (411) ; son surplus reste
   au crédit du 411 et apparaît en crédit disponible — ni charge ni paiement.
+- **Harmonisation (même jour)** : le surplus d'un avoir émis au-delà de la créance restante est
+  reclassé 411000 D / 419700 C (auxiliaire = client) et enregistré au registre `credits_clients`
+  (origine SURPLUS_AVOIR, référence = l'avoir), imputable automatiquement comme le crédit de Didier.
+  Source unique des crédits clients : 419700 + `credits_clients` (migration 0125).

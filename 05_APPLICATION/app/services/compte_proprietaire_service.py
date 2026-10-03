@@ -133,9 +133,25 @@ def _avoirs_emis(conn: sqlite3.Connection, proprietaire_id: str) -> list[dict[st
         "FROM factures_proprietaires WHERE proprietaire_id = ? AND statut = 'EMIS' "
         "AND type_document = 'AVOIR' AND COALESCE(hors_compta, 0) = 0",
         (proprietaire_id,)).fetchall()
-    return [{"source_type": SRC_AVOIR, "source_ref": r[0], "numero": r[1] or "",
-             "source_date": r[3] or r[4] or "", "montant": _round(abs(r[2] or 0)),
-             "nature": "AVOIR"} for r in rows if abs(r[2] or 0) > TOLERANCE]
+    # La part d'un avoir déjà reclassée en crédit client (411 → 419700, origine SURPLUS_AVOIR)
+    # appartient désormais au registre des crédits : elle sort du FIFO, sinon comptée deux fois.
+    convertis: dict[str, float] = {}
+    try:
+        for ref, montant in conn.execute(
+                "SELECT reference, SUM(montant_initial) FROM credits_clients "
+                "WHERE proprietaire_id = ? AND origine = 'SURPLUS_AVOIR' AND statut <> 'ANNULE' "
+                "GROUP BY reference", (proprietaire_id,)):
+            convertis[ref] = _round(montant)
+    except sqlite3.Error:
+        pass
+    sources = []
+    for r in rows:
+        montant = _round(abs(r[2] or 0) - convertis.get(r[0], 0.0))
+        if montant > TOLERANCE:
+            sources.append({"source_type": SRC_AVOIR, "source_ref": r[0], "numero": r[1] or "",
+                            "source_date": r[3] or r[4] or "", "montant": montant,
+                            "nature": "AVOIR"})
+    return sources
 
 
 def _sources(conn: sqlite3.Connection, proprietaire_id: str) -> list[dict[str, Any]]:

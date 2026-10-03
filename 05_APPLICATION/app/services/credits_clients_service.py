@@ -36,12 +36,15 @@ ORIGINE_ACOMPTE = "ACOMPTE"
 # Solde créditeur dû par l'ancienne structure, repris par la nouvelle société (migration 0123).
 ORIGINE_REPRISE_SOLDE = "REPRISE_SOLDE"
 LIBELLE_REPRISE_SOLDE = "Solde créditeur repris de l'ancienne structure"
+# Surplus d'un avoir émis au-delà de la créance restante (migration 0125).
+ORIGINE_SURPLUS_AVOIR = "SURPLUS_AVOIR"
 COMPTE_ANCIENNE_STRUCTURE = "467100"
 COMPTE_PERTE_CREANCE = "654000"
 MODE_BANQUE, MODE_JUSTIFIE = "BANQUE", "JUSTIFIE"
 ST_EN_ATTENTE, ST_DISPONIBLE, ST_ANNULE = "EN_ATTENTE_ORIGINE", "DISPONIBLE", "ANNULE"
 LIBELLES_ORIGINE = {ORIGINE_REVERSEMENT_AIRBNB: "Reversement Airbnb", ORIGINE_ACOMPTE: "Acompte",
-                    ORIGINE_REPRISE_SOLDE: LIBELLE_REPRISE_SOLDE}
+                    ORIGINE_REPRISE_SOLDE: LIBELLE_REPRISE_SOLDE,
+                    ORIGINE_SURPLUS_AVOIR: "Surplus d'avoir"}
 LIBELLES_STATUT = {ST_EN_ATTENTE: "En attente de son encaissement bancaire",
                    ST_DISPONIBLE: "Disponible", ST_ANNULE: "Annulé"}
 
@@ -53,7 +56,8 @@ COMPTE_AUTRES_AVOIRS = "419700"
 
 def compte_du_credit(origine: str) -> str:
     """Compte de tiers qui porte un crédit client, selon son origine."""
-    return COMPTE_AUTRES_AVOIRS if origine == "REPRISE_SOLDE" else COMPTE_CREDITS
+    return COMPTE_AUTRES_AVOIRS if origine in ("REPRISE_SOLDE", "SURPLUS_AVOIR") \
+        else COMPTE_CREDITS
 COMPTE_CLIENTS = "411000"
 COMPTES_SOURCE_INTERDITS = ("512", "530", "411", "419")
 
@@ -552,6 +556,79 @@ def reclasser_reprise_vers_419700(credit_id: str, *, acteur: str, db_path=None) 
     finally:
         conn.close()
     return {"ok": True, "ecriture_id_opaque": res["ecriture_id_opaque"], "montant": sur_419100}
+
+
+# ══ Surplus d'un avoir émis → crédit client ═════════════════════════════════════════════════════
+
+def convertir_surplus_avoir(avoir_id: str, *, acteur: str, db_path=None) -> dict[str, Any]:
+    """Avoir ÉMIS qui dépasse la créance restante : le surplus quitte le 411 et devient un crédit
+    client canonique — écriture validée 411000 D / 419700 C (auxiliaire = client) et crédit
+    DISPONIBLE au registre (origine SURPLUS_AVOIR, référence = l'avoir), imputable
+    automatiquement à la prochaine émission. Le surplus = ce que le compte client n'a pas pu
+    imputer de cet avoir sur les factures émises. Idempotent (un crédit par avoir)."""
+    from app.services import comptabilite_ecritures_service as compta
+    from app.services import compte_proprietaire_service as cpt
+    from app.services import factures_proprietaires_service as fpr
+
+    a = fpr.lire(avoir_id, db_path=db_path)
+    if a["type_document"] != fpr.TYPE_AVOIR or a["statut"] != fpr.ST_EMIS \
+            or int(a.get("hors_compta") or 0):
+        return {"ok": True, "sans_objet": True}
+    pid = a["proprietaire_id"]
+    conn = get_db(db_path)
+    try:
+        if conn.execute("SELECT 1 FROM credits_clients WHERE origine=? AND reference=?",
+                        (ORIGINE_SURPLUS_AVOIR, avoir_id)).fetchone():
+            return {"ok": True, "deja_converti": True}
+    finally:
+        conn.close()
+    source = next((s for s in cpt.position(pid, db_path=db_path)["sources"]
+                   if s["source_ref"] == avoir_id), None)
+    surplus = _r(source["disponible"]) if source else 0.0
+    if surplus <= EPS:
+        return {"ok": True, "surplus": 0.0}
+    if not compta._flags_actifs():
+        return _refus(E_ECRITURE, compta.MESSAGES[compta.E_FLAGS])
+
+    numero = a.get("numero_facture") or avoir_id
+    jour = (a.get("date_facture") or f"{a['mois']}-01")[:10]
+    credit_id = "CRD-" + uuid.uuid4().hex[:12].upper()
+    piece = f"{numero}-SURPLUS"
+    conn = get_db(db_path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            "INSERT INTO credits_clients (credit_id_opaque, proprietaire_id, origine, mode_origine, "
+            "date_origine, mois, montant_initial, reference, justification, compte_source, statut, "
+            "cree_par) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (credit_id, pid, ORIGINE_SURPLUS_AVOIR, MODE_JUSTIFIE, jour, jour[:7], surplus,
+             avoir_id, f"Surplus de l'avoir {numero} au-delà de la créance restante",
+             COMPTE_CLIENTS, ST_DISPONIBLE, acteur or "local"))
+        _evenement(conn, credit_id, "CREATION", acteur=acteur, montant=surplus,
+                   facture_id=avoir_id, detail=f"Surplus de l'avoir {numero}")
+        res = compta._inserer_ecriture(
+            "ODIVERSES", jour, jour[:7], piece, f"Surplus de l'avoir {numero} — crédit client",
+            "CREDIT_CLIENT", piece,
+            [{"compte": COMPTE_CLIENTS, "debit": surplus, "credit": 0, "auxiliaire": pid,
+              "proprietaire_id": pid, "libelle": f"Avoir {numero} : surplus reclassé en crédit"},
+             {"compte": COMPTE_AUTRES_AVOIRS, "debit": 0, "credit": surplus, "auxiliaire": pid,
+              "proprietaire_id": pid, "libelle": f"Crédit client — surplus de l'avoir {numero}"}],
+            acteur=acteur, db_path=db_path, conn=conn)
+        if not res.get("ok"):
+            conn.rollback()
+            return _refus(E_ECRITURE, f"{res.get('message')} {res.get('detail', '')}".strip())
+        compta.valider_dans_transaction(conn, res["ecriture_id_opaque"],
+                                        commentaire="Surplus d'avoir reclassé en crédit client",
+                                        acteur=acteur)
+        conn.execute("UPDATE credits_clients SET ecriture_origine=? WHERE credit_id_opaque=?",
+                     (res["ecriture_id_opaque"], credit_id))
+        _evenement(conn, credit_id, "ORIGINE_CONSTATEE", acteur=acteur, montant=surplus,
+                   ecriture_id=res["ecriture_id_opaque"], detail="411000 → 419700")
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "credit_id_opaque": credit_id, "surplus": surplus,
+            "ecriture_id_opaque": res["ecriture_id_opaque"]}
 
 
 # ══ Imputation automatique à l'émission ═════════════════════════════════════════════════════════

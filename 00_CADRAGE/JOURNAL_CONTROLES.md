@@ -6103,3 +6103,5 @@ Détail : `CUTOVER_V1_2026-09.md` §19.
 - Reclassement 4197 : migration 0124 (sauvegarde `BCK-9BE946EA98BC`), écriture `ECR-D240C651CE4C`
   419100 D / 419700 C 300 € (Didier). Soldes : 419700 Didier = 300 C, 419100 Didier = 0, 467100 = 0,
   654000 = 300 D ; crédit disponible 300 € (compte et créances). Tests ciblés : 99 passed.
+- Surplus d'avoir → crédit client : migration 0125 (sauvegarde `BCK-6CCC7358B42B`), aucun avoir
+  existant donc rien à convertir ; Didier inchangé (300 € disponibles). Tests ciblés : 84 passed.
