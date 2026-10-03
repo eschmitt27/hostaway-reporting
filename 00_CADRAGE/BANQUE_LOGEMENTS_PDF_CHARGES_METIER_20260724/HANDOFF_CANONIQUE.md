@@ -4789,3 +4789,22 @@ re-contrôlée. Références :
 
 **Prochaine action (utilisateur).** Facturer septembre 2026, le premier mois V1. Cette mission ne
 l'a pas commencé.
+
+## Mission Fiabiliser les sauvegardes automatiques (2026-10-03)
+
+**État.** Sauvegarde des données `app.db` automatique, vérifiée, avec rotation. Référence complète :
+`00_CADRAGE/BACKUP_RESTORE.md`.
+
+- Quotidienne (`DAILY`) vers 03:00 via le minuteur existant de l'ordonnanceur, une seule par jour,
+  indépendante de Hostaway (`BACKUP_DAILY_ENABLED=true` dans le `.env` réel).
+- Avant migration : `migration_service.migrer_au_demarrage()` dans `main.lifespan` — copie
+  uniquement si une migration est en attente ; copie impossible → migration non lancée ; échec →
+  restauration et démarrage refusé.
+- Avant actualisation globale : inchangé (catégorie `BEFORE_GLOBAL_REFRESH`). Hostaway, imports,
+  recalculs ciblés : aucune copie complète (transactions / activation atomique).
+- Rotation GFS 7 jours / 4 semaines / 6 mois sur les mêmes fichiers ; protégées et archives jamais
+  supprimées ; sauvegardes héritées hors rotation (nettoyage sur validation séparée, non fait).
+- Archive V1 `archive_v1_2026-10-03pp_data_v1_2026-10-03_020652.db` inscrite `ARCHIVE` protégée,
+  SHA256 inchangé `fb0170a1…94cff`.
+- Destination secondaire `BACKUP_SECONDARY_DIR` prête, **NON CONFIGURÉE** (choix utilisateur).
+- Tests : `tests/test_sauvegardes_politique.py` (37) + `test_backup_service.py` adapté.

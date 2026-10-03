@@ -67,6 +67,22 @@
     <div class="card-title">Sauvegardes de la base</div>
     {% if sauvegardes %}<span class="fi-compteur">{{ sauvegardes|length }}</span>{% endif %}
   </div>
+  {% set es = etat_sauvegardes %}
+  <div class="ec-table-wrap" data-testid="etat-sauvegardes">
+  <table class="table">
+    <tbody>
+      <tr><th>Dernière sauvegarde réussie</th>
+        <td>{% if es.derniere %}{{ es.derniere.date_locale }} — {{ es.derniere.categorie }} — {{ (es.derniere.taille / 1048576) | round(1) }} Mo{% else %}Aucune{% endif %}</td></tr>
+      <tr><th>Sauvegardes conservées</th>
+        <td>{{ es.nb_sauvegardes }} (quotidiennes {{ es.roles.DAILY }}, hebdomadaires {{ es.roles.WEEKLY }}, mensuelles {{ es.roles.MONTHLY }}, protégées {{ es.protegees }}, héritées hors rotation {{ es.heritees }})</td></tr>
+      <tr><th>Espace disque utilisé</th><td>{{ (es.espace_octets / 1073741824) | round(2) }} Go</td></tr>
+      <tr><th>Sauvegarde quotidienne</th>
+        <td>{% if es.quotidienne_active %}<span class="badge badge-success">ACTIVE</span> à {{ "%02d"|format(es.heure_quotidienne) }}:00{% if es.prochaine_quotidienne %} — prochaine : {{ es.prochaine_quotidienne }}{% endif %}{% else %}<span class="badge">DÉSACTIVÉE</span>{% endif %}</td></tr>
+      <tr><th>Sauvegarde secondaire</th>
+        <td>{% if es.secondaire_configure %}<span class="badge badge-success">CONFIGURÉE</span>{% else %}<span class="badge">NON CONFIGURÉE</span>{% endif %}</td></tr>
+    </tbody>
+  </table>
+  </div>
   {% if sauvegardes %}
   <div class="ec-table-wrap">
   <table class="table">
@@ -95,7 +111,7 @@
   <div class="fi-vide">
     <span class="fi-vide__icone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></span>
     <span class="fi-vide__titre">Aucune sauvegarde enregistrée.</span>
-    <span class="fi-vide__texte">Une sauvegarde de la base est prise automatiquement avant chaque opération qui écrit.</span>
+    <span class="fi-vide__texte">Une sauvegarde est prise automatiquement chaque nuit, avant une migration et avant une actualisation globale.</span>
   </div>
   {% endif %}
 </div>

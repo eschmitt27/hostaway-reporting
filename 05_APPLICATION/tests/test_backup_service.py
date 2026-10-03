@@ -125,12 +125,14 @@ def test_restaurer_refuse_une_sauvegarde_corrompue(db):
     assert r["code"] == "E_SAUVEGARDE_INVALIDE"
 
 
-def test_purger_conserve_les_n_plus_recentes(db):
+def test_purger_ne_supprime_jamais_une_sauvegarde_manuelle(db):
+    """Politique 2026-10-03 : la rotation porte sur les catégories automatiques ; une sauvegarde
+    MANUELLE n'est jamais supprimée automatiquement (cf. test_sauvegardes_politique.py)."""
     for i in range(5):
         backup_service.sauvegarder(f"TEST_{i}", db_path=db)
-    res = backup_service.purger(garder_n=2, db_path=db)
-    assert res["conservees"] == 2
-    assert len(backup_service.lister(db_path=db)) == 2
+    res = backup_service.purger(dry_run=False, db_path=db)
+    assert res["supprimees"] == []
+    assert len(backup_service.lister(db_path=db)) == 5
 
 
 @pytest.fixture
@@ -306,11 +308,18 @@ def test_backup_survit_a_destruction_de_la_source(db, tmp_path):
         conn.close()
 
 
-def test_purger_ne_supprime_jamais_automatiquement():
-    """Non-régression du principe mission §2 : purger() n'est appelé nulle part automatiquement."""
-    import subprocess
-    result = subprocess.run(
-        ["git", "grep", "-n", "backup_service.purger", "--", "app/"],
-        cwd=str(cfg.PROJECT_ROOT), capture_output=True, text=True)
-    appelants = [l for l in result.stdout.splitlines() if "def purger" not in l]
-    assert appelants == [], f"purger() ne doit être appelé que sur demande explicite : {appelants}"
+def test_purger_automatique_uniquement_apres_la_quotidienne_et_sans_les_heritees():
+    """Principe mission §2 reformulé par la politique 2026-10-03 (« aucune suppression automatique
+    sans règle claire ») : la SEULE suppression automatique est la rotation qui suit la sauvegarde
+    quotidienne, et elle n'inclut jamais les sauvegardes héritées."""
+    import inspect
+    import re
+    # L'ancien `git grep ... app/` lancé depuis la racine du dépôt ne trouvait jamais rien (le code
+    # vit sous 05_APPLICATION/app) : parcours direct des sources, sans dépendre de git.
+    appelants = [f"{f.name}:{n}" for f in (cfg.APP_ROOT / "app").rglob("*.py")
+                 for n, l in enumerate(f.read_text(encoding="utf-8").splitlines(), 1)
+                 if re.search(r"(?<![_\w])purger\(", l) and "def purger" not in l]
+    assert len(appelants) == 1 and appelants[0].startswith("backup_service.py:"), appelants
+    source = inspect.getsource(backup_service.sauvegarde_quotidienne)
+    assert "purger(dry_run=False, db_path=db_path)" in source
+    assert "inclure_heritees" not in source

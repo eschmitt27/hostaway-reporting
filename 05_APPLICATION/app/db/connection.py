@@ -32,6 +32,27 @@ def _versions_appliquees(conn) -> set[str]:
         return set()
 
 
+def migrations_en_attente(db_path: Path | None = None) -> dict:
+    """Ce que `apply_migrations()` jouerait, calculé SANS modifier la base (connexion simple : pas
+    de `get_db()`, qui forcerait `journal_mode=WAL`). `base_neuve` : fichier absent, vide ou sans
+    aucune version enregistrée — il n'y a alors aucune donnée à protéger par une sauvegarde."""
+    resolved = Path(db_path) if db_path is not None else Path(cfg.DB_PATH)
+    fichiers = sorted(MIGRATIONS_DIR.glob("*.sql"))
+    versions = [f.stem.split("_", 1)[0] for f in fichiers]
+    if not resolved.exists() or resolved.stat().st_size == 0:
+        return {"base_neuve": True, "a_jouer": versions, "version_actuelle": None,
+                "version_cible": versions[-1] if versions else None}
+    conn = sqlite3.connect(str(resolved))
+    try:
+        deja = _versions_appliquees(conn)
+    finally:
+        conn.close()
+    a_jouer = [v for v in versions if v not in deja] if deja else versions
+    return {"base_neuve": not deja, "a_jouer": a_jouer,
+            "version_actuelle": max(deja) if deja else None,
+            "version_cible": versions[-1] if versions else None}
+
+
 def apply_migrations(db_path: Path | None = None) -> None:
     """Applique les migrations MANQUANTES, une par une. `db_path` non fourni → `cfg.DB_PATH` lu à
     chaud (cf. get_db).

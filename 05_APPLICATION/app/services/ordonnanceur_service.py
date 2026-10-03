@@ -230,12 +230,36 @@ def _battement_protege(db_path) -> None:
                            type(exc).__name__, sanitize_exception(exc))
 
 
+def sauvegarde_quotidienne_active() -> bool:
+    """La sauvegarde quotidienne de app.db est-elle AUTORISÉE ? (cf. `cfg.BACKUP_DAILY_ENABLED`)."""
+    return bool(getattr(cfg, "BACKUP_DAILY_ENABLED", False))
+
+
+def _sauvegarde_protegee(db_path) -> None:
+    """Sauvegarde quotidienne du battement — indépendante de Hostaway : une journée sans aucune
+    activité en produit une quand même. Une panne est tracée, jamais propagée."""
+    from app.services import backup_service
+    try:
+        res = backup_service.sauvegarde_quotidienne(db_path=db_path)
+        if res.get("effectuee") and not res.get("ok"):
+            get_logger().error("Sauvegarde quotidienne non valide : %s",
+                               (res.get("sauvegarde") or {}).get("code", "copie non valide"))
+    except Exception as exc:   # noqa: BLE001
+        get_logger().error("Sauvegarde quotidienne en échec (%s) — %s",
+                           type(exc).__name__, sanitize_exception(exc))
+
+
 def _armer(generation: int, intervalle_s: float, db_path) -> None:
     """Arme le prochain battement. Toujours appelé sous `_verrou_cycle`."""
     global _minuteur
 
     def _battement():
-        _battement_protege(db_path)
+        # Deux tâches, UN minuteur : l'actualisation Hostaway (si l'ordonnanceur est activé) et la
+        # sauvegarde quotidienne (si elle est activée) — indépendantes l'une de l'autre.
+        if actif():
+            _battement_protege(db_path)
+        if sauvegarde_quotidienne_active():
+            _sauvegarde_protegee(db_path)
         with _verrou_cycle:
             if generation == _generation and _minuteur is not None:
                 _armer(generation, intervalle_s, db_path)
@@ -254,7 +278,7 @@ def demarrer(*, intervalle_s: float = 900, db_path=None) -> dict[str, Any]:
     on se demande « est-ce dû ? ». La cadence réelle reste celle de `cadences()`.
     """
     global _generation
-    if not actif():
+    if not actif() and not sauvegarde_quotidienne_active():
         return {"ok": False, "code": E_INACTIF,
                 "message": "Ordonnanceur non activé (cfg.ORDONNANCEUR_ACTIF). "
                            "Aucune actualisation automatique ne sera déclenchée."}
@@ -263,7 +287,9 @@ def demarrer(*, intervalle_s: float = 900, db_path=None) -> dict[str, Any]:
             return {"ok": True, "deja_demarre": True}
         _generation += 1
         _armer(_generation, intervalle_s, db_path)
-    return {"ok": True, "intervalle_s": intervalle_s, "cadences": cadences()}
+    return {"ok": True, "intervalle_s": intervalle_s, "cadences": cadences(),
+            "hostaway_automatique": actif(),
+            "sauvegarde_quotidienne": sauvegarde_quotidienne_active()}
 
 
 def arreter() -> None:

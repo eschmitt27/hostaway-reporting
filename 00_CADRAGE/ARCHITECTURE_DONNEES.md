@@ -130,6 +130,14 @@ Ce qui l'empêche désormais de revenir :
 été fourni, et le statut d'une période se déduit de `V1_ACCOUNTING_START_DATE`. Détail et preuves :
 `CUTOVER_V1_2026-09.md`.
 
+### 1.4 Sauvegardes de `app.db` (2026-10-03)
+
+Copies par l'API de backup SQLite sous `<APP_DATA_DIR>ackups`, chacune avec un sidecar
+`.meta.json` (catalogue qui fait foi, indépendant de la base). Catégories `DAILY`,
+`BEFORE_MIGRATION`, `BEFORE_GLOBAL_REFRESH`, `MANUAL`, `ARCHIVE` ; `WEEKLY`/`MONTHLY` sont des rôles de
+rétention d'une quotidienne. Détail, rotation, restauration et procédure d'urgence :
+`BACKUP_RESTORE.md`.
+
 ---
 
 ## 2. Principes structurants

@@ -6041,3 +6041,19 @@ D-CUTOVER-V1-02.
 - Suite complète : **4 710 tests (4 684 de référence + 26 nouveaux) : 4 673 passed / 37 skipped / 0 failed**, sur le code final, en 4 lots parallèles (1 173 + 1 175 + 1 176 + 1 149 passed).
 
 Détail : `CUTOVER_V1_2026-09.md` §19.
+
+## CTR-SAUVEGARDES-2026-10-03 — Fiabilisation des sauvegardes automatiques de app.db
+
+- Archive V1 `archive_v1_2026-10-03pp_data_v1_2026-10-03_020652.db` : inscrite `ARCHIVE`
+  protégée (sidecar ajouté, fichier non modifié), SHA256 `fb0170a1…94cff` identique avant/après.
+- Recette sur copie de la vraie base (vraie base inchangée) : sauvegarde, migration fixture 0999
+  (sauvegarde puis migration), migration en échec (restauration OK), restauration d'essai isolée,
+  quotidienne ×3 (1 seule), 2 redémarrages (0 sauvegarde).
+- Activation réelle : `BACKUP_DAILY_ENABLED=true`. Première quotidienne 03/10/2026 03:06,
+  `BCK-0FD466A9C518`, VALIDE, 233 tables / 248 620 lignes, integrity ok, FK 0, 0,8 s,
+  restauration d'essai OK. Redémarrage suivant : aucune nouvelle sauvegarde.
+- app.db : contenu métier inchangé (SHA256 `a1cacb95…8936f9` jusqu'à la quotidienne) ; seules
+  écritures : lignes `sauvegardes_base` et `run_history` de la sauvegarde. integrity ok, FK 0.
+- Sauvegardes héritées (33 inscrites + copies d'outils sans sidecar, 2,1 Go) : non supprimées.
+- Tests : `test_sauvegardes_politique.py` 37 passed ; suite complète 4 710 passed / 37 skipped /
+  0 failed.

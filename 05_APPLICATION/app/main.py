@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import STATIC_DIR, DATA_DIR, SNAPSHOTS_DIR
-from app.db.connection import apply_migrations
+from app.services import migration_service
 from app.services import ordonnanceur_service
 from app.services.logging_config import log_erreur
 from app.routes import home, actualisation, administration_referentiels, sources_calculs, health, logements, reservations, menages, fournisseurs, proprietaires, proprietaires_tresorerie, banques, proprietaires_reglements, controles_cloture, clotures, pilotage_mensuel, fournisseurs_referentiel, charges_controle, charges_refacturation, factures, factures_proprietaires, creances_dettes, calculs, comptabilite, resultats, referentiel_setup, comptes_proprietaires, associes, administration_baremes_ik, observabilite, correspondances_logement, proprietaire_performance, exports, flux_financiers
@@ -19,7 +19,11 @@ from app.routes import home, actualisation, administration_referentiels, sources
 async def lifespan(app: FastAPI):
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
-    apply_migrations()
+    # Migrations PROTÉGÉES : sauvegarde vérifiée seulement s'il y a réellement une migration à jouer,
+    # refus de démarrer si la sauvegarde ou la migration échoue (base restaurée dans ce dernier cas).
+    migration = migration_service.migrer_au_demarrage()
+    if not migration["ok"]:
+        raise RuntimeError(f"Démarrage refusé — {migration.get('code')} : {migration.get('message')}")
     # `demarrer()` refuse tant que `cfg.ORDONNANCEUR_ACTIF` est faux (défaut) — appel
     # inconditionnel : c'est le garde-fou lui-même qui décide, jamais un `if` dupliqué ici
     # (mission scheduler Hostaway 2026-08-23).

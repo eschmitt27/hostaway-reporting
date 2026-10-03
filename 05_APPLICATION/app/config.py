@@ -335,6 +335,41 @@ DRYRUNS_DIR = DATA_DIR / "dryruns"
 # Sauvegardes dédiées de app.db elle-même (distinct de SNAPSHOTS_DIR, qui sert aux fichiers Excel/
 # masters moteur) — mission industrialisation socle technique, 2026-08-22.
 BACKUPS_DIR = DATA_DIR / "backups"
+
+# ── Politique de sauvegarde de app.db (mission « Fiabiliser les sauvegardes », 2026-10-03) ──────
+# Paramètres CENTRALISÉS ici, lus à chaud par `backup_service` (jamais recopiés en constante).
+#   · Quotidienne : désactivée par défaut, comme l'ordonnanceur (rien ne démarre implicitement —
+#     un test qui démarre l'application ne doit jamais armer de sauvegarde). Activée sur l'instance
+#     réelle par `BACKUP_DAILY_ENABLED=true` dans le `.env`.
+#   · Heure locale (0-23) à partir de laquelle la sauvegarde du jour est due.
+#   · Rétention : nombre de JOURS / SEMAINES / MOIS distincts couverts par les sauvegardes
+#     quotidiennes (une même copie peut tenir plusieurs rôles : pas de fichier recopié).
+#   · Avant migration / avant actualisation globale : les N plus récentes, et toute sauvegarde
+#     avant migration de moins de `BACKUP_RETENTION_MIGRATION_DAYS` jours.
+#   · Destination secondaire : vide = NON CONFIGURÉE ; jamais choisie par le code.
+def _env_entier(nom: str, defaut: int, minimum: int = 0, maximum: int | None = None) -> int:
+    try:
+        valeur = int(os.environ.get(nom, "").strip())
+    except ValueError:
+        return defaut
+    if valeur < minimum or (maximum is not None and valeur > maximum):
+        return defaut
+    return valeur
+
+
+BACKUP_DAILY_ENABLED = _env_flag("BACKUP_DAILY_ENABLED")
+BACKUP_DAILY_HOUR = _env_entier("BACKUP_DAILY_HOUR", 3, 0, 23)
+BACKUP_RETENTION_DAILY = _env_entier("BACKUP_RETENTION_DAILY", 7, 1)
+BACKUP_RETENTION_WEEKLY = _env_entier("BACKUP_RETENTION_WEEKLY", 4, 0)
+BACKUP_RETENTION_MONTHLY = _env_entier("BACKUP_RETENTION_MONTHLY", 6, 0)
+BACKUP_RETENTION_MIGRATION = _env_entier("BACKUP_RETENTION_MIGRATION", 5, 1)
+BACKUP_RETENTION_MIGRATION_DAYS = _env_entier("BACKUP_RETENTION_MIGRATION_DAYS", 30, 0)
+BACKUP_RETENTION_GLOBAL_REFRESH = _env_entier("BACKUP_RETENTION_GLOBAL_REFRESH", 5, 1)
+_BACKUP_SECONDARY_DIR_ENV = os.environ.get("BACKUP_SECONDARY_DIR", "").strip()
+BACKUP_SECONDARY_DIR = Path(_BACKUP_SECONDARY_DIR_ENV) if _BACKUP_SECONDARY_DIR_ENV else None
+# Verrou de sauvegarde : au-delà de cet âge, un fichier verrou est réputé abandonné (processus
+# tué pendant une copie) et n'empêche plus une nouvelle sauvegarde.
+BACKUP_LOCK_STALE_SECONDS = _env_entier("BACKUP_LOCK_STALE_SECONDS", 1800, 60)
 # Interpréteur des scripts moteur lancés en sous-processus.
 #
 # Le défaut était `C:\Program Files\Python312\python.exe`, un chemin d'installation personnel codé

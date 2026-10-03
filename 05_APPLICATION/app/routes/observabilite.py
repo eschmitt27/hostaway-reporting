@@ -45,6 +45,7 @@ def runs(request: Request):
         "active_menu": "observabilite",
         "runs": history.derniers(limit=50),
         "sauvegardes": backup_service.lister(),
+        "etat_sauvegardes": backup_service.etat(),
         "pdf_menages": {**(etat.get("pdf") or {}), **menages.load_pdf_externes_info()},
         "hostaway": etat.get("hostaway"),
         "changements_clotures": actualisation.changements_mois_clotures(statut="SIGNALE"),
