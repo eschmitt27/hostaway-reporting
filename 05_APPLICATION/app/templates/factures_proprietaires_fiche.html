@@ -1,501 +1,251 @@
 {% extends "base.html" %}
-{% block title %}Facture {{ facture.numero_facture or facture.facture_id_opaque }}{% endblock %}
+{% import "_factures_clients.html" as fc %}
+{% block title %}{{ "Avoir" if facture.type_document == "AVOIR" else "Facture" }} {{ facture.numero_facture or "sans numéro" }}{% endblock %}
 {% block content %}
-<p><a href="/factures-proprietaires">← Retour aux factures</a></p>
+{% set est_avoir = facture.type_document == "AVOIR" %}
+{% set nom_doc = "Avoir" if est_avoir else "Facture" %}
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+<link rel="stylesheet" href="/static/css/factures_clients.css">
+{# `data-statut` porte le code du statut : il sert aux styles et aux tests, jamais au texte lu. #}
+<div class="ecran fc fc-fiche" data-statut="{{ facture.statut }}" data-type="{{ facture.type_document }}">
+
+<nav class="fc-ariane" aria-label="Fil d'Ariane">
+  <ol>
+    <li><a href="/factures-proprietaires">Factures propriétaires</a></li>
+    <li><span aria-current="page">{{ nom_doc }} {{ facture.numero_facture or "sans numéro" }}</span></li>
+  </ol>
+</nav>
+
+{# Refus d'une action : rendu en tête, annoncé immédiatement (role="alert") et focalisé par le
+   script de la fiche. Le message vient du service : il dit quoi faire. #}
 {% if erreur_validation %}
-<div class="card" style="border-color:#c0392b">
-  <p><strong>{{ erreur_validation }}</strong></p>
+<div class="alert alert-error fc-erreur" role="alert" tabindex="-1" data-fc-erreur id="erreur">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+  <div><strong>Action non effectuée</strong>{{ erreur_validation }}</div>
 </div>
 {% endif %}
-<div class="page-header">
-  <h1 class="page-title">
-    {{ "AVOIR" if facture.type_document == "AVOIR" else "Facture" }}
-    {{ facture.numero_facture or "(sans numéro — non émise)" }}
-    <span class="badge">{{ facture.statut }}</span>
-    {% if facture.hors_compta %}<span class="badge badge-warning">HORS COMPTA</span>{% endif %}
-  </h1>
-  <p class="page-subtitle">
-    {{ facture.proprietaire_id | nom_proprietaire }} · {{ facture.logement_id | nom_logement }} ·
-    {% if facture.periode_debut and facture.periode_fin %}
-      période des prestations : du {{ facture.periode_debut | date_fr }} au {{ facture.periode_fin | date_fr }}
-    {% else %}période {{ facture.mois }}{% endif %}
-    {% if facture.facture_origine %}· avoir sur {{ facture.facture_origine }}{% endif %}
-  </p>
-</div>
 
-<div class="card">
-  <h3>Identités</h3>
-  {# SIREN (entreprise, 9 chiffres) et SIRET (établissement, 14) sont deux identifiants
-     distincts : l'un ne remplace pas l'autre à l'affichage, et aucun n'est déduit de l'autre.
-     L'identité est complète dès que l'un des deux est renseigné. #}
-  <p><strong>Émetteur :</strong> {{ emetteur.nom or "— non renseigné —" }}
-     {%- if emetteur.forme_juridique %} — {{ emetteur.forme_juridique }}
-       {%- if emetteur.capital %} au capital de {{ emetteur.capital }}{% endif %}
-     {%- endif %}
-     {% if not emetteur.nom or not emetteur.adresse or not (emetteur.siret or emetteur.siren) %}
-     <span class="badge">FACTURE_PROPRIETAIRE_IDENTITE_INCOMPLETE</span>
-     {% endif %}</p>
-  {% if emetteur.adresse %}<p class="text-xs">{{ emetteur.adresse }}</p>{% endif %}
-  <p class="text-xs">
-    {%- if emetteur.siren %}{{ emetteur.siren_lisible or emetteur.siren }}{% if emetteur.rcs %} {{ emetteur.rcs }}{% endif %}{% endif -%}
-    {%- if emetteur.siret %} · SIRET {{ emetteur.siret }}{% endif -%}
-    {%- if emetteur.tva_intra %} · TVA {{ emetteur.tva_intra }}{% endif -%}
-  </p>
-  {# Ce qui MANQUE est nommé, jamais comblé. SIRET et TVA intracommunautaire sont facultatifs :
-     ils ne bloquent pas l'émission et ne s'affichent que s'ils sont réellement connus. #}
-  {% if not emetteur.adresse %}
-  <p class="text-xs text-secondary">Adresse du siège non renseignée (<code>SOCIETE_ADRESSE</code>) —
-     mention légale obligatoire, à fournir avant toute émission réelle. Rien n'est inventé ici.</p>
-  {% endif %}
-  {% if not emetteur.siret or not emetteur.tva_intra %}
-  <p class="text-xs text-secondary">Non fourni, donc non imprimé :
-    {% if not emetteur.siret %}<strong>SIRET</strong> (14 chiffres — non déductible du SIREN,
-    il faut le NIC de l'établissement){% endif %}{% if not emetteur.siret and not emetteur.tva_intra %} ·
-    {% endif %}{% if not emetteur.tva_intra %}<strong>TVA intracommunautaire</strong>{% endif %}.
-    Facultatifs : leur absence ne bloque pas l'émission.</p>
-  {% endif %}
-  <p><strong>Destinataire :</strong> {{ destinataire.nom }}</p>
-</div>
+<header class="page-header fc-entete">
+  <div class="page-header__titre">
+    <h1 class="page-title">
+      <span>{{ nom_doc }} {% if facture.numero_facture %}n° {{ facture.numero_facture }}{% else %}<span class="fc-sans-numero">sans numéro</span>{% endif %}</span>
+      <span class="status-badge status-{{ fc.classe_statut(facture.statut) }}">{{ facture.statut|libelle_statut }}</span>
+      {% if facture.hors_compta %}<span class="badge badge-warning">Hors compta</span>{% endif %}
+    </h1>
+    <dl class="fc-meta">
+      <div><dt>Client</dt><dd>{{ facture.proprietaire_id | nom_proprietaire }}</dd></div>
+      <div><dt>Logement</dt><dd>{{ facture.logement_id | nom_logement if facture.logement_id else "—" }}</dd></div>
+      <div><dt>Période des prestations</dt><dd>
+        {%- if facture.periode_debut and facture.periode_fin %}du {{ facture.periode_debut | date_fr }} au {{ facture.periode_fin | date_fr }}
+        {%- else %}{{ facture.mois | mois_humain }}{% endif -%}
+      </dd></div>
+      {% if facture.date_emission %}<div><dt>Émise le</dt><dd>{{ facture.date_emission | date_fr }}</dd></div>{% endif %}
+      {% if facture.facture_origine %}
+      <div><dt>Avoir sur</dt><dd><a href="/factures-proprietaires/{{ facture.facture_origine }}">{{ facture_origine_numero or "la facture d'origine" }}</a></dd></div>
+      {% endif %}
+    </dl>
+  </div>
+  <div class="page-header__actions">
+    {# La prévisualisation est le PDF réel, produit par le même moteur que le document final. #}
+    <a class="btn btn-secondary" href="/factures-proprietaires/{{ facture.facture_id_opaque }}/previsualiser"
+       target="_blank" rel="noopener">Prévisualiser le PDF<span class="sr-only"> (ouvre un nouvel onglet)</span></a>
+    {% if facture.statut == "EMIS" %}
+    <a class="btn btn-primary" href="/factures-proprietaires/{{ facture.facture_id_opaque }}/document">Télécharger le PDF émis</a>
+    {% endif %}
+  </div>
+</header>
+
+{{ fc.etapes(facture.statut, facture.type_document) }}
+
+{# Sommaire : une ancre par section. Les ancres existantes (#montant-du, #reservations,
+   #lignes-facturees, #reglement) restent celles des redirections du serveur. #}
+{% set nb_manques = conformite.manques|length if conformite.statut != "PRETE_A_EMETTRE" else 0 %}
+<nav class="fc-sommaire" aria-label="Sections de la fiche">
+  <ul>
+    <li><a href="#montant-du">Montant</a></li>
+    <li><a href="#actions">{{ "Prochaine étape" if facture.statut in ("BROUILLON", "VALIDE") else "Actions" }}</a></li>
+    {% if reservations or not est_avoir %}<li><a href="#reservations">Séjours</a></li>{% endif %}
+    <li><a href="#lignes-facturees">Lignes</a></li>
+    {% if editable %}<li><a href="#ajustements">Ajouter</a></li>{% endif %}
+    <li><a href="#reglement">Règlement</a></li>
+    <li><a href="#conformite">Conformité{% if nb_manques %} <span class="fc-pastille" aria-label="{{ nb_manques }} point(s) à régler">{{ nb_manques }}</span>{% endif %}</a></li>
+    <li><a href="#comptabilite">Comptabilité</a></li>
+    <li><a href="#historique">Historique</a></li>
+  </ul>
+</nav>
+
+<div class="fc-mise-en-page">
+
+{# ══ Colonne de synthèse : le montant et l'action suivante, toujours à portée ══════════════ #}
+<aside class="fc-lateral" aria-label="Montant et prochaine étape">
 
 {# ── LE MONTANT DÛ, ET COMMENT ON Y ARRIVE ────────────────────────────────────
    Tous les chiffres viennent de `decomposition()`, calculée côté serveur à
    chaque affichage. Le gabarit n'additionne rien : il ne peut donc pas afficher
-   un total différent de celui qui sera facturé. Aucun JavaScript n'intervient. #}
-<div class="card" id="montant-du">
-  <h3>Montant dû</h3>
-  <table class="table" style="max-width:520px">
+   un total différent de celui qui sera facturé. #}
+<section class="card fc-carte" id="montant-du" aria-labelledby="t-montant">
+  <div class="fc-carte__tete"><h2 class="fc-carte__titre" id="t-montant">Montant dû</h2></div>
+  <table class="fc-decompo">
+    <caption class="sr-only">Décomposition du montant</caption>
     <tbody>
       {% for p in decomposition.postes %}{% if p.nb and p.cle != "reductions" %}
-      <tr><td>{{ p.libelle }} <span class="text-xs text-secondary">({{ p.nb }})</span></td>
-          <td class="text-right">{{ "%.2f"|format(p.montant) }} €</td></tr>
+      <tr><th scope="row">{{ p.libelle }} <span class="fc-decompo__nb">({{ p.nb }})</span></th>
+          <td class="fc-montant">{{ "%.2f"|format(p.montant) }} €</td></tr>
       {% endif %}{% endfor %}
-      <tr><td><strong>Sous-total</strong></td>
-          <td class="text-right"><strong>{{ "%.2f"|format(decomposition.sous_total) }} €</strong></td></tr>
+      <tr class="fc-decompo__total"><th scope="row">Sous-total</th>
+          <td class="fc-montant">{{ "%.2f"|format(decomposition.sous_total) }} €</td></tr>
       {% if decomposition.total_reductions %}
-      <tr><td>Réductions</td>
-          <td class="text-right">− {{ "%.2f"|format(decomposition.total_reductions) }} €</td></tr>
+      <tr class="fc-decompo__deduction"><th scope="row">Réductions</th>
+          <td class="fc-montant">− {{ "%.2f"|format(decomposition.total_reductions) }} €</td></tr>
       {% endif %}
       {% if decomposition.total_credit_client %}
-      <tr><td>Crédit client utilisé</td>
-          <td class="text-right">− {{ "%.2f"|format(decomposition.total_credit_client) }} €</td></tr>
+      <tr class="fc-decompo__deduction"><th scope="row">Crédit client utilisé</th>
+          <td class="fc-montant">− {{ "%.2f"|format(decomposition.total_credit_client) }} €</td></tr>
       {% endif %}
       {% if decomposition.total_acomptes %}
-      <tr><td>Acomptes déjà versés</td>
-          <td class="text-right">− {{ "%.2f"|format(decomposition.total_acomptes) }} €</td></tr>
+      <tr class="fc-decompo__deduction"><th scope="row">Acomptes déjà versés</th>
+          <td class="fc-montant">− {{ "%.2f"|format(decomposition.total_acomptes) }} €</td></tr>
       {% endif %}
-      <tr style="border-top:2px solid #8C4336">
-          <td><strong>MONTANT DÛ</strong></td>
-          <td class="text-right"><strong>{{ "%.2f"|format(decomposition.montant_du) }} €</strong></td></tr>
+      <tr class="fc-decompo__net"><th scope="row">Montant dû</th>
+          <td class="fc-montant">{{ "%.2f"|format(decomposition.montant_du) }} €</td></tr>
     </tbody>
   </table>
-  <p class="text-xs text-secondary">
-    Total facturé {{ "%.2f"|format(decomposition.total_facture) }} € − acomptes
-    {{ "%.2f"|format(decomposition.total_acomptes) }} €. Une <strong>réduction</strong> diminue ce
-    qui est facturé et figure dans les lignes ; un <strong>acompte</strong> est un paiement déjà
-    reçu, il diminue seulement ce qui reste à payer. Les deux ne sont jamais confondus.
-  </p>
-  <p><a class="btn" href="/factures-proprietaires/{{ facture.facture_id_opaque }}/previsualiser"
-        target="_blank" rel="noopener">Prévisualiser la facture (PDF)</a></p>
-  <p class="text-xs text-secondary">La prévisualisation est le PDF réel, produit par le même
-     moteur de rendu que le document final — il n'existe pas de second modèle.</p>
-</div>
+  <p class="fc-aide">Une <strong>réduction</strong> diminue ce qui est facturé et figure dans les
+    lignes ; un <strong>acompte</strong> est un paiement déjà reçu, il diminue seulement ce qui
+    reste à payer. Les deux ne sont jamais confondus.</p>
+</section>
 
-{% if editable %}
-{# ── Actions d'édition du BROUILLON ────────────────────────────────────────── #}
-<div class="card" id="ajustements">
-  <h3>Ajouter au brouillon</h3>
-
-  <h4>Éléments à refacturer disponibles</h4>
-  {% if charges_eligibles %}
-  <p class="text-xs text-secondary">
-    Dépenses déjà saisies, refacturables à ce propriétaire et <strong>pas encore entièrement
-    récupérées</strong>. Le montant proposé est le solde restant : vous pouvez le modifier pour
-    n'en refacturer qu'une partie et reporter le reste sur une autre facture.
-  </p>
-  <div class="table-container">
-  <table class="table">
-    <thead><tr><th>Élément</th><th>Logement(s)</th>
-               <th class="text-right">Montant initial</th>
-               <th class="text-right">Déjà refacturé</th>
-               <th class="text-right">Reste</th>
-               <th>Montant à refacturer</th></tr></thead>
-    <tbody>
-      {% for c in charges_eligibles %}
-      <tr>
-        <td>
-          <strong>{{ c.description or "Charge refacturée" }}</strong>
-          <br><span class="text-xs text-secondary">
-            {{ c.categorie_charge_id | nom_categorie_charge if c.categorie_charge_id else "" }}
-            {% if c.date_charge %} · {{ c.date_charge|date_fr }}{% endif %}
-            {% if c.justificatif %} · {{ c.justificatif }}{% endif %}
-          </span>
-        </td>
-        <td class="text-xs">
-          {% if c.logements_eligibles %}
-            {% for l in c.logements_eligibles %}{{ l | nom_logement }}{% if not loop.last %}<br>{% endif %}{% endfor %}
-          {% else %}<span class="text-secondary">Charge commune</span>{% endif %}
-        </td>
-        <td class="text-right">{{ "%.2f"|format(c.montant_origine) }} €</td>
-        <td class="text-right">{{ "%.2f"|format(c.montant_deja_refacture) }} €</td>
-        <td class="text-right"><strong>{{ "%.2f"|format(c.montant_restant) }} €</strong></td>
-        <td>
-          {# Un formulaire PAR LIGNE : le montant saisi appartient sans ambiguïté à cet élément.
-             Un formulaire unique avec un champ montant partagé aurait laissé l'utilisateur croire
-             qu'il s'applique à la ligne qu'il vient de cocher. #}
-          {# Le motif n'est exigé QUE si le montant saisi est inférieur au solde : ne récupérer
-             qu'une partie d'une dépense est une décision, et la validation refuse une imputation
-             partielle sans justification. La demander ici, au moment du choix, évite une facture
-             qu'on ne pourrait plus valider ensuite. #}
-          <form method="post"
-                action="/factures-proprietaires/{{ facture.facture_id_opaque }}/charge-existante"
-                style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
-            <input type="hidden" name="position_id" value="{{ c.position_id }}">
-            <input type="text" name="montant" value="{{ "%.2f"|format(c.montant_restant) }}"
-                   size="8" aria-label="Montant à refacturer">
-            <input type="text" name="justification" size="22"
-                   placeholder="Motif si montant partiel"
-                   aria-label="Motif de la refacturation partielle">
-            <button type="submit" class="btn btn-primary">Ajouter à la facture</button>
-          </form>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  </div>
-  <p class="text-xs text-secondary">
-    Le montant refacturé est <strong>indépendant de la ventilation analytique</strong> de la
-    charge : une dépense de 700 € répartie sur deux logements (350 € chacun au résultat) peut être
-    refacturée 700 € sur une seule facture, ou 350/350, ou 500/200. Le cumul ne peut jamais
-    dépasser le montant d'origine.
-  </p>
-  {% else %}
-  <p class="text-muted">Aucun élément à refacturer disponible pour ce propriétaire.
-     Une dépense entièrement refacturée n'apparaît plus ici.</p>
+<section class="card fc-carte fc-prochaine" id="actions" aria-labelledby="t-actions">
+  <div class="fc-carte__tete"><h2 class="fc-carte__titre" id="t-actions">Actions</h2></div>
+  {% if peut_valider %}
+  <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/valider" data-fi-occupe="Validation…">
+    <div class="fc-actions fc-actions--colonne"><button type="submit" class="btn btn-primary">Valider</button></div>
+  </form>
   {% endif %}
-
-  <h4>Extra</h4>
-  <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/extra">
-    <label for="extra_libelle">Libellé</label>
-    <input type="text" id="extra_libelle" name="libelle" required maxlength="160"
-           placeholder="Intervention ponctuelle, prestation supplémentaire…">
-    <label for="extra_nature">Nature</label>
-    <select id="extra_nature" name="nature">
-      <option value="SERVICE_ADDITIONNEL">Service additionnel / extra (706500)</option>
-      <option value="SINISTRE">Gestion de sinistre / intervention (706400)</option>
-      <option value="AUTRE_PRESTATION">Autre prestation de conciergerie (706900)</option>
-    </select>
-    <label for="extra_montant">Montant (€)</label>
-    <input type="number" id="extra_montant" name="montant" step="0.01" min="0.01" required>
-    <label for="extra_commentaire">Note (facultatif)</label>
-    <input type="text" id="extra_commentaire" name="commentaire" maxlength="240">
-    <button type="submit" class="btn">Ajouter l'extra</button>
+  {% if peut_repasser_en_brouillon %}
+  <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/repasser-en-brouillon">
+    <label class="fc-champ"><span>Motif <span class="fc-facultatif">(facultatif)</span></span><input type="text" name="motif"></label>
+    <div class="fc-actions"><button type="submit" class="btn btn-secondary">Repasser en brouillon</button></div>
   </form>
-  <p class="text-xs text-secondary">Un extra augmente la facture. Pour la diminuer, utiliser une
-     réduction — un extra négatif est refusé.</p>
-
-  <h4>Réduction</h4>
-  <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/reduction">
-    <label for="red_libelle">Libellé</label>
-    <input type="text" id="red_libelle" name="libelle" value="Remise commerciale" required
-           maxlength="160">
-    <label for="red_montant">Montant à déduire (€)</label>
-    <input type="number" id="red_montant" name="montant" step="0.01" min="0.01" required>
-    <label for="red_motif">Motif</label>
-    <input type="text" id="red_motif" name="motif" maxlength="240">
-    <button type="submit" class="btn">Ajouter la réduction</button>
+  {% endif %}
+  {% if peut_emettre %}
+  <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/emettre">
+    <label class="fc-champ"><span>Date d'émission</span>
+      <input type="date" name="date_facture" value="{{ aujourdhui }}" required></label>
+    <fieldset class="fc-choix">
+      <legend>Comptabilité</legend>
+      <label class="fc-option"><input type="radio" name="comptabilite" value="EN_COMPTA" checked>
+        <span>En comptabilité (par défaut)</span></label>
+      <label class="fc-option"><input type="radio" name="comptabilite" value="HORS_COMPTA">
+        <span>Hors comptabilité</span></label>
+      <label class="fc-champ"><span>Motif hors compta <span class="fc-facultatif">(facultatif)</span></span>
+        <input type="text" name="motif_hors_compta" maxlength="240"></label>
+    </fieldset>
+    <div class="fc-actions fc-actions--colonne"><button type="submit" class="btn btn-primary">Émettre (fige le contenu et génère le PDF)</button></div>
   </form>
-  <p class="text-xs text-secondary">Saisir un montant positif : il sera déduit. Une réduction ne
-     peut pas rendre la facture négative.</p>
-</div>
-{% endif %}
-
-<div class="card" id="lignes-facturees">
-  <h3>Lignes facturées</h3>
-  <table class="table">
-    <thead><tr><th>N°</th><th>Type</th><th>Libellé</th><th>Origine</th>
-               <th class="text-right">Montant</th>
-               {% if editable %}<th>Actions</th>{% endif %}</tr></thead>
-    <tbody>
-      {% for l in facture.lignes %}
-      <tr><td>{{ l.numero_ligne }}</td><td>{{ l.type_ligne }}</td><td>{{ l.libelle }}</td>
-          <td><span class="badge">{{ l.origine }}</span>
-              {% if l.montant_modifie %}
-              <br><span class="text-xs text-secondary">calcul d'origine
-                {{ "%.2f"|format(l.montant_source_initial) }} €</span>
-              {% endif %}
-              {% if l.charge %}
-              <br><span class="text-xs text-secondary">charge {{ l.charge.charge_id }}
-                ({{ l.charge.code_impact }})</span>
-              {% endif %}
-          </td>
-          <td class="text-right">{{ "%.2f"|format(l.montant) }} €</td>
-          {% if editable %}
-          <td>
-            <details>
-              <summary>Modifier</summary>
-              {% if l.origine == "CALCULEE" %}
-              <p class="text-xs" style="color:#c0392b">{{ avertissement_ligne_calculee }}</p>
-              {% endif %}
-              <form method="post"
-                    action="/factures-proprietaires/{{ facture.facture_id_opaque }}/lignes/{{ l.ligne_id_opaque }}/modifier">
-                <label>Libellé <input type="text" name="libelle" value="{{ l.libelle }}" required></label>
-                <label>Montant <input type="text" name="montant" value="{{ "%.2f"|format(l.montant) }}" required></label>
-                <label>Commentaire <input type="text" name="commentaire"></label>
-                <button type="submit">Enregistrer</button>
-              </form>
-            </details>
-            <form method="post"
-                  action="/factures-proprietaires/{{ facture.facture_id_opaque }}/lignes/{{ l.ligne_id_opaque }}/supprimer">
-              <button type="submit">Supprimer</button>
-            </form>
-          </td>
-          {% endif %}
-      </tr>
-      {% endfor %}
-      {% if facture.ajustement_present %}
-      {# Décomposition affichée UNIQUEMENT quand un ajustement existe : la montrer partout
-         apprendrait à ne plus la lire. Tous les montants viennent du service. #}
-      <tr><th colspan="{{ 5 if editable else 4 }}" class="text-right">TOTAL CALCULÉ</th>
-          <th class="text-right">{{ "%.2f"|format(facture.total_source_calcule) }} €</th></tr>
-      <tr><th colspan="{{ 5 if editable else 4 }}" class="text-right">AJUSTEMENTS MANUELS</th>
-          <th class="text-right">{{ "%.2f"|format(facture.ajustement_manuel) }} €</th></tr>
-      <tr><th colspan="{{ 5 if editable else 4 }}" class="text-right">TOTAL FACTURE</th>
-          <th class="text-right">{{ "%.2f"|format(facture.total_facture) }} €</th></tr>
-      {% else %}
-      <tr><th colspan="{{ 5 if editable else 4 }}" class="text-right">TOTAL</th>
-          <th class="text-right">{{ "%.2f"|format(facture.total_facture) }} €</th></tr>
-      {% endif %}
-    </tbody>
-  </table>
-
+  {% endif %}
   {% if editable %}
-  <details>
-    <summary><strong>+ Ajouter une ligne</strong></summary>
-    <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/lignes/ajouter">
-      <label>Type
-        <select name="type_ligne" id="type_ligne" required>
-          {% for t in types_ligne %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
-          <option value="{{ choix_ligne_charge }}">CHARGE (crée aussi une charge réelle)</option>
-        </select>
-      </label>
-      <label>Libellé <input type="text" name="libelle" required></label>
-      <label>Montant <input type="text" name="montant" required></label>
-      <label>Commentaire <input type="text" name="commentaire"></label>
-
-      {# Champs propres au parcours CHARGE, masqués tant que le type n'est pas une charge. #}
-      <div id="bloc_charge" style="display:none">
-        <p style="color:#c0392b"><strong>{{ avertissement_charge }}</strong></p>
-        <label>Mode d'impact
-          <select name="code_impact" id="code_impact">
-            {% for m in modes_charge %}
-            <option value="{{ m.code_impact }}">{{ m.libelle }} — {{ m.description }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label>Catégorie de charge
-          <select name="categorie_charge_id">
-            {% for c in categories_charges %}
-            <option value="{{ c.categorie_charge_id }}">{{ c.categorie_niveau_1 }} · {{ c.categorie_niveau_2 or c.categorie_charge_id }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label>Date de la charge <input type="date" name="date_charge"></label>
-        <label>Refacturable au propriétaire
-          <select name="refacturable"><option value="NON">Non</option><option value="OUI">Oui</option></select>
-        </label>
-        <ul>
-          <li>Impact résultat : <strong id="ef_reel">—</strong></li>
-          <li>Impact comptabilité : <strong id="ef_compta">—</strong></li>
-        </ul>
-        <p class="text-xs text-secondary">Créer une charge ici n'écrit AUCUNE écriture comptable :
-           la comptabilisation reste un workflow distinct et postérieur.</p>
-      </div>
-      <button type="submit">Ajouter</button>
-    </form>
-  </details>
-  <script>
-  (function () {
-    // Mêmes libellés et même mécanique que fournisseurs_nouvelle.html : l'utilisateur voit
-    // l'impact AVANT de valider, jamais après.
-    var IMPACT = {{ modes_charge | tojson }};
-    var TYPE_CHARGE = {{ choix_ligne_charge | tojson }};
-    function el(id) { return document.getElementById(id); }
-    function refresh() {
-      var estCharge = el("type_ligne").value === TYPE_CHARGE;
-      el("bloc_charge").style.display = estCharge ? "" : "none";
-      var code = el("code_impact").value;
-      var mode = IMPACT.filter(function (m) { return m.code_impact === code; })[0];
-      el("ef_reel").textContent = mode ? (mode.impact_resultat_reel === "OUI" ? "Oui" : "Non") : "—";
-      el("ef_compta").textContent = mode ? (mode.impact_resultat_comptable === "OUI" ? "Oui" : "Non") : "—";
-    }
-    el("type_ligne").addEventListener("change", refresh);
-    el("code_impact").addEventListener("change", refresh);
-    refresh();
-  })();
-  </script>
-  {% else %}
-  <p class="text-muted">Facture {{ facture.statut }} : les lignes ne sont plus modifiables.
-     Une correction passe par un avoir.</p>
+  <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/recharger"
+        data-fc-confirmer="Recharger le brouillon sur le calcul actuel ? Lignes calculées et séjours (ménage et commission modifiés compris) seront recalculés ; les lignes ajoutées à la main sont conservées.">
+    <div class="fc-actions"><button type="submit" class="btn btn-secondary">Recharger le brouillon</button></div>
+  </form>
   {% endif %}
-</div>
-
-<div class="card" id="reglement">
-  <h3>Règlement</h3>
-  {% if facture.statut != "EMIS" or facture.hors_compta %}
-  <p data-testid="sans-impact-compte-client">{% if facture.hors_compta %}Facture hors comptabilité : aucun
-     paiement attendu.{% else %}Facture non émise : <strong>aucun impact sur le compte client</strong>.
-     À l'émission, le crédit disponible du client s'imputera automatiquement sur la créance.{% endif %}</p>
-  {% else %}
-  {# Zéro arithmétique ici : tous les montants sont calculés par `svc.solde()`. #}
-  <table class="table">
-    <tbody>
-      <tr><td>TOTAL FACTURE</td><td class="text-right">{{ "%.2f"|format(solde.montant_total) }} €</td></tr>
-      <tr><td>− REVERSEMENTS AIRBNB</td><td class="text-right">{{ "%.2f"|format(solde.total_reversements_airbnb) }} €</td></tr>
-      <tr><td>− ACOMPTES PROPRIÉTAIRE</td><td class="text-right">{{ "%.2f"|format(solde.total_acomptes_proprietaire) }} €</td></tr>
-      {% if solde.autres_paiements %}
-      <tr><td>− AUTRES PAIEMENTS IMPUTÉS</td><td class="text-right">{{ "%.2f"|format(solde.autres_paiements) }} €</td></tr>
-      {% endif %}
-      <tr><th>= SOLDE RESTANT</th><th class="text-right">{{ "%.2f"|format(solde.solde) }} €</th></tr>
-      <tr><td>STATUT</td><td class="text-right"><span class="badge">{{ solde.statut_reglement }}</span></td></tr>
-    </tbody>
-  </table>
-
-  {% if solde.reversements_airbnb %}
-  <h4>Reversements Airbnb</h4>
-  <table class="table">
-    <thead><tr><th>Date</th><th>Référence</th><th>Origine comptable</th><th class="text-right">Montant</th></tr></thead>
-    <tbody>
-      {% for r in solde.reversements_airbnb %}
-      <tr><td>{{ r.date_imputation | date_fr }}</td><td>{{ r.reference_airbnb or "—" }}</td>
-          <td data-testid="origine-reversement">{% if r.credit_id_opaque %}Crédit d'origine constatée{% if r.ecriture_imputation %} — <a href="/comptabilite/ecritures/{{ r.ecriture_imputation }}">écriture 419100 → 411000</a>{% endif %}
-              {% else %}<span class="badge">À régulariser</span> sans origine comptable — <a href="/comptes-proprietaires/{{ facture.proprietaire_id }}/credits">régulariser</a>{% endif %}</td>
-          <td class="text-right">{{ "%.2f"|format(r.montant_impute) }} €</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  {% if peut_supprimer %}
+  <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/supprimer"
+        data-fc-confirmer="Supprimer définitivement cette facture annulée ?">
+    <div class="fc-actions"><button type="submit" class="btn btn-danger">Supprimer définitivement</button></div>
+  </form>
   {% endif %}
-
-  {% if solde.acomptes_proprietaire %}
-  <h4>Acomptes propriétaire</h4>
-  <table class="table">
-    <thead><tr><th>Date</th><th>Mode</th><th>Statut</th><th class="text-right">Montant</th></tr></thead>
-    <tbody>
-      {% for a in solde.acomptes_proprietaire %}
-      <tr><td>{{ a.date_mouvement|date_fr }}</td><td>{{ a.mode_reglement or "—" }}</td>
-          <td><span class="badge">{{ a.statut }}</span></td>
-          <td class="text-right">{{ "%.2f"|format(a.montant) }} €</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  {% if facture.statut == "EMIS" %}
+  <p class="fc-aide">Empreinte du PDF émis : {{ (facture.document_hash or "")[:16] }}…</p>
   {% endif %}
-
-  {# Mission 37 — un reversement Airbnb s'impute depuis le CRÉDIT qui le représente (montant
-     reçu, origine comptable constatée) ; la saisie libre d'un montant sans origine n'est plus
-     proposée. #}
-  <details {% if credits_airbnb %}open{% endif %} data-testid="imputer-reversement">
-    <summary><strong>+ Imputer un reversement Airbnb</strong></summary>
-    {% if credits_airbnb %}
-    <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/imputer-credit">
-      <label>Reversement reçu
-        <select name="credit_id" required>
-          {% for c in credits_airbnb %}<option value="{{ c.credit_id_opaque }}">{{ c.date_origine | date_fr }} — {{ c.reference or "reversement Airbnb" }} — reste {{ "%.2f"|format(c.reste) }} €</option>{% endfor %}
-        </select></label>
-      <label>Montant <input type="text" name="montant" required></label>
-      <label>Votre nom <input type="text" name="acteur" required></label>
-      <button type="submit">Imputer</button>
-    </form>
-    {% else %}
-    <p class="text-sm">Aucun reversement Airbnb disponible pour ce propriétaire.
-      <a href="/comptes-proprietaires/{{ facture.proprietaire_id }}/credits">Déclarer un reversement reçu</a> (il sera rapproché de son virement).</p>
-    {% endif %}
-    <p class="text-xs text-secondary">Un reversement Airbnb reste un versement de plateforme : il ne crée
-       ni réservation, ni charge. Sur une facture émise, son imputation est constatée 419100 → 411000.</p>
-  </details>
-
-  <details>
-    <summary><strong>+ Ajouter un acompte propriétaire</strong></summary>
-    <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/acompte">
-      <label>Montant <input type="text" name="montant" required></label>
-      {# Saisie au MOIS et non au jour : ces montants se raisonnent par période (§19). La date
-         technique exigée par le schéma est dérivée du dernier jour du mois, côté serveur — on ne
-         demande pas à l'utilisateur d'inventer un jour qui n'a pas de sens métier. #}
-      <label>Mois de référence
-        <input type="month" name="mois_reference" value="{{ facture.mois }}" required>
-      </label>
-      <label>Mode de règlement <input type="text" name="mode_reglement"></label>
-      <label>Commentaire <input type="text" name="commentaire"></label>
-      <button type="submit">Enregistrer l'acompte</button>
-    </form>
-    <p class="text-xs text-secondary">L'acompte est enregistré puis validé : seul un mouvement
-       VALIDE déduit réellement du solde. Il ne touche ni payout, ni commission, ni ménage, ni
-       résultat économique. Il apparaît en <strong>Réglé</strong> dans Créances &amp; dettes.</p>
-  </details>
-
-  <p class="text-muted">Un règlement impute une créance existante : il ne recrée ni commission,
-     ni charge, ni facture.</p>
+  {% if peut_avoir %}
+  <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/avoir">
+    <label class="fc-champ"><span>Motif de l'avoir</span><input type="text" name="motif" required></label>
+    <div class="fc-actions"><button type="submit" class="btn btn-secondary">Créer un avoir</button></div>
+  </form>
   {% endif %}
-</div>
+</section>
+</aside>
+
+{# ══ Contenu de la facture ═══════════════════════════════════════════════════════════════ #}
+<div class="fc-principal">
 
 {# ── Séjours de la période et commission ──────────────────────────────────────
    AUCUNE donnée personnelle du voyageur n'est affichée (ni nom, ni e-mail, ni
    téléphone) : la référence de réservation suffit à retrouver le séjour, et
    l'écran comme le PDF doivent pouvoir circuler sans emporter de PII. #}
-<div class="card" id="reservations">
-  <h3>Séjours de la période et commission</h3>
-  <p class="text-xs text-secondary">
-    Période des prestations :
-    {% if periode.debut %}du {{ periode.debut | date_fr }} au {{ periode.fin | date_fr }}
-    {% else %}{{ periode.mois }}{% endif %}
-  </p>
+{% if reservations or not est_avoir %}
+<section class="card fc-carte" id="reservations" aria-labelledby="t-sejours">
+  <div class="fc-carte__tete">
+    <h2 class="fc-carte__titre" id="t-sejours">Séjours de la période</h2>
+    <p>
+      {% if periode.debut %}du {{ periode.debut | date_fr }} au {{ periode.fin | date_fr }}
+      {% else %}{{ periode.mois | mois_humain }}{% endif %}
+      · {{ reservations|length }} séjour(s)
+    </p>
+  </div>
+  {% if editable and reservations %}
+  <p class="fc-aide">Sur un brouillon, le <strong>ménage</strong> et la <strong>commission</strong>
+    de chaque séjour sont modifiables (ex. ménage offert : 0). Enregistrez la ligne : les lignes
+    « Prestations de ménage » et « Commission de conciergerie » et le total suivent. Le calcul
+    d'origine reste affiché sous la valeur modifiée.</p>
+  {% endif %}
   {% if reservations %}
-  <div class="table-container">
-  <table class="table">
+  <div class="fc-table-wrap">
+  <table class="table fc-table fc-table--fiches">
     {# La référence de réservation est RETIRÉE du PDF (§43 : elle ne dit rien au propriétaire) mais
        CONSERVÉE ici : cet écran est un outil d'exploitation, et c'est par cette référence qu'on
        retrouve le séjour dans Hostaway pour vérifier un écart. #}
-    <thead><tr><th>Arrivée</th><th>Départ</th><th class="text-right">Nuits</th>
-               <th class="text-right">Voyageurs</th><th>Canal</th><th>Référence</th>
-               <th class="text-right">Total payout</th>
-               <th class="text-right">Assiette</th><th class="text-right">Taux</th>
-               <th class="text-right">Ménage</th>
-               <th class="text-right">Commission</th>
-               {% if editable %}<th></th>{% endif %}</tr></thead>
+    <caption class="sr-only">Séjours facturés, avec ménage et commission retenus</caption>
+    <thead><tr><th scope="col">Séjour</th><th scope="col">Canal · référence</th>
+               <th scope="col" class="text-right">Total payout</th>
+               <th scope="col" class="text-right">Assiette × taux</th>
+               <th scope="col" class="text-right">Ménage</th>
+               <th scope="col" class="text-right">Commission</th>
+               {% if editable %}<th scope="col" class="fc-col-actions"><span class="sr-only">Enregistrer</span></th>{% endif %}</tr></thead>
     <tbody>
       {% for r in reservations %}
-      <tr><td>{{ r.check_in }}</td><td>{{ r.check_out }}</td>
-          <td class="text-right">{{ r.nights }}</td>
-          <td class="text-right">{{ r.guest_count if r.guest_count is not none else "—" }}</td>
-          <td>{{ r.plateforme or "—" }}</td>
-          <td class="font-mono text-xs">{{ r.reservation_id }}</td>
-          <td class="text-right">{{ "%.2f"|format(r.payout or 0) }} €</td>
-          <td class="text-right">
+      {% set sejour_editable = editable and r.menage_initial is not none %}
+      {% set form_id = "sejour-" ~ loop.index %}
+      {% set nom_sejour = "séjour du " ~ (r.check_in | date_fr) %}
+      <tr{% if sejour_editable %} data-fc-sejour{% endif %}>
+          <td data-label="Séjour"><span class="ec-nowrap">{{ r.check_in | date_fr }} → {{ r.check_out | date_fr }}</span>
+            <span class="fc-note-calcul">{{ r.nights | entier }} nuit(s){% if r.guest_count is not none %} · {{ r.guest_count | entier }} voyageur(s){% endif %}</span></td>
+          <td data-label="Canal · référence">{{ r.plateforme or "—" }}
+            <span class="fc-note-calcul fc-ref">{{ r.reservation_id }}</span></td>
+          <td data-label="Total payout" class="fc-montant">{{ "%.2f"|format(r.payout or 0) }} €</td>
+          <td data-label="Assiette × taux" class="fc-montant">
             {%- if r.assiette_commission is not none %}{{ "%.2f"|format(r.assiette_commission) }} €
             {%- else %}{{ "%.2f"|format(r.payout or 0) }} €{% endif -%}
+            <span class="fc-note-calcul">
+            {%- if r.taux_commission is not none %}× {{ "%.2f"|format((r.taux_commission|float) * 100 if (r.taux_commission|float) <= 1 else (r.taux_commission|float)) }} %{% else %}taux —{% endif -%}
+            </span>
           </td>
-          <td class="text-right">
-            {%- if r.taux_commission is not none %}{{ "%.2f"|format((r.taux_commission|float) * 100 if (r.taux_commission|float) <= 1 else (r.taux_commission|float)) }} %{% else %}—{% endif -%}
-          </td>
-          {% set sejour_editable = editable and r.menage_initial is not none %}
-          {% set form_id = "sejour-" ~ loop.index %}
-          <td class="text-right">
-            {%- if sejour_editable %}<input form="{{ form_id }}" type="text" name="menage" size="7"
-                 value="{{ "%.2f"|format(r.menage_retenu or 0) }}" style="text-align:right"> €
+          <td data-label="Ménage" class="fc-montant">
+            {%- if sejour_editable %}
+            {% set v = "%.2f"|format(r.menage_retenu or 0) %}
+            <input form="{{ form_id }}" type="text" name="menage" inputmode="decimal" class="fc-input-montant"
+                   value="{{ v }}" data-fc-initial="{{ v }}" aria-label="Ménage du {{ nom_sejour }}, en euros">
             {%- elif r.menage_retenu is not none %}{{ "%.2f"|format(r.menage_retenu) }} €{% else %}—{% endif -%}
-            {% if r.menage_modifie %}<br><span class="text-xs text-secondary">calcul {{ "%.2f"|format(r.menage_initial) }} €</span>{% endif %}
+            {% if r.menage_modifie %}<span class="fc-note-calcul">calcul : {{ "%.2f"|format(r.menage_initial) }} €</span>{% endif %}
           </td>
-          <td class="text-right">
-            {%- if sejour_editable %}<input form="{{ form_id }}" type="text" name="commission" size="7"
-                 value="{{ "%.2f"|format(r.commission or 0) }}" style="text-align:right"> €
+          <td data-label="Commission" class="fc-montant">
+            {%- if sejour_editable %}
+            {% set v = "%.2f"|format(r.commission or 0) %}
+            <input form="{{ form_id }}" type="text" name="commission" inputmode="decimal" class="fc-input-montant"
+                   value="{{ v }}" data-fc-initial="{{ v }}" aria-label="Commission du {{ nom_sejour }}, en euros">
             {%- elif r.commission is not none %}{{ "%.2f"|format(r.commission) }} €{% else %}—{% endif -%}
-            {% if r.commission_modifiee %}<br><span class="text-xs text-secondary">calcul {{ "%.2f"|format(r.commission_initiale) }} €</span>{% endif %}
+            {% if r.commission_modifiee %}<span class="fc-note-calcul">calcul : {{ "%.2f"|format(r.commission_initiale) }} €</span>{% endif %}
           </td>
-          {% if editable %}<td>
+          {% if editable %}<td class="fc-col-actions">
             {% if sejour_editable %}
             <form id="{{ form_id }}" method="post"
                   action="/factures-proprietaires/{{ facture.facture_id_opaque }}/sejours/{{ r.reservation_id }}">
-              <button type="submit" class="btn btn-secondary">Enregistrer</button>
+              <button type="submit" class="btn btn-secondary btn-sm">Enregistrer<span class="sr-only"> le {{ nom_sejour }}</span></button>
             </form>
+            <span class="fc-note-calcul" data-fc-etat aria-live="polite"></span>
             {% endif %}
           </td>{% endif %}</tr>
       {% endfor %}
@@ -503,36 +253,386 @@
   </table>
   </div>
   {% else %}
-  <p class="text-muted">Aucune réservation figée pour cette facture.</p>
+  <p class="fc-vide">Aucune réservation figée pour cette facture.</p>
   {% endif %}
-  <p class="text-xs text-secondary">Instantané figé à la création du brouillon (ou au dernier
-     rechargement) : une extraction Hostaway ultérieure ne le modifie pas tant que le brouillon
-     n'est pas rechargé. Payout, assiette, taux, ménage et commission viennent du calcul mensuel
-     (Lot10).{% if editable %} Sur un brouillon, le <strong>ménage</strong> et la
-     <strong>commission</strong> de chaque séjour sont modifiables (ex. ménage offert : 0) : les
-     lignes « Prestations de ménage » et « Commission de conciergerie » et le total suivent. Le
-     calcul d'origine reste affiché sous la valeur modifiée.{% endif %}</p>
-</div>
+  <p class="fc-aide">Instantané figé à la création du brouillon (ou au dernier rechargement) : une
+     extraction Hostaway ultérieure ne le modifie pas tant que le brouillon n'est pas rechargé.
+     Payout, assiette, taux, ménage et commission viennent du calcul mensuel.</p>
+</section>
+{% endif %}
 
-<div class="card">
-  <h3>Conformité de la facture</h3>
-  {% if conformite.statut == "PRETE_A_EMETTRE" %}
-  <p><strong>PRÊTE À ÉMETTRE</strong> — toutes les données réglementaires sont renseignées.</p>
+<section class="card fc-carte" id="lignes-facturees" aria-labelledby="t-lignes">
+  <div class="fc-carte__tete">
+    <h2 class="fc-carte__titre" id="t-lignes">Lignes facturées</h2>
+    <p>{{ facture.lignes|length }} ligne(s)</p>
+  </div>
+  {% if facture.lignes %}
+  <div class="fc-table-wrap">
+  <table class="table fc-table fc-table--fiches">
+    <caption class="sr-only">Lignes de {{ "l'avoir" if est_avoir else "la facture" }} et total</caption>
+    <thead><tr><th scope="col">N°</th><th scope="col">Désignation</th><th scope="col">Origine</th>
+               <th scope="col" class="text-right">Montant</th>
+               {% if editable %}<th scope="col" class="fc-col-actions"><span class="sr-only">Actions</span></th>{% endif %}</tr></thead>
+    <tbody>
+      {% for l in facture.lignes %}
+      <tr><td data-label="N°">{{ l.numero_ligne }}</td>
+          <td data-label="Désignation">{{ l.libelle }}{% if fc.type_ligne(l.type_ligne)|lower != l.libelle|lower %}<span class="fc-note-calcul">{{ fc.type_ligne(l.type_ligne) }}</span>{% endif %}</td>
+          <td data-label="Origine">
+              <span class="badge {{ 'badge-neutral' if l.origine == 'CALCULEE' else 'badge-info' }}">{{ fc.origine_ligne(l.origine) }}</span>
+              {% if l.montant_modifie %}
+              <span class="fc-note-calcul">modifiée — calcul d'origine {{ "%.2f"|format(l.montant_source_initial) }} €</span>
+              {% endif %}
+              {% if l.charge %}
+              <span class="fc-note-calcul">charge {{ l.charge.charge_id }} · {{ "hors compta" if l.charge.code_impact == "HC" else "en comptabilité" }}</span>
+              {% endif %}
+          </td>
+          <td data-label="Montant" class="fc-montant">{{ "%.2f"|format(l.montant) }} €</td>
+          {% if editable %}
+          <td class="fc-col-actions">
+            <div class="fc-ligne-actions">
+            <details class="fc-modifier">
+              <summary class="btn-lien">Modifier<span class="sr-only"> la ligne {{ l.numero_ligne }}</span></summary>
+              <div class="fc-modifier__corps">
+              {% if l.origine == "CALCULEE" %}
+              <p class="fc-encart fc-encart--alerte">{{ avertissement_ligne_calculee }}</p>
+              {% endif %}
+              <form method="post" class="fc-grille mt-sm"
+                    action="/factures-proprietaires/{{ facture.facture_id_opaque }}/lignes/{{ l.ligne_id_opaque }}/modifier">
+                <label class="fc-champ fc-champ--large"><span>Libellé</span><input type="text" name="libelle" value="{{ l.libelle }}" required></label>
+                <label class="fc-champ"><span>Montant (€)</span><input type="text" name="montant" inputmode="decimal" value="{{ "%.2f"|format(l.montant) }}" required></label>
+                <label class="fc-champ"><span>Commentaire <span class="fc-facultatif">(facultatif)</span></span><input type="text" name="commentaire"></label>
+                <button type="submit" class="btn btn-primary">Enregistrer</button>
+              </form>
+              </div>
+            </details>
+            <form method="post"
+                  action="/factures-proprietaires/{{ facture.facture_id_opaque }}/lignes/{{ l.ligne_id_opaque }}/supprimer"
+                  data-fc-confirmer="Retirer la ligne « {{ l.libelle }} » de ce brouillon ? Le calcul d'origine n'est pas modifié.">
+              <button type="submit" class="btn-lien btn-lien--danger">Retirer<span class="sr-only"> la ligne {{ l.numero_ligne }}</span></button>
+            </form>
+            </div>
+          </td>
+          {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      {% set span = 4 if editable else 3 %}
+      {% if facture.ajustement_present %}
+      {# Décomposition affichée UNIQUEMENT quand un ajustement existe : la montrer partout
+         apprendrait à ne plus la lire. Tous les montants viennent du service. #}
+      <tr class="fc-sous-total"><th scope="row" colspan="{{ span - 1 }}">Total calculé</th>
+          <td class="fc-montant">{{ "%.2f"|format(facture.total_source_calcule) }} €</td>{% if editable %}<td></td>{% endif %}</tr>
+      <tr class="fc-sous-total"><th scope="row" colspan="{{ span - 1 }}">Ajustements manuels</th>
+          <td class="fc-montant">{{ "%.2f"|format(facture.ajustement_manuel) }} €</td>{% if editable %}<td></td>{% endif %}</tr>
+      {% endif %}
+      <tr><th scope="row" colspan="{{ span - 1 }}">Total {{ "de l'avoir" if est_avoir else "facture" }}</th>
+          <td class="fc-montant">{{ "%.2f"|format(facture.total_facture) }} €</td>{% if editable %}<td></td>{% endif %}</tr>
+    </tfoot>
+  </table>
+  </div>
   {% else %}
-  <p><strong>ÉMISSION BLOQUÉE</strong> — {{ conformite.manques|length }} point(s) à régler :</p>
+  <p class="fc-vide">Aucune ligne pour l'instant.{% if editable %} Ajoutez-en depuis « Ajouter au brouillon ».{% endif %}</p>
+  {% endif %}
+  {% if not editable %}
+  <p class="fc-aide">{{ nom_doc }} {{ facture.statut|libelle_statut|lower }} : les lignes ne sont plus
+     modifiables.{% if facture.statut == "EMIS" %} Une correction passe par un avoir.{% endif %}</p>
+  {% endif %}
+</section>
+
+{% if editable %}
+{# ── Actions d'édition du BROUILLON ────────────────────────────────────────── #}
+<section class="card fc-carte" id="ajustements" aria-labelledby="t-ajouter">
+  <div class="fc-carte__tete">
+    <h2 class="fc-carte__titre" id="t-ajouter">Ajouter au brouillon</h2>
+    <p>Chaque ajout recalcule le total ; rien n'a d'impact avant l'émission.</p>
+  </div>
+
+  <details class="fc-depliant" {% if charges_eligibles %}open{% endif %}>
+    <summary>Éléments à refacturer
+      <span class="fc-depliant__aide">{{ charges_eligibles|length }} disponible(s)</span></summary>
+    <div class="fc-depliant__corps">
+  {% if charges_eligibles %}
+  <p class="fc-aide">
+    Dépenses déjà saisies, refacturables à ce propriétaire et <strong>pas encore entièrement
+    récupérées</strong>. Le montant proposé est le solde restant : vous pouvez le modifier pour
+    n'en refacturer qu'une partie (un motif est alors demandé) et reporter le reste sur une autre
+    facture.
+  </p>
+  <div class="fc-table-wrap mt-sm">
+  <table class="table fc-table fc-table--fiches">
+    <caption class="sr-only">Éléments à refacturer disponibles</caption>
+    <thead><tr><th scope="col">Élément</th><th scope="col">Logement(s)</th>
+               <th scope="col" class="text-right">Montant initial</th>
+               <th scope="col" class="text-right">Déjà refacturé</th>
+               <th scope="col" class="text-right">Reste</th>
+               <th scope="col">Montant à refacturer</th></tr></thead>
+    <tbody>
+      {% for c in charges_eligibles %}
+      {% set nom_charge = c.description or "Charge refacturée" %}
+      <tr>
+        <td data-label="Élément">
+          <strong>{{ nom_charge }}</strong>
+          <span class="fc-note-calcul">
+            {{ c.categorie_charge_id | nom_categorie_charge if c.categorie_charge_id else "" }}
+            {% if c.date_charge %} · {{ c.date_charge|date_fr }}{% endif %}
+            {% if c.justificatif %} · {{ c.justificatif }}{% endif %}
+          </span>
+        </td>
+        <td data-label="Logement(s)" class="text-xs">
+          {% if c.logements_eligibles %}
+            {% for l in c.logements_eligibles %}{{ l | nom_logement }}{% if not loop.last %}<br>{% endif %}{% endfor %}
+          {% else %}<span class="text-secondary">Charge commune</span>{% endif %}
+        </td>
+        <td data-label="Montant initial" class="fc-montant">{{ "%.2f"|format(c.montant_origine) }} €</td>
+        <td data-label="Déjà refacturé" class="fc-montant">{{ "%.2f"|format(c.montant_deja_refacture) }} €</td>
+        <td data-label="Reste" class="fc-montant"><strong>{{ "%.2f"|format(c.montant_restant) }} €</strong></td>
+        <td data-label="À refacturer">
+          {# Un formulaire PAR LIGNE : le montant saisi appartient sans ambiguïté à cet élément.
+             Le motif n'est exigé QUE si le montant saisi est inférieur au solde : la validation
+             refuse une imputation partielle sans justification. #}
+          <form method="post" class="fc-ligne-actions"
+                action="/factures-proprietaires/{{ facture.facture_id_opaque }}/charge-existante">
+            <input type="hidden" name="position_id" value="{{ c.position_id }}">
+            <input type="text" name="montant" value="{{ "%.2f"|format(c.montant_restant) }}" inputmode="decimal"
+                   class="fc-input-montant" aria-label="Montant à refacturer pour « {{ nom_charge }} », en euros">
+            <input type="text" name="justification" placeholder="Motif si montant partiel"
+                   aria-label="Motif de la refacturation partielle de « {{ nom_charge }} »">
+            <button type="submit" class="btn btn-primary btn-sm">Ajouter<span class="sr-only"> « {{ nom_charge }} » à la facture</span></button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="fc-aide">
+    Le montant refacturé est <strong>indépendant de la ventilation analytique</strong> de la
+    charge : une dépense de 700 € répartie sur deux logements peut être refacturée 700 € sur une
+    seule facture, ou 350/350, ou 500/200. Le cumul ne peut jamais dépasser le montant d'origine.
+  </p>
+  {% else %}
+  <p class="fc-vide">Aucun élément à refacturer disponible pour ce propriétaire.
+     Une dépense entièrement refacturée n'apparaît plus ici.</p>
+  {% endif %}
+    </div>
+  </details>
+
+  <details class="fc-depliant">
+    <summary>Extra <span class="fc-depliant__aide">prestation ponctuelle — augmente la facture</span></summary>
+    <div class="fc-depliant__corps">
+  <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/extra" class="fc-grille mt-sm">
+    <label class="fc-champ fc-champ--large"><span>Libellé</span>
+      <input type="text" id="extra_libelle" name="libelle" required maxlength="160"
+             placeholder="Intervention ponctuelle, prestation supplémentaire…"></label>
+    <label class="fc-champ"><span>Nature</span>
+      <select id="extra_nature" name="nature">
+        <option value="SERVICE_ADDITIONNEL">Service additionnel / extra (706500)</option>
+        <option value="SINISTRE">Gestion de sinistre / intervention (706400)</option>
+        <option value="AUTRE_PRESTATION">Autre prestation de conciergerie (706900)</option>
+      </select></label>
+    <label class="fc-champ"><span>Montant (€)</span>
+      <input type="number" id="extra_montant" name="montant" step="0.01" min="0.01" required></label>
+    <label class="fc-champ"><span>Note <span class="fc-facultatif">(facultatif)</span></span>
+      <input type="text" id="extra_commentaire" name="commentaire" maxlength="240"></label>
+    <button type="submit" class="btn btn-primary">Ajouter l'extra</button>
+  </form>
+  <p class="fc-aide">Pour diminuer la facture, utilisez une réduction : un extra négatif est refusé.</p>
+    </div>
+  </details>
+
+  <details class="fc-depliant">
+    <summary>Réduction <span class="fc-depliant__aide">remise commerciale — diminue la facture</span></summary>
+    <div class="fc-depliant__corps">
+  <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/reduction" class="fc-grille mt-sm">
+    <label class="fc-champ fc-champ--large"><span>Libellé</span>
+      <input type="text" id="red_libelle" name="libelle" value="Remise commerciale" required maxlength="160"></label>
+    <label class="fc-champ"><span>Montant à déduire (€, positif)</span>
+      <input type="number" id="red_montant" name="montant" step="0.01" min="0.01" required></label>
+    <label class="fc-champ"><span>Motif <span class="fc-facultatif">(facultatif)</span></span>
+      <input type="text" id="red_motif" name="motif" maxlength="240"></label>
+    <button type="submit" class="btn btn-primary">Ajouter la réduction</button>
+  </form>
+  <p class="fc-aide">Saisir un montant positif : il sera déduit. Une réduction ne peut pas rendre la
+     facture négative.</p>
+    </div>
+  </details>
+
+  <details class="fc-depliant">
+    <summary>Ligne libre ou charge <span class="fc-depliant__aide">commission, ménage, forfait… ou nouvelle charge réelle</span></summary>
+    <div class="fc-depliant__corps">
+    <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/lignes/ajouter" class="fc-grille mt-sm">
+      <label class="fc-champ"><span>Type</span>
+        <select name="type_ligne" id="type_ligne" required>
+          {% for t in types_ligne %}<option value="{{ t }}">{{ fc.type_ligne(t) }}</option>{% endfor %}
+          <option value="{{ choix_ligne_charge }}">{{ fc.type_ligne(choix_ligne_charge) }}</option>
+        </select>
+      </label>
+      <label class="fc-champ"><span>Libellé</span><input type="text" name="libelle" required></label>
+      <label class="fc-champ"><span>Montant (€)</span><input type="text" name="montant" inputmode="decimal" required></label>
+      <label class="fc-champ"><span>Commentaire <span class="fc-facultatif">(facultatif)</span></span><input type="text" name="commentaire"></label>
+
+      {# Champs propres au parcours CHARGE, masqués tant que le type n'est pas une charge.
+         Masqués, ils restent dans le formulaire : rien n'est retiré de ce qui est envoyé. #}
+      <div id="bloc_charge" class="fc-champ--large" data-fc-si="type_ligne={{ choix_ligne_charge }}" hidden>
+        <p class="fc-encart fc-encart--alerte"><strong>{{ avertissement_charge }}</strong></p>
+        <div class="fc-grille mt-sm">
+        <label class="fc-champ"><span>Mode d'impact</span>
+          <select name="code_impact" id="code_impact">
+            {% for m in modes_charge %}
+            <option value="{{ m.code_impact }}">{{ m.libelle }} — {{ m.description }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="fc-champ"><span>Catégorie de charge</span>
+          <select name="categorie_charge_id">
+            {% for c in categories_charges %}
+            <option value="{{ c.categorie_charge_id }}">{{ c.categorie_niveau_1 }} · {{ c.categorie_niveau_2 or c.categorie_charge_id }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="fc-champ"><span>Date de la charge</span><input type="date" name="date_charge"></label>
+        <label class="fc-champ"><span>Refacturable au propriétaire</span>
+          <select name="refacturable"><option value="NON">Non</option><option value="OUI">Oui</option></select>
+        </label>
+        </div>
+        <p class="fc-aide">Impact résultat : <strong id="ef_reel">—</strong> · Impact comptabilité :
+          <strong id="ef_compta">—</strong>. Créer une charge ici n'écrit AUCUNE écriture comptable :
+          la comptabilisation reste un workflow distinct et postérieur.</p>
+      </div>
+      <button type="submit" class="btn btn-primary">Ajouter la ligne</button>
+    </form>
+    {# Effet de chaque mode d'impact, lu par factures_clients.js (mêmes libellés que la saisie
+       de charge fournisseur) : l'utilisateur voit l'impact AVANT de valider, jamais après. #}
+    <script type="application/json" id="fc-modes-charge">{{ modes_charge | tojson }}</script>
+    </div>
+  </details>
+</section>
+{% endif %}
+
+<section class="card fc-carte" id="reglement" aria-labelledby="t-reglement">
+  <div class="fc-carte__tete"><h2 class="fc-carte__titre" id="t-reglement">Règlement</h2></div>
+  {% if facture.statut != "EMIS" or facture.hors_compta %}
+  <p data-testid="sans-impact-compte-client">{% if facture.hors_compta %}Facture hors comptabilité : aucun
+     paiement attendu.{% else %}Facture non émise : <strong>aucun impact sur le compte client</strong>.
+     À l'émission, le crédit disponible du client s'imputera automatiquement sur la créance.{% endif %}</p>
+  {% else %}
+  {# Zéro arithmétique ici : tous les montants sont calculés par `svc.solde()`. #}
+  <table class="fc-decompo">
+    <caption class="sr-only">Situation de règlement</caption>
+    <tbody>
+      <tr><th scope="row">Total facture</th><td class="fc-montant">{{ "%.2f"|format(solde.montant_total) }} €</td></tr>
+      <tr class="fc-decompo__deduction"><th scope="row">Reversements Airbnb et crédits imputés</th><td class="fc-montant">− {{ "%.2f"|format(solde.total_reversements_airbnb) }} €</td></tr>
+      <tr class="fc-decompo__deduction"><th scope="row">Acomptes propriétaire</th><td class="fc-montant">− {{ "%.2f"|format(solde.total_acomptes_proprietaire) }} €</td></tr>
+      {% if solde.autres_paiements %}
+      <tr class="fc-decompo__deduction"><th scope="row">Autres paiements imputés</th><td class="fc-montant">− {{ "%.2f"|format(solde.autres_paiements) }} €</td></tr>
+      {% endif %}
+      <tr class="fc-decompo__net"><th scope="row">Solde restant</th><td class="fc-montant">{{ "%.2f"|format(solde.solde) }} €</td></tr>
+    </tbody>
+  </table>
+  <p class="mt-sm"><span class="status-badge status-{{ fc.classe_reglement(solde.statut_reglement) }}">{{ solde.statut_reglement|libelle_statut }}</span></p>
+
+  {% if solde.reversements_airbnb %}
+  <h3 class="fc-carte__sous-titre">Reversements Airbnb</h3>
+  <div class="fc-table-wrap">
+  <table class="table fc-table fc-table--fiches">
+    <thead><tr><th scope="col">Date</th><th scope="col">Référence</th><th scope="col">Origine comptable</th><th scope="col" class="text-right">Montant</th></tr></thead>
+    <tbody>
+      {% for r in solde.reversements_airbnb %}
+      <tr><td data-label="Date">{{ r.date_imputation | date_fr }}</td><td data-label="Référence">{{ r.reference_airbnb or "—" }}</td>
+          <td data-label="Origine" data-testid="origine-reversement">{% if r.credit_id_opaque %}Crédit d'origine constatée{% if r.ecriture_imputation %} — <a href="/comptabilite/ecritures/{{ r.ecriture_imputation }}">écriture 419100 → 411000</a>{% endif %}
+              {% else %}<span class="badge badge-warning">À régulariser</span> sans origine comptable — <a href="/comptes-proprietaires/{{ facture.proprietaire_id }}/credits">régulariser</a>{% endif %}</td>
+          <td data-label="Montant" class="fc-montant">{{ "%.2f"|format(r.montant_impute) }} €</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+
+  {% if solde.acomptes_proprietaire %}
+  <h3 class="fc-carte__sous-titre">Acomptes propriétaire</h3>
+  <div class="fc-table-wrap">
+  <table class="table fc-table fc-table--fiches">
+    <thead><tr><th scope="col">Date</th><th scope="col">Mode</th><th scope="col">Statut</th><th scope="col" class="text-right">Montant</th></tr></thead>
+    <tbody>
+      {% for a in solde.acomptes_proprietaire %}
+      <tr><td data-label="Date">{{ a.date_mouvement|date_fr }}</td><td data-label="Mode">{{ a.mode_reglement or "—" }}</td>
+          <td data-label="Statut"><span class="badge">{{ a.statut|libelle_statut }}</span></td>
+          <td data-label="Montant" class="fc-montant">{{ "%.2f"|format(a.montant) }} €</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+
+  {# Mission 37 — un reversement Airbnb s'impute depuis le CRÉDIT qui le représente (montant
+     reçu, origine comptable constatée) ; la saisie libre d'un montant sans origine n'est plus
+     proposée. #}
+  <details class="fc-depliant mt-sm" {% if credits_airbnb %}open{% endif %} data-testid="imputer-reversement">
+    <summary>+ Imputer un reversement Airbnb</summary>
+    <div class="fc-depliant__corps">
+    {% if credits_airbnb %}
+    <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/imputer-credit" class="fc-grille mt-sm">
+      <label class="fc-champ fc-champ--large"><span>Reversement reçu</span>
+        <select name="credit_id" required>
+          {% for c in credits_airbnb %}<option value="{{ c.credit_id_opaque }}">{{ c.date_origine | date_fr }} — {{ c.reference or "reversement Airbnb" }} — reste {{ "%.2f"|format(c.reste) }} €</option>{% endfor %}
+        </select></label>
+      <label class="fc-champ"><span>Montant (€)</span><input type="text" name="montant" inputmode="decimal" required></label>
+      <label class="fc-champ"><span>Votre nom</span><input type="text" name="acteur" required autocomplete="name"></label>
+      <button type="submit" class="btn btn-primary">Imputer</button>
+    </form>
+    {% else %}
+    <p class="fc-aide">Aucun reversement Airbnb disponible pour ce propriétaire.
+      <a href="/comptes-proprietaires/{{ facture.proprietaire_id }}/credits">Déclarer un reversement reçu</a> (il sera rapproché de son virement).</p>
+    {% endif %}
+    <p class="fc-aide">Un reversement Airbnb reste un versement de plateforme : il ne crée
+       ni réservation, ni charge. Sur une facture émise, son imputation est constatée 419100 → 411000.</p>
+    </div>
+  </details>
+
+  <details class="fc-depliant">
+    <summary>+ Ajouter un acompte propriétaire</summary>
+    <div class="fc-depliant__corps">
+    <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/acompte" class="fc-grille mt-sm">
+      <label class="fc-champ"><span>Montant (€)</span><input type="text" name="montant" inputmode="decimal" required></label>
+      {# Saisie au MOIS et non au jour : ces montants se raisonnent par période (§19). La date
+         technique exigée par le schéma est dérivée du dernier jour du mois, côté serveur. #}
+      <label class="fc-champ"><span>Mois de référence</span>
+        <input type="month" name="mois_reference" value="{{ facture.mois }}" required></label>
+      <label class="fc-champ"><span>Mode de règlement <span class="fc-facultatif">(facultatif)</span></span><input type="text" name="mode_reglement"></label>
+      <label class="fc-champ"><span>Commentaire <span class="fc-facultatif">(facultatif)</span></span><input type="text" name="commentaire"></label>
+      <button type="submit" class="btn btn-primary">Enregistrer l'acompte</button>
+    </form>
+    <p class="fc-aide">L'acompte est enregistré puis validé : seul un mouvement VALIDE déduit
+       réellement du solde. Il ne touche ni payout, ni commission, ni ménage, ni résultat
+       économique. Il apparaît en <strong>Réglé</strong> dans Créances &amp; dettes.</p>
+    </div>
+  </details>
+
+  <p class="fc-aide">Un règlement impute une créance existante : il ne recrée ni commission,
+     ni charge, ni facture.</p>
+  {% endif %}
+</section>
+
+<section class="card fc-carte" id="conformite" aria-labelledby="t-conformite">
+  <div class="fc-carte__tete"><h2 class="fc-carte__titre" id="t-conformite">Conformité de la facture</h2></div>
+  {% if conformite.statut == "PRETE_A_EMETTRE" %}
+  <div class="fc-encart fc-encart--succes"><p><strong>Prête à émettre</strong> — toutes les données réglementaires sont renseignées.</p></div>
+  {% else %}
+  <div class="fc-encart fc-encart--alerte">
+  <p><strong>Émission bloquée</strong> — {{ conformite.manques|length }} point(s) à régler :</p>
   <ul>
     {% for m in conformite.manques %}
-    {# Le message d'abord — c'est lui qui dit quoi faire. Le code technique reste visible, mais en
-       second : il sert aux journaux et aux tests, pas à l'utilisateur.
-       Les valeurs testées sont les CODES REELS ; l'ancienne condition comparait les noms des
-       constantes Python ("C_TYPE_CLIENT"), donc le lien ne s'affichait jamais. #}
-    <li>{{ m.message }} <span class="badge">{{ m.code }}</span>
+    {# Le message seul : il dit quoi faire. Le code technique reste dans les journaux et les
+       tests, il n'a rien à apprendre à l'utilisateur. #}
+    <li>{{ m.message }}
       {% if m.code == "FACTURE_IDENTITE_CLIENT_INCOMPLETE" %}
       · <a href="/proprietaires-reglements/{{ facture.proprietaire_id }}">compléter la fiche propriétaire</a>
       {% endif %}
     </li>
     {% endfor %}
   </ul>
+  </div>
   {% endif %}
 
   {# ── Classement du propriétaire ────────────────────────────────────────────
@@ -540,175 +640,169 @@
      ne permettent de conclure. Les mentions légales obligatoires en dépendent. #}
   {% if type_client_actuel == "A_CONTROLER" %}
   <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/type-client"
-        class="card" style="border-color:#B65E4B">
-    <h4>Ce propriétaire est-il un particulier ou un professionnel ?</h4>
-    <p class="text-xs text-secondary">Les mentions obligatoires diffèrent : pénalités de retard et
-      indemnité forfaitaire de recouvrement de 40 € sont dues entre professionnels, et n'ont pas à
-      figurer sur la facture d'un particulier. Ce choix est enregistré sur le propriétaire et
-      réutilisé pour ses factures suivantes.</p>
-    <label><input type="radio" name="type_client" value="PARTICULIER" required> Particulier</label>
-    <label><input type="radio" name="type_client" value="PROFESSIONNEL"> Professionnel</label>
-    <label for="tc_siren">SIREN du client (facultatif, professionnel)</label>
-    <input type="text" id="tc_siren" name="siren_client" maxlength="20">
-    <label for="tc_tva">TVA intracommunautaire du client (facultatif)</label>
-    <input type="text" id="tc_tva" name="tva_intra_client" maxlength="20">
-    <button type="submit" class="btn btn-primary">Enregistrer le type de client</button>
+        class="fc-encart mt-sm">
+    <fieldset class="fc-choix">
+      <legend>Ce propriétaire est-il un particulier ou un professionnel ?</legend>
+      <label class="fc-option"><input type="radio" name="type_client" value="PARTICULIER" required> <span>Particulier</span></label>
+      <label class="fc-option"><input type="radio" name="type_client" value="PROFESSIONNEL"> <span>Professionnel</span></label>
+    </fieldset>
+    <p class="fc-aide">Les mentions obligatoires diffèrent : pénalités de retard et indemnité
+      forfaitaire de recouvrement de 40 € sont dues entre professionnels, et n'ont pas à figurer sur
+      la facture d'un particulier. Ce choix est enregistré sur le propriétaire et réutilisé pour ses
+      factures suivantes.</p>
+    <div class="fc-grille mt-sm">
+      <label class="fc-champ" for="tc_siren"><span>SIREN du client <span class="fc-facultatif">(facultatif, professionnel)</span></span>
+        <input type="text" id="tc_siren" name="siren_client" maxlength="20"></label>
+      <label class="fc-champ" for="tc_tva"><span>TVA intracommunautaire du client <span class="fc-facultatif">(facultatif)</span></span>
+        <input type="text" id="tc_tva" name="tva_intra_client" maxlength="20"></label>
+      <button type="submit" class="btn btn-primary">Enregistrer le type de client</button>
+    </div>
   </form>
   {% else %}
-  <p>Type de client : <strong>{{ type_client_actuel }}</strong>
+  <div class="fc-ligne-actions mt-sm">
+    <span>Type de client : <strong>{{ type_client_actuel|libelle_statut }}</strong></span>
     {% if editable %}
-    <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/type-client"
-          style="display:inline">
+    <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/type-client">
       <input type="hidden" name="type_client"
              value="{{ 'PROFESSIONNEL' if type_client_actuel == 'PARTICULIER' else 'PARTICULIER' }}">
-      <button type="submit" class="btn">Reclasser en
+      <button type="submit" class="btn-lien">Reclasser en
         {{ 'professionnel' if type_client_actuel == 'PARTICULIER' else 'particulier' }}</button>
     </form>
     {% endif %}
-  </p>
+  </div>
   {% endif %}
   {% set c = conformite.conformite %}
-  <table class="table">
-    <tbody>
-      <tr><td>Identité émetteur</td><td>{{ "✓" if c.emetteur.denomination and c.emetteur.siren and c.emetteur.adresse_siege else "✗" }} {{ c.emetteur.denomination or "—" }}{% if c.emetteur.siren %} · SIREN {{ c.emetteur.siren }}{% endif %}</td></tr>
-      <tr><td>Identité client</td><td>{{ "✓" if c.client.denomination and c.client.adresse else "✗" }} {{ c.client.denomination or "—" }} ({{ c.client.type_client }})</td></tr>
-      <tr><td>Période de prestation</td><td>{{ "✓" if c.periode_debut else "✗" }} {{ c.periode_debut }} → {{ c.periode_fin }}</td></tr>
-      <tr><td>Nature de l'opération</td><td>✓ {{ c.nature_operation }}</td></tr>
-      <tr><td>Prestations</td><td>{{ "✓" if facture.lignes else "✗" }} {{ facture.lignes|length }} ligne(s)</td></tr>
-      <tr><td>Montants</td><td>HT {{ "%.2f"|format(c.total_ht) }} € · TVA {{ "%.2f"|format(c.total_tva) }} € · TTC {{ "%.2f"|format(c.total_ttc) }} €</td></tr>
-      <tr><td>Régime de TVA</td><td>{{ "✓" if c.regime_tva != "A_CONTROLER" else "✗" }} {{ c.regime_tva }}{% if c.mention_tva %} · mention configurée{% endif %}</td></tr>
-      <tr><td>Conditions de règlement</td><td>{{ "✓" if c.date_echeance else "✗" }} échéance {{ c.date_echeance or "—" }}{% if c.delai_paiement_jours %} ({{ c.delai_paiement_jours }} j){% endif %}</td></tr>
-      {% if c.client.type_client == "PROFESSIONNEL" %}
-      <tr><td>Pénalités de retard</td><td>{{ "✓" if c.taux_penalites_retard else "✗" }} {{ c.taux_penalites_retard or "non configurées" }}</td></tr>
-      <tr><td>Indemnité de recouvrement</td><td>{{ "✓" if c.indemnite_recouvrement else "✗" }} {{ c.indemnite_recouvrement or "non configurée" }}</td></tr>
-      {% endif %}
-      <tr><td>Numérotation</td><td>{{ "✓ " ~ facture.numero_facture if facture.numero_facture else "attribuée à l'émission" }}</td></tr>
-      <tr><td>Comptabilité</td><td>{{ "✓" if comptabilite.ecriture else ("—" if comptabilite.statut == "SANS_OBJET" else "✗") }} {{ comptabilite.statut }}</td></tr>
-      <tr><td>Facturation électronique</td><td>{{ c.facturation_electronique.status }}{% if c.facturation_electronique.provider %} · {{ c.facturation_electronique.provider }}{% endif %}</td></tr>
-    </tbody>
-  </table>
-</div>
+  {% macro controle(etat, nom) -%}
+  <li><span class="fc-controles__etat fc-controles__etat--{{ etat }}" aria-hidden="true">{{ {"ok": "✓", "ko": "✗", "na": "–"}[etat] }}</span>
+      <span class="fc-controles__nom">{{ nom }}<span class="sr-only"> : {{ {"ok": "conforme", "ko": "à compléter", "na": "sans objet"}[etat] }}</span></span>
+      <span>{{ caller() }}</span></li>
+  {%- endmacro %}
+  <ul class="fc-controles mt-sm">
+    {% call controle("ok" if c.emetteur.denomination and c.emetteur.siren and c.emetteur.adresse_siege else "ko", "Identité émetteur") %}{{ c.emetteur.denomination or "—" }}{% if c.emetteur.siren %} · SIREN {{ c.emetteur.siren }}{% endif %}{% endcall %}
+    {% call controle("ok" if c.client.denomination and c.client.adresse else "ko", "Identité client") %}{{ c.client.denomination or "—" }} ({{ c.client.type_client|libelle_statut }}){% endcall %}
+    {% call controle("ok" if c.periode_debut else "ko", "Période de prestation") %}{{ c.periode_debut|date_fr }} → {{ c.periode_fin|date_fr }}{% endcall %}
+    {% call controle("ok", "Nature de l'opération") %}{{ fc.nature_operation(c.nature_operation) }}{% endcall %}
+    {% call controle("ok" if facture.lignes else "ko", "Prestations") %}{{ facture.lignes|length }} ligne(s){% endcall %}
+    {% call controle("ok", "Montants") %}HT {{ "%.2f"|format(c.total_ht) }} € · TVA {{ "%.2f"|format(c.total_tva) }} € · TTC {{ "%.2f"|format(c.total_ttc) }} €{% endcall %}
+    {% call controle("ok" if c.regime_tva != "A_CONTROLER" else "ko", "Régime de TVA") %}{{ fc.regime_tva(c.regime_tva) }}{% if c.mention_tva %} · mention configurée{% endif %}{% endcall %}
+    {% call controle("ok" if c.date_echeance else "ko", "Conditions de règlement") %}échéance {{ c.date_echeance|date_fr if c.date_echeance else "—" }}{% if c.delai_paiement_jours %} ({{ c.delai_paiement_jours }} j){% endif %}{% endcall %}
+    {% if c.client.type_client == "PROFESSIONNEL" %}
+    {% call controle("ok" if c.taux_penalites_retard else "ko", "Pénalités de retard") %}{{ c.taux_penalites_retard or "non configurées" }}{% endcall %}
+    {% call controle("ok" if c.indemnite_recouvrement else "ko", "Indemnité de recouvrement") %}{{ c.indemnite_recouvrement or "non configurée" }}{% endcall %}
+    {% endif %}
+    {% call controle("ok" if facture.numero_facture else "na", "Numérotation") %}{{ facture.numero_facture or "attribuée à l'émission" }}{% endcall %}
+    {% call controle("ok" if comptabilite.ecriture else ("na" if comptabilite.statut in ("SANS_OBJET", "HORS_COMPTA") else "ko"), "Comptabilité") %}{{ fc.statut_compta(comptabilite.statut) }}{% endcall %}
+    {% call controle("na", "Facturation électronique") %}{{ c.facturation_electronique.status|libelle_statut }}{% if c.facturation_electronique.provider %} · {{ c.facturation_electronique.provider }}{% endif %}{% endcall %}
+  </ul>
+</section>
 
-<div class="card">
-  <h3>Comptabilité</h3>
+<section class="card fc-carte" id="identites" aria-labelledby="t-identites">
+  <div class="fc-carte__tete"><h2 class="fc-carte__titre" id="t-identites">Émetteur et destinataire</h2></div>
+  {# SIREN (entreprise, 9 chiffres) et SIRET (établissement, 14) sont deux identifiants
+     distincts : l'un ne remplace pas l'autre à l'affichage, et aucun n'est déduit de l'autre.
+     L'identité est complète dès que l'un des deux est renseigné. #}
+  <div class="fc-grille fc-grille--2 fc-grille--haut">
+  <div>
+    <h3 class="fc-carte__sous-titre">Émetteur</h3>
+    <p><strong>{{ emetteur.nom or "Dénomination non renseignée" }}</strong>
+       {%- if emetteur.forme_juridique %} — {{ emetteur.forme_juridique }}
+         {%- if emetteur.capital %} au capital de {{ emetteur.capital }}{% endif %}
+       {%- endif %}
+       {% if not emetteur.nom or not emetteur.adresse or not (emetteur.siret or emetteur.siren) %}
+       <span class="badge badge-warning">Identité incomplète</span>
+       {% endif %}</p>
+    {% if emetteur.adresse %}<p class="text-sm">{{ emetteur.adresse }}</p>{% endif %}
+    {% set ids_emetteur = [] %}
+    {% if emetteur.siren %}{% set _ = ids_emetteur.append((emetteur.siren_lisible or emetteur.siren) ~ ((" " ~ emetteur.rcs) if emetteur.rcs else "")) %}{% endif %}
+    {% if emetteur.siret %}{% set _ = ids_emetteur.append("SIRET " ~ emetteur.siret) %}{% endif %}
+    {% if emetteur.tva_intra %}{% set _ = ids_emetteur.append("TVA " ~ emetteur.tva_intra) %}{% endif %}
+    {% if ids_emetteur %}<p class="text-sm">{{ ids_emetteur|join(" · ") }}</p>{% endif %}
+    {# Ce qui MANQUE est nommé, jamais comblé. SIRET et TVA intracommunautaire sont facultatifs :
+       ils ne bloquent pas l'émission et ne s'affichent que s'ils sont réellement connus. #}
+    {% if not emetteur.adresse %}
+    <p class="fc-aide">Adresse du siège non renseignée — mention légale obligatoire, à fournir avant
+       toute émission réelle dans <a href="/administration/societe-facturation">Administration ›
+       Paramètres société &amp; facturation</a>. Rien n'est inventé ici.</p>
+    {% endif %}
+    {% if not emetteur.siret or not emetteur.tva_intra %}
+    <p class="fc-aide">Non fourni, donc non imprimé :
+      {% if not emetteur.siret %}<strong>SIRET</strong> (14 chiffres — non déductible du SIREN,
+      il faut le NIC de l'établissement){% endif %}{% if not emetteur.siret and not emetteur.tva_intra %} ·
+      {% endif %}{% if not emetteur.tva_intra %}<strong>TVA intracommunautaire</strong>{% endif %}.
+      Facultatifs : leur absence ne bloque pas l'émission.</p>
+    {% endif %}
+  </div>
+  <div>
+    <h3 class="fc-carte__sous-titre">Destinataire</h3>
+    <p><strong>{{ destinataire.nom }}</strong></p>
+    {% if destinataire.adresse %}<p class="text-sm fi-adresse">{{ destinataire.adresse }}</p>
+    {% else %}<p class="fc-aide">Adresse de facturation non renseignée —
+      <a href="/proprietaires-reglements/{{ facture.proprietaire_id }}">compléter la fiche propriétaire</a>.</p>{% endif %}
+  </div>
+  </div>
+</section>
+
+<section class="card fc-carte" id="comptabilite" aria-labelledby="t-compta">
+  <div class="fc-carte__tete"><h2 class="fc-carte__titre" id="t-compta">Comptabilité</h2></div>
   {% if comptabilite.conflit %}
-  <p><span class="badge">{{ comptabilite.conflit }}</span></p>
+  <div class="fc-encart fc-encart--danger"><p>{{ comptabilite.conflit }}</p></div>
   {% endif %}
   {% if facture.hors_compta %}
-  <p><span class="badge badge-warning">HORS COMPTA</span> — {{ facture.motif_hors_compta }}.
+  <p><span class="badge badge-warning">Hors compta</span> — {{ facture.motif_hors_compta or "sans motif" }}.
      Facture émise et conservée ; aucune écriture de vente, aucune créance, aucun paiement attendu.</p>
   {% elif comptabilite.statut == "SANS_OBJET" %}
-  <p class="text-muted">Aucune écriture : {{ comptabilite.detail }}.</p>
+  <p class="fc-vide">Aucune écriture : {{ comptabilite.detail }}.</p>
   {% elif comptabilite.ecriture %}
   {% set e = comptabilite.ecriture %}
   <p>Journal <strong>{{ e.journal }}</strong> · pièce {{ e.piece }} · statut
-     <strong>{{ e.statut }}</strong> · période {{ e.periode }}</p>
-  <p>Débit {{ "%.2f"|format(e.total_debit) }} € · crédit {{ "%.2f"|format(e.total_credit) }} €
-     · {% if e.total_debit == e.total_credit %}équilibrée{% else %}<strong>DÉSÉQUILIBRÉE</strong>{% endif %}</p>
-  <table class="table">
-    <thead><tr><th>Compte</th><th>Auxiliaire</th><th class="text-right">Débit</th><th class="text-right">Crédit</th></tr></thead>
+     <strong>{{ e.statut|libelle_statut }}</strong> · période {{ e.periode|mois_humain }}</p>
+  <p class="text-sm">Débit {{ "%.2f"|format(e.total_debit) }} € · crédit {{ "%.2f"|format(e.total_credit) }} €
+     · {% if e.total_debit == e.total_credit %}équilibrée{% else %}<strong>déséquilibrée</strong>{% endif %}</p>
+  <div class="fc-table-wrap mt-sm">
+  <table class="table fc-table">
+    <caption class="sr-only">Lignes de l'écriture de vente</caption>
+    <thead><tr><th scope="col">Compte</th><th scope="col">Client</th><th scope="col" class="text-right">Débit</th><th scope="col" class="text-right">Crédit</th></tr></thead>
     <tbody>
       {% for l in comptabilite.lignes %}
-      <tr><td>{{ l.compte }}</td><td>{{ l.auxiliaire or "—" }}</td>
-          <td class="text-right">{{ "%.2f"|format(l.debit or 0) }} €</td>
-          <td class="text-right">{{ "%.2f"|format(l.credit or 0) }} €</td></tr>
+      <tr><td>{{ l.compte }}</td><td>{{ l.auxiliaire | nom_proprietaire if l.auxiliaire else "—" }}</td>
+          <td class="fc-montant">{{ "%.2f"|format(l.debit or 0) }} €</td>
+          <td class="fc-montant">{{ "%.2f"|format(l.credit or 0) }} €</td></tr>
       {% endfor %}
     </tbody>
   </table>
-  <p class="text-muted">La facture émise est la source unique de cette vente. Le compte de produit
+  </div>
+  <p class="fc-aide">La facture émise est la source unique de cette vente. Le compte de produit
      utilisé reste provisoire.</p>
   {% else %}
-  <p><span class="badge">ÉCRITURE ABSENTE</span> — facture émise sans écriture de vente
-     enregistrée.</p>
+  <div class="fc-encart fc-encart--danger"><p><strong>Écriture absente</strong> — facture émise sans
+     écriture de vente enregistrée.</p></div>
   {% endif %}
-</div>
+</section>
 
-<div class="card">
-  <h3>Actions</h3>
-  {% if peut_valider %}
-  <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/valider">
-    <button type="submit">Valider</button>
-  </form>
-  {% endif %}
-  {% if peut_repasser_en_brouillon %}
-  {# VALIDE ≠ ÉMIS : tant qu'aucun numéro n'est consommé et qu'aucune écriture n'existe, rouvrir
-     ne trompe personne. Une facture ÉMISE ne propose jamais ce bouton. #}
-  <form method="post"
-        action="/factures-proprietaires/{{ facture.facture_id_opaque }}/repasser-en-brouillon">
-    <label>Motif (facultatif) <input type="text" name="motif" size="40"></label>
-    <button type="submit" class="btn btn-secondary">Repasser en brouillon</button>
-    <p class="text-xs text-secondary">
-      La facture redevient modifiable. Les montants refacturés qu'elle réservait sont rendus
-      à leurs éléments d'origine. Aucun numéro n'a encore été consommé.
-    </p>
-  </form>
-  {% endif %}
-
-  {% if peut_emettre %}
-  <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/emettre">
-    {# Champ de type `date` prérempli à aujourd'hui : le navigateur garantit le format ISO. Le champ
-       texte précédent invitait à écrire « AAAA-MM-JJ » mais acceptait tout, et une saisie
-       « 11/09/2026 » a produit le numéro « F-11/0-000001 » sur une facture réellement émise. #}
-    <label>Date d'émission
-      <input type="date" name="date_facture" value="{{ aujourdhui }}" required>
-    </label>
-    <p class="text-xs text-secondary">
-      Le numéro est attribué sur le <strong>mois de prestation</strong>
-      ({{ facture.mois }}) et non sur cette date : <code>{{ facture.mois }}-001</code>,
-      <code>{{ facture.mois }}-002</code>… Paiement à réception : l'échéance sera cette date
-      d'émission.
-    </p>
-    <fieldset style="border:1px solid #ddd;padding:.5rem;margin:.5rem 0">
-      <legend>Comptabilité</legend>
-      <label><input type="radio" name="comptabilite" value="EN_COMPTA" checked>
-        En comptabilité (par défaut) — vente constatée, créance, paiement attendu</label><br>
-      <label><input type="radio" name="comptabilite" value="HORS_COMPTA">
-        Hors comptabilité — la facture est émise et conservée, mais aucun paiement n'est attendu</label><br>
-      <label>Motif hors compta (facultatif)
-        <input type="text" name="motif_hors_compta" size="50" maxlength="240"></label>
-    </fieldset>
-    <button type="submit">Émettre (fige le contenu et génère le PDF)</button>
-  </form>
-  {% endif %}
-  {% if editable %}
-  <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/recharger"
-        onsubmit="return confirm('Recharger le brouillon sur le calcul actuel ? Lignes calculées et séjours (ménage et commission modifiés compris) seront recalculés ; les lignes ajoutées à la main sont conservées.');">
-    <button type="submit" class="btn btn-secondary">Recharger le brouillon</button>
-    <span class="text-xs text-secondary">Reprend le calcul actuel (réservations, Hostaway…) ;
-      les lignes ajoutées à la main sont conservées.</span>
-  </form>
-  {% endif %}
-  {% if peut_supprimer %}
-  <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/supprimer"
-        onsubmit="return confirm('Supprimer définitivement cette facture annulée ?');">
-    <button type="submit" class="btn btn-secondary">Supprimer définitivement</button>
-    <span class="text-xs text-secondary">Facture annulée, jamais émise.</span>
-  </form>
-  {% endif %}
-  {% if facture.statut == "EMIS" %}
-  <p><a href="/factures-proprietaires/{{ facture.facture_id_opaque }}/document">Télécharger le PDF</a>
-     — empreinte {{ (facture.document_hash or "")[:16] }}…</p>
-  {% endif %}
-  {% if peut_avoir %}
-  <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/avoir">
-    <label>Motif <input type="text" name="motif" required></label>
-    <button type="submit">Créer un avoir</button>
-  </form>
-  <p class="text-muted">Une facture émise n'est jamais modifiée ni supprimée : elle se corrige par un avoir.</p>
-  {% endif %}
-</div>
-
-<div class="card">
-  <h3>Historique</h3>
-  <table class="table">
-    <thead><tr><th>Date</th><th>Événement</th><th>Statut</th><th>Commentaire</th></tr></thead>
+<section class="card fc-carte" id="historique" aria-labelledby="t-historique">
+  <details class="fc-depliant">
+    <summary><span id="t-historique">Historique</span> <span class="fc-depliant__aide">{{ facture.evenements|length }} événement(s)</span></summary>
+    <div class="fc-depliant__corps">
+  <div class="fc-table-wrap">
+  <table class="table fc-table fc-table--fiches">
+    <caption class="sr-only">Historique {{ "de l'avoir" if est_avoir else "de la facture" }}</caption>
+    <thead><tr><th scope="col">Date</th><th scope="col">Événement</th><th scope="col">Statut</th><th scope="col">Commentaire</th></tr></thead>
     <tbody>
       {% for e in facture.evenements %}
-      <tr><td>{{ e.date_evenement }}</td><td>{{ e.type_evenement }}</td>
-          <td>{{ e.ancien_statut or "—" }} → {{ e.nouveau_statut or "—" }}</td>
-          <td>{{ e.commentaire or "" }}</td></tr>
+      <tr><td data-label="Date" class="ec-nowrap">{{ e.date_evenement | datetime_fr }}</td><td data-label="Événement">{{ fc.evenement(e.type_evenement) }}</td>
+          <td data-label="Statut">{{ e.ancien_statut|libelle_statut or "—" }} → {{ e.nouveau_statut|libelle_statut or "—" }}</td>
+          <td data-label="Commentaire">{{ e.commentaire or "" }}</td></tr>
       {% endfor %}
     </tbody>
   </table>
+  </div>
+    </div>
+  </details>
+</section>
+
+</div>{# fc-principal #}
+</div>{# fc-mise-en-page #}
 </div>
+<script src="/static/js/finitions.js" defer></script>
+<script src="/static/js/factures_clients.js" defer></script>
 {% endblock %}

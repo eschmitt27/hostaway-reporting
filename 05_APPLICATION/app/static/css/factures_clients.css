@@ -148,8 +148,14 @@
 /* ── Mise en page : contenu + colonne de synthèse ───────────────────────────────────────── */
 .ecran.fc .fc-mise-en-page { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--stack-md); align-items: start; }
 .ecran.fc .fc-principal, .ecran.fc .fc-lateral { display: flex; flex-direction: column; gap: var(--stack-md); min-width: 0; }
+.ecran.fc .fc-principal > *, .ecran.fc .fc-lateral > * { min-width: 0; }
 .ecran.fc .fc-principal > .card, .ecran.fc .fc-lateral > .card { margin: 0; }
-@media (min-width: 1200px) {
+/* Écran moyen : la synthèse reste en tête, montant et actions côte à côte. */
+@media (min-width: 900px) and (max-width: 1499px) {
+  .ecran.fc .fc-lateral { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+}
+/* Grand écran : la synthèse devient une colonne qui suit le défilement. */
+@media (min-width: 1500px) {
   .ecran.fc .fc-mise-en-page { grid-template-columns: minmax(0, 1fr) var(--fc-lateral); }
   .ecran.fc .fc-lateral { grid-column: 2; grid-row: 1; position: sticky; top: 56px; }
   .ecran.fc .fc-principal { grid-column: 1; grid-row: 1; }
@@ -216,6 +222,8 @@
 /* ── Champs de formulaire (toute la fiche) ──────────────────────────────────────────────── */
 .ecran.fc .fc-grille { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px 16px; align-items: end; }
 .ecran.fc .fc-grille--2 { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+.ecran.fc .fc-grille--haut { align-items: start; }
+.ecran.fc .fc-grille--haut .fc-carte__sous-titre { margin-top: 0; }
 .ecran.fc .fc-champ { display: flex; flex-direction: column; gap: 4px; min-width: 0; margin: 0; }
 .ecran.fc .fc-champ--large { grid-column: 1 / -1; }
 .ecran.fc .fc-champ > span, .ecran.fc .fc-champ__label { font-size: 12px; font-weight: 600; line-height: 1.4; color: var(--color-on-surface-variant); }
@@ -252,7 +260,7 @@
 .ecran.fc input:hover, .ecran.fc select:hover { border-color: var(--color-outline); }
 .ecran.fc input:focus, .ecran.fc select:focus { outline: none; border-color: var(--color-primary); box-shadow: var(--fc-focus); }
 .ecran.fc input:user-invalid, .ecran.fc select:user-invalid { border-color: var(--color-error); }
-.ecran.fc input.fc-input-montant { width: 7.5rem; text-align: right; font-variant-numeric: tabular-nums; }
+.ecran.fc input.fc-input-montant { width: 6rem; padding: 0 8px; text-align: right; font-variant-numeric: tabular-nums; }
 .ecran.fc fieldset.fc-choix { margin: 0; padding: 10px 12px 12px; border: 1px solid var(--fc-bord); border-radius: var(--radius-md); }
 .ecran.fc fieldset.fc-choix legend { padding: 0 4px; font-size: 12px; font-weight: 600; color: var(--color-on-surface-variant); }
 .ecran.fc .fc-option { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; font-size: 14px; line-height: 1.45; cursor: pointer; }
@@ -286,6 +294,8 @@
 .ecran.fc .fc-table-wrap { overflow-x: auto; margin: 0 -4px; padding: 0 4px; }
 .ecran.fc .fc-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .ecran.fc .fc-table caption { text-align: left; }
+.ecran.fc .fc-table th, .ecran.fc .fc-table td { padding: 10px 8px; }
+.ecran.fc .fc-table th:first-child, .ecran.fc .fc-table td:first-child { padding-left: 12px; }
 .ecran.fc .fc-table td { border-bottom: 1px solid var(--color-surface-container); }
 .ecran.fc .fc-table tbody tr:last-child td { border-bottom: none; }
 .ecran.fc .fc-table tfoot th, .ecran.fc .fc-table tfoot td {
@@ -446,6 +456,8 @@
     border: none;
     text-align: right;
   }
+  .ecran.fc .fc-table--fiches td { flex-wrap: wrap; }
+  .ecran.fc .fc-table--fiches td .fc-note-calcul { flex-basis: 100%; text-align: right; }
   .ecran.fc .fc-table--fiches td[data-label]::before {
     content: attr(data-label);
     flex: 0 0 auto;
