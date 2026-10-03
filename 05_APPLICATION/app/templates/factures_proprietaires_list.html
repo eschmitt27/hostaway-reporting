@@ -168,7 +168,7 @@
 
 {% if factures %}
 <div class="ec-table-wrap">
-<table class="table">
+<table class="table fc-table--fiches">
   <caption class="sr-only">Factures propriétaires — {{ factures|length }} document(s)</caption>
   <thead>
     <tr>
@@ -181,19 +181,19 @@
   {% for f in factures %}
     {% set nom_doc = "l'avoir" if f.type_document == "AVOIR" else "la facture" %}
     <tr>
-      <td class="fi-cle ec-nowrap"><a href="/factures-proprietaires/{{ f.facture_id_opaque }}">{% if f.numero_facture %}{{ f.numero_facture }}{% else %}<span class="fc-sans-numero-liste">sans numéro</span>{% endif %}</a></td>
-      <td>{% if f.type_document == "AVOIR" %}<span class="badge badge-info">{{ f.type_document|libelle_statut }}</span>{% else %}{{ f.type_document|libelle_statut }}{% endif %}</td>
-      <td class="ec-nowrap">{% if f.periode_debut and f.periode_fin %}{{ f.periode_debut|date_fr }} → {{ f.periode_fin|date_fr }}{% else %}{{ f.mois|mois_humain }}{% endif %}</td>
-      <td>{{ f.proprietaire_id | nom_proprietaire }}</td>
-      <td>{{ f.logement_id | nom_logement }}</td>
-      <td class="text-right fi-montant">{{ "%.2f"|format(f.montant_total) }} €</td>
-      <td class="text-right fi-montant"><strong>{{ "%.2f"|format(f.solde) }} €</strong></td>
-      <td><span class="status-badge status-{{ fc.classe_statut(f.statut) }}">{{ f.statut|libelle_statut }}</span>{% if f.hors_compta %} <span class="badge badge-warning" title="{{ f.motif_hors_compta or '' }}">Hors compta</span>{% endif %}</td>
+      <td data-label="Numéro" class="fi-cle ec-nowrap"><a href="/factures-proprietaires/{{ f.facture_id_opaque }}">{% if f.numero_facture %}{{ f.numero_facture }}{% else %}<span class="fc-sans-numero-liste">sans numéro</span>{% endif %}</a></td>
+      <td data-label="Type">{% if f.type_document == "AVOIR" %}<span class="badge badge-info">{{ f.type_document|libelle_statut }}</span>{% else %}{{ f.type_document|libelle_statut }}{% endif %}</td>
+      <td data-label="Période" class="ec-nowrap">{% if f.periode_debut and f.periode_fin %}{{ f.periode_debut|date_fr }} → {{ f.periode_fin|date_fr }}{% else %}{{ f.mois|mois_humain }}{% endif %}</td>
+      <td data-label="Propriétaire">{{ f.proprietaire_id | nom_proprietaire }}</td>
+      <td data-label="Logement">{{ f.logement_id | nom_logement }}</td>
+      <td data-label="Total" class="text-right fi-montant">{{ "%.2f"|format(f.montant_total) }} €</td>
+      <td data-label="Solde" class="text-right fi-montant"><strong>{{ "%.2f"|format(f.solde) }} €</strong></td>
+      <td data-label="Statut"><span class="status-badge status-{{ fc.classe_statut(f.statut) }}">{{ f.statut|libelle_statut }}</span>{% if f.hors_compta %} <span class="badge badge-warning" title="{{ f.motif_hors_compta or '' }}">Hors compta</span>{% endif %}</td>
       {# Lu dans les écritures, jamais dans un drapeau porté par la facture : un drapeau se
          désynchroniserait de la comptabilité au premier incident. #}
-      <td>{% if f.comptabilisee %}<span class="badge badge-success">oui</span>{% elif f.hors_compta %}<span class="badge">hors compta</span>{% elif f.statut == "EMIS" %}<span class="badge badge-warning">non</span>{% else %}<span class="fi-discret">—</span>{% endif %}</td>
-      <td class="ec-nowrap">{{ f.date_emission|date_fr if f.date_emission else "—" }}</td>
-      <td class="fi-col-actions"><a class="fi-lien-action" href="/factures-proprietaires/{{ f.facture_id_opaque }}">{{ "Compléter" if f.statut == "BROUILLON" else "Ouvrir" }}<span class="sr-only"> {{ nom_doc }} {{ f.numero_facture or "" }} — {{ f.proprietaire_id | nom_proprietaire }}</span></a></td>
+      <td data-label="Comptabilisée">{% if f.comptabilisee %}<span class="badge badge-success">oui</span>{% elif f.hors_compta %}<span class="badge">hors compta</span>{% elif f.statut == "EMIS" %}<span class="badge badge-warning">non</span>{% else %}<span class="fi-discret">—</span>{% endif %}</td>
+      <td data-label="Émise le" class="ec-nowrap">{{ f.date_emission|date_fr if f.date_emission else "—" }}</td>
+      <td class="fi-col-actions fc-col-actions"><a class="fi-lien-action" href="/factures-proprietaires/{{ f.facture_id_opaque }}">{{ "Compléter" if f.statut == "BROUILLON" else "Ouvrir" }}<span class="sr-only"> {{ nom_doc }} {{ f.numero_facture or "" }} — {{ f.proprietaire_id | nom_proprietaire }}</span></a></td>
     </tr>
   {% endfor %}
   </tbody>

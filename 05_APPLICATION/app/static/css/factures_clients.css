@@ -291,7 +291,9 @@
 .ecran.fc summary:focus-visible { outline: none; box-shadow: var(--fc-focus); border-radius: var(--radius-md); }
 
 /* ── Tableaux ───────────────────────────────────────────────────────────────────────────── */
-.ecran.fc .fc-table-wrap { overflow-x: auto; margin: 0 -4px; padding: 0 4px; }
+/* `position: relative` : les textes réservés aux lecteurs d'écran (positionnés en absolu) restent
+   dans le cadre qui défile, au lieu d'élargir la page entière. */
+.ecran.fc .fc-table-wrap { position: relative; overflow-x: auto; margin: 0 -4px; padding: 0 4px; }
 .ecran.fc .fc-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .ecran.fc .fc-table caption { text-align: left; }
 .ecran.fc .fc-table th, .ecran.fc .fc-table td { padding: 10px 8px; }
@@ -391,6 +393,9 @@
 .ecran.fc .fc-erreur strong { display: block; }
 .ecran.fc .fc-erreur svg { flex: none; width: 20px; height: 20px; margin-top: 1px; }
 
+/* « Réinitialiser » sans filtre posé : discret, mais lisible (contraste ≥ 4,5:1). */
+.ecran.fc .ec-filtres[data-fi-actifs="0"] .fi-reinit { opacity: 1; color: var(--color-secondary); }
+
 /* ── Liste et écrans de création ────────────────────────────────────────────────────────── */
 .ecran.fc #creer-avoir { padding: 0; overflow: hidden; }
 .ecran.fc #creer-avoir > summary {
@@ -418,7 +423,7 @@
 .ecran.fc #creer-avoir[open] > summary::before { transform: rotate(45deg); }
 .ecran.fc #creer-avoir > summary:hover { background: var(--color-surface-container-low); }
 .ecran.fc .fc-blocs-creation { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: var(--stack-md); align-items: start; margin-bottom: var(--stack-md); }
-.ecran.fc .fc-blocs-creation > .card { margin: 0; }
+.ecran.fc .fc-blocs-creation > .card { margin: 0; padding: 0; }
 .ecran.fc .fc-sans-numero-liste { font-weight: 400; font-style: italic; color: var(--color-secondary); }
 .ecran.fc .fc-proposition__tete { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; margin-bottom: 8px; }
 .ecran.fc .fc-proposition__tete h2 { margin: 0; font-size: 16px; font-weight: 700; }
@@ -452,7 +457,7 @@
     justify-content: space-between;
     align-items: center;
     gap: 12px;
-    padding: 4px 2px;
+    padding: 4px 10px;
     border: none;
     text-align: right;
   }
