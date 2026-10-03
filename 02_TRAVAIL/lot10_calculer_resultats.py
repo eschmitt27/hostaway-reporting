@@ -1040,7 +1040,15 @@ def build_commissions(df_flux, df_res, df_payout, df_hh, df_log, df_prop, df_tau
         df_j = df_j[~parc_exclusion_mask].copy()
 
     HA_SOURCES = {"HOSTAWAY_AIRBNB", "HOSTAWAY_BOOKING"}
-    is_ha   = df_j["reservation_id_hostaway"].notna() & df_j["source"].isin(HA_SOURCES)
+    # Réservation DIRECTE valorisée par Hostaway (décision 2026-10-03 : Hostaway fait foi) : même
+    # branche qu'Airbnb/Booking, payout et ménage fournis par Lot1. Une directe portée par une
+    # saisie hors Hostaway (`reservation_hh_id` renseigné) reste dans la branche HH.
+    _sans_hh = (df_j["reservation_hh_id"].fillna("").astype(str).str.strip()
+                .isin(["", "nan", "None"]) if "reservation_hh_id" in df_j.columns
+                else pd.Series(True, index=df_j.index))
+    is_direct_ha = (df_j["source"] == "HOSTAWAY_DIRECT_HH") & _sans_hh
+    is_ha   = df_j["reservation_id_hostaway"].notna() & (df_j["source"].isin(HA_SOURCES)
+                                                         | is_direct_ha)
     # VRBO résolu (historique clôturé) : commission via assiette résolue, PAS routé en HH
     is_vrbo = (~is_ha) & ((df_j["source"] == "HOSTAWAY_VRBO") | (df_j["canal"] == "VRBO"))
     df_ha   = df_j[is_ha].copy()

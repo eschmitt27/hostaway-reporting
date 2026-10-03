@@ -152,6 +152,11 @@ C_IDENTITE = "FACTURE_PROPRIETAIRE_IDENTITE_INCOMPLETE"
 C_PDF_ABSENT = "FACTURE_PROPRIETAIRE_PDF_ABSENT"
 C_SNAPSHOT = "FACTURE_PROPRIETAIRE_SNAPSHOT_INCOHERENT"
 C_EMISE_MODIFIEE = "FACTURE_PROPRIETAIRE_EMISE_MODIFIEE"
+# Une réservation du mois encore À CONTRÔLER n'a AUCUN montant dans le calcul : facturer quand même
+# l'omettrait en silence (constaté le 2026-10-03 : deux réservations directes absentes des
+# factures de septembre, sans aucune alerte). Création, validation et émission sont refusées tant
+# qu'elle n'est pas résolue.
+C_RESERVATIONS_A_CONTROLER = "FACTURE_PROPRIETAIRE_RESERVATIONS_A_CONTROLER"
 
 TOLERANCE = 0.01
 
@@ -374,6 +379,41 @@ def creer_exceptionnelle(*, proprietaire_id: str, logement_id: str, mois: str,
             "nb_lignes": len(preparees)}
 
 
+def reservations_a_controler(mois: str, logement_id: str, *, db_path=None,
+                             conn=None) -> list[dict[str, Any]]:
+    """Réservations du logement pour le mois, dans le jeu résolu ACTIF, encore À CONTRÔLER."""
+    propre = conn is None
+    conn = conn or get_db(db_path)
+    try:
+        try:
+            ds = conn.execute("SELECT dataset_id FROM reservations_datasets WHERE etape='RESOLUES' "
+                              "AND actif=1 ORDER BY rowid DESC LIMIT 1").fetchone()
+        except sqlite3.Error:
+            return []
+        if ds is None:
+            return []
+        return [dict(r) for r in conn.execute(
+            "SELECT reservation_calc_id, reservation_id_hostaway, reservation_hh_id, source, "
+            "date_arrivee, date_depart, code_anomalie, commentaire FROM reservations_resolues "
+            "WHERE dataset_id=? AND mois=? AND logement_id=? AND statut_controle='A_CONTROLER' "
+            "ORDER BY date_arrivee", (ds[0], mois, logement_id))]
+    finally:
+        if propre:
+            conn.close()
+
+
+def exiger_reservations_resolues(mois: str, logement_id: str, *, db_path=None) -> None:
+    restantes = reservations_a_controler(mois, logement_id, db_path=db_path)
+    if restantes:
+        detail = "; ".join(
+            f"{r.get('reservation_id_hostaway') or r.get('reservation_hh_id') or r['reservation_calc_id']}"
+            f" du {r.get('date_arrivee')} ({r.get('code_anomalie') or 'à contrôler'})"
+            for r in restantes)
+        raise FactureProprietaireError(
+            f"{C_RESERVATIONS_A_CONTROLER}: {len(restantes)} réservation(s) à contrôler pour ce "
+            f"logement et ce mois — elles seraient absentes de la facture : {detail}")
+
+
 def creer(source: dict[str, Any], *, acteur: str = "", db_path=None,
           type_document: str = TYPE_FACTURE, facture_origine: str | None = None,
           decisions_charges: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -383,6 +423,7 @@ def creer(source: dict[str, Any], *, acteur: str = "", db_path=None,
     position de refacturation n'est consommée avant `valider()`.
     """
     exiger_periode_v1(source.get("mois"), db_path=db_path)
+    exiger_reservations_resolues(source.get("mois"), source.get("logement_id"), db_path=db_path)
     apercu = previsualiser(source, decisions_charges=decisions_charges)
     if not apercu["lignes"]:
         raise FactureProprietaireError(f"{C_SOURCE_INCOMPLETE}: aucune ligne facturable")
@@ -832,6 +873,8 @@ def valider(facture_id: str, *, emetteur: dict[str, Any], destinataire: dict[str
     _exiger_facture_v1(f, db_path=db_path)
     if f["statut"] != ST_BROUILLON:
         raise FactureProprietaireError(f"statut {f['statut']}: seul un BROUILLON peut etre valide")
+    if f.get("type_document", TYPE_FACTURE) == TYPE_FACTURE:
+        exiger_reservations_resolues(f["mois"], f["logement_id"], db_path=db_path)
 
     # Identifiant d'entreprise : SIRET (établissement, 14 chiffres) OU SIREN (entreprise, 9).
     # Exiger le SIRET seul bloquait une société qui ne dispose que de son SIREN — et la seule issue
@@ -1025,6 +1068,8 @@ def emettre(facture_id: str, *, emetteur: dict[str, Any], destinataire: dict[str
     if f["statut"] != ST_VALIDE:
         raise FactureProprietaireError(f"statut {f['statut']}: seul un VALIDE peut etre emis")
     _exiger_facture_v1(f, db_path=db_path)
+    if f.get("type_document", TYPE_FACTURE) == TYPE_FACTURE:
+        exiger_reservations_resolues(f["mois"], f["logement_id"], db_path=db_path)
 
     # Contrôle de pré-émission : il décrit toujours l'état de conformité, mais ne bloque que si on
     # le lui demande. La recette peut ainsi émettre avec une configuration fictive incomplète,

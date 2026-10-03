@@ -2316,3 +2316,23 @@ La purge elle-même a été exécutée le 2026-10-03, en finition de ce cutover.
   disparaissent du calcul comptable. Ils ne sont pas recréés, et Hostaway n'est pas modifié pour les
   compenser. Les agrégats ménage déjà calculés pour ces mois ne sont pas recalculés : aucune
   reconstruction avant 2026-09.
+
+## D-DIRECT-HOSTAWAY-01 — Réservations directes : Hostaway fait foi (2026-10-03)
+
+**Décision utilisateur (2026-10-03).** Une réservation Hostaway de canal « direct » sans saisie hors
+Hostaway liée est valorisée par Hostaway, comme une réservation Airbnb ou Booking. Remplace, pour ce
+cas, la proposition D054 (« DIRECT sans HH → À CONTRÔLER »).
+
+- Montant = loyer (`baseRate`) + remises (`*Discount`) + ménage facturé (`cleaningFee`) : c'est la
+  colonne « Encaissement Total Séjour » du rapport Hostaway (281 − 14,05 + 35 = 301,95 € ;
+  82 + 35 = 117 €). `totalPriceFromChannel` n'est pas utilisé (il en diverge).
+- Ménage retenu, assiette et commission : mêmes règles qu'Airbnb (coût standard du logement).
+- Une saisie hors Hostaway liée à la réservation reste prioritaire (S3).
+- Restent À CONTRÔLER : directe sans montant, directe avec `reservationExpensesAndExtras` (extras
+  non arbitrés), directe chevauchant un autre séjour du même logement
+  (`DIRECT_CHEVAUCHE_RESERVATION`).
+- Une facture propriétaire est refusée (création, validation, émission) tant qu'une réservation du
+  logement et du mois reste À CONTRÔLER (`FACTURE_PROPRIETAIRE_RESERVATIONS_A_CONTROLER`).
+
+**Cause de la décision.** Les factures de septembre 2026 omettaient 6 réservations directes
+(dont Gigi 28/09 et Milo 25/09 sur LOG_0001), à 0 € et sans alerte.

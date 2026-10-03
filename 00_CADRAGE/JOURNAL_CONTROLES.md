@@ -6057,3 +6057,18 @@ Détail : `CUTOVER_V1_2026-09.md` §19.
 - Sauvegardes héritées (33 inscrites + copies d'outils sans sidecar, 2,1 Go) : non supprimées.
 - Tests : `test_sauvegardes_politique.py` 37 passed ; suite complète 4 710 passed / 37 skipped /
   0 failed.
+
+## CTR-DIRECTES-HOSTAWAY-2026-10-03 — Réservations directes absentes des factures de septembre
+
+- Constat : 6 réservations directes de septembre classées `DIRECT_SANS_SAISIE_HH`, montant 0 €, hors
+  Lot10, donc absentes des 8 brouillons de factures propriétaires — sans alerte.
+- Correction (D-DIRECT-HOSTAWAY-01) : Lot1 valorise les directes ; Lot4bis les classe VALIDE (ou
+  À CONTRÔLER si chevauchement / extras / sans montant) ; Lot10 les calcule dans la branche Hostaway ;
+  facturation refusée tant qu'une réservation du logement/mois est À CONTRÔLER.
+- Sauvegardes protégées : `BCK-BE6CACB88EB3`, `BCK-0D8F887422C5`. 8 brouillons de septembre annulés
+  (motif tracé), à recréer.
+- Résultat LOG_0001 (septembre) : 6 réservations, 1 378,57 € encaissés, commission 216,82 € —
+  identique au rapport Hostaway. LOG_0015 : directe mensuelle 01→30/09 (800 €) chevauchant une saisie
+  manuelle 21→27/09 (400 €) → À CONTRÔLER, décision utilisateur requise.
+- integrity_check ok, foreign_key_check 0. Tests : 987 passed sur les 57 fichiers concernés + 9
+  nouveaux (`test_reservations_directes_hostaway.py`).

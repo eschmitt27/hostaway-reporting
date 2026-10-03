@@ -711,7 +711,29 @@ class PayoutCalculator:
             return self._booking(res, ffd, fees)
         if channel == "VRBO":
             return self._vrbo(res, ffd)
-        return None, "DIRECT_HORS_HOSTAWAY", "A_CONTROLER", 0.0, dict(_META_NON_APPLICABLE)
+        return self._direct(res, ffd)
+
+    # Champs Hostaway qui composent l'encaissement d'une réservation DIRECTE : loyer, remises
+    # (valeurs négatives : weeklyDiscount, monthlyDiscount, couponDiscount…) et ménage facturé.
+    # C'est exactement la colonne « Encaissement Total Séjour » du rapport Hostaway (référence
+    # validée par l'utilisateur le 2026-10-03 : 281 - 14,05 + 35 = 301,95 € ; 82 + 35 = 117 €).
+    # `totalPriceFromChannel` n'est PAS utilisé : il diverge de cette référence (350 € vs 301,95 €).
+    CHAMPS_EXTRAS_DIRECT = ("reservationExpensesAndExtras",)
+
+    def _direct(self, res: dict, ffd: dict) -> tuple:
+        """Décision 2026-10-03 (remplace D054 pour les directes sans saisie hors Hostaway) :
+        Hostaway fait foi. Une saisie hors Hostaway liée reste prioritaire (Lot4bis S3)."""
+        base = ffd.get("baseRate")
+        if not base and not ffd.get("cleaningFee"):
+            return None, "DIRECT_SANS_MONTANT", "A_CONTROLER", 0.0, dict(_META_NON_APPLICABLE)
+        payout = round((base or 0.0) + (ffd.get("cleaningFee") or 0.0)
+                       + sum(v for k, v in ffd.items() if k.endswith("Discount") and v), 2)
+        meta = self._menage_standard(res)
+        # Des frais/extras existent : leur traitement n'est pas arbitré — montant proposé, mais la
+        # réservation reste À CONTRÔLER plutôt que d'être facturée sur une hypothèse.
+        if any(ffd.get(k) for k in self.CHAMPS_EXTRAS_DIRECT):
+            return payout, "direct_composantes_extras", "PAYOUT_INCOMPLET", meta["menage_retenu"], meta
+        return payout, "direct_composantes", "NORMAL", meta["menage_retenu"], meta
 
     def _airbnb(self, res: dict, ffd: dict) -> tuple:
         # H1 : airbnbExpectedPayoutAmount > fallback airbnbPayoutSum
@@ -1651,7 +1673,7 @@ def main():
                                 res, ff_list, fees_list, channel=channel
                             )
                             detector.check_reservation(res_id, channel, payout_status, map_id)
-                            if channel in ("AIRBNB", "BOOKING") and not payout_c.has_cost_standard(map_id):
+                            if channel in ("AIRBNB", "BOOKING", "DIRECT") and not payout_c.has_cost_standard(map_id):
                                 detector._add(res_id, "COUT_STANDARD_MENAGE_ABSENT", "A_CONTROLER",
                                               f"listingMapId {map_id} sans cout_standard REF_Couts_Standards_Menage")
                             if meta.get("doublon"):

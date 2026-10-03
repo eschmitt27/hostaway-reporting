@@ -38,9 +38,11 @@ Règles métier :
       motif_exclusion=OWNERSTAY — un sejour du proprietaire est une occupation reelle sans vente :
       il n'a pas un impact neutre, il n'a pas d'impact. Le code `HR` qui le disait a ete supprime.
 
-Cas non couvert par D054 (proposition validée) :
-  DIRECT HA sans HH              → HOSTAWAY_DIRECT_HH, A_CONTROLER, HC, A_CONTROLER,
-                                   code_anomalie=DIRECT_SANS_SAISIE_HH
+DIRECT HA sans HH — décision 2026-10-03 (Hostaway fait foi, remplace la proposition D054) :
+  montant Hostaway exploitable   → HOSTAWAY_DIRECT_HH, HOSTAWAY_PAYOUT, IC, VALIDE
+                                   (encaissement = loyer + remises + ménage facturé, Lot1)
+  montant non exploitable        → HOSTAWAY_DIRECT_HH, A_CONTROLER, HC, A_CONTROLER,
+                                   code_anomalie=DIRECT_PAYOUT_<statut>
 
 Bloquants : RESERVATION_DOUBLON_HOSTAWAY_HH, RESERVATION_CALC_ID_DUPLIQUE,
             LOGEMENT_NON_MAPPE, LOGEMENT_MAPPING_MULTIPLE
@@ -545,6 +547,39 @@ def main(argv=None):
 
     stats = Counter()
 
+    # ── Chevauchements (décision 2026-10-03) ──────────────────────────────────────────────────
+    # Une réservation DIRECTE valorisée par Hostaway ne doit jamais être facturée si un autre séjour
+    # occupe le même logement aux mêmes dates (autre réservation Hostaway, séjour propriétaire,
+    # saisie hors Hostaway). Constat réel : des « directes » mensuelles (1er → fin de mois, sans
+    # ménage) recouvrant un vrai séjour saisi à la main — physiquement impossible. Rien n'est
+    # tranché ici : la directe passe À CONTRÔLER, avec un code explicite.
+    def _logement_du_listing(listing_map_id):
+        cands = ha_map_index.get(str(listing_map_id)) or ha_map_index.get(listing_map_id) or []
+        return cands[0] if len(cands) == 1 else None
+
+    occupations = defaultdict(list)   # logement_id -> [(arrivee, depart, identifiant)]
+    for _r in res_dicts:
+        _st = str(_r.get("status") or "").strip().lower()
+        if _st not in ("new", "modified", "ownerstay"):
+            continue
+        _log = _logement_du_listing(_r.get("listingMapId"))
+        _a, _d = date_to_str(_r.get("checkInDate")), date_to_str(_r.get("checkOutDate"))
+        if _log and _a and _d:
+            occupations[_log].append((_a, _d, "HA:" + str(_r.get("reservation_id"))))
+    for _hh in hh_pure:
+        _a, _d = date_to_str(_hh.get("date_arrivee")), date_to_str(_hh.get("date_depart"))
+        if _hh.get("logement_id") and _a and _d:
+            occupations[_hh["logement_id"]].append((_a, _d, "HH:" + str(_hh.get("reservation_hh_id"))))
+
+    def chevauchements_direct(res):
+        log_id = _logement_du_listing(res.get("listingMapId"))
+        a, d = date_to_str(res.get("checkInDate")), date_to_str(res.get("checkOutDate"))
+        if not (log_id and a and d):
+            return []
+        moi = "HA:" + str(res.get("reservation_id"))
+        return [ident for (oa, od, ident) in occupations.get(log_id, [])
+                if ident != moi and oa < d and a < od]
+
     def resolve_logement(listing_map_id, date_arrivee_str=None, date_depart_str=None):
         """Retourne (logement_id, proprietaire_id, anomalie_code, anomalie_msg) ou abort si BLOQUANT.
 
@@ -938,15 +973,37 @@ def main(argv=None):
             master_rows.append(row)
             stats["S5_VRBO_A_CONTROLER"] += 1
 
-        # DIRECT sans HH (cas non couvert D054 — proposition validée)
+        # DIRECT sans HH — décision 2026-10-03 (remplace la proposition D054) : HOSTAWAY FAIT FOI.
+        # Montant = encaissement Hostaway (loyer + remises + ménage facturé, calculé par Lot1),
+        # traité comme Airbnb (S1). Une saisie hors Hostaway liée reste prioritaire : la ligne HA
+        # est alors exclue plus haut (S3). Sans montant exploitable : À CONTRÔLER, jamais à 0 €
+        # en silence.
         elif channel == "DIRECT":
-            commentaire = f"Réservation directe Hostaway sans saisie hors Hostaway en face{extra_comment}"
-            row = make_row_ha(res, payout, "HOSTAWAY_DIRECT_HH", "A_CONTROLER",
-                              0, "HC", "A_CONTROLER", "A_CONTROLER",
-                              "DIRECT_SANS_SAISIE_HH",
-                              commentaire, logement_id, proprietaire_id)
+            conflits = chevauchements_direct(res)
+            if conflits:
+                commentaire = (f"Réservation directe Hostaway chevauchant {', '.join(conflits)} sur "
+                               f"le même logement — à vérifier avant toute facturation{extra_comment}")
+                row = make_row_ha(res, payout, "HOSTAWAY_DIRECT_HH", "A_CONTROLER",
+                                  0, "HC", "A_CONTROLER", "A_CONTROLER",
+                                  "DIRECT_CHEVAUCHE_RESERVATION",
+                                  commentaire, logement_id, proprietaire_id)
+                stats["DIRECT_CHEVAUCHE_RESERVATION"] += 1
+            elif statut_payout == "NORMAL" and statut_logement is None:
+                commentaire = f"Réservation directe Hostaway — encaissement Hostaway{extra_comment}"
+                row = make_row_ha(res, payout, "HOSTAWAY_DIRECT_HH", "HOSTAWAY_PAYOUT",
+                                  payout_calcule, "IC", "VALIDE", "INFO", None,
+                                  commentaire, logement_id, proprietaire_id)
+                stats["DIRECT_HOSTAWAY_VALIDE"] += 1
+            else:
+                commentaire = (f"Réservation directe Hostaway — montant Hostaway non exploitable "
+                               f"(payout={statut_payout}){extra_comment}")
+                code_ano = ano_code or ("DIRECT_PAYOUT_" + str(statut_payout or "ABSENT"))
+                row = make_row_ha(res, payout, "HOSTAWAY_DIRECT_HH", "A_CONTROLER",
+                                  0, "HC", statut_logement or "A_CONTROLER",
+                                  niveau_logement or "A_CONTROLER", code_ano,
+                                  commentaire, logement_id, proprietaire_id)
+                stats["DIRECT_SANS_SAISIE_HH"] += 1
             master_rows.append(row)
-            stats["DIRECT_SANS_SAISIE_HH"] += 1
 
         else:
             commentaire = f"Canal inconnu: {channel}"
