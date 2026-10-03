@@ -96,7 +96,8 @@ def _factures(conn: sqlite3.Connection, proprietaire_id: str) -> list[dict[str, 
         "SELECT facture_id_opaque, numero_facture, logement_id, mois, montant_total, "
         "       date_emission, date_facture "
         "FROM factures_proprietaires "
-        "WHERE proprietaire_id = ? AND statut = 'EMIS' AND type_document = 'FACTURE'",
+        "WHERE proprietaire_id = ? AND statut = 'EMIS' AND type_document = 'FACTURE' "
+        "AND COALESCE(hors_compta, 0) = 0",
         (proprietaire_id,)).fetchall()
     factures = [{
         "facture_id_opaque": r[0], "numero_facture": r[1] or "", "logement_id": r[2] or "",
@@ -494,6 +495,7 @@ def proprietaires_concernes(*, db_path=None) -> list[str]:
     try:
         rows = conn.execute(
             "SELECT DISTINCT proprietaire_id FROM factures_proprietaires WHERE statut='EMIS' "
+            "AND COALESCE(hors_compta, 0) = 0 "
             "UNION "
             "SELECT DISTINCT proprietaire_id FROM mouvements_tresorerie_proprietaires "
             "WHERE statut='VALIDE' AND actif=1").fetchall()

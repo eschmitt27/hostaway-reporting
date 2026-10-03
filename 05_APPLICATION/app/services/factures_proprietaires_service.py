@@ -480,7 +480,7 @@ def creer(source: dict[str, Any], *, acteur: str = "", db_path=None,
 # ── Réservations de la période : instantané, jamais une jointure ────────────────────────────────
 
 def _figer_reservations(conn, facture_id: str, mois: str, proprietaire_id: str,
-                        logement_id: str) -> int:
+                        logement_id: str, *, debut: str = "", fin: str = "") -> int:
     """Fige, à la création du BROUILLON, les réservations de la période. Purement informatif.
 
     POURQUOI UN INSTANTANÉ ET PAS UNE JOINTURE — audit exécuté sur une copie de la base réelle :
@@ -499,12 +499,17 @@ def _figer_reservations(conn, facture_id: str, mois: str, proprietaire_id: str,
         run_id = actif["run_id"] if actif else None
         if run_id is None:
             return 0
+        # Période libre : même critère que le moteur (date d'arrivée dans les bornes) ;
+        # cycle mensuel : le mois de la réservation.
+        filtre, borne = (("date_arrivee >= ? AND date_arrivee <= ?", (debut, fin))
+                         if debut and fin else ("mois=?", (mois,)))
         lignes = conn.execute(
             "SELECT reservation_id_hostaway, date_arrivee, date_depart, nuits, guest_count, "
-            "       payout_calcule, channel_type "
-            "FROM lot10_commissions WHERE run_id=? AND mois=? AND proprietaire_id=? "
+            "       payout_calcule, channel_type, assiette_commission, taux_commission, "
+            "       commission_conciergerie, menage_retenu "
+            f"FROM lot10_commissions WHERE run_id=? AND {filtre} AND proprietaire_id=? "
             "AND logement_id=? ORDER BY date_arrivee, reservation_id_hostaway",
-            (run_id, mois, proprietaire_id, logement_id)).fetchall()
+            (run_id, *borne, proprietaire_id, logement_id)).fetchall()
     except sqlite3.Error:
         return 0
 
@@ -513,12 +518,19 @@ def _figer_reservations(conn, facture_id: str, mois: str, proprietaire_id: str,
         rid = str(l["reservation_id_hostaway"] or "")
         if not rid:
             continue
+        # Assiette, taux, ménage et commission sont FIGÉS avec le séjour (migration 0122) : ce
+        # sont eux que l'utilisateur peut ajuster sur le brouillon (ménage offert, commission
+        # négociée). Les valeurs d'origine restent à côté, pour que l'écart reste visible.
+        menage, commission = _round(l["menage_retenu"]), _round(l["commission_conciergerie"])
         conn.execute(
             "INSERT OR IGNORE INTO factures_proprietaires_reservations "
             "(facture_id_opaque, reservation_id, guest_name, check_in, check_out, nights, "
-            " guest_count, payout, plateforme, source_run_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            " guest_count, payout, plateforme, source_run_id, assiette, taux, menage, commission, "
+            " menage_initial, commission_initiale) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (facture_id, rid, noms.get(rid), l["date_arrivee"], l["date_depart"], l["nuits"],
-             l["guest_count"], _round(l["payout_calcule"]), l["channel_type"], run_id))
+             l["guest_count"], _round(l["payout_calcule"]), l["channel_type"], run_id,
+             _round(l["assiette_commission"]), l["taux_commission"], menage, commission,
+             menage, commission))
     return len(lignes)
 
 
@@ -581,6 +593,17 @@ def reservations(facture_id: str, *, db_path=None) -> list[dict[str, Any]]:
             "SELECT * FROM factures_proprietaires_reservations WHERE facture_id_opaque=? "
             "ORDER BY check_in, reservation_id", (facture_id,)).fetchall()]
         for l in lignes:
+            if l.get("commission") is not None or l.get("menage") is not None:
+                # Séjour figé avec ses montants (0122) : ce sont eux qui font foi sur le document.
+                l.update({"assiette_commission": l.get("assiette"),
+                          "taux_commission": l.get("taux"),
+                          "menage_retenu": l.get("menage"),
+                          "menage_modifie": abs(_round(l.get("menage"))
+                                                - _round(l.get("menage_initial"))) > TOLERANCE,
+                          "commission_modifiee": abs(_round(l.get("commission"))
+                                                     - _round(l.get("commission_initiale")))
+                                                 > TOLERANCE})
+                continue
             run, rid = l.get("source_run_id"), l.get("reservation_id")
             if not (run and rid):
                 continue
@@ -1180,6 +1203,43 @@ def contenu_emis(facture_id: str, *, db_path=None) -> dict[str, Any]:
 
 # ── Annulation et avoir ─────────────────────────────────────────────────────────────────────────
 
+ST_REGLEMENT_HORS_COMPTA = "HORS_COMPTA"
+EVT_HORS_COMPTA = "HORS_COMPTA"
+MOTIF_HORS_COMPTA_DEFAUT = "Émise hors comptabilité : aucun paiement attendu sur le compte"
+
+
+def marquer_hors_compta(facture_id: str, *, motif: str = "", acteur: str = "",
+                        db_path=None) -> dict[str, Any]:
+    """Facture ÉMISE conservée HORS COMPTA (choix fait à l'émission ; par défaut, en compta).
+
+    Aucune écriture VENTES, aucune créance, aucun règlement attendu ; la facture, son numéro et son
+    PDF restent. Refusé si une écriture de vente existe déjà : on ne sort pas en silence une vente
+    déjà constatée (il faudrait un avoir).
+    """
+    f = lire(facture_id, db_path=db_path)
+    if f["statut"] != ST_EMIS or f["type_document"] != TYPE_FACTURE:
+        raise FactureProprietaireError("seule une facture ÉMISE peut être conservée hors compta")
+    conn = get_db(db_path)
+    try:
+        try:
+            vente = conn.execute(
+                "SELECT COUNT(*) FROM ecritures WHERE origine_id_opaque=? AND statut <> 'ANNULEE'",
+                (facture_id,)).fetchone()[0]
+        except sqlite3.Error:
+            vente = 0
+        if vente:
+            raise FactureProprietaireError(
+                "une écriture de vente existe déjà pour cette facture : elle est en comptabilité")
+        motif = str(motif or "").strip() or MOTIF_HORS_COMPTA_DEFAUT
+        conn.execute("UPDATE factures_proprietaires SET hors_compta=1, motif_hors_compta=?, "
+                     "version=version+1 WHERE facture_id_opaque=?", (motif, facture_id))
+        _journal(conn, facture_id, EVT_HORS_COMPTA, ST_EMIS, ST_EMIS, motif, acteur)
+        conn.commit()
+    finally:
+        conn.close()
+    return lire(facture_id, db_path=db_path)
+
+
 def annuler(facture_id: str, *, motif: str, acteur: str = "", db_path=None) -> dict[str, Any]:
     """Annule un BROUILLON ou un VALIDE. Une facture EMIS ne s'annule pas : elle se corrige par
     un avoir (`creer_avoir`), pour que le document déjà transmis reste dans l'historique."""
@@ -1300,6 +1360,13 @@ def solde(facture_id: str, *, paiements_imputes: float = 0.0, db_path=None) -> d
     """
     f = lire(facture_id, db_path=db_path)
     total = _round(f["montant_total"])
+    if int(f.get("hors_compta") or 0):
+        # Hors compta : la facture existe et a été envoyée, mais aucun paiement n'est attendu.
+        return {"facture_id_opaque": facture_id, "montant_total": total, "paiements_imputes": 0.0,
+                "solde": 0.0, "statut_reglement": ST_REGLEMENT_HORS_COMPTA,
+                "reversements_airbnb": [], "acomptes_proprietaire": [],
+                "total_reversements_airbnb": 0.0, "total_acomptes_proprietaire": 0.0,
+                "autres_paiements": 0.0}
     reversements = reversements_airbnb(facture_id, db_path=db_path)
     acomptes = acomptes_proprietaire(facture_id, db_path=db_path)
     total_reversements = _round(sum(_round(r["montant_impute"]) for r in reversements))

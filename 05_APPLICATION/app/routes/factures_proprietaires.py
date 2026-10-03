@@ -22,6 +22,7 @@ from app.services import factures_proprietaires_composition_service as compo
 from app.services import factures_proprietaires_conformite_service as conformite
 from app.services import factures_proprietaires_pdf as pdf
 from app.services import factures_proprietaires_edition_service as edition
+from app.services import factures_proprietaires_brouillon_service as brouillon
 from app.services import factures_proprietaires_periode_service as periode_svc
 from app.services import factures_proprietaires_service as svc
 from app.services import factures_proprietaires_source as source_svc
@@ -100,6 +101,10 @@ def _comptabilite(facture: dict) -> dict:
     la vente naît à l'émission.
     """
     etat = {"statut": "ABSENTE", "ecriture": None, "lignes": [], "conflit": None}
+    if int(facture.get("hors_compta") or 0):
+        etat["statut"] = "HORS_COMPTA"
+        etat["detail"] = facture.get("motif_hors_compta") or "émise hors comptabilité"
+        return etat
     if facture["statut"] != svc.ST_EMIS:
         etat["statut"] = "SANS_OBJET"
         etat["detail"] = "la vente est constatée à l'émission, pas avant"
@@ -131,7 +136,7 @@ def _ids_proprietaires() -> list[str]:
 
 @router.get("/factures-proprietaires", response_class=HTMLResponse)
 def liste(request: Request, mois: str = "", statut: str = "", comptabilisee: str = "",
-          proprietaire_id: str = ""):
+          proprietaire_id: str = "", message: str = ""):
     # `proprietaire_id` : ouvert depuis le compte d'un propriétaire (« Voir les factures »).
     factures = svc.lister(mois=mois or None, statut=statut or None,
                           proprietaire_id=proprietaire_id or None)
@@ -145,7 +150,9 @@ def liste(request: Request, mois: str = "", statut: str = "", comptabilisee: str
         factures = [f for f in factures if f["comptabilisee"] == (comptabilisee == "oui")]
     return templates.TemplateResponse(request, "factures_proprietaires_list.html", {
         "active_menu": "factures_proprietaires", "factures": factures, "mois": mois, "statut": statut,
-        "statuts": svc.STATUTS, "comptabilisee": comptabilisee,
+        "statuts": svc.STATUTS, "comptabilisee": comptabilisee, "message": message,
+        "nb_annulees_supprimables": sum(1 for f in svc.lister(statut=svc.ST_ANNULE)
+                                        if brouillon.supprimable(f)),
         # §79 — on choisit un propriétaire et un logement par leur NOM, jamais par leur code.
         "proprietaires_options": _options_proprietaires(),
         "logements_options": _options_logements(),
@@ -337,6 +344,7 @@ def _contexte_fiche(facture_id: str, erreur: str | None = None) -> dict:
         # Classement du propriétaire : `A_CONTROLER` tant qu'il n'a pas été saisi. Jamais déduit.
         "type_client_actuel": classement.type_client(facture["proprietaire_id"]),
         "peut_valider": facture["statut"] == svc.ST_BROUILLON,
+        "peut_supprimer": brouillon.supprimable(facture),
         "peut_emettre": facture["statut"] == svc.ST_VALIDE,
         # Rouvrir n'est offert que sur une facture VALIDE et non numérotée : une facture ÉMISE se
         # corrige par annulation ou avoir, jamais par un retour discret à l'état modifiable.
@@ -393,7 +401,8 @@ def valider(request: Request, facture_id: str):
 
 
 @router.post("/factures-proprietaires/{facture_id}/emettre")
-def emettre(request: Request, facture_id: str, date_facture: str = Form(...)):
+def emettre(request: Request, facture_id: str, date_facture: str = Form(...),
+            comptabilite: str = Form("EN_COMPTA"), motif_hors_compta: str = Form("")):
     facture = svc.lire(facture_id)
     # Série dérivée du MOIS DE PRESTATION : `2026-08-001` pour une facture, `A-2026-08-001` pour un
     # avoir (§22). La conformité est exigée dès que l'émission réelle est ouverte ; en recette elle
@@ -418,8 +427,56 @@ def emettre(request: Request, facture_id: str, date_facture: str = Form(...)):
     # L'émission constate la vente : c'est ici, et nulle part ailleurs, que naît l'écriture VENTES.
     # Un refus (flags désactivés, mapping, double source) n'annule pas l'émission — la facture est
     # émise et le conflit reste visible sur la fiche, jamais résolu en silence.
-    compta.comptabiliser_facture_emise(emise, acteur="interface")
+    #
+    # Choix fait à l'émission (par défaut EN COMPTA) : HORS COMPTA = la facture est émise et
+    # conservée (numéro, PDF), mais aucune vente n'est constatée et aucun paiement n'est attendu.
+    if comptabilite == "HORS_COMPTA":
+        svc.marquer_hors_compta(facture_id, motif=motif_hors_compta, acteur="interface")
+    else:
+        compta.comptabiliser_facture_emise(emise, acteur="interface")
     return RedirectResponse(f"/factures-proprietaires/{facture_id}", status_code=303)
+
+
+@router.post("/factures-proprietaires/supprimer-annulees")
+def supprimer_annulees():
+    """Supprime définitivement les factures annulées JAMAIS émises (aucun numéro)."""
+    faites = brouillon.supprimer_annulees()
+    return RedirectResponse("/factures-proprietaires?message=" + quote(
+        f"{len(faites)} facture(s) annulée(s) supprimée(s)."), status_code=303)
+
+
+@router.post("/factures-proprietaires/{facture_id}/supprimer")
+def supprimer_annulee(request: Request, facture_id: str):
+    try:
+        brouillon.supprimer_annulee(facture_id)
+    except svc.FactureProprietaireError as exc:
+        return _refus_fiche(request, facture_id, f"Suppression impossible : {exc}")
+    return RedirectResponse("/factures-proprietaires", status_code=303)
+
+
+@router.post("/factures-proprietaires/{facture_id}/recharger")
+def recharger(request: Request, facture_id: str):
+    """Recharge le BROUILLON sur le calcul actuel (lignes calculées et séjours)."""
+    try:
+        brouillon.recharger(facture_id, acteur="interface")
+    except svc.FactureProprietaireError as exc:
+        return _refus_fiche(request, facture_id, f"Rechargement impossible : {exc}")
+    return RedirectResponse(f"/factures-proprietaires/{facture_id}#lignes-facturees",
+                            status_code=303)
+
+
+@router.post("/factures-proprietaires/{facture_id}/sejours/{reservation_id}")
+async def modifier_sejour(request: Request, facture_id: str, reservation_id: str):
+    """Ménage et/ou commission d'un séjour du BROUILLON ; les lignes et le total suivent."""
+    form = await request.form()
+    try:
+        brouillon.modifier_sejour(facture_id, reservation_id, menage=form.get("menage"),
+                                  commission=form.get("commission"), acteur="interface",
+                                  motif=str(form.get("motif", "") or ""))
+    except svc.FactureProprietaireError as exc:
+        return _refus_fiche(request, facture_id, f"Séjour non modifié : {exc}")
+    return RedirectResponse(f"/factures-proprietaires/{facture_id}#reservations",
+                            status_code=303)
 
 
 @router.post("/factures-proprietaires/{facture_id}/avoir")

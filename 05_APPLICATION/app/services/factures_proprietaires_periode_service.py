@@ -287,6 +287,12 @@ def creer(proprietaire_id: str, debut: str, fin: str, *, logement_id: str = "",
                             "choisi."),
                 "apercu": apercu}
 
+    # Même garde que le cycle mensuel : une réservation À CONTRÔLER d'un mois traversé serait
+    # absente de la facture sans que personne ne le sache.
+    for p in retenues:
+        for mois in mois_traverses(apercu["debut"], apercu["fin"]):
+            svc.exiger_reservations_resolues(mois, p["logement_id"], db_path=db_path)
+
     creees = []
     for p in retenues:
         resultat = svc.creer_exceptionnelle(
@@ -298,6 +304,11 @@ def creer(proprietaire_id: str, debut: str, fin: str, *, logement_id: str = "",
                 "UPDATE factures_proprietaires SET periode_debut = ?, periode_fin = ? "
                 "WHERE facture_id_opaque = ?",
                 (apercu["debut"], apercu["fin"], resultat["facture_id_opaque"]))
+            # Séjours de la période figés avec leurs montants : ils sont éditables sur le
+            # brouillon comme ceux du cycle mensuel.
+            svc._figer_reservations(conn, resultat["facture_id_opaque"], apercu["debut"][:7],
+                                    apercu["proprietaire_id"], p["logement_id"],
+                                    debut=apercu["debut"], fin=apercu["fin"])
             conn.commit()
         finally:
             conn.close()

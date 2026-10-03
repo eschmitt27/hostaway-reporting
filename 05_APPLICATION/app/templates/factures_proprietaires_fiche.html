@@ -12,6 +12,7 @@
     {{ "AVOIR" if facture.type_document == "AVOIR" else "Facture" }}
     {{ facture.numero_facture or "(sans numéro — non émise)" }}
     <span class="badge">{{ facture.statut }}</span>
+    {% if facture.hors_compta %}<span class="badge badge-warning">HORS COMPTA</span>{% endif %}
   </h1>
   <p class="page-subtitle">
     {{ facture.proprietaire_id | nom_proprietaire }} · {{ facture.logement_id | nom_logement }} ·
@@ -445,8 +446,11 @@
        retrouve le séjour dans Hostaway pour vérifier un écart. #}
     <thead><tr><th>Arrivée</th><th>Départ</th><th class="text-right">Nuits</th>
                <th class="text-right">Voyageurs</th><th>Canal</th><th>Référence</th>
+               <th class="text-right">Total payout</th>
                <th class="text-right">Assiette</th><th class="text-right">Taux</th>
-               <th class="text-right">Commission</th></tr></thead>
+               <th class="text-right">Ménage</th>
+               <th class="text-right">Commission</th>
+               {% if editable %}<th></th>{% endif %}</tr></thead>
     <tbody>
       {% for r in reservations %}
       <tr><td>{{ r.check_in }}</td><td>{{ r.check_out }}</td>
@@ -454,6 +458,7 @@
           <td class="text-right">{{ r.guest_count if r.guest_count is not none else "—" }}</td>
           <td>{{ r.plateforme or "—" }}</td>
           <td class="font-mono text-xs">{{ r.reservation_id }}</td>
+          <td class="text-right">{{ "%.2f"|format(r.payout or 0) }} €</td>
           <td class="text-right">
             {%- if r.assiette_commission is not none %}{{ "%.2f"|format(r.assiette_commission) }} €
             {%- else %}{{ "%.2f"|format(r.payout or 0) }} €{% endif -%}
@@ -461,9 +466,28 @@
           <td class="text-right">
             {%- if r.taux_commission is not none %}{{ "%.2f"|format((r.taux_commission|float) * 100 if (r.taux_commission|float) <= 1 else (r.taux_commission|float)) }} %{% else %}—{% endif -%}
           </td>
+          {% set sejour_editable = editable and r.menage_initial is not none %}
+          {% set form_id = "sejour-" ~ loop.index %}
           <td class="text-right">
-            {%- if r.commission is not none %}{{ "%.2f"|format(r.commission) }} €{% else %}—{% endif -%}
-          </td></tr>
+            {%- if sejour_editable %}<input form="{{ form_id }}" type="text" name="menage" size="7"
+                 value="{{ "%.2f"|format(r.menage_retenu or 0) }}" style="text-align:right"> €
+            {%- elif r.menage_retenu is not none %}{{ "%.2f"|format(r.menage_retenu) }} €{% else %}—{% endif -%}
+            {% if r.menage_modifie %}<br><span class="text-xs text-secondary">calcul {{ "%.2f"|format(r.menage_initial) }} €</span>{% endif %}
+          </td>
+          <td class="text-right">
+            {%- if sejour_editable %}<input form="{{ form_id }}" type="text" name="commission" size="7"
+                 value="{{ "%.2f"|format(r.commission or 0) }}" style="text-align:right"> €
+            {%- elif r.commission is not none %}{{ "%.2f"|format(r.commission) }} €{% else %}—{% endif -%}
+            {% if r.commission_modifiee %}<br><span class="text-xs text-secondary">calcul {{ "%.2f"|format(r.commission_initiale) }} €</span>{% endif %}
+          </td>
+          {% if editable %}<td>
+            {% if sejour_editable %}
+            <form id="{{ form_id }}" method="post"
+                  action="/factures-proprietaires/{{ facture.facture_id_opaque }}/sejours/{{ r.reservation_id }}">
+              <button type="submit" class="btn btn-secondary">Enregistrer</button>
+            </form>
+            {% endif %}
+          </td>{% endif %}</tr>
       {% endfor %}
     </tbody>
   </table>
@@ -471,10 +495,13 @@
   {% else %}
   <p class="text-muted">Aucune réservation figée pour cette facture.</p>
   {% endif %}
-  <p class="text-xs text-secondary">Instantané figé à la création du brouillon, et jamais
-     re-dérivé : une extraction Hostaway ultérieure ne peut plus modifier ce tableau.
-     Assiette, taux et commission proviennent du calcul mensuel (Lot10) et ne sont jamais
-     recalculés ici — seule la ligne « Commission » du détail des frais entre dans le total.</p>
+  <p class="text-xs text-secondary">Instantané figé à la création du brouillon (ou au dernier
+     rechargement) : une extraction Hostaway ultérieure ne le modifie pas tant que le brouillon
+     n'est pas rechargé. Payout, assiette, taux, ménage et commission viennent du calcul mensuel
+     (Lot10).{% if editable %} Sur un brouillon, le <strong>ménage</strong> et la
+     <strong>commission</strong> de chaque séjour sont modifiables (ex. ménage offert : 0) : les
+     lignes « Prestations de ménage » et « Commission de conciergerie » et le total suivent. Le
+     calcul d'origine reste affiché sous la valeur modifiée.{% endif %}</p>
 </div>
 
 <div class="card">
@@ -557,7 +584,10 @@
   {% if comptabilite.conflit %}
   <p><span class="badge">{{ comptabilite.conflit }}</span></p>
   {% endif %}
-  {% if comptabilite.statut == "SANS_OBJET" %}
+  {% if facture.hors_compta %}
+  <p><span class="badge badge-warning">HORS COMPTA</span> — {{ facture.motif_hors_compta }}.
+     Facture émise et conservée ; aucune écriture de vente, aucune créance, aucun paiement attendu.</p>
+  {% elif comptabilite.statut == "SANS_OBJET" %}
   <p class="text-muted">Aucune écriture : {{ comptabilite.detail }}.</p>
   {% elif comptabilite.ecriture %}
   {% set e = comptabilite.ecriture %}
@@ -618,7 +648,31 @@
       <code>{{ facture.mois }}-002</code>… Paiement à réception : l'échéance sera cette date
       d'émission.
     </p>
+    <fieldset style="border:1px solid #ddd;padding:.5rem;margin:.5rem 0">
+      <legend>Comptabilité</legend>
+      <label><input type="radio" name="comptabilite" value="EN_COMPTA" checked>
+        En comptabilité (par défaut) — vente constatée, créance, paiement attendu</label><br>
+      <label><input type="radio" name="comptabilite" value="HORS_COMPTA">
+        Hors comptabilité — la facture est émise et conservée, mais aucun paiement n'est attendu</label><br>
+      <label>Motif hors compta (facultatif)
+        <input type="text" name="motif_hors_compta" size="50" maxlength="240"></label>
+    </fieldset>
     <button type="submit">Émettre (fige le contenu et génère le PDF)</button>
+  </form>
+  {% endif %}
+  {% if editable %}
+  <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/recharger"
+        onsubmit="return confirm('Recharger le brouillon sur le calcul actuel ? Lignes calculées et séjours (ménage et commission modifiés compris) seront recalculés ; les lignes ajoutées à la main sont conservées.');">
+    <button type="submit" class="btn btn-secondary">Recharger le brouillon</button>
+    <span class="text-xs text-secondary">Reprend le calcul actuel (réservations, Hostaway…) ;
+      les lignes ajoutées à la main sont conservées.</span>
+  </form>
+  {% endif %}
+  {% if peut_supprimer %}
+  <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/supprimer"
+        onsubmit="return confirm('Supprimer définitivement cette facture annulée ?');">
+    <button type="submit" class="btn btn-secondary">Supprimer définitivement</button>
+    <span class="text-xs text-secondary">Facture annulée, jamais émise.</span>
   </form>
   {% endif %}
   {% if facture.statut == "EMIS" %}

@@ -22,11 +22,19 @@
   </div>
 </div>
 
+{% if message %}<div class="card"><p>{{ message }}</p></div>{% endif %}
+{% if nb_annulees_supprimables %}
+<form method="post" action="/factures-proprietaires/supprimer-annulees" class="card"
+      onsubmit="return confirm('Supprimer définitivement {{ nb_annulees_supprimables }} facture(s) annulée(s) jamais émise(s) ?');">
+  <p>{{ nb_annulees_supprimables }} facture(s) annulée(s), jamais émise(s) (aucun numéro).
+     <button type="submit" class="btn btn-secondary">Supprimer définitivement les factures annulées</button></p>
+</form>
+{% endif %}
 {# Synthèse de la liste affichée : simple lecture des lignes servies. #}
 {% set synth = namespace(brouillons=0, a_comptabiliser=0, solde=0) %}
 {% for f in factures %}
   {% if f.statut == "BROUILLON" %}{% set synth.brouillons = synth.brouillons + 1 %}{% endif %}
-  {% if f.statut == "EMIS" and not f.comptabilisee %}{% set synth.a_comptabiliser = synth.a_comptabiliser + 1 %}{% endif %}
+  {% if f.statut == "EMIS" and not f.comptabilisee and not f.hors_compta %}{% set synth.a_comptabiliser = synth.a_comptabiliser + 1 %}{% endif %}
   {% set synth.solde = synth.solde + (f.solde or 0) %}
 {% endfor %}
 <div class="fi-kpis">
@@ -123,10 +131,10 @@
       <td>{{ f.logement_id | nom_logement }}</td>
       <td class="text-right">{{ "%.2f"|format(f.montant_total) }} €</td>
       <td class="text-right"><strong>{{ "%.2f"|format(f.solde) }} €</strong></td>
-      <td><span class="status-badge status-{{ {'BROUILLON': 'brouillon', 'VALIDE': 'info', 'EMIS': 'valide', 'ANNULE': 'bloquant'}.get(f.statut, 'info') }}">{{ f.statut|libelle_statut }}</span></td>
+      <td><span class="status-badge status-{{ {'BROUILLON': 'brouillon', 'VALIDE': 'info', 'EMIS': 'valide', 'ANNULE': 'bloquant'}.get(f.statut, 'info') }}">{{ f.statut|libelle_statut }}</span>{% if f.hors_compta %} <span class="badge badge-warning" title="{{ f.motif_hors_compta or '' }}">HORS COMPTA</span>{% endif %}</td>
       {# Lu dans les écritures, jamais dans un drapeau porté par la facture : un drapeau se
          désynchroniserait de la comptabilité au premier incident. #}
-      <td>{% if f.comptabilisee %}<span class="badge badge-success">oui</span>{% elif f.statut == "EMIS" %}<span class="badge badge-warning">non</span>{% else %}<span class="fi-discret">—</span>{% endif %}</td>
+      <td>{% if f.comptabilisee %}<span class="badge badge-success">oui</span>{% elif f.hors_compta %}<span class="badge">hors compta</span>{% elif f.statut == "EMIS" %}<span class="badge badge-warning">non</span>{% else %}<span class="fi-discret">—</span>{% endif %}</td>
       <td class="ec-nowrap">{{ f.date_emission|date_fr if f.date_emission else "—" }}</td>
       <td class="fi-col-actions"><a class="fi-lien-action" href="/factures-proprietaires/{{ f.facture_id_opaque }}">Ouvrir</a></td>
     </tr>

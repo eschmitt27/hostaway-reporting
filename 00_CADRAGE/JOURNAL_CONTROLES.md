@@ -6078,3 +6078,13 @@ Détail : `CUTOVER_V1_2026-09.md` §19.
   par l'utilisateur ; actualisation globale `ORCH-20261003133400-dcea45` SUCCES (sauvegarde
   préalable incluse). LOG_0015 septembre : 1 réservation, 700 €, ménage 29 €, commission 100,65 €,
   plus aucune réservation à contrôler. integrity_check ok, FK 0.
+
+## CTR-FACTURES-BROUILLONS-2026-10-03 — Brouillons éditables, hors compta, suppression des annulées
+
+- Migration 0122 appliquée au démarrage via le chemin protégé : sauvegarde `BCK-1624879FE1F6`
+  (BEFORE_MIGRATION, VALIDE, 0121 → 0122) puis migration SUCCESS ; integrity ok, FK 0.
+- 8 factures ANNULÉES jamais émises supprimées (bouton de la liste). Restent 8 BROUILLON.
+- Les 8 brouillons rechargés (aucune retouche manuelle préalable) : totaux identiques avant/après,
+  séjours éditables (LOG_0001 : 6 séjours, conformes au rapport Hostaway).
+- Tests : `test_factures_proprietaires_brouillon.py` (15) ; suite complète 4 734 passed /
+  37 skipped / 0 failed.

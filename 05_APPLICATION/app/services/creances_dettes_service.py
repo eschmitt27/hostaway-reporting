@@ -143,6 +143,10 @@ def creances(*, proprietaire_id: str = "", logement_id: str = "", mois: str = ""
                         statut=fpr.ST_EMIS, db_path=db_path):
         if logement_id and f["logement_id"] != logement_id:
             continue
+        # Facture émise HORS COMPTA (0122) : envoyée, conservée, mais aucune créance — aucun
+        # paiement n'est attendu sur le compte.
+        if int(f.get("hors_compta") or 0):
+            continue
 
         # UNE SEULE addition, ici. `imputations_detail` a déjà réuni les deux mécanismes
         # d'imputation sans doublon (FIFO + reversements Airbnb) ; le solde en découle

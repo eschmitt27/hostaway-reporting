@@ -2336,3 +2336,19 @@ cas, la proposition D054 (« DIRECT sans HH → À CONTRÔLER »).
 
 **Cause de la décision.** Les factures de septembre 2026 omettaient 6 réservations directes
 (dont Gigi 28/09 et Milo 25/09 sur LOG_0001), à 0 € et sans alerte.
+
+## D-FACTURES-PROPRIETAIRES-EDITION-01 — Brouillons éditables, hors compta, suppression des annulées (2026-10-03)
+
+**Décisions utilisateur (2026-10-03).**
+- **Séjours éditables** : sur un BROUILLON, le ménage et la commission de chaque séjour sont
+  modifiables (ex. ménage offert au propriétaire plutôt qu'un avoir après coup). Les lignes
+  « Prestations de ménage » et « Commission de conciergerie » et le total suivent ; le calcul
+  d'origine reste affiché. Lot10/Lot12 ne sont jamais modifiés.
+- **Recharger un brouillon** : reconstruit lignes calculées et séjours sur le calcul actuel ; les
+  lignes ajoutées à la main sont conservées.
+- **Hors compta** : à l'émission, choix « En comptabilité » (par défaut) ou « Hors comptabilité ».
+  Hors compta = facture émise et conservée (numéro, PDF), mention HORS COMPTA dans son statut,
+  aucune écriture VENTES, aucune créance, aucun paiement attendu.
+- **Factures annulées** : une facture ANNULÉE jamais émise (sans numéro) peut être supprimée
+  définitivement. Une facture émise ne se supprime jamais (avoir).
+- Migration 0122 (`hors_compta`, `motif_hors_compta`, montants figés par séjour).
