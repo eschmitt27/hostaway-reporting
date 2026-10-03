@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import csv
 import datetime
+import io
 import re
 from pathlib import Path
 from typing import Any, Callable
@@ -60,6 +61,8 @@ STATUT_OK = "OK"
 STATUT_SOURCE_ABSENTE = "SOURCE_ABSENTE"
 
 E_COLONNE_SENSIBLE = "COLONNE_SENSIBLE"
+
+NOM_DICTIONNAIRE = "PBI_Dictionnaire_Colonnes"
 
 
 def _run_actif(conn, table_runs: str) -> str | None:
@@ -266,14 +269,30 @@ def repertoire_exports() -> Path:
     return Path(cfg.EXPORTS_POWERBI)
 
 
-def exporter(*, db_path=None, destination: Path | None = None) -> dict[str, Any]:
-    """Écrit les 13 CSV + le dictionnaire depuis SQLite. Ne lit aucun classeur.
+def _csv(entetes: list[str], corps) -> bytes:
+    """Un CSV au format du legacy (UTF-8 BOM, `;`, fins de ligne du module csv), en mémoire.
 
-    ABORT (comme le legacy) si une colonne sensible apparaît dans une sortie : dans ce cas AUCUN
-    fichier n'est écrit — mieux vaut pas d'export du tout qu'un export qui fuit.
+    C'est l'UNIQUE rendu : le fichier écrit sur disque par `exporter()` et celui téléchargé depuis
+    l'écran sont les mêmes octets, jamais deux implémentations qui pourraient diverger.
     """
-    sortie = Path(destination) if destination is not None else repertoire_exports()
+    tampon = io.StringIO(newline="")
+    w = csv.writer(tampon, delimiter=";")
+    w.writerow(entetes)
+    for ligne in corps:
+        w.writerow(ligne)
+    return tampon.getvalue().encode("utf-8-sig")
 
+
+def produire(*, db_path=None) -> dict[str, Any]:
+    """Construit les 13 CSV + le dictionnaire EN MÉMOIRE, depuis les datasets actifs de l'instant.
+
+    Aucun fichier n'est lu ni écrit : c'est ce que sert l'écran « Exporter les données » au moment
+    du clic. Les datasets versionnés (Lot10/Lot12/réservations) sont lus sur leur run `actif=1` ;
+    les autres tables sont remplacées par leur service en UNE transaction. Un recalcul en cours ou
+    en échec n'est donc jamais visible ici : l'export porte la dernière version valide.
+
+    ABORT (comme le legacy) si une colonne sensible apparaît : aucun contenu n'est rendu.
+    """
     conn = get_db(db_path)
     try:
         prepares: list[tuple[str, list[str], list[str], list[dict]]] = []
@@ -297,26 +316,138 @@ def exporter(*, db_path=None, destination: Path | None = None) -> dict[str, Any]
         conn.close()
 
     if abort_msgs:
-        # Rien n'est écrit : un export partiel laisserait croire que la campagne a réussi.
+        # Rien n'est rendu : un export partiel laisserait croire que la campagne a réussi.
         return {"ok": False, "code": E_COLONNE_SENSIBLE, "message": " | ".join(abort_msgs),
                 "rapport": rapport}
 
-    sortie.mkdir(parents=True, exist_ok=True)
+    fichiers: dict[str, bytes] = {}
     dico: list[tuple[str, str]] = []
     for nom, whitelist, entetes, lignes in prepares:
-        with open(sortie / f"{nom}.csv", "w", newline="", encoding="utf-8-sig") as f:
-            w = csv.writer(f, delimiter=";")
-            w.writerow(entetes)
-            for r in lignes:
-                w.writerow([_val(r.get(c)) for c in whitelist])
+        fichiers[f"{nom}.csv"] = _csv(entetes, ([_val(r.get(c)) for c in whitelist]
+                                                 for r in lignes))
         dico.extend((nom, c) for c in entetes)
+    fichiers[f"{NOM_DICTIONNAIRE}.csv"] = _csv(["table", "colonne"], dico)
 
-    with open(sortie / "PBI_Dictionnaire_Colonnes.csv", "w", newline="",
-              encoding="utf-8-sig") as f:
-        w = csv.writer(f, delimiter=";")
-        w.writerow(["table", "colonne"])
-        for t, c in dico:
-            w.writerow([t, c])
-
-    return {"ok": True, "destination": str(sortie), "nb_exports": len(prepares),
+    return {"ok": True, "fichiers": fichiers, "nb_exports": len(prepares),
             "nb_colonnes_dictionnaire": len(dico), "rapport": rapport}
+
+
+def exporter(*, db_path=None, destination: Path | None = None) -> dict[str, Any]:
+    """Écrit les 13 CSV + le dictionnaire depuis SQLite dans le dossier Power BI. Ne lit aucun
+    classeur. Mêmes octets que `produire()`, qui les construit.
+
+    ABORT (comme le legacy) si une colonne sensible apparaît dans une sortie : dans ce cas AUCUN
+    fichier n'est écrit — mieux vaut pas d'export du tout qu'un export qui fuit.
+    """
+    sortie = Path(destination) if destination is not None else repertoire_exports()
+    resultat = produire(db_path=db_path)
+    if not resultat["ok"]:
+        return resultat
+
+    sortie.mkdir(parents=True, exist_ok=True)
+    for nom_fichier, contenu in resultat["fichiers"].items():
+        (sortie / nom_fichier).write_bytes(contenu)
+
+    return {"ok": True, "destination": str(sortie), "nb_exports": resultat["nb_exports"],
+            "nb_colonnes_dictionnaire": resultat["nb_colonnes_dictionnaire"],
+            "rapport": resultat["rapport"]}
+
+
+# ── Fraîcheur : de quand date la version que l'export contient ? ────────────────────────────────
+#
+# Rien n'est stocké ici : la date se lit sur la donnée elle-même (run actif, ou `date_calcul` des
+# lignes), l'état sur le registre de l'orchestrateur (`orchestrateur_datasets`). C'est le seul
+# système de fraîcheur de l'application ; l'export n'en a pas de second.
+
+def _date_run_actif(conn, table_runs: str) -> str | None:
+    if _table_absente(conn, table_runs):
+        return None
+    r = conn.execute(f"SELECT date_calcul FROM {table_runs} WHERE actif = 1").fetchone()
+    return r[0] if r else None
+
+
+def _date_max(conn, table: str, where: str = "") -> str | None:
+    if _table_absente(conn, table):
+        return None
+    sql = f"SELECT MAX(date_calcul) FROM {table}" + (f" WHERE {where}" if where else "")
+    return conn.execute(sql).fetchone()[0]
+
+
+def _date_reservations(conn) -> str | None:
+    if _table_absente(conn, "reservations_datasets"):
+        return None
+    r = conn.execute("SELECT date_calcul FROM reservations_datasets "
+                     "WHERE etape = 'RESOLUES' AND actif = 1").fetchone()
+    return r[0] if r else None
+
+
+# Pour chaque export : la table lue, le nœud du DAG qui la produit, et la lecture de la date de
+# génération de la version exportée. Date `None` = table de référence lue en direct (saisie ou
+# import), qui n'a pas de « génération » : on ne lui en invente pas une.
+SOURCES_EXPORT: dict[str, tuple[str, str, Callable[[Any], str | None] | None]] = {
+    "PBI_Flux": ("flux_unifies", "FLUX_LOT9", lambda c: _date_max(c, "flux_unifies")),
+    "PBI_Resultats_Mensuels": ("lot10_resultats (run actif)", "LOT10",
+                               lambda c: _date_run_actif(c, "lot10_runs")),
+    "PBI_Reservations_Resolues": ("reservations_resolues (dataset actif)", "RESERVATIONS",
+                                  _date_reservations),
+    "PBI_Commissions": ("lot10_commissions (run actif)", "LOT10",
+                        lambda c: _date_run_actif(c, "lot10_runs")),
+    "PBI_Net_Proprietaire": ("lot10_net_vue_mois (run actif)", "LOT10",
+                             lambda c: _date_run_actif(c, "lot10_runs")),
+    "PBI_Prefactures_Proprietaires": ("lot12_prefactures_lignes (run actif)", "LOT12",
+                                      lambda c: _date_run_actif(c, "lot12_runs")),
+    "PBI_Menages_Cout_Complet": ("menages_cout_complet", "MENAGES",
+                                 lambda c: _date_max(c, "menages_cout_complet")),
+    "PBI_Menages_Rapprochement": ("menages_rapprochement", "MENAGES",
+                                  lambda c: _date_max(c, "menages_rapprochement")),
+    # Les constats ne sont remplacés que par un run RÉUSSI : un run en échec n'y touche pas.
+    "PBI_Controles_Ouverts": ("controles_lot11_constats", "LOT11",
+                              lambda c: _date_max(c, "controles_lot11_runs",
+                                                  "statut = 'SUCCES'")),
+    "PBI_Referentiel_Logements": ("ref_logements", "REF_SETUP", None),
+    "PBI_Referentiel_Gestion_Logements": ("ref_gestion_logements_hist", "REF_SETUP", None),
+    "PBI_Referentiel_Proprietaires": ("ref_proprietaires", "REF_SETUP", None),
+    "PBI_Referentiel_Taux_Commission": ("ref_taux_commission", "REF_SETUP", None),
+}
+
+
+def inventaire(*, db_path=None) -> dict[str, Any]:
+    """Ce que l'écran affiche : chaque export tel qu'il serait produit À CET INSTANT.
+
+    Volumétrie et date lues sur les datasets actifs, état lu sur l'orchestrateur — seulement pour
+    les nœuds CALCULÉS, seuls à porter un état fiable (un référentiel est une table de saisie :
+    lui prêter un « jamais calculé » serait faux).
+    """
+    from app.services import orchestrateur_dag as dag
+    from app.services import orchestrateur_service as orch
+
+    resultat = produire(db_path=db_path)
+    rapport = {r["export"]: r for r in resultat.get("rapport", [])}
+    etats = {e["dataset"]: e for e in orch.etat_datasets(db_path)}
+    conn = get_db(db_path)
+    try:
+        exports = []
+        for nom, _, _ in EXPORTS:
+            table, dataset, lire_date = SOURCES_EXPORT[nom]
+            noeud = dag.NOEUDS[dataset]
+            r = rapport.get(nom, {})
+            calcule = noeud.type_noeud == dag.TYPE_CALCUL
+            etat = etats.get(dataset, {}) if calcule else {}
+            exports.append({
+                "nom": nom,
+                "fichier": f"{nom}.csv",
+                "table": table,
+                "source": noeud.nom_affiche,
+                "disponible": r.get("statut") == STATUT_OK,
+                "nb_lignes": r.get("nb_lignes", 0),
+                # Dernier recalcul RÉUSSI de la source (conservé à travers un échec). Il peut être
+                # plus récent que `genere_le` : un recalcul qui ne change rien ne réécrit pas ses
+                # lignes — la donnée est alors à jour, sans être neuve.
+                "actualise_le": etat.get("calcule_le"),
+                "genere_le": lire_date(conn) if lire_date else None,
+                "lu_en_direct": lire_date is None,
+                "etat": etat.get("statut"),
+            })
+    finally:
+        conn.close()
+    return {"ok": resultat["ok"], "message": resultat.get("message", ""), "exports": exports}

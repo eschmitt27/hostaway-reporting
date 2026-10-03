@@ -15,8 +15,7 @@
   </div>
 </div>
 
-{% if message %}<div class="alert alert-info">{{ message }}</div>{% endif %}
-{% if erreur %}<div class="alert alert-error">{{ erreur }}</div>{% endif %}
+{% if erreur %}<div class="alert alert-error">Export refusé : {{ erreur }}</div>{% endif %}
 
 <div class="fi-exports">
 <div class="card fi-export-carte">
@@ -25,7 +24,8 @@
     <div>
       <h2 class="card-title">Export complet (CSV)</h2>
       <p class="fi-discret">
-        Les fichiers sont écrits dans <code>{{ dossier }}</code> et régénérés à chaque demande.
+        Chaque fichier est construit au moment du téléchargement, depuis la dernière version valide
+        des données de l'application : une actualisation suffit, rien à régénérer ici.
       </p>
     </div>
   </div>
@@ -37,14 +37,11 @@
     téléchargement.
     </div>
   </div>
+  {% if not erreur %}
   <div class="fi-export-carte__actions">
-    <form method="post" action="/exports/generer" class="inline-form" data-fi-occupe="Génération en cours…">
-      <button type="submit" class="btn btn-primary">Générer l'export</button>
-    </form>
-    {% if fichiers %}
-    <a href="/exports/archive.zip" class="btn btn-secondary">Tout télécharger (ZIP)</a>
-    {% endif %}
+    <a href="/exports/archive.zip" class="btn btn-primary">Tout télécharger (ZIP)</a>
   </div>
+  {% endif %}
 </div>
 
 <div class="card fi-export-carte">
@@ -66,44 +63,57 @@
 </div>
 </div>
 
-{% if not fichiers %}
-<div class="card fi-vide">
-  <span class="fi-vide__icone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
-  <span class="fi-vide__titre">Aucun export n'a encore été produit sur cette installation.</span>
-  <span class="fi-vide__texte">Cliquez sur « Générer l'export » : les fichiers apparaîtront ici, prêts à télécharger.</span>
-</div>
-{% else %}
 <div class="card">
   <div class="fi-card-tete">
     <h2 class="card-title">Fichiers disponibles</h2>
-    <span class="fi-compteur">{{ fichiers|length }}</span>
+    <span class="fi-compteur">{{ exports|selectattr("disponible")|list|length }}</span>
   </div>
   <div class="ec-table-wrap">
-  <table class="table">
+  <table class="table" data-testid="exports-inventaire">
     <thead>
-      <tr><th>Fichier</th><th class="num">Lignes</th><th class="num">Taille</th>
-          <th>Produit le</th><th class="fi-col-actions"><span class="sr-only">Actions</span></th></tr>
+      <tr><th>Fichier</th><th>Source</th><th class="num">Lignes</th>
+          <th>Dernière actualisation</th><th>Données générées le</th><th>État</th>
+          <th class="fi-col-actions"><span class="sr-only">Actions</span></th></tr>
     </thead>
     <tbody>
-    {% for f in fichiers %}
+    {% for e in exports %}
       <tr>
-        <td class="fi-mono fi-cle">{{ f.nom }}</td>
-        <td class="num">
-          {% if f.lignes < 0 %}
-            {# « Je n'ai pas pu compter » n'est pas « il n'y a rien ». #}
-            <span class="status-badge status-a-controler">illisible</span>
-          {% else %}{{ f.lignes }}{% endif %}
+        <td class="fi-mono fi-cle">{{ e.fichier }}</td>
+        <td>{{ e.source }}<div class="fi-discret fi-mono">{{ e.table }}</div></td>
+        <td class="num">{% if e.disponible %}{{ e.nb_lignes }}{% else %}—{% endif %}</td>
+        <td class="ec-nowrap">{{ e.actualise_le|datetime_fr if e.actualise_le else "—" }}</td>
+        <td class="ec-nowrap">
+          {% if e.lu_en_direct %}Lu en direct
+          {% elif e.genere_le %}{{ e.genere_le|datetime_fr }}
+          {% else %}—{% endif %}
         </td>
-        <td class="num">{{ f.taille_ko }} Ko</td>
-        <td class="ec-nowrap">{{ f.modifie_le|datetime_fr }}</td>
-        <td class="fi-col-actions"><a class="fi-lien-action" href="/exports/fichier/{{ f.nom }}">Télécharger</a></td>
+        <td>
+          {# L'état est celui de l'orchestrateur, seul registre de fraîcheur — jamais inventé ici. #}
+          {% if not e.disponible %}<span class="status-badge status-bloquant">Source absente</span>
+          {% elif e.etat == "A_JOUR" %}<span class="status-badge status-valide">À jour</span>
+          {% elif e.etat == "A_RECALCULER" %}<span class="status-badge status-a-controler" title="Une donnée amont a changé depuis ce calcul : le fichier contient la dernière version valide.">À actualiser</span>
+          {% elif e.etat == "EN_COURS" %}<span class="status-badge status-info">Actualisation en cours</span>
+          {% elif e.etat in ("ECHEC", "PARTIEL") %}<span class="status-badge status-bloquant" title="Le dernier recalcul n'a pas abouti : le fichier contient la dernière version valide.">Erreur</span>
+          {% elif e.etat %}<span class="status-badge status-brouillon">Jamais calculé</span>
+          {% else %}—{% endif %}
+        </td>
+        <td class="fi-col-actions">
+          {% if e.disponible and not erreur %}<a class="fi-lien-action" href="/exports/fichier/{{ e.fichier }}">Télécharger</a>{% endif %}
+        </td>
       </tr>
     {% endfor %}
+      <tr>
+        <td class="fi-mono fi-cle">{{ dictionnaire }}</td>
+        <td>Dictionnaire des colonnes exportées</td>
+        <td class="num">—</td><td class="ec-nowrap">—</td><td class="ec-nowrap">—</td><td>—</td>
+        <td class="fi-col-actions">
+          {% if not erreur %}<a class="fi-lien-action" href="/exports/fichier/{{ dictionnaire }}">Télécharger</a>{% endif %}
+        </td>
+      </tr>
     </tbody>
   </table>
   </div>
 </div>
-{% endif %}
 </div>
 <script src="/static/js/finitions.js" defer></script>
 {% endblock %}

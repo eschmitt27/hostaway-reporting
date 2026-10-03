@@ -6,9 +6,13 @@ depuis SQLite. Mais aucun écran ne permettait de les DEMANDER ni de les RÉCUP�
 lancer un lot en ligne de commande, puis aller chercher les fichiers dans un dossier du projet.
 Une fonction qu'on ne peut pas atteindre n'est pas une fonction disponible.
 
-CE QUE CET ÉCRAN AJOUTE
-Un bouton qui produit l'export, la liste de ce qui a été produit avec sa volumétrie, et le
-téléchargement — fichier par fichier ou en une archive. Rien du moteur n'est réécrit ici.
+CHAQUE FICHIER EST CONSTRUIT AU MOMENT DU CLIC
+L'écran servait auparavant les CSV écrits sur disque par un bouton « Générer l'export ». Personne
+ne le relançait après une actualisation : les fichiers sont restés au 12/09/2026 pendant que
+l'application, elle, avançait. Désormais rien n'est lu ni écrit sur disque : la liste, la
+volumétrie et chaque téléchargement sont produits à la demande par `lot13.produire()`, depuis les
+datasets ACTIFS de l'instant. Une actualisation normale suffit — il n'existe pas de second bouton
+« actualiser les exports », et il ne doit pas en exister.
 
 LE MOIS EN COURS EST MARQUÉ PROVISOIRE
 Un export daté du mois courant contient un mois incomplet, qui bougera encore. La mention voyage
@@ -18,61 +22,27 @@ transmis perdrait immédiatement un avertissement affiché ailleurs.
 import io
 import zipfile
 from datetime import date
-from pathlib import Path
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, Response
 
-import app.config as cfg
 from app.services import lot13_export_service as lot13
 from app.template_env import get_templates
 
 router = APIRouter()
 templates = get_templates()
 
-SUFFIXE = ".csv"
-
-
-def _fichiers() -> list[dict]:
-    """Exports présents sur le disque, avec leur taille et leur date."""
-    dossier = lot13.repertoire_exports()
-    if not dossier.exists():
-        return []
-    from datetime import datetime, timezone
-
-    resultat = []
-    for chemin in sorted(dossier.glob(f"*{SUFFIXE}")):
-        stat = chemin.stat()
-        resultat.append({
-            "nom": chemin.name,
-            "taille_ko": round(stat.st_size / 1024, 1),
-            "modifie_le": datetime.fromtimestamp(stat.st_mtime, timezone.utc)
-                          .strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "lignes": _compter_lignes(chemin),
-        })
-    return resultat
-
-
-def _compter_lignes(chemin: Path) -> int:
-    """Lignes de données, en-tête exclue. Un fichier illisible rend -1, jamais 0 : « je n'ai pas
-    pu compter » n'est pas « il n'y a rien »."""
-    try:
-        with open(chemin, encoding="utf-8-sig") as f:
-            return max(sum(1 for _ in f) - 1, 0)
-    except OSError:
-        return -1
-
 
 @router.get("/exports", response_class=HTMLResponse)
-def exports(request: Request, message: str = "", erreur: str = ""):
-    fichiers = _fichiers()
+def exports(request: Request):
+    inventaire = lot13.inventaire()
     return templates.TemplateResponse(request, "exports.html", {
         "active_menu": "exports",
-        "fichiers": fichiers,
-        "dossier": str(lot13.repertoire_exports()),
+        "exports": inventaire["exports"],
+        "dictionnaire": f"{lot13.NOM_DICTIONNAIRE}.csv",
         "mois_courant": date.today().strftime("%Y-%m"),
-        "message": message,
-        "erreur": erreur,
+        # Filet anti-sensible déclenché : aucun fichier n'est servi, et l'écran dit pourquoi.
+        "erreur": "" if inventaire["ok"] else inventaire["message"],
     })
 
 
@@ -87,50 +57,38 @@ def referentiel_logements():
         "Content-Disposition": f'attachment; filename="{ref_export.NOM_FICHIER}"'})
 
 
-@router.post("/exports/generer")
-def generer():
-    """Produit les exports. Le moteur ABANDONNE sans rien écrire s'il détecte une colonne
-    sensible : mieux vaut aucun export qu'un export qui fuit — ce refus est remonté tel quel."""
-    from urllib.parse import urlencode
-
-    resultat = lot13.exporter()
-    if not resultat.get("ok"):
-        return RedirectResponse(
-            "/exports?" + urlencode({"erreur": resultat.get("message", "Export refusé.")}),
-            status_code=303)
-    produits = sum(1 for r in resultat.get("rapport", []) if r.get("statut") == "OK")
-    absents = [r["export"] for r in resultat.get("rapport", []) if r.get("statut") != "OK"]
-    message = f"{produits} fichier(s) produit(s)."
-    if absents:
-        # Une source absente n'est pas une erreur, mais la taire ferait croire l'export complet.
-        message += f" Sources absentes, non exportées : {', '.join(absents)}."
-    return RedirectResponse("/exports?" + urlencode({"message": message}), status_code=303)
+def _refus(resultat: dict) -> Response:
+    """Le moteur ABANDONNE s'il détecte une colonne sensible : mieux vaut aucun export qu'un export
+    qui fuit — ce refus est remonté tel quel."""
+    return Response(f"Export refusé : {resultat.get('message', '')}", status_code=409,
+                    media_type="text/plain; charset=utf-8")
 
 
 @router.get("/exports/fichier/{nom}")
 def telecharger(nom: str):
-    """Un fichier. Le nom est résolu DANS le dossier d'export et vérifié : une chaîne venue de
-    l'URL ne doit jamais pouvoir désigner un fichier ailleurs sur le disque."""
-    dossier = lot13.repertoire_exports().resolve()
-    cible = (dossier / nom).resolve()
-    if dossier not in cible.parents or cible.suffix != SUFFIXE or not cible.is_file():
+    """Un fichier, construit à l'instant. Le nom n'est qu'une clé parmi les exports connus : il ne
+    désigne jamais un chemin, donc aucune chaîne venue de l'URL ne peut atteindre le disque."""
+    resultat = lot13.produire()
+    if not resultat["ok"]:
+        return _refus(resultat)
+    contenu = resultat["fichiers"].get(nom)
+    if contenu is None:
         return Response("Fichier introuvable.", status_code=404, media_type="text/plain")
-    return Response(cible.read_bytes(), media_type="text/csv; charset=utf-8",
-                    headers={"Content-Disposition": f'attachment; filename="{cible.name}"'})
+    return Response(contenu, media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{nom}"'})
 
 
 @router.get("/exports/archive.zip")
 def archive():
-    """Tous les exports en une archive, assemblée en mémoire."""
-    fichiers = _fichiers()
-    if not fichiers:
-        return Response("Aucun export disponible : générez-les d'abord.", status_code=404,
-                        media_type="text/plain")
-    dossier = lot13.repertoire_exports()
+    """Tous les exports en une archive, construits à l'instant et assemblés en mémoire — un seul
+    passage, donc des fichiers cohérents entre eux."""
+    resultat = lot13.produire()
+    if not resultat["ok"]:
+        return _refus(resultat)
     tampon = io.BytesIO()
     with zipfile.ZipFile(tampon, "w", zipfile.ZIP_DEFLATED) as archive_zip:
-        for fichier in fichiers:
-            archive_zip.write(dossier / fichier["nom"], arcname=fichier["nom"])
+        for nom, contenu in resultat["fichiers"].items():
+            archive_zip.writestr(nom, contenu)
     # PROVISOIRE dans le nom : l'export couvre TOUS les mois, donc le mois en cours, qui est
     # incomplet et bougera encore. Un fichier téléchargé puis transmis n'emporte pas les
     # avertissements de l'écran — son nom, si.

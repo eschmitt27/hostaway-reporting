@@ -261,12 +261,11 @@ def test_le_parcours_d_export_existe_et_produit_des_fichiers(tmp_path, monkeypat
     client = TestClient(app)
 
     assert client.get("/exports").status_code == 200
-    assert client.get("/exports/archive.zip").status_code == 404, "rien à télécharger avant génération"
-    assert client.post("/exports/generer", follow_redirects=False).status_code == 303
-    assert list((tmp_path / "exports").glob("*.csv")), "des fichiers doivent avoir été écrits"
+    # Plus d'étape « générer » : l'archive se construit au clic, depuis la base, sans rien écrire.
     archive = client.get("/exports/archive.zip")
     assert archive.status_code == 200
     assert "PROVISOIRE" in archive.headers["content-disposition"]
+    assert not (tmp_path / "exports").exists(), "l'écran ne doit plus écrire de copie sur disque"
 
 
 def test_un_nom_de_fichier_ne_peut_pas_sortir_du_dossier_d_export(tmp_path, monkeypatch, tmp_db):
