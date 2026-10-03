@@ -6100,3 +6100,6 @@ Détail : `CUTOVER_V1_2026-09.md` §19.
   créance 0, état CRÉDITEUR. Aucune facture émise.
 - Tests : `test_compte_client_credits_avoirs.py` 11/11 ; régression ciblée (52 fichiers) : 905 passed
   puis les 14 tests portant les anciennes règles mis à jour, 275 + 52 passed. integrity ok, FK 0.
+- Reclassement 4197 : migration 0124 (sauvegarde `BCK-9BE946EA98BC`), écriture `ECR-D240C651CE4C`
+  419100 D / 419700 C 300 € (Didier). Soldes : 419700 Didier = 300 C, 419100 Didier = 0, 467100 = 0,
+  654000 = 300 D ; crédit disponible 300 € (compte et créances). Tests ciblés : 99 passed.

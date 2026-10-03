@@ -778,8 +778,9 @@ def generer_ecriture_imputation_credit(imputation_airbnb_id: str, *, acteur: str
     res = _inserer_ecriture(
         "ODIVERSES", facture.get("date_facture") or f"{facture['mois']}-01", facture["mois"],
         numero, libelle, ORIGINE_IMPUTATION_CREDIT, imputation_airbnb_id,
-        [{"compte": COMPTE_ACOMPTES_CLIENTS, "debit": montant, "credit": 0, "auxiliaire": pid,
-          "proprietaire_id": pid, "libelle": f"{libelle} ({credit['reference'] or credit['credit_id_opaque']})"},
+        [{"compte": credits.compte_du_credit(credit["origine"]), "debit": montant, "credit": 0,
+          "auxiliaire": pid, "proprietaire_id": pid,
+          "libelle": f"{libelle} ({credit['reference'] or credit['credit_id_opaque']})"},
          {"compte": COMPTE_PROPRIETAIRES, "debit": 0, "credit": montant, "auxiliaire": pid,
           "proprietaire_id": pid, "libelle": libelle}],
         acteur=acteur, db_path=db_path)

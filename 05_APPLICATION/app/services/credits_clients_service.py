@@ -46,6 +46,14 @@ LIBELLES_STATUT = {ST_EN_ATTENTE: "En attente de son encaissement bancaire",
                    ST_DISPONIBLE: "Disponible", ST_ANNULE: "Annulé"}
 
 COMPTE_CREDITS = "419100"
+# Crédit client qui n'est ni une avance ni un acompte (reprise de solde) : 4197 « Clients, autres
+# avoirs » — le PCG réserve 4191 aux avances et acomptes reçus (migration 0124).
+COMPTE_AUTRES_AVOIRS = "419700"
+
+
+def compte_du_credit(origine: str) -> str:
+    """Compte de tiers qui porte un crédit client, selon son origine."""
+    return COMPTE_AUTRES_AVOIRS if origine == "REPRISE_SOLDE" else COMPTE_CREDITS
 COMPTE_CLIENTS = "411000"
 COMPTES_SOURCE_INTERDITS = ("512", "530", "411", "419")
 
@@ -421,7 +429,7 @@ def creer_reprise_solde(proprietaire_id: str, montant: Any, date_origine: str, *
                         libelle: str = LIBELLE_REPRISE_SOLDE, db_path=None) -> dict[str, Any]:
     """Crédit client DISPONIBLE repris de l'ancienne structure, et ses deux écritures validées :
 
-        1. reprise de la dette envers le client   467100 D  /  419100 C (auxiliaire = client)
+        1. reprise de la dette envers le client   467100 D  /  419700 C (auxiliaire = client)
         2. créance sur l'ancienne structure perdue 654000 D  /  467100 C
 
     467100 est soldé, la perte est constatée en charge, le client reste créditeur. Ce n'est ni un
@@ -471,7 +479,7 @@ def creer_reprise_solde(proprietaire_id: str, montant: Any, date_origine: str, *
                 (f"{credit_id}-REPRISE", f"{LIBELLE_REPRISE_SOLDE} — reprise de la dette client",
                  [{"compte": COMPTE_ANCIENNE_STRUCTURE, "debit": valeur, "credit": 0,
                    "libelle": "Ancienne structure — solde client repris"},
-                  {"compte": COMPTE_CREDITS, "debit": 0, "credit": valeur, "auxiliaire": pid,
+                  {"compte": COMPTE_AUTRES_AVOIRS, "debit": 0, "credit": valeur, "auxiliaire": pid,
                    "proprietaire_id": pid, "libelle": LIBELLE_REPRISE_SOLDE}]),
                 (f"{credit_id}-PERTE", "Créance sur l'ancienne structure considérée perdue",
                  [{"compte": COMPTE_PERTE_CREANCE, "debit": valeur, "credit": 0,
@@ -492,12 +500,58 @@ def creer_reprise_solde(proprietaire_id: str, montant: Any, date_origine: str, *
                      (ecritures[0], credit_id))
         _evenement(conn, credit_id, "ORIGINE_CONSTATEE", acteur=acteur, montant=valeur,
                    ecriture_id=ecritures[0],
-                   detail=f"467100 / 419100 puis 654000 / 467100 ({', '.join(ecritures)})")
+                   detail=f"467100 / 419700 puis 654000 / 467100 ({', '.join(ecritures)})")
         conn.commit()
     finally:
         conn.close()
     return {"ok": True, "credit_id_opaque": credit_id, "ecritures": ecritures,
             "statut": ST_DISPONIBLE}
+
+
+def reclasser_reprise_vers_419700(credit_id: str, *, acteur: str, db_path=None) -> dict[str, Any]:
+    """Reprise de solde comptabilisée en 419100 avant la migration 0124 : reclassement
+    419100 D / 419700 C (auxiliaire = client), validé. Le crédit lui-même (montant, reste,
+    imputations) n'est pas touché. Idempotent."""
+    from app.services import comptabilite_ecritures_service as compta
+    c = charger(credit_id, db_path=db_path)
+    if c is None or c["origine"] != ORIGINE_REPRISE_SOLDE:
+        return _refus(E_INTROUVABLE, "Reprise de solde introuvable.")
+    conn = get_db(db_path)
+    try:
+        sur_419100 = _r(conn.execute(
+            "SELECT COALESCE(SUM(l.credit),0) - COALESCE(SUM(l.debit),0) FROM ecriture_lignes l "
+            "JOIN ecritures e ON e.ecriture_id_opaque = l.ecriture_id_opaque "
+            "WHERE e.statut <> 'ANNULEE' AND l.compte = ? AND l.auxiliaire = ? "
+            "AND (e.origine_id_opaque LIKE ? OR e.ecriture_id_opaque = ?)",
+            (COMPTE_CREDITS, c["proprietaire_id"], f"{credit_id}%",
+             c["ecriture_origine"] or "")).fetchone()[0])
+        if sur_419100 <= EPS:
+            return {"ok": True, "deja_reclasse": True}
+        piece = f"{credit_id}-RECLASSEMENT"
+        conn.execute("BEGIN IMMEDIATE")
+        res = compta._inserer_ecriture(
+            "ODIVERSES", c["date_origine"], c["mois"], piece,
+            f"{LIBELLE_REPRISE_SOLDE} — reclassement 4191 → 4197 (autres avoirs)",
+            "CREDIT_CLIENT", piece,
+            [{"compte": COMPTE_CREDITS, "debit": sur_419100, "credit": 0,
+              "auxiliaire": c["proprietaire_id"], "proprietaire_id": c["proprietaire_id"],
+              "libelle": "Reclassement : ce crédit n'est ni une avance ni un acompte"},
+             {"compte": COMPTE_AUTRES_AVOIRS, "debit": 0, "credit": sur_419100,
+              "auxiliaire": c["proprietaire_id"], "proprietaire_id": c["proprietaire_id"],
+              "libelle": LIBELLE_REPRISE_SOLDE}], acteur=acteur, db_path=db_path, conn=conn)
+        if not res.get("ok"):
+            conn.rollback()
+            return _refus(E_ECRITURE, f"{res.get('message')} {res.get('detail', '')}".strip())
+        compta.valider_dans_transaction(conn, res["ecriture_id_opaque"],
+                                        commentaire="Reclassement 419100 → 419700", acteur=acteur)
+        # Vocabulaire d'événements contraint (0115) : l'origine comptable est re-constatée sur 419700.
+        _evenement(conn, credit_id, "ORIGINE_CONSTATEE", acteur=acteur, montant=sur_419100,
+                   ecriture_id=res["ecriture_id_opaque"],
+                   detail="Reclassement 419100 → 419700 (4197, autres avoirs)")
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "ecriture_id_opaque": res["ecriture_id_opaque"], "montant": sur_419100}
 
 
 # ══ Imputation automatique à l'émission ═════════════════════════════════════════════════════════

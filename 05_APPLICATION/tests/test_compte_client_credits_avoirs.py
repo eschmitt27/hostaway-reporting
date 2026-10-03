@@ -124,7 +124,8 @@ def test_03_11_credit_initial_didier_et_ecritures(db):
     assert len(r["ecritures"]) == 2
     assert _solde_compte(db, "467100") == 0          # ancienne structure soldée
     assert _solde_compte(db, "654000") == 300        # perte constatée
-    assert _solde_compte(db, "419100", PID) == -300  # Didier créditeur
+    assert _solde_compte(db, "419700", PID) == -300  # Didier créditeur — 4197 « autres avoirs »
+    assert _solde_compte(db, "419100", PID) == 0     # 4191 réservé aux avances et acomptes
     assert credits.creer_reprise_solde(PID, 300, "2026-09-01", acteur="t",
                                        db_path=db)["code"] == credits.E_REPRISE_EXISTANTE
 
@@ -142,7 +143,7 @@ def test_04_facture_140_avec_credit_300(db):
     assert deco["total_credit_client"] == 140 and deco["net"] == 0
     assert deco["credit_client_restant"] == 160
     assert _solde_compte(db, "411000", PID) == 0      # 140 facturés − 140 de crédit imputé
-    assert _solde_compte(db, "419100", PID) == -160
+    assert _solde_compte(db, "419700", PID) == -160
     conn = get_db(db)
     try:
         assert conn.execute("SELECT COUNT(*) FROM factures_proprietaires WHERE type_document='AVOIR'"
@@ -193,6 +194,10 @@ def test_08_avoir_superieur_a_la_creance_devient_credit(db):
     aid = svc.creer_avoir_libre(proprietaire_id=PID, facture_origine=fid, motif="trop facturé",
                                 montant=150, db_path=db)["facture_id_opaque"]
     _emettre(db, aid)
+    # L'avoir corrige le CA (709600, rabais accordés) et la créance (411) — ni charge ni paiement.
+    ecr = compta.charger_par_origine(compta.ORIGINE_FACTURE, aid, db)
+    assert {(l["compte"], l["debit"], l["credit"]) for l in compta.lignes(ecr["ecriture_id_opaque"], db)}         == {("709600", 150.0, 0.0), ("411000", 0.0, 150.0)}
+    assert _solde_compte(db, "411000", PID) == -10     # client créditeur de 10 €
     pos = cpt.position(PID, db_path=db)
     assert pos["creance_restante"] == 0 and pos["credit_disponible"] == 10
     assert pos["etat_compte"] == cpt.POS_CREDITEUR
@@ -201,6 +206,35 @@ def test_08_avoir_superieur_a_la_creance_devient_credit(db):
     _emettre(db, f2)
     pos = cpt.position(PID, db_path=db)
     assert pos["credit_disponible"] == 0 and pos["creance_restante"] == 20
+
+
+def test_07b_avoir_total_sur_facture_inverse_les_produits(db):
+    fid = _brouillon(db, 140)
+    _emettre(db, fid)
+    aid = svc.creer_avoir(fid, motif="annulation", db_path=db)["facture_id_opaque"]
+    _emettre(db, aid)
+    ecr = compta.charger_par_origine(compta.ORIGINE_FACTURE, aid, db)
+    lignes = {(l["compte"], l["debit"], l["credit"]) for l in compta.lignes(ecr["ecriture_id_opaque"], db)}
+    assert lignes == {("706100", 140.0, 0.0), ("411000", 0.0, 140.0)}
+    assert not any(c.startswith(("6", "5")) for c, _, _ in lignes)
+    assert cpt.position(PID, db_path=db)["creance_restante"] == 0
+
+
+def test_reclassement_419100_vers_419700_sans_toucher_au_credit(db):
+    """Reprise comptabilisée en 419100 avant la migration 0124 : reclassement, crédit intact."""
+    r = _reprise(db)
+    conn = get_db(db)
+    conn.execute("UPDATE ecriture_lignes SET compte='419100' WHERE ecriture_id_opaque=? "
+                 "AND compte='419700'", (r["ecritures"][0],))
+    conn.commit()
+    conn.close()
+    assert _solde_compte(db, "419100", PID) == -300
+    res = credits.reclasser_reprise_vers_419700(r["credit_id_opaque"], acteur="t", db_path=db)
+    assert res["ok"] and res["montant"] == 300
+    assert _solde_compte(db, "419100", PID) == 0 and _solde_compte(db, "419700", PID) == -300
+    assert credits.reclasser_reprise_vers_419700(r["credit_id_opaque"], acteur="t",
+                                                 db_path=db)["deja_reclasse"]
+    assert cpt.position(PID, db_path=db)["credit_disponible"] == 300
 
 
 # 9 ─────────────────────────────────────────────────────────────────────────────────────────────

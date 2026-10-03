@@ -2371,3 +2371,8 @@ cas, la proposition D054 (« DIRECT sans HH → À CONTRÔLER »).
 - **Reprise Didier (PROP_0001)** : crédit de 300 € « Solde créditeur repris de l'ancienne
   structure » ; 467100 D / 419100 C (Didier), puis 654000 D / 467100 C. Comptes 467100 et 654000
   ajoutés au plan (migration 0123) ; le crédit client est porté par 419100 + auxiliaire.
+- **Correction (même jour)** : le crédit repris est porté par **419700 « Clients – autres avoirs »**
+  (subdivision de 4197, auxiliaire client), et non 419100 (4191 réservé aux avances et acomptes).
+  Migration 0124 ; reclassement 419100 D / 419700 C des 300 € de Didier (`ECR-D240C651CE4C`).
+  Un avoir émis corrige le CA (709600 ou comptes 706 inversés) et la créance (411) ; son surplus reste
+  au crédit du 411 et apparaît en crédit disponible — ni charge ni paiement.
