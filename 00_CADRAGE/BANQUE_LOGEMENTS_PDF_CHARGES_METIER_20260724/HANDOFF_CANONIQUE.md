@@ -4987,3 +4987,44 @@ résiduel. Base réelle `45dd87c2…` (86 888 448 o, mtime 03/10 21:01, integrit
 - **Limites** : sur la vraie base, les factures déjà émises portent une écriture PROPOSÉE : elles
   apparaissent « Non comptabilisée » et se comptabilisent via le nouveau parcours. L'émission par la
   route exige la conformité complète quand l'émission réelle est ouverte (inchangé).
+
+## Front-end — design, UX visuelle et animations (2026-10-04)
+
+- **HEAD de départ** : `4b26c3b`. Mission strictement visuelle : aucune route, aucun service,
+  aucun calcul, aucun statut, aucune validation, aucune migration modifiés.
+- **Correctif complémentaire précédent** (même journée, `4b26c3b`) : une facture déjà émise n'est
+  jamais supprimable, même passée ensuite au statut annulé (`jamais_emise` : ni numéro, ni date
+  d'émission, ni snapshot, ni événement EMIS dans l'historique).
+- **Composants créés** : `static/css/ui.css` (couche de design commune chargée EN DERNIER par
+  `base.html` : jetons couleurs / surfaces / sémantique / rayons / ombres / espacements / hauteurs
+  de contrôles / durées ; boutons primaire, secondaire, tertiaire (`btn-ghost` / `btn-tertiary`),
+  danger avec états hover / focus / active / disabled / envoi en cours ; champs ; cartes et KPI ;
+  tableaux (en-têtes, survol, montants alignés, `tfoot`) ; badges de statut unifiés ; alertes ;
+  menus `⋯` ; modales `<dialog>` ; états vides ; tiroir de navigation mobile) et
+  `static/js/ui.js` (purement présentationnel : tiroir mobile ☰ avec voile et Échap, menus `⋯`
+  à ouverture exclusive / fermeture au clic extérieur ou Échap, enveloppe de défilement pour les
+  tableaux trop larges, indicateur visuel sur le bouton d'un formulaire POST réellement envoyé,
+  surbrillance de la ligne visée par l'ancre). Aucune valeur de formulaire lue ou modifiée, aucune
+  soumission empêchée, aucun bouton désactivé.
+- **Navigation** : groupes « Activité » / « Administration & outils », onglet actif marqué d'un
+  repère doré, survol / focus clavier propres ; sous 1024 px, barre latérale escamotable (bouton ☰
+  dans l'en-tête) au lieu du bandeau horizontal d'`app.css`. Liens et cibles inchangés. Bandeau
+  RECETTE : style en ligne déplacé dans une classe, texte inchangé.
+- **Écrans retouchés** : tous via la couche commune ; en particulier Factures clients (menu `⋯`,
+  modale de suppression animée, bloc Comptabilité « Non comptabilisée » / « Comptabilisée »
+  encadré, proposition d'écriture en grille, lignes « Compte à confirmer » marquées) et
+  Comptabilité (`comptabilite_ecritures.html`, `comptabilite_ecriture_detail.html` : débit / crédit
+  alignés à droite en €, ligne de total, statut PROPOSÉE / VALIDÉE / CONTREPASSÉE coloré, lien
+  retour au-dessus du titre).
+- **Animations** : 120–240 ms (survol, menus, modales, accordéons, apparition des alertes et du
+  contenu, surbrillance) ; `prefers-reduced-motion` respecté (animations et transitions neutralisées).
+- **Responsive** : 16 écrans principaux vérifiés à 375 px sur copie RECETTE — largeur de document
+  = largeur d'écran partout (Actualisation corrigée : rangées d'actions repliées, champs bornés).
+- **Smoke tests** (instance RECETTE port 8018, copie de la base dev `df29912b…`, lecture seule) :
+  navigation desktop / mobile, tiroir ☰, menu `⋯`, modale de suppression ouverte puis annulée
+  (aucune suppression), aperçu de comptabilisation, détail d'écriture ; console sans erreur JS
+  applicative. Tests front : 329 passed ; 2 échecs préexistants hors périmètre
+  (`test_type_flux_005_contract.py::test_reel_*`, accès au référentiel réel refusé par la garde
+  d'isolation). `05_APPLICATION/data/app.db` inchangé (`df29912b…`).
+- **Commits** : `e757b40` (design system, navigation, composants, animations), `6495b0a`
+  (écritures comptables), puis ce handoff. Non poussés.
