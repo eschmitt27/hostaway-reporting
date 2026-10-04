@@ -238,16 +238,26 @@ def recharger(facture_id: str, *, acteur: str = "", db_path=None) -> dict[str, A
 
 # ── Supprimer une facture annulée jamais émise ─────────────────────────────────────────────────
 
+def jamais_emise(f: dict[str, Any]) -> bool:
+    """Aucune émission définitive, ni actuelle ni PASSÉE : pas de numéro, pas de date d'émission,
+    pas de snapshot figé, et aucun événement de l'historique n'a jamais fait passer la facture au
+    statut EMIS. Le statut courant seul ne suffit pas : une facture émise puis annulée reste une
+    facture émise, sa trace doit être conservée."""
+    if f.get("numero_facture") or f.get("date_emission") or f.get("snapshot_json"):
+        return False
+    evenements = f.get("evenements") or []
+    return not any(e.get("nouveau_statut") == svc.ST_EMIS or e.get("type_evenement") == "EMISSION"
+                   for e in evenements)
+
+
 def supprimable(f: dict[str, Any]) -> bool:
-    return f["statut"] == svc.ST_ANNULE and not f.get("numero_facture") \
-        and not f.get("date_emission")
+    return f["statut"] == svc.ST_ANNULE and jamais_emise(f)
 
 
 def supprimable_non_emise(f: dict[str, Any]) -> bool:
     """BROUILLON ou VALIDE, jamais émise : aucun numéro légal n'a été consommé (il ne l'est qu'à
     l'émission, cf. `_attribuer_numero`). Supprimer ne crée donc aucun trou dans la séquence."""
-    return f["statut"] in (svc.ST_BROUILLON, svc.ST_VALIDE) and not f.get("numero_facture") \
-        and not f.get("date_emission")
+    return f["statut"] in (svc.ST_BROUILLON, svc.ST_VALIDE) and jamais_emise(f)
 
 
 def supprimer_non_emise(facture_id: str, *, acteur: str = "", db_path=None) -> dict[str, Any]:

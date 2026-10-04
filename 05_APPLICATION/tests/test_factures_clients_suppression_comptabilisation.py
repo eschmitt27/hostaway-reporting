@@ -261,3 +261,39 @@ def test_brouillon_non_comptabilisable(env):
 def test_base_temporaire_uniquement(env):
     _, db = env
     assert Path(cfg.DB_PATH) == db and db.parent != Path(cfg.__file__).resolve().parent.parent / "data"
+
+
+def test_emise_puis_annulee_non_supprimable(env):
+    """Une facture déjà émise ne se supprime jamais, même passée ensuite au statut ANNULE
+    (état forcé en base : le service refuse d'annuler une émise, la règle ne doit pas en dépendre)."""
+    client, db = env
+    fid = _emise(client, db)
+    numero = svc.lire(fid, db_path=db)["numero_facture"]
+    conn = get_db(db)
+    conn.execute("UPDATE factures_proprietaires SET statut='ANNULE' WHERE facture_id_opaque=?", (fid,))
+    conn.commit()
+    conn.close()
+    f = svc.lire(fid, db_path=db)
+    assert not brouillon.supprimable(f) and not brouillon.supprimable_non_emise(f)
+    assert "Supprimer la facture" not in _menu(client, fid)[0]
+    r = client.post(f"/factures-proprietaires/{fid}/supprimer", follow_redirects=False)
+    assert r.status_code == 422
+    with pytest.raises(svc.FactureProprietaireError):
+        brouillon.supprimer_annulee(fid, db_path=db)
+    assert brouillon.supprimer_annulees(db_path=db) == []
+    assert _existe(db, fid) and svc.lire(fid, db_path=db)["numero_facture"] == numero
+
+
+def test_trace_emission_seule_interdit_la_suppression(env):
+    """Même sans numéro ni date, un historique montrant un passage à EMIS interdit la suppression."""
+    _, db = env
+    fid = _brouillon(db)
+    conn = get_db(db)
+    conn.execute("INSERT INTO factures_proprietaires_evenements (facture_id_opaque, type_evenement, "
+                 "ancien_statut, nouveau_statut) VALUES (?, 'EMISSION', 'VALIDE', 'EMIS')", (fid,))
+    conn.commit()
+    conn.close()
+    assert not brouillon.supprimable_non_emise(svc.lire(fid, db_path=db))
+    with pytest.raises(svc.FactureProprietaireError):
+        brouillon.supprimer_non_emise(fid, db_path=db)
+    assert _existe(db, fid)
