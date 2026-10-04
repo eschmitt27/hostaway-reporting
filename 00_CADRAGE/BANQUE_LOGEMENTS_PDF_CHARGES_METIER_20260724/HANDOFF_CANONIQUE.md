@@ -4930,3 +4930,16 @@ non suivis de `01_SOURCES_BRUTES/MenagesExternes`). Suite complète relancée : 
 0 modifié (`app.db` et `app.db-shm` compris) ; dry-runs 1 617 → 1 617 ; aucun `pilotage_pytest_*`
 résiduel. Base réelle `45dd87c2…` (86 888 448 o, mtime 03/10 21:01, integrity ok), `.env`
 `d84d718f…`, `MODE_REEL_ECRITURES=1` : inchangés. Anciens dry-runs conservés.
+
+## Intégration du front-end factures clients (2026-10-04)
+
+- Il n'existe pas de `origin/master` ; `origin/main` est la branche de DONNÉES Hostaway (TSV publiés
+  par GitHub Actions), à ne jamais fusionner ici. Le PR front-end a été mergé dans
+  `origin/resume/pilotage-conciergerie-20260909` : merge `fc67fdf` (feature
+  `factures-clients-frontend-ux`, 5 commits `3cecbbb`..`2acfe98`).
+- Intégré par merge classique : **`169d0fe`**, sans conflit (10 fichiers, tous côté factures
+  clients). `environnement.py`, `get_db()`, `conftest.py`, exports, lot1 Hostaway : inchangés.
+- **Tests validés avant intégration du nouveau master** : suite complète sur `d32f42e`/`b535afa`,
+  4 787 passed, 37 skipped, 0 failed.
+- **État fusionné actuel non retesté à la demande de l'utilisateur** : aucune campagne relancée
+  sur `169d0fe` (recette visuelle du front-end par l'utilisateur à suivre).
