@@ -8,9 +8,10 @@
 </head>
 <body>
 <div class="app-layout">
+  <div class="ui-voile" data-ui-voile aria-hidden="true"></div>
 
   <!-- ===== SIDEBAR ===== -->
-  <aside class="sidebar" aria-label="Navigation principale">
+  <aside class="sidebar" id="navigation-principale" aria-label="Navigation principale">
     <div class="sidebar-brand">
       <img src="/static/img/logo-main.png" alt="Logo Chouette Patrimoine" class="sidebar-logo">
       <div class="sidebar-brand-text">
@@ -20,6 +21,7 @@
     </div>
 
     <nav class="sidebar-nav">
+      <div class="nav-groupe" aria-hidden="true">Activité</div>
 
       <!-- ── Parcours métier ──────────────────────────────────────────────────
            Un seul niveau, dans l'ordre du travail réel. Aucun écran purement
@@ -93,6 +95,7 @@
       </a>
 
       <div class="nav-separator" role="separator"></div>
+      <div class="nav-groupe" aria-hidden="true">Administration &amp; outils</div>
 
       <!-- ── Administration & outils ──────────────────────────────────────────
            Calculs, sources et import legacy du référentiel vivent ici : ce sont des
@@ -125,8 +128,14 @@
 
     <!-- Header -->
     <header class="app-header">
+      <button type="button" class="icon-btn ui-burger" data-ui-burger aria-controls="navigation-principale"
+              aria-expanded="false" aria-label="Ouvrir ou fermer le menu">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/>
+        </svg>
+      </button>
       <div class="header-actions">
-        <button class="icon-btn" title="Santé du système" onclick="window.location='/health'">
+        <button class="icon-btn" title="Santé du système" aria-label="Santé du système" onclick="window.location='/health'">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
           </svg>
@@ -135,9 +144,9 @@
     </header>
 
     {% if RECETTE_MODE %}
-    <div style="background:#7c3f00;color:#fff;padding:8px 16px;font-weight:700;font-size:13px;text-align:center;">
+    <div class="ui-bandeau-recette">
       MODE RECETTE — DONNÉES FICTIVES — ÉCRITURES AUTORISÉES UNIQUEMENT DANS DATA_RECETTE
-      <span style="font-weight:400;font-size:11px;display:block;">
+      <span>
         environnement : {{ RECETTE_ROOT }} · base : {{ RECETTE_DB }} ·
         writers charges : {{ 'ACTIVÉS' if RECETTE_CHARGES_WRITE else 'désactivés' }}
       </span>
@@ -151,5 +160,8 @@
 
   </div>
 </div>
+{# Couche de design commune, chargée EN DERNIER pour harmoniser les feuilles propres aux écrans. #}
+<link rel="stylesheet" href="/static/css/ui.css">
+<script src="/static/js/ui.js" defer></script>
 </body>
 </html>
