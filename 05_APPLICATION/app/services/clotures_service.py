@@ -206,13 +206,18 @@ def calcul_progression(mois: str, db_path=None, *,
     """Progression du mois : contrôles moteur (APP-5B) + bloqueurs Flux financiers, recalculés à
     chaque appel. `contexte_flux` évite de relire Flux pour chaque mois d'une liste."""
     from app.services import cloture_flux_service as cf
+    from app.services import cloture_modules_service as cm
 
     els = elements_du_mois(mois, db_path)
     anomalies = [e for e in els if not e["est_info"]]
     bloqueurs = [e for e in anomalies
                 if e["etat"]["anomalie_moteur_presente"] and not e["etat"]["exception_active"]]
     financier = cf.analyser(mois, contexte_flux=contexte_flux, db_path=db_path)
-    nb_bloqueurs = len(bloqueurs) + financier["nb_bloquants"]
+    # UNE seule vérité des bloqueurs : ceux de chaque MODULE (contrôles du moteur + Flux + lectures
+    # directes des vrais modules). `bloqueurs` / `financier` restent rendus tels quels pour les
+    # écrans et les journaux qui les lisent encore.
+    modules = cm.analyser(mois, elements=els, flux=financier, db_path=db_path)
+    nb_bloqueurs = modules["nb_bloqueurs"]
     temporel = temporalite(mois) if mois_valide(mois) else T_FUTUR
     pluriel = "s" if nb_bloqueurs > 1 else ""
     if temporel == T_FUTUR:
@@ -234,6 +239,7 @@ def calcul_progression(mois: str, db_path=None, *,
         "nb_bloqueurs_flux": financier["nb_bloquants"],
         "nb_informatifs_flux": financier["nb_informatifs"],
         "flux": financier,
+        "modules": modules,
         "temporalite": temporel,
         "refus_temporel": refus_temporel(mois) if mois_valide(mois) else "",
         "etat": etat,
