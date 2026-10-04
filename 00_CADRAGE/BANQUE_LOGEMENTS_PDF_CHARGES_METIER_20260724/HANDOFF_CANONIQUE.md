@@ -4808,3 +4808,61 @@ l'a pas commencé.
   SHA256 inchangé `fb0170a1…94cff`.
 - Destination secondaire `BACKUP_SECONDARY_DIR` prête, **NON CONFIGURÉE** (choix utilisateur).
 - Tests : `tests/test_sauvegardes_politique.py` (37) + `test_backup_service.py` adapté.
+
+## Mission Exports dynamiques + diagnostic Hostaway (2026-10-03/04)
+
+**HEAD de départ** : `e12f0a2`. Branche `resume/pilotage-conciergerie-20260909`.
+
+**Base réelle = `APP_DATA_DIR` du `.env`** (`C:/Users/Ewans/PilotageConciergerie/data/app.db`), PAS
+`05_APPLICATION/data/app.db` (base de développement du worktree, figée au 29/09, que personne ne
+sert). Le rapport de la mission Exports avait relevé par erreur l'empreinte de cette dernière ;
+corrigé ici. Empreinte réelle avant/après : `45dd87c2…bf918b9`, integrity ok, mtime 03/10 21:01
+inchangé (les seuls fichiers apparus sont `-wal` vide et `-shm`, créés par les ouvertures en
+lecture seule).
+
+**Exports** (`b391eb9`) : l'écran « Exporter les données » servait les CSV écrits sur disque par un
+bouton « Générer l'export » jamais relancé (12/09). Désormais tout est construit au clic depuis les
+datasets actifs (`lot13.produire()`), aucune lecture ni écriture disque, bouton supprimé ; dernière
+actualisation (orchestrateur) ≠ date de génération des données. `03_EXPORTS/PowerBI/` n'est plus lu
+par l'écran (reste au 12/09 tant que le lot13 CLI n'est pas relancé).
+
+**« Hostaway rc=1 »** : run `ORCH-20260910132128-dc3efc` (10/09 13:21 UTC, cible HOSTAWAY_RAW) →
+`lot1_hostaway_extract` en mode API → log `04_LOGS/lot1_ha_20260910_152129.log` :
+`.env introuvable` → `sys.exit(1)` (et le poste n'avait de toute façon plus d'identifiants API).
+Cause **déjà corrigée le 12/09** par `27411b4` (import du dépôt publié par GitHub Actions, aucun
+identifiant local). L'état ECHEC n'a survécu que dans la base de développement du worktree. Base
+réelle : 17/17 extractions SUCCES, dernière `HAX-4232D8981633` (03/10 19:01 UTC, publication
+`e468bcf`, 1 652 réservations / 1 616 payouts / 18 logements), toute la chaîne A_JOUR.
+
+**Défaut latent trouvé et corrigé** (`02_TRAVAIL/lot1_hostaway_extract.py`) : le service juge le run
+sur son seul code retour, or `lot1.main()` rendait 0 après une erreur fatale ou une écriture RAW
+SQLite en échec (le journal, déduit des étapes, concluait même SUCCES). Conséquence possible :
+Hostaway déclaré à jour sur l'extraction précédente, version publiée jamais importée, aval
+« inchangé ». Jamais survenu en réel. Maintenant : candidat clos ECHEC, étape d'échec journalisée
+(message sanitisé), code retour 1 → `synchroniser` en échec, run history FAILED, aucune propagation.
+
+**Recette sur copie de la base réelle** (port 8017, `APP_DATA_DIR` = copie, ordonnanceur et
+sauvegarde quotidienne coupés), lot1 corrigé, formulaire « Actualiser cette chaîne » (HOSTAWAY_RAW,
+sans dispatch GitHub ni Qonto) :
+- A : `ORCH-20261003230320-174952` SUCCES 11 s — publication `700b5a5` (03/10 20:20) importée
+  (`HAX-19E9F1B76EAA`), RESERVATIONS → FLUX → LOT10 → LOT11 → LOT12 recalculés, nouveaux runs
+  actifs. 0 réservation disparue/ajoutée, statuts identiques, payouts 345 225,32 € identiques,
+  flux 86 165,82 €, Lot10/Lot12 identiques (le seul fichier publié modifié, finance fields, ne
+  change aucun montant V1).
+- B : `ORCH-20261003230338-f3b8c8` SUCCES 1 s — « déjà à jour », aval « Données d'entrée
+  inchangées : résultat conservé », aucune extraction ni ligne supplémentaire.
+- Exports : 7 tables (Réservations, Flux, Résultats, Commissions, Net propriétaire, Contrôles,
+  Préfactures) = SQLite actif ligne à ligne et octet à octet ; écran « 23h03 · 03/10/2026 · À jour ».
+
+**Tests** : `tests/test_hostaway_lot1_echec_visible.py` (4 : succès ; persistance en échec →
+rc 1, candidat ECHEC, précédente conservée, message sanitisé ; erreur fatale après étapes → rc 1 ;
+rc 1 → `importer_hostaway` en échec + run history FAILED) — 2 rouges sur le lot1 d'origine, verts
+après correction. Suite complète : **4 762 passed, 37 skipped, 0 failed** (59 min).
+
+**Robustesse (constat, non modifié)** : appels API Hostaway faits par GitHub Actions (branche
+`main`, scripts `extract_*.py`) : 429 → retries bornés (1 à 3), sans lecture de `Retry-After`.
+Client GitHub de l'application : 429/403 de débit → échec propre `GITHUB_LIMITE_DEBIT`, sans boucle ;
+suivi du dispatch borné (120 s / 20 min) ; `git fetch` borné à 300 s ; lot1 borné à 1 800 s.
+
+**Prochaine action** : aucune requise pour Hostaway. Éventuel : décider si `extract_*.py` (branche
+`main`) doit honorer `Retry-After` — hors application, à traiter dans ce dépôt de données.

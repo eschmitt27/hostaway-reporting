@@ -804,6 +804,17 @@ def _service_raw():
     return raw
 
 
+def _erreur_sanitisee(exc: BaseException) -> str:
+    """Message d'erreur journalisable : chemins et identifiants retires par le sanitizer de
+    l'application. S'il est inaccessible, seul le TYPE est rendu — jamais le texte brut."""
+    try:
+        _service_raw()
+        from app.services.path_sanitizer import sanitize_exception
+        return f"{type(exc).__name__}: {sanitize_exception(exc, 300)}"
+    except Exception:
+        return type(exc).__name__
+
+
 def ecrire_raw_sqlite(args, log, *, listings, reservations, details, finance_fields, fees,
                       payouts, anomalies, run_id="", mode=None, source_ref="",
                       source_horodatage="") -> dict:
@@ -826,6 +837,7 @@ def ecrire_raw_sqlite(args, log, *, listings, reservations, details, finance_fie
                     "couche RAW SQLite non alimentee.")
         return {"ecrit": False, "raison": "aucune base designee"}
 
+    extraction_id = None
     try:
         raw = _service_raw()
         import app.config as cfg
@@ -852,8 +864,19 @@ def ecrire_raw_sqlite(args, log, *, listings, reservations, details, finance_fie
             fees=fees, finance_fields=finance_fields, anomalies=anomalies)
         resultat = raw.cloturer(extraction_id, statut=raw.ST_SUCCES, db_path=chemin)
     except Exception as exc:
-        log.error(f"Ecriture SQLite RAW echouee — {type(exc).__name__}: {exc}")
-        return {"ecrit": False, "raison": f"{type(exc).__name__}: {exc}"}
+        raison = _erreur_sanitisee(exc)
+        log.error(f"Ecriture SQLite RAW echouee — {raison}")
+        # Le candidat ouvert est CLOS en echec : laisse EN_COURS, il ne serait jamais servi (c'est
+        # deja le bon comportement de lecture), mais rien ne dirait qu'il a echoue.
+        if extraction_id:
+            try:
+                raw.cloturer(extraction_id, statut=raw.ST_ECHEC, message=raison, db_path=chemin)
+            except Exception as exc_cloture:
+                log.error(f"Cloture ECHEC de {extraction_id} impossible — "
+                          f"{type(exc_cloture).__name__}")
+        # `echec` distingue une ecriture DEMANDEE et ratee d'une ecriture non demandee
+        # (--sans-sqlite, aucune base designee) : seule la premiere fait echouer le run.
+        return {"ecrit": False, "echec": True, "raison": raison}
 
     log.info(f"  SQLite RAW : extraction {extraction_id} — "
              f"{resultat['nb_reservations']} reservations, {resultat['nb_payouts']} payouts, "
@@ -1487,6 +1510,7 @@ def main():
     nb_details    = 0
     tasks_statut  = "SKIPPED" if (skip_tasks or only_tasks) else "PENDING"
     statut_run    = "FAILED"
+    sqlite_echec  = False
 
     try:
         # ── ONLY-CLEANING-TASKS : branche dédiée ─────────────
@@ -1747,6 +1771,12 @@ def main():
                               nb_ecrits=resultat_sqlite.get("nb_reservations", 0),
                               sorties=[{"table": k, "lignes": v}
                                        for k, v in resultat_sqlite.get("detail", {}).items()])
+            elif resultat_sqlite.get("echec"):
+                # Sans cette etape, le journal (statut DEDUIT des etapes) concluait SUCCES et le
+                # code retour restait 0 : l'orchestrateur aurait declare Hostaway a jour sans que
+                # la version publiee soit importee.
+                sqlite_echec = True
+                journal.etape("SQLITE_RAW", ETAPE_ECHEC, erreur=resultat_sqlite["raison"])
 
             # ── ÉCRITURE MASTERS LEGACY (parité, temporaire) ──
             sorties_principales = []
@@ -1815,8 +1845,14 @@ def main():
                 statut_run = "TERMINE_OK"
 
     except Exception as fatal:
-        log.error(f"Erreur fatale run : {type(fatal).__name__}: {fatal}")
+        log.error(f"Erreur fatale run : {_erreur_sanitisee(fatal)}")
         statut_run = "FAILED"
+        # Le statut du journal est deduit des etapes : une erreur survenue APRES des etapes reussies
+        # le laissait a SUCCES. L'echec doit y figurer comme une etape.
+        try:
+            journal.etape("RUN", ETAPE_ECHEC, erreur=_erreur_sanitisee(fatal))
+        except Exception as exc_journal:
+            log.error(f"Etape d'echec non journalisee — {type(exc_journal).__name__}")
 
     finally:
         # ── MASTER_RUN_LOG legacy — retiré du chemin canonique (mission 14b) ──
@@ -1865,6 +1901,11 @@ def main():
     elif statut_run in ("TERMINE_OK", "PARTIAL_OK"):
         log.info("  Aucun bloquant. Verification humaine requise avant marquage FAIT.")
     log.info(f"  Tables dans : {OUT_DIR}")
+
+    # LE CODE RETOUR EST LE CONTRAT avec `hostaway_actualisation_service`, qui juge le run sur lui
+    # seul : rendre 0 apres un echec faisait passer une extraction non importee pour un succes.
+    if statut_run == "FAILED" or sqlite_echec:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
