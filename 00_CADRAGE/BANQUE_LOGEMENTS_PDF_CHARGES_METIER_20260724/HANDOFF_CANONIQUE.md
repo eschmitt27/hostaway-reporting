@@ -4923,3 +4923,10 @@ d'un premier lancement ciblé avant le passage en `immutable=1` ; `app.db` dev i
 
 **Artefacts historiques** : 357 dossiers de dry-run (1 617 entrées, 3,4 Mo, 09/09 → 04/10),
 ignorés par Git, inutilisés : supprimables sans risque, **non supprimés** (attente d'instruction).
+
+**Clôture de l'isolation pytest (2026-10-04)** : état committé `d32f42e`, worktree propre (hors PDF
+non suivis de `01_SOURCES_BRUTES/MenagesExternes`). Suite complète relancée : **4 787 passed,
+37 skipped, 0 failed**. `05_APPLICATION/data/` (1 809 entrées) avant/après : 0 nouveau, 0 supprimé,
+0 modifié (`app.db` et `app.db-shm` compris) ; dry-runs 1 617 → 1 617 ; aucun `pilotage_pytest_*`
+résiduel. Base réelle `45dd87c2…` (86 888 448 o, mtime 03/10 21:01, integrity ok), `.env`
+`d84d718f…`, `MODE_REEL_ECRITURES=1` : inchangés. Anciens dry-runs conservés.
