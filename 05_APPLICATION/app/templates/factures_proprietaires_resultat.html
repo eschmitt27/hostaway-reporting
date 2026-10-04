@@ -1,27 +1,47 @@
 {% extends "base.html" %}
 {% block title %}Factures créées{% endblock %}
 {% block content %}
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+<link rel="stylesheet" href="/static/css/factures_clients.css">
+<div class="ecran fc">
+{# Le parcours se terminait ici sans retour : une impasse après l'action la plus engageante de
+   l'écran. Le lien de retour canonique est posé en tête, comme sur les autres fiches. #}
+<nav class="fc-ariane" aria-label="Fil d'Ariane">
+  <ol>
+    <li><a href="/factures-proprietaires?mois={{ mois }}">Factures propriétaires</a></li>
+    <li><a href="/factures-proprietaires/proposer?mois={{ mois }}">Générer les factures du mois</a></li>
+    <li><span aria-current="page">Résultat</span></li>
+  </ol>
+</nav>
 <div class="page-header">
-  {# Le parcours se terminait ici sans retour : une impasse après l'action la plus engageante de
-     l'écran. Le lien de retour canonique est posé en tête, comme sur les autres fiches. #}
-  <a href="/factures-proprietaires?mois={{ mois }}" class="back-link">← Factures propriétaires</a>
-  <h1 class="page-title">Génération — {{ mois }}</h1>
+  <div class="page-header__titre">
+    <h1 class="page-title">Génération — {{ mois|mois_humain }}</h1>
+  </div>
 </div>
-<p><strong>{{ resultat.creees|length }}</strong> brouillon(s) créé(s).</p>
+<div class="alert {{ 'alert-success' if resultat.creees else 'alert-info' }}" role="status">
+  <p><strong>{{ resultat.creees|length }}</strong> brouillon(s) créé(s). Ils sont modifiables et sans
+     impact jusqu'à leur émission.</p>
+</div>
 {% if resultat.ignorees %}
-<h3>Ignorées ({{ resultat.ignorees|length }})</h3>
-<ul>{% for i in resultat.ignorees %}<li>{{ i.proprietaire_id | nom_proprietaire }} / {{ i.logement_id | nom_logement }} — {{ i.statut }} : {{ i.detail }}</li>{% endfor %}</ul>
+<section class="card fc-carte" aria-labelledby="t-ignorees">
+  <h2 class="fc-carte__titre" id="t-ignorees">Ignorées ({{ resultat.ignorees|length }})</h2>
+  <ul class="fc-aide">{% for i in resultat.ignorees %}<li>{{ i.proprietaire_id | nom_proprietaire }} / {{ i.logement_id | nom_logement }} — {{ i.statut|libelle_statut }} : {{ i.detail }}</li>{% endfor %}</ul>
+</section>
 {% endif %}
 {% if resultat.erreurs %}
-<h3>Erreurs ({{ resultat.erreurs|length }})</h3>
-<ul>{% for e in resultat.erreurs %}<li>{{ e.proprietaire_id | nom_proprietaire }} / {{ e.logement_id | nom_logement }} — {{ e.erreur }}</li>{% endfor %}</ul>
+<section class="card fc-carte" aria-labelledby="t-erreurs">
+  <h2 class="fc-carte__titre" id="t-erreurs">Erreurs ({{ resultat.erreurs|length }})</h2>
+  <ul class="fc-aide">{% for e in resultat.erreurs %}<li>{{ e.proprietaire_id | nom_proprietaire }} / {{ e.logement_id | nom_logement }} — {{ e.erreur }}</li>{% endfor %}</ul>
+</section>
 {% endif %}
-<div style="display:flex; gap:var(--stack-md); flex-wrap:wrap; margin-top:var(--stack-lg);">
-  <a href="/factures-proprietaires?mois={{ mois }}" class="btn btn-primary">
-    Voir les factures du mois
+<div class="fc-actions">
+  <a href="/factures-proprietaires?mois={{ mois }}&amp;statut=BROUILLON" class="btn btn-primary">
+    Voir les brouillons du mois
   </a>
   <a href="/factures-proprietaires/proposer?mois={{ mois }}" class="btn btn-secondary">
     Revenir à la proposition
   </a>
+</div>
 </div>
 {% endblock %}

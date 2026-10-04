@@ -1,28 +1,57 @@
 {% extends "base.html" %}
+{% import "_factures_clients.html" as fc %}
 {% block title %}Nouvelle facture propriétaire{% endblock %}
 
 {% block content %}
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+<link rel="stylesheet" href="/static/css/factures_clients.css">
+<div class="ecran fc">
+<nav class="fc-ariane" aria-label="Fil d'Ariane">
+  <ol>
+    <li><a href="/factures-proprietaires">Factures propriétaires</a></li>
+    <li><span aria-current="page">Nouvelle facture</span></li>
+  </ol>
+</nav>
 <div class="page-header">
-  <h1 class="page-title">Nouvelle facture propriétaire</h1>
-  <p class="page-subtitle">
-    Un propriétaire, une période libre — un mois entier, le mois courant, ou quelques jours.
-    Le cycle mensuel automatique reste disponible depuis <a href="/factures-proprietaires/proposer">Proposer le mois</a>.
-  </p>
+  <div class="page-header__titre">
+    <h1 class="page-title">Nouvelle facture propriétaire</h1>
+    <p class="page-subtitle">
+      Un propriétaire, une période libre — un mois entier, le mois courant, ou quelques jours.
+      Le cycle mensuel automatique reste disponible depuis
+      <a href="/factures-proprietaires/proposer">Générer les factures du mois</a>.
+    </p>
+  </div>
 </div>
 
-{% if erreur %}<div class="alert alert-warning" data-testid="erreur-periode">{{ erreur }}</div>{% endif %}
+{# Parcours en trois temps, annoncé : rien n'est créé avant le troisième. #}
+{% set etape = 3 if apercu and apercu.ok and apercu.propositions else (2 if apercu else 1) %}
+<ol class="fc-etapes" aria-label="Étapes de création">
+  {% for titre, aide in [("Choisir", "propriétaire, logement, dates"), ("Prévisualiser", "montants calculés par le moteur"), ("Créer le brouillon", "modifiable ensuite, sans impact")] %}
+  <li class="fc-etape{% if loop.index < etape %} is-faite{% elif loop.index == etape %} is-courante{% endif %}"{% if loop.index == etape %} aria-current="step"{% endif %}>
+    <span class="fc-etape__point" aria-hidden="true">{% if loop.index < etape %}✓{% else %}{{ loop.index }}{% endif %}</span>
+    <span class="fc-etape__texte"><span class="fc-etape__titre">{{ titre }}</span><span class="fc-etape__aide">{{ aide }}</span></span>
+  </li>
+  {% endfor %}
+</ol>
 
-<form method="get" action="/factures-proprietaires/nouvelle" class="card mb-md">
-  <div class="card-title">Période à facturer</div>
-  <div class="form-row">
-    <label>Propriétaire
+{% if erreur %}
+<div class="alert alert-error fc-erreur" role="alert" tabindex="-1" data-fc-erreur data-testid="erreur-periode">
+  <div><strong>Brouillon non créé.</strong> {{ erreur }}</div>
+</div>
+{% endif %}
+
+<form method="get" action="/factures-proprietaires/nouvelle" class="card fc-carte">
+  <div class="fc-carte__tete"><h2 class="fc-carte__titre">Période à facturer</h2></div>
+  <div class="fc-grille">
+    <label class="fc-champ"><span>Propriétaire</span>
       <select name="proprietaire_id" required data-testid="choix-proprietaire">
         <option value="">— choisir —</option>
         {% for o in proprietaires_options %}
         <option value="{{ o.id }}" {{ 'selected' if saisie.proprietaire_id == o.id }}>{{ o.libelle }}</option>
         {% endfor %}
       </select></label>
-    <label>Logement
+    <label class="fc-champ"><span>Logement</span>
       <select name="logement_id" data-testid="choix-logement">
         <option value="">tous les logements</option>
         {% for l in logements_options %}
@@ -30,11 +59,11 @@
         {% endfor %}
       </select></label>
     {% set v1 = perimetre_v1() %}
-    <label>Du <input type="date" name="debut" value="{{ saisie.debut }}" required{% if v1 %} min="{{ v1.debut }}"{% endif %} data-testid="nouvelle-debut"></label>
-    <label>Au <input type="date" name="fin" value="{{ saisie.fin }}" required{% if v1 %} min="{{ v1.debut }}"{% endif %}></label>
+    <label class="fc-champ"><span>Du</span><input type="date" name="debut" value="{{ saisie.debut }}" required{% if v1 %} min="{{ v1.debut }}"{% endif %} data-testid="nouvelle-debut"></label>
+    <label class="fc-champ"><span>Au</span><input type="date" name="fin" value="{{ saisie.fin }}" required{% if v1 %} min="{{ v1.debut }}"{% endif %}></label>
     <button type="submit" class="btn btn-primary">Prévisualiser</button>
   </div>
-  <p class="section-note">
+  <p class="fc-aide">
     Les montants sont ceux que le moteur a calculés ; la période retient les séjours dont la date
     d'arrivée y tombe — la même règle que pour un mois entier. Le forfait et les charges
     refacturées sont des éléments <strong>mensuels</strong> que le moteur ne proratise pas : ils ne
@@ -44,110 +73,130 @@
 
 {% if apercu %}
   {% if not apercu.ok %}
-    <div class="alert alert-warning">{{ apercu.message }}</div>
+    <div class="alert alert-warning" role="status">{{ apercu.message }}</div>
   {% else %}
 
     {% if apercu.chevauchements %}
-    <div class="alert alert-warning" data-testid="alerte-chevauchement">
-      <strong>Une facture existe déjà sur tout ou partie de cette période.</strong>
-      <table class="data-table mt-sm">
-        <thead><tr><th>Facture</th><th>Période couverte</th><th>Statut</th><th class="num">Montant</th></tr></thead>
+    <div class="card fc-carte" data-testid="alerte-chevauchement">
+      <div class="fc-encart fc-encart--alerte">
+        <p><strong>Une facture existe déjà sur tout ou partie de cette période.</strong>
+           Rien n'est bloqué : si cette nouvelle facture est légitime, poursuivez.</p>
+      </div>
+      <div class="fc-table-wrap mt-sm">
+      <table class="fc-table fc-table--fiches">
+        <caption class="sr-only">Factures qui chevauchent la période</caption>
+        <thead><tr><th scope="col">Facture</th><th scope="col">Période couverte</th><th scope="col">Statut</th><th scope="col" class="text-right">Montant</th></tr></thead>
         <tbody>
           {% for f in apercu.chevauchements %}
           <tr>
-            <td><a href="/factures-proprietaires/{{ f.facture_id_opaque }}">{{ f.numero_facture or f.facture_id_opaque }}</a></td>
-            <td class="font-mono text-xs">{{ f.periode_debut_effective }} → {{ f.periode_fin_effective }}</td>
-            <td>{{ f.statut }}</td>
-            <td class="num">{{ "%.2f"|format(f.montant_total or 0) }} €</td>
+            <td data-label="Facture"><a href="/factures-proprietaires/{{ f.facture_id_opaque }}">{% if f.numero_facture %}{{ f.numero_facture }}{% else %}<span class="fc-sans-numero-liste">sans numéro</span>{% endif %}</a></td>
+            <td data-label="Période couverte" class="ec-nowrap">{{ f.periode_debut_effective|date_fr }} → {{ f.periode_fin_effective|date_fr }}</td>
+            <td data-label="Statut"><span class="status-badge status-{{ fc.classe_statut(f.statut) }}">{{ f.statut|libelle_statut }}</span></td>
+            <td data-label="Montant" class="fc-montant">{{ "%.2f"|format(f.montant_total or 0) }} €</td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
-      <p class="section-note">Rien n'est bloqué : si cette nouvelle facture est légitime, poursuivez.</p>
+      </div>
     </div>
     {% endif %}
 
     {% if apercu.mensuels_ecartes %}
-    <div class="alert alert-info" data-testid="alerte-mensuels-ecartes">
-      <strong>Éléments mensuels non facturés sur cette période.</strong>
-      <p class="section-note">
-        Le moteur pose ces montants une fois par mois civil, au montant plein : il n'existe aucune
-        règle de proratisation, et en inventer une ici produirait un montant que rien d'autre dans
-        l'application ne saurait justifier. Ajoutez-les au brouillon si vous les estimez dus.
-      </p>
-      <table class="data-table mt-sm">
-        <thead><tr><th>Élément</th><th>Logement</th><th>Mois</th><th class="num">Montant</th></tr></thead>
+    <div class="card fc-carte" data-testid="alerte-mensuels-ecartes">
+      <div class="fc-encart">
+        <p><strong>Éléments mensuels non facturés sur cette période.</strong></p>
+        <p>Le moteur pose ces montants une fois par mois civil, au montant plein : il n'existe aucune
+          règle de proratisation. Ajoutez-les au brouillon si vous les estimez dus.</p>
+      </div>
+      <div class="fc-table-wrap mt-sm">
+      <table class="fc-table">
+        <caption class="sr-only">Éléments mensuels écartés</caption>
+        <thead><tr><th scope="col">Élément</th><th scope="col">Logement</th><th scope="col">Mois</th><th scope="col" class="text-right">Montant</th></tr></thead>
         <tbody>
           {% for m in apercu.mensuels_ecartes %}
           <tr>
             <td>{{ m.libelle }}</td>
             <td>{{ m.logement_id | nom_logement }}</td>
-            <td>{{ m.mois }}</td>
-            <td class="num">{{ "%.2f"|format(m.montant) }} €</td>
+            <td>{{ m.mois|mois_humain }}</td>
+            <td class="fc-montant">{{ "%.2f"|format(m.montant) }} €</td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
+      </div>
     </div>
     {% endif %}
 
-    <div class="card">
-      <div class="card-title">
-        {{ libelles_proprietaires.get(apercu.proprietaire_id) or apercu.proprietaire_id }} —
-        du {{ apercu.debut }} au {{ apercu.fin }}
+    <section class="card fc-carte" aria-labelledby="titre-apercu">
+      <div class="fc-carte__tete">
+        <h2 class="fc-carte__titre" id="titre-apercu">
+          {{ libelles_proprietaires.get(apercu.proprietaire_id) or (apercu.proprietaire_id | nom_proprietaire) }} —
+          du {{ apercu.debut|date_fr }} au {{ apercu.fin|date_fr }}
+        </h2>
+        <p>{{ apercu.nb_reservations }} séjour(s) — total à facturer
+          <strong class="fi-montant">{{ "%.2f"|format(apercu.montant_total) }} €</strong></p>
       </div>
-      <p class="section-note">
-        {{ apercu.nb_reservations }} séjour(s) — total à facturer
-        <strong>{{ "%.2f"|format(apercu.montant_total) }} €</strong>.
-      </p>
 
       {% if not apercu.propositions %}
-      <p class="section-note" data-testid="aucune-reservation">
+      <p class="fc-vide" data-testid="aucune-reservation">
         Aucun élément facturable par le moteur sur cette période pour ce propriétaire.
       </p>
       {% endif %}
 
       {% for p in apercu.propositions %}
-      <div class="card mt-sm">
-        <div class="card-title">{{ p.logement_id | nom_logement }} — {{ p.nb_reservations }} séjour(s)</div>
-        <table class="data-table">
-          <thead><tr><th>Ligne</th><th class="num">Montant</th></tr></thead>
+      <div class="card fc-carte mt-sm">
+        <div class="fc-proposition__tete">
+          <h3 class="fc-carte__titre">{{ p.logement_id | nom_logement }}</h3>
+          <span class="badge badge-neutral">{{ p.nb_reservations }} séjour(s)</span>
+        </div>
+        <div class="fc-table-wrap">
+        <table class="fc-table">
+          <caption class="sr-only">Lignes qui seront facturées pour {{ p.logement_id | nom_logement }}</caption>
+          <thead><tr><th scope="col">Ligne</th><th scope="col" class="text-right">Montant</th></tr></thead>
           <tbody>
             {% for l in p.lignes %}
-            <tr><td>{{ l.libelle }}</td><td class="num">{{ "%.2f"|format(l.montant) }} €</td></tr>
+            <tr><td>{{ l.libelle }}</td><td class="fc-montant">{{ "%.2f"|format(l.montant) }} €</td></tr>
             {% endfor %}
-            <tr><td><strong>Total facturé</strong></td>
-                <td class="num"><strong data-testid="total-{{ p.logement_id }}">{{ "%.2f"|format(p.montant_total) }} €</strong></td></tr>
           </tbody>
+          <tfoot>
+            <tr><th scope="row">Total facturé</th>
+                <td class="fc-montant"><strong data-testid="total-{{ p.logement_id }}">{{ "%.2f"|format(p.montant_total) }} €</strong></td></tr>
+          </tfoot>
         </table>
+        </div>
 
         {% if p.reservations %}
-        <details class="mt-sm">
-          <summary>Détail des séjours retenus</summary>
-          <table class="data-table mt-sm">
-            <thead><tr><th>Séjour</th><th>Arrivée</th><th>Départ</th><th class="num">Payout</th>
-              <th class="num">Commission</th><th class="num">Ménage</th><th class="num">Canapé</th>
-              <th class="num">Net propriétaire</th></tr></thead>
+        <details class="fc-depliant mt-sm">
+          <summary>Détail des séjours retenus <span class="fc-depliant__aide">{{ p.reservations|length }} séjour(s)</span></summary>
+          <div class="fc-depliant__corps">
+          <div class="fc-table-wrap">
+          <table class="fc-table fc-table--fiches">
+            <caption class="sr-only">Séjours retenus pour {{ p.logement_id | nom_logement }}</caption>
+            <thead><tr><th scope="col">Séjour</th><th scope="col">Arrivée</th><th scope="col">Départ</th><th scope="col" class="text-right">Payout</th>
+              <th scope="col" class="text-right">Commission</th><th scope="col" class="text-right">Ménage</th><th scope="col" class="text-right">Canapé</th>
+              <th scope="col" class="text-right">Net propriétaire</th></tr></thead>
             <tbody>
               {% for r in p.reservations %}
               <tr>
-                <td class="font-mono text-xs">{{ r.reservation }}</td>
-                <td class="font-mono text-xs">{{ r.date_arrivee }}</td>
-                <td class="font-mono text-xs">{{ r.date_depart }}</td>
-                <td class="num">{{ "%.2f"|format(r.payout or 0) }}</td>
-                <td class="num">{{ "%.2f"|format(r.commission or 0) }}</td>
-                <td class="num">{{ "%.2f"|format(r.menage or 0) }}</td>
-                <td class="num">{{ "%.2f"|format(r.canape or 0) }}</td>
-                <td class="num">{{ "%.2f"|format(r.net_proprietaire or 0) }}</td>
+                <td data-label="Séjour" class="fc-ref">{{ r.reservation }}</td>
+                <td data-label="Arrivée" class="ec-nowrap">{{ r.date_arrivee|date_fr }}</td>
+                <td data-label="Départ" class="ec-nowrap">{{ r.date_depart|date_fr }}</td>
+                <td data-label="Payout" class="fc-montant">{{ "%.2f"|format(r.payout or 0) }} €</td>
+                <td data-label="Commission" class="fc-montant">{{ "%.2f"|format(r.commission or 0) }} €</td>
+                <td data-label="Ménage" class="fc-montant">{{ "%.2f"|format(r.menage or 0) }} €</td>
+                <td data-label="Canapé" class="fc-montant">{{ "%.2f"|format(r.canape or 0) }} €</td>
+                <td data-label="Net propriétaire" class="fc-montant">{{ "%.2f"|format(r.net_proprietaire or 0) }} €</td>
               </tr>
               {% endfor %}
             </tbody>
           </table>
+          </div>
+          </div>
         </details>
         {% endif %}
 
         {% if p.facturable %}
-        <form method="post" action="/factures-proprietaires/nouvelle/creer" class="mt-sm">
+        <form method="post" action="/factures-proprietaires/nouvelle/creer" class="fc-actions" data-fi-occupe="Création…">
           <input type="hidden" name="proprietaire_id" value="{{ apercu.proprietaire_id }}">
           <input type="hidden" name="debut" value="{{ apercu.debut }}">
           <input type="hidden" name="fin" value="{{ apercu.fin }}">
@@ -155,11 +204,16 @@
           <button type="submit" class="btn btn-primary" data-testid="creer-brouillon">
             Créer le brouillon de cette facture
           </button>
+          <span class="fc-aide">Le brouillon reste modifiable (ménage, commission,
+            lignes) et n'a aucun impact tant qu'il n'est pas émis.</span>
         </form>
         {% endif %}
       </div>
       {% endfor %}
-    </div>
+    </section>
   {% endif %}
 {% endif %}
+</div>
+<script src="/static/js/finitions.js" defer></script>
+<script src="/static/js/factures_clients.js" defer></script>
 {% endblock %}

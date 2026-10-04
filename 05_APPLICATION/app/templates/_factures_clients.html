@@ -1,0 +1,109 @@
+{# Libellés et composants d'affichage des factures clients (factures propriétaires émises).
+
+   Présentation seulement : la valeur STOCKÉE ou ENVOYÉE reste le code canonique. Un code absent
+   des tables ci-dessous passe par le libellé canonique (`libelle_statut`) — jamais affiché brut. #}
+
+{% macro type_ligne(code) -%}
+{%- set _t = {
+  "COMMISSION_CONCIERGERIE": "Commission de conciergerie",
+  "MENAGE_FACTURE": "Prestations de ménage",
+  "PREPARATION_CANAPE": "Préparation du canapé-lit",
+  "CHARGE_FIXE": "Forfait mensuel",
+  "CHARGES_EXCEPT_REFAC": "Élément refacturé",
+  "CHARGE": "Charge (crée aussi une charge réelle)",
+  "EXTRA": "Extra",
+  "SERVICE_ADDITIONNEL": "Service additionnel",
+  "SINISTRE": "Gestion de sinistre",
+  "AUTRE_PRESTATION": "Autre prestation",
+  "REDUCTION": "Réduction",
+  "AVOIR": "Avoir",
+} -%}
+{{- _t.get(code, code | libelle_statut) if code else "—" -}}
+{%- endmacro %}
+
+{% macro origine_ligne(code) -%}
+{%- set _t = {"CALCULEE": "Calculée", "MANUELLE": "Saisie manuelle"} -%}
+{{- _t.get(code, code | libelle_statut) if code else "—" -}}
+{%- endmacro %}
+
+{% macro evenement(code) -%}
+{%- set _t = {
+  "CREATION": "Création du brouillon", "CREATION_EXCEPTIONNELLE": "Création (facture exceptionnelle)",
+  "AJOUT_LIGNE": "Ligne ajoutée", "MODIFICATION_LIGNE": "Ligne modifiée",
+  "SUPPRESSION_LIGNE": "Ligne retirée", "AJOUT_CHARGE": "Charge ajoutée",
+  "AJOUT_EXTRA": "Extra ajouté", "AJOUT_REDUCTION": "Réduction ajoutée",
+  "RATTACHEMENT_CHARGE": "Élément refacturé ajouté", "DETACHEMENT_CHARGE": "Élément refacturé retiré",
+  "MODIFICATION_SEJOUR": "Séjour modifié (ménage / commission)", "RECHARGEMENT": "Brouillon rechargé",
+  "VALIDATION": "Validation", "RETOUR_BROUILLON": "Retour en brouillon", "EMISSION": "Émission",
+  "HORS_COMPTA": "Émise hors comptabilité", "ANNULATION": "Annulation", "AVOIR_CREE": "Avoir créé",
+  "AJOUT_ACOMPTE": "Acompte enregistré", "AJOUT_REVERSEMENT_AIRBNB": "Reversement Airbnb enregistré",
+  "IMPUTATION_CREDIT_CLIENT": "Crédit client imputé",
+} -%}
+{{- _t.get(code, code | libelle_statut) if code else "—" -}}
+{%- endmacro %}
+
+{% macro statut_compta(code) -%}
+{%- set _t = {
+  "ABSENTE": "Écriture absente", "SANS_OBJET": "Pas encore d'écriture",
+  "HORS_COMPTA": "Hors comptabilité", "PRESENTE": "Écriture enregistrée",
+  "PROPOSEE": "Écriture proposée", "VALIDEE": "Écriture validée",
+} -%}
+{{- _t.get(code, code | libelle_statut) if code else "—" -}}
+{%- endmacro %}
+
+{% macro nature_operation(code) -%}
+{%- set _t = {"PRESTATION_DE_SERVICES": "Prestation de services"} -%}
+{{- _t.get(code, code | libelle_statut) if code else "—" -}}
+{%- endmacro %}
+
+{% macro statut_proposition(code) -%}
+{%- set _t = {"PRETE": "Prête", "A_CONTROLER": "À contrôler", "NON_CONCERNE": "Non concernée"} -%}
+{{- _t.get(code, code | libelle_statut) if code else "—" -}}
+{%- endmacro %}
+
+{% macro regime_tva(code) -%}
+{%- set _t = {"A_CONTROLER": "À définir", "FRANCHISE_TVA": "Franchise en base de TVA",
+              "ASSUJETTI_TVA": "Assujetti à la TVA", "EXONERATION_AUTRE": "Exonération (autre motif)"} -%}
+{{- _t.get(code, code | libelle_statut) if code else "—" -}}
+{%- endmacro %}
+
+{# Classe de pastille d'un statut de facture — mêmes couleurs que la liste. #}
+{% macro classe_statut(statut) -%}
+{{- {"BROUILLON": "brouillon", "VALIDE": "info", "EMIS": "valide", "ANNULE": "bloquant"}.get(statut, "info") -}}
+{%- endmacro %}
+
+{# Classe de pastille d'un statut de règlement. #}
+{% macro classe_reglement(statut) -%}
+{{- {"REGLEE": "valide", "PARTIELLEMENT_REGLEE": "a-controler", "NON_REGLEE": "info",
+     "TROP_PERCU_A_CONTROLER": "bloquant", "HORS_COMPTA": "info"}.get(statut, "info") -}}
+{%- endmacro %}
+
+{# Fil d'étapes d'une facture : Brouillon → Validée → Émise. Une facture annulée sort du fil.
+   L'étape courante est annoncée (`aria-current="step"`), les étapes franchies le sont aussi. #}
+{% macro etapes(statut, type_document) -%}
+{%- set ordre = ["BROUILLON", "VALIDE", "EMIS"] -%}
+{%- set libelles = {"BROUILLON": "Brouillon", "VALIDE": "Validée", "EMIS": "Émise"} -%}
+{%- set aides = {"BROUILLON": "modifiable, aucun impact",
+                 "VALIDE": "contenu vérifié, sans numéro",
+                 "EMIS": "numérotée, PDF figé"} -%}
+{%- if statut == "ANNULE" -%}
+<p class="fc-etapes fc-etapes--annulee" data-testid="etapes-facture">
+  <span class="status-badge status-bloquant">Annulée</span>
+  <span class="fc-etapes__aide">{{ "Cet avoir" if type_document == "AVOIR" else "Cette facture" }} ne suit plus le parcours d'émission.</span>
+</p>
+{%- else -%}
+{%- set position = ordre.index(statut) if statut in ordre else 0 -%}
+<ol class="fc-etapes" aria-label="Avancement {{ 'de l\'avoir' if type_document == 'AVOIR' else 'de la facture' }}" data-testid="etapes-facture">
+  {%- for e in ordre %}
+  <li class="fc-etape{% if loop.index0 < position %} is-faite{% elif loop.index0 == position %} is-courante{% endif %}"
+      {%- if loop.index0 == position %} aria-current="step"{% endif %}>
+    <span class="fc-etape__point" aria-hidden="true">{% if loop.index0 < position %}✓{% else %}{{ loop.index }}{% endif %}</span>
+    <span class="fc-etape__texte">
+      <span class="fc-etape__titre">{{ libelles[e] }}{% if loop.index0 < position %}<span class="sr-only"> (étape franchie)</span>{% endif %}</span>
+      <span class="fc-etape__aide">{{ aides[e] }}</span>
+    </span>
+  </li>
+  {%- endfor %}
+</ol>
+{%- endif -%}
+{%- endmacro %}
