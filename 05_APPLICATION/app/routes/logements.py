@@ -95,6 +95,7 @@ def logement_detail(request: Request, logement_id: str, message: str = "", erreu
             "fiche_minimale": True,
             "logement_id": logement_id,
             "etat": etat,
+            "coherence": gestion_svc.coherence(logement_id),
             "histo": histo,
             "refs": refs,
             "ecriture_active": _ecriture_active(),
@@ -109,6 +110,7 @@ def logement_detail(request: Request, logement_id: str, message: str = "", erreu
         "detail": detail,
         "logement_id": logement_id,
         "etat": etat,
+        "coherence": gestion_svc.coherence(logement_id),
         "histo": histo,
         "refs": refs,
         "ecriture_active": _ecriture_active(),
@@ -148,14 +150,19 @@ async def logement_archiver(request: Request, logement_id: str):
 @router.post("/logements/{logement_id}/reactiver")
 async def logement_reactiver(request: Request, logement_id: str):
     form = await request.form()
-    date_debut = str(form.get("date_debut", "") or "")
     justification = str(form.get("justification", "") or "")
-    blocage = adm.verifier_justification_retroactive(date_debut, justification)
+    # Date et propriétaire EFFECTIFS : saisis, sinon la reprise sans interruption. La justification
+    # rétroactive se juge sur la date réellement appliquée, pas sur un champ éventuellement vide.
+    effectif = gestion_svc.plan_reactivation(logement_id, str(form.get("date_debut", "") or ""),
+                                             str(form.get("proprietaire_id", "") or ""))
+    blocage = adm.verifier_justification_retroactive(effectif["date_debut"], justification)
     if blocage:
         return _retour(logement_id, blocage, "")
-    res = gestion_svc.reactiver(logement_id, date_debut, str(form.get("proprietaire_id", "") or ""),
+    res = gestion_svc.reactiver(logement_id, effectif["date_debut"], effectif["proprietaire_id"],
                                 justification=justification)
-    return _retour(logement_id, res, "Logement réactivé.")
+    return _retour(logement_id, res,
+                   "Logement réactivé, gestion rétablie — pensez à actualiser le calcul des "
+                   "réservations pour retrouver les séjours concernés.")
 
 
 @router.post("/logements/{logement_id}/changer-proprietaire")

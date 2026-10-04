@@ -117,6 +117,8 @@
                   <input type="hidden" name="{{ c }}" value="{{ l.get(c, '') }}">
                 {% elif c in meta.colonnes_lecture_seule %}
                   <span class="text-secondary" title="Historisé — voir l'écran dédié">{{ l.get(c, '') }}</span>
+                {% elif c in meta.colonnes_cycle_de_vie %}
+                  <span class="text-secondary" title="Se modifie depuis la fiche du logement (Archiver / Réactiver)">{{ l.get(c, '') }}</span>
                 {% else %}
                   {{ champ(c, l.get(c, ''), champs) }}
                 {% endif %}
@@ -125,7 +127,13 @@
               <td class="fi-col-actions fi-actions-ligne">
                 <button type="submit" class="btn btn-sm btn-primary" {% if not disponible %}disabled{% endif %}>Enregistrer</button>
             </form>
-            {% if meta.a_colonne_actif %}
+            {% if meta.a_colonne_actif and meta.activation_par_fiche %}
+              {# Un logement ne s'active pas d'un clic : la fiche ferme ou rouvre aussi sa période de
+                 gestion, sans quoi il resterait sans propriétaire et ses séjours ne seraient plus
+                 facturés. #}
+              <a class="btn btn-sm btn-ghost" href="/logements/{{ l.get(meta.cle, '') }}"
+                 title="Archiver ou réactiver ce logement depuis sa fiche">Archiver / réactiver (fiche)</a>
+            {% elif meta.a_colonne_actif %}
               <form method="post" action="/administration/referentiels/{{ meta.table }}/activation">
                 <input type="hidden" name="cle" value="{{ l.get(meta.cle, '') }}">
                 <input type="hidden" name="actif" value="{{ 'NON' if l.get('actif', '')|upper == 'OUI' else 'OUI' }}">

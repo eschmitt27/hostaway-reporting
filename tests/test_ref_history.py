@@ -248,6 +248,54 @@ class ManagementHistoryTests(unittest.TestCase):
         )
         self.assertEqual(res.status, "OUT_OF_PERIOD")
 
+    # ── Reprise de gestion SANS interruption (archivage à D, réactivation à D+1) ──────────────────
+    @staticmethod
+    def _periodes(*, fin_ancienne="2026-05-31", debut_nouvelle="2026-06-01",
+                  prop_ancienne="PROP_A", prop_nouvelle="PROP_A"):
+        return [
+            {"gestion_id": "GST_ANCIENNE", "logement_id": "LOG_1", "proprietaire_id": prop_ancienne,
+             "date_debut": "2026-01-01", "date_fin": fin_ancienne, "statut_gestion": "RETIRE"},
+            {"gestion_id": "GST_NOUVELLE", "logement_id": "LOG_1", "proprietaire_id": prop_nouvelle,
+             "date_debut": debut_nouvelle, "date_fin": "", "statut_gestion": "ACTIF"},
+        ]
+
+    def test_stay_crossing_a_seamless_resumption_of_the_same_owner_is_not_controlled(self):
+        """Archivage au 31/05 puis reprise au 01/06 pour le même propriétaire : aucune nuit n'a
+        échappé à la gestion, le séjour à cheval est rattaché à ce propriétaire."""
+        res = resolve_management_period(
+            self._periodes(), logement_id="LOG_1",
+            date_arrivee="2026-05-30", date_depart="2026-06-02")
+        self.assertEqual(res.status, "OK")
+        self.assertEqual(res.value, "PROP_A")
+
+    def test_stay_crossing_a_resumption_after_a_gap_remains_controlled(self):
+        """Reprise le 02/06 : la nuit du 01/06 n'était pas gérée — le séjour reste contrôlé."""
+        res = resolve_management_period(
+            self._periodes(debut_nouvelle="2026-06-02"), logement_id="LOG_1",
+            date_arrivee="2026-05-30", date_depart="2026-06-03")
+        self.assertEqual(res.status, "OUT_OF_PERIOD")
+
+    def test_stay_crossing_a_change_of_owner_remains_controlled(self):
+        """Un autre propriétaire reprend le lendemain : le séjour n'est jamais réaffecté en silence."""
+        res = resolve_management_period(
+            self._periodes(prop_nouvelle="PROP_B"), logement_id="LOG_1",
+            date_arrivee="2026-05-30", date_depart="2026-06-02")
+        self.assertEqual(res.status, "OUT_OF_PERIOD")
+
+    def test_stay_wholly_in_the_resumed_period_resolves_to_it(self):
+        res = resolve_management_period(
+            self._periodes(), logement_id="LOG_1", date_arrivee="2026-06-10", date_depart="2026-06-12")
+        self.assertEqual(res.status, "OK")
+        self.assertEqual(res.row["gestion_id"], "GST_NOUVELLE")
+
+    def test_resolution_ne_consomme_pas_un_generateur_deux_fois(self):
+        """`rows` peut être un itérateur à usage unique : la règle de continuité doit relire les
+        périodes sans le vider."""
+        res = resolve_management_period(
+            iter(self._periodes()), logement_id="LOG_1",
+            date_arrivee="2026-05-30", date_depart="2026-06-02")
+        self.assertEqual(res.status, "OK")
+
 
 class CanapeParametresHistoryTests(unittest.TestCase):
     """Mission 6 — le paramètre canapé devient historisé (`ref_canape_parametres`) : un recalcul

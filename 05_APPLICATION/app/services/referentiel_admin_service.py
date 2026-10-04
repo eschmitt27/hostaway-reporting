@@ -963,6 +963,8 @@ def decrire_table(table: str, *, db_path=None) -> dict[str, Any]:
             "a_colonne_actif": COLONNE_ACTIF in native.colonnes,
             "colonnes_lecture_seule": sorted(COLONNES_LECTURE_SEULE.get(table, set())
                                              | COLONNES_DERIVEES.get(table, set())),
+            "colonnes_cycle_de_vie": sorted(COLONNES_CYCLE_DE_VIE.get(table, set())),
+            "activation_par_fiche": table in COLONNES_CYCLE_DE_VIE,
         }
 
     from app.services import ref_setup_catalogue as cat
@@ -992,6 +994,9 @@ def decrire_table(table: str, *, db_path=None) -> dict[str, Any]:
         "a_colonne_actif": COLONNE_ACTIF in feuille.colonnes,
         "colonnes_lecture_seule": sorted(COLONNES_LECTURE_SEULE.get(table, set())
                                              | COLONNES_DERIVEES.get(table, set())),
+        # Édition seulement : la création renseigne ces colonnes (un nouveau logement naît actif).
+        "colonnes_cycle_de_vie": sorted(COLONNES_CYCLE_DE_VIE.get(table, set())),
+        "activation_par_fiche": table in COLONNES_CYCLE_DE_VIE,
     }
 
 
@@ -1028,7 +1033,19 @@ def modifier_ligne(table: str, cle_valeur: str, valeurs: dict[str, Any], *, acte
     if meta["lecture_seule"]:
         return refus(E_ECRITURE, meta["motif_lecture_seule"])
 
-    verrouillees = COLONNES_LECTURE_SEULE.get(table, set()) | COLONNES_DERIVEES.get(table, set())
+    # Cycle de vie d'un logement : `actif` / `statut_parc` ne changent que par le parcours dédié.
+    # Une valeur INCHANGÉE (le formulaire renvoie toutes les colonnes) passe ; une valeur modifiée
+    # est REFUSÉE, jamais ignorée en silence — l'utilisateur doit savoir pourquoi rien ne bouge.
+    cycle_de_vie = COLONNES_CYCLE_DE_VIE.get(table, set())
+    if cycle_de_vie:
+        actuelle = ligne(table, cle_valeur, db_path=db_path) or {}
+        for c in sorted(cycle_de_vie):
+            if c in valeurs and txt(valeurs[c]) != txt(actuelle.get(c)):
+                return refus(E_LOGEMENT_CYCLE_DEDIE,
+                             f"{c} : {txt(actuelle.get(c)) or '—'} → {txt(valeurs[c]) or '—'}")
+
+    verrouillees = (COLONNES_LECTURE_SEULE.get(table, set()) | COLONNES_DERIVEES.get(table, set())
+                    | cycle_de_vie)
     champs = {c: v for c, v in valeurs.items()
              if c in meta["colonnes"] and c != meta["cle"] and c not in verrouillees}
 
@@ -1050,6 +1067,24 @@ MESSAGES[E_PROPRIETAIRE_REFERENCE] = (
     "Ce propriétaire gère encore au moins un logement actif : changez son propriétaire ou "
     "archivez le logement avant de désactiver ce propriétaire.")
 
+# ── Cycle de vie d'un logement : un SEUL chemin d'écriture ──────────────────────────────────────
+#
+# `actif` et `statut_parc` d'un logement ne sont pas deux champs libres : ils DISENT, avec la période
+# de gestion, si le logement est géré. L'archivage ferme la période, la réactivation en rouvre une ;
+# le moteur, lui, ne lit que cette période. Basculer `actif` seul — ce que faisaient l'activation
+# générique de cet écran et l'édition libre de la ligne — laissait un logement « actif » SANS
+# propriétaire : ses séjours étaient exclus du calcul et de la facturation, sans un message
+# (constaté le 2026-10-04 sur un logement réactivé, « Aucun élément facturable »).
+E_LOGEMENT_CYCLE_DEDIE = "V12_CYCLE_DE_VIE_LOGEMENT"
+MESSAGES[E_LOGEMENT_CYCLE_DEDIE] = (
+    "L'activité d'un logement ne se modifie pas ici : elle se gère depuis sa fiche (Archiver / "
+    "Réactiver), qui ferme ou rouvre aussi sa période de gestion. Sans cela, le logement n'a plus de "
+    "propriétaire et ses séjours ne sont plus facturés.")
+
+#: Colonnes dont la modification passe par le parcours dédié — consultables et NON éditables dans la
+#: ligne ; la création, elle, les renseigne (un nouveau logement naît actif et géré).
+COLONNES_CYCLE_DE_VIE: dict[str, set[str]] = {TABLE_LOGEMENTS: {"actif", "statut_parc"}}
+
 
 def basculer_activation(table: str, cle_valeur: str, actif: bool, *, acteur: str = "",
                         db_path=None) -> dict[str, Any]:
@@ -1059,12 +1094,16 @@ def basculer_activation(table: str, cle_valeur: str, actif: bool, *, acteur: str
     Désactiver un propriétaire encore rattaché à un logement actif laisserait ce logement sans
     propriétaire exploitable par le moteur (`resolve_management_period` continuerait de le
     résoudre vers un propriétaire désactivé) : refusé tant que le rattachement n'a pas été fermé.
+
+    Un LOGEMENT ne s'active ni ne se désactive ici : voir `E_LOGEMENT_CYCLE_DEDIE`.
     """
     meta = decrire_table(table, db_path=db_path)
     if not meta.get("ok"):
         return refus("TABLE_INCONNUE", table)
     if not meta["a_colonne_actif"]:
         return refus(E_ECRITURE, f"{table} n'a pas de colonne d'activation")
+    if table == TABLE_LOGEMENTS:
+        return refus(E_LOGEMENT_CYCLE_DEDIE, txt(cle_valeur))
 
     if table == TABLE_PROPRIETAIRES and not actif:
         pid = txt(cle_valeur)

@@ -22,6 +22,7 @@ défendre, est désormais porté par un index partiel (migration 0051) EN PLUS d
 """
 from __future__ import annotations
 
+from datetime import date, timedelta
 from typing import Any
 
 from app.services import referentiel_admin_service as adm
@@ -179,44 +180,169 @@ def archiver(logement_id: str, date_fin: str, *, acteur: str = "", justification
     return {"ok": True, "logement_id": logement_id, "date_fin": _txt(date_fin)}
 
 
-def reactiver(logement_id: str, date_debut: str, proprietaire_id: str, *, acteur: str = "",
-              justification: str = "", db_path=None) -> dict[str, Any]:
-    """Réactive un logement archivé : `actif=OUI`, `statut_parc=GERE`, ouvre un nouveau
-    rattachement de gestion daté (jamais de réouverture d'une ligne close)."""
+# ── Cohérence du cycle de vie : `actif`, `statut_parc` et période de gestion disent la MÊME chose ──
+#
+# Un logement géré est dans l'un de deux états cohérents :
+#   · ACTIF    — actif=OUI, statut_parc=GERE, une période de gestion OUVERTE (sans date de fin) ;
+#   · ARCHIVÉ  — actif=NON, statut_parc=RETIRE, aucune période ouverte.
+# Les logements techniques (HORS_PARC_TECHNIQUE) n'ont pas de gestion et sont hors règle.
+#
+# POURQUOI C'EST UNE RÈGLE ET PAS UNE SIMPLE LECTURE. Le moteur ne lit pas `actif` : il range un
+# séjour chez un propriétaire d'après la période de gestion qui couvre ses dates. Un logement dont
+# `actif` repasse à OUI sans que la gestion ait repris reste donc, pour le moteur, SANS propriétaire :
+# ses séjours sont exclus du calcul et de la facturation, et rien ne le dit. C'est ce qui est arrivé
+# le 2026-10-04 : l'activation générique de l'administration du référentiel ne basculait que `actif`.
+INC_ACTIF_SANS_GESTION = "ACTIF_SANS_GESTION_OUVERTE"
+INC_ACTIF_NON_GERE = "ACTIF_STATUT_PARC_NON_GERE"
+INC_INACTIF_AVEC_GESTION = "INACTIF_AVEC_GESTION_OUVERTE"
+
+LIBELLES_INCOHERENCE = {
+    INC_ACTIF_SANS_GESTION: (
+        "Ce logement est actif mais aucune période de gestion n'est ouverte : ses séjours n'ont plus "
+        "de propriétaire et ne sont ni calculés ni facturés."),
+    INC_ACTIF_NON_GERE: (
+        "Ce logement est actif mais son statut de parc n'est pas « géré »."),
+    INC_INACTIF_AVEC_GESTION: (
+        "Ce logement est inactif mais une période de gestion reste ouverte : ses séjours continuent "
+        "d'être facturés."),
+}
+#: Incohérences qu'une réactivation sait réparer (le logement doit être actif et géré).
+_A_REACTIVER = {INC_ACTIF_SANS_GESTION, INC_ACTIF_NON_GERE, INC_INACTIF_AVEC_GESTION}
+
+
+def _periodes_gestion(logement_id: str, *, db_path=None) -> list[dict[str, str]]:
+    lid = _txt(logement_id)
+    rows = [g for g in adm.lignes(SH_GEST, db_path=db_path) if _txt(g.get("logement_id")) == lid]
+    rows.sort(key=lambda g: (_txt(g.get("date_debut")), _txt(g.get("date_fin")) or "9999-12-31"))
+    return rows
+
+
+def reprise_par_defaut(logement_id: str, *, db_path=None) -> dict[str, str] | None:
+    """Reprise SANS INTERRUPTION : même propriétaire que la dernière période, le lendemain de sa fin.
+
+    C'est la réponse à « j'ai archivé par erreur » (ou « pour un test ») : la gestion reprend là où
+    elle s'était arrêtée, sans trou — donc sans séjour orphelin. Pour une vraie pause, l'exploitant
+    saisit sa propre date de reprise. `None` quand il n'y a rien à prolonger (aucune période close
+    datée) : il faut alors choisir à la fois le propriétaire et la date."""
+    closes = [g for g in _periodes_gestion(logement_id, db_path=db_path)
+              if _txt(g.get("date_fin")) and _date_valide(_txt(g.get("date_fin")))]
+    if not closes:
+        return None
+    derniere = max(closes, key=lambda g: _txt(g.get("date_fin")))
+    lendemain = (date.fromisoformat(_txt(derniere["date_fin"])) + timedelta(days=1)).isoformat()
+    return {"proprietaire_id": _txt(derniere.get("proprietaire_id")), "date_debut": lendemain,
+            "fin_precedente": _txt(derniere["date_fin"])}
+
+
+def coherence(logement_id: str, *, db_path=None) -> dict[str, Any]:
+    """État de cohérence d'un logement — ce que la fiche affiche pour qu'une incohérence ne reste
+    jamais silencieuse. Lecture seule."""
+    if not adm.disponible(db_path=db_path):
+        return {"status": "SOURCE_ABSENTE", "coherent": True, "incoherences": []}
+    logement_id = _txt(logement_id)
+    fiche = _fiche(logement_id, db_path=db_path)
+    if fiche is None:
+        return {"status": "INTROUVABLE", "coherent": True, "incoherences": []}
+    parc = _txt(fiche.get("statut_parc")).upper()
+    if parc == "HORS_PARC_TECHNIQUE":
+        return {"status": "OK", "coherent": True, "incoherences": [], "technique": True,
+                "reactivable": False}
+
+    actif = _txt(fiche.get("actif")).upper() == "OUI"
+    periodes = _periodes_gestion(logement_id, db_path=db_path)
+    ouvertes = [g for g in periodes if not _txt(g.get("date_fin"))]
+    codes: list[str] = []
+    if actif and not ouvertes:
+        codes.append(INC_ACTIF_SANS_GESTION)
+    if actif and parc != "GERE":
+        codes.append(INC_ACTIF_NON_GERE)
+    if not actif and ouvertes:
+        codes.append(INC_INACTIF_AVEC_GESTION)
+    return {
+        "status": "OK", "coherent": not codes, "technique": False, "actif": actif,
+        "incoherences": [{"code": c, "libelle": LIBELLES_INCOHERENCE[c]} for c in codes],
+        "reactivable": actif is False or any(c in _A_REACTIVER for c in codes),
+        "periode_ouverte": ouvertes[-1] if ouvertes else None,
+        "reprise": reprise_par_defaut(logement_id, db_path=db_path),
+    }
+
+
+def incoherences(*, db_path=None) -> list[dict[str, Any]]:
+    """Tous les logements du référentiel dont le cycle de vie est incohérent."""
+    if not adm.disponible(db_path=db_path):
+        return []
+    out = []
+    for fiche in adm.lignes(SH_LOG, db_path=db_path):
+        lid = _txt(fiche.get("logement_id"))
+        etat = coherence(lid, db_path=db_path)
+        if etat.get("status") == "OK" and not etat["coherent"]:
+            out.append({"logement_id": lid, "nom": _txt(fiche.get("nom_court"))
+                        or _txt(fiche.get("nom_logement_officiel")) or lid,
+                        "incoherences": etat["incoherences"]})
+    return out
+
+
+def plan_reactivation(logement_id: str, date_debut: str = "", proprietaire_id: str = "", *,
+                      db_path=None) -> dict[str, str]:
+    """Propriétaire et date EFFECTIFS d'une réactivation : ceux saisis, sinon la reprise sans
+    interruption. Sert aussi à la route, qui doit connaître la date réelle pour exiger (ou non) une
+    justification rétroactive."""
+    defaut = reprise_par_defaut(logement_id, db_path=db_path)
+    return {
+        "proprietaire_id": _txt(proprietaire_id) or (defaut["proprietaire_id"] if defaut else ""),
+        "date_debut": _txt(date_debut) or (defaut["date_debut"] if defaut else ""),
+        "sans_interruption": bool(defaut) and not _txt(date_debut) and not _txt(proprietaire_id),
+    }
+
+
+def reactiver(logement_id: str, date_debut: str = "", proprietaire_id: str = "", *,
+              acteur: str = "", justification: str = "", db_path=None) -> dict[str, Any]:
+    """Réactive un logement : `actif=OUI`, `statut_parc=GERE`, et — c'est le point — une période de
+    gestion OUVERTE. Jamais de réouverture d'une ligne close : une nouvelle ligne, datée.
+
+    `date_debut` / `proprietaire_id` facultatifs : par défaut, la gestion REPREND SANS INTERRUPTION
+    (même propriétaire, lendemain de la fin de la dernière période). Un logement déjà marqué actif
+    mais SANS gestion ouverte (cf. `coherence`) est réparé de la même façon : réactiver ne se refuse
+    que pour un logement réellement actif ET géré.
+    """
     if not adm.disponible(db_path=db_path):
         return _refus(E_REFERENTIEL_ABSENT)
+    logement_id = _txt(logement_id)
+    effectif = plan_reactivation(logement_id, date_debut, proprietaire_id, db_path=db_path)
+    date_debut, prop = effectif["date_debut"], effectif["proprietaire_id"]
     if not _date_valide(date_debut):
         return _refus(E_DATE_INVALIDE, date_debut)
 
-    prop = _txt(proprietaire_id)
     if not prop:
         return _refus(E_PROP_MANQUANT)
     if prop not in _proprietaires_actifs(db_path=db_path):
         return _refus(E_PROP_INCONNU, prop)
 
-    logement_id = _txt(logement_id)
     fiche = _fiche(logement_id, db_path=db_path)
     if fiche is None:
         return _refus(E_LOGEMENT_INCONNU, logement_id)
-    if _txt(fiche.get("actif")).upper() == "OUI":
+    etat = coherence(logement_id, db_path=db_path)
+    if not etat.get("reactivable", True):
         return _refus(E_DEJA_ACTIF, logement_id)
 
+    ouverte = etat.get("periode_ouverte")
     action_ouverture = "CORRECTION_RETROACTIVE" if adm.est_retroactif(date_debut) else "REACTIVATION"
     try:
         with adm.transaction(db_path=db_path) as conn:
-            res_gest = adm.inserer(SH_GEST, {
-                "gestion_id": f"GST_{logement_id}_{prop}_{_txt(date_debut)}",
-                "logement_id": logement_id,
-                "proprietaire_id": prop,
-                "date_debut": _txt(date_debut),
-                "date_fin": "",
-                "statut_gestion": "ACTIF",
-                "source": adm.SOURCE_APPLICATION,
-                "commentaire": justification or "Réactivation",
-            }, action=action_ouverture, acteur=acteur, commentaire=justification, conn=conn,
-               db_path=db_path)
-            if not res_gest.get("ok"):
-                raise adm.RefusTransaction(res_gest)
+            if ouverte is None:
+                res_gest = adm.inserer(SH_GEST, {
+                    "gestion_id": f"GST_{logement_id}_{prop}_{_txt(date_debut)}",
+                    "logement_id": logement_id,
+                    "proprietaire_id": prop,
+                    "date_debut": _txt(date_debut),
+                    "date_fin": "",
+                    "statut_gestion": "ACTIF",
+                    "source": adm.SOURCE_APPLICATION,
+                    "commentaire": justification or "Réactivation",
+                }, action=action_ouverture, acteur=acteur, commentaire=justification, conn=conn,
+                   db_path=db_path)
+                if not res_gest.get("ok"):
+                    raise adm.RefusTransaction(res_gest)
 
             res = adm.mettre_a_jour(SH_LOG, logement_id, {"actif": "OUI", "statut_parc": "GERE"},
                                     action="REACTIVATION", acteur=acteur, conn=conn, db_path=db_path)
@@ -228,7 +354,8 @@ def reactiver(logement_id: str, date_debut: str, proprietaire_id: str, *, acteur
         return _refus(E_ECRITURE, f"{type(exc).__name__}: {exc}")
     adm.invalider_dag_referentiel(db_path=db_path)
     return {"ok": True, "logement_id": logement_id, "proprietaire_id": prop,
-            "date_debut": _txt(date_debut)}
+            "date_debut": _txt(date_debut), "periode_ouverte": ouverte is None,
+            "sans_interruption": effectif["sans_interruption"]}
 
 
 def changer_proprietaire(logement_id: str, proprietaire_id: str, date_debut: str, *,

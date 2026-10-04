@@ -240,6 +240,48 @@ def resolve_parametre_general(
     return Resolution("OK", value=valeur, row=row)
 
 
+def _gestion_sans_interruption(
+    rows: list[dict[str, Any]],
+    row: dict[str, Any],
+    fin_sejour: _dt.date,
+) -> bool:
+    """Un séjour qui dépasse la fin de `row` est-il pourtant couvert SANS INTERRUPTION par le MÊME
+    propriétaire ?
+
+    Un séjour qui chevauche la fin d'une période de gestion est contrôlé, jamais réaffecté en silence
+    : il pourrait changer de propriétaire en cours de séjour. Cette crainte n'a pas d'objet quand la
+    période suivante du même logement commence LE LENDEMAIN de la fin de celle-ci et appartient au
+    même propriétaire : la gestion n'a jamais été interrompue, aucun propriétaire n'est substitué.
+    C'est exactement ce que produit une réactivation sans interruption — archivage à la date D, puis
+    reprise à D+1 pour le même propriétaire. Sans cette règle, le séjour à cheval sur D/D+1 resterait
+    « hors période » alors qu'aucune nuit n'a échappé à la gestion.
+
+    Les périodes doivent être JOINTIVES (début = fin précédente + 1 jour) : un trou, même d'un jour,
+    laisse le séjour contrôlé. Un propriétaire différent ou absent aussi.
+    """
+    log = norm_text(row.get("logement_id"))
+    prop = norm_text(row.get("proprietaire_id"))
+    if not prop:
+        return False
+    courant = row
+    for _ in range(len(rows) + 1):
+        fin = parse_date(courant.get("date_fin"))
+        if fin is None or fin >= fin_sejour:
+            return True
+        lendemain = fin + _dt.timedelta(days=1)
+        suivante = next(
+            (r for r in rows
+             if norm_text(r.get("logement_id")) == log
+             and is_active(r.get("actif"))
+             and norm_text(r.get("proprietaire_id")) == prop
+             and parse_date(r.get("date_debut")) == lendemain),
+            None)
+        if suivante is None:
+            return False
+        courant = suivante
+    return False
+
+
 def resolve_management_period(
     rows: Iterable[dict[str, Any]],
     *,
@@ -250,7 +292,8 @@ def resolve_management_period(
     """Resolve owner/management period for a reservation.
 
     The full stay must fit within one active management period. A stay crossing
-    a boundary is controlled instead of silently reassigned.
+    a boundary is controlled instead of silently reassigned — sauf si la gestion se
+    poursuit sans interruption, pour le même propriétaire (`_gestion_sans_interruption`).
     """
 
     log = norm_text(logement_id)
@@ -259,6 +302,7 @@ def resolve_management_period(
     if start is None:
         return Resolution("MISSING", message="Date d'arrivee absente")
 
+    rows = list(rows)
     dated_candidates = []
     undated_candidates = []
     for row in rows:
@@ -269,7 +313,8 @@ def resolve_management_period(
         if not applies_on(row, start, "date_debut", "date_fin"):
             continue
         period_end = parse_date(row.get("date_fin"))
-        if period_end is not None and end is not None and end > period_end:
+        if (period_end is not None and end is not None and end > period_end
+                and not _gestion_sans_interruption(rows, row, end)):
             return Resolution("OUT_OF_PERIOD", row=row, message="Sejour chevauche la fin de gestion")
         if parse_date(row.get("date_debut")) is None:
             undated_candidates.append(row)
