@@ -138,6 +138,22 @@ Copies par l'API de backup SQLite sous `<APP_DATA_DIR>ackups`, chacune avec un 
 rétention d'une quotidienne. Détail, rotation, restauration et procédure d'urgence :
 `BACKUP_RESTORE.md`.
 
+### 1.5 Bases `app.db` : réelle, dev, recette, test (2026-10-04)
+
+Source de vérité unique : `05_APPLICATION/app/environnement.py` (identité affichée dans
+Observabilité, carte « Environnement »).
+
+| Base | Emplacement | Environnement | Consommateurs |
+|---|---|---|---|
+| **Réelle** | `APP_DATA_DIR` déclaré dans le `.env` du projet | `REAL` (constaté, jamais déclaré) | l'application lancée normalement (`run_app.py`), ses moteurs `02_TRAVAIL` (reçoivent `--db`) |
+| Recette | copie sous un `APP_DATA_DIR` temporaire | `RECETTE` (`PILOTAGE_ENVIRONNEMENT=RECETTE`, ou déduit) | lanceurs `pilotage-recette-*` |
+| Test | `tmp_db` (dossier temporaire pytest) | `TEST` (posé par `tests/conftest.py`) | suite pytest |
+| **`BASE_DEV_OBSOLETE`** | `05_APPLICATION/data/app.db` | `DEV` (aucun `APP_DATA_DIR`) | **aucun** consommateur légitime : repli uniquement si aucun `.env` ne déclare `APP_DATA_DIR`. Figée au 29/09/2026, jamais la base réelle. Conservée (non supprimée). |
+
+Garde : hors `REAL`, toute ouverture de la base réelle est refusée — au démarrage de l'application
+(avant les migrations), au lancement de pytest (code 3) et à chaque `get_db()` ; sous pytest, même
+la lecture du dossier réel est refusée (`tests/garde_sources_reelles.py`).
+
 ---
 
 ## 2. Principes structurants

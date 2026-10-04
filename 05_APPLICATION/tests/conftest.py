@@ -27,6 +27,11 @@ import pytest
 # CE QUI N'A PAS BOUGÉ : l'application. Lancée normalement, elle charge son `.env` et ouvre les
 # verrous que l'exploitant y a définis — vérifié par `test_config_chargement_env.py`.
 os.environ["PILOTAGE_IGNORE_ENV_FILE"] = "1"
+# La suite est l'environnement TEST, déclaré explicitement (`app/environnement.py`) : toute
+# ouverture de la base réelle y est refusée — au lancement (`pytest_configure`) et à chaque
+# `get_db()`. Écrasé, jamais `setdefault` : un `PILOTAGE_ENVIRONNEMENT` hérité du shell ne doit pas
+# requalifier la suite.
+os.environ["PILOTAGE_ENVIRONNEMENT"] = "TEST"
 assert "app.config" not in sys.modules, (
     "app.config a été importé avant conftest : ses drapeaux sont déjà figés sur le .env de la "
     "machine, et la suite n'est plus isolée.")
@@ -44,6 +49,15 @@ if str(APP_ROOT) not in sys.path:
 def pytest_configure(config):
     """Refuse --basetemp sous APP_ROOT : déclencherait les gardes chemin APP-2c/APP-2e."""
     import garde_sources_reelles
+
+    # REFUS IMMÉDIAT si la base par défaut de la session est la base réelle (ex. `APP_DATA_DIR`
+    # réel exporté dans le shell) : pas un avertissement, la session ne démarre pas.
+    from app import environnement
+
+    try:
+        environnement.refuser_base_reelle()
+    except environnement.BaseReelleInterdite as exc:
+        pytest.exit(f"\n[REFUS — BASE RÉELLE]\n{exc}\n", returncode=3)
 
     garde_sources_reelles.initialiser()
 

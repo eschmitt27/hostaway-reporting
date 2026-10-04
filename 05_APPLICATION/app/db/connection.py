@@ -15,6 +15,11 @@ def get_db(db_path: Path | None = None) -> sqlite3.Connection:
     au moment de l'appel.
     """
     resolved = Path(db_path) if db_path is not None else Path(cfg.DB_PATH)
+    # Hors environnement RÉEL (test, recette, développement), la base réelle est refusée ici, au
+    # point de passage unique : aucun chemin reconstruit ailleurs ne peut la rejoindre en silence.
+    from app import environnement
+
+    environnement.refuser_base_reelle(resolved)
     resolved.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(resolved))
     conn.row_factory = sqlite3.Row

@@ -25,14 +25,21 @@ from pathlib import Path
 
 # Renseigné au démarrage de la session de tests par `pytest_configure`.
 _RACINES_PROTEGEES: tuple[Path, ...] = ()
+# Dossier de données RÉEL (`APP_DATA_DIR` déclaré dans le `.env`) : là, même la LECTURE est refusée.
+# Un test n'a aucune raison de lire la vraie base ; s'il le fait, il en dépend, et il cesserait
+# d'être reproductible le jour où cette base change.
+_DONNEES_REELLES: Path | None = None
 
 _MODES_ECRITURE = ("w", "a", "x", "+")
 
 
 def initialiser() -> tuple[Path, ...]:
     """Calcule les racines à protéger depuis la configuration réelle de l'application."""
-    global _RACINES_PROTEGEES
+    global _RACINES_PROTEGEES, _DONNEES_REELLES
     import app.config as cfg
+    from app import environnement
+
+    _DONNEES_REELLES = environnement.data_dir_reel()
 
     candidats = [
         cfg.PROJECT_ROOT / "02_TRAVAIL",
@@ -62,6 +69,25 @@ def est_protege(chemin) -> bool:
     return any(resolu == racine or racine in resolu.parents for racine in _RACINES_PROTEGEES)
 
 
+def est_donnee_reelle(chemin) -> bool:
+    """Vrai si `chemin` tombe sous le dossier de données réel de l'exploitant."""
+    if _DONNEES_REELLES is None:
+        return False
+    try:
+        resolu = Path(chemin).resolve()
+    except (OSError, ValueError, TypeError):
+        return False
+    return resolu == _DONNEES_REELLES or _DONNEES_REELLES in resolu.parents
+
+
+def _refuser_reel(quoi: str) -> None:
+    # Le chemin n'est pas recopié : c'est celui de la machine de l'exploitant.
+    raise AssertionError(
+        f"{quoi} INTERDITE dans le dossier de donnees REEL (APP_DATA_DIR du .env) : un test "
+        "n'utilise jamais la vraie base. Utiliser tmp_db, tmp_path ou un APP_DATA_DIR isole."
+    )
+
+
 def _refuser(quoi: str, chemin) -> None:
     raise AssertionError(
         f"{quoi} INTERDITE dans une source reelle du projet : {chemin}\n"
@@ -79,6 +105,8 @@ def armer(monkeypatch) -> None:
     open_original = builtins.open
 
     def open_garde(file, mode="r", *args, **kwargs):
+        if isinstance(file, (str, Path)) and est_donnee_reelle(file):
+            _refuser_reel("OUVERTURE")
         if any(m in str(mode) for m in _MODES_ECRITURE) and est_protege(file):
             _refuser("ECRITURE", file)
         return open_original(file, mode, *args, **kwargs)
@@ -117,6 +145,12 @@ def armer(monkeypatch) -> None:
     connect_original = sqlite3.connect
 
     def connect_garde(database, *args, **kwargs):
+        if isinstance(database, (str, Path)) and str(database) != ":memory:":
+            nu = str(database)
+            if nu.startswith("file:"):
+                nu = nu[5:].split("?", 1)[0]
+            if est_donnee_reelle(nu):
+                _refuser_reel("CONNEXION SQLITE")
         # `:memory:` et les URI ne désignent pas un fichier du projet.
         if isinstance(database, (str, Path)) and str(database) != ":memory:" \
                 and est_protege(database):

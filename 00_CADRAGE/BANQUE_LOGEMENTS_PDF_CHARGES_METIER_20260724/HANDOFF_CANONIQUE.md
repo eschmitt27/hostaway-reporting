@@ -4866,3 +4866,34 @@ suivi du dispatch borné (120 s / 20 min) ; `git fetch` borné à 300 s ; lot1 b
 
 **Prochaine action** : aucune requise pour Hostaway. Éventuel : décider si `extract_*.py` (branche
 `main`) doit honorer `Retry-After` — hors application, à traiter dans ce dépôt de données.
+
+## Mission Séparation base réelle / dev / recette / test (2026-10-04)
+
+**Source de vérité unique** : `05_APPLICATION/app/environnement.py`. Base réelle = `APP_DATA_DIR`
+déclaré dans le `.env` (lu dans le fichier même quand le processus ne le charge pas). Environnement :
+`PILOTAGE_ENVIRONNEMENT` explicite (TEST/RECETTE/DEV ; REAL ne se déclare pas), sinon RECETTE_MODE →
+RECETTE, dossier réel → REAL, aucun `APP_DATA_DIR` → DEV (`BASE_DEV_OBSOLETE`), autre → RECETTE.
+
+**Gardes (refus, jamais un avertissement)** : hors REAL, la base réelle est refusée au démarrage de
+l'application (avant les migrations), à chaque `get_db()`, et au lancement de pytest (code 3) ;
+sous pytest, `garde_sources_reelles` refuse aussi toute ouverture/connexion (lecture comprise) sous
+le dossier réel. `tests/conftest.py` déclare `PILOTAGE_ENVIRONNEMENT=TEST`. Lanceurs de recette
+locaux (`.claude/launch.json`, non suivi) étiquetés `RECETTE`.
+
+**Affichage** : Observabilité › carte « Environnement » — RÉEL / RECETTE / TEST / DÉVELOPPEMENT,
+base active (nom logique), APP_DATA_DIR (indication logique, aucun chemin), écritures ACTIVES (réel)
+ou ÉCRITURES RÉELLES BLOQUÉES (hors réel). Vérifié sur copie : « RECETTE · copie isolée · BLOQUÉES ».
+Config réelle, sans étiquette : REAL, écritures actives ; même config étiquetée RECETTE : refus.
+
+**`05_APPLICATION/data/app.db` = BASE_DEV_OBSOLETE** (figée au 29/09, conservée, documentée dans
+`ARCHITECTURE_DONNEES.md` §1.5) : aucun consommateur légitime, repli seulement sans `.env`.
+
+**Risque restant** : la suite pytest n'a pas son propre `APP_DATA_DIR` ; des constantes figées à
+l'import (`DRYRUNS_DIR`…) la font écrire des manifestes de dry-run dans
+`05_APPLICATION/data/dryruns/` (730 dossiers la nuit du 04/10 ; base dev et base réelle
+intactes). Prochaine action proposée : poser un `APP_DATA_DIR` temporaire de session dans
+`conftest.py` (après le contrôle de refus), puis rejouer la suite complète.
+
+**Tests** : `tests/test_environnement_base_active.py` (13). Suite complète : **4 775 passed,
+37 skipped, 0 failed**. Base réelle : `45dd87c2…`, 86 888 448 octets, mtime 03/10 21:01,
+integrity ok — inchangée ; `.env` inchangé ; `MODE_REEL_ECRITURES=1` inchangé.

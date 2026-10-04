@@ -40,9 +40,13 @@ def runs(request: Request):
     from app.services import menages_actualisation_service as actualisation
     from app.services import menages_service as menages
 
+    from app import environnement
+
     etat = menages.charger_etat_actualisation()
     return templates.TemplateResponse(request, "observabilite_runs.html", {
         "active_menu": "observabilite",
+        # Quelle base, quel environnement : réel ou copie doit se voir au premier coup d'œil.
+        "environnement": environnement.identite(),
         "runs": history.derniers(limit=50),
         "sauvegardes": backup_service.lister(),
         "etat_sauvegardes": backup_service.etat(),

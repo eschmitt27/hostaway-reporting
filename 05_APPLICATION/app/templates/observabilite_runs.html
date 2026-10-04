@@ -18,6 +18,38 @@
   </div>
 </div>
 
+{% set env = environnement %}
+<div class="card" data-testid="environnement">
+  <div class="fi-card-tete">
+    <div class="card-title">Environnement</div>
+    {% if env.est_reel %}
+      <span class="status-badge status-bloquant" data-testid="environnement-badge">Environnement : {{ env.libelle }}</span>
+    {% else %}
+      <span class="status-badge status-info" data-testid="environnement-badge">Environnement : {{ env.libelle }}</span>
+    {% endif %}
+  </div>
+  <div class="ec-table-wrap">
+  <table class="table">
+    <tbody>
+      <tr><th scope="row">Base active</th><td data-testid="environnement-base">{{ env.base_active }}</td></tr>
+      <tr><th scope="row">APP_DATA_DIR</th><td>{{ env.dossier_donnees }}</td></tr>
+      <tr><th scope="row">{% if env.est_reel %}Écritures{% else %}Écritures réelles{% endif %}</th>
+        <td data-testid="environnement-ecritures">
+          {% if env.est_reel %}
+            {% if env.ecritures_actives %}<strong>ACTIVES</strong> — les actions modifient les données réelles{% else %}INACTIVES{% endif %}
+          {% else %}
+            <strong>BLOQUÉES</strong> — la base réelle est inaccessible depuis cet environnement
+            {% if env.ecritures_actives %}(écritures actives sur la copie uniquement){% endif %}
+          {% endif %}
+        </td></tr>
+      {% if not env.base_reelle_connue %}
+      <tr><th scope="row">Base réelle</th><td>Non déclarée (aucun APP_DATA_DIR dans le .env) — rien ne peut être qualifié de réel ici.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
 <div class="card">
   <div class="fi-card-tete">
     <div class="card-title">Derniers runs</div>

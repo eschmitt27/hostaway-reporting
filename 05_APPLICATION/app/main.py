@@ -17,6 +17,11 @@ from app.routes import home, actualisation, administration_referentiels, sources
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # AVANT toute ouverture de base (migrations comprises) : une recette, un test ou un poste de
+    # développement qui viserait la base réelle ne démarre pas (`app/environnement.py`).
+    from app import environnement
+
+    environnement.refuser_base_reelle()
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
     # Migrations PROTÉGÉES : sauvegarde vérifiée seulement s'il y a réellement une migration à jouer,
