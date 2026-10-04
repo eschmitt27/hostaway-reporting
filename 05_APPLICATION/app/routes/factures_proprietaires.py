@@ -151,6 +151,9 @@ def liste(request: Request, mois: str = "", statut: str = "", comptabilisee: str
     return templates.TemplateResponse(request, "factures_proprietaires_list.html", {
         "active_menu": "factures_proprietaires", "factures": factures, "mois": mois, "statut": statut,
         "statuts": svc.STATUTS, "comptabilisee": comptabilisee, "message": message,
+        # Affichage seulement : le filtre déjà appliqué est dit à l'écran et conservé par
+        # « Filtrer » (il était appliqué sans être visible, et perdu au premier filtrage).
+        "proprietaire_id": proprietaire_id,
         "nb_annulees_supprimables": sum(1 for f in svc.lister(statut=svc.ST_ANNULE)
                                         if brouillon.supprimable(f)),
         "factures_emises": [f for f in svc.lister(statut=svc.ST_EMIS)
@@ -312,17 +315,49 @@ def _credits_disponibles(proprietaire_id: str) -> list[dict]:
             if c["reste"] > credits.EPS]
 
 
+def _affichage_credits(facture: dict, solde: dict, credits_dispo: list[dict]) -> dict:
+    """Données d'AFFICHAGE seulement, toutes lues dans l'existant — aucune écriture, aucun calcul
+    métier nouveau :
+    · `credit_disponible_total` : somme des restes déjà calculés par `credits_clients_service`,
+      pour annoncer sur un brouillon ce que l'émission imputera ;
+    · `comptes_credits` : compte de tiers de chaque crédit imputé (419100 ou 419700), selon la
+      règle canonique `compte_du_credit` — la fiche affichait « 419100 » en dur ;
+    · `facture_origine_numero` : numéro de la facture d'origine d'un avoir, au lieu de son
+      identifiant technique.
+    """
+    from app.services import credits_clients_service as credits
+    ids = {r.get("credit_id_opaque") for r in solde.get("reversements_airbnb") or []}
+    try:
+        origines = compo._origines_credits(ids)
+    except Exception:      # noqa: BLE001 — affichage : à défaut, le compte historique 419100
+        origines = {}
+    numero_origine = ""
+    if facture.get("facture_origine"):
+        try:
+            numero_origine = svc.lire(facture["facture_origine"]).get("numero_facture") or ""
+        except Exception:  # noqa: BLE001
+            numero_origine = ""
+    return {
+        "credit_disponible_total": round(sum(float(c.get("reste") or 0) for c in credits_dispo), 2),
+        "comptes_credits": {i: credits.compte_du_credit(o) for i, o in origines.items()},
+        "facture_origine_numero": numero_origine,
+    }
+
+
 def _contexte_fiche(facture_id: str, erreur: str | None = None) -> dict:
     facture = svc.lire(facture_id)
+    solde = svc.solde(facture_id)
+    credits_dispo = _credits_disponibles(facture["proprietaire_id"])
     return {
+        **_affichage_credits(facture, solde, credits_dispo),
         # `factures_proprietaires`, PAS `factures` : c'est l'onglet « Factures fournisseurs » qui
         # s'allumait alors qu'on éditait une facture PROPRIÉTAIRE. La liste posait déjà la bonne
         # clé ; seules les pages enfants héritaient de la mauvaise.
         "active_menu": "factures_proprietaires", "facture": facture,
         "aujourdhui": date.today().isoformat(),
-        "solde": svc.solde(facture_id),
+        "solde": solde,
         # Mission 37 — reversements Airbnb DISPONIBLES (origine constatée) du propriétaire.
-        "credits_airbnb": _credits_disponibles(facture["proprietaire_id"]),
+        "credits_airbnb": credits_dispo,
         # Édition du BROUILLON : tout est calculé ICI. Le gabarit n'effectue aucune arithmétique
         # et ne dérive aucun droit — il affiche.
         "editable": facture["statut"] == svc.ST_BROUILLON,

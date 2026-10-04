@@ -1,0 +1,484 @@
+/* ══ FACTURES CLIENTS — fiche, création, émission ═══════════════════════════════════════════
+   Couche posée par-dessus `ecrans.css` et `finitions.css`, chargée par les seuls écrans
+   « Factures propriétaires ».
+
+   Règles de confinement (identiques aux deux couches précédentes) :
+   · tout sélecteur commence par `.ecran.fc` — un écran qui ne porte pas ces deux classes n'est
+     pas concerné ;
+   · uniquement les jetons d'app.css : l'identité visuelle ne change pas ;
+   · présentation seulement : aucun nom de champ, aucune valeur, aucune route n'en dépend. */
+
+.ecran.fc {
+  --fc-lateral: 360px;
+  --fc-champ-h: 38px;
+  --fc-bord: var(--color-outline-variant);
+  --fc-focus: 0 0 0 3px rgba(0, 52, 65, 0.28);
+}
+
+/* ── Fil d'Ariane ────────────────────────────────────────────────────────────────────────── */
+.ecran.fc .fc-ariane { margin: 0 0 var(--stack-sm); font-size: 13px; color: var(--color-secondary); }
+.ecran.fc .fc-ariane ol { display: flex; flex-wrap: wrap; gap: 4px 8px; margin: 0; padding: 0; list-style: none; }
+.ecran.fc .fc-ariane li + li::before { content: "\203A"; margin-right: 8px; color: var(--color-outline); }
+.ecran.fc .fc-ariane a { color: var(--color-secondary); text-decoration: underline; text-underline-offset: 2px; }
+.ecran.fc .fc-ariane a:hover { color: var(--color-primary); }
+.ecran.fc .fc-ariane [aria-current="page"] { color: var(--color-on-surface); font-weight: 600; }
+
+/* ── En-tête de fiche ────────────────────────────────────────────────────────────────────── */
+.ecran.fc .fc-entete { align-items: flex-start; }
+.ecran.fc .fc-entete .page-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.ecran.fc .fc-sans-numero { font-weight: 400; color: var(--color-secondary); }
+.ecran.fc .fc-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 28px;
+  margin: 10px 0 0;
+}
+.ecran.fc .fc-meta > div { display: flex; flex-direction: column; min-width: 0; }
+.ecran.fc .fc-meta dt {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+}
+.ecran.fc .fc-meta dd { margin: 0; font-size: 14px; font-weight: 600; color: var(--color-on-surface); }
+.ecran.fc .fc-meta dd a { color: var(--color-primary); }
+
+/* ── Fil d'étapes Brouillon → Validée → Émise ───────────────────────────────────────────── */
+.ecran.fc .fc-etapes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0;
+  margin: 0 0 var(--stack-md);
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--fc-bord);
+  border-radius: var(--radius-lg);
+  background: #ffffff;
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+.ecran.fc .fc-etape {
+  flex: 1 1 180px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  color: var(--color-secondary);
+  min-width: 0;
+}
+.ecran.fc .fc-etape + .fc-etape { border-left: 1px solid var(--color-surface-container); }
+.ecran.fc .fc-etape__point {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--color-outline-variant);
+  font-size: 13px;
+  font-weight: 700;
+  background: #ffffff;
+}
+.ecran.fc .fc-etape__texte { display: flex; flex-direction: column; min-width: 0; }
+.ecran.fc .fc-etape__titre { font-size: 14px; font-weight: 700; }
+.ecran.fc .fc-etape__aide { font-size: 12px; line-height: 1.4; }
+.ecran.fc .fc-etape.is-faite { color: var(--color-success); }
+.ecran.fc .fc-etape.is-faite .fc-etape__point { border-color: var(--color-success); background: var(--color-success-bg); }
+.ecran.fc .fc-etape.is-courante { color: var(--color-primary); background: var(--color-surface-container-low); }
+.ecran.fc .fc-etape.is-courante .fc-etape__point { border-color: var(--color-primary); background: var(--color-primary); color: var(--color-on-primary); }
+.ecran.fc .fc-etape.is-courante .fc-etape__aide { color: var(--color-on-surface-variant); }
+.ecran.fc .fc-etapes--annulee { display: flex; align-items: center; gap: 12px; padding: 12px 16px; }
+.ecran.fc .fc-etapes__aide { font-size: 13px; color: var(--color-on-surface-variant); }
+
+/* ── Sommaire de la fiche (liens d'ancrage) ─────────────────────────────────────────────── */
+.ecran.fc .fc-sommaire {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  margin: 0 0 var(--stack-md);
+  padding: 6px 0;
+  background: var(--color-surface);
+}
+.ecran.fc .fc-sommaire ul {
+  display: flex;
+  gap: 4px;
+  margin: 0;
+  padding: 3px;
+  list-style: none;
+  width: fit-content;
+  max-width: 100%;
+  overflow-x: auto;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-container);
+  scrollbar-width: thin;
+}
+.ecran.fc .fc-sommaire a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: var(--radius-full);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-on-surface-variant);
+  white-space: nowrap;
+  text-decoration: none;
+}
+.ecran.fc .fc-sommaire a:hover { background: var(--color-surface-container-high); color: var(--color-primary); }
+.ecran.fc .fc-sommaire a[aria-current="true"] { background: var(--color-primary); color: var(--color-on-primary); }
+.ecran.fc .fc-sommaire .fc-pastille {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+
+/* Les sections ancrées ne se cachent pas sous le sommaire collant. */
+.ecran.fc [id] { scroll-margin-top: 64px; }
+
+/* ── Mise en page : contenu + colonne de synthèse ───────────────────────────────────────── */
+.ecran.fc .fc-mise-en-page { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--stack-md); align-items: start; }
+.ecran.fc .fc-principal, .ecran.fc .fc-lateral { display: flex; flex-direction: column; gap: var(--stack-md); min-width: 0; }
+.ecran.fc .fc-principal > *, .ecran.fc .fc-lateral > * { min-width: 0; }
+.ecran.fc .fc-principal > .card, .ecran.fc .fc-lateral > .card { margin: 0; }
+/* Écran moyen : la synthèse reste en tête, montant et actions côte à côte. */
+@media (min-width: 900px) and (max-width: 1499px) {
+  .ecran.fc .fc-lateral { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+}
+/* Grand écran : la synthèse devient une colonne qui suit le défilement. */
+@media (min-width: 1500px) {
+  .ecran.fc .fc-mise-en-page { grid-template-columns: minmax(0, 1fr) var(--fc-lateral); }
+  .ecran.fc .fc-lateral { grid-column: 2; grid-row: 1; position: sticky; top: 56px; }
+  .ecran.fc .fc-principal { grid-column: 1; grid-row: 1; }
+}
+
+/* ── Cartes de section ──────────────────────────────────────────────────────────────────── */
+.ecran.fc .fc-carte { padding: 20px 24px; }
+.ecran.fc .fc-carte__tete {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 16px;
+  margin: 0 0 12px;
+}
+.ecran.fc .fc-carte__titre { margin: 0; font-size: 17px; font-weight: 700; color: var(--color-on-surface); }
+.ecran.fc .fc-carte__sous-titre { margin: 18px 0 8px; font-size: 14px; font-weight: 700; color: var(--color-on-surface); }
+.ecran.fc .fc-carte__tete p { margin: 0; font-size: 13px; color: var(--color-secondary); }
+.ecran.fc .fc-aide { margin: 8px 0 0; font-size: 12px; line-height: 1.55; color: var(--color-secondary); max-width: 90ch; }
+.ecran.fc .fc-aide strong { color: var(--color-on-surface-variant); }
+.ecran.fc .fc-vide { margin: 0; padding: 14px 16px; border-radius: var(--radius-md); background: var(--color-surface-container-low); font-size: 14px; color: var(--color-on-surface-variant); }
+
+/* ── Montants ───────────────────────────────────────────────────────────────────────────── */
+.ecran.fc .fc-montant { font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+.ecran.fc .fc-decompo { width: 100%; border-collapse: collapse; font-size: 14px; }
+.ecran.fc .fc-decompo th, .ecran.fc .fc-decompo td { padding: 6px 0; border: 0; background: none; text-transform: none; letter-spacing: 0; }
+.ecran.fc .fc-decompo th { font-weight: 400; text-align: left; color: var(--color-on-surface-variant); font-size: 14px; }
+.ecran.fc .fc-decompo tr:hover { background: none; }
+.ecran.fc .fc-decompo .fc-decompo__nb { font-size: 12px; color: var(--color-secondary); }
+.ecran.fc .fc-decompo .fc-decompo__total th,
+.ecran.fc .fc-decompo .fc-decompo__total td { font-weight: 700; color: var(--color-on-surface); border-top: 1px solid var(--color-outline-variant); }
+.ecran.fc .fc-decompo .fc-decompo__deduction th,
+.ecran.fc .fc-decompo .fc-decompo__deduction td { color: var(--color-on-surface-variant); }
+.ecran.fc .fc-decompo .fc-decompo__net th,
+.ecran.fc .fc-decompo .fc-decompo__net td {
+  padding-top: 12px;
+  border-top: 2px solid var(--color-primary);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+.ecran.fc .fc-decompo .fc-decompo__net td { font-size: 22px; }
+.ecran.fc .fc-decompo__sens { display: block; font-size: 12px; font-weight: 400; color: var(--color-secondary); }
+
+/* Encadré d'information à l'intérieur d'une carte. */
+.ecran.fc .fc-encart {
+  margin: 12px 0 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--color-info);
+  background: var(--color-info-bg);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-on-surface);
+}
+.ecran.fc .fc-encart--alerte { border-left-color: var(--color-warning); background: var(--color-warning-bg); }
+.ecran.fc .fc-encart--succes { border-left-color: var(--color-success); background: var(--color-success-bg); }
+.ecran.fc .fc-encart--danger { border-left-color: var(--color-error); background: var(--color-error-container); }
+.ecran.fc .fc-encart p { margin: 0; }
+.ecran.fc .fc-encart p + p { margin-top: 4px; }
+.ecran.fc .fc-encart ul { margin: 6px 0 0 18px; padding: 0; }
+.ecran.fc .fc-encart a { color: var(--color-primary); font-weight: 600; }
+
+/* ── Champs de formulaire (toute la fiche) ──────────────────────────────────────────────── */
+.ecran.fc .fc-grille { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px 16px; align-items: end; }
+.ecran.fc .fc-grille--2 { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+.ecran.fc .fc-grille--haut { align-items: start; }
+.ecran.fc .fc-grille--haut .fc-carte__sous-titre { margin-top: 0; }
+.ecran.fc .fc-champ { display: flex; flex-direction: column; gap: 4px; min-width: 0; margin: 0; }
+.ecran.fc .fc-champ--large { grid-column: 1 / -1; }
+.ecran.fc .fc-champ > span, .ecran.fc .fc-champ__label { font-size: 12px; font-weight: 600; line-height: 1.4; color: var(--color-on-surface-variant); }
+.ecran.fc .fc-champ__aide { font-size: 12px; font-weight: 400; color: var(--color-secondary); }
+.ecran.fc .fc-facultatif { font-weight: 400; color: var(--color-secondary); }
+.ecran.fc input[type="text"],
+.ecran.fc input[type="number"],
+.ecran.fc input[type="date"],
+.ecran.fc input[type="month"],
+.ecran.fc select {
+  width: 100%;
+  min-width: 0;
+  height: var(--fc-champ-h);
+  padding: 0 10px;
+  border: 1px solid var(--fc-bord);
+  border-radius: var(--radius-md);
+  background-color: #ffffff;
+  color: var(--color-on-surface);
+  font: inherit;
+  font-size: 14px;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.ecran.fc select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2340484b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.ecran.fc input:hover, .ecran.fc select:hover { border-color: var(--color-outline); }
+.ecran.fc input:focus, .ecran.fc select:focus { outline: none; border-color: var(--color-primary); box-shadow: var(--fc-focus); }
+.ecran.fc input:user-invalid, .ecran.fc select:user-invalid { border-color: var(--color-error); }
+.ecran.fc input.fc-input-montant { width: 6rem; padding: 0 8px; text-align: right; font-variant-numeric: tabular-nums; }
+.ecran.fc fieldset.fc-choix { margin: 0; padding: 10px 12px 12px; border: 1px solid var(--fc-bord); border-radius: var(--radius-md); }
+.ecran.fc fieldset.fc-choix legend { padding: 0 4px; font-size: 12px; font-weight: 600; color: var(--color-on-surface-variant); }
+.ecran.fc .fc-option { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; font-size: 14px; line-height: 1.45; cursor: pointer; }
+.ecran.fc .fc-option input { flex: none; width: 18px; height: 18px; margin-top: 1px; accent-color: var(--color-primary); }
+.ecran.fc .fc-option small { display: block; font-size: 12px; color: var(--color-secondary); }
+.ecran.fc .fc-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
+.ecran.fc .fc-actions .fc-aide { margin: 0; flex: 1 1 260px; }
+.ecran.fc .fc-actions--colonne { flex-direction: column; align-items: stretch; }
+.ecran.fc .fc-actions--colonne .btn { justify-content: center; }
+.ecran.fc .btn { justify-content: center; }
+.ecran.fc .btn-sm { padding: 6px 12px; font-size: 13px; }
+.ecran.fc .btn-lien {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.ecran.fc .btn-lien--danger { color: var(--color-error); }
+.ecran.fc .btn-danger { border: 1.5px solid var(--color-error); }
+.ecran.fc button:focus-visible,
+.ecran.fc a:focus-visible,
+.ecran.fc summary:focus-visible { outline: none; box-shadow: var(--fc-focus); border-radius: var(--radius-md); }
+
+/* ── Tableaux ───────────────────────────────────────────────────────────────────────────── */
+/* `position: relative` : les textes réservés aux lecteurs d'écran (positionnés en absolu) restent
+   dans le cadre qui défile, au lieu d'élargir la page entière. */
+.ecran.fc .fc-table-wrap { position: relative; overflow-x: auto; margin: 0 -4px; padding: 0 4px; }
+.ecran.fc .fc-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.ecran.fc .fc-table caption { text-align: left; }
+.ecran.fc .fc-table th, .ecran.fc .fc-table td { padding: 10px 8px; }
+.ecran.fc .fc-table th:first-child, .ecran.fc .fc-table td:first-child { padding-left: 12px; }
+.ecran.fc .fc-table td { border-bottom: 1px solid var(--color-surface-container); }
+.ecran.fc .fc-table tbody tr:last-child td { border-bottom: none; }
+.ecran.fc .fc-table tfoot th, .ecran.fc .fc-table tfoot td {
+  padding: 10px 12px;
+  font-weight: 700;
+  background: var(--color-surface-container-low);
+  border-top: 2px solid var(--color-outline-variant);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 14px;
+  color: var(--color-on-surface);
+}
+.ecran.fc .fc-table tfoot tr.fc-sous-total th, .ecran.fc .fc-table tfoot tr.fc-sous-total td { font-weight: 600; border-top-width: 1px; }
+.ecran.fc .fc-table .fc-ref { font-family: "Cascadia Code", "Consolas", monospace; font-size: 12px; color: var(--color-on-surface-variant); }
+.ecran.fc .fc-note-calcul { display: block; margin-top: 2px; font-size: 12px; color: var(--color-secondary); white-space: nowrap; }
+.ecran.fc tr.is-modifie > td { background: #fffcf3; }
+.ecran.fc tr.is-modifie > td:first-child { box-shadow: inset 3px 0 0 var(--color-warning); }
+.ecran.fc .fc-col-actions { width: 1%; white-space: nowrap; }
+
+/* Actions de ligne : un menu « Modifier » dépliable qui ne casse pas la grille. */
+.ecran.fc .fc-ligne-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.ecran.fc .fc-ligne-actions form { margin: 0; }
+.ecran.fc details.fc-modifier > summary { list-style: none; cursor: pointer; }
+.ecran.fc details.fc-modifier > summary::-webkit-details-marker { display: none; }
+.ecran.fc details.fc-modifier[open] { flex-basis: 100%; }
+.ecran.fc .fc-modifier__corps {
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px solid var(--color-surface-container);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-container-low);
+  min-width: min(100%, 520px);
+}
+
+/* ── Dépliants de la fiche (ajouts, corrections) ────────────────────────────────────────── */
+.ecran.fc details.fc-depliant { border: 1px solid var(--color-surface-container); border-radius: var(--radius-md); background: #ffffff; }
+.ecran.fc details.fc-depliant + details.fc-depliant { margin-top: 10px; }
+.ecran.fc details.fc-depliant > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 12px 16px;
+  list-style: none;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+.ecran.fc details.fc-depliant > summary::-webkit-details-marker { display: none; }
+.ecran.fc details.fc-depliant > summary::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s;
+  flex: none;
+}
+.ecran.fc details.fc-depliant[open] > summary::before { transform: rotate(45deg); }
+.ecran.fc details.fc-depliant > summary:hover { background: var(--color-surface-container-low); }
+.ecran.fc .fc-depliant__aide { font-size: 12px; font-weight: 400; color: var(--color-secondary); }
+.ecran.fc .fc-depliant__corps { padding: 4px 16px 16px; border-top: 1px solid var(--color-surface-container); }
+
+/* ── Carte « Prochaine étape » ──────────────────────────────────────────────────────────── */
+.ecran.fc .fc-prochaine { border-top: 3px solid var(--color-primary); }
+.ecran.fc .fc-prochaine--emise { border-top-color: var(--color-success); }
+.ecran.fc .fc-prochaine--annulee { border-top-color: var(--color-error); }
+.ecran.fc .fc-prochaine__texte { margin: 0; font-size: 14px; line-height: 1.55; color: var(--color-on-surface); }
+.ecran.fc .fc-separateur { margin: 16px 0 0; padding-top: 14px; border-top: 1px solid var(--color-surface-container); }
+
+/* ── Liste de contrôle (conformité) ─────────────────────────────────────────────────────── */
+.ecran.fc .fc-controles { margin: 0; padding: 0; list-style: none; }
+.ecran.fc .fc-controles li {
+  display: grid;
+  grid-template-columns: 22px minmax(150px, 0.8fr) minmax(0, 2fr);
+  gap: 4px 10px;
+  align-items: baseline;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-surface-container);
+  font-size: 14px;
+}
+.ecran.fc .fc-controles li:last-child { border-bottom: none; }
+.ecran.fc .fc-controles__etat { font-weight: 700; text-align: center; }
+.ecran.fc .fc-controles__etat--ok { color: var(--color-success); }
+.ecran.fc .fc-controles__etat--ko { color: var(--color-error); }
+.ecran.fc .fc-controles__etat--na { color: var(--color-secondary); }
+.ecran.fc .fc-controles__nom { font-weight: 600; color: var(--color-on-surface-variant); }
+
+/* ── Erreur d'action ────────────────────────────────────────────────────────────────────── */
+.ecran.fc .fc-erreur { align-items: flex-start; border: 1px solid var(--color-error); color: var(--color-on-error-container); }
+.ecran.fc .fc-erreur:focus { outline: none; box-shadow: var(--fc-focus); }
+.ecran.fc .fc-erreur strong { display: block; }
+.ecran.fc .fc-erreur svg { flex: none; width: 20px; height: 20px; margin-top: 1px; }
+
+/* « Réinitialiser » sans filtre posé : discret, mais lisible (contraste ≥ 4,5:1). */
+.ecran.fc .ec-filtres[data-fi-actifs="0"] .fi-reinit { opacity: 1; color: var(--color-secondary); }
+
+/* ── Liste et écrans de création ────────────────────────────────────────────────────────── */
+.ecran.fc #creer-avoir { padding: 0; overflow: hidden; }
+.ecran.fc #creer-avoir > summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 16px 20px;
+  list-style: none;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+.ecran.fc #creer-avoir > summary::-webkit-details-marker { display: none; }
+.ecran.fc #creer-avoir > summary::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.18s;
+  flex: none;
+}
+.ecran.fc #creer-avoir[open] > summary::before { transform: rotate(45deg); }
+.ecran.fc #creer-avoir > summary:hover { background: var(--color-surface-container-low); }
+.ecran.fc .fc-blocs-creation { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: var(--stack-md); align-items: start; margin-bottom: var(--stack-md); }
+.ecran.fc .fc-blocs-creation > .card { margin: 0; padding: 0; }
+.ecran.fc .fc-sans-numero-liste { font-weight: 400; font-style: italic; color: var(--color-secondary); }
+.ecran.fc .fc-proposition__tete { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; margin-bottom: 8px; }
+.ecran.fc .fc-proposition__tete h2 { margin: 0; font-size: 16px; font-weight: 700; }
+.ecran.fc .fc-resume { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 0 0 var(--stack-md); }
+
+/* ── Écrans étroits ─────────────────────────────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  .ecran.fc .fc-carte { padding: 16px; }
+  .ecran.fc .fc-etape { flex-basis: 100%; }
+  .ecran.fc .fc-etape + .fc-etape { border-left: none; border-top: 1px solid var(--color-surface-container); }
+  .ecran.fc .fc-etape__aide { display: none; }
+  .ecran.fc .fc-etape.is-courante .fc-etape__aide { display: block; }
+  .ecran.fc .fc-meta { gap: 6px 18px; }
+  .ecran.fc input[type="text"], .ecran.fc input[type="number"], .ecran.fc input[type="date"],
+  .ecran.fc input[type="month"], .ecran.fc select { font-size: 16px; }
+  .ecran.fc .fc-controles li { grid-template-columns: 22px minmax(0, 1fr); }
+  .ecran.fc .fc-controles li > :last-child { grid-column: 2; }
+  .ecran.fc .page-header__actions { flex-direction: column; align-items: stretch; }
+
+  /* Tableaux à beaucoup de colonnes : chaque ligne devient une fiche étiquetée. L'étiquette vient
+     de `data-label`, posé sur chaque cellule par le gabarit — la donnée ne change pas. */
+  .ecran.fc .fc-table--fiches thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .ecran.fc .fc-table--fiches,
+  .ecran.fc .fc-table--fiches tbody,
+  .ecran.fc .fc-table--fiches tr,
+  .ecran.fc .fc-table--fiches td { display: block; width: 100%; }
+  .ecran.fc .fc-table--fiches tbody tr { padding: 10px 0; border-bottom: 1px solid var(--color-outline-variant); }
+  .ecran.fc .fc-table--fiches tbody tr:hover { background: none; }
+  .ecran.fc .fc-table--fiches td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 4px 10px;
+    border: none;
+    text-align: right;
+  }
+  .ecran.fc .fc-table--fiches td { flex-wrap: wrap; }
+  .ecran.fc .fc-table--fiches td .fc-note-calcul { flex-basis: 100%; text-align: right; }
+  .ecran.fc .fc-table--fiches td[data-label]::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    max-width: 50%;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: left;
+    color: var(--color-secondary);
+  }
+  .ecran.fc .fc-table--fiches td.fc-col-actions { justify-content: flex-end; width: 100%; }
+  .ecran.fc .fc-table--fiches tfoot { display: block; }
+  .ecran.fc .fc-table--fiches tfoot tr { display: flex; justify-content: space-between; }
+  .ecran.fc .fc-table--fiches tfoot th, .ecran.fc .fc-table--fiches tfoot td { display: block; border: none; }
+  .ecran.fc .fc-table--fiches tfoot th[colspan] { text-align: left; }
+}
+
+@media print {
+  .ecran.fc .fc-sommaire, .ecran.fc .fc-actions, .ecran.fc details.fc-depliant { display: none; }
+}
