@@ -32,6 +32,24 @@ os.environ["PILOTAGE_IGNORE_ENV_FILE"] = "1"
 # `get_db()`. Écrasé, jamais `setdefault` : un `PILOTAGE_ENVIRONNEMENT` hérité du shell ne doit pas
 # requalifier la suite.
 os.environ["PILOTAGE_ENVIRONNEMENT"] = "TEST"
+
+# ── APP_DATA_DIR TEMPORAIRE DE SESSION ──────────────────────────────────────────────────────────
+# `app.config` dérive À L'IMPORT tous ses dossiers de données de `APP_DATA_DIR` : base, dry-runs,
+# sauvegardes, snapshots, justificatifs, espaces de travail. Sans valeur, ils retombaient sur
+# `05_APPLICATION/data/` (BASE_DEV_OBSOLETE) : une suite complète y laissait des centaines de
+# dossiers de dry-run. Poser la variable ICI, avant tout import de l'application, rend toute la
+# configuration de la session hermétique d'un coup — sans `reload()`, sans chemin à corriger un
+# par un. `mkdtemp` : un dossier propre à CHAQUE session (deux sessions parallèles ne se croisent
+# pas), supprimé en fin de session (`pytest_unconfigure`).
+#
+# La valeur héritée du shell est conservée À PART : si elle désigne le dossier RÉEL, la session est
+# refusée (`pytest_configure`) au lieu d'être silencieusement redirigée — un poste configuré pour
+# lancer les tests sur la vraie base doit le découvrir, pas en être protégé à son insu.
+import tempfile  # noqa: E402
+
+APP_DATA_DIR_HERITE = os.environ.get("APP_DATA_DIR", "")
+SESSION_DIR = Path(tempfile.mkdtemp(prefix="pilotage_pytest_"))
+os.environ["APP_DATA_DIR"] = str(SESSION_DIR / "data")
 assert "app.config" not in sys.modules, (
     "app.config a été importé avant conftest : ses drapeaux sont déjà figés sur le .env de la "
     "machine, et la suite n'est plus isolée.")
@@ -55,6 +73,10 @@ def pytest_configure(config):
     from app import environnement
 
     try:
+        if APP_DATA_DIR_HERITE and environnement.est_dans_donnees_reelles(APP_DATA_DIR_HERITE):
+            raise environnement.BaseReelleInterdite(
+                "Environnement TEST : APP_DATA_DIR hérité du shell = dossier de données RÉEL. "
+                "Session refusée.")
         environnement.refuser_base_reelle()
     except environnement.BaseReelleInterdite as exc:
         pytest.exit(f"\n[REFUS — BASE RÉELLE]\n{exc}\n", returncode=3)
@@ -74,6 +96,14 @@ def pytest_configure(config):
             f"Utiliser un chemin externe, ex : --basetemp=\"$env:TEMP\\pytest_app\"\n",
             returncode=3,
         )
+
+
+def pytest_unconfigure(config):
+    """Fin de session : le dossier de données temporaire disparaît (aucun mécanisme de
+    conservation n'existe — et aucun n'est créé ici)."""
+    import shutil
+
+    shutil.rmtree(SESSION_DIR, ignore_errors=True)
 
 
 @pytest.fixture(autouse=True)

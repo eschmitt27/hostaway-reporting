@@ -238,12 +238,16 @@ def test_emplacement_par_defaut_est_stable_et_hors_git():
     # On vérifie l'INTENTION — que Git ignore réellement ce chemin — plutôt que la présence d'une
     # ligne littérale : le .gitignore utilise désormais un motif générique (`data/*.lock`), qui
     # couvre aussi les verrous écartés par la reprise (`*.lock.perime-<ts>-<pid>`).
+    # Sous pytest, `DATA_DIR` est le dossier temporaire de session, hors dépôt : on vérifie donc
+    # l'emplacement par défaut DANS le dépôt (`05_APPLICATION/data/`, sans APP_DATA_DIR), celui
+    # que le motif `.gitignore` doit couvrir. `check-ignore` ne crée ni ne lit aucun fichier.
     import subprocess
-    proc = subprocess.run(["git", "check-ignore", "-q", str(p)],
+    defaut = Path(cfg.APP_ROOT) / "data" / p.name
+    proc = subprocess.run(["git", "check-ignore", "-q", str(defaut)],
                           cwd=str(Path(cfg.PROJECT_ROOT)), capture_output=True)
     if proc.returncode not in (0, 1):               # pragma: no cover - hors dépôt git
         pytest.skip("Pas de dépôt git exploitable ici.")
-    assert proc.returncode == 0, f"Le verrou n'est pas ignoré par git : {p}"
+    assert proc.returncode == 0, f"Le verrou n'est pas ignoré par git : {defaut}"
 
 
 def test_acquisition_atomique_sans_verification_prealable():

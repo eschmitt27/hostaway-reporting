@@ -147,12 +147,24 @@ Observabilité, carte « Environnement »).
 |---|---|---|---|
 | **Réelle** | `APP_DATA_DIR` déclaré dans le `.env` du projet | `REAL` (constaté, jamais déclaré) | l'application lancée normalement (`run_app.py`), ses moteurs `02_TRAVAIL` (reçoivent `--db`) |
 | Recette | copie sous un `APP_DATA_DIR` temporaire | `RECETTE` (`PILOTAGE_ENVIRONNEMENT=RECETTE`, ou déduit) | lanceurs `pilotage-recette-*` |
-| Test | `tmp_db` (dossier temporaire pytest) | `TEST` (posé par `tests/conftest.py`) | suite pytest |
+| Test | `APP_DATA_DIR` de session `%TEMP%/pilotage_pytest_<aléa>/data` (base, dry-runs, sauvegardes, snapshots, espaces de travail), et `tmp_db` par test | `TEST` (posé par `tests/conftest.py`) | suite pytest — dossier supprimé en fin de session |
 | **`BASE_DEV_OBSOLETE`** | `05_APPLICATION/data/app.db` | `DEV` (aucun `APP_DATA_DIR`) | **aucun** consommateur légitime : repli uniquement si aucun `.env` ne déclare `APP_DATA_DIR`. Figée au 29/09/2026, jamais la base réelle. Conservée (non supprimée). |
 
 Garde : hors `REAL`, toute ouverture de la base réelle est refusée — au démarrage de l'application
 (avant les migrations), au lancement de pytest (code 3) et à chaque `get_db()` ; sous pytest, même
 la lecture du dossier réel est refusée (`tests/garde_sources_reelles.py`).
+
+**Pytest hermétique (2026-10-04)** : `PYTEST → PILOTAGE_ENVIRONNEMENT=TEST → APP_DATA_DIR temporaire
+→ aucun accès réel → aucune écriture dans BASE_DEV_OBSOLETE`. Posé en tête de `conftest.py`, avant
+tout import de l'application : tous les dossiers dérivés de `DATA_DIR` à l'import suivent. Un
+`APP_DATA_DIR` hérité du shell qui désigne le dossier réel fait refuser la session (code 3). La garde
+couvre `builtins.open`, `io.open` (pathlib), `os.mkdir` et `sqlite3.connect` (lecture des bases
+protégées en `mode=ro&immutable=1`, sans toucher `-shm`).
+
+**Artefacts historiques** : `05_APPLICATION/data/dryruns/` contient 357 dossiers de dry-run
+(1 617 entrées, 3,4 Mo, 09/09 → 04/10/2026) produits par les suites pytest antérieures. Ignorés par
+Git, lus par aucun chemin de l'application réelle (qui écrit sous son propre `APP_DATA_DIR`).
+Supprimables sans risque ; conservés tant qu'aucune instruction explicite ne le demande.
 
 ---
 

@@ -112,6 +112,25 @@ def armer(monkeypatch) -> None:
         return open_original(file, mode, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "open", open_garde)
+    # `pathlib` (write_text, write_bytes, open) passe par `io.open`, pas par `builtins.open` : c'est
+    # par là que des centaines de manifestes de dry-run ont atterri dans `05_APPLICATION/data/`
+    # sans que cette garde les voie.
+    import io
+    import os
+
+    monkeypatch.setattr(io, "open", open_garde)
+
+    mkdir_original = os.mkdir
+
+    def mkdir_garde(path, *args, **kwargs):
+        # Un dossier DÉJÀ présent n'est pas une écriture (`mkdir(exist_ok=True)` reste neutre).
+        if est_protege(path) and not os.path.isdir(path):
+            _refuser("CREATION DE DOSSIER", path)
+        if est_donnee_reelle(path):
+            _refuser_reel("CREATION DE DOSSIER")
+        return mkdir_original(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "mkdir", mkdir_garde)
 
     for nom in ("copy", "copy2", "copyfile", "move"):
         original = getattr(shutil, nom, None)
@@ -152,13 +171,18 @@ def armer(monkeypatch) -> None:
             if est_donnee_reelle(nu):
                 _refuser_reel("CONNEXION SQLITE")
         # `:memory:` et les URI ne désignent pas un fichier du projet.
-        if isinstance(database, (str, Path)) and str(database) != ":memory:" \
-                and est_protege(database):
+        cible = str(database) if isinstance(database, (str, Path)) else ""
+        if cible.startswith("file:"):
+            cible = cible[5:].split("?", 1)[0]
+        if cible and cible != ":memory:" and est_protege(cible):
             # La lecture reste permise (voir docstring du module) : on ouvre en lecture seule via
             # le mode URI `mode=ro`, que SQLite fait respecter lui-même — toute écriture ultérieure
             # sur cette connexion lève `sqlite3.OperationalError: attempt to write a readonly
             # database`. On ne bloque donc plus la connexion elle-même, seulement l'écriture.
-            uri = f"file:{Path(database).resolve().as_posix()}?mode=ro"
+            # `immutable=1` en plus : en WAL, même une lecture `mode=ro` met à jour le fichier
+            # d'index `-shm` à côté de la base — une écriture tout de même, dans un dossier réel.
+            uri = f"file:{Path(cible).resolve().as_posix()}?mode=ro&immutable=1"
+            kwargs.pop("uri", None)
             return connect_original(uri, *args, uri=True, **kwargs)
         return connect_original(database, *args, **kwargs)
 

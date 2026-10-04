@@ -4897,3 +4897,29 @@ intactes). Prochaine action proposée : poser un `APP_DATA_DIR` temporaire de se
 **Tests** : `tests/test_environnement_base_active.py` (13). Suite complète : **4 775 passed,
 37 skipped, 0 failed**. Base réelle : `45dd87c2…`, 86 888 448 octets, mtime 03/10 21:01,
 integrity ok — inchangée ; `.env` inchangé ; `MODE_REEL_ECRITURES=1` inchangé.
+
+## Mission Isolation complète des données de test (2026-10-04)
+
+**Cause des 730 entrées de `05_APPLICATION/data/dryruns/`** : la suite ne posait pas
+d'`APP_DATA_DIR` ; `app.config` dérive à l'import tous ses dossiers de données de `DATA_DIR`, qui
+retombait sur `05_APPLICATION/data/` (BASE_DEV_OBSOLETE). Les dry-runs y écrivaient par `pathlib`
+(`io.open`, `os.mkdir`), que la garde des tests (patch de `builtins.open`) ne voyait pas.
+
+**Correction** : `tests/conftest.py` pose, avant tout import de l'application,
+`PILOTAGE_ENVIRONNEMENT=TEST` et `APP_DATA_DIR=%TEMP%/pilotage_pytest_<aléa>/data` (`mkdtemp`, un
+par session, supprimé en `pytest_unconfigure`). Un `APP_DATA_DIR` hérité du shell désignant le
+dossier réel fait refuser la session (code 3). `garde_sources_reelles` couvre en plus `io.open` et
+`os.mkdir`, et lit les bases protégées en `mode=ro&immutable=1` (le `-shm` n'est plus touché).
+`test_saisie_charges_lock_service` vérifie le `.gitignore` sur l'emplacement par défaut du dépôt
+(il se serait sinon ignoré, le dossier de session étant hors dépôt).
+
+**Preuves** : `tests/test_isolation_donnees_test.py` (12) ; suite complète 4 786 passed,
+38 skipped, 0 failed (le 38e skip, ci-dessus, corrigé ensuite : 20/20 sur le fichier) ;
+`05_APPLICATION/data/` comparé avant/après la suite complète : 0 nouveau, 0 disparu, 0 modifié
+(seul écart depuis le tout premier relevé : `app.db-shm`, index SQLite touché par une lecture
+d'un premier lancement ciblé avant le passage en `immutable=1` ; `app.db` dev identique
+`df29912b…`). Aucun `pilotage_pytest_*` résiduel. Base réelle `45dd87c2…` (86 888 448 o, mtime
+03/10 21:01, integrity ok), `.env` `d84d718f…`, `MODE_REEL_ECRITURES=1` : inchangés.
+
+**Artefacts historiques** : 357 dossiers de dry-run (1 617 entrées, 3,4 Mo, 09/09 → 04/10),
+ignorés par Git, inutilisés : supprimables sans risque, **non supprimés** (attente d'instruction).
