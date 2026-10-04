@@ -5028,3 +5028,24 @@ résiduel. Base réelle `45dd87c2…` (86 888 448 o, mtime 03/10 21:01, integrit
   d'isolation). `05_APPLICATION/data/app.db` inchangé (`df29912b…`).
 - **Commits** : `e757b40` (design system, navigation, composants, animations), `6495b0a`
   (écritures comptables), puis ce handoff. Non poussés.
+
+## Reprise de solde Marilyne (Maryline UZON, PROP_0011) — 700 € (2026-10-04)
+
+- **HEAD de départ** : `b5c71d4`. Aucun code applicatif modifié : le cas Didier (PROP_0001,
+  300 €, `CRD-05508FCF33DA`, 2026-10-03) était une opération de DONNÉES par le service générique
+  `credits_clients_service.creer_reprise_solde` (origine `REPRISE_SOLDE`, date d'origine
+  2026-09-01, deux écritures ODIVERSES validées 467100 D / 419700 C puis 654000 D / 467100 C,
+  imputation automatique à l'émission des factures). Même appel pour Marilyne, 700 €.
+- **Tests** : `tests/test_reprise_solde_marilyne.py` (3 tests : crédit 700, 654000 D 700,
+  419700 C 700, 467100 à 0, aucune 411, même position compte / Créances & Dettes, imputation
+  250 € → reliquat 450, aucune double comptabilisation, Didier inchangé) + non-régression
+  `test_compte_client_credits_avoirs.py`, `test_creance_et_compte_proprietaire_concordent.py` :
+  23 passed.
+- **Recette sur copie de la vraie base** (RECETTE, `APP_DATA_DIR` temporaire) : crédit
+  `CRD-8D4B46756ACF` DISPONIBLE 700 € ; `ECR-56C36CE75E33` 467100 D 700 / 419700 C 700 (PROP_0011)
+  et `ECR-2D26E05EB9A5` 654000 D 700 / 467100 C 700, VALIDÉES ; 467100 = 0 ; 654000 = 1 000
+  (300 Didier + 700) ; Marilyne : crédit 700, créance 0, CRÉDITEUR, identique dans Créances &
+  Dettes ; Didier (crédit restant 181,90 €) et les autres propriétaires inchangés ; seconde reprise
+  refusée (`CR17_REPRISE_DEJA_ENREGISTREE`). Vraie base inchangée (`b024c11c…`).
+- **NON APPLIQUÉ à la vraie base** : en attente d'autorisation explicite (même appel, acteur
+  tracé, sauvegarde préalable comme pour Didier).
