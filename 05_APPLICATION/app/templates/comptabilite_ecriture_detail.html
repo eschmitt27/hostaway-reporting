@@ -16,7 +16,7 @@
 <div class="card mb-md" data-testid="fiche-ecriture">
   <div class="detail-grid">
     <div><strong>Journal</strong><br>{{ ecriture.journal }}</div>
-    <div><strong>Statut</strong><br><span class="badge">{{ ecriture.statut }}</span></div>
+    <div><strong>Statut</strong><br>{% set _cls = {"VALIDEE": "badge-success", "PROPOSEE": "badge-warning", "CONTREPASSEE": "status-annule"} %}<span class="badge {{ _cls.get(ecriture.statut, 'badge-neutral') }}">{{ ecriture.statut }}</span></div>
     <div><strong>Date</strong><br>{{ ecriture.date_ecriture }}</div>
     <div><strong>Période</strong><br>{{ ecriture.periode }}</div>
     <div><strong>Pièce</strong><br>{{ ecriture.piece or "—" }}</div>
@@ -41,7 +41,7 @@
 
 <div class="table-container mb-md">
   <table class="data-table">
-    <thead><tr><th>#</th><th>Compte</th><th>Auxiliaire</th><th>Logement</th><th>Propriétaire</th><th>Débit</th><th>Crédit</th><th>Libellé</th></tr></thead>
+    <thead><tr><th>#</th><th>Compte</th><th>Auxiliaire</th><th>Logement</th><th>Propriétaire</th><th class="num">Débit</th><th class="num">Crédit</th><th>Libellé</th></tr></thead>
     <tbody>
       {% for l in lignes %}
       <tr>
@@ -50,12 +50,15 @@
         <td>{{ l.auxiliaire or "—" }}</td>
         <td>{{ l.logement_id | nom_logement if l.logement_id else "—" }}</td>
         <td>{{ l.proprietaire_id | nom_proprietaire if l.proprietaire_id else "—" }}</td>
-        <td>{{ "%.2f"|format(l.debit) if l.debit else "" }}</td>
-        <td>{{ "%.2f"|format(l.credit) if l.credit else "" }}</td>
+        <td class="num">{{ "%.2f"|format(l.debit) ~ " €" if l.debit else "" }}</td>
+        <td class="num">{{ "%.2f"|format(l.credit) ~ " €" if l.credit else "" }}</td>
         <td>{{ l.libelle or "" }}</td>
       </tr>
       {% endfor %}
     </tbody>
+    <tfoot><tr><th scope="row" colspan="5">Total</th>
+      <td class="num">{{ "%.2f"|format(ecriture.total_debit) }} €</td>
+      <td class="num">{{ "%.2f"|format(ecriture.total_credit) }} €</td><td></td></tr></tfoot>
   </table>
 </div>
 
