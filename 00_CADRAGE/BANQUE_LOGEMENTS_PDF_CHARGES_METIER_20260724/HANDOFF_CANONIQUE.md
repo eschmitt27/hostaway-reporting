@@ -4943,3 +4943,47 @@ résiduel. Base réelle `45dd87c2…` (86 888 448 o, mtime 03/10 21:01, integrit
   4 787 passed, 37 skipped, 0 failed.
 - **État fusionné actuel non retesté à la demande de l'utilisateur** : aucune campagne relancée
   sur `169d0fe` (recette visuelle du front-end par l'utilisateur à suivre).
+
+## Factures clients — suppression avant émission et comptabilisation guidée (2026-10-04)
+
+- **HEAD de départ** : `7060449` (branche `resume/pilotage-conciergerie-20260909`).
+- **Audit** : statuts `BROUILLON` / `VALIDE` / `EMIS` / `ANNULE`. Le numéro légal n'est consommé
+  qu'à l'émission (`_attribuer_numero`, `BEGIN IMMEDIATE`) : un brouillon ou une facture validée
+  n'a aucun numéro. L'émission par la route appelait `comptabiliser_facture_emise`, qui laissait une
+  écriture VENTES **PROPOSÉE** ; la colonne « Comptabilisée » de la liste testait un statut
+  `PRESENTE` qui n'existe pas → toujours « non ». Unicité déjà garantie par l'index
+  `idx_ecritures_origine` (journal, origine) hors `CONTREPASSEE`.
+- **Suppression** : `brouillon.supprimer_non_emise` — BROUILLON ou VALIDE, sans numéro ni date
+  d'émission. Une VALIDE repasse d'abord en brouillon (service canonique : positions de
+  refacturation rendues). Même suppression physique que pour les annulées (`_supprimer`, refus si la
+  facture est encore référencée). ÉMISE / comptabilisée : refus serveur (422), numéro conservé.
+- **Comptabilisation** : émettre **ne comptabilise plus**. Fiche → bloc Comptabilité « Non
+  comptabilisée » → **Comptabiliser** (`GET …/comptabiliser`, lecture pure) → proposition (date,
+  journal VENTES, n°, client et auxiliaire en clair, comptes + intitulés, débit/crédit, TVA, pièce) →
+  **Valider la comptabilisation** (`POST`) → `comptabiliser_facture_emise` (moteur existant :
+  `ecriture_vente_prevue`, `mapping_produits_facture`, TVA de la conformité figée, imputations
+  acomptes/crédits) puis `valider()` → écriture **VALIDÉE** = « Comptabilisée » (date = événement
+  VALIDATION), lien « Voir l'écriture comptable ». Mapping manquant → « Compte à confirmer »,
+  validation impossible. Seconde comptabilisation refusée (`E_FACTURE_DEJA_COMPTABILISEE`). Une
+  écriture PROPOSÉE héritée de l'ancienne émission automatique est reprise et validée, sans doublon.
+  Aucune décomptabilisation ajoutée : seule la contrepassation existante du module Comptabilité
+  s'applique. Les écritures d'imputation (ODIVERSES) restent PROPOSÉES comme avant.
+- **Liste** : menu `⋯` par facture, actions réelles uniquement (Brouillon : Compléter / Valider /
+  Supprimer ; Validée : Voir / Émettre / Supprimer ; Émise : Voir / Comptabiliser ; Comptabilisée :
+  Voir / Voir l'écriture). Dialogue « Supprimer définitivement cette facture non émise ? »
+  (Annuler / Supprimer). Badge « Non comptabilisée » / « Comptabilisée ».
+- **Fichiers** : `services/comptabilite_ecritures_service.py`,
+  `services/factures_proprietaires_brouillon_service.py`, `routes/factures_proprietaires.py`,
+  `templates/factures_proprietaires_{list,fiche,comptabiliser}.html`,
+  `static/js/factures_clients.js`, `static/css/factures_clients.css`,
+  `tests/test_factures_clients_suppression_comptabilisation.py` (13 tests).
+- **Tests** : 13/13 nouveaux ; 65 fichiers factures / comptabilité / crédits / avoirs / écritures :
+  **1 018 passed, 0 failed**. Suite complète non relancée (hors besoin de la mission).
+- **Recette** (copie isolée RECETTE, `APP_DATA_DIR` temporaire, données fictives) : A brouillon
+  supprimé ; B émise `2026-09-001` Non comptabilisée → proposition 411000 D 250 / 706100 C 250
+  équilibrée → validée → écriture VALIDÉE, page écriture 200 ; C 2e comptabilisation refusée,
+  1 seule écriture ; D suppression d'une émise et d'une comptabilisée refusées (422).
+  `05_APPLICATION/data/app.db` identique avant/après.
+- **Limites** : sur la vraie base, les factures déjà émises portent une écriture PROPOSÉE : elles
+  apparaissent « Non comptabilisée » et se comptabilisent via le nouveau parcours. L'émission par la
+  route exige la conformité complète quand l'émission réelle est ouverte (inchangé).

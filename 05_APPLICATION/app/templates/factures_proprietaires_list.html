@@ -191,14 +191,37 @@
       <td data-label="Statut"><span class="status-badge status-{{ fc.classe_statut(f.statut) }}">{{ f.statut|libelle_statut }}</span>{% if f.hors_compta %} <span class="badge badge-warning" title="{{ f.motif_hors_compta or '' }}">Hors compta</span>{% endif %}</td>
       {# Lu dans les écritures, jamais dans un drapeau porté par la facture : un drapeau se
          désynchroniserait de la comptabilité au premier incident. #}
-      <td data-label="Comptabilisée">{% if f.comptabilisee %}<span class="badge badge-success">oui</span>{% elif f.hors_compta %}<span class="badge">hors compta</span>{% elif f.statut == "EMIS" %}<span class="badge badge-warning">non</span>{% else %}<span class="fi-discret">—</span>{% endif %}</td>
+      <td data-label="Comptabilisée" data-testid="etat-compta">{% if f.comptabilisee %}<span class="badge badge-success">Comptabilisée</span>{% elif f.hors_compta %}<span class="badge">Hors compta</span>{% elif f.statut == "EMIS" %}<span class="badge badge-warning"><strong>Non comptabilisée</strong></span>{% else %}<span class="fi-discret">—</span>{% endif %}</td>
       <td data-label="Émise le" class="ec-nowrap">{{ f.date_emission|date_fr if f.date_emission else "—" }}</td>
-      <td class="fi-col-actions fc-col-actions"><a class="fi-lien-action" href="/factures-proprietaires/{{ f.facture_id_opaque }}">{{ "Compléter" if f.statut == "BROUILLON" else "Ouvrir" }}<span class="sr-only"> {{ nom_doc }} {{ f.numero_facture or "" }} — {{ f.proprietaire_id | nom_proprietaire }}</span></a></td>
+      <td class="fi-col-actions fc-col-actions">
+        <details class="fc-menu" data-testid="menu-actions">
+          <summary class="btn btn-ghost btn-sm" aria-label="Actions sur {{ nom_doc }} {{ f.numero_facture or 'sans numéro' }} — {{ f.proprietaire_id | nom_proprietaire }}">⋯</summary>
+          <ul class="fc-menu__liste" role="menu">
+            {% for a in f.actions %}
+            <li role="none">{% if a.supprimer %}
+              <form method="post" action="{{ a.url }}" data-fc-supprimer
+                    data-fc-confirmer="Supprimer définitivement cette facture non émise ?">
+                <button type="submit" class="fc-menu__item fc-menu__item--danger" role="menuitem" data-testid="action-supprimer">{{ a.libelle }}</button>
+              </form>{% else %}
+              <a class="fc-menu__item" role="menuitem" href="{{ a.url }}">{{ a.libelle }}</a>{% endif %}
+            </li>
+            {% endfor %}
+          </ul>
+        </details>
+      </td>
     </tr>
   {% endfor %}
   </tbody>
 </table>
 </div>
+<dialog class="fc-dialogue" id="fc-dialogue-supprimer" aria-labelledby="fc-dialogue-titre">
+  <p id="fc-dialogue-titre"><strong>Supprimer définitivement cette facture non émise ?</strong></p>
+  <p class="fc-aide">Aucun numéro n'a été attribué : la séquence de numérotation n'est pas affectée.</p>
+  <div class="fc-actions">
+    <button type="button" class="btn btn-secondary" data-fc-dialogue-annuler>Annuler</button>
+    <button type="button" class="btn btn-danger" data-fc-dialogue-confirmer>Supprimer</button>
+  </div>
+</dialog>
 {% else %}
 <div class="card fi-vide">
   <span class="fi-vide__icone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="16" x2="14" y2="16"/></svg></span>

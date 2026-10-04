@@ -902,6 +902,172 @@ def comptabiliser_facture_emise(facture: dict[str, Any], *, acteur: str = "",
     return {"vente": vente, "imputation": imputation, "credits": credits, "surplus": surplus}
 
 
+# ── Comptabilisation GUIDÉE d'une facture client émise (2026-10-04) ──────────────────────────────
+# Émettre ne comptabilise plus : la facture émise reste « Non comptabilisée » jusqu'à ce qu'un
+# humain relise la proposition d'écriture et la valide. La proposition est calculée par
+# `ecriture_vente_prevue` (mappings `mapping_produits_facture`, plan comptable, TVA de la
+# conformité figée) — aucun second jeu de règles. « Comptabilisée » = écriture VENTES de la facture
+# au statut VALIDEE ; une écriture PROPOSEE (générée par l'ancienne émission automatique) n'est
+# qu'une proposition en attente de validation.
+
+E_DEJA_COMPTABILISEE = "E_FACTURE_DEJA_COMPTABILISEE"
+E_PROPOSITION_INCOMPLETE = "E_PROPOSITION_INCOMPLETE"
+MESSAGES[E_DEJA_COMPTABILISEE] = "Cette facture est déjà comptabilisée."
+MESSAGES[E_PROPOSITION_INCOMPLETE] = ("L'écriture proposée est incomplète (compte à confirmer) : "
+                                      "complétez les mappings avant de valider.")
+COMPTA_NON_COMPTABILISEE = "NON_COMPTABILISEE"
+COMPTA_COMPTABILISEE = "COMPTABILISEE"
+
+
+def _libelle_compte(compte: str, db_path=None) -> str:
+    c = _compte_valide(compte, db_path)
+    return (c or {}).get("libelle") or ""
+
+
+def _date_validation(opaque: str, db_path=None) -> str:
+    conn = get_db(db_path)
+    try:
+        r = conn.execute(
+            "SELECT date_evenement FROM ecriture_evenements WHERE ecriture_id_opaque=? "
+            "AND type_evenement='VALIDATION' ORDER BY id DESC LIMIT 1", (opaque,)).fetchone()
+    finally:
+        conn.close()
+    return r[0] if r else ""
+
+
+def etat_comptabilisation_facture(facture: dict[str, Any], *, db_path=None) -> dict[str, Any]:
+    """État comptable d'une facture ÉMISE, lu dans les écritures (jamais un drapeau)."""
+    ecr = charger_par_origine(ORIGINE_FACTURE, facture["facture_id_opaque"], db_path=db_path)
+    if ecr and ecr["statut"] == ST_VALIDEE:
+        return {"etat": COMPTA_COMPTABILISEE, "ecriture": ecr,
+                "date_comptabilisation": _date_validation(ecr["ecriture_id_opaque"], db_path)}
+    return {"etat": COMPTA_NON_COMPTABILISEE, "ecriture": ecr, "date_comptabilisation": ""}
+
+
+def proposition_comptabilisation_facture(facture: dict[str, Any], *,
+                                         db_path=None) -> dict[str, Any]:
+    """Proposition d'écriture VENTES d'une facture émise, à relire AVANT validation. N'écrit rien.
+
+    `bloquants` non vide ⇒ la validation est refusée. Une ligne de facture sans mapping de produit
+    actif apparaît « Compte à confirmer » (compte vide) au lieu de faire échouer l'affichage.
+    """
+    bloquants: list[str] = []
+    if not _flags_actifs():
+        bloquants.append(MESSAGES[E_FLAGS])
+    if facture.get("statut") != "EMIS":
+        bloquants.append("seule une facture émise peut être comptabilisée")
+    if int(facture.get("hors_compta") or 0):
+        bloquants.append("facture émise hors comptabilité")
+    etat = etat_comptabilisation_facture(facture, db_path=db_path)
+    if etat["etat"] == COMPTA_COMPTABILISEE:
+        bloquants.append(MESSAGES[E_DEJA_COMPTABILISEE])
+    conflits = _ventes_lot12_du_mois(facture["proprietaire_id"], facture["mois"], db_path)
+    if conflits:
+        bloquants.append(f"vente déjà comptabilisée par l'ancien mécanisme ({', '.join(conflits)})")
+    if round(float(facture.get("montant_total") or 0), 2) == 0:
+        bloquants.append("montant de facture nul — rien à constater")
+
+    numero = facture.get("numero_facture") or facture["facture_id_opaque"]
+    client = _nom_tiers(facture["proprietaire_id"], db_path)
+    lignes_ecr: list[dict[str, Any]] = []
+    # Une écriture déjà PROPOSÉE (ancienne émission automatique) est celle qui sera validée :
+    # c'est elle qu'on montre, pas un recalcul qui pourrait en différer.
+    if etat["ecriture"] is not None:
+        e = etat["ecriture"]
+        libelle = e["libelle"]
+        for l in lignes(e["ecriture_id_opaque"], db_path):
+            lignes_ecr.append({"compte": l["compte"], "libelle": l["libelle"] or "",
+                               "debit": l["debit"] or 0, "credit": l["credit"] or 0,
+                               "auxiliaire": l["auxiliaire"]})
+    else:
+        prevue = ecriture_vente_prevue(facture, db_path=db_path)
+        if prevue["ok"]:
+            libelle = prevue["libelle"]
+            lignes_ecr = [{k: l.get(k) for k in ("compte", "libelle", "debit", "credit",
+                                                  "auxiliaire")} for l in prevue["lignes"]]
+        else:
+            # Le moteur refuse au premier manque : on reconstitue ligne à ligne, depuis les MÊMES
+            # mappings, pour montrer précisément ce qui est à confirmer.
+            from app.services import factures_proprietaires_service as fpr
+            libelle = f"Facture {numero} — {client}"
+            bloquants.append(prevue.get("message") or MESSAGES[E_PROPOSITION_INCOMPLETE])
+            produits = mapping_produits(db_path=db_path)
+            lignes_facture = facture.get("lignes")
+            if lignes_facture is None:
+                lignes_facture = fpr.lire(facture["facture_id_opaque"], db_path=db_path)["lignes"]
+            total = 0.0
+            for lf in lignes_facture:
+                v = round(float(lf.get("montant") or 0), 2)
+                total = round(total + v, 2)
+                regle = produits.get(type_economique(lf))
+                ok = (regle is not None and regle["famille"] != "ACOMPTE"
+                      and _compte_valide(regle["compte"], db_path) is not None)
+                lignes_ecr.append({"compte": regle["compte"] if ok else "",
+                                   "libelle": f"{lf.get('libelle')} — Facture {numero}",
+                                   "debit": -v if v < 0 else 0, "credit": v if v > 0 else 0,
+                                   "auxiliaire": None})
+            lignes_ecr.insert(0, {"compte": COMPTE_PROPRIETAIRES, "libelle": libelle,
+                                  "debit": total if total > 0 else 0,
+                                  "credit": -total if total < 0 else 0,
+                                  "auxiliaire": facture["proprietaire_id"]})
+
+    for l in lignes_ecr:
+        l["a_confirmer"] = not l["compte"]
+        l["libelle_compte"] = _libelle_compte(l["compte"], db_path) if l["compte"] else ""
+        l["auxiliaire_nom"] = _nom_tiers(l["auxiliaire"], db_path) if l.get("auxiliaire") else ""
+        l["est_tva"] = l["compte"] == COMPTE_TVA_COLLECTEE
+    if any(l["a_confirmer"] for l in lignes_ecr) and \
+            MESSAGES[E_PROPOSITION_INCOMPLETE] not in bloquants:
+        bloquants.append(MESSAGES[E_PROPOSITION_INCOMPLETE])
+    total_debit = round(sum(float(l["debit"] or 0) for l in lignes_ecr), 2)
+    total_credit = round(sum(float(l["credit"] or 0) for l in lignes_ecr), 2)
+    if total_debit != total_credit:
+        bloquants.append(MESSAGES[E_DESEQUILIBRE])
+    return {
+        "ok": not bloquants, "bloquants": bloquants,
+        "date_comptable": facture.get("date_facture") or f"{facture['mois']}-01",
+        "periode": facture["mois"], "journal": "VENTES", "numero_facture": numero,
+        "piece": numero, "client": client, "auxiliaire": client, "libelle": libelle,
+        "lignes": lignes_ecr, "total_debit": total_debit, "total_credit": total_credit,
+        "equilibree": total_debit == total_credit,
+        "montant_total": round(float(facture.get("montant_total") or 0), 2),
+        "tva": round(sum(float(l["credit"] or 0) - float(l["debit"] or 0)
+                         for l in lignes_ecr if l["est_tva"]), 2),
+        "ecriture_proposee": etat["ecriture"]["ecriture_id_opaque"] if etat["ecriture"] else None,
+    }
+
+
+def valider_comptabilisation_facture(facture_id: str, *, acteur: str = "",
+                                     db_path=None) -> dict[str, Any]:
+    """Validation HUMAINE explicite : crée (ou reprend) l'écriture VENTES et la passe VALIDEE.
+
+    Idempotence : refus si l'écriture de la facture est déjà validée ; l'index unique
+    `idx_ecritures_origine` interdit de toute façon deux écritures vivantes pour la même facture.
+    Les imputations d'acomptes / crédits suivent la vente, exactement comme à l'ancienne émission
+    automatique (`comptabiliser_facture_emise`)."""
+    from app.services import factures_proprietaires_service as fpr
+    facture = fpr.lire(facture_id, db_path=db_path)
+    prop = proposition_comptabilisation_facture(facture, db_path=db_path)
+    if etat_comptabilisation_facture(facture, db_path=db_path)["etat"] == COMPTA_COMPTABILISEE:
+        return _refus(E_DEJA_COMPTABILISEE, facture_id)
+    if not prop["ok"]:
+        return {**_refus(E_PROPOSITION_INCOMPLETE, "; ".join(prop["bloquants"])),
+                "message": "; ".join(prop["bloquants"])}
+    res = comptabiliser_facture_emise(facture, acteur=acteur, db_path=db_path)
+    vente = res["vente"]
+    if not vente.get("ok"):
+        return vente
+    opaque = vente["ecriture_id_opaque"]
+    e = charger(opaque, db_path)
+    if e["statut"] == ST_PROPOSEE:
+        v = valider(opaque, acteur=acteur, db_path=db_path)
+        if not v.get("ok"):
+            return v
+    elif e["statut"] == ST_VALIDEE:
+        return _refus(E_DEJA_COMPTABILISEE, facture_id)
+    return {"ok": True, "ecriture_id_opaque": opaque, "details": res}
+
+
 def generer_ecriture_vente(proprietaire_id: str, mois: str, montant_du_conciergerie: float, *,
                            nom_proprietaire: str = "", acteur: str = "",
                            db_path=None) -> dict[str, Any]:

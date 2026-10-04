@@ -269,6 +269,13 @@
     <p class="fc-aide">Annulée et jamais émise : aucun numéro n'a été consommé.</p>
   </form>
   {% endif %}
+  {% if peut_supprimer_non_emise %}
+  <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/supprimer" class="fc-separateur"
+        data-fc-confirmer="Supprimer définitivement cette facture non émise ?" data-testid="form-supprimer-non-emise">
+    <button type="submit" class="btn btn-danger">Supprimer la facture</button>
+    <p class="fc-aide">Jamais émise : aucun numéro n'a été attribué, la numérotation n'est pas affectée.</p>
+  </form>
+  {% endif %}
 </section>
 </aside>
 
@@ -869,6 +876,24 @@
      Facture émise et conservée ; aucune écriture de vente, aucune créance, aucun paiement attendu.</p>
   {% elif comptabilite.statut == "SANS_OBJET" %}
   <p class="fc-vide">Aucune écriture : {{ comptabilite.detail }}.</p>
+  {% elif comptabilite.comptabilisee %}
+  <div data-testid="bloc-compta-comptabilisee">
+  <p>Statut : <span class="badge badge-success">Comptabilisée</span></p>
+  <p>Date : {{ comptabilite.date_comptabilisation|datetime_fr if comptabilite.date_comptabilisation else "—" }}<br>
+     Écriture : {{ comptabilite.ecriture.journal }} — pièce {{ comptabilite.ecriture.piece }}</p>
+  <p><a class="btn btn-secondary btn-sm" data-testid="voir-ecriture"
+        href="/comptabilite/ecritures/{{ comptabilite.ecriture.ecriture_id_opaque }}">Voir l'écriture comptable</a></p>
+  </div>
+  {% elif comptabilite.etat == "NON_COMPTABILISEE" %}
+  <div data-testid="bloc-compta-non-comptabilisee">
+  <p>Statut : <span class="badge badge-warning"><strong>Non comptabilisée</strong></span></p>
+  <p class="fc-aide">La vente n'est pas encore enregistrée en comptabilité. « Comptabiliser » affiche
+     d'abord l'écriture proposée ; rien n'est enregistré avant votre validation.</p>
+  {% if comptabilite.peut_comptabiliser %}
+  <p><a class="btn btn-primary" data-testid="action-comptabiliser"
+        href="/factures-proprietaires/{{ facture.facture_id_opaque }}/comptabiliser">Comptabiliser</a></p>
+  {% endif %}
+  </div>
   {% elif comptabilite.ecriture %}
   {% set e = comptabilite.ecriture %}
   <p>Journal <strong>{{ e.journal }}</strong> · pièce {{ e.piece }} · statut

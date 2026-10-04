@@ -20,8 +20,23 @@
 
   // Actions irréversibles ou lourdes : confirmation explicite, message porté par le gabarit.
   function confirmations() {
+    // Suppression d'une facture non émise : dialogue « Annuler / Supprimer » (repli : confirm()).
+    var dlg = document.getElementById("fc-dialogue-supprimer");
+    var enAttente = null;
+    if (dlg && typeof dlg.showModal === "function") {
+      dlg.querySelector("[data-fc-dialogue-annuler]").addEventListener("click", function () {
+        enAttente = null; dlg.close();
+      });
+      dlg.querySelector("[data-fc-dialogue-confirmer]").addEventListener("click", function () {
+        var f = enAttente; enAttente = null; dlg.close();
+        if (f) { f.setAttribute("data-fc-confirme", "1"); f.submit(); }
+      });
+    }
     toutes(".ecran.fc form[data-fc-confirmer]").forEach(function (form) {
       form.addEventListener("submit", function (e) {
+        if (form.hasAttribute("data-fc-supprimer") && dlg && typeof dlg.showModal === "function") {
+          e.preventDefault(); enAttente = form; dlg.showModal(); return;
+        }
         if (!window.confirm(form.getAttribute("data-fc-confirmer"))) e.preventDefault();
       });
     });

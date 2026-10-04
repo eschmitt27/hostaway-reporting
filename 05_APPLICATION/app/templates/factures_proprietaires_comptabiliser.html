@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Comptabiliser la facture{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/ecrans.css">
+<link rel="stylesheet" href="/static/css/finitions.css">
+<link rel="stylesheet" href="/static/css/factures_clients.css">
+{% set p = proposition %}
+<div class="ecran fc">
+<nav class="fc-ariane" aria-label="Fil d'Ariane">
+  <ol>
+    <li><a href="/factures-proprietaires">Factures propriétaires</a></li>
+    <li><a href="/factures-proprietaires/{{ facture.facture_id_opaque }}">{{ p.numero_facture }}</a></li>
+    <li><span aria-current="page">Comptabiliser</span></li>
+  </ol>
+</nav>
+<div class="page-header">
+  <div class="page-header__titre">
+    <h1 class="page-title">Proposition d'écriture — facture {{ p.numero_facture }}</h1>
+  </div>
+</div>
+
+{% if erreur %}
+<div class="alert alert-danger" role="alert" tabindex="-1" data-fc-erreur data-testid="erreur-comptabilisation">
+  Comptabilisation refusée : {{ erreur }}</div>
+{% endif %}
+
+<section class="card fc-carte" aria-labelledby="t-entete" data-testid="proposition-ecriture">
+  <div class="fc-carte__tete"><h2 class="fc-carte__titre" id="t-entete">Écriture proposée — rien n'est encore enregistré</h2></div>
+  <dl class="fc-definitions">
+    <dt>Date comptable</dt><dd data-testid="prop-date">{{ p.date_comptable|date_fr }}</dd>
+    <dt>Journal</dt><dd data-testid="prop-journal">Ventes ({{ p.journal }})</dd>
+    <dt>N° de facture</dt><dd>{{ p.numero_facture }}</dd>
+    <dt>Client</dt><dd data-testid="prop-client">{{ p.client }}</dd>
+    <dt>Auxiliaire client</dt><dd data-testid="prop-auxiliaire">{{ p.auxiliaire }}</dd>
+    <dt>Libellé</dt><dd>{{ p.libelle }}</dd>
+    <dt>Montant total</dt><dd>{{ "%.2f"|format(p.montant_total) }} €</dd>
+    <dt>TVA</dt><dd>{% if p.tva %}{{ "%.2f"|format(p.tva) }} €{% else %}Aucune (selon le paramétrage fiscal en vigueur){% endif %}</dd>
+    <dt>Pièce source</dt><dd><a href="/factures-proprietaires/{{ facture.facture_id_opaque }}">Facture {{ p.piece }}</a></dd>
+  </dl>
+
+  <div class="fc-table-wrap mt-sm">
+  <table class="table fc-table" data-testid="prop-lignes">
+    <caption class="sr-only">Lignes de l'écriture proposée</caption>
+    <thead><tr><th scope="col">Compte général</th><th scope="col">Intitulé</th><th scope="col">Auxiliaire</th>
+      <th scope="col">Libellé</th><th scope="col" class="text-right">Débit</th><th scope="col" class="text-right">Crédit</th></tr></thead>
+    <tbody>
+    {% for l in p.lignes %}
+      <tr{% if l.a_confirmer %} class="fc-ligne-a-confirmer"{% endif %}>
+        <td>{% if l.a_confirmer %}<strong data-testid="compte-a-confirmer">Compte à confirmer</strong>{% else %}{{ l.compte }}{% endif %}</td>
+        <td>{{ l.libelle_compte or "—" }}</td>
+        <td>{{ l.auxiliaire_nom or "—" }}</td>
+        <td>{{ l.libelle }}</td>
+        <td class="fc-montant">{% if l.debit %}{{ "%.2f"|format(l.debit) }} €{% endif %}</td>
+        <td class="fc-montant">{% if l.credit %}{{ "%.2f"|format(l.credit) }} €{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+    <tfoot><tr><th scope="row" colspan="4">Total</th>
+      <td class="fc-montant"><strong>{{ "%.2f"|format(p.total_debit) }} €</strong></td>
+      <td class="fc-montant"><strong>{{ "%.2f"|format(p.total_credit) }} €</strong></td></tr></tfoot>
+  </table>
+  </div>
+  <p class="text-sm">{% if p.equilibree %}Écriture équilibrée.{% else %}<strong>Écriture déséquilibrée.</strong>{% endif %}
+    Comptes issus des mappings du module Comptabilité.</p>
+
+  {% if p.bloquants %}
+  <div class="fc-encart fc-encart--danger" data-testid="prop-bloquants">
+    <p><strong>Validation impossible :</strong></p>
+    <ul>{% for b in p.bloquants %}<li>{{ b }}</li>{% endfor %}</ul>
+    <p><a href="/comptabilite">Comptabilité › Mappings</a></p>
+  </div>
+  {% endif %}
+
+  <div class="fc-actions mt-sm">
+    <a class="btn btn-secondary" href="/factures-proprietaires/{{ facture.facture_id_opaque }}#comptabilite">Annuler</a>
+    {% if p.ok %}
+    <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/comptabiliser" data-fi-occupe="Comptabilisation…">
+      <button type="submit" class="btn btn-primary" data-testid="valider-comptabilisation">Valider la comptabilisation</button>
+    </form>
+    {% endif %}
+  </div>
+</section>
+</div>
+<script src="/static/js/factures_clients.js" defer></script>
+{% endblock %}

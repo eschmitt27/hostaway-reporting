@@ -243,6 +243,31 @@ def supprimable(f: dict[str, Any]) -> bool:
         and not f.get("date_emission")
 
 
+def supprimable_non_emise(f: dict[str, Any]) -> bool:
+    """BROUILLON ou VALIDE, jamais émise : aucun numéro légal n'a été consommé (il ne l'est qu'à
+    l'émission, cf. `_attribuer_numero`). Supprimer ne crée donc aucun trou dans la séquence."""
+    return f["statut"] in (svc.ST_BROUILLON, svc.ST_VALIDE) and not f.get("numero_facture") \
+        and not f.get("date_emission")
+
+
+def supprimer_non_emise(facture_id: str, *, acteur: str = "", db_path=None) -> dict[str, Any]:
+    """Supprime définitivement une facture BROUILLON ou VALIDE jamais émise (2026-10-04).
+
+    Une facture VALIDE repasse d'abord en brouillon (service canonique) : les positions de
+    refacturation imputées à la validation sont ainsi RENDUES, jamais perdues. Une facture ÉMISE ou
+    comptabilisée est refusée ici, côté serveur, quel que soit l'appelant.
+    """
+    f = svc.lire(facture_id, db_path=db_path)
+    if not supprimable_non_emise(f):
+        raise svc.FactureProprietaireError(
+            "seule une facture non émise (brouillon ou validée, sans numéro) peut être supprimée ; "
+            "une facture émise se corrige par un avoir")
+    if f["statut"] == svc.ST_VALIDE:
+        svc.repasser_en_brouillon(facture_id, acteur=acteur, motif="suppression avant émission",
+                                  db_path=db_path)
+    return _supprimer(facture_id, db_path=db_path)
+
+
 def supprimer_annulee(facture_id: str, *, db_path=None) -> dict[str, Any]:
     """Supprime définitivement une facture ANNULÉE jamais émise, et tout ce qui lui est propre.
 
@@ -254,6 +279,10 @@ def supprimer_annulee(facture_id: str, *, db_path=None) -> dict[str, Any]:
         raise svc.FactureProprietaireError(
             "seule une facture ANNULÉE et jamais émise peut être supprimée ; une facture émise se "
             "corrige par un avoir")
+    return _supprimer(facture_id, db_path=db_path)
+
+
+def _supprimer(facture_id: str, *, db_path=None) -> dict[str, Any]:
     conn = get_db(db_path)
     try:
         def _table(nom):

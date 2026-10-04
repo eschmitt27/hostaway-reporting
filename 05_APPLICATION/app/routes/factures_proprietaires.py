@@ -123,7 +123,37 @@ def _comptabilite(facture: dict) -> dict:
         etat["statut"] = ecr["statut"]
         etat["ecriture"] = ecr
         etat["lignes"] = compta.lignes(ecr["ecriture_id_opaque"])
+    # Comptabilisation guidée : « Comptabilisée » = écriture de vente VALIDÉE ; sinon la facture
+    # émise reste « Non comptabilisée » et l'action Comptabiliser est proposée.
+    guide = compta.etat_comptabilisation_facture(facture)
+    etat["etat"] = guide["etat"]
+    etat["comptabilisee"] = guide["etat"] == compta.COMPTA_COMPTABILISEE
+    etat["date_comptabilisation"] = guide["date_comptabilisation"]
+    etat["peut_comptabiliser"] = not etat["comptabilisee"] and not etat["conflit"]
     return etat
+
+
+def _actions_liste(f: dict, etat: dict) -> list[dict]:
+    """Actions RÉELLEMENT disponibles pour ce statut — le menu « ⋯ » n'affiche rien d'autre."""
+    fid = f["facture_id_opaque"]
+    fiche_url = f"/factures-proprietaires/{fid}"
+    if f["statut"] == svc.ST_BROUILLON:
+        actions = [{"libelle": "Compléter / modifier", "url": fiche_url},
+                   {"libelle": "Valider", "url": fiche_url + "#actions"}]
+    elif f["statut"] == svc.ST_VALIDE:
+        actions = [{"libelle": "Voir", "url": fiche_url},
+                   {"libelle": "Émettre", "url": fiche_url + "#actions"}]
+    else:
+        actions = [{"libelle": "Voir", "url": fiche_url}]
+    if f["statut"] == svc.ST_EMIS and etat.get("peut_comptabiliser"):
+        actions.append({"libelle": "Comptabiliser", "url": fiche_url + "/comptabiliser"})
+    if etat.get("comptabilisee") and etat.get("ecriture"):
+        actions.append({"libelle": "Voir l'écriture comptable",
+                        "url": f"/comptabilite/ecritures/{etat['ecriture']['ecriture_id_opaque']}"})
+    if brouillon.supprimable_non_emise(f) or brouillon.supprimable(f):
+        actions.append({"libelle": "Supprimer la facture", "supprimer": True,
+                        "url": fiche_url + "/supprimer"})
+    return actions
 
 
 def _ids_proprietaires() -> list[str]:
@@ -145,7 +175,9 @@ def liste(request: Request, mois: str = "", statut: str = "", comptabilisee: str
         # « Comptabilisée » se LIT dans les écritures, jamais dans un drapeau porté par la facture :
         # un drapeau se désynchroniserait de la comptabilité au premier incident, et c'est
         # précisément l'écart qu'on veut rendre visible.
-        f["comptabilisee"] = _comptabilite(f)["statut"] == "PRESENTE"
+        etat = _comptabilite(f)
+        f["comptabilisee"] = bool(etat.get("comptabilisee"))
+        f["actions"] = _actions_liste(f, etat)
     if comptabilisee in ("oui", "non"):
         factures = [f for f in factures if f["comptabilisee"] == (comptabilisee == "oui")]
     return templates.TemplateResponse(request, "factures_proprietaires_list.html", {
@@ -382,6 +414,7 @@ def _contexte_fiche(facture_id: str, erreur: str | None = None) -> dict:
         "type_client_actuel": classement.type_client(facture["proprietaire_id"]),
         "peut_valider": facture["statut"] == svc.ST_BROUILLON,
         "peut_supprimer": brouillon.supprimable(facture),
+        "peut_supprimer_non_emise": brouillon.supprimable_non_emise(facture),
         "peut_emettre": facture["statut"] == svc.ST_VALIDE,
         # Rouvrir n'est offert que sur une facture VALIDE et non numérotée : une facture ÉMISE se
         # corrige par annulation ou avoir, jamais par un retour discret à l'état modifiable.
@@ -468,10 +501,12 @@ def emettre(request: Request, facture_id: str, date_facture: str = Form(...),
     #
     # Choix fait à l'émission (par défaut EN COMPTA) : HORS COMPTA = la facture est émise et
     # conservée (numéro, PDF), mais aucune vente n'est constatée et aucun paiement n'est attendu.
+    #
+    # Depuis le 2026-10-04, l'émission NE comptabilise PLUS : la facture émise reste « Non
+    # comptabilisée » jusqu'à la validation humaine de la proposition d'écriture
+    # (« Comptabiliser », ci-dessous).
     if comptabilite == "HORS_COMPTA":
         svc.marquer_hors_compta(facture_id, motif=motif_hors_compta, acteur="interface")
-    else:
-        compta.comptabiliser_facture_emise(emise, acteur="interface")
     return RedirectResponse(f"/factures-proprietaires/{facture_id}", status_code=303)
 
 
@@ -501,10 +536,37 @@ def supprimer_annulees():
         f"{len(faites)} facture(s) annulée(s) supprimée(s)."), status_code=303)
 
 
+@router.get("/factures-proprietaires/{facture_id}/comptabiliser", response_class=HTMLResponse)
+def comptabiliser_apercu(request: Request, facture_id: str, erreur: str = ""):
+    """Proposition d'écriture — LECTURE PURE. Rien n'est écrit avant « Valider la comptabilisation »."""
+    facture = svc.lire(facture_id)
+    return templates.TemplateResponse(request, "factures_proprietaires_comptabiliser.html", {
+        "active_menu": "factures_proprietaires", "facture": facture, "erreur": erreur,
+        "proposition": compta.proposition_comptabilisation_facture(facture),
+        "etat": compta.etat_comptabilisation_facture(facture)})
+
+
+@router.post("/factures-proprietaires/{facture_id}/comptabiliser")
+def comptabiliser_valider(request: Request, facture_id: str):
+    """Validation humaine explicite. Les contrôles (statut, doublon, mapping, équilibre) sont ceux du
+    service : un appel direct, sans passer par l'aperçu, est refusé de la même façon."""
+    res = compta.valider_comptabilisation_facture(facture_id, acteur="interface")
+    if not res.get("ok"):
+        return RedirectResponse(f"/factures-proprietaires/{facture_id}/comptabiliser?erreur="
+                                + quote(res.get("message") or "refus"), status_code=303)
+    return RedirectResponse(f"/factures-proprietaires/{facture_id}#comptabilite", status_code=303)
+
+
 @router.post("/factures-proprietaires/{facture_id}/supprimer")
 def supprimer_annulee(request: Request, facture_id: str):
+    """Suppression définitive : facture ANNULÉE jamais émise, ou BROUILLON / VALIDE jamais émise.
+    Toute autre facture (émise, comptabilisée) est refusée par le service."""
     try:
-        brouillon.supprimer_annulee(facture_id)
+        f = svc.lire(facture_id)
+        if brouillon.supprimable(f):
+            brouillon.supprimer_annulee(facture_id)
+        else:
+            brouillon.supprimer_non_emise(facture_id, acteur="interface")
     except svc.FactureProprietaireError as exc:
         return _refus_fiche(request, facture_id, f"Suppression impossible : {exc}")
     return RedirectResponse("/factures-proprietaires", status_code=303)
