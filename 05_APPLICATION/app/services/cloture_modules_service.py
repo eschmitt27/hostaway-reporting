@@ -206,6 +206,11 @@ DOMAINE_PAR_DEFAUT = RESERVATIONS
 CODES_LUS_EN_DIRECT = {"CHARGE_NON_VALIDEE_HORS_CALCULS", "MENAGE_EXTERNE_ECART_HOSTAWAY",
                        "MENAGE_EXTERNE_LOGEMENT_HORS_HA"}
 
+#: Même principe pour une DÉCISION D'EXCLUSION du périmètre de gestion : un contrôle du moteur qui porte sur un séjour
+#: que l'exploitant a exclu (VRBO sans montant, commission non calculée…) ne dit plus rien d'utile — la décision est
+#: prise dans les Réservations —, alors que le calcul n'est peut-être pas encore refait. La clôture lit la décision en
+#: direct et ne compte plus ces contrôles (`_concerne_sejour_exclu`) ; annulée, la décision les fait revenir.
+
 #: Les contrôles du moteur sur les séjours se traitent dans l'écran des contrôles (chaque élément y porte sa vraie
 #: action : régulariser, corriger l'assiette…). La liste des « réservations » de l'application ne montre, elle,
 #: que les saisies manuelles : y envoyer ne ferait rien voir.
@@ -349,11 +354,22 @@ def _element_item(e: dict[str, Any], noms: _Noms, mois: str) -> dict[str, Any]:
                  lien=lien, lien_libelle="Traiter")
 
 
+def _concerne_sejour_exclu(e: dict[str, Any], exclues) -> bool:
+    """Ce contrôle du moteur porte-t-il sur un séjour dont l'exclusion du périmètre de gestion est décidée ?"""
+    if not exclues:
+        return False
+    d = e.get("donnees") or {}
+    cites = {_txt(v) for v in (d.get("reservation_id"), e.get("entite_id")) if v}
+    # Certains constats citent la clé de calcul du séjour (« RES-HA-<numéro Hostaway> »), d'autres le numéro Hostaway.
+    cites |= {c[len("RES-HA-"):] for c in cites if c.startswith("RES-HA-")}
+    return bool(cites & set(exclues))
+
+
 def _ajouter_controles_moteur(par: dict[str, dict[str, list]], mois: str, elements: list[dict[str, Any]],
-                              noms: _Noms) -> None:
+                              noms: _Noms, exclues=frozenset()) -> None:
     blocs: dict[tuple[str, str, bool], list[dict[str, Any]]] = {}
     for e in elements:
-        if e["code"] in CODES_LUS_EN_DIRECT:
+        if e["code"] in CODES_LUS_EN_DIRECT or _concerne_sejour_exclu(e, exclues):
             continue
         domaine = MODULE_DES_CONTROLES.get(_txt(e["module"]), DOMAINE_PAR_DEFAUT)
         if e["est_info"]:
@@ -861,6 +877,7 @@ def analyser(mois: str, *, elements: list[dict[str, Any]] | None = None,
     ce sont les sources qui sont interrogées."""
     from app.services import clotures_service as cs
     from app.services import cloture_flux_service as cf
+    from app.services import perimetre_gestion_service as pg
 
     mois = _txt(mois)[:7]
     if elements is None:
@@ -870,7 +887,7 @@ def analyser(mois: str, *, elements: list[dict[str, Any]] | None = None,
     noms = _Noms(db_path)
 
     par: dict[str, dict[str, list]] = {m.cle: {"bloqueurs": [], "informatifs": []} for m in MODULES}
-    _ajouter_controles_moteur(par, mois, elements, noms)
+    _ajouter_controles_moteur(par, mois, elements, noms, pg.reservations_exclues(db_path=db_path))
     _ajouter_flux(par, mois, flux)
     _charges(par, mois, noms, db_path)
     _reservations_hors_gestion(par, mois, noms, db_path)
@@ -1278,11 +1295,12 @@ def tableau_de_bord(cloture: dict[str, Any], *, progression: dict[str, Any] | No
             motif = ""
         elif n:
             motif = f"{n} bloqueur{'s' if n > 1 else ''} à traiter avant de clôturer ce module."
+        elif refus_temporel:
+            # Le motif complet (« le mois est encore en cours… ») est dit UNE fois, dans la synthèse. Un mois qui court
+            # ne se démarre pas : « disponible une fois la clôture démarrée » ferait croire qu'un bouton existe.
+            motif = "Possible une fois le mois terminé."
         elif not demarree:
             motif = "Disponible une fois la clôture démarrée."
-        elif refus_temporel:
-            # Le motif complet (« le mois est encore en cours… ») est dit UNE fois, dans la synthèse.
-            motif = "Possible une fois le mois terminé."
         else:
             motif = ""
         modules.append({

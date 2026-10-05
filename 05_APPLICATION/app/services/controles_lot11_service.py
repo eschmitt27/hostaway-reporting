@@ -84,6 +84,13 @@ def _norm_id(v) -> str:
     return s[:-2] if s.endswith(".0") else s
 
 
+def _exclusion_decidee(r: dict) -> bool:
+    """Ligne d'un séjour que l'exploitant a exclu du périmètre de gestion (module Réservations) : la décision est prise,
+    ce n'est plus un séjour « à contrôler » — et on n'attend aucun paiement Hostaway pour un séjour qui n'est pas le nôtre."""
+    return "EXCLUSION_DECIDEE" in (_txt(r.get("code_anomalie")).strip().upper(),
+                                   _txt(r.get("motif_exclusion")).strip().upper())
+
+
 class _Ctrl:
     def __init__(self) -> None:
         self.rows: list[dict[str, Any]] = []
@@ -184,7 +191,8 @@ def _groupe2_jointures(ctrl: _Ctrl, df_flux, df_res, df_pay, df_hh) -> None:
                  mois=row.get("mois"), logement_id=row.get("logement_id"))
 
     pay_ids = {_txt(r.get("reservation_id")) for r in df_pay if r.get("reservation_id")}
-    res_normal = [r for r in df_res if r.get("source") in ("HOSTAWAY_AIRBNB", "HOSTAWAY_BOOKING")]
+    res_normal = [r for r in df_res if r.get("source") in ("HOSTAWAY_AIRBNB", "HOSTAWAY_BOOKING")
+                  and not _exclusion_decidee(r)]
     for r in res_normal:
         rid = _norm_id(r.get("reservation_id_hostaway"))
         if rid not in pay_ids:
@@ -426,7 +434,9 @@ def _groupe6_referentiel_hostaway(ctrl: _Ctrl, ref_log: list[dict], ref_map: lis
                  "LISTING_ORPHELIN_A_CONTROLER", "A_CONTROLER", desc,
                  commentaire="Resolution: ajouter listing au REF_Logements ou confirmer inactif.")
 
-    n_vrbo = sum(1 for r in df_res if r.get("source") == "HOSTAWAY_VRBO_A_CONTROLER")
+    # Une exclusion DÉCIDÉE (module Réservations) n'est plus un séjour à contrôler.
+    n_vrbo = sum(1 for r in df_res if r.get("source") == "HOSTAWAY_VRBO_A_CONTROLER"
+                 and not _exclusion_decidee(r))
     if n_vrbo > 0:
         ctrl.add("RESERVATIONS", "reservations_resolues", None, "VRBO_MONTANT_NON_RENSEIGNE",
                  "A_CONTROLER",

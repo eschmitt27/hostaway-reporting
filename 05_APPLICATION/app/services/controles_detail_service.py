@@ -79,8 +79,16 @@ def _classer_commission(row: dict[str, Any]) -> tuple[str, str]:
     return "A_ANALYSER", "À analyser — cause d'exclusion non catégorisée"
 
 
+def _reservations_exclues() -> set[str]:
+    """Séjours exclus du périmètre de gestion par décision (module Réservations), lus en direct."""
+    from app.services import perimetre_gestion_service as pg
+
+    return pg.reservations_exclues()
+
+
 def _expand_commissions(vue: dict[str, Any]) -> list[dict[str, Any]]:
     idx_res = dreader.reservations_index()
+    exclues = _reservations_exclues()
     out = []
     for row in dreader.commissions_a_controler():
         rid = _txt(row.get("reservation_id"))
@@ -89,6 +97,9 @@ def _expand_commissions(vue: dict[str, Any]) -> list[dict[str, Any]]:
         logement = _txt(res.get("logement_id")) or _txt(row.get("logement_id_snapshot"))
         prop = _txt(res.get("proprietaire_id"))
         classe, classe_lib = _classer_commission(row)
+        if rid in exclues:
+            classe, classe_lib = ("EXCLUE_PERIMETRE_GESTION",
+                                  "Exclue du périmètre de gestion (décision) — sans commission attendue")
         regularisable = classe in CLASSIFICATIONS_REGULARISABLES
         out.append({
             "code": vue["code"], "module": "COMMISSIONS", "niveau": vue["niveau"], "mois": mois,

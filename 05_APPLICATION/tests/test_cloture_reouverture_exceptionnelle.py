@@ -407,6 +407,10 @@ def test_17_le_mois_courant_et_les_mois_futurs_ne_se_demarrent_pas_et_rien_n_est
                       "periodes_comptables", "orchestrateur_datasets") == avant
     liste = client.get("/clotures").text
     assert 'href="/clotures/mois/2026-10">Consulter' in liste, "le mois courant se CONSULTE depuis la liste"
+    for mois in (COURANT, FUTUR):
+        page = _texte(client.get(f"/clotures/mois/{mois}").text)
+        assert "Possible une fois le mois terminé" in page, "un mois qui court ne promet aucun bouton « démarrer »"
+        assert "Disponible une fois la clôture démarrée" not in page
     # Un mois terminé, lui, se démarre (et ne se redémarre pas).
     c = cs.demarrer(MOIS, acteur=ACTEUR, db_path=base)
     assert c["statut"] == cs.ST_EN_PREPARATION and cs.demarrer(MOIS, acteur=ACTEUR, db_path=base)["version"] == c["version"]

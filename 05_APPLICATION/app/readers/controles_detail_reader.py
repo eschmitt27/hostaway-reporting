@@ -35,6 +35,11 @@ def _txt(v: Any) -> str:
 
 # ── Sources détail ───────────────────────────────────────────────────────────
 
+def _exclusion_decidee(r: dict[str, Any]) -> bool:
+    """Ligne d'un séjour que l'exploitant a EXCLU du périmètre de gestion : plus un séjour « à contrôler »."""
+    return "EXCLUSION_DECIDEE" in (_txt(r.get("code_anomalie")).upper(), _txt(r.get("motif_exclusion")).upper())
+
+
 def reservations_vrbo() -> list[dict[str, Any]]:
     """Réservations VRBO du PÉRIMÈTRE MOTEUR (une ligne = une réservation).
 
@@ -45,7 +50,8 @@ def reservations_vrbo() -> list[dict[str, Any]]:
     """
     from app.services import reservations_dataset_service as ds
 
-    return ds.par_source("HOSTAWAY_VRBO_A_CONTROLER", etape=ds.ETAPE_RESOLUES)
+    return [r for r in ds.par_source("HOSTAWAY_VRBO_A_CONTROLER", etape=ds.ETAPE_RESOLUES)
+            if not _exclusion_decidee(r)]
 
 
 def reservations_vrbo_hors_perimetre() -> list[dict[str, Any]]:
@@ -60,6 +66,8 @@ def reservations_vrbo_hors_perimetre() -> list[dict[str, Any]]:
                      for r in reservations_vrbo()}
     out = []
     for r in ds.par_source("HOSTAWAY_VRBO_A_CONTROLER", etape=ds.ETAPE_CALCULEES):
+        if _exclusion_decidee(r):
+            continue   # exclu par décision : ni « à contrôler » ni « mois clôturé »
         rid = _txt(r.get("reservation_id_hostaway")) or _txt(r.get("reservation_calc_id"))
         if rid not in ids_perimetre:
             out.append(r)

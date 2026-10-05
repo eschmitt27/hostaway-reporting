@@ -595,6 +595,11 @@ def main():
 
     # 2c - Jointure Reservations (NORMAL pour Flux) -> Payout.reservation_id
     res_normal = df_res[df_res["source"].isin(["HOSTAWAY_AIRBNB", "HOSTAWAY_BOOKING"])].copy()
+    for _col in ("code_anomalie", "motif_exclusion"):
+        if _col in res_normal.columns:
+            # Un sejour que l'exploitant a exclu du perimetre de gestion n'attend aucun paiement Hostaway.
+            res_normal = res_normal[res_normal[_col].astype(str).str.strip().str.upper()
+                                    != "EXCLUSION_DECIDEE"].copy()
     pay_ids = set(df_pay["reservation_id"].dropna().astype(str))
 
     # reservation_id_hostaway de type int ou float dans df_res
@@ -980,7 +985,12 @@ def main():
                   commentaire="Resolution: ajouter listing au REF_Logements ou confirmer inactif.")
 
     # 6d - VRBO_MONTANT_NON_RENSEIGNE (re-detecte depuis Reservations)
-    n_vrbo = df_res[df_res["source"] == "HOSTAWAY_VRBO_A_CONTROLER"].shape[0]
+    _vrbo_a_controler = df_res["source"] == "HOSTAWAY_VRBO_A_CONTROLER"
+    for _col in ("code_anomalie", "motif_exclusion"):
+        if _col in df_res.columns:
+            # Une exclusion DECIDEE (module Reservations) n'est plus un sejour a controler.
+            _vrbo_a_controler &= ~(df_res[_col].astype(str).str.strip().str.upper() == "EXCLUSION_DECIDEE")
+    n_vrbo = int(_vrbo_a_controler.sum())
     if n_vrbo > 0:
         _ctrl(ctrl_rows, "RESERVATIONS", "MASTER_CALC_Reservations", None,
               "VRBO_MONTANT_NON_RENSEIGNE", "A_CONTROLER",

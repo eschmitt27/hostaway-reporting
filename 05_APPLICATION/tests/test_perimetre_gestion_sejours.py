@@ -579,3 +579,87 @@ def test_23_moteur_la_decision_prime_sur_une_periode_de_gestion_tant_qu_elle_n_e
     assert pg.reintegrer("RES-HA-92001", justification="Géré finalement", acteur=ACTEUR, db_path=moteur)["ok"]
     y = _calculer(moteur)["92001"]
     assert (y["statut_controle"], y["proprietaire_id"]) == ("VALIDE", "PROP_D")
+
+
+# ══ 5. Les contrôles du moteur sur un séjour exclu ne bloquent plus ═══════════════════════════════════
+
+FLUX_VIDE = {"bloquants": [], "informatifs": []}
+
+
+def _controle(code, module, rid):
+    """Un contrôle détaillé du moteur sur un séjour, tel que la clôture le reçoit."""
+    return {"code": code, "module": module, "niveau": "A_CONTROLER", "mois": NOVEMBRE, "entite_id": rid,
+            "resume": code, "lien_module": None, "ctrl_opaque": f"CTRL-{rid}-{code[:4]}", "est_info": False,
+            "detaille": True,
+            "donnees": {"reservation_id": rid, "logement": "LOG_DUO", "date_arrivee": "2026-11-20",
+                        "date_depart": "2026-11-23"},
+            "etat": {"anomalie_moteur_presente": True, "exception_active": False, "statut_suivi": "OUVERT",
+                     "statut_suivi_libelle": "À traiter"}}
+
+
+def test_25_un_controle_du_moteur_sur_un_sejour_exclu_ne_bloque_plus_la_cloture_meme_avant_le_recalcul(parc):
+    """Constat de recette : un séjour VRBO hors gestion, une fois exclu, bloquait encore le mois par les contrôles du
+    moteur (« VRBO sans montant », « exclue du calcul de commission ») — qu'on ne pouvait lever qu'en saisissant un
+    montant pour un séjour qui n'est pas le nôtre. La décision est lue EN DIRECT, comme pour le séjour lui-même ;
+    annulée, les contrôles reviennent."""
+    cle = _sejour(parc, "91020", "LOG_DUO", "2026-11-20", "2026-11-23", canal="VRBO", code="VRBO_MONTANT_NON_RENSEIGNE",
+                  montant=0.0, source="HOSTAWAY_VRBO_A_CONTROLER")
+    par_cle_de_calcul = _controle("JOINTURE_PAYOUT_MANQUANTE", "RESERVATIONS", "RES-HA-91020")
+    par_cle_de_calcul["donnees"] = {}          # certains constats ne citent que la clé de calcul du séjour
+    elements = [_controle("VRBO_MONTANT_NON_RENSEIGNE", "RESERVATIONS", "91020"),
+                _controle("RESERVATION_A_CONTROLER_SANS_COMMISSION", "COMMISSIONS", "91020"), par_cle_de_calcul,
+                _controle("VRBO_MONTANT_NON_RENSEIGNE", "RESERVATIONS", "91099")]      # un autre séjour, lui, à traiter
+
+    def groupes():
+        a = cm.analyser(NOVEMBRE, elements=elements, flux=FLUX_VIDE, db_path=parc)["par_cle"][cm.RESERVATIONS]
+        return {g["cle"]: g["nb"] for g in a["bloqueurs"]}
+
+    avant = groupes()
+    assert avant["VRBO_MONTANT_NON_RENSEIGNE"] == 2 and avant["RESERVATION_A_CONTROLER_SANS_COMMISSION"] == 1
+    assert avant["JOINTURE_PAYOUT_MANQUANTE"] == 1
+    assert any(k.startswith("SEJOUR_") for k in avant), "le séjour est aussi à trancher"
+    assert pg.exclure(cle, justification="Logement retiré", acteur=ACTEUR, db_path=parc)["ok"]
+    apres = groupes()
+    assert apres["VRBO_MONTANT_NON_RENSEIGNE"] == 1, "il ne reste que le contrôle de l'autre séjour"
+    assert "RESERVATION_A_CONTROLER_SANS_COMMISSION" not in apres and "JOINTURE_PAYOUT_MANQUANTE" not in apres
+    assert not any(k.startswith("SEJOUR_") for k in apres)
+    assert pg.reintegrer(cle, justification="Erreur", acteur=ACTEUR, db_path=parc)["ok"]
+    retour = groupes()
+    assert retour["VRBO_MONTANT_NON_RENSEIGNE"] == 2 and retour["RESERVATION_A_CONTROLER_SANS_COMMISSION"] == 1
+    assert retour["JOINTURE_PAYOUT_MANQUANTE"] == 1
+
+
+def test_26_lot11_et_le_detail_ne_comptent_plus_a_controler_un_vrbo_exclu_par_decision(parc):
+    """Au prochain calcul, la ligne d'un séjour exclu garde sa source VRBO (le séjour reste visible, sous son canal) mais
+    un statut « exclu » : ni le constat Lot11 « VRBO sans montant » ni son détail ne la comptent."""
+    from app.readers import controles_detail_reader as dreader
+    from app.services import controles_lot11_service as l11
+    from app.services import reservations_dataset_service as res_ds
+
+    _sejour(parc, "91040", "LOG_DUO", "2026-11-20", "2026-11-23", canal="VRBO", code="VRBO_MONTANT_NON_RENSEIGNE",
+            montant=0.0, source="HOSTAWAY_VRBO_A_CONTROLER")
+    _sejour(parc, "91041", "LOG_DUO", "2026-11-25", "2026-11-27", canal="VRBO", code="EXCLUSION_DECIDEE", montant=0.0,
+            source="HOSTAWAY_VRBO_A_CONTROLER", statut="EXCLU_RESULTAT", motif="EXCLUSION_DECIDEE")
+    ctrl = l11._Ctrl()
+    # Les lignes que lit Lot11 sont celles du service de jeux de données : mêmes colonnes qu'en production.
+    l11._groupe6_referentiel_hostaway(ctrl, [], [], [], res_ds.lignes(res_ds.ETAPE_RESOLUES, db_path=parc), [], [])
+    vrbo = [r for r in ctrl.rows if r["code_controle"] == "VRBO_MONTANT_NON_RENSEIGNE"]
+    assert len(vrbo) == 1 and vrbo[0]["message"].startswith("1 reservations"), "seul le séjour à contrôler est compté"
+    assert {r["reservation_id_hostaway"] for r in dreader.reservations_vrbo()} == {"91040"}
+
+
+def test_27_lot11_n_attend_aucun_paiement_hostaway_pour_un_sejour_exclu_par_decision(parc):
+    """Un séjour Booking / Airbnb ordinaire doit retrouver son paiement Hostaway ; un séjour que l'exploitant a exclu
+    du périmètre de gestion n'en attend aucun — et une exclusion héritée garde son comportement."""
+    from app.services import controles_lot11_service as l11
+    from app.services import reservations_dataset_service as res_ds
+
+    _sejour(parc, "91050", "LOG_DUO", "2026-11-02", "2026-11-05")                               # à trancher, sans paiement
+    _sejour(parc, "91051", "LOG_DUO", "2026-11-10", "2026-11-12", statut="EXCLU_RESULTAT", code="EXCLUSION_DECIDEE",
+            motif="EXCLUSION_DECIDEE")                                                          # exclu par décision
+    _sejour(parc, "91052", "LOG_DUO", "2026-11-14", "2026-11-16", statut="EXCLU_LEGACY", code=None,
+            motif="LEGACY_SANS_ARCHIVE_ORIGINE")                                                # exclusion héritée
+    ctrl = l11._Ctrl()
+    l11._groupe2_jointures(ctrl, [], res_ds.lignes(res_ds.ETAPE_RESOLUES, db_path=parc), [], [])
+    manquants = sorted(r["source_pk"] for r in ctrl.rows if r["code_controle"] == "JOINTURE_PAYOUT_MANQUANTE")
+    assert manquants == ["RES-HA-91050", "RES-HA-91052"]
