@@ -1,5 +1,85 @@
 # HANDOFF CANONIQUE — reprise immédiate
 
+## Mission 2026-10-05 — Factures clients : remise en brouillon et noms PDF
+
+- Worktree : `9537f8ef/resume-pilotage-conciergerie-20260909` ; branche
+  `resume/pilotage-conciergerie-20260909` ; HEAD départ `700e99a`.
+- HEAD final applicatif : `45e1807`. HEAD de livraison : le commit de handoff qui porte cette
+  section (résoudre avec `git rev-parse HEAD`, son propre SHA ne peut pas être inscrit dans son contenu).
+- Commits : `a508d62` — Factures clients - retour au brouillon avant comptabilisation ;
+  `45e1807` — Factures clients - nommage explicite des PDF téléchargés.
+- Machine d'états : BROUILLON → VALIDE → EMIS ; VALIDE → BROUILLON autorisé ;
+  EMIS non comptabilisée → BROUILLON autorisé ; écriture VALIDEE ou CONTREPASSEE → refus.
+  Le workflow existant d'extourne / annulation reste inchangé. Une vente agrégée historique,
+  un avoir actif lié ou un surplus d'avoir converti en crédit bloque également le retour.
+- Service existant `factures_proprietaires_service.repasser_en_brouillon` étendu, avec
+  `BEGIN IMMEDIATE`, lecture du statut sous verrou et rollback complet sur toute exception.
+  Double POST sur un brouillon : aucun nouvel événement ni aucune mutation.
+- Validation : `charges_refacturation_service.desimputer` libère le montant imputé ;
+  lignes, lien de charge et données sources conservés. Les autres lignes (extras, réductions)
+  et les séjours ne sont pas supprimés ni recalculés. Aucune consommation de crédit/acompte
+  n'a lieu à la validation dans le modèle courant.
+- Émission retirée : dates validation/facture/émission, snapshot/hash, référence/hash PDF et
+  conformité figée effacés de l'état actif ; hors_compta remis au défaut du brouillon.
+  Les fichiers PDF restent sur disque comme pièces historiques ; route document = 404
+  sur le brouillon. Le moteur visuel et légal du PDF n'a pas été modifié.
+- Crédits : imputations annulées et détachées, crédits et écritures d'origine conservés ;
+  événement ANNULATION sur le crédit. Reversements sans crédit : lien document détaché,
+  source conservée. Acomptes : reference_metier détachée, mouvement validé conservé.
+- Écritures uniquement PROPOSEES de la facture et de ses imputations : suppression des
+  ventilations, événements, lignes et écritures ; références des événements crédit détachées.
+  Aucune suppression d'écriture VALIDEE. Un lettrage lié bloque la suppression.
+- FIFO : persistance par la logique existante, extraite en `recalculer_dans_transaction`
+  pour participer à la même transaction de retour. Aucun second commit métier.
+- Numéro actif retiré sans recul du compteur, sans renumérotation des autres factures.
+  Ancien numéro, date d'émission, références/hashes PDF et snapshot, dépendances libérées,
+  motif et acteur conservés dans RETOUR_BROUILLON (horodatage et états existants).
+  Réémission = prochain numéro disponible, jamais réutilisation du numéro retiré.
+- UI : menu ⋯ et fiche, libellé « Remettre en brouillon », action absente lorsque le contrôle
+  serveur refuse ; confirmations distinctes Validée/Émise, avertissement discret PDF transmis.
+  Dialog natif, focus sur Annuler, navigation clavier, Échap et retour du focus au menu.
+  Modal centrée et contenue à 375 px, boutons repliables ; design system existant conservé.
+- PDF : service central `factures_proprietaires_nom_pdf`, utilisé par document et aperçu.
+  Nom téléchargé : `Facture - {Prénom} - {Type} {Numéro de rue} - {Numéro facture}.pdf`.
+  Exemples : `Facture - David - T3 18 - 2026-09-002.pdf`,
+  `Facture - François - T3 4 - 2026-09-004.pdf`,
+  `Facture - Caroline - Studio 4 - 2026-09-005.pdf`.
+  Prénom/type structurés prioritaires, type STUDIO normalisé en Studio ; adresse structurée
+  (bis/ter acceptés), repli nom d'affichage/nom court, numéro de rue omis s'il manque.
+  Nettoyage Windows/espaces/tirets, accents via filename* UTF-8 + filename ASCII.
+  Numéros/titres applicatifs, nom de stockage et octets PDF inchangés.
+- Tests : campagne finale 427 tests passés sur 22 fichiers, aucun échec (420,18 s),
+  deux avertissements de dépréciation Starlette/httpx et AnyIO ; git diff --check passé. Campagnes intermédiaires : 152 tests métier passés,
+  28 tests retour/menu passés (dont contrôles crédit et legacy supplémentaires),
+  43 tests PDF/routes/document passés ; 15 tests noms PDF confirmés après normalisation Studio.
+- Recette : uniquement sur copie de la sauvegarde officielle préexistante, environnement
+  RECETTE constaté. Cycle validée → brouillon → revalidation → émission 2026-09-008 →
+  brouillon → revalidation → réémission 2026-09-009 ; ancien numéro tracé, compteur conservé.
+  Refus POST comptabilisée HTTP 422 ; autres factures/écritures inchangées ; intégrité ok,
+  foreign_key_check vide ; téléchargements David/François/Caroline et hashes vérifiés.
+  UI testée à 375 px et au clavier (entrée, tabulation, Échap, retour du focus).
+  Limite de la recette navigateur : blocage sur le confirm natif préexistant d'émission ;
+  cycle final réalisé avec les routes réelles via TestClient sur la même copie RECETTE.
+- Fichiers livrés (13) :
+  `05_APPLICATION/app/services/factures_proprietaires_service.py`,
+  `05_APPLICATION/app/services/compte_proprietaire_service.py`,
+  `05_APPLICATION/app/services/factures_proprietaires_nom_pdf.py`,
+  `05_APPLICATION/app/routes/factures_proprietaires.py`,
+  `05_APPLICATION/app/static/js/factures_clients.js`,
+  `05_APPLICATION/app/static/css/factures_clients.css`,
+  `05_APPLICATION/app/templates/_factures_clients.html`,
+  `05_APPLICATION/app/templates/factures_proprietaires_fiche.html`,
+  `05_APPLICATION/app/templates/factures_proprietaires_list.html`,
+  `05_APPLICATION/tests/test_factures_retour_brouillon.py`,
+  `05_APPLICATION/tests/test_factures_nom_pdf.py`,
+  `05_APPLICATION/tests/test_factures_clients_suppression_comptabilisation.py`,
+  ce `HANDOFF_CANONIQUE.md`.
+- Vraie base NON MODIFIÉE par cette mission, ni volontairement ouverte ; recette créée depuis
+  une sauvegarde déjà existante. Aucun fichier MenagesExternes ajouté, modifié ou déplacé.
+  Aucun environnement, scheduler, export ou module métier hors dépendances nécessaires modifié.
+  Aucun push. Livraison limitée aux deux objectifs de cette mission.
+
+
 Document unique de reprise. Toute nouvelle session lit CE fichier en premier.
 Mis à jour à chaque fin de phase. Ne jamais dupliquer : mettre à jour, jamais recréer à côté.
 
