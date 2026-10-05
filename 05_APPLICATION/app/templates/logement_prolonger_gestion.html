@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Prolonger la gestion{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/cloture.css">
+
+<div class="page-header">
+  <a href="{{ retour }}" class="back-link">← Retour</a>
+  <h1 class="page-title">Prolonger la gestion de « {{ nom_logement }} »</h1>
+  <p class="page-subtitle">Un séjour en cours à la fin de la gestion relève de la gestion jusqu'à son départ.</p>
+</div>
+
+<div class="clo-confirm">
+  {% if erreur %}<div class="alert alert-error" role="alert" data-testid="prolongation-erreur">{{ erreur }}</div>{% endif %}
+
+  {% if not plan.possible %}
+  <div class="alert alert-warning" role="alert" data-testid="prolongation-indisponible">
+    <div><strong>Cette gestion ne peut pas être prolongée.</strong>
+      <p style="margin:4px 0 0">{{ plan.motif }}</p></div>
+  </div>
+  <div class="clo-boutons">
+    <a class="btn btn-secondary" href="{{ retour }}">Revenir</a>
+  </div>
+
+  {% else %}
+  <section class="card" aria-labelledby="pg-gestion">
+    <h2 class="card-title" id="pg-gestion">Gestion enregistrée</h2>
+    <div class="table-container">
+      <table data-testid="periodes-gestion">
+        <thead><tr><th scope="col">Propriétaire</th><th scope="col">Du</th><th scope="col">Au</th></tr></thead>
+        <tbody>
+          {% for g in plan.periodes %}
+          <tr>
+            <td>{{ (g.proprietaire_id | nom_proprietaire) if g.proprietaire_id else 'Propriétaire non renseigné' }}</td>
+            <td>{{ (g.date_debut|date_fr or g.date_debut) if g.date_debut else 'Origine' }}</td>
+            <td>{{ (g.date_fin|date_fr or g.date_fin) if g.date_fin else 'En cours' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="pg-sejours">
+    <h2 class="card-title" id="pg-sejours">Séjours qui deviendraient gérés</h2>
+    {% if couverts %}
+    <ul class="clo-confirm__liste" data-testid="sejours-couverts">
+      {% for s in couverts %}
+      <li><span>{{ s.periode_fr|capitalize }} · {{ s.canal }}{% if s.montant is not none %} · {{ s.montant|eur }}{% endif %}</span></li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="section-note" style="margin:0" data-testid="aucun-sejour-couvert">Aucun séjour en attente n'est couvert par la date proposée.
+      Choisissez la date de départ du dernier séjour concerné.</p>
+    {% endif %}
+  </section>
+
+  <section class="card" aria-labelledby="pg-effets">
+    <h2 class="card-title" id="pg-effets">Ce que change la prolongation</h2>
+    <ul class="clo-confirm__liste" data-testid="effets-prolongation">
+      <li><span>La gestion de « {{ nom_logement }} » continue du {{ plan.debut_prolongation|date_fr or plan.debut_prolongation }}
+        jusqu'à la date choisie, pour {{ plan.proprietaire_id | nom_proprietaire }} : le propriétaire ne change pas.</span></li>
+      <li><span>La période d'origine n'est pas modifiée : une période est ajoutée à la suite, avec votre justification et la trace de qui l'a décidée.</span></li>
+      <li><span>Le logement reste archivé.</span></li>
+      <li><span>Le calcul des réservations devra être actualisé : les séjours concernés deviennent alors des séjours gérés (commission, ménage, factures).</span></li>
+    </ul>
+  </section>
+
+  <form method="post" action="/logements/{{ logement_id }}/prolonger-gestion" class="card" data-testid="formulaire-prolongation">
+    <input type="hidden" name="retour" value="{{ retour }}">
+    <div class="clo-champ">
+      <label for="f-date-fin">Prolonger la gestion jusqu'au</label>
+      <input type="date" id="f-date-fin" name="date_fin" class="filter-input" required value="{{ jusqu_au }}"
+             min="{{ plan.debut_prolongation }}" max="{{ aujourdhui }}" aria-describedby="aide-date-fin">
+      <span id="aide-date-fin" class="section-note" style="margin:0">Date de départ du dernier séjour concerné — au plus tard aujourd'hui.</span>
+    </div>
+    <div class="clo-champ">
+      <label for="f-justification">Justification (obligatoire)</label>
+      <textarea id="f-justification" name="justification" class="filter-input" required aria-describedby="aide-justification">{{ justification or '' }}</textarea>
+      <span id="aide-justification" class="section-note" style="margin:0">Dites pourquoi ce séjour relève de la gestion (par exemple : ménage réalisé et facturé) : elle sera conservée.</span>
+    </div>
+    <div class="clo-case">
+      <input type="checkbox" id="f-confirmation" name="confirmation" value="oui" required>
+      <label for="f-confirmation">Je confirme la prolongation de la gestion de « {{ nom_logement }} ».</label>
+    </div>
+    <div class="clo-boutons">
+      <button type="submit" class="btn btn-primary" data-testid="confirmer-prolongation" {% if not ecriture_active %}disabled{% endif %}>Prolonger la gestion</button>
+      <a href="{{ retour }}" class="btn btn-ghost">Annuler</a>
+    </div>
+    {% if not ecriture_active %}<p class="section-note">Écriture désactivée sur cette installation : cette action est indisponible.</p>{% endif %}
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

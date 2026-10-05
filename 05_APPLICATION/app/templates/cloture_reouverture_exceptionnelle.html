@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% from "_cloture_tableau.html" import icone %}
+{% block title %}Rouvrir exceptionnellement un mois{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/cloture.css">
+
+{% if cloture is none %}
+<div class="page-header">
+  <a href="/clotures" class="back-link">← Clôtures mensuelles</a>
+  <h1 class="page-title">Clôture introuvable</h1>
+</div>
+<div class="alert alert-warning" role="alert">Cette clôture n'existe pas.</div>
+{% else %}
+
+<div class="page-header">
+  <a href="/clotures/{{ cloture.cloture_id_opaque }}" class="back-link">← Clôture {{ du_mois }}</a>
+  <h1 class="page-title">Rouvrir exceptionnellement {{ mois_fr }}</h1>
+  <p class="page-subtitle">Un mois clôturé est figé pour protéger des chiffres arrêtés. Cette réouverture est exceptionnelle : elle se justifie, et elle se trace.</p>
+</div>
+
+<div class="clo-confirm">
+  {% if erreur %}<div class="alert alert-error" role="alert" data-testid="reouverture-exceptionnelle-erreur">{{ erreur }}</div>{% endif %}
+
+  {% if not clos %}
+  <div class="alert alert-warning" role="alert" data-testid="reouverture-exceptionnelle-indisponible">
+    <div><strong>Ce mois n'est pas clôturé définitivement.</strong>
+      <p style="margin:4px 0 0">Il n'y a rien à rouvrir exceptionnellement : un module clôturé se rouvre depuis la clôture du mois.</p></div>
+  </div>
+  <div class="clo-boutons"><a class="btn btn-secondary" href="/clotures/{{ cloture.cloture_id_opaque }}">Revenir à la clôture</a></div>
+
+  {% elif posterieurs %}
+  <div class="alert alert-warning" role="alert" data-testid="reouverture-exceptionnelle-posterieurs">
+    <div><strong>Ce mois ne peut pas être rouvert pour le moment.</strong>
+      <p style="margin:4px 0 0">{{ message_posterieurs }}</p></div>
+  </div>
+  <section class="card" aria-labelledby="re-posterieurs">
+    <h2 class="card-title" id="re-posterieurs">Mois à rouvrir d'abord</h2>
+    <ul class="clo-confirm__liste">
+      {% for p in posterieurs %}<li>{{ icone('cadenas') }}<span>{{ p.mois_fr|capitalize }}</span></li>{% endfor %}
+    </ul>
+  </section>
+  <div class="clo-boutons"><a class="btn btn-secondary" href="/clotures">Voir les mois</a></div>
+
+  {% else %}
+  <section class="card" aria-labelledby="re-effets">
+    <h2 class="card-title" id="re-effets">Ce que fait la réouverture</h2>
+    <ul class="clo-confirm__liste" data-testid="effets-reouverture-exceptionnelle">
+      <li>{{ icone('revoir') }}<span>Les <strong>sept modules</strong> sont rouverts : toutes les écritures redeviennent possibles sur {{ mois_fr }}.</span></li>
+      <li>{{ icone('revoir') }}<span>La <strong>période comptable</strong> est rouverte, avec la même justification.</span></li>
+      <li>{{ icone('revoir') }}<span>L'archive économique figée est <strong>retirée et conservée</strong> dans l'historique : la prochaine clôture figera les valeurs corrigées.</span></li>
+      <li>{{ icone('revoir') }}<span>Le mois repasse en préparation : il faudra <strong>reclôturer chaque module, puis le mois</strong>.</span></li>
+    </ul>
+  </section>
+
+  <section class="card" aria-labelledby="re-inchange">
+    <h2 class="card-title" id="re-inchange">Ce qui ne change pas</h2>
+    <ul class="clo-confirm__liste">
+      <li>{{ icone('cadenas') }}<span>Rien n'est supprimé : la clôture d'origine (date, auteur) et cette réouverture restent dans l'historique du mois.</span></li>
+      <li>{{ icone('cadenas') }}<span>Les factures déjà émises et les écritures déjà validées ne sont pas modifiées.</span></li>
+      <li>{{ icone('cadenas') }}<span>Les mois postérieurs ne sont pas touchés : ils ne sont pas clôturés (sinon la réouverture serait refusée).</span></li>
+    </ul>
+  </section>
+
+  <form method="post" action="/clotures/{{ cloture.cloture_id_opaque }}/reouverture-exceptionnelle" class="card" data-testid="formulaire-reouverture-exceptionnelle">
+    <div class="clo-champ">
+      <label for="f-justification">Justification (obligatoire)</label>
+      <textarea id="f-justification" name="justification" class="filter-input" required aria-describedby="aide-justification"></textarea>
+      <span id="aide-justification" class="section-note" style="margin:0">Dites pourquoi ce mois doit être rouvert : elle sera conservée dans l'historique, avec votre nom et l'heure.</span>
+    </div>
+    <div class="clo-champ">
+      <label for="f-mois-saisi">Pour confirmer, saisissez le mois à rouvrir : <strong>{{ mois_fr }}</strong></label>
+      <input type="text" id="f-mois-saisi" name="mois_saisi" class="filter-input" required autocomplete="off" aria-describedby="aide-mois">
+      <span id="aide-mois" class="section-note" style="margin:0">Cette saisie évite de rouvrir le mauvais mois.</span>
+    </div>
+    <div class="clo-case">
+      <input type="checkbox" id="f-confirmation" name="confirmation" value="oui" required>
+      <label for="f-confirmation">Je comprends que le mois {{ mois_fr }} ne sera plus clôturé tant que je ne l'aurai pas reclôturé.</label>
+    </div>
+    <div class="clo-boutons">
+      <button type="submit" class="btn btn-danger" data-testid="confirmer-reouverture-exceptionnelle">Rouvrir exceptionnellement le mois</button>
+      <a href="/clotures/{{ cloture.cloture_id_opaque }}" class="btn btn-ghost">Annuler</a>
+    </div>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

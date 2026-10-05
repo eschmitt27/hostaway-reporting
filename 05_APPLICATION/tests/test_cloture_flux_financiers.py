@@ -52,6 +52,17 @@ def _types(db, mois=PASSE):
 
 def _a_valider(db, mois=PASSE):
     c = cs.creer_ou_charger(mois, acteur=ACTEUR, db_path=db)
+    if cs.refus_temporel(mois):
+        # Mois courant ou futur : la clôture ne se DÉMARRE plus (`refus_demarrage`), mais une clôture ouverte avant cette
+        # règle peut exister en base — c'est cet état hérité que les gardes de validation doivent encore refuser.
+        conn = get_db(db)
+        try:
+            conn.execute("UPDATE clotures_mensuelles SET statut=?, version=version+1 "
+                         "WHERE cloture_id_opaque=?", (cs.ST_A_VALIDER, c["cloture_id_opaque"]))
+            conn.commit()
+        finally:
+            conn.close()
+        return cs.charger_par_mois(mois, db)
     c = cs.demarrer_preparation(c, acteur=ACTEUR, db_path=db)
     return cs.passer_a_valider(c, acteur=ACTEUR, db_path=db)
 
@@ -331,7 +342,7 @@ def test_25_lecture_du_mois_courant_sans_ecriture(client, base, verrous):
     page = html.unescape(r.text)
     assert r.status_code == 200 and "Clôture de septembre 2026" in page
     assert "1 bloqueur à traiter" in page, "la synthèse compte les bloqueurs de tous les modules"
-    assert "encore en cours et ne peut pas être clôturé" in page
+    assert "est encore en cours" in page and "ne peut être démarrée qu'une fois le mois terminé" in page
     assert "1 mouvement bancaire à qualifier" in page and "Traiter les mouvements" in page
     assert _empreinte(base, "clotures_mensuelles", "cloture_evenements", *TABLES_METIER) == avant
     liste = html.unescape(client.get("/clotures").text)

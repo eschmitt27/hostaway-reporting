@@ -355,8 +355,10 @@ def test_13_un_sejour_hors_periode_de_gestion_bloque_les_reservations_puis_dispa
     g = res["bloqueurs"][0]
     assert g["libelle"] == "1 séjour hors période de gestion"
     assert g["items"][0]["libelle"] == "Studio des Tilleuls"
-    assert g["items"][0]["detail"] == "du 10/09 au 13/09"
-    assert g["lien"] == "/logements/LOG_CMOD"
+    assert g["items"][0]["detail"].startswith("du 10 au 13 septembre 2026")
+    # « Traiter » ouvre la page où ce séjour s'explique et se TRANCHE (Réservations), pas une fiche à deviner.
+    assert g["lien"] == "/reservations/hors-gestion?mois=2026-09"
+    assert g["items"][0]["lien"] == "/reservations/hors-gestion?mois=2026-09#sejour-RES-CMOD-1"
     # La gestion est rétablie, le calcul relu : le séjour devient valide, le bloqueur s'en va.
     conn = get_db(base)
     try:
@@ -373,7 +375,18 @@ def test_13_ter_chaque_cause_d_exclusion_est_dite_pour_ce_qu_elle_est(base):
     _semer_sejour(base, code="GESTION_LOGEMENT_OUT_OF_PERIOD")
     g = _complete(base)[cm.RESERVATIONS]["bloqueurs"][0]
     assert g["libelle"] == "1 séjour à cheval sur la fin de gestion"
-    assert "archiver à la date de départ du séjour" in g["pourquoi"] and g["lien"] == "/logements/LOG_CMOD"
+    assert "prolonger la gestion jusqu'à son départ" in g["pourquoi"]
+    assert "exclure" in g["pourquoi"].lower() and g["lien"] == "/reservations/hors-gestion?mois=2026-09"
+
+
+def test_13_quater_les_controles_de_sejours_menent_a_l_ecran_qui_porte_leurs_actions(client, base):
+    """La liste « Réservations » de l'application ne montre que les saisies à la main : y envoyer pour un contrôle de
+    séjour Hostaway ne ferait rien voir. « Traiter » ouvre l'écran des contrôles, filtré sur le mois et le contrôle —
+    où chaque élément porte sa vraie action (régulariser, corriger l'assiette…)."""
+    g = _analyse(base, elements=[_el("VRBO_MONTANT_NON_RENSEIGNE", "RESERVATIONS")])[cm.RESERVATIONS]["bloqueurs"][0]
+    assert g["lien"] == "/controles-cloture?mois=2026-09&code=VRBO_MONTANT_NON_RENSEIGNE"
+    assert client.get(g["lien"]).status_code == 200
+    assert "statut_controle=A_CONTROLER" not in g["lien"]
 
 
 def test_13_bis_un_sejour_valide_ou_d_un_autre_mois_ne_bloque_pas(base):
@@ -592,4 +605,7 @@ def test_23_aucune_table_ne_recopie_les_anomalies_de_cloture():
     for table in re.findall(r"CREATE TABLE IF NOT EXISTS (cloture\w*|clotures\w*)", ddl):
         assert table in {"clotures_mensuelles", "cloture_evenements", "cloture_elements",
                          "cloture_documents", "cloture_statuts", "cloture_statut_evenements",
-                         "cloture_modules", "cloture_modules_evenements"}, table
+                         "cloture_modules", "cloture_modules_evenements",
+                         # Archive d'un mois retirée à sa réouverture exceptionnelle : une COPIE de ce qui était
+                         # figé (jamais un constat de clôture), conservée en ajout seul (0128).
+                         "cloture_archives_retirees"}, table

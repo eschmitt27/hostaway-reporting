@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Exclure un séjour du périmètre de gestion' if mode == 'exclure' else 'Réintégrer un séjour au périmètre de gestion' }}{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/cloture.css">
+
+{% if sejour is none %}
+<div class="page-header">
+  <a href="/reservations/hors-gestion" class="back-link">← Séjours hors périmètre de gestion</a>
+  <h1 class="page-title">Séjour introuvable</h1>
+</div>
+<div class="alert alert-warning" role="alert" data-testid="sejour-introuvable">Ce séjour n'est plus hors de la gestion : il a été traité, ou le calcul des réservations a changé.
+  Revenez à la liste pour voir ce qui reste à trancher.</div>
+{% else %}
+
+<div class="page-header">
+  <a href="{{ retour }}#sejour-{{ sejour.cle }}" class="back-link">← Séjours hors périmètre de gestion</a>
+  <h1 class="page-title">{{ 'Exclure ce séjour du périmètre de gestion' if mode == 'exclure' else 'Réintégrer ce séjour au périmètre de gestion' }}</h1>
+  <p class="page-subtitle">{{ sejour.logement }} · {{ sejour.periode_fr }}</p>
+</div>
+
+<div class="clo-confirm">
+  {% if erreur %}<div class="alert alert-error" role="alert" data-testid="decision-erreur">{{ erreur }}</div>{% endif %}
+
+  <section class="card" aria-labelledby="dec-sejour">
+    <h2 class="card-title" id="dec-sejour">Le séjour</h2>
+    <dl class="clo-recap">
+      <div><dt>Logement</dt><dd>{{ sejour.logement }}</dd></div>
+      <div><dt>Séjour</dt><dd>{{ sejour.periode_fr|capitalize }}</dd></div>
+      <div><dt>Canal</dt><dd>{{ sejour.canal }}</dd></div>
+      {% if sejour.montant is not none %}<div><dt>Montant retenu</dt><dd>{{ sejour.montant|eur }}</dd></div>{% endif %}
+    </dl>
+    <p class="clo-alerte" role="note">{{ sejour.cause }}</p>
+  </section>
+
+  {% if mode == 'exclure' and sejour.etat == 'EXCLU_DECIDE' %}
+  <div class="alert alert-warning" role="alert" data-testid="decision-deja-prise">Ce séjour est déjà exclu du périmètre de gestion
+    (décision du {{ sejour.decision.date_decision_fr }}).</div>
+  <div class="clo-boutons"><a class="btn btn-secondary" href="{{ retour }}#sejour-{{ sejour.cle }}">Revenir à la liste</a></div>
+
+  {% elif mode == 'reintegrer' and sejour.etat != 'EXCLU_DECIDE' %}
+  <div class="alert alert-warning" role="alert" data-testid="decision-aucune">Ce séjour n'est pas exclu : il n'y a rien à réintégrer.</div>
+  <div class="clo-boutons"><a class="btn btn-secondary" href="{{ retour }}#sejour-{{ sejour.cle }}">Revenir à la liste</a></div>
+
+  {% elif mode == 'exclure' and not sejour.decidable %}
+  <div class="alert alert-warning" role="alert" data-testid="decision-impossible">Ce séjour ne s'exclut pas ici : sa période de gestion est à corriger
+    depuis la fiche du logement.</div>
+  <div class="clo-boutons"><a class="btn btn-secondary" href="/logements/{{ sejour.logement_id }}">Ouvrir la fiche du logement</a></div>
+
+  {% else %}
+  {% if mode == 'reintegrer' %}
+  <section class="card" aria-labelledby="dec-actuelle">
+    <h2 class="card-title" id="dec-actuelle">Décision actuelle</h2>
+    <dl class="clo-recap">
+      <div><dt>Décidée le</dt><dd>{{ sejour.decision.date_decision_fr }}</dd></div>
+      <div><dt>Par</dt><dd>{{ sejour.decision.acteur or '—' }}</dd></div>
+      <div><dt>Justification</dt><dd>{{ sejour.decision.justification }}</dd></div>
+    </dl>
+  </section>
+  {% endif %}
+
+  <section class="card" aria-labelledby="dec-effets">
+    <h2 class="card-title" id="dec-effets">Ce que change cette décision</h2>
+    <ul class="clo-confirm__liste" data-testid="effets-decision">
+      {% if mode == 'exclure' %}
+      <li><span>Le séjour reste visible, avec son historique : rien n'est supprimé.</span></li>
+      <li><span>Il ne produit ni commission, ni facture, ni net propriétaire.</span></li>
+      <li><span>Il ne bloque plus la clôture du mois.</span></li>
+      <li><span>La décision (qui, quand, pourquoi) est conservée et consultable ; elle peut être annulée en réintégrant le séjour.</span></li>
+      <li><span>Vos chiffres ne changent pas : un séjour hors gestion n'en faisait déjà pas partie. Le prochain calcul des réservations le classera « exclu ».</span></li>
+      {% else %}
+      <li><span>Le séjour redevient « à trancher » : il bloque de nouveau la clôture du mois tant qu'on n'a pas décidé.</span></li>
+      <li><span>La décision d'exclusion reste dans l'historique ; la réintégration s'y ajoute.</span></li>
+      <li><span>Vos chiffres ne changent pas : le séjour reste hors du calcul tant que sa période de gestion n'est pas corrigée.</span></li>
+      {% endif %}
+    </ul>
+  </section>
+
+  <form method="post" action="/reservations/hors-gestion/{{ sejour.cle }}/{{ 'exclure' if mode == 'exclure' else 'reintegrer' }}" class="card" data-testid="formulaire-decision">
+    <div class="clo-champ">
+      <label for="f-justification">Justification (obligatoire)</label>
+      <textarea id="f-justification" name="justification" class="filter-input" required aria-describedby="aide-justification">{{ justification or '' }}</textarea>
+      <span id="aide-justification" class="section-note" style="margin:0">{{ "Dites pourquoi ce séjour ne relève pas de la gestion (par exemple : logement retiré, séjour géré par le propriétaire) : elle sera conservée." if mode == 'exclure' else "Dites pourquoi la décision d'exclusion est annulée : elle sera conservée." }}</span>
+    </div>
+    <div class="clo-case">
+      <input type="checkbox" id="f-confirmation" name="confirmation" value="oui" required>
+      <label for="f-confirmation">{{ "Je confirme l'exclusion de ce séjour du périmètre de gestion." if mode == 'exclure' else "Je confirme la réintégration de ce séjour au périmètre de gestion." }}</label>
+    </div>
+    <div class="clo-boutons">
+      <button type="submit" class="btn btn-primary" data-testid="confirmer-decision">{{ 'Exclure du périmètre de gestion' if mode == 'exclure' else 'Réintégrer le séjour' }}</button>
+      <a href="{{ retour }}#sejour-{{ sejour.cle }}" class="btn btn-ghost">Annuler</a>
+    </div>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

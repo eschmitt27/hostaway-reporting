@@ -22,6 +22,7 @@ déjà clos AVANT que cette mécanique existe).
 from __future__ import annotations
 
 import hashlib
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -143,6 +144,61 @@ def correction_historique(cle_historisation: str, mois: str, apres: dict[str, An
         return {"ok": True, "cle_historisation": cle_historisation}
     finally:
         conn.close()
+
+
+def retirer_archive(mois: str, *, cloture_id_opaque: str, justification: str, acteur: str = "",
+                    conn=None, db_path=None) -> dict[str, Any]:
+    """Retire l'archive économique d'un mois ROUVERT EXCEPTIONNELLEMENT — sans en perdre une ligne.
+
+    « Une réservation est archivée UNE FOIS, pour toujours » (migration 0034) : tant que l'archive d'origine est
+    en place, la RE-clôture du mois ne pourrait figer les valeurs corrigées — l'archivage refuse un mois déjà
+    archivé, et une clé déjà figée est ignorée. L'archive est donc retirée des tables vives, mais seulement
+    après avoir été COPIÉE, ligne par ligne, dans `cloture_archives_retirees` (en ajout seul, avec le mois, la
+    clôture, l'acteur, la date et la justification) ; le journal des archivages garde sa trace du retrait.
+
+    Appelée dans la transaction de la réouverture (`conn` partagé, aucun commit ici). Justification
+    obligatoire. `{"nb_reservations", "nb_reglement"}` = ce qui a été retiré."""
+    if not (justification or "").strip():
+        raise ArchivageRefuse("Justification obligatoire pour retirer l'archive d'un mois.")
+    connexion_locale = conn is None
+    if connexion_locale:
+        conn = get_db(db_path)
+    try:
+        reservations = ([dict(r) for r in conn.execute(
+            "SELECT * FROM reservations_historique_cloture WHERE mois_cloture = ? ORDER BY id", (mois,))]
+            if _table_presente(conn, "reservations_historique_cloture") else [])
+        reglement = ([dict(r) for r in conn.execute(
+            "SELECT * FROM mois_archive_reglement WHERE mois = ? ORDER BY id", (mois,))]
+            if _table_presente(conn, "mois_archive_reglement") else [])
+        if not reservations and not reglement:
+            return {"ok": True, "mois": mois, "nb_reservations": 0, "nb_reglement": 0}
+        archive_ids = sorted({str(r["archive_id"]) for r in reservations if r.get("archive_id")})
+        maintenant = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        conn.execute(
+            "INSERT INTO cloture_archives_retirees (mois, cloture_id_opaque, archive_ids, nb_reservations, "
+            "nb_reglement, contenu_json, justification, acteur, date_retrait) VALUES (?,?,?,?,?,?,?,?,?)",
+            (mois, cloture_id_opaque, ",".join(archive_ids), len(reservations), len(reglement),
+             json.dumps({"reservations": reservations, "reglement": reglement}, ensure_ascii=False,
+                        default=str), justification.strip(), acteur or None, maintenant))
+        conn.execute("DELETE FROM reservations_historique_cloture WHERE mois_cloture = ?", (mois,))
+        if _table_presente(conn, "mois_archive_reglement"):
+            conn.execute("DELETE FROM mois_archive_reglement WHERE mois = ?", (mois,))
+        if _table_presente(conn, "reservations_archives"):
+            conn.execute(
+                "INSERT INTO reservations_archives (archive_id, mois_traites, nb_conservees, nb_ajoutees, "
+                "motif, acteur) VALUES (?,?,?,?,?,?)",
+                ("ARC-RETRAIT-" + uuid.uuid4().hex[:10].upper(), mois, len(reservations), 0,
+                 "RETRAIT_REOUVERTURE_EXCEPTIONNELLE", acteur or None))
+        if connexion_locale:
+            conn.commit()
+        return {"ok": True, "mois": mois, "nb_reservations": len(reservations), "nb_reglement": len(reglement)}
+    except Exception:
+        if connexion_locale:
+            conn.rollback()
+        raise
+    finally:
+        if connexion_locale:
+            conn.close()
 
 
 def archiver_mois(mois: str, *, acteur: str = "", conn=None, db_path=None) -> dict[str, Any]:

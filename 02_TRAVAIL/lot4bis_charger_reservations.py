@@ -413,6 +413,34 @@ def charger_hh_excel():
     return rows_to_dicts(h_hh, d_hh)
 
 
+def charger_exclusions_decidees(chemin_base):
+    """Decisions ACTIVES « exclure du perimetre de gestion » : {reservation_id_hostaway: decision}.
+
+    Ecrites par le module Reservations de l'application (`reservation_perimetre_decisions`, migration
+    0127) quand l'exploitant tranche qu'un sejour Hostaway ne releve pas de sa gestion. Table absente
+    (base anterieure a 0127, source Excel legacy) : aucune decision, jamais une erreur — le moteur se
+    comporte alors exactement comme avant.
+    """
+    conn, message = dbm.verifier(chemin_base, ("reservation_perimetre_decisions",))
+    if conn is None:
+        return {}, message
+    try:
+        lignes = dbm.lignes(
+            conn, "reservation_perimetre_decisions",
+            ("decision_id", "reservation_id_hostaway", "date_decision", "acteur", "justification"),
+            ou="statut = 'ACTIVE'", ordre="id")
+    finally:
+        conn.close()
+    return ({str(l["reservation_id_hostaway"]): l for l in lignes},
+            "%s (%d decisions actives)" % (message, len(lignes)))
+
+
+#: Source (et donc canal) d'une ligne exclue par decision : celle de son canal, pour que la ligne reste
+#: rangee sous Airbnb / Booking / VRBO / Direct comme le serait le meme sejour non exclu.
+_SOURCE_PAR_CANAL = {"AIRBNB": "HOSTAWAY_AIRBNB", "BOOKING": "HOSTAWAY_BOOKING",
+                     "VRBO": "HOSTAWAY_VRBO_A_CONTROLER"}
+
+
 def charger_hh(source, chemin_base):
     """Réservations hors Hostaway selon la source demandée — même contrat que `charger_hostaway()`."""
     if source == SOURCE_SQLITE:
@@ -501,6 +529,12 @@ def main(argv=None):
     print("[4/5] Lecture des référentiels (mapping + logements + gestion historisée)...")
     map_dicts, log_dicts, gest_dicts = charger_ref(args.source_hostaway, chemin_base)
     print(f"      {len(map_dicts)} mappings, {len(log_dicts)} logements, {len(gest_dicts)} gestions historisees")
+
+    if args.source_hostaway == SOURCE_EXCEL:
+        exclusions_decidees, message_exclusions = {}, "source Excel legacy : aucune decision"
+    else:
+        exclusions_decidees, message_exclusions = charger_exclusions_decidees(chemin_base)
+    print(f"      exclusions decidees : {message_exclusions}")
 
     # Index mapping : listingMapId → logement_id (Hostaway, actif=OUI)
     ha_map_index = defaultdict(list)
@@ -878,6 +912,30 @@ def main(argv=None):
             date_arrivee_str=date_to_str(res.get("checkInDate")),
             date_depart_str=date_to_str(res.get("checkOutDate")),
         )
+
+        # EXCLUSION DECIDEE — l'exploitant a tranche « ce sejour ne releve pas de notre gestion »
+        # (module Reservations : justification, auteur, date). La decision est prise : le statut est
+        # EXCLU_RESULTAT, pas A_CONTROLER, et elle prime sur la periode de gestion tant qu'elle n'est
+        # pas annulee. Le sejour reste visible, rien n'est efface ; il ne produit ni commission, ni
+        # facture, ni net proprietaire.
+        decision = exclusions_decidees.get(str(rid))
+        if decision is not None:
+            stats["EXCLUSION_DECIDEE"] += 1
+            commentaire = ("Exclu du perimetre de gestion par decision du %s (%s) : %s"
+                           % (decision.get("date_decision"), decision.get("acteur") or "-",
+                              decision.get("justification")))
+            row = make_row_ha(res, payout, _SOURCE_PAR_CANAL.get(channel, "HOSTAWAY_DIRECT_HH"),
+                              "NON_CONCERNE", 0, None, "EXCLU_RESULTAT", "INFO",
+                              dbm.MOTIF_EXCLUSION_DECIDEE, commentaire, logement_id, None)
+            # `make_row_ha` peut requalifier une ligne (conflit de voyageurs) : la decision, elle, ne se
+            # laisse pas defaire par un controle secondaire.
+            row.update({"statut_controle": "EXCLU_RESULTAT", "niveau_anomalie": "INFO",
+                        "code_anomalie": dbm.MOTIF_EXCLUSION_DECIDEE,
+                        "motif_exclusion": dbm.MOTIF_EXCLUSION_DECIDEE, "code_impact": None,
+                        "impact_resultat_reel": "NON", "impact_resultat_comptable": "NON",
+                        "proprietaire_id": None, "montant_retenu": 0})
+            master_rows.append(row)
+            continue
 
         if ano_code in (HORS_PARC_TECHNIQUE, STATUT_PARC_INVALIDE, dbm.MOTIF_LOGEMENT_NON_MAPPE):
             if ano_code == HORS_PARC_TECHNIQUE:

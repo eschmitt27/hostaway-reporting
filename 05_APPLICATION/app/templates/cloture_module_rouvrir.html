@@ -24,10 +24,11 @@
   {% if not module.peut_rouvrir %}
   <div class="alert alert-warning" role="alert" data-testid="reouverture-module-indisponible">
     <div><strong>Ce module ne peut pas être rouvert.</strong>
-      <p style="margin:4px 0 0">{% if cloture.statut == 'ARCHIVEE' %}Le mois est clôturé définitivement : ses modules ne se rouvrent plus. Une correction passe par la correction rétroactive.{% else %}Il n'est pas clôturé : il n'y a rien à rouvrir.{% endif %}</p></div>
+      <p style="margin:4px 0 0">{% if cloture.statut == 'ARCHIVEE' %}Le mois est clôturé définitivement : ses modules ne se rouvrent plus un par un. Pour corriger, rouvrez exceptionnellement le mois entier (avec une justification).{% else %}Il n'est pas clôturé : il n'y a rien à rouvrir.{% endif %}</p></div>
   </div>
   <div class="clo-boutons">
     <a class="btn btn-secondary" href="/clotures/{{ cloture.cloture_id_opaque }}#module-{{ module.cle|lower }}">Revenir à la clôture</a>
+    {% if cloture.statut == 'ARCHIVEE' %}<a class="btn btn-ghost" href="/clotures/{{ cloture.cloture_id_opaque }}/reouverture-exceptionnelle" data-testid="lien-reouverture-exceptionnelle">Rouvrir exceptionnellement le mois</a>{% endif %}
   </div>
 
   {% else %}

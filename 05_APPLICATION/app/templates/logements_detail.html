@@ -183,7 +183,29 @@
 {% endif %}
 {% endmacro %}
 
-{% macro bloc_cycle_de_vie(logement_id, actif, coherence, proprietaires, ecriture_active) %}
+{# Séjours de ce logement hors périmètre de gestion : dits ici, avec la VRAIE action — prolonger la gestion
+   jusqu'au départ d'un séjour en cours à la fin de gestion, ou trancher (exclure) depuis les Réservations. #}
+{% macro alerte_sejours_hors_gestion(sejours, logement_id) %}
+{% set a_trancher = (sejours or [])|selectattr('etat', 'equalto', 'A_TRANCHER')|list %}
+{% if a_trancher %}
+<div class="alert alert-warning" role="alert" data-testid="alerte-sejours-hors-gestion">
+  <div>
+    <strong>{{ a_trancher|length }} séjour{{ 's' if a_trancher|length > 1 }} de ce logement {{ "n'ont" if a_trancher|length > 1 else "n'a" }} aucune période de gestion qui {{ 'les' if a_trancher|length > 1 else 'le' }} couvre en entier.</strong>
+    {{ 'Ils ne sont' if a_trancher|length > 1 else 'Il n’est' }} ni calculé{{ 's' if a_trancher|length > 1 }} ni facturé{{ 's' if a_trancher|length > 1 }}.
+    <ul class="mt-sm">
+      {% for s in a_trancher %}
+      <li>{{ s.periode_fr|capitalize }} · {{ s.canal }}
+        {% if s.prolongation_jusqu_au %}— <a href="/logements/{{ logement_id }}/prolonger-gestion?jusqu_au={{ s.prolongation_jusqu_au }}">Prolonger la gestion jusqu'au {{ s.prolongation_jusqu_au_fr }}</a>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    <a href="/reservations/hors-gestion?logement_id={{ logement_id }}">Voir et traiter ces séjours</a>
+  </div>
+</div>
+{% endif %}
+{% endmacro %}
+
+{% macro bloc_cycle_de_vie(logement_id, actif, coherence, proprietaires, ecriture_active, prolongation_possible=false) %}
 {% set incoherent = coherence and coherence.status == 'OK' and not coherence.coherent %}
 {% set reprise = coherence.reprise if (coherence and coherence.status == 'OK') else none %}
 {% if actif %}
@@ -232,6 +254,12 @@
     </div>
   </form>
 </details>
+{% endif %}
+{% if prolongation_possible and not actif %}
+<p class="mb-md" data-testid="lien-prolonger-gestion">
+  <a class="btn btn-ghost" href="/logements/{{ logement_id }}/prolonger-gestion">Prolonger la gestion</a>
+  <span class="text-sm text-secondary">Pour un séjour en cours à la date de fin de gestion, que la gestion doit couvrir jusqu'à son départ.</span>
+</p>
 {% endif %}
 {% endmacro %}
 
@@ -320,6 +348,7 @@
   </div>
 
   {{ alerte_incoherence(coherence) }}
+  {{ alerte_sejours_hors_gestion(sejours_gestion, logement_id) }}
 
   <!-- Actions de gestion (fiche minimale : mêmes actions, disponibles sans attendre Lot13) -->
   <div class="card" style="margin-bottom: var(--stack-lg);">
@@ -373,7 +402,7 @@
       </form>
     </details>
 
-    {{ bloc_cycle_de_vie(logement_id, (fiche_sure.actif or '')|upper == 'OUI', coherence, refs.proprietaires, ecriture_active) }}
+    {{ bloc_cycle_de_vie(logement_id, (fiche_sure.actif or '')|upper == 'OUI', coherence, refs.proprietaires, ecriture_active, prolongation_possible) }}
   </div>
 
 {% elif detail.status == 'ERROR' %}
@@ -436,6 +465,7 @@
   </div>
 
   {{ alerte_incoherence(coherence) }}
+  {{ alerte_sejours_hors_gestion(sejours_gestion, logement_id) }}
 
   <!-- Actions de gestion -->
   <div class="card" style="margin-bottom: var(--stack-lg);">
@@ -497,7 +527,7 @@
       </form>
     </details>
 
-    {{ bloc_cycle_de_vie(detail.logement_id, (fiche_sure.actif or '')|upper == 'OUI', coherence, refs.proprietaires, ecriture_active) }}
+    {{ bloc_cycle_de_vie(detail.logement_id, (fiche_sure.actif or '')|upper == 'OUI', coherence, refs.proprietaires, ecriture_active, prolongation_possible) }}
   </div>
   {% endif %}
 

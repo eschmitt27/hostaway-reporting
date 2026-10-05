@@ -137,8 +137,9 @@ def rouvrir(mois: str, *, motif: str, acteur: str, confirmation: bool,
     # figée) ; VALIDÉE, elle passe ROUVERTE par son propre automate — jamais contournée.
     cloture = clotures_service.charger_par_mois(mois, db_path)
     if cloture and cloture["statut"] == clotures_service.ST_ARCHIVEE:
-        raise DecisionRefusee(f"La clôture de {mois} est archivée : sa réouverture passe par la "
-                              "correction rétroactive, pas par cet écran.")
+        raise DecisionRefusee(f"La clôture de {mois} est archivée : sa réouverture passe par « Rouvrir "
+                              "exceptionnellement » depuis la clôture mensuelle (justification obligatoire), pas "
+                              "par cet écran.")
     if cloture and cloture["statut"] == clotures_service.ST_VALIDEE:
         clotures_service.rouvrir(cloture, acteur=acteur, justification=motif, db_path=db_path)
 

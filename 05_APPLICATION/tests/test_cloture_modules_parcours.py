@@ -138,18 +138,23 @@ def test_02_demarrer_ouvre_la_cloture_sans_rien_cloturer(client, base):
     assert "Ouverte le " in page, "la date d'ouverture de la clôture est visible"
 
 
-def test_03_un_mois_futur_ne_se_prepare_pas(client, base):
+def test_03_un_mois_futur_ne_se_demarre_pas(client, base):
     page = _texte(client.get(f"/clotures/mois/{FUTUR}").text)
-    assert "Un mois futur ne se prépare pas encore" in page
+    assert "n'est pas commencé" in page and "un mois futur ne peut jamais être clôturé" in page
     assert "Démarrer la clôture" not in page
 
 
-def test_04_le_mois_courant_se_prepare_mais_le_calendrier_est_dit(client, base):
+def test_04_le_mois_courant_se_consulte_mais_ne_se_demarre_pas(client, base):
+    """Démarrer ne sert à rien sur un mois qui court : ses points à traiter se consultent déjà, recalculés à chaque
+    affichage. La clôture ne se démarre donc qu'une fois le mois terminé — jamais d'état « en préparation » sur
+    un mois inachevé."""
     page = _texte(client.get(f"/clotures/mois/{COURANT}").text)
     assert "Clôture d'octobre 2026" in page, "devant une voyelle, « de » s'élide (jamais « de octobre »)"
-    assert "Démarrer la clôture" in page
-    assert "encore en cours et ne peut pas être clôturé" in page
-    assert "la clôture ne sera possible qu'une fois le mois terminé" in page
+    assert "Démarrer la clôture" not in page
+    assert "est encore en cours" in page and "se consultent dès maintenant" in page
+    assert "ne peut être démarrée qu'une fois le mois terminé" in page
+    for m in cm.MODULES:
+        assert m.libelle in page, "les modules et leurs bloqueurs restent consultables"
 
 
 # ══ 2. Tableau de bord : compteurs, état, bloqueur, lien Traiter ═════════════════════════════════

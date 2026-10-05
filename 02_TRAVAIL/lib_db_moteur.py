@@ -132,6 +132,15 @@ MOTIF_HORS_PERIODE_GESTION = "HORS_PERIODE_GESTION"
 # l'economie, et signalee comme correspondance a etablir. C'est une donnee manquante, pas une
 # reservation fausse — et surtout, ce n'est pas une raison d'arreter le calcul des AUTRES.
 MOTIF_LOGEMENT_NON_MAPPE = "LOGEMENT_NON_MAPPE"
+#: Le sejour a ete EXCLU du perimetre de gestion par une DECISION HUMAINE explicite (justification,
+#: auteur, date : `reservation_perimetre_decisions`, module Reservations).
+#
+# C'est la seule exclusion qui ne se deduit pas des donnees : quelqu'un a tranche « ce sejour n'est pas
+# a nous » (reservation recue d'Hostaway sur un logement qu'on ne gere plus). Contrairement a
+# HORS_PERIODE_GESTION, qui reste A_CONTROLER parce qu'une action peut encore tout changer, la decision
+# est prise : le statut est EXCLU_RESULTAT, et elle prime sur la periode de gestion tant qu'elle n'est
+# pas annulee.
+MOTIF_EXCLUSION_DECIDEE = "EXCLUSION_DECIDEE"
 MOTIFS_EXCLUSION = (
     MOTIF_OWNERSTAY,               # sejour du proprietaire : occupation reelle, aucune vente
     MOTIF_STATUT_HORS_PERIMETRE,   # statut Hostaway hors {new, modified} (annulee, etc.)
@@ -141,6 +150,7 @@ MOTIFS_EXCLUSION = (
     MOTIF_SUIVI_ASSOCIE,           # ligne de suivi associe (lot7) : trace, ne produit rien
     MOTIF_HORS_PERIODE_GESTION,    # sejour hors de tout mandat de gestion a cette date
     MOTIF_LOGEMENT_NON_MAPPE,      # annonce Hostaway sans logement rattache
+    MOTIF_EXCLUSION_DECIDEE,       # sejour exclu du perimetre de gestion par decision explicite
 )
 
 #: Codes d'anomalie de resolution de la periode de gestion qui EXCLUENT la ligne de l'economie.
@@ -177,6 +187,8 @@ def motif_exclusion_pour(source, statut_controle=None, code_anomalie=None):
     ano = str(code_anomalie or "").strip().upper()
     if src.startswith("OWNERSTAY"):
         return MOTIF_OWNERSTAY
+    if src == MOTIF_EXCLUSION_DECIDEE or ano == MOTIF_EXCLUSION_DECIDEE:
+        return MOTIF_EXCLUSION_DECIDEE
     if src == MOTIF_STATUT_HORS_PERIMETRE or ano == MOTIF_STATUT_HORS_PERIMETRE:
         return MOTIF_STATUT_HORS_PERIMETRE
     if src == MOTIF_HORS_PARC_TECHNIQUE or ano == MOTIF_HORS_PARC_TECHNIQUE:

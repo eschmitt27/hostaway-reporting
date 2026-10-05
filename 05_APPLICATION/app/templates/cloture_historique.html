@@ -20,6 +20,7 @@
   'PREUVE_AJOUTEE': 'Pièce ajoutée à la clôture',
   'MODULE_CLOTURE': 'Module clôturé',
   'MODULE_ROUVERT': 'Module rouvert',
+  'REOUVERTURE_EXCEPTIONNELLE': 'Réouverture exceptionnelle : ce qui a été fait',
 } %}
 {% set etapes = {
   'EN_PREPARATION': 'Préparation démarrée',
@@ -36,7 +37,7 @@
     <li class="clo-journal__ligne">
       <span class="clo-journal__quand">{{ h.date_evenement|datetime_fr }}{% if h.acteur %} · {{ h.acteur }}{% endif %}</span>
       <span class="clo-journal__quoi">
-        {% if h.type_evenement == 'TRANSITION' %}{{ etapes.get(h.nouveau_statut, 'Changement d’état') }}{% else %}{{ evenements.get(h.type_evenement, 'Événement') }}{% endif %}
+        {% if h.type_evenement == 'TRANSITION' and h.ancien_statut == 'ARCHIVEE' and h.nouveau_statut == 'ROUVERTE' %}Mois clôturé rouvert exceptionnellement{% elif h.type_evenement == 'TRANSITION' %}{{ etapes.get(h.nouveau_statut, 'Changement d’état') }}{% else %}{{ evenements.get(h.type_evenement, 'Événement') }}{% endif %}
         {% if h.commentaire %}<span class="clo-journal__detail">{{ h.commentaire }}</span>{% endif %}
       </span>
     </li>

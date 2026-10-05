@@ -11,6 +11,7 @@
     <p class="page-subtitle">Réservations saisies manuellement — la liste ci-dessous est une sortie du moteur, en lecture seule ; la création se fait par le formulaire dédié.</p>
   </div>
   <div class="page-header__actions">
+    <a href="/reservations/hors-gestion" class="btn btn-secondary" data-testid="lien-hors-gestion">Séjours hors périmètre de gestion{% if nb_hors_gestion %} ({{ nb_hors_gestion }} à trancher){% endif %}</a>
     <a href="/reservations/nouvelle" class="btn btn-primary">+ Ajouter une réservation hors Hostaway</a>
   </div>
 </div>

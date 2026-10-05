@@ -196,3 +196,26 @@ def rouvrir(periode: str, *, justification: str, acteur: str = "", db_path=None)
     if not justification or not justification.strip():
         return _refus(E_REOUVERTURE_SANS_JUSTIFICATION)
     return _transition(periode, ST_ROUVERTE, commentaire=justification, acteur=acteur, db_path=db_path)
+
+
+def rouvrir_dans(conn, periode: str, *, justification: str, acteur: str = "") -> dict[str, Any]:
+    """Rouvre la période SUR LA CONNEXION de l'appelant — sans commit : c'est lui qui décide du commit final.
+
+    Sert à la réouverture exceptionnelle d'un mois, qui doit réussir ou échouer EN ENTIER (archive, modules,
+    période comptable, clôture) : la période ne se rouvre pas toute seule pendant que le reste échoue. Même
+    règle que `rouvrir` (période clôturée → ROUVERTE, justification obligatoire, événement journalisé) ; une
+    période qui n'est pas clôturée n'a rien à rouvrir. `{"ok": True, "rouverte": bool}`."""
+    if not justification or not justification.strip():
+        return _refus(E_REOUVERTURE_SANS_JUSTIFICATION)
+    row = conn.execute("SELECT statut FROM periodes_comptables WHERE periode=?", (periode,)).fetchone()
+    if row is None or row["statut"] not in STATUTS_FERMES:
+        return {"ok": True, "rouverte": False}
+    if not _flags_actifs():
+        return _refus(E_FLAGS)
+    ancien = row["statut"]
+    if ST_ROUVERTE not in TRANSITIONS.get(ancien, set()):
+        return _refus(E_STATUT, f"{ancien} -> {ST_ROUVERTE}")
+    conn.execute("UPDATE periodes_comptables SET statut=?, date_modification=?, version=version+1 "
+                 "WHERE periode=?", (ST_ROUVERTE, _now(), periode))
+    _evenement(conn, periode, ancien, ST_ROUVERTE, commentaire=justification, acteur=acteur)
+    return {"ok": True, "rouverte": True}

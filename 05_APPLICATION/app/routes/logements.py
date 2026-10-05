@@ -7,6 +7,7 @@ from app.services import impact_preview_service as preview_svc
 from app.services import logements_service as svc
 from app.services import logements_creation_service as creation_svc
 from app.services import logements_gestion_service as gestion_svc
+from app.services import perimetre_gestion_service as perimetre
 from app.services import referentiel_admin_service as adm
 
 router = APIRouter()
@@ -96,6 +97,8 @@ def logement_detail(request: Request, logement_id: str, message: str = "", erreu
             "logement_id": logement_id,
             "etat": etat,
             "coherence": gestion_svc.coherence(logement_id),
+            "sejours_gestion": perimetre.sejours_hors_gestion("", logement_id=logement_id),
+            "prolongation_possible": gestion_svc.plan_prolongation(logement_id)["possible"],
             "histo": histo,
             "refs": refs,
             "ecriture_active": _ecriture_active(),
@@ -111,6 +114,8 @@ def logement_detail(request: Request, logement_id: str, message: str = "", erreu
         "logement_id": logement_id,
         "etat": etat,
         "coherence": gestion_svc.coherence(logement_id),
+        "sejours_gestion": perimetre.sejours_hors_gestion("", logement_id=logement_id),
+        "prolongation_possible": gestion_svc.plan_prolongation(logement_id)["possible"],
         "histo": histo,
         "refs": refs,
         "ecriture_active": _ecriture_active(),
@@ -163,6 +168,66 @@ async def logement_reactiver(request: Request, logement_id: str):
     return _retour(logement_id, res,
                    "Logement réactivé, gestion rétablie — pensez à actualiser le calcul des "
                    "réservations pour retrouver les séjours concernés.")
+
+
+def _retour_sur(retour: str, defaut: str) -> str:
+    """Page où revenir après une action : un chemin LOCAL seulement (jamais une adresse extérieure)."""
+    r = (retour or "").strip()
+    if r.startswith("/") and not r.startswith("//") and "\\" not in r and len(r) < 300:
+        return r
+    return defaut
+
+
+def _avec_message(chemin: str, cle: str, texte: str) -> str:
+    from urllib.parse import quote
+    return f"{chemin}{'&' if '?' in chemin else '?'}{cle}={quote(texte)}"
+
+
+def _contexte_prolongation(logement_id: str, jusqu_au: str, retour: str) -> dict:
+    """Ce que la page de confirmation montre : la gestion actuelle, la prolongation proposée, les séjours
+    qu'elle rendrait gérés."""
+    plan = gestion_svc.plan_prolongation(logement_id, jusqu_au)
+    sejours = perimetre.sejours_hors_gestion("", logement_id=logement_id)
+    concernes = [s for s in sejours if s["prolongation_jusqu_au"]]
+    proposee = jusqu_au or max((s["depart"] for s in concernes), default="")
+    couverts = perimetre.couverts_par_prolongation(logement_id, proposee) if proposee else []
+    return {
+        "active_menu": "logements", "logement_id": logement_id, "plan": plan, "jusqu_au": proposee,
+        "couverts": couverts, "retour": _retour_sur(retour, f"/logements/{logement_id}"),
+        "nom_logement": perimetre.nom_logement(logement_id), "aujourdhui": gestion_svc.aujourdhui().isoformat(),
+        "ecriture_active": _ecriture_active(), "erreur": "",
+    }
+
+
+@router.get("/logements/{logement_id}/prolonger-gestion", response_class=HTMLResponse)
+def logement_prolonger_gestion_form(request: Request, logement_id: str, jusqu_au: str = "", retour: str = ""):
+    """Confirmation d'une prolongation de gestion : l'effet est montré AVANT qu'on le décide."""
+    return templates.TemplateResponse(request, "logement_prolonger_gestion.html",
+                                      _contexte_prolongation(logement_id, jusqu_au, retour))
+
+
+@router.post("/logements/{logement_id}/prolonger-gestion")
+async def logement_prolonger_gestion(request: Request, logement_id: str):
+    form = await request.form()
+    date_fin = str(form.get("date_fin", "") or "").strip()
+    justification = str(form.get("justification", "") or "")
+    retour = str(form.get("retour", "") or "")
+    if str(form.get("confirmation", "") or "") != "oui":
+        res = {"ok": False, "message": "Cochez la case pour confirmer la prolongation de la gestion."}
+    else:
+        res = gestion_svc.prolonger_gestion(logement_id, date_fin, acteur="local", justification=justification)
+    if not res.get("ok"):
+        contexte = _contexte_prolongation(logement_id, date_fin, retour)
+        contexte["erreur"] = res.get("message", "Prolongation refusée.")
+        contexte["justification"] = justification
+        return templates.TemplateResponse(request, "logement_prolonger_gestion.html", contexte,
+                                          status_code=422)
+    cible = _retour_sur(retour, f"/logements/{logement_id}")
+    return RedirectResponse(
+        url=_avec_message(cible, "message",
+                          f"Gestion prolongée jusqu'au {perimetre.date_longue(date_fin)} — actualisez le "
+                          "calcul des réservations pour que les séjours concernés soient pris en compte."),
+        status_code=303)
 
 
 @router.post("/logements/{logement_id}/changer-proprietaire")

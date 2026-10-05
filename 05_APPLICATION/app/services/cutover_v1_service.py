@@ -102,6 +102,8 @@ HOSTAWAY = (
 RESERVATIONS = (
     "reservations_hors_hostaway", "reservation_hh_overrides", "reservation_hh_evenements",
     "saisie_hh_writes",
+    # Décision explicite « exclure du périmètre de gestion » (0127) : décisions métier, à conserver.
+    "reservation_perimetre_decisions", "reservation_perimetre_evenements",
 )
 ARCHIVES_RESERVATIONS = (
     "reservations_archives", "reservations_historique_cloture",
@@ -140,6 +142,8 @@ OBSERVABILITE = (
     # Clôture par modules (0126) : journal en ajout seul, impossible avant la V1 (déclencheur) donc
     # jamais concerné par une purge de l'ancien modèle.
     "cloture_modules", "cloture_modules_evenements",
+    # Réouverture exceptionnelle d'un mois clôturé (0128) : copie, en ajout seul, de l'archive retirée.
+    "cloture_archives_retirees",
 )
 DERIVES = (
     "flux_unifies", "flux_unifies_runs", "lot10_commissions", "lot10_commissions_a_controler",

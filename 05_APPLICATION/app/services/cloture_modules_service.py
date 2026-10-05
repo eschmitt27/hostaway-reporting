@@ -206,7 +206,10 @@ DOMAINE_PAR_DEFAUT = RESERVATIONS
 CODES_LUS_EN_DIRECT = {"CHARGE_NON_VALIDEE_HORS_CALCULS", "MENAGE_EXTERNE_ECART_HOSTAWAY",
                        "MENAGE_EXTERNE_LOGEMENT_HORS_HA"}
 
-_LIEN_RESERVATIONS = "/reservations?mois={mois}&statut_controle=A_CONTROLER"
+#: Les contrôles du moteur sur les séjours se traitent dans l'écran des contrôles (chaque élément y porte sa vraie
+#: action : régulariser, corriger l'assiette…). La liste des « réservations » de l'application ne montre, elle,
+#: que les saisies manuelles : y envoyer ne ferait rien voir.
+_LIEN_RESERVATIONS = "/controles-cloture?mois={mois}&code={code}"
 
 
 @dataclass(frozen=True)
@@ -361,7 +364,7 @@ def _ajouter_controles_moteur(par: dict[str, dict[str, list]], mois: str, elemen
     for (domaine, code, info), els in blocs.items():
         trad = TRADUCTIONS.get(code, _TRAD_INFO_DEFAUT if info else _TRAD_DEFAUT)
         items = [_element_item(e, noms, mois) for e in els]
-        lien = trad.lien.format(mois=mois) if trad.lien else (items[0]["lien"] if items else "")
+        lien = trad.lien.format(mois=mois, code=quote(code)) if trad.lien else (items[0]["lien"] if items else "")
         if info:
             par[domaine]["informatifs"].append(_groupe(
                 code, trad.singulier, trad.pluriel, items, pourquoi=trad.pourquoi, action="Voir",
@@ -488,17 +491,19 @@ def _charges(par, mois: str, noms: _Noms, db_path) -> None:
 
 
 #: Les quatre façons dont un séjour peut ne pas trouver son propriétaire (`resolve_management_period`), chacune
-#: dite pour ce qu'elle est : ce que l'utilisateur doit corriger n'est pas la même chose.
+#: dite pour ce qu'elle est : ce que l'utilisateur doit décider n'est pas la même chose. Le détail de chaque séjour
+#: (sa cause, ce qu'on peut en faire) est celui du module Réservations (`perimetre_gestion_service`).
 _GESTION_TEXTES = {
     "GESTION_LOGEMENT_MISSING": (
         "séjour hors période de gestion", "séjours hors période de gestion",
-        "Aucun propriétaire n'est en gestion à ses dates : le séjour est exclu du calcul et des factures. "
-        "Vérifier la période de gestion du logement (réactivation, changement de propriétaire)."),
+        "Aucune période de gestion ne couvre ses dates : le séjour est exclu du calcul et des factures. À "
+        "trancher dans les Réservations : l'exclure du périmètre de gestion (le logement n'est plus à vous) ou, "
+        "si le logement revient, reprendre sa gestion."),
     "GESTION_LOGEMENT_OUT_OF_PERIOD": (
         "séjour à cheval sur la fin de gestion", "séjours à cheval sur la fin de gestion",
-        "Le séjour commence pendant la gestion et se termine après sa fin : le propriétaire des dernières "
-        "nuits n'est pas défini, le séjour est exclu du calcul et des factures. Depuis la fiche du logement : "
-        "rétablir la gestion à partir du lendemain de sa fin, puis l'archiver à la date de départ du séjour."),
+        "Le séjour commence pendant la gestion et se termine après sa fin : il est exclu du calcul et des "
+        "factures. À trancher dans les Réservations : prolonger la gestion jusqu'à son départ s'il relève de "
+        "votre gestion, ou l'exclure du périmètre de gestion."),
     "GESTION_LOGEMENT_AMBIGUOUS": (
         "séjour couvert par deux périodes de gestion", "séjours couverts par deux périodes de gestion",
         "Deux périodes de gestion se chevauchent à ses dates : on ne sait pas à quel propriétaire l'attribuer. "
@@ -515,8 +520,14 @@ def _reservations_hors_gestion(par, mois: str, noms: _Noms, db_path) -> None:
 
     Un séjour dont les dates ne tombent dans aucune période de gestion, ou chevauchent la fin de la
     gestion, passe en A_CONTROLER et sort du calcul de commission et de la facturation. Aucun contrôle
-    du moteur ne le disait : le mois pouvait se clôturer avec ces séjours absents des factures
-    (constaté sur un logement réactivé sans reprise de gestion). Lu ici dans la source, jamais copié."""
+    du moteur ne le disait : le mois pouvait se clôturer avec ces séjours absents des factures.
+
+    LU dans le module Réservations (`perimetre_gestion_service`), jamais copié : un séjour est un bloqueur tant
+    qu'il est « à trancher » ; une décision d'exclusion (justifiée, tracée, prise dans les Réservations) le sort
+    des bloqueurs — il passe parmi les informations —, et prolonger la gestion du logement le fait redevenir un
+    séjour géré. « Traiter » ouvre la page de ces séjours, avec leur explication et les vraies actions."""
+    from app.services import perimetre_gestion_service as pg
+
     conn = get_db(db_path)
     try:
         t = _tables(conn)
@@ -528,29 +539,39 @@ def _reservations_hors_gestion(par, mois: str, noms: _Noms, db_path) -> None:
                              "AND actif = 1 ORDER BY rowid DESC LIMIT 1").fetchone()
             if r:
                 filtre_dataset, params = " AND dataset_id = ?", [mois, r[0]]
-        marques = ",".join("?" * len(_CODES_GESTION))
-        rows = [dict(r) for r in conn.execute(
-            "SELECT logement_id, date_arrivee, date_depart, code_anomalie, montant_retenu "
+        autres = [dict(r) for r in conn.execute(
+            "SELECT logement_id, date_arrivee, date_depart, code_anomalie "
             "FROM reservations_resolues WHERE mois = ? AND statut_controle = 'A_CONTROLER' "
-            f"AND (code_anomalie IN ({marques}) OR code_anomalie IN ('LOGEMENT_NON_MAPPE', "
-            f"'STATUT_PARC_INVALIDE')){filtre_dataset} ORDER BY logement_id, date_arrivee",
-            (params[0], *_CODES_GESTION, *params[1:]))]
+            f"AND code_anomalie IN ('LOGEMENT_NON_MAPPE', 'STATUT_PARC_INVALIDE'){filtre_dataset} "
+            "ORDER BY logement_id, date_arrivee", params)]
     finally:
         conn.close()
-    gestion = [r for r in rows if r["code_anomalie"] in _CODES_GESTION]
-    non_mappes = [r for r in rows if r["code_anomalie"] == "LOGEMENT_NON_MAPPE"]
-    statut = [r for r in rows if r["code_anomalie"] == "STATUT_PARC_INVALIDE"]
+
+    sejours = pg.sejours_hors_gestion(mois, db_path=db_path)
+    a_trancher = [s for s in sejours if s["etat"] == pg.ETAT_A_TRANCHER]
+    exclus = [s for s in sejours if s["etat"] == pg.ETAT_EXCLU]
     for code, (singulier, pluriel, pourquoi) in _GESTION_TEXTES.items():
-        concernes = [r for r in gestion if r["code_anomalie"] == code]
+        concernes = [s for s in a_trancher if s["code"] == code]
         if not concernes:
             continue
-        items = [_item(noms.logement(r["logement_id"]), detail=_du_au(r["date_arrivee"], r["date_depart"]),
-                       montant=r["montant_retenu"] if isinstance(r["montant_retenu"], (int, float)) else None,
-                       lien=f"/logements/{quote(_txt(r['logement_id']))}", lien_libelle="Voir la gestion")
-                 for r in concernes]
+        items = [_item(s["logement"], detail=f"{s['periode_fr']} · {s['canal']}", montant=s["montant"],
+                       lien=pg.lien_page(mois, "sejour-" + s["cle"]), lien_libelle="Traiter ce séjour")
+                 for s in concernes]
         par[RESERVATIONS]["bloqueurs"].append(_groupe(
-            "SEJOUR_" + code, singulier, pluriel, items, pourquoi=pourquoi, action="Vérifier la gestion",
-            lien=items[0]["lien"]))
+            "SEJOUR_" + code, singulier, pluriel, items, pourquoi=pourquoi, action="Traiter les séjours",
+            lien=pg.lien_page(mois)))
+    if exclus:
+        items = [_item(s["logement"], detail=f"{s['periode_fr']} · {s['canal']}",
+                       lien=pg.lien_page(mois, "sejour-" + s["cle"]), lien_libelle="Voir la décision")
+                 for s in exclus]
+        par[RESERVATIONS]["informatifs"].append(_groupe(
+            "SEJOUR_EXCLU_DECIDE", "séjour exclu du périmètre de gestion",
+            "séjours exclus du périmètre de gestion", items,
+            pourquoi="Une décision explicite les a sortis du calcul et des factures : ils restent visibles et "
+                     "ne bloquent pas la clôture.",
+            action="Voir les décisions", lien=pg.lien_page(mois, "exclus")))
+    non_mappes = [r for r in autres if r["code_anomalie"] == "LOGEMENT_NON_MAPPE"]
+    statut = [r for r in autres if r["code_anomalie"] == "STATUT_PARC_INVALIDE"]
     if non_mappes:
         items = [_item("Annonce sans logement", detail=_du_au(r["date_arrivee"], r["date_depart"]),
                        lien="/correspondances-logement", lien_libelle="Établir la correspondance")
@@ -893,8 +914,9 @@ LIBELLES_ETAT = {ETAT_CLOS: "Clôturé", ETAT_A_TRAITER: "À traiter", ETAT_PRET
 
 MSG_NON_DEMARREE = ("Démarrez d'abord la clôture du mois : les modules se clôturent une fois la "
                     "clôture ouverte.")
-MSG_MOIS_ARCHIVE = ("Le mois est clôturé définitivement : ses modules ne se rouvrent plus. Une correction "
-                    "passe par la correction rétroactive, jamais par une réouverture.")
+MSG_MOIS_ARCHIVE = ("Le mois est clôturé définitivement : ses modules ne se rouvrent plus un par un. Pour "
+                    "corriger, rouvrez exceptionnellement le mois entier (avec une justification) depuis la "
+                    "clôture mensuelle.")
 
 
 def _maintenant() -> str:
@@ -1151,6 +1173,34 @@ def rouvrir_module(cloture: dict[str, Any], module: str, *, acteur: str = "", ju
     return etats(mois, db_path=db_path)[m.cle]
 
 
+def rouvrir_tous_dans(conn, cloture_opaque: str, mois: str, *, acteur: str, justification: str,
+                      maintenant: str) -> list[str]:
+    """Rouvre TOUS les modules clôturés d'un mois, sur la connexion de l'appelant (aucun commit) — la
+    réouverture exceptionnelle du mois : un mois rouvert dont les domaines resteraient verrouillés ne
+    permettrait de corriger rien.
+
+    Chaque module repasse à « rouvert » avec la même justification ; la clôture d'origine (date, acteur,
+    commentaire) reste sur la ligne du module et dans le journal en ajout seul, auquel s'ajoute une
+    ligne « réouverture » par module. Rend les clés des modules rouverts, dans l'ordre d'affichage."""
+    if "cloture_modules" not in _tables(conn):
+        return []
+    rouverts = [r["module"] for r in conn.execute(
+        "SELECT module FROM cloture_modules WHERE mois = ? AND statut = 'CLOS'", (mois,))]
+    texte = f"Réouverture exceptionnelle du mois : {justification}"
+    for cle in rouverts:
+        conn.execute(
+            "UPDATE cloture_modules SET statut = 'ROUVERT', date_reouverture = ?, acteur_reouverture = ?, "
+            "justification_reouverture = ?, nb_reouvertures = nb_reouvertures + 1 "
+            "WHERE mois = ? AND module = ? AND statut = 'CLOS'", (maintenant, acteur, texte, mois, cle))
+        conn.execute(
+            "INSERT INTO cloture_modules_evenements (mois, module, cloture_id_opaque, type_evenement, "
+            "ancien_statut, nouveau_statut, commentaire, resume, date_evenement, acteur) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (mois, cle, cloture_opaque, "REOUVERTURE_MODULE", "CLOS", "ROUVERT", texte,
+             "Module rouvert avec le mois", maintenant, acteur))
+    return [m.cle for m in MODULES if m.cle in rouverts]
+
+
 def _horodatage_fr(valeur: Any) -> str:
     """« 2026-09-11 22:32:10 » → « 11/09/2026 à 22h32 ». Une date seule reste une date."""
     s = _txt(valeur).replace("T", " ").replace("Z", "")
@@ -1171,6 +1221,8 @@ def _etat_de_la_cloture(statut: str) -> tuple[str, str]:
         return "CLOTURE", "Mois clôturé"
     if statut == cs.ST_VALIDEE:
         return "VALIDEE", "Clôture validée"
+    if statut == cs.ST_ROUVERTE:
+        return "EN_COURS", "Clôture rouverte"       # un mois clôturé rouvert exceptionnellement, à reclôturer
     return "EN_COURS", "Clôture en cours"
 
 
@@ -1274,6 +1326,7 @@ def tableau_de_bord(cloture: dict[str, Any], *, progression: dict[str, Any] | No
         "progression_libelle": f"{nb_clos} / {nb_total} modules clôturés",
         "statut": cloture["statut"], "etat_cloture": cle_etat, "etat_cloture_libelle": libelle_etat,
         "temporalite": prog["temporalite"], "refus_temporel": refus_temporel, "demarree": demarree,
+        "refus_demarrage": cs.refus_demarrage(mois),
         "mois_clos": archivee, "peut_cloturer_mois": not archivee and not motif_mois,
         "motif_mois": motif_mois, "nb_bloqueurs": prog["nb_bloqueurs"],
         "nb_informatifs": prog["modules"]["nb_informatifs"],

@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Séjours hors périmètre de gestion{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/cloture.css">
+
+<div class="page-header">
+  {% if mois_fr %}
+  <a href="/clotures/mois/{{ mois }}" class="back-link">← Clôture {{ du_mois }}</a>
+  {% elif logement_id %}
+  <a href="/logements/{{ logement_id }}" class="back-link">← {{ nom_logement }}</a>
+  {% else %}
+  <a href="/reservations" class="back-link">← Réservations</a>
+  {% endif %}
+  <h1 class="page-title">Séjours hors périmètre de gestion{% if mois_fr %} — {{ mois_fr }}{% endif %}</h1>
+  <p class="page-subtitle">{% if nom_logement %}{{ nom_logement }} · {% endif %}Des séjours reçus d'Hostaway qu'aucune période de gestion ne couvre en entier : ils ne sont ni calculés ni facturés tant qu'on n'a pas tranché.</p>
+</div>
+
+<div class="clo-confirm">
+  {% if message %}<div class="alert alert-info" role="status" data-testid="message-hors-gestion">{{ message }}</div>{% endif %}
+  {% if erreur %}<div class="alert alert-error" role="alert">{{ erreur }}</div>{% endif %}
+
+  <form method="get" action="/reservations/hors-gestion" class="card clo-periode" data-testid="filtre-hors-gestion">
+    <div class="clo-champ">
+      <label for="f-mois">Mois</label>
+      <select id="f-mois" name="mois" class="filter-input">
+        <option value="">Tous les mois</option>
+        {% for m in mois_options %}<option value="{{ m.id }}" {{ 'selected' if m.id == mois }}>{{ m.libelle }}</option>{% endfor %}
+      </select>
+    </div>
+    {% if logement_id %}<input type="hidden" name="logement_id" value="{{ logement_id }}">{% endif %}
+    <div class="clo-boutons"><button type="submit" class="btn btn-secondary">Afficher</button></div>
+  </form>
+
+  <section aria-labelledby="hg-a-trancher" class="clo-sejours">
+    <div class="clo-titre-section"><h2 id="hg-a-trancher">À trancher <span class="clo-compteur" data-testid="nb-a-trancher">{{ a_trancher|length }}</span></h2></div>
+    {% if not a_trancher %}
+    <p class="section-note" data-testid="rien-a-trancher">Aucun séjour à trancher{% if mois_fr %} pour {{ mois_fr }}{% endif %}.</p>
+    {% endif %}
+    {% for s in a_trancher %}
+    <article class="card clo-sejour" id="sejour-{{ s.cle }}" data-testid="sejour-a-trancher">
+      <header>
+        <h3 class="clo-sejour__titre">{{ s.logement }} — {{ s.periode_fr }}</h3>
+        <p class="clo-sejour__meta">{{ s.canal }}{% if s.voyageurs %} · {{ s.voyageurs }} voyageur{{ 's' if s.voyageurs > 1 }}{% endif %}{% if s.montant is not none %} · {{ s.montant|eur }}{% endif %}{% if s.reservation_id %} · réservation Hostaway n° {{ s.reservation_id }}{% endif %}</p>
+      </header>
+      <p class="clo-alerte" data-testid="cause-sejour">{{ s.cause }}</p>
+      <details class="clo-detail">
+        <summary>Gestion enregistrée pour ce logement</summary>
+        <ul class="clo-confirm__liste">
+          {% for g in s.gestion %}<li><span>{{ g.proprietaire }} : du {{ g.debut_fr }} au {{ g.fin_fr }}</span></li>{% else %}<li><span>Aucune période de gestion enregistrée.</span></li>{% endfor %}
+        </ul>
+      </details>
+      <div class="clo-boutons">
+        {% if s.prolongation_jusqu_au %}
+        <a class="btn btn-primary" data-testid="action-prolonger"
+           href="/logements/{{ s.logement_id }}/prolonger-gestion?jusqu_au={{ s.prolongation_jusqu_au }}&amp;retour={{ ('/reservations/hors-gestion?mois=' ~ s.mois)|urlencode }}">Prolonger la gestion jusqu'au {{ s.prolongation_jusqu_au_fr }}</a>
+        {% endif %}
+        {% if s.decidable %}
+        <a class="btn {{ 'btn-secondary' if s.prolongation_jusqu_au else 'btn-primary' }}" data-testid="action-exclure"
+           href="/reservations/hors-gestion/{{ s.cle }}/exclure">Exclure du périmètre de gestion</a>
+        {% endif %}
+        {% if s.reservation_hh_id %}
+        <a class="btn btn-secondary" href="/reservations/{{ s.reservation_hh_id }}">Ouvrir la réservation</a>
+        {% endif %}
+        <a class="btn btn-ghost" href="/logements/{{ s.logement_id }}">{{ 'Reprendre la gestion du logement' if s.logement_archive and not s.prolongation_jusqu_au else 'Voir la fiche du logement' }}</a>
+      </div>
+      {% if not s.decidable %}
+      <p class="section-note" style="margin:0">Ce séjour ne s'exclut pas ici : sa gestion est à corriger depuis la fiche du logement{% if s.reservation_hh_id %} (ou la réservation saisie à la main){% endif %}.</p>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </section>
+
+  <section aria-labelledby="hg-exclus" class="clo-sejours" id="exclus">
+    <div class="clo-titre-section"><h2 id="hg-exclus">Exclus du périmètre de gestion <span class="clo-compteur" data-testid="nb-exclus">{{ exclus|length }}</span></h2></div>
+    {% if not exclus %}
+    <p class="section-note" data-testid="rien-exclu">Aucun séjour exclu par décision{% if mois_fr %} pour {{ mois_fr }}{% endif %}.</p>
+    {% endif %}
+    {% for s in exclus %}
+    <article class="card clo-sejour" id="sejour-{{ s.cle }}" data-testid="sejour-exclu">
+      <header>
+        <h3 class="clo-sejour__titre">{{ s.logement }} — {{ s.periode_fr }}</h3>
+        <p class="clo-sejour__meta">{{ s.canal }}{% if s.voyageurs %} · {{ s.voyageurs }} voyageur{{ 's' if s.voyageurs > 1 }}{% endif %}{% if s.reservation_id %} · réservation Hostaway n° {{ s.reservation_id }}{% endif %}</p>
+      </header>
+      <p class="section-note" style="margin:0">Ce séjour reste visible avec son historique ; il ne produit ni commission ni facture et ne bloque pas la clôture.</p>
+      <dl class="clo-recap" data-testid="decision-sejour">
+        <div><dt>Décidé le</dt><dd>{{ s.decision.date_decision_fr }}</dd></div>
+        <div><dt>Par</dt><dd>{{ s.decision.acteur or '—' }}</dd></div>
+        <div class="clo-recap__large"><dt>Justification</dt><dd>{{ s.decision.justification }}</dd></div>
+      </dl>
+      {% if s.historique %}
+      <details class="clo-detail">
+        <summary>Historique de la décision ({{ s.historique|length }})</summary>
+        <ol class="clo-journal">
+          {% for h in s.historique %}
+          <li class="clo-journal__ligne"><span class="clo-journal__quand">{{ h.date_evenement_fr }}{% if h.acteur %} · {{ h.acteur }}{% endif %}</span>
+            <span class="clo-journal__quoi">{{ h.libelle }}<span class="clo-journal__detail">{{ h.justification }}</span></span></li>
+          {% endfor %}
+        </ol>
+      </details>
+      {% endif %}
+      <div class="clo-boutons">
+        <a class="btn btn-secondary" data-testid="action-reintegrer" href="/reservations/hors-gestion/{{ s.cle }}/reintegrer">Réintégrer au périmètre de gestion</a>
+      </div>
+    </article>
+    {% endfor %}
+  </section>
+</div>
+{% endblock %}

@@ -43,6 +43,11 @@ E_DEJA_ARCHIVE = "V07_DEJA_ARCHIVE"
 E_TYPE_INCONNU = "V08_TYPE_INCONNU"
 E_PERIODE_INCOHERENTE = adm.E_PERIODE_INCOHERENTE
 E_ECRITURE = adm.E_ECRITURE
+E_PROLONGATION_INDISPONIBLE = "V13_PROLONGATION_INDISPONIBLE"
+E_PROLONGATION_DATE = "V14_PROLONGATION_DATE"
+E_PROLONGATION_FUTURE = "V15_PROLONGATION_FUTURE"
+E_PROLONGATION_JUSTIFICATION = "V16_PROLONGATION_JUSTIFICATION"
+E_PROLONGATION_MOIS_CLOTURE = "V17_PROLONGATION_MOIS_CLOTURE"
 
 MESSAGES = {
     E_REFERENTIEL_ABSENT: adm.MESSAGES[adm.E_REFERENTIEL_ABSENT],
@@ -56,6 +61,16 @@ MESSAGES = {
     E_TYPE_INCONNU: "Ce type de logement n'existe pas dans le référentiel.",
     E_PERIODE_INCOHERENTE: adm.MESSAGES[adm.E_PERIODE_INCOHERENTE],
     E_ECRITURE: "Écriture refusée.",
+    E_PROLONGATION_INDISPONIBLE: (
+        "Cette gestion ne se prolonge pas : elle est en cours, ou ce logement n'a jamais eu de période de "
+        "gestion terminée."),
+    E_PROLONGATION_DATE: (
+        "La nouvelle fin de gestion doit être une date valide, postérieure à la fin actuelle."),
+    E_PROLONGATION_FUTURE: (
+        "La gestion ne peut pas être prolongée au-delà d'aujourd'hui. Pour reprendre la gestion du "
+        "logement, utilisez « Réactiver ce logement »."),
+    E_PROLONGATION_JUSTIFICATION: "Une justification est obligatoire pour prolonger la gestion.",
+    E_PROLONGATION_MOIS_CLOTURE: "Le module Réservations est clôturé pour ce mois.",
 }
 
 CHAMPS_MODIFIABLES = ("nom_logement_officiel", "nom_court", "adresse", "ville",
@@ -356,6 +371,117 @@ def reactiver(logement_id: str, date_debut: str = "", proprietaire_id: str = "",
     return {"ok": True, "logement_id": logement_id, "proprietaire_id": prop,
             "date_debut": _txt(date_debut), "periode_ouverte": ouverte is None,
             "sans_interruption": effectif["sans_interruption"]}
+
+
+# ── Prolonger la gestion : un séjour en cours à la fin de gestion relève de la gestion jusqu'à son départ ─
+#
+# Un logement retiré à la date D garde, dans la vraie vie, ses séjours EN COURS : un voyageur arrivé le dernier
+# jour de gestion est accueilli, hébergé, et son ménage est fait et facturé par nous. Le moteur, lui, exige que
+# TOUTES les dates d'un séjour tombent dans une période de gestion : ce séjour reste « à cheval » sur la fin, sans
+# propriétaire, hors du calcul et des factures. La bonne réponse n'est ni de « réactiver » le logement puis de
+# l'archiver de nouveau (deux gestes, un logement qui redevient actif un instant, une période fantôme), ni de
+# réécrire la ligne de gestion déjà close — l'historique des périodes passées ne se modifie jamais : c'est UNE
+# prolongation, datée et justifiée, ajoutée à la suite. La ligne d'origine reste intacte.
+#
+# La prolongation s'inscrit comme une période de gestion supplémentaire, JOINTIVE (elle commence le lendemain de
+# la fin actuelle), du MÊME propriétaire : le moteur la traite alors comme la continuité de la gestion
+# (`lib_ref_history._gestion_sans_interruption`) — aucun propriétaire n'est substitué, aucune nuit n'échappe.
+# Le logement reste archivé : `actif` et `statut_parc` ne bougent pas.
+
+def aujourdhui() -> date:
+    """La date du jour — une fonction, pour que les tests puissent la fixer (comme `clotures_service`)."""
+    return date.today()
+
+
+def _derniere_periode_close(logement_id: str, *, db_path=None):
+    """(dernière période close, motif d'indisponibilité) — jamais les deux. Une période ouverte, ou aucune
+    période datée, rend la prolongation sans objet."""
+    periodes = _periodes_gestion(logement_id, db_path=db_path)
+    if any(not _txt(g.get("date_fin")) for g in periodes):
+        return None, "La gestion de ce logement est en cours : il n'y a rien à prolonger."
+    closes = [g for g in periodes if _date_valide(_txt(g.get("date_fin")))]
+    if not closes:
+        return None, "Ce logement n'a aucune période de gestion terminée à prolonger."
+    return max(closes, key=lambda g: _txt(g.get("date_fin"))), ""
+
+
+def plan_prolongation(logement_id: str, jusqu_au: str = "", *, db_path=None) -> dict[str, Any]:
+    """Ce qu'une prolongation ferait, SANS rien écrire : de quand à quand, pour quel propriétaire. Sert à la
+    page de confirmation, qui montre l'effet avant qu'on le décide."""
+    if not adm.disponible(db_path=db_path):
+        return {"possible": False, "motif": MESSAGES[E_REFERENTIEL_ABSENT]}
+    logement_id = _txt(logement_id)
+    fiche = _fiche(logement_id, db_path=db_path)
+    if fiche is None:
+        return {"possible": False, "motif": MESSAGES[E_LOGEMENT_INCONNU]}
+    if _txt(fiche.get("statut_parc")).upper() == "HORS_PARC_TECHNIQUE":
+        return {"possible": False, "motif": "Un logement technique hors parc n'a pas de gestion."}
+    derniere, motif = _derniere_periode_close(logement_id, db_path=db_path)
+    if derniere is None:
+        return {"possible": False, "motif": motif}
+    fin = _txt(derniere["date_fin"])
+    lendemain = (date.fromisoformat(fin) + timedelta(days=1)).isoformat()
+    return {"possible": True, "motif": "", "logement_id": logement_id,
+            "proprietaire_id": _txt(derniere.get("proprietaire_id")), "fin_actuelle": fin,
+            "debut_prolongation": lendemain, "jusqu_au": _txt(jusqu_au),
+            "periodes": _periodes_gestion(logement_id, db_path=db_path)}
+
+
+def prolonger_gestion(logement_id: str, date_fin: str, *, acteur: str = "", justification: str = "",
+                      db_path=None) -> dict[str, Any]:
+    """Prolonge la gestion d'un logement ARCHIVÉ jusqu'à `date_fin` (au plus tard aujourd'hui) : ajoute, à la
+    suite de la dernière période close, une période jointive du même propriétaire — jamais une modification de
+    la ligne d'origine. Justification obligatoire, journalisée ; le module Réservations ne doit pas être
+    clôturé pour les mois concernés. Les calculs sont marqués périmés (jamais recalculés ici)."""
+    if not adm.disponible(db_path=db_path):
+        return _refus(E_REFERENTIEL_ABSENT)
+    logement_id = _txt(logement_id)
+    plan = plan_prolongation(logement_id, date_fin, db_path=db_path)
+    if not plan["possible"]:
+        if _fiche(logement_id, db_path=db_path) is None:
+            return _refus(E_LOGEMENT_INCONNU, logement_id)
+        return {"ok": False, "code": E_PROLONGATION_INDISPONIBLE, "message": plan["motif"], "detail": ""}
+    if not _txt(justification):
+        return _refus(E_PROLONGATION_JUSTIFICATION)
+    if not _date_valide(date_fin) or _txt(date_fin) <= plan["fin_actuelle"]:
+        return _refus(E_PROLONGATION_DATE, _txt(date_fin))
+    if date.fromisoformat(_txt(date_fin)) > aujourdhui():
+        return _refus(E_PROLONGATION_FUTURE, _txt(date_fin))
+    prop = plan["proprietaire_id"]
+    if not prop:
+        return _refus(E_PROP_MANQUANT)
+
+    from app.services import cloture_verrous_service as verrous
+    mois_concernes = sorted({plan["fin_actuelle"][:7], _txt(date_fin)[:7],
+                             plan["debut_prolongation"][:7]})
+    for mois in mois_concernes:
+        texte = verrous.refus(mois, "RESERVATIONS", db_path=db_path)
+        if texte:
+            return {"ok": False, "code": E_PROLONGATION_MOIS_CLOTURE, "message": texte, "detail": mois}
+
+    debut = plan["debut_prolongation"]
+    try:
+        with adm.transaction(db_path=db_path) as conn:
+            res = adm.inserer(SH_GEST, {
+                "gestion_id": f"GST_{logement_id}_{prop}_{debut}",
+                "logement_id": logement_id,
+                "proprietaire_id": prop,
+                "date_debut": debut,
+                "date_fin": _txt(date_fin),
+                "statut_gestion": "RETIRE",
+                "source": adm.SOURCE_APPLICATION,
+                "commentaire": f"Prolongation de la gestion — {_txt(justification)}",
+            }, action="PROLONGATION_GESTION", acteur=acteur, commentaire=_txt(justification), conn=conn,
+               db_path=db_path)
+            if not res.get("ok"):
+                raise adm.RefusTransaction(res)
+    except adm.RefusTransaction as exc:
+        return exc.refus
+    except Exception as exc:   # noqa: BLE001 — panne DB imprévue : rollback déjà fait, refus lisible
+        return _refus(E_ECRITURE, f"{type(exc).__name__}: {exc}")
+    adm.invalider_dag_referentiel(db_path=db_path)
+    return {"ok": True, "logement_id": logement_id, "proprietaire_id": prop, "date_debut": debut,
+            "date_fin": _txt(date_fin), "fin_precedente": plan["fin_actuelle"]}
 
 
 def changer_proprietaire(logement_id: str, proprietaire_id: str, date_debut: str, *,

@@ -223,6 +223,9 @@ EXPECTED_TABLES = {
     "ik_vehicules",                               # véhicules : cumul kilométrique annuel par véhicule
     "cloture_modules",                            # clôture par module : état courant d'un (mois, module) (0126)
     "cloture_modules_evenements",                 # journal en ajout seul des clôtures/réouvertures de modules
+    "reservation_perimetre_decisions",            # décision « exclure du périmètre de gestion » d'un séjour (0127)
+    "reservation_perimetre_evenements",           # journal en ajout seul de ces décisions
+    "cloture_archives_retirees",                  # archive d'un mois retirée à sa réouverture exceptionnelle (0128)
 }
 
 

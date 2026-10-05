@@ -4,6 +4,8 @@ from app.template_env import get_templates
 from urllib.parse import quote
 
 from app.readers.banques_reader import date_affichage, datetime_affichage
+from app.services import clotures_service as clotures
+from app.services import perimetre_gestion_service as perimetre
 from app.services import reservations_hh_service as svc
 from app.services import saisie_hh_service as saisie_svc
 from app.services import reservations_hh_confirmation_service as confirmation
@@ -73,6 +75,7 @@ def reservations_list(
     return templates.TemplateResponse(request, "reservations_list.html", {
         "active_menu": "reservations",
         "data": data,
+        "nb_hors_gestion": len(perimetre.a_trancher()),
     })
 
 
@@ -176,6 +179,97 @@ async def reservation_nouvelle_ecriture_reelle(request: Request, token: str):
         "deja_confirme": False,
         "resultat": resultat.as_dict(),
     })
+
+
+# ── Séjours hors périmètre de gestion (décision explicite) ──────────────────────────────────────────
+# Là où mène « Traiter » depuis la clôture : un séjour Hostaway sans période de gestion qui le couvre y est
+# expliqué, et l'on peut y TRANCHER — prolonger la gestion (depuis la fiche du logement) ou l'exclure du
+# périmètre, avec justification. Déclarées AVANT `/reservations/{reservation_hh_id}` (qui attraperait le chemin).
+
+def _contexte_page_hors_gestion(mois: str, logement_id: str) -> dict:
+    mois = (mois or "").strip()[:7]
+    tous = perimetre.sejours_hors_gestion("")
+    sejours = [s for s in tous if (not mois or s["mois"] == mois)
+               and (not logement_id or s["logement_id"] == logement_id)]
+    for s in sejours:
+        s["historique"] = perimetre.historique(s["reservation_id"]) if s["reservation_id"] else []
+    return {
+        "active_menu": "reservations", "mois": mois,
+        "mois_fr": clotures.mois_fr(mois) if len(mois) == 7 else "",
+        "du_mois": clotures.du_mois(mois) if len(mois) == 7 else "",
+        "mois_options": [{"id": m, "libelle": clotures.mois_fr(m).capitalize()}
+                         for m in sorted({s["mois"] for s in tous} | ({mois} if len(mois) == 7 else set()))],
+        "logement_id": logement_id,
+        "nom_logement": perimetre.nom_logement(logement_id) if logement_id else "",
+        "a_trancher": [s for s in sejours if s["etat"] == perimetre.ETAT_A_TRANCHER],
+        "exclus": [s for s in sejours if s["etat"] == perimetre.ETAT_EXCLU],
+    }
+
+
+@router.get("/reservations/hors-gestion", response_class=HTMLResponse)
+def reservations_hors_gestion(request: Request, mois: str = "", logement_id: str = "",
+                              message: str = "", erreur: str = ""):
+    contexte = _contexte_page_hors_gestion(mois, logement_id)
+    contexte.update({"message": message, "erreur": erreur})
+    return templates.TemplateResponse(request, "reservations_hors_gestion.html", contexte)
+
+
+def _contexte_decision(mode: str, cle: str) -> dict:
+    sejour = perimetre.sejour(cle)
+    return {"active_menu": "reservations", "mode": mode, "sejour": sejour, "cle": cle, "erreur": "",
+            "justification": "", "retour": perimetre.lien_page(sejour["mois"] if sejour else "")}
+
+
+@router.get("/reservations/hors-gestion/{cle}/exclure", response_class=HTMLResponse)
+def reservation_exclure_form(request: Request, cle: str):
+    contexte = _contexte_decision("exclure", cle)
+    return templates.TemplateResponse(request, "reservation_perimetre_decision.html", contexte,
+                                      status_code=200 if contexte["sejour"] else 404)
+
+
+@router.post("/reservations/hors-gestion/{cle}/exclure")
+async def reservation_exclure(request: Request, cle: str):
+    form = await request.form()
+    justification = str(form.get("justification", "") or "")
+    if str(form.get("confirmation", "") or "") != "oui":
+        res = {"ok": False, "message": "Cochez la case pour confirmer l'exclusion de ce séjour."}
+    else:
+        res = perimetre.exclure(cle, justification=justification, acteur="local")
+    if not res.get("ok"):
+        contexte = _contexte_decision("exclure", cle)
+        contexte.update({"erreur": res.get("message", "Exclusion refusée."), "justification": justification})
+        return templates.TemplateResponse(request, "reservation_perimetre_decision.html", contexte,
+                                          status_code=422)
+    return RedirectResponse(
+        url=perimetre.lien_page(res["mois"]) + "&message=" + quote(
+            "Séjour exclu du périmètre de gestion : la décision est enregistrée, il ne bloque plus la clôture."),
+        status_code=303)
+
+
+@router.get("/reservations/hors-gestion/{cle}/reintegrer", response_class=HTMLResponse)
+def reservation_reintegrer_form(request: Request, cle: str):
+    contexte = _contexte_decision("reintegrer", cle)
+    return templates.TemplateResponse(request, "reservation_perimetre_decision.html", contexte,
+                                      status_code=200 if contexte["sejour"] else 404)
+
+
+@router.post("/reservations/hors-gestion/{cle}/reintegrer")
+async def reservation_reintegrer(request: Request, cle: str):
+    form = await request.form()
+    justification = str(form.get("justification", "") or "")
+    if str(form.get("confirmation", "") or "") != "oui":
+        res = {"ok": False, "message": "Cochez la case pour confirmer la réintégration de ce séjour."}
+    else:
+        res = perimetre.reintegrer(cle, justification=justification, acteur="local")
+    if not res.get("ok"):
+        contexte = _contexte_decision("reintegrer", cle)
+        contexte.update({"erreur": res.get("message", "Réintégration refusée."), "justification": justification})
+        return templates.TemplateResponse(request, "reservation_perimetre_decision.html", contexte,
+                                          status_code=422)
+    return RedirectResponse(
+        url=perimetre.lien_page(res["mois"]) + "&message=" + quote(
+            "Séjour réintégré : il redevient à trancher. La décision d'exclusion reste dans l'historique."),
+        status_code=303)
 
 
 @router.get("/reservations/{reservation_hh_id}", response_class=HTMLResponse)

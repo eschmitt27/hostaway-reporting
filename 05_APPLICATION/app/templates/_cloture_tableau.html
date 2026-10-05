@@ -91,8 +91,8 @@
 
   {% if m.etat in ('PRET', 'A_TRAITER') and m.date_reouverture_fr %}
   <p class="clo-trace clo-trace--rouvert" data-testid="module-rouvert">{{ icone('revoir') }}
-    <span>Rouvert le {{ m.date_reouverture_fr }}{% if m.acteur_reouverture %}, par {{ m.acteur_reouverture }}{% endif %}.
-      « {{ m.justification_reouverture }} »</span></p>
+    <span title="{{ m.justification_reouverture }}">Rouvert le {{ m.date_reouverture_fr }}{% if m.acteur_reouverture %}, par {{ m.acteur_reouverture }}{% endif %}.
+      « {{ m.justification_reouverture | truncate(170, True, '…') }} »</span></p>
   {% endif %}
 
   {% if m.bloqueurs %}
@@ -165,17 +165,16 @@
       {% if t.mois_clos %}
       <p class="clo-motif" data-testid="mois-clos">{{ icone('cadenas') }}<span>Clôturé définitivement{% if t.date_cloture_mois_fr %} le {{ t.date_cloture_mois_fr }}{% endif %}{% if t.acteur_cloture_mois %}, par {{ t.acteur_cloture_mois }}{% endif %}.</span></p>
       {% elif not t.demarree %}
-        {% if t.temporalite == 'FUTUR' %}
-        <p class="clo-motif" data-testid="demarrage-indisponible">{{ icone('info') }}<span>Un mois futur ne se prépare pas encore.</span></p>
+        {% if t.refus_demarrage %}
+        {# Un mois qui court (ou à venir) ne se démarre pas : ses points à traiter se consultent déjà ci-dessous, recalculés à chaque
+           affichage, sans rien démarrer ni figer. #}
+        <p class="clo-motif" data-testid="demarrage-indisponible">{{ icone('info') }}<span>{{ t.refus_demarrage }}</span></p>
         {% else %}
         <form method="post" action="/clotures/demarrer">
           <input type="hidden" name="mois" value="{{ t.mois }}">
           <button type="submit" class="btn btn-primary" data-testid="demarrer-cloture">Démarrer la clôture</button>
         </form>
         <p class="clo-motif">{{ icone('info') }}<span>Démarrer ouvre simplement la clôture de ce mois : rien n'est clôturé ni verrouillé.</span></p>
-        {% endif %}
-        {% if t.refus_temporel %}
-        <p class="clo-motif" data-testid="regle-du-calendrier">{{ icone('info') }}<span>{{ t.refus_temporel }}{% if t.temporalite == 'COURANT' %} Il se prépare et se contrôle dès maintenant ; la clôture ne sera possible qu'une fois le mois terminé.{% endif %}</span></p>
         {% endif %}
       {% elif t.peut_cloturer_mois %}
       <a class="btn btn-primary" href="/clotures/{{ opaque }}/cloture-definitive" data-testid="bouton-cloture-definitive">Clôturer le mois</a>
@@ -194,6 +193,7 @@
     <li><a href="/clotures/{{ opaque }}/historique" data-testid="lien-historique">Historique de la clôture</a></li>
     <li><a href="/clotures/{{ opaque }}/export.csv">Exporter le dossier (CSV)</a></li>
     {% if peut_rouvrir_le_mois %}<li><a href="/clotures/{{ opaque }}/reouvrir">Rouvrir la clôture validée</a></li>{% endif %}
+    {% if t.mois_clos %}<li><a href="/clotures/{{ opaque }}/reouverture-exceptionnelle" data-testid="lien-reouverture-exceptionnelle">Rouvrir exceptionnellement ce mois</a></li>{% endif %}
   </ul>
   {% endif %}
 </section>

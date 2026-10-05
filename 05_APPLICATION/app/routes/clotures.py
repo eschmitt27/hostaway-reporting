@@ -283,9 +283,7 @@ async def cloture_demarrer(request: Request):
     if not mois:
         return RedirectResponse(url="/clotures", status_code=303)
     try:
-        c = cs.creer_ou_charger(mois, acteur="local")
-        if c["statut"] == cs.ST_NON_DEMARREE:
-            c = cs.demarrer_preparation(c, acteur="local", version_attendue=c["version"])
+        c = cs.demarrer(mois, acteur="local")
     except cs.ClotureRefusee as exc:
         return RedirectResponse(url=f"/clotures?erreur={quote(str(exc))}", status_code=303)
     return RedirectResponse(url=f"/clotures/{c['cloture_id_opaque']}", status_code=303)
@@ -399,6 +397,51 @@ def cloture_historique(request: Request, cloture_opaque: str):
     return templates.TemplateResponse(request, "cloture_historique.html", {
         "active_menu": "clotures", "cloture": c, "historique": cs.historique(cloture_opaque),
         "mois_fr": cs.mois_fr(c["mois"]), "du_mois": cs.du_mois(c["mois"])})
+
+
+# ── Réouverture EXCEPTIONNELLE d'un mois clôturé définitivement ──────────────────────────────────────
+# Une page de confirmation forte (GET, n'écrit rien : elle dit ce qui sera rouvert, et refuse si un mois postérieur
+# est clôturé) puis un POST qui refait TOUS les contrôles côté serveur. Rien n'est supprimé.
+
+def _normaliser(texte: str) -> str:
+    return " ".join((texte or "").lower().split())
+
+
+@router.get("/clotures/{cloture_opaque}/reouverture-exceptionnelle", response_class=HTMLResponse)
+def cloture_reouverture_exceptionnelle_form(request: Request, cloture_opaque: str, erreur: str = ""):
+    c = cs.charger_par_opaque(cloture_opaque)
+    if c is None:
+        return templates.TemplateResponse(request, "cloture_reouverture_exceptionnelle.html", {
+            "active_menu": "clotures", "cloture": None}, status_code=404)
+    posterieurs = cs.mois_posterieurs_figes(c["mois"])
+    return templates.TemplateResponse(request, "cloture_reouverture_exceptionnelle.html", {
+        "active_menu": "clotures", "cloture": c, "erreur": erreur, "mois_fr": cs.mois_fr(c["mois"]),
+        "du_mois": cs.du_mois(c["mois"]), "clos": c["statut"] == cs.ST_ARCHIVEE,
+        "posterieurs": [{"mois": m, "mois_fr": cs.mois_fr(m)} for m in sorted(posterieurs, reverse=True)],
+        "message_posterieurs": cs.message_mois_posterieurs(c["mois"], posterieurs) if posterieurs else ""})
+
+
+@router.post("/clotures/{cloture_opaque}/reouverture-exceptionnelle")
+async def cloture_reouverture_exceptionnelle(request: Request, cloture_opaque: str):
+    from urllib.parse import quote
+    c = cs.charger_par_opaque(cloture_opaque)
+    if c is None:
+        return RedirectResponse(url="/clotures", status_code=303)
+    form = await request.form()
+    retour = f"/clotures/{cloture_opaque}/reouverture-exceptionnelle?erreur="
+    if (form.get("confirmation") or "") != "oui":
+        return RedirectResponse(url=retour + quote("Cochez la confirmation pour rouvrir exceptionnellement ce "
+                                                   "mois."), status_code=303)
+    if _normaliser(form.get("mois_saisi") or "") != _normaliser(cs.mois_fr(c["mois"])):
+        return RedirectResponse(url=retour + quote(f"Pour confirmer, saisissez le mois à rouvrir : "
+                                                   f"« {cs.mois_fr(c['mois'])} »."), status_code=303)
+    try:
+        cs.rouvrir_exceptionnellement(c, acteur="local", justification=(form.get("justification") or "").strip())
+    except cs.ClotureRefusee as exc:
+        return RedirectResponse(url=retour + quote(str(exc)), status_code=303)
+    texte = quote(f"Le mois {cs.mois_fr(c['mois'])} est rouvert exceptionnellement : ses modules sont rouverts, "
+                  "vous pouvez corriger puis reclôturer chaque module et le mois.")
+    return RedirectResponse(url=f"/clotures/{cloture_opaque}?message={texte}", status_code=303)
 
 
 @router.get("/clotures/{cloture_opaque}/reouvrir", response_class=HTMLResponse)

@@ -22,7 +22,7 @@ from __future__ import annotations
 import hashlib
 import re
 import sqlite3
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any
 
 import app.config as cfg
@@ -112,6 +112,21 @@ def refus_temporel(mois: str) -> str:
         return (f"Le mois {_du_mois(mois)} n'est pas commencé : un mois futur ne peut jamais "
                 "être clôturé.")
     return ""
+
+
+def refus_demarrage(mois: str) -> str:
+    """Motif pour lequel la clôture de ce mois ne peut pas être DÉMARRÉE, ou chaîne vide.
+
+    Le mois courant et les mois futurs n'ont rien à démarrer : la page du mois montre dès maintenant, recalculé à
+    chaque affichage, tout ce qui resterait à traiter — sans clôture démarrée, sans rien figer. Démarrer n'y
+    apporterait rien, et une clôture « en préparation » sur un mois qui court est un état que rien ne sait
+    défendre (instantané de contrôles périmés, validation d'un mois inachevé). Elle ne se démarre donc qu'une
+    fois le mois terminé — jamais avant la comptabilité V1, jamais pour un mois futur."""
+    motif = refus_temporel(mois)
+    if motif and temporalite(mois) == T_COURANT:
+        return (f"Le mois {_du_mois(mois)} est encore en cours : ses points à traiter se consultent dès maintenant, "
+                "mais sa clôture ne peut être démarrée qu'une fois le mois terminé.")
+    return motif
 
 
 MSG_NON_VALIDEE = ("Le mois doit d'abord être validé avant de pouvoir être clôturé "
@@ -339,7 +354,8 @@ def creer_ou_charger(mois: str, acteur: str = "", db_path=None) -> dict[str, Any
 
 def _transition(cloture: dict, nouveau_statut: str, *, acteur: str = "", commentaire: str = "",
                 justification: str = "", version_attendue: int | None = None, db_path=None,
-                extra_cols: dict | None = None, conn=None) -> dict[str, Any]:
+                extra_cols: dict | None = None, conn=None,
+                permis_depuis_archivee: bool = False) -> dict[str, Any]:
     """Transition atomique : la garde de version est appliquée par SQL (`WHERE ... AND version=?`),
     pas seulement vérifiée côté Python — élimine la fenêtre de course (TOCTOU) entre deux requêtes
     concurrentes qui liraient le même état avant d'écrire (double clic, requêtes simultanées).
@@ -349,7 +365,10 @@ def _transition(cloture: dict, nouveau_statut: str, *, acteur: str = "", comment
     non vérifiée.
     """
     ancien = cloture["statut"]
-    if nouveau_statut not in TRANSITIONS.get(ancien, set()):
+    # Un mois clôturé définitivement n'a AUCUNE sortie dans l'automate : la seule exception est la réouverture
+    # exceptionnelle (`rouvrir_exceptionnellement`), qui le demande explicitement et traite tout le reste.
+    exception = permis_depuis_archivee and ancien == ST_ARCHIVEE and nouveau_statut == ST_ROUVERTE
+    if nouveau_statut not in TRANSITIONS.get(ancien, set()) and not exception:
         raise ClotureRefusee(f"Transition {ancien} → {nouveau_statut} interdite.")
     version_lue = cloture["version"]
     if version_attendue is not None and version_attendue != version_lue:
@@ -397,8 +416,31 @@ def _transition(cloture: dict, nouveau_statut: str, *, acteur: str = "", comment
 
 
 def demarrer_preparation(cloture: dict, *, acteur: str = "", version_attendue=None, db_path=None):
+    motif = refus_demarrage(cloture["mois"])
+    if motif:
+        raise ClotureRefusee(motif)
     return _transition(cloture, ST_EN_PREPARATION, acteur=acteur, version_attendue=version_attendue,
                        db_path=db_path, extra_cols={"date_preparation": _now()})
+
+
+def demarrer(mois: str, *, acteur: str = "", db_path=None) -> dict[str, Any]:
+    """Ouvre la clôture d'un mois TERMINÉ et la démarre — le point d'entrée de « Démarrer la clôture ».
+
+    Refus (mois courant, mois futur, mois antérieur à la comptabilité V1, format invalide) AVANT toute écriture :
+    un refus ne laisse aucune clôture « non démarrée » derrière lui. Une clôture déjà démarrée est rendue
+    telle quelle, jamais redémarrée."""
+    if not mois_valide(mois):
+        raise ClotureRefusee(f"Mois invalide : « {mois} ». Format attendu AAAA-MM.")
+    existante = charger_par_mois(_txt(mois), db_path)
+    if existante is not None and existante["statut"] != ST_NON_DEMARREE:
+        return existante
+    motif = refus_demarrage(_txt(mois))
+    if motif:
+        raise ClotureRefusee(motif)
+    c = creer_ou_charger(mois, acteur=acteur, db_path=db_path)
+    if c["statut"] == ST_NON_DEMARREE:
+        c = demarrer_preparation(c, acteur=acteur, version_attendue=c["version"], db_path=db_path)
+    return c
 
 
 def passer_a_valider(cloture: dict, *, acteur: str = "", version_attendue=None, db_path=None):
@@ -407,6 +449,9 @@ def passer_a_valider(cloture: dict, *, acteur: str = "", version_attendue=None, 
     Sans cela, un arrêt du processus entre la transition et le snapshot laisserait une clôture en
     A_VALIDER sans instantané figé. La garde de version protège aussi ce passage contre un double
     déclenchement concurrent."""
+    motif = refus_temporel(cloture["mois"])
+    if motif:
+        raise ClotureRefusee(motif)         # jamais d'instantané de contrôles « à valider » sur un mois qui court
     progression = calcul_progression(cloture["mois"], db_path)
     conn = get_db(db_path)
     try:
@@ -504,6 +549,122 @@ def archiver(cloture: dict, *, acteur: str = "", commentaire: str = "", version_
                                conn=conn)
         _journaliser_evenement(conn, cloture["cloture_id_opaque"], "CONTROLES", None, None,
                                commentaire=_resume_controles(progression), acteur=acteur)
+        conn.commit()
+        return resultat
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+MSG_REOUVERTURE_JUSTIFICATION = ("Une justification est obligatoire pour rouvrir exceptionnellement un mois "
+                                 "clôturé.")
+MSG_REOUVERTURE_NON_CLOTURE = ("Ce mois n'est pas clôturé définitivement : il n'y a rien à rouvrir "
+                               "exceptionnellement. Un module clôturé se rouvre depuis la clôture du mois.")
+
+
+def mois_posterieurs_figes(mois: str, *, conn=None, db_path=None) -> list[str]:
+    """Mois POSTÉRIEURS qui reposent sur celui-ci : clôturés définitivement, ou dont au moins un module est
+    clôturé. Un mois dont les chiffres sont arrêtés a été arrêté sur les chiffres du mois précédent : rouvrir
+    ce dernier changerait, en silence, ce sur quoi le suivant s'appuie."""
+    locale = conn is None
+    if locale:
+        conn = get_db(db_path)
+    try:
+        figes = {r[0] for r in conn.execute(
+            "SELECT mois FROM clotures_mensuelles WHERE actif = 1 AND statut = ? AND mois > ?",
+            (ST_ARCHIVEE, mois))}
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cloture_modules'").fetchone():
+            figes |= {r[0] for r in conn.execute(
+                "SELECT DISTINCT mois FROM cloture_modules WHERE statut = 'CLOS' AND mois > ?", (mois,))}
+        return sorted(figes)
+    finally:
+        if locale:
+            conn.close()
+
+
+def message_mois_posterieurs(mois: str, posterieurs: list[str]) -> str:
+    """« …rouvrez d'abord novembre 2026, puis octobre 2026 » — du plus récent au plus ancien."""
+    ordre = ", puis ".join(mois_fr(m) for m in sorted(posterieurs, reverse=True))
+    return (f"Le mois {_du_mois(mois)} ne peut pas être rouvert tant que des mois postérieurs sont clôturés (ou "
+            f"en partie) : rouvrez d'abord {ordre}. Les mois se rouvrent du plus récent au plus ancien, pour "
+            "qu'aucun mois clôturé ne repose sur un mois modifié.")
+
+
+def rouvrir_exceptionnellement(cloture: dict, *, acteur: str = "", justification: str = "",
+                               version_attendue=None, db_path=None) -> dict[str, Any]:
+    """RÉOUVERTURE EXCEPTIONNELLE d'un mois clôturé définitivement — contrôlée, justifiée, tracée, jamais une
+    suppression de la clôture : rouvrir remet le mois dans un état où l'on peut RÉELLEMENT corriger ses données,
+    puis le reclôturer.
+
+    En UNE transaction, ou rien : (1) l'archive économique figée est retirée des tables vives — après avoir été
+    copiée, ligne par ligne, dans `cloture_archives_retirees` — pour que la reclôture fige les valeurs corrigées ;
+    (2) le mois redevient « en contrôle » pour tout ce qui lit `ref_cloture_mensuelle` (Banque, Charges, Ménages,
+    les moteurs de calcul : plus aucun ne le tient pour clos) ; (3) les SEPT modules repassent à « rouvert » —
+    un mois rouvert dont les domaines resteraient verrouillés ne corrigerait rien — et la période comptable est
+    rouverte ; (4) la clôture passe de ARCHIVEE à ROUVERTE. Le journal montre : clôturé → rouvert → (reclôturé) ;
+    la clôture d'origine (date, acteur) reste lisible, la réouverture s'y ajoute avec sa justification.
+
+    Refusée — message métier — si : justification vide ; mois non clôturé définitivement ; état affiché périmé ;
+    un mois POSTÉRIEUR est clôturé (ou en partie) : on rouvre du plus récent au plus ancien. Les factures déjà
+    émises et les écritures validées ne sont jamais modifiées par la réouverture."""
+    from app.services import cloture_archivage_service as arch
+    from app.services import cloture_modules_service as cm
+    from app.services import comptabilite_periodes_service as per
+
+    justification = _txt(justification)
+    if not justification:
+        raise ClotureRefusee(MSG_REOUVERTURE_JUSTIFICATION)
+    mois = cloture["mois"]
+    opaque = cloture["cloture_id_opaque"]
+    conn = get_db(db_path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        actuelle = _row(conn.execute("SELECT * FROM clotures_mensuelles WHERE cloture_id_opaque=? "
+                                     "AND actif=1", (opaque,)).fetchone())
+        if actuelle is None:
+            raise ClotureRefusee("Clôture introuvable.")
+        if actuelle["statut"] != ST_ARCHIVEE:
+            raise ClotureRefusee(MSG_REOUVERTURE_NON_CLOTURE)
+        if version_attendue is not None and int(version_attendue) != actuelle["version"]:
+            raise ClotureRefusee(MSG_ETAT_PERIME)
+        posterieurs = mois_posterieurs_figes(mois, conn=conn)
+        if posterieurs:
+            raise ClotureRefusee(message_mois_posterieurs(mois, posterieurs))
+
+        maintenant = _now()
+        retire = arch.retirer_archive(mois, cloture_id_opaque=opaque, justification=justification,
+                                      acteur=acteur, conn=conn)
+        conn.execute(
+            "INSERT INTO ref_cloture_mensuelle (mois, statut_mois, import_id) VALUES (?,?,?) "
+            "ON CONFLICT(mois) DO UPDATE SET statut_mois='EN_CONTROLE', import_id=excluded.import_id",
+            (mois, "EN_CONTROLE", f"REOUVERTURE_APP-{acteur or 'SYSTEME'}"))
+        conn.execute(
+            "INSERT INTO mois_reouvertures (mois, statut_avant, statut_apres, motif, acteur, reouvert_le, "
+            "recalcul_statut) VALUES (?,?,?,?,?,?,?)",
+            (mois, "CLOTURE", "EN_CONTROLE", justification, acteur or "local",
+             datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "NON_LANCE"))
+        rouverts = cm.rouvrir_tous_dans(conn, opaque, mois, acteur=acteur, justification=justification,
+                                        maintenant=maintenant)
+        periode = per.rouvrir_dans(conn, mois, justification=f"Réouverture exceptionnelle du mois : "
+                                                              f"{justification}", acteur=acteur)
+        if not periode.get("ok"):
+            raise ClotureRefusee(periode.get("message") or "La période comptable n'a pas pu être rouverte.")
+
+        resultat = _transition(actuelle, ST_ROUVERTE, acteur=acteur, justification=justification, db_path=db_path,
+                               conn=conn, permis_depuis_archivee=True,
+                               extra_cols={"date_reouverture": maintenant,
+                                           "justification_reouverture": justification})
+        n = len(rouverts)
+        effets = (f"{n} module{'s' if n > 1 else ''} rouvert{'s' if n > 1 else ''} ; "
+                  + ("période comptable rouverte ; " if periode.get("rouverte") else "")
+                  + (f"archive économique retirée et conservée ({retire['nb_reservations']} réservation"
+                     f"{'s' if retire['nb_reservations'] > 1 else ''}) ; "
+                     if retire["nb_reservations"] or retire["nb_reglement"] else "")
+                  + "rien n'est supprimé, la clôture d'origine reste dans l'historique.")
+        _journaliser_evenement(conn, opaque, "REOUVERTURE_EXCEPTIONNELLE", ST_ARCHIVEE, ST_ROUVERTE,
+                               commentaire=effets, acteur=acteur, date_evenement=maintenant)
         conn.commit()
         return resultat
     except Exception:

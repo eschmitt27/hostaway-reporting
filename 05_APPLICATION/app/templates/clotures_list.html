@@ -85,6 +85,8 @@
           <td role="cell" class="fi-col-actions">
             {% if l.cloture_id_opaque %}
               <a class="fi-lien-action" href="/clotures/{{ l.cloture_id_opaque }}">Ouvrir</a>
+            {% elif l.tableau.refus_demarrage %}
+              <a class="fi-lien-action" href="/clotures/mois/{{ l.mois }}">Consulter</a>
             {% else %}
               <form method="post" action="/clotures/demarrer" class="inline-form" data-fi-occupe>
                 <input type="hidden" name="mois" value="{{ l.mois }}">
