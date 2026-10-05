@@ -1,5 +1,73 @@
 # HANDOFF CANONIQUE — reprise immédiate
 
+## Mission 2026-10-05 — Clôture : actualisation directe des calculs
+
+- Worktree `9537f8ef/resume-pilotage-conciergerie-20260909`, branche
+  `resume/pilotage-conciergerie-20260909`, HEAD départ `e6d3ecb`.
+- HEAD applicatif / commit : `fb76ac5` — Clôture - actualisation directe des calculs depuis le tableau de bord.
+  HEAD final de livraison = commit de handoff portant cette section (`git rev-parse HEAD`) ;
+  son propre SHA ne peut pas être inscrit dans son contenu. Aucun push.
+- Cause : `_calculs_obsoletes` fabriquait des liens fixes `/actualisation` dans les groupes
+  et chaque élément de détail. Un clic ne déclenchait aucun calcul.
+- Nouveau parcours : POST depuis la carte → `cloture_actualisation_service.actualiser` →
+  `orchestrateur_service.actualiser` → moteurs existants → GET de la même clôture avec
+  `#module-{cle}`. La page reste visible pendant le POST ; les bloqueurs/progression/états
+  sont entièrement relus sur le GET, jamais marqués « résolus » dans une table parallèle.
+- Registre unique `DATASETS_PAR_MODULE`, partagé par la détection et le déclenchement :
+  Réservations → RESERVATIONS, FLUX_LOT9, LOT10, LOT11 ;
+  Ménages → MENAGES (lot6d → lot6e → lot6f, mois affiché explicite) ;
+  Factures clients → LOT12 (préfactures dérivées exclusivement).
+  Seuls les calculs périmés/en échec sont demandés, avec leurs amonts de calcul périmés
+  ou absents et la cascade cohérente du DAG. Aucun moteur alternatif.
+- Audit des sept domaines : Charges/factures fournisseurs, Banque/caisse et Comptabilité
+  n'ont pas de stale CALCUL automatique dans cette vue : leurs décisions restent dans
+  leurs vrais modules. Créances/dettes conserve son contrôle de persistance FIFO et le
+  workflow existant « Recalculer les positions », sans nouveau bouton Actualiser.
+  Pas de faux bouton pour un nœud sans service ou un calcul déjà EN_COURS (Consulter).
+- Portée réelle : états des datasets globaux comme auparavant ; les moteurs réservations,
+  flux, résultats, contrôles et préfactures utilisent leur chaîne globale cohérente.
+  Le seul moteur mensuel, Ménages, reçoit le mois via une option de contexte isolée par run,
+  passée seulement aux fonctions qui déclarent ce paramètre. Les autres appelants gardent
+  leur comportement et les signatures des moteurs restent inchangées.
+- Aucun import externe, aucune création/modification/validation de facture réelle ou charge,
+  aucune réservation métier, résolution, clôture ou réouverture depuis ce bouton.
+  Le recalcul technique des sorties dérivées reste possible sur un module CLOS ; son état
+  stocké et sa trace ne changent pas. Si seul le stale disparaît, la carte redevient CLOS ;
+  si un vrai bloqueur subsiste, elle reste A_REVOIR. Les gardes métier existantes sont conservées.
+- Concurrence : bail existant `CLOTURE_ACTUALISATION` avant relecture des besoins ; verrou
+  global de l'orchestrateur conservé face aux autres écrans/scheduler. Second POST concurrent
+  refusé proprement ; second POST après succès ne relance pas un calcul déjà frais.
+- Endpoints POST pour mois connu ou clôture opaque connue, module connu ; GET = 405.
+  Réponse JSON de navigation pour fetch, repli natif POST → 303 → même clôture.
+- UX : « Actualisation… », spinner du design system existant, disabled, aria-busy et nom
+  accessible actualisé ; feedback discret dans la carte ; focus au titre après pageshow,
+  ancre stable avec décalage de l'en-tête. Retour à URL strictement identique = vrai reload
+  (cas découvert et corrigé lors du second scénario). Pas de refonte esthétique.
+  « Voir les éléments » reste un simple details et « Traiter » garde ses vrais liens.
+- Erreurs : échec/PARTIEL ou état encore périmé ne donnent pas un faux succès ; message
+  générique sûr, message métier connu pour référentiel intervenants manquant ; aucune erreur
+  brute, traceback, SQL, chemin, code Python ou JSON du moteur n'est exposé.
+  Erreur réseau : bouton réactivé, focus restitué, invitation à relire l'état réel.
+- Tests : 374 passés sur 19 fichiers (574,62 s), aucun échec ; 3 tests exécutant le
+  JavaScript livré passés séparément (0,51 s), soit 377 tests sur 20 fichiers. Deux avertissements
+  de dépréciation existants Starlette/httpx et AnyIO. 25 nouveaux cas serveur et 3 cas JS.
+  `git diff --check` passé (CRLF originels de orchestrateur_service conservés,
+  `core.whitespace=cr-at-eol` pour son diff indexé).
+- Recette : nouvelle copie `recette_cloture/app.db`, issue de la copie RECETTE précédente
+  provenant de la sauvegarde officielle existante. Identité RECETTE et chemin hors REAL vérifiés.
+  Septembre 2026 rendu périmé via l'invalidation canonique MENAGES_DECLARATIONS sur copie.
+  Moteurs réels MENAGES/FLUX_LOT9/LOT10/LOT11/LOT12 tous SUCCES.
+  Module ouvert : stale Ménages 1 → 0, bloqueurs du mois 21 → 16, vrais bloqueurs conservés.
+  Module clôturé préparé uniquement sur copie : A_REVOIR → CLOS, stale 1 → 0, aucune
+  réouverture, trace conservée. Clic et Entrée au clavier, chargement/disabled, ancre et focus
+  constatés dans le navigateur, y compris la seconde actualisation à URL identique.
+  23 tables métier identiques après premier recalcul ; 21 après le scénario clos (les deux
+  tables de clôture ont été changées uniquement lors de sa préparation). Integrity OK, FK vide.
+  Rapport `recette_cloture/resultat.json` dans le dossier de visualisations de ce chat.
+- Vraie base NON MODIFIÉE et non ouverte pour cette mission ; aucun mois réel clôturé.
+  MenagesExternes intacts, aucun fichier ajouté depuis ce dossier. Aucun push, merge, rebase,
+  changement de scheduler/environnement ni chantier supplémentaire.
+
 ## Mission 2026-10-05 — Factures clients : remise en brouillon et noms PDF
 
 - Worktree : `9537f8ef/resume-pilotage-conciergerie-20260909` ; branche
