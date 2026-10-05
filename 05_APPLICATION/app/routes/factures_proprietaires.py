@@ -21,6 +21,7 @@ from app.services import facturation_config_service as fconf
 from app.services import factures_proprietaires_composition_service as compo
 from app.services import factures_proprietaires_conformite_service as conformite
 from app.services import factures_proprietaires_pdf as pdf
+from app.services import factures_proprietaires_nom_pdf as nom_pdf
 from app.services import factures_proprietaires_edition_service as edition
 from app.services import factures_proprietaires_brouillon_service as brouillon
 from app.services import factures_proprietaires_periode_service as periode_svc
@@ -783,8 +784,8 @@ def previsualiser_pdf(facture_id: str):
             svc.lire(facture_id),
             date_facture=document.get("date_facture") or f"{document.get('mois')}-01")
     octets = pdf.rendre(document)
-    entetes = {"Content-Disposition":
-               f'inline; filename="apercu-{facture_id}.pdf"'}
+    nom = nom_pdf.nom_telechargement(svc.lire(facture_id))
+    entetes = {"Content-Disposition": nom_pdf.content_disposition(nom, inline=True)}
     return Response(content=octets, media_type="application/pdf", headers=entetes)
 
 
@@ -855,5 +856,6 @@ def document(facture_id: str):
     chemin = _repertoire_documents() / annee / (mm or "00") / facture["document_nom"]
     if not chemin.exists():
         return HTMLResponse(f"{svc.C_PDF_ABSENT}: fichier introuvable", status_code=404)
-    return FileResponse(chemin, media_type="application/pdf",
-                        filename=facture["document_nom"])
+    nom = nom_pdf.nom_telechargement(facture)
+    return FileResponse(chemin, media_type="application/pdf", filename=nom,
+                        headers={"Content-Disposition": nom_pdf.content_disposition(nom)})
