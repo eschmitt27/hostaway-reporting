@@ -5370,7 +5370,7 @@ redémarrage sans nouvelle migration ni sauvegarde, clôture fonctionnelle sur l
   clôture du module Réservations, contrôles du moteur sur un séjour exclu), `test_cloture_reouverture_exceptionnelle.py` (19 : confirmation forte, justification, domaines déverrouillés et réellement
   modifiables, archive retirée conservée, journal, reclôture, mois postérieurs, mois courant), `test_migration_0125_vers_0128.py` (6). Mis à jour :
   `test_cloture_modules_bloqueurs.py`, `test_cloture_modules_parcours.py`, `test_cloture_flux_financiers.py`, `test_sqlite_migrations.py`.
-- Séries finales (tests ciblés uniquement) : **36 fichiers de l'application** (clôture, périmètre, contrôles, Lot11, moteur, migrations, cutover, ménages,
+- Séries finales (tests ciblés uniquement) : **38 fichiers de l'application** (clôture, périmètre, contrôles, Lot11, moteur, migrations, cutover, ménages,
   gabarits, résilience mensuelle…) = **760 passed, 15 skipped** ; puis, après les dernières retouches de messages, les 6 fichiers de clôture / périmètre / gabarits
   = **344 passed** ; les tests **racine** du moteur et de Lot11 (`tests/test_lot4*`, `test_lot11_*`, `test_hors_parc_technique`, `test_guestcount_*`, …) lancés **seuls** =
   **104 passed, 45 sous-tests**. Ne pas mélanger les tests racine `tests/` et ceux de `05_APPLICATION/tests` dans une même session pytest : le `conftest` de l'application
