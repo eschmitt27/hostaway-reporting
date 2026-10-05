@@ -5235,3 +5235,183 @@ caisse, Créances et dettes sont prêts.
 sauvegarde), ouvrir *Clôture mensuelle → septembre 2026*, traiter chaque module par son lien « Traiter », le clôturer, puis
 « Clôturer le mois ». Commandes de contrôle : `.venv\Scripts\python.exe -m pytest 05_APPLICATION/tests/test_cloture_modules_bloqueurs.py
 05_APPLICATION/tests/test_cloture_modules_parcours.py` (depuis la racine, `05_APPLICATION/tests` ; env TEST isolé).
+
+## Mission finale avant push — fermer les derniers trous de la refonte clôture (2026-10-05)
+
+Menée dans le worktree `resume-pilotage-conciergerie-20260909` (branche `resume/pilotage-conciergerie-20260909`). **HEAD de départ
+`9089422`** (les six commits de la mission précédente sont conservés), **deux commits de code (`e99133c`, `89ed54f`)**, suivis du seul commit de
+ce handoff. Commits locaux, **rien n'est poussé** ; `origin/main` n'a pas été touché ; les 17 PDF non suivis de
+`01_SOURCES_BRUTES/MenagesExternes/` n'ont été ni ajoutés, ni déplacés, ni supprimés (indexation par chemins explicites).
+
+**Base réelle NON modifiée** : `C:\Users\Ewans\PilotageConciergerie\data\app.db`, SHA-256 `06C30FD4B90C8F00DB527AAC1CF2FFBB87452D96D2BB23EDD22B6E27BC0DC740`,
+109 887 488 octets, dernière écriture 2026-10-05 00:42:22, schéma **0125** (relevé avant et après la mission : identique). L'application
+REAL n'a pas été lancée ; aucune clôture, réouverture, décision ni période n'y a été écrite. Tout ce qui est dit « recette » s'est joué sur
+une **copie** (`APP_DATA_DIR` dédié, environnement RECETTE, garde-fou « pas dans les données réelles »).
+
+### 1. LOG_0017 — analyse (lecture seule), cause, résolution
+
+**Constat** (base réelle lue en lecture seule, puis copie) :
+- Logement `LOG_0017` « Duo de T3 » (David Touré, `PROP_0008`) : une seule période de gestion, `GST_LOG_0017_PROP_0008`, du 2026-01-01 au
+  **2026-09-01** (RETIRE, date de fin incluse, « Confirmation opérateur 28/06/2026 ») ; logement archivé (`actif` NON, `statut_parc` RETIRE).
+- Séjour Hostaway `62439384`, **du 01 au 03/09/2026**, 346,39 € retenus : il arrive le dernier jour de la gestion et se termine deux
+  jours après sa fin. Aucune période ne le couvre en entier → `GESTION_LOGEMENT_OUT_OF_PERIOD`, `A_CONTROLER`, sans propriétaire, hors
+  calcul et hors facture : bloqueur « Réservations » de septembre. Le moteur fait exactement ce qu'il doit faire.
+- Il relevait pourtant de la gestion : la tâche de ménage Hostaway n° 14747005 (« Ménage T6 (310 & 18) … 2026/09/01 - 2026/09/03 », intervenante
+  Aissata) est **réalisée** (completed, 03/09 à 09:00) : la conciergerie a bien fait le ménage de fin de séjour. Côté Ménages la tâche porte
+  `TASK_LOGEMENT_INACTIF` (le logement est archivé) : signal déjà présent sur la base réelle, indépendant de la période de gestion, qui ne bloque
+  pas la clôture (Ménages « prêt » au relevé de la mission précédente).
+
+**Cas retenu : A** — séjour sous gestion, période trop courte. Les autres séjours de ce logement (30/10→01/11 Booking, 20→23/11 VRBO) et le
+T3 - 310 Muret (02→05/11, Booking) relèvent du **cas B** (logement retiré, pas sous gestion) : ils demandent une décision d'exclusion, pas
+une prolongation. Ni cas C (le cycle de vie générique n'est pas en cause : le moteur lit les périodes), ni cas D.
+
+**Instruction précédente vérifiée** (« rétablir la gestion à partir du lendemain de sa fin, puis l'archiver à la date de départ du séjour ») :
+le résultat de données est juste — une période du 2026-09-02 au 2026-09-03, même propriétaire — et c'est ce que produit la prolongation
+ci-dessous. Le chemin, lui, était mauvais : deux actions, un logement redevenu « actif » sans fin entre les deux, et aucune décision
+« exclure » disponible pour les cas B. Il n'est pas reproduit : il est remplacé par des actions génériques. **Aucune exception propre à
+LOG_0017** dans le code (aucun identifiant de logement dans les services, le moteur ni les gabarits).
+
+**Résolution proposée sur la base réelle — NON APPLIQUÉE, en attente de l'accord de l'utilisateur** :
+- *Correction* : fiche « Duo de T3 » → « Prolonger la gestion » jusqu'au **03/09/2026** (même propriétaire, justification) ; puis
+  « Actualisation » (Réservations + Ménages) ; puis, pour David, créer / valider / émettre la facture du logement.
+- *Impact mesuré sur la copie (septembre 2026)* : le séjour devient un séjour géré chez David Touré — ménage 110,00 €, assiette de
+  commission 236,39 €, commission de conciergerie à 19 % **44,91 €** → **une nouvelle facture propriétaire « Duo de T3 » de 154,91 €**
+  (44,91 + 110,00). Le bloqueur Réservations (1) disparaît. La ligne d'origine de la gestion n'est pas modifiée.
+  À l'actualisation, les brouillons de David (T3 - 18 Cugnaux, 718,19 → 728,19 €) et de François (T3 - Sept Deniers, 807,59 → 822,59 €)
+  bougent aussi : ce sont les tarifs canapé du 01/09 de la mission précédente, **pas** LOG_0017.
+
+### 2. Règle d'exclusion / d'inclusion (module Réservations)
+
+Un séjour Hostaway qu'aucune période de gestion (ou suite de périodes jointives du même propriétaire) ne couvre en entier est **« à
+trancher »** — causes décidables : `GESTION_LOGEMENT_MISSING` / `GESTION_LOGEMENT_OUT_OF_PERIOD`. Les causes `AMBIGUOUS` /
+`MISSING_OWNER` (gestion incohérente) ne se tranchent pas : on renvoie vers la fiche du logement pour corriger la donnée.
+
+| Réponse | Où | Ce que ça fait |
+|---|---|---|
+| **Inclure** — la période est trop courte | fiche du logement → « Prolonger la gestion » (`/logements/{id}/prolonger-gestion`, `logements_gestion_service.prolonger_gestion`) | **nouvelle** période jointive du même propriétaire jusqu'à la date choisie (le départ du séjour est proposé) ; la ligne d'origine n'est jamais modifiée ; justification obligatoire, confirmation, acteur tracé (`PROLONGATION_GESTION`) ; refusée si le module Réservations d'un mois concerné est clôturé ; les calculs passent « à actualiser » |
+| **Exclure** — le séjour n'est pas à nous | `/reservations/hors-gestion` → « Exclure du périmètre de gestion » (`perimetre_gestion_service.exclure`) | décision **explicite et générique** : justification obligatoire, case de confirmation, acteur, date et heure ; journal en ajout seul ; annulable (« Réintégrer », justification obligatoire) |
+
+Effets d'une exclusion : le séjour **reste visible** avec son historique ; ni commission, ni facture, ni net propriétaire ; il **n'est plus un
+bloqueur** (la clôture ne fait que lire la décision dans le module Réservations — elle n'a pas de case à elle) ; le moteur
+(`lot4bis_charger_reservations`) le classe `EXCLU_RESULTAT` / motif `EXCLUSION_DECIDEE`, et la décision prime sur une période tant qu'elle n'est
+pas annulée. Les calculs ne sont déclarés « à actualiser » que si la décision change des chiffres (séjour couvert par la gestion) : exclure un séjour
+déjà hors gestion ne crée aucun calcul périmé.
+**Contrôles du moteur sur un séjour exclu** (constat de recette, corrigé) : après l'exclusion d'un séjour VRBO hors gestion, les groupes « VRBO sans
+montant » et « réservation exclue du calcul de commission » bloquaient encore le mois — qu'on ne pouvait lever qu'en saisissant un montant pour un séjour
+qui n'est pas le nôtre. Désormais la clôture lit la décision **en direct** et ne compte plus aucun contrôle du moteur qui cite ce séjour (numéro Hostaway ou
+clé de calcul) ; Lot11 (natif et script), le détail des contrôles et la vérification du paiement Hostaway ne traitent plus comme « à contrôler » une ligne que le
+moteur a posée `EXCLUSION_DECIDEE` (les exclusions héritées, `EXCLU_LEGACY`, gardent leur comportement) ; le détail « commission » dit « Exclue du périmètre de
+gestion (décision) — sans commission attendue ». Annulée, la décision fait revenir ces contrôles (tests 25–27). Limite connue : le constat agrégé de Lot10
+« réservations exclues du calcul de commission » (lu sur les paiements Hostaway) continue de lister un tel séjour dans l'écran Contrôles, où il est étiqueté ainsi ; la
+clôture, elle, ne le compte plus.
+Données (migration **0127**) : `reservation_perimetre_decisions` (ACTIVE / ANNULEE, une seule ACTIVE par séjour, jamais supprimée, seule transition
+ACTIVE → ANNULEE) et `reservation_perimetre_evenements` (EXCLUSION / REINTEGRATION, ajout seul, triggers `DECISION_PERIMETRE_TRACE`).
+
+### 3. « Traiter » mène exactement à la bonne page
+
+- séjour hors gestion → `/reservations/hors-gestion?mois=…#sejour-<clé>` (page dédiée : pourquoi, dates de gestion enregistrées, actions) ;
+  la liste `/reservations` y renvoie aussi (lien et compteur) et la fiche du logement affiche l'alerte avec « Voir et traiter ces séjours » ;
+- VRBO sans montant → l'élément de contrôle (séjour, mois, classification « Montant réellement absent ») et `/reservations/regulariser/CTRL-…`
+  (formulaire réel : montant réellement perçu, ménage, code impact) ;
+- ménages, banque, factures, comptabilité : pages réelles de la mission précédente (test `test_22` : chaque lien « Traiter » ouvre une vraie page).
+
+### 4. Clôture : ordre des modules, charge rejetée, bloqueurs
+
+- **Aucun ordre obligatoire** entre modules : un module sans bloqueur se clôture quand on veut (la comptabilité en dernier n'est qu'une convention
+  d'affichage). Vérifié par test (`test_19`) et sur la copie (octobre : « Créances et dettes » clôturé alors que Banque et Réservations ont des bloqueurs).
+- **Charge rejetée = décision terminée** : elle ne bloque plus (la trace est conservée) — `test_08_bis`.
+- **Bloqueurs = vrais états problématiques seulement** : séjours à trancher (et non les exclusions décidées, qui ne sont qu'une information),
+  VRBO sans montant, calculs réellement périmés, factures à créer / brouillon / à émettre, écritures à valider, mouvements bancaires à qualifier, etc.
+
+### 5. Réouverture exceptionnelle d'un mois clôturé
+
+`/clotures/{id}/reouverture-exceptionnelle` (lien « Rouvrir exceptionnellement ce mois » sur un mois clôturé, et dans la page « Rouvrir un module »
+d'un mois archivé). **Confirmation forte** : justification **obligatoire**, mois à **ressaisir** (« septembre 2026 », casse et espaces tolérés) et case à
+cocher ; chaque refus donne un message clair et ne change rien. **Une seule transaction atomique** (un échec n'applique rien) :
+1. l'archive économique figée est **retirée et CONSERVÉE** (`cloture_archives_retirees`, migration **0128** : mois, clôture, identifiants, contenu complet
+   réservations + règlements, justification, acteur, date ; ajout seul) — la prochaine clôture figera les valeurs corrigées ;
+2. la source de clôture du mois repasse `EN_CONTROLE` (plus rien ne la lit comme close) + journal des réouvertures (`mois_reouvertures`) ;
+3. les **sept modules** passent `ROUVERT` (justification « Réouverture exceptionnelle du mois : … », compteurs `nb_reouvertures`) → **tous les verrous sont levés** :
+   on ne se retrouve jamais avec « mois rouvert mais domaines verrouillés » ;
+4. la période comptable passe `ROUVERTE` (même justification ; si l'écriture comptable est désactivée, la réouverture entière est refusée) ;
+5. la clôture passe `ARCHIVEE → ROUVERTE` et reçoit deux événements : la transition et `REOUVERTURE_EXCEPTIONNELLE` (récapitulatif).
+**Rien n'est supprimé** : factures émises, écritures validées et charges ne bougent pas ; la clôture d'origine (date, auteur) reste ; le journal montre
+**clôturé → rouvert → reclôturé**. Après correction on reclôture chaque module, puis le mois : nouvelle archive figée, ancienne conservée ; les cartes
+indiquent « Rouvert N fois depuis la première clôture ».
+
+### 6. Comportement des mois postérieurs (règle la plus sûre et la plus simple)
+
+Un mois ne peut pas être rouvert exceptionnellement tant qu'un mois **postérieur** est clôturé **ou clos en partie** (un seul module clos suffit) : message
+« rouvrez d'abord octobre 2026 », et la page de réouverture montre l'état bloqué avec les mois à rouvrir d'abord. On rouvre donc du plus récent au plus
+ancien : aucun mois clôturé ne repose sur un mois modifié, aucune cascade implicite, aucune décision à deviner. Un mois postérieur non commencé ou sans
+module clos ne gêne pas. Refus identique par la page et par un POST direct.
+
+### 7. Mois courant
+
+**Retenu : le mois en cours (et tout mois futur) ne se démarre plus.** Sa page reste consultable (bouton « Consulter ») : les points à traiter se lisent dès
+maintenant, sans rien démarrer — démarrer n'apportait que la possibilité de clôturer par erreur un mois non terminé. Messages : « Le mois de novembre 2026
+est encore en cours : ses points à traiter se consultent dès maintenant, mais sa clôture ne peut être démarrée qu'une fois le mois terminé » ; « Le mois de
+décembre 2026 n'est pas commencé : un mois futur ne peut jamais être clôturé ». Aucun calcul mensuel n'est réservé, aucun module verrouillé. Une clôture
+héritée d'un mois courant ne peut plus progresser (`passer_a_valider`, clôture de module et de mois refusés). **Le mois courant reste non clôturable.**
+
+### 8. Migrations 0126 → 0128 et validation 0125 → 0128
+
+0126 (clôture par modules, mission précédente), **0127** (décisions de périmètre), **0128** (archives retirées) ; les trois tables nouvelles sont classées dans
+`cutover_v1_service`. Elles s'appliquent au **prochain démarrage de l'application réelle**, après la sauvegarde automatique `BEFORE_MIGRATION`, avec
+`integrity_check` + `foreign_key_check` (échec = restauration / refus de démarrer) ; **pas lancée pendant cette mission**. Validé sur une copie de la base réelle
+(schéma 0125, 109 887 488 octets) : démarrage → sauvegarde `BCK-30478BE0C681` (BEFORE_MIGRATION, VALIDE, `integrity_check ok`, `foreign_key_check` 0, 233 tables,
+431 656 lignes, 0,89 s) → migrations 0126, 0127, 0128 → schéma 0128 ; une nouvelle clôture fonctionne ensuite (parcours complet ci-dessous). Test automatisé :
+`test_migration_0125_vers_0128.py` (6 tests : base de départ en 0125, sauvegarde puis migration sans toucher aux données, intégrité et clés étrangères,
+redémarrage sans nouvelle migration ni sauvegarde, clôture fonctionnelle sur la base migrée, échec de migration → restauration de la base d'avant).
+
+### 9. Tests
+
+- Nouveaux : `test_perimetre_gestion_sejours.py` (27 : explication, prolongation, exclusion, réintégration, traces intouchables, moteur réel `lot4bis`,
+  clôture du module Réservations, contrôles du moteur sur un séjour exclu), `test_cloture_reouverture_exceptionnelle.py` (19 : confirmation forte, justification, domaines déverrouillés et réellement
+  modifiables, archive retirée conservée, journal, reclôture, mois postérieurs, mois courant), `test_migration_0125_vers_0128.py` (6). Mis à jour :
+  `test_cloture_modules_bloqueurs.py`, `test_cloture_modules_parcours.py`, `test_cloture_flux_financiers.py`, `test_sqlite_migrations.py`.
+- Séries finales (tests ciblés uniquement) : **36 fichiers de l'application** (clôture, périmètre, contrôles, Lot11, moteur, migrations, cutover, ménages,
+  gabarits, résilience mensuelle…) = **760 passed, 15 skipped** ; puis, après les dernières retouches de messages, les 6 fichiers de clôture / périmètre / gabarits
+  = **344 passed** ; les tests **racine** du moteur et de Lot11 (`tests/test_lot4*`, `test_lot11_*`, `test_hors_parc_technique`, `test_guestcount_*`, …) lancés **seuls** =
+  **104 passed, 45 sous-tests**. Ne pas mélanger les tests racine `tests/` et ceux de `05_APPLICATION/tests` dans une même session pytest : le `conftest` de l'application
+  impose une base TEST non amorcée et 10 tests racine (`test_lot4quater_…`, `test_lot4ter_…`) échouent alors pour cette seule raison. Balayage large précédent : 84 fichiers,
+  1 502 passed, 4 skipped. Échec connu et sans rapport : `tests/test_lot10_reservation_exclue_dedup.py` (incompatibilité pandas).
+- `git diff --check` propre avec `core.whitespace=cr-at-eol` ; fichiers nouveaux en LF.
+
+### 10. Recette sur copie de la base réelle (parcours de la mission, de bout en bout)
+
+Copie en environnement RECETTE ; serveur sur l'horloge réelle (05/10/2026) puis serveur à **horloge figée au 05/11/2026** pour éprouver un mois postérieur.
+1. Septembre : bloqueur Réservations constaté (séjour de `LOG_0017`) → « Traiter » ouvre `/reservations/hors-gestion` → prolongation par la page réelle → le
+   bloqueur disparaît (calculs « à actualiser » créés, puis actualisés par le workflow : Réservations 0, Ménages 0).
+2. Charges validées (7), factures rechargées / générées / validées / émises (dont la nouvelle facture de 154,91 €), écritures comptabilisées et validées → 0 bloqueur ;
+   sept modules clôturés puis **septembre clôturé par l'interface** (« Mois clôturé définitivement »).
+3. **Réouverture exceptionnelle par l'interface** : refus sans justification / mauvais mois saisi / case non cochée, puis réouverture acceptée (carte « Clôture rouverte »,
+   0 / 7 modules « Prêt à clôturer »). **Traçabilité relevée en base de la copie** : journal du mois (… ARCHIVEE → ROUVERTE, `REOUVERTURE_EXCEPTIONNELLE`), source de clôture
+   `EN_CONTROLE`, `mois_reouvertures`, période comptable CLOTUREE → ROUVERTE, `cloture_archives_retirees` (48 réservations, 11 règlements, justification, acteur, heure), archive courante vide.
+4. **Domaines réellement modifiables** : charge saisie sur septembre rouvert (acceptée) ; après reclôture la même saisie est refusée (`E_CHARGE_MOIS_CLOTURE`).
+5. **Reclôture** : sept modules puis le mois par l'interface ; nouvelle archive de 48 lignes (séjour de `LOG_0017` inclus), ancienne conservée, cartes « Rouvert 1 fois ».
+6. **Mois postérieur** (horloge 05/11) : octobre démarrable, un module d'octobre clôturé → réouverture de septembre refusée (page et POST direct, septembre reste clos) ;
+   module d'octobre rouvert → réouverture de septembre de nouveau possible.
+7. **Mois courant** (05/11) : novembre en « Consulter » seulement, démarrage refusé ; décembre refusé.
+8. **Exclusion / réintégration** sur le séjour Duo de T3 du 30/10 au 01/11 : sans justification refusé (422) ; avec justification, bloqueur Réservations d'octobre 7 → 6 sans
+   calcul à actualiser ; réintégration → redevient « à trancher » ; nouvelle exclusion ; historique de la décision : exclu / réintégré / exclu.
+   **Séjour VRBO du 20 au 23/11 (Duo de T3) exclu** : les groupes « VRBO sans montant » et « exclue du calcul de commission » continuaient de bloquer novembre, même après
+   un recalcul complet — trou trouvé en recette et fermé (§2, tests 25–27) ; novembre ne garde plus que « T3 - 310 Muret du 02 au 05/11 à trancher » (1).
+9. Mobile 375 px : aucune page nouvelle ne déborde horizontalement. Retouches issues de la recette : filtre de la page « hors gestion » sur une ligne, justification en pleine
+   largeur, mois sélectionné toujours proposé, justification de réouverture raccourcie sur les cartes de modules (texte complet en infobulle et dans l'historique).
+
+### 11. Commits (locaux, non poussés)
+
+1. `e99133c` Clôture - exclusion décidée, prolongation de la gestion, réouverture exceptionnelle
+2. `89ed54f` Clôture - un séjour exclu ne bloque plus par les contrôles du moteur (constat de recette)
+3. (ce handoff) Handoff : derniers trous de la refonte clôture
+
+### 12. Décisions à confirmer par l'utilisateur / reprise
+
+1. **Correction réelle de `LOG_0017`** (prolonger la gestion jusqu'au 03/09/2026, puis actualiser — impact : +1 facture de 154,91 € pour David) : proposée, **pas appliquée**.
+2. Règle des mois postérieurs (rouvrir du plus récent au plus ancien, un module clos suffit à protéger) et mois courant non démarrable : choix de sûreté, réversibles si besoin.
+3. Séjours hors gestion d'octobre / novembre (Duo de T3 30/10→01/11 et 20→23/11, T3 - 310 Muret 02→05/11) : à trancher mois par mois (exclure, ou prolonger si le séjour relevait de la gestion).
+4. Au prochain démarrage de l'application réelle, les migrations 0126–0128 s'appliquent avec sauvegarde automatique : rien d'autre à faire ; ne pas pousser avant décision.
+**Reprise** : lire d'abord cette section. Commandes de contrôle : `.venv\Scripts\python.exe -m pytest 05_APPLICATION/tests/test_perimetre_gestion_sejours.py
+05_APPLICATION/tests/test_cloture_reouverture_exceptionnelle.py 05_APPLICATION/tests/test_cloture_modules_parcours.py 05_APPLICATION/tests/test_cloture_modules_bloqueurs.py
+05_APPLICATION/tests/test_migration_0125_vers_0128.py` (depuis la racine ; ne pas mélanger avec les tests racine `tests/` dans une même session).
