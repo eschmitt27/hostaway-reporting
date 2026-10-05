@@ -5,7 +5,7 @@
 <link rel="stylesheet" href="/static/css/cloture.css">
 
 <div class="page-header">
-  <a href="/clotures/{{ cloture.cloture_id_opaque if cloture else '' }}" class="back-link">← Clôture{% if cloture %} de {{ progression.mois_fr }}{% endif %}</a>
+  <a href="/clotures/{{ cloture.cloture_id_opaque if cloture else '' }}" class="back-link">← Clôture{% if cloture %} {{ tableau.du_mois }}{% endif %}</a>
   <h1 class="page-title">Préparation{% if cloture %} — {{ progression.mois_fr }}{% endif %}</h1>
 </div>
 

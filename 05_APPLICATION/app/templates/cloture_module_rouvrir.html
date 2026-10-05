@@ -13,7 +13,7 @@
 {% else %}
 
 <div class="page-header">
-  <a href="/clotures/{{ cloture.cloture_id_opaque }}#module-{{ module.cle|lower }}" class="back-link">← Clôture de {{ mois_fr }}</a>
+  <a href="/clotures/{{ cloture.cloture_id_opaque }}#module-{{ module.cle|lower }}" class="back-link">← Clôture {{ du_mois }}</a>
   <h1 class="page-title">Rouvrir le module « {{ module.libelle }} »</h1>
   <p class="page-subtitle">{{ mois_fr|capitalize }}</p>
 </div>
@@ -46,7 +46,7 @@
     <h2 class="card-title" id="clo-effets-reouverture">Ce que change la réouverture</h2>
     <ul class="clo-confirm__liste">
       <li>{{ icone('revoir') }}<span>Le verrou est levé : les écritures de ce module sur {{ mois_fr }} redeviennent possibles.</span></li>
-      {% if module.cle == 'COMPTABILITE' %}<li>{{ icone('revoir') }}<span>La période comptable de {{ mois_fr }} est rouverte, avec la même justification.</span></li>{% endif %}
+      {% if module.cle == 'COMPTABILITE' %}<li>{{ icone('revoir') }}<span>La période comptable {{ du_mois }} est rouverte, avec la même justification.</span></li>{% endif %}
       {% if cloture.statut in ('VALIDEE', 'A_VALIDER') %}<li>{{ icone('revoir') }}<span>La clôture du mois, déjà validée, repasse en préparation.</span></li>{% endif %}
       <li>{{ icone('cadenas') }}<span>La trace de la clôture d'origine (date, auteur) est conservée : la réouverture s'y ajoute, rien n'est effacé.</span></li>
     </ul>

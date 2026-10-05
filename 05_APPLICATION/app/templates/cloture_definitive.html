@@ -5,8 +5,8 @@
 <link rel="stylesheet" href="/static/css/cloture.css">
 
 <div class="page-header">
-  <a href="/clotures/{{ cloture.cloture_id_opaque if cloture else '' }}" class="back-link">← Clôture{% if cloture %} de {{ progression.mois_fr }}{% endif %}</a>
-  <h1 class="page-title">Clôturer le mois{% if cloture %} de {{ progression.mois_fr }}{% endif %}</h1>
+  <a href="/clotures/{{ cloture.cloture_id_opaque if cloture else '' }}" class="back-link">← Clôture{% if cloture %} {{ tableau.du_mois }}{% endif %}</a>
+  <h1 class="page-title">Clôturer le mois{% if cloture %} {{ tableau.du_mois }}{% endif %}</h1>
 </div>
 
 {% if cloture is none %}
@@ -38,7 +38,7 @@
   </div>
   {% else %}
   <div class="alert alert-warning" data-testid="avertissement-cloture-definitive">
-    <div><strong>Cette action clôturera définitivement le mois de {{ progression.mois_fr }}. Les
+    <div><strong>Cette action clôturera définitivement le mois {{ tableau.du_mois }}. Les
       opérations de cette période ne pourront plus être modifiées normalement.</strong>
       <p style="margin:4px 0 0">L'archive économique du mois est figée et le mois passe à « clôturé ».
         Les contrôles sont refaits au moment de la confirmation : si un élément bloquant est apparu
@@ -52,7 +52,7 @@
     </div>
     <div class="clo-case">
       <input type="checkbox" id="f-confirmation" name="confirmation" value="oui" required>
-      <label for="f-confirmation">Je confirme la clôture définitive de {{ progression.mois_fr }}.</label>
+      <label for="f-confirmation">Je confirme la clôture définitive {{ tableau.du_mois }}.</label>
     </div>
     <div class="clo-boutons">
       <button type="submit" class="btn btn-primary" data-testid="confirmer-cloture-definitive">Confirmer la clôture définitive</button>

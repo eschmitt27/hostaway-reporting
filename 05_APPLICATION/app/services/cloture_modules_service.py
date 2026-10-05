@@ -497,15 +497,15 @@ _GESTION_TEXTES = {
     "GESTION_LOGEMENT_OUT_OF_PERIOD": (
         "séjour à cheval sur la fin de gestion", "séjours à cheval sur la fin de gestion",
         "Le séjour commence pendant la gestion et se termine après sa fin : le propriétaire des dernières "
-        "nuits n'est pas défini, le séjour est exclu du calcul et des factures. Ajuster la date de fin de "
-        "gestion du logement (Administration → Référentiels)."),
+        "nuits n'est pas défini, le séjour est exclu du calcul et des factures. Depuis la fiche du logement : "
+        "rétablir la gestion à partir du lendemain de sa fin, puis l'archiver à la date de départ du séjour."),
     "GESTION_LOGEMENT_AMBIGUOUS": (
         "séjour couvert par deux périodes de gestion", "séjours couverts par deux périodes de gestion",
         "Deux périodes de gestion se chevauchent à ses dates : on ne sait pas à quel propriétaire l'attribuer. "
-        "Corriger l'historique de gestion du logement."),
+        "Corriger la gestion du logement depuis sa fiche."),
     "GESTION_LOGEMENT_MISSING_OWNER": (
         "séjour sur une période de gestion sans propriétaire", "séjours sur une période de gestion sans propriétaire",
-        "La période de gestion de ses dates n'a pas de propriétaire : le renseigner dans l'historique de gestion."),
+        "La période de gestion de ses dates n'a pas de propriétaire : le renseigner depuis la fiche du logement."),
 }
 _CODES_GESTION = tuple(_GESTION_TEXTES)
 
@@ -589,19 +589,21 @@ def _calculs_obsoletes(par, db_path) -> None:
         etats = {d["dataset"]: d["statut"] for d in orch.etat_datasets(db_path)}
     except Exception:       # noqa: BLE001 — table d'orchestration absente : rien à signaler
         return
+    raisons = {orch.ST_A_RECALCULER: "Une donnée en amont a changé : le résultat affiché est périmé.",
+               orch.ST_ECHEC: "Le dernier calcul a échoué : le résultat affiché est ancien.",
+               orch.ST_EN_COURS: "Un calcul est en cours : attendre sa fin avant de clôturer."}
+    groupes: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for nom, domaine in _CALCULS_PAR_DOMAINE.items():
         statut = etats.get(nom)
-        if statut not in (orch.ST_A_RECALCULER, orch.ST_ECHEC, orch.ST_EN_COURS):
+        if statut not in raisons:
             continue
         noeud = dag.NOEUDS.get(nom)
-        libelle = noeud.nom_affiche if noeud else nom
-        raison = {orch.ST_A_RECALCULER: "Une donnée en amont a changé : le résultat affiché est périmé.",
-                  orch.ST_ECHEC: "Le dernier calcul a échoué : le résultat affiché est ancien.",
-                  orch.ST_EN_COURS: "Un calcul est en cours : attendre sa fin avant de clôturer."}[statut]
+        groupes.setdefault((domaine, statut), []).append(
+            _item(noeud.nom_affiche if noeud else nom, lien="/actualisation", lien_libelle="Actualiser"))
+    for (domaine, statut), items in groupes.items():       # un groupe par domaine et par état, pas par calcul
         par[domaine]["bloqueurs"].append(_groupe(
-            f"CALCUL:{nom}", "calcul à actualiser", "calculs à actualiser",
-            [_item(libelle, detail=raison, lien="/actualisation", lien_libelle="Actualiser")],
-            pourquoi=raison, action="Actualiser", lien="/actualisation"))
+            f"CALCUL:{statut}", "calcul à actualiser", "calculs à actualiser", items,
+            pourquoi=raisons[statut], action="Actualiser", lien="/actualisation"))
 
 
 def _entier(v: Any) -> int:
@@ -1265,7 +1267,7 @@ def tableau_de_bord(cloture: dict[str, Any], *, progression: dict[str, Any] | No
     cle_etat, libelle_etat = _etat_de_la_cloture(cloture["statut"])
     finale = _cloture_du_mois(cloture, db_path) if archivee else {"date": "", "acteur": ""}
     return {
-        "mois": mois, "mois_fr": prog["mois_fr"], "modules": modules,
+        "mois": mois, "mois_fr": prog["mois_fr"], "du_mois": cs.du_mois(mois), "modules": modules,
         "nb_clos": nb_clos, "nb_total": nb_total,
         "nb_prets": sum(1 for m in modules if m["etat"] == ETAT_PRET),
         "nb_a_traiter": sum(1 for m in modules if m["etat"] in (ETAT_A_TRAITER, ETAT_A_REVOIR)),

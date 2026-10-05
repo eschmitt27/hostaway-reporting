@@ -272,6 +272,19 @@ def test_09_le_constat_moteur_d_une_charge_n_est_pas_compte_en_double(base):
     assert cid
 
 
+def test_09_bis_le_bilan_du_moteur_ne_compte_pas_ce_que_le_module_juge(base, monkeypatch):
+    """Un constat que la lecture directe d'un module remplace n'est pas un « bloquant moteur » : la trace de
+    clôture ne doit pas affirmer « 5 bloquants moteur » pour un mois que ses modules disent sans bloqueur."""
+    constats = [_el("MENAGE_EXTERNE_ECART_HOSTAWAY", "MENAGES_EXT"),
+                _el("CHARGE_NON_VALIDEE_HORS_CALCULS", "CHARGES", niveau="BLOQUANT"),
+                _el("COMMISSION_INCOHERENTE", "COMMISSIONS")]
+    monkeypatch.setattr(cs, "elements_du_mois", lambda mois, db_path=None: constats)
+    prog = cs.calcul_progression(MOIS, base)
+    assert prog["nb_bloqueurs_moteur"] == 1 and [b["code"] for b in prog["bloqueurs"]] == ["COMMISSION_INCOHERENTE"]
+    assert prog["nb_bloqueurs"] == 1, "seule la commission bloque : les deux autres sont jugés par leur module"
+    assert cs._resume_controles(prog).startswith("Contrôles recalculés : 1 bloquant(s) moteur")
+
+
 # ══ Banque, caisse, comptabilité : Flux ══════════════════════════════════════════════════════════
 
 def test_10_un_mouvement_a_qualifier_bloque_la_banque_avec_son_lien_filtre(client, base, verrous):
@@ -360,7 +373,7 @@ def test_13_ter_chaque_cause_d_exclusion_est_dite_pour_ce_qu_elle_est(base):
     _semer_sejour(base, code="GESTION_LOGEMENT_OUT_OF_PERIOD")
     g = _complete(base)[cm.RESERVATIONS]["bloqueurs"][0]
     assert g["libelle"] == "1 séjour à cheval sur la fin de gestion"
-    assert "date de fin de gestion" in g["pourquoi"] and g["lien"] == "/logements/LOG_CMOD"
+    assert "archiver à la date de départ du séjour" in g["pourquoi"] and g["lien"] == "/logements/LOG_CMOD"
 
 
 def test_13_bis_un_sejour_valide_ou_d_un_autre_mois_ne_bloque_pas(base):
@@ -382,6 +395,17 @@ def test_14_un_calcul_a_recalculer_bloque_son_domaine_pas_un_calcul_jamais_lance
     assert a[cm.FACTURES_CLIENTS]["nb_bloqueurs"] == 1
     orch.marquer_dataset("LOT10", orch.ST_A_JOUR, db_path=base)
     assert _complete(base)[cm.RESERVATIONS]["nb_bloqueurs"] == 0
+
+
+def test_14_bis_les_calculs_a_actualiser_d_un_domaine_forment_un_seul_groupe(base):
+    """Un changement de référentiel périme plusieurs calculs d'un coup : un seul bloqueur par domaine et par état,
+    avec la liste des calculs — pas quatre lignes identiques « 1 calcul à actualiser »."""
+    for dataset in ("RESERVATIONS", "FLUX_LOT9", "LOT10", "LOT11"):
+        orch.marquer_dataset(dataset, orch.ST_A_RECALCULER, db_path=base)
+    res = _complete(base)[cm.RESERVATIONS]
+    assert [g["libelle"] for g in res["bloqueurs"]] == ["4 calculs à actualiser"]
+    assert res["nb_bloqueurs"] == 4 and len(res["bloqueurs"][0]["items"]) == 4
+    assert res["bloqueurs"][0]["lien"] == "/actualisation"
 
 
 # ══ Ménages : conflits ═══════════════════════════════════════════════════════════════════════════

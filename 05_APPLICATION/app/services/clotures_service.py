@@ -87,6 +87,11 @@ def _du_mois(mois: str) -> str:
     return f"d'{texte}" if texte[:1] in "aeiouéâ" else f"de {texte}"
 
 
+def du_mois(mois: str) -> str:
+    """Le mois précédé de sa préposition, élision comprise : « de septembre 2026 », « d'octobre 2026 »."""
+    return _du_mois(mois)
+
+
 def temporalite(mois: str) -> str:
     courant = aujourdhui().strftime("%Y-%m")
     return T_PASSE if mois < courant else (T_COURANT if mois == courant else T_FUTUR)
@@ -218,8 +223,12 @@ def calcul_progression(mois: str, db_path=None, *,
 
     els = elements_du_mois(mois, db_path)
     anomalies = [e for e in els if not e["est_info"]]
+    # Un constat que la lecture DIRECTE d'un module remplace (charge non validée, écart de ménages) n'est pas un
+    # bloqueur du moteur : c'est le module qui le juge — et qui le lève quand la décision est prise. Le compter ici
+    # ferait dire à la trace de clôture « 5 bloquants moteur » pour un mois sans aucun bloqueur.
     bloqueurs = [e for e in anomalies
-                if e["etat"]["anomalie_moteur_presente"] and not e["etat"]["exception_active"]]
+                if e["etat"]["anomalie_moteur_presente"] and not e["etat"]["exception_active"]
+                and e["code"] not in cm.CODES_LUS_EN_DIRECT]
     financier = cf.analyser(mois, contexte_flux=contexte_flux, db_path=db_path)
     # UNE seule vérité des bloqueurs : ceux de chaque MODULE (contrôles du moteur + Flux + lectures
     # directes des vrais modules). `bloqueurs` / `financier` restent rendus tels quels pour les
@@ -287,16 +296,13 @@ def _garde_cloture(cloture: dict, db_path=None) -> dict[str, Any]:
 
 def _journaliser_evenement(conn, cloture_opaque, type_evt, ancien, nouveau, commentaire="",
                            preuve="", acteur="", date_evenement=None):
-    if date_evenement:
-        conn.execute(
-            "INSERT INTO cloture_evenements (cloture_id_opaque, type_evenement, ancien_statut, "
-            "nouveau_statut, commentaire, preuve, acteur, date_evenement) VALUES (?,?,?,?,?,?,?,?)",
-            (cloture_opaque, type_evt, ancien, nouveau, commentaire, preuve, acteur, date_evenement))
-        return
+    """Ajoute une ligne au journal de la clôture. L'heure écrite est l'heure LOCALE du poste (`_now()`), celle
+    que l'utilisateur lit et rapproche de ses gestes : la valeur par défaut de la colonne, elle, est en UTC
+    et ferait apparaître un mois « clôturé » avant les modules qu'il vient de clôturer."""
     conn.execute(
         "INSERT INTO cloture_evenements (cloture_id_opaque, type_evenement, ancien_statut, "
-        "nouveau_statut, commentaire, preuve, acteur) VALUES (?,?,?,?,?,?,?)",
-        (cloture_opaque, type_evt, ancien, nouveau, commentaire, preuve, acteur))
+        "nouveau_statut, commentaire, preuve, acteur, date_evenement) VALUES (?,?,?,?,?,?,?,?)",
+        (cloture_opaque, type_evt, ancien, nouveau, commentaire, preuve, acteur, date_evenement or _now()))
 
 
 def creer_ou_charger(mois: str, acteur: str = "", db_path=None) -> dict[str, Any]:
@@ -644,8 +650,9 @@ def ajouter_document(cloture_opaque: str, nom_logique: str, type_document: str =
             "type_document, chemin_logique) VALUES (?,?,?,?,?)",
             (doc_opaque, cloture_opaque, nom_logique, type_document, sanitize_text(chemin_logique)))
         conn.execute(
-            "INSERT INTO cloture_evenements (cloture_id_opaque, type_evenement, commentaire, preuve) "
-            "VALUES (?,?,?,?)", (cloture_opaque, "PREUVE_AJOUTEE", nom_logique, doc_opaque))
+            "INSERT INTO cloture_evenements (cloture_id_opaque, type_evenement, commentaire, preuve, "
+            "date_evenement) VALUES (?,?,?,?,?)",
+            (cloture_opaque, "PREUVE_AJOUTEE", nom_logique, doc_opaque, _now()))
         conn.commit()
     finally:
         conn.close()

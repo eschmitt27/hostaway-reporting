@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% from "_cloture_tableau.html" import tableau_complet %}
-{% block title %}Clôture de {{ tableau.mois_fr }}{% endblock %}
+{% block title %}Clôture {{ tableau.du_mois }}{% endblock %}
 {% block content %}
 <link rel="stylesheet" href="/static/css/cloture.css">
 
 <div class="page-header">
   <a href="/clotures" class="back-link">← Clôtures mensuelles</a>
-  <h1 class="page-title">Clôture de {{ tableau.mois_fr }}</h1>
+  <h1 class="page-title">Clôture {{ tableau.du_mois }}</h1>
   <p class="page-subtitle">Cette page recalcule l'état du mois à chaque affichage. Tant que vous n'avez pas démarré la clôture, elle n'enregistre rien.</p>
 </div>
 

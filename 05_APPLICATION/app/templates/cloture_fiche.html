@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% from "_cloture_tableau.html" import tableau_complet %}
-{% block title %}Clôture{% if tableau %} de {{ tableau.mois_fr }}{% endif %}{% endblock %}
+{% block title %}Clôture{% if tableau %} {{ tableau.du_mois }}{% endif %}{% endblock %}
 {% block content %}
 <link rel="stylesheet" href="/static/css/cloture.css">
 
 <div class="page-header">
   <a href="/clotures" class="back-link">← Clôtures mensuelles</a>
-  <h1 class="page-title">{% if tableau %}Clôture de {{ tableau.mois_fr }}{% else %}Clôture{% endif %}</h1>
+  <h1 class="page-title">{% if tableau %}Clôture {{ tableau.du_mois }}{% else %}Clôture{% endif %}</h1>
   {% if tableau %}
   <p class="page-subtitle">
     {% if tableau.mois_clos %}Ce mois est clôturé définitivement : ses données restent consultables.

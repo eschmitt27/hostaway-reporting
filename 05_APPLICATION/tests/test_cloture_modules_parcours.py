@@ -146,6 +146,7 @@ def test_03_un_mois_futur_ne_se_prepare_pas(client, base):
 
 def test_04_le_mois_courant_se_prepare_mais_le_calendrier_est_dit(client, base):
     page = _texte(client.get(f"/clotures/mois/{COURANT}").text)
+    assert "Clôture d'octobre 2026" in page, "devant une voyelle, « de » s'élide (jamais « de octobre »)"
     assert "Démarrer la clôture" in page
     assert "encore en cours et ne peut pas être clôturé" in page
     assert "la clôture ne sera possible qu'une fois le mois terminé" in page
@@ -566,6 +567,11 @@ def test_29_le_mois_se_cloture_quand_tout_est_conforme_en_une_transaction_tracee
     assert transitions[-3:] == [(cs.ST_A_VALIDER, "local"), (cs.ST_VALIDEE, "local"), (cs.ST_ARCHIVEE, "local")]
     final = next(e for e in cs.historique(c["cloture_id_opaque"], base) if e["nouveau_statut"] == cs.ST_ARCHIVEE)
     assert final["commentaire"] == "Septembre arrêté" and final["date_evenement"]
+    # Une seule horloge (l'heure locale) : le mois n'apparaît jamais clôturé AVANT les modules qu'il referme.
+    modules = [e["date_evenement"] for e in cs.historique(c["cloture_id_opaque"], base)
+               if e["type_evenement"] == "MODULE_CLOTURE"]
+    assert modules and all(re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", d) for d in modules + [final["date_evenement"]])
+    assert final["date_evenement"] >= max(modules)
     page = _texte(_fiche(client, c))
     assert "Mois clôturé" in page and "Clôturé définitivement le " in page and "par local" in page
     assert "7 / 7 modules clôturés" in page

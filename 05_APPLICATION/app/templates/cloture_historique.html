@@ -4,7 +4,7 @@
 <link rel="stylesheet" href="/static/css/cloture.css">
 
 <div class="page-header">
-  <a href="/clotures/{{ cloture.cloture_id_opaque if cloture else '' }}" class="back-link">← Clôture{% if cloture %} de {{ mois_fr }}{% endif %}</a>
+  <a href="/clotures/{{ cloture.cloture_id_opaque if cloture else '' }}" class="back-link">← Clôture{% if cloture %} {{ du_mois }}{% endif %}</a>
   <h1 class="page-title">Historique de la clôture{% if cloture %} — {{ mois_fr }}{% endif %}</h1>
   <p class="page-subtitle">Chaque clôture, chaque réouverture et chaque décision, du plus récent au plus ancien. Rien ne s'y efface.</p>
 </div>

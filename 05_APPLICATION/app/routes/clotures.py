@@ -225,7 +225,7 @@ def module_cloturer_confirmation(request: Request, cloture_opaque: str, cle: str
         return reponse
     return templates.TemplateResponse(request, "cloture_module_confirmer.html", {
         "active_menu": "clotures", "cloture": c, "module": module, "erreur": erreur,
-        "mois_fr": cs.mois_fr(c["mois"])})
+        "mois_fr": cs.mois_fr(c["mois"]), "du_mois": cs.du_mois(c["mois"])})
 
 
 @router.post("/clotures/{cloture_opaque}/modules/{cle}/cloturer")
@@ -255,7 +255,7 @@ def module_rouvrir_formulaire(request: Request, cloture_opaque: str, cle: str, e
         return reponse
     return templates.TemplateResponse(request, "cloture_module_rouvrir.html", {
         "active_menu": "clotures", "cloture": c, "module": module, "erreur": erreur,
-        "mois_fr": cs.mois_fr(c["mois"])})
+        "mois_fr": cs.mois_fr(c["mois"]), "du_mois": cs.du_mois(c["mois"])})
 
 
 @router.post("/clotures/{cloture_opaque}/modules/{cle}/rouvrir")
@@ -398,7 +398,7 @@ def cloture_historique(request: Request, cloture_opaque: str):
         }, status_code=404)
     return templates.TemplateResponse(request, "cloture_historique.html", {
         "active_menu": "clotures", "cloture": c, "historique": cs.historique(cloture_opaque),
-        "mois_fr": cs.mois_fr(c["mois"])})
+        "mois_fr": cs.mois_fr(c["mois"]), "du_mois": cs.du_mois(c["mois"])})
 
 
 @router.get("/clotures/{cloture_opaque}/reouvrir", response_class=HTMLResponse)
