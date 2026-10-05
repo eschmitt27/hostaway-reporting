@@ -5049,3 +5049,189 @@ résiduel. Base réelle `45dd87c2…` (86 888 448 o, mtime 03/10 21:01, integrit
   refusée (`CR17_REPRISE_DEJA_ENREGISTREE`). Vraie base inchangée (`b024c11c…`).
 - **NON APPLIQUÉ à la vraie base** : en attente d'autorisation explicite (même appel, acteur
   tracé, sauvegarde préalable comme pour Didier).
+
+## Mission Tarifs canapé + Facturation de Caroline + Refonte de la clôture (2026-10-05)
+
+Une seule mission, trois lots, menée dans le worktree `resume-pilotage-conciergerie-20260909` (branche
+`resume/pilotage-conciergerie-20260909`). **HEAD de départ `4550468`, dernier commit de code `8b955b3`**, suivi du seul commit de ce handoff (commits locaux,
+**rien n'est poussé** : le push reste décidé par l'utilisateur). `origin/main` n'est PAS la branche de travail (données
+Hostaway) : rien n'en a été fusionné ni rebasé. Les PDF non suivis de `01_SOURCES_BRUTES/MenagesExternes/` n'ont pas été
+touchés (ni ajoutés, ni déplacés, ni supprimés).
+
+### Lot A — Tarifs du supplément canapé au 01/09/2026
+
+Mécanisme générique, aucune exception par logement ni propriétaire : `canape_gestion_service.changer_parametres` ferme la
+période ouverte la **veille** de la date d'effet et en ouvre une nouvelle ; le tarif se résout à la **date d'arrivée** de la
+réservation (`ref_canape_parametres`). Rien du passé n'est réécrit. Appliqué sur la base réelle après sauvegarde officielle.
+
+| Propriétaire | Logement (id) | Adresse | Ancien tarif | Nouveau tarif | Effet | Lignes d'historique |
+|---|---|---|---|---|---|---|
+| David Touré (`PROP_0008`) | T3 - 18 Cugnaux (`LOG_0008`) | 18 RUE DE CUGNAUX, TOULOUSE | 10 € (seuil 5 voyageurs) | **15 €** (seuil 5, inchangé) | 2026-09-01 | `CNP_LOG_0008` close au 2026-08-31 ; `CNP_LOG_0008_2026-09-01` ouverte |
+| François Maurer (`PROP_0009`) | T3 - Sept Deniers (`LOG_0013`) | 4 RUE BARDOU, TOULOUSE | 10 € (seuil 5) | **15 €** (seuil 5, inchangé) | 2026-09-01 | `CNP_LOG_0013` close au 2026-08-31 ; `CNP_LOG_0013_2026-09-01` ouverte |
+| Caroline Pons (`PROP_0006`) | Studio - Puits vert (`LOG_0006`) | 4 RUE DU PUITS VERT, TOULOUSE | 10 € (seuil 3) | **inchangé** (aucun changement demandé) | — | `CNP_LOG_0006` (ouverte depuis toujours) |
+
+Tests : 7 (`test_canape_tarifs_historises_2026_09.py` — fermeture à la veille, ancien tarif jusqu'au 31/08, nouveau dès le 01/09,
+aucune ligne close réécrite, journal, aucune exception codée).
+
+### Lot B — Facturation de Caroline (`LOG_0006`)
+
+**Cause racine** : « Aucun élément facturable par le moteur » pour un logement réactivé alors que ses séjours existaient. Le
+moteur ne lit pas `actif` : il range un séjour chez le propriétaire de la période de gestion qui couvre ses dates. L'archivage
+du logement fermait cette période (RETIRE 2025-01-01 → 2026-09-01) ; l'activation générique de l'administration du référentiel ne
+rebasculait que `actif`. Le logement redevenait « actif » sans propriétaire : ses séjours passaient en `A_CONTROLER` /
+`HORS_PERIODE_GESTION`, exclus du calcul et de la facturation, **sans aucun message**.
+**Cause secondaire, indépendante** : depuis le 2026-09-18 (`b9fa17c`), les formulaires d'archivage et de réactivation de la
+fiche logement postaient leur date sous le mauvais nom de champ (la macro attend trois arguments, les deux branches en passaient
+deux) : le parcours dédié était inutilisable, ce qui poussait vers l'activation générique.
+
+**Correction générique** (commit `cedb894`) : un seul chemin d'écriture pour le cycle de vie (l'activation générique et l'édition
+libre refusent `actif`/`statut_parc`) ; `reactiver()` (propriétaire et date facultatifs, reprise sans interruption par défaut,
+répare un logement « actif » sans gestion ouverte, ne rouvre jamais une ligne close) ; `coherence()` / `incoherences()` /
+`reprise_par_defaut()` + alerte et « Rétablir la gestion » sur la fiche ; formulaires corrigés ; `resolve_management_period`
+tolère deux périodes JOINTIVES du même propriétaire (séjour à cheval D / D+1) ; un trou ou un autre propriétaire reste contrôlé.
+**Correction des données réelles** : gestion de `LOG_0006` reprise à partir du **2026-09-02** (même propriétaire, lendemain de la
+fin de la dernière période), puis recalcul par le workflow (`orchestrateur_service.actualiser`, imports externes exclus).
+
+**Prévisualisation après correction (aucune facture créée, aucune émise)** : Caroline Pons — Studio - Puits vert, septembre 2026 :
+7 séjours ; total perçu (payout) **1 736,46 €** ; commission de conciergerie **230,03 €** ; ménage facturé **203,00 €** ;
+préparation du canapé **30,00 €** ; charge fixe mensuelle (autres extras) **35,00 €** ; charges hors refacturation 0,00 € ;
+**montant de la facture 498,03 €** (= 230,03 + 203,00 + 30,00 + 35,00). La proposition est « prête » ; elle apparaît dans la
+clôture comme « 2 factures propriétaires à créer » (avec Fatine Berrada, 266,72 €).
+**Brouillons David / François (non rechargés, volontairement)** : leurs montants sont ceux d'avant les tarifs et la correction
+(David 718,19 € → 728,19 € attendu ; François 807,59 € → 822,59 € attendu). L'action « Recharger » de la fiche d'un brouillon les
+met à jour : c'est à l'utilisateur de le faire avant de valider/émettre.
+
+### Lot C — Refonte de la clôture : une clôture PAR MODULES
+
+**Avant (Mission 32/33)** : une liste plate d'éléments techniques (code de contrôle, module moteur, entité opaque) et un tout-ou-rien :
+valider puis « clôturer définitivement ». Rien n'était verrouillé avant la fin ; aucun domaine ne pouvait être arrêté seul ; les
+écarts de ménages déjà justifiés dans l'écran Ménages continuaient de bloquer ; les séjours exclus faute de gestion étaient muets.
+**Après** : pour chaque domaine, la question « tout ce qui concerne ce mois est-il traité ? » est posée AUX VRAIS MODULES ; un
+module sans bloqueur se clôture (confirmation, date/heure/acteur, trace) et est alors VERROUILLÉ pour de vrai ; le mois se clôture
+quand tous ses modules le sont.
+
+**Les sept modules** (ordre conseillé, la comptabilité en dernier) — `cloture_modules_service.MODULES` :
+
+| Module | Ce que la clôture lit dans le vrai module | Lien « Traiter » (page réelle, filtrée sur le mois) | Ce que « clôturé » verrouille |
+|---|---|---|---|
+| Réservations | séjours exclus du calcul — quatre causes dites pour ce qu'elles sont (hors période de gestion, à cheval sur la fin de gestion, deux périodes simultanées, période sans propriétaire) —, contrôles du moteur (commission, montants, voyageurs, annonces orphelines), calculs à actualiser | `/reservations?mois=…&statut_controle=A_CONTROLER`, `/logements/{id}`, `/actualisation` | saisie / modification / régularisation des séjours hors Hostaway ; correction d'assiette de commission |
+| Ménages | les lignes que l'écran Ménages dit « à contrôler » (écarts NON justifiés, identification incomplète), conflits de déclaration, calculs à actualiser | `/menages/a-controler?mois=…`, `/menages/{mois}/{logement}/{intervenant}`, `/menages/conflits` | déclarations (création, modification, résolution de conflit) ; le recalcul du mois (l'actualisation signale sans recalculer) |
+| Charges et factures fournisseurs | charges non validées (lues en direct) | `/flux-financiers/charges?mois=…&statut_controle=A_CONTROLER` | saisie, modification, annulation, contrôle, réouverture de contrôle des charges ; factures fournisseurs |
+| Banque et caisse | mouvements Qonto à qualifier, opérations de caisse | `/flux-financiers/banque?mois=…`, `/flux-financiers/caisse` | rapprochement, lettrage, qualification d'un mouvement Qonto, opérations de caisse (la lecture de Qonto continue) |
+| Factures clients | brouillons, validées à émettre, factures à créer, calculs à actualiser | `/factures-proprietaires?mois=…&statut=…`, `/factures-proprietaires/proposer?mois=…` | création, modification, validation, émission, suppression, avoir ; les PDF restent téléchargeables |
+| Créances et dettes | positions de compte à recalculer | `/comptes-proprietaires/{id}` | reversements Airbnb, reprises de solde, imputations de crédit datés du mois |
+| Comptabilité | écritures proposées, comptes à définir, factures émises à comptabiliser, anomalies comptables bloquantes | `/comptabilite/ecritures?periode=…&statut=PROPOSEE`, `/comptabilite/mappings` | la PÉRIODE COMPTABLE est clôturée (le verrou existant du moteur d'écritures) |
+
+**Jamais de copie** : aucun bloqueur n'est stocké ; chacun est recalculé à l'affichage depuis son module d'origine (aucune table de
+« problèmes de clôture », aucune case « traité »). Il disparaît tout seul quand le vrai problème est corrigé dans le vrai module.
+Les contrôles du moteur sont rangés dans leur domaine et traduits en langage métier (aucun code, aucun nom de table, aucun
+identifiant technique à l'écran) ; un contrôle inconnu retombe sur Réservations, jamais écarté. Les calculs périmés par un changement de référentiel sont GROUPÉS par domaine et par état (« 4 calculs à actualiser », avec la liste) au lieu d'être répétés ligne à ligne. Deux constats du moteur
+(`CHARGE_NON_VALIDEE_HORS_CALCULS`, écarts de ménages) sont REMPLACÉS par la lecture directe du module (sinon le constat resterait
+affiché après la décision prise dans le module) : **défaut trouvé en recette sur la copie réelle** — 5 « bloqueurs » Ménages alors que
+l'écran Ménages disait « À contrôler : 0 » (9 écarts justifiés/outrepassés avec motif, 4 validés).
+
+**Ce qui est stocké (migration `0126_cloture_modules.sql`, additive, rejouée sans erreur)** : `cloture_modules` (état courant d'un
+mois × module : CLOS/ROUVERT, date, acteur, commentaire, compteurs) et `cloture_modules_evenements` (journal EN AJOUT SEUL :
+déclencheurs qui refusent UPDATE et DELETE) ; déclencheur « jamais avant la V1 ». Heure LOCALE du poste partout dans le journal de clôture : la valeur par défaut de la colonne `date_evenement` est en UTC, donc `clotures_service._journaliser_evenement` écrit désormais TOUJOURS l'heure locale explicite (sans cela, le mois apparaissait clôturé deux heures avant les modules qu'il referme). Table classée « KEEP » dans la matrice du cutover.
+
+**Règles tenues côté serveur (refaites à chaque tentative, quelle que soit l'interface)** :
+1. une clôture démarrée et non définitive ; 2. un mois TERMINÉ (le mois courant et les mois futurs ne se clôturent jamais) ;
+3. aucun bloqueur dans le module (recalculé sous verrou d'écriture) ; 4. module non déjà clôturé ; 5. pour le mois : tous les
+modules clôturés ET aucun bloqueur réel (un module clôturé dont un bloqueur est réapparu s'affiche « À rouvrir », la période
+comptable rouverte hors clôture aussi) ; 6. clôture du mois en UNE transaction (étapes de l'automate, archive économique,
+`ref_cloture_mensuelle` = CLOTURE, ARCHIVEE, trace), tout ou rien ; 7. réouverture d'un module : justification obligatoire, verrou
+levé, trace d'origine conservée (journal en ajout seul), une clôture déjà validée repasse en préparation, la Comptabilité rouvre sa
+période ; un mois clôturé définitivement ne se rouvre pas (correction rétroactive existante).
+Anciennes routes (`/preparation`, `/validation`, `/reouvrir`, `/cloture-definitive`) conservées ; la clôture définitive passe
+désormais par `clotures_service.cloturer_mois` ; `archiver()` exige lui aussi tous les modules clôturés.
+
+**Interface** : `cloture_fiche.html` (tableau de bord : « SEPTEMBRE 2026 — Clôture en cours — N / 7 modules clôturés », barre de
+progression, un bloc par module avec ses bloqueurs, « Traiter », « Clôturer ce module » / « Rouvrir ce module »), page du mois,
+confirmations (cases étiquetées, justification obligatoire), historique lisible, liste des mois avec avancement. Design system
+`ui.css` + `cloture.css` ; l'état n'est jamais porté par la seule couleur (icône + texte, barre hachurée) ; clavier (lien d'évitement « Aller au contenu principal » dans `base.html`, avec sa feuille de style EN LIGNE : un navigateur
+qui garde une ancienne `ui.css` en cache ne l'affiche jamais comme un lien ordinaire), focus par contour plein de 3 px, contrastes
+mesurés ≥ 4,5:1 (minimum relevé 4,78:1), cibles ≥ 44 px sous 600 px, liste des mois en cartes sur téléphone, 375 px sans
+défilement horizontal, `prefers-reduced-motion`, `forced-colors`.
+La liste des mois propose tous les mois de la V1 au mois courant et jamais ne perd une clôture démarrée.
+
+**Sauvegardes / base réelle** : sauvegarde officielle `BCK-9BFF937EED74` (`20261005_004144_AVANT_TARIFS_CANAPE_ET_GESTION_LOGEMENT…`,
+protégée, intégrité `ok`, schéma 0125) AVANT les seules écritures réelles de la mission : tarifs canapé David/François (4 lignes
+d'historique) et reprise de gestion de `LOG_0006`, puis recalcul. **Aucune facture créée, émise, modifiée ou comptabilisée ; aucun
+module ni mois clôturé ; la migration `0126` n'est PAS appliquée à la base réelle** (elle se joue au prochain démarrage, avec la
+sauvegarde automatique avant migration, protocole existant) — répétée avec succès sur copies de la base réelle.
+
+**Recette sur COPIE de la base réelle (jamais sur la base réelle)** — `PILOTAGE_ENVIRONNEMENT=RECETTE`, `APP_DATA_DIR` = dossier
+temporaire contenant la copie (la base réelle n'a servi qu'à fabriquer la copie, ouverte en lecture seule ; son fichier n'a pas
+bougé depuis les écritures autorisées du 2026-10-05 00:42) ; instance de prévisualisation sur le port 8020, ordonnanceur et
+sauvegarde quotidienne désactivés ; la migration `0126` s'y est jouée au démarrage, avec sa sauvegarde automatique :
+1. *Ouvrir un mois / démarrer une clôture* : septembre 2026 (clôture « en préparation » déjà créée le 29/09, reprise telle quelle).
+   Premier affichage : « 0 / 7 modules clôturés — 23 bloqueurs » (Réservations 1, Ménages 5, Charges 7, Factures clients 8,
+   Comptabilité 2 ; Banque et caisse, Créances et dettes prêtes). **Défaut trouvé** : les 5 bloqueurs Ménages étaient des faux
+   positifs (l'écran Ménages affichait « À contrôler : 0 ») → lecture directe du module (commit `8e3f7e8`) ; 18 bloqueurs réels.
+2. *Traiter* : chaque lien ouvre la vraie page du module, filtrée sur le mois. Une charge validée dans la vraie page de Charges
+   fait passer le module de 7 à 6 bloqueurs sans aucune action sur la clôture (compteur du mois 23 → 22 sur la même fiche).
+3. *Clôturer un module* : confirmation, date / heure / acteur, trace ; une saisie sur un module clôturé est REFUSÉE (« Le module
+   Charges et factures fournisseurs est clôturé pour septembre 2026 … Rouvrez le module ») ; réouverture avec justification (la
+   trace d'origine reste lisible), puis nouvelle clôture.
+4. *Corrections dans les vrais modules* : logement `LOG_0017` réactivé puis archivé à la date de départ du séjour depuis sa fiche,
+   calculs actualisés, factures créées / validées / émises SUR LA COPIE, écritures comptabilisées et validées, période comptable
+   clôturée avec le module Comptabilité.
+5. *Clôturer le mois* : accepté seulement une fois les 7 modules clôturés et aucun bloqueur ; une seule transaction : septembre 2026
+   ARCHIVÉ (7 / 7), archive économique de 48 lignes, `ref_cloture_mensuelle` = CLOTURE, période comptable CLOTUREE ; ses modules ne
+   se rouvrent plus. Octobre 2026 démarré : le mois courant démarre mais sa clôture est refusée (protégé).
+6. *Mesures d'interface* (navigateur intégré, sur la copie) : 375 × 812 sans défilement horizontal, 0 cible interactive < 44 px
+   (hors lien de retour global), contrastes ≥ 4,78:1, structure H1 → H2 → H3, 69 éléments focalisables nommés, lien d'évitement
+   fonctionnel, contour de focus de 3 px, HTML équilibré, sans identifiant dupliqué ni référence ARIA cassée sur 12 pages.
+
+**Défauts de recette corrigés au commit `8b955b3`** : calculs périmés groupés par domaine et état ; séjours hors gestion dits selon
+leurs quatre causes, avec le vrai parcours (fiche du logement) ; heure locale unique dans le journal ; bilan du moteur qui ne compte
+plus les constats que le module juge lui-même (« 5 bloquants moteur » pour un mois sans bloqueur) ; élision (« Clôture d'octobre
+2026 », « le mois d'août 2026 »).
+
+**Tests** : tous isolés (`PILOTAGE_ENVIRONNEMENT=TEST`, base temporaire) et ciblés par lot — la suite complète (~4 800 tests) n'a pas été
+rejouée, comme demandé.
+- Lot A : `test_canape_tarifs_historises_2026_09.py` — 7 passed.
+- Lot B : `test_logements_cycle_de_vie_coherent.py` — 26 passed ; `tests/test_ref_history.py` (racine, 5 tests ajoutés) — 31 passed.
+- Lot C : `test_cloture_modules_bloqueurs.py` (36) et `test_cloture_modules_parcours.py` (46 : parcours, verrous réels dans chaque
+  module, clôture du mois en une transaction, réouverture, refus, dates françaises, export, accessibilité du HTML, élision, horloge
+  unique) ; `test_templates_compilent.py` (187 gabarits compilent) ; migration 0126 (`test_sqlite_migrations.py`), matrice du
+  cutover, anciens tests de clôture adaptés. **Porte du dernier commit de code (21 fichiers : clôture, ménages, migrations,
+  cutover, gabarits, identifiants techniques, navigation, pilotage, flux, créances) : 620 passed.**
+- **Balayage final sur le HEAD de code (60 fichiers : familles clôture, ménages, pilotage mensuel, migrations, cutover, navigation,
+  identifiants techniques, créances, flux, verrous des domaines — assiette, saisie HH, charges, factures brouillon, crédits —,
+  actualisation, tarifs canapé, cycle de vie du logement) : 1012 passed, 4 skipped, 2 warnings.**
+- Hors périmètre, préexistants et sans lien avec cette mission (suite `tests/` de la racine) : `test_lot10_reservation_exclue_dedup`
+  (incompatibilité pandas) et `test_guestcount_canape_integration` (dépend de l'ordre d'exécution).
+- `git diff --check` : propre avec `core.whitespace=cr-at-eol` ; en réglage par défaut, seuls `logements_gestion_service.py`,
+  `menages_reader.py` et `test_sqlite_migrations.py` sont signalés : ces trois fichiers sont versionnés en CRLF depuis avant la
+  mission (100 % des lignes) et les lignes ajoutées respectent leur convention.
+
+**Commits (locaux)** :
+1. `ef93e9e` Tarifs - historique supplément canapé : tests du changement daté au 01/09/2026
+2. `cedb894` Facturation - prise en compte des logements réactivés (cycle de vie cohérent)
+3. `7f95a4a` Clôture - contrôles métiers par module (bloqueurs lus dans les vrais modules)
+4. `8e3f7e8` Clôture - parcours de traitement et verrouillage par module
+5. `8b955b3` Clôture - corrections issues de la recette sur copie de la base réelle
+6. (ce handoff) Handoff : tarifs canapé, facturation de Caroline, clôture par modules
+
+**Décisions à confirmer par l'utilisateur** :
+1. nouveaux bloqueurs au-delà de la Mission 32 (jugés utiles car silencieux jusqu'ici) : séjours hors période de gestion, calculs à
+   actualiser, factures à créer / en brouillon / validées à émettre, facture émise à comptabiliser, position de compte à recalculer,
+   conflits de déclaration de ménage, anomalies comptables bloquantes ; une charge REJETÉE est une décision prise : elle ne bloque plus ;
+2. un séjour hors période de gestion d'un logement RETIRÉ (ex. `LOG_0017`, séjour du 01→03/09 à cheval sur la fin de gestion du
+   2026-09-01) bloque tant que la période n'est pas corrigée : depuis la FICHE DU LOGEMENT (l'historique de gestion est en lecture
+   seule dans l'administration), rétablir la gestion à partir du lendemain de sa fin, puis l'archiver à la date de départ du
+   séjour — c'est le parcours que dit le bloqueur ; il n'existe pas de décision « exclure ce séjour » dans l'application ;
+3. aucun ordre imposé entre modules (la comptabilité vient en dernier par convention d'affichage seulement) ;
+4. un mois clôturé définitivement reste non rouvrable (comportement existant conservé).
+
+**Ce qu'il reste à faire sur la base réelle pour septembre 2026** (relevé du 2026-10-05 sur la copie, recalculé à chaque affichage
+donc à relire dans l'application ; RIEN de ceci n'a été fait sur la base réelle) : Réservations 1 (séjour de `LOG_0017`, décision
+2) ; Charges 7 à valider ou rejeter ; Factures clients 8 (5 brouillons dont David et François à « Recharger », 1 validée à émettre,
+2 factures à créer : Caroline Pons 498,03 € et Fatine Berrada 266,72 €) ; Comptabilité 2 écritures proposées ; Ménages, Banque et
+caisse, Créances et dettes sont prêts.
+
+**Reprise** : lire d'abord cette section. Pour clôturer septembre 2026 : démarrer l'application (la migration 0126 se joue avec sa
+sauvegarde), ouvrir *Clôture mensuelle → septembre 2026*, traiter chaque module par son lien « Traiter », le clôturer, puis
+« Clôturer le mois ». Commandes de contrôle : `.venv\Scripts\python.exe -m pytest 05_APPLICATION/tests/test_cloture_modules_bloqueurs.py
+05_APPLICATION/tests/test_cloture_modules_parcours.py` (depuis la racine, `05_APPLICATION/tests` ; env TEST isolé).
