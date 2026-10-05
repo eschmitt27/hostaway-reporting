@@ -12,7 +12,7 @@ modules, et « Clôturer ce module ». Le mois entier se clôture quand tous les
 de confirmation que la clôture définitive d'avant).
 """
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from app.template_env import get_templates
 
 from app.readers.banques_reader import date_affichage, datetime_affichage
@@ -24,6 +24,55 @@ from app.services import controles_cloture_service as ctrl_cloture
 
 router = APIRouter()
 templates = get_templates()
+
+
+_FEEDBACK_ACTUALISATION = {
+    "succes": "Actualisation terminée.",
+    "erreur": "L'actualisation n'a pas pu aboutir. Les calculs restant à actualiser sont affichés ci-dessous.",
+    "erreur_referentiel": "L'actualisation n'a pas pu aboutir. Le référentiel des intervenants de ménage doit d'abord être renseigné.",
+    "occupe": "Une actualisation est déjà en cours. Attendez sa fin, puis rechargez cette page.",
+    "indisponible": "Ce module ne possède pas d'actualisation automatique. Consultez son module pour traiter les éléments.",
+}
+
+
+def _avec_feedback_actualisation(request: Request, tableau: dict) -> dict:
+    module = request.query_params.get("module_actualise", "")
+    code = request.query_params.get("actualisation", "")
+    if module in cm.PAR_CLE and code in _FEEDBACK_ACTUALISATION:
+        tableau["actualisation"] = {"module": module, "code": code,
+                                   "message": _FEEDBACK_ACTUALISATION[code]}
+    return tableau
+
+
+def _actualiser_depuis_cloture(request: Request, mois: str, cle: str, retour: str):
+    from app.services import cloture_actualisation_service as refresh
+    if cle not in cm.PAR_CLE or not cs.mois_valide(mois) or mois not in _mois_disponibles():
+        return Response("Mois ou module introuvable.", status_code=404)
+    # Aucun message brut du moteur ne traverse la route : ils peuvent contenir du SQL
+    # ou des chemins. Le détail technique reste dans son journal existant.
+    try:
+        code = refresh.actualiser(mois, cle)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("Actualisation Clôture indisponible")
+        code = "erreur"
+    url = f"{retour}?actualisation={code}&module_actualise={cle}#module-{cle.lower()}"
+    if "application/json" in request.headers.get("accept", ""):
+        return JSONResponse({"retour": url})
+    return RedirectResponse(url=url, status_code=303)
+
+
+@router.post("/clotures/mois/{mois}/modules/{cle}/actualiser")
+def cloture_mois_actualiser(request: Request, mois: str, cle: str):
+    return _actualiser_depuis_cloture(request, mois, cle, f"/clotures/mois/{mois}")
+
+
+@router.post("/clotures/{cloture_opaque}/modules/{cle}/actualiser")
+def cloture_module_actualiser(request: Request, cloture_opaque: str, cle: str):
+    c = cs.charger_par_opaque(cloture_opaque)
+    if c is None:
+        return Response("Clôture introuvable.", status_code=404)
+    return _actualiser_depuis_cloture(request, c["mois"], cle, f"/clotures/{cloture_opaque}")
 
 
 def _mois_disponibles(contexte_flux: dict | None = None) -> list[str]:
@@ -187,7 +236,7 @@ def cloture_mois(request: Request, mois: str):
     pseudo = c or {"mois": mois, "statut": cs.ST_NON_DEMARREE, "cloture_id_opaque": None}
     return templates.TemplateResponse(request, "cloture_mois.html", {
         "active_menu": "clotures", "progression": prog, "cloture": c,
-        "tableau": cm.tableau_de_bord(pseudo, progression=prog),
+        "tableau": _avec_feedback_actualisation(request, cm.tableau_de_bord(pseudo, progression=prog)),
         "cloture_statut_libelle": cs.STATUTS_LIBELLES.get(c["statut"], c["statut"]) if c else "",
     })
 
@@ -201,7 +250,8 @@ def cloture_fiche(request: Request, cloture_opaque: str, erreur: str = "", messa
         }, status_code=404)
     return templates.TemplateResponse(request, "cloture_fiche.html", {
         "active_menu": "clotures", "erreur": erreur, "message": message,
-        "tableau": cm.tableau_de_bord(ctx["cloture"], progression=ctx["progression"]), **ctx})
+        "tableau": _avec_feedback_actualisation(
+            request, cm.tableau_de_bord(ctx["cloture"], progression=ctx["progression"])), **ctx})
 
 
 # ── Modules : clôturer, rouvrir ──────────────────────────────────────────────────────────────────

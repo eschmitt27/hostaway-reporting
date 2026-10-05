@@ -340,6 +340,10 @@ def _appeler_service(chemin: str, db_path) -> dict[str, Any]:
     arguments: dict[str, Any] = {"db_path": db_path}
     if "declencheur" in inspect.signature(fonction).parameters:
         arguments["declencheur"] = _declencheur_courant.get()
+    # Seuls les moteurs acceptant un mois reçoivent cette option ; les autres
+    # gardent leur chaîne globale cohérente. Le contexte est propre à ce run.
+    if option_run("mois") and "mois" in inspect.signature(fonction).parameters:
+        arguments["mois"] = option_run("mois")
     resultat = fonction(**arguments)
     return resultat if isinstance(resultat, dict) else {"ok": bool(resultat)}
 
@@ -715,7 +719,8 @@ def _volume(dataset: str, resultat: dict, db_path) -> str | None:
 def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEUR_MANUEL,
                inclure_exports: bool = False, inclure_imports_externes: bool = False,
                dry_run: bool = False, run_id: str | None = None,
-               hostaway_a_la_demande: bool = False, db_path=None) -> dict[str, Any]:
+               hostaway_a_la_demande: bool = False, mois: str | None = None,
+               db_path=None) -> dict[str, Any]:
     """Actualise le pipeline : tout par défaut, ou les descendants des `cibles` demandées.
 
     `cibles=None` → « Actualiser toute l'activité » (§30).
@@ -788,7 +793,8 @@ def actualiser(*, cibles: list[str] | None = None, declencheur: str = DECLENCHEU
     # Hostaway maintenant (pipeline GitHub canonique) au lieu de relire la dernière publication.
     # Le scheduler et les actualisations ciblées ne le demandent pas : leur comportement est
     # inchangé.
-    jeton_options = _options_run.set({"hostaway_a_la_demande": bool(hostaway_a_la_demande)})
+    jeton_options = _options_run.set({"hostaway_a_la_demande": bool(hostaway_a_la_demande),
+                                      "mois": mois})
     etats: dict[str, str] = {d["dataset"]: d["statut"] for d in etat_datasets(db_path)}
     etapes: list[dict[str, Any]] = []
     nb_ok = nb_ko = 0

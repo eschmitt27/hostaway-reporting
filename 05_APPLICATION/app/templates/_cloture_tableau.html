@@ -41,14 +41,18 @@
 {%- endmacro %}
 
 {# Un groupe de bloqueurs de même nature : ce que c'est, pourquoi ça bloque, où le traiter. #}
-{% macro groupe(g, informatif=false) %}
+{% macro groupe(g, informatif=false, actualisation_url='') %}
 {% set nb = g['items']|length %}
 <li class="clo-bloqueur" data-testid="{{ 'information' if informatif else 'bloqueur' }}">
   <div>
     <p class="clo-bloqueur__titre">{{ g.libelle }}</p>
     <p class="clo-bloqueur__pourquoi">{{ g.pourquoi }}</p>
   </div>
-  {% if g.lien and not informatif %}
+  {% if g.actualiser and not informatif and actualisation_url %}
+  <form method="post" action="{{ actualisation_url }}" class="clo-traiter" data-clo-actualiser>
+    <button type="submit" class="btn btn-secondary btn-sm" data-testid="actualiser-calcul" aria-label="Actualiser — {{ g.libelle }}">Actualiser{{ icone('revoir') }}</button>
+  </form>
+  {% elif g.lien and not informatif %}
   <a class="btn btn-secondary btn-sm clo-traiter" href="{{ g.lien }}" data-testid="traiter" aria-label="{{ g.lien_libelle }} — {{ g.libelle }}">{{ g.lien_libelle }}{{ icone('fleche') }}</a>
   {% elif g.lien %}
   <a class="btn btn-ghost btn-sm clo-traiter" href="{{ g.lien }}" aria-label="{{ g.lien_libelle }} — {{ g.libelle }}">{{ g.lien_libelle }}{{ icone('fleche') }}</a>
@@ -80,10 +84,13 @@
 {% set cle = m.cle|lower %}
 <li class="clo-module" id="module-{{ cle }}" data-module="{{ m.cle }}" data-etat="{{ m.etat }}" data-testid="module-carte" aria-labelledby="titre-module-{{ cle }}">
   <div class="clo-module__tete">
-    <h3 class="clo-module__nom" id="titre-module-{{ cle }}">{{ m.libelle }}</h3>
+    <h3 class="clo-module__nom" id="titre-module-{{ cle }}" tabindex="-1">{{ m.libelle }}</h3>
     {{ pastille(m) }}
   </div>
   <p class="clo-module__resume">{{ m.resume }}</p>
+
+  {% set feedback = t.actualisation if t.actualisation and t.actualisation.module == m.cle else none %}
+  <p class="{{ 'clo-motif' if feedback and feedback.code == 'succes' else 'clo-alerte' }}" role="{{ 'alert' if feedback and feedback.code.startswith('erreur') else 'status' }}" data-clo-feedback{% if not feedback %} hidden{% endif %}>{{ feedback.message if feedback else '' }}</p>
 
   {% if m.etat == 'A_REVOIR' %}
   <p class="clo-alerte" role="status" data-testid="module-a-rouvrir">{{ m.motif_indisponible }}</p>
@@ -97,7 +104,8 @@
 
   {% if m.bloqueurs %}
   <ul class="clo-bloqueurs" aria-label="Points à traiter — {{ m.libelle }}">
-    {% for g in m.bloqueurs %}{{ groupe(g) }}{% endfor %}
+    {% set actualisation_url = '/clotures/' ~ opaque ~ '/modules/' ~ m.cle ~ '/actualiser' if opaque else '/clotures/mois/' ~ t.mois ~ '/modules/' ~ m.cle ~ '/actualiser' %}
+    {% for g in m.bloqueurs %}{{ groupe(g, actualisation_url=actualisation_url) }}{% endfor %}
   </ul>
   {% endif %}
 

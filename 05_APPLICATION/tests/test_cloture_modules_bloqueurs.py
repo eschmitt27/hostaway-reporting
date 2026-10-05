@@ -403,7 +403,8 @@ def test_14_un_calcul_a_recalculer_bloque_son_domaine_pas_un_calcul_jamais_lance
     orch.marquer_dataset("LOT12", orch.ST_A_RECALCULER, db_path=base)
     a = _complete(base)
     assert a[cm.RESERVATIONS]["bloqueurs"][0]["libelle"] == "1 calcul à actualiser"
-    assert a[cm.RESERVATIONS]["bloqueurs"][0]["lien"] == "/actualisation"
+    assert a[cm.RESERVATIONS]["bloqueurs"][0]["actualiser"] is True
+    assert not a[cm.RESERVATIONS]["bloqueurs"][0]["lien"]
     assert a[cm.MENAGES]["nb_bloqueurs"] == 1
     assert a[cm.FACTURES_CLIENTS]["nb_bloqueurs"] == 1
     orch.marquer_dataset("LOT10", orch.ST_A_JOUR, db_path=base)
@@ -418,7 +419,8 @@ def test_14_bis_les_calculs_a_actualiser_d_un_domaine_forment_un_seul_groupe(bas
     res = _complete(base)[cm.RESERVATIONS]
     assert [g["libelle"] for g in res["bloqueurs"]] == ["4 calculs à actualiser"]
     assert res["nb_bloqueurs"] == 4 and len(res["bloqueurs"][0]["items"]) == 4
-    assert res["bloqueurs"][0]["lien"] == "/actualisation"
+    assert res["bloqueurs"][0]["actualiser"] is True
+    assert not res["bloqueurs"][0]["lien"]
 
 
 # ══ Ménages : conflits ═══════════════════════════════════════════════════════════════════════════

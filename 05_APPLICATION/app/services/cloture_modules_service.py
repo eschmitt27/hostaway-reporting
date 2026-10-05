@@ -69,8 +69,9 @@ MODULES: tuple[Module, ...] = (
            "/reservations?mois={mois}"),
     Module(MENAGES, "Ménages",
            "Ménages réalisés, déclarés et facturés, rapprochés des tâches Hostaway.",
-           ("Les déclarations de ménage de ce mois et leur recalcul sont refusés.",
-            "L'actualisation des ménages signale les changements reçus sans recalculer le mois."),
+           ("La saisie et la modification des déclarations de ménage de ce mois sont refusées.",
+            "L'actualisation des sources signale les changements reçus sans modifier les déclarations. "
+            "Un calcul périmé peut être actualisé depuis la clôture sans rouvrir le module."),
            "/menages?mois={mois}"),
     Module(CHARGES, "Charges et factures fournisseurs",
            "Charges du mois, contrôle et factures de vos fournisseurs.",
@@ -608,12 +609,7 @@ def _reservations_hors_gestion(par, mois: str, noms: _Noms, db_path) -> None:
             action="Voir le logement", lien=items[0]["lien"]))
 
 
-#: Étapes de calcul : leur domaine d'attache, et ce que l'utilisateur doit lire.
-_CALCULS_PAR_DOMAINE = {"RESERVATIONS": RESERVATIONS, "FLUX_LOT9": RESERVATIONS, "LOT10": RESERVATIONS,
-                        "LOT11": RESERVATIONS, "MENAGES": MENAGES, "LOT12": FACTURES_CLIENTS}
-
-
-def _calculs_obsoletes(par, db_path) -> None:
+def _calculs_obsoletes(par, mois, db_path) -> None:
     """Un calcul « à recalculer » ou en échec rend ses résultats — et donc les bloqueurs lus ici —
     peu fiables : clôturer dessus serait arrêter un mois sur des chiffres périmés.
 
@@ -629,18 +625,28 @@ def _calculs_obsoletes(par, db_path) -> None:
     raisons = {orch.ST_A_RECALCULER: "Une donnée en amont a changé : le résultat affiché est périmé.",
                orch.ST_ECHEC: "Le dernier calcul a échoué : le résultat affiché est ancien.",
                orch.ST_EN_COURS: "Un calcul est en cours : attendre sa fin avant de clôturer."}
+    from app.services import cloture_actualisation_service as refresh
+
+    calculs = {n: domaine for domaine, noms in refresh.DATASETS_PAR_MODULE.items() for n in noms}
     groupes: dict[tuple[str, str], list[dict[str, Any]]] = {}
-    for nom, domaine in _CALCULS_PAR_DOMAINE.items():
+    for nom, domaine in calculs.items():
         statut = etats.get(nom)
         if statut not in raisons:
             continue
         noeud = dag.NOEUDS.get(nom)
         groupes.setdefault((domaine, statut), []).append(
-            _item(noeud.nom_affiche if noeud else nom, lien="/actualisation", lien_libelle="Actualiser"))
+            _item(noeud.nom_affiche if noeud else nom))
     for (domaine, statut), items in groupes.items():       # un groupe par domaine et par état, pas par calcul
-        par[domaine]["bloqueurs"].append(_groupe(
+        g = _groupe(
             f"CALCUL:{statut}", "calcul à actualiser", "calculs à actualiser", items,
-            pourquoi=raisons[statut], action="Actualiser", lien="/actualisation"))
+            pourquoi=raisons[statut], action="Actualiser")
+        g["actualiser"] = statut != orch.ST_EN_COURS and all(
+            refresh.calculable(n) for n, d in calculs.items() if d == domaine and etats.get(n) == statut)
+        if not g["actualiser"]:
+            g["action"] = "Consulter"
+            g["lien_libelle"] = "Consulter"
+            g["lien"] = PAR_CLE[domaine].consulter.format(mois=quote(mois))
+        par[domaine]["bloqueurs"].append(g)
 
 
 def _entier(v: Any) -> int:
@@ -891,7 +897,7 @@ def analyser(mois: str, *, elements: list[dict[str, Any]] | None = None,
     _ajouter_flux(par, mois, flux)
     _charges(par, mois, noms, db_path)
     _reservations_hors_gestion(par, mois, noms, db_path)
-    _calculs_obsoletes(par, db_path)
+    _calculs_obsoletes(par, mois, db_path)
     _menages_a_controler(par, mois, noms, db_path)
     _conflits_menages(par, mois, noms, db_path)
     _factures_clients(par, mois, noms, db_path)

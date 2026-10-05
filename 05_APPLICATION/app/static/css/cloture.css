@@ -294,6 +294,8 @@
 @media (prefers-reduced-motion: reduce) {
   .clo-detail > summary::before, .clo-infos > summary::before { transition: none; }
 }
+[data-clo-feedback][hidden] { display: none; }
+.clo-module { scroll-margin-top: calc(var(--header-height, 64px) + var(--ui-3)); }
 @media print {
   .clo-actions, .clo-liens, .clo-traiter { display: none !important; }
   .clo-module { break-inside: avoid; box-shadow: none; }
