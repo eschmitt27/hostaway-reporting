@@ -982,65 +982,111 @@ def valider(facture_id: str, *, emetteur: dict[str, Any], destinataire: dict[str
     return lire(facture_id, db_path=db_path)
 
 
+def _dependances_retour_brouillon(conn, f: dict[str, Any]) -> list[dict[str, Any]]:
+    """Contrôle serveur partagé par l'action et son affichage. Aucun effet de bord."""
+    fid = f["facture_id_opaque"]
+    if f["statut"] not in (ST_VALIDE, ST_EMIS):
+        raise FactureProprietaireError("seule une facture validée ou émise peut être remise en brouillon")
+    if f["statut"] == ST_VALIDE and f.get("numero_facture"):
+        raise FactureProprietaireError("facture validée portant un numéro : état incohérent")
+    if conn.execute("SELECT 1 FROM factures_proprietaires WHERE facture_origine=? AND statut <> 'ANNULE'", (fid,)).fetchone():
+        raise FactureProprietaireError("un avoir est lié à cette facture : utilisez le workflow de correction")
+    if conn.execute("SELECT 1 FROM credits_clients WHERE origine='SURPLUS_AVOIR' AND reference=? AND statut <> 'ANNULE'", (fid,)).fetchone():
+        raise FactureProprietaireError("le surplus de cet avoir a été converti en crédit : utilisez le workflow de correction")
+    if conn.execute("SELECT 1 FROM ecritures WHERE origine_type='LOT12_PROPRIETAIRE_MOIS' AND origine_id_opaque=? AND statut <> 'CONTREPASSEE'", (f"{f['proprietaire_id']}:{f['mois']}",)).fetchone():
+        raise FactureProprietaireError("vente déjà enregistrée par l'ancien mécanisme : utilisez le workflow comptable")
+    ecritures = [dict(r) for r in conn.execute(
+        "SELECT * FROM ecritures WHERE (origine_type='FACTURE_PROPRIETAIRE' AND origine_id_opaque=?) "
+        "OR (origine_type='IMPUTATION_CREDIT' AND origine_id_opaque IN "
+        "(SELECT imputation_airbnb_id FROM imputations_airbnb WHERE document_id=?))", (fid, fid))]
+    for e in ecritures:
+        if e["statut"] != 'PROPOSEE':
+            raise FactureProprietaireError("facture comptabilisée ou écriture déjà validée : utilisez l'extourne / annulation")
+        if conn.execute("SELECT 1 FROM ecritures WHERE contrepasse_de=?", (e['ecriture_id_opaque'],)).fetchone():
+            raise FactureProprietaireError("écriture référencée par une extourne : retour refusé")
+        if conn.execute("SELECT 1 FROM flux_lettrages WHERE ecriture_id_opaque=?", (e['ecriture_id_opaque'],)).fetchone():
+            raise FactureProprietaireError("écriture liée à un lettrage : retour refusé")
+    return ecritures
+
+
+def peut_repasser_en_brouillon(f: dict[str, Any], *, db_path=None) -> bool:
+    if f["statut"] not in (ST_VALIDE, ST_EMIS):
+        return False
+    conn = get_db(db_path)
+    try:
+        exiger_facturation_ouverte(f.get("mois"), db_path=db_path)
+        _dependances_retour_brouillon(conn, f)
+        return True
+    except FactureProprietaireError:
+        return False
+    finally:
+        conn.close()
+
+
 def repasser_en_brouillon(facture_id: str, *, acteur: str = "", motif: str = "",
                           db_path=None) -> dict[str, Any]:
-    """VALIDE -> BROUILLON. Corrige une facture validée trop tôt, sans passer par un avoir.
+    """Rouvre avant comptabilisation ; numéro consommé historisé, compteur jamais diminué.
 
-    VALIDE ≠ ÉMIS, et c'est toute la raison d'être de cette fonction. Une facture VALIDE n'a ni
-    numéro définitif, ni PDF figé, ni écriture comptable : rien d'irréversible n'a encore été
-    produit, la rouvrir ne trompe personne. Une facture ÉMISE, elle, a consommé un numéro de la
-    série légale et constaté une vente : elle se corrige par annulation ou avoir, jamais par un
-    retour discret à l'état modifiable. Les deux cas sont donc traités différemment — ce refus est
-    la garantie que la séquence de numérotation reste continue et opposable.
-
-    Les imputations faites à la validation sont RENDUES aux positions : sans cela le montant
-    resterait consommé alors que la ligne redevient modifiable, et serait compté deux fois.
-    Tout se fait dans une seule transaction.
+    Tous les effets (validation, émission, crédit, proposition comptable et FIFO) sont retirés
+    dans UNE transaction. Les pièces et mouvements métier restent conservés. Un ancien PDF
+    reste sur disque comme pièce historique, mais n'a plus de référence active téléchargeable.
     """
     from app.services import charges_refacturation_service as refac
-
-    f = lire(facture_id, db_path=db_path)
-    if f["statut"] == ST_BROUILLON:
-        return f                      # déjà brouillon : rien à faire, pas une erreur
-    exiger_facturation_ouverte(f.get("mois"), db_path=db_path)
-    if f["statut"] != ST_VALIDE:
-        raise FactureProprietaireError(
-            f"statut {f['statut']}: seule une facture VALIDE peut repasser en brouillon. "
-            f"Une facture emise est numerotee et comptabilisee : utilisez l'annulation ou l'avoir.")
-    if f.get("numero_facture"):
-        raise FactureProprietaireError(
-            f"{C_SOURCE_INCOMPLETE}: la facture porte deja le numero {f['numero_facture']} — "
-            f"un numero attribue ne se libere pas")
+    from app.services import compte_proprietaire_service as cpt
+    from app.services import credits_clients_service as credits
 
     conn = get_db(db_path)
     try:
-        ecr = conn.execute(
-            "SELECT ecriture_id_opaque FROM ecritures WHERE origine_type = ? "
-            "AND origine_id_opaque = ? AND statut <> 'CONTREPASSEE'",
-            ("FACTURE_PROPRIETAIRE", facture_id)).fetchone()
-        if ecr is not None:
-            raise FactureProprietaireError(
-                f"une ecriture comptable existe deja pour cette facture ({ecr[0]}) : "
-                f"elle ne peut pas repasser en brouillon")
-
-        liberees = []
-        for l in f["lignes"]:
-            if l["type_ligne"] != "CHARGE_REFACTUREE":
-                continue
-            if str(l.get("objet_source_type") or "") != SOURCE_POSITION_REFAC:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT * FROM factures_proprietaires WHERE facture_id_opaque=?", (facture_id,)).fetchone()
+        if row is None:
+            raise FactureProprietaireError("facture introuvable")
+        f = dict(row)
+        if f["statut"] == ST_BROUILLON:
+            conn.rollback()  # double POST : aucun événement ni effet supplémentaire
+            return lire(facture_id, db_path=db_path)
+        exiger_facturation_ouverte(f.get("mois"), db_path=db_path)
+        ecritures = _dependances_retour_brouillon(conn, f)
+        lignes = conn.execute("SELECT * FROM factures_proprietaires_lignes WHERE facture_id_opaque=?", (facture_id,)).fetchall()
+        for l in lignes:
+            if l["type_ligne"] != "CHARGE_REFACTUREE" or l["objet_source_type"] != SOURCE_POSITION_REFAC:
                 continue
             r = refac.desimputer(l["objet_source_ref"], l["montant"], facture_id=facture_id,
-                                 acteur=acteur, motif=motif or "retour en brouillon", conn=conn)
+                                 acteur=acteur, motif=motif or "remise en brouillon", conn=conn)
             if not r.get("ok"):
-                raise FactureProprietaireError(
-                    f"LIBERATION_REFUSEE {l['objet_source_ref']}: {r.get('message')}")
-            liberees.append(l["objet_source_ref"])
-
-        conn.execute(
-            "UPDATE factures_proprietaires SET statut=?, date_validation=NULL, "
-            "version=version+1 WHERE facture_id_opaque=?", (ST_BROUILLON, facture_id))
-        _journal(conn, facture_id, "RETOUR_BROUILLON", ST_VALIDE, ST_BROUILLON,
-                 motif or f"{len(liberees)} position(s) liberee(s)", acteur)
+                raise FactureProprietaireError(f"LIBERATION_REFUSEE {l['objet_source_ref']}: {r.get('message')}")
+        for e in ecritures:
+            eid = e['ecriture_id_opaque']
+            conn.execute("UPDATE credit_client_evenements SET ecriture_id=NULL WHERE ecriture_id=?", (eid,))
+            for table in ('ecriture_ligne_ventilation', 'ecriture_evenements', 'ecriture_lignes', 'ecritures'):
+                conn.execute(f"DELETE FROM {table} WHERE ecriture_id_opaque=?", (eid,))
+        imputations = [dict(r) for r in conn.execute("SELECT * FROM imputations_airbnb WHERE document_id=?", (facture_id,))]
+        for imp in imputations:
+            if imp.get('credit_id_opaque'):
+                conn.execute("UPDATE imputations_airbnb SET document_id=NULL,statut='ANNULE' WHERE imputation_airbnb_id=?", (imp['imputation_airbnb_id'],))
+                credits._evenement(conn, imp['credit_id_opaque'], 'ANNULATION', acteur=acteur or 'local',
+                                   montant=imp['montant_impute'], facture_id=facture_id,
+                                   detail=f"Imputation {imp['imputation_airbnb_id']} libérée : remise en brouillon (crédit conservé)")
+            else:
+                conn.execute("UPDATE imputations_airbnb SET document_id=NULL WHERE imputation_airbnb_id=?", (imp['imputation_airbnb_id'],))
+        acomptes = [r[0] for r in conn.execute("SELECT mouvement_opaque FROM mouvements_tresorerie_proprietaires WHERE reference_metier=? AND nature='ACOMPTE_PROPRIETAIRE'", (facture_id,))]
+        conn.execute("UPDATE mouvements_tresorerie_proprietaires SET reference_metier=NULL,version=version+1 WHERE reference_metier=? AND nature='ACOMPTE_PROPRIETAIRE'", (facture_id,))
+        conn.execute("DELETE FROM factures_proprietaires_conformite WHERE facture_id_opaque=?", (facture_id,))
+        conn.execute("UPDATE factures_proprietaires SET statut=?,date_validation=NULL,date_facture=NULL,"
+                     "date_emission=NULL,numero_facture=NULL,snapshot_json=NULL,snapshot_hash=NULL,"
+                     "document_nom=NULL,document_hash=NULL,hors_compta=0,motif_hors_compta=NULL,version=version+1 "
+                     "WHERE facture_id_opaque=?", (ST_BROUILLON, facture_id))
+        trace = {'action': 'Remettre en brouillon', 'motif': motif or 'Correction avant comptabilisation',
+                 'ancien_numero': f['numero_facture'], 'ancienne_date_emission': f['date_emission'],
+                 'ancien_document': f['document_nom'], 'ancien_document_hash': f['document_hash'],
+                 'ancien_snapshot_hash': f['snapshot_hash'],
+                 'ecritures_proposees_supprimees': [e['ecriture_id_opaque'] for e in ecritures],
+                 'imputations_liberees': [i['imputation_airbnb_id'] for i in imputations],
+                 'acomptes_detaches': acomptes}
+        _journal(conn, facture_id, "RETOUR_BROUILLON", f['statut'], ST_BROUILLON,
+                 json.dumps(trace, ensure_ascii=False), acteur)
+        if f['statut'] == ST_EMIS:
+            cpt.recalculer_dans_transaction(conn, f['proprietaire_id'], declencheur='RETOUR_BROUILLON')
         conn.commit()
     except Exception:
         conn.rollback()

@@ -32,8 +32,33 @@
         if (f) { f.setAttribute("data-fc-confirme", "1"); f.submit(); }
       });
     }
+    var retour = document.getElementById("fc-dialogue-brouillon");
+    var formulaireRetour = null;
+    var declencheurRetour = null;
+    if (retour && typeof retour.showModal === "function") {
+      retour.querySelector("[data-fc-brouillon-annuler]").addEventListener("click", function () { retour.close(); });
+      retour.addEventListener("close", function () {
+        formulaireRetour = null;
+        if (declencheurRetour) declencheurRetour.focus();
+      });
+      retour.querySelector("[data-fc-brouillon-confirmer]").addEventListener("click", function () {
+        var f = formulaireRetour; formulaireRetour = null; retour.close();
+        if (f) { f.submit(); }
+      });
+    }
     toutes(".ecran.fc form[data-fc-confirmer]").forEach(function (form) {
       form.addEventListener("submit", function (e) {
+        if (form.hasAttribute("data-fc-brouillon") && retour && typeof retour.showModal === "function") {
+          e.preventDefault(); formulaireRetour = form; declencheurRetour = form.closest(".fc-menu") ? form.closest(".fc-menu").querySelector("summary") : document.activeElement;
+          var emise = form.getAttribute("data-fc-brouillon") === "emise";
+          retour.querySelector("[data-fc-brouillon-titre]").textContent = emise ?
+            "Retirer l'émission et remettre cette facture en brouillon ?" : "Remettre cette facture en brouillon ?";
+          retour.querySelector("#fc-brouillon-texte").textContent = emise ?
+            "La facture redeviendra modifiable. Son émission actuelle sera annulée dans l'application et son ancien numéro restera tracé comme ayant été utilisé. Une nouvelle émission recevra un nouveau numéro." :
+            "Elle redeviendra modifiable et pourra être recalculée avant une nouvelle validation.";
+          retour.querySelector("#fc-brouillon-info").hidden = !emise;
+          retour.showModal(); return;
+        }
         if (form.hasAttribute("data-fc-supprimer") && dlg && typeof dlg.showModal === "function") {
           e.preventDefault(); enAttente = form; dlg.showModal(); return;
         }

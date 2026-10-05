@@ -155,7 +155,7 @@ def test_emission_laisse_non_comptabilisee_et_propose_comptabiliser(env):
     fid = _emise(client, db)
     assert _ecritures_facture(db, fid) == []          # émettre n'écrit plus rien en compta
     actions, tr = _menu(client, fid)
-    assert actions == ["Voir", "Comptabiliser"]
+    assert actions == ["Voir", "Comptabiliser", "Remettre en brouillon"]
     assert "Non comptabilisée" in tr.select_one('[data-testid="etat-compta"]').get_text()
     soup = BeautifulSoup(client.get(f"/factures-proprietaires/{fid}").text, "html.parser")
     assert soup.select_one('[data-testid="bloc-compta-non-comptabilisee"]')
@@ -167,7 +167,7 @@ def test_menu_brouillon_et_validee(env):
     fid = _brouillon(db)
     assert _menu(client, fid)[0] == ["Compléter / modifier", "Valider", "Supprimer la facture"]
     svc.valider(fid, emetteur=EMETTEUR, destinataire=DEST, db_path=db)
-    assert _menu(client, fid)[0] == ["Voir", "Émettre", "Supprimer la facture"]
+    assert _menu(client, fid)[0] == ["Voir", "Émettre", "Remettre en brouillon", "Supprimer la facture"]
 
 
 def test_previsualisation_lisible_equilibree_mappings_existants_sans_ecrire(env):

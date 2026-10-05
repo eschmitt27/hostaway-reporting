@@ -237,62 +237,59 @@ def allocations_courantes(*, db_path=None) -> list[dict[str, Any]]:
 
 # ── Recalcul ────────────────────────────────────────────────────────────────────────────────────
 
-def recalculer(proprietaire_id: str, *, declencheur: str = DECL_MANUEL,
-               db_path=None) -> dict[str, Any]:
-    """PERSISTE les allocations du propriétaire et journalise le recalcul. Idempotent.
+def recalculer_dans_transaction(conn, proprietaire_id: str, *, declencheur: str) -> dict[str, Any]:
+    """Même persistance FIFO, dans la transaction métier de l’appelant (sans commit)."""
+    calcul = _calculer(conn, proprietaire_id)
+    factures, sources = calcul["factures"], calcul["sources"]
+    allocations = calcul["allocations"]
 
-    Écrit toujours : à n'appeler que depuis une action (écriture métier, bouton « Recalculer »),
-    jamais depuis un affichage — un affichage utilise `calculer()`.
+    recalcul_id = "RCL-" + uuid.uuid4().hex[:12].upper()
+    empreinte_entrees = calcul["empreinte_entrees"]
+    empreinte_alloc = calcul["empreinte_allocations"]
 
-    Remplacement intégral dans une transaction : les allocations sont une dérivation, pas un
-    historique. L'historique, lui, est dans `proprietaire_recalculs`, qui n'est jamais effacé.
-    """
-    conn = get_db(db_path)
-    try:
-        calcul = _calculer(conn, proprietaire_id)
-        factures, sources = calcul["factures"], calcul["sources"]
-        allocations = calcul["allocations"]
+    total_factures = _round(sum(f["montant_total"] for f in factures))
+    total_sources = _round(sum(s["montant"] for s in sources))
+    total_alloue = _round(sum(a["montant_alloue"] for a in allocations))
 
-        recalcul_id = "RCL-" + uuid.uuid4().hex[:12].upper()
-        empreinte_entrees = calcul["empreinte_entrees"]
-        empreinte_alloc = calcul["empreinte_allocations"]
-
-        total_factures = _round(sum(f["montant_total"] for f in factures))
-        total_sources = _round(sum(s["montant"] for s in sources))
-        total_alloue = _round(sum(a["montant_alloue"] for a in allocations))
-
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            conn.execute("DELETE FROM proprietaire_allocations WHERE proprietaire_id = ?",
-                         (proprietaire_id,))
-            for a in allocations:
-                conn.execute(
-                    "INSERT INTO proprietaire_allocations (allocation_id_opaque, proprietaire_id, "
-                    "recalcul_id, source_type, source_ref, source_date, facture_id_opaque, "
-                    "montant_alloue, rang_fifo) VALUES (?,?,?,?,?,?,?,?,?)",
-                    ("ALO-" + uuid.uuid4().hex[:12].upper(), proprietaire_id, recalcul_id,
-                     a["source_type"], a["source_ref"], a["source_date"],
-                     a["facture_id_opaque"], a["montant_alloue"], a["rang_fifo"]))
-            conn.execute(
-                "INSERT INTO proprietaire_recalculs (recalcul_id, proprietaire_id, horodatage, "
-                "empreinte_entrees, empreinte_allocations, nb_factures, nb_sources, "
-                "nb_allocations, montant_alloue, creance_restante, credit_restant, declencheur) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                (recalcul_id, proprietaire_id, _maintenant(), empreinte_entrees, empreinte_alloc,
-                 len(factures), len(sources), len(allocations), total_alloue,
-                 _round(total_factures - total_alloue), _round(total_sources - total_alloue),
-                 declencheur))
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-    finally:
-        conn.close()
-
+    conn.execute("DELETE FROM proprietaire_allocations WHERE proprietaire_id = ?",
+                 (proprietaire_id,))
+    for a in allocations:
+        conn.execute(
+            "INSERT INTO proprietaire_allocations (allocation_id_opaque, proprietaire_id, "
+            "recalcul_id, source_type, source_ref, source_date, facture_id_opaque, "
+            "montant_alloue, rang_fifo) VALUES (?,?,?,?,?,?,?,?,?)",
+            ("ALO-" + uuid.uuid4().hex[:12].upper(), proprietaire_id, recalcul_id,
+             a["source_type"], a["source_ref"], a["source_date"],
+             a["facture_id_opaque"], a["montant_alloue"], a["rang_fifo"]))
+    conn.execute(
+        "INSERT INTO proprietaire_recalculs (recalcul_id, proprietaire_id, horodatage, "
+        "empreinte_entrees, empreinte_allocations, nb_factures, nb_sources, "
+        "nb_allocations, montant_alloue, creance_restante, credit_restant, declencheur) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (recalcul_id, proprietaire_id, _maintenant(), empreinte_entrees, empreinte_alloc,
+         len(factures), len(sources), len(allocations), total_alloue,
+         _round(total_factures - total_alloue), _round(total_sources - total_alloue),
+         declencheur))
     return {"ok": True, "recalcul_id": recalcul_id, "proprietaire_id": proprietaire_id,
             "nb_factures": len(factures), "nb_sources": len(sources),
             "nb_allocations": len(allocations), "montant_alloue": total_alloue,
             "empreinte_entrees": empreinte_entrees, "empreinte_allocations": empreinte_alloc}
+
+
+def recalculer(proprietaire_id: str, *, declencheur: str = DECL_MANUEL,
+               db_path=None) -> dict[str, Any]:
+    """Persiste les allocations FIFO et leur historique dans une transaction unique."""
+    conn = get_db(db_path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        resultat = recalculer_dans_transaction(conn, proprietaire_id, declencheur=declencheur)
+        conn.commit()
+        return resultat
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 # ── Position ────────────────────────────────────────────────────────────────────────────────────

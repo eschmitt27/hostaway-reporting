@@ -107,3 +107,23 @@
 </ol>
 {%- endif -%}
 {%- endmacro %}
+
+{% macro retour_brouillon(f, classe="btn btn-secondary") -%}
+<form method="post" action="/factures-proprietaires/{{ f.facture_id_opaque }}/repasser-en-brouillon"
+      data-fc-brouillon="{{ 'emise' if f.statut == 'EMIS' else 'validee' }}"
+      data-fc-confirmer="{{ "Retirer l'émission et remettre cette facture en brouillon ? La facture redeviendra modifiable. Son émission actuelle sera annulée dans l'application et son ancien numéro restera tracé comme ayant été utilisé. Une nouvelle émission recevra un nouveau numéro. Si le PDF a déjà été transmis au client, vérifiez avant de poursuivre que cette correction correspond bien à votre situation." if f.statut == 'EMIS' else 'Remettre cette facture en brouillon ? Elle redeviendra modifiable et pourra être recalculée avant une nouvelle validation.' }}">
+  <button type="submit" class="{{ classe }}"{% if classe == "fc-menu__item" %} role="menuitem"{% endif %} data-testid="action-remettre-brouillon">Remettre en brouillon</button>
+</form>
+{%- endmacro %}
+
+{% macro dialogue_brouillon() -%}
+<dialog class="fc-dialogue" id="fc-dialogue-brouillon" aria-labelledby="fc-brouillon-titre" aria-describedby="fc-brouillon-texte fc-brouillon-info">
+  <p id="fc-brouillon-titre"><strong data-fc-brouillon-titre>Remettre cette facture en brouillon ?</strong></p>
+  <p id="fc-brouillon-texte">Elle redeviendra modifiable et pourra être recalculée avant une nouvelle validation.</p>
+  <p class="fc-aide" id="fc-brouillon-info" hidden>Si le PDF a déjà été transmis au client, vérifiez avant de poursuivre que cette correction correspond bien à votre situation.</p>
+  <div class="fc-actions">
+    <button type="button" class="btn btn-secondary" data-fc-brouillon-annuler autofocus>Annuler</button>
+    <button type="button" class="btn btn-primary" data-fc-brouillon-confirmer>Remettre en brouillon</button>
+  </div>
+</dialog>
+{%- endmacro %}

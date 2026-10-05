@@ -209,19 +209,7 @@
   {% endif %}
 
   {% if peut_repasser_en_brouillon %}
-  {# VALIDE ≠ ÉMIS : tant qu'aucun numéro n'est consommé et qu'aucune écriture n'existe, rouvrir
-     ne trompe personne. Une facture ÉMISE ne propose jamais ce bouton. #}
-  <details class="fc-depliant mt-sm">
-    <summary>Corriger avant émission</summary>
-    <div class="fc-depliant__corps">
-    <form method="post" action="/factures-proprietaires/{{ facture.facture_id_opaque }}/repasser-en-brouillon">
-      <label class="fc-champ"><span>Motif <span class="fc-facultatif">(facultatif)</span></span><input type="text" name="motif"></label>
-      <div class="fc-actions"><button type="submit" class="btn btn-secondary">Repasser en brouillon</button></div>
-      <p class="fc-aide">{{ doc_le|capitalize }} redevient modifiable. Les montants refacturés réservés
-        sont rendus à leurs éléments d'origine. Aucun numéro n'a encore été consommé.</p>
-    </form>
-    </div>
-  </details>
+  <div class="fc-actions mt-sm">{{ fc.retour_brouillon(facture) }}</div>
   {% endif %}
 
   {% if facture.statut == "EMIS" %}
@@ -946,5 +934,6 @@
 </div>{# fc-mise-en-page #}
 </div>
 <script src="/static/js/finitions.js" defer></script>
+{{ fc.dialogue_brouillon() }}
 <script src="/static/js/factures_clients.js" defer></script>
 {% endblock %}

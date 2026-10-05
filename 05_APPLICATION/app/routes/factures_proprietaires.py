@@ -147,6 +147,10 @@ def _actions_liste(f: dict, etat: dict) -> list[dict]:
         actions = [{"libelle": "Voir", "url": fiche_url}]
     if f["statut"] == svc.ST_EMIS and etat.get("peut_comptabiliser"):
         actions.append({"libelle": "Comptabiliser", "url": fiche_url + "/comptabiliser"})
+    if svc.peut_repasser_en_brouillon(f):
+        actions.append({"libelle": "Remettre en brouillon", "brouillon": True,
+                        "emise": f["statut"] == svc.ST_EMIS,
+                        "url": fiche_url + "/repasser-en-brouillon"})
     if etat.get("comptabilisee") and etat.get("ecriture"):
         actions.append({"libelle": "Voir l'écriture comptable",
                         "url": f"/comptabilite/ecritures/{etat['ecriture']['ecriture_id_opaque']}"})
@@ -416,10 +420,7 @@ def _contexte_fiche(facture_id: str, erreur: str | None = None) -> dict:
         "peut_supprimer": brouillon.supprimable(facture),
         "peut_supprimer_non_emise": brouillon.supprimable_non_emise(facture),
         "peut_emettre": facture["statut"] == svc.ST_VALIDE,
-        # Rouvrir n'est offert que sur une facture VALIDE et non numérotée : une facture ÉMISE se
-        # corrige par annulation ou avoir, jamais par un retour discret à l'état modifiable.
-        "peut_repasser_en_brouillon": (facture["statut"] == svc.ST_VALIDE
-                                       and not facture.get("numero_facture")),
+        "peut_repasser_en_brouillon": svc.peut_repasser_en_brouillon(facture),
         "peut_avoir": facture["statut"] == svc.ST_EMIS
                       and facture["type_document"] == svc.TYPE_FACTURE,
         "comptabilite": _comptabilite(facture),
@@ -437,11 +438,7 @@ def fiche(request: Request, facture_id: str):
 
 @router.post("/factures-proprietaires/{facture_id}/repasser-en-brouillon")
 async def repasser_en_brouillon(request: Request, facture_id: str):
-    """Rouvre une facture VALIDE pour correction (§21).
-
-    Refusé sur une facture ÉMISE : elle porte un numéro de la série légale et a constaté une vente.
-    Le service pose ce refus ; la route se contente de le rendre lisible.
-    """
+    """Remet en brouillon avant comptabilisation ; règles et atomicité dans le service."""
     form = await request.form()
     try:
         svc.repasser_en_brouillon(facture_id, acteur="interface",

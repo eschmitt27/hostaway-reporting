@@ -202,7 +202,8 @@
               <form method="post" action="{{ a.url }}" data-fc-supprimer
                     data-fc-confirmer="Supprimer définitivement cette facture non émise ?">
                 <button type="submit" class="fc-menu__item fc-menu__item--danger" role="menuitem" data-testid="action-supprimer">{{ a.libelle }}</button>
-              </form>{% else %}
+              </form>{% elif a.brouillon %}
+              {{ fc.retour_brouillon(f, "fc-menu__item") }}{% else %}
               <a class="fc-menu__item" role="menuitem" href="{{ a.url }}">{{ a.libelle }}</a>{% endif %}
             </li>
             {% endfor %}
@@ -231,6 +232,7 @@
 </div>
 {% endif %}
 </div>
+{{ fc.dialogue_brouillon() }}
 <script src="/static/js/finitions.js" defer></script>
 <script src="/static/js/factures_clients.js" defer></script>
 {% endblock %}
